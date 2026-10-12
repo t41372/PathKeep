@@ -406,7 +406,7 @@ pub fn next_queued_content_fetch_job_in_session(connection: &Session<'_>) -> Res
 
 /// Seconds until the soonest deferred content-fetch job becomes due, or `None` when none is pending.
 ///
-/// Companion to [`next_queued_content_fetch_job_in_session`] for the worker drain (SEC-2): when the drain reports
+/// Companion to [`next_queued_content_fetch_job_in_session`] for the worker drain: when the drain reports
 /// idle but a job was REQUEUED with a future `scheduled_at` (rate-limit back-pressure), the lane should
 /// sleep until that schedule rather than exiting — otherwise the deferred work only completes on a
 /// later user action. Returns the ETA in WHOLE seconds (rounded up, floored at 1 so the lane always
@@ -484,7 +484,7 @@ pub(crate) fn content_fetch_job_due(
     }
 }
 
-/// Requeues a running content-fetch job for a later drain at `scheduled_at` (W-ENRICH-1, SEC-2).
+/// Requeues a running content-fetch job for a later drain at `scheduled_at` (W-ENRICH-1).
 ///
 /// A rate-limited egress is BACK-PRESSURE, not a failure: rather than terminally cancelling the job
 /// (which the queued-only drain selector would never re-pick), we put it back to `queued` with a

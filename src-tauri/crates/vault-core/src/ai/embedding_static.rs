@@ -101,7 +101,7 @@ pub const STATIC_EMBEDDING_DIM: u32 = 256;
 
 /// Max input tokens the static engine keeps before truncation.
 ///
-/// DIVERGENCE FROM model2vec (documented, finding S7): model2vec's `StaticModel.encode` truncates at
+/// DIVERGENCE FROM model2vec (documented): model2vec's `StaticModel.encode` truncates at
 /// a DEFAULT `max_length=512` tokens (NOT unbounded — verified against model2vec 0.8.2 source). This
 /// engine uses a larger 2048-token cap purely as a DoS guard: it bounds the mean-pool work per text so
 /// a pathological multi-megabyte input cannot stall the 14.4M backfill. For any input UNDER 512 tokens

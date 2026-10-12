@@ -51,7 +51,7 @@ fn enqueue_and_load_queue_status_tracks_counts_and_recent_jobs() {
     assert_eq!(status.queued, 2);
     assert_eq!(status.running, 0);
     assert_eq!(status.failed, 0);
-    // M-5: the index-only counts must EXCLUDE the assistant job, so the
+    // The index-only counts must EXCLUDE the assistant job, so the
     // Smart-search build callout never reads an in-flight chat as build
     // progress. The aggregate `queued` is 2 (index + assistant), but only the
     // single index job counts toward `index_queued`.
@@ -533,7 +533,7 @@ fn persist_index_cursor_is_a_noop_for_missing_or_non_index_jobs() {
 
 #[test]
 fn persist_index_cursor_reports_lease_loss_when_job_left_running_state() {
-    // HIGH-3: a de-leased worker (its job was stale-swept out of `running` and reclaimed) must learn
+    // A de-leased worker (its job was stale-swept out of `running` and reclaimed) must learn
     // its cursor write matched 0 rows so it can ABORT instead of double-writing the vector store.
     let vault = Vault::open_temp().unwrap();
     let queued = enqueue_index_job(&vault, &AiIndexRequest::default(), false).expect("enqueue");
@@ -555,7 +555,7 @@ fn persist_index_cursor_reports_lease_loss_when_job_left_running_state() {
 
 #[test]
 fn persist_index_cursor_disarms_full_rebuild_after_first_progress() {
-    // CRITICAL-1 durable backstop: once the cursor leaves the origin, the stored request must no
+    // Durable backstop: once the cursor leaves the origin, the stored request must no
     // longer carry `full_rebuild`, so a worker that re-claims this job never re-runs the destructive
     // wipe that would lose rows already embedded below the cursor.
     let vault = Vault::open_temp().unwrap();
@@ -682,7 +682,7 @@ fn load_ai_queue_status_surfaces_index_progress_and_none_for_assistant() {
 
 #[test]
 fn legacy_index_payload_without_cursor_defaults_to_start() {
-    // MEDIUM-5: a pre-4a payload (`{"kind":"index","request":{...}}`, NO `cursor` field) must
+    // A pre-4a payload (`{"kind":"index","request":{...}}`, NO `cursor` field) must
     // deserialize with `cursor` defaulting to the origin so an upgraded build resumes from scratch
     // rather than failing to parse (which would quarantine the job).
     let legacy = r#"{"kind":"index","request":{"providerId":null,"fullRebuild":false,"clearOnly":false,"limit":null}}"#;

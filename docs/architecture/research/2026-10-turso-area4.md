@@ -466,7 +466,7 @@ fabricated successful transport.
 - `og_images_synth.rs::resolve_image_url_via_api_strips_trailing_slash_from_base`
 - `net_guard::url_target_is_blocked_covers_scheme_literal_and_resolution_paths`
 
-Complete working-tree file inventory (relative to the branch HEAD; all changes uncommitted):
+Files changed by this work:
 
 - [docs/architecture/data-model.md](../../../docs/architecture/data-model.md)
 - [docs/architecture/research/2026-10-turso-area4.md](../../../docs/architecture/research/2026-10-turso-area4.md)

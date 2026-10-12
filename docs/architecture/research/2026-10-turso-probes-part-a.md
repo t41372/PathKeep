@@ -1,6 +1,6 @@
 # Turso acceptance probes, part a (2026-10-05)
 
-> Run by Codex (GPT 6 astra) for [ADR-012](../decisions/012-turso-storage-engine.md). Links to `src/`, `logs/` and `scripts/` point to the probe checkout, which is not kept in the repo.
+> Measured on a macOS arm64 host (18 logical CPUs) on 2026-10-05, for [ADR-012](../decisions/012-turso-storage-engine.md). Links to `src/`, `logs/` and `scripts/` point to the probe checkout, which is not kept in the repo.
 
 # Turso 0.8.1 — part A results
 

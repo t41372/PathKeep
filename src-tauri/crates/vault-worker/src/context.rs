@@ -230,7 +230,7 @@ pub(crate) fn selected_optional_embedding_runtime(
 
 /// Adds an explicit lexical-fallback note when semantic provider resolution fails.
 ///
-/// Review-fix M-6: emit a stable [`AiSearchNote::ProviderResolutionFailed`] CODE (carrying the opaque
+/// Emit a stable [`AiSearchNote::ProviderResolutionFailed`] CODE (carrying the opaque
 /// transport error STRUCTURALLY) so the front end localizes it, and derive the legacy English
 /// `notes` string from that SAME code via [`AiSearchNote::model_facing_text`] (model-facing /
 /// persisted-trace only) — never push raw English prose onto the user-facing wire.

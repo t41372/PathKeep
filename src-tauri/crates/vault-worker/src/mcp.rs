@@ -293,7 +293,7 @@ pub(crate) fn mcp_search_result(
 ) -> Result<McpSearchResult> {
     let paths = vault_core::project_paths()?;
     let config = load_unlocked_config(&paths)?;
-    // Re-check MCP consent on EVERY call (M-4), not just at server start: config is read fresh here,
+    // Re-check MCP consent on EVERY call, not just at server start: config is read fresh here,
     // so a user who turns OFF the MCP server in Settings while an external tool still holds the stdio
     // connection must stop being served. Refuses with the honest "Enable AI and the MCP server"
     // message rather than returning history.
@@ -358,7 +358,7 @@ pub(crate) fn mcp_archive_status_result(
 ) -> Result<McpArchiveStatus> {
     let paths = vault_core::project_paths()?;
     let config = load_hydrated_config(&paths)?;
-    // Re-check MCP consent on EVERY call (M-4): a status probe is still an external touch served by
+    // Re-check MCP consent on EVERY call: a status probe is still an external touch served by
     // the MCP face, so it must refuse once the user turns the MCP server off mid-session — even
     // though (unlike search) it otherwise degrades gracefully while locked.
     ensure_ai_capability_enabled(&config, AiCapability::Mcp)?;
@@ -438,7 +438,7 @@ pub(crate) fn mcp_usage_guide_result(
 ) -> Result<McpUsageGuide> {
     let paths = vault_core::project_paths()?;
     let config = load_hydrated_config(&paths)?;
-    // Re-check MCP consent on EVERY call (M-4): when the user turns the MCP server off mid-session no
+    // Re-check MCP consent on EVERY call: when the user turns the MCP server off mid-session no
     // tool should serve, so this refuses before building the guide. The skill SUB-flag
     // (`skill_enabled`) is handled below by the existing graceful disabled-notice shape — i.e. with
     // MCP on, a guide fetch still requires the skill toggle to return a body, but with MCP off the

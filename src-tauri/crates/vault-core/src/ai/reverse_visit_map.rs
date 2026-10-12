@@ -1,4 +1,4 @@
-//! Keyed reverse/forward visit↔content sidecars over `derived/vectors/` (M-11, 05 §10).
+//! Keyed reverse/forward visit↔content sidecars over `derived/vectors/` (05 §10).
 //!
 //! ## Responsibilities
 //! - turn the append-ordered `.pkmap` ([`super::visit_content_map::VisitContentMap`]) into two
@@ -7,7 +7,7 @@
 //!   - the **reverse sidecar** (`.pkrev`): `(content_key, history_id)` records sorted by
 //!     `(content_key, history_id)`, so semantic hydration resolves the ~k' result content_keys to
 //!     their visits by BINARY SEARCH on disk — O(k' · log n) seeks, NOT the O(n) `.pkmap` stride the
-//!     always-on hydration path used (M-11). A content_key's visits form ONE contiguous run, so a
+//!     always-on hydration path used. A content_key's visits form ONE contiguous run, so a
 //!     single binary search to the run start plus a forward scan collects every history_id.
 //!   - the **forward sidecar** (`.pkfwd`): `(history_id, content_key)` records sorted by
 //!     `(history_id, content_key)`, so the `is:starred` facet resolves a BOUNDED starred history_id
@@ -27,7 +27,7 @@
 //! `HashMap<content_key, Vec<history_id>>` is ~300–460 MB stacked on top of the ~879 MB binary plane —
 //! a meaningful bite of the 8 GB envelope when the WebView + SQLCipher cache + a running embedder also
 //! need room (Principle 3). The whole retrieval plane's posture is "binary-plane-only resident; int8
-//! seeked on disk" (05 §10 C1); a resident reverse map would break it. So these sidecars MIRROR the
+//! seeked on disk" (05 §10); a resident reverse map would break it. So these sidecars MIRROR the
 //! int8 plane exactly: fixed-width records, sorted, BINARY-SEARCHED by file position with ~0 added
 //! resident RAM. Hydration touches only the k' result keys' records; is:starred only the starred set's.
 //!
@@ -147,7 +147,7 @@ impl ReverseVisitMap {
             || reverse.record_count != forward.record_count)
     }
 
-    /// Projects BOTH sorted sidecars from the authoritative append-ordered `.pkmap` (M-11).
+    /// Projects BOTH sorted sidecars from the authoritative append-ordered `.pkmap`.
     ///
     /// Reads the `.pkmap`'s last-writer-wins `history_id → content_key` map (so a torn-resume duplicate
     /// is already collapsed — the SAME dedup the `.pkvec` reader applies), then writes:
@@ -206,7 +206,7 @@ impl ReverseVisitMap {
         Ok(record_count)
     }
 
-    /// Collects, for each WANTED `content_key`, every `history_id` that maps to it (M-11 hydration).
+    /// Collects, for each WANTED `content_key`, every `history_id` that maps to it (keyed hydration).
     ///
     /// The bounded replacement for `VisitContentMap::history_ids_for_content_keys`'s O(n) stride: for
     /// each of the ~k' wanted keys it BINARY-SEARCHES the `.pkrev` to the first record carrying that key,
@@ -497,7 +497,7 @@ mod tests {
 
     #[test]
     fn hydration_returns_exactly_the_old_full_scan_result() {
-        // M-11 correctness: the binary-search hydration must return EXACTLY the history_ids the old
+        // Correctness: the binary-search hydration must return EXACTLY the history_ids the old
         // O(n) `.pkmap` stride returned for the same content_key set — a page with multiple visits fans
         // out to ALL of them (no miss), and an unwanted key is excluded (no extra).
         let dir = tempdir().expect("tempdir");

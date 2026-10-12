@@ -31,7 +31,7 @@ pub fn save_ai_conversation(
     request: &SaveAgentConversationRequest,
 ) -> Result<AgentConversationSummary> {
     let paths = vault.paths();
-    // App Lock gate: refuse to touch the agent plane while the session is locked (M-1).
+    // App Lock gate: refuse to touch the agent plane while the session is locked.
     load_unlocked_config(paths)?;
     vault_core::save_conversation(vault, request)
 }
@@ -42,7 +42,7 @@ pub fn list_ai_conversations(
     request: &ListAgentConversationsRequest,
 ) -> Result<AgentConversationListResponse> {
     let paths = vault.paths();
-    // App Lock gate: a locked session must not be able to enumerate chat transcripts (M-1).
+    // App Lock gate: a locked session must not be able to enumerate chat transcripts.
     load_unlocked_config(paths)?;
     vault_core::list_conversations(vault, request.limit, request.cursor.as_deref())
 }
@@ -53,7 +53,7 @@ pub fn load_ai_conversation(
     conversation_id: &str,
 ) -> Result<Option<AgentConversationDetail>> {
     let paths = vault.paths();
-    // App Lock gate: a locked session must not be able to read a transcript body (M-1).
+    // App Lock gate: a locked session must not be able to read a transcript body.
     load_unlocked_config(paths)?;
     vault_core::load_conversation(vault, conversation_id)
 }
@@ -64,7 +64,7 @@ pub fn delete_ai_conversation(
     conversation_id: &str,
 ) -> Result<DeleteAgentConversationResult> {
     let paths = vault.paths();
-    // App Lock gate: a locked session must not be able to delete a transcript (M-1).
+    // App Lock gate: a locked session must not be able to delete a transcript.
     load_unlocked_config(paths)?;
     let deleted = vault_core::delete_conversation(vault, conversation_id)?;
     Ok(DeleteAgentConversationResult { deleted })
@@ -76,7 +76,7 @@ pub fn rename_ai_conversation(
     request: &RenameAgentConversationRequest,
 ) -> Result<Option<AgentConversationSummary>> {
     let paths = vault.paths();
-    // App Lock gate: a locked session must not be able to mutate a transcript (M-1).
+    // App Lock gate: a locked session must not be able to mutate a transcript.
     load_unlocked_config(paths)?;
     vault_core::rename_conversation(vault, &request.id, &request.title)
 }
@@ -164,7 +164,7 @@ mod tests {
 
     /// While the App Lock session is LOCKED, the agent plane must stay sealed: list/load
     /// (and the mutating ops) refuse with the honest "currently locked" message rather than serving
-    /// or touching a transcript (M-1). The agent plane has no SQLCipher key barrier, so this lock
+    /// or touching a transcript. The agent plane has no SQLCipher key barrier, so this lock
     /// gate is the only thing standing between a locked machine and the chat history.
     #[test]
     fn chat_history_crud_refuses_when_app_session_is_locked() {

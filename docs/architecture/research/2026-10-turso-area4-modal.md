@@ -1,7 +1,7 @@
 # Area 3 / area 4 integration and Modal validation
 
-This report records the integration of the area-4 work with search commit `4380f977`.
-The rebase was later committed as `ba9cd9f7`. The microVM benchmark attempts, the account
+This report records the integration of the area-4 work with the area-3 search work.
+The microVM benchmark attempts, the account
 switch and the checkpoint/cipher profiling that followed are in
 [the benchmark report](2026-10-turso-area4-vm-benchmark.md).
 The conflict contents are resolved and a complete Modal gate run passed. The full scale

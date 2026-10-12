@@ -114,7 +114,7 @@ fn remove_path_if_exists(path: &Path) -> Result<()> {
 /// (each only if present at `<bak><suffix>`). Idempotent: a re-run after some sidecars
 /// already moved finds those `<bak>` sidecars gone and leaves the already-restored
 /// `<target>` ones in place. Used by [`rollback_import`] to restore the OLD database's
-/// hot WAL (MEDIUM-C) and to FINISH an interrupted restore.
+/// hot WAL and to FINISH an interrupted restore.
 fn restore_bak_sidecars(bak: &Path, target: &Path) -> Result<()> {
     for suffix in ["-wal", "-shm", "-journal"] {
         let bak_sidecar = PathBuf::from(format!("{}{}", bak.display(), suffix));
@@ -151,7 +151,7 @@ fn rollback_import(paths: &ProjectPaths, journal: &ImportJournal) -> Result<()> 
             .any(|suffix| PathBuf::from(format!("{}{}", bak.display(), suffix)).exists());
         if bak.exists() {
             // The swap had started: scrub any half-installed NEW sidecars first (so a
-            // NEW `-wal` cannot replay into the restored OLD main — CRIT-3), drop
+            // NEW `-wal` cannot replay into the restored OLD main), drop
             // whatever sits at the target, restore the OLD main, THEN move its `.bak`
             // sidecars across. The main rename is the commit point of the restore.
             super::remove_stale_sidecars(target);
@@ -177,7 +177,7 @@ fn rollback_import(paths: &ProjectPaths, journal: &ImportJournal) -> Result<()> 
         }
         // else (had_previous but no `.bak` unit at all): the swap never started for this
         // entry, so the still-original target — INCLUDING its possibly-hot OLD `-wal`/
-        // `-shm`/`-journal` (MEDIUM-C: committed-but-uncheckpointed frames) — is left
+        // `-shm`/`-journal` (committed-but-uncheckpointed frames) — is left
         // ENTIRELY untouched. Scrubbing here would silently drop committed rows from a DB
         // we are NOT replacing.
     }
@@ -362,7 +362,7 @@ mod tests {
         let target = paths.archive_database_path.clone();
         let ts = "2026-06-30T00-00-00Z";
         // The cut commit left a NEW file at the target and the preserved OLD unit at `.bak`
-        // (with a `-wal` sidecar — the MEDIUM-C unit).
+        // (with a `-wal` sidecar, so the `.bak` is a complete unit).
         fs::write(&target, b"NEW half-installed db").expect("seed new target");
         let bak = backup_sidecar_path(&target, ts);
         fs::write(&bak, b"OLD db bytes").expect("seed bak");
@@ -389,7 +389,7 @@ mod tests {
         );
         assert!(
             PathBuf::from(format!("{}-wal", target.display())).exists(),
-            "the OLD unit's -wal must be restored beside the target (MEDIUM-C)",
+            "the OLD unit's -wal must be restored beside the target",
         );
         assert!(!bak.exists(), "the .bak must be consumed by the restore");
         assert!(!paths.config_path.exists(), "a None previous_config must leave config absent");
@@ -474,7 +474,7 @@ mod tests {
 
     #[test]
     fn recover_interrupted_import_finishes_an_interrupted_sidecar_restore() {
-        // FIX-3: a rollback that crashed AFTER renaming the OLD main back but BEFORE moving
+        // A rollback that crashed AFTER renaming the OLD main back but BEFORE moving
         // its `.bak` sidecars leaves the main `.bak` consumed and `<bak>-<ts>-wal` orphaned.
         // A re-run must FINISH the sidecar move (not strip the just-restored OLD wal), so the
         // restored DB keeps its committed-but-uncheckpointed frames.

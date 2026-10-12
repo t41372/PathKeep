@@ -38,7 +38,7 @@ pub(super) static CONTENT_FETCH_WORKERS: WorkerPool = WorkerPool::new();
 /// Default bulk-enqueue cap for the working-set-prioritized content fetch (bounded, 06 §5).
 const DEFAULT_WORKING_SET_PAGE_SIZE: usize = 2_000;
 
-/// Hard cap on how long the lane sleeps waiting for a deferred (rate-limited) job (SEC-2).
+/// Hard cap on how long the lane sleeps waiting for a deferred (rate-limited) job.
 ///
 /// GitHub's 60/hr refill ETA is ≈ 60s, so capping the wait at 60s keeps the lane responsive (a config
 /// change / pause is re-checked at least every minute) while still letting a deferred fetch complete
@@ -178,7 +178,7 @@ fn spawn_content_fetch_drain(vault: &vault_core::Vault) {
     );
 }
 
-/// Runs the content-fetch drain loop, dispatching each [`LaneStep`] (the SEC-2 deferred-job sleep cap
+/// Runs the content-fetch drain loop, dispatching each [`LaneStep`] (the deferred-job sleep cap
 /// lives HERE so it is unit-tested without a thread).
 ///
 /// Injectable seam: `step` produces one lane decision per iteration (the production driver calls
@@ -195,7 +195,7 @@ pub(crate) fn run_content_fetch_lane(
             // A job ran → loop immediately for the next due one.
             LaneStep::Drained => continue,
             // Nothing due now but a job is deferred (rate-limited) → sleep until it is due, then loop
-            // so the deferred work completes without a user action (SEC-2). Cap the wait so a paused /
+            // so the deferred work completes without a user action. Cap the wait so a paused /
             // disabled config is observed within the cap on the next iteration.
             LaneStep::Idle { sleep_secs: Some(secs) } => sleep(secs.min(MAX_DEFERRED_SLEEP_SECS)),
             // Truly idle (no due + no deferred work) or stopped → exit the lane.
@@ -204,7 +204,7 @@ pub(crate) fn run_content_fetch_lane(
     }
 }
 
-/// Outcome of one content-fetch lane iteration (testable PURE-of-spawn, SEC-2).
+/// Outcome of one content-fetch lane iteration (testable PURE-of-spawn).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum LaneStep {
     /// A job was drained — loop immediately for the next.

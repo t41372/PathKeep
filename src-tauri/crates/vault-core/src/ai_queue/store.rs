@@ -65,7 +65,7 @@ pub(crate) fn load_ai_queue_status(
         connection,
         &[AiQueueJobType::IndexBuild, AiQueueJobType::IndexClear, AiQueueJobType::Assistant],
     )?;
-    // Index-only narrowing (M-5): the Smart-search build callout must reflect
+    // Index-only narrowing: the Smart-search build callout must reflect
     // ONLY semantic-index work. Counting `Assistant` chat jobs here would make
     // an in-flight chat read as "Building the index", which is dishonest.
     let index_counts = load_queue_job_counts(
@@ -341,7 +341,7 @@ pub(crate) fn heartbeat_ai_job(connection: &Session<'_>, job_id: i64) -> Result<
 /// Outcome of a [`persist_index_cursor`] write, distinguishing a real lease loss from a benign skip.
 ///
 /// The embed loop MUST react differently to "the lease was reclaimed by another worker" (abort —
-/// keeping going would let two workers double-write the vector store, HIGH-3) versus "the job is not
+/// keeping going would let two workers double-write the vector store) versus "the job is not
 /// an index job / no longer exists" (a harmless no-op the caller can ignore). A bare row count could
 /// not tell these apart, so the cursor write returns this enum.
 pub(crate) fn persist_index_cursor(
@@ -368,7 +368,7 @@ pub(crate) fn persist_index_cursor(
     *stored = IndexBackfillCursor { scan_target, embed_target, ..cursor.clone() };
     // Once the backfill has made durable progress, a `full_rebuild` must NEVER fire its destructive
     // wipe again: a worker that re-claims this job after a crash would otherwise re-run the clear +
-    // delete and lose every row already embedded below the cursor (CRITICAL-1). Flipping the stored
+    // delete and lose every row already embedded below the cursor. Flipping the stored
     // request to a plain incremental build the moment the cursor leaves the origin is the durable
     // backstop to the in-process `start_history_id == 0` gate in `build_ai_index_with_control`.
     if cursor.next_history_id > 0 && request.full_rebuild {
@@ -376,7 +376,7 @@ pub(crate) fn persist_index_cursor(
     }
     let payload_json = serde_json::to_string(&payload)?;
     let now = now_rfc3339();
-    // DURABLE PROGRESS EARNS BACK THE RETRY BUDGET (review fix): the attempt counter increments on every
+    // DURABLE PROGRESS EARNS BACK THE RETRY BUDGET: the attempt counter increments on every
     // CLAIM, so a long build that makes real progress but is INTERRUPTED (app quit → stale → reclaim)
     // `max_attempts` times would otherwise hit the retry bound and go terminal despite advancing — the
     // common case for a user who keeps interrupting a slow first fill. Resetting `attempt` to 0 here, at

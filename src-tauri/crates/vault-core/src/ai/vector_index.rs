@@ -15,7 +15,7 @@ use std::collections::HashSet;
 /// A flat vector store with complete scoring over its int8 plane.
 ///
 /// Holds the binary plane for key/position alignment; the int8 score plane is
-/// seeked off disk by position for a plane-backed index (C1/C2 — resident = binary only), or held
+/// seeked off disk by position for a plane-backed index (resident = binary only), or held
 /// resident for an in-memory index (tests/bench, no on-disk plane). Construct via
 /// [`FlatVectorIndex::open`] (reads the on-disk binary plane, seeks int8) or [`FlatVectorIndex::empty`]
 /// (an in-memory index a caller `build`s); either way it implements the [`VectorIndex`] trait so a
@@ -25,7 +25,7 @@ pub struct FlatVectorIndex {
     /// order the int8 plane was written, so a binary position indexes the aligned int8 record).
     binary: Vec<(u64, Vec<u8>)>,
     /// `(content_key, int8_vector)` for the rescore stage — populated ONLY for an in-memory index;
-    /// EMPTY for a plane-backed index (which seeks int8 records off disk by position instead, C1).
+    /// EMPTY for a plane-backed index (which seeks int8 records off disk by position instead).
     int8: Vec<(u64, Int8Vector)>,
     /// Effective dim of the held vectors; `0` until the first vector is ingested (D4: never assumed).
     dim: usize,
@@ -199,7 +199,7 @@ impl VectorIndex for FlatVectorIndex {
     ///
     /// For an in-memory index (no plane handles) this is a no-op that leaves the held vectors intact.
     /// For a plane-backed index it replaces the resident binary copy with the on-disk projection,
-    /// picking up a fresh build; the int8 plane is NOT loaded resident (C1 — resident = binary only),
+    /// picking up a fresh build; the int8 plane is NOT loaded resident (resident = binary only),
     /// it is read by seek-by-position during rescore. The resident int8 Vec stays empty for a
     /// plane-backed index so a stale copy can never be read instead of the on-disk plane.
     fn load(&mut self) -> Result<()> {

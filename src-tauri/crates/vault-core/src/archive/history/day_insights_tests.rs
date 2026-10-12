@@ -46,7 +46,7 @@ fn insert_visit(
 // jump that nukes both midnight AND 01:00 fails with a clear
 // assertion message — the previous `.unwrap()` would emit a bare
 // "called `Option::unwrap()` on a `None` value" with no file:line
-// context inside the test runner. Claude review finding #8.
+// context inside the test runner.
 fn local_ms(hour: u32, minute: u32, second: u32) -> i64 {
     let day = NaiveDate::from_ymd_opt(2026, 5, 25).unwrap();
     let first = Local.from_local_datetime(&day.and_hms_opt(hour, minute, second).unwrap()).single();

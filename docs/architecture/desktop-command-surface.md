@@ -124,7 +124,7 @@ Plan 產生、plist / XML 內容、audit 與 status 解析照常執行。每次 
 
 > 2026-04-30 Windows scheduler note：Task Scheduler XML is current-user scoped. The `LogonTrigger` and `Principal` both carry the current Windows `DOMAIN\USER`, and access-denied scheduler responses are surfaced as a dedicated typed issue rather than a generic inspection failure.
 
-## 2026-10 redesign backend (`redesign/v0.4`)
+## 2026-10 redesign backend (v0.4)
 
 Added for the shadcn frontend. Each is a Tauri command (off the UI thread) and a dev IPC bridge route, so browser-mode dev and E2E reach the same Rust code.
 

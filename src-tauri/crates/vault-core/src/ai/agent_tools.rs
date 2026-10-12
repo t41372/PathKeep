@@ -683,7 +683,7 @@ impl AgentTool for IntelligenceReportTool {
         let _config = &context.config;
         let _key = context.database_key.as_deref();
 
-        // B1 — resolve the date window with an ALL-TIME sentinel for omitted/blank dates.
+        // Resolve the date window with an ALL-TIME sentinel for omitted/blank dates.
         //
         // An OMITTED date used to become `""`, which broke every report: `NaiveDate::parse_from_str`
         // errors on `""` (sessions/search_trails/browsing_rhythm), `date_key <= ""` matches NO rows
@@ -703,7 +703,7 @@ impl AgentTool for IntelligenceReportTool {
             .unwrap_or_else(|| chrono::Local::now().format("%Y-%m-%d").to_string());
         let date_range = DateRange { start, end };
 
-        // L2 — parse + validate the report variant and its REQUIRED arg BEFORE the readiness gate, so
+        // Parse + validate the report variant and its REQUIRED arg BEFORE the readiness gate, so
         // the model gets an actionable input error ("unknown report" / "domain required" /
         // "start_date required") rather than the generic "intelligence not built" note when it both
         // supplies bad input AND the plane is unbuilt. `parse` rejects an unknown variant up front
@@ -732,7 +732,7 @@ impl AgentTool for IntelligenceReportTool {
             _ => {}
         }
 
-        // M3 — readiness handling. The single `intelligence_status().ready` signal (sessions ||
+        // Readiness handling. The single `intelligence_status().ready` signal (sessions ||
         // search_trails || refind_pages) does NOT match what top_sites/activity_mix/domain_trend read
         // (the daily-rollup tables), so a partial build could misreport per report. The cleanest honest
         // approach is to LET EACH REPORT RUN: the read models query their own tables (created by
@@ -745,7 +745,7 @@ impl AgentTool for IntelligenceReportTool {
             return Ok(intelligence_not_ready_outcome(&parsed.report));
         }
 
-        // L1 — clamp a model-supplied limit to at least 1: `limit: 0` would become `page_size: 0` →
+        // Clamp a model-supplied limit to at least 1: `limit: 0` would become `page_size: 0` →
         // `LIMIT 0` → zero rows for sessions/search_trails even on a built plane. Keep the per-report
         // upper defaults (`get_top_sites`/`get_domain_trend` clamp their own caps internally).
         let paged_limit = parsed.limit.map(|value| value.max(1)).unwrap_or(20);
@@ -803,14 +803,14 @@ impl AgentTool for IntelligenceReportTool {
                 serde_json::to_value(result)?
             }
             IntelReport::DomainTrend => {
-                // The `domain` presence was validated above the readiness gate (L2).
+                // The `domain` presence was validated above the readiness gate.
                 let domain = parsed.domain.clone().unwrap_or_default();
                 let request = DomainTrendRequest { registrable_domain: domain, date_range };
                 let result = crate::intelligence::get_domain_trend(&context.vault, &request)?;
                 serde_json::to_value(result)?
             }
             IntelReport::DayInsights => {
-                // `start_date` presence was validated above (L2); use the RAW supplied date as the
+                // `start_date` presence was validated above; use the RAW supplied date as the
                 // target day (not the all-time sentinel substitution, which is only for ranges).
                 let date = parsed.start_date.clone().unwrap_or_default();
                 let request = DayInsightsRequest { date, profile_id: None };
@@ -826,7 +826,7 @@ impl AgentTool for IntelligenceReportTool {
                 serde_json::to_value(result)?
             }
             IntelReport::SessionDetail => {
-                // `session_id` presence was validated above (L2). A bad id is `Err(not found)` from
+                // `session_id` presence was validated above. A bad id is `Err(not found)` from
                 // the read model, which propagates as a recoverable tool error (never a panic).
                 let session_id = parsed.session_id.clone().unwrap_or_default();
                 let result = crate::intelligence::get_session_detail(
@@ -904,7 +904,7 @@ impl AgentTool for IntelligenceReportTool {
     }
 }
 
-/// The all-time sentinel start date for an OMITTED intelligence `start_date` (B1).
+/// The all-time sentinel start date for an OMITTED intelligence `start_date`.
 ///
 /// Mirrors the authoritative `crate::intelligence::intelligence_overview_snapshot::ALL_TIME_SCOPE_START`
 /// (`"1900-01-01"`), which is `pub(crate)` inside a PRIVATE module so it cannot be named here. The

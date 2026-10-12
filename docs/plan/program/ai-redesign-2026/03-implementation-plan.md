@@ -159,7 +159,7 @@ M-AI1（external LLM functions）可在 embedding/vector 之前先交付價值�
 | R4     | genai 806★/單人 bus-factor                                                         | transport 斷更/breaking     | risk assessment + pin + vendor + 自有 trait 包一層；可換手寫                            |
 | R5     | 換 embedding 模型使 14.4M index 全失效                                             | 長重嵌、UX 衝擊             | fingerprint 偵測 + PME 預覽 + 背景 dual-index 遷移 + 原子換入                           |
 | R6     | 前端被 embedding/rerank/code-exec 凍住（曾有 ~10s 凍結前科）                       | 流暢度硬指標破功            | 全 off-thread/分片/可取消/skeleton；M-AI8 profiling 背書                                |
-| R7     | 與 `feat/intelligence-overhaul` 衝突（另一 agent 並行改 intelligence）             | 合併摩擦                    | 本工作隔離於 `feat/ai-redesign-2026`；落地前與 intelligence overhaul reconcile          |
+| R7     | 與並行的 intelligence overhaul 衝突                                                | 合併摩擦                    | 本工作與主線隔離；落地前與 intelligence overhaul reconcile                              |
 
 ---
 

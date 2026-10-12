@@ -119,7 +119,7 @@ where
     // Consent gate at the firing site: a previously-configured provider+key must NOT let the
     // tool-executing agent run (or plain streaming chat) fire while the master AI switch or the
     // assistant sub-flag is off. This bails BEFORE any provider resolution / run registration /
-    // spawn so no work, network egress, or run id is minted for a refused turn (H-1 / M-2).
+    // spawn so no work, network egress, or run id is minted for a refused turn.
     ensure_ai_capability_enabled(&config, AiCapability::Assistant)?;
     let runtime = selected_llm_provider_runtime(&config, request.provider_id.as_deref())?;
 
@@ -617,7 +617,7 @@ mod tests {
         let vault = vault_core::Vault::open_temp().unwrap();
         // A non-empty request with a configured provider+key must STILL refuse while the master AI
         // switch (or the assistant sub-flag) is off — a previously-configured provider must not let
-        // the agent/streaming run fire with consent withdrawn (H-1 / M-2). The gate bails before any
+        // the agent/streaming run fire with consent withdrawn. The gate bails before any
         // provider resolution or run spawn, so no run id is minted and the sink is never touched.
         let _guard = crate::tests::lock_env();
         let dir = tempfile::tempdir().expect("tempdir");
@@ -928,7 +928,7 @@ mod tests {
     #[cfg(coverage)]
     #[test]
     fn coverage_agent_run_self_heals_an_unsaved_conversation_link() {
-        // Production path B1: a tools-enabled run opens BEFORE the FE persists its conversation (the
+        // Production path: a tools-enabled run opens BEFORE the FE persists its conversation (the
         // FE saves lazily on finalize), so `run_agent_stream` passes a `conversation_id` whose
         // `conversations` row does not exist yet. With the live agent_runs→conversations FK this would
         // trip `FOREIGN KEY constraint failed` inside begin_agent_run and emit a terminal Error before

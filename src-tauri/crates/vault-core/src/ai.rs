@@ -289,7 +289,7 @@ const AI_INDEX_LEDGER_VERSION: &str = "semantic-sidecar-v1";
 /// modest so the 4-core host stays responsive (the embed loop yields between chunks and the
 /// vector store append is O(chunk), never O(store)).
 ///
-/// LEASE SAFETY (HIGH-3): bounded to ONE `EMBEDDING_HTTP_BATCH` so a single chunk issues at most
+/// LEASE SAFETY: bounded to ONE `EMBEDDING_HTTP_BATCH` so a single chunk issues at most
 /// one HTTP embed call (≤ `EMBEDDING_HTTP_TIMEOUT` = 120s), comfortably under the 300s queue lease
 /// even if the 30s heartbeat thread stalls. The earlier 256-row chunk fanned out to 4 HTTP calls
 /// (4 × 120s = 480s) which could outlive the lease and let a reclaimed worker keep writing — the

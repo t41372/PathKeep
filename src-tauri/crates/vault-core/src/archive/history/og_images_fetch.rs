@@ -1515,7 +1515,7 @@ mod tests {
         );
     }
 
-    // ── W-ENRICH-1 SEC-3: the per-hop-guarded fetch client ───────────────────────────────────────
+    // ── W-ENRICH-1: the per-hop-guarded fetch client ───────────────────────────────────────
 
     /// A test guard that blocks any URL whose path contains `/internal` (stands in for the real SSRF
     /// guard, which can't fire against mockito's 127.0.0.1 server).
@@ -1546,7 +1546,7 @@ mod tests {
 
     #[test]
     fn guarded_client_stops_at_a_blocked_redirect_hop() {
-        // SEC-3 line coverage: a redirect to a guard-blocked URL is STOPPED — reqwest returns the 3xx
+        // Line coverage: a redirect to a guard-blocked URL is STOPPED — reqwest returns the 3xx
         // response itself rather than following it to the blocked host.
         let mut server = mockito::Server::new();
         let _redirect = server
@@ -1571,7 +1571,7 @@ mod tests {
 
     #[test]
     fn guarded_client_errors_after_too_many_redirects() {
-        // SEC-3 line coverage: exceeding the hop budget makes the redirect policy error out.
+        // Line coverage: exceeding the hop budget makes the redirect policy error out.
         let mut server = mockito::Server::new();
         // A self-redirect loop: every GET 302s back to /loop, exceeding the 8-hop budget.
         let _loop_mock = server

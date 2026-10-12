@@ -60,8 +60,8 @@ pub fn build_dedup_content_hash(
 /// the first 8 bytes of the SHA-256 hex digest as a big-endian u64. SHA-256 is uniform, so the first
 /// 64 bits are a well-distributed, stable key; a 64-bit space over an at-most-14.4M-unique corpus has
 /// a small collision probability (≈ n²/2^65 ≈ 2.8e-6 at 14.4M). The u64 is the STORAGE-boundary key
-/// ONLY; the embed loop's WORK-dedup keys on the FULL `content_hash` (see `indexing::select_embed_targets`,
-/// MEDIUM-4), so two distinct pages whose hashes collide on this u64 are EACH still embedded — the
+/// ONLY; the embed loop's WORK-dedup keys on the FULL `content_hash` (see `indexing::select_embed_targets`),
+/// so two distinct pages whose hashes collide on this u64 are EACH still embedded — the
 /// second is NOT silently dropped onto the first's vector. At the `.pkvec` layer such a collision
 /// stores both records under one u64 (resolved by `read_all` last-writer-wins); the SQLite
 /// `ai_embeddings` rows carry the full `content_hash` for exact identity. PURE → unit-tested. A hex
@@ -138,7 +138,7 @@ mod tests {
 
     #[test]
     fn content_key_truncation_collides_for_distinct_hashes_sharing_a_u64_prefix() {
-        // MEDIUM-4: the u64 key is a 16-hex-char TRUNCATION, so two DISTINCT full hashes that share
+        // The u64 key is a 16-hex-char TRUNCATION, so two DISTINCT full hashes that share
         // their first 16 hex chars collide on the u64. This is the root cause the embed loop must
         // tolerate by keying its work-dedup on the FULL hash (see indexing::select_embed_targets) —
         // documented + asserted here so the truncation behavior is pinned.

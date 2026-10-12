@@ -145,7 +145,7 @@ fn run_content_fetch_blocks_private_github_api_via_guard() {
 fn fetch_json_api_with_no_api_request_is_fetch_error() {
     // Covers the `api_request() == None` branch + the trait DEFAULT api/secondary methods. With no
     // API request there is no egress, so the (unused-by-the-deferral-path) reported host is the page
-    // host (BUG-1: this arm yields `fetch-error`, never `rate-limited`).
+    // host (this arm yields `fetch-error`, never `rate-limited`).
     let fetcher = FakeFetcher::new();
     let (result, egress_host) =
         fetch_json_api(&fetcher, &NoApiJsonExtractor, "https://api.example.com/x");
@@ -173,7 +173,7 @@ fn fetch_json_api_keeps_a_successful_secondary_and_tolerates_a_failed_one() {
     let (result, egress_host) = fetch_json_api(&fetcher, &extractor, "https://page.example/x");
     assert_eq!(result.status, "success");
     assert_eq!(result.extraction["hasSecondary"], true);
-    // BUG-1: the reported egress host is the PRIMARY API host (where the GET lands), not the page.
+    // The reported egress host is the PRIMARY API host (where the GET lands), not the page.
     assert_eq!(egress_host, url_domain(&primary));
 
     // A failing secondary is tolerated (the body is omitted, the primary still extracts).
@@ -194,7 +194,7 @@ fn fetch_json_api_keeps_a_successful_secondary_and_tolerates_a_failed_one() {
 
 #[test]
 fn html_egress_parks_when_host_bucket_is_empty() {
-    // SEC-1/SEC-2: drain a unique host's bucket, then the HTML egress returns `rate-limited`
+    // Drain a unique host's bucket, then the HTML egress returns `rate-limited`
     // (covers the per-egress acquire + `rate_limit_detail`). Drain past the default burst (8).
     let host = unique_host("html-rl");
     let url = format!("https://{host}/post");
@@ -211,7 +211,7 @@ fn html_egress_parks_when_host_bucket_is_empty() {
 
 #[test]
 fn json_egress_parks_when_host_bucket_is_empty() {
-    // SEC-1/SEC-2 on the JSON path: drain a unique API host's bucket, then `guard_then_fetch_json`
+    // On the JSON path: drain a unique API host's bucket, then `guard_then_fetch_json`
     // returns `rate-limited` (covers the JSON per-egress acquire failure branch).
     let host = unique_host("json-rl");
     let api = format!("https://{host}/repos/o/r");
@@ -226,7 +226,7 @@ fn json_egress_parks_when_host_bucket_is_empty() {
 
 #[test]
 fn guard_final_url_blocks_a_private_redirect_landing() {
-    // SEC-3 defence-in-depth: a body whose post-redirect final_url is private becomes a `blocked`
+    // Defence-in-depth: a body whose post-redirect final_url is private becomes a `blocked`
     // outcome (the bytes are dropped, never parsed). Drive a generic page whose fetcher reports a
     // loopback final_url.
     let host = unique_host("final-guard");

@@ -729,7 +729,7 @@ fn t5_takeout_time_usec_pinned_as_unix_microseconds_b6_contract() {
 // ======================================================================
 
 /// T6 — Audit bug B1 was originally identified and fixed in
-/// `archive/ingest/writes.rs::upsert_url` (commit 6884c10d) but the
+/// `archive/ingest/writes.rs::upsert_url`, but the
 /// Takeout import path in `takeout/payload_import.rs` was left with
 /// unconditional `excluded.*` overwrites and a hardcoded
 /// `visit_count = 1` literal in the INSERT VALUES with no UPDATE clause

@@ -472,7 +472,7 @@ mod tests {
         assert!(error.to_string().contains("remove"), "got {error}");
     }
 
-    // --- MEDIUM-4: orphaned temp sweep -----------------------------------------------------------
+    // --- Orphaned temp sweep -----------------------------------------------------------
 
     #[test]
     fn streamed_write_lands_whole_and_leaves_no_temp() {
@@ -556,7 +556,7 @@ mod tests {
         assert!(error.to_string().contains("scan"));
     }
 
-    // --- HIGH-1 / MEDIUM-3 / HIGH-2 / MEDIUM-5: barrier fault paths via the seam -----------------
+    // --- Barrier fault paths via the seam -----------------
     //
     // These drive the SAME production recovery code (`handle_fsync_errno`, the rename arms, the
     // dir-open/dir-fsync arms) that the real disk barrier runs, without needing a filesystem that
@@ -660,7 +660,7 @@ mod tests {
         assert!(error.to_string().contains("fsync dir"));
     }
 
-    // --- MEDIUM-1: directory fsync helper (durable cross-dir move) --------------------------------
+    // --- Directory fsync helper (durable cross-dir move) --------------------------------
     //
     // `fsync_dir` is what the Phase-D restore's `quarantine_canonical_archive` calls to make the
     // cross-directory rename into `quarantine/<ts>/` crash-durable. These exercise it DIRECTLY (the

@@ -13,7 +13,7 @@ use std::sync::{Mutex, OnceLock};
 
 /// Process-global lock serializing tests that touch the SHARED `api.github.com` bucket.
 ///
-/// That host's bucket is process-global, so a test that DRAINS it (the BUG-1 deferral test) would
+/// That host's bucket is process-global, so a test that DRAINS it (the deferral test) would
 /// otherwise race with the full-bucket github routing tests running in parallel. Each github-bucket
 /// test holds `GITHUB_BUCKET_LOCK` for its duration (acquired INLINE, never via a helper returning a
 /// `'static`-annotated guard — the coverage verifier's test-block masker mishandles a `'` lifetime
@@ -153,7 +153,7 @@ fn network_switch_blocks_content_fetch_without_connecting() {
     assert!(refetch.is_none());
 }
 
-// ── W-ENRICH-1 fix coverage (SEC-1/2/3/4, CORR-1/3, COV-1) ───────────────────────────────────
+// ── W-ENRICH-1 fix coverage ───────────────────────────────────
 
 /// A test-only `JsonApi` extractor that uses the DEFAULT `api_request`/`secondary_api_request`
 /// (both `None`) so the "no API request to fetch" branch + the trait defaults are covered.
@@ -256,7 +256,7 @@ fn read_capped_handles_under_cap_over_cap_and_a_broken_stream() {
 }
 
 /// A `Fetcher` that, when invoked, sets `stop_requested = 1` on a job row (modelling a UI cancel
-/// that lands DURING the fetch) and then returns a `rate-limited` outcome. Used to drive the BUG-2
+/// that lands DURING the fetch) and then returns a `rate-limited` outcome. Used to drive the
 /// concurrent-stop branch deterministically single-threaded: the side-effect runs after the claim
 /// (which cleared the flag) and before the rate-limited requeue reads it.
 struct StopRequestingFetcher {

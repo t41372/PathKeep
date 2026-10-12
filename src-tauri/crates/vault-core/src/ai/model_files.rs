@@ -251,7 +251,7 @@ fn stream_to_file(
         .with_context(|| format!("creating model file {}", dest.display()))?;
     // Removes the half-written blob on EVERY error path (cancel, network read error, disk write
     // error, flush error) so a failed download never leaves a truncated file in `models_dir` — the
-    // success path disarms it (review L-2). A leftover partial is already harmless (the SHA verify +
+    // success path disarms it. A leftover partial is already harmless (the SHA verify +
     // `.pathkeep-verified` marker gate loading, and the next attempt truncates), but RAII keeps the
     // cleanup symmetric across all exits without per-branch plumbing.
     let mut partial = PartialFileGuard { dest, armed: true };

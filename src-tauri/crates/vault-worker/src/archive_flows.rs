@@ -1708,7 +1708,7 @@ mod tests {
     #[test]
     fn refetch_og_images_short_circuits_when_kill_switch_is_off() {
         let vault = vault_core::Vault::open_temp().unwrap();
-        // After A1 (Codex C1), every external caller of
+        // Every external caller of
         // `refetch_og_images` pre-gates on `effective_mode != Off`. The
         // inner `if !config.og_image.fetch_enabled` check at the top of
         // this fn is the defence-in-depth safety net for a future caller

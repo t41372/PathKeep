@@ -249,12 +249,11 @@ The requested gates passed with the shared `CARGO_TARGET_DIR` and offline Cargo:
 The full Rust suite used `RUST_TEST_THREADS=4` and an isolated temporary directory.
 External-model opt-in flags were off; no outside services were contacted. Gate logs and
 a hash manifest are in `artifacts/turso-archive-reads/`. Search, intelligence, whole-file
-maintenance, frontend integration and the browser E2E suite retain their separate owners.
-All changes are left uncommitted.
+maintenance, frontend integration and the browser E2E suite are separate areas.
 
 ## Changed files
 
-The following repository files comprise the uncommitted change. Legacy-only entries are
+The following repository files make up the change. Legacy-only entries are
 mechanical call-site renames or retained maintenance/intelligence test boundaries.
 
 ```text

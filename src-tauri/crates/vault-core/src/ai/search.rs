@@ -35,7 +35,7 @@ pub(super) struct StoredEmbedding {
 /// carries the hydrated semantic matches (one per unique page, most-recent visit) ready to merge
 /// with lexical recall; it is empty when the index is absent/stale/empty (with a matching note).
 ///
-/// Each note is carried as a stable [`AiSearchNote`] CODE (review-fix M-6), NOT English prose, so the
+/// Each note is carried as a stable [`AiSearchNote`] CODE, NOT English prose, so the
 /// front end can localize it; the English sentence is derived from the code only on the MODEL-facing
 /// path ([`ai_search_note_text`]).
 #[derive(Debug, Default)]
@@ -283,7 +283,7 @@ pub(super) const MATCH_REASON_STARRED_SUFFIX: &str = "+starred";
 
 /// Whether the keyed reverse/forward sidecars are trustworthy for this provider's CURRENT planes.
 ///
-/// The read-path staleness guard (M-11): the sidecars are stamped with the `.pkvec` fingerprint hash,
+/// The read-path staleness guard: the sidecars are stamped with the `.pkvec` fingerprint hash,
 /// so they are usable iff both are present AND stamped for the live store's hash. A missing store
 /// (nothing embedded) or a missing/stale/torn sidecar (an older index built before the sidecar
 /// existed, or a half-written pair) makes the keyed path UNTRUSTED, and the caller falls back to the
@@ -307,7 +307,7 @@ pub(super) fn reverse_sidecars_usable(
 
 /// Resolves result content_keys → their visits via the keyed `.pkrev` sidecar, falling back to scan.
 ///
-/// The bounded hydration join (M-11): when the keyed sidecars are usable this is O(k'·log n)
+/// The bounded hydration join: when the keyed sidecars are usable this is O(k'·log n)
 /// binary-search seeks over the few result content_keys; otherwise it degrades to the authoritative
 /// `.pkmap` full scan (correct, just the old O(n) cost) so an older/torn index still serves the EXACT
 /// same history_ids. Both paths return identical results — the sidecar is the SAME

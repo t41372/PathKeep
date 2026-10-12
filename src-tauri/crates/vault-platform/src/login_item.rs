@@ -3,7 +3,7 @@
 //! On macOS PathKeep does not use `tauri-plugin-autostart` for this. The
 //! plugin's LaunchAgent has launchd exec `PathKeep.app/Contents/MacOS/...`
 //! directly, and since macOS 26 that is killed with "Launch Constraint
-//! Violation" (the same crash fixed for scheduled backups in `167d1aa8`).
+//! Violation" (the same crash already fixed for scheduled backups).
 //! This agent runs `/usr/bin/open -g -a PathKeep.app --args
 //! --launched-at-login` instead, so Launch Services starts the app. It is not
 //! loaded with `launchctl`; launchd picks it up at the next login.

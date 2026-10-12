@@ -9,7 +9,7 @@ implements. Treat them as **read-only reference**.
 ## Current handoff
 
 - [`paper-redesign/`](./paper-redesign/) — Paper + Archival aesthetic (M16).
-  Original Claude Design (claude.ai/design) handoff bundle. Contains:
+  Design handoff bundle (2026-05). Contains:
   - `README.md` — handoff cover sheet from the design tool
   - `project/PathKeep Redesign.html` — entry HTML loading all JSX
   - `project/pk-tokens.css` — every CSS class used in the prototype (3,978 lines)
@@ -34,7 +34,7 @@ implements. Treat them as **read-only reference**.
     not shipped)
   - `project/pathkeep-mark.svg` — brand mark
 
-## How agents should use this
+## How to use this
 
 1. **Treat the HTML/JSX as visual law, not code to copy.** The handoff renders
    in a browser via Babel-standalone; production builds with React 19 + TS +

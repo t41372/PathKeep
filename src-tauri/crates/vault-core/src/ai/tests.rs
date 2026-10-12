@@ -260,7 +260,7 @@ fn seed_vector_planes(
         &provider.config.default_model,
     )
     .expect("build planes");
-    // Project the M-11 keyed reverse/forward sidecars from the `.pkmap`, stamped with the same store
+    // Project the keyed reverse/forward sidecars from the `.pkmap`, stamped with the same store
     // fingerprint hash — the exact on-disk state `build_ai_index` now leaves, so the search hydration +
     // `is:starred` paths exercise the KEYED binary-search lookups (the steady-state path), not just the
     // `.pkmap`-scan fallback. (`seed_vector_planes_without_reverse_sidecars` omits this to cover the
@@ -274,7 +274,7 @@ fn seed_vector_planes(
     .expect("build reverse sidecars");
 }
 
-/// Seeds the vector planes + `.pkmap` but NOT the M-11 keyed sidecars (the pre-M-11 / torn-sidecar
+/// Seeds the vector planes + `.pkmap` but NOT the keyed sidecars (the pre-sidecar / torn-sidecar
 /// on-disk state), so the search read path exercises the authoritative `.pkmap`-scan FALLBACK.
 fn seed_vector_planes_without_reverse_sidecars(
     paths: &ProjectPaths,
@@ -1193,7 +1193,7 @@ fn indexed_visit(history_id: i64, content_hash: &str) -> IndexedVisit {
 
 #[test]
 fn select_embed_targets_keeps_distinct_pages_that_collide_on_truncated_u64() {
-    // MEDIUM-4: two DISTINCT pages whose content_hashes truncate to the SAME u64 content_key must BOTH
+    // Two DISTINCT pages whose content_hashes truncate to the SAME u64 content_key must BOTH
     // be embedded — the work-dedup keys on the FULL hash, never the truncated u64. Construct two hashes
     // that share the first 16 hex chars (so `content_key_from_hash` collides) but differ after.
     let hash_a = "0102030405060708aaaaaaaaaaaaaaaa";
@@ -1384,7 +1384,7 @@ fn semantic_matches_returns_real_hits_and_surfaces_stale_ledger_note() {
 
 #[test]
 fn semantic_matches_falls_back_to_pkmap_scan_when_reverse_sidecars_absent() {
-    // M-11 read-path guard: an OLDER index (planes + `.pkmap` present, but no `.pkrev`/`.pkfwd`) must
+    // Read-path guard: an OLDER index (planes + `.pkmap` present, but no `.pkrev`/`.pkfwd`) must
     // still resolve the SAME hits via the authoritative `.pkmap` scan fallback — no wrong/empty result.
     // This exercises the `reverse_sidecars_usable == false` branch + `VisitContentMap` scan path.
     let runtime = Runtime::new().expect("runtime");
@@ -1397,7 +1397,7 @@ fn semantic_matches_falls_back_to_pkmap_scan_when_reverse_sidecars_absent() {
         .block_on(embed_query(&embedding, "docs", EmbeddingRole::Query))
         .expect("docs vector");
     let other_vector: Vec<f32> = docs_vector.iter().rev().map(|value| -value).collect();
-    // Seed the planes + `.pkmap` but DROP the keyed sidecars (the pre-M-11 on-disk shape).
+    // Seed the planes + `.pkmap` but DROP the keyed sidecars (the pre-sidecar on-disk shape).
     seed_vector_planes_without_reverse_sidecars(
         &paths,
         &embedding,
@@ -2061,7 +2061,7 @@ fn rrf_ranks_a_dual_list_page_above_a_single_list_page() {
 
 #[test]
 fn rrf_fuses_a_multi_visit_page_into_one_dual_list_row() {
-    // M-12 regression: a frequently-visited page whose TWO newest matching visits BOTH land in the lexical
+    // Regression: a frequently-visited page whose TWO newest matching visits BOTH land in the lexical
     // window must fuse into ONE row with the dual-list boost — not duplicate into a fused row PLUS a
     // separate lexical-only row, with only the newest visit earning the RRF dual-list credit. Page A has
     // visits 1 (older) and 2 (newer) on ONE url; the semantic representative is the most-recent visible
@@ -2533,7 +2533,7 @@ fn is_starred_facet_restricts_semantic_recall_to_starred_pages() {
 
 #[test]
 fn is_starred_facet_resolves_via_pkmap_scan_when_reverse_sidecars_absent() {
-    // M-11 read-path guard (forward / `is:starred` direction): an older index (no `.pkrev`/`.pkfwd`)
+    // Read-path guard (forward / `is:starred` direction): an older index (no `.pkrev`/`.pkfwd`)
     // must still resolve the starred content_key allowlist via the authoritative `.pkmap` scan fallback
     // — same outcome as the keyed path. Exercises `resolve_content_keys_for_history_ids`'s fallback.
     let runtime = Runtime::new().expect("runtime");
@@ -2545,7 +2545,7 @@ fn is_starred_facet_resolves_via_pkmap_scan_when_reverse_sidecars_absent() {
     let needle = runtime
         .block_on(embed_query(&embedding, "needle", EmbeddingRole::Query))
         .expect("needle vector");
-    // Planes + `.pkmap` present, keyed sidecars DROPPED (the pre-M-11 shape) → forward scan fallback.
+    // Planes + `.pkmap` present, keyed sidecars DROPPED (the pre-sidecar shape) → forward scan fallback.
     seed_vector_planes_without_reverse_sidecars(
         &paths,
         &embedding,
@@ -2581,7 +2581,7 @@ fn is_starred_facet_resolves_via_pkmap_scan_when_reverse_sidecars_absent() {
 
 #[test]
 fn is_starred_facet_before_any_index_build_resolves_empty_without_a_store() {
-    // M-11 guard, no-`.pkvec` branch: an `is:starred` query with a provider configured but NOTHING ever
+    // Guard, no-`.pkvec` branch: an `is:starred` query with a provider configured but NOTHING ever
     // embedded (no `.pkvec` store) must not error — `reverse_sidecars_usable` returns false (no store to
     // key off), the `.pkmap` fallback is empty, the allowlist is empty, and semantic recall honestly
     // yields no hits. Exercises the `store.read_header()? is None` branch of `reverse_sidecars_usable`.
@@ -2696,7 +2696,7 @@ fn is_starred_facet_constrains_the_lexical_plane_too() {
 
 #[test]
 fn is_starred_facet_recalls_an_older_starred_match_on_the_lexical_plane() {
-    // MEDIUM regression (Bug 2): the `is:starred` lexical plane must EXPAND recall so a starred page
+    // Regression: the `is:starred` lexical plane must EXPAND recall so a starred page
     // that matches the query text but was visited OLDER than the newest `limit` text matches is still
     // returned. The old code fetched only `limit` of the NEWEST matches then post-filtered to starred,
     // hard-truncating away older starred hits — for AI-off / no-provider users the lexical plane is the
@@ -3060,7 +3060,7 @@ fn resolve_embed_request_dim_requests_native_or_hint_and_rejects_unsupported() {
     assert_eq!(resolve_embed_request_dim(&openai).expect("openai native"), None);
 
     // Gemini: an explicit dim is required because the transport cannot request a native size;
-    // an explicit dim is honored, but no dim is a hard error (the Finding-1 D4 fix) rather than
+    // an explicit dim is honored, but no dim is a hard error (the D4 fix) rather than
     // a silent 768 fallback.
     let mut gemini = embedding_provider();
     gemini.config.request_format = AiRequestFormat::Google;
@@ -3124,7 +3124,7 @@ fn await_with_ai_cancellation_polls_control_while_provider_future_is_pending() {
 }
 
 // ---------------------------------------------------------------------------
-// Review-fix M-6 / M-7: stable note/warning CODES replace raw English prose.
+// Stable note/warning CODES replace raw English prose.
 // These exhaustively exercise every code variant's MODEL-facing English rendering
 // so the wire codes and their English twins can never drift per call site, and
 // confirm the search response carries a code per English note in lockstep.
@@ -3312,10 +3312,10 @@ fn search_history_internal_lexical_path_excludes_out_of_range_visits() {
 
 #[test]
 fn search_history_internal_semantic_path_excludes_out_of_range_visits() {
-    // Test 1 (semantic/hybrid path, H1) — WITH an embedding provider, an out-of-range page that the
+    // Test 1 (semantic/hybrid path) — WITH an embedding provider, an out-of-range page that the
     // VECTOR index would otherwise surface must be excluded by the date filter. Both pages carry the
     // SAME query vector (both are strong semantic hits), but only page 1 is inside the date range. Before
-    // H1's fix, `load_visit_rows` had no date predicate, so the out-of-range semantic hit (page 2)
+    // the fix, `load_visit_rows` had no date predicate, so the out-of-range semantic hit (page 2)
     // LEAKED through. This is the regression-proving assertion: revert the SQL date predicate and page 2
     // reappears.
     let runtime = Runtime::new().expect("runtime");
@@ -3360,14 +3360,14 @@ fn search_history_internal_semantic_path_excludes_out_of_range_visits() {
         .expect("semantic date-filtered search");
     let ids: Vec<i64> = response.items.iter().map(|item| item.history_id).collect();
     assert!(ids.contains(&1), "the in-range semantic hit must be present: {ids:?}");
-    assert!(!ids.contains(&2), "the OUT-OF-RANGE semantic hit must be excluded (H1): {ids:?}");
+    assert!(!ids.contains(&2), "the OUT-OF-RANGE semantic hit must be excluded: {ids:?}");
 }
 
 #[test]
 fn search_history_internal_recency_has_more_and_applied_limit() {
     // Test 2 (recency path) — seed 3 visits; `limit: 2` → exactly 2 items, has_more == true,
-    // applied_limit == Some(2). `limit: 5` → has_more == false. Before H3 the recency probe was a no-op
-    // so has_more was ALWAYS false; this fails if H3 is reverted.
+    // applied_limit == Some(2). `limit: 5` → has_more == false. Before the fix the recency probe was a no-op
+    // so has_more was ALWAYS false; this fails if that fix is reverted.
     let runtime = Runtime::new().expect("runtime");
     let (paths, config, connection) = prepared_archive();
     let vault = connection.vault.clone();
@@ -3392,7 +3392,7 @@ fn search_history_internal_recency_has_more_and_applied_limit() {
         .block_on(search_history_internal(&vault, &paths, &config, None, None, &request(2)))
         .expect("limit 2 recency");
     assert_eq!(limited.items.len(), 2, "exactly `limit` items returned");
-    assert!(limited.has_more, "3 visits with limit 2 → has_more must be true (H3)");
+    assert!(limited.has_more, "3 visits with limit 2 → has_more must be true");
     assert_eq!(limited.applied_limit, Some(2));
 
     let unlimited = runtime
@@ -3406,8 +3406,8 @@ fn search_history_internal_recency_has_more_and_applied_limit() {
 #[test]
 fn search_history_internal_lexical_has_more_and_applied_limit() {
     // Test 2 (keyword path) — seed 3 keyword-matching visits; `limit: 2` → 2 items, has_more == true.
-    // Before M1 the lexical pool was hard-capped at `limit`, so the fused `total` could never exceed
-    // `limit` and has_more was always false. This fails if M1 is reverted.
+    // Before the fix the lexical pool was hard-capped at `limit`, so the fused `total` could never exceed
+    // `limit` and has_more was always false. This fails if that fix is reverted.
     let runtime = Runtime::new().expect("runtime");
     let (paths, config, connection) = prepared_archive();
     let vault = connection.vault.clone();
@@ -3432,7 +3432,7 @@ fn search_history_internal_lexical_has_more_and_applied_limit() {
         .block_on(search_history_internal(&vault, &paths, &config, None, None, &request(2)))
         .expect("limit 2 keyword");
     assert_eq!(limited.items.len(), 2, "exactly `limit` items returned");
-    assert!(limited.has_more, "3 keyword matches with limit 2 → has_more must be true (M1)");
+    assert!(limited.has_more, "3 keyword matches with limit 2 → has_more must be true");
     assert_eq!(limited.applied_limit, Some(2));
 
     let unlimited = runtime

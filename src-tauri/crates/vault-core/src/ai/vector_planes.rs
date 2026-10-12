@@ -7,7 +7,7 @@
 //!     `ceil(dim/8)` bytes/vector, loaded RAM-resident for SIMD-friendly Hamming recall;
 //!   - an **int8 plane** (`.pki8`): per-vector symmetric max-abs quantization to `[-127, 127]` plus
 //!     the f32 scale, kept ON DISK and read by seek-by-position (NOT resident) for high-fidelity
-//!     rescore of only the recalled candidates (C1/C2, 05 §10) — so resident RAM = the binary plane.
+//!     rescore of only the recalled candidates (05 §10) — so resident RAM = the binary plane.
 //! - own the pure quantization/binarization math (sign-bit pack, int8 quantize/dequantize) so the
 //!   error bounds are unit-tested directly, NOT only through the index.
 //! - stamp each plane with the SAME [`EmbeddingFingerprint`] as the `.pkvec` source so a model/dim
@@ -26,7 +26,7 @@
 //! Rust `(u64, Vec<u8>)` resident overhead is counted, S2 §10) so it fits in RAM for a SIMD
 //! popcount(xor) Hamming sweep. The int8 plane (~3.7 GB @256-dim, 260 B/vec incl. scale) stays ON DISK
 //! and is read by seek-by-position for only the few thousand recalled candidates — so resident RAM is
-//! binary-only and the 8 GB envelope holds (C1/C2, 05 §10). The f32 `.pkvec` stays the lossless rebuild
+//! binary-only and the 8 GB envelope holds (05 §10). The f32 `.pkvec` stays the lossless rebuild
 //! SOURCE (never deleted); whether f32 is ALSO used as a final exact tier is the S2 benchmark's call.
 //!
 //! ## Format (little-endian; both planes mirror the `.pkvec` magic+header discipline)
@@ -239,7 +239,7 @@ impl BinaryPlane {
 
 /// One int8 rescore plane on the `derived/vectors/` plane — ON-DISK, read by position per candidate.
 ///
-/// NOT resident (C1/C2, 05 §10): the int8 plane stays on disk and the rescore stage seeks each
+/// NOT resident (05 §10): the int8 plane stays on disk and the rescore stage seeks each
 /// recalled candidate's record by its position via [`Int8Plane::reader`] + [`Int8PlaneReader::record_at`].
 /// Only the binary recall plane is held in RAM (~0.9 GB @14.4M/256-dim incl. Rust overhead); pulling
 /// the few thousand recalled int8 records per query off disk is cheap vs the O(n) binary sweep and warms
@@ -272,7 +272,7 @@ impl Int8Plane {
         read_plane_header(&self.path, &INT8_PLANE_MAGIC)
     }
 
-    /// Opens a seekable reader over the int8 plane for position-addressed candidate rescore (C1).
+    /// Opens a seekable reader over the int8 plane for position-addressed candidate rescore.
     ///
     /// The query path opens this ONCE per search and calls [`Int8PlaneReader::record_at`] for each
     /// recalled candidate position, so the int8 plane is never held resident. Returns the header (for
@@ -293,7 +293,7 @@ impl Int8Plane {
     /// Loads every `(content_key, Int8Vector)` record (TEST/diagnostic only — never the query path).
     ///
     /// Retained so the projection round-trip + alignment can be asserted in one read; the query path
-    /// uses [`Int8Plane::reader`] seek-by-position instead so the plane is never held resident (C1).
+    /// uses [`Int8Plane::reader`] seek-by-position instead so the plane is never held resident.
     #[cfg(test)]
     pub fn read_all(&self) -> Result<Vec<(u64, Int8Vector)>> {
         let (header, mut reader) = open_plane(&self.path, &INT8_PLANE_MAGIC)?;
@@ -309,7 +309,7 @@ impl Int8Plane {
     }
 }
 
-/// A seekable, on-disk reader over one int8 rescore plane (resident = nothing but this handle, C1).
+/// A seekable, on-disk reader over one int8 rescore plane (resident = nothing but this handle).
 ///
 /// Holds the open file plus the fixed geometry (data start, record stride, dim) so the rescore stage
 /// can read any candidate's int8 record by its POSITION (the index the binary recall returned) without
@@ -381,7 +381,7 @@ pub fn planes_are_stale(
 
 /// Projects the f32 `.pkvec` source into the binary + int8 planes for one provider/model (05 §3).
 ///
-/// STREAMING + LOCKSTEP (C2, 05 §10): strides the deduped `(content_key, f32)` SET out of the
+/// STREAMING + LOCKSTEP (05 §10): strides the deduped `(content_key, f32)` SET out of the
 /// [`VectorStore`] one record at a time via [`VectorStore::read_records_streaming`] (which preserves
 /// the last-writer-wins SET contract), binarizing + int8-quantizing each vector straight into BOTH
 /// plane writers in lockstep, never materializing the full binary/int8 Vecs. Peak build RAM is two
@@ -467,7 +467,7 @@ pub fn derived_plane_bytes(paths: &ProjectPaths) -> u64 {
         .sum()
 }
 
-/// Writes BOTH derived planes atomically + in lockstep from one streaming projection (C2, 05 §10).
+/// Writes BOTH derived planes atomically + in lockstep from one streaming projection (05 §10).
 ///
 /// Opens the binary + int8 temp files, writes both magic + JSON headers, then invokes `project` with a
 /// single closure that — per source `(content_key, f32)` — appends ONE binary record and ONE int8
@@ -500,7 +500,7 @@ fn write_planes_atomic(
         let mut binary_writer = open_plane_writer(&binary_tmp, &BINARY_PLANE_MAGIC, &header)?;
         let mut int8_writer = open_plane_writer(&int8_tmp, &INT8_PLANE_MAGIC, &header)?;
         // The lockstep sink: binarize + int8-quantize the SAME f32 record into both writers in the
-        // SAME order, so the planes stay positionally aligned by content_key (C1/C2 invariant).
+        // SAME order, so the planes stay positionally aligned by content_key (the lockstep invariant).
         let mut record_buf: Vec<u8> = Vec::new();
         let mut sink = |key: u64, vector: &[f32]| -> Result<()> {
             let bits = binarize(vector);
@@ -787,7 +787,7 @@ mod tests {
 
     #[test]
     fn streaming_lockstep_projection_keeps_binary_and_int8_positionally_aligned() {
-        // C1/C2: the load-bearing invariant. After the streaming lockstep projection, int8 position i
+        // The load-bearing invariant. After the streaming lockstep projection, int8 position i
         // must be the SAME content_key as binary position i, and `Int8PlaneReader::record_at(i)` must
         // recover exactly that key's quantized vector — this is what makes int8 seek-by-position (rather
         // than a resident int8 plane) correct. A torn-resume duplicate of key 10 also proves the

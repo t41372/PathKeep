@@ -18,7 +18,7 @@
 
 ## 巨型檔案清單（2026-10-02 量測）
 
-> 量測方式：版本庫追蹤中的 `src/`、`src-tauri/` 下 `.ts` / `.tsx` / `.rs` / `.css` / `.sql` / `.mjs` 檔，`wc -l`，列出 1000 行以上的（AGENTS.md：重構超過 1000 行的檔案前，先做審查階段）。量測時是 `redesign/v0.4` 的 `5edf5645`；同時有其他分支在改 Rust，行數會有小幅出入。
+> 量測方式：版本庫追蹤中的 `src/`、`src-tauri/` 下 `.ts` / `.tsx` / `.rs` / `.css` / `.sql` / `.mjs` 檔，`wc -l`，列出 1000 行以上的（AGENTS.md：重構超過 1000 行的檔案前，先做審查階段）。量測對象是 v0.4 redesign 的代碼；當時另有工作在改 Rust，行數會有小幅出入。
 > 「程式碼」的行數包含同檔的 `#[cfg(test)]` 區塊。舊表中 `vault-core/src/intelligence_runtime.rs`、`vault-core/src/models.rs`、`vault-core/src/remote.rs`、`src/pages/intelligence/sections.tsx` 已不存在（前三個拆成目錄或刪除，最後一個隨舊前端刪除）。
 
 共 53 個檔案（2026-10-07 區塊 6 刪掉舊格式程式碼後，`archive/maintenance.rs`、`archive/schema.rs` 已刪除，`migration.rs`、`archive/at_rest.rs` 降到 1000 行以下，剩 49 個）。前端只有三個：兩個是照原樣保留的 EvilCharts 圖表，一個是型別定義；手寫的畫面元件最大的是 `src/features/onboarding/onboarding-page.tsx`（441 行）。
@@ -160,7 +160,7 @@
 | remote backup bundles                 | zip artifact + manifest / checksum                | review-first portability artifact；不是 live source of truth                        |
 | `history_search` FTS projection       | SQLite FTS5 rebuildable projection                | fast-path search index；不是 canonical archive table                                |
 
-### AI-redesign-2026 模組大小盤點（2026-06-21 / `feat/ai-redesign-2026`）
+### AI-redesign-2026 模組大小盤點（2026-06-21）
 
 > `ai.rs` 已不再是早期 baseline 表裡的 2116-行 mega-file：它已拆成 `ai/` submodule tree，主檔本身只剩 ~320 行 orchestration / 共用型別。
 > AI-redesign-2026 引進了一批新大檔。先校準一次「哪些只是被 `#[cfg(test)]` 撐大、哪些是真問題」，免得它們悄悄滑出 size budget。
@@ -176,7 +176,7 @@
 
 **真正的問題項（已處理）**：
 
-- 舊 `vault-core/src/ai/indexing.rs` ~1001 行、`single_responsibility=false`，是這批裡唯一的 genuine oversized-file。已於 `feat/ai-redesign-2026` 拆成 [`ai/indexing/`](../../../src-tauri/crates/vault-core/src/ai/indexing) module tree：`mod.rs`（orchestration 共用型別 + 測試支援 `collect_visits_to_index`）、`backfill.rs`（resumable embed loop + `DedupTracker`）、`candidates.rs`（候選收集 + 純 `select_embed_targets`）、`store_rows.rs`（`ai_embeddings` SQLite helpers + batch 校驗）、`content.rs`（embedding-content 與 enrichment→dedup-hash seam）。最大檔 `backfill.rs` ~792 行（含 ~184 行 test）。同時把 crash/resume dedup 三個 locals（`persisted_keys` / `persisted_hashes` / `mapped_ids`）封進 `DedupTracker`，並補上 4 個直接針對 crash-window 不變量的單元測試（MEDIUM-4 u64 碰撞、CRITICAL-2 resume skip、MEDIUM-5 incremental map-not-re-embed、`load_existing` 載入門檻），補足 audit 標出的測試缺口。public API（`build_ai_index` / `build_ai_index_with_control`）與 `pub(super)` surface 不變，`ai.rs` import 未動，既有 resume/dedup integration tests 全綠。
+- 舊 `vault-core/src/ai/indexing.rs` ~1001 行、`single_responsibility=false`，是這批裡唯一的 genuine oversized-file。已拆成 [`ai/indexing/`](../../../src-tauri/crates/vault-core/src/ai/indexing) module tree：`mod.rs`（orchestration 共用型別 + 測試支援 `collect_visits_to_index`）、`backfill.rs`（resumable embed loop + `DedupTracker`）、`candidates.rs`（候選收集 + 純 `select_embed_targets`）、`store_rows.rs`（`ai_embeddings` SQLite helpers + batch 校驗）、`content.rs`（embedding-content 與 enrichment→dedup-hash seam）。最大檔 `backfill.rs` ~792 行（含 ~184 行 test）。同時把 crash/resume dedup 三個 locals（`persisted_keys` / `persisted_hashes` / `mapped_ids`）封進 `DedupTracker`，並補上 4 個直接針對 crash-window 不變量的單元測試（u64 content_key 碰撞、resume 時跳過已寫入的 chunk、incremental 只補 map 不重新 embed、`load_existing` 載入門檻），補足之前缺的 crash-window 測試。public API（`build_ai_index` / `build_ai_index_with_control`）與 `pub(super)` surface 不變，`ai.rs` import 未動，既有 resume/dedup integration tests 全綠。
 
 **honest coupling（暫不拆，touch 時順手拆）**：
 

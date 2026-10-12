@@ -1,6 +1,6 @@
 # Large-result keyword search: research report (2026-10-04)
 
-> Measured by Codex (GPT 6 astra) for [large-result-search-tradeoff.md](../large-result-search-tradeoff.md). Links to `results/`, `src/` and other prototype files point to the research checkout, which was not kept.
+> Measured on an Apple M5 Max (18 logical CPUs, 64 GB, macOS 27.0.1) on 2026-10-04, for [large-result-search-tradeoff.md](../large-result-search-tradeoff.md). Links to `results/`, `src/` and other prototype files point to the research checkout, which was not kept.
 
 Use a rebuildable Tantivy sidecar for relevance ranking, preserve exact filter and URL-group semantics, and run exact counting separately. On the complete 14.4M-visit fixture, Tantivy returned the first and next 100 common-word results in 54.55 / 53.41 ms with recency breaking relevance ties; its separate exact page count took 3.08 ms. The simpler score-only Block-WAND path took 6.27 / 6.15 ms, but that changes the tie order. Tuned FTS5 took 1,132 / 1,156 ms and 267 ms for counting in the narrower engine benchmark. No candidate window is necessary. This supports a Tantivy integration experiment, not a claim that every query is fast or that the 4-core, 8 GB target is certified: duplicate-URL grouping, full product scoring, cold encrypted reads and target hardware still need validation.
 
@@ -159,6 +159,6 @@ Still unmeasured: actual 4-core/8 GB hardware and memory pressure; real multilin
 
 ## Reproduction and cleanup
 
-Run `./research/large-result-search/run.sh` from this checkout. It builds the locked standalone release project, runs suites in order, validates the evidence and removes its data, target and isolated Cargo cache on exit. It refuses to overwrite existing scratch directories. Compare regenerated `results/summary.json` with this report; its prose and tables describe this session’s observations. The script's sequential rebuild will not reproduce this session's external load or exact medians.
+Run `./research/large-result-search/run.sh` from this checkout. It builds the locked standalone release project, runs suites in order, validates the evidence and removes its data, target and isolated Cargo cache on exit. It refuses to overwrite existing scratch directories. Compare regenerated `results/summary.json` with this report; its prose and tables describe the 2026-10-04 run’s observations. The script's sequential rebuild will not reproduce that run’s external load or exact medians.
 
 All generated archives, FTS databases, plaintext/encrypted Tantivy indexes, build targets and the isolated Cargo cache were removed after measurement. Retained artifacts are source, Cargo manifest/lockfile, scripts, logs and this report. No product files were changed; no commit, push or PR was created.

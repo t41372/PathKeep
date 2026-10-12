@@ -797,7 +797,7 @@ mod tests {
     }
 
     // Triggers the coverage-only forced-error branch in `embed_impl` so it is not dead code under
-    // the coverage gate (LOW-9). The branch fires when the provider id contains `embed-http-error`,
+    // the coverage gate. The branch fires when the provider id contains `embed-http-error`,
     // standing in for a transport failure the real `#[cfg(not(any(test, coverage)))]` HTTP path
     // would surface — the stub cannot otherwise produce one. Under plain `test` (no `coverage`) the
     // branch is compiled out, so this test only exists in coverage builds.

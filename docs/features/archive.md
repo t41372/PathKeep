@@ -152,7 +152,7 @@ M18 redesign（2026-10-02）換掉了整個前端。下面各節的後端行為�
 Settings → General 的兩個開關。
 
 - **開機時啟動**：登入時啟動 PathKeep。是否已註冊只看 OS（登入項目），PathKeep 的 config 不另存一份。
-  - macOS：PathKeep 自己寫 `~/Library/LaunchAgents/com.yi-ting.pathkeep.login.plist`，內容是 `/usr/bin/open -g -a PathKeep.app --args --launched-at-login`。不用 `tauri-plugin-autostart` 的 LaunchAgent，因為它讓 launchd 直接執行 app 內的 GUI binary，macOS 26 會以 Launch Constraint Violation 殺掉（排程備份在 `167d1aa8` 修過同一個問題）。不呼叫 `launchctl`，下次登入才生效。App 搬家後，下次啟動會把 plist 改指到新位置。
+  - macOS：PathKeep 自己寫 `~/Library/LaunchAgents/com.yi-ting.pathkeep.login.plist`，內容是 `/usr/bin/open -g -a PathKeep.app --args --launched-at-login`。不用 `tauri-plugin-autostart` 的 LaunchAgent，因為它讓 launchd 直接執行 app 內的 GUI binary，macOS 26 會以 Launch Constraint Violation 殺掉（排程備份之前修過同一個問題）。不呼叫 `launchctl`，下次登入才生效。App 搬家後，下次啟動會把 plist 改指到新位置。
   - Windows / Linux：`tauri-plugin-autostart`（登錄檔 `Run` 值 / XDG autostart `.desktop`），同樣帶 `--launched-at-login`。
 - **選單列圖示**：macOS 選單列 / Windows、Linux 系統匣。偏好存在 `AppConfig.menuBarIcon`（預設關），下次啟動照設定還原。選單：備份狀態（不可點）、立即備份、搜尋歷史…、打開 PathKeep、分隔線、結束 PathKeep。文字跟隨 `preferredLanguage`；「跟隨系統」時讀 OS 語言（與前端 `detectSystemLanguage` 同規則）。
   - 狀態行：備份中… / N 分鐘前已備份 / 備份失敗 / 還沒有備份過 / 尚未設定 / 暫時無法讀取備份狀態。來源是 app 內的備份（視窗或選單觸發，走同一條路徑）、啟動時讀一次 archive 的最後成功時間，以及每 5 分鐘讀一次排程備份 ledger（sidecar 在另一個 process 跑）。相對時間每分鐘重畫，不做 I/O。

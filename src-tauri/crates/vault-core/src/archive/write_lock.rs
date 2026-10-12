@@ -37,8 +37,8 @@
 //!   stub that fails loudly rather than silently pretending to serialize.
 //!
 //! ## Why this exists (the write-serialization contract)
-//! The 2026-06-30 data-integrity audit confirmed two CRITICAL data-corruption
-//! findings that share one root cause — there is no lock anywhere that a backup
+//! The 2026-06-30 data-integrity work found two critical data-corruption
+//! bugs that share one root cause — there is no lock anywhere that a backup
 //! and a rekey both respect:
 //!   * "Scheduled-backup races GUI rekey with no lock", and
 //!   * "No lock between rekey and an in-flight backup -> committed rows land in
@@ -56,7 +56,7 @@
 //! archive database file MUST hold this lock for its whole duration:
 //! **rekey, backup, import, retention-prune, reconcile, and snapshot-restore.**
 //!
-//! ## The in-process top-level gate ([`ArchiveOpGate`]) — CRIT-5's same-process variant
+//! ## The in-process top-level gate ([`ArchiveOpGate`]) — the same-process variant
 //! [`ArchiveWriteLock`] is process-REENTRANT BY DESIGN (so `backup -> reconcile`
 //! nesting never self-deadlocks), which means it serializes only ACROSS processes.
 //! Two destructive ops dispatched in the SAME GUI process — e.g. a manual backup
@@ -64,7 +64,7 @@
 //! or triggers an import from Settings — each get a reentrant guard sharing ONE fd,
 //! so they are NOT mutually excluded. One op's `fs::rename` can then pull the
 //! canonical DB out from under the other's open write transaction; on macOS the
-//! committed rows land in the renamed-away inode = silent loss (CRIT-5, same-process
+//! committed rows land in the renamed-away inode = silent loss (same-process
 //! trigger). The cross-process flock cannot close this — it IS the same process.
 //!
 //! [`ArchiveOpGate`] layers a second, NON-reentrant mutual exclusion ABOVE the
@@ -224,7 +224,7 @@ impl Drop for ArchiveWriteLock {
     /// this process, it removes the registry entry AND releases the OS lock — in
     /// that order, both WHILE HOLDING the manager mutex.
     ///
-    /// MEDIUM-1: doing release under the same mutex that [`ArchiveWriteLock::try_acquire`]
+    /// Doing release under the same mutex that [`ArchiveWriteLock::try_acquire`]
     /// takes, and removing the map entry BEFORE the fd unlocks, makes "entry
     /// absent" happen-before "fd unlocked". A concurrent `try_acquire` therefore
     /// can never observe {no live entry, fd still `flock`'d} and mistake this
@@ -245,7 +245,7 @@ impl Drop for ArchiveWriteLock {
             // ref can appear between this check and the release below.
             if let Some(inner) = Arc::into_inner(owner) {
                 // Remove the map entry FIRST, then release the OS lock: the
-                // happens-before that closes MEDIUM-1.
+                // happens-before that rules out a spurious `Ok(None)`.
                 locks.remove(&inner.path);
                 // `LockInner::Drop` runs `LOCK_UN` and the fd closes — both
                 // non-blocking — still under the manager mutex.
@@ -340,7 +340,7 @@ impl ArchiveWriteLock {
     }
 }
 
-// --- in-process top-level op gate (NON-reentrant; CRIT-5 same-process variant) -------------------
+// --- in-process top-level op gate (NON-reentrant; same-process variant) -------------------
 
 /// Process-global record of which archives have a TOP-LEVEL destructive op in flight
 /// IN THIS PROCESS, paired with a condvar so a blocking [`ArchiveOpGate::acquire`]
@@ -363,7 +363,7 @@ fn op_gate() -> &'static (Mutex<HashSet<PathBuf>>, Condvar) {
 /// ## Why this layer exists
 /// See the module-level "The in-process top-level gate" note: [`ArchiveWriteLock`] is
 /// process-REENTRANT, so two destructive ops dispatched in ONE process each get a
-/// reentrant guard and are NOT mutually excluded — the CRIT-5 same-process rename-out-
+/// reentrant guard and are NOT mutually excluded — the same-process rename-out-
 /// from-under-an-open-transaction loss. This gate is a process-global, NON-reentrant,
 /// keyed-by-archive mutual exclusion the TOP-LEVEL ops take so two of them in one process
 /// serialize. The cross-process flock cannot do this (it is the same process).
@@ -438,7 +438,7 @@ impl Drop for ArchiveOpGate {
 /// Resolves the archive write-lock path: a hidden sentinel beside the canonical
 /// archive database, so every process derives the identical contended path.
 ///
-/// LOW-3: the `expect` is acceptable here — `archive_database_path` is always a
+/// The `expect` is acceptable here — `archive_database_path` is always a
 /// `<root>/archive/<file>` layout that has a parent (see `project_paths_with_root`),
 /// so a `None` parent is structurally impossible. Returning `Result` would add an
 /// error arm that no caller can ever trigger.
@@ -488,7 +488,7 @@ fn try_lock_exclusive(_file: &File) -> Result<bool> {
 /// Separated from [`try_lock_exclusive`] so the error arm can be exercised
 /// against the REAL syscall with an invalid fd (the coverage gate forbids
 /// stubbing out production I/O). `LOCK_NB` maps "already held" `EWOULDBLOCK` to
-/// `Ok(false)` so try-acquire can defer; `EINTR` (LOW-1: a signal interrupted the
+/// `Ok(false)` so try-acquire can defer; `EINTR` (a signal interrupted the
 /// call before it resolved) is retried because `flock` is safe to repeat; any
 /// other errno is a genuine failure.
 #[cfg(unix)]
@@ -523,7 +523,7 @@ fn flock_try_exclusive(fd: RawFd) -> Result<bool> {
     }
 }
 
-// --- best-effort non-local-volume detection (MEDIUM-1) -------------------------------------------
+// --- best-effort non-local-volume detection -------------------------------------------
 
 /// Emits a loud, best-effort warning when the archive sentinel lives on a volume
 /// where `flock` may not actually serialize across machines/processes.
@@ -585,7 +585,7 @@ fn archive_volume_fstype(path: &Path) -> Option<String> {
 #[cfg(all(unix, any(target_os = "macos", target_os = "ios")))]
 fn real_volume_fstype(path: &Path) -> Option<String> {
     use std::os::unix::ffi::OsStrExt;
-    // LOW-2: a path with an interior NUL byte must NOT panic here — this runs
+    // A path with an interior NUL byte must NOT panic here — this runs
     // under the manager mutex (acquire -> warn), so a panic would poison it and
     // cascade-panic every future acquire. Treat an unrepresentable path as
     // "unknown / local" (None), the same as any other detection failure.
@@ -711,7 +711,7 @@ mod tests {
 
     #[test]
     fn try_acquire_right_after_the_last_drop_wins_never_spuriously_defers() {
-        // MEDIUM-1 (deterministic): `try_acquire`'s `Ok(None)` is reserved for
+        // Deterministic: `try_acquire`'s `Ok(None)` is reserved for
         // ANOTHER OS PROCESS holding the lock. Dropping the last guard removes the
         // registry entry AND releases the fd as one step under the manager mutex,
         // so the very next `try_acquire` in THIS process must win a guard, never
@@ -730,7 +730,7 @@ mod tests {
 
     #[test]
     fn last_guard_drop_is_observable_to_a_concurrent_try_acquire() {
-        // MEDIUM-1 (concurrent proof): one thread drops the last guard while
+        // Concurrent proof: one thread drops the last guard while
         // another races to `try_acquire`. Because `Drop` removes the registry
         // entry BEFORE it releases the fd, both under the manager mutex the racing
         // acquire must also take, that acquire can never observe {entry absent, fd
@@ -772,7 +772,7 @@ mod tests {
 
     #[test]
     fn nested_same_process_acquire_is_reentrant_and_never_hangs() {
-        // HIGH-1: a nested same-process acquire must SUCCEED (reentrant) and must
+        // A nested same-process acquire must SUCCEED (reentrant) and must
         // NOT hang. We run the nesting on a worker thread under a watchdog so a
         // regression to the self-deadlock fails fast instead of wedging the suite.
         let dir = tempdir().expect("tempdir");
@@ -802,7 +802,7 @@ mod tests {
 
         done_rx
             .recv_timeout(Duration::from_secs(10))
-            .expect("nested same-process acquire deadlocked (HIGH-1 regression)");
+            .expect("nested same-process acquire deadlocked; the lock must stay reentrant");
         handle.join().expect("worker thread");
 
         // Once every nested guard has dropped, the lock is free again.
@@ -811,7 +811,7 @@ mod tests {
 
     #[test]
     fn distinct_open_file_descriptions_exclude_each_other() {
-        // Cross-process exclusion proof (LOW-4b): two distinct open file
+        // Cross-process exclusion proof: two distinct open file
         // descriptions of the same path conflict EVEN within this one process —
         // the exact OS mechanism that gives cross-PROCESS exclusion (each process
         // opens its own description). Driven against the REAL syscall, no stubs.
@@ -886,7 +886,7 @@ mod tests {
 
     #[test]
     fn flock_try_exclusive_retries_after_a_signal_interruption() {
-        // LOW-1: an EINTR must be retried, not surfaced. The injected EINTR drives
+        // An EINTR must be retried, not surfaced. The injected EINTR drives
         // the retry branch; the next iteration runs the real syscall and wins.
         let dir = tempdir().expect("tempdir");
         let paths = project_paths_with_root(dir.path());
@@ -919,7 +919,7 @@ mod tests {
 
     #[test]
     fn acquire_interruptible_polls_until_the_lock_frees() {
-        // MEDIUM-2: the first attempt defers (injected EWOULDBLOCK as if another
+        // The first attempt defers (injected EWOULDBLOCK as if another
         // process held it), then the poll loop sleeps and the next attempt wins.
         // `timeout: None` also exercises the no-deadline branch of the loop.
         let dir = tempdir().expect("tempdir");
@@ -935,7 +935,7 @@ mod tests {
 
     #[test]
     fn acquire_interruptible_times_out_when_the_deadline_passes() {
-        // MEDIUM-2: a zero budget with the lock "held elsewhere" must defer rather
+        // A zero budget with the lock "held elsewhere" must defer rather
         // than block, exercising the deadline-reached branch.
         let dir = tempdir().expect("tempdir");
         let paths = project_paths_with_root(dir.path());
@@ -950,7 +950,7 @@ mod tests {
 
     #[test]
     fn acquire_interruptible_honors_cancellation() {
-        // MEDIUM-2: a pre-set cancel flag abandons the acquire immediately.
+        // A pre-set cancel flag abandons the acquire immediately.
         let dir = tempdir().expect("tempdir");
         let paths = project_paths_with_root(dir.path());
 
@@ -962,7 +962,7 @@ mod tests {
 
     #[test]
     fn non_local_volume_is_detected_and_local_is_not() {
-        // MEDIUM-1: the warning fires for a network filesystem label and stays
+        // The warning fires for a network filesystem label and stays
         // silent for a local one (or when detection is unavailable).
         let dir = tempdir().expect("tempdir");
         let paths = project_paths_with_root(dir.path());
@@ -994,7 +994,7 @@ mod tests {
 
     #[test]
     fn archive_volume_fstype_reads_the_real_volume() {
-        // MEDIUM-1: the real `statfs` path runs (no override). A tempdir on a local
+        // The real `statfs` path runs (no override). A tempdir on a local
         // disk must not look non-local; an unstattable path returns None safely.
         let dir = tempdir().expect("tempdir");
         let lock_path = lock_file_path(&project_paths_with_root(dir.path()));
@@ -1014,7 +1014,7 @@ mod tests {
 
     #[test]
     fn real_volume_fstype_returns_none_for_a_path_with_an_interior_nul() {
-        // LOW-2: an interior-NUL path must NOT panic. The detection runs under the
+        // An interior-NUL path must NOT panic. The detection runs under the
         // manager mutex (acquire -> warn), so a panic would poison that mutex and
         // cascade-panic every future acquire. `CString::new` rejects the interior
         // NUL and we return None (treated as "unknown / local"). On non-macOS unix
@@ -1045,7 +1045,7 @@ mod tests {
 
     #[test]
     fn op_gate_is_mutually_exclusive_in_process() {
-        // CRIT-5 (same-process): the in-process top-level gate is a NON-reentrant
+        // Same-process: the in-process top-level gate is a NON-reentrant
         // mutual exclusion. While one top-level op holds it, a SECOND top-level acquire
         // for the same archive is refused; once the holder drops, the gate is free again.
         // Proven with the deterministic `try_acquire` probe — no sleep-as-synchronization.

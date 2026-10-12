@@ -183,7 +183,7 @@ export interface AiSettings {
  * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
  */
 /**
- * One stable, locale-independent index-health warning CODE (review-fix M-7). Mirrors the Rust
+ * One stable, locale-independent index-health warning CODE. Mirrors the Rust
  * `AiIndexWarning` (`#[serde(tag = "code", rename_all = "camelCase")]`). Interpolated variants carry
  * their params STRUCTURALLY (provider id / name) so the FE composes the localized string; `buildFailed`
  * carries the opaque transport reason (no fixed vocabulary). The FE maps ALL variants to localized
@@ -288,7 +288,7 @@ export interface AiIndexStatus {
    */
   warning?: string | null
   /**
-   * Stable index-health warning CODE (review-fix M-7), additive (mirrors Rust
+   * Stable index-health warning CODE, additive (mirrors Rust
    * `#[serde(default, skip_serializing_if)]`). The FE maps ALL variants to localized copy.
    */
   warningCode?: AiIndexWarning | null
@@ -421,7 +421,7 @@ export interface AiQueueStatus {
    * Queued/paused/stale count NARROWED to semantic-index jobs (index-build +
    * index-clear). The Smart-search build callout keys its phase off this so an
    * in-flight assistant chat job — counted in the aggregate `queued`/`running`
-   * above — never reads as build progress (M-5).
+   * above — never reads as build progress.
    */
   indexQueued: number
   /**
@@ -710,14 +710,14 @@ export interface AiSearchResultItem {
  * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
  */
 /**
- * Why the semantic index is stale (review-fix M-6/M-7). Stable, locale-independent reason CODE shared
+ * Why the semantic index is stale. Stable, locale-independent reason CODE shared
  * by the AI-search degradation notes and the Settings index-health warning. Mirrors the Rust
  * `AiSemanticStaleness` (`#[serde(rename_all = "camelCase")]`). The FE NEVER renders these raw.
  */
 export type AiSemanticStaleness = 'watermark' | 'enrichment'
 
 /**
- * One stable, locale-independent AI-search degradation note CODE (review-fix M-6). Mirrors the Rust
+ * One stable, locale-independent AI-search degradation note CODE. Mirrors the Rust
  * `AiSearchNote` (`#[serde(tag = "code", rename_all = "camelCase")]`). The FE resolves each to
  * localized copy and NEVER renders these raw; the legacy English `AiSearchResponse.notes` are kept
  * only for the model-facing agent-tool path + the persisted run trace.
@@ -742,7 +742,7 @@ export interface AiSearchResponse {
    */
   notes: string[]
   /**
-   * Stable degradation note CODES (review-fix M-6), additive (mirrors Rust `#[serde(default)]`). One
+   * Stable degradation note CODES, additive (mirrors Rust `#[serde(default)]`). One
    * code per English note in `notes`, same order. The FE resolves each to localized copy.
    */
   noteCodes?: AiSearchNote[]
@@ -937,7 +937,7 @@ export type AiChatStreamChunk =
   | { kind: 'error'; message: string }
 
 /**
- * One stable, locale-independent USER-facing agent-harness control note CODE (review-fix M-6).
+ * One stable, locale-independent USER-facing agent-harness control note CODE.
  * Mirrors the Rust `AiAgentNote` (`#[serde(tag = "code", rename_all = "camelCase")]`), streamed inside
  * an `AiChatStreamChunk` `note` chunk. The FE resolves each to localized copy; these are the
  * user-facing twin of the harness's model-facing English (which stays English to steer the LLM). The

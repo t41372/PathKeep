@@ -766,7 +766,7 @@ async fn intelligence_report_invalid_args_are_rejected() {
 
 #[tokio::test]
 async fn intelligence_report_domain_trend_requires_domain() {
-    // L2 — the `domain` required-arg check must run BEFORE the readiness gate, so an omitted
+    // The `domain` required-arg check must run BEFORE the readiness gate, so an omitted
     // domain is an actionable arg ERROR (not the generic "not built" note) even on an empty plane.
     let (_dir, context) = context_with(None);
     let tool = IntelligenceReportTool;
@@ -784,7 +784,7 @@ async fn intelligence_report_domain_trend_requires_domain() {
 
 #[tokio::test]
 async fn intelligence_report_day_insights_requires_start_date() {
-    // L2 — the `start_date` required-arg check must run BEFORE the readiness gate (same as above).
+    // The `start_date` required-arg check must run BEFORE the readiness gate (same as above).
     let (_dir, context) = context_with(None);
     let tool = IntelligenceReportTool;
     let error = tool
@@ -954,8 +954,8 @@ async fn dispatch_list_annotations_via_registry() {
 }
 
 // ============================================================================================
-// LETHAL tests: char-boundary truncation (H2), intelligence_report success arms (B1/M3/L1/L2),
-// and list_stars / list_annotations over SEEDED data (H2 note truncation). Each asserts a real
+// Regression tests: char-boundary truncation, intelligence_report success arms,
+// and list_stars / list_annotations over SEEDED data (note truncation). Each asserts a real
 // result that a regression of the fix would break.
 // ============================================================================================
 
@@ -1007,8 +1007,8 @@ fn seed_session_visit(context: &AgentToolContext, session_id: &str, visit_id: i6
 #[tokio::test]
 async fn intelligence_report_top_sites_returns_seeded_domain_all_time() {
     // Test 3 — top_sites over a READY plane returns the seeded domain. Omitted dates exercise the
-    // B1 all-time path (the rollup date_key 2024-04-01 must fall inside the substituted
-    // [1900-01-01, today] window; before B1 the `""` start made `date_key <= ""` match nothing).
+    // all-time path (the rollup date_key 2024-04-01 must fall inside the substituted
+    // [1900-01-01, today] window; before the fix the `""` start made `date_key <= ""` match nothing).
     let (_dir, context) = context_with(None);
     seed_ready_intelligence(&context);
     let tool = IntelligenceReportTool;
@@ -1048,7 +1048,7 @@ async fn intelligence_report_sessions_returns_seeded_session_all_time() {
 
 #[tokio::test]
 async fn intelligence_report_overview_returns_data_all_time() {
-    // Test 3 — overview over a READY plane returns its all-time snapshot WITHOUT error (B1: the
+    // Test 3 — overview over a READY plane returns its all-time snapshot WITHOUT error (the
     // all-time path needs start == "1900-01-01"; the omitted dates substitute exactly that, and
     // `is_all_time_range` recognizes it to load/build the snapshot rather than erroring).
     let (_dir, context) = context_with(None);

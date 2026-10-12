@@ -81,7 +81,7 @@ It removed its generated root and verified `cleanup.exists == false`.
 
 ```sh
 CARGO_NET_OFFLINE=true \
-CARGO_TARGET_DIR=/private/tmp/claude-501/-Users-tim-LocalData-coding-2026-Lab-8-chrome-history-backup/85e937dc-2f0e-437b-bd84-695aae6aae8c/scratchpad/shared-target-area3 \
+CARGO_TARGET_DIR=/tmp/pathkeep-target \
 cargo test --release --manifest-path src-tauri/Cargo.toml -p vault-core --lib \
   search::benchmark::encrypted_archive_search -- --ignored --exact --nocapture --test-threads=1
 ```

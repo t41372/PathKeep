@@ -25,7 +25,7 @@ Chosen 2026-10-02. It replaces the orange square/timeline mark.
 
 ### Brand mark in the app
 
-`src/components/brand-mark.tsx` imports `src/assets/pathkeep-mark.svg`, so swapping that file is enough for that component. `src/components/shell/pk-brand-mark.tsx` draws the old mark's shape inline. Its header says it mirrors the SVG exactly, so it has to be redrawn from `source/mark-*.svg`, using the two `<path>` elements `#mountain` and `#road`. In the redesign project (claude.ai/design), `assets/pathkeep-mark.svg` is also still the old mark.
+`src/components/brand-mark.tsx` imports `src/assets/pathkeep-mark.svg`, so swapping that file is enough for that component. `src/components/shell/pk-brand-mark.tsx` draws the old mark's shape inline. Its header says it mirrors the SVG exactly, so it has to be redrawn from `source/mark-*.svg`, using the two `<path>` elements `#mountain` and `#road`. In the 2026-10 prototype project, `assets/pathkeep-mark.svg` is also still the old mark.
 
 ### Menu-bar icon
 

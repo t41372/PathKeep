@@ -1052,7 +1052,7 @@ fn content_fetch_job_due_respects_version_and_negative_cache() {
 
 #[test]
 fn content_fetch_job_due_compares_timestamps_as_instants_at_the_boundary_second() {
-    // CORR-4: `refetch_after` is `...Secs, true` (`...56Z`) while "now" carries fractional secs + a
+    // `refetch_after` is `...Secs, true` (`...56Z`) while "now" carries fractional secs + a
     // numeric offset (`...56.789+00:00`); a lexical compare ('Z' > '.') would mis-read a due row as
     // not-due at the boundary second. Parsing to instants fixes it: a refetch_after that is the SAME
     // wall-clock second as (but slightly before) now must read DUE.
@@ -1091,7 +1091,7 @@ fn content_fetch_job_due_compares_timestamps_as_instants_at_the_boundary_second(
 
 #[test]
 fn requeue_content_fetch_job_after_returns_a_running_row_to_queued() {
-    // SEC-2: a rate-limited (running) job is requeued with a FUTURE scheduled_at, NOT cancelled, so the
+    // A rate-limited (running) job is requeued with a FUTURE scheduled_at, NOT cancelled, so the
     // queued-only drain re-picks it when due. A non-running row is a no-op.
     let vault = crate::Vault::open_temp().unwrap();
     vault
@@ -1130,7 +1130,7 @@ fn requeue_content_fetch_job_after_returns_a_running_row_to_queued() {
 
 #[test]
 fn next_content_fetch_schedule_eta_reports_soonest_future_then_none() {
-    // SEC-2 worker hook: a future-scheduled queued content-fetch job surfaces its ETA; an empty queue
+    // Worker hook: a future-scheduled queued content-fetch job surfaces its ETA; an empty queue
     // (or only DUE rows) reports None.
     let vault = crate::Vault::open_temp().unwrap();
     vault

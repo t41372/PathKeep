@@ -135,7 +135,7 @@ impl TokenBucket {
     /// Seconds until the bucket holds one whole token again (0 when one is already available).
     ///
     /// PURE (time injected): refills for elapsed time, then returns the wait for the next token. The
-    /// deferred-job ETA (SEC-2) is rounded UP to whole seconds so a job is never re-scheduled a hair
+    /// deferred-job ETA is rounded UP to whole seconds so a job is never re-scheduled a hair
     /// before a token is actually available (which would burn another empty drain). At GitHub's 60/hr
     /// refill this is ≈ 60s when the bucket is empty.
     pub(crate) fn next_token_eta_secs(&mut self, now: Instant) -> u64 {
@@ -181,7 +181,7 @@ pub(crate) fn acquire_host_token(host: &str) -> bool {
     bucket.try_take(now)
 }
 
-/// Seconds until `host` would grant the next token (the requeue ETA for a throttled job, SEC-2).
+/// Seconds until `host` would grant the next token (the requeue ETA for a throttled job).
 ///
 /// Reads the SAME process-global bucket [`acquire_host_token`] consumes, so a job that just failed to
 /// acquire a token can ask "when will one be free?" and re-schedule itself then (rather than being
@@ -219,7 +219,7 @@ pub(crate) fn hold_host(host: &str, wait: Duration) {
 /// Resets a host's bucket to FULL (test-only), isolating rate-limit assertions from cross-test state.
 ///
 /// The bucket registry is process-global, so tests that fetch GitHub (which now consume the shared
-/// `api.github.com` bucket, SEC-1) would race on its token count. This refills a named host's bucket so
+/// `api.github.com` bucket) would race on its token count. This refills a named host's bucket so
 /// each test starts from a known-full state without disabling the production limiter.
 #[cfg(test)]
 pub(crate) fn reset_host_bucket_for_test(host: &str) {

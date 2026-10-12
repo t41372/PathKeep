@@ -151,7 +151,7 @@ The slice rated this A?. I rate it A.
 - **Why it is wrong:** the module header says "Preserve shared serde tags and camelCase field names"
   (`shared.rs:6`). The TypeScript type expects `canonicalUrl`, `familyId` and the rest
   (`src/lib/core-intelligence/types-primitives.ts:110-138`). `models/intelligence.rs:2321` records the same
-  bug class as review H-1. The impact is latent: the producers (embed cards, widget, public snapshot)
+  bug class as an earlier camelCase regression. The impact is latent: the producers (embed cards, widget, public snapshot)
   have no screen today (`docs/architecture/desktop-command-surface.md:167`).
 - **Action:** fix the code (`rename_all_fields = "camelCase"`) and expect `canonicalUrl`.
 
@@ -1395,7 +1395,7 @@ How they are gated:
 | ai_chat_stream_event_channel_is_pinned                                    | 2171 | C   | Const equals its own literal; does not check the TS side                                     | none                                                                                         | delete                                        |
 | ai_chat_stream_chunk_variants_serialize_with_kind_tag                     | 2177 | D   | Tauri-event wire shape; dev bridge cannot deliver events, so no E2E can; TS is hand-mirrored | none possible                                                                                | keep                                          |
 | ai_chat_stream_chunk_w_ai_7_additive_variants_serialize_with_kind_tag     | 2208 | D   | Same contract for toolCall/toolResult/usage/citations                                        | none possible                                                                                | keep; drop "byte-identical to before" framing |
-| model_download_progress_event_wires_camel_case_fields                     | 2320 | D   | Regression for review H-1 (fields went snake_case → `undefined` in UI)                       | none possible                                                                                | keep                                          |
+| model_download_progress_event_wires_camel_case_fields                     | 2320 | D   | Regression (fields went snake_case → `undefined` in UI)                                      | none possible                                                                                | keep                                          |
 | ai_citation_omits_canonical_url_on_the_legacy_path                        | 2367 | D   | Citations are persisted (`ai/read_model.rs:440` parses stored JSON); old rows must load      | none                                                                                         | keep the deserialize half                     |
 | ai_chat_role_serializes_kebab_case                                        | 2398 | C   | Restates `rename_all`                                                                        | none                                                                                         | delete                                        |
 | ai_chat_send_request_uses_camel_case_keys                                 | 2406 | C   | Restates `rename_all`                                                                        | none                                                                                         | delete                                        |
@@ -1426,7 +1426,7 @@ How they are gated:
 
 | Test                                                                  | Line | Cat | Reason                                                                               | E2E coverage                                                       | Action                      |
 | --------------------------------------------------------------------- | ---- | --- | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------ | --------------------------- |
-| section_window_serializes_with_camel_case_variant_fields              | 26   | D   | Guards manual per-field renames (the H-1 bug class)                                  | insights.spec reads sections, not the window shape                 | keep                        |
+| section_window_serializes_with_camel_case_variant_fields              | 26   | D   | Guards manual per-field renames (the camelCase regression class)                     | insights.spec reads sections, not the window shape                 | keep                        |
 | calendar_day_history_window_serializes_with_camel_case_reference_date | 44   | D   | Same, other variant                                                                  | as above                                                           | keep (could merge with 26)  |
 | domain_deep_dive_request_accepts_legacy_domain_alias                  | 59   | C   | Alias nobody sends (frontend sends `registrableDomain`, `insights.ts:166`); IPC-only | insights-drill.spec "a site from Top sites..." uses the real field | delete (and drop the alias) |
 | entity_reference_serializes_with_existing_camel_case_tags             | 75   | A   | Pins snake_case `canonical_url` against the TS contract (see A4)                     | none                                                               | fix the code                |

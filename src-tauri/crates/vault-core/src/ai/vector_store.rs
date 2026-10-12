@@ -274,10 +274,10 @@ impl VectorStore {
     /// (each `content_key` emitted exactly once, in first-seen order, carrying its LATEST persisted
     /// vector) but never holds more than the dedup key-set + one reusable record buffer + the f32
     /// vector of the record currently being handed to `sink`. At 14.4M that key-set is ~115 MB and the
-    /// per-record vector is one row, so the plane projection (C2, 05 §3/§10) can stride the ~14.7 GB
+    /// per-record vector is one row, so the plane projection (05 §3/§10) can stride the ~14.7 GB
     /// f32 source straight into the binary + int8 plane writers without ever loading the source whole.
     ///
-    /// Last-writer-wins under streaming: a key seen a SECOND time (a torn-resume duplicate, CRITICAL-2)
+    /// Last-writer-wins under streaming: a key seen a SECOND time (a torn-resume duplicate)
     /// must win with its LATER vector, but the earlier emission has already gone to `sink`. So this
     /// makes ONE forward pass to record, per key, the byte offset of its LAST record, then a SECOND
     /// forward pass that emits each key exactly once (at its first-seen position) reading the vector
@@ -339,7 +339,7 @@ impl VectorStore {
     /// Streams the SET of `content_key`s currently persisted, without retaining any vectors.
     ///
     /// Used by the resumable backfill to skip re-appending a content_key whose vector is already on
-    /// disk (the crash-between-append-and-upsert window, CRITICAL-2): the loop loads this once on
+    /// disk (the crash-between-append-and-upsert window): the loop loads this once on
     /// resume and consults it before each append. Strides record-by-record like [`read_all`] but
     /// keeps only each key, so memory is one key-set plus a single reusable record buffer — never the
     /// whole store of vectors. A torn trailing record errors, mirroring [`read_all`], so a
@@ -682,7 +682,7 @@ mod tests {
 
     #[test]
     fn record_bytes_are_little_endian_id_then_f32_components() {
-        // MEDIUM-6: byte-pin the on-disk record so a symmetric write+read endianness mutant (which
+        // Byte-pin the on-disk record so a symmetric write+read endianness mutant (which
         // round-trips through `read_all` undetected) is killed. We read the raw file and assert the
         // exact little-endian layout of a known record: id (u64 LE) then each component (f32 LE).
         let dir = tempdir().expect("tempdir");
@@ -710,7 +710,7 @@ mod tests {
 
     #[test]
     fn read_all_dedupes_duplicate_ids_last_writer_wins() {
-        // CRITICAL-2 backstop / W-AI-5 contract: a torn resume can append a second copy of an id;
+        // Backstop / W-AI-5 contract: a torn resume can append a second copy of an id;
         // `read_all` must return a SET, keeping the LAST vector for that id in first-seen order.
         let dir = tempdir().expect("tempdir");
         let paths = project_paths_with_root(dir.path());
@@ -728,7 +728,7 @@ mod tests {
 
     #[test]
     fn read_records_streaming_equals_read_all_including_dedup_set() {
-        // C2: the streaming projection source must yield byte-identical (key, vector) records to
+        // The streaming projection source must yield byte-identical (key, vector) records to
         // `read_all` — same first-seen ORDER, same last-writer-wins dedup SET — so swapping the plane
         // projection from the resident `read_all` to the streaming reader changes nothing observable.
         let dir = tempdir().expect("tempdir");
@@ -817,7 +817,7 @@ mod tests {
 
     #[test]
     fn count_rejects_torn_data_region() {
-        // MEDIUM-8: a data region that is not a whole multiple of the record stride is a torn write;
+        // A data region that is not a whole multiple of the record stride is a torn write;
         // `count()` must error (mirroring `read_all`) rather than silently truncating the count.
         let dir = tempdir().expect("tempdir");
         let paths = project_paths_with_root(dir.path());

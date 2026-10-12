@@ -27,7 +27,7 @@ does not update frontend consumers.
 
 > **狀態：Accepted (2026-04-15 Core Intelligence reset baseline)**
 > **日期：2026-04-15**
-> **取代：** `deterministic-intelligence.md`（M5 baseline）、`intelligence.md` 中殘留的 deterministic/insights baseline 敘述、Codex 現有 insights 實現
+> **取代：** `deterministic-intelligence.md`（M5 baseline）、`intelligence.md` 中殘留的 deterministic/insights baseline 敘述、原有的 insights 實現
 > **前提：** 本方案不使用 LLM 和 Embedding。所有功能只基於可觀測的瀏覽器數據。
 
 > **2026-04-15 accepted note:** 這份文檔現在是 PathKeep Core Intelligence 的正式 source of truth。舊的 deterministic intelligence / insights 文檔保留為歷史背景與 optional-AI 邊界說明，不再定義 deterministic product contract。
@@ -59,7 +59,7 @@ does not update frontend consumers.
 
 ### 0.1 這份文件是什麼
 
-整合了五套方案——原始草稿、Claude Sonnet 4.6、Opus 4.6、Gemini 2.5/3.1、ChatGPT Pro——的所有有價值想法，經過 feasibility 分析、去重合併、與現有代碼庫對齊後，形成的終極設計。
+整合了原始草稿與另外四套獨立設計方案的所有有價值想法，經過 feasibility 分析、去重合併、與現有代碼庫對齊後，形成的終極設計。
 
 ### 0.2 所有方案都同意的三件事
 
@@ -1244,38 +1244,7 @@ CREATE TABLE path_flows (
 
 ---
 
-## 9. 各方案貢獻追溯
-
-| 功能                                          | 主要來源                                                |
-| --------------------------------------------- | ------------------------------------------------------- |
-| 架構基礎（任務隊列、rollup、canonical model） | Gemini 2.5 + Gemini 3.1 + GPT Pro（三方共識）           |
-| Site Dictionary / Rules Editor                | GPT Pro（最完整）+ 原始草稿                             |
-| 瀏覽會話                                      | Gemini 2.5（session 定義最完整）                        |
-| 搜索旅程                                      | Gemini 2.5 + 3.1 + GPT Pro（三方都提出，Gemini 最清晰） |
-| 搜索活動（取代 Top 搜索詞）                   | GPT Pro（重構最清楚）+ Claude + Gemini 3.1              |
-| 常重找的頁面                                  | GPT Pro（多維度信號 + explainability）                  |
-| 穩定答案來源                                  | GPT Pro                                                 |
-| 搜索效率分析                                  | Claude Sonnet 4.6                                       |
-| 碰壁偵測                                      | Gemini 3.1 + GPT Pro（弱證據 fallback）                 |
-| 反覆查的問題                                  | GPT Pro（Reopened Investigations）                      |
-| 瀏覽節奏熱圖                                  | Claude Sonnet 4.6                                       |
-| 探索率趨勢                                    | Claude Sonnet 4.6                                       |
-| 使用構成                                      | GPT Pro + Claude                                        |
-| 集中度分析                                    | Claude Sonnet 4.6（HHI/Gini）                           |
-| 習慣識別                                      | Claude Sonnet 4.6（CV 分析 + 中斷偵測）                 |
-| 導航溯源 + Hub 頁面                           | Claude Sonnet 4.6                                       |
-| 深度 Session                                  | Claude Sonnet 4.6                                       |
-| 常見路線                                      | GPT Pro                                                 |
-| 比較頁面組                                    | GPT Pro                                                 |
-| 多瀏覽器對比                                  | Claude Sonnet 4.6                                       |
-| 觀測互動模塊                                  | Gemini 3.1 + GPT Pro（capability-gated 設計）           |
-| 可解釋性面板                                  | GPT Pro                                                 |
-| 網站深度分析                                  | Gemini 2.5                                              |
-| 模塊化架構                                    | 原始草稿                                                |
-
----
-
-## 10. 一句話定義
+## 9. 一句話定義
 
 > **Core Intelligence 不是在猜你在想什麼，而是在大規模歷史資料中，用可解釋、可回溯、可增量重建的方式，把「搜索、路徑、重找、落點、習慣」這些高價值結構提取出來，讓你的瀏覽歷史從一條條 URL 變成一個個有上下文的故事。**
 

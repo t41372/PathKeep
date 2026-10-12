@@ -162,7 +162,7 @@ pub(crate) fn ai_index_status_from(
     })
 }
 
-/// Renders the English MODEL-facing / legacy text for an index-health warning CODE (review-fix M-7).
+/// Renders the English MODEL-facing / legacy text for an index-health warning CODE.
 ///
 /// The wire now carries the stable [`AiIndexWarning`] CODE so the FE localizes it; this keeps the
 /// legacy `AiIndexStatus.warning` string populated (for backward compatibility and any non-localizing

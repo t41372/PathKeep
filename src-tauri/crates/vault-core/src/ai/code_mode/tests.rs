@@ -199,7 +199,7 @@ fn search_plane_parsing_defaults_to_hybrid() {
 
 #[test]
 fn char_boundary_floor_never_splits_a_codepoint() {
-    // The C-2 truncation helper, unit-tested across every branch:
+    // The output truncation helper, unit-tested across every branch:
     // 中 = E4 B8 AD (3 bytes), 😀 = F0 9F 98 80 (4 bytes).
     let s = "中😀".as_bytes(); // [E4 B8 AD][F0 9F 98 80], len 7
     // cap at/past the end → the end is already a boundary (no walk-back).
@@ -342,9 +342,9 @@ fn query_history_rows_carry_local_time_fields() {
 
 #[test]
 fn query_history_in_the_sandbox_honors_the_date_range() {
-    // Test 1 (code_mode path, H1) — a sandbox `query_history({ startDate, endDate })` returns ONLY the
+    // Test 1 (code_mode path) — a sandbox `query_history({ startDate, endDate })` returns ONLY the
     // in-range visit. Both visits exist; only the 2026-06-19 one falls inside the range. The sandbox
-    // threads startDate/endDate into the SAME `search_history_internal` the search tools use, so H1's
+    // threads startDate/endDate into the SAME `search_history_internal` the search tools use, so its
     // SQL date predicate applies here too. A regression reintroducing the leak returns BOTH ids.
     let context = dated_context();
     let source = r#"
@@ -819,7 +819,7 @@ fn time_spent_answering_queries_does_not_count_against_the_script() {
 
 #[test]
 fn unbounded_allocation_in_real_js_is_bounded_not_a_host_panic_or_hang() {
-    // B-1: the production-guest counterpart to the WAT `memory.grow` test below. Drives the REAL
+    // The production-guest counterpart to the WAT `memory.grow` test below. Drives the REAL
     // committed Javy guest into an allocation storm and proves the storm is BOUNDED — never a host
     // panic/hang, never silent unbounded success.
     //
@@ -916,7 +916,7 @@ fn a_huge_output_is_capped_with_a_limit_marker() {
 
 #[test]
 fn a_multibyte_output_is_truncated_on_a_char_boundary() {
-    // C-2: real JS returning a multibyte (CJK + emoji) string past MAX_OUTPUT_BYTES is truncated on a
+    // Real JS returning a multibyte (CJK + emoji) string past MAX_OUTPUT_BYTES is truncated on a
     // UTF-8 char boundary, never mid-codepoint. A raw byte cut would split a 3-byte CJK / 4-byte emoji
     // glyph and leave `model_text` ragged (lossy decode → U+FFFD). The output is capped (Output limit)
     // AND valid UTF-8 ending on a boundary, so it stays `≤` the cap but `>` cap-minus-one-codepoint.
@@ -1045,7 +1045,7 @@ fn query_history_matches_a_direct_search_over_the_same_plane() {
 
 #[test]
 fn the_async_bridge_is_safe_from_inside_a_runtime_worker() {
-    // C-1: prove the production "runtime within a runtime" path. In production the host fn drives the
+    // Prove the production "runtime within a runtime" path. In production the host fn drives the
     // async retrieval via `block_in_place` + `Handle::block_on` while the sync wasm call runs on a
     // runtime worker thread. The other tests call `run_code_in_sandbox` from OUTSIDE any async
     // context, so this is the one test that exercises the bridge in its real in-runtime shape.
@@ -1318,7 +1318,7 @@ fn an_oversized_request_frame_poisons_the_channel() {
 
 #[test]
 fn an_oversized_raw_write_poisons_the_channel_via_the_buffer_cap() {
-    // B-3 defense-in-depth: a single huge write whose bytes do NOT begin with a valid small frame is
+    // Defense-in-depth: a single huge write whose bytes do NOT begin with a valid small frame is
     // caught by the RAW buffer cap (MAX_REQUEST_BUFFER_BYTES), independently of the guest's
     // StoreLimits — BEFORE any declared frame length is even trusted. This covers the path the
     // declared-length check (an_oversized_request_frame_poisons_the_channel) does not: the leading

@@ -92,7 +92,7 @@ pub(crate) enum FetchOutcome {
 /// Abstracts the actual HTTP GET so the test build can inject a deterministic fetcher.
 ///
 /// Production wires [`SharedClientFetcher`] (the real `build_fetch_client` egress, behind the coverage
-/// cfg) whose redirect policy re-applies the SSRF guard on EVERY hop (SEC-3), so a public page that
+/// cfg) whose redirect policy re-applies the SSRF guard on EVERY hop, so a public page that
 /// 30x-redirects to a private host is stopped mid-chain. The runner additionally guards the initial
 /// URL before calling AND re-checks the post-redirect `final_url` after the body returns
 /// (defence-in-depth, see [`reject_nonpublic_final_url`]) — but the trait contract itself is just
@@ -117,8 +117,8 @@ pub(crate) struct ContentFetchResult {
     pub enrichment: EnrichmentResult,
     pub refetch_after: Option<String>,
     /// The host whose rate-limit bucket this attempt CHARGED — the page host for an HTML extractor,
-    /// the API host for a `JsonApi` extractor (SEC-1: that is where the GETs actually land). When the
-    /// attempt is throttled (`status == "rate-limited"`) the deferral ETA (SEC-2) is read from THIS
+    /// the API host for a `JsonApi` extractor (that is where the GETs actually land). When the
+    /// attempt is throttled (`status == "rate-limited"`) the deferral ETA is read from THIS
     /// host's bucket, not the page host, so a GitHub job sleeps the ~60s `api.github.com` needs rather
     /// than the always-full `github.com` bucket's 0s. Always set to the real targeted host (no
     /// fallback), so the deferral site reads it directly.
@@ -129,7 +129,7 @@ pub(crate) struct ContentFetchResult {
 ///
 /// `Ran` (a row was stored / the job was terminally cancelled) means the drain should loop for the
 /// next due job. `Deferred` means the job was REQUEUED for a future `scheduled_at` (rate-limit
-/// back-pressure, SEC-2) — there is nothing more due *right now*, so the drain reports idle and the
+/// back-pressure) — there is nothing more due *right now*, so the drain reports idle and the
 /// worker lane sleeps until the deferred row's schedule. `NotClaimable` means the id was not a queued
 /// content-fetch row (idle). Both `Deferred` and `NotClaimable` map to "drain returned false".
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -186,8 +186,8 @@ pub(crate) fn run_content_fetch_with_fetcher(
 /// Fetches the extractor's declared resources and routes them to `extract`, or returns a failure row.
 ///
 /// Also returns the EGRESS host this attempt charged (the page host for HTML, the API host for a
-/// `JsonApi` resource, SEC-1) so a throttled attempt's deferral ETA reads the bucket that was actually
-/// exhausted (BUG-1 / SEC-2). The host is always the real targeted host — no fallback at the read site.
+/// `JsonApi` resource) so a throttled attempt's deferral ETA reads the bucket that was actually
+/// exhausted. The host is always the real targeted host — no fallback at the read site.
 fn fetch_and_extract(
     fetcher: &dyn Fetcher,
     extractor: &dyn Extractor,
@@ -195,8 +195,8 @@ fn fetch_and_extract(
 ) -> (EnrichmentResult, String) {
     match extractor.fetch_kind() {
         ExtractKind::Html => {
-            // Per-egress rate limit keyed by the ACTUAL host being hit (SEC-1): the HTML page host. An
-            // empty bucket parks the job (a `rate-limited` result the runner defers, SEC-2) rather than
+            // Per-egress rate limit keyed by the ACTUAL host being hit: the HTML page host. An
+            // empty bucket parks the job (a `rate-limited` result the runner defers) rather than
             // exceeding the host's budget.
             let egress_host = url_domain(url);
             if !acquire_host_token(&egress_host) {
@@ -226,12 +226,12 @@ fn fetch_and_extract(
     }
 }
 
-/// Detail string for a parked (host-bucket-empty) egress (SEC-1/SEC-2).
+/// Detail string for a parked (host-bucket-empty) egress.
 fn rate_limit_detail() -> String {
     "The per-host request budget is exhausted; the fetch was deferred.".to_string()
 }
 
-/// Defence-in-depth (SEC-3): converts a body landing on a non-public final host into a `blocked` row.
+/// Defence-in-depth: converts a body landing on a non-public final host into a `blocked` row.
 ///
 /// The shared client re-guards every redirect HOP, but this is a cheap post-fetch backstop: if the
 /// post-redirect `final_url` resolves to a private/loopback/metadata address, drop the body and report
@@ -254,9 +254,9 @@ fn guard_final_url(outcome: FetchOutcome) -> FetchOutcome {
 
 /// Fetches the JSON primary (+ optional secondary) for a [`ExtractKind::JsonApi`] extractor.
 ///
-/// Returns the enrichment + the EGRESS host charged (the PRIMARY API host, SEC-1) so a throttled
+/// Returns the enrichment + the EGRESS host charged (the PRIMARY API host) so a throttled
 /// attempt's deferral ETA reads the API bucket — `api.github.com` for GitHub, not the page host
-/// `github.com` (BUG-1). When the extractor declares no API request there is no egress, so the page
+/// `github.com`. When the extractor declares no API request there is no egress, so the page
 /// host is reported as the (unused) targeted host: that arm yields `fetch-error`, never `rate-limited`,
 /// so the deferral site never reads it.
 fn fetch_json_api(
@@ -270,7 +270,7 @@ fn fetch_json_api(
             url_domain(url),
         );
     };
-    // The bucket the primary GET charges is the API host (SEC-1) — the deferral ETA must read it.
+    // The bucket the primary GET charges is the API host — the deferral ETA must read it.
     let egress_host = url_domain(&primary.url);
     let (bytes, content_type, final_url, _http) = match guard_then_fetch_json(fetcher, &primary) {
         FetchOutcome::Body { bytes, content_type, final_url, http_status } => {
@@ -321,7 +321,7 @@ fn guard_then_fetch_json(fetcher: &dyn Fetcher, request: &ApiRequest) -> FetchOu
             ),
         };
     }
-    // Per-egress rate limit keyed by the API HOST (SEC-1): GitHub's 60/hr cap lives on `api.github.com`
+    // Per-egress rate limit keyed by the API HOST: GitHub's 60/hr cap lives on `api.github.com`
     // — where the GETs actually land — not the page host (`github.com`, which receives 0 requests).
     // Acquiring HERE charges the bucket of the host that is really hit.
     if !acquire_host_token(&url_domain(&request.url)) {
@@ -382,7 +382,7 @@ pub(crate) fn content_fetch_allowed(config: &AppConfig, url: &str) -> bool {
 /// The production entry the worker drain calls. Resolves consent against `config`, claims the queued
 /// row, runs the fetch through the production [`SharedClientFetcher`], stores the result with its
 /// negative-cache `refetch_after`, and marks the job succeeded/failed. A consent-denied job is parked
-/// (left non-failed); a rate-limited job is REQUEUED for a later drain (SEC-2) rather than terminally
+/// (left non-failed); a rate-limited job is REQUEUED for a later drain rather than terminally
 /// cancelled. Returns the [`ContentFetchJobOutcome`] so the drain knows whether more work is due now.
 #[cfg(not(any(test, coverage)))]
 pub fn execute_content_fetch_job_by_id(vault: &crate::Vault, job_id: i64) -> Result<bool> {
@@ -397,7 +397,7 @@ pub fn execute_content_fetch_job_by_id(vault: &crate::Vault, job_id: i64) -> Res
 /// is cfg-gated out of the coverage build. It stays faithful to the production CONTRACT — Ran → `true`,
 /// Deferred/NotClaimable → `false` — by driving the real [`execute_content_fetch_job_with_fetcher`]
 /// core through a deterministic offline [`OfflineStubFetcher`] (no socket). That keeps the worker
-/// drain's run/defer signal honest under the coverage build (BUG-3): a job whose egress bucket is
+/// drain's run/defer signal honest under the coverage build: a job whose egress bucket is
 /// exhausted defers → `false`, so the lane idles + sleeps rather than busy-looping the parked row.
 #[cfg(any(test, coverage))]
 pub fn execute_content_fetch_job_by_id(vault: &crate::Vault, job_id: i64) -> Result<bool> {
@@ -441,7 +441,7 @@ impl Fetcher for OfflineStubFetcher {
 /// — consent, claim, SSRF, rate-limit, store, cache, cancel — is covered without the real socket call.
 /// Gate order follows doc 06 §2b: claim → stop → consent → https + SSRF page guard → fetch (which
 /// acquires the per-egress rate-limit token at the REAL host) → store. The SSRF/https page guard runs
-/// BEFORE any rate-limit acquire so a blocked/non-https job never burns a token (SEC-4).
+/// BEFORE any rate-limit acquire so a blocked/non-https job never burns a token.
 pub(crate) fn execute_content_fetch_job_with_fetcher(
     vault: &crate::Vault,
     job_id: i64,
@@ -488,7 +488,7 @@ pub(crate) fn execute_content_fetch_job_with_fetcher(
             return Ok(ContentFetchJobOutcome::AwaitingArchive);
         }
 
-        // Page-URL SSRF guard + https-only (06 §2b), BEFORE any rate-limit acquire (SEC-4): a blocked /
+        // Page-URL SSRF guard + https-only (06 §2b), BEFORE any rate-limit acquire: a blocked /
         // non-https job must not burn a token, and the stored row must carry the RESOLVED extractor's
         // `content_source` + `extractor_version` so `content_fetch_job_due` matches it and the working set
         // stops re-enqueuing it (a "blocked-content" source would never match → infinite re-enqueue).
@@ -514,23 +514,23 @@ pub(crate) fn execute_content_fetch_job_with_fetcher(
 
         let result = run_content_fetch_with_fetcher(fetcher, &job.payload);
 
-        // A throttled egress is BACK-PRESSURE, not a failure (SEC-2): requeue the job for the host's
+        // A throttled egress is BACK-PRESSURE, not a failure: requeue the job for the host's
         // token-refill ETA instead of cancelling it (which the queued-only drain would never re-pick). The
         // deferred row is invisible to `next_queued_content_fetch_job` until its `scheduled_at` passes, so
         // the drain reports idle and the worker lane sleeps until then.
         if result.enrichment.status == "rate-limited" {
             // A UI cancel (`cancel_intelligence_job`, no job-type filter) can land on this STILL-`running`
             // row during the throttled fetch. The requeue below clears `stop_requested` and re-queues, so
-            // it would silently swallow that cancel — honour it FIRST (BUG-2): if a stop was requested,
+            // it would silently swallow that cancel — honour it FIRST: if a stop was requested,
             // cancel the running job and report `Ran` rather than re-running it on the next drain.
             if intelligence_job_stop_requested(vault, job.id)? {
                 let _ = mark_running_intelligence_job_cancelled(vault, job.id, "cancelled from UI");
                 return Ok(ContentFetchJobOutcome::Ran);
             }
-            // Read the deferral ETA from the bucket the attempt ACTUALLY charged (SEC-1) — the API host for
+            // Read the deferral ETA from the bucket the attempt ACTUALLY charged — the API host for
             // a JsonApi extractor (`api.github.com`), NOT the page host (`github.com`, whose separate bucket
             // is always full → 0s ETA → a ~1Hz drain thrash for the whole refill window). `egress_host` is
-            // always the real targeted host, so no fallback is needed here (BUG-1).
+            // always the real targeted host, so no fallback is needed here.
             let eta_secs = next_token_eta_secs(&result.egress_host).max(1);
             let scheduled_at = (chrono::Utc::now() + chrono::Duration::seconds(eta_secs as i64))
                 .to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
@@ -562,11 +562,11 @@ pub(crate) fn execute_content_fetch_job_with_fetcher(
 /// data, not a job error (mirrors og:image's negative-cache rows). This keeps the queue from retry-
 /// storming a paywalled host. A cancel requested mid-run still wins.
 ///
-/// Store-time fan-out (CORR-3, 06 §3): the fetch is keyed by URL, so the SAME enrichment is written for
+/// Store-time fan-out (06 §3): the fetch is keyed by URL, so the SAME enrichment is written for
 /// EVERY non-reverted visit sharing the page's canonical URL — not just `job.payload.history_id`. That
 /// gives the page ONE visit-independent dedup identity (else a sibling visit hashes WITHOUT the summary
 /// and the page double-embeds, violating 05 §1). Then the FTS `enrichment_text` projection is refreshed
-/// for that URL so a fetched page is immediately findable WITHOUT a full rebuild (CORR-1).
+/// for that URL so a fetched page is immediately findable WITHOUT a full rebuild.
 fn finish_content_fetch_job(
     vault: &crate::Vault,
     job: &ClaimedEnrichmentJob,
@@ -681,7 +681,7 @@ fn host_requested_wait(headers: &reqwest::header::HeaderMap) -> std::time::Durat
 impl SharedClientFetcher {
     pub(crate) fn new() -> Result<Self> {
         // The shared client checks every redirect hop like the first URL, so a public page that
-        // redirects to a private host is stopped there (SEC-3).
+        // redirects to a private host is stopped there.
         Ok(Self { client: crate::og_images_fetch::build_fetch_client()? })
     }
 }

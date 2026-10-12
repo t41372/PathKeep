@@ -1025,7 +1025,7 @@ fn mcp_usage_guide_gates_on_skill_consent_and_audits_when_served() {
 #[test]
 fn mcp_per_call_gate_refuses_search_and_status_when_mcp_consent_is_revoked_mid_session() {
     let vault = vault_core::Vault::open_temp().unwrap();
-    // M-4: the MCP face re-reads config fresh per call, so a user who turns OFF the MCP server in
+    // The MCP face re-reads config fresh per call, so a user who turns OFF the MCP server in
     // Settings while an external tool still holds the stdio connection must stop being served. With a
     // working archive + an active connection, flipping `mcp_enabled` false makes the SAME in-flight
     // search/status entry points refuse with an honest message rather than continuing to return
@@ -1554,7 +1554,7 @@ fn security_status_reports_uninitialized_archive_mode() {
 #[test]
 fn build_ai_index_refuses_a_reembed_without_semantic_consent_but_allows_clear() {
     let vault = vault_core::Vault::open_temp().unwrap();
-    // M-3: a re-embed (build) must require the master AI switch AND the semantic-index sub-flag, so a
+    // A re-embed (build) must require the master AI switch AND the semantic-index sub-flag, so a
     // user with master ON but Smart search OFF cannot trigger an embedding job (token cost/egress +
     // ~59 GB derived vectors). A `clear_only` job is pure cleanup and stays allowed (reclaiming the
     // vectors after turning Smart search off is a legitimate action).
@@ -1695,7 +1695,7 @@ fn provider_resolution_helpers_cover_error_success_and_note_paths() {
         AiSearchResponse::default(),
         Some(anyhow::anyhow!("semantic backend offline")),
     );
-    // Review-fix M-6: the user-facing wire carries a stable CODE (with the opaque reason structural),
+    // The user-facing wire carries a stable CODE (with the opaque reason structural),
     // and the legacy English `notes` string is derived from that SAME code — never raw prose.
     assert_eq!(
         response.note_codes,

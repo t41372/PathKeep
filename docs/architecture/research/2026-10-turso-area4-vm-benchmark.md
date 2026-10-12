@@ -6,8 +6,8 @@ are gone and cannot be restored. **No replacement run was started.** This report
 the measurements retrieved before access was lost and the progress delivered by the original
 offload session afterward.
 
-This run used commit `ba9cd9f7`. Product source, SQL, schemas, checkpoint policy and cipher
-were unchanged. The measurement scripts remain in `scripts/`, uncommitted, for a future run.
+Product source, SQL, schemas, checkpoint policy and cipher were unchanged. The measurement
+scripts were not kept in the repository.
 Earlier integration and gate results are in [the integration report](2026-10-turso-area4-modal.md).
 
 ## Results and missing measurements
@@ -214,20 +214,19 @@ No native EQP for `COMMIT` was captured.
 
 ## Environment and measurement method
 
-| Property                 | Value                                                                                                                    |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------------ |
-| Source commit            | `ba9cd9f7`                                                                                                               |
-| Modal Sandbox            | `sb-01M4A6NR9CMF0VK2H8C3F4EMQR`                                                                                          |
-| Offload key              | `area4-benchmark-ba9cd9f7`                                                                                               |
-| Runtime / reservation    | `vm`; **8 CPUs / 32 GiB** from the current project configuration                                                         |
-| CPU reported by the VM   | Intel Xeon Platinum 8375C @ 2.90 GHz                                                                                     |
-| OS                       | Linux 7.2.9, x86_64                                                                                                      |
-| Reported `MemTotal`      | 32,877,772 KiB                                                                                                           |
-| Exposed process affinity | CPUs 0–23; no four-core affinity override was applied in this run                                                        |
-| Rust / Turso             | Rust 1.96.0 / Turso 0.8.1                                                                                                |
-| Build                    | Cargo release; workspace `lto = "thin"`, `codegen-units = 1`; debug information retained and symbol stripping disabled   |
-| Encryption               | Existing vault-store **`aegis256`**, unchanged                                                                           |
-| Command                  | `offload run --key area4-benchmark-ba9cd9f7 --as-root --timeout-min 1440 -- 'python3 -u scripts/run-area4-benchmark.py'` |
+| Property                 | Value                                                                                                                  |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------- |
+| Modal Sandbox            | `sb-01M4A6NR9CMF0VK2H8C3F4EMQR`                                                                                        |
+| Offload key              | `area4-benchmark`                                                                                                      |
+| Runtime / reservation    | `vm`; **8 CPUs / 32 GiB** from the current project configuration                                                       |
+| CPU reported by the VM   | Intel Xeon Platinum 8375C @ 2.90 GHz                                                                                   |
+| OS                       | Linux 7.2.9, x86_64                                                                                                    |
+| Reported `MemTotal`      | 32,877,772 KiB                                                                                                         |
+| Exposed process affinity | CPUs 0–23; no four-core affinity override was applied in this run                                                      |
+| Rust / Turso             | Rust 1.96.0 / Turso 0.8.1                                                                                              |
+| Build                    | Cargo release; workspace `lto = "thin"`, `codegen-units = 1`; debug information retained and symbol stripping disabled |
+| Encryption               | Existing vault-store **`aegis256`**, unchanged                                                                         |
+| Command                  | `offload run --key area4-benchmark --as-root --timeout-min 1440 -- 'python3 -u scripts/run-area4-benchmark.py'`        |
 
 These are microVM results, not gVisor results. They use the **8-CPU/32-GiB** configuration
 provided for this rerun and must not be presented as completed results for the earlier

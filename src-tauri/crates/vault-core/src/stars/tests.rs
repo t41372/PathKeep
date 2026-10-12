@@ -627,7 +627,7 @@ fn starred_history_ids_is_empty_when_nothing_starred() {
 
 #[test]
 fn starred_history_ids_resolution_is_bounded_by_the_star_set_not_the_corpus() {
-    // HIGH regression: `starred_history_ids` must resolve the tiny starred set FORWARD (starred URL →
+    // Regression: `starred_history_ids` must resolve the tiny starred set FORWARD (starred URL →
     // urls.id → visits.id), NOT scan every non-reverted visit and test each URL. Seed MANY non-starred
     // visits + a handful starred ones and assert ONLY the starred visits resolve — the result count is
     // bounded by the star set, never the corpus. A regression to the full-corpus scan would still pass
@@ -737,7 +737,7 @@ fn url_ids_for_canonical_falls_back_when_key_is_not_a_parseable_url() {
 
 #[test]
 fn starred_history_ids_domain_arm_rejects_embedded_domain_on_unrelated_host() {
-    // A-1 (over-recall rejected): a raw URL with the starred domain embedded in a path/query
+    // Over-recall rejected: a raw URL with the starred domain embedded in a path/query
     // (`?img=//example.com/p.jpg`) on an UNRELATED host substring-matches the bare `%//example.com/%`
     // LIKE, but is NOT on `example.com`. The `registrable_domain_for_url` confirm — exactly the test
     // `StarredMatcher::is_starred` uses — must reject it so the facet allowlist matches the matcher.
@@ -760,7 +760,7 @@ fn starred_history_ids_domain_arm_rejects_embedded_domain_on_unrelated_host() {
 
 #[test]
 fn starred_history_ids_domain_arm_matches_ported_hosts() {
-    // A-2 (ported matched): a raw URL whose host carries a port has no `/` immediately after the host,
+    // Ported host matched: a raw URL whose host carries a port has no `/` immediately after the host,
     // so the old `%//domain/%` pattern pre-filtered it OUT. The `:`-tolerant candidate patterns admit
     // it and the registrable-domain confirm includes it — exactly like `StarredMatcher::is_starred`.
     let vault = crate::Vault::open_temp().unwrap();

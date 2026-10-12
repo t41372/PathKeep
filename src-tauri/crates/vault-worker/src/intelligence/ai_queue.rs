@@ -101,7 +101,7 @@ impl vault_core::IndexBackfillLedger for IndexCursorLedger {
         match ai_queue::persist_index_cursor(&self.vault, self.job_id, &cursor, Some(&summary))? {
             // A reclaimed lease (the stale-sweep moved this row out of `running`) means another
             // worker now owns the job. We MUST abort here so this de-leased worker stops embedding +
-            // appending to the vector store while the new owner also writes it (HIGH-3): the Err
+            // appending to the vector store while the new owner also writes it: the Err
             // propagates up through the embed loop's `?`, ending this run before the next chunk.
             ai_queue::CursorPersistOutcome::LeaseLost => anyhow::bail!(
                 "index job {} lost its queue lease (reclaimed by another worker); aborting backfill",
@@ -563,7 +563,7 @@ pub fn build_ai_index_now(
 ) -> Result<AiIndexReport> {
     let paths = vault.paths().clone();
     let config = load_unlocked_config(&paths)?;
-    // Consent gate at the firing site (M-3): a BUILD/re-embed enqueues an embedding job (provider
+    // Consent gate at the firing site: a BUILD/re-embed enqueues an embedding job (provider
     // egress + ~59 GB of derived vectors), so it requires the master AI switch AND the semantic-index
     // sub-flag — mirroring the auto-index gate in `archive_flows.rs`. A user with master ON but Smart
     // search deliberately OFF must NOT be able to trigger a full 14.4M re-embed. A `clear_only` job is
@@ -1219,7 +1219,7 @@ mod tests {
 
     #[test]
     fn index_cursor_ledger_aborts_when_lease_is_lost() {
-        // HIGH-3: when another worker reclaims the job (it leaves `running`), the ledger's cursor
+        // When another worker reclaims the job (it leaves `running`), the ledger's cursor
         // write matches 0 rows. The ledger MUST surface that as an Err so the de-leased worker's
         // embed loop aborts instead of continuing to write the shared vector store.
         let dir = tempfile::tempdir().expect("tempdir");

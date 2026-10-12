@@ -191,7 +191,7 @@ pub(super) fn embedding_descriptor_for(
 pub(super) struct ProviderReadiness {
     pub available: bool,
     pub warning: Option<String>,
-    /// Stable index-health warning CODE for the unavailable reason (review-fix M-7). `Some` whenever
+    /// Stable index-health warning CODE for the unavailable reason. `Some` whenever
     /// `available` is false; the read model carries it onto `AiIndexStatus.warning_code` so the FE
     /// localizes the exact missing prerequisite (provider missing / disabled / no key / no model)
     /// instead of matching the English `warning` sentence.
@@ -425,7 +425,7 @@ pub(super) fn classify_provider_error(
 /// Semantic search should degrade honestly before any build/search call starts. This
 /// helper lets the status read model explain the exact missing prerequisite.
 pub(super) fn embedding_provider_readiness(config: &AppConfig) -> ProviderReadiness {
-    // Build each unavailable readiness from its stable warning CODE (review-fix M-7), deriving the
+    // Build each unavailable readiness from its stable warning CODE, deriving the
     // legacy English `warning` from the same code so the wire carries a localizable code and the
     // FE never falls back to English-sentence matching.
     fn unavailable(code: AiIndexWarning, selected_model: Option<String>) -> ProviderReadiness {

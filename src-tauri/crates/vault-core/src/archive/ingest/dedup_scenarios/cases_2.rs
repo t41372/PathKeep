@@ -113,7 +113,7 @@ fn c7_tied_last_visit_ms_does_not_overwrite_title_hidden_or_payload_hash() {
     }
 }
 
-/// C4 — Regression test for audit bug **B1** (fixed in 6884c10d). The URL
+/// C4 — Regression test for audit bug **B1** (now fixed). The URL
 /// upsert in `writes.rs` now uses `MAX()` for `visit_count` / `typed_count`
 /// and `CASE WHEN excluded.last_visit_ms >= urls.last_visit_ms` for `title`
 /// / `hidden`, preventing older snapshots from overwriting newer metadata.

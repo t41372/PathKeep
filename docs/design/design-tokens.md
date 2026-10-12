@@ -1,7 +1,7 @@
 # Design Tokens
 
 > Source of truth: `src/index.css`. This page describes it; when the two disagree, the CSS wins and this page gets fixed.
-> The palette comes from the 2026-10 Claude Design prototype (`docs/design/prototype-2026-10/`). It replaced the v0.3 "Paper + Archival" tokens (`src/styles/tokens.css`, Newsreader, 3 px radius), which were deleted with the old frontend.
+> The palette comes from the 2026-10 prototype (`docs/design/prototype-2026-10/`). It replaced the v0.3 "Paper + Archival" tokens (`src/styles/tokens.css`, Newsreader, 3 px radius), which were deleted with the old frontend.
 > Fonts: [typography-and-font-fallback.md](./typography-and-font-fallback.md). Charts: [chart-primitive-tradeoff.md](./chart-primitive-tradeoff.md).
 
 ---

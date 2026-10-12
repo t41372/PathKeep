@@ -17,7 +17,7 @@
 //! crash/resume dedup state and the Session/candidate queries are each cohesive and directly tested:
 //! - [`backfill`] — the resumable embed loop ([`run_embedding_backfill`]) and the
 //!   [`backfill::DedupTracker`] that encapsulates the W-AI-4c crash-window invariants.
-//! - [`candidates`] — candidate collection + the pure embed-target selection (MEDIUM-4 dedup).
+//! - [`candidates`] — candidate collection + the pure embed-target selection (content-hash dedup).
 //! - [`store_rows`] — Turso `ai_embeddings` metadata helpers + batch validation.
 //! - [`content`] — the embedding-content rendering + the enrichment→dedup-hash seam.
 //!

@@ -5,7 +5,7 @@
 All requested gates passed on Modal Linux microVMs. The final Rust edits after
 the full suite only complete module documentation; all 79 changed Rust files were
 compared against that tested source with no non-documentation differences. Final
-formatting, Clippy and workspace build also passed on those files. Source remains uncommitted; generated benchmark data stays in Sandbox `/tmp`.
+formatting, Clippy and workspace build also passed on those files. Generated benchmark data stayed in Sandbox `/tmp`.
 
 | Check                                                 | Result                                                                                          |
 | ----------------------------------------------------- | ----------------------------------------------------------------------------------------------- |

@@ -180,7 +180,7 @@ impl VisitContentMap {
     /// vector) is simply absent from the returned map; the caller drops it. An absent map returns an
     /// empty map (a never-built index hydrates to nothing, not an error).
     ///
-    /// NOTE (M-11): this is a single bounded-MEMORY pass but a full O(n) TIME stride over the per-visit
+    /// NOTE: this is a single bounded-MEMORY pass but a full O(n) TIME stride over the per-visit
     /// `.pkmap`. It is no longer the always-on hydration path — the keyed
     /// [`super::reverse_visit_map::ReverseVisitMap`] `.pkrev` sidecar resolves the same join in
     /// O(k'·log n) binary seeks. This method is now the AUTHORITATIVE FALLBACK the read path uses only
@@ -212,7 +212,7 @@ impl VisitContentMap {
     /// an empty set (a never-built index has no starred content keys, not an error); a starred visit
     /// with no mapped vector (never embedded) simply contributes nothing.
     ///
-    /// NOTE (M-11/XA-PERF-4): like its inverse, this is bounded-memory but a full O(n) TIME stride. It
+    /// NOTE (XA-PERF-4): like its inverse, this is bounded-memory but a full O(n) TIME stride. It
     /// is no longer the always-paid forward path — the keyed
     /// [`super::reverse_visit_map::ReverseVisitMap`] `.pkfwd` sidecar resolves the same join in
     /// O(starred·log n) binary seeks. This method is now the AUTHORITATIVE FALLBACK used only when that

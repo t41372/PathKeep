@@ -10,7 +10,7 @@ The SQLCipher benchmark built a synthetic archive through the real schema (3 pro
 
 Machine: Apple Silicon, 18 cores, 64 GB, SSD, release build. That is far faster than the target, so read the before/after ratios, not the absolute times. Each figure is the median of 5 to 20 calls in a warm process (the archive was already opened once).
 
-"Before" is the code at `redesign/v0.4` before this work (`13223bd6`); "after" is with the changes below. The benchmark was run before and after at 1M visits and after at 14.4M. The 14.4M "before" figures for removed queries were timed directly on the same database file: Python's `sqlite3` (SQLite 3.53) for the old browse query, and the benchmark itself for the old search count.
+"Before" is the code before this work; "after" is with the changes below. The benchmark was run before and after at 1M visits and after at 14.4M. The 14.4M "before" figures for removed queries were timed directly on the same database file: Python's `sqlite3` (SQLite 3.53) for the old browse query, and the benchmark itself for the old search count.
 
 ## Findings
 
@@ -46,7 +46,7 @@ Fix: `vault_core::load_snapshot_reads` opens the archive once and the intelligen
 
 ### 3. Every archive open wrote to the search database
 
-Already fixed in the redesign import (`4bbd8d62`), measured here. Each open verified the search schema by rewriting its meta row (a write transaction) and ran `SELECT COUNT(*) FROM search_documents` to decide whether to seed. The schema check now runs once per process, the seed check is a `LIMIT 1` probe, and the search database is in WAL mode so readers do not wait on the projection writer.
+Already fixed when the redesign was imported, measured here. Each open verified the search schema by rewriting its meta row (a write transaction) and ran `SELECT COUNT(*) FROM search_documents` to decide whether to seed. The schema check now runs once per process, the seed check is a `LIMIT 1` probe, and the search database is in WAL mode so readers do not wait on the projection writer.
 
 | per archive open                    | 1M visits (250k documents) | 14.4M visits (3.6M documents) |
 | ----------------------------------- | -------------------------- | ----------------------------- |
@@ -194,7 +194,7 @@ At 14.4M visits the whole-archive JSON Lines export finished: 14.4M rows, a 4.7 
 
 The follow-up export path (2026-10-04) opens the archive once for the whole request. The old cursor already sought `(visit_time_ms, id)` through the visible-time index; OFFSET was always zero. Reopening every 1,000 rows discarded SQLite's page cache and mapping and repeated archive/search initialization and advanced-filter table setup. Encrypted archives also repeated SQLCipher key derivation. Ordinary time-sorted exports now stream one statement, using the shared filters, ordering and row hydration; search exports retain the shared keyset readers on that same connection, including existing grouped/regex/fuzzy behavior. The unchanged format renderer writes through a fixed 256 KiB buffer. SQLite keeps its fixed cache and export-only temporary B-trees spill to disk instead of consuming archive-sized memory.
 
-Re-measured on this checkout with the same export-only release benchmark. The baseline is the page-streaming implementation at `5c7d108c` (its benchmark binary was preserved before editing); the follow-up uses one connection. Plaintext, whole-archive JSON Lines, one run each:
+Re-measured on this checkout with the same export-only release benchmark. The baseline is the earlier page-streaming implementation (its benchmark binary was preserved before editing); the follow-up uses one connection. Plaintext, whole-archive JSON Lines, one run each:
 
 | Visits | Time before            | Time after | Peak Rust heap before → after | Peak SQLite before → after | Artifact  |
 | ------ | ---------------------- | ---------- | ----------------------------- | -------------------------- | --------- |
@@ -298,7 +298,7 @@ Full rebuild 5,795 s (was 5,955): sessions and trails 476 s (was 402, the path s
 
 The full build in the same run took 2,385 s; the process peaked at 474 MB in both. Next: merge a page's new visits into its stored refind row instead of reading its history again, and warm the snapshot from what changed.
 
-**Every Insights read, 2026-10-09** (`35e35471`, same benchmark and shape, Modal VM on an AMD EPYC 9554, each read in a new process, first call / second call). The `habits` shape had no searches in this run, so the search cards read empty tables; see below.
+**Every Insights read, 2026-10-09** (same benchmark and shape, Modal VM on an AMD EPYC 9554, each read in a new process, first call / second call). The `habits` shape had no searches in this run, so the search cards read empty tables; see below.
 
 | 14.4M visits, ms                    | 30 days     | 1 year      | all time      |
 | ----------------------------------- | ----------- | ----------- | ------------- |
@@ -317,7 +317,7 @@ An export between two reads (`export-between-reads`): the secondary overview too
 
 **The three questions before merge (2026-10-09).** Asked of the in-place append: how long an append takes, how long new categories take, and whether the full build got slower.
 
-- Full build: not slower. Run back to back on one VM (Intel Xeon 8375C, CPU probe 1.65–1.66 s throughout), `d182481e` took 2,777 s and `35e35471` 2,823 s. The earlier 2,385 s against 2,850 s came from two different hosts (an EPYC 9554 runs the same build in about 2,360 s).
+- Full build: not slower. Run back to back on one VM (Intel Xeon 8375C, CPU probe 1.65–1.66 s throughout), the build before the in-place append took 2,777 s and the build with it 2,823 s. The earlier 2,385 s against 2,850 s came from two different hosts (an EPYC 9554 runs the same build in about 2,360 s).
 - Append of 10,000 visits: 126 s on the EPYC, of which 94 s were spent writing path flows: before each of the 4,812 flows the append asked whether its row existed, and Turso planned that through `idx_path_flows_profile_rank` on profile and step count, a read of every flow of that length (19 ms a flow). It is one upsert now (`RETURNING` the count), and `append_plans.rs` counts step count and the other kind columns as columns that never find one row.
 - New categories (an override that moves `site1.test`): 62 s on the EPYC, 72 s on the Xeon. 61 s of it sorts all 2.88M pages again, even for one site's override; the rest warms the all-time snapshot.
 

@@ -1,6 +1,6 @@
 # vault-search benchmark at 2.9M pages (2026-10-05)
 
-> Measured by Codex (GPT 6 astra) for the [vault-search crate](../../../src-tauri/crates/vault-search/README.md). Raw evidence files were not kept.
+> Measured on a macOS arm64 development host (macOS 27.0.1) on 2026-10-05, for the [vault-search crate](../../../src-tauri/crates/vault-search/README.md). Raw evidence files were not kept.
 
 # Encrypted search measurements — 2026-10-05
 
@@ -25,8 +25,7 @@ From the repository root (no network access needed; dependencies must be cached)
 
 ```sh
 export CARGO_NET_OFFLINE=true
-export CARGO_TARGET_DIR=/private/tmp/claude-501/-Users-tim-LocalData-coding-2026-Lab-8-chrome-history-backup/85e937dc-2f0e-437b-bd84-695aae6aae8c/scratchpad/shared-target
-cargo test --manifest-path src-tauri/Cargo.toml --release -p vault-search --test benchmark encrypted_2_9m_pages -- --ignored --nocapture
+export CARGO_TARGET_DIR=/tmp/pathkeep-targetcargo test --manifest-path src-tauri/Cargo.toml --release -p vault-search --test benchmark encrypted_2_9m_pages -- --ignored --nocapture
 ```
 
 The default run compares 32/128/64 MiB writer arenas and 16/64/128 MiB block caches.

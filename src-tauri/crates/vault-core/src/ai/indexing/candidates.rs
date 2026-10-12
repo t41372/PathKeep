@@ -5,7 +5,7 @@
 //! - collect ascending-`history_id` candidate chunks (resumable from a cursor) with their freshly
 //!   built embedding content + dedup hash + `needs_embedding` flag
 //! - load the stored content hashes for change detection and the stale-id set for cleanup
-//! - decide, PURELY, which unique pages among a changed chunk still need embedding (MEDIUM-4: the
+//! - decide, PURELY, which unique pages among a changed chunk still need embedding (the
 //!   work-dedup keys on the FULL `content_hash`, never the truncated u64 key)
 //!
 //! ## Not responsible for
@@ -161,7 +161,7 @@ pub(in crate::ai) fn collect_stale_history_ids(
 
 /// Selects, in first-seen order, the UNIQUE pages among `changed` that still need embedding (W-AI-4c).
 ///
-/// The dedup decision, extracted PURE so the truncated-u64-collision invariant (MEDIUM-4) is
+/// The dedup decision, extracted PURE so the truncated-u64-collision invariant is
 /// unit-tested directly. A page is an embed target unless:
 /// - its FULL `content_hash` was already embedded this run (`persisted_hashes`), OR
 /// - its u64 `content_key` is already on the `.pkvec` plane (`persisted_keys`, the storage-boundary
@@ -186,7 +186,7 @@ pub(in crate::ai) fn select_embed_targets<'a>(
         if persisted_hashes.contains(visit.content_hash.as_str()) {
             continue; // Already embedded this run (its page hash is recorded after each append).
         }
-        // Storage-boundary backstop (CRITICAL-2): on a resume/incremental we know which u64 keys are
+        // Storage-boundary backstop: on a resume/incremental we know which u64 keys are
         // already on the `.pkvec` plane (the on-disk store carries only u64s, so the full hash is
         // unrecoverable from it). A key on disk whose hash we have NOT seen this run is an
         // already-embedded page → skip re-embedding it. A genuine u64 collision against a distinct

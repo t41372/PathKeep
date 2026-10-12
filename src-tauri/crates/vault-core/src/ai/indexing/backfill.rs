@@ -142,7 +142,7 @@ pub async fn build_ai_index_with_control(
     // A full rebuild's destructive wipe is a ONE-SHOT that runs only at the TRUE start of the job
     // (the persisted cursor is still at the origin). On any resume (`start_history_id > 0`) a worker
     // restart MUST NOT re-clear the partially-rebuilt store/metadata, or every row already embedded
-    // below the cursor is silently lost while the job still reports success (CRITICAL-1, 02 §C.6 R1).
+    // below the cursor is silently lost while the job still reports success (02 §C.6 R1).
     // The resume APPENDS to the existing store instead. The worker also flips `request.full_rebuild`
     // to false in the persisted payload once the first cursor is recorded, so a re-claim never sees
     // a destructive full_rebuild again; this `start_history_id` gate is the in-process backstop.
@@ -186,7 +186,7 @@ pub async fn build_ai_index_with_control(
                 &provider.config.id,
                 &provider.config.default_model,
             )?;
-            // The keyed reverse/forward sidecars (`.pkrev`/`.pkfwd`, M-11) are pure projections of the
+            // The keyed reverse/forward sidecars (`.pkrev`/`.pkfwd`) are pure projections of the
             // `.pkmap` the wipe just cleared, so they are deleted too (a later build re-projects them).
             super::super::reverse_visit_map::ReverseVisitMap::for_provider(
                 paths,
@@ -213,7 +213,7 @@ pub async fn build_ai_index_with_control(
 
         // A full rebuild resets the vector plane so the new fingerprint owns a clean store — but
         // ONLY at the true start of the job. On a resume the partial store must survive so the
-        // backfill appends to it instead of deleting the rows it already embedded (CRITICAL-1). The
+        // backfill appends to it instead of deleting the rows it already embedded. The
         // visit→content map (W-AI-4c) is reset alongside the store so the two planes stay consistent.
         if full_rebuild && !is_resume {
             VectorStore::for_provider(paths, &provider.config.id, &provider.config.default_model)
@@ -227,13 +227,13 @@ pub async fn build_ai_index_with_control(
             // Drop the derived planes too so the rebuild window never leaves them projected from the
             // old (now-deleted) source; they are re-projected after the backfill writes the new
             // `.pkvec` (W-AI-5). On a resume the partial planes are NOT dropped (they re-project at
-            // the end anyway, and the partial `.pkvec` survives per CRITICAL-1).
+            // the end anyway, and the partial `.pkvec` survives).
             super::super::vector_planes::delete_planes(
                 paths,
                 &provider.config.id,
                 &provider.config.default_model,
             )?;
-            // Drop the keyed reverse/forward sidecars (`.pkrev`/`.pkfwd`, M-11) alongside the planes so
+            // Drop the keyed reverse/forward sidecars (`.pkrev`/`.pkfwd`) alongside the planes so
             // the rebuild window never leaves them projected from the old (now-deleted) `.pkmap`; they
             // re-project after the backfill rewrites the `.pkmap` (same posture as the planes).
             super::super::reverse_visit_map::ReverseVisitMap::for_provider(
@@ -283,7 +283,7 @@ pub async fn build_ai_index_with_control(
         // semantic matches" rather than a stale/absent-plane error.
         //
         // TODO(W-AI-6/later): incremental passes currently RE-PROJECT all planes (O(total) CPU), not
-        // just the newly-embedded rows. After the C2 streaming projection this is now RAM-bounded
+        // just the newly-embedded rows. After the streaming projection this is now RAM-bounded
         // (build peak ≪ 1 GB at any scale — the source is streamed, never materialized), and it runs
         // off the UI thread in the worker, so for the realistic 1–3M post-dedup corpus it is
         // acceptable. Add an incremental plane-APPEND (project only the new content_keys, append to the
@@ -298,7 +298,7 @@ pub async fn build_ai_index_with_control(
             &provider.config.default_model,
         )?;
 
-        // Re-project the keyed reverse/forward sidecars (`.pkrev`/`.pkfwd`, M-11) from the now-current
+        // Re-project the keyed reverse/forward sidecars (`.pkrev`/`.pkfwd`) from the now-current
         // `.pkmap`, stamped with the SAME `.pkvec` fingerprint hash so they share the planes' staleness
         // identity. These turn the always-on hydration join (content_key → visits) and the `is:starred`
         // forward join (history_id → content_key) into BOUNDED binary-search lookups (O(k'·log n) /
@@ -412,11 +412,11 @@ pub async fn build_ai_index_with_control(
 /// windows the resumable backfill must survive — extracted from the loop's locals so the invariants
 /// are unit-tested DIRECTLY (the loop only exercised them end-to-end through resume tests):
 /// - `persisted_keys` — the u64 `content_key`s already on the `.pkvec` store (the storage-boundary
-///   guard: the on-disk store carries only u64s). CRITICAL-2: a crash after a chunk's vectors are
+///   guard: the on-disk store carries only u64s). A crash after a chunk's vectors are
 ///   appended but before its SQLite rows / cursor advance leaves a key on the store while
 ///   `needs_embedding` flips true again; a key in this set is never re-appended, so a resume cannot
 ///   double a vector. Loaded from the store on resume/incremental AND accumulated this run.
-/// - `persisted_hashes` — the FULL `content_hash`es embedded THIS run (the WORK identity). MEDIUM-4:
+/// - `persisted_hashes` — the FULL `content_hash`es embedded THIS run (the WORK identity):
 ///   the work-dedup keys on the full hash, NOT the truncated u64, so two DISTINCT pages whose hashes
 ///   collide on the first 8 bytes (~2.8e-6 at 14.4M) are EACH embedded rather than the second
 ///   silently collapsing onto the first's vector. This set is run-scoped (never loaded from disk,
@@ -425,14 +425,14 @@ pub async fn build_ai_index_with_control(
 ///   some visits mapped; a visit in this set is never re-appended, so a resume never doubles a
 ///   mapping entry. Loaded from the map on resume/incremental AND accumulated this run.
 ///
-/// MEDIUM-5: [`load_existing`](Self::load_existing) populates the on-disk sets whenever an existing
+/// [`load_existing`](Self::load_existing) populates the on-disk sets whenever an existing
 /// store is present and NOT about to be wiped — not only on a `start_history_id > 0` resume. So a
 /// PLAIN incremental pass (cursor 0, empty sets without this) does not re-embed + append a duplicate
 /// `.pkvec` record for a NEW visit of an already-embedded page; it maps the visit but skips the embed.
 pub(super) struct DedupTracker {
     /// u64 content_keys already on the `.pkvec` store (resume backstop + this run's appends).
     persisted_keys: HashSet<u64>,
-    /// FULL content_hashes embedded this run (the MEDIUM-4 work identity; never loaded from disk).
+    /// FULL content_hashes embedded this run (the work identity; never loaded from disk).
     persisted_hashes: HashSet<String>,
     /// history_ids already in the `.pkmap` visit map (resume backstop + this run's appends).
     mapped_ids: HashSet<i64>,
@@ -448,13 +448,13 @@ impl DedupTracker {
         }
     }
 
-    /// Loads the resume/incremental on-disk dedup state when an existing store is present (MEDIUM-5).
+    /// Loads the resume/incremental on-disk dedup state when an existing store is present.
     ///
     /// Populates `persisted_keys` from the store's `existing_ids` and `mapped_ids` from the visit
     /// map's `mapped_history_ids` ONLY when `!perform_wipe && store.exists()` — mirroring the loop's
     /// gate exactly. A true full rebuild (`perform_wipe`) or a never-built store leaves the sets
     /// empty so the build starts clean. `persisted_hashes` is NEVER loaded: the on-disk store carries
-    /// only the truncated u64, so the full hash is unrecoverable from it (MEDIUM-4); the full-hash
+    /// only the truncated u64, so the full hash is unrecoverable from it; the full-hash
     /// authority is built up this run via [`Self::record_embedded`].
     pub(super) fn load_existing(
         &mut self,
@@ -479,7 +479,7 @@ impl DedupTracker {
         select_embed_targets(changed, &self.persisted_hashes, &self.persisted_keys)
     }
 
-    /// Whether a single visit still needs embedding under the current dedup state (MEDIUM-4/CRITICAL-2).
+    /// Whether a single visit still needs embedding under the current dedup state.
     ///
     /// A visit needs an embed unless its FULL `content_hash` was already embedded this run OR its u64
     /// `content_key` is already on the `.pkvec` store. This is the per-visit predicate the chunk-level
@@ -494,8 +494,8 @@ impl DedupTracker {
 
     /// Records that one page (its full hash + u64 key) was embedded + persisted this run.
     ///
-    /// After this, the page's full hash skips it run-wide (MEDIUM-4 work identity) and its u64 key
-    /// skips it at the storage boundary (CRITICAL-2), so a later chunk or a resume never re-embeds it.
+    /// After this, the page's full hash skips it run-wide (the work identity) and its u64 key
+    /// skips it at the storage boundary, so a later chunk or a resume never re-embeds it.
     pub(super) fn record_embedded(&mut self, key: u64, content_hash: &str) {
         self.persisted_hashes.insert(content_hash.to_string());
         self.persisted_keys.insert(key);
@@ -666,10 +666,10 @@ async fn run_embedding_backfill(
         embed_target,
     };
 
-    // The crash-window dedup state (CRITICAL-2 / MEDIUM-4 / MEDIUM-5) is encapsulated in
+    // The crash-window dedup state is encapsulated in
     // `DedupTracker`. `load_existing` populates the on-disk sets whenever a store/map already exists
     // and is NOT about to be wiped — so a PLAIN incremental pass (cursor 0) maps a re-visit of an
-    // already-embedded page instead of re-embedding it (MEDIUM-5), and a resume never doubles a
+    // already-embedded page instead of re-embedding it, and a resume never doubles a
     // vector or a mapping entry. See `DedupTracker` for the full invariant rationale.
     let mut tracker = DedupTracker::new();
     let existing_store =
@@ -715,7 +715,7 @@ async fn run_embedding_backfill(
 
             if !changed.is_empty() {
                 // DEDUP: collect the UNIQUE pages among the changed visits that are not already embedded,
-                // and embed each ONCE (the page identity is the FULL `content_hash`, MEDIUM-4).
+                // and embed each ONCE (the page identity is the FULL `content_hash`).
                 let embed_targets = tracker.select_targets(&changed);
 
                 if !embed_targets.is_empty() {
@@ -733,7 +733,7 @@ async fn run_embedding_backfill(
                         validate_embedding_batch_for_keys(&content_keys, &vectors)?;
                     outcome.effective_dim = Some(effective_dim);
                     // `perform_wipe` (NOT `request.full_rebuild`) drives the store reset: a full_rebuild
-                    // RESUME appends to the partial store rather than truncating it (CRITICAL-1). The
+                    // RESUME appends to the partial store rather than truncating it. The
                     // fingerprint is stamped from the SELECTED engine's real descriptor (static = Mean,
                     // external = Unknown), so two engines never share a fingerprint.
                     let store = vector_store_for_chunk(
@@ -746,7 +746,7 @@ async fn run_embedding_backfill(
                     )?;
                     // Every record here is a page we have NOT embedded this run (the full-hash dedup above
                     // guaranteed it), so all are appended. Record each page's FULL hash + u64 key so a
-                    // later chunk / resume skips it (MEDIUM-4: the full hash is the work identity; the u64
+                    // later chunk / resume skips it (the full hash is the work identity; the u64
                     // is the storage-boundary backstop). The store accepts duplicate u64s for the rare
                     // collision; `read_all` last-writer-wins resolves that storage-boundary case.
                     for (visit, (key, _)) in embed_targets.iter().zip(records.iter()) {
@@ -863,7 +863,7 @@ fn vector_store_for_chunk<'a>(
     Ok(store.as_ref().expect("vector store is initialized above"))
 }
 
-/// (Re)projects the keyed reverse/forward sidecars (`.pkrev`/`.pkfwd`, M-11) from the current `.pkmap`.
+/// (Re)projects the keyed reverse/forward sidecars (`.pkrev`/`.pkfwd`) from the current `.pkmap`.
 ///
 /// Reads the `.pkvec` store's fingerprint hash (the planes' staleness identity) and projects both
 /// sorted sidecars from the authoritative `.pkmap`, stamped with that hash so they share the planes'
@@ -939,7 +939,7 @@ mod tests {
 
     #[test]
     fn u64_content_key_collision_keeps_both_distinct_pages_embeddable() {
-        // MEDIUM-4 (direct): two DISTINCT pages whose full content_hashes truncate to the SAME u64
+        // Direct: two DISTINCT pages whose full content_hashes truncate to the SAME u64
         // content_key must BOTH be embeddable — the tracker keys work-dedup on the FULL hash, never
         // the truncated u64. After recording the FIRST page, the SECOND (a distinct hash) is NOT
         // dropped onto the first's vector.
@@ -976,7 +976,7 @@ mod tests {
 
     #[test]
     fn resume_skips_already_embedded_keys_without_re_embedding_or_missing() {
-        // CRITICAL-2 (direct): after a partial chunk, the keys already on the `.pkvec` store must be
+        // Direct: after a partial chunk, the keys already on the `.pkvec` store must be
         // skipped on resume (no re-embed, no double vector) while a genuinely new page still embeds
         // (no miss). `load_existing` seeds `persisted_keys` from the store's on-disk u64 set.
         let dir = tempdir().expect("tempdir");
@@ -1005,7 +1005,7 @@ mod tests {
 
     #[test]
     fn incremental_revisit_of_embedded_page_is_mapped_not_re_embedded() {
-        // MEDIUM-5 (direct): a PLAIN incremental pass (NOT a resume) of a NEW visit of an
+        // Direct: a PLAIN incremental pass (NOT a resume) of a NEW visit of an
         // already-embedded page must MAP the visit (no-miss fan-out) but NOT re-embed it (no duplicate
         // `.pkvec` record / bloat). `load_existing` seeds the on-disk sets at cursor 0 because the
         // store already exists and is not being wiped.

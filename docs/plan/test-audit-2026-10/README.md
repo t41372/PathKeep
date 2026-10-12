@@ -4,7 +4,7 @@ Asked by the user on 2026-10-08: early on, agents wrote many unit tests and the 
 mutation coverage; the product still broke whenever it was touched, and every change now carries those
 tests. Are they pinning subtle or wrong behavior, and which have no reason to exist?
 
-Four read-only subagents went through every Rust and frontend unit test (about 2,400) and sorted each
+Every Rust and frontend unit test (about 2,400) was read and sorted
 into:
 
 - **A**: pins wrong behavior. The asserted outcome contradicts the docs or the product's intent and
@@ -23,7 +23,7 @@ into:
 | [vault-core: Insights, runtime, the rest](vault-core-intelligence.md) | 5 (+4 maybe) | 66  | 161 | 355 | 591   |
 | [Other crates and the frontend](other-crates.md)                      | 4            | 58  | 186 | 396 | 644   |
 
-The reports are the subagents' work, with file and line references as of 2026-10-08. Each item is
+The reports below have file and line references as of 2026-10-08. Each item is
 checked against the code before anything is changed. The AI and Insights reports overlap on a few
 integration test files in `vault-core/tests/`.
 
@@ -37,7 +37,7 @@ These matter more than any test, and come first.
    (`src/features/ask/markdown.tsx`, `vault-platform` `launcher.rs`).
 2. The og:image fetcher, on by default, follows up to 8 redirects with no SSRF check per hop, while
    `ai-security-posture.md` says every hop of both fetchers is checked.
-3. The streaming 64 KiB cap on the Bilibili API body (`cafac470`) was lost in a merge; the body is read
+3. The streaming 64 KiB cap on the Bilibili API body was lost in a merge; the body is read
    whole again. An ignored test passed either way.
 4. Under `cfg(test)` the content fetcher's redirect guard always allows, so no test sees the real guard.
 5. Testing an embedding provider's connection sends an empty `Bearer` header.

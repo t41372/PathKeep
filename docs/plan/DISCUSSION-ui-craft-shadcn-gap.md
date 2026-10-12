@@ -1,18 +1,18 @@
 # DISCUSSION — UI 精緻度問題:shadcn 到底有沒有用?為什麼還是像手搓?
 
-> ✅ **ACTIONED (2026-07-05) — 三條線都做完了。** 見 CHANGELOG `WORK-UI-SHADCN-ADOPTION`。分支 `feat/ui-craft-shadcn-adoption`。
-> 一句更新:調查前提被一份 8-reader understanding pass 修正——`tailwind.css` 的 `@theme` 其實**已經**把大多 shadcn slot 別名到 paper tokens,所以 button 的活是 **5 個精準缺口**(未定義的 `text-accent-foreground`、裸 `border`→currentColor、非 paper shadow、`rounded-xs`、字面 `text-white`)+ 一個 inert-`danger` bug,不是全量 class 重寫。
+> ✅ **ACTIONED (2026-07-05) — 三條線都做完了。** 見 CHANGELOG `WORK-UI-SHADCN-ADOPTION`。
+> 一句更新:調查前提在動手前通讀代碼後被修正——`tailwind.css` 的 `@theme` 其實**已經**把大多 shadcn slot 別名到 paper tokens,所以 button 的活是 **5 個精準缺口**(未定義的 `text-accent-foreground`、裸 `border`→currentColor、非 paper shadow、`rounded-xs`、字面 `text-white`)+ 一個 inert-`danger` bug,不是全量 class 重寫。
 >
-> - **線 1 — Button primitive + 採用**:`ui/button.tsx` 重 theme 成 paper tokens,variants 覆蓋 audit 出的六個真實 cluster(435 個手寫 `<button>`)+ 28px icon size + reduced-motion-safe `loading`;destructive 改用 `error` tokens(`--color-danger` 根本不存在)。試點採用 **Activity /jobs**(全 7 個)+ **Settings**(8 section / 26 個 action button,退掉重複的 `BUTTON_*` const),passcode/restore/migration 由專用 sensitive-flow review lens 逐一驗過。commits `e44a6eee` / `2b2402f4` / `0c31f651`。
-> - **線 2 — 自建 SVG chart primitive**:ADR `docs/design/chart-primitive-tradeoff.md`(自建、零新依賴)。新 `src/components/charts/`(geometry + CalendarHeatmap + Sparkline);year-heatmap 從 365 div 遷成 SVG 並**修復回退的 a11y**(role=grid + roving-tabindex 鍵盤模型 + per-cell name);兩個手搓 sparkline 併入共用 Sparkline、legacy-var 百分比 bar 重上 paper token。commits `23143c8c` / `9b160d80`。
-> - **線 3 — 統一 Skeleton**:`primitives/skeleton.tsx` 重建成 paper-token,修掉 2026-06-14 記錄的 layout-shift 缺陷(DashboardSkeleton / SkeletonExplorer 現在對齊真實 paper 佈局);單一 keyframe(§9 紅線)、刪 3 個 dead export。commit `cc6794b9`。
+> - **線 1 — Button primitive + 採用**:`ui/button.tsx` 重 theme 成 paper tokens,variants 覆蓋 audit 出的六個真實 cluster(435 個手寫 `<button>`)+ 28px icon size + reduced-motion-safe `loading`;destructive 改用 `error` tokens(`--color-danger` 根本不存在)。試點採用 **Activity /jobs**(全 7 個)+ **Settings**(8 section / 26 個 action button,退掉重複的 `BUTTON_*` const),passcode/restore/migration 由專用 sensitive-flow review lens 逐一驗過。
+> - **線 2 — 自建 SVG chart primitive**:ADR `docs/design/chart-primitive-tradeoff.md`(自建、零新依賴)。新 `src/components/charts/`(geometry + CalendarHeatmap + Sparkline);year-heatmap 從 365 div 遷成 SVG 並**修復回退的 a11y**(role=grid + roving-tabindex 鍵盤模型 + per-cell name);兩個手搓 sparkline 併入共用 Sparkline、legacy-var 百分比 bar 重上 paper token。
+> - **線 3 — 統一 Skeleton**:`primitives/skeleton.tsx` 重建成 paper-token,修掉 2026-06-14 記錄的 layout-shift 缺陷(DashboardSkeleton / SkeletonExplorer 現在對齊真實 paper 佈局);單一 keyframe(§9 紅線)、刪 3 個 dead export。
 > - **未做(→ BACKLOG `WORK-UI-SHADCN-SWEEP`)**:其餘 ~400 個手寫 button;Intelligence `.intelligence-skeleton` dialect + 34 個 legacy `.skeleton` 檔;重啟 `desktop-bridge:truth`。一次全掃不現實也不可 review,刻意留成 follow-up。
 >
-> 以下為 2026-06-29 的原始調查,保留作背景與 traceability(數字為當時 grep,已被上面的 understanding pass 更新)。
+> 以下為 2026-06-29 的原始調查,保留作背景與 traceability(數字為當時 grep,已被上面的更新取代)。
 
 > 目的是把「為什麼 UI 看起來粗糙」這件事查清楚、沉澱下來,再決定要不要開 work block。結論若被採納,再拆進 `STATUS.md` / `BACKLOG.md` 並同步 `docs/design/`。
 >
-> 調查日期:2026-06-29(feat/ai-redesign-2026)。數字是當下 `grep` 實測,不是印象。
+> 調查日期:2026-06-29。數字是當下 `grep` 實測,不是印象。
 
 ---
 
@@ -73,7 +73,7 @@
 | 用 legacy v0.2 `.skeleton` class 的地方 | **80 處**                                                                                 |
 | loading 動畫                            | 散落的 `animate-pulse`(dashboard 各 card、status-bar、contact-sheet…),無統一 loading 元件 |
 
-`docs/review/2026-06-14` 已經抓到:這些 skeleton 用 v0.2 grid class,跟最終 paper 版面不一致,**載入完會 layout 跳動**——直接違反 `ux-principles.md`「skeleton 必須匹配最終版面、避免 layout shift」。
+已知問題:這些 skeleton 用 v0.2 grid class,跟最終 paper 版面不一致,**載入完會 layout 跳動**——直接違反 `ux-principles.md`「skeleton 必須匹配最終版面、避免 layout shift」。
 
 ---
 
@@ -91,7 +91,7 @@
    (我們停在這 ✅)              (沒做 ❌)                  (沒做 ❌)
 ```
 
-只做第一步,拿到的就是「一個裝了 Radix 的空殼」,精緻度為零;甚至比全手搓更糟,因為現在**兩套視覺語言並存**(4 個未 theme 的 shadcn primitive + 411 個手寫按鈕 + 80 處 v0.2 skeleton),形成 review 講的「style islands」。
+只做第一步,拿到的就是「一個裝了 Radix 的空殼」,精緻度為零;甚至比全手搓更糟,因為現在**兩套視覺語言並存**(4 個未 theme 的 shadcn primitive + 411 個手寫按鈕 + 80 處 v0.2 skeleton),形成「style islands」。
 
 圖表則是另一條線:**它根本沒進 shadcn/組件化的軌道**,一直是 dashboard 各 card 自己 div 手刻,沒有共用的繪圖 primitive。
 
@@ -131,17 +131,15 @@ heatmap / this-week / active-threads 目前是 div 手刻。要決定的是:**�
 1. 收斂出**一個 paper-token 的 `Skeleton` primitive**(matched-layout 版),取代散落的 `animate-pulse`。
 2. 清掉那 80 處 legacy `.skeleton` class 的 layout shift,對齊 `ux-principles.md`。
 
-**為什麼**:直接消掉一個 review 已記錄的缺陷(load 完跳版),且 loading 態是「~100ms 內給視覺回饋」硬指標的一部分。
+**為什麼**:直接消掉一個已知缺陷(load 完跳版),且 loading 態是「~100ms 內給視覺回饋」硬指標的一部分。
 
 ---
 
-## 5. 工作方式備註(給執行的 agent)
+## 5. 工作方式備註
 
-- **視覺 / copy 的決策交給 Sonnet 4.6**(見 memory `feedback_ui_copy_model`):token 對應、variant 命名、視覺細節不要 Opus 拍板。
-- **實作走 subagent implement + review loop**(memory `feedback_subagent_implement_review_loop`):main agent 不親手寫重要代碼;clean-context subagent 實作,獨立 subagent review+fix 到無 major issue。
 - **i18n / a11y 是 shipping contract**:換按鈕時 `aria-label`、disabled/loading 態的 copy 三語同交。
 - **效能**:圖表遷移要過「1440 萬條時這會怎樣」——heatmap 的資料聚合不能放 render path。
-- **gate**:動了任何 `.tsx` 就跑 `bun run check`;commit 前跑 repo-wide `format:check`(memory `feedback_authoritative_gate_before_commit`)。
+- **gate**:動了任何 `.tsx` 就跑 `bun run check`;commit 前跑 repo-wide `format:check`。
 
 ---
 
@@ -153,4 +151,4 @@ heatmap / this-week / active-threads 目前是 div 手刻。要決定的是:**�
 
 ---
 
-_附:本文所有數字來自 2026-06-29 對 `feat/ai-redesign-2026` 的實測 grep(圖表庫 0、heatmap 4×div、ui/button 被 import 1 次、手寫 button 411、button.tsx paper token 0 次、legacy skeleton 80 處)。若後續代碼變動,重跑再更新。_
+_附:本文所有數字來自 2026-06-29 的實測 grep(圖表庫 0、heatmap 4×div、ui/button 被 import 1 次、手寫 button 411、button.tsx paper token 0 次、legacy skeleton 80 處)。若後續代碼變動,重跑再更新。_

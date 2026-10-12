@@ -147,7 +147,7 @@ fn build_ai_index_resumes_from_cursor_and_records_progress() {
 
 #[test]
 fn build_ai_index_resume_carries_cumulative_embedded_so_far() {
-    // HIGH regression: the persisted `embedded_so_far` (and the embedded/embed_target progress bar)
+    // Regression: the persisted `embedded_so_far` (and the embedded/embed_target progress bar)
     // must be CUMULATIVE across a reclaim. A worker that died after embedding some pages resumes with a
     // non-zero `start_embedded_so_far`; the count must continue from there, not restart at this
     // session's partial count — which would collapse the bar to ~0% on the very recovery path the
@@ -195,7 +195,7 @@ fn build_ai_index_resume_carries_cumulative_embedded_so_far() {
 
 #[test]
 fn full_rebuild_resume_keeps_rows_below_cursor_and_completes_id_set() {
-    // CRITICAL-1: a crashed full_rebuild that resumes with the persisted cursor (and the ORIGINAL
+    // A crashed full_rebuild that resumes with the persisted cursor (and the ORIGINAL
     // full_rebuild request still true) must NOT re-run the destructive wipe — rows already embedded
     // below the cursor MUST survive, and the final store must hold the complete id set exactly once.
     let runtime = Runtime::new().expect("runtime");
@@ -236,7 +236,7 @@ fn full_rebuild_resume_keeps_rows_below_cursor_and_completes_id_set() {
 
 #[test]
 fn resume_after_dropped_cursor_does_not_duplicate_vectors() {
-    // CRITICAL-2: a crash AFTER a chunk's vectors are appended but BEFORE its SQLite hash rows /
+    // A crash AFTER a chunk's vectors are appended but BEFORE its SQLite hash rows /
     // cursor are written leaves the vectors on disk while `needs_embedding` is true again. A resume
     // must re-embed those rows WITHOUT appending a second copy. We reproduce the window by deleting
     // the boundary chunk's SQLite metadata, then resuming from before it.
@@ -279,7 +279,7 @@ fn resume_after_dropped_cursor_does_not_duplicate_vectors() {
 
 #[test]
 fn multi_chunk_resume_yields_exact_contiguous_id_set() {
-    // HIGH-7: a real multi-chunk run resumed from each persisted cursor must end with EXACTLY the
+    // A real multi-chunk run resumed from each persisted cursor must end with EXACTLY the
     // ids [1..=N] — no duplicate, no miss — and each cursor advance is exactly last + 1.
     let runtime = Runtime::new().expect("runtime");
     let (paths, config, connection) = prepared_archive();
@@ -338,7 +338,7 @@ fn multi_chunk_resume_yields_exact_contiguous_id_set() {
 
 #[test]
 fn incremental_build_does_not_re_embed_a_new_visit_of_an_already_embedded_page() {
-    // MEDIUM-5: a PLAIN incremental job starts at cursor 0 with empty dedup sets. Without loading the
+    // A PLAIN incremental job starts at cursor 0 with empty dedup sets. Without loading the
     // persisted keys/map when a store already exists, a NEW visit of an already-embedded page would
     // re-embed + append a DUPLICATE `.pkvec` record (bloat that `read_all` last-writer-wins masks).
     // Assert the RAW record count (store.count()), not read_all().len(), so the duplicate is visible.

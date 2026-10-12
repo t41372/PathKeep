@@ -226,7 +226,7 @@ Live-desktop behavior that is now verified on this host:
 
 Current-host drift that is still blocking full signoff:
 
-- shell chrome still reports build label `dc410477` even in the newly launched desktop sessions from the current working tree
+- shell chrome still reports the old build label even in the newly launched desktop sessions from the current working tree
 - `/settings` still renders the old English group dividers (`CORE`, `DATA & UPDATES`, etc.) instead of the localized strings that now exist in source/tests
 - `/intelligence` still exposes raw icon ids (`bar_chart`, `auto_stories`, `sync`) in the desktop accessibility tree, even though the source-level glyph contract now hides decorative icons
 - clicking Explorer’s `Open session insights` CTA through Computer Use landed on a malformed `tauri://localhost/intelligence/...#/...` URL and dropped back to Dashboard instead of opening the promoted entity route
@@ -248,11 +248,11 @@ The most honest interpretation after this rerun is:
 
 ### 2026-04-20 closeout: current-host stale bundle drift is resolved and the desktop truth pass is signed off
 
-The stale-frontend blocker turned out to be a host artifact issue, not a missing source fix. `Computer Use` kept attaching to the old `dc410477` release bundle even when the new debug binary had already embedded `6412ad59`. Rebuilding the current-host release app with `bunx tauri build --bundles app --no-sign` and reopening that `.app` finally put the live desktop on the same code that source/tests were already exercising.
+The stale-frontend blocker turned out to be a host artifact issue, not a missing source fix. `Computer Use` kept attaching to the old release bundle even when the new debug binary already embedded the current commit. Rebuilding the current-host release app with `bunx tauri build --bundles app --no-sign` and reopening that `.app` finally put the live desktop on the same code that source/tests were already exercising.
 
 Using `Computer Use` on that rebuilt release app:
 
-- live desktop chrome now reports `v0.1.0 · 6412ad59+`
+- live desktop chrome now reports the current build label (`v0.1.0 · <short-sha>+`)
 - `/intelligence` no longer leaks raw glyph ids into the accessibility tree
 - `/intelligence/domain/google.com?range=month` now renders `打開網域證據` as `tauri://localhost#/explorer?...`, and the CTA opens Explorer instead of dropping back to Dashboard
 - the rebuilt bundle unexpectedly recreated an empty app root, so the real-data pass was rerun on the new bundle itself:

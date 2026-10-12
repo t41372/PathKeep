@@ -693,7 +693,7 @@ where
     J: AgentJournal,
     S: AgentRunSink,
 {
-    // USER-facing localized note (review-fix M-6): why we are finishing up with what we have.
+    // USER-facing localized note: why we are finishing up with what we have.
     sink(AiChatStreamChunk::Note { code: note });
     // MODEL-facing directive + strip tools so the final turn ANSWERS instead of calling more tools.
     request.messages.push(LlmMessage::new(LlmRole::User, FINAL_SYNTHESIS_DIRECTIVE.to_string()));
@@ -991,7 +991,7 @@ where
     J: AgentJournal,
     S: AgentRunSink,
 {
-    // USER-facing control note as a localized CODE (review-fix M-6), not raw English. The model is
+    // USER-facing control note as a localized CODE, not raw English. The model is
     // NOT told it is degraded (it answers from the seeded evidence in its preamble), so this note has
     // no model-facing counterpart to thread back — the split is clean.
     sink(AiChatStreamChunk::Note { code: AiAgentNote::ToolCallingUnavailable });
@@ -1842,7 +1842,7 @@ mod tests {
         }
         let events = emitted.lock().unwrap().clone();
         assert!(matches!(events.last(), Some(AiChatStreamChunk::Done)));
-        // The closing control note is a localized CODE (review-fix M-6), not raw English prose.
+        // The closing control note is a localized CODE, not raw English prose.
         let note_index = events
             .iter()
             .position(|chunk| {
@@ -1895,7 +1895,7 @@ mod tests {
             other => panic!("expected Completed at the budget ceiling, got {other:?}"),
         }
         let events = emitted.lock().unwrap().clone();
-        // The closing control note is a localized CODE (review-fix M-6), not raw English prose.
+        // The closing control note is a localized CODE, not raw English prose.
         let note_index = events
             .iter()
             .position(|chunk| {
@@ -2109,7 +2109,7 @@ mod tests {
         .await;
         assert!(matches!(outcome, AgentRunOutcome::Completed { iterations: 1, .. }));
         let events = emitted.lock().unwrap().clone();
-        // An honest control note (localized CODE, review-fix M-6) about the lack of tool support, no
+        // An honest control note (localized CODE) about the lack of tool support, no
         // ToolCall/ToolResult chunks, and no raw English reasoning sentence on the user stream.
         assert!(events.iter().any(|chunk| matches!(
             chunk,

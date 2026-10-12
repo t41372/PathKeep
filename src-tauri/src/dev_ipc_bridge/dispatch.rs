@@ -505,7 +505,7 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
             )?)
         }
         "test_ai_provider_connection" => {
-            // Same panic mechanism as `run_backup_now` before f580761:
+            // Same panic mechanism `run_backup_now` once had:
             // the worker builds a fresh `tokio::runtime::Runtime` via
             // `Runtime::new()` and calls `block_on(...)` on the provider
             // probe. Dropping that runtime inside the dev-IPC bridge's
@@ -513,8 +513,8 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
             // context where blocking is not allowed", crashes the bridge
             // thread, and clients see `socket hang up`. Production Tauri
             // commands sidestep this via `run_blocking_command`; the
-            // dev bridge must mirror it. Claude review findings #1–4
-            // (the four AI arms below all share this root cause).
+            // dev bridge must mirror it. The four AI arms below all
+            // share this root cause.
             let payload =
                 parse_payload::<WrappedRequest<AiProviderConnectionTestRequest>>(payload)?;
             let key = session_key(&state.session)?;

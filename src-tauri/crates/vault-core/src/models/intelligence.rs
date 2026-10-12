@@ -674,7 +674,7 @@ impl Default for AiSettings {
     }
 }
 
-/// One stable, locale-independent index-health warning CODE for Settings (review-fix M-7).
+/// One stable, locale-independent index-health warning CODE for Settings.
 ///
 /// The Settings index-health surface used to receive ≥8 distinct English sentences (several
 /// `format!`-interpolated) on [`AiIndexStatus::warning`] and could only localize ONE of them via a
@@ -799,7 +799,7 @@ pub struct AiIndexStatus {
     /// The USER-facing Settings surface reads [`Self::warning_code`] instead and never renders this
     /// raw for a code it can localize.
     pub warning: Option<String>,
-    /// Stable index-health warning CODE (review-fix M-7), additive (`#[serde(default,
+    /// Stable index-health warning CODE, additive (`#[serde(default,
     /// skip_serializing_if)]`) so older payloads still deserialize. The front end maps ALL variants
     /// to localized copy; `None` mirrors `warning == None`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -940,7 +940,7 @@ pub struct AiQueueStatus {
     /// Queued/paused/stale count NARROWED to semantic-index jobs
     /// (`IndexBuild` + `IndexClear`). The Smart-search build callout keys its
     /// phase off this so an in-flight `Assistant` chat job — counted in the
-    /// aggregate `queued`/`running` above — never reads as build progress (M-5).
+    /// aggregate `queued`/`running` above — never reads as build progress.
     pub index_queued: u32,
     /// Running count NARROWED to semantic-index jobs (`IndexBuild` +
     /// `IndexClear`); the index-only companion to [`Self::index_queued`].
@@ -1173,7 +1173,7 @@ pub enum AiChatStreamChunk {
     /// starrable evidence rows without re-normalizing. Empty when no tool surfaced a row. This is
     /// the streaming twin of the harness's `record_citations` journal write (02 §G transparency).
     Citations { citations: Vec<AiCitation> },
-    /// A harness CONTROL note for the USER (review-fix M-6), carried as a stable locale-independent
+    /// A harness CONTROL note for the USER, carried as a stable locale-independent
     /// CODE the front end resolves to localized copy — NOT raw English prose.
     ///
     /// The agent harness used to stream its control notes (max-steps / token-budget reached,
@@ -1189,7 +1189,7 @@ pub enum AiChatStreamChunk {
     Error { message: String },
 }
 
-/// One stable, locale-independent USER-facing agent-harness control note CODE (review-fix M-6).
+/// One stable, locale-independent USER-facing agent-harness control note CODE.
 ///
 /// Streamed inside [`AiChatStreamChunk::Note`]. The closed set covers the harness's control notes;
 /// the front end resolves each to localized copy. These are the USER-facing twin of the harness's
@@ -1571,7 +1571,7 @@ pub struct AiSearchEntry {
     pub enrichment_excerpt: Option<String>,
 }
 
-/// Why the semantic index is stale for the selected provider/model (review-fix M-6/M-7).
+/// Why the semantic index is stale for the selected provider/model.
 ///
 /// Stable, locale-independent reason CODE replacing the prior English staleness prose. It is shared
 /// by BOTH user-facing surfaces that report staleness — the AI-search degradation notes
@@ -1605,7 +1605,7 @@ impl AiSemanticStaleness {
     }
 }
 
-/// One stable, locale-independent degradation note CODE for AI history search (review-fix M-6).
+/// One stable, locale-independent degradation note CODE for AI history search.
 ///
 /// The backend used to push full English sentences into [`AiSearchResponse::notes`], which rendered
 /// raw to zh-CN/zh-TW users on the trust-critical lexical-fallback path. The closed set of variants
@@ -1632,7 +1632,7 @@ pub enum AiSearchNote {
     /// The index is stale for the carried reason (shared vocabulary with the index-health warning).
     #[serde(rename_all = "camelCase")]
     Stale { reason: AiSemanticStaleness },
-    /// Semantic provider resolution failed at search time (worker-side degradation, review-fix M-6).
+    /// Semantic provider resolution failed at search time (worker-side degradation).
     /// Carries the opaque transport/provider error STRUCTURALLY so the front end composes the
     /// localized "semantic unavailable: {reason}" sentence instead of receiving pre-baked English.
     #[serde(rename_all = "camelCase")]
@@ -1686,7 +1686,7 @@ pub struct AiSearchResponse {
     /// these back to the LLM so it can reflect limited recall) and the persisted run trace. The
     /// USER-facing surface reads [`Self::note_codes`] instead and never renders these raw.
     pub notes: Vec<String>,
-    /// Stable degradation note CODES (review-fix M-6), additive so older shell payloads without the
+    /// Stable degradation note CODES, additive so older shell payloads without the
     /// field still deserialize (`#[serde(default)]`). The front end resolves each to localized copy;
     /// there is one code per English note in [`Self::notes`], in the same order.
     #[serde(default)]
@@ -2314,8 +2314,8 @@ mod tests {
     fn model_download_progress_event_wires_camel_case_fields() {
         // The struct-variant FIELDS (total_bytes / downloaded_bytes) only wire as camelCase because
         // each multi-word variant carries its OWN `#[serde(rename_all = "camelCase")]` — the
-        // container-level `rename_all` renames variant NAMES only, not struct-variant FIELDS (review
-        // H-1). Pin the EXACT wire shape so the camelCase FE contract (downloadedBytes/totalBytes) can
+        // container-level `rename_all` renames variant NAMES only, not struct-variant FIELDS.
+        // Pin the EXACT wire shape so the camelCase FE contract (downloadedBytes/totalBytes) can
         // never silently regress to snake_case `undefined` again.
         assert_eq!(
             serde_json::to_value(ModelDownloadProgressEvent::FileStarted {

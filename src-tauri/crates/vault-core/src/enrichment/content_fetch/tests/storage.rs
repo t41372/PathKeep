@@ -122,7 +122,7 @@ fn execute_content_fetch_job_blocks_non_https_page_url() {
         .expect("execute"),
         ContentFetchJobOutcome::Ran
     );
-    // SEC-4: a blocked/non-https row stores the RESOLVED extractor's content_source + version (not
+    // A blocked/non-https row stores the RESOLVED extractor's content_source + version (not
     // the old "blocked-content" sentinel) so `content_fetch_job_due` matches it and the working set
     // stops re-enqueuing it.
     let (status, source, version): (String, String, Option<i64>) = connection
@@ -158,7 +158,7 @@ fn execute_content_fetch_job_is_noop_for_missing_job() {
 
 #[test]
 fn execute_defers_a_rate_limited_job_for_a_later_drain() {
-    // SEC-2: a throttled PRIMARY egress requeues the job (queued + future scheduled_at) instead of
+    // A throttled PRIMARY egress requeues the job (queued + future scheduled_at) instead of
     // cancelling it, and the execute call reports `Deferred`.
     let vault = crate::Vault::open_temp().unwrap();
     let _paths = vault.paths().clone();
@@ -204,7 +204,7 @@ fn execute_defers_a_rate_limited_job_for_a_later_drain() {
 
 #[test]
 fn execute_defers_a_github_job_for_the_egress_api_host_eta() {
-    // BUG-1: a GitHub page (`github.com`) routes to a JsonApi extractor that GETs `api.github.com`,
+    // A GitHub page (`github.com`) routes to a JsonApi extractor that GETs `api.github.com`,
     // so the deferral ETA must read the EGRESS (`api.github.com`) bucket — the one actually charged
     // — not the always-full page bucket. We drain `api.github.com` to empty, then the requeue must
     // push `scheduled_at` meaningfully into the future (≈60s GitHub refill), proving the ETA tracks
@@ -258,7 +258,7 @@ fn execute_defers_a_github_job_for_the_egress_api_host_eta() {
 
 #[test]
 fn execute_honours_a_concurrent_stop_during_a_rate_limited_fetch() {
-    // BUG-2: a UI cancel landing on the STILL-`running` row during a throttled fetch must NOT be
+    // A UI cancel landing on the STILL-`running` row during a throttled fetch must NOT be
     // swallowed by the requeue (which clears `stop_requested` + re-queues). With a stop requested,
     // the rate-limited branch cancels the job (outcome `Ran`, state `cancelled`) instead of deferring
     // it (which would leave the row `queued` and re-run it on the next drain).
@@ -489,7 +489,7 @@ fn finish_fans_enrichment_out_to_sibling_visits_and_publishes_outbox() {
             .expect("finish")
     );
 
-    // CORR-3: BOTH sibling visits got the same enrichment_summary.
+    // BOTH sibling visits got the same enrichment_summary.
     for id in [10, 11] {
         let rows = crate::list_visit_enrichment(&vault, id).unwrap();
         assert_eq!(rows.len(), 1);
