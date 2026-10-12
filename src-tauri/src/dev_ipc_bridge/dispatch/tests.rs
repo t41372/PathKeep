@@ -1644,6 +1644,9 @@ fn queue_history_dispatch_preserves_every_cursor_page() {
         &AppConfig {
             initialized: true,
             archive_mode: ArchiveMode::Plaintext,
+            // Paused, so no worker runs a job between two pages: the Insights list is in order
+            // of last activity, and a job that finishes mid-walk moves ahead of the cursor.
+            ai: vault_core::AiSettings { job_queue_paused: true, ..Default::default() },
             ..Default::default()
         },
     )
