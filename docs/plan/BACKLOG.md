@@ -55,6 +55,12 @@
   - 現象：索引建置（`ai_index`）、助理回答（`assistant`）與每次 MCP 查詢（`mcp_query`）都寫進 `runs`，以前只出現在 Backup 的「最近的執行」，寫成備份的「0 個來源 · 0 筆新造訪」，還把備份擠出 12 筆。現在那裡不列它們，畫面上就沒有地方看得到；MCP 查詢是外部工具讀了哪些歷史的審計，應該看得到。
   - 方向：先決定放哪（Settings → AI，或 Background work）、列什麼（查了什麼、回了幾筆、哪個工具），再做讀取命令與畫面（三語、虛擬化）。
 
+- [ ] **WORK-JOB-HISTORY-PAGING** — Background work 看得到全部的工作紀錄，翻頁不漏（2026-10-12 修 `queue_history_dispatch_preserves_every_cursor_page` 時找到）
+  - 讀先：`docs/features/intelligence.md`（Recent-job snapshots 一段）、`vault-core/src/intelligence_runtime/snapshot.rs`（`load_job_page` 與 recent jobs）、`vault-core/src/ai_queue/store.rs`（`list_jobs`）。
+  - 現象：Background work 只顯示兩個佇列的第一頁；後端已有 `list_ai_jobs` / `list_intelligence_jobs` 接著讀，但前端沒用，更早的工作在畫面上找不到。
+  - 根本原因（要先修）：Insights 工作的清單按 `updated_at DESC, id DESC` 排，游標也是 `(updated_at, id)`。工作一跑、一回報進度，`updated_at` 就變，翻到一半跑完的工作會跳到游標前面，接下來的頁就漏掉它；已讀過的工作再變動也可能重複出現。最小重現：37 個 Insights 工作、每頁 5 筆、佇列不暫停，邊跑邊翻，8 次有 7 次只讀到 36 筆。AI 工作的清單按 `id DESC` 排，不受影響。測試現在暫停佇列，只證明游標本身走得完。
+  - 方向：Insights 清單改成跟 AI 清單一樣按建立順序（`id DESC`）翻頁，recent jobs 快照與它的游標一起改，`idx_intelligence_jobs_recent` 不再需要；狀態變動照樣更新已載入的列，但不改它們的位置。然後前端在 Background work 捲動載入更多（虛擬化、三語的載入 / 讀完 / 失敗狀態），E2E 在佇列跑著時翻完全部頁，數目對、不重複。
+
 - [ ] **WORK-REVIEW-FOLLOWUPS-COPY-CHANNELS-2** — 2026-07-27 並行審查的遞延 copy-channel 工作(均已逐檔核實,可直接動手)
   - **後端平行 i18n 系統**:`vault-core/src/intelligence/host_artifacts.rs:393-415` 的 `build_boundary_notes(locale)` 按 locale 返回硬編碼中文,前端 `src/pages/settings/helpers.ts:475-511` 的 `localizeLocalHostLine` 再用**整句中文**(zh-CN 與 zh-TW 各一份)當 switch case 映射回真正的 catalog。兩邊譯文不一致且後端那份更差(「这个本地宿主只使用 deterministic Core Intelligence read models。」混入未翻譯術語)。後端改一個標點,用戶靜默看到更差的中文。修法:HTML 產物保留後端 locale copy(獨立檔案的合法需求,但把譯文修好);preview payload 改 additive `boundary_note_codes` 等 stable code 通道,前端按 code 查 catalog,刪整句匹配。
   - **`formatDuration` 三個實現**:`src/lib/format.ts:94`(硬編碼英文,**死代碼**,唯一 importer 是 `App.helpers.test.tsx`)、`src/components/explorer-paper/paper-day-insights-helpers.ts:352`(Intl unit-style,**唯一正確**)、`src/pages/intelligence/sections/shared.ts:31`(硬編碼英文 + 把毫秒暴露給用戶)。zh 用戶在 Explorer 看「45 分鐘」、在 Intelligence 看「45.0m」,而 `paper-session-gap.tsx:11-12` 與 `observed-interactions-section.tsx:18` 兩處檔頭**各自聲稱**自己保證了一致性。修法:以 Intl 版為基準提升到 `lib/format.ts`,兩處改用它,修掉兩段假註釋。
