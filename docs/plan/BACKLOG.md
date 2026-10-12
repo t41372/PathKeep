@@ -51,6 +51,10 @@
 
 > 2026-07-26 coherence-sweep closeout note：使用者插單的全庫「逆天點」審查（`WORK-REVIEW-2026-07-26-COHERENCE-SWEEP`，見 CHANGELOG）已完成並全 gate 綠。結構化 `CommandError` envelope、十餘條 stable-code copy 通道、六個影子翻譯表剷除、posture/boundary-map 文檔如實化都已落地。待使用者拍板：`?layout=paper` QA mounts 去留、og:image 預設是否翻 `OnDemand`、onboarding 一次性 egress 披露。
 
+- [ ] **WORK-AI-RUNS-AUDIT-VIEW** — AI 的 run 在哪裡給人看（2026-10-12 `WORK-RUN-LIFECYCLE-GUARDS` 找到）
+  - 現象：索引建置（`ai_index`）、助理回答（`assistant`）與每次 MCP 查詢（`mcp_query`）都寫進 `runs`，以前只出現在 Backup 的「最近的執行」，寫成備份的「0 個來源 · 0 筆新造訪」，還把備份擠出 12 筆。現在那裡不列它們，畫面上就沒有地方看得到；MCP 查詢是外部工具讀了哪些歷史的審計，應該看得到。
+  - 方向：先決定放哪（Settings → AI，或 Background work）、列什麼（查了什麼、回了幾筆、哪個工具），再做讀取命令與畫面（三語、虛擬化）。
+
 - [ ] **WORK-REVIEW-FOLLOWUPS-COPY-CHANNELS-2** — 2026-07-27 並行審查的遞延 copy-channel 工作(均已由 orchestrator 逐檔追蹤確認,可直接動手)
   - **後端平行 i18n 系統**:`vault-core/src/intelligence/host_artifacts.rs:393-415` 的 `build_boundary_notes(locale)` 按 locale 返回硬編碼中文,前端 `src/pages/settings/helpers.ts:475-511` 的 `localizeLocalHostLine` 再用**整句中文**(zh-CN 與 zh-TW 各一份)當 switch case 映射回真正的 catalog。兩邊譯文不一致且後端那份更差(「这个本地宿主只使用 deterministic Core Intelligence read models。」混入未翻譯術語)。後端改一個標點,用戶靜默看到更差的中文。修法:HTML 產物保留後端 locale copy(獨立檔案的合法需求,但把譯文修好);preview payload 改 additive `boundary_note_codes` 等 stable code 通道,前端按 code 查 catalog,刪整句匹配。
   - **`formatDuration` 三個實現**:`src/lib/format.ts:94`(硬編碼英文,**死代碼**,唯一 importer 是 `App.helpers.test.tsx`)、`src/components/explorer-paper/paper-day-insights-helpers.ts:352`(Intl unit-style,**唯一正確**)、`src/pages/intelligence/sections/shared.ts:31`(硬編碼英文 + 把毫秒暴露給用戶)。zh 用戶在 Explorer 看「45 分鐘」、在 Intelligence 看「45.0m」,而 `paper-session-gap.tsx:11-12` 與 `observed-interactions-section.tsx:18` 兩處檔頭**各自聲稱**自己保證了一致性。修法:以 Intl 版為基準提升到 `lib/format.ts`,兩處改用它,修掉兩段假註釋。

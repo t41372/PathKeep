@@ -1219,14 +1219,13 @@ fn run_support_failed_runs_and_due_windows_stay_truthful() {
             Ok(())
         })
         .unwrap();
-    super::write_runs::stopped(
+    super::write_runs::end_failed(
         &vault,
         run_id,
         &anyhow::anyhow!("fixture failure"),
         json!({}),
         None,
-    )
-    .unwrap();
+    );
     let connection = crate::test_support::store::Probe::new(&vault);
     let (status, stats_json, warnings_json, error_message): (String, String, String, String) =
         connection

@@ -140,10 +140,10 @@ pub fn launch_background(root: &Path) -> Result<(), RpcError> {
     let mut command = launch_command(&spec, root, overrides);
     let logs = root.join("logs");
     std::fs::create_dir_all(&logs)?;
-    let mut stderr = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(logs.join("owner-startup.log"))?;
+    let log = logs.join("owner-startup.log");
+    // Bounded before each start; a log that cannot be trimmed is no reason not to start.
+    let _ = crate::logs::cap_log(&log);
+    let mut stderr = std::fs::OpenOptions::new().create(true).append(true).open(&log)?;
     command.stdin(Stdio::null()).stdout(Stdio::null()).stderr(stderr.try_clone()?);
     #[cfg(windows)]
     {

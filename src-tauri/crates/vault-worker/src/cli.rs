@@ -6,6 +6,16 @@ use anyhow::Result;
 use serde_json::json;
 use vault_owner_ipc::{Client, Request};
 
+/// The output of the native schedule's runs (`--due-only`), which launchd appends to for good
+/// (`vault-platform`'s macOS plan), kept bounded. Trimming is best effort: the backup runs anyway.
+fn cap_schedule_logs() {
+    let Ok(paths) = vault_core::project_paths() else { return };
+    let logs = paths.schedule_dir.join("logs");
+    for name in ["worker.stdout.log", "worker.stderr.log"] {
+        let _ = vault_owner_ipc::cap_log(&logs.join(name));
+    }
+}
+
 /// Preserves CLI JSON output and 0/1 exit semantics while the app owns all work.
 pub fn run_worker_cli(arguments: &[String]) -> Result<String> {
     let command = arguments.first().map(String::as_str).unwrap_or("snapshot");
@@ -15,7 +25,11 @@ pub fn run_worker_cli(arguments: &[String]) -> Result<String> {
     }
     let request = match command {
         "backup" => {
-            Request::new("backup", json!({"dueOnly":arguments.iter().any(|a| a == "--due-only")}))
+            let due_only = arguments.iter().any(|a| a == "--due-only");
+            if due_only {
+                cap_schedule_logs();
+            }
+            Request::new("backup", json!({ "dueOnly": due_only }))
         }
         "doctor" | "ai-index" | "ai-queue" | "ping" => Request::new(command, json!({})),
         "ai-jobs" | "intelligence-jobs" => {

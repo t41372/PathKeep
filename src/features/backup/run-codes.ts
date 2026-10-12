@@ -33,6 +33,8 @@ export const WARNINGS = {
   'og-refetch-failed': { evidence: 'diagnostic' },
   'og-prefetch-failed': { evidence: 'diagnostic' },
   'og-cleanup-failed': { evidence: 'diagnostic' },
+  // The work is saved; the diagnostic says which record could not be written.
+  'review-record-failed': { evidence: 'diagnostic' },
   'skipped-missing-timestamp': {},
   'browser-skipped-missing-url-row': {},
   // The message names the file; the diagnostic only has the parser's error.

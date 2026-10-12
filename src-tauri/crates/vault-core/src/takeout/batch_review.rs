@@ -58,7 +58,15 @@ pub fn preview_import_batch_page(
     {
         return Ok(detail);
     }
-    super::batches::ensure_import_batch_audit_artifact(vault, batch_id, None)?;
+    // Writing a missing review record is a repair the read makes on the way, not part of the
+    // read: a batch whose record cannot be written is still shown (it was an error, so the
+    // batch could not be opened at all), and the next read tries again.
+    if let Err(error) = super::batches::ensure_import_batch_audit_artifact(vault, batch_id, None) {
+        eprintln!(
+            "pathkeep: import batch {batch_id}: its review record could not be written: {error:#}"
+        );
+        return Ok(detail);
+    }
     vault.read(vault_store::Db::Archive, move |s| {
         load_import_batch_detail_page(s, batch_id, cursor.as_deref(), limit)
     })

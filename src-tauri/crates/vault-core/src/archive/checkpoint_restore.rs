@@ -55,13 +55,16 @@ pub fn run_snapshot_restore(
     })();
     if let Err(error) = &result {
         if profiles.is_empty() {
-            let stats: Value = vault.read(Db::Archive, move |s| {
-                Ok(serde_json::from_str(&s.query_one(
-                    "SELECT stats_json FROM runs WHERE id=?1",
-                    [run_id],
-                    |r| Ok(r.get::<String>(0)?),
-                )?)?)
-            })?;
+            // What the run had counted; without it the run still ends, with no counts.
+            let stats: Value = vault
+                .read(Db::Archive, move |s| {
+                    Ok(serde_json::from_str(&s.query_one(
+                        "SELECT stats_json FROM runs WHERE id=?1",
+                        [run_id],
+                        |r| Ok(r.get::<String>(0)?),
+                    )?)?)
+                })
+                .unwrap_or_default();
             profiles.push(BackupProfileSummary {
                 profile_id: checkpoint.profile.profile_id.clone(),
                 new_urls: stats["newUrls"].as_u64().unwrap_or(0) as usize,
@@ -74,15 +77,14 @@ pub fn run_snapshot_restore(
                 note_details: vec![],
             });
         }
-        write_runs::stopped(
+        write_runs::end_failed(
             vault,
             run_id,
             error,
             json!({"profilesProcessed":profiles.len(),"profiles":profiles}),
-            Some(serde_json::to_value(
-                profiles.iter().flat_map(|p| &p.note_details).collect::<Vec<_>>(),
-            )?),
-        )?;
+            serde_json::to_value(profiles.iter().flat_map(|p| &p.note_details).collect::<Vec<_>>())
+                .ok(),
+        );
     }
     result
 }

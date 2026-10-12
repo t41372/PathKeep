@@ -55,15 +55,24 @@ pub(super) fn change_visibility(
             })
         })();
         if let Err(error) = result {
-            write_runs::stopped(vault, run, &error, json!({}), None)?;
+            write_runs::end_failed(vault, run, &error, json!({}), None);
             return Err(error);
         }
     }
-    batches::ensure_import_batch_audit_artifact(
+    let audit = batches::ensure_import_batch_audit_artifact(
         vault,
         batch,
         Some(if restore { "restored" } else { "reverted" }),
-    )?;
+    );
+    match run {
+        // The rows are hidden or shown again; the record of it follows.
+        Some(run) => {
+            write_runs::after_success(vault, run, "writing its review record", audit);
+        }
+        None => {
+            audit?;
+        }
+    }
     preview_import_batch(vault, batch)
 }
 

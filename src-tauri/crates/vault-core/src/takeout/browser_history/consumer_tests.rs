@@ -268,14 +268,13 @@ fn browser_import_note_and_failure_helpers_keep_review_contract() {
     let vault = Vault::open_temp().unwrap();
     let archive = Probe::new(&vault);
     let run_id = crate::archive::write_runs::start(&vault, "import", "manual", &[]).unwrap();
-    crate::archive::write_runs::stopped(
+    crate::archive::write_runs::end_failed(
         &vault,
         run_id,
         &anyhow::anyhow!("stream failed"),
         json!({}),
         None,
-    )
-    .unwrap();
+    );
     let (status, error_message): (String, Option<String>) = archive
         .query_row("SELECT status, error_message FROM runs WHERE id = ?1", [run_id], |row| {
             Ok((row.get(0)?, row.get(1)?))

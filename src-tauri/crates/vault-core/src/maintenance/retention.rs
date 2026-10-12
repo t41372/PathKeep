@@ -102,26 +102,13 @@ pub fn prune(
             serde_json::to_value(&preview.warnings)?,
             crate::utils::now_rfc3339(),
         )?;
-        let paths = paths.clone();
-        vault.write(Db::Archive, Priority::Batch, move |s| {
-            let parent = s.query(
-                "SELECT id,content_hash FROM manifests ORDER BY id DESC LIMIT 1", (),
-                |r| Ok((r.get::<i64>(0)?, r.get::<String>(1)?)),
-            )?.pop();
-            let at = crate::utils::now_rfc3339();
-            let text = serde_json::to_string(&serde_json::json!({
-                "runType":"retention_prune", "runId":run, "createdAt":at,
-                "parentManifestHash":parent.as_ref().map(|p|p.1.as_str()), "summary":details,
-            }))?;
-            let hash = crate::utils::sha256_hex(text.as_bytes());
-            let path = crate::archive::write_manifest_artifact(&paths, run, &at, &hash, &text)?;
-            s.execute(
-                "INSERT INTO manifests(run_id,parent_manifest_id,content_hash,row_counts_json,created_at,file_path) VALUES(?1,?2,?3,'{}',?4,?5)",
-                params![run, parent.map(|p|p.0), hash, at, path.display().to_string()],
-            )?;
-            crate::archive::totals::add(s, "manifests", 1)?;
-            Ok(())
-        })?;
+        // The files are gone; the manifest records it.
+        write_runs::after_success(
+            vault,
+            run,
+            "writing its manifest",
+            write_manifest(vault, run, details),
+        );
         Ok(RetentionPruneResult {
             run_id: Some(run),
             deleted_bytes: bytes,
@@ -131,7 +118,31 @@ pub fn prune(
         })
     })();
     if let Err(error) = &result {
-        write_runs::stopped(vault, run, error, serde_json::json!({}), None)?;
+        write_runs::end_failed(vault, run, error, serde_json::json!({}), None);
     }
     result
+}
+
+/// The prune's manifest, chained to the archive's latest one.
+fn write_manifest(vault: &Vault, run: i64, details: serde_json::Value) -> Result<()> {
+    let paths = vault.paths().clone();
+    vault.write(Db::Archive, Priority::Batch, move |s| {
+        let parent = s.query(
+            "SELECT id,content_hash FROM manifests ORDER BY id DESC LIMIT 1", (),
+            |r| Ok((r.get::<i64>(0)?, r.get::<String>(1)?)),
+        )?.pop();
+        let at = crate::utils::now_rfc3339();
+        let text = serde_json::to_string(&serde_json::json!({
+            "runType":"retention_prune", "runId":run, "createdAt":at,
+            "parentManifestHash":parent.as_ref().map(|p|p.1.as_str()), "summary":details,
+        }))?;
+        let hash = crate::utils::sha256_hex(text.as_bytes());
+        let path = crate::archive::write_manifest_artifact(&paths, run, &at, &hash, &text)?;
+        s.execute(
+            "INSERT INTO manifests(run_id,parent_manifest_id,content_hash,row_counts_json,created_at,file_path) VALUES(?1,?2,?3,'{}',?4,?5)",
+            params![run, parent.map(|p|p.0), hash, at, path.display().to_string()],
+        )?;
+        crate::archive::totals::add(s, "manifests", 1)?;
+        Ok(())
+    })
 }

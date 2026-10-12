@@ -167,35 +167,48 @@ pub(super) fn finalize_ai_run_success(
              error_message = NULL,
              warnings_json = '[]',
              stats_json = ?2
-         WHERE id = ?3",
+         WHERE id = ?3 AND status = 'running'",
             params![finished_at, serde_json::to_string(&stats_json)?, run_id],
         )?;
         Ok(())
     })
 }
 
-pub(super) fn finalize_ai_run_failure(
+/// Ends an AI run that failed with `error`, `interrupted` when it was cancelled. The caller goes
+/// on to return `error`, so a failure to record the end is printed rather than returned (it hid
+/// why the run failed); the next time the archive opens, a run left running is interrupted.
+pub(super) fn end_failed_ai_run(
     vault: &crate::Vault,
     run_id: i64,
-    error_message: &str,
+    error: &anyhow::Error,
     stats_json: serde_json::Value,
-) -> Result<()> {
-    let error_message = error_message.to_owned();
-    vault.write(vault_store::Db::Archive, vault_store::Priority::Batch, move |connection| {
-        let error_message = error_message.as_str();
-
-        let finished_at = now_rfc3339();
-        connection.execute(
-            "UPDATE runs
-         SET finished_at = ?1,
-             status = 'failed',
-             error_message = ?2,
-             stats_json = ?3
-         WHERE id = ?4",
-            params![finished_at, error_message, serde_json::to_string(&stats_json)?, run_id],
-        )?;
-        Ok(())
-    })
+) {
+    let status = crate::archive::write_runs::failure_status(error);
+    let message = format!("{error:#}");
+    let recorded =
+        vault.write(vault_store::Db::Archive, vault_store::Priority::Batch, move |connection| {
+            connection.execute(
+                "UPDATE runs
+             SET finished_at = ?1,
+                 status = ?2,
+                 error_message = ?3,
+                 stats_json = ?4
+             WHERE id = ?5 AND status = 'running'",
+                params![
+                    now_rfc3339(),
+                    status,
+                    message.as_str(),
+                    serde_json::to_string(&stats_json)?,
+                    run_id
+                ],
+            )?;
+            Ok(())
+        });
+    if let Err(recording) = recorded {
+        eprintln!(
+            "pathkeep: AI run {run_id} failed ({error:#}), and so did recording it: {recording:#}"
+        );
+    }
 }
 
 pub(super) fn record_index_ledger_start(

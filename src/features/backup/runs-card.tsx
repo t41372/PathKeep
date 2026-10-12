@@ -19,8 +19,14 @@ const runTypes = [
   'archive_restore',
   'snapshot_restore',
   'retention_prune',
+  'rollback',
+  'restore',
+  'same-visit',
 ] as const
 type RunType = (typeof runTypes)[number]
+
+/** The kinds whose `newVisits` counts visits added; an undo's counts the ones it hid. */
+const addsVisits: readonly RunType[] = ['import', 'snapshot_restore']
 
 function summary(run: BackupRunOverview, t: Translator) {
   if (run.status === 'failed')
@@ -39,7 +45,7 @@ function summary(run: BackupRunOverview, t: Translator) {
   }
   const label = t(`backup.runs.types.${type}`)
   if (stopped) return t('backup.runs.stopped', { label })
-  return run.newVisits > 0
+  return addsVisits.includes(type) && run.newVisits > 0
     ? t('backup.runs.summary', {
         sources: label,
         visits: t('backup.runs.newVisits', { count: run.newVisits }),

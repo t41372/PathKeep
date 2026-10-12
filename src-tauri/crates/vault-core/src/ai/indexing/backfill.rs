@@ -14,7 +14,7 @@
 //! - the vector store / visit map byte format (`super::super::vector_store` / `visit_content_map`)
 
 use super::super::native_ledger::{
-    begin_ai_run, current_source_watermark, finalize_ai_run_failure, finalize_ai_run_success,
+    begin_ai_run, current_source_watermark, end_failed_ai_run, finalize_ai_run_success,
     record_index_ledger_failure, record_index_ledger_start, record_index_ledger_success,
 };
 use super::super::*;
@@ -126,7 +126,7 @@ pub async fn build_ai_index_with_control(
             "limit": request.limit,
         }),
     )?;
-    record_index_ledger_start(
+    if let Err(error) = record_index_ledger_start(
         vault,
         provider,
         run_id,
@@ -134,7 +134,10 @@ pub async fn build_ai_index_with_control(
         source_watermark,
         &sidecar_table,
         request,
-    )?;
+    ) {
+        end_failed_ai_run(vault, run_id, &error, json!({}));
+        return Err(error);
+    }
 
     // A full rebuild's destructive wipe is a ONE-SHOT that runs only at the TRUE start of the job
     // (the persisted cursor is still at the origin). On any resume (`start_history_id > 0`) a worker
@@ -344,7 +347,17 @@ pub async fn build_ai_index_with_control(
     .await;
 
     match result {
-        Ok(report) => {
+        // The ledger first: the run is done only once the index says how far it got.
+        Ok(report) => match record_index_ledger_success(
+            vault,
+            provider,
+            run_id,
+            &report.last_indexed_at,
+            source_watermark,
+            &sidecar_table,
+            request,
+        )
+        .and_then(|()| {
             finalize_ai_run_success(
                 vault,
                 run_id,
@@ -355,31 +368,27 @@ pub async fn build_ai_index_with_control(
                     "updatedItems": report.updated_items,
                     "removedItems": report.removed_items,
                 }),
-            )?;
-            record_index_ledger_success(
-                vault,
-                provider,
-                run_id,
-                &report.last_indexed_at,
-                source_watermark,
-                &sidecar_table,
-                request,
-            )?;
-            Ok(report)
-        }
+            )
+        }) {
+            Ok(()) => Ok(report),
+            Err(error) => {
+                end_failed_ai_run(vault, run_id, &error, json!({}));
+                Err(error)
+            }
+        },
         Err(error) => {
-            finalize_ai_run_failure(
+            end_failed_ai_run(
                 vault,
                 run_id,
-                &error.to_string(),
+                &error,
                 json!({
                     "providerId": provider.config.id,
                     "model": provider.config.default_model,
                     "fullRebuild": request.full_rebuild,
                     "clearOnly": request.clear_only,
                 }),
-            )?;
-            record_index_ledger_failure(
+            );
+            if let Err(recording) = record_index_ledger_failure(
                 vault,
                 provider,
                 run_id,
@@ -387,7 +396,11 @@ pub async fn build_ai_index_with_control(
                 &sidecar_table,
                 request,
                 &error.to_string(),
-            )?;
+            ) {
+                eprintln!(
+                    "pathkeep: index run {run_id}: recording its failure failed: {recording:#}"
+                );
+            }
             Err(error)
         }
     }

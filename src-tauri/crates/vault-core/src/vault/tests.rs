@@ -49,6 +49,46 @@ fn reopen_interrupts_unfinished_runs_without_losing_progress() {
     }
 }
 
+/// Every kind of run the app can be closed in the middle of, and one that had ended.
+#[test]
+fn reopen_interrupts_every_kind_of_unfinished_run_and_leaves_ended_ones() {
+    let root = tempfile::tempdir().unwrap();
+    let paths = crate::project_paths_with_root(root.path());
+    let config = AppConfig { initialized: true, ..AppConfig::default() };
+    let kinds = ["retention_prune", "doctor", "same-visit", "ai_index", "assistant", "rekey"];
+    let vault = Vault::open(paths.clone(), config.clone(), None).unwrap();
+    vault
+        .store()
+        .write(Db::Archive, Priority::Batch, move |s| {
+            for kind in kinds {
+                s.execute(
+                    "INSERT INTO runs(run_type,trigger,started_at,status) VALUES(?1,'manual','2026-10-12','running')",
+                    [kind],
+                )?;
+            }
+            s.execute(
+                "INSERT INTO runs(run_type,trigger,started_at,status) VALUES('backup','manual','2026-10-12','success')",
+                (),
+            )?;
+            Ok(())
+        })
+        .unwrap();
+    drop(vault);
+    let vault = Vault::open(paths, config, None).unwrap();
+    let statuses = vault
+        .store()
+        .read(Db::Archive, |s| {
+            s.query("SELECT run_type,status FROM runs WHERE id>0 ORDER BY id", (), |r| {
+                Ok((r.get::<String>(0)?, r.get::<String>(1)?))
+            })
+        })
+        .unwrap();
+    let mut expected =
+        kinds.iter().map(|kind| (kind.to_string(), "interrupted".to_string())).collect::<Vec<_>>();
+    expected.push(("backup".into(), "success".into()));
+    assert_eq!(statuses, expected);
+}
+
 #[test]
 fn encrypted_vault_refuses_another_key() {
     let root = tempfile::tempdir().unwrap();

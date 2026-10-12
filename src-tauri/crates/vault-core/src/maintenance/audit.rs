@@ -43,7 +43,9 @@ fn record(vault: &Vault, kind: &'static str, snapshot: &str, reason: &'static st
         Ok(id)
     })?;
     let paths = vault.paths().clone();
-    vault.write(Db::Archive, Priority::Batch, move |s| {
+    // The run and its snapshot are recorded; the manifest follows, and its failure is the
+    // run's warning (the caller had reported no run at all).
+    let manifest = vault.write(Db::Archive, Priority::Batch, move |s| {
         let parent = s.query(
             "SELECT id,content_hash FROM manifests ORDER BY id DESC LIMIT 1", (),
             |r| Ok((r.get::<i64>(0)?, r.get::<String>(1)?)),
@@ -63,6 +65,7 @@ fn record(vault: &Vault, kind: &'static str, snapshot: &str, reason: &'static st
         )?;
         crate::archive::totals::add(s, "manifests", 1)?;
         Ok(())
-    })?;
+    });
+    write_runs::after_success(vault, id, "writing its manifest", manifest);
     Ok(id)
 }

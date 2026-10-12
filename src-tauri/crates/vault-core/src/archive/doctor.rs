@@ -156,22 +156,20 @@ pub fn repair_health_issues(vault: &Vault) -> Result<HealthRepairReport> {
         append_repair_notes(&mut report);
         Ok(report)
     })();
-    match result {
-        Ok(report) => {
-            super::write_runs::complete(
-                vault,
-                run,
-                serde_json::to_value(&report)?,
-                json!([]),
-                now_rfc3339(),
-            )?;
-            Ok(report)
-        }
-        Err(error) => {
-            super::write_runs::stopped(vault, run, &error, json!({}), None)?;
-            Err(error)
-        }
+    let result = result.and_then(|report| {
+        super::write_runs::complete(
+            vault,
+            run,
+            serde_json::to_value(&report)?,
+            json!([]),
+            now_rfc3339(),
+        )?;
+        Ok(report)
+    });
+    if let Err(error) = &result {
+        super::write_runs::end_failed(vault, run, error, json!({}), None);
     }
+    result
 }
 
 fn repair_native_metadata(vault: &Vault, run: i64, missing: &[i64]) -> Result<HealthRepairReport> {

@@ -330,17 +330,28 @@ where
             &progress_log_lines,
         );
         finalize_successful_import_run(vault, run_id, batch_id, &inspection, &stats)?;
-        batches::ensure_import_batch_audit_artifact(vault, batch_id, Some("imported"))?;
-
-        let detail = preview_import_batch(vault, batch_id)?;
-        inspection.import_batch = Some(detail.batch);
-        inspection.preview_entries = detail.preview_entries;
-        inspection.recognized_files = detail.recognized_files;
-        inspection.quarantined_files = detail.quarantined_files;
-        inspection.replace_notes(detail.notes, detail.note_details);
-        inspection.detected_locale = detail.detected_locale;
-        inspection.preview_range_start = detail.preview_range_start;
-        inspection.preview_range_end = detail.preview_range_end;
+        // The records are in; what follows only describes them.
+        crate::archive::write_runs::after_success(
+            vault,
+            run_id,
+            "writing its review record",
+            batches::ensure_import_batch_audit_artifact(vault, batch_id, Some("imported")),
+        );
+        if let Some(detail) = crate::archive::write_runs::after_success(
+            vault,
+            run_id,
+            "reading it back for review",
+            preview_import_batch(vault, batch_id),
+        ) {
+            inspection.import_batch = Some(detail.batch);
+            inspection.preview_entries = detail.preview_entries;
+            inspection.recognized_files = detail.recognized_files;
+            inspection.quarantined_files = detail.quarantined_files;
+            inspection.replace_notes(detail.notes, detail.note_details);
+            inspection.detected_locale = detail.detected_locale;
+            inspection.preview_range_start = detail.preview_range_start;
+            inspection.preview_range_end = detail.preview_range_end;
+        }
         progress_log_lines.push(format!(
             "Imported {} new record(s); {} duplicate(s) skipped.",
             inspection.imported_items, inspection.duplicate_items
