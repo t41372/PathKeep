@@ -208,5 +208,8 @@ test('a run that left things out says why, in your language, beside the fix', as
         ai: before.ai,
       },
     })
+    // Background work resumes the way the Settings switch does it: the queues
+    // reload, which starts their workers on what the paused backup queued.
+    await backend('load_intelligence_runtime')
   }
 })

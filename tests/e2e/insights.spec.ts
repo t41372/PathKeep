@@ -123,16 +123,20 @@ async function kpiText(page: Page, label: string) {
 
 /** What a card's ⓘ says it was computed from ("1,234 visits"); the header's, before any inner list's own. */
 async function evidenceOf(page: Page, title: string) {
-  await card(page, title)
+  const button = card(page, title)
     .getByRole('button', { name: 'About this number' })
     .first()
-    .click()
+  await button.click()
   const about = page.getByRole('dialog')
   const based = about.getByText(/^[\d,]+ (visits?|searches?|days?)\b/)
   await expect(based).toBeVisible()
   const text = await based.innerText()
   await page.keyboard.press('Escape')
   await expect(about).toBeHidden()
+  // Focus goes back to the button once the popover has closed, and that
+  // scrolls the page to the card: a click before then lands where the page
+  // has just moved away from.
+  await expect(button).toBeFocused()
   return text
 }
 
