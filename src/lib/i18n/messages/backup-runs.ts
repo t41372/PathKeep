@@ -52,6 +52,8 @@ export const backupRuns = defineMessages({
         'Retrying link previews that failed before didn’t work.',
       'og-prefetch-failed': 'Link previews for new pages couldn’t be fetched.',
       'og-cleanup-failed': 'Cleaning up the link preview cache failed.',
+      'review-record-failed':
+        'Everything was saved, but the record of this run couldn’t be written.',
       'skipped-missing-timestamp_one':
         'Skipped {count} entry in the import file because it has no time.',
       'skipped-missing-timestamp_other':
@@ -134,6 +136,7 @@ export const backupRuns = defineMessages({
       'og-refetch-failed': '重试之前失败的链接预览时出错。',
       'og-prefetch-failed': '没能获取新页面的链接预览。',
       'og-cleanup-failed': '清理链接预览缓存失败。',
+      'review-record-failed': '内容都已保存，但这次执行的记录没能写入。',
       'skipped-missing-timestamp_one':
         '跳过了导入文件中的 {count} 条记录，因为它们没有时间。',
       'skipped-missing-timestamp_other':
@@ -215,6 +218,7 @@ export const backupRuns = defineMessages({
       'og-refetch-failed': '重試之前失敗的連結預覽時出錯。',
       'og-prefetch-failed': '沒能取得新頁面的連結預覽。',
       'og-cleanup-failed': '清理連結預覽快取失敗。',
+      'review-record-failed': '內容都已儲存，但這次執行的記錄沒能寫入。',
       'skipped-missing-timestamp_one':
         '略過了匯入檔案中的 {count} 筆記錄，因為它們沒有時間。',
       'skipped-missing-timestamp_other':

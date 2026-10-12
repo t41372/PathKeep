@@ -227,10 +227,19 @@ pub fn import_browser_history_with_control(
         &inspection,
         &stats,
     )?;
-    batches::ensure_import_batch_audit_artifact(vault,batch_id,Some("imported"))?;
-    let detail = preview_import_batch(vault, batch_id)?;
-    inspection.import_batch = Some(detail.batch);
-    inspection.preview_entries = detail.preview_entries;
+    // The records are in; what follows only describes them.
+    crate::archive::write_runs::after_success(
+        vault,
+        run_id,
+        "writing its review record",
+        batches::ensure_import_batch_audit_artifact(vault, batch_id, Some("imported")),
+    );
+    if let Some(detail) =
+        crate::archive::write_runs::after_success(vault, run_id, "reading it back for review", preview_import_batch(vault, batch_id))
+    {
+        inspection.import_batch = Some(detail.batch);
+        inspection.preview_entries = detail.preview_entries;
+    }
     emit_browser_import_progress(
         &mut report,
         "complete",

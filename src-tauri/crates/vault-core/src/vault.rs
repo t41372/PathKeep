@@ -93,8 +93,9 @@ impl Vault {
         if recover {
             store.write(Db::Archive, Priority::Interactive, |s| {
             s.execute(
-                "UPDATE runs SET status='interrupted', finished_at=?1
-                 WHERE status='running' AND run_type IN ('backup','import','snapshot_restore','rollback','restore')",
+                // One process owns the archive, so a run still running when it opens was cut
+                // short, whatever its kind (a retention prune, a repair, an index build).
+                "UPDATE runs SET status='interrupted', finished_at=?1 WHERE status='running'",
                 [crate::utils::now_rfc3339()],
             )?;
             s.execute("UPDATE import_batches SET status='interrupted',previous_status='interrupted' WHERE status='running'", ())?;

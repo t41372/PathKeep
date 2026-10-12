@@ -832,3 +832,39 @@ fn reimport_evidence_bench() {
         );
     }
 }
+
+/// The records are in the archive when the import's review record is written. That step failing
+/// made the import report a failure, while its run said it succeeded, and marked the file it had
+/// read as unreadable (`WORK-RUN-LIFECYCLE-GUARDS`).
+#[test]
+fn an_import_whose_review_record_fails_is_still_imported_with_a_warning() {
+    use std::os::unix::fs::PermissionsExt;
+    let vault = crate::Vault::open_temp().unwrap();
+    let dir = tempdir().expect("tempdir");
+    let source = write_safari_history_db(dir.path());
+    // Only the import's review records: the run's manifest, written before it ends, still lands.
+    let audit = vault.paths().audit_repo_path.join("imports");
+    std::fs::create_dir_all(&audit).unwrap();
+    std::fs::set_permissions(&audit, std::fs::Permissions::from_mode(0o500)).unwrap();
+    let request = browser_history_request(&source, false, "safari", "safari:primary");
+    let imported = import_browser_history(&vault, &request);
+    std::fs::set_permissions(&audit, std::fs::Permissions::from_mode(0o700)).unwrap();
+
+    let imported = imported.expect("the import succeeds");
+    assert_eq!(imported.imported_items, 2);
+    let batch = imported.import_batch.expect("its batch");
+    assert_eq!(batch.status, "imported");
+    assert!(imported.recognized_files.iter().all(|file| file.kind == "safari-history-db"));
+    let (status, warnings): (String, String) = Probe::new(&vault)
+        .query_row(
+            "SELECT status,warnings_json FROM runs WHERE run_type='import' ORDER BY id DESC LIMIT 1",
+            (),
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(status, "success");
+    let warnings: Vec<serde_json::Value> = serde_json::from_str(&warnings).unwrap();
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    assert_eq!(warnings[0]["code"], crate::archive::write_runs::REVIEW_RECORD_FAILED);
+    assert!(warnings[0]["diagnostic"].as_str().is_some_and(|text| !text.is_empty()));
+}

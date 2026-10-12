@@ -1,8 +1,9 @@
 //! Responsibilities: keep backup/import run state and committed batch progress honest.
 //! Not responsible for: parser loops, manifests or storage ownership.
 //! Failure modes: errors leave running rows, partial batches lose progress, profile
-//! changes reset run totals, completing one import completes another batch.
-//! Tests: vault::tests and archive::ingest::concurrency_tests.
+//! changes reset run totals, completing one import completes another batch, a failure after a
+//! run ended rewrites how it ended.
+//! Tests: write_runs_tests, vault::tests and archive::ingest::concurrency_tests.
 
 use crate::{Vault, utils::now_rfc3339};
 use anyhow::Result;
@@ -79,7 +80,24 @@ pub(crate) fn complete(
     finish(vault, run_id, "success", extra, Some(warnings), None, finished_at)
 }
 
-pub(crate) fn stopped(
+/// Ends a run that failed with `error`. The caller goes on to return `error`, so a failure to
+/// record the end is printed rather than returned: returned, it hid why the run failed. The next
+/// time the archive opens, a run left running is marked interrupted.
+pub(crate) fn end_failed(
+    vault: &Vault,
+    run_id: i64,
+    error: &anyhow::Error,
+    extra: Value,
+    warnings: Option<Value>,
+) {
+    if let Err(recording) = stopped(vault, run_id, error, extra, warnings) {
+        eprintln!(
+            "pathkeep: run {run_id} failed ({error:#}), and so did recording it: {recording:#}"
+        );
+    }
+}
+
+fn stopped(
     vault: &Vault,
     run_id: i64,
     error: &anyhow::Error,
@@ -151,9 +169,42 @@ fn finish_in(
             stats[key] = value.clone();
         }
     }
-    s.execute("UPDATE runs SET status=?2,finished_at=?3,stats_json=?4,warnings_json=COALESCE(?5,warnings_json),error_message=?6 WHERE id=?1",
+    // A run that ended stays as it ended: a later failure (a review record after the work was
+    // committed) is a warning on it (`after_success`), never a new status.
+    s.execute("UPDATE runs SET status=?2,finished_at=?3,stats_json=?4,warnings_json=COALESCE(?5,warnings_json),error_message=?6 WHERE id=?1 AND status='running'",
             params![run_id,status,finished_at,stats.to_string(),warnings.map(|value|value.to_string()),error])?;
     Ok(())
+}
+
+/// The warning code of a step after a run's work was committed that failed.
+pub const REVIEW_RECORD_FAILED: &str = "review-record-failed";
+
+/// Runs a step that follows a run recorded as done: its review record, a preview of what it
+/// wrote, a manifest. The run's work is committed, so a failure here is a warning on the run,
+/// not its error. Before, the run said it succeeded while the command said it failed, a retention
+/// prune that had deleted its files was marked failed, and an import marked every file it had
+/// read as unreadable. Returns the step's value, or `None` once the failure is recorded.
+pub(crate) fn after_success<T>(
+    vault: &Vault,
+    run_id: i64,
+    step: &str,
+    result: Result<T>,
+) -> Option<T> {
+    let error = match result {
+        Ok(value) => return Some(value),
+        Err(error) => error,
+    };
+    let warning = crate::models::BackupWarning::new(
+        REVIEW_RECORD_FAILED,
+        format!("Everything was saved, but {step} failed."),
+    )
+    .with_diagnostic(format!("{error:#}"));
+    if let Err(recording) = append_run_warnings(vault, run_id, &[warning]) {
+        eprintln!(
+            "pathkeep: run {run_id}: {step} failed ({error:#}), and so did recording it: {recording:#}"
+        );
+    }
+    None
 }
 
 /// Persisted totals keep unported dashboard readers from recounting on each render.
@@ -173,3 +224,7 @@ pub(crate) fn with_totals(s: &Session<'_>, mut stats: Value) -> Result<Value> {
     }
     Ok(stats)
 }
+
+#[cfg(test)]
+#[path = "write_runs_tests.rs"]
+mod tests;

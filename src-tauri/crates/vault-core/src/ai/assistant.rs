@@ -2,7 +2,7 @@
 //! Not responsible for: search indexing, candidate pools or archive search hydration.
 //! Failure modes: citations or cancellation vanish during retrieval extraction.
 //! Tests: existing assistant/agent contract suites.
-use super::native_ledger::{begin_ai_run, finalize_ai_run_failure, finalize_ai_run_success};
+use super::native_ledger::{begin_ai_run, end_failed_ai_run, finalize_ai_run_success};
 use super::search::{
     MODEL_FACING_ROW_CAP, SearchContext, SearchHistoryTool, search_history_internal,
 };
@@ -174,17 +174,17 @@ pub async fn answer_history_question_with_control(
             Ok(response)
         }
         Err(error) => {
-            finalize_ai_run_failure(
+            end_failed_ai_run(
                 vault,
                 run_id,
-                &error.to_string(),
+                &error,
                 json!({
                     "providerId": llm_provider.config.id,
                     "embeddingProviderId": embedding_provider
                         .map(|provider| provider.config.id.clone())
                         .unwrap_or_else(|| "lexical-fallback".to_string()),
                 }),
-            )?;
+            );
             Err(error)
         }
     }

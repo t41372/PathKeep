@@ -266,6 +266,24 @@
     - [ ] 2. 重現並找出在等什麼。2026-10-12 雲端（Linux、4 核）把 change 專案連跑 6 次，改密碼都在幾秒內完成，沒重現。讀代碼：dev bridge 每個命令在 tokio 的 blocking 池上（上限 512，不會排隊）；`rewrap_password` 等的兩把鎖，`ArchiveOpGate` 只有使用者自己按的維護（還原、清空、保留、快照、遷移、轉換）會拿，`ENVELOPE_ACCESS` 只有開存檔時拿；`security.spec` 那段都沒在跑。還沒排除的：Mac 上 gate 同時編譯時的記憶體壓力（三次 256 MiB 的 Argon2 被換頁）。下次 gate 再出現，`thread-stacks/` 會留下改密碼當下在做什麼。
     - [ ] 3. 修、寫下會怎麼錯（改密碼時有備份、匯入、洞察重算或另一個維護在跑），文檔、CHANGELOG。
 
+- [x] **WORK-RUN-LIFECYCLE-GUARDS** — P1 follow-up from 2026-07-23 silent-failure audit（2026-10-12 從 BACKLOG 搬上）
+  - 讀先：`docs/architecture/decisions/003-run-model.md`；`docs/plan/program/quality-matrix.md`；`archive/maintenance.rs` retention/snapshot restore；Takeout / Browser Direct import run creation/finalization；Audit read models。
+  - 目標：建立 reusable run-attempt finalizer/guard，讓 canonical run row 一旦建立，任何 transaction 前置、commit 後 follow-up、manifest/stats/batch finalization 錯誤都留下 terminal、帶原始錯誤與 partial-commit phase 的結果，不再永久 `running`。
+  - 已確認範圍：retention prune；checkpoint snapshot restore；Takeout import；Browser Direct import；backup commit 後 manifest/search-projection/finalize tails。另修 Audit「Last 30 days」實際只取 12 筆、paper chain 再截 6 筆的 truth mismatch，以及 native worker stdout/stderr bounded rotation。
+  - 契約：每條舊碼 failure window 都先有 failing regression；若資料 transaction 已 commit，狀態必須誠實區分 committed-with-followup-failure，不得假裝完全失敗或成功；finalizer 自身錯誤不得覆蓋原始錯誤。
+  - 2026-10-12 照現在的代碼重新盤點（Turso 遷移後檔名都換了）。`runs` 的建立與收尾在 `archive/write_runs.rs`（`start`／`complete`／`stopped`／`finish_in`）、`ai/native_ledger.rs`、`takeout/import_run.rs`（匯入的 guard）、`conversion.rs`（同一造訪連結）；開存檔時把 `running` 改成 `interrupted` 的恢復在 `vault.rs`，只涵蓋 backup、import、snapshot_restore、rollback、restore。
+  - 步驟：
+    - [x] 1. 寫下會怎麼錯，每條先有會失敗的測試：
+      - 被打斷的 run 永遠是 `running`：保留清理、Doctor、同一造訪連結（轉換被殺掉後續做時另開一筆，舊的一起帶進新存檔）、AI 索引、助理，開存檔時的恢復不認得這些種類。
+      - 已經 `success` 的 run 被改寫成 `failed`：`finish_in` 不看原本的狀態；保留清理先記成功、再寫 manifest，manifest 失敗就被 `stopped` 蓋成失敗，檔案卻已經刪了。
+      - 資料已經寫進去，收尾步驟（審計檔、預覽、manifest、AI 索引的 ledger）失敗時命令回錯：匯入另外把每個認得的檔案標成「解析失敗」，批次明明已經匯入。要改成 run 仍是成功、`warnings_json` 記下哪一步沒做成與原始錯誤，命令照常回結果。
+      - 收尾本身失敗：Doctor 的 `complete` 失敗就直接回錯、沒收尾；還原失敗時先讀 `stats_json` 才收尾，讀失敗就沒收尾；AI 索引在受保護的區塊外寫 ledger 的開始。
+      - 收尾的錯蓋掉原始錯誤。
+    - [x] 2. 修：`finish_in` 只從 `running` 轉出；成功之後的收尾失敗記成 run 的警告（共用一個 helper）；恢復涵蓋所有種類；上面各個窗口。`write_runs::after_success`（警告碼 `review-record-failed`，三語）用在兩種匯入、撤銷／還原匯入、保留清理的 manifest、存檔還原與加密變更的 manifest；`end_failed`／`end_failed_ai_run` 取代 `stopped(...)?`；AI 索引先寫 ledger 再記成功，ledger 的開始失敗也收尾；讀批次時補寫審計檔失敗不再讓整個批次打不開（`preview_import_batch`）。測試：`write_runs_tests`、`vault::tests` 的每種 run、匯入審計目錄唯讀時仍匯入並記警告、保留清理的 manifest 目錄唯讀時仍成功並記警告。同一造訪連結沒另加 guard：轉換被打斷時舊的那筆在新存檔第一次開啟時就被標成 interrupted。
+    - [x] 3. 「最近的執行」：卡片拿 12 筆（`RECENT_RUNS_SQL`），每次 MCP 查詢、助理、AI 索引都是一筆 run，會把備份擠出去；卡片不認得 rollback、restore、same-visit、ai_index、assistant、mcp_query，都用備份的寫法。舊項目說的「Last 30 days 只取 12、再截 6」在新前端已不存在。做法：`RECENT_RUNS_SQL` 不列 AI 的 run（表裡照留）；卡片認得 rollback、restore、same-visit（三語，跟匯入卡片的「復原／還原匯入」同詞），撤銷的 `newVisits` 是藏起來的筆數，不再寫成「新增」。AI 的 run 該在哪裡給人看（尤其 MCP 查詢的審計）另列 BACKLOG `WORK-AI-RUNS-AUDIT-VIEW`。
+    - [x] 4. 日誌有上限：`logs/owner-startup.log`（背景 app 的 stderr，一直附加）與 macOS launchd 的 `worker.stdout.log`／`worker.stderr.log`（每次排程都附加）沒有輪替。`vault_owner_ipc::cap_log`：超過 4 MB 就複製成 `.1`（取代前一份）再清空，launchd 開著的檔案照樣往下寫；背景 app 每次啟動前、排程的 `--due-only` 每次開始時各做一次。
+    - [x] 5. 文檔（ADR-003 補「終止狀態不再改寫、收尾失敗是警告」、`data-model.md`）、CHANGELOG。
+
 - [ ] **WORK-REFACTOR-INDEXING**（用戶 2026-06-21 指示，承巨檔審計）— `ai/indexing.rs` 拆分重構。詳見 `main` 上的 STATUS。_非當前 focus_
 
 > `WORK-V03-PAPER-REDESIGN-A`（Paper 風格前端重建）被本次 redesign 取代，不再繼續。

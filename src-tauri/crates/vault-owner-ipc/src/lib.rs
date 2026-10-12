@@ -4,6 +4,7 @@
 //! Tests: transport and desktop owner-process integration tests.
 mod client;
 mod launch;
+mod logs;
 pub mod protocol;
 mod server;
 #[cfg(unix)]
@@ -14,6 +15,7 @@ mod transport;
 mod transport;
 pub use client::Client;
 pub use launch::launch_background;
+pub use logs::cap_log;
 pub use protocol::{ErrorCode, Request, RpcError};
 pub use server::{Progress, Server};
 

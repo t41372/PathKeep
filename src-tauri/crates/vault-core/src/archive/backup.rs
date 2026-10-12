@@ -176,13 +176,13 @@ fn execute(
         super::backup_manifest::finish(vault, run_id, summaries.clone(), warnings.clone(), hashes)
     })();
     if let Err(error) = &result {
-        write_runs::stopped(
+        write_runs::end_failed(
             vault,
             run_id,
             error,
             serde_json::json!({"profilesProcessed":summaries.len(),"profiles":summaries}),
-            Some(serde_json::to_value(&warnings)?),
-        )?;
+            serde_json::to_value(&warnings).ok(),
+        );
     }
     result
 }

@@ -49,13 +49,11 @@
   - 待量：改一個網站的類別到洞察照新類別建好要多久（`WORK-SITE-CATEGORY-REVIEW`：只重分那個網站的頁，成本照那個網站的網址數與日子數，沒在 14.4M 上量過）；`WORK-EVIDENCE-REIMPORT` 的重新匯入在 14.4M 上多花多少時間（2026-10-12 已改成不再寫重複的證據，20 萬筆的量測見 `ipc-performance.md` §15：第一次匯入的時間不變、再匯入 0 列；14.4M 上要量第一次匯入的唯一索引與再匯入的耗時）。之後的 block 沒量到的 14.4M 數字也記在這裡。
   - 做法：照 `ipc-performance.md` 各節的量法在 14.4M 上跑，結果寫回各節與原 block 的 CHANGELOG 附註。
 
-- [ ] **WORK-RUN-LIFECYCLE-GUARDS** — P1 follow-up from 2026-07-23 silent-failure audit
-  - 讀先：`docs/architecture/decisions/003-run-model.md`；`docs/plan/program/quality-matrix.md`；`archive/maintenance.rs` retention/snapshot restore；Takeout / Browser Direct import run creation/finalization；Audit read models。
-  - 目標：建立 reusable run-attempt finalizer/guard，讓 canonical run row 一旦建立，任何 transaction 前置、commit 後 follow-up、manifest/stats/batch finalization 錯誤都留下 terminal、帶原始錯誤與 partial-commit phase 的結果，不再永久 `running`。
-  - 已確認範圍：retention prune；checkpoint snapshot restore；Takeout import；Browser Direct import；backup commit 後 manifest/search-projection/finalize tails。另修 Audit「Last 30 days」實際只取 12 筆、paper chain 再截 6 筆的 truth mismatch，以及 native worker stdout/stderr bounded rotation。
-  - 契約：每條舊碼 failure window 都先有 failing regression；若資料 transaction 已 commit，狀態必須誠實區分 committed-with-followup-failure，不得假裝完全失敗或成功；finalizer 自身錯誤不得覆蓋原始錯誤。
-
 > 2026-07-26 coherence-sweep closeout note：使用者插單的全庫「逆天點」審查（`WORK-REVIEW-2026-07-26-COHERENCE-SWEEP`，見 CHANGELOG）已完成並全 gate 綠。結構化 `CommandError` envelope、十餘條 stable-code copy 通道、六個影子翻譯表剷除、posture/boundary-map 文檔如實化都已落地。待使用者拍板：`?layout=paper` QA mounts 去留、og:image 預設是否翻 `OnDemand`、onboarding 一次性 egress 披露。
+
+- [ ] **WORK-AI-RUNS-AUDIT-VIEW** — AI 的 run 在哪裡給人看（2026-10-12 `WORK-RUN-LIFECYCLE-GUARDS` 找到）
+  - 現象：索引建置（`ai_index`）、助理回答（`assistant`）與每次 MCP 查詢（`mcp_query`）都寫進 `runs`，以前只出現在 Backup 的「最近的執行」，寫成備份的「0 個來源 · 0 筆新造訪」，還把備份擠出 12 筆。現在那裡不列它們，畫面上就沒有地方看得到；MCP 查詢是外部工具讀了哪些歷史的審計，應該看得到。
+  - 方向：先決定放哪（Settings → AI，或 Background work）、列什麼（查了什麼、回了幾筆、哪個工具），再做讀取命令與畫面（三語、虛擬化）。
 
 - [ ] **WORK-REVIEW-FOLLOWUPS-COPY-CHANNELS-2** — 2026-07-27 並行審查的遞延 copy-channel 工作(均已由 orchestrator 逐檔追蹤確認,可直接動手)
   - **後端平行 i18n 系統**:`vault-core/src/intelligence/host_artifacts.rs:393-415` 的 `build_boundary_notes(locale)` 按 locale 返回硬編碼中文,前端 `src/pages/settings/helpers.ts:475-511` 的 `localizeLocalHostLine` 再用**整句中文**(zh-CN 與 zh-TW 各一份)當 switch case 映射回真正的 catalog。兩邊譯文不一致且後端那份更差(「这个本地宿主只使用 deterministic Core Intelligence read models。」混入未翻譯術語)。後端改一個標點,用戶靜默看到更差的中文。修法:HTML 產物保留後端 locale copy(獨立檔案的合法需求,但把譯文修好);preview payload 改 additive `boundary_note_codes` 等 stable code 通道,前端按 code 查 catalog,刪整句匹配。

@@ -172,6 +172,9 @@ export const backup = defineMessages({
         archive_restore: 'Archive restore',
         snapshot_restore: 'Snapshot restore',
         retention_prune: 'Cleanup',
+        rollback: 'Import undone',
+        restore: 'Import restored',
+        'same-visit': 'Same visits counted once',
       },
       detail: {
         title: 'Run details',
@@ -355,6 +358,9 @@ export const backup = defineMessages({
         archive_restore: '存档还原',
         snapshot_restore: '快照还原',
         retention_prune: '清理',
+        rollback: '撤销导入',
+        restore: '恢复导入',
+        'same-visit': '同一次访问只算一次',
       },
       detail: {
         title: '运行详情',
@@ -538,6 +544,9 @@ export const backup = defineMessages({
         archive_restore: '存檔還原',
         snapshot_restore: '快照還原',
         retention_prune: '清理',
+        rollback: '復原匯入',
+        restore: '還原匯入',
+        'same-visit': '同一次造訪只算一次',
       },
       detail: {
         title: '執行詳情',

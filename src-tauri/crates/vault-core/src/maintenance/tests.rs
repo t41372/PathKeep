@@ -344,6 +344,51 @@ fn retention_keeps_a_native_safety_snapshot_and_updates_its_native_ledger() {
     );
 }
 
+/// The files are deleted before the prune's manifest is written. A manifest that could not be
+/// written turned the run, already recorded as done, into a failure (`WORK-RUN-LIFECYCLE-GUARDS`).
+#[test]
+fn a_prune_whose_manifest_fails_still_says_what_it_deleted() {
+    use std::os::unix::fs::PermissionsExt;
+    let (_root, vault, _) = encrypted();
+    let leftover = vault.paths().staging_dir.join("leftover");
+    std::fs::create_dir_all(&leftover).unwrap();
+    std::fs::write(leftover.join("part"), b"staged bytes").unwrap();
+    let manifests = vault.paths().audit_repo_path.join("manifests");
+    std::fs::create_dir_all(&manifests).unwrap();
+    std::fs::set_permissions(&manifests, std::fs::Permissions::from_mode(0o500)).unwrap();
+    let result = prune(
+        &vault,
+        &crate::RetentionPruneRequest { bucket_ids: vec!["staging".into()] },
+        None,
+        &Default::default(),
+    );
+    std::fs::set_permissions(&manifests, std::fs::Permissions::from_mode(0o700)).unwrap();
+
+    let result = result.expect("the prune succeeds");
+    assert!(result.deleted_files > 0);
+    assert!(!leftover.join("part").exists());
+    let (status, warnings) = vault
+        .store()
+        .read(Db::Archive, move |s| {
+            s.query_one(
+                "SELECT status,warnings_json FROM runs WHERE id=?1",
+                [result.run_id.unwrap()],
+                |r| Ok((r.get::<String>(0)?, r.get::<String>(1)?)),
+            )
+        })
+        .unwrap();
+    assert_eq!(status, "success");
+    let warnings: Vec<serde_json::Value> = serde_json::from_str(&warnings).unwrap();
+    assert_eq!(
+        warnings
+            .iter()
+            .filter(|w| w["code"] == crate::archive::write_runs::REVIEW_RECORD_FAILED)
+            .count(),
+        1,
+        "{warnings:?}"
+    );
+}
+
 #[test]
 fn incomplete_snapshot_manifest_cannot_create_empty_replacement_databases() {
     let vault = Vault::open_temp().unwrap();

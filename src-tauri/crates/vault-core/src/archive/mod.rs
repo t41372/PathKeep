@@ -132,12 +132,10 @@ use std::{
 };
 use tempfile::tempdir;
 
-/// The History list query in one sort direction.
-///
-/// Time and cursor bounds are plain comparisons, never `:x IS NULL OR ...`, so SQLite can seek
-/// `idx_visits_visible_time_id` (migration 016) and stop after one page instead of sorting every
-/// visible visit. Callers bind sentinels for "no bound": see [`list_history_bounds`]. The two
-/// directions share one body so the filters cannot drift apart.
+/// The archive's runs, newest first, for Backup's "Recent runs" and its audit sheet: backups,
+/// imports and their undo, restores, prunes, repairs, encryption changes. The AI's runs (an index
+/// build, an answer, each MCP query) are kept in the same table but are not archive operations;
+/// listed here they pushed the backups out of the twelve rows, under a backup's summary.
 const RECENT_RUNS_SQL: &str = r#"
 SELECT
   runs.id,
@@ -162,6 +160,7 @@ FROM runs
 -- never represents real backup activity, so the audit ledger and dashboard
 -- must not surface it as if a user triggered it.
 WHERE NOT (runs.id = 0 AND runs.run_type = 'system' AND runs.trigger = 'compat')
+  AND runs.run_type NOT IN ('ai_index', 'assistant', 'mcp_query')
 ORDER BY runs.id DESC
 LIMIT 12
 "#;
