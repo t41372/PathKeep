@@ -7,7 +7,7 @@
  * Not responsible for: fetching anything.
  */
 import { useCallback, useMemo } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParamsUpdate } from '@/lib/search-params'
 import { localDateKey } from '@/lib/backend-client/insights'
 import { checkRustRegex, type RegexProblem } from './regex-dialect'
 
@@ -55,25 +55,18 @@ const defaults: HistoryParams = {
 }
 
 export function useHistoryParams() {
-  const [search, setSearch] = useSearchParams()
+  const [search, setSearch] = useSearchParamsUpdate()
   const params = useMemo(() => parse(search), [search])
   const update = useCallback(
     (patch: Partial<HistoryParams>) => {
-      setSearch(
-        (previous) => {
-          const next = new URLSearchParams(previous)
-          for (const [name, value] of Object.entries(patch)) {
-            if (
-              value === defaults[name as keyof HistoryParams] ||
-              value === ''
-            ) {
-              next.delete(name)
-            } else next.set(name, String(value))
-          }
-          return next
-        },
-        { replace: true },
-      )
+      setSearch((next) => {
+        for (const [name, value] of Object.entries(patch)) {
+          if (value === defaults[name as keyof HistoryParams] || value === '') {
+            next.delete(name)
+          } else next.set(name, String(value))
+        }
+        return next
+      })
     },
     [setSearch],
   )

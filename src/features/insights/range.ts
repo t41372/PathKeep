@@ -13,7 +13,7 @@
  * controls (`ScopeControls` in `scope-controls.tsx`).
  */
 import { useCallback, useMemo } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParamsUpdate } from '@/lib/search-params'
 import type { DateRange } from '@/lib/core-intelligence/types'
 import { addDays, daysBetween, isDateKey, todayIn } from '@/lib/time-zone'
 import { useInsightsZone } from './zone'
@@ -131,31 +131,28 @@ export interface ScopeChange {
 }
 
 export function useScope() {
-  const [params, setParams] = useSearchParams()
+  const [params, setParams] = useSearchParamsUpdate()
   const zone = useInsightsZone().shown
   const scope = useMemo(() => scopeFromParams(params, zone), [params, zone])
   const setScope = useCallback(
     (change: ScopeChange) =>
-      setParams(
-        (previous) => {
-          const current = scopeFromParams(previous, zone)
-          const range = change.range ?? current.range
-          const next: Scope = {
-            range,
-            dates:
-              range === 'custom'
-                ? (change.dates ?? current.dates)
-                : presetDates(range, todayIn(zone)),
-            profileId:
-              change.profileId === undefined
-                ? current.profileId
-                : change.profileId,
-            zone,
-          }
-          return scopeParams(next, new URLSearchParams(previous))
-        },
-        { replace: true },
-      ),
+      setParams((previous) => {
+        const current = scopeFromParams(previous, zone)
+        const range = change.range ?? current.range
+        const next: Scope = {
+          range,
+          dates:
+            range === 'custom'
+              ? (change.dates ?? current.dates)
+              : presetDates(range, todayIn(zone)),
+          profileId:
+            change.profileId === undefined
+              ? current.profileId
+              : change.profileId,
+          zone,
+        }
+        return scopeParams(next, previous)
+      }),
     [setParams, zone],
   )
   return [scope, setScope] as const
