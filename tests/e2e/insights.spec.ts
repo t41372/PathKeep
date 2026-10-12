@@ -293,13 +293,16 @@ test('a custom range and one browser profile count only their visits', async ({
   expect(await evidenceOf(page, 'Habits')).toBe(`${days} days of browsing`)
   await expectScreenIntact(page)
 
-  // Only the Work profile, over all time.
+  // Only the Work profile, over all time, chosen one right after the other:
+  // the second change keeps the first (`useSearchParamsUpdate`).
   await toggle.getByRole('radio', { name: 'All time' }).click()
   await page.getByRole('combobox', { name: 'Browser profile' }).click()
   await page
     .getByRole('option', { name: 'Google Chrome · Work', exact: true })
     .click()
   await expect(page).toHaveURL(/profile=chrome%3AProfile(\+|%20)1/)
+  expect(page.url()).not.toContain('range=custom')
+  await expect(toggle.getByRole('radio', { name: 'All time' })).toBeChecked()
   const workTop = await expectTopSite(
     page,
     testInfo,
