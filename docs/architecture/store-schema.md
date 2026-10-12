@@ -390,7 +390,16 @@ change of only the second sorts the visits already built again in place (`build_
 each of the profile's URLs is classified once (a category depends on the URL, its title and its
 search, not on a visit), the facts of the visits whose categories moved are rewritten, the daily
 rollups of their days are made again (a day's category rows are removed first) and the compare
-sets of their trails are replaced with the in-place aggregate write.
+sets of their trails are replaced with the in-place aggregate write. A build also records the
+categories the user had set (`category_overrides`, by target). When the rule packs are the same
+and only whole sites' categories changed since (added, changed or taken away), the next build
+classifies only those sites' URLs: their pages in page order on `idx_pages_registrable_domain`,
+then the profile's URLs of each page on `idx_urls_page_id`; any other change walks every URL. A
+build the app stopped in the middle of goes on when only categories changed meanwhile, and a
+category set while a build runs is sorted in by another pass of the same job. The state also
+carries the categories the published Insights were built with (`published_categories`, set when a
+build publishes every group): a site's page says its Insights are being updated while its category
+differs from that.
 Checkpoints and their writes commit in one batch; superseded generations are reclaimed in
 bounded writes. No TEMP tables are used.
 

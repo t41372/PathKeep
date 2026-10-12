@@ -34,6 +34,15 @@ pub(super) struct Reclassify {
     /// Visits up to this id were built with the old categories; later ones are new and
     /// classified with the new rules when derived.
     pub up_to_visit_id: i64,
+    /// Only these sites' pages, when only the categories the user set for them changed
+    /// (`incremental::changed_sites`); `None`: every URL of the profile.
+    #[serde(default)]
+    pub sites: Option<Vec<String>>,
+    /// Walking by site: the site being walked, and the last of its pages checked.
+    #[serde(default)]
+    pub site_index: usize,
+    #[serde(default)]
+    pub page_after: i64,
     /// The last URL id checked, and whether every URL has been.
     pub url_after: i64,
     pub urls_done: bool,
@@ -54,8 +63,72 @@ struct Categories {
     taxonomy_version: Option<String>,
 }
 
+/// The next URLs to classify again, as `(id, url, title)`, moving `work`'s place: every URL of
+/// the profile by id, or each of `work.sites` by its pages (`idx_pages_registrable_domain`, in
+/// page order), then their URLs in this profile (`idx_urls_page_id`). Empty when the walk is done.
+fn next_urls(
+    s: &vault_store::Session<'_>,
+    source: i64,
+    work: &mut Reclassify,
+) -> Result<Vec<(i64, String, Option<String>)>> {
+    let url = |r: &vault_store::Row| -> vault_store::Result<(i64, String, Option<String>)> {
+        Ok((r.get::<i64>(0)?, r.get::<String>(1)?, r.get::<Option<String>>(2)?))
+    };
+    let Some(sites) = work.sites.clone() else {
+        let urls = s.query(
+            "SELECT id,url,title FROM urls WHERE source_profile_id=?1 AND id>?2
+             ORDER BY id LIMIT ?3",
+            params![source, work.url_after, URL_PAGE as i64],
+            url,
+        )?;
+        if let Some((last, ..)) = urls.last() {
+            work.url_after = *last;
+        }
+        return Ok(urls);
+    };
+    while let Some(site) = sites.get(work.site_index) {
+        let pages = s.query(
+            // The index holds only pages with a site; the plan has to be told this is one.
+            "SELECT id FROM pages INDEXED BY idx_pages_registrable_domain
+             WHERE registrable_domain=?1 AND registrable_domain IS NOT NULL AND id>?2
+             ORDER BY id LIMIT ?3",
+            params![site.as_str(), work.page_after, URL_PAGE as i64],
+            |r| Ok(r.get::<i64>(0)?),
+        )?;
+        let Some(&last) = pages.last() else {
+            (work.site_index, work.page_after) = (work.site_index + 1, 0);
+            continue;
+        };
+        work.page_after = last;
+        let mut urls = Vec::new();
+        for chunk in pages.chunks(400) {
+            let slots = (2..chunk.len() + 2)
+                .map(|index| format!("(?{index})"))
+                .collect::<Vec<_>>()
+                .join(",");
+            let mut values = vec![vault_store::Value::Integer(source)];
+            values.extend(chunk.iter().map(|page| vault_store::Value::Integer(*page)));
+            urls.extend(s.query(
+                &format!(
+                    "WITH requested(page_id) AS (VALUES {slots})
+                     SELECT u.id,u.url,u.title FROM requested
+                     CROSS JOIN urls u INDEXED BY idx_urls_page_id ON u.page_id=requested.page_id
+                     WHERE u.source_profile_id=?1"
+                ),
+                values,
+                url,
+            )?);
+        }
+        if !urls.is_empty() {
+            return Ok(urls);
+        }
+    }
+    Ok(Vec::new())
+}
+
 /// Classifies the profile's URLs again, a page at a time, and rewrites the facts of the visits
-/// whose categories moved. Each page's rewrite and the cursor commit together.
+/// whose categories moved: every URL, or only those of the sites whose categories the user
+/// changed. Each page's rewrite and the cursor commit together.
 pub(super) fn reclassify<F>(vault: &Vault, state: &mut BuildState, progress: &mut F) -> Result<()>
 where
     F: FnMut(CoreIntelligenceProgress) -> Result<()>,
@@ -69,14 +142,9 @@ where
     })?;
     let mut checked = 0;
     loop {
-        let (source, after) = (state.source_profile_id, work.url_after);
+        let (source, mut walk) = (state.source_profile_id, work.clone());
         let urls = vault.read(Db::Archive, move |s| {
-            let urls = s.query(
-                "SELECT id,url,title FROM urls WHERE source_profile_id=?1 AND id>?2
-                 ORDER BY id LIMIT ?3",
-                params![source, after, URL_PAGE as i64],
-                |r| Ok((r.get::<i64>(0)?, r.get::<String>(1)?, r.get::<Option<String>>(2)?)),
-            )?;
+            let urls = next_urls(s, source, &mut walk)?;
             // A URL's search, as `build_rows::source_page` reads it: its first live term.
             let mut terms = HashMap::new();
             for chunk in urls.chunks(400) {
@@ -101,10 +169,14 @@ where
                     },
                 )?;
             }
-            Ok((urls, terms))
+            Ok((urls, terms, walk))
         })?;
-        let (urls, terms) = urls;
-        let Some(&(last, ..)) = urls.last() else { break };
+        let (urls, terms, walked) = urls;
+        if urls.is_empty() {
+            break;
+        }
+        (work.url_after, work.site_index, work.page_after) =
+            (walked.url_after, walked.site_index, walked.page_after);
         let classified = urls
             .iter()
             .map(|(id, url, title)| {
@@ -129,7 +201,6 @@ where
                 (*id, categories)
             })
             .collect::<Vec<_>>();
-        work.url_after = last;
         checked += urls.len();
         let mut saved = state.clone();
         let zone = saved.zone();

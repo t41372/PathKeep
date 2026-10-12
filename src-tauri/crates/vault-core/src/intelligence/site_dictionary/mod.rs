@@ -41,6 +41,7 @@ pub(crate) use classification::{
 pub(crate) use overrides::load_site_dictionary_overrides;
 #[cfg(test)]
 pub(crate) use overrides::upsert_site_dictionary_override;
+pub(crate) use overrides::{set_site_category, site_category};
 pub(crate) use search_rules::{
     delete_search_engine_rule, display_name_for_search_engine_with_map, list_search_engine_rules,
     load_enabled_search_engine_rules, load_search_engine_display_names, load_search_engine_sites,

@@ -59,6 +59,28 @@ export interface DomainDeepDive {
    * most often first; empty for a site with no search engine.
    */
   siteSearches: DomainSearchStat[]
+  /**
+   * The category the user set for the site, as set now; `domainCategory` is
+   * the one Insights were built with, which follows once they are rebuilt.
+   */
+  userCategory?: string | null
+  /** The category PathKeep's own lists give the site (`unknown`: none). */
+  listCategory?: string
+  /**
+   * The parts of the site the lists sort on their own (`mail.google.com` in
+   * `google.com`), which keep their categories whatever the user sets for the
+   * site; only those the archive has pages on.
+   */
+  listedParts?: SitePart[]
+  /** Insights were built with another category for the site than the one set now. */
+  categoryPending?: boolean
+}
+
+/** A host of a site that PathKeep's lists sort on its own. */
+export interface SitePart {
+  host: string
+  /** The category the lists give it. */
+  category: string
 }
 
 /**

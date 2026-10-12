@@ -34,7 +34,7 @@ struct CoreIntelligenceSectionDescriptor {
     empty_degraded_reason: Option<&'static str>,
 }
 
-const CORE_INTELLIGENCE_SECTION_DESCRIPTORS: [CoreIntelligenceSectionDescriptor; 22] = [
+const CORE_INTELLIGENCE_SECTION_DESCRIPTORS: [CoreIntelligenceSectionDescriptor; 23] = [
     CoreIntelligenceSectionDescriptor {
         id: "digest-summary",
         module_ids: &["daily-rollups"],
@@ -58,6 +58,17 @@ const CORE_INTELLIGENCE_SECTION_DESCRIPTORS: [CoreIntelligenceSectionDescriptor;
     },
     CoreIntelligenceSectionDescriptor {
         id: "top-sites",
+        module_ids: &["daily-rollups"],
+        source_tables: &["domain_daily_rollups"],
+        includes_enrichment: false,
+        data_kind: SectionDataKind::PersistedDerived,
+        evidence: Some(SectionEvidenceUnit::PageVisits),
+        notes: &[],
+        empty_degraded_reason: None,
+    },
+    // The sites of one kind in a range ("Kinds of sites", Not classified opened): top sites' rows.
+    CoreIntelligenceSectionDescriptor {
+        id: "sites-in-category",
         module_ids: &["daily-rollups"],
         source_tables: &["domain_daily_rollups"],
         includes_enrichment: false,

@@ -3,7 +3,8 @@
 //! ## Responsibilities
 //! - Combine normalized URLs, canonical search facts, titles, and overrides into
 //!   one visit-taxonomy analysis result.
-//! - Apply user overrides before static taxonomy packs.
+//! - Apply user overrides before static taxonomy packs; a whole site's leaves the parts of it the
+//!   packs name on their own (`mail.google.com` in `google.com`) to the packs.
 //! - Keep rule matching separate from the rule-pack definitions themselves.
 //!
 //! ## Not responsible for
@@ -26,13 +27,16 @@ use super::{
     rules::{ExactDomainRule, HostPathRule, RULE_PACKS, TaxonomyRule, TaxonomyRulePack},
     text::{normalize_whitespace, tokenize_text},
     types::{
-        EvidenceTier, NormalizedVisitUrl, Opener, TAXONOMY_VERSION, TaxonomyClassification,
-        TaxonomyDecisionSource, TaxonomyOverride, TaxonomyOverrideTarget, VisitAnalysisInput,
-        VisitEvidenceAssessment, VisitTaxonomyAnalysis,
+        DomainCategory, EvidenceTier, NormalizedVisitUrl, Opener, TAXONOMY_VERSION,
+        TaxonomyClassification, TaxonomyDecisionSource, TaxonomyOverride, TaxonomyOverrideTarget,
+        VisitAnalysisInput, VisitEvidenceAssessment, VisitTaxonomyAnalysis,
     },
     url::{host_and_parents, host_matches_suffix, normalize_visit_url},
 };
-use std::{collections::HashMap, sync::LazyLock};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::LazyLock,
+};
 
 /// Produces local evidence and taxonomy analysis for one visit.
 pub fn analyze_visit(
@@ -114,6 +118,44 @@ static EXACT_RULES: LazyLock<
         .flat_map(|pack| pack.exact_domains.iter().map(move |rule| (rule.domain, (pack, rule))))
         .collect()
 });
+
+/// Every host the packs name on their own: each exact rule's domain and each host a path rule is
+/// for.
+static LISTED_HOSTS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
+    RULE_PACKS
+        .iter()
+        .flat_map(|pack| {
+            pack.exact_domains.iter().map(|rule| rule.domain).chain(
+                pack.host_path_rules.iter().flat_map(|rule| rule.host_suffixes.iter().copied()),
+            )
+        })
+        .collect()
+});
+
+/// Whether the packs name the visit's host, or a parent of it, below its site: a part of the site
+/// they sort on their own, as `mail.google.com` is in `google.com`.
+fn listed_below_site(url: &NormalizedVisitUrl) -> bool {
+    host_and_parents(&url.host, &url.registrable_domain)
+        .take_while(|name| *name != url.registrable_domain)
+        .any(|name| LISTED_HOSTS.contains(name))
+}
+
+/// The parts of `site` the packs sort on their own, by name, each with the category they give
+/// it. A category the user sets for the site leaves these as they are, so the site's page lists
+/// them.
+pub fn listed_parts(site: &str) -> Vec<(&'static str, DomainCategory)> {
+    let mut parts = LISTED_HOSTS
+        .iter()
+        .filter(|name| name.strip_suffix(site).is_some_and(|rest| rest.ends_with('.')))
+        .filter_map(|name| {
+            let url = normalize_visit_url(&format!("https://{name}/"))?;
+            (url.registrable_domain == site)
+                .then(|| (*name, classify_by_rules(Some(&url), None, None).domain_category))
+        })
+        .collect::<Vec<_>>();
+    parts.sort_unstable_by_key(|(name, _)| *name);
+    parts
+}
 
 /// Applies override, exact-domain, host/path, and lexicon rules in priority order. An exact rule
 /// matches the visit's host or the nearest parent of it that has one.
@@ -269,16 +311,19 @@ fn classification_from_rule(
     }
 }
 
-/// The first user override rule that covers the visit; they apply before any built-in pack.
+/// The first user override rule that covers the visit; they apply before any built-in pack. A
+/// whole site's covers the site's hosts except the parts of it the packs name on their own: the
+/// user said what the site is, and `mail.google.com` stays mail when they call `google.com`
+/// something else (the user's choice, 2026-10-11).
 fn match_taxonomy_override<'a>(
     normalized_url: Option<&NormalizedVisitUrl>,
     raw_url: &str,
     overrides: &'a [TaxonomyOverride],
 ) -> Option<&'a TaxonomyOverride> {
     overrides.iter().find(|override_rule| match override_rule.target {
-        TaxonomyOverrideTarget::ExactDomain => {
-            normalized_url.is_some_and(|value| value.registrable_domain == override_rule.value)
-        }
+        TaxonomyOverrideTarget::ExactDomain => normalized_url.is_some_and(|value| {
+            value.registrable_domain == override_rule.value && !listed_below_site(value)
+        }),
         TaxonomyOverrideTarget::Host => {
             normalized_url.is_some_and(|value| value.host == override_rule.value)
         }

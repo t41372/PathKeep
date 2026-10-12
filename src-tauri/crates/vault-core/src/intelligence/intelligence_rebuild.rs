@@ -39,6 +39,10 @@ where
     )
 }
 
+/// How many times one job builds the profiles: once, then again while the user keeps changing
+/// site categories during it. Past this the next refresh takes them.
+const CATEGORY_PASSES: usize = 4;
+
 /// The queue retains its stage contract while sharing one native generation pipeline.
 pub fn run_core_intelligence_job_type_with_progress<F>(
     vault: &Vault,
@@ -65,122 +69,138 @@ where
     }
     let batch_size = request.limit.unwrap_or(4096).clamp(1, 4096) as usize;
     let mut timings = crate::models::CoreIntelligenceStageTimings::default();
-    for source in sources {
-        let mut state = build_pipeline::prepare(vault, &source, request.full_rebuild)?;
-        let had_work = match kind {
-            RebuildMode::VisitDerive => !state.facts_done,
-            RebuildMode::DailyRollup => !state.facts_done || !state.daily_done,
-            _ => {
-                !state.facts_done
-                    || !state.daily_done
-                    || !state.navigation_done
-                    || !state.aggregates_done
-            }
-        };
-        let facts_started = std::time::Instant::now();
-        let before = state.processed;
-        build_pipeline::derive(vault, &mut state, batch_size, &mut progress)?;
-        timings.visit_derive_ms += facts_started.elapsed().as_millis() as u64;
-        let mut processed = state.processed - before;
-        if kind != RebuildMode::VisitDerive {
-            let daily_started = std::time::Instant::now();
-            processed =
-                processed.max(build_stages::daily(vault, &mut state, batch_size, &mut progress)?);
-            timings.daily_rollup_ms += daily_started.elapsed().as_millis() as u64;
-        }
-        if matches!(kind, RebuildMode::StructuralRebuild | RebuildMode::FullRebuild) {
-            let structural_started = std::time::Instant::now();
-            build_stages::navigation(vault, &mut state, batch_size, &mut progress)?;
-            build_stages::aggregates(vault, &mut state, batch_size, &mut progress)?;
-            timings.structural_rebuild_ms += structural_started.elapsed().as_millis() as u64;
-        }
-        let groups: &[&str] = match kind {
-            RebuildMode::VisitDerive => &["facts"],
-            RebuildMode::DailyRollup => &["facts", "daily"],
-            RebuildMode::StructuralRebuild | RebuildMode::FullRebuild => {
-                &["facts", "daily", "navigation", "aggregates"]
-            }
-        };
-        build_pipeline::publish(vault, &state, groups)?;
-        build_state::collect_old_generations(vault, &state)?;
-        let count = |name: &str| state.counts.get(name).copied().unwrap_or(0);
-        let result = StageRunResult {
-            processed_visits: processed,
-            visit_derived_facts: state.processed - before,
-            sessions: if kind == RebuildMode::VisitDerive || kind == RebuildMode::DailyRollup {
-                0
-            } else {
-                count("sessions")
-            },
-            search_trails: count("search_trails"),
-            query_families: count("query_families"),
-            refind_pages: count("refind_pages"),
-            reopened_investigations: count("reopened_investigations"),
-            execution_mode: Some(
-                if !had_work || state.source.visible_visit_count == 0 {
-                    "noop"
-                } else if state.full {
-                    "fallback-full"
-                } else {
-                    "incremental"
+    // A category the user sets while this runs is sorted in before the job ends, by another pass
+    // over the profiles still built with older categories (only the changed sites' pages); a
+    // refresh asked for while this job runs is not queued again.
+    let mut todo = sources.clone();
+    let mut pass = 0;
+    while !todo.is_empty() {
+        for source in std::mem::take(&mut todo) {
+            let mut state =
+                build_pipeline::prepare(vault, &source, request.full_rebuild && pass == 0)?;
+            let had_work = match kind {
+                RebuildMode::VisitDerive => !state.facts_done,
+                RebuildMode::DailyRollup => !state.facts_done || !state.daily_done,
+                _ => {
+                    !state.facts_done
+                        || !state.daily_done
+                        || !state.navigation_done
+                        || !state.aggregates_done
                 }
-                .into(),
-            ),
-            fallback_reason: if had_work {
-                state.fallback.as_deref().map(|reason| fallback_message(kind, reason))
-            } else {
-                None
-            },
-            fallback_reason_code: if had_work {
-                state.fallback.as_ref().map(|reason| {
-                    format!(
-                        "{}-{reason}",
-                        match kind {
-                            RebuildMode::VisitDerive => "visit-derive",
-                            RebuildMode::DailyRollup => "daily-rollup",
-                            _ => "structural",
-                        }
-                    )
-                })
-            } else {
-                None
-            },
-            notes: if state.source.visible_visit_count == 0 {
-                vec![
-                    DerivedRuntimeNote::new(
-                        match kind {
-                            RebuildMode::VisitDerive => {
-                                crate::models::DERIVED_NOTE_VISIT_FACTS_CLEARED_NO_VISITS
-                            }
-                            RebuildMode::DailyRollup => {
-                                crate::models::DERIVED_NOTE_DAILY_ROLLUPS_CLEARED_NO_VISITS
-                            }
-                            _ => crate::models::DERIVED_NOTE_STRUCTURAL_CLEARED_NO_VISITS,
-                        },
+            };
+            let facts_started = std::time::Instant::now();
+            let before = state.processed;
+            build_pipeline::derive(vault, &mut state, batch_size, &mut progress)?;
+            timings.visit_derive_ms += facts_started.elapsed().as_millis() as u64;
+            let mut processed = state.processed - before;
+            if kind != RebuildMode::VisitDerive {
+                let daily_started = std::time::Instant::now();
+                processed = processed.max(build_stages::daily(
+                    vault,
+                    &mut state,
+                    batch_size,
+                    &mut progress,
+                )?);
+                timings.daily_rollup_ms += daily_started.elapsed().as_millis() as u64;
+            }
+            if matches!(kind, RebuildMode::StructuralRebuild | RebuildMode::FullRebuild) {
+                let structural_started = std::time::Instant::now();
+                build_stages::navigation(vault, &mut state, batch_size, &mut progress)?;
+                build_stages::aggregates(vault, &mut state, batch_size, &mut progress)?;
+                timings.structural_rebuild_ms += structural_started.elapsed().as_millis() as u64;
+            }
+            let groups: &[&str] = match kind {
+                RebuildMode::VisitDerive => &["facts"],
+                RebuildMode::DailyRollup => &["facts", "daily"],
+                RebuildMode::StructuralRebuild | RebuildMode::FullRebuild => {
+                    &["facts", "daily", "navigation", "aggregates"]
+                }
+            };
+            build_pipeline::publish(vault, &mut state, groups)?;
+            build_state::collect_old_generations(vault, &state)?;
+            let count = |name: &str| state.counts.get(name).copied().unwrap_or(0);
+            let result = StageRunResult {
+                processed_visits: processed,
+                visit_derived_facts: state.processed - before,
+                sessions: if kind == RebuildMode::VisitDerive || kind == RebuildMode::DailyRollup {
+                    0
+                } else {
+                    count("sessions")
+                },
+                search_trails: count("search_trails"),
+                query_families: count("query_families"),
+                refind_pages: count("refind_pages"),
+                reopened_investigations: count("reopened_investigations"),
+                execution_mode: Some(
+                    if !had_work || state.source.visible_visit_count == 0 {
+                        "noop"
+                    } else if state.full {
+                        "fallback-full"
+                    } else {
+                        "incremental"
+                    }
+                    .into(),
+                ),
+                fallback_reason: if had_work {
+                    state.fallback.as_deref().map(|reason| fallback_message(kind, reason))
+                } else {
+                    None
+                },
+                fallback_reason_code: if had_work {
+                    state.fallback.as_ref().map(|reason| {
                         format!(
-                            "No visible visits remained for {}; cleared derived rows.",
-                            state.profile_id
-                        ),
-                    )
-                    .with_profile_id(&state.profile_id),
-                ]
-            } else if !had_work {
-                vec![
-                    DerivedRuntimeNote::new(
-                        crate::models::DERIVED_NOTE_MODULES_IN_SYNC,
-                        "Core Intelligence is already up to date.",
-                    )
-                    .with_profile_id(&state.profile_id),
-                ]
-            } else {
-                Vec::new()
-            },
-            affected_profiles: vec![state.profile_id.clone()],
-            dirty_visit_count: Some(if had_work { state.dirty_visit_count } else { 0 }),
-            dirty_date_keys: state.dirty_dates.clone(),
-            ..StageRunResult::default()
-        };
-        merge_stage_run_result(&mut aggregate, result, kind);
+                            "{}-{reason}",
+                            match kind {
+                                RebuildMode::VisitDerive => "visit-derive",
+                                RebuildMode::DailyRollup => "daily-rollup",
+                                _ => "structural",
+                            }
+                        )
+                    })
+                } else {
+                    None
+                },
+                notes: if state.source.visible_visit_count == 0 {
+                    vec![
+                        DerivedRuntimeNote::new(
+                            match kind {
+                                RebuildMode::VisitDerive => {
+                                    crate::models::DERIVED_NOTE_VISIT_FACTS_CLEARED_NO_VISITS
+                                }
+                                RebuildMode::DailyRollup => {
+                                    crate::models::DERIVED_NOTE_DAILY_ROLLUPS_CLEARED_NO_VISITS
+                                }
+                                _ => crate::models::DERIVED_NOTE_STRUCTURAL_CLEARED_NO_VISITS,
+                            },
+                            format!(
+                                "No visible visits remained for {}; cleared derived rows.",
+                                state.profile_id
+                            ),
+                        )
+                        .with_profile_id(&state.profile_id),
+                    ]
+                } else if !had_work {
+                    vec![
+                        DerivedRuntimeNote::new(
+                            crate::models::DERIVED_NOTE_MODULES_IN_SYNC,
+                            "Core Intelligence is already up to date.",
+                        )
+                        .with_profile_id(&state.profile_id),
+                    ]
+                } else {
+                    Vec::new()
+                },
+                affected_profiles: vec![state.profile_id.clone()],
+                dirty_visit_count: Some(if had_work { state.dirty_visit_count } else { 0 }),
+                dirty_date_keys: state.dirty_dates.clone(),
+                ..StageRunResult::default()
+            };
+            merge_stage_run_result(&mut aggregate, result, kind);
+        }
+        pass += 1;
+        if pass < CATEGORY_PASSES {
+            todo = build_pipeline::built_with_older_categories(vault, &sources)?;
+        }
     }
     timings.total_ms = started.elapsed().as_millis() as u64;
     aggregate.stage_timings_ms = Some(timings);

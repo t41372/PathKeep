@@ -66,6 +66,17 @@ pub(super) struct BuildState {
     /// The category rules this build sorts visits with (`incremental::category_version`).
     #[serde(default)]
     pub category_version: String,
+    /// The categories the user had set when this build began (`incremental::category_overrides`),
+    /// so the next build sorts again only the sites whose categories changed since. `None` for a
+    /// build from before PathKeep recorded them: the next one sorts every page.
+    #[serde(default)]
+    pub category_overrides: Option<std::collections::BTreeMap<String, String>>,
+    /// The categories the Insights shown now were built with: those of the last build that
+    /// published everything, carried from build to build. A site's page says Insights are being
+    /// updated while its category differs from the one set now. `None` before PathKeep recorded
+    /// them, when the user could set none.
+    #[serde(default)]
+    pub published_categories: Option<std::collections::BTreeMap<String, String>>,
     /// When only the category rules changed since the last build: the visits already built are
     /// sorted again in place (`build_reclassify`) instead of building anew.
     #[serde(default)]

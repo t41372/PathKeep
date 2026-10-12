@@ -231,7 +231,7 @@
     - [x] 2. gate 在一個非 UTC、日界跟 UTC 差很多的時區再跑一次 Rust 測試，擋住新的；本機 gate 不再需要 `TZ=UTC`。不另跑一次：`test:rust` 與 `test:desktop-bridge:rust` 固定在 `Pacific/Kiritimati`（UTC+14、沒有夏令時間），每台電腦都一樣；E2E 的 app 與瀏覽器固定在 UTC（`scripts/run-playwright.mjs`），spec 本來就照 UTC 數日子。驗證：全部 Rust 測試在 Kiritimati 與 America/Phoenix 都過（`--no-fail-fast`）；完整的 `bun run check` 在這台 Mac 上不加任何時區設定全過（gate 88）。
     - [x] 3. 文檔（`quality-matrix.md`）、CHANGELOG。`quality-matrix.md` 寫下兩個固定的時區與測試的規矩，順便補上現在的 E2E 專案順序。
 
-- [ ] **WORK-SITE-CATEGORY-REVIEW** — 讓用戶看見並改網站分類（2026-10-11 從 BACKLOG 搬上；2026-10-08 從 `WORK-INSIGHTS-RESTORE-2026-10` 拆出）
+- [x] **WORK-SITE-CATEGORY-REVIEW** — 讓用戶看見並改網站分類（2026-10-11 從 BACKLOG 搬上；2026-10-08 從 `WORK-INSIGHTS-RESTORE-2026-10` 拆出）
   - 讀先：`docs/features/deterministic-intelligence.md` §5.2、§6.3；`vault-core/src/intelligence/site_dictionary/overrides.rs`；`docs/design/screens-and-nav.md` §Insights。
   - 起因：§6.3 要求 unknown 比例與最常去的未分類網站可 review、用戶 override 永遠優先。後端已有 override 表（`upsert_site_dictionary_override`），但沒有命令也沒有畫面，v0.3 也沒有。「哪類網站」卡只能寫出未分類的比例。
   - 前提：`WORK-INSIGHTS-RESTORE-2026-10` 的 ⑥「重新分類」，否則改一個網站就整個重建（14.4M 約 97 分鐘）。
@@ -239,10 +239,10 @@
   - 目標：site 頁可改網站分類（寫 override、只重新分類受影響的造訪）；「哪類網站」卡的「未分類」列連到最常去的未分類網站。改分類要很快反映在 Insights。
   - E2E：改一個未分類 fixture 網站的分類，重建後卡上該類的占比照手算增加。
   - 步驟：
-    - [ ] 1. 寫下會怎麼錯（改了分類卻要整個重建、只改一個網站卻重分全部頁面、override 被規則蓋掉、未分類比例與連結對不上、各設定檔與「所有瀏覽器」），再做後端：讀寫 override 的命令；只重新分類 override 指到的網站的頁。
-    - [ ] 2. site 頁可以改網站分類（三語）；「哪類網站」卡的「未分類」列連到最常去的未分類網站。在 14.4M 上量改一個網站要多久反映到 Insights。
-    - [ ] 3. E2E：改一個未分類 fixture 網站的分類，重建後卡上該類的占比照手算增加。
-    - [ ] 4. 文檔、CHANGELOG。
+    - [x] 1. 寫下會怎麼錯（改了分類卻要整個重建、只改一個網站卻重分全部頁面、override 被規則蓋掉、未分類比例與連結對不上、各設定檔與「所有瀏覽器」），再做後端：讀寫 override 的命令；只重新分類 override 指到的網站的頁。2026-10-11：另外找到的：override 原本要三樣（網站類別、頁面種類、interaction）都有才算，只改網站類別會被丟掉，而三樣都給又會讓 GitHub 的 issue 不再是 issue——改成只要網站類別，頁面種類照規則（`visit_taxonomy::classification`）；建置中又改了另一個網站時，原本 pending 的建置會整個重建，現在接著做，同一個工作建完再跑一輪；跑著的工作被要求重算時只記一筆不再排隊，所以那一輪由工作自己跑；打開 app 時要補的建置原本強制 full（改一個網站類別就整個重建 14.4M），改成由建置決定。做法：每次建置記下當時的 override（`category_overrides`），下一次比對，只有整個網站的類別變了就只走那些網站的頁（頁照 `idx_pages_registrable_domain` 依序、再用 `idx_urls_page_id` 找這個設定檔的網址）。命令 `set_site_category`、`get_sites_in_category`；site 的 deep dive 多 `userCategory`、`listCategory`。side agent 提醒、用戶決定（2026-10-11）：整個網站的類別不蓋過清單另外分類的部分（`google.com` 裡的 Gmail、Google 文件，`ycombinator.com` 裡的 Hacker News），這些主機與底下的主機照清單；同一個名稱上仍是使用者的先（`deterministic-intelligence.md` §5.2、§6.3 照改）。site 的 deep dive 多 `listedParts`（清單另外分類、存檔裡有頁面的部分：每個部分查一次網址索引）與 `categoryPending`（建置記下已發布的洞察是用哪些類別建的〔`published_categories`〕，跟現在的不同就是還在更新）。測試：`visit_taxonomy` 只改網站類別時頁面種類不變、網站的其他主機跟著、清單另外分類的部分（exact rule 與路徑規則的主機）照清單、使用者指定主機時照使用者、列出的部分不含另一個網站、清單沒有的網站也行；`reclassify.rs` 只重分那個網站、拿掉 override 回到規則、建置中又改另一個網站，三種都跟從頭建的一樣，網站頁的「更新中」在發布前為真、發布後為假、沒改的網站一直為假。
+    - [x] 2. site 頁可以改網站分類（三語）；「哪類網站」卡的「未分類」列連到最常去的未分類網站。在 14.4M 上量改一個網站要多久反映到 Insights。site 頁右上「網站類別」：「PathKeep 清單：某類」或選的類別，改了到洞察照新類別建好前寫「正在更新洞察…」（變更等到網站資料重讀完才算完，中間不會閃回舊的）。原本前端拿網站的建置類別（整站多數造訪的類別）比清單給首頁的類別，用路徑規則分類的網站（`mio-rs.github.io` 的文件頁）就永遠寫「正在更新洞察…」、每 2 秒重拉；改由後端回報（gate 95 抓到）。同一次找到：site 與 page drill-in 換到另一個網站或頁面時，先顯示上一個的數字（`mio-rs.github.io` 頁上顯示 `rust-lang.github.io` 的 559 次瀏覽），改成只有同一個網站換範圍時保留。清單另外分類的部分在選單旁寫「N 個部分另外分類」，點開列出。「未分類」那列是按鈕，打開「不在清單上的網站」，瀏覽最多的在前、可再顯示更多，點一個到它的網站頁。14.4M 沒量：這台 Mac 放不下 14.4M 的測試存檔（約 40 GB，剩 16 GB），用戶指示先把任務做完再一起實測，列在 BACKLOG `WORK-SCALE-BENCH-RERUN`；成本照那個網站的網址數與日子數，不再照整個存檔。
+    - [x] 3. E2E：改一個未分類 fixture 網站的分類，重建後卡上該類的占比照手算增加。`site-category.spec`（change 專案）：從「未分類」列打開清單找到瀏覽最多、全部未分類的 fixture 網站，到它的頁選「新聞」，等後端的類別數變好：新聞＝那個網站的造訪數（照 fixture 手算），未分類少同樣多，卡上「新聞」的占比照算，清單裡不再有它；選回「PathKeep 清單」後各類數字跟原本一樣。手算的網站類別抽到 `support/site-kinds.ts`，`insights.spec` 共用。第二個測試：`ycombinator.com` 頁列出「1 個部分另外分類」（`news.ycombinator.com`、論壇），選「新聞」後等後端說洞察照新設定建好，各類的數字都不變（fixture 在這個網站的造訪都在 Hacker News）；沒人改過、頁面由路徑規則分類的網站不寫「正在更新洞察…」。
+    - [x] 4. 文檔、CHANGELOG。`deterministic-intelligence.md` §5.2、§6.3、`screens-and-nav.md`（site、哪類網站）、`store-schema.md`（建置記下 override、只走改了的網站、已發布的類別）、`desktop-command-surface.md`（兩個命令）。
 
 - [ ] **WORK-REFACTOR-INDEXING**（用戶 2026-06-21 指示，承巨檔審計）— `ai/indexing.rs` 拆分重構。詳見 `main` 上的 STATUS。_非當前 focus_
 

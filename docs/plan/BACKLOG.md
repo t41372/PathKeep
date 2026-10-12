@@ -43,6 +43,12 @@
 
 > 2026-06-14 review-pipeline closeout：`docs/plan/program/review-pipeline.md` 全流程跑完，confirmed findings 已全部修復並各自過獨立 review（見 CHANGELOG `WORK-REVIEW-0614-FULL-PIPELINE-A`、報告 `docs/review/2026-06-14/`）。剩下的是 verifier 標為 non-blocking 的 polish，匯整成下方 `WORK-REVIEW-0614-FOLLOWUPS-A`（未阻塞，但非當前 focus）。被駁回 / 降級 / trade-off 的 findings 不重開。
 
+- [ ] **WORK-SCALE-BENCH-RERUN** — 補量 14.4M：改回本機跑之後沒量的數字（2026-10-11；用戶指示「先把所有任務做完，再處理這個真實測速」）
+  - 讀先：`docs/architecture/ipc-performance.md`、`vault-worker/tests/archive_scale_bench/`（`turso_intelligence.rs`、`turso_reads.rs`）。
+  - 前提：14.4M 的測試存檔最多約 40 GB，Modal 已停用，在這台 Mac 上跑。2026-10-11 用戶騰出空間後剩約 77 GB，放得下（另留 5 GB 安全線）；開跑前再看一次，量完刪掉測試存檔。
+  - 待量：改一個網站的類別到洞察照新類別建好要多久（`WORK-SITE-CATEGORY-REVIEW`：只重分那個網站的頁，成本照那個網站的網址數與日子數，沒在 14.4M 上量過）；`WORK-EVIDENCE-REIMPORT` 要的重新匯入多寫了多少證據列。之後的 block 沒量到的 14.4M 數字也記在這裡。
+  - 做法：照 `ipc-performance.md` 各節的量法在 14.4M 上跑，結果寫回各節與原 block 的 CHANGELOG 附註。
+
 - [ ] **WORK-EVIDENCE-REIMPORT** — 重新匯入已在存檔裡的紀錄，把它們的來源證據再寫一份（2026-10-11 `WORK-TAKEOUT-RESUME` 收工時找到）
   - 讀先：`docs/architecture/data-model.md`（source evidence）、`archive/source_evidence.rs`、`archive/ingest/consumer.rs`、`intelligence/phase_three.rs`（讀證據的地方）。
   - 現象：證據列（`visit_search_evidence`、`visit_navigation_evidence`、`visit_engagement_evidence`、`visit_context_evidence`、`native_entities`）掛在每次執行的 source batch 下，沒有內容鍵。同一份檔案再匯入一次（包括接著做中斷的匯入）時，已在存檔裡的造訪的證據再寫一份。讀的地方按造訪合併，數字不會錯，但佔空間、拖慢匯入。

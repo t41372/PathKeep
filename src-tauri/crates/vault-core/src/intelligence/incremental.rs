@@ -316,6 +316,44 @@ pub(super) fn category_version(connection: &Session<'_>) -> Result<String> {
     ))
 }
 
+/// The categories the user set, by target (`kind:target` → `site|page|interaction`): a build
+/// records them, so the next one can tell which sites' categories changed since
+/// (`changed_sites`). The same rows `category_version` digests.
+pub(super) fn category_overrides(
+    connection: &Session<'_>,
+) -> Result<std::collections::BTreeMap<String, String>> {
+    Ok(connection
+        .query(
+            "SELECT target_kind,target_value,
+                    COALESCE(domain_category,'')||'|'||COALESCE(page_category,'')||'|'||COALESCE(interaction_kind,'')
+             FROM site_dictionary_overrides
+             WHERE domain_category IS NOT NULL OR page_category IS NOT NULL OR interaction_kind IS NOT NULL",
+            (),
+            |r| {
+                Ok((
+                    format!("{}:{}", r.get::<String>(0)?, r.get::<String>(1)?),
+                    r.get::<String>(2)?,
+                ))
+            },
+        )?
+        .into_iter()
+        .collect())
+}
+
+/// The sites whose user categories differ between two builds' overrides: added, changed or
+/// taken away. `None` when one of them is not a whole site (a host or an address prefix), whose
+/// pages a site cannot list; a build then sorts every page again.
+pub(super) fn changed_sites(
+    before: &std::collections::BTreeMap<String, String>,
+    now: &std::collections::BTreeMap<String, String>,
+) -> Option<Vec<String>> {
+    let keys = before.keys().chain(now.keys()).collect::<std::collections::BTreeSet<_>>();
+    keys.into_iter()
+        .filter(|key| before.get(*key) != now.get(*key))
+        .map(|key| key.strip_prefix("exact-domain:").map(str::to_owned))
+        .collect()
+}
+
 /// A digest of what the user's site overrides set in one respect (`value`, for the rows
 /// `filter` keeps), so a change there, and only there, changes it.
 fn override_digest(
