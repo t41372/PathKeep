@@ -500,8 +500,12 @@ pub struct StorageSummary {
     pub export_bytes: u64,
     pub staging_bytes: u64,
     pub quarantine_bytes: u64,
+    /// The semantic index's vectors and visit maps.
     pub semantic_sidecar_bytes: u64,
     pub intelligence_blob_bytes: u64,
+    /// Ask's conversations.
+    #[serde(default)]
+    pub agent_database_bytes: u64,
 }
 
 /// Dashboard snapshot used by the archive home surface.

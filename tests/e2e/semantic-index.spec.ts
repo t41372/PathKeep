@@ -13,7 +13,7 @@
  * exactly when it was visited that day. After a later backup, the index
  * catches up by itself: a page visited again as it was is not sent to the
  * service again, and a page whose title changed is, and is found by its new
- * title.
+ * title. Settings → Storage counts the index's files.
  *
  * The app is killed for real (`support/app.ts`; the E2E launcher starts it
  * again). The service runs on this computer (`support/fake-embeddings.ts`);
@@ -21,6 +21,8 @@
  * the build's first request, and holds the next, so the kill lands half way
  * every time.
  */
+import { readdirSync, statSync } from 'node:fs'
+import path from 'node:path'
 import { expect, test } from '@playwright/test'
 import {
   appendChromeVisits,
@@ -44,6 +46,22 @@ interface Config {
 
 const loadConfig = async () =>
   (await backend<{ config: Config }>('app_snapshot')).config
+
+/** Bytes of every file under `dir`; 0 when it does not exist. */
+function folderBytes(dir: string): number {
+  try {
+    return readdirSync(dir, { withFileTypes: true }).reduce(
+      (sum, entry) =>
+        sum +
+        (entry.isDirectory()
+          ? folderBytes(path.join(dir, entry.name))
+          : statSync(path.join(dir, entry.name)).size),
+      0,
+    )
+  } catch {
+    return 0
+  }
+}
 
 /** The pages behind texts sent for embedding; each text also names one visit. */
 const pagesOf = (texts: string[]) =>
@@ -210,6 +228,17 @@ test('a search index build killed half way finishes after a restart, without sta
         { timeout: 120_000 },
       )
       .toBe(0)
+    // Storage counts the index where it is, and anything left in the old
+    // sidecar folder.
+    const root = fixture().dirs.projectRoot
+    const indexBytes =
+      folderBytes(path.join(root, 'derived', 'vectors')) +
+      folderBytes(path.join(root, 'sidecars', 'semantic-index'))
+    expect(indexBytes, 'the index is on disk').toBeGreaterThan(0)
+    const { storage } = await backend<{
+      storage: { semanticSidecarBytes: number }
+    }>('load_dashboard_snapshot')
+    expect(storage.semanticSidecarBytes).toBe(indexBytes)
     const sent = pagesOf(service.inputs.slice(atBackup))
     await testInfo.attach('pages sent after the backup', {
       body: JSON.stringify(sent, null, 2),

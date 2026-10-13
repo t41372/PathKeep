@@ -68,6 +68,10 @@
   - 證據：那次的 `error-context.md`、trace 與 app 的執行緒堆疊在 2026-10-12 的 `artifacts/e2e/`（之後的 run 會蓋掉；要重現就重跑 `upgrade` 專案直到失敗，保存那次的產物）。
   - 方向：先找出解鎖後判斷舊格式的那條路（session 狀態與後端的升級偵測命令），寫下它在什麼時序下會答錯，再修；E2E 連跑多次證明。
 
+- [ ] **WORK-PROJECT-PATHS-V04** — `ProjectPaths` 的資料庫路徑還是 v0.3 的（2026-10-13 修 Settings → Storage 時找到）
+  - 現象：`config.rs` 的預設是 `history-vault.sqlite`、`source-evidence.sqlite`、`history-search.sqlite`、`history-intelligence.sqlite`、`agent.sqlite`；`Vault::open` 再把其中四個改成 `.db`，搜尋那個沒改（v0.4 的搜尋索引是 `derived/search-index` 資料夾）。沒有經過 `Vault` 的讀者（`app.rs` 回給介面的 `searchDatabasePath`）拿到的是不存在的檔案；Storage 用量曾因此少算搜尋索引、對話與 WAL。
+  - 方向：先列出誰還需要 v0.3 的路徑（v0.3 → v0.4 轉換要找舊檔），把它們改成明說「舊格式」的欄位；其餘全部用 `vault_store::Paths` 的布局，`search_database_path` 換成搜尋索引資料夾。
+
 - [ ] **WORK-NOTE-SAVE-FLAKE** — 筆記偶爾沒存下來（2026-10-13 寫 history E2E 時看到一次）
   - 現象：`history-tools.spec` 的「a note is found by its words, in either script, until it changes」一次失敗：第二頁的筆記沒有存下來，之後用筆記的字搜不到它。其他每次都過。
   - 已知：`note-editor.tsx` 在停止輸入 0.8 秒後存，面板換到別頁時把還沒存的那次用原來的網址送出；照程式看不會丟。那次沒留下 trace（跟另一組 E2E 同時跑，產物被蓋掉）。

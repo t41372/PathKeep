@@ -273,19 +273,30 @@ pub(super) fn run_new_downloads(stats: &Value) -> usize {
 }
 
 /// Summarizes the on-disk footprint of the archive and nearby artifact directories.
+///
+/// The databases are measured where the store keeps them (`vault_store::Paths`) with their
+/// write-ahead logs, which can hold as much as the file itself between checkpoints; the
+/// `.sqlite` paths in `ProjectPaths` are the layout before v0.4.
 pub(super) fn storage_summary(paths: &ProjectPaths) -> StorageSummary {
+    let db = vault_store::Paths::under(&paths.app_root);
+    let database = |path: &Path| {
+        let mut wal = path.as_os_str().to_owned();
+        wal.push("-wal");
+        file_size(path) + file_size(Path::new(&wal))
+    };
     StorageSummary {
-        archive_database_bytes: file_size(&paths.archive_database_path),
-        source_evidence_database_bytes: file_size(&paths.source_evidence_database_path),
-        search_database_bytes: file_size(&paths.search_database_path),
-        intelligence_database_bytes: file_size(&paths.intelligence_database_path),
+        archive_database_bytes: database(&db.archive),
+        source_evidence_database_bytes: database(&db.source_evidence),
+        search_database_bytes: directory_size(&paths.derived_dir.join("search-index")),
+        intelligence_database_bytes: database(&db.intelligence) + database(&db.scratch),
         manifest_bytes: directory_size(&paths.manifests_dir),
         snapshot_bytes: directory_size(&paths.raw_snapshots_dir),
         export_bytes: directory_size(&paths.exports_dir),
         staging_bytes: directory_size(&paths.staging_dir),
         quarantine_bytes: directory_size(&paths.quarantine_dir),
-        semantic_sidecar_bytes: directory_size(&paths.semantic_index_dir),
+        semantic_sidecar_bytes: crate::ai_sidecar::sidecar_storage_bytes(paths),
         intelligence_blob_bytes: directory_size(&paths.intelligence_blobs_dir),
+        agent_database_bytes: database(&db.agent),
     }
 }
 

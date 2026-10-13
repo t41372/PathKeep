@@ -35,12 +35,12 @@ pub async fn clear_provider_embeddings(
     Ok(0)
 }
 
-/// Returns the total bytes currently consumed by optional sidecar storage.
-///
-/// This remains filesystem-backed so Settings and storage review surfaces can
-/// still report leftover or future sidecar files without linking a vector DB.
+/// The bytes the semantic index takes on disk, for Settings → Storage: its vectors and visit
+/// maps, and anything earlier versions left in the old sidecar folder.
 pub fn sidecar_storage_bytes(paths: &ProjectPaths) -> u64 {
-    directory_size(&sidecar_root(paths))
+    // The index is in `derived/vectors`; the old sidecar folder only holds what earlier
+    // versions left there.
+    directory_size(&paths.vectors_dir) + directory_size(&sidecar_root(paths))
 }
 
 /// Returns the root directory reserved for optional vector sidecar tables.

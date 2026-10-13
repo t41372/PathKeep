@@ -209,8 +209,11 @@ export interface StorageSummary {
   exportBytes: number
   stagingBytes: number
   quarantineBytes: number
+  /** The semantic index's vectors and visit maps. */
   semanticSidecarBytes: number
   intelligenceBlobBytes: number
+  /** Ask's conversations. */
+  agentDatabaseBytes: number
 }
 
 /**

@@ -21,7 +21,8 @@ function split(storage: StorageSummary): Record<Part, number> {
     archive:
       storage.archiveDatabaseBytes +
       storage.sourceEvidenceDatabaseBytes +
-      storage.manifestBytes,
+      storage.manifestBytes +
+      storage.agentDatabaseBytes,
     indexes:
       storage.searchDatabaseBytes +
       storage.intelligenceDatabaseBytes +
