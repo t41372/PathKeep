@@ -10,7 +10,10 @@
  * to the service again. Settings shows the build's progress while it runs.
  * Then History's semantic search finds a page by its words, and its date
  * filter applies to the matches themselves: the page is listed for a day
- * exactly when it was visited that day.
+ * exactly when it was visited that day. After a later backup, the index
+ * catches up by itself: a page visited again as it was is not sent to the
+ * service again, and a page whose title changed is, and is found by its new
+ * title.
  *
  * The app is killed for real (`support/app.ts`; the E2E launcher starts it
  * again). The service runs on this computer (`support/fake-embeddings.ts`);
@@ -19,14 +22,20 @@
  * every time.
  */
 import { expect, test } from '@playwright/test'
+import {
+  appendChromeVisits,
+  retitleChromePage,
+} from '../../scripts/fixtures/synthetic-browsers.mjs'
 import { killAndRestartApp, unlockIfLocked } from './support/app'
 import { startFakeEmbeddings } from './support/fake-embeddings'
 import {
   archivedVisits,
   backend,
+  fixture,
   localDay,
   parseCount,
 } from './support/fixture'
+import { RETITLED_TITLE, indexRevisitVisits } from './support/index-revisit'
 
 /** Settings as saved; the test puts their AI part back when it ends. */
 interface Config {
@@ -170,6 +179,53 @@ test('a search index build killed half way finishes after a restart, without sta
       if (visited) await expect(run.first()).toBeVisible({ timeout: 30_000 })
       else await expect(run).toHaveCount(0, { timeout: 30_000 })
     }
+
+    // A later backup: one indexed page visited again as it was, another
+    // under a new title (Chrome keeps one title per address).
+    const chromeFile = fixture().files['chrome:Default']
+    const pages = fixture().visitsByProfile['chrome:Default'].filter(
+      (visit) => !visit.term,
+    )
+    const same = pages[0]
+    const retitled = pages.find((visit) => visit.url !== same.url)!
+    const atBackup = service.inputs.length
+    retitleChromePage(chromeFile, retitled.url, RETITLED_TITLE)
+    appendChromeVisits(chromeFile, indexRevisitVisits(same, retitled))
+    await page.goto('/#/backup')
+    await page.getByRole('button', { name: 'Back up now' }).first().click()
+    const newTitle = `${retitled.url} · ${RETITLED_TITLE}`
+    await expect
+      .poll(() => pagesOf(service.inputs.slice(atBackup)), {
+        timeout: 120_000,
+      })
+      .toContain(newTitle)
+    await expect
+      .poll(
+        async () => {
+          const queue = await backend<{ queued: number; running: number }>(
+            'load_ai_queue_status',
+          )
+          return queue.queued + queue.running
+        },
+        { timeout: 120_000 },
+      )
+      .toBe(0)
+    const sent = pagesOf(service.inputs.slice(atBackup))
+    await testInfo.attach('pages sent after the backup', {
+      body: JSON.stringify(sent, null, 2),
+      contentType: 'application/json',
+    })
+    // Only the retitled page: the one visited again as it was is mapped to
+    // what the index already holds.
+    expect([...new Set(sent)]).toEqual([newTitle])
+    await page.goto('/#/history')
+    await page
+      .getByRole('searchbox', { name: 'Search history' })
+      .fill('quokka harbour regatta')
+    await page.getByRole('radio', { name: 'Semantic' }).click()
+    await expect(rows.first()).toContainText(RETITLED_TITLE, {
+      timeout: 60_000,
+    })
     finished = true
   } finally {
     service.release()

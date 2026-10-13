@@ -12,35 +12,20 @@
  * connection test with the reason in words, not the backend's error text; the
  * service with the wrong key, edited in place with the right one, connects.
  */
-import { expect, test, type Page } from '@playwright/test'
-import { FAKE_ANSWER, startFakeModel } from './support/fake-model'
+import { expect, test } from '@playwright/test'
+import { addService } from './support/ai-service'
+import {
+  FAKE_ANSWER,
+  chatRequests,
+  startFakeModel,
+  textOf,
+} from './support/fake-model'
 
 const KEY = 'e2e-test-key'
 
 /** The fixture's GitHub issue about spawn_blocking (the rust topic). */
 const ISSUE_TITLE = 'spawn_blocking pool exhaustion · tokio-rs/tokio'
 const ISSUE_URL = 'tokio-rs/tokio/issues/5124'
-
-async function addService(
-  page: Page,
-  { name, address, key }: { name: string; address: string; key: string },
-) {
-  await page.goto('/#/settings/ai')
-  await page.getByRole('combobox', { name: 'AI service' }).click()
-  await page.getByRole('option', { name: 'Add provider…' }).click()
-  const dialog = page.getByRole('dialog', { name: 'Add an AI service' })
-  await dialog.getByRole('combobox', { name: 'Service' }).click()
-  await page.getByRole('option', { name: 'OpenAI or compatible' }).click()
-  await dialog.getByRole('textbox', { name: 'Address' }).fill(address)
-  await dialog.getByRole('textbox', { name: 'Model' }).fill('e2e-model')
-  await dialog.getByRole('textbox', { name: 'Name' }).fill(name)
-  await dialog.getByLabel('API key').fill(key)
-  await dialog.getByRole('button', { name: 'Add service' }).click()
-  await expect(page.getByText(`${name} is ready.`)).toBeVisible()
-  await expect(
-    page.getByRole('combobox', { name: 'AI service' }),
-  ).toContainText(name)
-}
 
 test('Ask answers from a search of the archive, with the pages it found', async ({
   page,
@@ -68,9 +53,7 @@ test('Ask answers from a search of the archive, with the pages it found', async 
     ).toBeVisible()
 
     // What PathKeep sent: the key every time, its tools, then the search's results.
-    const chats = model.requests.filter((request) =>
-      request.path.endsWith('/chat/completions'),
-    )
+    const chats = chatRequests(model)
     expect(
       chats.every((request) => request.authorization === `Bearer ${KEY}`),
     ).toBe(true)
@@ -83,7 +66,7 @@ test('Ask answers from a search of the archive, with the pages it found', async 
     )
     const results = answered?.body.messages
       ?.filter((message) => message.role === 'tool')
-      .map((message) => JSON.stringify(message.content))
+      .map((message) => textOf(message.content))
       .join('\n')
     expect(results).toContain(ISSUE_URL)
 

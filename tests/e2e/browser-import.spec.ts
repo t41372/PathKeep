@@ -9,7 +9,10 @@
  * before acting. A Safari History.db puts each visit on its own day (Safari
  * counts seconds from 2001), names each page by the newest title Safari
  * saved for it (an untitled latest visit keeps the one before), and Insights
- * says Safari keeps no opener.
+ * says Safari keeps no opener. An import whose visits all came from it,
+ * once undone, leaves Insights with no rebuild asked for: its profile shows
+ * no visits, and its day and Top sites over all profiles no longer count them;
+ * a page it alone brought that was starred stays in Starred, with its site.
  *
  * The files are written for this test (see `support/browser-file.ts` and
  * `support/safari-file.ts`), not profiles the archive backs up, so nothing in
@@ -20,16 +23,26 @@ import path from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
 import {
   appendFirefoxVisits,
+  writeChromeHistory,
   writeFirefoxPlaces,
   writeSafariHistory,
 } from '../../scripts/fixtures/synthetic-browsers.mjs'
 import {
   BROWSER_FILE_TITLE,
+  UNDONE_FILE_SITE,
+  UNDONE_FILE_TITLE,
   browserFilePath,
   firstBrowserFileVisits,
   laterBrowserFileVisits,
+  undoneBrowserFilePath,
+  undoneBrowserFileVisits,
 } from './support/browser-file'
-import { expectCount, parseCount } from './support/fixture'
+import {
+  archivedVisits,
+  expectCount,
+  localDay as fixtureDay,
+  parseCount,
+} from './support/fixture'
 import {
   SAFARI_TITLE,
   localDay,
@@ -265,4 +278,145 @@ test('a Safari History.db puts each visit on its day, named as Safari last saw i
   await expect(again).toContainText(
     `${visits.length} are already in your archive`,
   )
+})
+
+const sectionOf = (page: Page, title: string) =>
+  page
+    .getByRole('heading', { name: title, exact: true })
+    .locator('xpath=ancestor::section[1]')
+
+/**
+ * Opens `url` until its "Page visits" tile reads `visits`: Insights take an
+ * import or a rebuild in a moment after it finishes. Returns what it read.
+ */
+async function expectPageVisits(page: Page, url: string, visits: number) {
+  let shown = Number.NaN
+  await expect
+    .poll(
+      async () => {
+        await page.goto('about:blank')
+        await page.goto(url)
+        const tile = page.getByRole('group', {
+          name: 'Page visits',
+          exact: true,
+        })
+        await expect(tile).toHaveAttribute('aria-busy', 'false', {
+          timeout: 30_000,
+        })
+        shown = parseCount((await tile.innerText()).split('\n')[1] ?? '')
+        return shown
+      },
+      { timeout: 180_000, intervals: [2_000, 5_000] },
+    )
+    .toBe(visits)
+  return shown
+}
+
+/** The row of `site` in Top sites, by its link. */
+const topSiteRow = (page: Page, site: string) =>
+  sectionOf(page, 'Top sites').locator(`a[href*="/insights/site/${site}?"]`)
+
+test('an undone import leaves Insights, and its starred page stays in Starred', async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(300_000)
+  const visits = undoneBrowserFileVisits()
+  const day = fixtureDay(visits[0].at)
+  // The day as the fixture's browsers had it; the other specs add nothing to it.
+  const before = archivedVisits().filter(
+    (visit) => fixtureDay(visit.at) === day,
+  ).length
+  const starredTitle = `${UNDONE_FILE_TITLE} 1`
+  mkdirSync(path.dirname(undoneBrowserFilePath()), { recursive: true })
+  writeChromeHistory(undoneBrowserFilePath(), visits)
+
+  const preview = await inspectFile(page, undoneBrowserFilePath())
+  await expect(preview).toContainText(visitsLabel(visits.length, 'new visit'))
+  await page
+    .getByRole('button', { name: `Import ${visits.length} visits` })
+    .click()
+  await expect(
+    page.getByText(`Imported ${visits.length} new visits`).first(),
+  ).toBeVisible({ timeout: 60_000 })
+
+  // Imported: its own profile, the day and Top sites count its visits.
+  const dayRange = `/#/insights?range=custom&start=${day}&end=${day}`
+  await page.goto(dayRange)
+  await page.getByRole('combobox', { name: 'Browser profile' }).click()
+  await page
+    .getByRole('option', {
+      name: 'Chromium · Imported browser profile',
+      exact: true,
+    })
+    .click()
+  await expect(page).toHaveURL(/profile=browser-direct/)
+  const profileRange = page.url().replace(/^.*?#/, '/#')
+  await expectPageVisits(page, profileRange, visits.length)
+  await expectPageVisits(page, `/#/insights/day/${day}`, before + visits.length)
+  await page.goto(dayRange)
+  await expect(topSiteRow(page, UNDONE_FILE_SITE)).toContainText(
+    String(visits.length),
+    { timeout: 60_000 },
+  )
+
+  // A page only the import brought, starred.
+  await page.goto('/#/history')
+  await page
+    .getByRole('searchbox', { name: 'Search history' })
+    .fill(`"${starredTitle}"`)
+  await page
+    .getByRole('listbox', { name: 'History results' })
+    .getByRole('option')
+    .filter({ hasText: starredTitle })
+    .click()
+  const detail = page.getByRole('complementary', { name: 'Page details' })
+  await detail.getByRole('button', { name: 'Star this page' }).click()
+  await expect(
+    detail.getByRole('button', { name: 'Remove star' }),
+  ).toBeVisible()
+
+  // Undone.
+  await page.goto('/#/backup')
+  await page
+    .getByRole('heading', { name: 'Recent imports' })
+    .locator('xpath=ancestor::section[1]')
+    .getByRole('listitem')
+    .filter({ hasText: `${visits.length} new · 0 already there` })
+    .getByRole('button', { name: 'Undo' })
+    .click()
+  const undo = page.getByRole('dialog', { name: /^Import from / })
+  await expect(undo).toContainText(undoneBrowserFilePath())
+  await undo.getByRole('button', { name: 'Undo import' }).click()
+  await expect(undo).toBeHidden({ timeout: 60_000 })
+
+  // The undo queues the Insights build itself.
+  await expectCount(
+    testInfo,
+    `visits on ${day}, every profile, after the undo`,
+    await expectPageVisits(page, `/#/insights/day/${day}`, before),
+    before,
+  )
+  await expectCount(
+    testInfo,
+    'visits in the undone import’s profile',
+    await expectPageVisits(page, profileRange, 0),
+    0,
+  )
+  await page.goto(dayRange)
+  await expect(
+    sectionOf(page, 'Top sites').getByRole('listitem').first(),
+  ).toBeVisible({
+    timeout: 60_000,
+  })
+  await expect(topSiteRow(page, UNDONE_FILE_SITE)).toHaveCount(0)
+
+  // Still starred, under its site.
+  await page.goto('/#/history')
+  await page.getByRole('tab', { name: /^Starred/ }).click()
+  const entry = page
+    .getByRole('listbox', { name: 'Starred' })
+    .getByRole('option')
+    .filter({ hasText: starredTitle })
+  await expect(entry).toHaveCount(1)
+  await expect(entry).toContainText(UNDONE_FILE_SITE)
 })

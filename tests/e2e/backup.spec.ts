@@ -9,6 +9,9 @@
  * The run sheet lists every warning the run recorded, including those from
  * the work after the backup itself, as sentences in the chosen language with
  * the fix beside them; notes on side work sit under the summary instead.
+ * Insights left open on the last seven days read them again once a backup
+ * adds visits to them in two profiles: Top sites shows the top site's new
+ * count and the new site, with no reload.
  */
 import { existsSync, renameSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
@@ -16,7 +19,14 @@ import {
   appendChromeVisits,
   appendFirefoxVisits,
 } from '../../scripts/fixtures/synthetic-browsers.mjs'
-import { backend, fixture } from './support/fixture'
+import { archivedVisits, backend, fixture } from './support/fixture'
+import {
+  LIVE_RANGE_NEW_SITE_VISITS,
+  LIVE_RANGE_SITE,
+  LIVE_RANGE_TOP_SITE_VISITS,
+  liveRangeVisits,
+} from './support/live-range'
+import { siteOf } from './support/public-suffix'
 
 const NEW_URL = 'https://e2e.example/backup-check'
 const NEW_TITLE = 'Backup check page'
@@ -212,4 +222,77 @@ test('a run that left things out says why, in your language, beside the fix', as
     // reload, which starts their workers on what the paused backup queued.
     await backend('load_intelligence_runtime')
   }
+})
+
+test('Insights left open on a range read it again when a backup adds visits to it', async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(240_000)
+  // The specs before may leave Insights work queued for other profiles: a
+  // range must not count as up to date while any of it is still to run.
+  await page.goto('/#/insights?range=d7')
+  const topSites = page
+    .getByRole('heading', { name: 'Top sites', exact: true })
+    .locator('xpath=ancestor::section[1]')
+  const siteRow = (site: string) =>
+    topSites.locator(`a[href*="/insights/site/${site}?"]`)
+  /** The number at the end of a row: its visits in the range. */
+  const countOf = async (row: ReturnType<typeof siteRow>) =>
+    Number(
+      ((await row.innerText()).match(/(\d[\d,]*)\s*$/)?.[1] ?? 'NaN').replace(
+        /,/g,
+        '',
+      ),
+    )
+  const first = topSites.locator('a[href*="/insights/site/"]').first()
+  await expect(first).toBeVisible({ timeout: 60_000 })
+  const site = decodeURIComponent(
+    ((await first.getAttribute('href')) ?? '').match(/site\/([^?]+)/)?.[1] ??
+      '',
+  )
+  const before = await countOf(siteRow(site))
+  expect(before, `${site}'s visits in the last 7 days`).toBeGreaterThan(0)
+  await expect(siteRow(LIVE_RANGE_SITE)).toHaveCount(0)
+
+  const topSitePage = archivedVisits().find(
+    (visit) => !visit.term && siteOf(visit.url) === site,
+  )!
+  const added = liveRangeVisits(topSitePage)
+  appendChromeVisits(fixture().files['chrome:Default'], added.chrome)
+  appendFirefoxVisits(
+    fixture().files['firefox:k3x9.default-release'],
+    added.firefox,
+  )
+  // Backed up from the command palette: Insights stay on screen meanwhile.
+  await page.keyboard.press('ControlOrMeta+k')
+  await page.getByRole('dialog').getByRole('combobox').fill('back up')
+  await page.getByRole('option', { name: 'Back up now' }).click()
+
+  try {
+    await expect(siteRow(LIVE_RANGE_SITE)).toContainText(
+      String(LIVE_RANGE_NEW_SITE_VISITS),
+      { timeout: 120_000 },
+    )
+  } catch (error) {
+    // Whether Insights had taken the visits in, and whether a fresh read
+    // shows them: tells "never built" from "built but not read again".
+    await testInfo.attach('Insights work when the range was not read again', {
+      body: JSON.stringify(await backend('load_intelligence_runtime'), null, 2),
+      contentType: 'application/json',
+    })
+    await page.reload()
+    await testInfo.attach('the new site after a reload', {
+      body: String(
+        await siteRow(LIVE_RANGE_SITE)
+          .innerText({ timeout: 30_000 })
+          .catch(() => 'not listed'),
+      ),
+      contentType: 'text/plain',
+    })
+    throw error
+  }
+  await expect
+    .poll(() => countOf(siteRow(site)), { timeout: 60_000 })
+    .toBe(before + LIVE_RANGE_TOP_SITE_VISITS)
+  await expect(page).toHaveURL(/#\/insights\?range=d7$/)
 })

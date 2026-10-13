@@ -1,23 +1,36 @@
 /**
  * An OpenAI-compatible chat service on 127.0.0.1, for the specs that set up
- * an AI service (Ask, Settings → AI's connection test). It answers the way a
- * model that uses PathKeep's tools would, and nothing more:
+ * an AI service (Ask, Settings → AI's connection test). By default it answers
+ * the way a model that uses PathKeep's tools would, and nothing more:
  *
  * - asked with tools, it calls `search_history` for what the spec told it to
  *   search for;
  * - given that tool's result, it answers with one fixed sentence;
  * - asked without tools (the connection test), it says OK.
  *
+ * A spec can script the replies instead (`script`): each request gets what
+ * the script returns for it, which may be thinking (`reasoning_content`, as
+ * reasoning models served by LM Studio, Ollama or DeepSeek send it), text, or
+ * calls to the tools the request offered.
+ *
  * It streams when asked to, the way OpenAI does (`chat.completion.chunk`
- * events, then a usage event, then `[DONE]`). A request without the right
- * `Bearer` key gets OpenAI's 401. Every request is kept, so a spec can check
- * what PathKeep sent.
+ * events, then a usage event, then `[DONE]`), and gives every tool call its
+ * own id. A request without the right `Bearer` key gets OpenAI's 401. Every
+ * request is kept, so a spec can check what PathKeep sent.
  */
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
 
 /** What the fake model says once it has the search's results. */
 export const FAKE_ANSWER = 'You read about it on the page below.'
+
+export interface ChatMessage {
+  role: string
+  /** A string, or OpenAI's list of `{ type: 'text', text }` parts. */
+  content: unknown
+  tool_call_id?: string
+  tool_calls?: { id?: string; function?: { name?: string } }[]
+}
 
 export interface FakeRequest {
   path: string
@@ -26,7 +39,7 @@ export interface FakeRequest {
     model?: string
     stream?: boolean
     tools?: { function?: { name?: string } }[]
-    messages?: { role: string; content: unknown }[]
+    messages?: ChatMessage[]
   }
 }
 
@@ -37,31 +50,82 @@ export interface FakeModel {
   close(): Promise<void>
 }
 
-interface Reply {
+/** One reply of the model. */
+export interface Reply {
+  /** Thinking, sent as `reasoning_content` before anything else. */
+  reasoning?: string
   content?: string
-  toolCall?: { name: string; arguments: string }
+  toolCalls?: { name: string; arguments: object }[]
 }
 
-function reply(body: FakeRequest['body'], searchFor: string): Reply {
-  const last = body.messages?.at(-1)
-  if (last?.role === 'tool') return { content: FAKE_ANSWER }
-  const tools = (body.tools ?? []).map((tool) => tool.function?.name)
-  if (tools.includes('search_history'))
-    return {
-      toolCall: {
-        name: 'search_history',
-        arguments: JSON.stringify({ query: searchFor }),
-      },
-    }
-  return { content: 'OK' }
+/** Decides the reply to one chat request. */
+export type Script = (body: FakeRequest['body']) => Reply
+
+/** A message's text, whichever of OpenAI's two shapes it came in. */
+export function textOf(content: unknown): string {
+  if (typeof content === 'string') return content
+  if (Array.isArray(content))
+    return content
+      .map((part: { text?: unknown }) =>
+        typeof part?.text === 'string' ? part.text : '',
+      )
+      .join('')
+  return ''
+}
+
+/** Whether the request offered the model any tools. */
+export function offersTools(body: FakeRequest['body']) {
+  return (body.tools ?? []).length > 0
+}
+
+/** The text of the request's last user message. */
+export function lastUserText(body: FakeRequest['body']) {
+  const user = body.messages?.findLast((message) => message.role === 'user')
+  return textOf(user?.content)
+}
+
+/** What PathKeep's tools returned, in the order the request carries them. */
+export function toolResults(body: FakeRequest['body']) {
+  return (body.messages ?? [])
+    .filter((message) => message.role === 'tool')
+    .map((message) => textOf(message.content))
+}
+
+/** The chat requests (not the model list or other paths), in the order they came. */
+export function chatRequests(model: FakeModel) {
+  return model.requests.filter((request) =>
+    request.path.endsWith('/chat/completions'),
+  )
+}
+
+/** The default behaviour: search for `searchFor`, then answer `FAKE_ANSWER`. */
+function searchThenAnswer(searchFor: string): Script {
+  return (body) => {
+    if (body.messages?.at(-1)?.role === 'tool') return { content: FAKE_ANSWER }
+    const tools = (body.tools ?? []).map((tool) => tool.function?.name)
+    if (tools.includes('search_history'))
+      return {
+        toolCalls: [
+          { name: 'search_history', arguments: { query: searchFor } },
+        ],
+      }
+    return { content: 'OK' }
+  }
 }
 
 const usage = { prompt_tokens: 12, completion_tokens: 8, total_tokens: 20 }
 
+interface Call {
+  id: string
+  type: 'function'
+  function: { name: string; arguments: string }
+}
+
 function stream(
   response: http.ServerResponse,
   model: string,
-  { content, toolCall }: Reply,
+  { reasoning, content }: Reply,
+  calls: Call[],
 ) {
   response.writeHead(200, {
     'content-type': 'text/event-stream',
@@ -77,21 +141,16 @@ function stream(
     response.write(`data: ${JSON.stringify({ ...base, ...event })}\n\n`)
   const delta = (value: object, finish: string | null = null) =>
     send({ choices: [{ index: 0, delta: value, finish_reason: finish }] })
+  const words = (text: string) => text.split(/(?<= )/)
   delta({ role: 'assistant', content: '' })
-  if (toolCall) {
+  for (const word of words(reasoning ?? '')) delta({ reasoning_content: word })
+  for (const word of words(content ?? '')) if (word) delta({ content: word })
+  if (calls.length > 0) {
     delta({
-      tool_calls: [
-        {
-          index: 0,
-          id: 'call_e2e',
-          type: 'function',
-          function: toolCall,
-        },
-      ],
+      tool_calls: calls.map((call, index) => ({ index, ...call })),
     })
     delta({}, 'tool_calls')
   } else {
-    for (const word of (content ?? '').split(/(?<= )/)) delta({ content: word })
     delta({}, 'stop')
   }
   send({ choices: [], usage })
@@ -101,7 +160,8 @@ function stream(
 function complete(
   response: http.ServerResponse,
   model: string,
-  { content, toolCall }: Reply,
+  { reasoning, content }: Reply,
+  calls: Call[],
 ) {
   response.writeHead(200, { 'content-type': 'application/json' })
   response.end(
@@ -113,16 +173,13 @@ function complete(
       choices: [
         {
           index: 0,
-          message: toolCall
-            ? {
-                role: 'assistant',
-                content: null,
-                tool_calls: [
-                  { id: 'call_e2e', type: 'function', function: toolCall },
-                ],
-              }
-            : { role: 'assistant', content },
-          finish_reason: toolCall ? 'tool_calls' : 'stop',
+          message: {
+            role: 'assistant',
+            content: content ?? null,
+            ...(reasoning ? { reasoning_content: reasoning } : {}),
+            ...(calls.length > 0 ? { tool_calls: calls } : {}),
+          },
+          finish_reason: calls.length > 0 ? 'tool_calls' : 'stop',
         },
       ],
       usage,
@@ -130,15 +187,20 @@ function complete(
   )
 }
 
-/** Starts the service; `searchFor` is what it asks PathKeep's search for. */
-export async function startFakeModel({
-  apiKey,
-  searchFor,
-}: {
-  apiKey: string
-  searchFor: string
-}): Promise<FakeModel> {
+/**
+ * Starts the service. Either `searchFor` (what it asks PathKeep's search for
+ * before answering `FAKE_ANSWER`) or a `script` for every reply.
+ */
+export async function startFakeModel(
+  options: { apiKey: string } & (
+    | { searchFor: string; script?: never }
+    | { script: Script; searchFor?: never }
+  ),
+): Promise<FakeModel> {
+  const { apiKey } = options
+  const script = options.script ?? searchThenAnswer(options.searchFor)
   const requests: FakeRequest[] = []
+  let callCount = 0
   const server = http.createServer((request, response) => {
     let raw = ''
     request.on('data', (chunk: Buffer) => (raw += chunk.toString('utf8')))
@@ -170,10 +232,18 @@ export async function startFakeModel({
         response.end()
         return
       }
-      const answer = reply(body, searchFor)
+      const reply = script(body)
+      const calls: Call[] = (reply.toolCalls ?? []).map((call) => ({
+        id: `call_${++callCount}`,
+        type: 'function',
+        function: {
+          name: call.name,
+          arguments: JSON.stringify(call.arguments),
+        },
+      }))
       const model = body.model ?? 'e2e-model'
-      if (body.stream) stream(response, model, answer)
-      else complete(response, model, answer)
+      if (body.stream) stream(response, model, reply, calls)
+      else complete(response, model, reply, calls)
     })
   })
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))

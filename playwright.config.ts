@@ -146,6 +146,7 @@ export default defineConfig({
         'history.spec.ts',
         'history-tools.spec.ts',
         'insights.spec.ts',
+        'insights-counts.spec.ts',
         'insights-drill.spec.ts',
         'export.spec.ts',
         'search-loading.spec.ts',
@@ -172,6 +173,7 @@ export default defineConfig({
         'browser-import.spec.ts',
         'home-alerts.spec.ts',
         'takeout-import.spec.ts',
+        'ask-chats.spec.ts',
         'ask.spec.ts',
         'lock.spec.ts',
         'security.spec.ts',
@@ -182,7 +184,11 @@ export default defineConfig({
     // They kill the app and the launcher starts it again, behind App Lock.
     project(
       'restart',
-      ['semantic-index.spec.ts', 'takeout-continue.spec.ts'],
+      [
+        'insights-reopen.spec.ts',
+        'semantic-index.spec.ts',
+        'takeout-continue.spec.ts',
+      ],
       'change',
     ),
     // Large imports, after the semantic index is built so it does not embed

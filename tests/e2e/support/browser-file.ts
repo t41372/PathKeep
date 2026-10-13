@@ -73,3 +73,29 @@ export function largeBrowserFileVisits(): FixtureVisit[] {
 export function largeBrowserFilePath() {
   return path.join(fixture().root, 'stopped-laptop', 'places.sqlite')
 }
+
+/** Every title of the file `browser-import.spec` imports and then undoes starts with this. */
+export const UNDONE_FILE_TITLE = 'Undo check page'
+export const UNDONE_FILE_SITE = 'undo-check.example'
+
+/** A Chrome History of its own, so Insights lists its profile apart from the Firefox file's. */
+export function undoneBrowserFilePath() {
+  return path.join(fixture().root, 'undo-laptop', 'History')
+}
+
+/**
+ * The visits of the file `browser-import.spec` imports and then undoes: 24
+ * visits to three pages on a site of its own, every 20 minutes from 08:00 on
+ * one day 120 days back, a day the other specs add nothing to.
+ */
+export function undoneBrowserFileVisits(): FixtureVisit[] {
+  const start = new Date(fixture().now - 120 * DAY_MS)
+  start.setHours(8, 0, 0, 0)
+  return Array.from({ length: 24 }, (_, index) => ({
+    url: `https://${UNDONE_FILE_SITE}/page/${index % 3}`,
+    title: `${UNDONE_FILE_TITLE} ${index % 3}`,
+    at: start.getTime() + index * 20 * 60_000,
+    typed: true,
+    duration: 30_000,
+  }))
+}

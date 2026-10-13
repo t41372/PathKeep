@@ -40,11 +40,30 @@ function tokens(text: string) {
 }
 
 /**
+ * Whether a search is a web address typed into the search box: one word that
+ * reads as an address (`query_domain_candidate`), like "news.ycombinator.com".
+ * It reaches a site rather than looks for something, so Insights' search
+ * cards leave it out (`FIXTURE_SCENES.addressSearch`).
+ */
+export function isAddress(term: string) {
+  const word = term.trim().replace(/^["']+|["']+$/g, '')
+  if (!word || /\s/.test(word)) return false
+  for (const candidate of [word, word.includes('.') ? `https://${word}` : ''])
+    try {
+      if (candidate && new URL(candidate).hostname) return true
+    } catch {
+      // Not an address written this way.
+    }
+  return false
+}
+
+/**
  * The words a search is shown and counted under ("What you search for"):
  * Latin words without filler words, single letters or bare numbers, and the
- * fixture's Chinese searches as their words.
+ * fixture's Chinese searches as their words. A typed address has none.
  */
 export function searchWords(term: string) {
+  if (isAddress(term)) return new Set<string>()
   return new Set(
     tokens(term)
       .flatMap((token) => FIXTURE_CJK_WORDS[token] ?? [token])
@@ -223,7 +242,8 @@ export function searchFamilies(visits: FixtureVisit[]) {
   const families: (SearchFamily & { first: Set<string> })[] = []
   let last: { trail: number; family: (typeof families)[number] } | null = null
   for (const visit of [...visits].sort((a, b) => a.at - b.at)) {
-    if (!visit.term) continue
+    // A typed address is no search to group (`is_keyword`).
+    if (!visit.term || isAddress(visit.term)) continue
     const search = compareTokens(visit.term)
     if (search.size === 0) {
       last = null

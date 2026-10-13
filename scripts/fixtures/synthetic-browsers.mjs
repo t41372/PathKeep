@@ -234,6 +234,148 @@ function pagesSiteScene(dayStart) {
   })
 }
 
+/**
+ * Small scenes History's search tools and Insights' counts are checked
+ * against. Each lands on its own recent days between 02:30 and 09:00, when
+ * the generated sessions (from 09:00, the latest ending before 02:00) are over, so it does not join
+ * their sessions or search trails, and on sites the fixture already visits
+ * (except `newSite`), so the kinds of sites stay as `site-kinds.ts` decides
+ * them. Times are `[days before today, hour, minute]` in local time.
+ *
+ * - `twoBrowsers`: one page visited from Firefox and both Chrome profiles at
+ *   known times (History's browser and date filters).
+ * - `spellings`: one page under three addresses that differ only by tracking
+ *   parameters, so one star and one note (History's Starred list).
+ * - `pdf`: the fixture's one PDF (`filetype:`).
+ * - `simplified`: a page titled in Simplified Chinese; the fixture's searches
+ *   are in Traditional (Chinese search folds the two).
+ * - `respelled`: one search typed twelve times on one day in three letter
+ *   cases (Frequent searches counts them as one).
+ * - `addressSearch`: an address typed into the search box twelve times on
+ *   the same day, in the Work profile: a way to reach a site, not a search
+ *   for something, so Insights leaves it out of its search cards.
+ * - `newSite`: a site first visited in Personal, and weeks later in Work
+ *   (Insights' new sites, per profile and for all).
+ */
+export const FIXTURE_SCENES = {
+  twoBrowsers: {
+    url: 'https://www.sqlite.org/wal.html',
+    title: 'Write-Ahead Logging',
+    visits: [
+      ['firefox:k3x9.default-release', [14, 3, 5]],
+      ['firefox:k3x9.default-release', [12, 3, 17]],
+      ['chrome:Default', [11, 4, 41]],
+      ['firefox:k3x9.default-release', [9, 3, 29]],
+      ['chrome:Profile 1', [8, 4, 53]],
+    ],
+  },
+  spellings: {
+    title: 'VACUUM · SQLite',
+    visits: [
+      [
+        'https://www.sqlite.org/lang_vacuum.html?utm_source=newsletter&utm_medium=email',
+        'chrome:Default',
+        [6, 3, 10],
+      ],
+      ['https://www.sqlite.org/lang_vacuum.html', 'chrome:Default', [6, 3, 50]],
+      [
+        'https://www.sqlite.org/lang_vacuum.html?fbclid=IwAR0e2e',
+        'chrome:Profile 1',
+        [6, 4, 30],
+      ],
+    ],
+  },
+  pdf: {
+    url: 'https://www.sqlite.org/files/btree-format.pdf',
+    title: 'B-tree page format',
+    visits: [['chrome:Default', [5, 3, 20]]],
+  },
+  simplified: {
+    url: 'https://github.com/e2e-notes/search-guide',
+    title: '简体中文搜索说明',
+    visits: [['chrome:Profile 1', [5, 4, 10]]],
+  },
+  respelled: {
+    profile: 'chrome:Default',
+    day: 10,
+    /** Oldest first, four times each. */
+    spellings: ['SQLite WAL mode', 'sqlite wal mode', 'SQLite WAL Mode'],
+  },
+  addressSearch: {
+    profile: 'chrome:Profile 1',
+    day: 10,
+    term: 'news.ycombinator.com',
+    times: 12,
+  },
+  newSite: {
+    url: 'https://first-seen.example/notes',
+    title: 'First seen here',
+    visits: [
+      ['chrome:Default', [20, 3, 40]],
+      ['chrome:Profile 1', [7, 5, 10]],
+      ['chrome:Profile 1', [7, 5, 40]],
+    ],
+  },
+}
+
+function scenes(today) {
+  const at = ([days, hour, minute]) => {
+    const day = new Date(today)
+    day.setDate(day.getDate() - days)
+    day.setHours(hour, minute, 0, 0)
+    return day.getTime()
+  }
+  const page = (url, title, profile, when) => ({
+    url,
+    title,
+    at: at(when),
+    typed: true,
+    duration: 60_000,
+    profile,
+  })
+  const search = (term, profile, when) => ({
+    url: `https://www.google.com/search?q=${encodeURIComponent(term)}`,
+    title: `${term} - Google Search`,
+    at: at(when),
+    typed: true,
+    term,
+    duration: 20_000,
+    profile,
+  })
+  const { twoBrowsers, spellings, pdf, simplified, respelled, addressSearch } =
+    FIXTURE_SCENES
+  const visits = []
+  for (const { url, title, visits: times } of [
+    twoBrowsers,
+    pdf,
+    simplified,
+    FIXTURE_SCENES.newSite,
+  ])
+    for (const [profile, when] of times)
+      visits.push(page(url, title, profile, when))
+  for (const [url, profile, when] of spellings.visits)
+    visits.push(page(url, spellings.title, profile, when))
+  // Searches 31 minutes apart from 02:30, each its own session, done before
+  // the day's first session at 09:00.
+  respelled.spellings.forEach((term, group) => {
+    for (let index = 0; index < 4; index += 1) {
+      const step = group * 4 + index
+      visits.push(
+        search(term, respelled.profile, [respelled.day, 2, 30 + step * 31]),
+      )
+    }
+  })
+  for (let index = 0; index < addressSearch.times; index += 1)
+    visits.push(
+      search(addressSearch.term, addressSearch.profile, [
+        addressSearch.day,
+        2,
+        45 + index * 31,
+      ]),
+    )
+  return visits
+}
+
 function prng(seed) {
   let state = seed >>> 0 || 1
   return () => {
@@ -351,6 +493,7 @@ export function generateVisits({
   }
   visits.push(...compareScene(today.getTime() - (days + 1) * DAY_MS))
   visits.push(...pagesSiteScene(today.getTime() - 2 * DAY_MS))
+  visits.push(...scenes(today))
   // The scenes can land on the instant of a session's visit. A browser never
   // records two visits at the same instant, and PathKeep counts identical
   // visits once, so keep every timestamp unique.
@@ -384,7 +527,11 @@ export function openedFrom(visits) {
   )
 }
 
-function writeChromeHistory(file, visits) {
+/**
+ * Writes a new Chrome `History` with `visits`. Also used on its own, e.g. as
+ * a file to import through Browser Direct.
+ */
+export function writeChromeHistory(file, visits) {
   const db = new DatabaseSync(file)
   createChromeSchema(db)
   insertChromeVisits(db, visits)
@@ -480,6 +627,13 @@ function writeChromeFavicons(file, visits, now) {
 export function appendChromeVisits(file, visits) {
   const db = new DatabaseSync(file)
   insertChromeVisits(db, visits)
+  db.close()
+}
+
+/** Gives `url` a new title, as Chrome does when the page's title changes. */
+export function retitleChromePage(file, url, title) {
+  const db = new DatabaseSync(file)
+  db.prepare('UPDATE urls SET title = ? WHERE url = ?').run(title, url)
   db.close()
 }
 

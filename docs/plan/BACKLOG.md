@@ -55,11 +55,23 @@
   - 現象：索引建置（`ai_index`）、助理回答（`assistant`）與每次 MCP 查詢（`mcp_query`）都寫進 `runs`，以前只出現在 Backup 的「最近的執行」，寫成備份的「0 個來源 · 0 筆新造訪」，還把備份擠出 12 筆。現在那裡不列它們，畫面上就沒有地方看得到；MCP 查詢是外部工具讀了哪些歷史的審計，應該看得到。
   - 方向：先決定放哪（Settings → AI，或 Background work）、列什麼（查了什麼、回了幾筆、哪個工具），再做讀取命令與畫面（三語、虛擬化）。
 
+- [ ] **WORK-TEST-CUT-FINDINGS** — 清 unit test 時讀程式碼找到的（2026-10-12，都還沒重現或修）
+  - 匯入時網址缺失的那筆造訪被跳過，之後的造訪把游標推過它（`consumer.rs`；舊審查的 A3，pin 住它的測試已刪）：那筆造訪不會再被讀到。
+  - Browser Direct 的備用複製（`takeout/browser_history/staging.rs:232-279`）沒有一般備份（`chrome/staging.rs:170`）那段寫到一半的日誌復原；複製到正在寫的 History 時大概會像以前的備份事故一樣以 `SQLITE_READONLY_ROLLBACK` 失敗。
+  - `agent_harness.rs:507`、`:738` 用 `let _ =` 丟掉 `record_citations` 的結果：存引用失敗時，重開的對話只有答案沒有來源，也沒有錯誤。
+  - `trim_torn_tail`（`backfill.rs:737`，向量檔寫到一半崩潰後的修復）沒有任何測試，E2E 也碰不到：補一個先寫失敗方式再寫的測試。
+  - 內容抓取的 `#[cfg(test)]` 版 `url_target_is_blocked`（舊審查 P0 #4）還在：測試走的不是 production 的檢查。
+
 - [ ] **WORK-UPGRADE-LOCKED-FLAKE** — 從 0.3.0 升級時偶爾停在「存檔已加密」（2026-10-12 本機 gate 看到一次）
   - 現象：`upgrade.spec` 解開 0.3.0 的 App Lock 之後，應該出現「Updating your archive」，那一次卻是「Your archive is encrypted」（`archive-locked`，要密碼解鎖新格式的存檔）。資料夾裡只有剛解開的 0.3.0 檔案（spec 先確認沒有 `config.json`、也沒有 `history-vault.db`）。同一份程式碼前一次與後一次的完整 E2E 都過（75 / 76 個）。
   - 疑點：`session.tsx` 的順序是 App Lock → recovery → upgrade → archive-locked；解鎖後重新判斷時，「是不是舊格式」那一步若讀失敗或讀到還沒寫完的狀態，就會落到 archive-locked。使用者遇到的話，會被要求用 0.3.0 的密碼解鎖一個不存在的新存檔。
   - 證據：那次的 `error-context.md`、trace 與 app 的執行緒堆疊在 2026-10-12 的 `artifacts/e2e/`（之後的 run 會蓋掉；要重現就重跑 `upgrade` 專案直到失敗，保存那次的產物）。
   - 方向：先找出解鎖後判斷舊格式的那條路（session 狀態與後端的升級偵測命令），寫下它在什麼時序下會答錯，再修；E2E 連跑多次證明。
+
+- [ ] **WORK-NOTE-SAVE-FLAKE** — 筆記偶爾沒存下來（2026-10-13 寫 history E2E 時看到一次）
+  - 現象：`history-tools.spec` 的「a note is found by its words, in either script, until it changes」一次失敗：第二頁的筆記沒有存下來，之後用筆記的字搜不到它。其他每次都過。
+  - 已知：`note-editor.tsx` 在停止輸入 0.8 秒後存，面板換到別頁時把還沒存的那次用原來的網址送出；照程式看不會丟。那次沒留下 trace（跟另一組 E2E 同時跑，產物被蓋掉）。
+  - 方向：重跑那條直到失敗並留下 trace，看是沒送出、送出失敗（畫面會寫「沒存下來」）還是存了但搜尋索引沒跟上；找到時序再修，E2E 加一條快速換頁後筆記仍在。
 
 - [ ] **WORK-JOB-HISTORY-PAGING** — Background work 看得到全部的工作紀錄，翻頁不漏（2026-10-12 修 `queue_history_dispatch_preserves_every_cursor_page` 時找到）
   - 讀先：`docs/features/intelligence.md`（Recent-job snapshots 一段）、`vault-core/src/intelligence_runtime/snapshot.rs`（`load_job_page` 與 recent jobs）、`vault-core/src/ai_queue/store.rs`（`list_jobs`）。
@@ -647,7 +659,7 @@ core-intelligence/api`, all returning the same data. Reusing the existing
     - structural rebuild accumulator 的 `visit_ids: Vec<i64>` 與 evidence_json 的 `visitIds` 無上限（`intelligence/intelligence_structural_aggregates.rs`）。
     - query-family 分組 O(events × families) 且每次比較重新 tokenize（`intelligence/intelligence_structural_build.rs`）。
     - scoped-debug rebuild 的 `limit` 在全量 materialize + 分類之後才裁剪（`intelligence/intelligence_visit_records.rs`）。
-    - 增量 / fallback daily-rollup 與 phase_three/phase_four read models 把無上限 `Vec` 收進記憶體（`intelligence/intelligence_daily_rollups.rs`、`phase_three.rs`、`phase_four.rs`）；另含增量 vs fallback 對 `domain_category` 的「first-seen vs most-frequent」不一致與雙 local-day 實作。
+    - 增量 / fallback daily-rollup 與 phase_three/phase_four read models 把無上限 `Vec` 收進記憶體（`phase_three.rs`、`phase_four.rs`；2026-10-12 刪掉的 `intelligence_daily_rollups.rs` 只剩測試在用）；另含增量 vs fallback 對 `domain_category` 的「first-seen vs most-frequent」不一致與雙 local-day 實作。
   - **Intelligence job lease / recovery 強化**：`recover_expired_intelligence_jobs` 無 attempt cap 地把過期 `running` job requeue（300s lease + 每 profile 才一次 heartbeat），可造成重跑 / 雙執行；enrichment job 在 claim 後失敗（`store_enrichment` 等）會被 `let _ =` 吞掉而永遠 `running`。修法：背景 heartbeat 續租或每 batch 進度、recovery 加 attempt cap、worker 端 on-Err `mark_intelligence_job_failed`。需與 lease 設計一起做並補測。
   - **Parser（需 Accepted-doc 決策 / 語義變更）**：~~Chromium `visit_duration`（µs）以 `_ms` 命名 verbatim 存~~（2026-10-09 已修：寫入時換成毫秒，升級轉換時把舊資料除以 1000，見 `docs/architecture/visit-duration-unit-tradeoff.md`）；`PRAGMA quick_check`（無界）每次 Browser-Direct import/preview 全庫掃描（`takeout/browser_history/staging.rs`）；orphan visit 因 INNER JOIN 靜默丟棄（chromium/firefox/safari），需 warn 或 LEFT JOIN。
   - **History regex recall 無界**：`list_history_with_regex` 綁 `:pageLimit = -1` 後全量 materialize 再過濾（`archive/history.rs`）。修法需 bounded 候選掃描 + 三語誠實提示「已掃描前 N 筆，請縮小範圍」(en/zh-CN/zh-TW) 與 response contract 欄位。
@@ -723,8 +735,8 @@ core-intelligence/api`, all returning the same data. Reusing the existing
 - [ ] **WORK-TEST-REAL-IO-A** — 真實 I/O 測試化：embedding transport seam + fake-HTTP 整合測試 + dispatch 契約斷言（承 2026-06-28 behavioral-assertion 鐵律）
   - 來源：2026-06-28，note 搜尋與 embedding 一碰就炸但「100% coverage」沒擋。根因＝真實 I/O 引擎被 `#[cfg(not(any(test,coverage)))]` 整段換 stub、行為從不被斷言（見 `quality-matrix.md`「覆蓋率 ≠ 行為」鐵律）。2026-06-28 已把 static engine 的真實 compute 放回 coverage binary + 補 note/embedding 行為斷言；剩兩塊較大的 reform 延後：
   - **(1) external embedding transport 可注入 seam**：把 `ai/embedding_external.rs` 的真實 `reqwest` send/decode/timeout 從「整段 cfg-out 換 stub」改成把 HTTP **endpoint** 抽成可注入（本地 fake server / injected client），讓真實 decode / timeout / 空 `data[]` / mid-batch 500 的邏輯留在被量測 build。加 fake-HTTP `/v1/embeddings` 整合測試斷言「誠實失敗，絕不成功但 0 向量」。
-  - **(2) `dispatch_for_coverage` → 契約斷言**：`dev_ipc_bridge/dispatch/tests.rs` 的 fire-and-forget walk（吞 panic、丟結果）改成 per-command 斷言回傳 JSON shape，讓 IPC surface 證明契約而非只執行求覆蓋率。
-  - 驗收：external 真實失敗模式有測試覆蓋；dispatch 測試斷言契約；`quality-matrix.md` 鐵律全達成；gate 全綠。
+  - ~~**(2) `dispatch_for_coverage` → 契約斷言**~~：2026-10-12 `WORK-TEST-CUT-2026-10` 把那個 walk 整個刪了；IPC 契約由 E2E 經 dev bridge 打真的命令證明。
+  - 驗收：external 真實失敗模式有測試覆蓋；`quality-matrix.md` 鐵律全達成；gate 全綠。
 
 - [!] **WORK-RELEASE-SIGNING-A** — macOS Developer ID signing + notarization in CI（需使用者決定 Apple Developer 帳號）[!blocked: 需 Apple Developer Program 帳號（$99/yr）+ 使用者授權]
   - 來源：2026-06-25 備份失效調查。Root cause 不是代碼，而是 **macOS TCC / Full Disk Access**：備份要讀 `~/Library/Application Support/Google/Chrome`，OS 拒絕 → `Operation not permitted` → 備份失敗。FDA 授權綁在 app 的**簽章身份**上；目前 debug/release 都是 **ad-hoc 簽章（無穩定身份）**，所以每次 rebuild / 每次發版更新，macOS 都視為「新 app」→ FDA 授權失效 → 使用者更新後備份再次靜默失效。這是發版的硬阻斷：不能讓使用者每次更新都重新授權 FDA。

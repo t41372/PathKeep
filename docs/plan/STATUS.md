@@ -297,14 +297,37 @@
   - [x] 4. E2E：本機假的 OpenAI 相容服務（已有的 fake embedding server 擴充）回模型清單、對錯路徑回 200 + error：設定裡選得到模型、錯誤照原文顯示、改模型會先問要不要重建並真的重建。2026-10-12：`ai-services.spec`（change 專案）：假服務照 LM Studio 回答（模型清單、不服務的路徑回 200 + error）；用 LM Studio 視窗上的位址（沒有 `/v1`）新增，清單只列兩個 embedding 模型、標出已載入與 context，選的那個連線成功；改成伺服器上不是 API 的位址，失敗訊息照 `bad-endpoint` 說；換模型前寫出要重建的頁數（照 `estimate_reembed`）。真的重建與刪舊索引由 Rust 測試與 `semantic-index.spec` 的建置證明，這個 spec 不再建一次完整索引。
   - [x] 5. 文檔、CHANGELOG。`intelligence.md` §5、`desktop-command-surface.md`。
 
+- [x] **WORK-TEST-CUT-2026-10** — unit test 只留最重要的（用戶 2026-10-12）
+  - 讀先：`docs/plan/program/quality-matrix.md`、`docs/plan/test-audit-2026-10/README.md`、AGENTS.md「測試是契約」。
+  - 起因：用戶：AI 寫的 unit test 多半只是 pin 住錯誤的行為，對找 bug 幫助不大、開銷很大，還會變成錯誤行為的理由；只留最重要的，regression 與正確性靠 E2E。上一輪（`WORK-TEST-AUDIT-2026-10`）只刪了 pin 錯誤、pin 實作、mutation 遺留，「該留」的標準偏寬，Rust 還有約 2,400 個測試，vault-core 一個 crate 跑 291 s。
+  - 標準：留下的要同時是 (1) 壞了會傷資料、安全或默默給錯結果，(2) E2E 合理地碰不到（崩潰注入、競爭、惡意輸入、14.4M 規模、平台怪癖），(3) 說的是 spec、ADR 或真實事故的行為，不是「程式現在這樣寫」。另外留：安全與同意的關卡；14.4M 的查詢計畫與效能守衛（用戶 2026-10-12：「拿不住的話，留下來也沒事」）；已定案文檔要求的分類規則 fixture（`deterministic-intelligence.md` §6.3、§11）。
+  - 分類（2026-10-12，只讀、逐條）：AI 570 → 55、存檔與資料安全 612 → 101、洞察與搜尋 554 → 67、其他 crate 與桌面殼 663 → 191、Vitest 8 → 2，再加回效能守衛與安全關卡。
+  - [x] 1. 刪測試，連同只為它們存在的 production 程式碼（`cfg(coverage)` 雙胞胎、只給測試的 pub fn、沒有畫面呼叫的命令）；留下的三個 `demonstrates_bN` 測試改名；兩個用時鐘當種子的崩潰測試改固定種子。2026-10-12：`#[test]` 2,474 → 597（含保留的效能守衛、安全關卡、崩潰測試的子程序入口與 `#[ignore]` 量測），約 7 萬行；種子其實已固定（`VAULT_CRYPTO_SEED` 可換）。一起刪的 production 程式碼：所有 `cfg(coverage)`、只給測試的 fault seam（`fault_inject` 只留 `panic_at` 與 `exit_process_at_next_checkpoint`、`durable_io` 只留 fsync 注入）、測試專用的 batch builder 與 enqueue 路徑、`narrative.rs`、四個 `*_plane_bytes`、`validate_app_lock_config`、沒有畫面呼叫的命令（`security_status`、`prefetch_og_images`、`get_browse_day_insights`、`export_conversation_file`、排隊的 assistant 路徑）、每次建索引都整表掃一次的 `collect_stale_history_ids`（唯一的使用者是空的 sidecar 同步）。
+  - [x] 2. `vault-platform/tests/native_host.rs` 不進每次的 gate（它在這台電腦上建真的鑰匙圈項目與 launchd agent），只在 `check:platform` 跑。
+  - [x] 3. 刪掉的測試裡，E2E 碰得到但還沒有 spec 的（約 21 個：Ask 的接續提問與刪對話、Ask 用 oldest 跨年找第一次、刪標籤留筆記、只差追蹤參數的網址的星號、各設定檔的新網站、範圍內的常搜尋、時段分布、復原匯入後洞察清掉、已索引的頁再造訪只對應不重新 embed、改名的頁用新標題找得到、Ask 的步數上限……），同一個改動補成 E2E。2026-10-13：新的 `ask-chats.spec`（接續提問存在同一段對話、刪對話連引用的頁一起刪、重開的對話跟當下一樣、一直呼叫工具的模型在步數上限停下仍回答）、`insights-counts.spec`（常搜尋不分大小寫算一個、打的網址不算搜尋；新網站分設定檔與全部；時段分布 168 格逐格對 fixture）、`insights-reopen.spec`（清掉的洞察在下次打開 app 時重建）；`history-tools.spec` 加刪最後一個標籤留筆記、標籤不分大小寫與 `-tag:`、每個搜尋運算子的頁數與造訪數、瀏覽器與日期篩選決定一列算幾次造訪與顯示哪個時間、只差追蹤參數的網址共用一顆星與筆記、繁簡與全形；`browser-import.spec` 加撤銷匯入後洞察與星號；`backup.spec` 加洞察開著時備份進來的造訪；`semantic-index.spec` 加備份後索引自己跟上：照舊的頁不再送去 embed、改了標題的頁重新送、用新標題找得到。要逐格對數字的 spec 用 fixture 的 `FIXTURE_SCENES`。寫的時候找到四個產品問題：撤銷 / 恢復匯入不重建洞察、多個設定檔的刷新做完第一個就把洞察標成最新（兩個都修了，見 CHANGELOG）；「最舊」排序照最近一次造訪排（`WORK-SEARCH-FIRST-VISIT`，那條 E2E 先 `test.fixme`）；常搜尋顯示小寫而不是使用者打的字（`WORK-INSIGHTS-SEARCH-SPELLING`）。另見一次既有的筆記測試失敗，列 BACKLOG `WORK-NOTE-SAVE-FLAKE`。
+  - [x] 4. 量 gate 時間（前後對照），文檔（`quality-matrix.md` 的「什麼時候才寫 unit test」換例子、測試清單；`test-audit-2026-10/README.md` 指向這一輪）、CHANGELOG。整個 `bun run check` 19.2 分鐘（之前 25.8；這次沿用編譯快取，乾淨建置另計），其中 E2E 93 條 10.3 分鐘；vault-core 一個 crate 291 → 153 s，最慢的一條是 50,021 頁的索引覆蓋（加密存檔、每批 1,000 頁，115 s，頁數少於 5 萬就驗不到上限）。
+
+- [ ] **WORK-SEARCH-FIRST-VISIT** — 「最舊」排序找不到第一次造訪（2026-10-12，`ask-chats.spec` 找到）
+  - 讀先：`docs/features/recall.md`（排序）、`docs/architecture/search.md`、`vault-search/src/collector.rs`、`vault-core/src/search/{session,documents,regex}.rs`。
+  - 現象：Ask 問「我第一次看 smol 是什麼時候」，模型用 `sort: "oldest"` 搜，回來的 5 頁都是最近兩週的；fixture 裡最早一次是三年前。搜尋索引一頁一筆，「最舊」比的是每頁**最近一次**造訪（`newest_visit_ms`），每列也顯示最近一次；一頁跨好幾年被造訪時，永遠排不到、也看不到它的第一次。History 的「最舊」走同一個 collector，應該一樣。舊的 unit test 每頁只造一次造訪，所以抓不到；這就是當年 Ask 說「第一次是 6 月 18 日」的事故。
+  - 方向：每頁另存第一次造訪的時間（`search_documents`、`search_document_profiles` 與索引的 fast field，索引 `SCHEMA_VERSION` 升版會自動重建）；「最舊」照它排、每列顯示那頁的第一次造訪（有篩選時是篩選範圍內的第一次）；regex 路徑一樣。存檔資料庫加欄位 → 使用者的資料在裝新版前要手動補（見記憶）。
+  - E2E：打開 `ask-chats.spec` 的「when did I first」（現在 `test.fixme`）；History 的最舊排序加一條：跨年造訪的頁，列上顯示第一次。
+
+- [ ] **WORK-INSIGHTS-SEARCH-SPELLING** — 「常搜尋」顯示的不是使用者打的字（2026-10-13，`insights-counts.spec` 找到）
+  - 讀先：`docs/features/intelligence.md`（常搜尋）、`docs/features/deterministic-intelligence.md`。
+  - 現象：前端（`insights/queries.ts` 的 `useFrequentSearches`）說常搜尋「照使用者最後一次打的樣子」顯示，但 `site_dictionary/classification.rs` 的 `normalize_query` 在存進造訪事實前就轉小寫，`search_events_rows.raw_query` 永遠是小寫，`FREQUENT_SEARCHES_SQL` 挑「最新的原文」挑到的也是小寫。fixture 最新一次打的是「SQLite WAL Mode」，畫面寫「sqlite wal mode」。分組（不分大小寫算同一個）是對的。
+  - 方向：造訪事實存使用者打的字（只合併空白），`normalized_query` 照舊由它算；檢查每個讀 `search_query` 的地方是拿它比對還是顯示。洞察的規則版本要升，既有存檔打開時自動重建。
+  - E2E：`insights-counts.spec` 的常搜尋改回驗顯示的是最新的拼法。
+
 - [ ] **WORK-ASK-2026-10** — 助理的對話與 agent（用戶 2026-10-12）
   - 讀先：`docs/features/intelligence.md`（Ask）、`docs/architecture/ai-security-posture.md`。
   - 現象：使用者說「你隨便做」，agent 先回中文說要挑一個做，查了兩次存檔後改用英文說「沒看到問題，你想知道什麼」。
   - [ ] 1. 寫下會怎麼錯，再修 agent：(a) 每輪先送約 5K token 的英文系統說明與工具說明，又不知道模型的 context 有多長（寫死 110K），LM Studio 塞不下就從中間截掉，使用者那句剛好在中間——從服務讀模型的 context 長度（`/api/v0/models`）定預算，縮短說明，超過時明說而不是讓服務默默截；(b) 給模型的文字全是英文、沒叫它用使用者的語言回答——加上「用使用者最新一則訊息的語言回答」；(c) 使用者把選擇交給它時要自己挑一件事做，不要再問；(d) 前端的 persona 是第二個 system message，很多模板會忽略——併成一個；(e) 每一輪的文字直接接成同一段回答——工具前的話放進思考步驟，答案只放最後一輪；(f) 每輪上限 1200 token 連 Qwen3 的思考也算——照模型調高。
   - [ ] 2. context 用量給使用者看（用戶 2026-10-12）：輸入框旁顯示這段對話用了多少／模型的 context 長度（例如「4.6K / 8K」），接近上限時提醒，超過時明說「這段對話超過模型的 context，最前面或中間的內容會被截掉」並給修法（在 LM Studio、Ollama 把模型的 context 調大，或開新對話）；讀不到 context 長度時寫「不知道上限」而不是猜。用量照服務回報的 `prompt_tokens`，送出前用估算。
   - [ ] 3. 對話：使用者訊息可以編輯，從那則重來、後面的丟掉（用戶選的）；完成的回答也能重新產生（重試已寫好，只在出錯時顯示）；在輸入框選服務與模型（請求加 `model`，對話記下用的服務與模型，每則回答記下是哪個模型寫的）。三語。
-  - [ ] 4. E2E：本機假的 LLM 服務（腳本化回應、會呼叫工具、回報 context 長度）：工具呼叫後的回答用使用者的語言、只顯示最後一輪；context 用量照服務回報顯示、超過時提醒；編輯中間的訊息後後面的被丟掉、重新回答；重新產生；換模型後請求帶新的模型。
-  - [ ] 5. 文檔、CHANGELOG。
+  - [ ] 4. 重開對話與當下看到的要一樣（2026-10-12 `ask-chats.spec` 找到）：token 數當下是最後一次請求的、重開後是整個回答加總（`hydrate_messages`），變成兩倍；引用頁當下照搜尋順序、重開後照 visit id（`transcript.rs` 的 `ORDER BY run_id, history_id`），「在 History 打開」可能指到別頁。
+  - [ ] 5. E2E：本機假的 LLM 服務（腳本化回應、會呼叫工具、回報 context 長度）：工具呼叫後的回答用使用者的語言、只顯示最後一輪；context 用量照服務回報顯示、超過時提醒；編輯中間的訊息後後面的被丟掉、重新回答；重新產生；換模型後請求帶新的模型。
+  - [ ] 6. 文檔、CHANGELOG。
 
 - [ ] **WORK-UI-POLISH-2026-10** — 用戶 2026-10-12 看到的介面問題
   - 讀先：`docs/design/` 核心四份、`docs/design/back-forward-window-frame-tradeoff.md`。

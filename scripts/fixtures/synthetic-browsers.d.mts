@@ -45,6 +45,11 @@ export function writeSyntheticBrowsers(
 ): SyntheticBrowsers
 
 export function appendChromeVisits(file: string, visits: SyntheticVisit[]): void
+export function retitleChromePage(
+  file: string,
+  url: string,
+  title: string,
+): void
 
 export function appendFirefoxVisits(
   file: string,
@@ -91,3 +96,40 @@ export const FIXTURE_PAGE_ICONS: Record<string, string>
 export function openedFrom(
   visits: readonly Pick<SyntheticVisit, 'at' | 'typed' | 'term'>[],
 ): number[]
+
+/** Creates a new Chrome History holding `visits`. */
+export function writeChromeHistory(file: string, visits: SyntheticVisit[]): void
+
+/** When a scene's visit happened: days before today, then local hour and minute. */
+export type SceneTime = [days: number, hour: number, minute: number]
+
+/** Small scenes on their own recent days (see the script for what each is for). */
+export const FIXTURE_SCENES: {
+  twoBrowsers: {
+    url: string
+    title: string
+    visits: [SyntheticProfileId, SceneTime][]
+  }
+  spellings: {
+    title: string
+    visits: [url: string, SyntheticProfileId, SceneTime][]
+  }
+  pdf: { url: string; title: string; visits: [SyntheticProfileId, SceneTime][] }
+  simplified: {
+    url: string
+    title: string
+    visits: [SyntheticProfileId, SceneTime][]
+  }
+  respelled: { profile: SyntheticProfileId; day: number; spellings: string[] }
+  addressSearch: {
+    profile: SyntheticProfileId
+    day: number
+    term: string
+    times: number
+  }
+  newSite: {
+    url: string
+    title: string
+    visits: [SyntheticProfileId, SceneTime][]
+  }
+}
