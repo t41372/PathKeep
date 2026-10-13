@@ -16,6 +16,7 @@ import type { TrailSummary } from '@/lib/core-intelligence/types'
 import { queryKeys } from '@/lib/query'
 import { request } from './queries'
 import { scopeKey, type Scope } from './range'
+import { useInsightsZone } from './zone'
 
 const key = (...parts: unknown[]) => [
   ...queryKeys.archiveData,
@@ -36,9 +37,15 @@ const keepPreviousOf =
   <T>(previous: T | undefined, query?: { queryKey: readonly unknown[] }) =>
     query?.queryKey[SUBJECT] === subject ? previous : undefined
 
+/**
+ * A day's reads are keyed by the zone Insights are in, like a scope's
+ * (`scopeKey`): after a rebuild in another zone the same date holds other
+ * visits, and a day read before must not stand in for it.
+ */
 export function useDay(date: string, enabled = true) {
+  const { shown } = useInsightsZone()
   return useQuery({
-    queryKey: key('day', date),
+    queryKey: key('day', date, shown),
     queryFn: () => insightsClient.day(date),
     enabled,
     refetchInterval: pollWhileStale,
@@ -48,24 +55,27 @@ export function useDay(date: string, enabled = true) {
 const dayScope = (date: string) => ({ dateRange: { start: date, end: date } })
 
 export function useDaySessions(date: string, enabled = true) {
+  const { shown } = useInsightsZone()
   return useQuery({
-    queryKey: key('day', date, 'sessions'),
+    queryKey: key('day', date, shown, 'sessions'),
     queryFn: () => insightsClient.sessions(dayScope(date)),
     enabled,
   })
 }
 
 export function useSessionDetail(sessionId: string, enabled: boolean) {
+  const { shown } = useInsightsZone()
   return useQuery({
-    queryKey: key('session', sessionId),
+    queryKey: key('session', sessionId, shown),
     queryFn: () => insightsClient.sessionDetail(sessionId),
     enabled,
   })
 }
 
 export function useDaySearches(date: string, enabled = true) {
+  const { shown } = useInsightsZone()
   return useQuery({
-    queryKey: key('day', date, 'searches'),
+    queryKey: key('day', date, shown, 'searches'),
     queryFn: () => insightsClient.searchQueries(dayScope(date)),
     enabled,
     refetchInterval: pollWhileStale,
