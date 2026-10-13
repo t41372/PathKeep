@@ -1462,6 +1462,34 @@ pub struct RenameAgentConversationRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
+/// Request payload for `export_ai_conversation`: the conversation, and the words the file uses
+/// for its parts in the language the interface shows.
+pub struct ExportAgentConversationRequest {
+    pub id: String,
+    pub labels: ConversationExportLabels,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+/// What an exported conversation calls its parts, so the file reads in the user's language.
+pub struct ConversationExportLabels {
+    /// The title of a conversation that has none.
+    pub untitled: String,
+    pub you: String,
+    pub assistant: String,
+    pub pages_used: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+/// Where `export_ai_conversation` wrote the file, and how large it is.
+pub struct ConversationExportResult {
+    pub path: String,
+    pub bytes: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
 /// Result of `delete_ai_conversation`: whether a row with the id existed and was removed.
 pub struct DeleteAgentConversationResult {
     pub deleted: bool,

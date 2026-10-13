@@ -283,6 +283,7 @@ fn run_app() -> Result<()> {
             load_ai_conversation,
             delete_ai_conversation,
             rename_ai_conversation,
+            export_ai_conversation,
             get_content_fetch_settings,
             set_content_fetch_settings,
             list_visit_enrichment,

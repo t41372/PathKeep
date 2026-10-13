@@ -34,7 +34,9 @@ import type {
   AiSearchResponse,
   AppSnapshot,
   ClearDerivedIntelligenceReport,
+  ConversationExportResult,
   DeleteAgentConversationResult,
+  ExportAgentConversationRequest,
   IntelligenceRuntimeSnapshot,
   ListAgentConversationsRequest,
   ReembedEstimate,
@@ -97,6 +99,10 @@ export const intelligenceClient = {
     }),
   renameConversation: (request: RenameAgentConversationRequest) =>
     call<AgentConversationSummary | null>('rename_ai_conversation', {
+      request,
+    }),
+  exportConversation: (request: ExportAgentConversationRequest) =>
+    call<ConversationExportResult | null>('export_ai_conversation', {
       request,
     }),
   listSearchEngineRules: () =>

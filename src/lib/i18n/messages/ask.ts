@@ -19,6 +19,14 @@ export const ask = defineMessages({
       deleteBody:
         '“{title}” will be removed from this computer. Your browsing history is not affected.',
       deleteFailed: 'Could not delete the conversation.',
+      export: 'Export as Markdown',
+    },
+    export: {
+      done: 'Saved as Markdown',
+      failed: 'Could not export the conversation.',
+      gone: 'This conversation is no longer saved.',
+      you: 'You',
+      assistant: 'Assistant',
     },
     empty: {
       title: 'Ask about the path you’ve walked',
@@ -101,6 +109,14 @@ export const ask = defineMessages({
       deleteTitle: '删除这段对话？',
       deleteBody: '「{title}」会从这台电脑上移除，不会影响你的浏览历史。',
       deleteFailed: '无法删除这段对话。',
+      export: '导出为 Markdown',
+    },
+    export: {
+      done: '已存为 Markdown',
+      failed: '无法导出这段对话。',
+      gone: '这段对话已经不在了。',
+      you: '你',
+      assistant: '助理',
     },
     empty: {
       title: '问问你走过的路',
@@ -179,6 +195,14 @@ export const ask = defineMessages({
       deleteTitle: '要刪除這段對話嗎？',
       deleteBody: '「{title}」會從這台電腦移除，不會影響你的瀏覽歷史。',
       deleteFailed: '無法刪除這段對話。',
+      export: '匯出為 Markdown',
+    },
+    export: {
+      done: '已存成 Markdown',
+      failed: '無法匯出這段對話。',
+      gone: '這段對話已經不在了。',
+      you: '你',
+      assistant: '助理',
     },
     empty: {
       title: '問問你走過的路',

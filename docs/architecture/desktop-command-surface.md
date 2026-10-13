@@ -164,7 +164,9 @@ Removed, after checking `src/`, the MCP server (`vault-worker/src/mcp.rs`: `sear
 - `security_status` (2026-10-12): no screen read it. Settings reads `keyring_status` and the app snapshot; the worker's manifest scan for the last rekey went with it. A password change only rewraps the key and copies no archive, so there is no copy under the old password to point at; a mode change's safety snapshot is in the new mode and listed with the recovery snapshots. The Home alert covers "remember the password" without a keychain.
 - `prefetch_og_images` (2026-10-12): the "Rebuild now" sweep no screen offered. Link previews still prefetch after a backup in Background mode and refetch on demand through `trigger_og_image_refetch`.
 - `get_browse_day_insights` (2026-10-12): no screen called it; day insights come from `get_day_insights`. Its `vault_core` read went too (2026-10-13).
-- `export_conversation_file` (2026-10-12): Ask has no conversation export.
+- `export_conversation_file` (2026-10-12): it wrote any text the interface sent to any path the interface named. Replaced by `export_ai_conversation` (below).
+
+`export_ai_conversation` (2026-10-13) takes `{ id, labels }` and writes that conversation as Markdown into the exports folder, returning `{ path, bytes }`, or `null` when the conversation is gone. The backend builds the file from the saved transcript: the title, each question and answer under `labels.you` / `labels.assistant`, and the pages each answer used under `labels.pagesUsed` (the interface sends the words in its language). Page titles are escaped so they cannot make links of their own, and only web addresses become links. The interface names neither the path nor the contents. Refused while App Lock is locked.
 
 `get_insights_time_zone` (2026-10) returns `{ shown, next }`: the IANA zone the Insights on screen put days and hours in, and the one the next build uses. Insights, Home and Settings read it once when the archive opens and every 5 s while the two differ (a rebuild in a newly chosen zone); every date range sent to an Insights read is in `shown` (`insights-time-zone.md`).
 

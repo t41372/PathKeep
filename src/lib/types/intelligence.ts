@@ -1096,6 +1096,23 @@ export interface RenameAgentConversationRequest {
   title: string
 }
 
+/** Request for `export_ai_conversation`: the conversation and the file's words, in the interface's language. */
+export interface ExportAgentConversationRequest {
+  id: string
+  labels: {
+    untitled: string
+    you: string
+    assistant: string
+    pagesUsed: string
+  }
+}
+
+/** Where `export_ai_conversation` wrote the Markdown file (always the exports folder). */
+export interface ConversationExportResult {
+  path: string
+  bytes: number
+}
+
 /**
  * Result of `delete_ai_conversation`: whether a row with the id existed and was removed.
  */

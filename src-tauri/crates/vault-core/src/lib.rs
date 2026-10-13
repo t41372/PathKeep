@@ -57,9 +57,9 @@ pub use vault::{ArchivePasswordWrong, BackupAlreadyRunning, EnvelopeMissing, Vau
 
 pub use agent_store::{
     AgentCitationRecord, AgentRunStatus, AgentRunTrace, AgentStepRecord, AppendAgentStep,
-    BeginAgentRun, append_agent_step, begin_agent_run, delete_conversation, finalize_agent_run,
-    list_conversation_messages, list_conversations, load_agent_run, load_conversation,
-    record_agent_citations, rename_conversation, save_conversation,
+    BeginAgentRun, append_agent_step, begin_agent_run, delete_conversation, export_conversation,
+    finalize_agent_run, list_conversation_messages, list_conversations, load_agent_run,
+    load_conversation, record_agent_citations, rename_conversation, save_conversation,
 };
 pub use ai::{
     AgentJournal, AgentRunOutcome, AgentSystemContext, AgentToolContext, AiIntegrationPreview,

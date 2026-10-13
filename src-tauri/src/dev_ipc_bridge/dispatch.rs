@@ -644,6 +644,15 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
                 payload.request
             )?)
         }
+        "export_ai_conversation" => {
+            let payload = parse_payload::<
+                WrappedRequest<vault_core::ExportAgentConversationRequest>,
+            >(payload)?;
+            json_value!(worker_bridge::export_ai_conversation_impl(
+                &state.session,
+                payload.request
+            )?)
+        }
         "get_content_fetch_settings" => {
             json_value!(worker_bridge::content_fetch_settings_impl(&state.session)?)
         }

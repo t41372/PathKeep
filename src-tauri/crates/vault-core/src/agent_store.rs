@@ -4,12 +4,14 @@
 //! duplicate replay, missing conversation parents, skipped cursor ties or old chats.
 //! Tests: agent_store::tests and tests/agent_store_paging.rs on real Turso stores.
 
+mod export;
 mod journal;
 #[cfg(test)]
 mod tests;
 mod transcript;
 mod types;
 
+pub use export::export_conversation;
 pub use journal::*;
 pub use transcript::*;
 pub use types::*;

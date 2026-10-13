@@ -315,6 +315,21 @@ pub(crate) async fn rename_ai_conversation(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Writes one conversation as Markdown into the exports folder, off the UI thread. The folder is
+/// the app's own: the interface never names a path or the file's contents.
+pub(crate) async fn export_ai_conversation(
+    state: State<'_, SessionState>,
+    request: vault_core::ExportAgentConversationRequest,
+) -> Result<Option<vault_core::ConversationExportResult>, CommandError> {
+    let state = state.inner().clone();
+    run_blocking_command("export_ai_conversation", move || {
+        worker_bridge::export_ai_conversation_impl(&state, request)
+    })
+    .await
+}
+
+#[cfg(not(test))]
+#[tauri::command]
 /// Reads the W-ENRICH-1 content-fetch consent + status surface for Settings, off the UI thread.
 pub(crate) async fn get_content_fetch_settings(
     state: State<'_, SessionState>,

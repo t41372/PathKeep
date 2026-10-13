@@ -54,8 +54,8 @@ use vault_core::{
 };
 
 pub use self::agent_store::{
-    delete_ai_conversation, list_ai_conversations, list_ai_messages, load_ai_conversation,
-    rename_ai_conversation, save_ai_conversation,
+    delete_ai_conversation, export_ai_conversation, list_ai_conversations, list_ai_messages,
+    load_ai_conversation, rename_ai_conversation, save_ai_conversation,
 };
 pub(crate) use self::ai_queue::maybe_spawn_ai_queue_drain;
 pub use self::ai_queue::{

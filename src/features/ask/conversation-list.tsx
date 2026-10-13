@@ -1,11 +1,11 @@
 /**
  * Left column of Ask: new chat button and saved conversations grouped by day,
- * with rename and delete (delete is confirmed).
+ * with rename, export as Markdown and delete (delete is confirmed).
  *
  * Not responsible for loading a conversation's messages or the live chat.
  */
 import { useQueryClient } from '@tanstack/react-query'
-import { MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react'
+import { Download, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import {
@@ -35,8 +35,10 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
+import { reveal, revealLabelKey } from '@/features/settings/reveal'
 import { intelligenceClient } from '@/lib/backend-client/intelligence'
 import { cn } from '@/lib/cn'
+import { describeError } from '@/lib/errors'
 import { useFormat, useI18n, startOfDay } from '@/lib/i18n'
 import type { AgentConversationSummary } from '@/lib/types'
 import {
@@ -87,6 +89,39 @@ export function ConversationList({
   }
 
   const refresh = () => client.invalidateQueries({ queryKey: conversationsKey })
+
+  // The backend writes the file in the exports folder, in the words of the
+  // interface's language; the toast says where and opens it.
+  const exportConversation = async (id: string) => {
+    try {
+      const result = await intelligenceClient.exportConversation({
+        id,
+        labels: {
+          untitled: t('ask.untitled'),
+          you: t('ask.export.you'),
+          assistant: t('ask.export.assistant'),
+          pagesUsed: t('ask.turn.sources'),
+        },
+      })
+      if (!result) {
+        toast.error(t('ask.export.gone'))
+        void refresh()
+        return
+      }
+      toast.success(t('ask.export.done'), {
+        description: result.path,
+        action: {
+          label: t(revealLabelKey()),
+          onClick: () =>
+            void reveal(result.path, t('settingsStorage.location.failed')),
+        },
+      })
+    } catch (error) {
+      toast.error(t('ask.export.failed'), {
+        description: describeError(error, 'export_ai_conversation'),
+      })
+    }
+  }
 
   return (
     <aside
@@ -149,6 +184,7 @@ export function ConversationList({
               time={format.time(item.updatedAt)}
               onSelect={() => onSelect(item.id)}
               onRename={() => setRenaming(item)}
+              onExport={() => void exportConversation(item.id)}
               onDelete={() => setDeleting(item)}
             />
           ))}
@@ -240,6 +276,7 @@ function Row({
   time,
   onSelect,
   onRename,
+  onExport,
   onDelete,
 }: {
   active: boolean
@@ -247,6 +284,7 @@ function Row({
   time: string
   onSelect?: () => void
   onRename?: () => void
+  onExport?: () => void
   onDelete?: () => void
 }) {
   const { t } = useI18n()
@@ -283,6 +321,12 @@ function Row({
               <Pencil />
               {t('ask.list.rename')}
             </DropdownMenuItem>
+            {onExport && (
+              <DropdownMenuItem onSelect={onExport}>
+                <Download />
+                {t('ask.list.export')}
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem variant="destructive" onSelect={onDelete}>
               <Trash2 />
               {t('ask.list.delete')}

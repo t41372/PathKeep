@@ -272,6 +272,15 @@ pub(crate) fn rename_ai_conversation_impl(
     worker_result(vault_worker::rename_ai_conversation(&state.vault()?, &request))
 }
 
+/// Writes one conversation into the exports folder; returns `Ok(None)` when the id is unknown.
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn export_ai_conversation_impl(
+    state: &crate::session::SessionState,
+    request: vault_core::ExportAgentConversationRequest,
+) -> Result<Option<vault_core::ConversationExportResult>, CommandError> {
+    worker_result(vault_worker::export_ai_conversation(&state.vault()?, &request))
+}
+
 // ── W-ENRICH-1 site content-fetch (06 §6) ────────────────────────────────────────────────────────
 
 /// Reads the content-fetch consent + status surface for Settings.

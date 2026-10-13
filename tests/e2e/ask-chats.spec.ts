@@ -13,6 +13,11 @@
  * - A chat comes back as it was shown: the question, the model's thinking,
  *   the search it ran and what that returned, the answer and the pages it
  *   used, in the same order and words, under the question as its title.
+ * - A chat exported as Markdown lands in the exports folder with its title,
+ *   each question and answer under who said it, and the pages each answer
+ *   used as links with their visit time; the thinking and searches stay out,
+ *   and a page title cannot make Markdown of its own. Settings → Storage
+ *   counts the conversations' database.
  * - A model that never stops calling tools is stopped at the step limit
  *   (`DEFAULT_MAX_ITERATIONS` in `agent_harness.rs`): it is asked once more,
  *   without tools, and that answer is shown with a note saying why it
@@ -21,7 +26,7 @@
  *   the earliest visit of a word found across several years of the fixture,
  *   not a recent one (a real answer once gave the latest month instead).
  */
-import { readFileSync } from 'node:fs'
+import { readFileSync, statSync } from 'node:fs'
 import path from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
 import { addService } from './support/ai-service'
@@ -35,7 +40,12 @@ import {
   type FakeRequest,
   type Script,
 } from './support/fake-model'
-import { archivedVisits, backend, expectCount } from './support/fixture'
+import {
+  archivedVisits,
+  backend,
+  expectCount,
+  fixture,
+} from './support/fixture'
 
 const KEY = 'e2e-chats-key'
 
@@ -415,6 +425,101 @@ test('a chat opened again shows its question, thinking, search, answer and pages
 
     const saved = (await savedChats()).filter((chat) => chat.title === question)
     expect(saved.map(({ title }) => title)).toEqual([question])
+  } finally {
+    await model.close()
+  }
+})
+
+const escapeRegExp = (text: string) =>
+  text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+/** Text as the export writes it: Markdown's link and emphasis characters escaped. */
+const escaped = (text: string) => text.replace(/[\\`*_[\]<>~]/g, '\\$&')
+
+test('a chat exported as Markdown holds its questions, answers and pages', async ({
+  page,
+}, testInfo) => {
+  const question = 'Which issue said spawn_blocking ran out of threads?'
+  const thinking = 'A GitHub issue about spawn_blocking; search for it.'
+  const answer = 'The tokio issue on spawn_blocking pool exhaustion.'
+  const model = await startService(page, 'E2E export', (body) => {
+    if (body.messages?.at(-1)?.role === 'tool' || !offersTools(body))
+      return { content: answer }
+    return {
+      reasoning: thinking,
+      toolCalls: [
+        { name: 'search_history', arguments: { query: 'spawn_blocking' } },
+      ],
+    }
+  })
+  try {
+    await ask(page, question, answer)
+    const chat = await savedChat(question, 2)
+    const detail = await backend<{
+      messages: SavedMessage[]
+    }>('load_ai_conversation', { conversationId: chat.id })
+    const cited = detail.messages[1].citations ?? []
+    expect(cited.length, 'the answer used pages').toBeGreaterThan(0)
+    const { storage } = await backend<{
+      storage: { agentDatabaseBytes: number }
+    }>('load_dashboard_snapshot')
+    // The conversations' database and its write-ahead log, as the store keeps them.
+    const agent = path.join(fixture().dirs.projectRoot, 'derived', 'agent.db')
+    const sizeOf = (file: string) => {
+      try {
+        return statSync(file).size
+      } catch {
+        return 0
+      }
+    }
+    expect(storage.agentDatabaseBytes).toBe(
+      sizeOf(agent) + sizeOf(`${agent}-wal`),
+    )
+    expect(storage.agentDatabaseBytes).toBeGreaterThan(0)
+
+    const row = listed(page, question)
+    await row.hover()
+    await row
+      .locator('xpath=..')
+      .getByRole('button', { name: 'Conversation options' })
+      .click()
+    await page.getByRole('menuitem', { name: 'Export as Markdown' }).click()
+    const toast = page
+      .locator('[data-sonner-toast]')
+      .filter({ hasText: 'Saved as Markdown' })
+    await expect(toast).toBeVisible()
+    const file = (await toast.innerText())
+      .split('\n')
+      .find((line) => line.endsWith('.md'))!
+    expect(path.dirname(file), 'in the exports folder').toBe(
+      path.join(fixture().dirs.projectRoot, 'exports'),
+    )
+    const markdown = readFileSync(file, 'utf8')
+    await testInfo.attach('the exported chat', {
+      body: markdown,
+      contentType: 'text/markdown',
+    })
+
+    expect(markdown.startsWith(`# ${escaped(question)}\n`), 'its title').toBe(
+      true,
+    )
+    expectInOrder(markdown, [
+      `\n## You\n\n${question}\n`,
+      `\n## Assistant\n\n${answer}\n`,
+      '\nPages used:\n\n',
+    ])
+    expect(markdown, 'the thinking stays out').not.toContain(thinking)
+    expect(markdown, 'the search stays out').not.toContain('search_history')
+    const pages = markdown.split('\n').filter((line) => /^\d+\. /.test(line))
+    expect(pages).toHaveLength(cited.length)
+    const issue = archivedVisits().find(({ title }) => title === ISSUE_TITLE)!
+    expect(pages).toContainEqual(
+      expect.stringMatching(
+        new RegExp(
+          `^\\d+\\. \\[${escapeRegExp(escaped(ISSUE_TITLE))}\\]\\(<${escapeRegExp(issue.url)}>\\) · \\d{4}-\\d\\d-\\d\\d \\d\\d:\\d\\d$`,
+        ),
+      ),
+    )
   } finally {
     await model.close()
   }
