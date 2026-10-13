@@ -307,12 +307,12 @@
   - [ ] 5. 文檔、CHANGELOG。
 
 - [ ] **WORK-UI-POLISH-2026-10** — 用戶 2026-10-12 看到的介面問題
-  - 讀先：`docs/design/` 核心四份、`docs/design/top-bar-tradeoff.md`。
+  - 讀先：`docs/design/` 核心四份、`docs/design/back-forward-window-frame-tradeoff.md`。
   - [ ] 1. 「反覆回來看的主題」（Home 與洞察）的色點換成圖示：頁面用它網站的 favicon（`SiteIcon`），搜尋用搜尋圖示；色點是照抄原型的，顏色沒有意義。
   - [ ] 2. 捲動區底部的亮帶：`ScrollList`（`insights/parts.tsx`）的淡出是一層「卡片色」，卡片色是半透明白，深色模式下疊出一條亮帶，還蓋住整一列。改成對捲動區本身做 `mask-image`（內容淡出到背後的顏色），約 20 px，只在那一邊還有內容時出現；`ScrollList` 搬到 `components/app/` 共用。
   - [ ] 3. Backup 的「來源」：按瀏覽器分組、可收合（用戶選的）：每組一列寫圖示、幾個設定檔、總造訪數、開了幾個、最差的狀態；超過 3 個設定檔的預設收起，有問題的預設展開；找不到的合成「未找到 N 個」。
   - [ ] 4. History 時間軸：時間欄 40 px 放不下「晚上7:23」就折成兩行（改寬、不折行、不用 mono）；段落標題重複「晚上」（用 `formatRange` 寫成「晚上7:02–7:23」，換掉那個 commit 圖示）；同一段裡連著造訪同一網址合成一列、標 ×N（用戶選的），點開看得到每次的時間，`?visit=` 仍找得到每一筆；列高不變、仍虛擬化。
-  - [ ] 5. 上一頁 / 下一頁與 Windows、Linux 的外框（`top-bar-tradeoff.md` D，用戶選的）：導航列頂端放上一頁 / 下一頁（沒有時變灰），⌘[ / ⌘]、Alt+← / Alt+→、滑鼠側鍵；Windows、Linux 不用系統標題列，主面板上邊距加大，視窗按鈕畫在底層右上角，Windows 11 的 snap layouts 用 `windows` crate 回應 `WM_NCHITTEST`；導航列的品牌標誌拿掉。要在 Windows 實機確認（縮放邊、拖到螢幕邊、snap layouts、深淺色）。
+  - [ ] 5. 上一頁 / 下一頁與 Windows、Linux 的外框（`back-forward-window-frame-tradeoff.md` D，用戶選的）：導航列頂端放上一頁 / 下一頁（沒有時變灰），⌘[ / ⌘]、Alt+← / Alt+→、滑鼠側鍵；Windows、Linux 不用系統標題列，主面板上邊距加大，視窗按鈕畫在底層右上角，Windows 11 的 snap layouts 用 `windows` crate 回應 `WM_NCHITTEST`；導航列的品牌標誌拿掉。要在 Windows 實機確認（縮放邊、拖到螢幕邊、snap layouts、深淺色）。
   - [ ] 6. E2E 與在真的 Tauri 視窗看過（`ui-review-guardrails.md` §7）；文檔（`screens-and-nav.md` §導航照 D 改）、CHANGELOG。
 
 - [ ] **WORK-REFACTOR-INDEXING**（用戶 2026-06-21 指示，承巨檔審計）— `ai/indexing.rs` 拆分重構。詳見 `main` 上的 STATUS。_非當前 focus_
