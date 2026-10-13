@@ -283,6 +283,38 @@
     - [x] 4. 日誌有上限：`logs/owner-startup.log`（背景 app 的 stderr，一直附加）與 macOS launchd 的 `worker.stdout.log`／`worker.stderr.log`（每次排程都附加）沒有輪替。`vault_owner_ipc::cap_log`：超過 4 MB 就複製成 `.1`（取代前一份）再清空，launchd 開著的檔案照樣往下寫；背景 app 每次啟動前、排程的 `--due-only` 每次開始時各做一次。
     - [x] 5. 文檔（ADR-003 補「終止狀態不再改寫、收尾失敗是警告」、`data-model.md`）、CHANGELOG。
 
+- [x] **WORK-CI-FIXTURE-DAY-ZONE** — PR 的 CI 有一個 E2E 失敗，本機 gate 又找到一個（2026-10-12）
+  - 讀先：`scripts/fixtures/synthetic-browsers.mjs`、`tests/e2e/home.spec.ts`、`tests/e2e/insights-time-zone.spec.ts`、`docs/architecture/insights-time-zone.md`。
+  - [x] 1. `home.spec`「同一個搜尋的改寫是一組」在 CI 失敗：合成資料同一天的瀏覽時段會重疊，另一個主題的搜尋剛好落在「台北天氣 v2」與「台北天氣 v2 eg」之間，trail 斷了，「台北天氣 v2 eg」跟這組的第一次搜尋「台北天氣預報」只共用 3／7 個詞，自成一組。合成資料的時段改成照開始時間排、前一段結束才開始下一段（一個人一次一段）。用 400 個不同的 `now`、三個時區驗：改前 67,131 組改寫有 76 組被打斷，改後 0。
+  - [x] 2. 本機 gate 的 `insights-time-zone.spec` 換回 UTC 後，那一天顯示 Taipei 的數字：洞察「某一天」的讀取（當天、當天的時段與搜尋、時段明細）的快取 key 沒有時區，其他範圍讀取有（`scopeKey`）。看過的那天在換時區重建後仍顯示舊時區的數字。key 加上洞察的時區。
+  - [x] 3. 完整 gate（本機 75 個 E2E 全過）、推上去讓 PR 的 CI 重跑；CHANGELOG。
+
+- [ ] **WORK-AI-SERVICES-2026-10** — AI 服務設定（用戶 2026-10-12）
+  - 讀先：`docs/features/intelligence.md`（AI、Provider requirements、invalidation）、`docs/architecture/ai-security-posture.md`、`docs/architecture/desktop-command-surface.md`。
+  - [ ] 1. App 內建模型說清楚：Settings 寫出模型（`minishlab/potion-multilingual-128M`，model2vec，256 維）與大小。換模型就要重建：索引已按「服務 + 模型」分開存、搜尋會說設定變了，但在設定裡改外部服務的模型或網址不會排重建（新模型的索引是空的），舊模型的向量檔也從不刪。改成：改模型或網址時先告訴使用者要重建幾頁（PME），確認後排重建、刪舊的向量檔。內建模型的檔案驗證寫死預設模型的雜湊，換別的 repo 一定失敗：要嘛照 repo 存驗證清單，要嘛說明只有這一個（決定記在文檔）。
+  - [ ] 2. LM Studio embedding：請求格式沒錯（2026-10-12 在本機 LM Studio 用 nomic 實測 200、768 維）。錯的是錯誤被藏起來：LM Studio 對錯的路徑回 HTTP 200 + `{"error": …}`，我們只看狀態碼，使用者只看到「parsing embeddings response body」。修：2xx 但 body 有 `error` 算失敗、顯示原文；解析失敗附 body 開頭；LM Studio、Ollama 的網址自動補 `/v1`、去掉多餘的 `/embeddings`；分出「網址不對」「不是 embedding 模型」兩種錯誤（三語、附修法）。Ollama 聊天的預設網址缺 `/v1`，一起修。
+  - [ ] 3. 讀出服務有哪些模型：LM Studio `GET /api/v0/models`（有 `type`：llm / embeddings，與 `max_context_length`）、Ollama `GET /api/tags` + `POST /api/show`、其他 OpenAI 相容 `GET /v1/models`。新命令 `list_ai_provider_models`；設定裡的模型欄改成可選的清單（照用途過濾，聊天只列 LLM、embedding 只列 embedding），仍可手打；結果存進 `modelCatalog`。
+  - [ ] 4. E2E：本機假的 OpenAI 相容服務（已有的 fake embedding server 擴充）回模型清單、對錯路徑回 200 + error：設定裡選得到模型、錯誤照原文顯示、改模型會先問要不要重建並真的重建。
+  - [ ] 5. 文檔、CHANGELOG。
+
+- [ ] **WORK-ASK-2026-10** — 助理的對話與 agent（用戶 2026-10-12）
+  - 讀先：`docs/features/intelligence.md`（Ask）、`docs/architecture/ai-security-posture.md`。
+  - 現象：使用者說「你隨便做」，agent 先回中文說要挑一個做，查了兩次存檔後改用英文說「沒看到問題，你想知道什麼」。
+  - [ ] 1. 寫下會怎麼錯，再修 agent：(a) 每輪先送約 5K token 的英文系統說明與工具說明，又不知道模型的 context 有多長（寫死 110K），LM Studio 塞不下就從中間截掉，使用者那句剛好在中間——從服務讀模型的 context 長度（`/api/v0/models`）定預算，縮短說明，超過時明說而不是讓服務默默截；(b) 給模型的文字全是英文、沒叫它用使用者的語言回答——加上「用使用者最新一則訊息的語言回答」；(c) 使用者把選擇交給它時要自己挑一件事做，不要再問；(d) 前端的 persona 是第二個 system message，很多模板會忽略——併成一個；(e) 每一輪的文字直接接成同一段回答——工具前的話放進思考步驟，答案只放最後一輪；(f) 每輪上限 1200 token 連 Qwen3 的思考也算——照模型調高。
+  - [ ] 2. context 用量給使用者看（用戶 2026-10-12）：輸入框旁顯示這段對話用了多少／模型的 context 長度（例如「4.6K / 8K」），接近上限時提醒，超過時明說「這段對話超過模型的 context，最前面或中間的內容會被截掉」並給修法（在 LM Studio、Ollama 把模型的 context 調大，或開新對話）；讀不到 context 長度時寫「不知道上限」而不是猜。用量照服務回報的 `prompt_tokens`，送出前用估算。
+  - [ ] 3. 對話：使用者訊息可以編輯，從那則重來、後面的丟掉（用戶選的）；完成的回答也能重新產生（重試已寫好，只在出錯時顯示）；在輸入框選服務與模型（請求加 `model`，對話記下用的服務與模型，每則回答記下是哪個模型寫的）。三語。
+  - [ ] 4. E2E：本機假的 LLM 服務（腳本化回應、會呼叫工具、回報 context 長度）：工具呼叫後的回答用使用者的語言、只顯示最後一輪；context 用量照服務回報顯示、超過時提醒；編輯中間的訊息後後面的被丟掉、重新回答；重新產生；換模型後請求帶新的模型。
+  - [ ] 5. 文檔、CHANGELOG。
+
+- [ ] **WORK-UI-POLISH-2026-10** — 用戶 2026-10-12 看到的介面問題
+  - 讀先：`docs/design/` 核心四份、`docs/design/top-bar-tradeoff.md`。
+  - [ ] 1. 「反覆回來看的主題」（Home 與洞察）的色點換成圖示：頁面用它網站的 favicon（`SiteIcon`），搜尋用搜尋圖示；色點是照抄原型的，顏色沒有意義。
+  - [ ] 2. 捲動區底部的亮帶：`ScrollList`（`insights/parts.tsx`）的淡出是一層「卡片色」，卡片色是半透明白，深色模式下疊出一條亮帶，還蓋住整一列。改成對捲動區本身做 `mask-image`（內容淡出到背後的顏色），約 20 px，只在那一邊還有內容時出現；`ScrollList` 搬到 `components/app/` 共用。
+  - [ ] 3. Backup 的「來源」：按瀏覽器分組、可收合（用戶選的）：每組一列寫圖示、幾個設定檔、總造訪數、開了幾個、最差的狀態；超過 3 個設定檔的預設收起，有問題的預設展開；找不到的合成「未找到 N 個」。
+  - [ ] 4. History 時間軸：時間欄 40 px 放不下「晚上7:23」就折成兩行（改寬、不折行、不用 mono）；段落標題重複「晚上」（用 `formatRange` 寫成「晚上7:02–7:23」，換掉那個 commit 圖示）；同一段裡連著造訪同一網址合成一列、標 ×N（用戶選的），點開看得到每次的時間，`?visit=` 仍找得到每一筆；列高不變、仍虛擬化。
+  - [ ] 5. 上一頁 / 下一頁與 Windows、Linux 的外框（`top-bar-tradeoff.md` D，用戶選的）：導航列頂端放上一頁 / 下一頁（沒有時變灰），⌘[ / ⌘]、Alt+← / Alt+→、滑鼠側鍵；Windows、Linux 不用系統標題列，主面板上邊距加大，視窗按鈕畫在底層右上角，Windows 11 的 snap layouts 用 `windows` crate 回應 `WM_NCHITTEST`；導航列的品牌標誌拿掉。要在 Windows 實機確認（縮放邊、拖到螢幕邊、snap layouts、深淺色）。
+  - [ ] 6. E2E 與在真的 Tauri 視窗看過（`ui-review-guardrails.md` §7）；文檔（`screens-and-nav.md` §導航照 D 改）、CHANGELOG。
+
 - [ ] **WORK-REFACTOR-INDEXING**（用戶 2026-06-21 指示，承巨檔審計）— `ai/indexing.rs` 拆分重構。詳見 `main` 上的 STATUS。_非當前 focus_
 
 > `WORK-V03-PAPER-REDESIGN-A`（Paper 風格前端重建）被本次 redesign 取代，不再繼續。

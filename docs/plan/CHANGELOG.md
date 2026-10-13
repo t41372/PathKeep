@@ -2847,3 +2847,7 @@ that held up when checked against the code.
   - When recording a failure fails too, the original error is the one reported.
   - Backup's "Recent runs" lists the archive's operations. The AI's runs no longer fill it under a backup's summary (where they should be shown is `WORK-AI-RUNS-AUDIT-VIEW`). Undoing and restoring an import and linking the same visits have their own names, and an undo no longer reads as new visits.
   - The background app's startup log and the scheduled runs' output files are kept under 4 MB, with one older copy.
+
+- [x] `WORK-CI-FIXTURE-DAY-ZONE` — The E2E suite passes on any day, and a day in Insights follows the time zone (2026-10-12).
+  - The synthetic browsers let two sessions of one day overlap, so now and then another topic's search landed between a search and its rewordings. The rewordings left the search trail, and "a search and its rewordings are one family" failed in CI. Sessions now run one after another, as one person browses. Over 400 different clocks and three time zones, 76 of 67,131 rewordings were cut off before; none are now.
+  - A day in Insights (its visits, sessions, searches and a session's detail) was cached without the time zone Insights were built in. After a rebuild in another zone, a day seen before showed the old zone's numbers. It is now cached per zone, like every range.
