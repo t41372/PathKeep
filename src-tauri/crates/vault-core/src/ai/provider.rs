@@ -16,10 +16,7 @@
 //! - shared provider/runtime types and rig.rs imports from the parent `ai` module
 //!
 //! ## Performance notes
-//! - embedding helpers batch requests where possible and retry only a bounded number
-//!   of times
-//! - rate-limited failures do not spin through retries, which avoids making quota
-//!   pressure worse on a constrained host or provider account
+//! - embedding helpers batch requests where possible
 
 use super::llm::rig_llm_capabilities;
 use super::read_model::provider_capabilities;
@@ -29,11 +26,11 @@ use crate::models::LlmProviderCapabilityReport;
 
 /// Test-only synthetic dimension used by the deterministic embedding stubs.
 ///
-/// Coverage builds never reach a live provider, so the stub must pick a length when the
+/// Tests never reach a live provider, so the stub must pick a length when the
 /// config does not request a specific dim. This is an arbitrary small number with NO
 /// relationship to any real model's native dimension — picking a real dim (1536/768) here
 /// is exactly the D4 truth-assumption this block removes.
-#[cfg(any(test, coverage))]
+#[cfg(test)]
 const STUB_SYNTHETIC_DIM: usize = 8;
 
 /// L2-normalizes a vector in place, guarding against degenerate (zero / non-finite) inputs.
@@ -515,7 +512,6 @@ pub(super) fn embedding_provider_readiness(config: &AppConfig) -> ProviderReadin
 ///
 /// Assistant runs centralize model dispatch here so request-format-specific rig.rs wiring
 /// does not leak into retrieval or run-ledger code.
-#[cfg(not(any(test, coverage)))]
 pub(super) async fn run_llm_agent(
     provider: &AiProviderRuntime,
     preamble: &str,
@@ -577,110 +573,6 @@ pub(super) async fn run_llm_agent(
     }
 }
 
-/// Returns a deterministic stubbed LLM response for tests and coverage builds.
-///
-/// Tests need stable outputs without hitting a live provider. Keeping the stub here
-/// preserves the same public call graph as production without adding network flakiness.
-#[cfg(any(test, coverage))]
-pub(super) async fn run_llm_agent(
-    provider: &AiProviderRuntime,
-    preamble: &str,
-    tools: Vec<Box<dyn ToolDyn>>,
-    question: &str,
-) -> Result<String> {
-    if provider.config.id.contains("llm-error") {
-        anyhow::bail!("forced coverage LLM error");
-    }
-    let provider_label = match provider.config.request_format {
-        AiRequestFormat::OpenAi => "openai",
-        AiRequestFormat::Ollama => "ollama",
-        AiRequestFormat::LmStudio => "lmstudio",
-        AiRequestFormat::Anthropic => "anthropic",
-        AiRequestFormat::Google => "google",
-    };
-    let preamble_summary =
-        preamble.lines().next().unwrap_or_default().trim().chars().take(24).collect::<String>();
-    Ok(format!(
-        "{provider_label} stub answer to '{question}' with {} tools [{preamble_summary}]",
-        tools.len()
-    ))
-}
-
-/// Retries one embedding batch a bounded number of times before surfacing failure.
-///
-/// Batch retries amortize transient provider errors without exploding total request
-/// volume. Rate-limit responses deliberately skip retries so PathKeep does not make
-/// the provider situation worse.
-#[cfg(test)]
-pub(super) async fn embed_batch_with_retry(
-    provider: &AiProviderRuntime,
-    texts: &[String],
-    role: EmbeddingRole,
-) -> Result<Vec<Vec<f32>>> {
-    let mut attempts = 0usize;
-    loop {
-        match embed_text_batch(provider, texts, role).await {
-            Ok(vectors) => return Ok(vectors),
-            Err(error) if should_retry_embedding_error(&error, &mut attempts) => {}
-            Err(error) => return Err(error),
-        }
-    }
-}
-
-/// Retries one single-text embedding request when the batch path fell back to per-row mode.
-#[cfg(test)]
-pub(super) async fn embed_single_with_retry(
-    provider: &AiProviderRuntime,
-    text: &str,
-    role: EmbeddingRole,
-) -> Result<Vec<f32>> {
-    let mut attempts = 0usize;
-    loop {
-        match embed_query(provider, text, role).await {
-            Ok(vector) => return Ok(vector),
-            Err(error) if should_retry_embedding_error(&error, &mut attempts) => {}
-            Err(error) => return Err(error),
-        }
-    }
-}
-
-#[cfg(test)]
-pub(super) fn should_retry_embedding_error(error: &anyhow::Error, attempts: &mut usize) -> bool {
-    if *attempts >= EMBEDDING_RETRY_ATTEMPTS {
-        return false;
-    }
-    *attempts += 1;
-    !embedding_error_is_rate_limited(error)
-}
-
-/// Detects whether an embedding failure should bypass retries and surface immediately.
-#[cfg(test)]
-pub(super) fn embedding_error_is_rate_limited(error: &anyhow::Error) -> bool {
-    let message = error.to_string().to_lowercase();
-    message.contains("rate limit") || message.contains("quota") || message.contains("429")
-}
-
-/// Returns deterministic embedding vectors for tests and coverage builds.
-#[cfg(test)]
-pub(super) async fn embed_text_batch(
-    provider: &AiProviderRuntime,
-    texts: &[String],
-    role: EmbeddingRole,
-) -> Result<Vec<Vec<f32>>> {
-    #[cfg(coverage)]
-    {
-        if provider.config.id.contains("batch-error") {
-            anyhow::bail!("forced coverage batch embedding error");
-        }
-        if provider.config.id.contains("batch-short") {
-            return Ok(Vec::new());
-        }
-    }
-
-    let dimensions = stub_embedding_dimensions(provider)?;
-    Ok(texts.iter().map(|text| stub_embedding_vector(provider, text, role, dimensions)).collect())
-}
-
 /// Executes one single-text embedding request against the configured provider.
 ///
 /// D4 correctness rules (02 §C.3):
@@ -693,7 +585,7 @@ pub(super) async fn embed_text_batch(
 /// - the returned vector is defensively L2-normalized.
 /// - the `role` threads to the call (instruction injection arrives with per-provider
 ///   descriptors in W-AI-4; rig's hosted `/v1/embeddings` path has no role hook today).
-#[cfg(not(any(test, coverage)))]
+#[cfg(not(test))]
 pub(super) async fn embed_query(
     provider: &AiProviderRuntime,
     query: &str,
@@ -765,27 +657,20 @@ pub(super) async fn embed_query(
 ///
 /// The returned length is the truth for the effective dimension; callers must read
 /// `vec.len()` rather than trusting config `dimensions`.
-#[cfg(not(any(test, coverage)))]
+#[cfg(not(test))]
 fn finalize_embedding_vector(vec: Vec<f64>) -> Vec<f32> {
     let mut out: Vec<f32> = vec.into_iter().map(|value| value as f32).collect();
     l2_normalize(&mut out);
     out
 }
 
-/// Returns deterministic single-text embedding vectors for tests and coverage builds.
-#[cfg(any(test, coverage))]
+/// Returns deterministic single-text embedding vectors for tests.
+#[cfg(test)]
 pub(super) async fn embed_query(
     provider: &AiProviderRuntime,
     query: &str,
     role: EmbeddingRole,
 ) -> Result<Vec<f32>> {
-    #[cfg(coverage)]
-    {
-        if provider.config.id.contains("single-error") {
-            anyhow::bail!("forced coverage single embedding error");
-        }
-    }
-
     let dimensions = stub_embedding_dimensions(provider)?;
     Ok(stub_embedding_vector(provider, query, role, dimensions))
 }
@@ -796,13 +681,13 @@ pub(super) async fn embed_query(
 /// enforces identical semantics (incl. the Gemini-requires-explicit-dim and Anthropic-no-embed
 /// rules). A native-dim request (`None`) maps to [`STUB_SYNTHETIC_DIM`], a value with no
 /// relation to any real model's native size.
-#[cfg(any(test, coverage))]
+#[cfg(test)]
 pub(super) fn stub_embedding_dimensions(provider: &AiProviderRuntime) -> Result<usize> {
     Ok(resolve_embed_request_dim(provider)?.unwrap_or(STUB_SYNTHETIC_DIM))
 }
 
 /// Produces one deterministic, role-aware, L2-normalized stub embedding vector.
-#[cfg(any(test, coverage))]
+#[cfg(test)]
 pub(super) fn stub_embedding_vector(
     provider: &AiProviderRuntime,
     text: &str,

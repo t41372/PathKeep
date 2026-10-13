@@ -1,7 +1,7 @@
 //! Responsibilities: translate committed import counters into progress and warnings.
 //! Not responsible for: SQL or source parsing.
 //! Failure modes: repeated events, incorrect counter totals, missing warning codes.
-//! Tests: browser_history::consumer_tests.
+//! Tests: tests::browser_history (the progress events of a real import).
 use super::*;
 pub(super) fn should_emit_browser_import_progress(
     last_processed_records: &mut usize,

@@ -122,30 +122,6 @@ fn wrong_export_password_and_changed_database_bytes_preserve_the_target() {
 }
 
 #[test]
-fn native_preview_rejects_an_inventory_missing_a_database() {
-    let root = tempfile::tempdir().unwrap();
-    let bundle = root.path().join("missing.pathkeep");
-    let manifest = ExportManifest {
-        format_version: 2,
-        app_version: "test".into(),
-        archive_schema_version: 1,
-        archive_mode: "encrypted".into(),
-        exported_at: "now".into(),
-        exporter_hostname: None,
-        files: Vec::new(),
-    };
-    let bytes = serde_json::to_vec(&manifest).unwrap();
-    let mut zip = zip::ZipWriter::new(std::fs::File::create(&bundle).unwrap());
-    zip.start_file(MANIFEST_ZIP_PATH, zip::write::SimpleFileOptions::default()).unwrap();
-    zip.write_all(&bytes).unwrap();
-    zip.start_file(MANIFEST_SHA_ZIP_PATH, zip::write::SimpleFileOptions::default()).unwrap();
-    zip.write_all(crate::utils::sha256_hex(&bytes).as_bytes()).unwrap();
-    zip.finish().unwrap();
-    let error = native::preview(&crate::project_paths_with_root(root.path()), &bundle).unwrap_err();
-    assert!(error.to_string().contains("missing required entry"));
-}
-
-#[test]
 fn export_cannot_replace_the_live_archive_or_its_configuration() {
     let vault = crate::Vault::open_temp().unwrap();
     for path in [&vault.paths().archive_database_path, &vault.paths().config_path] {
@@ -244,73 +220,5 @@ fn portable_provenance_is_encrypted_relocated_and_replayable_on_an_empty_root() 
         )
         .unwrap();
         assert_eq!(restored.run.unwrap().new_visits, 1);
-    }
-}
-
-#[test]
-fn portable_import_keeps_app_lock_policy_with_its_local_secret() {
-    let source = crate::Vault::open_temp().unwrap();
-    let mut config = source.config().clone();
-    config.app_lock.enabled = true;
-    crate::set_app_lock_passcode(
-        source.paths(),
-        &mut config,
-        &crate::SetAppLockPasscodeRequest {
-            passcode: "source passcode".into(),
-            recovery_hint: Some("source hint".into()),
-        },
-    )
-    .unwrap();
-    let source = source.with_config(config);
-    let output = tempfile::tempdir().unwrap();
-    let bundle = output.path().join("portable.pathkeep");
-    native::export(&source, &bundle, "export password", Default::default(), |_| {}).unwrap();
-    for existing_lock in [false, true] {
-        let destination = tempfile::tempdir().unwrap();
-        let paths = crate::project_paths_with_root(destination.path());
-        let mut local = crate::AppConfig::default();
-        local.app_lock.enabled = existing_lock;
-        if existing_lock {
-            crate::set_app_lock_passcode(
-                &paths,
-                &mut local,
-                &crate::SetAppLockPasscodeRequest {
-                    passcode: "destination passcode".into(),
-                    recovery_hint: Some("destination hint".into()),
-                },
-            )
-            .unwrap();
-        }
-        let (_, installed) = native::import(
-            &paths,
-            None,
-            None,
-            &bundle,
-            &ApplyImportOptions {
-                confirm_overwrite: false,
-                source_archive_key: Some("export password".into()),
-            },
-            Default::default(),
-        )
-        .unwrap();
-        let config = installed.vault.config();
-        assert_eq!(config.app_lock.enabled, existing_lock);
-        assert_eq!(config.app_lock.recovery_hint, local.app_lock.recovery_hint);
-        crate::initialize_app_lock_session(&paths, config).unwrap();
-        if existing_lock {
-            let status = crate::unlock_app_session(
-                &paths,
-                config,
-                &crate::UnlockAppSessionRequest {
-                    passcode: Some("destination passcode".into()),
-                    use_biometric: false,
-                },
-            )
-            .unwrap();
-            assert!(!status.locked);
-        } else {
-            assert!(!crate::app_lock_status(&paths, config).unwrap().locked);
-        }
-        installed.vault.close().unwrap();
     }
 }

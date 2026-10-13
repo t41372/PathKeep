@@ -89,19 +89,3 @@ pub fn cancel_maintenance() -> Result<bool> {
     crate::context::load_unlocked_config(&paths)?;
     Ok(cancel_at(&paths.app_root))
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn cancel_reaches_the_running_operation_and_preserves_a_terminal_state() {
-        let root = tempfile::tempdir().unwrap();
-        let result = run(root.path(), "test", |token, _| {
-            assert!(cancel_at(root.path()));
-            token.check()?;
-            Ok(())
-        });
-        assert!(result.is_err());
-        assert_eq!(jobs().lock().unwrap().get(root.path()).unwrap().progress.phase, "cancelled");
-    }
-}

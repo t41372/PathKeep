@@ -22,11 +22,7 @@ mod day_insights;
 mod host_artifacts;
 mod incremental;
 mod insights_zone;
-#[cfg(test)]
-mod intelligence_core_persist;
 mod intelligence_daily_rollup_state;
-#[cfg(test)]
-mod intelligence_daily_rollups;
 mod intelligence_domain;
 mod intelligence_explain;
 mod intelligence_explain_helpers;
@@ -64,8 +60,6 @@ mod tests;
 use self::incremental::{
     ProfileSourceWatermark, StageCheckpoint, save_stage_checkpoint, stage_name, stage_version,
 };
-#[cfg(test)]
-use self::intelligence_daily_rollups::load_profile_derived_visit_batch;
 
 #[cfg(test)]
 use self::intelligence_shared::local_date_key;
@@ -421,30 +415,14 @@ struct StageRunResult {
     notes: Vec<DerivedRuntimeNote>,
 }
 
-// These batch sizes stay well below the low-RAM envelope we benchmark against,
-// but they cut a large amount of repeated SQLite scan/statement overhead on
-// multi-million-row rebuilds.
-#[cfg(test)]
-const STRUCTURAL_AGGREGATE_BATCH_SIZE: usize = 8_192;
+// Batch sizes the batch-boundary tests cross: a late visit or a fallback rebuild must give the
+// same rows on either side of a batch edge.
 #[cfg(test)]
 const STRUCTURAL_TAIL_STREAM_BATCH_SIZE: usize = 8_192;
 #[cfg(test)]
 const VISIT_DERIVE_FALLBACK_BATCH_SIZE: usize = 8_192;
 #[cfg(test)]
 const DAILY_ROLLUP_FALLBACK_BATCH_SIZE: usize = 8_192;
-
-#[cfg(test)]
-#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
-struct DerivedVisitBatchCursor {
-    visit_time_ms: i64,
-    visit_id: i64,
-}
-
-#[cfg(test)]
-#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
-struct SearchEventBatchCursor {
-    visit_id: i64,
-}
 
 #[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
 struct VisibleVisitBatchCursor {

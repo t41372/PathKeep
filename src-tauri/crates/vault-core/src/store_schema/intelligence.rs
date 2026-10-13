@@ -2,7 +2,7 @@
 //! Not responsible for: computation, vector payloads, canonical history or keys.
 //! Failure modes: late runtime tables/columns/indexes missing, unique keys lost,
 //! queue triggers orphaned, or clear/rebuild blocked by invented cross-plane FKs.
-//! Tests: catalog_and_crud, foreign_keys, natural_keys, agent_cascades.
+//! Tests: newer_versions_are_refused; the maintenance round trips seed every table.
 //! Drops: intelligence_schema_migrations (version/name/applied_at), replaced by
 //! __pk_migrations. The already-retired insight_bursts, insight_query_groups,
 //! insight_query_group_members, insight_topics, insight_threads,

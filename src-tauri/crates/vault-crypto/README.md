@@ -355,16 +355,16 @@ enables it for itself as a dev-dependency) lets a child stop at a named step, op
 one file (`atomic-replace/renamed@meta.json:2`), so the parent can kill it exactly there.
 Random kill times print their seed; `VAULT_CRYPTO_SEED` replays a run.
 
-| test file                 | what it proves                                                                                                                                                                                                                                   |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `tests/envelope.rs`       | envelope format against an independent implementation, wrong passwords, every flipped bit, parameter limits, rewrap, sub-key values and separation, no key bytes in `Debug`                                                                      |
-| `tests/envelope_crash.rs` | SIGKILL at each step of the atomic replacement, and at 30 random moments in a loop of password changes: the envelope always opens, with the old or the new password, to the same data key                                                        |
-| `tests/temp_io.rs`        | Turso spills for sort, GROUP BY, hash join, CREATE INDEX and an ATTACHed scratch database hold no plaintext through `TempCryptIo`, while the same queries without it do; rows are identical                                                      |
-| `tests/search_dir.rs`     | Tantivy's directory contract; file sizes around block boundaries; the independent format vector; unfinished, foreign, renamed, cut and extended files; watch; locks, including one held by a killed process; the cache limit; concurrent readers |
-| `tests/search_index.rs`   | 100,000 pages through Tantivy: commit, merge, reopen, exact counts and top-100 against `MmapDirectory`; no plaintext in any file ever written; readers during commits and merges; resident memory under the cache limit                          |
-| `tests/search_tamper.rs`  | every kind of damage in `format.rs` on a real index: an integrity error, never different results or a panic                                                                                                                                      |
-| `tests/search_crash.rs`   | ignored: SIGKILL during commits (random and at each step of replacing `meta.json` and `.managed.json`) and during merges                                                                                                                         |
-| `tests/search_bench.rs`   | ignored: the benchmark below                                                                                                                                                                                                                     |
+| test file                 | what it proves                                                                                                                                                                                   |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `tests/envelope.rs`       | envelope format against an independent implementation, wrong passwords, every flipped bit, parameter limits, rewrap, sub-key values and separation, no key bytes in `Debug`                      |
+| `tests/envelope_crash.rs` | SIGKILL at each step of the atomic replacement, and at 30 random moments in a loop of password changes: the envelope always opens, with the old or the new password, to the same data key        |
+| `tests/temp_io.rs`        | Turso spills for sort, GROUP BY, hash join, CREATE INDEX and an ATTACHed scratch database hold no plaintext through `TempCryptIo`, while the same queries without it do; rows are identical      |
+| `tests/search_dir.rs`     | the file format against an independent vector; file sizes around block boundaries; unfinished, foreign, renamed, cut and extended files; a writer lock held by a killed process; the cache limit |
+| `tests/search_index.rs`   | 100,000 pages through Tantivy: commit, merge, reopen, exact counts and top-100 against `MmapDirectory`; no plaintext in any file ever written; resident memory under the cache limit             |
+| `tests/search_tamper.rs`  | every kind of damage in `format.rs` on a real index: an integrity error, never different results or a panic                                                                                      |
+| `tests/search_crash.rs`   | ignored: SIGKILL during commits (random and at each step of replacing `meta.json` and `.managed.json`) and during merges                                                                         |
+| `tests/search_bench.rs`   | ignored: the benchmark below                                                                                                                                                                     |
 
 ### Results (2026-10-04, development machine)
 
@@ -377,9 +377,6 @@ Random kill times print their seed; `VAULT_CRYPTO_SEED` replays a run.
   their largest, including segments the merge deleted) and none contains the sentinel word,
   the sentinel domain, a schema field name or the commit payload. The same scan of the
   `MmapDirectory` build (uncompressed stored fields) finds all four.
-- **Readers during writes**: 20 commits of 2,000 pages with merges running; a reader reloading
-  on notifications ran 21,161 searches and one reloading by hand 3,845, each over all 21
-  states, and every search saw whole commits only.
 - **Tamper**: 83 kinds of damage over the 14 files of a 10,000-page, two-segment index (the
   damaged positions are random; this run's seed is printed). 71 stopped the search with
   `IndexFileError`; 10 with Tantivy's own error while `integrity_error()` named the damaged

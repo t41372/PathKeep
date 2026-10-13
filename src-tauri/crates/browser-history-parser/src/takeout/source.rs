@@ -1,11 +1,11 @@
 //! Takeout source discovery helpers.
 //!
 //! ## Responsibilities
-//! - Enumerate candidate payload files from directories or zip archives.
-//! - Recognize supported payload families by locale-aware path dispatch.
-//! - Build the lightweight inspection surface used before deeper parsing.
+//! - Recognize supported payload families by locale-aware path dispatch, and by a short
+//!   read of a file's content when its name does not say.
 //!
 //! ## Not responsible for
+//! - Walking a Takeout folder or zip (`vault_core::takeout` does that).
 //! - Parsing payload JSON into canonical or source-native rows.
 //! - Merging multiple payload reports into one parser history.
 //! - Archive quarantine or import-batch semantics.
@@ -14,48 +14,13 @@ use super::{
     KIND_BROWSER_JSON, KIND_INDEX, KIND_MY_ACTIVITY_JSON, KIND_SESSION_JSON, KIND_TYPED_URL_JSON,
     TakeoutPathDisposition, TakeoutPathMatch,
 };
-use crate::{
-    ParseError,
-    types::{DatabaseInspection, ParserWarning},
-};
+use crate::ParseError;
 use std::{
-    collections::BTreeSet,
     fs,
     io::Read,
     path::{Path, PathBuf},
 };
-use walkdir::WalkDir;
 use zip::ZipArchive;
-
-/// Describes one discovered file inside a Takeout directory or zip archive.
-#[derive(Debug, Clone)]
-pub(super) struct TakeoutFile {
-    pub(super) path: String,
-    pub(super) from_zip: bool,
-}
-
-/// Builds the lightweight inspection result for a whole Takeout source.
-pub fn inspect_history(path: &Path) -> Result<DatabaseInspection, ParseError> {
-    let files = gather_takeout_files(path)?;
-    let mut table_names = BTreeSet::new();
-    let mut warnings = Vec::new();
-    for file in files {
-        let path_match = classify_payload_path_with_sniff(path, &file.path, file.from_zip)?;
-        if let Some(kind) = path_match.recognized_kind
-            && kind != KIND_INDEX
-        {
-            table_names.insert(kind.to_string());
-        }
-    }
-    if table_names.is_empty() {
-        warnings.push(ParserWarning {
-            code: "no-recognized-payload".to_string(),
-            message: "No importable Takeout payloads were recognized in the provided source."
-                .to_string(),
-        });
-    }
-    Ok(DatabaseInspection { table_names: table_names.into_iter().collect(), warnings })
-}
 
 /// Classifies one Takeout file path according to the current Chrome-first import scope.
 pub fn classify_payload_path(path: &str) -> TakeoutPathMatch {
@@ -416,77 +381,6 @@ fn chrome_activity_html_suffixes() -> [&'static str; 4] {
         "我的活动/chrome/我的活动.html",
         "我的活動/chrome/我的活動.html",
     ]
-}
-
-/// Enumerates every file candidate contained in a Takeout directory or zip archive.
-pub(super) fn gather_takeout_files(source: &Path) -> Result<Vec<TakeoutFile>, ParseError> {
-    if source.is_dir() {
-        return Ok(WalkDir::new(source)
-            .into_iter()
-            .filter_map(Result::ok)
-            .filter(|entry| entry.file_type().is_file())
-            .filter(|entry| !should_skip_takeout_file(entry.path().to_string_lossy().as_ref()))
-            .map(|entry| TakeoutFile { path: entry.path().display().to_string(), from_zip: false })
-            .collect());
-    }
-
-    if source.is_file() && !is_zip_source(source) {
-        if should_skip_takeout_file(source.to_string_lossy().as_ref()) {
-            return Ok(Vec::new());
-        }
-        return Ok(vec![TakeoutFile { path: source.display().to_string(), from_zip: false }]);
-    }
-
-    let file = fs::File::open(source).map_err(|source_error| ParseError::ReadSource {
-        path: source.to_path_buf(),
-        source: source_error,
-    })?;
-    let mut archive = ZipArchive::new(file)?;
-    let mut files = Vec::new();
-    for index in 0..archive.len() {
-        let entry = archive.by_index(index)?;
-        if entry.is_file() && !should_skip_takeout_file(entry.name()) {
-            files.push(TakeoutFile { path: entry.name().to_string(), from_zip: true });
-        }
-    }
-    Ok(files)
-}
-
-/// Reads one Takeout file or zip entry into memory for parser-side processing.
-pub(super) fn read_takeout_file(
-    source_root: &Path,
-    file: &TakeoutFile,
-) -> Result<Vec<u8>, ParseError> {
-    if file.from_zip {
-        return read_zip_entry(source_root, &file.path);
-    }
-    fs::read(&file.path)
-        .map_err(|source| ParseError::ReadSource { path: PathBuf::from(&file.path), source })
-}
-
-fn read_zip_entry(source: &Path, entry_name: &str) -> Result<Vec<u8>, ParseError> {
-    let file = fs::File::open(source).map_err(|source_error| ParseError::ReadSource {
-        path: source.to_path_buf(),
-        source: source_error,
-    })?;
-    let mut archive = ZipArchive::new(file)?;
-    let mut entry = archive.by_name(entry_name)?;
-    read_takeout_zip_reader(
-        &mut entry,
-        PathBuf::from(format!("{}::{entry_name}", source.display())),
-    )
-}
-
-fn should_skip_takeout_file(path: &str) -> bool {
-    let normalized = normalize_takeout_path(path);
-    let file_name = normalized.rsplit('/').next().unwrap_or(normalized.as_str());
-    file_name.starts_with('.') || normalized.split('/').any(|segment| segment == "__macosx")
-}
-
-fn is_zip_source(path: &Path) -> bool {
-    path.extension()
-        .and_then(|extension| extension.to_str())
-        .is_some_and(|extension| extension.eq_ignore_ascii_case("zip"))
 }
 
 fn should_sniff_for_chrome_history(

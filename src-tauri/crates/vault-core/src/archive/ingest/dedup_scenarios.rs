@@ -3,7 +3,7 @@
 //! Failure modes: duplicate visits, changed URL metadata, cursor loss, timestamp
 //! truncation, lost optional fields or source evidence. Scenarios below pin each.
 
-//! Chromium-family ingest dedup scenarios (C1–C4, X1).
+//! Chromium-family ingest dedup scenarios (C3, C4, C6, X1).
 //!
 //! These tests drive the real `process_profile_snapshot` pipeline against
 //! synthetic `History` databases produced by the `browser-history-fixtures`
@@ -12,17 +12,15 @@
 //! in-module test placement lets them stay end-to-end without widening the
 //! public surface for testability alone.
 //!
-//! Each scenario function is named with the audit-spec ID it maps to (C1,
-//! C2, C3, ...) so failures point directly at
+//! Each scenario function is named with the spec ID it maps to (C3, C4,
+//! ...) so failures point directly at
 //! `docs/plan/program/import-test-harness-spec.md`.
 //!
 //! Companion modules split by browser family:
-//! - `dedup_scenarios_baselines` — Firefox/Safari baselines (F1, S1,
-//!   F_C2, S_C2) + long-tail revisit scenarios (F2, S2) + Chromium
-//!   fingerprint dedup.
-//! - `dedup_scenarios_takeout` — Takeout-family (T1, T2, T2b, T3, T5).
-//! - `dedup_scenarios_edge_cases` — cross-family edge cases (E1–E6,
-//!   empty DB, R1 corrupt DB).
+//! - `dedup_scenarios_baselines` — long-tail revisit scenarios (F2, S2)
+//!   + Chromium fingerprint dedup.
+//! - `dedup_scenarios_takeout` — Takeout-family (T2b, T6, T7).
+//! - `dedup_scenarios_edge_cases` — URL strings stored verbatim (E6).
 
 use super::*;
 use browser_history_fixtures::{ChromiumHistoryFixture, ChromiumUrlRow, ChromiumVisitRow};
@@ -163,67 +161,6 @@ fn count_visits_for_profile(env: &ScenarioEnv, profile_key: &str) -> i64 {
         .expect("count visits for profile")
 }
 
-fn collect_visit_source_ids(env: &ScenarioEnv, profile_key: &str) -> Vec<String> {
-    let archive = env.open_archive();
-    archive
-        .query(
-            "SELECT visits.source_visit_id FROM visits
-             JOIN source_profiles ON source_profiles.id = visits.source_profile_id
-             WHERE source_profiles.profile_key = ?1
-             ORDER BY visits.source_visit_id ASC",
-            [profile_key],
-            |row| Ok(row.get::<String>(0)?),
-        )
-        .expect("query rows")
-}
-
-/// Reads the saved watermark row for a profile_id directly. Returns
-/// `None` if no row exists yet. Used by watermark-isolation and
-/// incremental-import scenarios that need to prove the parser's cursor
-/// actually advanced (the row-count assertions alone cannot — the
-/// canonical-layer dedup masks any watermark regression).
-fn read_profile_watermark(env: &ScenarioEnv, profile_id: &str) -> Option<i64> {
-    let archive = env.open_archive();
-    archive
-        .query_row(
-            "SELECT last_visit_id FROM profile_watermarks WHERE profile_id = ?1",
-            [profile_id],
-            |row| Ok(row.get::<i64>(0)?),
-        )
-        .ok()
-}
-
-/// Build a fixture with two URLs and three visits, all within one week.
-fn baseline_chromium_fixture() -> ChromiumHistoryFixture {
-    // 2026-05-01 00:00, 2026-05-02 12:00, 2026-05-03 08:15:30
-    let visit_one_ms = 1_777_680_000_000_i64;
-    let visit_two_ms = 1_777_809_600_000_i64;
-    let visit_three_ms = 1_777_872_930_000_i64;
-
-    ChromiumHistoryFixture::new()
-        .add_url(ChromiumUrlRow {
-            id: 1,
-            url: "https://example.com/article-one".to_string(),
-            title: Some("Article One".to_string()),
-            visit_count: 2,
-            typed_count: 1,
-            last_visit_unix_ms: visit_two_ms,
-            hidden: false,
-        })
-        .add_url(ChromiumUrlRow {
-            id: 2,
-            url: "https://example.org/article-two".to_string(),
-            title: Some("Article Two".to_string()),
-            visit_count: 1,
-            typed_count: 0,
-            last_visit_unix_ms: visit_three_ms,
-            hidden: false,
-        })
-        .add_visit(visit_row(10, 1, visit_one_ms))
-        .add_visit(visit_row(11, 1, visit_two_ms))
-        .add_visit(visit_row(12, 2, visit_three_ms))
-}
-
 fn visit_row(id: i64, url_id: i64, visit_time_unix_ms: i64) -> ChromiumVisitRow {
     ChromiumVisitRow {
         id,
@@ -240,14 +177,6 @@ fn visit_row(id: i64, url_id: i64, visit_time_unix_ms: i64) -> ChromiumVisitRow 
 }
 
 // ----------------------------------------------------------------------
-// C1: Chromium baseline import — happy path
-// ----------------------------------------------------------------------
-
-// ----------------------------------------------------------------------
-// C2: Chromium incremental no-new-data — watermark prevents re-import
-// ----------------------------------------------------------------------
-
-// ----------------------------------------------------------------------
 // C3: Chromium incremental revisit of an old URL
 // ----------------------------------------------------------------------
 
@@ -255,30 +184,12 @@ fn visit_row(id: i64, url_id: i64, visit_time_unix_ms: i64) -> ChromiumVisitRow 
 // X1: Edge imports Chrome history, then both diverge
 // ----------------------------------------------------------------------
 
-// T1, T2, T2b moved to dedup_scenarios_takeout.rs.
-
-// ----------------------------------------------------------------------
-// X2: Chromium-family product identity for Atlas and Comet
-// ----------------------------------------------------------------------
-
-// ----------------------------------------------------------------------
-// C5: Chromium incremental growth — pure append-new-rows
-// ----------------------------------------------------------------------
-
-// ----------------------------------------------------------------------
-// X3: Multi-profile per browser — Chrome Default vs Chrome Profile 1
-// ----------------------------------------------------------------------
-
 // ----------------------------------------------------------------------
 // C6: Chromium source DB schema tolerance — extra columns must not break ingest
 // ----------------------------------------------------------------------
 
 // ----------------------------------------------------------------------
-// C7: Tied last_visit_ms must NOT overwrite title / hidden / payload_hash
-// ----------------------------------------------------------------------
-
-// ----------------------------------------------------------------------
-// C4: URL upsert must not regress metadata on re-import (B1 — FIXED)
+// C4: URL upsert must not regress metadata on re-import
 // ----------------------------------------------------------------------
 
 fn stored_visit_count(env: &ScenarioEnv, profile_key: &str, source_url_id: i64) -> i64 {

@@ -51,7 +51,11 @@ use tray::TrayMenu;
 #[cfg_attr(test, allow(unused_imports))]
 pub(crate) use login_item::LAUNCHED_AT_LOGIN_ARG;
 #[cfg_attr(test, allow(unused_imports))]
-pub(crate) use status::{BACKUP_PROGRESS_EVENT, BackupSource, run_backup};
+// For the app's commands (not built under test) and the dev bridge.
+#[cfg(feature = "devtools-bridge")]
+pub(crate) use status::BACKUP_PROGRESS_EVENT;
+#[cfg(any(not(test), feature = "devtools-bridge"))]
+pub(crate) use status::{BackupSource, run_backup};
 #[cfg_attr(test, allow(unused_imports))]
 pub(crate) use window::on_window_event;
 // Only the macOS Dock "reopen" handler in lib.rs needs it from outside.

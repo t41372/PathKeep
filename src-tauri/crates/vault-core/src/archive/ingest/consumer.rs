@@ -4,7 +4,7 @@
 //! URL cursor skips dependent terms, imports advance live cursors, duplicates widen bounds, missing URL parents, stale documents, cancellation
 //! discards committed batches, evidence-only payloads erase committed provenance,
 //! interactive jobs wait for the whole import.
-//! Tests: core_tests, concurrency_tests and dedup_scenarios*.
+//! Tests: concurrency_tests, rowid_resume_tests, dedup_scenarios* and the statement budget below.
 
 use super::{
     parser::{Watermark, load_watermark, save_watermark},
@@ -591,7 +591,7 @@ mod statement_benchmark {
     }
     fn measure(size: i64) {
         let vault = Vault::open_temp().unwrap();
-        let profile = super::super::core_tests::profile("chromium", "benchmark");
+        let profile = super::super::test_context::profile("chromium", "benchmark");
         let count = vault
             .write(Db::Archive, Priority::Batch, move |s| {
                 let source_profile_id = upsert_source_profile(s, &profile)?;

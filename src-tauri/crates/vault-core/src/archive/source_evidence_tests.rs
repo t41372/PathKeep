@@ -189,22 +189,6 @@ fn a_changed_value_and_another_profiles_copy_are_evidence_of_their_own() {
     );
 }
 
-/// A Takeout export read from another folder: the metadata names another path.
-#[test]
-fn a_record_read_from_another_place_is_the_same_native_entity() {
-    let vault = crate::Vault::open_temp_with_key(None).unwrap();
-    let mut writer = EvidenceWriter::new(&vault, batch(&vault, 7), 7);
-    writer.push(payload_with_all_evidence_families("page")).unwrap();
-    let mut moved = payload_with_all_evidence_families("page");
-    moved.native_entities[0].metadata.insert("sourcePath".into(), "/elsewhere/Takeout".into());
-    writer.push(moved).unwrap();
-    assert_eq!(rows(&vault), each(1));
-    let metadata: String = crate::test_support::store::Probe::for_db(&vault, Db::SourceEvidence)
-        .query_row("SELECT metadata_json FROM native_entities", (), |r| Ok(r.get(0)?))
-        .unwrap();
-    assert!(!metadata.contains("elsewhere"), "the first metadata stays: {metadata}");
-}
-
 /// An old-format archive is copied row for row, its copies included, with no keys; the
 /// conversion keys every row as the writer does and keeps the first of each.
 #[test]

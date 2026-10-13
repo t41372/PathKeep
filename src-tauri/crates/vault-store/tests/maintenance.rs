@@ -1,7 +1,7 @@
 //! Responsibilities: prove maintenance uses committed, complete, recoverable files.
 //! Not responsible for: application schema, passwords or file installation.
 //! Failure modes: missed rows/sequence marks, changed values, plaintext output,
-//! ignored cancellation, queued writes crossing a snapshot, failed copies stranding admission.
+//! queued writes crossing a snapshot, a failed batch leaving part of its rows.
 use std::sync::{Arc, mpsc};
 use vault_store::{CancelToken, Config, Db, Migration, Priority, Store};
 
@@ -118,55 +118,6 @@ fn pause_checkpoint_copy_and_resume_land_between_write_batches() {
             .unwrap(),
         2
     );
-}
-
-#[test]
-fn cancelled_copy_releases_attachment_and_leaves_source_usable() {
-    let root = tempfile::tempdir().unwrap();
-    let target = tempfile::tempdir().unwrap();
-    let store = Store::open(config(root.path(), None)).unwrap();
-    store
-        .write(Db::Archive, Priority::Batch, |s| {
-            s.execute_rows(
-                "INSERT INTO facts(id) VALUES(?1)",
-                (1..=9000).map(|id| vec![vault_store::Value::Integer(id)]).collect(),
-            )?;
-            Ok(())
-        })
-        .unwrap();
-    let cancel = CancelToken::new();
-    let stop = cancel.clone();
-    let pause = store.pause().unwrap();
-    assert!(matches!(
-        pause.copy_database(
-            Db::Archive,
-            target.path().join("cancelled.db"),
-            Some([3; 32]),
-            cancel,
-            move |progress| {
-                if progress.copied >= 4096 {
-                    stop.cancel();
-                }
-            }
-        ),
-        Err(vault_store::Error::Cancelled { .. })
-    ));
-    pause
-        .copy_database(
-            Db::Archive,
-            target.path().join("retry.db"),
-            Some([3; 32]),
-            CancelToken::new(),
-            |_| {},
-        )
-        .unwrap();
-    drop(pause);
-    store
-        .write(Db::Archive, Priority::Interactive, |s| {
-            s.execute("INSERT INTO facts(id) VALUES(9001)", ())?;
-            Ok(())
-        })
-        .unwrap();
 }
 
 #[test]

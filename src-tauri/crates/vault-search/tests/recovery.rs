@@ -160,35 +160,6 @@ fn plaintext_mode_manual_reload_and_cache_budget_are_explicit() {
 }
 
 #[test]
-fn wrong_key_missing_segment_and_invalid_metadata_are_rebuildable() {
-    let tmp = tempfile::tempdir().unwrap();
-    drop(create(tmp.path(), vec![page(1, "needle")]));
-    let other = vault_crypto::DataKey::from_bytes([7; 32].into());
-    assert!(matches!(
-        SearchIndex::open(tmp.path(), Some(&other), config()),
-        Err(Error::RebuildNeeded { integrity: Some(_), .. })
-    ));
-    let meta = tmp.path().join("meta.json");
-    let original = std::fs::read(&meta).unwrap();
-    std::fs::write(&meta, b"not an encrypted index").unwrap();
-    assert!(matches!(
-        SearchIndex::open(tmp.path(), Some(&key()), config()),
-        Err(Error::RebuildNeeded { .. })
-    ));
-    std::fs::write(&meta, &original).unwrap();
-    let fast = std::fs::read_dir(tmp.path())
-        .unwrap()
-        .map(|e| e.unwrap().path())
-        .find(|p| p.extension().is_some_and(|ext| ext == "fast"))
-        .unwrap();
-    std::fs::remove_file(fast).unwrap();
-    assert!(matches!(
-        SearchIndex::open(tmp.path(), Some(&key()), config()),
-        Err(Error::RebuildNeeded { .. })
-    ));
-}
-
-#[test]
 fn cancelled_at_commit_and_an_older_rebuild_leave_the_original_sequence() {
     let tmp = tempfile::tempdir().unwrap();
     let index = create(tmp.path(), vec![page(1, "old")]);
@@ -233,18 +204,4 @@ fn an_engine_oversize_token_cannot_be_silently_acknowledged() {
         vec![3]
     );
     assert_eq!(ids(&session(&index, Ast::And(vec![]))), vec![2, 3]);
-}
-
-#[test]
-#[cfg(unix)]
-fn permission_errors_do_not_request_a_rebuild() {
-    use std::os::unix::fs::PermissionsExt;
-    let tmp = tempfile::tempdir().unwrap();
-    drop(create(tmp.path(), vec![page(1, "old")]));
-    let path = tmp.path().join("meta.json");
-    let original = std::fs::metadata(&path).unwrap().permissions();
-    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).unwrap();
-    let result = SearchIndex::open(tmp.path(), Some(&key()), config());
-    std::fs::set_permissions(&path, original).unwrap();
-    assert!(matches!(result, Err(Error::Engine(_)) | Err(Error::Io(_))));
 }

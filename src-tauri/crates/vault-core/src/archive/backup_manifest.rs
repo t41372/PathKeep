@@ -116,12 +116,3 @@ fn audit_message(kind: &str, run: i64) -> String {
         "{action} (run {run})\n\nKeep the run manifest and source provenance available for archive review."
     )
 }
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn checkpoint_audit_message_names_restore_and_its_reason() {
-        let message = super::audit_message("snapshot_restore", 42);
-        assert!(message.starts_with("restore: replay source checkpoint (run 42)\n\n"));
-        assert!(message.contains("source provenance"));
-    }
-}

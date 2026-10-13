@@ -274,51 +274,6 @@ pub(super) fn seed_core_intelligence_fixture(connection: &Session<'_>) {
         .expect("search term");
 }
 
-/// Adds URL-like query noise plus one valid repository-search query.
-pub(super) fn seed_search_keyword_noise_fixture(connection: &Session<'_>) {
-    for (id, url, domain) in [
-        (3, "https://www.google.com/search?q=https%3A%2F%2Fasu.edu", "google.com"),
-        (4, "https://asu.edu/", "asu.edu"),
-        (5, "https://github.com/search?q=pathkeep+sqlite", "github.com"),
-        (6, "https://github.com/example/pathkeep", "github.com"),
-    ] {
-        connection
-            .execute(
-                "INSERT INTO pages(id,url,canonical_url,registrable_domain) VALUES(?1,?2,?3,?4)",
-                params![id, url, crate::pages::canonical_key(url), domain],
-            )
-            .unwrap();
-    }
-    connection.execute("UPDATE archive_totals SET value=value+4 WHERE name IN ('visits','urls','sourceVisits:1')",()).unwrap();
-    connection
-        .execute(
-            "INSERT INTO urls (
-                id, url, title, visit_count, typed_count, first_visit_ms, first_visit_iso, last_visit_ms, last_visit_iso,
-                source_profile_id, created_by_run_id, source_url_id, hidden, payload_hash, recorded_at,
-                page_id
-             ) VALUES
-             (3, 'https://www.google.com/search?q=https%3A%2F%2Fasu.edu', 'asu.edu - Google Search', 1, 0, 1711929720000, '2024-04-01T00:02:00Z', 1711929720000, '2024-04-01T00:02:00Z', 1, 1, 13, 0, 'hash-3', '2026-04-14T00:00:00Z', 3),
-             (4, 'https://asu.edu/', 'Arizona State University', 1, 0, 1711929780000, '2024-04-01T00:03:00Z', 1711929780000, '2024-04-01T00:03:00Z', 1, 1, 14, 0, 'hash-4', '2026-04-14T00:00:00Z', 4),
-             (5, 'https://github.com/search?q=pathkeep+sqlite', 'Repository search results', 1, 0, 1711929840000, '2024-04-01T00:04:00Z', 1711929840000, '2024-04-01T00:04:00Z', 1, 1, 15, 0, 'hash-5', '2026-04-14T00:00:00Z', 5),
-             (6, 'https://github.com/example/pathkeep', 'PathKeep repo', 1, 0, 1711929900000, '2024-04-01T00:05:00Z', 1711929900000, '2024-04-01T00:05:00Z', 1, 1, 16, 0, 'hash-6', '2026-04-14T00:00:00Z', 6)",
-            (),
-        )
-        .expect("extra urls");
-    connection
-        .execute(
-            "INSERT INTO visits (
-                id, url_id, source_visit_id, visit_time_ms, visit_time_iso, transition_type, visit_duration_ms,
-                source_profile_id, created_by_run_id, from_visit, is_known_to_sync, event_fingerprint, payload_hash, recorded_at
-             ) VALUES
-             (4, 3, '4', 1711929720000, '2024-04-01T00:02:00Z', 1, 0, 1, 1, NULL, 0, 'fingerprint-4', 'visit-hash-4', '2026-04-14T00:00:00Z'),
-             (5, 4, '5', 1711929780000, '2024-04-01T00:03:00Z', 1, 0, 1, 1, 4, 0, 'fingerprint-5', 'visit-hash-5', '2026-04-14T00:00:00Z'),
-             (6, 5, '6', 1711929840000, '2024-04-01T00:04:00Z', 1, 0, 1, 1, NULL, 0, 'fingerprint-6', 'visit-hash-6', '2026-04-14T00:00:00Z'),
-             (7, 6, '7', 1711929900000, '2024-04-01T00:05:00Z', 1, 0, 1, 1, 6, 0, 'fingerprint-7', 'visit-hash-7', '2026-04-14T00:00:00Z')",
-            (),
-        )
-        .expect("extra visits");
-}
-
 /// Direct fixture edits keep the same canonical counters maintained by archive writers.
 pub(super) fn sync_archive_totals(db: &crate::test_support::native::TestDatabase) {
     db.execute("UPDATE archive_totals SET value=(SELECT COUNT(*) FROM visits WHERE reverted_at IS NULL) WHERE name='visits'",()).unwrap();

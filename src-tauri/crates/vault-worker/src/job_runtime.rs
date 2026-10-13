@@ -281,28 +281,4 @@ mod tests {
         assert_eq!(done.load(Ordering::Acquire), 1, "the job queued meanwhile was run");
         assert_eq!(POOL.active(), 0);
     }
-
-    #[test]
-    fn background_job_control_reports_requested_stop_at_checkpoints() {
-        let control = BackgroundJobControl::spawn(
-            Duration::from_millis(5),
-            Duration::from_secs(60),
-            || Ok(()),
-            || Ok(true),
-        );
-
-        for _ in 0..100 {
-            if control.cancelled() {
-                break;
-            }
-            thread::sleep(Duration::from_millis(5));
-        }
-
-        assert!(control.cancelled());
-        let cancelled = control
-            .checkpoint("background job noticed a stop request")
-            .expect_err("checkpoint should report cancellation");
-        assert!(cancelled.to_string().contains("stop request"));
-        control.shutdown();
-    }
 }

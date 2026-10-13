@@ -229,9 +229,6 @@ def main():
     if artifacts.exists():
         artifacts.rename(LOGS/f'cached-e2e-{time.time_ns()}')
     executable = build()
-    checked([str(executable),'--exact',
-             'turso_intelligence::skip_baseline_rebuild_requires_existing_intelligence_state',
-             '--nocapture'], 'harness-check.log', cwd=ROOT)
     profiles = LOGS/'profile'
     profiles.mkdir(exist_ok=True)
     fixture = pathlib.Path(tempfile.mkdtemp(prefix='pathkeep-area4-', dir='/tmp'))

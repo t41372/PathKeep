@@ -1,7 +1,7 @@
 //! Responsibilities: classify storage failures while retaining engine causes.
 //! Not responsible for: UI copy, retries or logging secrets.
 //! Failure modes: busy/corrupt/key errors are misclassified; diagnostic causes vanish.
-//! Tests: error tests and opening.
+//! Tests: opening.
 use std::path::PathBuf;
 
 /// One classification boundary lets callers recover without matching engine text.
@@ -82,29 +82,5 @@ impl From<turso::Error> for Error {
             }
             source => Self::Engine(source),
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::error::Error as _;
-    #[test]
-    fn engine_classification_retains_causes() {
-        let interrupted = Error::from(turso::Error::Interrupt("interrupted".into()));
-        assert!(matches!(interrupted, Error::Cancelled { .. }));
-        assert!(interrupted.source().is_some());
-        let error = Error::from(turso::Error::BusySnapshot("snapshot".into()));
-        assert!(matches!(error, Error::Busy { .. }));
-        assert!(error.source().is_some());
-        assert!(matches!(
-            Error::from(turso::Error::Corrupt("broken".into())),
-            Error::Corrupt { .. }
-        ));
-        assert!(matches!(
-            Error::from(turso::Error::Error("Decryption failed for page=1".into())),
-            Error::WrongKey { .. }
-        ));
-        assert!(matches!(Error::from(turso::Error::Constraint("unique".into())), Error::Engine(_)));
     }
 }

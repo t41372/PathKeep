@@ -6,25 +6,11 @@
 //! Edge-case and contract-pinning ingest scenarios.
 //!
 //! These tests complement `dedup_scenarios.rs` (main Chromium dedup paths)
-//! and `dedup_scenarios_baselines.rs` (Firefox/Safari baselines) by covering:
-//! - **C_SUB_MS (E5)**: Sub-millisecond Chrome visit collision
-//! - **E6**: URL canonicalization — no normalization applied
-//! - **Empty DB**: Zero-row fixtures for all browser families
-//! - **R1**: Corrupt / malformed source database resilience
-//! - **E1-E4**: Time boundary edge cases (epoch, year-2038, far-future, negative)
-//! - **E7**: NULL title handling
-//! - **E8**: Unicode (CJK, percent-encoded, emoji) byte-identical round-trip
-//! - **E9**: `hidden = true` URL flag round-trip
-//! - **E10-E14**: Minor data-integrity pins for visit counts, referential
-//!   fields, duration values, Safari context evidence, and Firefox visit types.
+//! and `dedup_scenarios_baselines.rs` (long-tail revisits) by covering:
+//! - **E6**: `urls.url` keeps the observed URL string verbatim
 
 use super::*;
-use browser_history_fixtures::{
-    ChromiumHistoryFixture, ChromiumUrlRow, ChromiumVisitRow, FirefoxPlaceRow,
-    FirefoxPlacesFixture, FirefoxVisitRow, SafariHistoryFixture, SafariHistoryItemRow,
-    SafariHistoryVisitRow,
-};
-use std::io::Write;
+use browser_history_fixtures::{ChromiumHistoryFixture, ChromiumUrlRow, ChromiumVisitRow};
 use tempfile::tempdir;
 
 // ── Shared helpers (mirror dedup_scenarios.rs patterns) ─────────────
@@ -75,31 +61,6 @@ fn run_one_ingest(
         None,
     )
     .expect("process profile snapshot")
-}
-
-fn run_one_ingest_with_persisted_source_evidence(
-    env: &ScenarioEnv,
-    run_id: i64,
-    snapshot: &ProfileSnapshot,
-) -> BackupProfileSummary {
-    seed_run(&env.open_archive(), run_id);
-    process_profile_snapshot(
-        &env.vault,
-        run_id,
-        snapshot,
-        false,
-        false,
-        &vault_store::CancelToken::new(),
-        None,
-    )
-    .expect("process profile snapshot")
-}
-
-fn count_archive_rows(env: &ScenarioEnv, table: &str) -> i64 {
-    let archive = env.open_archive();
-    archive
-        .query_row(&format!("SELECT COUNT(*) FROM {table}"), (), |row| Ok(row.get(0)?))
-        .expect("count rows")
 }
 
 fn count_urls_for_profile(env: &ScenarioEnv, profile_key: &str) -> i64 {
@@ -189,96 +150,6 @@ fn snapshot_for_chromium_fixture(
     }
 }
 
-// ── Firefox helpers ─────────────────────────────────────────────────
-
-fn firefox_profile(profile_id: &str) -> crate::models::BrowserProfile {
-    crate::models::BrowserProfile {
-        profile_id: profile_id.to_string(),
-        profile_name: "Default".to_string(),
-        browser_family: "firefox".to_string(),
-        browser_name: "Firefox".to_string(),
-        user_name: Some("synthetic-user".to_string()),
-        profile_path: format!("/synthetic/{profile_id}"),
-        history_path: Some(format!("/synthetic/{profile_id}/places.sqlite")),
-        favicons_path: None,
-        history_exists: true,
-        history_readable: true,
-        access_issue: None,
-        browser_version: Some("125.0".to_string()),
-        history_file_name: "places.sqlite".to_string(),
-        history_bytes: 128,
-        favicons_bytes: 0,
-        supporting_bytes: 0,
-        retention_boundary: crate::models::BrowserRetentionBoundary::default(),
-    }
-}
-
-fn firefox_snapshot(fixture: &FirefoxPlacesFixture, profile_id: &str) -> ProfileSnapshot {
-    let temp_dir = tempdir().expect("firefox snapshot tempdir");
-    let history_path = temp_dir.path().join("places.sqlite");
-    fixture.write(&history_path).expect("write firefox fixture");
-    let history_bytes = std::fs::metadata(&history_path).map(|meta| meta.len()).unwrap_or(0);
-    let mut profile = firefox_profile(profile_id);
-    profile.history_bytes = history_bytes;
-    ProfileSnapshot {
-        profile,
-        temp_dir,
-        history_path,
-        favicons_path: None,
-        source_hashes: vec![FileFingerprint {
-            path: "places.sqlite".to_string(),
-            sha256: "synthetic-firefox-hash".to_string(),
-        }],
-    }
-}
-
-// ── Safari helpers ──────────────────────────────────────────────────
-
-fn safari_profile(profile_id: &str) -> crate::models::BrowserProfile {
-    crate::models::BrowserProfile {
-        profile_id: profile_id.to_string(),
-        profile_name: "Default".to_string(),
-        browser_family: "safari".to_string(),
-        browser_name: "Safari".to_string(),
-        user_name: Some("synthetic-user".to_string()),
-        profile_path: format!("/synthetic/{profile_id}"),
-        history_path: Some(format!("/synthetic/{profile_id}/History.db")),
-        favicons_path: None,
-        history_exists: true,
-        history_readable: true,
-        access_issue: None,
-        browser_version: Some("18.4".to_string()),
-        history_file_name: "History.db".to_string(),
-        history_bytes: 128,
-        favicons_bytes: 0,
-        supporting_bytes: 0,
-        retention_boundary: crate::models::BrowserRetentionBoundary::default(),
-    }
-}
-
-fn safari_snapshot(fixture: &SafariHistoryFixture, profile_id: &str) -> ProfileSnapshot {
-    let temp_dir = tempdir().expect("safari snapshot tempdir");
-    let history_path = temp_dir.path().join("History.db");
-    fixture.write(&history_path).expect("write safari fixture");
-    let history_bytes = std::fs::metadata(&history_path).map(|meta| meta.len()).unwrap_or(0);
-    let mut profile = safari_profile(profile_id);
-    profile.history_bytes = history_bytes;
-    ProfileSnapshot {
-        profile,
-        temp_dir,
-        history_path,
-        favicons_path: None,
-        source_hashes: vec![FileFingerprint {
-            path: "History.db".to_string(),
-            sha256: "synthetic-safari-hash".to_string(),
-        }],
-    }
-}
-
 // Test bodies live in focused child modules so this file stays a small
 // shared fixture harness instead of another oversized scenario owner.
 mod chromium_contracts;
-mod empty_and_resilience;
-mod minor_data_integrity;
-mod time_and_nullable;
-mod unicode_and_flags;

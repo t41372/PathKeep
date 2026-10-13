@@ -3,8 +3,7 @@
 //! Failure modes: omitted columns/indexes, orphan facts, duplicate pages, profile
 //! observations merged, reverted visits retained in search filters, split document
 //! and outbox commits, reused outbox sequence numbers, lost deletion tombstones.
-//! Tests: catalog_and_crud, foreign_keys, pages_and_visibility, search_outbox,
-//! consolidated_v1_contains_every_read_and_search_index.
+//! Tests: newer_versions_are_refused; the maintenance round trips seed every table.
 //!
 //! Pages hold the exact URL string and its registrable domain, which do not vary
 //! by browser profile. Titles, counts, source IDs, observed timestamps, hidden

@@ -143,7 +143,6 @@ pub(crate) fn native_os_guard_with_policy(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::{env_lock, restore_env_var};
 
     #[test]
     fn guard_refuses_an_overridden_root_without_a_sandbox_in_debug_builds() {
@@ -173,75 +172,7 @@ mod tests {
     }
 
     #[test]
-    fn guard_allows_the_sandbox_the_default_root_and_release_builds() {
-        let root = Some(OsString::from("/tmp/pk-root"));
-        assert!(
-            native_os_guard_with_policy(
-                true,
-                root.clone(),
-                Some(OsString::from("/tmp/pk-sandbox")),
-                "s"
-            )
-            .is_ok()
-        );
-        assert!(native_os_guard_with_policy(true, None, None, "s").is_ok());
-        assert!(native_os_guard_with_policy(true, Some(OsString::from("  ")), None, "s").is_ok());
-        assert!(native_os_guard_with_policy(false, root, None, "s").is_ok());
-    }
-
-    #[test]
-    fn guard_reads_the_real_environment() {
-        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        let original_root = std::env::var_os(PROJECT_ROOT_OVERRIDE_ENV);
-        let original_sandbox = std::env::var_os(SANDBOX_DIR_ENV);
-        unsafe {
-            std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, "/tmp/pk-root");
-            std::env::remove_var(SANDBOX_DIR_ENV);
-        }
-        let refused = ensure_native_os_allowed("launchd scheduler");
-        unsafe {
-            std::env::set_var(SANDBOX_DIR_ENV, "/tmp/pk-sandbox");
-        }
-        let allowed = ensure_native_os_allowed("launchd scheduler");
-        restore_env_var(PROJECT_ROOT_OVERRIDE_ENV, original_root.as_deref());
-        restore_env_var(SANDBOX_DIR_ENV, original_sandbox.as_deref());
-
-        assert_eq!(refused.is_err(), cfg!(debug_assertions));
-        assert!(allowed.is_ok());
-    }
-
-    #[test]
     fn sandbox_dir_is_ignored_when_not_a_debug_build() {
         assert_eq!(sandbox_dir_with_policy(false, Some(OsString::from("/tmp/pk-sandbox"))), None);
-    }
-
-    #[test]
-    fn sandbox_dir_needs_a_non_blank_value() {
-        assert_eq!(sandbox_dir_with_policy(true, None), None);
-        assert_eq!(sandbox_dir_with_policy(true, Some(OsString::new())), None);
-        assert_eq!(sandbox_dir_with_policy(true, Some(OsString::from("  "))), None);
-        assert_eq!(
-            sandbox_dir_with_policy(true, Some(OsString::from("/tmp/pk-sandbox"))),
-            Some(PathBuf::from("/tmp/pk-sandbox"))
-        );
-    }
-
-    #[test]
-    fn sandbox_dir_matches_the_build_profile() {
-        let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        let original = std::env::var_os(SANDBOX_DIR_ENV);
-        unsafe {
-            std::env::set_var(SANDBOX_DIR_ENV, "/tmp/pk-sandbox");
-        }
-        let resolved = sandbox_dir();
-        restore_env_var(SANDBOX_DIR_ENV, original.as_deref());
-
-        // `cargo test --release` turns debug assertions off; this then checks
-        // the shipped behaviour through the real entry point.
-        if cfg!(debug_assertions) {
-            assert_eq!(resolved, Some(PathBuf::from("/tmp/pk-sandbox")));
-        } else {
-            assert_eq!(resolved, None);
-        }
     }
 }

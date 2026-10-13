@@ -1,5 +1,9 @@
 # Unit test audit, 2026-10
 
+> 2026-10-12: a second, stricter cut (`WORK-TEST-CUT-2026-10`, see `quality-matrix.md` §什麼時候才寫
+> unit test) replaced the verdicts below. Most tests this audit kept as D are gone; the Rust test
+> count went from 2,474 to 597. The area files here are the record of the first pass.
+
 Asked by the user on 2026-10-08: early on, agents wrote many unit tests and the project chased 100%
 mutation coverage; the product still broke whenever it was touched, and every change now carries those
 tests. Are they pinning subtle or wrong behavior, and which have no reason to exist?

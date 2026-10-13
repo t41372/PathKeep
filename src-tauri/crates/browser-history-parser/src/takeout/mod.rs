@@ -1,7 +1,7 @@
 //! Google Takeout parser boundary.
 //!
 //! ## Responsibilities
-//! - Recognize Takeout payload files from directories or zip archives.
+//! - Recognize Takeout payload files by path, and by a short read of their content.
 //! - Parse payloads into canonical visit/url rows where possible while keeping
 //!   source-native evidence attached to the same extractor contract.
 //! - Offer payload-level streaming so archive import can persist canonical rows
@@ -9,12 +9,13 @@
 //!
 //! ## Not responsible for
 //! - Browser discovery or staging live browser databases.
+//! - Walking a Takeout folder or zip (`vault_core::takeout` does that).
 //! - Writing canonical archive/source-evidence rows.
 //! - Quarantine policy or import-batch review logic.
 //!
 //! ## Dependencies
 //! - `serde_json` for payload parsing.
-//! - `walkdir` / `zip` for directory and zip traversal.
+//! - `zip` to read the start of a payload inside a Takeout zip.
 //! - Shared parser read models from `crate::types`.
 //!
 //! ## Performance notes
@@ -43,11 +44,8 @@ use crate::{
     },
 };
 use serde::{Deserialize, Serialize};
-use std::path::Path;
 
-pub use source::{
-    classify_payload_path, classify_payload_path_with_sniff, inspect_history, recognize_payload,
-};
+pub use source::{classify_payload_path, classify_payload_path_with_sniff, recognize_payload};
 
 pub const KIND_BROWSER_JSON: &str = "browser-json";
 /// My Activity's Chrome entries as JSON (`docs/architecture/takeout-my-activity-tradeoff.md`).
@@ -149,79 +147,6 @@ pub struct TakeoutPayloadReport {
     pub history: ChromiumHistory,
     pub record_count: usize,
     pub skipped_missing_visit_time: usize,
-}
-
-/// Aggregated parser metadata returned after a whole Takeout source has streamed.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct TakeoutStreamReport {
-    pub history: StreamedHistory,
-    pub counts: TakeoutPayloadCounts,
-    pub record_count: usize,
-    pub skipped_missing_visit_time: usize,
-}
-
-/// Parses a whole Takeout source into an in-memory Chromium-style history payload.
-///
-/// This is the compatibility collector path used by read-only consumers. Import
-/// and other large-data flows should prefer [`stream_payload`] so canonical rows
-/// can be written before an entire payload has been materialized.
-pub fn parse_history(path: &Path) -> Result<ChromiumHistory, ParseError> {
-    let mut collector = TakeoutHistoryCollector::default();
-    let streamed = stream_history(path, 10_000, &mut collector).map_err(|error| match error {
-        StreamHistoryError::Parse(error) => error,
-        StreamHistoryError::Consumer(never) => match never {},
-    })?;
-    Ok(ChromiumHistory {
-        inspection: streamed.history.inspection,
-        schema_observation: streamed.history.schema_observation,
-        capability_snapshot: streamed.history.capability_snapshot,
-        urls: collector.urls.into_values().collect(),
-        visits: collector.visits,
-        downloads: Vec::new(),
-        search_terms: Vec::new(),
-        favicons: Vec::new(),
-        typed_evidence: streamed.history.typed_evidence,
-        native_entities: streamed.history.native_entities,
-        warnings: streamed.history.warnings,
-    })
-}
-
-/// Streams one Takeout source into a caller-provided canonical row consumer.
-///
-/// The consumer sees URL and visit batches as each payload is parsed, which
-/// lets archive import start persisting canonical rows before the whole Takeout
-/// source has been merged into one giant `ChromiumHistory` allocation.
-pub fn stream_history<C>(
-    path: &Path,
-    chunk_size: usize,
-    consumer: &mut C,
-) -> Result<TakeoutStreamReport, StreamHistoryError<C::Error>>
-where
-    C: HistoryBatchConsumer,
-    C::Error: std::fmt::Display,
-{
-    let inspection = inspect_history(path)?;
-    let mut reports = Vec::new();
-    let mut adapter = CanonicalOnlyTakeoutConsumer { inner: consumer };
-    for file in source::gather_takeout_files(path)? {
-        let path_match = source::classify_payload_path_with_sniff(path, &file.path, file.from_zip)?;
-        let Some(kind) = path_match.recognized_kind else {
-            continue;
-        };
-        if kind == KIND_INDEX {
-            continue;
-        }
-        let bytes = source::read_takeout_file(path, &file)?;
-        reports.push(stream_payload_with_options(
-            &file.path,
-            kind,
-            &bytes,
-            chunk_size,
-            TakeoutStreamOptions::default(),
-            &mut adapter,
-        )?);
-    }
-    Ok(merge_stream_reports(inspection, reports))
 }
 
 /// Parses one recognized Takeout payload into a full in-memory parser report.
@@ -405,72 +330,6 @@ fn merge_collected_url(existing: &mut ParsedUrl, next: &ParsedUrl) {
             existing.title = next.title.clone();
         }
     }
-}
-
-fn merge_stream_reports(
-    inspection: crate::types::DatabaseInspection,
-    reports: Vec<TakeoutPayloadStreamReport>,
-) -> TakeoutStreamReport {
-    let mut history = StreamedHistory {
-        inspection,
-        schema_observation: crate::types::SchemaObservation::default(),
-        capability_snapshot: crate::types::CapabilitySnapshot::default(),
-        typed_evidence: crate::types::TypedEvidenceBatch::default(),
-        native_entities: Vec::new(),
-        warnings: Vec::new(),
-    };
-    let mut counts = TakeoutPayloadCounts::default();
-    let mut record_count = 0usize;
-    let mut skipped_missing_visit_time = 0usize;
-    let mut capabilities =
-        std::collections::BTreeMap::<String, crate::types::CapabilityCoverage>::new();
-
-    for report in reports {
-        let TakeoutPayloadStreamReport {
-            history:
-                StreamedHistory {
-                    schema_observation,
-                    capability_snapshot,
-                    typed_evidence,
-                    native_entities,
-                    warnings,
-                    ..
-                },
-            counts: report_counts,
-            record_count: report_record_count,
-            skipped_missing_visit_time: report_skipped_missing_visit_time,
-            ..
-        } = report;
-        history.schema_observation.tables.extend(schema_observation.tables);
-        history.typed_evidence.search.extend(typed_evidence.search);
-        history.typed_evidence.navigation.extend(typed_evidence.navigation);
-        history.typed_evidence.engagement.extend(typed_evidence.engagement);
-        history.typed_evidence.context.extend(typed_evidence.context);
-        history.native_entities.extend(native_entities);
-        history.warnings.extend(warnings);
-        counts.urls += report_counts.urls;
-        counts.visits += report_counts.visits;
-        counts.downloads += report_counts.downloads;
-        counts.search_terms += report_counts.search_terms;
-        counts.favicons += report_counts.favicons;
-        record_count += report_record_count;
-        skipped_missing_visit_time += report_skipped_missing_visit_time;
-        for capability in capability_snapshot.items {
-            capabilities
-                .entry(capability.key.clone())
-                .and_modify(|existing| {
-                    existing.available |= capability.available;
-                    existing.populated_rows += capability.populated_rows;
-                    existing.total_rows += capability.total_rows;
-                    existing.notes.extend(capability.notes.clone());
-                })
-                .or_insert(capability);
-        }
-    }
-
-    history.capability_snapshot =
-        crate::types::CapabilitySnapshot { items: capabilities.into_values().collect() };
-    TakeoutStreamReport { history, counts, record_count, skipped_missing_visit_time }
 }
 
 /// Accepts a bounded file/ZIP reader so imports never retain the complete payload.

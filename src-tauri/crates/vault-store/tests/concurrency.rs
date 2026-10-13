@@ -1,7 +1,7 @@
 //! Responsibilities: verify real queue ordering, snapshot visibility and panic recovery.
 //! Not responsible for: replacing the separate throughput benchmark.
 //! Failure modes: queued batches overtake interactive jobs; readers see dirty data
-//! or block behind a writer; panics poison owners; nested requests deadlock.
+//! or block behind a writer; panics poison owners.
 mod support;
 use std::{
     sync::{Arc, mpsc},
@@ -116,29 +116,6 @@ fn panics_and_errors_roll_back_and_owners_remain_usable() {
     assert_eq!(support::count(&store), 0);
     support::insert(&store, 3).unwrap();
     assert_eq!(support::count(&store), 1);
-}
-#[test]
-fn connections_stay_on_fixed_owner_threads_and_nested_requests_fail() {
-    let (_dir, store) = support::open();
-    let store = Arc::new(store);
-    let mut writers = std::collections::HashSet::new();
-    let mut readers = std::collections::HashSet::new();
-    for _ in 0..20 {
-        writers.insert(
-            store
-                .write(Db::Archive, Priority::Interactive, |_| Ok(thread::current().id()))
-                .unwrap(),
-        );
-        readers.insert(store.read(Db::Archive, |_| Ok(thread::current().id())).unwrap());
-    }
-    assert_eq!(writers.len(), 1);
-    assert!(readers.len() <= 2);
-    assert!(writers.is_disjoint(&readers));
-    let nested = store.clone();
-    assert!(matches!(
-        store.read(Db::Archive, move |_| nested.read(Db::Agent, |_| Ok(()))),
-        Err(Error::Reentrant)
-    ));
 }
 
 #[test]

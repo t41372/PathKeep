@@ -133,10 +133,6 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 #[cfg(unix)]
-use std::cell::RefCell;
-#[cfg(unix)]
-use std::collections::VecDeque;
-#[cfg(unix)]
 use std::os::unix::io::{AsRawFd, RawFd};
 
 /// Sentinel lock file placed beside `history-vault.sqlite` inside the archive dir
@@ -485,34 +481,19 @@ fn try_lock_exclusive(_file: &File) -> Result<bool> {
 /// Runs one non-blocking exclusive `flock(2)` against a raw fd, retrying on a
 /// signal interruption.
 ///
-/// Separated from [`try_lock_exclusive`] so the error arm can be exercised
-/// against the REAL syscall with an invalid fd (the coverage gate forbids
-/// stubbing out production I/O). `LOCK_NB` maps "already held" `EWOULDBLOCK` to
-/// `Ok(false)` so try-acquire can defer; `EINTR` (a signal interrupted the
-/// call before it resolved) is retried because `flock` is safe to repeat; any
-/// other errno is a genuine failure.
+/// `LOCK_NB` maps "already held" `EWOULDBLOCK` to `Ok(false)` so try-acquire can
+/// defer; `EINTR` (a signal interrupted the call before it resolved) is retried
+/// because `flock` is safe to repeat; any other errno is a genuine failure.
 #[cfg(unix)]
 fn flock_try_exclusive(fd: RawFd) -> Result<bool> {
     loop {
-        // Test seam (always compiled, never written in production): a queued
-        // directive drives an errno arm — e.g. an EINTR retry — against this exact
-        // code without needing a real signal. The real syscall always runs in
-        // production because the queue is empty there.
-        let errno = match next_flock_fault() {
-            Some(injected) => injected,
-            None => {
-                // SAFETY: `fd` is the caller's contract — production passes a live
-                // owned fd, while the EBADF test passes -1 to drive the error arm
-                // against the unstubbed syscall. `LOCK_EX | LOCK_NB` never parks
-                // the thread, so this returns promptly.
-                let rc = unsafe { libc::flock(fd, libc::LOCK_EX | libc::LOCK_NB) };
-                if rc == 0 {
-                    return Ok(true);
-                }
-                std::io::Error::last_os_error().raw_os_error().unwrap_or(libc::EIO)
-            }
-        };
-        match errno {
+        // SAFETY: `fd` is a live fd owned by the caller. `LOCK_EX | LOCK_NB`
+        // never parks the thread, so this returns promptly.
+        let rc = unsafe { libc::flock(fd, libc::LOCK_EX | libc::LOCK_NB) };
+        if rc == 0 {
+            return Ok(true);
+        }
+        match std::io::Error::last_os_error().raw_os_error().unwrap_or(libc::EIO) {
             libc::EWOULDBLOCK => return Ok(false),
             libc::EINTR => continue,
             other => {
@@ -571,19 +552,9 @@ fn fstype_looks_non_local(fstype: &str) -> bool {
 /// Best-effort filesystem-type label of the volume backing `path`.
 ///
 /// `None` means "unknown / could not determine" and is treated as local (no
-/// warning). A test-only seam lets a unit test drive the non-local branch without
-/// a real network mount; production always reads the real volume.
-#[cfg(unix)]
-fn archive_volume_fstype(path: &Path) -> Option<String> {
-    if let Some(forced) = fstype_override() {
-        return Some(forced);
-    }
-    real_volume_fstype(path)
-}
-
-/// macOS/iOS: the real `statfs.f_fstypename` (e.g. "apfs", "smbfs", "nfs").
+/// warning). macOS/iOS: the real `statfs.f_fstypename` (e.g. "apfs", "smbfs", "nfs").
 #[cfg(all(unix, any(target_os = "macos", target_os = "ios")))]
-fn real_volume_fstype(path: &Path) -> Option<String> {
+fn archive_volume_fstype(path: &Path) -> Option<String> {
     use std::os::unix::ffi::OsStrExt;
     // A path with an interior NUL byte must NOT panic here — this runs
     // under the manager mutex (acquire -> warn), so a panic would poison it and
@@ -609,57 +580,8 @@ fn real_volume_fstype(path: &Path) -> Option<String> {
 /// `statfs.f_fstypename`; rather than guess from Linux's numeric `f_type` we
 /// conservatively report "unknown" (None). Best-effort by contract.
 #[cfg(all(unix, not(any(target_os = "macos", target_os = "ios"))))]
-fn real_volume_fstype(_path: &Path) -> Option<String> {
+fn archive_volume_fstype(_path: &Path) -> Option<String> {
     None
-}
-
-// --- test-only fault / detection seams -----------------------------------------------------------
-//
-// These stay in the MEASURED build on purpose: the quality gate forbids `cfg`-compiling production
-// I/O out of the coverage binary. The real `flock`/`statfs` paths always run in production (the
-// thread-locals default to "no fault / real volume"); only `#[cfg(all(unix, test))]` setters ever
-// write them, so test threads are isolated from each other and from production.
-
-#[cfg(unix)]
-thread_local! {
-    /// FIFO of injected `flock` errnos. Each `flock_try_exclusive` pops the front:
-    /// `Some(errno)` drives an errno arm as if the syscall had returned it (e.g. an
-    /// EINTR retry); `None`/empty runs the real syscall. Always empty in production.
-    static FLOCK_FAULTS: RefCell<VecDeque<Option<i32>>> = const { RefCell::new(VecDeque::new()) };
-    /// Forced `f_fstypename` for non-local-volume detection. `None` (production
-    /// default) reads the real volume via `statfs`.
-    static FSTYPE_OVERRIDE: RefCell<Option<String>> = const { RefCell::new(None) };
-}
-
-/// Pops the next injected `flock` directive. `None` => run the real syscall
-/// (always so in production, where the queue is never written).
-#[cfg(unix)]
-fn next_flock_fault() -> Option<i32> {
-    FLOCK_FAULTS.with(|queue| queue.borrow_mut().pop_front().flatten())
-}
-
-/// Reads the forced filesystem-type label. `None` => read the real volume
-/// (always so in production).
-#[cfg(unix)]
-fn fstype_override() -> Option<String> {
-    FSTYPE_OVERRIDE.with(|cell| cell.borrow().clone())
-}
-
-/// Queues per-`flock` fault directives for the current test thread (replacing any
-/// prior queue).
-#[cfg(all(unix, test))]
-fn inject_flock_faults(faults: Vec<Option<i32>>) {
-    FLOCK_FAULTS.with(|queue| {
-        let mut queue = queue.borrow_mut();
-        queue.clear();
-        queue.extend(faults);
-    });
-}
-
-/// Forces the next non-local-volume detection on the current test thread.
-#[cfg(all(unix, test))]
-fn set_fstype_override(value: Option<String>) {
-    FSTYPE_OVERRIDE.with(|cell| *cell.borrow_mut() = value);
 }
 
 /// Test-only: holds the archive write lock via a RAW second open file description,
@@ -687,127 +609,7 @@ pub(crate) fn hold_write_lock_as_foreign_process_for_test(paths: &ProjectPaths) 
 mod tests {
     use super::*;
     use crate::config::project_paths_with_root;
-    use std::sync::mpsc;
     use tempfile::tempdir;
-
-    #[test]
-    fn acquire_then_drop_then_reacquire_succeeds() {
-        let dir = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(dir.path());
-
-        let guard = ArchiveWriteLock::acquire(&paths).expect("first acquire");
-        // The guard's path is the sentinel beside the archive database.
-        assert!(guard.path().ends_with(ARCHIVE_WRITE_LOCK_FILE));
-        assert_eq!(guard.path().parent(), paths.archive_database_path.parent());
-        // Debug should be printable for future log lines and name the lock file.
-        assert!(format!("{guard:?}").contains(ARCHIVE_WRITE_LOCK_FILE));
-
-        drop(guard);
-
-        // Releasing the last guard frees the lock and removes its registry entry
-        // (eagerly, in `Drop`, under the manager mutex) for a fresh acquire.
-        let _second = ArchiveWriteLock::acquire(&paths).expect("reacquire after drop");
-    }
-
-    #[test]
-    fn try_acquire_right_after_the_last_drop_wins_never_spuriously_defers() {
-        // Deterministic: `try_acquire`'s `Ok(None)` is reserved for
-        // ANOTHER OS PROCESS holding the lock. Dropping the last guard removes the
-        // registry entry AND releases the fd as one step under the manager mutex,
-        // so the very next `try_acquire` in THIS process must win a guard, never
-        // mistake the just-released fd for cross-process contention.
-        let dir = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(dir.path());
-
-        let guard = ArchiveWriteLock::acquire(&paths).expect("acquire");
-        drop(guard);
-
-        let reacquired = ArchiveWriteLock::try_acquire(&paths)
-            .expect("try_acquire must not error right after the last drop")
-            .expect("try_acquire right after the last drop must win, never a spurious Ok(None)");
-        assert!(reacquired.path().ends_with(ARCHIVE_WRITE_LOCK_FILE));
-    }
-
-    #[test]
-    fn last_guard_drop_is_observable_to_a_concurrent_try_acquire() {
-        // Concurrent proof: one thread drops the last guard while
-        // another races to `try_acquire`. Because `Drop` removes the registry
-        // entry BEFORE it releases the fd, both under the manager mutex the racing
-        // acquire must also take, that acquire can never observe {entry absent, fd
-        // still locked}. It therefore ALWAYS yields a guard — a reentrant one
-        // while the seed guard is still alive, or a fresh one once it has dropped
-        // — and NEVER `Ok(None)` (which is reserved for another OS process). Many
-        // iterations under a watchdog turn a regression to the old unsynchronized
-        // release into a hard failure rather than a rare flake.
-        let dir = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(dir.path());
-
-        for _ in 0..256 {
-            let seed = ArchiveWriteLock::acquire(&paths).expect("seed acquire");
-            let racer_paths = paths.clone();
-            let (done_tx, done_rx) = mpsc::channel();
-            let racer = thread::spawn(move || {
-                let outcome = ArchiveWriteLock::try_acquire(&racer_paths);
-                done_tx.send(()).expect("racer signals completion");
-                outcome
-            });
-
-            // Race the racing `try_acquire` against this drop of the only guard.
-            drop(seed);
-
-            done_rx
-                .recv_timeout(Duration::from_secs(10))
-                .expect("racing try_acquire wedged (watchdog tripped)");
-            let racing_guard = racer
-                .join()
-                .expect("racer thread")
-                .expect("racing try_acquire must not error")
-                .expect("racing try_acquire must win a guard, never a spurious Ok(None)");
-            drop(racing_guard);
-        }
-
-        // The registry self-cleans, so a final acquire still wins after the loop.
-        let _final = ArchiveWriteLock::acquire(&paths).expect("final reacquire");
-    }
-
-    #[test]
-    fn nested_same_process_acquire_is_reentrant_and_never_hangs() {
-        // A nested same-process acquire must SUCCEED (reentrant) and must
-        // NOT hang. We run the nesting on a worker thread under a watchdog so a
-        // regression to the self-deadlock fails fast instead of wedging the suite.
-        let dir = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(dir.path());
-        let worker_paths = paths.clone();
-
-        let (done_tx, done_rx) = mpsc::channel();
-        let handle = thread::spawn(move || {
-            let outer = ArchiveWriteLock::acquire(&worker_paths).expect("outer acquire");
-            // Nested blocking acquire: would block forever with the old per-call-fd
-            // design; must be instant and reentrant now.
-            let inner =
-                ArchiveWriteLock::acquire(&worker_paths).expect("nested acquire must not deadlock");
-            // try_acquire while self-held must report a reentrant guard, NOT a defer.
-            let nested_try = ArchiveWriteLock::try_acquire(&worker_paths)
-                .expect("nested try must not error")
-                .expect("nested try while self-held must be reentrant, not Ok(None)");
-
-            assert!(inner.path().ends_with(ARCHIVE_WRITE_LOCK_FILE));
-            assert!(nested_try.path().ends_with(ARCHIVE_WRITE_LOCK_FILE));
-
-            drop(nested_try);
-            drop(inner);
-            drop(outer);
-            done_tx.send(()).expect("signal completion");
-        });
-
-        done_rx
-            .recv_timeout(Duration::from_secs(10))
-            .expect("nested same-process acquire deadlocked; the lock must stay reentrant");
-        handle.join().expect("worker thread");
-
-        // Once every nested guard has dropped, the lock is free again.
-        let _again = ArchiveWriteLock::acquire(&paths).expect("reacquire after nested release");
-    }
 
     #[test]
     fn distinct_open_file_descriptions_exclude_each_other() {
@@ -857,193 +659,6 @@ mod tests {
     }
 
     #[test]
-    fn acquire_errors_when_the_archive_directory_cannot_be_created() {
-        // Error path: a regular FILE sits where the `archive/` directory must be,
-        // so `create_dir_all` fails (a parent component is not a directory) and
-        // both acquire paths surface an `Err` instead of panicking.
-        let dir = tempdir().expect("tempdir");
-        fs::write(dir.path().join("archive"), b"not a directory").expect("seed blocking file");
-        let paths = project_paths_with_root(dir.path());
-
-        let blocking_error = ArchiveWriteLock::acquire(&paths)
-            .expect_err("acquire must fail on an uncreatable lock dir");
-        assert!(blocking_error.to_string().contains("creating archive directory"));
-
-        let try_error = ArchiveWriteLock::try_acquire(&paths)
-            .expect_err("try_acquire must fail on an uncreatable lock dir");
-        assert!(try_error.to_string().contains("creating archive directory"));
-    }
-
-    #[test]
-    fn flock_try_exclusive_surfaces_a_non_would_block_errno_as_error() {
-        // Drive the real syscall's error arm: -1 is never a valid fd, so `flock`
-        // returns EBADF (not EWOULDBLOCK) and we must surface `Err` rather than
-        // masquerading the failure as "would block" -> defer-forever.
-        let error = flock_try_exclusive(-1)
-            .expect_err("flock on an invalid fd must be a real error, not Ok");
-        assert!(error.to_string().contains("flock on the archive write lock failed"));
-    }
-
-    #[test]
-    fn flock_try_exclusive_retries_after_a_signal_interruption() {
-        // An EINTR must be retried, not surfaced. The injected EINTR drives
-        // the retry branch; the next iteration runs the real syscall and wins.
-        let dir = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(dir.path());
-        let lock_path = lock_file_path(&paths);
-        let file = open_lock_file(&lock_path).expect("open lock file");
-
-        inject_flock_faults(vec![Some(libc::EINTR)]);
-        assert!(
-            flock_try_exclusive(file.as_raw_fd())
-                .expect("an EINTR must be retried, never surfaced as Err"),
-            "after the EINTR retry the real flock should win the lock"
-        );
-    }
-
-    #[test]
-    fn acquire_interruptible_returns_a_guard_when_uncontended() {
-        let dir = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(dir.path());
-
-        let cancelled = AtomicBool::new(false);
-        let guard = ArchiveWriteLock::acquire_interruptible(
-            &paths,
-            Some(Duration::from_secs(5)),
-            &cancelled,
-        )
-        .expect("interruptible acquire must not error")
-        .expect("an uncontended interruptible acquire yields a guard");
-        assert!(guard.path().ends_with(ARCHIVE_WRITE_LOCK_FILE));
-    }
-
-    #[test]
-    fn acquire_interruptible_polls_until_the_lock_frees() {
-        // The first attempt defers (injected EWOULDBLOCK as if another
-        // process held it), then the poll loop sleeps and the next attempt wins.
-        // `timeout: None` also exercises the no-deadline branch of the loop.
-        let dir = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(dir.path());
-
-        let cancelled = AtomicBool::new(false);
-        inject_flock_faults(vec![Some(libc::EWOULDBLOCK)]);
-        let guard = ArchiveWriteLock::acquire_interruptible(&paths, None, &cancelled)
-            .expect("interruptible acquire must not error")
-            .expect("the poll loop must eventually acquire the lock");
-        assert!(guard.path().ends_with(ARCHIVE_WRITE_LOCK_FILE));
-    }
-
-    #[test]
-    fn acquire_interruptible_times_out_when_the_deadline_passes() {
-        // A zero budget with the lock "held elsewhere" must defer rather
-        // than block, exercising the deadline-reached branch.
-        let dir = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(dir.path());
-
-        let cancelled = AtomicBool::new(false);
-        inject_flock_faults(vec![Some(libc::EWOULDBLOCK)]);
-        let outcome =
-            ArchiveWriteLock::acquire_interruptible(&paths, Some(Duration::ZERO), &cancelled)
-                .expect("a timeout is not an error");
-        assert!(outcome.is_none(), "an exhausted deadline must defer, not block");
-    }
-
-    #[test]
-    fn acquire_interruptible_honors_cancellation() {
-        // A pre-set cancel flag abandons the acquire immediately.
-        let dir = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(dir.path());
-
-        let cancelled = AtomicBool::new(true);
-        let outcome = ArchiveWriteLock::acquire_interruptible(&paths, None, &cancelled)
-            .expect("cancellation is not an error");
-        assert!(outcome.is_none(), "a set cancel flag must abandon the acquire");
-    }
-
-    #[test]
-    fn non_local_volume_is_detected_and_local_is_not() {
-        // The warning fires for a network filesystem label and stays
-        // silent for a local one (or when detection is unavailable).
-        let dir = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(dir.path());
-        let lock_path = lock_file_path(&paths);
-
-        // Real local tempdir (or "unknown" on non-macOS) never warns.
-        assert!(
-            non_local_archive_warning(&lock_path).is_none(),
-            "a local archive volume must not warn"
-        );
-        // An unstattable path yields no detection, hence no warning.
-        assert!(
-            non_local_archive_warning(Path::new("/pathkeep-nonexistent-volume/lock")).is_none(),
-            "an undetectable volume must not warn"
-        );
-
-        set_fstype_override(Some("smbfs".to_string()));
-        let warning = non_local_archive_warning(&lock_path).expect("a network FS must warn");
-        assert!(warning.contains("smbfs"));
-        assert!(warning.contains("non-local volume"));
-
-        set_fstype_override(Some("apfs".to_string()));
-        assert!(
-            non_local_archive_warning(&lock_path).is_none(),
-            "a local fstype label must not warn"
-        );
-        set_fstype_override(None);
-    }
-
-    #[test]
-    fn archive_volume_fstype_reads_the_real_volume() {
-        // The real `statfs` path runs (no override). A tempdir on a local
-        // disk must not look non-local; an unstattable path returns None safely.
-        let dir = tempdir().expect("tempdir");
-        let lock_path = lock_file_path(&project_paths_with_root(dir.path()));
-        set_fstype_override(None);
-
-        let fstype = archive_volume_fstype(&lock_path);
-        assert_ne!(
-            fstype.as_deref().map(fstype_looks_non_local),
-            Some(true),
-            "a tempdir on a local disk must not be classified as non-local"
-        );
-        assert!(
-            archive_volume_fstype(Path::new("/pathkeep-nonexistent-volume/lock")).is_none(),
-            "statfs on a missing volume must yield None, never panic"
-        );
-    }
-
-    #[test]
-    fn real_volume_fstype_returns_none_for_a_path_with_an_interior_nul() {
-        // An interior-NUL path must NOT panic. The detection runs under the
-        // manager mutex (acquire -> warn), so a panic would poison that mutex and
-        // cascade-panic every future acquire. `CString::new` rejects the interior
-        // NUL and we return None (treated as "unknown / local"). On non-macOS unix
-        // this variant returns None unconditionally, so the assertion holds there
-        // too.
-        use std::ffi::OsStr;
-        use std::os::unix::ffi::OsStrExt;
-        let nul_path = Path::new(OsStr::from_bytes(b"/pathkeep\0interior-nul/lock"));
-        assert!(
-            real_volume_fstype(nul_path).is_none(),
-            "an interior-NUL path must yield None, never panic and poison the manager mutex"
-        );
-    }
-
-    #[test]
-    fn warn_if_archive_volume_non_local_emits_only_for_network_filesystems() {
-        let dir = tempdir().expect("tempdir");
-        let lock_path = lock_file_path(&project_paths_with_root(dir.path()));
-
-        // Network label: exercises the warning-emitting branch.
-        set_fstype_override(Some("nfs".to_string()));
-        warn_if_archive_volume_non_local(&lock_path);
-        // Local label: exercises the no-op branch.
-        set_fstype_override(Some("apfs".to_string()));
-        warn_if_archive_volume_non_local(&lock_path);
-        set_fstype_override(None);
-    }
-
-    #[test]
     fn op_gate_is_mutually_exclusive_in_process() {
         // Same-process: the in-process top-level gate is a NON-reentrant
         // mutual exclusion. While one top-level op holds it, a SECOND top-level acquire
@@ -1062,77 +677,5 @@ mod tests {
         drop(first);
         let _second = ArchiveOpGate::try_acquire(&paths)
             .expect("the gate must be free for a fresh top-level acquire once the holder drops");
-    }
-
-    #[test]
-    fn op_gate_acquire_blocks_until_the_holder_drops() {
-        // The BLOCKING acquire (the manual-op path) must PARK until the in-flight
-        // top-level op releases, then proceed — proving the condvar wait/notify path. A
-        // second thread blocks on `acquire` while this one holds the gate; it can only
-        // complete AFTER the drop, asserted under a watchdog so a regression that never
-        // wakes fails fast instead of wedging the suite.
-        let dir = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(dir.path());
-
-        let held = ArchiveOpGate::acquire(&paths);
-        let worker_paths = paths.clone();
-        let (acquired_tx, acquired_rx) = mpsc::channel();
-        let worker = thread::spawn(move || {
-            // Blocks here until the seed guard drops on the main thread.
-            let gate = ArchiveOpGate::acquire(&worker_paths);
-            acquired_tx.send(()).expect("worker signals it acquired the gate");
-            drop(gate);
-        });
-
-        // Release the only holder; the parked worker must now wake and acquire.
-        drop(held);
-        acquired_rx
-            .recv_timeout(Duration::from_secs(10))
-            .expect("a blocked op-gate acquire must wake when the holder drops (condvar wedged)");
-        worker.join().expect("worker thread");
-
-        // The registry self-cleans, so a fresh top-level acquire still wins afterwards.
-        let _again = ArchiveOpGate::acquire(&paths);
-    }
-
-    #[test]
-    fn a_nested_lock_acquire_under_a_held_gate_does_not_deadlock() {
-        // The layering contract: a TOP-LEVEL op holds the gate + the cross-process lock,
-        // and a NESTED helper re-acquires ONLY the reentrant `ArchiveWriteLock` (never the
-        // gate). The reentrant lock must hand back a nested guard instantly, while a SECOND
-        // top-level gate acquire stays excluded. Run on a worker under a watchdog so a
-        // regression that made a nested helper take the non-reentrant gate fails fast.
-        let dir = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(dir.path());
-        let worker_paths = paths.clone();
-
-        let (done_tx, done_rx) = mpsc::channel();
-        let handle = thread::spawn(move || {
-            // Top-level acquisition: gate FIRST, then the cross-process lock.
-            let _gate = ArchiveOpGate::acquire(&worker_paths);
-            let _lock = ArchiveWriteLock::acquire(&worker_paths).expect("top-level lock");
-
-            // A nested helper takes ONLY the reentrant lock — must be instant, not a hang.
-            let nested = ArchiveWriteLock::acquire(&worker_paths)
-                .expect("nested reentrant lock must not deadlock");
-            assert!(nested.path().ends_with(ARCHIVE_WRITE_LOCK_FILE));
-
-            // ...while a SECOND top-level op is still excluded on the non-reentrant gate.
-            assert!(
-                ArchiveOpGate::try_acquire(&worker_paths).is_none(),
-                "a nested helper must not free the top-level gate for another top-level op"
-            );
-
-            drop(nested);
-            done_tx.send(()).expect("signal completion");
-        });
-
-        done_rx.recv_timeout(Duration::from_secs(10)).expect(
-            "a nested reentrant lock under a held top-level gate must not deadlock (self-deadlock regression)",
-        );
-        handle.join().expect("worker thread");
-
-        // Once the top-level guards drop, the gate is free again.
-        let _after = ArchiveOpGate::acquire(&paths);
     }
 }

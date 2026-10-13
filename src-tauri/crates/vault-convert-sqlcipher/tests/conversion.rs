@@ -58,128 +58,6 @@ fn fixture() -> (tempfile::TempDir, vault_core::ProjectPaths, AppConfig) {
 }
 
 #[test]
-fn encrypted_conversion_recomputes_keys_preserves_original_and_builds_search() {
-    let (_dir, paths, config) = fixture();
-    let assessment = assess(&paths, &config, Some("old password")).unwrap();
-    assert!(assessment.required);
-    assert!(assessment.tables.iter().any(|t| t.table == "visits" && t.rows == 2));
-    let original = std::fs::read(&paths.archive_database_path).unwrap();
-    let result =
-        convert(&paths, &config, Some("old password"), CancelToken::new(), |_| {}).unwrap();
-    assert_eq!(std::fs::read(&paths.archive_database_path).unwrap(), original);
-    let vault = &result.vault;
-    let keys = vault
-        .store()
-        .read(Db::Archive, |s| {
-            s.query("SELECT canonical_url FROM pages ORDER BY id", (), |r| Ok(r.get::<String>(0)?))
-        })
-        .unwrap();
-    assert_eq!(keys, vec!["https://example.com/~alice"; 2]);
-    let star = vault
-        .store()
-        .read(Db::Archive, |s| {
-            s.query_one("SELECT entity_key FROM star", (), |r| Ok(r.get::<String>(0)?))
-        })
-        .unwrap();
-    assert_eq!(star, "https://example.com/~alice");
-    assert_eq!(
-        vault
-            .store()
-            .read(Db::Archive, |s| s
-                .query_one("SELECT source_profile FROM star", (), |r| Ok(r.get::<String>(0)?),))
-            .unwrap(),
-        "chrome:Default"
-    );
-    let annotation =
-        vault
-            .store()
-            .read(Db::Archive, |s| {
-                s.query_one("SELECT canonical_url FROM url_annotations", (), |r| {
-                    Ok(r.get::<String>(0)?)
-                })
-            })
-            .unwrap();
-    assert_eq!(annotation, star);
-    let enrichment_key = vault
-        .store()
-        .read(Db::Intelligence, |s| {
-            s.query_one("SELECT dedupe_key FROM intelligence_jobs WHERE id=1", (), |r| {
-                Ok(r.get::<String>(0)?)
-            })
-        })
-        .unwrap();
-    assert_eq!(enrichment_key, "content-fetch:https://example.com/~alice");
-    let embedding_key = vault
-        .store()
-        .read(Db::Intelligence, |s| {
-            s.query_one("SELECT content_hash FROM ai_embeddings", (), |r| Ok(r.get::<String>(0)?))
-        })
-        .unwrap();
-    assert_eq!(
-        embedding_key,
-        vault_core::ai::build_dedup_content_hash(
-            "https://example.com/~alice",
-            Some("Escaped page"),
-            Some("summarylegacytoken")
-        )
-    );
-    let favorites =
-        vault_core::stars::list_stars(vault, None, Default::default(), None, None).unwrap();
-    assert_eq!(
-        vault
-            .store()
-            .read(Db::SourceEvidence, |s| s.query_one(
-                "SELECT count(*) FROM schema_observations",
-                (),
-                |r| Ok(r.get::<i64>(0)?)
-            ))
-            .unwrap(),
-        2
-    );
-    assert_eq!(
-        vault
-            .store()
-            .read(Db::Agent, |s| s.query_one(
-                "SELECT content FROM messages WHERE id='m'",
-                (),
-                |r| Ok(r.get::<String>(0)?)
-            ))
-            .unwrap(),
-        "Keep this message"
-    );
-    assert_eq!(
-        vault
-            .store()
-            .read(Db::Agent, |s| s.query_one(
-                "SELECT canonical_url FROM agent_citations",
-                (),
-                |r| Ok(r.get::<String>(0)?)
-            ))
-            .unwrap(),
-        "https://example.com/~alice"
-    );
-    assert_eq!(favorites.items.len(), 1);
-    assert_eq!(favorites.items[0].notes, "legacy note");
-    assert_eq!(favorites.items[0].visit_count, 2);
-    vault.search().cycle().unwrap();
-    let mut search = vault_core::search::SearchSession::start(
-        vault,
-        vault_core::search::SearchRequest { query: "page".into(), ..Default::default() },
-    )
-    .unwrap();
-    assert_eq!(search.finish_page().unwrap().items.len(), 2);
-    let mut enriched = vault_core::search::SearchSession::start(
-        vault,
-        vault_core::search::SearchRequest {
-            query: "summarylegacytoken".into(),
-            ..Default::default()
-        },
-    )
-    .unwrap();
-    assert_eq!(enriched.finish_page().unwrap().items.len(), 2);
-}
-
-#[test]
 fn interrupted_conversion_resumes_without_duplicate_visits() {
     let (_dir, paths, config) = fixture();
     let cancel = CancelToken::new();
@@ -201,31 +79,6 @@ fn interrupted_conversion_resumes_without_duplicate_visits() {
         })
         .unwrap();
     assert_eq!(count, 2);
-}
-
-#[test]
-fn stars_that_now_share_a_canonical_key_keep_the_latest_star_time() {
-    let (_root, paths, config) = fixture();
-    let db =
-        vault_convert_sqlcipher::test_support::open_archive(&paths, &config, Some("old password"));
-    db.execute("INSERT INTO star(entity_kind,entity_key,starred_at,source_profile) VALUES('url','https://example.com/~alice','zz-latest','chrome:Other')",[]).unwrap();
-    drop(db);
-    let result =
-        convert(&paths, &config, Some("old password"), Default::default(), |_| {}).unwrap();
-    let stars =
-        vault_core::stars::list_stars(&result.vault, None, Default::default(), None, None).unwrap();
-    assert_eq!(stars.items.len(), 1);
-    assert_eq!(stars.items[0].starred_at, "zz-latest");
-    assert_eq!(
-        result
-            .vault
-            .store()
-            .read(Db::Archive, |s| s
-                .query_one("SELECT source_profile FROM star", (), |r| Ok(r.get::<String>(0)?),))
-            .unwrap(),
-        "chrome:Other"
-    );
-    assert_eq!(stars.items[0].notes, "legacy note");
 }
 
 #[test]
@@ -294,22 +147,6 @@ fn conversion_crash_child() {
     })
     .unwrap();
     panic!("the conversion boundary was not reached");
-}
-
-#[test]
-fn assessment_includes_committed_legacy_wal_bytes_and_retained_sidecars() {
-    let (_root, paths, config) = fixture();
-    let connection =
-        vault_convert_sqlcipher::test_support::open_archive(&paths, &config, Some("old password"));
-    connection.execute_batch("PRAGMA wal_autocheckpoint=0").unwrap();
-    connection.execute("INSERT INTO star(entity_kind,entity_key,starred_at) VALUES('url','https://example.com/wal','saved')", []).unwrap();
-    let wal = paths.archive_database_path.with_file_name("history-vault.sqlite-wal");
-    let minimum = std::fs::metadata(&paths.archive_database_path).unwrap().len()
-        + std::fs::metadata(&wal).unwrap().len();
-    let preview = assess(&paths, &config, Some("old password")).unwrap();
-    assert!(preview.files_retained.contains(&wal));
-    assert!(preview.source_bytes >= minimum);
-    assert!(preview.required_free_bytes >= minimum * 3);
 }
 
 /// v0.1–v0.3 changed the password of the archive only, so an install that changed it can

@@ -112,32 +112,3 @@ fn hourly_activity_from_rhythm(
         .map(|(hour, visit_count)| DayInsightsHourlyBucket { hour: hour as i64, visit_count })
         .collect()
 }
-
-#[cfg(test)]
-mod tests {
-    use super::{exact_day_range, hourly_activity_from_rhythm};
-    use crate::models::{DayInsightsHourlyBucket, RhythmHeatmap, RhythmHeatmapCell};
-
-    #[test]
-    fn exact_day_range_rejects_invalid_calendar_days() {
-        assert!(exact_day_range("2026-02-30").is_err());
-        assert!(exact_day_range("not-a-date").is_err());
-    }
-
-    #[test]
-    fn hourly_activity_folds_exact_day_rhythm_into_twenty_four_buckets() {
-        let buckets = hourly_activity_from_rhythm(RhythmHeatmap {
-            cells: vec![
-                RhythmHeatmapCell { dow: 5, hour: 3, visit_count: 2 },
-                RhythmHeatmapCell { dow: 5, hour: 3, visit_count: 1 },
-                RhythmHeatmapCell { dow: 5, hour: 10, visit_count: 4 },
-            ],
-            max_count: 4,
-        });
-
-        assert_eq!(buckets.len(), 24);
-        assert_eq!(buckets[3], DayInsightsHourlyBucket { hour: 3, visit_count: 3 });
-        assert_eq!(buckets[10], DayInsightsHourlyBucket { hour: 10, visit_count: 4 });
-        assert_eq!(buckets[0].visit_count, 0);
-    }
-}

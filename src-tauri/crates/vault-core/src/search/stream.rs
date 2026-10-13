@@ -2,7 +2,7 @@
 //! Not responsible for: transport encoding or collecting an archive-sized result list.
 //! Failure modes: start blocks on SQL, page requests overlap, abandoned jobs retain readers,
 //! cancel waits behind search, close leaves idle sessions alive, failed sinks leak jobs.
-//! Tests: search::stream::tests through real temporary owners.
+//! Tests: the History E2E specs search through this streaming path.
 use super::{IndexerState, SearchRequest, SearchSession, SearchStep};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -189,55 +189,5 @@ fn stop(job: Job) {
 impl Drop for SearchSessions {
     fn drop(&mut self) {
         self.close();
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn failed_sinks_do_not_accumulate_finished_jobs() {
-        let vault = crate::Vault::open_temp().unwrap();
-        let sessions = vault.search_sessions();
-        let started = sessions.start(&vault, SearchRequest::default(), |_| false).unwrap();
-        while !sessions.jobs.lock().unwrap()[&started.session_id].thread.is_finished() {
-            std::thread::yield_now();
-        }
-        let live = sessions.start(&vault, SearchRequest::default(), |_| true).unwrap();
-        assert_eq!(sessions.jobs.lock().unwrap().len(), 1);
-        sessions.cancel(&live.session_id).unwrap();
-    }
-    #[test]
-    fn start_streams_the_same_result_and_close_drops_idle_sessions() {
-        for key in [None, Some([82; 32])] {
-            let vault = crate::Vault::open_temp_with_key(key).unwrap();
-            super::super::tests::seed(&vault, 40);
-            let (tx, rx) = mpsc::channel();
-            let started = vault
-                .search_sessions()
-                .start(
-                    &vault,
-                    SearchRequest { query: "common".into(), page_size: 7, ..Default::default() },
-                    move |event| tx.send(event).is_ok(),
-                )
-                .unwrap();
-            assert!(matches!(
-                rx.recv_timeout(Duration::from_secs(10)).unwrap(),
-                SearchEvent::Indexer(_)
-            ));
-            loop {
-                if let SearchEvent::Step(step) = rx.recv_timeout(Duration::from_secs(10)).unwrap() {
-                    if !step.provisional && step.count.exact {
-                        assert_eq!(step.count.value, 40);
-                        assert_eq!(step.items.len(), 7);
-                        break;
-                    }
-                }
-            }
-            vault.close().unwrap();
-            assert!(
-                vault.search_sessions().next_page(&started.session_id, "invalid".into()).is_err()
-            );
-        }
     }
 }

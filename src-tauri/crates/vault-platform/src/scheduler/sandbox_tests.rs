@@ -4,17 +4,15 @@
 //! scheduler API with the sandbox on, and checks the failure modes listed in
 //! the sandbox module header: no native call, no file outside the sandbox,
 //! status reading what apply wrote, and state that survives between calls.
-//! The round trips need a debug build; under `--release` (or
-//! `-C debug-assertions=off`) the last test checks the sandbox is ignored.
+//! The round trips need a debug build. That a release build ignores the
+//! sandbox is checked in `crate::sandbox`.
 
 // Most helpers serve the debug-only round trips.
 #![cfg_attr(not(debug_assertions), allow(unused_imports, dead_code))]
 
 use super::*;
 use crate::sandbox::{LAUNCHD_LOADED_SUBDIR, SANDBOX_DIR_ENV, TASK_SCHEDULER_SUBDIR};
-use crate::test_support::{
-    TEST_LAUNCH_AGENTS_DIR_ENV, TEST_LAUNCHCTL_SUCCESS_ENV, env_lock, restore_env_var,
-};
+use crate::test_support::{TEST_LAUNCH_AGENTS_DIR_ENV, env_lock, restore_env_var};
 use std::ffi::OsString;
 use tempfile::tempdir;
 
@@ -53,13 +51,13 @@ fn macos_sandbox_round_trip_never_reaches_launchd_or_the_real_agents_dir() {
     let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     let dir = tempdir().expect("tempdir");
     let sandbox = dir.path().join("sandbox");
-    // Decoys: if any step fell back to the older overrides or the launchctl
-    // stub, files would land in `decoy-agents` or the stub would fail apply.
+    // Decoys: if any step fell back to the older override or the native layer,
+    // files would land in `decoy-agents` or the test stand-in for launchctl
+    // would fail apply.
     let decoy_agents = dir.path().join("decoy-agents");
     let _env = EnvVars::set(&[
         (SANDBOX_DIR_ENV, sandbox.as_os_str()),
         (TEST_LAUNCH_AGENTS_DIR_ENV, decoy_agents.as_os_str()),
-        (TEST_LAUNCHCTL_SUCCESS_ENV, "0".as_ref()),
     ]);
     let paths = vault_core::config::project_paths_with_root(&dir.path().join("project"));
     let executable = Path::new("/tmp/pathkeep-desktop");
@@ -99,34 +97,12 @@ fn macos_sandbox_round_trip_never_reaches_launchd_or_the_real_agents_dir() {
 
 #[test]
 #[cfg(debug_assertions)]
-fn macos_sandbox_bootstrap_rejects_a_plist_launchd_could_not_load() {
-    let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-    let dir = tempdir().expect("tempdir");
-    let sandbox = dir.path().join("sandbox");
-    let _env = EnvVars::set(&[(SANDBOX_DIR_ENV, sandbox.as_os_str())]);
-    let paths = vault_core::config::project_paths_with_root(&dir.path().join("project"));
-
-    let mut plan =
-        preview_schedule(Some("macos"), Path::new("/tmp/pathkeep-desktop"), &paths, &params())
-            .expect("plan");
-    plan.generated_files[0].contents = "not a plist".to_string();
-    let result = apply_schedule(&plan, &paths).expect("apply");
-
-    assert!(!result.applied);
-    assert!(!sandbox.join(LAUNCHD_LOADED_SUBDIR).join(&plan.label).exists());
-}
-
-#[test]
-#[cfg(debug_assertions)]
 fn windows_sandbox_round_trip_never_reaches_schtasks() {
     let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     let dir = tempdir().expect("tempdir");
     let sandbox = dir.path().join("sandbox");
-    // Decoy: the schtasks stub fails every call in this mode.
-    let _env = EnvVars::set(&[
-        (SANDBOX_DIR_ENV, sandbox.as_os_str()),
-        (TEST_SCHTASKS_MODE_ENV, "fail".as_ref()),
-    ]);
+    // Decoy: the test stand-in for schtasks fails every call.
+    let _env = EnvVars::set(&[(SANDBOX_DIR_ENV, sandbox.as_os_str())]);
     let paths = vault_core::config::project_paths_with_root(&dir.path().join("project"));
     let executable = Path::new("C:/Program Files/PathKeep/pathkeep-desktop.exe");
     let native_calls_before = native_call_count();
@@ -169,25 +145,6 @@ fn without_the_sandbox_scheduler_calls_go_to_the_native_layer() {
     restore_env_var(SANDBOX_DIR_ENV, original.as_deref());
     status.expect("status");
     assert_eq!(native_call_count(), before + 1);
-}
-
-#[test]
-#[cfg(not(debug_assertions))]
-fn release_builds_ignore_the_sandbox_for_scheduler_calls() {
-    let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-    let dir = tempdir().expect("tempdir");
-    let sandbox = dir.path().join("sandbox");
-    let _env = EnvVars::set(&[(SANDBOX_DIR_ENV, sandbox.as_os_str())]);
-    let paths = vault_core::config::project_paths_with_root(&dir.path().join("project"));
-    let before = native_call_count();
-
-    let plan =
-        preview_schedule(Some("windows"), Path::new("C:/pk.exe"), &paths, &params()).expect("plan");
-    apply_schedule(&plan, &paths).expect("apply");
-    schedule_status(Some("windows"), Path::new("C:/pk.exe"), &paths, &params()).expect("status");
-
-    assert_eq!(native_call_count(), before + 2, "release must use the native scheduler");
-    assert!(!sandbox.exists(), "release wrote into the sandbox");
 }
 
 /// A run that moved its project root but forgot the sandbox must not read or

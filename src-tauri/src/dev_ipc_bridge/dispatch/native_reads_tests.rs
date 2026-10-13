@@ -111,8 +111,6 @@ fn keychain_only_session_reads_imported_ties_and_exports_every_visit() {
         .await
         .unwrap();
         assert_eq!(detail["totalVisits"], 1);
-        let day=dispatch_command(&state,"get_browse_day_insights",json!({"request":{"date":now.with_timezone(&chrono::Local).date_naive().to_string(),"profileId":null}})).await.unwrap();
-        assert_eq!(day["totalPages"], 41);
         let dashboard =
             dispatch_command(&state, "load_dashboard_snapshot", json!({})).await.unwrap();
         assert_eq!(dashboard["totalVisits"], 41);

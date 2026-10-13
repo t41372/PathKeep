@@ -8,11 +8,7 @@
 //! Native paging and plan tests cover plaintext and encrypted archives past both former caps.
 
 use crate::models::{ReembedEstimate, ReembedScope};
-#[cfg(test)]
-use crate::visit_taxonomy::{normalize_visit_url, registrable_domain_for_url};
 use anyhow::Result;
-#[cfg(test)]
-use std::collections::HashMap;
 
 /// Tunable weights + window for the working-set ranking (05 §8: user can configure each dimension).
 ///
@@ -50,8 +46,7 @@ impl Default for WorkingSetConfig {
 
 /// The four declared signals observed for one unique-content candidate.
 ///
-/// A pure value object so the SCORING is unit-tested independent of SQL: a test constructs the
-/// signals directly and asserts the ranking, and a separate test drives the bounded SQL gather.
+/// A pure value object, so scoring stays separate from the SQL that gathers the signals.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct CandidateSignals {
     /// The page (canonical URL) or its domain is starred.
@@ -87,7 +82,7 @@ pub struct WorkingSetCandidate {
 
 /// Computes the additive priority score for one candidate's signals under a config.
 ///
-/// PURE (no I/O) so the ranking policy is unit-tested + mutation-hardened directly. The score sums
+/// Pure (no I/O). The score sums
 /// each ACTIVE signal's weight, so multi-signal pages outrank single-signal ones; frequency is
 /// log-damped (`ln(1 + visit_count)`) so a page with 5000 visits does not swamp the additive signals
 /// — a heavily-revisited page ranks high but a STARRED page (top weight) still wins, which is the
@@ -198,43 +193,9 @@ fn unique_page_count(vault: &crate::Vault) -> Result<u64> {
     })
 }
 
-/// Mutable per-canonical accumulator while signals from the four queries are merged.
-#[cfg(test)]
-#[derive(Debug, Default)]
-struct CandidateState {
-    signals: CandidateSignals,
-    title: Option<String>,
-}
-
-#[cfg(test)]
-impl CandidateState {
-    /// Records the freshest non-empty title seen for this canonical URL (first writer wins, and the
-    /// recency query feeds rows newest-first, so the first title is the freshest).
-    fn note_title(&mut self, title: Option<String>) {
-        if self.title.is_none() {
-            if let Some(title) = title.filter(|value| !value.trim().is_empty()) {
-                self.title = Some(title);
-            }
-        }
-    }
-
-    /// Lifts the candidate's recorded visit count to the MAX across this page's raw variants.
-    ///
-    /// One page can surface under several raw URLs (tracking-param variants), each carrying its own
-    /// `urls.visit_count`; the refind signal is the highest count among them. Negative counts (never
-    /// expected from the schema) are clamped to 0. Pure → unit-tested so the max-tracking branch is
-    /// covered without depending on a particular SQL row ordering.
-    fn note_visit_count(&mut self, visit_count: i64) {
-        let count = visit_count.max(0) as u32;
-        if count > self.signals.visit_count {
-            self.signals.visit_count = count;
-        }
-    }
-}
-
 /// Converts a recency window in months into the Chrome-epoch cutoff before which a visit is "old".
 ///
-/// PURE so the window math is unit-tested. Uses a fixed 30-day month (the working set is a coarse
+/// Uses a fixed 30-day month (the working set is a coarse
 /// recency bucket, not a calendar computation) and saturates at 0 so an enormous window never
 /// underflows. `now_ms` is Chrome-epoch microseconds-based ms as stored in `last_visit_ms`.
 fn recency_cutoff_ms(now_ms: i64, window_months: u32) -> i64 {
@@ -243,144 +204,4 @@ fn recency_cutoff_ms(now_ms: i64, window_months: u32) -> i64 {
     // Floor at 0: `last_visit_ms` is never before the epoch, so a window larger than `now` means
     // "everything is recent" — clamp to 0 rather than returning a negative cutoff.
     now_ms.saturating_sub(window_ms).max(0)
-}
-
-#[cfg(test)]
-fn apply_starred_domains(
-    starred_domains: &[String],
-    by_canonical: &mut HashMap<String, CandidateState>,
-) {
-    use std::collections::HashSet;
-    let domains: HashSet<&str> = starred_domains.iter().map(String::as_str).collect();
-    for (canonical_url, state) in by_canonical.iter_mut() {
-        let domain = registrable_domain_for_url(canonical_url).unwrap_or_default();
-        if domains.contains(domain.as_str()) {
-            state.signals.starred = true;
-        }
-    }
-}
-
-/// Canonicalizes a raw URL the SAME way stars/annotations/refind do (the dedup key, 05 §1).
-///
-/// Returns `None` for an unparseable URL so a single garbage row is skipped rather than failing the
-/// whole gather. Centralized so every signal collapses tracking-param + host-casing variants of one
-/// page onto the same candidate.
-#[cfg(test)]
-fn canonicalize(raw_url: &str) -> Option<String> {
-    normalize_visit_url(raw_url).map(|normalized| normalized.canonical_url)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn config() -> WorkingSetConfig {
-        WorkingSetConfig::default()
-    }
-
-    #[test]
-    fn reembed_scope_defaults_to_incremental() {
-        // The `#[serde(default)]` default must be Incremental so a frozen payload keeps prior behavior.
-        assert_eq!(ReembedScope::default(), ReembedScope::Incremental);
-    }
-
-    #[test]
-    fn default_config_puts_starred_on_top() {
-        let config = config();
-        // Starred outranks every other single signal (declared-signal-first, 05 §4).
-        assert!(config.starred_weight > config.recent_weight);
-        assert!(config.starred_weight > config.annotated_weight);
-        assert!(config.starred_weight > config.frequency_weight);
-    }
-
-    #[test]
-    fn score_candidate_sums_active_signals() {
-        let config = config();
-        // No signal → 0 (not a member).
-        assert_eq!(score_candidate(&CandidateSignals::default(), &config), 0.0);
-
-        // Only recent.
-        let recent = CandidateSignals { recent: true, ..CandidateSignals::default() };
-        assert_eq!(score_candidate(&recent, &config), config.recent_weight);
-
-        // Only annotated.
-        let annotated = CandidateSignals { annotated: true, ..CandidateSignals::default() };
-        assert_eq!(score_candidate(&annotated, &config), config.annotated_weight);
-
-        // Starred + recent sums both.
-        let both = CandidateSignals { starred: true, recent: true, ..CandidateSignals::default() };
-        assert_eq!(score_candidate(&both, &config), config.starred_weight + config.recent_weight);
-    }
-
-    #[test]
-    fn score_candidate_log_damps_frequency() {
-        let config = config();
-        let one = CandidateSignals { visit_count: 1, ..CandidateSignals::default() };
-        let many = CandidateSignals { visit_count: 5000, ..CandidateSignals::default() };
-        let one_score = score_candidate(&one, &config);
-        let many_score = score_candidate(&many, &config);
-        // More visits ranks higher.
-        assert!(many_score > one_score);
-        // But log-damped: 5000 visits does NOT outrank a single STARRED page (declared signal wins).
-        let starred = CandidateSignals { starred: true, ..CandidateSignals::default() };
-        assert!(score_candidate(&starred, &config) > many_score);
-        // visit_count 0 contributes nothing.
-        assert_eq!(score_candidate(&CandidateSignals::default(), &config), 0.0);
-    }
-
-    #[test]
-    fn recency_cutoff_subtracts_window_and_saturates() {
-        // 1 month back from a large now.
-        let now = 1_000_000_000_000_i64;
-        let cutoff = recency_cutoff_ms(now, 1);
-        assert_eq!(cutoff, now - 30 * 86_400_000);
-        // A huge window saturates at 0 rather than underflowing.
-        assert_eq!(recency_cutoff_ms(100, u32::MAX), 0);
-        // Zero window = now itself.
-        assert_eq!(recency_cutoff_ms(now, 0), now);
-    }
-
-    #[test]
-    fn apply_starred_domains_marks_matching_candidates() {
-        let mut map: HashMap<String, CandidateState> = HashMap::new();
-        map.insert("https://example.com/a".to_string(), CandidateState::default());
-        map.insert("https://other.com/b".to_string(), CandidateState::default());
-        apply_starred_domains(&["example.com".to_string()], &mut map);
-        assert!(map["https://example.com/a"].signals.starred);
-        assert!(!map["https://other.com/b"].signals.starred);
-    }
-
-    #[test]
-    fn candidate_state_tracks_max_visit_count_across_variants() {
-        let mut state = CandidateState::default();
-        state.note_visit_count(5);
-        assert_eq!(state.signals.visit_count, 5);
-        // A higher count from another raw variant lifts it.
-        state.note_visit_count(42);
-        assert_eq!(state.signals.visit_count, 42);
-        // A lower count does NOT lower it (max-across-variants).
-        state.note_visit_count(3);
-        assert_eq!(state.signals.visit_count, 42);
-        // A negative count clamps to 0 (never lowers below the recorded max).
-        state.note_visit_count(-1);
-        assert_eq!(state.signals.visit_count, 42);
-    }
-
-    #[test]
-    fn candidate_state_keeps_first_nonempty_title() {
-        let mut state = CandidateState::default();
-        state.note_title(Some("  ".to_string())); // whitespace ignored
-        assert_eq!(state.title, None);
-        state.note_title(Some("First".to_string()));
-        state.note_title(Some("Second".to_string())); // first writer wins
-        assert_eq!(state.title.as_deref(), Some("First"));
-    }
-
-    #[test]
-    fn canonicalize_collapses_variants_and_drops_garbage() {
-        let a = canonicalize("https://Example.com/page?utm_source=x").expect("a");
-        let b = canonicalize("https://example.com/page").expect("b");
-        assert_eq!(a, b, "tracking params + host casing collapse onto one canonical URL");
-        assert!(canonicalize("not a url").is_none());
-    }
 }

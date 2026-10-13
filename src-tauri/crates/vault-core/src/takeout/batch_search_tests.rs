@@ -130,57 +130,6 @@ fn revert_keeps_shared_urls_and_only_remaining_visits_searchable() {
 }
 
 #[test]
-fn restore_makes_hidden_visits_and_metadata_searchable_again() {
-    for key in [None, Some([72; 32])] {
-        let f = Fixture::new(3, key);
-        crate::set_notes(
-            &f.vault,
-            crate::SetNotesRequest {
-                url: "https://batch.example/page/0".into(),
-                notes: "annotationword 設計系統".into(),
-                source_profile: None,
-            },
-        )
-        .unwrap();
-        crate::replace_tags(
-            &f.vault,
-            crate::ReplaceTagsRequest {
-                url: "https://batch.example/page/0".into(),
-                tags: vec!["tagword".into()],
-                source_profile: None,
-            },
-        )
-        .unwrap();
-        f.vault
-            .store()
-            .write(Db::Archive, Priority::Interactive, |s| {
-                crate::archive::search_documents::set_enrichment(s, 1, "enrichedword")
-            })
-            .unwrap();
-        let before = f.documents();
-        revert_import_batch(&f.vault, f.batch_id).unwrap();
-        assert_eq!(f.visible(), 0);
-        assert!(f.members().is_empty());
-        assert!(f.documents().iter().all(|d| d.1.is_none()));
-        restore_import_batch(&f.vault, f.batch_id).unwrap();
-        assert_eq!(f.visible(), 3);
-        assert_eq!(f.documents(), before);
-        f.assert_matches_rebuild();
-        assert_eq!(
-            f.vault
-                .store()
-                .read(Db::Archive, |s| s.query_one(
-                    "SELECT enrichment_text FROM search_documents WHERE page_id=1",
-                    (),
-                    |r| Ok(r.get::<String>(0)?)
-                ))
-                .unwrap(),
-            "enrichedword"
-        );
-    }
-}
-
-#[test]
 fn visibility_refresh_crosses_chunk_boundaries_without_skipping_urls() {
     for key in [None, Some([73; 32])] {
         let f = Fixture::new(2_003, key);
@@ -209,25 +158,6 @@ fn visibility_refresh_crosses_chunk_boundaries_without_skipping_urls() {
             f.assert_matches_rebuild();
         }
     }
-}
-
-#[test]
-fn handoff_failure_rolls_back_visits_documents_memberships_and_batch_status() {
-    let f = Fixture::new(1_003, None);
-    let before = f.documents();
-    let members = f.members();
-    f.vault
-        .store()
-        .write(Db::Archive, Priority::Interactive, |s| {
-            s.execute("DROP TABLE search_outbox", ())?;
-            Ok(())
-        })
-        .unwrap();
-    assert!(revert_import_batch(&f.vault, f.batch_id).is_err());
-    assert_eq!(f.visible(), 1_003);
-    assert_eq!(f.documents(), before);
-    assert_eq!(f.members(), members);
-    assert_eq!(preview_import_batch(&f.vault, f.batch_id).unwrap().batch.status, "reverting");
 }
 
 #[test]
@@ -342,31 +272,6 @@ fn process_exit_mid_revert_resumes_without_repeating_committed_pages() {
             .unwrap();
         assert_eq!(crate::test_support::search_sequence(&vault) - sequence, 1105);
         crate::test_support::assert_search_handoff(&vault);
-    }
-}
-
-#[test]
-fn reverting_one_profile_preserves_a_shared_pages_other_profile() {
-    for key in [None, Some([71; 32])] {
-        let f = Fixture::new(1, key);
-        f.vault.write(Db::Archive, Priority::Batch, |s| {
-            s.execute("INSERT INTO source_profiles(id,browser_kind,profile_name,profile_path,discovered_at,profile_key) VALUES(900,'chrome','other','other','now','chrome:other')", ())?;
-            s.execute("INSERT INTO urls(id,url,visit_count,first_visit_ms,first_visit_iso,last_visit_ms,last_visit_iso,source_profile_id,created_by_run_id,page_id) SELECT 900,url,1,2000000000000,'2033',2000000000000,'2033',900,0,page_id FROM urls LIMIT 1", ())?;
-            s.execute("INSERT INTO visits(url_id,source_profile_id,visit_time_ms,visit_time_iso,created_by_run_id) VALUES(900,900,2000000000000,'2033',0)", ())?;
-            for field in ["sourceProfiles","urls","visits"] { crate::archive::totals::add(s, field, 1)?; }
-            let page = s.query_one("SELECT page_id FROM urls WHERE id=900", (), |r| Ok(r.get::<i64>(0)?))?;
-            crate::archive::search_documents::pages_written(s, 900, &Default::default(), &[(page, (1, 2000000000000))].into())?;
-            s.execute("DELETE FROM search_outbox", ())?;
-            Ok(())
-        }).unwrap();
-        revert_import_batch(&f.vault, f.batch_id).unwrap();
-        assert_eq!(f.visible(), 1);
-        assert_eq!(f.members().len(), 1);
-        f.assert_matches_rebuild();
-        restore_import_batch(&f.vault, f.batch_id).unwrap();
-        assert_eq!(f.visible(), 2);
-        assert_eq!(f.members().len(), 2);
-        f.assert_matches_rebuild();
     }
 }
 

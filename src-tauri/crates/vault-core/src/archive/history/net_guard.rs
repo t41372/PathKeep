@@ -155,8 +155,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "exercises DNS resolution; run explicitly with network authorization"]
-    fn url_target_is_blocked_covers_scheme_literal_and_resolution_paths() {
+    fn url_target_is_blocked_refuses_other_schemes_and_private_literal_hosts() {
         // Unparseable / non-http(s) schemes are refused.
         assert!(url_target_is_blocked("not a url"));
         assert!(url_target_is_blocked("ftp://example.com/resource"));
@@ -167,11 +166,5 @@ mod tests {
         assert!(url_target_is_blocked("http://169.254.169.254/latest/meta-data/"));
         assert!(url_target_is_blocked("https://[::1]:8443/")); // bracketed IPv6
         assert!(!url_target_is_blocked("https://8.8.8.8/x"));
-
-        // `localhost` resolves to loopback via the hosts file (no network).
-        assert!(url_target_is_blocked("http://localhost:9000/admin"));
-
-        // An unresolvable host fails open: it cannot reach an internal service.
-        assert!(!url_target_is_blocked("https://og-image-test.invalid./"));
     }
 }

@@ -138,27 +138,6 @@ pub(in crate::ai) fn load_existing_embedding_hashes(
     Ok(hashes)
 }
 
-/// Collects stale history ids so the optional semantic sidecar can drop rows that no longer exist.
-pub(in crate::ai) fn collect_stale_history_ids(
-    vault: &crate::Vault,
-    provider: &AiProviderRuntime,
-    control: Option<&Arc<dyn AiRunControl>>,
-) -> Result<Vec<i64>> {
-    let mut after = 0;
-    let mut ids = Vec::new();
-    loop {
-        checkpoint_ai_run(control, "Index cleanup was cancelled between reads.")?;
-        let provider = provider.clone();
-        let page=vault.read(Db::Intelligence,move |s|Ok(s.query("SELECT id,history_id,NOT EXISTS(SELECT 1 FROM archive.visits v WHERE v.id=e.history_id AND v.reverted_at IS NULL LIMIT 1 OFFSET 0) FROM ai_embeddings e INDEXED BY idx_ai_embeddings_provider_id WHERE e.provider_id=?1 AND e.model=?2 AND e.id>?3 ORDER BY e.id LIMIT 512",params![provider.config.id,provider.config.default_model,after],|r|Ok((r.get::<i64>(0)?,r.get::<i64>(1)?,r.get::<i64>(2)?!=0)))?))?;
-        if page.is_empty() {
-            break;
-        }
-        after = page.last().unwrap().0;
-        ids.extend(page.into_iter().filter(|r| r.2).map(|r| r.1));
-    }
-    Ok(ids)
-}
-
 /// Selects, in first-seen order, the UNIQUE pages among `changed` that still need embedding (W-AI-4c).
 ///
 /// The dedup decision, extracted PURE so the truncated-u64-collision invariant is

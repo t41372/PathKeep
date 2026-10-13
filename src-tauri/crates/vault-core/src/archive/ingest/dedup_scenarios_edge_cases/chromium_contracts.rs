@@ -1,12 +1,10 @@
 //! Chromium edge-case ingest contract tests.
 //!
 //! ## Responsibilities
-//! - Pin same-millisecond visit fingerprint behavior.
-//! - Pin verbatim URL storage with no normalization.
+//! - Pin verbatim storage of the observed URL string in `urls.url`.
 //!
 //! ## Not responsible for
 //! - Browser-family baseline scenarios covered by sibling modules.
-//! - Repairing known precision limitations.
 //!
 //! ## Dependencies
 //! - Uses shared edge-case fixture helpers from the parent module.
@@ -18,76 +16,14 @@
 use super::*;
 
 // ======================================================================
-// C_SUB_MS (E5) — Sub-millisecond Chrome visit collision contract
+// E6 — `urls.url` keeps the observed string
 // ======================================================================
 
-/// C_SUB_MS (E5) — Sub-millisecond Chrome visit collision contract.
-///
-/// Chrome stores visit times at microsecond precision; our parser truncates
-/// to milliseconds. Two visits to the same URL within the same millisecond
-/// produce identical `event_fingerprint` values. The partial unique index
-/// deduplicates the second visit even though source_visit_ids differ.
-///
-/// This is a known acceptable limitation, not a bug. This test pins the
-/// behavior so that any future precision change is caught.
-#[test]
-fn c_sub_ms_same_millisecond_visits_collapsed_by_fingerprint() {
-    for key in [None, Some([83; 32])] {
-        let env = ScenarioEnv::new(key);
-
-        // Two visits to the same URL with different source_visit_ids but
-        // identical visit_time_unix_ms. The fingerprint computation uses
-        // unix_micros_to_chrome_time(visit_time_ms * 1000), so both visits
-        // produce the same Chrome time → same fingerprint → INSERT OR IGNORE
-        // silently skips the second.
-        let same_ms = 1_777_680_000_000_i64; // 2026-05-01T00:00:00Z
-
-        let fixture = ChromiumHistoryFixture::new()
-            .add_url(ChromiumUrlRow {
-                id: 1,
-                url: "https://example.com/sub-ms-collision".to_string(),
-                title: Some("Sub-ms Collision".to_string()),
-                visit_count: 2,
-                typed_count: 0,
-                last_visit_unix_ms: same_ms,
-                hidden: false,
-            })
-            .add_visit(chromium_visit_row(20, 1, same_ms))
-            .add_visit(chromium_visit_row(21, 1, same_ms));
-
-        let snapshot = snapshot_for_chromium_fixture(
-            &fixture,
-            chromium_profile("chrome:Default", "Google Chrome"),
-        );
-        let summary = run_one_ingest(&env, 1, &snapshot, false);
-
-        // The parser delivers both visits, but only one survives archive insert:
-        // - Visit 20 inserted successfully (new source_visit_id, new fingerprint).
-        // - Visit 21 has a DIFFERENT source_visit_id (so UNIQUE(source_profile_id,
-        //   source_visit_id) does not fire) but the SAME event_fingerprint (same
-        //   url, same Chrome time, same title, same transition, same app_id).
-        //   The partial unique index on (source_profile_id, event_fingerprint)
-        //   triggers → INSERT OR IGNORE silently skips.
-        assert_eq!(
-            summary.new_visits, 1,
-            "only one of two same-millisecond visits should survive fingerprint dedup"
-        );
-        assert_eq!(summary.new_urls, 1);
-        assert_eq!(count_visits_for_profile(&env, "chrome:Default"), 1);
-        assert_eq!(count_urls_for_profile(&env, "chrome:Default"), 1);
-    }
-}
-
-// ======================================================================
-// E6 — URL canonicalization contract: no normalization applied
-// ======================================================================
-
-/// E6 — URL canonicalization contract pins.
-///
-/// PathKeep stores URL strings as-is with NO normalization. Different URL
-/// strings with different source_url_ids must be preserved as separate URL
-/// rows even when they point to semantically "the same" resource. This
-/// pins the contract so a future normalization change is caught.
+/// E6 — `urls.url` stores the URL string exactly as the browser recorded it.
+/// Normalization belongs to `pages.canonical_url` (data-model.md), not to
+/// the stored URL row. Different URL strings with different source_url_ids
+/// must be preserved as separate URL rows even when they point to
+/// semantically "the same" resource, so no spelling is rewritten or lost.
 #[test]
 fn e6_url_strings_stored_verbatim_no_normalization() {
     for key in [None, Some([83; 32])] {

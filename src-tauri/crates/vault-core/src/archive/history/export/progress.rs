@@ -181,37 +181,6 @@ pub fn record_export_failure(export_id: Option<&str>, error: &anyhow::Error) {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn registry_is_bounded_expires_terminal_jobs_and_allows_id_reuse() {
-        let mut jobs = Registry::new();
-        for index in 0..MAX_JOBS {
-            ExportJob::start_in(&mut jobs, &format!("bounded-{index}")).unwrap();
-        }
-        assert!(ExportJob::start_in(&mut jobs, "too-many").is_err());
-        assert!(ExportJob::start_in(&mut jobs, "bounded-0").is_err());
-        jobs["bounded-0"].complete(&Ok(()));
-        ExportJob::start_in(&mut jobs, "replacement").unwrap();
-        assert_eq!(jobs.len(), MAX_JOBS);
-        assert!(!jobs.contains_key("bounded-0"));
-        jobs.clear();
-        let job = ExportJob::start(Some("registry-expiry")).unwrap().unwrap();
-        job.complete(&Ok(()));
-        job.data.lock().unwrap().finished = Some(Instant::now() - RETENTION);
-        jobs.insert("expired".into(), job);
-        prune(&mut jobs);
-        assert!(jobs.is_empty());
-        let previous = ExportJob::start(Some("registry-reuse")).unwrap().unwrap();
-        previous.complete(&Ok(()));
-        let replacement = ExportJob::start(Some("registry-reuse")).unwrap().unwrap();
-        assert!(!Arc::ptr_eq(&previous, &replacement));
-        replacement.complete(&Ok(()));
-    }
-}
-
-#[cfg(test)]
 mod barrier_tests {
     use super::*;
 

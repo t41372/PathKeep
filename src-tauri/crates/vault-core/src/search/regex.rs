@@ -340,8 +340,8 @@ fn rank(a: &vault_search::Hit, b: &vault_search::Hit, oldest: bool) -> std::cmp:
 /// Compiles a History regex: Rust `regex` syntax, case-insensitive.
 ///
 /// The one place the dialect is decided. The History screen checks patterns against the same
-/// rules before sending them (`src/features/history/regex-dialect.ts`); the shared case table
-/// `regex_dialect_cases` keeps the two in step.
+/// rules before sending them (`src/features/history/regex-dialect.ts`); `history-tools.spec`
+/// checks that a pattern Rust cannot run is explained there and never sent.
 pub(crate) fn build_history_regex(pattern: &str) -> Result<regex::Regex> {
     RegexBuilder::new(pattern)
         .case_insensitive(true)

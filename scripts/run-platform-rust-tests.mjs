@@ -17,6 +17,7 @@ function runHostRustTests(currentPlatform) {
         '--test',
         'native_host',
         '--',
+        '--ignored',
         '--test-threads=1',
       ])
       return
@@ -34,6 +35,7 @@ function runHostRustTests(currentPlatform) {
         '--test',
         'native_host',
         '--',
+        '--ignored',
         '--test-threads=1',
       ])
       return
@@ -51,7 +53,7 @@ function runLinuxNativeTests() {
     'if ! command -v gnome-keyring-daemon >/dev/null 2>&1; then echo "gnome-keyring-daemon is required for Linux native platform tests" >&2; exit 1; fi',
     'export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-$(mktemp -d)}"',
     'eval "$(printf \'pathkeep-test-passphrase\' | gnome-keyring-daemon --unlock --components=secrets)"',
-    'cargo test --manifest-path src-tauri/Cargo.toml -p vault-platform --test native_host -- --test-threads=1',
+    'cargo test --manifest-path src-tauri/Cargo.toml -p vault-platform --test native_host -- --ignored --test-threads=1',
   ].join('; ')
 
   run(['dbus-run-session', '--', 'bash', '-lc', innerScript])

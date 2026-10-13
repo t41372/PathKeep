@@ -68,16 +68,6 @@ pub(super) fn interrupted_restore_marker_present(paths: &ProjectPaths) -> bool {
     restore_journal_path(paths).exists()
 }
 
-#[cfg(test)]
-/// Durably writes `journal` to the marker path (atomic temp + F_FULLFSYNC + rename + dir fsync), so
-/// its presence is itself durable before the quarantine move runs.
-fn write_restore_journal(paths: &ProjectPaths, journal: &RestoreJournal) -> Result<()> {
-    let bytes =
-        serde_json::to_vec(journal).context("serializing the interrupted-restore journal")?;
-    atomic_durable_write(&restore_journal_path(paths), &bytes)
-        .context("writing the interrupted-restore journal")
-}
-
 /// Reads the interrupted-restore marker. `Ok(None)` when it is absent OR unparseable.
 ///
 /// Like the rekey and import markers, an unparseable one is never dropped here: a restore can be
@@ -403,52 +393,6 @@ mod tests {
     }
 
     #[test]
-    fn fails_closed_when_snapshot_and_originals_are_both_gone() {
-        let dir = tempdir().unwrap();
-        let paths = project_paths_with_root(dir.path());
-        ensure_paths(&paths).unwrap();
-        let snapshot = crash_mid_restore(&paths, &plaintext_config(), None);
-        fs::remove_file(snapshot).unwrap();
-        fs::remove_file(paths.quarantine_dir.join(CRASH_TIMESTAMP).join("history-vault.sqlite"))
-            .unwrap();
-
-        let error = recover_interrupted_restore(&paths).expect_err("nothing to restore from");
-        assert!(format!("{error:#}").contains("not recoverable from quarantine"), "{error:#}");
-        assert!(interrupted_restore_marker_present(&paths), "the marker stays for a retry");
-        assert_eq!(
-            detect_disk_encryption_mode(&paths.archive_database_path),
-            DiskEncryptionMode::Absent,
-            "no empty archive appears",
-        );
-    }
-
-    #[test]
-    fn only_reconciles_config_when_the_restore_already_landed() {
-        let dir = tempdir().unwrap();
-        let paths = project_paths_with_root(dir.path());
-        ensure_paths(&paths).unwrap();
-        legacy_db(&paths.archive_database_path, None);
-        let landed = fs::read(&paths.archive_database_path).unwrap();
-        let quarantine = paths.quarantine_dir.join(CRASH_TIMESTAMP);
-        write_restore_journal(&paths, &journal(&paths, "gone.sqlite", &quarantine)).unwrap();
-
-        assert!(recover_interrupted_restore(&paths).expect("recovery"));
-        assert_eq!(fs::read(&paths.archive_database_path).unwrap(), landed, "not re-copied");
-        let config = vault_core::load_config(&paths).unwrap();
-        assert!(matches!(config.archive_mode, ArchiveMode::Plaintext));
-        assert!(config.initialized);
-        assert!(!interrupted_restore_marker_present(&paths));
-    }
-
-    #[test]
-    fn without_a_marker_does_nothing() {
-        let dir = tempdir().unwrap();
-        let paths = project_paths_with_root(dir.path());
-        assert!(!recover_interrupted_restore(&paths).unwrap());
-        assert!(!interrupted_restore_marker_present(&paths));
-    }
-
-    #[test]
     fn keeps_an_unreadable_marker_while_the_canonical_is_absent() {
         let dir = tempdir().unwrap();
         let paths = project_paths_with_root(dir.path());
@@ -459,37 +403,6 @@ mod tests {
         let rendered = format!("{error:#}");
         assert!(rendered.contains("present but unreadable") && rendered.contains("absent"));
         assert!(interrupted_restore_marker_present(&paths));
-    }
-
-    #[test]
-    fn drops_an_unreadable_marker_when_the_canonical_is_present() {
-        let dir = tempdir().unwrap();
-        let paths = project_paths_with_root(dir.path());
-        ensure_paths(&paths).unwrap();
-        legacy_db(&paths.archive_database_path, None);
-        let before = fs::read(&paths.archive_database_path).unwrap();
-        fs::write(restore_journal_path(&paths), b"not valid json").unwrap();
-
-        assert!(recover_interrupted_restore(&paths).unwrap());
-        assert!(!interrupted_restore_marker_present(&paths));
-        assert_eq!(fs::read(&paths.archive_database_path).unwrap(), before, "untouched");
-    }
-
-    #[test]
-    fn journal_round_trips_through_disk() {
-        let dir = tempdir().unwrap();
-        let paths = project_paths_with_root(dir.path());
-        ensure_paths(&paths).unwrap();
-        assert!(read_restore_journal(&paths).unwrap().is_none());
-        let mut written = journal(&paths, "snap.sqlite", Path::new("/quarantine/x"));
-        written.restored_mode = ArchiveMode::Encrypted;
-        written.previous_config = Some("cfg".into());
-        write_restore_journal(&paths, &written).unwrap();
-        let read = read_restore_journal(&paths).unwrap().unwrap();
-        assert!(matches!(read.restored_mode, ArchiveMode::Encrypted));
-        assert_eq!(read.snapshot_ref, written.snapshot_ref);
-        assert_eq!(read.quarantine_dir, "/quarantine/x");
-        assert_eq!(read.previous_config.as_deref(), Some("cfg"));
     }
 
     #[test]

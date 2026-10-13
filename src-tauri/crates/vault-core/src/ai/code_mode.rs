@@ -101,8 +101,8 @@ const GUEST_WASM: &[u8] = include_bytes!("code_mode_guest/harness.wasm");
 ///
 /// Regeneration (dev task): edit `code_mode_guest/harness.js`, rebuild with
 /// `javy build harness.js -o harness.wasm -C source=omitted -C deterministic` (Javy ≥ 9; the
-/// `deterministic` flag makes the artifact byte-reproducible), then run the unit test
-/// `guest_sha256_matches_pin` — it prints the new digest on mismatch; paste it here.
+/// `deterministic` flag makes the artifact byte-reproducible), then paste the output of
+/// `shasum -a 256 harness.wasm` here. Until the pin matches, every `run_code` call is refused.
 const GUEST_WASM_SHA256: &str = "85c423ecf4ea7fe7aabedd2b55bc001c240aa2a6e3f6cd29dda9d4036c885803";
 
 /// The Javy module's entry export (WASI command convention).
@@ -492,8 +492,6 @@ impl HostState {
         // A retrieval / validation error is reported as a refused call (the script can wind down);
         // the host never propagates a retrieval failure into a host trap.
         self.in_host_call.store(true, Ordering::Relaxed);
-        #[cfg(test)]
-        std::thread::sleep(TEST_HOST_CALL_DELAY.with(std::cell::Cell::get));
         let reply = self.run_host_request(request);
         self.in_host_call.store(false, Ordering::Relaxed);
         reply.ok()
@@ -1045,7 +1043,7 @@ fn run_guest_or_outcome(
     match run_guest_with_pin(source, context, runtime, control, wasm, pin) {
         Ok(outcome) => outcome,
         // Any setup failure (integrity/compile/instantiate) becomes an honest CodeOutcome, never a
-        // panic — mapped by the pure [`outcome_from_setup_error`] so the contract is unit-tested.
+        // panic — mapped by the pure [`outcome_from_setup_error`].
         Err(error) => outcome_from_setup_error(source, &error),
     }
 }
@@ -1092,17 +1090,7 @@ thread_local! {
     /// Test-only override of the wall-time budget (so a budget/host-call test that must complete many
     /// real retrievals is not racing the production 5s clock under the instrumented parallel sweep).
     static TEST_WALL_TIME_BUDGET: std::cell::Cell<Option<Duration>> = const { std::cell::Cell::new(None) };
-    /// Test-only extra time each host call takes, standing in for retrieval on a large or busy archive.
-    pub(crate) static TEST_HOST_CALL_DELAY: std::cell::Cell<Duration> = const { std::cell::Cell::new(Duration::ZERO) };
 }
-
-/// Test-only PROCESS-GLOBAL wall-time-budget override in milliseconds (0 = unset), for the rare test
-/// whose sandbox call runs on a DIFFERENT thread than the test (e.g. the `run_code` tool's
-/// `spawn_blocking` worker, where the thread-local override cannot reach). Set under a serialized
-/// guard so cross-thread tests don't race; the thread-local takes precedence when set.
-#[cfg(test)]
-pub(crate) static TEST_WALL_TIME_BUDGET_MS_GLOBAL: std::sync::atomic::AtomicU64 =
-    std::sync::atomic::AtomicU64::new(0);
 
 /// The effective wall-time budget for this run (the production [`WALL_TIME_BUDGET`], or a test override).
 fn wall_time_budget() -> Duration {
@@ -1110,10 +1098,6 @@ fn wall_time_budget() -> Duration {
     {
         if let Some(budget) = TEST_WALL_TIME_BUDGET.with(std::cell::Cell::get) {
             return budget;
-        }
-        let global_ms = TEST_WALL_TIME_BUDGET_MS_GLOBAL.load(std::sync::atomic::Ordering::Relaxed);
-        if global_ms != 0 {
-            return Duration::from_millis(global_ms);
         }
     }
     WALL_TIME_BUDGET

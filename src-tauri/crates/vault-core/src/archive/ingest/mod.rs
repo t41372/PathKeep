@@ -2,7 +2,7 @@
 //! Not responsible for: source-file staging, run lifecycle or index consumption.
 //! Failure modes: duplicate identities, cursor/data split commits, missing cold
 //! evidence, archive-sized memory, checkpoint provenance loss, interrupted batches.
-//! Tests: core_tests, concurrency_tests and dedup_scenarios*.
+//! Tests: concurrency_tests, rowid_resume_tests and dedup_scenarios*.
 
 mod consumer;
 pub(crate) mod parser;
@@ -220,13 +220,9 @@ use checkpoint::create_checkpoint;
 #[cfg(test)]
 mod concurrency_tests;
 #[cfg(test)]
-mod core_tests;
-#[cfg(test)]
 mod dedup_scenarios;
 #[cfg(test)]
 mod dedup_scenarios_baselines;
-#[cfg(test)]
-mod dedup_scenarios_chromium_sidecars;
 #[cfg(test)]
 mod dedup_scenarios_edge_cases;
 #[cfg(test)]
@@ -236,3 +232,5 @@ mod import_equivalence;
 
 #[cfg(test)]
 mod rowid_resume_tests;
+#[cfg(test)]
+mod test_context;

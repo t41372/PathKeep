@@ -2,7 +2,7 @@
 //! Not responsible for: browser SQLite staging, parser internals or search indexing.
 //! Failure modes: source profiles merge, reimports duplicate, parse/cancel leaves
 //! a running run, committed evidence/cursors diverge, preview counts omit duplicates.
-//! Tests: tests::browser_history and browser_history::consumer_tests.
+//! Tests: tests::browser_history.
 
 use super::*;
 use crate::{
@@ -20,8 +20,6 @@ use staging::{
 };
 use vault_store::{CancelToken, Db, Priority, Session, params};
 
-#[cfg(test)]
-mod consumer_tests;
 mod preview;
 mod progress;
 mod review;

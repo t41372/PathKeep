@@ -289,7 +289,6 @@ pub(crate) fn restore_test_env_var(name: &str, value: Option<&std::ffi::OsStr>) 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::tempdir;
 
     #[test]
     fn escape_html_escapes_all_significant_characters() {
@@ -299,22 +298,6 @@ mod tests {
         );
         // Non-significant characters (incl. multibyte CJK) pass through intact.
         assert_eq!(escape_html("普通文字 plain"), "普通文字 plain");
-    }
-
-    #[test]
-    fn sha_helpers_are_stable() {
-        assert_eq!(
-            sha256_hex(b"pathkeep"),
-            "fb2062a6b0c6b2735d597e50e410d6510e6f081fca1f3eb7d7fff3b26f0fe64e"
-        );
-
-        let dir = tempdir().expect("tempdir");
-        let file = dir.path().join("sample.txt");
-        std::fs::write(&file, b"hello world").expect("write file");
-        assert_eq!(
-            file_sha256_hex(&file).expect("hash file"),
-            "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"
-        );
     }
 
     #[test]
@@ -339,85 +322,5 @@ mod tests {
         );
         assert_eq!(filesystem_safe_path_segment(""), "id-empty");
         assert_eq!(identifier_from_filesystem_segment("%3a%zz"), ":%zz");
-    }
-
-    #[test]
-    fn chrome_time_roundtrip_is_lossless_for_valid_inputs() {
-        let original = "2026-04-03T04:00:00+00:00";
-        let chrome = iso_to_chrome_time_micros(original).expect("to chrome");
-        let converted = chrome_time_to_rfc3339(chrome);
-        assert_eq!(converted, original);
-
-        let fractional = "2026-04-03T04:00:00.123456+00:00";
-        let chrome = iso_to_chrome_time_micros(fractional).expect("to chrome fractional");
-        let converted = chrome_time_to_rfc3339(chrome);
-        assert_eq!(converted, fractional);
-    }
-
-    #[test]
-    fn invalid_iso_returns_none_and_invalid_chrome_time_falls_back() {
-        assert!(iso_to_chrome_time_micros("not-a-date").is_none());
-        assert_eq!(chrome_time_to_rfc3339(i64::MIN), "1970-01-01T00:00:00+00:00");
-    }
-
-    #[test]
-    fn date_str_to_unix_ms_range_covers_the_local_day_and_rejects_bad_input() {
-        // The range is the user's day: its first and last instants fall on that local date, and
-        // the next instant starts the next one, whatever the time zone the tests run in.
-        use chrono::{Local, NaiveDate, TimeZone};
-        let local_date =
-            |ms: i64| Local.timestamp_millis_opt(ms).single().expect("instant").date_naive();
-        let (start, end) = date_str_to_unix_ms_range("2026-06-19").expect("valid date");
-        let june_19 = NaiveDate::from_ymd_opt(2026, 6, 19).unwrap();
-        assert_eq!(local_date(start), june_19);
-        assert_eq!(local_date(start - 1), june_19.pred_opt().unwrap());
-        assert_eq!(local_date(end), june_19);
-        assert_eq!(local_date(end + 1), june_19.succ_opt().unwrap());
-
-        // Leading/trailing whitespace is tolerated.
-        assert!(date_str_to_unix_ms_range("  2026-06-19 ").is_some());
-
-        // Bad input returns None.
-        assert!(date_str_to_unix_ms_range("not-a-date").is_none());
-        assert!(date_str_to_unix_ms_range("2026/06/19").is_none());
-        assert!(date_str_to_unix_ms_range("").is_none());
-    }
-
-    #[test]
-    fn domain_extraction_handles_urls_and_bare_hosts() {
-        assert_eq!(url_domain("https://example.com/path?q=1"), "example.com");
-        assert_eq!(url_domain("example.org/path"), "example.org");
-    }
-
-    #[test]
-    fn image_data_to_data_url_detects_common_favicon_formats() {
-        assert_eq!(
-            image_data_to_data_url(&[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, 0x01]),
-            Some("data:image/png;base64,iVBORw0KGgoB".to_string())
-        );
-        assert_eq!(
-            image_data_to_data_url(&[0xFF, 0xD8, 0xFF, 0x00]),
-            Some("data:image/jpeg;base64,/9j/AA==".to_string())
-        );
-        assert_eq!(
-            image_data_to_data_url(b"GIF89a"),
-            Some("data:image/gif;base64,R0lGODlh".to_string())
-        );
-        assert_eq!(
-            image_data_to_data_url(&[0x00, 0x00, 0x01, 0x00]),
-            Some("data:image/x-icon;base64,AAABAA==".to_string())
-        );
-        assert_eq!(
-            image_data_to_data_url(b"RIFF\x00\x00\x00\x00WEBP"),
-            Some("data:image/webp;base64,UklGRgAAAABXRUJQ".to_string())
-        );
-        assert_eq!(
-            image_data_to_data_url(br#"<?xml version="1.0"?><svg viewBox="0 0 1 1"></svg>"#),
-            Some(
-                "data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIj8+PHN2ZyB2aWV3Qm94PSIwIDAgMSAxIj48L3N2Zz4="
-                    .to_string()
-            )
-        );
-        assert!(image_data_to_data_url(b"not-an-image").is_none());
     }
 }

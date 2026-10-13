@@ -161,10 +161,7 @@ digests, rebuild search under the destination mode, save a verified safety snaps
 in that same mode, then install the verified set. Retention uses the native snapshot
 ledger and preserves the last openable safety snapshot.
 
-The worker bundle tests `export_app_data_writes_a_bundle_at_the_requested_target`,
-`preview_import_reads_a_bundle_written_by_export_app_data`, and
-`apply_import_restores_an_exported_bundle_onto_a_fresh_project_root` exercise native
-bundles again. The desktop migration round-trip assertions are restored. Native
+`move.spec` (E2E) exports a native bundle and imports it again. Native
 maintenance tests cover both modes, committed backup prefixes, password/keychain
 continuity, interruption recovery and wipe. Legacy SQLCipher fixtures remain for the converter's tests and until
 area 6 removes the old openers.

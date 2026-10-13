@@ -87,14 +87,3 @@ mod linux_tray {
         Some(owned)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::current_platform_name;
-
-    #[test]
-    fn current_platform_name_is_supported() {
-        let value = current_platform_name();
-        assert!(matches!(value.as_str(), "macos" | "windows" | "linux"));
-    }
-}

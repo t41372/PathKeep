@@ -1,7 +1,7 @@
 //! Responsibilities: select profiles and preserve native cursor units.
 //! Not responsible for: database ownership or batch transactions.
 //! Failure modes: unreadable profiles run; raw microsecond markers are truncated.
-//! Tests: core_tests and dedup_scenarios_edge_cases.
+//! Tests: dedup_scenarios* through full ingests.
 use super::*;
 use browser_history_parser::{ParsedFavicon, ParsedUrl};
 /// Keeps only the selected profiles that are currently readable on this host.

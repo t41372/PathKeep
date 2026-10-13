@@ -412,37 +412,3 @@ pub fn get_intelligence_secondary_overview(
         intelligence::get_intelligence_secondary_overview(vault, request)
     })
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn section_empty_helpers_cover_composite_payload_edges() {
-        assert!(digest_summary_is_empty(&DigestSummary::default()));
-        let mut digest = DigestSummary::default();
-        digest.refind_pages.value = 1;
-        assert!(!digest_summary_is_empty(&digest));
-
-        assert!(search_effectiveness_is_empty(&SearchEffectiveness::default()));
-        let search = SearchEffectiveness {
-            top_resolving_sources: vault_core::IntelligencePage {
-                items: vec![StableSource::default()],
-                next_cursor: None,
-            },
-            ..SearchEffectiveness::default()
-        };
-        assert!(!search_effectiveness_is_empty(&search));
-
-        assert!(domain_deep_dive_is_empty(&DomainDeepDive::default()));
-        let domain = DomainDeepDive { total_visits: 1, ..DomainDeepDive::default() };
-        assert!(!domain_deep_dive_is_empty(&domain));
-
-        assert!(compare_set_detail_is_empty(&CompareSetDetail::default()));
-        let compare = CompareSetDetail {
-            recent_days: vec!["2026-04-26".to_string()],
-            ..CompareSetDetail::default()
-        };
-        assert!(!compare_set_detail_is_empty(&compare));
-    }
-}

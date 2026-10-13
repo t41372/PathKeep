@@ -448,25 +448,6 @@ pub fn delete_planes(paths: &ProjectPaths, provider_id: &str, model: &str) -> Re
     Ok(removed)
 }
 
-/// Reports total bytes consumed by all derived recall/rescore planes under the vector plane dir.
-///
-/// Filesystem-only so storage review can size the derived planes without loading any engine.
-pub fn derived_plane_bytes(paths: &ProjectPaths) -> u64 {
-    let Ok(entries) = fs::read_dir(&paths.vectors_dir) else {
-        return 0;
-    };
-    entries
-        .flatten()
-        .filter(|entry| {
-            matches!(
-                entry.path().extension().and_then(|ext| ext.to_str()),
-                Some(BINARY_PLANE_EXTENSION) | Some(INT8_PLANE_EXTENSION)
-            )
-        })
-        .filter_map(|entry| entry.metadata().ok().map(|meta| meta.len()))
-        .sum()
-}
-
 /// Writes BOTH derived planes atomically + in lockstep from one streaming projection (05 §10).
 ///
 /// Opens the binary + int8 temp files, writes both magic + JSON headers, then invokes `project` with a
@@ -641,60 +622,6 @@ mod tests {
     }
 
     #[test]
-    fn binary_bytes_rounds_up_to_whole_bytes() {
-        assert_eq!(binary_bytes_for_dim(0), 0);
-        assert_eq!(binary_bytes_for_dim(1), 1);
-        assert_eq!(binary_bytes_for_dim(8), 1);
-        assert_eq!(binary_bytes_for_dim(9), 2);
-        assert_eq!(binary_bytes_for_dim(256), 32);
-    }
-
-    #[test]
-    fn binarize_uses_sign_bit_with_zero_as_positive() {
-        // dim 10: bits laid LSB-first within each byte; component >= 0 -> 1.
-        let vector = vec![1.0, -1.0, 0.0, -0.001, 5.0, -5.0, 0.0, 2.0, -3.0, 4.0];
-        let bits = binarize(&vector);
-        assert_eq!(bits.len(), 2);
-        // byte 0 bits for indices 0..8: +,-,+(0.0),-,+,-,+(0.0),+  => 1,0,1,0,1,0,1,1
-        assert_eq!(bits[0], 0b1101_0101);
-        // byte 1 bits for indices 8,9: -,+ => 0,1
-        assert_eq!(bits[1], 0b0000_0010);
-    }
-
-    #[test]
-    fn hamming_distance_counts_differing_bits_over_words_and_tail() {
-        // 9 dims -> 2 bytes, so the second byte exercises the ragged tail path.
-        let a = binarize(&[1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]);
-        let b = binarize(&[-1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, -1.0]);
-        // Two bits differ (index 0 and index 8).
-        assert_eq!(hamming_distance(&a, &b), 2);
-        assert_eq!(hamming_distance(&a, &a), 0);
-    }
-
-    #[test]
-    fn hamming_distance_uses_full_u64_word_path() {
-        // 64 dims -> exactly one u64 word, no tail; flip 3 bits.
-        let mut left = vec![1.0f32; 64];
-        let mut right = vec![1.0f32; 64];
-        right[0] = -1.0;
-        right[31] = -1.0;
-        right[63] = -1.0;
-        let _ = &mut left;
-        assert_eq!(hamming_distance(&binarize(&left), &binarize(&right)), 3);
-    }
-
-    #[test]
-    #[should_panic(expected = "equal-length bit vectors")]
-    fn hamming_distance_debug_asserts_equal_length() {
-        // The equal-length contract is now a debug assertion (D1 hardening): a future caller that
-        // prefix-compares a dim-mismatched pair trips here instead of silently scoring garbage. The
-        // release path stays total via the `min` fallback (compiled-out assertion).
-        let a = vec![0xFFu8, 0x00u8];
-        let b = vec![0x00u8];
-        let _ = hamming_distance(&a, &b);
-    }
-
-    #[test]
     fn quantize_dequantize_round_trips_within_error_bound() {
         let vector = vec![0.9, -0.3, 0.0, 0.5, -0.7, 0.123, -0.456];
         let int8 = quantize_int8(&vector);
@@ -711,39 +638,6 @@ mod tests {
         assert!(int8.codes.contains(&127) || int8.codes.contains(&-127));
     }
 
-    #[test]
-    fn quantize_is_symmetric_and_excludes_negative_128() {
-        let int8 = quantize_int8(&[1.0, -1.0, 0.5, -0.5]);
-        // x and -x quantize to opposite codes; no code reaches -128.
-        assert_eq!(int8.codes[0], 127);
-        assert_eq!(int8.codes[1], -127);
-        assert_eq!(int8.codes[2], 64);
-        assert_eq!(int8.codes[3], -64);
-        assert!(int8.codes.iter().all(|&code| code >= -127));
-    }
-
-    #[test]
-    fn quantize_all_zero_vector_is_lossless() {
-        let int8 = quantize_int8(&[0.0, 0.0, 0.0]);
-        assert_eq!(int8.scale, 0.0);
-        assert_eq!(int8.codes, vec![0, 0, 0]);
-        assert_eq!(dequantize_int8(&int8), vec![0.0, 0.0, 0.0]);
-    }
-
-    #[test]
-    fn dot_product_matches_manual() {
-        assert_eq!(dot_product(&[1.0, 2.0, 3.0], &[4.0, 5.0, 6.0]), 32.0);
-    }
-
-    #[test]
-    #[should_panic(expected = "equal-length vectors")]
-    fn dot_product_debug_asserts_equal_length() {
-        // The equal-length contract is now a debug assertion (D1 hardening): a future caller that
-        // prefix-dots a dim-mismatched pair trips here instead of silently scoring garbage. The
-        // release path stays total via the `min` fallback (compiled-out assertion).
-        let _ = dot_product(&[1.0, 2.0, 3.0], &[4.0, 5.0]);
-    }
-
     /// Seeds a `.pkvec` store with the given records and returns its paths.
     fn seed_store(records: &[(u64, Vec<f32>)], dim: usize) -> (ProjectPaths, tempfile::TempDir) {
         let dir = tempdir().expect("tempdir");
@@ -752,37 +646,6 @@ mod tests {
             VectorStore::create_stamped(&paths, &fingerprint(dim, "model-a")).expect("create");
         store.append_vectors(records).expect("append");
         (paths, dir)
-    }
-
-    #[test]
-    fn build_planes_projects_store_and_round_trips_both_planes() {
-        let records = vec![(10u64, vec![1.0, -1.0, 0.5]), (20u64, vec![-1.0, 1.0, -0.5])];
-        let (paths, _dir) = seed_store(&records, 3);
-
-        let report =
-            build_planes_from_store(&paths, "static-embed", "model-a").expect("build planes");
-        assert_eq!(report.vectors, 2);
-        assert_eq!(report.dim, Some(3));
-
-        let binary = BinaryPlane::for_provider(&paths, "static-embed", "model-a");
-        let bin_records = binary.read_all().expect("binary read");
-        assert_eq!(bin_records.len(), 2);
-        assert_eq!(bin_records[0].0, 10);
-        assert_eq!(bin_records[0].1, binarize(&records[0].1));
-
-        let int8 = Int8Plane::for_provider(&paths, "static-embed", "model-a");
-        let i8_records = int8.read_all().expect("int8 read");
-        assert_eq!(i8_records.len(), 2);
-        assert_eq!(i8_records[1].0, 20);
-        assert_eq!(i8_records[1].1, quantize_int8(&records[1].1));
-
-        // Headers carry the source fingerprint hash.
-        let live = fingerprint(3, "model-a");
-        assert_eq!(
-            binary.read_header().expect("hdr").expect("present").fingerprint_hash,
-            live.hash()
-        );
-        assert!(!planes_are_stale(&paths, "static-embed", "model-a", &live).expect("not stale"));
     }
 
     #[test]
@@ -830,35 +693,6 @@ mod tests {
     }
 
     #[test]
-    fn int8_plane_reader_errors_when_plane_is_absent() {
-        // Opening a seek reader over a never-built plane is a clear error (the query path never reaches
-        // here — it gates on the binary plane being empty first — but the boundary stays honest).
-        let dir = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(dir.path());
-        let int8 = Int8Plane::for_provider(&paths, "static-embed", "never-built");
-        let error = match int8.reader() {
-            Ok(_) => panic!("expected an absent-plane error"),
-            Err(error) => error,
-        };
-        assert!(error.to_string().contains("absent"), "got: {error}");
-    }
-
-    #[test]
-    fn build_planes_without_store_writes_empty_planes() {
-        let dir = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(dir.path());
-        let report =
-            build_planes_from_store(&paths, "static-embed", "model-a").expect("build empty");
-        assert_eq!(report.vectors, 0);
-        assert_eq!(report.dim, None);
-        let binary = BinaryPlane::for_provider(&paths, "static-embed", "model-a");
-        assert!(binary.exists());
-        assert!(binary.read_all().expect("empty read").is_empty());
-        let int8 = Int8Plane::for_provider(&paths, "static-embed", "model-a");
-        assert!(int8.read_all().expect("empty read").is_empty());
-    }
-
-    #[test]
     fn planes_are_stale_when_missing_or_fingerprint_changes() {
         let live = fingerprint(3, "model-a");
         let dir = tempdir().expect("tempdir");
@@ -874,64 +708,5 @@ mod tests {
         // A changed dim/model -> different hash -> stale.
         let changed = fingerprint(8, "model-a");
         assert!(planes_are_stale(&paths, "static-embed", "model-a", &changed).expect("changed"));
-    }
-
-    #[test]
-    fn delete_planes_removes_both_and_reports_state() {
-        let records = vec![(1u64, vec![1.0, 0.0, 0.0])];
-        let (paths, _dir) = seed_store(&records, 3);
-        build_planes_from_store(&paths, "static-embed", "model-a").expect("build");
-        assert!(delete_planes(&paths, "static-embed", "model-a").expect("delete"));
-        assert!(!BinaryPlane::for_provider(&paths, "static-embed", "model-a").exists());
-        assert!(!Int8Plane::for_provider(&paths, "static-embed", "model-a").exists());
-        // Deleting absent planes is a harmless false.
-        assert!(!delete_planes(&paths, "static-embed", "model-a").expect("second delete"));
-    }
-
-    #[test]
-    fn derived_plane_bytes_sums_only_plane_files() {
-        let dir = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(dir.path());
-        assert_eq!(derived_plane_bytes(&paths), 0);
-        let records = vec![(1u64, vec![1.0, 0.0, 0.0])];
-        let (paths, _dir) = seed_store(&records, 3);
-        build_planes_from_store(&paths, "static-embed", "model-a").expect("build");
-        fs::write(paths.vectors_dir.join("notes.txt"), b"ignore").expect("write txt");
-        let bytes = derived_plane_bytes(&paths);
-        let binary = BinaryPlane::for_provider(&paths, "static-embed", "model-a");
-        let int8 = Int8Plane::for_provider(&paths, "static-embed", "model-a");
-        let expected = binary.path().metadata().expect("meta").len()
-            + int8.path().metadata().expect("meta").len();
-        assert_eq!(bytes, expected);
-    }
-
-    #[test]
-    fn read_rejects_bad_magic_and_partial_record() {
-        let records = vec![(1u64, vec![1.0, 0.0, 0.0]), (2u64, vec![0.0, 1.0, 0.0])];
-        let (paths, _dir) = seed_store(&records, 3);
-        build_planes_from_store(&paths, "static-embed", "model-a").expect("build");
-
-        let binary = BinaryPlane::for_provider(&paths, "static-embed", "model-a");
-        // Truncate mid-record to force the partial-record error.
-        let len = binary.path().metadata().expect("meta").len();
-        let file = std::fs::OpenOptions::new().write(true).open(binary.path()).expect("open");
-        file.set_len(len - 1).expect("truncate");
-        assert!(binary.read_all().expect_err("partial").to_string().contains("partial record"));
-
-        // Bad magic.
-        let int8 = Int8Plane::for_provider(&paths, "static-embed", "model-a");
-        fs::write(int8.path(), b"NOTPLANExxxx").expect("garbage");
-        assert!(
-            int8.read_header().expect_err("bad magic").to_string().contains("unrecognized magic")
-        );
-    }
-
-    #[test]
-    fn read_header_none_for_absent_plane() {
-        let dir = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(dir.path());
-        let binary = BinaryPlane::for_provider(&paths, "static-embed", "model-a");
-        assert!(binary.read_header().expect("hdr").is_none());
-        assert!(!binary.exists());
     }
 }

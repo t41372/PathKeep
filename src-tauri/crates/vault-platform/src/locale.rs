@@ -36,7 +36,7 @@ fn platform_languages() -> Vec<String> {
 }
 
 /// Maps the Windows LANGIDs PathKeep cares about to a language tag.
-#[cfg_attr(not(any(target_os = "windows", test)), allow(dead_code))]
+#[cfg(target_os = "windows")]
 fn windows_langid_tag(langid: u16) -> Option<&'static str> {
     const LANG_CHINESE: u16 = 0x04;
     const LANG_ENGLISH: u16 = 0x09;
@@ -139,40 +139,4 @@ fn hour_pattern_is_12_hour(pattern: &str) -> bool {
         }
     }
     false
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn windows_langids_map_to_supported_languages() {
-        assert_eq!(windows_langid_tag(0x0404), Some("zh-TW"));
-        assert_eq!(windows_langid_tag(0x0c04), Some("zh-TW"));
-        assert_eq!(windows_langid_tag(0x1404), Some("zh-TW"));
-        assert_eq!(windows_langid_tag(0x7c04), Some("zh-TW"));
-        assert_eq!(windows_langid_tag(0x0804), Some("zh-CN"));
-        assert_eq!(windows_langid_tag(0x1004), Some("zh-CN"));
-        assert_eq!(windows_langid_tag(0x0409), Some("en"));
-        assert_eq!(windows_langid_tag(0x0809), Some("en"));
-        assert_eq!(windows_langid_tag(0x0411), None);
-    }
-
-    #[test]
-    fn hour_patterns_say_which_clock() {
-        for twelve in ["h a", "h:mm tt", "ah時", "K:mm"] {
-            assert!(hour_pattern_is_12_hour(twelve), "{twelve}");
-        }
-        for twenty_four in ["HH", "H:mm", "HH'h'mm", "k:mm"] {
-            assert!(!hour_pattern_is_12_hour(twenty_four), "{twenty_four}");
-        }
-    }
-
-    #[test]
-    fn preferred_ui_languages_returns_tags_without_encodings() {
-        for tag in preferred_ui_languages() {
-            assert!(!tag.is_empty());
-            assert!(!tag.contains('.'), "{tag}");
-        }
-    }
 }

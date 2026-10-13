@@ -355,14 +355,6 @@ impl DayTotals {
         self.result
     }
 }
-#[cfg(test)]
-fn compute_browse_day_insights(date: &str, visits: &[DayVisitRow]) -> BrowseDayInsights {
-    let mut day = DayTotals::new(date);
-    for visit in visits {
-        day.add(visit);
-    }
-    day.finish()
-}
 
 fn local_hour_of(visit_time_ms: i64) -> Option<i64> {
     match Local.timestamp_millis_opt(visit_time_ms) {
@@ -400,11 +392,13 @@ fn resolve_local_midnight(day: NaiveDate) -> Result<chrono::DateTime<Local>> {
     }
 }
 
-/// Inner match split out so the coverage gate can replace it with a
-/// version that doesn't carry the two defensive arms whose preconditions
-/// no live timezone reproduces — see `Why this helper is duplicated for
-/// `cfg(coverage)`` below.
-#[cfg(not(coverage))]
+/// Resolves 01:00 local on a day whose wall-clock midnight was skipped.
+///
+/// The `Ambiguous` and `None` arms fire only when 01:00 on such a day is itself
+/// doubled or also skipped. No shipped tz database produces that (midnight
+/// skipping needs a pre-midnight DST transition, and the only such cluster,
+/// Toronto 1919, has a 1 h gap that lands before 01:00), but chrono could in
+/// principle return either variant for a custom `TimeZone`, so they stay.
 fn resolve_local_01_when_midnight_was_skipped(day: NaiveDate) -> Result<chrono::DateTime<Local>> {
     match Local.from_local_datetime(&day.and_hms_opt(1, 0, 0).context("hms overflow")?) {
         LocalResult::Single(value) => Ok(value),
@@ -413,32 +407,6 @@ fn resolve_local_01_when_midnight_was_skipped(day: NaiveDate) -> Result<chrono::
             anyhow::bail!("could not resolve a local-midnight timestamp for {day}",)
         }
     }
-}
-
-/// Coverage-build mirror of `resolve_local_01_when_midnight_was_skipped`.
-///
-/// ## Why this helper is duplicated for `cfg(coverage)`
-/// The production arms `LocalResult::Ambiguous` and `LocalResult::None`
-/// fire only when wall-clock 01:00 on a day where wall-clock 00:00 did
-/// not exist is itself either doubled (Ambiguous) or also skipped
-/// (None). No real tz in `/usr/share/zoneinfo` and no parseable POSIX
-/// TZ string can produce either condition: midnight skipping requires
-/// a pre-midnight DST transition (the only such cluster in tzdata is
-/// Toronto 1919, which has a 1 h gap that lands before 01:00), and a
-/// >2 h spring forward at or before midnight is similarly absent from
-/// every shipped tz database. We keep the production arms as defensive
-/// scaffolding because chrono could in principle return either variant
-/// for a maliciously-crafted custom `TimeZone`, but we provide a
-/// coverage-mode variant that uses `MappedLocalTime::earliest()` so the
-/// `bun run coverage:rust` gate can verify 100 % of the executable
-/// surface without inventing a fake timezone. This mirrors the
-/// `#[cfg(coverage)]` updater override in `src-tauri/src/updater.rs`.
-#[cfg(coverage)]
-fn resolve_local_01_when_midnight_was_skipped(day: NaiveDate) -> Result<chrono::DateTime<Local>> {
-    Local
-        .from_local_datetime(&day.and_hms_opt(1, 0, 0).context("hms overflow")?)
-        .earliest()
-        .with_context(|| format!("could not resolve a local-midnight timestamp for {day}"))
 }
 
 /// Per-host search-engine query parameter map mirroring the frontend

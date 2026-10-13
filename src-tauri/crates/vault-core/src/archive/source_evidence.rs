@@ -3,7 +3,7 @@
 //! Failure modes: optional fields disappear, evidence is lost before a cursor
 //! commits, large evidence exceeds the batch bound, keys are ignored, evidence the
 //! archive already holds is written again or a changed value is taken for a copy.
-//! Tests: source_evidence_tests and ingest::core_tests.
+//! Tests: source_evidence_tests.
 use crate::utils::now_rfc3339;
 use anyhow::Result;
 use browser_history_parser::{

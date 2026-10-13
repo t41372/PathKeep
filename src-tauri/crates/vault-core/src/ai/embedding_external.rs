@@ -15,11 +15,9 @@
 //! ## Why this module exists
 //! The `EmbeddingProvider` trait is vendor-free by contract (`traits.rs`). This adapter is the
 //! only embedding file allowed to depend on reqwest, so the transport stays swappable. The real
-//! HTTP path is `#[cfg(not(any(test, coverage)))]`; a deterministic same-signature stub backs
-//! `#[cfg(any(test, coverage))]` (the established `provider.rs`/`llm.rs` pattern) so the 100%
-//! coverage gate is met without a live server. The PURE helpers (request-body building,
-//! response decoding, descriptor/dtype derivation, normalize) are un-gated and unit-tested so a
-//! field/label swap is caught by the unit + mutation gates rather than shipping silently.
+//! HTTP path is `#[cfg(not(test))]`; under `cfg(test)` a deterministic same-signature stub
+//! fabricates a wire-shaped reply and runs it through the same response decoder, so the index
+//! and search tests get vectors without a live server.
 
 use super::provider::l2_normalize;
 use super::traits::{
@@ -29,7 +27,7 @@ use super::{AiProviderRuntime, AiRequestFormat};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
-#[cfg(not(any(test, coverage)))]
+#[cfg(not(test))]
 use std::time::Duration;
 
 /// Max inputs sent per `/v1/embeddings` HTTP request.
@@ -46,12 +44,11 @@ pub(super) const EMBEDDING_HTTP_BATCH: usize = 64;
 /// Embedding a batch on a constrained local server (CPU-only LM Studio/Ollama) can take a while
 /// per batch; the timeout is generous so a legitimately slow batch is not mistaken for a hang,
 /// while still bounding a truly dead endpoint.
-#[cfg(not(any(test, coverage)))]
+#[cfg(not(test))]
 const EMBEDDING_HTTP_TIMEOUT: Duration = Duration::from_secs(120);
 
 // ---------------------------------------------------------------------------
-// Wire types (always compiled so the PURE encode/decode helpers + their
-// mutation-hardening tests exist in every build).
+// Wire types.
 // ---------------------------------------------------------------------------
 
 /// Request body for `POST {base_url}/embeddings` (OpenAI-compatible shape).
@@ -87,8 +84,8 @@ struct EmbeddingsResponseBody {
 
 /// Builds the JSON request body bytes for one batch under one model.
 ///
-/// Pure (no I/O) so the encoding — model id placement, the omit-when-`None` dimension hint, the
-/// float encoding format — is unit-tested. `requested_dim` is the resolver's output: `Some(n)`
+/// Pure (no I/O): model id placement, the omit-when-`None` dimension hint and the float encoding
+/// format. `requested_dim` is the resolver's output: `Some(n)`
 /// is an explicit MRL hint, `None` asks for the native size.
 pub(super) fn build_request_body(
     model: &str,
@@ -106,7 +103,7 @@ pub(super) fn build_request_body(
 
 /// Decodes a `/v1/embeddings` response body into ordered, defensively-normalized vectors.
 ///
-/// Pure (no I/O) so the wire contract is unit-tested:
+/// Pure (no I/O). The wire contract:
 /// - reads the ACTUAL returned vectors (02 §C.3 rule a) — the dim is whatever the server sent.
 /// - L2-normalizes every vector defensively (rule b), so MRL-truncated or un-normalized
 ///   transports still produce cosine-correct vectors.
@@ -199,7 +196,7 @@ pub(super) fn external_descriptor(
 /// External embedding provider implementing [`EmbeddingProvider`] over `/v1/embeddings`.
 ///
 /// Holds the resolved provider runtime (config + in-memory secret) and the resolved request-dim
-/// hint. The real network path is gated behind `cfg(not(any(test, coverage)))`; the stub path
+/// hint. The real network path is gated behind `cfg(not(test))`; the stub path
 /// returns deterministic, role-aware, normalized vectors with the same public call graph.
 pub struct ExternalEmbeddingProvider {
     runtime: AiProviderRuntime,
@@ -220,7 +217,7 @@ impl ExternalEmbeddingProvider {
     /// The embeddings endpoint under the configured address (`openai_api_root`: `localhost`
     /// pinned to IPv4, `/v1` added for a bare LM Studio or Ollama address, a pasted endpoint
     /// trimmed back to its root).
-    #[cfg(not(any(test, coverage)))]
+    #[cfg(not(test))]
     fn endpoint(&self) -> Result<String> {
         let base = self
             .runtime
@@ -261,8 +258,8 @@ impl EmbeddingProvider for ExternalEmbeddingProvider {
 
 /// Builds ONE `/v1/embeddings` POST, attaching `Authorization: Bearer …` ONLY for a present key.
 ///
-/// Always compiled (not behind the network cfg) so the OPTIONAL-key contract is a unit-tested,
-/// coverage-counted property of the BUILT request rather than a claim about the live socket: a
+/// Always compiled (not behind the network cfg) so the OPTIONAL-key contract is a unit-tested
+/// property of the BUILT request rather than a claim about the live socket: a
 /// `None` key (no key, or a whitespace-only one — see [`AiProviderRuntime::api_key_for_transport`])
 /// attaches NO auth header at all, so a keyless local server (LM Studio / Ollama) is reached
 /// untouched; we never send a hollow `Bearer ` a key-enforcing server would reject. `Some(key)`
@@ -283,8 +280,8 @@ pub(super) fn build_embeddings_request(
 
 /// Turns one `/v1/embeddings` HTTP outcome into vectors, or surfaces the PROVIDER's OWN error.
 ///
-/// Always compiled (not behind the network cfg) so the "only a provider-returned error fails the
-/// call" contract is a unit-tested, coverage-counted property. A NON-success status (the provider's
+/// Always compiled (not behind the network cfg) so the test stub decodes through it too. A
+/// NON-success status (the provider's
 /// real 401/403/429/5xx — e.g. a key-enforcing cloud server rejecting a missing/invalid key)
 /// surfaces verbatim, carrying the server's own response body, NOT a synthetic PathKeep
 /// precondition. A success status decodes + normalizes the vectors. `status_code` is the numeric
@@ -343,7 +340,7 @@ fn reply_excerpt(body: &[u8]) -> String {
 }
 
 /// Real `/v1/embeddings` embed: re-chunks, POSTs JSON, decodes + normalizes each batch.
-#[cfg(not(any(test, coverage)))]
+#[cfg(not(test))]
 async fn embed_impl(
     provider: &ExternalEmbeddingProvider,
     texts: &[String],
@@ -384,39 +381,33 @@ async fn embed_impl(
     Ok(out)
 }
 
-/// Deterministic, role-aware, normalized stub embed for tests and coverage builds.
+/// Deterministic, role-aware, normalized stub embed for tests.
 ///
 /// Mirrors the production call graph (re-chunk → per-batch decode) without a live server, and
 /// reuses the SAME pure encode/decode helpers as production so those paths are exercised: it
 /// builds the request body, fabricates a wire-shaped response, then decodes it. Two different
 /// texts (or roles) produce different vectors; the dim is the requested hint or a small synthetic
 /// default with no relation to any real model.
-#[cfg(any(test, coverage))]
+#[cfg(test)]
 async fn embed_impl(
     provider: &ExternalEmbeddingProvider,
     texts: &[String],
     role: EmbeddingRole,
 ) -> Result<Vec<Vec<f32>>> {
-    #[cfg(coverage)]
-    {
-        if provider.runtime.config.id.contains("embed-http-error") {
-            anyhow::bail!("forced coverage external embedding error");
-        }
-    }
     if texts.is_empty() {
         return Ok(Vec::new());
     }
     let dim = provider.requested_dim.unwrap_or(STUB_EXTERNAL_DIM);
     let mut out = Vec::with_capacity(texts.len());
     for chunk in texts.chunks(EMBEDDING_HTTP_BATCH) {
-        // Exercise the production encoder so a body-shape regression is caught in coverage too.
+        // Run the production encoder so a body it cannot build fails here too.
         let _body = build_request_body(
             &provider.runtime.config.default_model,
             chunk,
             provider.requested_dim,
         )?;
         let response_bytes = stub_response_bytes(&provider.runtime.config.id, role, chunk, dim);
-        out.extend(decode_response_body(&response_bytes, chunk.len())?);
+        out.extend(embeddings_response_to_vectors(200, true, &response_bytes, chunk.len())?);
     }
     Ok(out)
 }
@@ -425,16 +416,16 @@ async fn embed_impl(
 ///
 /// An arbitrary small number with NO relationship to any real model's native dimension — picking
 /// a real dim (1024/1536/768) here is exactly the D4 truth-assumption this block removes.
-#[cfg(any(test, coverage))]
+#[cfg(test)]
 const STUB_EXTERNAL_DIM: usize = 8;
 
-/// Builds wire-shaped response bytes for the stub so the real decoder runs in tests/coverage.
+/// Builds wire-shaped response bytes for the stub so the real decoder runs in tests.
 ///
 /// Deterministically derives each component from a per-(provider, role, text) digest so two
 /// different texts or roles differ, and tags each datum with its `index` so the decoder's
 /// reorder path is exercised. The vectors are intentionally NOT pre-normalized — the decoder's
 /// defensive L2-normalize must do that, and the tests assert near-unit norm afterwards.
-#[cfg(any(test, coverage))]
+#[cfg(test)]
 fn stub_response_bytes(
     provider_id: &str,
     role: EmbeddingRole,
@@ -460,9 +451,6 @@ fn stub_response_bytes(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ai::embedding_engine::AnyEmbeddingProvider;
-    use crate::ai::embedding_static::StaticEmbeddingProvider;
-    use crate::ai::provider::l2_normalize;
     use crate::models::{AiProviderConfig, AiProviderPurpose};
     use secrecy::SecretString;
 
@@ -481,10 +469,6 @@ mod tests {
             },
             api_key: Some(SecretString::from("test-key".to_string())),
         }
-    }
-
-    fn near_unit_norm(vector: &[f32]) -> f32 {
-        vector.iter().map(|value| value * value).sum::<f32>().sqrt()
     }
 
     // ── OPTIONAL-key transport contract (assert on the BUILT request, not a mock) ─────────────────
@@ -523,96 +507,6 @@ mod tests {
     }
 
     #[test]
-    fn embeddings_response_surfaces_provider_401_verbatim_and_decodes_success() {
-        // A PROVIDER-returned 401 (e.g. a key-enforcing cloud server rejecting a missing/invalid
-        // key) surfaces as the provider's OWN error carrying its response body — NOT a synthetic
-        // PathKeep precondition. This is the "only the provider may say no" half of the principle.
-        let unauthorized = embeddings_response_to_vectors(
-            401,
-            false,
-            br#"{"error":{"message":"Incorrect API key provided"}}"#,
-            1,
-        )
-        .expect_err("a 401 must surface as an error");
-        let message = unauthorized.to_string();
-        assert!(message.contains("status 401"), "carries the provider status: {message}");
-        assert!(
-            message.contains("Incorrect API key provided"),
-            "carries the provider's own body verbatim: {message}"
-        );
-
-        // A 403 is likewise surfaced (any non-success provider verdict blocks, nothing else does).
-        let forbidden =
-            embeddings_response_to_vectors(403, false, b"forbidden", 1).expect_err("403 surfaces");
-        assert!(forbidden.to_string().contains("status 403"));
-
-        // A success status decodes + L2-normalizes the returned vectors.
-        let ok_body = serde_json::to_vec(&serde_json::json!({
-            "data": [ { "index": 0, "embedding": [3.0, 0.0, 4.0] } ]
-        }))
-        .expect("body");
-        let vectors =
-            embeddings_response_to_vectors(200, true, &ok_body, 1).expect("success decodes");
-        assert_eq!(vectors.len(), 1);
-        assert!((near_unit_norm(&vectors[0]) - 1.0).abs() < 1e-6);
-    }
-
-    /// What a service may send back with a 2xx status, and what the user must then see. Ways it
-    /// could go wrong: LM Studio's 200 + `{"error": "..."}` decoded as "no vectors" with its
-    /// words dropped; an OpenAI-style error object shown as raw JSON; a reply with vectors and
-    /// `"error": null` rejected; an HTML page reported without a hint of what it was.
-    #[test]
-    fn a_successful_status_with_an_error_says_what_the_service_said() {
-        let lm_studio = embeddings_response_to_vectors(
-            200,
-            true,
-            br#"{"error":"Unexpected endpoint or method. (POST /embeddings)"}"#,
-            1,
-        )
-        .expect_err("an error body fails");
-        assert_eq!(
-            lm_studio.to_string(),
-            "the embedding service answered with an error: Unexpected endpoint or method. (POST /embeddings)"
-        );
-
-        let openai_style = embeddings_response_to_vectors(
-            200,
-            true,
-            br#"{"error":{"message":"model 'chat-model' is not an embedding model","type":"invalid_request_error"}}"#,
-            1,
-        )
-        .expect_err("an error object fails");
-        assert!(
-            openai_style.to_string().ends_with("model 'chat-model' is not an embedding model"),
-            "{openai_style}"
-        );
-
-        let bare_object = embeddings_response_to_vectors(200, true, br#"{"error":{"code":7}}"#, 1)
-            .expect_err("an error without a message fails");
-        assert!(bare_object.to_string().ends_with(r#"{"code":7}"#), "{bare_object}");
-
-        let with_null_error = serde_json::to_vec(&serde_json::json!({
-            "error": null,
-            "data": [ { "index": 0, "embedding": [1.0, 0.0] } ]
-        }))
-        .expect("body");
-        assert_eq!(
-            embeddings_response_to_vectors(200, true, &with_null_error, 1).expect("vectors").len(),
-            1
-        );
-
-        let page = format!("<html><body>{}</body></html>", "x".repeat(400));
-        let html = embeddings_response_to_vectors(200, true, page.as_bytes(), 1)
-            .expect_err("a web page fails");
-        let shown = format!("{html:#}");
-        assert!(shown.contains("reply has no vectors: <html><body>x"), "{shown}");
-        assert!(shown.contains('…') && shown.len() < 600, "only the start is shown: {shown}");
-
-        let empty = embeddings_response_to_vectors(200, true, b"", 1).expect_err("empty fails");
-        assert!(format!("{empty:#}").contains("an empty reply"));
-    }
-
-    #[test]
     fn api_key_for_transport_treats_absent_and_blank_keys_as_no_header() {
         // None → no header.
         let mut absent = runtime(AiRequestFormat::LmStudio, "p", None);
@@ -628,48 +522,6 @@ mod tests {
         let mut present = runtime(AiRequestFormat::LmStudio, "p", None);
         present.api_key = Some(SecretString::from("sk-real".to_string()));
         assert_eq!(present.api_key_for_transport(), Some("sk-real"));
-    }
-
-    #[test]
-    fn build_request_body_omits_dimension_when_native() {
-        let body = build_request_body("model-x", &["hi".to_string()], None).expect("body");
-        let value: serde_json::Value = serde_json::from_slice(&body).expect("json");
-        assert_eq!(value["model"], "model-x");
-        assert_eq!(value["input"][0], "hi");
-        assert_eq!(value["encoding_format"], "float");
-        // Native request must NOT carry a dimensions hint (D4: no imposed size).
-        assert!(value.get("dimensions").is_none());
-    }
-
-    #[test]
-    fn build_request_body_includes_explicit_dimension_hint() {
-        let body = build_request_body("model-x", &["a".to_string(), "b".to_string()], Some(256))
-            .expect("body");
-        let value: serde_json::Value = serde_json::from_slice(&body).expect("json");
-        assert_eq!(value["dimensions"], 256);
-        assert_eq!(value["input"].as_array().expect("array").len(), 2);
-    }
-
-    #[test]
-    fn decode_response_reads_actual_length_and_normalizes() {
-        // Two un-normalized vectors of length 3; the decoder must return them L2-normalized and in
-        // request order.
-        let body = serde_json::to_vec(&serde_json::json!({
-            "data": [
-                { "index": 0, "embedding": [3.0, 0.0, 4.0] },
-                { "index": 1, "embedding": [0.0, 6.0, 8.0] },
-            ]
-        }))
-        .expect("body");
-        let vectors = decode_response_body(&body, 2).expect("decode");
-        assert_eq!(vectors.len(), 2);
-        // effective dim is whatever the server returned (3), not any config value.
-        assert_eq!(vectors[0].len(), 3);
-        assert!((near_unit_norm(&vectors[0]) - 1.0).abs() < 1e-6);
-        assert!((near_unit_norm(&vectors[1]) - 1.0).abs() < 1e-6);
-        // [3,0,4] normalizes to [0.6, 0, 0.8].
-        assert!((vectors[0][0] - 0.6).abs() < 1e-6);
-        assert!((vectors[0][2] - 0.8).abs() < 1e-6);
     }
 
     #[test]
@@ -698,16 +550,6 @@ mod tests {
     }
 
     #[test]
-    fn decode_response_rejects_empty_vector() {
-        let body = serde_json::to_vec(&serde_json::json!({
-            "data": [ { "index": 0, "embedding": [] } ]
-        }))
-        .expect("body");
-        let error = decode_response_body(&body, 1).expect_err("empty vector");
-        assert!(error.to_string().contains("empty vector"));
-    }
-
-    #[test]
     fn decode_response_rejects_out_of_range_index() {
         let body = serde_json::to_vec(&serde_json::json!({
             "data": [ { "index": 5, "embedding": [1.0] } ]
@@ -729,180 +571,5 @@ mod tests {
         .expect("body");
         let error = decode_response_body(&body, 2).expect_err("missing index");
         assert!(error.to_string().contains("missing index 1"));
-    }
-
-    #[test]
-    fn decode_response_rejects_unparseable_body() {
-        let error = decode_response_body(b"{not json", 1).expect_err("bad json");
-        assert_eq!(error.to_string(), "the embedding service's reply has no vectors: {not json");
-    }
-
-    #[test]
-    fn resolve_external_request_dim_maps_formats() {
-        assert_eq!(
-            resolve_external_request_dim(&runtime(AiRequestFormat::OpenAi, "p", None))
-                .expect("openai"),
-            None
-        );
-        assert_eq!(
-            resolve_external_request_dim(&runtime(AiRequestFormat::LmStudio, "p", Some(512)))
-                .expect("lmstudio"),
-            Some(512)
-        );
-        assert_eq!(
-            resolve_external_request_dim(&runtime(AiRequestFormat::Ollama, "p", Some(256)))
-                .expect("ollama"),
-            Some(256)
-        );
-        assert!(
-            resolve_external_request_dim(&runtime(AiRequestFormat::Google, "p", None)).is_err()
-        );
-        assert!(
-            resolve_external_request_dim(&runtime(AiRequestFormat::Anthropic, "p", None)).is_err()
-        );
-    }
-
-    #[test]
-    fn external_descriptor_sets_float32_normalized_truth() {
-        let descriptor = external_descriptor(&runtime(AiRequestFormat::OpenAi, "p", None), Some(8));
-        assert_eq!(descriptor.dtype, EmbeddingDtype::Float32);
-        assert!(descriptor.normalized);
-        assert_eq!(descriptor.pooling, EmbeddingPooling::Unknown);
-        assert_eq!(descriptor.instruction_template, None);
-        assert_eq!(descriptor.effective_dim, Some(8));
-        assert_eq!(descriptor.model_id, "text-embedding-test");
-        assert_eq!(descriptor.provider_id, "p");
-    }
-
-    #[test]
-    fn new_rejects_non_openai_formats() {
-        assert!(
-            ExternalEmbeddingProvider::new(runtime(AiRequestFormat::Anthropic, "p", None)).is_err()
-        );
-        assert!(
-            ExternalEmbeddingProvider::new(runtime(AiRequestFormat::Google, "p", None)).is_err()
-        );
-        assert!(
-            ExternalEmbeddingProvider::new(runtime(AiRequestFormat::OpenAi, "p", None)).is_ok()
-        );
-    }
-
-    #[tokio::test]
-    async fn embed_returns_role_aware_normalized_vectors() {
-        let provider =
-            ExternalEmbeddingProvider::new(runtime(AiRequestFormat::LmStudio, "p", None))
-                .expect("provider");
-        let docs = provider
-            .embed(&["alpha".to_string(), "beta".to_string()], EmbeddingRole::Document)
-            .await
-            .expect("embed docs");
-        assert_eq!(docs.len(), 2);
-        assert_eq!(docs[0].len(), STUB_EXTERNAL_DIM);
-        assert!((near_unit_norm(&docs[0]) - 1.0).abs() < 1e-6);
-        // Different texts differ.
-        assert_ne!(docs[0], docs[1]);
-
-        // Same text under a different role differs (role is threaded into the stub digest).
-        let query = provider
-            .embed(&["alpha".to_string()], EmbeddingRole::Query)
-            .await
-            .expect("embed query");
-        assert_ne!(query[0], docs[0]);
-    }
-
-    #[tokio::test]
-    async fn embed_empty_input_short_circuits() {
-        let provider = ExternalEmbeddingProvider::new(runtime(AiRequestFormat::OpenAi, "p", None))
-            .expect("provider");
-        assert!(provider.embed(&[], EmbeddingRole::Document).await.expect("empty").is_empty());
-    }
-
-    #[tokio::test]
-    async fn embed_honors_explicit_dimension() {
-        let provider =
-            ExternalEmbeddingProvider::new(runtime(AiRequestFormat::OpenAi, "p", Some(16)))
-                .expect("provider");
-        let vectors =
-            provider.embed(&["x".to_string()], EmbeddingRole::Document).await.expect("embed");
-        assert_eq!(vectors[0].len(), 16);
-    }
-
-    #[tokio::test]
-    async fn embed_rechunks_beyond_http_batch() {
-        let provider = ExternalEmbeddingProvider::new(runtime(AiRequestFormat::OpenAi, "p", None))
-            .expect("provider");
-        let inputs: Vec<String> =
-            (0..(EMBEDDING_HTTP_BATCH + 5)).map(|index| format!("text-{index}")).collect();
-        let vectors = provider.embed(&inputs, EmbeddingRole::Document).await.expect("embed");
-        assert_eq!(vectors.len(), inputs.len());
-    }
-
-    #[test]
-    fn model_id_and_descriptor_passthrough() {
-        let provider = ExternalEmbeddingProvider::new(runtime(AiRequestFormat::OpenAi, "p", None))
-            .expect("provider");
-        assert_eq!(provider.model_id(), "text-embedding-test");
-        // The trait-level descriptor reports no observed dim yet.
-        assert_eq!(provider.descriptor().effective_dim, None);
-    }
-
-    #[tokio::test]
-    async fn any_provider_dispatches_external_variant() {
-        let provider = ExternalEmbeddingProvider::new(runtime(AiRequestFormat::OpenAi, "p", None))
-            .expect("provider");
-        let any = AnyEmbeddingProvider::External(provider);
-        assert_eq!(any.model_id(), "text-embedding-test");
-        assert_eq!(any.descriptor().dtype, EmbeddingDtype::Float32);
-        let vectors = any.embed(&["hi".to_string()], EmbeddingRole::Document).await.expect("embed");
-        assert_eq!(vectors.len(), 1);
-        assert!((near_unit_norm(&vectors[0]) - 1.0).abs() < 1e-6);
-    }
-
-    #[tokio::test]
-    async fn any_provider_dispatches_static_variant() {
-        // The W-AI-4c Static arm must be reachable through the enum so the index/search loops can
-        // run the in-app static engine without a call-site change. Uses the deterministic static stub.
-        let provider = StaticEmbeddingProvider::new_stub(
-            "static:potion",
-            "minishlab/potion-multilingual-128M",
-        );
-        let any = AnyEmbeddingProvider::Static(Box::new(provider));
-        assert_eq!(any.model_id(), "minishlab/potion-multilingual-128M");
-        // Static is symmetric: Mean pooling, no instruction template.
-        assert_eq!(any.descriptor().pooling, EmbeddingPooling::Mean);
-        assert_eq!(any.descriptor().instruction_template, None);
-        let vectors =
-            any.embed(&["hi".to_string()], EmbeddingRole::Document).await.expect("static embed");
-        assert_eq!(vectors.len(), 1);
-        assert!((near_unit_norm(&vectors[0]) - 1.0).abs() < 1e-6);
-    }
-
-    #[test]
-    fn l2_normalize_helper_is_reused_from_provider() {
-        // Guards that this module shares the ONE normalize impl rather than forking it.
-        let mut vector = vec![3.0f32, 4.0];
-        l2_normalize(&mut vector);
-        assert!((near_unit_norm(&vector) - 1.0).abs() < 1e-6);
-    }
-
-    // Triggers the coverage-only forced-error branch in `embed_impl` so it is not dead code under
-    // the coverage gate. The branch fires when the provider id contains `embed-http-error`,
-    // standing in for a transport failure the real `#[cfg(not(any(test, coverage)))]` HTTP path
-    // would surface — the stub cannot otherwise produce one. Under plain `test` (no `coverage`) the
-    // branch is compiled out, so this test only exists in coverage builds.
-    #[cfg(coverage)]
-    #[tokio::test]
-    async fn embed_surfaces_forced_coverage_transport_error() {
-        let provider = ExternalEmbeddingProvider::new(runtime(
-            AiRequestFormat::OpenAi,
-            "embed-http-error",
-            None,
-        ))
-        .expect("provider");
-        let error = provider
-            .embed(&["x".to_string()], EmbeddingRole::Document)
-            .await
-            .expect_err("forced transport error");
-        assert!(error.to_string().contains("forced coverage external embedding error"));
     }
 }

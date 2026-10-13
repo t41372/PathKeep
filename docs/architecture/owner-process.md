@@ -127,11 +127,11 @@ has no arbitrary completion deadline.
 Generated launchd / Task Scheduler / systemd commands stay unchanged. The worker
 still writes its final pretty JSON to stdout, progress to stderr, and exits 0 on
 success (including due-only skips) or 1 on failure. Existing scheduled attempt
-phase/outcome recording now runs inside the owner. The macOS legacy app-command
-form still uses `open -n -W -g ... --args --worker backup --due-only`; `--worker`
-routing happens before Tauri single-instance setup, so it remains a short-lived
-client. Bundled sidecars still run directly. Windows tasks retain their current
-user's interactive token and least-privilege setting.
+phase/outcome recording now runs inside the owner. On macOS the LaunchAgent runs
+the bundled `pathkeep-worker` sidecar directly; a build outside an app bundle runs
+`<binary> --worker backup --due-only`, and `--worker` routing happens before Tauri
+single-instance setup, so it remains a short-lived client. Windows tasks retain
+their current user's interactive token and least-privilege setting.
 
 Transport failures live in `vault-owner-ipc/tests/transport.rs`; public lock tests
 in `vault-store/tests/app_owner.rs`; owner business failures in
@@ -157,29 +157,28 @@ CARGO_NET_OFFLINE=true cargo check --manifest-path src-tauri/Cargo.toml -p vault
 Every new module lists its responsibility boundary and failure modes in its header.
 The executable checks are:
 
-| Failure mode                                                                                                                                             | Test                                                                               |
-| -------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| Cold client cannot start owner; second app takes ownership or loses arguments; background creates webview; client opens databases; MCP bypasses endpoint | `cold_client_backup_single_instance_handoff_and_mcp_use_only_owner`                |
-| App reservation opens databases, allows another owner, or fails to release                                                                               | `app_reserves_owner_lock_without_opening_databases`                                |
-| Wipe deletes ownership inode while the owner still holds it                                                                                              | `wipe_keeps_owner_lock_file_and_exclusive_ownership`                               |
-| Live socket replaced; progress reordered/lost; final reply missing                                                                                       | `progress_is_ordered_before_final_reply_and_existing_owner_is_not_replaced`        |
-| Crashed owner's socket blocks restart; another user can access endpoint                                                                                  | `stale_socket_is_recovered_and_directory_and_socket_are_user_only`                 |
-| Symlink redirects the private socket directory                                                                                                           | `symlinked_socket_directory_is_rejected`                                           |
-| Incompatible client executes business work                                                                                                               | `protocol_mismatch_returns_typed_error_without_dispatch`                           |
-| Malformed, truncated or oversized input is accepted                                                                                                      | `malformed_truncated_and_oversized_frames_fail`                                    |
-| Oversized output closes without a typed final error                                                                                                      | `oversized_reply_is_typed_error_and_owner_survives`                                |
-| Handler panic loses final error                                                                                                                          | `handler_panic_is_a_final_error_and_owner_survives`                                |
-| Startup waits forever or launches repeatedly                                                                                                             | `no_endpoint_start_failure_is_clear_and_does_not_retry_launch`                     |
-| Unknown method or bad parameters reach a worker                                                                                                          | `owner_rejects_unknown_methods_and_invalid_parameters_before_work`                 |
-| Due-only work/consent checks bypass owner dispatch                                                                                                       | `owner_serves_ping_due_backup_and_mcp_consent_through_endpoint`                    |
-| Sidecar runs locally; MCP stdout deadlocks; disabled startup succeeds; live consent revocation is ignored                                                | `sidecar_and_mcp_forward_to_owner_and_recheck_consent`                             |
-| Direct app launch omits background argument                                                                                                              | `desktop_launch_uses_same_executable_and_background_argument`                      |
-| Missing sibling app recursively starts sidecar                                                                                                           | `sidecar_without_app_reports_installation_error`                                   |
-| macOS bundle is brought forward                                                                                                                          | `bundled_clients_use_launch_services_without_frontmost_window`                     |
-| Launch Services drops archive/sandbox overrides                                                                                                          | `launch_services_keeps_the_client_data_root_and_sandbox`                           |
-| Windows pipe grants another user access                                                                                                                  | `current_user_is_the_only_dacl_trustee` (type-checked; native Windows run pending) |
+| Failure mode                                                                                                                                             | Test                                                                                                    |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| Cold client cannot start owner; second app takes ownership or loses arguments; background creates webview; client opens databases; MCP bypasses endpoint | `cold_client_backup_single_instance_handoff_and_mcp_use_only_owner`                                     |
+| App reservation opens databases, allows another owner, or fails to release                                                                               | none since 2026-10-12; a second owner: `second_process_is_refused_and_drop_joins_before_releasing_lock` |
+| Wipe deletes ownership inode while the owner still holds it                                                                                              | `wipe_keeps_owner_lock_file_and_exclusive_ownership`                                                    |
+| Live socket replaced; progress reordered/lost; final reply missing                                                                                       | `progress_is_ordered_before_final_reply_and_existing_owner_is_not_replaced`                             |
+| Crashed owner's socket blocks restart; another user can access endpoint                                                                                  | `stale_socket_is_recovered_and_directory_and_socket_are_user_only`                                      |
+| Symlink redirects the private socket directory                                                                                                           | `symlinked_socket_directory_is_rejected`                                                                |
+| Incompatible client executes business work                                                                                                               | `protocol_mismatch_returns_typed_error_without_dispatch`                                                |
+| Malformed, truncated or oversized input is accepted                                                                                                      | `malformed_truncated_and_oversized_frames_fail`                                                         |
+| Oversized output closes without a typed final error                                                                                                      | `oversized_reply_is_typed_error_and_owner_survives`                                                     |
+| Handler panic loses final error                                                                                                                          | none since 2026-10-12                                                                                   |
+| Startup waits forever or launches repeatedly                                                                                                             | none since 2026-10-12                                                                                   |
+| Unknown method or bad parameters reach a worker                                                                                                          | `owner_rejects_unknown_methods_and_invalid_parameters_before_work`                                      |
+| Due-only work/consent checks bypass owner dispatch                                                                                                       | none since 2026-10-12; MCP consent is in the next row                                                   |
+| Sidecar runs locally; MCP stdout deadlocks; disabled startup succeeds; live consent revocation is ignored                                                | `sidecar_and_mcp_forward_to_owner_and_recheck_consent`                                                  |
+| Direct app launch omits background argument                                                                                                              | none since 2026-10-12                                                                                   |
+| Missing sibling app recursively starts sidecar                                                                                                           | none since 2026-10-12                                                                                   |
+| macOS bundle is brought forward                                                                                                                          | none since 2026-10-12                                                                                   |
+| Launch Services drops archive/sandbox overrides                                                                                                          | `launch_services_keeps_the_client_data_root_and_sandbox`                                                |
+| Windows pipe grants another user access                                                                                                                  | `current_user_is_the_only_dacl_trustee` (type-checked; native Windows run pending)                      |
 
-The existing scheduled-report tests retained in `owner_requests/scheduled.rs` cover
-success/skip/defer classification, keyring/config/archive failure evidence, and a
-failure to persist the failure ledger. The worker regression suite continues to
-cover the scheduled App Lock exception and the CLI's failure exit behavior.
+`owner_requests/scheduled.rs` tests that a failure to persist the failure ledger keeps the
+original error, and `scheduled_worker_records_keyring_config_and_archive_open_failures_before_archive_ledger`
+that keyring, config and archive-open failures land in the attempt ledger.

@@ -28,10 +28,10 @@
 
 use serde::Deserialize;
 use vault_core::{
-    AiProviderSecretInput, AppConfig, AppUpdateInstallRequest, BrowseDayInsightsRequest,
-    BrowserHistoryImportRequest, ExportRequest, HistoryFaviconLookupEntry,
-    HistoryOgImageLookupEntry, HistoryQuery, ReembedScope, ReplaceTagsRequest, SchedulePlan,
-    SetNotesRequest, SetStarRequest, StarEntityKind, StarSort, StarStatusRequest, TakeoutRequest,
+    AiProviderSecretInput, AppConfig, AppUpdateInstallRequest, BrowserHistoryImportRequest,
+    ExportRequest, HistoryFaviconLookupEntry, HistoryOgImageLookupEntry, HistoryQuery,
+    ReembedScope, ReplaceTagsRequest, SchedulePlan, SetNotesRequest, SetStarRequest,
+    StarEntityKind, StarSort, StarStatusRequest, TakeoutRequest,
 };
 
 /// Carries archive bootstrap input across the browser automation mirror without
@@ -313,15 +313,6 @@ pub(super) struct UrlPayload {
     pub(super) url: String,
 }
 
-/// Bridge envelope for export_conversation_file — the user-chosen target path plus the serialized
-/// Markdown / JSON document body the frontend built off the main thread.
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(super) struct ExportConversationFilePayload {
-    pub(super) target_path: String,
-    pub(super) contents: String,
-}
-
 /// Bridge envelope for the annotation-search command — the desktop signature
 /// takes both a non-optional query string and an optional row cap.
 #[derive(Deserialize)]
@@ -365,10 +356,6 @@ pub(super) struct ListStarsPayload {
     pub(super) limit: Option<usize>,
     pub cursor: Option<String>,
 }
-
-/// Bridge envelope for get_browse_day_insights — the desktop command
-/// groups its typed input under `request`.
-pub(super) type BrowseDayInsightsPayload = WrappedRequest<BrowseDayInsightsRequest>;
 
 /// Bridge envelope for export_app_data — the desktop command takes the
 /// user-chosen target path as a single string field.

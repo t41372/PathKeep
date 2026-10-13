@@ -2,7 +2,7 @@
 //! Not responsible for: query execution, coverage limits or a browser-only backend.
 //! Failure modes: a slow client accumulates provisional pages; disconnect leaves a session;
 //! final results disappear when provisional updates are coalesced.
-//! Tests: queue replacement and command/channel serialization below.
+//! Tests: every E2E search goes through this bridge (search-limits.spec pages through all results).
 use super::DevIpcBridgeState;
 use crate::{command_error::CommandError, worker_bridge};
 use axum::{
@@ -162,57 +162,3 @@ impl Drop for Events {
         }
     }
 }
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn a_later_page_never_coalesces_an_unread_final_page() {
-        let mut queue = Queue::default();
-        let step: vault_core::search::SearchStep = serde_json::from_value(json!({
-            "page":1,"items":[], "provisional":false, "progress":{"documentsProcessed":1,"segmentsCompleted":1,"segmentsTotal":1,"statisticsFieldsProcessed":0,"statisticsFieldsTotal":0},
-            "count":{"value":1,"exact":true}, "visits":{"value":1,"exact":true},
-            "countProgress":{"documentsProcessed":1,"segmentsCompleted":1,"segmentsTotal":1,"statisticsFieldsProcessed":0,"statisticsFieldsTotal":0},
-            "cursor":"first", "indexer":{"phase":"ready","documentsProcessed":1,"documentsTotal":1,"appliedSeq":1,"targetSeq":1,"error":null},
-            "snapshotSeq":1,"coverageComplete":true
-        })).unwrap();
-        queue.push(SearchEvent::Step(Box::new(step.clone())));
-        let mut next = step;
-        next.provisional = true;
-        next.cursor = None;
-        queue.push(SearchEvent::Step(Box::new(next.clone())));
-        queue.push(SearchEvent::Step(Box::new(next)));
-        assert_eq!(queue.events.len(), 2);
-        assert!(
-            matches!(queue.events.front(),Some(SearchEvent::Step(step)) if step.cursor.as_deref()==Some("first"))
-        );
-    }
-    #[test]
-    fn terminal_events_clear_retained_search_data() {
-        let mut queue = Queue::default();
-        assert!(queue.push(SearchEvent::Error("failed".into())));
-        assert!(queue.closed);
-        assert_eq!(queue.events.len(), 1);
-        assert!(!queue.push(SearchEvent::Cancelled));
-        assert_eq!(
-            serde_json::to_value(queue.events.pop_front().unwrap()).unwrap(),
-            json!({"type":"error","data":"failed"})
-        );
-    }
-    #[test]
-    fn requests_use_the_same_names_as_tauri() {
-        let page: Page =
-            serde_json::from_value(json!({"sessionId":"search","cursor":"opaque"})).unwrap();
-        assert_eq!(page.session_id, "search");
-        assert_eq!(page.cursor, "opaque");
-        let start: Start = serde_json::from_value(
-            json!({"request":{"query":"42*","pageSize":100,"profileId":"chrome:Default"}}),
-        )
-        .unwrap();
-        assert_eq!(start.request.page_size, 100);
-        assert_eq!(start.request.profile_id.as_deref(), Some("chrome:Default"));
-    }
-}
-
-#[cfg(test)]
-#[path = "search_tests.rs"]
-mod integration_tests;

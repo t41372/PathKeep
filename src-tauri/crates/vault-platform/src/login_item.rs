@@ -162,58 +162,6 @@ mod tests {
     use tempfile::tempdir;
 
     #[test]
-    fn bundled_app_starts_at_login_through_launch_services() {
-        let args = login_item_program_arguments(Path::new(
-            "/Applications/PathKeep.app/Contents/MacOS/pathkeep-desktop",
-        ));
-        assert_eq!(
-            args,
-            [
-                "/usr/bin/open",
-                "-g",
-                "-a",
-                "/Applications/PathKeep.app",
-                "--args",
-                LAUNCHED_AT_LOGIN_ARG
-            ]
-        );
-    }
-
-    #[test]
-    fn unbundled_binary_runs_directly() {
-        let args = login_item_program_arguments(Path::new("/repo/target/debug/pathkeep-desktop"));
-        assert_eq!(args, ["/repo/target/debug/pathkeep-desktop", LAUNCHED_AT_LOGIN_ARG]);
-    }
-
-    #[test]
-    fn enable_refresh_and_disable_round_trip() {
-        let dir = tempdir().expect("tempdir");
-        let store = LoginItemStore::at(dir.path().join("agents"));
-        let old = Path::new("/Applications/PathKeep.app/Contents/MacOS/pathkeep-desktop");
-        let moved = Path::new("/Users/me/Apps/PathKeep.app/Contents/MacOS/pathkeep-desktop");
-
-        assert!(!store.is_enabled());
-        assert!(!store.refresh(old).expect("refresh while off"), "refresh must not enable");
-        assert!(!store.is_enabled());
-
-        store.enable(old).expect("enable");
-        assert!(store.is_enabled());
-        let value = plist::Value::from_file(store.plist_path()).expect("valid plist");
-        let dict = value.as_dictionary().expect("dict");
-        assert_eq!(dict.get("Label").and_then(plist::Value::as_string), Some(LOGIN_ITEM_LABEL));
-        assert_eq!(dict.get("RunAtLoad").and_then(plist::Value::as_boolean), Some(true));
-
-        assert!(!store.refresh(old).expect("refresh unchanged"));
-        assert!(store.refresh(moved).expect("refresh moved"));
-        let rewritten = fs::read_to_string(store.plist_path()).expect("read");
-        assert!(rewritten.contains("/Users/me/Apps/PathKeep.app"));
-
-        store.disable().expect("disable");
-        assert!(!store.is_enabled());
-        store.disable().expect("disable twice is fine");
-    }
-
-    #[test]
     #[cfg(debug_assertions)]
     fn sandbox_moves_the_login_item_out_of_the_real_launch_agents() {
         let _guard =

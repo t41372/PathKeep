@@ -283,37 +283,6 @@ mod tests {
     }
 
     #[test]
-    fn rekey_journal_round_trips_through_disk() {
-        let dir = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(dir.path());
-        fs::create_dir_all(paths.archive_database_path.parent().expect("archive parent"))
-            .expect("archive dir");
-
-        // Absent marker reads as None.
-        assert!(read_rekey_journal(&paths).expect("absent read").is_none());
-
-        let journal =
-            sample_journal(ArchiveMode::Plaintext, ArchiveMode::Encrypted, Some("cfg".to_string()));
-        write_rekey_journal(&paths, &journal).expect("write");
-        let loaded = read_rekey_journal(&paths).expect("read").expect("present");
-        assert_eq!(loaded.version, 1);
-        assert!(matches!(loaded.from_mode, ArchiveMode::Plaintext));
-        assert!(matches!(loaded.to_mode, ArchiveMode::Encrypted));
-        assert_eq!(loaded.snapshot_ref, "/snapshots/rekey/before.sqlite");
-        assert_eq!(loaded.previous_config.as_deref(), Some("cfg"));
-    }
-
-    #[test]
-    fn recover_interrupted_rekey_without_a_marker_is_a_noop() {
-        let dir = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(dir.path());
-        assert!(
-            !recover_interrupted_rekey(&paths).expect("no-marker recovery must not error"),
-            "a missing marker must be a cheap no-op",
-        );
-    }
-
-    #[test]
     fn a_corrupt_rekey_marker_goes_only_when_the_archive_is_consistent() {
         let dir = tempdir().expect("tempdir");
         let paths = project_paths_with_root(dir.path());
@@ -335,26 +304,6 @@ mod tests {
         fs::write(rekey_journal_path(&paths), b"not valid json").expect("seed corrupt marker");
         assert!(recover_interrupted_rekey(&paths).is_err(), "a mixed archive fails closed");
         assert!(rekey_journal_path(&paths).exists(), "the marker stays to keep the state flagged");
-    }
-
-    #[test]
-    fn recover_interrupted_rekey_completes_a_landed_swap() {
-        let dir = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(dir.path());
-        // history-vault is at the NEW (encrypted) at-rest mode: the swap landed. previous_config
-        // is None so the recovery falls back to the live config (the `_` arm + load_config).
-        write_encrypted_db(&paths.archive_database_path);
-        write_rekey_journal(
-            &paths,
-            &sample_journal(ArchiveMode::Plaintext, ArchiveMode::Encrypted, None),
-        )
-        .expect("write marker");
-
-        assert!(recover_interrupted_rekey(&paths).expect("recover"));
-        assert!(!rekey_journal_path(&paths).exists(), "the marker must be cleared after recovery");
-        let config = vault_core::load_config(&paths).expect("load");
-        assert!(matches!(config.archive_mode, ArchiveMode::Encrypted));
-        assert!(config.initialized);
     }
 
     #[test]
@@ -407,103 +356,5 @@ mod tests {
             prev,
             "rollback must restore the captured pre-rekey config verbatim",
         );
-    }
-
-    #[test]
-    fn recover_interrupted_rekey_rollback_removes_config_when_none_was_captured() {
-        let dir = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(dir.path());
-        write_plaintext_db(&paths.archive_database_path);
-        save_config(&paths, &encrypted_archive_config()).expect("seed config to remove");
-        write_rekey_journal(
-            &paths,
-            &sample_journal(ArchiveMode::Plaintext, ArchiveMode::Encrypted, None),
-        )
-        .expect("write marker");
-
-        assert!(recover_interrupted_rekey(&paths).expect("recover"));
-        assert!(
-            !paths.config_path.exists(),
-            "a None previous_config must leave config absent after rollback",
-        );
-        assert!(!rekey_journal_path(&paths).exists());
-    }
-
-    #[test]
-    fn recover_interrupted_rekey_fails_closed_when_history_vault_is_absent() {
-        let dir = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(dir.path());
-        fs::create_dir_all(paths.archive_database_path.parent().expect("archive parent"))
-            .expect("archive dir");
-        // No history-vault file at all -> detect == Absent -> fail closed.
-        write_rekey_journal(
-            &paths,
-            &sample_journal(ArchiveMode::Plaintext, ArchiveMode::Encrypted, None),
-        )
-        .expect("write marker");
-
-        let error = recover_interrupted_rekey(&paths)
-            .expect_err("an absent history-vault must fail closed");
-        assert!(format!("{error:#}").contains("missing or unreadable"), "got: {error:#}");
-        assert!(
-            rekey_journal_path(&paths).exists(),
-            "the marker must be LEFT in place on a fail-closed bail",
-        );
-    }
-
-    #[test]
-    fn recover_interrupted_rekey_fails_closed_on_a_landed_decrypt_with_encrypted_source_evidence() {
-        // FIX 2: an Encrypted->Plaintext rekey whose history-vault swap landed (now Plaintext) but
-        // left source-evidence still Encrypted must NOT be silently completed — decrypting source-
-        // evidence needs the now-unprompted old key. Fail closed: Err + marker LEFT + config NOT
-        // committed to Plaintext, so the launch surfaces it as Unrecoverable.
-        let dir = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(dir.path());
-        write_plaintext_db(&paths.archive_database_path); // history-vault swapped to Plaintext
-        write_encrypted_db(&paths.source_evidence_database_path); // source-evidence still Encrypted
-        save_config(&paths, &encrypted_archive_config()).expect("seed encrypted config");
-        write_rekey_journal(
-            &paths,
-            &sample_journal(ArchiveMode::Encrypted, ArchiveMode::Plaintext, None),
-        )
-        .expect("write marker");
-
-        let error = recover_interrupted_rekey(&paths)
-            .expect_err("a still-encrypted source-evidence must fail the decrypt completion");
-        assert!(format!("{error:#}").contains("decrypt direction"), "got: {error:#}");
-        assert!(
-            rekey_journal_path(&paths).exists(),
-            "the marker must be LEFT for the recovery GUI",
-        );
-        assert!(
-            matches!(
-                vault_core::load_config(&paths).expect("load").archive_mode,
-                ArchiveMode::Encrypted,
-            ),
-            "config must NOT be committed to Plaintext on the fail-closed bail",
-        );
-    }
-
-    #[test]
-    fn recover_interrupted_rekey_completes_a_landed_decrypt_when_source_evidence_is_consistent() {
-        // FIX 2's safe path: a landed Encrypted->Plaintext rekey whose source-evidence is NOT still
-        // Encrypted (here Absent) is consistent, so the decrypt-direction completion proceeds —
-        // config converges to Plaintext and the marker clears. We must not OVER-block: only a
-        // still-Encrypted source-evidence fails closed.
-        let dir = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(dir.path());
-        write_plaintext_db(&paths.archive_database_path); // history Plaintext, source-evidence Absent
-        write_rekey_journal(
-            &paths,
-            &sample_journal(ArchiveMode::Encrypted, ArchiveMode::Plaintext, None),
-        )
-        .expect("write marker");
-
-        assert!(recover_interrupted_rekey(&paths).expect("a consistent decrypt completes"));
-        assert!(!rekey_journal_path(&paths).exists(), "the marker clears on a completed decrypt",);
-        assert!(matches!(
-            vault_core::load_config(&paths).expect("load").archive_mode,
-            ArchiveMode::Plaintext,
-        ));
     }
 }

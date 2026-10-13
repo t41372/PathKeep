@@ -282,25 +282,6 @@ pub(crate) async fn trigger_og_image_refetch(
 
 #[cfg(not(test))]
 #[tauri::command]
-/// Sweeps `urls` minus their existing og:image rows and runs the
-/// difference through the worker pool, capped at `budget`. Powers the
-/// Settings → Link Previews → "Rebuild now" button so the user can warm
-/// the cache for the whole archive without waiting for the daily
-/// post-backup pass. `budget` lands behind the worker's hard cap so a
-/// pathological request can't tie up the pool.
-pub(crate) async fn prefetch_og_images(
-    budget: u32,
-    state: State<'_, SessionState>,
-) -> Result<(u32, u32), CommandError> {
-    let state = state.inner().clone();
-    run_blocking_command("prefetch_og_images", move || {
-        worker_bridge::prefetch_og_images_impl(budget, &state)
-    })
-    .await
-}
-
-#[cfg(not(test))]
-#[tauri::command]
 /// Reports the current og:image cache footprint to the Settings panel.
 pub(crate) async fn get_og_image_storage_stats(
     state: State<'_, SessionState>,
@@ -385,23 +366,6 @@ pub(crate) async fn get_url_detail(
     let key_state = state.inner().clone();
     run_blocking_command("get_url_detail", move || worker_bridge::url_detail_impl(&url, &key_state))
         .await
-}
-
-#[cfg(not(test))]
-#[tauri::command]
-/// Aggregates one local-day Browse insights panel from the full archive
-/// (sparkline, top domains, top URLs, search queries, activity tallies,
-/// session stats), off the UI thread. Replaces the previous scroll-coupled
-/// client-side `aggregateDayInsights` — see feedback-2026-05-25 §3.1.
-pub(crate) async fn get_browse_day_insights(
-    request: vault_core::BrowseDayInsightsRequest,
-    state: State<'_, SessionState>,
-) -> Result<vault_core::BrowseDayInsights, CommandError> {
-    let key_state = state.inner().clone();
-    run_blocking_command("get_browse_day_insights", move || {
-        worker_bridge::browse_day_insights_impl(&key_state, request)
-    })
-    .await
 }
 
 #[cfg(not(test))]

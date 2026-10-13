@@ -14,7 +14,6 @@ anyhow.workspace = true
 chrono.workspace = true
 log = "0.4.28"
 rmcp.workspace = true
-rusqlite.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
@@ -28,6 +27,3 @@ vault-core = { path = "../vault-core", features = ["test-fixtures"] }
 vault-convert-sqlcipher = { path = "../vault-convert-sqlcipher", features = ["test-fixtures"] }
 rusqlite.workspace = true
 tempfile.workspace = true
-
-[lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(coverage)'] }

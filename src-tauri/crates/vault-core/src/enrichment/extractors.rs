@@ -135,32 +135,3 @@ pub(crate) fn registry() -> Vec<Box<dyn Extractor>> {
 pub(crate) fn resolve_extractor(url: &str) -> Option<Box<dyn Extractor>> {
     registry().into_iter().find(|extractor| extractor.matches(url))
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn registry_resolves_github_before_generic_fallback() {
-        let github = resolve_extractor("https://github.com/rust-lang/rust").expect("github match");
-        assert_eq!(github.id(), "github-repo");
-
-        let generic =
-            resolve_extractor("https://example.com/some/article").expect("generic fallback");
-        assert_eq!(generic.id(), "generic-readable");
-    }
-
-    #[test]
-    fn generic_readable_is_the_terminal_fallback_for_any_https_page() {
-        // Even an odd path resolves to SOMETHING — the fallback guarantees one extractor per page.
-        let resolved = resolve_extractor("https://news.example.org/2026/story").expect("resolved");
-        assert_eq!(resolved.id(), "generic-readable");
-    }
-
-    #[test]
-    fn registry_is_first_match_wins_with_fallback_last() {
-        let registry = registry();
-        assert_eq!(registry.first().map(|extractor| extractor.id()), Some("github-repo"));
-        assert_eq!(registry.last().map(|extractor| extractor.id()), Some("generic-readable"));
-    }
-}

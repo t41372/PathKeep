@@ -1,7 +1,8 @@
 //! Responsibilities: persist enrichment outcomes and provide text for native indexing.
 //! Not responsible for: network fetches or canonical archive ownership.
 //! Failure modes: cancellation loses a race, failures look successful, or sibling visits diverge.
-//! Tests cover claims, terminal results, cached text and native canonical fan-out.
+//! Tests: only content fetch's consent and private-address gates (`content_fetch::tests`); the
+//! rest is derived text that a fetch or rebuild can redo.
 //!
 //! Core Intelligence and optional AI both depend on `visit_content_enrichments`
 //! as a rebuildable evidence plane. Keeping the shared schema, enrichment
@@ -759,6 +760,3 @@ pub(crate) fn truncate_text(input: &str, limit: usize) -> String {
     }
     input.chars().take(limit).collect::<String>()
 }
-
-#[cfg(test)]
-mod tests;

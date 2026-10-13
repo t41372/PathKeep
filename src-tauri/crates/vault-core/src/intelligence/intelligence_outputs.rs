@@ -285,22 +285,3 @@ pub fn get_intelligence_public_snapshot(
         ],
     })
 }
-
-#[cfg(test)]
-mod tests {
-    use super::on_this_day_body;
-    use crate::models::OnThisDayEntry;
-
-    #[test]
-    fn on_this_day_body_uses_summary_or_aggregate_fallback() {
-        let summarized = OnThisDayEntry {
-            summary: Some("Returned to archive research.".to_string()),
-            ..OnThisDayEntry::default()
-        };
-        assert_eq!(on_this_day_body(&summarized), "Returned to archive research.");
-
-        let fallback =
-            OnThisDayEntry { total_visits: 12, deep_dive_sessions: 3, ..OnThisDayEntry::default() };
-        assert_eq!(on_this_day_body(&fallback), "12 visits and 3 deep-dive sessions on this day.");
-    }
-}

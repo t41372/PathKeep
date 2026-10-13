@@ -30,16 +30,6 @@ pub(super) fn discovery_overrides_active_with(
     chrome_override_active || firefox_override_active || safari_override_active
 }
 
-/// Test-only shorthand for the current override state.
-#[cfg(test)]
-pub(super) fn discovery_overrides_active() -> bool {
-    discovery_overrides_active_with(
-        chromium_override_active(),
-        firefox_override_active(),
-        safari_override_active(),
-    )
-}
-
 /// Limits Chromium discovery to the canonical Chrome override when overrides are active.
 pub(super) fn should_discover_chromium_definition(
     overrides_active: bool,
@@ -64,17 +54,6 @@ pub(super) fn should_discover_firefox_definition(
 /// Decides whether Safari discovery should run under the current override state.
 pub(super) fn should_discover_safari(overrides_active: bool, safari_override_active: bool) -> bool {
     !overrides_active || safari_override_active
-}
-
-/// Returns the canonical Chrome user-data directory for the current host.
-pub fn chrome_user_data_dir() -> Result<PathBuf> {
-    if let Some(path) = std::env::var_os(CHROME_USER_DATA_OVERRIDE_ENV) {
-        return Ok(PathBuf::from(path));
-    }
-
-    let home =
-        directories::UserDirs::new().context("resolving home directory")?.home_dir().to_path_buf();
-    default_chrome_user_data_dir(&home)
 }
 
 /// Returns candidate Chromium roots for one browser definition.
@@ -171,7 +150,7 @@ pub(super) fn chromium_relative_paths(
 }
 
 /// Reads the Windows roaming/local appdata roots when that host family is relevant.
-#[cfg(any(target_os = "windows", test))]
+#[cfg(target_os = "windows")]
 pub(super) fn windows_data_dirs() -> Result<Vec<PathBuf>> {
     let mut roots = Vec::new();
     for variable in ["LOCALAPPDATA", "APPDATA"] {
@@ -254,27 +233,6 @@ pub(super) fn firefox_relative_paths(
 /// Resolves the current user's home directory.
 pub(super) fn user_home_dir() -> Result<PathBuf> {
     Ok(directories::UserDirs::new().context("resolving home directory")?.home_dir().to_path_buf())
-}
-
-/// Returns the default Chrome user-data directory for macOS.
-#[cfg(target_os = "macos")]
-pub(super) fn default_chrome_user_data_dir(home: &Path) -> Result<PathBuf> {
-    Ok(home.join("Library/Application Support/Google/Chrome"))
-}
-
-/// Returns the default Chrome user-data directory for Windows.
-#[cfg(target_os = "windows")]
-pub(super) fn default_chrome_user_data_dir(_home: &Path) -> Result<PathBuf> {
-    Ok(std::env::var("LOCALAPPDATA")
-        .map(PathBuf::from)
-        .context("reading LOCALAPPDATA")?
-        .join("Google/Chrome/User Data"))
-}
-
-/// Returns the default Chrome user-data directory for Linux-like hosts.
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
-pub(super) fn default_chrome_user_data_dir(home: &Path) -> Result<PathBuf> {
-    Ok(home.join(".config/google-chrome"))
 }
 
 /// Returns the host-specific Chromium profile-root patterns.

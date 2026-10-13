@@ -1,5 +1,5 @@
 //! Failure modes: totals recount facts, bounds include reverted rows, run metadata loses provenance.
-//! Tests: read_model_tests, backup suites and run_support_failed_runs_and_due_windows_stay_truthful.
+//! Tests: read_model_tests and the backup suites.
 //! Archive run-ledger and manifest helpers.
 //!
 //! ## Responsibilities

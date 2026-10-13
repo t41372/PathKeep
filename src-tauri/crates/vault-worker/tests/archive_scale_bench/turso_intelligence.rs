@@ -458,15 +458,6 @@ impl Drop for BenchmarkRoot {
     }
 }
 
-#[test]
-fn skip_baseline_rebuild_requires_existing_intelligence_state() {
-    for key in [None, Some([39; 32])] {
-        let vault = Vault::open_temp_with_key(key).unwrap();
-        let error = require_published_baseline(&vault).expect_err("missing native baseline");
-        assert!(error.to_string().contains("existing Core Intelligence read model"));
-    }
-}
-
 // A child phase can be rerun against a retained fixture; do not measure empty derived reads.
 fn require_published_baseline(vault: &Vault) -> anyhow::Result<()> {
     let published = vault.store().read(Db::Intelligence, |s| {

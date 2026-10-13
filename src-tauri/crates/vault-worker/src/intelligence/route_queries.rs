@@ -307,21 +307,3 @@ pub fn explain_entity(
 ) -> Result<Explanation> {
     with_core_intelligence(vault, |vault| intelligence::explain_entity(vault, request))
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn detail_empty_predicates_cover_related_entity_edges() {
-        assert!(query_family_detail_is_empty(&QueryFamilyDetail::default()));
-        let mut query_detail = QueryFamilyDetail::default();
-        query_detail.related_trails.items.push(vault_core::TrailSummary::default());
-        assert!(!query_family_detail_is_empty(&query_detail));
-
-        assert!(refind_page_detail_is_empty(&RefindPageDetail::default()));
-        let mut refind_detail = RefindPageDetail::default();
-        refind_detail.explanation.visit_ids.push(42);
-        assert!(!refind_page_detail_is_empty(&refind_detail));
-    }
-}

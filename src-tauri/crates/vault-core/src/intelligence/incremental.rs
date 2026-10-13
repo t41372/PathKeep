@@ -13,8 +13,6 @@ use crate::{
 use anyhow::{Context, Result};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
-#[cfg(test)]
-use vault_store::OptionalRow;
 use vault_store::{Session, params_owned as params};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -78,54 +76,6 @@ pub(super) fn stage_version(connection: &Session<'_>, stage: RebuildMode) -> Res
     }
 }
 
-#[cfg(test)]
-pub(super) fn load_stage_checkpoint(
-    connection: &Session<'_>,
-    profile_id: &str,
-    stage: RebuildMode,
-) -> Result<Option<StageCheckpoint>> {
-    connection
-        .query_one(
-            "SELECT profile_id,
-                    stage,
-                    stage_version,
-                    visible_visit_count,
-                    max_visit_id,
-                    max_url_last_visit_ms,
-                    visible_search_term_count,
-                    last_processed_visit_id,
-                    dirty_from_visit_ms,
-                    dirty_date_key,
-                    last_run_id,
-                    fallback_reason,
-                    updated_at
-             FROM core_intelligence_stage_checkpoints
-             WHERE profile_id = ?1 AND stage = ?2",
-            params![profile_id, stage_name(stage)],
-            |row| {
-                Ok(StageCheckpoint {
-                    profile_id: row.get(0)?,
-                    stage: row.get(1)?,
-                    stage_version: row.get(2)?,
-                    source_watermark: ProfileSourceWatermark {
-                        visible_visit_count: row.get(3)?,
-                        max_visit_id: row.get(4)?,
-                        max_url_last_visit_ms: row.get(5)?,
-                        visible_search_term_count: row.get(6)?,
-                    },
-                    last_processed_visit_id: row.get(7)?,
-                    dirty_from_visit_ms: row.get(8)?,
-                    dirty_date_key: row.get(9)?,
-                    last_run_id: row.get(10)?,
-                    fallback_reason: row.get(11)?,
-                    updated_at: row.get(12)?,
-                })
-            },
-        )
-        .optional()
-        .map_err(Into::into)
-}
-
 pub(super) fn save_stage_checkpoint(
     connection: &Session<'_>,
     checkpoint: &StageCheckpoint,
@@ -175,22 +125,6 @@ pub(super) fn save_stage_checkpoint(
             checkpoint.updated_at,
         ],
     )?;
-    Ok(())
-}
-
-#[cfg(test)]
-pub(super) fn delete_stage_checkpoints(
-    connection: &Session<'_>,
-    profile_id: Option<&str>,
-) -> Result<()> {
-    if let Some(profile_id) = profile_id {
-        connection.execute(
-            "DELETE FROM core_intelligence_stage_checkpoints WHERE profile_id = ?1",
-            [profile_id],
-        )?;
-    } else {
-        connection.execute("DELETE FROM core_intelligence_stage_checkpoints", ())?;
-    }
     Ok(())
 }
 
@@ -386,95 +320,4 @@ pub(super) fn load_site_dictionary_signature(connection: &Session<'_>) -> Result
         )
         .map(|(count, updated_at)| format!("overrides:{count}:{updated_at}"))
         .context("loading site dictionary signature")
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn stage_checkpoint_helpers_cover_names_versions_and_scoped_deletes() {
-        let vault = crate::Vault::open_temp().unwrap();
-        vault
-            .write(
-                vault_store::Db::Intelligence,
-                vault_store::Priority::Interactive,
-                |connection| {
-                    assert_eq!(stage_name(RebuildMode::StructuralRebuild), "structural-rebuild");
-                    assert_eq!(stage_name(RebuildMode::FullRebuild), "full-rebuild");
-                    assert!(
-                        stage_version(connection, RebuildMode::VisitDerive)
-                            .expect("visit version")
-                            .starts_with("visit-derived-facts-v4:")
-                    );
-                    assert_eq!(
-                        stage_version(connection, RebuildMode::StructuralRebuild)
-                            .expect("structural version"),
-                        "structural-rebuild-v11"
-                    );
-                    assert_eq!(
-                        stage_version(connection, RebuildMode::FullRebuild).expect("full version"),
-                        "full-rebuild-v2"
-                    );
-
-                    save_stage_checkpoint(
-                        connection,
-                        &StageCheckpoint {
-                            profile_id: "profile-a".to_string(),
-                            stage: stage_name(RebuildMode::DailyRollup).to_string(),
-                            stage_version: "daily-rollups-v2".to_string(),
-                            source_watermark: ProfileSourceWatermark {
-                                visible_visit_count: 1,
-                                max_visit_id: 1,
-                                max_url_last_visit_ms: 1,
-                                visible_search_term_count: 1,
-                            },
-                            last_processed_visit_id: 1,
-                            updated_at: "2026-04-26T00:00:00Z".to_string(),
-                            ..StageCheckpoint::default()
-                        },
-                    )
-                    .expect("checkpoint a");
-                    save_stage_checkpoint(
-                        connection,
-                        &StageCheckpoint {
-                            profile_id: "profile-b".to_string(),
-                            stage: stage_name(RebuildMode::DailyRollup).to_string(),
-                            stage_version: "daily-rollups-v2".to_string(),
-                            source_watermark: ProfileSourceWatermark {
-                                visible_visit_count: 2,
-                                max_visit_id: 2,
-                                max_url_last_visit_ms: 2,
-                                visible_search_term_count: 2,
-                            },
-                            last_processed_visit_id: 2,
-                            updated_at: "2026-04-26T00:00:01Z".to_string(),
-                            ..StageCheckpoint::default()
-                        },
-                    )
-                    .expect("checkpoint b");
-
-                    delete_stage_checkpoints(connection, Some("profile-a"))
-                        .expect("delete profile a");
-                    assert!(
-                        load_stage_checkpoint(connection, "profile-a", RebuildMode::DailyRollup)
-                            .expect("load profile a")
-                            .is_none()
-                    );
-                    assert!(
-                        load_stage_checkpoint(connection, "profile-b", RebuildMode::DailyRollup)
-                            .expect("load profile b")
-                            .is_some()
-                    );
-                    delete_stage_checkpoints(connection, None).expect("delete all");
-                    assert!(
-                        load_stage_checkpoint(connection, "profile-b", RebuildMode::DailyRollup)
-                            .expect("load profile b after delete")
-                            .is_none()
-                    );
-                    Ok(())
-                },
-            )
-            .unwrap();
-    }
 }

@@ -29,17 +29,6 @@ pub(crate) async fn keyring_status() -> Result<vault_core::KeyringStatusReport, 
 
 #[cfg(not(test))]
 #[tauri::command]
-/// Loads the combined security read model for the current session, off the UI thread.
-pub(crate) async fn security_status(
-    state: State<'_, SessionState>,
-) -> Result<vault_core::SecurityStatus, CommandError> {
-    let key_state = state.inner().clone();
-    run_blocking_command("security_status", move || worker_bridge::security_status_impl(&key_state))
-        .await
-}
-
-#[cfg(not(test))]
-#[tauri::command]
 /// Reports whether a data key is stored; the value never enters the WebView.
 pub(crate) async fn keyring_get_database_key() -> Result<bool, CommandError> {
     run_blocking_command("keyring_get_database_key", worker_bridge::keyring_get_database_key_impl)

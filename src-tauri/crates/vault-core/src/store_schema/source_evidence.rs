@@ -3,7 +3,7 @@
 //! Failure modes: lost optional payload fields; the same evidence stored again by every
 //! import that reads it; evidence cannot round-trip or is tied by an invalid FK to a
 //! different database.
-//! Tests: catalog_and_crud (every table and column, plaintext and encrypted).
+//! Tests: newer_versions_are_refused; the maintenance round trips seed every table.
 //! Drops: the per-batch evidence indexes, which no query read; `content_key` replaces them.
 //! `content_key` is NULL only between an old-format archive's copy and its de-duplication
 //! (`conversion::dedupe_source_evidence`). Archive profile/run IDs remain logical

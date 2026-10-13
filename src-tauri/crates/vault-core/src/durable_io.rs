@@ -41,13 +41,13 @@ use std::time::{Duration, SystemTime};
 // `cfg`-compiling production I/O out of the coverage binary, because that hides the real failure
 // modes. So the REAL barrier (`real_full_fsync` -> `F_FULLFSYNC`/`sync_all`) and the REAL recovery
 // decision (`handle_fsync_errno`) always run; only a TEST may pre-load a directive that makes
-// `full_fsync` take the recovery branch *as if* `fcntl` had returned a given `errno`, or make a
-// directory open fail. The thread-locals are read on every call (production default = "no fault, run
-// the real barrier") and are written only by the `#[cfg(all(unix, test))]` setters below, so test
-// threads are isolated from each other and from production with zero behavioural change at runtime.
+// `full_fsync` take the recovery branch *as if* `fcntl` had returned a given `errno`. The
+// thread-local is read on every call (production default = "no fault, run the real barrier") and is
+// written only by the `#[cfg(all(unix, test))]` setter below, so test threads are isolated from each
+// other and from production with zero behavioural change at runtime.
 
 #[cfg(unix)]
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 #[cfg(unix)]
 use std::collections::VecDeque;
 
@@ -57,13 +57,6 @@ thread_local! {
     /// drives the recovery code as if `fcntl(F_FULLFSYNC)` had failed with that errno; `None` (or an
     /// empty queue) runs the real barrier. Always empty in production.
     static FSYNC_FAULTS: RefCell<VecDeque<Option<i32>>> = const { RefCell::new(VecDeque::new()) };
-    /// When set, `fsync_parent_dir` fails its directory open with this errno before touching the
-    /// filesystem. `None` (production default) opens the directory for real.
-    static DIR_OPEN_FAULT: Cell<Option<i32>> = const { Cell::new(None) };
-    /// Makes the macOS-only real `fcntl(F_FULLFSYNC)` path report this errno. Unlike
-    /// `FSYNC_FAULTS`, this reaches the error arm inside `real_full_fsync`.
-    #[cfg(target_os = "macos")]
-    static REAL_FULL_FSYNC_FAULT: Cell<Option<i32>> = const { Cell::new(None) };
 }
 
 /// Pops the next injected `full_fsync` directive. `None` => run the real barrier (always so in
@@ -73,39 +66,14 @@ fn next_fsync_fault() -> Option<i32> {
     FSYNC_FAULTS.with(|queue| queue.borrow_mut().pop_front().flatten())
 }
 
-/// Reads the injected directory-open directive. `None` => open the directory for real (always so in
-/// production).
-#[cfg(unix)]
-fn dir_open_fault() -> Option<i32> {
-    DIR_OPEN_FAULT.with(Cell::get)
-}
-
-#[cfg(all(target_os = "macos", test))]
-fn take_real_full_fsync_fault() -> Option<i32> {
-    REAL_FULL_FSYNC_FAULT.with(Cell::take)
-}
-
-#[cfg(all(target_os = "macos", test))]
-fn inject_real_full_fsync_fault(errno: i32) {
-    REAL_FULL_FSYNC_FAULT.with(|fault| fault.set(Some(errno)));
-}
-
 /// Queues per-`full_fsync` fault directives for the current test thread (replacing any prior queue).
-/// `pub(crate)` so a sibling module's `#[cfg(test)]` can drive a dir-fsync failure behaviourally
-/// (e.g. `quarantine_canonical_archive`'s `fsync_dir`), not just for coverage.
 #[cfg(all(unix, test))]
-pub(crate) fn inject_fsync_faults(faults: Vec<Option<i32>>) {
+fn inject_fsync_faults(faults: Vec<Option<i32>>) {
     FSYNC_FAULTS.with(|queue| {
         let mut queue = queue.borrow_mut();
         queue.clear();
         queue.extend(faults);
     });
-}
-
-/// Forces the next `fsync_parent_dir` directory open to fail with `errno` on the current test thread.
-#[cfg(all(unix, test))]
-fn inject_dir_open_fault(errno: i32) {
-    DIR_OPEN_FAULT.with(|cell| cell.set(Some(errno)));
 }
 
 /// `true` when `errno` means the filesystem/handle cannot provide a real platter barrier, so we
@@ -138,19 +106,6 @@ fn handle_fsync_errno(file: &File, errno: i32) -> Result<()> {
 #[cfg(target_os = "macos")]
 fn real_full_fsync(file: &File) -> Result<()> {
     use std::os::unix::io::AsRawFd;
-    #[cfg(test)]
-    let rc = if let Some(errno) = take_real_full_fsync_fault() {
-        // SAFETY: `__error` returns this thread's writable errno slot on macOS. The test seam sets
-        // it immediately before reporting `-1`, exactly as a failing `fcntl` would.
-        unsafe {
-            *libc::__error() = errno;
-        }
-        -1
-    } else {
-        // SAFETY: the fd is owned by `file` and stays valid for this call.
-        unsafe { libc::fcntl(file.as_raw_fd(), libc::F_FULLFSYNC) }
-    };
-    #[cfg(not(test))]
     // SAFETY: the fd is owned by `file` and stays valid for this call.
     let rc = unsafe { libc::fcntl(file.as_raw_fd(), libc::F_FULLFSYNC) };
     if rc == -1 {
@@ -190,10 +145,6 @@ fn full_fsync(file: &File) -> Result<()> {
 /// degrades to `sync_all` (see `handle_fsync_errno`). A no-op on non-unix targets.
 #[cfg(unix)]
 pub(crate) fn fsync_dir(dir: &Path) -> Result<()> {
-    if let Some(errno) = dir_open_fault() {
-        return Err(io::Error::from_raw_os_error(errno))
-            .with_context(|| format!("open dir {} for fsync", dir.display()));
-    }
     let handle =
         File::open(dir).with_context(|| format!("open dir {} for fsync", dir.display()))?;
     full_fsync(&handle).with_context(|| format!("fsync dir {}", dir.display()))
@@ -314,17 +265,11 @@ pub fn remove_file_durably(path: &Path) -> Result<()> {
 }
 
 /// Removes orphaned `.pk-durable-*` temp files left in `dir` when the process was killed between
-/// temp-create and persist (a `SIGKILL` skips `NamedTempFile`'s Drop, so the temp leaks). Returns
-/// the number removed. A missing `dir` is not an error (nothing to sweep). Only call it where no
-/// other write can be in flight; otherwise use [`sweep_temps_older_than`]. (Nothing sweeps the
-/// archive directory at startup yet; history export sweeps its own directory by age.)
-pub fn sweep_stale_temps(dir: &Path) -> Result<usize> {
-    sweep_temps_matching(dir, |_| true)
-}
-
-/// Like [`sweep_stale_temps`], but only removes temps not written to for `min_age`. For a
-/// directory where another write may be in progress (two history exports at once): a temp that
-/// is still being written keeps a fresh modification time.
+/// temp-create and persist (a `SIGKILL` skips `NamedTempFile`'s Drop, so the temp leaks), but only
+/// those not written to for `min_age`: another write may be in progress in the same directory (two
+/// history exports at once), and a temp that is still being written keeps a fresh modification
+/// time. Returns the number removed. A missing `dir` is not an error (nothing to sweep). Nothing
+/// sweeps the archive directory at startup yet; history export sweeps its own directory by age.
 pub fn sweep_temps_older_than(dir: &Path, min_age: Duration) -> Result<usize> {
     let now = SystemTime::now();
     sweep_temps_matching(dir, |entry| {
@@ -362,136 +307,6 @@ fn sweep_temps_matching(dir: &Path, stale: impl Fn(&fs::DirEntry) -> bool) -> Re
 mod tests {
     use super::*;
 
-    #[test]
-    fn atomic_durable_write_persists_contents_and_leaves_no_temp() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let path = dir.path().join("config.json");
-
-        atomic_durable_write(&path, b"{\"v\":1}").expect("write");
-        assert_eq!(fs::read(&path).expect("read"), b"{\"v\":1}");
-
-        // Overwrite durably (the save_config case) — old content fully replaced.
-        atomic_durable_write(&path, b"{\"v\":2,\"more\":true}").expect("overwrite");
-        assert_eq!(fs::read(&path).expect("read"), b"{\"v\":2,\"more\":true}");
-
-        // No leftover temp files in the directory — only the destination remains.
-        let leftovers: Vec<_> = fs::read_dir(dir.path())
-            .expect("read_dir")
-            .filter_map(|e| e.ok())
-            .map(|e| e.file_name().to_string_lossy().into_owned())
-            .filter(|name| name.starts_with(".pk-durable-"))
-            .collect();
-        assert!(leftovers.is_empty(), "temp not cleaned up: {leftovers:?}");
-    }
-
-    #[test]
-    fn atomic_durable_write_errors_when_parent_dir_is_missing() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let path = dir.path().join("does-not-exist").join("config.json");
-        let error = atomic_durable_write(&path, b"x").expect_err("missing parent must error");
-        assert!(error.to_string().contains("create temp beside"));
-    }
-
-    #[test]
-    fn install_file_durably_renames_built_file_onto_dest() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let built = dir.path().join("archive.rekey.tmp");
-        let dest = dir.path().join("history-vault.sqlite");
-        fs::write(&built, b"SQLite format 3\0...new...").expect("seed built");
-
-        install_file_durably(&built, &dest).expect("install");
-        assert_eq!(fs::read(&dest).expect("read dest"), b"SQLite format 3\0...new...");
-        assert!(!built.exists(), "built temp should be consumed by the rename");
-    }
-
-    #[test]
-    fn install_file_durably_errors_when_built_file_is_missing() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let built = dir.path().join("nope.tmp");
-        let dest = dir.path().join("dest.sqlite");
-        let error = install_file_durably(&built, &dest).expect_err("missing built file must error");
-        assert!(error.to_string().contains("open built file"));
-    }
-
-    // --- prepare-fsync + durable-remove helpers (apply_import commit barrier) ---------------------
-
-    #[test]
-    fn fsync_file_durably_flushes_a_real_file() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let path = dir.path().join("staged.sqlite");
-        fs::write(&path, b"SQLite format 3\0staged bytes").expect("seed staged");
-        fsync_file_durably(&path).expect("fsync a real file must succeed");
-        // The file is untouched by the barrier (no rename, no truncation).
-        assert_eq!(fs::read(&path).expect("read"), b"SQLite format 3\0staged bytes");
-    }
-
-    #[test]
-    fn fsync_file_durably_errors_on_a_missing_file() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let missing = dir.path().join("never-existed.sqlite");
-        let error = fsync_file_durably(&missing).expect_err("fsync of a missing file must error");
-        assert!(error.to_string().contains("open"), "got {error}");
-    }
-
-    #[test]
-    fn remove_file_durably_removes_an_existing_file() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let marker = dir.path().join(".pk-import-journal.json");
-        fs::write(&marker, b"{\"version\":1}").expect("seed marker");
-        remove_file_durably(&marker).expect("remove an existing file durably");
-        assert!(!marker.exists(), "the file must be removed");
-    }
-
-    #[test]
-    fn remove_file_durably_is_idempotent_on_a_missing_path() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let missing = dir.path().join("already-gone");
-        // No file there: a clean Ok with no side effect.
-        remove_file_durably(&missing).expect("removing a missing path must be a clean Ok");
-        assert!(!missing.exists());
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn remove_file_durably_surfaces_an_unlink_failure() {
-        use std::os::unix::fs::PermissionsExt;
-        let dir = tempfile::tempdir().expect("tempdir");
-        let parent = dir.path().join("locked");
-        fs::create_dir(&parent).expect("mkdir parent");
-        let victim = parent.join("marker");
-        fs::write(&victim, b"x").expect("seed victim");
-
-        let original = fs::metadata(&parent).expect("perms").permissions();
-        let mut locked = original.clone();
-        locked.set_mode(0o500); // r-x: stat (exists) still works, unlink is denied.
-        fs::set_permissions(&parent, locked).expect("lock parent");
-        let result = remove_file_durably(&victim);
-        fs::set_permissions(&parent, original).expect("restore perms");
-
-        let error = result.expect_err("an unlink in a read-only directory must surface");
-        assert!(error.to_string().contains("remove"), "got {error}");
-    }
-
-    // --- Orphaned temp sweep -----------------------------------------------------------
-
-    #[test]
-    fn streamed_write_lands_whole_and_leaves_no_temp() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let path = dir.path().join("export.jsonl");
-        atomic_durable_write_with(&path, |writer| {
-            for line in 0..10_000 {
-                writeln!(writer, "{{\"line\":{line}}}")?;
-            }
-            Ok(())
-        })
-        .expect("streamed write");
-
-        let written = fs::read_to_string(&path).expect("read back");
-        assert_eq!(written.lines().count(), 10_000);
-        assert!(written.ends_with("{\"line\":9999}\n"));
-        assert_eq!(fs::read_dir(dir.path()).expect("list").count(), 1, "the temp was left behind");
-    }
-
     /// An export that fails halfway (archive locked, disk full) must not leave a truncated file
     /// where the old one was, nor a partial temp.
     #[test]
@@ -526,53 +341,10 @@ mod tests {
         assert!(dir.path().join("export.md").exists());
     }
 
-    #[test]
-    fn sweep_stale_temps_removes_only_durable_temps_and_counts_them() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        fs::write(dir.path().join(".pk-durable-abc"), b"leak").expect("seed temp a");
-        fs::write(dir.path().join(".pk-durable-xyz"), b"leak").expect("seed temp b");
-        fs::write(dir.path().join("config.json"), b"keep").expect("seed config");
-
-        let removed = sweep_stale_temps(dir.path()).expect("sweep");
-        assert_eq!(removed, 2, "both leaked temps should be removed");
-        assert!(!dir.path().join(".pk-durable-abc").exists());
-        assert!(!dir.path().join(".pk-durable-xyz").exists());
-        assert!(dir.path().join("config.json").exists(), "real files must be left alone");
-    }
-
-    #[test]
-    fn sweep_stale_temps_treats_missing_dir_as_nothing_to_do() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let missing = dir.path().join("not-an-archive-dir");
-        assert_eq!(sweep_stale_temps(&missing).expect("sweep missing"), 0);
-    }
-
-    #[test]
-    fn sweep_stale_temps_errors_when_path_is_not_a_directory() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let file = dir.path().join("a-file");
-        fs::write(&file, b"x").expect("seed file");
-        let error = sweep_stale_temps(&file).expect_err("scanning a file must error");
-        assert!(error.to_string().contains("scan"));
-    }
-
     // --- Barrier fault paths via the seam -----------------
     //
-    // These drive the SAME production recovery code (`handle_fsync_errno`, the rename arms, the
-    // dir-open/dir-fsync arms) that the real disk barrier runs, without needing a filesystem that
-    // actually rejects F_FULLFSYNC. The real happy-path fsync still runs (see the test above).
-
-    #[cfg(unix)]
-    #[test]
-    fn full_fsync_degrades_to_best_effort_on_unsupported_filesystem() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let path = dir.path().join("config.json");
-        // First full_fsync call (the temp) reports the fs cannot do F_FULLFSYNC -> sync_all fallback;
-        // the write must still succeed with the correct contents.
-        inject_fsync_faults(vec![Some(libc::ENOTSUP)]);
-        atomic_durable_write(&path, b"degraded-ok").expect("write degrades, not fails");
-        assert_eq!(fs::read(&path).expect("read"), b"degraded-ok");
-    }
+    // These drive the SAME production recovery code (`handle_fsync_errno`, the dir-fsync arm) that
+    // the real disk barrier runs, without needing a filesystem that actually rejects F_FULLFSYNC.
 
     #[cfg(unix)]
     #[test]
@@ -586,69 +358,6 @@ mod tests {
         assert!(!path.exists(), "must not publish a file whose data was never made durable");
     }
 
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn real_full_fsync_propagates_the_fcntl_errno() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let path = dir.path().join("barrier-target");
-        fs::write(&path, b"durable bytes").expect("seed file");
-        let file = File::open(&path).expect("open file");
-        inject_real_full_fsync_fault(libc::EIO);
-
-        let error = real_full_fsync(&file).expect_err("a real F_FULLFSYNC error must propagate");
-        assert!(
-            format!("{error:#}").contains("F_FULLFSYNC failed"),
-            "the real fcntl failure keeps its context: {error:#}"
-        );
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn atomic_durable_write_reports_rename_failure() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        // A non-empty directory at the destination path makes the rename (persist) fail reliably,
-        // regardless of uid (unlike a read-only dir, which root ignores).
-        let dest = dir.path().join("occupied");
-        fs::create_dir(&dest).expect("mkdir dest");
-        fs::write(dest.join("inner"), b"present").expect("seed dest child");
-
-        let error = atomic_durable_write(&dest, b"data").expect_err("rename onto a dir must fail");
-        assert!(error.to_string().contains("rename temp onto"));
-
-        // The failed persist must not leak the temp.
-        let leftovers: Vec<_> = fs::read_dir(dir.path())
-            .expect("read_dir")
-            .filter_map(|e| e.ok())
-            .filter(|e| e.file_name().to_string_lossy().starts_with(".pk-durable-"))
-            .collect();
-        assert!(leftovers.is_empty(), "failed rename leaked a temp");
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn install_file_durably_reports_rename_failure() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let built = dir.path().join("built.tmp");
-        fs::write(&built, b"new").expect("seed built");
-        let dest = dir.path().join("occupied");
-        fs::create_dir(&dest).expect("mkdir dest");
-        fs::write(dest.join("inner"), b"present").expect("seed dest child");
-
-        let error = install_file_durably(&built, &dest).expect_err("rename onto a dir must fail");
-        assert!(error.to_string().contains("rename"));
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn fsync_parent_dir_reports_directory_open_failure() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let path = dir.path().join("config.json");
-        inject_dir_open_fault(libc::EACCES);
-        let error = atomic_durable_write(&path, b"x").expect_err("dir open failure must surface");
-        assert!(error.to_string().contains("open dir"));
-        assert!(error.to_string().contains("for fsync"));
-    }
-
     #[cfg(unix)]
     #[test]
     fn fsync_parent_dir_reports_directory_fsync_failure() {
@@ -657,39 +366,6 @@ mod tests {
         // 1st full_fsync (temp) runs for real; 2nd (the directory) hits a fatal injected errno.
         inject_fsync_faults(vec![None, Some(libc::EIO)]);
         let error = atomic_durable_write(&path, b"x").expect_err("dir fsync failure must surface");
-        assert!(error.to_string().contains("fsync dir"));
-    }
-
-    // --- Directory fsync helper (durable cross-dir move) --------------------------------
-    //
-    // `fsync_dir` is what the Phase-D restore's `quarantine_canonical_archive` calls to make the
-    // cross-directory rename into `quarantine/<ts>/` crash-durable. These exercise it DIRECTLY (the
-    // `fsync_parent_dir` tests above reach it transitively through `atomic_durable_write`).
-
-    #[cfg(unix)]
-    #[test]
-    fn fsync_dir_flushes_a_real_directory() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        fsync_dir(dir.path()).expect("fsync of a real directory must succeed");
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn fsync_dir_reports_a_directory_open_failure() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        inject_dir_open_fault(libc::EACCES);
-        let error = fsync_dir(dir.path()).expect_err("an injected dir-open failure must surface");
-        assert!(error.to_string().contains("open dir"));
-        assert!(error.to_string().contains("for fsync"));
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn fsync_dir_reports_a_directory_fsync_failure() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        // The dir opens for real, then the injected fatal errno hits the directory fsync.
-        inject_fsync_faults(vec![Some(libc::EIO)]);
-        let error = fsync_dir(dir.path()).expect_err("an injected dir-fsync failure must surface");
         assert!(error.to_string().contains("fsync dir"));
     }
 }

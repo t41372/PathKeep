@@ -12,14 +12,13 @@
  * - `hasSafariAccessIssue`
  * - `browserDiscoveryState`
  * - `needsSchedulerReview`
- * - `keyringNeedsReview`
  *
  * Source-of-truth notes:
  * - Keep helper behavior aligned with the shipping design, feature, and architecture docs rather than local route assumptions.
  * - Avoid burying user-visible copy or route-only workflow rules here unless the helper truly owns that cross-cutting contract.
  */
 
-import type { BrowserProfile, ScheduleStatus, SecurityStatus } from './types'
+import type { BrowserProfile, ScheduleStatus } from './types'
 
 /**
  * Defines the type-level contract for supported platform.
@@ -133,14 +132,4 @@ export function needsSchedulerReview(status: ScheduleStatus | null) {
     status.installState === 'legacy-install-detected' ||
     status.installState === 'manual-review'
   )
-}
-
-/**
- * Explains how keyring needs review works.
- *
- * This helper should stay small, explicit, and easy to test because multiple routes rely on it as a shared contract.
- */
-export function keyringNeedsReview(status: SecurityStatus | null) {
-  if (!status) return false
-  return !status.keyringStatus.available || status.warnings.length > 0
 }

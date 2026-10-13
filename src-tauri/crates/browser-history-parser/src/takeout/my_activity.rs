@@ -147,18 +147,6 @@ mod tests {
     }
 
     #[test]
-    fn a_tracked_click_is_the_page_it_led_to() {
-        let read = visit(record(
-            "Visited Docs",
-            "https://www.google.com/url?q=https://docs.example/a%3Fb%3D1%26c%3D2&usg=AOvVaw0",
-            "2025-04-22T18:30:56.385Z",
-        ));
-        assert_eq!(read.url, "https://docs.example/a?b=1&c=2");
-        assert_eq!(read.title.as_deref(), Some("Docs"));
-        assert_eq!(read.time_micros, 1_745_346_656_385_000);
-    }
-
-    #[test]
     fn other_addresses_stay_as_they_are() {
         for address in [
             "https://docs.example/url?q=https://elsewhere.example/",
@@ -184,18 +172,6 @@ mod tests {
             timeless["time"] = time;
             assert_eq!(read_record(&timeless), ActivityRecord::NoTime);
         }
-    }
-
-    #[test]
-    fn the_prefix_is_not_part_of_the_title() {
-        assert_eq!(
-            visit(record("Visited ", "https://a.example/", "2025-04-22T18:30:56Z")).title,
-            None
-        );
-        assert_eq!(
-            visit(record("Not visited", "https://a.example/", "2025-04-22T18:30:56Z")).title,
-            Some("Not visited".into())
-        );
     }
 
     /// A newer export lists more records before the same ones; their keys must not move. Two

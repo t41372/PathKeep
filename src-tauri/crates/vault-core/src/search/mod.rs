@@ -44,8 +44,6 @@ mod coverage_tests;
 #[cfg(test)]
 mod fuzzy_tests;
 #[cfg(test)]
-mod ported_queries;
-#[cfg(test)]
 mod projection_tests;
 #[cfg(test)]
 mod recovery_tests;

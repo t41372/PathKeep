@@ -6,43 +6,10 @@
 //! ## Responsibilities
 //! - Claim deterministic and enrichment jobs safely under compare-and-set SQL.
 //! - Surface the next runnable queue items in worker execution order.
-//! - Expose queued-enrichment pagination helpers used by regression tests.
 
 use super::*;
 use crate::utils::now_rfc3339;
 use vault_store::{OptionalRow, Session, params_owned as params};
-#[cfg(test)]
-use vault_store::{Value as SqlValue, params_from_iter};
-
-#[derive(Debug, Clone)]
-#[cfg(test)]
-pub(super) struct QueuedEnrichmentJobSnapshot {
-    pub id: i64,
-    pub plugin_id: String,
-    pub attempt: i64,
-    pub payload_json: String,
-    pub priority: i64,
-    pub created_at: String,
-}
-
-#[derive(Debug, Clone)]
-#[cfg(test)]
-pub(super) struct EnrichmentQueueCursor {
-    priority: i64,
-    created_at: String,
-    id: i64,
-}
-
-#[cfg(test)]
-impl QueuedEnrichmentJobSnapshot {
-    fn cursor(&self) -> EnrichmentQueueCursor {
-        EnrichmentQueueCursor {
-            priority: self.priority,
-            created_at: self.created_at.clone(),
-            id: self.id,
-        }
-    }
-}
 
 pub fn intelligence_job_stop_requested_in_session(
     connection: &Session<'_>,
@@ -113,61 +80,6 @@ pub fn claim_deterministic_rebuild_job_in_session(
 ) -> Result<Option<DeterministicRebuildJobPayload>> {
     Ok(claim_core_intelligence_job_in_session(connection, job_id)?
         .filter(|payload| payload.job_type == RebuildMode::FullRebuild.job_type()))
-}
-
-/// Claims a batch of runnable enrichment jobs.
-#[cfg(test)]
-pub(crate) fn claim_enrichment_jobs(
-    connection: &Session<'_>,
-    allowed_plugin_ids: &[String],
-    allowed_history_ids: &std::collections::HashSet<i64>,
-    limit: usize,
-) -> Result<Vec<ClaimedEnrichmentJob>> {
-    if allowed_plugin_ids.is_empty() || allowed_history_ids.is_empty() {
-        return Ok(Vec::new());
-    }
-
-    let target_count = limit.max(1);
-    let page_size = target_count.max(64);
-    let mut claimed = Vec::new();
-    let mut cursor = None::<EnrichmentQueueCursor>;
-
-    loop {
-        let candidates = queued_enrichment_candidates_page(
-            connection,
-            allowed_plugin_ids,
-            cursor.as_ref(),
-            page_size,
-        )?;
-        if candidates.is_empty() {
-            break;
-        }
-
-        cursor = candidates.last().map(QueuedEnrichmentJobSnapshot::cursor);
-        for candidate in candidates {
-            let payload = serde_json::from_str::<EnrichmentJobPayload>(&candidate.payload_json)
-                .with_context(|| format!("parsing enrichment payload for job {}", candidate.id))?;
-            if !payload.history_id.is_some_and(|id| allowed_history_ids.contains(&id)) {
-                continue;
-            }
-
-            let claimed_at = now_rfc3339();
-            if !try_claim_enrichment_job(connection, candidate.id, &claimed_at)? {
-                continue;
-            }
-            claimed.push(ClaimedEnrichmentJob {
-                id: candidate.id,
-                plugin_id: candidate.plugin_id,
-                attempt: candidate.attempt.max(0) as usize + 1,
-                payload,
-            });
-            if claimed.len() >= target_count {
-                return Ok(claimed);
-            }
-        }
-    }
-
-    Ok(claimed)
 }
 
 pub(crate) fn claim_enrichment_job_by_id(
@@ -255,56 +167,6 @@ fn quarantine_queued_intelligence_job(
         params![now, error, job_id],
     )?;
     Ok(updated == 1)
-}
-
-#[cfg(test)]
-pub(super) fn queued_enrichment_candidates_page(
-    connection: &Session<'_>,
-    allowed_plugin_ids: &[String],
-    after: Option<&EnrichmentQueueCursor>,
-    limit: usize,
-) -> Result<Vec<QueuedEnrichmentJobSnapshot>> {
-    let placeholders =
-        std::iter::repeat_n("?", allowed_plugin_ids.len()).collect::<Vec<_>>().join(", ");
-    let mut query = format!(
-        "SELECT id, plugin_id, attempt, payload_json, priority, created_at
-         FROM intelligence_jobs
-         WHERE job_type = ?
-           AND state = 'queued'
-           AND plugin_id IN ({placeholders})"
-    );
-    let mut bindings = Vec::<SqlValue>::with_capacity(allowed_plugin_ids.len() + 5);
-    bindings.push(SqlValue::from(ENRICHMENT_JOB_TYPE.to_string()));
-    bindings.extend(allowed_plugin_ids.iter().cloned().map(SqlValue::from));
-
-    if let Some(after) = after {
-        query.push_str(
-            " AND priority >= ? AND (priority > ? OR (created_at >= ? AND (created_at > ? OR id > ?)))",
-        );
-        bindings.push(SqlValue::from(after.priority));
-        bindings.push(SqlValue::from(after.priority));
-        bindings.push(SqlValue::from(after.created_at.clone()));
-        bindings.push(SqlValue::from(after.created_at.clone()));
-        bindings.push(SqlValue::from(after.id));
-    }
-
-    query.push_str(" ORDER BY priority ASC, created_at ASC, id ASC LIMIT ?");
-    bindings.push(SqlValue::from(limit.max(1) as i64));
-
-    let mut statement = connection.prepare(&query)?;
-    statement
-        .query_map(params_from_iter(bindings.iter().cloned()), |row| {
-            Ok(QueuedEnrichmentJobSnapshot {
-                id: row.get(0)?,
-                plugin_id: row.get(1)?,
-                attempt: row.get(2)?,
-                payload_json: row.get(3)?,
-                priority: row.get(4)?,
-                created_at: row.get(5)?,
-            })
-        })?
-        .collect::<vault_store::Result<Vec<_>>>()
-        .map_err(Into::into)
 }
 
 pub(super) fn try_claim_enrichment_job(

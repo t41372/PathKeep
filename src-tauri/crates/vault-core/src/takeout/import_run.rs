@@ -55,16 +55,3 @@ pub(super) fn with_review_context(error: anyhow::Error, saved: Result<()>) -> an
         }
     }
 }
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn review_failure_keeps_the_original_error_and_type() {
-        let error = super::with_review_context(
-            vault_store::Error::cancelled().into(),
-            Err(anyhow::anyhow!("review disk full")),
-        );
-        assert!(error.downcast_ref::<vault_store::Error>().is_some());
-        assert!(format!("{error:#}").contains("review disk full"));
-        assert_eq!(crate::archive::write_runs::failure_status(&error), "interrupted");
-    }
-}

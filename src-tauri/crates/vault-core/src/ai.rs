@@ -23,7 +23,6 @@ mod indexing;
 mod llm;
 mod model_files;
 mod model_list;
-mod narrative;
 mod native_ledger;
 mod provider;
 mod read_model;
@@ -56,13 +55,13 @@ use crate::{
 };
 use anyhow::{Context, Result};
 use iana_time_zone::get_timezone;
-#[cfg(not(any(test, coverage)))]
 use rig::{
-    client::{CompletionClient, EmbeddingsClient},
+    client::CompletionClient,
     completion::Prompt,
-    embeddings::EmbeddingModel as _,
     providers::{anthropic, gemini, openai},
 };
+#[cfg(not(test))]
+use rig::{client::EmbeddingsClient, embeddings::EmbeddingModel as _};
 use rig::{
     completion::ToolDefinition,
     tool::{Tool, ToolDyn},
@@ -126,10 +125,7 @@ pub use self::model_files::{
     ModelDownloadProgress, ModelFile, NoopDownloadProgress, ensure_model_downloaded,
     model_dir_for_repo, model_is_loadable, model_is_present_and_verified,
 };
-pub use self::narrative::{
-    NarrativeSummary, QueryFamilyFacts, TopicFacts, summarize_query_family, summarize_topic,
-};
-pub use self::reverse_visit_map::{ReverseMapHeader, ReverseVisitMap, reverse_map_plane_bytes};
+pub use self::reverse_visit_map::{ReverseMapHeader, ReverseVisitMap};
 pub use self::traits::{
     EmbeddingDescriptor, EmbeddingDtype, EmbeddingPooling, EmbeddingProvider, EmbeddingRole,
     LlmCapabilities, LlmChatRequest, LlmChatResponse, LlmChunkStream, LlmMessage, LlmProvider,
@@ -138,35 +134,21 @@ pub use self::traits::{
 pub use self::vector_index::FlatVectorIndex;
 pub use self::vector_planes::{
     BinaryPlane, Int8Plane, Int8PlaneReader, Int8Vector, PlaneBuildReport, PlaneHeader, binarize,
-    binary_bytes_for_dim, build_planes_from_store, dequantize_int8, derived_plane_bytes,
-    dot_product, hamming_distance, planes_are_stale, quantize_int8,
+    binary_bytes_for_dim, build_planes_from_store, dequantize_int8, dot_product, hamming_distance,
+    planes_are_stale, quantize_int8,
 };
-pub use self::vector_store::{VectorStore, VectorStoreHeader, vector_plane_bytes};
-pub use self::visit_content_map::{VisitContentMap, visit_map_plane_bytes};
+pub use self::vector_store::{VectorStore, VectorStoreHeader};
+pub use self::visit_content_map::VisitContentMap;
 pub use self::working_set::{
     CandidateSignals, WorkingSetCandidate, WorkingSetConfig, WorkingSetPage, estimate_reembed,
     score_candidate, select_working_set,
 };
 
-#[cfg(test)]
-use self::assistant::build_assistant_preamble;
 use self::control::{await_with_ai_cancellation, checkpoint_ai_run};
-#[cfg(test)]
-use self::indexing::{build_embedding_content, cleanup_stale_embeddings, collect_visits_to_index};
 use self::native_ledger::AiIndexLedgerRow;
 use self::provider::{
     classify_provider_error, embed_query, embedding_provider_readiness, run_llm_agent,
     validate_provider,
-};
-#[cfg(test)]
-use self::provider::{
-    embed_batch_with_retry, embed_single_with_retry, embedding_error_is_rate_limited,
-    provider_connection_report_from_probe,
-};
-#[cfg(test)]
-use self::search::{
-    SearchContext, SearchHistoryArgs, SearchHistoryTool, StoredEmbedding, cosine_similarity,
-    sort_stored_embeddings_desc,
 };
 
 /// Resolved provider configuration plus the OPTIONAL secret for one AI operation.
@@ -298,17 +280,8 @@ const AI_INDEX_LEDGER_VERSION: &str = "semantic-sidecar-v1";
 /// even if the 30s heartbeat thread stalls. The earlier 256-row chunk fanned out to 4 HTTP calls
 /// (4 × 120s = 480s) which could outlive the lease and let a reclaimed worker keep writing — the
 /// lease-loss abort plus this smaller chunk together close that double-write window.
-#[cfg(not(coverage))]
 const EMBEDDING_BACKFILL_CHUNK: usize = embedding_external::EMBEDDING_HTTP_BATCH;
-/// Tiny chunk under coverage so multi-chunk + cursor-advance paths run on small fixtures.
-#[cfg(coverage)]
-const EMBEDDING_BACKFILL_CHUNK: usize = 2;
-#[cfg(test)]
-const EMBEDDING_RETRY_ATTEMPTS: usize = 2;
 const SQLITE_BATCH_SIZE: usize = 400;
 
 #[cfg(test)]
 mod tests;
-
-#[cfg(test)]
-use std::cmp::Ordering;

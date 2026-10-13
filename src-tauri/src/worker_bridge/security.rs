@@ -11,14 +11,6 @@ pub(crate) fn keyring_status_impl() -> vault_core::KeyringStatusReport {
     vault_worker::keyring_report()
 }
 
-/// Loads the combined security read model for the current archive/session.
-pub(crate) fn security_status_impl(
-    state: &crate::session::SessionState,
-) -> Result<vault_core::SecurityStatus, CommandError> {
-    let vault = state.current_vault();
-    worker_result(vault_worker::security_status(vault.as_ref(), state.get_key()?.as_deref()))
-}
-
 /// Reports presence without returning key material.
 pub(crate) fn keyring_get_database_key_impl() -> Result<bool, CommandError> {
     Ok(vault_worker::keyring_report().stored_secret)

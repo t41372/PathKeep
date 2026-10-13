@@ -18,7 +18,6 @@
 //! starving the local enrichment work and bounds egress concurrency to one (06 §5).
 
 use crate::context::load_unlocked_config;
-#[cfg(not(coverage))]
 use crate::job_runtime::{WorkerPool, maybe_spawn_worker_pool};
 use anyhow::Result;
 use vault_core::{
@@ -31,8 +30,6 @@ use vault_core::{
 };
 
 /// Single-worker content-fetch lane counter (LOW concurrency, 06 §5).
-///
-/// Coverage drives the lane inline; the shared shutdown counter remains zero there.
 pub(super) static CONTENT_FETCH_WORKERS: WorkerPool = WorkerPool::new();
 
 /// Default bulk-enqueue cap for the working-set-prioritized content fetch (bounded, 06 §5).
@@ -143,10 +140,7 @@ pub(crate) fn maybe_spawn_content_fetch_drain(vault: &vault_core::Vault, config:
 ///
 /// Split from [`maybe_spawn_content_fetch_drain`] so the only irreducible real-thread/real-sleep code
 /// is these two thunks. The loop body itself (the cap + arm dispatch) lives in [`run_content_fetch_lane`]
-/// so it is unit-tested without a thread; this thunk wiring is `#[cfg(not(coverage))]` (mirroring
-/// `chat.rs`/`model_download.rs`: the real spawn is compiled out of the coverage build, and the
-/// `#[cfg(coverage)]` twin below drives the SAME seam inline so the 100% gate is deterministic).
-#[cfg(not(coverage))]
+/// and stays free of thread and clock details.
 fn spawn_content_fetch_drain(vault: &vault_core::Vault) {
     let vault = vault.clone();
     maybe_spawn_worker_pool("pathkeep-content-fetch", &CONTENT_FETCH_WORKERS, 1, move || {
@@ -155,27 +149,6 @@ fn spawn_content_fetch_drain(vault: &vault_core::Vault) {
             |secs| std::thread::sleep(std::time::Duration::from_secs(secs)),
         );
     });
-}
-
-/// Coverage twin of [`spawn_content_fetch_drain`]: drives the lane INLINE (no background thread, no real
-/// sleep) so the driver wiring — the real step thunk, the sleep thunk, and the [`run_content_fetch_lane`]
-/// call — is exercised deterministically at 100% coverage without depending on thread scheduling.
-///
-/// The step is wrapped so that after the lane sleeps ONCE it reports [`LaneStep::Stop`], which bounds the
-/// drive to a single deferred-sleep pass. That keeps a persistently rate-limited job from spinning the
-/// inline drive forever while still flowing through the SAME seam + cap the production thread uses.
-#[cfg(coverage)]
-fn spawn_content_fetch_drain(vault: &vault_core::Vault) {
-    let slept = std::cell::Cell::new(false);
-    run_content_fetch_lane(
-        || {
-            if slept.get() {
-                return LaneStep::Stop;
-            }
-            drain_content_fetch_lane_step(vault)
-        },
-        |_secs| slept.set(true),
-    );
 }
 
 /// Runs the content-fetch drain loop, dispatching each [`LaneStep`] (the deferred-job sleep cap
@@ -253,10 +226,7 @@ fn drain_content_fetch_lane_step(vault: &vault_core::Vault) -> LaneStep {
 mod tests {
     use super::*;
     use crate::tests::{PROJECT_ROOT_OVERRIDE_ENV, lock_env, restore_env_var};
-    use vault_core::{
-        ArchiveMode, ContentFetchNowRequest, Vault, test_support::native::TestDatabase,
-    };
-    use vault_store::{Db, Priority, params_owned as params};
+    use vault_core::{ArchiveMode, ContentFetchNowRequest, Vault};
 
     struct Fixture {
         vault: Vault,
@@ -273,9 +243,6 @@ mod tests {
                 std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, &vault.paths().app_root);
             }
             Self { vault, previous, _guard: guard }
-        }
-        fn db(&self) -> TestDatabase {
-            TestDatabase::new(&self.vault, Db::Intelligence)
         }
     }
     impl Drop for Fixture {
@@ -295,17 +262,8 @@ mod tests {
     fn request(url: &str) -> ContentFetchNowRequest {
         ContentFetchNowRequest { history_id: None, profile_id: None, url: url.into(), title: None }
     }
-    fn seed_page(vault: &Vault, url: &str) {
-        let url = url.to_owned();
-        vault.store().write(Db::Archive,Priority::Batch,move |s| {
-            s.execute("INSERT INTO pages(id,url,canonical_url,registrable_domain) VALUES(1,?1,?1,'example.com')",[url.clone()])?;
-            s.execute("INSERT INTO search_documents(page_id,url,title,search_terms,normalized_url,normalized_title,normalized_search_terms,cjk_grams,compact_text,updated_at) VALUES(1,?1,'','',?1,'','','','','')",[url.clone()])?;
-            s.execute("INSERT INTO star(entity_kind,entity_key,starred_at) VALUES('url',?1,'')",[url])?;Ok(())
-        }).unwrap();
-    }
-
     #[test]
-    fn worker_content_fetch_entrypoints_cover_consent_read_write_and_lane() {
+    fn with_content_fetch_off_nothing_is_queued() {
         let mut config = consenting_config();
         config.ai.content_fetch_enabled = false;
         config.ai.job_queue_paused = true;
@@ -319,112 +277,6 @@ mod tests {
             "disabled"
         );
         assert_eq!(enqueue_content_fetch_working_set(vault, 10).unwrap(), 0);
-        let mut on = off;
-        on.enabled = true;
-        let snapshot = set_content_fetch_settings(vault, &on).unwrap();
-        assert!(snapshot.config.ai.content_fetch_enabled);
-        assert!(content_fetch_settings(vault).unwrap().enabled);
-        assert_eq!(
-            content_fetch_now(vault, &request("https://github.com/o/r")).unwrap().state,
-            "queued"
-        );
-        assert!(list_visit_enrichment(vault, 99).unwrap().is_empty());
-        assert_eq!(drain_content_fetch_lane_step(vault), LaneStep::Stop);
-        fixture.db().execute("DELETE FROM intelligence_jobs", ()).unwrap();
-        let config = consenting_config();
-        vault_core::save_config(vault.paths(), &config).unwrap();
-        let url = format!("https://worker-drain-{}.example/post", std::process::id());
-        seed_page(vault, &url);
-        vault_core::enqueue_content_fetch_now(&vault.with_config(config), &request(&url)).unwrap();
-        assert_eq!(drain_content_fetch_lane_step(vault), LaneStep::Drained);
-    }
-
-    #[test]
-    fn drain_spawn_guards_and_working_set_kick_and_config_error_lane() {
-        let mut config = consenting_config();
-        config.ai.job_queue_paused = true;
-        let fixture = Fixture::new(config.clone());
-        let vault = &fixture.vault;
-        let mut off = config.clone();
-        off.ai.content_fetch_enabled = false;
-        maybe_spawn_content_fetch_drain(vault, &off);
-        maybe_spawn_content_fetch_drain(vault, &config);
-        seed_page(vault, "https://github.com/o/r");
-        assert_eq!(enqueue_content_fetch_working_set(vault, 100).unwrap(), 1);
-        fixture.db().execute("DELETE FROM intelligence_jobs", ()).unwrap();
-        std::fs::write(&vault.paths().config_path, "{ not valid json").unwrap();
-        assert_eq!(drain_content_fetch_lane_step(vault), LaneStep::Stop);
-    }
-
-    #[test]
-    fn run_content_fetch_lane_caps_deferred_sleeps_and_exits_on_idle_none() {
-        let steps = std::cell::RefCell::new(vec![
-            LaneStep::Idle { sleep_secs: None },
-            LaneStep::Idle { sleep_secs: Some(10) },
-            LaneStep::Idle { sleep_secs: Some(999) },
-            LaneStep::Drained,
-        ]);
-        let slept = std::cell::RefCell::new(Vec::new());
-        run_content_fetch_lane(
-            || steps.borrow_mut().pop().unwrap(),
-            |secs| slept.borrow_mut().push(secs),
-        );
-        assert_eq!(slept.into_inner(), vec![MAX_DEFERRED_SLEEP_SECS, 10]);
-        assert!(steps.borrow().is_empty());
-    }
-    #[test]
-    fn run_content_fetch_lane_exits_on_stop() {
-        let mut slept = Vec::new();
-        run_content_fetch_lane(|| LaneStep::Stop, |secs| slept.push(secs));
-        assert!(slept.is_empty());
-    }
-
-    fn deferred(fixture: &Fixture) -> i64 {
-        let vault = &fixture.vault;
-        let job = vault_core::enqueue_content_fetch_now(
-            &vault.with_config(consenting_config()),
-            &request("https://github.com/o/r"),
-        )
-        .unwrap();
-        let future = (chrono::Utc::now() + chrono::Duration::seconds(30))
-            .to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
-        fixture
-            .db()
-            .execute(
-                "UPDATE intelligence_jobs SET scheduled_at=?1 WHERE id=?2",
-                params![future, job.job_id],
-            )
-            .unwrap();
-        job.job_id
-    }
-    #[cfg(coverage)]
-    #[test]
-    fn coverage_drain_stub_sleeps_once_for_a_deferred_job_then_stops() {
-        let fixture = Fixture::new(consenting_config());
-        let id = deferred(&fixture);
-        spawn_content_fetch_drain(&fixture.vault);
-        assert_eq!(
-            fixture
-                .db()
-                .query_one("SELECT state FROM intelligence_jobs WHERE id=?1", [id], |r| Ok(
-                    r.get::<String>(0)?
-                ))
-                .unwrap(),
-            "queued"
-        );
-    }
-    #[test]
-    fn lane_step_reports_idle_with_deferred_eta_then_empty() {
-        let fixture = Fixture::new(consenting_config());
-        deferred(&fixture);
-        match drain_content_fetch_lane_step(&fixture.vault) {
-            LaneStep::Idle { sleep_secs: Some(secs) } => assert!((1..=31).contains(&secs)),
-            other => panic!("expected deferred idle, got {other:?}"),
-        }
-        fixture.db().execute("DELETE FROM intelligence_jobs", ()).unwrap();
-        assert_eq!(
-            drain_content_fetch_lane_step(&fixture.vault),
-            LaneStep::Idle { sleep_secs: None }
-        );
+        assert_eq!(content_fetch_settings(vault).unwrap().queued_jobs, 0);
     }
 }

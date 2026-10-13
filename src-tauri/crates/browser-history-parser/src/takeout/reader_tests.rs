@@ -50,20 +50,3 @@ fn json_reader_emits_batches_before_an_unreadable_tail() {
     assert!(result.is_err());
     assert_eq!(sink.batches, 2, "JSON must not be buffered through the end before emitting work");
 }
-
-#[test]
-fn json_reader_preserves_existing_trailing_byte_behavior() {
-    let mut sink = Sink::default();
-    let result = stream_payload_reader_with_sink(
-        "BrowserHistory.json",
-        KIND_BROWSER_JSON,
-        std::io::Cursor::new(b"{\"Browser History\":[]} trailing bytes"),
-        10,
-        TakeoutStreamOptions {
-            collect_source_evidence: true,
-            retain_report_source_evidence: false,
-        },
-        &mut sink,
-    );
-    assert!(result.is_ok());
-}

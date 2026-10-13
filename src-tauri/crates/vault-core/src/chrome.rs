@@ -29,25 +29,13 @@ use std::{
 };
 use tempfile::TempDir;
 
-pub use self::{
-    discovery::discover_profiles, paths::chrome_user_data_dir, staging::stage_profile_snapshot,
-};
+pub use self::{discovery::discover_profiles, staging::stage_profile_snapshot};
 
 #[cfg(test)]
 use self::{
-    discovery::{
-        direct_root_chromium_profile, discover_chromium_profiles, discover_firefox_profiles,
-        discover_safari_profile, fallback_chromium_profiles, history_access_state,
-        parse_firefox_profile_names,
-    },
-    paths::{
-        chromium_relative_paths, current_chromium_relative_paths, current_firefox_relative_paths,
-        default_chrome_user_data_dir, default_safari_root, discovery_overrides_active,
-        discovery_overrides_active_with, firefox_relative_paths, firefox_root_candidates,
-        should_discover_chromium_definition, should_discover_firefox_definition,
-        should_discover_safari, windows_data_dirs,
-    },
-    staging::{copy_database_with_sidecars, recover_staged_database},
+    discovery::fallback_chromium_profiles,
+    paths::{chromium_relative_paths, firefox_relative_paths},
+    staging::copy_database_with_sidecars,
 };
 
 // Detection coverage is informed by the browser location patterns used in 1History

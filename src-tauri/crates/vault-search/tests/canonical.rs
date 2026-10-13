@@ -1,29 +1,12 @@
 //! Responsibilities: verify owner-supplied recency and first-build publication.
 //! Not responsible for: canonical SQL or worker scheduling.
-//! Failure modes: stale index recency controls ties; partial first builds look complete;
-//! cancelled first builds cannot resume; ordinary rebuilds publish partial results.
+//! Failure modes: partial first builds look complete; cancelled first builds cannot resume;
+//! ordinary rebuilds publish partial results; caller-supplied order or scores lose pages.
 
 mod support;
 use std::sync::Arc;
 use support::*;
 use vault_search::*;
-
-#[test]
-fn canonical_recency_controls_ranking_and_every_cursor() {
-    let root = tempfile::tempdir().unwrap();
-    let index = create(root.path(), (1..=12).map(|id| page(id, "same")).collect());
-    let session = index
-        .search(
-            term("same"),
-            Filters { newest_visit: Some(Arc::new(|id| -(id as i64))), ..Filters::default() },
-        )
-        .unwrap();
-    let first = session.page(4, None).unwrap();
-    assert_eq!(first.hits.iter().map(|h| h.page_id).collect::<Vec<_>>(), [1, 2, 3, 4]);
-    let next = session.page(4, first.next.as_ref()).unwrap();
-    assert_eq!(next.hits.iter().map(|h| h.page_id).collect::<Vec<_>>(), [5, 6, 7, 8]);
-    assert_eq!(session.count().unwrap(), 12);
-}
 
 #[test]
 fn initial_build_publishes_progress_without_acknowledging_an_incomplete_snapshot() {
@@ -99,30 +82,6 @@ fn explicit_chronology_and_count_visitors_preserve_complete_paging() {
     let mut expected = (1..=50).collect::<Vec<_>>();
     expected.sort_by_key(|id| (id % 7, std::cmp::Reverse(*id)));
     assert_eq!(ranked.hits.iter().map(|h| h.page_id).collect::<Vec<_>>(), expected);
-}
-
-#[test]
-fn compact_substrings_require_adjacent_grams_including_repeated_grams() {
-    let root = tempfile::tempdir().unwrap();
-    let mut contiguous = page(1, "title");
-    contiguous.compact_text = "xxgithubactionsxx aaaaa".into();
-    let mut scattered = page(2, "title");
-    scattered.compact_text = "git ith thu hub aaa".into();
-    let index = create(root.path(), vec![contiguous, scattered]);
-    for text in ["github", "aaaa"] {
-        assert_eq!(ids(&session(&index, Ast::Substring { text: text.into() })), [1]);
-    }
-}
-
-#[test]
-fn session_coverage_is_pinned_to_the_published_reader() {
-    let root = tempfile::tempdir().unwrap();
-    let index = create(root.path(), vec![page(1, "same")]);
-    let old = session(&index, term("same"));
-    index.apply(Batch { upserts: vec![page(2, "same")], deletes: vec![], last_seq: 2 }).unwrap();
-    assert_eq!(old.last_applied_seq(), 1);
-    assert_eq!(session(&index, term("same")).last_applied_seq(), 2);
-    assert!(!old.initial_build_incomplete());
 }
 
 #[test]

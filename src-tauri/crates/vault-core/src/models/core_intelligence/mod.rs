@@ -30,9 +30,6 @@ mod reads;
 mod requests;
 mod shared;
 
-#[cfg(test)]
-mod tests;
-
 pub use analytics::*;
 pub use exports::*;
 pub use overview::*;

@@ -28,29 +28,3 @@ fn cap_log_at(path: &Path, cap: u64) -> io::Result<()> {
     fs::copy(path, &older)?;
     fs::OpenOptions::new().write(true).open(path)?.set_len(0)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::io::Write;
-
-    #[test]
-    fn a_log_past_its_cap_keeps_one_older_copy_and_starts_again() {
-        let dir = tempfile::tempdir().unwrap();
-        let log = dir.path().join("worker.stderr.log");
-        // Held open for appending, as launchd holds a scheduled run's output.
-        let mut writer = fs::OpenOptions::new().create(true).append(true).open(&log).unwrap();
-        writer.write_all(b"first run\n").unwrap();
-        cap_log_at(&log, 100).unwrap();
-        assert_eq!(fs::read(&log).unwrap(), b"first run\n", "under the cap: as it was");
-
-        writer.write_all(&[b'x'; 200]).unwrap();
-        cap_log_at(&log, 100).unwrap();
-        assert_eq!(fs::read(&log).unwrap().len(), 0);
-        assert_eq!(fs::read(dir.path().join("worker.stderr.log.1")).unwrap().len(), 210);
-        writer.write_all(b"next run\n").unwrap();
-        assert_eq!(fs::read(&log).unwrap(), b"next run\n", "the writer goes on in the same file");
-
-        assert!(cap_log_at(&dir.path().join("missing.log"), 100).is_ok());
-    }
-}

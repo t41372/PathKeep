@@ -2,7 +2,7 @@
 //! Semantic index build and ledger persistence.
 //!
 //! ## Responsibilities
-//! - build or clear the semantic sidecar for one embedding provider
+//! - build or clear the semantic index for one embedding provider
 //! - keep the AI index ledger and unified `runs` trace in sync with build outcomes
 //! - collect changed canonical visits and write native metadata rows
 //! - expose storage/watermark helpers consumed by AI read models
@@ -19,21 +19,18 @@
 //!   [`backfill::DedupTracker`] that encapsulates the W-AI-4c crash-window invariants.
 //! - [`candidates`] — candidate collection + the pure embed-target selection (content-hash dedup).
 //! - [`store_rows`] — Turso `ai_embeddings` metadata helpers + batch validation.
-//! - [`content`] — the embedding-content rendering + the enrichment→dedup-hash seam.
+//! - [`content`] — the enrichment→dedup-hash seam.
 //!
 //! ## Dependencies
 //! - `super::control` for cooperative cancellation checkpoints
 //! - `super::provider` for embedding retries and provider validation
-//! - `crate::ai_sidecar` for optional vector sidecar synchronization
+//! - `crate::ai_sidecar` for the stable provider/model file name
 //!
 //! ## Performance notes
 //! - candidate collection diffs content hashes before embedding, which avoids re-embedding
 //!   unchanged visits on large archives
 //! - Session lookups chunk `history_id` predicates with `SQLITE_BATCH_SIZE` to keep
 //!   statement size and memory bounded on 14.4M+ histories
-
-#[cfg(test)]
-use super::*;
 
 mod backfill;
 mod candidates;
@@ -51,16 +48,11 @@ pub use self::backfill::{
 };
 
 #[cfg(test)]
-pub(super) use self::candidates::{
-    collect_stale_history_ids, collect_visit_chunk, select_embed_targets,
-};
-#[cfg(test)]
-pub(super) use self::content::build_embedding_content;
+pub(super) use self::candidates::{collect_visit_chunk, select_embed_targets};
 pub(crate) use self::content::enrichment_summary_for;
 #[cfg(test)]
 pub(super) use self::store_rows::{
-    chunk_size, cleanup_stale_embeddings, clear_provider_embeddings, upsert_embedding,
-    validate_embedding_batch_for_keys,
+    clear_provider_embeddings, upsert_embedding, validate_embedding_batch_for_keys,
 };
 
 /// One canonical visit that needs to be embedded into the semantic sidecar.
@@ -113,33 +105,4 @@ pub(super) struct BackfillOutcome {
     /// holds the page's vector. The build's honesty note reports this real count rather than implying
     /// every counted row produced a vector.
     pub embedded_vectors: u64,
-}
-
-/// Exercises the production candidate walk and filters unchanged visits for fixture assertions.
-#[cfg(test)]
-pub(super) fn collect_visits_to_index(
-    vault: &crate::Vault,
-    provider: &AiProviderRuntime,
-    page_size: Option<u32>,
-) -> Result<Vec<IndexedVisit>> {
-    let upper = vault.read(vault_store::Db::Archive, |s| {
-        Ok(s.query_one("SELECT COALESCE(MAX(id),0) FROM visits", (), |r| Ok(r.get::<i64>(0)?))?)
-    })?;
-    let mut next = 0;
-    let mut changed = Vec::new();
-    loop {
-        let page = candidates::collect_visit_chunk(
-            vault,
-            provider,
-            next,
-            upper,
-            page_size.unwrap_or(512).max(1) as usize,
-        )?;
-        if page.is_empty() {
-            break;
-        }
-        next = page.last().unwrap().history_id + 1;
-        changed.extend(page.into_iter().filter(|visit| visit.needs_embedding));
-    }
-    Ok(changed)
 }

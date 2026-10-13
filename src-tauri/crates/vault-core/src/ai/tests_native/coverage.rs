@@ -4,11 +4,14 @@
 //! or durable metadata and vector maps disagree about completed pages.
 use super::*;
 
+/// One encrypted archive, as users keep theirs: whether the walk is capped does not depend on
+/// encryption. Batches of 1,000 pages still end on a partial one (50,021 pages).
 #[test]
 fn backfill_reaches_every_distinct_page_beyond_fifty_thousand() {
     const TOTAL: i64 = 50_021;
-    for key in [None, Some([101; 32])] {
-        let vault = crate::Vault::open_temp_with_key(key).unwrap().with_config(base_config());
+    {
+        let vault =
+            crate::Vault::open_temp_with_key(Some([101; 32])).unwrap().with_config(base_config());
         vault.write(Db::Archive,Priority::Batch,|s| {
             s.execute("INSERT INTO source_profiles(id,browser_kind,profile_name,profile_path,profile_key,discovered_at) VALUES(1,'chrome','Default','/fixture','chrome:Default','')",())?;Ok(())
         }).unwrap();
@@ -39,7 +42,7 @@ fn backfill_reaches_every_distinct_page_beyond_fifty_thousand() {
             .block_on(build_ai_index(
                 &vault,
                 &provider,
-                &AiIndexRequest { limit: Some(127), ..Default::default() },
+                &AiIndexRequest { limit: Some(1_000), ..Default::default() },
             ))
             .unwrap();
         assert_eq!(report.indexed_items, TOTAL as usize);

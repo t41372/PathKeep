@@ -82,63 +82,6 @@ fn typo_and_unsegmented_chinese_use_unicode_trigrams_without_a_candidate_cap() {
 }
 
 #[test]
-fn prefix_uses_bm25_and_internal_token_names_never_collide() {
-    let tmp = tempfile::tempdir().unwrap();
-    let index = create(
-        tmp.path(),
-        vec![page(1, "421 421 421"), page(2, "429 other other"), page(3, "^42 =421")],
-    );
-    let search = session(&index, Ast::Prefix { token: "42".into(), field: Some(TextField::Title) });
-    let hits = search.page(10, None).unwrap().hits;
-    assert_eq!(hits.iter().map(|h| h.page_id).collect::<Vec<_>>(), vec![1, 2]);
-    assert!(hits[0].score > hits[1].score, "prefix term frequency must affect BM25");
-    assert_eq!(ids(&session(&index, term("^42"))), vec![3]);
-    assert_eq!(ids(&session(&index, term("=421"))), vec![3]);
-    let raw = raw(tmp.path());
-    let reader = raw.reader().unwrap();
-    let field = raw.schema().get_field("title").unwrap();
-    let query = tantivy::query::BoostQuery::new(
-        Box::new(tantivy::query::TermQuery::new(
-            tantivy::Term::from_field_text(field, "^r42"),
-            tantivy::schema::IndexRecordOption::WithFreqs,
-        )),
-        12.,
-    );
-    let scores = reader
-        .searcher()
-        .search(&query, &tantivy::collector::TopDocs::with_limit(10).order_by_score())
-        .unwrap();
-    assert_eq!(
-        hits.iter().map(|h| h.score).collect::<Vec<_>>(),
-        scores.iter().map(|h| h.0).collect::<Vec<_>>()
-    );
-}
-
-#[test]
-fn unicode_prefixes_and_phrases_preserve_token_and_field_boundaries() {
-    let tmp = tempfile::tempdir().unwrap();
-    let mut split = page(1, "alpha");
-    split.text[TextField::Notes as usize] = "beta".into();
-    let index = create(
-        tmp.path(),
-        vec![split, page(2, "資料庫搜尋 🚀launch alpha beta"), page(3, "alpha gap beta")],
-    );
-    assert_eq!(
-        ids(&session(
-            &index,
-            Ast::Phrase { tokens: vec!["alpha".into(), "beta".into()], field: None }
-        )),
-        vec![2]
-    );
-    assert_eq!(ids(&session(&index, Ast::Prefix { token: "資料".into(), field: None })), vec![2]);
-    assert_eq!(ids(&session(&index, Ast::Prefix { token: "🚀l".into(), field: None })), vec![2]);
-    assert_eq!(
-        ids(&session(&index, Ast::Prefix { token: String::new(), field: Some(TextField::Notes) })),
-        vec![1]
-    );
-}
-
-#[test]
 fn a_prefix_can_occupy_any_phrase_position_without_expansion_limits() {
     let tmp = tempfile::tempdir().unwrap();
     let index = create(

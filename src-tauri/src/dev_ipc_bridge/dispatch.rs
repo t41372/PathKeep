@@ -340,10 +340,6 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
         "load_dashboard_snapshot" => {
             json_value!(worker_bridge::dashboard_snapshot_impl(&state.session)?)
         }
-        "get_browse_day_insights" => {
-            let payload = parse_payload::<BrowseDayInsightsPayload>(payload)?;
-            json_value!(worker_bridge::browse_day_insights_impl(&state.session, payload.request,)?)
-        }
         "load_recent_runs" => {
             let payload = parse_payload::<RunPagePayload>(payload)?;
             json_value!(worker_bridge::load_recent_runs_impl(
@@ -478,7 +474,6 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
             json_value!(worker_bridge::clear_derived_intelligence_impl(&state.session)?)
         }
         "keyring_status" => json_value!(worker_bridge::keyring_status_impl()),
-        "security_status" => json_value!(worker_bridge::security_status_impl(&state.session)?),
         "unlock_archive_from_keychain" => {
             json_value!(worker_bridge::unlock_archive_from_keychain_impl(&state.session)?)
         }
@@ -1010,13 +1005,6 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
         }
         "reveal_logs" => {
             json_value!(file_manager::reveal_logs_impl()?)
-        }
-        "export_conversation_file" => {
-            let payload = parse_payload::<ExportConversationFilePayload>(payload)?;
-            json_value!(file_manager::export_conversation_file_impl(
-                payload.target_path,
-                payload.contents,
-            )?)
         }
         "check_for_app_update" => {
             let app = require_app_handle(state)?;

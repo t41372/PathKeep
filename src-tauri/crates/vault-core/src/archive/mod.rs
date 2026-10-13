@@ -313,6 +313,3 @@ pub(crate) fn visit_event_fingerprint(
 
 #[cfg(test)]
 mod tests;
-
-#[cfg(test)]
-pub(crate) use source_stats::tests::seeded_archive as seed_read_archive;

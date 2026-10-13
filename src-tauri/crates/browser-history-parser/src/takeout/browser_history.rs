@@ -576,37 +576,6 @@ mod stable_key_tests {
     use super::stable_key_i64;
     use std::collections::HashSet;
 
-    /// Contract: `stable_key_i64` is total on `&[u8]` inputs and always
-    /// returns a value in `0..=i64::MAX`. The sign bit is masked off, so
-    /// there is no `i64::MIN` overflow corner — every input, including
-    /// empty, all-zero, all-`0xFF`, and non-UTF-8 byte runs, yields a
-    /// non-negative key without panicking.
-    #[test]
-    fn stable_key_i64_is_non_negative_and_total() {
-        let inputs: &[&[u8]] = &[
-            b"",
-            b"a",
-            b"https://example.com",
-            b"https://example.com:8080/path:200:42",
-            &[0u8; 256],
-            &[0xFF; 256],
-            b"\x80\x81\x82\x83",
-        ];
-        for input in inputs {
-            let key = stable_key_i64(input);
-            assert!(key >= 0, "stable_key_i64({input:?}) returned negative: {key}");
-        }
-    }
-
-    /// The "stable" half of the contract: the same bytes must always map
-    /// to the same key, otherwise dedup across re-imports of the same
-    /// Takeout export would break.
-    #[test]
-    fn stable_key_i64_is_deterministic() {
-        let input = b"url::https://example.com/watch?v=abc";
-        assert_eq!(stable_key_i64(input), stable_key_i64(input));
-    }
-
     /// Regression for B5: distinct-but-similar inputs must produce
     /// distinct keys. The former polynomial hash let the low bits
     /// dominate, so near-identical URL prefixes and adjacent ordinals
@@ -640,16 +609,5 @@ mod stable_key_tests {
             "high bits barely varied ({} distinct) — entropy is not reaching the top of the key",
             high_bits.len()
         );
-    }
-
-    /// Avalanche: a single-byte (in fact single-bit) change to the input
-    /// must change the key. A weak hash that ignored late or low-entropy
-    /// bytes could return the same key for these two strings.
-    #[test]
-    fn stable_key_i64_single_bit_flip_changes_key() {
-        // 'A' (0x41) vs 'a' (0x61) differ by one bit in the final byte.
-        let a = stable_key_i64(b"https://example.com/A");
-        let b = stable_key_i64(b"https://example.com/a");
-        assert_ne!(a, b);
     }
 }

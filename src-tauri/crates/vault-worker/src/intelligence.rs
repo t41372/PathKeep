@@ -59,15 +59,9 @@ pub use self::agent_store::{
 };
 pub(crate) use self::ai_queue::maybe_spawn_ai_queue_drain;
 pub use self::ai_queue::{
-    ask_ai_assistant, build_ai_index_now, cancel_ai_job, estimate_reembed_now,
-    list_ai_provider_models, load_ai_assistant_job, load_ai_queue, preview_ai_integration_files,
-    replay_ai_job, reset_ai_index_build, run_ai_queue_jobs, search_ai_history,
-    test_ai_provider_connection_report,
-};
-#[cfg(all(test, coverage))]
-pub(crate) use self::ai_queue::{
-    complete_claimed_assistant_job, complete_claimed_index_job, drain_one_ai_queue_job,
-    start_ai_job_control,
+    build_ai_index_now, cancel_ai_job, estimate_reembed_now, list_ai_provider_models,
+    load_ai_queue, preview_ai_integration_files, replay_ai_job, reset_ai_index_build,
+    run_ai_queue_jobs, search_ai_history, test_ai_provider_connection_report,
 };
 pub use self::chat::{ai_chat_cancel, ai_chat_send};
 pub(crate) use self::content_fetch::maybe_spawn_content_fetch_drain;
@@ -89,11 +83,6 @@ pub use self::runtime::{
     cancel_intelligence_job_now, load_intelligence_runtime_snapshot,
     queue_core_intelligence_rebuild, retry_intelligence_job_now, run_core_intelligence_now,
     set_site_category,
-};
-#[cfg(all(test, coverage))]
-pub(crate) use self::runtime::{
-    drain_one_enrichment_intelligence_job, drain_one_priority_intelligence_job,
-    execute_core_intelligence_job,
 };
 pub(crate) use self::runtime::{
     maybe_spawn_intelligence_queue_drain, rebuild_in_chosen_zone, resume_insights,

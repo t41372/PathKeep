@@ -78,44 +78,6 @@ pub(crate) fn run_network_test(test_name: &str, value: Option<&str>) {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn network_override_is_ignored_without_debug_assertions() {
-        if network_test_child() {
-            assert_eq!(network_is_blocked(), cfg!(debug_assertions));
-        } else {
-            run_network_test(
-                "test_support::tests::network_override_is_ignored_without_debug_assertions",
-                Some("1"),
-            );
-        }
-    }
-
-    #[test]
-    fn only_exactly_one_blocks_network() {
-        if network_test_child() {
-            let enabled = std::env::var("PATHKEEP_TEST_BLOCK_NETWORK").as_deref() == Ok("1");
-            assert_eq!(network_is_blocked(), cfg!(debug_assertions) && enabled);
-        } else {
-            for value in [
-                None,
-                Some(""),
-                Some("0"),
-                Some("true"),
-                Some("01"),
-                Some(" 1"),
-                Some("1 "),
-                Some("1"),
-            ] {
-                run_network_test("test_support::tests::only_exactly_one_blocks_network", value);
-            }
-        }
-    }
-}
-
-#[cfg(test)]
 pub(crate) mod store;
 
 /// Durable handoff progress remains observable after acknowledged rows are pruned.

@@ -7,7 +7,8 @@
 //! Failure modes: a wrong password reaches this machine's archive; an import that stops
 //! partway leaves the archive replaced; paths of the exporting computer stay in snapshot and
 //! audit rows; the old files are installed next to the native ones; the preview promises chats,
-//! which format 1 never carried. Tests: tests/bundle.rs.
+//! which format 1 never carried. Tests: upgrade.spec (a file exported by PathKeep 0.3.0 opens
+//! and replaces the archive).
 use anyhow::{Context, Result};
 use std::{fs, path::Path, sync::Arc};
 use vault_core::{

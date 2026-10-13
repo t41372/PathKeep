@@ -29,14 +29,6 @@ export const supportClient = {
   /** A page from the archive; a file:// URL opens only if the user visited it. */
   openVisitedPage: (url: string) => call<string>('open_visited_page', { url }),
   /**
-   * Writes a UTF-8 text document to a user-chosen path and resolves with the number of bytes
-   * written. Used by the AI assistant's "Export conversation" affordance after the native save
-   * dialog returns the target path — the same save-dialog → backend-write shape the Settings →
-   * Data migration export uses, so the export stays transparent and never invents a new transport.
-   */
-  exportConversationFile: (targetPath: string, contents: string) =>
-    call<number>('export_conversation_file', { targetPath, contents }),
-  /**
    * Opens the app's local log directory in the OS file manager (Finder on
    * macOS, Explorer on Windows). Resolves with the logs folder path that was
    * revealed. Used by the "Reveal logs" diagnostics affordance so users can

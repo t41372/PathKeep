@@ -28,9 +28,6 @@ use crate::{
 use anyhow::{Context, Result};
 use std::{collections::BTreeSet, fs, path::PathBuf};
 
-#[cfg(test)]
-use std::path::Path;
-
 const BROWSER_SNIPPET_HOST_ID: &str = "browser-snippet-v1";
 const LOCAL_HOST_BUNDLE_VERSION: &str = "pathkeep.core-intelligence.local-host.v1";
 const EMBED_CARD_LIMIT: u32 = 6;
@@ -821,6 +818,3 @@ fn escape_html(value: &str) -> String {
         .replace('"', "&quot;")
         .replace('\'', "&#39;")
 }
-
-#[cfg(test)]
-mod tests;

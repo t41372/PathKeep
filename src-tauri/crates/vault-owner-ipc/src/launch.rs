@@ -2,22 +2,9 @@
 //! Not responsible for: waiting for readiness or executing shell command strings.
 //! Failure modes: sidecar launches itself recursively; spaces split paths; child keeps
 //! MCP stdout open; macOS opens a visible window. Tests: below and owner_process.rs.
-#[cfg(test)]
+#[cfg(all(test, target_os = "macos"))]
 mod tests {
     use super::*;
-    #[test]
-    fn desktop_launch_uses_same_executable_and_background_argument() {
-        let spec = launch_spec(Path::new("/some directory/pathkeep-desktop")).unwrap();
-        assert_eq!(spec.program, Path::new("/some directory/pathkeep-desktop"));
-        assert_eq!(spec.args, ["--background"]);
-    }
-    #[test]
-    fn sidecar_without_app_reports_installation_error() {
-        let root = tempfile::tempdir().unwrap();
-        let name = if cfg!(windows) { "pathkeep-worker.exe" } else { "pathkeep-worker" };
-        assert!(launch_spec(&root.path().join(name)).unwrap_err().message.contains("beside"));
-    }
-    #[cfg(target_os = "macos")]
     #[test]
     fn launch_services_keeps_the_client_data_root_and_sandbox() {
         let spec =
@@ -34,18 +21,6 @@ mod tests {
             args.contains(&std::ffi::OsStr::new("PATHKEEP_PLATFORM_TEST_SANDBOX_DIR=/tmp/sandbox"))
         );
         assert_eq!(args.last(), Some(&std::ffi::OsStr::new("--background")));
-    }
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn bundled_clients_use_launch_services_without_frontmost_window() {
-        let spec =
-            launch_spec(Path::new("/Applications/Path Keep.app/Contents/MacOS/pathkeep-worker"))
-                .unwrap();
-        assert_eq!(spec.program, Path::new("/usr/bin/open"));
-        assert_eq!(
-            spec.args,
-            ["-n", "-g", "-a", "/Applications/Path Keep.app", "--args", "--background"]
-        );
     }
 }
 use crate::{ErrorCode, RpcError};

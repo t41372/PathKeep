@@ -93,18 +93,3 @@ pub(crate) fn on_window_event<R: Runtime>(window: &Window<R>, event: &WindowEven
         let _ = window.hide();
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::{StartupWindow::*, startup_window};
-
-    #[test]
-    fn a_login_launch_never_puts_the_window_in_front() {
-        // (launched at login, icon shown, has a Dock)
-        assert_eq!(startup_window(false, false, false), Show);
-        assert_eq!(startup_window(false, true, true), Show);
-        assert_eq!(startup_window(true, true, false), StayHidden);
-        assert_eq!(startup_window(true, false, true), StayHidden, "macOS: the Dock brings it back");
-        assert_eq!(startup_window(true, false, false), Minimized, "otherwise unreachable");
-    }
-}

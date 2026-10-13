@@ -177,7 +177,7 @@ CREATE INDEX idx_og_images_last_shown   ON og_images(last_shown_at)   WHERE last
 
 `src/lib/backend-client/explorer.ts` 的 typed methods 中，`loadHistoryOgImages`、`markOgImagesShown`、
 `triggerOgImageRefetch`、`getOgImageStorageStats`、`getOgImageCoverageStats`、`clearOgImageCache`、
-`runOgImageCleanup` 有呼叫者；`prefetchOgImages` 目前沒有。
+`runOgImageCleanup` 有呼叫者。沒有畫面用過的手動預抓命令 `prefetch_og_images` 於 2026-10-12 移除。
 
 onboarding 的完成步驟告知預設會下載每個頁面的預覽圖（「連網」一列），並說可在 Settings → General 關閉。
 

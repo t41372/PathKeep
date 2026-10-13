@@ -23,8 +23,6 @@
 //! - A 256 KiB write buffer never grows with archive size; see ipc-performance.md §9.
 
 mod progress;
-#[cfg(test)]
-pub(super) mod regression_tests;
 
 use crate::{
     Vault,
@@ -209,24 +207,6 @@ impl Write for CountedWriter<'_> {
     }
 }
 
-#[cfg(test)]
-fn walk_history_for_export(
-    vault: &Vault,
-    query: HistoryQuery,
-    job: Option<&Arc<ExportJob>>,
-    visit: impl FnMut(&HistoryEntry) -> Result<()>,
-) -> Result<()> {
-    let (_, upper) = export_bounds(vault)?;
-    walk_pages(
-        &mut |query| {
-            vault.read(Db::Archive, move |s| super::timeline::timeline_page(s, &query, upper))
-        },
-        query,
-        job,
-        visit,
-    )
-}
-
 fn walk_pages(
     fetch: &mut impl FnMut(HistoryQuery) -> Result<HistoryQueryResponse>,
     mut query: HistoryQuery,
@@ -399,41 +379,5 @@ mod tests {
         assert!(!html.contains("href=\"javascript:"));
         // The visited_at field is escaped too.
         assert!(html.contains("&lt;b&gt;when&lt;/b&gt;"));
-    }
-
-    /// Streaming must not change the files: same opening and closing, rows separated by one
-    /// newline, no trailing separator, untitled rows fall back to the URL.
-    #[test]
-    fn every_format_writes_the_same_bytes_as_the_joined_export() {
-        let rows = [
-            entry("https://a.example/", Some("A"), "2024-01-01T00:00:00+00:00"),
-            entry("https://b.example/", None, "2024-01-02T00:00:00+00:00"),
-        ];
-        assert_eq!(
-            render(ExportFormat::Markdown, &rows),
-            "- [A](https://a.example/) — 2024-01-01T00:00:00+00:00\n\
-             - [https://b.example/](https://b.example/) — 2024-01-02T00:00:00+00:00"
-        );
-        assert_eq!(
-            render(ExportFormat::Text, &rows),
-            "A\nhttps://a.example/\n2024-01-01T00:00:00+00:00\n\n\
-             https://b.example/\nhttps://b.example/\n2024-01-02T00:00:00+00:00\n"
-        );
-        let jsonl = render(ExportFormat::Jsonl, &rows);
-        assert_eq!(jsonl.lines().count(), 2);
-        assert!(!jsonl.ends_with('\n'));
-        assert_eq!(
-            serde_json::from_str::<HistoryEntry>(jsonl.lines().nth(1).expect("row"))
-                .expect("json")
-                .url,
-            "https://b.example/"
-        );
-        let html = render(ExportFormat::Html, &rows);
-        assert!(html.starts_with(std::str::from_utf8(HTML_HEAD).unwrap()));
-        assert!(html.contains("<body><article><h2>A</h2>"));
-        assert!(html.ends_with("</article></body></html>"));
-        assert_eq!(html.matches("</article>\n<article>").count(), 1);
-        assert!(render(ExportFormat::Html, &[]).ends_with("<body></body></html>"));
-        assert_eq!(render(ExportFormat::Jsonl, &[]), "");
     }
 }

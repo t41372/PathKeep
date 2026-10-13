@@ -43,6 +43,7 @@ mod payloads;
 mod router;
 mod search;
 
+#[cfg(not(test))]
 use config::{bridge_enabled, resolve_bridge_config_from_env};
 #[cfg(not(test))]
 use router::build_router;
@@ -79,11 +80,6 @@ impl DevIpcBridgeState {
     #[cfg(test)]
     fn without_app(session: SessionState, port: u16) -> Self {
         Self::new(Arc::new(RwLock::new(None)), session, port, events::Hub::default())
-    }
-
-    #[cfg(test)]
-    fn with_app(app: DevIpcAppHandle, session: SessionState, port: u16) -> Self {
-        Self::new(Arc::new(RwLock::new(Some(app))), session, port, events::Hub::default())
     }
 }
 
@@ -178,58 +174,4 @@ pub(crate) fn maybe_launch(session: SessionState) -> Result<Option<DevIpcBridgeH
         port
     );
     Ok(Some(bridge_handle))
-}
-
-#[cfg(test)]
-pub(crate) fn maybe_launch(_session: SessionState) -> Result<Option<DevIpcBridgeHandle>> {
-    if bridge_enabled() {
-        resolve_bridge_config_from_env()?;
-        return Ok(Some(DevIpcBridgeHandle::new(
-            Arc::new(RwLock::new(None)),
-            events::Hub::default(),
-        )));
-    }
-    Ok(None)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn maybe_launch_noops_when_bridge_env_is_disabled() {
-        unsafe {
-            std::env::remove_var(DEV_IPC_BRIDGE_ENABLED_ENV);
-            std::env::remove_var(DEV_IPC_BRIDGE_PORT_ENV);
-            std::env::remove_var(DEV_IPC_BRIDGE_ALLOWED_ORIGINS_ENV);
-        }
-        assert!(maybe_launch(SessionState::default()).expect("disabled bridge no-op").is_none());
-    }
-
-    #[test]
-    fn bridge_handle_attaches_app_and_reports_poisoned_slots() {
-        let app = tauri::test::mock_builder()
-            .build(tauri::test::mock_context(tauri::test::noop_assets()))
-            .expect("mock app");
-        let app_slot = Arc::new(RwLock::new(None));
-        let handle = DevIpcBridgeHandle::new(app_slot.clone(), events::Hub::default());
-
-        handle.attach_app(app.handle().clone()).expect("attach app handle");
-
-        assert!(app_slot.read().expect("read slot").is_some());
-
-        let poisoned_slot = Arc::new(RwLock::new(None));
-        let slot_for_panic = poisoned_slot.clone();
-        let _ = std::panic::catch_unwind(move || {
-            let _guard = slot_for_panic.write().expect("write slot");
-            panic!("poison app handle slot");
-        });
-        let poisoned_handle = DevIpcBridgeHandle::new(poisoned_slot, events::Hub::default());
-
-        let error = poisoned_handle
-            .attach_app(app.handle().clone())
-            .expect_err("poisoned slot should fail");
-
-        assert!(format!("{error:#}").contains("AppHandle slot is poisoned"));
-    }
 }

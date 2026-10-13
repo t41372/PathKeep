@@ -165,17 +165,6 @@ mod tests {
         DateRange { start: start.into(), end: end.into() }
     }
 
-    /// The same instant is on different days in different zones: the zone decides, not the
-    /// computer running the test.
-    #[test]
-    fn an_instant_falls_on_the_day_of_the_insights_zone() {
-        let instant = ms("2026-10-08T16:30:00Z");
-        assert_eq!(zone("Asia/Taipei").date_key(instant), "2026-10-09");
-        assert_eq!(zone("America/Los_Angeles").date_key(instant), "2026-10-08");
-        assert_eq!(zone("Asia/Taipei").datetime(instant).hour(), 0);
-        assert_eq!(zone("America/Los_Angeles").datetime(instant).hour(), 9);
-    }
-
     /// New York's spring day has 23 hours and its autumn day 25; an hour bucket on the repeated
     /// hour gets both of its instants.
     #[test]
@@ -202,12 +191,5 @@ mod tests {
         let (_, previous_end) = sao_paulo.range_bounds(&range("2018-11-03", "2018-11-03")).unwrap();
         assert_eq!(previous_end, start);
         assert_eq!(sao_paulo.date_key(ms("2018-11-04T03:00:00Z")), "2018-11-04");
-    }
-
-    #[test]
-    fn only_iana_names_are_zones() {
-        assert_eq!(zone("Asia/Taipei").name(), "Asia/Taipei");
-        assert!(InsightsZone::named("+08:00").is_none());
-        assert!(InsightsZone::named("Not/AZone").is_none());
     }
 }

@@ -3,8 +3,8 @@
 //! built while visits stream (`intelligence_structural_stream`).
 //!
 //! ## Responsibilities
-//! - Group keyword search events into query families for both in-memory and
-//!   batched rebuild paths.
+//! - Group keyword search events into query families as they stream, and keep the plain
+//!   reference grouping the streaming grouping must equal.
 //! - Keep the query-family similarity heuristic out of stage orchestration.
 //!
 //! ## Not responsible for
@@ -15,24 +15,13 @@
 //! ## Dependencies
 //! - Shared structural state builders in `intelligence_structural_state`.
 //! - Parent-module query normalization and similarity helpers.
-//! - `search_events` / `search_trails` tables for the batched replay path.
 //!
 //! ## Performance notes
 //! - In-memory builders only hold one active session/trail at a time.
-//! - The batched query-family replay streams ordered search events instead of
-//!   materializing unrelated archive state.
 
-#[cfg(test)]
-use super::SearchEventBatchCursor;
-#[cfg(test)]
-use super::SearchQueryKind;
 use super::{InsightsZone, QueryFamilyRecord, SearchEventRecord, normalize_query, query_token_set};
-#[cfg(test)]
-use anyhow::Result;
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
-#[cfg(test)]
-use vault_store::{Session, params_owned as params};
 
 /// How alike a search is to a family's first search, as a fraction compared exactly: the tokens
 /// they share over all the tokens either has.
@@ -210,116 +199,6 @@ pub(super) fn build_query_families(events: &[SearchEventRecord]) -> Vec<QueryFam
             .map(|trail| (event.profile_id.clone(), event.search_engine.clone(), trail, index));
     }
     families
-}
-
-/// Test helper that reloads persisted search events for one profile in a stable
-/// order so in-memory and batched grouping can be compared directly.
-#[cfg(test)]
-pub(super) fn load_profile_search_events(
-    connection: &Session<'_>,
-    profile_id: &str,
-) -> Result<Vec<SearchEventRecord>> {
-    let mut statement = connection.prepare(
-        "SELECT search_events.visit_id,
-                search_events.profile_id,
-                search_events.search_engine,
-                search_events.raw_query,
-                search_events.normalized_query,
-                search_events.query_kind,
-                search_events.trail_id,
-                archive.visits.visit_time_ms
-         FROM search_events
-         JOIN archive.visits ON archive.visits.id = search_events.visit_id
-         WHERE profile_id = ?1
-         ORDER BY visit_id ASC",
-    )?;
-    statement
-        .query_map([profile_id], |row| {
-            Ok(SearchEventRecord {
-                visit_id: row.get(0)?,
-                profile_id: row.get(1)?,
-                search_engine: row.get(2)?,
-                raw_query: row.get(3)?,
-                normalized_query: row.get(4)?,
-                query_kind: super::parse_search_query_kind(&row.get::<String>(5)?),
-                trail_id: row.get(6)?,
-                visit_time_ms: row.get(7)?,
-            })
-        })?
-        .collect::<vault_store::Result<Vec<_>>>()
-        .map_err(Into::into)
-}
-
-/// Streams persisted search events in visit-id order for the batched query
-/// family builder.
-#[cfg(test)]
-fn load_profile_search_event_batch(
-    connection: &Session<'_>,
-    profile_id: &str,
-    after: Option<SearchEventBatchCursor>,
-    limit: usize,
-) -> Result<Vec<SearchEventRecord>> {
-    let mut statement = connection.prepare(
-        "SELECT search_events.visit_id,
-                search_events.profile_id,
-                search_events.search_engine,
-                search_events.raw_query,
-                search_events.normalized_query,
-                search_events.query_kind,
-                search_events.trail_id,
-                archive.visits.visit_time_ms
-         FROM search_events
-         JOIN archive.visits ON archive.visits.id = search_events.visit_id
-         WHERE search_events.profile_id = ?1
-           AND (?2 IS NULL OR search_events.visit_id > ?2)
-         ORDER BY search_events.visit_id ASC
-         LIMIT ?3",
-    )?;
-    statement
-        .query_map(
-            params![profile_id, after.map(|cursor| cursor.visit_id), limit.max(1) as i64],
-            |row| {
-                Ok(SearchEventRecord {
-                    visit_id: row.get(0)?,
-                    profile_id: row.get(1)?,
-                    search_engine: row.get(2)?,
-                    raw_query: row.get(3)?,
-                    normalized_query: row.get(4)?,
-                    query_kind: super::parse_search_query_kind(&row.get::<String>(5)?),
-                    trail_id: row.get(6)?,
-                    visit_time_ms: row.get(7)?,
-                })
-            },
-        )?
-        .collect::<vault_store::Result<Vec<_>>>()
-        .map_err(Into::into)
-}
-
-/// Rebuilds query families by streaming persisted search events instead of
-/// loading unrelated structural aggregates into memory.
-#[cfg(test)]
-pub(super) fn build_query_families_from_batches(
-    connection: &Session<'_>,
-    profile_id: &str,
-) -> Result<Vec<QueryFamilyRecord>> {
-    let mut accumulator = QueryFamilyAccumulator::default();
-    let mut cursor = None;
-    loop {
-        let batch = load_profile_search_event_batch(
-            connection,
-            profile_id,
-            cursor,
-            super::STRUCTURAL_AGGREGATE_BATCH_SIZE,
-        )?;
-        if batch.is_empty() {
-            break;
-        }
-        for event in &batch {
-            accumulator.add_event(event);
-        }
-        cursor = batch.last().map(|event| SearchEventBatchCursor { visit_id: event.visit_id });
-    }
-    Ok(accumulator.finish())
 }
 
 impl QueryFamilyAccumulator {
@@ -572,6 +451,7 @@ fn shared(left: &[u32], right: &[u32]) -> usize {
 
 #[cfg(test)]
 mod tests {
+    use super::super::SearchQueryKind;
     use super::*;
 
     fn search_event(
@@ -593,22 +473,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn query_family_builders_skip_empty_tokens_and_scope_by_profile_and_engine() {
-        let events = vec![
-            search_event(1, "chrome:Default", "google", "a", ""),
-            search_event(2, "chrome:Default", "google", "rust coverage", "rust coverage"),
-            search_event(3, "chrome:Default", "bing", "rust coverage", "rust coverage"),
-            search_event(4, "firefox:Default", "google", "rust coverage", "rust coverage"),
-        ];
-
-        let families = build_query_families(&events);
-        assert_eq!(families.len(), 3);
-
-        let mut accumulator = QueryFamilyAccumulator::default();
-        accumulator.add_event(&events[0]);
-        assert!(accumulator.finish().is_empty());
-    }
     /// Searches in order, each `(trail, query)`; every one in profile `chrome:Default` on Google.
     fn trail_events(searches: &[(&str, &str)]) -> Vec<SearchEventRecord> {
         searches

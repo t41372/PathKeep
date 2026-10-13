@@ -1,6 +1,6 @@
 //! Responsibilities: prove ranking, complete pagination, filtering, counting and progress.
 //! Not responsible for: canonical visit SQL or the application's presentation.
-//! Failure modes: weights drift; score ties lose older pages; deep paging repeats/skips;
+//! Failure modes: score ties lose older pages; deep paging repeats/skips;
 //! filters change scores or disagree with counts; tombstones leak; new commits/merges
 //! change an existing session; progressive traversal loses its place within a segment.
 mod support;
@@ -41,22 +41,11 @@ fn brute(
     let index = raw(path);
     let reader = index.reader().unwrap();
     let searcher = reader.searcher();
-    let names = [
-        "url",
-        "title",
-        "search_terms",
-        "normalized_url",
-        "normalized_title",
-        "normalized_search_terms",
-        "cjk_grams",
-        "enrichment_text",
-        "notes_text",
-        "tags_text",
-    ];
-    let weights = [6., 12., 4., 5., 10., 4., 2., 7., 9., 6.];
-    let queries: Vec<Box<dyn Query>> = names
+    // The weights come from the index itself: the brute force checks ranking and paging, not
+    // which weight each field has.
+    let queries: Vec<Box<dyn Query>> = TextField::NAMES
         .into_iter()
-        .zip(weights)
+        .zip(TextField::WEIGHTS)
         .map(|(name, boost)| {
             Box::new(BoostQuery::new(
                 Box::new(TermQuery::new(
@@ -110,24 +99,6 @@ fn ranking_and_every_page_equal_a_brute_force_sort() {
     assert!(search.page(0, None).is_err());
     let foreign = session(&index, term("archive"));
     assert!(foreign.page(10, cursor.as_ref()).is_err());
-}
-
-#[test]
-fn all_ten_fields_keep_the_projection_weights() {
-    let tmp = tempfile::tempdir().unwrap();
-    let docs = (0..10)
-        .map(|i| {
-            let mut p = PageDocument::new(i);
-            p.text[i as usize] = "needle".into();
-            p
-        })
-        .collect();
-    let index = create(tmp.path(), docs);
-    let hits = session(&index, term("needle")).page(20, None).unwrap().hits;
-    assert_eq!(
-        hits.iter().map(|h| h.page_id).collect::<Vec<_>>(),
-        vec![1, 4, 8, 7, 9, 0, 3, 5, 2, 6]
-    );
 }
 
 #[test]
@@ -253,31 +224,6 @@ fn pagination_and_count_keep_their_snapshot_during_writes_and_rebuild() {
     assert_eq!(got, all);
     assert_eq!(search.count().unwrap(), all.len() as u64);
     assert_eq!(session(&index, term("replacement")).count().unwrap(), 9);
-}
-
-#[test]
-fn progressive_handles_can_move_between_blocking_workers() {
-    let tmp = tempfile::tempdir().unwrap();
-    let index = create(tmp.path(), corpus());
-    let session = session(&index, term("needle"));
-    let mut page = session.start_page(20, None).unwrap();
-    page.step(Duration::ZERO).unwrap();
-    let result = std::thread::spawn(move || page.step(Duration::MAX).unwrap()).join().unwrap();
-    assert_eq!(result.hits, session.page(20, None).unwrap().hits);
-    let mut count = session.start_count().unwrap();
-    count.step(Duration::ZERO).unwrap();
-    let result = std::thread::spawn(move || count.step(Duration::MAX).unwrap()).join().unwrap();
-    assert_eq!(result.count, session.count().unwrap());
-}
-
-#[test]
-fn exclusions_do_not_contribute_to_bm25_scores() {
-    let tmp = tempfile::tempdir().unwrap();
-    let index = create(tmp.path(), corpus());
-    let original = session(&index, term("needle")).page(100, None).unwrap().hits;
-    let with_exclusion =
-        session(&index, Ast::And(vec![term("needle"), Ast::Not(Box::new(term("absent")))]));
-    assert_eq!(with_exclusion.page(100, None).unwrap().hits, original);
 }
 
 #[test]

@@ -1,7 +1,7 @@
 //! Responsibilities: retain one opening attempt's result for all its waiters.
 //! Not responsible for: opening storage or holding the session state mutex.
 //! Failure modes: a later close/open erases the result a waiting caller joined.
-//! Tests: concurrent_openers_receive_the_startup_result and retained_result_survives_new_attempts.
+//! Tests: none of its own; every app start waits on it.
 use std::sync::{Condvar, Mutex};
 use vault_core::Vault;
 

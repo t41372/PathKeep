@@ -109,34 +109,7 @@ fn new_categories_sorted_in_place_equal_a_build_from_scratch() {
 
 /// A site's category alone, as the site page sets it, or none: the site goes back to its rules.
 fn set_site_category(vault: &crate::Vault, site: &str, category: Option<&str>) {
-    let (site, category) = (site.to_owned(), category.map(str::to_owned));
-    TestDatabase::new(vault, Db::Intelligence)
-        .write(move |s| {
-            match category {
-                Some(category) => upsert_site_dictionary_override(
-                    s,
-                    &SiteDictionaryOverrideUpsert {
-                        target_kind: SiteDictionaryOverrideTargetKind::ExactDomain,
-                        target_value: site,
-                        domain_category: Some(category),
-                        page_category: None,
-                        interaction_kind: None,
-                        display_name: None,
-                        search_engine: None,
-                        is_noisy: false,
-                        note: None,
-                    },
-                )?,
-                None => {
-                    s.execute(
-                        "DELETE FROM site_dictionary_overrides WHERE target_value=?1",
-                        [site.as_str()],
-                    )?;
-                }
-            }
-            Ok(())
-        })
-        .unwrap();
+    super::super::set_site_category(vault, site, category).unwrap();
 }
 
 /// The sites the last build of the fixture's profile sorted again; `None` for every URL.

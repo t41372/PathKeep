@@ -23,30 +23,6 @@ fn seed(vault: &Vault) {
 }
 
 #[test]
-fn shared_page_tracks_visible_profiles_and_preserves_enrichment() {
-    for key in [None, Some([45; 32])] {
-        let vault = Vault::open_temp_with_key(key).unwrap();
-        seed(&vault);
-        vault
-            .store()
-            .write(Db::Archive, Priority::Interactive, |s| {
-                set_enrichment(s, 1, "An enriched description")?;
-                s.execute("UPDATE visits SET reverted_at='now' WHERE id=2", ())?;
-                s.execute("UPDATE urls SET title='Revised title' WHERE id=1", ())?;
-                refresh(s, 1)
-            })
-            .unwrap();
-        let result = vault.store().read(Db::Archive, |s| {
-            let document = s.query_one("SELECT title,newest_visit_ms,enrichment_text FROM search_documents WHERE page_id=1", (), |r| Ok((r.get::<String>(0)?, r.get::<i64>(1)?, r.get::<String>(2)?)))?;
-            let members = s.query("SELECT source_profile_id,visible_visit_count,newest_visit_ms FROM search_document_profiles", (), |r| Ok((r.get::<i64>(0)?,r.get::<i64>(1)?,r.get::<i64>(2)?)))?;
-            Ok((document, members))
-        }).unwrap();
-        assert_eq!(result.0, ("Revised title".into(), 10, "An enriched description".into()));
-        assert_eq!(result.1, vec![(1, 1, 10)]);
-    }
-}
-
-#[test]
 fn notes_and_tags_commit_with_the_document_and_outbox_or_not_at_all() {
     for key in [None, Some([46; 32])] {
         let vault = Vault::open_temp_with_key(key).unwrap();
@@ -86,22 +62,6 @@ fn notes_and_tags_commit_with_the_document_and_outbox_or_not_at_all() {
         let annotation = crate::get_annotation(&vault, url).unwrap().unwrap();
         assert_eq!(annotation.notes, "Remember this");
         assert_eq!(annotation.tags, vec!["Research"]);
-    }
-}
-
-#[test]
-fn absent_enrichment_document_does_not_publish_a_phantom_change() {
-    for key in [None, Some([69; 32])] {
-        let vault = crate::Vault::open_temp_with_key(key).unwrap();
-        super::set_enrichment_text(&vault, 999, "missing document").unwrap();
-        assert_eq!(
-            vault
-                .store()
-                .read(Db::Archive, |s| s
-                    .query_one("SELECT COALESCE((SELECT seq FROM sqlite_sequence WHERE name='search_outbox'),0)", (), |r| Ok(r.get::<i64>(0)?)))
-                .unwrap(),
-            0
-        );
     }
 }
 

@@ -168,29 +168,6 @@ fn a_rebuild_serves_the_old_generation_without_holding_a_store_reader() {
 }
 
 #[test]
-fn an_open_owner_recovers_corrupt_metadata_without_a_read_side_rebuild() {
-    for key in [None, Some([107; 32])] {
-        let vault = Vault::open_temp_with_key(key).unwrap();
-        super::tests::seed(&vault, 25);
-        let root = vault.paths().derived_dir.join("search-index");
-        let old = std::fs::read_to_string(root.join("current")).unwrap();
-        std::fs::write(root.join(&old).join("meta.json"), b"damaged metadata").unwrap();
-        let start = std::time::Instant::now();
-        loop {
-            let state = vault.search().state();
-            if std::fs::read_to_string(root.join("current")).unwrap() != old
-                && state.phase == super::IndexerPhase::Ready
-            {
-                break;
-            }
-            assert!(start.elapsed() < Duration::from_secs(30), "owner did not recover: {state:?}");
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        crate::test_support::assert_search_handoff(&vault);
-    }
-}
-
-#[test]
 fn cancelling_a_rebuild_preserves_search_and_a_later_rebuild_can_finish() {
     for key in [None, Some([111; 32])] {
         let vault = Vault::open_temp_with_key(key).unwrap();

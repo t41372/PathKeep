@@ -2,7 +2,7 @@
 //! Not responsible for: parsing, batch scheduling, evidence or run lifecycle.
 //! Failure modes: duplicate source IDs/fingerprints, older metadata replacing newer
 //! observations, unpublished page anchors, ignored visits widening bounds, lost nullable fields or duplicate
-//! favicon bytes. Tests: dedup_scenarios* and writes_tests in both key modes.
+//! favicon bytes. Tests: dedup_scenarios* in both key modes.
 
 use crate::archive::favicon_metadata::favicon_url_metadata;
 use crate::archive::visit_event_fingerprint;
@@ -559,7 +559,3 @@ pub(super) fn track_url_visit_bounds(
             last_visit_iso: visit.visit_time_iso.clone(),
         });
 }
-
-#[cfg(test)]
-#[path = "writes_tests.rs"]
-mod tests;

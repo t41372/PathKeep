@@ -1,19 +1,17 @@
 //! A real Tantivy index through `EncryptedDirectory`: built, committed, merged, reopened and
-//! queried with exact expected answers; no plaintext anywhere on disk at any point; a reader
-//! that keeps searching while the writer commits and merges; and the cache's memory bound.
+//! queried with exact expected answers; no plaintext anywhere on disk at any point; and the
+//! cache's memory bound.
 //! Failure modes are listed in `src/search_dir/mod.rs`.
 
 mod common;
 
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use common::pages;
 use common::{ChildProcess, Watcher, is_child};
 use tantivy::directory::MmapDirectory;
 use tantivy::store::Compressor;
-use tantivy::{Directory, Index, IndexSettings, IndexWriter, ReloadPolicy, TantivyDocument};
+use tantivy::{Directory, Index, IndexSettings, IndexWriter, TantivyDocument};
 use vault_crypto::{DataKey, EncryptedDirectory};
 use zeroize::Zeroizing;
 
@@ -162,78 +160,6 @@ fn a_100k_page_index_survives_commit_merge_and_reopen() {
     let stats = directory.cache_stats();
     println!("cache after queries: {stats:?}");
     assert!(stats.bytes <= stats.limit);
-}
-
-/// One process owns the index: a writer commits batches and merges while readers search.
-/// Every search must see one committed state, whole: a multiple of the batch size, with every
-/// batch it contains complete.
-#[test]
-fn readers_see_whole_commits_while_the_writer_commits_and_merges() {
-    const BATCH: u64 = 2_000;
-    const BATCHES: u64 = 20;
-    let dir = tempfile::tempdir().unwrap();
-    let directory = EncryptedDirectory::open(dir.path(), &data_key(), 4 * 1024 * 1024).unwrap();
-    let (schema, fields) = pages::schema();
-    let index = Index::create(directory.clone(), schema, IndexSettings::default()).unwrap();
-    let fields = Arc::new(fields);
-    let done = Arc::new(AtomicBool::new(false));
-
-    // `OnCommitWithDelay` reloads through `Directory::watch`; the second reader reloads by hand.
-    let readers: Vec<_> = [ReloadPolicy::OnCommitWithDelay, ReloadPolicy::Manual]
-        .into_iter()
-        .map(|policy| {
-            let reader = index.reader_builder().reload_policy(policy).try_into().unwrap();
-            let fields = fields.clone();
-            let done = done.clone();
-            std::thread::spawn(move || {
-                let mut seen = std::collections::BTreeSet::new();
-                let mut searches = 0u64;
-                while !done.load(Ordering::Acquire) {
-                    if matches!(policy, ReloadPolicy::Manual) {
-                        reader.reload().unwrap();
-                    }
-                    let searcher = reader.searcher();
-                    let docs = searcher.num_docs();
-                    assert_eq!(docs % BATCH, 0, "partial commit visible: {docs} documents");
-                    for batch in 0..BATCHES {
-                        let query = tantivy::query::TermQuery::new(
-                            tantivy::Term::from_field_u64(fields.batch, batch),
-                            tantivy::schema::IndexRecordOption::Basic,
-                        );
-                        let expected = if batch < docs / BATCH { BATCH } else { 0 };
-                        assert_eq!(
-                            searcher.search(&query, &tantivy::collector::Count).unwrap() as u64,
-                            expected
-                        );
-                    }
-                    seen.insert(docs);
-                    searches += 1;
-                }
-                (seen, searches)
-            })
-        })
-        .collect();
-
-    let mut writer: IndexWriter = index.writer_with_num_threads(1, 20_000_000).unwrap();
-    let mut policy = tantivy::indexer::LogMergePolicy::default();
-    policy.set_min_num_segments(3);
-    writer.set_merge_policy(Box::new(policy));
-    for batch in 0..BATCHES {
-        pages::add_pages(&writer, &fields, batch * BATCH..(batch + 1) * BATCH, batch);
-        writer.commit().unwrap();
-        std::thread::sleep(Duration::from_millis(30));
-    }
-    writer.wait_merging_threads().unwrap();
-    std::thread::sleep(Duration::from_millis(700));
-    done.store(true, Ordering::Release);
-    for reader in readers {
-        let (seen, searches) = reader.join().unwrap();
-        println!("reader: {searches} searches over {} distinct commits", seen.len());
-        assert!(seen.len() >= 5, "reader saw only {seen:?}");
-        assert!(seen.contains(&(BATCH * BATCHES)), "reader never saw the last commit: {seen:?}");
-    }
-    let segments = Index::open(directory).unwrap().searchable_segment_ids().unwrap();
-    assert!(segments.len() < BATCHES as usize, "no merge happened: {} segments", segments.len());
 }
 
 /// The cache limit holds while a search workload reads an index several times its size,

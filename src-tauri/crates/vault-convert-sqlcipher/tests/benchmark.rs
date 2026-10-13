@@ -163,39 +163,3 @@ fn generate(root: &Path, visits: i64, pages: i64) {
     }
     db.execute_batch("PRAGMA wal_checkpoint(TRUNCATE)").unwrap();
 }
-
-/// Inspect the converter's text-key batch lookup on a populated native table.
-/// This diagnostic catches a corpus scan hidden behind a bounded IN list.
-#[test]
-#[ignore = "query-plan diagnostic for conversion throughput; run on Modal"]
-fn conversion_url_lookup_plan() {
-    use vault_store::{Db, Priority, Value};
-    let vault = Vault::open_temp().unwrap();
-    vault
-        .store()
-        .write(Db::Archive, Priority::Batch, |s| {
-            s.execute_rows(
-                "INSERT INTO pages(url,canonical_url) VALUES(?1,?1)",
-                (0..20_000)
-                    .map(|id| vec![Value::Text(format!("https://example.test/{id}"))])
-                    .collect(),
-            )?;
-            Ok(())
-        })
-        .unwrap();
-    vault
-        .store()
-        .read(Db::Archive, |s| {
-            for count in [1, 64, 512] {
-                let binds = (1..=count).map(|id| format!("?{id}")).collect::<Vec<_>>().join(",");
-                let sql =
-                    format!("EXPLAIN QUERY PLAN SELECT url,id FROM pages WHERE url IN ({binds})");
-                let values =
-                    (0..count).map(|id| format!("https://example.test/{id}")).collect::<Vec<_>>();
-                let plan = s.query(&sql, values, |r| Ok(r.get::<String>(3)?))?;
-                println!("lookup count={count} plan={plan:?}");
-            }
-            Ok(())
-        })
-        .unwrap();
-}

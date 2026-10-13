@@ -914,10 +914,6 @@ impl AgentTool for IntelligenceReportTool {
 /// `all_time_sentinel_matches_intelligence_source_of_truth`-style coverage on the snapshot module.
 const ALL_TIME_SCOPE_START: &str = "1900-01-01";
 
-/// Byte budget for the model-facing intelligence_report JSON before truncation (02 §F bounded context).
-#[cfg(test)]
-const INTELLIGENCE_REPORT_MAX_BYTES: usize = 8_000;
-
 /// Adds sibling LOCAL `firstVisitLocal`/`lastVisitLocal` strings to each element of a
 /// session-or-trail JSON array (sessions and search-trail rows both carry `firstVisitMs`/`lastVisitMs`).
 ///

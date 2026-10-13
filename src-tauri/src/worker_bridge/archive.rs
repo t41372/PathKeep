@@ -234,10 +234,7 @@ pub(crate) fn mark_og_images_shown_impl(
 /// `useExplorerOgImages` hook). It must short-circuit when the user has
 /// chosen `OgImageFetchMode::Off` so the data-sovereignty promise on the
 /// Settings → Link previews copy ("Off — No fetching anywhere.") holds
-/// regardless of what the frontend does. The explicit "Rebuild now"
-/// affordance uses `prefetch_og_images_impl` instead, which intentionally
-/// ignores `fetch_mode` because clicking Rebuild *is* the explicit
-/// override.
+/// regardless of what the frontend does.
 pub(crate) fn refetch_og_images_impl(
     urls: Vec<String>,
     state: &crate::session::SessionState,
@@ -248,18 +245,6 @@ pub(crate) fn refetch_og_images_impl(
         Err(error) => return Err(CommandError::classified(format!("{error:#}"))),
     }
     worker_result(vault_worker::refetch_og_images(&state.vault()?, urls))
-}
-
-#[cfg_attr(test, allow(dead_code))]
-/// Powers the "Rebuild now" affordance in Settings → Link Previews by
-/// enqueuing visited URLs that have no `og_images` row yet, capped at
-/// `budget`. Returns the `(enqueued, succeeded)` pair so the UI can
-/// report progress honestly.
-pub(crate) fn prefetch_og_images_impl(
-    budget: u32,
-    state: &crate::session::SessionState,
-) -> Result<(u32, u32), CommandError> {
-    worker_result(vault_worker::prefetch_og_images_on_demand(&state.vault()?, budget))
 }
 
 #[cfg_attr(test, allow(dead_code))]
@@ -317,15 +302,6 @@ pub(crate) fn url_detail_impl(
     state: &SessionState,
 ) -> Result<vault_core::UrlDetail, CommandError> {
     worker_result(vault_worker::url_detail(&state.vault()?, url))
-}
-
-#[cfg_attr(test, allow(dead_code))]
-/// Aggregates one local-day Browse insights panel from the full archive.
-pub(crate) fn browse_day_insights_impl(
-    state: &SessionState,
-    request: vault_core::BrowseDayInsightsRequest,
-) -> Result<vault_core::BrowseDayInsights, CommandError> {
-    worker_result(vault_worker::browse_day_insights(&state.vault()?, request))
 }
 
 #[cfg_attr(test, allow(dead_code))]

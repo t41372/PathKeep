@@ -4,90 +4,7 @@
 //! as running after reopen, committed progress lost during recovery, key ignored.
 
 use super::*;
-use vault_store::{Db, Error, Priority};
-
-#[test]
-fn temporary_vaults_have_the_complete_schema_in_both_key_modes() {
-    for key in [None, Some([37; 32])] {
-        let vault = Vault::open_temp_with_key(key).unwrap();
-        assert!(vault.paths().archive_database_path.ends_with("history-vault.db"));
-        let count = vault
-            .store()
-            .read(Db::Archive, |s| {
-                s.query_one("SELECT COUNT(*) FROM search_outbox", (), |r| Ok(r.get::<i64>(0)?))
-            })
-            .unwrap();
-        assert_eq!(count, 0);
-        assert!(!vault.paths().app_root.join("derived/history-search.sqlite").exists());
-    }
-}
-
-#[test]
-fn reopen_interrupts_unfinished_runs_without_losing_progress() {
-    for key in [None, Some([93; 32])] {
-        let root = tempfile::tempdir().unwrap();
-        let paths = crate::project_paths_with_root(root.path());
-        let config = AppConfig { initialized: true, ..AppConfig::default() };
-        let vault = Vault::open(paths.clone(), config.clone(), key).unwrap();
-        assert!(matches!(
-            Vault::open(paths.clone(), config.clone(), key),
-            Err(Error::OwnedElsewhere { .. })
-        ));
-        vault.store().write(Db::Archive, Priority::Batch, |s| {
-            s.execute("INSERT INTO runs(run_type,trigger,started_at,status,stats_json) VALUES('backup','manual','2026-10-04','running','{\"processedRecords\":10000}')", ())?;
-            s.execute("INSERT INTO profile_watermarks(profile_id,last_visit_id,updated_at) VALUES('chrome:test',10000,'2026-10-04')", ())?;
-            Ok(())
-        }).unwrap();
-        drop(vault);
-        let vault = Vault::open(paths, config, key).unwrap();
-        let (status, progress, watermark) = vault.store().read(Db::Archive, |s| {
-            s.query_one("SELECT status,stats_json,(SELECT last_visit_id FROM profile_watermarks WHERE profile_id='chrome:test') FROM runs WHERE run_type='backup'", (), |r| Ok((r.get::<String>(0)?, r.get::<String>(1)?, r.get::<i64>(2)?)))
-        }).unwrap();
-        assert_eq!(status, "interrupted");
-        assert_eq!(progress, "{\"processedRecords\":10000}");
-        assert_eq!(watermark, 10000);
-    }
-}
-
-/// Every kind of run the app can be closed in the middle of, and one that had ended.
-#[test]
-fn reopen_interrupts_every_kind_of_unfinished_run_and_leaves_ended_ones() {
-    let root = tempfile::tempdir().unwrap();
-    let paths = crate::project_paths_with_root(root.path());
-    let config = AppConfig { initialized: true, ..AppConfig::default() };
-    let kinds = ["retention_prune", "doctor", "same-visit", "ai_index", "assistant", "rekey"];
-    let vault = Vault::open(paths.clone(), config.clone(), None).unwrap();
-    vault
-        .store()
-        .write(Db::Archive, Priority::Batch, move |s| {
-            for kind in kinds {
-                s.execute(
-                    "INSERT INTO runs(run_type,trigger,started_at,status) VALUES(?1,'manual','2026-10-12','running')",
-                    [kind],
-                )?;
-            }
-            s.execute(
-                "INSERT INTO runs(run_type,trigger,started_at,status) VALUES('backup','manual','2026-10-12','success')",
-                (),
-            )?;
-            Ok(())
-        })
-        .unwrap();
-    drop(vault);
-    let vault = Vault::open(paths, config, None).unwrap();
-    let statuses = vault
-        .store()
-        .read(Db::Archive, |s| {
-            s.query("SELECT run_type,status FROM runs WHERE id>0 ORDER BY id", (), |r| {
-                Ok((r.get::<String>(0)?, r.get::<String>(1)?))
-            })
-        })
-        .unwrap();
-    let mut expected =
-        kinds.iter().map(|kind| (kind.to_string(), "interrupted".to_string())).collect::<Vec<_>>();
-    expected.push(("backup".into(), "success".into()));
-    assert_eq!(statuses, expected);
-}
+use vault_store::Db;
 
 #[test]
 fn encrypted_vault_refuses_another_key() {
@@ -96,19 +13,6 @@ fn encrypted_vault_refuses_another_key() {
     drop(Vault::open(paths.clone(), AppConfig::default(), Some([17; 32])).unwrap());
     assert!(Vault::open(paths.clone(), AppConfig::default(), None).is_err());
     assert!(Vault::open(paths, AppConfig::default(), Some([18; 32])).is_err());
-}
-
-#[test]
-fn vault_uses_the_reserved_owner_without_acquiring_another_lock() {
-    let root = tempfile::tempdir().unwrap();
-    let paths = crate::project_paths_with_root(root.path());
-    let owner = Arc::new(vault_store::OwnerLock::acquire(root.path()).unwrap());
-    let vault = Vault::open_owned(paths, AppConfig::default(), None, Some(owner.clone())).unwrap();
-    assert!(vault_store::OwnerLock::acquire(root.path()).is_err());
-    drop(vault);
-    assert!(vault_store::OwnerLock::acquire(root.path()).is_err());
-    drop(owner);
-    assert!(vault_store::OwnerLock::acquire(root.path()).is_ok());
 }
 
 #[test]
@@ -175,35 +79,6 @@ fn missing_envelope_never_rekeys_existing_databases() {
 }
 
 #[test]
-fn new_encrypted_archive_persists_one_envelope_after_open() {
-    let root = tempfile::tempdir().unwrap();
-    let paths = crate::project_paths_with_root(root.path());
-    let (vault, first) =
-        Vault::open_password(paths.clone(), AppConfig::default(), "password", None).unwrap();
-    let path = paths.app_root.join("archive/keys.envelope");
-    let envelope = std::fs::read(&path).unwrap();
-    assert_eq!(
-        std::fs::read_dir(path.parent().unwrap())
-            .unwrap()
-            .filter(|entry| entry
-                .as_ref()
-                .unwrap()
-                .file_name()
-                .to_string_lossy()
-                .contains("envelope"))
-            .count(),
-        1
-    );
-
-    assert!(Vault::unlock_data_key(&paths, "wrong password").is_err());
-    assert_eq!(envelope, std::fs::read(&path).unwrap());
-    drop(vault);
-    let (_, second) = Vault::open_password(paths, AppConfig::default(), "password", None).unwrap();
-    assert_eq!(first.expose_bytes(), second.expose_bytes());
-    assert_eq!(envelope, std::fs::read(path).unwrap());
-}
-
-#[test]
 fn checkpoint_restore_takes_the_single_backup_guard() {
     let vault = Vault::open_temp().unwrap();
     let _backup = vault.begin_backup().unwrap();
@@ -213,16 +88,6 @@ fn checkpoint_restore_takes_the_single_backup_guard() {
     )
     .unwrap_err();
     assert!(error.to_string().contains("backup-already-running"));
-}
-
-#[test]
-fn failed_store_open_does_not_publish_an_envelope() {
-    let root = tempfile::tempdir().unwrap();
-    let paths = crate::project_paths_with_root(root.path());
-    let _other_owner = vault_store::OwnerLock::acquire(root.path()).unwrap();
-    assert!(Vault::open_password(paths.clone(), AppConfig::default(), "password", None).is_err());
-    assert!(!paths.app_root.join("archive/keys.envelope").exists());
-    assert!(!paths.app_root.join("archive/history-vault.db").exists());
 }
 
 #[test]

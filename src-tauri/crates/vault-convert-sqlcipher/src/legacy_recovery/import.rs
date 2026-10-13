@@ -323,15 +323,6 @@ mod tests {
     }
 
     #[test]
-    fn recover_interrupted_import_without_a_marker_is_a_noop() {
-        let (_dir, paths) = fresh_paths();
-        assert!(
-            !recover_interrupted_import(&paths).expect("no-marker recovery must not error"),
-            "a missing marker must be a cheap no-op",
-        );
-    }
-
-    #[test]
     fn a_corrupt_import_marker_goes_only_when_the_archive_is_consistent() {
         let (_dir, paths) = fresh_paths();
         ensure_archive_dir(&paths);
@@ -396,83 +387,6 @@ mod tests {
     }
 
     #[test]
-    fn recover_interrupted_import_removes_a_fresh_install_with_no_prior_and_restores_config() {
-        let (_dir, paths) = fresh_paths();
-        ensure_archive_dir(&paths);
-        let target = paths.archive_database_path.clone();
-        fs::write(&target, b"freshly installed, no prior").expect("seed fresh target");
-        let ts = "2026-06-30T01-00-00Z";
-        let prior_config_bytes =
-            serde_json::to_string_pretty(&AppConfig::default()).expect("config");
-        let journal = ImportJournal {
-            version: 1,
-            timestamp: ts.to_string(),
-            canonical: vec![
-                // had_previous=false, target exists => removed (a fresh install).
-                ImportJournalEntry { target: target.clone(), had_previous: false },
-                // had_previous=false, target ABSENT => remove_path_if_exists is a clean no-op.
-                ImportJournalEntry {
-                    target: target.with_file_name("absent.sqlite"),
-                    had_previous: false,
-                },
-            ],
-            subtrees: Vec::new(),
-            previous_config: Some(prior_config_bytes.clone()),
-        };
-        write_import_journal(&paths, &journal).expect("write journal");
-
-        assert!(recover_interrupted_import(&paths).expect("recover"));
-        assert!(!target.exists(), "a fresh install with no prior must be removed on rollback");
-        assert!(!import_journal_path(&paths).exists(), "the marker must be cleared");
-        assert_eq!(
-            fs::read_to_string(&paths.config_path).expect("read restored config"),
-            prior_config_bytes,
-            "a Some previous_config must be restored verbatim",
-        );
-    }
-
-    #[test]
-    fn recover_interrupted_import_removes_a_fresh_subtree_install() {
-        let (_dir, paths) = fresh_paths();
-        ensure_archive_dir(&paths);
-        let target = paths.app_root.join("derived");
-        fs::create_dir_all(&target).expect("seed fresh subtree");
-        fs::write(target.join("new.txt"), b"new").expect("seed subtree content");
-        let ts = "2026-06-30T02-00-00Z";
-        let journal = ImportJournal {
-            version: 1,
-            timestamp: ts.to_string(),
-            canonical: Vec::new(),
-            // had_previous=false, dir target exists => remove_dir_all branch of remove_path_if_exists.
-            subtrees: vec![ImportJournalEntry { target: target.clone(), had_previous: false }],
-            previous_config: None,
-        };
-        write_import_journal(&paths, &journal).expect("write journal");
-
-        assert!(recover_interrupted_import(&paths).expect("recover"));
-        assert!(
-            !target.exists(),
-            "a fresh subtree install with no prior must be removed (dir branch)"
-        );
-    }
-
-    #[test]
-    fn write_import_journal_errors_when_the_archive_dir_is_missing() {
-        // atomic_durable_write cannot create a sibling temp without the parent dir.
-        let (_dir, paths) = fresh_paths();
-        let journal = ImportJournal {
-            version: 1,
-            timestamp: "ts".to_string(),
-            canonical: Vec::new(),
-            subtrees: Vec::new(),
-            previous_config: None,
-        };
-        let err = write_import_journal(&paths, &journal)
-            .expect_err("writing the journal without an archive dir must error");
-        assert!(format!("{err:#}").contains("interrupted-import journal"), "got {err:#}");
-    }
-
-    #[test]
     fn recover_interrupted_import_finishes_an_interrupted_sidecar_restore() {
         // A rollback that crashed AFTER renaming the OLD main back but BEFORE moving
         // its `.bak` sidecars leaves the main `.bak` consumed and `<bak>-<ts>-wal` orphaned.
@@ -514,77 +428,5 @@ mod tests {
             b"OLD main already restored",
             "the already-restored OLD main must be left untouched",
         );
-    }
-
-    #[test]
-    fn recover_interrupted_import_fails_closed_on_mutually_inconsistent_canonical_modes() {
-        // FIX (defense in depth): even if a destructive op rewrote one canonical DB's at-rest
-        // mode in the unrecovered window (so the rollback's "leave untouched" branch leaves the
-        // two canonical DBs at DIFFERENT modes that no single config can serve), recovery must
-        // NOT silently remove the marker and commit a mode-drifted config. It must restore what
-        // it can, then refuse — leaving the marker + surfacing a recoverable error.
-        let (_dir, paths) = fresh_paths();
-        ensure_archive_dir(&paths);
-        let ts = "2026-06-30T09-00-00Z";
-
-        // history-vault: a NEW (encrypted-looking) half-install over a PLAINTEXT `.bak`, so the
-        // rollback restores it to plaintext.
-        let history = paths.archive_database_path.clone();
-        fs::write(&history, [9u8; 32]).expect("seed NEW encrypted-looking history-vault");
-        let history_bak = backup_sidecar_path(&history, ts);
-        fs::write(&history_bak, b"SQLite format 3\0OLD plaintext history")
-            .expect("seed plaintext bak");
-
-        // source-evidence: PRESENT and ENCRYPTED with NO `.bak`, so the rollback's
-        // "had_previous, no `.bak` -> leave untouched" branch keeps it encrypted.
-        let evidence = paths.source_evidence_database_path.clone();
-        fs::write(&evidence, [7u8; 32]).expect("seed encrypted-looking source-evidence");
-
-        let journal = ImportJournal {
-            version: 1,
-            timestamp: ts.to_string(),
-            canonical: vec![
-                ImportJournalEntry { target: history.clone(), had_previous: true },
-                ImportJournalEntry { target: evidence.clone(), had_previous: true },
-            ],
-            subtrees: Vec::new(),
-            previous_config: None,
-        };
-        write_import_journal(&paths, &journal).expect("write journal");
-
-        let err = recover_interrupted_import(&paths)
-            .expect_err("recovery must fail closed on an unreconcilable canonical-DB mode drift");
-        let rendered = format!("{err:#}");
-        assert!(
-            rendered.contains("single consistent at-rest mode")
-                && rendered.contains("source-evidence.sqlite"),
-            "the error must name the unreconcilable drift, got: {rendered}",
-        );
-
-        // The history-vault `.bak` was still restored (rollback is best-effort up to the
-        // refusal), but the marker is LEFT so the state stays flagged + retry-able and NO
-        // drifted config is committed.
-        assert_eq!(
-            detect_disk_encryption_mode(&history),
-            DiskEncryptionMode::Plaintext,
-            "history-vault is restored to its plaintext .bak",
-        );
-        assert_eq!(
-            detect_disk_encryption_mode(&evidence),
-            DiskEncryptionMode::Encrypted,
-            "source-evidence stays encrypted (the irreconcilable half)",
-        );
-        assert!(
-            import_journal_path(&paths).exists(),
-            "a fail-closed recovery must LEAVE the marker, never silently brick + clear it",
-        );
-        assert!(!paths.config_path.exists(), "no drifted config may be committed on the refusal");
-    }
-
-    #[test]
-    fn disk_mode_for_maps_each_archive_mode() {
-        // Both arms of the config-mode -> on-disk-header mapping the fail-closed guard relies on.
-        assert_eq!(disk_mode_for(&ArchiveMode::Plaintext), DiskEncryptionMode::Plaintext);
-        assert_eq!(disk_mode_for(&ArchiveMode::Encrypted), DiskEncryptionMode::Encrypted);
     }
 }

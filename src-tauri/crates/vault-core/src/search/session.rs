@@ -517,10 +517,6 @@ impl SearchSession {
     pub(crate) fn cancel_token(&self) -> Result<CancelToken> {
         Ok(self.inner.lock().unwrap().as_ref().context("search session closed")?.cancel.clone())
     }
-    #[cfg(test)]
-    pub(super) fn holds_snapshot(&self) -> bool {
-        self.inner.lock().unwrap().as_ref().is_some_and(|running| running.reader.is_some())
-    }
 }
 pub(super) struct RetainedSession {
     pub slot: Weak<Mutex<Option<RunningSession>>>,

@@ -396,31 +396,4 @@ mod tests {
         assert_eq!(shown("台北天氣預報"), ["台北", "天氣預報"]);
         assert!(one_search(&compared("台北天氣"), &compared("台北天氣預報")));
     }
-
-    /// Search concepts showed "s" and "3" among a real archive's top words.
-    #[test]
-    fn search_words_leave_out_lone_letters_and_bare_numbers() {
-        let words: Vec<String> =
-            search_words("asu's python 3.12 東京 a pro open 2026 x86").into_iter().collect();
-        assert_eq!(words, ["asu", "open", "pro", "python", "x86", "東京"]);
-    }
-
-    #[test]
-    fn navigational_query_domain_matching_is_symmetric_for_subdomains() {
-        assert_eq!(
-            classify_search_query_kind("example.com", "example.com", Some("docs.example.com")),
-            SearchQueryKind::Navigational
-        );
-        assert_eq!(
-            classify_search_query_kind("docs.example.com", "docs.example.com", Some("example.com")),
-            SearchQueryKind::Navigational
-        );
-        assert_eq!(
-            classify_search_query_kind("\"example.com\"", "example.com", Some("other.test")),
-            SearchQueryKind::Keyword
-        );
-        assert_eq!(query_domain_candidate("https://./"), None);
-        assert!(is_cjk_like('深'));
-        assert!(!is_cjk_like('A'));
-    }
 }

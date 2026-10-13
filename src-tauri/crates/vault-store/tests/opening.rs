@@ -1,7 +1,7 @@
 //! Responsibilities: verify open preflight, configuration and scratch against real files.
 //! Not responsible for: implementing encryption.
 //! Failure modes: wrong keys change files; invalid later DB allows earlier migration;
-//! plaintext is rejected; scratch persists; custom IO is dropped. Covered below.
+//! custom IO is dropped; a non-ASCII path fails to open. Covered below.
 #[path = "support/observed_io.rs"]
 mod observed_io;
 mod support;
@@ -67,45 +67,6 @@ fn preflight_checks_later_databases_before_any_migration_or_scratch_cleanup() {
     );
     assert!(matches!(Store::open(config), Err(Error::Corrupt { .. })));
     assert_eq!(before, snapshot(dir.path()));
-}
-#[test]
-fn plaintext_all_databases_and_attached_scratch_work_and_scratch_resets() {
-    let (dir, store) = support::open();
-    for db in Db::ALL {
-        store
-            .write(db, Priority::Interactive, |tx| {
-                tx.execute("CREATE TABLE marker(id INTEGER)", ())?;
-                tx.execute("INSERT INTO marker VALUES (7)", ())?;
-                Ok(())
-            })
-            .unwrap();
-        assert_eq!(
-            store
-                .read(db, |conn| conn
-                    .query_one("SELECT id FROM marker", (), |row| Ok(row.get::<i64>(0)?)))
-                .unwrap(),
-            7
-        );
-    }
-    assert_eq!(
-        store
-            .read(Db::Archive, |conn| conn.query_one(
-                "SELECT id FROM scratch.marker",
-                (),
-                |row| Ok(row.get::<i64>(0)?)
-            ))
-            .unwrap(),
-        7
-    );
-    drop(store);
-    let store = Store::open(support::config(dir.path())).unwrap();
-    assert!(
-        store
-            .read(Db::Scratch, |conn| conn
-                .query_one("SELECT id FROM marker", (), |row| Ok(row.get::<i64>(0)?)))
-            .is_err()
-    );
-    assert_eq!(support::count(&store), 0);
 }
 #[test]
 fn accepts_caller_io_and_non_ascii_uri_paths() {

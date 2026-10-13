@@ -12,22 +12,6 @@ use super::*;
 /// `agent_tools::MAX_TOOL_ROWS` for the legacy rig tool path here.
 pub(super) const MODEL_FACING_ROW_CAP: u32 = 50;
 
-/// One semantic search hit ready to merge with lexical recall.
-///
-/// The merge stage only needs a compact score-bearing shape, not the full sidecar row.
-#[cfg(test)]
-#[allow(dead_code)]
-#[derive(Debug, Clone)]
-pub(super) struct StoredEmbedding {
-    pub history_id: i64,
-    pub profile_id: String,
-    pub url: String,
-    pub title: Option<String>,
-    pub domain: String,
-    pub visited_at: String,
-    pub score: f32,
-}
-
 /// One semantic-index lookup result together with any degradation notes.
 ///
 /// Semantic search can legitimately fall back to lexical-only results. Keeping the notes
@@ -407,15 +391,6 @@ pub(super) fn resolve_date_filter_ms(request: &AiSearchRequest) -> (Option<i64>,
     (start_ms, end_ms)
 }
 
-/// Orders semantic matches from strongest to weakest score.
-#[cfg(test)]
-pub(super) fn sort_stored_embeddings_desc(
-    left: &StoredEmbedding,
-    right: &StoredEmbedding,
-) -> Ordering {
-    right.score.partial_cmp(&left.score).unwrap_or(Ordering::Equal)
-}
-
 /// Converts one lexical history row into the public AI search entry shape.
 pub(super) fn history_entry_to_search_entry(
     item: &HistoryEntry,
@@ -436,27 +411,5 @@ pub(super) fn history_entry_to_search_entry(
         // every other hydration leaves it `None`, so non-enriched pages get no snippet (the band +
         // reason carry the "why").
         enrichment_excerpt: item.enrichment_excerpt.clone(),
-    }
-}
-
-/// Computes cosine similarity for deterministic embedding test helpers.
-#[cfg(test)]
-pub(super) fn cosine_similarity(left: &[f32], right: &[f32]) -> f32 {
-    let len = left.len().min(right.len());
-    if len == 0 {
-        return 0.0;
-    }
-    let mut dot = 0.0f32;
-    let mut left_norm = 0.0f32;
-    let mut right_norm = 0.0f32;
-    for index in 0..len {
-        dot += left[index] * right[index];
-        left_norm += left[index] * left[index];
-        right_norm += right[index] * right[index];
-    }
-    if left_norm == 0.0 || right_norm == 0.0 {
-        0.0
-    } else {
-        dot / (left_norm.sqrt() * right_norm.sqrt())
     }
 }

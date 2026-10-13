@@ -23,6 +23,8 @@ mod commands;
 mod desktop_integration;
 #[cfg(feature = "devtools-bridge")]
 mod dev_ipc_bridge;
+// In test builds the Tauri command layer is compiled out, so the wrappers only it calls go unused.
+#[cfg_attr(test, allow(dead_code))]
 mod file_manager;
 mod idle_exit;
 #[cfg(not(test))]
@@ -31,6 +33,8 @@ mod session;
 #[cfg(test)]
 mod test_support;
 mod updater;
+// Same for the worker bridge: most of it is called only by the command layer.
+#[cfg_attr(test, allow(dead_code))]
 mod worker_bridge;
 
 use anyhow::Result;
@@ -205,7 +209,6 @@ fn run_app() -> Result<()> {
             load_history_og_images,
             mark_og_images_shown,
             trigger_og_image_refetch,
-            prefetch_og_images,
             get_og_image_storage_stats,
             get_og_image_coverage_stats,
             clear_og_image_cache,
@@ -226,7 +229,6 @@ fn run_app() -> Result<()> {
             preview_app_data_import,
             apply_app_data_import,
             load_dashboard_snapshot,
-            get_browse_day_insights,
             load_source_stats,
             load_recent_runs,
             load_import_batches,
@@ -253,7 +255,6 @@ fn run_app() -> Result<()> {
             preview_clear_derived_intelligence,
             clear_derived_intelligence,
             keyring_status,
-            security_status,
             keyring_get_database_key,
             unlock_archive_from_keychain,
             keyring_store_database_key,
@@ -352,7 +353,6 @@ fn run_app() -> Result<()> {
             open_visited_page,
             system_clock,
             reveal_logs,
-            export_conversation_file,
             check_for_app_update,
             download_and_install_app_update,
             relaunch_after_update,

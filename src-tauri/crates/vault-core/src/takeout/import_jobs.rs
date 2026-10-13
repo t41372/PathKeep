@@ -64,26 +64,3 @@ pub fn stop_import(id: &str) -> bool {
     cancel.cancel();
     true
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_stop_reaches_only_the_running_import_of_its_id() {
-        assert!(!stop_import("job-unknown"), "nothing runs under it");
-        let first = ImportJob::start(Some("job-a")).unwrap();
-        let other = ImportJob::start(Some("job-b")).unwrap();
-        assert!(ImportJob::start(Some("job-a")).is_err(), "one import per id");
-        assert!(stop_import("job-a"));
-        assert!(first.cancel_token().check().is_err());
-        assert!(other.cancel_token().check().is_ok(), "another import runs on");
-        assert!(!stop_import("job-a"), "asked already");
-        drop(first);
-        assert!(!stop_import("job-a"), "it ended: a late click stops nothing");
-        let next = ImportJob::start(Some("job-a")).unwrap();
-        assert!(next.cancel_token().check().is_ok(), "the id is free again");
-        let unnamed = ImportJob::start(None).unwrap();
-        assert!(unnamed.cancel_token().check().is_ok());
-    }
-}

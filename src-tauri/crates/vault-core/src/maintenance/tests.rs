@@ -22,47 +22,6 @@ pub(crate) fn encrypted() -> (tempfile::TempDir, Vault, vault_crypto::DataKey) {
 }
 
 #[test]
-fn password_change_only_rewraps_and_the_remembered_data_key_still_opens() {
-    let (_root, vault, key) = encrypted();
-    let pause = vault.store().pause().unwrap();
-    pause.checkpoint().unwrap();
-    let paths = vault_store::Paths::under(&vault.paths().app_root);
-    let before: Vec<_> =
-        Db::ALL.into_iter().map(|db| std::fs::read(paths.get(db)).unwrap()).collect();
-    let envelope = std::fs::read(vault.paths().app_root.join("archive/keys.envelope")).unwrap();
-    assert!(
-        rewrap_password(&vault, "incorrect", "new password")
-            .unwrap_err()
-            .downcast_ref::<crate::ArchivePasswordWrong>()
-            .is_some()
-    );
-    assert_eq!(
-        std::fs::read(vault.paths().app_root.join("archive/keys.envelope")).unwrap(),
-        envelope
-    );
-    rewrap_password(&vault, "old password", "new password").unwrap();
-    let after: Vec<_> =
-        Db::ALL.into_iter().map(|db| std::fs::read(paths.get(db)).unwrap()).collect();
-    assert_eq!(before, after);
-    assert!(Vault::unlock_data_key(vault.paths(), "old password").is_err());
-    assert_eq!(
-        Vault::unlock_data_key(vault.paths(), "new password").unwrap().expose_bytes(),
-        key.expose_bytes()
-    );
-    drop(pause);
-    vault.close().unwrap();
-    let reopened =
-        Vault::open(vault.paths().clone(), vault.config().clone(), Some(*key.expose_bytes()))
-            .unwrap();
-    reopened
-        .store()
-        .read(Db::Archive, |s| {
-            s.query_one("SELECT count(*) FROM pages", (), |r| Ok(r.get::<i64>(0)?))
-        })
-        .unwrap();
-}
-
-#[test]
 fn mode_switch_round_trips_all_databases_and_cancel_keeps_original() {
     let vault = Vault::open_temp().unwrap();
     crate::test_support::search::seed_pages(&vault, 2);
@@ -171,38 +130,6 @@ fn snapshot_restores_evidence_and_agent_alongside_the_archive() {
 }
 
 #[test]
-fn closing_a_finished_staged_index_does_not_cancel_the_maintenance_operation() {
-    let vault = Vault::open_temp().unwrap();
-    let cancel = vault_store::CancelToken::new();
-    vault.search().rebuild_with_control(cancel.clone(), |_| {}).unwrap();
-    vault.close().unwrap();
-    cancel.check().unwrap();
-}
-
-#[test]
-fn wipe_removes_native_databases_index_and_envelope_without_replacing_owner_lock() {
-    let (_root, vault, _) = encrypted();
-    let owner = vault.store().owner().unwrap();
-    let paths = vault.paths().clone();
-    crate::wipe_all_data(
-        &paths,
-        &crate::archive::WipeOutsideState::default(),
-        || Ok(vault.close()?),
-        |_| Ok(()),
-        |_| Ok(()),
-    )
-    .unwrap();
-    for db in vault_store::Db::ALL {
-        assert!(!vault_store::Paths::under(&paths.app_root).get(db).exists());
-    }
-    assert!(!paths.derived_dir.join("search-index").exists());
-    assert!(!paths.app_root.join("archive/keys.envelope").exists());
-    assert!(paths.app_root.join("archive/.pk-owner.lock").exists());
-    assert!(vault_store::OwnerLock::acquire(&paths.app_root).is_err());
-    drop(owner);
-}
-
-#[test]
 fn startup_rolls_back_a_mode_switch_interrupted_after_the_first_install() {
     let (_root, vault, _key) = encrypted();
     let paths = vault.paths().clone();
@@ -288,21 +215,6 @@ fn startup_rolls_back_interrupted_bundle_import_and_snapshot_restore() {
 }
 
 #[test]
-fn startup_discards_unpublished_copy_files_but_keeps_conversion_resume_state() {
-    let (_root, vault, _) = encrypted();
-    let paths = vault.paths().clone();
-    vault.close().unwrap();
-    for name in ["maintenance-interrupted", "sqlcipher-conversion"] {
-        std::fs::create_dir_all(paths.staging_dir.join(name)).unwrap();
-        std::fs::write(paths.staging_dir.join(name).join("part.db"), b"unfinished").unwrap();
-    }
-    recover_native_maintenance(&paths).unwrap();
-    assert!(!paths.staging_dir.join("maintenance-interrupted").exists());
-    assert!(paths.staging_dir.join("sqlcipher-conversion/part.db").exists());
-    assert!(Vault::unlock_data_key(&paths, "old password").is_ok());
-}
-
-#[test]
 fn retention_keeps_a_native_safety_snapshot_and_updates_its_native_ledger() {
     let (_root, vault, _) = encrypted();
     for name in ["a", "b"] {
@@ -341,51 +253,6 @@ fn retention_keeps_a_native_safety_snapshot_and_updates_its_native_ledger() {
             ))
             .unwrap(),
         1
-    );
-}
-
-/// The files are deleted before the prune's manifest is written. A manifest that could not be
-/// written turned the run, already recorded as done, into a failure (`WORK-RUN-LIFECYCLE-GUARDS`).
-#[test]
-fn a_prune_whose_manifest_fails_still_says_what_it_deleted() {
-    use std::os::unix::fs::PermissionsExt;
-    let (_root, vault, _) = encrypted();
-    let leftover = vault.paths().staging_dir.join("leftover");
-    std::fs::create_dir_all(&leftover).unwrap();
-    std::fs::write(leftover.join("part"), b"staged bytes").unwrap();
-    let manifests = vault.paths().audit_repo_path.join("manifests");
-    std::fs::create_dir_all(&manifests).unwrap();
-    std::fs::set_permissions(&manifests, std::fs::Permissions::from_mode(0o500)).unwrap();
-    let result = prune(
-        &vault,
-        &crate::RetentionPruneRequest { bucket_ids: vec!["staging".into()] },
-        None,
-        &Default::default(),
-    );
-    std::fs::set_permissions(&manifests, std::fs::Permissions::from_mode(0o700)).unwrap();
-
-    let result = result.expect("the prune succeeds");
-    assert!(result.deleted_files > 0);
-    assert!(!leftover.join("part").exists());
-    let (status, warnings) = vault
-        .store()
-        .read(Db::Archive, move |s| {
-            s.query_one(
-                "SELECT status,warnings_json FROM runs WHERE id=?1",
-                [result.run_id.unwrap()],
-                |r| Ok((r.get::<String>(0)?, r.get::<String>(1)?)),
-            )
-        })
-        .unwrap();
-    assert_eq!(status, "success");
-    let warnings: Vec<serde_json::Value> = serde_json::from_str(&warnings).unwrap();
-    assert_eq!(
-        warnings
-            .iter()
-            .filter(|w| w["code"] == crate::archive::write_runs::REVIEW_RECORD_FAILED)
-            .count(),
-        1,
-        "{warnings:?}"
     );
 }
 

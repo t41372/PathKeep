@@ -7,7 +7,6 @@ use crate::ai::AiProviderRuntime;
 use crate::ai::indexing::{IndexedVisit, upsert_embedding};
 use crate::archive::{search_documents, totals};
 use crate::config::ProjectPaths;
-use crate::enrichment::EnrichmentResult;
 use crate::models::{AppConfig, ArchiveMode};
 use crate::test_support::native::TestDatabase;
 use crate::utils::now_rfc3339;
@@ -174,84 +173,6 @@ pub(in crate::ai) fn seed_visit(
     seed_visits(&db.vault, vec![SeedVisit::chrome(history_id, profile_id, url, title, visit_time)]);
 }
 
-/// Places the visit at midday UTC on a `YYYY-MM-DD` day, clear of the inclusive day edges,
-/// so date filters can include or exclude it.
-pub(in crate::ai) fn seed_visit_on_date(
-    db: &TestDatabase,
-    history_id: i64,
-    url: &str,
-    title: Option<&str>,
-    date: &str,
-) {
-    let (start_ms, _end_ms) =
-        crate::utils::date_str_to_unix_ms_range(date).expect("valid YYYY-MM-DD date");
-    let midday_ms = start_ms + 12 * 60 * 60 * 1000;
-    let chrome_time = crate::utils::unix_micros_to_chrome_time(midday_ms * 1000);
-    seed_visit(db, history_id, "chrome:Default", url, title, chrome_time);
-}
-
-/// Seeds `count` visits whose url and title both contain `keyword`, one second apart, so
-/// the earliest visit is `first_id` and the latest is `first_id + count - 1`.
-pub(in crate::ai) fn seed_keyword_visits_bulk(
-    db: &TestDatabase,
-    keyword: &str,
-    first_id: i64,
-    count: i64,
-) {
-    let base_unix_ms: i64 = 1_700_000_000_000;
-    let visits = (0..count)
-        .map(|offset| {
-            let history_id = first_id + offset;
-            let chrome_time =
-                crate::utils::unix_micros_to_chrome_time((base_unix_ms + offset * 1000) * 1000);
-            SeedVisit::chrome(
-                history_id,
-                "chrome:Default",
-                &format!("https://bulk.example/{keyword}/{history_id}"),
-                Some(&format!("{keyword} entry {history_id}")),
-                chrome_time,
-            )
-        })
-        .collect();
-    seed_visits(&db.vault, visits);
-}
-
-/// Stores a successful page enrichment for the visit's canonical page and publishes its
-/// search text to every page sharing that key, as the content-fetch job does.
-pub(in crate::ai) fn seed_enrichment_text(db: &TestDatabase, history_id: i64, summary: &str) {
-    let vault = db.vault.clone();
-    let canonical_url = vault
-        .read(Db::Archive, move |s| {
-            Ok(s.query_one(
-                "SELECT p.canonical_url FROM urls u JOIN pages p ON p.id=u.page_id WHERE u.id=?1",
-                [history_id],
-                |r| Ok(r.get::<String>(0)?),
-            )?)
-        })
-        .expect("seeded visit has a page");
-    let enrichment = EnrichmentResult {
-        status: "success".to_owned(),
-        extraction: serde_json::json!({}),
-        enrichment_summary: Some(summary.to_owned()),
-        extractor_version: Some(1),
-        ..EnrichmentResult::default()
-    };
-    let (paths, key) = (vault.paths().clone(), canonical_url.clone());
-    vault
-        .write(Db::Intelligence, Priority::Batch, move |s| {
-            crate::enrichment::store_enrichment(&paths, s, &key, "github-repo", &enrichment)
-        })
-        .expect("store enrichment");
-    let text = crate::archive::enrichment_text_for_index(Some(summary), Some("{}"));
-    let pages = vault
-        .read(Db::Archive, move |s| Ok(crate::pages::ids_for_key(s, &canonical_url)?))
-        .expect("pages for canonical key");
-    for page_id in pages {
-        crate::archive::set_enrichment_text(&vault, page_id, &text).expect("publish enrichment");
-    }
-    vault.search().cycle().expect("index enrichment text");
-}
-
 pub(in crate::ai) fn seed_successful_index_ledger(
     connection: &TestDatabase,
     provider: &AiProviderRuntime,
@@ -283,39 +204,6 @@ pub(in crate::ai) fn seed_successful_index_ledger(
             ],
         )
         .expect("insert successful ledger");
-}
-
-pub(in crate::ai) fn seed_failed_index_ledger(
-    connection: &TestDatabase,
-    provider: &AiProviderRuntime,
-    failure_reason: &str,
-) {
-    connection
-        .execute(
-            "INSERT OR REPLACE INTO ai_index_ledger (
-               provider_id,
-               model,
-               sidecar_table,
-               index_version,
-               state,
-               source_watermark,
-               last_run_id,
-               build_started_at,
-               build_finished_at,
-               last_indexed_at,
-               last_cleared_at,
-               last_failure_at,
-               failure_reason
-             )
-             VALUES (?1, ?2, 'ai_embeddings', 'test-v1', 'failed', NULL, NULL, NULL, NULL, NULL, NULL, ?3, ?4)",
-            params![
-                provider.config.id.as_str(),
-                provider.config.default_model.as_str(),
-                now_rfc3339(),
-                failure_reason,
-            ],
-        )
-        .expect("insert failed ledger");
 }
 
 /// A plaintext temp Vault with the AI test configuration. The returned database runs SQL
@@ -372,52 +260,4 @@ pub(in crate::ai) fn embedding_count(
 ) -> Result<i64> {
     let (provider, model) = (provider.to_owned(), model.to_owned());
     db.read(move |s| crate::ai::native_ledger::provider_embedding_count(s, &provider, &model))
-}
-
-/// Adds a later visit to an existing `urls` row, giving one page several visits.
-pub(in crate::ai) fn seed_extra_visit(
-    db: &TestDatabase,
-    visit_id: i64,
-    url_id: i64,
-    visit_time: i64,
-) {
-    let profile = profile_row_id("chrome:Default");
-    let (visit_ms, visit_iso) =
-        (chrome_time_to_unix_ms(visit_time), crate::utils::chrome_time_to_rfc3339(visit_time));
-    db.vault
-        .write(Db::Archive, Priority::Batch, move |s| {
-            s.execute(
-                "INSERT INTO visits
-                 (id, url_id, source_visit_id, visit_time_ms, visit_time_iso, transition_type, visit_duration_ms, source_profile_id, created_by_run_id, from_visit, is_known_to_sync, visited_link_id, external_referrer_url, app_id, event_fingerprint, payload_hash, recorded_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, 805306368, 0, ?6, 1, NULL, 1, 0, NULL, NULL, ?7, ?8, ?9)",
-                params![
-                    visit_id,
-                    url_id,
-                    visit_id.to_string(),
-                    visit_ms,
-                    visit_iso.as_str(),
-                    profile,
-                    format!("fp-{visit_id}"),
-                    format!("payload-{visit_id}"),
-                    now_rfc3339(),
-                ],
-            )?;
-            // The url's last visit follows the newer visit, so hydration picks the most recent
-            // visible visit as the page's representative.
-            s.execute(
-                "UPDATE urls SET visit_count = visit_count + 1,
-                   last_visit_ms = MAX(last_visit_ms, ?2), last_visit_iso = ?3
-                 WHERE id = ?1",
-                params![url_id, visit_ms, visit_iso.as_str()],
-            )?;
-            totals::add_visits(s, profile, 1)?;
-            let page_id =
-                s.query_one("SELECT page_id FROM urls WHERE id=?1", [url_id], |row| {
-                    Ok(row.get::<i64>(0)?)
-                })?;
-            search_documents::refresh(s, page_id)?;
-            Ok(())
-        })
-        .expect("seed extra visit");
-    db.vault.search().cycle().unwrap();
 }

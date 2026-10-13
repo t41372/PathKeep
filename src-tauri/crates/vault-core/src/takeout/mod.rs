@@ -35,10 +35,6 @@ use browser_history_parser::takeout::{
     KIND_INDEX, KIND_MY_ACTIVITY_JSON, TakeoutPathDisposition, TakeoutPathMatch,
     classify_payload_path_with_sniff as classify_takeout_payload_with_sniff,
 };
-#[cfg(test)]
-use browser_history_parser::takeout::{
-    TakeoutPayloadReport, parse_payload as parse_takeout_payload,
-};
 
 use serde_json::{Value, json};
 use std::{
@@ -68,16 +64,6 @@ pub use self::{
 };
 
 pub(crate) use self::batches::ensure_import_batch_audit_artifact;
-
-#[cfg(test)]
-use self::{
-    batch_review::load_import_batch_record,
-    inspect::{
-        collect_records_from_payload, gather_takeout_files, parse_payload_report,
-        preview_entry_from_payload, quarantine_file, quarantine_takeout_file, read_zip_entry,
-        recognize_takeout_file,
-    },
-};
 
 /// Caps the number of preview entries returned for inspection and batch review.
 const PREVIEW_LIMIT: usize = 24;
@@ -119,14 +105,6 @@ struct ImportedPayload {
     recognized_file: TakeoutFileReport,
     earliest_visit_iso: Option<String>,
     latest_visit_iso: Option<String>,
-}
-
-/// Holds preview rows plus the minimal parser metadata needed by inspection tests.
-#[cfg(test)]
-#[derive(Debug)]
-struct CollectedPayload {
-    records: Vec<ParsedTakeoutRecord>,
-    skipped_missing_visit_time: usize,
 }
 
 /// Represents one persisted import batch plus its review metadata.

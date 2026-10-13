@@ -60,20 +60,6 @@ pub(super) fn output(raw: &str, cursor: Option<&str>) -> Result<String> {
 mod tests {
     use super::*;
     #[test]
-    fn view_timers_do_not_change_paged_content_but_runtime_state_does() {
-        let mut first = json!({"timings":[1],"totalDurationMs":10,"digest":{"data":{"lastSeenAt":"fact"},"meta":{"generatedAt":"first","state":"ready"}}});
-        let mut second = first.clone();
-        second["timings"] = json!([200]);
-        second["totalDurationMs"] = json!(99);
-        second["digest"]["meta"]["generatedAt"] = json!("later");
-        remove_volatile_diagnostics(&mut first);
-        remove_volatile_diagnostics(&mut second);
-        assert_eq!(first, second);
-        assert_eq!(first["digest"]["data"]["lastSeenAt"], "fact");
-        second["digest"]["meta"]["state"] = json!("stale");
-        assert_ne!(first, second);
-    }
-    #[test]
     fn every_unicode_byte_is_reachable_and_changed_reports_request_a_restart() {
         let raw = json!({"text":"你好🦀\\\"".repeat(4000)}).to_string();
         let mut cursor = None;

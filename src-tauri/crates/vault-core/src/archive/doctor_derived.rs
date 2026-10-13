@@ -67,11 +67,6 @@ fn rows_without_visible_visit_sql(table: &str, column: &str) -> String {
     )
 }
 
-#[cfg(test)]
-pub(crate) fn count_stale_ai_embeddings(intelligence: &vault_store::Session<'_>) -> Result<usize> {
-    count_rows_without_visible_visit(intelligence, "ai_embeddings", "history_id")
-}
-
 /// Repairs metadata in bounded batches and keeps the status totals in the same transaction.
 pub(crate) fn clear_stale_ai_embeddings(vault: &crate::Vault) -> Result<usize> {
     use vault_store::{Db, Priority, params_owned as params};
@@ -148,28 +143,6 @@ mod tests {
             s.execute("INSERT INTO ai_embedding_totals(provider_id,model,item_count,content_bytes,metadata_bytes,last_indexed_at) VALUES('provider','model',3,6,9,'')",())?;Ok(())
         }).unwrap();
         vault
-    }
-    #[test]
-    fn stale_rows_are_the_ones_whose_visit_is_hidden_or_missing() {
-        for key in [None, Some([34; 32])] {
-            let vault = fixture(key);
-            vault
-                .read(Db::Intelligence, |s| {
-                    assert_eq!(
-                        count_rows_without_visible_visit(s, "visit_derived_facts", "visit_id")?,
-                        2
-                    );
-                    assert_eq!(count_stale_ai_embeddings(s)?, 2);
-                    Ok(())
-                })
-                .unwrap();
-            assert_eq!(clear_stale_ai_embeddings(&vault).unwrap(), 2);
-            vault.read(Db::Intelligence,|s| {
-                assert_eq!(s.query_one("SELECT history_id FROM ai_embeddings",(),|r|Ok(r.get::<i64>(0)?))?,1);
-                assert_eq!(s.query_one("SELECT item_count,content_bytes,metadata_bytes FROM ai_embedding_totals",(),|r|Ok((r.get::<i64>(0)?,r.get::<i64>(1)?,r.get::<i64>(2)?)))?,(1,2,3));Ok(())
-            }).unwrap();
-            assert_eq!(clear_stale_ai_embeddings(&vault).unwrap(), 0);
-        }
     }
     #[test]
     fn stale_row_checks_look_visits_up_by_primary_key() {

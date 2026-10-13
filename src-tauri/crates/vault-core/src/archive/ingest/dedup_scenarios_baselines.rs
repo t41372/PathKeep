@@ -3,13 +3,13 @@
 //! Failure modes: duplicate visits, changed URL metadata, cursor loss, timestamp
 //! truncation, lost optional fields or source evidence. Scenarios below pin each.
 
-//! Baseline import scenarios for Firefox, Safari, and Chromium fingerprint dedup.
+//! Firefox and Safari long-tail revisits, and Chromium fingerprint dedup.
 //!
 //! These scenarios complement `dedup_scenarios.rs` by covering:
-//! - **F1**: Firefox single-import baseline — asserts all URLs and visits
-//!   land correctly from a Firefox Places fixture.
-//! - **S1**: Safari single-import baseline — asserts all URLs and visits
-//!   land correctly from a Safari History fixture.
+//! - **F2**: a new Firefox visit to a URL whose stored last-visit time is
+//!   below the URL watermark is still archived.
+//! - **S2**: the same revisit on Safari, whose URL query derives the
+//!   last-visit time from the visits table.
 //! - **Chromium fingerprint dedup**: Re-importing the same visits with
 //!   different `source_visit_id` values must not create duplicates because
 //!   the `event_fingerprint` partial index catches them.
@@ -83,19 +83,6 @@ fn count_archive_rows(env: &ScenarioEnv, table: &str) -> i64 {
         .expect("count rows")
 }
 
-fn count_urls_for_profile(env: &ScenarioEnv, profile_key: &str) -> i64 {
-    let archive = env.open_archive();
-    archive
-        .query_row(
-            "SELECT COUNT(*) FROM urls
-             JOIN source_profiles ON source_profiles.id = urls.source_profile_id
-             WHERE source_profiles.profile_key = ?1",
-            [profile_key],
-            |row| Ok(row.get(0)?),
-        )
-        .expect("count urls for profile")
-}
-
 fn count_visits_for_profile(env: &ScenarioEnv, profile_key: &str) -> i64 {
     let archive = env.open_archive();
     archive
@@ -107,20 +94,6 @@ fn count_visits_for_profile(env: &ScenarioEnv, profile_key: &str) -> i64 {
             |row| Ok(row.get(0)?),
         )
         .expect("count visits for profile")
-}
-
-fn collect_visit_source_ids(env: &ScenarioEnv, profile_key: &str) -> Vec<String> {
-    let archive = env.open_archive();
-    archive
-        .query(
-            "SELECT visits.source_visit_id FROM visits
-             JOIN source_profiles ON source_profiles.id = visits.source_profile_id
-             WHERE source_profiles.profile_key = ?1
-             ORDER BY visits.source_visit_id ASC",
-            [profile_key],
-            |row| Ok(row.get::<String>(0)?),
-        )
-        .expect("query rows")
 }
 
 // ── Firefox helpers ─────────────────────────────────────────────────
@@ -294,31 +267,15 @@ fn snapshot_for_chromium_fixture(
 }
 
 // ======================================================================
-// F1: Firefox baseline import — happy path
-// ======================================================================
-
-// ======================================================================
-// S1: Safari baseline import — happy path
-// ======================================================================
-
-// ======================================================================
 // Chromium fingerprint dedup — same visits, different source_visit_ids
 // ======================================================================
 
-// ======================================================================
-// F_C2: Firefox incremental no-new-data — watermark prevents re-import
-// ======================================================================
-
-// ======================================================================
-// S_C2: Safari incremental no-new-data — watermark prevents re-import
-// ======================================================================
-
 // ----------------------------------------------------------------------
-// F2: Firefox incremental revisit of an old URL drops the new visit (B2)
+// F2: Firefox incremental revisit of an old URL keeps the new visit
 // ----------------------------------------------------------------------
 
 // ----------------------------------------------------------------------
-// S2: Safari long-tail revisit correctly handled — refutes B2 for Safari
+// S2: Safari long-tail revisit keeps the new visit
 // ----------------------------------------------------------------------
 
 #[path = "dedup_scenarios_baselines/cases_1.rs"]

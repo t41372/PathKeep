@@ -314,9 +314,9 @@ Pure classifier/aggregate/scoring tests remain independent references. Search-ow
 retain their original entry point. Agent-store test/code changes below belong to the
 preceding work and were retained during this continuation.
 
-The old benchmark's `skip_baseline_rebuild_requires_existing_intelligence_state` test
-is retained in the native scale harness: a child read/incremental measurement requires a
-published native baseline. The driver itself no longer copies SQLite databases.
+A child read/incremental measurement in the native scale harness requires a published
+native baseline (`require_published_baseline`); the separate test of that check was removed
+on 2026-10-12. The driver itself no longer copies SQLite databases.
 
 The following names changed with their required behavior; the old cap assertions are
 replaced by complete traversal assertions, not discarded:

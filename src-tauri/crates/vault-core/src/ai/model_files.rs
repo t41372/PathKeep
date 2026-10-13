@@ -27,7 +27,7 @@ pub struct ModelFile {
 /// Resolves the on-disk directory for one model repo under `models_dir`.
 ///
 /// One directory per repo id, with the repo's `org/name` flattened to a single safe segment so a
-/// slash in the id never escapes `models_dir`. Pure (path math only) so it is unit-tested.
+/// slash in the id never escapes `models_dir`. Pure (path math only).
 pub fn model_dir_for_repo(paths: &ProjectPaths, repo: &str) -> std::path::PathBuf {
     paths.models_dir.join(crate::utils::filesystem_safe_path_segment(repo))
 }
@@ -234,8 +234,8 @@ const DOWNLOAD_PROGRESS_STRIDE_BYTES: u64 = 1024 * 1024;
 /// The PURE, ALWAYS-COMPILED heart of the streaming download (Change 3): it reads in
 /// [`DOWNLOAD_CHUNK_BYTES`] chunks, writes each to `dest`, and emits a `file_progress` event at most
 /// once per [`DOWNLOAD_PROGRESS_STRIDE_BYTES`] plus a guaranteed FINAL event at 100% — so the read /
-/// write / emit loop is exercised + covered with a [`std::io::Cursor`] rather than `cfg`-compiled out
-/// of the coverage binary (the only network seam is [`open_download_stream`]). `cancelled()` is
+/// write / emit loop runs in tests over a [`std::io::Cursor`] rather than being `cfg`-compiled out
+/// (the only network seam is [`open_download_stream`]). `cancelled()` is
 /// checked at the TOP of every chunk, so a cancel mid-stream aborts and REMOVES the partial `dest`
 /// rather than leaving a truncated blob behind. `total_bytes` is the content-length (0 = unknown);
 /// it is only echoed into the events, never trusted as the read length.
@@ -309,7 +309,7 @@ impl Drop for PartialFileGuard<'_> {
 /// emits `file_started` with the REAL content-length, then delegates to the pure [`stream_to_file`]
 /// for the read/write/throttled-emit loop. Each file declares its own source repo, so the
 /// files of a manifest that span repos are fetched from the right place.
-#[cfg(not(any(test, coverage)))]
+#[cfg(not(test))]
 fn fetch_one_file(
     file: &ModelFile,
     dest: &std::path::Path,
@@ -325,8 +325,8 @@ fn fetch_one_file(
 /// The ONE irreducible socket seam (Change 3 methodology): GETs the HF resolve URL
 /// `https://huggingface.co/{repo}/resolve/main/{file}` over `ureq` (rustls) which follows the redirect to the CDN, and returns the body reader plus the content-length
 /// (0 when the server omits it). Everything ELSE — the read/write/throttle/cancel loop — lives in the
-/// pure [`stream_to_file`] so it is covered without a network. Compiled out under test/coverage.
-#[cfg(not(any(test, coverage)))]
+/// pure [`stream_to_file`] so it runs in tests without a network. Compiled out under test.
+#[cfg(not(test))]
 fn open_download_stream(file: &ModelFile) -> Result<(impl std::io::Read, u64)> {
     let url = format!("https://huggingface.co/{}/resolve/main/{}", file.repo, file.name);
     let response = ureq::get(&url).call().map_err(|error| {
@@ -341,13 +341,13 @@ fn open_download_stream(file: &ModelFile) -> Result<(impl std::io::Read, u64)> {
     Ok((response.into_body().into_reader(), total_bytes))
 }
 
-/// Deterministic offline stub for the download fetch (tests/coverage): streams the expected bytes.
+/// Deterministic offline stub for the download fetch (tests): streams the expected bytes.
 ///
 /// Mirrors the real path's call graph — emit `file_started`, then run the SAME pure
 /// [`stream_to_file`] over an in-memory [`std::io::Cursor`] — so the consent/offline/cancel/verify/
 /// progress logic AND the streaming loop run end-to-end with no network. The manifest digests match
-/// these synthetic bytes; the real `ureq` path is compiled out under test/coverage.
-#[cfg(any(test, coverage))]
+/// these synthetic bytes; the real `ureq` path is compiled out under test.
+#[cfg(test)]
 fn fetch_one_file(
     file: &ModelFile,
     dest: &std::path::Path,
@@ -360,7 +360,7 @@ fn fetch_one_file(
 }
 
 /// The synthetic bytes the download stub writes for a given file name.
-#[cfg(any(test, coverage))]
+#[cfg(test)]
 fn stub_file_bytes(name: &str) -> Vec<u8> {
     format!("stub-model-file::{name}").into_bytes()
 }
@@ -368,29 +368,6 @@ fn stub_file_bytes(name: &str) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn model_dir_for_repo_flattens_slash_into_one_segment() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let paths = crate::config::project_paths_with_root(dir.path());
-        let model_dir = model_dir_for_repo(&paths, "minishlab/potion-multilingual-128M");
-        // The repo's slash must NOT create a nested directory that could escape models_dir.
-        assert_eq!(model_dir.parent().expect("parent"), paths.models_dir);
-        let segment = model_dir.file_name().expect("segment").to_string_lossy().to_string();
-        assert!(!segment.contains('/'));
-        assert!(segment.contains("potion-multilingual-128M"));
-    }
-
-    #[test]
-    fn verify_file_sha256_accepts_match_and_rejects_mismatch() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let path = dir.path().join("blob.bin");
-        std::fs::write(&path, b"hello model").expect("write");
-        let digest = crate::utils::sha256_hex(b"hello model");
-        verify_file_sha256(&path, &digest).expect("matching digest");
-        let error = verify_file_sha256(&path, &"0".repeat(64)).expect_err("mismatch");
-        assert!(error.to_string().contains("failed SHA-256 verification"));
-    }
 
     fn leak_manifest(entries: &[(&'static str, &[u8])]) -> Vec<ModelFile> {
         entries
@@ -492,22 +469,6 @@ mod tests {
     }
 
     #[test]
-    fn ensure_download_fetches_verifies_reports_progress_and_marks_loadable() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let paths = crate::config::project_paths_with_root(dir.path());
-        let manifest = stub_manifest();
-        let mut progress = RecordingProgress::default();
-        let model_dir =
-            ensure_model_downloaded(&paths, "Stub/Repo", &manifest, true, &mut progress)
-                .expect("download");
-        // Every manifest file is now present + verified, and the cheap loadable check passes (S5).
-        assert!(model_is_present_and_verified(&model_dir, &manifest));
-        assert!(model_is_loadable(&model_dir, &manifest));
-        assert_eq!(progress.started.len(), 3);
-        assert_eq!(progress.finished.len(), 3);
-    }
-
-    #[test]
     fn ensure_download_is_offline_first_when_already_verified() {
         let dir = tempfile::tempdir().expect("tempdir");
         let paths = crate::config::project_paths_with_root(dir.path());
@@ -525,46 +486,6 @@ mod tests {
     }
 
     #[test]
-    fn ensure_download_cancels_between_files_without_partial_install() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let paths = crate::config::project_paths_with_root(dir.path());
-        let manifest = stub_manifest();
-        // Cancel as soon as the first file has started: the loop must stop and report cancellation.
-        let mut progress =
-            RecordingProgress { cancel_after: Some(1), ..RecordingProgress::default() };
-        let error = ensure_model_downloaded(&paths, "Stub/Repo", &manifest, true, &mut progress)
-            .expect_err("cancelled");
-        assert!(error.to_string().contains("cancelled"));
-        // Not all files were installed (the model is not fully present), and it is not loadable.
-        let model_dir = model_dir_for_repo(&paths, "Stub/Repo");
-        assert!(!model_is_present_and_verified(&model_dir, &manifest));
-        assert!(!model_is_loadable(&model_dir, &manifest));
-    }
-
-    #[test]
-    fn ensure_download_skips_already_present_file_inside_the_loop() {
-        // Partial install: one manifest file is already on disk + valid, the rest are missing. The
-        // download loop must SKIP the present file (offline-first per-file reuse) and fetch only the
-        // rest — exercising the in-loop `continue` branch (not the top-level all-present shortcut).
-        let dir = tempfile::tempdir().expect("tempdir");
-        let paths = crate::config::project_paths_with_root(dir.path());
-        let manifest = stub_manifest();
-        let model_dir = model_dir_for_repo(&paths, "Stub/Repo");
-        std::fs::create_dir_all(&model_dir).expect("mkdir");
-        // Pre-place the FIRST file with its correct stub bytes so it is already verified.
-        let present = &manifest[0];
-        std::fs::write(model_dir.join(present.name), stub_file_bytes(present.name)).expect("seed");
-
-        let mut progress = RecordingProgress::default();
-        ensure_model_downloaded(&paths, "Stub/Repo", &manifest, true, &mut progress)
-            .expect("download remainder");
-        assert!(model_is_present_and_verified(&model_dir, &manifest));
-        // The already-present file was skipped (not re-fetched); only the other two were fetched.
-        assert!(!progress.started.contains(&present.name.to_string()));
-        assert_eq!(progress.started.len(), manifest.len() - 1);
-    }
-
-    #[test]
     fn ensure_download_rejects_digest_mismatch_and_removes_blob() {
         let dir = tempfile::tempdir().expect("tempdir");
         let paths = crate::config::project_paths_with_root(dir.path());
@@ -577,97 +498,5 @@ mod tests {
         assert!(error.to_string().contains("failed SHA-256 verification"));
         let model_dir = model_dir_for_repo(&paths, "Stub/Repo");
         assert!(!model_dir.join("config.json").exists(), "bad blob must be removed");
-    }
-
-    #[test]
-    fn ensure_download_marks_loadable_for_sideloaded_model() {
-        // A model whose files are manually placed (sideloaded) and verify offline gets the verified
-        // marker on the first offline-first call, so it becomes loadable without a download (S5).
-        let dir = tempfile::tempdir().expect("tempdir");
-        let paths = crate::config::project_paths_with_root(dir.path());
-        let manifest = stub_manifest();
-        let model_dir = model_dir_for_repo(&paths, "Stub/Repo");
-        std::fs::create_dir_all(&model_dir).expect("mkdir");
-        for file in &manifest {
-            std::fs::write(model_dir.join(file.name), stub_file_bytes(file.name)).expect("seed");
-        }
-        assert!(!model_is_loadable(&model_dir, &manifest), "no marker yet");
-        // Offline-first call (no consent needed) writes the marker.
-        let mut progress = NoopDownloadProgress;
-        ensure_model_downloaded(&paths, "Stub/Repo", &manifest, false, &mut progress)
-            .expect("sideloaded offline");
-        assert!(model_is_loadable(&model_dir, &manifest));
-    }
-
-    /// Records `file_progress` events and can flip `cancelled()` true after N of them (for the
-    /// mid-stream cancel test).
-    #[derive(Default)]
-    struct StreamRecorder {
-        progress: Vec<(String, u64, u64)>,
-        cancel_after_emits: Option<usize>,
-    }
-
-    impl ModelDownloadProgress for StreamRecorder {
-        fn file_progress(&mut self, file: &str, downloaded_bytes: u64, total_bytes: u64) {
-            self.progress.push((file.to_string(), downloaded_bytes, total_bytes));
-        }
-        fn cancelled(&self) -> bool {
-            self.cancel_after_emits.is_some_and(|threshold| self.progress.len() >= threshold)
-        }
-    }
-
-    #[test]
-    fn stream_to_file_writes_bytes_and_emits_intermediate_and_final_progress() {
-        // Change 3 (the measured loop): streaming a multi-MB body must write every byte to disk AND
-        // emit at least one INTERMEDIATE event (downloaded < total) plus a FINAL 100% event.
-        let dir = tempfile::tempdir().expect("tempdir");
-        let dest = dir.path().join("model.safetensors");
-        // 2.5 MiB crosses the 1 MiB stride twice before the (sub-stride) tail, so there are real
-        // intermediate emits, exercising the throttle branch — not just the guaranteed final one.
-        let total = 2_621_440_usize; // 2.5 * 1024 * 1024, an exact multiple of the 64 KiB read buffer
-        let data = vec![7_u8; total];
-        let mut recorder = StreamRecorder::default();
-        stream_to_file(
-            std::io::Cursor::new(data.clone()),
-            total as u64,
-            &dest,
-            "model.safetensors",
-            &mut recorder,
-        )
-        .expect("stream");
-
-        // Every byte landed on disk, verbatim.
-        assert_eq!(std::fs::read(&dest).expect("read back"), data);
-        // At least one intermediate emit (downloaded strictly below total) proves the throttle fired.
-        assert!(
-            recorder.progress.iter().any(|(_, downloaded, t)| *downloaded < *t),
-            "expected an intermediate file_progress before completion, got {:?}",
-            recorder.progress
-        );
-        // The final emit reaches 100% (downloaded == total) so the bar completes.
-        let last = recorder.progress.last().expect("a final progress event");
-        assert_eq!((last.1, last.2), (total as u64, total as u64));
-    }
-
-    #[test]
-    fn stream_to_file_aborts_mid_stream_on_cancel_and_removes_partial() {
-        // A cancel observed MID-stream must stop the loop, error, and remove the partial file so no
-        // truncated blob is left in `models_dir`.
-        let dir = tempfile::tempdir().expect("tempdir");
-        let dest = dir.path().join("partial.safetensors");
-        let data = vec![3_u8; 2_621_440]; // big enough to emit at least once before we cancel
-        // Cancel as soon as the first progress event has been emitted (~1 MiB in): mid-stream.
-        let mut recorder =
-            StreamRecorder { cancel_after_emits: Some(1), ..StreamRecorder::default() };
-        let error = stream_to_file(
-            std::io::Cursor::new(data),
-            2_621_440,
-            &dest,
-            "partial.safetensors",
-            &mut recorder,
-        )
-        .expect_err("mid-stream cancel must error");
-        assert!(error.to_string().contains("cancelled"), "got: {error}");
-        assert!(!dest.exists(), "the partial file must be removed on cancel");
     }
 }

@@ -1,7 +1,7 @@
 //! Responsibilities: expose the owner's streaming search surface to every transport.
 //! Not responsible for: opening databases, rewriting queries or limiting search coverage.
 //! Failure modes: divergent worker/desktop behavior and sessions surviving Vault close.
-//! Tests: search_tests and MCP search contracts.
+//! Tests: the MCP search contract (`mcp_search_tests.rs`).
 use anyhow::Result;
 use vault_core::{
     Vault,

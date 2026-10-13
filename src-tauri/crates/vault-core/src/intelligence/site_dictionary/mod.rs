@@ -32,9 +32,6 @@ mod overrides;
 mod search_rules;
 mod types;
 
-#[cfg(test)]
-mod tests;
-
 pub(crate) use classification::{
     classify_visit, display_name_for_domain, display_name_for_search_engine, normalize_query,
 };

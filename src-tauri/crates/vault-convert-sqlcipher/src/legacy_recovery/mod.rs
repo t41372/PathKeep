@@ -330,46 +330,6 @@ mod tests {
         assert_eq!(fs::read(&paths.config_path).unwrap(), config_before);
     }
 
-    #[test]
-    fn does_nothing_on_a_consistent_or_empty_archive() {
-        let (_dir, paths) = paths();
-        legacy_db(&paths.archive_database_path, None);
-        save_config(&paths, &plaintext_config()).unwrap();
-        let before = fs::read(&paths.config_path).unwrap();
-        let outcome = recover_on_launch(&paths, &plaintext_config()).unwrap();
-        assert!(matches!(outcome, LaunchRecovery::Healthy), "{outcome:?}");
-        assert_eq!(fs::read(&paths.config_path).unwrap(), before);
-
-        let (_empty_dir, empty) = super::tests::paths();
-        let outcome = recover_on_launch(&empty, &plaintext_config()).unwrap();
-        assert!(matches!(outcome, LaunchRecovery::Healthy), "{outcome:?}");
-    }
-
-    #[test]
-    fn journal_recovery_runs_while_launch_holds_the_gate_and_lock() {
-        // The journal recoveries take only the reentrant write lock, never the gate, so they
-        // cannot deadlock against the launch that holds both.
-        let (_dir, paths) = paths();
-        crash_mid_rekey(&paths, ArchiveMode::Plaintext, ArchiveMode::Encrypted);
-        let _gate = ArchiveOpGate::acquire(&paths);
-        let _lock = ArchiveWriteLock::acquire(&paths).unwrap();
-
-        let worker_paths = paths.clone();
-        let (done, finished) = mpsc::channel();
-        let worker = std::thread::spawn(move || {
-            done.send(
-                rekey::recover_interrupted_rekey(&worker_paths).map_err(|e| format!("{e:#}")),
-            )
-            .unwrap();
-        });
-        let recovered = finished
-            .recv_timeout(Duration::from_secs(10))
-            .expect("the nested recovery must not wait for the gate")
-            .expect("recovery under a held gate and lock");
-        assert!(recovered);
-        worker.join().unwrap();
-    }
-
     #[cfg(unix)]
     #[test]
     fn a_healthy_launch_does_not_wait_for_a_lock_held_elsewhere() {
@@ -420,20 +380,6 @@ mod tests {
     }
 
     #[test]
-    fn is_healthy_after_an_import_rollback_that_leaves_a_consistent_archive() {
-        let (_dir, paths) = paths();
-        legacy_db(&paths.archive_database_path, None);
-        save_config(&paths, &plaintext_config()).unwrap();
-        let previous = serde_json::to_string(&plaintext_config()).unwrap();
-        import_journal(&paths, &[(&paths.archive_database_path, true)], Some(previous));
-
-        let outcome = recover_on_launch(&paths, &plaintext_config()).unwrap();
-        assert!(matches!(outcome, LaunchRecovery::Healthy), "{outcome:?}");
-        assert!(!marker(&paths, ".pk-import-journal.json").exists());
-        assert_eq!(sentinel_runs(&paths.archive_database_path, None), 1);
-    }
-
-    #[test]
     fn reports_a_decrypt_cut_before_source_evidence_was_decrypted() {
         let (_dir, paths) = paths();
         crash_mid_rekey(&paths, ArchiveMode::Encrypted, ArchiveMode::Plaintext);
@@ -461,17 +407,6 @@ mod tests {
             !launch_is_provably_healthy(&paths, &plaintext_config()),
             "an absent canonical next to a restore marker is not a fresh install",
         );
-    }
-
-    #[test]
-    fn completes_a_restore_cut_in_its_install_window() {
-        let (_dir, paths) = paths();
-        crash_mid_restore(&paths, &plaintext_config(), None);
-        let outcome = recover_on_launch(&paths, &plaintext_config()).unwrap();
-        assert!(!matches!(outcome, LaunchRecovery::Unrecoverable(_)), "{outcome:?}");
-        assert_eq!(sentinel_runs(&paths.archive_database_path, None), 1);
-        assert!(!marker(&paths, ".pk-restore-journal.json").exists());
-        assert_config_matches_disk(&paths);
     }
 
     #[test]

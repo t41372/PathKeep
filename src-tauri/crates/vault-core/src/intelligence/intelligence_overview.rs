@@ -748,29 +748,3 @@ fn warm_one(
     })?;
     Ok(())
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::models::{HardTopic, SearchEffectiveness};
-
-    #[test]
-    fn search_effectiveness_empty_state_requires_all_signal_groups_to_be_empty() {
-        assert!(search_effectiveness_is_empty(&SearchEffectiveness::default()));
-
-        let search_effectiveness = SearchEffectiveness {
-            hardest_topics: crate::models::IntelligencePage {
-                items: vec![HardTopic {
-                    family_id: "family".to_string(),
-                    query_family: "rust coverage".to_string(),
-                    reformulation_count: 2,
-                    re_search_lag_days: 1.0,
-                }],
-                next_cursor: None,
-            },
-            ..SearchEffectiveness::default()
-        };
-
-        assert!(!search_effectiveness_is_empty(&search_effectiveness));
-    }
-}

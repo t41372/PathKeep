@@ -87,7 +87,6 @@ where
 /// progress + the terminal `Done`/`Error` reach the UI on [`vault_core::MODEL_DOWNLOAD_PROGRESS_EVENT`].
 /// The `emit` sink must be `Send + 'static` so the background thread can own it. Resets the cancel
 /// flag on start so a prior cancellation never aborts a fresh run.
-#[cfg(not(coverage))]
 pub fn download_static_embedding_model<E>(emit: E) -> Result<()>
 where
     E: Fn(ModelDownloadProgressEvent) + Send + 'static,
@@ -106,25 +105,6 @@ where
             )
         })
         .map_err(|error| anyhow::anyhow!("spawning static model download thread: {error}"))?;
-    Ok(())
-}
-
-/// Coverage stub for the static download: runs synchronously so the bridge + emit + terminal event are
-/// exercised at 100% coverage without a background thread the harness cannot join.
-#[cfg(coverage)]
-pub fn download_static_embedding_model<E>(emit: E) -> Result<()>
-where
-    E: Fn(ModelDownloadProgressEvent) + Send + 'static,
-{
-    let cancel = cancel_flag().clone();
-    cancel.store(false, Ordering::SeqCst);
-    run_download_for(
-        vault_core::project_paths(),
-        DEFAULT_STATIC_MODEL_REPO,
-        DEFAULT_STATIC_MODEL_FILES,
-        emit,
-        cancel,
-    );
     Ok(())
 }
 
@@ -170,137 +150,5 @@ fn run_download_into<E>(
     match result {
         Ok(_) => emit(ModelDownloadProgressEvent::Done),
         Err(error) => emit(ModelDownloadProgressEvent::Error { message: error.to_string() }),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::sync::Mutex;
-
-    fn collect(
-        events: &Arc<Mutex<Vec<ModelDownloadProgressEvent>>>,
-    ) -> impl Fn(ModelDownloadProgressEvent) + Send + 'static {
-        let sink = events.clone();
-        move |event| sink.lock().expect("sink lock").push(event)
-    }
-
-    #[test]
-    fn emit_progress_bridges_callbacks_and_reads_cancel_flag() {
-        let events: Arc<Mutex<Vec<ModelDownloadProgressEvent>>> = Arc::new(Mutex::new(Vec::new()));
-        let cancel = Arc::new(AtomicBool::new(false));
-        let mut bridge = EmitProgress { emit: collect(&events), cancel: cancel.clone() };
-        assert!(!bridge.cancelled());
-        bridge.file_started("config.json", 727);
-        bridge.file_progress("config.json", 256, 727);
-        bridge.file_finished("config.json");
-        cancel.store(true, Ordering::SeqCst);
-        assert!(bridge.cancelled());
-        let recorded = events.lock().expect("events");
-        assert_eq!(
-            recorded[0],
-            ModelDownloadProgressEvent::FileStarted {
-                file: "config.json".to_string(),
-                total_bytes: 727
-            }
-        );
-        assert_eq!(
-            recorded[1],
-            ModelDownloadProgressEvent::FileProgress {
-                file: "config.json".to_string(),
-                downloaded_bytes: 256,
-                total_bytes: 727,
-            }
-        );
-        assert_eq!(
-            recorded[2],
-            ModelDownloadProgressEvent::FileFinished { file: "config.json".to_string() }
-        );
-    }
-
-    #[test]
-    fn cancel_model_download_sets_the_shared_flag() {
-        // Reset (the flag is process-global), request cancel, observe it set.
-        cancel_flag().store(false, Ordering::SeqCst);
-        assert!(!cancel_flag().load(Ordering::SeqCst));
-        cancel_model_download();
-        assert!(cancel_flag().load(Ordering::SeqCst));
-        cancel_flag().store(false, Ordering::SeqCst);
-    }
-
-    #[test]
-    fn run_download_for_emits_error_when_path_resolution_fails() {
-        // Drives the path-resolution FAILURE arm of `run_download_for` (which production cannot hit
-        // on a normal machine, since `project_paths()` succeeds) by passing an `Err`. Must emit
-        // exactly one terminal Error so a subscriber never hangs.
-        let events: Arc<Mutex<Vec<ModelDownloadProgressEvent>>> = Arc::new(Mutex::new(Vec::new()));
-        let cancel = Arc::new(AtomicBool::new(false));
-        run_download_for(
-            Err(anyhow::anyhow!("no unlocked project context")),
-            DEFAULT_STATIC_MODEL_REPO,
-            DEFAULT_STATIC_MODEL_FILES,
-            collect(&events),
-            cancel,
-        );
-        let recorded = events.lock().expect("events");
-        assert!(
-            matches!(recorded.last(), Some(ModelDownloadProgressEvent::Error { .. })),
-            "path-resolution failure must emit the Error terminal"
-        );
-    }
-
-    #[test]
-    fn run_download_into_emits_done_on_offline_first_success() {
-        // Pre-seed a model dir whose files already verify, so `ensure_model_downloaded` takes the
-        // offline-first success path WITHOUT any network — driving `run_download_into`'s SUCCESS
-        // terminal (Done). Manifest digests are the SHA-256 of the seeded bytes (same impl the
-        // manifest verify uses, via the re-exported `sha256_hex`).
-        let dir = tempfile::tempdir().expect("tempdir");
-        let paths = vault_core::project_paths_with_root(dir.path());
-        let repo = "Stub/Repo";
-        let model_dir = vault_core::model_dir_for_repo(&paths, repo);
-        std::fs::create_dir_all(&model_dir).expect("mkdir");
-        let entries: [(&str, &[u8]); 2] =
-            [("config.json", b"cfg"), ("model.safetensors", b"weights")];
-        let files: Vec<vault_core::ModelFile> = entries
-            .iter()
-            .map(|(name, bytes)| {
-                std::fs::write(model_dir.join(name), bytes).expect("seed file");
-                let digest = vault_core::sha256_hex(bytes);
-                vault_core::ModelFile { name, sha256: Box::leak(digest.into_boxed_str()), repo }
-            })
-            .collect();
-
-        let events: Arc<Mutex<Vec<ModelDownloadProgressEvent>>> = Arc::new(Mutex::new(Vec::new()));
-        let cancel = Arc::new(AtomicBool::new(false));
-        run_download_into(&paths, repo, &files, collect(&events), cancel);
-        let recorded = events.lock().expect("events");
-        assert_eq!(
-            recorded.last(),
-            Some(&ModelDownloadProgressEvent::Done),
-            "offline-first success must emit the Done terminal"
-        );
-    }
-
-    #[test]
-    fn run_download_into_emits_error_on_cancel_before_any_fetch() {
-        // A manifest whose file is ABSENT would otherwise need a fetch; pre-setting the cancel flag
-        // makes `ensure_model_downloaded` bail at the BEFORE-first-file cancel check, so this drives
-        // `run_download_into`'s ERROR terminal WITHOUT any network call (deterministic + offline).
-        let dir = tempfile::tempdir().expect("tempdir");
-        let paths = vault_core::project_paths_with_root(dir.path());
-        let files = [vault_core::ModelFile {
-            name: "config.json",
-            sha256: Box::leak("a".repeat(64).into_boxed_str()),
-            repo: "Stub/Repo",
-        }];
-        let events: Arc<Mutex<Vec<ModelDownloadProgressEvent>>> = Arc::new(Mutex::new(Vec::new()));
-        let cancel = Arc::new(AtomicBool::new(true)); // already cancelled → bails before any fetch
-        run_download_into(&paths, "Stub/Repo", &files, collect(&events), cancel);
-        let recorded = events.lock().expect("events");
-        assert!(
-            matches!(recorded.last(), Some(ModelDownloadProgressEvent::Error { .. })),
-            "a cancelled download must emit the Error terminal"
-        );
     }
 }

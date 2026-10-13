@@ -75,17 +75,3 @@ pub(crate) async fn open_visited_page(
 pub(crate) async fn reveal_logs() -> Result<String, CommandError> {
     run_blocking_command("reveal_logs", file_manager::reveal_logs_impl).await
 }
-
-#[cfg(not(test))]
-#[tauri::command]
-/// Writes an exported AI-assistant conversation (Markdown / JSON) to a user-chosen path, off the
-/// UI thread, and returns the byte count written.
-pub(crate) async fn export_conversation_file(
-    target_path: String,
-    contents: String,
-) -> Result<u64, CommandError> {
-    run_blocking_command("export_conversation_file", move || {
-        file_manager::export_conversation_file_impl(target_path, contents)
-    })
-    .await
-}

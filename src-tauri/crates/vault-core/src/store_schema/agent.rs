@@ -2,7 +2,7 @@
 //! Not responsible for: model calls, conversation behavior or canonical history.
 //! Failure modes: missing trace columns/indexes, orphan messages/steps/citations,
 //! or deleting a conversation leaves its journal behind.
-//! Tests: catalog_and_crud, foreign_keys, agent_cascades.
+//! Tests: newer_versions_are_refused; the maintenance round trips seed every table.
 //! Drops: agent_schema_migrations (version/name/checksum/applied_at), superseded
 //! by vault-store's migration ledger. No transcript or journal columns are dropped.
 

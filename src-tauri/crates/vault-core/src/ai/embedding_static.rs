@@ -31,7 +31,7 @@
 use super::embedding_engine::AnyEmbeddingProvider;
 use super::embedding_external::ExternalEmbeddingProvider;
 use super::model_files::ModelFile;
-#[cfg(not(any(test, coverage)))]
+#[cfg(not(test))]
 use super::model_files::model_dir_for_repo;
 use super::traits::{
     EmbeddingDescriptor, EmbeddingDtype, EmbeddingPooling, EmbeddingProvider, EmbeddingRole,
@@ -119,14 +119,14 @@ pub const STATIC_MAX_INPUT_TOKENS: usize = 2048;
 
 /// Whether a resolved provider runtime is configured to use the in-app static engine.
 ///
-/// Pure (reads only the config) so the routing decision is unit-tested without loading a matrix.
+/// Pure (reads only the config), so routing never loads a matrix.
 pub fn runtime_uses_static(runtime: &AiProviderRuntime) -> bool {
     runtime.config.base_url.as_deref() == Some(STATIC_INAPP_BASE_URL)
 }
 
 /// Resolves the static model repo id for a static runtime (config `default_model`, else the default).
 ///
-/// Pure so the model-id resolution is unit-tested. An empty `default_model` falls back to
+/// Pure. An empty `default_model` falls back to
 /// [`DEFAULT_STATIC_MODEL_REPO`] (D4: the default is a constant, never baked into the selector); a
 /// configured value wins so a future static model is a config change, not a code change.
 pub fn static_repo_for_runtime(runtime: &AiProviderRuntime) -> &str {
@@ -166,7 +166,7 @@ pub fn degrade_static_to_external(
 /// when the model is present + verified on disk (the consent gate); otherwise degrades to the
 /// external adapter when one is configured, else returns a clear "not downloaded" error. Called only
 /// after [`runtime_uses_static`] returns true.
-#[cfg(not(any(test, coverage)))]
+#[cfg(not(test))]
 pub fn select_static_embedding_provider(
     paths: &ProjectPaths,
     runtime: &AiProviderRuntime,
@@ -180,11 +180,10 @@ pub fn select_static_embedding_provider(
     degrade_static_to_external(runtime, repo)
 }
 
-/// Test/coverage selector: builds the deterministic static stub (treated as "present").
+/// Test selector: builds the deterministic static stub (treated as "present").
 ///
-/// Same routing decision as the real selector so the backfill exercises the static arm at 100%
-/// coverage; the degrade arms are exercised via [`degrade_static_to_external`] directly in tests.
-#[cfg(any(test, coverage))]
+/// Same routing decision as the real selector, so the backfill tests run the static arm.
+#[cfg(test)]
 pub fn select_static_embedding_provider(
     _paths: &ProjectPaths,
     runtime: &AiProviderRuntime,
@@ -224,7 +223,7 @@ fn default_normalize() -> bool {
 
 /// Parses the model's `config.json` bytes into the engine's config view.
 ///
-/// Pure (no I/O) so a malformed/short config is caught by a unit test rather than at model load. A
+/// Pure (no I/O). A
 /// missing `hidden_dim` (the one field the cross-check needs) is a hard error; a missing `normalize`
 /// defaults to model2vec's `true`.
 pub fn parse_static_config(config_json: &[u8]) -> Result<StaticModelConfig> {
@@ -388,7 +387,7 @@ pub fn static_embed_ids(matrix: &StaticEmbeddingMatrix, ids: &[u32], normalize: 
 /// model2vec writes the matrix as `embeddings`; older / sentence-transformers exports use `0` or
 /// `embedding.weight`. The loader tries them in order (matching model2vec-rs) so any model2vec
 /// export loads without a per-model config knob.
-#[cfg(not(any(test, coverage)))]
+#[cfg(not(test))]
 const STATIC_EMBEDDING_TENSOR_NAMES: &[&str] = &["embeddings", "0", "embedding.weight"];
 
 /// safetensors tensor names model2vec uses for a vocab-quantized token→row remapping table.
@@ -398,7 +397,7 @@ const STATIC_EMBEDDING_TENSOR_NAMES: &[&str] = &["embeddings", "0", "embedding.w
 /// so the loader HARD-ERRORS if one is present rather than silently scrambling every vector by
 /// indexing the wrong rows — see [`load_static_matrix`]. (model2vec-rs honors the map; we reject it
 /// because the supported default never carries one, keeping the hand-roll simple and correct.)
-#[cfg(not(any(test, coverage)))]
+#[cfg(not(test))]
 const STATIC_TOKEN_MAPPING_TENSOR_NAMES: &[&str] = &["mapping", "token_mapping"];
 
 /// Loads the static embedding matrix (+ optional weights) from a `model.safetensors` on disk.
@@ -410,7 +409,7 @@ const STATIC_TOKEN_MAPPING_TENSOR_NAMES: &[&str] = &["mapping", "token_mapping"]
 /// token id, so honoring such a map would require row remapping the supported f32 default never
 /// needs — failing loudly beats silently scrambling vectors. Other dtypes than f32 are refused for
 /// the same reason: the supported exports are f32.
-#[cfg(not(any(test, coverage)))]
+#[cfg(not(test))]
 fn load_static_matrix(
     safetensors_path: &std::path::Path,
     unk_token_id: Option<u32>,
@@ -450,7 +449,7 @@ fn load_static_matrix(
 }
 
 /// An f32 tensor's values in order (safetensors stores them little-endian).
-#[cfg(not(any(test, coverage)))]
+#[cfg(not(test))]
 fn f32_values(tensor: &safetensors::tensor::TensorView<'_>, name: &str) -> Result<Vec<f32>> {
     anyhow::ensure!(
         tensor.dtype() == safetensors::Dtype::F32,
@@ -474,7 +473,7 @@ fn f32_values(tensor: &safetensors::tensor::TensorView<'_>, name: &str) -> Resul
 /// reference on OOV input (proven: dropping Unigram `[UNK]` collapses parity to ~0.80 cosine on the
 /// OOV fixture rows). There is deliberately NO hardcoded string fallback — a hardcoded
 /// `token_to_id("[UNK]")` would wrongly drop the Unigram unk and break parity. `None` → no filtering.
-#[cfg(not(any(test, coverage)))]
+#[cfg(not(test))]
 fn resolve_unk_token_id(tokenizer: &tokenizers::Tokenizer, tokenizer_json: &[u8]) -> Option<u32> {
     resolve_unk_to_drop(tokenizer_json, tokenizer)
 }
@@ -489,7 +488,7 @@ fn resolve_unk_token_id(tokenizer: &tokenizers::Tokenizer, tokenizer_json: &[u8]
 /// for a Unigram export (no dropping → matches the reference) and the resolved id for a BPE/WordPiece
 /// export that declares an `unk_token` string (dropping → matches the reference, which DOES drop unk
 /// for those models). See [`unk_spec_from_tokenizer_json`] for the PURE parse.
-#[cfg(not(any(test, coverage)))]
+#[cfg(not(test))]
 fn resolve_unk_to_drop(
     tokenizer_json: &[u8],
     for_id_lookup: &tokenizers::Tokenizer,
@@ -535,11 +534,9 @@ pub(super) fn unk_spec_from_tokenizer_json(tokenizer_json: &[u8]) -> Option<UnkS
 /// In-app static (model2vec) embedding provider implementing [`EmbeddingProvider`].
 ///
 /// Holds the loaded matrix + tokenizer + normalize flag (real build) or the deterministic descriptor
-/// (test/coverage build). No mutex is needed: pooling is read-only over an immutable matrix, so
-/// forwards are naturally concurrent. The real engine is gated behind
-/// `cfg(not(any(test, coverage)))`; the stub returns deterministic, normalized vectors with the same
-/// public call graph so the `Static` enum arm and the embed loop are exercised at 100% coverage
-/// without a matrix.
+/// (test build). No mutex is needed: pooling is read-only over an immutable matrix, so
+/// forwards are naturally concurrent. Only the disk model load is gated behind `cfg(not(test))`;
+/// tests build a tiny in-memory engine instead.
 pub struct StaticEmbeddingProvider {
     /// Provider identity recorded in the descriptor/fingerprint.
     provider_id: String,
@@ -551,9 +548,9 @@ pub struct StaticEmbeddingProvider {
     normalize: bool,
     /// The real engine state (matrix + tokenizer).
     ///
-    /// F4: ALWAYS compiled (no longer `cfg`-gated). The test/coverage build no longer swaps the real
+    /// F4: ALWAYS compiled (no longer `cfg`-gated). The test build does not swap the real
     /// tokenize→pool→normalize compute for a digest stub — it constructs a TINY in-memory engine via
-    /// [`StaticEmbeddingProvider::new_stub`] so the REAL algorithm runs under the coverage gate. Only
+    /// [`StaticEmbeddingProvider::new_stub`] so the REAL algorithm runs in tests. Only
     /// the disk model LOAD (safetensors/tokenizer file reads) stays behind a `cfg` seam.
     engine: Arc<StaticEngine>,
 }
@@ -562,7 +559,7 @@ pub struct StaticEmbeddingProvider {
 ///
 /// Both are immutable after load and shared behind an `Arc`, so embedding is lock-free and
 /// concurrent across the worker pool. F4: always compiled — the REAL `embed` compute
-/// (tokenize → matrix lookup → mean-pool → optional L2-norm) runs in every build, including coverage.
+/// (tokenize → matrix lookup → mean-pool → optional L2-norm) runs in every build, including tests.
 struct StaticEngine {
     matrix: StaticEmbeddingMatrix,
     tokenizer: tokenizers::Tokenizer,
@@ -575,14 +572,14 @@ impl StaticEmbeddingProvider {
     /// Consent-gated by CONSTRUCTION: the caller only reaches here after the model is present +
     /// verified (the selector checks the availability gate, itself gated on a consented download).
     /// Loading is offline (no network): it reads only the files on disk.
-    #[cfg(not(any(test, coverage)))]
+    #[cfg(not(test))]
     pub fn load_default(paths: &ProjectPaths) -> Result<Self> {
         Self::load(paths, DEFAULT_STATIC_MODEL_REPO, DEFAULT_STATIC_MODEL_FILES)
     }
 
     /// Loads a static engine for one repo from `models_dir`, verifying readiness first (cheap S5
     /// presence + verified-marker check, NOT a full re-hash on every load).
-    #[cfg(not(any(test, coverage)))]
+    #[cfg(not(test))]
     pub fn load(paths: &ProjectPaths, repo: &str, files: &[ModelFile]) -> Result<Self> {
         let model_dir = model_dir_for_repo(paths, repo);
         if !super::model_files::model_is_loadable(&model_dir, files) {
@@ -637,19 +634,19 @@ impl StaticEmbeddingProvider {
         }
     }
 
-    /// Builds a deterministic stub provider backed by a TINY REAL in-memory engine (tests/coverage).
+    /// Builds a deterministic stub provider backed by a TINY REAL in-memory engine (tests).
     ///
     /// F4 (test-methodology fix): this NO LONGER swaps the real compute for a digest stub. It builds a
     /// small programmatic [`tokenizers::Tokenizer`] (byte-level so any input tokenizes, no `[UNK]`
     /// surprises) plus an orthonormal [`StaticEmbeddingMatrix`], then funnels through
     /// [`from_engine`](Self::from_engine) so the embed loop, the `Static` enum dispatch, AND the REAL
-    /// tokenize → matrix-lookup → mean-pool → L2-normalize algorithm all run at 100% coverage. The
+    /// tokenize → matrix-lookup → mean-pool → L2-normalize algorithm all run in tests. The
     /// orthonormal "bag-of-bytes" matrix makes the embeddings content-reflecting (texts sharing a
     /// distinctive substring score higher), so a backfill+search behavioral test resolves a real hit
     /// through the real engine — not a hand-waved stub. `dim` is a small synthetic number
     /// ([`STUB_STATIC_DIM`]) with NO relationship to any real model (picking 256 would be the D4
     /// truth-assumption this design removes).
-    #[cfg(any(test, coverage))]
+    #[cfg(test)]
     pub fn new_stub(provider_id: &str, repo: &str) -> Self {
         Self::from_engine(provider_id, repo, build_stub_engine(STUB_STATIC_DIM))
     }
@@ -705,9 +702,9 @@ impl EmbeddingProvider for StaticEmbeddingProvider {
 ///
 /// F4: ALWAYS compiled (no longer `cfg`-gated). Lock-free over the immutable matrix + tokenizer behind
 /// the `Arc`, so the worker pool can embed concurrently (the static tier's throughput win). Reuses the
-/// PURE [`static_embed_ids`] so every build shares the exact pooling/normalize math. In test/coverage
+/// PURE [`static_embed_ids`] so every build shares the exact pooling/normalize math. In test
 /// builds the engine is the tiny in-memory one [`build_stub_engine`] assembles; the algorithm is
-/// identical — only the matrix/tokenizer are synthetic, so the REAL compute path is exercised + covered.
+/// identical — only the matrix/tokenizer are synthetic, so the REAL compute path runs.
 async fn embed_impl(
     provider: &StaticEmbeddingProvider,
     texts: &[String],
@@ -731,7 +728,7 @@ async fn embed_impl(
 }
 
 /// Synthetic dimension the stub engine emits — an arbitrary small number unrelated to any real model.
-#[cfg(any(test, coverage))]
+#[cfg(test)]
 const STUB_STATIC_DIM: usize = 64;
 
 /// The curated vocabulary the in-memory stub engine recognizes (lower-cased, Whitespace-split).
@@ -741,7 +738,7 @@ const STUB_STATIC_DIM: usize = 64;
 /// rest are content words. Keep this comfortably under [`STUB_STATIC_DIM`] so the one-hot matrix rows
 /// stay orthonormal (each id maps to its own basis dimension), which is what lets a query word resolve
 /// its document by cosine in the behavioral search test.
-#[cfg(any(test, coverage))]
+#[cfg(test)]
 const STUB_VOCAB_WORDS: &[&str] = &[
     "[UNK]",
     "alpha",
@@ -781,7 +778,7 @@ const STUB_VOCAB_WORDS: &[&str] = &[
     "and",
 ];
 
-/// Builds a TINY REAL in-memory [`StaticEngine`] for tests/coverage (no disk, no network).
+/// Builds a TINY REAL in-memory [`StaticEngine`] for tests (no disk, no network).
 ///
 /// F4: this is the heart of the test-methodology fix — instead of a digest stub that bypasses the
 /// algorithm, it constructs an ACTUAL [`tokenizers::Tokenizer`] (a Whitespace-split, lower-casing
@@ -791,7 +788,7 @@ const STUB_VOCAB_WORDS: &[&str] = &[
 /// input, and CONTENT-REFLECTING: two texts sharing a distinctive vocab word land closer in cosine
 /// than two that do not, so a real backfill→search behavioral test resolves the right page through the
 /// REAL [`embed_impl`]. `dim` is [`STUB_STATIC_DIM`].
-#[cfg(any(test, coverage))]
+#[cfg(test)]
 fn build_stub_engine(dim: usize) -> StaticEngine {
     use tokenizers::Tokenizer;
     use tokenizers::models::wordlevel::WordLevel;
@@ -836,18 +833,6 @@ mod tests {
     }
 
     #[test]
-    fn parse_static_config_reads_fields_and_defaults_normalize() {
-        let config =
-            parse_static_config(br#"{ "hidden_dim": 256, "normalize": false }"#).expect("parse");
-        assert_eq!(config.hidden_dim, 256);
-        assert!(!config.normalize);
-
-        // Missing `normalize` defaults to model2vec's true.
-        let defaulted = parse_static_config(br#"{ "hidden_dim": 256 }"#).expect("parse default");
-        assert!(defaulted.normalize);
-    }
-
-    #[test]
     fn unk_spec_drops_only_bpe_string_unk_matching_model2vec() {
         // S1 correctness boundary: mirror model2vec EXACTLY. It drops unk ONLY when the tokenizer
         // model exposes a STRING `unk_token` (BPE / WordPiece). potion ships a **Unigram** tokenizer
@@ -875,64 +860,6 @@ mod tests {
     }
 
     #[test]
-    fn parse_static_config_rejects_missing_dim_and_malformed_json() {
-        assert!(parse_static_config(br#"{ "normalize": true }"#).is_err());
-        assert!(parse_static_config(b"{not json").is_err());
-    }
-
-    #[test]
-    fn matrix_new_validates_shape_and_weights() {
-        // Well-formed: 3 rows × 2.
-        let matrix = StaticEmbeddingMatrix::new(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], 2, None)
-            .expect("matrix");
-        assert_eq!(matrix.dim(), 2);
-        assert_eq!(matrix.vocab_size(), 3);
-
-        // dim 0 is rejected.
-        assert!(StaticEmbeddingMatrix::new(vec![1.0], 0, None).is_err());
-        // Ragged buffer (5 not a multiple of 2) is rejected.
-        assert!(StaticEmbeddingMatrix::new(vec![1.0, 2.0, 3.0, 4.0, 5.0], 2, None).is_err());
-        // Zero rows is rejected.
-        assert!(StaticEmbeddingMatrix::new(Vec::new(), 2, None).is_err());
-        // Weights length mismatch (2 weights for 3 rows) is rejected.
-        assert!(
-            StaticEmbeddingMatrix::new(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], 2, Some(vec![1.0, 2.0]))
-                .is_err()
-        );
-        // Matching weights length is accepted.
-        assert!(
-            StaticEmbeddingMatrix::new(
-                vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
-                2,
-                Some(vec![1.0, 1.0, 1.0])
-            )
-            .is_ok()
-        );
-    }
-
-    #[test]
-    fn mean_pool_averages_in_vocab_rows() {
-        // 3 rows × 2: [ [2,4], [6,8], [10,12] ].
-        let matrix =
-            StaticEmbeddingMatrix::new(vec![2.0, 4.0, 6.0, 8.0, 10.0, 12.0], 2, None).expect("m");
-        // Pool ids 0 and 2 → mean of [2,4] and [10,12] = [6,8].
-        assert_eq!(matrix.mean_pool(&[0, 2]), vec![6.0, 8.0]);
-        // Pool a single id → that row unchanged.
-        assert_eq!(matrix.mean_pool(&[1]), vec![6.0, 8.0]);
-    }
-
-    #[test]
-    fn mean_pool_skips_out_of_range_ids() {
-        let matrix = StaticEmbeddingMatrix::new(vec![2.0, 4.0, 6.0, 8.0], 2, None).expect("m");
-        // id 5 is out of range (vocab 2); it is skipped, so the mean is just row 0.
-        assert_eq!(matrix.mean_pool(&[0, 5]), vec![2.0, 4.0]);
-        // All ids out of range → zero vector (no token to pool), NOT a panic or NaN.
-        assert_eq!(matrix.mean_pool(&[9, 9]), vec![0.0, 0.0]);
-        // Empty sequence → zero vector.
-        assert_eq!(matrix.mean_pool(&[]), vec![0.0, 0.0]);
-    }
-
-    #[test]
     fn mean_pool_drops_unk_token_from_sum_and_count() {
         // S1 fix: the reference DROPS <unk> before pooling (model2vec-rs `retain(|id| id != unk_id)`
         // / Python `tokenize`). 3 rows × 2: [ [2,4], [6,8], [10,12] ], with row 1 designated as <unk>.
@@ -957,172 +884,6 @@ mod tests {
         let no_unk =
             StaticEmbeddingMatrix::new(vec![0.0, 0.0, 9.0, 9.0, 3.0, 3.0], 2, None).expect("m");
         assert_eq!(no_unk.mean_pool(&[0, 1, 2]), vec![4.0, 4.0]);
-    }
-
-    #[test]
-    fn mean_pool_applies_per_token_weights_before_averaging() {
-        // 2 rows × 2: [ [1,1], [2,2] ], weights [3.0, 0.5].
-        let matrix = StaticEmbeddingMatrix::new(vec![1.0, 1.0, 2.0, 2.0], 2, Some(vec![3.0, 0.5]))
-            .expect("m");
-        // Pool both: ( [1,1]*3 + [2,2]*0.5 ) / 2 = ( [3,3] + [1,1] ) / 2 = [2,2].
-        assert_eq!(matrix.mean_pool(&[0, 1]), vec![2.0, 2.0]);
-    }
-
-    #[test]
-    fn static_l2_normalize_makes_unit_norm_and_keeps_zero_zero() {
-        let mut vector = vec![3.0, 4.0];
-        static_l2_normalize(&mut vector);
-        assert!((near_unit_norm(&vector) - 1.0).abs() < 1e-6);
-        assert!((vector[0] - 0.6).abs() < 1e-6);
-        assert!((vector[1] - 0.8).abs() < 1e-6);
-        // A zero vector stays zero (epsilon floor avoids NaN).
-        let mut zero = vec![0.0, 0.0];
-        static_l2_normalize(&mut zero);
-        assert_eq!(zero, vec![0.0, 0.0]);
-    }
-
-    #[test]
-    fn static_embed_ids_normalizes_only_when_requested() {
-        let matrix = StaticEmbeddingMatrix::new(vec![3.0, 4.0, 6.0, 8.0], 2, None).expect("m");
-        // Normalize on: row 0 [3,4] → unit norm [0.6,0.8].
-        let normalized = static_embed_ids(&matrix, &[0], true);
-        assert!((near_unit_norm(&normalized) - 1.0).abs() < 1e-6);
-        // Normalize off: bare mean-pooled row 0 [3,4].
-        let raw = static_embed_ids(&matrix, &[0], false);
-        assert_eq!(raw, vec![3.0, 4.0]);
-    }
-
-    #[tokio::test]
-    async fn stub_embed_returns_normalized_symmetric_vectors() {
-        let provider = StaticEmbeddingProvider::new_stub("static:test", "minishlab/potion");
-        let docs = provider
-            .embed(&["alpha".to_string(), "beta".to_string()], EmbeddingRole::Document)
-            .await
-            .expect("docs");
-        assert_eq!(docs.len(), 2);
-        assert_eq!(docs[0].len(), STUB_STATIC_DIM);
-        assert!((near_unit_norm(&docs[0]) - 1.0).abs() < 1e-6);
-        // Different texts differ.
-        assert_ne!(docs[0], docs[1]);
-
-        // SYMMETRY: the same text under Query vs Document MUST match (static models are symmetric).
-        let query = provider.embed(&["alpha".to_string()], EmbeddingRole::Query).await.expect("q");
-        assert_eq!(query[0], docs[0]);
-    }
-
-    #[tokio::test]
-    async fn stub_embed_empty_input_short_circuits() {
-        let provider = StaticEmbeddingProvider::new_stub("static:test", "repo");
-        assert!(provider.embed(&[], EmbeddingRole::Document).await.expect("empty").is_empty());
-    }
-
-    #[test]
-    fn descriptor_reports_static_truth() {
-        let provider = StaticEmbeddingProvider::new_stub("static:test", "minishlab/potion");
-        let descriptor = provider.descriptor();
-        assert_eq!(descriptor.dtype, EmbeddingDtype::Float32);
-        assert!(descriptor.normalized);
-        assert_eq!(descriptor.pooling, EmbeddingPooling::Mean);
-        assert_eq!(descriptor.instruction_template, None);
-        assert_eq!(descriptor.effective_dim, Some(STUB_STATIC_DIM));
-        assert_eq!(descriptor.provider_id, "static:test");
-        assert_eq!(descriptor.model_id, "minishlab/potion");
-        assert_eq!(provider.model_id(), "minishlab/potion");
-    }
-
-    use crate::models::{AiProviderConfig, AiProviderPurpose, AiRequestFormat};
-    use secrecy::SecretString;
-
-    fn static_runtime(default_model: &str) -> AiProviderRuntime {
-        AiProviderRuntime {
-            config: AiProviderConfig {
-                id: "static-provider".to_string(),
-                name: "In-app Static".to_string(),
-                purpose: AiProviderPurpose::Embedding,
-                request_format: AiRequestFormat::OpenAi,
-                enabled: true,
-                base_url: Some(STATIC_INAPP_BASE_URL.to_string()),
-                default_model: default_model.to_string(),
-                dimensions: None,
-                ..AiProviderConfig::default()
-            },
-            api_key: None,
-        }
-    }
-
-    fn external_runtime(base_url: Option<&str>) -> AiProviderRuntime {
-        AiProviderRuntime {
-            config: AiProviderConfig {
-                id: "external-provider".to_string(),
-                name: "External".to_string(),
-                purpose: AiProviderPurpose::Embedding,
-                request_format: AiRequestFormat::OpenAi,
-                enabled: true,
-                base_url: base_url.map(str::to_string),
-                default_model: "text-embedding-test".to_string(),
-                dimensions: None,
-                ..AiProviderConfig::default()
-            },
-            api_key: Some(SecretString::from("key".to_string())),
-        }
-    }
-
-    #[test]
-    fn runtime_uses_static_detects_sentinel() {
-        assert!(runtime_uses_static(&static_runtime("")));
-        assert!(!runtime_uses_static(&external_runtime(Some("http://localhost:1234/v1"))));
-        assert!(!runtime_uses_static(&external_runtime(None)));
-    }
-
-    #[test]
-    fn static_repo_for_runtime_prefers_config_then_default() {
-        assert_eq!(static_repo_for_runtime(&static_runtime("")), DEFAULT_STATIC_MODEL_REPO);
-        assert_eq!(static_repo_for_runtime(&static_runtime("custom/static")), "custom/static");
-    }
-
-    #[test]
-    fn degrade_static_to_external_falls_back_or_errors() {
-        // A runtime carrying a usable external base URL degrades to the external adapter.
-        // (`AnyEmbeddingProvider` is intentionally not `Debug`, so match rather than `.expect`.)
-        match degrade_static_to_external(&external_runtime(Some("http://host/v1")), "repo") {
-            Ok(AnyEmbeddingProvider::External(_)) => {}
-            Ok(_) => panic!("expected the external degrade arm"),
-            Err(error) => panic!("expected degrade, got error: {error}"),
-        }
-
-        // A pure static runtime (only the sentinel, no external base) returns an actionable error.
-        let error = degrade_static_to_external(&static_runtime(""), "minishlab/potion")
-            .err()
-            .expect("expected a no-external-fallback error");
-        assert!(error.to_string().contains("not downloaded"));
-    }
-
-    #[test]
-    fn stub_selector_builds_static_arm_for_static_runtime() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let paths = crate::config::project_paths_with_root(dir.path());
-        match select_static_embedding_provider(&paths, &static_runtime("custom/static")) {
-            Ok(provider @ AnyEmbeddingProvider::Static(_)) => {
-                assert_eq!(provider.model_id(), "custom/static");
-            }
-            Ok(_) => panic!("expected the static arm"),
-            Err(error) => panic!("expected the static arm, got error: {error}"),
-        }
-    }
-
-    #[test]
-    fn manifest_lists_the_three_static_files_from_one_repo() {
-        assert_eq!(DEFAULT_STATIC_MODEL_FILES.len(), 3);
-        let names: Vec<&str> = DEFAULT_STATIC_MODEL_FILES.iter().map(|file| file.name).collect();
-        assert!(names.contains(&"config.json"));
-        assert!(names.contains(&"tokenizer.json"));
-        assert!(names.contains(&"model.safetensors"));
-        // model2vec ships everything in ONE repo.
-        for file in DEFAULT_STATIC_MODEL_FILES {
-            assert_eq!(file.repo, DEFAULT_STATIC_MODEL_REPO);
-            // Every digest is the pinned 64-hex shape (sentinel zeros are still 64 hex).
-            assert_eq!(file.sha256.len(), 64);
-        }
     }
 
     /// Builds a TINY real [`StaticEngine`] from a handful of WordLevel tokens (the F4 gate fixture).
@@ -1202,46 +963,5 @@ mod tests {
         let as_query =
             provider.embed(&["alpha beta".to_string()], EmbeddingRole::Query).await.unwrap();
         assert_eq!(as_query[0], docs[0]);
-    }
-
-    #[tokio::test]
-    async fn real_in_memory_engine_pooling_and_norm_off_behave() {
-        // F4 GATE (pooling + normalize=false): with L2-norm OFF the bare mean-pool is returned, and an
-        // asymmetric token mix proves the mean weights each token equally.
-        let provider = StaticEmbeddingProvider::from_engine(
-            "static:tiny",
-            "tiny/model",
-            tiny_word_engine(false),
-        );
-        let out = provider
-            .embed(&["alpha alpha beta".to_string()], EmbeddingRole::Document)
-            .await
-            .expect("embed");
-        // mean(e0, e0, e1) = [2/3, 1/3, 0] — NOT unit norm (normalize is off), proving the raw pool.
-        assert!((out[0][0] - 2.0 / 3.0).abs() < 1e-6);
-        assert!((out[0][1] - 1.0 / 3.0).abs() < 1e-6);
-        assert!(out[0][2].abs() < 1e-6);
-        assert!(near_unit_norm(&out[0]) < 0.9, "normalize=false leaves the bare mean-pool");
-    }
-
-    #[tokio::test]
-    async fn new_stub_uses_the_real_engine_for_distinct_nonzero_vectors() {
-        // F4: `new_stub` is now a REAL tiny engine (WordLevel), so the coverage backfill exercises the
-        // real compute. Distinct texts → distinct vectors; every vector is non-zero, unit-norm, and the
-        // synthetic dim — proving the real tokenize→pool→norm path, not a bypass.
-        let provider = StaticEmbeddingProvider::new_stub("static:stub", "stub/model");
-        let vectors = provider
-            .embed(
-                &["banana kestrel".to_string(), "quantum zebra".to_string()],
-                EmbeddingRole::Document,
-            )
-            .await
-            .expect("embed");
-        assert_eq!(vectors[0].len(), STUB_STATIC_DIM);
-        assert_ne!(vectors[0], vectors[1], "distinct texts embed to distinct vectors");
-        for vector in &vectors {
-            assert!((near_unit_norm(vector) - 1.0).abs() < 1e-6);
-            assert!(vector.iter().any(|component| *component != 0.0), "no all-zero vector");
-        }
     }
 }

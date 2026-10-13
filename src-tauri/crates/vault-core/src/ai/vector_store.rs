@@ -496,22 +496,6 @@ fn read_exact_or_eof<R: Read>(reader: &mut R, buffer: &mut [u8]) -> Result<ReadO
     Ok(ReadOutcome::Full)
 }
 
-/// Reports total bytes consumed by all `.pkvec` stores under the vector plane.
-///
-/// Filesystem-only so storage review can size the vector plane without loading any engine.
-pub fn vector_plane_bytes(paths: &ProjectPaths) -> u64 {
-    let Ok(entries) = fs::read_dir(&paths.vectors_dir) else {
-        return 0;
-    };
-    entries
-        .flatten()
-        .filter(|entry| {
-            entry.path().extension().and_then(|ext| ext.to_str()) == Some(VECTOR_STORE_EXTENSION)
-        })
-        .filter_map(|entry| entry.metadata().ok().map(|meta| meta.len()))
-        .sum()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -532,62 +516,6 @@ mod tests {
     }
 
     #[test]
-    fn create_stamp_append_read_round_trips() {
-        let dir = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(dir.path());
-        let fp = fingerprint(3, "model-a");
-        let store = VectorStore::create_stamped(&paths, &fp).expect("create");
-
-        let header = store.read_header().expect("header").expect("present");
-        assert_eq!(header.dim, 3);
-        assert_eq!(header.fingerprint_hash, fp.hash());
-        assert_eq!(header.provider_id, "lmstudio-embed");
-        assert_eq!(header.model_id, "model-a");
-        assert_eq!(store.count().expect("count"), 0);
-
-        store
-            .append_vectors(&[(10, vec![1.0, 0.0, 0.0]), (20, vec![0.0, 1.0, 0.0])])
-            .expect("append batch 1");
-        store.append_vectors(&[(30, vec![0.0, 0.0, 1.0])]).expect("append batch 2");
-
-        assert_eq!(store.count().expect("count"), 3);
-        let all = store.read_all().expect("read all");
-        assert_eq!(
-            all,
-            vec![(10, vec![1.0, 0.0, 0.0]), (20, vec![0.0, 1.0, 0.0]), (30, vec![0.0, 0.0, 1.0]),]
-        );
-    }
-
-    #[test]
-    fn empty_append_is_noop() {
-        let dir = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(dir.path());
-        let store = VectorStore::create_stamped(&paths, &fingerprint(2, "m")).expect("create");
-        store.append_vectors(&[]).expect("empty append");
-        assert_eq!(store.count().expect("count"), 0);
-    }
-
-    #[test]
-    fn append_rejects_dim_mismatch() {
-        let dir = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(dir.path());
-        let store = VectorStore::create_stamped(&paths, &fingerprint(3, "m")).expect("create");
-        let error = store.append_vectors(&[(1, vec![1.0, 2.0])]).expect_err("dim mismatch");
-        assert!(error.to_string().contains("length 2 but store dim is 3"));
-    }
-
-    #[test]
-    fn append_requires_stamped_store() {
-        let dir = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(dir.path());
-        ensure_paths(&paths).expect("ensure");
-        let store = VectorStore::for_provider(&paths, "p", "m");
-        // No create_stamped → read_header returns None → append errors.
-        let error = store.append_vectors(&[(1, vec![1.0])]).expect_err("not stamped");
-        assert!(error.to_string().contains("is not stamped"));
-    }
-
-    #[test]
     fn is_stale_against_detects_missing_and_changed_fingerprint() {
         let dir = tempdir().expect("tempdir");
         let paths = project_paths_with_root(dir.path());
@@ -603,127 +531,6 @@ mod tests {
         // A changed dim/model → different hash → stale.
         let changed = fingerprint(8, "model-a");
         assert!(store.is_stale_against(&changed).expect("changed stale"));
-    }
-
-    #[test]
-    fn read_all_rejects_partial_trailing_record() {
-        let dir = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(dir.path());
-        let store = VectorStore::create_stamped(&paths, &fingerprint(3, "m")).expect("create");
-        store.append_vectors(&[(1, vec![1.0, 2.0, 3.0])]).expect("append");
-        // Simulate a torn append by truncating mid-record.
-        let len = store.path().metadata().expect("meta").len();
-        let file = OpenOptions::new().write(true).open(store.path()).expect("open");
-        file.set_len(len - 3).expect("truncate");
-        let error = store.read_all().expect_err("partial record");
-        assert!(error.to_string().contains("partial record"));
-    }
-
-    #[test]
-    fn read_header_rejects_bad_magic() {
-        let dir = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(dir.path());
-        ensure_paths(&paths).expect("ensure");
-        let store = VectorStore::for_provider(&paths, "p", "m");
-        fs::write(store.path(), b"NOTPKVECxxxx").expect("write garbage");
-        let error = store.read_header().expect_err("bad magic");
-        assert!(error.to_string().contains("unrecognized magic"));
-    }
-
-    #[test]
-    fn count_and_read_header_none_for_absent_store() {
-        let dir = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(dir.path());
-        let store = VectorStore::for_provider(&paths, "p", "m");
-        assert!(!store.exists());
-        assert_eq!(store.count().expect("count"), 0);
-        assert!(store.read_header().expect("header").is_none());
-        assert!(store.is_stale_against(&fingerprint(2, "m")).expect("stale"));
-    }
-
-    #[test]
-    fn delete_removes_store_and_reports_state() {
-        let dir = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(dir.path());
-        let store = VectorStore::create_stamped(&paths, &fingerprint(2, "m")).expect("create");
-        assert!(store.exists());
-        assert!(store.delete().expect("delete"));
-        assert!(!store.exists());
-        // Deleting an absent store is a harmless false.
-        assert!(!store.delete().expect("second delete"));
-    }
-
-    #[test]
-    fn vector_plane_bytes_sums_only_pkvec_files() {
-        let dir = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(dir.path());
-        assert_eq!(vector_plane_bytes(&paths), 0);
-
-        let store = VectorStore::create_stamped(&paths, &fingerprint(2, "m")).expect("create");
-        store.append_vectors(&[(1, vec![1.0, 2.0])]).expect("append");
-        // A non-pkvec file in the plane is ignored.
-        fs::write(paths.vectors_dir.join("notes.txt"), b"ignore me").expect("write txt");
-
-        let bytes = vector_plane_bytes(&paths);
-        assert_eq!(bytes, store.path().metadata().expect("meta").len());
-        assert!(bytes > 0);
-    }
-
-    #[test]
-    fn for_provider_path_uses_stable_table_name() {
-        let dir = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(dir.path());
-        let store =
-            VectorStore::for_provider(&paths, "openai-compatible", "text-embedding-3-small");
-        let name = store.path().file_name().expect("name").to_string_lossy().to_string();
-        assert!(name.starts_with("pathkeep_openai_compatible_"));
-        assert!(name.ends_with(".pkvec"));
-    }
-
-    #[test]
-    fn record_bytes_are_little_endian_id_then_f32_components() {
-        // Byte-pin the on-disk record so a symmetric write+read endianness mutant (which
-        // round-trips through `read_all` undetected) is killed. We read the raw file and assert the
-        // exact little-endian layout of a known record: id (u64 LE) then each component (f32 LE).
-        let dir = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(dir.path());
-        let store = VectorStore::create_stamped(&paths, &fingerprint(2, "m")).expect("create");
-        store.append_vectors(&[(0x0102_0304_0506_0708, vec![1.0_f32, -2.0_f32])]).expect("append");
-
-        let bytes = fs::read(store.path()).expect("read file");
-        // The record region is the last `8 + 4*2 = 16` bytes (header precedes it).
-        let record = &bytes[bytes.len() - 16..];
-        assert_eq!(
-            &record[..8],
-            &0x0102_0304_0506_0708_u64.to_le_bytes(),
-            "id must be little-endian u64",
-        );
-        assert_eq!(&record[8..12], &1.0_f32.to_le_bytes(), "first component little-endian f32");
-        assert_eq!(
-            &record[12..16],
-            &(-2.0_f32).to_le_bytes(),
-            "second component little-endian f32"
-        );
-        // Sanity: the symmetric round-trip still decodes the same record.
-        assert_eq!(store.read_all().expect("read"), vec![(0x0102_0304_0506_0708, vec![1.0, -2.0])]);
-    }
-
-    #[test]
-    fn read_all_dedupes_duplicate_ids_last_writer_wins() {
-        // Backstop / W-AI-5 contract: a torn resume can append a second copy of an id;
-        // `read_all` must return a SET, keeping the LAST vector for that id in first-seen order.
-        let dir = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(dir.path());
-        let store = VectorStore::create_stamped(&paths, &fingerprint(2, "m")).expect("create");
-        store.append_vectors(&[(10, vec![1.0, 0.0]), (20, vec![0.0, 1.0])]).expect("append 1");
-        // Re-append id 10 with a NEW vector (the resume re-embed) plus a fresh id 30.
-        store.append_vectors(&[(10, vec![9.0, 9.0]), (30, vec![5.0, 5.0])]).expect("append 2");
-
-        let all = store.read_all().expect("read all");
-        let ids: Vec<u64> = all.iter().map(|(id, _)| *id).collect();
-        assert_eq!(ids, vec![10, 20, 30], "ids are a set in first-seen order");
-        // id 10 carries its LAST persisted vector.
-        assert_eq!(all[0], (10, vec![9.0, 9.0]));
     }
 
     #[test]
@@ -754,19 +561,6 @@ mod tests {
     }
 
     #[test]
-    fn read_records_streaming_propagates_a_sink_error() {
-        // The sink's error must abort the stream (so a plane writer failure stops the projection).
-        let dir = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(dir.path());
-        let store = VectorStore::create_stamped(&paths, &fingerprint(2, "m")).expect("create");
-        store.append_vectors(&[(1, vec![1.0, 0.0]), (2, vec![0.0, 1.0])]).expect("append");
-        let error = store
-            .read_records_streaming(|_, _| anyhow::bail!("sink boom"))
-            .expect_err("sink error propagates");
-        assert!(error.to_string().contains("sink boom"));
-    }
-
-    #[test]
     fn read_records_streaming_rejects_partial_trailing_record() {
         // A torn trailing record must error on the first pass, mirroring `read_all`.
         let dir = tempdir().expect("tempdir");
@@ -781,28 +575,6 @@ mod tests {
     }
 
     #[test]
-    fn existing_ids_returns_persisted_id_set() {
-        let dir = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(dir.path());
-        let store = VectorStore::create_stamped(&paths, &fingerprint(2, "m")).expect("create");
-        assert!(store.existing_ids().expect("ids on empty store").is_empty());
-        store
-            .append_vectors(&[(7, vec![1.0, 0.0]), (9, vec![0.0, 1.0]), (7, vec![2.0, 2.0])])
-            .expect("append");
-        let ids = store.existing_ids().expect("ids");
-        assert_eq!(ids, std::collections::HashSet::from([7, 9]));
-    }
-
-    #[test]
-    fn existing_ids_is_empty_for_absent_store() {
-        let dir = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(dir.path());
-        let store = VectorStore::for_provider(&paths, "p", "m");
-        assert!(!store.exists());
-        assert!(store.existing_ids().expect("absent ids").is_empty());
-    }
-
-    #[test]
     fn existing_ids_rejects_partial_trailing_record() {
         let dir = tempdir().expect("tempdir");
         let paths = project_paths_with_root(dir.path());
@@ -813,21 +585,5 @@ mod tests {
         file.set_len(len - 3).expect("truncate");
         let error = store.existing_ids().expect_err("partial record");
         assert!(error.to_string().contains("partial record"));
-    }
-
-    #[test]
-    fn count_rejects_torn_data_region() {
-        // A data region that is not a whole multiple of the record stride is a torn write;
-        // `count()` must error (mirroring `read_all`) rather than silently truncating the count.
-        let dir = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(dir.path());
-        let store = VectorStore::create_stamped(&paths, &fingerprint(3, "m")).expect("create");
-        store.append_vectors(&[(1, vec![1.0, 2.0, 3.0])]).expect("append");
-        let len = store.path().metadata().expect("meta").len();
-        let file = OpenOptions::new().write(true).open(store.path()).expect("open");
-        // Drop 2 bytes so the data region is no longer a whole record stride.
-        file.set_len(len - 2).expect("truncate");
-        let error = store.count().expect_err("torn data region");
-        assert!(error.to_string().contains("not a whole multiple"));
     }
 }

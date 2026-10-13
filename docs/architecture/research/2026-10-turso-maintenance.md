@@ -329,6 +329,10 @@ frontend task. Backend rekey preview sentences already support all three locales
 
 ## Test inventory
 
+This is the inventory at the time of the conversion work. The 2026-10-12 test cut removed
+several of these tests, among them the ignored `conversion_url_lookup_plan` diagnostic; the
+test files are the current list.
+
 Restored worker tests:
 
 - `export_app_data_writes_a_bundle_at_the_requested_target`

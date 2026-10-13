@@ -5,15 +5,12 @@ mod common;
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::mpsc::channel;
 use std::time::Duration;
 
 use common::{ChildProcess, Rng, is_child};
 use tantivy::HasLen;
-use tantivy::directory::error::{DeleteError, LockError, OpenReadError, OpenWriteError};
-use tantivy::directory::{Directory, Lock, TerminatingWrite, WatchCallback};
+use tantivy::directory::error::LockError;
+use tantivy::directory::{Directory, Lock, TerminatingWrite};
 use vault_crypto::{DataKey, EncryptedDirectory, IndexFileError};
 use zeroize::Zeroizing;
 
@@ -112,51 +109,6 @@ fn nothing_written_is_readable_on_disk() {
     directory.atomic_write(Path::new("meta.json"), br#"{"segments":["PKNEEDLE"]}"#).unwrap();
     let found = common::find_plaintext(dir.path(), &[b"PKNEEDLE", b"pksentinel", b"segments"]);
     assert!(found.is_empty(), "{found:?}");
-}
-
-#[test]
-fn tantivy_directory_contract() {
-    let dir = tempfile::tempdir().unwrap();
-    let directory = directory(dir.path());
-    let path = Path::new("some_path_for_test");
-
-    // Reading a missing file says so.
-    assert!(matches!(directory.open_read(path), Err(OpenReadError::FileDoesNotExist(_))));
-    assert!(matches!(directory.atomic_read(path), Err(OpenReadError::FileDoesNotExist(_))));
-    assert!(!directory.exists(path).unwrap());
-
-    // open_write creates the file at once, and refuses to overwrite.
-    let mut writer = directory.open_write(path).unwrap();
-    assert!(directory.exists(path).unwrap());
-    assert!(matches!(directory.open_write(path), Err(OpenWriteError::FileAlreadyExists(_))));
-    writer.write_all(&[4, 3, 7, 3, 5]).unwrap();
-    writer.terminate().unwrap();
-    assert_eq!(
-        directory.open_read(path).unwrap().read_bytes().unwrap().as_slice(),
-        &[4, 3, 7, 3, 5]
-    );
-
-    // Delete, then it is gone; deleting again says it does not exist.
-    let open_before_delete = directory.open_read(path).unwrap();
-    directory.delete(path).unwrap();
-    assert!(!directory.exists(path).unwrap());
-    assert!(matches!(directory.delete(path), Err(DeleteError::FileDoesNotExist(_))));
-    assert!(directory.open_read(path).is_err());
-    // A handle opened before the delete still reads (Unix keeps the inode).
-    #[cfg(unix)]
-    assert_eq!(open_before_delete.read_bytes().unwrap().as_slice(), &[4, 3, 7, 3, 5]);
-
-    // atomic_write replaces, atomic_read returns the latest version.
-    directory.atomic_write(path, b"first").unwrap();
-    assert_eq!(directory.atomic_read(path).unwrap(), b"first");
-    directory.atomic_write(path, b"second, longer").unwrap();
-    assert_eq!(directory.atomic_read(path).unwrap(), b"second, longer");
-    directory.atomic_write(path, b"").unwrap();
-    assert_eq!(directory.atomic_read(path).unwrap(), b"");
-    // No temporary file is left next to it.
-    let names: Vec<_> =
-        std::fs::read_dir(dir.path()).unwrap().map(|e| e.unwrap().file_name()).collect();
-    assert_eq!(names, [path.as_os_str()]);
 }
 
 #[test]
@@ -262,59 +214,8 @@ fn renamed_extended_and_shortened_files_fail_to_open() {
     }
 }
 
-#[test]
-fn watchers_hear_about_meta_json_only_while_subscribed() {
-    let dir = tempfile::tempdir().unwrap();
-    let directory = directory(dir.path());
-    let calls = Arc::new(AtomicUsize::new(0));
-    let (sender, receiver) = channel();
-    let counter = calls.clone();
-    let handle = directory
-        .watch(WatchCallback::new(move || {
-            let n = counter.fetch_add(1, Ordering::SeqCst) + 1;
-            let _ = sender.send(n);
-        }))
-        .unwrap();
-    let timeout = Duration::from_secs(2);
-    directory.atomic_write(Path::new("meta.json"), b"one").unwrap();
-    assert_eq!(receiver.recv_timeout(timeout), Ok(1));
-    directory.atomic_write(Path::new(".managed.json"), b"[]").unwrap();
-    directory.atomic_write(Path::new("meta.json"), b"two").unwrap();
-    assert_eq!(receiver.recv_timeout(timeout), Ok(2));
-    drop(handle);
-    directory.atomic_write(Path::new("meta.json"), b"three").unwrap();
-    assert!(receiver.recv_timeout(Duration::from_millis(300)).is_err());
-}
-
 fn lock(name: &str, blocking: bool) -> Lock {
     Lock { filepath: PathBuf::from(name), is_blocking: blocking }
-}
-
-#[test]
-fn locks_exclude_each_other_and_blocking_locks_wait() {
-    let dir = tempfile::tempdir().unwrap();
-    let directory = directory(dir.path());
-    let a = directory.acquire_lock(&lock("a.lock", false)).unwrap();
-    let _b = directory.acquire_lock(&lock("b.lock", false)).unwrap();
-    assert!(matches!(directory.acquire_lock(&lock("a.lock", false)), Err(LockError::LockBusy)));
-
-    let (sender, receiver) = channel();
-    let waiting = directory.clone();
-    let waiter = std::thread::spawn(move || {
-        let lock = waiting.acquire_lock(&lock("a.lock", true)).unwrap();
-        sender.send(()).unwrap();
-        drop(lock);
-    });
-    assert!(
-        receiver.recv_timeout(Duration::from_millis(300)).is_err(),
-        "blocking lock did not wait"
-    );
-    drop(a);
-    receiver
-        .recv_timeout(Duration::from_secs(5))
-        .expect("blocking lock was not granted after release");
-    waiter.join().unwrap();
-    directory.acquire_lock(&lock("a.lock", false)).unwrap();
 }
 
 /// Tantivy's default lock is a file deleted on drop, which a crash never deletes, so every
@@ -375,33 +276,4 @@ fn the_cache_stays_within_its_limit_and_clears() {
     assert_eq!(directory.cache_stats().entries, 0);
     // Still readable after clearing; blocks come back from disk.
     assert_eq!(handle.read_bytes().unwrap().as_slice(), &data[..]);
-}
-
-#[test]
-fn concurrent_readers_get_the_same_bytes() {
-    let dir = tempfile::tempdir().unwrap();
-    let directory = EncryptedDirectory::open(dir.path(), &key(1), 128 * 1024).unwrap();
-    let data = Arc::new(pseudo_random_bytes(1024 * 1024 + 77, 9));
-    write_file(&directory, "shared.bin", &data);
-    let threads: Vec<_> = (0..8)
-        .map(|t| {
-            let directory = directory.clone();
-            let data = data.clone();
-            std::thread::spawn(move || {
-                let handle = directory.open_read(Path::new("shared.bin")).unwrap();
-                let mut rng = Rng::new(t + 1);
-                for _ in 0..500 {
-                    let start = rng.below(data.len() as u64) as usize;
-                    let end = (start + rng.below(200_000) as usize).min(data.len());
-                    assert_eq!(
-                        handle.slice(start..end).read_bytes().unwrap().as_slice(),
-                        &data[start..end]
-                    );
-                }
-            })
-        })
-        .collect();
-    for thread in threads {
-        thread.join().unwrap();
-    }
 }

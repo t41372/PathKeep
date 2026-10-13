@@ -59,8 +59,6 @@ pub(crate) use self::claims::{
 };
 pub(crate) use self::claims::{claim_enrichment_job_by_id, claim_result};
 pub(crate) use self::enqueue::enqueue_content_fetch_job;
-#[cfg(test)]
-pub(crate) use self::enqueue::enqueue_enrichment_job;
 pub(crate) use self::enqueue::persist_deterministic_module_runtime_updates;
 pub(crate) use self::job_control::{
     mark_intelligence_job_failed_in_session, mark_intelligence_job_succeeded_in_session,
@@ -104,8 +102,6 @@ pub(crate) const NETWORK_PLUGIN_SOURCE_KIND: &str = "network";
 pub(crate) struct EnrichmentPluginDefinition {
     pub id: &'static str,
     pub source_kind: &'static str,
-    #[cfg(test)]
-    pub priority: i64,
 }
 
 pub(crate) type DeterministicModuleDefinition = IntelligenceModuleDescriptor;
@@ -188,14 +184,10 @@ pub(super) const BUILT_IN_ENRICHMENT_PLUGINS: [EnrichmentPluginDefinition; 2] = 
     EnrichmentPluginDefinition {
         id: TITLE_NORMALIZATION_PLUGIN_ID,
         source_kind: LOCAL_PLUGIN_SOURCE_KIND,
-        #[cfg(test)]
-        priority: 10,
     },
     EnrichmentPluginDefinition {
         id: READABLE_CONTENT_PLUGIN_ID,
         source_kind: NETWORK_PLUGIN_SOURCE_KIND,
-        #[cfg(test)]
-        priority: 30,
     },
 ];
 
@@ -235,14 +227,6 @@ pub(super) fn lease_expires_at(seconds: i64) -> String {
 /// Returns the built-in enrichment plugin catalog.
 pub(crate) fn built_in_enrichment_plugins() -> &'static [EnrichmentPluginDefinition] {
     &BUILT_IN_ENRICHMENT_PLUGINS
-}
-
-/// Looks up one built-in enrichment plugin definition by ID.
-#[cfg(test)]
-pub(crate) fn built_in_enrichment_plugin(
-    plugin_id: &str,
-) -> Option<&'static EnrichmentPluginDefinition> {
-    built_in_enrichment_plugins().iter().find(|plugin| plugin.id == plugin_id)
 }
 
 /// Returns the built-in deterministic module catalog.

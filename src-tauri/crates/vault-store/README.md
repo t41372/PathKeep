@@ -260,7 +260,6 @@ metadata and `Session::integrity_check()` runs the fixed read-only Turso integri
 pragma. These methods expose neither a connection nor arbitrary PRAGMA access.
 Integrity checking can be long and cannot interrupt an in-flight statement in Turso
 0.8.1. Business-level relationship, outbox and cached-count checks belong to vault-core.
-The `health` integration test exercises both methods with plaintext and encrypted files.
 
 ## Dependencies and validation
 

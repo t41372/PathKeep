@@ -1,7 +1,7 @@
 //! Responsibilities: preserve file reports, parser warnings and failure notes for partial browser imports.
 //! Not responsible for: import run state, parsing, progress totals or successful finalization.
 //! Failure modes: early errors lose files, late errors lose warnings, saving a review masks the original error.
-//! Tests: failed_browser_import_retains_recognized_files_and_failure_notes and review_failure_keeps_the_original_error_and_type.
+//! Tests: an_import_whose_review_record_fails_is_still_imported_with_a_warning.
 use super::*;
 pub(super) fn save_failure(
     vault: &Vault,

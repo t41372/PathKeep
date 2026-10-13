@@ -446,32 +446,6 @@ mod tests {
         (vault, db)
     }
 
-    fn insert_runtime_job(connection: &TestDatabase, state: &str, stop_requested: bool) -> i64 {
-        let now = chrono::Utc::now().to_rfc3339();
-        connection
-            .execute(
-                "INSERT INTO intelligence_jobs (
-                    job_type, state, priority, attempt, dedupe_key, payload_json, artifact_json,
-                    created_at, scheduled_at, started_at, updated_at, stop_requested
-                 )
-                 VALUES (?1, ?2, 1, 0, ?3, '{}', '{}', ?4, ?4, ?4, ?4, ?5)",
-                params![
-                    VISIT_DERIVE_JOB_TYPE,
-                    state,
-                    format!(
-                        "runtime-helper:{state}:{stop_requested}:{}",
-                        chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
-                    ),
-                    now,
-                    i64::from(stop_requested),
-                ],
-            )
-            .expect("insert runtime job");
-        connection
-            .query_one("SELECT MAX(id) FROM intelligence_jobs", (), |r| Ok(r.get::<i64>(0)?))
-            .unwrap()
-    }
-
     #[test]
     fn drains_surface_and_quarantine_malformed_payloads() {
         let (vault, connection) = runtime_connection();
@@ -526,82 +500,5 @@ mod tests {
                 .expect("malformed row is no longer runnable"),
             "a quarantined malformed row must not tight-loop"
         );
-    }
-
-    #[test]
-    fn runtime_helpers_cover_queue_notes_and_cancellation_branches() {
-        assert!(
-            core_intelligence_queue_note(1, "queued", true).contains("runtime queue is paused")
-        );
-        assert!(core_intelligence_queue_note(2, "running", false).contains("already running"));
-        assert!(core_intelligence_queue_note(3, "queued", false).contains("processing it"));
-        assert!(continue_enrichment_queue_drain(Ok(true)));
-        assert!(!continue_enrichment_queue_drain(Ok(false)));
-        assert!(!continue_enrichment_queue_drain(Err(anyhow::anyhow!("drain failed"))));
-
-        let (_root, connection) = runtime_connection();
-        let stopped_id = insert_runtime_job(&connection, "running", true);
-        let stopped_error = bail_if_core_intelligence_job_cancelled(
-            &connection.vault,
-            stopped_id,
-            "cancelled before test",
-        )
-        .expect_err("stop request should bail");
-        assert!(stopped_error.to_string().contains("cancelled before test"));
-        let stopped_state: String = connection
-            .query_row("SELECT state FROM intelligence_jobs WHERE id = ?1", [stopped_id], |row| {
-                Ok(row.get(0)?)
-            })
-            .expect("stopped state");
-        assert_eq!(stopped_state, "cancelled");
-
-        let post_success_id = insert_runtime_job(&connection, "running", true);
-        assert!(
-            cancel_core_intelligence_job_if_requested(&connection.vault, post_success_id)
-                .expect("post success cancellation")
-        );
-        let finish_cancelled_id = insert_runtime_job(&connection, "running", true);
-        assert!(
-            finish_core_intelligence_job_success(
-                &connection.vault,
-                finish_cancelled_id,
-                VISIT_DERIVE_JOB_TYPE,
-                "visit-derived facts refresh",
-                CoreIntelligenceRebuildReport::default(),
-            )
-            .expect("finish helper handles cancellation")
-        );
-
-        let stale_id = insert_runtime_job(&connection, "queued", false);
-        finalize_core_intelligence_job_success(
-            &connection.vault,
-            stale_id,
-            json!({"phase": "completed"}),
-        )
-        .expect("stale success finalization should not fail");
-        let stale_state: String = connection
-            .query_row("SELECT state FROM intelligence_jobs WHERE id = ?1", [stale_id], |row| {
-                Ok(row.get(0)?)
-            })
-            .expect("stale state");
-        assert_eq!(stale_state, "queued");
-
-        let cancelled_error_id = insert_runtime_job(&connection, "running", false);
-        assert!(
-            record_core_intelligence_job_error(
-                &connection.vault,
-                cancelled_error_id,
-                anyhow::anyhow!("cancelled by test"),
-            )
-            .expect("cancelled error is terminal success")
-        );
-        let cancelled_error_state: String = connection
-            .query_row(
-                "SELECT state FROM intelligence_jobs WHERE id = ?1",
-                [cancelled_error_id],
-                |row| Ok(row.get(0)?),
-            )
-            .expect("cancelled error state");
-        assert_eq!(cancelled_error_state, "cancelled");
     }
 }

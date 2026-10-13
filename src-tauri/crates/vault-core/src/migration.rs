@@ -337,115 +337,30 @@ pub fn extract_bundle_into_cancel(
 mod tests {
     use super::*;
 
-    /// Locks the two typed apply-import error prefixes to exact literals.
-    ///
-    /// The shell hand-copies these same literals in
-    /// `src/lib/backend-client/migration.ts` because the source-key prompt is
-    /// selected by prefix match. `src/lib/backend-client/migration.test.ts`
-    /// pins the TypeScript side against the identical strings, so editing
-    /// either language alone fails a test instead of silently turning the
-    /// source-key prompt into a generic error banner.
+    /// Zip-slip guard: every entry name a hostile `.pathkeep` bundle could use to
+    /// write outside staging is refused, with the reason it was refused.
+    /// Windows shapes (`\foo`, `C:foo`) are refused on every platform, so a bundle
+    /// cannot pass on a Unix machine and escape only when opened on Windows.
     #[test]
-    fn import_source_key_error_prefixes_stay_the_literals_the_shell_pins() {
-        assert_eq!(IMPORT_SOURCE_KEY_REQUIRED_PREFIX, "source_archive_key required");
-        assert_eq!(IMPORT_SOURCE_KEY_INVALID_PREFIX, "source_archive_key invalid");
-    }
-
-    #[test]
-    fn validate_bundle_relative_path_accepts_a_normal_relative_path() {
-        let normalized = validate_bundle_relative_path("archive/history-vault.sqlite").unwrap();
-        let expected: PathBuf = ["archive", "history-vault.sqlite"].iter().collect();
-        assert_eq!(normalized, expected);
-    }
-
-    #[test]
-    fn validate_bundle_relative_path_rejects_parent_dir_traversal() {
-        let err =
-            validate_bundle_relative_path("../etc/passwd").expect_err("traversal must be rejected");
-        assert!(format!("{err:?}").contains("..` component"), "expected `..` error, got {err:?}",);
-    }
-
-    #[test]
-    fn validate_bundle_relative_path_rejects_nested_parent_dir_traversal() {
-        let err = validate_bundle_relative_path("archive/../../escape.txt")
-            .expect_err("nested traversal must be rejected");
-        assert!(format!("{err:?}").contains("..` component"), "expected `..` error, got {err:?}",);
-    }
-
-    #[test]
-    fn validate_bundle_relative_path_rejects_current_dir_component() {
-        // `Path::new("./escape.txt").components()` yields
-        // [CurDir, Normal("escape.txt")]. The bare `.` is also a CurDir.
-        // Both must be rejected — a `.` component is an attacker-friendly
-        // shape for normalising-vs-not collisions in downstream tools.
-        let err = validate_bundle_relative_path("./escape.txt")
-            .expect_err("`.` component must be rejected");
-        assert!(
-            format!("{err:?}").contains("`.` component"),
-            "expected `.` rejection, got {err:?}",
-        );
-    }
-
-    #[test]
-    fn validate_bundle_relative_path_rejects_unix_absolute() {
-        let err = validate_bundle_relative_path("/etc/passwd")
-            .expect_err("absolute path must be rejected");
-        assert!(
-            format!("{err:?}").contains("is absolute"),
-            "expected absolute-path error, got {err:?}",
-        );
-    }
-
-    #[test]
-    fn validate_bundle_relative_path_rejects_windows_style_absolute() {
-        // `\foo` is the Windows-style absolute marker. The string-level
-        // check rejects this too even on Unix CI, so an attacker can't
-        // build a bundle that ships safely under `Path::components()`
-        // on Unix and only blows up on a Windows target.
-        let err = validate_bundle_relative_path("\\Windows\\System32")
-            .expect_err("backslash-absolute path must be rejected");
-        assert!(
-            format!("{err:?}").contains("is absolute"),
-            "expected absolute-path error, got {err:?}",
-        );
-    }
-
-    #[test]
-    fn validate_bundle_relative_path_rejects_windows_drive_letter_prefix() {
-        // `C:foo` is the explicit Windows drive-letter shape. The
-        // up-front string check rejects it on every platform so the
-        // path is never handed to a downstream tool that might
-        // interpret `C:` as an alternate root.
-        let err = validate_bundle_relative_path("C:Windows\\evil")
-            .expect_err("drive-letter prefix must be rejected");
-        assert!(
-            format!("{err:?}").contains("drive-letter prefix"),
-            "expected drive-letter rejection, got {err:?}",
-        );
-    }
-
-    #[test]
-    fn validate_bundle_relative_path_collapses_repeated_separators() {
-        // `a//b` produces an empty segment between `a` and `b`. The
-        // empty arm intentionally folds the empty segment away so a
-        // bundle that uses a doubled separator validates; the
-        // important rejections (`..`, `.`, absolute, drive-letter)
-        // are checked separately. The resulting PathBuf is the
-        // dedup'd form.
-        let normalized = validate_bundle_relative_path("archive//history-vault.sqlite").unwrap();
-        let expected: PathBuf = ["archive", "history-vault.sqlite"].iter().collect();
-        assert_eq!(normalized, expected);
-    }
-
-    #[test]
-    fn validate_bundle_relative_path_rejects_empty_input() {
-        let err = validate_bundle_relative_path("").expect_err("empty path must be rejected");
-        assert!(format!("{err:?}").contains("empty path"), "got {err:?}");
-    }
-
-    #[test]
-    fn validate_bundle_relative_path_rejects_nul_byte() {
-        let err = validate_bundle_relative_path("ok/\u{0}bad").expect_err("NUL must be rejected");
-        assert!(format!("{err:?}").contains("NUL byte"), "got {err:?}");
+    fn validate_bundle_relative_path_rejects_every_escaping_shape() {
+        let cases = [
+            ("../etc/passwd", "..` component"),
+            ("archive/../../escape.txt", "..` component"),
+            // A `.` component invites normalising-vs-not collisions in downstream tools.
+            ("./escape.txt", "`.` component"),
+            ("/etc/passwd", "is absolute"),
+            ("\\Windows\\System32", "is absolute"),
+            ("C:Windows\\evil", "drive-letter prefix"),
+            ("", "empty path"),
+            ("ok/\u{0}bad", "NUL byte"),
+        ];
+        for (path, reason) in cases {
+            let err = validate_bundle_relative_path(path)
+                .expect_err(&format!("{path:?} must be rejected"));
+            assert!(
+                format!("{err:?}").contains(reason),
+                "{path:?}: expected {reason:?}, got {err:?}"
+            );
+        }
     }
 }

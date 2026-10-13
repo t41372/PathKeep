@@ -210,6 +210,3 @@ fn normalize_tags(input: &[String]) -> Result<Vec<String>> {
 
 #[cfg(test)]
 mod tests;
-
-#[cfg(test)]
-mod search_tests;

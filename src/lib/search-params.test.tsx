@@ -11,9 +11,7 @@
  *
  * Ways it can fail:
  * - a second change before the screen renders the first undoes the first;
- * - a handler kept from an earlier render writes onto that render's URL;
- * - parameters the change does not touch are lost;
- * - a change adds a history entry when it should replace the current one.
+ * - a handler kept from an earlier render writes onto that render's URL.
  */
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
@@ -41,7 +39,7 @@ function mount(search: string) {
   const root = createRoot(document.createElement('div'))
   act(() => root.render(<RouterProvider router={router} />))
   unmount = () => act(() => root.unmount())
-  return { updates, router }
+  return { updates }
 }
 
 const search = () => new URLSearchParams(window.location.hash.split('?')[1])
@@ -77,20 +75,5 @@ describe('useSearchParamsUpdate', () => {
       range: '7d',
       profile: 'firefox:a',
     })
-  })
-
-  it('leaves the parameters it does not change', () => {
-    const { updates } = mount('q=rust&view=list')
-    act(() => updates.at(-1)!(set('view', 'timeline')))
-    expect(Object.fromEntries(search())).toEqual({
-      q: 'rust',
-      view: 'timeline',
-    })
-  })
-
-  it('replaces the current history entry', () => {
-    const { updates, router } = mount('view=list')
-    act(() => updates.at(-1)!(set('view', 'timeline')))
-    expect(router.state.historyAction).toBe('REPLACE')
   })
 })

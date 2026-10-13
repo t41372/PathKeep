@@ -13,20 +13,6 @@ use super::*;
 use crate::utils::now_rfc3339;
 use vault_store::{Session, params_owned as params};
 
-#[cfg(test)]
-pub(crate) fn requeue_running_enrichment_jobs(connection: &Session<'_>) -> Result<usize> {
-    let now = now_rfc3339();
-    let updated = connection.execute(
-        "UPDATE intelligence_jobs
-         SET state = 'queued', scheduled_at = ?1, started_at = NULL, finished_at = NULL,
-             heartbeat_at = NULL, lease_owner = NULL, lease_expires_at = NULL,
-             updated_at = ?1, last_error = NULL, cancellation_reason = NULL, stop_requested = 0
-         WHERE job_type = ?2 AND state = 'running'",
-        params![now, ENRICHMENT_JOB_TYPE],
-    )?;
-    Ok(updated as usize)
-}
-
 pub(crate) fn recover_expired_intelligence_jobs(connection: &Session<'_>) -> Result<()> {
     let now = now_rfc3339();
     let expired_at = Utc::now().to_rfc3339();
@@ -65,21 +51,4 @@ pub(crate) fn recover_expired_intelligence_jobs(connection: &Session<'_>) -> Res
         params![now, expired_at],
     )?;
     Ok(())
-}
-
-#[cfg(test)]
-pub(crate) fn requeue_running_enrichment_jobs_for_run(
-    connection: &Session<'_>,
-    run_id: i64,
-) -> Result<usize> {
-    let now = now_rfc3339();
-    let updated = connection.execute(
-        "UPDATE intelligence_jobs
-         SET state = 'queued', scheduled_at = ?1, started_at = NULL, finished_at = NULL,
-             heartbeat_at = NULL, lease_owner = NULL, lease_expires_at = NULL,
-             updated_at = ?1, last_error = NULL, cancellation_reason = NULL, stop_requested = 0
-         WHERE job_type = ?2 AND state = 'running' AND run_id = ?3",
-        params![now, ENRICHMENT_JOB_TYPE, run_id],
-    )?;
-    Ok(updated as usize)
 }

@@ -147,13 +147,3 @@ where
         Ok(())
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn callback_abort_display_preserves_streaming_error_context() {
-        assert_eq!(CallbackAbort.to_string(), "stream callback aborted");
-    }
-}

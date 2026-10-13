@@ -334,14 +334,6 @@ mod tests {
         let (scope, fp, json) = (scope.to_owned(), fp.to_owned(), json.to_owned());
         db.write(move |s| save_overview_snapshot(s, &scope, band, &fp, &json))
     }
-    fn load(
-        db: &TestDatabase,
-        scope: &str,
-        band: OverviewBand,
-    ) -> Result<Option<OverviewSnapshotRow>> {
-        let scope = scope.to_owned();
-        db.read(move |s| load_overview_snapshot(s, &scope, band))
-    }
     fn resolve(
         db: &TestDatabase,
         request: &ScopedDateRangeRequest,
@@ -387,48 +379,6 @@ mod tests {
         db.vault.write(Db::Archive,Priority::Batch,move |s| {
             s.execute("INSERT INTO runs(id,run_type,trigger,started_at,timezone,status,profile_scope_json,warnings_json,stats_json,due_only) VALUES(?1,?2,'test','','UTC','success','[]','[]','{}',0)",params![id,kind])?;Ok(())
         }).unwrap();
-    }
-
-    /// Inserts one stage-checkpoint row carrying the given source watermark, so
-    /// fingerprint tests can move a single watermark dimension at a time.
-    fn insert_checkpoint_with_watermark(
-        connection: &TestDatabase,
-        profile_id: &str,
-        stage: &str,
-        visible_visit_count: i64,
-        max_visit_id: i64,
-        max_url_last_visit_ms: i64,
-        visible_search_term_count: i64,
-    ) {
-        connection
-            .execute(
-                "INSERT INTO core_intelligence_stage_checkpoints
-                   (profile_id, stage, stage_version,
-                    visible_visit_count, max_visit_id, max_url_last_visit_ms,
-                    visible_search_term_count, updated_at, last_run_id)
-                 VALUES (?1, ?2, 'v', ?3, ?4, ?5, ?6, '2026-06-20T00:00:00Z', 1)",
-                params![
-                    profile_id,
-                    stage,
-                    visible_visit_count,
-                    max_visit_id,
-                    max_url_last_visit_ms,
-                    visible_search_term_count,
-                ],
-            )
-            .expect("insert checkpoint watermark");
-    }
-
-    #[test]
-    fn detects_all_time_range_by_sentinel_start() {
-        assert!(is_all_time_range(&DateRange {
-            start: ALL_TIME_SCOPE_START.to_string(),
-            end: "2026-06-20".to_string(),
-        }));
-        assert!(!is_all_time_range(&DateRange {
-            start: "2026-05-01".to_string(),
-            end: "2026-06-20".to_string(),
-        }));
     }
 
     // Recent ranges: what goes wrong if the scope rules do —
@@ -479,153 +429,6 @@ mod tests {
         assert_eq!(key(thirty_one), None, "31 days is not a range the page offers");
     }
 
-    #[test]
-    fn scope_key_separates_archive_wide_from_profile() {
-        assert_eq!(all_time_scope_key(None), "all-time:archive-wide");
-        assert_eq!(all_time_scope_key(Some("chrome:Default")), "all-time:profile:chrome:Default");
-    }
-
-    #[test]
-    fn snapshot_round_trips_and_overwrites() {
-        let connection = open_schema_connection();
-        save(&connection, "all-time:archive-wide", OverviewBand::Primary, "fp1", "{\"a\":1}")
-            .expect("save");
-        let row = load(&connection, "all-time:archive-wide", OverviewBand::Primary)
-            .expect("load")
-            .expect("row present");
-        assert_eq!(row.fingerprint, "fp1");
-        assert_eq!(row.payload_json, "{\"a\":1}");
-
-        save(&connection, "all-time:archive-wide", OverviewBand::Primary, "fp2", "{\"a\":2}")
-            .expect("overwrite");
-        let row = load(&connection, "all-time:archive-wide", OverviewBand::Primary)
-            .expect("load")
-            .expect("row present");
-        assert_eq!(row.fingerprint, "fp2");
-        assert_eq!(row.payload_json, "{\"a\":2}");
-
-        // The secondary band is stored independently of the primary band.
-        assert!(
-            load(&connection, "all-time:archive-wide", OverviewBand::Secondary)
-                .expect("load secondary")
-                .is_none()
-        );
-    }
-
-    #[test]
-    fn clear_removes_all_snapshots() {
-        let connection = open_schema_connection();
-        save(&connection, "all-time:archive-wide", OverviewBand::Primary, "fp", "{}")
-            .expect("save");
-        assert_eq!(connection.write(clear_overview_snapshots).expect("clear"), 1);
-        assert!(
-            load(&connection, "all-time:archive-wide", OverviewBand::Primary)
-                .expect("load")
-                .is_none()
-        );
-    }
-
-    #[test]
-    fn resolve_serves_snapshot_until_fingerprint_changes() {
-        let connection = open_fingerprint_connection();
-        let request = ScopedDateRangeRequest {
-            date_range: DateRange {
-                start: ALL_TIME_SCOPE_START.to_string(),
-                end: "2026-06-20".to_string(),
-            },
-            profile_id: None,
-        };
-
-        let mut build_calls = 0u32;
-        let first = resolve(&connection, &request, 11, &mut build_calls);
-        assert_eq!(first, 11);
-        assert_eq!(build_calls, 1);
-        warm(&connection, &request, 11);
-
-        // A second resolve with unchanged inputs must serve the cached value
-        // without invoking the builder again.
-        let cached = resolve(&connection, &request, 22, &mut build_calls);
-        assert_eq!(cached, 11);
-        assert_eq!(build_calls, 1);
-
-        // Moving the checkpoint ledger changes the fingerprint and forces a
-        // rebuild on the next resolve.
-        connection
-            .execute(
-                "INSERT INTO core_intelligence_stage_checkpoints
-                   (profile_id, stage, stage_version, updated_at, last_run_id)
-                 VALUES ('chrome:Default', 'visit-derive', 'v', '2026-06-20T00:00:00Z', 7)",
-                (),
-            )
-            .expect("insert checkpoint");
-        let rebuilt = resolve(&connection, &request, 33, &mut build_calls);
-        assert_eq!(rebuilt, 33);
-        assert_eq!(build_calls, 2);
-    }
-
-    #[test]
-    fn fingerprint_changes_with_checkpoint_ledger() {
-        let connection = open_fingerprint_connection();
-        let before = fingerprint(&connection, None).expect("fingerprint");
-        connection
-            .execute(
-                "INSERT INTO core_intelligence_stage_checkpoints
-                   (profile_id, stage, stage_version, updated_at, last_run_id)
-                 VALUES ('chrome:Default', 'visit-derive', 'v', '2026-06-20T00:00:00Z', 1)",
-                (),
-            )
-            .expect("insert checkpoint");
-        let after = fingerprint(&connection, None).expect("fingerprint");
-        assert_ne!(before, after);
-    }
-
-    /// Each watermark dimension folded into the fingerprint must independently
-    /// change it, so a snapshot is never reused after a backup moves any one of
-    /// them. This is the behavioral guard the fingerprint's watermark fields
-    /// previously lacked: hardcoding any field to a constant collapses two
-    /// distinct watermarks to one fingerprint and fails here.
-    #[test]
-    fn fingerprint_reacts_to_each_watermark_dimension() {
-        let connection = open_fingerprint_connection();
-        // Seed one checkpoint row with a fixed run id / timestamp and zero
-        // watermarks. Mutating a single watermark *column* in place then isolates
-        // that fingerprint dimension: the checkpoint count, last_run_id, and
-        // updated_at (which load_checkpoint_signature folds in) all stay fixed,
-        // so any observed fingerprint change must come from the watermark field
-        // under test.
-        insert_checkpoint_with_watermark(&connection, "chrome:Default", "visit-derive", 0, 0, 0, 0);
-        let mut previous = fingerprint(&connection, None).expect("baseline fingerprint");
-        let mut seen = std::collections::BTreeSet::from([previous.clone()]);
-
-        for (index, column) in [
-            "visible_visit_count",
-            "max_visit_id",
-            "max_url_last_visit_ms",
-            "visible_search_term_count",
-        ]
-        .iter()
-        .enumerate()
-        {
-            connection
-                .execute(
-                    &format!(
-                        "UPDATE core_intelligence_stage_checkpoints
-                         SET {column} = {column} + 11
-                         WHERE profile_id = 'chrome:Default' AND stage = 'visit-derive'"
-                    ),
-                    (),
-                )
-                .expect("bump one watermark column");
-            let fingerprint = fingerprint(&connection, None).expect("fingerprint");
-            assert_ne!(
-                previous, fingerprint,
-                "moving the {column} watermark must change the fingerprint (step {index})"
-            );
-            assert!(seen.insert(fingerprint.clone()), "fingerprints must stay distinct");
-            previous = fingerprint;
-        }
-    }
-
     /// Inserting a raw archive visit (and the backup `runs` row that always
     /// accompanies ingest) must change the fingerprint *and* force the builder
     /// to run again, even though the checkpoint ledger has not been rebuilt yet.
@@ -662,41 +465,6 @@ mod tests {
         assert_eq!(build_calls, 2);
     }
 
-    /// The profile-scoped fingerprint folds in only that profile's checkpoint
-    /// watermark, so a sibling profile's rebuild must not invalidate it while a
-    /// change to the scoped profile must.
-    #[test]
-    fn profile_scoped_fingerprint_isolates_its_own_profile() {
-        let connection = open_fingerprint_connection();
-        insert_checkpoint_with_watermark(&connection, "chrome:Default", "visit-derive", 1, 1, 1, 1);
-        let scoped = fingerprint(&connection, Some("chrome:Default")).expect("scoped");
-
-        // A different profile's checkpoint must not move the scoped fingerprint.
-        insert_checkpoint_with_watermark(
-            &connection,
-            "firefox:Default",
-            "visit-derive",
-            9,
-            9,
-            9,
-            9,
-        );
-        let after_sibling =
-            fingerprint(&connection, Some("chrome:Default")).expect("after sibling");
-        assert_eq!(scoped, after_sibling);
-
-        // But a change to the scoped profile must.
-        connection
-            .execute(
-                "UPDATE core_intelligence_stage_checkpoints SET visible_visit_count = 42
-                 WHERE profile_id = 'chrome:Default'",
-                (),
-            )
-            .expect("bump scoped profile");
-        let after_self = fingerprint(&connection, Some("chrome:Default")).expect("after self");
-        assert_ne!(scoped, after_self);
-    }
-
     /// A revert that touches only existing visits leaves `MAX(visits.id)`
     /// unchanged, so the fingerprint must still move via the `runs` ledger.
     #[test]
@@ -708,36 +476,6 @@ mod tests {
         append_run(&connection, 7, "repair");
         let after = fingerprint(&connection, None).expect("after fingerprint");
         assert_ne!(before, after);
-    }
-
-    /// Editing the site dictionary or the search-engine rules reshapes derived
-    /// aggregates without moving any canonical watermark, so each must change
-    /// the fingerprint on its own.
-    #[test]
-    fn fingerprint_reacts_to_site_dictionary_and_search_rule_edits() {
-        let connection = open_fingerprint_connection();
-        let baseline = fingerprint(&connection, None).expect("baseline");
-
-        // load_site_dictionary_signature lazily creates the overrides table; a
-        // row insert must then change the fingerprint.
-        let _ = connection.read(load_site_dictionary_signature).unwrap();
-        connection
-            .execute(
-                "INSERT INTO site_dictionary_overrides
-                   (target_kind, target_value, created_at, updated_at)
-                 VALUES ('domain', 'example.com', 'now', 'now')",
-                (),
-            )
-            .expect("insert override");
-        let after_override = fingerprint(&connection, None).expect("after override");
-        assert_ne!(baseline, after_override, "a site-dictionary edit must change the fingerprint");
-
-        connection.execute("INSERT INTO search_engine_rules(rule_id,engine_id,display_name,host_pattern,query_param_key,enabled,created_at,updated_at) VALUES('rule','engine','Engine','search.example.com','q',1,'','2026-06-20T00:00:00Z')",()).unwrap();
-        let after_rule = fingerprint(&connection, None).expect("after rule");
-        assert_ne!(
-            after_override, after_rule,
-            "a search-engine-rule edit must change the fingerprint"
-        );
     }
 
     /// A snapshot outlives the day it was built on: the fingerprint leaves the

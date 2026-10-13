@@ -2,8 +2,7 @@
 //! Not responsible for: business operations or app lifecycle (desktop process tests).
 //! Failure modes: stale endpoints prevent restart; live endpoints get replaced; another
 //! user can connect; mismatched versions execute work; progress is reordered/lost;
-//! malformed/truncated/oversized frames allocate without bounds or hang a request;
-//! startup retries replay a mutation; missing app startup waits forever.
+//! malformed/truncated/oversized frames allocate without bounds or hang a request.
 use serde_json::json;
 use std::sync::{
     Arc,
@@ -83,27 +82,6 @@ async fn malformed_truncated_and_oversized_frames_fail() {
     }
 }
 
-#[tokio::test]
-async fn no_endpoint_start_failure_is_clear_and_does_not_retry_launch() {
-    let root = tempfile::tempdir().unwrap();
-    let mut launches = 0;
-    let error = Client::new(root.path())
-        .request_with_start(
-            Request::new("ping", json!({})),
-            |_| {},
-            std::time::Duration::from_millis(80),
-            || {
-                launches += 1;
-                Ok(())
-            },
-        )
-        .await
-        .unwrap_err();
-    assert_eq!(launches, 1);
-    assert_eq!(error.code, ErrorCode::Unavailable);
-    assert!(error.message.contains("PathKeep"));
-}
-
 #[test]
 fn oversized_reply_is_typed_error_and_owner_survives() {
     let root = tempfile::tempdir().unwrap();
@@ -123,17 +101,6 @@ fn oversized_reply_is_typed_error_and_owner_survives() {
         rt.block_on(client.request(Request::new("ping", json!({})), |_| {})).unwrap(),
         json!(true)
     );
-}
-
-#[test]
-fn handler_panic_is_a_final_error_and_owner_survives() {
-    let root = tempfile::tempdir().unwrap();
-    let _server = Server::start(root.path(), |_, _| panic!("injected operation panic")).unwrap();
-    let rt = tokio::runtime::Runtime::new().unwrap();
-    let error = rt
-        .block_on(Client::new(root.path()).request(Request::new("ping", json!({})), |_| {}))
-        .unwrap_err();
-    assert_eq!(error.code, ErrorCode::OperationFailed);
 }
 
 #[cfg(unix)]

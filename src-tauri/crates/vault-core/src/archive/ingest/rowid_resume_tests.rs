@@ -110,7 +110,7 @@ fn source(family: &str) -> ProfileSnapshot {
         _ => safari.write(&history_path).unwrap(),
     };
     ProfileSnapshot {
-        profile: core_tests::profile(family, &format!("{family}:resume")),
+        profile: test_context::profile(family, &format!("{family}:resume")),
         temp_dir,
         history_path,
         favicons_path: None,
@@ -123,7 +123,7 @@ fn all_browsers_resume_url_rowids_without_reupserting_committed_prefixes() {
         for key in [None, Some([84; 32])] {
             let vault = crate::Vault::open_temp_with_key(key).unwrap();
             let source = source(family);
-            let (context, batch) = core_tests::seed_context(&vault, 42, &source.profile);
+            let (context, batch) = test_context::seed_context(&vault, 42, &source.profile);
             let cancel = CancelToken::new();
             let inner = ArchiveChunkConsumer::new(
                 &vault,
@@ -193,7 +193,7 @@ fn all_browsers_resume_url_rowids_without_reupserting_committed_prefixes() {
 fn chromium_resume_keeps_a_new_visit_to_an_older_synced_url() {
     let vault = crate::Vault::open_temp().unwrap();
     let source = source("chromium");
-    let (context, batch) = core_tests::seed_context(&vault, 42, &source.profile);
+    let (context, batch) = test_context::seed_context(&vault, 42, &source.profile);
     let cancel = CancelToken::new();
     let inner =
         ArchiveChunkConsumer::new(&vault, context, Watermark::default(), &cancel, None, batch);

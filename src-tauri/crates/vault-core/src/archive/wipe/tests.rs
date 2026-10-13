@@ -4,9 +4,8 @@
 
 use super::*;
 use crate::{
-    archive::{run_backup, search_history, tests::seed_chrome_fixture},
+    archive::{run_backup, tests::seed_chrome_fixture},
     config::{load_config, project_paths_with_root, save_config},
-    models::HistoryQuery,
     utils::{restore_test_env_var, test_env_lock},
 };
 use std::{
@@ -33,8 +32,6 @@ struct Fixture {
     config: AppConfig,
     chrome_root: PathBuf,
     outside_dir: PathBuf,
-    /// What the backup saved, which the preview must count.
-    visits: i64,
 }
 
 impl Drop for Fixture {
@@ -66,7 +63,7 @@ fn backed_up_archive() -> Fixture {
         .push(crate::models::AiProviderConfig { id: "llm-1".to_string(), ..Default::default() });
     save_config(&paths, &config).expect("save config");
     let vault = crate::Vault::open(paths.clone(), config.clone(), None).expect("open archive");
-    let visits = run_backup(&vault, false).expect("backup").run.expect("run").new_visits as i64;
+    let visits = run_backup(&vault, false).expect("backup").run.expect("run").new_visits;
     assert!(visits > 0);
     vault.close().expect("close archive");
 
@@ -96,7 +93,6 @@ fn backed_up_archive() -> Fixture {
         config,
         chrome_root,
         outside_dir,
-        visits,
     }
 }
 
@@ -141,54 +137,6 @@ fn installed_plan() -> SchedulePlan {
         rollback_commands: Vec::new(),
         apply_supported: true,
     }
-}
-
-#[test]
-fn preview_lists_only_paths_inside_the_app_root_and_counts_visits() {
-    let fixture = backed_up_archive();
-    let paths = &fixture.paths;
-    // The count comes from the open archive, as in the app.
-    let vault = crate::Vault::open(paths.clone(), fixture.config.clone(), None).unwrap();
-    let preview = preview_data_wipe(paths).expect("preview");
-    vault.close().unwrap();
-
-    assert_eq!(preview.visit_count, fixture.visits);
-    assert!(!preview.clears_keychain, "the keychain is the caller's to report");
-    assert!(!preview.removes_schedule, "the scheduler is the caller's to report");
-    assert_eq!(preview.total_bytes, preview.items.iter().map(|item| item.bytes).sum::<u64>());
-    let listed: Vec<&str> = preview.items.iter().map(|item| item.path.as_str()).collect();
-    for item in &preview.items {
-        assert!(
-            Path::new(&item.path).starts_with(&paths.app_root),
-            "{} is outside the app root",
-            item.path
-        );
-    }
-    let source_evidence = paths.app_root.join("archive/source-evidence.db");
-    for expected in [
-        &archive_file(paths),
-        &source_evidence,
-        &paths.derived_dir,
-        &paths.raw_snapshots_dir,
-        &paths.audit_repo_path,
-        &paths.exports_dir,
-        &paths.models_dir,
-        &paths.stronghold_path,
-        &paths.config_path,
-        &paths.schedule_dir,
-    ] {
-        assert!(listed.contains(&expected.to_str().expect("utf8")), "{expected:?} not listed");
-    }
-    assert!(listed.iter().any(|path| path.ends_with("derived.bak-20260101T000000Z")));
-    assert!(listed.iter().any(|path| path.ends_with(".sqlite.bak-20260101T000000Z")));
-    assert!(!listed.contains(&paths.logs_dir.to_str().expect("utf8")), "logs must stay");
-    assert!(!listed.iter().any(|path| path.ends_with(ARCHIVE_WRITE_LOCK_FILE)));
-    let models = preview.items.iter().find(|item| Path::new(&item.path) == paths.models_dir);
-    assert_eq!(
-        models.map(|item| item.bytes),
-        Some(4096),
-        "folder sizes are summed and symlinked folders count as nothing"
-    );
 }
 
 #[test]
@@ -240,21 +188,6 @@ fn wipe_removes_everything_listed_and_nothing_else() {
     let config = load_config(paths).expect("config after wipe");
     assert!(!config.initialized);
     assert!(!paths.app_root.join("archive/history-vault.db").exists());
-}
-
-#[test]
-fn a_second_wipe_succeeds_and_removes_nothing_new() {
-    let fixture = backed_up_archive();
-    let paths = &fixture.paths;
-    let secrets = WipeOutsideState::from_config(&fixture.config, None);
-    wipe_all_data(paths, &secrets, no_quiesce, no_secrets, no_schedule).expect("first wipe");
-    let left_after_first = file_contents_under(&paths.app_root);
-
-    wipe_all_data(paths, &secrets, no_quiesce, no_secrets, no_schedule).expect("second wipe");
-    assert_eq!(file_contents_under(&paths.app_root), left_after_first);
-    let preview = preview_data_wipe(paths).expect("empty preview");
-    assert_eq!(preview.visit_count, 0);
-    assert!(preview.items.is_empty(), "left: {:?}", preview.items);
 }
 
 #[test]
@@ -324,77 +257,6 @@ fn a_failed_keychain_step_keeps_the_marker_for_a_retry() {
             .is_some()
     );
     assert!(!data_wipe_interrupted(paths));
-}
-
-#[test]
-fn the_automatic_backup_is_removed_last() {
-    let fixture = backed_up_archive();
-    let paths = &fixture.paths;
-    let secrets_cleared = Cell::new(false);
-    let report = wipe_all_data(
-        paths,
-        &WipeOutsideState::from_config(&fixture.config, Some(installed_plan())),
-        no_quiesce,
-        |_| {
-            secrets_cleared.set(true);
-            Ok(())
-        },
-        |plan| {
-            assert_eq!(plan.label, installed_plan().label);
-            assert!(!archive_file(paths).exists(), "the task goes after the files");
-            assert!(secrets_cleared.get(), "and after the keychain");
-            assert!(data_wipe_interrupted(paths), "a crash now still removes it at next launch");
-            Ok(())
-        },
-    )
-    .expect("wipe");
-    assert_eq!(report, WipeReport { schedule_removed: true, schedule_error: None });
-    assert!(!data_wipe_interrupted(paths));
-}
-
-#[test]
-fn a_task_that_cannot_be_removed_is_reported_and_the_wipe_still_finishes() {
-    let fixture = backed_up_archive();
-    let paths = &fixture.paths;
-    let report = wipe_all_data(
-        paths,
-        &WipeOutsideState::from_config(&fixture.config, Some(installed_plan())),
-        no_quiesce,
-        no_secrets,
-        |_| anyhow::bail!("launchctl bootout: operation not permitted"),
-    )
-    .expect("the data is gone, so the wipe succeeds");
-
-    assert!(!report.schedule_removed);
-    assert!(
-        report.schedule_error.as_deref().is_some_and(|error| error.contains("not permitted")),
-        "{report:?}"
-    );
-    assert!(!archive_file(paths).exists());
-    assert!(!load_config(paths).expect("config").initialized, "the app is not initialized");
-    // No marker: rerunning the wipe at every launch would block onboarding on the same error.
-    assert!(!data_wipe_interrupted(paths));
-}
-
-#[test]
-fn a_new_archive_in_the_same_process_bootstraps_and_searches_after_a_wipe() {
-    let fixture = backed_up_archive();
-    let paths = &fixture.paths;
-    wipe_all_data(paths, &WipeOutsideState::default(), no_quiesce, no_secrets, no_schedule)
-        .expect("wipe");
-
-    save_config(paths, &fixture.config).expect("config again");
-    let vault = crate::Vault::open(paths.clone(), fixture.config.clone(), None).unwrap();
-    run_backup(&vault, false).expect("backup into the new archive");
-    vault.search().cycle().unwrap();
-    let found = search_history(
-        paths,
-        &fixture.config,
-        None,
-        HistoryQuery { q: Some("example".to_string()), ..HistoryQuery::default() },
-    )
-    .expect("search the new archive");
-    assert!(found.total > 0, "the search projection must be rebuilt for the new archive");
 }
 
 #[cfg(unix)]

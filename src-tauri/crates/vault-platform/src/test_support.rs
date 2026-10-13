@@ -1,7 +1,7 @@
-//! Shared test/coverage environment helpers for platform adapters.
+//! Shared test environment helpers for platform adapters.
 //!
 //! These helpers keep platform tests deterministic by centralizing environment
-//! overrides for keyring, scheduler labels, and launchctl behavior.
+//! overrides for the keyring, scheduler labels and the LaunchAgents folder.
 
 use std::path::PathBuf;
 
@@ -20,16 +20,12 @@ pub const TEST_SCHEDULE_LABEL_ENV: &str = "PATHKEEP_PLATFORM_TEST_SCHEDULE_LABEL
 pub const TEST_WINDOWS_USER_ID_ENV: &str = "PATHKEEP_PLATFORM_TEST_WINDOWS_USER_ID";
 /// Env var override for the test LaunchAgents directory.
 pub const TEST_LAUNCH_AGENTS_DIR_ENV: &str = "PATHKEEP_PLATFORM_TEST_LAUNCH_AGENTS_DIR";
-/// Env var override for stubbed launchctl success/failure in tests.
-pub const TEST_LAUNCHCTL_SUCCESS_ENV: &str = "PATHKEEP_PLATFORM_TEST_LAUNCHCTL_SUCCESS";
 /// A file of this name in the test keyring's directory makes the keyring unavailable, as on a
 /// Linux without a secret service: nothing is read or saved, and its status says so.
 pub const TEST_KEYRING_UNAVAILABLE_FILE: &str = "unavailable";
 
 const LEGACY_TEST_KEYRING_DIR_ENV: &str = "CHB_TEST_KEYRING_DIR";
 const LEGACY_TEST_LAUNCH_AGENTS_DIR_ENV: &str = "CHB_TEST_LAUNCH_AGENTS_DIR";
-#[cfg(any(test, coverage))]
-const LEGACY_TEST_LAUNCHCTL_SUCCESS_ENV: &str = "CHB_TEST_LAUNCHCTL_SUCCESS";
 
 /// Returns the service name tests should use for native-keyring isolation.
 pub fn keyring_service() -> String {
@@ -60,34 +56,6 @@ pub(crate) fn launch_agents_dir_override() -> Option<PathBuf> {
         .map(PathBuf::from)
 }
 
-#[cfg(any(test, coverage))]
-/// Returns whether launchctl should be stubbed as successful in tests/coverage.
-pub(crate) fn launchctl_stub_success() -> bool {
-    std::env::var(TEST_LAUNCHCTL_SUCCESS_ENV)
-        .or_else(|_| std::env::var(LEGACY_TEST_LAUNCHCTL_SUCCESS_ENV))
-        .unwrap_or_else(|_| "1".to_string())
-        != "0"
-}
-
-#[cfg(coverage)]
-/// Returns the coverage-mode file-backed keyring directory.
-pub(crate) fn test_keyring_dir() -> Option<PathBuf> {
-    static ROOT: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
-    Some(
-        std::env::var_os(TEST_KEYRING_DIR_ENV)
-            .or_else(|| std::env::var_os(LEGACY_TEST_KEYRING_DIR_ENV))
-            .map(PathBuf::from)
-            .unwrap_or_else(|| {
-                ROOT.get_or_init(|| {
-                    std::env::temp_dir()
-                        .join(format!("pathkeep-coverage-keyring-{}", std::process::id()))
-                })
-                .clone()
-            }),
-    )
-}
-
-#[cfg(not(coverage))]
 /// Returns the file-backed keyring directory when tests opt into one.
 ///
 /// Release builds must NEVER honor the redirect env vars: doing so would let an

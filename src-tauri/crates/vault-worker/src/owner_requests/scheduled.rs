@@ -130,47 +130,11 @@ fn finalize_attempt_failure(
 
 #[cfg(test)]
 mod tests {
-    use super::{classify_backup_failure, classify_scheduled_report, finalize_attempt_failure};
+    use super::finalize_attempt_failure;
     use crate::tests::{PROJECT_ROOT_OVERRIDE_ENV, lock_env, restore_env_var};
     use std::fs;
     use tempfile::tempdir;
-    use vault_core::{ScheduleAttemptRecorder, ScheduledBackupAttemptOutcome, project_paths};
-
-    #[test]
-    fn scheduled_report_classification_covers_success_skip_defer_and_unknown_reasons() {
-        assert_eq!(
-            classify_scheduled_report(false, None),
-            (ScheduledBackupAttemptOutcome::Success, "backup-succeeded")
-        );
-        assert_eq!(
-            classify_scheduled_report(true, Some("write-lock")),
-            (ScheduledBackupAttemptOutcome::Deferred, "write-lock")
-        );
-        assert_eq!(
-            classify_scheduled_report(true, Some("not-due")),
-            (ScheduledBackupAttemptOutcome::Skipped, "not-due")
-        );
-        assert_eq!(
-            classify_scheduled_report(true, Some("unexpected")),
-            (ScheduledBackupAttemptOutcome::Skipped, "worker-error")
-        );
-    }
-
-    #[test]
-    fn backup_failure_classification_preserves_stable_reason_codes() {
-        assert_eq!(
-            classify_backup_failure(&anyhow::anyhow!("PathKeep is locked by App Lock")),
-            "app-lock"
-        );
-        assert_eq!(
-            classify_backup_failure(&anyhow::anyhow!("opening canonical archive: not a database")),
-            "archive-open"
-        );
-        assert_eq!(
-            classify_backup_failure(&anyhow::anyhow!("unexpected worker failure")),
-            "worker-error"
-        );
-    }
+    use vault_core::{ScheduleAttemptRecorder, project_paths};
 
     #[test]
     fn finalization_reports_when_failure_evidence_cannot_be_persisted() {

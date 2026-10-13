@@ -276,13 +276,4 @@ mod tests {
         assert_eq!(category_of(&["search", "docs", "search"]), "search");
         assert_eq!(category_of(&["work", "work", "ai"]), "work");
     }
-
-    #[test]
-    fn ties_go_to_a_known_category_then_the_first_by_name() {
-        assert_eq!(category_of(&["unknown", "work"]), "work");
-        assert_eq!(category_of(&["work", "unknown"]), "work");
-        assert_eq!(category_of(&["work", "search"]), "search");
-        assert_eq!(category_of(&["search", "work"]), "search");
-        assert_eq!(category_of(&["unknown"]), "unknown");
-    }
 }

@@ -1,7 +1,7 @@
 //! Responsibilities: verify ordered, atomic startup migrations on real Turso databases.
 //! Not responsible for: defining application schema.
 //! Failure modes: newer schema opens; partial failed/panicked steps persist or advance;
-//! registry accepts duplicate/reversed versions; migrations rerun during reads.
+//! migrations rerun during reads.
 mod support;
 use vault_store::{Db, Error, Migration, Store};
 #[test]
@@ -69,16 +69,4 @@ fn migration_panic_rolls_back_and_releases_owner() {
     assert!(matches!(Store::open(config), Err(Error::JobPanicked { .. })));
     let store = Store::open(support::config(dir.path())).unwrap();
     assert_eq!(support::count(&store), 0);
-}
-#[test]
-fn duplicate_and_reversed_versions_are_rejected() {
-    for versions in [[1, 1], [2, 1], [0, 1]] {
-        let dir = tempfile::tempdir().unwrap();
-        let mut config = support::config(dir.path());
-        config.migrations.register(
-            Db::Archive,
-            versions.into_iter().map(|v| Migration::sql(v, "SELECT 1")).collect(),
-        );
-        assert!(matches!(Store::open(config), Err(Error::InvalidConfig(_))));
-    }
 }

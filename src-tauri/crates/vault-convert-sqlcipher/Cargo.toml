@@ -25,18 +25,11 @@ vault-store = { path = "../vault-store" }
 
 [dev-dependencies]
 browser-history-fixtures = { path = "../browser-history-fixtures" }
-hex.workspace = true
 libc.workspace = true
 vault-core = { path = "../vault-core", features = ["test-fixtures"] }
-zip.workspace = true
-
 
 [[test]]
 name = "benchmark"
-required-features = ["test-fixtures"]
-
-[[test]]
-name = "bundle"
 required-features = ["test-fixtures"]
 
 [[test]]

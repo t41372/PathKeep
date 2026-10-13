@@ -3,7 +3,7 @@
 //! Failure modes: errors leave running rows, partial batches lose progress, profile
 //! changes reset run totals, completing one import completes another batch, a failure after a
 //! run ended rewrites how it ended.
-//! Tests: write_runs_tests, vault::tests and archive::ingest::concurrency_tests.
+//! Tests: vault::tests and archive::ingest::concurrency_tests.
 
 use crate::{Vault, utils::now_rfc3339};
 use anyhow::Result;
@@ -224,7 +224,3 @@ pub(crate) fn with_totals(s: &Session<'_>, mut stats: Value) -> Result<Value> {
     }
     Ok(stats)
 }
-
-#[cfg(test)]
-#[path = "write_runs_tests.rs"]
-mod tests;

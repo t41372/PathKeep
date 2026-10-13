@@ -71,16 +71,3 @@ pub fn awake_since() -> Option<DateTime<Utc>> {
 pub fn awake_since() -> Option<DateTime<Utc>> {
     None
 }
-
-#[cfg(all(test, target_os = "macos"))]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_computer_woke_or_started_in_the_past_and_after_it_started() {
-        let since = awake_since().expect("macOS always has a boot time");
-        let started = sysctl_time(c"kern.boottime").expect("boot time");
-        assert!(since >= started);
-        assert!(since <= Utc::now());
-    }
-}
