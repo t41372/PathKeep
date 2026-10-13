@@ -78,9 +78,9 @@ pub(crate) fn classify_visit(
         .and_then(|parsed| match_search_engine_rule(parsed, &registrable_domain, search_rules));
     let generic_search_query = normalized_url.as_ref().and_then(|value| value.search_query.clone());
     let search_query = query
-        .map(normalize_query)
+        .map(typed_query)
         .filter(|value| !value.is_empty())
-        .or_else(|| matched_search_rule.as_ref().map(|rule| normalize_query(&rule.query)))
+        .or_else(|| matched_search_rule.as_ref().map(|rule| typed_query(&rule.query)))
         .or(generic_search_query);
     let generic_search_engine = search_query
         .as_ref()
@@ -110,6 +110,12 @@ pub(crate) fn classify_visit(
             .or_else(|| display_name_for_domain(&registrable_domain)),
         is_noisy: matched_override.is_some_and(|override_rule| override_rule.is_noisy),
     }
+}
+
+/// A search as the user typed it, for showing: letter case kept, runs of whitespace made one
+/// space. Grouping and comparing go through [`normalize_query`].
+pub(crate) fn typed_query(raw: &str) -> String {
+    raw.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 /// Canonicalizes a search query for grouping and comparison. It lowercases and

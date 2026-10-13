@@ -37,14 +37,16 @@ pub(super) fn source_page(
         } else {
             s.query(&format!("{SOURCE_COLUMNS} ORDER BY v.visit_time_ms,v.id LIMIT ?4"),params![profile,source_id,upper,limit as i64],map)?
         };
-        // Terms are hydrated in the same short archive snapshot. Classification happens later.
+        // Terms are hydrated in the same short archive snapshot, as typed (`term`, not the
+        // lowercased `normalized_term`): Insights show a search the way it was written and group
+        // through `normalize_query`. Classification happens later.
         let ids=visits.iter().map(|v|v.source_url_id).collect::<std::collections::BTreeSet<_>>();
         let mut terms=std::collections::HashMap::new();
         for chunk in ids.into_iter().collect::<Vec<_>>().chunks(400) {
             let slots=(2..chunk.len()+2).map(|index|format!("(?{index})")).collect::<Vec<_>>().join(",");
             let mut values=vec![vault_store::Value::Integer(source_id)];
             values.extend(chunk.iter().copied().map(vault_store::Value::Integer));
-            s.for_each(&format!("WITH requested(url_id) AS (VALUES {slots}) SELECT t.url_id,t.normalized_term FROM requested CROSS JOIN search_terms t INDEXED BY idx_search_terms_profile_url_term ON t.url_id=requested.url_id WHERE t.source_profile_id=?1 AND t.reverted_at IS NULL ORDER BY t.id"),values,|r| {
+            s.for_each(&format!("WITH requested(url_id) AS (VALUES {slots}) SELECT t.url_id,t.term FROM requested CROSS JOIN search_terms t INDEXED BY idx_search_terms_profile_url_term ON t.url_id=requested.url_id WHERE t.source_profile_id=?1 AND t.reverted_at IS NULL ORDER BY t.id"),values,|r| {
                 terms.entry(r.get::<i64>(0)?).or_insert(r.get::<String>(1)?);Ok(())
             })?;
         }

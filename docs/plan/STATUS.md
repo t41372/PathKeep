@@ -314,11 +314,12 @@
   - 做了：「最舊」照每頁在範圍內的第一次造訪排，那一列顯示那次造訪（`hydrate`）；第一次造訪只在最舊排序時記（14.4M 時多一個約 290 萬格的陣列，其他排序不用）。regex 路徑一樣：候選頁取 `MIN`，沒有字面片段時從最舊往新走（`visit_time_ms>=?` seek，查詢計畫測試兩個方向都驗）。`vault_search::Hit` 的 `newest_visit_ms` 改名 `visit_ms`（排序依據的那次造訪），索引欄位不變。`ported_grouped` 原本把最舊排序下顯示最新一次當成對的，改成第一次。
   - E2E：`ask-chats.spec` 的「when did I first」打開：第一筆是 fixture 裡最早的那次，前三筆是最早被造訪的三頁，時間由舊到新。History 畫面沒有「最舊」排序（只有相關度與最新），所以不加 History 的；用最舊排序的是 Ask 與 MCP。
 
-- [ ] **WORK-INSIGHTS-SEARCH-SPELLING** — 「常搜尋」顯示的不是使用者打的字（2026-10-13，`insights-counts.spec` 找到）
+- [x] **WORK-INSIGHTS-SEARCH-SPELLING** — 「常搜尋」顯示的不是使用者打的字（2026-10-13，`insights-counts.spec` 找到）
   - 讀先：`docs/features/intelligence.md`（常搜尋）、`docs/features/deterministic-intelligence.md`。
   - 現象：前端（`insights/queries.ts` 的 `useFrequentSearches`）說常搜尋「照使用者最後一次打的樣子」顯示，但 `site_dictionary/classification.rs` 的 `normalize_query` 在存進造訪事實前就轉小寫，`search_events_rows.raw_query` 永遠是小寫，`FREQUENT_SEARCHES_SQL` 挑「最新的原文」挑到的也是小寫。fixture 最新一次打的是「SQLite WAL Mode」，畫面寫「sqlite wal mode」。分組（不分大小寫算同一個）是對的。
   - 方向：造訪事實存使用者打的字（只合併空白），`normalized_query` 照舊由它算；檢查每個讀 `search_query` 的地方是拿它比對還是顯示。洞察的規則版本要升，既有存檔打開時自動重建。
-  - E2E：`insights-counts.spec` 的常搜尋改回驗顯示的是最新的拼法。
+  - 做了（2026-10-13）：小寫其實有兩個源頭：存檔的 `search_terms.normalized_term` 本來就是小寫（Chrome 存的就是），`classification.rs` 又轉一次。洞察改讀使用者打的 `term`，造訪事實只合併空白、保留大小寫（`typed_query`）；分組、改寫判斷、query family、drill-in 原本就經過 `normalize_query` / `search_family_key`，不受影響。洞察規則版本 visit-derive v4 → v5，既有存檔打開時自動重建（用戶真實資料上次這種重建約 1 分鐘）。
+  - E2E：`insights-counts.spec` 的常搜尋驗每個晶片顯示的是那組最新一次打的樣子（fixture 最後一次是「SQLite WAL Mode」），次數與順序照舊。
 
 - [ ] **WORK-ASK-2026-10** — 助理的對話與 agent（用戶 2026-10-12）
   - 讀先：`docs/features/intelligence.md`（Ask）、`docs/architecture/ai-security-posture.md`。

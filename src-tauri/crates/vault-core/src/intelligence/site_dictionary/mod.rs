@@ -34,6 +34,7 @@ mod types;
 
 pub(crate) use classification::{
     classify_visit, display_name_for_domain, display_name_for_search_engine, normalize_query,
+    typed_query,
 };
 pub(crate) use overrides::load_site_dictionary_overrides;
 #[cfg(test)]

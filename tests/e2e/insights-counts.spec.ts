@@ -4,7 +4,8 @@
  *
  * Proves:
  * - Frequent searches, last 30 days: each search counted once however it
- *   was typed (letter case and spacing apart), most searched first; an
+ *   was typed (letter case and spacing apart) and shown the way it was last
+ *   typed, most searched first; an
  *   address typed into the search box
  *   ("news.ycombinator.com") is a way to reach a site, not a search, and is
  *   left out though it was typed more often than most.
@@ -66,29 +67,38 @@ async function kpi(page: Page, label: string) {
   return parseCount((await tile.innerText()).split('\n')[1] ?? '')
 }
 
+/** A search as typed, with runs of spaces made one, as Insights shows it. */
+const typed = (term: string) => term.trim().split(/\s+/).join(' ')
+
 /** How Insights groups searches: letter case and runs of spaces don't count. */
-const normalized = (term: string) =>
-  term.trim().split(/\s+/).join(' ').toLowerCase()
+const normalized = (term: string) => typed(term).toLowerCase()
 
 test('Frequent searches count a search however it was typed, and leave out typed addresses', async ({
   page,
 }, testInfo) => {
   const since = startOfDayDaysAgo(29)
-  const counts = new Map<string, number>()
+  // Per grouped search: how often, and the spelling of its latest visit.
+  const counts = new Map<string, { count: number; at: number; query: string }>()
   let addresses = 0
   for (const visit of archivedVisits()) {
     if (!visit.term || visit.at < since) continue
     if (isAddress(visit.term)) addresses += 1
     else {
       const key = normalized(visit.term)
-      counts.set(key, (counts.get(key) ?? 0) + 1)
+      const entry = counts.get(key) ?? { count: 0, at: -1, query: '' }
+      entry.count += 1
+      if (visit.at > entry.at) {
+        entry.at = visit.at
+        entry.query = typed(visit.term)
+      }
+      counts.set(key, entry)
     }
   }
   // Most searched first, then by the grouped spelling (as the backend sorts).
   const expected = [...counts]
-    .sort(([a, x], [b, y]) => y - x || (a < b ? -1 : 1))
+    .sort(([a, x], [b, y]) => y.count - x.count || (a < b ? -1 : 1))
     .slice(0, 10)
-    .map(([query, count]) => ({ query, count }))
+    .map(([, { query, count }]) => ({ query, count }))
   await testInfo.attach('frequent searches by hand, 30 days', {
     body: JSON.stringify({ expected, addresses }, null, 2),
     contentType: 'application/json',
@@ -98,9 +108,9 @@ test('Frequent searches count a search however it was typed, and leave out typed
   const { spellings } = FIXTURE_SCENES.respelled
   expect(new Set(spellings).size).toBe(spellings.length)
   expect(new Set(spellings.map(normalized)).size).toBe(1)
-  expect(expected.map((entry) => entry.query)).toContain(
-    normalized(spellings[0]),
-  )
+  // Shown as last typed: not the first spelling, not lowercased.
+  expect(expected.map((entry) => entry.query)).toContain(spellings.at(-1))
+  expect(spellings.at(-1)).not.toBe(normalized(spellings.at(-1)!))
   expect(addresses).toBeGreaterThan(expected.at(-1)!.count)
 
   await page.goto('/#/insights?range=d30')
@@ -108,22 +118,17 @@ test('Frequent searches count a search however it was typed, and leave out typed
     'a[href*="/insights/search/"]',
   )
   await expect(chips.first()).toBeVisible({ timeout: JOB_TIMEOUT })
-  // Each chip's search, compared as Insights groups them, and the count at
-  // the end of its text.
+  // Each chip's words as shown, and the count at the end of its text.
   const read = async () =>
     Promise.all(
-      (await chips.all()).map(async (chip) => ({
-        query: normalized(
-          decodeURIComponent(
-            ((await chip.getAttribute('href')) ?? '').match(
-              /search\/([^?]+)/,
-            )?.[1] ?? '',
-          ),
-        ),
-        count: parseCount(
-          (await chip.innerText()).match(/(\d[\d,]*)\D*$/)?.[1] ?? '',
-        ),
-      })),
+      (await chips.all()).map(async (chip) => {
+        const text = (await chip.innerText()).trim()
+        const count = text.match(/(\d[\d,]*)\D*$/)
+        return {
+          query: typed(count ? text.slice(0, count.index) : text),
+          count: parseCount(count?.[1] ?? ''),
+        }
+      }),
     )
   let shown: Awaited<ReturnType<typeof read>> = []
   await expect

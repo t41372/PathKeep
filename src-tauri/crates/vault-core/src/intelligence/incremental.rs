@@ -51,8 +51,9 @@ pub(super) fn stage_version(connection: &Session<'_>, stage: RebuildMode) -> Res
         // v3: categories left out; they have their own version (`category_version`).
         // v4: a `from_visit` of 0 (Chromium's and Firefox's "nothing opened it") is no navigation
         // evidence.
+        // v5: a search keeps the letter case it was typed in; grouping still ignores it.
         RebuildMode::VisitDerive => Ok(format!(
-            "visit-derived-facts-v4:{}:{}:{}",
+            "visit-derived-facts-v5:{}:{}:{}",
             url_rules_version(),
             override_digest(connection, "search", "search_engine", "search_engine IS NOT NULL")?,
             super::intelligence_overview_snapshot::load_search_rule_signature(connection)?

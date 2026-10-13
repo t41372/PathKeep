@@ -4,7 +4,7 @@
 //! source pages omit visits, or search terms disappear at a batch boundary.
 use super::{
     VisitRecord,
-    site_dictionary::{SiteDictionaryEntry, normalize_query},
+    site_dictionary::{SiteDictionaryEntry, typed_query},
 };
 use vault_store::Row;
 
@@ -53,7 +53,7 @@ pub(super) fn apply_site_dictionary(
     visit.search_engine = dictionary.search_engine;
     visit.search_query = query
         .filter(|value| !value.trim().is_empty())
-        .map(|value| normalize_query(&value))
+        .map(|value| typed_query(&value))
         .or(dictionary.search_query);
     visit.is_search_event = visit.search_query.is_some() && visit.search_engine.is_some();
     visit.evidence_tier = dictionary.evidence_tier;
