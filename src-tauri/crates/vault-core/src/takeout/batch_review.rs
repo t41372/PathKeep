@@ -147,6 +147,7 @@ fn load_import_batch_detail_page(
         detected_locale: batch.detected_locale,
         preview_range_start: batch.preview_range_start,
         preview_range_end: batch.preview_range_end,
+        changed_profiles: Vec::new(),
     })
 }
 

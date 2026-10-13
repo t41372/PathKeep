@@ -68,6 +68,31 @@ pub(crate) fn record_progress(
     Ok(())
 }
 
+/// Adds `profiles` (`source_profiles.id`) to the set a run keeps under `key`, for a step that
+/// needs every profile the run touched after it was resumed.
+pub(crate) fn record_profiles(
+    s: &Session<'_>,
+    run_id: i64,
+    key: &str,
+    profiles: impl IntoIterator<Item = i64>,
+) -> Result<()> {
+    let text = s.query_one("SELECT stats_json FROM runs WHERE id=?1", [run_id], |r| {
+        Ok(r.get::<Option<String>>(0)?)
+    })?;
+    let mut stats: Value = serde_json::from_str(text.as_deref().unwrap_or("{}"))?;
+    let mut set = stats[key]
+        .as_array()
+        .map(|ids| ids.iter().filter_map(Value::as_i64).collect::<std::collections::BTreeSet<_>>())
+        .unwrap_or_default();
+    let before = set.len();
+    set.extend(profiles);
+    if set.len() != before {
+        stats[key] = json!(set);
+        s.execute("UPDATE runs SET stats_json=?2 WHERE id=?1", params![run_id, stats.to_string()])?;
+    }
+    Ok(())
+}
+
 pub(crate) fn complete(
     vault: &Vault,
     run_id: i64,

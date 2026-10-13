@@ -4,6 +4,8 @@
 //! restore turns a partial import into a complete import, concurrent producers change
 //! one batch twice, cancellation blocks the queue.
 //! Per-profile counters use only changed rows returned by the same transaction; no visit-sized allocation.
+//! The profiles whose counted visits changed are kept on the run as it goes, so a resumed undo
+//! still names every one of them for the Insights rebuild that follows (`changed_profiles`).
 //! A visit another source also recorded (`archive::same_visit`): undoing its counted copy lets
 //! the best other copy count; restoring links it again.
 //! Tests: batch_search_tests and turso_write_path.
@@ -24,6 +26,7 @@ pub(super) fn change_visibility(
 ) -> Result<ImportBatchDetail> {
     let action = if restore { "restore" } else { "revert" };
     let run = vault.write(Db::Archive, Priority::Batch, move |s| begin(s, batch, restore))?;
+    let mut changed_profiles = Vec::new();
     if let Some(run) = run {
         let result = (|| {
             loop {
@@ -42,6 +45,7 @@ pub(super) fn change_visibility(
                 let mut summary:Value=serde_json::from_str(&text)?;
                 let stats:Value=serde_json::from_str(&stats)?;
                 let count=stats["newVisits"].as_u64().unwrap_or(0);
+                let profiles=stats["changedProfiles"].as_array().map(|ids|ids.iter().filter_map(Value::as_i64).collect::<Vec<_>>()).unwrap_or_default();
                 let at=now_rfc3339();
                 let message=if restore {format!("Restored at {at}. Returned {count} hidden history rows to the visible archive view via restore run #{run}.")} else {format!("Reverted at {at}. Soft-hid {count} live history rows from the archive view.")};
                 let note=TakeoutNote::new(if restore {"batch-restored"} else {"batch-reverted"},message.clone()).with_count(count as usize).with_at(at).with_run_id(run);
@@ -51,12 +55,15 @@ pub(super) fn change_visibility(
                 s.execute("UPDATE import_batches SET status=CASE WHEN ?2=1 THEN previous_status ELSE 'reverted' END,
                     reverted_at=CASE WHEN ?2=1 THEN NULL ELSE ?3 END,visibility_run_id=NULL,audit_path=NULL WHERE id=?1",
                     params![batch,i64::from(restore),now_rfc3339()])?;
-                Ok(())
+                Ok(same_visit::profile_keys(s,&profiles)?)
             })
         })();
-        if let Err(error) = result {
-            write_runs::end_failed(vault, run, &error, json!({}), None);
-            return Err(error);
+        match result {
+            Ok(profiles) => changed_profiles = profiles,
+            Err(error) => {
+                write_runs::end_failed(vault, run, &error, json!({}), None);
+                return Err(error);
+            }
         }
     }
     let audit = batches::ensure_import_batch_audit_artifact(
@@ -73,7 +80,9 @@ pub(super) fn change_visibility(
             audit?;
         }
     }
-    preview_import_batch(vault, batch)
+    let mut detail = preview_import_batch(vault, batch)?;
+    detail.changed_profiles = changed_profiles;
+    Ok(detail)
 }
 
 fn begin(s: &Session<'_>, batch: i64, restore: bool) -> Result<Option<i64>> {
@@ -177,7 +186,7 @@ fn chunk(s: &Session<'_>, batch: i64, restore: bool, run: i64) -> Result<usize> 
             }
         }
     }
-    for (profile, delta) in by_profile {
+    for (&profile, &delta) in &by_profile {
         crate::archive::totals::add_visits(s, profile, delta)?;
     }
     for page in pages {
@@ -188,6 +197,7 @@ fn chunk(s: &Session<'_>, batch: i64, restore: bool, run: i64) -> Result<usize> 
         run,
         &[("newVisits", visits as usize), ("processedUrls", ids.len())],
     )?;
+    write_runs::record_profiles(s, run, "changedProfiles", by_profile.keys().copied())?;
     s.execute(
         "UPDATE import_batches SET visibility_cursor=?2,visible_items=visible_items+?3 WHERE id=?1",
         params![batch, last, if restore { visits as i64 } else { -(visits as i64) }],

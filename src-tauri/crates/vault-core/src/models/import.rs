@@ -156,6 +156,10 @@ pub struct ImportBatchDetail {
     pub detected_locale: Option<String>,
     pub preview_range_start: Option<String>,
     pub preview_range_end: Option<String>,
+    /// The profiles whose counted visits an undo or restore just changed (profile keys), so
+    /// the caller can rebuild their Insights. Empty when nothing changed; never sent to the UI.
+    #[serde(skip)]
+    pub changed_profiles: Vec<String>,
 }
 
 /// Full inspection/import payload returned by the Takeout flow.

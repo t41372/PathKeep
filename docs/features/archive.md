@@ -200,6 +200,7 @@ Settings → General 的兩個開關。
 - 導入後可回滾：用戶可以查看每次導入的記錄，如果發現導入的數據有問題（髒數據），可以回滾整次導入。
   - Takeout rollback 走和 backup / revert 相同的 soft-hide visibility model：imported rows 從正常 recall / export 中隱藏，但 raw facts、manifest 和 snapshot artifact 保持可審計。
   - 回滾後必須支援 un-revert / restore，讓整批 import 能恢復可見。
+  - 撤銷與恢復跟匯入一樣改了算進洞察的造訪，所以一樣把洞察標成過期、排好重建（2026-10-13 起；之前撤銷後洞察照舊算著那些造訪，直到下一次備份或手動重建）。重建只排這次動到的設定檔：這一批自己的，加上因為它的造訪藏起或回來而換成另一份來算的同一次造訪所在的設定檔。中途停下再接著做時，這些設定檔記在那次 run 上，不會漏。
 - Import review surface 應把 `new import wizard` 與「這次匯入結果」放在首要層級；recent batch history、revert / restore、doctor report 與 repair CTA 退到次要 review surface，避免歷史批次搶走新匯入流程的注意力。
 - 提供詳細但可掃讀的操作指南：怎麼從 Google Takeout 請求 Chrome 匯出、怎麼下載，以及如何確認壓縮包 / 資料夾裡真的有 dedicated Chrome history JSON，而不是 My Activity JSON / HTML。
   - 2026-10-09 介面：匯入卡在拖放區下有可展開的「怎麼從 Google Takeout 取得」（打開 takeout.google.com 全部取消選取、勾 Chrome〔資料選項裡可以只留歷史記錄〕、以 .zip 建立匯出、拖進來不用解壓縮；並說明 Takeout 裡是 Chrome 同步到帳號的歷史，可能比本機 Chrome 久）。預覽時若匯出裡有 HTML 的「我的活動 → Chrome」，寫明 PathKeep 讀不了、請改為 JSON 或改勾 Chrome；什麼都沒找到時寫明檔案裡沒有 Chrome 歷史與該怎麼匯出。JSON 的「我的活動」照常預覽與匯入（Google 的轉址解開、標題去掉 `Visited `）。匯入的造訪若別的來源（瀏覽器本身、另一份匯出）已經有同一次（同網址、1 秒內），一併保存、只算一次，卡片多一行說幾筆是這樣（`docs/architecture/same-visit-across-sources.md`）。同一份匯出裡同時有 Chrome 歷史與「我的活動」時，先寫 Chrome 歷史，「我的活動」的副本記成已在 archive，跟檔案在 zip 裡的順序或資料夾名稱無關。`takeout-import.spec` 驗這幾種情況，包括一個照 Google 寄出的樣子做的 .zip（`Takeout/` 下有 Chrome 的 `History.json` 與其他檔案、「我的活動」的 JSON）。

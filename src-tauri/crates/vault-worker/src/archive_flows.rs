@@ -916,12 +916,31 @@ pub fn preview_import_batch_detail(vault: &Vault, batch_id: i64) -> Result<Impor
 
 /// Soft-hides one imported batch and returns its updated detail.
 pub fn revert_import_batch_detail(vault: &Vault, batch_id: i64) -> Result<ImportBatchDetail> {
-    revert_import_batch(vault, batch_id)
+    refresh_after_visibility_change(vault, revert_import_batch(vault, batch_id)?)
 }
 
 /// Restores one previously reverted import batch to visible status.
 pub fn restore_import_batch_detail(vault: &Vault, batch_id: i64) -> Result<ImportBatchDetail> {
-    restore_import_batch(vault, batch_id)
+    refresh_after_visibility_change(vault, restore_import_batch(vault, batch_id)?)
+}
+
+/// Undoing or restoring an import changes counted visits as an import does, so Insights are
+/// rebuilt the same way, for the profiles it changed. The undo itself is done either way; if
+/// the rebuild cannot be queued, Background work shows the Insights as out of date.
+fn refresh_after_visibility_change(
+    vault: &Vault,
+    detail: ImportBatchDetail,
+) -> Result<ImportBatchDetail> {
+    if !detail.changed_profiles.is_empty() {
+        if let Err(error) = enqueue_and_spawn_deterministic_refresh(vault, &detail.changed_profiles)
+        {
+            eprintln!(
+                "pathkeep: import batch {}: Insights could not be queued to rebuild: {error:#}",
+                detail.batch.id
+            );
+        }
+    }
+    Ok(detail)
 }
 
 /// Runs doctor checks against the current archive.

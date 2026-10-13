@@ -552,6 +552,7 @@ Optional helpers：
 2026-04-10 implementation note：
 
 - `clear_derived_intelligence_state` 與 archive visibility repair 現在都會清掉 M5-B derived tables，並把 deterministic module registry 明確標成 `stale`。backup / import 成功後必須自動排入新的 deterministic rebuild job；若是 manual clear / repair 導致的 stale state，UI 也必須明講目前狀態與下一步，而不是讓舊 surface 假裝仍然新鮮。
+- 2026-10-13：import revert / restore 之前沒有照上面的清單標 stale，也沒排重建；撤銷後洞察照舊算著那些造訪。現在跟匯入走同一條（`vault-worker` 的 `refresh_after_visibility_change`），只排這次動到的設定檔。
 - deterministic rebuild queue 現在採 lease + heartbeat + cooperative cancel：claim 必須 compare-and-set，running cancel 只設 stop request，worker 需在 phase / chunk 邊界自行結束並留下 cancelled trace；success 不得覆蓋已被 cancel / failed 的 job。
 
 ---
