@@ -55,6 +55,12 @@
   - 現象：索引建置（`ai_index`）、助理回答（`assistant`）與每次 MCP 查詢（`mcp_query`）都寫進 `runs`，以前只出現在 Backup 的「最近的執行」，寫成備份的「0 個來源 · 0 筆新造訪」，還把備份擠出 12 筆。現在那裡不列它們，畫面上就沒有地方看得到；MCP 查詢是外部工具讀了哪些歷史的審計，應該看得到。
   - 方向：先決定放哪（Settings → AI，或 Background work）、列什麼（查了什麼、回了幾筆、哪個工具），再做讀取命令與畫面（三語、虛擬化）。
 
+- [ ] **WORK-UPGRADE-LOCKED-FLAKE** — 從 0.3.0 升級時偶爾停在「存檔已加密」（2026-10-12 本機 gate 看到一次）
+  - 現象：`upgrade.spec` 解開 0.3.0 的 App Lock 之後，應該出現「Updating your archive」，那一次卻是「Your archive is encrypted」（`archive-locked`，要密碼解鎖新格式的存檔）。資料夾裡只有剛解開的 0.3.0 檔案（spec 先確認沒有 `config.json`、也沒有 `history-vault.db`）。同一份程式碼前一次與後一次的完整 E2E 都過（75 / 76 個）。
+  - 疑點：`session.tsx` 的順序是 App Lock → recovery → upgrade → archive-locked；解鎖後重新判斷時，「是不是舊格式」那一步若讀失敗或讀到還沒寫完的狀態，就會落到 archive-locked。使用者遇到的話，會被要求用 0.3.0 的密碼解鎖一個不存在的新存檔。
+  - 證據：那次的 `error-context.md`、trace 與 app 的執行緒堆疊在 2026-10-12 的 `artifacts/e2e/`（之後的 run 會蓋掉；要重現就重跑 `upgrade` 專案直到失敗，保存那次的產物）。
+  - 方向：先找出解鎖後判斷舊格式的那條路（session 狀態與後端的升級偵測命令），寫下它在什麼時序下會答錯，再修；E2E 連跑多次證明。
+
 - [ ] **WORK-JOB-HISTORY-PAGING** — Background work 看得到全部的工作紀錄，翻頁不漏（2026-10-12 修 `queue_history_dispatch_preserves_every_cursor_page` 時找到）
   - 讀先：`docs/features/intelligence.md`（Recent-job snapshots 一段）、`vault-core/src/intelligence_runtime/snapshot.rs`（`load_job_page` 與 recent jobs）、`vault-core/src/ai_queue/store.rs`（`list_jobs`）。
   - 現象：Background work 只顯示兩個佇列的第一頁；後端已有 `list_ai_jobs` / `list_intelligence_jobs` 接著讀，但前端沒用，更早的工作在畫面上找不到。
