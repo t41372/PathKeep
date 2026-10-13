@@ -13,6 +13,10 @@
 //!     hidden window with no tray icon and no Dock could not be reached.
 //! - With the icon on, closing the window hides it; the app keeps running in
 //!   the menu bar. With the icon off, closing the window quits, as before.
+//! - On Windows and Linux the window has no system title bar: the app draws
+//!   its window buttons (`src/app/shell/window-controls.tsx`), so the window
+//!   is the same two layers as on macOS (`back-forward-window-frame-tradeoff.md`
+//!   D). It is turned off before the window first shows.
 //!
 //! ## Responsibilities
 //! - Startup visibility, the close-button policy, and bringing the window back.
@@ -58,6 +62,7 @@ pub(crate) fn apply_startup_window<R: Runtime>(app: &AppHandle<R>, startup: Star
         StartupWindow::StayHidden => {}
         StartupWindow::Minimized => {
             if let Some(window) = app.get_webview_window(MAIN_WINDOW) {
+                frame(&window);
                 let _ = window.minimize();
                 let _ = window.show();
                 let _ = window.minimize();
@@ -77,10 +82,22 @@ pub(crate) fn show_main_window<R: Runtime>(app: &AppHandle<R>) {
             .ok()
     });
     if let Some(window) = window {
+        frame(&window);
         let _ = window.unminimize();
         let _ = window.show();
         let _ = window.set_focus();
     }
+}
+
+/// Off macOS, the window without the system's title bar (see the module header). macOS keeps its
+/// overlay title bar and traffic lights (`titleBarStyle: "Overlay"`).
+fn frame<R: Runtime>(window: &tauri::WebviewWindow<R>) {
+    #[cfg(not(target_os = "macos"))]
+    if let Err(error) = window.set_decorations(false) {
+        log::warn!("could not turn off the system title bar: {error}");
+    }
+    #[cfg(target_os = "macos")]
+    let _ = window;
 }
 
 /// Hides the main window instead of closing it while the menu bar icon exists.

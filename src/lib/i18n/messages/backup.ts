@@ -24,6 +24,17 @@ export const backup = defineMessages({
       checkAgain: 'Check again',
       saveFailed: 'Could not update the sources',
       toggle: 'Back up {name}',
+      group: {
+        profiles_one: '{count} profile',
+        profiles_other: '{count} profiles',
+        on: '{on} of {total} backed up',
+        show: 'Show the profiles of {browser}',
+        hide: 'Hide the profiles of {browser}',
+        notFound_one: '{count} profile without history',
+        notFound_other: '{count} profiles without history',
+        notFoundHint:
+          'PathKeep found these profiles but no history file in them: the browser was removed, or the profile never used.',
+      },
       status: {
         ok: 'OK',
         needsPermission: 'Needs permission',
@@ -214,6 +225,17 @@ export const backup = defineMessages({
       checkAgain: '重新检查',
       saveFailed: '无法更新来源',
       toggle: '备份 {name}',
+      group: {
+        profiles_one: '{count} 个用户',
+        profiles_other: '{count} 个用户',
+        on: '已备份 {on}/{total}',
+        show: '显示 {browser} 的用户',
+        hide: '收起 {browser} 的用户',
+        notFound_one: '{count} 个用户没有浏览记录',
+        notFound_other: '{count} 个用户没有浏览记录',
+        notFoundHint:
+          'PathKeep 找到了这些用户，但里面没有浏览记录文件：浏览器已删除，或这个用户没用过。',
+      },
       status: {
         ok: '正常',
         needsPermission: '需要授权',
@@ -400,6 +422,17 @@ export const backup = defineMessages({
       checkAgain: '重新檢查',
       saveFailed: '無法更新來源',
       toggle: '備份 {name}',
+      group: {
+        profiles_one: '{count} 個使用者',
+        profiles_other: '{count} 個使用者',
+        on: '已備份 {on}/{total}',
+        show: '顯示 {browser} 的使用者',
+        hide: '收起 {browser} 的使用者',
+        notFound_one: '{count} 個使用者沒有瀏覽紀錄',
+        notFound_other: '{count} 個使用者沒有瀏覽紀錄',
+        notFoundHint:
+          'PathKeep 找到了這些使用者，但裡面沒有瀏覽紀錄檔：瀏覽器已移除，或這個使用者沒用過。',
+      },
       status: {
         ok: '正常',
         needsPermission: '需要授權',

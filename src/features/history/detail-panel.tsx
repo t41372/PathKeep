@@ -27,6 +27,8 @@ interface Props {
   target: DetailTarget
   starred: boolean
   sessionMates: VisitItem[]
+  /** Every visit of the selected row, when it stands for several in a row. */
+  repeats: VisitItem[]
   onClose: () => void
   onToggleStar: () => void
   onSelectMate: (item: VisitItem) => void
@@ -70,6 +72,7 @@ export function DetailPanel({
   target,
   starred,
   sessionMates,
+  repeats,
   onClose,
   onToggleStar,
   onSelectMate,
@@ -152,6 +155,32 @@ export function DetailPanel({
       />
 
       <DetailStats key={`stats:${target.url}`} url={target.url} />
+
+      {repeats.length > 1 && (
+        <div className="flex flex-col gap-1.5">
+          <span className="text-xs text-muted-foreground">
+            {t('history.sameVisits', { count: repeats.length })}
+          </span>
+          <div className="flex flex-wrap gap-1">
+            {repeats.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                aria-current={item.id === target.visitId ? 'true' : undefined}
+                onClick={() => onSelectMate(item)}
+                className={cn(
+                  'rounded-md px-1.5 py-0.5 text-xs tabular-nums outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/50',
+                  item.id === target.visitId
+                    ? 'bg-brand-soft text-foreground'
+                    : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+                )}
+              >
+                {format.time(item.visitTime)}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {sessionMates.length > 0 && (
         <div className="flex flex-col gap-1.5">

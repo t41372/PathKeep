@@ -190,6 +190,8 @@ export interface ReopenedInvestigation {
   anchorType: 'query_family' | 'reference_page'
   anchorId: string
   anchorLabel: string
+  /** The page's site, for its icon; absent for a search. */
+  site?: string | null
   occurrenceCount: number
   distinctDays: number
   firstSeenAt: string

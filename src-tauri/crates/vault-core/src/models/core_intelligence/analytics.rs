@@ -194,6 +194,10 @@ pub struct ReopenedInvestigation {
     pub anchor_type: String,
     pub anchor_id: String,
     pub anchor_label: String,
+    /// The page's site (registrable domain) for a page anchor, so a list can show its icon;
+    /// `None` for a search.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub site: Option<String>,
     pub occurrence_count: i64,
     pub distinct_days: i64,
     pub first_seen_at: String,

@@ -481,7 +481,10 @@ pub(crate) fn get_reopened_investigations_with_connection(
         ORDER BY r.last_seen_ms DESC,r.occurrence_count DESC,r.investigation_id LIMIT ?7"),
         params![request.profile_id,start,end,after.as_ref().map(|v|v.0),after.as_ref().map(|v|v.1),after.as_ref().map(|v|v.2.as_str()),(limit+1) as i64],|r| {
             let id=r.get::<String>(0)?;let count=r.get::<i64>(4)?;let time=r.get::<i64>(7)?;
-            Ok((ReopenedInvestigation {investigation_id:id.clone(),anchor_type:r.get(1)?,anchor_id:r.get(2)?,anchor_label:r.get(3)?,occurrence_count:count,distinct_days:r.get(5)?,first_seen_at:rfc3339_from_millis(r.get(6)?),last_seen_at:rfc3339_from_millis(time)},(time,count,id)))
+            let anchor_type=r.get::<String>(1)?;let anchor_id=r.get::<String>(2)?;
+            // A page's anchor is its canonical URL; its site gives the list its icon.
+            let site=(anchor_type=="reference_page").then(||crate::visit_taxonomy::normalize_visit_url(&anchor_id).map(|url|url.registrable_domain)).flatten().filter(|site|!site.is_empty());
+            Ok((ReopenedInvestigation {investigation_id:id.clone(),anchor_type,anchor_id,anchor_label:r.get(3)?,site,occurrence_count:count,distinct_days:r.get(5)?,first_seen_at:rfc3339_from_millis(r.get(6)?),last_seen_at:rfc3339_from_millis(time)},(time,count,id)))
         })?;
     super::paging::finish(rows, limit)
 }

@@ -161,10 +161,19 @@ export function isMacOsHost() {
  *   actually present (real desktop window on macOS). In a plain browser,
  *   on Windows, and on Linux there is no overlay, so no offset is applied.
  *
- * Windows/Linux note: `titleBarStyle` is ignored off macOS, so those platforms
- * keep their native decorations and this returns false. A custom client-side
- * titlebar for Windows/Linux is a deliberate follow-up, not handled here.
+ * Windows/Linux: `titleBarStyle` is ignored off macOS; there the window has
+ * no system title bar at all and the app draws its own window buttons
+ * (`drawsWindowControls`).
  */
 export function hasMacOverlayTitlebar() {
   return hasTauriIpcBridge() && isMacOsHost()
+}
+
+/**
+ * Whether the app draws the window's minimize, maximize and close buttons:
+ * a desktop window off macOS, where the system title bar is turned off so the
+ * window is the same two layers as on macOS (`back-forward-window-frame-tradeoff.md` D).
+ */
+export function drawsWindowControls() {
+  return hasTauriIpcBridge() && !isMacOsHost()
 }

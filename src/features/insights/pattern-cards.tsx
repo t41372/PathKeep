@@ -7,7 +7,6 @@
  * docs/features/intelligence.md §0): open loops, search effectiveness and
  * friction, source roles.
  */
-import { FileText, Search } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { BrowserIcon } from '@/lib/browser-icons'
 import { SiteIcon } from '@/features/history/site-icon'
@@ -31,6 +30,7 @@ import {
 } from './queries'
 import type { Scope } from './range'
 import { useInsightsFormat } from './zone'
+import { TopicIcon } from './topic-icon'
 
 export function ThreadsCard({ scope }: { scope: Scope }) {
   const { t } = useI18n()
@@ -57,7 +57,6 @@ export function ThreadsCard({ scope }: { scope: Scope }) {
           <ul className="-mx-2 flex flex-col">
             {result.data.map((thread) => {
               const isSearch = thread.anchorType === 'query_family'
-              const Icon = isSearch ? Search : FileText
               return (
                 <li key={thread.investigationId}>
                   <Link
@@ -68,10 +67,9 @@ export function ThreadsCard({ scope }: { scope: Scope }) {
                     }
                     className={cn(rowLink, 'items-start py-2')}
                   >
-                    <Icon
-                      className="mt-0.5 size-3.5 shrink-0 text-muted-foreground"
-                      aria-hidden
-                    />
+                    <span className="mt-px">
+                      <TopicIcon topic={thread} />
+                    </span>
                     <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                       <span className="truncate font-medium">
                         {thread.anchorLabel}

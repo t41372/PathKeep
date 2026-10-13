@@ -14,6 +14,7 @@ import { cn } from '@/lib/cn'
 import { useFormat, useI18n } from '@/lib/i18n'
 import { dayPath, pagePath, searchPath } from '@/features/insights/links'
 import { presetScope } from '@/features/insights/range'
+import { TopicIcon } from '@/features/insights/topic-icon'
 import { BuildingNote } from './building'
 import {
   dailySeries,
@@ -330,8 +331,6 @@ export function YearCard() {
   )
 }
 
-const threadColors = ['bg-blue', 'bg-brand', 'bg-green', 'bg-violet']
-
 export function ThreadsCard() {
   const { t } = useI18n()
   const format = useInsightsFormat()
@@ -376,7 +375,7 @@ export function ThreadsCard() {
         </p>
       ) : (
         <ul className="-mx-2 flex flex-col">
-          {items.map((thread, index) => (
+          {items.map((thread) => (
             <li key={thread.investigationId}>
               <Link
                 to={
@@ -386,12 +385,7 @@ export function ThreadsCard() {
                 }
                 className="flex items-center gap-3 rounded-lg p-2 transition-colors hover:bg-muted"
               >
-                <span
-                  className={cn(
-                    'size-2 shrink-0 rounded-full',
-                    threadColors[index % threadColors.length],
-                  )}
-                />
+                <TopicIcon topic={thread} />
                 <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                   <span className="truncate font-medium">
                     {thread.anchorLabel}

@@ -8,7 +8,7 @@ import {
   SessionHeader,
   VisitRow,
 } from './timeline-rows'
-import { ROW_HEIGHT, type TimelineRow } from './timeline-model'
+import { ROW_HEIGHT, rowHasVisit, type TimelineRow } from './timeline-model'
 import { VirtualRows } from './virtual-rows'
 
 interface Props {
@@ -64,7 +64,8 @@ export function VisitRows({
           return (
             <Row
               item={row.item}
-              selected={row.item.id === selectedId}
+              repeats={row.repeats?.length}
+              selected={selectedId !== null && rowHasVisit(row, selectedId)}
               starred={isStarred(row.item.url)}
               browserName={browserName(row.item.profileId)}
               onSelect={onSelect}

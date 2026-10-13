@@ -40,7 +40,12 @@ import { useSemanticInfo, useSemanticReasonText } from './semantic-info'
 import { SemanticNote } from './semantic-status'
 import { StateMessage } from './state-message'
 import { tagQuery } from './tags'
-import { buildTimeline, visitRows, type TimelineRow } from './timeline-model'
+import {
+  buildTimeline,
+  rowHasVisit,
+  visitRows,
+  type TimelineRow,
+} from './timeline-model'
 import { useListKeys } from './use-list-keys'
 import { useStars } from './use-stars'
 import { VisitRows } from './visit-rows'
@@ -173,11 +178,27 @@ export default function HistoryPage() {
     (url: string) => void openPage(url, t('history.detail.openFailed')),
     [openPage, t],
   )
-  const ids = useMemo(() => items.map((item) => item.id), [items])
+  // The arrow keys go row by row: a row standing for several visits is one stop.
+  const listed = useMemo(
+    () =>
+      timeline
+        ? timeline.rows.flatMap((row) =>
+            row.kind === 'visit' ? [row.item] : [],
+          )
+        : items,
+    [timeline, items],
+  )
+  const ids = useMemo(() => listed.map((item) => item.id), [listed])
+  const selectedRowId = useMemo(() => {
+    const id = selected?.visitId
+    if (id === undefined) return null
+    const row = timeline?.rows.find((candidate) => rowHasVisit(candidate, id))
+    return row?.kind === 'visit' ? row.item.id : id
+  }, [timeline, selected?.visitId])
   useListKeys({
     ids,
-    selectedId: selected?.visitId ?? null,
-    onSelectIndex: (index) => select(items[index]),
+    selectedId: selectedRowId,
+    onSelectIndex: (index) => select(listed[index]),
     onOpen: () => selected && open(selected.url),
     onClose: close,
   })
@@ -186,7 +207,7 @@ export default function HistoryPage() {
     const id = selected?.visitId
     return id === undefined
       ? null
-      : rows.findIndex((row) => row.kind === 'visit' && row.item.id === id)
+      : rows.findIndex((row) => rowHasVisit(row, id))
   }, [rows, selected?.visitId])
 
   const onEndReached = useCallback(() => {
@@ -409,6 +430,11 @@ export default function HistoryPage() {
                 sessionMates={
                   timeline && panelTarget.visitId !== undefined
                     ? timeline.sessionMates(panelTarget.visitId)
+                    : []
+                }
+                repeats={
+                  timeline && panelTarget.visitId !== undefined
+                    ? timeline.repeatsOf(panelTarget.visitId)
                     : []
                 }
                 onClose={close}

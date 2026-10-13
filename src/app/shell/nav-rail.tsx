@@ -1,6 +1,13 @@
-/** The left navigation rail from the prototype: five sections, then tools. */
+/**
+ * The left navigation rail: back and forward at the top, the five sections,
+ * then tools. On macOS the traffic lights sit above back and forward; on
+ * Windows and Linux the rail starts with them (no brand mark: the three
+ * platforms have the same rail, `back-forward-window-frame-tradeoff.md` D).
+ */
 import {
   ChartColumn,
+  ChevronLeft,
+  ChevronRight,
   Command,
   HardDriveDownload,
   History,
@@ -13,7 +20,6 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { NavLink } from 'react-router-dom'
-import { BrandMark } from '@/components/app/brand-mark'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -34,9 +40,10 @@ import {
   type MessageKey,
 } from '@/lib/i18n'
 import { useChooseLanguage } from '@/lib/queries/language'
-import { hasMacOverlayTitlebar } from '@/lib/runtime'
+import { hasMacOverlayTitlebar, isMacOsHost } from '@/lib/runtime'
 import { useTheme } from '@/lib/theme'
 import type { LanguagePreference } from '@/lib/types'
+import { useHistorySteps } from './use-history-steps'
 
 const sections: { to: string; icon: LucideIcon; label: MessageKey }[] = [
   { to: '/', icon: House, label: 'shell.nav.home' },
@@ -105,6 +112,40 @@ function RailButton({
   )
 }
 
+function StepButton({
+  label,
+  disabled,
+  onClick,
+  children,
+}: {
+  label: string
+  disabled: boolean
+  onClick: () => void
+  children: React.ReactNode
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          aria-label={label}
+          aria-disabled={disabled}
+          onClick={disabled ? undefined : onClick}
+          className={cn(
+            'flex size-7 items-center justify-center rounded-md transition-colors',
+            disabled
+              ? 'cursor-default text-muted-foreground/40'
+              : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+          )}
+        >
+          {children}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="right">{label}</TooltipContent>
+    </Tooltip>
+  )
+}
+
 export function NavRail({
   onOpenPalette,
   onLock,
@@ -116,17 +157,34 @@ export function NavRail({
   const chooseLanguage = useChooseLanguage()
   const { resolved, setPreference: setTheme } = useTheme()
   const overlayTitlebar = hasMacOverlayTitlebar()
+  const steps = useHistorySteps()
+  const mac = isMacOsHost()
 
   return (
     <nav
       aria-label={t('shell.nav.label')}
       className="flex w-[76px] shrink-0 flex-col items-center gap-1 pb-4"
     >
-      {overlayTitlebar ? (
-        <div data-tauri-drag-region className="h-[46px] w-full shrink-0" />
-      ) : (
-        <BrandMark label="PathKeep" className="mt-4 mb-5 size-8" />
-      )}
+      <div
+        data-tauri-drag-region
+        className={cn('w-full shrink-0', overlayTitlebar ? 'h-[46px]' : 'h-3')}
+      />
+      <div className="mb-3 flex shrink-0 gap-0.5">
+        <StepButton
+          label={t(mac ? 'shell.nav.backMac' : 'shell.nav.back')}
+          disabled={!steps.canBack}
+          onClick={steps.back}
+        >
+          <ChevronLeft className="size-[17px]" />
+        </StepButton>
+        <StepButton
+          label={t(mac ? 'shell.nav.forwardMac' : 'shell.nav.forward')}
+          disabled={!steps.canForward}
+          onClick={steps.forward}
+        >
+          <ChevronRight className="size-[17px]" />
+        </StepButton>
+      </div>
       {sections.map((section) => (
         <RailLink key={section.to} {...section} label={t(section.label)} />
       ))}

@@ -8,13 +8,7 @@
  */
 import type { UseQueryResult } from '@tanstack/react-query'
 import { ArrowLeft, Info } from 'lucide-react'
-import {
-  useCallback,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type ReactNode,
-} from 'react'
+import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { useCardTitle } from '@/components/app/card-title'
 import { CardError } from '@/components/app/section-card'
@@ -50,81 +44,6 @@ export function ListSkeleton({
       {Array.from({ length: rows }, (_, index) => (
         <Skeleton key={index} style={{ height }} />
       ))}
-    </div>
-  )
-}
-
-/**
- * A list that scrolls inside its card instead of making the card taller.
- * Fades at the top and bottom say there is more above or below.
- *
- * With `fill`, the list takes the height the card has left, at least
- * `maxHeight`: a card beside a taller one shows more rows instead of an empty
- * space, and the list never makes the row taller than its neighbour does.
- */
-export function ScrollList({
-  maxHeight,
-  fill = false,
-  children,
-}: {
-  maxHeight: number
-  fill?: boolean
-  children: ReactNode
-}) {
-  const box = useRef<HTMLDivElement>(null)
-  const [edges, setEdges] = useState({ above: false, below: false })
-  const measure = useCallback(() => {
-    const element = box.current
-    if (!element) return
-    const above = element.scrollTop > 1
-    const below =
-      element.scrollTop + element.clientHeight < element.scrollHeight - 1
-    setEdges((old) =>
-      old.above === above && old.below === below ? old : { above, below },
-    )
-  }, [])
-  useLayoutEffect(() => measure(), [measure, children])
-  useLayoutEffect(() => {
-    const element = box.current
-    if (!fill || !element) return
-    const observer = new ResizeObserver(measure)
-    observer.observe(element)
-    return () => observer.disconnect()
-  }, [fill, measure])
-  const fade =
-    'pointer-events-none absolute inset-x-0 h-10 transition-opacity duration-200'
-  return (
-    <div
-      className={cn('relative', fill && 'min-h-0 flex-1')}
-      style={fill ? { minHeight: maxHeight } : undefined}
-    >
-      <div
-        ref={box}
-        onScroll={measure}
-        className={cn(
-          'overflow-y-auto overscroll-contain',
-          fill && 'absolute inset-0',
-        )}
-        style={fill ? undefined : { maxHeight }}
-      >
-        {children}
-      </div>
-      <div
-        aria-hidden
-        className={cn(
-          fade,
-          'top-0 bg-gradient-to-b from-card to-transparent',
-          edges.above ? 'opacity-100' : 'opacity-0',
-        )}
-      />
-      <div
-        aria-hidden
-        className={cn(
-          fade,
-          'bottom-0 bg-gradient-to-t from-card to-transparent',
-          edges.below ? 'opacity-100' : 'opacity-0',
-        )}
-      />
     </div>
   )
 }

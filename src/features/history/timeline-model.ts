@@ -2,8 +2,10 @@
  * Turns loaded visits (newest first) into the flat row list the virtual
  * timeline renders: day headers, session headers and visit rows.
  *
- * Responsible for: day and session grouping, and keeping counts honest while
- * more pages are still to come.
+ * Responsible for: day and session grouping, one row for a page visited
+ * several times in a row (the user's choice, 2026-10-12: "×N", each time
+ * still reachable), and keeping counts honest while more pages are still to
+ * come.
  * Not responsible for: fetching or rendering.
  */
 import { startOfDay } from '@/lib/i18n'
@@ -22,13 +24,22 @@ export type TimelineRow =
       count: number | null
       site: string
     }
-  | { kind: 'visit'; key: string; item: VisitItem }
+  | {
+      kind: 'visit'
+      key: string
+      /** The newest visit of the row. */
+      item: VisitItem
+      /** Every visit the row stands for, newest first, when there is more than one. */
+      repeats?: VisitItem[]
+    }
   | { kind: 'loading'; key: string }
 
 export interface Timeline {
   rows: TimelineRow[]
-  /** Other visits in the same session as `id`, newest first. */
+  /** Other pages visited in the same session as `id`, newest first. */
   sessionMates: (id: number) => VisitItem[]
+  /** Every visit of the row `id` belongs to, when the row stands for several. */
+  repeatsOf: (id: number) => VisitItem[]
 }
 
 interface Session {
@@ -53,6 +64,7 @@ function topDomain(items: VisitItem[]) {
 export function buildTimeline(items: VisitItem[], hasMore: boolean): Timeline {
   const days: { dayStart: number; sessions: Session[] }[] = []
   const sessionOf = new Map<number, Session>()
+  const runOf = new Map<number, VisitItem[]>()
 
   for (const item of items) {
     const dayStart = startOfDay(item.visitTime).getTime()
@@ -99,16 +111,46 @@ export function buildTimeline(items: VisitItem[], hasMore: boolean): Timeline {
         count: open ? null : session.items.length,
         site: topDomain(session.items),
       })
-      for (const item of session.items)
-        rows.push({ kind: 'visit', key: `v:${item.id}`, item })
+      // A page visited several times in a row is one row; the session and day
+      // still count every visit.
+      for (let index = 0; index < session.items.length; ) {
+        const item = session.items[index]
+        let end = index + 1
+        while (
+          end < session.items.length &&
+          session.items[end].url === item.url
+        )
+          end += 1
+        const repeats =
+          end - index > 1 ? session.items.slice(index, end) : undefined
+        for (const visit of repeats ?? []) runOf.set(visit.id, repeats!)
+        rows.push({ kind: 'visit', key: `v:${item.id}`, item, repeats })
+        index = end
+      }
     })
   })
 
   return {
     rows,
-    sessionMates: (id) =>
-      sessionOf.get(id)?.items.filter((item) => item.id !== id) ?? [],
+    sessionMates: (id) => {
+      const run = runOf.get(id)
+      return (
+        sessionOf
+          .get(id)
+          ?.items.filter((item) => item.id !== id && !run?.includes(item)) ?? []
+      )
+    },
+    repeatsOf: (id) => runOf.get(id) ?? [],
   }
+}
+
+/** Whether `row` stands for the visit `id`, itself or as one of its repeats. */
+export function rowHasVisit(row: TimelineRow, id: number) {
+  return (
+    row.kind === 'visit' &&
+    (row.item.id === id ||
+      (row.repeats?.some((item) => item.id === id) ?? false))
+  )
 }
 
 export function visitRows(items: VisitItem[]): TimelineRow[] {

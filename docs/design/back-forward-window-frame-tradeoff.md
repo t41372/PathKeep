@@ -41,3 +41,7 @@ macOS                                    Windows / Linux
 ## 4. 決定
 
 用戶選 D（2026-10-12）。`screens-and-nav.md` §導航改成：導航列頂端有上一頁 / 下一頁；Windows、Linux 不用系統標題列，視窗按鈕在底層右上角。
+
+## 5. 落地（2026-10-13）
+
+上一頁 / 下一頁、快捷鍵、滑鼠側鍵、導航列拿掉品牌標誌、Windows 與 Linux 關掉系統標題列並自己畫視窗按鈕：都做了（`screens-and-nav.md` §導航）。在 Windows 與 Linux 實機上都還沒看過（這台 Mac 編不了 Windows 版：`ring`、`aws-lc-sys` 要 mingw）。Windows 11 的貼齊版面還沒做：要在 Rust 裡回應 `WM_NCHITTEST`，而 WebView2 的子視窗蓋住整個內容區，這個訊息可能根本到不了頂層視窗，必須在 Windows 上試，另列 BACKLOG `WORK-WINDOWS-SNAP-LAYOUTS`。

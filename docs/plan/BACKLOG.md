@@ -43,6 +43,11 @@
 
 > 2026-06-14 review-pipeline closeout：`docs/plan/program/review-pipeline.md` 全面審查完成，確認的問題已全部修復（見 CHANGELOG `WORK-REVIEW-0614-FULL-PIPELINE-A`）。剩下的是非阻塞的 polish，匯整成下方 `WORK-REVIEW-0614-FOLLOWUPS-A`（未阻塞，但非當前 focus）。被駁回 / 降級 / 列為 trade-off 的項目不重開。
 
+- [ ] **WORK-WINDOWS-SNAP-LAYOUTS** — Windows 11 的貼齊版面與自畫視窗按鈕的實機確認（2026-10-13 `WORK-UI-POLISH-2026-10` 留下）
+  - 現況：Windows、Linux 已關掉系統標題列，最小化 / 最大化 / 關閉由 app 畫在右上角（`window-controls.tsx`），從沒在兩個平台的實機上看過。滑鼠停在最大化上時 Windows 11 的貼齊版面不會出現。
+  - 為什麼還沒做：要讓系統把我們畫的按鈕當成最大化按鈕，得在 Rust 裡回應 `WM_NCHITTEST`（`windows` crate），但 WebView2 的子視窗蓋住整個內容區，訊息可能到不了頂層視窗；這台 Mac 也編不了 Windows 版（`ring`、`aws-lc-sys` 要 mingw），寫了無法建置也無法試。
+  - 要做：在 Windows 上建置，先確認縮放邊、拖到螢幕邊緣（Aero Snap）、雙擊最大化、深淺色、按鈕 hover 與鍵盤都對；再試 `WM_NCHITTEST` 子類化或 WebView2 的 non-client region；Linux 在 GNOME 與 KDE 各看一次。
+
 - [ ] **WORK-SCALE-BENCH-RERUN** — 補量 14.4M：改回本機跑之後沒量的數字（2026-10-11；用戶指示「先把所有任務做完，再處理這個真實測速」）
   - 讀先：`docs/architecture/ipc-performance.md`、`vault-worker/tests/archive_scale_bench/`（`turso_intelligence.rs`、`turso_reads.rs`）。
   - 前提：14.4M 的測試存檔最多約 40 GB，Modal 已停用，在這台 Mac 上跑。2026-10-11 用戶騰出空間後剩約 77 GB，放得下（另留 5 GB 安全線）；開跑前再看一次，量完刪掉測試存檔。

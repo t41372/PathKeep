@@ -177,7 +177,8 @@ pub(super) fn request_fingerprint(
 /// checkpoint ledger (which moves on every derived rebuild or clear), an O(1)
 /// archive-delta probe (ingest/reverts not yet rebuilt), and the UTC offset,
 /// since a visit's local day depends on it. The leading `v` changes with what a
-/// snapshot holds (v4: each section's evidence count), so older ones are rebuilt.
+/// snapshot holds (v4: each section's evidence count; v5: a page topic's site, for its icon), so
+/// older ones are rebuilt.
 ///
 /// Today's date is deliberately not in it. It used to be, for "On this day";
 /// then the first open of every day recomputed all of history (seconds at
@@ -202,7 +203,7 @@ pub(super) fn compute_overview_fingerprint(
     let site_dictionary_signature = load_site_dictionary_signature(connection)?;
     let search_rule_signature = load_search_rule_signature(connection)?;
     Ok(format!(
-        "v4|profiles={}|visits={}|maxVisit={}|maxUrlMs={}|terms={}|tax={}|{}|{}|{}|{}|tz={}",
+        "v5|profiles={}|visits={}|maxVisit={}|maxUrlMs={}|terms={}|tax={}|{}|{}|{}|{}|tz={}",
         profiles.len(),
         aggregate.visible_visit_count,
         aggregate.max_visit_id,

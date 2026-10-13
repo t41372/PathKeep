@@ -12,7 +12,8 @@ import { SectionCard } from '@/components/app/section-card'
 import { useI18n } from '@/lib/i18n'
 import { ShareBar } from './share-bar'
 import { historyPath, searchPath, sitePath } from './links'
-import { ListSkeleton, QueryBody, ScrollList, SectionStatus } from './parts'
+import { ScrollList } from '@/components/app/scroll-list'
+import { ListSkeleton, QueryBody, SectionStatus } from './parts'
 import { rowLink } from './display'
 import {
   useFriction,

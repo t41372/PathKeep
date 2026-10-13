@@ -3,6 +3,7 @@
  * rhythm, searches and pages reopened. Each takes the range and owns its
  * query; each links into a drill-in.
  */
+import { ScrollList } from '@/components/app/scroll-list'
 import { useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import type { MouseHandlerDataParam } from 'recharts'
@@ -27,13 +28,7 @@ import { RhythmSummary } from './rhythm-summary'
 import { dayPath, pagePath, searchPath, sitePath } from './links'
 import { formatDuration, rowLink } from './display'
 import { ShareBar } from './share-bar'
-import {
-  KpiTile,
-  ListSkeleton,
-  QueryBody,
-  ScrollList,
-  SectionStatus,
-} from './parts'
+import { KpiTile, ListSkeleton, QueryBody, SectionStatus } from './parts'
 import {
   useDailyActivity,
   useDigest,

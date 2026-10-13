@@ -89,6 +89,19 @@ export function createFormatters(
   const at = (options: Intl.DateTimeFormatOptions) =>
     dateFormat(locale, { ...options, timeZone })
   const time = (value: DateInput) => at(clock).format(toDate(value))
+  /**
+   * Two times of one day as one range, the way the language writes it:
+   * "7:02 – 7:23 PM", 「晚上7:02至7:23」, not the day period twice. The same
+   * time twice is one time.
+   */
+  const timeRange = (start: DateInput, end: DateInput) => {
+    const from = toDate(start)
+    const to = toDate(end)
+    const format = at(clock)
+    return format.format(from) === format.format(to)
+      ? format.format(from)
+      : format.formatRange(from, to)
+  }
   /** A wall-clock hour of no particular day, the same in every zone. */
   const wallClock = (value: number, options: Intl.DateTimeFormatOptions) =>
     dateFormat(locale, { ...options, timeZone: 'UTC' }).format(
@@ -154,6 +167,7 @@ export function createFormatters(
     monthDay: (value: DateInput) =>
       at({ month: 'short', day: 'numeric' }).format(toDate(value)),
     time,
+    timeRange,
     hour,
     /** A wall-clock hour as a time, "6:00 AM" / "06:00". */
     clockTime,

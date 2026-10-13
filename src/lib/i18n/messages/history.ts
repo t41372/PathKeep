@@ -44,8 +44,11 @@ export const history = defineMessages({
       today: 'Today · {date}',
       yesterday: 'Yesterday · {date}',
     },
+    repeats_one: 'Opened {count} time in a row',
+    repeats_other: 'Opened {count} times in a row',
+    sameVisits: 'Opened {count} times in a row here:',
     session: {
-      label: '{range} · {pages} · {site}',
+      label: '{range} · {visits} · {site}',
       labelOpen: '{range} · {site}',
     },
     results: {
@@ -171,8 +174,11 @@ export const history = defineMessages({
       today: '今天 · {date}',
       yesterday: '昨天 · {date}',
     },
+    repeats_one: '连着打开了 {count} 次',
+    repeats_other: '连着打开了 {count} 次',
+    sameVisits: '这里连着打开了 {count} 次：',
     session: {
-      label: '{range} · {pages} · {site}',
+      label: '{range} · {visits} · {site}',
       labelOpen: '{range} · {site}',
     },
     results: {
@@ -296,8 +302,11 @@ export const history = defineMessages({
       today: '今天 · {date}',
       yesterday: '昨天 · {date}',
     },
+    repeats_one: '連著打開了 {count} 次',
+    repeats_other: '連著打開了 {count} 次',
+    sameVisits: '這裡連著打開了 {count} 次：',
     session: {
-      label: '{range} · {pages} · {site}',
+      label: '{range} · {visits} · {site}',
       labelOpen: '{range} · {site}',
     },
     results: {

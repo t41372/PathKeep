@@ -1,5 +1,5 @@
 /** The row types the History lists draw: day and session headers, visits and search results. */
-import { GitCommitHorizontal, Star } from 'lucide-react'
+import { Star } from 'lucide-react'
 import { memo, useMemo } from 'react'
 import { Skeleton } from '@/components/ui/skeleton'
 import { BrowserIcon } from '@/lib/browser-icons'
@@ -52,20 +52,19 @@ export function SessionHeader({
 }) {
   const { t } = useI18n()
   const format = useFormat()
-  const start = format.time(row.start)
-  const end = format.time(row.end)
-  const range = start === end ? start : `${start}–${end}`
+  // "7:02 – 7:23 PM", 「晚上7:02至7:23」: the day period once.
+  const range = format.timeRange(row.start, row.end)
   const label =
     row.count === null
       ? t('history.session.labelOpen', { range, site: row.site })
       : t('history.session.label', {
           range,
-          pages: t('common.pages', { count: row.count }),
+          // Every visit, a repeat's too: the rows below may be fewer.
+          visits: t('common.visits', { count: row.count }),
           site: row.site,
         })
   return (
     <div className="flex h-full items-end gap-2 px-2.5 pb-1.5 text-xs text-muted-foreground">
-      <GitCommitHorizontal className="size-3.5 shrink-0" aria-hidden />
       <span className="truncate">{label}</span>
     </div>
   )
@@ -73,6 +72,8 @@ export function SessionHeader({
 
 interface VisitRowProps {
   item: VisitItem
+  /** How many visits in a row the row stands for, when more than one. */
+  repeats?: number
   selected: boolean
   starred: boolean
   browserName: string
@@ -101,12 +102,14 @@ const rowClass = (selected: boolean) =>
 
 export const VisitRow = memo(function VisitRow({
   item,
+  repeats,
   selected,
   starred,
   browserName,
   onSelect,
   onOpen,
 }: VisitRowProps) {
+  const { t } = useI18n()
   const format = useFormat()
   const lookup = useMemo(
     () => ({
@@ -125,7 +128,8 @@ export const VisitRow = memo(function VisitRow({
       onClick={() => onSelect(item)}
       onDoubleClick={() => onOpen(item)}
     >
-      <span className="w-10 shrink-0 font-mono text-xs text-muted-foreground tabular">
+      {/* Wide enough for "晚上10:23" and "10:23 PM" on one line. */}
+      <span className="w-16 shrink-0 text-xs whitespace-nowrap text-muted-foreground tabular-nums">
         {format.time(item.visitTime)}
       </span>
       <SiteIcon
@@ -136,6 +140,15 @@ export const VisitRow = memo(function VisitRow({
       <span className="min-w-0 flex-1 truncate">
         {item.title?.trim() || item.url}
       </span>
+      {repeats && (
+        <span
+          className="shrink-0 rounded-md bg-muted px-1.5 text-[11px] text-muted-foreground tabular-nums"
+          title={t('history.repeats', { count: repeats })}
+          aria-label={t('history.repeats', { count: repeats })}
+        >
+          ×{repeats}
+        </span>
+      )}
       <StarMark starred={starred} />
       <span className="max-w-[40%] shrink-0 truncate text-xs text-muted-foreground">
         {item.domain}

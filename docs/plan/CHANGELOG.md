@@ -2892,3 +2892,12 @@ that held up when checked against the code.
   - Your messages can be edited; the conversation goes on from there and the answers after it are dropped. A finished answer can be asked for again.
   - Tool calls with an argument the tool does not know are refused with the arguments it takes. LM Studio sometimes garbles a name from qwen3.6 (`end_date2026-10-09`); that used to be dropped silently and searched the wrong dates.
   - Tried with LM Studio's qwen3.6-35b-a3b-splash on four questions (an open one in Chinese, "你隨便做", "when did I first…" in English, "last Friday" in Chinese): each answered in the language asked, without asking back, from what the tools returned, in 2 to 18 seconds.
+
+- [x] `WORK-UI-POLISH-2026-10` — What the user saw in the interface on 2026-10-12 (2026-10-13).
+  - The topics you keep coming back to, on Home and Insights, show the page's site icon or a search icon instead of coloured dots whose colours meant nothing. Insights' saved overviews are rebuilt once so an existing archive shows them too.
+  - A list that scrolls inside its card fades out at the edge by a mask on the list itself. The fade used to be a layer of the card's colour, which is see-through white and showed as a bright band in dark mode.
+  - Backup lists a browser's profiles under one row that says how many there are and how many are backed up, and folds away; profiles without history are grouped and folded.
+  - History's timeline: the time fits on one line in every language, a session's header reads as one range ("7:02–7:23 PM"), and a page opened several times in a row is one row marked ×N whose details list every time, each one selectable and linkable.
+  - A session's header counts its visits ("16 visits"); it said pages, and with repeats merged there are fewer rows than that. A site's letter badge has the same colour wherever it is listed, with or without `www.`, and is no longer part of the row's text.
+  - Back and forward at the top of the nav rail, with ⌘[ / ⌘] (Alt+← / Alt+→ on Windows and Linux) and the mouse's side buttons. The brand mark is gone from the rail.
+  - On Windows and Linux the system title bar is off and the app draws minimize, maximize and close at the top right. Not yet seen on either system, and Windows 11's snap layouts are not done: this Mac cannot build for Windows (`WORK-WINDOWS-SNAP-LAYOUTS`).

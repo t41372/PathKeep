@@ -333,14 +333,16 @@
   - 結果（2026-10-13）：一則 system message（規則在前、使用者的指示在後），系統與工具說明約 5K → 2K token；context 從服務讀、送出前估，放不下就不送並說明（`contextTooSmall`）；每輪回答空間是 context 的四分之一（1K–8K，未知時 4K）。輸入框旁有模型選擇與 context 用量。使用者訊息可編輯（後面的丟掉）、完成的回答可重新回答；每則回答記下模型（`agent_runs.model`，schema 改了：用戶資料裝新版前要手動補，見記憶）。重開後 token 總數與引用順序跟當下一樣。工具不認得的參數改成拒絕並列出合法參數（qwen3.6 經 LM Studio 會把參數名寫壞，之前默默查錯）。用 LM Studio 的 qwen3.6-35b-a3b-splash 實測四種問題都對（`docs/features/intelligence.md` §2）。E2E：`ask-agent.spec`（三條）、`ask-chats.spec` 重開那條改成比對 token 與順序。
   - 順手：測試用的匯出延遲改成照時鐘配速（macOS 會把背景程式的短 sleep 拉長，0.5 ms 變 15 ms，`export.spec` 兩分鐘逾時）。
 
-- [ ] **WORK-UI-POLISH-2026-10** — 用戶 2026-10-12 看到的介面問題
+- [x] **WORK-UI-POLISH-2026-10** — 用戶 2026-10-12 看到的介面問題
   - 讀先：`docs/design/` 核心四份、`docs/design/back-forward-window-frame-tradeoff.md`。
-  - [ ] 1. 「反覆回來看的主題」（Home 與洞察）的色點換成圖示：頁面用它網站的 favicon（`SiteIcon`），搜尋用搜尋圖示；色點是照抄原型的，顏色沒有意義。
-  - [ ] 2. 捲動區底部的亮帶：`ScrollList`（`insights/parts.tsx`）的淡出是一層「卡片色」，卡片色是半透明白，深色模式下疊出一條亮帶，還蓋住整一列。改成對捲動區本身做 `mask-image`（內容淡出到背後的顏色），約 20 px，只在那一邊還有內容時出現；`ScrollList` 搬到 `components/app/` 共用。
-  - [ ] 3. Backup 的「來源」：按瀏覽器分組、可收合（用戶選的）：每組一列寫圖示、幾個設定檔、總造訪數、開了幾個、最差的狀態；超過 3 個設定檔的預設收起，有問題的預設展開；找不到的合成「未找到 N 個」。
-  - [ ] 4. History 時間軸：時間欄 40 px 放不下「晚上7:23」就折成兩行（改寬、不折行、不用 mono）；段落標題重複「晚上」（用 `formatRange` 寫成「晚上7:02–7:23」，換掉那個 commit 圖示）；同一段裡連著造訪同一網址合成一列、標 ×N（用戶選的），點開看得到每次的時間，`?visit=` 仍找得到每一筆；列高不變、仍虛擬化。
-  - [ ] 5. 上一頁 / 下一頁與 Windows、Linux 的外框（`back-forward-window-frame-tradeoff.md` D，用戶選的）：導航列頂端放上一頁 / 下一頁（沒有時變灰），⌘[ / ⌘]、Alt+← / Alt+→、滑鼠側鍵；Windows、Linux 不用系統標題列，主面板上邊距加大，視窗按鈕畫在底層右上角，Windows 11 的 snap layouts 用 `windows` crate 回應 `WM_NCHITTEST`；導航列的品牌標誌拿掉。要在 Windows 實機確認（縮放邊、拖到螢幕邊、snap layouts、深淺色）。
-  - [ ] 6. E2E 與在真的 Tauri 視窗看過（`ui-review-guardrails.md` §7）；文檔（`screens-and-nav.md` §導航照 D 改）、CHANGELOG。
+  - [x] 1. 「反覆回來看的主題」（Home 與洞察）的色點換成圖示：頁面用它網站的 favicon（`SiteIcon`），搜尋用搜尋圖示；色點是照抄原型的，顏色沒有意義。
+  - [x] 2. 捲動區底部的亮帶：`ScrollList`（`insights/parts.tsx`）的淡出是一層「卡片色」，卡片色是半透明白，深色模式下疊出一條亮帶，還蓋住整一列。改成對捲動區本身做 `mask-image`（內容淡出到背後的顏色），約 20 px，只在那一邊還有內容時出現；`ScrollList` 搬到 `components/app/` 共用。
+  - [x] 3. Backup 的「來源」：按瀏覽器分組、可收合（用戶選的）：每組一列寫圖示、幾個設定檔、總造訪數、開了幾個、最差的狀態；超過 3 個設定檔的預設收起，有問題的預設展開；找不到的合成「未找到 N 個」。
+  - [x] 4. History 時間軸：時間欄 40 px 放不下「晚上7:23」就折成兩行（改寬、不折行、不用 mono）；段落標題重複「晚上」（用 `formatRange` 寫成「晚上7:02–7:23」，換掉那個 commit 圖示）；同一段裡連著造訪同一網址合成一列、標 ×N（用戶選的），點開看得到每次的時間，`?visit=` 仍找得到每一筆；列高不變、仍虛擬化。
+  - [x] 5. 上一頁 / 下一頁與 Windows、Linux 的外框（`back-forward-window-frame-tradeoff.md` D，用戶選的）：導航列頂端放上一頁 / 下一頁（沒有時變灰），⌘[ / ⌘]、Alt+← / Alt+→、滑鼠側鍵；Windows、Linux 不用系統標題列，主面板上邊距加大，視窗按鈕畫在底層右上角，Windows 11 的 snap layouts 用 `windows` crate 回應 `WM_NCHITTEST`；導航列的品牌標誌拿掉。要在 Windows 實機確認（縮放邊、拖到螢幕邊、snap layouts、深淺色）。
+  - [x] 6. E2E 與在真的 Tauri 視窗看過（`ui-review-guardrails.md` §7）；文檔（`screens-and-nav.md` §導航照 D 改）、CHANGELOG。
+  - 結果（2026-10-13）：主題列用網站的 favicon（後端多回 `site`）或搜尋圖示；`ScrollList` 搬到 `components/app/`，淡出改成捲動區本身的 `mask-image`；Backup 的來源按瀏覽器分組（兩個以上設定檔才分組，沒有歷史的設定檔另成一組、預設收起）；時間軸的時間欄 64 px 不折行，段落標題用 `formatRange`，連續同一網址合成一列 ×N，詳細面板列出每次時間、每次都能選，`?visit=` 照樣找得到；導航列頂端是上一頁 / 下一頁（⌘[ / ⌘]、Alt+← / Alt+→、滑鼠側鍵），品牌標誌拿掉；Windows、Linux 關掉系統標題列，視窗按鈕自己畫。網站圖示的備用字母改由 CSS 畫，不再算進列的文字（複製或讀一列時不會多出一個字母），顏色照去掉 `www.` 的網域算，同一個網站到處同色。看畫面時另外找到兩個：時段標題寫「16 pages」其實是造訪數，合併後列數比它少，改寫「16 visits」；洞察的快照（`intelligence_overview_snapshot.rs`）裡沒有新的 `site`，既有存檔打開時主題列仍是通用圖示，快照版本 v4 → v5，舊快照會重算。E2E：`shell-and-lists.spec`（四條）。
+  - 沒做完的：Windows 11 的貼齊版面，與 Windows、Linux 的實機確認——這台 Mac 編不了 Windows 版，搬到 BACKLOG `WORK-WINDOWS-SNAP-LAYOUTS`。在這台 Mac 上用 demo 資料（`dev:demo`）在瀏覽器裡看過 Home、Insights、Backup、History 的淺色與深色；Tauri 的 WebKit 視窗沒有另外截圖。
 
 （用戶 2026-10-13：「把所有任務都做完再跟我回報」，包括這個 session 找到、記進 BACKLOG 的。以下從 BACKLOG 搬上，照順序做；`WORK-REKEY-STALL` 等重現；14.4M 實測 `WORK-SCALE-BENCH-RERUN` 照用戶的話放最後。）
 

@@ -27,10 +27,12 @@ SessionGate（src/app/index.tsx）
 
 ## 導航
 
-- **左側導航列**（76 px，`src/app/shell/nav-rail.tsx`）：Home、History、Insights、Ask、Backup 五個主畫面（圖示加文字，當前項目是白色卡片底）；下方依序是 ⌘K、鎖定（⌘L）、語言（A / EN / 简 / 繁）、深淺色切換、Settings。macOS overlay titlebar 下，導航列頂端 46 px 是可拖動區；其他平台顯示品牌標誌。視窗在 macOS 上沒有自己的標題列，所以像一般視窗一樣從頂部拖動靠 app 自己標的區域（`drag-region.ts`、`title-bar.tsx`）：每個會捲動的畫面頂端 28 px（內容在下面捲過）、頁首與工具列（History 的搜尋列、Settings 與 Ask 的側欄）的空白處、主面板外圍的邊、鎖定與啟動畫面的背景；按鈕、輸入框、連結照常可點，卡片內文字照常可選。
+- **左側導航列**（76 px，`src/app/shell/nav-rail.tsx`）：頂端是上一頁 / 下一頁兩個小箭頭（沒有可去的時變灰），再來是 Home、History、Insights、Ask、Backup 五個主畫面（圖示加文字，當前項目是白色卡片底）；下方依序是 ⌘K、鎖定（⌘L）、語言（A / EN / 简 / 繁）、深淺色切換、Settings。macOS 的紅綠燈在箭頭上面（導航列頂端 46 px 是可拖動區）；三個平台的導航列一樣，沒有品牌標誌（2026-10-13，`back-forward-window-frame-tradeoff.md` D）。
+- **上一頁 / 下一頁**走 router 的歷史；篩選與選取用 `replace`，不進歷史，所以只在畫面與 drill-in 之間跳（`use-history-steps.ts`）。快捷鍵 ⌘[ / ⌘]（Windows、Linux 用 Alt+← / Alt+→）與滑鼠側鍵，在文字框裡不攔。
+- **Windows、Linux 的視窗**沒有系統標題列（`desktop_integration/window.rs` 在視窗第一次顯示前關掉）：主面板上面留一條視窗底層，最小化 / 最大化（還原）/ 關閉畫在這條的右上角（`window-controls.tsx`），跟 macOS 紅綠燈在左上角是同一個位置關係；這條空白處可以拖動。Windows 11 的貼齊版面（滑鼠停在最大化上出現）還沒做：要在 Windows 上建置並實測，見 BACKLOG `WORK-WINDOWS-SNAP-LAYOUTS`。視窗在 macOS 上沒有自己的標題列，所以像一般視窗一樣從頂部拖動靠 app 自己標的區域（`drag-region.ts`、`title-bar.tsx`）：每個會捲動的畫面頂端 28 px（內容在下面捲過）、頁首與工具列（History 的搜尋列、Settings 與 Ask 的側欄）的空白處、主面板外圍的邊、鎖定與啟動畫面的背景；按鈕、輸入框、連結照常可點，卡片內文字照常可選。
 - 語言從導航列或 Settings 改，兩者都寫進 config（`useChooseLanguage`），重啟後保留，排程與選單列圖示也用它。
-- 沒有 topbar、沒有麵包屑、沒有上一頁 / 下一頁按鈕、沒有通知中心、沒有共享 profile scope。
-- 全域快捷鍵（`app-frame.tsx`）：⌘K / Ctrl+K 開關命令面板；⌘L / Ctrl+L 鎖定。沒設 passcode 時鎖定不會發生，改為提示「先設定 passcode」並打開 Settings → Security。
+- 沒有 topbar、沒有麵包屑、沒有通知中心、沒有共享 profile scope。
+- 全域快捷鍵（`app-frame.tsx`）：⌘K / Ctrl+K 開關命令面板；⌘L / Ctrl+L 鎖定；⌘[ / ⌘]（Alt+← / Alt+→）上一頁 / 下一頁。沒設 passcode 時鎖定不會發生，改為提示「先設定 passcode」並打開 Settings → Security。
 
 ### URL 契約
 
