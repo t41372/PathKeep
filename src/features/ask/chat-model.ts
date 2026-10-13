@@ -35,6 +35,9 @@ export interface ChatTurn {
   citations: AiChatCitation[]
   notes: AiAgentNote[]
   usage?: { promptTokens: number; completionTokens: number }
+  /** The service and model that wrote an answer. */
+  providerId?: string
+  model?: string
   status: TurnStatus
   error?: string
 }
@@ -47,8 +50,12 @@ export function userTurn(content: string): ChatTurn {
   return emptyTurn(newId('user'), 'user', content, 'done')
 }
 
-export function assistantTurn(): ChatTurn {
-  return emptyTurn(newId('assistant'), 'assistant', '', 'streaming')
+export function assistantTurn(providerId: string, model: string): ChatTurn {
+  return {
+    ...emptyTurn(newId('assistant'), 'assistant', '', 'streaming'),
+    providerId,
+    model,
+  }
 }
 
 function emptyTurn(
@@ -142,6 +149,8 @@ export function fromAgentMessage(message: AgentMessage): ChatTurn {
     })),
     notes: trace.notes,
     usage: message.usage ?? undefined,
+    providerId: message.providerId ?? undefined,
+    model: message.model ?? undefined,
     status: isAssistant
       ? status === 'streaming'
         ? 'cancelled'

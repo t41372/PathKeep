@@ -37,6 +37,7 @@ const STATEMENTS: &[&str] = &[
   conversation_id TEXT REFERENCES conversations(id) ON DELETE CASCADE,
   message_id TEXT,
   provider_id TEXT,
+  model TEXT,
   embedding_provider_id TEXT,
   status TEXT NOT NULL,
   iterations INTEGER NOT NULL DEFAULT 0,

@@ -105,18 +105,31 @@ export const AssistantTurn = memo(function AssistantTurn({
               {copied ? t('ask.turn.copied') : t('ask.turn.copy')}
             </Button>
           )}
-          {canRetry && turn.status !== 'done' && (
+          {canRetry && (
             <Button variant="ghost" size="sm" onClick={onRetry}>
               <RotateCcw />
-              {t('ask.turn.retry')}
+              {t(
+                turn.status === 'done'
+                  ? 'ask.turn.regenerate'
+                  : 'ask.turn.retry',
+              )}
             </Button>
           )}
-          {turn.usage && (
-            <span className="ml-auto font-mono text-[11px] text-muted-foreground">
-              {t('ask.turn.tokens', {
-                prompt: turn.usage.promptTokens,
-                completion: turn.usage.completionTokens,
-              })}
+          {(turn.model || turn.usage) && (
+            <span className="ml-auto flex min-w-0 items-center gap-2 font-mono text-[11px] text-muted-foreground">
+              {turn.model && (
+                <span className="truncate" title={t('ask.turn.writtenBy')}>
+                  {turn.model}
+                </span>
+              )}
+              {turn.usage && (
+                <span className="shrink-0">
+                  {t('ask.turn.tokens', {
+                    prompt: turn.usage.promptTokens,
+                    completion: turn.usage.completionTokens,
+                  })}
+                </span>
+              )}
             </span>
           )}
         </div>

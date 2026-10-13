@@ -259,7 +259,6 @@ pub struct AiProviderConfig {
     pub default_model: String,
     pub model_catalog: Vec<String>,
     pub temperature: Option<f32>,
-    pub max_tokens: Option<u32>,
     pub dimensions: Option<u32>,
     pub notes: Option<String>,
 }
@@ -278,7 +277,6 @@ impl Default for AiProviderConfig {
             default_model: String::new(),
             model_catalog: Vec::new(),
             temperature: Some(0.2),
-            max_tokens: Some(1200),
             dimensions: None,
             notes: None,
         }
@@ -1113,6 +1111,9 @@ pub struct AiChatSendRequest {
     /// Message this run answers (links the agent trace; agent path only).
     #[serde(default)]
     pub message_id: Option<String>,
+    /// The model to answer with, picked beside the composer; the service's default when absent.
+    #[serde(default)]
+    pub model: Option<String>,
 }
 
 impl Default for AiChatSendRequest {
@@ -1126,8 +1127,31 @@ impl Default for AiChatSendRequest {
             tools_enabled: false,
             conversation_id: None,
             message_id: None,
+            model: None,
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+/// Request for `ai_chat_context`: the service and model Ask would answer with next.
+pub struct AiChatContextRequest {
+    pub provider_id: Option<String>,
+    pub model: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+/// How much a model can read at a time, and how much of it every request already takes, so Ask
+/// can show how full the conversation is before and while it is sent.
+pub struct AiChatContext {
+    /// The model these numbers are for.
+    pub model: String,
+    /// Tokens the model is loaded with, when its service says; `None` when nobody knows.
+    pub context_length: Option<u32>,
+    /// Tokens every request takes before the conversation: the instructions, the tools'
+    /// descriptions and the room kept for the answer. An estimate.
+    pub fixed_tokens: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -1247,6 +1271,10 @@ pub enum AiAgentNote {
     /// A search the run made covered only part of the archive: the index was still being built
     /// (after an upgrade or a reset) or hadn't caught up yet, so the answer can miss pages.
     SearchIndexIncomplete,
+    /// The conversation, with the assistant's instructions and room for an answer, does not fit
+    /// the context the model is loaded with, so nothing was sent: the service would have cut the
+    /// middle out without saying so.
+    ContextTooSmall,
 }
 
 /// Tauri event channel that carries [`AiChatStreamEvent`]s to the front end.
@@ -1370,6 +1398,12 @@ pub struct AgentMessage {
     /// this message or the run never tallied tokens.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub usage: Option<AgentUsage>,
+    /// The service and model that wrote this answer, from its run (load-only; absent on save
+    /// and for answers recorded before runs kept their model).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]

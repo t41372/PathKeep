@@ -275,6 +275,7 @@ fn run_app() -> Result<()> {
             search_ai_history,
             ai_chat_send,
             ai_chat_cancel,
+            ai_chat_context,
             download_static_embedding_model,
             cancel_ai_embedding_model_download,
             save_ai_conversation,

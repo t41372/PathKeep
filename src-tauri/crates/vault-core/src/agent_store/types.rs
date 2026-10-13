@@ -47,6 +47,8 @@ pub struct BeginAgentRun {
     pub conversation_id: Option<String>,
     pub message_id: Option<String>,
     pub provider_id: Option<String>,
+    /// The model that answers, as sent to the service; shown under the answer when reopened.
+    pub model: Option<String>,
     pub embedding_provider_id: Option<String>,
 }
 

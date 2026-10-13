@@ -1,21 +1,40 @@
-/** The message box: grows with the text, Enter sends, Shift+Enter breaks a line. */
+/**
+ * The message box: grows with the text, Enter sends, Shift+Enter breaks a
+ * line. Below it, which model answers and how full the context is with what
+ * is typed so far.
+ */
 import { ArrowUp, Square } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
 import { useI18n } from '@/lib/i18n'
+import type { ChatTurn } from './chat-model'
+import { ContextMeter, ContextWarning } from './context-meter'
+import { nextRequestTokens } from './context-usage'
+
+/** What the meter needs: the model's context and what every request takes. */
+export interface ComposerContext {
+  turns: readonly ChatTurn[]
+  fixedTokens: number
+  contextLength: number | null
+  service: string
+}
 
 const MAX_HEIGHT = 200
 
 export function Composer({
   streaming,
-  providerLabel,
+  picker,
+  context,
   onSend,
   onStop,
   focusKey,
   initialText = '',
 }: {
   streaming: boolean
-  providerLabel: string
+  /** Which model answers (`ModelPicker`). */
+  picker: ReactNode
+  /** `null` until the service has said how much the model reads. */
+  context: ComposerContext | null
   onSend: (text: string) => void
   onStop: () => void
   /** Changes when a different chat is opened, so the box takes focus again. */
@@ -37,6 +56,9 @@ export function Composer({
   useEffect(() => ref.current?.focus(), [focusKey])
 
   const canSend = text.trim().length > 0 && !streaming
+  const used = context
+    ? nextRequestTokens(context.fixedTokens, context.turns, text)
+    : null
   const submit = () => {
     if (!canSend) return
     onSend(text)
@@ -51,6 +73,7 @@ export function Composer({
           rows={1}
           value={text}
           aria-label={t('ask.composer.label')}
+          title={t('ask.composer.hint')}
           placeholder={t('ask.composer.placeholder')}
           onChange={(event) => setText(event.target.value)}
           onKeyDown={(event) => {
@@ -66,13 +89,18 @@ export function Composer({
           }}
           className="max-h-[200px] w-full resize-none bg-transparent leading-6 outline-none placeholder:text-muted-foreground"
         />
-        <div className="flex items-center justify-between gap-3">
-          <span
-            title={t('ask.composer.hint')}
-            className="min-w-0 truncate font-mono text-[11px] text-muted-foreground"
-          >
-            {t('ask.composer.provider', { provider: providerLabel })}
-          </span>
+        {context && used !== null && (
+          <ContextWarning used={used} contextLength={context.contextLength} />
+        )}
+        <div className="flex items-center gap-3">
+          <div className="min-w-0 flex-1">{picker}</div>
+          {context && used !== null && (
+            <ContextMeter
+              used={used}
+              contextLength={context.contextLength}
+              service={context.service}
+            />
+          )}
           {streaming ? (
             <Button
               size="icon-sm"

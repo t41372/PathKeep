@@ -535,7 +535,7 @@ pub(super) async fn run_llm_agent(
                 .agent(provider.config.default_model.clone())
                 .preamble(preamble)
                 .temperature(provider.config.temperature.unwrap_or(0.2) as f64)
-                .max_tokens(provider.config.max_tokens.unwrap_or(1200).into())
+                .max_tokens(super::llm::DEFAULT_ANSWER_TOKENS.into())
                 .tools(tools)
                 .build();
             Ok(agent.prompt(question).await?)
@@ -550,7 +550,7 @@ pub(super) async fn run_llm_agent(
                 .agent(provider.config.default_model.clone())
                 .preamble(preamble)
                 .temperature(provider.config.temperature.unwrap_or(0.2) as f64)
-                .max_tokens(provider.config.max_tokens.unwrap_or(1200).into())
+                .max_tokens(super::llm::DEFAULT_ANSWER_TOKENS.into())
                 .tools(tools)
                 .build();
             Ok(agent.prompt(question).await?)
@@ -565,7 +565,7 @@ pub(super) async fn run_llm_agent(
                 .agent(provider.config.default_model.clone())
                 .preamble(preamble)
                 .temperature(provider.config.temperature.unwrap_or(0.2) as f64)
-                .max_tokens(provider.config.max_tokens.unwrap_or(1200).into())
+                .max_tokens(super::llm::DEFAULT_ANSWER_TOKENS.into())
                 .tools(tools)
                 .build();
             Ok(agent.prompt(question).await?)

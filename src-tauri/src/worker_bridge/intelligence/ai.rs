@@ -193,6 +193,15 @@ where
     worker_result(vault_worker::ai_chat_send(&state.vault()?, session_database_key, &request, emit))
 }
 
+/// How full a conversation can get on the model Ask would answer with next.
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn ai_chat_context_impl(
+    state: &crate::session::SessionState,
+    request: vault_core::AiChatContextRequest,
+) -> Result<vault_core::AiChatContext, CommandError> {
+    worker_result(vault_worker::ai_chat_context(&state.vault()?, &request))
+}
+
 #[cfg_attr(test, allow(dead_code))]
 /// Requests cooperative cancellation of one live streaming chat run.
 pub(crate) fn ai_chat_cancel_impl(

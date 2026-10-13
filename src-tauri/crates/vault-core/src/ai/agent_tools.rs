@@ -118,7 +118,10 @@ pub struct AgentToolContext {
 }
 
 /// JSON arguments accepted by every retrieval tool (one shared shape across the planes).
+// An argument the tool does not know is refused, not dropped: local models through LM Studio
+// sometimes garble a name (`end_date2026-10-09`), and dropping it searched the wrong dates.
 #[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct SearchToolArgs {
     /// Optional: an empty/omitted query returns the most recent visits (browse-by-recency).
     #[serde(default)]
@@ -215,7 +218,7 @@ impl HistorySearchTool {
     pub fn search_history() -> Self {
         Self {
             name: "search_history",
-            description: "Search browser history by meaning, URL, title, profile, domain, or date range (hybrid lexical + semantic). Returns the best matching visits with their ids. The `query` is OPTIONAL: call it with an empty or omitted query to list the MOST RECENT visits (browse by recency). Use `start_date` and `end_date` (YYYY-MM-DD) to narrow results to a date range — for example \"last Friday\" or \"this week\". Use `sort` to control ordering: 'oldest' finds the FIRST/earliest occurrence of a term across ALL history (essential for \"when did I first browse X?\" — the default relevance ranking returns the first ranked page, not chronological order); 'newest' the latest; the default ranks by relevance. The response includes `applied_limit` (the actual limit used after clamping), `has_more` (whether more rows exist beyond the limit), and `next_cursor` — pass `next_cursor` back as `cursor` to page through the matches in the chosen sort order. Every match is reachable by cursor; keep query, filters, sort and limit unchanged. `snapshot_total` is exact for the pinned reader. When `search_state.coverageComplete` is false, indexing is incomplete: an empty result is not evidence of absence; start a new search to include later indexed data. When no embedding provider is configured, results use lexical retrieval only (an honest degradation, not an error).",
+            description: "Find visits by words, URL, title, site, profile or dates (by keyword, and by meaning when an embedding service is set up). An empty query lists the most recent visits. Results are the top matches: when has_more is true there are more; pass next_cursor as cursor, with the other arguments unchanged, for the next page. sort=\"oldest\" finds the first time something appears, \"newest\" the latest. If search_state.coverageComplete is false, indexing is unfinished and an empty result proves nothing.",
             plane: SearchPlane::Hybrid,
         }
     }
@@ -225,15 +228,15 @@ impl HistorySearchTool {
         json!({
             "type": "object",
             "properties": {
-                "query": { "type": "string", "description": "What to search for. OPTIONAL: an empty or omitted query returns the most recent visits (browse by recency), so you can enumerate recent history or find the date range." },
-                "profile_id": { "type": "string", "description": "Optional browser profile identifier filter." },
-                "domain": { "type": "string", "description": "Optional domain filter." },
-                "limit": { "type": "integer", "description": "Maximum number of visits to return. The actual limit used (after clamping to [1, 50]) is reported as applied_limit in the response." },
-                "sort": { "type": "string", "enum": ["relevance", "newest", "oldest"], "description": "Result ordering. 'relevance' (default) ranks by best match. 'oldest' enumerates the matches earliest-first — use it to find the FIRST/earliest time a term appears across ALL history (the relevance default only returns the most-relevant sample, NOT the earliest, so it cannot answer 'when did I first browse X?'). 'newest' enumerates latest-first." },
-                "cursor": { "type": "string", "description": "Pagination cursor from a prior response's next_cursor. Pass it to fetch the NEXT page in the same sort order so you can enumerate every match across time, not just the first page." },
-                "starred_only": { "type": "boolean", "description": "Restrict to starred (favorited) pages only." },
-                "start_date": { "type": "string", "description": "Inclusive start date filter in YYYY-MM-DD format. Only visits on or after this day are returned." },
-                "end_date": { "type": "string", "description": "Inclusive end date filter in YYYY-MM-DD format. Only visits on or before this day are returned." }
+                "query": { "type": "string", "description": "What to look for; empty lists the most recent visits." },
+                "profile_id": { "type": "string", "description": "Only this browser profile." },
+                "domain": { "type": "string", "description": "Only this site." },
+                "limit": { "type": "integer", "description": "How many visits to return, 1 to 50." },
+                "sort": { "type": "string", "enum": ["relevance", "newest", "oldest"], "description": "Order; relevance by default." },
+                "cursor": { "type": "string", "description": "next_cursor from the previous page." },
+                "starred_only": { "type": "boolean", "description": "Only starred pages." },
+                "start_date": { "type": "string", "description": "First day, YYYY-MM-DD." },
+                "end_date": { "type": "string", "description": "Last day, YYYY-MM-DD." }
             }
         })
     }
@@ -420,7 +423,7 @@ fn append_search_state(text: &mut String, response: &crate::models::AiSearchResp
 /// (even a negative result like `{ found: false }`) — the result is bounded host-side. An empty
 /// return is honestly reported as "no value", so there is no reason to return nothing. No promise the
 /// sandbox cannot keep.
-const RUN_CODE_DESCRIPTION: &str = "Run a short JavaScript program in a locked-down sandbox over the user's browser history when a question needs computation/aggregation across many visits (counts, grouping, joins, dedup) that a single search cannot express. The program is READ-ONLY: there is NO network, NO filesystem, NO real clock (Date.now() is 0), and NO randomness; it is bounded by hard time/memory/host-call/output limits, so loop and aggregate freely. Two globals are available, both synchronous; query_history returns { rows: [...], notes: [...], total: number, hasMore: boolean, nextCursor: string|null, searchState: { coverageComplete: boolean, indexer: {...}, snapshotSeq: number } }: query_history({ query?: string, plane?: \"hybrid\"|\"vector\"|\"bm25\", sort?: \"relevance\"|\"newest\"|\"oldest\", limit?: number, cursor?: string, profileId?: string, domain?: string, starredOnly?: boolean, startDate?: string, endDate?: string }) runs the same hybrid/lexical/semantic retrieval as the search tools (each row has id, url, title, domain, visitedAtLocal (LOCAL wall-clock time, the user's timezone), localDate (YYYY-MM-DD in the user's timezone — GROUP BY THIS for per-day buckets), score, matchReason, canonicalUrl, plus visitedAt which is the raw UTC instant — use the LOCAL fields for any date/time/day grouping and avoid visitedAt for display). `query` is OPTIONAL — call query_history({}) or query_history({ query: \"\" }) to enumerate the MOST RECENT visits (browse by recency) when you need to list recent history or find the date range for a date/recency question; `sort` controls ordering — \"oldest\" enumerates the matches EARLIEST-first so you can find the FIRST time a term appears across ALL history (the default \"relevance\" returns a ranked page rather than chronological order, so it cannot answer \"when did I first browse X?\"), \"newest\" is latest-first; to page through the matches pass the reply's `nextCursor` back as `cursor` (when `hasMore` is true) and keep the same `sort`; there is no retrieval window; keep query, sort, filters and limit unchanged when reusing the cursor; `startDate` and `endDate` are optional YYYY-MM-DD strings that restrict results to visits within that date range (inclusive); fetch_visits(ids: number[]) resolves specific visit ids to rows. The `notes` array on each result holds honest warnings about retrieval scope or degradation (for example, semantic/hybrid search fell back to keyword-only because no embedding provider is configured) — read them and reflect any limitation in your answer; do not ignore them. Always end the program with `return <value>` to hand back a SMALL distilled result (a summary object/array, not the raw rows) — that returned value is the ONLY thing you will see, and it is truncated if too large. Even when there is no answer, return a small explicit result such as { found: false } rather than returning nothing. PROCESS THE FULL SET, NOT A SAMPLE: the rows query_history returns stay INSIDE this sandbox — they never enter your context, so only the small value you `return` costs context. That means you can fetch hundreds or thousands of visits, loop over ALL of them, and hand back a tiny summary. So do not answer from a single 50-row sample: when a question is about ALL matching visits (\"how many\", \"group by domain\", \"every site I visited that week\"), PAGINATE and AGGREGATE. Use a LARGE page (limit up to 1000 per call) so you cover the set in few calls — you have a budget of 64 query_history/fetch_visits calls total, so big pages + stopping as soon as you are done is the efficient pattern. Loop: pass the reply's `nextCursor` back as `cursor` (keeping the SAME query/sort/filters) and keep going while `hasMore` is true AND `nextCursor` is not null; stop when `hasMore` is false (you have the whole set) or you reach a sandbox execution limit. Carry the cursor into another run when work remains. Check `searchState.coverageComplete`: while indexing is incomplete, neither an empty page nor its count proves archive-wide absence. Accumulate into JS structures as you go, then `return` only the distilled summary. Example: const result = query_history({ query: \"\", startDate: \"2026-06-19\", endDate: \"2026-06-19\" }); const domains = {}; result.rows.forEach(r => { domains[r.domain] = (domains[r.domain]||0)+1; }); return { date: \"2026-06-19\", domainCounts: domains, returned: result.rows.length, total: result.total, nextCursor: result.nextCursor, searchState: result.searchState }; Example: const result = query_history({ query: \"machine learning\" }); if (result.rows.length === 0) return { found: false, searchState: result.searchState }; return { count: result.rows.length, nextCursor: result.nextCursor, searchState: result.searchState, pageDomains: [...new Set(result.rows.map(r=>r.domain))].slice(0,5) }; Example (paginate + aggregate the FULL set — count every visit by domain across a week, not just the first page): const byDomain = {}; const byDay = {}; let total = 0; let cursor = null; let truncated = false; let searchState = null; for (let i = 0; i < 64; i++) { const page = query_history({ query: \"\", sort: \"oldest\", startDate: \"2026-06-15\", endDate: \"2026-06-21\", limit: 1000, cursor }); searchState = page.searchState; for (const r of page.rows) { total++; byDomain[r.domain] = (byDomain[r.domain] || 0) + 1; const day = r.localDate; byDay[day] = (byDay[day] || 0) + 1; } if (!page.hasMore) { cursor = null; break; } if (!page.nextCursor) { truncated = true; break; } cursor = page.nextCursor; } return { total, byDomain, byDay, truncated: truncated || cursor !== null || searchState?.coverageComplete !== true, nextCursor: cursor, searchState };";
+const RUN_CODE_DESCRIPTION: &str = "Run a JavaScript program over the user's history in a read-only sandbox, for questions that need counting, grouping or other computation across many visits. No network, files, clock (Date.now() is 0) or randomness. Globals, both synchronous: query_history({ query?, sort?: \"relevance\"|\"newest\"|\"oldest\", limit? (up to 1000), cursor?, startDate?, endDate? (YYYY-MM-DD), domain?, profileId?, starredOnly?, plane?: \"hybrid\"|\"vector\"|\"bm25\" }) returns { rows, total, hasMore, nextCursor, notes, searchState }, each row with id, url, title, domain, visitedAtLocal, localDate (group days by this), score, canonicalUrl; an empty query lists the most recent visits. fetch_visits(ids) returns those visits. The rows stay in the sandbox: page through every match (pass nextCursor as cursor with the same arguments while hasMore; at most 64 calls) and `return` only a small summary, which is all you see. Read `notes`, and searchState.coverageComplete: false means indexing is unfinished and an empty result proves nothing. Example: const byDomain = {}; let cursor = null; do { const page = query_history({ startDate: \"2026-06-15\", endDate: \"2026-06-21\", limit: 1000, cursor }); for (const r of page.rows) byDomain[r.domain] = (byDomain[r.domain] || 0) + 1; cursor = page.hasMore ? page.nextCursor : null; } while (cursor); return byDomain;";
 
 /// The `run_code` agent tool (W-AI-8 WU-2): wraps the WU-1 sandbox as a registered [`AgentTool`].
 ///
@@ -431,7 +434,10 @@ const RUN_CODE_DESCRIPTION: &str = "Run a short JavaScript program in a locked-d
 pub struct RunCodeTool;
 
 /// JSON arguments for `run_code`: the JavaScript program to run (the only field).
+// An argument the tool does not know is refused, not dropped: local models through LM Studio
+// sometimes garble a name (`end_date2026-10-09`), and dropping it searched the wrong dates.
 #[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RunCodeArgs {
     /// The JS program. Must be a non-empty string; `return <value>` distills the result.
     source: String,
@@ -568,7 +574,10 @@ fn limits_hit_label(limit: LimitsHit) -> &'static str {
 // ---------------------------------------------------------------------------
 
 /// JSON arguments for `intelligence_report`.
+// An argument the tool does not know is refused, not dropped: local models through LM Studio
+// sometimes garble a name (`end_date2026-10-09`), and dropping it searched the wrong dates.
 #[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct IntelligenceReportArgs {
     report: String,
     cursor: Option<String>,
@@ -657,7 +666,7 @@ impl IntelligenceReportTool {
     }
 }
 
-const INTELLIGENCE_REPORT_DESCRIPTION: &str = "Retrieve a pre-computed intelligence report about the user's browsing patterns. This tool returns ONLY high-level STATISTICAL and STRUCTURAL aggregates — visit/search/domain counts, top sites, session boundaries (each with a heuristic label), search-trail structure, activity mix, browsing rhythm, domain trends, and daily rollups. These are mechanical counts and structure; they carry NO semantic understanding of the content. This tool CANNOT tell you WHAT the user actually did, read, researched, or cared about inside a session or time window, and it cannot do any topic- or meaning-level analysis. Use it for the quantitative SHAPE of a period (how much, when, which domains, how sessions are bounded) — for those numbers it is faster and more complete than search. But to understand WHAT the user actually did or read (content, topics, intent), do NOT infer it from a session's autoTitle or its counts — read the ACTUAL visits: call this tool with report=\"session_detail\" and a sessionId to get the real URLs/titles/queries inside one session, or use search_history / run_code over the visit rows, and reason over those. In the sessions report, autoTitle is a HEURISTIC label naming a session by its most salient domain/query (NOT the subject of every visit); visitCount is the TOTAL visits in the session across all domains (NOT visits to the autoTitle term).";
+const INTELLIGENCE_REPORT_DESCRIPTION: &str = "Pre-computed statistics about the user's browsing: counts, top sites, sessions, search trails, activity mix, rhythm, trends and daily rollups. Fast and complete for the shape of a period (how much, when, which sites), but it says nothing about what the pages were about: for that read the visits (report=\"session_detail\" with a sessionId for one session's pages, or search_history / run_code). A session's autoTitle is only a guess from its main site or search, and its visitCount covers every site in it.";
 
 impl AgentTool for IntelligenceReportTool {
     fn name(&self) -> &str {

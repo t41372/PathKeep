@@ -108,7 +108,6 @@ export interface AiProviderConfig {
   defaultModel: string
   modelCatalog: string[]
   temperature?: number | null
-  maxTokens?: number | null
   dimensions?: number | null
   notes?: string | null
 }
@@ -851,6 +850,25 @@ export interface AiChatSendRequest {
   toolsEnabled?: boolean
   conversationId?: string | null
   messageId?: string | null
+  /** The model to answer with; the service's default when absent. */
+  model?: string | null
+}
+
+/** Request for `ai_chat_context`: the service and model Ask would answer with next. */
+export interface AiChatContextRequest {
+  providerId?: string | null
+  model?: string | null
+}
+
+/**
+ * How much a model can read at a time (`null` when its service does not
+ * say) and how much every request already takes: the instructions, the
+ * tools' descriptions and the room kept for the answer.
+ */
+export interface AiChatContext {
+  model: string
+  contextLength: number | null
+  fixedTokens: number
 }
 
 /**
@@ -975,6 +993,7 @@ export type AiAgentNote =
   | { code: 'tokenBudgetReached' }
   | { code: 'toolCallingUnavailable' }
   | { code: 'searchIndexIncomplete' }
+  | { code: 'contextTooSmall' }
 
 /**
  * Envelope emitted on `pathkeep://ai-stream` pairing a chunk with its run id.
@@ -1036,6 +1055,9 @@ export interface AgentMessage {
   citations?: AgentCitation[] | null
   /** Reconstructed per-turn token usage (load-only; omitted on save). */
   usage?: AgentUsage | null
+  /** The service and model that wrote this answer (load-only; recorded by the run). */
+  providerId?: string | null
+  model?: string | null
 }
 
 /**

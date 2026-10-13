@@ -106,6 +106,14 @@ are specified in [data-model.md](../architecture/data-model.md#migration-in-prog
 - Assistant 必須尊重 shell 的共享 profile scope；若使用者透過 deep-link 帶進明確 `profileId`，頁面級 scope 優先於共享 scope。
 - Assistant 的 empty / AI-disabled state 不能只剩靜態說明；至少要提供 seeded prompt 建議、queue / settings 修復入口，以及在共享 profile scope 生效時明講目前回答邊界是 scoped view。
 - shipped（W-AI-1/2/3/7）：Assistant 現在是 streaming chat surface——token / reasoning / tool-use 即時可視，markdown 串流渲染，引用的頁面可連回 History（`/history?q=<標題>&visit=<id>`）。底層是自己寫的 agent loop（取消、token 預算、回合上限、引用）。回答中途 app 被關掉或當掉，那則回答標成中斷，要重問；不會從中斷處續跑（用戶 2026-10-09 決定：不做續跑，改正這裡原本「崩潰可續跑不重複收費」的說法）。重開對話時讀得到的是每則回答的引用與 token 用量。Agent 可呼叫 5 個工具：`search_history`（hybrid，沒有 embedding provider 時只用關鍵字）、`run_code`（code-mode 沙箱，見 §4-code-mode）、`intelligence_report`（洞察的統計與結構報告）、`list_stars`（已加星的頁面與網站）、`list_annotations`（備註與標籤）。chat 持久化在 `derived/agent.db`，transcript **不進 export**。整個 surface gated on `ai.enabled && assistant_enabled`（預設關）。
+- 2026-10-13（`WORK-ASK-2026-10`，用戶 2026-10-12 回報助理答非所問、看不到 context）：
+  - **給模型的話**：每次 run 只有一則 system message，放在最前面：今天的日期、時區、存檔的範圍，然後幾條規則（用使用者最新一則訊息的語言回答；使用者把選擇交給它時自己挑一件事做、不要再問；每個標題、網址、時間、數字都要出自這段對話的工具結果；相對日期換成 start_date / end_date；工具給的時間已是本地時間；夠了就停下來回答並列出用到的頁面），最後接使用者在 Settings 寫的指示（`assistantSystemPrompt`）。之前前端送的指示是第二則 system message，很多模型的 chat template 只讀第一則。系統說明與工具說明從約 5K token 縮到約 2K（實測 qwen3.6 第一輪 2,091 token）。
+  - **context**：從服務讀模型一次能讀多少（`chat_context_length`：LM Studio、Ollama 只算已載入的、Google 給輸入上限、OpenAI 與 Anthropic 不說就是不知道）。每輪留給思考與回答的空間是 context 的四分之一（1K 到 8K，不知道 context 時 4K；之前一律 1,200，Qwen3 的思考就用完了。那個 1,200 是服務設定裡一個介面上改不到的欄位 `maxTokens` 的預設值，所以每個存下來的服務都帶著它；這個欄位拿掉了，舊設定裡的值讀進來時忽略），整次 run 的 prompt 用剩下的。送出前先估：放不下就不送、回答寫明原因與修法（`contextTooSmall`）——LM Studio、Ollama 塞不下會默默把中間截掉，使用者那句常剛好在中間。估算不用 tokenizer：中日韓文字一字一 token，其餘每 4 bytes 一 token（`estimate_request_tokens`）。
+  - **輸入框**：左邊選回答用的服務與模型（每個已啟用的聊天服務、它的模型、哪些已載入、各讀多少），右邊顯示下一則訊息約占模型 context 的多少（「2.9K / 32K」，不知道上限時寫「上限未知」），80% 起變色並提醒，超過時紅色並說明不會送出與修法。估算跟後端送出前的檢查是同一條規則。
+  - **回答**：模型在呼叫工具前寫的話放進思考，只有最後一輪是答案。每則回答下面寫是哪個模型寫的（`agent_runs.model`）與這個回答的 token 總數（每次請求加總，重開後同一個數）。引用的頁面重開後照當下的順序（之前照 visit id，「在 History 打開」可能指到別頁）。
+  - **對話**：使用者的訊息可以編輯，從那則重來，後面的回答丟掉（用戶選的）；完成的回答也能「重新回答」。對話選單可「匯出為 Markdown…」，跳系統的儲存對話框。
+  - **工具**：參數名不認得就拒絕並列出合法的參數（之前默默丟掉：qwen3.6 經 LM Studio 偶爾把 `end_date` 寫成 `end_date2026-10-09`，結果查錯日期；現在它收到錯誤馬上改正）。cursor 用錯時的錯誤說明要怎麼改。
+  - 在這台機器上用 LM Studio 的 qwen3.6-35b-a3b-splash 實測四種問題（中文開放式、使用者說「你隨便做」、英文「第一次」、中文「上週五」）：都用對的語言、沒有反問、內容出自工具結果，每題 2–18 秒。
 
 ---
 

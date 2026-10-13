@@ -8,7 +8,10 @@ use super::*;
 // ---------------------------------------------------------------------------
 
 /// JSON arguments for `list_stars`.
+// An argument the tool does not know is refused, not dropped: local models through LM Studio
+// sometimes garble a name (`end_date2026-10-09`), and dropping it searched the wrong dates.
 #[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct ListStarsArgs {
     sort: Option<String>,
     limit: Option<usize>,
@@ -107,7 +110,10 @@ impl AgentTool for ListStarsTool {
 // ---------------------------------------------------------------------------
 
 /// JSON arguments for `list_annotations`.
+// An argument the tool does not know is refused, not dropped: local models through LM Studio
+// sometimes garble a name (`end_date2026-10-09`), and dropping it searched the wrong dates.
 #[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct ListAnnotationsArgs {
     output_cursor: Option<String>,
     query: Option<String>,

@@ -50,13 +50,33 @@ export const ask = defineMessages({
     },
     loadingConversation: 'Opening conversation…',
     loadFailed: 'Could not open this conversation.',
+    edit: {
+      action: 'Edit message',
+      label: 'Edited message',
+      send: 'Send',
+      dropsLater: 'The answers after this message are replaced by a new one.',
+    },
     composer: {
       label: 'Message',
       placeholder: 'Ask about your history',
       send: 'Send',
       stop: 'Stop',
       hint: 'Enter to send, Shift+Enter for a new line',
-      provider: 'Model: {provider}',
+      model: 'Model that answers',
+      modelLoaded: 'Loaded · reads {size}',
+      modelUpTo: 'Up to {size}',
+      modelsLoading: 'Reading its models…',
+      modelsFailed: 'Could not read {service}’s models.',
+      context: '{used} / {limit}',
+      contextUnknown: '{used} · limit unknown',
+      contextTitle:
+        'The next message takes about {used} tokens of the {limit} the model reads at a time: the conversation, what you typed, the assistant’s instructions and room for its answer.',
+      contextUnknownTitle:
+        'The next message takes about {used} tokens. {service} doesn’t say how much this model reads at a time; LM Studio and Ollama say it once the model is loaded.',
+      contextNear:
+        'This conversation is close to the model’s context ({limit}). A longer one won’t be sent; start a new chat, or load the model with a longer context in LM Studio or Ollama.',
+      contextOver:
+        'This conversation no longer fits the model’s context ({limit}), so it won’t be sent: the service would cut part of it out without saying. Start a new chat, or load the model with a longer context in LM Studio or Ollama.',
     },
     turn: {
       working: 'Working…',
@@ -73,6 +93,8 @@ export const ask = defineMessages({
       copy: 'Copy answer',
       copied: 'Copied',
       retry: 'Try again',
+      regenerate: 'Answer again',
+      writtenBy: 'The model that wrote this answer',
       cancelled: 'Stopped. The answer above may be incomplete.',
       interrupted: 'This answer did not finish.',
       failedTitle: 'The assistant could not answer',
@@ -85,7 +107,9 @@ export const ask = defineMessages({
         maxStepsReached:
           'It stopped after reaching the search step limit, so the answer may be incomplete.',
         tokenBudgetReached:
-          'It stopped after reaching the token budget, so the answer may be incomplete.',
+          'It stopped when the model’s context was nearly full, so the answer may be incomplete.',
+        contextTooSmall:
+          'This conversation doesn’t fit the context the model is loaded with, so it wasn’t sent: the service would have cut part of it out without saying. Load the model with a longer context in LM Studio or Ollama, or start a new chat.',
         toolCallingUnavailable:
           'This model cannot use search tools, so it answered without looking at your archive.',
         searchIndexIncomplete:
@@ -139,13 +163,33 @@ export const ask = defineMessages({
     },
     loadingConversation: '正在打开对话…',
     loadFailed: '无法打开这段对话。',
+    edit: {
+      action: '编辑消息',
+      label: '编辑后的消息',
+      send: '发送',
+      dropsLater: '这则消息之后的回答会被新的回答取代。',
+    },
     composer: {
       label: '消息',
       placeholder: '问问你的浏览历史',
       send: '发送',
       stop: '停止',
       hint: '按 Enter 发送，Shift+Enter 换行',
-      provider: '模型：{provider}',
+      model: '回答用的模型',
+      modelLoaded: '已加载 · 读 {size}',
+      modelUpTo: '最多 {size}',
+      modelsLoading: '正在读取模型…',
+      modelsFailed: '无法读取 {service} 的模型。',
+      context: '{used} / {limit}',
+      contextUnknown: '{used} · 上限未知',
+      contextTitle:
+        '下一则消息约占 {used} tokens，模型一次能读 {limit}：包括对话、你输入的内容、助理的说明和留给回答的空间。',
+      contextUnknownTitle:
+        '下一则消息约占 {used} tokens。{service} 没有说这个模型一次能读多少；LM Studio 和 Ollama 在模型加载后才会说。',
+      contextNear:
+        '这段对话快到模型的 context 上限（{limit}）了。再长就不会送出；开新对话，或在 LM Studio、Ollama 用更长的 context 加载模型。',
+      contextOver:
+        '这段对话已经超过模型的 context（{limit}），所以不会送出：服务会默默截掉其中一段。开新对话，或在 LM Studio、Ollama 用更长的 context 加载模型。',
     },
     turn: {
       working: '处理中…',
@@ -162,6 +206,8 @@ export const ask = defineMessages({
       copy: '复制回答',
       copied: '已复制',
       retry: '重试',
+      regenerate: '重新回答',
+      writtenBy: '写这个回答的模型',
       cancelled: '已停止，上面的回答可能不完整。',
       interrupted: '这个回答没有完成。',
       failedTitle: '助理无法回答',
@@ -172,7 +218,9 @@ export const ask = defineMessages({
       sourceTitle: '{title} · {date}',
       notes: {
         maxStepsReached: '已达到搜索步数上限而停止，回答可能不完整。',
-        tokenBudgetReached: '已达到 token 上限而停止，回答可能不完整。',
+        tokenBudgetReached: '模型的 context 快满了，所以停下，回答可能不完整。',
+        contextTooSmall:
+          '这段对话放不进模型目前加载的 context，所以没有送出：服务会默默截掉其中一段。在 LM Studio 或 Ollama 用更长的 context 加载模型，或开新对话。',
         toolCallingUnavailable:
           '这个模型无法使用搜索工具，所以它没有查看你的存档就回答了。',
         searchIndexIncomplete: '搜索索引还在建立中，这个回答可能漏掉一些页面。',
@@ -225,13 +273,33 @@ export const ask = defineMessages({
     },
     loadingConversation: '正在開啟對話…',
     loadFailed: '無法開啟這段對話。',
+    edit: {
+      action: '編輯訊息',
+      label: '編輯後的訊息',
+      send: '傳送',
+      dropsLater: '這則訊息之後的回答會被新的回答取代。',
+    },
     composer: {
       label: '訊息',
       placeholder: '問問你的瀏覽歷史',
       send: '傳送',
       stop: '停止',
       hint: '按 Enter 傳送，Shift+Enter 換行',
-      provider: '模型：{provider}',
+      model: '回答用的模型',
+      modelLoaded: '已載入 · 讀 {size}',
+      modelUpTo: '最多 {size}',
+      modelsLoading: '正在讀取模型…',
+      modelsFailed: '無法讀取 {service} 的模型。',
+      context: '{used} / {limit}',
+      contextUnknown: '{used} · 上限未知',
+      contextTitle:
+        '下一則訊息約占 {used} tokens，模型一次能讀 {limit}：包括對話、你輸入的內容、助理的說明和留給回答的空間。',
+      contextUnknownTitle:
+        '下一則訊息約占 {used} tokens。{service} 沒有說這個模型一次能讀多少；LM Studio 和 Ollama 在模型載入後才會說。',
+      contextNear:
+        '這段對話快到模型的 context 上限（{limit}）了。再長就不會送出；開新對話，或在 LM Studio、Ollama 用更長的 context 載入模型。',
+      contextOver:
+        '這段對話已經超過模型的 context（{limit}），所以不會送出：服務會默默截掉其中一段。開新對話，或在 LM Studio、Ollama 用更長的 context 載入模型。',
     },
     turn: {
       working: '處理中…',
@@ -248,6 +316,8 @@ export const ask = defineMessages({
       copy: '複製回答',
       copied: '已複製',
       retry: '重試',
+      regenerate: '重新回答',
+      writtenBy: '寫這個回答的模型',
       cancelled: '已停止，上面的回答可能不完整。',
       interrupted: '這個回答沒有完成。',
       failedTitle: '助理無法回答',
@@ -258,7 +328,9 @@ export const ask = defineMessages({
       sourceTitle: '{title} · {date}',
       notes: {
         maxStepsReached: '已達到搜尋步數上限而停止，回答可能不完整。',
-        tokenBudgetReached: '已達到 token 上限而停止，回答可能不完整。',
+        tokenBudgetReached: '模型的 context 快滿了，所以停下，回答可能不完整。',
+        contextTooSmall:
+          '這段對話放不進模型目前載入的 context，所以沒有送出：服務會默默截掉其中一段。在 LM Studio 或 Ollama 用更長的 context 載入模型，或開新對話。',
         toolCallingUnavailable:
           '這個模型無法使用搜尋工具，所以它沒有查看你的存檔就回答了。',
         searchIndexIncomplete: '搜尋索引還在建立中，這個回答可能漏掉一些頁面。',

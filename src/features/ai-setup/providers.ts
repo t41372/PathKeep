@@ -156,6 +156,23 @@ export function usableAssistantProvider(
   return provider
 }
 
+/**
+ * Every chat service Ask may answer with, the one picked in Settings first:
+ * on, with a model, and with its key saved unless it runs on this computer.
+ */
+export function usableAssistantProviders(ai: AiSettings): AiProviderConfig[] {
+  const selected = usableAssistantProvider(ai)
+  if (!selected) return []
+  const others = ai.llmProviders.filter(
+    (provider) =>
+      provider.id !== selected.id &&
+      provider.enabled &&
+      provider.defaultModel.trim() &&
+      (isLocalProvider(provider) || provider.apiKeySaved),
+  )
+  return [selected, ...others]
+}
+
 export function providerLabel(provider: AiProviderConfig) {
   return `${provider.name} · ${provider.defaultModel}`
 }

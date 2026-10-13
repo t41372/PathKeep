@@ -177,6 +177,7 @@ export default defineConfig({
         'home-alerts.spec.ts',
         'takeout-import.spec.ts',
         'ask-chats.spec.ts',
+        'ask-agent.spec.ts',
         'ask.spec.ts',
         'lock.spec.ts',
         'security.spec.ts',

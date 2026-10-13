@@ -19,11 +19,12 @@ pub fn begin_agent_run(vault: &Vault, run: &BeginAgentRun) -> Result<()> {
             )?;
         }
         s.execute(
-            "INSERT INTO agent_runs(id, conversation_id, message_id, provider_id,
+            "INSERT INTO agent_runs(id, conversation_id, message_id, provider_id, model,
              embedding_provider_id, status, iterations, prompt_tokens, completion_tokens, error,
-             created_at, updated_at) VALUES(?1, ?2, ?3, ?4, ?5, 'running', 0, 0, 0, NULL, ?6, ?6)
+             created_at, updated_at) VALUES(?1, ?2, ?3, ?4, ?7, ?5, 'running', 0, 0, 0, NULL, ?6, ?6)
              ON CONFLICT(id) DO UPDATE SET conversation_id=excluded.conversation_id,
              message_id=excluded.message_id, provider_id=excluded.provider_id,
+             model=excluded.model,
              embedding_provider_id=excluded.embedding_provider_id, status='running',
              iterations=0, prompt_tokens=0, completion_tokens=0, error=NULL,
              updated_at=excluded.updated_at",
@@ -33,7 +34,8 @@ pub fn begin_agent_run(vault: &Vault, run: &BeginAgentRun) -> Result<()> {
                 run.message_id.as_deref(),
                 run.provider_id.as_deref(),
                 run.embedding_provider_id.as_deref(),
-                now.as_str()
+                now.as_str(),
+                run.model.as_deref()
             ],
         )?;
         Ok(())

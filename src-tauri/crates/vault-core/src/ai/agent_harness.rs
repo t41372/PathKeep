@@ -63,7 +63,7 @@ pub const DEFAULT_MAX_ITERATIONS: u32 = 64;
 /// Caveats (see [`DEFAULT_MAX_ITERATIONS`], which backstops these): this is a fixed value, not the
 /// provider's actual window, so a much smaller-context model can overflow (→ honest provider error)
 /// before it binds; and a provider that omits streaming usage falls back to a coarse size estimate
-/// ([`estimate_context_tokens`]). `0` means "no budget" (tests that want pure iteration control).
+/// ([`estimate_request_tokens`]). `0` means "no budget" (tests that want pure iteration control).
 pub const DEFAULT_TOKEN_BUDGET: u64 = 110_000;
 
 /// One journaled step kind, recorded BEFORE the corresponding chunk is observed/emitted.
@@ -163,126 +163,47 @@ pub struct AgentSystemContext {
     pub archive_visit_count: usize,
 }
 
-/// Renders the concise, factual system-context block prepended to every agent run's first turn.
+/// The one system message every agent run starts with: the facts the model cannot know (today,
+/// the time zone, what the archive spans) and the rules that keep its answers right.
 ///
-/// SHORT and factual by design (no fluff): the model needs (1) the real current date/time/timezone
-/// — which it cannot get from the clockless sandbox or its training cutoff — so relative dates like
-/// "last Friday" resolve against the right year; (2) the archive's date span + size so it searches
-/// the right range and knows the data volume; (3) a one-line retrieval hint that an empty query
-/// lists recent visits and that semantic search may be keyword-only without an embedding provider.
-/// Pure: it formats already-resolved host facts, so it is deterministic and unit-testable.
-pub fn build_agent_system_context(context: &AgentSystemContext) -> String {
-    let mut block = String::new();
-    block.push_str(&format!(
-        "Current date: {date} ({weekday}), {time} {tz}.",
+/// Short on purpose: it is sent with every turn, beside the tool descriptions, and a local model's
+/// context is often 4,000 to 8,000 tokens. Each rule is here because a real answer broke without
+/// it: the wrong year for "last Friday" (no clock), English replies to Chinese questions, asking
+/// the user to choose after they left the choice to it, made-up titles, epoch arithmetic.
+/// `persona` is the user's own instructions from Settings, kept after the rules.
+pub fn build_agent_system_context(context: &AgentSystemContext, persona: &str) -> String {
+    let mut block = format!(
+        "You answer questions about the user's own browser history. Today is {date} ({weekday}), {time} {tz}.",
         date = context.current_date,
         weekday = context.weekday,
         time = context.current_time,
         tz = context.timezone,
-    ));
-
+    );
     match (&context.archive_earliest, &context.archive_latest) {
         (Some(earliest), Some(latest)) => block.push_str(&format!(
-            " The user's browser history spans {earliest} to {latest} (~{count} visits).",
+            " The history spans {earliest} to {latest} (about {count} visits).",
             count = context.archive_visit_count,
         )),
-        _ => block.push_str(" The user's browser history archive is currently empty."),
+        _ => block.push_str(" The history is empty so far."),
     }
-
-    // NOTE: built from separate string literals via `concat!` rather than a backslash-continued
-    // string. A `\`-at-end-of-line literal in production code (before the test module) desyncs the
-    // coverage gate's line-masking, which counts braces over the masked source.
     block.push_str(concat!(
-        " To enumerate recent visits or find the date range, call a search tool (or run_code's",
-        " query_history) with an empty query. Semantic search may be keyword-only if no embedding",
-        " provider is configured.",
+        "\n\nRules:",
+        "\n- Reply in the language of the user's latest message.",
+        "\n- If the user leaves the choice to you, pick one reasonable thing and do it; do not ask",
+        " them to choose.",
+        "\n- Look things up with the tools. Every title, address, time or count you give must come",
+        " from a tool result in this conversation; if nothing matched, say so.",
+        "\n- Turn relative dates (last Friday, this month) into start_date/end_date from today's",
+        " date. Times in tool results are already local; never convert epoch milliseconds.",
+        "\n- intelligence_report gives the numbers of a period, not what the pages were about; read",
+        " the visits for that. A page of search results is a sample when has_more is true.",
+        "\n- Once you have enough, stop calling tools and answer, naming the pages you used.",
     ));
-
-    // Date resolution: teach the model to convert relative dates into concrete parameters.
-    block.push_str(concat!(
-        " Convert relative dates ('last Friday', 'this week', 'last month') to concrete",
-        " start_date/end_date values based on the current date above. Never search for a date",
-        " as text.",
-    ));
-
-    // Tool overview: concise guide for when to use each tool.
-    block.push_str(concat!(
-        " Tools: search_history — find visits by keyword, domain, date range, or starred status",
-        " (empty query lists recent visits).",
-        " run_code — compute/aggregate across visits (counts, grouping, joins) when a single",
-        " search can't answer the question.",
-        " intelligence_report — retrieve pre-computed analytics (top sites, sessions, search",
-        " trails, trends, patterns, daily insights).",
-        " list_stars / list_annotations — enumerate the user's favorites or notes/tags.",
-    ));
-
-    // Coverage strategy: intelligence_report gives the STATISTICAL shape of a period; the CONTENT of
-    // what the user actually did must be read from the actual visits (it is not in the aggregates).
-    block.push_str(concat!(
-        " For the quantitative SHAPE of a time period ('top sites this week', 'how many visits Friday',",
-        " 'how are my sessions bounded'), call intelligence_report for that range FIRST — it covers ALL",
-        " visits in the period, but as STATISTICS ONLY: counts, top domains, and session structure. It",
-        " does NOT tell you WHAT the user actually did or read. For the CONTENT or topics of a period or",
-        " session ('what did I do last Friday', 'what was I researching'), read the ACTUAL visits instead",
-        " — call intelligence_report report=\"session_detail\" for one session's real URLs/titles/queries,",
-        " or write a run_code script that pages query_history over the range and reasons over the",
-        " titles/URLs; NEVER describe content from a session's autoTitle or its counts. search_history",
-        " returns only the TOP matches and sets has_more=true when more matches exist than it returned:",
-        " when has_more is true you are seeing a sample, NOT the full set, so do NOT summarize it as if it",
-        " were complete — use run_code to page query_history and aggregate the FULL set in code (rows stay",
-        " in the sandbox, so only your small returned summary costs context — you can process hundreds of",
-        " visits this way), and use search_history only to find or drill into specific pages. If the",
-        " intelligence index is not built yet, fall back to search but say the summary is based on a",
-        " partial sample.",
-    ));
-
-    // Time direction & completeness: search defaults to most-recent, relevance-ranked, so older
-    // matches exist but are not returned by default — use sort + pagination for history-wide questions.
-    block.push_str(concat!(
-        " search_history defaults to the most-recent, relevance-ranked matches, so OLDER visits that",
-        " match still exist but are NOT in the default results. For 'when did I FIRST/earliest do X',",
-        " pass sort=\"oldest\" (the earliest matches return first). For 'ALL of X across all time',",
-        " page through results using the returned next_cursor until has_more is false; if has_more stays",
-        " true but NO next_cursor comes back, you have hit the retrieval cap — narrow the date range (or",
-        " add filters) to reach the rest. NEVER conclude the first, last, or only occurrence of something",
-        " from a single default-sorted page — if you have not paged to the end or sorted oldest, say your",
-        " finding may be incomplete.",
-    ));
-
-    // Grounding gate: anti-hallucination rule.
-    block.push_str(concat!(
-        " IMPORTANT: Every page title, URL, time, or count in your answer MUST come from a row",
-        " returned by a tool in this conversation. If no tool returned matching data, say you",
-        " found no data — do NOT fabricate visits, titles, or URLs. Cite the visit ID, date,",
-        " and URL for each claim.",
-    ));
-
-    // Local-time rule: the ENRICHED tool surfaces carry the user's LOCAL time so the clockless model
-    // must NOT recompute dates from raw epoch ms (a real trace showed it burning hundreds of reasoning
-    // lines doing exactly that). The claim is SCOPED to the enriched reports — overview/day_insights are
-    // UTC, so promising "all rows are local" would make the model trust their UTC strings as local.
-    // `concat!`, not a `\`-continued literal, to keep the coverage masking sane.
-    block.push_str(concat!(
-        " The search_history results, the run_code query_history rows, and the sessions / search_trails /",
-        " session_detail reports already include the user's LOCAL time in the timezone above: search_history",
-        " result lines LEAD with the local date-time; query_history rows carry visitedAtLocal + localDate;",
-        " sessions and search trails carry firstVisitLocal/lastVisitLocal; session_detail visits carry",
-        " visitTimeLocal. Read those LOCAL fields directly. When a row ALSO carries a raw epoch-millisecond",
-        " field (e.g. firstVisitMs), IGNORE it — do not convert or cross-check it; never recompute a date",
-        " from epoch milliseconds, and the run_code sandbox clock reads 0 so Date.now() there is meaningless.",
-        " (Local times apply your CURRENT timezone offset to every visit, so a historical visit from a",
-        " different daylight-saving period may read up to an hour off.) The overview and day_insights reports",
-        " are NOT localized — their date buckets and *At timestamps are UTC; for a precise local-day question",
-        " prefer the sessions / search_trails / session_detail reports, or a run_code script that groups by",
-        " localDate.",
-    ));
-
-    // Stop rule: efficiency.
-    block.push_str(concat!(
-        " Once the tool results give you enough evidence, STOP calling tools and write the final",
-        " answer with citations — do not keep searching.",
-    ));
-
+    let persona = persona.trim();
+    if !persona.is_empty() {
+        block.push_str("\n\n");
+        block.push_str(persona);
+    }
     block
 }
 
@@ -356,6 +277,7 @@ pub async fn drive_agent_run<P, J, S>(
     run_control: Option<Arc<dyn AiRunControl>>,
     max_iterations: u32,
     token_budget: u64,
+    context_window: Option<u64>,
     journal: &J,
     mut sink: S,
 ) -> AgentRunOutcome
@@ -393,6 +315,24 @@ where
 
     // Advertise the owned tools every turn (the registry builds the definitions).
     request.tools = registry.definitions();
+
+    // A conversation that does not fit is not sent: LM Studio and Ollama would cut out its middle
+    // (often the user's question) without saying so, and the answer would be about something else.
+    if let Some(window) = context_window {
+        let needed = estimate_request_tokens(&request) + u64::from(request.max_tokens.unwrap_or(0));
+        if needed > window {
+            sink(AiChatStreamChunk::Note { code: AiAgentNote::ContextTooSmall });
+            sink(AiChatStreamChunk::Done);
+            return AgentRunOutcome::Failed {
+                iterations: 0,
+                prompt_tokens,
+                completion_tokens,
+                message: format!(
+                    "The conversation needs about {needed} tokens; the model is loaded with {window}."
+                ),
+            };
+        }
+    }
 
     let mut turn: u32 = 0;
     loop {
@@ -450,7 +390,7 @@ where
                 });
                 usage.prompt_tokens
             }
-            None => estimate_context_tokens(&request.messages),
+            None => estimate_request_tokens(&request),
         };
 
         // JOURNAL the assistant turn BEFORE acting on its tool calls.
@@ -626,26 +566,47 @@ where
     }
 }
 
-/// Coarse, tokenizer-free estimate of how many tokens a message history occupies.
+/// About how many tokens a request takes: its messages, tool calls and tool descriptions.
 ///
-/// A FALLBACK for the live-context gate when the provider reports no streaming usage: without it the
-/// gate would silently disable and only the step backstop would bound the run (risking a real context
-/// overflow). Uses a ~4-bytes/token heuristic over message text + tool-call payloads — deliberately
-/// approximate (it under/over-counts depending on language and JSON density), so accurate provider
-/// usage is always preferred when present. It is NOT a substitute for the provider's true token count.
-fn estimate_context_tokens(messages: &[LlmMessage]) -> u64 {
-    let bytes: usize = messages
+/// Used where the service reports no usage, and before the first turn to tell whether the
+/// conversation fits at all. No tokenizer: a model's own counts are always preferred. Chinese,
+/// Japanese and Korean run about one token per character, other text about four bytes per token.
+pub fn estimate_request_tokens(request: &LlmChatRequest) -> u64 {
+    let messages: u64 = request
+        .messages
         .iter()
         .map(|message| {
-            message.content.len()
+            // Each message carries a few tokens of role and framing.
+            4 + estimate_tokens(&message.content)
                 + message
                     .tool_calls
                     .iter()
-                    .map(|call| call.name.len() + call.arguments.len())
-                    .sum::<usize>()
+                    .map(|call| estimate_tokens(&call.name) + estimate_tokens(&call.arguments))
+                    .sum::<u64>()
         })
         .sum();
-    (bytes / 4) as u64
+    let tools: u64 = request
+        .tools
+        .iter()
+        .map(|tool| {
+            estimate_tokens(&tool.name)
+                + estimate_tokens(&tool.description)
+                + estimate_tokens(&tool.parameters.to_string())
+        })
+        .sum();
+    messages + tools
+}
+
+/// About how many tokens `text` is (see [`estimate_request_tokens`]).
+pub fn estimate_tokens(text: &str) -> u64 {
+    let (wide, other) = text.chars().fold((0u64, 0u64), |(wide, other), ch| {
+        if matches!(ch, '\u{3040}'..='\u{30ff}' | '\u{3400}'..='\u{9fff}' | '\u{ac00}'..='\u{d7af}' | '\u{f900}'..='\u{faff}') {
+            (wide + 1, other)
+        } else {
+            (wide, other + ch.len_utf8() as u64)
+        }
+    });
+    wide + other.div_ceil(4)
 }
 
 /// MODEL-facing directive threaded into history for the forced final turn.
@@ -958,7 +919,7 @@ async fn execute_tool(
         },
         Err(error) => ToolExecution {
             result_text: format!(
-                "Tool `{}` failed: {error}. Try a different query or tool.",
+                "Tool `{}` failed: {error}. Correct the call and try again, or use another tool.",
                 call.name
             ),
             is_error: true,

@@ -162,7 +162,10 @@ impl SearchSessions {
         let fingerprint = serde_json::to_string(&(request, &request.ranking_key))?;
         let jobs = self.jobs.lock().unwrap();
         let job = jobs.get(id).context("search session not found")?;
-        anyhow::ensure!(job.request == fingerprint, "cursor belongs to a different query");
+        anyhow::ensure!(
+            job.request == fingerprint,
+            "this cursor belongs to a search with other arguments: send it with that search's query, filters, sort and limit, or leave the cursor out to start from the first page"
+        );
         job.commands
             .send(Command::Next(cursor, Some(sink)))
             .map_err(|_| anyhow::anyhow!("search session closed"))?;

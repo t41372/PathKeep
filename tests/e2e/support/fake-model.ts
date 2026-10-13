@@ -15,8 +15,13 @@
  *
  * It streams when asked to, the way OpenAI does (`chat.completion.chunk`
  * events, then a usage event, then `[DONE]`), and gives every tool call its
- * own id. A request without the right `Bearer` key gets OpenAI's 401. Every
+ * own id. A request without the right `Bearer` key gets OpenAI's 401 (a
+ * service started without a key, as LM Studio runs, takes any). Every
  * request is kept, so a spec can check what PathKeep sent.
+ *
+ * Given `models`, it also lists them the way LM Studio does
+ * (`/api/v0/models`, with each one's state and context lengths) and at
+ * `/v1/models`, so Ask's model picker and context meter read them.
  */
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
@@ -60,6 +65,15 @@ export interface Reply {
 
 /** Decides the reply to one chat request. */
 export type Script = (body: FakeRequest['body']) => Reply
+
+/** One model as LM Studio's `/api/v0/models` lists it. */
+export interface ListedModel {
+  id: string
+  type?: 'llm' | 'vlm' | 'embeddings'
+  state?: 'loaded' | 'not-loaded'
+  loaded_context_length?: number
+  max_context_length?: number
+}
 
 /** A message's text, whichever of OpenAI's two shapes it came in. */
 export function textOf(content: unknown): string {
@@ -192,7 +206,7 @@ function complete(
  * before answering `FAKE_ANSWER`) or a `script` for every reply.
  */
 export async function startFakeModel(
-  options: { apiKey: string } & (
+  options: { apiKey: string | null; models?: ListedModel[] } & (
     | { searchFor: string; script?: never }
     | { script: Script; searchFor?: never }
   ),
@@ -211,7 +225,10 @@ export async function startFakeModel(
         authorization: request.headers.authorization,
         body,
       })
-      if (request.headers.authorization !== `Bearer ${apiKey}`) {
+      if (
+        apiKey !== null &&
+        request.headers.authorization !== `Bearer ${apiKey}`
+      ) {
         response.writeHead(401, { 'content-type': 'application/json' })
         response.end(
           JSON.stringify({
@@ -220,6 +237,33 @@ export async function startFakeModel(
               type: 'invalid_request_error',
               code: 'invalid_api_key',
             },
+          }),
+        )
+        return
+      }
+      const listed = options.models ?? []
+      if (request.method === 'GET' && request.url === '/api/v0/models') {
+        response.writeHead(200, { 'content-type': 'application/json' })
+        response.end(
+          JSON.stringify({
+            object: 'list',
+            data: listed.map((model) => ({
+              type: 'llm',
+              state: 'loaded',
+              max_context_length: model.loaded_context_length,
+              ...model,
+              object: 'model',
+            })),
+          }),
+        )
+        return
+      }
+      if (request.method === 'GET' && request.url === '/v1/models') {
+        response.writeHead(200, { 'content-type': 'application/json' })
+        response.end(
+          JSON.stringify({
+            object: 'list',
+            data: listed.map(({ id }) => ({ id, object: 'model' })),
           }),
         )
         return

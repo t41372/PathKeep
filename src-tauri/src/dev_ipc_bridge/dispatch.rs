@@ -595,6 +595,18 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
                 .await?
             )
         }
+        "ai_chat_context" => {
+            let payload =
+                parse_payload::<WrappedRequest<vault_core::AiChatContextRequest>>(payload)?;
+            let session = state.session.clone();
+            json_value!(
+                tokio::task::spawn_blocking(move || {
+                    worker_bridge::ai_chat_context_impl(&session, payload.request)
+                })
+                .await
+                .unwrap_or_else(|error| join_failure("ai_chat_context", error))?
+            )
+        }
         "ai_chat_cancel" => {
             let payload = parse_payload::<RunIdStringPayload>(payload)?;
             json_value!(worker_bridge::ai_chat_cancel_impl(

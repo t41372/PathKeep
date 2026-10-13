@@ -121,7 +121,10 @@ where
     // assistant sub-flag is off. This bails BEFORE any provider resolution / run registration /
     // spawn so no work, network egress, or run id is minted for a refused turn.
     ensure_ai_capability_enabled(&config, AiCapability::Assistant)?;
-    let runtime = selected_llm_provider_runtime(&config, request.provider_id.as_deref())?;
+    let runtime = with_model(
+        selected_llm_provider_runtime(&config, request.provider_id.as_deref())?,
+        request.model.as_deref(),
+    );
 
     let run_id = next_run_id();
     let cancel = register_ai_chat_run(&run_id);
@@ -385,6 +388,7 @@ where
         conversation_id: setup.conversation_id.clone(),
         message_id: setup.message_id.clone(),
         provider_id: Some(setup.llm_runtime.config.id.clone()),
+        model: Some(setup.llm_runtime.config.default_model.clone()),
         embedding_provider_id: setup.embedding_runtime.as_ref().map(|p| p.config.id.clone()),
     };
     if let Err(error) = begin_agent_run(&setup.vault, &begin) {
@@ -412,17 +416,37 @@ where
         time_zone: vault_core::utils::computer_time_zone(),
     };
 
-    // Inject the host-computed system context (current date/time/timezone + archive span) as the
-    // FIRST message of every agent run. The model has no clock inside the sandbox and only knows its
-    // training cutoff, so without this it guesses the wrong year for "last Friday", searches empty
-    // date ranges, and loops. The facts are resolved on the host (OS clock/timezone + a bounded,
-    // cached archive read) and prepended ahead of any existing leading system message so it is part
-    // of the first turn but never displaces the caller's own system guidance.
+    // One system message, first: the host's facts and rules, then the user's own instructions
+    // from Settings, which the interface sends as a system message of its own. Many chat
+    // templates read only the first system message, so a second one was dropped.
     let mut request = setup.request;
+    let persona = request
+        .messages
+        .iter()
+        .filter(|message| message.role == LlmRole::System)
+        .map(|message| message.content.trim())
+        .filter(|content| !content.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    request.messages.retain(|message| message.role != LlmRole::System);
     let system_context = vault_core::build_agent_system_context(
         &vault_core::resolve_agent_system_context(&setup.vault),
+        &persona,
     );
     request.messages.insert(0, LlmMessage::new(LlmRole::System, system_context));
+
+    // Fit the run to the context the model is loaded with, when its service says. Each turn
+    // gets room to think and answer (a quarter of the context, 1K to 8K tokens; Qwen3's thinking
+    // counts against it), and the run's prompt may use the rest.
+    let model = setup.llm_runtime.config.default_model.clone();
+    let context_window = stream_runtime
+        .block_on(vault_core::chat_context_length(&setup.llm_runtime, &model))
+        .map(u64::from);
+    let answer_room = request.max_tokens.unwrap_or_else(|| answer_room(context_window));
+    request.max_tokens = Some(answer_room);
+    let token_budget = context_window
+        .map(|window| window.saturating_sub(u64::from(answer_room)).max(1))
+        .unwrap_or(DEFAULT_TOKEN_BUDGET);
 
     let outcome = stream_runtime.block_on(async {
         // Probe tool capability BEFORE attaching tools (02 §B). A transport/auth failure surfaces
@@ -443,7 +467,8 @@ where
                 request,
                 Some(control),
                 DEFAULT_MAX_ITERATIONS,
-                DEFAULT_TOKEN_BUDGET,
+                token_budget,
+                context_window,
                 &journal,
                 |chunk: AiChatStreamChunk| {
                     emit(AiChatStreamEvent { run_id: run_id.to_string(), chunk });
@@ -486,6 +511,49 @@ pub fn ai_chat_cancel(
     run_id: &str,
 ) -> Result<AiChatCancelResult> {
     Ok(AiChatCancelResult { cancelled: request_ai_chat_cancel(run_id) })
+}
+
+/// The service's runtime answering with `model` instead of its default, when one was picked.
+fn with_model(mut runtime: AiProviderRuntime, model: Option<&str>) -> AiProviderRuntime {
+    if let Some(model) = model.map(str::trim).filter(|model| !model.is_empty()) {
+        runtime.config.default_model = model.to_string();
+    }
+    runtime
+}
+
+/// How much `request`'s model reads at a time and how much every request already takes, for the
+/// meter beside Ask's composer. Reads the service's model list, so it waits on the network.
+pub fn ai_chat_context(
+    vault: &vault_core::Vault,
+    request: &vault_core::AiChatContextRequest,
+) -> Result<vault_core::AiChatContext> {
+    let config = load_unlocked_config(vault.paths())?;
+    let runtime = with_model(
+        selected_llm_provider_runtime(&config, request.provider_id.as_deref())?,
+        request.model.as_deref(),
+    );
+    let model = runtime.config.default_model.clone();
+    let context_length =
+        tokio_runtime()?.block_on(vault_core::chat_context_length(&runtime, &model));
+    // What every request carries, as `run_agent_stream` builds it.
+    let system = vault_core::build_agent_system_context(
+        &vault_core::resolve_agent_system_context(vault),
+        &config.ai.assistant_system_prompt,
+    );
+    let mut fixed = LlmChatRequest::new(vec![LlmMessage::new(LlmRole::System, system)], None, None);
+    fixed.tools = ToolRegistry::with_default_search_tools().definitions();
+    let answer = answer_room(context_length.map(u64::from));
+    Ok(vault_core::AiChatContext {
+        model,
+        context_length,
+        fixed_tokens: (vault_core::estimate_request_tokens(&fixed) + u64::from(answer)) as u32,
+    })
+}
+
+/// Tokens each turn may spend thinking and answering when Settings sets no limit: a quarter of
+/// the model's context, between 1K and 8K; 4K when the context is not known.
+fn answer_room(context_window: Option<u64>) -> u32 {
+    context_window.map_or(4_096, |window| (window / 4).clamp(1_024, 8_192) as u32)
 }
 
 #[cfg(test)]

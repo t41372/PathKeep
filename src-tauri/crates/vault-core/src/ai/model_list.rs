@@ -71,6 +71,38 @@ pub async fn list_provider_models(
 }
 
 /// `scheme://host:port` of an API root: LM Studio's and Ollama's own APIs sit beside `/v1`.
+/// How many tokens `model` reads at a time on `runtime`'s service, when the service says so; the
+/// assistant fits its prompt into that, and Ask shows it beside the composer.
+///
+/// LM Studio and Ollama count only for a loaded model: one not loaded yet is loaded with the
+/// context its service is set to, which need not be the most the model can take. Google gives
+/// each model's input limit; OpenAI and Anthropic say nothing, so the length is unknown. `None`
+/// also when the service cannot be reached.
+pub async fn chat_context_length(
+    runtime: &crate::ai::AiProviderRuntime,
+    model: &str,
+) -> Option<u32> {
+    let format = &runtime.config.request_format;
+    let models = list_provider_models(
+        format,
+        runtime.config.base_url.as_deref(),
+        runtime.api_key_for_transport(),
+    )
+    .await
+    .ok()?;
+    // Ollama lists `qwen3:latest` for a model named `qwen3`.
+    let same = |id: &str| {
+        id == model
+            || id.strip_suffix(":latest") == Some(model)
+            || model.strip_suffix(":latest") == Some(id)
+    };
+    let found = models.iter().find(|candidate| same(&candidate.id))?;
+    match format {
+        AiRequestFormat::LmStudio | AiRequestFormat::Ollama => found.loaded_context_length,
+        _ => found.loaded_context_length.or(found.max_context_length),
+    }
+}
+
 fn origin(root: &str) -> String {
     let after_scheme = root.find("://").map_or(0, |at| at + 3);
     match root[after_scheme..].find('/') {

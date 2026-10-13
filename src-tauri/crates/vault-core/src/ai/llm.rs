@@ -46,6 +46,11 @@ use rig::streaming::StreamedAssistantContent;
 use std::pin::Pin;
 use std::task::{Context as TaskContext, Poll};
 
+/// Tokens a request leaves for thinking and the answer when nothing fits it to the model's
+/// context: plain chat, the connection test. 1,200 (the default before 2026-10-13) cut answers
+/// short, and a thinking model such as Qwen3 spent them before it answered.
+pub(crate) const DEFAULT_ANSWER_TOKENS: u32 = 4096;
+
 /// The single PathKeep `LlmProvider` implementation backed by rig.
 ///
 /// Holds the resolved provider runtime (config + secret). Every method branches on
@@ -228,7 +233,8 @@ fn build_rig_request<M: CompletionModel>(
         .completion_request(to_rig_message(last))
         .messages(history.iter().map(to_rig_message))
         .temperature(req.temperature.unwrap_or(runtime.config.temperature.unwrap_or(0.2)) as f64)
-        .max_tokens(req.max_tokens.unwrap_or(runtime.config.max_tokens.unwrap_or(1200)) as u64)
+        // The agent sets its own from the model's context (`answer_room` in the worker).
+        .max_tokens(req.max_tokens.unwrap_or(DEFAULT_ANSWER_TOKENS) as u64)
         .tools(to_rig_tools(req));
     if let Some(format) = req.response_format.as_ref() {
         // `Schema` is the same `schemars` 1.x instance rig resolves to (see Cargo.toml note).

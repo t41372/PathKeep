@@ -41,6 +41,21 @@ pub(crate) async fn ai_chat_send(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// How much the model Ask would answer with next can read, and how much every request already
+/// takes; it asks the service, off the UI thread.
+pub(crate) async fn ai_chat_context(
+    request: vault_core::AiChatContextRequest,
+    state: State<'_, SessionState>,
+) -> Result<vault_core::AiChatContext, CommandError> {
+    let state = state.inner().clone();
+    run_blocking_command("ai_chat_context", move || {
+        worker_bridge::ai_chat_context_impl(&state, request)
+    })
+    .await
+}
+
+#[cfg(not(test))]
+#[tauri::command]
 /// Requests cooperative cancellation of one live streaming chat run.
 pub(crate) async fn ai_chat_cancel(
     run_id: String,

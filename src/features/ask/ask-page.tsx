@@ -6,7 +6,7 @@
  * service is set up (saved conversations stay readable then). Streaming lives in `use-chat.ts`; saved conversations in
  * `conversations.ts`. Not responsible for configuring providers (Settings → AI).
  */
-import { useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
@@ -15,49 +15,69 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { intelligenceClient } from '@/lib/backend-client/intelligence'
 import { useI18n } from '@/lib/i18n'
 import { useSnapshot } from '@/lib/queries/app'
+import type { AiProviderConfig } from '@/lib/types'
 import {
   isLocalProvider,
-  providerLabel,
-  usableAssistantProvider,
+  usableAssistantProviders,
 } from '../ai-setup/providers'
 import { AssistantTurn } from './assistant-turn'
 import { fromAgentMessage } from './chat-model'
 import { Composer } from './composer'
+import { ModelPicker, type ModelChoice } from './model-picker'
 import { ConversationList } from './conversation-list'
 import { conversationsKey, useConversations } from './conversations'
 import { AssistantSetup, StarterEmpty } from './empty-states'
 import { useChat } from './use-chat'
+import { UserTurn } from './user-turn'
 import { useStickToBottom } from './use-stick-to-bottom'
 
 export default function AskPage() {
   const snapshot = useSnapshot()
-  const provider = usableAssistantProvider(snapshot.config.ai)
   // Without a service there is no one to ask, but saved conversations are the user's and stay
   // readable: after an upgrade, or with AI turned off, they are still here.
   return (
     <AskChat
-      providerId={provider?.id ?? null}
-      label={provider ? providerLabel(provider) : ''}
-      remoteName={provider && !isLocalProvider(provider) ? provider.name : null}
+      services={usableAssistantProviders(snapshot.config.ai)}
       systemPrompt={snapshot.config.ai.assistantSystemPrompt}
     />
   )
 }
 
+const contextKey = ['ask-context'] as const
+
 function AskChat({
-  providerId,
-  label,
-  remoteName,
+  services,
   systemPrompt,
 }: {
-  /** `null` when no AI service is set up: conversations can be read, not continued. */
-  providerId: string | null
-  label: string
-  remoteName: string | null
+  /** Empty when no AI service is set up: conversations can be read, not continued. */
+  services: readonly AiProviderConfig[]
   systemPrompt: string
 }) {
   const { t } = useI18n()
   const client = useQueryClient()
+  // Which model answers next: the one picked beside the composer, else the one the open
+  // conversation last answered with, else Settings' choice.
+  const fallback = services[0]
+  const [picked, setPicked] = useState<ModelChoice | null>(null)
+  const choice: ModelChoice | null =
+    picked && services.some((service) => service.id === picked.providerId)
+      ? picked
+      : fallback
+        ? { providerId: fallback.id, model: fallback.defaultModel }
+        : null
+  const service = services.find((item) => item.id === choice?.providerId)
+  const providerId = choice?.providerId ?? null
+  const remoteName = service && !isLocalProvider(service) ? service.name : null
+  const context = useQuery({
+    queryKey: [...contextKey, choice?.providerId, choice?.model],
+    queryFn: () =>
+      intelligenceClient.chatContext({
+        providerId: choice?.providerId,
+        model: choice?.model,
+      }),
+    enabled: choice !== null,
+    staleTime: 30_000,
+  })
   const conversations = useConversations()
   const [params, setParams] = useSearchParams()
   const [opening, setOpening] = useState(false)
@@ -66,10 +86,14 @@ function AskChat({
 
   const chat = useChat({
     providerId: providerId ?? '',
+    model: choice?.model ?? null,
     systemPrompt,
     titleFor: (id) => conversations.data?.find((item) => item.id === id)?.title,
-    onSaved: () =>
-      void client.invalidateQueries({ queryKey: conversationsKey }),
+    onSaved: () => {
+      void client.invalidateQueries({ queryKey: conversationsKey })
+      // The service may have loaded the model for this answer: its context is known now.
+      void client.invalidateQueries({ queryKey: contextKey })
+    },
   })
   const { open, startNew, send } = chat
 
@@ -87,7 +111,15 @@ function AskChat({
         const detail = await intelligenceClient.loadConversation(id)
         if (token !== openToken.current) return
         if (!detail) throw new Error('missing')
-        open(id, detail.messages.map(fromAgentMessage))
+        const turns = detail.messages.map(fromAgentMessage)
+        open(id, turns)
+        // Go on with the model the conversation last answered with, when it is still offered.
+        const last = turns.findLast((turn) => turn.model && turn.providerId)
+        setPicked(
+          last?.model && last.providerId
+            ? { providerId: last.providerId, model: last.model }
+            : null,
+        )
         pin()
       } catch {
         if (token === openToken.current) toast.error(t('ask.loadFailed'))
@@ -162,12 +194,16 @@ function AskChat({
               <div className="mx-auto flex max-w-[760px] flex-col gap-5 px-8 py-7">
                 {chat.turns.map((turn, index) =>
                   turn.role === 'user' ? (
-                    <div
+                    <UserTurn
                       key={turn.id}
-                      className="max-w-[80%] self-end rounded-[18px] bg-user-bubble px-4 py-2.5 leading-normal whitespace-pre-wrap text-user-bubble-foreground animate-rise"
-                    >
-                      {turn.content}
-                    </div>
+                      turn={turn}
+                      canEdit={providerId !== null && !chat.streaming}
+                      dropsLater={index < lastIndex}
+                      onEdit={(text) => {
+                        pin()
+                        chat.edit(turn.id, text)
+                      }}
+                    />
                   ) : (
                     <AssistantTurn
                       key={turn.id}
@@ -185,11 +221,28 @@ function AskChat({
             )}
           </div>
         </div>
-        {providerId ? (
+        {choice ? (
           <Composer
             initialText={question}
             streaming={chat.streaming}
-            providerLabel={label}
+            picker={
+              <ModelPicker
+                services={services}
+                value={choice}
+                onChange={setPicked}
+                disabled={chat.streaming}
+              />
+            }
+            context={
+              context.data
+                ? {
+                    turns: chat.turns,
+                    fixedTokens: context.data.fixedTokens,
+                    contextLength: context.data.contextLength,
+                    service: service?.name ?? '',
+                  }
+                : null
+            }
             onSend={submit}
             onStop={chat.stop}
             focusKey={chat.conversationId}

@@ -63,7 +63,7 @@ pub use self::ai_queue::{
     load_ai_queue, preview_ai_integration_files, replay_ai_job, reset_ai_index_build,
     run_ai_queue_jobs, search_ai_history, test_ai_provider_connection_report,
 };
-pub use self::chat::{ai_chat_cancel, ai_chat_send};
+pub use self::chat::{ai_chat_cancel, ai_chat_context, ai_chat_send};
 pub(crate) use self::content_fetch::maybe_spawn_content_fetch_drain;
 pub use self::content_fetch::{
     content_fetch_now, content_fetch_settings, enqueue_content_fetch_working_set,

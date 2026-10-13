@@ -11,8 +11,9 @@
  *   a reload, and from the archive: opening it finds nothing and deleting it
  *   again deletes nothing. A new chat shows none of its pages.
  * - A chat comes back as it was shown: the question, the model's thinking,
- *   the search it ran and what that returned, the answer and the pages it
- *   used, in the same order and words, under the question as its title.
+ *   the search it ran and what that returned, the answer, the model that
+ *   wrote it, its token count and the pages it used, in the same order and
+ *   words, under the question as its title.
  * - A chat exported as Markdown is saved where the save dialog says (an E2E
  *   run answers it with a folder of its own), named after the chat. The file
  *   holds its title, each question and answer under who said it, the pages each answer
@@ -405,22 +406,15 @@ test('a chat opened again shows its question, thinking, search, answer and pages
     await expect(chatColumn(page).getByText(answer)).toBeVisible()
     const reopened = await readChat(page)
     expect(reopened.text).toBe(shown.text)
-    // The same pages, each with the day of its visit. Their order is not
-    // compared: live they come in the search's order, reopened in visit-id
-    // order, so "Open in History" (the first page) can change too.
-    expect(reopened.pages).toEqual(shown.pages)
-    // Recorded, not compared: live, the token count is the last model
-    // request's; reopened, it is the whole answer's.
+    // The same pages in the same order, so "Open in History" (the first
+    // page) goes to the same visit, and the same token count: the whole
+    // answer's, live and reopened.
+    expect(reopened.shownPages).toEqual(shown.shownPages)
+    expect(reopened.openInHistory).toEqual(shown.openInHistory)
+    expect(reopened.tokens).toEqual(shown.tokens)
+    expect(shown.tokens, 'a token count is shown').toHaveLength(1)
     await testInfo.attach('shown and reopened', {
-      body: JSON.stringify(
-        {
-          tokens: [shown.tokens, reopened.tokens],
-          pageOrder: [shown.shownPages, reopened.shownPages],
-          openInHistory: [shown.openInHistory, reopened.openInHistory],
-        },
-        null,
-        2,
-      ),
+      body: JSON.stringify({ shown, reopened }, null, 2),
       contentType: 'application/json',
     })
 

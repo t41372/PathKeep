@@ -24,6 +24,8 @@ import {
 
 interface ChatOptions {
   providerId: string | null
+  /** The model to answer with; the service's default when `null`. */
+  model: string | null
   systemPrompt: string
   /** The current title, so re-saving a renamed conversation keeps its name. */
   titleFor: (conversationId: string) => string | undefined
@@ -121,6 +123,12 @@ export function useChat(options: ChatOptions) {
           turn.reasoning += chunk.text
           break
         case 'toolCall':
+          // What the model wrote before calling a tool is a step on the way, not the answer:
+          // it joins the thinking, and only the last turn's text stays as the answer.
+          if (turn.content.trim()) {
+            turn.reasoning += `${turn.reasoning ? '\n\n' : ''}${turn.content.trim()}`
+          }
+          turn.content = ''
           turn.tools = [
             ...turn.tools,
             {
@@ -149,9 +157,12 @@ export function useChat(options: ChatOptions) {
           )
           break
         case 'usage':
+          // One per model request; the answer's tokens are their sum, as its run records them
+          // and a reopened chat shows them.
           turn.usage = {
-            promptTokens: chunk.promptTokens,
-            completionTokens: chunk.completionTokens,
+            promptTokens: (turn.usage?.promptTokens ?? 0) + chunk.promptTokens,
+            completionTokens:
+              (turn.usage?.completionTokens ?? 0) + chunk.completionTokens,
           }
           break
         case 'citations':
@@ -174,8 +185,8 @@ export function useChat(options: ChatOptions) {
 
   const startRun = useCallback(
     (history: ChatTurn[]) => {
-      const { providerId, systemPrompt } = optionsRef.current
-      const assistant = assistantTurn()
+      const { providerId, model, systemPrompt } = optionsRef.current
+      const assistant = assistantTurn(providerId ?? '', model ?? '')
       const run: ActiveRun = {
         generation: ++generationRef.current,
         runId: null,
@@ -203,6 +214,7 @@ export function useChat(options: ChatOptions) {
             await intelligenceClient.sendChat({
               messages: buildTranscript(history, systemPrompt),
               providerId,
+              model,
               toolsEnabled: true,
               conversationId: conversationRef.current,
               messageId: assistant.id,
@@ -242,7 +254,24 @@ export function useChat(options: ChatOptions) {
     finish(run, 'cancelled')
   }, [finish])
 
-  /** Re-asks the last question, replacing a failed or stopped answer. */
+  /**
+   * Sends an edited question in place of the one with `turnId`: the
+   * conversation goes on from there, and everything after it is dropped (the
+   * saved conversation too, once the new answer ends).
+   */
+  const edit = useCallback(
+    (turnId: string, text: string) => {
+      const content = text.trim()
+      if (!content || runRef.current) return
+      const current = turnsRef.current
+      const index = current.findIndex((turn) => turn.id === turnId)
+      if (index < 0 || current[index].role !== 'user') return
+      startRun([...current.slice(0, index), userTurn(content)])
+    },
+    [startRun],
+  )
+
+  /** Re-asks the last question, replacing its answer: a failed, stopped or finished one. */
   const retry = useCallback(() => {
     if (runRef.current) return
     const current = turnsRef.current
@@ -273,5 +302,15 @@ export function useChat(options: ChatOptions) {
     [finish],
   )
 
-  return { conversationId, turns, streaming, send, stop, retry, open, startNew }
+  return {
+    conversationId,
+    turns,
+    streaming,
+    send,
+    edit,
+    stop,
+    retry,
+    open,
+    startNew,
+  }
 }

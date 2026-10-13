@@ -84,7 +84,7 @@ pub(crate) use self::indexing::enrichment_summary_for as enrichment_summary_for_
 pub use self::indexing::{
     build_ai_index, build_ai_index_with_control, forget_unconfigured_indexes,
 };
-pub use self::model_list::list_provider_models;
+pub use self::model_list::{chat_context_length, list_provider_models};
 pub use self::provider::test_provider_connection;
 pub use self::read_model::{
     ai_index_status, ai_queue_status, load_assistant_run_response, preview_ai_integrations,
@@ -95,8 +95,8 @@ pub use self::search::semantic_search_history;
 
 pub use self::agent_harness::{
     AgentJournal, AgentRunOutcome, AgentRunSink, AgentSystemContext, DEFAULT_MAX_ITERATIONS,
-    DEFAULT_TOKEN_BUDGET, build_agent_system_context, drive_agent_run,
-    resolve_agent_system_context,
+    DEFAULT_TOKEN_BUDGET, build_agent_system_context, drive_agent_run, estimate_request_tokens,
+    estimate_tokens, resolve_agent_system_context,
 };
 pub use self::agent_tools::{
     AgentTool, AgentToolContext, HistorySearchTool, ToolOutcome, ToolRegistry,

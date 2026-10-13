@@ -19,6 +19,8 @@ import type {
   AgentConversationSummary,
   AiChatCancelResult,
   AiChatSendAck,
+  AiChatContext,
+  AiChatContextRequest,
   AiChatSendRequest,
   AiIndexReport,
   AiIndexRequest,
@@ -81,6 +83,8 @@ export const intelligenceClient = {
     call<ReembedEstimate>('estimate_reembed', { scope }),
   searchHistory: (request: AiSearchRequest) =>
     call<AiSearchResponse>('search_ai_history', { request }),
+  chatContext: (request: AiChatContextRequest) =>
+    call<AiChatContext>('ai_chat_context', { request }),
   sendChat: (request: AiChatSendRequest) =>
     call<AiChatSendAck>('ai_chat_send', { request }),
   cancelChat: (runId: string) =>

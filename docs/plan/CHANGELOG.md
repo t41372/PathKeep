@@ -2883,3 +2883,12 @@ that held up when checked against the code.
 
 - [x] Exporting an Ask conversation asks where to save it (2026-10-13).
   - The system's save dialog, opened by the backend, offers Downloads and a name from the conversation; the file is written where the person chooses. The first version put every file in PathKeep's own exports folder, where nobody looks and "Delete all data" removes it. Cancelling the dialog writes nothing and shows no error.
+
+- [x] `WORK-ASK-2026-10` — Ask answers in your language, says when a conversation does not fit, and can be steered (2026-10-13).
+  - The model gets one system message: today's date and the archive's span, a few rules (reply in the language of the latest message; when the choice is left to it, pick one thing and do it; every title, address, time or count comes from a tool result; relative dates become dates), then your own instructions from Settings. Before, those were a second system message, which many models' templates ignore. The instructions and tool descriptions went from about 5K to about 2K tokens.
+  - Ask reads how much the model can read at a time from the service (LM Studio and Ollama once it is loaded) and fits each request to it: room for thinking and the answer (a quarter of the context, 1K to 8K, instead of a fixed 1,200 that Qwen3's thinking used up), and the rest for the conversation. A conversation that does not fit is not sent; the answer says so and how to fix it, where LM Studio and Ollama would have cut out its middle without saying.
+  - Beside the composer: which service and model answers next, and how much of its context the next message takes, turning orange near the limit and red past it.
+  - What the model writes before it calls a tool shows as thinking; only its last turn is the answer. Each answer names the model that wrote it and its total tokens, the same after reopening, and its pages keep their order.
+  - Your messages can be edited; the conversation goes on from there and the answers after it are dropped. A finished answer can be asked for again.
+  - Tool calls with an argument the tool does not know are refused with the arguments it takes. LM Studio sometimes garbles a name from qwen3.6 (`end_date2026-10-09`); that used to be dropped silently and searched the wrong dates.
+  - Tried with LM Studio's qwen3.6-35b-a3b-splash on four questions (an open one in Chinese, "你隨便做", "when did I first…" in English, "last Friday" in Chinese): each answered in the language asked, without asking back, from what the tools returned, in 2 to 18 seconds.

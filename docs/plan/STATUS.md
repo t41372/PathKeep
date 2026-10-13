@@ -321,15 +321,17 @@
   - 做了（2026-10-13）：小寫其實有兩個源頭：存檔的 `search_terms.normalized_term` 本來就是小寫（Chrome 存的就是），`classification.rs` 又轉一次。洞察改讀使用者打的 `term`，造訪事實只合併空白、保留大小寫（`typed_query`）；分組、改寫判斷、query family、drill-in 原本就經過 `normalize_query` / `search_family_key`，不受影響。洞察規則版本 visit-derive v4 → v5，既有存檔打開時自動重建（用戶真實資料上次這種重建約 1 分鐘）。
   - E2E：`insights-counts.spec` 的常搜尋驗每個晶片顯示的是那組最新一次打的樣子（fixture 最後一次是「SQLite WAL Mode」），次數與順序照舊。
 
-- [ ] **WORK-ASK-2026-10** — 助理的對話與 agent（用戶 2026-10-12）
+- [x] **WORK-ASK-2026-10** — 助理的對話與 agent（用戶 2026-10-12）
   - 讀先：`docs/features/intelligence.md`（Ask）、`docs/architecture/ai-security-posture.md`。
   - 現象：使用者說「你隨便做」，agent 先回中文說要挑一個做，查了兩次存檔後改用英文說「沒看到問題，你想知道什麼」。
-  - [ ] 1. 寫下會怎麼錯，再修 agent：(a) 每輪先送約 5K token 的英文系統說明與工具說明，又不知道模型的 context 有多長（寫死 110K），LM Studio 塞不下就從中間截掉，使用者那句剛好在中間——從服務讀模型的 context 長度（`/api/v0/models`）定預算，縮短說明，超過時明說而不是讓服務默默截；(b) 給模型的文字全是英文、沒叫它用使用者的語言回答——加上「用使用者最新一則訊息的語言回答」；(c) 使用者把選擇交給它時要自己挑一件事做，不要再問；(d) 前端的 persona 是第二個 system message，很多模板會忽略——併成一個；(e) 每一輪的文字直接接成同一段回答——工具前的話放進思考步驟，答案只放最後一輪；(f) 每輪上限 1200 token 連 Qwen3 的思考也算——照模型調高。
-  - [ ] 2. context 用量給使用者看（用戶 2026-10-12）：輸入框旁顯示這段對話用了多少／模型的 context 長度（例如「4.6K / 8K」），接近上限時提醒，超過時明說「這段對話超過模型的 context，最前面或中間的內容會被截掉」並給修法（在 LM Studio、Ollama 把模型的 context 調大，或開新對話）；讀不到 context 長度時寫「不知道上限」而不是猜。用量照服務回報的 `prompt_tokens`，送出前用估算。
-  - [ ] 3. 對話：使用者訊息可以編輯，從那則重來、後面的丟掉（用戶選的）；完成的回答也能重新產生（重試已寫好，只在出錯時顯示）；在輸入框選服務與模型（請求加 `model`，對話記下用的服務與模型，每則回答記下是哪個模型寫的）。三語。
-  - [ ] 4. 重開對話與當下看到的要一樣（2026-10-12 `ask-chats.spec` 找到）：token 數當下是最後一次請求的、重開後是整個回答加總（`hydrate_messages`），變成兩倍；引用頁當下照搜尋順序、重開後照 visit id（`transcript.rs` 的 `ORDER BY run_id, history_id`），「在 History 打開」可能指到別頁。
-  - [ ] 5. E2E：本機假的 LLM 服務（腳本化回應、會呼叫工具、回報 context 長度）：工具呼叫後的回答用使用者的語言、只顯示最後一輪；context 用量照服務回報顯示、超過時提醒；編輯中間的訊息後後面的被丟掉、重新回答；重新產生；換模型後請求帶新的模型。
-  - [ ] 6. 文檔、CHANGELOG。
+  - [x] 1. 寫下會怎麼錯，再修 agent：(a) 每輪先送約 5K token 的英文系統說明與工具說明，又不知道模型的 context 有多長（寫死 110K），LM Studio 塞不下就從中間截掉，使用者那句剛好在中間——從服務讀模型的 context 長度（`/api/v0/models`）定預算，縮短說明，超過時明說而不是讓服務默默截；(b) 給模型的文字全是英文、沒叫它用使用者的語言回答——加上「用使用者最新一則訊息的語言回答」；(c) 使用者把選擇交給它時要自己挑一件事做，不要再問；(d) 前端的 persona 是第二個 system message，很多模板會忽略——併成一個；(e) 每一輪的文字直接接成同一段回答——工具前的話放進思考步驟，答案只放最後一輪；(f) 每輪上限 1200 token 連 Qwen3 的思考也算——照模型調高。
+  - [x] 2. context 用量給使用者看（用戶 2026-10-12）：輸入框旁顯示這段對話用了多少／模型的 context 長度（例如「4.6K / 8K」），接近上限時提醒，超過時明說「這段對話超過模型的 context，最前面或中間的內容會被截掉」並給修法（在 LM Studio、Ollama 把模型的 context 調大，或開新對話）；讀不到 context 長度時寫「不知道上限」而不是猜。用量照服務回報的 `prompt_tokens`，送出前用估算。
+  - [x] 3. 對話：使用者訊息可以編輯，從那則重來、後面的丟掉（用戶選的）；完成的回答也能重新產生（重試已寫好，只在出錯時顯示）；在輸入框選服務與模型（請求加 `model`，對話記下用的服務與模型，每則回答記下是哪個模型寫的）。三語。
+  - [x] 4. 重開對話與當下看到的要一樣（2026-10-12 `ask-chats.spec` 找到）：token 數當下是最後一次請求的、重開後是整個回答加總（`hydrate_messages`），變成兩倍；引用頁當下照搜尋順序、重開後照 visit id（`transcript.rs` 的 `ORDER BY run_id, history_id`），「在 History 打開」可能指到別頁。
+  - [x] 5. E2E：本機假的 LLM 服務（腳本化回應、會呼叫工具、回報 context 長度）：工具呼叫後的回答用使用者的語言、只顯示最後一輪；context 用量照服務回報顯示、超過時提醒；編輯中間的訊息後後面的被丟掉、重新回答；重新產生；換模型後請求帶新的模型。
+  - [x] 6. 文檔、CHANGELOG。
+  - 結果（2026-10-13）：一則 system message（規則在前、使用者的指示在後），系統與工具說明約 5K → 2K token；context 從服務讀、送出前估，放不下就不送並說明（`contextTooSmall`）；每輪回答空間是 context 的四分之一（1K–8K，未知時 4K）。輸入框旁有模型選擇與 context 用量。使用者訊息可編輯（後面的丟掉）、完成的回答可重新回答；每則回答記下模型（`agent_runs.model`，schema 改了：用戶資料裝新版前要手動補，見記憶）。重開後 token 總數與引用順序跟當下一樣。工具不認得的參數改成拒絕並列出合法參數（qwen3.6 經 LM Studio 會把參數名寫壞，之前默默查錯）。用 LM Studio 的 qwen3.6-35b-a3b-splash 實測四種問題都對（`docs/features/intelligence.md` §2）。E2E：`ask-agent.spec`（三條）、`ask-chats.spec` 重開那條改成比對 token 與順序。
+  - 順手：測試用的匯出延遲改成照時鐘配速（macOS 會把背景程式的短 sleep 拉長，0.5 ms 變 15 ms，`export.spec` 兩分鐘逾時）。
 
 - [ ] **WORK-UI-POLISH-2026-10** — 用戶 2026-10-12 看到的介面問題
   - 讀先：`docs/design/` 核心四份、`docs/design/back-forward-window-frame-tradeoff.md`。
@@ -339,6 +341,48 @@
   - [ ] 4. History 時間軸：時間欄 40 px 放不下「晚上7:23」就折成兩行（改寬、不折行、不用 mono）；段落標題重複「晚上」（用 `formatRange` 寫成「晚上7:02–7:23」，換掉那個 commit 圖示）；同一段裡連著造訪同一網址合成一列、標 ×N（用戶選的），點開看得到每次的時間，`?visit=` 仍找得到每一筆；列高不變、仍虛擬化。
   - [ ] 5. 上一頁 / 下一頁與 Windows、Linux 的外框（`back-forward-window-frame-tradeoff.md` D，用戶選的）：導航列頂端放上一頁 / 下一頁（沒有時變灰），⌘[ / ⌘]、Alt+← / Alt+→、滑鼠側鍵；Windows、Linux 不用系統標題列，主面板上邊距加大，視窗按鈕畫在底層右上角，Windows 11 的 snap layouts 用 `windows` crate 回應 `WM_NCHITTEST`；導航列的品牌標誌拿掉。要在 Windows 實機確認（縮放邊、拖到螢幕邊、snap layouts、深淺色）。
   - [ ] 6. E2E 與在真的 Tauri 視窗看過（`ui-review-guardrails.md` §7）；文檔（`screens-and-nav.md` §導航照 D 改）、CHANGELOG。
+
+（用戶 2026-10-13：「把所有任務都做完再跟我回報」，包括這個 session 找到、記進 BACKLOG 的。以下從 BACKLOG 搬上，照順序做；`WORK-REKEY-STALL` 等重現；14.4M 實測 `WORK-SCALE-BENCH-RERUN` 照用戶的話放最後。）
+
+- [ ] **WORK-HISTORY-EXPORT-SAVE-DIALOG** — 歷史匯出也該問存在哪裡（2026-10-13，對話匯出改成跳儲存對話框時找到）
+  - 現象：Settings → Storage →「匯出歷史」一律寫進 PathKeep 自己的 `exports` 資料夾（在應用程式資料目錄裡，平常沒人看），「刪除所有資料」會一起刪掉，「釋放空間」也列得出來。使用者匯出的檔案是要拿走的，不是 app 的暫存。
+  - 方向：跟 `export_ai_conversation` 一樣，開始前由後端跳系統的儲存對話框（建議檔名、預設「下載」），之後照舊有進度、可停止，暫存檔寫在目標旁邊、完成才換上（`atomic_durable_write_with`）；取消對話框什麼都不做。`exports` 資料夾之後只剩舊檔，「釋放空間」照舊能清。E2E 用 `PATHKEEP_TEST_SAVE_DIR`，`export.spec` 改讀那裡。
+
+- [ ] **WORK-NOTE-SAVE-FLAKE** — 筆記偶爾沒存下來（2026-10-13 寫 history E2E 時看到一次）
+  - 現象：`history-tools.spec` 的「a note is found by its words, in either script, until it changes」一次失敗：第二頁的筆記沒有存下來，之後用筆記的字搜不到它。其他每次都過。
+  - 已知：`note-editor.tsx` 在停止輸入 0.8 秒後存，面板換到別頁時把還沒存的那次用原來的網址送出；照程式看不會丟。那次沒留下 trace（跟另一組 E2E 同時跑，產物被蓋掉）。
+  - 方向：重跑那條直到失敗並留下 trace，看是沒送出、送出失敗（畫面會寫「沒存下來」）還是存了但搜尋索引沒跟上；找到時序再修，E2E 加一條快速換頁後筆記仍在。
+
+- [ ] **WORK-UPGRADE-LOCKED-FLAKE** — 從 0.3.0 升級時偶爾停在「存檔已加密」（2026-10-12 本機 gate 看到一次）
+  - 現象：`upgrade.spec` 解開 0.3.0 的 App Lock 之後，應該出現「Updating your archive」，那一次卻是「Your archive is encrypted」（`archive-locked`，要密碼解鎖新格式的存檔）。資料夾裡只有剛解開的 0.3.0 檔案（spec 先確認沒有 `config.json`、也沒有 `history-vault.db`）。同一份程式碼前一次與後一次的完整 E2E 都過（75 / 76 個）。
+  - 疑點：`session.tsx` 的順序是 App Lock → recovery → upgrade → archive-locked；解鎖後重新判斷時，「是不是舊格式」那一步若讀失敗或讀到還沒寫完的狀態，就會落到 archive-locked。使用者遇到的話，會被要求用 0.3.0 的密碼解鎖一個不存在的新存檔。
+  - 證據：那次的 `error-context.md`、trace 與 app 的執行緒堆疊在 2026-10-12 的 `artifacts/e2e/`（之後的 run 會蓋掉；要重現就重跑 `upgrade` 專案直到失敗，保存那次的產物）。
+  - 方向：先找出解鎖後判斷舊格式的那條路（session 狀態與後端的升級偵測命令），寫下它在什麼時序下會答錯，再修；E2E 連跑多次證明。
+
+- [ ] **WORK-JOB-HISTORY-PAGING** — Background work 看得到全部的工作紀錄，翻頁不漏（2026-10-12 修 `queue_history_dispatch_preserves_every_cursor_page` 時找到）
+  - 讀先：`docs/features/intelligence.md`（Recent-job snapshots 一段）、`vault-core/src/intelligence_runtime/snapshot.rs`（`load_job_page` 與 recent jobs）、`vault-core/src/ai_queue/store.rs`（`list_jobs`）。
+  - 現象：Background work 只顯示兩個佇列的第一頁；後端已有 `list_ai_jobs` / `list_intelligence_jobs` 接著讀，但前端沒用，更早的工作在畫面上找不到。
+  - 根本原因（要先修）：Insights 工作的清單按 `updated_at DESC, id DESC` 排，游標也是 `(updated_at, id)`。工作一跑、一回報進度，`updated_at` 就變，翻到一半跑完的工作會跳到游標前面，接下來的頁就漏掉它；已讀過的工作再變動也可能重複出現。最小重現：37 個 Insights 工作、每頁 5 筆、佇列不暫停，邊跑邊翻，8 次有 7 次只讀到 36 筆。AI 工作的清單按 `id DESC` 排，不受影響。測試現在暫停佇列，只證明游標本身走得完。
+  - 方向：Insights 清單改成跟 AI 清單一樣按建立順序（`id DESC`）翻頁，recent jobs 快照與它的游標一起改，`idx_intelligence_jobs_recent` 不再需要；狀態變動照樣更新已載入的列，但不改它們的位置。然後前端在 Background work 捲動載入更多（虛擬化、三語的載入 / 讀完 / 失敗狀態），E2E 在佇列跑著時翻完全部頁，數目對、不重複。
+
+- [ ] **WORK-AI-RUNS-AUDIT-VIEW** — AI 的 run 在哪裡給人看（2026-10-12 `WORK-RUN-LIFECYCLE-GUARDS` 找到）
+  - 現象：索引建置（`ai_index`）、助理回答（`assistant`）與每次 MCP 查詢（`mcp_query`）都寫進 `runs`，以前只出現在 Backup 的「最近的執行」，寫成備份的「0 個來源 · 0 筆新造訪」，還把備份擠出 12 筆。現在那裡不列它們，畫面上就沒有地方看得到；MCP 查詢是外部工具讀了哪些歷史的審計，應該看得到。
+  - 方向：先決定放哪（Settings → AI，或 Background work）、列什麼（查了什麼、回了幾筆、哪個工具），再做讀取命令與畫面（三語、虛擬化）。
+
+- [ ] **WORK-ASSISTANT-JOB-TYPE** — AI 佇列裡的「助理」工作已經沒有來源（2026-10-13 盤點 `WORK-TEST-CUT-2026-10` 刪掉的程式時找到）
+  - 現象：Ask 從 v0.4 起走串流（`ai_chat_send`），排隊提問的命令與 `enqueue_assistant_job` 都已刪掉；佇列仍認得 `assistant` 這種工作，會領取、執行、重播（`vault-worker/src/intelligence/ai_queue.rs` 的 `complete_claimed_assistant_job` 等），只會碰到舊存檔裡留下的列。
+  - 方向：決定舊列怎麼處理（執行一個很久以前的問題沒有意義，應該標成取消並在 Background work 說明），再拿掉這種工作的執行路徑與計數；文檔 `desktop-command-surface.md` 同步。
+
+- [ ] **WORK-PROJECT-PATHS-V04** — `ProjectPaths` 的資料庫路徑還是 v0.3 的（2026-10-13 修 Settings → Storage 時找到）
+  - 現象：`config.rs` 的預設是 `history-vault.sqlite`、`source-evidence.sqlite`、`history-search.sqlite`、`history-intelligence.sqlite`、`agent.sqlite`；`Vault::open` 再把其中四個改成 `.db`，搜尋那個沒改（v0.4 的搜尋索引是 `derived/search-index` 資料夾）。沒有經過 `Vault` 的讀者（`app.rs` 回給介面的 `searchDatabasePath`）拿到的是不存在的檔案；Storage 用量曾因此少算搜尋索引、對話與 WAL。
+  - 方向：先列出誰還需要 v0.3 的路徑（v0.3 → v0.4 轉換要找舊檔），把它們改成明說「舊格式」的欄位；其餘全部用 `vault_store::Paths` 的布局，`search_database_path` 換成搜尋索引資料夾。
+
+- [ ] **WORK-TEST-CUT-FINDINGS** — 清 unit test 時讀程式碼找到的（2026-10-12，都還沒重現或修）
+  - 匯入時網址缺失的那筆造訪被跳過，之後的造訪把游標推過它（`consumer.rs`；舊審查的 A3，pin 住它的測試已刪）：那筆造訪不會再被讀到。
+  - Browser Direct 的備用複製（`takeout/browser_history/staging.rs:232-279`）沒有一般備份（`chrome/staging.rs:170`）那段寫到一半的日誌復原；複製到正在寫的 History 時大概會像以前的備份事故一樣以 `SQLITE_READONLY_ROLLBACK` 失敗。
+  - `agent_harness.rs:507`、`:738` 用 `let _ =` 丟掉 `record_citations` 的結果：存引用失敗時，重開的對話只有答案沒有來源，也沒有錯誤。
+  - `trim_torn_tail`（`backfill.rs:737`，向量檔寫到一半崩潰後的修復）沒有任何測試，E2E 也碰不到：補一個先寫失敗方式再寫的測試。
+  - 內容抓取的 `#[cfg(test)]` 版 `url_target_is_blocked`（舊審查 P0 #4）還在：測試走的不是 production 的檢查。
 
 - [ ] **WORK-REFACTOR-INDEXING**（用戶 2026-06-21 指示，承巨檔審計）— `ai/indexing.rs` 拆分重構。詳見 `main` 上的 STATUS。_非當前 focus_
 

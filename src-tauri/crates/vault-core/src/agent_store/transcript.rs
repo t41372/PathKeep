@@ -234,28 +234,41 @@ fn hydrate_messages(
     let mut args = vec![vault_store::Value::Text(conversation_id.to_owned())];
     args.extend(messages.iter().map(|m| vault_store::Value::Text(m.id.clone())));
     let latest = format!(
-        "SELECT r.id, r.message_id, r.prompt_tokens, r.completion_tokens FROM agent_runs r WHERE
+        "SELECT r.id, r.message_id, r.prompt_tokens, r.completion_tokens, r.provider_id, r.model
+         FROM agent_runs r WHERE
          r.conversation_id=?1 AND r.message_id IN ({placeholders}) AND NOT EXISTS (SELECT 1 FROM
          agent_runs newer WHERE newer.conversation_id=r.conversation_id AND
          newer.message_id=r.message_id AND (newer.updated_at>r.updated_at OR
          (newer.updated_at=r.updated_at AND newer.id>r.id)))"
     );
     let runs = s.query(&latest, args, |r| {
-        Ok((r.get::<String>(0)?, r.get::<String>(1)?, r.get::<i64>(2)?, r.get::<i64>(3)?))
+        Ok((
+            r.get::<String>(0)?,
+            r.get::<String>(1)?,
+            r.get::<i64>(2)?,
+            r.get::<i64>(3)?,
+            r.get::<Option<String>>(4)?,
+            r.get::<Option<String>>(5)?,
+        ))
     })?;
     if runs.is_empty() {
         return Ok(());
     }
-    let by_message: std::collections::HashMap<_, _> =
-        runs.iter().map(|(id, m, p, c)| (m.as_str(), (id.as_str(), *p, *c))).collect();
+    let by_message: std::collections::HashMap<_, _> = runs
+        .iter()
+        .map(|(id, m, p, c, provider, model)| (m.as_str(), (id.as_str(), *p, *c, provider, model)))
+        .collect();
     let placeholders = (1..=runs.len()).map(|n| format!("?{n}")).collect::<Vec<_>>().join(",");
     let args: Vec<_> = runs.iter().map(|r| vault_store::Value::Text(r.0.clone())).collect();
     let mut citations: std::collections::HashMap<String, Vec<AgentCitation>> =
         std::collections::HashMap::new();
+    // In the order they were recorded, which is the order the answer cited them in: a reopened
+    // answer lists its pages as they were shown, and its first page stays the one "Open in
+    // History" goes to. (`record_agent_citations` replaces a run's rows in that order.)
     s.for_each(
         &format!(
             "SELECT run_id, history_id, canonical_url, url, title, visited_at, score, profile_id
-             FROM agent_citations WHERE run_id IN ({placeholders}) ORDER BY run_id, history_id"
+             FROM agent_citations WHERE run_id IN ({placeholders}) ORDER BY run_id, rowid"
         ),
         args,
         |r| {
@@ -272,7 +285,9 @@ fn hydrate_messages(
         },
     )?;
     for m in messages {
-        if let Some((id, prompt, completion)) = by_message.get(m.id.as_str()) {
+        if let Some((id, prompt, completion, provider, model)) = by_message.get(m.id.as_str()) {
+            m.provider_id.clone_from(provider);
+            m.model.clone_from(model);
             if *prompt > 0 || *completion > 0 {
                 m.usage = Some(AgentUsage {
                     prompt_tokens: (*prompt).max(0) as u64,

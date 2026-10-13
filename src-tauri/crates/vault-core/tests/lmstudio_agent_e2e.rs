@@ -47,7 +47,6 @@ fn lmstudio_llm_runtime() -> AiProviderRuntime {
             base_url: Some("http://localhost:1234/v1".to_string()),
             default_model: "google/gemma-4-26b-a4b-qat".to_string(),
             temperature: Some(0.2),
-            max_tokens: Some(2048),
             ..AiProviderConfig::default()
         },
         api_key: Some(SecretString::from("lm-studio".to_string())),
@@ -310,6 +309,7 @@ async fn lmstudio_agent_runs_the_full_tool_loop_and_journals_a_durable_cited_tra
             conversation_id: Some(conversation_id.to_string()),
             message_id: Some(message_id.to_string()),
             provider_id: Some(lmstudio_llm_runtime().config.id),
+            model: Some(lmstudio_llm_runtime().config.default_model),
             embedding_provider_id: Some(lmstudio_embedding_config().id),
         },
     )
@@ -324,7 +324,8 @@ async fn lmstudio_agent_runs_the_full_tool_loop_and_journals_a_durable_cited_tra
     // test — without it the model has no clock (the sandbox `Date.now()` is 0) and guesses the wrong
     // year, searches empty date ranges, and loops. The retrieval guidance then tells it to enumerate
     // recent visits via an EMPTY query (the other half of the fix), which the seeded rows satisfy.
-    let system_context = build_agent_system_context(&resolve_agent_system_context(&context.vault));
+    let system_context =
+        build_agent_system_context(&resolve_agent_system_context(&context.vault), "");
     eprintln!("agent e2e: injected system context = {system_context:?}");
     let request = LlmChatRequest::new(
         vec![
@@ -369,6 +370,7 @@ async fn lmstudio_agent_runs_the_full_tool_loop_and_journals_a_durable_cited_tra
         None,
         DEFAULT_MAX_ITERATIONS,
         DEFAULT_TOKEN_BUDGET,
+        None,
         &journal,
         |chunk: AiChatStreamChunk| chunks.lock().expect("lock").push(chunk),
     )
@@ -526,6 +528,7 @@ async fn lmstudio_agent_cancel_mid_loop_emits_a_graceful_done() {
         Some(control),
         DEFAULT_MAX_ITERATIONS,
         DEFAULT_TOKEN_BUDGET,
+        None,
         &journal,
         |chunk: AiChatStreamChunk| chunks.lock().expect("lock").push(chunk),
     )
