@@ -275,6 +275,19 @@ export function generateVisits({
       perDay * share * (weekend ? 0.55 : 1) * (0.6 + random() * 0.8),
     )
     const sessions = 2 + Math.floor(random() * 4)
+    // One person, one session at a time: the day's sessions go in order of
+    // their start, and one that would start before the last one ended waits
+    // for it. Otherwise another topic's search can land between a search and
+    // its rewordings, and they are no longer one search trail.
+    const starts = Array.from(
+      { length: sessions },
+      () =>
+        dayStart +
+        [9, 10, 11, 14, 15, 16, 20, 21, 22][Math.floor(random() * 9)] *
+          3_600_000 +
+        Math.floor(random() * 50) * 60_000,
+    ).sort((a, b) => a - b)
+    let free = dayStart
     let produced = 0
     for (
       let session = 0;
@@ -282,8 +295,7 @@ export function generateVisits({
       session += 1
     ) {
       const topic = topics[Math.floor(random() * topics.length)]
-      const hour = [9, 10, 11, 14, 15, 16, 20, 21, 22][Math.floor(random() * 9)]
-      let at = dayStart + hour * 3_600_000 + Math.floor(random() * 50) * 60_000
+      let at = Math.max(starts[session], free)
       if (at > now) continue
       const size = Math.max(2, Math.round(volume / sessions))
       if (random() < 0.7) {
@@ -334,13 +346,14 @@ export function generateVisits({
         })
         produced += 1
       }
+      free = at + 60_000
     }
   }
   visits.push(...compareScene(today.getTime() - (days + 1) * DAY_MS))
   visits.push(...pagesSiteScene(today.getTime() - 2 * DAY_MS))
-  // Two sessions can start in the same minute and produce the same visit
-  // twice. A browser never records two visits at the same instant, and
-  // PathKeep counts identical visits once, so keep every timestamp unique.
+  // The scenes can land on the instant of a session's visit. A browser never
+  // records two visits at the same instant, and PathKeep counts identical
+  // visits once, so keep every timestamp unique.
   visits.sort((a, b) => a.at - b.at)
   for (let index = 1; index < visits.length; index += 1) {
     if (visits[index].at <= visits[index - 1].at) {
