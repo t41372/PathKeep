@@ -3,10 +3,7 @@
 //! Failure modes: benchmarking a smaller/empty store, warm-only measurements, hidden export
 //! truncation, unreported memory/load, excessive disk use or leftover benchmark data.
 use std::{path::Path, time::Instant};
-use vault_core::{
-    AppConfig, ArchiveMode, BrowseDayInsightsRequest, ExportFormat, ExportRequest, HistoryQuery,
-    Vault,
-};
+use vault_core::{AppConfig, ArchiveMode, ExportFormat, ExportRequest, HistoryQuery, Vault};
 use vault_store::{Db, Priority, params};
 const VISITS: i64 = 14_400_000;
 const PAGES: i64 = 2_880_000;
@@ -15,7 +12,6 @@ const STEP: i64 = 10_000;
 const OPERATIONS: &[&str] = &[
     "timeline-first",
     "timeline-next",
-    "day-insights",
     "url-detail-many-visits",
     "overview",
     "source-stats",
@@ -311,22 +307,6 @@ fn measure(vault: &Vault, pass: &str, operation: &str) {
                 page.items[0].id,
                 if operation == "timeline-first" { VISITS } else { VISITS - 150 }
             );
-        }
-        "day-insights" => {
-            let date =
-                chrono::DateTime::from_timestamp_millis(START + VISITS * 10_000 - 86_400_000)
-                    .unwrap()
-                    .with_timezone(&chrono::Local)
-                    .date_naive()
-                    .to_string();
-            let day = timed(pass, operation, || {
-                vault_core::get_browse_day_insights(
-                    vault,
-                    &BrowseDayInsightsRequest { date, profile_id: None },
-                )
-                .unwrap()
-            });
-            assert!(day.total_pages > 0);
         }
         "url-detail-many-visits" => {
             let detail = timed(pass, operation, || {

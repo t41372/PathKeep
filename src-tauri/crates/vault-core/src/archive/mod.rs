@@ -97,10 +97,9 @@ pub use self::write_lock::{ArchiveOpGate, ArchiveWriteLock};
 pub use self::{
     doctor::{doctor, repair_health_issues},
     history::{
-        BrowseDayInsights, BrowseDayInsightsRequest, BrowseDaySearchQuery, BrowseDayTopDomain,
-        BrowseDayTopUrl, ExportCancelled, cancel_export, export_history, export_search_history,
-        get_browse_day_insights, get_export_progress, list_history, load_history_favicons,
-        load_site_favicons, og_images, og_images_fetch, record_export_failure, search_history,
+        ExportCancelled, cancel_export, export_history, export_search_history, get_export_progress,
+        list_history, load_history_favicons, load_site_favicons, og_images, og_images_fetch,
+        record_export_failure, search_history,
     },
     read_models::{
         RunPage, archive_availability, archive_status, load_audit_run_detail,

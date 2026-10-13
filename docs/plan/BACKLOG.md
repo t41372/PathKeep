@@ -72,6 +72,10 @@
   - 現象：`config.rs` 的預設是 `history-vault.sqlite`、`source-evidence.sqlite`、`history-search.sqlite`、`history-intelligence.sqlite`、`agent.sqlite`；`Vault::open` 再把其中四個改成 `.db`，搜尋那個沒改（v0.4 的搜尋索引是 `derived/search-index` 資料夾）。沒有經過 `Vault` 的讀者（`app.rs` 回給介面的 `searchDatabasePath`）拿到的是不存在的檔案；Storage 用量曾因此少算搜尋索引、對話與 WAL。
   - 方向：先列出誰還需要 v0.3 的路徑（v0.3 → v0.4 轉換要找舊檔），把它們改成明說「舊格式」的欄位；其餘全部用 `vault_store::Paths` 的布局，`search_database_path` 換成搜尋索引資料夾。
 
+- [ ] **WORK-ASSISTANT-JOB-TYPE** — AI 佇列裡的「助理」工作已經沒有來源（2026-10-13 盤點 `WORK-TEST-CUT-2026-10` 刪掉的程式時找到）
+  - 現象：Ask 從 v0.4 起走串流（`ai_chat_send`），排隊提問的命令與 `enqueue_assistant_job` 都已刪掉；佇列仍認得 `assistant` 這種工作，會領取、執行、重播（`vault-worker/src/intelligence/ai_queue.rs` 的 `complete_claimed_assistant_job` 等），只會碰到舊存檔裡留下的列。
+  - 方向：決定舊列怎麼處理（執行一個很久以前的問題沒有意義，應該標成取消並在 Background work 說明），再拿掉這種工作的執行路徑與計數；文檔 `desktop-command-surface.md` 同步。
+
 - [ ] **WORK-NOTE-SAVE-FLAKE** — 筆記偶爾沒存下來（2026-10-13 寫 history E2E 時看到一次）
   - 現象：`history-tools.spec` 的「a note is found by its words, in either script, until it changes」一次失敗：第二頁的筆記沒有存下來，之後用筆記的字搜不到它。其他每次都過。
   - 已知：`note-editor.tsx` 在停止輸入 0.8 秒後存，面板換到別頁時把還沒存的那次用原來的網址送出；照程式看不會丟。那次沒留下 trace（跟另一組 E2E 同時跑，產物被蓋掉）。

@@ -159,11 +159,11 @@ Changed for Backup (2026-10-04), all additive:
 
 Removed, after checking `src/`, the MCP server (`vault-worker/src/mcp.rs`: `search_history`, `archive_status`, `usage_guide` only), the worker CLI, `scripts/` and `tests/`:
 
-- `ask_ai_assistant`, `load_ai_assistant_job`: the Ask page streams through `ai_chat_send`. The queue still drains and replays assistant jobs already stored, so the assistant job type stays; the worker functions that queued and polled new ones (`vault_worker::ask_ai_assistant`, `load_ai_assistant_job`) are gone (2026-10-12).
+- `ask_ai_assistant`, `load_ai_assistant_job`: the Ask page streams through `ai_chat_send`. The queue still drains and replays assistant jobs already stored, so the assistant job type stays; nothing queues new ones (`vault_worker::ask_ai_assistant`, `load_ai_assistant_job` and `vault_core::enqueue_assistant_job` are gone, 2026-10-12/13). Removing the job type is BACKLOG `WORK-ASSISTANT-JOB-TYPE`.
 - `download_ai_embedding_model`: the Candle-tier model download. No frontend calls it; `download_static_embedding_model` is the one the AI setup uses.
-- `security_status` (2026-10-12): no screen read it. Settings reads `keyring_status` and the app snapshot; the worker's manifest scan for the last rekey went with it.
+- `security_status` (2026-10-12): no screen read it. Settings reads `keyring_status` and the app snapshot; the worker's manifest scan for the last rekey went with it. A password change only rewraps the key and copies no archive, so there is no copy under the old password to point at; a mode change's safety snapshot is in the new mode and listed with the recovery snapshots. The Home alert covers "remember the password" without a keychain.
 - `prefetch_og_images` (2026-10-12): the "Rebuild now" sweep no screen offered. Link previews still prefetch after a backup in Background mode and refetch on demand through `trigger_og_image_refetch`.
-- `get_browse_day_insights` (2026-10-12): no screen called it; day insights come from `get_day_insights`.
+- `get_browse_day_insights` (2026-10-12): no screen called it; day insights come from `get_day_insights`. Its `vault_core` read went too (2026-10-13).
 - `export_conversation_file` (2026-10-12): Ask has no conversation export.
 
 `get_insights_time_zone` (2026-10) returns `{ shown, next }`: the IANA zone the Insights on screen put days and hours in, and the one the next build uses. Insights, Home and Settings read it once when the archive opens and every 5 s while the two differ (a rebuild in a newly chosen zone); every date range sent to an Insights read is in `shown` (`insights-time-zone.md`).

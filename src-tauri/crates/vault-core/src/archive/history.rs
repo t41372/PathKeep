@@ -18,7 +18,6 @@
 
 use super::*;
 
-pub mod day_insights;
 mod export;
 mod search_export;
 pub use search_export::export_search_history;
@@ -33,10 +32,6 @@ pub mod og_images_synth;
 mod pagination;
 mod timeline;
 
-pub use self::day_insights::{
-    BrowseDayInsights, BrowseDayInsightsRequest, BrowseDaySearchQuery, BrowseDayTopDomain,
-    BrowseDayTopUrl, get_browse_day_insights,
-};
 pub use self::export::{
     ExportCancelled, cancel_export, export_history, get_export_progress, record_export_failure,
 };

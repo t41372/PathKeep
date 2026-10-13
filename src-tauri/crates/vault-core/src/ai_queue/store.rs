@@ -30,30 +30,6 @@ pub(crate) fn enqueue_index_job(
     )
 }
 
-/// Enqueues an assistant-question job and returns its persisted row.
-pub(crate) fn enqueue_assistant_job(
-    connection: &Session<'_>,
-    request: &AiAssistantRequest,
-    llm_provider_id: &str,
-    embedding_provider_id: Option<&str>,
-    paused: bool,
-) -> Result<AiQueueJob> {
-    enqueue_job(
-        connection,
-        AiQueueJobType::Assistant,
-        100,
-        1,
-        AiJobPayload::Assistant {
-            payload: AssistantJobPayload {
-                request: request.clone(),
-                llm_provider_id: llm_provider_id.to_string(),
-                embedding_provider_id: embedding_provider_id.map(ToOwned::to_owned),
-            },
-        },
-        paused,
-    )
-}
-
 /// Loads the shell-facing AI queue status read model.
 pub(crate) fn load_ai_queue_status(
     connection: &Session<'_>,

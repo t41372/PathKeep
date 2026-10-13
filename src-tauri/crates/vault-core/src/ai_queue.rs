@@ -47,28 +47,6 @@ pub fn enqueue_index_job(
     })
 }
 
-/// Uses the current owner for `enqueue_assistant_job`.
-pub fn enqueue_assistant_job(
-    vault: &Vault,
-    request: &AiAssistantRequest,
-    llm_provider_id: &str,
-    embedding_provider_id: Option<&str>,
-    paused: bool,
-) -> Result<AiQueueJob> {
-    let request = request.clone();
-    let llm_provider_id = llm_provider_id.to_owned();
-    let embedding_provider_id = embedding_provider_id.map(str::to_owned);
-    vault.write(Db::Intelligence, Priority::Interactive, move |s| {
-        store::enqueue_assistant_job(
-            s,
-            &request,
-            &llm_provider_id,
-            embedding_provider_id.as_deref(),
-            paused,
-        )
-    })
-}
-
 /// Uses the current owner for `load_ai_queue_status`.
 pub fn load_ai_queue_status(
     vault: &Vault,
