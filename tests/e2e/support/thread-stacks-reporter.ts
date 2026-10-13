@@ -16,15 +16,29 @@ import path from 'node:path'
 
 const out = 'artifacts/e2e/thread-stacks'
 
-/** The desktop app and its worker sidecar, as the dev bridge runs them. */
+/**
+ * The desktop app and its worker sidecar, as the dev bridge runs them: only
+ * executables built for this run (in this checkout or the E2E build folder),
+ * never an installed PathKeep someone has open on the same computer.
+ */
 function appProcesses() {
-  const found = spawnSync('pgrep', ['-f', '/pathkeep-(desktop|worker)( |$)'], {
+  const ours = [
+    process.cwd(),
+    process.env.CARGO_TARGET_DIR ?? process.cwd(),
+  ].map((dir) => path.resolve(dir) + path.sep)
+  const listed = spawnSync('ps', ['-axww', '-o', 'pid=,command='], {
     encoding: 'utf8',
   })
-  return found.stdout
+  return listed.stdout
     .split('\n')
-    .map((line) => Number(line.trim()))
-    .filter((pid) => pid > 0)
+    .map((line) => /^\s*(\d+)\s+(\S+)/.exec(line))
+    .filter((match): match is RegExpExecArray => match !== null)
+    .filter(
+      ([, , executable]) =>
+        /\/pathkeep-(desktop|worker)$/.test(executable) &&
+        ours.some((dir) => executable.startsWith(dir)),
+    )
+    .map(([, pid]) => Number(pid))
 }
 
 /** All threads' stacks, with the tool each platform has. */
