@@ -86,6 +86,19 @@ pub(crate) async fn test_ai_provider_connection(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Lists the models one AI service offers, off the UI thread: a few network reads that a slow
+/// or unreachable service can stretch to the client's timeout.
+pub(crate) async fn list_ai_provider_models(
+    request: vault_core::AiProviderModelsRequest,
+) -> Result<Vec<vault_core::AiProviderModel>, CommandError> {
+    run_blocking_command("list_ai_provider_models", move || {
+        worker_bridge::list_ai_provider_models_impl(request)
+    })
+    .await
+}
+
+#[cfg(not(test))]
+#[tauri::command]
 /// Loads the persisted AI queue status read model, off the UI thread.
 pub(crate) async fn load_ai_queue_status(
     state: State<'_, SessionState>,

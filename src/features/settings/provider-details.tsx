@@ -32,6 +32,7 @@ const TEST_ERRORS = [
   'network-error',
   'rate-limited',
   'bad-model',
+  'bad-endpoint',
   'unsupported-capability',
   'provider-disabled',
 ] as const
@@ -60,9 +61,15 @@ function testFailure(
 export function ProviderDetails({
   provider,
   providers,
+  onModelChanged,
+  indexOn = false,
 }: {
   provider: AiProviderConfig
   providers: ReturnType<typeof useAiProviders>
+  /** After the model was changed and saved: semantic search builds its index again. */
+  onModelChanged?: () => void
+  /** Semantic search is on, so a new model is indexed as soon as it is saved. */
+  indexOn?: boolean
 }) {
   const { t } = useI18n()
   const [confirmRemove, setConfirmRemove] = useState(false)
@@ -182,11 +189,13 @@ export function ProviderDetails({
         onOpenChange={setEditing}
         purpose={providers.purpose}
         editing={provider}
+        indexOn={indexOn}
         onSave={async (draft) => {
           const updated = await providers.update(provider.id, draft)
           toast.success(
             t('settingsAi.provider.updated', { name: updated.name }),
           )
+          if (updated.defaultModel !== provider.defaultModel) onModelChanged?.()
         }}
       />
     </div>

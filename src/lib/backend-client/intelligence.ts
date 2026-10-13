@@ -25,6 +25,8 @@ import type {
   AiIntegrationPreview,
   AiProviderConnectionTestReport,
   AiProviderConnectionTestRequest,
+  AiProviderModel,
+  AiProviderModelsRequest,
   AiProviderSecretInput,
   AiQueueJob,
   AiQueueStatus,
@@ -64,6 +66,8 @@ export const intelligenceClient = {
     call<AiProviderConnectionTestReport>('test_ai_provider_connection', {
       request,
     }),
+  listProviderModels: (request: AiProviderModelsRequest) =>
+    call<AiProviderModel[]>('list_ai_provider_models', { request }),
   getQueueStatus: () => call<AiQueueStatus>('load_ai_queue_status'),
   runQueueJobs: (maxJobs?: number) =>
     call<AiQueueStatus>('run_ai_queue_jobs', { maxJobs }),

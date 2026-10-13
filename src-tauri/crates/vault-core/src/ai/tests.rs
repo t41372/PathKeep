@@ -4,8 +4,9 @@ use super::indexing::{
     collect_visit_chunk, select_embed_targets, validate_embedding_batch_for_keys,
 };
 use super::provider::{
-    embedding_descriptor_for, l2_normalize, normalize_local_base_url, resolve_embed_request_dim,
-    should_retry_embedding_error, stub_embedding_dimensions, stub_embedding_vector,
+    embedding_descriptor_for, l2_normalize, normalize_local_base_url, openai_api_root,
+    resolve_embed_request_dim, should_retry_embedding_error, stub_embedding_dimensions,
+    stub_embedding_vector,
 };
 use super::*;
 // The match-reason CODE vocabulary the search pipeline stamps (see `ai::search`): these tests
@@ -530,6 +531,12 @@ fn provider_validation_readiness_and_error_branches_stay_actionable() {
             "network-error",
             true,
         ),
+        (
+            "the embedding service answered with an error: Unexpected endpoint or method. (POST /embeddings)",
+            "bad-endpoint",
+            true,
+        ),
+        ("embeddings request failed with status 404: Not Found", "bad-endpoint", true),
         ("unexpected provider failure", "provider-error", true),
     ];
     for (message, code, retry_expected) in cases {
@@ -2973,6 +2980,34 @@ fn l2_normalize_unit_scales_non_zero_and_leaves_degenerate_vectors_untouched() {
     let mut empty: Vec<f32> = Vec::new();
     l2_normalize(&mut empty);
     assert!(empty.is_empty());
+}
+
+/// The addresses people paste for an OpenAI-compatible service, and the root PathKeep calls.
+/// Ways it could go wrong: a bare LM Studio or Ollama address missing `/v1` (LM Studio then
+/// answers 200 with an error); a pasted endpoint doubled into `/v1/embeddings/embeddings`; `/v1`
+/// forced onto a cloud service that lives at another path; `localhost` left on IPv6.
+#[test]
+fn openai_api_root_finds_the_root_people_meant() {
+    use AiRequestFormat::{LmStudio, Ollama, OpenAi};
+    let cases = [
+        ("http://127.0.0.1:1234", LmStudio, "http://127.0.0.1:1234/v1"),
+        ("http://localhost:1234/", LmStudio, "http://127.0.0.1:1234/v1"),
+        ("http://localhost:11434", Ollama, "http://127.0.0.1:11434/v1"),
+        ("http://localhost:1234/v1", LmStudio, "http://127.0.0.1:1234/v1"),
+        ("http://localhost:1234/v1/", LmStudio, "http://127.0.0.1:1234/v1"),
+        ("http://localhost:1234/v1/embeddings", LmStudio, "http://127.0.0.1:1234/v1"),
+        ("http://localhost:1234/embeddings", LmStudio, "http://127.0.0.1:1234/v1"),
+        ("http://localhost:11434/v1/chat/completions", Ollama, "http://127.0.0.1:11434/v1"),
+        ("  http://localhost:1234/v1  ", LmStudio, "http://127.0.0.1:1234/v1"),
+        ("https://api.openai.com/v1", OpenAi, "https://api.openai.com/v1"),
+        ("https://api.openai.com/v1/embeddings", OpenAi, "https://api.openai.com/v1"),
+        ("https://llm.example.com", OpenAi, "https://llm.example.com"),
+        ("https://proxy.example.com/openai", OpenAi, "https://proxy.example.com/openai"),
+        ("http://192.168.1.20:1234/api", LmStudio, "http://192.168.1.20:1234/api"),
+    ];
+    for (pasted, format, root) in cases {
+        assert_eq!(openai_api_root(pasted, &format), root, "{pasted} ({format:?})");
+    }
 }
 
 #[test]

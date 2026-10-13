@@ -13,6 +13,8 @@ export const settingsAi = defineMessages({
       model: {
         label: 'Model',
         inApp: 'In-app model',
+        inAppAbout:
+          '{model}, {dims} dimensions. It comes with PathKeep and runs on this computer. Another model builds the index again.',
         add: 'Add an embeddings service…',
       },
       serviceDialog: {
@@ -25,6 +27,15 @@ export const settingsAi = defineMessages({
         'An online service. Each page’s address, title and visit time, and your searches, are sent to it.',
       serviceRemoveBody:
         'The service and its stored API key are removed from this computer. Semantic search goes back to the in-app model.',
+      modelChange:
+        'Another model means building the semantic index again: {count} pages. The index made with {old} is deleted.',
+      modelChangeCounting:
+        'Another model means building the semantic index again. The index made with {old} is deleted.',
+      modelChangeLater:
+        'Another model means building the semantic index again when semantic search is on: {count} pages. The index made with {old} is deleted then.',
+      modelChangeLaterCounting:
+        'Another model means building the semantic index again when semantic search is on. The index made with {old} is deleted then.',
+      saveAndRebuild: 'Save and rebuild',
       description:
         'Find pages by meaning, not only by keywords. The model runs on this computer. It downloads once, about {size}.',
       offNote: 'Turning it off keeps the downloaded model.',
@@ -70,6 +81,8 @@ export const settingsAi = defineMessages({
           'The service is limiting requests right now. Try again in a while.',
         'bad-model':
           'The service has no model called {model}. Check the model name.',
+        'bad-endpoint':
+          '{address} reaches a server, but not its API. For LM Studio and Ollama the address usually ends in /v1, like http://localhost:1234/v1.',
         'unsupported-capability': 'This service cannot be used for this.',
         'provider-disabled': 'This service is turned off.',
         other: 'The service answered with an error: {message}',
@@ -111,6 +124,26 @@ export const settingsAi = defineMessages({
         apiKeyKeep: 'Leave it empty to keep the saved key.',
         optionalLater:
           'You can finish setup, including the API key and a connection test, later in Settings → AI.',
+      },
+      models: {
+        browse: 'Browse the list',
+        search: 'Find a model',
+        empty: 'No model matches.',
+        loading: 'Reading the service’s models…',
+        found_one: '{count} model on this service. Pick it, or type a name.',
+        found_other:
+          '{count} models on this service. Pick one, or type a name.',
+        none: 'The service has no models yet. Download or load one there, or type a name.',
+        noneFor: {
+          llm: 'The service has no chat models, only embedding models. Type a name if it has one.',
+          embedding:
+            'The service has no embedding models. In LM Studio and Ollama their names usually contain “embed”.',
+        },
+        failed:
+          'Could not read the service’s models: {message} You can still type a name.',
+        loaded: 'Loaded',
+        context: 'reads {size}',
+        upTo: 'up to {size}',
       },
       kinds: {
         ollama: 'Ollama (this computer)',
@@ -194,6 +227,8 @@ export const settingsAi = defineMessages({
       model: {
         label: '模型',
         inApp: '应用内置模型',
+        inAppAbout:
+          '{model}，{dims} 维。随 PathKeep 提供，在这台电脑上运行。换成别的模型会重新建立索引。',
         add: '添加嵌入服务…',
       },
       serviceDialog: {
@@ -206,6 +241,15 @@ export const settingsAi = defineMessages({
         '在线服务。每个页面的网址、标题和访问时间，以及你的搜索，都会发给它。',
       serviceRemoveBody:
         '这个服务和它保存的 API 密钥会从这台电脑上移除，语义搜索改回使用应用内置模型。',
+      modelChange:
+        '换成别的模型要重新建立语义索引：{count} 个页面。用 {old} 建立的索引会删除。',
+      modelChangeCounting:
+        '换成别的模型要重新建立语义索引。用 {old} 建立的索引会删除。',
+      modelChangeLater:
+        '换成别的模型，语义搜索打开时要重新建立语义索引：{count} 个页面。那时用 {old} 建立的索引会删除。',
+      modelChangeLaterCounting:
+        '换成别的模型，语义搜索打开时要重新建立语义索引。那时用 {old} 建立的索引会删除。',
+      saveAndRebuild: '保存并重建',
       description:
         '按含义而不只是关键词来查找页面。模型在这台电脑上运行，只需下载一次，约 {size}。',
       offNote: '关闭后会保留已下载的模型。',
@@ -245,6 +289,8 @@ export const settingsAi = defineMessages({
         'network-error': '连不上 {address}。检查地址，以及服务是否在运行。',
         'rate-limited': '服务暂时限制了请求，稍后再试。',
         'bad-model': '服务上没有名为 {model} 的模型。检查模型名称。',
+        'bad-endpoint':
+          '{address} 有服务在运行，但不是它的 API 地址。LM Studio 和 Ollama 的地址通常以 /v1 结尾，例如 http://localhost:1234/v1。',
         'unsupported-capability': '这个服务不能用在这里。',
         'provider-disabled': '这个服务已关闭。',
         other: '服务返回了错误：{message}',
@@ -285,6 +331,24 @@ export const settingsAi = defineMessages({
         apiKeyKeep: '留空就保留已保存的密钥。',
         optionalLater:
           '之后可以在「设置 → AI」里完成设置，包括 API 密钥和连接测试。',
+      },
+      models: {
+        browse: '浏览列表',
+        search: '查找模型',
+        empty: '没有相符的模型。',
+        loading: '正在读取服务上的模型…',
+        found_one: '服务上有 {count} 个模型。选一个，或输入名称。',
+        found_other: '服务上有 {count} 个模型。选一个，或输入名称。',
+        none: '服务上还没有模型。先在那里下载或加载一个，或输入名称。',
+        noneFor: {
+          llm: '服务上只有 embedding 模型，没有聊天模型。如果有，请输入名称。',
+          embedding:
+            '服务上没有 embedding 模型。LM Studio 和 Ollama 的 embedding 模型名称通常带有“embed”。',
+        },
+        failed: '读不到服务上的模型：{message} 仍然可以输入名称。',
+        loaded: '已加载',
+        context: '可读 {size}',
+        upTo: '最多 {size}',
       },
       kinds: {
         ollama: 'Ollama（本机）',
@@ -367,6 +431,8 @@ export const settingsAi = defineMessages({
       model: {
         label: '模型',
         inApp: 'App 內建模型',
+        inAppAbout:
+          '{model}，{dims} 維。隨 PathKeep 提供，在這台電腦上執行。換成別的模型會重新建立索引。',
         add: '新增嵌入服務…',
       },
       serviceDialog: {
@@ -379,6 +445,15 @@ export const settingsAi = defineMessages({
         '線上服務。每個頁面的網址、標題與造訪時間，以及你的搜尋，都會傳給它。',
       serviceRemoveBody:
         '這個服務與它儲存的 API 金鑰會從這台電腦上移除，語意搜尋改回使用 App 內建模型。',
+      modelChange:
+        '換成別的模型要重新建立語意索引：{count} 個頁面。用 {old} 建立的索引會刪除。',
+      modelChangeCounting:
+        '換成別的模型要重新建立語意索引。用 {old} 建立的索引會刪除。',
+      modelChangeLater:
+        '換成別的模型，語意搜尋開啟時要重新建立語意索引：{count} 個頁面。那時用 {old} 建立的索引會刪除。',
+      modelChangeLaterCounting:
+        '換成別的模型，語意搜尋開啟時要重新建立語意索引。那時用 {old} 建立的索引會刪除。',
+      saveAndRebuild: '儲存並重建',
       description:
         '依含義而不只是關鍵字來尋找頁面。模型在這台電腦上執行，只需下載一次，約 {size}。',
       offNote: '關閉後會保留已下載的模型。',
@@ -418,6 +493,8 @@ export const settingsAi = defineMessages({
         'network-error': '連不上 {address}。檢查位址，以及服務是否在執行。',
         'rate-limited': '服務暫時限制了請求，稍後再試。',
         'bad-model': '服務上沒有叫 {model} 的模型。檢查模型名稱。',
+        'bad-endpoint':
+          '{address} 有服務在執行，但不是它的 API 位址。LM Studio 和 Ollama 的位址通常以 /v1 結尾，例如 http://localhost:1234/v1。',
         'unsupported-capability': '這個服務不能用在這裡。',
         'provider-disabled': '這個服務已關閉。',
         other: '服務回傳了錯誤：{message}',
@@ -458,6 +535,24 @@ export const settingsAi = defineMessages({
         apiKeyKeep: '留空就保留已儲存的金鑰。',
         optionalLater:
           '之後可以在「設定 → AI」裡完成設定，包括 API 金鑰和連線測試。',
+      },
+      models: {
+        browse: '瀏覽清單',
+        search: '尋找模型',
+        empty: '沒有相符的模型。',
+        loading: '正在讀取服務上的模型…',
+        found_one: '服務上有 {count} 個模型。選一個，或輸入名稱。',
+        found_other: '服務上有 {count} 個模型。選一個，或輸入名稱。',
+        none: '服務上還沒有模型。先在那裡下載或載入一個，或輸入名稱。',
+        noneFor: {
+          llm: '服務上只有 embedding 模型，沒有聊天模型。如果有，請輸入名稱。',
+          embedding:
+            '服務上沒有 embedding 模型。LM Studio 和 Ollama 的 embedding 模型名稱通常帶有「embed」。',
+        },
+        failed: '讀不到服務上的模型：{message} 仍然可以輸入名稱。',
+        loaded: '已載入',
+        context: '可讀 {size}',
+        upTo: '最多 {size}',
       },
       kinds: {
         ollama: 'Ollama（本機）',

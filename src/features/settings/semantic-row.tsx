@@ -98,8 +98,16 @@ function ModelPicker({ index }: { index: SemanticIndex }) {
           ]}
         />
       </div>
-      {index.service && (
-        <ProviderDetails provider={index.service} providers={providers} />
+      {index.service ? (
+        <ProviderDetails
+          provider={index.service}
+          providers={providers}
+          // The new model's index is built; the old one goes as that build starts.
+          onModelChanged={() => void index.chooseModel(index.modelId)}
+          indexOn={index.enabled}
+        />
+      ) : (
+        <InAppModel index={index} />
       )}
       <ProviderDialog
         open={adding}
@@ -113,6 +121,21 @@ function ModelPicker({ index }: { index: SemanticIndex }) {
         }}
       />
     </div>
+  )
+}
+
+/** Which model the app comes with: what the index is made of, and why another means a rebuild. */
+function InAppModel({ index }: { index: SemanticIndex }) {
+  const { t } = useI18n()
+  const status = index.status.staticEmbedding
+  if (!status) return null
+  return (
+    <p className="text-xs text-muted-foreground">
+      {t('settingsAi.semantic.model.inAppAbout', {
+        model: status.modelRepo.split('/').at(-1) ?? status.modelRepo,
+        dims: status.dimensions || 256,
+      })}
+    </p>
   )
 }
 

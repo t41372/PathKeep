@@ -613,7 +613,8 @@ fn build_openai_client(runtime: &AiProviderRuntime) -> Result<openai::Completion
     let mut builder = openai::CompletionsClient::builder()
         .api_key(runtime.api_key_for_transport().unwrap_or_default());
     if let Some(base_url) = runtime.config.base_url.as_deref() {
-        builder = builder.base_url(super::provider::normalize_local_base_url(base_url));
+        builder = builder
+            .base_url(super::provider::openai_api_root(base_url, &runtime.config.request_format));
     }
     Ok(builder.build()?)
 }

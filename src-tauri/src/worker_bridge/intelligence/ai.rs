@@ -77,6 +77,14 @@ pub(crate) fn test_ai_provider_connection_impl(
 }
 
 #[cfg_attr(test, allow(dead_code))]
+/// Lists the models one AI service offers, for the model field in Settings.
+pub(crate) fn list_ai_provider_models_impl(
+    request: vault_core::AiProviderModelsRequest,
+) -> Result<Vec<vault_core::AiProviderModel>, CommandError> {
+    worker_result(vault_worker::list_ai_provider_models(&request))
+}
+
+#[cfg_attr(test, allow(dead_code))]
 /// Loads the AI queue read model.
 pub(crate) fn load_ai_queue_status_impl(
     state: &crate::session::SessionState,

@@ -358,11 +358,17 @@ are specified in [data-model.md](../architecture/data-model.md#migration-in-prog
   - embeddings：OpenAI-compatible、Google、Ollama、LM Studio
   - Anthropic 在 day one 只作 chat provider，不作 embedding provider
 - provider connection test 必須回傳 latency、capability report、error code、action hint、retry hint，而不是只有 pass / fail。 2026-10-09 起 Settings → AI 失敗時依 error code 用使用者的語言寫原因（金鑰不被接受、連不上那個位址、被限流、沒有那個模型、這個服務不能用在這裡、服務已關閉），不認得的 code 才引用後端的訊息；`ask.spec` 驗錯的金鑰與沒有東西在聽的位址。
+- 2026-10-12（`WORK-AI-SERVICES-2026-10`）：
+  - **位址**：LM Studio、Ollama 自己的視窗顯示的位址不帶 `/v1`（`http://127.0.0.1:1234`、`http://localhost:11434`），也有人貼上整個端點（`…/v1/embeddings`）。OpenAI 相容的呼叫一律經 `openai_api_root`：LM Studio、Ollama 的位址沒有路徑就補 `/v1`，結尾的 `/embeddings`、`/chat/completions` 去掉，`localhost` 照舊固定成 IPv4。其他格式的路徑不動（雲端服務可能放在任何路徑下）。
+  - **錯誤照原話**：LM Studio 對它不服務的路徑回 HTTP 200 加 `{"error": …}`，不是 404。2xx 但有 `error`、沒有 `data` 的回覆算失敗，顯示服務的原話；讀不懂的回覆附前 300 個字。錯誤碼多一個 `bad-endpoint`（LM Studio 的「Unexpected endpoint」與一般的 404）：寫成「這個位址有服務在跑，但不是它的 API」，並說 LM Studio、Ollama 的位址通常以 `/v1` 結尾。連線測試的訊息是整條錯誤鏈，服務的話常在我們的說明下面。
+  - **模型清單**：`list_ai_provider_models` 依格式問服務有哪些模型——LM Studio `/api/v0/models`（有種類 llm / vlm / embeddings、是否已載入、載入的與最大的 context 長度；舊版退回 `/v1/models`）、Ollama `/api/tags` + `/api/show`（capabilities、`<arch>.context_length`）+ `/api/ps`（載入中的 context）、Anthropic `/v1/models`、Google `/v1beta/models`（`supportedGenerationMethods`、`inputTokenLimit`；金鑰放 header，不放網址）、其他 OpenAI 相容 `/models`（只有 id；id 裡有 embed 才當 embedding 模型，其餘標「不知道」，不猜）。表單填好位址（雲端服務再加金鑰）就讀，只列跟用途相符的模型（聊天：chat 與不知道；embedding：embedding 與不知道），每個標出是否已載入、能讀多少；仍可直接打名稱。讀不到時說原因，照樣可以手打。還沒存的服務也能讀：請求帶表單的格式、位址與打的金鑰，沒打金鑰時用已存服務的金鑰。
+  - **內建模型**：Settings 寫出它是 `potion-multilingual-128M`（model2vec 靜態模型，256 維），隨 PathKeep 提供、在這台電腦上跑。只有這一個：模型檔的驗證照它的雜湊，換別的 repo 不支援（`DEFAULT_STATIC_MODEL_FILES`）。
+  - **換模型就重建**：索引屬於「服務 + 模型」。在編輯對話框把 embedding 服務換成別的模型時，存檔前先說要重新建立索引、幾個頁面（`estimate_reembed`），舊模型的索引會刪掉；語意搜尋開著就「儲存並重建」，關著就寫「語意搜尋開啟時」。舊的索引（資料列、`.pkvec`、`.pkmap`、平面與側檔）在下一次建索引的背景工作開始時刪：設定裡已經沒有的每個「服務 + 模型」都刪（換了模型、移除了服務），在背景分批刪，不擋畫面。
 - secret clear 只清除 credential，不刪除 provider preset / model selection，讓使用者能先保留配置再補 key。
 - **API key 是可選的，不是前置條件**：本地 / LAN 自架 provider（LM Studio、Ollama、llama-server…）不需要 key。PathKeep 絕不因「沒存 key」就自行擋下 provider 呼叫——`resolve_provider_runtime` 在缺 key 時照常 resolve（`api_key: Option<SecretString>` 為 `None`），transport 對缺 / 空白 key 完全不送 `Authorization` header（不送空的 `Bearer `）。只有 provider 自己回傳的錯誤（真正的 401/403…）才算失敗。雲端 provider 需要 key 時，由它自己的 401 帶出，而不是我們的 precondition。
   - 新增服務的表單照這條：位址在這台電腦上（localhost / 127.0.0.1 / [::1]）時，API key 欄寫「可不填」但仍可輸入（vLLM、LiteLLM 這類本機伺服器可能要 key）；之前整欄停用，連要 key 的本機伺服器也設定不了。雲端服務仍必填。
   - 已知 transport 細節：OpenAI-compatible embeddings 走我們自管的 reqwest `/v1/embeddings`，缺 key 真正省略 header；rig 0.34 的 openai/anthropic/gemini chat client 在 `.api_key()` 後一定會帶 auth header（上游限制），keyless local model 會忽略它，仍可運作。
-  - FE（2026-10）：Settings → AI 與 onboarding 第 6 步共用「新增 AI 服務」表單（`src/features/ai-setup/`）。按下新增時依序：把 provider 寫進 config 並選為目前服務（同時打開 `ai.enabled` 與 `assistantEnabled`）→ 有填 key 才存進鑰匙圈 → 自動測一次連線。只做 chat（`llmProviders`）；介面上沒有分開設定 embedding provider，本機語意搜尋用內建的靜態模型。
+  - FE（2026-10）：Settings → AI 與 onboarding 第 6 步共用「新增 AI 服務」表單（`src/features/ai-setup/`）。按下新增時依序：把 provider 寫進 config 並選為目前服務（同時打開 `ai.enabled` 與 `assistantEnabled`）→ 有填 key 才存進鑰匙圈 → 自動測一次連線。Settings → AI 另有語意搜尋的「模型」選單：內建的靜態模型，或使用者加的 embeddings 服務（`embeddingProviders`，同一個表單，用途是 embedding）。
 
 ---
 

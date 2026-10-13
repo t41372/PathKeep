@@ -117,6 +117,33 @@ pub(super) fn normalize_local_base_url(base_url: &str) -> String {
     out
 }
 
+/// The OpenAI-compatible API root that `/embeddings` and `/chat/completions` hang off.
+///
+/// Exists because people paste the address their local server shows them. LM Studio shows
+/// `http://127.0.0.1:1234` and Ollama `http://localhost:11434`, both without the `/v1` their
+/// OpenAI-compatible API lives under, and some paste a whole endpoint
+/// (`…/v1/embeddings`). LM Studio answers a wrong path with HTTP 200 and an error body, so a
+/// wrong root used to fail as "could not parse the response". For LM Studio and Ollama a root
+/// with no path gets `/v1`; for every format a trailing `/embeddings` or `/chat/completions` is
+/// dropped, and `localhost` is pinned to IPv4 (`normalize_local_base_url`). Other paths are
+/// kept: an OpenAI-compatible cloud service may live anywhere.
+pub(super) fn openai_api_root(base_url: &str, format: &AiRequestFormat) -> String {
+    let normalized = normalize_local_base_url(base_url.trim());
+    let mut root = normalized.trim_end_matches('/');
+    for endpoint in ["/embeddings", "/chat/completions"] {
+        if let Some(stripped) = root.strip_suffix(endpoint) {
+            root = stripped.trim_end_matches('/');
+        }
+    }
+    let path_is_empty =
+        root.find("://").is_some_and(|scheme_end| !root[scheme_end + 3..].contains('/'));
+    if path_is_empty && matches!(format, AiRequestFormat::LmStudio | AiRequestFormat::Ollama) {
+        format!("{root}/v1")
+    } else {
+        root.to_string()
+    }
+}
+
 /// Whether the transport should request the model's native embedding dimension, or a
 /// specific MRL-truncated dimension the user explicitly configured.
 ///
@@ -305,7 +332,8 @@ pub(super) fn provider_connection_report_from_probe(
                 action_hint,
                 retry_hint,
                 warnings: Vec::new(),
-                message: error.to_string(),
+                // The whole chain: the service's own words are often below our context.
+                message: format!("{error:#}"),
             })
         }
     }
@@ -396,6 +424,15 @@ pub(super) fn classify_provider_error(
             Some("bad-model".to_string()),
             Some("Select a valid default model for this provider.".to_string()),
             Some("Save the model selection and test again.".to_string()),
+        );
+    }
+    // LM Studio's answer to a path it does not serve, and a plain 404 from anyone else: the
+    // address reaches a server, but not its OpenAI-compatible API.
+    if normalized.contains("unexpected endpoint") || normalized.contains("status 404") {
+        return (
+            Some("bad-endpoint".to_string()),
+            Some("Check the base URL: it should end where the API starts, often /v1.".to_string()),
+            Some("Save the address and test again.".to_string()),
         );
     }
     // "error sending request" is how the HTTP client says nothing answered at the address.
@@ -494,7 +531,8 @@ pub(super) async fn run_llm_agent(
         AiRequestFormat::OpenAi | AiRequestFormat::Ollama | AiRequestFormat::LmStudio => {
             let mut builder = openai::CompletionsClient::builder().api_key(api_key);
             if let Some(base_url) = provider.config.base_url.as_deref() {
-                builder = builder.base_url(normalize_local_base_url(base_url));
+                builder =
+                    builder.base_url(openai_api_root(base_url, &provider.config.request_format));
             }
             let client = builder.build()?;
             let agent = client

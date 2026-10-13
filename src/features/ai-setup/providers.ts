@@ -36,7 +36,7 @@ export const providerPresets: readonly ProviderPreset[] = [
   {
     kind: 'ollama',
     requestFormat: 'ollama',
-    baseUrl: 'http://localhost:11434',
+    baseUrl: 'http://localhost:11434/v1',
     baseUrlHint: '',
     modelHint: 'llama3.2:3b',
     needsKey: false,
@@ -246,4 +246,10 @@ export function draftIsComplete(
   return (
     keySaved || !draftNeedsKey(draft, purpose) || draft.apiKey.trim().length > 0
   )
+}
+
+/** "8K", "256K", "1M": context lengths are powers of two, and read that way. */
+export function contextSize(tokens: number) {
+  if (tokens >= 1 << 20) return `${Math.round(tokens / (1 << 20))}M`
+  return `${Math.max(1, Math.round(tokens / 1024))}K`
 }

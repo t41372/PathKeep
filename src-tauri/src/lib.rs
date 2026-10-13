@@ -261,6 +261,7 @@ fn run_app() -> Result<()> {
             store_ai_provider_api_key,
             clear_ai_provider_api_key,
             test_ai_provider_connection,
+            list_ai_provider_models,
             load_ai_queue_status,
             list_ai_jobs,
             list_intelligence_jobs,

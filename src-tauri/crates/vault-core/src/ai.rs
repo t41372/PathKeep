@@ -22,6 +22,7 @@ mod fingerprint;
 mod indexing;
 mod llm;
 mod model_files;
+mod model_list;
 mod narrative;
 mod native_ledger;
 mod provider;
@@ -81,7 +82,10 @@ use tokio::sync::Mutex;
 pub use self::assistant::{answer_history_question, answer_history_question_with_control};
 /// The enrichment summary an embedding's dedup hash includes; conversion recomputes hashes with it.
 pub(crate) use self::indexing::enrichment_summary_for as enrichment_summary_for_embedding;
-pub use self::indexing::{build_ai_index, build_ai_index_with_control};
+pub use self::indexing::{
+    build_ai_index, build_ai_index_with_control, forget_unconfigured_indexes,
+};
+pub use self::model_list::list_provider_models;
 pub use self::provider::test_provider_connection;
 pub use self::read_model::{
     ai_index_status, ai_queue_status, load_assistant_run_response, preview_ai_integrations,

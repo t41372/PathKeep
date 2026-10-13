@@ -520,6 +520,18 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
             let key = session_key(&state.session)?;
             json_value!(test_ai_provider_connection_off_thread(payload.request, key).await?)
         }
+        "list_ai_provider_models" => {
+            // Blocks on the worker's own runtime, like the connection test above.
+            let payload =
+                parse_payload::<WrappedRequest<vault_core::AiProviderModelsRequest>>(payload)?;
+            json_value!(
+                tokio::task::spawn_blocking(move || {
+                    worker_bridge::list_ai_provider_models_impl(payload.request)
+                })
+                .await
+                .unwrap_or_else(|error| join_failure("list_ai_provider_models", error))?
+            )
+        }
         "list_ai_jobs" => {
             let payload = parse_payload::<WrappedRequest<vault_core::ListAiJobsRequest>>(payload)?;
             json_value!(worker_bridge::list_ai_jobs_impl(payload.request, &state.session)?)

@@ -115,8 +115,9 @@ pub(super) fn build_request_body(
 /// - errors when the count or a dim is wrong rather than silently returning a short/ragged set
 ///   (a partial batch would corrupt the id↔vector join during backfill).
 pub(super) fn decode_response_body(body: &[u8], expected_count: usize) -> Result<Vec<Vec<f32>>> {
-    let parsed: EmbeddingsResponseBody =
-        serde_json::from_slice(body).context("parsing embeddings response body")?;
+    let parsed: EmbeddingsResponseBody = serde_json::from_slice(body).with_context(|| {
+        format!("the embedding service's reply has no vectors: {}", reply_excerpt(body))
+    })?;
     if parsed.data.len() != expected_count {
         anyhow::bail!(
             "embeddings response returned {} vector(s) for {} input(s)",
@@ -216,10 +217,9 @@ impl ExternalEmbeddingProvider {
         Ok(Self { runtime, requested_dim })
     }
 
-    /// Resolves the embeddings endpoint URL from the configured base URL.
-    ///
-    /// Trims a trailing slash so `http://host/v1` and `http://host/v1/` both yield
-    /// `http://host/v1/embeddings`.
+    /// The embeddings endpoint under the configured address (`openai_api_root`: `localhost`
+    /// pinned to IPv4, `/v1` added for a bare LM Studio or Ollama address, a pasted endpoint
+    /// trimmed back to its root).
     #[cfg(not(any(test, coverage)))]
     fn endpoint(&self) -> Result<String> {
         let base = self
@@ -228,13 +228,8 @@ impl ExternalEmbeddingProvider {
             .base_url
             .as_deref()
             .context("external embedding provider requires a base URL")?;
-        // Pin a `localhost` host to `127.0.0.1` (see `normalize_local_base_url`) so the dominant
-        // backfill embedding path reaches an IPv4-only local server (LM Studio / Ollama) instead
-        // of the macOS dual-stack 503. Every other host is returned unchanged before the
-        // trailing-slash trim joins `/embeddings`.
-        let normalized = super::provider::normalize_local_base_url(base);
-        let trimmed = normalized.trim_end_matches('/');
-        Ok(format!("{trimmed}/embeddings"))
+        let root = super::provider::openai_api_root(base, &self.runtime.config.request_format);
+        Ok(format!("{root}/embeddings"))
     }
 }
 
@@ -305,7 +300,46 @@ pub(super) fn embeddings_response_to_vectors(
         let detail = String::from_utf8_lossy(body);
         anyhow::bail!("embeddings request failed with status {status_code}: {detail}");
     }
+    if let Some(said) = service_error(body) {
+        anyhow::bail!("the embedding service answered with an error: {said}");
+    }
     decode_response_body(body, expected_count)
+}
+
+/// The error a service put in a successful (2xx) reply instead of vectors.
+///
+/// LM Studio answers a path it does not serve with HTTP 200 and
+/// `{"error":"Unexpected endpoint or method. (POST /embeddings)"}`; OpenAI-style servers put
+/// `{"error":{"message":…}}`. Only a reply with an `error` and no `data` counts, so a server
+/// that sends `"error": null` beside its vectors still works.
+fn service_error(body: &[u8]) -> Option<String> {
+    let reply: serde_json::Value = serde_json::from_slice(body).ok()?;
+    let reply = reply.as_object()?;
+    if reply.contains_key("data") {
+        return None;
+    }
+    match reply.get("error")? {
+        serde_json::Value::Null => None,
+        serde_json::Value::String(message) => Some(message.clone()),
+        error => Some(
+            error
+                .get("message")
+                .and_then(serde_json::Value::as_str)
+                .map_or_else(|| error.to_string(), str::to_owned),
+        ),
+    }
+}
+
+/// The start of a reply that could not be read as vectors, for the error that says so.
+fn reply_excerpt(body: &[u8]) -> String {
+    const SHOWN: usize = 300;
+    let text = String::from_utf8_lossy(body);
+    let text = text.trim();
+    match text.char_indices().nth(SHOWN) {
+        Some((cut, _)) => format!("{}…", &text[..cut]),
+        None if text.is_empty() => "an empty reply".to_string(),
+        None => text.to_string(),
+    }
 }
 
 /// Real `/v1/embeddings` embed: re-chunks, POSTs JSON, decodes + normalizes each batch.
@@ -523,6 +557,61 @@ mod tests {
         assert!((near_unit_norm(&vectors[0]) - 1.0).abs() < 1e-6);
     }
 
+    /// What a service may send back with a 2xx status, and what the user must then see. Ways it
+    /// could go wrong: LM Studio's 200 + `{"error": "..."}` decoded as "no vectors" with its
+    /// words dropped; an OpenAI-style error object shown as raw JSON; a reply with vectors and
+    /// `"error": null` rejected; an HTML page reported without a hint of what it was.
+    #[test]
+    fn a_successful_status_with_an_error_says_what_the_service_said() {
+        let lm_studio = embeddings_response_to_vectors(
+            200,
+            true,
+            br#"{"error":"Unexpected endpoint or method. (POST /embeddings)"}"#,
+            1,
+        )
+        .expect_err("an error body fails");
+        assert_eq!(
+            lm_studio.to_string(),
+            "the embedding service answered with an error: Unexpected endpoint or method. (POST /embeddings)"
+        );
+
+        let openai_style = embeddings_response_to_vectors(
+            200,
+            true,
+            br#"{"error":{"message":"model 'chat-model' is not an embedding model","type":"invalid_request_error"}}"#,
+            1,
+        )
+        .expect_err("an error object fails");
+        assert!(
+            openai_style.to_string().ends_with("model 'chat-model' is not an embedding model"),
+            "{openai_style}"
+        );
+
+        let bare_object = embeddings_response_to_vectors(200, true, br#"{"error":{"code":7}}"#, 1)
+            .expect_err("an error without a message fails");
+        assert!(bare_object.to_string().ends_with(r#"{"code":7}"#), "{bare_object}");
+
+        let with_null_error = serde_json::to_vec(&serde_json::json!({
+            "error": null,
+            "data": [ { "index": 0, "embedding": [1.0, 0.0] } ]
+        }))
+        .expect("body");
+        assert_eq!(
+            embeddings_response_to_vectors(200, true, &with_null_error, 1).expect("vectors").len(),
+            1
+        );
+
+        let page = format!("<html><body>{}</body></html>", "x".repeat(400));
+        let html = embeddings_response_to_vectors(200, true, page.as_bytes(), 1)
+            .expect_err("a web page fails");
+        let shown = format!("{html:#}");
+        assert!(shown.contains("reply has no vectors: <html><body>x"), "{shown}");
+        assert!(shown.contains('…') && shown.len() < 600, "only the start is shown: {shown}");
+
+        let empty = embeddings_response_to_vectors(200, true, b"", 1).expect_err("empty fails");
+        assert!(format!("{empty:#}").contains("an empty reply"));
+    }
+
     #[test]
     fn api_key_for_transport_treats_absent_and_blank_keys_as_no_header() {
         // None → no header.
@@ -645,7 +734,7 @@ mod tests {
     #[test]
     fn decode_response_rejects_unparseable_body() {
         let error = decode_response_body(b"{not json", 1).expect_err("bad json");
-        assert!(error.to_string().contains("parsing embeddings response body"));
+        assert_eq!(error.to_string(), "the embedding service's reply has no vectors: {not json");
     }
 
     #[test]

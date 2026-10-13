@@ -3,6 +3,7 @@
  * assistant's (`llm`) or semantic search's embeddings service (`embedding`).
  * Saving is the caller's (`useAiProviders`); this only collects the fields.
  */
+import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import {
@@ -13,8 +14,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { intelligenceClient } from '@/lib/backend-client/intelligence'
 import { describeError } from '@/lib/errors'
-import { useI18n } from '@/lib/i18n'
+import { useFormat, useI18n } from '@/lib/i18n'
 import type { AiProviderConfig, AiProviderPurpose } from '@/lib/types'
 import { ProviderForm } from './provider-form'
 import {
@@ -31,6 +33,7 @@ export function ProviderDialog({
   onSave,
   purpose = 'llm',
   editing = null,
+  indexOn = false,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -38,6 +41,8 @@ export function ProviderDialog({
   purpose?: AiProviderPurpose
   /** The service to change; adds a new one when absent. */
   editing?: AiProviderConfig | null
+  /** Semantic search is on, so a new embeddings model is indexed as soon as it is saved. */
+  indexOn?: boolean
 }) {
   const [saving, setSaving] = useState(false)
   return (
@@ -47,6 +52,7 @@ export function ProviderDialog({
         <ProviderDialogBody
           purpose={purpose}
           editing={editing}
+          indexOn={indexOn}
           saving={saving}
           setSaving={setSaving}
           onSave={onSave}
@@ -60,6 +66,7 @@ export function ProviderDialog({
 function ProviderDialogBody({
   purpose,
   editing,
+  indexOn,
   saving,
   setSaving,
   onSave,
@@ -67,6 +74,7 @@ function ProviderDialogBody({
 }: {
   purpose: AiProviderPurpose
   editing: AiProviderConfig | null
+  indexOn: boolean
   saving: boolean
   setSaving: (saving: boolean) => void
   onSave: (draft: ProviderDraft) => Promise<unknown>
@@ -118,6 +126,11 @@ function ProviderDialogBody({
           : 'settingsAi.provider.remoteNote',
       )
   const complete = draftIsComplete(draft, { purpose, keySaved })
+  // A semantic index belongs to one model: another one means building it again.
+  const modelChange =
+    embedding && editing && draft.model.trim() !== editing.defaultModel
+      ? editing.defaultModel
+      : null
 
   return (
     <form
@@ -137,8 +150,12 @@ function ProviderDialogBody({
         idPrefix={editing ? 'edit-provider' : 'add-provider'}
         purpose={purpose}
         keySaved={keySaved}
+        providerId={editing?.id ?? null}
       />
       <p className="text-xs text-muted-foreground">{note}</p>
+      {modelChange !== null && draft.model.trim() !== '' && (
+        <ModelChangeNote old={modelChange} now={indexOn} />
+      )}
       {error && (
         <p role="alert" className="text-[13px] text-destructive">
           {error}
@@ -156,11 +173,44 @@ function ProviderDialogBody({
         <Button type="submit" disabled={!complete || saving}>
           {saving
             ? t('settingsAi.provider.dialog.saving')
-            : editing
-              ? t('settingsAi.provider.editDialog.submit')
-              : t('settingsAi.provider.dialog.submit')}
+            : modelChange !== null && indexOn
+              ? t('settingsAi.semantic.saveAndRebuild')
+              : editing
+                ? t('settingsAi.provider.editDialog.submit')
+                : t('settingsAi.provider.dialog.submit')}
         </Button>
       </DialogFooter>
     </form>
+  )
+}
+
+/**
+ * What changing the model costs, before it is saved: how many pages are
+ * indexed again, now or when semantic search is turned on (`now`).
+ */
+function ModelChangeNote({ old, now }: { old: string; now: boolean }) {
+  const { t } = useI18n()
+  const format = useFormat()
+  const estimate = useQuery({
+    queryKey: ['reembed-estimate', 'full'],
+    queryFn: () => intelligenceClient.estimateReembed('full'),
+    staleTime: 30_000,
+  })
+  return (
+    <p role="note" className="text-[13px] text-foreground">
+      {estimate.data
+        ? t(
+            now
+              ? 'settingsAi.semantic.modelChange'
+              : 'settingsAi.semantic.modelChangeLater',
+            { count: format.number(estimate.data.pageCount), old },
+          )
+        : t(
+            now
+              ? 'settingsAi.semantic.modelChangeCounting'
+              : 'settingsAi.semantic.modelChangeLaterCounting',
+            { old },
+          )}
+    </p>
   )
 }

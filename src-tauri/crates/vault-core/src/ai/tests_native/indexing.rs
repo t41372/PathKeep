@@ -570,3 +570,63 @@ impl IndexBackfillLedger for PauseAfterBatch {
 mod metadata;
 
 mod resume;
+
+/// Changing a service's model leaves the old model's index behind. Ways cleaning it up could go
+/// wrong: the index still in use deleted with it; the old rows deleted but its files kept (or the
+/// other way round); its totals row kept, so it is "cleaned" again on every build.
+#[test]
+fn an_index_made_with_a_model_no_longer_set_up_is_deleted_and_the_current_one_kept() {
+    let runtime = Runtime::new().expect("runtime");
+    let (paths, config, connection) = prepared_archive();
+    let vault = connection.vault.clone();
+    let _archive = TestDatabase::new(&vault, Db::Archive);
+    seed_visit(&connection, 1, "chrome:Default", "https://example.com/docs", Some("Docs"), 1);
+    seed_visit(&connection, 2, "chrome:Default", "https://example.com/blog", Some("Blog"), 2);
+    drop(connection);
+    let old = embedding_provider();
+    let mut new = embedding_provider();
+    new.config.default_model = "another-embedding-model".to_string();
+    for provider in [&old, &new] {
+        runtime
+            .block_on(build_ai_index(
+                &vault.with_config(config.clone()),
+                provider,
+                &AiIndexRequest::default(),
+            ))
+            .expect("build");
+    }
+    let files = |provider: &AiProviderRuntime| {
+        let (id, model) = (&provider.config.id, &provider.config.default_model);
+        (
+            VectorStore::for_provider(&paths, id, model).exists(),
+            VisitContentMap::for_provider(&paths, id, model).exists(),
+        )
+    };
+    assert_eq!(files(&old), (true, true));
+
+    let configured = [(new.config.id.clone(), new.config.default_model.clone())];
+    let forgotten =
+        runtime.block_on(forget_unconfigured_indexes(&vault, &configured, None)).expect("forget");
+    assert_eq!(forgotten, 1);
+    assert_eq!(files(&old), (false, false));
+    assert_eq!(files(&new), (true, true));
+    let connection = TestDatabase::new(&vault, Db::Intelligence);
+    let rows = |provider: &AiProviderRuntime| {
+        embedding_count(&connection, &provider.config.id, &provider.config.default_model)
+            .expect("count")
+    };
+    assert_eq!((rows(&old), rows(&new)), (0, 2));
+    let totals: Vec<String> = connection
+        .vault
+        .read(Db::Intelligence, |s| {
+            Ok(s.query("SELECT model FROM ai_embedding_totals", (), |r| Ok(r.get::<String>(0)?))?)
+        })
+        .expect("totals");
+    assert_eq!(totals, [new.config.default_model.clone()]);
+    drop(connection);
+
+    let again = runtime
+        .block_on(forget_unconfigured_indexes(&vault, &configured, None))
+        .expect("forget again");
+    assert_eq!(again, 0, "nothing left to forget");
+}

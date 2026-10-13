@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/select'
 import { useI18n } from '@/lib/i18n'
 import type { AiProviderPurpose } from '@/lib/types'
+import { ModelField } from './model-field'
 import {
   draftNeedsKey,
   presetFor,
@@ -28,6 +29,7 @@ export function ProviderForm({
   idPrefix,
   purpose,
   keySaved = false,
+  providerId = null,
 }: {
   draft: ProviderDraft
   onChange: (draft: ProviderDraft) => void
@@ -35,6 +37,8 @@ export function ProviderForm({
   purpose?: AiProviderPurpose
   /** Editing a service whose key is stored: an empty field keeps it. */
   keySaved?: boolean
+  /** The saved service being edited; its stored key lists its models. */
+  providerId?: string | null
 }) {
   const { t } = useI18n()
   const preset = presetFor(draft.kind, purpose)
@@ -89,9 +93,11 @@ export function ProviderForm({
         id={`${idPrefix}-model`}
         label={t('settingsAi.provider.form.model')}
       >
-        <Input
+        <ModelField
           id={`${idPrefix}-model`}
-          value={draft.model}
+          draft={draft}
+          purpose={purpose}
+          providerId={providerId}
           placeholder={
             preset.modelHint
               ? t('settingsAi.provider.form.modelPlaceholder', {
@@ -99,9 +105,7 @@ export function ProviderForm({
                 })
               : undefined
           }
-          spellCheck={false}
-          autoComplete="off"
-          onChange={(event) => set({ model: event.target.value })}
+          onChange={(model) => set({ model })}
         />
       </FormField>
       <FormField

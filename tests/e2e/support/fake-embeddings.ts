@@ -9,9 +9,32 @@
  * no timing involved. Every text it answered for is kept, in order; a held
  * request whose app went away before the release is never answered and not
  * kept.
+ *
+ * It answers the rest the way LM Studio does: its models at `/api/v0/models`
+ * (with their kind, whether loaded, and their context lengths) and at
+ * `/v1/models`, and any other path with HTTP 200 and an `error`, not a 404.
  */
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
+
+/** One model as LM Studio's `/api/v0/models` lists it. */
+export interface FakeModel {
+  id: string
+  type: 'llm' | 'vlm' | 'embeddings'
+  state: 'loaded' | 'not-loaded'
+  max_context_length: number
+  loaded_context_length?: number
+}
+
+const DEFAULT_MODELS: FakeModel[] = [
+  {
+    id: 'e2e-embed',
+    type: 'embeddings',
+    state: 'loaded',
+    max_context_length: 2048,
+    loaded_context_length: 2048,
+  },
+]
 
 export interface FakeEmbeddings {
   /** The address to give PathKeep, ending in `/v1`. */
@@ -42,10 +65,12 @@ function vectorOf(text: string, dimensions: number) {
 export async function startFakeEmbeddings({
   dimensions = 64,
   holdAfter = Infinity,
+  models = DEFAULT_MODELS,
 }: {
   dimensions?: number
   /** Requests answered before the rest are held. */
   holdAfter?: number
+  models?: FakeModel[]
 } = {}): Promise<FakeEmbeddings> {
   const inputs: string[] = []
   let answered = 0
@@ -54,10 +79,26 @@ export async function startFakeEmbeddings({
     let raw = ''
     request.on('data', (chunk: Buffer) => (raw += chunk.toString('utf8')))
     request.on('end', () => {
-      if (request.method !== 'POST' || !request.url?.endsWith('/embeddings')) {
-        response.writeHead(404).end()
-        return
+      const json = (body: unknown) => {
+        response.writeHead(200, { 'content-type': 'application/json' })
+        response.end(JSON.stringify(body))
       }
+      const path = request.url?.split('?')[0]
+      if (request.method === 'GET' && path === '/api/v0/models')
+        return json({ object: 'list', data: models })
+      if (request.method === 'GET' && path === '/v1/models')
+        return json({
+          object: 'list',
+          data: models.map((model) => ({
+            id: model.id,
+            object: 'model',
+            owned_by: 'e2e',
+          })),
+        })
+      if (request.method !== 'POST' || path !== '/v1/embeddings')
+        return json({
+          error: `Unexpected endpoint or method. (${request.method} ${path})`,
+        })
       const body = JSON.parse(raw || '{}') as {
         model?: string
         input?: string | string[]

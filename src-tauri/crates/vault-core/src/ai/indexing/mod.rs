@@ -46,7 +46,9 @@ mod store_rows;
 // remaining helpers are consumed only by the AI test surface (`ai/tests.rs` + `ai.rs`'s cfg(test)
 // imports) — the production loop reaches them directly via the submodule paths — so their
 // `indexing::` re-export is gated `#[cfg(test)]` to stay warning-clean in release builds.
-pub use self::backfill::{build_ai_index, build_ai_index_with_control};
+pub use self::backfill::{
+    build_ai_index, build_ai_index_with_control, forget_unconfigured_indexes,
+};
 
 #[cfg(test)]
 pub(super) use self::candidates::{

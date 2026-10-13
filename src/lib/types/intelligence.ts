@@ -346,6 +346,33 @@ export interface AiProviderConnectionTestRequest {
 }
 
 /**
+ * Which service to ask for its models: the form's values, saved or not. The
+ * key is the one typed in the form, else the stored key of `providerId`.
+ */
+export interface AiProviderModelsRequest {
+  purpose: AiProviderPurpose
+  requestFormat: AiRequestFormat
+  baseUrl: string | null
+  providerId?: string | null
+  apiKey?: string | null
+}
+
+/** What a model is for, as the service says; `unknown` when it does not say. */
+export type AiModelKind = 'chat' | 'embedding' | 'unknown'
+
+/**
+ * One model a service offers. `loadedContextLength` is how much it can read
+ * as loaded now; `maxContextLength` the most it could be loaded with.
+ */
+export interface AiProviderModel {
+  id: string
+  kind: AiModelKind
+  loaded: boolean | null
+  loadedContextLength: number | null
+  maxContextLength: number | null
+}
+
+/**
  * Represents a completed report that the UI can review after a run finishes.
  *
  * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.

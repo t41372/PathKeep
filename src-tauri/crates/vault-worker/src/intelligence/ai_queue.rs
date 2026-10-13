@@ -159,6 +159,20 @@ pub(crate) fn complete_claimed_index_job(
         let start_history_id = index_start_history_id(&claimed.payload);
         let start_embedded = index_start_embedded(&claimed.payload);
         let run_control = start_ai_job_control(vault, claimed.id);
+        // An index made with a model Settings no longer has (the model was changed or the
+        // service removed) is never read again; it goes before the new one is built.
+        let configured: Vec<(String, String)> = config
+            .ai
+            .embedding_providers
+            .iter()
+            .map(|provider| (provider.id.clone(), provider.default_model.clone()))
+            .collect();
+        let control: Arc<dyn vault_core::AiRunControl> = run_control.clone();
+        runtime.block_on(vault_core::forget_unconfigured_indexes(
+            vault,
+            &configured,
+            Some(&control),
+        ))?;
         let ledger: Arc<dyn vault_core::IndexBackfillLedger> =
             Arc::new(IndexCursorLedger { vault: vault.clone(), job_id: claimed.id });
         let result = runtime.block_on(build_ai_index_with_control(
@@ -788,6 +802,26 @@ pub fn test_ai_provider_connection_report(
             Ok(vault_core::provider_connection_failure_report(&provider_config, &error.to_string()))
         }
     }
+}
+
+/// Asks a service which models it has, for the model field in Settings.
+///
+/// The form's values are used whether or not the service is saved yet. The key is the one typed
+/// in the form; when that is empty and the service is saved, its stored key.
+pub fn list_ai_provider_models(
+    request: &vault_core::AiProviderModelsRequest,
+) -> Result<Vec<vault_core::AiProviderModel>> {
+    let typed = request.api_key.as_deref().map(str::trim).filter(|key| !key.is_empty());
+    let stored = match (typed, request.provider_id.as_deref()) {
+        (None, Some(provider_id)) => vault_platform::keyring_get_provider_api_key(provider_id)?,
+        _ => None,
+    };
+    let key = typed.map(str::to_owned).or(stored).filter(|key| !key.trim().is_empty());
+    tokio_runtime()?.block_on(vault_core::list_provider_models(
+        &request.request_format,
+        request.base_url.as_deref().map(str::trim).filter(|url| !url.is_empty()),
+        key.as_deref(),
+    ))
 }
 
 #[cfg(test)]

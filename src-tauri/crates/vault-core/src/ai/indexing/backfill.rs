@@ -406,6 +406,63 @@ pub async fn build_ai_index_with_control(
     }
 }
 
+/// Deletes the semantic index of every (service, model) that is no longer set up, and returns
+/// how many pairs it deleted.
+///
+/// An index belongs to one service and one model (`ai_embedding_totals`, the `.pkvec` and its
+/// planes). Changing a service's model in Settings, or removing the service, leaves the old one
+/// behind: nothing reads it again, and on a large archive it is gigabytes. `configured` is every
+/// pair Settings has now; each other pair's rows and files go. Run at the start of an index job,
+/// in the background, because the rows are deleted in batches.
+pub async fn forget_unconfigured_indexes(
+    vault: &crate::Vault,
+    configured: &[(String, String)],
+    control: Option<&Arc<dyn AiRunControl>>,
+) -> Result<usize> {
+    let indexed = vault.read(Db::Intelligence, |s| {
+        Ok(s.query("SELECT provider_id,model FROM ai_embedding_totals", (), |r| {
+            Ok((r.get::<String>(0)?, r.get::<String>(1)?))
+        })?)
+    })?;
+    let paths = vault.paths().clone();
+    let mut forgotten = 0;
+    for (provider_id, model) in indexed {
+        if configured.iter().any(|(id, kept)| *id == provider_id && *kept == model) {
+            continue;
+        }
+        let gone = AiProviderRuntime {
+            config: AiProviderConfig {
+                id: provider_id.clone(),
+                default_model: model.clone(),
+                purpose: AiProviderPurpose::Embedding,
+                ..AiProviderConfig::default()
+            },
+            api_key: None,
+        };
+        clear_provider_embeddings(vault, &gone, control)?;
+        ai_sidecar::clear_provider_embeddings(&paths, &provider_id, &model).await?;
+        VectorStore::for_provider(&paths, &provider_id, &model).delete()?;
+        VisitContentMap::for_provider(&paths, &provider_id, &model).delete()?;
+        super::super::vector_planes::delete_planes(&paths, &provider_id, &model)?;
+        super::super::reverse_visit_map::ReverseVisitMap::for_provider(
+            &paths,
+            &provider_id,
+            &model,
+        )
+        .delete()?;
+        let (id, kept) = (provider_id.clone(), model.clone());
+        vault.write(Db::Intelligence, Priority::Batch, move |s| {
+            s.execute(
+                "DELETE FROM ai_embedding_totals WHERE provider_id=?1 AND model=?2",
+                params![id, kept],
+            )?;
+            Ok(())
+        })?;
+        forgotten += 1;
+    }
+    Ok(forgotten)
+}
+
 /// The resume/incremental crash-window dedup state for one backfill pass (W-AI-4c, 02 §C.6 R1).
 ///
 /// Encapsulates the three sets that together make the embed loop no-dup/no-miss across the two crash

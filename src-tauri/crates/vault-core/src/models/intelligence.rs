@@ -825,6 +825,44 @@ pub struct AiProviderConnectionTestRequest {
     pub purpose: AiProviderPurpose,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+/// Which service to ask for its models: the form's values, saved or not, so the list can
+/// show while someone is still adding the service. The key is the one typed in the form, or
+/// else the stored key of `provider_id`; a local server needs none.
+pub struct AiProviderModelsRequest {
+    pub purpose: AiProviderPurpose,
+    pub request_format: AiRequestFormat,
+    pub base_url: Option<String>,
+    #[serde(default)]
+    pub provider_id: Option<String>,
+    #[serde(default)]
+    pub api_key: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+/// What a model is for, as the service says; `Unknown` when it does not say (a plain
+/// OpenAI-compatible `/v1/models`).
+pub enum AiModelKind {
+    Chat,
+    Embedding,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+/// One model a service offers. `loaded_context_length` is how much the model can read as it is
+/// loaded now (LM Studio, Ollama), `max_context_length` the most it could be loaded with; the
+/// assistant budgets with the first, and says it does not know when neither is given.
+pub struct AiProviderModel {
+    pub id: String,
+    pub kind: AiModelKind,
+    pub loaded: Option<bool>,
+    pub loaded_context_length: Option<u32>,
+    pub max_context_length: Option<u32>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 /// Serialized, UI-facing mirror of the in-engine `LlmCapabilities`.

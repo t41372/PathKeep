@@ -289,13 +289,13 @@
   - [x] 2. 本機 gate 的 `insights-time-zone.spec` 換回 UTC 後，那一天顯示 Taipei 的數字：洞察「某一天」的讀取（當天、當天的時段與搜尋、時段明細）的快取 key 沒有時區，其他範圍讀取有（`scopeKey`）。看過的那天在換時區重建後仍顯示舊時區的數字。key 加上洞察的時區。
   - [x] 3. 完整 gate（本機 75 個 E2E 全過）、推上去讓 PR 的 CI 重跑；CHANGELOG。
 
-- [ ] **WORK-AI-SERVICES-2026-10** — AI 服務設定（用戶 2026-10-12）
+- [x] **WORK-AI-SERVICES-2026-10** — AI 服務設定（用戶 2026-10-12）
   - 讀先：`docs/features/intelligence.md`（AI、Provider requirements、invalidation）、`docs/architecture/ai-security-posture.md`、`docs/architecture/desktop-command-surface.md`。
-  - [ ] 1. App 內建模型說清楚：Settings 寫出模型（`minishlab/potion-multilingual-128M`，model2vec，256 維）與大小。換模型就要重建：索引已按「服務 + 模型」分開存、搜尋會說設定變了，但在設定裡改外部服務的模型或網址不會排重建（新模型的索引是空的），舊模型的向量檔也從不刪。改成：改模型或網址時先告訴使用者要重建幾頁（PME），確認後排重建、刪舊的向量檔。內建模型的檔案驗證寫死預設模型的雜湊，換別的 repo 一定失敗：要嘛照 repo 存驗證清單，要嘛說明只有這一個（決定記在文檔）。
-  - [ ] 2. LM Studio embedding：請求格式沒錯（2026-10-12 在本機 LM Studio 用 nomic 實測 200、768 維）。錯的是錯誤被藏起來：LM Studio 對錯的路徑回 HTTP 200 + `{"error": …}`，我們只看狀態碼，使用者只看到「parsing embeddings response body」。修：2xx 但 body 有 `error` 算失敗、顯示原文；解析失敗附 body 開頭；LM Studio、Ollama 的網址自動補 `/v1`、去掉多餘的 `/embeddings`；分出「網址不對」「不是 embedding 模型」兩種錯誤（三語、附修法）。Ollama 聊天的預設網址缺 `/v1`，一起修。
-  - [ ] 3. 讀出服務有哪些模型：LM Studio `GET /api/v0/models`（有 `type`：llm / embeddings，與 `max_context_length`）、Ollama `GET /api/tags` + `POST /api/show`、其他 OpenAI 相容 `GET /v1/models`。新命令 `list_ai_provider_models`；設定裡的模型欄改成可選的清單（照用途過濾，聊天只列 LLM、embedding 只列 embedding），仍可手打；結果存進 `modelCatalog`。
-  - [ ] 4. E2E：本機假的 OpenAI 相容服務（已有的 fake embedding server 擴充）回模型清單、對錯路徑回 200 + error：設定裡選得到模型、錯誤照原文顯示、改模型會先問要不要重建並真的重建。
-  - [ ] 5. 文檔、CHANGELOG。
+  - [x] 1. App 內建模型說清楚：Settings 寫出模型（`minishlab/potion-multilingual-128M`，model2vec，256 維）與大小。換模型就要重建：索引已按「服務 + 模型」分開存、搜尋會說設定變了，但在設定裡改外部服務的模型或網址不會排重建（新模型的索引是空的），舊模型的向量檔也從不刪。改成：改模型或網址時先告訴使用者要重建幾頁（PME），確認後排重建、刪舊的向量檔。內建模型的檔案驗證寫死預設模型的雜湊，換別的 repo 一定失敗：要嘛照 repo 存驗證清單，要嘛說明只有這一個（決定記在文檔）。2026-10-12：Settings 在內建模型下寫「potion-multilingual-128M，256 維，隨 PathKeep 提供…換成別的模型會重新建立索引」；內建的只有這一個（`intelligence.md` §5 記下）。編輯 embedding 服務換模型時，對話框在存檔前說要重建幾頁、舊的索引會刪，語意搜尋開著就「儲存並重建」、關著寫「開啟時」；存了就照新模型建。舊索引由建索引的背景工作在開始時刪：設定裡沒有的每個「服務 + 模型」（`forget_unconfigured_indexes`，資料列分批刪、檔案與 totals 一起），測試 `an_index_made_with_a_model_no_longer_set_up_is_deleted_and_the_current_one_kept`。改網址不重建：索引照「服務 + 模型」，網址換了但模型一樣時，建置的指紋比對（`configDrift`）照舊會發現設定變了。
+  - [x] 2. LM Studio embedding：請求格式沒錯（2026-10-12 在本機 LM Studio 用 nomic 實測 200、768 維）。錯的是錯誤被藏起來：LM Studio 對錯的路徑回 HTTP 200 + `{"error": …}`，我們只看狀態碼，使用者只看到「parsing embeddings response body」。修：2xx 但 body 有 `error` 算失敗、顯示原文；解析失敗附 body 開頭；LM Studio、Ollama 的網址自動補 `/v1`、去掉多餘的 `/embeddings`；分出「網址不對」「不是 embedding 模型」兩種錯誤（三語、附修法）。Ollama 聊天的預設網址缺 `/v1`，一起修。2026-10-12：`openai_api_root`（embedding、聊天、連線測試都用），`service_error`、`reply_excerpt`，錯誤碼 `bad-endpoint`（三語）；「不是 embedding 模型」沒另分一碼：服務的原話照樣顯示，清單也只列 embedding 模型。Ollama 預設網址改成帶 `/v1`。
+  - [x] 3. 讀出服務有哪些模型：LM Studio `GET /api/v0/models`（有 `type`：llm / embeddings，與 `max_context_length`）、Ollama `GET /api/tags` + `POST /api/show`、其他 OpenAI 相容 `GET /v1/models`。新命令 `list_ai_provider_models`；設定裡的模型欄改成可選的清單（照用途過濾，聊天只列 LLM、embedding 只列 embedding），仍可手打；結果存進 `modelCatalog`。2026-10-12：`ai/model_list.rs`（五種格式），表單的模型欄是輸入框加「瀏覽清單」，下面一行說讀到幾個、讀不到的原因；`modelCatalog` 沒改：它只在存檔時記下選的那個，清單每次打開表單時重讀，不存。
+  - [x] 4. E2E：本機假的 OpenAI 相容服務（已有的 fake embedding server 擴充）回模型清單、對錯路徑回 200 + error：設定裡選得到模型、錯誤照原文顯示、改模型會先問要不要重建並真的重建。2026-10-12：`ai-services.spec`（change 專案）：假服務照 LM Studio 回答（模型清單、不服務的路徑回 200 + error）；用 LM Studio 視窗上的位址（沒有 `/v1`）新增，清單只列兩個 embedding 模型、標出已載入與 context，選的那個連線成功；改成伺服器上不是 API 的位址，失敗訊息照 `bad-endpoint` 說；換模型前寫出要重建的頁數（照 `estimate_reembed`）。真的重建與刪舊索引由 Rust 測試與 `semantic-index.spec` 的建置證明，這個 spec 不再建一次完整索引。
+  - [x] 5. 文檔、CHANGELOG。`intelligence.md` §5、`desktop-command-surface.md`。
 
 - [ ] **WORK-ASK-2026-10** — 助理的對話與 agent（用戶 2026-10-12）
   - 讀先：`docs/features/intelligence.md`（Ask）、`docs/architecture/ai-security-posture.md`。

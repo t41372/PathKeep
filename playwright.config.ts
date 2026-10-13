@@ -163,6 +163,7 @@ export default defineConfig({
     project(
       'change',
       [
+        'ai-services.spec.ts',
         'background-work.spec.ts',
         'backup.spec.ts',
         'link-preview.spec.ts',
