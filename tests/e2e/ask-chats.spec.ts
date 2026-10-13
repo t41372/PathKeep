@@ -13,8 +13,9 @@
  * - A chat comes back as it was shown: the question, the model's thinking,
  *   the search it ran and what that returned, the answer and the pages it
  *   used, in the same order and words, under the question as its title.
- * - A chat exported as Markdown lands in the exports folder with its title,
- *   each question and answer under who said it, and the pages each answer
+ * - A chat exported as Markdown is saved where the save dialog says (an E2E
+ *   run answers it with a folder of its own), named after the chat. The file
+ *   holds its title, each question and answer under who said it, the pages each answer
  *   used as links with their visit time; the thinking and searches stay out,
  *   and a page title cannot make Markdown of its own. Settings → Storage
  *   counts the conversations' database.
@@ -483,7 +484,7 @@ test('a chat exported as Markdown holds its questions, answers and pages', async
       .locator('xpath=..')
       .getByRole('button', { name: 'Conversation options' })
       .click()
-    await page.getByRole('menuitem', { name: 'Export as Markdown' }).click()
+    await page.getByRole('menuitem', { name: 'Export as Markdown…' }).click()
     const toast = page
       .locator('[data-sonner-toast]')
       .filter({ hasText: 'Saved as Markdown' })
@@ -491,8 +492,11 @@ test('a chat exported as Markdown holds its questions, answers and pages', async
     const file = (await toast.innerText())
       .split('\n')
       .find((line) => line.endsWith('.md'))!
-    expect(path.dirname(file), 'in the exports folder').toBe(
-      path.join(fixture().dirs.projectRoot, 'exports'),
+    expect(path.dirname(file), 'where the save dialog said').toBe(
+      path.join(fixture().root, 'saved'),
+    )
+    expect(path.basename(file), 'named after the chat').toMatch(
+      /^Which issue said spawn_blocking ran out of threads \d{4}-\d\d-\d\d\.md$/,
     )
     const markdown = readFileSync(file, 'utf8')
     await testInfo.attach('the exported chat', {

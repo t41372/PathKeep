@@ -2880,3 +2880,6 @@ that held up when checked against the code.
 - [x] `WORK-INSIGHTS-SEARCH-SPELLING` — Insights show a search the way it was typed (2026-10-13).
   - Frequent searches and every other place Insights show a search used to show it in lowercase: the build read the archive's lowercased copy of each search and lowercased it once more. It now reads the words as typed, keeps their letter case and only joins runs of spaces; grouping still ignores case, so "SQLite WAL mode" and "sqlite wal mode" are one search, shown the way it was last typed.
   - The Insights rules changed, so an existing archive rebuilds its Insights by itself when it opens.
+
+- [x] Exporting an Ask conversation asks where to save it (2026-10-13).
+  - The system's save dialog, opened by the backend, offers Downloads and a name from the conversation; the file is written where the person chooses. The first version put every file in PathKeep's own exports folder, where nobody looks and "Delete all data" removes it. Cancelling the dialog writes nothing and shows no error.

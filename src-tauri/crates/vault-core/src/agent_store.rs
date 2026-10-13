@@ -11,7 +11,7 @@ mod tests;
 mod transcript;
 mod types;
 
-pub use export::export_conversation;
+pub use export::conversation_markdown;
 pub use journal::*;
 pub use transcript::*;
 pub use types::*;

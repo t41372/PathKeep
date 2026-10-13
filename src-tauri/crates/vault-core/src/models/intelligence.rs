@@ -1480,12 +1480,26 @@ pub struct ConversationExportLabels {
     pub pages_used: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
-#[serde(rename_all = "camelCase")]
-/// Where `export_ai_conversation` wrote the file, and how large it is.
-pub struct ConversationExportResult {
-    pub path: String,
-    pub bytes: u64,
+#[derive(Debug, Clone, PartialEq, Eq)]
+/// One conversation as a Markdown file, before anyone has said where it goes.
+pub struct ConversationMarkdown {
+    /// A file name from the title and the day, for the save dialog to suggest.
+    pub file_name: String,
+    pub markdown: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "status", rename_all = "camelCase")]
+/// What `export_ai_conversation` did: saved where the person chose, nothing because they
+/// cancelled the save dialog, or nothing because the conversation is no longer saved.
+pub enum ConversationExportOutcome {
+    #[serde(rename_all = "camelCase")]
+    Saved {
+        path: String,
+        bytes: u64,
+    },
+    Cancelled,
+    Gone,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]

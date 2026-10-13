@@ -69,6 +69,9 @@ function prepareFixture() {
     PATHKEEP_TEST_PREVIEW_SERVER_CA: path.resolve(
       'tests/e2e/support/tls/ca.pem',
     ),
+    // Where a save dialog "saves": Playwright cannot answer the system's
+    // dialog, so the app saves here under the suggested name. Debug only.
+    PATHKEEP_TEST_SAVE_DIR: path.join(root, 'saved'),
     // Lets export.spec.ts watch and stop an export of the small fixture. Debug only.
     PATHKEEP_TEST_EXPORT_ROW_DELAY_US: '500',
     // The launcher runs the app itself and starts it again when a spec kills

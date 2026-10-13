@@ -1,26 +1,26 @@
-//! Responsibilities: write one Ask conversation as a Markdown file in the exports folder.
-//! Not responsible for: choosing where the file goes (always the exports folder, never a path
-//! the interface names), the interface's words (it sends them), or other export formats.
+//! Responsibilities: render one Ask conversation as a Markdown file and suggest its name.
+//! Not responsible for: where the file goes (the desktop asks with the system's save dialog,
+//! never a path the interface names), writing it, the interface's words (it sends them), or
+//! other export formats.
 //! Failure modes: a page title from the web turns into a link or markup of its own, a link
-//! with a script scheme, a title that makes a file name escape the folder, two exports of
-//! one conversation overwriting each other, a half-written file left behind.
+//! with a script scheme, a suggested name with path separators or characters a file system
+//! refuses.
 use crate::{
     Vault,
-    durable_io::atomic_durable_write,
     models::{
-        AgentCitation, AgentMessage, ConversationExportLabels, ConversationExportResult,
+        AgentCitation, AgentMessage, ConversationExportLabels, ConversationMarkdown,
         ExportAgentConversationRequest,
     },
 };
-use anyhow::{Context, Result};
+use anyhow::Result;
 use std::fmt::Write as _;
 
-/// Writes the conversation's questions, answers and the pages each answer used, as the
-/// person saw them; the thinking and searches behind an answer stay out.
-pub fn export_conversation(
+/// The conversation's questions, answers and the pages each answer used, as the person saw
+/// them; the thinking and searches behind an answer stay out. `None` when it is not saved.
+pub fn conversation_markdown(
     vault: &Vault,
     request: &ExportAgentConversationRequest,
-) -> Result<Option<ConversationExportResult>> {
+) -> Result<Option<ConversationMarkdown>> {
     let Some(conversation) = super::load_conversation(vault, &request.id)? else {
         return Ok(None);
     };
@@ -28,20 +28,10 @@ pub fn export_conversation(
         .filter(|title| !title.is_empty())
         .unwrap_or(request.labels.untitled.trim());
     let markdown = render(title, &conversation.messages, &request.labels);
-    let folder = &vault.paths().exports_dir;
-    std::fs::create_dir_all(folder).with_context(|| format!("create {}", folder.display()))?;
-    let stamp = chrono::Local::now().format("%Y-%m-%d %H%M");
-    let base = format!("{} {stamp}", file_name_part(title));
-    let path = (1..)
-        .map(|n| {
-            folder.join(if n == 1 { format!("{base}.md") } else { format!("{base} ({n}).md") })
-        })
-        .find(|path| !path.exists())
-        .context("no free file name")?;
-    atomic_durable_write(&path, markdown.as_bytes())?;
-    Ok(Some(ConversationExportResult {
-        path: path.display().to_string(),
-        bytes: markdown.len() as u64,
+    let day = chrono::Local::now().format("%Y-%m-%d");
+    Ok(Some(ConversationMarkdown {
+        file_name: format!("{} {day}.md", file_name_part(title)),
+        markdown,
     }))
 }
 

@@ -1107,11 +1107,15 @@ export interface ExportAgentConversationRequest {
   }
 }
 
-/** Where `export_ai_conversation` wrote the Markdown file (always the exports folder). */
-export interface ConversationExportResult {
-  path: string
-  bytes: number
-}
+/**
+ * What `export_ai_conversation` did: saved where the person chose in the
+ * system's save dialog, nothing because they cancelled it, or nothing because
+ * the conversation is no longer saved.
+ */
+export type ConversationExportOutcome =
+  | { status: 'saved'; path: string; bytes: number }
+  | { status: 'cancelled' }
+  | { status: 'gone' }
 
 /**
  * Result of `delete_ai_conversation`: whether a row with the id existed and was removed.

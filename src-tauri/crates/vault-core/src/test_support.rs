@@ -34,6 +34,18 @@ pub fn export_row_delay() -> Option<std::time::Duration> {
     })
 }
 
+/// Where a save dialog "saves" in an end-to-end test: Playwright cannot answer the system's
+/// dialog, so a debug build with `PATHKEEP_TEST_SAVE_DIR` set skips it and saves under that
+/// folder with the suggested name. Debug builds only, like `network_is_blocked`.
+pub fn test_save_dir() -> Option<std::path::PathBuf> {
+    if !cfg!(debug_assertions) {
+        return None;
+    }
+    std::env::var_os("PATHKEEP_TEST_SAVE_DIR")
+        .filter(|value| !value.is_empty())
+        .map(std::path::PathBuf::from)
+}
+
 // Failure modes of the preview test server switch (`PATHKEEP_TEST_PREVIEW_SERVER_CA`):
 // (a) a release build honors it;
 // (b) a link preview reaches anything but `https://127.0.0.1` through it: a redirect to another

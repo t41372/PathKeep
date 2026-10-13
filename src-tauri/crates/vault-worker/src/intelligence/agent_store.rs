@@ -7,7 +7,7 @@ use crate::context::load_unlocked_config;
 use anyhow::Result;
 use vault_core::{
     AgentConversationDetail, AgentConversationListResponse, AgentConversationSummary,
-    ConversationExportResult, DeleteAgentConversationResult, ExportAgentConversationRequest,
+    ConversationMarkdown, DeleteAgentConversationResult, ExportAgentConversationRequest,
     ListAgentConversationsRequest, RenameAgentConversationRequest, SaveAgentConversationRequest,
 };
 
@@ -81,14 +81,15 @@ pub fn rename_ai_conversation(
     vault_core::rename_conversation(vault, &request.id, &request.title)
 }
 
-/// Writes one conversation as Markdown into the exports folder; `None` when the id is unknown.
-pub fn export_ai_conversation(
+/// One conversation as Markdown, for the desktop to save where the person chooses; `None`
+/// when the id is unknown.
+pub fn ai_conversation_markdown(
     vault: &vault_core::Vault,
     request: &ExportAgentConversationRequest,
-) -> Result<Option<ConversationExportResult>> {
+) -> Result<Option<ConversationMarkdown>> {
     // App Lock gate: a locked session must not be able to read a transcript out.
     load_unlocked_config(vault.paths())?;
-    vault_core::export_conversation(vault, request)
+    vault_core::conversation_markdown(vault, request)
 }
 
 #[cfg(test)]

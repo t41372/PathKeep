@@ -90,8 +90,9 @@ export function ConversationList({
 
   const refresh = () => client.invalidateQueries({ queryKey: conversationsKey })
 
-  // The backend writes the file in the exports folder, in the words of the
-  // interface's language; the toast says where and opens it.
+  // The backend asks where to save with the system's dialog and writes the
+  // file, in the words of the interface's language; the toast says where.
+  // Cancelling the dialog is not an error.
   const exportConversation = async (id: string) => {
     try {
       const result = await intelligenceClient.exportConversation({
@@ -103,7 +104,8 @@ export function ConversationList({
           pagesUsed: t('ask.turn.sources'),
         },
       })
-      if (!result) {
+      if (result.status === 'cancelled') return
+      if (result.status === 'gone') {
         toast.error(t('ask.export.gone'))
         void refresh()
         return

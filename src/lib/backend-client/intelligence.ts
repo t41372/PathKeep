@@ -34,7 +34,7 @@ import type {
   AiSearchResponse,
   AppSnapshot,
   ClearDerivedIntelligenceReport,
-  ConversationExportResult,
+  ConversationExportOutcome,
   DeleteAgentConversationResult,
   ExportAgentConversationRequest,
   IntelligenceRuntimeSnapshot,
@@ -102,7 +102,7 @@ export const intelligenceClient = {
       request,
     }),
   exportConversation: (request: ExportAgentConversationRequest) =>
-    call<ConversationExportResult | null>('export_ai_conversation', {
+    call<ConversationExportOutcome>('export_ai_conversation', {
       request,
     }),
   listSearchEngineRules: () =>

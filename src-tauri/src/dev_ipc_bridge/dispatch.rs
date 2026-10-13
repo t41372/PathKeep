@@ -648,10 +648,20 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
             let payload = parse_payload::<
                 WrappedRequest<vault_core::ExportAgentConversationRequest>,
             >(payload)?;
-            json_value!(worker_bridge::export_ai_conversation_impl(
-                &state.session,
-                payload.request
-            )?)
+            // The save dialog blocks, so it waits off the bridge's async thread.
+            let app = require_app_handle(state).ok();
+            let session = state.session.clone();
+            json_value!(
+                tokio::task::spawn_blocking(move || {
+                    worker_bridge::export_ai_conversation_impl(
+                        app.as_ref(),
+                        &session,
+                        payload.request,
+                    )
+                })
+                .await
+                .unwrap_or_else(|error| join_failure("export_ai_conversation", error))?
+            )
         }
         "get_content_fetch_settings" => {
             json_value!(worker_bridge::content_fetch_settings_impl(&state.session)?)

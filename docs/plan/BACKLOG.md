@@ -68,6 +68,10 @@
   - 證據：那次的 `error-context.md`、trace 與 app 的執行緒堆疊在 2026-10-12 的 `artifacts/e2e/`（之後的 run 會蓋掉；要重現就重跑 `upgrade` 專案直到失敗，保存那次的產物）。
   - 方向：先找出解鎖後判斷舊格式的那條路（session 狀態與後端的升級偵測命令），寫下它在什麼時序下會答錯，再修；E2E 連跑多次證明。
 
+- [ ] **WORK-HISTORY-EXPORT-SAVE-DIALOG** — 歷史匯出也該問存在哪裡（2026-10-13，對話匯出改成跳儲存對話框時找到）
+  - 現象：Settings → Storage →「匯出歷史」一律寫進 PathKeep 自己的 `exports` 資料夾（在應用程式資料目錄裡，平常沒人看），「刪除所有資料」會一起刪掉，「釋放空間」也列得出來。使用者匯出的檔案是要拿走的，不是 app 的暫存。
+  - 方向：跟 `export_ai_conversation` 一樣，開始前由後端跳系統的儲存對話框（建議檔名、預設「下載」），之後照舊有進度、可停止，暫存檔寫在目標旁邊、完成才換上（`atomic_durable_write_with`）；取消對話框什麼都不做。`exports` 資料夾之後只剩舊檔，「釋放空間」照舊能清。E2E 用 `PATHKEEP_TEST_SAVE_DIR`，`export.spec` 改讀那裡。
+
 - [ ] **WORK-PROJECT-PATHS-V04** — `ProjectPaths` 的資料庫路徑還是 v0.3 的（2026-10-13 修 Settings → Storage 時找到）
   - 現象：`config.rs` 的預設是 `history-vault.sqlite`、`source-evidence.sqlite`、`history-search.sqlite`、`history-intelligence.sqlite`、`agent.sqlite`；`Vault::open` 再把其中四個改成 `.db`，搜尋那個沒改（v0.4 的搜尋索引是 `derived/search-index` 資料夾）。沒有經過 `Vault` 的讀者（`app.rs` 回給介面的 `searchDatabasePath`）拿到的是不存在的檔案；Storage 用量曾因此少算搜尋索引、對話與 WAL。
   - 方向：先列出誰還需要 v0.3 的路徑（v0.3 → v0.4 轉換要找舊檔），把它們改成明說「舊格式」的欄位；其餘全部用 `vault_store::Paths` 的布局，`search_database_path` 換成搜尋索引資料夾。

@@ -272,13 +272,48 @@ pub(crate) fn rename_ai_conversation_impl(
     worker_result(vault_worker::rename_ai_conversation(&state.vault()?, &request))
 }
 
-/// Writes one conversation into the exports folder; returns `Ok(None)` when the id is unknown.
+/// Saves one conversation as Markdown where the person chooses in the system's save dialog.
+/// The interface sends only which conversation and the words for its parts, never a path or
+/// the file's contents. Blocks on the dialog: call it off the main thread.
 #[cfg_attr(test, allow(dead_code))]
-pub(crate) fn export_ai_conversation_impl(
+pub(crate) fn export_ai_conversation_impl<R: tauri::Runtime>(
+    app: Option<&tauri::AppHandle<R>>,
     state: &crate::session::SessionState,
     request: vault_core::ExportAgentConversationRequest,
-) -> Result<Option<vault_core::ConversationExportResult>, CommandError> {
-    worker_result(vault_worker::export_ai_conversation(&state.vault()?, &request))
+) -> Result<vault_core::ConversationExportOutcome, CommandError> {
+    use vault_core::ConversationExportOutcome as Outcome;
+    let Some(file) =
+        worker_result(vault_worker::ai_conversation_markdown(&state.vault()?, &request))?
+    else {
+        return Ok(Outcome::Gone);
+    };
+    let Some(path) = save_path(app, &file.file_name)? else {
+        return Ok(Outcome::Cancelled);
+    };
+    worker_result(vault_core::durable_io::atomic_durable_write(&path, file.markdown.as_bytes()))?;
+    Ok(Outcome::Saved { path: path.display().to_string(), bytes: file.markdown.len() as u64 })
+}
+
+/// Where the person wants the file, suggested name and Downloads first; `None` when they
+/// cancel. An end-to-end test cannot answer the system's dialog, so a debug build with
+/// `PATHKEEP_TEST_SAVE_DIR` saves there instead (`vault_core::test_support::test_save_dir`).
+fn save_path<R: tauri::Runtime>(
+    app: Option<&tauri::AppHandle<R>>,
+    name: &str,
+) -> Result<Option<std::path::PathBuf>, CommandError> {
+    use tauri::Manager;
+    use tauri_plugin_dialog::DialogExt;
+    if let Some(dir) = vault_core::test_support::test_save_dir() {
+        worker_result(std::fs::create_dir_all(&dir))?;
+        return Ok(Some(dir.join(name)));
+    }
+    let app =
+        app.ok_or_else(|| CommandError::internal("There is no window to ask where to save."))?;
+    let mut dialog = app.dialog().file().set_file_name(name).add_filter("Markdown", &["md"]);
+    if let Ok(downloads) = app.path().download_dir() {
+        dialog = dialog.set_directory(downloads);
+    }
+    dialog.blocking_save_file().map(|path| worker_result(path.into_path())).transpose()
 }
 
 // ── W-ENRICH-1 site content-fetch (06 §6) ────────────────────────────────────────────────────────
