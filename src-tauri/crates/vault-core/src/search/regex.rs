@@ -21,13 +21,23 @@ enum Source {
     Listing(Box<super::regex_prefilter::Prefilter>),
     /// Only those pages: the work follows the matches, not the archive's size.
     Candidates { pages: Vec<u64>, next: usize },
-    /// No usable fragment: every visible visit, newest first, after a (time, id) cursor.
+    /// No usable fragment: every visible visit after a (time, id) cursor, newest first, or
+    /// oldest first for that order, so the first visit seen of a page is the one it goes by.
     Walk { time: i64, id: i64 },
 }
+impl Source {
+    fn walk_start(oldest: bool) -> Self {
+        if oldest {
+            Source::Walk { time: i64::MIN, id: i64::MIN }
+        } else {
+            Source::Walk { time: i64::MAX, id: i64::MAX }
+        }
+    }
+}
 
-/// The visit a result row shows: the newest matching one.
+/// The visit a result row shows: the newest matching one, or the first for oldest first.
 #[derive(Clone, Copy)]
-enum Newest {
+enum Shown {
     Visit(i64),
     /// Candidate reads group by URL; the visit is looked up when the row is shown.
     Url {
@@ -48,7 +58,7 @@ pub(super) struct Scan {
     after: Option<vault_search::Hit>,
     limit: usize,
     processed: u64,
-    winners: HashMap<u64, (Newest, u64)>,
+    winners: HashMap<u64, (Shown, u64)>,
     oldest: bool,
 }
 impl Scan {
@@ -62,7 +72,7 @@ impl Scan {
     ) -> Result<Self> {
         let source = match super::regex_prefilter::Prefilter::start(indexer, store, pattern)? {
             Some(prefilter) => Source::Listing(Box::new(prefilter)),
-            None => Source::Walk { time: i64::MAX, id: i64::MAX },
+            None => Source::walk_start(oldest),
         };
         Ok(Self {
             source,
@@ -88,7 +98,7 @@ impl Scan {
         match &mut self.source {
             Source::Listing(_) => {}
             Source::Candidates { next, .. } => *next = 0,
-            Source::Walk { time, id } => (*time, *id) = (i64::MAX, i64::MAX),
+            Source::Walk { .. } => self.source = Source::walk_start(self.oldest),
         }
         self.hits.clear();
         self.winners.clear();
@@ -114,7 +124,7 @@ impl Scan {
                     self.source = Source::Candidates { pages, next: 0 };
                 }
                 // A damaged index can't vouch for its matches; read every visit instead.
-                Err(_) => self.source = Source::Walk { time: i64::MAX, id: i64::MAX },
+                Err(_) => self.source = Source::walk_start(self.oldest),
             }
         }
         while !self.complete {
@@ -145,7 +155,7 @@ impl Scan {
         let mut params = self.scope.params.clone();
         let first = params.len() + 1;
         params.extend(batch.iter().map(|page| Value::Integer(*page as i64)));
-        let sql = candidates_sql(&self.scope.sql, first, batch.len());
+        let sql = candidates_sql(&self.scope.sql, first, batch.len(), self.oldest);
         let rows = store.read(Db::Archive, move |s| {
             s.query(&sql, params, |r| {
                 Ok((
@@ -158,7 +168,7 @@ impl Scan {
                 ))
             })
         })?;
-        // page -> (newest matching visit time, its URL, matching visits)
+        // page -> (the matching visit time it goes by, its URL, matching visits)
         let mut matched: HashMap<u64, (i64, i64, u64)> = HashMap::new();
         for (url_id, page, url, title, visits, time) in rows {
             self.processed += visits;
@@ -166,7 +176,12 @@ impl Scan {
                 continue;
             }
             let entry = matched.entry(page).or_insert((time, url_id, 0));
-            if (time, url_id) > (entry.0, entry.1) {
+            let goes_by = if self.oldest {
+                (time, url_id) < (entry.0, entry.1)
+            } else {
+                (time, url_id) > (entry.0, entry.1)
+            };
+            if goes_by {
                 (entry.0, entry.1) = (time, url_id);
             }
             entry.2 += visits;
@@ -177,19 +192,19 @@ impl Scan {
             if super::session::already_returned(returned, page) {
                 continue;
             }
-            let hit = vault_search::Hit { page_id: page, newest_visit_ms: time, score: 0.0 };
+            let hit = vault_search::Hit { page_id: page, visit_ms: time, score: 0.0 };
             if self
                 .after
                 .is_some_and(|after| self.compare(&hit, &after) != std::cmp::Ordering::Less)
             {
                 continue;
             }
-            self.winners.insert(page, (Newest::Url { url, time }, visits));
+            self.winners.insert(page, (Shown::Url { url, time }, visits));
             self.hits.push(hit);
         }
         Ok(())
     }
-    /// The next 512 visible visits older than the cursor.
+    /// The next 512 visible visits past the cursor.
     fn walk_chunk(&mut self, store: &Store, returned: &[u64]) -> Result<()> {
         let Source::Walk { time: cursor_time, id: cursor_id } = self.source else { unreachable!() };
         let mut params = self.scope.params.clone();
@@ -197,7 +212,7 @@ impl Scan {
         params.push(Value::Integer(cursor_time));
         let id = params.len() + 1;
         params.push(Value::Integer(cursor_id));
-        let sql = chunk_sql(&self.scope.sql, time, id);
+        let sql = chunk_sql(&self.scope.sql, time, id, self.oldest);
         let rows = store.read(Db::Archive, move |s| {
             s.query(&sql, params, |r| {
                 Ok((
@@ -233,14 +248,14 @@ impl Scan {
             if super::session::already_returned(returned, page) {
                 continue;
             }
-            let hit = vault_search::Hit { page_id: page, newest_visit_ms: time, score: 0.0 };
+            let hit = vault_search::Hit { page_id: page, visit_ms: time, score: 0.0 };
             if self
                 .after
                 .is_some_and(|after| self.compare(&hit, &after) != std::cmp::Ordering::Less)
             {
                 continue;
             }
-            self.winners.insert(page, (Newest::Visit(id), 1));
+            self.winners.insert(page, (Shown::Visit(id), 1));
             self.hits.push(hit);
         }
         Ok(())
@@ -249,20 +264,21 @@ impl Scan {
         rank(a, b, self.oldest)
     }
     pub fn hydrate(&self, store: &Store) -> Result<Vec<super::SearchHit>> {
-        let newest = self
+        let shown = self
             .hits
             .iter()
             .map(|hit| (hit.page_id, self.winners[&hit.page_id].0))
             .collect::<Vec<_>>();
         let scope = self.scope.clone();
-        // A URL found by a candidate read shows its newest visit at the matching time.
+        let oldest = self.oldest;
+        // A URL found by a candidate read shows its visit at the matching time.
         let ids = store.read(Db::Archive, move |s| {
-            let sql = newest_visit_sql(&scope.sql, scope.params.len() + 1);
-            let mut ids = Vec::with_capacity(newest.len());
-            for (page, newest) in newest {
-                match newest {
-                    Newest::Visit(id) => ids.push(id),
-                    Newest::Url { url, time } => {
+            let sql = shown_visit_sql(&scope.sql, scope.params.len() + 1, oldest);
+            let mut ids = Vec::with_capacity(shown.len());
+            for (page, shown) in shown {
+                match shown {
+                    Shown::Visit(id) => ids.push(id),
+                    Shown::Url { url, time } => {
                         let mut params = scope.params.clone();
                         params.extend([page as i64, url, time].map(Value::Integer));
                         ids.extend(s.query(&sql, params, |r| Ok(r.get::<i64>(0)?))?);
@@ -300,41 +316,42 @@ impl Scan {
     }
 }
 
-/// One row per URL of the given pages with a visible visit in scope: its visits and newest time.
-fn candidates_sql(scope: &str, first: usize, pages: usize) -> String {
+/// One row per URL of the given pages with a visible visit in scope: its visits and its
+/// newest visit's time, or its first's for oldest first.
+fn candidates_sql(scope: &str, first: usize, pages: usize, oldest: bool) -> String {
     let keys = (first..first + pages).map(|n| format!("?{n}")).collect::<Vec<_>>().join(",");
+    let time = if oldest { "MIN" } else { "MAX" };
     format!(
-        "SELECT u.id,u.page_id,p.url,COALESCE(u.title,''),COUNT(*),MAX(v.visit_time_ms) FROM {} WHERE p.id IN ({keys}) AND {scope} GROUP BY u.id",
+        "SELECT u.id,u.page_id,p.url,COALESCE(u.title,''),COUNT(*),{time}(v.visit_time_ms) FROM {} WHERE p.id IN ({keys}) AND {scope} GROUP BY u.id",
         super::eligibility::PAGE_VISITS
     )
 }
 
-/// The newest visit of one URL (of a page) at a given time, inside the scope.
-fn newest_visit_sql(scope: &str, first: usize) -> String {
+/// The visit of one URL (of a page) at a given time, inside the scope: the last of those at
+/// that time, or the first for oldest first.
+fn shown_visit_sql(scope: &str, first: usize, oldest: bool) -> String {
     let (page, url, time) = (first, first + 1, first + 2);
+    let order = if oldest { "ASC" } else { "DESC" };
     format!(
-        "SELECT v.id FROM {} WHERE p.id=?{page} AND u.id=?{url} AND v.visit_time_ms=?{time} AND {scope} ORDER BY v.id DESC LIMIT 1",
+        "SELECT v.id FROM {} WHERE p.id=?{page} AND u.id=?{url} AND v.visit_time_ms=?{time} AND {scope} ORDER BY v.id {order} LIMIT 1",
         super::eligibility::PAGE_VISITS
     )
 }
 
-/// The next 512 visits older than the cursor. The `visit_time_ms<=` bound is
-/// what lets the planner seek to the cursor: with only the OR of the two cases,
-/// Turso scans the time index from the newest visit for every chunk, so a scan
-/// of the whole archive grows with its square.
-fn chunk_sql(scope: &str, time: usize, id: usize) -> String {
+/// The next 512 visits past the cursor: older ones, or newer ones for oldest first. The
+/// `visit_time_ms<=` (`>=`) bound is what lets the planner seek to the cursor: with only the
+/// OR of the two cases, Turso scans the time index from its end for every chunk, so a scan of
+/// the whole archive grows with its square.
+fn chunk_sql(scope: &str, time: usize, id: usize, oldest: bool) -> String {
+    let (bound, past, order) = if oldest { (">=", ">", "ASC") } else { ("<=", "<", "DESC") };
     format!(
-        "SELECT v.visit_time_ms,v.id,u.page_id,p.url,COALESCE(u.title,'') FROM visits v INDEXED BY idx_visits_visible_time_id CROSS JOIN urls u ON u.id=v.url_id CROSS JOIN pages p ON p.id=u.page_id JOIN source_profiles sp ON sp.id=v.source_profile_id WHERE {scope} AND v.visit_time_ms<=?{time} AND (v.visit_time_ms<?{time} OR v.id<?{id}) ORDER BY v.visit_time_ms DESC,v.id DESC LIMIT 512"
+        "SELECT v.visit_time_ms,v.id,u.page_id,p.url,COALESCE(u.title,'') FROM visits v INDEXED BY idx_visits_visible_time_id CROSS JOIN urls u ON u.id=v.url_id CROSS JOIN pages p ON p.id=u.page_id JOIN source_profiles sp ON sp.id=v.source_profile_id WHERE {scope} AND v.visit_time_ms{bound}?{time} AND (v.visit_time_ms{past}?{time} OR v.id{past}?{id}) ORDER BY v.visit_time_ms {order},v.id {order} LIMIT 512"
     )
 }
 
 fn rank(a: &vault_search::Hit, b: &vault_search::Hit, oldest: bool) -> std::cmp::Ordering {
-    (if oldest {
-        b.newest_visit_ms.cmp(&a.newest_visit_ms)
-    } else {
-        a.newest_visit_ms.cmp(&b.newest_visit_ms)
-    })
-    .then(a.page_id.cmp(&b.page_id))
+    (if oldest { b.visit_ms.cmp(&a.visit_ms) } else { a.visit_ms.cmp(&b.visit_ms) })
+        .then(a.page_id.cmp(&b.page_id))
 }
 
 /// Compiles a History regex: Rust `regex` syntax, case-insensitive.
@@ -371,22 +388,28 @@ mod tests {
     }
 
     #[test]
-    fn each_chunk_seeks_to_the_cursor_instead_of_scanning_from_the_newest_visit() {
-        let plan = plan_of(
-            |scope| chunk_sql(&scope.sql, scope.params.len() + 1, scope.params.len() + 2),
-            &[1_000, 50],
-        );
-        assert!(
-            plan.contains("SEARCH v USING INDEX idx_visits_visible_time_id (visit_time_ms<"),
-            "{plan}"
-        );
-        assert!(!plan.to_lowercase().contains("temp b-tree"), "{plan}");
+    fn each_chunk_seeks_to_the_cursor_instead_of_scanning_from_the_end() {
+        for (oldest, bound) in [(false, "visit_time_ms<"), (true, "visit_time_ms>")] {
+            let plan = plan_of(
+                |scope| {
+                    chunk_sql(&scope.sql, scope.params.len() + 1, scope.params.len() + 2, oldest)
+                },
+                &[1_000, 50],
+            );
+            assert!(
+                plan.contains(&format!("SEARCH v USING INDEX idx_visits_visible_time_id ({bound}")),
+                "{plan}"
+            );
+            assert!(!plan.to_lowercase().contains("temp b-tree"), "{plan}");
+        }
     }
 
     #[test]
     fn candidate_pages_seek_their_urls_and_visits_without_scanning_the_archive() {
-        let plan =
-            plan_of(|scope| candidates_sql(&scope.sql, scope.params.len() + 1, 3), &[1, 2, 3]);
+        let plan = plan_of(
+            |scope| candidates_sql(&scope.sql, scope.params.len() + 1, 3, false),
+            &[1, 2, 3],
+        );
         assert!(plan.contains("idx_urls_page_id"), "{plan}");
         assert!(plan.contains("idx_visits_visible_url_time"), "{plan}");
         assert!(
@@ -395,7 +418,7 @@ mod tests {
         );
 
         let plan =
-            plan_of(|scope| newest_visit_sql(&scope.sql, scope.params.len() + 1), &[1, 2, 3]);
+            plan_of(|scope| shown_visit_sql(&scope.sql, scope.params.len() + 1, false), &[1, 2, 3]);
         assert!(plan.contains("idx_visits_visible_url_time"), "{plan}");
         assert!(
             !plan.contains("SCAN p") && !plan.contains("SCAN u") && !plan.contains("SCAN v"),

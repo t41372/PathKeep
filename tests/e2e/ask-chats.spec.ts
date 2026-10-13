@@ -492,10 +492,7 @@ test('a model that keeps calling tools is stopped at the step limit and still an
   }
 })
 
-// Fails today: the search index sorts "oldest" by each page's newest visit and shows that
-// visit, so a page visited across years never shows its first visit. Fixed and turned back on
-// in WORK-SEARCH-FIRST-VISIT (docs/plan/STATUS.md).
-test.fixme('“when did I first” gets the earliest visit across years, not a recent one', async ({
+test('“when did I first” gets the earliest visit across years, not a recent one', async ({
   page,
 }, testInfo) => {
   const term = 'smol'
@@ -512,6 +509,11 @@ test.fixme('“when did I first” gets the earliest visit across years, not a r
     `the fixture has “${term}” in more than one year`,
   ).toBeGreaterThan(1)
   const earliest = matches[0]
+  // A row is a page, at its first visit: the pages in the order they were first visited.
+  const firstVisits = matches.filter(
+    (visit, index) =>
+      matches.findIndex(({ url }) => url === visit.url) === index,
+  )
 
   const question = `When did I first read about ${term}?`
   const answer = 'The first time is the earliest visit below.'
@@ -553,7 +555,9 @@ test.fixme('“when did I first” gets the earliest visit across years, not a r
     expect(
       rows.map(({ url }) => url).slice(0, 3),
       'the first visits in the fixture, in order',
-    ).toEqual(matches.slice(0, Math.min(3, rows.length)).map(({ url }) => url))
+    ).toEqual(
+      firstVisits.slice(0, Math.min(3, rows.length)).map(({ url }) => url),
+    )
 
     // The user sees the same search and its first page among the ones used.
     await chatColumn(page)

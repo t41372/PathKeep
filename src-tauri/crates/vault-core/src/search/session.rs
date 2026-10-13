@@ -106,16 +106,17 @@ impl RunningSession {
                 || request.end_time_ms.is_some()
                 || query.filters.after_ms.is_some()
                 || query.filters.before_ms.is_some());
-        let indexed_seq = indexer.index()?.last_applied_seq()?;
-        let membership = if eager && regex.is_none() && indexed_seq >= canonical_seq {
-            eligibility::load(store, scope.clone(), cancel.clone())?
-        } else {
-            Membership::empty(store)?
-        };
         let order = match request.sort.as_deref() {
             Some("newest") => SortOrder::Newest,
             Some("oldest") => SortOrder::Oldest,
             _ => SortOrder::Relevance,
+        };
+        let first = order == SortOrder::Oldest;
+        let indexed_seq = indexer.index()?.last_applied_seq()?;
+        let membership = if eager && regex.is_none() && indexed_seq >= canonical_seq {
+            eligibility::load(store, scope.clone(), first, cancel.clone())?
+        } else {
+            Membership::empty(store, first)?
         };
         let profile_id = if let Some(profile) = request.profile_id.clone() {
             let ids = store.read(Db::Archive, move |s| {
@@ -209,7 +210,11 @@ impl RunningSession {
                     if self.membership.contains(hit.page_id)
                         && !already_returned(&self.returned, hit.page_id)
                     {
-                        hit.newest_visit_ms = self.membership.newest(hit.page_id);
+                        hit.visit_ms = if self.order == SortOrder::Oldest {
+                            self.membership.first(hit.page_id)
+                        } else {
+                            self.membership.newest(hit.page_id)
+                        };
                         self.collector.collect(hit);
                     }
                 }
@@ -266,9 +271,10 @@ impl RunningSession {
                 fuzzy: self.fuzzy.clone().map(|fuzzy| (fuzzy, self.exact_ast.clone())),
                 indexed_seq: self.reader.as_ref().map_or(0, |reader| reader.last_applied_seq()),
             };
+            let first = self.order == SortOrder::Oldest;
             store.read(Db::Archive, move |s| {
                 Ok((
-                    eligibility::hydrate(s, &scope, &hits, &text)?,
+                    eligibility::hydrate(s, &scope, &hits, &text, first)?,
                     super::documents::watermark(s)?,
                 ))
             })?
@@ -333,7 +339,7 @@ impl RunningSession {
                 if !self.membership.contains(hit.page_id) {
                     return None;
                 }
-                hit.newest_visit_ms = self.membership.newest(hit.page_id);
+                hit.visit_ms = self.membership.newest(hit.page_id);
                 Some(hit)
             }));
             if !step.provisional {
@@ -359,7 +365,7 @@ impl RunningSession {
             self.cancel.check()?;
             let hits = ids
                 .iter()
-                .map(|id| Hit { page_id: *id, score: 0., newest_visit_ms: 0 })
+                .map(|id| Hit { page_id: *id, score: 0., visit_ms: 0 })
                 .collect::<Vec<_>>();
             self.resolve(&store, &hits)?;
         }

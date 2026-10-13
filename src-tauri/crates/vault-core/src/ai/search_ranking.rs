@@ -67,11 +67,7 @@ pub(super) async fn page(
         for (rank, hit) in lexical.into_iter().enumerate() {
             ranks.insert(
                 hit.page_id,
-                Ranks {
-                    lexical: rank as u64 + 1,
-                    newest: hit.newest_visit_ms,
-                    ..Default::default()
-                },
+                Ranks { lexical: rank as u64 + 1, newest: hit.visit_ms, ..Default::default() },
             );
         }
         let mut notes = Vec::new();

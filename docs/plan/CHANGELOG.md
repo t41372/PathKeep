@@ -2866,3 +2866,8 @@ that held up when checked against the code.
   - Two bugs they found are fixed. Undoing or restoring an import left Insights counting the hidden visits until the next backup; it now queues the same rebuild an import does, for the profiles it changed. A refresh for several profiles marked Insights up to date when the first profile was done, so a page left open stopped reading and missed the rest; a part of Insights now stays out of date while any queued job will still rebuild it.
   - Two more are their own blocks: "oldest" search sorts by a page's latest visit (`WORK-SEARCH-FIRST-VISIT`), and frequent searches show lowercase instead of what was typed (`WORK-INSIGHTS-SEARCH-SPELLING`).
   - `bun run check` took 19 minutes on this Mac, 25.8 before the cut; the vault-core tests 153 s, from 291.
+
+- [x] `WORK-SEARCH-FIRST-VISIT` — "Oldest first" goes by each page's first visit (2026-10-13).
+  - Asking Ask "when did I first read about smol" brought back pages from the last two weeks: oldest first sorted pages by their latest visit and showed that visit, so a page visited over several years never came up with its first time.
+  - Oldest first now sorts by each page's first visit in the search's dates and profile, and the row shows that visit. Regex searches do the same.
+  - The page times search sorts by come from the archive's visits, not the index, so nothing is stored differently: no index rebuild, and an existing archive needs no change.

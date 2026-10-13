@@ -307,11 +307,12 @@
   - [x] 3. 刪掉的測試裡，E2E 碰得到但還沒有 spec 的（約 21 個：Ask 的接續提問與刪對話、Ask 用 oldest 跨年找第一次、刪標籤留筆記、只差追蹤參數的網址的星號、各設定檔的新網站、範圍內的常搜尋、時段分布、復原匯入後洞察清掉、已索引的頁再造訪只對應不重新 embed、改名的頁用新標題找得到、Ask 的步數上限……），同一個改動補成 E2E。2026-10-13：新的 `ask-chats.spec`（接續提問存在同一段對話、刪對話連引用的頁一起刪、重開的對話跟當下一樣、一直呼叫工具的模型在步數上限停下仍回答）、`insights-counts.spec`（常搜尋不分大小寫算一個、打的網址不算搜尋；新網站分設定檔與全部；時段分布 168 格逐格對 fixture）、`insights-reopen.spec`（清掉的洞察在下次打開 app 時重建）；`history-tools.spec` 加刪最後一個標籤留筆記、標籤不分大小寫與 `-tag:`、每個搜尋運算子的頁數與造訪數、瀏覽器與日期篩選決定一列算幾次造訪與顯示哪個時間、只差追蹤參數的網址共用一顆星與筆記、繁簡與全形；`browser-import.spec` 加撤銷匯入後洞察與星號；`backup.spec` 加洞察開著時備份進來的造訪；`semantic-index.spec` 加備份後索引自己跟上：照舊的頁不再送去 embed、改了標題的頁重新送、用新標題找得到。要逐格對數字的 spec 用 fixture 的 `FIXTURE_SCENES`。寫的時候找到四個產品問題：撤銷 / 恢復匯入不重建洞察、多個設定檔的刷新做完第一個就把洞察標成最新（兩個都修了，見 CHANGELOG）；「最舊」排序照最近一次造訪排（`WORK-SEARCH-FIRST-VISIT`，那條 E2E 先 `test.fixme`）；常搜尋顯示小寫而不是使用者打的字（`WORK-INSIGHTS-SEARCH-SPELLING`）。另見一次既有的筆記測試失敗，列 BACKLOG `WORK-NOTE-SAVE-FLAKE`。
   - [x] 4. 量 gate 時間（前後對照），文檔（`quality-matrix.md` 的「什麼時候才寫 unit test」換例子、測試清單；`test-audit-2026-10/README.md` 指向這一輪）、CHANGELOG。整個 `bun run check` 19.2 分鐘（之前 25.8；這次沿用編譯快取，乾淨建置另計），其中 E2E 93 條 10.3 分鐘；vault-core 一個 crate 291 → 153 s，最慢的一條是 50,021 頁的索引覆蓋（加密存檔、每批 1,000 頁，115 s，頁數少於 5 萬就驗不到上限）。
 
-- [ ] **WORK-SEARCH-FIRST-VISIT** — 「最舊」排序找不到第一次造訪（2026-10-12，`ask-chats.spec` 找到）
+- [x] **WORK-SEARCH-FIRST-VISIT** — 「最舊」排序找不到第一次造訪（2026-10-12，`ask-chats.spec` 找到）
   - 讀先：`docs/features/recall.md`（排序）、`docs/architecture/search.md`、`vault-search/src/collector.rs`、`vault-core/src/search/{session,documents,regex}.rs`。
   - 現象：Ask 問「我第一次看 smol 是什麼時候」，模型用 `sort: "oldest"` 搜，回來的 5 頁都是最近兩週的；fixture 裡最早一次是三年前。搜尋索引一頁一筆，「最舊」比的是每頁**最近一次**造訪（`newest_visit_ms`），每列也顯示最近一次；一頁跨好幾年被造訪時，永遠排不到、也看不到它的第一次。History 的「最舊」走同一個 collector，應該一樣。舊的 unit test 每頁只造一次造訪，所以抓不到；這就是當年 Ask 說「第一次是 6 月 18 日」的事故。
-  - 方向：每頁另存第一次造訪的時間（`search_documents`、`search_document_profiles` 與索引的 fast field，索引 `SCHEMA_VERSION` 升版會自動重建）；「最舊」照它排、每列顯示那頁的第一次造訪（有篩選時是篩選範圍內的第一次）；regex 路徑一樣。存檔資料庫加欄位 → 使用者的資料在裝新版前要手動補（見記憶）。
-  - E2E：打開 `ask-chats.spec` 的「when did I first」（現在 `test.fixme`）；History 的最舊排序加一條：跨年造訪的頁，列上顯示第一次。
+  - 方向（原寫：存檔與索引各加一個「第一次造訪」欄位）：不用。搜尋階段每頁的時間本來就不是索引的 `newest_visit_ms`，而是從存檔裡範圍內的造訪現算的（`eligibility::Membership`，session 收集前覆蓋）；只要那裡也記下每頁第一次造訪就好。所以沒有改 schema、索引不重建、使用者的資料不用手動補。
+  - 做了：「最舊」照每頁在範圍內的第一次造訪排，那一列顯示那次造訪（`hydrate`）；第一次造訪只在最舊排序時記（14.4M 時多一個約 290 萬格的陣列，其他排序不用）。regex 路徑一樣：候選頁取 `MIN`，沒有字面片段時從最舊往新走（`visit_time_ms>=?` seek，查詢計畫測試兩個方向都驗）。`vault_search::Hit` 的 `newest_visit_ms` 改名 `visit_ms`（排序依據的那次造訪），索引欄位不變。`ported_grouped` 原本把最舊排序下顯示最新一次當成對的，改成第一次。
+  - E2E：`ask-chats.spec` 的「when did I first」打開：第一筆是 fixture 裡最早的那次，前三筆是最早被造訪的三頁，時間由舊到新。History 畫面沒有「最舊」排序（只有相關度與最新），所以不加 History 的；用最舊排序的是 Ask 與 MCP。
 
 - [ ] **WORK-INSIGHTS-SEARCH-SPELLING** — 「常搜尋」顯示的不是使用者打的字（2026-10-13，`insights-counts.spec` 找到）
   - 讀先：`docs/features/intelligence.md`（常搜尋）、`docs/features/deterministic-intelligence.md`。

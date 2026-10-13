@@ -156,22 +156,32 @@ pub(super) struct Membership {
     checked: Vec<u64>,
     complete: bool,
     newest: Vec<i64>,
+    /// Each page's first visit in scope, kept only for the oldest-first order: another
+    /// entry per page of the archive (2.9M at 14.4M visits) that no other order reads.
+    first: Option<Vec<i64>>,
     counts: Vec<u64>,
 }
 impl Membership {
-    fn new(max: usize) -> Self {
+    fn new(max: usize, first: bool) -> Self {
         Self {
             bits: vec![0; max / 64 + 1],
             checked: vec![0; max / 64 + 1],
             complete: false,
             newest: vec![0; max + 1],
+            first: first.then(|| vec![0; max + 1]),
             counts: vec![0; max + 1],
         }
     }
     fn insert(&mut self, id: usize, time: i64) {
         self.counts[id] += 1;
-        if !self.contains(id as u64) || self.newest[id] < time {
+        let new = !self.contains(id as u64);
+        if new || self.newest[id] < time {
             self.newest[id] = time;
+        }
+        if let Some(first) = &mut self.first
+            && (new || first[id] > time)
+        {
+            first[id] = time;
         }
         self.bits[id / 64] |= 1u64 << (id % 64);
     }
@@ -188,6 +198,13 @@ impl Membership {
     pub fn newest(&self, id: u64) -> i64 {
         self.newest.get(id as usize).copied().unwrap_or(0)
     }
+    /// The page's first visit in scope; its newest when first visits are not kept.
+    pub fn first(&self, id: u64) -> i64 {
+        match &self.first {
+            Some(first) => first.get(id as usize).copied().unwrap_or(0),
+            None => self.newest(id),
+        }
+    }
 }
 fn maximum_page_id(s: &Session<'_>) -> Result<usize> {
     Ok(s.query("SELECT id FROM pages ORDER BY id DESC LIMIT 1", (), |r| {
@@ -200,11 +217,12 @@ fn maximum_page_id(s: &Session<'_>) -> Result<usize> {
 pub(super) fn load(
     store: &Store,
     scope: Scope,
+    first: bool,
     cancel: vault_store::CancelToken,
 ) -> Result<Membership> {
     store.read(Db::Archive, move |s| {
         let max = maximum_page_id(s)?;
-        let mut membership = Membership::new(max);
+        let mut membership = Membership::new(max, first);
         s.for_each(
             &format!("SELECT u.page_id,v.visit_time_ms FROM {} WHERE {}", scope.from(), scope.sql),
             scope.params,
@@ -263,11 +281,13 @@ fn text_mismatches(
     Ok(ids.iter().map(|id| *id as u64).filter(|id| !valid.contains(id)).collect())
 }
 
+/// Each page's row shows its newest visit in scope, or its first when `first` (oldest first).
 pub(super) fn hydrate(
     s: &Session<'_>,
     scope: &Scope,
     hits: &[vault_search::Hit],
     text: &TextCheck,
+    first: bool,
 ) -> Result<Vec<SearchHit>> {
     if hits.is_empty() {
         return Ok(Vec::new());
@@ -291,7 +311,14 @@ pub(super) fn hydrate(
         let id = r.get::<i64>(1)?;
         let time = r.get::<i64>(5)?;
         let count = rows.get(&page).and_then(|v| v.visit_count).unwrap_or(0) + 1;
-        if rows.get(&page).is_none_or(|v| (time, id) > (v.visit_time, v.id)) {
+        let shown = rows.get(&page).is_none_or(|v| {
+            if first {
+                (time, id) < (v.visit_time, v.id)
+            } else {
+                (time, id) > (v.visit_time, v.id)
+            }
+        });
+        if shown {
             let url = r.get::<String>(3)?;
             rows.insert(
                 page,
@@ -344,10 +371,10 @@ pub(super) fn hydrate(
 }
 
 impl Membership {
-    pub(super) fn empty(store: &Store) -> Result<Self> {
-        store.read(Db::Archive, |s| {
+    pub(super) fn empty(store: &Store, first: bool) -> Result<Self> {
+        store.read(Db::Archive, move |s| {
             let max = maximum_page_id(s)?;
-            Ok(Self::new(max))
+            Ok(Self::new(max, first))
         })
     }
     /// Batches bound the SQL request, not the candidate universe. Both ranking and
@@ -386,14 +413,16 @@ impl Membership {
                 "SELECT p.id,v.visit_time_ms FROM {PAGE_VISITS} WHERE p.id IN ({keys}) AND {}",
                 scope.sql
             );
-            let mut pages: HashMap<usize, (u64, i64)> = HashMap::new();
+            // page -> (visits, newest, first)
+            let mut pages: HashMap<usize, (u64, i64, i64)> = HashMap::new();
             s.for_each(&sql, params, |r| {
                 cancel.check()?;
                 let id = r.get::<i64>(0)? as usize;
                 let time = r.get::<i64>(1)?;
-                let entry = pages.entry(id).or_insert((0, time));
+                let entry = pages.entry(id).or_insert((0, time, time));
                 entry.0 += 1;
                 entry.1 = entry.1.max(time);
+                entry.2 = entry.2.min(time);
                 Ok(())
             })?;
             if fuzzy.is_some() || super::documents::watermark(s)? > indexed_seq {
@@ -407,16 +436,22 @@ impl Membership {
             let id = id as usize;
             if id >= self.newest.len() {
                 self.newest.resize(id + 1, 0);
+                if let Some(first) = &mut self.first {
+                    first.resize(id + 1, 0);
+                }
                 self.counts.resize(id + 1, 0);
                 self.bits.resize(id / 64 + 1, 0);
                 self.checked.resize(id / 64 + 1, 0);
             }
             self.checked[id / 64] |= 1u64 << (id % 64);
         }
-        for (id, (count, time)) in found {
+        for (id, (count, newest, earliest)) in found {
             self.bits[id / 64] |= 1u64 << (id % 64);
             self.counts[id] = count;
-            self.newest[id] = time;
+            self.newest[id] = newest;
+            if let Some(first) = &mut self.first {
+                first[id] = earliest;
+            }
         }
         Ok(())
     }

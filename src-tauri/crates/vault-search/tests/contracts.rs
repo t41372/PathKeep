@@ -65,13 +65,13 @@ fn brute(
             let seg = searcher.segment_reader(address.segment_ord);
             let id = seg.fast_fields().u64("page_id").unwrap().first(address.doc_id).unwrap();
             let doc = docs.iter().find(|p| p.page_id == id).unwrap();
-            accept(doc).then_some(Hit { page_id: id, newest_visit_ms: doc.newest_visit_ms, score })
+            accept(doc).then_some(Hit { page_id: id, visit_ms: doc.newest_visit_ms, score })
         })
         .collect();
     out.sort_by(|a, b| {
         b.score
             .total_cmp(&a.score)
-            .then(b.newest_visit_ms.cmp(&a.newest_visit_ms))
+            .then(b.visit_ms.cmp(&a.visit_ms))
             .then(b.page_id.cmp(&a.page_id))
     });
     out

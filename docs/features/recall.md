@@ -12,7 +12,8 @@ M18 redesign（2026-10-02）後，下文的「Explorer」就是 **History**（`s
 
 Search reaches every matching page, including old records. Page size limits only
 what is presented at once. Relevance order is score, newest matching visible visit,
-then page ID; explicit chronological sorts remain available. Prefixes, phrases,
+then page ID; explicit chronological sorts remain available: newest by each page's
+latest visit, oldest by its first visit, and the row shows that visit. Prefixes, phrases,
 exclusions, field operators, CJK and fuzzy queries share complete cursor paging.
 Date and profile constraints must hold for the same visit. Field/phrase/exclusion
 constraints apply across keyword OR groups. Title and URL filters retain substring

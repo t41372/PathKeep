@@ -12,7 +12,9 @@ use std::collections::BinaryHeap;
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Hit {
     pub page_id: u64,
-    pub newest_visit_ms: i64,
+    /// The visit the order goes by: the page's newest, or its first when the order is
+    /// `Oldest` ("when did I first…" asks for the first visit, not the latest one).
+    pub visit_ms: i64,
     pub score: f32,
 }
 impl Eq for Hit {}
@@ -20,7 +22,7 @@ impl Ord for Hit {
     fn cmp(&self, other: &Self) -> Ordering {
         self.score
             .total_cmp(&other.score)
-            .then(self.newest_visit_ms.cmp(&other.newest_visit_ms))
+            .then(self.visit_ms.cmp(&other.visit_ms))
             .then(self.page_id.cmp(&other.page_id))
     }
 }
@@ -82,11 +84,7 @@ impl Ord for Ranked {
 fn compare(a: &Hit, b: &Hit, order: SortOrder) -> Ordering {
     match order {
         SortOrder::Relevance => a.cmp(b),
-        SortOrder::Newest => {
-            a.newest_visit_ms.cmp(&b.newest_visit_ms).then(a.page_id.cmp(&b.page_id))
-        }
-        SortOrder::Oldest => {
-            b.newest_visit_ms.cmp(&a.newest_visit_ms).then(a.page_id.cmp(&b.page_id))
-        }
+        SortOrder::Newest => a.visit_ms.cmp(&b.visit_ms).then(a.page_id.cmp(&b.page_id)),
+        SortOrder::Oldest => b.visit_ms.cmp(&a.visit_ms).then(a.page_id.cmp(&b.page_id)),
     }
 }

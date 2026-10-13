@@ -332,21 +332,10 @@ impl Walker {
                         collected += 1;
                         collect(Hit {
                             page_id,
-                            newest_visit_ms: self
-                                .snapshot
-                                .filters
-                                .newest_visit
-                                .as_ref()
-                                .map_or_else(
-                                    || {
-                                        active
-                                            .newest
-                                            .as_ref()
-                                            .and_then(|c| c.first(doc))
-                                            .unwrap_or(0)
-                                    },
-                                    |newest| newest(page_id),
-                                ),
+                            visit_ms: self.snapshot.filters.newest_visit.as_ref().map_or_else(
+                                || active.newest.as_ref().and_then(|c| c.first(doc)).unwrap_or(0),
+                                |newest| newest(page_id),
+                            ),
                             score: if self.scoring
                                 && self.snapshot.filters.order == crate::SortOrder::Relevance
                             {

@@ -81,7 +81,9 @@ fn three_copies_of_one_page_stay_one_row_on_every_page_of_the_walk() {
                 let copies = walked.iter().filter(|row| row.url == page).collect::<Vec<_>>();
                 assert_eq!(copies.len(), 1, "{query} {sort} limit {limit}: {:?}", urls(&walked));
                 assert_eq!(copies[0].visit_count, Some(6), "{query} {sort} limit {limit}");
-                assert_eq!(copies[0].visit_time, 9_530, "{query} {sort} limit {limit}");
+                // The row shows the visit the order goes by: the first for oldest first.
+                let shown = if sort == "oldest" { 5_000 } else { 9_530 };
+                assert_eq!(copies[0].visit_time, shown, "{query} {sort} limit {limit}");
             }
         }
     }
