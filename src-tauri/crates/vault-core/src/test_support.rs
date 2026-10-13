@@ -23,7 +23,7 @@ pub fn network_is_blocked() -> bool {
 /// the fixture's twenty thousand visits otherwise export before the first progress poll.
 ///
 /// Debug builds only, like `network_is_blocked`; read once, since it is checked per row.
-pub fn export_row_delay() -> Option<std::time::Duration> {
+fn export_row_delay() -> Option<std::time::Duration> {
     if !cfg!(debug_assertions) {
         return None;
     }
@@ -44,6 +44,34 @@ pub fn test_save_dir() -> Option<std::path::PathBuf> {
     std::env::var_os("PATHKEEP_TEST_SAVE_DIR")
         .filter(|value| !value.is_empty())
         .map(std::path::PathBuf::from)
+}
+
+/// Paces an export to `export_row_delay` per row against the clock. Sleeping that long after
+/// every row did not: macOS stretches a background app's short sleeps (timer coalescing, more so
+/// with the screen asleep), and 0.5 ms became about 15 ms, so a test export of 22,700 visits took
+/// minutes instead of seconds. Behind schedule it does not sleep; ahead, it sleeps the difference,
+/// at least 10 ms at a time.
+pub(crate) struct ExportPace {
+    delay: Option<std::time::Duration>,
+    started: std::time::Instant,
+    rows: u32,
+}
+
+impl ExportPace {
+    pub(crate) fn new() -> Self {
+        Self { delay: export_row_delay(), started: std::time::Instant::now(), rows: 0 }
+    }
+
+    /// Called once per exported row.
+    pub(crate) fn row(&mut self) {
+        let Some(delay) = self.delay else { return };
+        self.rows += 1;
+        let due = delay * self.rows;
+        let elapsed = self.started.elapsed();
+        if due > elapsed + std::time::Duration::from_millis(10) {
+            std::thread::sleep(due - elapsed);
+        }
+    }
 }
 
 // Failure modes of the preview test server switch (`PATHKEEP_TEST_PREVIEW_SERVER_CA`):

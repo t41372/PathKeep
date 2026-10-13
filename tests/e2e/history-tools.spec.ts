@@ -243,6 +243,16 @@ test('stars from two profiles: the Starred list and History agree after a reload
   await expect(
     detail(page).getByRole('button', { name: 'Star this page' }),
   ).toBeVisible()
+  // The button turns at once and the change is saved after it; a reload
+  // before it is saved would cancel the request.
+  await expect
+    .poll(async () => {
+      const status = await backend<Record<string, boolean>>('get_star_status', {
+        request: { entityKind: 'url', entityKeys: [firefox.url] },
+      })
+      return status[firefox.url] ?? false
+    })
+    .toBe(false)
 
   await page.reload()
   await page.getByRole('tab', { name: /^Starred/ }).click()

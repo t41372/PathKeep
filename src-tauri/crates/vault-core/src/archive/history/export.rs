@@ -128,10 +128,9 @@ pub(super) fn write_export(
         let mut counted = CountedWriter { writer: &mut buffer, bytes: 0, checked_at: 0, job };
         let render_result: Result<()> = (|| {
             let mut export = ExportWriter::new(&mut counted, &format)?;
+            let mut pace = crate::test_support::ExportPace::new();
             let mut visit = |item: &HistoryEntry| -> Result<()> {
-                if let Some(delay) = crate::test_support::export_row_delay() {
-                    std::thread::sleep(delay);
-                }
+                pace.row();
                 check_cancel(job)?;
                 export.item(item)?;
                 rows_written = export.count as u64;

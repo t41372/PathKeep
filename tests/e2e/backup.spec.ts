@@ -27,6 +27,7 @@ import {
   liveRangeVisits,
 } from './support/live-range'
 import { siteOf } from './support/public-suffix'
+import { kindOf } from './support/site-kinds'
 
 const NEW_URL = 'https://e2e.example/backup-check'
 const NEW_TITLE = 'Backup check page'
@@ -244,12 +245,22 @@ test('Insights left open on a range read it again when a backup adds visits to i
         '',
       ),
     )
-  const first = topSites.locator('a[href*="/insights/site/"]').first()
-  await expect(first).toBeVisible({ timeout: 60_000 })
-  const site = decodeURIComponent(
-    ((await first.getAttribute('href')) ?? '').match(/site\/([^?]+)/)?.[1] ??
-      '',
-  )
+  const links = topSites.locator('a[href*="/insights/site/"]')
+  await expect(links.first()).toBeVisible({ timeout: 60_000 })
+  // The first top site a list classifies: the visits added here must not
+  // change the not-classified sites `site-category.spec` counts.
+  const listed = (candidate: string) =>
+    archivedVisits().some(
+      (visit) =>
+        siteOf(visit.url) === candidate && kindOf(visit) !== 'Not classified',
+    )
+  const sites = (
+    await links.evaluateAll((anchors) =>
+      anchors.map((anchor) => anchor.getAttribute('href') ?? ''),
+    )
+  ).map((href) => decodeURIComponent(href.match(/site\/([^?]+)/)?.[1] ?? ''))
+  const site = sites.find(listed)
+  if (!site) throw new Error(`no top site is on a list: ${sites.join(', ')}`)
   const before = await countOf(siteRow(site))
   expect(before, `${site}'s visits in the last 7 days`).toBeGreaterThan(0)
   await expect(siteRow(LIVE_RANGE_SITE)).toHaveCount(0)
