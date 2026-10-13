@@ -354,6 +354,27 @@ fn module_invalidation_revisions(
     .collect())
 }
 
+/// The modules a queued build will rebuild. A refresh queues one job per profile and stage, run
+/// stage by stage: the first profile's job finishing does not make a module ready while another
+/// profile's is still to come, or Insights stop re-reading before the last profile is counted.
+fn modules_still_queued(s: &Session<'_>) -> Result<std::collections::BTreeSet<&'static str>> {
+    let kinds = s.query(
+        "SELECT DISTINCT job_type FROM intelligence_jobs WHERE state='queued' AND job_type IN (?1,?2,?3,?4)",
+        [
+            RebuildMode::VisitDerive.job_type(),
+            RebuildMode::DailyRollup.job_type(),
+            RebuildMode::StructuralRebuild.job_type(),
+            RebuildMode::FullRebuild.job_type(),
+        ],
+        |r| Ok(r.get::<String>(0)?),
+    )?;
+    let mut modules = std::collections::BTreeSet::new();
+    for kind in kinds {
+        modules.extend(RebuildMode::from_job_type(&kind)?.module_ids());
+    }
+    Ok(modules)
+}
+
 fn persist_ready_module_updates(
     connection: &Session<'_>,
     run_id: i64,
@@ -371,10 +392,12 @@ fn persist_ready_module_updates(
         notes.to_vec()
     };
     let current = module_invalidation_revisions(connection)?;
+    let pending = modules_still_queued(connection)?;
     let updates = module_ids
         .iter()
         .filter(|id| {
             current.get(**id).copied().unwrap_or(0) == revisions.get(**id).copied().unwrap_or(0)
+                && !pending.contains(**id)
         })
         .map(|module_id| module_update(module_id, run_id, built_at.clone(), &shared_notes))
         .collect::<Vec<_>>();
