@@ -2,6 +2,7 @@
 name = "vault-search"
 version = "0.1.0"
 edition = "2024"
+publish = false
 license.workspace = true
 description = "Encrypted, complete page search with stable ranking and incremental progress"
 

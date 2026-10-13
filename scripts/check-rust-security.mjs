@@ -49,6 +49,10 @@ const allowedAdvisories = new Map([
     'unic-ucd-ident is only pulled transitively by tauri-utils/urlpattern; upstream has not migrated off rust-unic yet.',
   ],
   [
+    'RUSTSEC-2026-0253',
+    "lru 0.16 is only pulled by tantivy 0.26's store reader, whose only cache is LruCache<usize, Block>: a usize key's Drop cannot panic, which the unsound pop() path needs. The fix is lru 0.18.2, which tantivy 0.26 does not accept yet.",
+  ],
+  [
     'RUSTSEC-2025-0141',
     'bincode 1.x is only pulled transitively by tauri-plugin-stronghold/iota_stronghold; replacing it requires an upstream stronghold migration.',
   ],

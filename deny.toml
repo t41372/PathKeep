@@ -55,6 +55,8 @@ confidence-threshold = 0.8
 # We still keep bans enabled for wildcards and explicit future deny rules.
 multiple-versions = "allow"
 wildcards = "deny"
+# The workspace's own crates depend on each other by path; none is published.
+allow-wildcard-paths = true
 
 [sources]
 unknown-registry = "deny"

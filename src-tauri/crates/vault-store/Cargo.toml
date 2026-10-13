@@ -2,6 +2,7 @@
 name = "vault-store"
 version = "0.1.0"
 edition = "2024"
+publish = false
 rust-version = "1.96"
 license.workspace = true
 description = "Thread-owned, synchronous Turso storage for PathKeep"
