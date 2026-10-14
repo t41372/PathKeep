@@ -2909,3 +2909,6 @@ that held up when checked against the code.
 - [x] `WORK-NOTE-SAVE-FLAKE` — The note that once was not saved (2026-10-13).
   - The failing version of the test typed right after clicking another page, before the details panel had switched, so the words went into the previous page's note. The test has since waited for the panel to show the new page; it passed 20 times in a row, and 20 more with every core busy. The app itself saves a note to the page whose panel it was typed in.
   - A new check types a note and moves to another page before it saves on its own, then back: each page keeps its own note.
+
+- [x] `WORK-UPGRADE-LOCKED-FLAKE` — Updating from 0.3 no longer asks for the archive password instead (2026-10-13).
+  - The app remembered only that it had checked for an update, not what it found. Any second pass through its start-up checks (React runs the first one twice in development; unlocking runs another) skipped the check, found an encrypted archive it could not open yet and asked for its password, a screen that cannot help. It now remembers that an update is due until the update is done, runs one pass at a time, and shows an error when the check itself fails.

@@ -359,11 +359,14 @@
   - 結果（2026-10-13）：是測試的時序，不是產品。失敗的那一版在點下一頁之後立刻打字，沒等詳細面板換頁（選取經過網址，面板晚一拍才換），字打進了還開著的上一頁的筆記框，存到上一頁；之後那條改用 `select()`，等面板標題換成新頁才打字。產品這邊筆記框以網址為 key，跟標題同一次 render 換掉，看到哪頁就存到哪頁。現在的版本單獨連跑 20 次、CPU 全滿時再 20 次都過。
   - E2E：`history-tools.spec` 加「a note typed just before moving to another page is saved on its own page」：在 0.8 秒自動儲存之前換頁、再換回來，兩頁各存自己的筆記（連跑 10 次）。
 
-- [ ] **WORK-UPGRADE-LOCKED-FLAKE** — 從 0.3.0 升級時偶爾停在「存檔已加密」（2026-10-12 本機 gate 看到一次）
+- [x] **WORK-UPGRADE-LOCKED-FLAKE** — 從 0.3.0 升級時偶爾停在「存檔已加密」（2026-10-12 本機 gate 看到一次）
   - 現象：`upgrade.spec` 解開 0.3.0 的 App Lock 之後，應該出現「Updating your archive」，那一次卻是「Your archive is encrypted」（`archive-locked`，要密碼解鎖新格式的存檔）。資料夾裡只有剛解開的 0.3.0 檔案（spec 先確認沒有 `config.json`、也沒有 `history-vault.db`）。同一份程式碼前一次與後一次的完整 E2E 都過（75 / 76 個）。
   - 疑點：`session.tsx` 的順序是 App Lock → recovery → upgrade → archive-locked；解鎖後重新判斷時，「是不是舊格式」那一步若讀失敗或讀到還沒寫完的狀態，就會落到 archive-locked。使用者遇到的話，會被要求用 0.3.0 的密碼解鎖一個不存在的新存檔。
   - 證據：那次的 `error-context.md`、trace 與 app 的執行緒堆疊在 2026-10-12 的 `artifacts/e2e/`（之後的 run 會蓋掉；要重現就重跑 `upgrade` 專案直到失敗，保存那次的產物）。
   - 方向：先找出解鎖後判斷舊格式的那條路（session 狀態與後端的升級偵測命令），寫下它在什麼時序下會答錯，再修；E2E 連跑多次證明。
+  - 根本原因（2026-10-13）：`session.tsx` 只記「檢查過升級」（`upgradeChecked`），沒記檢查的結果。第一次走過關卡時發現要升級、切到升級畫面；之後只要再走一次——開發模式下 React 會把第一個 effect 跑兩次，解鎖後也會再走一次——就跳過檢查，讀到加密、打不開的存檔，改顯示「存檔已加密」。兩次同時走時，誰晚結束誰決定畫面，所以時好時壞。正式版沒有 StrictMode 的雙跑，但解鎖或重新走關卡一樣會碰到。
+  - 修法：記下結果（未知 / 待升級 / 不用），待升級時每次都回到升級畫面，升級畫面交出轉好的存檔（`enter`）才算不用；關卡改成一次只走一遍，期間再被叫就在結束後多走一遍；升級檢查本身出錯時顯示錯誤，不再當成「不用升級」往下走。
+  - 證據：只做「一次只走一遍」時，`upgrade` 專案單獨跑（`--no-deps`）每次都停在「存檔已加密」（trace：第一遍 `assess_archive_upgrade` → 升級畫面，第二遍沒有檢查、`app_snapshot` → 已加密）；兩項都改之後，新資料夾上連跑 3 次都過（第 4 次編譯時撞上我改到一半的 Rust，不算）。
 
 - [ ] **WORK-JOB-HISTORY-PAGING** — Background work 看得到全部的工作紀錄，翻頁不漏（2026-10-12 修 `queue_history_dispatch_preserves_every_cursor_page` 時找到）
   - 讀先：`docs/features/intelligence.md`（Recent-job snapshots 一段）、`vault-core/src/intelligence_runtime/snapshot.rs`（`load_job_page` 與 recent jobs）、`vault-core/src/ai_queue/store.rs`（`list_jobs`）。

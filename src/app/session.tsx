@@ -104,12 +104,15 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [recovery, setRecovery] = useState<ArchiveRecoveryReport | null>(null)
   const [upgrade, setUpgrade] = useState<ArchiveUpgradeAssessment | null>(null)
   const triedKeyring = useRef(false)
-  const upgradeChecked = useRef(false)
+  // What the upgrade check found; 'pending' until the upgrade screen enters
+  // the converted archive.
+  const upgradeDue = useRef<'unknown' | 'pending' | 'none'>('unknown')
   const preferenceRef = useRef(preference)
   preferenceRef.current = preference
 
   const enter = useCallback(
     (snapshot: AppSnapshot) => {
+      upgradeDue.current = 'none'
       queryClient.setQueryData(queryKeys.snapshot, snapshot)
       if (snapshot.config.initialized) prefetchInsightsZone()
       // The config holds the language for the scheduler and worker. An explicit
@@ -133,7 +136,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setPhase('app-locked')
   }, [])
 
-  const refresh = useCallback(async () => {
+  // One pass through the gates below; `refresh` runs them one at a time.
+  const gate = useCallback(async () => {
     setError(null)
     try {
       const [lockStatus, info] = await Promise.all([
@@ -146,11 +150,19 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
       // An archive still in the old format can't open, so neither unlocking nor
       // the keychain can help yet: convert it first. Cheap when nothing is due.
-      if (!upgradeChecked.current) {
-        upgradeChecked.current = true
+      // A pass after the check found an upgrade goes back to it. It used to
+      // remember only that it had checked, so a second pass (React runs the
+      // first effect twice in development; an unlock runs another) went on,
+      // found an encrypted archive it could not open and asked for the
+      // archive password instead (WORK-UPGRADE-LOCKED-FLAKE).
+      if (upgradeDue.current === 'pending') {
+        setPhase('upgrade')
+        return
+      }
+      if (upgradeDue.current === 'unknown') {
         // The old app's crash journals are finished first; one it cannot
         // finish needs the recovery screen.
-        let assessment: ArchiveUpgradeAssessment | null = null
+        let assessment: ArchiveUpgradeAssessment
         try {
           assessment = await archiveClient.assessArchiveUpgrade()
         } catch (assessError) {
@@ -160,8 +172,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
             setPhase('recovery')
             return
           }
+          // Not knowing whether the archive is in the old format, the gates
+          // below would ask for a password it may not have: show the error,
+          // and check again next time.
+          throw assessError
         }
-        if (assessment?.pending) {
+        if (assessment.pending) {
+          upgradeDue.current = 'pending'
           queryClient.setQueryData(
             queryKeys.snapshot,
             await appClient.getSnapshot(),
@@ -170,6 +187,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           setPhase('upgrade')
           return
         }
+        upgradeDue.current = 'none'
       }
 
       let snapshot = await appClient.getSnapshot()
@@ -214,6 +232,27 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       setPhase('error')
     }
   }, [enter, toLocked])
+
+  // A call while a pass runs is answered by one more pass after it, so what
+  // it waits for reflects what changed before it was made (an unlock).
+  const running = useRef<Promise<void> | null>(null)
+  const again = useRef(false)
+  const refresh = useCallback(() => {
+    if (running.current) {
+      again.current = true
+      return running.current
+    }
+    const passes = async () => {
+      do {
+        again.current = false
+        await gate()
+      } while (again.current)
+    }
+    running.current = passes().finally(() => {
+      running.current = null
+    })
+    return running.current
+  }, [gate])
 
   useEffect(() => {
     void refresh()
@@ -282,7 +321,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     // Nothing cached may survive: it describes an archive that is gone.
     queryClient.clear()
     triedKeyring.current = false
-    upgradeChecked.current = false
+    upgradeDue.current = 'unknown'
     setRecovery(null)
     setUpgrade(null)
     setPhase('booting')
