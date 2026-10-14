@@ -472,7 +472,34 @@ Fix: each evidence table has a `content_key` (source profile and the row's conte
 | Before       | 620,000 rows, 173.6 MB, 216 s | +620,000 rows, 347.4 MB, 71 s |
 | Content keys | 620,000 rows, 173.6 MB, 223 s | +0 rows, 173.6 MB, 49 s       |
 
-About 3.1 evidence rows per visit, so at 14.4M visits a re-import wrote about 45M rows and some 12 GB again. The first import costs the same within noise: the unique index replaces the batch index. Not measured on the 14.4M bench (`WORK-SCALE-BENCH-RERUN`).
+About 3.1 evidence rows per visit, so at 14.4M visits a re-import wrote about 45M rows and some 12 GB again. The first import costs the same within noise: the unique index replaces the batch index.
+
+On the 14.4M archive (`turso_same_visit` with `PATHKEEP_BENCH_SAME_VISIT_ONLY=again`, release, encrypted, this Mac: Apple Silicon, 18 cores, 64 GB; 2026-10-14): a Takeout file of 1M records a year after the browser's last visit, imported, then imported again.
+
+| 14.4M visits in the archive | Time    | Per record | Written                      |
+| --------------------------- | ------- | ---------- | ---------------------------- |
+| First import                | 256.8 s | 257 µs     | 1,000,000 visits             |
+| Same file again             | 24.8 s  | 25 µs      | 0 (1,000,000 found as there) |
+
+Archive and evidence together were 7.3 GB afterwards.
+
+### 16. Changing one site's category stalled on a large archive
+
+Sorting a site's pages into a new category (`build_reclassify`) rewrites the facts of each visit whose category moved with `UPDATE visit_derived_facts_rows … WHERE generation=? AND visit_id=?`. The planner served it from `idx_vdf_generation_canonical_visit` on `generation` alone, so each visit read every fact of the generation again. On 14.4M visits the benchmark's change (`turso_intelligence`'s `categories`: `site1.test`, 144 pages, visited every day) ran for more than half an hour without finishing its first page of URLs, and was stopped.
+
+Fix: the rewrite names `idx_vdf_visit_generation` (`visit_id=? AND generation=?`). `intelligence/tests/reclassify.rs` requires the per-URL reads to find visits by `url_id` and the rewrite to find its row by `visit_id`; checking only for `SCAN` had missed it, since a search on an index prefix is not a scan.
+
+Measured after the fix (this Mac, release, encrypted, 2026-10-14):
+
+| 14.4M visits                            | Time    | Peak RSS |
+| --------------------------------------- | ------- | -------- |
+| Full Insights build                     | 4,288 s | 410 MiB  |
+| Incremental, 10,000 new visits          | 134 s   | 1.26 GB  |
+| One site's category changed             | 958 s   | 1.5 GB   |
+| — of which: sorting its 144 pages again | 21 s    |          |
+| — of which: daily rollups, 1,669 days   | 845 s   |          |
+
+It finishes, but every day the site was visited has all its rollups made again from that day's visits, though only the category rows can change; and 21 s for about 720 visits is slow. Both are `WORK-RECLASSIFY-STALL`, with the memory peaks of the incremental build and the export (2.07 GB for a 5 GB JSONL file) in `WORK-SCALE-BENCH-RERUN`.
 
 ## Other reads
 

@@ -48,11 +48,12 @@
   - 為什麼還沒做：要讓系統把我們畫的按鈕當成最大化按鈕，得在 Rust 裡回應 `WM_NCHITTEST`（`windows` crate），但 WebView2 的子視窗蓋住整個內容區，訊息可能到不了頂層視窗；這台 Mac 也編不了 Windows 版（`ring`、`aws-lc-sys` 要 mingw），寫了無法建置也無法試。
   - 要做：在 Windows 上建置，先確認縮放邊、拖到螢幕邊緣（Aero Snap）、雙擊最大化、深淺色、按鈕 hover 與鍵盤都對；再試 `WM_NCHITTEST` 子類化或 WebView2 的 non-client region；Linux 在 GNOME 與 KDE 各看一次。
 
-- [ ] **WORK-RECLASSIFY-STALL** — 14.4M 上改一個網站的類別，建置卡在第一頁之前（2026-10-13 `WORK-SCALE-BENCH-RERUN` 找到）
+- [ ] **WORK-RECLASSIFY-STALL** — 14.4M 上改一個網站的類別，建置卡在第一頁之前；修好後仍要 16 分鐘（2026-10-13 `WORK-SCALE-BENCH-RERUN` 找到）
   - 現象：`turso_intelligence` 的 `categories` 階段（覆寫 `site1.test` 的類別後做一次增量建置）在 visit-derived-facts 結束後，Intelligence 寫入執行緒單核跑滿 30 分鐘以上，沒有任何 reclassify 進度；之前「全部頁重新分類」的版本是 62 s。使用者在網站頁改類別就是這條路。
   - 已排除：reclassify 每個網址的兩條讀取（`archive.visits` 依 `idx_visits_visible_url_time` 找、再接 facts / assignments）都走索引，有計畫測試守著。
   - 根本原因（同日找到並修好，未 gate、未提交）：重寫一筆造訪 facts 的 `UPDATE visit_derived_facts_rows … WHERE generation=?1 AND visit_id=?2`，planner 選了 `idx_vdf_generation_canonical_visit` 只用 `generation=?` 找，每筆造訪都讀過這一代全部 14.4M 筆 facts。小資料看不出來。改成 `INDEXED BY idx_vdf_visit_generation`，計畫變成 `(visit_id=? AND generation=?)`；`reclassify.rs` 的計畫測試要求 `visit_id=?`（原本只擋 SCAN，沒擋到這種只用前綴的 SEARCH）。reclassify 4 條測試（含與從頭建一次相等）過。
-  - 還要做：gate、提交；在 14.4M 上重量 `categories`，寫回 `ipc-performance.md`；把其他「依鍵改一列」的 UPDATE / DELETE 也用計畫測試掃一遍（同一種 planner 選錯索引）。需要磁碟（見上面那條）。
+  - 2026-10-14 在 14.4M 上重量（修正已提交 `f4301c1f`）：跑得完了，958 s，峰值 RSS 1.5 GB。reclassify 只走 site1.test 的 144 個網址（21 s），daily rollups 845 s（1,669 天，site1.test 每天都有造訪，每一天整天重算），概覽快照約 90 s。卡住的問題解決；但「改一個網站的類別」在這台 Mac 上要 16 分鐘，目標機（4 核）更久。
+  - 還要做：(1) 改了類別時只重算類別那一種彙總（`category_daily_rollups` 與受影響的 summary），用移動的造訪算增減，不要整天重讀（網域、引擎那幾種跟類別無關）；(2) 144 個網址、約 720 筆造訪的 reclassify 要 21 s，每筆改寫約 29 ms，查清楚；(3) 把其他「依鍵改一列」的 UPDATE / DELETE 也用計畫測試掃一遍（同一種 planner 選錯索引）；(4) 結果寫回 `ipc-performance.md`。
 
 - [ ] **WORK-SCALE-BENCH-RERUN** — 補量 14.4M：改回本機跑之後沒量的數字（2026-10-11；用戶指示「先把所有任務做完，再處理這個真實測速」）
   - 讀先：`docs/architecture/ipc-performance.md`、`vault-worker/tests/archive_scale_bench/`（`turso_intelligence.rs`、`turso_reads.rs`）。
@@ -61,7 +62,8 @@
   - 做法：照 `ipc-performance.md` 各節的量法在 14.4M 上跑，結果寫回各節與原 block 的 CHANGELOG 附註。
   - 2026-10-13 第一次在這台 Mac 上跑（`turso_intelligence::encrypted_intelligence_at_scale`，release，加密，14.4M 造訪、2.88M 頁；Apple Silicon 18 核 64 GB，比目標機快得多）：完整建置 4,333 s（visit-derived-facts 1,443 s、daily rollups 863 s、sessions 774 s、refind pages 1,146 s），峰值 RSS 462 MiB，建置中的互動寫入等 0.3 ms；概覽 cold 1.67 s / warm 122 ms，網站頁 32 / 6 ms，sessions 1 ms；全部匯出 5.0 GB、289 s，**峰值 RSS 2.07 GB**（8 GB 目標機上偏高，要查是匯出本身還是 turso 的頁快取）；增量（新增 1 萬筆造訪）140 s，**峰值 RSS 1.26 GB**（比完整建置還高，要查）。
   - 「改網站類別」卡住：`categories` 階段在 visit-derived-facts（11 s）之後，Intelligence 的寫入執行緒單核跑滿 30 分鐘以上，一次 reclassify 進度都沒回報，停掉。之前的量法（全部頁重新分類）是 62 s。查過：每個網址的兩條讀取都走索引（`intelligence/tests/reclassify.rs` 的計畫測試），不是它們。下一步見 `WORK-RECLASSIFY-STALL`。
-  - 還沒量：`WORK-EVIDENCE-REIMPORT` 的再匯入（`PATHKEEP_BENCH_SAME_VISIT_ONLY=again`）。被磁碟卡住：量測途中 Time Machine 做了本機快照（2026-10-13 21:29），之後刪的建置產物與測試存檔都還在快照裡，只剩約 6 GB。
+  - 2026-10-14 重跑一次（含 `f4301c1f`）：完整建置 4,288 s、峰值 RSS 410 MiB；增量 134 s、1.26 GB；改網站類別 958 s、1.5 GB（見 `WORK-RECLASSIFY-STALL`）。兩次的完整建置與增量相差不到 5%。
+  - 2026-10-14 補量 `WORK-EVIDENCE-REIMPORT`：14.4M 的存檔上匯入 100 萬筆 256.8 s，同一份再匯入 24.8 s、0 列（`ipc-performance.md` §15）。改網站類別見 §16。這一項只剩兩個記憶體峰值要查：增量 1.26 GB、匯出 2.07 GB。
 
 > 2026-07-26 coherence-sweep closeout note：使用者插單的全庫「逆天點」審查（`WORK-REVIEW-2026-07-26-COHERENCE-SWEEP`，見 CHANGELOG）已完成並全 gate 綠。結構化 `CommandError` envelope、十餘條 stable-code copy 通道、六個影子翻譯表剷除、posture/boundary-map 文檔如實化都已落地。待使用者拍板：`?layout=paper` QA mounts 去留、og:image 預設是否翻 `OnDemand`、onboarding 一次性 egress 披露。
 
