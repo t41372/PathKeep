@@ -69,6 +69,82 @@ pub(crate) fn recent_runs_from(
     Ok(RunPage { items, next_cursor })
 }
 
+/// One request an outside app made through PathKeep's MCP server (an `mcp_query` run): which
+/// tool, what it asked and how much came back. Exists so the person can see what other apps read
+/// of their history; the runs are kept for that and listed nowhere else.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpQueryRecord {
+    pub id: i64,
+    pub at: String,
+    /// `search-history`, `archive-status` or `usage-guide`.
+    pub tool: String,
+    pub query: Option<String>,
+    pub domain: Option<String>,
+    pub profile_id: Option<String>,
+    /// How many pages matched a search.
+    pub results: Option<u64>,
+    pub notes: Vec<String>,
+}
+
+/// A page of MCP requests, newest first, with the cursor to older ones.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpQueryPage {
+    pub items: Vec<McpQueryRecord>,
+    pub next_cursor: Option<i64>,
+}
+
+/// Lists what outside apps asked through the MCP server, newest first (`idx_runs_type_id`).
+pub fn load_mcp_queries(vault: &Vault, cursor: Option<i64>, limit: usize) -> Result<McpQueryPage> {
+    let limit = limit.clamp(1, 1000);
+    let mut items = vault
+        .read(Db::Archive, move |s| {
+            Ok(s.query(
+                "SELECT id, started_at, stats_json, warnings_json FROM runs
+             WHERE run_type = 'mcp_query' AND id < ?1 ORDER BY id DESC LIMIT ?2",
+                vault_store::params![cursor.unwrap_or(i64::MAX), limit as i64 + 1],
+                |r| {
+                    Ok((
+                        r.get::<i64>(0)?,
+                        r.get::<String>(1)?,
+                        r.get::<Option<String>>(2)?,
+                        r.get::<Option<String>>(3)?,
+                    ))
+                },
+            )?)
+        })?
+        .into_iter()
+        .map(|(id, at, stats, warnings)| {
+            let stats: serde_json::Value =
+                stats.and_then(|json| serde_json::from_str(&json).ok()).unwrap_or_default();
+            let text = |key: &str| {
+                stats
+                    .get(key)
+                    .and_then(|value| value.as_str())
+                    .map(str::to_owned)
+                    .filter(|v| !v.is_empty())
+            };
+            McpQueryRecord {
+                id,
+                at,
+                tool: text("tool").unwrap_or_default(),
+                query: text("query"),
+                domain: text("domain"),
+                profile_id: text("profileId"),
+                results: stats.get("total").and_then(|value| value.as_u64()),
+                notes: warnings
+                    .and_then(|json| serde_json::from_str(&json).ok())
+                    .unwrap_or_default(),
+            }
+        })
+        .collect::<Vec<_>>();
+    let more = items.len() > limit;
+    items.truncate(limit);
+    let next_cursor = more.then(|| items.last().map(|record| record.id)).flatten();
+    Ok(McpQueryPage { items, next_cursor })
+}
+
 /// Dashboard totals come from the counters committed with the facts.
 pub fn load_dashboard_snapshot(vault: &Vault) -> Result<DashboardSnapshot> {
     let storage = storage_summary(vault.paths());

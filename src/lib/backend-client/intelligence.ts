@@ -44,6 +44,7 @@ import type {
   JobPage,
   ListAgentConversationsRequest,
   ListJobsRequest,
+  McpQueryRecord,
   ReembedEstimate,
   ReembedScope,
   RenameAgentConversationRequest,
@@ -76,6 +77,9 @@ export const intelligenceClient = {
   listProviderModels: (request: AiProviderModelsRequest) =>
     call<AiProviderModel[]>('list_ai_provider_models', { request }),
   getQueueStatus: () => call<AiQueueStatus>('load_ai_queue_status'),
+  /** What outside apps asked through the MCP server, newest first. */
+  listMcpQueries: (cursor: number | null, limit: number) =>
+    call<JobPage<McpQueryRecord>>('load_mcp_queries', { cursor, limit }),
   /** Every search-index and assistant job, a page at a time. */
   listQueueJobs: (request: ListJobsRequest) =>
     call<JobPage<AiQueueJob>>('list_ai_jobs', { request }),

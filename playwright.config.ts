@@ -181,6 +181,7 @@ export default defineConfig({
         'ask-agent.spec.ts',
         'ask.spec.ts',
         'lock.spec.ts',
+        'mcp-log.spec.ts',
         'security.spec.ts',
         'site-category.spec.ts',
       ],

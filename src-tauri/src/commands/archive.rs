@@ -462,6 +462,21 @@ pub(crate) async fn clear_derived_intelligence(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Reads a page of what outside apps asked through the MCP server, off the UI thread.
+pub(crate) async fn load_mcp_queries(
+    cursor: Option<i64>,
+    limit: Option<usize>,
+    state: State<'_, SessionState>,
+) -> Result<vault_core::McpQueryPage, CommandError> {
+    let state = state.inner().clone();
+    run_blocking_command("load_mcp_queries", move || {
+        worker_bridge::load_mcp_queries_impl(cursor, limit, &state)
+    })
+    .await
+}
+
+#[cfg(not(test))]
+#[tauri::command]
 /// Reads another page of the audit ledger on the session's reader pool.
 pub(crate) async fn load_recent_runs(
     cursor: Option<i64>,

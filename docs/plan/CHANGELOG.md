@@ -2916,3 +2916,6 @@ that held up when checked against the code.
 - [x] `WORK-JOB-HISTORY-PAGING` — Background work shows every job, and paging no longer loses any (2026-10-13).
   - Each queue in Settings → Background work shows its newest five jobs and unfolds to its whole history, loaded as you scroll, with loading, end and error states. Before, only the dozen newest were ever shown.
   - Insights jobs were listed by when they last changed, so a job moved every time it reported progress; reading the list while the queue ran skipped some and showed others twice. They are now listed by when they were added or last queued again on purpose, which running and finishing do not change, so a rebuild you start still shows at the top.
+
+- [x] `WORK-AI-RUNS-AUDIT-VIEW` — See what other apps read through MCP (2026-10-13).
+  - Settings → AI lists every request an app made through PathKeep's MCP server, newest first: which tool, what it searched for, the site it was limited to and how many pages matched. The list stays after MCP is turned off, since it records what already left PathKeep. These requests were recorded all along but shown nowhere since Backup stopped listing them.

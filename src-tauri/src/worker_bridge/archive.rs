@@ -389,6 +389,15 @@ pub(crate) fn load_recent_runs_impl(
     worker_result(vault_core::load_recent_runs(&state.vault()?, cursor, limit.unwrap_or(12)))
 }
 
+/// What outside apps asked through the MCP server, a page at a time (Settings → AI).
+pub(crate) fn load_mcp_queries_impl(
+    cursor: Option<i64>,
+    limit: Option<usize>,
+    state: &SessionState,
+) -> Result<vault_core::McpQueryPage, CommandError> {
+    worker_result(vault_core::load_mcp_queries(&state.vault()?, cursor, limit.unwrap_or(50)))
+}
+
 /// Continues import history beyond the snapshot's first page.
 pub(crate) fn load_import_batches_impl(
     cursor: Option<String>,

@@ -293,6 +293,8 @@ const STATEMENTS: &[&str] = &[
   change TEXT NOT NULL CHECK (change IN ('upsert', 'delete'))
 )",
     "CREATE INDEX idx_runs_started_at ON runs(started_at DESC)",
+    // What outside apps asked through MCP, newest first (`load_mcp_queries`).
+    "CREATE INDEX idx_runs_type_id ON runs(run_type, id)",
     "CREATE INDEX idx_urls_profile_last_visit ON urls(source_profile_id, last_visit_ms DESC)",
     "CREATE INDEX idx_visits_profile_time ON visits(source_profile_id, visit_time_ms DESC)",
     "CREATE INDEX idx_downloads_profile_start ON downloads(source_profile_id, start_time_ms DESC)",

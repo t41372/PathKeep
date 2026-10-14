@@ -1,6 +1,6 @@
 /**
  * Settings → AI: local semantic search, the assistant's AI service, MCP
- * access for outside tools, rebuilding the search index, and how search by
+ * access for outside tools and what they read, rebuilding the search index, and how search by
  * meaning ranks results. Everything here is optional; PathKeep works
  * without any of it.
  */
@@ -28,6 +28,7 @@ import { describeError } from '@/lib/errors'
 import { useI18n } from '@/lib/i18n'
 import { useSnapshot } from '@/lib/queries/app'
 import type { AiSettings } from '@/lib/types'
+import { McpLogRow } from './mcp-log-row'
 import { ProviderRow } from './provider-row'
 import { SearchTuningRow } from './search-tuning-row'
 import { SemanticRow, type SemanticIndex } from './semantic-row'
@@ -44,6 +45,7 @@ export function AiSection() {
       <SemanticRow index={index} />
       <ProviderRow />
       <McpRow />
+      <McpLogRow />
       <RebuildRow index={index} />
       <SearchTuningRow />
     </SettingsSection>

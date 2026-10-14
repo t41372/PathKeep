@@ -1269,3 +1269,20 @@ export interface ContentFetchNowResult {
   state: string
   note: string
 }
+
+/**
+ * One request an outside app made through PathKeep's MCP server
+ * (`load_mcp_queries`): which tool, what it asked and how much came back.
+ */
+export interface McpQueryRecord {
+  id: number
+  at: string
+  /** `search-history`, `archive-status` or `usage-guide`. */
+  tool: string
+  query?: string | null
+  domain?: string | null
+  profileId?: string | null
+  /** How many pages matched a search. */
+  results?: number | null
+  notes: string[]
+}

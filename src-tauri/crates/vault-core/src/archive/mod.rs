@@ -102,8 +102,8 @@ pub use self::{
         record_export_failure, search_history, suggested_export_name,
     },
     read_models::{
-        RunPage, archive_availability, archive_status, load_audit_run_detail,
-        load_dashboard_snapshot, load_recent_runs,
+        McpQueryPage, McpQueryRecord, RunPage, archive_availability, archive_status,
+        load_audit_run_detail, load_dashboard_snapshot, load_mcp_queries, load_recent_runs,
     },
 };
 use crate::{

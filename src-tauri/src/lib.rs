@@ -230,6 +230,7 @@ fn run_app() -> Result<()> {
             apply_app_data_import,
             load_dashboard_snapshot,
             load_source_stats,
+            load_mcp_queries,
             load_recent_runs,
             load_import_batches,
             get_url_detail,

@@ -133,6 +133,7 @@ are specified in [data-model.md](../architecture/data-model.md#migration-in-prog
 > **shipped（W-AI-9-B）：** localhost stdio MCP server 已交付（`vault-worker/src/mcp.rs`，`mcp-server` CLI），opt-in、hard-default-OFF（`ai.enabled && mcp_enabled`，皆預設關）、unlock-gated、**read-only**（只有 `search-history` / `archive-status` / `usage-guide` 三個 tool，無任何 write/mutation tool）。SQLCipher key 留在 worker，**永遠不跨給外部 caller**；search limit clamp 到 `[1, 50]`；每次外部查詢寫一筆 `mcp_query` run 進 Audit ledger。詳細邊界見 [ai-security-posture.md](../architecture/ai-security-posture.md) §3。
 
 - 在 Settings 的 AI provider / integration preferences 中手動開啟。
+- 外部 App 讀了什麼（2026-10-13）：Settings → AI 的「其他 App 讀了什麼」列出每一筆 `mcp_query`，新的在前：哪個 tool、搜了什麼、限哪個網站、有幾頁符合（就是給外部 App 的那個數）。MCP 開著時一定顯示；關掉後只要有紀錄也照樣顯示，因為那是已經離開 PathKeep 的東西。紀錄可能有上千筆，清單虛擬化、捲動時每次讀 50 筆（`load_mcp_queries`，`runs(run_type, id)` 索引）。索引建置（`ai_index`）在 Background work 的工作清單看得到，不另外列；舊的 `assistant` run 見 `WORK-ASSISTANT-JOB-TYPE`。E2E：`mcp-log.spec` 用 Settings 列出的命令真的啟動 MCP server、用 stdio 呼叫 tool，再看清單。
 - App 只會在 AI / MCP 明確啟用、且當前 app session 處於 unlocked 時允許本地 MCP server 回答。v0.4：PathKeep 自己不常駐 server；使用者的工具需要時用 Settings → AI 列出的命令啟動它，開關只決定准不准。
 - 提供搜尋、檢索歷史紀錄的 MCP tools；若 session 之後被 App Lock 鎖住，history query 相關 tool 必須回傳 locked refusal，而不是繞過 UI 直接讀 archive。
 - 安全考量：只綁定 localhost，不對外暴露，並且必須尊重 visibility、lock state 與 capability gating。

@@ -340,6 +340,14 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
         "load_dashboard_snapshot" => {
             json_value!(worker_bridge::dashboard_snapshot_impl(&state.session)?)
         }
+        "load_mcp_queries" => {
+            let payload = parse_payload::<RunPagePayload>(payload)?;
+            json_value!(worker_bridge::load_mcp_queries_impl(
+                payload.cursor,
+                payload.limit,
+                &state.session
+            )?)
+        }
         "load_recent_runs" => {
             let payload = parse_payload::<RunPagePayload>(payload)?;
             json_value!(worker_bridge::load_recent_runs_impl(

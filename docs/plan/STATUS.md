@@ -377,9 +377,12 @@
   - 前端：兩個佇列的清單都先顯示五筆，「顯示全部」展開成虛擬化清單（每列量高度），捲到底附近讀下一頁（每頁 50），有載入中、全部讀完、讀取失敗加重試三種狀態（三語）。佇列在跑時，已讀的每一頁每 2 秒重讀，所以工作在哪一頁都看得到現在的狀態；收起時只留第一頁。取消正在跑的工作時照點的那列判斷要不要說「已要求停止」（之前查快照第一頁，深處的工作會說錯）。
   - E2E：`background-work.spec` 加「the whole job history pages through while the queue works, each job once」：加 60 個很快跑完的 Insights 工作，佇列跑著時從後端每頁 5 筆讀三遍，每遍數目對、不重複；Settings 裡展開捲到底，看到的工作數等於總數，最上面是最後加的那個。
 
-- [ ] **WORK-AI-RUNS-AUDIT-VIEW** — AI 的 run 在哪裡給人看（2026-10-12 `WORK-RUN-LIFECYCLE-GUARDS` 找到）
+- [x] **WORK-AI-RUNS-AUDIT-VIEW** — AI 的 run 在哪裡給人看（2026-10-12 `WORK-RUN-LIFECYCLE-GUARDS` 找到）
   - 現象：索引建置（`ai_index`）、助理回答（`assistant`）與每次 MCP 查詢（`mcp_query`）都寫進 `runs`，以前只出現在 Backup 的「最近的執行」，寫成備份的「0 個來源 · 0 筆新造訪」，還把備份擠出 12 筆。現在那裡不列它們，畫面上就沒有地方看得到；MCP 查詢是外部工具讀了哪些歷史的審計，應該看得到。
   - 方向：先決定放哪（Settings → AI，或 Background work）、列什麼（查了什麼、回了幾筆、哪個工具），再做讀取命令與畫面（三語、虛擬化）。
+  - 決定（2026-10-13）：放 Settings → AI，MCP 開關下面一列「其他 App 讀了什麼」；只列 MCP 查詢——那是外部工具讀了哪些歷史的審計，別處看不到。索引建置（`ai_index`）在 Background work 的工作清單已經看得到；舊的 `assistant` run 只來自已刪的排隊提問，歸 `WORK-ASSISTANT-JOB-TYPE`。
+  - 做了：`load_mcp_queries`（新到舊、游標分頁，`runs(run_type, id)` 新索引；存檔 schema v1 原地改，用戶真實資料要手動補，見記憶）；每列寫 tool、搜了什麼、限哪個網站、幾頁符合、時間；虛擬化、捲動讀下一頁，載入 / 讀完 / 失敗三種狀態，三語。MCP 關掉後有紀錄仍顯示。
+  - E2E：`mcp-log.spec`（新）：開 MCP、照 Settings 列出的命令啟動 MCP server（`support/mcp-client.ts`，stdio JSON-RPC），呼叫 `archive-status`、`search-history`、限網站的 `search-history`，清單新到舊三筆、結果數等於 App 拿到的數、限網站那筆寫出網站；關掉 MCP 後仍在。
 
 - [ ] **WORK-ASSISTANT-JOB-TYPE** — AI 佇列裡的「助理」工作已經沒有來源（2026-10-13 盤點 `WORK-TEST-CUT-2026-10` 刪掉的程式時找到）
   - 現象：Ask 從 v0.4 起走串流（`ai_chat_send`），排隊提問的命令與 `enqueue_assistant_job` 都已刪掉；佇列仍認得 `assistant` 這種工作，會領取、執行、重播（`vault-worker/src/intelligence/ai_queue.rs` 的 `complete_claimed_assistant_job` 等），只會碰到舊存檔裡留下的列。
