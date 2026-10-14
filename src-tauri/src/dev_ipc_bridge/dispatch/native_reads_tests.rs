@@ -17,6 +17,8 @@ fn keychain_only_session_reads_imported_ties_and_exports_every_visit() {
         std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, root.path());
         std::env::set_var(CHROME_USER_DATA_OVERRIDE_ENV, &empty);
         std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, root.path().join("keyring"));
+        // No window to answer the save dialog: a debug build saves here instead.
+        std::env::set_var("PATHKEEP_TEST_SAVE_DIR", root.path().join("saved"));
     }
     let state =
         DevIpcBridgeState::without_app(SessionState::default(), DEFAULT_DEV_IPC_BRIDGE_PORT);
@@ -161,5 +163,6 @@ fn keychain_only_session_reads_imported_ties_and_exports_every_visit() {
         std::env::remove_var(PROJECT_ROOT_OVERRIDE_ENV);
         std::env::remove_var(CHROME_USER_DATA_OVERRIDE_ENV);
         std::env::remove_var(TEST_KEYRING_OVERRIDE_ENV);
+        std::env::remove_var("PATHKEEP_TEST_SAVE_DIR");
     }
 }

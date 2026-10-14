@@ -2,7 +2,8 @@
  * Settings → Storage → Export history: one export at a time, how far it has
  * got, and a way to stop it.
  *
- * The backend writes the file; this row only polls its progress by id. The id
+ * The backend asks where to save in the system's dialog and writes the file;
+ * this row only polls its progress by id. The id
  * travels in the mutation's variables, so leaving Settings and coming back
  * finds the running export instead of offering to start a second one.
  */
@@ -47,6 +48,8 @@ export function ExportRow() {
     mutationFn: ({ exportId, format }: ExportRun) =>
       archiveClient.exportHistory({ exportId, query: {}, format }),
     onSuccess: (result) => {
+      // The save dialog was closed: nothing was written and nothing to say.
+      if (!result) return
       void client.invalidateQueries({ queryKey: queryKeys.dashboard })
       toast.success(t('settingsStorage.export.done', { count: result.count }), {
         description: result.path,
@@ -107,7 +110,8 @@ export function ExportRow() {
             <Button
               size="sm"
               variant="outline"
-              disabled={stopping || finishing}
+              // Nothing to stop yet while the save dialog is open.
+              disabled={stopping || finishing || !progress.data}
               onClick={() => stop.mutate(running.exportId)}
             >
               {stopping && <Spinner />}
@@ -129,9 +133,10 @@ export function ExportRow() {
         </>
       }
     >
-      {running && (
+      {/* No progress while the save dialog is still open. */}
+      {running && progress.data && (
         <ProgressReadout
-          progress={progress.data ?? null}
+          progress={progress.data}
           sampledAt={progress.dataUpdatedAt}
         />
       )}
@@ -147,20 +152,20 @@ function ProgressReadout({
   progress,
   sampledAt,
 }: {
-  progress: ExportProgress | null
+  progress: ExportProgress
   sampledAt: number
 }) {
   const { t } = useI18n()
   const format = useFormat()
-  const rows = progress?.rowsWritten ?? 0
-  const total = progress?.totalRows ?? null
-  const finishing = progress?.state === 'finishing'
+  const rows = progress.rowsWritten
+  const total = progress.totalRows ?? null
+  const finishing = progress.state === 'finishing'
 
   let value: number | null = null
   if (finishing) value = 100
   else if (total) value = Math.min(99, (rows / total) * 100)
 
-  const size = format.bytes(progress?.bytesWritten ?? 0)
+  const size = format.bytes(progress.bytesWritten)
   const parts = [
     total
       ? t('settingsStorage.export.progress', {
@@ -175,7 +180,7 @@ function ProgressReadout({
   ]
   if (finishing) {
     parts.push(t('settingsStorage.export.finishing'))
-  } else if (progress && total && rows > 0 && rows < total) {
+  } else if (total && rows > 0 && rows < total) {
     const elapsed = sampledAt - Date.parse(progress.startedAt)
     if (elapsed >= ESTIMATE_AFTER_MS) {
       const seconds = ((total - rows) * elapsed) / rows / 1000

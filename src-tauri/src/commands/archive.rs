@@ -384,14 +384,16 @@ pub(crate) async fn load_audit_run_detail(
 
 #[cfg(not(test))]
 #[tauri::command]
-/// Exports a history query result to the requested artifact format, off the UI thread.
+/// Exports history to the file the person chooses in the system's save dialog, off the UI
+/// thread; `None` when they close the dialog. The interface never names a path.
 pub(crate) async fn export_history(
+    app: tauri::AppHandle,
     request: vault_core::ExportRequest,
     state: State<'_, SessionState>,
-) -> Result<vault_core::ExportResult, CommandError> {
-    let key_state = state.inner().clone();
+) -> Result<Option<vault_core::ExportResult>, CommandError> {
+    let state = state.inner().clone();
     run_blocking_command("export_history", move || {
-        worker_bridge::export_history_impl(request, &key_state)
+        worker_bridge::export_history_impl(Some(&app), request, &state)
     })
     .await
 }

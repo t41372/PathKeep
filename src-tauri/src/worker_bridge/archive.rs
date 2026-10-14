@@ -313,27 +313,33 @@ pub(crate) fn audit_run_detail_impl(
     worker_result(vault_worker::audit_run_detail(&state.vault()?, run_id))
 }
 
-/// Exports a query result to the requested file format.
-pub(crate) fn export_history_impl(
+/// Exports history to the file the person chooses in the system's save dialog; `None` when they
+/// close it without choosing. The interface sends the format, never a path. Blocks on the dialog:
+/// call it off the main thread.
+pub(crate) fn export_history_impl<R: tauri::Runtime>(
+    app: Option<&tauri::AppHandle<R>>,
     request: ExportRequest,
     state: &SessionState,
-) -> Result<vault_core::ExportResult, CommandError> {
-    let preflight = (|| -> anyhow::Result<_> {
-        let key = if request.query.q.as_ref().is_some_and(|q| !q.trim().is_empty()) {
-            state.get_key().map_err(anyhow::Error::msg)?
-        } else {
-            None
-        };
-        Ok((state.vault().map_err(anyhow::Error::msg)?, key))
-    })();
-    let (vault, key) = match preflight {
-        Ok(context) => context,
+) -> Result<Option<vault_core::ExportResult>, CommandError> {
+    let vault = match state.vault() {
+        Ok(vault) => vault,
         Err(error) => {
+            let error = anyhow::Error::msg(error);
             vault_core::record_export_failure(request.export_id.as_deref(), &error);
             return worker_result(Err(error));
         }
     };
-    let result = vault_worker::export_query(&vault, key.as_deref(), request);
+    let name = vault_core::suggested_export_name(&request.format);
+    let kind = match request.format {
+        vault_core::ExportFormat::Html => "HTML",
+        vault_core::ExportFormat::Markdown => "Markdown",
+        vault_core::ExportFormat::Text => "Text",
+        vault_core::ExportFormat::Jsonl => "JSON Lines",
+    };
+    let Some(target) = super::save_path(app, &name, (kind, &[request.format.extension()]))? else {
+        return Ok(None);
+    };
+    let result = vault_worker::export_query(&vault, request, &target);
     if let Err(error) = &result {
         if error.downcast_ref::<vault_core::ExportCancelled>().is_some() {
             return Err(CommandError {
@@ -344,7 +350,7 @@ pub(crate) fn export_history_impl(
             });
         }
     }
-    worker_result(result)
+    worker_result(result).map(Some)
 }
 
 /// Polls process-local export state without archive I/O.

@@ -19,12 +19,14 @@ mod archive;
 mod import;
 mod intelligence;
 mod migration;
+mod save_dialog;
 mod schedule;
 mod search;
 mod security;
 mod stars;
 // The Tauri command layer, which calls most of these, is compiled out of unit tests.
 #[cfg_attr(test, allow(unused_imports))]
+use self::save_dialog::save_path;
 pub(crate) use self::{
     annotations::*, app::*, archive::*, import::*, intelligence::*, migration::*, schedule::*,
     search::*, security::*, stars::*,

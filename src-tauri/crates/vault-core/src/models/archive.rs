@@ -919,6 +919,18 @@ pub enum ExportFormat {
     Jsonl,
 }
 
+impl ExportFormat {
+    /// The file extension an export in this format is saved with.
+    pub const fn extension(&self) -> &'static str {
+        match self {
+            Self::Html => "html",
+            Self::Markdown => "md",
+            Self::Text => "txt",
+            Self::Jsonl => "jsonl",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExportRequest {

@@ -119,6 +119,7 @@ fn export_heap_stays_bounded_as_archive_grows() {
                     query: HistoryQuery::default(),
                     format: vault_core::ExportFormat::Jsonl,
                 },
+                &vault.paths().app_root.join("export.jsonl"),
             )
             .unwrap();
             assert_eq!(result.count as u64, visits);

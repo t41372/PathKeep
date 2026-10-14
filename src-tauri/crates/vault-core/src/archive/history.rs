@@ -19,8 +19,6 @@
 use super::*;
 
 mod export;
-mod search_export;
-pub use search_export::export_search_history;
 mod favicons;
 // `net_guard` is the SSRF guard reused by W-ENRICH-1's content-fetch egress (06 §2b: every page URL
 // AND every API sub-resource is checked). Promoted to `pub(crate)` so the enrichment plane can reach
@@ -34,6 +32,7 @@ mod timeline;
 
 pub use self::export::{
     ExportCancelled, cancel_export, export_history, get_export_progress, record_export_failure,
+    suggested_export_name,
 };
 pub use self::favicons::{load_history_favicons, load_site_favicons};
 // og_images functions are re-exported via the `og_images` module path so the

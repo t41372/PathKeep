@@ -2901,3 +2901,7 @@ that held up when checked against the code.
   - A session's header counts its visits ("16 visits"); it said pages, and with repeats merged there are fewer rows than that. A site's letter badge has the same colour wherever it is listed, with or without `www.`, and is no longer part of the row's text.
   - Back and forward at the top of the nav rail, with ⌘[ / ⌘] (Alt+← / Alt+→ on Windows and Linux) and the mouse's side buttons. The brand mark is gone from the rail.
   - On Windows and Linux the system title bar is off and the app draws minimize, maximize and close at the top right. Not yet seen on either system, and Windows 11's snap layouts are not done: this Mac cannot build for Windows (`WORK-WINDOWS-SNAP-LAYOUTS`).
+
+- [x] `WORK-HISTORY-EXPORT-SAVE-DIALOG` — Exporting history asks where to save it (2026-10-13).
+  - Settings → Storage → Export history opens the system's save dialog first, with Downloads and "PathKeep history <date>" offered, and writes the file where you choose; closing the dialog does nothing. Every export used to go into PathKeep's own exports folder, inside the app's data, which "Delete all data" empties. That folder now only holds old exports, which Free space still clears.
+  - Progress, stopping and the file appearing only once complete work as before; the temp file sits beside the chosen file and is removed if the export stops.

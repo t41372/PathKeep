@@ -787,13 +787,13 @@ pub fn audit_run_detail(vault: &Vault, run_id: i64) -> Result<vault_core::AuditR
     load_audit_run_detail(vault, run_id)
 }
 
-/// Exports the currently visible history query in the requested format.
+/// Exports the currently visible history query in the requested format into `target`.
 pub fn export_query(
     vault: &Vault,
-    _session_database_key: Option<&str>,
     request: ExportRequest,
+    target: &std::path::Path,
 ) -> Result<vault_core::ExportResult> {
-    export_history(vault, request)
+    export_history(vault, request, target)
 }
 
 /// Counts what [`clear_derived_intelligence`] would remove, without removing anything.

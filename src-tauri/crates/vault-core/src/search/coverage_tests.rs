@@ -78,6 +78,7 @@ fn lexical_fuzzy_regex_palette_and_export_reach_past_old_limits() {
                 },
                 format: ExportFormat::Jsonl,
             },
+            &vault.paths().app_root.join("export.jsonl"),
         )
         .unwrap();
         report("export complete");

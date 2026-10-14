@@ -6,16 +6,18 @@
 //! ## Responsibilities
 //! - Walk the full visible history result set for an export request.
 //! - Render JSONL, HTML, Markdown, and plain-text artifacts.
-//! - Write export artifacts under the configured exports directory, atomically.
+//! - Write the artifact where the caller says (the file the person chose), atomically.
+//! - Suggest the file's name.
 //!
 //! ## Not responsible for
 //! - Choosing which history rows are visible.
+//! - Asking where to save (the desktop's save dialog, `worker_bridge::save_path`).
 //! - Defining history filters or lexical recall semantics.
 //!
 //! ## Dependencies
 //! - Shared history SQL, hydration and recall dispatch.
 //! - `durable_io` for the temp-file-then-rename write.
-//! - Archive export models and the configured project exports directory.
+//! - Archive export models.
 //!
 //! ## Performance notes
 //! - Exports read short keyset pages through the reader pool with a captured upper visit ID.
@@ -31,14 +33,13 @@ use crate::{
     models::{
         ExportFormat, ExportRequest, ExportResult, HistoryEntry, HistoryQuery, HistoryQueryResponse,
     },
-    utils::now_rfc3339,
 };
 use anyhow::{Context, Result};
 pub(super) use progress::ExportJob;
 pub use progress::{ExportCancelled, cancel_export, get_export_progress, record_export_failure};
 use std::{
-    fs,
     io::{BufWriter, Write},
+    path::Path,
     sync::Arc,
     time::Duration,
 };
@@ -50,11 +51,16 @@ const PROGRESS_ROW_CHUNK: usize = 128;
 const WRITE_CHECK_BYTES: u64 = 64 * 1024;
 const ABANDONED_EXPORT_AGE: Duration = Duration::from_secs(60 * 60);
 
-/// Streams complete history through short read transactions and bounded buffers.
-pub fn export_history(vault: &Vault, request: ExportRequest) -> Result<ExportResult> {
+/// Streams complete history into `target` through short read transactions and bounded buffers.
+/// The file appears there only once it is complete; a stopped or failed export leaves nothing.
+pub fn export_history(
+    vault: &Vault,
+    request: ExportRequest,
+    target: &Path,
+) -> Result<ExportResult> {
     finish_export(request, |request, job| {
         let (total, upper) = export_bounds(vault)?;
-        write_export(vault.paths(), request, job, total, |query| {
+        write_export(vault.paths(), request, target, job, total, |query| {
             vault.read(Db::Archive, move |s| super::timeline::timeline_page(s, &query, upper))
         })
     })
@@ -74,6 +80,12 @@ fn export_bounds(vault: &Vault) -> Result<(Option<u64>, i64)> {
             .unwrap_or(0);
         Ok((total, upper))
     })
+}
+
+/// The name the save dialog offers: "PathKeep history 2026-10-13.html", today's local date.
+pub fn suggested_export_name(format: &ExportFormat) -> String {
+    let day = chrono::Local::now().format("%Y-%m-%d");
+    format!("PathKeep history {day}.{}", format.extension())
 }
 
 pub(super) fn finish_export(
@@ -97,33 +109,25 @@ pub(super) fn finish_export(
 pub(super) fn write_export(
     paths: &ProjectPaths,
     request: ExportRequest,
+    target_path: &Path,
     job: Option<&Arc<ExportJob>>,
     total: Option<u64>,
     mut fetch: impl FnMut(HistoryQuery) -> Result<HistoryQueryResponse>,
 ) -> Result<ExportResult> {
     check_cancel(job)?;
-    fs::create_dir_all(&paths.exports_dir)?;
-    sweep_temps_older_than(&paths.exports_dir, ABANDONED_EXPORT_AGE)?;
+    // The temp is written beside the file; one left by an export that was killed is ours to
+    // clear once it is an hour old (a fresh one may belong to an export still running).
+    if let Some(folder) = target_path.parent() {
+        sweep_temps_older_than(folder, ABANDONED_EXPORT_AGE)?;
+    }
     let search = request.query.q.as_ref().is_some_and(|q| !q.trim().is_empty());
     if let Some(job) = job {
         job.total(if search { None } else { total });
     }
     let format = request.format;
-    let extension = match format {
-        ExportFormat::Html => "html",
-        ExportFormat::Markdown => "md",
-        ExportFormat::Text => "txt",
-        ExportFormat::Jsonl => "jsonl",
-    };
-    // A unique suffix prevents concurrent exports (even without ids) overwriting each other.
-    let mut artifact_id = [0u8; 16];
-    getrandom::fill(&mut artifact_id).context("export artifact id")?;
-    let artifact_id = hex::encode(artifact_id);
-    let file_name = format!("export-{}-{artifact_id}.{extension}", now_rfc3339().replace(':', "-"));
-    let target_path = paths.exports_dir.join(file_name);
     let mut count = 0;
     let mut rows_written = 0;
-    let result = atomic_durable_write_with(&target_path, |writer| {
+    let result = atomic_durable_write_with(target_path, |writer| {
         let mut buffer = BufWriter::with_capacity(EXPORT_BUFFER_BYTES, writer);
         let mut counted = CountedWriter { writer: &mut buffer, bytes: 0, checked_at: 0, job };
         let render_result: Result<()> = (|| {

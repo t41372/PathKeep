@@ -55,8 +55,9 @@ export const archiveClient = {
     call<RetentionPreview>('preview_retention_prune'),
   runRetentionPrune: (request: RetentionPruneRequest) =>
     call<RetentionPruneResult>('run_retention_prune', { request }),
+  /** Asks where to save first; `null` when the person closes the dialog. */
   exportHistory: (request: ExportRequest) =>
-    call<ExportResult>('export_history', { request }),
+    call<ExportResult | null>('export_history', { request }),
   getExportProgress: (exportId: string) =>
     call<ExportProgress | null>('get_export_progress', { exportId }),
   cancelExport: (exportId: string) =>

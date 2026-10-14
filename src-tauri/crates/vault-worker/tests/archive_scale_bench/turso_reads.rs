@@ -332,6 +332,7 @@ fn measure(vault: &Vault, pass: &str, operation: &str) {
                         query: HistoryQuery::default(),
                         format: ExportFormat::Jsonl,
                     },
+                    &vault.paths().app_root.join("export.jsonl"),
                 )
                 .unwrap()
             });

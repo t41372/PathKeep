@@ -346,9 +346,11 @@
 
 （用戶 2026-10-13：「把所有任務都做完再跟我回報」，包括這個 session 找到、記進 BACKLOG 的。以下從 BACKLOG 搬上，照順序做；`WORK-REKEY-STALL` 等重現；14.4M 實測 `WORK-SCALE-BENCH-RERUN` 照用戶的話放最後。）
 
-- [ ] **WORK-HISTORY-EXPORT-SAVE-DIALOG** — 歷史匯出也該問存在哪裡（2026-10-13，對話匯出改成跳儲存對話框時找到）
+- [x] **WORK-HISTORY-EXPORT-SAVE-DIALOG** — 歷史匯出也該問存在哪裡（2026-10-13，對話匯出改成跳儲存對話框時找到）
   - 現象：Settings → Storage →「匯出歷史」一律寫進 PathKeep 自己的 `exports` 資料夾（在應用程式資料目錄裡，平常沒人看），「刪除所有資料」會一起刪掉，「釋放空間」也列得出來。使用者匯出的檔案是要拿走的，不是 app 的暫存。
   - 方向：跟 `export_ai_conversation` 一樣，開始前由後端跳系統的儲存對話框（建議檔名、預設「下載」），之後照舊有進度、可停止，暫存檔寫在目標旁邊、完成才換上（`atomic_durable_write_with`）；取消對話框什麼都不做。`exports` 資料夾之後只剩舊檔，「釋放空間」照舊能清。E2E 用 `PATHKEEP_TEST_SAVE_DIR`，`export.spec` 改讀那裡。
+  - 做了（2026-10-13）：`export_history` 先由後端跳儲存對話框（建議「PathKeep history 日期.副檔名」、預設「下載」、依格式的篩選），回 `null` 表示關掉了；`vault_core::export_history` 改成接目標路徑，暫存檔在目標旁邊，下次匯出到同一個資料夾時清掉一小時以上、PathKeep 自己的 `.pk-durable-*` 暫存。儲存對話框的 helper 搬到 `worker_bridge/save_dialog.rs`，對話匯出共用。按鈕改「Export…」（三語），對話框開著時沒有進度、「停止」不能按。順手刪掉沒人呼叫的 `export_search_history` 與 `export_query` 沒用到的金鑰參數。`exports` 資料夾照舊建立（搬家檔在瀏覽器模式下的預設位置還在那），只是不再放歷史匯出。
+  - E2E：`export.spec` 從 `PATHKEEP_TEST_SAVE_DIR` 讀，驗檔名、toast 上的路徑、`exports` 裡沒有新的匯出；停止後連暫存檔都沒有。關掉對話框那條路 Playwright 碰不到。
 
 - [ ] **WORK-NOTE-SAVE-FLAKE** — 筆記偶爾沒存下來（2026-10-13 寫 history E2E 時看到一次）
   - 現象：`history-tools.spec` 的「a note is found by its words, in either script, until it changes」一次失敗：第二頁的筆記沒有存下來，之後用筆記的字搜不到它。其他每次都過。

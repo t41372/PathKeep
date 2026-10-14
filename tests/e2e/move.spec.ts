@@ -70,7 +70,12 @@ test('a moved archive opens only with the password chosen at export', async ({
   await unlockIfAsked(page, FILE_PASSWORD)
   const before = await openArchiveVisitTotal()
   expect(before).toBeGreaterThan(0)
-  await page.getByRole('button', { name: 'Export…' }).click()
+  // Export history has an "Export…" too.
+  await page
+    .getByText('Move to another computer', { exact: true })
+    .locator('xpath=../..')
+    .getByRole('button', { name: 'Export…' })
+    .click()
   const exporting = page.getByRole('dialog')
   await exporting.getByLabel('Save to').fill(file)
   await exporting.getByLabel('Password for this file').fill(FILE_PASSWORD)

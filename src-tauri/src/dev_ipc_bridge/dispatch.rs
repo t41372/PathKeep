@@ -369,10 +369,12 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
         }
         "export_history" => {
             let payload = parse_payload::<ExportPayload>(payload)?;
+            // The save dialog and the export block; the runtime stays free to serve polling
+            // and cancellation.
+            let app = require_app_handle(state).ok();
             let session = state.session.clone();
-            // Keep the runtime free to serve polling/cancellation during a long export.
             let result = tokio::task::spawn_blocking(move || {
-                worker_bridge::export_history_impl(payload.request, &session)
+                worker_bridge::export_history_impl(app.as_ref(), payload.request, &session)
             })
             .await
             .unwrap_or_else(|error| join_failure("export_history", error))?;
