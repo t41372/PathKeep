@@ -2931,3 +2931,6 @@ that held up when checked against the code.
   - Importing a browser's history file the browser was writing could fail on the leftover journal: the import made its own copy without the recovery backups do. Both now stage the same way.
   - When Ask could not save the pages an answer used, it said nothing; reopened, the answer had no sources. It now says so under the answer. A final answer that could not be saved ends with an error instead of looking complete.
   - The repair that cuts a half-written record off the search-by-meaning files after a crash, and the content-fetch address check as it really runs, are now tested.
+
+- [x] What other apps read: the page an app was given, not every match (2026-10-13).
+  - Each request in Settings → AI → What other apps read showed how many pages matched across the archive, which an app is never given at once: it gets one page and asks again for more. The list overstated what left PathKeep. Requests now record how many pages were sent and show "Sent 10 pages of 300 matching"; older ones say only how many matched.

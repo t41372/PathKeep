@@ -325,6 +325,8 @@ pub(crate) fn mcp_search_result(
             "providerId": response.provider_id,
             "model": response.model,
             "total": response.total,
+            // What left PathKeep: this page of results, not every match.
+            "returned": response.items.len(),
         }),
     )?;
     Ok(McpSearchResult {

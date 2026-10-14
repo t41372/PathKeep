@@ -1242,7 +1242,12 @@ export interface McpQueryRecord {
   query?: string | null
   domain?: string | null
   profileId?: string | null
-  /** How many pages matched a search. */
+  /** How many pages matched a search, across the archive. */
   results?: number | null
+  /**
+   * How many of them the app was given (one page of results); absent on
+   * requests recorded before PathKeep kept it.
+   */
+  returned?: number | null
   notes: string[]
 }

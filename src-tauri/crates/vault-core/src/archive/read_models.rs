@@ -83,8 +83,11 @@ pub struct McpQueryRecord {
     pub query: Option<String>,
     pub domain: Option<String>,
     pub profile_id: Option<String>,
-    /// How many pages matched a search.
+    /// How many pages matched a search, across the archive.
     pub results: Option<u64>,
+    /// How many of them the app was given: one page of results. Requests recorded before
+    /// 2026-10-13 did not keep it.
+    pub returned: Option<u64>,
     pub notes: Vec<String>,
 }
 
@@ -134,6 +137,7 @@ pub fn load_mcp_queries(vault: &Vault, cursor: Option<i64>, limit: usize) -> Res
                 domain: text("domain"),
                 profile_id: text("profileId"),
                 results: stats.get("total").and_then(|value| value.as_u64()),
+                returned: stats.get("returned").and_then(|value| value.as_u64()),
                 notes: warnings
                     .and_then(|json| serde_json::from_str(&json).ok())
                     .unwrap_or_default(),

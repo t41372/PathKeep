@@ -162,8 +162,14 @@ function Request({ record }: { record: McpQueryRecord }) {
     : t('settingsAi.mcpLog.tool.other', { tool: record.tool })
   const details = [
     format.dayAndTime(record.at),
+    // What left PathKeep is the page the app was given, not every match.
     record.results != null &&
-      t('settingsAi.mcpLog.results', { count: record.results }),
+      (record.returned != null
+        ? t('settingsAi.mcpLog.sent', {
+            count: record.returned,
+            matches: format.number(record.results),
+          })
+        : t('settingsAi.mcpLog.matching', { count: record.results })),
     record.domain && t('settingsAi.mcpLog.onSite', { site: record.domain }),
   ].filter(Boolean)
   return (

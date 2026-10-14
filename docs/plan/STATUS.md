@@ -383,6 +383,7 @@
   - 決定（2026-10-13）：放 Settings → AI，MCP 開關下面一列「其他 App 讀了什麼」；只列 MCP 查詢——那是外部工具讀了哪些歷史的審計，別處看不到。索引建置（`ai_index`）在 Background work 的工作清單已經看得到；舊的 `assistant` run 只來自已刪的排隊提問，歸 `WORK-ASSISTANT-JOB-TYPE`。
   - 做了：`load_mcp_queries`（新到舊、游標分頁，`runs(run_type, id)` 新索引；存檔 schema v1 原地改，用戶真實資料要手動補，見記憶）；每列寫 tool、搜了什麼、限哪個網站、幾頁符合、時間；虛擬化、捲動讀下一頁，載入 / 讀完 / 失敗三種狀態，三語。MCP 關掉後有紀錄仍顯示。
   - E2E：`mcp-log.spec`（新）：開 MCP、照 Settings 列出的命令啟動 MCP server（`support/mcp-client.ts`，stdio JSON-RPC），呼叫 `archive-status`、`search-history`、限網站的 `search-history`，清單新到舊三筆、結果數等於 App 拿到的數、限網站那筆寫出網站；關掉 MCP 後仍在。
+  - 補（2026-10-13，旁審指出）：每列原本寫的是整個存檔「符合幾頁」（`total`），不是那次交給 App 的頁數（一頁、最多 50）——稽核畫面把外流說得比實際多。`mcp_query` run 多記 `returned`，畫面寫「交出 M 頁（符合 N 頁）」；之前的紀錄只寫「符合 N 頁」。E2E 改驗 `limit: 5` 的查詢寫出交出的頁數與符合的頁數。
 
 - [x] **WORK-ASSISTANT-JOB-TYPE** — AI 佇列裡的「助理」工作已經沒有來源（2026-10-13 盤點 `WORK-TEST-CUT-2026-10` 刪掉的程式時找到）
   - 現象：Ask 從 v0.4 起走串流（`ai_chat_send`），排隊提問的命令與 `enqueue_assistant_job` 都已刪掉；佇列仍認得 `assistant` 這種工作，會領取、執行、重播（`vault-worker/src/intelligence/ai_queue.rs` 的 `complete_claimed_assistant_job` 等），只會碰到舊存檔裡留下的列。
