@@ -24,9 +24,9 @@ pub(crate) async fn get_url_annotation(
     state: State<'_, SessionState>,
     url: String,
 ) -> Result<Option<vault_core::UrlAnnotation>, CommandError> {
-    let key = state.get_key();
+    let state = state.inner().clone();
     run_blocking_command("get_url_annotation", move || {
-        worker_bridge::get_annotation_impl(key.as_deref(), &url)
+        worker_bridge::get_annotation_impl(&state, &url)
     })
     .await
 }
@@ -38,11 +38,9 @@ pub(crate) async fn set_url_notes(
     state: State<'_, SessionState>,
     request: vault_core::SetNotesRequest,
 ) -> Result<vault_core::UrlAnnotation, CommandError> {
-    let key = state.get_key();
-    run_blocking_command("set_url_notes", move || {
-        worker_bridge::set_notes_impl(key.as_deref(), request)
-    })
-    .await
+    let state = state.inner().clone();
+    run_blocking_command("set_url_notes", move || worker_bridge::set_notes_impl(&state, request))
+        .await
 }
 
 #[cfg(not(test))]
@@ -52,9 +50,9 @@ pub(crate) async fn replace_url_tags(
     state: State<'_, SessionState>,
     request: vault_core::ReplaceTagsRequest,
 ) -> Result<vault_core::UrlAnnotation, CommandError> {
-    let key = state.get_key();
+    let state = state.inner().clone();
     run_blocking_command("replace_url_tags", move || {
-        worker_bridge::replace_tags_impl(key.as_deref(), request)
+        worker_bridge::replace_tags_impl(&state, request)
     })
     .await
 }
@@ -65,10 +63,11 @@ pub(crate) async fn replace_url_tags(
 pub(crate) async fn list_url_annotations(
     state: State<'_, SessionState>,
     limit: Option<usize>,
-) -> Result<Vec<vault_core::UrlAnnotation>, CommandError> {
-    let key = state.get_key();
+    cursor: Option<String>,
+) -> Result<vault_core::AnnotationPage, CommandError> {
+    let state = state.inner().clone();
     run_blocking_command("list_url_annotations", move || {
-        worker_bridge::list_annotations_impl(key.as_deref(), limit)
+        worker_bridge::list_annotations_impl(&state, limit, cursor)
     })
     .await
 }
@@ -80,10 +79,11 @@ pub(crate) async fn search_url_annotations(
     state: State<'_, SessionState>,
     query: String,
     limit: Option<usize>,
-) -> Result<Vec<vault_core::UrlAnnotation>, CommandError> {
-    let key = state.get_key();
+    cursor: Option<String>,
+) -> Result<vault_core::AnnotationPage, CommandError> {
+    let state = state.inner().clone();
     run_blocking_command("search_url_annotations", move || {
-        worker_bridge::search_annotations_impl(key.as_deref(), &query, limit)
+        worker_bridge::search_annotations_impl(&state, &query, limit, cursor)
     })
     .await
 }

@@ -1,0 +1,24 @@
+[package]
+name = "vault-search"
+version = "0.1.0"
+edition = "2024"
+publish = false
+license.workspace = true
+description = "Encrypted, complete page search with stable ranking and incremental progress"
+
+[features]
+crash-points = []
+
+[dependencies]
+sha2.workspace = true
+hex.workspace = true
+tantivy = "0.26.2"
+vault-crypto = { path = "../vault-crypto" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+libc.workspace = true
+vault-crypto = { path = "../vault-crypto", features = ["crash-points"] }

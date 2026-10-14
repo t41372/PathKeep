@@ -1,5 +1,7 @@
 # Design Handoff — Source of Truth
 
+> **2026-10-02:** Everything in this folder is the handoff for the retired v0.3 Paper redesign. The current frontend follows `../prototype-2026-10/` instead (see [screens-and-nav.md](../screens-and-nav.md)). Kept for the record; nothing here is a current spec.
+
 This directory holds **immutable design source files** received from external
 design tooling. They are the visual contract that the v0.3 paper redesign
 implements. Treat them as **read-only reference**.
@@ -7,7 +9,7 @@ implements. Treat them as **read-only reference**.
 ## Current handoff
 
 - [`paper-redesign/`](./paper-redesign/) — Paper + Archival aesthetic (M16).
-  Original Claude Design (claude.ai/design) handoff bundle. Contains:
+  Design handoff bundle (2026-05). Contains:
   - `README.md` — handoff cover sheet from the design tool
   - `project/PathKeep Redesign.html` — entry HTML loading all JSX
   - `project/pk-tokens.css` — every CSS class used in the prototype (3,978 lines)
@@ -32,7 +34,7 @@ implements. Treat them as **read-only reference**.
     not shipped)
   - `project/pathkeep-mark.svg` — brand mark
 
-## How agents should use this
+## How to use this
 
 1. **Treat the HTML/JSX as visual law, not code to copy.** The handoff renders
    in a browser via Babel-standalone; production builds with React 19 + TS +

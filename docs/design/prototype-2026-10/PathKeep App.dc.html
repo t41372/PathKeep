@@ -1,0 +1,930 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/lucide-static@0.469.0/font/lucide.css">
+<style>
+html,body{margin:0;height:100%;}
+body{font-family:Geist,"PingFang TC","Noto Sans TC",system-ui,sans-serif;-webkit-font-smoothing:antialiased;}
+a{color:inherit;text-decoration:none;}
+a:hover{text-decoration:underline;}
+@keyframes pkspin{to{transform:rotate(360deg);}}
+@keyframes pkin{from{opacity:0;transform:translateY(6px);}to{opacity:1;transform:none;}}
+[data-theme="light"]{--wall:radial-gradient(120% 90% at 20% 10%,#dfe9f7 0%,#e9eef6 40%,#f7e6dc 85%,#f3d9cb 100%);--window:rgba(250,250,252,.62);--panel:rgba(255,255,255,.66);--card:rgba(255,255,255,.78);--card-solid:#fff;--fg:#0a0a0b;--muted-fg:#6b6b74;--border:rgba(15,15,30,.08);--muted:rgba(15,15,30,.045);--primary:#18181b;--primary-fg:#fafafa;--brand:oklch(0.7 0.17 48);--brand-soft:oklch(0.7 0.17 48 / .12);--blue:oklch(0.62 0.15 252);--green:oklch(0.62 0.15 150);--violet:oklch(0.62 0.15 300);--red:oklch(0.6 0.2 25);--heat0:rgba(15,15,30,.06);--heat1:oklch(0.9 0.05 52);--heat2:oklch(0.82 0.1 50);--heat3:oklch(0.74 0.15 48);--heat4:oklch(0.64 0.18 44);--shadow:0 1px 2px rgba(15,15,30,.06),0 1px 1px rgba(15,15,30,.03);--shadow-lg:0 12px 32px rgba(15,15,30,.14),0 2px 6px rgba(15,15,30,.06);--user-bubble:#18181b;--user-fg:#fafafa;}
+[data-theme="dark"]{--wall:radial-gradient(120% 90% at 30% 10%,#2a2840 0%,#1a1a2a 45%,#1f1622 80%,#2a1a1c 100%);--window:rgba(24,24,34,.62);--panel:rgba(30,30,42,.55);--card:rgba(255,255,255,.055);--card-solid:#22222e;--fg:#f4f4f5;--muted-fg:#a1a1aa;--border:rgba(255,255,255,.08);--muted:rgba(255,255,255,.05);--primary:#f4f4f5;--primary-fg:#18181b;--brand:oklch(0.74 0.16 50);--brand-soft:oklch(0.74 0.16 50 / .16);--blue:oklch(0.72 0.13 252);--green:oklch(0.72 0.13 150);--violet:oklch(0.72 0.13 300);--red:oklch(0.68 0.18 25);--heat0:rgba(255,255,255,.06);--heat1:oklch(0.38 0.07 48);--heat2:oklch(0.5 0.11 48);--heat3:oklch(0.62 0.15 48);--heat4:oklch(0.76 0.16 52);--shadow:0 1px 2px rgba(0,0,0,.3);--shadow-lg:0 16px 40px rgba(0,0,0,.45);--user-bubble:#f4f4f5;--user-fg:#18181b;}
+</style>
+</helmet>
+<div data-theme="{{ theme }}" style="position:fixed;inset:0;background:var(--wall);color:var(--fg);font-size:14px;display:flex;padding:24px;box-sizing:border-box;">
+<div style="position:relative;flex:1;min-width:0;display:flex;background:var(--window);backdrop-filter:blur(40px) saturate(1.4);-webkit-backdrop-filter:blur(40px) saturate(1.4);border:1px solid var(--border);border-radius:16px;box-shadow:0 30px 80px rgba(20,20,40,.18);overflow:hidden;">
+
+<nav style="width:76px;flex-shrink:0;display:flex;flex-direction:column;align-items:center;padding:14px 0 16px;gap:4px;">
+<div style="display:flex;gap:7px;margin-bottom:22px;">
+<span style="width:12px;height:12px;border-radius:50%;background:#ff5f57;"></span><span style="width:12px;height:12px;border-radius:50%;background:#febc2e;"></span><span style="width:12px;height:12px;border-radius:50%;background:#28c840;"></span>
+</div>
+<sc-for list="{{ nav }}" as="n" hint-placeholder-count="5">
+<button onClick="{{ n.go }}" style="width:60px;height:58px;border:0;border-radius:12px;background:{{ n.bg }};box-shadow:{{ n.shadow }};color:{{ n.color }};display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;cursor:pointer;font:inherit;">
+<i class="{{ n.icon }}" style="font-size:20px;line-height:1;"></i><span style="font-size:11px;font-weight:500;">{{ n.label }}</span>
+</button>
+</sc-for>
+<div style="flex:1;"></div>
+<button onClick="{{ openPalette }}" title="⌘K" style="width:40px;height:36px;border:0;border-radius:8px;background:transparent;color:var(--muted-fg);cursor:pointer;"><i class="icon-command" style="font-size:17px;"></i></button>
+<button onClick="{{ lock }}" title="Lock" style="width:40px;height:36px;border:0;border-radius:8px;background:transparent;color:var(--muted-fg);cursor:pointer;"><i class="icon-lock" style="font-size:17px;"></i></button>
+<button onClick="{{ toggleLang }}" title="Language" style="width:40px;height:32px;border:0;border-radius:8px;background:transparent;color:var(--muted-fg);cursor:pointer;font:500 12px Geist,sans-serif;">{{ langLabel }}</button>
+<button onClick="{{ toggleTheme }}" style="width:40px;height:36px;border:0;border-radius:8px;background:transparent;color:var(--muted-fg);cursor:pointer;"><i class="{{ themeIcon }}" style="font-size:18px;"></i></button>
+<button onClick="{{ goSettings }}" style="width:60px;height:58px;border:0;border-radius:12px;background:{{ settingsNav.bg }};box-shadow:{{ settingsNav.shadow }};color:{{ settingsNav.color }};display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;cursor:pointer;font:inherit;">
+<i class="icon-settings" style="font-size:20px;"></i><span style="font-size:11px;font-weight:500;">{{ t.nav_settings }}</span>
+</button>
+</nav>
+
+<main style="flex:1;min-width:0;margin:10px 10px 10px 0;background:var(--panel);border:1px solid var(--border);border-radius:12px;overflow:hidden;display:flex;">
+
+<sc-if value="{{ is.home }}" hint-placeholder-val="{{ true }}">
+<div style="flex:1;overflow:auto;">
+<div style="max-width:1040px;margin:0 auto;padding:36px 40px 48px;display:flex;flex-direction:column;gap:20px;">
+<header style="display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;">
+<div style="display:flex;flex-direction:column;gap:4px;">
+<span style="color:var(--muted-fg);font-size:13px;">{{ t.today_date }}</span>
+<h1 style="margin:0;font-size:30px;font-weight:600;letter-spacing:-.02em;">{{ t.greeting }}</h1>
+</div>
+<div style="display:flex;align-items:center;gap:10px;">
+<button onClick="{{ goBackup }}" style="display:flex;align-items:center;gap:8px;height:36px;padding:0 12px;border-radius:8px;background:var(--card);border:1px solid var(--border);font:13px Geist,'PingFang TC',sans-serif;color:var(--muted-fg);cursor:pointer;">
+<span style="width:7px;height:7px;border-radius:50%;background:{{ statusDot }};"></span>{{ backupStatus }}
+</button>
+<button onClick="{{ runBackup }}" style="height:36px;padding:0 14px;border:0;border-radius:8px;background:var(--primary);color:var(--primary-fg);font:500 13px Geist,'PingFang TC',sans-serif;display:flex;align-items:center;gap:6px;cursor:pointer;"><i class="{{ backupIcon }}" style="font-size:15px;display:inline-block;animation:{{ spin }};"></i>{{ backupLabel }}</button>
+</div>
+</header>
+
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;">
+<sc-for list="{{ stats }}" as="s" hint-placeholder-count="4">
+<button onClick="{{ s.go }}" style="text-align:left;font:inherit;color:inherit;cursor:pointer;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px 18px;box-shadow:var(--shadow);display:flex;flex-direction:column;gap:6px;">
+<span style="font-size:13px;color:var(--muted-fg);">{{ s.label }}</span>
+<span style="font-size:24px;font-weight:600;letter-spacing:-.02em;font-variant-numeric:tabular-nums;">{{ s.value }}</span>
+<span style="font-size:12px;color:var(--muted-fg);">{{ s.sub }}</span>
+</button>
+</sc-for>
+</div>
+
+<div style="display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);gap:16px;">
+<div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:20px;box-shadow:var(--shadow);display:flex;flex-direction:column;gap:14px;min-width:0;">
+<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
+<div style="display:flex;flex-direction:column;gap:4px;"><span style="font-weight:600;">{{ t.chart_title }}</span><span style="font-size:13px;color:var(--muted-fg);">{{ t.chart_sub }}</span></div>
+<span style="font-size:12px;font-weight:500;padding:2px 8px;border-radius:6px;background:var(--brand-soft);color:var(--brand);">+12.4%</span>
+</div>
+<div style="position:relative;" onMouseMove="{{ onChartMove }}" onMouseLeave="{{ onChartLeave }}">
+<svg viewBox="0 0 600 170" preserveAspectRatio="none" style="width:100%;height:190px;overflow:visible;display:block;">
+<defs><linearGradient id="pkArea" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="var(--brand)" stop-opacity=".35"></stop><stop offset="100%" stop-color="var(--brand)" stop-opacity="0"></stop></linearGradient></defs>
+<line x1="0" x2="600" y1="0" y2="0" stroke="var(--border)" stroke-dasharray="3 4"></line><line x1="0" x2="600" y1="56" y2="56" stroke="var(--border)" stroke-dasharray="3 4"></line><line x1="0" x2="600" y1="113" y2="113" stroke="var(--border)" stroke-dasharray="3 4"></line><line x1="0" x2="600" y1="170" y2="170" stroke="var(--border)"></line>
+<path d="{{ area.fill }}" fill="url(#pkArea)"></path>
+<path d="{{ area.line }}" fill="none" stroke="var(--brand)" stroke-width="2" vector-effect="non-scaling-stroke"></path>
+<line x1="{{ hover.x }}" x2="{{ hover.x }}" y1="0" y2="170" stroke="var(--fg)" stroke-opacity="{{ hover.o }}" stroke-dasharray="2 3" vector-effect="non-scaling-stroke"></line>
+</svg>
+<sc-if value="{{ hover.show }}" hint-placeholder-val="{{ false }}">
+<div style="position:absolute;top:0;left:{{ hover.left }};transform:translateX(-50%);pointer-events:none;background:var(--card-solid);border:1px solid var(--border);border-radius:8px;box-shadow:var(--shadow-lg);padding:6px 10px;display:flex;flex-direction:column;gap:2px;white-space:nowrap;">
+<span style="font:11px 'Geist Mono',monospace;color:var(--muted-fg);">{{ hover.date }}</span><span style="font-weight:600;font-size:13px;font-variant-numeric:tabular-nums;">{{ hover.value }}</span>
+</div>
+</sc-if>
+</div>
+<div style="display:flex;justify-content:space-between;font:12px 'Geist Mono',monospace;color:var(--muted-fg);"><span>9/2</span><span>9/9</span><span>9/16</span><span>9/23</span><span>10/2</span></div>
+</div>
+<div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:20px;box-shadow:var(--shadow);display:flex;flex-direction:column;gap:12px;min-width:0;">
+<div style="display:flex;flex-direction:column;gap:4px;"><span style="font-weight:600;">{{ t.otd_title }}</span><span style="font-size:13px;color:var(--muted-fg);">{{ t.otd_sub }}</span></div>
+<sc-for list="{{ onThisDay }}" as="o" hint-placeholder-count="3">
+<button onClick="{{ o.go }}" style="display:flex;gap:12px;align-items:flex-start;text-align:left;border:0;background:transparent;padding:8px;margin:0 -8px;border-radius:8px;cursor:pointer;color:inherit;font:inherit;" style-hover="background:var(--muted);">
+<span style="font:500 12px 'Geist Mono',monospace;color:var(--brand);padding-top:2px;min-width:38px;">{{ o.year }}</span>
+<span style="display:flex;flex-direction:column;gap:2px;min-width:0;"><span style="font-weight:500;line-height:1.4;">{{ o.title }}</span><span style="font-size:12px;color:var(--muted-fg);">{{ o.meta }}</span></span>
+</button>
+</sc-for>
+</div>
+</div>
+
+<div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:20px;box-shadow:var(--shadow);display:flex;flex-direction:column;gap:14px;min-width:0;">
+<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">
+<div style="display:flex;flex-direction:column;gap:4px;"><span style="font-weight:600;">{{ t.heat_title }}</span><span style="font-size:13px;color:var(--muted-fg);">{{ t.heat_sub }}</span></div>
+<div style="display:flex;align-items:center;gap:4px;">
+<button onClick="{{ prevYear }}" style="width:28px;height:28px;border:1px solid var(--border);border-radius:6px;background:transparent;color:{{ prevYearColor }};cursor:pointer;"><i class="icon-chevron-left"></i></button>
+<span style="font:500 13px 'Geist Mono',monospace;padding:0 8px;">{{ year }}</span>
+<button onClick="{{ nextYear }}" style="width:28px;height:28px;border:1px solid var(--border);border-radius:6px;background:transparent;color:{{ nextYearColor }};cursor:pointer;"><i class="icon-chevron-right"></i></button>
+</div>
+</div>
+<div style="overflow-x:auto;">
+<div style="display:flex;gap:3px;min-width:max-content;">
+<sc-for list="{{ yearWeeks }}" as="w" hint-placeholder-count="52">
+<div style="display:flex;flex-direction:column;gap:3px;">
+<sc-for list="{{ w.days }}" as="d" hint-placeholder-count="7">
+<span title="{{ d.tip }}" onClick="{{ d.go }}" style="width:13px;height:13px;border-radius:3px;background:{{ d.c }};cursor:pointer;" style-hover="outline:1.5px solid var(--fg);outline-offset:1px;"></span>
+</sc-for>
+</div>
+</sc-for>
+</div>
+</div>
+<div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;color:var(--muted-fg);gap:12px;flex-wrap:wrap;">
+<span>{{ heatFoot }}</span>
+<span style="display:flex;align-items:center;gap:4px;">{{ t.less }}<span style="width:11px;height:11px;border-radius:3px;background:var(--heat0);"></span><span style="width:11px;height:11px;border-radius:3px;background:var(--heat1);"></span><span style="width:11px;height:11px;border-radius:3px;background:var(--heat2);"></span><span style="width:11px;height:11px;border-radius:3px;background:var(--heat3);"></span><span style="width:11px;height:11px;border-radius:3px;background:var(--heat4);"></span>{{ t.more }}</span>
+</div>
+</div>
+
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px;">
+<div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:20px;box-shadow:var(--shadow);display:flex;flex-direction:column;gap:2px;">
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><span style="font-weight:600;">{{ t.threads_title }}</span><button onClick="{{ goInsights }}" style="border:0;background:transparent;color:var(--muted-fg);font:13px Geist,'PingFang TC',sans-serif;cursor:pointer;">{{ t.see_all }} →</button></div>
+<sc-for list="{{ threads }}" as="th" hint-placeholder-count="4">
+<button onClick="{{ th.go }}" style="display:flex;align-items:center;gap:12px;padding:8px;margin:0 -8px;border:0;border-radius:8px;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer;" style-hover="background:var(--muted);">
+<span style="width:8px;height:8px;border-radius:50%;background:{{ th.color }};flex-shrink:0;"></span>
+<span style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;"><span style="font-weight:500;">{{ th.title }}</span><span style="font-size:12px;color:var(--muted-fg);">{{ th.meta }}</span></span>
+<span style="font:12px 'Geist Mono',monospace;color:var(--muted-fg);">{{ th.when }}</span>
+</button>
+</sc-for>
+</div>
+<div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:20px;box-shadow:var(--shadow);display:flex;flex-direction:column;gap:12px;">
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;"><span style="font-weight:600;">{{ t.sources_title }}</span><button onClick="{{ goBackup }}" style="border:0;background:transparent;color:var(--muted-fg);font:13px Geist,'PingFang TC',sans-serif;cursor:pointer;">{{ t.manage }} →</button></div>
+<sc-for list="{{ sources }}" as="src" hint-placeholder-count="5">
+<div style="display:flex;align-items:center;gap:12px;opacity:{{ src.dim }};">
+<img src="{{ src.icon }}" alt="" style="width:22px;height:22px;"><span style="flex:1;font-weight:500;">{{ src.name }}</span>
+<span style="font:12px 'Geist Mono',monospace;color:var(--muted-fg);">{{ src.visits }}</span>
+<span style="width:72px;height:6px;border-radius:3px;background:var(--muted);overflow:hidden;"><span style="display:block;height:100%;width:{{ src.pct }};background:var(--fg);opacity:.7;"></span></span>
+</div>
+</sc-for>
+</div>
+</div>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ is.history }}" hint-placeholder-val="{{ false }}">
+<div style="flex:1;min-width:0;display:flex;flex-direction:column;">
+<div style="padding:20px 28px 14px;display:flex;flex-direction:column;gap:12px;border-bottom:1px solid var(--border);">
+<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+<div style="flex:1;min-width:260px;position:relative;display:flex;align-items:center;">
+<i class="icon-search" style="position:absolute;left:12px;color:var(--muted-fg);font-size:16px;"></i>
+<input value="{{ query }}" onChange="{{ onQuery }}" placeholder="{{ t.search_ph }}" style="width:100%;height:40px;padding:0 70px 0 38px;border:1px solid var(--border);border-radius:10px;background:var(--card-solid);color:var(--fg);font:14px Geist,'PingFang TC',sans-serif;outline:none;box-sizing:border-box;box-shadow:var(--shadow);">
+<sc-if value="{{ searching }}" hint-placeholder-val="{{ false }}"><button onClick="{{ clearQuery }}" style="position:absolute;right:44px;width:22px;height:22px;border:0;border-radius:50%;background:var(--muted);color:var(--muted-fg);cursor:pointer;display:flex;align-items:center;justify-content:center;"><i class="icon-x" style="font-size:12px;"></i></button></sc-if>
+<span style="position:absolute;right:10px;font:11px 'Geist Mono',monospace;color:var(--muted-fg);border:1px solid var(--border);border-radius:5px;padding:2px 6px;">⌘K</span>
+</div>
+<div style="display:flex;padding:3px;border-radius:9px;background:var(--muted);gap:2px;">
+<sc-for list="{{ historyViews }}" as="v" hint-placeholder-count="3">
+<button onClick="{{ v.go }}" style="height:32px;padding:0 12px;border:0;border-radius:7px;background:{{ v.bg }};box-shadow:{{ v.shadow }};color:{{ v.color }};font:500 13px Geist,'PingFang TC',sans-serif;cursor:pointer;display:flex;align-items:center;gap:6px;">{{ v.label }}<span style="font:11px 'Geist Mono',monospace;color:var(--muted-fg);">{{ v.count }}</span></button>
+</sc-for>
+</div>
+</div>
+<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+<div style="position:relative;">
+<button onClick="{{ menuDate }}" style="height:30px;padding:0 10px;border:1px solid {{ dateBtn.border }};border-radius:8px;background:{{ dateBtn.bg }};color:var(--fg);font:13px Geist,'PingFang TC',sans-serif;display:flex;align-items:center;gap:6px;cursor:pointer;"><i class="icon-calendar" style="font-size:14px;"></i>{{ dateBtn.label }}<i class="icon-chevron-down" style="font-size:13px;color:var(--muted-fg);"></i></button>
+<sc-if value="{{ dateMenuOpen }}" hint-placeholder-val="{{ false }}">
+<div style="position:absolute;top:calc(100% + 4px);left:0;z-index:30;min-width:180px;background:var(--card-solid);border:1px solid var(--border);border-radius:10px;box-shadow:var(--shadow-lg);padding:4px;display:flex;flex-direction:column;animation:pkin .12s ease-out;">
+<sc-for list="{{ dateOptions }}" as="op" hint-placeholder-count="3">
+<button onClick="{{ op.pick }}" style="height:32px;border:0;border-radius:6px;background:transparent;color:var(--fg);font:13px Geist,'PingFang TC',sans-serif;display:flex;align-items:center;gap:8px;padding:0 8px;cursor:pointer;text-align:left;" style-hover="background:var(--muted);"><i class="icon-check" style="font-size:14px;opacity:{{ op.on }};"></i>{{ op.label }}</button>
+</sc-for>
+</div>
+</sc-if>
+</div>
+<div style="position:relative;">
+<button onClick="{{ menuBrowser }}" style="height:30px;padding:0 10px;border:1px solid {{ browserBtn.border }};border-radius:8px;background:{{ browserBtn.bg }};color:var(--fg);font:13px Geist,'PingFang TC',sans-serif;display:flex;align-items:center;gap:6px;cursor:pointer;"><i class="icon-globe" style="font-size:14px;"></i>{{ browserBtn.label }}<i class="icon-chevron-down" style="font-size:13px;color:var(--muted-fg);"></i></button>
+<sc-if value="{{ browserMenuOpen }}" hint-placeholder-val="{{ false }}">
+<div style="position:absolute;top:calc(100% + 4px);left:0;z-index:30;min-width:200px;background:var(--card-solid);border:1px solid var(--border);border-radius:10px;box-shadow:var(--shadow-lg);padding:4px;display:flex;flex-direction:column;animation:pkin .12s ease-out;">
+<sc-for list="{{ browserOptions }}" as="op" hint-placeholder-count="5">
+<button onClick="{{ op.pick }}" style="height:34px;border:0;border-radius:6px;background:transparent;color:var(--fg);font:13px Geist,'PingFang TC',sans-serif;display:flex;align-items:center;gap:10px;padding:0 8px;cursor:pointer;text-align:left;" style-hover="background:var(--muted);">
+<span style="width:16px;height:16px;border-radius:4px;border:1.5px solid {{ op.boxBorder }};background:{{ op.boxBg }};color:var(--primary-fg);display:flex;align-items:center;justify-content:center;"><i class="icon-check" style="font-size:11px;opacity:{{ op.on }};"></i></span>
+<img src="{{ op.icon }}" alt="" style="width:16px;height:16px;">{{ op.label }}
+</button>
+</sc-for>
+</div>
+</sc-if>
+</div>
+<sc-if value="{{ hasDomainFilter }}" hint-placeholder-val="{{ false }}">
+<span style="height:30px;padding:0 6px 0 10px;border:1px solid var(--primary);border-radius:8px;background:var(--primary);color:var(--primary-fg);font:13px Geist,'PingFang TC',sans-serif;display:flex;align-items:center;gap:6px;">{{ domainFilter }}<button onClick="{{ clearDomain }}" style="width:20px;height:20px;border:0;border-radius:4px;background:transparent;color:inherit;cursor:pointer;display:flex;align-items:center;justify-content:center;"><i class="icon-x" style="font-size:13px;"></i></button></span>
+</sc-if>
+<sc-if value="{{ hasAnyFilter }}" hint-placeholder-val="{{ false }}">
+<button onClick="{{ resetFilters }}" style="height:30px;padding:0 8px;border:0;background:transparent;color:var(--muted-fg);font:13px Geist,'PingFang TC',sans-serif;cursor:pointer;">{{ t.reset }}</button>
+</sc-if>
+<sc-if value="{{ searching }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;gap:4px;margin-left:auto;">
+<sc-for list="{{ searchModes }}" as="m" hint-placeholder-count="3">
+<button onClick="{{ m.go }}" style="height:28px;padding:0 10px;border:1px solid {{ m.border }};border-radius:999px;background:{{ m.bg }};color:{{ m.color }};font:500 12px Geist,'PingFang TC',sans-serif;cursor:pointer;">{{ m.label }}</button>
+</sc-for>
+</div>
+</sc-if>
+</div>
+</div>
+<div style="flex:1;min-height:0;display:flex;">
+<div style="flex:1;min-width:0;overflow:auto;padding:8px 28px 32px;">
+
+<sc-if value="{{ showResults }}" hint-placeholder-val="{{ false }}">
+<div style="padding:14px 0 6px;font-size:13px;color:var(--muted-fg);display:flex;align-items:center;gap:8px;">{{ resultsLabel }}<sc-if value="{{ regexError }}" hint-placeholder-val="{{ false }}"><span style="color:var(--red);">· {{ t.regex_err }}</span></sc-if></div>
+<sc-for list="{{ results }}" as="r" hint-placeholder-count="4">
+<button onClick="{{ r.select }}" style="width:100%;display:flex;gap:12px;align-items:flex-start;text-align:left;border:0;border-radius:10px;background:{{ r.bg }};padding:12px;cursor:pointer;color:inherit;font:inherit;" style-hover="background:var(--muted);">
+<span style="width:28px;height:28px;border-radius:7px;background:{{ r.fav }};color:#fff;font:600 13px Geist,sans-serif;display:flex;align-items:center;justify-content:center;flex-shrink:0;">{{ r.letter }}</span>
+<span style="flex:1;min-width:0;display:flex;flex-direction:column;gap:3px;"><span style="font-weight:500;">{{ r.title }}</span><span style="font:12px 'Geist Mono',monospace;color:var(--muted-fg);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ r.url }}</span><span style="font-size:12px;color:var(--muted-fg);">{{ r.when }}</span></span>
+<sc-if value="{{ r.semantic }}" hint-placeholder-val="{{ false }}"><span style="font:11px 'Geist Mono',monospace;color:var(--brand);padding:2px 6px;border-radius:5px;background:var(--brand-soft);">{{ r.score }}</span></sc-if>
+</button>
+</sc-for>
+</sc-if>
+
+<sc-if value="{{ showTimeline }}" hint-placeholder-val="{{ true }}">
+<sc-for list="{{ days }}" as="day" hint-placeholder-count="2">
+<section style="display:flex;flex-direction:column;">
+<div style="display:flex;align-items:baseline;gap:10px;padding:16px 0 8px;">
+<span style="font-size:15px;font-weight:600;">{{ day.label }}</span><span style="font-size:12px;color:var(--muted-fg);">{{ day.count }}</span>
+</div>
+<sc-for list="{{ day.sessions }}" as="ses" hint-placeholder-count="2">
+<div style="display:flex;flex-direction:column;margin-bottom:10px;">
+<div style="display:flex;align-items:center;gap:8px;padding:6px 0;font-size:12px;color:var(--muted-fg);"><i class="icon-git-commit-horizontal" style="font-size:14px;"></i>{{ ses.label }}</div>
+<sc-for list="{{ ses.items }}" as="it" hint-placeholder-count="3">
+<button onClick="{{ it.select }}" style="width:100%;display:flex;align-items:center;gap:12px;text-align:left;border:0;border-radius:8px;background:{{ it.bg }};padding:8px 10px;cursor:pointer;color:inherit;font:inherit;" style-hover="background:var(--muted);">
+<span style="font:12px 'Geist Mono',monospace;color:var(--muted-fg);width:40px;flex-shrink:0;">{{ it.time }}</span>
+<span style="width:22px;height:22px;border-radius:6px;background:{{ it.fav }};color:#fff;font:600 11px Geist,sans-serif;display:flex;align-items:center;justify-content:center;flex-shrink:0;">{{ it.letter }}</span>
+<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ it.title }}</span>
+<i class="icon-star" style="font-size:13px;color:var(--brand);opacity:{{ it.starO }};"></i>
+<span style="font-size:12px;color:var(--muted-fg);flex-shrink:0;">{{ it.domain }}</span>
+<img src="{{ it.browser }}" alt="" style="width:14px;height:14px;opacity:.85;flex-shrink:0;">
+</button>
+</sc-for>
+</div>
+</sc-for>
+</section>
+</sc-for>
+</sc-if>
+
+<sc-if value="{{ showSites }}" hint-placeholder-val="{{ false }}">
+<div style="padding-top:12px;display:flex;flex-direction:column;">
+<sc-for list="{{ siteRows }}" as="sr" hint-placeholder-count="6">
+<button onClick="{{ sr.go }}" style="display:flex;align-items:center;gap:14px;padding:12px 10px;border:0;border-bottom:1px solid var(--border);background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer;" style-hover="background:var(--muted);">
+<span style="width:28px;height:28px;border-radius:7px;background:{{ sr.fav }};color:#fff;font:600 13px Geist,sans-serif;display:flex;align-items:center;justify-content:center;">{{ sr.letter }}</span>
+<span style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;"><span style="font-weight:500;">{{ sr.domain }}</span><span style="font-size:12px;color:var(--muted-fg);">{{ sr.meta }}</span></span>
+<span style="width:120px;height:6px;border-radius:3px;background:var(--muted);overflow:hidden;"><span style="display:block;height:100%;width:{{ sr.pct }};background:var(--brand);"></span></span>
+<span style="font:12px 'Geist Mono',monospace;color:var(--muted-fg);width:60px;text-align:right;">{{ sr.n }}</span>
+<i class="icon-chevron-right" style="color:var(--muted-fg);"></i>
+</button>
+</sc-for>
+</div>
+</sc-if>
+
+<sc-if value="{{ showStarred }}" hint-placeholder-val="{{ false }}">
+<div style="padding-top:12px;display:flex;flex-direction:column;gap:2px;">
+<sc-for list="{{ starredRows }}" as="r" hint-placeholder-count="2">
+<button onClick="{{ r.select }}" style="width:100%;display:flex;gap:12px;align-items:center;text-align:left;border:0;border-radius:10px;background:{{ r.bg }};padding:12px;cursor:pointer;color:inherit;font:inherit;" style-hover="background:var(--muted);">
+<i class="icon-star" style="color:var(--brand);font-size:15px;"></i>
+<span style="width:24px;height:24px;border-radius:6px;background:{{ r.fav }};color:#fff;font:600 12px Geist,sans-serif;display:flex;align-items:center;justify-content:center;">{{ r.letter }}</span>
+<span style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;"><span style="font-weight:500;">{{ r.title }}</span><span style="font-size:12px;color:var(--muted-fg);">{{ r.noteLine }}</span></span>
+<span style="font-size:12px;color:var(--muted-fg);">{{ r.domain }}</span>
+</button>
+</sc-for>
+</div>
+</sc-if>
+
+<sc-if value="{{ showEmpty }}" hint-placeholder-val="{{ false }}">
+<div style="padding:72px 0;text-align:center;color:var(--muted-fg);display:flex;flex-direction:column;gap:10px;align-items:center;"><i class="{{ empty.icon }}" style="font-size:28px;"></i><span style="font-weight:500;color:var(--fg);">{{ empty.title }}</span><span style="font-size:13px;">{{ empty.desc }}</span></div>
+</sc-if>
+</div>
+
+<sc-if value="{{ hasSelection }}" hint-placeholder-val="{{ true }}">
+<aside style="width:320px;flex-shrink:0;border-left:1px solid var(--border);overflow:auto;padding:24px;display:flex;flex-direction:column;gap:18px;">
+<div style="display:flex;gap:12px;align-items:flex-start;">
+<span style="width:36px;height:36px;border-radius:9px;background:{{ sel.fav }};color:#fff;font:600 15px Geist,sans-serif;display:flex;align-items:center;justify-content:center;flex-shrink:0;">{{ sel.letter }}</span>
+<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:4px;"><span style="font-weight:600;line-height:1.35;">{{ sel.title }}</span><span style="font:12px 'Geist Mono',monospace;color:var(--muted-fg);word-break:break-all;">{{ sel.url }}</span></div>
+<button onClick="{{ closeDetail }}" style="width:26px;height:26px;border:0;border-radius:6px;background:transparent;color:var(--muted-fg);cursor:pointer;flex-shrink:0;"><i class="icon-x" style="font-size:15px;"></i></button>
+</div>
+<div style="display:flex;gap:8px;">
+<button onClick="{{ openInBrowser }}" style="flex:1;height:34px;border:0;border-radius:8px;background:var(--primary);color:var(--primary-fg);font:500 13px Geist,'PingFang TC',sans-serif;display:flex;align-items:center;justify-content:center;gap:6px;cursor:pointer;"><i class="icon-external-link" style="font-size:14px;"></i>{{ t.open }}</button>
+<button onClick="{{ toggleStar }}" title="{{ t.star }}" style="width:34px;height:34px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:{{ starColor }};cursor:pointer;"><i class="icon-star" style="font-size:15px;"></i></button>
+<button onClick="{{ copyUrl }}" title="{{ t.copy }}" style="width:34px;height:34px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--fg);cursor:pointer;"><i class="icon-copy" style="font-size:15px;"></i></button>
+</div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+<sc-for list="{{ sel.facts }}" as="f" hint-placeholder-count="4">
+<div style="display:flex;flex-direction:column;gap:3px;padding:10px 12px;border-radius:10px;background:var(--muted);"><span style="font-size:12px;color:var(--muted-fg);">{{ f.k }}</span><span style="font-weight:600;font-variant-numeric:tabular-nums;">{{ f.v }}</span></div>
+</sc-for>
+</div>
+<div style="display:flex;flex-direction:column;gap:8px;">
+<span style="font-size:12px;color:var(--muted-fg);">{{ t.visits_12w }}</span>
+<div style="display:flex;align-items:flex-end;gap:3px;height:48px;">
+<sc-for list="{{ sel.spark }}" as="b" hint-placeholder-count="12">
+<span title="{{ b.tip }}" style="flex:1;height:{{ b.h }};border-radius:3px 3px 0 0;background:var(--brand);opacity:{{ b.o }};"></span>
+</sc-for>
+</div>
+</div>
+<div style="display:flex;flex-direction:column;gap:6px;">
+<span style="font-size:12px;color:var(--muted-fg);">{{ t.same_session }}</span>
+<sc-for list="{{ sel.related }}" as="rl" hint-placeholder-count="2">
+<button onClick="{{ rl.select }}" style="display:flex;align-items:center;gap:8px;border:0;background:transparent;padding:4px 0;color:inherit;font:13px Geist,'PingFang TC',sans-serif;text-align:left;cursor:pointer;"><span style="font:11px 'Geist Mono',monospace;color:var(--muted-fg);">{{ rl.time }}</span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ rl.title }}</span></button>
+</sc-for>
+</div>
+<div style="display:flex;flex-direction:column;gap:6px;">
+<span style="font-size:12px;color:var(--muted-fg);">{{ t.note }}</span>
+<textarea value="{{ noteValue }}" onChange="{{ onNote }}" placeholder="{{ t.note_ph }}" style="min-height:72px;resize:vertical;border:1px solid var(--border);border-radius:8px;background:var(--card-solid);color:var(--fg);padding:8px 10px;font:13px Geist,'PingFang TC',sans-serif;outline:none;"></textarea>
+</div>
+</aside>
+</sc-if>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ is.insights }}" hint-placeholder-val="{{ false }}">
+<div style="flex:1;overflow:auto;">
+<div style="max-width:1080px;margin:0 auto;padding:36px 40px 48px;display:flex;flex-direction:column;gap:18px;">
+<header style="display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap;">
+<div style="display:flex;flex-direction:column;gap:4px;"><h1 style="margin:0;font-size:30px;font-weight:600;letter-spacing:-.02em;">{{ t.nav_insights }}</h1><span style="font-size:13px;color:var(--muted-fg);">{{ t.insights_sub }}</span></div>
+<div style="display:flex;padding:3px;border-radius:9px;background:var(--muted);gap:2px;">
+<sc-for list="{{ ranges }}" as="rg" hint-placeholder-count="4">
+<button onClick="{{ rg.go }}" style="height:30px;padding:0 12px;border:0;border-radius:7px;background:{{ rg.bg }};box-shadow:{{ rg.shadow }};color:{{ rg.color }};font:500 13px Geist,'PingFang TC',sans-serif;cursor:pointer;">{{ rg.label }}</button>
+</sc-for>
+</div>
+</header>
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;">
+<sc-for list="{{ kpis }}" as="k" hint-placeholder-count="4">
+<div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px 16px;box-shadow:var(--shadow);display:flex;flex-direction:column;gap:4px;"><span style="font-size:13px;color:var(--muted-fg);">{{ k.label }}</span><span style="display:flex;align-items:baseline;gap:8px;"><span style="font-size:22px;font-weight:600;font-variant-numeric:tabular-nums;">{{ k.value }}</span><span style="font-size:12px;color:{{ k.dc }};">{{ k.delta }}</span></span></div>
+</sc-for>
+</div>
+<div style="display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:16px;">
+<div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:20px;box-shadow:var(--shadow);display:flex;flex-direction:column;gap:12px;min-width:0;">
+<div style="display:flex;justify-content:space-between;"><span style="font-weight:600;">{{ t.bar_title }}</span><span style="display:flex;gap:12px;font-size:12px;color:var(--muted-fg);"><span style="display:flex;align-items:center;gap:5px;"><span style="width:8px;height:8px;border-radius:2px;background:var(--brand);"></span>{{ t.pages }}</span><span style="display:flex;align-items:center;gap:5px;"><span style="width:8px;height:8px;border-radius:2px;background:var(--blue);"></span>{{ t.searches }}</span></span></div>
+<svg viewBox="0 0 600 180" preserveAspectRatio="none" style="width:100%;height:200px;">
+<line x1="0" x2="600" y1="45" y2="45" stroke="var(--border)" stroke-dasharray="3 4"></line><line x1="0" x2="600" y1="90" y2="90" stroke="var(--border)" stroke-dasharray="3 4"></line><line x1="0" x2="600" y1="135" y2="135" stroke="var(--border)" stroke-dasharray="3 4"></line><line x1="0" x2="600" y1="180" y2="180" stroke="var(--border)"></line>
+<sc-for list="{{ bars }}" as="br" hint-placeholder-count="14">
+<g><title>{{ br.tip }}</title>
+<rect x="{{ br.x }}" y="{{ br.y }}" width="{{ br.w }}" height="{{ br.h }}" rx="3" fill="var(--brand)"></rect>
+<rect x="{{ br.x2 }}" y="{{ br.y2 }}" width="{{ br.w }}" height="{{ br.h2 }}" rx="3" fill="var(--blue)"></rect></g>
+</sc-for>
+</svg>
+<div style="display:flex;justify-content:space-between;font:12px 'Geist Mono',monospace;color:var(--muted-fg);"><sc-for list="{{ barLabels }}" as="bl" hint-placeholder-count="3"><span>{{ bl }}</span></sc-for></div>
+</div>
+<div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:20px;box-shadow:var(--shadow);display:flex;flex-direction:column;gap:6px;min-width:0;">
+<span style="font-weight:600;margin-bottom:6px;">{{ t.top_domains }}</span>
+<sc-for list="{{ domains }}" as="dm" hint-placeholder-count="6">
+<button onClick="{{ dm.go }}" style="position:relative;display:flex;align-items:center;gap:10px;height:32px;padding:0 10px;border:0;border-radius:7px;overflow:hidden;background:transparent;color:inherit;font:inherit;cursor:pointer;text-align:left;" style-hover="background:var(--muted);">
+<span style="position:absolute;left:0;top:0;bottom:0;width:{{ dm.pct }};background:var(--brand-soft);border-radius:7px;"></span>
+<span style="position:relative;width:18px;height:18px;border-radius:5px;background:{{ dm.fav }};color:#fff;font:600 10px Geist,sans-serif;display:flex;align-items:center;justify-content:center;">{{ dm.letter }}</span>
+<span style="position:relative;flex:1;font-size:13px;">{{ dm.name }}</span>
+<span style="position:relative;font:12px 'Geist Mono',monospace;color:var(--muted-fg);">{{ dm.n }}</span>
+</button>
+</sc-for>
+</div>
+</div>
+<div style="display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:16px;">
+<div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:20px;box-shadow:var(--shadow);display:flex;flex-direction:column;gap:12px;min-width:0;">
+<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;"><div style="display:flex;flex-direction:column;gap:4px;"><span style="font-weight:600;">{{ t.rhythm_title }}</span><span style="font-size:13px;color:var(--muted-fg);">{{ rhythmHint }}</span></div></div>
+<div style="display:flex;flex-direction:column;gap:3px;overflow-x:auto;" onMouseLeave="{{ rhythmLeave }}">
+<sc-for list="{{ rhythm }}" as="row" hint-placeholder-count="7">
+<div style="display:flex;align-items:center;gap:3px;">
+<span style="width:28px;font-size:11px;color:var(--muted-fg);flex-shrink:0;">{{ row.label }}</span>
+<sc-for list="{{ row.cells }}" as="c" hint-placeholder-count="24">
+<span onMouseEnter="{{ c.enter }}" style="flex:1;min-width:12px;height:18px;border-radius:3px;background:{{ c.c }};"></span>
+</sc-for>
+</div>
+</sc-for>
+<div style="display:flex;gap:3px;padding-left:31px;font:10px 'Geist Mono',monospace;color:var(--muted-fg);justify-content:space-between;"><span>00</span><span>06</span><span>12</span><span>18</span><span>23</span></div>
+</div>
+</div>
+<div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:20px;box-shadow:var(--shadow);display:flex;flex-direction:column;gap:10px;min-width:0;">
+<span style="font-weight:600;margin-bottom:4px;">{{ t.keywords }}</span>
+<div style="display:flex;flex-wrap:wrap;gap:6px;">
+<sc-for list="{{ keywords }}" as="kw" hint-placeholder-count="8">
+<button onClick="{{ kw.go }}" style="display:flex;align-items:center;gap:6px;height:28px;padding:0 10px;border-radius:999px;border:1px solid var(--border);background:var(--card);color:var(--fg);font:13px Geist,'PingFang TC',sans-serif;cursor:pointer;" style-hover="background:var(--muted);">{{ kw.q }}<span style="font:11px 'Geist Mono',monospace;color:var(--muted-fg);">{{ kw.n }}</span></button>
+</sc-for>
+</div>
+<span style="font-weight:600;margin:12px 0 2px;">{{ t.refind }}</span>
+<sc-for list="{{ refind }}" as="rf" hint-placeholder-count="3">
+<button onClick="{{ rf.go }}" style="display:flex;align-items:center;gap:10px;font:13px Geist,'PingFang TC',sans-serif;padding:4px 0;border:0;background:transparent;color:inherit;cursor:pointer;text-align:left;"><i class="icon-repeat" style="color:var(--muted-fg);font-size:14px;"></i><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ rf.title }}</span><span style="font:12px 'Geist Mono',monospace;color:var(--muted-fg);">{{ rf.n }}</span></button>
+</sc-for>
+</div>
+</div>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ is.ask }}" hint-placeholder-val="{{ false }}">
+<div style="width:260px;flex-shrink:0;border-right:1px solid var(--border);padding:14px;display:flex;flex-direction:column;gap:6px;overflow:auto;">
+<button onClick="{{ newChat }}" style="height:40px;border:0;border-radius:10px;background:var(--muted);color:var(--fg);font:500 14px Geist,'PingFang TC',sans-serif;display:flex;align-items:center;justify-content:center;gap:8px;cursor:pointer;flex-shrink:0;"><i class="icon-plus" style="font-size:16px;"></i>{{ t.new_chat }}<span style="font:11px 'Geist Mono',monospace;color:var(--muted-fg);">⌘N</span></button>
+<span style="font-size:12px;color:var(--muted-fg);padding:14px 8px 4px;">{{ t.today }}</span>
+<sc-for list="{{ chats }}" as="ch" hint-placeholder-count="3">
+<button onClick="{{ ch.go }}" style="padding:10px 12px;border:0;border-radius:10px;background:{{ ch.bg }};box-shadow:{{ ch.shadow }};display:flex;flex-direction:column;gap:3px;cursor:pointer;color:inherit;font:inherit;text-align:left;"><span style="font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%;">{{ ch.title }}</span><span style="font-size:12px;color:var(--muted-fg);">{{ ch.meta }}</span></button>
+</sc-for>
+</div>
+<div style="flex:1;min-width:0;display:flex;flex-direction:column;">
+<div ref="{{ chatScrollRef }}" style="flex:1;overflow:auto;">
+<sc-if value="{{ chatEmpty }}" hint-placeholder-val="{{ false }}">
+<div style="max-width:600px;margin:0 auto;padding:18vh 32px 32px;display:flex;flex-direction:column;align-items:center;gap:18px;text-align:center;">
+<img src="assets/pathkeep-mark.svg" alt="" style="width:40px;height:40px;">
+<span style="font-size:22px;font-weight:600;letter-spacing:-.01em;">{{ t.ask_empty }}</span>
+<span style="font-size:13px;color:var(--muted-fg);max-width:420px;line-height:1.55;">{{ t.ask_empty_sub }}</span>
+<div style="display:flex;flex-direction:column;gap:6px;width:100%;">
+<sc-for list="{{ suggestions }}" as="sg" hint-placeholder-count="3">
+<button onClick="{{ sg.go }}" style="display:flex;align-items:center;gap:10px;padding:12px 14px;border:1px solid var(--border);border-radius:10px;background:var(--card);color:var(--fg);font:14px Geist,'PingFang TC',sans-serif;cursor:pointer;text-align:left;" style-hover="background:var(--card-solid);"><i class="icon-corner-down-right" style="color:var(--muted-fg);font-size:14px;"></i>{{ sg.text }}</button>
+</sc-for>
+</div>
+</div>
+</sc-if>
+<div style="max-width:760px;margin:0 auto;padding:28px 32px;display:flex;flex-direction:column;gap:14px;">
+<sc-for list="{{ messages }}" as="m" hint-placeholder-count="2">
+<div style="display:flex;flex-direction:column;gap:12px;animation:pkin .2s ease-out;">
+<sc-if value="{{ m.isUser }}" hint-placeholder-val="{{ true }}">
+<span style="align-self:center;font-size:12px;color:var(--muted-fg);">{{ m.time }}</span>
+<div style="align-self:flex-end;max-width:80%;padding:10px 16px;border-radius:18px;background:var(--user-bubble);color:var(--user-fg);line-height:1.5;">{{ m.text }}</div>
+</sc-if>
+<sc-if value="{{ m.isAssistant }}" hint-placeholder-val="{{ false }}">
+<button onClick="{{ m.toggleTool }}" style="align-self:flex-start;border:0;background:transparent;color:var(--muted-fg);font:13px Geist,'PingFang TC',sans-serif;display:flex;align-items:center;gap:6px;cursor:pointer;padding:0;"><i class="{{ m.chevron }}" style="font-size:14px;"></i>{{ m.toolSummary }}</button>
+<sc-if value="{{ m.toolOpen }}" hint-placeholder-val="{{ false }}">
+<div style="border-radius:10px;background:var(--muted);padding:12px 14px;display:flex;flex-direction:column;gap:8px;font-size:13px;color:var(--muted-fg);">
+<span>{{ m.think }}</span>
+<sc-for list="{{ m.toolLines }}" as="tl" hint-placeholder-count="2"><code style="font:12px 'Geist Mono',monospace;color:{{ tl.c }};">{{ tl.text }}</code></sc-for>
+</div>
+</sc-if>
+<sc-if value="{{ m.hasCard }}" hint-placeholder-val="{{ false }}">
+<div style="border:1px solid var(--border);border-radius:12px;background:var(--card);padding:16px 18px;display:flex;flex-direction:column;gap:12px;">
+<div style="display:flex;align-items:baseline;gap:8px;"><span style="font-weight:600;">{{ m.cardTitle }}</span><span style="font-size:12px;color:var(--muted-fg);">{{ m.cardSub }}</span></div>
+<sc-for list="{{ m.rows }}" as="ar" hint-placeholder-count="3">
+<div style="display:flex;align-items:center;gap:12px;"><span style="width:8px;height:8px;border-radius:50%;background:{{ ar.color }};"></span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ ar.name }}</span><span style="font:12px 'Geist Mono',monospace;color:var(--muted-fg);">{{ ar.n }}</span><span style="width:120px;height:6px;border-radius:3px;background:var(--muted);overflow:hidden;flex-shrink:0;"><span style="display:block;height:100%;width:{{ ar.pct }};background:{{ ar.color }};"></span></span></div>
+</sc-for>
+<div style="display:flex;gap:8px;"><button onClick="{{ m.openHistory }}" style="height:32px;padding:0 12px;border:0;border-radius:8px;background:var(--primary);color:var(--primary-fg);font:500 13px Geist,'PingFang TC',sans-serif;cursor:pointer;">{{ t.open_in_history }}</button><button onClick="{{ m.saveNote }}" style="height:32px;padding:0 12px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--fg);font:500 13px Geist,'PingFang TC',sans-serif;cursor:pointer;">{{ t.save_note }}</button></div>
+</div>
+</sc-if>
+<div style="border-radius:12px;background:var(--card-solid);padding:14px 18px;line-height:1.65;">{{ m.text }}</div>
+<div style="display:flex;gap:6px;flex-wrap:wrap;">
+<sc-for list="{{ m.cites }}" as="ct" hint-placeholder-count="0">
+<button onClick="{{ ct.go }}" style="display:flex;align-items:center;gap:6px;height:26px;padding:0 10px;border-radius:999px;border:1px solid var(--border);background:transparent;font:12px Geist,sans-serif;color:var(--muted-fg);cursor:pointer;"><span style="width:14px;height:14px;border-radius:4px;background:{{ ct.fav }};"></span>{{ ct.d }}</button>
+</sc-for>
+</div>
+</sc-if>
+</div>
+</sc-for>
+<sc-if value="{{ thinking }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;align-items:center;gap:8px;color:var(--muted-fg);font-size:13px;"><i class="icon-loader" style="display:inline-block;animation:pkspin 1s linear infinite;"></i>{{ t.searching_archive }}</div>
+</sc-if>
+</div>
+</div>
+<div style="padding:0 32px 20px;">
+<div style="max-width:780px;margin:0 auto;display:flex;align-items:center;gap:10px;height:56px;padding:0 10px 0 16px;border-radius:16px;background:var(--card-solid);border:1px solid var(--border);box-shadow:0 8px 24px rgba(15,15,30,.08);">
+<i class="icon-plus" style="font-size:18px;color:var(--muted-fg);"></i>
+<input value="{{ draft }}" onChange="{{ onDraft }}" onKeyDown="{{ onDraftKey }}" placeholder="{{ t.composer_ph }}" style="flex:1;border:0;background:transparent;color:var(--fg);font:15px Geist,'PingFang TC',sans-serif;outline:none;">
+<div style="position:relative;">
+<button onClick="{{ menuModel }}" style="border:0;background:transparent;display:flex;align-items:center;gap:4px;font:13px Geist,'PingFang TC',sans-serif;color:var(--muted-fg);cursor:pointer;">{{ modelLabel }}<i class="icon-chevron-down" style="font-size:13px;"></i></button>
+<sc-if value="{{ modelMenuOpen }}" hint-placeholder-val="{{ false }}">
+<div style="position:absolute;bottom:calc(100% + 8px);right:0;z-index:30;min-width:200px;background:var(--card-solid);border:1px solid var(--border);border-radius:10px;box-shadow:var(--shadow-lg);padding:4px;display:flex;flex-direction:column;animation:pkin .12s ease-out;">
+<sc-for list="{{ modelOptions }}" as="op" hint-placeholder-count="3">
+<button onClick="{{ op.pick }}" style="height:34px;border:0;border-radius:6px;background:transparent;color:var(--fg);font:13px Geist,'PingFang TC',sans-serif;display:flex;align-items:center;gap:8px;padding:0 8px;cursor:pointer;text-align:left;" style-hover="background:var(--muted);"><i class="icon-check" style="font-size:14px;opacity:{{ op.on }};"></i><span style="flex:1;">{{ op.label }}</span><span style="font-size:11px;color:var(--muted-fg);">{{ op.hint }}</span></button>
+</sc-for>
+</div>
+</sc-if>
+</div>
+<button onClick="{{ send }}" style="width:36px;height:36px;border:0;border-radius:50%;background:var(--primary);color:var(--primary-fg);cursor:pointer;opacity:{{ sendOpacity }};"><i class="icon-arrow-up" style="font-size:17px;"></i></button>
+</div>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ is.backup }}" hint-placeholder-val="{{ false }}">
+<div style="flex:1;overflow:auto;">
+<div style="max-width:1000px;margin:0 auto;padding:36px 40px 48px;display:flex;flex-direction:column;gap:18px;">
+<header style="display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap;">
+<div style="display:flex;flex-direction:column;gap:4px;"><h1 style="margin:0;font-size:30px;font-weight:600;letter-spacing:-.02em;">{{ t.nav_backup }}</h1><span style="font-size:13px;color:var(--muted-fg);">{{ t.backup_sub }}</span></div>
+<button onClick="{{ runBackup }}" style="height:36px;padding:0 14px;border:0;border-radius:8px;background:var(--primary);color:var(--primary-fg);font:500 13px Geist,'PingFang TC',sans-serif;display:flex;align-items:center;gap:6px;cursor:pointer;"><i class="{{ backupIcon }}" style="font-size:15px;display:inline-block;animation:{{ spin }};"></i>{{ backupLabel }}</button>
+</header>
+<sc-if value="{{ backingUp }}" hint-placeholder-val="{{ false }}">
+<div style="border:1px solid var(--border);border-radius:12px;background:var(--card);padding:14px 16px;display:flex;flex-direction:column;gap:8px;">
+<div style="display:flex;justify-content:space-between;font-size:13px;"><span>{{ backingUpLabel }}</span><span style="font-family:'Geist Mono',monospace;color:var(--muted-fg);">{{ progressLabel }}</span></div>
+<div style="height:6px;border-radius:3px;background:var(--muted);overflow:hidden;"><div style="height:100%;width:{{ progressPct }};background:var(--brand);transition:width .2s;"></div></div>
+</div>
+</sc-if>
+<div style="background:var(--card);border:1px solid var(--border);border-radius:12px;box-shadow:var(--shadow);overflow:hidden;">
+<div style="padding:16px 20px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border);"><span style="font-weight:600;">{{ t.sources_title }}</span><button onClick="{{ rescan }}" style="height:30px;padding:0 10px;border:1px solid var(--border);border-radius:8px;background:transparent;color:var(--fg);font:13px Geist,'PingFang TC',sans-serif;display:flex;align-items:center;gap:6px;cursor:pointer;"><i class="icon-scan-search" style="font-size:14px;"></i>{{ t.rescan }}</button></div>
+<sc-for list="{{ sources }}" as="src" hint-placeholder-count="5">
+<div style="display:flex;align-items:center;gap:14px;padding:12px 20px;border-bottom:1px solid var(--border);">
+<img src="{{ src.icon }}" alt="" style="width:28px;height:28px;opacity:{{ src.dim }};">
+<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;"><span style="font-weight:500;">{{ src.name }}</span><span style="font-size:12px;color:var(--muted-fg);">{{ src.profile }}</span></div>
+<span style="font:12px 'Geist Mono',monospace;color:var(--muted-fg);width:90px;text-align:right;">{{ src.visits }}</span>
+<span style="font-size:12px;color:var(--muted-fg);width:110px;text-align:right;">{{ src.last }}</span>
+<sc-if value="{{ src.needsFda }}" hint-placeholder-val="{{ false }}">
+<button onClick="{{ grantFda }}" style="height:26px;padding:0 10px;border:0;border-radius:6px;background:var(--brand-soft);color:var(--brand);font:500 12px Geist,'PingFang TC',sans-serif;cursor:pointer;display:flex;align-items:center;gap:5px;"><i class="icon-shield-alert" style="font-size:13px;"></i>{{ t.grant }}</button>
+</sc-if>
+<sc-if value="{{ src.showBadge }}" hint-placeholder-val="{{ true }}">
+<span style="font-size:12px;font-weight:500;padding:2px 8px;border-radius:6px;background:{{ src.badgeBg }};color:{{ src.badgeFg }};">{{ src.status }}</span>
+</sc-if>
+<button onClick="{{ src.toggle }}" style="width:34px;height:20px;border:0;border-radius:999px;background:{{ src.track }};position:relative;cursor:pointer;padding:0;flex-shrink:0;"><span style="position:absolute;top:2px;left:{{ src.knob }};width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.2);transition:left .15s;"></span></button>
+</div>
+</sc-for>
+</div>
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px;">
+<div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:20px;box-shadow:var(--shadow);display:flex;flex-direction:column;gap:14px;">
+<div style="display:flex;flex-direction:column;gap:4px;"><span style="font-weight:600;">{{ t.schedule }}</span><span style="font-size:13px;color:var(--muted-fg);">{{ t.schedule_sub }}</span></div>
+<div style="display:flex;padding:3px;border-radius:9px;background:var(--muted);gap:2px;">
+<sc-for list="{{ intervals }}" as="iv" hint-placeholder-count="4">
+<button onClick="{{ iv.go }}" style="flex:1;height:30px;border:0;border-radius:7px;background:{{ iv.bg }};box-shadow:{{ iv.shadow }};color:{{ iv.color }};font:500 13px Geist,'PingFang TC',sans-serif;cursor:pointer;">{{ iv.label }}</button>
+</sc-for>
+</div>
+<div style="display:flex;justify-content:space-between;font-size:13px;"><span style="color:var(--muted-fg);">{{ t.next_run }}</span><span style="font-family:'Geist Mono',monospace;">{{ nextRun }}</span></div>
+<div style="display:flex;justify-content:space-between;font-size:13px;"><span style="color:var(--muted-fg);">{{ t.runner }}</span><span>{{ runnerLabel }}</span></div>
+</div>
+<div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:20px;box-shadow:var(--shadow);display:flex;flex-direction:column;gap:12px;">
+<div style="display:flex;flex-direction:column;gap:4px;"><span style="font-weight:600;">{{ t.import_title }}</span><span style="font-size:13px;color:var(--muted-fg);">{{ t.import_sub }}</span></div>
+<sc-if value="{{ imp.idle }}" hint-placeholder-val="{{ true }}">
+<div style="border:1px dashed var(--border);border-radius:10px;padding:18px;display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center;">
+<i class="icon-file-archive" style="font-size:24px;color:var(--muted-fg);"></i>
+<span style="font-size:13px;">{{ t.drop_takeout }}</span>
+<button onClick="{{ startImport }}" style="height:30px;padding:0 12px;border:1px solid var(--border);border-radius:8px;background:var(--card-solid);color:var(--fg);font:500 13px Geist,'PingFang TC',sans-serif;cursor:pointer;">{{ t.choose_file }}</button>
+<sc-if value="{{ imp.hasLast }}" hint-placeholder-val="{{ false }}"><span style="font-size:12px;color:var(--muted-fg);">{{ imp.lastLine }}</span></sc-if>
+</div>
+</sc-if>
+<sc-if value="{{ imp.busy }}" hint-placeholder-val="{{ false }}">
+<div style="border:1px solid var(--border);border-radius:10px;padding:16px;display:flex;flex-direction:column;gap:10px;">
+<div style="display:flex;align-items:center;gap:10px;font-size:13px;"><i class="icon-loader" style="display:inline-block;animation:pkspin 1s linear infinite;"></i><span style="flex:1;">{{ imp.label }}</span><span style="font-family:'Geist Mono',monospace;color:var(--muted-fg);">{{ imp.pct }}</span></div>
+<div style="height:6px;border-radius:3px;background:var(--muted);overflow:hidden;"><div style="height:100%;width:{{ imp.pct }};background:var(--brand);transition:width .2s;"></div></div>
+</div>
+</sc-if>
+<sc-if value="{{ imp.review }}" hint-placeholder-val="{{ false }}">
+<div style="border:1px solid var(--border);border-radius:10px;padding:16px;display:flex;flex-direction:column;gap:12px;">
+<div style="display:flex;align-items:center;gap:10px;"><i class="icon-file-archive" style="font-size:18px;"></i><span style="font:13px 'Geist Mono',monospace;flex:1;">takeout-20260930.zip</span></div>
+<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;">
+<sc-for list="{{ imp.facts }}" as="f" hint-placeholder-count="3"><div style="display:flex;flex-direction:column;gap:2px;padding:8px 10px;border-radius:8px;background:var(--muted);"><span style="font-size:11px;color:var(--muted-fg);">{{ f.k }}</span><span style="font-weight:600;font-variant-numeric:tabular-nums;">{{ f.v }}</span></div></sc-for>
+</div>
+<div style="display:flex;gap:8px;justify-content:flex-end;"><button onClick="{{ cancelImport }}" style="height:32px;padding:0 12px;border:1px solid var(--border);border-radius:8px;background:transparent;color:var(--fg);font:500 13px Geist,'PingFang TC',sans-serif;cursor:pointer;">{{ t.cancel }}</button><button onClick="{{ confirmImport }}" style="height:32px;padding:0 12px;border:0;border-radius:8px;background:var(--primary);color:var(--primary-fg);font:500 13px Geist,'PingFang TC',sans-serif;cursor:pointer;">{{ imp.confirmLabel }}</button></div>
+</div>
+</sc-if>
+</div>
+</div>
+<div style="background:var(--card);border:1px solid var(--border);border-radius:12px;box-shadow:var(--shadow);overflow:hidden;">
+<div style="padding:16px 20px;border-bottom:1px solid var(--border);font-weight:600;">{{ t.recent_runs }}</div>
+<sc-for list="{{ runs }}" as="rn" hint-placeholder-count="4">
+<div style="display:flex;align-items:center;gap:14px;padding:11px 20px;border-bottom:1px solid var(--border);font-size:13px;animation:pkin .2s ease-out;">
+<i class="{{ rn.icon }}" style="font-size:16px;color:{{ rn.color }};"></i>
+<span style="font-family:'Geist Mono',monospace;color:var(--muted-fg);width:120px;">{{ rn.when }}</span>
+<span style="flex:1;">{{ rn.desc }}</span>
+<span style="font-family:'Geist Mono',monospace;color:var(--muted-fg);">{{ rn.dur }}</span>
+</div>
+</sc-for>
+</div>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ is.settings }}" hint-placeholder-val="{{ false }}">
+<div style="width:220px;flex-shrink:0;border-right:1px solid var(--border);padding:28px 14px;display:flex;flex-direction:column;gap:2px;">
+<span style="font-size:22px;font-weight:600;padding:0 10px 14px;letter-spacing:-.01em;">{{ t.nav_settings }}</span>
+<sc-for list="{{ settingsTabs }}" as="st" hint-placeholder-count="4">
+<button onClick="{{ st.go }}" style="height:36px;border:0;border-radius:8px;background:{{ st.bg }};color:{{ st.color }};font:500 14px Geist,'PingFang TC',sans-serif;display:flex;align-items:center;gap:10px;padding:0 10px;cursor:pointer;text-align:left;"><i class="{{ st.icon }}" style="font-size:16px;"></i>{{ st.label }}</button>
+</sc-for>
+<div style="flex:1;"></div>
+<span style="font:11px 'Geist Mono',monospace;color:var(--muted-fg);padding:0 10px;">PathKeep 0.4.0-dev</span>
+</div>
+<div style="flex:1;min-width:0;overflow:auto;">
+<div style="max-width:680px;padding:32px 40px 48px;display:flex;flex-direction:column;gap:12px;">
+<h2 style="margin:0 0 8px;font-size:20px;font-weight:600;">{{ settingsTitle }}</h2>
+<sc-for list="{{ settingsRows }}" as="sr" hint-placeholder-count="4">
+<div style="position:relative;display:flex;align-items:center;justify-content:space-between;gap:20px;padding:16px 18px;border:1px solid var(--border);border-radius:12px;background:var(--card);">
+<div style="display:flex;flex-direction:column;gap:3px;min-width:0;"><span style="font-weight:500;color:{{ sr.titleColor }};">{{ sr.title }}</span><span style="font-size:13px;color:var(--muted-fg);line-height:1.45;">{{ sr.desc }}</span></div>
+<sc-if value="{{ sr.isSwitch }}" hint-placeholder-val="{{ true }}">
+<button onClick="{{ sr.toggle }}" style="width:34px;height:20px;border:0;border-radius:999px;background:{{ sr.track }};position:relative;cursor:pointer;padding:0;flex-shrink:0;"><span style="position:absolute;top:2px;left:{{ sr.knob }};width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.2);transition:left .15s;"></span></button>
+</sc-if>
+<sc-if value="{{ sr.isSelect }}" hint-placeholder-val="{{ false }}">
+<div style="position:relative;flex-shrink:0;">
+<button onClick="{{ sr.openMenu }}" style="height:32px;min-width:120px;justify-content:space-between;padding:0 10px;border:1px solid var(--border);border-radius:8px;background:var(--card-solid);color:var(--fg);font:13px Geist,'PingFang TC',sans-serif;display:flex;align-items:center;gap:8px;cursor:pointer;">{{ sr.value }}<i class="icon-chevrons-up-down" style="font-size:13px;color:var(--muted-fg);"></i></button>
+<sc-if value="{{ sr.menuOpen }}" hint-placeholder-val="{{ false }}">
+<div style="position:absolute;top:calc(100% + 4px);right:0;z-index:30;min-width:180px;background:var(--card-solid);border:1px solid var(--border);border-radius:10px;box-shadow:var(--shadow-lg);padding:4px;display:flex;flex-direction:column;animation:pkin .12s ease-out;">
+<sc-for list="{{ sr.options }}" as="op" hint-placeholder-count="3">
+<button onClick="{{ op.pick }}" style="height:32px;border:0;border-radius:6px;background:transparent;color:var(--fg);font:13px Geist,'PingFang TC',sans-serif;display:flex;align-items:center;gap:8px;padding:0 8px;cursor:pointer;text-align:left;" style-hover="background:var(--muted);"><i class="icon-check" style="font-size:14px;opacity:{{ op.on }};"></i>{{ op.label }}</button>
+</sc-for>
+</div>
+</sc-if>
+</div>
+</sc-if>
+<sc-if value="{{ sr.isButton }}" hint-placeholder-val="{{ false }}">
+<button onClick="{{ sr.act }}" style="height:32px;padding:0 12px;border:1px solid {{ sr.btnBorder }};border-radius:8px;background:{{ sr.btnBg }};color:{{ sr.btnColor }};font:500 13px Geist,'PingFang TC',sans-serif;cursor:pointer;flex-shrink:0;">{{ sr.value }}</button>
+</sc-if>
+</div>
+</sc-for>
+<sc-if value="{{ showStorage }}" hint-placeholder-val="{{ false }}">
+<div style="padding:18px;border:1px solid var(--border);border-radius:12px;background:var(--card);display:flex;flex-direction:column;gap:12px;">
+<div style="display:flex;justify-content:space-between;"><span style="font-weight:500;">{{ t.disk_usage }}</span><span style="font-family:'Geist Mono',monospace;font-size:13px;">2.41 GB</span></div>
+<div style="display:flex;height:10px;border-radius:5px;overflow:hidden;gap:2px;"><span style="width:58%;background:var(--brand);"></span><span style="width:24%;background:var(--blue);"></span><span style="width:12%;background:var(--violet);"></span><span style="flex:1;background:var(--muted);"></span></div>
+<div style="display:flex;gap:16px;flex-wrap:wrap;font-size:12px;color:var(--muted-fg);"><span style="display:flex;align-items:center;gap:5px;"><span style="width:8px;height:8px;border-radius:2px;background:var(--brand);"></span>{{ t.s_archive }} 1.40 GB</span><span style="display:flex;align-items:center;gap:5px;"><span style="width:8px;height:8px;border-radius:2px;background:var(--blue);"></span>{{ t.s_index }} 580 MB</span><span style="display:flex;align-items:center;gap:5px;"><span style="width:8px;height:8px;border-radius:2px;background:var(--violet);"></span>{{ t.s_snap }} 290 MB</span></div>
+</div>
+</sc-if>
+<sc-if value="{{ showAiProgress }}" hint-placeholder-val="{{ false }}">
+<div style="padding:14px 18px;border:1px solid var(--border);border-radius:12px;background:var(--card);display:flex;flex-direction:column;gap:8px;">
+<div style="display:flex;justify-content:space-between;font-size:13px;"><span>{{ t.reindexing }}</span><span style="font-family:'Geist Mono',monospace;color:var(--muted-fg);">{{ reindexPct }}</span></div>
+<div style="height:6px;border-radius:3px;background:var(--muted);overflow:hidden;"><div style="height:100%;width:{{ reindexPct }};background:var(--blue);transition:width .2s;"></div></div>
+</div>
+</sc-if>
+</div>
+</div>
+</sc-if>
+
+</main>
+
+<sc-if value="{{ anyMenu }}" hint-placeholder-val="{{ false }}">
+<div onClick="{{ closeMenu }}" style="position:absolute;inset:0;z-index:20;"></div>
+</sc-if>
+
+<sc-if value="{{ palette }}" hint-placeholder-val="{{ false }}">
+<div onClick="{{ closePalette }}" style="position:absolute;inset:0;z-index:40;background:rgba(10,10,20,.18);display:flex;justify-content:center;align-items:flex-start;padding-top:12vh;">
+<div onClick="{{ stop }}" style="width:min(580px,90%);background:var(--card-solid);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow-lg);overflow:hidden;animation:pkin .14s ease-out;">
+<div style="display:flex;align-items:center;gap:10px;padding:0 16px;height:52px;border-bottom:1px solid var(--border);">
+<i class="icon-search" style="color:var(--muted-fg);font-size:17px;"></i>
+<input ref="{{ palRef }}" value="{{ palQ }}" onChange="{{ onPalQ }}" placeholder="{{ t.pal_ph }}" style="flex:1;border:0;background:transparent;color:var(--fg);font:15px Geist,'PingFang TC',sans-serif;outline:none;">
+<span style="font:11px 'Geist Mono',monospace;color:var(--muted-fg);border:1px solid var(--border);border-radius:5px;padding:2px 6px;">esc</span>
+</div>
+<div style="max-height:380px;overflow:auto;padding:6px;">
+<sc-for list="{{ palGroups }}" as="g" hint-placeholder-count="2">
+<div style="display:flex;flex-direction:column;">
+<span style="font-size:11px;color:var(--muted-fg);padding:8px 10px 4px;">{{ g.label }}</span>
+<sc-for list="{{ g.items }}" as="pi" hint-placeholder-count="3">
+<button onClick="{{ pi.go }}" onMouseEnter="{{ pi.hover }}" style="height:38px;border:0;border-radius:8px;background:{{ pi.bg }};color:var(--fg);font:14px Geist,'PingFang TC',sans-serif;display:flex;align-items:center;gap:10px;padding:0 10px;cursor:pointer;text-align:left;">
+<i class="{{ pi.icon }}" style="font-size:16px;color:var(--muted-fg);width:18px;"></i><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ pi.label }}</span><span style="font:11px 'Geist Mono',monospace;color:var(--muted-fg);">{{ pi.hint }}</span>
+</button>
+</sc-for>
+</div>
+</sc-for>
+</div>
+<div style="display:flex;gap:14px;padding:8px 14px;border-top:1px solid var(--border);font-size:11px;color:var(--muted-fg);"><span>↑↓ {{ t.pal_nav }}</span><span>↵ {{ t.pal_open }}</span></div>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ hasDialog }}" hint-placeholder-val="{{ false }}">
+<div onClick="{{ closeDialog }}" style="position:absolute;inset:0;z-index:45;background:rgba(10,10,20,.28);display:flex;align-items:center;justify-content:center;">
+<div onClick="{{ stop }}" style="width:min(420px,90%);background:var(--card-solid);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow-lg);padding:22px;display:flex;flex-direction:column;gap:14px;animation:pkin .14s ease-out;">
+<div style="display:flex;flex-direction:column;gap:6px;"><span style="font-size:17px;font-weight:600;">{{ dialog.title }}</span><span style="font-size:13px;color:var(--muted-fg);line-height:1.55;">{{ dialog.desc }}</span></div>
+<sc-for list="{{ dialog.fields }}" as="fd" hint-placeholder-count="0">
+<label style="display:flex;flex-direction:column;gap:6px;font-size:13px;font-weight:500;">{{ fd.label }}<input type="{{ fd.type }}" value="{{ fd.value }}" onChange="{{ fd.onChange }}" placeholder="{{ fd.ph }}" style="height:36px;padding:0 12px;border:1px solid var(--border);border-radius:8px;background:var(--card-solid);color:var(--fg);font:14px Geist,'PingFang TC',sans-serif;outline:none;"></label>
+</sc-for>
+<div style="display:flex;justify-content:flex-end;gap:8px;padding-top:4px;">
+<button onClick="{{ closeDialog }}" style="height:34px;padding:0 14px;border:1px solid var(--border);border-radius:8px;background:transparent;color:var(--fg);font:500 13px Geist,'PingFang TC',sans-serif;cursor:pointer;">{{ t.cancel }}</button>
+<button onClick="{{ dialog.confirm }}" style="height:34px;padding:0 14px;border:0;border-radius:8px;background:{{ dialog.btnBg }};color:#fff;font:500 13px Geist,'PingFang TC',sans-serif;cursor:pointer;opacity:{{ dialog.btnO }};">{{ dialog.btn }}</button>
+</div>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ locked }}" hint-placeholder-val="{{ false }}">
+<div style="position:absolute;inset:0;z-index:50;background:var(--window);backdrop-filter:blur(30px);-webkit-backdrop-filter:blur(30px);display:flex;align-items:center;justify-content:center;">
+<div style="width:320px;display:flex;flex-direction:column;align-items:center;gap:16px;text-align:center;animation:pkin .2s ease-out;">
+<img src="assets/pathkeep-mark.svg" alt="" style="width:52px;height:52px;">
+<div style="display:flex;flex-direction:column;gap:6px;"><span style="font-size:20px;font-weight:600;">{{ t.locked_title }}</span><span style="font-size:13px;color:var(--muted-fg);">{{ t.locked_sub }}</span></div>
+<div style="width:100%;display:flex;gap:8px;">
+<input ref="{{ lockRef }}" type="password" value="{{ lockPw }}" onChange="{{ onLockPw }}" onKeyDown="{{ onLockKey }}" placeholder="{{ t.password }}" style="flex:1;height:40px;padding:0 12px;border:1px solid {{ lockBorder }};border-radius:10px;background:var(--card-solid);color:var(--fg);font:14px Geist,sans-serif;outline:none;">
+<button onClick="{{ unlock }}" style="width:40px;height:40px;border:0;border-radius:10px;background:var(--primary);color:var(--primary-fg);cursor:pointer;"><i class="icon-arrow-right" style="font-size:17px;"></i></button>
+</div>
+<span style="font-size:12px;color:{{ lockHintColor }};">{{ lockHint }}</span>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ hasToast }}" hint-placeholder-val="{{ false }}">
+<div style="position:absolute;right:24px;bottom:24px;z-index:60;display:flex;align-items:center;gap:10px;padding:12px 16px;border-radius:12px;background:var(--card-solid);border:1px solid var(--border);box-shadow:var(--shadow-lg);font-size:13px;animation:pkin .18s ease-out;max-width:360px;">
+<i class="{{ toast.icon }}" style="font-size:16px;color:{{ toast.color }};"></i><span>{{ toast.text }}</span>
+</div>
+</sc-if>
+
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;theme&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;light&quot;,&quot;dark&quot;],&quot;default&quot;:&quot;light&quot;,&quot;tsType&quot;:&quot;'light'|'dark'&quot;},&quot;lang&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;zh&quot;,&quot;en&quot;],&quot;default&quot;:&quot;zh&quot;,&quot;tsType&quot;:&quot;'zh'|'en'&quot;},&quot;startScreen&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;home&quot;,&quot;history&quot;,&quot;insights&quot;,&quot;ask&quot;,&quot;backup&quot;,&quot;settings&quot;],&quot;default&quot;:&quot;home&quot;,&quot;tsType&quot;:&quot;string&quot;}}">
+const T = {
+zh:{nav_home:'首頁',nav_history:'歷史',nav_insights:'洞察',nav_ask:'助理',nav_backup:'備份',nav_settings:'設定',today_date:'10 月 2 日 星期五',greeting:'下午好，這是你走過的路',backup_now:'立即備份',backing:'備份中…',chart_title:'近 30 天瀏覽',chart_sub:'每日頁面瀏覽次數，所有瀏覽器',otd_title:'往年今日',otd_sub:'10 月 2 日，你在看什麼',heat_title:'一年的瀏覽',heat_sub:'每格是一天，點一下跳到那天',less:'少',more:'多',threads_title:'進行中的主題',see_all:'全部',sources_title:'來源',manage:'管理',search_ph:'搜尋標題、網址或內容，支持 /regex/',v_timeline:'時間線',v_sites:'網站',v_starred:'已加星',m_full:'全文',m_regex:'正則',m_semantic:'語義',regex_err:'正則表達式無效',reset:'清除篩選',open:'在瀏覽器打開',star:'加星',copy:'複製連結',visits_12w:'近 12 週訪問',same_session:'同一段瀏覽',note:'備註',note_ph:'寫點什麼，之後可以搜尋到',insights_sub:'全部來自本機存檔，不經過網路',r7:'7 天',r30:'30 天',r90:'90 天',r1y:'1 年',bar_title:'每日活動',pages:'頁面',searches:'搜尋',top_domains:'最常訪問',rhythm_title:'瀏覽節奏',rhythm_sub:'一週內每小時的平均瀏覽量',keywords:'常用搜尋詞',refind:'反覆打開的頁面',new_chat:'新對話',today:'今天',open_in_history:'在歷史中打開',save_note:'存為筆記',composer_ph:'問問你的瀏覽歷史，按住 ⌥Space 說話',searching_archive:'正在搜尋存檔…',ask_empty:'問問你走過的路',ask_empty_sub:'助理只讀取本機存檔。用本機模型時，什麼都不會離開這台 Mac。',backup_sub:'PathKeep 從不直接讀取瀏覽器資料庫，而是複製一份後增量追加',rescan:'重新掃描',grant:'授權',schedule:'自動備份',schedule_sub:'在背景運行，關掉 PathKeep 也會繼續',next_run:'下次運行',runner:'排程器',import_title:'匯入',import_sub:'Google Takeout 通常能找回約 18 個月的 Chrome 歷史',drop_takeout:'把 Takeout 的 .zip 拖到這裡',choose_file:'選擇檔案',recent_runs:'最近記錄',i1h:'每小時',i6h:'每 6 小時',i1d:'每天',ioff:'關閉',s_general:'一般',s_security:'安全',s_ai:'AI',s_storage:'儲存',disk_usage:'磁碟使用',s_archive:'存檔',s_index:'搜尋索引',s_snap:'快照',st_ok:'正常',st_off:'已暫停',cancel:'取消',pal_ph:'搜尋頁面、記錄或指令…',pal_nav:'選擇',pal_open:'打開',pal_pages:'前往',pal_actions:'操作',pal_visits:'瀏覽記錄',locked_title:'PathKeep 已鎖定',locked_sub:'輸入密碼解鎖存檔',password:'密碼',reindexing:'正在重建向量索引'},
+en:{nav_home:'Home',nav_history:'History',nav_insights:'Insights',nav_ask:'Ask',nav_backup:'Backup',nav_settings:'Settings',today_date:'Fri, October 2',greeting:'Good afternoon',backup_now:'Back up now',backing:'Backing up…',chart_title:'Last 30 days',chart_sub:'Page visits per day, all browsers',otd_title:'On this day',otd_sub:'What you were reading on October 2',heat_title:'Your year',heat_sub:'Each square is a day. Click to jump to it.',less:'Less',more:'More',threads_title:'Active threads',see_all:'All',sources_title:'Sources',manage:'Manage',search_ph:'Search titles, URLs or content. /regex/ works too',v_timeline:'Timeline',v_sites:'Sites',v_starred:'Starred',m_full:'Full text',m_regex:'Regex',m_semantic:'Semantic',regex_err:'Invalid regex',reset:'Clear filters',open:'Open in browser',star:'Star',copy:'Copy link',visits_12w:'Visits, last 12 weeks',same_session:'Same session',note:'Note',note_ph:'Add a note you can search later',insights_sub:'Computed from your local archive. Nothing leaves this Mac.',r7:'7d',r30:'30d',r90:'90d',r1y:'1y',bar_title:'Daily activity',pages:'Pages',searches:'Searches',top_domains:'Top sites',rhythm_title:'Rhythm',rhythm_sub:'Average visits per hour across the week',keywords:'Frequent searches',refind:'Pages you keep reopening',new_chat:'New chat',today:'Today',open_in_history:'Open in History',save_note:'Save as note',composer_ph:'Ask about your history, or hold ⌥Space to talk',searching_archive:'Searching your archive…',ask_empty:'Ask about the path you’ve walked',ask_empty_sub:'The assistant only reads your local archive. With a local model, nothing leaves this Mac.',backup_sub:'PathKeep never reads live browser databases. It copies them, then appends what is new.',rescan:'Rescan',grant:'Grant',schedule:'Automatic backup',schedule_sub:'Runs in the background, even when PathKeep is closed',next_run:'Next run',runner:'Scheduler',import_title:'Import',import_sub:'Google Takeout usually recovers about 18 months of Chrome history',drop_takeout:'Drop your Takeout .zip here',choose_file:'Choose file',recent_runs:'Recent runs',i1h:'Hourly',i6h:'Every 6h',i1d:'Daily',ioff:'Off',s_general:'General',s_security:'Security',s_ai:'AI',s_storage:'Storage',disk_usage:'Disk usage',s_archive:'Archive',s_index:'Search index',s_snap:'Snapshots',st_ok:'OK',st_off:'Paused',cancel:'Cancel',pal_ph:'Search pages, visits or commands…',pal_nav:'navigate',pal_open:'open',pal_pages:'Go to',pal_actions:'Actions',pal_visits:'Visits',locked_title:'PathKeep is locked',locked_sub:'Enter your password to unlock the archive',password:'Password',reindexing:'Rebuilding vector index'}
+};
+function rng(seed){let s=seed;return()=>{s=(s*16807)%2147483647;return(s-1)/2147483646;};}
+const HUES=[252,150,30,300,200,90,340,0];
+const favC=(d)=>{let h=0;for(const ch of d)h=(h*31+ch.charCodeAt(0))%997;return `oklch(0.62 0.13 ${HUES[h%HUES.length]})`;};
+const B={chrome:'assets/browsers/chrome.png',safari:'assets/browsers/safari.png',firefox:'assets/browsers/firefox.svg',edge:'assets/browsers/edge.png',arc:'assets/browsers/arc.png'};
+const BNAME={chrome:'Google Chrome',arc:'Arc',safari:'Safari',firefox:'Firefox',edge:'Microsoft Edge'};
+const TG={rust:'rust async tokio runtime 異步 運行時 rust語言',cam:'camera 相機 攝影 sony nikon fujifilm 對焦 autofocus',run:'running 跑步 馬拉松 marathon 訓練 training',jp:'japanese 日語 日文 jlpt n3 聽力',fe:'frontend 前端 ui tauri shadcn 設計'};
+const VISITS=[
+{id:1,day:0,s:0,time:'14:12',title:'tokio vs smol: choosing an async runtime in 2026',domain:'without.boats',url:'https://without.boats/blog/async-runtimes-2026',b:'arc',n:4,tg:'rust'},
+{id:2,day:0,s:0,time:'14:05',title:'smol - Rust',domain:'docs.rs',url:'https://docs.rs/smol/latest/smol/',b:'arc',n:2,tg:'rust'},
+{id:3,day:0,s:0,time:'13:58',title:'tokio::runtime::Builder',domain:'docs.rs',url:'https://docs.rs/tokio/latest/tokio/runtime/struct.Builder.html',b:'arc',n:9,tg:'rust'},
+{id:4,day:0,s:1,time:'11:40',title:'Sony A7C II vs Nikon Z f autofocus test',domain:'dpreview.com',url:'https://www.dpreview.com/reviews/sony-a7cii-vs-nikon-zf',b:'chrome',n:3,tg:'cam'},
+{id:5,day:0,s:1,time:'11:31',title:'Nikon Z f Mirrorless Camera Body | B&H',domain:'bhphotovideo.com',url:'https://www.bhphotovideo.com/c/product/nikon-z-f',b:'chrome',n:5,tg:'cam'},
+{id:6,day:0,s:1,time:'11:22',title:'r/SonyAlpha · A7C II after 6 months',domain:'reddit.com',url:'https://www.reddit.com/r/SonyAlpha/comments/a7cii_6_months',b:'chrome',n:1,tg:'cam'},
+{id:7,day:0,s:2,time:'09:10',title:'Tauri 2 · Window vibrancy on macOS',domain:'v2.tauri.app',url:'https://v2.tauri.app/reference/javascript/api/namespacewindow/',b:'safari',n:6,tg:'fe'},
+{id:8,day:0,s:2,time:'09:02',title:'shadcn/ui · Sidebar',domain:'ui.shadcn.com',url:'https://ui.shadcn.com/docs/components/sidebar',b:'safari',n:12,tg:'fe'},
+{id:9,day:1,s:0,time:'22:14',title:'Async Rust: what is a runtime?',domain:'rust-lang.github.io',url:'https://rust-lang.github.io/async-book/',b:'arc',n:3,tg:'rust'},
+{id:10,day:1,s:0,time:'22:01',title:'Hacker News · Why I left tokio',domain:'news.ycombinator.com',url:'https://news.ycombinator.com/item?id=41502281',b:'arc',n:1,tg:'rust'},
+{id:11,day:1,s:1,time:'18:30',title:'December half marathon training plan · 12 weeks',domain:'runnersworld.com',url:'https://www.runnersworld.com/training/half-marathon-12-week',b:'firefox',n:7,tg:'run'},
+{id:12,day:1,s:1,time:'18:21',title:'Strava · Afternoon run',domain:'strava.com',url:'https://www.strava.com/activities/12093847',b:'firefox',n:2,tg:'run'},
+{id:13,day:1,s:2,time:'08:44',title:'JLPT N3 listening practice set 14',domain:'jlpt-sensei.com',url:'https://jlptsensei.com/n3-listening/14',b:'edge',n:5,tg:'jp'}
+];
+const SITE_TOTALS={'docs.rs':2980,'dpreview.com':1120,'reddit.com':940,'news.ycombinator.com':1830,'ui.shadcn.com':410,'v2.tauri.app':380,'without.boats':64,'bhphotovideo.com':212,'runnersworld.com':133,'strava.com':520,'rust-lang.github.io':96,'jlpt-sensei.com':305};
+const ON_THIS_DAY={zh:[{year:'2025',title:'東京 10 天行程：淺草、谷中、鎌倉',meta:'42 個頁面 · Google Maps、tabelog',q:'tokyo'},{year:'2023',title:'第一次用 Tauri 寫桌面應用',meta:'17 個頁面 · tauri.app、GitHub',q:'tauri'},{year:'2021',title:'畢業論文：SQLite FTS5 中文分詞',meta:'63 個頁面 · sqlite.org、arXiv',q:'fts5'}],en:[{year:'2025',title:'Tokyo, 10 days: Asakusa, Yanaka, Kamakura',meta:'42 pages · Google Maps, tabelog',q:'tokyo'},{year:'2023',title:'First desktop app with Tauri',meta:'17 pages · tauri.app, GitHub',q:'tauri'},{year:'2021',title:'Thesis: Chinese tokenization for SQLite FTS5',meta:'63 pages · sqlite.org, arXiv',q:'fts5'}]};
+const THREADS={zh:[['Rust 異步運行時','5 天 · 64 個頁面','14:12','--blue','rust'],['相機：A7C II vs Z f','3 週 · 38 個頁面','11:40','--brand','相機'],['半程馬拉松訓練','2 個月 · 91 個頁面','昨天','--green','馬拉松'],['JLPT N3','4 個月 · 210 個頁面','昨天','--violet','jlpt']],en:[['Rust async runtimes','5 days · 64 pages','14:12','--blue','rust'],['Cameras: A7C II vs Z f','3 weeks · 38 pages','11:40','--brand','camera'],['Half marathon training','2 months · 91 pages','Yest.','--green','marathon'],['JLPT N3','4 months · 210 pages','Yest.','--violet','jlpt']]};
+function smooth(vals,w,h){const max=Math.max(...vals)*1.12;const st=w/(vals.length-1);const p=vals.map((v,i)=>[i*st,h-v/max*h]);let d=`M${p[0][0]},${p[0][1].toFixed(1)}`;for(let i=0;i<p.length-1;i++){const a=p[i-1]||p[i],b=p[i],c=p[i+1],e=p[i+2]||c;d+=` C${(b[0]+(c[0]-a[0])/6).toFixed(1)},${(b[1]+(c[1]-a[1])/6).toFixed(1)} ${(c[0]-(e[0]-b[0])/6).toFixed(1)},${(c[1]-(e[1]-b[1])/6).toFixed(1)} ${c[0].toFixed(1)},${c[1].toFixed(1)}`;}return{line:d,fill:d+` L${w},${h} L0,${h} Z`};}
+const r1=rng(7);const DAILY=Array.from({length:31},(_,i)=>Math.round(420+Math.sin(i/2.2)*120+r1()*260+(i%7>4?-150:0)));
+const AREA=smooth(DAILY,600,170);
+const YEARS={};[2024,2025,2026].forEach((y,yi)=>{const r=rng(11+yi*17);const cut=y===2026?274:366;let tot=0,best=0,bestDay=0;YEARS[y]=Array.from({length:53},(_,w)=>Array.from({length:7},(_,d)=>{const day=w*7+d;if(day>=cut)return -1;const v=r()*(0.75+yi*0.12);const l=v<.08?0:v<.3?1:v<.6?2:v<.86?3:4;const n=l*140+Math.round(r()*120);tot+=n;if(n>best){best=n;bestDay=day;}return l;}));YEARS[y].tot=tot;YEARS[y].best=bestDay;});
+const dayToDate=(y,day)=>{const d=new Date(y,0,1+day);return d;};
+const r3=rng(23);const RHY=Array.from({length:7},(_,d)=>Array.from({length:24},(_,h)=>{const base=(h>=9&&h<=12)||(h>=20&&h<=23)?3:(h>=13&&h<=18)?2:(h>=7?1:0);let v=base+(r3()>.6?1:0)-(d>4&&h<11?2:0);return Math.max(0,Math.min(4,v));}));
+const r4=rng(5);const BARS=Array.from({length:14},()=>[300+r4()*500,30+r4()*90]);
+const SETTINGS={
+general:[['lang','select'],['theme','select'],['login','switch'],['menubar','switch']],
+security:[['enc','switch'],['keychain','switch'],['autolock','select'],['locknow','button'],['pw','button']],
+ai:[['sem','switch'],['provider','select'],['mcp','switch'],['reindex','button']],
+storage:[['loc','button'],['snap','select'],['export','select'],['wipe','button']]};
+const SET_TXT={
+zh:{lang:['語言','介面語言'],theme:['外觀','淺色、深色或跟隨系統'],login:['開機時啟動','登入 macOS 時在選單列運行'],menubar:['選單列圖示','顯示備份狀態和快速搜尋'],enc:['加密存檔','AES-256，密碼只保存在你這裡'],keychain:['把密碼存到鑰匙圈','背景備份需要它才能解鎖存檔'],autolock:['自動鎖定','閒置一段時間後鎖定 PathKeep'],locknow:['立即鎖定','也可以用 ⌘L'],pw:['更改密碼','需要先輸入目前的密碼'],sem:['本機語義搜尋','約 90 MB 模型，完全在本機運行'],provider:['AI 服務商','助理使用的模型'],mcp:['MCP 伺服器','讓 Claude 等工具讀取你的存檔（唯讀）'],reindex:['重建向量索引','約需 6 分鐘，期間可以正常使用'],loc:['存檔位置','~/Library/Application Support/PathKeep'],snap:['保留快照','每次備份前自動建立'],export:['匯出格式','匯出全部或篩選後的記錄'],wipe:['刪除所有資料','存檔、索引和快照都會被刪除，無法復原']},
+en:{lang:['Language','Interface language'],theme:['Appearance','Light, dark or match system'],login:['Open at login','Run in the menu bar when you log in'],menubar:['Menu bar icon','Shows backup status and quick search'],enc:['Encrypt archive','AES-256. Only you have the password'],keychain:['Save password to Keychain','Background backups need it to unlock'],autolock:['Auto-lock','Lock PathKeep after being idle'],locknow:['Lock now','Or press ⌘L'],pw:['Change password','Requires the current password'],sem:['Local semantic search','~90 MB model, runs on this Mac'],provider:['AI provider','Model used by the assistant'],mcp:['MCP server','Let Claude and other tools read your archive (read-only)'],reindex:['Rebuild vector index','Takes about 6 min; you can keep working'],loc:['Archive location','~/Library/Application Support/PathKeep'],snap:['Keep snapshots','Taken automatically before each backup'],export:['Export format','Export everything or a filtered view'],wipe:['Delete all data','Archive, indexes and snapshots are removed. Cannot be undone.']}};
+const SEL_OPTS={lang:[['zh','中文'],['en','English']],theme:[['light',{zh:'淺色',en:'Light'}],['dark',{zh:'深色',en:'Dark'}]],autolock:[['5',{zh:'5 分鐘',en:'5 min'}],['15',{zh:'15 分鐘',en:'15 min'}],['60',{zh:'1 小時',en:'1 hour'}],['never',{zh:'從不',en:'Never'}]],provider:[['local',{zh:'本機 · llama3.2:3b',en:'Local · llama3.2:3b'}],['openai','OpenAI · gpt-5-mini'],['anthropic','Anthropic · claude-haiku']],snap:[['3','3'],['7','7'],['30','30']],export:[['csv','CSV'],['json','JSON'],['sqlite','SQLite']]};
+const BTN_TXT={zh:{locknow:'鎖定',pw:'更改…',reindex:'重建',loc:'在 Finder 顯示',wipe:'刪除…'},en:{locknow:'Lock',pw:'Change…',reindex:'Rebuild',loc:'Show in Finder',wipe:'Delete…'}};
+const pad=(n)=>String(n).padStart(2,'0');
+const nowHM=()=>{const d=new Date();return pad(d.getHours())+':'+pad(d.getMinutes());};
+
+class Component extends DCLogic {
+  palRef=React.createRef(); lockRef=React.createRef(); chatScrollRef=React.createRef();
+  state = { route:this.props.startScreen ?? 'home', theme:null, lang:null, query:'', mode:'full', hview:'timeline', dayF:'all', brF:{chrome:true,arc:true,safari:true,firefox:true,edge:true}, domainF:null, selected:1, starred:{1:true,8:true}, notes:{8:'之後 sidebar 改版要參考'}, range:'30', interval:'1h', backingUp:false, progress:0, lastMin:12, newRuns:[], sourcesOn:{chrome:true,safari:true,arc:true,firefox:true,edge:false}, fda:false, stab:'general', sw:{login:true,menubar:true,enc:true,keychain:true,sem:true,mcp:false}, sel:{autolock:'15',provider:'local',snap:'7',export:'csv'}, menu:null, palette:false, palQ:'', palIdx:0, toast:null, year:2026, hoverI:null, rhy:null, chats:null, activeChat:'c1', draft:'', thinking:false, toolOpen:{}, imp:'idle', impP:0, lastImport:null, dialog:null, dlg:{}, locked:false, lockPw:'', lockErr:false, reindexP:null };
+  componentDidMount(){
+    this.onKey=(e)=>{const k=e.key.toLowerCase();
+      if((e.metaKey||e.ctrlKey)&&k==='k'){e.preventDefault();this.setState(s=>({palette:!s.palette,palQ:'',palIdx:0}));return;}
+      if((e.metaKey||e.ctrlKey)&&k==='l'){e.preventDefault();this.lock();return;}
+      if((e.metaKey||e.ctrlKey)&&k==='n'&&this.state.route==='ask'){e.preventDefault();this.newChat();return;}
+      if(k==='escape'){this.setState({palette:false,menu:null,dialog:null});return;}
+      if(this.state.palette&&this._pal){if(k==='arrowdown'){e.preventDefault();this.setState(s=>({palIdx:Math.min(this._pal.length-1,s.palIdx+1)}));}else if(k==='arrowup'){e.preventDefault();this.setState(s=>({palIdx:Math.max(0,s.palIdx-1)}));}else if(k==='enter'){e.preventDefault();const it=this._pal[this.state.palIdx];it&&it.run();}}
+    };
+    window.addEventListener('keydown',this.onKey);
+  }
+  componentDidUpdate(pp,ps){
+    if(this.state.palette&&!ps.palette)setTimeout(()=>this.palRef.current&&this.palRef.current.focus(),20);
+    if(this.state.locked&&!ps.locked)setTimeout(()=>this.lockRef.current&&this.lockRef.current.focus(),20);
+    const c=this.chatScrollRef.current;if(c&&(this.state.thinking!==ps.thinking||this.state.chats!==ps.chats))c.scrollTop=c.scrollHeight;
+  }
+  componentWillUnmount(){window.removeEventListener('keydown',this.onKey);[this.timer,this.impTimer,this.riTimer].forEach(clearInterval);clearTimeout(this.toastT);clearTimeout(this.replyT);}
+  L(){return this.state.lang??this.props.lang??'zh';}
+  toastMsg(text,icon='icon-circle-check',color='var(--green)'){clearTimeout(this.toastT);this.setState({toast:{text,icon,color}});this.toastT=setTimeout(()=>this.setState({toast:null}),2600);}
+  lock=()=>this.setState({locked:true,lockPw:'',lockErr:false,palette:false,menu:null});
+  activeSources(){return Object.keys(this.state.sourcesOn).filter(k=>this.state.sourcesOn[k]&&(k!=='safari'||this.state.fda));}
+  runBackup=()=>{if(this.state.backingUp)return;this.setState({backingUp:true,progress:0});const t0=Date.now();this.timer=setInterval(()=>{const p=this.state.progress+6;if(p>=100){clearInterval(this.timer);const n=120+Math.round(Math.random()*260);const zh=this.L()==='zh';const skippedSafari=this.state.sourcesOn.safari&&!this.state.fda;this.setState(s=>({backingUp:false,progress:0,lastMin:0,newRuns:[{time:nowHM(),n,src:this.activeSources().length,dur:((Date.now()-t0)/1000).toFixed(1)+'s',skip:skippedSafari},...s.newRuns]}));this.toastMsg(zh?`備份完成，新增 ${n} 條記錄`:`Backup done · ${n} new visits`);return;}this.setState({progress:p});},160);};
+  newChat=()=>{const id='n'+Date.now();this.setState(s=>({chats:[{id,title:null,meta:nowHM(),messages:[]},...(s.chats||this.seedChats())],activeChat:id,route:'ask',draft:''}));};
+  seedChats(){return[{id:'c1',seed:'c1',meta:'14:20',messages:[{role:'user',seed:'c1',time:'14:20'},{role:'assistant',seed:'c1'}]},{id:'c2',seed:'c2',meta:'09:41',messages:[{role:'user',seed:'c2',time:'09:41'},{role:'assistant',seed:'c2'}]},{id:'c3',seed:'c3',meta:'08:15',messages:[{role:'user',seed:'c3',time:'08:15'},{role:'assistant',seed:'c3'}]}];}
+  matchSem(q){const ql=q.toLowerCase();return VISITS.map(v=>{const words=TG[v.tg].split(' ');let score=0;words.forEach(w=>{if(w&&ql.includes(w))score+=1;});ql.split(/\s+/).forEach(w=>{if(w.length>1&&(v.title.toLowerCase().includes(w)||TG[v.tg].includes(w)))score+=1;});return{v,score};}).filter(x=>x.score>0).sort((a,b)=>b.score-a.score);}
+  send=(textArg)=>{const text=(typeof textArg==='string'?textArg:this.state.draft).trim();if(!text||this.state.thinking)return;const chats=this.state.chats||this.seedChats();const id=this.state.activeChat;const upd=chats.map(c=>c.id===id?{...c,title:c.title??(c.seed?undefined:text.slice(0,28)),messages:[...c.messages,{role:'user',text,time:nowHM()}]}:c);this.setState({chats:upd,draft:'',thinking:true,route:'ask'});
+    this.replyT=setTimeout(()=>{const zh=this.L()==='zh';const m=this.matchSem(text);const hits=m.map(x=>x.v);const doms=[...new Set(hits.map(v=>v.domain))];let msg;
+      if(!hits.length)msg={role:'assistant',text:zh?'存檔裡沒有找到相關記錄。換個說法試試，或者到「歷史」用全文搜尋。':'Nothing in the archive matches. Try different words, or use full-text search in History.',think:zh?'用語義搜尋找相關頁面。':'Semantic search for related pages.',tool:[`search_history(query="${text}", mode="semantic")`,'→ 0 visits'],cites:[],q:text};
+      else{const top=hits[0];const cnt={};hits.forEach(v=>cnt[v.domain]=(cnt[v.domain]||0)+v.n);const rows=Object.entries(cnt).sort((a,b)=>b[1]-a[1]).slice(0,4);const mx=rows[0][1];
+        msg={role:'assistant',think:zh?'先用語義搜尋找相關頁面，再按網站統計。':'Semantic search for related pages, then count by site.',tool:[`search_history(query="${text}", mode="semantic")`,`→ ${hits.length} pages · ${doms.length} sites`,'group_by(field="domain")'],
+        text:zh?`找到 ${hits.length} 個相關頁面，分布在 ${doms.length} 個網站。最近一次是${top.day===0?'今天':'昨天'} ${top.time} 的「${top.title}」。最常去的是 ${rows[0][0]}。`:`Found ${hits.length} related pages across ${doms.length} sites. The most recent was “${top.title}” ${top.day===0?'today':'yesterday'} at ${top.time}. You visited ${rows[0][0]} the most.`,
+        card:{title:zh?'相關網站':'Related sites',sub:zh?`${hits.length} 個頁面`:`${hits.length} pages`,rows:rows.map(([name,n],i)=>({name,n:zh?`${n} 次`:`${n} visits`,pct:(n/mx*100)+'%',color:['var(--brand)','var(--blue)','var(--violet)','var(--green)'][i]}))},cites:doms.slice(0,4),q:text};}
+      this.setState(s=>({thinking:false,chats:(s.chats||upd).map(c=>c.id===id?{...c,messages:[...c.messages,msg]}:c)}));},1100);};
+  startImport=()=>{this.setState({imp:'parse',impP:0});clearInterval(this.impTimer);this.impTimer=setInterval(()=>{const p=this.state.impP+8;if(p>=100){clearInterval(this.impTimer);this.setState({imp:'review',impP:100});}else this.setState({impP:p});},110);};
+  confirmImport=()=>{this.setState({imp:'import',impP:0});clearInterval(this.impTimer);this.impTimer=setInterval(()=>{const p=this.state.impP+5;if(p>=100){clearInterval(this.impTimer);this.setState({imp:'idle',impP:0,lastImport:nowHM()});this.toastMsg(this.L()==='zh'?'已匯入 301,920 條記錄':'Imported 301,920 visits');}else this.setState({impP:p});},110);};
+  seg(active){return{bg:active?'var(--card-solid)':'transparent',shadow:active?'var(--shadow)':'none',color:active?'var(--fg)':'var(--muted-fg)'};}
+  sw(on){return{track:on?'var(--primary)':'var(--heat0)',knob:on?'16px':'2px'};}
+  goHistoryWith(patch){this.setState({route:'history',hview:'timeline',palette:false,...patch});}
+  renderVals(){
+    const s=this.state;const theme=s.theme??this.props.theme??'light';const lang=this.L();const t=T[lang];const zh=lang==='zh';
+    const go=(r)=>()=>this.setState({route:r,palette:false});
+    const navDefs=[['home','icon-house',t.nav_home],['history','icon-history',t.nav_history],['insights','icon-chart-no-axes-column',t.nav_insights],['ask','icon-message-circle',t.nav_ask],['backup','icon-hard-drive-download',t.nav_backup]];
+    const navStyle=(a)=>({bg:a?'var(--card-solid)':'transparent',shadow:a?'var(--shadow)':'none',color:a?'var(--fg)':'var(--muted-fg)'});
+    const nav=navDefs.map(([id,icon,label])=>({id,icon,label,go:go(id),...navStyle(s.route===id)}));
+    const is={home:s.route==='home',history:s.route==='history',insights:s.route==='insights',ask:s.route==='ask',backup:s.route==='backup',settings:s.route==='settings'};
+    const toggleMenu=(id)=>()=>this.setState(st=>({menu:st.menu===id?null:id}));
+    // backup status
+    const nextRun={'1h':'15:00','6h':'18:00','1d':zh?'明天 09:00':'Tomorrow 09:00','off':'—'}[s.interval];
+    const lastTxt=s.lastMin===0?(zh?'剛剛已備份':'Backed up just now'):(zh?`${s.lastMin} 分鐘前已備份`:`Backed up ${s.lastMin} min ago`);
+    const backupStatus=s.backingUp?t.backing:(s.interval==='off'?lastTxt+(zh?' · 自動備份已關閉':' · auto backup off'):lastTxt+(zh?` · 下次 ${nextRun}`:` · next ${nextRun}`));
+    // history
+    const visitView=(v)=>({...v,fav:favC(v.domain),letter:v.domain[0].toUpperCase(),browser:B[v.b],starO:s.starred[v.id]?1:0,bg:s.selected===v.id?'var(--brand-soft)':'transparent',select:()=>this.setState({selected:v.id})});
+    const passF=(v)=>(s.dayF==='all'||String(v.day)===String(s.dayF))&&s.brF[v.b]&&(!s.domainF||v.domain===s.domainF);
+    const filtered=VISITS.filter(passF);
+    const dayLabels=zh?['今天 · 10 月 2 日','昨天 · 10 月 1 日']:['Today · Oct 2','Yesterday · Oct 1'];
+    const sesNames=zh?[['Rust','相機','前端'],['Rust','跑步','日語']]:[['Rust','Cameras','Frontend'],['Rust','Running','Japanese']];
+    const days=[0,1].map(d=>{const dv=filtered.filter(v=>v.day===d);return{label:dayLabels[d],count:zh?`${dv.length} 條`:`${dv.length} visits`,n:dv.length,sessions:[0,1,2].map(si=>{const it=dv.filter(v=>v.s===si);if(!it.length)return null;const times=it.map(v=>v.time).sort();return{label:`${times[0]}${times.length>1?'–'+times[times.length-1]:''} · ${zh?it.length+' 頁':it.length+(it.length>1?' pages':' page')} · ${sesNames[d][si]}`,items:it.map(visitView)};}).filter(Boolean)};}).filter(d=>d.n>0);
+    const q=s.query.trim();const searching=q.length>0;let regexError=false;
+    let results=[];
+    if(searching){if(s.mode==='semantic'){results=this.matchSem(q).filter(x=>passF(x.v)).map(x=>({...visitView(x.v),semantic:true,score:(0.55+Math.min(x.score,4)*0.1).toFixed(2)}));}
+      else{let fn;if(s.mode==='regex'){try{const re=new RegExp(q.replace(/^\/(.*)\/$/,'$1'),'i');fn=(v)=>re.test(v.title+' '+v.url);}catch(e){regexError=true;fn=()=>false;}}else{const ql=q.toLowerCase();fn=(v)=>(v.title+' '+v.url+' '+(s.notes[v.id]||'')).toLowerCase().includes(ql);}
+        results=filtered.filter(fn).map(v=>({...visitView(v),semantic:false,score:''}));}
+      results=results.map(r=>({...r,when:(r.day===0?(zh?'今天 ':'Today '):(zh?'昨天 ':'Yesterday '))+r.time+' · '+BNAME[r.b]}));}
+    const starredList=VISITS.filter(v=>s.starred[v.id]).map(v=>({...visitView(v),noteLine:s.notes[v.id]||v.url}));
+    const siteMap={};filtered.forEach(v=>{siteMap[v.domain]=siteMap[v.domain]||{n:0,last:v};siteMap[v.domain].n+=1;});
+    const siteList=Object.keys(siteMap).sort((a,b)=>(SITE_TOTALS[b]||0)-(SITE_TOTALS[a]||0));const sMax=Math.max(1,...siteList.map(d=>SITE_TOTALS[d]||1));
+    const siteRows=siteList.map(d=>({domain:d,fav:favC(d),letter:d[0].toUpperCase(),n:(SITE_TOTALS[d]||0).toLocaleString(),pct:((SITE_TOTALS[d]||0)/sMax*100)+'%',meta:zh?`最近：${siteMap[d].last.title}`:`Last: ${siteMap[d].last.title}`,go:()=>this.setState({domainF:d,hview:'timeline'})}));
+    const showResults=searching,showTimeline=!searching&&s.hview==='timeline'&&days.length>0,showSites=!searching&&s.hview==='sites'&&siteRows.length>0,showStarred=!searching&&s.hview==='starred'&&starredList.length>0;
+    const showEmpty=!searching&&!showTimeline&&!showSites&&!showStarred;
+    const empty=s.hview==='starred'?{icon:'icon-star',title:zh?'還沒有加星的頁面':'No starred pages yet',desc:zh?'在右側詳情裡點星號，重要的頁面就會出現在這裡。':'Star a page from the detail panel to keep it here.'}:{icon:'icon-filter-x',title:zh?'沒有符合篩選的記錄':'No visits match these filters',desc:zh?'試試清除篩選。':'Try clearing filters.'};
+    const sv=VISITS.find(v=>v.id===s.selected);const r5=rng(sv?sv.id*13:3);
+    const sel=sv?{...visitView(sv),facts:[[zh?'總訪問':'Visits',String(sv.n*7+3)],[zh?'首次':'First seen',zh?'2025 年 3 月':'Mar 2025'],[zh?'最近':'Last',(sv.day===0?(zh?'今天 ':'Today '):(zh?'昨天 ':'Yest. '))+sv.time],[zh?'來源':'Browser',BNAME[sv.b]]].map(([k,v])=>({k,v})),spark:Array.from({length:12},(_,i)=>{const h=15+r5()*85;return{h:h+'%',o:i===11?1:.55,tip:(zh?`第 ${i+1} 週`:`Week ${i+1}`)};}),related:VISITS.filter(v=>v.day===sv.day&&v.s===sv.s&&v.id!==sv.id).map(v=>({time:v.time,title:v.title,select:()=>this.setState({selected:v.id})}))}:null;
+    const mk=(arr)=>arr.map(([k,label])=>({k,label}));
+    const historyViews=mk([['timeline',t.v_timeline],['sites',t.v_sites],['starred',t.v_starred]]).map(o=>({...o,count:o.k==='starred'?String(starredList.length):'',...this.seg(s.hview===o.k&&!searching),go:()=>this.setState({hview:o.k,query:''})}));
+    const searchModes=mk([['full',t.m_full],['regex',t.m_regex],['semantic',t.m_semantic]]).map(o=>{const a=s.mode===o.k;return{...o,bg:a?'var(--primary)':'transparent',color:a?'var(--primary-fg)':'var(--muted-fg)',border:a?'var(--primary)':'var(--border)',go:()=>this.setState({mode:o.k})};});
+    const dateOpts=[['all',zh?'全部日期':'Any date'],['0',zh?'今天':'Today'],['1',zh?'昨天':'Yesterday']];
+    const dateOptions=dateOpts.map(([k,label])=>({label,on:String(s.dayF)===k?1:0,pick:()=>this.setState({dayF:k,menu:null})}));
+    const dateActive=s.dayF!=='all';
+    const dateBtn={label:dateOpts.find(x=>x[0]===String(s.dayF))[1],border:dateActive?'var(--fg)':'var(--border)',bg:dateActive?'var(--card-solid)':'var(--card)'};
+    const brOn=Object.keys(s.brF).filter(k=>s.brF[k]);const brAll=brOn.length===5;
+    const browserOptions=Object.keys(BNAME).map(k=>({label:BNAME[k],icon:B[k],on:s.brF[k]?1:0,boxBorder:s.brF[k]?'var(--primary)':'var(--border)',boxBg:s.brF[k]?'var(--primary)':'transparent',pick:()=>this.setState(st=>({brF:{...st.brF,[k]:!st.brF[k]}}))}));
+    const browserBtn={label:brAll?(zh?'所有瀏覽器':'All browsers'):brOn.length===1?BNAME[brOn[0]]:(zh?`${brOn.length} 個瀏覽器`:`${brOn.length} browsers`),border:brAll?'var(--border)':'var(--fg)',bg:brAll?'var(--card)':'var(--card-solid)'};
+    const hasAnyFilter=dateActive||!brAll||!!s.domainF;
+    // home
+    const heat=['var(--heat0)','var(--heat1)','var(--heat2)','var(--heat3)','var(--heat4)'];
+    const Y=YEARS[s.year];const fmtD=(d)=>zh?`${d.getMonth()+1} 月 ${d.getDate()} 日`:d.toLocaleDateString('en-US',{month:'short',day:'numeric'});
+    const yearWeeks=Y.map((w,wi)=>({days:w.map((l,di)=>{const day=wi*7+di;if(l<0)return{c:'transparent',tip:'',go:null};const d=dayToDate(s.year,day);const n=l*140+((day*37)%120);return{c:heat[l],tip:`${s.year}/${d.getMonth()+1}/${d.getDate()} · ${n} ${zh?'次':'visits'}`,go:()=>{this.goHistoryWith({dayF:'all',query:''});this.toastMsg(zh?`跳到 ${s.year} 年 ${fmtD(d)}`:`Jumped to ${fmtD(d)}, ${s.year}`,'icon-calendar','var(--brand)');}};})}));
+    const bestD=dayToDate(s.year,Y.best);
+    const heatFoot=zh?`${s.year} 年共 ${Y.tot.toLocaleString()} 次瀏覽 · 最活躍：${fmtD(bestD)}`:`${Y.tot.toLocaleString()} visits in ${s.year} · busiest: ${fmtD(bestD)}`;
+    const hi=s.hoverI;const hd=new Date(2026,8,2+(hi??0));
+    const hover=hi==null?{show:false,x:-10,o:0,left:'0%',date:'',value:''}:{show:true,x:(hi/30*600).toFixed(1),o:.35,left:(hi/30*100)+'%',date:`${hd.getMonth()+1}/${hd.getDate()}`,value:`${DAILY[hi].toLocaleString()} ${zh?'次瀏覽':'visits'}`};
+    // insights
+    const scale={'7':.25,'30':1,'90':2.9,'1y':11.8}[s.range];
+    const fmt=(n)=>n>=1e6?(n/1e6).toFixed(2)+'M':n>=1e3?(n/1e3).toFixed(1)+'k':String(Math.round(n));
+    const kpis=[[zh?'頁面瀏覽':'Page visits',fmt(17840*scale),'+8%'],[zh?'不同網站':'Distinct sites',fmt(612*Math.sqrt(scale)),'+3%'],[zh?'搜尋次數':'Searches',fmt(1290*scale),'−4%'],[zh?'活躍時間':'Active time',zh?`${Math.round(96*scale)} 小時`:`${Math.round(96*scale)} h`,'+11%']].map(([label,value,delta])=>({label,value,delta,dc:delta[0]==='+'?'var(--green)':'var(--muted-fg)'}));
+    const bw=600/14;const unit={'7':zh?'天':'day','30':zh?'天':'day','90':zh?'週':'week','1y':zh?'月':'month'}[s.range];
+    const bars=BARS.map(([a,b],i)=>({x:(i*bw+bw*.14).toFixed(1),w:(bw*.34).toFixed(1),y:(180-a/800*180).toFixed(1),h:(a/800*180).toFixed(1),x2:(i*bw+bw*.52).toFixed(1),y2:(180-b*2.4/800*180).toFixed(1),h2:(b*2.4/800*180).toFixed(1),tip:`${Math.round(a*scale)} ${t.pages} · ${Math.round(b*scale)} ${t.searches}`}));
+    const barLabels={'7':['9/26','9/29','10/2'],'30':['9/19','9/26','10/2'],'90':['7/10','8/21','10/2'],'1y':['2025/11','2026/5','2026/10']}[s.range];
+    const dl=[['github.com',4210],['docs.rs',2980],['youtube.com',2410],['news.ycombinator.com',1830],['dpreview.com',1120],['reddit.com',940]];
+    const domains=dl.map(([name,n])=>({name,n:fmt(n*scale),pct:(n/4210*100)+'%',fav:favC(name),letter:name[0].toUpperCase(),go:()=>{this.goHistoryWith({domainF:VISITS.some(v=>v.domain===name)?name:null,query:VISITS.some(v=>v.domain===name)?'':name});}}));
+    const keywords=(zh?[['tokio spawn_blocking',42],['A7C II 對焦',31],['半馬 配速',27],['N3 文法',24],['tauri vibrancy',19],['shadcn sidebar',17],['sqlite fts5 中文',12],['東京 天氣',9]]:[['tokio spawn_blocking',42],['a7c ii autofocus',31],['half marathon pace',27],['n3 grammar',24],['tauri vibrancy',19],['shadcn sidebar',17],['sqlite fts5 cjk',12],['tokyo weather',9]]).map(([q,n])=>({q,n:fmt(n*scale),go:()=>this.goHistoryWith({query:q,mode:'semantic'})}));
+    const refind=[['tokio::runtime::Builder',63,3],['shadcn/ui · Sidebar',48,8],['JLPT N3 listening practice set 14',37,13]].map(([title,n,id])=>({title,n:n+'×',go:()=>this.goHistoryWith({selected:id,query:'',dayF:'all',domainF:null})}));
+    const ranges=mk([['7',t.r7],['30',t.r30],['90',t.r90],['1y',t.r1y]]).map(o=>({...o,...this.seg(s.range===o.k),go:()=>this.setState({range:o.k})}));
+    const wd=zh?['一','二','三','四','五','六','日']:['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+    const rhythm=RHY.map((row,i)=>({label:wd[i],cells:row.map((l,h)=>({c:heat[l],enter:()=>this.setState({rhy:[i,h,l]})}))}));
+    const rhythmHint=s.rhy?(zh?`星期${wd[s.rhy[0]]} ${pad(s.rhy[1])}:00 · 平均 ${s.rhy[2]*22+4} 次瀏覽`:`${wd[s.rhy[0]]} ${pad(s.rhy[1])}:00 · avg ${s.rhy[2]*22+4} visits`):t.rhythm_sub;
+    // sources
+    const srcDefs=[['chrome','Google Chrome','Default · Work',412038],['arc','Arc','Personal',388120],['safari','Safari','Default',201544],['firefox','Firefox','default-release',96002],['edge','Microsoft Edge','Default',18230]];
+    const sources=srcDefs.map(([k,name,profile,v])=>{const on=s.sourcesOn[k];const needsFda=k==='safari'&&on&&!s.fda;return{name,profile,icon:B[k],visits:v.toLocaleString(),pct:(v/412038*100)+'%',dim:on?1:.45,last:!on?'—':needsFda?(zh?'3 天前':'3 days ago'):(s.lastMin===0?(zh?'剛剛':'just now'):(zh?`${s.lastMin} 分鐘前`:`${s.lastMin} min ago`)),needsFda,showBadge:!needsFda,status:on?t.st_ok:t.st_off,badgeBg:on?'oklch(0.62 0.15 150 / .14)':'var(--muted)',badgeFg:on?'var(--green)':'var(--muted-fg)',...this.sw(on),toggle:()=>this.setState(st=>({sourcesOn:{...st.sourcesOn,[k]:!st.sourcesOn[k]}}))};});
+    const intervals=mk([['1h',t.i1h],['6h',t.i6h],['1d',t.i1d],['off',t.ioff]]).map(o=>({...o,...this.seg(s.interval===o.k),go:()=>{this.setState({interval:o.k});this.toastMsg(o.k==='off'?(zh?'已關閉自動備份':'Automatic backup turned off'):(zh?`已改為${o.label}`:`Now backing up: ${o.label}`));}}));
+    const seededRuns=[['14:00',312,5,'4.1s',false],['13:00',188,5,'3.8s',false],['12:00',0,4,'—',true],['11:00',246,5,'4.4s',false]];
+    const runs=[...s.newRuns.map(r=>({...r,isNew:true})),...seededRuns.map(([time,n,src,dur,skip])=>({time,n,src,dur,skip,warnOnly:skip}))].slice(0,6).map(r=>{const warn=r.warnOnly;const desc=warn?(zh?'Safari 跳過：沒有完全磁碟存取權限':'Safari skipped: no Full Disk Access'):(zh?`${r.src} 個來源 · 新增 ${r.n} 條`:`${r.src} sources · ${r.n} new visits`)+(r.skip&&!warn?(zh?' · Safari 已跳過':' · Safari skipped'):'');return{when:(zh?'今天 ':'Today ')+r.time,desc,dur:r.dur,icon:warn?'icon-triangle-alert':'icon-circle-check',color:warn?'var(--brand)':'var(--green)'};});
+    const impFacts=[[zh?'記錄':'Visits','482,113'],[zh?'新的':'New','301,920'],[zh?'範圍':'Range','2024/3–2025/12']].map(([k,v])=>({k,v}));
+    const imp={idle:s.imp==='idle',busy:s.imp==='parse'||s.imp==='import',review:s.imp==='review',pct:s.impP+'%',label:s.imp==='parse'?(zh?'正在解析 takeout-20260930.zip':'Reading takeout-20260930.zip'):(zh?'正在匯入並去重…':'Importing and de-duplicating…'),facts:impFacts,confirmLabel:zh?'匯入 301,920 條':'Import 301,920',hasLast:!!s.lastImport,lastLine:zh?`上次匯入：今天 ${s.lastImport}`:`Last import: today ${s.lastImport}`};
+    // ask
+    const chats=s.chats||this.seedChats();const ac=chats.find(c=>c.id===s.activeChat)||chats[0];
+    const SEED={zh:{c1:{q:'上個月我在看哪些相機？最後比較了哪幾台？',a:'你在 9 月 8 日到 21 日之間集中看了三台機身，Sony A7C II 看得最多，主要在 DPReview 和 B&H。21 日之後就沒有再看 Fujifilm，最後兩天只在比較 A7C II 和 Z f 的對焦評測。',think:'先找 9 月和相機相關的瀏覽，再按型號分組。'},c2:{q:'這週我花最多時間在哪？',a:'這週大約 31 小時花在瀏覽器上。docs.rs 和 GitHub 加起來佔了 42%，大多是 Rust 異步相關；晚上 9 點以後主要是 YouTube 和跑步內容。'},c3:{q:'找回那篇講 FTS5 的文章',a:'應該是 2021 年 10 月 2 日看的「SQLite FTS5 Tokenizers for CJK」，在 sqlite.org 論壇。那天你一共打開了 4 次。'}},en:{c1:{q:'Which cameras was I looking at last month? Which ones did I end up comparing?',a:'Between Sept 8 and 21 you looked at three bodies, the Sony A7C II most, mostly on DPReview and B&H. You stopped looking at Fujifilm after the 21st, and the last two days were only autofocus reviews comparing the A7C II and the Z f.',think:'Find September visits about cameras, then group by model.'},c2:{q:'Where did my time go this week?',a:'About 31 hours in the browser this week. docs.rs and GitHub make up 42%, mostly async Rust. After 9 PM it was mainly YouTube and running content.'},c3:{q:'Find that FTS5 article again',a:'Likely “SQLite FTS5 Tokenizers for CJK” on the sqlite.org forum, read on Oct 2, 2021. You opened it 4 times that day.'}}}[lang];
+    const chatTitle=(c)=>c.title||(c.seed?SEED[c.seed].q:t.new_chat);
+    const chatList=chats.map(c=>{const a=c.id===ac.id;return{title:chatTitle(c),meta:c.meta+(c.seed||c.messages.length?(zh?' · 你發起的':' · You started it'):''),bg:a?'var(--card-solid)':'transparent',shadow:a?'var(--shadow)':'none',go:()=>this.setState({activeChat:c.id})};});
+    const messages=ac.messages.map((m,i)=>{const key=ac.id+':'+i;const open=s.toolOpen[key]??(ac.seed==='c1');const base={isUser:m.role==='user',isAssistant:m.role==='assistant',time:m.time?((zh?'今天 ':'Today ')+m.time):'',chevron:open?'icon-chevron-down':'icon-chevron-right',toolOpen:open,toggleTool:()=>this.setState(st=>({toolOpen:{...st.toolOpen,[key]:!open}}))};
+      if(m.role==='user')return{...base,text:m.seed?SEED[m.seed].q:m.text,toolLines:[],rows:[],cites:[]};
+      if(m.seed){const sd=SEED[m.seed];const isC1=m.seed==='c1';return{...base,text:sd.a,think:sd.think||(zh?'查詢存檔。':'Query the archive.'),toolSummary:zh?'思考 · 搜尋了 1 次存檔':'Thought · searched the archive once',toolLines:(isC1?['search_history(query="mirrorless camera", range="2026-09")','→ 214 visits · 38 pages · 6 domains','group_by(field="product")','→ 3 clusters']:['search_history(range="this_week")','→ 2,904 visits']).map((x,j)=>({text:x,c:j%2?'var(--muted-fg)':'var(--fg)'})),hasCard:isC1,cardTitle:zh?'9 月的相機研究':'September camera research',cardSub:zh?'38 個頁面 · 6 個網站':'38 pages · 6 sites',rows:isC1?[['Sony A7C II',21,'var(--brand)'],['Nikon Z f',12,'var(--blue)'],['Fujifilm X-T5',5,'var(--violet)']].map(([name,n,color])=>({name,n:zh?`${n} 頁`:`${n} pages`,color,pct:(n/21*100)+'%'})):[],cites:(isC1?['dpreview.com','bhphotovideo.com','reddit.com']:m.seed==='c2'?['docs.rs','github.com','youtube.com']:['sqlite.org']).map(d=>({d,fav:favC(d),go:()=>this.goHistoryWith({query:d,mode:'full'})})),openHistory:()=>this.goHistoryWith({query:zh?'相機':'camera',mode:'semantic'}),saveNote:()=>this.toastMsg(zh?'已存為筆記':'Saved as note')};}
+      return{...base,text:m.text,think:m.think,toolSummary:zh?'思考 · 搜尋了 1 次存檔':'Thought · searched the archive once',toolLines:m.tool.map((x,j)=>({text:x,c:j%2?'var(--muted-fg)':'var(--fg)'})),hasCard:!!m.card,cardTitle:m.card?m.card.title:'',cardSub:m.card?m.card.sub:'',rows:m.card?m.card.rows:[],cites:m.cites.map(d=>({d,fav:favC(d),go:()=>this.goHistoryWith({domainF:d,query:''})})),openHistory:()=>this.goHistoryWith({query:m.q,mode:'semantic'}),saveNote:()=>this.toastMsg(zh?'已存為筆記':'Saved as note')};});
+    const sugg=zh?['這個月我最常看哪些網站？','我上次看 Tauri vibrancy 的文件是什麼時候？','幫我找跑步訓練相關的頁面']:['Which sites did I visit most this month?','When did I last read the Tauri vibrancy docs?','Find pages about my running training'];
+    const modelOpts=[['local',zh?'本機模型':'Local model','llama3.2:3b'],['openai','OpenAI','gpt-5-mini'],['anthropic','Anthropic','claude-haiku']];
+    // settings
+    const stabs=[['general','icon-sliders-horizontal',t.s_general],['security','icon-lock',t.s_security],['ai','icon-sparkles',t.s_ai],['storage','icon-database',t.s_storage]];
+    const settingsTabs=stabs.map(([k,icon,label])=>({icon,label,bg:s.stab===k?'var(--muted)':'transparent',color:s.stab===k?'var(--fg)':'var(--muted-fg)',go:()=>this.setState({stab:k,menu:null})}));
+    const curVal=(k)=>k==='lang'?lang:k==='theme'?theme:s.sel[k];
+    const pickVal=(k,v)=>{if(k==='lang')this.setState({lang:v,menu:null});else if(k==='theme')this.setState({theme:v,menu:null});else{this.setState(st=>({sel:{...st.sel,[k]:v},menu:null}));if(k==='export')this.toastMsg(zh?`已匯出 ${v.toUpperCase()} 到「下載」`:`Exported ${v.toUpperCase()} to Downloads`,'icon-download','var(--blue)');}};
+    const optLabel=(o)=>typeof o==='string'?o:o[lang];
+    const acts={locknow:this.lock,pw:()=>this.setState({dialog:'pw',dlg:{}}),wipe:()=>this.setState({dialog:'wipe',dlg:{}}),loc:()=>this.toastMsg(zh?'已在 Finder 中顯示':'Revealed in Finder','icon-folder-open','var(--blue)'),reindex:()=>{if(s.reindexP!=null)return;this.setState({reindexP:0});this.riTimer=setInterval(()=>{const p=(this.state.reindexP||0)+4;if(p>=100){clearInterval(this.riTimer);this.setState({reindexP:null});this.toastMsg(zh?'向量索引已重建':'Vector index rebuilt');}else this.setState({reindexP:p});},150);}};
+    const settingsRows=SETTINGS[s.stab].map(([k,kind])=>{const [title,desc]=SET_TXT[lang][k];const on=!!s.sw[k];const mid='set:'+k;const danger=k==='wipe';
+      const opts=SEL_OPTS[k]||[];const cv=curVal(k);const cur=opts.find(o=>o[0]===cv);
+      return{title,desc,titleColor:danger?'var(--red)':'var(--fg)',isSwitch:kind==='switch',isSelect:kind==='select',isButton:kind==='button',value:kind==='select'?(cur?optLabel(cur[1]):(k==='export'?(zh?'選擇格式':'Choose'):'')):kind==='button'?(k==='reindex'&&s.reindexP!=null?(zh?'重建中…':'Rebuilding…'):BTN_TXT[lang][k]):'',
+        btnColor:danger?'#fff':'var(--fg)',btnBg:danger?'var(--red)':'var(--card-solid)',btnBorder:danger?'var(--red)':'var(--border)',act:acts[k],
+        menuOpen:s.menu===mid,openMenu:toggleMenu(mid),options:opts.map(([v,l])=>({label:optLabel(l),on:v===cv?1:0,pick:()=>pickVal(k,v)})),
+        ...this.sw(on),toggle:()=>{this.setState(st=>({sw:{...st.sw,[k]:!st.sw[k]}}));if(k==='mcp'&&!on)this.toastMsg(zh?'MCP 伺服器已在 localhost:7341 啟動':'MCP server running on localhost:7341','icon-plug','var(--blue)');}};});
+    // dialogs
+    const dlg=s.dlg;const setD=(k)=>(e)=>this.setState(st=>({dlg:{...st.dlg,[k]:e.target.value}}));
+    let dialog={title:'',desc:'',fields:[],btn:'',btnBg:'var(--primary)',btnO:1,confirm:null};
+    if(s.dialog==='pw'){const ok=(dlg.cur||'').length>0&&(dlg.n1||'').length>=10&&dlg.n1===dlg.n2;dialog={title:zh?'更改密碼':'Change password',desc:zh?'新密碼至少 10 個字元。鑰匙圈裡的密碼會一起更新。':'At least 10 characters. The Keychain entry is updated too.',fields:[['cur',zh?'目前密碼':'Current password'],['n1',zh?'新密碼':'New password'],['n2',zh?'再輸入一次':'Confirm']].map(([k,label])=>({label,type:'password',value:dlg[k]||'',onChange:setD(k),ph:''})),btn:zh?'更改':'Change',btnBg:'#18181b',btnO:ok?1:.4,confirm:()=>{if(!ok)return;this.setState({dialog:null});this.toastMsg(zh?'密碼已更改':'Password changed');}};}
+    if(s.dialog==='wipe'){const word=zh?'刪除':'DELETE';const ok=(dlg.w||'')===word;dialog={title:zh?'刪除所有資料？':'Delete all data?',desc:zh?`1,115,934 條記錄、搜尋索引和所有快照都會被刪除，無法復原。輸入「${word}」確認。`:`1,115,934 visits, the search index and all snapshots will be removed. This cannot be undone. Type ${word} to confirm.`,fields:[{label:'',type:'text',value:dlg.w||'',onChange:setD('w'),ph:word}],btn:zh?'永久刪除':'Delete forever',btnBg:'oklch(0.6 0.2 25)',btnO:ok?1:.4,confirm:()=>{if(!ok)return;this.setState({dialog:null});this.toastMsg(zh?'（原型）未真的刪除任何東西':'(Prototype) nothing was actually deleted','icon-info','var(--muted-fg)');}};}
+    // palette
+    const pq=s.palQ.trim().toLowerCase();
+    const pages=navDefs.concat([['settings','icon-settings',t.nav_settings]]).map(([id,icon,label])=>({icon,label,hint:'',run:()=>this.setState({route:id,palette:false})}));
+    const actions=[{icon:'icon-refresh-cw',label:t.backup_now,hint:'',run:()=>{this.setState({palette:false});this.runBackup();}},{icon:theme==='dark'?'icon-sun':'icon-moon',label:zh?'切換深淺色':'Toggle theme',hint:'',run:()=>this.setState({theme:theme==='dark'?'light':'dark',palette:false})},{icon:'icon-lock',label:zh?'鎖定 PathKeep':'Lock PathKeep',hint:'⌘L',run:this.lock},{icon:'icon-message-circle-plus',label:t.new_chat,hint:'⌘N',run:()=>{this.setState({palette:false});this.newChat();}}];
+    let groups;
+    if(!pq)groups=[[t.pal_pages,pages],[t.pal_actions,actions]];
+    else{const vm=VISITS.filter(v=>(v.title+' '+v.domain).toLowerCase().includes(pq)).slice(0,5).map(v=>({icon:'icon-globe',label:v.title,hint:v.domain,run:()=>this.goHistoryWith({selected:v.id,query:'',dayF:'all',domainF:null})}));
+      const pm=pages.concat(actions).filter(p=>p.label.toLowerCase().includes(pq));
+      groups=[[t.pal_visits,[{icon:'icon-search',label:zh?`在歷史中搜尋「${s.palQ.trim()}」`:`Search history for “${s.palQ.trim()}”`,hint:'↵',run:()=>this.goHistoryWith({query:s.palQ.trim()})},...vm]],[t.pal_actions,pm]].filter(g=>g[1].length);}
+    const flat=[];const palGroups=groups.map(([label,items])=>({label,items:items.map(it=>{const idx=flat.length;flat.push(it);return{icon:it.icon,label:it.label,hint:it.hint,go:it.run,bg:idx===s.palIdx?'var(--muted)':'transparent',hover:()=>this.state.palIdx!==idx&&this.setState({palIdx:idx})};})}));
+    this._pal=flat;
+    const unlock=()=>{if(s.lockPw.length>0)this.setState({locked:false,lockPw:'',lockErr:false});else this.setState({lockErr:true});};
+    return {
+      t,theme,is,nav,langLabel:zh?'EN':'中',themeIcon:theme==='dark'?'icon-sun':'icon-moon',
+      toggleTheme:()=>this.setState({theme:theme==='dark'?'light':'dark'}),toggleLang:()=>this.setState({lang:zh?'en':'zh'}),
+      settingsNav:navStyle(is.settings),goSettings:go('settings'),goHistory:go('history'),goInsights:go('insights'),goBackup:go('backup'),
+      runBackup:this.runBackup,backingUp:s.backingUp,backupLabel:s.backingUp?t.backing:t.backup_now,backupIcon:s.backingUp?'icon-loader':'icon-refresh-cw',spin:s.backingUp?'pkspin 1s linear infinite':'none',progressPct:s.progress+'%',progressLabel:Math.round(s.progress*12.4).toLocaleString()+' / 1,240',backingUpLabel:zh?`正在備份 ${this.activeSources().length} 個來源`:`Backing up ${this.activeSources().length} sources`,
+      backupStatus,statusDot:s.backingUp?'var(--brand)':'var(--green)',
+      stats:[[zh?'已保存頁面':'Pages kept','1,115,934',zh?'本週新增 4,812':'+4,812 this week','history'],[zh?'時間跨度':'Span',zh?'6 年 4 個月':'6y 4m',zh?'最早 2020 年 6 月':'Since Jun 2020','insights'],[zh?'存檔大小':'Archive size','2.41 GB',s.sw.enc?(zh?'已加密':'Encrypted'):(zh?'未加密':'Not encrypted'),'settings'],[zh?'來源':'Sources',zh?`${Object.values(s.sourcesOn).filter(Boolean).length} 個瀏覽器`:`${Object.values(s.sourcesOn).filter(Boolean).length} browsers`,zh?`${Object.values(s.sourcesOn).filter(x=>!x).length} 個已暫停`:`${Object.values(s.sourcesOn).filter(x=>!x).length} paused`,'backup']].map(([label,value,sub,r])=>({label,value,sub,go:()=>this.setState({route:r,stab:r==='settings'?'storage':s.stab})})),
+      area:AREA,hover,onChartMove:(e)=>{const r=e.currentTarget.getBoundingClientRect();const i=Math.max(0,Math.min(30,Math.round((e.clientX-r.left)/r.width*30)));if(i!==this.state.hoverI)this.setState({hoverI:i});},onChartLeave:()=>this.setState({hoverI:null}),
+      onThisDay:ON_THIS_DAY[lang].map(o=>({...o,go:()=>this.goHistoryWith({query:o.q,mode:'full'})})),
+      threads:THREADS[lang].map(([title,meta,when,c,q])=>({title,meta,when,color:`var(${c})`,go:()=>this.goHistoryWith({query:q,mode:'semantic'})})),
+      year:s.year,yearWeeks,heatFoot,prevYear:()=>s.year>2024&&this.setState({year:s.year-1}),nextYear:()=>s.year<2026&&this.setState({year:s.year+1}),prevYearColor:s.year>2024?'var(--fg)':'var(--muted-fg)',nextYearColor:s.year<2026?'var(--fg)':'var(--muted-fg)',
+      sources,query:s.query,onQuery:(e)=>this.setState({query:e.target.value}),clearQuery:()=>this.setState({query:''}),searching,regexError,results,
+      resultsLabel:(zh?`找到 ${results.length} 條`:`${results.length} results`)+' · '+({full:t.m_full,regex:t.m_regex,semantic:t.m_semantic}[s.mode]),
+      historyViews,searchModes,days,showResults,showTimeline,showSites,showStarred,showEmpty,empty,siteRows,starredRows:starredList,
+      dateBtn,dateOptions,dateMenuOpen:s.menu==='date',menuDate:toggleMenu('date'),browserBtn,browserOptions,browserMenuOpen:s.menu==='browser',menuBrowser:toggleMenu('browser'),
+      hasDomainFilter:!!s.domainF,domainFilter:s.domainF||'',clearDomain:()=>this.setState({domainF:null}),hasAnyFilter,resetFilters:()=>this.setState({dayF:'all',brF:{chrome:true,arc:true,safari:true,firefox:true,edge:true},domainF:null}),
+      hasSelection:!!sel&&is.history,sel:sel||{},closeDetail:()=>this.setState({selected:null}),starColor:s.starred[s.selected]?'var(--brand)':'var(--muted-fg)',
+      toggleStar:()=>{const was=s.starred[s.selected];this.setState(st=>({starred:{...st.starred,[st.selected]:!was}}));this.toastMsg(was?(zh?'已取消加星':'Removed star'):(zh?'已加星':'Starred'),'icon-star','var(--brand)');},
+      copyUrl:()=>{try{navigator.clipboard&&navigator.clipboard.writeText(sv.url);}catch(e){}this.toastMsg(zh?'已複製連結':'Link copied','icon-copy','var(--blue)');},
+      openInBrowser:()=>this.toastMsg(zh?`已在 ${BNAME[sv.b]} 中打開`:`Opened in ${BNAME[sv.b]}`,'icon-external-link','var(--blue)'),
+      noteValue:sv?(s.notes[sv.id]||''):'',onNote:(e)=>{const v=e.target.value;this.setState(st=>({notes:{...st.notes,[st.selected]:v}}));},
+      ranges,kpis,bars,barLabels,domains,rhythm,rhythmHint,rhythmLeave:()=>this.setState({rhy:null}),keywords,refind,
+      chats:chatList,newChat:this.newChat,messages,chatEmpty:ac.messages.length===0&&!s.thinking,thinking:s.thinking,chatScrollRef:this.chatScrollRef,
+      suggestions:sugg.map(text=>({text,go:()=>this.send(text)})),draft:s.draft,onDraft:(e)=>this.setState({draft:e.target.value}),onDraftKey:(e)=>{if(e.key==='Enter'&&!e.nativeEvent.isComposing){e.preventDefault();this.send();}},send:()=>this.send(),sendOpacity:s.draft.trim()?1:.35,
+      modelLabel:modelOpts.find(m=>m[0]===s.sel.provider)[1],modelMenuOpen:s.menu==='model',menuModel:toggleMenu('model'),modelOptions:modelOpts.map(([k,label,hint])=>({label,hint,on:s.sel.provider===k?1:0,pick:()=>this.setState(st=>({sel:{...st.sel,provider:k},menu:null}))})),
+      intervals,nextRun,runnerLabel:s.interval==='off'?(zh?'launchd · 未安裝':'launchd · not installed'):(zh?'launchd · 已安裝':'launchd · installed'),runs,rescan:()=>this.toastMsg(zh?'掃描完成，沒有發現新的瀏覽器':'Scan done. No new browsers found','icon-scan-search','var(--blue)'),
+      grantFda:()=>{this.setState({fda:true});this.toastMsg(zh?'已取得完全磁碟存取權限':'Full Disk Access granted');},
+      imp,startImport:this.startImport,confirmImport:this.confirmImport,cancelImport:()=>this.setState({imp:'idle'}),
+      settingsTabs,settingsRows,settingsTitle:stabs.find(x=>x[0]===s.stab)[2],showStorage:s.stab==='storage',showAiProgress:s.stab==='ai'&&s.reindexP!=null,reindexPct:(s.reindexP||0)+'%',
+      anyMenu:!!s.menu,closeMenu:()=>this.setState({menu:null}),stop:(e)=>e.stopPropagation(),
+      palette:s.palette,openPalette:()=>this.setState({palette:true,palQ:'',palIdx:0}),closePalette:()=>this.setState({palette:false}),palQ:s.palQ,onPalQ:(e)=>this.setState({palQ:e.target.value,palIdx:0}),palRef:this.palRef,palGroups,
+      hasDialog:!!s.dialog,dialog,closeDialog:()=>this.setState({dialog:null}),
+      locked:s.locked,lock:this.lock,lockRef:this.lockRef,lockPw:s.lockPw,onLockPw:(e)=>this.setState({lockPw:e.target.value,lockErr:false}),onLockKey:(e)=>{if(e.key==='Enter')unlock();},unlock,lockBorder:s.lockErr?'var(--red)':'var(--border)',lockHint:s.lockErr?(zh?'請輸入密碼':'Enter your password'):(zh?'原型：任意密碼都可以解鎖':'Prototype: any password unlocks'),lockHintColor:s.lockErr?'var(--red)':'var(--muted-fg)',
+      hasToast:!!s.toast,toast:s.toast||{}
+    };
+  }
+}
+</script>
+</body>
+</html>

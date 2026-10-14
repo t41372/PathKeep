@@ -1,0 +1,694 @@
+import { defineMessages } from '../define'
+
+/** Settings → AI, plus the provider and semantic-search pieces onboarding reuses. */
+export const settingsAi = defineMessages({
+  en: {
+    title: 'AI',
+    optionalNote:
+      'Everything here is optional. PathKeep backs up, searches and analyzes your history without any of it.',
+    semantic: {
+      title: 'Semantic search',
+      descriptionService:
+        'Find pages by meaning, not only by keywords. {name} builds the index.',
+      model: {
+        label: 'Model',
+        inApp: 'In-app model',
+        inAppAbout:
+          '{model}, {dims} dimensions. It comes with PathKeep and runs on this computer. Another model builds the index again.',
+        add: 'Add an embeddings service…',
+      },
+      serviceDialog: {
+        title: 'Add an embeddings service',
+        description:
+          'A service that turns text into embeddings, OpenAI-compatible. Semantic search sends it each page’s address, title and visit time to build the index, and your searches to find pages.',
+      },
+      serviceLocalNote: 'Runs on this computer. Pages and searches stay here.',
+      serviceRemoteNote:
+        'An online service. Each page’s address, title and visit time, and your searches, are sent to it.',
+      serviceRemoveBody:
+        'The service and its stored API key are removed from this computer. Semantic search goes back to the in-app model.',
+      modelChange:
+        'Another model means building the semantic index again: {count} pages. The index made with {old} is deleted.',
+      modelChangeCounting:
+        'Another model means building the semantic index again. The index made with {old} is deleted.',
+      modelChangeLater:
+        'Another model means building the semantic index again when semantic search is on: {count} pages. The index made with {old} is deleted then.',
+      modelChangeLaterCounting:
+        'Another model means building the semantic index again when semantic search is on. The index made with {old} is deleted then.',
+      saveAndRebuild: 'Save and rebuild',
+      description:
+        'Find pages by meaning, not only by keywords. The model runs on this computer. It downloads once, about {size}.',
+      offNote: 'Turning it off keeps the downloaded model.',
+      downloading: 'Downloading the language model…',
+      downloadProgress: '{done} of {total}',
+      cancel: 'Cancel',
+      downloadFailed: 'The download did not finish. {message}',
+      modelMissing: 'The model is not downloaded yet.',
+      download: 'Download',
+      retry: 'Try again',
+      indexed_one: '{count} page indexed',
+      indexed_other: '{count} pages indexed',
+      lastIndexed: 'Last indexed {when}',
+      nothingIndexed:
+        'Nothing indexed yet. New history is indexed after each backup.',
+      indexing: 'Indexing your history…',
+      indexProgress: '{done} of {total} pages',
+      indexWaiting: 'Waiting to start indexing…',
+      indexFailed: 'Indexing failed. Rebuild the search index to try again.',
+      indexIncomplete: 'The index is incomplete. Rebuild it to fix this.',
+      failed: 'Could not change this setting. {message}',
+    },
+    provider: {
+      title: 'AI service',
+      description: 'The model the assistant talks to.',
+      select: 'AI service',
+      none: 'None',
+      add: 'Add provider…',
+      localNote: 'Runs on this computer. Nothing is sent anywhere.',
+      remoteNote:
+        'An online service. When you ask a question, the pages the assistant finds are sent to it.',
+      keyMissing: 'No API key is stored for this service yet.',
+      test: 'Test connection',
+      testing: 'Testing…',
+      testOk: 'Connected to {model} in {ms} ms.',
+      testFailed: 'Could not connect. {message}',
+      testErrors: {
+        'secret-missing':
+          'The service did not accept the API key. Check the key and test again.',
+        'network-error':
+          'Could not reach {address}. Check the address and that the service is running.',
+        'rate-limited':
+          'The service is limiting requests right now. Try again in a while.',
+        'bad-model':
+          'The service has no model called {model}. Check the model name.',
+        'bad-endpoint':
+          '{address} reaches a server, but not its API. For LM Studio and Ollama the address usually ends in /v1, like http://localhost:1234/v1.',
+        'unsupported-capability': 'This service cannot be used for this.',
+        'provider-disabled': 'This service is turned off.',
+        other: 'The service answered with an error: {message}',
+      },
+      remove: 'Remove',
+      removeTitle: 'Remove {name}?',
+      removeBody:
+        'The service and its stored API key are removed from this computer. Your conversations are kept.',
+      removeFailed: 'Could not remove the service.',
+      saved: '{name} is ready.',
+      updated: '{name} is saved.',
+      edit: 'Edit',
+      editDialog: {
+        title: 'Edit {name}',
+        description: 'Change how PathKeep reaches this service.',
+        submit: 'Save',
+      },
+      saveFailed: 'Could not save the service. {message}',
+      selectFailed: 'Could not change the service. {message}',
+      dialog: {
+        title: 'Add an AI service',
+        description: 'Choose where the assistant gets its answers from.',
+        submit: 'Add service',
+        cancel: 'Cancel',
+        saving: 'Saving…',
+      },
+      form: {
+        kind: 'Service',
+        name: 'Name',
+        namePlaceholder: 'Optional',
+        baseUrl: 'Address',
+        model: 'Model',
+        modelPlaceholder: 'For example {example}',
+        apiKey: 'API key',
+        apiKeyHint:
+          'Kept in your system keychain, never in PathKeep’s settings file.',
+        apiKeyOptional:
+          'Optional: only for a server on this computer that asks for one. It is kept in the system keychain.',
+        apiKeyKeep: 'Leave it empty to keep the saved key.',
+        optionalLater:
+          'You can finish setup, including the API key and a connection test, later in Settings → AI.',
+      },
+      models: {
+        browse: 'Browse the list',
+        search: 'Find a model',
+        empty: 'No model matches.',
+        loading: 'Reading the service’s models…',
+        found_one: '{count} model on this service. Pick it, or type a name.',
+        found_other:
+          '{count} models on this service. Pick one, or type a name.',
+        none: 'The service has no models yet. Download or load one there, or type a name.',
+        noneFor: {
+          llm: 'The service has no chat models, only embedding models. Type a name if it has one.',
+          embedding:
+            'The service has no embedding models. In LM Studio and Ollama their names usually contain “embed”.',
+        },
+        failed:
+          'Could not read the service’s models: {message} You can still type a name.',
+        loaded: 'Loaded',
+        context: 'reads {size}',
+        upTo: 'up to {size}',
+      },
+      kinds: {
+        ollama: 'Ollama (this computer)',
+        'lm-studio': 'LM Studio (this computer)',
+        openai: 'OpenAI or compatible',
+        anthropic: 'Anthropic',
+        gemini: 'Google Gemini',
+      },
+      defaultName: {
+        ollama: 'Ollama',
+        'lm-studio': 'LM Studio',
+        openai: 'OpenAI',
+        anthropic: 'Anthropic',
+        gemini: 'Gemini',
+      },
+    },
+    mcp: {
+      title: 'MCP server',
+      description: 'Let tools like Claude read your archive. Read-only.',
+      how: 'PathKeep does not keep a server running. Your tool starts one when it needs it, using the command below. This switch only allows that.',
+      details: 'Connection details',
+      copy: 'Copy',
+      copied: 'Copied',
+      loadFailed: 'Could not load the connection details.',
+      failed: 'Could not change this setting. {message}',
+    },
+    mcpLog: {
+      title: 'What other apps read',
+      description:
+        'Every request an app made through the MCP server: what it asked and how much came back.',
+      label: 'Requests through the MCP server',
+      empty: 'No app has asked anything yet.',
+      loadFailed: 'Could not load the requests: {message}',
+      loadingMore: 'Loading earlier requests…',
+      allShown: 'That’s every request.',
+      moreFailed: 'Couldn’t load earlier requests: {message}',
+      tool: {
+        'search-history': 'Searched your history',
+        'archive-status': 'Checked the archive’s status',
+        'usage-guide': 'Read how to use PathKeep',
+        other: 'Used {tool}',
+      },
+      sent_one: 'Sent {count} page of {matches} matching',
+      sent_other: 'Sent {count} pages of {matches} matching',
+      matching_one: '{count} matching page',
+      matching_other: '{count} matching pages',
+      onSite: 'on {site}',
+      asked: '“{query}”',
+    },
+    rebuild: {
+      title: 'Rebuild search index',
+      description:
+        'Reads your whole history again and rebuilds the semantic index. You can keep using PathKeep meanwhile.',
+      action: 'Rebuild',
+      needsSemantic: 'Turn on local semantic search first.',
+      dialogTitle: 'Rebuild the search index?',
+      dialogBody_one:
+        'This indexes {count} page again, in the background: you can keep using PathKeep, and its progress shows here. Your history is not changed.',
+      dialogBody_other:
+        'This indexes {count} pages again, in the background: you can keep using PathKeep, and its progress shows here. Your history is not changed.',
+      dialogBodyUnknown:
+        'This indexes your whole history again. It can take a while. Your history is not changed.',
+      confirm: 'Rebuild',
+      started: 'Rebuilding the search index.',
+      failed: 'Could not start the rebuild. {message}',
+    },
+    tuning: {
+      title: 'Search ranking',
+      description:
+        'How searching by meaning in History orders results. It blends two lists, pages whose words match and pages whose meaning matches, then lifts starred pages a little.',
+      needsSemantic:
+        'Used only when local semantic search is on. You can still set it now.',
+      k: {
+        label: 'Rank smoothing',
+        help: 'How much the first few results of each list count over the rest. Lower lets the very top matches win; higher blends both lists more evenly.',
+      },
+      lexical: {
+        label: 'Word matches',
+        help: 'How much pages containing your exact words count. 0 ignores them.',
+      },
+      semantic: {
+        label: 'Meaning matches',
+        help: 'How much pages about the same idea count, even without your words. 0 ignores them.',
+      },
+      starred: {
+        label: 'Starred boost',
+        help: 'How far starred pages move up. Kept small so a starred page never beats a much better match.',
+      },
+      range: 'Default {value} · from {min} to {max}',
+      invalid: 'Enter a number from {min} to {max}.',
+      save: 'Save',
+      reset: 'Reset to defaults',
+      saved: 'Search ranking saved.',
+    },
+  },
+  'zh-CN': {
+    title: 'AI',
+    optionalNote:
+      '这里的一切都是可选的。没有这些，PathKeep 也能备份、搜索和分析你的历史。',
+    semantic: {
+      title: '语义搜索',
+      descriptionService:
+        '按含义而不只是关键词来查找页面。由 {name} 建立索引。',
+      model: {
+        label: '模型',
+        inApp: '应用内置模型',
+        inAppAbout:
+          '{model}，{dims} 维。随 PathKeep 提供，在这台电脑上运行。换成别的模型会重新建立索引。',
+        add: '添加嵌入服务…',
+      },
+      serviceDialog: {
+        title: '添加嵌入服务',
+        description:
+          '把文字转成嵌入向量的服务，需兼容 OpenAI。语义搜索会把每个页面的网址、标题和访问时间发给它来建立索引，搜索时也会把你的搜索发给它。',
+      },
+      serviceLocalNote: '在这台电脑上运行，页面和搜索都留在这里。',
+      serviceRemoteNote:
+        '在线服务。每个页面的网址、标题和访问时间，以及你的搜索，都会发给它。',
+      serviceRemoveBody:
+        '这个服务和它保存的 API 密钥会从这台电脑上移除，语义搜索改回使用应用内置模型。',
+      modelChange:
+        '换成别的模型要重新建立语义索引：{count} 个页面。用 {old} 建立的索引会删除。',
+      modelChangeCounting:
+        '换成别的模型要重新建立语义索引。用 {old} 建立的索引会删除。',
+      modelChangeLater:
+        '换成别的模型，语义搜索打开时要重新建立语义索引：{count} 个页面。那时用 {old} 建立的索引会删除。',
+      modelChangeLaterCounting:
+        '换成别的模型，语义搜索打开时要重新建立语义索引。那时用 {old} 建立的索引会删除。',
+      saveAndRebuild: '保存并重建',
+      description:
+        '按含义而不只是关键词来查找页面。模型在这台电脑上运行，只需下载一次，约 {size}。',
+      offNote: '关闭后会保留已下载的模型。',
+      downloading: '正在下载语言模型…',
+      downloadProgress: '{done} / {total}',
+      cancel: '取消',
+      downloadFailed: '下载没有完成。{message}',
+      modelMissing: '模型还没有下载。',
+      download: '下载',
+      retry: '重试',
+      indexed_one: '已索引 {count} 个页面',
+      indexed_other: '已索引 {count} 个页面',
+      lastIndexed: '上次索引：{when}',
+      nothingIndexed: '还没有索引任何内容。新的历史会在每次备份后建立索引。',
+      indexing: '正在为你的历史建立索引…',
+      indexProgress: '{done} / {total} 个页面',
+      indexWaiting: '等待开始建立索引…',
+      indexFailed: '建立索引失败。请重建搜索索引再试一次。',
+      indexIncomplete: '索引不完整。请重建索引来修复。',
+      failed: '无法更改这项设置。{message}',
+    },
+    provider: {
+      title: 'AI 服务',
+      description: '助理使用的模型。',
+      select: 'AI 服务',
+      none: '无',
+      add: '添加服务…',
+      localNote: '在这台电脑上运行，不会向任何地方发送内容。',
+      remoteNote: '这是在线服务。你提问时，助理找到的页面会发送给它。',
+      keyMissing: '还没有为这个服务保存 API 密钥。',
+      test: '测试连接',
+      testing: '测试中…',
+      testOk: '已连接到 {model}，耗时 {ms} 毫秒。',
+      testFailed: '无法连接。{message}',
+      testErrors: {
+        'secret-missing': '服务不接受这个 API 密钥。检查密钥后再测试一次。',
+        'network-error': '连不上 {address}。检查地址，以及服务是否在运行。',
+        'rate-limited': '服务暂时限制了请求，稍后再试。',
+        'bad-model': '服务上没有名为 {model} 的模型。检查模型名称。',
+        'bad-endpoint':
+          '{address} 有服务在运行，但不是它的 API 地址。LM Studio 和 Ollama 的地址通常以 /v1 结尾，例如 http://localhost:1234/v1。',
+        'unsupported-capability': '这个服务不能用在这里。',
+        'provider-disabled': '这个服务已关闭。',
+        other: '服务返回了错误：{message}',
+      },
+      remove: '移除',
+      removeTitle: '移除 {name}？',
+      removeBody:
+        '这个服务和已保存的 API 密钥会从这台电脑上移除。你的对话会保留。',
+      removeFailed: '无法移除这个服务。',
+      saved: '{name} 已就绪。',
+      updated: '{name} 已保存。',
+      edit: '编辑',
+      editDialog: {
+        title: '编辑 {name}',
+        description: '更改 PathKeep 连接这个服务的方式。',
+        submit: '保存',
+      },
+      saveFailed: '无法保存这个服务。{message}',
+      selectFailed: '无法更换服务。{message}',
+      dialog: {
+        title: '添加 AI 服务',
+        description: '选择助理从哪里获得回答。',
+        submit: '添加服务',
+        cancel: '取消',
+        saving: '正在保存…',
+      },
+      form: {
+        kind: '服务',
+        name: '名称',
+        namePlaceholder: '可选',
+        baseUrl: '地址',
+        model: '模型',
+        modelPlaceholder: '例如 {example}',
+        apiKey: 'API 密钥',
+        apiKeyHint: '保存在系统钥匙串里，不会写进 PathKeep 的设置文件。',
+        apiKeyOptional:
+          '可不填：只有这台电脑上要求密钥的服务器才需要。密钥保存在系统钥匙串里。',
+        apiKeyKeep: '留空就保留已保存的密钥。',
+        optionalLater:
+          '之后可以在「设置 → AI」里完成设置，包括 API 密钥和连接测试。',
+      },
+      models: {
+        browse: '浏览列表',
+        search: '查找模型',
+        empty: '没有相符的模型。',
+        loading: '正在读取服务上的模型…',
+        found_one: '服务上有 {count} 个模型。选一个，或输入名称。',
+        found_other: '服务上有 {count} 个模型。选一个，或输入名称。',
+        none: '服务上还没有模型。先在那里下载或加载一个，或输入名称。',
+        noneFor: {
+          llm: '服务上只有 embedding 模型，没有聊天模型。如果有，请输入名称。',
+          embedding:
+            '服务上没有 embedding 模型。LM Studio 和 Ollama 的 embedding 模型名称通常带有“embed”。',
+        },
+        failed: '读不到服务上的模型：{message} 仍然可以输入名称。',
+        loaded: '已加载',
+        context: '可读 {size}',
+        upTo: '最多 {size}',
+      },
+      kinds: {
+        ollama: 'Ollama（本机）',
+        'lm-studio': 'LM Studio（本机）',
+        openai: 'OpenAI 或兼容服务',
+        anthropic: 'Anthropic',
+        gemini: 'Google Gemini',
+      },
+      defaultName: {
+        ollama: 'Ollama',
+        'lm-studio': 'LM Studio',
+        openai: 'OpenAI',
+        anthropic: 'Anthropic',
+        gemini: 'Gemini',
+      },
+    },
+    mcp: {
+      title: 'MCP 服务器',
+      description: '让 Claude 等工具读取你的存档，只读。',
+      how: 'PathKeep 不会一直运行服务器。需要时，你的工具会用下面的命令自行启动。这个开关只是允许它这样做。',
+      details: '连接信息',
+      copy: '复制',
+      copied: '已复制',
+      loadFailed: '无法加载连接信息。',
+      failed: '无法更改这项设置。{message}',
+    },
+    mcpLog: {
+      title: '其他应用读了什么',
+      description: '应用通过 MCP 服务器发出的每个请求：问了什么、拿到多少。',
+      label: '通过 MCP 服务器的请求',
+      empty: '还没有应用来问过。',
+      loadFailed: '无法载入请求：{message}',
+      loadingMore: '正在载入更早的请求…',
+      allShown: '所有请求都在这里了。',
+      moreFailed: '载入更早的请求失败：{message}',
+      tool: {
+        'search-history': '搜索了你的历史',
+        'archive-status': '查看了存档状态',
+        'usage-guide': '读了 PathKeep 的用法',
+        other: '使用了 {tool}',
+      },
+      sent_one: '交出 {count} 页（符合 {matches} 页）',
+      sent_other: '交出 {count} 页（符合 {matches} 页）',
+      matching_one: '符合 {count} 页',
+      matching_other: '符合 {count} 页',
+      onSite: '限 {site}',
+      asked: '“{query}”',
+    },
+    rebuild: {
+      title: '重建搜索索引',
+      description:
+        '重新读取你的全部历史并重建语义索引。期间可以照常使用 PathKeep。',
+      action: '重建',
+      needsSemantic: '请先开启本地语义搜索。',
+      dialogTitle: '要重建搜索索引吗？',
+      dialogBody_one:
+        '这会在后台重新索引 {count} 个页面，期间可以照常使用 PathKeep，进度显示在这里。你的历史不会被更改。',
+      dialogBody_other:
+        '这会在后台重新索引 {count} 个页面，期间可以照常使用 PathKeep，进度显示在这里。你的历史不会被更改。',
+      dialogBodyUnknown:
+        '这会重新索引你的全部历史，可能要花一些时间。你的历史不会被更改。',
+      confirm: '重建',
+      started: '正在重建搜索索引。',
+      failed: '无法开始重建。{message}',
+    },
+    tuning: {
+      title: '搜索排序',
+      description:
+        '在“历史”中按意思搜索时，结果如何排序。它会合并两份列表：文字相符的网页和意思相近的网页，再把加星的网页稍微往前排。',
+      needsSemantic: '只在开启本机语意搜索时使用。现在也可以先设置。',
+      k: {
+        label: '排名平滑',
+        help: '每份列表前几名比其余结果重要多少。数值越小，最前面的结果越占优势；越大，两份列表混合得越平均。',
+      },
+      lexical: {
+        label: '文字相符',
+        help: '包含你输入文字的网页占多少分量。0 表示不计入。',
+      },
+      semantic: {
+        label: '意思相近',
+        help: '主题相同但不一定含有你输入文字的网页占多少分量。0 表示不计入。',
+      },
+      starred: {
+        label: '加星网页加分',
+        help: '加星的网页往前排多少。数值保持得很小，加星的网页不会压过明显更相关的结果。',
+      },
+      range: '默认 {value} · 范围 {min} 到 {max}',
+      invalid: '请输入 {min} 到 {max} 之间的数字。',
+      save: '保存',
+      reset: '恢复默认值',
+      saved: '搜索排序已保存。',
+    },
+  },
+  'zh-TW': {
+    title: 'AI',
+    optionalNote:
+      '這裡的一切都是選用的。沒有這些，PathKeep 也能備份、搜尋和分析你的歷史。',
+    semantic: {
+      title: '語意搜尋',
+      descriptionService:
+        '依意思而不只是關鍵字來尋找頁面。由 {name} 建立索引。',
+      model: {
+        label: '模型',
+        inApp: 'App 內建模型',
+        inAppAbout:
+          '{model}，{dims} 維。隨 PathKeep 提供，在這台電腦上執行。換成別的模型會重新建立索引。',
+        add: '新增嵌入服務…',
+      },
+      serviceDialog: {
+        title: '新增嵌入服務',
+        description:
+          '把文字轉成嵌入向量的服務，需相容 OpenAI。語意搜尋會把每個頁面的網址、標題與造訪時間傳給它來建立索引，搜尋時也會把你的搜尋傳給它。',
+      },
+      serviceLocalNote: '在這台電腦上執行，頁面與搜尋都留在這裡。',
+      serviceRemoteNote:
+        '線上服務。每個頁面的網址、標題與造訪時間，以及你的搜尋，都會傳給它。',
+      serviceRemoveBody:
+        '這個服務與它儲存的 API 金鑰會從這台電腦上移除，語意搜尋改回使用 App 內建模型。',
+      modelChange:
+        '換成別的模型要重新建立語意索引：{count} 個頁面。用 {old} 建立的索引會刪除。',
+      modelChangeCounting:
+        '換成別的模型要重新建立語意索引。用 {old} 建立的索引會刪除。',
+      modelChangeLater:
+        '換成別的模型，語意搜尋開啟時要重新建立語意索引：{count} 個頁面。那時用 {old} 建立的索引會刪除。',
+      modelChangeLaterCounting:
+        '換成別的模型，語意搜尋開啟時要重新建立語意索引。那時用 {old} 建立的索引會刪除。',
+      saveAndRebuild: '儲存並重建',
+      description:
+        '依含義而不只是關鍵字來尋找頁面。模型在這台電腦上執行，只需下載一次，約 {size}。',
+      offNote: '關閉後會保留已下載的模型。',
+      downloading: '正在下載語言模型…',
+      downloadProgress: '{done} / {total}',
+      cancel: '取消',
+      downloadFailed: '下載沒有完成。{message}',
+      modelMissing: '模型還沒有下載。',
+      download: '下載',
+      retry: '重試',
+      indexed_one: '已建立 {count} 個頁面的索引',
+      indexed_other: '已建立 {count} 個頁面的索引',
+      lastIndexed: '上次建立索引：{when}',
+      nothingIndexed: '還沒有建立任何索引。新的歷史會在每次備份後建立索引。',
+      indexing: '正在為你的歷史建立索引…',
+      indexProgress: '{done} / {total} 個頁面',
+      indexWaiting: '等待開始建立索引…',
+      indexFailed: '建立索引失敗。請重建搜尋索引再試一次。',
+      indexIncomplete: '索引不完整。請重建索引來修復。',
+      failed: '無法變更這項設定。{message}',
+    },
+    provider: {
+      title: 'AI 服務',
+      description: '助理使用的模型。',
+      select: 'AI 服務',
+      none: '無',
+      add: '新增服務…',
+      localNote: '在這台電腦上執行，不會向任何地方傳送內容。',
+      remoteNote: '這是線上服務。你提問時，助理找到的頁面會傳送給它。',
+      keyMissing: '還沒有為這個服務儲存 API 金鑰。',
+      test: '測試連線',
+      testing: '測試中…',
+      testOk: '已連線到 {model}，耗時 {ms} 毫秒。',
+      testFailed: '無法連線。{message}',
+      testErrors: {
+        'secret-missing': '服務不接受這個 API 金鑰。檢查金鑰後再測試一次。',
+        'network-error': '連不上 {address}。檢查位址，以及服務是否在執行。',
+        'rate-limited': '服務暫時限制了請求，稍後再試。',
+        'bad-model': '服務上沒有叫 {model} 的模型。檢查模型名稱。',
+        'bad-endpoint':
+          '{address} 有服務在執行，但不是它的 API 位址。LM Studio 和 Ollama 的位址通常以 /v1 結尾，例如 http://localhost:1234/v1。',
+        'unsupported-capability': '這個服務不能用在這裡。',
+        'provider-disabled': '這個服務已關閉。',
+        other: '服務回傳了錯誤：{message}',
+      },
+      remove: '移除',
+      removeTitle: '要移除 {name} 嗎？',
+      removeBody:
+        '這個服務和已儲存的 API 金鑰會從這台電腦移除。你的對話會保留。',
+      removeFailed: '無法移除這個服務。',
+      saved: '{name} 已就緒。',
+      updated: '{name} 已儲存。',
+      edit: '編輯',
+      editDialog: {
+        title: '編輯 {name}',
+        description: '變更 PathKeep 連線到這個服務的方式。',
+        submit: '儲存',
+      },
+      saveFailed: '無法儲存這個服務。{message}',
+      selectFailed: '無法更換服務。{message}',
+      dialog: {
+        title: '新增 AI 服務',
+        description: '選擇助理要從哪裡取得回答。',
+        submit: '新增服務',
+        cancel: '取消',
+        saving: '正在儲存…',
+      },
+      form: {
+        kind: '服務',
+        name: '名稱',
+        namePlaceholder: '選填',
+        baseUrl: '位址',
+        model: '模型',
+        modelPlaceholder: '例如 {example}',
+        apiKey: 'API 金鑰',
+        apiKeyHint: '儲存在系統鑰匙圈裡，不會寫進 PathKeep 的設定檔。',
+        apiKeyOptional:
+          '可不填：只有這台電腦上要求金鑰的伺服器才需要。金鑰儲存在系統鑰匙圈裡。',
+        apiKeyKeep: '留空就保留已儲存的金鑰。',
+        optionalLater:
+          '之後可以在「設定 → AI」裡完成設定，包括 API 金鑰和連線測試。',
+      },
+      models: {
+        browse: '瀏覽清單',
+        search: '尋找模型',
+        empty: '沒有相符的模型。',
+        loading: '正在讀取服務上的模型…',
+        found_one: '服務上有 {count} 個模型。選一個，或輸入名稱。',
+        found_other: '服務上有 {count} 個模型。選一個，或輸入名稱。',
+        none: '服務上還沒有模型。先在那裡下載或載入一個，或輸入名稱。',
+        noneFor: {
+          llm: '服務上只有 embedding 模型，沒有聊天模型。如果有，請輸入名稱。',
+          embedding:
+            '服務上沒有 embedding 模型。LM Studio 和 Ollama 的 embedding 模型名稱通常帶有「embed」。',
+        },
+        failed: '讀不到服務上的模型：{message} 仍然可以輸入名稱。',
+        loaded: '已載入',
+        context: '可讀 {size}',
+        upTo: '最多 {size}',
+      },
+      kinds: {
+        ollama: 'Ollama（本機）',
+        'lm-studio': 'LM Studio（本機）',
+        openai: 'OpenAI 或相容服務',
+        anthropic: 'Anthropic',
+        gemini: 'Google Gemini',
+      },
+      defaultName: {
+        ollama: 'Ollama',
+        'lm-studio': 'LM Studio',
+        openai: 'OpenAI',
+        anthropic: 'Anthropic',
+        gemini: 'Gemini',
+      },
+    },
+    mcp: {
+      title: 'MCP 伺服器',
+      description: '讓 Claude 等工具讀取你的存檔，唯讀。',
+      how: 'PathKeep 不會一直執行伺服器。需要時，你的工具會用下面的指令自行啟動。這個開關只是允許它這樣做。',
+      details: '連線資訊',
+      copy: '複製',
+      copied: '已複製',
+      loadFailed: '無法載入連線資訊。',
+      failed: '無法變更這項設定。{message}',
+    },
+    mcpLog: {
+      title: '其他 App 讀了什麼',
+      description: 'App 透過 MCP 伺服器發出的每個請求：問了什麼、拿到多少。',
+      label: '透過 MCP 伺服器的請求',
+      empty: '還沒有 App 來問過。',
+      loadFailed: '無法載入請求：{message}',
+      loadingMore: '正在載入更早的請求…',
+      allShown: '所有請求都在這裡了。',
+      moreFailed: '載入更早的請求失敗：{message}',
+      tool: {
+        'search-history': '搜尋了你的歷史',
+        'archive-status': '查看了存檔狀態',
+        'usage-guide': '讀了 PathKeep 的用法',
+        other: '使用了 {tool}',
+      },
+      sent_one: '交出 {count} 頁（符合 {matches} 頁）',
+      sent_other: '交出 {count} 頁（符合 {matches} 頁）',
+      matching_one: '符合 {count} 頁',
+      matching_other: '符合 {count} 頁',
+      onSite: '限 {site}',
+      asked: '「{query}」',
+    },
+    rebuild: {
+      title: '重建搜尋索引',
+      description:
+        '重新讀取你的全部歷史並重建語意索引。期間可以照常使用 PathKeep。',
+      action: '重建',
+      needsSemantic: '請先開啟本機語意搜尋。',
+      dialogTitle: '要重建搜尋索引嗎？',
+      dialogBody_one:
+        '這會在背景重新索引 {count} 個頁面，期間可以照常使用 PathKeep，進度顯示在這裡。你的歷史不會被變更。',
+      dialogBody_other:
+        '這會在背景重新索引 {count} 個頁面，期間可以照常使用 PathKeep，進度顯示在這裡。你的歷史不會被變更。',
+      dialogBodyUnknown:
+        '這會重新索引你的全部歷史，可能要花一些時間。你的歷史不會被變更。',
+      confirm: '重建',
+      started: '正在重建搜尋索引。',
+      failed: '無法開始重建。{message}',
+    },
+    tuning: {
+      title: '搜尋排序',
+      description:
+        '在「歷史」中依意思搜尋時，結果如何排序。它會合併兩份清單：文字相符的網頁和意思相近的網頁，再把加星的網頁稍微往前排。',
+      needsSemantic: '只在開啟本機語意搜尋時使用。現在也可以先設定。',
+      k: {
+        label: '排名平滑',
+        help: '每份清單前幾名比其餘結果重要多少。數值越小，最前面的結果越占優勢；越大，兩份清單混合得越平均。',
+      },
+      lexical: {
+        label: '文字相符',
+        help: '包含你輸入文字的網頁占多少分量。0 表示不計入。',
+      },
+      semantic: {
+        label: '意思相近',
+        help: '主題相同但不一定含有你輸入文字的網頁占多少分量。0 表示不計入。',
+      },
+      starred: {
+        label: '加星網頁加分',
+        help: '加星的網頁往前排多少。數值保持得很小，加星的網頁不會壓過明顯更相關的結果。',
+      },
+      range: '預設 {value} · 範圍 {min} 到 {max}',
+      invalid: '請輸入 {min} 到 {max} 之間的數字。',
+      save: '儲存',
+      reset: '恢復預設值',
+      saved: '搜尋排序已儲存。',
+    },
+  },
+})

@@ -16,7 +16,31 @@
 
 ---
 
+## 巨型檔案清單（2026-10-13 量測）
+
+> 量測方式：版本庫追蹤中的 `src/`、`src-tauri/` 下 `.ts` / `.tsx` / `.rs` / `.css` / `.sql` / `.mjs` 檔（`src-tauri/gen/` 除外），`wc -l`，列出 1000 行以上的（AGENTS.md：重構超過 1000 行的檔案前，先做審查階段）。「程式碼」的行數包含同檔的 `#[cfg(test)]` 區塊。
+
+共 11 個檔案。2026-10-02 量的時候是 53 個；之後砍 unit test（`WORK-TEST-CUT-2026-10`）刪掉了大多數測試檔與檔內測試，Ask 的舊路徑也刪了。前端三個是照原樣保留的 EvilCharts 圖表、型別定義與三語文案；手寫的畫面元件都在 1000 行以下。真正要拆的程式碼是 `agent_harness.rs`、`agent_tools.rs`、`code_mode.rs`、`archive_flows.rs` 與 `dispatch.rs`（命令分派表，隨命令增加而長）；`ai/indexing/` 在 2026-06-21 已拆成模組樹（`backfill.rs` 913 行）。
+
+| 檔案                                                          | 行數 | 類型                    |
+| ------------------------------------------------------------- | ---- | ----------------------- |
+| `src-tauri/crates/vault-core/src/models/intelligence.rs`      | 2324 | 型別定義                |
+| `src/components/evilcharts/charts/recharts-bar-chart.tsx`     | 1459 | 照原樣保留的 EvilCharts |
+| `src/lib/i18n/messages/insights.ts`                           | 1347 | 三語文案                |
+| `src-tauri/crates/vault-core/src/ai/code_mode.rs`             | 1340 | 程式碼（含測試）        |
+| `src/components/evilcharts/charts/recharts-area-chart.tsx`    | 1282 | 照原樣保留的 EvilCharts |
+| `src/lib/types/intelligence.ts`                               | 1248 | 型別定義                |
+| `src-tauri/src/dev_ipc_bridge/dispatch.rs`                    | 1246 | 程式碼（命令分派表）    |
+| `src-tauri/crates/browser-history-parser/src/chromium/mod.rs` | 1222 | 程式碼（含測試）        |
+| `src-tauri/crates/vault-worker/src/archive_flows.rs`          | 1191 | 程式碼（含測試）        |
+| `src-tauri/crates/vault-core/src/ai/agent_tools.rs`           | 1069 | 程式碼（含測試）        |
+| `src-tauri/crates/vault-core/src/ai/agent_harness.rs`         | 1033 | 程式碼（含測試）        |
+
+---
+
 ## 前端基線
+
+> **2026-10-02：** 本節描述 2026-04 的前端（`src/pages/`、`src/styles/tokens.css`、`src/components/{sidebar,topbar,primitives}/`、`src/lib/backend.ts`），這些都已在 M18 redesign 刪除。現在的前端結構見 [module-boundary-map.md](../../architecture/module-boundary-map.md)「前端（2026-10 redesign 之後）」，畫面見 [screens-and-nav.md](../../design/screens-and-nav.md)。以下留作紀錄。
 
 ### 觀察
 
@@ -46,13 +70,14 @@
 
 ## 後端與資料平面基線
 
+> **2026-10-02：** 下面觀察裡的行數是 2026-04 的數字（例如 `intelligence/mod.rs` 9152 行，現在 431 行；`intelligence_runtime.rs` 已拆成目錄）。現在的大檔看上方「巨型檔案清單」。
+
 ### 觀察
 
 - [`src-tauri/crates/vault-core/src/archive/mod.rs`](../../../src-tauri/crates/vault-core/src/archive/mod.rs) 目前仍承擔 backup orchestration、history query、export、rekey、doctor 等多項責任，但 M1-A 已把主 runtime 切到 canonical `runs` / `source_profiles` / `urls` / `visits` / `downloads` / `search_terms` / `favicons` 寫入面。
 - [`src-tauri/crates/vault-core/src/intelligence/mod.rs`](../../../src-tauri/crates/vault-core/src/intelligence/mod.rs) 9152 行、[`src-tauri/crates/vault-core/src/intelligence_runtime.rs`](../../../src-tauri/crates/vault-core/src/intelligence_runtime.rs) 2172 行，很多 intelligence 相關邏輯仍集中在少數主檔。[`src-tauri/crates/vault-core/src/ai.rs`](../../../src-tauri/crates/vault-core/src/ai.rs) 已從早期的 ~2116 行 mega-file 拆成 `ai/` submodule tree，主檔本身只剩 ~320 行；AI-redesign-2026 引進的新大檔盤點見下方 `AI-redesign-2026 模組大小盤點`。
 - Rust workspace 現在已有 `browser-history-parser` crate，且 `vault-core` 已用它接通 Chromium、Firefox 與 Safari baseline backup ingest；後續重點已從「多瀏覽器是否存在」轉成 parser 深度、capability caveat 與 fixture 擴充。
-- canonical schema v1 + v2 runtime foundation 已落在 [`migrations/001_initial.sql`](../../../src-tauri/crates/vault-core/src/migrations/001_initial.sql) 與 [`migrations/002_archive_runtime_foundation.sql`](../../../src-tauri/crates/vault-core/src/migrations/002_archive_runtime_foundation.sql)；archive init 已統一走 migration executor。
-- [`src-tauri/crates/vault-core/src/archive/schema.rs`](../../../src-tauri/crates/vault-core/src/archive/schema.rs) 現在已退回 canonical archive bootstrap；search / intelligence plane 不再靠 archive-side compatibility views 或 runtime backfill 存活。
+- 原生 schema 在 `vault-core/src/store_schema/`。舊 SQLCipher 格式的 migration SQL（001–016）只留在轉換器的測試 fixture（`vault-convert-sqlcipher/src/test_support/legacy-schema/`），vault-core 不再開舊檔。
 - [`src-tauri/src/lib.rs`](../../../src-tauri/src/lib.rs) 暴露了很多 Tauri commands，但命令集合和命名仍然緊貼舊 UI 與舊產品假設。
 - [`src-tauri/crates/vault-worker/src/lib.rs`](../../../src-tauri/crates/vault-worker/src/lib.rs) 與 [`src-tauri/crates/vault-core/src/chrome.rs`](../../../src-tauri/crates/vault-core/src/chrome.rs) 已在後續 work blocks 裡大幅瘦身；它們仍是重要邊界，但不再是 repo 目前最大的 mega-file hotspot。
 - [`src-tauri/crates/vault-platform/src/lib.rs`](../../../src-tauri/crates/vault-platform/src/lib.rs) 已具備 macOS preview / manual / apply 與 Windows / Linux preview / manual schedule surface，Linux timer contract 也已明確切到 `OnCalendar=` + `Persistent=true`，並透過較小 calendar 步長 + worker `--due-only` 支援分鐘級自訂備份間隔。
@@ -98,7 +123,7 @@
 | remote backup bundles                 | zip artifact + manifest / checksum                | review-first portability artifact；不是 live source of truth                        |
 | `history_search` FTS projection       | SQLite FTS5 rebuildable projection                | fast-path search index；不是 canonical archive table                                |
 
-### AI-redesign-2026 模組大小盤點（2026-06-21 / `feat/ai-redesign-2026`）
+### AI-redesign-2026 模組大小盤點（2026-06-21）
 
 > `ai.rs` 已不再是早期 baseline 表裡的 2116-行 mega-file：它已拆成 `ai/` submodule tree，主檔本身只剩 ~320 行 orchestration / 共用型別。
 > AI-redesign-2026 引進了一批新大檔。先校準一次「哪些只是被 `#[cfg(test)]` 撐大、哪些是真問題」，免得它們悄悄滑出 size budget。
@@ -108,14 +133,13 @@
 | 檔案                                                                                                       | 行數  | test 區佔比            | stance                                                                      |
 | ---------------------------------------------------------------------------------------------------------- | ----- | ---------------------- | --------------------------------------------------------------------------- |
 | [`vault-core/src/ai/tests.rs`](../../../src-tauri/crates/vault-core/src/ai/tests.rs)                       | ~3712 | 全檔即 AI 模組共用測試 | accepted；這是 `ai/` 的集中測試面，不是 production 巨檔。                   |
-| [`vault-core/src/ai/embedding_candle.rs`](../../../src-tauri/crates/vault-core/src/ai/embedding_candle.rs) | ~1756 | ~580 行 test           | accepted；candle 引擎 + 模型下載/驗證一體，production 主體 < 1000 行。      |
 | [`vault-core/src/ai/agent_harness.rs`](../../../src-tauri/crates/vault-core/src/ai/agent_harness.rs)       | ~1631 | ~1040 行 test（過半）  | accepted；agent run/journal durability，test 比 production code 還多。      |
 | [`vault-core/src/ai/llm.rs`](../../../src-tauri/crates/vault-core/src/ai/llm.rs)                           | ~1247 | ~527 行 test           | accepted；rig LLM provider + streaming transport，production 主體 ~720 行。 |
 | [`vault-core/src/ai/embedding_static.rs`](../../../src-tauri/crates/vault-core/src/ai/embedding_static.rs) | ~1045 | ~297 行 test           | accepted；model2vec 靜態引擎，production 主體 < 750 行。                    |
 
 **真正的問題項（已處理）**：
 
-- 舊 `vault-core/src/ai/indexing.rs` ~1001 行、`single_responsibility=false`，是這批裡唯一的 genuine oversized-file。已於 `feat/ai-redesign-2026` 拆成 [`ai/indexing/`](../../../src-tauri/crates/vault-core/src/ai/indexing) module tree：`mod.rs`（orchestration 共用型別 + 測試支援 `collect_visits_to_index`）、`backfill.rs`（resumable embed loop + `DedupTracker`）、`candidates.rs`（候選收集 + 純 `select_embed_targets`）、`store_rows.rs`（`ai_embeddings` SQLite helpers + batch 校驗）、`content.rs`（embedding-content 與 enrichment→dedup-hash seam）。最大檔 `backfill.rs` ~792 行（含 ~184 行 test）。同時把 crash/resume dedup 三個 locals（`persisted_keys` / `persisted_hashes` / `mapped_ids`）封進 `DedupTracker`，並補上 4 個直接針對 crash-window 不變量的單元測試（MEDIUM-4 u64 碰撞、CRITICAL-2 resume skip、MEDIUM-5 incremental map-not-re-embed、`load_existing` 載入門檻），補足 audit 標出的測試缺口。public API（`build_ai_index` / `build_ai_index_with_control`）與 `pub(super)` surface 不變，`ai.rs` import 未動，既有 resume/dedup integration tests 全綠。
+- 舊 `vault-core/src/ai/indexing.rs` ~1001 行、`single_responsibility=false`，是這批裡唯一的 genuine oversized-file。已拆成 [`ai/indexing/`](../../../src-tauri/crates/vault-core/src/ai/indexing) module tree：`mod.rs`（orchestration 共用型別 + 測試支援 `collect_visits_to_index`）、`backfill.rs`（resumable embed loop + `DedupTracker`）、`candidates.rs`（候選收集 + 純 `select_embed_targets`）、`store_rows.rs`（`ai_embeddings` SQLite helpers + batch 校驗）、`content.rs`（embedding-content 與 enrichment→dedup-hash seam）。最大檔 `backfill.rs` ~792 行（含 ~184 行 test）。同時把 crash/resume dedup 三個 locals（`persisted_keys` / `persisted_hashes` / `mapped_ids`）封進 `DedupTracker`，並補上 4 個直接針對 crash-window 不變量的單元測試（u64 content_key 碰撞、resume 時跳過已寫入的 chunk、incremental 只補 map 不重新 embed、`load_existing` 載入門檻），補足之前缺的 crash-window 測試。public API（`build_ai_index` / `build_ai_index_with_control`）與 `pub(super)` surface 不變，`ai.rs` import 未動，既有 resume/dedup integration tests 全綠。
 
 **honest coupling（暫不拆，touch 時順手拆）**：
 
@@ -124,7 +148,9 @@
 **非 AI 的兩個既存大檔（登記在案，不在本次範圍）**：
 
 - [`vault-worker/src/archive_flows.rs`](../../../src-tauri/crates/vault-worker/src/archive_flows.rs) ~1845 行：og:image 抓取 worker-pool 是裡面最該抽出的一塊（建議抽到專屬 module），其餘 archive flow orchestration 責任本身正確。
-- [`src/pages/intelligence/sections.tsx`](../../../src/pages/intelligence/sections.tsx) ~1086 行：intelligence 頁多個 section 擠在單檔，應按 section 拆成子組件。
+- ~~`src/pages/intelligence/sections.tsx` ~1086 行~~：已隨舊前端刪除（2026-10）。
+
+> 2026-10-02：本節的行數是 2026-06-21 的數字。現在 `ai/tests.rs` 5871、`agent_harness.rs` 3047（`embedding_candle.rs` 2026-10-09 移除：共用的模型下載與驗證搬到 `ai/model_files.rs`）、`llm.rs` 1342、`embedding_static.rs` 1249、`ai/search.rs` 1747、`archive_flows.rs` 2006 行，見上方「巨型檔案清單」。
 
 ### 待辦
 
@@ -137,6 +163,8 @@
 ---
 
 ## 品質、測試與發版基線
+
+> **2026-10-02：** M18 刪掉了 mutation test（Stryker、`mutation:*`）、100% coverage gate（`coverage:js` / `coverage:rust`）與舊的 Vitest 頁面測試；E2E（`bun run test:e2e`，真 Rust 後端）是主要手段。下面的觀察與 test pyramid 是 2026-04 的狀態，現行 gate 以 [quality-matrix.md](quality-matrix.md) 與 `TESTING.md` 為準。
 
 ### 觀察
 

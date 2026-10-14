@@ -4,6 +4,40 @@
 
 ---
 
+## 0. 2026-10 介面對照
+
+M18 redesign（2026-10-02）換掉了整個前端。下面各節的後端行為不變；提到舊頁面的地方，對照如下（畫面細節見 [screens-and-nav.md](../design/screens-and-nav.md)）：
+
+| 舊頁面 / 名稱                                              | 現在在哪裡                                                                                                                                                                                            |
+| ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Dashboard                                                  | Home                                                                                                                                                                                                  |
+| Explorer                                                   | History                                                                                                                                                                                               |
+| Onboarding 的 profile / storage / security / schedule 步驟 | Onboarding 七步：歡迎、瀏覽器、存放位置、加密、排程、AI、完成                                                                                                                                         |
+| Scheduled Backup Settings（Schedule）                      | Backup → 自動備份卡（預設、自訂間隔、預覽對話框、詳情 sheet）                                                                                                                                         |
+| Import（Takeout）                                          | Backup → 匯入卡；近期匯入（Takeout 與瀏覽器檔案）在「最近的匯入」卡，復原 / 還原都先預覽該批                                                                                                          |
+| Import（Browser Direct）                                   | Backup →「匯入瀏覽器歷史」卡（檔案或使用者資料夾 → 預覽新增 / 已有 → 匯入）                                                                                                                           |
+| Audit Ledger / run detail                                  | Backup → 最近執行，點一列開側邊 sheet（摘要 / 檔案 / 警告）                                                                                                                                           |
+| Jobs、sidebar footer 的背景工作條                          | Settings → Background work：暫停 / 恢復、同時執行數、洞察佇列與搜尋索引 / 助理佇列（最近工作、進度、錯誤、重試 / 取消）、網頁摘要、連結預覽；手動備份進度仍在 Backup 頂端，Takeout 匯入進度在匯入卡內 |
+| Security                                                   | Settings → Security                                                                                                                                                                                   |
+| Settings → Data migration                                  | Settings → Storage →「搬到另一台電腦」（`.pathkeep` 檔）                                                                                                                                              |
+| Settings → Data →「刪除所有資料」                          | Settings → Storage →「刪除所有資料」                                                                                                                                                                  |
+| Maintenance（retention、doctor、更新、log）                | Settings → Storage「釋放空間」；Settings → About 的「檢查存檔」、更新、記錄檔與當機報告路徑（開啟 / 複製）、「複製診斷資訊」；「重建洞察」與 derived state 在 Settings → Background work              |
+| App Lock 面板                                              | Settings → Security 的「App Lock」分組                                                                                                                                                                |
+
+### 已接受要求中 2026-10 介面沒有做到的
+
+以下要求沒有被改掉，只是新介面還沒做到；要補還是要改需求，需要用戶決定：
+
+- §1 Onboarding 沒有「離開設定」：archive 建立前沒有主畫面可去，關掉 app 下次回到 onboarding（瀏覽器選擇已存）。
+- §2 排程：自訂間隔的單位是分鐘 / 小時 / 天，範圍 1 分鐘到 30 天（後端 `preview_schedule` 也只接受這個範圍）；上限 30 天是用戶 2026-10-10 決定保留的（[backup-interval-tradeoff.md](../design/backup-interval-tradeoff.md)）。
+- §3 匯入後的 Jobs / sidebar 進度與「第二個寫入任務連到現有任務」：沒有 Jobs 頁；手動備份由 `BackupRunnerProvider` 保證同時只有一個。
+- §4 匯出：只有整個歷史一個檔，沒有 profile / 時間 / domain / query 篩選。
+- §5 rekey 後的 review：Backup → 最近執行的 sheet 摘要頁標出安全副本並可開啟 / 複製；Settings → Security 不顯示最近一次 rekey 的時間、run id 與安全副本路徑（鎖定時也要保留）。
+- §6 Audit：沒有 snapshot_restore（checkpoint replay）的介面。（manifest / artifact 路徑與「摘要 / 檔案 / 警告」分頁已在 Backup → 最近執行；log / crash report 路徑已在 Settings → About，2026-10-04。）
+- §7 derived-state 面板（2026-10-04 起在 Settings → Background work）：有 module 版本、freshness（最新 / 已過期 / 尚未建立，含過期原因）、上次建立時間、queue、plugin 的已存筆數與上次執行 / 錯誤、rebuild 與 clear（先用 `preview_clear_derived_intelligence` 列出會刪的筆數）。沒有：plugin 版本（後端 `EnrichmentPluginStatus` 沒有版本欄位）、derived tables 的 storage impact 與 latest growth signal、個別 plugin 開關（`enrichmentPlugins` 設定仍在，介面沒有）。
+
+---
+
 ## 1. 增量備份
 
 **作為**用戶，**我想要**定期自動備份我所有瀏覽器的歷史紀錄，**以便**我的歷史紀錄不會因為瀏覽器的過期策略而丟失。
@@ -12,7 +46,7 @@
 
 - 支援自動發現本機安裝的瀏覽器和 profiles。
   - 對外公開承諾目前包含 `Google Chrome`、`Microsoft Edge` / `Microsoft Edge Dev`、`Firefox`、macOS 上的 `ChatGPT Atlas` browser-history profile、macOS 上的 `Perplexity Comet` browser-history profile，以及 macOS 上已授權 Full Disk Access 的 `Safari` 基礎支持。
-  - `Google Chrome` 與 `Microsoft Edge` 的 `Favicons` sidecar 屬正式 backup 範圍；Explorer row / detail 目前會顯示 archive 中已保存的 exact-page favicon。
+  - `Google Chrome` 與 `Microsoft Edge` 的 `Favicons` sidecar 屬正式 backup 範圍；History 的列表與詳情面板會顯示 archive 中已保存的 favicon（沒有時顯示網域首字母色塊）。
   - `Microsoft Edge` / `Microsoft Edge Dev` 使用 Chromium parser；discovery 進入的 profile 必須保留 Edge product metadata，不能在 archive/source-profile 或 Browser Direct review 中退回 generic `Google Chrome`。
   - `Firefox` 使用 `places.sqlite` history-only baseline；backup 與 Browser Direct 都要保留 visits / URLs、source evidence、batch rollback / restore，但不偽造 Favicons、downloads 或 keyword-search sidecars。
   - `ChatGPT Atlas` 只承諾 browser-history profile：`~/Library/Application Support/com.openai.atlas/browser-data/host/<profile>/History` 與 Chromium sidecars such as `Favicons`；不得導入 Atlas workspace data、chats、tabs、bookmarks 或 suggestions。
@@ -31,10 +65,10 @@
   1. 對瀏覽器的 History / Favicons SQLite 做一致性 snapshot，寫到 staging 區；原則上優先使用 SQLite Backup API，而不是單純 raw file copy。
   2. 對 staging 副本做完整性檢查（`PRAGMA quick_check`）。
   3. 解析並寫入 archive 數據庫。
-  4. 無法讀取的 profile 仍保留在 onboarding / dashboard 清單中，並附帶權限或支援限制說明。
+  4. 無法讀取的 profile 仍保留在 onboarding 與 Backup 的來源清單中，並附帶權限或支援限制說明。
 - Staging / raw-source checkpoint 的實際檔案或目錄名稱不得直接使用 raw `profile_id`；`firefox:default-release`、`chrome:Default` 這類 ID 必須在檔案系統邊界轉成可逆的 Windows-safe path segment，archive metadata / UI / selected profile contract 則繼續保留原始 ID。
 - M1 的 day-one onboarding 必須先把 storage path、browser detection、security choice、schedule preview 和 first backup boundary 全部展示出來，再允許任何 mutating run。
-- Onboarding 的 schedule step 必須能選擇備份間隔，並讓使用者明確選擇「setup 完成時安裝 native schedule」或「先跳過」。Install happy path 在 archive 初始化 / keyring setup 完成後才呼叫既有 `apply_schedule`；skip path 只前進並提示 `System -> Scheduled Backup Settings`，不得呼叫 `apply_schedule`、`remove_schedule`、`repair_schedule` 或其他 scheduler mutation。
+- Onboarding 的 schedule step 必須能選擇備份間隔，並讓使用者明確選擇「setup 完成時安裝 native schedule」或「先跳過」。Install happy path 在 archive 初始化 / keyring setup 完成後才呼叫既有 `apply_schedule`；skip path（2026-10：排程步驟的「略過」或選「手動」）只前進，之後可在 Backup → 自動備份開啟，不得呼叫 `apply_schedule`、`remove_schedule`、`repair_schedule` 或其他 scheduler mutation。
 - Onboarding / Dashboard 的 profile boundary surface 必須誠實顯示 browser-retention reality：本地瀏覽器歷史可能在 PathKeep 下次 backup 前就被瀏覽器策略或使用者清除；只有成功寫進 archive 之後，PathKeep 才提供 append-only 的長期保存。
 - Onboarding 不是陷阱頁：使用者可以在 setup 中途明確退出，PathKeep 會保留目前已選的 archive 選項，之後可從 Dashboard / Settings 回來繼續。
 - Onboarding / first import 的 execute step 必須先讓 overlay repaint，再開始真正的 archive init / import / backup work；背景計算再重，也不能把 loading 動畫整段凍住到最後一幀才一次補完。
@@ -93,24 +127,41 @@
 - Native scheduler 直接執行隨 app bundle 發佈的 `pathkeep-worker` sidecar，避免 GUI lifecycle / Dock activation，並讓 native host 取得真正的 worker exit code。Durable attempt outcome 仍是產品內健康狀態的 source of truth；任何 launcher / host 的 `0` 都不能單獨充當 backup success。
 - Settings、Onboarding 與 Schedule 都必須把 browser discovery 的 permission / discovery failure 視為 blocked 或 degraded state；不得把它渲染成空白 profile 清單。Full Disk Access case 必須說明影響、提供直達 System Settings、重新偵測，以及任何 launcher failure 的可見 diagnostic。
 - Reinstall / update schedule 是以**執行當下**的 current build + current config 重新產生 plan 的 reconciliation，不得重播 route cache 的舊 plan。若無法卸載仍 loaded 的既有 LaunchAgent，apply 必須失敗並回傳 `launchctl` evidence，不得宣稱已修復。
-- **預設備份間隔為每 12 小時**。用戶可以在設定中自定義整數分鐘間隔；`6h / 12h / 24h / 72h` 只是快捷預設，不是上限或唯一選項，最短為 1 分鐘。
+- **預設每小時備份**（onboarding 預先選好，新安裝的 config 也是）。快捷是每小時 / 每 6 小時 / 每天；自訂以分鐘、小時或天輸入整數，1 分鐘到 30 天。（2026-10-10 用戶決定照 v0.4，取代原本的「預設 12 小時、6 / 12 / 24 / 72 小時快捷、沒有上限」，見 [backup-interval-tradeoff.md](../design/backup-interval-tradeoff.md)。）
 - 「沒有一直開機也能補跑」：開機/登入後，如果距離上次備份已超時，自動補跑。
 - 排程的設定走 Preview/Manual/Execute 流程：
   - 用戶能看到將要安裝的 plist / XML / service 文件的內容。
   - 用戶能選擇手動複製並安裝，或讓 app 代為安裝。
-  - Schedule 主頁必須由 state machine 驅動，只顯示當前狀態可用的主要操作；`CHECKING`、`NOT_INSTALLED`、`INSTALLED_OK`、`INSTALLED_WARN`、`INSTALLED_ERROR` 不得同時把所有 install/remove/repair 操作攤開。
-  - Schedule 主頁必須把 interval selection、current config/status、install/update CTA、remove CTA、repair CTA 與 legacy/error attention state 放在第一層；Preview / Manual / Execute / Verify 的資訊改為 state-local details，不再是常駐主架構。
+  - Backup 的自動備份卡必須由 state machine 驅動，只顯示當前狀態可用的主要操作；`CHECKING`、`NOT_INSTALLED`、`INSTALLED_OK`、`INSTALLED_WARN`、`INSTALLED_ERROR` 不得同時把所有 install/remove/repair 操作攤開。
+  - Backup 的自動備份卡必須把 interval selection、current config/status、install/update CTA、remove CTA、repair CTA 與 legacy/error attention state 放在第一層；Preview / Manual / Execute / Verify 的資訊改為 state-local details，不再是常駐主架構。
   - 如果使用者在已安裝狀態修改備份間隔，UI 必須顯示 explicit update/install action；native apply 可沿用目前 overwrite 行為。
   - 如果原生排程已安裝，Schedule 頁也必須提供明確的移除 / 解除安裝 CTA，而不是要求使用者自己回到系統資料夾手動刪檔。
   - 安裝結果記入審計日誌，並透過 inline progress / success / failure result 回到 UI。
   - 移除 / 解除安裝同樣要留下 verify 訊號與 audit artifact，讓使用者能確認 PathKeep 實際移除了哪些檔案。
   - 已知 legacy scheduler conflict 必須透過使用者明確點擊 `repair_schedule` 才能自動修復；不得在 status detection、install 或 remove 中靜默清理 legacy tasks。
-- Dashboard / Settings / Schedule 必須共享平台 capability 與 troubleshooting 語法，至少能清楚暴露 manual-review、mismatch、legacy install、permission warning 等狀態，並直接引導回排程頁修復。
+- Dashboard / Settings / Schedule 必須共享平台 capability 與 troubleshooting 語法，至少能清楚暴露 manual-review、mismatch、legacy install、permission warning 等狀態，並直接引導回排程頁修復。（v0.4：Home 的警告列與 Backup 的自動備份卡用同一組排程器回報的問題與文字，Home 的連到 Backup；另有「已經停了」：安裝了，但系統超過三次檢查都沒啟動 PathKeep。電腦醒來或開機後 15 分鐘內，「已經停了」與「中途停止」都不報：睡著時什麼都不會跑，醒來時 launchd 會補跑錯過的工作，Task Scheduler 可能要幾分鐘；讀不到醒來時間就照常報。）
 - Settings 的 independent support inspections（schedule / keyring / security）失敗時，必須在 Settings 本身留下可見 failure + retry，不能用 `null` status 偽裝成沒有問題。
 - Schedule 的 Verify surface 必須直接列出 install state、detected files、typed issues、verification checks、latest audit artifact 與最近一次 apply / remove / repair 結果，避免 verify 只剩一段模糊狀態字串或 raw backend English warning。
-- App 的「開機啟動」（autostart）和備份排程是兩件分開的事。
+- 2026-10 介面：Backup → 自動備份卡有每小時 / 每 6 小時 / 每天 / 自訂 / 關。選任何間隔、關閉、重新安裝或移除舊版工作都先開對話框：安裝類顯示 `preview_schedule`（帶 `dueAfterHours`，不寫 config）產生的完整 plist / XML / systemd 檔與存放位置，關閉類列出會移除的檔案；按下確認才存間隔並 `apply_schedule` 剛才顯示的那份 plan。關閉不改存下的間隔。「詳情」sheet 是 Verify：檢查項（後端 `schedule.verify*` key 的在地化文字）、問題（`schedule.issue*`）、找到的檔案、最近一次變更（`lastAction`，讀最新的 `audit/scheduler/*.json`，含寫入 / 移除的檔案與記錄檔路徑；舊記錄沒有結果欄位時顯示「沒有記錄結果」）、最近的自動執行、手動步驟（`schedule.manual*`，檔案與指令都可複製）。Linux 卡片直接顯示手動步驟，選間隔只存設定。
+- App 的「開機啟動」（autostart）和備份排程是兩件分開的事。排程靠 `pathkeep-worker`，app 沒開也會跑；開機啟動只是讓 app 本身在登入時出現在選單列，見下方「開機啟動與選單列圖示」。
 - 2026-04-29 scheduled-backup state-machine truth：如果 macOS 存在 known pre-rename LaunchAgent（`dev.codex.pathkeep.backup` 或 `dev.codex.browser-history-backup.backup`），status 必須顯示 typed `legacy-launch-agent` issue 並把 UI 映射到 `INSTALLED_WARN`，讓使用者選擇一鍵修復或手動修復；不得把它顯示成 canonical installed，也不得因 canonical `com.yi-ting.pathkeep.backup` 缺失而直接顯示普通 `NOT_INSTALLED`。
 - 2026-04-29 live repair follow-up：macOS canonical `com.yi-ting.pathkeep.backup` 如果仍 loaded 但 plist 已缺失，status 必須顯示 typed `macos-plist-missing-loaded` error 並映射到 `INSTALLED_ERROR`，提供 reinstall / remove / diagnostics，不得把 loaded-but-uneditable scheduler 當成普通未安裝。macOS remove / repair 必須用 `launchctl bootout gui/$UID/<label>` service target，才能移除沒有 plist 檔但仍留在 launchd 內的 canonical 或 known legacy jobs。
+
+### 開機啟動與選單列圖示（2026-10）
+
+Settings → General 的兩個開關。
+
+- **開機時啟動**：登入時啟動 PathKeep。是否已註冊只看 OS（登入項目），PathKeep 的 config 不另存一份。
+  - macOS：PathKeep 自己寫 `~/Library/LaunchAgents/com.yi-ting.pathkeep.login.plist`，內容是 `/usr/bin/open -g -a PathKeep.app --args --launched-at-login`。不用 `tauri-plugin-autostart` 的 LaunchAgent，因為它讓 launchd 直接執行 app 內的 GUI binary，macOS 26 會以 Launch Constraint Violation 殺掉（排程備份之前修過同一個問題）。不呼叫 `launchctl`，下次登入才生效。App 搬家後，下次啟動會把 plist 改指到新位置。
+  - Windows / Linux：`tauri-plugin-autostart`（登錄檔 `Run` 值 / XDG autostart `.desktop`），同樣帶 `--launched-at-login`。
+- **選單列圖示**：macOS 選單列 / Windows、Linux 系統匣。偏好存在 `AppConfig.menuBarIcon`（預設關），下次啟動照設定還原。選單：備份狀態（不可點）、立即備份、搜尋歷史…、打開 PathKeep、分隔線、結束 PathKeep。文字跟隨 `preferredLanguage`；「跟隨系統」時讀 OS 語言（與前端 `detectSystemLanguage` 同規則）。
+  - 狀態行：備份中… / N 分鐘前已備份 / 備份失敗 / 還沒有備份過 / 尚未設定 / 暫時無法讀取備份狀態。來源是 app 內的備份（視窗或選單觸發，走同一條路徑）、啟動時讀一次 archive 的最後成功時間，以及每 5 分鐘讀一次排程備份 ledger（sidecar 在另一個 process 跑）。相對時間每分鐘重畫，不做 I/O。
+  - 「搜尋歷史…」打開視窗並送出 `pathkeep://open-command-palette`，由前端打開 ⌘K。
+  - 任何 app 內備份結束都送出 `pathkeep://backup-finished`（`{ source: "app" | "menu-bar", report?, error? }`），讓視窗在選單觸發的備份後刷新。
+  - Linux 需要 libappindicator 與面板上的 StatusNotifier host（GNOME 預設沒有）；缺任一個時 `menuBarIconSupported` 為 false。
+- **登入啟動時的行為**：登入啟動永遠不把視窗推到用戶面前。選單列圖示開著 → 不開視窗，只在選單列出現（設定文案「登入時在選單列運行」）。圖示關著：macOS 同樣不開視窗，Dock 圖示還在，點它就叫出視窗；Windows / Linux 以最小化開在工作列，因為沒有 Dock，隱藏又沒圖示等於用戶找不到 app。
+- **關閉視窗**：圖示開著 → 視窗隱藏，app 留在選單列（「結束 PathKeep」或 ⌘Q 才結束）。圖示關著 → 關視窗就結束 app，與之前一致。關掉圖示時若視窗是隱藏的，會把視窗叫回來。macOS 點 Dock 圖示會叫回隱藏的視窗。
+- 已知缺口：Windows / Linux 沒有 single-instance，app 隱藏在系統匣時再從開始選單啟動會開第二個 process。
 
 ### 平台注意事項
 
@@ -127,14 +178,14 @@
 ### Google Takeout 導入
 
 - GUI wizard 流程：
-  1. 拖入 Takeout 的 zip、解壓後的資料夾，或單一 dedicated Chrome history JSON 檔。
+  1. 拖入 Takeout 的 zip、解壓後的資料夾（名稱裡要有 takeout，其他資料夾當成瀏覽器設定檔），或單一 dedicated Chrome history JSON 檔。用「選擇檔案」只能選 .zip。
   2. 先做 dry-run：掃描文件、識別格式、產生報告。
-  3. **目前 shipping scope 採 Chrome-first**：只有 dedicated Chrome history payload（例如 `BrowserHistory.json`、`History.json`、德文化的 `Verlauf.json`）進入 importer。
+  3. **匯入兩種 Chrome 紀錄**：dedicated Chrome history payload（例如 `BrowserHistory.json`、`History.json`、德文化的 `Verlauf.json`），以及 2026-10-09 起「我的活動 → Chrome」的 JSON（依內容辨識，各語言的資料夾名都行；做法見 `docs/architecture/takeout-my-activity-tradeoff.md`），兩者各進自己的來源（`takeout::browser-history`、`takeout::my-activity`）。Takeout 不寫 JSON Lines，`.jsonl` 檔就算每行看起來像瀏覽記錄也不匯入（看起來像歷史的標 `needs-review`）；PathKeep 自己的 JSONL 匯出也不是匯入格式。
   4. dedicated Chrome history payload 的 parser 也必須對齊真實 Takeout envelope，而不是只靠 repo 自造 fixture；目前已驗到的 canonical shape 是頂層 `Browser History` 陣列，時間欄位使用 `time_usec`。
   5. wizard 的第一屏就必須明講「PathKeep 現在要什麼 Takeout 類型」，並教使用者在 Google Takeout 完成匯出後，先確認 zip / 資料夾 / 單一 JSON 檔裡是否真的有 dedicated Chrome history payload，再進入掃描。
-  6. 若使用者提供的是 `My Activity/Chrome/*.json`、`我的活動/Chrome/我的活動.json`、或任何 `.html` activity 匯出，UI 不能只顯示 generic ignored / no matches；必須直接說這不是目前 importer 支援的 dedicated Chrome history payload。
+  6. 若使用者提供的是「我的活動」的 `.html` 匯出（Takeout 的預設格式），UI 不能只顯示 generic ignored / no matches；必須直接說 PathKeep 讀不了 HTML，請在 Takeout 把「我的活動」改為 JSON，或改勾 Chrome。
   7. 已知但刻意不導入的檔案（例如 typed URL / session companion、Takeout index、其他 Google product export）必須明確標示為 `known-but-ignored`，而不是混進 quarantine 噪音。
-  8. 看起來像瀏覽歷史、但其實屬於更寬的 Google activity surface（例如 Chrome 相關 `My Activity`）要標成 `needs-review`，不能直接猜成 browser history。
+  8. 看起來像瀏覽歷史、但其實屬於更寬的 Google activity surface（搜尋、地圖等其他產品的「我的活動」）不匯入；「我的活動 → Chrome」的 JSON 只取 `products` 含 Chrome、有網址的紀錄（「Used Chrome」不是造訪）。
   9. 真正未支援或 parse 失敗的 payload 才進入 review / quarantine follow-through，並在 UI 中顯示原因和檔案摘要。
   10. 用戶確認後，才正式寫入 archive。
 - path recognition 不能再只靠檔名 substring；已知 English / German 檔名可以走 fast path，但對 direct JSON 與未知語言檔名也必須靠 payload header sniff 辨識 dedicated Chrome history shape，而不是繼續擴張 hardcoded locale tables。
@@ -143,18 +194,26 @@
 - import / onboarding finalization / manual backup 的 progress surface 必須持續回報 typed phase、current/total、percent、detail、目前 source/profile label、record-level processed/imported/duplicate/skipped counters，以及 structured `logEvents`（level / code / source label / counters / diagnostic）。legacy `logLines` 只作 fallback，產品 UI 不應把 raw backend prose 當成主要 copy；若單一大型檔案或 SQLite profile 在 active write 階段沒有可信 percent，UI 必須改成 indeterminate progress 並持續顯示遞增的 record counter，而不是長時間停在假 `0 / 1 · 0%`、假 `1 / 2 · 50%`、或只顯示 `1 / 1` 檔案 / profile 進度。post-import 的 backup / rebuild / shell refresh 只能作為 background-style follow-up，不能讓前景 overlay 因等待整串收尾而卡死；導入主路徑也不得同步重建整個 derived search projection，只能刷新本次 import batch 影響到的 bounded URL-document 集合。
 - import / manual backup 這類 archive-write 任務必須下沉到 shell-owned task store：Import route 只負責啟動與顯示 handoff card，Jobs 是 canonical live progress / console / recovery surface，sidebar footer 顯示 compact status；使用者切頁後不得丟失進度。當已有 archive-write task 正在跑時，第二個 import / backup action 必須連到現有任務並通知使用者，而不是啟動並行寫入。
 - 若 import batch 的 audit artifact 遺失或上一次 post-commit 寫入失敗，recent batch preview 與 doctor repair 都必須能重建同一批 JSON review artifact，而不是讓 committed batch 永久失去 review surface。
+- 批次列表與批次內的記錄都有續讀游標；16 個批次、24 筆預覽只是預設頁大小，不能讓較舊批次或其餘記錄無法到達。未完成的撤銷 / 恢復與 interrupted 批次（app 關掉或當掉時停在中途的匯入）優先顯示；使用者按「停止」的是 stopped，照時間排，不排到前面。後端契約見 [data-model](../architecture/data-model.md#turso-archive-read-contract)。
+- 中斷的匯入接著做（2026-10-11）：Takeout 匯入在使用者按「停止」、app 關掉或當掉時停在中途，已寫入的部分照常保留（狀態 stopped 或 interrupted）。同一份匯出（同一個路徑）再匯入一次，就接著寫進同一批，而不是另開一批：整份重新讀過，之前那次寫過的紀錄既不算新增、也不算「已經在存檔裡」，寫過的頁不再重寫搜尋文件，所以前段很快；結束時這一批的數字包括兩次寫入的，匯入卡寫「接著完成了 {日期} 中斷的這份匯出」。已經完成或已撤銷的匯入不會被重新打開：同一份檔案再匯入是新的一批，裡面的紀錄都是重複。瀏覽器檔案匯入（Browser Direct）每次仍是新的一批。
+- 匯入中可以停止（2026-10-11）：Takeout 與瀏覽器檔案匯入的卡片在匯入中有「停止」，寫完手上這一批（最多 10,000 筆）就停。停下不算失敗：卡片寫「已停止。存下了 N 筆新的瀏覽記錄」，N 是這一批匯入實際存下的；Takeout 再匯入同一份就寫進同一批完成它（從頭再讀一遍，已存的很快略過：100 萬筆約 62 秒，進度從 0 數起），瀏覽器檔案再匯入則補上其餘的、已存下的算作已在存檔裡。存下的造訪照常進洞察。剛好寫完最後一批才按的，照常完成。匯入在整個 app 裡只有一份（`import-runner.tsx`），離開 Backup 再回來，進度與「停止」都還在。
 - 導入後可回滾：用戶可以查看每次導入的記錄，如果發現導入的數據有問題（髒數據），可以回滾整次導入。
   - Takeout rollback 走和 backup / revert 相同的 soft-hide visibility model：imported rows 從正常 recall / export 中隱藏，但 raw facts、manifest 和 snapshot artifact 保持可審計。
   - 回滾後必須支援 un-revert / restore，讓整批 import 能恢復可見。
+  - 撤銷與恢復跟匯入一樣改了算進洞察的造訪，所以一樣把洞察標成過期、排好重建（2026-10-13 起；之前撤銷後洞察照舊算著那些造訪，直到下一次備份或手動重建）。重建只排這次動到的設定檔：這一批自己的，加上因為它的造訪藏起或回來而換成另一份來算的同一次造訪所在的設定檔。中途停下再接著做時，這些設定檔記在那次 run 上，不會漏。
 - Import review surface 應把 `new import wizard` 與「這次匯入結果」放在首要層級；recent batch history、revert / restore、doctor report 與 repair CTA 退到次要 review surface，避免歷史批次搶走新匯入流程的注意力。
 - 提供詳細但可掃讀的操作指南：怎麼從 Google Takeout 請求 Chrome 匯出、怎麼下載，以及如何確認壓縮包 / 資料夾裡真的有 dedicated Chrome history JSON，而不是 My Activity JSON / HTML。
+  - 2026-10-09 介面：匯入卡在拖放區下有可展開的「怎麼從 Google Takeout 取得」（打開 takeout.google.com 全部取消選取、勾 Chrome〔資料選項裡可以只留歷史記錄〕、以 .zip 建立匯出、拖進來不用解壓縮；並說明 Takeout 裡是 Chrome 同步到帳號的歷史，可能比本機 Chrome 久）。預覽時若匯出裡有 HTML 的「我的活動 → Chrome」，寫明 PathKeep 讀不了、請改為 JSON 或改勾 Chrome；什麼都沒找到時寫明檔案裡沒有 Chrome 歷史與該怎麼匯出。JSON 的「我的活動」照常預覽與匯入（Google 的轉址解開、標題去掉 `Visited `）。匯入的造訪若別的來源（瀏覽器本身、另一份匯出）已經有同一次（同網址、1 秒內），一併保存、只算一次，卡片多一行說幾筆是這樣（`docs/architecture/same-visit-across-sources.md`）。同一份匯出裡同時有 Chrome 歷史與「我的活動」時，先寫 Chrome 歷史，「我的活動」的副本記成已在 archive，跟檔案在 zip 裡的順序或資料夾名稱無關。`takeout-import.spec` 驗這幾種情況，包括一個照 Google 寄出的樣子做的 .zip（`Takeout/` 下有 Chrome 的 `History.json` 與其他檔案、「我的活動」的 JSON）。
 
 ### 瀏覽器直接導入
 
 - 同樣走 Preview/Manual/Execute 流程。
-- `/import` 的 Browser Direct 入口必須走 `inspect_browser_history` / `import_browser_history`，不得把本地 `History` / `History.db` 送進 Google Takeout parser。
+- 2026-10 介面：Backup →「匯入瀏覽器歷史」卡，選檔案或資料夾（瀏覽器模式貼路徑），可選「來自」哪個瀏覽器（預設自動辨識；Edge / Atlas / Comet 會帶 `browserName` 保留產品名）。拖進視窗的檔案依名稱分給這張卡或 Takeout 卡（`History` / `History.db` / `places.sqlite` / `.sqlite` / `.db` 與其他資料夾 → 這張；`.zip` / `.json` / 名稱含 takeout → Takeout）。預覽顯示新增幾筆、存檔已有幾筆、檔案裡共幾筆、時間範圍與最近幾筆；按「匯入 N 筆」才寫入。
+- `inspect_browser_history` 讀存檔（需要 session key，受 App Lock 限制）計算 `duplicateItems`：同一個來源 profile 下 `(source_profile_id, source_visit_id)` 或 `(source_profile_id, event_fingerprint)` 已存在的 visit，和匯入的 `INSERT OR IGNORE` 用同兩個唯一鍵，所以預覽的「新增」就是匯入會加的數量；預覽列 `status` 為 `duplicate`。手選檔案的 profile id 由路徑雜湊得出，同一個檔案再匯入時才會比對到；換路徑視為另一個來源。同一檔案內 fingerprint 相同的兩筆不在預覽偵測範圍（瀏覽器不會寫這種資料）。
+- Backup 的瀏覽器檔案匯入（Browser Direct）必須走 `inspect_browser_history` / `import_browser_history`，不得把本地 `History` / `History.db` 送進 Google Takeout parser。
 - Browser Direct 目前公開承諾只顯示已驗證的 Google Chrome、Microsoft Edge / Edge Dev、Firefox、macOS ChatGPT Atlas browser history profile、macOS Perplexity Comet browser history profile、與 macOS Safari baseline；其他 adapter 即使有內部 parser / discovery coverage，也不能在這個 UI 入口升級成公開承諾。
 - Microsoft Edge / Edge Dev 必須被當成 Chromium-family adapter：`browserFamily` 使用 `chromium`，但 `profileId`、`source_profiles.browser_product` 與 UI 顯示必須保留 `Microsoft Edge` / `Microsoft Edge Dev`。只有手動選 raw `History` 且沒有 discovery metadata 時，才可使用 generic Chromium fallback。
+- Safari Browser Direct 接受直接選取 `History.db`：每次造訪的時間是 2001 年起的秒數，換成本機的日；頁面的名稱取 Safari 為它存的最新一個標題（最後一次造訪沒有標題就往前找）。Safari 不記哪一頁開啟哪一頁，洞察照實說不知道。`browser-import.spec` 驗另一台 Mac 的 `History.db`：預覽、匯入、每天的造訪數、名稱、重看不重複。
 - Firefox Browser Direct 必須接受 profile directory 或直接選取 `places.sqlite`，`browserFamily` 使用 `firefox`，source kind / file metadata 使用 `firefox-history` / `firefox-places-db` / `Firefox`；導入只承諾 history baseline，不補造 Favicons、downloads 或 keyword-search sidecars。
 - ChatGPT Atlas 必須被當成 Chromium-family adapter：`browserFamily` 使用 `chromium`，profile identity 使用 `atlas:<raw-profile-dir>`，parser / source-evidence / import-batch rollback flow 全部重用 Chromium Browser Direct 路徑，但 `source_profiles.browser_product` 與 UI 顯示必須保留 `ChatGPT Atlas`。
 - ChatGPT Atlas Browser Direct 導入範圍只包含 `<profile>/History` 與 Chromium sidecars such as `<profile>/Favicons`；不讀 Atlas workspace、chat、tab、bookmark、suggestion 或其他 app-state 資料。
@@ -191,15 +250,31 @@
 - 匯出支援篩選：profile、時間範圍、domain、搜尋 query。
 - 匯出只包含**當前可見** query 結果；已回滾或 hidden 的 facts 不會進入 artifact。
 - 匯出報告記入審計日誌。
+- 匯出前先跳系統的儲存對話框（2026-10-13）：建議檔名「PathKeep history 日期.副檔名」、預設在「下載」，存在使用者選的地方；關掉對話框就什麼都不做。以前一律寫進 app 自己的 `exports` 資料夾（應用程式資料裡，平常沒人看，「刪除所有資料」會一起刪），那裡現在只剩舊檔，「釋放空間」照舊能清。
+- 匯出時 Settings 顯示進度條、已寫筆數 / 約總數 / 檔案大小與剩餘時間，可以停止。停止的匯出不留下任何檔案（連暫存檔都刪掉）；離開 Settings 再回來，進度還在。總數用 archive 快取的可見筆數，所以寫「約」。
+
+- Turso 一般歷史匯出逐頁讀取，不把整份結果留在記憶體；開始時固定最高 visit ID，忽略畫面當前頁與游標。每頁讀已提交的狀態，新增 ID 留給下一次匯出。加密 archive 同樣可匯出四種既有格式。
 
 ### 整機資料遷移（Export / Import）
 
-PathKeep 是 local-first，**不再提供雲端備份/上傳**。如果使用者要把整個 archive 從一台機器搬到另一台，走 Settings → Data migration 的 `.pathkeep-bundle` 流程：
+PathKeep 是 local-first，**不再提供雲端備份/上傳**。如果使用者要把整個 archive 從一台機器搬到另一台，走 Settings → Storage →「搬到另一台電腦」的 bundle 流程（後端稱 `.pathkeep-bundle`，介面預設檔名是 `pathkeep-<日期>.pathkeep`）：
 
-- **Export**：把當前 project tree（config、archive databases via `sqlcipher_export`、derived projections、audit ledger、raw snapshots、intelligence / semantic sidecars）打包成單一 `.pathkeep-bundle` zip。Manifest 含 `formatVersion`、`appVersion`、`archiveSchemaVersion`、`archiveMode`、每個 file 的 `sha256` / `sizeBytes`，外加獨立 sha256 sidecar 做反竄改。
-- **Import → Preview → Apply** PME：Preview 驗 manifest sha256、refuse newer-than-this-binary 的 archive schema；Apply 需 explicit `confirmOverwrite=true`，extract 到 staging 後 per-file sha256 再驗、把現有 target subtree 移到 `.bak-<timestamp>` sibling、atomic-swap 進去，再對 imported archive 跑 forward schema migrations。
-- **明確排除**（surfaced to UI via `EXPORT_EXCLUSIONS_DOC`）：`vault.hold` / `stronghold-salt.txt`（App Lock secrets 留在來源機）、`logs/`、`diagnostics/`、`schedule/`（platform-specific scheduler artifacts）、`staging/`、`quarantine/`、`exports/`（避免遞迴打包先前 bundle）。
-- 加密 archive 的 bundle 保留來源 key（透過 `sqlcipher_export` 寫進去）。目標機使用者需用同一把 key 解鎖；之後可以走既有的 Settings → Security 重 key 流程改鑰。
+- **Export**：將 archive、source evidence 與 agent 資料庫完整複製，用獨立的匯出密碼加密後打包。每張表的列數與內容摘要須一致；ZIP manifest 記錄每個檔案的 SHA-256 與大小。
+- **Import → Preview → Apply**：先驗證 manifest；Apply 使用 `options.sourceArchiveKey` 提供匯出密碼，在 staging 驗證檔案與資料庫、重建搜尋後才換檔。覆蓋既有 archive 需要 `confirmOverwrite=true`，也可以匯入空白 project root。目的機保留自己的 App Lock 設定與秘密；空白目的機先不啟用 App Lock，避免要求未搬移的來源 passcode。「在鑰匙圈記住密碼」也是目的機自己的選擇（2026-10-07）：開著的話，匯入後鑰匙圈換成搬來的 archive 的金鑰；關著或空白目的機就不存。v0.3 的 bundle 匯入照同一條規則。匯入後的 archive 一律加密，匯出密碼就是它在目的機上的 archive 密碼（之後可在 Security 更改或關閉加密）；介面在匯出時就這樣說明，並要求輸入兩次。長時間的匯出、匯入、加密切換與還原在對話框中顯示 `get_maintenance_progress` 的進度與「停止」。
+- Agent 對話、audit、原始來源快照與保留的 sidecars 會搬到目的地；附件與設定同樣用匯出密碼加密，匯入後修正附件路徑，來源 checkpoint 可繼續重播。抓取保存的網頁正文（`sidecars/intelligence-blobs/`）也一起搬：它是用戶資料，網頁再抓一次可能已改變或消失（用戶 2026-10-07：用戶資料一律跟著備份和遷移）。`derived/`、平台排程、App Lock secret 與模型不進 bundle；目的地的搜尋索引從 archive 重建。
+- 匯入透過既有 interruption journal 恢復；原有檔案保留在 `maintenance.bak-*`。可用 `get_maintenance_progress` 取得進度，`cancel_maintenance` 取消尚未發布的操作。
+
+### 刪除所有資料（Delete all data）
+
+Settings → Storage 的「刪除所有資料」走 PME：`preview_wipe_all_data` 列出每個會刪的路徑與大小、總位元組、archive 可見 visit 數（取最近一次成功 backup 快取的總數，不跑 `COUNT(*)`）、系統 keychain 裡是否存有 archive key，以及是否裝了自動備份（`removesSchedule`，`scheduleItems` 是排程器自己回報的已安裝項目：macOS 的 LaunchAgent plist 路徑、Windows 的 `Task Scheduler:<label>`）；`wipe_all_data` 只接受字面上的 `"DELETE"`，否則拒絕且什麼都不刪，成功時回傳 `WipeReport { scheduleRemoved, scheduleError }`。App Lock 鎖定時兩者都拒絕。
+
+- **會刪**：`archive/` 內所有檔案（archive / source-evidence DB 與 WAL/SHM、import 留下的 `*.bak-*`、rekey/restore/import marker），`derived/`（search、intelligence、AI 向量、agent 對話）、`sidecars/`、`raw-snapshots/`、`staging/`、`quarantine/`、`audit/`、`exports/`、`models/`（下載的 embedding 模型）、`integrations/`、`schedule/`（排程執行的 log 與嘗試紀錄），app root 的 `*.bak-*`、App Lock 狀態與 passcode 檔、Stronghold `vault.hold` 與 salt、`config.json`；keychain 的 archive key 與每個 AI provider API key；**已安裝的自動備份**（用戶 2026-10-02 決定：留著它只會每次執行都失敗在 "archive has not been initialized"）。排程狀態為 installed / mismatch / permission-warning 時才移除；Linux 只有手動設定、舊 label 的安裝（`legacy-install-detected`）走 Backup 的修復，都不碰。
+- **保留**：`logs/`、`diagnostics/`（刪除失敗時唯一的紀錄；不含 visit 資料）、移除排程時排程器自己寫的 `audit/scheduler/remove-<時間>.json`（只記 task 名稱與移除的檔案）、`archive/.pk-archive-write.lock` 與 `archive/.pk-owner.lock`（擁有權鎖的 inode，刪掉會讓兩個程序各鎖一個檔）。使用者的瀏覽器 profile 永遠不碰：所有目標都是 app root 底下的固定路徑。
+- **順序**：查排程狀態並產生移除用的 plan（此時 config 還在）→ 取得 in-process gate 與跨程序 write lock → 寫 `.pk-wipe-in-progress.json` marker（含要清的 provider id 與排程 plan）→ 刪 `config.json`（所有背景 worker 迴圈在下一次檢查時停）→ 要求執行中的 AI / intelligence job 停止、取消 chat 與模型下載、等背景 worker 結束（最多 30 秒）→ 刪檔 → 清 keychain → 走排程器既有的 remove 路徑移除自動備份 → 刪 marker。執行後 `app_snapshot` 回報 not initialized，前端導回 onboarding；desktop session key 一併清除。
+- **排程移除失敗**：排在檔案之後，失敗時資料已經刪完。不讓整個刪除失敗：app 仍是 not initialized，marker 照樣刪（留著會讓每次啟動與每次 onboarding 重跑刪除，OS 不讓移除的 task 會永遠擋住設定），`WipeReport.scheduleError` 帶原因；對話框先顯示「資料已刪除，但自動備份沒能移除…設定完成後到「備份」關閉」，按「繼續」才回 onboarding。
+- **中斷**：marker 存在代表刪除未完成。啟動時（Tauri setup）與 `initialize_archive` 開頭會先把它做完（包含 marker 裡記下的排程），onboarding 不可能重新打開半刪的 archive。
+- **測試與開發**：debug build 設了 `PATHKEEP_PLATFORM_TEST_SANDBOX_DIR` 時排程讀寫沙盒檔案；Rust 測試與 E2E 都在沙盒裡裝一個排程再刪除，確認不留下任何 task。沒設沙盒的 debug build（例如直接 `tauri dev`）跟正式版一樣操作真的排程器；但 debug build 若用 `CHB_PROJECT_ROOT` 改了 project root 卻沒設沙盒，排程（macOS / Windows 的狀態、安裝、移除、修復）與開機啟動一律拒絕並回報要設哪個變數，不會讀到或改到開發者自己的 LaunchAgent / Task Scheduler / 登入項目（Linux 只有手動設定，不受影響）。測試裡呼叫 wipe 一定要先設沙盒。
+- 實作與失效模式清單見 `src-tauri/crates/vault-core/src/archive/wipe.rs` 檔頭。
 
 舊版基於 S3 的 cloud backup 已在 2026-05-25 移除（feedback-2026-05-25 §2.2），所有 `preview_remote_backup` / `run_remote_backup` / `verify_remote_backup` / `store_s3_credentials` / `clear_s3_credentials` command、`RemoteBackupConfig` schema 與相關 Settings UI 一併刪除。
 
@@ -213,14 +288,15 @@ PathKeep 是 local-first，**不再提供雲端備份/上傳**。如果使用者
 
 - 加密方案：
   - 使用隨機數據庫金鑰，由用戶主密碼經 Argon2id 導出的金鑰包裝。
-  - 包裝後的 secret 存入 Stronghold vault（Tauri 提供的加密安全存儲，類似於 macOS Keychain 但跨平台）。
+  - 包裝後的 data key 存在 `archive/keys.envelope`；Stronghold 只負責 App Lock secret。
 - 可選擇把便利解鎖信息存入系統 keyring（macOS Keychain, Windows Credential Manager, Linux Secret Service/KWallet）。
 - 若使用者選擇記住 database key，PathKeep 只在啟動後的第一個 unlocked app session 讀取一次 keyring，之後把 active session key 保留在記憶體直到使用者手動鎖定 archive 或結束 app；不得在每次 shell refresh / status hydrate 時反覆重讀 keyring 並造成原生授權提示。
 - 不加密模式也可以使用，但 UI 必須明確標示「數據庫為明文」。
 - Linux 沒有可用 keyring 時：仍允許加密模式，但每次啟動都需要輸入主密碼。不做弱保護 fallback。
-- keyring unavailable、session locked、password-loss 風險與 rekey boundary 不能只留在 Security；Dashboard 與 Settings 也要保留可見 warning 與導向 Security 的修復入口。
+- keyring unavailable、session locked、password-loss 風險與 rekey boundary 不能只留在 Security；Dashboard 與 Settings 也要保留可見 warning 與導向 Security 的修復入口。（v0.4：Home 的警告列，見 `screens-and-nav.md` Home；E2E `home-alerts.spec`。這台電腦沒有鑰匙圈時，兩則鑰匙圈的警告都不連到 Security——那裡的開關停用、修不了——「密碼只有你知道」改請使用者把密碼存在密碼管理器或寫下來。）
 - 提供完整的 rekey 流程：更改密碼、明文→加密、加密→明文。
-- rekey execute 必須留下可 review 的 audit summary：至少包含 `rekey` run、safety snapshot path、manifest artifact、以及 Security / Audit 可直接打開的 review surface，而不是只改完 config 就結束。
+- 更改密碼與加密→明文都必須先輸入**目前的密碼**（2026-10-04）：後端用它解開 key envelope 驗證，錯了就拒絕（preview 與 execute 都檢查）。否則任何坐在已解鎖視窗前的人都能把 archive 換成自己的密碼或改成明文。明文→加密沒有目前的密碼，不需要。錯誤碼 `archive-password-required` / `archive-password-wrong`，契約見 `desktop-command-surface.md` §2026-10。
+- 改密碼只原子替換 envelope，資料庫、搜尋檔案與 keychain data key 不變，也不在資料庫新增 run。模式切換完整複製四個資料庫，核對列數與內容摘要並重建搜尋後，以目的模式保存安全快照，才經 journal 換檔並記錄原生 `rekey` run；取消或中斷不會丟失原檔。
 - 即使 archive 目前重新上鎖，Security 仍必須保留最近一次 rekey review 的時間、run id 與 safety snapshot path，避免 recoverability 線索只在 unlocked session 內短暫可見。
 - **密碼遺忘等於數據丟失**：UI 中必須有明確、醒目的警告，要求用戶把密碼妥善保存，並且告知風險。
 
@@ -243,10 +319,14 @@ PathKeep 是 local-first，**不再提供雲端備份/上傳**。如果使用者
 - 審計文字工件必須先作為普通檔案寫入本地 audit 目錄；Git 只是在可用時提供 optional local history，管理 manifests, schema snapshots, 排程設定草稿, 導入/匯出報告, 完整性報告。
 - fresh install 預設啟用 best-effort optional Git history；未來若提供 UI 開關，開關語義也只能控制 Git commit layer，不能控制 audit artifact 是否寫入。
 - 缺少 Git、Git repo 損壞或本機 policy 阻止 commit 時，不得讓已完成的 browser backup / import / doctor repair / retention prune 變成失敗；PathKeep 要保留 audit artifact，並在可回看的結果中暴露 optional Git history skipped warning。
-- 主 SQLite archive、raw 快照、cache 和 staging 不進 git。
+- 主 archive、raw 快照、cache 和 staging 不進 git。
 - Audit run detail 應直接暴露 manifest / artifact 路徑，並提供 open / copy path 動作，避免使用者自行猜測資料夾位置。
 - Audit run detail 可以用 `Summary / Artifacts / Warnings` 分頁降低資訊牆密度，但 open / copy path 動作與 warning honesty 不能被藏起來或延後載入。
-- Doctor / 健康檢查命令：重算 archive table hash 並出報告。
+- Run 記錄的每一條 warning 都帶 code，run sheet 依 code 用使用者的語言寫成一句話（`src/features/backup/run-entries.ts`）：略過或失敗的進「警告」分頁，分頁上的數字就是清單長度；順利完成的附帶工作（搜尋詞、連結預覽、等背景工作恢復的索引）是 note，放在摘要下方，不算警告。有修法的附上動作（Safari 的完整磁碟取用權限、AI 設定、背景工作）。錯誤鏈這類證據保留原文顯示在句子下方；不認得的 code 與 code 化之前的舊記錄，顯示翻譯過的引言加原文，不會被丟掉。
+- Backup 結束後的附帶工作（Insights 更新、語意搜尋索引、連結預覽、內容抓取）產生的 warning 也寫回同一筆 run（`append_run_warnings`），不能只出現在當次回傳的 report 裡。
+- Doctor / 健康檢查命令：驗證四個 Turso 檔的完整性與 schema 版本、重新驗證 manifest 內容 hash，並把 outbox、快取統計與 canonical facts 比對。缺少引擎 `foreign_key_check` 時以明確關聯查詢檢查；不得把未檢查的項目宣稱為健康。
+- Audit runs 以 ID 游標續讀；最近 12 筆是第一頁，不是完整歷史的上限。
+- 原生 repair 可重建搜尋頁面摘要 / outbox 通知、快取總數和 import 可見筆數；不刪除或恢復可見 visits。回應須分別列出實際變更的數量。
 - doctor / repair baseline 至少要涵蓋 missing import audit artifact、broken visibility references、stale derived state，並把 repair 本身寫回 unified `runs` ledger。
 - local retention / prune 走 manual-first，但不是 hidden cleanup：Settings 必須提供 local snapshot / export / staging / quarantine 的 preview + explicit prune，並在 prune 後保留 run summary / manifest，而不是把 retention 寫成「只能自己去資料夾刪」。
 - prune snapshot artifact 時，PathKeep 會把對應 artifact path 從未來的 review surface 移除，但不刪除原本的 run summary / manifest / audit trail。
@@ -274,8 +354,9 @@ PathKeep 是 local-first，**不再提供雲端備份/上傳**。如果使用者
 
 **第二層：背景 content-fetch（W-ENRICH，已交付但 egress hard-default-OFF）**
 
-- master switch `content_fetch_enabled` **預設 OFF**：開啟前完全不抓取網頁正文、不重新訪問使用者歷史 URL、無任何網路 egress。
-- 開啟後可抓取 readable text / meta description / OG tags（含 og:image 卡片預覽）；site adapters 解析結構化欄位。
+- master switch `content_fetch_enabled` **預設 OFF**：開啟前完全不抓取網頁正文、不為它重新訪問使用者歷史 URL。
+- 開啟後可抓取 readable text / meta description / OG tags；site adapters 解析結構化欄位。
+- 連結預覽不在這層：它是另一個設定（`og_image.fetch_enabled`，**預設開**，見 [og-images.md](og-images.md)），只為 History 的預覽抓每頁的 HTML 找 og:image、再下載那張圖。onboarding 的完成步驟寫明「會下載每個頁面的預覽圖」，Settings → General 的「線上」分組可關。
 - 邊界：triple consent gate（master + per-extractor + per-domain）、SSRF-guarded（每個 URL + redirect hop + sub-resource）、無 cookie/Referer/fingerprinting、per-host rate-limited、offline-first。詳見 [../architecture/ai-security-posture.md](../architecture/ai-security-posture.md) §4。
 
 **第三層：基於 URL 的專屬 enrichment 插件**
@@ -307,9 +388,9 @@ PathKeep 是 local-first，**不再提供雲端備份/上傳**。如果使用者
 
 ### M4-A / v1 已落地邊界
 
-- 2026-06-22 content-fetch shipped note：W-ENRICH 已交付 content-fetch（readable text / og:image / site adapters），取代上面 2026-04/05 的「readable-content-refetch deferred、UI 顯示 `Coming in v0.3`」結論。但 egress **hard-default-OFF**（`content_fetch_enabled` 預設關），開啟前沒有任何網路存取。
-- content-fetch 的 contract：只寫入 derived enrichment / insight tables（capped `enrichment_summary` 進 intelligence DB、raw body blob 進 `sidecars/intelligence-blobs/` content-addressed、不進 export），不能修改 canonical `visits` / `downloads` / `search_terms` / `manifests`。
-- manual backup / import 完成後不應同步阻塞等待 enrichment 或 insights rebuild；derived refresh 仍然是 explicit follow-up，由 Insights / Settings 的 rebuild surface 觸發，避免大型真實 profile 把核心 archive run 拖成整段不可操作。
+- 2026-06-22 content-fetch shipped note：W-ENRICH 已交付 content-fetch（readable text / og:image / site adapters），取代上面 2026-04/05 的「readable-content-refetch deferred、UI 顯示 `Coming in v0.3`」結論。但 egress **hard-default-OFF**（`content_fetch_enabled` 預設關），開啟前 content fetch 沒有任何網路存取（連結預覽另計，見上一節）。
+- content-fetch 的 contract：只寫入 derived enrichment / insight tables（capped `enrichment_summary` 進 intelligence DB、raw body blob 進 `sidecars/intelligence-blobs/` content-addressed，隨搬家檔一起搬），不能修改 canonical `visits` / `downloads` / `search_terms` / `manifests`。
+- manual backup / import 完成後不應同步阻塞等待 enrichment 或 insights rebuild。每次改變了 archive 的備份或匯入之後，洞察的更新自動排進背景佇列（只重算有新造訪的設定檔），備份不等它；Settings → Background work 顯示佇列、可暫停，也能整個重建。
 - content-fetch 的 freshness window（負緩存退避）、client timeout、redirect policy（每 hop SSRF-guarded）、failure taxonomy（PDF / sign-in redirect / rate-limit 等人話邊界）與 site adapters 都已落地；詳見 [og-images.md](og-images.md) 與 [../architecture/ai-security-posture.md](../architecture/ai-security-posture.md) §4。
 - Settings 必須提供 plugin version、queue、freshness、derived tables、storage impact、latest growth signal，以及 `rebuild derived state` / `clear derived state` controls。`clear derived state` 只能清除 enrichment / insight tables，不可影響 canonical archive facts 或 rollback ledger。
 - 第三方 plugin API、獨立 enrichment queue、以及 provider-specific structured plugins 仍在後續 M4 work 中，不應假裝 v1 已經完整落地。
@@ -325,12 +406,13 @@ PathKeep 是 local-first，**不再提供雲端備份/上傳**。如果使用者
 - App Lock 是 **UI session lock**：啟動時、手動鎖定時，以及可配置的閒置逾時（預設 5 分鐘，可調 1–60 分鐘）後出現。
 - Trusted native scheduled-backup worker 是安全例外：它不渲染或回傳 archive data，因此不受 UI session lock 阻擋；archive encryption / keyring 邊界仍完整適用。App Lock 不得讓使用者已安裝的自動備份永久停擺。
 - 目前 shipped unlock path 是 **app-lock passcode + macOS Touch ID**。
-- Touch ID 只在 macOS 上作為真正可用的 session unlock path；Windows / Linux 仍維持 capability / degradation state，不可假裝已有 native biometric parity。
+- Touch ID 只在 macOS 上作為真正可用的 session unlock path；Windows / Linux 不顯示任何生物辨識控制項（後端回報 `unsupported`），不可假裝已有 native biometric parity。
 - biometric toggle 是 authoritative user preference：若使用者在 Settings 關閉 biometric unlock，lock screen 不得再顯示 Touch ID / biometric CTA，backend 也不得繞過設定直接允許 biometric unlock。
 - 目前不 shipping 獨立 PIN mode；passcode 是唯一正式的解鎖憑證。
-- Lock screen 顯示 PathKeep branding、鎖定原因、config path、上次解鎖時間、passcode prompt，以及帶 recovery hint / open-config-path 動作的 recovery callout。
+- Lock screen 顯示 PathKeep branding、passcode prompt；使用者在 Settings 開了 Touch ID 時有「用 Touch ID 解鎖」按鈕（Touch ID 暫時不可用時停用並說明改用 passcode；取消提示不算錯誤）；「忘記密碼？」展開後顯示 recovery hint（沒有就說沒有）、說明 App Lock 只擋住這個視窗、archive 與其密碼不受影響，以及唯一誠實的出路：關掉 PathKeep，把 `config.json` 裡 `appLock.enabled` 改成 `false` 再打開，附 config 路徑與「在 Finder 中顯示」。鎖定畫面上沒有重設按鈕：能在鎖定時運作的重設等於沒有鎖。
 - 鎖定時必須阻斷 shell rendering、desktop query/read commands，以及 MCP 的 history query surface；不能只靠前端遮罩。安全例外 surface 只保留 lock status、unlock、config-path recovery 與非資料型 diagnostics。
-- Settings 的 App Lock panel 必須包含：enable / disable toggle、idle timeout、biometric toggle（若平台未接線或暫不可用則 disabled + honesty note）、passcode set / update / clear、recovery hint、`Lock now`、config path、last unlocked timestamp。
+- Settings 的 App Lock panel 必須包含：enable / disable toggle、idle timeout、Touch ID toggle（只在 macOS 出現；暫不可用時不能打開、但能關掉，並說明原因）、passcode set / update / clear、passcode 對話框裡可選的 recovery hint（更改 passcode 時帶入已存的 hint，避免被清掉；passcode 列顯示目前的 hint）、`Lock now`。不顯示 config path 與上次解鎖時間（2026-10-04 用戶選 [trade-off](../design/app-lock-panel-tradeoff.md) 選項 B）。
+- Touch ID 是否可用只在開關從關到開時檢查；之後 Touch ID 暫時不可用（例如闔上筆電）不影響其他設定的儲存，解鎖時自然退回 passcode。
 - shared profile scope 仍然只是 viewer / filter contract，不會因為 App Lock 而升級成真正的 per-profile partition。
 
 ### 與 Archive Encryption 的區別
@@ -345,11 +427,11 @@ PathKeep 是 local-first，**不再提供雲端備份/上傳**。如果使用者
 
 ### 平台考量
 
-| 平台        | 目前 shipped unlock path | truthful stance                                                                                       |
-| ----------- | ------------------------ | ----------------------------------------------------------------------------------------------------- |
-| **macOS**   | passcode + Touch ID      | Touch ID 現在可用於解鎖當前 UI session；passcode 仍是 required fallback，不取代 archive encryption    |
-| **Windows** | passcode                 | Windows Hello 尚未接進目前 build；Settings / lock screen 顯示 truthful unsupported / degradation note |
-| **Linux**   | passcode                 | 維持 passcode-only；不宣稱有 biometric 支援                                                           |
+| 平台        | 目前 shipped unlock path | truthful stance                                                                                    |
+| ----------- | ------------------------ | -------------------------------------------------------------------------------------------------- |
+| **macOS**   | passcode + Touch ID      | Touch ID 現在可用於解鎖當前 UI session；passcode 仍是 required fallback，不取代 archive encryption |
+| **Windows** | passcode                 | Windows Hello 尚未接進目前 build；Settings / lock screen 不顯示生物辨識控制項                      |
+| **Linux**   | passcode                 | 維持 passcode-only；不顯示也不宣稱有 biometric 支援                                                |
 
 - `PG-RD-PLAT-006` 已定案：App Lock 保護的是 UI session 與 read/query surface，不是 database key；macOS Touch ID 的 additive amendment 見 [ADR-007](../architecture/decisions/007-macos-biometric-session-unlock.md)，session-only boundary 本身仍以 [ADR-005](../architecture/decisions/005-app-lock-session-boundary.md) 為準。
 
@@ -357,3 +439,4 @@ PathKeep 是 local-first，**不再提供雲端備份/上傳**。如果使用者
 
 - 畫面與導航結構 → `docs/design/screens-and-nav.md` §App Lock
 - 決策記錄 → `docs/architecture/decisions/005-app-lock-session-boundary.md`
+- 2026-10 介面：Settings → Security 的 App Lock 分組（`src/features/settings/security-section.tsx`、`passcode-dialog.tsx`）、鎖定畫面 `src/app/shell/lock-screen.tsx`（`touch-id-unlock.tsx`、`forgot-passcode.tsx`）。取捨記錄見 [app-lock-panel-tradeoff.md](../design/app-lock-panel-tradeoff.md)（2026-10-04 定案，選項 B）。

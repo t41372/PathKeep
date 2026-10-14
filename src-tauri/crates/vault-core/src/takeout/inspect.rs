@@ -168,20 +168,6 @@ pub(super) fn payload_parse_failed_note(source_path: &str, error: &anyhow::Error
         .with_diagnostic(error.to_string())
 }
 
-/// Builds one preview entry from parser output during test-only fixture coverage.
-#[cfg(test)]
-pub(super) fn preview_entry_from_payload(
-    source_path: &str,
-    kind: &str,
-    payload_json: &[u8],
-) -> Result<TakeoutPreviewEntry> {
-    let payload = collect_records_from_payload(source_path, kind, payload_json)?;
-    let Some(record) = payload.records.first() else {
-        anyhow::bail!("payload did not include a usable history record")
-    };
-    Ok(preview_entry(record, "imported"))
-}
-
 /// Converts one parsed record into the shared preview/read-model shape.
 fn preview_entry(record: &ParsedTakeoutRecord, status: &str) -> TakeoutPreviewEntry {
     TakeoutPreviewEntry {
@@ -192,18 +178,6 @@ fn preview_entry(record: &ParsedTakeoutRecord, status: &str) -> TakeoutPreviewEn
         source_visit_id: record.source_visit_id,
         status: status.to_string(),
     }
-}
-
-/// Parses one recognized Takeout payload into preview rows plus parser provenance.
-#[cfg(test)]
-pub(super) fn collect_records_from_payload(
-    source_path: &str,
-    kind: &str,
-    bytes: &[u8],
-) -> Result<CollectedPayload> {
-    let report = parse_payload_report(source_path, kind, bytes)?;
-    let records = preview_records_from_report(source_path, &report);
-    Ok(CollectedPayload { skipped_missing_visit_time: report.skipped_missing_visit_time, records })
 }
 
 /// Streams one payload into capped preview rows without accumulating source evidence.
@@ -245,37 +219,6 @@ fn preview_payload_stream(
         earliest_visit_iso: report.earliest_visit_iso,
         latest_visit_iso: report.latest_visit_iso,
     })
-}
-
-/// Parses one recognized Takeout payload without allocating inspection preview rows.
-#[cfg(test)]
-pub(super) fn parse_payload_report(
-    source_path: &str,
-    kind: &str,
-    bytes: &[u8],
-) -> Result<TakeoutPayloadReport> {
-    parse_takeout_payload(source_path, kind, bytes)
-        .with_context(|| format!("parsing Takeout payload {source_path} ({kind})"))
-}
-
-/// Builds the lightweight preview rows used by inspect/review surfaces from a parser report.
-#[cfg(test)]
-fn preview_records_from_report(
-    source_path: &str,
-    report: &TakeoutPayloadReport,
-) -> Vec<ParsedTakeoutRecord> {
-    report
-        .history
-        .visits
-        .iter()
-        .map(|visit| ParsedTakeoutRecord {
-            source_path: source_path.to_string(),
-            url: visit.url.clone(),
-            title: visit.title.clone(),
-            visited_at: visit.visit_time_iso.clone(),
-            source_visit_id: visit.source_visit_id,
-        })
-        .collect()
 }
 
 #[derive(Debug)]
@@ -339,7 +282,10 @@ impl HistoryBatchConsumer for TakeoutPreviewCollector {
 /// Enumerates all file candidates contained in a Takeout directory or zip source.
 pub(super) fn gather_takeout_files(source: &Path) -> Result<Vec<TakeoutFile>> {
     if source.is_dir() {
+        // Name order, not the file system's: APFS lists sorted and ext4 in hash order, and
+        // an import must do the same thing on every computer.
         return Ok(WalkDir::new(source)
+            .sort_by_file_name()
             .into_iter()
             .filter_map(Result::ok)
             .filter(|entry| entry.file_type().is_file())
@@ -364,13 +310,9 @@ pub(super) fn gather_takeout_files(source: &Path) -> Result<Vec<TakeoutFile>> {
             files.push(TakeoutFile { path: entry.name().to_string(), from_zip: true });
         }
     }
+    // Name order, as for a folder, not the order the zip was written in.
+    files.sort_by(|a, b| a.path.cmp(&b.path));
     Ok(files)
-}
-
-/// Classifies a file path into the supported Takeout payload family, if any.
-#[cfg(test)]
-pub(super) fn recognize_takeout_file(path: &str) -> Option<String> {
-    browser_history_parser::takeout::recognize_payload(path).map(ToString::to_string)
 }
 
 pub(super) fn classify_takeout_file<'a>(

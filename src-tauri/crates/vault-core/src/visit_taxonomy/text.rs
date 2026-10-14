@@ -95,8 +95,9 @@ fn flush_cjk_run(run: &mut String, tokens: &mut Vec<String>) {
     run.clear();
 }
 
-/// Detects scripts that need run/bigram tokenization instead of Latin splitting.
-fn is_cjk_like(ch: char) -> bool {
+/// Detects scripts that write no spaces between words (Chinese, Japanese) or need their own
+/// handling (Hangul): run/bigram tokenization here, dictionary word breaks for searches.
+pub(crate) fn is_cjk_like(ch: char) -> bool {
     matches!(
         ch as u32,
         0x3040..=0x30ff // Hiragana + Katakana

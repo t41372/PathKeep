@@ -1,4 +1,7 @@
-//! Desktop application entrypoint and process-level wiring.
+//! Responsibilities: desktop entrypoint, single instance and process-level wiring.
+//! Not responsible for: storage implementation or worker business operations.
+//! Failure modes: clients enter GUI setup; second instances open databases; startup
+//! listeners precede ownership. Tests: owner_process and desktop-bridge tests.
 //!
 //! This crate is the outermost backend boundary for the Tauri desktop app. It
 //! decides whether the process should boot the GUI shell or run the worker CLI,
@@ -16,13 +19,22 @@
 
 mod command_error;
 mod commands;
+#[cfg_attr(test, allow(dead_code))]
+mod desktop_integration;
 #[cfg(feature = "devtools-bridge")]
 mod dev_ipc_bridge;
+// In test builds the Tauri command layer is compiled out, so the wrappers only it calls go unused.
+#[cfg_attr(test, allow(dead_code))]
 mod file_manager;
+mod idle_exit;
+#[cfg(not(test))]
+mod owner;
 mod session;
 #[cfg(test)]
 mod test_support;
 mod updater;
+// Same for the worker bridge: most of it is called only by the command layer.
+#[cfg_attr(test, allow(dead_code))]
 mod worker_bridge;
 
 use anyhow::Result;
@@ -32,8 +44,6 @@ use commands::*;
 use session::SessionState;
 use std::io::Write;
 #[cfg(not(test))]
-use tauri_plugin_autostart::MacosLauncher;
-#[cfg(not(test))]
 use tauri_plugin_log::{RotationStrategy, Target, TargetKind, TimezoneStrategy};
 
 const PRODUCT_DISPLAY_NAME: &str = "PathKeep";
@@ -41,9 +51,10 @@ const PRODUCT_DISPLAY_NAME: &str = "PathKeep";
 /// Launches the desktop process in either GUI or `--worker` mode.
 pub fn entrypoint() -> Result<()> {
     let arguments = std::env::args().collect::<Vec<_>>();
+    let payload = run_with_arguments(&arguments)?;
     let stdout = std::io::stdout();
     let mut handle = stdout.lock();
-    write_payload(&mut handle, run_with_arguments(&arguments)?)
+    write_payload(&mut handle, payload)
 }
 
 /// Routes process arguments to the worker CLI or the GUI shell.
@@ -69,17 +80,56 @@ fn run_app() -> Result<()> {
     let session_state = SessionState::default();
     #[cfg(feature = "devtools-bridge")]
     let dev_bridge_state = session_state.clone();
-    #[cfg(feature = "devtools-bridge")]
-    let dev_bridge_handle = dev_ipc_bridge::maybe_launch(dev_bridge_state.clone())?;
 
-    tauri::Builder::default()
-        .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, Some(vec!["--windowed"])))
-        .plugin(tauri_plugin_dialog::init())
+    let opening_session = session_state.clone();
+    let launched_at_login =
+        std::env::args().any(|argument| argument == desktop_integration::LAUNCHED_AT_LOGIN_ARG);
+    let background = std::env::args().any(|argument| argument == "--background");
+    let launches = owner::LaunchState::default();
+    let owner_session = session_state.clone();
+    let mut context = tauri::generate_context!();
+    if background {
+        for window in &mut context.config_mut().app.windows {
+            window.create = false;
+        }
+    }
+    // Isolate single-instance routing by user/data root, including test archives.
+    // The persisted product paths still come exclusively from vault_core.
+    let paths = vault_core::project_paths()?;
+    context.config_mut().identifier = vault_owner_ipc::instance_identifier(&paths.app_root);
+    let builder = tauri::Builder::default()
+        .manage(launches.clone())
+        .plugin(tauri_plugin_single_instance::init(owner::handoff))
+        .plugin(tauri_plugin_dialog::init());
+    // macOS writes its own login LaunchAgent; see `vault_platform::login_item`.
+    #[cfg(not(target_os = "macos"))]
+    let builder = builder.plugin(
+        tauri_plugin_autostart::Builder::new()
+            .app_name(PRODUCT_DISPLAY_NAME)
+            .arg(desktop_integration::LAUNCHED_AT_LOGIN_ARG)
+            .build(),
+    );
+    builder
         .setup(move |app| {
             let paths = vault_core::project_paths().map_err(tauri::Error::Anyhow)?;
+            let owner_lock = std::sync::Arc::new(vault_store::OwnerLock::acquire(&paths.app_root)
+                .map_err(anyhow::Error::from).map_err(tauri::Error::Anyhow)?);
+            owner_session.reserve_owner(owner_lock.clone());
             vault_core::config::ensure_paths(&paths).map_err(tauri::Error::Anyhow)?;
             install_panic_hook(&paths);
             app.handle().plugin(build_logging_plugin(&paths))?;
+            // With the logger at Debug, Turso's per-page spans would otherwise each ask it.
+            vault_store::route_engine_diagnostics_to_log();
+            // Before the archive opens: an app started from Finder may only open 256 files.
+            match vault_platform::raise_open_file_limit() {
+                Ok(limit) => log::info!("open-file limit: {limit}"),
+                Err(error) => log::warn!("could not raise the open-file limit: {error}"),
+            }
+            // Before anything reads the config: a wipe the user confirmed but a crash cut short
+            // is finished now. A failure is logged, not fatal; onboarding retries it.
+            if let Err(error) = vault_worker::finish_interrupted_data_wipe() {
+                log::error!(target: "pathkeep::data_wipe", "could not finish an interrupted data wipe: {error:#}");
+            }
             let mut config = vault_core::load_config(&paths).map_err(tauri::Error::Anyhow)?;
             vault_core::hydrate_app_lock_config(&paths, &mut config)
                 .map_err(tauri::Error::Anyhow)?;
@@ -89,6 +139,33 @@ fn run_app() -> Result<()> {
                 tauri_plugin_stronghold::Builder::with_argon2(&paths.stronghold_salt_path).build(),
             )?;
             app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
+            if config.initialized { opening_session.begin_startup(); }
+            use tauri::Manager;
+            // Bind before opening databases. Connected clients wait on the session,
+            // so the client's connection deadline never limits a slow first open.
+            let startup_windows = if background || launched_at_login {0} else {app.webview_windows().len()};
+            let activity = std::sync::Arc::new(idle_exit::Activity::default());
+            let idle_session = owner_session.clone();
+            match owner::OwnerService::start(&paths.app_root,owner_lock,owner_session,launches,background,startup_windows,activity.clone()) {
+                Ok(service) => { app.manage(service); }
+                Err(error) => {
+                    opening_session.abort_startup(format!("owner-endpoint-unavailable: {error:#}"));
+                    owner::startup_failure(app.handle(),&paths,&format!("{error:#}"));
+                    return Ok(());
+                }
+            }
+            if config.initialized {
+                tauri::async_runtime::spawn_blocking(move || {
+                    if let Err(error)=opening_session.finish_startup() {log::warn!("archive awaits unlock: {error}");}
+                });
+            }
+            desktop_integration::setup(app.handle(), &config, launched_at_login, background);
+            // Started by a scheduled backup, the CLI or MCP: leave once that work is done.
+            if background {
+                idle_exit::watch(app.handle().clone(), idle_session, activity);
+            }
+            #[cfg(feature = "devtools-bridge")]
+            let dev_bridge_handle = dev_ipc_bridge::maybe_launch(dev_bridge_state.clone())?;
             #[cfg(feature = "devtools-bridge")]
             if let Some(bridge) = &dev_bridge_handle {
                 bridge.attach_app(app.handle().clone()).map_err(tauri::Error::Anyhow)?;
@@ -96,11 +173,14 @@ fn run_app() -> Result<()> {
             Ok(())
         })
         .manage(session_state)
+        .on_window_event(desktop_integration::on_window_event)
         .invoke_handler(tauri::generate_handler![
             app_build_info,
             app_snapshot,
             app_lock_status,
             save_config,
+            preview_wipe_all_data,
+            wipe_all_data,
             initialize_archive,
             assess_archive_upgrade,
             preview_rekey_archive,
@@ -120,11 +200,15 @@ fn run_app() -> Result<()> {
             unlock_app_session,
             run_backup_now,
             query_history,
+            start_search,
+            next_search_page,
+            cancel_search,
+            search_indexer_state,
             load_history_favicons,
+            load_site_favicons,
             load_history_og_images,
             mark_og_images_shown,
             trigger_og_image_refetch,
-            prefetch_og_images,
             get_og_image_storage_stats,
             get_og_image_coverage_stats,
             clear_og_image_cache,
@@ -140,14 +224,23 @@ fn run_app() -> Result<()> {
             list_stars,
             get_star_counts,
             export_app_data,
+            get_maintenance_progress,
+            cancel_maintenance,
             preview_app_data_import,
             apply_app_data_import,
             load_dashboard_snapshot,
-            get_browse_day_insights,
+            load_source_stats,
+            load_mcp_queries,
+            load_recent_runs,
+            load_import_batches,
+            get_url_detail,
             load_audit_run_detail,
             export_history,
+            get_export_progress,
+            cancel_export,
             inspect_takeout,
             import_takeout,
+            stop_import,
             inspect_browser_history,
             import_browser_history,
             preview_import_batch,
@@ -160,35 +253,39 @@ fn run_app() -> Result<()> {
             schedule_status,
             doctor_report,
             repair_health,
+            preview_clear_derived_intelligence,
             clear_derived_intelligence,
             keyring_status,
-            security_status,
             keyring_get_database_key,
+            unlock_archive_from_keychain,
             keyring_store_database_key,
             keyring_clear_database_key,
             store_ai_provider_api_key,
             clear_ai_provider_api_key,
             test_ai_provider_connection,
+            list_ai_provider_models,
             load_ai_queue_status,
+            list_ai_jobs,
+            list_intelligence_jobs,
             run_ai_queue_jobs,
             replay_ai_job,
             cancel_ai_job,
-            load_ai_assistant_job,
             build_ai_index,
             reset_ai_index_build,
             estimate_reembed,
             search_ai_history,
-            ask_ai_assistant,
             ai_chat_send,
             ai_chat_cancel,
-            download_ai_embedding_model,
+            ai_chat_context,
             download_static_embedding_model,
             cancel_ai_embedding_model_download,
             save_ai_conversation,
             list_ai_conversations,
+            list_ai_messages,
             load_ai_conversation,
             delete_ai_conversation,
             rename_ai_conversation,
+            export_ai_conversation,
             get_content_fetch_settings,
             set_content_fetch_settings,
             list_visit_enrichment,
@@ -196,6 +293,8 @@ fn run_app() -> Result<()> {
             enqueue_content_fetch_working_set,
             run_core_intelligence_now,
             queue_core_intelligence_rebuild,
+            set_site_category,
+            get_insights_time_zone,
             get_sessions,
             get_session_detail,
             get_search_trails,
@@ -207,10 +306,13 @@ fn run_app() -> Result<()> {
             upsert_search_engine_rule,
             delete_search_engine_rule,
             get_top_search_concepts,
+            get_frequent_searches,
             get_search_queries,
             get_query_families,
+            get_search_families,
             get_query_family_detail,
             get_top_sites,
+            get_sites_in_category,
             get_domain_trend,
             get_refind_pages,
             get_refind_page_detail,
@@ -251,13 +353,24 @@ fn run_app() -> Result<()> {
             reset_local_secret_vault,
             open_path_in_file_manager,
             open_external_url,
+            open_visited_page,
+            system_clock,
             reveal_logs,
-            export_conversation_file,
             check_for_app_update,
             download_and_install_app_update,
-            relaunch_after_update
+            relaunch_after_update,
+            get_desktop_integration,
+            set_launch_at_login,
+            set_menu_bar_icon
         ])
-        .run(tauri::generate_context!())?;
+        .build(context)?
+        .run(|_app, _event| {
+            // Clicking the Dock icon brings back a window hidden to the menu bar.
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen { .. } = _event {
+                desktop_integration::show_main_window(_app);
+            }
+        });
     Ok(())
 }
 
@@ -281,6 +394,9 @@ fn build_logging_plugin<R: tauri::Runtime>(
         .level_for("pathkeep_desktop", tauri_plugin_log::log::LevelFilter::Debug)
         .level_for("vault_core", tauri_plugin_log::log::LevelFilter::Debug)
         .level_for("vault_worker", tauri_plugin_log::log::LevelFilter::Debug)
+        // Every segment flush, merge and file delete is an INFO line: a search index build
+        // filled rust.log with them and pushed the app's own lines out of the rotation.
+        .level_for("tantivy", tauri_plugin_log::log::LevelFilter::Warn)
         .rotation_strategy(RotationStrategy::KeepSome(5))
         .timezone_strategy(TimezoneStrategy::UseLocal)
         .target(

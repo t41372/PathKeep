@@ -6,11 +6,10 @@
 //! degraded-state rules so the frontend does not need to guess.
 
 use crate::{
-    ProjectPaths,
-    intelligence_runtime::load_intelligence_runtime,
+    intelligence_runtime::load_module_runtime,
     models::{
-        AppConfig, CoreIntelligenceSectionMeta, CoreIntelligenceSectionWindow,
-        IntelligenceRuntimeSnapshot,
+        CoreIntelligenceSectionMeta, CoreIntelligenceSectionWindow, DERIVED_NOTE_MODULE_DISABLED,
+        DeterministicModuleRuntimeStatus, SectionEvidenceUnit,
     },
     utils::now_rfc3339,
 };
@@ -19,7 +18,6 @@ use anyhow::Result;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SectionDataKind {
     PersistedDerived,
-    DirectRead,
     CapabilityGated,
 }
 
@@ -30,26 +28,31 @@ struct CoreIntelligenceSectionDescriptor {
     source_tables: &'static [&'static str],
     includes_enrichment: bool,
     data_kind: SectionDataKind,
+    /// What the card rests on, counted for its scope when it is read.
+    evidence: Option<SectionEvidenceUnit>,
     notes: &'static [&'static str],
     empty_degraded_reason: Option<&'static str>,
 }
 
-const CORE_INTELLIGENCE_SECTION_DESCRIPTORS: [CoreIntelligenceSectionDescriptor; 22] = [
+const CORE_INTELLIGENCE_SECTION_DESCRIPTORS: [CoreIntelligenceSectionDescriptor; 23] = [
     CoreIntelligenceSectionDescriptor {
         id: "digest-summary",
         module_ids: &["daily-rollups"],
         source_tables: &["daily_summary_rollups"],
         includes_enrichment: false,
         data_kind: SectionDataKind::PersistedDerived,
+        evidence: None,
         notes: &[],
         empty_degraded_reason: None,
     },
     CoreIntelligenceSectionDescriptor {
         id: "on-this-day",
-        module_ids: &[],
-        source_tables: &["archive.visits", "archive.urls", "archive.source_profiles"],
+        // Read from the daily rollups, so it is not there until the first build is done.
+        module_ids: &["daily-rollups"],
+        source_tables: &["daily_summary_rollups"],
         includes_enrichment: false,
-        data_kind: SectionDataKind::DirectRead,
+        data_kind: SectionDataKind::PersistedDerived,
+        evidence: None,
         notes: &["Only prior years for the current local calendar day are considered."],
         empty_degraded_reason: None,
     },
@@ -59,6 +62,18 @@ const CORE_INTELLIGENCE_SECTION_DESCRIPTORS: [CoreIntelligenceSectionDescriptor;
         source_tables: &["domain_daily_rollups"],
         includes_enrichment: false,
         data_kind: SectionDataKind::PersistedDerived,
+        evidence: Some(SectionEvidenceUnit::PageVisits),
+        notes: &[],
+        empty_degraded_reason: None,
+    },
+    // The sites of one kind in a range ("Kinds of sites", Not classified opened): top sites' rows.
+    CoreIntelligenceSectionDescriptor {
+        id: "sites-in-category",
+        module_ids: &["daily-rollups"],
+        source_tables: &["domain_daily_rollups"],
+        includes_enrichment: false,
+        data_kind: SectionDataKind::PersistedDerived,
+        evidence: Some(SectionEvidenceUnit::PageVisits),
         notes: &[],
         empty_degraded_reason: None,
     },
@@ -73,6 +88,7 @@ const CORE_INTELLIGENCE_SECTION_DESCRIPTORS: [CoreIntelligenceSectionDescriptor;
         ],
         includes_enrichment: false,
         data_kind: SectionDataKind::PersistedDerived,
+        evidence: Some(SectionEvidenceUnit::Searches),
         notes: &[],
         empty_degraded_reason: None,
     },
@@ -82,6 +98,7 @@ const CORE_INTELLIGENCE_SECTION_DESCRIPTORS: [CoreIntelligenceSectionDescriptor;
         source_tables: &["refind_pages"],
         includes_enrichment: false,
         data_kind: SectionDataKind::PersistedDerived,
+        evidence: Some(SectionEvidenceUnit::Visits),
         notes: &[],
         empty_degraded_reason: None,
     },
@@ -91,6 +108,7 @@ const CORE_INTELLIGENCE_SECTION_DESCRIPTORS: [CoreIntelligenceSectionDescriptor;
         source_tables: &["category_daily_rollups"],
         includes_enrichment: false,
         data_kind: SectionDataKind::PersistedDerived,
+        evidence: Some(SectionEvidenceUnit::Visits),
         notes: &[],
         empty_degraded_reason: None,
     },
@@ -100,15 +118,17 @@ const CORE_INTELLIGENCE_SECTION_DESCRIPTORS: [CoreIntelligenceSectionDescriptor;
         source_tables: &["daily_summary_rollups", "category_daily_rollups"],
         includes_enrichment: false,
         data_kind: SectionDataKind::PersistedDerived,
+        evidence: Some(SectionEvidenceUnit::Visits),
         notes: &[],
         empty_degraded_reason: None,
     },
     CoreIntelligenceSectionDescriptor {
         id: "stable-sources",
-        module_ids: &["refind-pages"],
-        source_tables: &["source_effectiveness"],
+        module_ids: &["search-trails"],
+        source_tables: &["search_trails"],
         includes_enrichment: false,
         data_kind: SectionDataKind::PersistedDerived,
+        evidence: Some(SectionEvidenceUnit::LandedSearches),
         notes: &[],
         empty_degraded_reason: None,
     },
@@ -117,12 +137,13 @@ const CORE_INTELLIGENCE_SECTION_DESCRIPTORS: [CoreIntelligenceSectionDescriptor;
         module_ids: &["search-trails", "refind-pages", "search-effectiveness"],
         source_tables: &[
             "search_events",
+            "search_trails",
             "query_families",
-            "source_effectiveness",
             "reopened_investigations",
         ],
         includes_enrichment: false,
         data_kind: SectionDataKind::PersistedDerived,
+        evidence: Some(SectionEvidenceUnit::SearchTrails),
         notes: &[],
         empty_degraded_reason: None,
     },
@@ -132,6 +153,7 @@ const CORE_INTELLIGENCE_SECTION_DESCRIPTORS: [CoreIntelligenceSectionDescriptor;
         source_tables: &["search_trails", "search_trail_members"],
         includes_enrichment: false,
         data_kind: SectionDataKind::PersistedDerived,
+        evidence: Some(SectionEvidenceUnit::SearchTrails),
         notes: &[],
         empty_degraded_reason: None,
     },
@@ -141,6 +163,7 @@ const CORE_INTELLIGENCE_SECTION_DESCRIPTORS: [CoreIntelligenceSectionDescriptor;
         source_tables: &["reopened_investigations"],
         includes_enrichment: false,
         data_kind: SectionDataKind::PersistedDerived,
+        evidence: Some(SectionEvidenceUnit::Visits),
         notes: &[],
         empty_degraded_reason: None,
     },
@@ -150,6 +173,7 @@ const CORE_INTELLIGENCE_SECTION_DESCRIPTORS: [CoreIntelligenceSectionDescriptor;
         source_tables: &["daily_summary_rollups"],
         includes_enrichment: false,
         data_kind: SectionDataKind::PersistedDerived,
+        evidence: Some(SectionEvidenceUnit::Days),
         notes: &[],
         empty_degraded_reason: None,
     },
@@ -159,6 +183,7 @@ const CORE_INTELLIGENCE_SECTION_DESCRIPTORS: [CoreIntelligenceSectionDescriptor;
         source_tables: &["daily_summary_rollups"],
         includes_enrichment: false,
         data_kind: SectionDataKind::PersistedDerived,
+        evidence: Some(SectionEvidenceUnit::SiteVisits),
         notes: &[],
         empty_degraded_reason: None,
     },
@@ -168,15 +193,17 @@ const CORE_INTELLIGENCE_SECTION_DESCRIPTORS: [CoreIntelligenceSectionDescriptor;
         source_tables: &["path_flows"],
         includes_enrichment: false,
         data_kind: SectionDataKind::PersistedDerived,
+        evidence: Some(SectionEvidenceUnit::Sessions),
         notes: &[],
         empty_degraded_reason: None,
     },
     CoreIntelligenceSectionDescriptor {
         id: "habits",
-        module_ids: &["domain-deep-dive"],
-        source_tables: &["habit_patterns"],
+        module_ids: &["daily-rollups"],
+        source_tables: &["domain_daily_rollups", "urls"],
         includes_enrichment: false,
         data_kind: SectionDataKind::PersistedDerived,
+        evidence: Some(SectionEvidenceUnit::Days),
         notes: &[],
         empty_degraded_reason: None,
     },
@@ -192,6 +219,7 @@ const CORE_INTELLIGENCE_SECTION_DESCRIPTORS: [CoreIntelligenceSectionDescriptor;
         ],
         includes_enrichment: false,
         data_kind: SectionDataKind::PersistedDerived,
+        evidence: Some(SectionEvidenceUnit::Visits),
         notes: &[
             "Day insights reuse the existing deterministic entities for one exact local calendar day.",
         ],
@@ -203,6 +231,7 @@ const CORE_INTELLIGENCE_SECTION_DESCRIPTORS: [CoreIntelligenceSectionDescriptor;
         source_tables: &["query_families", "search_trails", "search_events"],
         includes_enrichment: false,
         data_kind: SectionDataKind::PersistedDerived,
+        evidence: None,
         notes: &[
             "Query-family detail promotes one search family into a shared route-first review surface.",
         ],
@@ -214,6 +243,7 @@ const CORE_INTELLIGENCE_SECTION_DESCRIPTORS: [CoreIntelligenceSectionDescriptor;
         source_tables: &["refind_pages", "visit_derived_facts", "search_trails"],
         includes_enrichment: false,
         data_kind: SectionDataKind::PersistedDerived,
+        evidence: None,
         notes: &[
             "Refind-page detail keeps evidence, repeat history, and related trails under one route.",
         ],
@@ -222,9 +252,10 @@ const CORE_INTELLIGENCE_SECTION_DESCRIPTORS: [CoreIntelligenceSectionDescriptor;
     CoreIntelligenceSectionDescriptor {
         id: "compare-sets",
         module_ids: &["search-trails"],
-        source_tables: &["search_trails", "search_events"],
+        source_tables: &["compare_sets"],
         includes_enrichment: false,
         data_kind: SectionDataKind::PersistedDerived,
+        evidence: Some(SectionEvidenceUnit::SearchTrails),
         notes: &[],
         empty_degraded_reason: None,
     },
@@ -234,6 +265,7 @@ const CORE_INTELLIGENCE_SECTION_DESCRIPTORS: [CoreIntelligenceSectionDescriptor;
         source_tables: &["domain_daily_rollups", "category_daily_rollups"],
         includes_enrichment: false,
         data_kind: SectionDataKind::PersistedDerived,
+        evidence: Some(SectionEvidenceUnit::SiteVisits),
         notes: &[],
         empty_degraded_reason: None,
     },
@@ -248,6 +280,7 @@ const CORE_INTELLIGENCE_SECTION_DESCRIPTORS: [CoreIntelligenceSectionDescriptor;
         ],
         includes_enrichment: false,
         data_kind: SectionDataKind::CapabilityGated,
+        evidence: None,
         notes: &["Capability-gated: unsupported browsers legitimately produce no rows here."],
         empty_degraded_reason: Some(
             "No supported browser-reported interaction evidence is available for this scope yet.",
@@ -256,15 +289,10 @@ const CORE_INTELLIGENCE_SECTION_DESCRIPTORS: [CoreIntelligenceSectionDescriptor;
     CoreIntelligenceSectionDescriptor {
         id: "domain-deep-dive",
         module_ids: &["daily-rollups", "search-trails", "domain-deep-dive"],
-        source_tables: &[
-            "visit_derived_facts",
-            "domain_daily_rollups",
-            "search_trails",
-            "habit_patterns",
-            "path_flows",
-        ],
+        source_tables: &["domain_daily_rollups", "urls", "visits", "search_trails"],
         includes_enrichment: false,
         data_kind: SectionDataKind::PersistedDerived,
+        evidence: None,
         notes: &[],
         empty_degraded_reason: None,
     },
@@ -272,6 +300,11 @@ const CORE_INTELLIGENCE_SECTION_DESCRIPTORS: [CoreIntelligenceSectionDescriptor;
 
 fn section_descriptor(section_id: &str) -> Option<&'static CoreIntelligenceSectionDescriptor> {
     CORE_INTELLIGENCE_SECTION_DESCRIPTORS.iter().find(|descriptor| descriptor.id == section_id)
+}
+
+/// What a section's card rests on, if it is counted (`intelligence::fill_section_evidence`).
+pub(crate) fn evidence_unit(section_id: &str) -> Option<SectionEvidenceUnit> {
+    section_descriptor(section_id)?.evidence
 }
 
 fn state_priority(state: &str) -> u8 {
@@ -309,22 +342,26 @@ fn dedupe_notes(
 
 fn build_module_backed_meta(
     descriptor: &CoreIntelligenceSectionDescriptor,
-    runtime: &crate::models::IntelligenceRuntimeSnapshot,
+    modules: &[DeterministicModuleRuntimeStatus],
     window: CoreIntelligenceSectionWindow,
 ) -> CoreIntelligenceSectionMeta {
     let relevant = descriptor
         .module_ids
         .iter()
-        .filter_map(|module_id| {
-            runtime.modules.iter().find(|module| module.module_id == *module_id)
-        })
+        .filter_map(|module_id| modules.iter().find(|module| module.module_id == *module_id))
         .collect::<Vec<_>>();
     let generated_at =
         relevant.iter().filter_map(|module| module.last_built_at.as_ref()).min().cloned();
 
     let mut state = "ready".to_string();
     let mut state_reason = None::<String>;
+    let mut state_reason_code = None::<String>;
     for module in &relevant {
+        // The code of the same reason: the stale reason's, else the first coded note's.
+        let code = module
+            .stale_reason_code
+            .clone()
+            .or_else(|| module.note_details.first().map(|note| note.code.clone()));
         let (candidate_state, candidate_reason) = match module.status.as_str() {
             "disabled" => (
                 "disabled",
@@ -344,6 +381,11 @@ fn build_module_backed_meta(
         };
         if state_priority(candidate_state) > state_priority(&state) {
             state = candidate_state.to_string();
+            state_reason_code = match candidate_state {
+                "ready" => None,
+                "disabled" => code.or_else(|| Some(DERIVED_NOTE_MODULE_DISABLED.to_string())),
+                _ => code,
+            };
             state_reason = candidate_reason;
         }
     }
@@ -363,7 +405,10 @@ fn build_module_backed_meta(
         includes_enrichment: descriptor.includes_enrichment,
         state,
         state_reason,
+        state_reason_code,
         notes,
+        evidence: None,
+        chromium_only: descriptor.data_kind == SectionDataKind::CapabilityGated,
     }
 }
 
@@ -388,216 +433,43 @@ fn build_direct_meta(
         includes_enrichment: descriptor.includes_enrichment,
         state: if state_reason.is_some() { "degraded".to_string() } else { "ready".to_string() },
         state_reason,
+        state_reason_code: None,
         notes,
+        evidence: None,
+        chromium_only: descriptor.data_kind == SectionDataKind::CapabilityGated,
     }
 }
 
-/// Builds one section metadata payload using a caller-provided runtime
-/// snapshot instead of reloading runtime state for every module-backed section.
-pub fn build_core_intelligence_section_meta_with_runtime(
+/// Builds one section metadata payload from module states the caller already
+/// holds, so an overview that builds many sections reads them once.
+pub fn build_core_intelligence_section_meta_with_modules(
     section_id: &str,
     window: CoreIntelligenceSectionWindow,
     is_empty: bool,
-    runtime: &IntelligenceRuntimeSnapshot,
+    modules: &[DeterministicModuleRuntimeStatus],
 ) -> Result<CoreIntelligenceSectionMeta> {
     let descriptor = section_descriptor(section_id)
         .ok_or_else(|| anyhow::anyhow!("unknown Core Intelligence section '{section_id}'"))?;
     Ok(if descriptor.module_ids.is_empty() {
         build_direct_meta(descriptor, window, is_empty)
     } else {
-        build_module_backed_meta(descriptor, runtime, window)
+        build_module_backed_meta(descriptor, modules, window)
     })
 }
 
 /// Builds one `/intelligence` section metadata payload from the section
-/// registry plus the latest runtime snapshot.
+/// registry plus the module states. Every card read pays for this, so it reads
+/// only the module states, and only for sections that depend on modules: the
+/// full runtime snapshot (queue, plugin record counts, recent jobs) cost about
+/// 70 ms per card on a 387k-visit archive.
 pub fn build_core_intelligence_section_meta(
-    paths: &ProjectPaths,
-    config: &AppConfig,
-    key: Option<&str>,
+    vault: &crate::Vault,
     section_id: &str,
     window: CoreIntelligenceSectionWindow,
     is_empty: bool,
 ) -> Result<CoreIntelligenceSectionMeta> {
-    let runtime = load_intelligence_runtime(paths, config, key)?;
-    build_core_intelligence_section_meta_with_runtime(section_id, window, is_empty, &runtime)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{
-        CoreIntelligenceSectionDescriptor, CoreIntelligenceSectionWindow,
-        build_core_intelligence_section_meta_with_runtime, build_direct_meta,
-        build_module_backed_meta, section_descriptor,
-    };
-    use crate::models::{
-        DateRange, DeterministicModuleRuntimeStatus, IntelligenceQueueStatus,
-        IntelligenceRuntimeSnapshot,
-    };
-
-    fn runtime_with_modules(
-        modules: Vec<DeterministicModuleRuntimeStatus>,
-    ) -> IntelligenceRuntimeSnapshot {
-        IntelligenceRuntimeSnapshot {
-            queue: IntelligenceQueueStatus::default(),
-            plugins: Vec::new(),
-            modules,
-            recent_jobs: Vec::new(),
-            notes: Vec::new(),
-        }
-    }
-
-    fn persisted_descriptor(id: &str) -> &'static CoreIntelligenceSectionDescriptor {
-        section_descriptor(id).expect("section descriptor")
-    }
-
-    fn sample_window() -> CoreIntelligenceSectionWindow {
-        CoreIntelligenceSectionWindow::DateRange {
-            date_range: DateRange {
-                start: "2026-04-01".to_string(),
-                end: "2026-04-30".to_string(),
-            },
-        }
-    }
-
-    #[test]
-    fn section_registry_exposes_search_activity_descriptor() {
-        let descriptor = persisted_descriptor("search-activity");
-        assert_eq!(descriptor.module_ids, &["daily-rollups", "search-trails"]);
-        assert!(descriptor.source_tables.contains(&"query_families"));
-    }
-
-    #[test]
-    fn section_registry_exposes_day_insights_descriptor() {
-        let descriptor = persisted_descriptor("day-insights");
-        assert_eq!(
-            descriptor.module_ids,
-            &["daily-rollups", "search-trails", "refind-pages", "activity-mix"]
-        );
-        assert!(descriptor.source_tables.contains(&"daily_summary_rollups"));
-        assert!(descriptor.source_tables.contains(&"query_families"));
-    }
-
-    #[test]
-    fn module_backed_meta_prefers_stale_over_ready_and_uses_earliest_build_time() {
-        let runtime = runtime_with_modules(vec![
-            DeterministicModuleRuntimeStatus {
-                module_id: "daily-rollups".to_string(),
-                status: "ready".to_string(),
-                last_built_at: Some("2026-04-18T11:00:00Z".to_string()),
-                notes: vec!["Fresh rollups.".to_string()],
-                ..DeterministicModuleRuntimeStatus::default()
-            },
-            DeterministicModuleRuntimeStatus {
-                module_id: "search-trails".to_string(),
-                status: "stale".to_string(),
-                last_built_at: Some("2026-04-18T09:00:00Z".to_string()),
-                stale_reason: Some("Visibility changed after the last rebuild.".to_string()),
-                notes: vec!["Manual rebuild required.".to_string()],
-                ..DeterministicModuleRuntimeStatus::default()
-            },
-        ]);
-
-        let meta = build_module_backed_meta(
-            persisted_descriptor("search-activity"),
-            &runtime,
-            sample_window(),
-        );
-
-        assert_eq!(meta.state, "stale");
-        assert_eq!(meta.generated_at.as_deref(), Some("2026-04-18T09:00:00Z"));
-        assert_eq!(
-            meta.state_reason.as_deref(),
-            Some("Visibility changed after the last rebuild.")
-        );
-    }
-
-    #[test]
-    fn module_backed_meta_marks_idle_modules_as_degraded() {
-        let runtime = runtime_with_modules(vec![DeterministicModuleRuntimeStatus {
-            module_id: "domain-deep-dive".to_string(),
-            status: "idle".to_string(),
-            notes: vec!["No successful deterministic rebuild has been recorded yet.".to_string()],
-            ..DeterministicModuleRuntimeStatus::default()
-        }]);
-
-        let meta =
-            build_module_backed_meta(persisted_descriptor("path-flows"), &runtime, sample_window());
-
-        assert_eq!(meta.state, "degraded");
-        assert_eq!(
-            meta.state_reason.as_deref(),
-            Some("No successful deterministic rebuild has been recorded yet.")
-        );
-        assert!(meta.generated_at.is_none());
-    }
-
-    #[test]
-    fn module_backed_meta_marks_disabled_modules_with_fallback_reason() {
-        let runtime = runtime_with_modules(vec![DeterministicModuleRuntimeStatus {
-            module_id: "daily-rollups".to_string(),
-            status: "disabled".to_string(),
-            ..DeterministicModuleRuntimeStatus::default()
-        }]);
-
-        let meta = build_module_backed_meta(
-            persisted_descriptor("search-activity"),
-            &runtime,
-            sample_window(),
-        );
-
-        assert_eq!(meta.state, "disabled");
-        assert_eq!(meta.state_reason.as_deref(), Some("Disabled in Settings."));
-    }
-
-    #[test]
-    fn direct_meta_uses_query_time_and_capability_gated_empty_reason() {
-        let descriptor = persisted_descriptor("observed-interactions");
-        let meta = build_direct_meta(
-            descriptor,
-            CoreIntelligenceSectionWindow::CalendarDayHistory {
-                reference_date: "2026-04-18".to_string(),
-            },
-            true,
-        );
-
-        assert_eq!(meta.state, "degraded");
-        assert!(meta.generated_at.is_some());
-        assert_eq!(
-            meta.state_reason.as_deref(),
-            Some(
-                "No supported browser-reported interaction evidence is available for this scope yet."
-            )
-        );
-    }
-
-    #[test]
-    fn batch_meta_builder_reuses_the_provided_runtime_snapshot() {
-        let runtime = runtime_with_modules(vec![
-            DeterministicModuleRuntimeStatus {
-                module_id: "daily-rollups".to_string(),
-                status: "ready".to_string(),
-                last_built_at: Some("2026-04-18T11:00:00Z".to_string()),
-                ..DeterministicModuleRuntimeStatus::default()
-            },
-            DeterministicModuleRuntimeStatus {
-                module_id: "search-trails".to_string(),
-                status: "ready".to_string(),
-                last_built_at: Some("2026-04-18T10:00:00Z".to_string()),
-                ..DeterministicModuleRuntimeStatus::default()
-            },
-        ]);
-
-        let meta = build_core_intelligence_section_meta_with_runtime(
-            "search-activity",
-            sample_window(),
-            false,
-            &runtime,
-        )
-        .expect("section meta");
-
-        assert_eq!(meta.state, "ready");
-        assert_eq!(meta.generated_at.as_deref(), Some("2026-04-18T10:00:00Z"));
-        assert_eq!(meta.module_ids, vec!["daily-rollups", "search-trails"]);
-    }
+    let needs_modules =
+        section_descriptor(section_id).is_some_and(|descriptor| !descriptor.module_ids.is_empty());
+    let modules = if needs_modules { load_module_runtime(vault)? } else { Vec::new() };
+    build_core_intelligence_section_meta_with_modules(section_id, window, is_empty, &modules)
 }

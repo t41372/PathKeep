@@ -1,0 +1,456 @@
+/**
+ * History: timeline, sites and starred views with search and filters, and a
+ * detail panel for the selected page.
+ *
+ * Responsible for: wiring URL state, queries and selection into the toolbar,
+ * the lists and the panel.
+ * Not responsible for: row rendering, data fetching details or the panel's
+ * contents (see the sibling files).
+ */
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
+import { Button } from '@/components/ui/button'
+import { SearchCoverageNotice } from '@/components/app/search-coverage'
+import { cn } from '@/lib/cn'
+import { useI18n } from '@/lib/i18n'
+import { SEARCH_CONNECTION_LOST } from '@/lib/ipc/search-stream'
+import { DetailPanel } from './detail-panel'
+import { HistoryToolbar } from './history-toolbar'
+import { useOpenPage } from './open-link'
+import {
+  dayRange,
+  parseDateFilter,
+  resolveSearch,
+  timeBounds,
+  useHistoryParams,
+  type HistoryView,
+  type SearchMode,
+} from './history-params'
+import {
+  targetOf,
+  type DetailTarget,
+  type HistoryFilters,
+  type VisitItem,
+} from './history-types'
+import { useBrowserCatalog, useStarCounts, useVisitList } from './queries'
+import { SitesView } from './sites-view'
+import { StarredView } from './starred-view'
+import { ResultsLine } from './results-line'
+import { useSemanticInfo, useSemanticReasonText } from './semantic-info'
+import { SemanticNote } from './semantic-status'
+import { StateMessage } from './state-message'
+import { tagQuery } from './tags'
+import {
+  buildTimeline,
+  rowHasVisit,
+  visitRows,
+  type TimelineRow,
+} from './timeline-model'
+import { useListKeys } from './use-list-keys'
+import { useStars } from './use-stars'
+import { VisitRows } from './visit-rows'
+
+const SEARCH_DEBOUNCE_MS = 250
+
+/** The backend could not compile the pattern (something the dialect check does not catch). */
+function isRegexError(error: Error) {
+  return /invalid regex pattern|regex parse error/i.test(error.message)
+}
+
+/**
+ * The query box. Typing is held locally and debounced into the URL; with
+ * nothing pending the box just shows the URL's value, so links from Home or
+ * the palette appear in it.
+ */
+function useSearchDraft(q: string, commit: (q: string) => void) {
+  const [draft, setDraft] = useState<string | null>(null)
+  if (draft !== null && draft === q) setDraft(null)
+
+  useEffect(() => {
+    if (draft === null) return
+    const timer = setTimeout(() => commit(draft), SEARCH_DEBOUNCE_MS)
+    return () => clearTimeout(timer)
+  }, [draft, commit])
+
+  return { value: draft ?? q, setDraft }
+}
+
+export default function HistoryPage() {
+  const { t } = useI18n()
+  const { params, update } = useHistoryParams()
+  const catalog = useBrowserCatalog()
+  const starCounts = useStarCounts()
+
+  const commitQuery = useCallback((q: string) => update({ q }), [update])
+  const { value: draft, setDraft } = useSearchDraft(params.q, commitQuery)
+
+  const semantic = useSemanticInfo()
+  const semanticAvailable = semantic.available
+  const semanticReasonText = useSemanticReasonText(semantic)
+  const search = useMemo(
+    () => resolveSearch(params.q, params.mode, semanticAvailable),
+    [params.q, params.mode, semanticAvailable],
+  )
+  const searching = search.text !== ''
+  const showList = searching || params.view === 'timeline'
+
+  const range = useMemo(
+    () => dayRange(parseDateFilter(params.date)),
+    [params.date],
+  )
+  const filters = useMemo<HistoryFilters>(
+    () => ({
+      ...timeBounds(range),
+      browserKind: params.browser,
+      domain: params.domain,
+    }),
+    [range, params.browser, params.domain],
+  )
+  const hasFilters =
+    params.date !== null || params.browser !== null || params.domain !== null
+  const resetKey = `${search.text}|${search.mode}|${JSON.stringify(filters)}`
+
+  const list = useVisitList(search, filters, showList)
+  const { items, hasNextPage, isFetchingNextPage, fetchNextPage } = list
+
+  const timeline = useMemo(
+    () => (searching ? null : buildTimeline(items, hasNextPage)),
+    [searching, items, hasNextPage],
+  )
+  const rows = useMemo<TimelineRow[]>(() => {
+    const base = timeline ? timeline.rows : visitRows(items)
+    if (!isFetchingNextPage) return base
+    return [
+      ...base,
+      ...[0, 1, 2].map(
+        (n): TimelineRow => ({ kind: 'loading', key: `loading:${n}` }),
+      ),
+    ]
+  }, [timeline, items, isFetchingNextPage])
+
+  const [selected, setSelected] = useState<DetailTarget | null>(null)
+  const [retained, setRetained] = useState(selected)
+  if (selected && selected !== retained) setRetained(selected)
+  const panelTarget = selected ?? retained
+
+  const [appliedVisit, setAppliedVisit] = useState<number | null>(null)
+  const select = useCallback(
+    (item: VisitItem) => {
+      setSelected(targetOf(item))
+      setAppliedVisit(item.id)
+      update({ visit: item.id })
+    },
+    [update],
+  )
+  const selectTarget = useCallback(
+    (target: DetailTarget) => {
+      setSelected(target)
+      update({ visit: null })
+    },
+    [update],
+  )
+  const close = useCallback(() => {
+    setSelected(null)
+    update({ visit: null })
+  }, [update])
+
+  // A `?visit=` link selects that visit once it shows up in the loaded pages.
+  if (params.visit === null && appliedVisit !== null) setAppliedVisit(null)
+  if (params.visit !== null && params.visit !== appliedVisit) {
+    const found = items.find((item) => item.id === params.visit)
+    if (found) {
+      setAppliedVisit(params.visit)
+      setSelected(targetOf(found))
+    }
+  }
+
+  const starUrls = useMemo(
+    () =>
+      selected
+        ? [...items.map((item) => item.url), selected.url]
+        : items.map((item) => item.url),
+    [items, selected],
+  )
+  const stars = useStars(starUrls)
+
+  const openPage = useOpenPage()
+  const open = useCallback(
+    (url: string) => void openPage(url, t('history.detail.openFailed')),
+    [openPage, t],
+  )
+  // The arrow keys go row by row: a row standing for several visits is one stop.
+  const listed = useMemo(
+    () =>
+      timeline
+        ? timeline.rows.flatMap((row) =>
+            row.kind === 'visit' ? [row.item] : [],
+          )
+        : items,
+    [timeline, items],
+  )
+  const ids = useMemo(() => listed.map((item) => item.id), [listed])
+  const selectedRowId = useMemo(() => {
+    const id = selected?.visitId
+    if (id === undefined) return null
+    const row = timeline?.rows.find((candidate) => rowHasVisit(candidate, id))
+    return row?.kind === 'visit' ? row.item.id : id
+  }, [timeline, selected?.visitId])
+  useListKeys({
+    ids,
+    selectedId: selectedRowId,
+    onSelectIndex: (index) => select(listed[index]),
+    onOpen: () => selected && open(selected.url),
+    onClose: close,
+  })
+
+  const scrollIndex = useMemo(() => {
+    const id = selected?.visitId
+    return id === undefined
+      ? null
+      : rows.findIndex((row) => rowHasVisit(row, id))
+  }, [rows, selected?.visitId])
+
+  const onEndReached = useCallback(() => {
+    if (hasNextPage && !isFetchingNextPage) fetchNextPage()
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage])
+
+  const setView = (view: HistoryView) => {
+    setDraft(null)
+    update({ view, q: '' })
+  }
+  const filterBySite = useCallback(
+    (domain: string) => {
+      setDraft(null)
+      update({ view: 'timeline', domain, q: '' })
+    },
+    [setDraft, update],
+  )
+  const filterByTag = useCallback(
+    (tag: string) => {
+      setDraft(null)
+      update({ q: tagQuery(tag), mode: 'full' })
+    },
+    [setDraft, update],
+  )
+  const clearFilters = () => update({ date: null, browser: null, domain: null })
+
+  const starredCount = starCounts.data
+    ? starCounts.data.urls + starCounts.data.domains
+    : null
+  const profileIds = params.browser
+    ? (catalog.options.find((option) => option.kind === params.browser)
+        ?.profileIds ?? null)
+    : null
+
+  const listContent = () => {
+    // A refused regex keeps the previous results on screen, dimmed.
+    if (search.regexError && items.length === 0) return null
+    if (list.isPending) return <StateMessage loading />
+    if (list.error && search.mode === 'regex' && isRegexError(list.error)) {
+      return (
+        <StateMessage
+          icon="search"
+          title={t('historySearch.regex.backendTitle')}
+          body={t('historySearch.regex.backendBody', {
+            message: list.error.message,
+          })}
+        />
+      )
+    }
+    if (list.error?.message === SEARCH_CONNECTION_LOST) {
+      return (
+        <StateMessage
+          icon="search"
+          title={t('history.state.searchErrorTitle')}
+          body={t('history.state.searchConnectionLost')}
+          onRetry={list.refetch}
+        />
+      )
+    }
+    if (list.error) {
+      return (
+        <StateMessage
+          error={list.error}
+          title={t(
+            searching
+              ? 'history.state.searchErrorTitle'
+              : 'history.state.errorTitle',
+          )}
+          onRetry={list.refetch}
+        />
+      )
+    }
+    if (items.length === 0) {
+      // While the index is catching up, an empty result is not "nothing found".
+      if (searching && list.search && !list.search.coverageComplete) {
+        return (
+          <StateMessage
+            icon="search"
+            title={t('history.state.noResultsPartialTitle')}
+            body={t('history.state.noResultsPartialBody', {
+              query: search.text,
+            })}
+          />
+        )
+      }
+      if (searching) {
+        return (
+          <StateMessage
+            icon="search"
+            title={t('history.state.noResultsTitle')}
+            body={t('history.state.noResultsBody', { query: search.text })}
+          />
+        )
+      }
+      if (hasFilters) {
+        return (
+          <StateMessage
+            icon="filter"
+            title={t('history.state.noMatchTitle')}
+            body={t('history.state.noMatchBody')}
+          >
+            <Button variant="outline" size="sm" onClick={clearFilters}>
+              {t('history.filters.clear')}
+            </Button>
+          </StateMessage>
+        )
+      }
+      return (
+        <StateMessage
+          icon="history"
+          title={t('history.state.noHistoryTitle')}
+          body={t('history.state.noHistoryBody')}
+        >
+          <Button asChild size="sm">
+            <Link to="/backup">{t('history.state.goBackup')}</Link>
+          </Button>
+        </StateMessage>
+      )
+    }
+    return (
+      <VisitRows
+        rows={rows}
+        variant={searching ? 'results' : 'timeline'}
+        label={t(
+          searching
+            ? 'history.results.listLabel'
+            : 'history.results.timelineLabel',
+        )}
+        selectedId={selected?.visitId ?? null}
+        isStarred={stars.isStarred}
+        browserName={catalog.nameOf}
+        onSelect={select}
+        onOpen={(item) => open(item.url)}
+        onEndReached={onEndReached}
+        scrollToIndex={scrollIndex}
+        resetKey={resetKey}
+        dimmed={list.isPlaceholder || search.regexError !== null}
+      />
+    )
+  }
+
+  return (
+    <div className="flex min-w-0 flex-1 flex-col">
+      <HistoryToolbar
+        draft={draft}
+        onDraft={setDraft}
+        view={searching ? ('' as HistoryView) : params.view}
+        onView={setView}
+        starredCount={starredCount}
+        date={params.date}
+        onDate={(date) => update({ date })}
+        browser={params.browser}
+        browsers={catalog.options}
+        onBrowser={(browser) => update({ browser })}
+        domain={params.domain}
+        onClearDomain={() => update({ domain: null })}
+        hasFilters={hasFilters}
+        onClearFilters={clearFilters}
+        searching={draft.trim() !== ''}
+        mode={search.mode}
+        onMode={(mode: SearchMode) => update({ mode })}
+        semanticAvailable={semanticAvailable}
+        semanticOffReason={semanticReasonText}
+        invalidRegex={search.regexError !== null}
+        onExample={(query) => {
+          setDraft(query)
+          // Operators are full-text syntax; a /regex/ example works in any mode.
+          if (!query.startsWith('/')) update({ mode: 'full' })
+        }}
+      />
+      <div className="flex min-h-0 flex-1">
+        <section className="flex min-w-0 flex-1 flex-col">
+          {searching && (
+            <div className="flex min-h-[38px] items-center gap-2 px-7 pt-3.5 pb-1.5 text-[13px] text-muted-foreground">
+              <p aria-live="polite">
+                <ResultsLine search={search} list={list} />
+              </p>
+            </div>
+          )}
+          {searching &&
+            (search.mode === 'semantic' || params.mode === 'semantic') && (
+              <SemanticNote
+                info={semantic}
+                active={search.mode === 'semantic'}
+              />
+            )}
+          {searching && !search.regexError && (
+            <SearchCoverageNotice status={list.search} className="px-7 pb-2" />
+          )}
+          {showList ? (
+            listContent()
+          ) : params.view === 'sites' ? (
+            <SitesView
+              range={range}
+              profileIds={profileIds}
+              filters={filters}
+              resetKey={resetKey}
+              onPick={filterBySite}
+            />
+          ) : (
+            <StarredView
+              selectedUrl={selected?.url ?? null}
+              onSelect={selectTarget}
+              onPickSite={filterBySite}
+            />
+          )}
+        </section>
+        <aside
+          inert={!selected}
+          className={cn(
+            'shrink-0 overflow-hidden transition-[width] duration-200 ease-out motion-reduce:transition-none',
+            selected ? 'w-80' : 'w-0',
+          )}
+        >
+          <div className="h-full w-80 border-l">
+            {panelTarget && (
+              <DetailPanel
+                target={panelTarget}
+                starred={stars.isStarred(panelTarget.url)}
+                sessionMates={
+                  timeline && panelTarget.visitId !== undefined
+                    ? timeline.sessionMates(panelTarget.visitId)
+                    : []
+                }
+                repeats={
+                  timeline && panelTarget.visitId !== undefined
+                    ? timeline.repeatsOf(panelTarget.visitId)
+                    : []
+                }
+                onClose={close}
+                onToggleStar={() =>
+                  void stars.toggle(
+                    panelTarget,
+                    !stars.isStarred(panelTarget.url),
+                  )
+                }
+                onSelectMate={select}
+                onFilterTag={filterByTag}
+              />
+            )}
+          </div>
+        </aside>
+      </div>
+    </div>
+  )
+}

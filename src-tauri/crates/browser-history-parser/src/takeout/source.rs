@@ -1,61 +1,26 @@
 //! Takeout source discovery helpers.
 //!
 //! ## Responsibilities
-//! - Enumerate candidate payload files from directories or zip archives.
-//! - Recognize supported payload families by locale-aware path dispatch.
-//! - Build the lightweight inspection surface used before deeper parsing.
+//! - Recognize supported payload families by locale-aware path dispatch, and by a short
+//!   read of a file's content when its name does not say.
 //!
 //! ## Not responsible for
+//! - Walking a Takeout folder or zip (`vault_core::takeout` does that).
 //! - Parsing payload JSON into canonical or source-native rows.
 //! - Merging multiple payload reports into one parser history.
 //! - Archive quarantine or import-batch semantics.
 
 use super::{
-    KIND_BROWSER_JSON, KIND_INDEX, KIND_JSONL, KIND_SESSION_JSON, KIND_TYPED_URL_JSON,
+    KIND_BROWSER_JSON, KIND_INDEX, KIND_MY_ACTIVITY_JSON, KIND_SESSION_JSON, KIND_TYPED_URL_JSON,
     TakeoutPathDisposition, TakeoutPathMatch,
 };
-use crate::{
-    ParseError,
-    types::{DatabaseInspection, ParserWarning},
-};
+use crate::ParseError;
 use std::{
-    collections::BTreeSet,
     fs,
     io::Read,
     path::{Path, PathBuf},
 };
-use walkdir::WalkDir;
 use zip::ZipArchive;
-
-/// Describes one discovered file inside a Takeout directory or zip archive.
-#[derive(Debug, Clone)]
-pub(super) struct TakeoutFile {
-    pub(super) path: String,
-    pub(super) from_zip: bool,
-}
-
-/// Builds the lightweight inspection result for a whole Takeout source.
-pub fn inspect_history(path: &Path) -> Result<DatabaseInspection, ParseError> {
-    let files = gather_takeout_files(path)?;
-    let mut table_names = BTreeSet::new();
-    let mut warnings = Vec::new();
-    for file in files {
-        let path_match = classify_payload_path_with_sniff(path, &file.path, file.from_zip)?;
-        if let Some(kind) = path_match.recognized_kind
-            && kind != KIND_INDEX
-        {
-            table_names.insert(kind.to_string());
-        }
-    }
-    if table_names.is_empty() {
-        warnings.push(ParserWarning {
-            code: "no-recognized-payload".to_string(),
-            message: "No importable Takeout payloads were recognized in the provided source."
-                .to_string(),
-        });
-    }
-    Ok(DatabaseInspection { table_names: table_names.into_iter().collect(), warnings })
-}
 
 /// Classifies one Takeout file path according to the current Chrome-first import scope.
 pub fn classify_payload_path(path: &str) -> TakeoutPathMatch {
@@ -63,16 +28,6 @@ pub fn classify_payload_path(path: &str) -> TakeoutPathMatch {
     let file_name = normalized.rsplit('/').next().unwrap_or(normalized.as_str());
     let first_segment = normalized.split('/').next().unwrap_or(normalized.as_str());
     let has_chrome_segment = normalized.split('/').any(|segment| segment == "chrome");
-
-    if file_name.ends_with(".jsonl") {
-        return TakeoutPathMatch {
-            family: KIND_JSONL,
-            recognized_kind: Some(KIND_JSONL),
-            locale: None,
-            disposition: TakeoutPathDisposition::WillImport,
-            reason_code: "jsonl-history-fixture",
-        };
-    }
 
     if is_importable_chrome_history_path(file_name, has_chrome_segment) {
         return TakeoutPathMatch {
@@ -115,15 +70,11 @@ pub fn classify_payload_path(path: &str) -> TakeoutPathMatch {
     }
 
     if is_chrome_activity_json_path(&normalized) {
-        return TakeoutPathMatch {
-            family: "chrome-activity",
-            recognized_kind: None,
-            locale: Some(chrome_activity_locale(&normalized)),
-            disposition: TakeoutPathDisposition::NeedsReview,
-            reason_code: "chrome-my-activity-json",
-        };
+        return my_activity_match(Some(chrome_activity_locale(&normalized)));
     }
 
+    // My Activity in HTML (Takeout's default) is recognized but not read: the import card asks
+    // for the JSON export instead.
     if is_chrome_activity_html_path(&normalized) {
         return TakeoutPathMatch {
             family: "chrome-activity",
@@ -214,8 +165,23 @@ pub fn classify_payload_path_with_sniff(
             reason_code: "chrome-history-json",
         });
     }
+    // My Activity's folder and file are named in the account's language; the content says it.
+    if snippet_contains_my_activity_payload(&snippet) {
+        return Ok(my_activity_match(path_match.locale));
+    }
 
     Ok(path_match)
+}
+
+/// My Activity's Chrome entries in JSON, which are imported.
+fn my_activity_match(locale: Option<&'static str>) -> TakeoutPathMatch {
+    TakeoutPathMatch {
+        family: "chrome-activity",
+        recognized_kind: Some(KIND_MY_ACTIVITY_JSON),
+        locale,
+        disposition: TakeoutPathDisposition::WillImport,
+        reason_code: "chrome-my-activity-json",
+    }
 }
 
 /// Recognizes the supported Takeout payload family for one file path.
@@ -417,77 +383,6 @@ fn chrome_activity_html_suffixes() -> [&'static str; 4] {
     ]
 }
 
-/// Enumerates every file candidate contained in a Takeout directory or zip archive.
-pub(super) fn gather_takeout_files(source: &Path) -> Result<Vec<TakeoutFile>, ParseError> {
-    if source.is_dir() {
-        return Ok(WalkDir::new(source)
-            .into_iter()
-            .filter_map(Result::ok)
-            .filter(|entry| entry.file_type().is_file())
-            .filter(|entry| !should_skip_takeout_file(entry.path().to_string_lossy().as_ref()))
-            .map(|entry| TakeoutFile { path: entry.path().display().to_string(), from_zip: false })
-            .collect());
-    }
-
-    if source.is_file() && !is_zip_source(source) {
-        if should_skip_takeout_file(source.to_string_lossy().as_ref()) {
-            return Ok(Vec::new());
-        }
-        return Ok(vec![TakeoutFile { path: source.display().to_string(), from_zip: false }]);
-    }
-
-    let file = fs::File::open(source).map_err(|source_error| ParseError::ReadSource {
-        path: source.to_path_buf(),
-        source: source_error,
-    })?;
-    let mut archive = ZipArchive::new(file)?;
-    let mut files = Vec::new();
-    for index in 0..archive.len() {
-        let entry = archive.by_index(index)?;
-        if entry.is_file() && !should_skip_takeout_file(entry.name()) {
-            files.push(TakeoutFile { path: entry.name().to_string(), from_zip: true });
-        }
-    }
-    Ok(files)
-}
-
-/// Reads one Takeout file or zip entry into memory for parser-side processing.
-pub(super) fn read_takeout_file(
-    source_root: &Path,
-    file: &TakeoutFile,
-) -> Result<Vec<u8>, ParseError> {
-    if file.from_zip {
-        return read_zip_entry(source_root, &file.path);
-    }
-    fs::read(&file.path)
-        .map_err(|source| ParseError::ReadSource { path: PathBuf::from(&file.path), source })
-}
-
-fn read_zip_entry(source: &Path, entry_name: &str) -> Result<Vec<u8>, ParseError> {
-    let file = fs::File::open(source).map_err(|source_error| ParseError::ReadSource {
-        path: source.to_path_buf(),
-        source: source_error,
-    })?;
-    let mut archive = ZipArchive::new(file)?;
-    let mut entry = archive.by_name(entry_name)?;
-    read_takeout_zip_reader(
-        &mut entry,
-        PathBuf::from(format!("{}::{entry_name}", source.display())),
-    )
-}
-
-fn should_skip_takeout_file(path: &str) -> bool {
-    let normalized = normalize_takeout_path(path);
-    let file_name = normalized.rsplit('/').next().unwrap_or(normalized.as_str());
-    file_name.starts_with('.') || normalized.split('/').any(|segment| segment == "__macosx")
-}
-
-fn is_zip_source(path: &Path) -> bool {
-    path.extension()
-        .and_then(|extension| extension.to_str())
-        .is_some_and(|extension| extension.eq_ignore_ascii_case("zip"))
-}
-
 fn should_sniff_for_chrome_history(
     source_root: &Path,
     path: &str,
@@ -544,6 +439,17 @@ pub(super) fn read_takeout_zip_reader(
     let mut bytes = Vec::new();
     reader.read_to_end(&mut bytes).map_err(|source| ParseError::ReadSource { path, source })?;
     Ok(bytes)
+}
+
+/// A JSON array of activity records of Chrome: `products` holds `"Chrome"`, and they have a
+/// `time` and a page (`titleUrl`). Search or Maps activity has other products and stays out.
+fn snippet_contains_my_activity_payload(snippet: &[u8]) -> bool {
+    let text = String::from_utf8_lossy(snippet);
+    text.trim_start().starts_with('[')
+        && text.contains("\"products\"")
+        && text.contains("\"Chrome\"")
+        && text.contains("\"titleUrl\"")
+        && text.contains("\"time\"")
 }
 
 fn snippet_contains_browser_history_payload(snippet: &[u8]) -> bool {

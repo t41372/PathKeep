@@ -2,41 +2,30 @@
  * AI chat stream event subscription helper.
  *
  * Why this file exists:
- * - `ai_chat_send` returns a run id immediately and then streams tokens, reasoning, tool calls,
- *   and a terminal done/error over the `pathkeep://ai-stream` Tauri event. The UI must subscribe
- *   to that channel to render the answer incrementally without freezing the main thread.
- * - The helper keeps the event wiring small and testable and filters to a single run id, so a
- *   subscriber only sees the chunks for the run it started (multiple runs share one channel).
+ * - `ai_chat_send` returns a run id and then streams tokens, reasoning, tool calls and a terminal
+ *   done/error on `pathkeep://ai-stream` (a Tauri event in the app; the dev bridge's `/events`
+ *   in E2E and `dev:demo`). Runs share the channel; each event names its run.
+ * - A run can be over before `ai_chat_send` returns (a quick answer, an address that refuses the
+ *   connection), so callers listen first and pick their run's events once they know its id.
  *
  * Not responsible for: building chat UI, owning conversation state, or driving the stream
- * (that is the worker's job). The dev HTTP bridge does not deliver Tauri events, so this helper
- * is only live under real Tauri — by design.
+ * (that is the worker's job).
  */
 
-import type { AiChatStreamChunk, AiChatStreamEvent } from '../types'
+import type { AiChatStreamEvent } from '../types'
+import { listenDesktopEvent } from './events'
 
-export type AiChatStreamListener = (chunk: AiChatStreamChunk) => void
+/** Matches `vault_core::AI_CHAT_STREAM_EVENT`. */
+const AI_CHAT_STREAM_EVENT = 'pathkeep://ai-stream'
 
-/**
- * Subscribes to streamed chat chunks for one run id.
- *
- * Only chunks whose envelope `runId` matches `runId` are forwarded, so concurrent runs do not
- * cross-talk. Returns an unsubscribe function; if the Tauri event bridge is unavailable (e.g.
- * browser preview) it degrades to a no-op unsubscribe instead of throwing.
- */
-export async function subscribeToAiChatStream(
-  runId: string,
-  listener: AiChatStreamListener,
+/** Listens to every run's events until the returned function is called. */
+export function listenToAiChatStream(
+  listener: (event: AiChatStreamEvent) => void,
 ) {
-  try {
-    const { listen } = await import('@tauri-apps/api/event')
-    return await listen<AiChatStreamEvent>(
-      'pathkeep://ai-stream',
-      ({ payload }) => {
-        if (payload && payload.runId === runId) listener(payload.chunk)
-      },
-    )
-  } catch {
-    return () => {}
-  }
+  return listenDesktopEvent<AiChatStreamEvent | null>(
+    AI_CHAT_STREAM_EVENT,
+    (event) => {
+      if (event) listener(event)
+    },
+  )
 }

@@ -4,12 +4,7 @@
     "target": "ES2023",
     "lib": ["ES2023", "DOM", "DOM.Iterable"],
     "module": "ESNext",
-    "types": [
-      "node",
-      "vitest/globals",
-      "@testing-library/jest-dom",
-      "vite/client"
-    ],
+    "types": ["node", "vitest/globals", "vite/client"],
     "skipLibCheck": true,
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
@@ -36,5 +31,7 @@
     "src/test/**/*.ts",
     "tests/**/*.ts",
     "vitest.config.ts"
-  ]
+  ],
+  // Sources that run in another version's checkout (see their READMEs).
+  "exclude": ["tests/fixtures/**"]
 }

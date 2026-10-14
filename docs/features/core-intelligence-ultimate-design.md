@@ -1,8 +1,33 @@
 # Core Intelligence — Ultimate Design
 
+> **2026-10 註記（v0.4 前端）**：下面的介面描述大多是舊前端的。現在的畫面與路由見
+> [screens-and-nav.md](../design/screens-and-nav.md)，對照見
+> [intelligence-current-state.md](intelligence-current-state.md) §8「2026-10 起」。跟本文不同的主要幾處：
+>
+> - 沒有 Dashboard、Explorer 與側欄；History 只有時間線 / 網站 / 已加星三個視圖，沒有按 session 或 trail 看。
+> - 路由是 `/insights`、`/insights/day|site|search|page/…`，沒有 `/intelligence/domain` 與 compare set 的頁；比較過的頁面是 Insights 與 day 裡的一張卡。
+> - 只有 Insights 有時間範圍：全部時間（預設）/ 1 年 / 90 天 / 30 天 / 7 天 / 自訂，不是全 app 共用的日 / 週 / 月 / 季 / 年選擇器。
+> - 節奏是星期 × 小時的熱力圖；日曆熱力圖在 Home（「你的一年」）。
+> - 搜尋相關是幾張分開的卡（常搜尋、在哪裡搜尋、搜尋什麼、搜尋得怎麼樣、試了好幾次的搜尋、搜尋最後到了哪裡），沒有四個分頁的 Search Activity。
+
+## Turso storage contract (2026-10)
+
+Deterministic reads use the session Vault's read pools. Rebuilds page Archive facts and
+commit Intelligence generations and checkpoints in Batch writes. A crash resumes the last
+committed batch; cancellation is checked between batches. Published generations remain
+available during replacement, and interactive Archive edits use their own writer.
+An ordinary append updates the affected tail/days; late visits or changed derivation rules
+require a chronological rebuild. Queue completion cannot erase a newer refresh trigger.
+
+List limits are page sizes with continuation cursors. Session/trail members, domain pages
+and queries, query-family trails, refind evidence, anniversary domains, and selected embed
+cards all expose continuation. Full frontend DTO details are in the
+[area-4 contract report](../architecture/research/2026-10-turso-area4.md); this backend change
+does not update frontend consumers.
+
 > **狀態：Accepted (2026-04-15 Core Intelligence reset baseline)**
 > **日期：2026-04-15**
-> **取代：** `deterministic-intelligence.md`（M5 baseline）、`intelligence.md` 中殘留的 deterministic/insights baseline 敘述、Codex 現有 insights 實現
+> **取代：** `deterministic-intelligence.md`（M5 baseline）、`intelligence.md` 中殘留的 deterministic/insights baseline 敘述、原有的 insights 實現
 > **前提：** 本方案不使用 LLM 和 Embedding。所有功能只基於可觀測的瀏覽器數據。
 
 > **2026-04-15 accepted note:** 這份文檔現在是 PathKeep Core Intelligence 的正式 source of truth。舊的 deterministic intelligence / insights 文檔保留為歷史背景與 optional-AI 邊界說明，不再定義 deterministic product contract。
@@ -34,7 +59,7 @@
 
 ### 0.1 這份文件是什麼
 
-整合了五套方案——原始草稿、Claude Sonnet 4.6、Opus 4.6、Gemini 2.5/3.1、ChatGPT Pro——的所有有價值想法，經過 feasibility 分析、去重合併、與現有代碼庫對齊後，形成的終極設計。
+整合了原始草稿與另外四套獨立設計方案的所有有價值想法，經過 feasibility 分析、去重合併、與現有代碼庫對齊後，形成的終極設計。
 
 ### 0.2 所有方案都同意的三件事
 
@@ -82,7 +107,7 @@
 - `insight_query_groups` → 重新設計為 `search_trails`
 - `insight_threads` → 重新設計為 `reopened_investigations`
 - `insight_reference_pages` → 重新設計為 `refind_pages`
-- `insight_source_effectiveness` → 保留但精簡
+- `insight_source_effectiveness` → 2026-10 移除；穩定答案來源改為按範圍直接從 `search_trails` 的落地網站計算（§4.2）
 - `insight_cards` / `insight_snapshot_payloads` → 重新設計 rollup 策略
 
 ---
@@ -293,7 +318,7 @@ Core Intelligence 的功能分布在三個位置：
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
-> 2026-04-28 implementation note：`全部時間 / All time` 是可手動選擇的 preset，不是首次進入預設。route grammar 使用 `?range=all`；目前 transport 仍沿用 concrete `DateRange`，後續 all-time cache / preload / invalidation 策略見 [`../plan/intelligence-all-time-cache-invalidation.md`](../plan/intelligence-all-time-cache-invalidation.md)。
+> 2026-04-28 implementation note：`全部時間 / All time` 是可手動選擇的 preset，不是首次進入預設。（已過時：2026-06-20 起全部時間就是首次進入的預設，2026-10-08 依用戶要求在 v0.4 恢復。）route grammar 使用 `?range=all`；目前 transport 仍沿用 concrete `DateRange`，後續 all-time cache / preload / invalidation 策略見 [`../plan/intelligence-all-time-cache-invalidation.md`](../plan/intelligence-all-time-cache-invalidation.md)。
 
 ### 2.3 Explorer 頁面的 Intelligence 增強
 
@@ -671,11 +696,11 @@ SELECT * FROM path ORDER BY depth DESC;
 
 #### 4.2 穩定答案來源 (Stable Answer Sources)
 
-| 項目       | 內容                                                                                                                     |
-| ---------- | ------------------------------------------------------------------------------------------------------------------------ |
-| **為什麼** | 看哪些站對你真正有用。不是「最常訪問」，而是「哪裡成為旅程終點」                                                         |
-| **怎麼算** | Trail outcome 分析：某 domain 出現在 trail 後半段的頻率、出現後 reformulation 是否下降、是否被跨天 reopen 後再次成為落點 |
-| **展示**   | 兩個排行榜：「常作為入口的來源」「常作為最終落點的來源」                                                                 |
+| 項目       | 內容                                                                                                                                           |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| **為什麼** | 看哪些站對你真正有用。不是「最常訪問」，而是「哪裡成為旅程終點」                                                                               |
+| **怎麼算** | 2026-10 起：範圍內每條 search trail 的落地網站（最後一次搜尋後打開的第一頁）各算一次，跨設定檔合併，按落地的搜尋數排序，附不同查詢數；不另存表 |
+| **展示**   | 一個排行榜：「搜尋最後落在哪些網站」。原本的入口 / 落點兩種 role 拿掉：舊實作從不產生入口，落點才是使用者想知道的                              |
 
 ---
 
@@ -766,7 +791,7 @@ WHERE visit_time_ms BETWEEN ? AND ?
 GROUP BY hour
 ```
 
-**時區處理：** backup 時自動記錄設備時區（`runs.timezone`），用於 localtime 轉換。歷史導入數據使用當前時區（可能有誤差，UI 標註）。
+**時區處理：** 按洞察自己的時區（見 `docs/architecture/insights-time-zone.md`），每個時刻各自換算；`runs.timezone` 只用來顯示。
 
 **展示：** 主圖固定是按真實日期的日曆熱力圖；長時間窗允許卡片內橫向滾動。小時分布只出現在選中某一天後的 detail 區，不再回頭冒充主圖。
 
@@ -908,7 +933,7 @@ is_deep_dive =
 
 ### 4.B 全局時間範圍選擇器
 
-所有功能共用：日/週/月/季度/年/自定義。是一個全局 UI 組件。
+所有功能共用：日/週/月/季度/年/自定義。是一個全局 UI 組件。（v0.4 沒有這個：只有 Insights 有範圍，見文首的 2026-10 註記。）
 
 ### 4.C 外部服務（低優先級）
 
@@ -1087,15 +1112,7 @@ CREATE TABLE refind_pages (
   computed_at        TEXT NOT NULL
 );
 
-CREATE TABLE source_effectiveness (
-  registrable_domain TEXT PRIMARY KEY,
-  source_role        TEXT NOT NULL,          -- 'entry' / 'landing' / 'reference'
-  trail_count        INTEGER NOT NULL,
-  stable_landing_count INTEGER NOT NULL,
-  effectiveness_score REAL NOT NULL,
-  evidence_json      TEXT NOT NULL,
-  computed_at        TEXT NOT NULL
-);
+-- source_effectiveness：2026-10 移除，穩定答案來源直接從 search_trails 計算（§4.2）。
 
 CREATE TABLE habit_patterns (
   registrable_domain TEXT PRIMARY KEY,
@@ -1128,6 +1145,8 @@ CREATE TABLE path_flows (
   PRIMARY KEY(flow_pattern, step_count)
 );
 ```
+
+`raw_query` 是使用者打的字（只合併空白、保留大小寫），畫面顯示用；`normalized_query` 是小寫後的，分組與比對用（2026-10-13 起；之前 `raw_query` 在建置時就被轉成小寫，常搜尋顯示不出使用者打的樣子）。
 
 ---
 
@@ -1227,38 +1246,7 @@ CREATE TABLE path_flows (
 
 ---
 
-## 9. 各方案貢獻追溯
-
-| 功能                                          | 主要來源                                                |
-| --------------------------------------------- | ------------------------------------------------------- |
-| 架構基礎（任務隊列、rollup、canonical model） | Gemini 2.5 + Gemini 3.1 + GPT Pro（三方共識）           |
-| Site Dictionary / Rules Editor                | GPT Pro（最完整）+ 原始草稿                             |
-| 瀏覽會話                                      | Gemini 2.5（session 定義最完整）                        |
-| 搜索旅程                                      | Gemini 2.5 + 3.1 + GPT Pro（三方都提出，Gemini 最清晰） |
-| 搜索活動（取代 Top 搜索詞）                   | GPT Pro（重構最清楚）+ Claude + Gemini 3.1              |
-| 常重找的頁面                                  | GPT Pro（多維度信號 + explainability）                  |
-| 穩定答案來源                                  | GPT Pro                                                 |
-| 搜索效率分析                                  | Claude Sonnet 4.6                                       |
-| 碰壁偵測                                      | Gemini 3.1 + GPT Pro（弱證據 fallback）                 |
-| 反覆查的問題                                  | GPT Pro（Reopened Investigations）                      |
-| 瀏覽節奏熱圖                                  | Claude Sonnet 4.6                                       |
-| 探索率趨勢                                    | Claude Sonnet 4.6                                       |
-| 使用構成                                      | GPT Pro + Claude                                        |
-| 集中度分析                                    | Claude Sonnet 4.6（HHI/Gini）                           |
-| 習慣識別                                      | Claude Sonnet 4.6（CV 分析 + 中斷偵測）                 |
-| 導航溯源 + Hub 頁面                           | Claude Sonnet 4.6                                       |
-| 深度 Session                                  | Claude Sonnet 4.6                                       |
-| 常見路線                                      | GPT Pro                                                 |
-| 比較頁面組                                    | GPT Pro                                                 |
-| 多瀏覽器對比                                  | Claude Sonnet 4.6                                       |
-| 觀測互動模塊                                  | Gemini 3.1 + GPT Pro（capability-gated 設計）           |
-| 可解釋性面板                                  | GPT Pro                                                 |
-| 網站深度分析                                  | Gemini 2.5                                              |
-| 模塊化架構                                    | 原始草稿                                                |
-
----
-
-## 10. 一句話定義
+## 9. 一句話定義
 
 > **Core Intelligence 不是在猜你在想什麼，而是在大規模歷史資料中，用可解釋、可回溯、可增量重建的方式，把「搜索、路徑、重找、落點、習慣」這些高價值結構提取出來，讓你的瀏覽歷史從一條條 URL 變成一個個有上下文的故事。**
 

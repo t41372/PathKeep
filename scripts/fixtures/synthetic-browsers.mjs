@@ -1,0 +1,902 @@
+/**
+ * Writes synthetic but realistic browser profiles to disk: two Chrome
+ * profiles and one Firefox profile, with real SQLite history databases.
+ *
+ * The desktop bridge (dev and E2E) points PathKeep's discovery at these
+ * folders through CHB_CHROME_USER_DATA_DIR / CHB_FIREFOX_PROFILES_DIR, so
+ * the real Rust backup path copies, parses and archives them.
+ *
+ * Output is deterministic for a given seed and `now`, so test runs repeat.
+ */
+import { DatabaseSync } from 'node:sqlite'
+import { mkdirSync, writeFileSync } from 'node:fs'
+import path from 'node:path'
+
+const DAY_MS = 86_400_000
+const CHROME_EPOCH_OFFSET_US = 11_644_473_600_000_000
+
+const topics = [
+  {
+    name: 'rust',
+    search: [
+      'tokio spawn_blocking',
+      'rust async runtime',
+      'tokio vs smol',
+      'rust pin explained',
+    ],
+    pages: [
+      [
+        'https://docs.rs/tokio/latest/tokio/runtime/struct.Builder.html',
+        'tokio::runtime::Builder',
+      ],
+      ['https://docs.rs/smol/latest/smol/', 'smol - Rust'],
+      [
+        'https://without.boats/blog/async-runtimes/',
+        'tokio vs smol: choosing an async runtime',
+      ],
+      [
+        'https://rust-lang.github.io/async-book/',
+        'Async Rust: what is a runtime?',
+      ],
+      [
+        'https://github.com/tokio-rs/tokio/issues/5124',
+        'spawn_blocking pool exhaustion · tokio-rs/tokio',
+      ],
+      [
+        'https://news.ycombinator.com/item?id=41502281',
+        'Hacker News · Why I left tokio',
+      ],
+    ],
+  },
+  {
+    name: 'camera',
+    search: ['a7c ii autofocus', 'nikon z f review', 'fujifilm x-t5 vs a7c ii'],
+    pages: [
+      [
+        'https://www.dpreview.com/reviews/sony-a7cii-vs-nikon-zf',
+        'Sony A7C II vs Nikon Z f autofocus test',
+      ],
+      [
+        'https://www.bhphotovideo.com/c/product/nikon-z-f',
+        'Nikon Z f Mirrorless Camera Body | B&H',
+      ],
+      [
+        'https://www.reddit.com/r/SonyAlpha/comments/a7cii_6_months',
+        'r/SonyAlpha · A7C II after 6 months',
+      ],
+      [
+        'https://www.dpreview.com/reviews/fujifilm-x-t5',
+        'Fujifilm X-T5 review',
+      ],
+    ],
+  },
+  {
+    name: 'running',
+    search: ['half marathon training plan', 'easy run pace', 'marathon taper'],
+    pages: [
+      [
+        'https://www.runnersworld.com/training/half-marathon-plan',
+        'December half marathon training plan · 12 weeks',
+      ],
+      ['https://www.strava.com/activities/1001', 'Strava · Afternoon run'],
+      ['https://www.strava.com/athlete/training', 'Strava · Training log'],
+    ],
+  },
+  {
+    name: 'japanese',
+    search: [
+      'jlpt n3 grammar',
+      'n3 listening practice',
+      'japanese particles wa ga',
+    ],
+    pages: [
+      [
+        'https://jlptsensei.com/n3-listening/14',
+        'JLPT N3 listening practice set 14',
+      ],
+      ['https://jlptsensei.com/jlpt-n3-grammar-list/', 'JLPT N3 grammar list'],
+      [
+        'https://www.youtube.com/watch?v=n3listening',
+        'N3 listening drills - YouTube',
+      ],
+    ],
+  },
+  {
+    name: 'frontend',
+    search: [
+      'shadcn sidebar',
+      'tauri window vibrancy',
+      'tanstack virtual dynamic height',
+    ],
+    pages: [
+      ['https://ui.shadcn.com/docs/components/sidebar', 'shadcn/ui · Sidebar'],
+      [
+        'https://v2.tauri.app/reference/javascript/api/namespacewindow/',
+        'Tauri 2 · Window vibrancy on macOS',
+      ],
+      [
+        'https://tanstack.com/virtual/latest/docs/introduction',
+        'TanStack Virtual · Introduction',
+      ],
+      ['https://github.com/shadcn-ui/ui', 'shadcn-ui/ui · GitHub'],
+    ],
+  },
+  {
+    name: 'news',
+    // Two Chinese searches, with no spaces between words: Insights splits
+    // them into words (FIXTURE_CJK_WORDS, both start with 台北) and compares
+    // them by pairs of characters, so they form one family; split only at
+    // spaces, each was one word that matched nothing.
+    search: [
+      'weather tokyo',
+      'sqlite fts5 chinese tokenizer',
+      '台北天氣',
+      '台北天氣預報',
+    ],
+    pages: [
+      ['https://news.ycombinator.com/', 'Hacker News'],
+      ['https://www.sqlite.org/fts5.html', 'SQLite FTS5 Extension'],
+      ['https://github.com/', 'GitHub'],
+      ['https://www.youtube.com/', 'YouTube'],
+    ],
+  },
+]
+
+/**
+ * The words of the fixture's Chinese searches, as a reader splits them and
+ * as Insights does (ICU4X's dictionary; vault-core's tokenizer test pins
+ * these). The specs count search words by hand with them, since Chinese has
+ * no spaces to split at.
+ */
+export const FIXTURE_CJK_WORDS = {
+  台北天氣: ['台北', '天氣'],
+  台北天氣預報: ['台北', '天氣預報'],
+}
+
+/**
+ * One search in which the same product was compared on two shops: after the
+ * search, its pages were opened in `order`, back and forth. Insights lists
+ * such a search under "Pages you compared". It happens at 05:00, `days + 1`
+ * days before `now`: between two of the older stretch's sparse days, so no
+ * other visit falls on that day, in the Personal profile. The specs find it
+ * alone on that day's page.
+ */
+export const FIXTURE_COMPARE = {
+  term: 'standing desk frame',
+  pages: [
+    [
+      'https://www.amazon.com/dp/B0DESKFRAME',
+      'FlexiSpot E7 Standing Desk Frame - Amazon.com',
+    ],
+    [
+      'https://www.amazon.de/dp/B0DESKFRAME',
+      'FlexiSpot E7 Schreibtischgestell : Amazon.de',
+    ],
+  ],
+  order: [0, 1, 0, 1, 0],
+}
+
+/** The visits of FIXTURE_COMPARE on the day starting at `dayStart`. */
+function compareScene(dayStart) {
+  const { term, pages, order } = FIXTURE_COMPARE
+  let at = dayStart + 5 * 3_600_000
+  const visits = [
+    {
+      url: `https://www.google.com/search?q=${encodeURIComponent(term)}`,
+      title: `${term} - Google Search`,
+      at,
+      typed: true,
+      term,
+      duration: 20_000,
+      profile: 'chrome:Default',
+    },
+  ]
+  for (const index of order) {
+    at += 120_000
+    const [url, title] = pages[index]
+    visits.push({
+      url,
+      title,
+      at,
+      typed: false,
+      duration: 90_000,
+      profile: 'chrome:Default',
+    })
+  }
+  return visits
+}
+
+/**
+ * A second site on github.io, besides the rust topic's rust-lang.github.io:
+ * browsers count every `*.github.io` site as its own (the public suffix
+ * list's private section), and so must Insights. Three evenings two days
+ * before `now`, in the Personal profile.
+ */
+export const FIXTURE_PAGES_SITE = {
+  site: 'mio-rs.github.io',
+  pages: [
+    ['https://mio-rs.github.io/guide/', 'Mio event loop guide'],
+    ['https://mio-rs.github.io/guide/poll.html', 'Polling with Mio'],
+  ],
+}
+
+function pagesSiteScene(dayStart) {
+  return [0, 1, 0].map((index, order) => {
+    const [url, title] = FIXTURE_PAGES_SITE.pages[index]
+    return {
+      url,
+      title,
+      at: dayStart + 21 * 3_600_000 + order * 300_000,
+      typed: false,
+      duration: 120_000,
+      profile: 'chrome:Default',
+    }
+  })
+}
+
+/**
+ * Small scenes History's search tools and Insights' counts are checked
+ * against. Each lands on its own recent days between 02:30 and 09:00, when
+ * the generated sessions (from 09:00, the latest ending before 02:00) are over, so it does not join
+ * their sessions or search trails, and on sites the fixture already visits
+ * (except `newSite`), so the kinds of sites stay as `site-kinds.ts` decides
+ * them. Times are `[days before today, hour, minute]` in local time.
+ *
+ * - `twoBrowsers`: one page visited from Firefox and both Chrome profiles at
+ *   known times (History's browser and date filters).
+ * - `spellings`: one page under three addresses that differ only by tracking
+ *   parameters, so one star and one note (History's Starred list).
+ * - `pdf`: the fixture's one PDF (`filetype:`).
+ * - `simplified`: a page titled in Simplified Chinese; the fixture's searches
+ *   are in Traditional (Chinese search folds the two).
+ * - `respelled`: one search typed twelve times on one day in three letter
+ *   cases (Frequent searches counts them as one).
+ * - `addressSearch`: an address typed into the search box twelve times on
+ *   the same day, in the Work profile: a way to reach a site, not a search
+ *   for something, so Insights leaves it out of its search cards.
+ * - `newSite`: a site first visited in Personal, and weeks later in Work
+ *   (Insights' new sites, per profile and for all).
+ */
+export const FIXTURE_SCENES = {
+  twoBrowsers: {
+    url: 'https://www.sqlite.org/wal.html',
+    title: 'Write-Ahead Logging',
+    visits: [
+      ['firefox:k3x9.default-release', [14, 3, 5]],
+      ['firefox:k3x9.default-release', [12, 3, 17]],
+      ['chrome:Default', [11, 4, 41]],
+      ['firefox:k3x9.default-release', [9, 3, 29]],
+      ['chrome:Profile 1', [8, 4, 53]],
+    ],
+  },
+  spellings: {
+    title: 'VACUUM · SQLite',
+    visits: [
+      [
+        'https://www.sqlite.org/lang_vacuum.html?utm_source=newsletter&utm_medium=email',
+        'chrome:Default',
+        [6, 3, 10],
+      ],
+      ['https://www.sqlite.org/lang_vacuum.html', 'chrome:Default', [6, 3, 50]],
+      [
+        'https://www.sqlite.org/lang_vacuum.html?fbclid=IwAR0e2e',
+        'chrome:Profile 1',
+        [6, 4, 30],
+      ],
+    ],
+  },
+  pdf: {
+    url: 'https://www.sqlite.org/files/btree-format.pdf',
+    title: 'B-tree page format',
+    visits: [['chrome:Default', [5, 3, 20]]],
+  },
+  simplified: {
+    url: 'https://github.com/e2e-notes/search-guide',
+    title: '简体中文搜索说明',
+    visits: [['chrome:Profile 1', [5, 4, 10]]],
+  },
+  respelled: {
+    profile: 'chrome:Default',
+    day: 10,
+    /** Oldest first, four times each. */
+    spellings: ['SQLite WAL mode', 'sqlite wal mode', 'SQLite WAL Mode'],
+  },
+  addressSearch: {
+    profile: 'chrome:Profile 1',
+    day: 10,
+    term: 'news.ycombinator.com',
+    times: 12,
+  },
+  newSite: {
+    url: 'https://first-seen.example/notes',
+    title: 'First seen here',
+    visits: [
+      ['chrome:Default', [20, 3, 40]],
+      ['chrome:Profile 1', [7, 5, 10]],
+      ['chrome:Profile 1', [7, 5, 40]],
+    ],
+  },
+}
+
+function scenes(today) {
+  const at = ([days, hour, minute]) => {
+    const day = new Date(today)
+    day.setDate(day.getDate() - days)
+    day.setHours(hour, minute, 0, 0)
+    return day.getTime()
+  }
+  const page = (url, title, profile, when) => ({
+    url,
+    title,
+    at: at(when),
+    typed: true,
+    duration: 60_000,
+    profile,
+  })
+  const search = (term, profile, when) => ({
+    url: `https://www.google.com/search?q=${encodeURIComponent(term)}`,
+    title: `${term} - Google Search`,
+    at: at(when),
+    typed: true,
+    term,
+    duration: 20_000,
+    profile,
+  })
+  const { twoBrowsers, spellings, pdf, simplified, respelled, addressSearch } =
+    FIXTURE_SCENES
+  const visits = []
+  for (const { url, title, visits: times } of [
+    twoBrowsers,
+    pdf,
+    simplified,
+    FIXTURE_SCENES.newSite,
+  ])
+    for (const [profile, when] of times)
+      visits.push(page(url, title, profile, when))
+  for (const [url, profile, when] of spellings.visits)
+    visits.push(page(url, spellings.title, profile, when))
+  // Searches 31 minutes apart from 02:30, each its own session, done before
+  // the day's first session at 09:00.
+  respelled.spellings.forEach((term, group) => {
+    for (let index = 0; index < 4; index += 1) {
+      const step = group * 4 + index
+      visits.push(
+        search(term, respelled.profile, [respelled.day, 2, 30 + step * 31]),
+      )
+    }
+  })
+  for (let index = 0; index < addressSearch.times; index += 1)
+    visits.push(
+      search(addressSearch.term, addressSearch.profile, [
+        addressSearch.day,
+        2,
+        45 + index * 31,
+      ]),
+    )
+  return visits
+}
+
+function prng(seed) {
+  let state = seed >>> 0 || 1
+  return () => {
+    state = (state * 16807) % 2147483647
+    return (state - 1) / 2147483646
+  }
+}
+
+/**
+ * Generates visits newest-day-first for `days` days ending at `now`, then a
+ * short session about every nine days for `olderDays` more, the way an old
+ * browser profile thins out. Each day has a few sessions; each session dwells
+ * on one topic, starts with a search now and then, and revisits pages so
+ * re-find stats exist. The older stretch is generated last, so it leaves the
+ * recent days the same whatever its length; it makes the archive span enough
+ * years for all-time charts to group by month.
+ */
+export function generateVisits({
+  now = Date.now(),
+  days = 420,
+  olderDays = 730,
+  perDay = 60,
+  seed = 7,
+} = {}) {
+  const random = prng(seed)
+  const visits = []
+  const today = new Date(now)
+  today.setHours(0, 0, 0, 0)
+  let searchSessions = 0
+  const schedule = []
+  for (let day = 0; day < days; day += 1) schedule.push([day, 1])
+  for (let day = days; day < days + olderDays; day += 9) {
+    schedule.push([day, 0.15])
+  }
+  for (const [day, share] of schedule) {
+    const dayStart = today.getTime() - day * DAY_MS
+    const weekend = [0, 6].includes(new Date(dayStart).getDay())
+    const volume = Math.round(
+      perDay * share * (weekend ? 0.55 : 1) * (0.6 + random() * 0.8),
+    )
+    const sessions = 2 + Math.floor(random() * 4)
+    // One person, one session at a time: the day's sessions go in order of
+    // their start, and one that would start before the last one ended waits
+    // for it. Otherwise another topic's search can land between a search and
+    // its rewordings, and they are no longer one search trail.
+    const starts = Array.from(
+      { length: sessions },
+      () =>
+        dayStart +
+        [9, 10, 11, 14, 15, 16, 20, 21, 22][Math.floor(random() * 9)] *
+          3_600_000 +
+        Math.floor(random() * 50) * 60_000,
+    ).sort((a, b) => a - b)
+    let free = dayStart
+    let produced = 0
+    for (
+      let session = 0;
+      session < sessions && produced < volume;
+      session += 1
+    ) {
+      const topic = topics[Math.floor(random() * topics.length)]
+      let at = Math.max(starts[session], free)
+      if (at > now) continue
+      const size = Math.max(2, Math.round(volume / sessions))
+      if (random() < 0.7) {
+        const term = topic.search[Math.floor(random() * topic.search.length)]
+        visits.push({
+          url: `https://www.google.com/search?q=${encodeURIComponent(term)}`,
+          title: `${term} - Google Search`,
+          at,
+          typed: true,
+          term,
+          duration: 20_000,
+        })
+        produced += 1
+        // Every seventh search is reworded twice, a minute apart, as people
+        // do when a search doesn't find it. The suffixes lengthen the address
+        // by 5 and 10 characters and the three share a day, so the visits stay
+        // in the same browser (see the split below) and the rewordings in the
+        // same search trail.
+        searchSessions += 1
+        const sameDay =
+          Math.floor((at + 60_000) / DAY_MS) === Math.floor(at / DAY_MS)
+        if (searchSessions % 7 === 0 && sameDay) {
+          for (const reworded of [`${term} v2`, `${term} v2 eg`]) {
+            at += 30_000
+            visits.push({
+              url: `https://www.google.com/search?q=${encodeURIComponent(reworded)}`,
+              title: `${reworded} - Google Search`,
+              at,
+              typed: true,
+              term: reworded,
+              duration: 20_000,
+            })
+            produced += 1
+          }
+        }
+      }
+      for (let index = 0; index < size && produced < volume; index += 1) {
+        at += 40_000 + Math.floor(random() * 240_000)
+        if (at > now) break
+        const [url, title] =
+          topic.pages[Math.floor(random() * topic.pages.length)]
+        visits.push({
+          url,
+          title,
+          at,
+          typed: random() < 0.08,
+          duration: Math.floor(random() * 300_000),
+        })
+        produced += 1
+      }
+      free = at + 60_000
+    }
+  }
+  visits.push(...compareScene(today.getTime() - (days + 1) * DAY_MS))
+  visits.push(...pagesSiteScene(today.getTime() - 2 * DAY_MS))
+  visits.push(...scenes(today))
+  // The scenes can land on the instant of a session's visit. A browser never
+  // records two visits at the same instant, and PathKeep counts identical
+  // visits once, so keep every timestamp unique.
+  visits.sort((a, b) => a.at - b.at)
+  for (let index = 1; index < visits.length; index += 1) {
+    if (visits[index].at <= visits[index - 1].at) {
+      visits[index].at = visits[index - 1].at + 1_000
+    }
+  }
+  return visits.filter((visit) => visit.at <= now)
+}
+
+/** A browser session: visits closer than this belong together. */
+const SESSION_GAP_MS = 30 * 60_000
+
+/**
+ * For each visit (in time order), the index of the visit it was opened from,
+ * or -1: a page that was not typed (or searched) follows a link on the page
+ * before it in the same browser, if that came within the session. Browsers
+ * record this as `from_visit`; Insights uses it to tell which pages a search
+ * led to.
+ */
+export function openedFrom(visits) {
+  return visits.map((visit, index) =>
+    index > 0 &&
+    !visit.typed &&
+    !visit.term &&
+    visit.at - visits[index - 1].at <= SESSION_GAP_MS
+      ? index - 1
+      : -1,
+  )
+}
+
+/**
+ * Writes a new Chrome `History` with `visits`. Also used on its own, e.g. as
+ * a file to import through Browser Direct.
+ */
+export function writeChromeHistory(file, visits) {
+  const db = new DatabaseSync(file)
+  createChromeSchema(db)
+  insertChromeVisits(db, visits)
+  db.close()
+}
+
+/**
+ * Icons Chrome stored for three of the fixture's sites (16×16 PNGs in plain
+ * colors), so the app's icons can be checked against sites with and without one.
+ */
+export const FIXTURE_FAVICON_HOSTS = {
+  'github.com':
+    'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAFklEQVR4nGNQ0dQnCTGMahjVMHw1AADjI3wBdNntmQAAAABJRU5ErkJggg==',
+  'www.youtube.com':
+    'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAF0lEQVR4nGP4z8BAEiJN9aiGUQ1DSgMAkPn/Afnh+ngAAAAASUVORK5CYII=',
+  'docs.rs':
+    'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAFklEQVR4nGN40aNBEmIY1TCqYfhqAADICZwQTKfnsQAAAABJRU5ErkJggg==',
+}
+
+/**
+ * Pages whose own icon is not their site's, stored on the page's latest visit,
+ * after the site's: a host that serves several things (here an issue page with
+ * GitHub's status icon, as Google's host has Maps and Drive). The page shows it
+ * in History; the site keeps its own on Insights.
+ */
+export const FIXTURE_PAGE_ICONS = {
+  'https://github.com/tokio-rs/tokio/issues/5124':
+    'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAFklEQVR42mO4WcVGEmIY1TCqYfhqAAA9D1kQCshyLAAAAABJRU5ErkJggg==',
+}
+
+/**
+ * Writes Chrome's `Favicons` next to a profile's `History`: one icon per host
+ * in FIXTURE_FAVICON_HOSTS, mapped to every page of that host the profile
+ * visited, as Chrome keeps them, except the pages in FIXTURE_PAGE_ICONS.
+ */
+function writeChromeFavicons(file, visits, now) {
+  const db = new DatabaseSync(file)
+  db.exec(`
+    CREATE TABLE favicons (id INTEGER PRIMARY KEY, url LONGVARCHAR NOT NULL, icon_type INTEGER DEFAULT 1);
+    CREATE TABLE favicon_bitmaps (id INTEGER PRIMARY KEY, icon_id INTEGER NOT NULL, last_updated INTEGER DEFAULT 0,
+      image_data BLOB, width INTEGER DEFAULT 0, height INTEGER DEFAULT 0, last_requested INTEGER DEFAULT 0);
+    CREATE TABLE icon_mapping (id INTEGER PRIMARY KEY, page_url LONGVARCHAR NOT NULL, icon_id INTEGER);
+  `)
+  const chromeTime = (ms) => Math.trunc(ms * 1000 + CHROME_EPOCH_OFFSET_US)
+  // Sites' icons were stored before the profile's first visit, so every visit
+  // can show them (History shows no icon stored after the visit).
+  const first = visits.reduce((min, visit) => Math.min(min, visit.at), now)
+  const iconIds = new Map()
+  const addIcon = (key, iconUrl, png, at) => {
+    const id = iconIds.size + 1
+    iconIds.set(key, id)
+    db.prepare(
+      'INSERT INTO favicons (id, url, icon_type) VALUES (?, ?, 1)',
+    ).run(id, iconUrl)
+    db.prepare(
+      'INSERT INTO favicon_bitmaps (icon_id, last_updated, image_data, width, height) VALUES (?, ?, ?, 16, 16)',
+    ).run(id, at, Buffer.from(png, 'base64'))
+  }
+  for (const [host, png] of Object.entries(FIXTURE_FAVICON_HOSTS)) {
+    addIcon(
+      host,
+      `https://${host}/favicon.ico`,
+      png,
+      chromeTime(first - DAY_MS),
+    )
+  }
+  for (const [page, png] of Object.entries(FIXTURE_PAGE_ICONS)) {
+    const latest = visits
+      .filter((visit) => visit.url === page)
+      .reduce((max, visit) => Math.max(max, visit.at), -Infinity)
+    // On the page's latest visit: the newest icon of its host.
+    if (latest > -Infinity)
+      addIcon(page, `${page}/status.png`, png, chromeTime(latest))
+  }
+  const mapped = new Set()
+  const insertMapping = db.prepare(
+    'INSERT INTO icon_mapping (page_url, icon_id) VALUES (?, ?)',
+  )
+  for (const visit of visits) {
+    const id =
+      iconIds.get(visit.url) ?? iconIds.get(new URL(visit.url).hostname)
+    if (id === undefined || mapped.has(visit.url)) continue
+    mapped.add(visit.url)
+    insertMapping.run(visit.url, id)
+  }
+  db.close()
+}
+
+/**
+ * Adds visits to an existing synthetic Chrome profile, the way a browser
+ * session would between two backups. E2E uses it to prove incremental backup.
+ */
+export function appendChromeVisits(file, visits) {
+  const db = new DatabaseSync(file)
+  insertChromeVisits(db, visits)
+  db.close()
+}
+
+/** Gives `url` a new title, as Chrome does when the page's title changes. */
+export function retitleChromePage(file, url, title) {
+  const db = new DatabaseSync(file)
+  db.prepare('UPDATE urls SET title = ? WHERE url = ?').run(title, url)
+  db.close()
+}
+
+function createChromeSchema(db) {
+  db.exec(`
+    CREATE TABLE urls (id INTEGER PRIMARY KEY, url TEXT NOT NULL, title TEXT, visit_count INTEGER NOT NULL,
+      typed_count INTEGER NOT NULL, last_visit_time INTEGER NOT NULL, hidden INTEGER NOT NULL);
+    CREATE TABLE visits (id INTEGER PRIMARY KEY, url INTEGER NOT NULL, visit_time INTEGER NOT NULL, from_visit INTEGER,
+      transition INTEGER, visit_duration INTEGER, is_known_to_sync INTEGER, visited_link_id INTEGER,
+      external_referrer_url TEXT, app_id TEXT);
+    CREATE TABLE downloads (id INTEGER PRIMARY KEY, guid TEXT, current_path TEXT, target_path TEXT, start_time INTEGER,
+      received_bytes INTEGER, total_bytes INTEGER, state INTEGER, mime_type TEXT, original_mime_type TEXT);
+    CREATE TABLE keyword_search_terms (keyword_id INTEGER, url_id INTEGER, term TEXT, normalized_term TEXT);
+    CREATE INDEX visits_url_index ON visits(url);
+    CREATE INDEX visits_time_index ON visits(visit_time);
+  `)
+}
+
+function insertChromeVisits(db, visits) {
+  const urlIds = new Map(
+    db
+      .prepare('SELECT id, url FROM urls')
+      .all()
+      .map((row) => [row.url, row.id]),
+  )
+  const nextUrlId = () =>
+    Number(
+      db.prepare('SELECT COALESCE(MAX(id), 0) + 1 AS id FROM urls').get().id,
+    )
+  const insertUrl = db.prepare(
+    'INSERT INTO urls (id, url, title, visit_count, typed_count, last_visit_time, hidden) VALUES (?, ?, ?, 0, 0, 0, 0)',
+  )
+  const insertVisit = db.prepare(
+    'INSERT INTO visits (url, visit_time, from_visit, transition, visit_duration, is_known_to_sync, visited_link_id, external_referrer_url, app_id) VALUES (?, ?, ?, ?, ?, 0, 0, NULL, NULL)',
+  )
+  const bump = db.prepare(
+    'UPDATE urls SET visit_count = visit_count + 1, typed_count = typed_count + ?, last_visit_time = ? WHERE id = ?',
+  )
+  const insertTerm = db.prepare(
+    'INSERT INTO keyword_search_terms (keyword_id, url_id, term, normalized_term) VALUES (2, ?, ?, ?)',
+  )
+  const from = openedFrom(visits)
+  const visitIds = []
+  db.exec('BEGIN')
+  for (const [index, visit] of visits.entries()) {
+    let id = urlIds.get(visit.url)
+    if (id === undefined) {
+      id = nextUrlId()
+      urlIds.set(visit.url, id)
+      insertUrl.run(id, visit.url, visit.title)
+      if (visit.term) insertTerm.run(id, visit.term, visit.term.toLowerCase())
+    }
+    const time = Math.trunc(visit.at * 1000 + CHROME_EPOCH_OFFSET_US)
+    // 0x30000000 = chain start + chain end; core type 1 = typed, 0 = link.
+    const inserted = insertVisit.run(
+      id,
+      time,
+      from[index] >= 0 ? visitIds[from[index]] : 0,
+      0x30000000 | (visit.typed ? 1 : 0),
+      visit.duration * 1000,
+    )
+    visitIds.push(Number(inserted.lastInsertRowid))
+    bump.run(visit.typed ? 1 : 0, time, id)
+  }
+  db.exec('COMMIT')
+}
+
+/**
+ * Writes a new Firefox `places.sqlite` with `visits`. Also used on its own,
+ * e.g. as a file to import through Browser Direct.
+ */
+export function writeFirefoxPlaces(file, visits) {
+  const db = new DatabaseSync(file)
+  db.exec(`
+    CREATE TABLE moz_places (id INTEGER PRIMARY KEY, url TEXT NOT NULL, title TEXT, visit_count INTEGER, hidden INTEGER, last_visit_date INTEGER);
+    CREATE TABLE moz_historyvisits (id INTEGER PRIMARY KEY, place_id INTEGER NOT NULL, visit_date INTEGER NOT NULL, from_visit INTEGER, visit_type INTEGER);
+    CREATE INDEX moz_places_url_index ON moz_places(url);
+    CREATE INDEX moz_historyvisits_place_index ON moz_historyvisits(place_id);
+    CREATE INDEX moz_historyvisits_date_index ON moz_historyvisits(visit_date);
+  `)
+  insertFirefoxVisits(db, visits)
+  db.close()
+}
+
+/** Firefox counterpart of {@link appendChromeVisits}. */
+export function appendFirefoxVisits(file, visits) {
+  const db = new DatabaseSync(file)
+  insertFirefoxVisits(db, visits)
+  db.close()
+}
+
+function insertFirefoxVisits(db, visits) {
+  const ids = new Map(
+    db
+      .prepare('SELECT id, url FROM moz_places')
+      .all()
+      .map((row) => [row.url, row.id]),
+  )
+  const nextId = () =>
+    Number(
+      db.prepare('SELECT COALESCE(MAX(id), 0) + 1 AS id FROM moz_places').get()
+        .id,
+    )
+  const insertPlace = db.prepare(
+    'INSERT INTO moz_places (id, url, title, visit_count, hidden, last_visit_date) VALUES (?, ?, ?, 0, 0, 0)',
+  )
+  const insertVisit = db.prepare(
+    'INSERT INTO moz_historyvisits (place_id, visit_date, from_visit, visit_type) VALUES (?, ?, ?, ?)',
+  )
+  const bump = db.prepare(
+    'UPDATE moz_places SET visit_count = visit_count + 1, last_visit_date = ? WHERE id = ?',
+  )
+  const from = openedFrom(visits)
+  const visitIds = []
+  db.exec('BEGIN')
+  for (const [index, visit] of visits.entries()) {
+    let id = ids.get(visit.url)
+    if (id === undefined) {
+      id = nextId()
+      ids.set(visit.url, id)
+      insertPlace.run(id, visit.url, visit.title)
+    }
+    const time = Math.trunc(visit.at * 1000)
+    const inserted = insertVisit.run(
+      id,
+      time,
+      from[index] >= 0 ? visitIds[from[index]] : 0,
+      visit.typed ? 2 : 1,
+    )
+    visitIds.push(Number(inserted.lastInsertRowid))
+    bump.run(time, id)
+  }
+  db.exec('COMMIT')
+}
+
+/** Seconds from 1970 to 2001, where Safari's visit times start. */
+const SAFARI_EPOCH_SECONDS = 978_307_200
+
+/**
+ * Writes a new Safari `History.db` with `visits`, laid out as Safari on macOS
+ * keeps it: one row per page in `history_items` (no title there), and each
+ * visit in `history_visits` with its own title, which may be null, and its
+ * time in seconds since 2001.
+ */
+export function writeSafariHistory(file, visits) {
+  const db = new DatabaseSync(file)
+  db.exec(`
+    CREATE TABLE history_items (id INTEGER PRIMARY KEY AUTOINCREMENT, url TEXT NOT NULL UNIQUE, domain_expansion TEXT NULL, visit_count INTEGER NOT NULL, daily_visit_counts BLOB NOT NULL, weekly_visit_counts BLOB NULL, autocomplete_triggers BLOB NULL, should_recompute_derived_visit_counts INTEGER NOT NULL, visit_count_score INTEGER NOT NULL, status_code INTEGER NOT NULL DEFAULT 0);
+    CREATE TABLE history_visits (id INTEGER PRIMARY KEY AUTOINCREMENT, history_item INTEGER NOT NULL REFERENCES history_items(id) ON DELETE CASCADE, visit_time REAL NOT NULL, title TEXT NULL, load_successful BOOLEAN NOT NULL DEFAULT 1, http_non_get BOOLEAN NOT NULL DEFAULT 0, synthesized BOOLEAN NOT NULL DEFAULT 0, redirect_source INTEGER NULL UNIQUE REFERENCES history_visits(id) ON DELETE CASCADE, redirect_destination INTEGER NULL UNIQUE REFERENCES history_visits(id) ON DELETE CASCADE, origin INTEGER NOT NULL DEFAULT 0, generation INTEGER NOT NULL DEFAULT 0, attributes INTEGER NOT NULL DEFAULT 0, score INTEGER NOT NULL DEFAULT 0);
+    CREATE INDEX history_visits__last_visit ON history_visits (history_item, visit_time DESC, synthesized ASC);
+    CREATE TABLE metadata (key TEXT NOT NULL UNIQUE, value);
+  `)
+  const insertItem = db.prepare(
+    "INSERT INTO history_items (url, visit_count, daily_visit_counts, should_recompute_derived_visit_counts, visit_count_score) VALUES (?, 0, X'', 1, 0)",
+  )
+  const insertVisit = db.prepare(
+    'INSERT INTO history_visits (history_item, visit_time, title) VALUES (?, ?, ?)',
+  )
+  const bump = db.prepare(
+    'UPDATE history_items SET visit_count = visit_count + 1 WHERE id = ?',
+  )
+  const ids = new Map()
+  db.exec('BEGIN')
+  for (const visit of visits) {
+    let id = ids.get(visit.url)
+    if (id === undefined) {
+      id = Number(insertItem.run(visit.url).lastInsertRowid)
+      ids.set(visit.url, id)
+    }
+    insertVisit.run(id, visit.at / 1000 - SAFARI_EPOCH_SECONDS, visit.title)
+    bump.run(id)
+  }
+  db.exec('COMMIT')
+  db.close()
+}
+
+/**
+ * Creates the fixture tree under `root` and returns the paths to export as
+ * environment variables. `scale` multiplies the per-day volume.
+ */
+export function writeSyntheticBrowsers(
+  root,
+  { now = Date.now(), days = 420, olderDays = 730, perDay = 60, seed = 7 } = {},
+) {
+  const chromeRoot = path.join(root, 'chrome-user-data')
+  const firefoxRoot = path.join(root, 'firefox', 'Profiles')
+  mkdirSync(path.join(chromeRoot, 'Default'), { recursive: true })
+  mkdirSync(path.join(chromeRoot, 'Profile 1'), { recursive: true })
+  mkdirSync(path.join(firefoxRoot, 'k3x9.default-release'), { recursive: true })
+
+  writeFileSync(path.join(chromeRoot, 'Last Version'), '135.0.0.0')
+  writeFileSync(
+    path.join(chromeRoot, 'Local State'),
+    JSON.stringify({
+      profile: {
+        info_cache: {
+          Default: { name: 'Personal', user_name: 'fixture@example.test' },
+          'Profile 1': { name: 'Work', user_name: 'work@example.test' },
+        },
+      },
+    }),
+  )
+  writeFileSync(
+    path.join(root, 'firefox', 'profiles.ini'),
+    '[Profile0]\nName=default-release\nIsRelative=1\nPath=Profiles/k3x9.default-release\nDefault=1\n',
+  )
+
+  const all = generateVisits({ now, days, olderDays, perDay, seed })
+  // Split by topic-ish hash so each browser has a recognisable mix; a visit
+  // that names its profile goes there.
+  const personal = []
+  const work = []
+  const firefox = []
+  const named = {
+    'chrome:Default': personal,
+    'chrome:Profile 1': work,
+    'firefox:k3x9.default-release': firefox,
+  }
+  for (const visit of all) {
+    if (visit.profile) {
+      named[visit.profile].push(visit)
+      continue
+    }
+    const bucket = (visit.url.length + Math.floor(visit.at / DAY_MS)) % 5
+    if (bucket < 2) personal.push(visit)
+    else if (bucket < 4) work.push(visit)
+    else firefox.push(visit)
+  }
+  writeChromeHistory(path.join(chromeRoot, 'Default', 'History'), personal)
+  writeChromeFavicons(
+    path.join(chromeRoot, 'Default', 'Favicons'),
+    personal,
+    now,
+  )
+  writeChromeHistory(path.join(chromeRoot, 'Profile 1', 'History'), work)
+  writeFirefoxPlaces(
+    path.join(firefoxRoot, 'k3x9.default-release', 'places.sqlite'),
+    firefox,
+  )
+
+  return {
+    chromeUserDataRoot: chromeRoot,
+    firefoxProfilesRoot: firefoxRoot,
+    /** Every visit written, per profile id as PathKeep names it. */
+    visitsByProfile: {
+      'chrome:Default': personal,
+      'chrome:Profile 1': work,
+      'firefox:k3x9.default-release': firefox,
+    },
+    files: {
+      'chrome:Default': path.join(chromeRoot, 'Default', 'History'),
+      'chrome:Profile 1': path.join(chromeRoot, 'Profile 1', 'History'),
+      'firefox:k3x9.default-release': path.join(
+        firefoxRoot,
+        'k3x9.default-release',
+        'places.sqlite',
+      ),
+    },
+    counts: {
+      total: all.length,
+      personal: personal.length,
+      work: work.length,
+      firefox: firefox.length,
+    },
+  }
+}

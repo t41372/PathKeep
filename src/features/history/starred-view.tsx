@@ -1,0 +1,172 @@
+/**
+ * Starred: pages and whole sites the user has starred, each with its link
+ * preview (or site icon), its tags and a note preview where there is one.
+ */
+import { Star } from 'lucide-react'
+import { useCallback, useMemo } from 'react'
+import { cn } from '@/lib/cn'
+import { useI18n } from '@/lib/i18n'
+import type { StarListItem } from '@/lib/backend-client/stars'
+import type { DetailTarget } from './history-types'
+import { PreviewThumb } from './link-preview'
+import { StateMessage } from './state-message'
+import { useLatestVisit, useStarList } from './queries'
+import { VirtualRows } from './virtual-rows'
+
+const ROW_HEIGHT = 62
+/** Tags shown on a row before "+N". */
+const ROW_TAGS = 3
+
+function StarRow({
+  item,
+  selected,
+  onPick,
+}: {
+  item: StarListItem
+  selected: boolean
+  onPick: (item: StarListItem) => void
+}) {
+  const { t } = useI18n()
+  const latest = useLatestVisit(item.domain, null)
+  const lookup = useMemo(
+    () =>
+      latest.data
+        ? {
+            profileId: latest.data.profileId,
+            url: latest.data.url,
+            visitTime: latest.data.visitTime,
+          }
+        : undefined,
+    [latest.data],
+  )
+  const isSite = item.entityKind === 'domain'
+  const title = isSite ? item.domain : item.title.trim() || item.entityKey
+  const detail = isSite
+    ? t('common.visits', { count: item.visitCount })
+    : item.notes.trim() || item.entityKey
+  const tags = item.tags
+
+  return (
+    <button
+      type="button"
+      role="option"
+      aria-selected={selected}
+      onClick={() => onPick(item)}
+      className={cn(
+        'flex h-full w-full items-center gap-3 rounded-[10px] px-3 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/50',
+        selected ? 'bg-brand-soft' : 'hover:bg-muted',
+      )}
+    >
+      <Star
+        className="size-[15px] shrink-0 fill-brand text-brand"
+        aria-hidden
+      />
+      <PreviewThumb
+        url={isSite ? (latest.data?.url ?? null) : item.entityKey}
+        domain={item.domain}
+        lookup={lookup}
+      />
+      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span className="truncate font-medium">{title}</span>
+        <span className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+          {tags.slice(0, ROW_TAGS).map((tag) => (
+            <span
+              key={tag}
+              className="max-w-[120px] shrink-0 truncate rounded bg-brand-soft px-1.5 py-px text-[11px] text-foreground"
+            >
+              #{tag}
+            </span>
+          ))}
+          {tags.length > ROW_TAGS && (
+            <span className="shrink-0 text-[11px]">
+              {t('historyPage.tags.more', { count: tags.length - ROW_TAGS })}
+            </span>
+          )}
+          <span className="min-w-0 truncate">{detail}</span>
+        </span>
+      </span>
+      <span className="shrink-0 text-xs text-muted-foreground">
+        {isSite ? t('history.starred.wholeSite') : item.domain}
+      </span>
+    </button>
+  )
+}
+
+export function StarredView({
+  selectedUrl,
+  onSelect,
+  onPickSite,
+}: {
+  selectedUrl: string | null
+  onSelect: (target: DetailTarget) => void
+  onPickSite: (domain: string) => void
+}) {
+  const { t } = useI18n()
+  const stars = useStarList()
+  const rows = useMemo(
+    () => stars.data?.pages.flatMap((page) => page.items) ?? [],
+    [stars.data],
+  )
+  const { hasNextPage, isFetchingNextPage, fetchNextPage } = stars
+  const onEndReached = useCallback(() => {
+    if (hasNextPage && !isFetchingNextPage) void fetchNextPage()
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage])
+
+  const onPick = useCallback(
+    (item: StarListItem) => {
+      if (item.entityKind === 'domain') onPickSite(item.domain)
+      else
+        onSelect({
+          url: item.entityKey,
+          title: item.title || null,
+          domain: item.domain,
+        })
+    },
+    [onSelect, onPickSite],
+  )
+  const rowKey = useCallback(
+    (item: StarListItem) => `${item.entityKind}:${item.entityKey}`,
+    [],
+  )
+  const rowHeight = useCallback(() => ROW_HEIGHT, [])
+  const renderRow = useCallback(
+    (item: StarListItem) => (
+      <StarRow
+        item={item}
+        selected={item.entityKind === 'url' && item.entityKey === selectedUrl}
+        onPick={onPick}
+      />
+    ),
+    [selectedUrl, onPick],
+  )
+
+  if (stars.isPending) return <StateMessage loading />
+  if (stars.error) {
+    return (
+      <StateMessage
+        error={stars.error}
+        title={t('history.state.errorTitle')}
+        onRetry={() => void stars.refetch()}
+      />
+    )
+  }
+  if (rows.length === 0) {
+    return (
+      <StateMessage
+        icon="star"
+        title={t('history.state.noStarredTitle')}
+        body={t('history.state.noStarredBody')}
+      />
+    )
+  }
+  return (
+    <VirtualRows
+      rows={rows}
+      rowKey={rowKey}
+      rowHeight={rowHeight}
+      renderRow={renderRow}
+      onEndReached={onEndReached}
+      label={t('history.views.starred')}
+    />
+  )
+}

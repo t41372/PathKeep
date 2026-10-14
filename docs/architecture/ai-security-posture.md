@@ -29,9 +29,9 @@ on. Nothing reaches the network, the GPU, or an external tool until the user exp
 surfaces that touch untrusted input — the **code-mode JS sandbox** (runs LLM-written JS over history) and
 the **outward MCP face** (lets an external tool search history) — are constrained by construction: the
 sandbox has zero ambient authority and a read-only host API; the MCP face is localhost stdio, read-only,
-audited, and the SQLCipher key never crosses to the caller. Derived AI state (vectors, agent run traces,
-chat transcripts) **never lives in the canonical SQLCipher archive** and is excluded from the portable
-export.
+audited, and the archive key never crosses to the caller. Derived AI state (vectors, the Insights read
+model) **never lives in the canonical archive** and is rebuilt rather than exported. Ask chats are user
+data: they are encrypted like the archive and move with it in the export file (decided 2026-10-07).
 
 ---
 
@@ -41,16 +41,15 @@ The AI surface is governed by `AiSettings` in `vault-core/src/models/intelligenc
 is **hard-default-OFF** except the offline title-normalization plugin. From the `Default` impl
 (`models/intelligence.rs`):
 
-| Flag                     | Default | Capability gated                                                   |
-| ------------------------ | ------- | ------------------------------------------------------------------ |
-| `enabled`                | `false` | **Master AI flag** — gates everything below                        |
-| `assistant_enabled`      | `false` | Streaming chat + agent harness                                     |
-| `semantic_index_enabled` | `false` | Embedding backfill + semantic/hybrid retrieval                     |
-| `mcp_enabled`            | `false` | Outward MCP server                                                 |
-| `skill_enabled`          | `false` | MCP usage-guide (skill) payload                                    |
-| `content_fetch_enabled`  | `false` | Site content fetch (network egress)                                |
-| `gpu_enabled`            | `false` | Apple-Silicon Metal embedding tier (also requires a `metal` build) |
-| `enrichment_enabled`     | `true`  | Offline title-normalization plugin only (no network, no egress)    |
+| Flag                     | Default | Capability gated                                                |
+| ------------------------ | ------- | --------------------------------------------------------------- |
+| `enabled`                | `false` | **Master AI flag** — gates everything below                     |
+| `assistant_enabled`      | `false` | Streaming chat + agent harness                                  |
+| `semantic_index_enabled` | `false` | Embedding backfill + semantic/hybrid retrieval                  |
+| `mcp_enabled`            | `false` | Outward MCP server                                              |
+| `skill_enabled`          | `false` | MCP usage-guide (skill) payload                                 |
+| `content_fetch_enabled`  | `false` | Site content fetch (network egress)                             |
+| `enrichment_enabled`     | `true`  | Offline title-normalization plugin only (no network, no egress) |
 
 ### Master + sub-flag enforcement
 
@@ -96,8 +95,8 @@ The read-model state machine in `ai/read_model.rs` surfaces `disabled` first whe
 so the UI tells the honest story rather than implying a capability is live.
 
 Note that chat-history CRUD (`vault-worker/src/intelligence/agent_store.rs`) is gated by the **App Lock**
-boundary (`load_unlocked_config`), NOT by `ai.enabled`: the agent transcript plane is plaintext (no
-SQLCipher key barrier), so every read/list/delete/rename refuses while the session is locked — but a user
+boundary (`load_unlocked_config`), NOT by `ai.enabled`: every read/list/delete/rename refuses while the
+session is locked (the agent database `derived/agent.db` is encrypted with the archive's data key) — but a user
 may still read or delete existing transcripts with AI turned off, as long as they are unlocked (see §3 / §5).
 
 The frontend mirror of these flags is `src/lib/types/intelligence.ts` (`AiSettings` interface). The newer
@@ -132,7 +131,9 @@ read/seek/write`, `proc_exit`). Absent by construction: `path_open`, any `sock_*
    preopen. So **no filesystem, no network/sockets, no real clock, no host randomness, no environment**.
    `Math.random()` is QuickJS's own PRNG (deterministic), and `Date.now()` is 0.
 2. **Hard limits.** `code_mode.rs` constants: 5 s wall-time budget enforced via Wasmtime epoch
-   interruption (a 50 ms ticker on a dedicated OS thread); 64 MiB max linear memory via `StoreLimits`;
+   interruption (a 50 ms ticker on a dedicated OS thread). The ticker does not advance the epoch while the
+   host answers a `query_history` / `fetch_visits` call, so retrieval time does not count against the 5 s;
+   host calls are bounded by `MAX_HOST_CALLS` and cancellation instead. 64 MiB max linear memory via `StoreLimits`;
    `MAX_HOST_CALLS = 64`; `MAX_OUTPUT_BYTES = 256 KiB` (truncated on a UTF-8 char boundary); a 1 MiB RPC
    frame cap plus a raw-buffer cap as defense-in-depth.
 
@@ -147,10 +148,11 @@ pin. Production never needs `javy` installed — only the committed `.wasm` is l
 
 The only host surface is two synchronous RPC functions exposed to the guest, both **read-only**:
 
-- `query_history({ query, plane?, limit?, profileId?, domain?, starredOnly? })` — runs the _same_ shared
-  retrieval (`search_history_internal`) as the agent's search tools; `limit` is clamped to `[1, 50]`.
-- `fetch_visits(ids: number[])` — resolves up to 50 visit ids against a bounded recent-window read model;
-  silently drops unknown/reverted ids.
+- `query_history({ query?, plane?, sort?, limit?, cursor?, profileId?, domain?, starredOnly?, startDate?, endDate? })`
+  — runs the _same_ shared retrieval (`search_history_internal`) as the agent's search tools; `limit` is
+  clamped to `[1, 1000]` (`MAX_ROWS_PER_CALL`), and `cursor` pages through the rest of the matches.
+- `fetch_visits(ids: number[])` — looks up as many as 50 visits by visit id in the archive (`search::visits`),
+  whatever their age; silently drops unknown/reverted ids.
 
 Neither performs INSERT/UPDATE/DELETE. There is **no DB handle, no SQL string, no `func_wrap` bridge** —
 the linker only adds the scoped WASI context. The `run_code` tool description (`agent_tools.rs::
@@ -190,10 +192,10 @@ config.ai.mcp_enabled` (both default `false`) and additionally bails if the app 
 - **Read-only surface — three tools, no mutation.** `search-history`, `archive-status`, and `usage-guide`.
   There is **no write/mutation tool**. The search limit is clamped to `[1, 50]` in `ai/search.rs`, so no
   external caller can pull an unbounded page.
-- **The SQLCipher key never crosses to the caller.** The worker holds the database key
-  (`read_database_key_from_keyring`, stored in the `BrowserHistoryMcpServer` struct) and uses it only to
-  open a local connection. MCP responses carry query results, status metadata, and the usage-guide JSON —
-  **never the key**.
+- **The archive key never crosses to the caller.** The MCP server (`vault-worker/src/mcp.rs`) is a
+  stdio bridge to the running app's same-user owner endpoint; it opens no database and holds no key. The
+  app that owns the open archive answers each request. MCP responses carry query results, status metadata,
+  and the usage-guide JSON — **never the key**.
 - **Every external query is audited as `mcp_query`.** `record_mcp_query_run` writes a `runs` row with
   `run_type = 'mcp_query'`, `trigger = 'external'`, the profile scope, warnings, and a query summary —
   viewable in the Audit ledger. So the user sees every external touch, not just searches.
@@ -254,48 +256,42 @@ fetch_client_builder`) sets only a single static desktop Chrome UA, `Accept-Lang
   it never sets a cookie or `Referer` header and carries nothing account- or session-specific.
 - **Per-host rate-limited.** Content-fetch performs no egress without the opt-in above; og:image
   Background mode's automatic post-backup egress is budget-bounded per day. Per-host token buckets
-  (`enrichment/rate_limit.rs`) throttle requests and negative caching avoids retry storms.
+  (`enrichment/rate_limit.rs`) throttle requests and negative caching avoids retry storms. A host
+  that answers HTTP 429 (or GitHub's quota 403) gets no request at all for as long as its
+  `Retry-After` or quota reset asks, an hour when it does not say, clamped to a minute .. a day.
 
 ---
 
-## 5. Data sovereignty: derived AI state stays out of canonical, and off the export
+## 5. Data sovereignty: derived AI state stays out of canonical; user data moves with the archive
 
-The canonical archive is `archive/history-vault.sqlite` (SQLCipher) — the single source of truth, holding
-**only** canonical facts. All AI-derived state is rebuildable and lives outside it:
+The canonical archive is `archive/history-vault.db` (Turso, encrypted with the data key in encrypted mode)
+— the single source of truth, holding **only** canonical facts. AI-derived state is rebuildable and lives
+outside it. The export file (`.pathkeep-bundle`, data-model.md "Data migration bundle contract") carries
+the user's data, encrypted with the export password, and leaves out what the other computer rebuilds:
 
-| Plane                         | Location                              | In canonical? | In portable export?  |
-| ----------------------------- | ------------------------------------- | ------------- | -------------------- |
-| f32 vector store              | `derived/vectors/*.pkvec`             | No            | **No** (rebuild)     |
-| visit→content map (W-AI-4c)   | `derived/vectors/*.pkmap`             | No            | **No**               |
-| binary-recall plane (W-AI-5)  | `derived/vectors/*.pkbin`             | No            | **No**               |
-| int8-rescore plane (W-AI-5)   | `derived/vectors/*.pki8`              | No            | **No**               |
-| chat transcripts + run traces | `derived/agent.sqlite`                | No            | **No** (privacy)     |
-| downloaded models             | `models/`                             | No            | **No** (re-download) |
-| AI metadata / read model      | `derived/history-intelligence.sqlite` | No            | Yes (rebuildable)    |
-| canonical facts               | `archive/history-vault.sqlite`        | **Yes**       | Yes                  |
+| Plane                          | Location                       | In canonical? | In the export file?  |
+| ------------------------------ | ------------------------------ | ------------- | -------------------- |
+| f32 vector store               | `derived/vectors/*.pkvec`      | No            | **No** (re-embedded) |
+| visit→content map (W-AI-4c)    | `derived/vectors/*.pkmap`      | No            | **No**               |
+| binary-recall plane (W-AI-5)   | `derived/vectors/*.pkbin`      | No            | **No**               |
+| int8-rescore plane (W-AI-5)    | `derived/vectors/*.pki8`       | No            | **No**               |
+| downloaded models              | `models/`                      | No            | **No** (re-download) |
+| Insights, AI queue, read model | `derived/intelligence.db`      | No            | **No** (rebuilt)     |
+| search index                   | `derived/search-index/`        | No            | **No** (rebuilt)     |
+| Ask chats + run traces         | `derived/agent.db`             | No            | **Yes** (user data)  |
+| saved page text                | `sidecars/intelligence-blobs/` | No            | **Yes** (user data)  |
+| canonical facts                | `archive/history-vault.db`     | **Yes**       | Yes                  |
 
-- **Vectors never live in canonical SQLite.** The hand-rolled `FlatVectorIndex`
+- **Vectors never live in the database.** The hand-rolled `FlatVectorIndex`
   (`ai/vector_index.rs`, planes in `ai/vector_planes.rs`, store in `ai/vector_store.rs`) writes only the
-  `.pkvec/.pkmap/.pkbin/.pki8` sidecar files under `derived/vectors/`. The export bundle excludes the whole
-  plane (`migration.rs::DERIVED_VECTOR_PLANE_EXTENSIONS = ["pkvec","pkmap","pkbin","pki8"]`) — the ~59 GB
-  f32 tail is rebuildable derived state, re-embedded on the target rather than shipped.
-- **Chat transcripts are excluded from the export.** Conversations, messages, and W-AI-7 agent run/step/
-  citation traces persist only in `derived/agent.sqlite` (`agent_store.rs`). The export explicitly excludes
-  it plus its WAL/SHM/journal siblings (`migration.rs::DERIVED_EXPORT_EXCLUDED_BASENAMES = ["agent.sqlite"]`);
-  `EXPORT_EXCLUSIONS_DOC` states "Assistant chat transcripts stay on the source machine." Both exclusions
-  are pinned by `migration.rs` tests (`export_excludes_agent_chat_transcripts_from_the_bundle`,
-  `export_excludes_vector_sidecar_plane_from_the_bundle`).
-- **The GPU tier is an opt-in reproducible-build feature.** Metal is an off-by-default `metal` cargo
-  feature (`vault-core/Cargo.toml`); `gpu_enabled` is inert unless the binary was built with it. The
-  default/CI build compiles out `Device::new_metal(0)` entirely (`ai/embedding_candle.rs::select_device`,
-  cfg-gated `candle_device_for`), so a CPU-only build never touches GPU code. Toggling `gpu_enabled` does
-  not change the embedding `model_id`/fingerprint (CPU and Metal produce the same vectors), so it never
-  auto-invalidates the index. **candle's Metal backend is activated only on Apple targets**: the `metal`
-  feature pulls candle's metal deps through the macOS-only `vault-metal-backend` shim crate rather than
-  `candle-core/metal` directly, because candle's metal path (candle-metal-kernels → objc2-metal → objc2)
-  `compile_error!`s off Apple. That keeps `cargo clippy --workspace --all-targets --all-features` green on
-  the Linux CI runner (`--all-features` enables the `metal` feature there, but it is inert for candle);
-  vault-core's own `cfg(feature = "metal")` code still compiles on Linux via candle's `dummy_metal_backend`.
+  `.pkvec/.pkmap/.pkbin/.pki8` sidecar files under `derived/vectors/`. The export copies only the archive,
+  source-evidence and agent databases plus the audit, raw-snapshot and sidecar folders
+  (`migration/native.rs`), so the ~59 GB f32 tail is re-embedded on the target rather than shipped.
+- **Ask chats move with the archive.** Conversations, messages, and agent run/step/citation traces live
+  in `derived/agent.db` (`agent_store.rs`), encrypted with the data key. Until 2026-10 the export left them
+  on the source machine as more private than browsing history; the user decided they are not, and that
+  chats are backed up and moved like the rest (data-model.md). The bundle round-trip test covers it.
+  Files exported by PathKeep 0.3 have no chats; the import dialog says so.
 
 ---
 
@@ -303,7 +299,7 @@ The canonical archive is `archive/history-vault.sqlite` (SQLCipher) — the sing
 
 ### Assets
 
-The user's full local browsing history (canonical, in SQLCipher), the App Lock secret material (Stronghold,
+The user's full local browsing history (canonical, in the encrypted Turso archive), the App Lock secret material (Stronghold,
 local-only), and the user's configured provider API keys (in the OS keyring).
 
 ### Assumptions / trust boundaries
@@ -312,11 +308,17 @@ local-only), and the user's configured provider API keys (in the OS keyring).
   the agent's tools are **read-only retrieval** over the user's own archive; the **code-mode sandbox** gives
   the model zero ambient authority (no fs/net/clock/random/env) and a read-only host API with hard limits;
   the context is bounded (recency-pruned, citation-pinned). A steered model cannot read the filesystem,
-  reach the network, exfiltrate the SQLCipher key, or mutate the archive — the worst case is a wrong answer
+  reach the network, exfiltrate the archive key, or mutate the archive — the worst case is a wrong answer
   over the user's own data, which the citation contract surfaces for review.
+- **A link in an answer is untrusted too.** The model writes Markdown, and a `file://` link can name an
+  application that the OS launcher would run. Answer links go through `open_visited_page`, the same
+  opener as History: http(s) opens in the browser, a `file://` URL only when the archive holds a visit
+  to exactly it (`vault_core::is_visited_url`), anything else is refused. `open_external_url` (update
+  pages, the Full Disk Access pane) accepts no `file://` at all. Until 2026-10-08 answer links went
+  straight to `open_external_url`, which accepted any `file://` URL (found by the unit test audit).
 - **An external MCP caller is untrusted.** Mitigation: the MCP face is localhost stdio, opt-in +
   default-OFF + unlock-gated, exposes only read-only search/status/guide tools, clamps the result limit to
-  50, keeps the SQLCipher key in the worker, and audits every query as `mcp_query`.
+  50, keeps the archive key in the app that owns the archive, and audits every query as `mcp_query`.
 - **The local network/machine is trusted.** PathKeep is a local-first desktop app; the MCP transport is
   stdio (no socket to attack), and content-fetch only reaches out to public hosts the user opted into,
   SSRF-guarded against internal targets.
@@ -352,10 +354,3 @@ These are flagged for later; none blocks the shipped surface, but each is a real
 - **A full prompt-injection red-team is recommended.** Basic adversarial cases are covered by the sandbox
   contract and read-only tools; a dedicated red-team over injected page titles/URLs would harden the
   assumption that untrusted LLM steering cannot exfiltrate.
-- **A Metal CI lane must re-run `cargo deny` and must run on macOS.** The candle `metal` crates only
-  enter the dependency graph under `--features metal` **on an Apple target** (via the `vault-metal-backend`
-  shim); the Linux CI runner enables the `metal` feature under `--all-features` but never compiles candle's
-  Metal backend, so its clippy pass does NOT lint the `Device::new_metal(0)` call site. That site is linted
-  where developers build — on macOS, where `bun run lint:rust` (`--all-features`) does compile it. A future
-  Metal CI lane that actually builds the backend MUST run on macOS AND re-run `cargo deny check`, since the
-  metal crates only enter the graph there (noted in `vault-core/Cargo.toml`).

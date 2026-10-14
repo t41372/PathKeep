@@ -1,54 +1,27 @@
+//! Not responsible for: archive ingestion, provider execution or connection ownership.
+//! Failure modes: duplicate claims, lost recovery progress, overwritten cancellation,
+//! hidden jobs, or a read initializes storage. Tests: runtime native queue regressions.
 //! Queue claim and scheduling-order helpers.
 //!
 //! ## Responsibilities
 //! - Claim deterministic and enrichment jobs safely under compare-and-set SQL.
 //! - Surface the next runnable queue items in worker execution order.
-//! - Expose queued-enrichment pagination helpers used by regression tests.
 
 use super::*;
 use crate::utils::now_rfc3339;
-use rusqlite::{Connection, OptionalExtension, params};
-#[cfg(test)]
-use rusqlite::{params_from_iter, types::Value as SqlValue};
+use vault_store::{OptionalRow, Session, params_owned as params};
 
-#[derive(Debug, Clone)]
-#[cfg(test)]
-pub(super) struct QueuedEnrichmentJobSnapshot {
-    pub id: i64,
-    pub plugin_id: String,
-    pub attempt: i64,
-    pub payload_json: String,
-    pub priority: i64,
-    pub created_at: String,
-}
-
-#[derive(Debug, Clone)]
-#[cfg(test)]
-pub(super) struct EnrichmentQueueCursor {
-    priority: i64,
-    created_at: String,
-    id: i64,
-}
-
-#[cfg(test)]
-impl QueuedEnrichmentJobSnapshot {
-    fn cursor(&self) -> EnrichmentQueueCursor {
-        EnrichmentQueueCursor {
-            priority: self.priority,
-            created_at: self.created_at.clone(),
-            id: self.id,
-        }
-    }
-}
-
-pub fn intelligence_job_stop_requested(connection: &Connection, job_id: i64) -> Result<bool> {
+pub fn intelligence_job_stop_requested_in_session(
+    connection: &Session<'_>,
+    job_id: i64,
+) -> Result<bool> {
     connection
-        .query_row(
+        .query_one(
             "SELECT stop_requested
              FROM intelligence_jobs
              WHERE id = ?1",
             [job_id],
-            |row| row.get::<_, i64>(0),
+            |row| Ok(row.get::<i64>(0)?),
         )
         .optional()
         .map(|value| value.unwrap_or(0) != 0)
@@ -56,17 +29,17 @@ pub fn intelligence_job_stop_requested(connection: &Connection, job_id: i64) -> 
 }
 
 /// Claims one Core Intelligence job by id and returns its request payload.
-pub fn claim_core_intelligence_job(
-    connection: &Connection,
+pub fn claim_core_intelligence_job_in_session(
+    connection: &Session<'_>,
     job_id: i64,
 ) -> Result<Option<DeterministicRebuildJobPayload>> {
-    ensure_intelligence_runtime_schema(connection)?;
     let now = now_rfc3339();
     let lease_owner = lease_owner_label();
     let lease_expires_at = lease_expires_at(INTELLIGENCE_JOB_LEASE_SECONDS);
     let updated = connection.execute(
         "UPDATE intelligence_jobs
          SET state = 'running',
+             trigger_cursor=COALESCE((SELECT MAX(id) FROM intelligence_job_triggers WHERE job_id=?4),0),
              attempt = attempt + 1,
              started_at = COALESCE(started_at, ?1),
              finished_at = NULL,
@@ -84,23 +57,16 @@ pub fn claim_core_intelligence_job(
     if updated == 0 {
         return Ok(None);
     }
-    let payload_json = connection
-        .query_row(
-            "SELECT payload_json
-             FROM intelligence_jobs
-             WHERE id = ?1",
-            [job_id],
-            |row| row.get::<_, String>(0),
-        )
-        .optional()?;
-    let Some(payload_json) = payload_json else {
-        return Ok(None);
-    };
+    let payload_json = connection.query_one(
+        "SELECT payload_json FROM intelligence_jobs WHERE id=?1",
+        [job_id],
+        |r| Ok(r.get::<String>(0)?),
+    )?;
     match serde_json::from_str::<DeterministicRebuildJobPayload>(&payload_json) {
         Ok(payload) => Ok(Some(payload)),
         Err(error) => {
             let message = format!("parsing Core Intelligence payload for job {job_id}: {error}");
-            mark_intelligence_job_failed(connection, job_id, &message)?;
+            mark_intelligence_job_failed_in_session(connection, job_id, &message)?;
             Err(error)
                 .with_context(|| format!("parsing Core Intelligence payload for job {job_id}"))
         }
@@ -108,72 +74,16 @@ pub fn claim_core_intelligence_job(
 }
 
 /// Claims one full rebuild job by id and returns its request payload when the row matches.
-pub fn claim_deterministic_rebuild_job(
-    connection: &Connection,
+pub fn claim_deterministic_rebuild_job_in_session(
+    connection: &Session<'_>,
     job_id: i64,
 ) -> Result<Option<DeterministicRebuildJobPayload>> {
-    Ok(claim_core_intelligence_job(connection, job_id)?
+    Ok(claim_core_intelligence_job_in_session(connection, job_id)?
         .filter(|payload| payload.job_type == RebuildMode::FullRebuild.job_type()))
 }
 
-/// Claims a batch of runnable enrichment jobs.
-#[cfg(test)]
-pub(crate) fn claim_enrichment_jobs(
-    connection: &Connection,
-    allowed_plugin_ids: &[String],
-    allowed_history_ids: &std::collections::HashSet<i64>,
-    limit: usize,
-) -> Result<Vec<ClaimedEnrichmentJob>> {
-    ensure_intelligence_runtime_schema(connection)?;
-    if allowed_plugin_ids.is_empty() || allowed_history_ids.is_empty() {
-        return Ok(Vec::new());
-    }
-
-    let target_count = limit.max(1);
-    let page_size = target_count.max(64);
-    let mut claimed = Vec::new();
-    let mut cursor = None::<EnrichmentQueueCursor>;
-
-    loop {
-        let candidates = queued_enrichment_candidates_page(
-            connection,
-            allowed_plugin_ids,
-            cursor.as_ref(),
-            page_size,
-        )?;
-        if candidates.is_empty() {
-            break;
-        }
-
-        cursor = candidates.last().map(QueuedEnrichmentJobSnapshot::cursor);
-        for candidate in candidates {
-            let payload = serde_json::from_str::<EnrichmentJobPayload>(&candidate.payload_json)
-                .with_context(|| format!("parsing enrichment payload for job {}", candidate.id))?;
-            if !allowed_history_ids.contains(&payload.history_id) {
-                continue;
-            }
-
-            let claimed_at = now_rfc3339();
-            if !try_claim_enrichment_job(connection, candidate.id, &claimed_at)? {
-                continue;
-            }
-            claimed.push(ClaimedEnrichmentJob {
-                id: candidate.id,
-                plugin_id: candidate.plugin_id,
-                attempt: candidate.attempt.max(0) as usize + 1,
-                payload,
-            });
-            if claimed.len() >= target_count {
-                return Ok(claimed);
-            }
-        }
-    }
-
-    Ok(claimed)
-}
-
 pub(crate) fn claim_enrichment_job_by_id(
-    connection: &Connection,
+    connection: &Session<'_>,
     job_id: i64,
 ) -> Result<Option<ClaimedEnrichmentJob>> {
     claim_typed_enrichment_job_by_id(connection, job_id, ENRICHMENT_JOB_TYPE)
@@ -182,7 +92,7 @@ pub(crate) fn claim_enrichment_job_by_id(
 /// Claims one queued content-fetch job by id (W-ENRICH-1). Mirrors [`claim_enrichment_job_by_id`] but
 /// scoped to the `content-fetch` job type so the two drain lanes never claim each other's rows.
 pub(crate) fn claim_content_fetch_job_by_id(
-    connection: &Connection,
+    connection: &Session<'_>,
     job_id: i64,
 ) -> Result<Option<ClaimedEnrichmentJob>> {
     claim_typed_enrichment_job_by_id(connection, job_id, CONTENT_FETCH_JOB_TYPE)
@@ -190,21 +100,19 @@ pub(crate) fn claim_content_fetch_job_by_id(
 
 /// Shared claim for the enrichment-shaped queues (offline enrichment + content-fetch), scoped by type.
 fn claim_typed_enrichment_job_by_id(
-    connection: &Connection,
+    connection: &Session<'_>,
     job_id: i64,
     job_type: &str,
 ) -> Result<Option<ClaimedEnrichmentJob>> {
-    ensure_intelligence_runtime_schema(connection)?;
-
     let snapshot = connection
-        .query_row(
+        .query_one(
             "SELECT plugin_id, attempt, payload_json
              FROM intelligence_jobs
              WHERE id = ?1
                AND job_type = ?2
                AND state = 'queued'",
             params![job_id, job_type],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?, row.get::<_, String>(2)?)),
+            |row| Ok((row.get::<String>(0)?, row.get::<i64>(1)?, row.get::<String>(2)?)),
         )
         .optional()?;
     let Some((plugin_id, attempt, payload_json)) = snapshot else {
@@ -240,7 +148,7 @@ fn claim_typed_enrichment_job_by_id(
 /// Payload decoding happens before the enrichment compare-and-set claim. Without this transition,
 /// one malformed head row remains `queued` and every bounded worker immediately selects it again.
 fn quarantine_queued_intelligence_job(
-    connection: &Connection,
+    connection: &Session<'_>,
     job_id: i64,
     error: &str,
 ) -> Result<bool> {
@@ -261,61 +169,8 @@ fn quarantine_queued_intelligence_job(
     Ok(updated == 1)
 }
 
-#[cfg(test)]
-pub(super) fn queued_enrichment_candidates_page(
-    connection: &Connection,
-    allowed_plugin_ids: &[String],
-    after: Option<&EnrichmentQueueCursor>,
-    limit: usize,
-) -> Result<Vec<QueuedEnrichmentJobSnapshot>> {
-    let placeholders =
-        std::iter::repeat_n("?", allowed_plugin_ids.len()).collect::<Vec<_>>().join(", ");
-    let mut query = format!(
-        "SELECT id, plugin_id, attempt, payload_json, priority, created_at
-         FROM intelligence_jobs
-         WHERE job_type = ?
-           AND state = 'queued'
-           AND plugin_id IN ({placeholders})"
-    );
-    let mut bindings = Vec::<SqlValue>::with_capacity(allowed_plugin_ids.len() + 5);
-    bindings.push(SqlValue::from(ENRICHMENT_JOB_TYPE.to_string()));
-    bindings.extend(allowed_plugin_ids.iter().cloned().map(SqlValue::from));
-
-    if let Some(after) = after {
-        query.push_str(
-            " AND (
-                priority > ?
-                OR (priority = ? AND (created_at > ? OR (created_at = ? AND id > ?)))
-              )",
-        );
-        bindings.push(SqlValue::from(after.priority));
-        bindings.push(SqlValue::from(after.priority));
-        bindings.push(SqlValue::from(after.created_at.clone()));
-        bindings.push(SqlValue::from(after.created_at.clone()));
-        bindings.push(SqlValue::from(after.id));
-    }
-
-    query.push_str(" ORDER BY priority ASC, created_at ASC, id ASC LIMIT ?");
-    bindings.push(SqlValue::from(limit.max(1) as i64));
-
-    let mut statement = connection.prepare(&query)?;
-    statement
-        .query_map(params_from_iter(bindings.iter()), |row| {
-            Ok(QueuedEnrichmentJobSnapshot {
-                id: row.get(0)?,
-                plugin_id: row.get(1)?,
-                attempt: row.get(2)?,
-                payload_json: row.get(3)?,
-                priority: row.get(4)?,
-                created_at: row.get(5)?,
-            })
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()
-        .map_err(Into::into)
-}
-
 pub(super) fn try_claim_enrichment_job(
-    connection: &Connection,
+    connection: &Session<'_>,
     job_id: i64,
     claimed_at: &str,
 ) -> Result<bool> {
@@ -324,6 +179,7 @@ pub(super) fn try_claim_enrichment_job(
     let updated = connection.execute(
         "UPDATE intelligence_jobs
          SET state = 'running',
+             trigger_cursor=COALESCE((SELECT MAX(id) FROM intelligence_job_triggers WHERE job_id=?4),0),
              attempt = attempt + 1,
              started_at = COALESCE(started_at, ?1),
              finished_at = NULL,
@@ -342,13 +198,12 @@ pub(super) fn try_claim_enrichment_job(
 }
 
 /// Returns the next queued intelligence job in worker execution order.
-pub fn next_queued_intelligence_job(
-    connection: &Connection,
+pub fn next_queued_intelligence_job_in_session(
+    connection: &Session<'_>,
 ) -> Result<Option<QueuedIntelligenceJob>> {
-    ensure_intelligence_runtime_schema(connection)?;
     super::recovery::recover_expired_intelligence_jobs(connection)?;
     connection
-        .query_row(
+        .query_one(
             "SELECT id, job_type
              FROM intelligence_jobs
              WHERE state = 'queued'
@@ -370,11 +225,10 @@ pub fn next_queued_intelligence_job(
 }
 
 /// Returns the next queued enrichment job in execution order.
-pub fn next_queued_enrichment_job(connection: &Connection) -> Result<Option<i64>> {
-    ensure_intelligence_runtime_schema(connection)?;
+pub fn next_queued_enrichment_job_in_session(connection: &Session<'_>) -> Result<Option<i64>> {
     super::recovery::recover_expired_intelligence_jobs(connection)?;
     connection
-        .query_row(
+        .query_one(
             "SELECT id
              FROM intelligence_jobs
              WHERE job_type = ?1
@@ -382,7 +236,7 @@ pub fn next_queued_enrichment_job(connection: &Connection) -> Result<Option<i64>
              ORDER BY priority DESC, scheduled_at ASC, id ASC
              LIMIT 1",
             [ENRICHMENT_JOB_TYPE],
-            |row| row.get::<_, i64>(0),
+            |row| Ok(row.get::<i64>(0)?),
         )
         .optional()
         .context("loading next queued enrichment job")
@@ -394,11 +248,10 @@ pub fn next_queued_enrichment_job(connection: &Connection) -> Result<Option<i64>
 /// row that the negative cache pushes into the future on a transient failure (the requeue stamps a
 /// future `scheduled_at`). Ordered by priority then schedule so the working-set selector's
 /// higher-priority enqueues drain first. LOW concurrency keeps egress polite (06 §5).
-pub fn next_queued_content_fetch_job(connection: &Connection) -> Result<Option<i64>> {
-    ensure_intelligence_runtime_schema(connection)?;
+pub fn next_queued_content_fetch_job_in_session(connection: &Session<'_>) -> Result<Option<i64>> {
     super::recovery::recover_expired_intelligence_jobs(connection)?;
     connection
-        .query_row(
+        .query_one(
             "SELECT id
              FROM intelligence_jobs
              WHERE job_type = ?1
@@ -407,7 +260,7 @@ pub fn next_queued_content_fetch_job(connection: &Connection) -> Result<Option<i
              ORDER BY priority ASC, scheduled_at ASC, id ASC
              LIMIT 1",
             params![CONTENT_FETCH_JOB_TYPE, now_rfc3339()],
-            |row| row.get::<_, i64>(0),
+            |row| Ok(row.get::<i64>(0)?),
         )
         .optional()
         .context("loading next queued content-fetch job")
@@ -415,24 +268,25 @@ pub fn next_queued_content_fetch_job(connection: &Connection) -> Result<Option<i
 
 /// Seconds until the soonest deferred content-fetch job becomes due, or `None` when none is pending.
 ///
-/// Companion to [`next_queued_content_fetch_job`] for the worker drain (SEC-2): when the drain reports
+/// Companion to [`next_queued_content_fetch_job_in_session`] for the worker drain: when the drain reports
 /// idle but a job was REQUEUED with a future `scheduled_at` (rate-limit back-pressure), the lane should
 /// sleep until that schedule rather than exiting — otherwise the deferred work only completes on a
 /// later user action. Returns the ETA in WHOLE seconds (rounded up, floored at 1 so the lane always
 /// makes progress) to the nearest queued content-fetch row whose `scheduled_at` is in the FUTURE;
 /// `None` when there is no future-scheduled queued row (the lane can exit). The caller caps the sleep.
-pub fn next_content_fetch_schedule_eta_secs(connection: &Connection) -> Result<Option<u64>> {
-    ensure_intelligence_runtime_schema(connection)?;
+pub fn next_content_fetch_schedule_eta_secs_in_session(
+    connection: &Session<'_>,
+) -> Result<Option<u64>> {
     let now = chrono::Utc::now();
     let soonest: Option<String> = connection
-        .query_row(
+        .query_one(
             "SELECT MIN(scheduled_at)
              FROM intelligence_jobs
              WHERE job_type = ?1
                AND state = 'queued'
                AND scheduled_at > ?2",
             params![CONTENT_FETCH_JOB_TYPE, now_rfc3339()],
-            |row| row.get::<_, Option<String>>(0),
+            |row| Ok(row.get::<Option<String>>(0)?),
         )
         .optional()?
         .flatten();
@@ -456,19 +310,18 @@ pub fn next_content_fetch_schedule_eta_secs(connection: &Connection) -> Result<O
 /// fetched, the negative cache cooled down, or the extractor version bumped → bounded refetch). The
 /// `history_id` identifies the row (the dedup fans the stored row across visits separately).
 pub(crate) fn content_fetch_job_due(
-    connection: &Connection,
-    history_id: i64,
+    connection: &Session<'_>,
+    canonical_url: &str,
     content_source: &str,
     extractor_version: i64,
 ) -> Result<bool> {
-    ensure_intelligence_runtime_schema(connection)?;
     let row = connection
-        .query_row(
+        .query_one(
             "SELECT extractor_version, refetch_after
-             FROM visit_content_enrichments
-             WHERE history_id = ?1 AND content_source = ?2",
-            params![history_id, content_source],
-            |row| Ok((row.get::<_, Option<i64>>(0)?, row.get::<_, Option<String>>(1)?)),
+             FROM page_content_enrichments
+             WHERE canonical_url = ?1 AND content_source = ?2",
+            params![canonical_url, content_source],
+            |row| Ok((row.get::<Option<i64>>(0)?, row.get::<Option<String>>(1)?)),
         )
         .optional()
         .context("loading content-fetch due state")?;
@@ -493,16 +346,16 @@ pub(crate) fn content_fetch_job_due(
     }
 }
 
-/// Requeues a running content-fetch job for a later drain at `scheduled_at` (W-ENRICH-1, SEC-2).
+/// Requeues a running content-fetch job for a later drain at `scheduled_at` (W-ENRICH-1).
 ///
 /// A rate-limited egress is BACK-PRESSURE, not a failure: rather than terminally cancelling the job
 /// (which the queued-only drain selector would never re-pick), we put it back to `queued` with a
-/// FUTURE `scheduled_at` (= the host's token-refill ETA) so [`next_queued_content_fetch_job`] — which
+/// FUTURE `scheduled_at` (= the host's token-refill ETA) so [`next_queued_content_fetch_job_in_session`] — which
 /// gates on `scheduled_at <= now` — picks it up exactly when the host bucket has a token again. Clears
 /// the lease/error/cancellation fields so the requeued row is a clean queued job. Scoped to `running`
 /// (the claim owns it) so a concurrent transition can't be clobbered. Returns whether a row changed.
 pub(crate) fn requeue_content_fetch_job_after(
-    connection: &Connection,
+    connection: &Session<'_>,
     job_id: i64,
     scheduled_at: &str,
 ) -> Result<bool> {
@@ -525,4 +378,13 @@ pub(crate) fn requeue_content_fetch_job_after(
         params![scheduled_at, now, job_id],
     )?;
     Ok(updated == 1)
+}
+
+/// Payload errors have already moved their job to failed; commit that transition.
+/// Storage errors still fail the transaction and roll it back.
+pub(crate) fn claim_result<T>(result: Result<T>) -> Result<Result<T>> {
+    match result {
+        Err(error) if error.is::<serde_json::Error>() => Ok(Err(error)),
+        result => result.map(Ok),
+    }
 }

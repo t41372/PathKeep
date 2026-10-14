@@ -9,16 +9,16 @@
 
 ## 0. Decision log（已鎖定）
 
-| #   | Fork                    | 決定                                                                                                                       | 理由摘要                                                                                      |
-| --- | ----------------------- | -------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| D1  | in-app LLM(chat) 範圍   | **純 external，不打包任何生成 LLM**（含 sidecar）                                                                          | 8GB 上 chat in-app 邊際；in-app 推理只做 embedding。chat 一律走 user-configured provider。    |
-| D2  | in-app embedding 引擎   | **candle**（純 Rust）為唯一 in-app 推理引擎，兼跑 embedding 與（可選）reranker                                             | 供應鏈最乾淨、過信任門檻；chat 既走 external，不需要 llama.cpp。                              |
-| D3  | embedding 預設策略      | **單一模型路徑**（預設 Qwen3-Embedding-0.6B），**不**加 model2vec fast tier                                                | 使用者選單一模型；接受首鋪是長時背景 job。fast tier 留作未來可選 lever。                      |
-| D4  | **model 假設**          | **零模型假設**：dim / pooling / normalization / instruction 全部 runtime 偵測，預設模型隨時可換                            | 使用者明示 Qwen3-0.6B 只是 no-config 便利預設，未來會換（如 Qwen4-embedding）。               |
-| D5  | vector 引擎             | **Turbovec**（quantized flat-scan，純 Rust，TurboQuant）藏在 `VectorIndex` trait 後；v1 同時是 flat-scan 地基與 scale 路徑 | 純 Rust 無 build 摩擦、no-codebook → model-agnostic、增量+delete+filter、維護者經使用者背書。 |
-| D6  | vector fallback         | usearch、LanceDB 為 documented fallback（若 Turbovec 14.4M 延遲/成熟度不過關）                                             | 兩者皆過星門檻；benchmark 決定。                                                              |
-| D7  | code execution          | **Wasmtime + Javy(JS)**，opt-in、capability-gated、只讀查詢 host API                                                       | 純 Rust 沙箱、預設零權限、僅 capable model 開啟。                                             |
-| D8  | agent loop / durability | **roll-your-own thin loop**，durability 擴展既有 lease-based job queue + sidecar SQLite                                    | 2026 共識；不引入 Temporal/Restate/DBOS。                                                     |
+| #   | Fork                    | 決定                                                                                                                                                                                         | 理由摘要                                                                                      |
+| --- | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| D1  | in-app LLM(chat) 範圍   | **純 external，不打包任何生成 LLM**（含 sidecar）                                                                                                                                            | 8GB 上 chat in-app 邊際；in-app 推理只做 embedding。chat 一律走 user-configured provider。    |
+| D2  | in-app embedding 引擎   | **candle**（純 Rust）為唯一 in-app 推理引擎，兼跑 embedding 與（可選）reranker（2026-10-09 用戶決定移除 candle 層，in-app 只剩 model2vec static；見 `test-audit-2026-10/candle-removal.md`） | 供應鏈最乾淨、過信任門檻；chat 既走 external，不需要 llama.cpp。                              |
+| D3  | embedding 預設策略      | **單一模型路徑**（預設 Qwen3-Embedding-0.6B），**不**加 model2vec fast tier                                                                                                                  | 使用者選單一模型；接受首鋪是長時背景 job。fast tier 留作未來可選 lever。                      |
+| D4  | **model 假設**          | **零模型假設**：dim / pooling / normalization / instruction 全部 runtime 偵測，預設模型隨時可換                                                                                              | 使用者明示 Qwen3-0.6B 只是 no-config 便利預設，未來會換（如 Qwen4-embedding）。               |
+| D5  | vector 引擎             | **Turbovec**（quantized flat-scan，純 Rust，TurboQuant）藏在 `VectorIndex` trait 後；v1 同時是 flat-scan 地基與 scale 路徑                                                                   | 純 Rust 無 build 摩擦、no-codebook → model-agnostic、增量+delete+filter、維護者經使用者背書。 |
+| D6  | vector fallback         | usearch、LanceDB 為 documented fallback（若 Turbovec 14.4M 延遲/成熟度不過關）                                                                                                               | 兩者皆過星門檻；benchmark 決定。                                                              |
+| D7  | code execution          | **Wasmtime + Javy(JS)**，opt-in、capability-gated、只讀查詢 host API                                                                                                                         | 純 Rust 沙箱、預設零權限、僅 capable model 開啟。                                             |
+| D8  | agent loop / durability | **roll-your-own thin loop**，durability 擴展既有 lease-based job queue + sidecar SQLite                                                                                                      | 2026 共識；不引入 Temporal/Restate/DBOS。                                                     |
 
 ---
 

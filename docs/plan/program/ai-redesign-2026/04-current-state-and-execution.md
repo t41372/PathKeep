@@ -3,7 +3,7 @@
 > **2026-06-22 DELIVERED：** §3 的整條執行序（W-AI-0..9）已全數交付並 reachable。下表的「現實（main 上的真實狀態）」描述的是 **動手前** 的 baseline；它記錄了我們從哪裡出發，仍有歷史價值，但「缺口」欄位現已全部補完：向量儲存（自製 `FlatVectorIndex`）、embedding 持久化 + backfill、in-app candle 引擎、streaming transport、AI 可觀測性前端、agent harness durability、hybrid（RRF，rerank deferred）、code-mode（default-enabled）、MCP 對外面 + skills、D4 dim 修正、`secrecy::SecretString`、新 storage planes 都已落地。安全邊界與 threat model 見 [../../../architecture/ai-security-posture.md](../../../architecture/ai-security-posture.md)；交付期變動的決策（code-mode default-enabled / rerank deferred / Metal GPU opt-in / MCP expose-only / Turbovec 未採用改自製 flat index）見 [03 closeout](03-implementation-plan.md)。推薦 follow-ups：14.4M profiling、完整 prompt-injection red-team、Metal CI lane（re-run `cargo deny`）、per-job MCP progress。
 >
 > 承 [02-architecture-decisions.md](02-architecture-decisions.md) + [03-implementation-plan.md](03-implementation-plan.md)。
-> **這份文檔是所有 AI 實作 / review subagent 的第一份「讀先」。** 它把鎖定的架構決策對齊到 `main`（intelligence-overhaul squash-merge 後）的**真實代碼狀態**——02/03 與舊 memory 寫於 overhaul 之前，有數處與現實不符，以本文檔為準。
+> **這份文檔是所有 AI 相關實作與 review 的第一份「讀先」。** 它把鎖定的架構決策對齊到 `main`（intelligence-overhaul squash-merge 後）的**真實代碼狀態**——02/03 與舊 memory 寫於 overhaul 之前，有數處與現實不符，以本文檔為準。
 >
 > 產出依據：2026-06-20 對現行 tree 的 7-charge 平行 recon（existing AI surface / job queue / storage planes / IPC / frontend / test-gate / supply-chain）。所有 file:line anchor 以當時 `main` 為基準，動手前自行覆核。
 
@@ -133,9 +133,9 @@ embedding:   text-embedding-qwen3-embedding-0.6b
 
 ---
 
-## 8. W-AI-0 review carryover（後續 block 必接）
+## 8. W-AI-0 carryover（後續 block 必接）
 
-W-AI-0 的 review pipeline 確認、但刻意延後到後續 block 的 obligations（已記 STATUS closeout）：
+W-AI-0 確認、但刻意延後到後續 block 的 obligations（已記 STATUS closeout）：
 
 - **→ W-AI-1**：`LlmChatRequest`/`LlmChatResponse`/`LlmMessage` 目前是最小形狀。W-AI-1 落地時補（皆 additive，不破壞）：`LlmChatRequest.tools`（工具定義）、`response_format`/JSON-schema（structured output）、`LlmMessage` 在 `Tool` role 下的 `tool_call_id`/`name`、`LlmChatResponse.usage`（prompt/completion token，§F budget 迴圈需要）。
 - **→ W-AI-4**：(1) `embedding_descriptor_for`（`ai/provider.rs`）的 `dtype: Float32` / `normalized: true` 是當前 rig float32+L2 transport 的暫定常數；每個 per-provider adapter（candle、Voyage/Cohere int8）**必須**用真實 transport 設定它們，且在 fingerprint 被持久化前設好（否則兩種編碼可能撞同一 fingerprint）。程式內已標 `TODO(W-AI-4)`。(2) 兩個 `EmbeddingProvider`（external + candle）用 `enum AnyEmbeddingProvider` + 手寫 `impl EmbeddingProvider` 做 runtime dispatch，**不要** `Box<dyn EmbeddingProvider>`（`embed` 是 RPITIT、非 dyn-safe，且 boxing 會在 embedding hot path 加 alloc）。`ai/traits.rs` 的 trait doc 已記。

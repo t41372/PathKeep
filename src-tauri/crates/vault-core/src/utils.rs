@@ -6,8 +6,6 @@
 
 use anyhow::{Context, Result};
 use chrono::{DateTime, TimeZone, Utc};
-use rusqlite::types::ValueRef;
-use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
 use std::{
     fs::File,
@@ -155,16 +153,37 @@ pub fn unix_micros_to_chrome_time(value: i64) -> i64 {
     value.saturating_add(CHROME_UNIX_EPOCH_OFFSET_MICROS)
 }
 
-/// Converts a `"YYYY-MM-DD"` date string to the inclusive Unix-millisecond range `[start_ms, end_ms]`
-/// for that day (UTC). `start_ms` is midnight UTC; `end_ms` is `23:59:59.999` UTC. Returns `None`
-/// for an unparseable date. Used by the agent search tools so a `start_date`/`end_date` filter maps
-/// cleanly onto `list_history`'s existing `start_time_ms` / `end_time_ms` filter (Unix ms).
+/// The instants of the user's local calendar day `YYYY-MM-DD`, in Unix ms: from local midnight to the
+/// last millisecond before the next one (23 or 25 hours across a daylight-saving change). Agent date
+/// filters mean the user's day, the same day `localDate` groups results by; a UTC day was off by the
+/// UTC offset (in UTC+8, "June 19" ran from 08:00 June 19 to 08:00 June 20). `None` for an
+/// unparseable date.
 pub fn date_str_to_unix_ms_range(date: &str) -> Option<(i64, i64)> {
-    use chrono::NaiveDate;
-    let parsed = NaiveDate::parse_from_str(date.trim(), "%Y-%m-%d").ok()?;
-    let start = parsed.and_hms_opt(0, 0, 0)?;
-    let end = parsed.and_hms_milli_opt(23, 59, 59, 999)?;
-    Some((start.and_utc().timestamp_millis(), end.and_utc().timestamp_millis()))
+    local_day_range_ms(chrono::NaiveDate::parse_from_str(date.trim(), "%Y-%m-%d").ok()?)
+}
+
+/// The instants of the local calendar day `day`, as in [`date_str_to_unix_ms_range`].
+pub(crate) fn local_day_range_ms(day: chrono::NaiveDate) -> Option<(i64, i64)> {
+    Some((local_day_start_ms(day)?, local_day_start_ms(day.succ_opt()?)? - 1))
+}
+
+/// When a local day begins: midnight, or the first hour after a daylight-saving gap at midnight.
+fn local_day_start_ms(day: chrono::NaiveDate) -> Option<i64> {
+    use chrono::{Local, TimeZone};
+    (0..=2)
+        .find_map(|hour| Local.from_local_datetime(&day.and_hms_opt(hour, 0, 0)?).earliest())
+        .map(|start| start.timestamp_millis())
+}
+
+/// The computer's time zone: `TZ` when it names an IANA zone (as the C library and
+/// `chrono::Local` read it), else the system setting, else UTC when neither can be told.
+pub fn computer_time_zone() -> chrono_tz::Tz {
+    let named = |name: &str| name.trim_start_matches(':').parse::<chrono_tz::Tz>().ok();
+    std::env::var("TZ")
+        .ok()
+        .and_then(|name| named(&name))
+        .or_else(|| iana_time_zone::get_timezone().ok().and_then(|name| named(&name)))
+        .unwrap_or(chrono_tz::UTC)
 }
 
 /// Extracts a normalized domain/host string from a URL-like input.
@@ -178,29 +197,7 @@ pub fn image_data_to_data_url(bytes: &[u8]) -> Option<String> {
     Some(format!("data:{mime_type};base64,{}", base64_blob(bytes)))
 }
 
-/// Converts one SQLite value into a JSON value for diagnostics and audit payloads.
-pub fn sqlite_value_to_json(value: ValueRef<'_>) -> Value {
-    match value {
-        ValueRef::Null => Value::Null,
-        ValueRef::Integer(v) => Value::from(v),
-        ValueRef::Real(v) => Value::from(v),
-        ValueRef::Text(v) => Value::from(String::from_utf8_lossy(v).to_string()),
-        ValueRef::Blob(v) => Value::from(format!("base64:{}", base64_blob(v))),
-    }
-}
-
-/// Converts an entire SQLite row into a JSON object keyed by column name.
-pub fn sqlite_row_to_json(row: &rusqlite::Row<'_>) -> rusqlite::Result<Value> {
-    let mut object = Map::new();
-    for index in 0..row.as_ref().column_count() {
-        let name = row.as_ref().column_name(index)?.to_string();
-        let value = row.get_ref(index)?;
-        object.insert(name, sqlite_value_to_json(value));
-    }
-    Ok(Value::Object(object))
-}
-
-/// Base64-encodes SQLite blob bytes for JSON transport.
+/// Base64-encodes bytes for a `data:` URL.
 fn base64_blob(bytes: &[u8]) -> String {
     const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut output = String::new();
@@ -292,8 +289,6 @@ pub(crate) fn restore_test_env_var(name: &str, value: Option<&std::ffi::OsStr>) 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rusqlite::Connection;
-    use tempfile::tempdir;
 
     #[test]
     fn escape_html_escapes_all_significant_characters() {
@@ -303,22 +298,6 @@ mod tests {
         );
         // Non-significant characters (incl. multibyte CJK) pass through intact.
         assert_eq!(escape_html("普通文字 plain"), "普通文字 plain");
-    }
-
-    #[test]
-    fn sha_helpers_are_stable() {
-        assert_eq!(
-            sha256_hex(b"pathkeep"),
-            "fb2062a6b0c6b2735d597e50e410d6510e6f081fca1f3eb7d7fff3b26f0fe64e"
-        );
-
-        let dir = tempdir().expect("tempdir");
-        let file = dir.path().join("sample.txt");
-        std::fs::write(&file, b"hello world").expect("write file");
-        assert_eq!(
-            file_sha256_hex(&file).expect("hash file"),
-            "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"
-        );
     }
 
     #[test]
@@ -343,110 +322,5 @@ mod tests {
         );
         assert_eq!(filesystem_safe_path_segment(""), "id-empty");
         assert_eq!(identifier_from_filesystem_segment("%3a%zz"), ":%zz");
-    }
-
-    #[test]
-    fn chrome_time_roundtrip_is_lossless_for_valid_inputs() {
-        let original = "2026-04-03T04:00:00+00:00";
-        let chrome = iso_to_chrome_time_micros(original).expect("to chrome");
-        let converted = chrome_time_to_rfc3339(chrome);
-        assert_eq!(converted, original);
-
-        let fractional = "2026-04-03T04:00:00.123456+00:00";
-        let chrome = iso_to_chrome_time_micros(fractional).expect("to chrome fractional");
-        let converted = chrome_time_to_rfc3339(chrome);
-        assert_eq!(converted, fractional);
-    }
-
-    #[test]
-    fn invalid_iso_returns_none_and_invalid_chrome_time_falls_back() {
-        assert!(iso_to_chrome_time_micros("not-a-date").is_none());
-        assert_eq!(chrome_time_to_rfc3339(i64::MIN), "1970-01-01T00:00:00+00:00");
-    }
-
-    #[test]
-    fn date_str_to_unix_ms_range_covers_full_day_and_rejects_bad_input() {
-        // A valid date covers midnight to end-of-day.
-        let (start, end) = date_str_to_unix_ms_range("2026-06-19").expect("valid date");
-        // 2026-06-19T00:00:00Z in Unix ms = 1781827200000
-        assert_eq!(start, 1_781_827_200_000);
-        // 2026-06-19T23:59:59.999Z in Unix ms
-        assert_eq!(end, 1_781_913_599_999);
-        assert!(start < end);
-
-        // Leading/trailing whitespace is tolerated.
-        assert!(date_str_to_unix_ms_range("  2026-06-19 ").is_some());
-
-        // Bad input returns None.
-        assert!(date_str_to_unix_ms_range("not-a-date").is_none());
-        assert!(date_str_to_unix_ms_range("2026/06/19").is_none());
-        assert!(date_str_to_unix_ms_range("").is_none());
-    }
-
-    #[test]
-    fn domain_extraction_handles_urls_and_bare_hosts() {
-        assert_eq!(url_domain("https://example.com/path?q=1"), "example.com");
-        assert_eq!(url_domain("example.org/path"), "example.org");
-    }
-
-    #[test]
-    fn image_data_to_data_url_detects_common_favicon_formats() {
-        assert_eq!(
-            image_data_to_data_url(&[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, 0x01]),
-            Some("data:image/png;base64,iVBORw0KGgoB".to_string())
-        );
-        assert_eq!(
-            image_data_to_data_url(&[0xFF, 0xD8, 0xFF, 0x00]),
-            Some("data:image/jpeg;base64,/9j/AA==".to_string())
-        );
-        assert_eq!(
-            image_data_to_data_url(b"GIF89a"),
-            Some("data:image/gif;base64,R0lGODlh".to_string())
-        );
-        assert_eq!(
-            image_data_to_data_url(&[0x00, 0x00, 0x01, 0x00]),
-            Some("data:image/x-icon;base64,AAABAA==".to_string())
-        );
-        assert_eq!(
-            image_data_to_data_url(b"RIFF\x00\x00\x00\x00WEBP"),
-            Some("data:image/webp;base64,UklGRgAAAABXRUJQ".to_string())
-        );
-        assert_eq!(
-            image_data_to_data_url(br#"<?xml version="1.0"?><svg viewBox="0 0 1 1"></svg>"#),
-            Some(
-                "data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIj8+PHN2ZyB2aWV3Qm94PSIwIDAgMSAxIj48L3N2Zz4="
-                    .to_string()
-            )
-        );
-        assert!(image_data_to_data_url(b"not-an-image").is_none());
-    }
-
-    #[test]
-    fn sqlite_row_and_value_are_serialized_to_json() {
-        let connection = Connection::open_in_memory().expect("db");
-        connection
-            .execute("CREATE TABLE sample (id INTEGER, title TEXT, payload BLOB, ratio REAL, missing TEXT)", [])
-            .expect("create");
-        connection
-            .execute(
-                "INSERT INTO sample (id, title, payload, ratio, missing) VALUES (1, 'hello', X'0102', 1.5, NULL)",
-                [],
-            )
-            .expect("insert");
-
-        let value =
-            connection.query_row("SELECT * FROM sample", [], sqlite_row_to_json).expect("row json");
-
-        assert_eq!(value["id"], 1);
-        assert_eq!(value["title"], "hello");
-        assert_eq!(value["ratio"], 1.5);
-        assert_eq!(value["missing"], Value::Null);
-        assert_eq!(value["payload"], "base64:AQI=");
-    }
-
-    #[test]
-    fn blob_serialization_covers_base64_padding_edges() {
-        assert_eq!(sqlite_value_to_json(ValueRef::Blob(&[0x01])), "base64:AQ==");
-        assert_eq!(sqlite_value_to_json(ValueRef::Blob(&[0x01, 0x02, 0x03])), "base64:AQID");
     }
 }

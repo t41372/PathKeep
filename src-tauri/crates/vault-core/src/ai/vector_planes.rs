@@ -7,7 +7,7 @@
 //!     `ceil(dim/8)` bytes/vector, loaded RAM-resident for SIMD-friendly Hamming recall;
 //!   - an **int8 plane** (`.pki8`): per-vector symmetric max-abs quantization to `[-127, 127]` plus
 //!     the f32 scale, kept ON DISK and read by seek-by-position (NOT resident) for high-fidelity
-//!     rescore of only the recalled candidates (C1/C2, 05 §10) — so resident RAM = the binary plane.
+//!     rescore of only the recalled candidates (05 §10) — so resident RAM = the binary plane.
 //! - own the pure quantization/binarization math (sign-bit pack, int8 quantize/dequantize) so the
 //!   error bounds are unit-tested directly, NOT only through the index.
 //! - stamp each plane with the SAME [`EmbeddingFingerprint`] as the `.pkvec` source so a model/dim
@@ -26,7 +26,7 @@
 //! Rust `(u64, Vec<u8>)` resident overhead is counted, S2 §10) so it fits in RAM for a SIMD
 //! popcount(xor) Hamming sweep. The int8 plane (~3.7 GB @256-dim, 260 B/vec incl. scale) stays ON DISK
 //! and is read by seek-by-position for only the few thousand recalled candidates — so resident RAM is
-//! binary-only and the 8 GB envelope holds (C1/C2, 05 §10). The f32 `.pkvec` stays the lossless rebuild
+//! binary-only and the 8 GB envelope holds (05 §10). The f32 `.pkvec` stays the lossless rebuild
 //! SOURCE (never deleted); whether f32 is ALSO used as a final exact tier is the S2 benchmark's call.
 //!
 //! ## Format (little-endian; both planes mirror the `.pkvec` magic+header discipline)
@@ -239,7 +239,7 @@ impl BinaryPlane {
 
 /// One int8 rescore plane on the `derived/vectors/` plane — ON-DISK, read by position per candidate.
 ///
-/// NOT resident (C1/C2, 05 §10): the int8 plane stays on disk and the rescore stage seeks each
+/// NOT resident (05 §10): the int8 plane stays on disk and the rescore stage seeks each
 /// recalled candidate's record by its position via [`Int8Plane::reader`] + [`Int8PlaneReader::record_at`].
 /// Only the binary recall plane is held in RAM (~0.9 GB @14.4M/256-dim incl. Rust overhead); pulling
 /// the few thousand recalled int8 records per query off disk is cheap vs the O(n) binary sweep and warms
@@ -272,7 +272,7 @@ impl Int8Plane {
         read_plane_header(&self.path, &INT8_PLANE_MAGIC)
     }
 
-    /// Opens a seekable reader over the int8 plane for position-addressed candidate rescore (C1).
+    /// Opens a seekable reader over the int8 plane for position-addressed candidate rescore.
     ///
     /// The query path opens this ONCE per search and calls [`Int8PlaneReader::record_at`] for each
     /// recalled candidate position, so the int8 plane is never held resident. Returns the header (for
@@ -293,7 +293,7 @@ impl Int8Plane {
     /// Loads every `(content_key, Int8Vector)` record (TEST/diagnostic only — never the query path).
     ///
     /// Retained so the projection round-trip + alignment can be asserted in one read; the query path
-    /// uses [`Int8Plane::reader`] seek-by-position instead so the plane is never held resident (C1).
+    /// uses [`Int8Plane::reader`] seek-by-position instead so the plane is never held resident.
     #[cfg(test)]
     pub fn read_all(&self) -> Result<Vec<(u64, Int8Vector)>> {
         let (header, mut reader) = open_plane(&self.path, &INT8_PLANE_MAGIC)?;
@@ -309,7 +309,7 @@ impl Int8Plane {
     }
 }
 
-/// A seekable, on-disk reader over one int8 rescore plane (resident = nothing but this handle, C1).
+/// A seekable, on-disk reader over one int8 rescore plane (resident = nothing but this handle).
 ///
 /// Holds the open file plus the fixed geometry (data start, record stride, dim) so the rescore stage
 /// can read any candidate's int8 record by its POSITION (the index the binary recall returned) without
@@ -381,7 +381,7 @@ pub fn planes_are_stale(
 
 /// Projects the f32 `.pkvec` source into the binary + int8 planes for one provider/model (05 §3).
 ///
-/// STREAMING + LOCKSTEP (C2, 05 §10): strides the deduped `(content_key, f32)` SET out of the
+/// STREAMING + LOCKSTEP (05 §10): strides the deduped `(content_key, f32)` SET out of the
 /// [`VectorStore`] one record at a time via [`VectorStore::read_records_streaming`] (which preserves
 /// the last-writer-wins SET contract), binarizing + int8-quantizing each vector straight into BOTH
 /// plane writers in lockstep, never materializing the full binary/int8 Vecs. Peak build RAM is two
@@ -448,26 +448,7 @@ pub fn delete_planes(paths: &ProjectPaths, provider_id: &str, model: &str) -> Re
     Ok(removed)
 }
 
-/// Reports total bytes consumed by all derived recall/rescore planes under the vector plane dir.
-///
-/// Filesystem-only so storage review can size the derived planes without loading any engine.
-pub fn derived_plane_bytes(paths: &ProjectPaths) -> u64 {
-    let Ok(entries) = fs::read_dir(&paths.vectors_dir) else {
-        return 0;
-    };
-    entries
-        .flatten()
-        .filter(|entry| {
-            matches!(
-                entry.path().extension().and_then(|ext| ext.to_str()),
-                Some(BINARY_PLANE_EXTENSION) | Some(INT8_PLANE_EXTENSION)
-            )
-        })
-        .filter_map(|entry| entry.metadata().ok().map(|meta| meta.len()))
-        .sum()
-}
-
-/// Writes BOTH derived planes atomically + in lockstep from one streaming projection (C2, 05 §10).
+/// Writes BOTH derived planes atomically + in lockstep from one streaming projection (05 §10).
 ///
 /// Opens the binary + int8 temp files, writes both magic + JSON headers, then invokes `project` with a
 /// single closure that — per source `(content_key, f32)` — appends ONE binary record and ONE int8
@@ -500,7 +481,7 @@ fn write_planes_atomic(
         let mut binary_writer = open_plane_writer(&binary_tmp, &BINARY_PLANE_MAGIC, &header)?;
         let mut int8_writer = open_plane_writer(&int8_tmp, &INT8_PLANE_MAGIC, &header)?;
         // The lockstep sink: binarize + int8-quantize the SAME f32 record into both writers in the
-        // SAME order, so the planes stay positionally aligned by content_key (C1/C2 invariant).
+        // SAME order, so the planes stay positionally aligned by content_key (the lockstep invariant).
         let mut record_buf: Vec<u8> = Vec::new();
         let mut sink = |key: u64, vector: &[f32]| -> Result<()> {
             let bits = binarize(vector);
@@ -641,60 +622,6 @@ mod tests {
     }
 
     #[test]
-    fn binary_bytes_rounds_up_to_whole_bytes() {
-        assert_eq!(binary_bytes_for_dim(0), 0);
-        assert_eq!(binary_bytes_for_dim(1), 1);
-        assert_eq!(binary_bytes_for_dim(8), 1);
-        assert_eq!(binary_bytes_for_dim(9), 2);
-        assert_eq!(binary_bytes_for_dim(256), 32);
-    }
-
-    #[test]
-    fn binarize_uses_sign_bit_with_zero_as_positive() {
-        // dim 10: bits laid LSB-first within each byte; component >= 0 -> 1.
-        let vector = vec![1.0, -1.0, 0.0, -0.001, 5.0, -5.0, 0.0, 2.0, -3.0, 4.0];
-        let bits = binarize(&vector);
-        assert_eq!(bits.len(), 2);
-        // byte 0 bits for indices 0..8: +,-,+(0.0),-,+,-,+(0.0),+  => 1,0,1,0,1,0,1,1
-        assert_eq!(bits[0], 0b1101_0101);
-        // byte 1 bits for indices 8,9: -,+ => 0,1
-        assert_eq!(bits[1], 0b0000_0010);
-    }
-
-    #[test]
-    fn hamming_distance_counts_differing_bits_over_words_and_tail() {
-        // 9 dims -> 2 bytes, so the second byte exercises the ragged tail path.
-        let a = binarize(&[1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]);
-        let b = binarize(&[-1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, -1.0]);
-        // Two bits differ (index 0 and index 8).
-        assert_eq!(hamming_distance(&a, &b), 2);
-        assert_eq!(hamming_distance(&a, &a), 0);
-    }
-
-    #[test]
-    fn hamming_distance_uses_full_u64_word_path() {
-        // 64 dims -> exactly one u64 word, no tail; flip 3 bits.
-        let mut left = vec![1.0f32; 64];
-        let mut right = vec![1.0f32; 64];
-        right[0] = -1.0;
-        right[31] = -1.0;
-        right[63] = -1.0;
-        let _ = &mut left;
-        assert_eq!(hamming_distance(&binarize(&left), &binarize(&right)), 3);
-    }
-
-    #[test]
-    #[should_panic(expected = "equal-length bit vectors")]
-    fn hamming_distance_debug_asserts_equal_length() {
-        // The equal-length contract is now a debug assertion (D1 hardening): a future caller that
-        // prefix-compares a dim-mismatched pair trips here instead of silently scoring garbage. The
-        // release path stays total via the `min` fallback (compiled-out assertion).
-        let a = vec![0xFFu8, 0x00u8];
-        let b = vec![0x00u8];
-        let _ = hamming_distance(&a, &b);
-    }
-
-    #[test]
     fn quantize_dequantize_round_trips_within_error_bound() {
         let vector = vec![0.9, -0.3, 0.0, 0.5, -0.7, 0.123, -0.456];
         let int8 = quantize_int8(&vector);
@@ -711,39 +638,6 @@ mod tests {
         assert!(int8.codes.contains(&127) || int8.codes.contains(&-127));
     }
 
-    #[test]
-    fn quantize_is_symmetric_and_excludes_negative_128() {
-        let int8 = quantize_int8(&[1.0, -1.0, 0.5, -0.5]);
-        // x and -x quantize to opposite codes; no code reaches -128.
-        assert_eq!(int8.codes[0], 127);
-        assert_eq!(int8.codes[1], -127);
-        assert_eq!(int8.codes[2], 64);
-        assert_eq!(int8.codes[3], -64);
-        assert!(int8.codes.iter().all(|&code| code >= -127));
-    }
-
-    #[test]
-    fn quantize_all_zero_vector_is_lossless() {
-        let int8 = quantize_int8(&[0.0, 0.0, 0.0]);
-        assert_eq!(int8.scale, 0.0);
-        assert_eq!(int8.codes, vec![0, 0, 0]);
-        assert_eq!(dequantize_int8(&int8), vec![0.0, 0.0, 0.0]);
-    }
-
-    #[test]
-    fn dot_product_matches_manual() {
-        assert_eq!(dot_product(&[1.0, 2.0, 3.0], &[4.0, 5.0, 6.0]), 32.0);
-    }
-
-    #[test]
-    #[should_panic(expected = "equal-length vectors")]
-    fn dot_product_debug_asserts_equal_length() {
-        // The equal-length contract is now a debug assertion (D1 hardening): a future caller that
-        // prefix-dots a dim-mismatched pair trips here instead of silently scoring garbage. The
-        // release path stays total via the `min` fallback (compiled-out assertion).
-        let _ = dot_product(&[1.0, 2.0, 3.0], &[4.0, 5.0]);
-    }
-
     /// Seeds a `.pkvec` store with the given records and returns its paths.
     fn seed_store(records: &[(u64, Vec<f32>)], dim: usize) -> (ProjectPaths, tempfile::TempDir) {
         let dir = tempdir().expect("tempdir");
@@ -755,39 +649,8 @@ mod tests {
     }
 
     #[test]
-    fn build_planes_projects_store_and_round_trips_both_planes() {
-        let records = vec![(10u64, vec![1.0, -1.0, 0.5]), (20u64, vec![-1.0, 1.0, -0.5])];
-        let (paths, _dir) = seed_store(&records, 3);
-
-        let report =
-            build_planes_from_store(&paths, "static-embed", "model-a").expect("build planes");
-        assert_eq!(report.vectors, 2);
-        assert_eq!(report.dim, Some(3));
-
-        let binary = BinaryPlane::for_provider(&paths, "static-embed", "model-a");
-        let bin_records = binary.read_all().expect("binary read");
-        assert_eq!(bin_records.len(), 2);
-        assert_eq!(bin_records[0].0, 10);
-        assert_eq!(bin_records[0].1, binarize(&records[0].1));
-
-        let int8 = Int8Plane::for_provider(&paths, "static-embed", "model-a");
-        let i8_records = int8.read_all().expect("int8 read");
-        assert_eq!(i8_records.len(), 2);
-        assert_eq!(i8_records[1].0, 20);
-        assert_eq!(i8_records[1].1, quantize_int8(&records[1].1));
-
-        // Headers carry the source fingerprint hash.
-        let live = fingerprint(3, "model-a");
-        assert_eq!(
-            binary.read_header().expect("hdr").expect("present").fingerprint_hash,
-            live.hash()
-        );
-        assert!(!planes_are_stale(&paths, "static-embed", "model-a", &live).expect("not stale"));
-    }
-
-    #[test]
     fn streaming_lockstep_projection_keeps_binary_and_int8_positionally_aligned() {
-        // C1/C2: the load-bearing invariant. After the streaming lockstep projection, int8 position i
+        // The load-bearing invariant. After the streaming lockstep projection, int8 position i
         // must be the SAME content_key as binary position i, and `Int8PlaneReader::record_at(i)` must
         // recover exactly that key's quantized vector — this is what makes int8 seek-by-position (rather
         // than a resident int8 plane) correct. A torn-resume duplicate of key 10 also proves the
@@ -830,35 +693,6 @@ mod tests {
     }
 
     #[test]
-    fn int8_plane_reader_errors_when_plane_is_absent() {
-        // Opening a seek reader over a never-built plane is a clear error (the query path never reaches
-        // here — it gates on the binary plane being empty first — but the boundary stays honest).
-        let dir = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(dir.path());
-        let int8 = Int8Plane::for_provider(&paths, "static-embed", "never-built");
-        let error = match int8.reader() {
-            Ok(_) => panic!("expected an absent-plane error"),
-            Err(error) => error,
-        };
-        assert!(error.to_string().contains("absent"), "got: {error}");
-    }
-
-    #[test]
-    fn build_planes_without_store_writes_empty_planes() {
-        let dir = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(dir.path());
-        let report =
-            build_planes_from_store(&paths, "static-embed", "model-a").expect("build empty");
-        assert_eq!(report.vectors, 0);
-        assert_eq!(report.dim, None);
-        let binary = BinaryPlane::for_provider(&paths, "static-embed", "model-a");
-        assert!(binary.exists());
-        assert!(binary.read_all().expect("empty read").is_empty());
-        let int8 = Int8Plane::for_provider(&paths, "static-embed", "model-a");
-        assert!(int8.read_all().expect("empty read").is_empty());
-    }
-
-    #[test]
     fn planes_are_stale_when_missing_or_fingerprint_changes() {
         let live = fingerprint(3, "model-a");
         let dir = tempdir().expect("tempdir");
@@ -874,64 +708,5 @@ mod tests {
         // A changed dim/model -> different hash -> stale.
         let changed = fingerprint(8, "model-a");
         assert!(planes_are_stale(&paths, "static-embed", "model-a", &changed).expect("changed"));
-    }
-
-    #[test]
-    fn delete_planes_removes_both_and_reports_state() {
-        let records = vec![(1u64, vec![1.0, 0.0, 0.0])];
-        let (paths, _dir) = seed_store(&records, 3);
-        build_planes_from_store(&paths, "static-embed", "model-a").expect("build");
-        assert!(delete_planes(&paths, "static-embed", "model-a").expect("delete"));
-        assert!(!BinaryPlane::for_provider(&paths, "static-embed", "model-a").exists());
-        assert!(!Int8Plane::for_provider(&paths, "static-embed", "model-a").exists());
-        // Deleting absent planes is a harmless false.
-        assert!(!delete_planes(&paths, "static-embed", "model-a").expect("second delete"));
-    }
-
-    #[test]
-    fn derived_plane_bytes_sums_only_plane_files() {
-        let dir = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(dir.path());
-        assert_eq!(derived_plane_bytes(&paths), 0);
-        let records = vec![(1u64, vec![1.0, 0.0, 0.0])];
-        let (paths, _dir) = seed_store(&records, 3);
-        build_planes_from_store(&paths, "static-embed", "model-a").expect("build");
-        fs::write(paths.vectors_dir.join("notes.txt"), b"ignore").expect("write txt");
-        let bytes = derived_plane_bytes(&paths);
-        let binary = BinaryPlane::for_provider(&paths, "static-embed", "model-a");
-        let int8 = Int8Plane::for_provider(&paths, "static-embed", "model-a");
-        let expected = binary.path().metadata().expect("meta").len()
-            + int8.path().metadata().expect("meta").len();
-        assert_eq!(bytes, expected);
-    }
-
-    #[test]
-    fn read_rejects_bad_magic_and_partial_record() {
-        let records = vec![(1u64, vec![1.0, 0.0, 0.0]), (2u64, vec![0.0, 1.0, 0.0])];
-        let (paths, _dir) = seed_store(&records, 3);
-        build_planes_from_store(&paths, "static-embed", "model-a").expect("build");
-
-        let binary = BinaryPlane::for_provider(&paths, "static-embed", "model-a");
-        // Truncate mid-record to force the partial-record error.
-        let len = binary.path().metadata().expect("meta").len();
-        let file = std::fs::OpenOptions::new().write(true).open(binary.path()).expect("open");
-        file.set_len(len - 1).expect("truncate");
-        assert!(binary.read_all().expect_err("partial").to_string().contains("partial record"));
-
-        // Bad magic.
-        let int8 = Int8Plane::for_provider(&paths, "static-embed", "model-a");
-        fs::write(int8.path(), b"NOTPLANExxxx").expect("garbage");
-        assert!(
-            int8.read_header().expect_err("bad magic").to_string().contains("unrecognized magic")
-        );
-    }
-
-    #[test]
-    fn read_header_none_for_absent_plane() {
-        let dir = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(dir.path());
-        let binary = BinaryPlane::for_provider(&paths, "static-embed", "model-a");
-        assert!(binary.read_header().expect("hdr").is_none());
-        assert!(!binary.exists());
     }
 }

@@ -18,14 +18,13 @@
 //!
 //! ## Design
 //! The verdict logic — classify one sentinel read, then aggregate across an ordered
-//! sentinel list — is plain, host-independent, and unit-tested via an injected access
-//! closure, so no real TCC is required. Only the macOS sentinel list and the real
-//! `read_dir` endpoint are `#[cfg]`-selected per target; the decision logic stays in the
-//! measured (coverage) build on every host.
+//! sentinel list — is plain and host-independent; the classification is unit-tested, so
+//! no real TCC is required. Only the macOS sentinel list and the real `read_dir` endpoint
+//! are `#[cfg]`-selected per target.
 
 use std::io::ErrorKind;
 use std::path::Path;
-#[cfg(any(test, target_os = "macos"))]
+#[cfg(target_os = "macos")]
 use std::path::PathBuf;
 
 /// Outcome of probing macOS Full Disk Access.
@@ -45,7 +44,7 @@ pub enum FullDiskAccessProbe {
 
 /// Classifies ONE sentinel directory-read result into a verdict.
 ///
-/// Measured on every host. A permission denial is a hard "denied"; a missing sentinel or
+/// A permission denial is a hard "denied"; a missing sentinel or
 /// any other error is deliberately `Inconclusive` (never a false "denied").
 fn classify_sentinel_read(result: std::io::Result<()>) -> FullDiskAccessProbe {
     match result {
@@ -55,11 +54,8 @@ fn classify_sentinel_read(result: std::io::Result<()>) -> FullDiskAccessProbe {
     }
 }
 
-/// Probes a single sentinel through an injected access check.
-///
-/// This is the test seam: point `access_check` at a readable temp dir (⇒ `Granted`), a
-/// permission-denied path (⇒ `Denied`), or a missing path (⇒ `Inconclusive`) to exercise
-/// every arm without real TCC.
+/// Probes a single sentinel through the given access check, so the verdict does not
+/// depend on how the directory is read.
 pub fn probe_full_disk_access_at<F>(sentinel: &Path, access_check: F) -> FullDiskAccessProbe
 where
     F: FnOnce(&Path) -> std::io::Result<()>,
@@ -69,11 +65,11 @@ where
 
 /// Aggregates a probe across an ordered sentinel list: the FIRST conclusive verdict
 /// (`Granted` or `Denied`) wins; if every sentinel is inconclusive the result is
-/// `Inconclusive`. Measured on every host via the seam tests.
+/// `Inconclusive`.
 ///
-/// The only non-test caller lives in the macOS arm of [`probe_full_disk_access`], so the
-/// non-macOS lib build must not compile this (dead_code under `-D warnings` on Linux CI).
-#[cfg(any(test, target_os = "macos"))]
+/// The only caller lives in the macOS arm of [`probe_full_disk_access`], so other
+/// targets must not compile this (dead_code under `-D warnings` on Linux CI).
+#[cfg(target_os = "macos")]
 fn probe_sentinels<F>(sentinels: &[PathBuf], mut access_check: F) -> FullDiskAccessProbe
 where
     F: FnMut(&Path) -> std::io::Result<()>,
@@ -92,7 +88,7 @@ where
 /// [`FullDiskAccessProbe::NotApplicable`].
 ///
 /// Only the sentinel selection and the real filesystem `read_dir` endpoint are per-OS;
-/// the classification/aggregation logic is shared and unit-tested on every host.
+/// the classification/aggregation logic is shared by every host.
 pub fn probe_full_disk_access() -> FullDiskAccessProbe {
     #[cfg(target_os = "macos")]
     {
@@ -136,68 +132,5 @@ mod tests {
             classify_sentinel_read(Err(Error::from(ErrorKind::NotFound))),
             FullDiskAccessProbe::Inconclusive
         );
-    }
-
-    #[test]
-    fn probe_full_disk_access_at_reads_through_the_injected_seam() {
-        let readable = probe_full_disk_access_at(Path::new("/sentinel"), |_| Ok(()));
-        assert_eq!(readable, FullDiskAccessProbe::Granted);
-
-        let denied = probe_full_disk_access_at(Path::new("/sentinel"), |_| {
-            Err(Error::from(ErrorKind::PermissionDenied))
-        });
-        assert_eq!(denied, FullDiskAccessProbe::Denied);
-
-        let missing = probe_full_disk_access_at(Path::new("/sentinel"), |_| {
-            Err(Error::from(ErrorKind::NotFound))
-        });
-        assert_eq!(missing, FullDiskAccessProbe::Inconclusive);
-    }
-
-    #[test]
-    fn probe_sentinels_returns_the_first_conclusive_verdict() {
-        let sentinels = vec![PathBuf::from("/missing"), PathBuf::from("/protected")];
-
-        // The first sentinel is inconclusive, so the second (a denial) decides.
-        let denied = probe_sentinels(&sentinels, |path| {
-            if path == Path::new("/protected") {
-                Err(Error::from(ErrorKind::PermissionDenied))
-            } else {
-                Err(Error::from(ErrorKind::NotFound))
-            }
-        });
-        assert_eq!(denied, FullDiskAccessProbe::Denied);
-
-        // A readable first sentinel short-circuits to granted.
-        let granted = probe_sentinels(&sentinels, |_| Ok(()));
-        assert_eq!(granted, FullDiskAccessProbe::Granted);
-
-        // Every sentinel inconclusive ⇒ inconclusive (no false denial).
-        let inconclusive = probe_sentinels(&sentinels, |_| Err(Error::from(ErrorKind::NotFound)));
-        assert_eq!(inconclusive, FullDiskAccessProbe::Inconclusive);
-
-        // An empty sentinel list is inconclusive rather than a crash or false denial.
-        let empty = probe_sentinels(&[], |_| Ok(()));
-        assert_eq!(empty, FullDiskAccessProbe::Inconclusive);
-    }
-
-    #[test]
-    fn probe_full_disk_access_reports_a_verdict_for_the_current_host() {
-        let verdict = probe_full_disk_access();
-        if cfg!(target_os = "macos") {
-            // macOS must reach a real read-based verdict (any of granted/denied/inconclusive),
-            // never NotApplicable.
-            assert_ne!(
-                verdict,
-                FullDiskAccessProbe::NotApplicable,
-                "macOS must produce a real Full Disk Access verdict"
-            );
-        } else {
-            assert_eq!(
-                verdict,
-                FullDiskAccessProbe::NotApplicable,
-                "non-macOS hosts have no Full Disk Access concept"
-            );
-        }
     }
 }

@@ -1,12 +1,15 @@
+//! Failure modes: export password omitted, optional source keys lost or camelCase fields decoded
+//! incorrectly.
+//!
 //! JSON payload DTOs accepted by the dev-only IPC bridge.
 //!
-//! ## Responsibilities
+//! Responsibilities:
 //!
 //! - Keep the localhost bridge request envelopes in one small module.
 //! - Preserve the camelCase payload shape consumed by browser automation.
 //! - Translate command-specific JSON bodies into typed worker inputs.
 //!
-//! ## Not responsible for
+//! Not responsible for:
 //!
 //! - Registering command names or choosing which worker function to call.
 //! - Validating domain invariants beyond serde shape decoding.
@@ -25,10 +28,10 @@
 
 use serde::Deserialize;
 use vault_core::{
-    AiProviderSecretInput, AppConfig, AppUpdateInstallRequest, BrowseDayInsightsRequest,
-    BrowserHistoryImportRequest, ExportRequest, HistoryFaviconLookupEntry,
-    HistoryOgImageLookupEntry, HistoryQuery, ReplaceTagsRequest, SchedulePlan, SetNotesRequest,
-    SetStarRequest, StarEntityKind, StarSort, StarStatusRequest, TakeoutRequest,
+    AiProviderSecretInput, AppConfig, AppUpdateInstallRequest, BrowserHistoryImportRequest,
+    ExportRequest, HistoryFaviconLookupEntry, HistoryOgImageLookupEntry, HistoryQuery,
+    ReembedScope, ReplaceTagsRequest, SchedulePlan, SetNotesRequest, SetStarRequest,
+    StarEntityKind, StarSort, StarStatusRequest, TakeoutRequest,
 };
 
 /// Carries archive bootstrap input across the browser automation mirror without
@@ -91,6 +94,13 @@ pub(super) struct HistoryFaviconPayload {
     pub(super) entries: Vec<HistoryFaviconLookupEntry>,
 }
 
+/// Bridge envelope for load_site_favicons: the sites a screen lists.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct SiteFaviconPayload {
+    pub(super) domains: Vec<String>,
+}
+
 /// Mirrors the favicon lookup batching for og:image hydration so the
 /// dev bridge can exercise the card-mode hydration path under Playwright.
 #[derive(Debug, Deserialize)]
@@ -122,11 +132,21 @@ pub(super) struct ExportPayload {
     pub(super) request: ExportRequest,
 }
 
+/// Identifies a caller-owned export job for polling and cancellation.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct ExportIdPayload {
+    pub(super) export_id: String,
+}
+
 /// Carries Google Takeout scan or import options through the dev mirror.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct TakeoutPayload {
     pub(super) request: TakeoutRequest,
+    /// Names the run for `stop_import`; only imports have one.
+    #[serde(default)]
+    pub(super) import_id: Option<String>,
 }
 
 /// Carries Browser Direct scan or import options through the dev mirror.
@@ -134,6 +154,25 @@ pub(super) struct TakeoutPayload {
 #[serde(rename_all = "camelCase")]
 pub(super) struct BrowserHistoryPayload {
     pub(super) request: BrowserHistoryImportRequest,
+    /// Names the run for `stop_import`; only imports have one.
+    #[serde(default)]
+    pub(super) import_id: Option<String>,
+}
+
+/// A site and the category the user gives it (`null`: back to PathKeep's lists).
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct SiteCategoryPayload {
+    pub(super) site: String,
+    #[serde(default)]
+    pub(super) category: Option<String>,
+}
+
+/// Names the import `stop_import` stops.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct ImportIdPayload {
+    pub(super) import_id: String,
 }
 
 /// Selects an import batch for preview, revert, or restore commands.
@@ -141,6 +180,8 @@ pub(super) struct BrowserHistoryPayload {
 #[serde(rename_all = "camelCase")]
 pub(super) struct BatchIdPayload {
     pub(super) batch_id: i64,
+    pub(super) cursor: Option<String>,
+    pub(super) limit: Option<usize>,
 }
 
 /// Lets dev automation ask for platform-specific schedule behavior while still
@@ -149,6 +190,15 @@ pub(super) struct BatchIdPayload {
 #[serde(rename_all = "camelCase")]
 pub(super) struct PlatformPayload {
     pub(super) platform: Option<String>,
+}
+
+/// Schedule preview input: the platform plus an interval that is not saved yet.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct SchedulePreviewPayload {
+    pub(super) platform: Option<String>,
+    #[serde(default)]
+    pub(super) due_after_hours: Option<f64>,
 }
 
 /// Carries the reviewed schedule plan into apply/remove commands.
@@ -180,6 +230,13 @@ pub(super) struct InputPayload<T> {
 #[serde(rename_all = "camelCase")]
 pub(super) struct ProviderIdPayload {
     pub(super) provider_id: String,
+}
+
+/// Which pages a re-embed estimate sizes, as `estimate_reembed` takes it.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct ReembedScopePayload {
+    pub(super) scope: ReembedScope,
 }
 
 /// Bounds queue execution during dev automation so callers can avoid launching
@@ -227,20 +284,6 @@ pub(super) struct ProfileIdPayload {
     pub(super) profile_id: Option<String>,
 }
 
-/// Selects a browsing session in the deterministic intelligence read model.
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(super) struct SessionIdPayload {
-    pub(super) session_id: String,
-}
-
-/// Selects a search trail in the deterministic intelligence read model.
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(super) struct TrailIdPayload {
-    pub(super) trail_id: String,
-}
-
 /// Selects a search-engine rule for deletion while preserving the rule registry
 /// as the only owner of rule semantics.
 #[derive(Deserialize)]
@@ -256,20 +299,18 @@ pub(super) struct PathPayload {
     pub(super) path: String,
 }
 
+/// Carries the word the user typed to confirm "Delete all data".
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct WipeConfirmationPayload {
+    pub(super) confirmation: String,
+}
+
 /// Carries an external URL to the desktop launcher helper.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct UrlPayload {
     pub(super) url: String,
-}
-
-/// Bridge envelope for export_conversation_file — the user-chosen target path plus the serialized
-/// Markdown / JSON document body the frontend built off the main thread.
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(super) struct ExportConversationFilePayload {
-    pub(super) target_path: String,
-    pub(super) contents: String,
 }
 
 /// Bridge envelope for the annotation-search command — the desktop signature
@@ -279,6 +320,7 @@ pub(super) struct ExportConversationFilePayload {
 pub(super) struct AnnotationSearchPayload {
     pub(super) query: String,
     pub(super) limit: Option<usize>,
+    pub(super) cursor: Option<String>,
 }
 
 /// Bridge envelope for the annotation-list command — mirrors the desktop
@@ -287,6 +329,7 @@ pub(super) struct AnnotationSearchPayload {
 #[serde(rename_all = "camelCase")]
 pub(super) struct AnnotationLimitPayload {
     pub(super) limit: Option<usize>,
+    pub(super) cursor: Option<String>,
 }
 
 /// Bridge envelope for set_url_notes / replace_url_tags — both desktop
@@ -301,7 +344,7 @@ pub(super) type SetStarPayload = WrappedRequest<SetStarRequest>;
 pub(super) type StarStatusPayload = WrappedRequest<StarStatusRequest>;
 
 /// Bridge envelope for list_stars — the desktop command takes an optional kind
-/// filter, a sort, and an optional row cap as top-level fields.
+/// filter, sort, page size and cursor as top-level fields.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct ListStarsPayload {
@@ -311,11 +354,8 @@ pub(super) struct ListStarsPayload {
     pub(super) sort: StarSort,
     #[serde(default)]
     pub(super) limit: Option<usize>,
+    pub cursor: Option<String>,
 }
-
-/// Bridge envelope for get_browse_day_insights — the desktop command
-/// groups its typed input under `request`.
-pub(super) type BrowseDayInsightsPayload = WrappedRequest<BrowseDayInsightsRequest>;
 
 /// Bridge envelope for export_app_data — the desktop command takes the
 /// user-chosen target path as a single string field.
@@ -323,6 +363,7 @@ pub(super) type BrowseDayInsightsPayload = WrappedRequest<BrowseDayInsightsReque
 #[serde(rename_all = "camelCase")]
 pub(super) struct ExportAppDataPayload {
     pub(super) target_path: String,
+    pub(super) export_password: String,
 }
 
 /// Bridge envelope for preview_app_data_import — carries the bundle path
@@ -401,4 +442,27 @@ pub(super) struct ContentFetchNowPayload {
 #[serde(rename_all = "camelCase")]
 pub(super) struct ContentFetchWorkingSetPayload {
     pub(super) limit: Option<u32>,
+}
+
+/// Carries the on/off switch for `set_launch_at_login` / `set_menu_bar_icon`.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct EnabledPayload {
+    pub(super) enabled: bool,
+}
+
+/// Continues an audit-ledger page without an offset.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct RunPagePayload {
+    pub(super) cursor: Option<i64>,
+    pub(super) limit: Option<usize>,
+}
+
+/// Continues an import-ledger page, including unfinished operations.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct ImportBatchPagePayload {
+    pub(super) cursor: Option<String>,
+    pub(super) limit: Option<usize>,
 }

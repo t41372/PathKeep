@@ -1,6 +1,6 @@
 # AI Redesign 2026 — Research Findings (2026-06 SOTA)
 
-> 來源：背景研究 workflow `wf_18f54e54-e57`（39 個獨立 web-research subagent，8 個領域，各走 _landscape → deep-dive → adversarial critic_）。
+> 來源：2026-06 的 web research，8 個領域，各走 _landscape → deep-dive → adversarial critic_。
 > 每個領域的完整原始結論（候選清單、deep dive、critic）保存在 [`research-appendix/`](research-appendix/)。
 > 本文是 distilled 結論層；具體選型與理由在 [02-architecture-decisions.md](02-architecture-decisions.md)。
 > 注意：研究中點名的具體 model id 僅供理解 landscape，**不得寫進產品文案**（見 [00](00-scope-use-cases-constraints.md) §3.5）。

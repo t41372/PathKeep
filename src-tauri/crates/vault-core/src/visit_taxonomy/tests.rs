@@ -1,10 +1,10 @@
 //! Regression coverage for visit-taxonomy analysis contracts.
 //!
 //! ## Responsibilities
-//! - Lock URL normalization, query extraction, evidence tiers, and taxonomy
-//!   rule ordering.
-//! - Prove the directory-module split preserves the public API surface.
-//! - Guard user override precedence over built-in rule packs.
+//! - Lock what a site is (the public suffix list, private section included).
+//! - Lint the built-in site lists: every rule can fire and no domain is listed twice.
+//! - Keep the core-site and regional rule fixtures the rule packs must classify.
+//! - Guard that the user's site category changes only the site category.
 //!
 //! ## Not responsible for
 //! - Testing Core Intelligence persistence or rebuild orchestration.
@@ -18,205 +18,49 @@
 //! - Tests use single-visit fixtures and do not allocate large archive-shaped
 //!   datasets.
 
+use super::url::host_and_parents;
 use super::*;
 
+// What a site is, the way a browser splits them (the full public suffix list). The ways it goes
+// wrong, each checked below:
+// - the private section left out, so every `*.github.io` is one site;
+// - a suffix of several labels (`co.uk`), a wildcard (`*.ck`) or an exception (`!www.ck`) split
+//   by label count;
+// - a host that is itself a public suffix (`github.io`), a single label or an address split into
+//   pieces (`127.0.0.1` as the site `0.1`);
+// - a refreshed list that leaves the version builds record unchanged, so Insights keep old sites.
 #[test]
-fn taxonomy_serialized_identifiers_cover_every_public_variant() {
-    assert_eq!(taxonomy_version(), "m5-taxonomy-v1");
-    assert_eq!(EvidenceTier::TierA.as_str(), "tier-a");
-    assert_eq!(EvidenceTier::TierB.as_str(), "tier-b");
-    assert_eq!(EvidenceTier::TierC.as_str(), "tier-c");
-
-    let domain_categories = [
-        (DomainCategory::Ai, "ai"),
-        (DomainCategory::Community, "community"),
-        (DomainCategory::Developer, "developer"),
-        (DomainCategory::Docs, "docs"),
-        (DomainCategory::Education, "education"),
-        (DomainCategory::Entertainment, "entertainment"),
-        (DomainCategory::Finance, "finance"),
-        (DomainCategory::News, "news"),
-        (DomainCategory::Search, "search"),
-        (DomainCategory::Shopping, "shopping"),
-        (DomainCategory::Social, "social"),
-        (DomainCategory::Travel, "travel"),
-        (DomainCategory::Video, "video"),
-        (DomainCategory::Work, "work"),
-        (DomainCategory::Unknown, "unknown"),
-    ];
-    for (category, expected) in domain_categories {
-        assert_eq!(category.as_str(), expected);
+fn sites_are_split_as_a_browser_splits_them() {
+    for (host, site) in [
+        ("rust-lang.github.io", "rust-lang.github.io"),
+        ("docs.tokio-rs.github.io", "tokio-rs.github.io"),
+        ("docs.news.bbc.co.uk", "bbc.co.uk"),
+        ("subdomain.example.com.cn", "example.com.cn"),
+        ("a.b.c.ck", "b.c.ck"),
+        ("www.ck", "www.ck"),
+        ("mail.google.com", "google.com"),
+        ("github.io", "github.io"),
+        ("co.uk", "co.uk"),
+        ("localhost", "localhost"),
+        ("nas.home.arpa", "nas.home.arpa"),
+        ("127.0.0.1", "127.0.0.1"),
+        ("[::1]", "[::1]"),
+        ("GitHub.COM.", "github.com"),
+        ("", ""),
+    ] {
+        assert_eq!(registrable_domain_for_host(host), site, "{host}");
     }
-
-    let page_categories = [
-        (PageCategory::ArticlePage, "article-page"),
-        (PageCategory::CategoryPage, "category-page"),
-        (PageCategory::Dashboard, "dashboard"),
-        (PageCategory::DocsPage, "docs-page"),
-        (PageCategory::ForumThread, "forum-thread"),
-        (PageCategory::Home, "home"),
-        (PageCategory::Issue, "issue"),
-        (PageCategory::ProductPage, "product-page"),
-        (PageCategory::Profile, "profile"),
-        (PageCategory::PullRequest, "pull-request"),
-        (PageCategory::Repo, "repo"),
-        (PageCategory::SearchResults, "search-results"),
-        (PageCategory::VideoPage, "video-page"),
-        (PageCategory::Unknown, "unknown"),
-    ];
-    for (category, expected) in page_categories {
-        assert_eq!(category.as_str(), expected);
-    }
-
-    let interaction_kinds = [
-        (InteractionKind::Compare, "compare"),
-        (InteractionKind::Discover, "discover"),
-        (InteractionKind::Discuss, "discuss"),
-        (InteractionKind::Learn, "learn"),
-        (InteractionKind::Manage, "manage"),
-        (InteractionKind::Resolve, "resolve"),
-        (InteractionKind::Transact, "transact"),
-        (InteractionKind::Watch, "watch"),
-        (InteractionKind::Unknown, "unknown"),
-    ];
-    for (kind, expected) in interaction_kinds {
-        assert_eq!(kind.as_str(), expected);
-    }
-
-    let decision_sources = [
-        (TaxonomyDecisionSource::UserOverride, "user-override"),
-        (TaxonomyDecisionSource::ExactDomainRule, "exact-domain-rule"),
-        (TaxonomyDecisionSource::HostPathRule, "host-path-query-rule"),
-        (TaxonomyDecisionSource::LexiconRule, "title-query-lexicon-rule"),
-        (TaxonomyDecisionSource::OptionalModelFallback, "optional-model-fallback"),
-        (TaxonomyDecisionSource::Unknown, "unknown"),
-    ];
-    for (source, expected) in decision_sources {
-        assert_eq!(source.as_str(), expected);
-    }
-}
-
-#[test]
-fn normalizes_search_urls_and_strips_tracking_params() {
-    let normalized = normalize_visit_url(
-        "https://www.google.com/search?q=sqlite+wal&utm_source=newsletter&gclid=abc123",
-    )
-    .expect("normalized search url");
-
-    assert_eq!(normalized.host, "www.google.com");
-    assert_eq!(normalized.registrable_domain, "google.com");
-    assert_eq!(normalized.subdomain.as_deref(), Some("www"));
-    assert_eq!(normalized.search_query.as_deref(), Some("sqlite wal"));
-    assert!(normalized.is_search_results);
-    assert_eq!(normalized.dropped_tracking_params, vec!["utm_source", "gclid"]);
-    assert_eq!(normalized.canonical_url, "https://www.google.com/search?q=sqlite+wal");
-}
-
-#[test]
-fn keeps_semantic_ids_and_extracts_cjk_search_terms() {
-    let normalized =
-        normalize_visit_url("https://www.baidu.com/s?wd=%E6%9C%AC%E5%9C%B0+AI&spm=track")
-            .expect("normalized baidu url");
-
-    assert_eq!(normalized.registrable_domain, "baidu.com");
-    assert_eq!(normalized.search_query.as_deref(), Some("本地 AI"));
-    assert_eq!(normalized.canonical_url, "https://www.baidu.com/s?wd=%E6%9C%AC%E5%9C%B0+AI");
-}
-
-#[test]
-fn registrable_domain_handles_common_multi_label_suffixes() {
     assert_eq!(
         registrable_domain_for_url("https://docs.news.bbc.co.uk/path").as_deref(),
         Some("bbc.co.uk")
     );
-    assert_eq!(
-        registrable_domain_for_url("https://subdomain.example.com.cn/path").as_deref(),
-        Some("example.com.cn")
-    );
-    assert_eq!(registrable_domain_for_host(""), "");
-    assert_eq!(registrable_domain_for_host("localhost"), "localhost");
+    let version = super::public_suffix_list_version();
+    assert!(!version.is_empty() && super::url_rules_version().ends_with(version));
     assert_eq!(
         extract_search_query_from_url("https://duckduckgo.com/?q=PathKeep+archive").as_deref(),
         Some("PathKeep archive")
     );
     assert!(extract_search_query_from_url("https://example.com/?q=not-search").is_none());
-}
-
-#[test]
-fn non_search_urls_keep_semantic_query_params() {
-    let normalized = normalize_visit_url(
-        "https://github.com/example/repo/issues/42?tab=comments&utm_campaign=tracker",
-    )
-    .expect("normalized issue url");
-
-    assert!(!normalized.is_search_results);
-    assert!(normalized.search_query.is_none());
-    assert_eq!(normalized.registrable_domain, "github.com");
-    assert_eq!(normalized.canonical_url, "https://github.com/example/repo/issues/42?tab=comments");
-}
-
-#[test]
-fn script_aware_tokenization_handles_latin_and_cjk() {
-    let tokens = tokenize_text("SQLite WAL 文档 教學");
-    assert!(tokens.contains(&"sqlite".to_string()));
-    assert!(tokens.contains(&"wal".to_string()));
-    assert!(tokens.contains(&"文档".to_string()));
-    assert!(tokens.contains(&"教學".to_string()));
-    assert_eq!(tokenize_text("猫"), vec!["猫".to_string()]);
-}
-
-#[test]
-fn normalizer_rejects_hosts_that_trim_to_empty() {
-    assert!(normalize_visit_url("https://./path").is_none());
-}
-
-#[test]
-fn evidence_tier_prefers_canonical_search_and_referrer_chain() {
-    let analysis = analyze_visit(
-        VisitAnalysisInput {
-            url: "https://www.google.com/search?q=sqlite+checkpoint",
-            title: Some("Google Search"),
-            query: Some("sqlite checkpoint"),
-            has_canonical_search_term: true,
-            external_referrer_url: Some("https://example.com"),
-            from_visit: Some(41),
-        },
-        &[],
-    );
-
-    assert_eq!(analysis.evidence.tier, EvidenceTier::TierA);
-    assert!(analysis.evidence.reasons.iter().any(|reason| reason == "canonical-search-term"));
-    assert!(analysis.evidence.reasons.iter().any(|reason| reason == "navigation-anchor"));
-}
-
-#[test]
-fn evidence_tier_falls_back_to_structural_and_then_time_only() {
-    let structural = analyze_visit(
-        VisitAnalysisInput {
-            url: "https://example.com/docs/sqlite",
-            title: Some("SQLite docs"),
-            query: None,
-            has_canonical_search_term: false,
-            external_referrer_url: None,
-            from_visit: None,
-        },
-        &[],
-    );
-    assert_eq!(structural.evidence.tier, EvidenceTier::TierB);
-
-    let weak = analyze_visit(
-        VisitAnalysisInput {
-            url: "https://example.com/",
-            title: None,
-            query: None,
-            has_canonical_search_term: false,
-            external_referrer_url: None,
-            from_visit: None,
-        },
-        &[],
-    );
-    assert_eq!(weak.evidence.tier, EvidenceTier::TierC);
-    assert_eq!(weak.evidence.reasons, vec!["time-adjacency-only"]);
 }
 
 #[test]
@@ -295,60 +139,148 @@ fn taxonomy_cn_and_us_packs_cover_regional_sites() {
     assert_eq!(amazon.taxonomy.interaction_kind, InteractionKind::Compare);
 }
 
+// A site's category set by the user (Insights' site page). The ways it goes wrong: it replaces
+// the page kinds the rules give the site's pages (a GitHub issue no longer counted as an issue,
+// which compare sets and the page card read), it misses the site's other hosts, it overrides the
+// parts of the site the lists sort on their own (Gmail and Google Docs called news with Google
+// search), or a site no rule knows stays unclassified.
 #[test]
-fn taxonomy_lexicon_and_unknown_fallback_are_honest() {
-    let docs = analyze_visit(
-        VisitAnalysisInput {
-            url: "https://example.com/opaque-path",
-            title: Some("SQLite WAL 文档"),
-            query: Some("sqlite 教學"),
-            has_canonical_search_term: false,
-            external_referrer_url: None,
-            from_visit: None,
-        },
-        &[],
+fn a_site_category_from_the_user_changes_only_the_site_category() {
+    let site = |value: &str, domain_category| TaxonomyOverride {
+        target: TaxonomyOverrideTarget::ExactDomain,
+        value: value.to_string(),
+        domain_category,
+        page_category: None,
+        interaction_kind: None,
+        note: None,
+    };
+    let classify = |url: &str, title: Option<&str>, overrides: &[TaxonomyOverride]| {
+        analyze_visit(
+            VisitAnalysisInput {
+                url,
+                title,
+                query: None,
+                has_canonical_search_term: false,
+                external_referrer_url: None,
+                from_visit: None,
+            },
+            overrides,
+        )
+        .taxonomy
+    };
+    let issue_url = "https://github.com/rust-lang/rust/issues/1";
+    let github = [site("github.com", DomainCategory::Work)];
+    let by_rules = classify(issue_url, Some("Issue"), &[]);
+    let by_user = classify(issue_url, Some("Issue"), &github);
+    assert_eq!(by_user.domain_category, DomainCategory::Work);
+    assert_eq!(by_rules.page_category, PageCategory::Issue);
+    assert_eq!(by_user.page_category, by_rules.page_category, "the page kind stays the rules'");
+    assert_eq!(by_user.interaction_kind, by_rules.interaction_kind);
+    assert_eq!(by_user.source, TaxonomyDecisionSource::UserOverride);
+    // The site's other hosts follow it, unless the lists name them on their own.
+    let gist = classify("https://gist.github.com/someone/1", None, &github);
+    assert_eq!(gist.domain_category, DomainCategory::Work);
+    let google = [site("google.com", DomainCategory::News)];
+    for url in [
+        "https://www.google.com/search?q=sqlite",
+        "https://google.com/",
+        "https://foo.research.google.com/a",
+    ] {
+        let visit = classify(url, None, &google);
+        assert_eq!(visit.domain_category, DomainCategory::News, "{url}");
+        assert_eq!(visit.source, TaxonomyDecisionSource::UserOverride, "{url}");
+    }
+    for url in [
+        "https://mail.google.com/mail/u/0/",
+        "https://colab.research.google.com/drive/1",
+        "https://x.mail.google.com/",
+    ] {
+        let by_rules = classify(url, None, &[]);
+        assert_ne!(by_rules.domain_category, DomainCategory::Unknown, "{url}");
+        assert_eq!(classify(url, None, &google), by_rules, "{url} keeps the lists' category");
+    }
+    // A host a path rule is for is a part of its own too.
+    let hn = "https://news.ycombinator.com/item?id=1";
+    let ycombinator = [site("ycombinator.com", DomainCategory::News)];
+    assert_eq!(classify(hn, None, &ycombinator), classify(hn, None, &[]));
+    assert_eq!(
+        classify("https://www.ycombinator.com/", None, &ycombinator).domain_category,
+        DomainCategory::News
     );
-    assert_eq!(docs.taxonomy.domain_category, DomainCategory::Docs);
-    assert_eq!(docs.taxonomy.source, TaxonomyDecisionSource::LexiconRule);
-
-    let unknown = analyze_visit(
-        VisitAnalysisInput {
-            url: "https://mystery.example",
-            title: Some("Untitled"),
-            query: None,
-            has_canonical_search_term: false,
-            external_referrer_url: None,
-            from_visit: None,
-        },
-        &[],
+    // A host the user names is theirs, list or not.
+    let gmail = TaxonomyOverride {
+        target: TaxonomyOverrideTarget::Host,
+        ..site("mail.google.com", DomainCategory::Shopping)
+    };
+    let mail = classify("https://mail.google.com/mail/u/0/", None, &[google[0].clone(), gmail]);
+    assert_eq!(mail.domain_category, DomainCategory::Shopping);
+    // What the site's page lists: its parts on the lists, not other sites under it.
+    assert_eq!(
+        listed_parts("ycombinator.com"),
+        [("news.ycombinator.com", DomainCategory::Community)]
     );
-    assert_eq!(unknown.taxonomy.domain_category, DomainCategory::Unknown);
-    assert_eq!(unknown.taxonomy.page_category, PageCategory::Unknown);
+    let parts = listed_parts("google.com");
+    assert!(parts.contains(&("mail.google.com", DomainCategory::Work)));
+    assert!(parts.contains(&("colab.research.google.com", DomainCategory::Developer)));
+    assert!(parts.iter().all(|(name, _)| name.ends_with(".google.com")));
+    assert!(parts.is_sorted_by_key(|(name, _)| *name));
+    assert!(listed_parts("github.io").is_empty(), "each site on github.io is a site of its own");
+    assert!(listed_parts("e2e.example").is_empty());
+    // A site no rule knows.
+    let notes = [site("e2e.example", DomainCategory::News)];
+    let page = classify("https://notes.e2e.example/a", Some("A page"), &notes);
+    assert_eq!(page.domain_category, DomainCategory::News);
+    assert_eq!(page.source, TaxonomyDecisionSource::UserOverride);
 }
 
-#[test]
-fn user_override_beats_pack_rules() {
-    let override_rule = TaxonomyOverride {
-        target: TaxonomyOverrideTarget::ExactDomain,
-        value: "google.com".to_string(),
-        domain_category: DomainCategory::Work,
-        page_category: PageCategory::Dashboard,
-        interaction_kind: InteractionKind::Manage,
-        note: Some("manual-review".to_string()),
-    };
-    let analysis = analyze_visit(
-        VisitAnalysisInput {
-            url: "https://www.google.com/search?q=sqlite",
-            title: Some("Google Search"),
-            query: Some("sqlite"),
-            has_canonical_search_term: false,
-            external_referrer_url: None,
-            from_visit: None,
-        },
-        &[override_rule],
-    );
+// The built-in site rules. The ways they go wrong, each checked below:
+// - matching climbs past the registrable domain, so a rule could cover a whole public suffix;
+// - a rule can never fire: no host under it reaches it, or an exact rule for a site, or a parent
+//   of it, whose pages path rules tell apart (exact rules are tried first);
+// - a domain is listed twice, so which category wins depends on the order of the lists;
+// - a listed domain no visit can produce (uppercase, `www.`, a scheme or path, a public suffix).
 
-    assert_eq!(analysis.taxonomy.source, TaxonomyDecisionSource::UserOverride);
-    assert_eq!(analysis.taxonomy.domain_category, DomainCategory::Work);
-    assert_eq!(analysis.taxonomy.page_category, PageCategory::Dashboard);
+#[test]
+fn every_site_rule_can_fire_and_is_listed_once() {
+    let mut seen = std::collections::HashMap::new();
+    for pack in super::rules::RULE_PACKS {
+        for rule in pack.exact_domains {
+            let domain = rule.domain;
+            assert_eq!(domain, domain.trim().to_ascii_lowercase(), "{domain} is not normalized");
+            assert!(
+                !domain.starts_with("www.") && !domain.contains("://") && !domain.contains('/'),
+                "{domain} is not a host"
+            );
+            let registrable = registrable_domain_for_host(domain);
+            assert!(
+                domain == registrable || domain.ends_with(&format!(".{registrable}")),
+                "{domain} is above its registrable domain {registrable}"
+            );
+            // A single-label host (`localhost`) has no parents; it matches only itself.
+            if domain.contains('.') {
+                let probe = format!("probe.{domain}");
+                assert!(
+                    host_and_parents(&probe, &registrable_domain_for_host(&probe))
+                        .any(|h| h == domain),
+                    "a host under {domain} never reaches its rule"
+                );
+            }
+            if let Some(other) = seen.insert(domain, pack.id) {
+                panic!("{domain} is listed in both {other} and {}", pack.id);
+            }
+        }
+    }
+    for pack in super::rules::RULE_PACKS {
+        for rule in pack.host_path_rules {
+            for host in rule.host_suffixes {
+                for exact in host_and_parents(host, &registrable_domain_for_host(host)) {
+                    assert!(
+                        !seen.contains_key(exact),
+                        "the exact rule for {exact} hides the path rule {} for {host}",
+                        rule.rule.id
+                    );
+                }
+            }
+        }
+    }
 }

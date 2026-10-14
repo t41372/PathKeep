@@ -1,9 +1,11 @@
+//! Failure modes: reads write schemas, a query escapes its owner, stale scopes leak,
+//! or bounded results lose continuation. Native render-path and paging tests cover these.
 //! Search-engine ranking, keyword concept, and rule-setting Core Intelligence
 //! reads.
 //!
 //! ## Responsibilities
-//! - Serve engine-ranking and keyword-concept read models that the overview and
-//!   search UI share.
+//! - Serve engine-ranking, keyword-concept and frequent-search read models that the overview,
+//!   Insights and search UI share.
 //! - Own the Settings-facing search-engine rule CRUD surface.
 //! - Keep search-metric SQL separate from the heavier recent-query and
 //!   query-family loaders.
@@ -26,40 +28,38 @@
 //!   reopening the intelligence database for each card.
 
 use super::{
-    date_range_bounds, display_name_for_search_engine_with_map, ensure_core_intelligence_schema,
-    load_search_engine_display_names,
+    date_range_bounds, display_name_for_search_engine_with_map, load_search_engine_display_names,
+    load_search_engine_sites, rfc3339_from_millis,
 };
 use super::{delete_search_engine_rule, list_search_engine_rules, upsert_search_engine_rule};
-use crate::{
-    archive::open_intelligence_connection,
-    config::ProjectPaths,
-    models::{
-        AppConfig, EngineRanking, ScopedDateRangeRequest, SearchConcept, SearchEngineRule,
-        SearchEngineRuleInput, TopSearchConceptsRequest,
-    },
+use crate::models::{
+    EngineRanking, FrequentSearch, FrequentSearchesRequest, ScopedDateRangeRequest, SearchConcept,
+    SearchEngineRule, SearchEngineRuleInput, TopSearchConceptsRequest,
 };
 use anyhow::Result;
-use rusqlite::{Connection, params};
+use vault_store::{Session, params_owned as params};
 
 /// Returns ranked search engines for the requested scope and date range.
 pub fn get_search_engine_ranking(
-    paths: &ProjectPaths,
-    config: &AppConfig,
-    key: Option<&str>,
+    vault: &crate::Vault,
     request: &ScopedDateRangeRequest,
 ) -> Result<Vec<EngineRanking>> {
-    let connection = open_intelligence_connection(paths, config, key)?;
-    ensure_core_intelligence_schema(&connection)?;
-    get_search_engine_ranking_with_connection(&connection, request)
+    let request = request.clone();
+    vault.read(vault_store::Db::Intelligence, move |connection| {
+        let request = &request;
+
+        get_search_engine_ranking_with_connection(connection, request)
+    })
 }
 
 /// Reuses an existing connection for search-engine ranking so overview loaders
 /// avoid reopening the intelligence plane.
 pub(super) fn get_search_engine_ranking_with_connection(
-    connection: &Connection,
+    connection: &Session<'_>,
     request: &ScopedDateRangeRequest,
 ) -> Result<Vec<EngineRanking>> {
     let display_names = load_search_engine_display_names(connection)?;
+    let sites = load_search_engine_sites(connection)?;
     let mut statement = connection.prepare(
         "SELECT search_engine, SUM(search_count)
          FROM engine_daily_rollups
@@ -80,104 +80,200 @@ pub(super) fn get_search_engine_ranking_with_connection(
                 let engine: String = row.get(0)?;
                 Ok(EngineRanking {
                     display_name: display_name_for_search_engine_with_map(&engine, &display_names),
+                    site: sites.get(&engine).cloned(),
                     search_engine: engine,
                     search_count: row.get(1)?,
                 })
             },
         )?
-        .collect::<rusqlite::Result<Vec<_>>>()
+        .collect::<vault_store::Result<Vec<_>>>()
         .map_err(Into::into)
 }
 
 /// Lists the merged search-engine rules exposed to Settings.
 pub fn list_search_engine_rules_for_settings(
-    paths: &ProjectPaths,
-    config: &AppConfig,
-    key: Option<&str>,
+    vault: &crate::Vault,
 ) -> Result<Vec<SearchEngineRule>> {
-    let connection = open_intelligence_connection(paths, config, key)?;
-    ensure_core_intelligence_schema(&connection)?;
-    list_search_engine_rules(&connection)
+    vault.read(vault_store::Db::Intelligence, list_search_engine_rules)
 }
 
 /// Persists one search-engine rule edit and returns the refreshed merged list.
 pub fn upsert_search_engine_rule_for_settings(
-    paths: &ProjectPaths,
-    config: &AppConfig,
-    key: Option<&str>,
+    vault: &crate::Vault,
     input: &SearchEngineRuleInput,
 ) -> Result<Vec<SearchEngineRule>> {
-    let connection = open_intelligence_connection(paths, config, key)?;
-    ensure_core_intelligence_schema(&connection)?;
-    upsert_search_engine_rule(&connection, input)
+    let input = input.clone();
+    vault.write(
+        vault_store::Db::Intelligence,
+        vault_store::Priority::Interactive,
+        move |connection| {
+            let input = &input;
+
+            upsert_search_engine_rule(connection, input)
+        },
+    )
 }
 
 /// Deletes one search-engine rule and returns the refreshed merged list.
 pub fn delete_search_engine_rule_for_settings(
-    paths: &ProjectPaths,
-    config: &AppConfig,
-    key: Option<&str>,
+    vault: &crate::Vault,
     rule_id: &str,
 ) -> Result<Vec<SearchEngineRule>> {
-    let connection = open_intelligence_connection(paths, config, key)?;
-    ensure_core_intelligence_schema(&connection)?;
-    delete_search_engine_rule(&connection, rule_id)
+    let rule_id = rule_id.to_owned();
+    vault.write(
+        vault_store::Db::Intelligence,
+        vault_store::Priority::Interactive,
+        move |connection| {
+            let rule_id = rule_id.as_str();
+
+            delete_search_engine_rule(connection, rule_id)
+        },
+    )
 }
+
+/// Largest `limit` [`get_frequent_searches`] accepts.
+const FREQUENT_SEARCHES_MAX_LIMIT: u32 = 100;
+
+/// Returns the queries searched most often inside one date range, counted from the search
+/// events in that range and grouped by normalized query across search engines.
+///
+/// Only keyword searches count (navigational ones such as "github" are left out), so the counts
+/// add up to no more than the digest's search total for the same range.
+///
+/// Cost: walks `idx_search_events_kind_time` over the keyword searches in the range, then groups
+/// them; it never reads search events outside the range. Numbers in
+/// `docs/architecture/ipc-performance.md`.
+pub fn get_frequent_searches(
+    vault: &crate::Vault,
+    request: &FrequentSearchesRequest,
+) -> Result<crate::models::IntelligencePage<FrequentSearch>> {
+    let request = request.clone();
+    vault.read(vault_store::Db::Intelligence, move |connection| {
+        let request = &request;
+
+        get_frequent_searches_with_connection(connection, request)
+    })
+}
+
+pub(super) fn get_frequent_searches_with_connection(
+    connection: &Session<'_>,
+    request: &FrequentSearchesRequest,
+) -> Result<crate::models::IntelligencePage<FrequentSearch>> {
+    let (start_ms, end_ms) = date_range_bounds(connection, &request.date_range)?;
+    let limit = request.limit.unwrap_or(10).clamp(1, FREQUENT_SEARCHES_MAX_LIMIT) as usize;
+    let cursor = super::paging::cursor::<(i64, String)>(request.cursor.as_deref())?;
+    let rows = connection.query(
+        FREQUENT_SEARCHES_SQL,
+        params![
+            start_ms,
+            end_ms,
+            request.profile_id.as_deref(),
+            (limit + 1) as i64,
+            cursor.as_ref().map(|c| c.0),
+            cursor.as_ref().map(|c| c.1.as_str())
+        ],
+        |r| {
+            let key = r.get::<String>(0)?;
+            let count = r.get::<i64>(2)?;
+            Ok((
+                FrequentSearch {
+                    normalized_query: key.clone(),
+                    query: r.get(1)?,
+                    search_count: count,
+                    last_searched_at: rfc3339_from_millis(r.get(3)?),
+                },
+                (count, key),
+            ))
+        },
+    )?;
+    super::paging::finish(rows, limit)
+}
+
+pub(super) const FREQUENT_SEARCHES_SQL: &str = "WITH counts AS (
+        SELECT normalized_query,COUNT(*) AS search_count,MAX(visit_time_ms) AS last_time
+        FROM search_events_rows INDEXED BY idx_search_events_kind_time
+        WHERE generation IN (SELECT navigation FROM intelligence_generations)
+          AND query_kind='keyword' AND visit_time_ms>=?1 AND visit_time_ms<?2
+          AND (?3 IS NULL OR profile_id=?3)
+        GROUP BY normalized_query
+        HAVING ?5 IS NULL OR COUNT(*)<?5 OR (COUNT(*)=?5 AND normalized_query>?6)
+        ORDER BY search_count DESC,normalized_query LIMIT ?4
+     ) SELECT c.normalized_query,
+        (SELECT raw_query FROM search_events_rows newest INDEXED BY idx_search_events_query_time
+         WHERE newest.query_kind='keyword' AND newest.normalized_query=c.normalized_query
+           AND newest.generation IN (SELECT navigation FROM intelligence_generations)
+           AND newest.visit_time_ms>=?1 AND newest.visit_time_ms<?2
+           AND (?3 IS NULL OR newest.profile_id=?3)
+         ORDER BY newest.visit_time_ms DESC,newest.visit_id DESC LIMIT 1),
+        c.search_count,c.last_time FROM counts c
+     ORDER BY c.search_count DESC,c.normalized_query";
 
 /// Returns top keyword concepts for one date range without leaking
 /// navigational-noise queries back into the UI.
 pub fn get_top_search_concepts(
-    paths: &ProjectPaths,
-    config: &AppConfig,
-    key: Option<&str>,
+    vault: &crate::Vault,
     request: &TopSearchConceptsRequest,
-) -> Result<Vec<SearchConcept>> {
-    let connection = open_intelligence_connection(paths, config, key)?;
-    ensure_core_intelligence_schema(&connection)?;
-    get_top_search_concepts_with_connection(&connection, request)
+) -> Result<crate::models::IntelligencePage<SearchConcept>> {
+    let request = request.clone();
+    vault.read(vault_store::Db::Intelligence, move |connection| {
+        let request = &request;
+
+        get_top_search_concepts_with_connection(connection, request)
+    })
 }
 
 /// Reuses an existing connection for concept ranking so overview loaders can
 /// batch multiple read models together.
 pub(super) fn get_top_search_concepts_with_connection(
-    connection: &Connection,
+    connection: &Session<'_>,
     request: &TopSearchConceptsRequest,
-) -> Result<Vec<SearchConcept>> {
-    let (start_ms, end_ms) = date_range_bounds(&request.date_range)?;
+) -> Result<crate::models::IntelligencePage<SearchConcept>> {
+    let (start_ms, end_ms) = date_range_bounds(connection, &request.date_range)?;
+    let limit = request.limit.unwrap_or(20).clamp(1, 1000) as usize;
+    let cursor = super::paging::cursor::<(i64, String)>(request.cursor.as_deref())?;
+    // The range's searches by their time, then each one's terms by its key. Through the
+    // `search_events` and `search_event_terms` views Turso read every row of the build: 2.5 s
+    // for 30 days at 14.4M visits.
     let mut statement = connection.prepare(
-        "SELECT search_event_terms.term,
+        "SELECT t.term,
                 COUNT(*) AS frequency,
-                GROUP_CONCAT(DISTINCT search_events.search_engine)
-         FROM search_event_terms
-         JOIN search_events ON search_events.visit_id = search_event_terms.visit_id
-         JOIN archive.visits AS visits ON visits.id = search_events.visit_id
-         WHERE (?1 IS NULL OR search_events.profile_id = ?1)
-           AND search_events.query_kind = 'keyword'
-           AND visits.visit_time_ms >= ?2
-           AND visits.visit_time_ms < ?3
-         GROUP BY search_event_terms.term
-         ORDER BY frequency DESC, search_event_terms.term ASC
+                GROUP_CONCAT(DISTINCT e.search_engine)
+         FROM search_events_rows e INDEXED BY idx_search_events_kind_time
+         CROSS JOIN search_event_terms_rows t ON t.generation = e.generation AND t.visit_id = e.visit_id
+         WHERE e.query_kind = 'keyword'
+           AND e.visit_time_ms >= ?2
+           AND e.visit_time_ms < ?3
+           AND e.generation IN (SELECT navigation FROM intelligence_generations)
+           AND (?1 IS NULL OR e.profile_id = ?1)
+         GROUP BY t.term
+         HAVING ?5 IS NULL OR COUNT(*)<?5 OR (COUNT(*)=?5 AND t.term>?6)
+         ORDER BY frequency DESC, t.term ASC
          LIMIT ?4",
     )?;
-    statement
+    let rows = statement
         .query_map(
             params![
                 request.profile_id.as_deref(),
                 start_ms,
                 end_ms,
-                request.limit.unwrap_or(20).max(1) as i64
+                (limit + 1) as i64,
+                cursor.as_ref().map(|c| c.0),
+                cursor.as_ref().map(|c| c.1.as_str())
             ],
             |row| {
                 let engines = row
-                    .get::<_, Option<String>>(2)?
+                    .get::<Option<String>>(2)?
                     .unwrap_or_default()
                     .split(',')
                     .filter(|value| !value.is_empty())
                     .map(|value| value.to_string())
                     .collect::<Vec<_>>();
-                Ok(SearchConcept { term: row.get(0)?, frequency: row.get(1)?, engines })
+                Ok((
+                    SearchConcept { term: row.get(0)?, frequency: row.get(1)?, engines },
+                    (row.get::<i64>(1)?, row.get::<String>(0)?),
+                ))
             },
         )?
-        .collect::<rusqlite::Result<Vec<_>>>()
-        .map_err(Into::into)
+        .collect::<vault_store::Result<Vec<_>>>()?;
+    super::paging::finish(rows, limit)
 }

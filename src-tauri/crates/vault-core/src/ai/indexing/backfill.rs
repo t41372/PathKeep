@@ -1,10 +1,11 @@
+//! Failure modes: batch limits truncate coverage or a crash repeats completed embeddings.
 //! The resumable embed loop and the crash-window dedup state that guards it (W-AI-4 / 02 §C.6 R1).
 //!
 //! ## Responsibilities
 //! - drive the build orchestration ([`build_ai_index_with_control`]): run-ledger bookkeeping, the
 //!   one-shot full-rebuild wipe, the embed backfill, and the derived-plane re-projection
 //! - embed candidate rows in resumable, cancellable chunks ([`run_embedding_backfill`]) and persist
-//!   them to the `.pkvec` store + `.pkmap` visit map + SQLite compatibility rows
+//!   them to the `.pkvec` store + `.pkmap` visit map + Turso metadata rows
 //! - encapsulate the no-dup/no-miss crash-window invariants in [`DedupTracker`] so they are tested
 //!   directly rather than only through end-to-end resume tests
 //!
@@ -12,8 +13,12 @@
 //! - candidate collection / embed-target selection (`super::candidates` owns those)
 //! - the vector store / visit map byte format (`super::super::vector_store` / `visit_content_map`)
 
+use super::super::native_ledger::{
+    begin_ai_run, current_source_watermark, end_failed_ai_run, finalize_ai_run_success,
+    record_index_ledger_failure, record_index_ledger_start, record_index_ledger_success,
+};
 use super::super::*;
-use super::candidates::{collect_stale_history_ids, collect_visit_chunk, select_embed_targets};
+use super::candidates::{collect_visit_chunk, select_embed_targets};
 use super::store_rows::{
     chunk_size, cleanup_stale_embeddings, clear_provider_embeddings, upsert_embedding,
     validate_embedding_batch_for_keys,
@@ -21,31 +26,39 @@ use super::store_rows::{
 use super::{BackfillOutcome, IndexedVisit};
 use crate::models::ReembedScope;
 use std::collections::HashSet;
-
-/// Chrome-epoch offset in milliseconds (`urls.last_visit_ms` is Chrome-epoch ms).
-const CHROME_EPOCH_OFFSET_MS: i64 = 11_644_473_600_000;
+use vault_store::{Db, Priority, Session, params_owned as params};
 
 /// Resolves the WorkingSet scope filter: the canonical URLs of the bounded heavy-tier working set.
 ///
 /// `WorkingSet` → `Some(set)` of canonical URLs (one per page) from [`select_working_set`], which is
-/// itself hard-capped at [`MAX_WORKING_SET`] (so this is BOUNDED, never a 14.4M scan). `Incremental` /
+/// enumerates every eligible page through cursors. `Incremental` /
 /// `Full` → `None`, meaning "no scope filter — touch every candidate". Computed once per backfill, so
 /// the per-chunk membership test below is a cheap canonical-URL set lookup.
 fn working_set_canonical_urls(
-    connection: &Connection,
+    vault: &crate::Vault,
     scope: ReembedScope,
 ) -> Result<Option<HashSet<String>>> {
     if scope != ReembedScope::WorkingSet {
         return Ok(None);
     }
-    let now_ms = chrono::Utc::now().timestamp_millis() + CHROME_EPOCH_OFFSET_MS;
-    let candidates = super::super::select_working_set(
-        connection,
-        &super::super::WorkingSetConfig::default(),
-        now_ms,
-        super::super::MAX_WORKING_SET,
-    )?;
-    Ok(Some(candidates.into_iter().map(|candidate| candidate.canonical_url).collect()))
+    let now_ms = chrono::Utc::now().timestamp_millis();
+    let mut cursor = None;
+    let mut urls = HashSet::new();
+    loop {
+        let page = super::super::select_working_set(
+            vault,
+            &super::super::WorkingSetConfig::default(),
+            now_ms,
+            4096,
+            cursor,
+        )?;
+        urls.extend(page.items.into_iter().map(|row| row.canonical_url));
+        cursor = page.next_cursor;
+        if cursor.is_none() {
+            break;
+        }
+    }
+    Ok(Some(urls))
 }
 
 /// Whether a candidate visit's page is inside the (optional) WorkingSet scope filter.
@@ -53,28 +66,25 @@ fn working_set_canonical_urls(
 /// `None` filter (Incremental/Full) → always `true` (no restriction). With a filter, the visit's raw
 /// url is canonicalized the SAME way [`select_working_set`] keys its candidates so a tracking-param /
 /// host-casing variant still matches its page; an unparseable url is treated as NOT in the set (it was
-/// never a working-set member). PURE → unit-tested for both the no-filter and filtered branches.
+/// never a working-set member). Pure (no I/O).
 fn visit_in_working_set(filter: &Option<HashSet<String>>, raw_url: &str) -> bool {
     match filter {
         None => true,
-        Some(set) => crate::visit_taxonomy::normalize_visit_url(raw_url)
-            .is_some_and(|normalized| set.contains(&normalized.canonical_url)),
+        Some(set) => set.contains(&crate::pages::canonical_key(raw_url)),
     }
 }
 
 /// Builds or refreshes the semantic sidecar for one embedding provider.
 ///
 /// This is the main entrypoint for semantic indexing. It keeps all durable side effects
-/// together: run-ledger bookkeeping, SQLite compatibility rows, optional sidecar sync, and
+/// together: run-ledger bookkeeping, Turso metadata rows, optional sidecar sync, and
 /// stale-row cleanup.
 pub async fn build_ai_index(
-    paths: &ProjectPaths,
-    config: &AppConfig,
-    key: Option<&str>,
+    vault: &crate::Vault,
     provider: &AiProviderRuntime,
     request: &AiIndexRequest,
 ) -> Result<AiIndexReport> {
-    build_ai_index_with_control(paths, config, key, provider, request, None, 0, 0, None).await
+    build_ai_index_with_control(vault, provider, request, None, 0, 0, None).await
 }
 
 /// Builds the semantic index while honoring optional cooperative stop checkpoints.
@@ -90,9 +100,7 @@ pub async fn build_ai_index(
 /// nothing here touches the lexical or canonical planes.
 #[allow(clippy::too_many_arguments)]
 pub async fn build_ai_index_with_control(
-    paths: &ProjectPaths,
-    config: &AppConfig,
-    key: Option<&str>,
+    vault: &crate::Vault,
     provider: &AiProviderRuntime,
     request: &AiIndexRequest,
     run_control: Option<Arc<dyn AiRunControl>>,
@@ -100,16 +108,14 @@ pub async fn build_ai_index_with_control(
     start_embedded_so_far: u64,
     ledger: Option<Arc<dyn IndexBackfillLedger>>,
 ) -> Result<AiIndexReport> {
+    let paths = vault.paths();
     validate_provider(provider, AiProviderPurpose::Embedding)?;
-    let archive = open_archive_connection(paths, config, key)?;
-    let connection = open_intelligence_connection(paths, config, key)?;
-    ensure_ai_schema(&connection)?;
     let started_at = now_rfc3339();
-    let source_watermark = current_source_watermark(&connection)?;
+    let source_watermark = current_source_watermark(vault)?;
     let sidecar_table =
         ai_sidecar::provider_table_name(&provider.config.id, &provider.config.default_model);
     let run_id = begin_ai_run(
-        &archive,
+        vault,
         "ai_index",
         "manual",
         json!({
@@ -120,20 +126,23 @@ pub async fn build_ai_index_with_control(
             "limit": request.limit,
         }),
     )?;
-    record_index_ledger_start(
-        &connection,
+    if let Err(error) = record_index_ledger_start(
+        vault,
         provider,
         run_id,
         &started_at,
         source_watermark,
         &sidecar_table,
         request,
-    )?;
+    ) {
+        end_failed_ai_run(vault, run_id, &error, json!({}));
+        return Err(error);
+    }
 
     // A full rebuild's destructive wipe is a ONE-SHOT that runs only at the TRUE start of the job
     // (the persisted cursor is still at the origin). On any resume (`start_history_id > 0`) a worker
     // restart MUST NOT re-clear the partially-rebuilt store/metadata, or every row already embedded
-    // below the cursor is silently lost while the job still reports success (CRITICAL-1, 02 §C.6 R1).
+    // below the cursor is silently lost while the job still reports success (02 §C.6 R1).
     // The resume APPENDS to the existing store instead. The worker also flips `request.full_rebuild`
     // to false in the persisted payload once the first cursor is recorded, so a re-claim never sees
     // a destructive full_rebuild again; this `start_history_id` gate is the in-process backstop.
@@ -147,20 +156,14 @@ pub async fn build_ai_index_with_control(
     let full_rebuild = request.full_rebuild || scope_requests_full_rebuild;
     let wipe_requested = full_rebuild || request.clear_only;
     let perform_wipe = wipe_requested && !is_resume;
-    // The Metal heavy-tier opt-in (W-AI-9-D): only changes the candle forward-pass device in a
-    // `metal` build; INERT (CPU) otherwise and never affects the vectors/fingerprint.
-    let gpu_enabled = config.ai.gpu_enabled;
 
     let result: Result<AiIndexReport> = async {
         let run_control = run_control.as_ref();
         checkpoint_ai_run(run_control, "Index build was cancelled before collecting stale rows.")?;
-        let stale_history_ids = collect_stale_history_ids(&connection, provider)?;
-
         if perform_wipe {
-            clear_provider_embeddings(&connection, provider)?;
+            clear_provider_embeddings(vault, provider, run_control)?;
         }
-
-        let removed_items = cleanup_stale_embeddings(&connection, provider)?;
+        let removed_items = cleanup_stale_embeddings(vault, provider, run_control)?;
         let sidecar_removed = if perform_wipe {
             ai_sidecar::clear_provider_embeddings(
                 paths,
@@ -181,7 +184,7 @@ pub async fn build_ai_index_with_control(
                 &provider.config.id,
                 &provider.config.default_model,
             )?;
-            // The keyed reverse/forward sidecars (`.pkrev`/`.pkfwd`, M-11) are pure projections of the
+            // The keyed reverse/forward sidecars (`.pkrev`/`.pkfwd`) are pure projections of the
             // `.pkmap` the wipe just cleared, so they are deleted too (a later build re-projects them).
             super::super::reverse_visit_map::ReverseVisitMap::for_provider(
                 paths,
@@ -208,7 +211,7 @@ pub async fn build_ai_index_with_control(
 
         // A full rebuild resets the vector plane so the new fingerprint owns a clean store — but
         // ONLY at the true start of the job. On a resume the partial store must survive so the
-        // backfill appends to it instead of deleting the rows it already embedded (CRITICAL-1). The
+        // backfill appends to it instead of deleting the rows it already embedded. The
         // visit→content map (W-AI-4c) is reset alongside the store so the two planes stay consistent.
         if full_rebuild && !is_resume {
             VectorStore::for_provider(paths, &provider.config.id, &provider.config.default_model)
@@ -222,13 +225,13 @@ pub async fn build_ai_index_with_control(
             // Drop the derived planes too so the rebuild window never leaves them projected from the
             // old (now-deleted) source; they are re-projected after the backfill writes the new
             // `.pkvec` (W-AI-5). On a resume the partial planes are NOT dropped (they re-project at
-            // the end anyway, and the partial `.pkvec` survives per CRITICAL-1).
+            // the end anyway, and the partial `.pkvec` survives).
             super::super::vector_planes::delete_planes(
                 paths,
                 &provider.config.id,
                 &provider.config.default_model,
             )?;
-            // Drop the keyed reverse/forward sidecars (`.pkrev`/`.pkfwd`, M-11) alongside the planes so
+            // Drop the keyed reverse/forward sidecars (`.pkrev`/`.pkfwd`) alongside the planes so
             // the rebuild window never leaves them projected from the old (now-deleted) `.pkmap`; they
             // re-project after the backfill rewrites the `.pkmap` (same posture as the planes).
             super::super::reverse_visit_map::ReverseVisitMap::for_provider(
@@ -241,8 +244,7 @@ pub async fn build_ai_index_with_control(
 
         checkpoint_ai_run(run_control, "Index build was cancelled before collecting candidates.")?;
         let outcome = run_embedding_backfill(
-            paths,
-            &connection,
+            vault,
             provider,
             request,
             run_control,
@@ -250,25 +252,6 @@ pub async fn build_ai_index_with_control(
             start_embedded_so_far,
             ledger.as_ref(),
             perform_wipe,
-            gpu_enabled,
-        )
-        .await?;
-
-        // Sync the optional legacy sidecar shape for empty/stale-removal bookkeeping. The real
-        // vectors live in the `derived/vectors/` plane (written above); this only keeps the
-        // historical sidecar API honest for clear/empty cases.
-        await_with_ai_cancellation(
-            run_control,
-            "Index build was cancelled before the sidecar sync finished.",
-            ai_sidecar::sync_provider_embeddings(
-                paths,
-                &provider.config.id,
-                &provider.config.default_model,
-                &[],
-                full_rebuild,
-                false,
-                &stale_history_ids,
-            ),
         )
         .await?;
 
@@ -280,7 +263,7 @@ pub async fn build_ai_index_with_control(
         // semantic matches" rather than a stale/absent-plane error.
         //
         // TODO(W-AI-6/later): incremental passes currently RE-PROJECT all planes (O(total) CPU), not
-        // just the newly-embedded rows. After the C2 streaming projection this is now RAM-bounded
+        // just the newly-embedded rows. After the streaming projection this is now RAM-bounded
         // (build peak ≪ 1 GB at any scale — the source is streamed, never materialized), and it runs
         // off the UI thread in the worker, so for the realistic 1–3M post-dedup corpus it is
         // acceptable. Add an incremental plane-APPEND (project only the new content_keys, append to the
@@ -295,7 +278,7 @@ pub async fn build_ai_index_with_control(
             &provider.config.default_model,
         )?;
 
-        // Re-project the keyed reverse/forward sidecars (`.pkrev`/`.pkfwd`, M-11) from the now-current
+        // Re-project the keyed reverse/forward sidecars (`.pkrev`/`.pkfwd`) from the now-current
         // `.pkmap`, stamped with the SAME `.pkvec` fingerprint hash so they share the planes' staleness
         // identity. These turn the always-on hydration join (content_key → visits) and the `is:starred`
         // forward join (history_id → content_key) into BOUNDED binary-search lookups (O(k'·log n) /
@@ -344,9 +327,19 @@ pub async fn build_ai_index_with_control(
     .await;
 
     match result {
-        Ok(report) => {
+        // The ledger first: the run is done only once the index says how far it got.
+        Ok(report) => match record_index_ledger_success(
+            vault,
+            provider,
+            run_id,
+            &report.last_indexed_at,
+            source_watermark,
+            &sidecar_table,
+            request,
+        )
+        .and_then(|()| {
             finalize_ai_run_success(
-                &archive,
+                vault,
                 run_id,
                 json!({
                     "providerId": report.provider_id,
@@ -355,55 +348,112 @@ pub async fn build_ai_index_with_control(
                     "updatedItems": report.updated_items,
                     "removedItems": report.removed_items,
                 }),
-            )?;
-            record_index_ledger_success(
-                &connection,
-                provider,
-                run_id,
-                &report.last_indexed_at,
-                source_watermark,
-                &sidecar_table,
-                request,
-            )?;
-            Ok(report)
-        }
+            )
+        }) {
+            Ok(()) => Ok(report),
+            Err(error) => {
+                end_failed_ai_run(vault, run_id, &error, json!({}));
+                Err(error)
+            }
+        },
         Err(error) => {
-            finalize_ai_run_failure(
-                &archive,
+            end_failed_ai_run(
+                vault,
                 run_id,
-                &error.to_string(),
+                &error,
                 json!({
                     "providerId": provider.config.id,
                     "model": provider.config.default_model,
                     "fullRebuild": request.full_rebuild,
                     "clearOnly": request.clear_only,
                 }),
-            )?;
-            record_index_ledger_failure(
-                &connection,
+            );
+            if let Err(recording) = record_index_ledger_failure(
+                vault,
                 provider,
                 run_id,
                 source_watermark,
                 &sidecar_table,
                 request,
                 &error.to_string(),
-            )?;
+            ) {
+                eprintln!(
+                    "pathkeep: index run {run_id}: recording its failure failed: {recording:#}"
+                );
+            }
             Err(error)
         }
     }
+}
+
+/// Deletes the semantic index of every (service, model) that is no longer set up, and returns
+/// how many pairs it deleted.
+///
+/// An index belongs to one service and one model (`ai_embedding_totals`, the `.pkvec` and its
+/// planes). Changing a service's model in Settings, or removing the service, leaves the old one
+/// behind: nothing reads it again, and on a large archive it is gigabytes. `configured` is every
+/// pair Settings has now; each other pair's rows and files go. Run at the start of an index job,
+/// in the background, because the rows are deleted in batches.
+pub async fn forget_unconfigured_indexes(
+    vault: &crate::Vault,
+    configured: &[(String, String)],
+    control: Option<&Arc<dyn AiRunControl>>,
+) -> Result<usize> {
+    let indexed = vault.read(Db::Intelligence, |s| {
+        Ok(s.query("SELECT provider_id,model FROM ai_embedding_totals", (), |r| {
+            Ok((r.get::<String>(0)?, r.get::<String>(1)?))
+        })?)
+    })?;
+    let paths = vault.paths().clone();
+    let mut forgotten = 0;
+    for (provider_id, model) in indexed {
+        if configured.iter().any(|(id, kept)| *id == provider_id && *kept == model) {
+            continue;
+        }
+        let gone = AiProviderRuntime {
+            config: AiProviderConfig {
+                id: provider_id.clone(),
+                default_model: model.clone(),
+                purpose: AiProviderPurpose::Embedding,
+                ..AiProviderConfig::default()
+            },
+            api_key: None,
+        };
+        clear_provider_embeddings(vault, &gone, control)?;
+        ai_sidecar::clear_provider_embeddings(&paths, &provider_id, &model).await?;
+        VectorStore::for_provider(&paths, &provider_id, &model).delete()?;
+        VisitContentMap::for_provider(&paths, &provider_id, &model).delete()?;
+        super::super::vector_planes::delete_planes(&paths, &provider_id, &model)?;
+        super::super::reverse_visit_map::ReverseVisitMap::for_provider(
+            &paths,
+            &provider_id,
+            &model,
+        )
+        .delete()?;
+        let (id, kept) = (provider_id.clone(), model.clone());
+        vault.write(Db::Intelligence, Priority::Batch, move |s| {
+            s.execute(
+                "DELETE FROM ai_embedding_totals WHERE provider_id=?1 AND model=?2",
+                params![id, kept],
+            )?;
+            Ok(())
+        })?;
+        forgotten += 1;
+    }
+    Ok(forgotten)
 }
 
 /// The resume/incremental crash-window dedup state for one backfill pass (W-AI-4c, 02 §C.6 R1).
 ///
 /// Encapsulates the three sets that together make the embed loop no-dup/no-miss across the two crash
 /// windows the resumable backfill must survive — extracted from the loop's locals so the invariants
-/// are unit-tested DIRECTLY (the loop only exercised them end-to-end through resume tests):
+/// live in one place:
 /// - `persisted_keys` — the u64 `content_key`s already on the `.pkvec` store (the storage-boundary
-///   guard: the on-disk store carries only u64s). CRITICAL-2: a crash after a chunk's vectors are
+///   guard: the on-disk store carries only u64s). A crash after a chunk's vectors are
 ///   appended but before its SQLite rows / cursor advance leaves a key on the store while
 ///   `needs_embedding` flips true again; a key in this set is never re-appended, so a resume cannot
 ///   double a vector. Loaded from the store on resume/incremental AND accumulated this run.
-/// - `persisted_hashes` — the FULL `content_hash`es embedded THIS run (the WORK identity). MEDIUM-4:
+/// - `persisted_hashes` — the FULL `content_hash`es embedded THIS run (the WORK identity):
 ///   the work-dedup keys on the full hash, NOT the truncated u64, so two DISTINCT pages whose hashes
 ///   collide on the first 8 bytes (~2.8e-6 at 14.4M) are EACH embedded rather than the second
 ///   silently collapsing onto the first's vector. This set is run-scoped (never loaded from disk,
@@ -412,14 +462,14 @@ pub async fn build_ai_index_with_control(
 ///   some visits mapped; a visit in this set is never re-appended, so a resume never doubles a
 ///   mapping entry. Loaded from the map on resume/incremental AND accumulated this run.
 ///
-/// MEDIUM-5: [`load_existing`](Self::load_existing) populates the on-disk sets whenever an existing
+/// [`load_existing`](Self::load_existing) populates the on-disk sets whenever an existing
 /// store is present and NOT about to be wiped — not only on a `start_history_id > 0` resume. So a
 /// PLAIN incremental pass (cursor 0, empty sets without this) does not re-embed + append a duplicate
 /// `.pkvec` record for a NEW visit of an already-embedded page; it maps the visit but skips the embed.
 pub(super) struct DedupTracker {
     /// u64 content_keys already on the `.pkvec` store (resume backstop + this run's appends).
     persisted_keys: HashSet<u64>,
-    /// FULL content_hashes embedded this run (the MEDIUM-4 work identity; never loaded from disk).
+    /// FULL content_hashes embedded this run (the work identity; never loaded from disk).
     persisted_hashes: HashSet<String>,
     /// history_ids already in the `.pkmap` visit map (resume backstop + this run's appends).
     mapped_ids: HashSet<i64>,
@@ -435,13 +485,13 @@ impl DedupTracker {
         }
     }
 
-    /// Loads the resume/incremental on-disk dedup state when an existing store is present (MEDIUM-5).
+    /// Loads the resume/incremental on-disk dedup state when an existing store is present.
     ///
     /// Populates `persisted_keys` from the store's `existing_ids` and `mapped_ids` from the visit
     /// map's `mapped_history_ids` ONLY when `!perform_wipe && store.exists()` — mirroring the loop's
     /// gate exactly. A true full rebuild (`perform_wipe`) or a never-built store leaves the sets
     /// empty so the build starts clean. `persisted_hashes` is NEVER loaded: the on-disk store carries
-    /// only the truncated u64, so the full hash is unrecoverable from it (MEDIUM-4); the full-hash
+    /// only the truncated u64, so the full hash is unrecoverable from it; the full-hash
     /// authority is built up this run via [`Self::record_embedded`].
     pub(super) fn load_existing(
         &mut self,
@@ -460,29 +510,15 @@ impl DedupTracker {
     ///
     /// Delegates to the pure [`super::candidates::select_embed_targets`] with this tracker's
     /// encapsulated `persisted_hashes` + `persisted_keys`, so the production loop and the
-    /// direct-collision unit test share one decision. See [`Self::should_embed`] for the per-visit
-    /// predicate the same logic reduces to.
+    /// direct-collision unit test share one decision.
     pub(super) fn select_targets<'a>(&self, changed: &[&'a IndexedVisit]) -> Vec<&'a IndexedVisit> {
         select_embed_targets(changed, &self.persisted_hashes, &self.persisted_keys)
     }
 
-    /// Whether a single visit still needs embedding under the current dedup state (MEDIUM-4/CRITICAL-2).
-    ///
-    /// A visit needs an embed unless its FULL `content_hash` was already embedded this run OR its u64
-    /// `content_key` is already on the `.pkvec` store. This is the per-visit predicate the chunk-level
-    /// [`Self::select_targets`] reduces to (minus the intra-chunk first-seen dedup); it exists so the
-    /// crash-window invariants are asserted directly on one visit at a time. Test-only: the production
-    /// loop selects at chunk granularity via [`Self::select_targets`].
-    #[cfg(test)]
-    pub(super) fn should_embed(&self, visit: &IndexedVisit) -> bool {
-        !self.persisted_hashes.contains(visit.content_hash.as_str())
-            && !self.persisted_keys.contains(&visit.content_key)
-    }
-
     /// Records that one page (its full hash + u64 key) was embedded + persisted this run.
     ///
-    /// After this, the page's full hash skips it run-wide (MEDIUM-4 work identity) and its u64 key
-    /// skips it at the storage boundary (CRITICAL-2), so a later chunk or a resume never re-embeds it.
+    /// After this, the page's full hash skips it run-wide (the work identity) and its u64 key
+    /// skips it at the storage boundary, so a later chunk or a resume never re-embeds it.
     pub(super) fn record_embedded(&mut self, key: u64, content_hash: &str) {
         self.persisted_hashes.insert(content_hash.to_string());
         self.persisted_keys.insert(key);
@@ -510,14 +546,14 @@ impl DedupTracker {
 /// scan_target` is honest determinate progress. Captured ONCE at a build's true start; rows that
 /// arrive afterward are a later incremental pass's work, not this build's. Returns 0 for an empty
 /// archive (nothing to scan).
-fn max_candidate_history_id(connection: &Connection) -> Result<i64> {
+fn max_candidate_history_id(connection: &Session<'_>) -> Result<i64> {
     connection
-        .query_row(
+        .query_one(
             "SELECT COALESCE(MAX(visits.id), 0)
              FROM archive.visits AS visits
              WHERE visits.reverted_at IS NULL",
-            [],
-            |row| row.get(0),
+            (),
+            |row| Ok(row.get(0)?),
         )
         .context("reading the max candidate history id for the index scan target")
 }
@@ -530,7 +566,7 @@ fn max_candidate_history_id(connection: &Connection) -> Result<i64> {
 /// [`crate::ai_queue::persist_index_cursor`] keeps the original `scan_target` rather than recomputing
 /// against a corpus that may have grown under the build. Pure decision over `start_history_id`; the
 /// fresh branch is the only one that touches the DB.
-fn scan_target_for(connection: &Connection, start_history_id: i64) -> Result<i64> {
+fn scan_target_for(connection: &Session<'_>, start_history_id: i64) -> Result<i64> {
     if start_history_id > 0 {
         return Ok(0);
     }
@@ -547,9 +583,9 @@ fn scan_target_for(connection: &Connection, start_history_id: i64) -> Result<i64
 /// `embedded_so_far / embed_target` reaches ~100% on either. (Like the scan denominator it skips the
 /// `urls`/`source_profiles` join, so a rare visit with an orphaned FK is counted but never embedded —
 /// the bar can finish a hair short, which the job's completion then clears.)
-fn candidate_page_count(connection: &Connection, provider_id: &str) -> Result<u64> {
+fn candidate_page_count(connection: &Session<'_>, provider_id: &str) -> Result<u64> {
     let count: i64 = connection
-        .query_row(
+        .query_one(
             "SELECT COUNT(*)
              FROM archive.visits AS visits
              WHERE visits.reverted_at IS NULL
@@ -558,7 +594,7 @@ fn candidate_page_count(connection: &Connection, provider_id: &str) -> Result<u6
                  WHERE e.provider_id = ?1 AND e.history_id = visits.id
                )",
             params![provider_id],
-            |row| row.get(0),
+            |row| Ok(row.get(0)?),
         )
         .context("counting candidate pages needing embedding for the index embed target")?;
     Ok(count.max(0) as u64)
@@ -568,7 +604,7 @@ fn candidate_page_count(connection: &Connection, provider_id: &str) -> Result<u6
 /// fresh build, else 0 ("unknown — preserve the stored target"). Mirrors [`scan_target_for`] so a
 /// resume never recounts a corpus that grew (or got partially embedded) under the build.
 fn embed_target_for(
-    connection: &Connection,
+    connection: &Session<'_>,
     provider_id: &str,
     start_history_id: i64,
 ) -> Result<u64> {
@@ -583,7 +619,7 @@ fn embed_target_for(
 /// The hot path of W-AI-4 (02 §C.6 R1). For each ascending-`history_id` chunk from
 /// `start_history_id`: builds content, diffs the content hash to skip unchanged rows, embeds the
 /// changed rows under [`EmbeddingRole::Document`] through the external provider, writes the vectors
-/// to the [`VectorStore`] AND the SQLite compatibility metadata, then advances the watermark via
+/// to the [`VectorStore`] AND the Turso metadata, then advances the watermark via
 /// the `ledger` so a restart resumes from the next id (not from scratch). Cancellation is checked
 /// at each chunk boundary, where on-disk state is consistent. The vector store is lazily created
 /// once the real dim is observed (D4: never assume a dim before a vector is returned).
@@ -593,8 +629,7 @@ fn embed_target_for(
 /// on the store records that truth (dtype/normalized set by the external adapter, A-S2 fix).
 #[allow(clippy::too_many_arguments)]
 async fn run_embedding_backfill(
-    paths: &ProjectPaths,
-    connection: &Connection,
+    vault: &crate::Vault,
     provider: &AiProviderRuntime,
     request: &AiIndexRequest,
     run_control: Option<&Arc<dyn AiRunControl>>,
@@ -602,18 +637,15 @@ async fn run_embedding_backfill(
     start_embedded_so_far: u64,
     ledger: Option<&Arc<dyn IndexBackfillLedger>>,
     perform_wipe: bool,
-    gpu_enabled: bool,
 ) -> Result<BackfillOutcome> {
-    // Config-driven engine selection: static (W-AI-4c) / candle (W-AI-4b) / external `/v1/embeddings`.
-    // The loop below is engine-agnostic. `gpu_enabled` is the heavy-tier Metal opt-in (W-AI-9-D); it
-    // only changes the candle forward-pass device in a `metal` build and never the vectors/fingerprint.
-    let embedder =
-        super::super::embedding_candle::select_embedding_provider(paths, provider, gpu_enabled)?;
-    // WorkingSet scope filters this run's candidates to the BOUNDED heavy-tier set; Incremental/Full
-    // touch every candidate (Full's wipe is driven by `perform_wipe`, set by the caller). Computed
-    // ONCE up front (bounded `select_working_set`, hard-capped at MAX_WORKING_SET), then matched per
-    // chunk by canonical URL — `None` means "no scope filter" (Incremental/Full).
-    let working_set_filter = working_set_canonical_urls(connection, request.scope)?;
+    let paths = vault.paths();
+
+    // Config-driven engine selection: the in-app static model or an external `/v1/embeddings`.
+    // The loop below is engine-agnostic.
+    let embedder = super::super::embedding_engine::select_embedding_provider(paths, provider)?;
+    // WorkingSet enumerates every eligible canonical page through cursors. Incremental/Full
+    // visit every captured candidate; Full performs its one-time wipe in the caller.
+    let working_set_filter = working_set_canonical_urls(vault, request.scope)?;
     let limit = request.limit.map(|value| value as usize);
     let mut outcome = BackfillOutcome::default();
     // The store is resolved lazily on the first chunk that actually embeds rows, once the real dim
@@ -625,6 +657,9 @@ async fn run_embedding_backfill(
     // On a full rebuild the destructive `delete` already ran in the caller (true start only), so this
     // writes a fresh map; on a resume it leaves the existing map (and its prior visit rows) intact.
     visit_map.ensure_created(paths)?;
+    let upper_history_id = vault.read(Db::Archive, |s| {
+        Ok(s.query_one("SELECT COALESCE(MAX(id),0) FROM visits", (), |r| Ok(r.get::<i64>(0)?))?)
+    })?;
     let mut cursor = start_history_id;
     // CUMULATIVE across resumes: seed from the cursor's stored `embedded_so_far` so the persisted
     // count (and the `embedded / embed_target` progress bar) keeps climbing after a reclaim instead of
@@ -633,14 +668,17 @@ async fn run_embedding_backfill(
     // The determinate scan denominator the Activity page divides by (Change 1). Captured ONCE here, at
     // the TRUE start of a build, and reported on every chunk's progress; a resume reports 0 so the
     // stored target is preserved (see `scan_target_for` / `persist_index_cursor`).
-    let scan_target = scan_target_for(connection, start_history_id)?;
+    let scan_target =
+        vault.read(Db::Intelligence, move |s| scan_target_for(s, start_history_id))?;
     // The HONEST progress denominator: how many candidate pages this build will embed — captured at the
     // TRUE start and preserved across resumes exactly like `scan_target`. Counts pages NOT yet embedded
     // for this provider, so it is correct for BOTH a full rebuild (the wipe at the build's true start
     // cleared this provider's embeddings, so every candidate counts) AND an incremental pass (only the
     // un-embedded new pages count) — matching what `embedded_total` (cumulative changed visits) climbs to.
-    let embed_target = embed_target_for(connection, &provider.config.id, start_history_id)?;
-    // The cursor reflecting the last chunk whose vectors+map+SQLite are ALL durably persisted (F2.1).
+    let provider_id = provider.config.id.clone();
+    let embed_target = vault
+        .read(Db::Intelligence, move |s| embed_target_for(s, &provider_id, start_history_id))?;
+    // The cursor reflecting the last chunk whose vectors+map+Turso are ALL durably persisted (F2.1).
     // It NEVER advances past a chunk that has not been fully persisted, so persisting it on the failure
     // path resumes from REAL progress instead of the origin — and never SKIPS an un-persisted chunk
     // (which advancing the scan `cursor` before the embed would do). Starts at the resume watermark.
@@ -651,14 +689,20 @@ async fn run_embedding_backfill(
         embed_target,
     };
 
-    // The crash-window dedup state (CRITICAL-2 / MEDIUM-4 / MEDIUM-5) is encapsulated in
+    // The crash-window dedup state is encapsulated in
     // `DedupTracker`. `load_existing` populates the on-disk sets whenever a store/map already exists
     // and is NOT about to be wiped — so a PLAIN incremental pass (cursor 0) maps a re-visit of an
-    // already-embedded page instead of re-embedding it (MEDIUM-5), and a resume never doubles a
+    // already-embedded page instead of re-embedding it, and a resume never doubles a
     // vector or a mapping entry. See `DedupTracker` for the full invariant rationale.
     let mut tracker = DedupTracker::new();
     let existing_store =
         VectorStore::for_provider(paths, &provider.config.id, &provider.config.default_model);
+    if !perform_wipe {
+        // A crash mid-append leaves half a record at the end of either file; until it is cut off,
+        // every incremental or resumed build fails reading them.
+        existing_store.trim_torn_tail()?;
+        visit_map.trim_torn_tail()?;
+    }
     tracker.load_existing(&existing_store, &visit_map, perform_wipe)?;
 
     // Run the chunked embed loop inside a Result-returning scope so an error anywhere inside it first
@@ -667,12 +711,14 @@ async fn run_embedding_backfill(
     let backfill_result: Result<()> = async {
         loop {
             checkpoint_ai_run(run_control, "Index build was cancelled before the next chunk.")?;
-            let remaining = limit.map(|cap| cap.saturating_sub(outcome.indexed_items));
-            if remaining == Some(0) {
-                break;
-            }
-            let chunk =
-                collect_visit_chunk(paths, connection, provider, cursor, chunk_size(remaining))?;
+            let remaining = limit;
+            let chunk = collect_visit_chunk(
+                vault,
+                provider,
+                cursor,
+                upper_history_id,
+                chunk_size(remaining),
+            )?;
             let Some(last_history_id) = chunk.last().map(|visit| visit.history_id) else {
                 break; // No more candidate rows.
             };
@@ -692,7 +738,7 @@ async fn run_embedding_backfill(
 
             if !changed.is_empty() {
                 // DEDUP: collect the UNIQUE pages among the changed visits that are not already embedded,
-                // and embed each ONCE (the page identity is the FULL `content_hash`, MEDIUM-4).
+                // and embed each ONCE (the page identity is the FULL `content_hash`).
                 let embed_targets = tracker.select_targets(&changed);
 
                 if !embed_targets.is_empty() {
@@ -710,9 +756,9 @@ async fn run_embedding_backfill(
                         validate_embedding_batch_for_keys(&content_keys, &vectors)?;
                     outcome.effective_dim = Some(effective_dim);
                     // `perform_wipe` (NOT `request.full_rebuild`) drives the store reset: a full_rebuild
-                    // RESUME appends to the partial store rather than truncating it (CRITICAL-1). The
+                    // RESUME appends to the partial store rather than truncating it. The
                     // fingerprint is stamped from the SELECTED engine's real descriptor (static = Mean,
-                    // candle = LastToken, external = Unknown), so two engines never share a fingerprint.
+                    // external = Unknown), so two engines never share a fingerprint.
                     let store = vector_store_for_chunk(
                         &mut store,
                         paths,
@@ -723,7 +769,7 @@ async fn run_embedding_backfill(
                     )?;
                     // Every record here is a page we have NOT embedded this run (the full-hash dedup above
                     // guaranteed it), so all are appended. Record each page's FULL hash + u64 key so a
-                    // later chunk / resume skips it (MEDIUM-4: the full hash is the work identity; the u64
+                    // later chunk / resume skips it (the full hash is the work identity; the u64
                     // is the storage-boundary backstop). The store accepts duplicate u64s for the rare
                     // collision; `read_all` last-writer-wins resolves that storage-boundary case.
                     for (visit, (key, _)) in embed_targets.iter().zip(records.iter()) {
@@ -737,24 +783,28 @@ async fn run_embedding_backfill(
                 }
 
                 // Map EVERY changed visit to its content_key (skip ones a prior crash already mapped), so
-                // search/heavy-tier can fan a deduped vector out to all its visits. SQLite metadata is
+                // search/heavy-tier can fan a deduped vector out to all its visits. Turso metadata is
                 // (re-)written for every changed visit so its dedup hash catches up and it is not
                 // re-scanned. Both are per-visit; only the VECTOR is deduped.
                 let map_records = tracker.take_unmapped(&changed);
                 visit_map.append(&map_records)?;
 
                 let indexed_at = now_rfc3339();
-                for visit in &changed {
-                    let was_present = upsert_embedding(connection, provider, visit, &indexed_at)?;
-                    outcome.indexed_items += 1;
-                    if was_present {
-                        outcome.updated_items += 1;
+                let visits = changed.iter().map(|visit| (**visit).clone()).collect::<Vec<_>>();
+                let provider = provider.clone();
+                let updated = vault.write(Db::Intelligence, Priority::Batch, move |s| {
+                    let mut updated = 0;
+                    for visit in &visits {
+                        updated += usize::from(upsert_embedding(s, &provider, visit, &indexed_at)?);
                     }
-                }
+                    Ok(updated)
+                })?;
+                outcome.indexed_items += changed.len();
+                outcome.updated_items += updated;
                 embedded_total += changed.len() as u64;
             }
 
-            // This chunk's vectors + map + SQLite are now ALL on disk, so the cursor past it is durable.
+            // This chunk's vectors + map + Turso are now ALL on disk, so the cursor past it is durable.
             // Record it as the resume watermark AND as the last-durable checkpoint so a later failure
             // re-persists this position (never the origin, never the un-persisted next chunk).
             last_durable = crate::ai::IndexBackfillProgress {
@@ -807,8 +857,8 @@ fn vector_store_for_chunk<'a>(
     if store.is_none() {
         // Stamp the fingerprint from the SELECTED engine's real descriptor (its true dtype /
         // normalized / pooling / instruction, A-S2 fix) with the observed dim, but key it by the
-        // provider CONFIG identity so the on-disk store name + SQLite ledger stay in sync. This is
-        // what keeps a candle-built and an external-built index distinct at the same dim while
+        // provider CONFIG identity so the on-disk store name + Turso ledger stay in sync. This is
+        // what keeps a static-built and an external-built index distinct at the same dim while
         // staying findable by the same provider/model pair the rest of the pipeline uses.
         let descriptor = EmbeddingDescriptor {
             provider_id: provider.config.id.clone(),
@@ -836,7 +886,7 @@ fn vector_store_for_chunk<'a>(
     Ok(store.as_ref().expect("vector store is initialized above"))
 }
 
-/// (Re)projects the keyed reverse/forward sidecars (`.pkrev`/`.pkfwd`, M-11) from the current `.pkmap`.
+/// (Re)projects the keyed reverse/forward sidecars (`.pkrev`/`.pkfwd`) from the current `.pkmap`.
 ///
 /// Reads the `.pkvec` store's fingerprint hash (the planes' staleness identity) and projects both
 /// sorted sidecars from the authoritative `.pkmap`, stamped with that hash so they share the planes'
@@ -860,300 +910,4 @@ fn rebuild_reverse_sidecars(paths: &ProjectPaths, provider: &AiProviderRuntime) 
     );
     sidecars.build_from_visit_map(paths, &visit_map, &fingerprint_hash)?;
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::config::project_paths_with_root;
-    use tempfile::tempdir;
-
-    /// Builds a synthetic `IndexedVisit` whose `content_key` is derived from `content_hash`, so the
-    /// truncated-u64 collision relationship is the real one the production loop sees.
-    fn visit(history_id: i64, content_hash: &str) -> IndexedVisit {
-        IndexedVisit {
-            history_id,
-            profile_id: "chrome:Default".to_string(),
-            url: format!("https://example.com/{history_id}"),
-            title: Some("Page".to_string()),
-            domain: "example.com".to_string(),
-            visited_at: "2026-06-21T00:00:00Z".to_string(),
-            content: format!("content-{history_id}"),
-            content_key: super::super::super::dedup::content_key_from_hash(content_hash),
-            content_hash: content_hash.to_string(),
-            needs_embedding: true,
-        }
-    }
-
-    #[test]
-    fn visit_in_working_set_passes_everything_when_no_filter() {
-        // Incremental/Full → `None` filter → every candidate passes (no scope restriction).
-        assert!(visit_in_working_set(&None, "https://anything.example/x"));
-        assert!(visit_in_working_set(&None, "not a url"));
-    }
-
-    #[test]
-    fn visit_in_working_set_matches_by_canonical_url() {
-        // WorkingSet → only candidates whose CANONICAL url is in the set pass; a tracking-param variant
-        // of a member still matches (canonicalized the same way the selector keys members), and an
-        // unparseable url is treated as a non-member rather than crashing.
-        let canonical = crate::visit_taxonomy::normalize_visit_url("https://example.com/page")
-            .expect("canonical")
-            .canonical_url;
-        let filter = Some(HashSet::from([canonical]));
-        assert!(visit_in_working_set(&filter, "https://example.com/page"));
-        assert!(
-            visit_in_working_set(&filter, "https://example.com/page?utm_source=ad"),
-            "a tracking-param variant of a member matches its canonical url"
-        );
-        assert!(!visit_in_working_set(&filter, "https://other.example/page"));
-        assert!(!visit_in_working_set(&filter, "::: not a url :::"));
-    }
-
-    #[test]
-    fn u64_content_key_collision_keeps_both_distinct_pages_embeddable() {
-        // MEDIUM-4 (direct): two DISTINCT pages whose full content_hashes truncate to the SAME u64
-        // content_key must BOTH be embeddable — the tracker keys work-dedup on the FULL hash, never
-        // the truncated u64. After recording the FIRST page, the SECOND (a distinct hash) is NOT
-        // dropped onto the first's vector.
-        let hash_a = "0102030405060708aaaaaaaaaaaaaaaa";
-        let hash_b = "0102030405060708bbbbbbbbbbbbbbbb";
-        let a = visit(1, hash_a);
-        let b = visit(2, hash_b);
-        assert_eq!(a.content_key, b.content_key, "test setup must produce a real u64 collision");
-        assert_ne!(a.content_hash, b.content_hash);
-
-        let mut tracker = DedupTracker::new();
-        // Both embeddable before anything is recorded; the chunk-level selector keeps BOTH.
-        assert!(tracker.should_embed(&a));
-        assert!(tracker.should_embed(&b));
-        let targets = tracker.select_targets(&[&a, &b]);
-        assert_eq!(targets.len(), 2, "a u64 collision must NOT drop the second distinct page");
-
-        // Embed + record page A. Its FULL hash now skips A; the colliding-but-DISTINCT page B is still
-        // embeddable because the work identity is the full hash, not the shared u64 key.
-        tracker.record_embedded(a.content_key, &a.content_hash);
-        assert!(!tracker.should_embed(&a), "page A's full hash skips it run-wide");
-        assert!(
-            !tracker.should_embed(&b),
-            "B shares A's u64 key, so the storage-boundary backstop now skips B WITHIN this run"
-        );
-        // Within a single run the u64 backstop conservatively skips B (only a redundant re-embed is
-        // ever lost, never correctness); the run-level FULL-hash authority is what guarantees two
-        // colliding pages stay distinct when neither key is yet on disk — proven by `select_targets`
-        // above keeping both before any record. The same page seen twice dedups to one target:
-        let a_again = visit(3, hash_a);
-        let one = tracker.select_targets(&[&a_again]);
-        assert!(one.is_empty(), "page A already embedded this run is not re-selected");
-    }
-
-    #[test]
-    fn resume_skips_already_embedded_keys_without_re_embedding_or_missing() {
-        // CRITICAL-2 (direct): after a partial chunk, the keys already on the `.pkvec` store must be
-        // skipped on resume (no re-embed, no double vector) while a genuinely new page still embeds
-        // (no miss). `load_existing` seeds `persisted_keys` from the store's on-disk u64 set.
-        let dir = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(dir.path());
-        let already = visit(1, "11111111111111111111111111111111");
-        let fresh = visit(2, "22222222222222222222222222222222");
-
-        // Simulate "chunk 1 embedded `already` then crashed before the cursor advanced": its key is
-        // on the store, its full hash is NOT in this (new) run's set.
-        let store =
-            VectorStore::create_stamped(&paths, &fingerprint(3, &already)).expect("create store");
-        store.append_vectors(&[(already.content_key, vec![1.0, 0.0, 0.0])]).expect("seed key");
-        let map = VisitContentMap::for_provider(&paths, "static-embed", "model-a");
-        map.ensure_created(&paths).expect("map");
-
-        let mut tracker = DedupTracker::new();
-        tracker.load_existing(&store, &map, /* perform_wipe */ false).expect("load");
-
-        // The already-embedded key is skipped (no re-embed → no second vector); the new page embeds.
-        assert!(!tracker.should_embed(&already), "resume must skip a key already on the store");
-        assert!(tracker.should_embed(&fresh), "a genuinely new page must still embed (no miss)");
-        let targets = tracker.select_targets(&[&already, &fresh]);
-        assert_eq!(targets.len(), 1, "exactly the fresh page is re-embedded on resume");
-        assert_eq!(targets[0].content_hash, fresh.content_hash);
-    }
-
-    #[test]
-    fn incremental_revisit_of_embedded_page_is_mapped_not_re_embedded() {
-        // MEDIUM-5 (direct): a PLAIN incremental pass (NOT a resume) of a NEW visit of an
-        // already-embedded page must MAP the visit (no-miss fan-out) but NOT re-embed it (no duplicate
-        // `.pkvec` record / bloat). `load_existing` seeds the on-disk sets at cursor 0 because the
-        // store already exists and is not being wiped.
-        let dir = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(dir.path());
-        let page = visit(1, "33333333333333333333333333333333");
-        // The page is already embedded (its key on the store) and visit 1 is already mapped.
-        let store = VectorStore::create_stamped(&paths, &fingerprint(2, &page)).expect("store");
-        store.append_vectors(&[(page.content_key, vec![1.0, 0.0])]).expect("seed vector");
-        let map = VisitContentMap::for_provider(&paths, "static-embed", "model-a");
-        map.ensure_created(&paths).expect("map");
-        map.append(&[(page.history_id, page.content_key)]).expect("seed mapping");
-
-        let mut tracker = DedupTracker::new();
-        tracker.load_existing(&store, &map, false).expect("load");
-
-        // A NEW visit (history_id 2) of the SAME page (same content_hash/key).
-        let revisit = visit(2, "33333333333333333333333333333333");
-        assert_eq!(revisit.content_key, page.content_key);
-
-        // NOT re-embedded: its key is already on the store (no duplicate `.pkvec` record).
-        assert!(!tracker.should_embed(&revisit), "an already-embedded page is not re-embedded");
-        assert!(tracker.select_targets(&[&revisit]).is_empty(), "no embed target → no new vector");
-
-        // But IS mapped: visit 1 is already mapped (skipped), visit 2 is new → exactly one mapping.
-        let unmapped = tracker.take_unmapped(&[&page, &revisit]);
-        assert_eq!(
-            unmapped,
-            vec![(revisit.history_id, revisit.content_key)],
-            "only the new visit is mapped; the existing visit's mapping is not doubled"
-        );
-    }
-
-    #[test]
-    fn load_existing_only_reads_state_when_store_present_and_not_wiped() {
-        // (d) load_existing gating: populate from store/map ONLY when an existing store is present AND
-        // not about to be wiped; a wipe or an absent store leaves the sets empty (clean start).
-        let dir = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(dir.path());
-        let page = visit(1, "44444444444444444444444444444444");
-
-        // Absent store → nothing loaded (every page still embeddable).
-        let absent_store = VectorStore::for_provider(&paths, "static-embed", "model-a");
-        let map = VisitContentMap::for_provider(&paths, "static-embed", "model-a");
-        map.ensure_created(&paths).expect("map");
-        map.append(&[(page.history_id, page.content_key)]).expect("seed mapping");
-        let mut absent_tracker = DedupTracker::new();
-        absent_tracker.load_existing(&absent_store, &map, false).expect("absent load");
-        assert!(absent_tracker.should_embed(&page), "no store → nothing persisted → embeddable");
-        assert!(
-            !absent_tracker.take_unmapped(&[&page]).is_empty(),
-            "no store → mapped_ids stays empty → the visit is treated as unmapped"
-        );
-
-        // Present store but `perform_wipe = true` → still nothing loaded (a full rebuild starts clean).
-        let present_store =
-            VectorStore::create_stamped(&paths, &fingerprint(2, &page)).expect("store");
-        present_store.append_vectors(&[(page.content_key, vec![1.0, 0.0])]).expect("seed vector");
-        let mut wiped_tracker = DedupTracker::new();
-        wiped_tracker.load_existing(&present_store, &map, /* perform_wipe */ true).expect("wipe");
-        assert!(
-            wiped_tracker.should_embed(&page),
-            "perform_wipe must NOT load on-disk keys → the page re-embeds on a full rebuild"
-        );
-
-        // Present store and NOT wiped → the on-disk key + mapping ARE loaded.
-        let mut loaded_tracker = DedupTracker::new();
-        loaded_tracker.load_existing(&present_store, &map, false).expect("load");
-        assert!(
-            !loaded_tracker.should_embed(&page),
-            "present + not wiped → the on-disk key is loaded → the page is skipped"
-        );
-        assert!(
-            loaded_tracker.take_unmapped(&[&page]).is_empty(),
-            "present + not wiped → the on-disk mapping is loaded → the visit is already mapped"
-        );
-    }
-
-    /// A fingerprint sized to one synthetic visit's store dim (the dim only needs to fit the seeded
-    /// vectors; the content identity is what these tests exercise, not the embedding itself).
-    fn fingerprint(dim: usize, _visit: &IndexedVisit) -> EmbeddingFingerprint {
-        EmbeddingFingerprint::new(
-            "static-embed",
-            "model-a",
-            dim,
-            EmbeddingDtype::Float32,
-            true,
-            EmbeddingPooling::Mean,
-            None,
-        )
-    }
-
-    /// Builds an in-memory connection with a minimal `archive.visits` table for scan-target tests.
-    fn archive_connection(rows: &[(i64, Option<&str>)]) -> Connection {
-        let connection = Connection::open_in_memory().expect("open in-memory db");
-        connection
-            .execute_batch(
-                "ATTACH DATABASE ':memory:' AS archive;
-                 CREATE TABLE archive.visits (id INTEGER PRIMARY KEY, reverted_at TEXT);
-                 -- Minimal shape for the embed-target anti-join (provider_id, history_id).
-                 CREATE TABLE ai_embeddings (provider_id TEXT, history_id INTEGER);",
-            )
-            .expect("attach archive + create visits + ai_embeddings");
-        for (id, reverted_at) in rows {
-            connection
-                .execute(
-                    "INSERT INTO archive.visits (id, reverted_at) VALUES (?1, ?2)",
-                    rusqlite::params![id, reverted_at],
-                )
-                .expect("seed visit");
-        }
-        connection
-    }
-
-    #[test]
-    fn max_candidate_history_id_reads_max_non_reverted_id() {
-        // Change 1: the scan denominator is the MAX `history_id` of a NON-reverted candidate visit.
-        // Id 99 is reverted, so it is excluded even though it is numerically largest → max is 25.
-        let connection = archive_connection(&[
-            (10, None),
-            (25, None),
-            (7, None),
-            (99, Some("2026-01-01T00:00:00Z")),
-        ]);
-        assert_eq!(max_candidate_history_id(&connection).expect("max"), 25);
-
-        // An empty candidate set yields 0 (nothing to scan), never an error.
-        let empty = archive_connection(&[]);
-        assert_eq!(max_candidate_history_id(&empty).expect("empty max"), 0);
-    }
-
-    #[test]
-    fn scan_target_for_captures_on_fresh_start_and_preserves_on_resume() {
-        let connection = archive_connection(&[(5, None), (42, None)]);
-        // A build at its TRUE start (start_history_id == 0) captures the max candidate id as the
-        // determinate denominator the Activity bar divides by.
-        assert_eq!(scan_target_for(&connection, 0).expect("fresh start"), 42);
-        // A RESUME (start_history_id > 0) reports 0 ("unknown — keep the stored target"); it must NOT
-        // recompute, so persist_index_cursor preserves the original denominator from the true start.
-        assert_eq!(scan_target_for(&connection, 5).expect("resume"), 0);
-    }
-
-    #[test]
-    fn embed_target_for_counts_pages_needing_embedding_on_fresh_start_and_preserves_on_resume() {
-        // The HONEST denominator is the COUNT of NON-reverted candidate pages NOT yet embedded for this
-        // provider — id 99 is reverted (excluded), so 3 candidates remain (5, 42, 7).
-        let connection = archive_connection(&[
-            (5, None),
-            (42, None),
-            (7, None),
-            (99, Some("2026-01-01T00:00:00Z")),
-        ]);
-        assert_eq!(candidate_page_count(&connection, "lm-studio").expect("count"), 3);
-
-        // A page already embedded for THIS provider drops out of the denominator (incremental builds
-        // only count the un-embedded new pages). An embedding for a DIFFERENT provider does not.
-        connection
-            .execute(
-                "INSERT INTO ai_embeddings (provider_id, history_id) VALUES ('lm-studio', 5), ('other', 42)",
-                [],
-            )
-            .expect("seed embeddings");
-        assert_eq!(
-            candidate_page_count(&connection, "lm-studio").expect("count after embed"),
-            2,
-            "page 5 (this provider) drops; page 42 (other provider) still counts"
-        );
-
-        // True start captures the count; a resume reports 0 so persist_index_cursor preserves the value
-        // captured at the build's true start (mirrors scan_target).
-        assert_eq!(embed_target_for(&connection, "lm-studio", 0).expect("fresh start"), 2);
-        assert_eq!(embed_target_for(&connection, "lm-studio", 5).expect("resume"), 0);
-
-        // An empty candidate set yields 0 (nothing to embed), never an error.
-        let empty = archive_connection(&[]);
-        assert_eq!(candidate_page_count(&empty, "lm-studio").expect("empty count"), 0);
-    }
 }

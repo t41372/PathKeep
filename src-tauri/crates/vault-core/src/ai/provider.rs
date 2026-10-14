@@ -16,10 +16,7 @@
 //! - shared provider/runtime types and rig.rs imports from the parent `ai` module
 //!
 //! ## Performance notes
-//! - embedding helpers batch requests where possible and retry only a bounded number
-//!   of times
-//! - rate-limited failures do not spin through retries, which avoids making quota
-//!   pressure worse on a constrained host or provider account
+//! - embedding helpers batch requests where possible
 
 use super::llm::rig_llm_capabilities;
 use super::read_model::provider_capabilities;
@@ -29,11 +26,11 @@ use crate::models::LlmProviderCapabilityReport;
 
 /// Test-only synthetic dimension used by the deterministic embedding stubs.
 ///
-/// Coverage builds never reach a live provider, so the stub must pick a length when the
+/// Tests never reach a live provider, so the stub must pick a length when the
 /// config does not request a specific dim. This is an arbitrary small number with NO
 /// relationship to any real model's native dimension — picking a real dim (1536/768) here
 /// is exactly the D4 truth-assumption this block removes.
-#[cfg(any(test, coverage))]
+#[cfg(test)]
 const STUB_SYNTHETIC_DIM: usize = 8;
 
 /// L2-normalizes a vector in place, guarding against degenerate (zero / non-finite) inputs.
@@ -72,8 +69,8 @@ pub(super) fn l2_normalize(vector: &mut [f32]) {
 /// userinfo, port, path, query, and fragment are preserved verbatim. A host that merely CONTAINS
 /// the substring (`localhost.example.com`, `mylocalhost`) is left untouched — it is a different,
 /// real host. IPv6 literals (`[::1]`), already-numeric hosts (`127.0.0.1`), cloud hosts, and the
-/// candle in-app sentinel (`candle:in-app`, which has no `://` and whose "host" token is `candle`)
-/// all fall through unchanged. Pure and total: any input that does not present a `localhost` host
+/// in-app sentinel (`static:in-app`, which has no `://` and whose "host" token is `static`) all
+/// fall through unchanged. Pure and total: any input that does not present a `localhost` host
 /// label is returned as an owned copy of the original.
 pub(super) fn normalize_local_base_url(base_url: &str) -> String {
     // Locate the authority. With a scheme, the authority begins right after `://`; without one
@@ -115,6 +112,33 @@ pub(super) fn normalize_local_base_url(base_url: &str) -> String {
     out.push_str("127.0.0.1");
     out.push_str(&base_url[host_end..]);
     out
+}
+
+/// The OpenAI-compatible API root that `/embeddings` and `/chat/completions` hang off.
+///
+/// Exists because people paste the address their local server shows them. LM Studio shows
+/// `http://127.0.0.1:1234` and Ollama `http://localhost:11434`, both without the `/v1` their
+/// OpenAI-compatible API lives under, and some paste a whole endpoint
+/// (`…/v1/embeddings`). LM Studio answers a wrong path with HTTP 200 and an error body, so a
+/// wrong root used to fail as "could not parse the response". For LM Studio and Ollama a root
+/// with no path gets `/v1`; for every format a trailing `/embeddings` or `/chat/completions` is
+/// dropped, and `localhost` is pinned to IPv4 (`normalize_local_base_url`). Other paths are
+/// kept: an OpenAI-compatible cloud service may live anywhere.
+pub(super) fn openai_api_root(base_url: &str, format: &AiRequestFormat) -> String {
+    let normalized = normalize_local_base_url(base_url.trim());
+    let mut root = normalized.trim_end_matches('/');
+    for endpoint in ["/embeddings", "/chat/completions"] {
+        if let Some(stripped) = root.strip_suffix(endpoint) {
+            root = stripped.trim_end_matches('/');
+        }
+    }
+    let path_is_empty =
+        root.find("://").is_some_and(|scheme_end| !root[scheme_end + 3..].contains('/'));
+    if path_is_empty && matches!(format, AiRequestFormat::LmStudio | AiRequestFormat::Ollama) {
+        format!("{root}/v1")
+    } else {
+        root.to_string()
+    }
 }
 
 /// Whether the transport should request the model's native embedding dimension, or a
@@ -169,15 +193,14 @@ pub(super) fn embedding_descriptor_for(
         model_id: provider.config.default_model.clone(),
         effective_dim,
         // TODO(W-AI-4): these two are transport-defaults valid ONLY for the current float32 +
-        // L2-normalized rig path. Per-provider adapters (candle, Voyage/Cohere int8) MUST set
+        // L2-normalized rig path. Per-provider adapters (Voyage/Cohere int8) MUST set
         // dtype/normalized from the real transport before any fingerprint built from this
         // descriptor is persisted — otherwise two distinct encodings could share a fingerprint
         // (A-S2). `EmbeddingFingerprint::from_descriptor` has no production caller until then.
         dtype: EmbeddingDtype::Float32,
         // Vectors leave this layer L2-normalized via `l2_normalize`.
         normalized: true,
-        // rig's hosted `/v1/embeddings` path does not expose pooling; it stays unknown until
-        // the in-app candle engine (which owns its pooling) lands.
+        // rig's hosted `/v1/embeddings` path does not expose pooling.
         pooling: EmbeddingPooling::Unknown,
         instruction_template: None,
     }
@@ -192,7 +215,7 @@ pub(super) fn embedding_descriptor_for(
 pub(super) struct ProviderReadiness {
     pub available: bool,
     pub warning: Option<String>,
-    /// Stable index-health warning CODE for the unavailable reason (review-fix M-7). `Some` whenever
+    /// Stable index-health warning CODE for the unavailable reason. `Some` whenever
     /// `available` is false; the read model carries it onto `AiIndexStatus.warning_code` so the FE
     /// localizes the exact missing prerequisite (provider missing / disabled / no key / no model)
     /// instead of matching the English `warning` sentence.
@@ -288,7 +311,9 @@ pub(super) fn provider_connection_report_from_probe(
             ..AiProviderConnectionTestReport::default()
         }),
         Err(error) => {
-            let (error_code, action_hint, retry_hint) = classify_provider_error(&error.to_string());
+            // The whole chain: the reason ("connection refused") is below the client's message.
+            let (error_code, action_hint, retry_hint) =
+                classify_provider_error(&format!("{error:#}"));
             Ok(AiProviderConnectionTestReport {
                 provider_id: provider.config.id.clone(),
                 purpose: match provider.config.purpose {
@@ -304,7 +329,8 @@ pub(super) fn provider_connection_report_from_probe(
                 action_hint,
                 retry_hint,
                 warnings: Vec::new(),
-                message: error.to_string(),
+                // The whole chain: the service's own words are often below our context.
+                message: format!("{error:#}"),
             })
         }
     }
@@ -397,10 +423,21 @@ pub(super) fn classify_provider_error(
             Some("Save the model selection and test again.".to_string()),
         );
     }
+    // LM Studio's answer to a path it does not serve, and a plain 404 from anyone else: the
+    // address reaches a server, but not its OpenAI-compatible API.
+    if normalized.contains("unexpected endpoint") || normalized.contains("status 404") {
+        return (
+            Some("bad-endpoint".to_string()),
+            Some("Check the base URL: it should end where the API starts, often /v1.".to_string()),
+            Some("Save the address and test again.".to_string()),
+        );
+    }
+    // "error sending request" is how the HTTP client says nothing answered at the address.
     if normalized.contains("timed out")
         || normalized.contains("dns")
         || normalized.contains("refused")
         || normalized.contains("network")
+        || normalized.contains("error sending request")
     {
         return (
             Some("network-error".to_string()),
@@ -422,7 +459,7 @@ pub(super) fn classify_provider_error(
 /// Semantic search should degrade honestly before any build/search call starts. This
 /// helper lets the status read model explain the exact missing prerequisite.
 pub(super) fn embedding_provider_readiness(config: &AppConfig) -> ProviderReadiness {
-    // Build each unavailable readiness from its stable warning CODE (review-fix M-7), deriving the
+    // Build each unavailable readiness from its stable warning CODE, deriving the
     // legacy English `warning` from the same code so the wire carries a localizable code and the
     // FE never falls back to English-sentence matching.
     fn unavailable(code: AiIndexWarning, selected_model: Option<String>) -> ProviderReadiness {
@@ -475,7 +512,6 @@ pub(super) fn embedding_provider_readiness(config: &AppConfig) -> ProviderReadin
 ///
 /// Assistant runs centralize model dispatch here so request-format-specific rig.rs wiring
 /// does not leak into retrieval or run-ledger code.
-#[cfg(not(any(test, coverage)))]
 pub(super) async fn run_llm_agent(
     provider: &AiProviderRuntime,
     preamble: &str,
@@ -491,14 +527,15 @@ pub(super) async fn run_llm_agent(
         AiRequestFormat::OpenAi | AiRequestFormat::Ollama | AiRequestFormat::LmStudio => {
             let mut builder = openai::CompletionsClient::builder().api_key(api_key);
             if let Some(base_url) = provider.config.base_url.as_deref() {
-                builder = builder.base_url(normalize_local_base_url(base_url));
+                builder =
+                    builder.base_url(openai_api_root(base_url, &provider.config.request_format));
             }
             let client = builder.build()?;
             let agent = client
                 .agent(provider.config.default_model.clone())
                 .preamble(preamble)
                 .temperature(provider.config.temperature.unwrap_or(0.2) as f64)
-                .max_tokens(provider.config.max_tokens.unwrap_or(1200).into())
+                .max_tokens(super::llm::DEFAULT_ANSWER_TOKENS.into())
                 .tools(tools)
                 .build();
             Ok(agent.prompt(question).await?)
@@ -513,7 +550,7 @@ pub(super) async fn run_llm_agent(
                 .agent(provider.config.default_model.clone())
                 .preamble(preamble)
                 .temperature(provider.config.temperature.unwrap_or(0.2) as f64)
-                .max_tokens(provider.config.max_tokens.unwrap_or(1200).into())
+                .max_tokens(super::llm::DEFAULT_ANSWER_TOKENS.into())
                 .tools(tools)
                 .build();
             Ok(agent.prompt(question).await?)
@@ -528,116 +565,12 @@ pub(super) async fn run_llm_agent(
                 .agent(provider.config.default_model.clone())
                 .preamble(preamble)
                 .temperature(provider.config.temperature.unwrap_or(0.2) as f64)
-                .max_tokens(provider.config.max_tokens.unwrap_or(1200).into())
+                .max_tokens(super::llm::DEFAULT_ANSWER_TOKENS.into())
                 .tools(tools)
                 .build();
             Ok(agent.prompt(question).await?)
         }
     }
-}
-
-/// Returns a deterministic stubbed LLM response for tests and coverage builds.
-///
-/// Tests need stable outputs without hitting a live provider. Keeping the stub here
-/// preserves the same public call graph as production without adding network flakiness.
-#[cfg(any(test, coverage))]
-pub(super) async fn run_llm_agent(
-    provider: &AiProviderRuntime,
-    preamble: &str,
-    tools: Vec<Box<dyn ToolDyn>>,
-    question: &str,
-) -> Result<String> {
-    if provider.config.id.contains("llm-error") {
-        anyhow::bail!("forced coverage LLM error");
-    }
-    let provider_label = match provider.config.request_format {
-        AiRequestFormat::OpenAi => "openai",
-        AiRequestFormat::Ollama => "ollama",
-        AiRequestFormat::LmStudio => "lmstudio",
-        AiRequestFormat::Anthropic => "anthropic",
-        AiRequestFormat::Google => "google",
-    };
-    let preamble_summary =
-        preamble.lines().next().unwrap_or_default().trim().chars().take(24).collect::<String>();
-    Ok(format!(
-        "{provider_label} stub answer to '{question}' with {} tools [{preamble_summary}]",
-        tools.len()
-    ))
-}
-
-/// Retries one embedding batch a bounded number of times before surfacing failure.
-///
-/// Batch retries amortize transient provider errors without exploding total request
-/// volume. Rate-limit responses deliberately skip retries so PathKeep does not make
-/// the provider situation worse.
-#[cfg(test)]
-pub(super) async fn embed_batch_with_retry(
-    provider: &AiProviderRuntime,
-    texts: &[String],
-    role: EmbeddingRole,
-) -> Result<Vec<Vec<f32>>> {
-    let mut attempts = 0usize;
-    loop {
-        match embed_text_batch(provider, texts, role).await {
-            Ok(vectors) => return Ok(vectors),
-            Err(error) if should_retry_embedding_error(&error, &mut attempts) => {}
-            Err(error) => return Err(error),
-        }
-    }
-}
-
-/// Retries one single-text embedding request when the batch path fell back to per-row mode.
-#[cfg(test)]
-pub(super) async fn embed_single_with_retry(
-    provider: &AiProviderRuntime,
-    text: &str,
-    role: EmbeddingRole,
-) -> Result<Vec<f32>> {
-    let mut attempts = 0usize;
-    loop {
-        match embed_query(provider, text, role).await {
-            Ok(vector) => return Ok(vector),
-            Err(error) if should_retry_embedding_error(&error, &mut attempts) => {}
-            Err(error) => return Err(error),
-        }
-    }
-}
-
-#[cfg(test)]
-pub(super) fn should_retry_embedding_error(error: &anyhow::Error, attempts: &mut usize) -> bool {
-    if *attempts >= EMBEDDING_RETRY_ATTEMPTS {
-        return false;
-    }
-    *attempts += 1;
-    !embedding_error_is_rate_limited(error)
-}
-
-/// Detects whether an embedding failure should bypass retries and surface immediately.
-#[cfg(test)]
-pub(super) fn embedding_error_is_rate_limited(error: &anyhow::Error) -> bool {
-    let message = error.to_string().to_lowercase();
-    message.contains("rate limit") || message.contains("quota") || message.contains("429")
-}
-
-/// Returns deterministic embedding vectors for tests and coverage builds.
-#[cfg(test)]
-pub(super) async fn embed_text_batch(
-    provider: &AiProviderRuntime,
-    texts: &[String],
-    role: EmbeddingRole,
-) -> Result<Vec<Vec<f32>>> {
-    #[cfg(coverage)]
-    {
-        if provider.config.id.contains("batch-error") {
-            anyhow::bail!("forced coverage batch embedding error");
-        }
-        if provider.config.id.contains("batch-short") {
-            return Ok(Vec::new());
-        }
-    }
-
-    let dimensions = stub_embedding_dimensions(provider)?;
-    Ok(texts.iter().map(|text| stub_embedding_vector(provider, text, role, dimensions)).collect())
 }
 
 /// Executes one single-text embedding request against the configured provider.
@@ -652,28 +585,32 @@ pub(super) async fn embed_text_batch(
 /// - the returned vector is defensively L2-normalized.
 /// - the `role` threads to the call (instruction injection arrives with per-provider
 ///   descriptors in W-AI-4; rig's hosted `/v1/embeddings` path has no role hook today).
-#[cfg(not(any(test, coverage)))]
+#[cfg(not(test))]
 pub(super) async fn embed_query(
     provider: &AiProviderRuntime,
     query: &str,
-    _role: EmbeddingRole,
+    role: EmbeddingRole,
 ) -> Result<Vec<f32>> {
     let requested_dim = resolve_embed_request_dim(provider)?;
-    // OPTIONAL key (see `AiProviderRuntime::api_key_for_transport`): forward a present, non-blank
-    // secret as the token; an absent key sends an empty one. rig 0.34's openai/gemini clients still
-    // emit an auth header (upstream limitation, see `llm.rs` module note), but a keyless local model
-    // ignores it. The DOMINANT embedding flow — the index backfill — runs through the reqwest
-    // `ExternalEmbeddingProvider`, which genuinely omits the header when keyless. We keep rig here
-    // (rather than rerouting) so an OpenAI provider WITHOUT an explicit base URL still resolves to
-    // rig's hosted default instead of erroring on the external adapter's required base URL.
-    let api_key = provider.api_key_for_transport().unwrap_or_default();
     match provider.config.request_format {
         AiRequestFormat::OpenAi | AiRequestFormat::Ollama | AiRequestFormat::LmStudio => {
-            let mut builder = openai::Client::builder().api_key(api_key);
-            if let Some(base_url) = provider.config.base_url.as_deref() {
-                builder = builder.base_url(normalize_local_base_url(base_url));
+            // A configured endpoint (a local server, a proxy) goes through the adapter the index
+            // backfill uses, which sends no auth header when there is no key: a keyless local
+            // server must not get an empty `Bearer` (intelligence.md). Only OpenAI's own hosted
+            // service, which always needs a key, goes through rig.
+            if provider.config.base_url.is_some() {
+                let embedder =
+                    super::embedding_external::ExternalEmbeddingProvider::new(provider.clone())?;
+                return embedder
+                    .embed(&[query.to_string()], role)
+                    .await?
+                    .pop()
+                    .context("the embedding provider returned no vector");
             }
-            let client = builder.build()?;
+            let api_key = provider
+                .api_key_for_transport()
+                .context("OpenAI's embedding service needs an API key")?;
+            let client = openai::Client::builder().api_key(api_key).build()?;
             let embedding = match requested_dim {
                 Some(ndims) => {
                     client
@@ -691,6 +628,9 @@ pub(super) async fn embed_query(
             Ok(finalize_embedding_vector(embedding.vec))
         }
         AiRequestFormat::Google => {
+            let api_key = provider
+                .api_key_for_transport()
+                .context("Gemini's embedding API needs an API key")?;
             let mut builder = gemini::Client::builder().api_key(api_key);
             if let Some(base_url) = provider.config.base_url.as_deref() {
                 builder = builder.base_url(normalize_local_base_url(base_url));
@@ -717,27 +657,20 @@ pub(super) async fn embed_query(
 ///
 /// The returned length is the truth for the effective dimension; callers must read
 /// `vec.len()` rather than trusting config `dimensions`.
-#[cfg(not(any(test, coverage)))]
+#[cfg(not(test))]
 fn finalize_embedding_vector(vec: Vec<f64>) -> Vec<f32> {
     let mut out: Vec<f32> = vec.into_iter().map(|value| value as f32).collect();
     l2_normalize(&mut out);
     out
 }
 
-/// Returns deterministic single-text embedding vectors for tests and coverage builds.
-#[cfg(any(test, coverage))]
+/// Returns deterministic single-text embedding vectors for tests.
+#[cfg(test)]
 pub(super) async fn embed_query(
     provider: &AiProviderRuntime,
     query: &str,
     role: EmbeddingRole,
 ) -> Result<Vec<f32>> {
-    #[cfg(coverage)]
-    {
-        if provider.config.id.contains("single-error") {
-            anyhow::bail!("forced coverage single embedding error");
-        }
-    }
-
     let dimensions = stub_embedding_dimensions(provider)?;
     Ok(stub_embedding_vector(provider, query, role, dimensions))
 }
@@ -748,13 +681,13 @@ pub(super) async fn embed_query(
 /// enforces identical semantics (incl. the Gemini-requires-explicit-dim and Anthropic-no-embed
 /// rules). A native-dim request (`None`) maps to [`STUB_SYNTHETIC_DIM`], a value with no
 /// relation to any real model's native size.
-#[cfg(any(test, coverage))]
+#[cfg(test)]
 pub(super) fn stub_embedding_dimensions(provider: &AiProviderRuntime) -> Result<usize> {
     Ok(resolve_embed_request_dim(provider)?.unwrap_or(STUB_SYNTHETIC_DIM))
 }
 
 /// Produces one deterministic, role-aware, L2-normalized stub embedding vector.
-#[cfg(any(test, coverage))]
+#[cfg(test)]
 pub(super) fn stub_embedding_vector(
     provider: &AiProviderRuntime,
     text: &str,

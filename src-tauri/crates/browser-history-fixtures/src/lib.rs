@@ -1,12 +1,12 @@
 //! Deterministic browser-history fixtures for PathKeep ingest tests.
 //!
 //! ## Responsibilities
-//! - Write real-format browser history files (Chromium `History` SQLite today;
-//!   Firefox / Safari / Takeout to follow) from declarative record structs.
+//! - Write real-format browser history files (Chromium `History` and `Favicons`, Firefox
+//!   `places.sqlite`, Safari `History.db`, Takeout JSON) from declarative record structs.
 //! - Convert between human-readable Unix times and the on-disk epochs each
 //!   browser uses, so fixture authors never write raw epoch math.
-//! - Stay self-validating: every generator is paired with a round-trip test
-//!   that proves PathKeep's real parser reads the fixture back as expected.
+//! - Stay faithful to each browser's real schema. A writer that drifts makes the parser and
+//!   vault-core tests that read its files fail.
 //!
 //! ## Not responsible for
 //! - Sampling real user data. Every fixture is programmatically synthesized;
@@ -22,8 +22,8 @@
 //!   writing real History databases.
 //! - Epoch conversions are implemented in `time.rs` with plain integer
 //!   arithmetic — no `chrono` dependency. The constants are pinned to
-//!   `vault_core::utils::CHROME_UNIX_EPOCH_OFFSET_MICROS` and verified
-//!   by round-trip tests against the production parser.
+//!   `vault_core::utils::CHROME_UNIX_EPOCH_OFFSET_MICROS`; a wrong one shows up as wrong
+//!   dates in the tests that read fixture files through the parser.
 //!
 //! ## Performance notes
 //! - Fixture writes use a single transaction per database; bulk-loading a

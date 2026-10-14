@@ -1,0 +1,73 @@
+{
+  "madeBy": {
+    "version": "0.3.0",
+    "date": "2026-10-08",
+    "how": "tests/fixtures/v0.3-archive/README.md"
+  },
+  "password": "quokka tide tables 2025",
+  "appLockPasscode": "4826",
+  "totalVisits": 1928,
+  "totalProfiles": 3,
+  "pages": {
+    "https://example.org/%7Equokka?utm_source=old": 2,
+    "https://example.org/~quokka": 1,
+    "https://zh.example.net/文章/潮汐": 2,
+    "https://tides.example.net/coast": 1
+  },
+  "stars": [
+    {
+      "entityKind": "domain",
+      "entityKey": "example.net",
+      "title": ""
+    },
+    {
+      "entityKind": "url",
+      "entityKey": "https://example.org/%7Equokka",
+      "title": "Quokka field notes"
+    }
+  ],
+  "annotations": [
+    {
+      "url": "https://tides.example.net/coast",
+      "notes": "",
+      "tags": ["coast", "trip"]
+    },
+    {
+      "url": "https://example.org/%7Equokka?utm_source=old",
+      "notes": "Bring the red notebook",
+      "tags": []
+    }
+  ],
+  "savedPageText": {
+    "url": "https://example.com/",
+    "record": {
+      "fetchStatus": "success",
+      "fetchedAt": "2026-10-08T01:18:32.733861181+00:00",
+      "summary": "Example Domain",
+      "metadataJson": "{\"contentType\":\"text/html\",\"snippetCount\":1,\"textLength\":156}",
+      "contentSource": "generic-readable"
+    },
+    "blob": "sidecars/intelligence-blobs/0a/08/0a080719be9fbb82a86a45b80dc8c2a430fbe17dc93d23758debac092864d00f.txt",
+    "textStartsWith": "This domain is for use in documentation examples"
+  },
+  "savedPageTextOther": {
+    "url": "https://www.iana.org/help/example-domains",
+    "record": {
+      "fetchStatus": "success",
+      "fetchedAt": "2026-10-08T01:18:33.294821602+00:00",
+      "summary": "Example Domains",
+      "metadataJson": "{\"contentType\":\"text/html\",\"snippetCount\":3,\"textLength\":23}",
+      "contentSource": "generic-readable"
+    }
+  },
+  "importBatch": {
+    "sourceKind": "browser-history",
+    "importedItems": 120,
+    "status": "imported"
+  },
+  "chat": {
+    "id": "v03-coast-trip",
+    "title": "Coast trip questions",
+    "answer": "You opened the Tide tables page on your Work profile a week ago."
+  }
+}

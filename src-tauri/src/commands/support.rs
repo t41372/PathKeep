@@ -38,10 +38,31 @@ pub(crate) async fn open_path_in_file_manager(path: String) -> Result<String, Co
 
 #[cfg(not(test))]
 #[tauri::command]
+/// The clock the OS shows: "h12", "h23", or none when it does not say (the language decides).
+pub(crate) fn system_clock() -> Option<&'static str> {
+    vault_platform::system_hour_cycle()
+}
+
+#[cfg(not(test))]
+#[tauri::command]
 /// Opens one trusted launcher URL through the native launcher, off the UI thread.
 pub(crate) async fn open_external_url(url: String) -> Result<String, CommandError> {
     run_blocking_command("open_external_url", move || file_manager::open_external_url_impl(url))
         .await
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+/// Opens a page from the user's history (a `file://` one only if it was visited), off the UI thread.
+pub(crate) async fn open_visited_page(
+    url: String,
+    state: tauri::State<'_, crate::session::SessionState>,
+) -> Result<String, CommandError> {
+    let session = state.inner().clone();
+    run_blocking_command("open_visited_page", move || {
+        file_manager::open_visited_page_impl(url, &session)
+    })
+    .await
 }
 
 #[cfg(not(test))]
@@ -53,18 +74,4 @@ pub(crate) async fn open_external_url(url: String) -> Result<String, CommandErro
 /// inspect it or attach it to a bug report — diagnostics must never be a hidden, hand-typed path.
 pub(crate) async fn reveal_logs() -> Result<String, CommandError> {
     run_blocking_command("reveal_logs", file_manager::reveal_logs_impl).await
-}
-
-#[cfg(not(test))]
-#[tauri::command]
-/// Writes an exported AI-assistant conversation (Markdown / JSON) to a user-chosen path, off the
-/// UI thread, and returns the byte count written.
-pub(crate) async fn export_conversation_file(
-    target_path: String,
-    contents: String,
-) -> Result<u64, CommandError> {
-    run_blocking_command("export_conversation_file", move || {
-        file_manager::export_conversation_file_impl(target_path, contents)
-    })
-    .await
 }

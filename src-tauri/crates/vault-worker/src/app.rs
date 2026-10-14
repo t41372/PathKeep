@@ -1,3 +1,8 @@
+//! Responsibilities: bootstrap, conversion assessment and native rekey orchestration.
+//! Not responsible for: storage engines, file installation or frontend rendering.
+//! Failure modes: wrong-password mutation, stale session after a swap, config-only mode changes,
+//! or hidden conversion progress. Tests: worker bootstrap, password and keychain acceptance.
+//!
 //! App/bootstrap worker flows.
 //!
 //! These entrypoints assemble the desktop snapshot that the Tauri layer and
@@ -11,7 +16,7 @@
 //! docs already describe.
 
 use crate::context::{
-    current_app_lock_biometric_state, derive_ai_status, derive_intelligence_status,
+    current_app_lock_biometric_state, degrade_ai_status, degrade_intelligence_status,
     hydrate_derived_config_state, load_hydrated_config, load_unlocked_config,
     resolved_app_lock_status,
 };
@@ -22,10 +27,9 @@ use vault_core::{
     ARCHIVE_RECOVERY_REQUIRED_PREFIX, AppConfig, AppSnapshot, ArchiveMode, ArchiveRecoveryReport,
     ArchiveUpgradeAssessment, ArchiveUpgradeProgress, DISCOVERY_ISSUE_DISCOVERY_ERROR,
     DISCOVERY_ISSUE_FULL_DISK_ACCESS, LaunchRecovery, ReconcileReport, RuntimeDiagnostics,
-    archive_status, ensure_app_lock_unlocked, ensure_archive_initialized_with_progress,
-    full_disk_access_applies, hydrate_app_lock_config, is_permission_denied, load_config,
-    load_import_batches, load_recent_runs, recover_archive_on_launch, rekey_archive, save_config,
-    validate_app_lock_config_with_biometric,
+    ensure_app_lock_unlocked, full_disk_access_applies, hydrate_app_lock_config,
+    is_permission_denied, load_config, load_snapshot_reads, recover_archive_on_launch, save_config,
+    validate_app_lock_change,
 };
 use vault_platform::{
     FullDiskAccessProbe, discover_browser_profiles, keyring_status, probe_full_disk_access,
@@ -36,13 +40,33 @@ use vault_platform::{
 /// The worker keeps this as a simple transport struct: it describes the target
 /// archive mode plus the optional new key material, while the actual
 /// preview/execute semantics stay in `vault-core`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+///
+/// `Debug` is written by hand so the keys never reach a log line.
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RekeyRequest {
     /// The archive mode to end up with after the rewrite finishes.
     pub new_mode: ArchiveMode,
     /// The new database key when the target mode is encrypted.
     pub new_key: Option<String>,
+    /// The archive's current password. Required whenever the archive is
+    /// encrypted (changing the password or decrypting), so that someone at an
+    /// unlocked window cannot take the archive over; ignored for a plaintext
+    /// archive, which has none. See [`crate::current_password`].
+    #[serde(default)]
+    pub current_key: Option<String>,
+}
+
+impl std::fmt::Debug for RekeyRequest {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let redacted = |key: &Option<String>| key.as_ref().map(|_| "<redacted>");
+        formatter
+            .debug_struct("RekeyRequest")
+            .field("new_mode", &self.new_mode)
+            .field("new_key", &redacted(&self.new_key))
+            .field("current_key", &redacted(&self.current_key))
+            .finish()
+    }
 }
 
 fn snapshot_runtime_diagnostics(paths: &vault_core::ProjectPaths) -> RuntimeDiagnostics {
@@ -159,25 +183,25 @@ fn resolve_browser_discovery_issue_core(
 
 /// Builds the canonical desktop snapshot for the current unlocked session.
 pub fn app_snapshot(session_database_key: Option<&str>) -> Result<AppSnapshot> {
+    app_snapshot_with_vault(None, session_database_key)
+}
+
+/// Uses the session owner for canonical reads, including keychain-only unlocks.
+pub fn app_snapshot_with_vault(
+    vault: Option<&vault_core::Vault>,
+    session_database_key: Option<&str>,
+) -> Result<AppSnapshot> {
     let paths = vault_core::project_paths()?;
     let config = load_unlocked_config(&paths)?;
+    // The session's vault keeps the settings it was opened with. Its reads must describe the saved
+    // ones, or a search index built with a newly chosen embeddings service reads as empty.
+    let vault = vault.map(|vault| vault.with_config(config.clone()));
     let browser_discovery = snapshot_browser_profiles();
-    let archive_status = archive_status(&paths, &config, session_database_key)?;
-    let ai_status = derive_ai_status(&paths, &config, session_database_key);
-    let intelligence_status = derive_intelligence_status(&paths, &config, session_database_key);
-    let can_read_archive_ledger = archive_status.initialized && archive_status.unlocked;
-    let recent_runs = if can_read_archive_ledger {
-        load_recent_runs(&paths, &config, session_database_key)
-            .context("loading the recent run ledger for the app snapshot")?
-    } else {
-        Vec::new()
-    };
-    let recent_import_batches = if can_read_archive_ledger {
-        load_import_batches(&paths, &config, session_database_key)
-            .context("loading the recent import ledger for the app snapshot")?
-    } else {
-        Vec::new()
-    };
+    // One archive open and one intelligence open for everything below; each open of an encrypted
+    // archive derives its key again.
+    let reads = load_snapshot_reads(&paths, &config, session_database_key, vault.as_ref())?;
+    let ai_status = degrade_ai_status(&config, reads.ai_status);
+    let intelligence_status = degrade_intelligence_status(reads.intelligence_status);
     let app_lock_status = resolved_app_lock_status(&paths, &config)?;
     let runtime_diagnostics = snapshot_runtime_diagnostics(&paths);
 
@@ -185,9 +209,9 @@ pub fn app_snapshot(session_database_key: Option<&str>) -> Result<AppSnapshot> {
         directories: vault_core::AppDirectories {
             app_root: paths.app_root.display().to_string(),
             config_path: paths.config_path.display().to_string(),
-            archive_database_path: paths.archive_database_path.display().to_string(),
-            search_database_path: paths.search_database_path.display().to_string(),
-            intelligence_database_path: paths.intelligence_database_path.display().to_string(),
+            archive_database_path: reads.archive_status.database_path.clone(),
+            search_index_dir: paths.search_index_dir.display().to_string(),
+            intelligence_database_path: paths.intelligence_db.display().to_string(),
             audit_repo_path: paths.audit_repo_path.display().to_string(),
             manifests_dir: paths.manifests_dir.display().to_string(),
             exports_dir: paths.exports_dir.display().to_string(),
@@ -206,15 +230,17 @@ pub fn app_snapshot(session_database_key: Option<&str>) -> Result<AppSnapshot> {
         },
         runtime_diagnostics,
         config,
-        archive_status,
+        archive_status: reads.archive_status,
         app_lock_status,
         keyring_status: keyring_status(),
         ai_status,
         intelligence_status,
         browser_profiles: browser_discovery.profiles,
         browser_discovery_issue: browser_discovery.issue,
-        recent_runs,
-        recent_import_batches,
+        recent_runs: reads.recent_runs,
+        recent_runs_next_cursor: reads.recent_runs_next_cursor,
+        recent_import_batches: reads.recent_import_batches,
+        recent_import_batches_next_cursor: reads.recent_import_batches_next_cursor,
     })
 }
 
@@ -234,6 +260,16 @@ pub fn save_user_config_with_base(
     base_config: Option<&AppConfig>,
     session_database_key: Option<&str>,
 ) -> Result<AppSnapshot> {
+    save_user_config_with_vault(None, config, base_config, session_database_key)
+}
+
+/// Reconciles database-backed controls through the caller's current owner.
+pub fn save_user_config_with_vault(
+    vault: Option<&vault_core::Vault>,
+    config: &AppConfig,
+    base_config: Option<&AppConfig>,
+    session_database_key: Option<&str>,
+) -> Result<AppSnapshot> {
     let paths = vault_core::project_paths()?;
     let previous_config = load_hydrated_config(&paths)
         .context("loading the current configuration before saving user changes")?;
@@ -246,21 +282,35 @@ pub fn save_user_config_with_base(
         Some(base_config) => merge_config_change(&previous_config, base_config, config)?,
         None => config.clone(),
     };
+    if previous_config.initialized && previous_config.archive_mode != next_config.archive_mode {
+        anyhow::bail!(
+            "encryption-mode-change-requires-rekey: use rekey_archive to change encryption"
+        );
+    }
+    if let Some(zone) = next_config.insights_time_zone.as_deref()
+        && !vault_core::is_insights_time_zone(zone)
+    {
+        anyhow::bail!("invalid-time-zone: {zone} is not an IANA time zone");
+    }
     hydrate_derived_config_state(&mut next_config);
     hydrate_app_lock_config(&paths, &mut next_config)?;
-    validate_app_lock_config_with_biometric(
+    validate_app_lock_change(
         &paths,
+        &previous_config,
         &next_config,
         current_app_lock_biometric_state(),
     )?;
     save_config(&paths, &next_config)?;
-    reconcile_ai_queue_controls_or_restore_config(
-        &paths,
-        &previous_config,
-        &next_config,
-        session_database_key,
-    )?;
-    app_snapshot(session_database_key)
+    reconcile_ai_queue_controls_or_restore_config(vault, &paths, &previous_config, &next_config)?;
+    // A new Insights time zone rebuilds Insights in it now, not at the next backup. A build
+    // running meanwhile is followed by one in the new zone when it ends (the intelligence drain).
+    if previous_config.insights_time_zone != next_config.insights_time_zone
+        && let Some(vault) = vault
+    {
+        crate::intelligence::rebuild_in_chosen_zone(&vault.with_config(next_config.clone()))
+            .context("queueing an Insights build in the new time zone")?;
+    }
+    app_snapshot_with_vault(vault, session_database_key)
 }
 
 /// Applies only the leaves the caller changed relative to its base snapshot to
@@ -308,18 +358,17 @@ pub(crate) fn apply_config_delta(current: &mut Value, base: &Value, proposed: &V
 }
 
 fn reconcile_ai_queue_controls_or_restore_config(
+    vault: Option<&vault_core::Vault>,
     paths: &vault_core::ProjectPaths,
     previous_config: &AppConfig,
     next_config: &AppConfig,
-    session_database_key: Option<&str>,
 ) -> Result<()> {
-    vault_core::reconcile_ai_queue_controls(
-        paths,
-        previous_config,
-        next_config,
-        session_database_key,
-    )
-    .or_else(|error| restore_config_after_ai_reconcile_failure(paths, previous_config, error))
+    if let Some(vault) = vault {
+        vault_core::reconcile_ai_queue_controls(vault, previous_config, next_config).or_else(
+            |error| restore_config_after_ai_reconcile_failure(paths, previous_config, error),
+        )?;
+    }
+    Ok(())
 }
 
 fn restore_config_after_ai_reconcile_failure(
@@ -334,35 +383,105 @@ fn restore_config_after_ai_reconcile_failure(
 }
 
 /// Initializes the archive with the provided config and returns the hydrated snapshot.
+/// For callers without a long-lived session: the archive is closed again afterwards.
 pub fn initialize_archive_database(
     config: &AppConfig,
     database_key: Option<&str>,
 ) -> Result<AppSnapshot> {
-    initialize_archive_database_with_progress(config, database_key, |_| {})
+    let session = crate::VaultSession::default();
+    let snapshot =
+        initialize_archive_database_with_progress(&session, config, database_key, |_| {});
+    session.close_vault().map_err(anyhow::Error::msg)?;
+    snapshot
 }
 
-/// Cheap first-run upgrade pre-check the shell calls at bootstrap to decide
-/// whether to show the "Upgrading your archive…" screen.
-///
-/// Reads the on-disk config (defaulting when absent, e.g. a fresh install) and
-/// delegates to [`vault_core::assess_archive_upgrade`], which only issues COUNTs
-/// and version reads — it never bootstraps or migrates the archive, so calling
-/// it does not consume the upgrade the progress-aware init will perform.
+/// Conversion assessment for the upgrade screen. Counts run on the worker without
+/// creating a native destination or consuming a pending upgrade. An archive in the
+/// old format is first brought to a consistent state (see [`recover_unconverted`]):
+/// this is the first thing the shell asks at launch.
 pub fn assess_archive_upgrade(database_key: Option<&str>) -> Result<ArchiveUpgradeAssessment> {
     let paths = vault_core::project_paths()?;
-    let config = load_config(&paths).unwrap_or_default();
-    vault_core::assess_archive_upgrade(&paths, &config, database_key)
+    let mut config = load_config(&paths).unwrap_or_default();
+    if !is_native(&paths) {
+        recover_unconverted(&paths, &mut config)?;
+    }
+    let conversion = vault_convert_sqlcipher::assess(&paths, &config, database_key)?;
+    let phases = if conversion.required {
+        use vault_core::{ArchiveUpgradePhase as Phase, ArchiveUpgradePhaseAssessment};
+        let rows = conversion.tables.iter().map(|table| table.rows).sum::<u64>();
+        [
+            (Phase::StorageConversion, rows),
+            (Phase::ContentVerification, rows * 2),
+            (Phase::SearchReprojection, 0),
+        ]
+        .into_iter()
+        .map(|(phase, total)| ArchiveUpgradePhaseAssessment {
+            phase,
+            phase_label: phase.label_key().into(),
+            pending: true,
+            streamed: true,
+            estimated_total: total,
+        })
+        .collect()
+    } else {
+        Vec::new()
+    };
+    Ok(ArchiveUpgradeAssessment {
+        pending: conversion.required,
+        current_schema_version: i64::from(paths.archive_db.exists()),
+        target_schema_version: 1,
+        phases,
+        conversion: Some(conversion),
+    })
 }
 
-/// Initializes the archive while streaming first-run upgrade progress, then
-/// returns the hydrated snapshot.
+/// Converts an existing archive before the desktop publishes its native session.
+pub fn convert_archive_with_progress(
+    session: &crate::VaultSession,
+    config: &AppConfig,
+    password: Option<&str>,
+    mut report: impl FnMut(ArchiveUpgradeProgress),
+) -> Result<AppSnapshot> {
+    let paths = vault_core::project_paths()?;
+    let mut config = config.clone();
+    recover_unconverted(&paths, &mut config)?;
+    let config = &config;
+    let installed =
+        crate::maintenance_jobs::run(&paths.app_root, "converting", |cancel, mut sink| {
+            vault_convert_sqlcipher::convert_owned(
+                &paths,
+                config,
+                password,
+                cancel,
+                |p| {
+                    let phase = match p.phase.as_str() {
+                        "verifying" => vault_core::ArchiveUpgradePhase::ContentVerification,
+                        "publishing" => vault_core::ArchiveUpgradePhase::Finalizing,
+                        "indexing" => vault_core::ArchiveUpgradePhase::SearchReprojection,
+                        _ => vault_core::ArchiveUpgradePhase::StorageConversion,
+                    };
+                    let mut event = ArchiveUpgradeProgress::phase(phase, p.processed, p.total);
+                    event.database = p.database.clone();
+                    event.table = p.table.clone();
+                    report(event);
+                    sink(p);
+                },
+                session.owner(),
+            )
+        })?;
+    session.install_archive(installed, password.map(str::to_owned))?;
+    report(ArchiveUpgradeProgress::finished());
+    app_snapshot_with_vault(session.current_vault().as_ref(), None)
+}
+
+/// Saves the setup config, converting an archive still in the old format
+/// first (streaming its progress), opens the archive through `session` (which
+/// creates a new one natively) and returns the snapshot.
 ///
 /// The observable twin of [`initialize_archive_database`], which delegates here
-/// with a no-op callback. The callback is threaded into
-/// [`ensure_archive_initialized_with_progress`] on BOTH launch-recovery arms
-/// (Healthy and Healed) so a large first launch can drive a calm upgrade screen
-/// instead of an opaque multi-minute stall.
+/// with a no-op callback.
 pub fn initialize_archive_database_with_progress<F>(
+    session: &crate::VaultSession,
     config: &AppConfig,
     database_key: Option<&str>,
     mut report_progress: F,
@@ -370,50 +489,101 @@ pub fn initialize_archive_database_with_progress<F>(
 where
     F: FnMut(ArchiveUpgradeProgress),
 {
+    // A wipe cut short must finish before this writes a new config, or onboarding would reopen
+    // the half-deleted archive.
+    crate::data_wipe::finish_interrupted_data_wipe()?;
     let paths = vault_core::project_paths()?;
+    // Only to tell whether Touch ID is being turned on; a first run has no config yet.
+    let previous_config = load_hydrated_config(&paths).unwrap_or_default();
     let mut next_config = config.clone();
+    if previous_config.initialized && previous_config.archive_mode != next_config.archive_mode {
+        anyhow::bail!(
+            "encryption-mode-change-requires-rekey: use rekey_archive to change encryption"
+        );
+    }
+    if let Some(zone) = next_config.insights_time_zone.as_deref()
+        && !vault_core::is_insights_time_zone(zone)
+    {
+        anyhow::bail!("invalid-time-zone: {zone} is not an IANA time zone");
+    }
     hydrate_derived_config_state(&mut next_config);
     hydrate_app_lock_config(&paths, &mut next_config)?;
-    validate_app_lock_config_with_biometric(
+    validate_app_lock_change(
         &paths,
+        &previous_config,
         &next_config,
         current_app_lock_biometric_state(),
     )?;
-    save_config(&paths, &next_config)?;
-    // Phase C: auto-heal a stale config / interrupted import or rekey BEFORE opening the archive,
-    // so the 2026-06-30 NOTADB dead-end (encrypted files under a Plaintext config) self-heals to
-    // the locked unlock-prompt instead of bricking launch.
-    match recover_archive_on_launch(&paths, &next_config, database_key)? {
-        LaunchRecovery::Healthy => {
-            ensure_archive_initialized_with_progress(
-                &paths,
-                &next_config,
-                database_key,
-                &mut report_progress,
-            )?;
-        }
-        LaunchRecovery::Healed { to_mode, .. } => {
-            // config.json was corrected to the canonical file's real at-rest mode; reload it,
-            // but force the mode from the authoritative `to_mode` so a transient load_config
-            // failure can never re-open with the stale (NOTADB-shaped) mode.
-            let mut healed = load_config(&paths).unwrap_or_else(|_| next_config.clone());
-            healed.archive_mode = to_mode.clone();
-            // Healed Plaintext->Encrypted with no key: do NOT force-open (that IS the NOTADB
-            // dead-end); app_snapshot surfaces the locked state so the UI prompts for the key.
-            if !(matches!(to_mode, ArchiveMode::Encrypted) && database_key.is_none()) {
-                ensure_archive_initialized_with_progress(
-                    &paths,
-                    &healed,
-                    database_key,
-                    &mut report_progress,
-                )?;
+    if is_native(&paths) {
+        match recover_archive_on_launch(&paths, &next_config)? {
+            LaunchRecovery::Healed { to_mode, .. } => next_config.archive_mode = to_mode,
+            LaunchRecovery::Unrecoverable(report) => {
+                return Err(archive_recovery_required_error(report));
             }
+            LaunchRecovery::Healthy => {}
         }
+    } else {
+        recover_unconverted(&paths, &mut next_config)?;
+    }
+    if next_config.archive_mode == ArchiveMode::Encrypted
+        && database_key.is_none()
+        && (paths.legacy.archive.exists() || paths.archive_db.exists())
+    {
+        return app_snapshot(None);
+    }
+    if paths.legacy.archive.exists() && !paths.archive_db.exists() {
+        let archive =
+            crate::maintenance_jobs::run(&paths.app_root, "converting", |cancel, mut sink| {
+                vault_convert_sqlcipher::convert(&paths, &next_config, database_key, cancel, |p| {
+                    let phase = match p.phase.as_str() {
+                        "verifying" => vault_core::ArchiveUpgradePhase::ContentVerification,
+                        "publishing" => vault_core::ArchiveUpgradePhase::Finalizing,
+                        "indexing" => vault_core::ArchiveUpgradePhase::SearchReprojection,
+                        _ => vault_core::ArchiveUpgradePhase::StorageConversion,
+                    };
+                    let mut event = ArchiveUpgradeProgress::phase(phase, p.processed, p.total);
+                    event.database = p.database.clone();
+                    event.table = p.table.clone();
+                    report_progress(event);
+                    sink(p);
+                })
+            })?;
+        let snapshot = app_snapshot_with_vault(Some(&archive.vault), None)?;
+        archive.vault.close()?;
+        report_progress(ArchiveUpgradeProgress::finished());
+        return Ok(snapshot);
+    }
+    vault_core::config::ensure_paths(&paths)?;
+    next_config.initialized = true;
+    save_config(&paths, &next_config)?;
+    // Opening the session's store creates the archive in the native format, with
+    // its key envelope when encrypted. Nothing here may create the old SQLCipher
+    // files: they would be taken for an archive to convert.
+    session.update_password(database_key.map(str::to_owned)).map_err(anyhow::Error::msg)?;
+    let vault = session.background_vault().map_err(anyhow::Error::msg)?;
+    report_progress(ArchiveUpgradeProgress::finished());
+    app_snapshot_with_vault(Some(&vault), database_key)
+}
+
+/// The native archive exists, or a native install is waiting to be finished.
+fn is_native(paths: &vault_core::ProjectPaths) -> bool {
+    paths.archive_db.exists() || vault_core::maintenance::install::pending(paths)
+}
+
+/// Brings an archive of the old format to a consistent state before anything reads it: an
+/// import, password change or restore the old app left half-done is finished or rolled back,
+/// and config follows the file's real at-rest mode, as the old app's launch did. Runs on every
+/// entry that can reach an unconverted archive (assess, convert, initialize), because the shell
+/// asks for the assessment first. An archive it cannot bring back goes to the recovery screen.
+fn recover_unconverted(paths: &vault_core::ProjectPaths, config: &mut AppConfig) -> Result<()> {
+    match vault_convert_sqlcipher::recover_on_launch(paths, config)? {
+        LaunchRecovery::Healed { to_mode, .. } => config.archive_mode = to_mode,
         LaunchRecovery::Unrecoverable(report) => {
             return Err(archive_recovery_required_error(report));
         }
+        LaunchRecovery::Healthy => {}
     }
-    app_snapshot(database_key)
+    Ok(())
 }
 
 /// Wraps an unrecoverable launch state in a STRUCTURED, prefix-tagged, JSON-carrying error so
@@ -437,102 +607,78 @@ pub fn parse_archive_recovery_required(message: &str) -> Option<ArchiveRecoveryR
 }
 
 /// Executes a rekey/mode-switch request and returns the post-rewrite snapshot.
+///
+/// The archive is opened with the request's verified current password, never
+/// with a key the caller merely holds (see [`crate::current_password`]).
 pub fn rekey_archive_database(
-    old_key: Option<&str>,
+    session: &crate::VaultSession,
     request: &RekeyRequest,
 ) -> Result<AppSnapshot> {
     let paths = vault_core::project_paths()?;
     let config = load_unlocked_config(&paths)?;
-    rekey_archive(&paths, &config, old_key, request.new_mode.clone(), request.new_key.as_deref())?;
-    let mut next_config = config;
-    next_config.archive_mode = request.new_mode.clone();
-    next_config.initialized = true;
-    save_config(&paths, &next_config)?;
-    app_snapshot(request.new_key.as_deref().or(old_key))
+    let current = crate::current_password::verified_current_key(&paths, &config, request)?;
+    let vault = if let Some(vault) = session.current_vault() {
+        vault.with_config(config)
+    } else if let Some(password) = current {
+        session.open_password(paths, config, password.into()).map_err(anyhow::Error::msg)?
+    } else {
+        session.vault().map_err(anyhow::Error::msg)?
+    };
+    let mut audit_warning = None;
+    if request.new_mode == vault.config().archive_mode {
+        if request.new_mode == ArchiveMode::Encrypted {
+            let password =
+                request.new_key.as_deref().context("new archive password is required")?;
+            crate::maintenance_jobs::run(&vault.paths().app_root, "rewrapping", |cancel, _| {
+                cancel.check()?;
+                vault_core::maintenance::rewrap_password(&vault, current.unwrap(), password)
+            })?;
+            session.remember_password(password.into());
+        }
+    } else {
+        let installed = crate::maintenance_jobs::run(
+            &vault.paths().app_root,
+            "copying",
+            |cancel, progress| {
+                vault_core::maintenance::switch_mode(
+                    &vault,
+                    current,
+                    request.new_mode.clone(),
+                    request.new_key.as_deref(),
+                    cancel,
+                    progress,
+                )
+            },
+        )?;
+        let snapshot_path = installed.previous_files.display().to_string();
+        session.install_archive(installed, request.new_key.clone())?;
+        if let Err(error) = vault_core::maintenance::record_mode_change(
+            &session.vault().map_err(anyhow::Error::msg)?,
+            &snapshot_path,
+        ) {
+            audit_warning = Some(format!(
+                "Archive mode changed, but its review artifact could not be saved: {error}"
+            ));
+        }
+    }
+    let mut snapshot = app_snapshot_with_vault(session.current_vault().as_ref(), None)?;
+    if audit_warning.is_some() {
+        snapshot.archive_status.warning = audit_warning;
+    }
+    Ok(snapshot)
 }
 
-/// Self-heals a drifted encryption-at-rest state proactively, right after the
-/// archive is unlocked, so the user does not have to wait for (and watch fail)
-/// their next backup. Converges `source-evidence` to the configured archive mode
-/// and reports whether anything was repaired. A cheap no-op when consistent.
-///
-/// The destructive at-rest rewrite is serialized: `vault_core::reconcile_archive_encryption`
-/// is the gated TOP-LEVEL entry that takes the in-process op gate + cross-process archive
-/// write lock for its whole duration, so a SEPARATE scheduled backup can never race it on
-/// source-evidence, and a SECOND same-process top-level op excludes on the gate.
-pub fn reconcile_archive_encryption(session_database_key: Option<&str>) -> Result<ReconcileReport> {
-    let paths = vault_core::project_paths()?;
-    let config = load_unlocked_config(&paths)?;
-    vault_core::reconcile_archive_encryption(&paths, &config, session_database_key)
+/// Repairs stale native encryption configuration after the owner authenticates
+/// the database files. SQLCipher conversion has its own explicit upgrade flow.
+pub fn reconcile_archive_encryption(vault: &vault_core::Vault) -> Result<ReconcileReport> {
+    // Successful Store preflight already authenticated every database. Reconcile
+    // configuration to the actual archive header without rewriting its key.
+    vault_core::maintenance::reconcile(vault)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{ffi::OsStr, fs};
-    use tempfile::tempdir;
-    use vault_core::config::project_paths_with_root;
-
-    const CHROME_USER_DATA_OVERRIDE_ENV: &str = "CHB_CHROME_USER_DATA_DIR";
-
-    fn restore_env_var(name: &str, value: Option<&OsStr>) {
-        unsafe {
-            if let Some(value) = value {
-                std::env::set_var(name, value);
-            } else {
-                std::env::remove_var(name);
-            }
-        }
-    }
-
-    #[test]
-    fn snapshot_helpers_fallback_to_truthful_empty_shell_values() {
-        let _guard = crate::tests::lock_env();
-        let original_chrome_root = std::env::var_os(CHROME_USER_DATA_OVERRIDE_ENV);
-        let root = tempdir().expect("tempdir");
-        let invalid_root = root.path().join("not-a-directory");
-        fs::write(&invalid_root, "not a directory").expect("write invalid root");
-
-        let diagnostics = snapshot_runtime_diagnostics(&project_paths_with_root(&invalid_root));
-        assert_eq!(diagnostics.log_directory, invalid_root.join("logs").display().to_string());
-        assert!(diagnostics.latest_crash_report.is_none());
-        let diagnostics = runtime_diagnostics_fallback(
-            &project_paths_with_root(root.path()),
-            &anyhow::anyhow!("diagnostics failed"),
-        );
-        assert_eq!(
-            diagnostics.rust_log_path,
-            root.path().join("logs/rust.log").display().to_string()
-        );
-
-        unsafe {
-            std::env::set_var(CHROME_USER_DATA_OVERRIDE_ENV, &invalid_root);
-        }
-        assert!(snapshot_browser_profiles().profiles.is_empty());
-        assert!(
-            browser_profiles_fallback(
-                &anyhow::anyhow!("discovery failed"),
-                FullDiskAccessProbe::Inconclusive,
-            )
-            .profiles
-            .is_empty()
-        );
-
-        let restore_root = tempdir().expect("restore tempdir");
-        let restore_paths = project_paths_with_root(restore_root.path());
-        let previous_config = AppConfig { initialized: true, ..AppConfig::default() };
-        let error = restore_config_after_ai_reconcile_failure(
-            &restore_paths,
-            &previous_config,
-            anyhow::anyhow!("queue sync failed"),
-        )
-        .expect_err("restore helper returns sync failure");
-        assert!(error.to_string().contains("syncing AI queue controls"));
-        let restored_config = vault_core::load_config(&restore_paths).expect("restored config");
-        assert!(restored_config.initialized);
-
-        restore_env_var(CHROME_USER_DATA_OVERRIDE_ENV, original_chrome_root.as_deref());
-    }
 
     #[test]
     fn snapshot_surfaces_a_permission_denial_instead_of_swallowing_it() {
@@ -558,67 +704,5 @@ mod tests {
             Some(DISCOVERY_ISSUE_FULL_DISK_ACCESS),
             "a permission denial on a Full Disk Access host is the headline FDA case"
         );
-    }
-
-    #[test]
-    fn empty_browser_list_nags_only_when_the_probe_proves_a_denial() {
-        // Zero browsers with access granted / inconclusive / not-applicable is a genuine
-        // empty machine — never a nag (no false positive).
-        assert_eq!(
-            resolve_browser_discovery_issue(Ok(0), false, FullDiskAccessProbe::Granted),
-            None,
-            "zero browsers with access granted is a real empty machine, not a permission wall"
-        );
-        assert_eq!(
-            resolve_browser_discovery_issue(Ok(0), false, FullDiskAccessProbe::Inconclusive),
-            None,
-            "an inconclusive probe must never nag"
-        );
-        assert_eq!(
-            resolve_browser_discovery_issue(Ok(0), false, FullDiskAccessProbe::NotApplicable),
-            None,
-            "off macOS there is no Full Disk Access to blame"
-        );
-        // Empty list behind a PROVEN denial ⇒ the silent-skip Full Disk Access case.
-        assert_eq!(
-            resolve_browser_discovery_issue(Ok(0), false, FullDiskAccessProbe::Denied).as_deref(),
-            Some(DISCOVERY_ISSUE_FULL_DISK_ACCESS),
-            "an empty list behind a denied probe is a Full Disk Access wall"
-        );
-    }
-
-    #[test]
-    fn resolve_browser_discovery_issue_core_covers_precedence() {
-        // 1. Discovery errored with a permission denial on a Full-Disk-Access host ⇒ FDA.
-        assert_eq!(
-            resolve_browser_discovery_issue_core(Err(()), true, true, false).as_deref(),
-            Some(DISCOVERY_ISSUE_FULL_DISK_ACCESS)
-        );
-        // 1b. Any discovery error while the probe independently reports denied ⇒ FDA,
-        //     even if the error itself was not a permission denial.
-        assert_eq!(
-            resolve_browser_discovery_issue_core(Err(()), false, true, true).as_deref(),
-            Some(DISCOVERY_ISSUE_FULL_DISK_ACCESS)
-        );
-        // 2. A permission denial off a Full-Disk-Access host is a surfaced discovery
-        //    error, not a (macOS-only) Full Disk Access nag.
-        assert_eq!(
-            resolve_browser_discovery_issue_core(Err(()), true, false, false).as_deref(),
-            Some(DISCOVERY_ISSUE_DISCOVERY_ERROR)
-        );
-        // 2b. A non-permission discovery error is surfaced as a discovery error.
-        assert_eq!(
-            resolve_browser_discovery_issue_core(Err(()), false, false, false).as_deref(),
-            Some(DISCOVERY_ISSUE_DISCOVERY_ERROR)
-        );
-        // 3. Zero browsers + a denied probe ⇒ the headline silent-skip FDA case.
-        assert_eq!(
-            resolve_browser_discovery_issue_core(Ok(0), false, true, true).as_deref(),
-            Some(DISCOVERY_ISSUE_FULL_DISK_ACCESS)
-        );
-        // 4a. Zero browsers with the probe NOT denied stays neutral.
-        assert_eq!(resolve_browser_discovery_issue_core(Ok(0), false, true, false), None);
-        // 4b. A populated list is neutral regardless of the probe.
-        assert_eq!(resolve_browser_discovery_issue_core(Ok(3), false, true, true), None);
     }
 }

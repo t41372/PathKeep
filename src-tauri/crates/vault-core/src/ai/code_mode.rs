@@ -101,8 +101,8 @@ const GUEST_WASM: &[u8] = include_bytes!("code_mode_guest/harness.wasm");
 ///
 /// Regeneration (dev task): edit `code_mode_guest/harness.js`, rebuild with
 /// `javy build harness.js -o harness.wasm -C source=omitted -C deterministic` (Javy ≥ 9; the
-/// `deterministic` flag makes the artifact byte-reproducible), then run the unit test
-/// `guest_sha256_matches_pin` — it prints the new digest on mismatch; paste it here.
+/// `deterministic` flag makes the artifact byte-reproducible), then paste the output of
+/// `shasum -a 256 harness.wasm` here. Until the pin matches, every `run_code` call is refused.
 const GUEST_WASM_SHA256: &str = "85c423ecf4ea7fe7aabedd2b55bc001c240aa2a6e3f6cd29dda9d4036c885803";
 
 /// The Javy module's entry export (WASI command convention).
@@ -130,9 +130,13 @@ const ALLOWED_WASI_FNS: [&str; 9] = [
     "proc_exit",
 ];
 
-/// Per-script wall-time budget. The epoch ticker bumps the engine epoch every [`EPOCH_TICK`]; the
-/// store's deadline is `WALL_TIME_BUDGET / EPOCH_TICK` ticks, so the guest traps within one tick of
-/// the budget. Bounds CPU on the 4-core target without precise instruction counting.
+/// Per-script wall-time budget for the script's own running time. The epoch ticker bumps the engine
+/// epoch every [`EPOCH_TICK`]; the store's deadline is `WALL_TIME_BUDGET / EPOCH_TICK` ticks, so the
+/// guest traps within one tick of the budget. Bounds CPU on the 4-core target without precise
+/// instruction counting. The clock stops while the host answers a `query_history` / `fetch_visits`
+/// call: retrieval on a large archive, or a busy store, takes as long as it takes, and is bounded by
+/// [`MAX_HOST_CALLS`] and cancellation instead. Counting it made a sound script time out whenever the
+/// app was busy.
 pub const WALL_TIME_BUDGET: Duration = Duration::from_secs(5);
 
 /// Epoch ticker period (see [`WALL_TIME_BUDGET`]). Coarse enough to cost ~nothing, fine enough that
@@ -153,21 +157,8 @@ pub const MAX_HOST_CALLS: u32 = 64;
 /// [`LimitsHit::Output`] marker is recorded (the model never receives an unbounded blob — 02 §F).
 pub const MAX_OUTPUT_BYTES: usize = 256 * 1024;
 
-/// Max rows any single host-API `query_history` call returns — the sandbox per-call ceiling, set to
-/// match `list_history`'s `[1, 1000]` fetch window (and `search::MAX_SEARCH_ROWS`).
-///
-/// DELIBERATELY 1000, not the 50-row cap the MODEL-FACING `search_history` tool enforces. The reason
-/// is the sandbox's defining property: rows fetched by `query_history` INSIDE the wasm sandbox NEVER
-/// enter the model's context — only the script's small `return` value does (bounded by
-/// [`MAX_OUTPUT_BYTES`]). So the per-call cap that protects the model's context on the direct tool
-/// path is pointless here; a low cap would only force a script to burn [`MAX_HOST_CALLS`] on tiny
-/// pages. With a 1000-row page a script can `query_history` + AGGREGATE the FULL result set
-/// efficiently (loop the cursor until `hasMore` is false) and return a small distilled summary. The
-/// reply (host→guest) carries the rows into the guest's [`MAX_GUEST_MEMORY_BYTES`] (64 MiB) linear
-/// memory, not over the guest→host request channel, so this does NOT touch [`MAX_REQUEST_FRAME_BYTES`]
-/// (the request frame is just the tiny query args); even a worst-case ~2 KiB/row × 1000 reply is ~2
-/// MiB, far under the 64 MiB cap. The underlying fetch stays bounded by `list_history`'s [1, 1000]
-/// window — no corpus scan even at 14.4M.
+/// One response fits the guest's memory and transport frame. Continuation cursors
+/// enumerate the complete engine result; this does not bound the candidate set.
 pub const MAX_ROWS_PER_CALL: u32 = 1000;
 
 /// Max ids a single `fetch_visits` call may request (hard cap on `ids.len()`).
@@ -260,6 +251,9 @@ pub struct CodeOutcome {
     pub error: Option<String>,
     /// Which hard limit stopped the run, if any.
     pub limits_hit: Option<LimitsHit>,
+    /// A query the script made ran against an index that didn't cover the whole archive yet.
+    #[serde(default)]
+    pub coverage_incomplete: bool,
 }
 
 /// Arguments for a `query_history` host call (a JSON subset of [`AiSearchRequest`] + the plane).
@@ -416,6 +410,10 @@ struct HostState {
     limits_hit: Option<LimitsHit>,
     /// An honest error the guest reported via the `error` op (a JS syntax/runtime error).
     guest_error: Option<String>,
+    /// Some query ran against an index that didn't cover the whole archive yet.
+    coverage_incomplete: bool,
+    /// Set while the host answers a call; the epoch ticker doesn't advance the deadline meanwhile.
+    in_host_call: Arc<AtomicBool>,
 }
 
 impl HostState {
@@ -456,9 +454,12 @@ impl HostState {
     /// largest char boundary ≤ [`MAX_OUTPUT_BYTES`] (never mid-codepoint) — a raw byte cut would split
     /// a multibyte CJK/emoji glyph and leave `model_text` ragged (the lossy decode would emit U+FFFD).
     fn capture_result(&mut self, value: Option<&Value>) {
+        // The guest sends `null` for a script that returned nothing (it cannot send `undefined`).
+        // Empty output is what lets run_code tell the model plainly that no value came back;
+        // a script that returns `null` itself gets the same answer, which is just as true.
         let bytes = match value {
+            Some(Value::Null) | None => Vec::new(),
             Some(value) => serde_json::to_vec(value).unwrap_or_default(),
-            None => Vec::new(),
         };
         if bytes.len() > MAX_OUTPUT_BYTES {
             self.output = bytes[..char_boundary_floor(&bytes, MAX_OUTPUT_BYTES)].to_vec();
@@ -490,8 +491,10 @@ impl HostState {
 
         // A retrieval / validation error is reported as a refused call (the script can wind down);
         // the host never propagates a retrieval failure into a host trap.
-        let reply = self.run_host_request(request).ok()?;
-        Some(reply)
+        self.in_host_call.store(true, Ordering::Relaxed);
+        let reply = self.run_host_request(request);
+        self.in_host_call.store(false, Ordering::Relaxed);
+        reply.ok()
     }
 
     /// Runs one parsed host request against the existing retrieval, returning the JSON reply bytes.
@@ -505,6 +508,9 @@ impl HostState {
             HostRequest::FetchVisits(args) => self.run_fetch_visits(args)?,
         };
         let row_count = response.items.len() as u32;
+        if response.search_state.as_ref().is_some_and(|state| !state.coverage_complete) {
+            self.coverage_incomplete = true;
+        }
         // Resolve canonical_url for every row (the W-STAR key) and accrue citations.
         let mut rows = Vec::with_capacity(response.items.len());
         for item in &response.items {
@@ -527,8 +533,8 @@ impl HostState {
                 "visitedAt": item.visited_at,
                 // LOCAL renderings so a script never converts epoch/timezone against the 0 clock:
                 // `visitedAtLocal` is the wall-clock time and `localDate` the YYYY-MM-DD day bucket.
-                "visitedAtLocal": format_local_rfc3339(&item.visited_at, self.context.tz_offset),
-                "localDate": local_date_rfc3339(&item.visited_at, self.context.tz_offset),
+                "visitedAtLocal": format_local_rfc3339(&item.visited_at, self.context.time_zone),
+                "localDate": local_date_rfc3339(&item.visited_at, self.context.time_zone),
                 "score": item.score,
                 "matchReason": item.match_reason,
                 "canonicalUrl": canonical_url,
@@ -548,6 +554,8 @@ impl HostState {
         // whether more rows exist beyond this page. `nextCursor` is `null` when this is the last page.
         let reply = json!({
             "rows": rows,
+            "total": response.total,
+            "searchState": response.search_state,
             "notes": response.notes,
             "hasMore": response.has_more,
             "nextCursor": response.next_cursor,
@@ -587,6 +595,7 @@ impl HostState {
             starred_only: args.starred_only,
             start_date: args.start_date,
             end_date: args.end_date,
+            browser_kind: None,
         };
         // Bm25 drops the embedding provider (lexical only → works with NO provider); the semantic
         // planes thread it (degrading to lexical with a note when none is configured).
@@ -643,6 +652,7 @@ impl HostState {
         let runtime = self.runtime.clone();
         tokio::task::block_in_place(|| {
             runtime.block_on(search_history_internal(
+                &context.vault,
                 &context.paths,
                 &context.config,
                 context.database_key.as_deref(),
@@ -652,42 +662,15 @@ impl HostState {
         })
     }
 
-    /// Bounded id lookup: resolves the requested visit ids to visible rows through the canonical
-    /// read model (`list_history` with no query → recent visits), filtered to the wanted ids.
-    ///
-    /// Reuses the EXISTING read path (no new SQL crosses into code-mode), is bounded (a capped recent
-    /// pool, never a corpus scan), and is honest: an id outside the recent pool / a reverted id simply
-    /// drops out (the script sees only the ids that resolve to a visible visit). WU-1 keeps this a
-    /// bounded recent-window resolver; a future keyed id→row index can widen the window without
-    /// changing the host-API contract.
+    /// Canonical identity lookup, including visits older than every previous recall window.
     fn block_on_fetch(&self, ids: &[i64]) -> Result<crate::models::AiSearchResponse> {
-        let wanted: std::collections::HashSet<i64> = ids.iter().copied().collect();
-        let listing = crate::archive::list_history(
-            &self.context.paths,
-            &self.context.config,
-            self.context.database_key.as_deref(),
-            crate::models::HistoryQuery {
-                q: None,
-                profile_id: None,
-                browser_kind: None,
-                domain: None,
-                start_time_ms: None,
-                end_time_ms: None,
-                sort: Some("newest".to_string()),
-                // A bounded recent pool (the largest `list_history` allows), filtered to the ids.
-                limit: Some(1_000),
-                page: None,
-                cursor: None,
-                regex_mode: Some(false),
-            },
-        )?;
+        let listing = crate::search::visits(&self.context.vault, ids)?;
         let items: Vec<crate::models::AiSearchEntry> = listing
-            .items
             .iter()
-            .filter(|item| wanted.contains(&item.id))
             .map(|item| super::search::history_entry_to_search_entry(item, 1.0, "Fetched by id"))
             .collect();
         Ok(crate::models::AiSearchResponse {
+            search_state: None,
             total: items.len(),
             provider_id: "fetch-visits".to_string(),
             model: "none".to_string(),
@@ -1060,7 +1043,7 @@ fn run_guest_or_outcome(
     match run_guest_with_pin(source, context, runtime, control, wasm, pin) {
         Ok(outcome) => outcome,
         // Any setup failure (integrity/compile/instantiate) becomes an honest CodeOutcome, never a
-        // panic — mapped by the pure [`outcome_from_setup_error`] so the contract is unit-tested.
+        // panic — mapped by the pure [`outcome_from_setup_error`].
         Err(error) => outcome_from_setup_error(source, &error),
     }
 }
@@ -1109,24 +1092,12 @@ thread_local! {
     static TEST_WALL_TIME_BUDGET: std::cell::Cell<Option<Duration>> = const { std::cell::Cell::new(None) };
 }
 
-/// Test-only PROCESS-GLOBAL wall-time-budget override in milliseconds (0 = unset), for the rare test
-/// whose sandbox call runs on a DIFFERENT thread than the test (e.g. the `run_code` tool's
-/// `spawn_blocking` worker, where the thread-local override cannot reach). Set under a serialized
-/// guard so cross-thread tests don't race; the thread-local takes precedence when set.
-#[cfg(test)]
-pub(crate) static TEST_WALL_TIME_BUDGET_MS_GLOBAL: std::sync::atomic::AtomicU64 =
-    std::sync::atomic::AtomicU64::new(0);
-
 /// The effective wall-time budget for this run (the production [`WALL_TIME_BUDGET`], or a test override).
 fn wall_time_budget() -> Duration {
     #[cfg(test)]
     {
         if let Some(budget) = TEST_WALL_TIME_BUDGET.with(std::cell::Cell::get) {
             return budget;
-        }
-        let global_ms = TEST_WALL_TIME_BUDGET_MS_GLOBAL.load(std::sync::atomic::Ordering::Relaxed);
-        if global_ms != 0 {
-            return Duration::from_millis(global_ms);
         }
     }
     WALL_TIME_BUDGET
@@ -1158,6 +1129,7 @@ fn execute_guest(
     let module = Module::new(&engine, guest_wasm)?;
     assert_no_dangerous_authority(&module)?;
 
+    let in_host_call = Arc::new(AtomicBool::new(false));
     let host = HostState {
         context: context.clone(),
         runtime,
@@ -1169,6 +1141,8 @@ fn execute_guest(
         citations: Vec::new(),
         limits_hit: None,
         guest_error: None,
+        coverage_incomplete: false,
+        in_host_call: in_host_call.clone(),
     };
     let channel = Arc::new(std::sync::Mutex::new(RpcChannel {
         host,
@@ -1204,7 +1178,7 @@ fn execute_guest(
 
     // Start the epoch ticker + cancel watcher; both bump the engine epoch. The ticker advances the
     // deadline; a cancel jumps the epoch past the deadline so the guest traps promptly.
-    let ticker = EpochTicker::start(engine.clone(), control);
+    let ticker = EpochTicker::start(engine.clone(), control, in_host_call);
 
     let instance = linker.instantiate(&mut store, &module)?;
     let run = instance.get_typed_func::<(), ()>(&mut store, entry)?;
@@ -1241,7 +1215,9 @@ fn assemble_outcome(
     cancelled: bool,
     memory_refused: bool,
 ) -> CodeOutcome {
-    let HostState { output, records, citations, limits_hit, guest_error, .. } = state;
+    let HostState {
+        output, records, citations, limits_hit, guest_error, coverage_incomplete, ..
+    } = state;
     let model_text = String::from_utf8_lossy(&output).into_owned();
 
     let (limits_hit, error) = match call_result {
@@ -1276,6 +1252,7 @@ fn assemble_outcome(
         source: source.to_string(),
         error,
         limits_hit,
+        coverage_incomplete,
     }
 }
 
@@ -1309,7 +1286,11 @@ struct EpochTicker {
 
 impl EpochTicker {
     /// Starts the ticker thread bumping `engine`'s epoch until [`stop`](Self::stop) is called.
-    fn start(engine: Engine, control: Option<Arc<dyn AiRunControl>>) -> Self {
+    fn start(
+        engine: Engine,
+        control: Option<Arc<dyn AiRunControl>>,
+        in_host_call: Arc<AtomicBool>,
+    ) -> Self {
         let stop = Arc::new(AtomicBool::new(false));
         let cancelled = Arc::new(AtomicBool::new(false));
         let stop_thread = stop.clone();
@@ -1328,7 +1309,10 @@ impl EpochTicker {
                     }
                     break;
                 }
-                engine.increment_epoch();
+                // Host retrieval time doesn't count against the script's budget.
+                if !in_host_call.load(Ordering::Relaxed) {
+                    engine.increment_epoch();
+                }
             }
         });
         Self { stop, cancelled, handle: Some(handle) }

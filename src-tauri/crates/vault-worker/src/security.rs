@@ -1,10 +1,14 @@
+//! Responsibilities: coordinate App Lock, native rekey previews and stored data-key access.
+//! Not responsible for: envelope cryptography or database/file installation.
+//! Failure modes: wrong current password accepted, stale keychain data or App Lock conflated with
+//! archive encryption.
+//!
 //! Security, App Lock, and keyring worker flows.
 //!
 //! This module owns the session-boundary and native-secret parts of the worker
 //! contract:
 //!
 //! - App Lock setup/lock/unlock read models
-//! - security status and last rekey review visibility
 //! - rekey preview
 //! - native keyring and stored-secret helpers
 //!
@@ -13,236 +17,24 @@
 //! stories separately instead of blending them into one “locked” concept.
 
 use crate::{
-    app::{RekeyRequest, app_snapshot},
+    app::RekeyRequest,
     context::{
         current_app_lock_biometric_state, load_hydrated_config, load_unlocked_config,
         resolved_app_lock_status,
     },
 };
 use anyhow::{Context, Result};
-use rusqlite::OptionalExtension;
-use std::{
-    fs,
-    path::{Path, PathBuf},
-};
+use std::{fs, path::Path};
 use vault_core::{
-    AiProviderSecretInput, AppLockStatus, ArchiveMode, KeyringStatusReport, archive,
-    archive_status, clear_app_lock_passcode, lock_app_session, set_app_lock_passcode,
+    AiProviderSecretInput, AppLockStatus, ArchiveMode, KeyringStatusReport,
+    clear_app_lock_passcode, lock_app_session, set_app_lock_passcode,
     unlock_app_session_with_biometric,
 };
-#[cfg(not(coverage))]
-use vault_platform::authenticate_app_lock_biometric;
 use vault_platform::{
-    keyring_clear_database_key, keyring_clear_provider_api_key, keyring_get_database_key,
-    keyring_set_database_key, keyring_set_provider_api_key, keyring_status,
+    authenticate_app_lock_biometric, keyring_clear_database_key, keyring_clear_provider_api_key,
+    keyring_get_database_key, keyring_set_database_key, keyring_set_provider_api_key,
+    keyring_status,
 };
-
-type RekeyReviewSummary = (Option<String>, Option<i64>, Option<String>);
-
-/// Loads the security read model for the current archive/session state.
-pub fn security_status(session_database_key: Option<&str>) -> Result<vault_core::SecurityStatus> {
-    let paths = vault_core::project_paths()?;
-    let config = load_unlocked_config(&paths)?;
-    let archive = archive_status(&paths, &config, session_database_key)?;
-    let keyring = keyring_status();
-    let (warnings, warning_codes) =
-        security_status_warnings(&config, &archive, &keyring, session_database_key);
-
-    let mode = if !archive.initialized {
-        "uninitialized"
-    } else if !archive.encrypted {
-        "plaintext"
-    } else if archive.unlocked {
-        "encrypted"
-    } else {
-        "locked"
-    };
-
-    let (last_rekey_at, last_rekey_run_id, last_rekey_snapshot_path) = if archive.initialized
-        && archive.unlocked
-    {
-        let connection = archive::open_archive_connection(&paths, &config, session_database_key)?;
-        archive::create_schema(&connection)?;
-        latest_rekey_review_from_archive(&connection)?
-            .or_else(|| latest_rekey_review_from_manifests(&paths).ok().flatten())
-            .unwrap_or((None, None, None))
-    } else {
-        latest_rekey_review_from_manifests(&paths)?.unwrap_or((None, None, None))
-    };
-
-    Ok(vault_core::SecurityStatus {
-        initialized: archive.initialized,
-        mode: mode.to_string(),
-        encrypted: archive.encrypted,
-        unlocked: archive.unlocked,
-        database_path: archive.database_path,
-        stronghold_path: paths.stronghold_path.display().to_string(),
-        remember_database_key_in_keyring: config.remember_database_key_in_keyring,
-        last_successful_backup_at: archive.last_successful_backup_at,
-        last_rekey_at,
-        last_rekey_run_id,
-        last_rekey_snapshot_path,
-        keyring_status: keyring,
-        warnings,
-        warning_codes,
-    })
-}
-
-/// Builds the security warning list plus the parallel stable-code list.
-///
-/// The codes exist so the Security route can localize without matching backend
-/// English prose. `session_database_key` is what makes the first code honest: an
-/// archive-open failure is only reported as "needs a password" when the archive
-/// really is encrypted and no key was supplied for this session. Any other
-/// archive-open failure stays an uncoded (`""`) diagnostic pass-through.
-fn security_status_warnings(
-    config: &vault_core::AppConfig,
-    archive: &vault_core::ArchiveStatus,
-    keyring: &KeyringStatusReport,
-    session_database_key: Option<&str>,
-) -> (Vec<String>, Vec<String>) {
-    let mut warnings = Vec::new();
-    let mut codes = Vec::new();
-    if let Some(warning) = archive.warning.clone() {
-        let needs_password = archive.encrypted && session_database_key.is_none();
-        warnings.push(warning);
-        codes.push(if needs_password {
-            vault_core::SECURITY_WARNING_ENCRYPTED_NEEDS_PASSWORD.to_string()
-        } else {
-            String::new()
-        });
-    }
-    if matches!(config.archive_mode, ArchiveMode::Encrypted)
-        && config.remember_database_key_in_keyring
-        && !keyring.available
-    {
-        warnings.push(
-            "Archive is configured to remember the database key, but no native keyring backend is available on this machine.".to_string(),
-        );
-        codes.push(vault_core::SECURITY_WARNING_REMEMBER_KEY_NO_KEYRING.to_string());
-    }
-    if matches!(config.archive_mode, ArchiveMode::Encrypted)
-        && config.remember_database_key_in_keyring
-        && !keyring.stored_secret
-    {
-        warnings.push(
-            "Archive is encrypted, but the database key is not currently stored in the system keyring.".to_string(),
-        );
-        codes.push(vault_core::SECURITY_WARNING_REMEMBERED_KEY_MISSING.to_string());
-    }
-    (warnings, codes)
-}
-
-/// Reads the most recent rekey review directly from the archive when available.
-fn latest_rekey_review_from_archive(
-    connection: &rusqlite::Connection,
-) -> Result<Option<RekeyReviewSummary>> {
-    connection
-        .query_row(
-            "SELECT
-                   runs.id,
-                   runs.finished_at,
-                   (
-                     SELECT snapshots.file_path
-                     FROM snapshots
-                     WHERE snapshots.run_id = runs.id
-                       AND snapshots.reason = 'before-rekey'
-                     ORDER BY snapshots.id DESC
-                     LIMIT 1
-                   )
-                 FROM runs
-                 WHERE runs.run_type = 'rekey'
-                 ORDER BY runs.id DESC
-                 LIMIT 1",
-            [],
-            |row| {
-                Ok((
-                    row.get::<_, i64>(0)?,
-                    row.get::<_, Option<String>>(1)?,
-                    row.get::<_, Option<String>>(2)?,
-                ))
-            },
-        )
-        .optional()
-        .map(|value| {
-            value.map(|(run_id, finished_at, snapshot_path)| {
-                (finished_at, Some(run_id), snapshot_path)
-            })
-        })
-        .map_err(Into::into)
-}
-
-/// Falls back to manifest artifacts when the archive itself cannot be opened.
-fn latest_rekey_review_from_manifests(
-    paths: &vault_core::ProjectPaths,
-) -> Result<Option<RekeyReviewSummary>> {
-    let manifest_paths = collect_manifest_paths(&paths.manifests_dir)?;
-    let mut latest: Option<(String, i64, Option<String>)> = None;
-
-    for manifest_path in manifest_paths {
-        let content = match fs::read_to_string(&manifest_path) {
-            Ok(content) => content,
-            Err(_) => continue,
-        };
-        let payload = match serde_json::from_str::<serde_json::Value>(&content) {
-            Ok(payload) => payload,
-            Err(_) => continue,
-        };
-        if payload.get("runType").and_then(serde_json::Value::as_str) != Some("rekey") {
-            continue;
-        }
-        let Some(run_id) = payload.get("runId").and_then(serde_json::Value::as_i64) else {
-            continue;
-        };
-        let created_at = payload
-            .get("createdAt")
-            .and_then(serde_json::Value::as_str)
-            .map(ToString::to_string)
-            .unwrap_or_default();
-        let snapshot_path = payload
-            .get("snapshotPath")
-            .and_then(serde_json::Value::as_str)
-            .map(ToString::to_string);
-
-        let replace = latest.as_ref().is_none_or(|(current_created_at, current_run_id, _)| {
-            created_at > *current_created_at
-                || (created_at == *current_created_at && run_id > *current_run_id)
-        });
-        if replace {
-            latest = Some((created_at, run_id, snapshot_path));
-        }
-    }
-
-    Ok(latest.map(|(created_at, run_id, snapshot_path)| {
-        ((!created_at.is_empty()).then_some(created_at), Some(run_id), snapshot_path)
-    }))
-}
-
-/// Recursively collects manifest JSON files from the audit tree.
-fn collect_manifest_paths(root: &Path) -> Result<Vec<PathBuf>> {
-    if !root.exists() {
-        return Ok(Vec::new());
-    }
-
-    let mut files = Vec::new();
-    let mut stack = vec![root.to_path_buf()];
-    while let Some(path) = stack.pop() {
-        for entry in fs::read_dir(&path)
-            .with_context(|| format!("reading manifest directory {}", path.display()))?
-        {
-            let entry = entry?;
-            let entry_path = entry.path();
-            if entry.file_type()?.is_dir() {
-                stack.push(entry_path);
-                continue;
-            }
-            if entry_path.extension().and_then(|value| value.to_str()) == Some("json") {
-                files.push(entry_path);
-            }
-        }
-    }
-    Ok(files)
-}
 
 /// Loads the App Lock status without requiring the archive to be unlocked.
 pub fn load_app_lock_status() -> Result<AppLockStatus> {
@@ -303,16 +95,8 @@ pub fn unlock_app_ui_session(
     )
 }
 
-#[cfg(not(coverage))]
 fn authenticate_app_lock_biometric_result() -> Result<()> {
     authenticate_app_lock_biometric().map_err(biometric_authentication_error)
-}
-
-#[cfg(coverage)]
-fn authenticate_app_lock_biometric_result() -> Result<()> {
-    Err(biometric_authentication_error(
-        "biometric authentication is disabled under coverage".to_string(),
-    ))
 }
 
 fn biometric_authentication_error(message: String) -> anyhow::Error {
@@ -320,75 +104,90 @@ fn biometric_authentication_error(message: String) -> anyhow::Error {
 }
 
 /// Previews the archive rewrite that a rekey/mode switch would perform.
-pub fn preview_rekey_archive(
-    session_database_key: Option<&str>,
-    request: &RekeyRequest,
-) -> Result<vault_core::RekeyPreview> {
+///
+/// Checks the current password exactly as the rekey will (see
+/// [`crate::current_password`]), so a wrong one is refused on the first step
+/// instead of after the user has read the plan.
+pub fn preview_rekey_archive(request: &RekeyRequest) -> Result<vault_core::RekeyPreview> {
     let paths = vault_core::project_paths()?;
     let config = load_unlocked_config(&paths)?;
-    let archive = archive_status(&paths, &config, session_database_key)?;
-    if !archive.initialized || !paths.archive_database_path.exists() {
-        anyhow::bail!("initialize the archive before previewing a rekey operation");
-    }
-
-    // Warnings and codes stay index-aligned (the `SecurityStatus::warning_codes`
-    // template): the shell localizes off the stable code and only falls back to
-    // the English prose for codes it does not ship copy for.
-    let mut warnings = Vec::new();
-    let mut warning_codes = Vec::new();
-    if archive.encrypted && !archive.unlocked {
-        warnings.push(
-            "The archive is currently locked. Unlock it before executing the rekey.".to_string(),
-        );
-        warning_codes.push(vault_core::REKEY_WARNING_ARCHIVE_LOCKED.to_string());
-    }
-    if matches!(request.new_mode, ArchiveMode::Encrypted) && request.new_key.is_none() {
-        warnings.push(
-            "Encrypted rekey requires a new database key before execute can run.".to_string(),
-        );
-        warning_codes.push(vault_core::REKEY_WARNING_NEW_KEY_REQUIRED.to_string());
-    }
-    if config.archive_mode == request.new_mode {
-        warnings.push(
-            "The archive will still be rewritten because the target mode matches the current mode, which makes this a key rotation or validation pass rather than a mode switch.".to_string(),
-        );
-        warning_codes.push(vault_core::REKEY_WARNING_SAME_MODE_REWRITE.to_string());
-    }
-
-    let snapshot_path =
-        paths.raw_snapshots_dir.join("rekey").join("archive-before-rekey-<timestamp>.sqlite");
-    let temp_path = paths.archive_database_path.with_extension("rekey.sqlite");
-
-    Ok(vault_core::RekeyPreview {
+    anyhow::ensure!(
+        config.initialized && paths.archive_db.exists(),
+        "initialize the archive before previewing a rekey operation"
+    );
+    crate::current_password::verified_current_key(&paths, &config, request)?;
+    let rewrap = config.archive_mode == request.new_mode;
+    let copy = rekey_copy(&config.preferred_language);
+    let mut preview = vault_core::RekeyPreview {
         current_mode: config.archive_mode,
         next_mode: request.new_mode.clone(),
-        requires_new_key: matches!(request.new_mode, ArchiveMode::Encrypted),
-        snapshot_path: snapshot_path.display().to_string(),
-        temp_database_path: temp_path.display().to_string(),
-        steps: vec![
-            format!(
-                "Create a safety snapshot of the current archive at {}.",
-                snapshot_path.display()
-            ),
-            format!(
-                "Export the archive into a temporary database at {} using the requested target mode.",
-                temp_path.display()
-            ),
-            "Swap the rewritten database into place only after the export succeeds, and keep the safety snapshot for manual recovery.".to_string(),
+        requires_new_key: request.new_mode == ArchiveMode::Encrypted,
+        snapshot_path: if rewrap {
+            String::new()
+        } else {
+            paths.raw_snapshots_dir.join("maintenance/rekey-<id>").display().to_string()
+        },
+        temp_database_path: if rewrap {
+            String::new()
+        } else {
+            paths.staging_dir.join("maintenance-<id>").display().to_string()
+        },
+        steps: if rewrap {
+            vec![copy[0].into()]
+        } else {
+            copy[1..4].iter().map(|text| (*text).into()).collect()
+        },
+        ..Default::default()
+    };
+    if preview.requires_new_key && request.new_key.is_none() {
+        preview.warnings.push(copy[4].into());
+        preview.warning_codes.push(vault_core::REKEY_WARNING_NEW_KEY_REQUIRED.into());
+    }
+    Ok(preview)
+}
+
+// The frontend owns phase labels; preview sentences also work without a translated client.
+fn rekey_copy(language: &vault_core::LanguagePreference) -> [&'static str; 5] {
+    match language {
+        vault_core::LanguagePreference::ZhCn => [
+            "用新密码重新包装密钥信封。数据库文件和钥匙串中的数据密钥保持不变。",
+            "将每个数据库复制为所选加密模式。",
+            "核对每张表的行数和内容摘要，再以新模式重建搜索索引。",
+            "以新模式保存已验证的安全快照，再通过可恢复的流程替换文件。",
+            "执行前请输入新的存档密码。",
         ],
-        warnings,
-        warning_codes,
-    })
+        vault_core::LanguagePreference::ZhTw => [
+            "用新密碼重新包裝金鑰信封。資料庫檔案和鑰匙圈中的資料金鑰保持不變。",
+            "將每個資料庫複製為所選加密模式。",
+            "核對每張表的列數和內容摘要，再以新模式重建搜尋索引。",
+            "以新模式保存已驗證的安全快照，再透過可恢復的流程替換檔案。",
+            "執行前請輸入新的封存密碼。",
+        ],
+        _ => [
+            "Rewrap the key envelope with the new password. Database files and the remembered data key stay unchanged.",
+            "Copy every database into the selected encryption mode.",
+            "Verify every table's row count and content digest, then rebuild search in the new mode.",
+            "Save a verified safety snapshot in the new mode, then install the files with interruption recovery.",
+            "Enter the new archive password before executing.",
+        ],
+    }
 }
 
 /// Reads the stored archive key from the native keyring, if present.
-pub fn read_database_key_from_keyring() -> Result<Option<String>> {
-    keyring_get_database_key()
+pub fn read_database_key_from_keyring() -> Result<Option<zeroize::Zeroizing<String>>> {
+    Ok(keyring_get_database_key()?.map(zeroize::Zeroizing::new))
 }
 
 /// Stores the archive key in the native keyring and returns the updated keyring status.
 pub fn write_database_key_to_keyring(key: &str) -> Result<KeyringStatusReport> {
-    keyring_set_database_key(key)?;
+    let paths = vault_core::project_paths()?;
+    let data_key = vault_core::Vault::unlock_data_key(&paths, key)?;
+    store_data_key_in_keyring(&data_key)
+}
+
+/// Stores an already unwrapped data key in the existing OS credential entry.
+pub fn store_data_key_in_keyring(key: &vault_crypto::DataKey) -> Result<KeyringStatusReport> {
+    keyring_set_database_key(&crate::session::encode_data_key(key))?;
     Ok(keyring_status())
 }
 
@@ -418,223 +217,25 @@ pub fn keyring_report() -> KeyringStatusReport {
     keyring_status()
 }
 
-/// Stores an AI provider secret and returns a refreshed app snapshot.
+/// Stores an AI provider secret and returns a refreshed app snapshot. The snapshot is read
+/// through the session's open archive: without it an archive unlocked from the keychain
+/// would come back as locked and replace the shell's snapshot.
 pub fn store_ai_provider_api_key(
     input: &AiProviderSecretInput,
+    vault: Option<&vault_core::Vault>,
     session_database_key: Option<&str>,
 ) -> Result<vault_core::AppSnapshot> {
     keyring_set_provider_api_key(&input.provider_id, &input.api_key)?;
-    app_snapshot(session_database_key)
+    crate::app_snapshot_with_vault(vault, session_database_key)
 }
 
-/// Clears an AI provider secret and returns a refreshed app snapshot.
+/// Clears an AI provider secret and returns a refreshed app snapshot, read like
+/// [`store_ai_provider_api_key`]'s.
 pub fn clear_ai_provider_api_key(
     provider_id: &str,
+    vault: Option<&vault_core::Vault>,
     session_database_key: Option<&str>,
 ) -> Result<vault_core::AppSnapshot> {
     keyring_clear_provider_api_key(provider_id)?;
-    app_snapshot(session_database_key)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-    use tempfile::tempdir;
-    use vault_core::{
-        AppConfig, ArchiveStatus, KeyringStatusReport, config::project_paths_with_root,
-    };
-
-    #[test]
-    fn security_status_warning_helper_preserves_archive_and_keyring_edges() {
-        let config = AppConfig {
-            archive_mode: ArchiveMode::Encrypted,
-            remember_database_key_in_keyring: true,
-            ..AppConfig::default()
-        };
-        let archive = ArchiveStatus {
-            encrypted: true,
-            warning: Some("archive warning".to_string()),
-            ..ArchiveStatus::default()
-        };
-        let unavailable_keyring = KeyringStatusReport {
-            available: false,
-            stored_secret: false,
-            ..KeyringStatusReport::default()
-        };
-
-        let (warnings, codes) =
-            security_status_warnings(&config, &archive, &unavailable_keyring, None);
-        assert_eq!(warnings.len(), 3);
-        assert_eq!(warnings[0], "archive warning");
-        assert!(warnings[1].contains("no native keyring backend"));
-        assert!(warnings[2].contains("database key is not currently stored"));
-        assert_eq!(
-            codes,
-            vec![
-                vault_core::SECURITY_WARNING_ENCRYPTED_NEEDS_PASSWORD.to_string(),
-                vault_core::SECURITY_WARNING_REMEMBER_KEY_NO_KEYRING.to_string(),
-                vault_core::SECURITY_WARNING_REMEMBERED_KEY_MISSING.to_string(),
-            ]
-        );
-
-        // A session key was supplied, so an archive-open failure is NOT a
-        // "needs a password" warning and must stay an uncoded diagnostic.
-        let (warnings, codes) =
-            security_status_warnings(&config, &archive, &unavailable_keyring, Some("secret"));
-        assert_eq!(warnings[0], "archive warning");
-        assert_eq!(codes[0], "");
-
-        // A plaintext archive that failed to open is also uncoded.
-        let plaintext_archive = ArchiveStatus {
-            warning: Some("archive warning".to_string()),
-            ..ArchiveStatus::default()
-        };
-        let (_, codes) =
-            security_status_warnings(&config, &plaintext_archive, &unavailable_keyring, None);
-        assert_eq!(codes[0], "");
-
-        let available_missing_secret = KeyringStatusReport {
-            available: true,
-            stored_secret: false,
-            ..KeyringStatusReport::default()
-        };
-        let (warnings, codes) = security_status_warnings(
-            &config,
-            &ArchiveStatus::default(),
-            &available_missing_secret,
-            None,
-        );
-        assert_eq!(warnings.len(), 1);
-        assert!(warnings[0].contains("database key is not currently stored"));
-        assert_eq!(codes, vec![vault_core::SECURITY_WARNING_REMEMBERED_KEY_MISSING.to_string()]);
-    }
-
-    #[test]
-    fn manifest_rekey_review_uses_latest_created_at_then_run_id() {
-        let root = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(root.path());
-        let nested = paths.manifests_dir.join("nested");
-        fs::create_dir_all(&nested).expect("manifest dir");
-        fs::write(paths.manifests_dir.join("not-json.json"), "{").expect("bad json");
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-
-            let unreadable = paths.manifests_dir.join("unreadable.json");
-            fs::write(&unreadable, "{}").expect("unreadable manifest");
-            let mut permissions = fs::metadata(&unreadable).expect("metadata").permissions();
-            permissions.set_mode(0o000);
-            fs::set_permissions(&unreadable, permissions).expect("chmod unreadable");
-        }
-        fs::write(
-            paths.manifests_dir.join("backup.json"),
-            json!({
-                "runType": "backup",
-                "runId": 99,
-                "createdAt": "2030-01-01T00:00:00Z"
-            })
-            .to_string(),
-        )
-        .expect("backup manifest");
-        fs::write(
-            paths.manifests_dir.join("missing-run-id.json"),
-            json!({
-                "runType": "rekey",
-                "createdAt": "2030-01-01T00:00:00Z"
-            })
-            .to_string(),
-        )
-        .expect("missing run id manifest");
-        fs::write(
-            nested.join("older.json"),
-            json!({
-                "runType": "rekey",
-                "runId": 1,
-                "createdAt": "2026-01-01T00:00:00Z",
-                "snapshotPath": "/tmp/older.sqlite"
-            })
-            .to_string(),
-        )
-        .expect("older manifest");
-        fs::write(
-            nested.join("newer-low-run.json"),
-            json!({
-                "runType": "rekey",
-                "runId": 2,
-                "createdAt": "2026-02-01T00:00:00Z",
-                "snapshotPath": "/tmp/lower-run.sqlite"
-            })
-            .to_string(),
-        )
-        .expect("newer low run manifest");
-        fs::write(
-            paths.manifests_dir.join("newer-high-run.json"),
-            json!({
-                "runType": "rekey",
-                "runId": 3,
-                "createdAt": "2026-02-01T00:00:00Z",
-                "snapshotPath": "/tmp/higher-run.sqlite"
-            })
-            .to_string(),
-        )
-        .expect("newer high run manifest");
-
-        let review = latest_rekey_review_from_manifests(&paths)
-            .expect("manifest review")
-            .expect("latest rekey");
-
-        assert_eq!(review.0.as_deref(), Some("2026-02-01T00:00:00Z"));
-        assert_eq!(review.1, Some(3));
-        assert_eq!(review.2.as_deref(), Some("/tmp/higher-run.sqlite"));
-    }
-
-    #[test]
-    fn manifest_rekey_review_preserves_missing_created_at_as_none() {
-        let root = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(root.path());
-        fs::create_dir_all(&paths.manifests_dir).expect("manifest dir");
-        fs::write(
-            paths.manifests_dir.join("rekey.json"),
-            json!({
-                "runType": "rekey",
-                "runId": 7,
-                "snapshotPath": "/tmp/no-date.sqlite"
-            })
-            .to_string(),
-        )
-        .expect("manifest");
-
-        let review = latest_rekey_review_from_manifests(&paths)
-            .expect("manifest review")
-            .expect("rekey manifest");
-
-        assert_eq!(review.0, None);
-        assert_eq!(review.1, Some(7));
-        assert_eq!(review.2.as_deref(), Some("/tmp/no-date.sqlite"));
-    }
-
-    #[test]
-    fn collect_manifest_paths_returns_empty_for_missing_root() {
-        let root = tempdir().expect("tempdir");
-        let missing = root.path().join("missing-manifests");
-
-        let manifests = collect_manifest_paths(&missing).expect("missing manifest root");
-
-        assert!(manifests.is_empty());
-    }
-
-    #[test]
-    fn biometric_adapter_error_helper_preserves_platform_message() {
-        let error = biometric_authentication_error("Touch ID unavailable".to_string());
-
-        assert_eq!(error.to_string(), "Touch ID unavailable");
-        #[cfg(coverage)]
-        assert!(
-            authenticate_app_lock_biometric_result()
-                .expect_err("coverage biometric helper")
-                .to_string()
-                .contains("disabled under coverage")
-        );
-    }
+    crate::app_snapshot_with_vault(vault, session_database_key)
 }

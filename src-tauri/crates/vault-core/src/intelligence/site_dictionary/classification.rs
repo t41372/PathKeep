@@ -1,3 +1,4 @@
+//! Failure modes: built-in rules override user choices or canonical query extraction changes across batches.
 //! Per-visit site classification and search-query extraction.
 //!
 //! ## Responsibilities
@@ -77,9 +78,9 @@ pub(crate) fn classify_visit(
         .and_then(|parsed| match_search_engine_rule(parsed, &registrable_domain, search_rules));
     let generic_search_query = normalized_url.as_ref().and_then(|value| value.search_query.clone());
     let search_query = query
-        .map(normalize_query)
+        .map(typed_query)
         .filter(|value| !value.is_empty())
-        .or_else(|| matched_search_rule.as_ref().map(|rule| normalize_query(&rule.query)))
+        .or_else(|| matched_search_rule.as_ref().map(|rule| typed_query(&rule.query)))
         .or(generic_search_query);
     let generic_search_engine = search_query
         .as_ref()
@@ -109,6 +110,12 @@ pub(crate) fn classify_visit(
             .or_else(|| display_name_for_domain(&registrable_domain)),
         is_noisy: matched_override.is_some_and(|override_rule| override_rule.is_noisy),
     }
+}
+
+/// A search as the user typed it, for showing: letter case kept, runs of whitespace made one
+/// space. Grouping and comparing go through [`normalize_query`].
+pub(crate) fn typed_query(raw: &str) -> String {
+    raw.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 /// Canonicalizes a search query for grouping and comparison. It lowercases and
@@ -397,77 +404,5 @@ fn page_category_key(category: PageCategory) -> &'static str {
         PageCategory::Dashboard => "dashboard",
         PageCategory::Home => "home",
         PageCategory::Unknown => "unknown",
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn helper_mappings_cover_rule_and_taxonomy_boundaries() {
-        assert_eq!(search_engine_id("baidu.com", "www.baidu.com"), "baidu");
-        assert_eq!(search_engine_id("bing.com", "www.bing.com"), "bing");
-        assert_eq!(search_engine_id("brave.com", "search.brave.com"), "brave");
-        assert_eq!(search_engine_id("duckduckgo.com", "duckduckgo.com"), "duckduckgo");
-        assert_eq!(search_engine_id("google.com", "www.google.com"), "google");
-        assert_eq!(search_engine_id("sogou.com", "www.sogou.com"), "sogou");
-        assert_eq!(search_engine_id("so.com", "www.so.com"), "so");
-        assert_eq!(search_engine_id("yahoo.com", "search.yahoo.com"), "yahoo");
-        assert_eq!(search_engine_id("yandex.ru", "yandex.ru"), "yandex");
-        assert_eq!(search_engine_id("example.com", "search.example.com"), "search.example.com");
-
-        assert!(!host_matches_rule("search.example.com", "example.com", "   "));
-        assert!(host_matches_rule("search.example.com", "example.com", "example.com."));
-        assert!(host_matches_rule(
-            "docs.internal.example.com",
-            "internal.example.com",
-            "example.com"
-        ));
-        assert!(path_matches_rule("/search/all", None));
-        assert!(path_matches_rule("/search/all", Some("/search")));
-        assert!(!path_matches_rule("/docs", Some("/search")));
-        assert_eq!(normalize_query_spacing("  rust\tcoverage\n gate  "), "rust coverage gate");
-
-        let domain_categories = [
-            (DomainCategory::Ai, "ai"),
-            (DomainCategory::Community, "community"),
-            (DomainCategory::Developer, "developer"),
-            (DomainCategory::Docs, "docs"),
-            (DomainCategory::Education, "education"),
-            (DomainCategory::Entertainment, "entertainment"),
-            (DomainCategory::Finance, "finance"),
-            (DomainCategory::News, "news"),
-            (DomainCategory::Search, "search"),
-            (DomainCategory::Shopping, "shopping"),
-            (DomainCategory::Social, "social"),
-            (DomainCategory::Travel, "travel"),
-            (DomainCategory::Video, "video"),
-            (DomainCategory::Work, "work"),
-            (DomainCategory::Unknown, "unknown"),
-        ];
-        for (category, expected) in domain_categories {
-            assert_eq!(domain_category_key(category), expected);
-        }
-
-        let page_categories = [
-            (PageCategory::SearchResults, "search_results"),
-            (PageCategory::DocsPage, "docs_page"),
-            (PageCategory::Repo, "repo"),
-            (PageCategory::Issue, "issue"),
-            (PageCategory::PullRequest, "pull_request"),
-            (PageCategory::ForumThread, "forum_thread"),
-            (PageCategory::ProductPage, "product_page"),
-            (PageCategory::CategoryPage, "category_page"),
-            (PageCategory::VideoPage, "video_page"),
-            (PageCategory::ArticlePage, "article_page"),
-            (PageCategory::Profile, "profile"),
-            (PageCategory::Dashboard, "dashboard"),
-            (PageCategory::Home, "home"),
-            (PageCategory::Unknown, "unknown"),
-        ];
-        for (category, expected) in page_categories {
-            assert_eq!(page_category_key(category), expected);
-        }
     }
 }

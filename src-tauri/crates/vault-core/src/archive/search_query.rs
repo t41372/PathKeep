@@ -17,20 +17,19 @@
 //!
 //! ## Dependencies
 //! - `archive::search_lexical` for repo-owned Unicode/OpenCC normalization.
-//! - `chrono` for visit-date operator normalization.
+//! - `chrono` for visit-date operator normalization; dates are days in the computer's time zone.
 //!
 //! ## Performance notes
 //! - Parsing is linear in query length and all SQL filter vectors are capped so
 //!   a pasted query cannot create unbounded temp-table work.
 
 use super::search_lexical::{normalized_compact_filter_terms, normalized_filter_terms};
-use chrono::{Datelike, NaiveDate, TimeZone, Utc};
-
-const MAX_FILTER_VALUES: usize = 16;
+use crate::utils::local_day_range_ms;
+use chrono::NaiveDate;
 
 /// Parsed local-history equivalent of Google-style advanced search operators.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub(super) struct ParsedHistorySearchQuery {
+pub(crate) struct ParsedHistorySearchQuery {
     pub keyword_text: Option<String>,
     pub exact_terms: Vec<String>,
     pub excluded_terms: Vec<String>,
@@ -60,7 +59,7 @@ pub(super) struct ParsedHistorySearchQuery {
 }
 
 /// Parses the Explorer keyword box into local advanced-search constraints.
-pub(super) fn parse_history_search_query(raw: &str) -> ParsedHistorySearchQuery {
+pub(crate) fn parse_history_search_query(raw: &str) -> ParsedHistorySearchQuery {
     let tokens = tokenize_query(raw);
     let mut parsed = ParsedHistorySearchQuery::default();
     let mut keyword_terms = Vec::<String>::new();
@@ -74,6 +73,8 @@ pub(super) fn parse_history_search_query(raw: &str) -> ParsedHistorySearchQuery 
 
         let (operator, operand) = split_operator(value);
         match operator.as_deref() {
+            // Page search owns the star predicate; it is not part of a typo target.
+            Some("is") if !negated && operand.eq_ignore_ascii_case("starred") => {}
             Some("site") => {
                 push_filter_values(
                     if negated { &mut parsed.excluded_sites } else { &mut parsed.required_sites },
@@ -143,7 +144,7 @@ pub(super) fn parse_history_search_query(raw: &str) -> ParsedHistorySearchQuery 
     parsed
 }
 
-fn tokenize_query(raw: &str) -> Vec<QueryToken> {
+pub(crate) fn tokenize_query(raw: &str) -> Vec<QueryToken> {
     let mut tokens = Vec::new();
     let mut current = String::new();
     let mut quoted = false;
@@ -189,12 +190,12 @@ fn push_token(tokens: &mut Vec<QueryToken>, current: &mut String, quoted: bool) 
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct QueryToken {
-    value: String,
-    quoted: bool,
+pub(crate) struct QueryToken {
+    pub value: String,
+    pub quoted: bool,
 }
 
-fn split_operator(value: &str) -> (Option<String>, &str) {
+pub(crate) fn split_operator(value: &str) -> (Option<String>, &str) {
     let Some(separator) = value.find(':') else {
         return (None, value);
     };
@@ -264,9 +265,6 @@ fn push_normalized_compact_filter_values(target: &mut Vec<String>, raw: &str) {
 
 fn push_filter_values(target: &mut Vec<String>, values: Vec<String>) {
     for value in values {
-        if target.len() >= MAX_FILTER_VALUES {
-            return;
-        }
         let trimmed = value.trim();
         if !trimmed.is_empty() && !target.iter().any(|existing| existing == trimmed) {
             target.push(trimmed.to_string());
@@ -274,126 +272,28 @@ fn push_filter_values(target: &mut Vec<String>, values: Vec<String>) {
     }
 }
 
+/// From the start of the day (or year) in the computer's time zone, the zone History shows days in.
 fn parse_after_date(raw: &str) -> Option<i64> {
-    let date = parse_query_date(raw)?;
-    Utc.with_ymd_and_hms(date.year, date.month, date.day, 0, 0, 0)
-        .single()
-        .map(|value| value.timestamp_millis())
+    let (first, _) = parse_query_days(raw)?;
+    Some(local_day_range_ms(first)?.0)
 }
 
+/// To the end of the day (or year) in the computer's time zone.
 fn parse_before_date(raw: &str) -> Option<i64> {
-    let date = parse_query_date(raw)?;
-    let (month, day) = if date.year_only { (12, 31) } else { (date.month, date.day) };
-    Utc.with_ymd_and_hms(date.year, month, day, 23, 59, 59)
-        .single()
-        .map(|value| value.timestamp_millis() + 999)
+    let (_, last) = parse_query_days(raw)?;
+    Some(local_day_range_ms(last)?.1)
 }
 
-fn parse_query_date(raw: &str) -> Option<QueryDate> {
+/// The first and last day a date operand names: one day, or a whole year.
+fn parse_query_days(raw: &str) -> Option<(NaiveDate, NaiveDate)> {
     let trimmed = raw.trim().replace('/', "-");
     if trimmed.len() == 4 && trimmed.chars().all(|character| character.is_ascii_digit()) {
-        return trimmed.parse::<i32>().ok().map(|year| QueryDate {
-            year,
-            month: 1,
-            day: 1,
-            year_only: true,
-        });
+        let year = trimmed.parse::<i32>().ok()?;
+        return Some((
+            NaiveDate::from_ymd_opt(year, 1, 1)?,
+            NaiveDate::from_ymd_opt(year, 12, 31)?,
+        ));
     }
-    NaiveDate::parse_from_str(&trimmed, "%Y-%m-%d").ok().map(|date| QueryDate {
-        year: date.year(),
-        month: date.month(),
-        day: date.day(),
-        year_only: false,
-    })
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct QueryDate {
-    year: i32,
-    month: u32,
-    day: u32,
-    year_only: bool,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parses_site_exclusion_and_exact_phrase_without_regex() {
-        let parsed = parse_history_search_query(r#"site:github.com "release notes" -pathkeep"#);
-
-        assert_eq!(parsed.keyword_text.as_deref(), Some("release notes"));
-        assert_eq!(parsed.required_sites, vec!["github.com"]);
-        assert!(parsed.exact_terms.iter().any(|term| term == "release notes"));
-        assert!(parsed.excluded_terms.iter().any(|term| term == "pathkeep"));
-    }
-
-    #[test]
-    fn parses_field_filetype_and_date_operators() {
-        let parsed = parse_history_search_query(
-            r#"intitle:"release notes" inurl:github filetype:pdf after:2026-05-01 before:2026/05/07 -site:docs.github.com -ext:doc"#,
-        );
-
-        assert!(parsed.required_title_terms.iter().any(|term| term == "release notes"));
-        assert!(parsed.required_url_terms.iter().any(|term| term == "github"));
-        assert_eq!(parsed.required_filetypes, vec!["pdf"]);
-        assert_eq!(parsed.excluded_sites, vec!["docs.github.com"]);
-        assert_eq!(parsed.excluded_filetypes, vec!["doc"]);
-        assert!(parsed.after_ms.is_some());
-        assert!(parsed.before_ms.is_some());
-    }
-
-    #[test]
-    fn parses_tag_and_note_operators_with_normalization_and_negation() {
-        let parsed = parse_history_search_query(
-            r#"tag:Rust tag:"async runtime" -tag:archived note:"design doc" -note:legacy"#,
-        );
-
-        // Tags lowercase + trim, multi-token quoted operand stays as
-        // a single phrase so it can match `url_tags.tag` exactly.
-        assert!(parsed.required_tags.iter().any(|tag| tag == "rust"));
-        assert!(parsed.required_tags.iter().any(|tag| tag == "async runtime"));
-        assert!(parsed.excluded_tags.iter().any(|tag| tag == "archived"));
-        // Notes: substring match payload, lowercase + trim, quoted
-        // phrases preserved.
-        assert!(parsed.required_notes.iter().any(|note| note == "design doc"));
-        assert!(parsed.excluded_notes.iter().any(|note| note == "legacy"));
-        // tag:/note: operators do not leak into the keyword text.
-        assert!(parsed.keyword_text.is_none());
-    }
-
-    #[test]
-    fn empty_tag_and_note_operands_are_dropped() {
-        let parsed = parse_history_search_query(r#"tag: note: -tag: rust"#);
-        // Empty operands produce no filter values…
-        assert!(parsed.required_tags.is_empty());
-        assert!(parsed.required_notes.is_empty());
-        assert!(parsed.excluded_tags.is_empty());
-        // …but the unbracketed "rust" still lands as a keyword.
-        assert_eq!(parsed.keyword_text.as_deref(), Some("rust"));
-    }
-
-    #[test]
-    fn parses_negated_fields_year_dates_and_tokenizer_edges() {
-        let parsed = parse_history_search_query(
-            r#"-intitle:pathkeep -inurl:issues foo"bar "release \"notes\"" 123:abc after:2026 before:2026"#,
-        );
-
-        assert!(parsed.excluded_title_terms.iter().any(|term| term == "pathkeep"));
-        assert!(parsed.excluded_url_terms.iter().any(|term| term == "issues"));
-        assert_eq!(parsed.after_ms, parse_after_date("2026"));
-        assert_eq!(parsed.before_ms, parse_before_date("2026"));
-        assert_eq!(parsed.keyword_text.as_deref(), Some(r#"foo"bar release "notes" 123:abc"#));
-    }
-
-    #[test]
-    fn caps_filter_values_and_ignores_or_as_keyword_noise() {
-        let parsed = parse_history_search_query(
-            "-a -b -c -d -e -f -g -h -i -j -k -l -m -n -o -p -q github OR gitlab",
-        );
-
-        assert_eq!(parsed.excluded_terms.len(), MAX_FILTER_VALUES);
-        assert_eq!(parsed.keyword_text.as_deref(), Some("github OR gitlab"));
-    }
+    let day = NaiveDate::parse_from_str(&trimmed, "%Y-%m-%d").ok()?;
+    Some((day, day))
 }

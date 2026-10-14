@@ -1,314 +1,109 @@
-//! Takeout payload import helpers.
-//!
-//! ## Responsibilities
-//! - Parse one recognized Takeout payload for archive import without allocating
-//!   inspection-only preview rows.
-//! - Write canonical URL/visit rows for that payload and stage the matching
-//!   source-evidence plan.
-//! - Persist deferred source-evidence plans and synthetic Takeout profile
-//!   provenance after canonical archive commits.
-//!
-//! ## Not responsible for
-//! - Driving the outer import run loop or emitting shell progress events.
-//! - Building inspection previews or quarantining unsupported files.
-//! - Updating import-batch review read models after import completes.
-//!
-//! ## Dependencies
-//! - Canonical archive and source-evidence helpers from `crate::archive`.
-//! - Inspection-side parse helpers from `super::inspect`.
-//!
-//! ## Performance notes
-//! - Import intentionally bypasses preview-row allocation and consumes parser
-//!   reports directly so large payloads do not carry an extra visit-sized
-//!   allocation just for import execution.
-//! - Source-evidence now streams into a bounded builder while canonical rows
-//!   are still being parsed, so one Takeout payload no longer retains one full
-//!   native-evidence batch before spill-to-disk can start.
+//! Responsibilities: stream Takeout payloads into bounded archive/evidence writes.
+//! Not responsible for: file discovery, batch review or run finalization.
+//! Failure modes: source renames duplicate visits, missing URLs create orphan visits,
+//! evidence loss precedes a committed cursor, imports retain whole-archive maps.
+//! Tests: ingest::dedup_scenarios_takeout and takeout::tests.
 
 use super::*;
-use crate::visit_taxonomy::registrable_domain_for_url;
-use browser_history_parser::{
-    HistoryBatchConsumer, ParsedUrl, ParsedVisit, StreamHistoryError,
-    takeout::{
-        TakeoutSourceEvidenceChunk, TakeoutSourceEvidenceConsumer, TakeoutStreamOptions,
-        stream_payload_with_sink as stream_takeout_payload_with_sink,
+use crate::{
+    Vault,
+    archive::ingest::{
+        ArchiveChunkConsumer, ArchiveIngestProgress, BATCH_ROWS, ImportOrigin, WriteContext,
+        parser::Watermark,
     },
 };
+use browser_history_parser::{
+    HistoryBatchConsumer, SourceEvidenceChunk, StreamHistoryError,
+    takeout::{
+        TakeoutSourceEvidenceChunk, TakeoutSourceEvidenceConsumer, TakeoutStreamOptions,
+        stream_payload_reader_with_sink,
+    },
+};
+use vault_store::{CancelToken, Db, Priority, Session, params};
 
-const TAKEOUT_IMPORT_STREAM_CHUNK_SIZE: usize = 10_000;
-
-/// Record-level progress emitted by one streaming Takeout payload import.
-pub(super) struct TakeoutPayloadProgress {
-    pub processed_records: usize,
-    pub imported_records: usize,
-    pub duplicate_records: usize,
-    pub skipped_records: usize,
-}
-
-/// Stable archive context shared by one streamed Takeout payload import.
+pub(super) type TakeoutPayloadProgress = ArchiveIngestProgress;
 pub(super) struct TakeoutPayloadImportContext<'a> {
-    pub paths: &'a ProjectPaths,
-    pub archive: &'a Transaction<'a>,
+    pub vault: &'a Vault,
     pub run_id: i64,
     pub batch_id: i64,
     pub source_profile_id: i64,
+    /// `takeout_profile` of the payload's kind.
+    pub profile_key: &'static str,
+    pub cancel: &'a CancelToken,
+    /// The batch carries on an interrupted import (`batches::continue_or_create_import_batch`).
+    pub continuing: bool,
 }
 
-/// Streams canonical Takeout URL/visit rows straight into the archive transaction.
-///
-/// This consumer keeps the import hot path aligned with the streamed parser
-/// contract so large browser-history payloads can start writing canonical rows
-/// before the full payload report has been materialized.
-struct TakeoutArchiveChunkConsumer<'a> {
-    archive: &'a Transaction<'a>,
-    run_id: i64,
-    batch_id: i64,
-    source_profile_id: i64,
-    source_path: &'a str,
-    url_id_map: std::collections::BTreeMap<i64, i64>,
-    source_evidence: DeferredSourceEvidenceBuilder,
-    stats: ImportStats,
-    progress: Option<Box<dyn FnMut(TakeoutPayloadProgress) + 'a>>,
-}
-
-impl<'a> TakeoutArchiveChunkConsumer<'a> {
-    /// Creates a new archive-bound consumer for one Takeout payload import.
-    fn new(
-        paths: &ProjectPaths,
-        archive: &'a Transaction<'a>,
-        run_id: i64,
-        batch_id: i64,
-        source_profile_id: i64,
-        source_path: &'a str,
-        progress: Option<Box<dyn FnMut(TakeoutPayloadProgress) + 'a>>,
-    ) -> Self {
-        Self {
-            archive,
-            run_id,
-            batch_id,
-            source_profile_id,
-            source_path,
-            url_id_map: std::collections::BTreeMap::new(),
-            source_evidence: DeferredSourceEvidenceBuilder::new(paths, source_path),
-            stats: ImportStats::default(),
-            progress,
-        }
-    }
-
-    /// Returns the final import counters and deferred evidence payload for this file.
-    fn finish(
-        mut self,
-        skipped_items: usize,
-    ) -> Result<(ImportStats, DeferredSourceEvidencePayload, SourceEvidenceCounts)> {
-        self.stats.skipped_items = skipped_items;
-        let source_evidence_counts = self.source_evidence.counts();
-        let deferred_source_evidence_payload = self.source_evidence.finish()?;
-        Ok((self.stats, deferred_source_evidence_payload, source_evidence_counts))
+impl TakeoutSourceEvidenceConsumer<anyhow::Error> for ArchiveChunkConsumer<'_> {
+    fn source_evidence(&mut self, chunk: TakeoutSourceEvidenceChunk) -> Result<()> {
+        HistoryBatchConsumer::source_evidence(
+            self,
+            SourceEvidenceChunk {
+                typed_evidence: chunk.typed_evidence,
+                native_entities: chunk.native_entities,
+            },
+        )
     }
 }
 
-impl HistoryBatchConsumer for TakeoutArchiveChunkConsumer<'_> {
-    type Error = anyhow::Error;
-
-    fn urls(&mut self, batch: Vec<ParsedUrl>) -> Result<(), Self::Error> {
-        for url in batch {
-            let payload_hash = sha256_hex(
-                serde_json::to_string(&url)
-                    .context("serializing Takeout URL for payload hash")?
-                    .as_bytes(),
-            );
-            // Persisted registrable domain for the index-seek domain-star
-            // resolution (Cluster 2a / H-2): same `url`, same function the
-            // per-visit `StarredMatcher::is_starred` uses. Empty string (not NULL)
-            // when undecidable so the row leaves the backfill's NULL set.
-            let registrable_domain = registrable_domain_for_url(&url.url).unwrap_or_default();
-            let url_id = self.archive.query_row(
-                "INSERT INTO urls (
-                   url,
-                   title,
-                   visit_count,
-                   typed_count,
-                   first_visit_ms,
-                   first_visit_iso,
-                   last_visit_ms,
-                   last_visit_iso,
-                   source_profile_id,
-                   created_by_run_id,
-                   source_url_id,
-                   hidden,
-                   payload_hash,
-                   recorded_at,
-                   registrable_domain
-                 )
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
-                 ON CONFLICT(source_profile_id, source_url_id) DO UPDATE SET
-                   url = CASE
-                     WHEN excluded.last_visit_ms > urls.last_visit_ms THEN excluded.url
-                     ELSE urls.url
-                   END,
-                   title = CASE
-                     WHEN excluded.last_visit_ms > urls.last_visit_ms THEN excluded.title
-                     ELSE urls.title
-                   END,
-                   visit_count = MAX(urls.visit_count, excluded.visit_count),
-                   typed_count = MAX(urls.typed_count, excluded.typed_count),
-                   hidden = CASE
-                     WHEN excluded.last_visit_ms > urls.last_visit_ms THEN excluded.hidden
-                     ELSE urls.hidden
-                   END,
-                   last_visit_ms = CASE
-                     WHEN excluded.last_visit_ms > urls.last_visit_ms THEN excluded.last_visit_ms
-                     ELSE urls.last_visit_ms
-                   END,
-                   last_visit_iso = CASE
-                     WHEN excluded.last_visit_ms > urls.last_visit_ms THEN excluded.last_visit_iso
-                     ELSE urls.last_visit_iso
-                   END,
-                   payload_hash = CASE
-                     WHEN excluded.last_visit_ms > urls.last_visit_ms THEN excluded.payload_hash
-                     ELSE urls.payload_hash
-                   END,
-                   recorded_at = CASE
-                     WHEN excluded.last_visit_ms > urls.last_visit_ms THEN excluded.recorded_at
-                     ELSE urls.recorded_at
-                   END,
-                   -- Track the freshest `url`'s domain so the column never
-                   -- disagrees with the stored url after a newer variant wins.
-                   registrable_domain = CASE
-                     WHEN excluded.last_visit_ms > urls.last_visit_ms THEN excluded.registrable_domain
-                     ELSE urls.registrable_domain
-                   END
-                 RETURNING id",
-                params![
-                    url.url,
-                    url.title,
-                    url.visit_count.max(1),
-                    url.typed_count.max(0),
-                    url.last_visit_ms,
-                    url.last_visit_iso,
-                    self.source_profile_id,
-                    self.run_id,
-                    url.source_url_id.to_string(),
-                    i64::from(url.hidden),
-                    payload_hash,
-                    now_rfc3339(),
-                    registrable_domain,
-                ],
-                |row| row.get::<_, i64>(0),
-            )?;
-            self.url_id_map.insert(url.source_url_id, url_id);
-        }
-        Ok(())
-    }
-
-    fn visits(&mut self, batch: Vec<ParsedVisit>) -> Result<(), Self::Error> {
-        for visit in batch {
-            if let Some(url_id) =
-                resolve_takeout_visit_url_id(&self.url_id_map, &mut self.stats, visit.source_url_id)
-            {
-                let payload_hash = sha256_hex(
-                    serde_json::to_string(&visit)
-                        .context("serializing Takeout visit for payload hash")?
-                        .as_bytes(),
-                );
-                let inserted = self.archive.execute(
-                    "INSERT OR IGNORE INTO visits (
-                       url_id,
-                       source_visit_id,
-                       visit_time_ms,
-                       visit_time_iso,
-                       transition_type,
-                       visit_duration_ms,
-                       source_profile_id,
-                       created_by_run_id,
-                       from_visit,
-                       is_known_to_sync,
-                       visited_link_id,
-                       external_referrer_url,
-                       app_id,
-                       event_fingerprint,
-                       payload_hash,
-                       recorded_at,
-                       import_batch_id
-                     )
-                     VALUES (?1, ?2, ?3, ?4, NULL, NULL, ?5, ?6, NULL, 0, NULL, ?7, 'takeout', ?8, ?9, ?10, ?11)",
-                    params![
-                        url_id,
-                        visit.source_visit_id.to_string(),
-                        visit.visit_time_ms,
-                        visit.visit_time_iso,
-                        self.source_profile_id,
-                        self.run_id,
-                        self.source_path,
-                        visit_event_fingerprint(
-                            "takeout",
-                            &visit.url,
-                            visit.visit_time_ms,
-                            visit.title.as_deref(),
-                            None,
-                            Some("takeout"),
-                        ),
-                        payload_hash,
-                        now_rfc3339(),
-                        self.batch_id,
-                    ],
-                )?;
-
-                if inserted > 0 {
-                    self.stats.imported_items += 1;
-                } else {
-                    self.stats.duplicate_items += 1;
-                }
-            }
-        }
-        if let Some(progress) = self.progress.as_mut() {
-            progress(TakeoutPayloadProgress {
-                processed_records: self.stats.imported_items
-                    + self.stats.duplicate_items
-                    + self.stats.skipped_items,
-                imported_records: self.stats.imported_items,
-                duplicate_records: self.stats.duplicate_items,
-                skipped_records: self.stats.skipped_items,
-            });
-        }
-        Ok(())
-    }
-}
-
-impl TakeoutSourceEvidenceConsumer<anyhow::Error> for TakeoutArchiveChunkConsumer<'_> {
-    fn source_evidence(&mut self, chunk: TakeoutSourceEvidenceChunk) -> Result<(), anyhow::Error> {
-        self.source_evidence.push(SourceEvidencePayload {
-            typed_evidence: chunk.typed_evidence,
-            native_entities: chunk.native_entities,
-        })
-    }
-}
-
-/// Imports one recognized payload while reporting parser-batch record progress.
 pub(super) fn import_supported_payload_with_progress<'a>(
     context: TakeoutPayloadImportContext<'a>,
-    classified_file: ClassifiedTakeoutFile<'a>,
+    file: ClassifiedTakeoutFile<'a>,
     kind: &str,
-    bytes: &[u8],
+    reader: &mut dyn std::io::Read,
     progress: Option<Box<dyn FnMut(TakeoutPayloadProgress) + 'a>>,
 ) -> Result<ImportedPayload> {
-    let TakeoutPayloadImportContext { paths, archive, run_id, batch_id, source_profile_id } =
-        context;
-    let source_path = &classified_file.file.path;
-    let mut consumer = TakeoutArchiveChunkConsumer::new(
-        paths,
-        archive,
+    let TakeoutPayloadImportContext {
+        vault,
         run_id,
         batch_id,
         source_profile_id,
-        source_path,
+        profile_key,
+        cancel,
+        continuing,
+    } = context;
+    let path = file.file.path.clone();
+    let source_batch = SourceBatchInput {
+        source_profile_id,
+        run_id: Some(run_id),
+        source_kind: "takeout".into(),
+        browser_version: None,
+        schema_version_text: Some(kind.into()),
+        schema_version_int: None,
+        schema_fingerprint: String::new(),
+        capability_snapshot: browser_history_parser::CapabilitySnapshot::default(),
+        coverage_stats_json: "{}".into(),
+        artifact_refs_json: Some(json!({"sourcePath":path,"payloadKind":kind}).to_string()),
+        notes_json: None,
+    };
+    let source_batch_id = vault.write(Db::SourceEvidence, Priority::Batch, move |s| {
+        upsert_source_batch(s, &source_batch)
+    })?;
+    let write = WriteContext {
+        run_id,
+        source_profile_id,
+        profile_id: profile_key.into(),
+        browser_family: "takeout".into(),
+        import: Some(ImportOrigin {
+            batch_id,
+            source_kind: "takeout".into(),
+            source_path: Some(path),
+            continuing,
+        }),
+    };
+    let mut consumer = ArchiveChunkConsumer::new(
+        vault,
+        write,
+        Watermark::default(),
+        cancel,
         progress,
+        source_batch_id,
     );
-    let report = stream_takeout_payload_with_sink(
-        source_path,
+    let report = stream_payload_reader_with_sink(
+        &file.file.path,
         kind,
-        bytes,
-        TAKEOUT_IMPORT_STREAM_CHUNK_SIZE,
+        reader,
+        BATCH_ROWS,
         TakeoutStreamOptions {
             collect_source_evidence: true,
             retain_report_source_evidence: false,
@@ -316,177 +111,61 @@ pub(super) fn import_supported_payload_with_progress<'a>(
         &mut consumer,
     )
     .map_err(takeout_stream_error_to_anyhow)
-    .with_context(|| format!("parsing Takeout payload {source_path} ({kind})"))?;
-    let (stats, deferred_source_evidence_payload, source_evidence_counts) =
-        consumer.finish(report.skipped_missing_visit_time)?;
-
-    Ok(ImportedPayload {
-        stats,
+    .with_context(|| format!("parsing Takeout payload {} ({kind})", file.file.path))?;
+    let counts = consumer.finish()?;
+    let skipped = report.skipped_missing_visit_time + counts.skipped_visits;
+    let result = ImportedPayload {
+        stats: ImportStats {
+            imported_items: counts.new_visits,
+            duplicate_items: counts.visit_count
+                - counts.new_visits
+                - counts.same_visits
+                - counts.written_before,
+            same_visit_items: counts.same_visits,
+            replaced_profiles: counts.replaced_profiles.clone(),
+            skipped_items: skipped,
+        },
         record_count: report.record_count,
         recognized_file: file_report_from_match(
-            classified_file,
-            if report.skipped_missing_visit_time > 0 {
-                "previewed-with-skips"
-            } else {
-                "previewed"
-            },
+            file,
+            if skipped > 0 { "previewed-with-skips" } else { "previewed" },
             report.record_count,
             None,
         ),
         earliest_visit_iso: report.earliest_visit_iso.clone(),
         latest_visit_iso: report.latest_visit_iso.clone(),
-        source_evidence_plan: build_takeout_source_evidence_plan(
-            source_profile_id,
-            run_id,
-            source_path,
-            report,
-            deferred_source_evidence_payload,
-            source_evidence_counts,
-        )?,
-    })
-}
-
-/// Builds the cold source-evidence plan corresponding to one imported payload.
-fn build_takeout_source_evidence_plan(
-    source_profile_id: i64,
-    run_id: i64,
-    source_path: &str,
-    report: TakeoutPayloadStreamReport,
-    source_evidence_payload: DeferredSourceEvidencePayload,
-    source_evidence_counts: SourceEvidenceCounts,
-) -> Result<TakeoutSourceEvidencePlan> {
-    let TakeoutPayloadStreamReport { kind, history, counts, .. } = report;
-    let browser_history_parser::StreamedHistory {
-        schema_observation,
-        capability_snapshot,
-        warnings,
-        ..
-    } = history;
-    let observation_json = serde_json::to_string(&schema_observation)?;
-    let coverage_stats_json = coverage_stats_json_from_counts(
-        counts.urls,
-        counts.visits,
-        counts.downloads,
-        counts.search_terms,
-        &source_evidence_counts,
-    );
-    Ok(TakeoutSourceEvidencePlan {
-        source_batch: SourceBatchInput {
-            source_profile_id,
-            run_id: Some(run_id),
-            source_kind: "takeout".to_string(),
-            browser_version: None,
-            schema_version_text: Some(kind.clone()),
-            schema_version_int: None,
-            schema_fingerprint: sha256_hex(observation_json.as_bytes()),
-            capability_snapshot,
-            coverage_stats_json,
-            artifact_refs_json: Some(
-                json!({
-                    "sourcePath": source_path,
-                    "payloadKind": kind,
-                })
-                .to_string(),
-            ),
-            notes_json: Some(serde_json::to_string(&warnings)?),
-        },
-        schema_observation,
-        source_evidence_payload,
-    })
-}
-
-/// Persists all deferred source-evidence writes after canonical import success.
-pub(super) fn persist_takeout_source_evidence_plans(
-    paths: &ProjectPaths,
-    config: &AppConfig,
-    key: Option<&str>,
-    profile_id: &str,
-    plans: &[TakeoutSourceEvidencePlan],
-) -> Result<()> {
-    if plans.is_empty() {
-        return Ok(());
-    }
-
-    let archive = open_archive_connection(paths, config, key)?;
-    let mut source_evidence = open_source_evidence_connection(paths, config, key)?;
-    let transaction = source_evidence.transaction()?;
-    let mut last_source_batch_id = None;
-
-    for plan in plans {
-        let source_batch_id = upsert_source_batch(&transaction, &plan.source_batch)?;
-        record_schema_observation(
-            &transaction,
-            source_batch_id,
-            "takeout-payload",
-            &plan.schema_observation,
-        )?;
-        plan.source_evidence_payload.persist(
-            &transaction,
-            source_batch_id,
-            plan.source_batch.source_profile_id,
-        )?;
-        last_source_batch_id = Some(source_batch_id);
-    }
-
-    transaction.commit()?;
-    if let Some(source_batch_id) = last_source_batch_id {
-        touch_takeout_source_batch_watermark(&archive, profile_id, source_batch_id)?;
-    }
-    Ok(())
-}
-
-fn resolve_takeout_visit_url_id(
-    url_id_map: &std::collections::BTreeMap<i64, i64>,
-    stats: &mut ImportStats,
-    source_url_id: i64,
-) -> Option<i64> {
-    let Some(&url_id) = url_id_map.get(&source_url_id) else {
-        stats.skipped_items += 1;
-        return None;
     };
-    Some(url_id)
+    vault.write(Db::SourceEvidence,Priority::Batch,move |s| {
+        record_schema_observation(s,source_batch_id,"takeout-payload",&report.history.schema_observation)?;
+        s.execute("UPDATE source_batches SET schema_fingerprint=?2 WHERE id=?1",params![source_batch_id,sha256_hex(&serde_json::to_vec(&report.history.schema_observation)?)])?;
+        s.execute("UPDATE source_batches SET capability_snapshot_json=?2,coverage_stats_json=?3,notes_json=?4 WHERE id=?1",params![
+            source_batch_id,serde_json::to_string(&report.history.capability_snapshot)?,
+            counts.evidence_counts.coverage(counts.url_count,counts.visit_count,counts.download_count,counts.search_term_count),serde_json::to_string(&report.history.warnings)?])?;
+        Ok(())
+    })?;
+    Ok(result)
 }
 
 fn takeout_stream_error_to_anyhow(error: StreamHistoryError<anyhow::Error>) -> anyhow::Error {
     match error {
-        StreamHistoryError::Parse(error) => anyhow::Error::new(error),
-        StreamHistoryError::Consumer(error) => error,
+        StreamHistoryError::Parse(e) => e.into(),
+        StreamHistoryError::Consumer(e) => e,
     }
 }
 
-/// Advances the Takeout watermark so later provenance reads can find the newest source batch.
-fn touch_takeout_source_batch_watermark(
-    archive: &Connection,
-    profile_id: &str,
-    source_batch_id: i64,
-) -> Result<()> {
-    archive.execute(
-        "INSERT INTO profile_watermarks (
-           profile_id,
-           last_visit_id,
-           last_url_last_visit_time,
-           last_download_id,
-           last_favicon_last_updated,
-           last_checkpoint_at,
-           last_schema_hash,
-           last_source_batch_id,
-           updated_at
-         )
-         VALUES (?1, 0, 0, 0, 0, NULL, NULL, ?2, ?3)
-         ON CONFLICT(profile_id) DO UPDATE SET
-           last_source_batch_id = excluded.last_source_batch_id,
-           updated_at = excluded.updated_at",
-        params![profile_id, source_batch_id, now_rfc3339()],
-    )?;
-    Ok(())
-}
-
-/// Ensures the synthetic Takeout profile exists before import writes start.
 pub(super) fn upsert_takeout_profile(
-    archive: &Transaction<'_>,
+    archive: &Session<'_>,
     profile_id: &str,
     source: &Path,
 ) -> Result<i64> {
+    let enabled = archive
+        .query("SELECT enabled FROM source_profiles WHERE profile_key=?1", [profile_id], |r| {
+            Ok(r.get::<i64>(0)?)
+        })?
+        .pop();
+    if enabled != Some(1) {
+        crate::archive::totals::add(archive, "sourceProfiles", 1)?;
+    }
     archive.execute(
         "INSERT INTO source_profiles (
            browser_kind,
@@ -511,56 +190,19 @@ pub(super) fn upsert_takeout_profile(
            updated_at = excluded.updated_at,
            enabled = 1",
         params![
-            "Imported browser history".to_string(),
+            if profile_id == takeout_profile(KIND_MY_ACTIVITY_JSON) {
+                "Google My Activity (Chrome)"
+            } else {
+                "Imported browser history"
+            },
             source.display().to_string(),
             now_rfc3339(),
             profile_id,
         ],
     )?;
     archive
-        .query_row("SELECT id FROM source_profiles WHERE profile_key = ?1", [profile_id], |row| {
-            row.get(0)
+        .query_one("SELECT id FROM source_profiles WHERE profile_key = ?1", [profile_id], |row| {
+            Ok(row.get(0)?)
         })
         .map_err(Into::into)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::config::project_paths_with_root;
-    use std::collections::BTreeMap;
-    use tempfile::tempdir;
-
-    #[test]
-    fn takeout_payload_helpers_cover_missing_urls_empty_plans_and_parse_errors() {
-        let mut stats = ImportStats::default();
-        let mut url_ids = BTreeMap::new();
-
-        assert_eq!(resolve_takeout_visit_url_id(&url_ids, &mut stats, 404), None);
-        assert_eq!(stats.skipped_items, 1);
-
-        url_ids.insert(404, 7);
-        assert_eq!(resolve_takeout_visit_url_id(&url_ids, &mut stats, 404), Some(7));
-        assert_eq!(stats.skipped_items, 1);
-
-        let error = takeout_stream_error_to_anyhow(StreamHistoryError::<anyhow::Error>::Parse(
-            browser_history_parser::ParseError::UnsupportedProvider { provider: "fixture" },
-        ));
-        assert!(format!("{error:#}").contains("fixture"));
-        let error = takeout_stream_error_to_anyhow(StreamHistoryError::Consumer(anyhow::anyhow!(
-            "consumer failed"
-        )));
-        assert!(format!("{error:#}").contains("consumer failed"));
-
-        let root = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(root.path());
-        persist_takeout_source_evidence_plans(
-            &paths,
-            &AppConfig::default(),
-            None,
-            "takeout:browser-history",
-            &[],
-        )
-        .expect("empty plans are a no-op");
-    }
 }

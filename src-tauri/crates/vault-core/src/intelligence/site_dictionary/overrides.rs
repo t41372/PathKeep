@@ -1,3 +1,4 @@
+//! Failure modes: edits vanish, disabled rules classify visits, or reads bootstrap storage.
 //! SQLite ownership for user-managed site-dictionary overrides.
 //!
 //! ## Responsibilities
@@ -11,7 +12,7 @@
 //! - Surfacing Settings UI payloads.
 //!
 //! ## Dependencies
-//! - `rusqlite` for the derived intelligence SQLite plane.
+//! - The Insights database, through `vault_store::Session`.
 //! - `utils::now_rfc3339` for stable audit timestamps.
 //! - `visit_taxonomy` enum contracts.
 //!
@@ -28,45 +29,18 @@ use crate::{
         DomainCategory, InteractionKind, PageCategory, TaxonomyOverride, TaxonomyOverrideTarget,
     },
 };
-use anyhow::{Context, Result};
-use rusqlite::{Connection, params};
+use anyhow::Result;
+use vault_store::{Session, params_owned as params};
 
 /// Schema for persisted user override rules. The unique target pair ensures one
 /// edit replaces the previous rule instead of creating ambiguous matches.
-const SITE_DICTIONARY_OVERRIDES_SCHEMA_SQL: &str = r#"
-CREATE TABLE IF NOT EXISTS site_dictionary_overrides (
-  id                INTEGER PRIMARY KEY AUTOINCREMENT,
-  target_kind       TEXT NOT NULL,
-  target_value      TEXT NOT NULL,
-  domain_category   TEXT,
-  page_category     TEXT,
-  interaction_kind  TEXT,
-  display_name      TEXT,
-  search_engine     TEXT,
-  is_noisy          INTEGER NOT NULL DEFAULT 0,
-  note              TEXT,
-  created_at        TEXT NOT NULL,
-  updated_at        TEXT NOT NULL,
-  UNIQUE(target_kind, target_value)
-);
-CREATE INDEX IF NOT EXISTS idx_site_dictionary_overrides_target
-  ON site_dictionary_overrides(target_kind, target_value);
-"#;
-
 /// Ensures the override table exists before classification or Settings reads.
 /// This is idempotent and safe to call from each public owner boundary.
-pub(crate) fn ensure_site_dictionary_override_schema(connection: &Connection) -> Result<()> {
-    connection
-        .execute_batch(SITE_DICTIONARY_OVERRIDES_SCHEMA_SQL)
-        .context("ensuring site dictionary override schema")
-}
-
 /// Loads user overrides in deterministic order so equal-match behavior remains
 /// stable across rebuilds and test runs.
 pub(crate) fn load_site_dictionary_overrides(
-    connection: &Connection,
+    connection: &Session<'_>,
 ) -> Result<Vec<SiteDictionaryOverride>> {
-    ensure_site_dictionary_override_schema(connection)?;
     let mut statement = connection.prepare(
         "SELECT target_kind,
                 target_value,
@@ -81,23 +55,27 @@ pub(crate) fn load_site_dictionary_overrides(
          ORDER BY target_kind ASC, target_value ASC",
     )?;
     statement
-        .query_map([], |row| {
+        .query_map((), |row| {
             let target_kind = row
-                .get::<_, String>(0)
+                .get::<String>(0)
                 .ok()
                 .and_then(|value| SiteDictionaryOverrideTargetKind::from_str(&value))
-                .ok_or_else(|| rusqlite::Error::InvalidQuery)?;
-            let target_value = row.get::<_, String>(1)?;
-            let domain_category = row.get::<_, Option<String>>(2)?;
-            let page_category = row.get::<_, Option<String>>(3)?;
-            let interaction_kind = row.get::<_, Option<String>>(4)?;
+                .ok_or_else(|| {
+                    vault_store::Error::Operation(Box::new(std::io::Error::other(
+                        "unknown site dictionary target",
+                    )))
+                })?;
+            let target_value = row.get::<String>(1)?;
+            let domain_category = row.get::<Option<String>>(2)?;
+            let page_category = row.get::<Option<String>>(3)?;
+            let interaction_kind = row.get::<Option<String>>(4)?;
             let taxonomy_override = build_taxonomy_override(
                 &target_kind,
                 &target_value,
                 domain_category.as_deref(),
                 page_category.as_deref(),
                 interaction_kind.as_deref(),
-                row.get::<_, Option<String>>(8)?.clone(),
+                row.get::<Option<String>>(8)?.clone(),
             );
             Ok(SiteDictionaryOverride {
                 target_kind,
@@ -105,11 +83,11 @@ pub(crate) fn load_site_dictionary_overrides(
                 taxonomy_override,
                 display_name: row.get(5)?,
                 search_engine: row.get(6)?,
-                is_noisy: row.get::<_, i64>(7)? != 0,
+                is_noisy: row.get::<i64>(7)? != 0,
                 note: row.get(8)?,
             })
         })?
-        .collect::<rusqlite::Result<Vec<_>>>()
+        .collect::<vault_store::Result<Vec<_>>>()
         .map_err(Into::into)
 }
 
@@ -118,10 +96,9 @@ pub(crate) fn load_site_dictionary_overrides(
 /// to send explicit taxonomy keys or `None`.
 #[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn upsert_site_dictionary_override(
-    connection: &Connection,
+    connection: &Session<'_>,
     override_rule: &SiteDictionaryOverrideUpsert,
 ) -> Result<()> {
-    ensure_site_dictionary_override_schema(connection)?;
     let now = now_rfc3339();
     connection.execute(
         "INSERT INTO site_dictionary_overrides (
@@ -163,9 +140,66 @@ pub(crate) fn upsert_site_dictionary_override(
     Ok(())
 }
 
-/// Converts optional persisted category keys into one all-or-nothing taxonomy
-/// override. Partial taxonomy rows are ignored to avoid creating mixed
-/// user/built-in evidence with unclear semantics.
+/// The category the user set for a whole site, if any.
+pub(crate) fn site_category(connection: &Session<'_>, site: &str) -> Result<Option<String>> {
+    Ok(connection
+        .query(
+            "SELECT domain_category FROM site_dictionary_overrides
+             WHERE target_kind=?1 AND target_value=?2 AND domain_category IS NOT NULL",
+            params![SiteDictionaryOverrideTargetKind::ExactDomain.as_str(), site],
+            |row| Ok(row.get::<String>(0)?),
+        )?
+        .into_iter()
+        .next())
+}
+
+/// Sets the category of a whole site, as the site page does, or with `None` gives the site back
+/// to the rules. Only the site's category: its pages' kinds stay the rules' (`classification`).
+/// A category PathKeep does not know is refused, since it would be ignored.
+pub(crate) fn set_site_category(
+    connection: &Session<'_>,
+    site: &str,
+    category: Option<&str>,
+) -> Result<()> {
+    let kind = SiteDictionaryOverrideTargetKind::ExactDomain.as_str();
+    match category {
+        Some(category) => {
+            anyhow::ensure!(
+                parse_domain_category(category).is_some(),
+                "invalid-site-category: {category}"
+            );
+            connection.execute(
+                "INSERT INTO site_dictionary_overrides
+                   (target_kind,target_value,domain_category,is_noisy,created_at,updated_at)
+                 VALUES (?1,?2,?3,0,?4,?4)
+                 ON CONFLICT(target_kind,target_value) DO UPDATE SET
+                   domain_category=excluded.domain_category,updated_at=excluded.updated_at",
+                params![kind, site, category, now_rfc3339()],
+            )?;
+        }
+        None => {
+            connection.execute(
+                "UPDATE site_dictionary_overrides SET domain_category=NULL,updated_at=?3
+                 WHERE target_kind=?1 AND target_value=?2",
+                params![kind, site, now_rfc3339()],
+            )?;
+            // Nothing else set for it: the row goes.
+            connection.execute(
+                "DELETE FROM site_dictionary_overrides
+                 WHERE target_kind=?1 AND target_value=?2 AND domain_category IS NULL
+                   AND page_category IS NULL AND interaction_kind IS NULL
+                   AND display_name IS NULL AND search_engine IS NULL AND is_noisy=0
+                   AND note IS NULL",
+                params![kind, site],
+            )?;
+        }
+    }
+    Ok(())
+}
+
+/// Converts persisted category keys into a taxonomy override. A row needs a site category; its
+/// page kind and interaction are optional, and the rules give those it leaves out (a site category
+/// set on Insights' site page sets only that). A key PathKeep does not know drops the row.
 fn build_taxonomy_override(
     target_kind: &SiteDictionaryOverrideTargetKind,
     target_value: &str,
@@ -182,8 +216,14 @@ fn build_taxonomy_override(
         },
         value: target_value.to_string(),
         domain_category: parse_domain_category(domain_category?)?,
-        page_category: parse_page_category(page_category?)?,
-        interaction_kind: parse_interaction_kind(interaction_kind?)?,
+        page_category: match page_category {
+            Some(value) => Some(parse_page_category(value)?),
+            None => None,
+        },
+        interaction_kind: match interaction_kind {
+            Some(value) => Some(parse_interaction_kind(value)?),
+            None => None,
+        },
         note,
     })
 }

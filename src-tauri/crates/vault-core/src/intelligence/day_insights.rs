@@ -1,3 +1,7 @@
+//! Responsibilities: compose exact local-calendar-day read models.
+//! Not responsible for: rebuilds or frontend rendering.
+//! Failure modes: reads write schemas, a query escapes its owner, stale scopes leak,
+//! or bounded results lose continuation. Native render-path and paging tests cover these.
 //! Focused read model for exact local-calendar-day insights.
 //!
 //! This module exists so the new day entity surface does not add yet another
@@ -5,69 +9,58 @@
 //! accepted Core Intelligence read models and only composes them into one
 //! day-first payload for the frontend.
 
-use crate::{
-    config::ProjectPaths,
-    models::{
-        AppConfig, CategoryFilteredDateRangeRequest, DateRange, DayInsights, DayInsightsDrilldown,
-        DayInsightsHourlyBucket, DayInsightsRequest, PagedDateRangeRequest, RefindPagesRequest,
-        ScopedDateRangeRequest, TopSitesRequest,
-    },
+use crate::models::{
+    CategoryFilteredDateRangeRequest, DateRange, DayInsights, DayInsightsDrilldown,
+    DayInsightsHourlyBucket, DayInsightsRequest, PagedDateRangeRequest, ScopedDateRangeRequest,
+    TopSitesRequest,
 };
 use anyhow::{Context, Result};
 use chrono::NaiveDate;
 
 use super::{
-    get_activity_mix, get_browsing_rhythm, get_digest_summary, get_query_families,
-    get_refind_pages, get_top_sites,
+    get_activity_mix, get_browsing_rhythm, get_digest_summary, get_query_families, get_top_sites,
 };
 
 /// Loads the exact-day deterministic read model used by `/intelligence/day/:date`.
-pub fn get_day_insights(
-    paths: &ProjectPaths,
-    config: &AppConfig,
-    key: Option<&str>,
-    request: &DayInsightsRequest,
-) -> Result<DayInsights> {
+pub fn get_day_insights(vault: &crate::Vault, request: &DayInsightsRequest) -> Result<DayInsights> {
     let date_range = exact_day_range(&request.date)?;
     let scoped_request = ScopedDateRangeRequest {
         date_range: date_range.clone(),
         profile_id: request.profile_id.clone(),
     };
-    let digest_summary = get_digest_summary(paths, config, key, &scoped_request)?;
+    let digest_summary = get_digest_summary(vault, &scoped_request)?;
     let top_sites = get_top_sites(
-        paths,
-        config,
-        key,
+        vault,
         &TopSitesRequest {
+            cursor: None,
             date_range: date_range.clone(),
             profile_id: request.profile_id.clone(),
+            profile_ids: Vec::new(),
             sort_by: Some("visit_count".to_string()),
             limit: Some(8),
         },
     )?;
-    let activity_mix = get_activity_mix(paths, config, key, &scoped_request)?;
-    let refind_pages = get_refind_pages(
-        paths,
-        config,
-        key,
-        &RefindPagesRequest {
-            date_range: date_range.clone(),
-            profile_id: request.profile_id.clone(),
-            limit: Some(5),
-        },
-    )?;
+    let activity_mix = get_activity_mix(vault, &scoped_request)?;
+    let (range, profile) = (date_range.clone(), request.profile_id.clone());
+    let refind_pages = vault.read(vault_store::Db::Intelligence, move |s| {
+        super::intelligence_refind::get_opened_refind_pages_with_connection(
+            s,
+            &range,
+            profile.as_deref(),
+            5,
+        )
+    })?;
     let query_families = get_query_families(
-        paths,
-        config,
-        key,
+        vault,
         &PagedDateRangeRequest {
+            cursor: None,
             date_range: date_range.clone(),
             profile_id: request.profile_id.clone(),
-            page: 0,
+
             page_size: 8,
         },
     )?;
-    let hourly_activity = get_exact_day_hourly_activity(paths, config, key, request, &date_range)?;
+    let hourly_activity = get_exact_day_hourly_activity(vault, request, &date_range)?;
 
     Ok(DayInsights {
         date: request.date.clone(),
@@ -88,16 +81,12 @@ fn exact_day_range(date: &str) -> Result<DateRange> {
 }
 
 fn get_exact_day_hourly_activity(
-    paths: &ProjectPaths,
-    config: &AppConfig,
-    key: Option<&str>,
+    vault: &crate::Vault,
     request: &DayInsightsRequest,
     date_range: &DateRange,
 ) -> Result<Vec<DayInsightsHourlyBucket>> {
     get_browsing_rhythm(
-        paths,
-        config,
-        key,
+        vault,
         &CategoryFilteredDateRangeRequest {
             date_range: date_range.clone(),
             profile_id: request.profile_id.clone(),
@@ -122,33 +111,4 @@ fn hourly_activity_from_rhythm(
         .enumerate()
         .map(|(hour, visit_count)| DayInsightsHourlyBucket { hour: hour as i64, visit_count })
         .collect()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{exact_day_range, hourly_activity_from_rhythm};
-    use crate::models::{DayInsightsHourlyBucket, RhythmHeatmap, RhythmHeatmapCell};
-
-    #[test]
-    fn exact_day_range_rejects_invalid_calendar_days() {
-        assert!(exact_day_range("2026-02-30").is_err());
-        assert!(exact_day_range("not-a-date").is_err());
-    }
-
-    #[test]
-    fn hourly_activity_folds_exact_day_rhythm_into_twenty_four_buckets() {
-        let buckets = hourly_activity_from_rhythm(RhythmHeatmap {
-            cells: vec![
-                RhythmHeatmapCell { dow: 5, hour: 3, visit_count: 2 },
-                RhythmHeatmapCell { dow: 5, hour: 3, visit_count: 1 },
-                RhythmHeatmapCell { dow: 5, hour: 10, visit_count: 4 },
-            ],
-            max_count: 4,
-        });
-
-        assert_eq!(buckets.len(), 24);
-        assert_eq!(buckets[3], DayInsightsHourlyBucket { hour: 3, visit_count: 3 });
-        assert_eq!(buckets[10], DayInsightsHourlyBucket { hour: 10, visit_count: 4 });
-        assert_eq!(buckets[0].visit_count, 0);
-    }
 }

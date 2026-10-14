@@ -1,0 +1,2 @@
+# Keep the offline verification outputs reviewable with the crate.
+!evidence/*.log

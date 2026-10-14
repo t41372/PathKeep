@@ -3,7 +3,6 @@
  *
  * Why this file exists:
  * - The `backend-client` layer keeps page components from having to know raw command names or transport details.
- * - If a route needs desktop data, start here before reaching for legacy preview helpers.
  *
  * Main declarations:
  * - `call`
@@ -158,14 +157,7 @@ export async function call<T>(command: string, args?: BackendArgs): Promise<T> {
     return result
   }
 
-  const { backendTestHarness } = await import('../backend')
-  const result = await backendTestHarness.call<T>(command, args)
-  recordDesktopCommandMetric({
-    command,
-    durationMs: performance.now() - startedAt,
-    requestBytes: exactSerializedBytes(args),
-    responseBytes: estimatedSerializedBytes(result),
-    recordedAt: new Date().toISOString(),
-  })
-  return result
+  throw new Error(
+    `PathKeep cannot reach its backend (${command}). Run the desktop app, or start the dev bridge with \`bun run desktop:dev:bridge\`.`,
+  )
 }

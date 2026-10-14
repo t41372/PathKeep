@@ -1,46 +1,25 @@
-//! Google Takeout import boundary.
-//!
-//! ## Responsibilities
-//! - Own the archive-facing Takeout flow: inspect, quarantine, import, batch
-//!   review, and reversible visibility changes.
-//! - Keep the import transport honest by preserving preview/manual/execute
-//!   semantics and import-batch audit history.
-//! - Preserve source-evidence provenance for recognized Takeout payloads.
-//!
-//! ## Not responsible for
-//! - Defining the parser contract for non-Takeout browser sources.
-//! - Owning canonical archive schema bootstrap outside the import-specific
-//!   tables it depends on.
-//! - Rewriting frontend or Tauri command contracts.
-//!
-//! ## Dependencies
-//! - Canonical/archive helpers from `crate::archive`.
-//! - Audit artifact persistence from `crate::git_audit`.
-//! - Source payload parsing from `browser_history_parser::takeout`.
-//!
-//! ## Performance notes
-//! - This boundary still runs on potentially large import sources, so import
-//!   execution and review helpers must avoid hidden extra passes and keep
-//!   per-file work explicit.
+//! Responsibilities: expose preview, import, review and reversible batch operations.
+//! Not responsible for: database ownership, browser parsing or search indexing.
+//! Failure modes: preview mutates facts, imports lose evidence, review loses
+//! provenance, revert/restore diverges from search. Tests: takeout and batch_search_tests.
 
 mod batch_review;
 mod batches;
 mod browser_history;
 mod import_flow;
+mod import_jobs;
+mod import_run;
 mod inspect;
 mod payload_import;
+mod source_reader;
+mod visibility;
 
 #[cfg(test)]
 mod tests;
 
 use crate::{
     archive::{
-        DeferredSourceEvidenceBuilder, DeferredSourceEvidencePayload, SourceBatchInput,
-        SourceEvidenceCounts, SourceEvidencePayload, coverage_stats_json_from_counts,
-        create_schema, open_archive_connection, open_source_evidence_connection,
-        rebuild_search_projection, record_schema_observation,
-        refresh_search_projection_for_import_batch, stats_with_archive_totals, upsert_source_batch,
-        visit_event_fingerprint,
+        SourceBatchInput, record_schema_observation, upsert_source_batch, visit_event_fingerprint,
     },
     config::{ProjectPaths, ensure_paths},
     git_audit,
@@ -53,16 +32,13 @@ use crate::{
 };
 use anyhow::{Context, Result};
 use browser_history_parser::takeout::{
-    KIND_INDEX, TakeoutPathDisposition, TakeoutPathMatch, TakeoutPayloadStreamReport,
+    KIND_INDEX, KIND_MY_ACTIVITY_JSON, TakeoutPathDisposition, TakeoutPathMatch,
     classify_payload_path_with_sniff as classify_takeout_payload_with_sniff,
 };
-#[cfg(test)]
-use browser_history_parser::takeout::{
-    TakeoutPayloadReport, parse_payload as parse_takeout_payload,
-};
-use rusqlite::{Connection, OptionalExtension, Row, Transaction, params};
+
 use serde_json::{Value, json};
 use std::{
+    collections::BTreeSet,
     fs,
     io::Read,
     path::{Path, PathBuf},
@@ -71,26 +47,23 @@ use walkdir::WalkDir;
 use zip::ZipArchive;
 
 pub use self::{
-    batch_review::{load_import_batches, preview_import_batch},
-    batches::{restore_import_batch, revert_import_batch},
-    browser_history::{
-        import_browser_history, import_browser_history_with_progress, inspect_browser_history,
+    batch_review::{
+        ImportBatchPage, load_import_batches, preview_import_batch, preview_import_batch_page,
     },
-    import_flow::{import_takeout, import_takeout_with_progress},
+    batches::{
+        restore_import_batch, restore_import_batch_with_control, revert_import_batch,
+        revert_import_batch_with_control,
+    },
+    browser_history::{
+        import_browser_history, import_browser_history_with_control,
+        import_browser_history_with_progress, inspect_browser_history,
+    },
+    import_flow::{import_takeout, import_takeout_with_control, import_takeout_with_progress},
+    import_jobs::{ImportJob, stop_import},
     inspect::inspect_takeout,
 };
 
 pub(crate) use self::batches::ensure_import_batch_audit_artifact;
-
-#[cfg(test)]
-use self::{
-    batch_review::load_import_batch_record,
-    inspect::{
-        collect_records_from_payload, gather_takeout_files, parse_payload_report,
-        preview_entry_from_payload, quarantine_file, quarantine_takeout_file, read_zip_entry,
-        recognize_takeout_file,
-    },
-};
 
 /// Caps the number of preview entries returned for inspection and batch review.
 const PREVIEW_LIMIT: usize = 24;
@@ -117,6 +90,10 @@ struct ParsedTakeoutRecord {
 struct ImportStats {
     imported_items: usize,
     duplicate_items: usize,
+    /// Written, but another source already had the same visit (`archive::same_visit`).
+    same_visit_items: usize,
+    /// Sources whose copies an imported visit now stands in for.
+    replaced_profiles: BTreeSet<i64>,
     skipped_items: usize,
 }
 
@@ -128,23 +105,6 @@ struct ImportedPayload {
     recognized_file: TakeoutFileReport,
     earliest_visit_iso: Option<String>,
     latest_visit_iso: Option<String>,
-    source_evidence_plan: TakeoutSourceEvidencePlan,
-}
-
-/// Holds preview rows plus the minimal parser metadata needed by inspection tests.
-#[cfg(test)]
-#[derive(Debug)]
-struct CollectedPayload {
-    records: Vec<ParsedTakeoutRecord>,
-    skipped_missing_visit_time: usize,
-}
-
-/// Stages the source-evidence writes required after canonical import commits.
-#[derive(Debug)]
-struct TakeoutSourceEvidencePlan {
-    source_batch: SourceBatchInput,
-    schema_observation: browser_history_parser::SchemaObservation,
-    source_evidence_payload: DeferredSourceEvidencePayload,
 }
 
 /// Represents one persisted import batch plus its review metadata.
@@ -238,6 +198,27 @@ fn merge_preview_range(
             preview_range.end = Some(next_end.to_string());
         }
     }
+}
+
+/// The source profile a Takeout payload's visits go to. Chrome's own history and My Activity's
+/// Chrome entries are two sources: each keeps its records, and either can be undone or told apart.
+pub fn takeout_profile(kind: &str) -> &'static str {
+    if kind == KIND_MY_ACTIVITY_JSON { "takeout::my-activity" } else { "takeout::browser-history" }
+}
+
+/// The profiles whose Insights an import changed: those it put visits in, from the files it read,
+/// and those whose copies of a visit it now stands in for.
+pub fn takeout_profiles(inspection: &TakeoutInspection) -> Vec<String> {
+    let mut profiles = inspection
+        .recognized_files
+        .iter()
+        .filter(|file| file.records > 0)
+        .map(|file| takeout_profile(&file.kind).to_owned())
+        .chain(inspection.replaced_profiles.iter().cloned())
+        .collect::<Vec<_>>();
+    profiles.sort();
+    profiles.dedup();
+    profiles
 }
 
 fn file_report_kind(path_match: TakeoutPathMatch) -> String {

@@ -120,7 +120,7 @@ fn staging_fallback_warning(
 }
 
 /// A staged database file plus how it got there.
-pub(super) struct StagedDatabase {
+pub(crate) struct StagedDatabase {
     /// The staged copy the parser will read.
     pub path: PathBuf,
     /// Set when the preferred online snapshot failed and we used the slower
@@ -135,15 +135,22 @@ pub(super) fn copy_database_with_sidecars(
     base_name: &str,
     destination_dir: &Path,
 ) -> Result<StagedDatabase> {
-    let source = source_dir.join(base_name);
-    let destination = destination_dir.join(base_name);
+    stage_sqlite_file(&source_dir.join(base_name), &destination_dir.join(base_name))
+}
 
+/// Copies one SQLite database a browser may be writing to `destination`, as a file the read-only
+/// parser can open: an online snapshot when the source allows one, else a raw copy with its
+/// sidecars, recovered. Backups and Browser Direct imports both stage this way; the imports had
+/// their own copy, which lacked the recovery and failed on a hot journal.
+pub(crate) fn stage_sqlite_file(source: &Path, destination: &Path) -> Result<StagedDatabase> {
     // Preferred path: an online backup yields a single, transactionally
     // consistent, journal-free file even while the browser keeps writing. Its
     // failure is not terminal — we fall back to the raw copy below — but we keep
     // the reason so the run can surface why staging was degraded.
-    let fallback_reason = match snapshot_sqlite_database(&source, &destination) {
-        Ok(()) => return Ok(StagedDatabase { path: destination, fallback_reason: None }),
+    let fallback_reason = match snapshot_sqlite_database(source, destination) {
+        Ok(()) => {
+            return Ok(StagedDatabase { path: destination.to_path_buf(), fallback_reason: None });
+        }
         Err(error) => format!("{error:#}"),
     };
 
@@ -151,12 +158,12 @@ pub(super) fn copy_database_with_sidecars(
     // rollback journal or WAL, so we copy those sidecars too — they hold the
     // pages needed to reach a consistent state. Without them the main file is a
     // torn copy.
-    copy_with_context(&source, &destination)?;
+    copy_with_context(source, destination)?;
 
     for suffix in ["-wal", "-shm", "-journal"] {
-        let source_sidecar = source_dir.join(format!("{base_name}{suffix}"));
+        let source_sidecar = PathBuf::from(format!("{}{suffix}", source.display()));
         if source_sidecar.exists() {
-            let target_sidecar = destination_dir.join(format!("{base_name}{suffix}"));
+            let target_sidecar = PathBuf::from(format!("{}{suffix}", destination.display()));
             copy_with_context(&source_sidecar, &target_sidecar)?;
         }
     }
@@ -166,11 +173,11 @@ pub(super) fn copy_database_with_sidecars(
     // on our private throwaway copy where writing is safe — never the live
     // browser file. Non-SQLite sources (the usual reason the online backup
     // failed) have nothing to recover; let the parser report their real problem.
-    if is_sqlite_database(&destination) {
-        recover_staged_database(&destination)?;
+    if is_sqlite_database(destination) {
+        recover_staged_database(destination)?;
     }
 
-    Ok(StagedDatabase { path: destination, fallback_reason: Some(fallback_reason) })
+    Ok(StagedDatabase { path: destination.to_path_buf(), fallback_reason: Some(fallback_reason) })
 }
 
 fn snapshot_sqlite_database(source: &Path, destination: &Path) -> Result<()> {

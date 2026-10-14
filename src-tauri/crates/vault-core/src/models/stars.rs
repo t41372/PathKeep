@@ -1,4 +1,7 @@
-//! Star (favorites / 加星) models.
+//! Responsibilities: define star identity, page requests and annotated list responses.
+//! Not responsible for: database queries or cursor traversal.
+//! Failure modes: wire field names drift or callers mistake a page size for a collection cap.
+//! Tests: stars::pagination_tests and desktop dispatch tests.
 //!
 //! A star marks a canonical entity — a page (`canonical_url`) or a source
 //! (`registrable_domain`) — as a user favorite. These serde types are the
@@ -39,7 +42,7 @@ impl StarEntityKind {
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum StarSort {
-    /// Newest stars first (`starred_at DESC`) — rides the kind index.
+    /// Newest stars first, with kind/key tie-breakers for cursor pagination.
     #[default]
     RecentlyStarred,
     /// Most-revisited first, via a join to the per-URL visit-count read model.
@@ -98,6 +101,8 @@ pub struct StarListItem {
     /// most-revisited sort and the hub's "{n}×" affordance.
     #[serde(default)]
     pub visit_count: i64,
+    pub notes: String,
+    pub tags: Vec<String>,
 }
 
 /// Rollup of how many things the user has starred, per kind.
@@ -106,4 +111,12 @@ pub struct StarListItem {
 pub struct StarCounts {
     pub urls: i64,
     pub domains: i64,
+}
+
+/// One stable page of stars, including the annotations needed by the Starred view.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct StarPage {
+    pub items: Vec<StarListItem>,
+    pub next_cursor: Option<String>,
 }

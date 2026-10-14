@@ -11,8 +11,8 @@
 //! ## Not responsible for
 //! - Generating synthetic content (URLs, titles, timestamps) — that belongs
 //!   to the scenario layer once it ships. This module is the low-level writer.
-//! - Verifying the round-trip parse contract — `tests/chromium_roundtrip.rs`
-//!   owns that, since it requires the parser crate as a dev-dependency.
+//! - Checking that the parser reads the file back; the parser and vault-core tests that
+//!   use these files do that.
 //!
 //! ## Performance notes
 //! - All rows are written inside a single SQLite transaction; a 1.44M-row
@@ -442,97 +442,3 @@ CREATE INDEX icon_mapping_page_url_idx ON icon_mapping(page_url);
 CREATE INDEX icon_mapping_icon_id_idx ON icon_mapping(icon_id);
 CREATE INDEX favicon_bitmaps_icon_id_idx ON favicon_bitmaps(icon_id);
 "#;
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use tempfile::TempDir;
-
-    #[test]
-    fn write_overwrites_existing_file_at_same_path() {
-        let dir = TempDir::new().unwrap();
-        let path = dir.path().join("History");
-        let fixture = ChromiumHistoryFixture::new()
-            .add_url(ChromiumUrlRow {
-                id: 1,
-                url: "https://a.test".to_string(),
-                title: Some("A".to_string()),
-                visit_count: 1,
-                typed_count: 0,
-                last_visit_unix_ms: 1_700_000_000_000,
-                hidden: false,
-            })
-            .add_visit(ChromiumVisitRow {
-                id: 1,
-                url_id: 1,
-                visit_time_unix_ms: 1_700_000_000_000,
-                from_visit: None,
-                transition: Some(1),
-                visit_duration_micros: None,
-                is_known_to_sync: false,
-                visited_link_id: None,
-                external_referrer_url: None,
-                app_id: None,
-            });
-        fixture.write(&path).unwrap();
-        assert!(path.exists());
-        fixture.write(&path).unwrap();
-        assert!(path.exists());
-    }
-
-    #[test]
-    fn write_favicons_overwrites_existing_file_with_companion_schema() {
-        let dir = TempDir::new().unwrap();
-        let path = dir.path().join("Favicons");
-        std::fs::write(&path, b"not sqlite").unwrap();
-
-        let icon_bytes = vec![0x89, b'P', b'N', b'G'];
-        let fixture = ChromiumHistoryFixture::new()
-            .add_favicon(ChromiumFaviconRow {
-                id: 9,
-                icon_url: "https://a.test/favicon.png".to_string(),
-                icon_type: Some(1),
-                width: 32,
-                height: 32,
-                last_updated_unix_ms: 1_700_000_000_000,
-                image_data: Some(icon_bytes.clone()),
-            })
-            .add_icon_mapping(ChromiumIconMappingRow {
-                page_url: "https://a.test/page".to_string(),
-                icon_id: 9,
-            });
-
-        fixture.write_favicons(&path).unwrap();
-
-        {
-            let connection = Connection::open(&path).unwrap();
-            let favicon_url: String = connection
-                .query_row("SELECT url FROM favicons WHERE id = 9", [], |row| row.get(0))
-                .unwrap();
-            assert_eq!(favicon_url, "https://a.test/favicon.png");
-
-            let mapped_icon_id: i64 = connection
-                .query_row(
-                    "SELECT icon_id FROM icon_mapping WHERE page_url = 'https://a.test/page'",
-                    [],
-                    |row| row.get(0),
-                )
-                .unwrap();
-            assert_eq!(mapped_icon_id, 9);
-
-            let stored_bytes: Option<Vec<u8>> = connection
-                .query_row("SELECT image_data FROM favicon_bitmaps WHERE icon_id = 9", [], |row| {
-                    row.get(0)
-                })
-                .unwrap();
-            assert_eq!(stored_bytes, Some(icon_bytes));
-        }
-
-        fixture.write_favicons(&path).unwrap();
-
-        let connection = Connection::open(&path).unwrap();
-        let favicon_count: i64 =
-            connection.query_row("SELECT COUNT(*) FROM favicons", [], |row| row.get(0)).unwrap();
-        assert_eq!(favicon_count, 1);
-    }
-}

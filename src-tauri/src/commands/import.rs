@@ -21,16 +21,17 @@ pub(crate) async fn inspect_takeout(
 
 #[cfg(not(test))]
 #[tauri::command]
-/// Imports a Takeout source into the current archive.
+/// Imports a Takeout source into the current archive; `stop_import` stops it under `import_id`.
 pub(crate) async fn import_takeout(
     app: AppHandle,
     request: vault_core::TakeoutRequest,
+    import_id: Option<String>,
     state: State<'_, SessionState>,
 ) -> Result<vault_core::TakeoutInspection, CommandError> {
-    let session_database_key = state.get_key();
+    let state = state.inner().clone();
     run_blocking_command("import_takeout", move || {
-        worker_bridge::import_takeout_impl(request, session_database_key.as_deref(), |event| {
-            let _ = app.emit("pathkeep://import-progress", &event);
+        worker_bridge::import_takeout_impl(request, import_id, &state, |event| {
+            let _ = app.emit(vault_core::IMPORT_PROGRESS_EVENT, &event);
         })
     })
     .await
@@ -38,33 +39,40 @@ pub(crate) async fn import_takeout(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Asks the import running under `import_id` to stop after the batch it is writing. True if one
+/// was running and had not been asked already.
+pub(crate) fn stop_import(import_id: String) -> bool {
+    worker_bridge::stop_import_impl(&import_id)
+}
+
+#[cfg(not(test))]
+#[tauri::command]
 /// Inspects a local browser history database without importing it.
 pub(crate) async fn inspect_browser_history(
     request: vault_core::BrowserHistoryImportRequest,
+    state: State<'_, SessionState>,
 ) -> Result<vault_core::TakeoutInspection, CommandError> {
+    let state = state.inner().clone();
     run_blocking_command("inspect_browser_history", move || {
-        worker_bridge::inspect_browser_history_impl(request)
+        worker_bridge::inspect_browser_history_impl(request, &state)
     })
     .await
 }
 
 #[cfg(not(test))]
 #[tauri::command]
-/// Imports a local browser history database into the current archive.
+/// Imports a local browser history database into the current archive; stoppable like Takeout.
 pub(crate) async fn import_browser_history(
     app: AppHandle,
     request: vault_core::BrowserHistoryImportRequest,
+    import_id: Option<String>,
     state: State<'_, SessionState>,
 ) -> Result<vault_core::TakeoutInspection, CommandError> {
-    let session_database_key = state.get_key();
+    let state = state.inner().clone();
     run_blocking_command("import_browser_history", move || {
-        worker_bridge::import_browser_history_impl(
-            request,
-            session_database_key.as_deref(),
-            |event| {
-                let _ = app.emit("pathkeep://import-progress", &event);
-            },
-        )
+        worker_bridge::import_browser_history_impl(request, import_id, &state, |event| {
+            let _ = app.emit(vault_core::IMPORT_PROGRESS_EVENT, &event);
+        })
     })
     .await
 }
@@ -74,11 +82,13 @@ pub(crate) async fn import_browser_history(
 /// Loads the detailed preview for one previously recorded import batch, off the UI thread.
 pub(crate) async fn preview_import_batch(
     batch_id: i64,
+    cursor: Option<String>,
+    limit: Option<usize>,
     state: State<'_, SessionState>,
 ) -> Result<vault_core::ImportBatchDetail, CommandError> {
-    let key = state.get_key();
+    let state = state.inner().clone();
     run_blocking_command("preview_import_batch", move || {
-        worker_bridge::preview_import_batch_impl(batch_id, key.as_deref())
+        worker_bridge::preview_import_batch_impl(batch_id, cursor, limit, &state)
     })
     .await
 }
@@ -90,9 +100,9 @@ pub(crate) async fn revert_import_batch(
     batch_id: i64,
     state: State<'_, SessionState>,
 ) -> Result<vault_core::ImportBatchDetail, CommandError> {
-    let key = state.get_key();
+    let state = state.inner().clone();
     run_blocking_command("revert_import_batch", move || {
-        worker_bridge::revert_import_batch_impl(batch_id, key.as_deref())
+        worker_bridge::revert_import_batch_impl(batch_id, &state)
     })
     .await
 }
@@ -104,9 +114,9 @@ pub(crate) async fn restore_import_batch(
     batch_id: i64,
     state: State<'_, SessionState>,
 ) -> Result<vault_core::ImportBatchDetail, CommandError> {
-    let key = state.get_key();
+    let state = state.inner().clone();
     run_blocking_command("restore_import_batch", move || {
-        worker_bridge::restore_import_batch_impl(batch_id, key.as_deref())
+        worker_bridge::restore_import_batch_impl(batch_id, &state)
     })
     .await
 }

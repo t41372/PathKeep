@@ -6,6 +6,10 @@ import { createRequire } from 'node:module'
 const require = createRequire(import.meta.url)
 const playwrightCliPath = require.resolve('@playwright/test/cli')
 
+const args = process.argv.slice(2)
+// Mirrors `artifactsDir` in playwright.config.ts.
+const artifactsDir = 'artifacts/e2e'
+
 const env = { ...process.env }
 
 // Node warns when either downstream tool reintroduces the other flag, so keep
@@ -14,16 +18,19 @@ const env = { ...process.env }
 delete env.NO_COLOR
 delete env.FORCE_COLOR
 
-const child = spawn(
-  process.execPath,
-  [playwrightCliPath, 'test', ...process.argv.slice(2)],
-  {
-    stdio: 'inherit',
-    env,
-  },
-)
+// The specs count days in UTC: the app and the browser run there on every
+// computer, whatever zone it is in (`quality-matrix.md`).
+env.TZ = 'UTC'
+
+const child = spawn(process.execPath, [playwrightCliPath, 'test', ...args], {
+  stdio: 'inherit',
+  env,
+})
 
 child.on('exit', (code, signal) => {
+  console.log(
+    `E2E artifacts: ${artifactsDir}/ (report/index.html, results.json, test-results/)`,
+  )
   if (signal) {
     process.kill(process.pid, signal)
     return

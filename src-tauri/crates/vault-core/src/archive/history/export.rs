@@ -1,145 +1,313 @@
+//! Failure modes: missed ties, records beyond page size lost, writes block reads,
+//! cancellation publishes partial files, memory grows with the result,
+//! search progress mislabels the whole archives visit total as matching pages.
 //! History export artifact rendering.
 //!
 //! ## Responsibilities
 //! - Walk the full visible history result set for an export request.
 //! - Render JSONL, HTML, Markdown, and plain-text artifacts.
-//! - Write export artifacts under the configured exports directory.
+//! - Write the artifact where the caller says (the file the person chose), atomically.
+//! - Suggest the file's name.
 //!
 //! ## Not responsible for
 //! - Choosing which history rows are visible.
-//! - Running SQL or lexical recall directly.
-//! - Streaming very large exports; this module preserves the current paged
-//!   collection contract until a dedicated export-performance slice changes it.
+//! - Asking where to save (the desktop's save dialog, `worker_bridge::save_path`).
+//! - Defining history filters or lexical recall semantics.
 //!
 //! ## Dependencies
-//! - The public history facade for cursor-based page walking.
-//! - Archive export models and the configured project exports directory.
+//! - Shared history SQL, hydration and recall dispatch.
+//! - `durable_io` for the temp-file-then-rename write.
+//! - Archive export models.
 //!
 //! ## Performance notes
-//! - Export walks history in 1000-row pages so the query layer remains bounded,
-//!   but the final artifact is still materialized as one string as before.
+//! - Exports read short keyset pages through the reader pool with a captured upper visit ID.
+//! - Only one page and the fixed write buffer remain live between reads.
+//! - A 256 KiB write buffer never grows with archive size; see ipc-performance.md §9.
 
-use super::list_history;
+mod progress;
+
 use crate::{
+    Vault,
     config::ProjectPaths,
-    models::{AppConfig, ExportFormat, ExportRequest, ExportResult, HistoryQueryResponse},
-    utils::now_rfc3339,
+    durable_io::{atomic_durable_write_with, sweep_temps_older_than},
+    models::{
+        ExportFormat, ExportRequest, ExportResult, HistoryEntry, HistoryQuery, HistoryQueryResponse,
+    },
 };
 use anyhow::{Context, Result};
-use std::fs;
+pub(super) use progress::ExportJob;
+pub use progress::{ExportCancelled, cancel_export, get_export_progress, record_export_failure};
+use std::{
+    io::{BufWriter, Write},
+    path::Path,
+    sync::Arc,
+    time::Duration,
+};
+use vault_store::Db;
 
-/// Lets the archive export command reuse the exact history visibility contract
-/// as Explorer while producing a durable local artifact.
+const EXPORT_PAGE_SIZE: u32 = 1_000;
+const EXPORT_BUFFER_BYTES: usize = 256 * 1024;
+const PROGRESS_ROW_CHUNK: usize = 128;
+const WRITE_CHECK_BYTES: u64 = 64 * 1024;
+const ABANDONED_EXPORT_AGE: Duration = Duration::from_secs(60 * 60);
+
+/// Streams complete history into `target` through short read transactions and bounded buffers.
+/// The file appears there only once it is complete; a stopped or failed export leaves nothing.
 pub fn export_history(
-    paths: &ProjectPaths,
-    config: &AppConfig,
-    key: Option<&str>,
+    vault: &Vault,
     request: ExportRequest,
+    target: &Path,
 ) -> Result<ExportResult> {
-    let results = collect_history_for_export(paths, config, key, request.query)?;
-    fs::create_dir_all(&paths.exports_dir)?;
-    let format = request.format;
-    let extension = match format {
-        ExportFormat::Html => "html",
-        ExportFormat::Markdown => "md",
-        ExportFormat::Text => "txt",
-        ExportFormat::Jsonl => "jsonl",
-    };
-    let file_name = format!("export-{}.{}", now_rfc3339().replace(':', "-"), extension);
-    let target_path = paths.exports_dir.join(file_name);
-    let content = render_export_content(&results, &format)?;
-    fs::write(&target_path, content)
-        .with_context(|| format!("writing {}", target_path.display()))?;
-    Ok(ExportResult { format, path: target_path.display().to_string(), count: results.items.len() })
+    finish_export(request, |request, job| {
+        let (total, upper) = export_bounds(vault)?;
+        write_export(vault.paths(), request, target, job, total, |query| {
+            vault.read(Db::Archive, move |s| super::timeline::timeline_page(s, &query, upper))
+        })
+    })
 }
 
-/// Re-queries history until all visible matches are collected for export.
-///
-/// Note: in regex recall mode the underlying `list_history` path scans a bounded
-/// window (`REGEX_SCAN_CAP`, 50k rows) rather than the whole visits table, so a
-/// regex export with more than ~50k matches emits only the matches inside that
-/// window. This is the same bound the Browse/Search surfaces honour and is
-/// strictly safer than the former unbounded scan (which would OOM on a large
-/// archive before producing any output); narrow the date/profile/domain filter
-/// to export a regex result set larger than the window.
-fn collect_history_for_export(
+fn export_bounds(vault: &Vault) -> Result<(Option<u64>, i64)> {
+    vault.read(Db::Archive, |s| {
+        let total = s
+            .query("SELECT value FROM archive_totals WHERE name='visits'", (), |r| {
+                Ok(r.get::<i64>(0)?)
+            })?
+            .pop()
+            .map(|n| n as u64);
+        let upper = s
+            .query("SELECT id FROM visits ORDER BY id DESC LIMIT 1", (), |r| Ok(r.get::<i64>(0)?))?
+            .pop()
+            .unwrap_or(0);
+        Ok((total, upper))
+    })
+}
+
+/// The name the save dialog offers: "PathKeep history 2026-10-13.html", today's local date.
+pub fn suggested_export_name(format: &ExportFormat) -> String {
+    let day = chrono::Local::now().format("%Y-%m-%d");
+    format!("PathKeep history {day}.{}", format.extension())
+}
+
+pub(super) fn finish_export(
+    request: ExportRequest,
+    run: impl FnOnce(ExportRequest, Option<&Arc<ExportJob>>) -> Result<ExportResult>,
+) -> Result<ExportResult> {
+    let job = ExportJob::start(request.export_id.as_deref())?;
+    let result = run(request, job.as_ref()).map_err(|error| {
+        if job.as_ref().is_some_and(|job| job.is_cancelled()) {
+            ExportCancelled.into()
+        } else {
+            error
+        }
+    });
+    if let Some(job) = job {
+        job.complete(&result);
+    }
+    result
+}
+
+pub(super) fn write_export(
     paths: &ProjectPaths,
-    config: &AppConfig,
-    key: Option<&str>,
-    query: crate::models::HistoryQuery,
-) -> Result<HistoryQueryResponse> {
-    let mut export_query = query;
-    // Export should always walk the full visible result set, not stay pinned to
-    // whichever UI page happened to be open when the user clicked export.
-    export_query.page = None;
-    export_query.cursor = None;
-    export_query.limit = Some(1_000);
-
-    let mut items = Vec::new();
-
-    let total = loop {
-        let page = list_history(paths, config, key, export_query.clone())?;
-        let total = page.total;
-        let next_cursor = page.next_cursor.clone();
-        items.extend(page.items);
-
-        let Some(next_cursor) = next_cursor else {
-            break total;
-        };
-
-        export_query.cursor = Some(next_cursor);
-    };
-
-    Ok(HistoryQueryResponse {
-        total,
-        page: 1,
-        page_size: items.len(),
-        page_count: 1,
-        has_previous: false,
-        has_next: false,
-        items,
-        next_cursor: None,
+    request: ExportRequest,
+    target_path: &Path,
+    job: Option<&Arc<ExportJob>>,
+    total: Option<u64>,
+    mut fetch: impl FnMut(HistoryQuery) -> Result<HistoryQueryResponse>,
+) -> Result<ExportResult> {
+    check_cancel(job)?;
+    // The temp is written beside the file; one left by an export that was killed is ours to
+    // clear once it is an hour old (a fresh one may belong to an export still running).
+    if let Some(folder) = target_path.parent() {
+        sweep_temps_older_than(folder, ABANDONED_EXPORT_AGE)?;
+    }
+    let search = request.query.q.as_ref().is_some_and(|q| !q.trim().is_empty());
+    if let Some(job) = job {
+        job.total(if search { None } else { total });
+    }
+    let format = request.format;
+    let mut count = 0;
+    let mut rows_written = 0;
+    let result = atomic_durable_write_with(target_path, |writer| {
+        let mut buffer = BufWriter::with_capacity(EXPORT_BUFFER_BYTES, writer);
+        let mut counted = CountedWriter { writer: &mut buffer, bytes: 0, checked_at: 0, job };
+        let render_result: Result<()> = (|| {
+            let mut export = ExportWriter::new(&mut counted, &format)?;
+            let mut pace = crate::test_support::ExportPace::new();
+            let mut visit = |item: &HistoryEntry| -> Result<()> {
+                pace.row();
+                check_cancel(job)?;
+                export.item(item)?;
+                rows_written = export.count as u64;
+                if export.count % PROGRESS_ROW_CHUNK == 0 {
+                    if let Some(job) = job {
+                        job.update(export.count as u64, export.writer.bytes);
+                    }
+                }
+                Ok(())
+            };
+            if search {
+                crate::search::walk_history_for_export(
+                    paths,
+                    request.query,
+                    job.map_or_else(vault_store::CancelToken::new, |job| job.token()),
+                    &mut visit,
+                )?;
+            } else {
+                walk_pages(&mut fetch, request.query, job, &mut visit)?;
+            }
+            count = export.finish()?;
+            Ok(())
+        })();
+        if let Some(job) = job {
+            job.update(rows_written, counted.bytes);
+        }
+        render_result?;
+        if let Some(job) = job {
+            job.finishing()?;
+        }
+        buffer.flush()?;
+        Ok(())
     })
+    .with_context(|| format!("writing {}", target_path.display()));
+    result?;
+    Ok(ExportResult { format, path: target_path.display().to_string(), count })
 }
 
-/// Renders one export artifact in the requested output format.
-fn render_export_content(results: &HistoryQueryResponse, format: &ExportFormat) -> Result<String> {
-    Ok(match format {
-        ExportFormat::Html => render_html_export(results),
-        ExportFormat::Markdown => render_markdown_export(results),
-        ExportFormat::Text => render_text_export(results),
-        ExportFormat::Jsonl => results
-            .items
-            .iter()
-            .map(serde_json::to_string)
-            .collect::<std::result::Result<Vec<_>, _>>()?
-            .join("\n"),
-    })
+fn check_cancel(job: Option<&Arc<ExportJob>>) -> Result<()> {
+    if let Some(job) = job {
+        job.check()?;
+    }
+    Ok(())
 }
 
-/// Renders export output as a minimal HTML artifact.
+/// Counts rendered bytes without materializing a formatted row; checks unusually large rows
+/// every 64 KiB as well as the row checks in the walker.
+struct CountedWriter<'a> {
+    writer: &'a mut dyn Write,
+    bytes: u64,
+    checked_at: u64,
+    job: Option<&'a Arc<ExportJob>>,
+}
+
+impl Write for CountedWriter<'_> {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        if self.bytes - self.checked_at >= WRITE_CHECK_BYTES {
+            self.checked_at = self.bytes;
+            if let Some(job) = self.job {
+                job.bytes(self.bytes);
+            }
+            if self.job.is_some_and(|job| job.is_cancelled()) {
+                return Err(std::io::Error::other(ExportCancelled));
+            }
+        }
+        // Split an unusually large field too: one write may otherwise exceed the chunk bound.
+        let written = self.writer.write(&bytes[..bytes.len().min(WRITE_CHECK_BYTES as usize)])?;
+        self.bytes += written as u64;
+        Ok(written)
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.writer.flush()
+    }
+}
+
+fn walk_pages(
+    fetch: &mut impl FnMut(HistoryQuery) -> Result<HistoryQueryResponse>,
+    mut query: HistoryQuery,
+    job: Option<&Arc<ExportJob>>,
+    mut visit: impl FnMut(&HistoryEntry) -> Result<()>,
+) -> Result<()> {
+    query.page = None;
+    query.cursor = None;
+    query.limit = Some(EXPORT_PAGE_SIZE);
+    query.include_total = Some(false);
+    loop {
+        check_cancel(job)?;
+        let page = fetch(query.clone())?;
+        for item in &page.items {
+            check_cancel(job)?;
+            visit(item)?;
+        }
+        let Some(cursor) = page.next_cursor else { return Ok(()) };
+        query.cursor = Some(cursor);
+    }
+}
+
+/// Writes one export format row by row: an opening, the rows separated by newlines, a closing.
+/// The output is byte-for-byte what joining all rendered rows used to produce.
+struct ExportWriter<'a, W: Write + ?Sized> {
+    writer: &'a mut W,
+    format: &'a ExportFormat,
+    count: usize,
+}
+
+const HTML_HEAD: &[u8] = b"<!doctype html><html><head><meta charset=\"utf-8\"></head><body>";
+
+impl<'a, W: Write> ExportWriter<'a, W> {
+    fn new(writer: &'a mut W, format: &'a ExportFormat) -> Result<Self> {
+        if matches!(format, ExportFormat::Html) {
+            // Without a declared charset a browser may read the UTF-8 titles as Latin-1.
+            writer.write_all(HTML_HEAD)?;
+        }
+        Ok(Self { writer, format, count: 0 })
+    }
+
+    fn item(&mut self, item: &HistoryEntry) -> Result<()> {
+        if self.count > 0 {
+            self.writer.write_all(b"\n")?;
+        }
+        render_item(self.writer, self.format, item)?;
+        self.count += 1;
+        Ok(())
+    }
+
+    /// Writes the closing and returns how many rows were written.
+    fn finish(self) -> Result<usize> {
+        if matches!(self.format, ExportFormat::Html) {
+            self.writer.write_all(b"</body></html>")?;
+        }
+        Ok(self.count)
+    }
+}
+
+/// Renders one row in the requested format, without the separator between rows.
+fn render_item(writer: &mut dyn Write, format: &ExportFormat, item: &HistoryEntry) -> Result<()> {
+    match format {
+        ExportFormat::Html => write_html_item(writer, item)?,
+        ExportFormat::Markdown => write!(
+            writer,
+            "- [{}]({}) — {}",
+            item.title.as_deref().unwrap_or(&item.url),
+            item.url,
+            item.visited_at
+        )?,
+        ExportFormat::Text => write!(
+            writer,
+            "{}\n{}\n{}\n",
+            item.title.as_deref().unwrap_or(&item.url),
+            item.url,
+            item.visited_at
+        )?,
+        ExportFormat::Jsonl => serde_json::to_writer(&mut *writer, item)?,
+    }
+    Ok(())
+}
+
+/// Renders one HTML `<article>`.
 ///
 /// Page titles and URLs originate from imported browser history and are fully
 /// attacker-controlled (a visited page chooses its own `<title>`), so every
 /// interpolated value is HTML-escaped and the link target is scheme-filtered.
 /// Without this a crafted title such as `<img src=x onerror=…>` would execute
 /// when the user opens the exported report in a browser.
-fn render_html_export(results: &HistoryQueryResponse) -> String {
-    let body = results
-        .items
-        .iter()
-        .map(|item| {
-            let title = crate::utils::escape_html(item.title.as_deref().unwrap_or(&item.url));
-            let visited_at = crate::utils::escape_html(&item.visited_at);
-            let link_text = crate::utils::escape_html(&item.url);
-            let href = safe_href(&item.url);
-            format!(
-                "<article><h2>{title}</h2><p><a href=\"{href}\">{link_text}</a></p><p>{visited_at}</p></article>"
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
-    format!("<html><body>{body}</body></html>")
+fn write_html_item(writer: &mut dyn Write, item: &HistoryEntry) -> std::io::Result<()> {
+    let title = crate::utils::escape_html(item.title.as_deref().unwrap_or(&item.url));
+    let visited_at = crate::utils::escape_html(&item.visited_at);
+    let link_text = crate::utils::escape_html(&item.url);
+    let href = safe_href(&item.url);
+    write!(
+        writer,
+        "<article><h2>{title}</h2><p><a href=\"{href}\">{link_text}</a></p><p>{visited_at}</p></article>"
+    )
 }
 
 /// Returns an escaped, scheme-filtered `href` for the export anchor. Only
@@ -157,44 +325,9 @@ fn safe_href(url: &str) -> String {
     }
 }
 
-/// Renders export output as Markdown.
-fn render_markdown_export(results: &HistoryQueryResponse) -> String {
-    results
-        .items
-        .iter()
-        .map(|item| {
-            format!(
-                "- [{}]({}) — {}",
-                item.title.clone().unwrap_or_else(|| item.url.clone()),
-                item.url,
-                item.visited_at
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
-/// Renders export output as plain text.
-fn render_text_export(results: &HistoryQueryResponse) -> String {
-    results
-        .items
-        .iter()
-        .map(|item| {
-            format!(
-                "{}\n{}\n{}\n",
-                item.title.clone().unwrap_or_else(|| item.url.clone()),
-                item.url,
-                item.visited_at
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::HistoryEntry;
 
     fn entry(url: &str, title: Option<&str>, visited_at: &str) -> HistoryEntry {
         HistoryEntry {
@@ -211,13 +344,25 @@ mod tests {
             source_visit_id: 0,
             app_id: None,
             enrichment_excerpt: None,
+            visit_count: None,
         }
+    }
+
+    fn render(format: ExportFormat, items: &[HistoryEntry]) -> String {
+        let mut bytes = Vec::new();
+        let mut export = ExportWriter::new(&mut bytes, &format).expect("open");
+        for item in items {
+            export.item(item).expect("row");
+        }
+        assert_eq!(export.finish().expect("close"), items.len());
+        String::from_utf8(bytes).expect("utf-8")
     }
 
     #[test]
     fn html_export_escapes_untrusted_fields_and_neutralizes_dangerous_hrefs() {
-        let response = HistoryQueryResponse {
-            items: vec![
+        let html = render(
+            ExportFormat::Html,
+            &[
                 entry(
                     "https://example.com/?a=1&b=2",
                     Some("<img src=x onerror=\"alert('xss')\">"),
@@ -225,10 +370,7 @@ mod tests {
                 ),
                 entry("javascript:alert(1)", Some("evil"), "<b>when</b>"),
             ],
-            total: 2,
-            ..HistoryQueryResponse::default()
-        };
-        let html = render_html_export(&response);
+        );
 
         // Title markup is escaped, never emitted as live tags.
         assert!(html.contains("&lt;img src=x onerror=&quot;alert(&#39;xss&#39;)&quot;&gt;"));

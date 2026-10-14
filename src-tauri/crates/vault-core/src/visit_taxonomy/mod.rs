@@ -22,13 +22,14 @@
 
 mod classification;
 mod rules;
+mod sites;
 #[cfg(test)]
 mod tests;
 mod text;
 mod types;
 mod url;
 
-pub use self::classification::analyze_visit;
+pub use self::classification::{analyze_visit, listed_parts};
 pub use self::text::tokenize_text;
 pub use self::types::{
     DomainCategory, EvidenceTier, InteractionKind, NormalizedVisitUrl, PageCategory,
@@ -40,4 +41,7 @@ pub use self::url::{
     registrable_domain_for_url,
 };
 
-pub(crate) use self::types::taxonomy_version;
+pub(crate) use self::rules::{taxonomy_version, url_rules_version};
+pub(crate) use self::text::is_cjk_like;
+pub(crate) use self::types::Opener;
+pub(crate) use self::url::public_suffix_list_version;

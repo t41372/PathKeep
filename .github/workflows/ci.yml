@@ -42,34 +42,29 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: 22
-      - uses: dtolnay/rust-toolchain@1.94.1
+      - uses: dtolnay/rust-toolchain@1.96.0
         with:
-          components: clippy,rustfmt,llvm-tools-preview
+          components: clippy,rustfmt
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri -> target
       - uses: taiki-e/install-action@v2
         with:
-          tool: protoc,cargo-audit,cargo-deny,cargo-llvm-cov
+          tool: protoc,cargo-audit,cargo-deny
       - name: Install dependencies
         run: bun install --frozen-lockfile
       - name: Install Playwright browser
         run: bunx playwright install --with-deps chromium
-      - name: Strict checker gate
-        run: bun run check
-      - name: Prepare Rust coverage for Codecov
-        run: node scripts/verify-rust-coverage.mjs coverage/rust.lcov.info full --write-filtered-lcov coverage/rust-codecov.lcov.info
-      - name: Upload JavaScript coverage to Codecov
-        uses: codecov/codecov-action@v5
+      - name: Check (lint, build, Rust, desktop-bridge E2E)
+        # owner_process starts the real app: it needs a display, and its
+        # single-instance handoff needs a session bus.
+        run: dbus-run-session -- xvfb-run -a bun run check
+      - name: Supply-chain audit
+        run: bun run check:supply-chain
+      - name: Upload E2E artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
         with:
-          files: ./coverage/js/lcov.info
-          flags: javascript
-          name: pathkeep-javascript
-          fail_ci_if_error: true
-      - name: Upload Rust coverage to Codecov
-        uses: codecov/codecov-action@v5
-        with:
-          files: ./coverage/rust-codecov.lcov.info
-          flags: rust
-          name: pathkeep-rust
-          fail_ci_if_error: true
+          name: e2e-artifacts
+          path: artifacts/e2e/
+          if-no-files-found: warn

@@ -19,7 +19,7 @@
 > 2026-04-20 stop-ship note：使用者臨時插單 `WORK-PERF-A`，先把 `/intelligence` large-archive 凍結與 revisit 卡頓當成 stop-ship blocker 處理。M13 broad reuse audit 沒有取消，只是暫時讓位給 performance hot-path recovery；closeout 後仍回到 `STATUS.md` 繼續。
 > 2026-04-20 archive/import stop-ship closeout：使用者又插單 `WORK-PERF-B`，要求先修 Onboarding 初始化 / 手動備份 / Takeout scan-import 的 UI freeze。該 block 已獨立完成並 append 到 `CHANGELOG.md`；latest truth 是 archive/import 長任務的 Tauri facade 已改成 off-main-thread `async + spawn_blocking`，M13 broad reuse audit 則繼續留在 `STATUS.md`。
 > 2026-04-20 search activity note：使用者又插單 `WORK-CI-R`，要求先修 Search Activity keyword truth、shared keyword browser 與 search-engine domain deep-dive。這個 block 已獨立完成並 append 到 `CHANGELOG.md`，不折回 M13 reuse scope；BACKLOG 目前仍只保留 blocked 的 `WORK-CI-N`。
-> 2026-04-20 desktop truth-pass closeout：`WORK-CI-N` 已完成並 append 到 `CHANGELOG.md`。這輪先修掉前端 shipped blocker（remote glyph font、glyph a11y、Settings 分組 i18n），再補 shared entity CTA 的 HashRouter grammar，最後透過重打 current-host release `.app` 解掉 stale frontend drift。最新 Computer Use 驗到 build label `6412ad59+`、Chrome `Yi-Ting` re-import + `000000` 加密（未寫入鑰匙圈）、`rememberDatabaseKeyInKeyring: false` config truth、`/intelligence` 無 raw glyph ids、以及 domain deep-dive → Explorer evidence CTA 正常落到 `#/explorer?...`。BACKLOG 現在再次只剩 `STATUS.md` 上的 M13 active blocks，沒有額外 pending 的 desktop-truth follow-up。
+> 2026-04-20 desktop truth-pass closeout：`WORK-CI-N` 已完成並 append 到 `CHANGELOG.md`。這輪先修掉前端 shipped blocker（remote glyph font、glyph a11y、Settings 分組 i18n），再補 shared entity CTA 的 HashRouter grammar，最後透過重打 current-host release `.app` 解掉 stale frontend drift。真機驗證確認 build label 與 source 對齊、Chrome `Yi-Ting` re-import + `000000` 加密（未寫入鑰匙圈）、`rememberDatabaseKeyInKeyring: false` config truth、`/intelligence` 無 raw glyph ids、以及 domain deep-dive → Explorer evidence CTA 正常落到 `#/explorer?...`。BACKLOG 現在再次只剩 `STATUS.md` 上的 M13 active blocks，沒有額外 pending 的 desktop-truth follow-up。
 > 2026-04-21 backend track note：使用者明確要求新增平行的後端 hotspot 拆分軌道。`WORK-BE-A` 已直接進入 `STATUS.md` 與 `docs/plan/backend-hotspot-decomposition.md`；這不是取消 `WORK-M13-B`，而是把 frontend reuse 與 backend decomposition 分開推進。
 > 2026-04-23 backend follow-up note：`WORK-BE-C` 已完成 `visit_taxonomy` rename/split、`intelligence/site_dictionary` owner split、`models/core_intelligence` DTO-family split、`remote` bundle/upload/verify owner split、以及 `intelligence/mod.rs` 內嵌 regression suite 下沉。backend 軌道這個 active block 已收口；`STATUS.md` 的下一個未完成 block 回到 `WORK-M13-B`。`AGENTS.md` 若仍 dirty，視為使用者自有未提交改動，不納入 backend commits。
 > 2026-04-23 M13-B closeout note：`WORK-M13-B` 已完成 shell runtime、Security workflow、Import workflow、Dashboard fallback、Browsing Rhythm state owner，以及 legacy `PathRow` stale-planning cleanup。BACKLOG 目前沒有可提升的未阻塞 work block；下一輪 work block 需要從新的使用者指令或正式 planning pass 建立。
@@ -37,26 +37,42 @@
 > 2026-05-03 history maintainability note：使用者以「繼續開展工作」授權打開 dedicated backend maintainability window。`WORK-HISTORY-MAINT-A` review 已完成並從 BACKLOG 移除；`WORK-HISTORY-MAINT-B` 已完成第一個 behavior-preserving extraction slice，把 history pagination / favicon / export owners 拆到 `archive/history/` 子模組。BACKLOG 目前只剩 blocked work blocks，沒有可提升的未阻塞 current-focus block。
 > 2026-05-07 archive test-suite maintainability note：Explorer advanced-search 插單補測時，`src-tauri/crates/vault-core/src/archive/tests.rs` 已達 3272 行。本次只追加 regression coverage，沒有新增業務邏輯；依 `AGENTS.md` 巨檔規則，新增 high-priority follow-up `WORK-ARCHIVE-TEST-MAINT-A`，必須用 dedicated 維護窗口審查拆分測試 owner，後續不要繼續把 archive 新測試集中塞進該檔。
 > 2026-05-10 v0.2.0 planning repair note：v0.2.0 發佈範圍正式收斂為 M14 Lexical Recall V2、advanced keyword syntax、Windows unsigned installer / scheduler preview、release/security hardening，以及既有 archive / deterministic Core Intelligence。原先未完成的 v0.2 AI / semantic / MCP / readable-content blocker 已全部移到 v0.3.0；`STATUS.md` 只保留 v0.2 release closeout，不能再把 AI / readable-content 當成 v0.2 ship blocker。
-> 2026-05-25 BROWSE-VIRT closeout：`WORK-FEEDBACK-0525-BROWSE-VIRT` 已完成並 append 到 `CHANGELOG.md`。viewport-driven day recycling (IntersectionObserver) + directional prefetch (RAF-sampled scroll direction with 4-frame hysteresis) + MAX_ACCUMULATED_PAGES 100 → 500 (originally 1 000；review §3 trade-off：incremental aggregator 未做，先把 cap 降到 500 避免 O(N) aggregation 在 ~25k entries 時毛刺) 都已 ship；sticky day header / cards-grid / sessions / a11y 契約都保留。residual follow-ups: LRU page eviction、real Chrome devtools FPS trace、Playwright e2e on 14M-row fixture、`docs/features/explorer-browse.md` 寫一份正式 feature spec、incremental aggregator（升回更大 cap 的前置條件）。
-> 2026-05-25 import test harness planning note：使用者反映實際導入瀏覽記錄時觀察到疑似 duplication，並要求專門的 ingest robustness 測試基礎建設。經 ingest 代碼 audit（見 `docs/plan/program/import-dedup-audit.md`）確認：跨瀏覽器「視覺重複」是 per-source-profile 設計契約（不是 bug），但發現 6 個真實 bug：B1 URL upsert 倒退、B2 Firefox/Safari long-tail revisit 漏抓、B3 Takeout source_visit_id 綁路徑、B4 Takeout × local Chrome 必然雙倍、B5 takeout `stable_key_i64` 規模化碰撞、B6 Takeout 時間單位歧義。新增 `WORK-IMPORT-TEST-HARNESS-A` 作為**第一個 unblocked block**，內含 scaffold + Priority 1 scenario library；後續的 cross-source view-layer aggregation、bug fixes 都會依託這個 harness 寫 failing test。完整 scenario library 與驗收條件見 `docs/plan/program/import-test-harness-spec.md`。
+> 2026-05-25 BROWSE-VIRT closeout：`WORK-FEEDBACK-0525-BROWSE-VIRT` 已完成並 append 到 `CHANGELOG.md`。viewport-driven day recycling (IntersectionObserver) + directional prefetch (RAF-sampled scroll direction with 4-frame hysteresis) + MAX_ACCUMULATED_PAGES 100 → 500 (originally 1 000；trade-off：incremental aggregator 未做，先把 cap 降到 500 避免 O(N) aggregation 在 ~25k entries 時毛刺) 都已 ship；sticky day header / cards-grid / sessions / a11y 契約都保留。residual follow-ups: LRU page eviction、real Chrome devtools FPS trace、Playwright e2e on 14M-row fixture、`docs/features/explorer-browse.md` 寫一份正式 feature spec、incremental aggregator（升回更大 cap 的前置條件）。
+> 2026-05-25 import test harness planning note：使用者反映實際導入瀏覽記錄時觀察到疑似 duplication，並要求專門的 ingest robustness 測試基礎建設。經 ingest 代碼 audit（見 `docs/plan/program/import-dedup-audit.md`）確認：跨瀏覽器「視覺重複」是 per-source-profile 設計契約（不是 bug；2026-10-09 起 Takeout 與其他來源的同一次造訪改為只算一次，見 `docs/architecture/same-visit-across-sources.md`，兩個瀏覽器之間照舊），但發現 6 個真實 bug：B1 URL upsert 倒退、B2 Firefox/Safari long-tail revisit 漏抓、B3 Takeout source_visit_id 綁路徑、B4 Takeout × local Chrome 必然雙倍、B5 takeout `stable_key_i64` 規模化碰撞、B6 Takeout 時間單位歧義。新增 `WORK-IMPORT-TEST-HARNESS-A` 作為**第一個 unblocked block**，內含 scaffold + Priority 1 scenario library；後續的 cross-source view-layer aggregation、bug fixes 都會依託這個 harness 寫 failing test。完整 scenario library 與驗收條件見 `docs/plan/program/import-test-harness-spec.md`。
 > 2026-05-27 parser mutation hardening note：行為安全網補測把 `src-tauri/crates/browser-history-parser/src/chromium/mod.rs` 推到 1544 行。這次只補測試、不新增業務邏輯；但該檔已超過 1400 行硬限制，後續不得再往此檔新增 parser 業務邏輯，需用 dedicated 維護窗口做 owner split 審查。
 
-> 2026-06-14 review-pipeline closeout：`docs/plan/program/review-pipeline.md` 全流程跑完，confirmed findings 已全部修復並各自過獨立 review（見 CHANGELOG `WORK-REVIEW-0614-FULL-PIPELINE-A`、報告 `docs/review/2026-06-14/`）。剩下的是 verifier 標為 non-blocking 的 polish，匯整成下方 `WORK-REVIEW-0614-FOLLOWUPS-A`（未阻塞，但非當前 focus）。被駁回 / 降級 / trade-off 的 findings 不重開。
+> 2026-06-14 review-pipeline closeout：`docs/plan/program/review-pipeline.md` 全面審查完成，確認的問題已全部修復（見 CHANGELOG `WORK-REVIEW-0614-FULL-PIPELINE-A`）。剩下的是非阻塞的 polish，匯整成下方 `WORK-REVIEW-0614-FOLLOWUPS-A`（未阻塞，但非當前 focus）。被駁回 / 降級 / 列為 trade-off 的項目不重開。
 
-- [ ] **WORK-RUN-LIFECYCLE-GUARDS** — P1 follow-up from 2026-07-23 silent-failure audit
-  - 讀先：`docs/architecture/decisions/003-run-model.md`；`docs/plan/program/quality-matrix.md`；`archive/maintenance.rs` retention/snapshot restore；Takeout / Browser Direct import run creation/finalization；Audit read models。
-  - 目標：建立 reusable run-attempt finalizer/guard，讓 canonical run row 一旦建立，任何 transaction 前置、commit 後 follow-up、manifest/stats/batch finalization 錯誤都留下 terminal、帶原始錯誤與 partial-commit phase 的結果，不再永久 `running`。
-  - 已確認範圍：retention prune；checkpoint snapshot restore；Takeout import；Browser Direct import；backup commit 後 manifest/search-projection/finalize tails。另修 Audit「Last 30 days」實際只取 12 筆、paper chain 再截 6 筆的 truth mismatch，以及 native worker stdout/stderr bounded rotation。
-  - 契約：每條舊碼 failure window 都先有 failing regression；若資料 transaction 已 commit，狀態必須誠實區分 committed-with-followup-failure，不得假裝完全失敗或成功；finalizer 自身錯誤不得覆蓋原始錯誤。
+- [ ] **WORK-WINDOWS-SNAP-LAYOUTS** — Windows 11 的貼齊版面與自畫視窗按鈕的實機確認（2026-10-13 `WORK-UI-POLISH-2026-10` 留下）
+  - 現況：Windows、Linux 已關掉系統標題列，最小化 / 最大化 / 關閉由 app 畫在右上角（`window-controls.tsx`），從沒在兩個平台的實機上看過。滑鼠停在最大化上時 Windows 11 的貼齊版面不會出現。
+  - 為什麼還沒做：要讓系統把我們畫的按鈕當成最大化按鈕，得在 Rust 裡回應 `WM_NCHITTEST`（`windows` crate），但 WebView2 的子視窗蓋住整個內容區，訊息可能到不了頂層視窗；這台 Mac 也編不了 Windows 版（`ring`、`aws-lc-sys` 要 mingw），寫了無法建置也無法試。
+  - 要做：在 Windows 上建置，先確認縮放邊、拖到螢幕邊緣（Aero Snap）、雙擊最大化、深淺色、按鈕 hover 與鍵盤都對；再試 `WM_NCHITTEST` 子類化或 WebView2 的 non-client region；Linux 在 GNOME 與 KDE 各看一次。
+
+- [ ] **WORK-RECLASSIFY-STALL** — 14.4M 上改一個網站的類別，建置卡在第一頁之前；修好後仍要 16 分鐘（2026-10-13 `WORK-SCALE-BENCH-RERUN` 找到）
+  - 現象：`turso_intelligence` 的 `categories` 階段（覆寫 `site1.test` 的類別後做一次增量建置）在 visit-derived-facts 結束後，Intelligence 寫入執行緒單核跑滿 30 分鐘以上，沒有任何 reclassify 進度；之前「全部頁重新分類」的版本是 62 s。使用者在網站頁改類別就是這條路。
+  - 已排除：reclassify 每個網址的兩條讀取（`archive.visits` 依 `idx_visits_visible_url_time` 找、再接 facts / assignments）都走索引，有計畫測試守著。
+  - 根本原因（同日找到並修好，未 gate、未提交）：重寫一筆造訪 facts 的 `UPDATE visit_derived_facts_rows … WHERE generation=?1 AND visit_id=?2`，planner 選了 `idx_vdf_generation_canonical_visit` 只用 `generation=?` 找，每筆造訪都讀過這一代全部 14.4M 筆 facts。小資料看不出來。改成 `INDEXED BY idx_vdf_visit_generation`，計畫變成 `(visit_id=? AND generation=?)`；`reclassify.rs` 的計畫測試要求 `visit_id=?`（原本只擋 SCAN，沒擋到這種只用前綴的 SEARCH）。reclassify 4 條測試（含與從頭建一次相等）過。
+  - 2026-10-14 在 14.4M 上重量（修正已提交 `f4301c1f`）：跑得完了，958 s，峰值 RSS 1.5 GB。reclassify 只走 site1.test 的 144 個網址（21 s），daily rollups 845 s（1,669 天，site1.test 每天都有造訪，每一天整天重算），概覽快照約 90 s。卡住的問題解決；但「改一個網站的類別」在這台 Mac 上要 16 分鐘，目標機（4 核）更久。
+  - 還要做：(1) 改了類別時只重算類別那一種彙總（`category_daily_rollups` 與受影響的 summary），用移動的造訪算增減，不要整天重讀（網域、引擎那幾種跟類別無關）；(2) 144 個網址、約 720 筆造訪的 reclassify 要 21 s，每筆改寫約 29 ms，查清楚；(3) 把其他「依鍵改一列」的 UPDATE / DELETE 也用計畫測試掃一遍（同一種 planner 選錯索引）；(4) 結果寫回 `ipc-performance.md`。
+
+- [ ] **WORK-SCALE-BENCH-RERUN** — 補量 14.4M：改回本機跑之後沒量的數字（2026-10-11；用戶指示「先把所有任務做完，再處理這個真實測速」）
+  - 讀先：`docs/architecture/ipc-performance.md`、`vault-worker/tests/archive_scale_bench/`（`turso_intelligence.rs`、`turso_reads.rs`）。
+  - 前提：14.4M 的測試存檔最多約 40 GB，Modal 已停用，在這台 Mac 上跑。2026-10-11 用戶騰出空間後剩約 77 GB，放得下（另留 5 GB 安全線）；開跑前再看一次，量完刪掉測試存檔。
+  - 待量：改一個網站的類別到洞察照新類別建好要多久（`WORK-SITE-CATEGORY-REVIEW`：只重分那個網站的頁，成本照那個網站的網址數與日子數，沒在 14.4M 上量過）；`WORK-EVIDENCE-REIMPORT` 的重新匯入在 14.4M 上多花多少時間（2026-10-12 已改成不再寫重複的證據，20 萬筆的量測見 `ipc-performance.md` §15：第一次匯入的時間不變、再匯入 0 列；14.4M 上要量第一次匯入的唯一索引與再匯入的耗時）。之後的 block 沒量到的 14.4M 數字也記在這裡。
+  - 做法：照 `ipc-performance.md` 各節的量法在 14.4M 上跑，結果寫回各節與原 block 的 CHANGELOG 附註。
+  - 2026-10-13 第一次在這台 Mac 上跑（`turso_intelligence::encrypted_intelligence_at_scale`，release，加密，14.4M 造訪、2.88M 頁；Apple Silicon 18 核 64 GB，比目標機快得多）：完整建置 4,333 s（visit-derived-facts 1,443 s、daily rollups 863 s、sessions 774 s、refind pages 1,146 s），峰值 RSS 462 MiB，建置中的互動寫入等 0.3 ms；概覽 cold 1.67 s / warm 122 ms，網站頁 32 / 6 ms，sessions 1 ms；全部匯出 5.0 GB、289 s，**峰值 RSS 2.07 GB**（8 GB 目標機上偏高，要查是匯出本身還是 turso 的頁快取）；增量（新增 1 萬筆造訪）140 s，**峰值 RSS 1.26 GB**（比完整建置還高，要查）。
+  - 「改網站類別」卡住：`categories` 階段在 visit-derived-facts（11 s）之後，Intelligence 的寫入執行緒單核跑滿 30 分鐘以上，一次 reclassify 進度都沒回報，停掉。之前的量法（全部頁重新分類）是 62 s。查過：每個網址的兩條讀取都走索引（`intelligence/tests/reclassify.rs` 的計畫測試），不是它們。下一步見 `WORK-RECLASSIFY-STALL`。
+  - 2026-10-14 重跑一次（含 `f4301c1f`）：完整建置 4,288 s、峰值 RSS 410 MiB；增量 134 s、1.26 GB；改網站類別 958 s、1.5 GB（見 `WORK-RECLASSIFY-STALL`）。兩次的完整建置與增量相差不到 5%。
+  - 2026-10-14 補量 `WORK-EVIDENCE-REIMPORT`：14.4M 的存檔上匯入 100 萬筆 256.8 s，同一份再匯入 24.8 s、0 列（`ipc-performance.md` §15）。改網站類別見 §16。這一項只剩兩個記憶體峰值要查：增量 1.26 GB、匯出 2.07 GB。
 
 > 2026-07-26 coherence-sweep closeout note：使用者插單的全庫「逆天點」審查（`WORK-REVIEW-2026-07-26-COHERENCE-SWEEP`，見 CHANGELOG）已完成並全 gate 綠。結構化 `CommandError` envelope、十餘條 stable-code copy 通道、六個影子翻譯表剷除、posture/boundary-map 文檔如實化都已落地。待使用者拍板：`?layout=paper` QA mounts 去留、og:image 預設是否翻 `OnDemand`、onboarding 一次性 egress 披露。
 
-- [ ] **WORK-REVIEW-FOLLOWUPS-COPY-CHANNELS-2** — 2026-07-27 並行審查的遞延 copy-channel 工作(均已由 orchestrator 逐檔追蹤確認,可直接動手)
+- [ ] **WORK-REVIEW-FOLLOWUPS-COPY-CHANNELS-2** — 2026-07-27 並行審查的遞延 copy-channel 工作(均已逐檔核實,可直接動手)
   - **後端平行 i18n 系統**:`vault-core/src/intelligence/host_artifacts.rs:393-415` 的 `build_boundary_notes(locale)` 按 locale 返回硬編碼中文,前端 `src/pages/settings/helpers.ts:475-511` 的 `localizeLocalHostLine` 再用**整句中文**(zh-CN 與 zh-TW 各一份)當 switch case 映射回真正的 catalog。兩邊譯文不一致且後端那份更差(「这个本地宿主只使用 deterministic Core Intelligence read models。」混入未翻譯術語)。後端改一個標點,用戶靜默看到更差的中文。修法:HTML 產物保留後端 locale copy(獨立檔案的合法需求,但把譯文修好);preview payload 改 additive `boundary_note_codes` 等 stable code 通道,前端按 code 查 catalog,刪整句匹配。
   - **`formatDuration` 三個實現**:`src/lib/format.ts:94`(硬編碼英文,**死代碼**,唯一 importer 是 `App.helpers.test.tsx`)、`src/components/explorer-paper/paper-day-insights-helpers.ts:352`(Intl unit-style,**唯一正確**)、`src/pages/intelligence/sections/shared.ts:31`(硬編碼英文 + 把毫秒暴露給用戶)。zh 用戶在 Explorer 看「45 分鐘」、在 Intelligence 看「45.0m」,而 `paper-session-gap.tsx:11-12` 與 `observed-interactions-section.tsx:18` 兩處檔頭**各自聲稱**自己保證了一致性。修法:以 Intl 版為基準提升到 `lib/format.ts`,兩處改用它,修掉兩段假註釋。
   - **死碼刪除**:AI integration preview 整條路已驗證是死的(`settings/index.tsx:80`、`integrations/index.tsx:64`、`maintenance/index.tsx:71` 三處全 `enableAiIntegrationPreview: false`;`ai-providers-section.tsx:104-105` 只在 props 介面宣告從未 destructure)。連帶 `helpers.ts:401-542` 的 **45 句英文影子翻譯表**(其中多處並列同一語義的新舊兩版 —— 漂移已發生過的物證)。直接刪,不要 code 化。
   - **重複工具函數**:`isoDateOnly` ×2 逐字相同(heatmap / dashboard,且 explorer 跨模塊 import dashboard 的私有 helper)、`formatLocalDateKey` ×2 逐字相同且在**同一模塊家族內**(`core-intelligence/routes.ts` 與 `core-intelligence/api/shared.ts`);`src/lib/format.ts:153-156` 把三語 fallback 文案硬編碼在 catalog 之外。
-  - **其他**:`worker_bridge/intelligence.rs:3` 與 `dev_ipc_bridge/dispatch.rs:842` 兩個 TODO 引用已於 2026-04-23 完成的 M13;`applyDateShortcut` / `activeDateShortcut` / `clearDateRange` / `buildRecentSearchLabel` 從 `useExplorerUrlState` 導出但無消費者(需 UI 決策);Settings 尚未修的 P1/P2 見 2026-07-27 審查報告(滑桿每格寫一次 config 無 debounce、危險操作缺確認、retention 預設勾選 snapshots、搜尋規則存檔靜默觸發全量重建、遷移排除說明硬編碼英文、匯入 bundle 後不刷新不提示重啟、AI API key 存/清失敗無回饋)。
+  - **其他**:`worker_bridge/intelligence.rs:3` 與 `dev_ipc_bridge/dispatch.rs:842` 兩個 TODO 引用已於 2026-04-23 完成的 M13;`applyDateShortcut` / `activeDateShortcut` / `clearDateRange` / `buildRecentSearchLabel` 從 `useExplorerUrlState` 導出但無消費者(需 UI 決策);Settings 尚未修的 P1/P2(滑桿每格寫一次 config 無 debounce、危險操作缺確認、retention 預設勾選 snapshots、搜尋規則存檔靜默觸發全量重建、遷移排除說明硬編碼英文、匯入 bundle 後不刷新不提示重啟、AI API key 存/清失敗無回饋)。
 
 - [ ] **WORK-REVIEW-FOLLOWUPS-COPY-CHANNELS** — 2026-07-26 coherence sweep 的殘餘 prose 面收口
   - 讀先：`docs/architecture/desktop-command-surface.md` 2026-07-26 stable-code copy channels 條目；CHANGELOG `WORK-REVIEW-2026-07-26-COHERENCE-SWEEP`。
@@ -68,19 +84,16 @@
   - 驗收：上述 owners 無非測試用途的裸 `running` leak；Audit copy/query一致且大列表 bounded/virtualized；worker logs有上限；`bun run check` 綠。
 
 - [ ] **WORK-REVIEW-0614-FOLLOWUPS-A** — 2026-06-14 review non-blocking follow-ups
-  - 讀先：
-    `docs/review/2026-06-14/phase-4/final-report.md`
-    `docs/review/2026-06-14/phase-3/all-verdicts.json`
-    `docs/plan/program/import-dedup-audit.md`
-  - 目標：清掉 2026-06-14 review 確認修復後，獨立 reviewer 標記為 non-blocking 的尾巴項目。皆非阻塞、非回歸。
+  - 讀先：`docs/plan/program/import-dedup-audit.md`
+  - 目標：清掉 2026-06-14 審查修復後剩下的非阻塞尾巴項目。皆非阻塞、非回歸。
   - 範圍（逐項可獨立做）：
-    - **per-URL visit summary 後端讀取**（X-VISITSUMMARY 的完整版）：新增 backend command 回傳單一 URL 的 first/last visit、visit_count、typed_count，串到 detail panel，恢復 recall.md 規格的 first/last/sparkline/title-versions。目前 detail panel 只誠實顯示單次 visit。
-    - **F-LEGACY-CSS 殘留**：`src/pages/security/panels.tsx` 與 audit detail panel 仍帶 v0.2 `.panel` chrome；`PaperCardBody` 內仍用 legacy grid util（`intelligence-stack` / `intelligence-job-list`）。
-    - **F-ROUTER 殘留**：`/onboarding` route subtree 仍無 ErrorBoundary（pre-existing，超出原 finding 範圍）。
-    - **R-VISITIDS**：`totalVisitCount` 已持久化但 explainability panel 的 chip 仍從 capped array 推導；改讀 exact total。
-    - **F-TOKENS micro**：light-mode `--ink-faint` 在 `--bg-page` / `--bg-hover` 上仍略低於 normal-text AA（已過 large-text 3:1，且遠優於修前）；如要再壓需小心 muted>faint 層級。`StatusCallout` CSS 仍用 `--warning-dim`/`--error-dim` 別名（resolve 正確，屬待清理 migration debt）。
-    - **F-DASHBOARD micro**：`dashboardWeekRange(new Date())` / `isoWeek` 每 render 重算多次，可 memo；month preset 是 30-day query window 的近似。
-    - **R-LOADVISITS micro**：scoped read 仍因 `?1 IS NULL OR ...` predicate 走 full table SCAN（CPU/IO，記憶體已 bounded）；可考慮拆兩條 query 走 index。
+    - **per-URL visit summary 後端讀取**（detail panel first/last visit 誠實化的完整版）：新增 backend command 回傳單一 URL 的 first/last visit、visit_count、typed_count，串到 detail panel，恢復 recall.md 規格的 first/last/sparkline/title-versions。目前 detail panel 只誠實顯示單次 visit。
+    - **legacy CSS 殘留**：`src/pages/security/panels.tsx` 與 audit detail panel 仍帶 v0.2 `.panel` chrome；`PaperCardBody` 內仍用 legacy grid util（`intelligence-stack` / `intelligence-job-list`）。
+    - **ErrorBoundary 殘留**：`/onboarding` route subtree 仍無 ErrorBoundary（pre-existing，超出當時修復範圍）。
+    - **refind visit 總數**：`totalVisitCount` 已持久化但 explainability panel 的 chip 仍從 capped array 推導；改讀 exact total。
+    - **ink token 對比 micro**：light-mode `--ink-faint` 在 `--bg-page` / `--bg-hover` 上仍略低於 normal-text AA（已過 large-text 3:1，且遠優於修前）；如要再壓需小心 muted>faint 層級。`StatusCallout` CSS 仍用 `--warning-dim`/`--error-dim` 別名（resolve 正確，屬待清理 migration debt）。
+    - **dashboard 週範圍 micro**：`dashboardWeekRange(new Date())` / `isoWeek` 每 render 重算多次，可 memo；month preset 是 30-day query window 的近似。
+    - **scoped visit read micro**：scoped read 仍因 `?1 IS NULL OR ...` predicate 走 full table SCAN（CPU/IO，記憶體已 bounded）；可考慮拆兩條 query 走 index。
   - 契約：每項獨立、行為保留；動到 user-visible copy 要補三語；維持 100% coverage gate。
   - 驗收：所選項目修復 + 測試；`bun run check` 綠（或於 Linux CI gate 綠）。
 
@@ -95,11 +108,11 @@
     - **Button**：其餘 ~400 個手寫 `<button>` / legacy `.btn-*` / 每檔重複的 `BUTTON_*` const → `<Button>`。**排除** role=switch/radio/selectable-row/tab/chip/whole-row-card 這些非 Button 語意控件（見 CHANGELOG cluster 分析）。試點 Activity + Settings 已證可行。
     - **Skeleton**：legacy `.skeleton*`（34 檔）、`.intelligence-skeleton`（17 檔）、`.activity-skeleton`、explorer-paper 散落的 `animate-pulse` → `<Skeleton>` matched-layout 版，每個對齊真實佈局（no layout shift）。收完可刪 legacy skeleton keyframes。
     - **charts**：Top Concepts / 其他 aggregate 落 horizontal bar（screens-and-nav 硬性）用 charts primitive 加一個 Bar；剩餘 div-based viz 逐一遷過去。
-  - 契約：paper token via Tailwind utilities；§9 animation 紅線（不新增 keyframe、transform/opacity-only、reduced-motion gated）；match final layout；i18n 三語；100% coverage；走 implement → 獨立 review(Opus) → fix loop（[[feedback_subagent_implement_review_loop]]）；不動 `main.tsx` / `ipc/bridge.ts` / `backend.ts`。
+  - 契約：paper token via Tailwind utilities；§9 animation 紅線（不新增 keyframe、transform/opacity-only、reduced-motion gated）；match final layout；i18n 三語；100% coverage；實作 → 獨立審查 → 修到無 major issue；不動 `main.tsx` / `ipc/bridge.ts` / `backend.ts`。
   - 驗收：目標檔 legacy class 清零；`bun run check` 綠（或 Linux CI gate 綠）；CHANGELOG 記錄每批邊界。
 
 - [ ] **WORK-CI-DESKTOP-BRIDGE-REENABLE** — re-enable the quarantined desktop-bridge:truth gate [!blocked: needs a reliable webkit2gtk/xvfb + seeded-chrome Linux CI environment]
-  - 讀先：`tests/e2e/desktop-bridge.spec.ts`（兩個 live test 現為 `test.fixme`，含完整 quarantine rationale）、CHANGELOG `WORK-UI-SHADCN-ADOPTION`（診斷 + `82c35408`）、`.github/workflows/ci.yml`、`src-tauri/src/dev_ipc_bridge/router.rs`（`/health` 硬編 `browser-desktop-bridge`）
+  - 讀先：`tests/e2e/desktop-bridge.spec.ts`（兩個 live test 現為 `test.fixme`，含完整 quarantine rationale）、CHANGELOG `WORK-UI-SHADCN-ADOPTION`（診斷）、`.github/workflows/ci.yml`、`src-tauri/src/dev_ipc_bridge/router.rs`（`/health` 硬編 `browser-desktop-bridge`）
   - 目標：讓 `test:e2e:desktop-bridge:truth` 的兩個 live test 在 Linux CI 可靠跑綠，再從 `test.fixme` flip 回 `test`。目前 quarantine 是誠實 skip（沒放寬任何 assertion）。
   - 根因（已診斷，ENVIRONMENTAL 非 code regression）：真實 webkit2gtk Tauri app 在 ubuntu-latest xvfb 下啟動/bridge readiness 不穩，且 seeded-chrome import 在 Linux runner 匯入 0 visits；macOS 同碼會過；這 gate 自 2026-04-27 起就長期 red，先於 merge。
   - 範圍：讓 Linux runner 能可靠啟動 desktop app + 提供真實 seeded chrome profile（或改成不依賴真實桌面 app 的等價驗證）；修穩後 flip 回 live。
@@ -320,26 +333,26 @@
   - 驗收：Settings / Jobs / Maintenance disabled-to-enabled flow、network boundary copy、real HTML/PDF/redirect/rate-limit fixtures、blob storage cleanup、`bun run check`，以及 archive/intelligence/data-model docs 回寫。
 
 - [x] **WORK-V03-PAPER-REMAINING-ROUTES** — Paper restyle for /schedule, /security, /maintenance, /jobs, /integrations, /onboarding, /lock
-  - 2026-05-20 closeout: all seven sibling routes use the paper outer wrapper convention (`mx-auto max-w-[1080px] flex flex-col pt-7`) wrapped around existing data shapes. Inner sub-section / step component / state-panel chrome still v0.2 per route — that's a deeper Phase 3-shaped sweep covered by `WORK-SCHEDULE-PAGE-MAINT-A` (schedule), follow-up onboarding step paper sweep, and a future jobs panel paper sweep. Bottom-up commits: 8f8319c integrations / 6a568f2 security+maintenance / c213619 lock / 1852628 onboarding / 6b6599f jobs / e5d0ff6 schedule.
+  - 2026-05-20 closeout: all seven sibling routes use the paper outer wrapper convention (`mx-auto max-w-[1080px] flex flex-col pt-7`) wrapped around existing data shapes. Inner sub-section / step component / state-panel chrome still v0.2 per route — that's a deeper Phase 3-shaped sweep covered by `WORK-SCHEDULE-PAGE-MAINT-A` (schedule), follow-up onboarding step paper sweep, and a future jobs panel paper sweep.
 
 - [x] **WORK-V03-SETTINGS-SECTIONS-PAPER** — Paper restyle inside each Settings sub-section
-  - 2026-05-20 closeout: all 11 Settings sub-sections (general / platform / derived-state / ai-providers / app-lock / profile-selection / updater / retention / remote-backup-section / remote-backup-preferences + the already-paper appearance / link-previews from Phase 1.1) now use paper-form-primitives (Field / Toggle / SegmentedControl) + PaperCard. PaperCard accepts an optional `id` prop so `document.getElementById('settings-X')` queries + hash-link scrolling work as before. Commits: 3e8347f (Phase 1.1) / eaf59ba / 4a4f9e9 / acab346 / 690fff7 / 833d3d9.
+  - 2026-05-20 closeout: all 11 Settings sub-sections (general / platform / derived-state / ai-providers / app-lock / profile-selection / updater / retention / remote-backup-section / remote-backup-preferences + the already-paper appearance / link-previews from Phase 1.1) now use paper-form-primitives (Field / Toggle / SegmentedControl) + PaperCard. PaperCard accepts an optional `id` prop so `document.getElementById('settings-X')` queries + hash-link scrolling work as before.
 
 - [x] **WORK-V03-PAPER-REMAINING-ROUTES-INNER** — Paper restyle sibling-route inner panels (deferred from Phase 2)
-  - 2026-05-20 closeout (commits cc33a92 / d6ac788 / eb0172f):
-    - **Security panels** (cc33a92) — SecurityStatusPanel / SecurityUnlockPanel /
+  - 2026-05-20 closeout:
+    - **Security panels** — SecurityStatusPanel / SecurityUnlockPanel /
       SecurityRekeyPanel outer chrome now uses PaperCard + PaperCardHeader +
       PaperCardBody. PaperCardBadge surfaces the "session active / needs unlock"
       and "preview before execute" subtitles. Warning rows (password loss,
       rekey-preview warnings, custom localizedWarnings) all use StatusCallout
       instead of the bespoke `.warning-box` chrome.
-    - **Onboarding steps** (d6ac788) — StorageStep / ScheduleStep /
+    - **Onboarding steps** — StorageStep / ScheduleStep /
       BrowserDetectionStep / ReadyStep wrap their sub-panels in PaperCard with
       PaperCardBadge subtitles. SecurityStep keeps its bespoke radio-card mode
       picker (Encrypted / Plaintext) since it's a designed editorial pattern.
       Five `.ob-info-box` and `.warning-box` rows across the four steps now
       use StatusCallout primitives (info / warning toned).
-    - **Jobs panels** (eb0172f) — overview hero / queue summary / runtime
+    - **Jobs panels** — overview hero / queue summary / runtime
       summary cards in `jobs/index.tsx`, plus JobPanel + RuntimeJobPanel from
       `jobs/job-panels.tsx`, plus the 4 focus cards + 2 runtime-health
       summary cards from `jobs/runtime-health-section.tsx`, all use
@@ -355,7 +368,7 @@
     - 1654/1654 unit tests pass; `bun run check:base` clean.
 
 - [x] **WORK-V03-E2E-PAPER-MIGRATION** — Migrate Playwright e2e suites off the v0.2 dashboard surface
-  - 2026-05-20 closeout (commit 7a1543c, prior commit 5067cfa for the shared
+  - 2026-05-20 closeout (with a shared
     `completePreviewOnboarding` helper): - `tests/e2e/shell.spec.ts` now passes 5/5. The previously-failing four
     tests fell into two buckets: - **Surface-still-exists, selector drift** — "walks remote backup
     settings and Maintenance PME": swapped `.panel`-class CSS locators
@@ -391,16 +404,15 @@ test:e2e -- tests/e2e/shell.spec.ts` → 5 passed (13.3s).
       no paginator), `explorer-grouped-views.test.tsx`, and rewrote
       `explorer-controls.test.tsx` to keep only the three paper-neutral
       survivors (shell-gate matrix, adjacent-page prefetch, semantic runtime
-      actions). 1611/1611 unit tests pass. Commits: f3b2fd2 (paper sanitize) /
-      d19cea3 (privacy test retarget) / afb7e94 (legacy retire).
+      actions). 1611/1611 unit tests pass.
 
 - [x] **WORK-V03-DASHBOARD-REAL-DATA** — Wire dashboard heatmap + threads to real backend
   - 2026-05-20 closeout: dashboard surfaces are now backed by real data on
-    every card. - **Active Threads** (commit 03fcb86): calls
+    every card. - **Active Threads**: calls
     `coreIntelligenceApi.getPathFlows(last-30-days, profileId, 3, 10)` and
     renders the top three recurring 3-step paths with arrow-chained domain
     chips + `{count} occurrences` mono badges. Honest loading / empty /
-    error states; row clicks forward `flowId` to the route's `onOpenThread`. - **Year Heatmap** (commit 897b816): replaces the empty placeholder with
+    error states; row clicks forward `flowId` to the route's `onOpenThread`. - **Year Heatmap**: replaces the empty placeholder with
     a paper-aesthetic 7×N grid that fetches
     `coreIntelligenceApi.getDiscoveryTrend(last-365-days, profileId, 'day')`
     and buckets visit counts into 0-4 quartile levels. Streak badge surfaces
@@ -424,9 +436,9 @@ core-intelligence/api`, all returning the same data. Reusing the existing
     the Trust & Transparency invariant.
 
 - [ ] **WORK-V03-RUST-COVERAGE-RESIDUAL** — Restore full-scope Rust coverage gate
-  - 2026-05-21 進度 (commit f986455 + this session):
+  - 2026-05-21 進度:
     - **`package.json` `check:coverage` 已恢復為 `coverage:rust` (full scope)** —
-      codex review flagged that running `coverage:rust:quality` was an
+      running `coverage:rust:quality` was an
       unauthorised gate weakening vs. docs/plan/program/quality-matrix.md.
       The script now calls the full gate and surfaces residual failures
       honestly. `bun run check` will fail until the residual closes.
@@ -441,7 +453,7 @@ core-intelligence/api`, all returning the same data. Reusing the existing
       `read_capped_bytes<R: Read>` extraction for Io / TooLarge / Ok
       paths — production `read_response_body` now delegates to the
       generic helper which is directly unit-testable).
-  - 2026-05-20 進度 (commit a436304):
+  - 2026-05-20 進度:
     - **全部 22 個 uncovered functions 已關閉**: vault-worker::annotations × 5,
       vault-worker::archive_flows og:image entries × 5 (load_history_og_images,
       mark_og_images_shown, og_image_storage_stats, clear_og_image_cache,
@@ -480,7 +492,7 @@ core-intelligence/api`, all returning the same data. Reusing the existing
   - 驗收：`node scripts/verify-rust-coverage.mjs coverage/rust.lcov.info full` 報告 0 uncovered lines
     且 0 uncovered functions、`check:coverage` 用回 `coverage:rust`。
 
-- [!] **WORK-V03-CODEX-REVIEW-FOLLOWUP** — Codex review (2026-05-21) closeout for feat/v0.3-redesign-2 [!blocked: Rust + JS coverage residuals still open]
+- [!] **WORK-V03-CODEX-REVIEW-FOLLOWUP** — 2026-05-21 code review follow-ups [!blocked: Rust + JS coverage residuals still open]
   - 讀先：
     `src/app/shell.tsx`
     `src/lib/paper-preferences.ts`
@@ -488,35 +500,35 @@ core-intelligence/api`, all returning the same data. Reusing the existing
     `src/pages/explorer/hooks/use-explorer-og-images.ts`
     `package.json` (check:coverage)
     `vitest.config.ts`
-  - 2026-05-21 codex review captured the following findings against the branch:
-    - ✅ #1 Blocking: shell.tsx palette query contract — palette was sending
+  - The 2026-05-21 code review found:
+    - ✅ shell.tsx palette query contract — palette was sending
       `{ search, limit, offset }` and reading `response.rows` instead of the
       real `{ q, limit, sort }` / `response.items`. Tests were mocking the
-      wrong shape, hiding the bug. Fixed in commit a187ee0: shell now calls
+      wrong shape, hiding the bug. Fixed: shell now calls
       `backend.queryHistory` with the typed contract and maps HistoryEntry
       items. shell.test.tsx mocks the typed backend.
-    - ✅ #5 Medium: i18n raw English copy — char/chars counter, "Remove tag",
+    - ✅ i18n raw English copy — char/chars counter, "Remove tag",
       "Calendar" dialog aria, "now" / "first" year-rail captions, dashboard
       morning/afternoon/evening greetings are all in the three-language
       catalog now. 2803 keys × 3 locales, parity 100%.
-    - ✅ #6 Medium: theme dual state — applyPaperPreferences now dispatches
+    - ✅ theme dual state — applyPaperPreferences now dispatches
       `pathkeep.paperPreferencesChanged` and both shell.tsx + Settings
       Appearance subscribe. Theme toggle button in topbar updates Settings
       radio without re-mount. Visually verified with playwright (light →
       dark via topbar → Settings radio shifts to "Darkroom · dark").
-    - ✅ #2 Blocking: paper Explorer pagination — PaperContactSheet now
+    - ✅ paper Explorer pagination — PaperContactSheet now
       renders an optional footer with Newer/Older buttons + page-size
       selector + "Page X of Y · N rows" summary. PaperExplorerView accepts
       a `pagination` descriptor; Explorer route threads
       handlePreviousHistoryPage / handleNextHistoryPage /
       setHistoryPageSize from useExplorerUrlState. 1440 M-row goal now
       addressable via cursor/pagination. Visually verified.
-    - ✅ #3 High: og:image fetch trigger — use-explorer-og-images now
+    - ✅ og:image fetch trigger — use-explorer-og-images now
       enqueues `triggerOgImageRefetch(batch)` for non-`ok` rows after
       loadHistoryOgImages resolves. Bounded at 20 per render, deduped
       per cache epoch, .catch swallows rate-limit / fetch-disabled
       rejections.
-    - 🟡 #4 Blocking/Process: 100% coverage gate restoration —
+    - 🟡 100% coverage gate restoration —
       `check:coverage` script is restored to `coverage:rust` (full), not
       the quality slice. The full gate still fails until the
       WORK-V03-RUST-COVERAGE-RESIDUAL line residual closes (7 lines in
@@ -524,7 +536,7 @@ core-intelligence/api`, all returning the same data. Reusing the existing
       pool). vitest threshold remains at 99/99/98/99 pending
       WORK-V03-COVERAGE-RESIDUAL; raising it to 100/100/100/100 would
       also require closing the JS jsdom-defensive guards.
-  - 契約：codex 把 #4 標為 merge blocker。在 line residual 關閉或得到 user 明確
+  - 契約：coverage gate 恢復是 merge blocker。在 line residual 關閉或得到 user 明確
     授權的 deviation 之前，這個 follow-up block 維持 blocked。不要私自降回
     quality slice。
 
@@ -536,8 +548,8 @@ core-intelligence/api`, all returning the same data. Reusing the existing
     `src/pages/dashboard/index.tsx`
     `src/components/explorer-paper/*`
   - 目標：把 `bun run check` 的 JS coverage threshold 從目前的 `lines:99 / functions:99 / branches:98 / statements:99` 重新拉回 100/100/100/100。
-  - **2026-05-26 Codex review finding C5**：vitest.config.ts 目前的 99/99/98/99 是這個 work block 的 in-progress state，但 `docs/plan/program/quality-matrix.md`（Accepted）仍寫死 100/100/100/100。Codex 標這是 merge contract violation。使用者 2026-05-26 明確指示：本 block 才是正解，不要在 review fix bundle 裡偷偷降 quality-matrix，也不要硬拉到 100；把這保留為 release-style 大窗口任務。
-  - 2026-05-20 進度（commit 63ddf37 / 5b3720c / b4a2872 / b7c58ab）：
+  - **2026-05-26 註記**：vitest.config.ts 目前的 99/99/98/99 是這個 work block 的 in-progress state，但 `docs/plan/program/quality-matrix.md`（Accepted）仍寫死 100/100/100/100。這是 merge contract violation。使用者 2026-05-26 明確指示：本 block 才是正解，不要在其他修復裡偷偷降 quality-matrix，也不要硬拉到 100；把這保留為 release-style 大窗口任務。
+  - 2026-05-20 進度：
     - **dashboard/index.tsx** 從 82.35% lines → 98.42% lines。新增 dashboard-helpers.ts (15 unit cases) + 3 個 route-shell callback tests（On This Day open-entry、jumpToDate target-label button、insights badge、All threads badge）。剩餘殘餘 ~2 lines 是 useMemoGreeting 的 evening (hour ≥ 18) 分支與 footer，需要 Date mock 才能測。
     - **paper-preferences.ts** 從 88.88% statements / 72.22% branches → 100/83。新增 9 unit cases；剩下 branch 缺口是 `typeof window === 'undefined'` SSR guards（jsdom 永遠 truthy，無法觸發）。
     - **shell.tsx** 從 70.88% → 81.01% statements。新增一個 palette debounce test 觸發 invokeCommand('query_history')；handlePaletteSelect (lines 191-196)、handleManageSources (line 156)、response 沒 rows 的 fallback (line 173) 仍未覆蓋。後續要在 popover 開啟後點 manage-sources、在 palette UI 上選結果。
@@ -598,7 +610,7 @@ core-intelligence/api`, all returning the same data. Reusing the existing
     `src-tauri/src/commands/archive.rs`
     `src-tauri/src/dev_ipc_bridge/dispatch.rs`
     `src/pages/explorer/hooks/use-explorer-og-images.ts`
-  - 觀察（2026-05-21）：`trigger_og_image_refetch` 是 fire-and-forget 從 FE 角度看是不阻塞 UI（commit cc93243 後 dev bridge 也包了 spawn_blocking），但 backend 端單次 batch 20 URL 仍會花 ~18s 把一條 dispatch 連線占住做網路+HTML 解析，背景成本不透明。
+  - 觀察（2026-05-21）：`trigger_og_image_refetch` 是 fire-and-forget 從 FE 角度看是不阻塞 UI（dev bridge 也已包了 spawn_blocking），但 backend 端單次 batch 20 URL 仍會花 ~18s 把一條 dispatch 連線占住做網路+HTML 解析，背景成本不透明。
   - 目標：把 refetch 拆成 enqueue + worker：command 立即返回 `{ enqueued, alreadyQueued }`，新 `og_image_fetch_jobs` 表（或 reuse 既有 intelligence queue）紀錄 pending URL 狀態；新 worker thread 處理 fetch，per-host rate limit 與 retry policy 集中在 worker；FE 改成 long-poll 或 SSE 觀察進度（沿用 import progress event 模式），UI 上 og:image cell 顯示骨架直到 worker 寫回。
   - 契約：失敗仍要產 negative-cache row（既有合約不變）；UI 不得因 og:image 失敗轉成全頁錯誤；新 worker 要 honor user-agent / rate limit / timeout 既有設定；不得引入新依賴除非經審核。
   - 驗收：batch 100+ URL 時 UI 維持 60fps；`bun run check`；新增 worker + FE polling 測試；docs/features/explorer-browse.md 更新 fetch lifecycle 圖。
@@ -622,7 +634,6 @@ core-intelligence/api`, all returning the same data. Reusing the existing
     `TESTING.md`
     `.github/workflows/mutation.yml`
     `package.json`
-    `docs/plan/qa-gate-handoff-2026-04-27.md`
   - 目標：在 `WORK-QA-GATE-A` 已恢復 per-commit `bun run check` 後，單獨重啟 full frontend Stryker 與 whole-workspace Rust cargo-mutants，補足 surviving mutants 或寫下 narrow equivalent / inapplicable evidence。
   - 契約：不得把 full mutation 重新塞回每次 commit 的 `bun run check`，除非先有新的成本 benchmark 與使用者明確確認；不得用 broad excludes 偽裝通過；每個 survivor 都要落到補測、產品碼修正、或窄範圍註解/排除。
   - 已知起點（2026-04-27）：`bun run mutation:js:full --dryRunOnly` 約 2m20s，full JS Stryker 21769 mutants，按 44m/32% 實測估算約 2-3 小時；`cargo mutants --manifest-path src-tauri/Cargo.toml --workspace --list --json` 顯示 5869 Rust candidates，且 current copy-sandbox baseline 會因 repo-root Safari reference fixture path 缺失失敗。
@@ -630,15 +641,15 @@ core-intelligence/api`, all returning the same data. Reusing the existing
   - 驗收：`bun run check`、`bun run mutation:js:full`、`bun run mutation:rust:full`、更新 `docs/plan/program/quality-matrix.md` / `TESTING.md` / `CHANGELOG.md` 的耗時、survivor closeout 與任何 narrow equivalent evidence。
 
 - [ ] **WORK-REVIEW-0612-FOLLOWUPS-A** — Deferred findings from the 2026-06-12 deep code review
-  - 來源：`WORK-REVIEW-0612-HARDENING-A`（見 `CHANGELOG.md`）。當輪已修掉可驗證且範圍受控的安全/正確性 bug；下列是經獨立驗證為真、但屬「大型重構 / 需 Accepted-doc 決策 / 需實機視覺驗證 / 低優先」而**刻意延後**的項目。**不要**在沒有對應 slice 與覆蓋計畫下硬塞進別的 block。
+  - 來源：`WORK-REVIEW-0612-HARDENING-A`（見 `CHANGELOG.md`）。當時已修掉可驗證且範圍受控的安全/正確性 bug；下列是已確認為真、但屬「大型重構 / 需 Accepted-doc 決策 / 需實機視覺驗證 / 低優先」而**刻意延後**的項目。**不要**在沒有對應 slice 與覆蓋計畫下硬塞進別的 block。
   - **Intelligence 規模化效能（最高優先，需先做審查階段）**：以下都在 14.4M-visit 目標機上違反「禁止全量加載」。多數位於 >1000 行的 intelligence owner，必須先走大檔重構兩階段（審查→執行）：
     - 語意 index 全量 build 把整張 visits 表收進 `Vec<IndexedVisit>`（`ai/indexing.rs`，no-limit 分支），且在 v0.3 bail 之前就分配。
     - structural rebuild accumulator 的 `visit_ids: Vec<i64>` 與 evidence_json 的 `visitIds` 無上限（`intelligence/intelligence_structural_aggregates.rs`）。
     - query-family 分組 O(events × families) 且每次比較重新 tokenize（`intelligence/intelligence_structural_build.rs`）。
     - scoped-debug rebuild 的 `limit` 在全量 materialize + 分類之後才裁剪（`intelligence/intelligence_visit_records.rs`）。
-    - 增量 / fallback daily-rollup 與 phase_three/phase_four read models 把無上限 `Vec` 收進記憶體（`intelligence/intelligence_daily_rollups.rs`、`phase_three.rs`、`phase_four.rs`）；另含增量 vs fallback 對 `domain_category` 的「first-seen vs most-frequent」不一致與雙 local-day 實作。
+    - 增量 / fallback daily-rollup 與 phase_three/phase_four read models 把無上限 `Vec` 收進記憶體（`phase_three.rs`、`phase_four.rs`；2026-10-12 刪掉的 `intelligence_daily_rollups.rs` 只剩測試在用）；另含增量 vs fallback 對 `domain_category` 的「first-seen vs most-frequent」不一致與雙 local-day 實作。
   - **Intelligence job lease / recovery 強化**：`recover_expired_intelligence_jobs` 無 attempt cap 地把過期 `running` job requeue（300s lease + 每 profile 才一次 heartbeat），可造成重跑 / 雙執行；enrichment job 在 claim 後失敗（`store_enrichment` 等）會被 `let _ =` 吞掉而永遠 `running`。修法：背景 heartbeat 續租或每 batch 進度、recovery 加 attempt cap、worker 端 on-Err `mark_intelligence_job_failed`。需與 lease 設計一起做並補測。
-  - **Parser（需 Accepted-doc 決策 / 語義變更）**：Chromium `visit_duration`（µs）以 `_ms` 命名 verbatim 存（E12 accepted），但 `phase_three.rs:561` 把它當真 ms 聚合 → 1000× 膨脹，需走 trade-off 文檔；`PRAGMA quick_check`（無界）每次 Browser-Direct import/preview 全庫掃描（`takeout/browser_history/staging.rs`）；orphan visit 因 INNER JOIN 靜默丟棄（chromium/firefox/safari），需 warn 或 LEFT JOIN。
+  - **Parser（需 Accepted-doc 決策 / 語義變更）**：~~Chromium `visit_duration`（µs）以 `_ms` 命名 verbatim 存~~（2026-10-09 已修：寫入時換成毫秒，升級轉換時把舊資料除以 1000，見 `docs/architecture/visit-duration-unit-tradeoff.md`）；`PRAGMA quick_check`（無界）每次 Browser-Direct import/preview 全庫掃描（`takeout/browser_history/staging.rs`）；orphan visit 因 INNER JOIN 靜默丟棄（chromium/firefox/safari），需 warn 或 LEFT JOIN。
   - **History regex recall 無界**：`list_history_with_regex` 綁 `:pageLimit = -1` 後全量 materialize 再過濾（`archive/history.rs`）。修法需 bounded 候選掃描 + 三語誠實提示「已掃描前 N 筆，請縮小範圍」(en/zh-CN/zh-TW) 與 response contract 欄位。
   - **App-lock KDF 強度（需新增依賴 + 遷移）**：passcode 走 120k 輪 SHA-256，建議改 argon2id（RustCrypto，符合 trust gate 但需依賴授權）+ 提高最小熵 + 線上 attempt 鎖定；同時 rekey 前的 plaintext snapshot（`archive/maintenance.rs`）在 Plaintext→Encrypted 後仍留明文，需加密或誠實提示並清理；`UnlockAppSessionRequest`/`SetAppLockPasscodeRequest` 的 `Debug` 應 redact passcode。
   - **og:image SSRF 殘留**：目前 pre-flight 守住「page URL / og:image 直接指向私網」與最終 host；但 `reqwest` 仍會自動跟隨 redirect 到私網（中間 hop 仍會發 GET）。徹底封堵需自管 redirect-follow + 逐 hop 驗證（hermetic 覆蓋需可注入 resolver/transport）。
@@ -648,7 +659,7 @@ core-intelligence/api`, all returning the same data. Reusing the existing
   - 契約：每一項落地時都要先確認屬於哪個 owner / slice、>1000 行檔案先走兩階段、保持 100% JS/Rust coverage 與 mutation gate；Accepted-doc 項目（visit_duration 單位、KDF/snapshot 安全模型）必須先產出 trade-off 文檔並徵得使用者同意。
 
 - [ ] **WORK-AI-MAPREDUCE-A** — Sub-agent time-chunk map-reduce for whole-history analysis（需先做設計階段）
-  - 來源：2026-06-24 使用者驗收。使用者要「讓 agent 在知道 what's ahead 的狀況下拿到完整數據」。當輪已做 **option A**（`run_code` 在沙箱內分頁聚合完整數據——rows 不進 context，只回 distilled 結果；見 CHANGELOG 的 sandbox-完整聚合 commit）。本 block 是 **option C**：當單一 context 裝不下、或需要「逐塊的 LLM 質性分析」（不只是 JS 統計聚合）時，用 sub-agent map-reduce 跨時間塊分析整段歷史。
+  - 來源：2026-06-24 使用者驗收。使用者要「讓 agent 在知道 what's ahead 的狀況下拿到完整數據」。當時已做 **option A**（`run_code` 在沙箱內分頁聚合完整數據——rows 不進 context，只回 distilled 結果；見 CHANGELOG 的 sandbox 完整聚合條目）。本 block 是 **option C**：當單一 context 裝不下、或需要「逐塊的 LLM 質性分析」（不只是 JS 統計聚合）時，用 sub-agent map-reduce 跨時間塊分析整段歷史。
   - 目標（先設計，再實作）：
     - 一個確定性 orchestrator（worker 端，非讓弱模型自己 spawn）把時間軸切成塊（依時間窗或資料量），每塊派一個**全新 context 的 sub-agent**，給它該塊的完整數據存取（search/run_code/intelligence_report 限定該塊範圍），各自回一個**結構化摘要**，主 agent 再 synthesize 成最終答案。對應「分析我這一年/整段歷史」這種單一 context 裝不下的質性問題。
     - 形狀參考 Claude 的 workflow/sub-agent map-reduce，但落在 PathKeep 的 local-first worker 上：要能 spawn 多個 `drive_agent_run`（或一個 map-reduce harness）、chunk 規劃、結果 schema + 聚合、跨 N 個 agent 的 token budget / 取消 / journaling、以及進度可觀測（使用者看得到 fan-out，呼應 [[WORK-AI-INDEX-OBS-A]] 的 observability 精神）。
@@ -659,25 +670,25 @@ core-intelligence/api`, all returning the same data. Reusing the existing
     `src-tauri/crates/vault-core/src/ai/agent_harness.rs`（`drive_agent_run` 迴圈 / budget / journal / cancel）
     `src-tauri/crates/vault-worker/src/intelligence/chat.rs`（`run_agent_stream` / `ai_chat_send` 的 thread + runtime）
     `src-tauri/crates/vault-core/src/ai/agent_tools.rs`（工具表面，sub-agent 也要用）
-  - 契約：本機跑 N×LLM 呼叫成本高，要 bound + 進度回報 + 可取消；前端流暢度硬指標（不阻塞主線程）；AI 可選、無 provider 安靜不出現；i18n×3；100% JS/Rust coverage + lethal tests；誠實態（部分失敗的塊要誠實標示，不靜默吞）；UI/UX 與文案交給 Opus 4.6。先產出 design 文檔（chunk 策略、result schema、budget 模型、failure/部分結果語義、UI）再動代碼。
+  - 契約：本機跑 N×LLM 呼叫成本高，要 bound + 進度回報 + 可取消；前端流暢度硬指標（不阻塞主線程）；AI 可選、無 provider 安靜不出現；i18n×3；100% JS/Rust coverage + lethal tests；誠實態（部分失敗的塊要誠實標示，不靜默吞）。先產出 design 文檔（chunk 策略、result schema、budget 模型、failure/部分結果語義、UI）再動代碼。
   - 驗收：對「總結我這一整年的瀏覽」這類問題，orchestrator 正確切塊、各 sub-agent 跑完回結構化結果、主 agent 合成出涵蓋全段、誠實標示任何缺漏的答案；全程進度可見、可取消；`bun run check`；更新 `docs/features/` 與 `docs/architecture/`。
 
 - [ ] **WORK-AI-CTX-BUDGET-A** — Context-budget hardening for the agent loop（從 ai-redesign 審查 defer）
-  - 來源：2026-06-24 移除 8-step cap + 強制 final-synthesis turn 後的對抗式審查（H2 / M2 / M3 / L1）。當輪已修：64-step backstop、live-context gate（量「最後一輪 prompt」而非 cumulative）、無 usage 時 fallback 估算（`estimate_context_tokens`）、ceiling → 強制 tool-free synthesis turn。以下是已知殘留邊界，本 block 把它們做成長期最優解：
-    - **H2 — synthesis turn 自身可能 overflow**：gate 量的是「剛跑完那輪」的 prompt（`last_prompt_tokens`），但 synthesis turn 還會把「該輪新 threaded 的 tool results」+ directive 再送一次。若最後一輪 `run_code` 回了接近 256KB 的結果且 context 已逼近 budget，這個「救援回合」反而可能撞 context-length（→ 誠實的 provider error / Failed，note 已先發，不是靜默）。要：gate 改用「含本輪新結果的投影大小」，或組 synthesis request 時丟掉/截斷最肥的那筆剛 threaded 的結果（模型本就被要求「用已收集到的證據」作答）。
-    - **M3 — budget 是寫死的 110k，不知道 provider 真實 window**：`capabilities().max_context_tokens` 目前是 `None`。小 context 模型（如 32k）會在 budget gate 觸發前就被 provider 報 context-length 錯。要把 provider 回報的真實 window 接進來推導 budget（無回報時 fallback 110k），並把 `estimate_context_tokens` 換成真 tokenizer 估算（CJK 比例 char/token 與英文差很多，現在的 bytes/4 只是粗估）。
-    - **M2 — synthesis turn 回空字串無 fallback**：模型若硬是在 tool-free turn 只吐一個（無效的）tool call、不吐 text，使用者會拿到 note + 證據 chips 但沒有 prose——等於那個 case 又「靜默」了。要：偵測 `accumulated.text` 為空時，串一條 deterministic 的最小摘要（localized），讓「never silent」契約對不聽話的模型也成立。
-    - **L1 — synthesis directive 未進 journal**：trace replay 重建得到一段沒有可見成因的 assistant 答案。要把 directive（或一個「final-synthesis」marker）寫進 journal payload，維持「trace = 忠實重放」。
+  - 來源：2026-06-24 移除 8-step cap + 強制 final-synthesis turn 後的審查。當時已修：64-step backstop、live-context gate（量「最後一輪 prompt」而非 cumulative）、無 usage 時 fallback 估算（`estimate_context_tokens`）、ceiling → 強制 tool-free synthesis turn。以下是已知殘留邊界，本 block 把它們做成長期最優解：
+    - **synthesis turn 自身可能 overflow**：gate 量的是「剛跑完那輪」的 prompt（`last_prompt_tokens`），但 synthesis turn 還會把「該輪新 threaded 的 tool results」+ directive 再送一次。若最後一輪 `run_code` 回了接近 256KB 的結果且 context 已逼近 budget，這個「救援回合」反而可能撞 context-length（→ 誠實的 provider error / Failed，note 已先發，不是靜默）。要：gate 改用「含本輪新結果的投影大小」，或組 synthesis request 時丟掉/截斷最肥的那筆剛 threaded 的結果（模型本就被要求「用已收集到的證據」作答）。
+    - **budget 是寫死的 110k，不知道 provider 真實 window**：`capabilities().max_context_tokens` 目前是 `None`。小 context 模型（如 32k）會在 budget gate 觸發前就被 provider 報 context-length 錯。要把 provider 回報的真實 window 接進來推導 budget（無回報時 fallback 110k），並把 `estimate_context_tokens` 換成真 tokenizer 估算（CJK 比例 char/token 與英文差很多，現在的 bytes/4 只是粗估）。
+    - **synthesis turn 回空字串無 fallback**：模型若硬是在 tool-free turn 只吐一個（無效的）tool call、不吐 text，使用者會拿到 note + 證據 chips 但沒有 prose——等於那個 case 又「靜默」了。要：偵測 `accumulated.text` 為空時，串一條 deterministic 的最小摘要（localized），讓「never silent」契約對不聽話的模型也成立。
+    - **synthesis directive 未進 journal**：trace replay 重建得到一段沒有可見成因的 assistant 答案。要把 directive（或一個「final-synthesis」marker）寫進 journal payload，維持「trace = 忠實重放」。
   - 讀先：
     `src-tauri/crates/vault-core/src/ai/agent_harness.rs`（`drive_agent_run` 迴圈、`run_final_synthesis_turn`、`estimate_context_tokens`、`DEFAULT_TOKEN_BUDGET` / `DEFAULT_MAX_ITERATIONS`）
     `src-tauri/crates/vault-core/src/ai/llm.rs`（`capabilities()` / `to_llm_usage` / streaming usage）
     `src-tauri/crates/vault-core/src/ai/traits.rs`（`LlmCapabilities::max_context_tokens`）
     `docs/architecture/ai-security-posture.md`
-  - 契約：誠實態（寧可誠實 provider error 也不靜默吞；部分結果要標示）；前端流暢度不受影響；AI 可選；i18n×3（若加任何 user-facing 文案，交給 Opus 4.6）；100% JS/Rust coverage + lethal tests（含 no-usage、小 window、超大最後一筆結果、空答 fallback 的案例）；`bun run check`。
+  - 契約：誠實態（寧可誠實 provider error 也不靜默吞；部分結果要標示）；前端流暢度不受影響；AI 可選；i18n×3；100% JS/Rust coverage + lethal tests（含 no-usage、小 window、超大最後一筆結果、空答 fallback 的案例）；`bun run check`。
   - 驗收：構造「context 逼近 budget 時最後一輪回超大結果」的測試，synthesis turn 不再 overflow（或誠實降級且有測試證明）；小 window provider 走 graceful 路徑；no-usage provider 用真 tokenizer 估算；空答有 fallback 摘要；更新 `docs/architecture/`。
 
 - [ ] **WORK-AI-INDEX-OBS-A** — Semantic Index Build Observability & Controllability（需先做設計階段）
-  - 來源：2026-06-24 使用者驗收 v0.3.0。`93a80ff6` 已在 Settings → AI 服務 的 index-health box 加了「構建索引」按鈕，但使用者回報「這方面的 observability 和 controlability 似乎有些不足」。按鈕目前只 enqueue 一個背景 job、顯示一次性「已排入背景」確認，之後使用者**看不到**進度、**控制不了**正在跑的 build。本 block 要設計並實作這套觀測 + 控制面。
+  - 來源：2026-06-24 使用者驗收 v0.3.0。當時已在 Settings → AI 服務 的 index-health box 加了「構建索引」按鈕，但使用者回報「這方面的 observability 和 controlability 似乎有些不足」。按鈕目前只 enqueue 一個背景 job、顯示一次性「已排入背景」確認，之後使用者**看不到**進度、**控制不了**正在跑的 build。本 block 要設計並實作這套觀測 + 控制面。
   - 讀先：
     `docs/features/intelligence-and-ai.md`（或對應的 AI/intelligence feature 規格）
     `docs/design/{ux-principles,screens-and-nav,ui-review-guardrails,design-tokens}.md`
@@ -687,31 +698,33 @@ core-intelligence/api`, all returning the same data. Reusing the existing
     `src-tauri/crates/vault-worker/src/intelligence/ai_queue.rs`（`load_ai_queue` / `run_ai_queue_jobs` / `cancel_ai_job` / `replay_ai_job` / `build_ai_index_now` / `estimate_reembed_now`）
     `src-tauri/crates/vault-worker/src/intelligence/runtime.rs`（`load_intelligence_runtime_snapshot` / `retry_intelligence_job_now` / `cancel_intelligence_job_now`）
   - 目標（先設計，再實作）：
-    - **Observability**：build 進行中要有即時、誠實的進度——目前階段（embedding / indexing / rollup…）、已處理 / 總數、吞吐（items/s）、估計剩餘時間、佇列深度（queued / running / failed），以及每個 job 的最後錯誤訊息。狀態要區分 idle / queued / running / paused / done / failed / stale，never 謊稱「已建好」當它還在排隊。資料來自既有 `load_ai_queue` + `load_intelligence_runtime_snapshot`；若粒度不足，補 per-job 進度回報（目前是 global-queue，見 ai-redesign review defer-set）。
+    - **Observability**：build 進行中要有即時、誠實的進度——目前階段（embedding / indexing / rollup…）、已處理 / 總數、吞吐（items/s）、估計剩餘時間、佇列深度（queued / running / failed），以及每個 job 的最後錯誤訊息。狀態要區分 idle / queued / running / paused / done / failed / stale，never 謊稱「已建好」當它還在排隊。資料來自既有 `load_ai_queue` + `load_intelligence_runtime_snapshot`；若粒度不足，補 per-job 進度回報（目前只有整個佇列的進度）。
     - **Controllability**：pause / resume / cancel 正在跑的 build；重試失敗的 job（`replay_ai_job`）；選擇 rebuild 範圍（incremental vs full vs clear-only，沿用 `buildAiIndex({fullRebuild, clearOnly, scope})`）。
     - **介面設計**：決定觀測面放哪——延伸 index-health box、強化 GPU section 的進度卡、或開一個專屬「索引狀態 / 構建」面板（傾向後者，因為這是長時間、可觀測、可控制的後台工作）。要有 skeleton / 漸進式載入、~100ms 內視覺回饋、動畫順、60fps；輪詢或事件流不得阻塞主線程。
-  - 契約：i18n×3（en / zh-CN / zh-TW，含所有狀態 / 錯誤 / 空態 / aria-label）；AI/embedding 為**可選**，無 provider 時整個面安靜地不出現、不 nag；build 是顯式 action（按鈕），觀測是唯讀即時態，遵守 settings 全 auto-save 規則；100% JS/Rust coverage + lethal tests；前端流暢度硬指標；誠實態（queued≠built）。UI/UX 與文案交給 Opus 4.6 subagent。
+  - 契約：i18n×3（en / zh-CN / zh-TW，含所有狀態 / 錯誤 / 空態 / aria-label）；AI/embedding 為**可選**，無 provider 時整個面安靜地不出現、不 nag；build 是顯式 action（按鈕），觀測是唯讀即時態，遵守 settings 全 auto-save 規則；100% JS/Rust coverage + lethal tests；前端流暢度硬指標；誠實態（queued≠built）。
   - 驗收：實機跑一次真實 build，全程看得到進度且數字誠實；pause/resume/cancel 與 retry 都實際生效；錯誤有可重試的呈現；`bun run check`；更新對應 `docs/features/` 與（若改了 schema/runtime）`docs/architecture/`。
 
 - [ ] **WORK-ENCRYPT-AT-REST-ALL** — 評估並（評估後）實作「全量加密」衍生資料庫（需先做設計/性能評估階段）
-  - 來源：2026-06-28 使用者指示。修 backup OOM 時確認：開啟加密只加密 canonical encrypted-tier（`history-vault.sqlite` + `source-evidence.sqlite`）；衍生 sidecar（`derived/history-search.sqlite` FTS、`derived/history-intelligence.sqlite`、`derived/agent.sqlite` 對話）目前**明文**落盤，內含 URL / 標題 / enrichment 摘要 / 聊天內容。使用者選擇本輪先只修 source-evidence，並要求把「encrypt EVERYTHING 的性能與實現設計評估」記成待辦，評估後再決定是否實作。
-  - 讀先：`docs/architecture/`（at-rest posture，本輪新增/更新）；`src-tauri/crates/vault-core/src/archive/at_rest.rs`（本輪的 reconcile/rewrite 原語，可推廣到 sidecar）；`schema.rs`（`open_archive_connection` 的 `ATTACH … KEY ''` 慣例）、`search_projection.rs`（`open_search_connection` 明文開啟）、`intelligence_projection.rs`（明文 + attach archive）；W-AI-3 `agent.sqlite` migration；`scripts/verify-rust-coverage.mjs`。
+  - 2026-10 狀態：Turso 版每個原生資料庫（archive、source evidence、intelligence、agent、scratch）都用同一把資料金鑰加密，搜尋索引用加密的 Tantivy Directory。下面提到的 SQLCipher 原語（`at_rest.rs` reconcile、`open_archive_connection`、`search_projection.rs`、`intelligence_projection.rs`）已刪除。剩下要評估的只有語意搜尋的平面檔（`.pkvec` / `.pkmap` / `.pkbin` / `.pki8`）是否加密。
+  - 來源：2026-06-28 使用者指示。修 backup OOM 時確認：開啟加密只加密 canonical encrypted-tier（`history-vault.sqlite` + `source-evidence.sqlite`）；衍生 sidecar（`derived/history-search.sqlite` FTS、`derived/history-intelligence.sqlite`、`derived/agent.sqlite` 對話）目前**明文**落盤，內含 URL / 標題 / enrichment 摘要 / 聊天內容。使用者選擇當時先只修 source-evidence，並要求把「encrypt EVERYTHING 的性能與實現設計評估」記成待辦，評估後再決定是否實作。
+  - 讀先：`docs/architecture/`（at-rest posture）；`src-tauri/crates/vault-core/src/archive/at_rest.rs`（既有的 reconcile/rewrite 原語，可推廣到 sidecar）；`schema.rs`（`open_archive_connection` 的 `ATTACH … KEY ''` 慣例）、`search_projection.rs`（`open_search_connection` 明文開啟）、`intelligence_projection.rs`（明文 + attach archive）；W-AI-3 `agent.sqlite` migration；`scripts/verify-rust-coverage.mjs`。
   - 設計問題（先評估再下結論，量測為準）：(1) **性能**——SQLCipher 對 14.4M 級 FTS5 / 向量 sidecar 的查詢/重建吞吐與 RAM 影響（目標機 4 核 / 8GB）；semantic plane（`.pkbin`/`.pki8`/`.pkvec`/`.pkmap` flat sidecar）本身不是 SQLite，是否一併加密、怎麼加密（檔案層 vs 應用層）。(2) **實現模型**——衍生資料可丟棄/可重建，加密它們 vs「鎖時不可讀、解鎖才解密」的取捨；rekey 時是否要連 sidecar 一起 lockstep（推廣 `migrate_*_for_rekey`）；明文→加密的遷移/重建路徑與 blast radius。(3) **威脅模型**——衍生明文到底洩漏多少（URL/標題/摘要/對話），是否值得這個性能與複雜度成本。
   - 契約：先交 trade-off 設計文檔 + 性能量測（env-gated bench），使用者確認後才動代碼；不破壞非加密路徑；100% JS/Rust coverage；前端流暢度硬指標。
   - 驗收：設計+量測文檔成立並獲使用者批准 → 若實作：開啟加密後 sidecar 不再明文落盤、查詢/備份/重建在目標機仍流暢、rekey lockstep、`bun run check` 綠。
 
 - [ ] **WORK-ENCRYPT-KEYDRIFT-A** — 回收以「舊密碼」加密的 source-evidence（passphrase 輪換殘留）
-  - 來源：2026-06-28 backup-OOM 修復的獨立審查 finding #4。本輪的 at-rest reconcile 只處理 **mode drift**（明文↔加密，靠檔頭偵測，無需金鑰）。它無法偵測/修復 **key drift**：在舊版「只 rekey archive」的時代做過 Encrypted→Encrypted 密碼輪換的安裝，其 `source-evidence.sqlite` 會以**舊密碼**加密、而 config/archive 用新密碼——檔頭看起來與正確金鑰的檔案完全相同，reconcile 視為一致而 no-op，之後 `open_source_evidence_connection` 用新金鑰開舊金鑰檔 → 仍 OOM；且後續 rekey 會因開不了該檔而 finalize 成 failed。
+  - 2026-10 狀態：原生版不會再產生 key drift（所有資料庫共用一把資料金鑰，改密碼只重包金鑰）。舊安裝仍可能帶著這種 source-evidence 來轉換：轉換器用 archive 密碼讀它會失敗。要決定的是轉換時怎麼處理這個檔（見 `docs/plan/turso-review-ledger.md` 區塊 6）。
+  - 來源：2026-06-28 backup-OOM 修復時的審查。既有的 at-rest reconcile 只處理 **mode drift**（明文↔加密，靠檔頭偵測，無需金鑰）。它無法偵測/修復 **key drift**：在舊版「只 rekey archive」的時代做過 Encrypted→Encrypted 密碼輪換的安裝，其 `source-evidence.sqlite` 會以**舊密碼**加密、而 config/archive 用新密碼——檔頭看起來與正確金鑰的檔案完全相同，reconcile 視為一致而 no-op，之後 `open_source_evidence_connection` 用新金鑰開舊金鑰檔 → 仍 OOM；且後續 rekey 會因開不了該檔而 finalize 成 failed。
   - 範圍/稀有度：只影響「舊代碼下輪換過密碼」的安裝（本次確診的使用者是 mode-drift，已修）。自動修復不可能無中生有舊密碼。
   - 目標（設計優先）：偵測 key-drift（嘗試用目前金鑰開 source-evidence，失敗即 drift）→ 給誠實、可行動的 UX（提示輸入舊密碼以重新加密，或在確認資料可由 archive 重建時安全重建 source-evidence），而非靜默 OOM 或讓 rekey 失敗。
   - 契約：絕不破壞既有資料；i18n×3；100% coverage；走 review pipeline。
   - 驗收：對人工製造的 key-drift 安裝，app 給出清楚路徑回到可備份狀態，不再 OOM、不再讓 rekey 卡死。
 
 - [ ] **WORK-TEST-REAL-IO-A** — 真實 I/O 測試化：embedding transport seam + fake-HTTP 整合測試 + dispatch 契約斷言（承 2026-06-28 behavioral-assertion 鐵律）
-  - 來源：2026-06-28，note 搜尋與 embedding 一碰就炸但「100% coverage」沒擋。根因＝真實 I/O 引擎被 `#[cfg(not(any(test,coverage)))]` 整段換 stub、行為從不被斷言（見 `quality-matrix.md`「覆蓋率 ≠ 行為」鐵律）。本輪已把 static engine 的真實 compute 放回 coverage binary（F4）+ 補 note/embedding 行為斷言；剩兩塊較大的 reform 延後：
-  - **(1) external/candle embedding transport 可注入 seam**：把 `ai/embedding_external.rs`（與檢視 `embedding_candle.rs`）的真實 `reqwest` send/decode/timeout 從「整段 cfg-out 換 stub」改成把 HTTP **endpoint** 抽成可注入（本地 fake server / injected client），讓真實 decode / timeout / 空 `data[]` / mid-batch 500 的邏輯留在被量測 build。加 fake-HTTP `/v1/embeddings` 整合測試斷言「誠實失敗，絕不成功但 0 向量」。
-  - **(2) `dispatch_for_coverage` → 契約斷言**：`dev_ipc_bridge/dispatch/tests.rs` 的 fire-and-forget walk（吞 panic、丟結果）改成 per-command 斷言回傳 JSON shape，讓 IPC surface 證明契約而非只執行求覆蓋率。
-  - 驗收：external/candle 真實失敗模式有測試覆蓋；dispatch 測試斷言契約；`quality-matrix.md` 鐵律全達成；gate 全綠。
+  - 來源：2026-06-28，note 搜尋與 embedding 一碰就炸但「100% coverage」沒擋。根因＝真實 I/O 引擎被 `#[cfg(not(any(test,coverage)))]` 整段換 stub、行為從不被斷言（見 `quality-matrix.md`「覆蓋率 ≠ 行為」鐵律）。2026-06-28 已把 static engine 的真實 compute 放回 coverage binary + 補 note/embedding 行為斷言；剩兩塊較大的 reform 延後：
+  - **(1) external embedding transport 可注入 seam**：把 `ai/embedding_external.rs` 的真實 `reqwest` send/decode/timeout 從「整段 cfg-out 換 stub」改成把 HTTP **endpoint** 抽成可注入（本地 fake server / injected client），讓真實 decode / timeout / 空 `data[]` / mid-batch 500 的邏輯留在被量測 build。加 fake-HTTP `/v1/embeddings` 整合測試斷言「誠實失敗，絕不成功但 0 向量」。
+  - ~~**(2) `dispatch_for_coverage` → 契約斷言**~~：2026-10-12 `WORK-TEST-CUT-2026-10` 把那個 walk 整個刪了；IPC 契約由 E2E 經 dev bridge 打真的命令證明。
+  - 驗收：external 真實失敗模式有測試覆蓋；`quality-matrix.md` 鐵律全達成；gate 全綠。
 
 - [!] **WORK-RELEASE-SIGNING-A** — macOS Developer ID signing + notarization in CI（需使用者決定 Apple Developer 帳號）[!blocked: 需 Apple Developer Program 帳號（$99/yr）+ 使用者授權]
   - 來源：2026-06-25 備份失效調查。Root cause 不是代碼，而是 **macOS TCC / Full Disk Access**：備份要讀 `~/Library/Application Support/Google/Chrome`，OS 拒絕 → `Operation not permitted` → 備份失敗。FDA 授權綁在 app 的**簽章身份**上；目前 debug/release 都是 **ad-hoc 簽章（無穩定身份）**，所以每次 rebuild / 每次發版更新，macOS 都視為「新 app」→ FDA 授權失效 → 使用者更新後備份再次靜默失效。這是發版的硬阻斷：不能讓使用者每次更新都重新授權 FDA。
@@ -725,8 +738,8 @@ core-intelligence/api`, all returning the same data. Reusing the existing
   - 驗收：CI 產出 signed + notarized + stapled 的 `.app`/`.dmg`；裝在乾淨機器上 Gatekeeper 不擋；授一次 FDA 後，安裝下一個版本仍保有 FDA（備份不再靜默失效）。
 
 - [ ] **WORK-STARS-PAGINATE-A** — 給 `list_stars` 真正的 cursor 分頁，讓 Starred hub 不再只是「有標註的前 N 筆」
-  - 來源：2026-07-27 Explorer P1 修復（E2）。原狀：`use-starred-hub.ts` 呼叫 `backend.listStars(null, sort)` 不帶 limit，靜默吃下 Rust 端 `DEFAULT_LIST_LIMIT = 500` 並丟掉其餘；hub 檔頭卻自稱 _paginated read model_；`index.tsx` 又把 `starredSearchEntries.length` 當成 `is:starred` 的結果總數。有 700 個星標的使用者：入口徽章 700、hub 500 筆、搜索說「500 pages found」——同一畫面三個互相矛盾的數字。
-  - 本輪已做（**過渡方案，不是完成**）：(a) 明確傳 `MAX_LIST_LIMIT`（2000）而非隱式吃 500；(b) `useStarredHub` 回報 `truncated`，`PaperStarredView` 在「回覆填滿上限 且 聚合總數 > 已載入數」時渲染三語的「顯示前 N 筆，共 M 筆——縮小範圍以查看更多」；(c) `is:starred` 改用 `useStarredCount` 的真實聚合（`counts.urls`，domain 星標不算頁面）而不是切片長度；(d) 修掉與代碼相反的檔頭/註釋。**上限仍在，只是不再說謊。**
+  - 來源：2026-07-27 Explorer 修復。原狀：`use-starred-hub.ts` 呼叫 `backend.listStars(null, sort)` 不帶 limit，靜默吃下 Rust 端 `DEFAULT_LIST_LIMIT = 500` 並丟掉其餘；hub 檔頭卻自稱 _paginated read model_；`index.tsx` 又把 `starredSearchEntries.length` 當成 `is:starred` 的結果總數。有 700 個星標的使用者：入口徽章 700、hub 500 筆、搜索說「500 pages found」——同一畫面三個互相矛盾的數字。
+  - 當時已做（**過渡方案，不是完成**）：(a) 明確傳 `MAX_LIST_LIMIT`（2000）而非隱式吃 500；(b) `useStarredHub` 回報 `truncated`，`PaperStarredView` 在「回覆填滿上限 且 聚合總數 > 已載入數」時渲染三語的「顯示前 N 筆，共 M 筆——縮小範圍以查看更多」；(c) `is:starred` 改用 `useStarredCount` 的真實聚合（`counts.urls`，domain 星標不算頁面）而不是切片長度；(d) 修掉與代碼相反的檔頭/註釋。**上限仍在，只是不再說謊。**
   - 本 block 要做：`list_stars` 加 cursor/offset + limit 的真分頁契約（含 `most_revisited` 排序語意——現在的視窗內排序註釋明說「若星標數超過 cap，排序只在 recency-bounded slice 內成立」，真分頁後要改成 SQL `ORDER BY`），前端 hub 換成漸進載入（無限捲動或分頁條），移除 `truncated` 過渡文案。
   - 讀先：`src-tauri/crates/vault-core/src/stars.rs`（`list_stars` / `collect_star_rows` / `MAX_LIST_LIMIT` 與 `most_revisited` 的視窗內排序註釋）、`src-tauri/src/commands/stars.rs`、`src/lib/backend-client/stars.ts`、`src/pages/explorer/use-starred-hub.ts`、`src/pages/explorer/use-starred-count.ts`、`docs/features/`（stars）。
   - 契約：i18n×3；100% JS/Rust coverage；hub 任何時刻不凍結主線程；總數一律來自聚合讀模型，永不用已載入切片長度。

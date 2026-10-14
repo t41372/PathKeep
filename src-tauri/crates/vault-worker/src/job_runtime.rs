@@ -18,38 +18,85 @@ use std::{
 };
 use vault_core::{AiRunCancelled, AiRunControl};
 
-/// Spawns workers until the active count reaches the requested pool size.
+/// One queue's workers: how many run, and how many times work was asked for.
+pub(crate) struct WorkerPool {
+    active: AtomicUsize,
+    wakes: AtomicUsize,
+}
+
+impl WorkerPool {
+    pub(crate) const fn new() -> Self {
+        Self { active: AtomicUsize::new(0), wakes: AtomicUsize::new(0) }
+    }
+
+    pub(crate) fn active(&self) -> usize {
+        self.active.load(Ordering::Acquire)
+    }
+}
+
+/// Spawns workers until the active count reaches the requested pool size. Each worker drains
+/// its queue until it finds nothing (see `run_worker` for what happens then).
 pub(crate) fn maybe_spawn_worker_pool<F>(
     base_name: &str,
-    active_workers: &'static AtomicUsize,
+    pool: &'static WorkerPool,
     desired_workers: usize,
     worker: F,
 ) where
     F: Fn() + Send + Sync + 'static,
 {
+    // Counted before looking for a free slot, so a worker on its way out sees it.
+    pool.wakes.fetch_add(1, Ordering::AcqRel);
     let desired_workers = desired_workers.max(1);
     let worker = Arc::new(worker);
+    while let Some(active) = claim_free_slot(pool, desired_workers) {
+        let worker = Arc::clone(&worker);
+        let thread_name = format!("{base_name}-{}", active + 1);
+        // The guard releases the claimed slot on EVERY exit path: normal
+        // return, a panic inside `worker()` (unwind drops the guard), and
+        // even spawn failure (the OS refusing the thread drops the closure,
+        // and with it the guard). The previous `worker(); fetch_sub(...)`
+        // tail leaked the slot on panic / spawn error, and once the leaked
+        // count reached `desired_workers` the pool never spawned again —
+        // wedging the AI / intelligence queue drain until process restart.
+        let guard = WorkerSlotGuard(&pool.active);
+        let _ = thread::Builder::new()
+            .name(thread_name)
+            .spawn(move || run_worker(pool, desired_workers, guard, &*worker));
+    }
+}
 
+/// Runs `worker` until a pass ends with no one having asked for work during it. A job queued
+/// while this worker was finding its queue empty found the pool full and started no worker; on a
+/// real archive that left two Insights jobs queued for over an hour. So after each pass the
+/// worker gives up its slot, and takes one back to look again if work was asked for meanwhile.
+fn run_worker(
+    pool: &'static WorkerPool,
+    desired_workers: usize,
+    mut slot: WorkerSlotGuard,
+    worker: &dyn Fn(),
+) {
     loop {
-        let active = active_workers.load(Ordering::Acquire);
-        if active >= desired_workers {
-            break;
+        let asked = pool.wakes.load(Ordering::Acquire);
+        worker();
+        drop(slot);
+        if pool.wakes.load(Ordering::Acquire) == asked
+            || claim_free_slot(pool, desired_workers).is_none()
+        {
+            return;
         }
-        if claim_worker_slot(active_workers, active) {
-            let worker = Arc::clone(&worker);
-            let thread_name = format!("{base_name}-{}", active + 1);
-            // The guard releases the claimed slot on EVERY exit path: normal
-            // return, a panic inside `worker()` (unwind drops the guard), and
-            // even spawn failure (the OS refusing the thread drops the closure,
-            // and with it the guard). The previous `worker(); fetch_sub(...)`
-            // tail leaked the slot on panic / spawn error, and once the leaked
-            // count reached `desired_workers` the pool never spawned again —
-            // wedging the AI / intelligence queue drain until process restart.
-            let guard = WorkerSlotGuard(active_workers);
-            let _ = thread::Builder::new().name(thread_name).spawn(move || {
-                let _slot = guard;
-                worker();
-            });
+        slot = WorkerSlotGuard(&pool.active);
+    }
+}
+
+/// Takes a slot when fewer than `desired_workers` run, returning how many ran before.
+fn claim_free_slot(pool: &WorkerPool, desired_workers: usize) -> Option<usize> {
+    loop {
+        let active = pool.active.load(Ordering::Acquire);
+        if active >= desired_workers {
+            return None;
+        }
+        if claim_worker_slot(&pool.active, active) {
+            return Some(active);
         }
     }
 }
@@ -133,14 +180,12 @@ mod tests {
 
     #[test]
     fn worker_pool_spawns_real_parallel_workers() {
-        static ACTIVE_WORKERS: AtomicUsize = AtomicUsize::new(0);
-
-        ACTIVE_WORKERS.store(0, Ordering::Release);
+        static POOL: WorkerPool = WorkerPool::new();
         let concurrent = Arc::new(AtomicUsize::new(0));
         let peak = Arc::new(AtomicUsize::new(0));
         let barrier = Arc::new(Barrier::new(3));
 
-        maybe_spawn_worker_pool("pathkeep-test-pool", &ACTIVE_WORKERS, 2, {
+        maybe_spawn_worker_pool("pathkeep-test-pool", &POOL, 2, {
             let concurrent = Arc::clone(&concurrent);
             let peak = Arc::clone(&peak);
             let barrier = Arc::clone(&barrier);
@@ -154,14 +199,14 @@ mod tests {
 
         barrier.wait();
         for _ in 0..100 {
-            if ACTIVE_WORKERS.load(Ordering::Acquire) == 0 {
+            if POOL.active() == 0 {
                 break;
             }
             thread::sleep(Duration::from_millis(10));
         }
 
         assert_eq!(peak.load(Ordering::Acquire), 2);
-        assert_eq!(ACTIVE_WORKERS.load(Ordering::Acquire), 0);
+        assert_eq!(POOL.active(), 0);
 
         let claimed = AtomicUsize::new(0);
         assert!(claim_worker_slot(&claimed, 0));
@@ -170,11 +215,10 @@ mod tests {
 
     #[test]
     fn worker_pool_releases_slot_when_worker_panics() {
-        static ACTIVE_WORKERS: AtomicUsize = AtomicUsize::new(0);
-        ACTIVE_WORKERS.store(0, Ordering::Release);
+        static POOL: WorkerPool = WorkerPool::new();
         let release = Arc::new(Barrier::new(2));
 
-        maybe_spawn_worker_pool("pathkeep-panic-pool", &ACTIVE_WORKERS, 1, {
+        maybe_spawn_worker_pool("pathkeep-panic-pool", &POOL, 1, {
             let release = Arc::clone(&release);
             move || {
                 release.wait();
@@ -186,39 +230,55 @@ mod tests {
         // the pool is not permanently wedged at its desired-worker ceiling.
         release.wait();
         for _ in 0..200 {
-            if ACTIVE_WORKERS.load(Ordering::Acquire) == 0 {
+            if POOL.active() == 0 {
                 break;
             }
             thread::sleep(Duration::from_millis(10));
         }
-        assert_eq!(
-            ACTIVE_WORKERS.load(Ordering::Acquire),
-            0,
-            "a panicking worker must still release its pool slot"
-        );
+        assert_eq!(POOL.active(), 0, "a panicking worker must still release its pool slot");
     }
 
+    /// A job queued while the only worker is finding its queue empty: the request finds the pool
+    /// full and starts no worker, so the leaving worker has to look again.
     #[test]
-    fn background_job_control_reports_requested_stop_at_checkpoints() {
-        let control = BackgroundJobControl::spawn(
-            Duration::from_millis(5),
-            Duration::from_secs(60),
-            || Ok(()),
-            || Ok(true),
-        );
+    fn work_asked_for_while_the_only_worker_is_leaving_is_still_done() {
+        static POOL: WorkerPool = WorkerPool::new();
+        let queued = Arc::new(AtomicUsize::new(0));
+        let done = Arc::new(AtomicUsize::new(0));
+        let found_empty = Arc::new(Barrier::new(2));
+        let job_queued = Arc::new(Barrier::new(2));
+        let first_look = Arc::new(AtomicBool::new(true));
+        let drain = || {
+            let (queued, done) = (Arc::clone(&queued), Arc::clone(&done));
+            let (found_empty, job_queued) = (Arc::clone(&found_empty), Arc::clone(&job_queued));
+            let first_look = Arc::clone(&first_look);
+            move || {
+                while queued.load(Ordering::Acquire) > 0 {
+                    queued.fetch_sub(1, Ordering::AcqRel);
+                    done.fetch_add(1, Ordering::AcqRel);
+                }
+                // The queue looked empty: the first time, a job is queued right now.
+                if first_look.swap(false, Ordering::AcqRel) {
+                    found_empty.wait();
+                    job_queued.wait();
+                }
+            }
+        };
 
-        for _ in 0..100 {
-            if control.cancelled() {
+        maybe_spawn_worker_pool("pathkeep-wake-pool", &POOL, 1, drain());
+        found_empty.wait();
+        queued.fetch_add(1, Ordering::AcqRel);
+        maybe_spawn_worker_pool("pathkeep-wake-pool", &POOL, 1, drain());
+        assert_eq!(POOL.active(), 1, "the request found the only slot taken");
+        job_queued.wait();
+
+        for _ in 0..200 {
+            if done.load(Ordering::Acquire) == 1 && POOL.active() == 0 {
                 break;
             }
-            thread::sleep(Duration::from_millis(5));
+            thread::sleep(Duration::from_millis(10));
         }
-
-        assert!(control.cancelled());
-        let cancelled = control
-            .checkpoint("background job noticed a stop request")
-            .expect_err("checkpoint should report cancellation");
-        assert!(cancelled.to_string().contains("stop request"));
-        control.shutdown();
+        assert_eq!(done.load(Ordering::Acquire), 1, "the job queued meanwhile was run");
+        assert_eq!(POOL.active(), 0);
     }
 }

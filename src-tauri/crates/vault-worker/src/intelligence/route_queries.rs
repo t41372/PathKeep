@@ -1,3 +1,4 @@
+//! Failure modes: a wrapper drops cursor fields, opens legacy storage or resolves a different Vault.
 //! Worker passthroughs for route-level Core Intelligence reads.
 //!
 //! ## Responsibilities
@@ -21,248 +22,262 @@
 use super::*;
 
 /// Loads one paginated sessions list.
+/// The zone of the Insights on screen and of the next build, for Settings and for the screens
+/// that put dates in Insights' zone.
+pub fn get_insights_time_zone(vault: &vault_core::Vault) -> Result<vault_core::InsightsTimeZone> {
+    with_core_intelligence(vault, vault_core::insights_time_zone)
+}
+
 pub fn get_sessions(
-    session_database_key: Option<&str>,
+    vault: &vault_core::Vault,
     request: &PagedDateRangeRequest,
 ) -> Result<SessionListResult> {
-    with_core_intelligence(session_database_key, |paths, config| {
-        intelligence::get_sessions(paths, config, session_database_key, request)
-    })
+    with_core_intelligence(vault, |vault| intelligence::get_sessions(vault, request))
 }
 
 /// Loads the detail read model for one browsing session.
 pub fn get_session_detail(
-    session_database_key: Option<&str>,
-    session_id: &str,
+    vault: &vault_core::Vault,
+    request: &vault_core::SessionDetailRequest,
 ) -> Result<SessionDetail> {
-    with_core_intelligence(session_database_key, |paths, config| {
-        intelligence::get_session_detail(paths, config, session_database_key, session_id)
-    })
+    with_core_intelligence(vault, |vault| intelligence::get_session_detail(vault, request))
 }
 
 /// Loads one paginated search trail list.
 pub fn get_search_trails(
-    session_database_key: Option<&str>,
+    vault: &vault_core::Vault,
     request: &SearchTrailQueryRequest,
 ) -> Result<TrailListResult> {
-    with_core_intelligence(session_database_key, |paths, config| {
-        intelligence::get_search_trails(paths, config, session_database_key, request)
-    })
+    with_core_intelligence(vault, |vault| intelligence::get_search_trails(vault, request))
 }
 
 /// Loads the detail read model for one search trail.
-pub fn get_trail_detail(session_database_key: Option<&str>, trail_id: &str) -> Result<TrailDetail> {
-    with_core_intelligence(session_database_key, |paths, config| {
-        intelligence::get_trail_detail(paths, config, session_database_key, trail_id)
-    })
+pub fn get_trail_detail(
+    vault: &vault_core::Vault,
+    request: &vault_core::TrailDetailRequest,
+) -> Result<TrailDetail> {
+    with_core_intelligence(vault, |vault| intelligence::get_trail_detail(vault, request))
 }
 
 /// Loads the navigation path centered on one canonical visit id.
-pub fn get_navigation_path(
-    session_database_key: Option<&str>,
-    visit_id: i64,
-) -> Result<NavigationPath> {
-    with_core_intelligence(session_database_key, |paths, config| {
-        intelligence::get_navigation_path(paths, config, session_database_key, visit_id)
-    })
+pub fn get_navigation_path(vault: &vault_core::Vault, visit_id: i64) -> Result<NavigationPath> {
+    with_core_intelligence(vault, |vault| intelligence::get_navigation_path(vault, visit_id))
 }
 
 /// Loads the hub-page list used by Dashboard and Intelligence summaries.
 pub fn get_hub_pages(
-    session_database_key: Option<&str>,
+    vault: &vault_core::Vault,
     request: &TopSitesRequest,
-) -> Result<Vec<HubPage>> {
-    with_core_intelligence(session_database_key, |paths, config| {
-        intelligence::get_hub_pages(paths, config, session_database_key, request)
-    })
+) -> Result<vault_core::IntelligencePage<HubPage>> {
+    with_core_intelligence(vault, |vault| intelligence::get_hub_pages(vault, request))
 }
 
 /// Loads the section-wrapped search-engine ranking surface.
 pub fn get_search_engine_ranking(
-    session_database_key: Option<&str>,
+    vault: &vault_core::Vault,
     request: &ScopedDateRangeRequest,
 ) -> Result<CoreIntelligenceSectionResult<Vec<EngineRanking>>> {
     with_core_intelligence_section(
-        session_database_key,
+        vault,
         "search-activity",
         CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
-        |paths, config| {
-            intelligence::get_search_engine_ranking(paths, config, session_database_key, request)
-        },
+        request.profile_id.as_deref(),
+        |vault| intelligence::get_search_engine_ranking(vault, request),
         |data| data.is_empty(),
     )
 }
 
 /// Lists the Settings-owned search-engine override rules.
-pub fn list_search_engine_rules(
-    session_database_key: Option<&str>,
-) -> Result<Vec<SearchEngineRule>> {
-    with_core_intelligence(session_database_key, |paths, config| {
-        intelligence::list_search_engine_rules_for_settings(paths, config, session_database_key)
+pub fn list_search_engine_rules(vault: &vault_core::Vault) -> Result<Vec<SearchEngineRule>> {
+    with_core_intelligence(vault, |vault| {
+        intelligence::list_search_engine_rules_for_settings(vault)
     })
 }
 
 /// Upserts one Settings-owned search-engine override rule and returns the new rule set.
 pub fn upsert_search_engine_rule(
-    session_database_key: Option<&str>,
+    vault: &vault_core::Vault,
     input: &SearchEngineRuleInput,
 ) -> Result<Vec<SearchEngineRule>> {
-    with_core_intelligence(session_database_key, |paths, config| {
-        intelligence::upsert_search_engine_rule_for_settings(
-            paths,
-            config,
-            session_database_key,
-            input,
-        )
+    with_core_intelligence(vault, |vault| {
+        intelligence::upsert_search_engine_rule_for_settings(vault, input)
     })
 }
 
 /// Deletes one Settings-owned search-engine override rule and returns the remaining rules.
 pub fn delete_search_engine_rule(
-    session_database_key: Option<&str>,
+    vault: &vault_core::Vault,
     rule_id: &str,
 ) -> Result<Vec<SearchEngineRule>> {
-    with_core_intelligence(session_database_key, |paths, config| {
-        intelligence::delete_search_engine_rule_for_settings(
-            paths,
-            config,
-            session_database_key,
-            rule_id,
-        )
+    with_core_intelligence(vault, |vault| {
+        intelligence::delete_search_engine_rule_for_settings(vault, rule_id)
     })
 }
 
 /// Loads the primary overview payload that seeds the `/intelligence` route shell.
 pub fn get_intelligence_primary_overview(
-    session_database_key: Option<&str>,
+    vault: &vault_core::Vault,
     request: &ScopedDateRangeRequest,
 ) -> Result<CoreIntelligencePrimaryOverview> {
-    with_core_intelligence(session_database_key, |paths, config| {
-        intelligence::get_intelligence_primary_overview(
-            paths,
-            config,
-            session_database_key,
-            request,
-        )
+    with_core_intelligence(vault, |vault| {
+        intelligence::get_intelligence_primary_overview(vault, request)
     })
 }
 
 /// Loads the ranked top-search-concepts section payload.
 pub fn get_top_search_concepts(
-    session_database_key: Option<&str>,
+    vault: &vault_core::Vault,
     request: &TopSearchConceptsRequest,
-) -> Result<CoreIntelligenceSectionResult<Vec<SearchConcept>>> {
+) -> Result<CoreIntelligenceSectionResult<vault_core::IntelligencePage<SearchConcept>>> {
     with_core_intelligence_section(
-        session_database_key,
+        vault,
         "search-activity",
         CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
-        |paths, config| {
-            intelligence::get_top_search_concepts(paths, config, session_database_key, request)
-        },
+        request.profile_id.as_deref(),
+        |vault| intelligence::get_top_search_concepts(vault, request),
+        |data| data.is_empty(),
+    )
+}
+
+/// Loads the most frequent searches in a date range, with counts scoped to that range.
+pub fn get_frequent_searches(
+    vault: &vault_core::Vault,
+    request: &FrequentSearchesRequest,
+) -> Result<CoreIntelligenceSectionResult<vault_core::IntelligencePage<FrequentSearch>>> {
+    with_core_intelligence_section(
+        vault,
+        "search-activity",
+        CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
+        request.profile_id.as_deref(),
+        |vault| intelligence::get_frequent_searches(vault, request),
         |data| data.is_empty(),
     )
 }
 
 /// Loads the paginated search-query table used by the search activity surface.
 pub fn get_search_queries(
-    session_database_key: Option<&str>,
+    vault: &vault_core::Vault,
     request: &SearchQueryListRequest,
 ) -> Result<CoreIntelligenceSectionResult<SearchQueryListResult>> {
     with_core_intelligence_section(
-        session_database_key,
+        vault,
         "search-activity",
         CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
-        |paths, config| {
-            intelligence::get_search_queries(paths, config, session_database_key, request)
-        },
+        request.profile_id.as_deref(),
+        |vault| intelligence::get_search_queries(vault, request),
         |data| data.rows.is_empty(),
+    )
+}
+
+/// Every query family holding one search, across all time: the search page's totals.
+pub fn get_search_families(
+    vault: &vault_core::Vault,
+    request: &SearchFamiliesRequest,
+) -> Result<CoreIntelligenceSectionResult<QueryFamilyResult>> {
+    with_core_intelligence_section(
+        vault,
+        "search-activity",
+        CoreIntelligenceSectionWindow::AllTime,
+        request.profile_id.as_deref(),
+        |vault| intelligence::get_search_families(vault, request),
+        |data| data.families.is_empty(),
     )
 }
 
 /// Loads the paginated query-family list used by the search activity surface.
 pub fn get_query_families(
-    session_database_key: Option<&str>,
+    vault: &vault_core::Vault,
     request: &PagedDateRangeRequest,
 ) -> Result<CoreIntelligenceSectionResult<QueryFamilyResult>> {
     with_core_intelligence_section(
-        session_database_key,
+        vault,
         "search-activity",
         CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
-        |paths, config| {
-            intelligence::get_query_families(paths, config, session_database_key, request)
-        },
+        request.profile_id.as_deref(),
+        |vault| intelligence::get_query_families(vault, request),
         |data| data.families.is_empty(),
     )
 }
 
 /// Loads one query-family detail payload and its freshness metadata.
 pub fn get_query_family_detail(
-    session_database_key: Option<&str>,
+    vault: &vault_core::Vault,
     request: &QueryFamilyDetailRequest,
 ) -> Result<CoreIntelligenceSectionResult<QueryFamilyDetail>> {
     with_core_intelligence_section(
-        session_database_key,
+        vault,
         "query-family-detail",
         CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
-        |paths, config| {
-            intelligence::get_query_family_detail(paths, config, session_database_key, request)
-        },
+        request.profile_id.as_deref(),
+        |vault| intelligence::get_query_family_detail(vault, request),
         query_family_detail_is_empty,
     )
 }
 
 /// Loads the section-wrapped top-sites list.
 pub fn get_top_sites(
-    session_database_key: Option<&str>,
+    vault: &vault_core::Vault,
     request: &TopSitesRequest,
-) -> Result<CoreIntelligenceSectionResult<Vec<TopSite>>> {
+) -> Result<CoreIntelligenceSectionResult<vault_core::IntelligencePage<TopSite>>> {
     with_core_intelligence_section(
-        session_database_key,
+        vault,
         "top-sites",
         CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
-        |paths, config| intelligence::get_top_sites(paths, config, session_database_key, request),
+        request.profile_id.as_deref(),
+        |vault| intelligence::get_top_sites(vault, request),
+        |data| data.is_empty(),
+    )
+}
+
+/// Loads the sites put in one category in a range, section-wrapped like top sites.
+pub fn get_sites_in_category(
+    vault: &vault_core::Vault,
+    request: &vault_core::SitesInCategoryRequest,
+) -> Result<CoreIntelligenceSectionResult<vault_core::IntelligencePage<TopSite>>> {
+    with_core_intelligence_section(
+        vault,
+        "sites-in-category",
+        CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
+        request.profile_id.as_deref(),
+        |vault| intelligence::get_sites_in_category(vault, request),
         |data| data.is_empty(),
     )
 }
 
 /// Loads the day-bucket trend for one registrable domain.
 pub fn get_domain_trend(
-    session_database_key: Option<&str>,
+    vault: &vault_core::Vault,
     request: &DomainTrendRequest,
 ) -> Result<DomainTrend> {
-    with_core_intelligence(session_database_key, |paths, config| {
-        intelligence::get_domain_trend(paths, config, session_database_key, request)
-    })
+    with_core_intelligence(vault, |vault| intelligence::get_domain_trend(vault, request))
 }
 
 /// Loads the section-wrapped refind pages list.
 pub fn get_refind_pages(
-    session_database_key: Option<&str>,
+    vault: &vault_core::Vault,
     request: &RefindPagesRequest,
-) -> Result<CoreIntelligenceSectionResult<Vec<RefindPage>>> {
+) -> Result<CoreIntelligenceSectionResult<vault_core::IntelligencePage<RefindPage>>> {
     with_core_intelligence_section(
-        session_database_key,
+        vault,
         "refind-pages",
         CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
-        |paths, config| {
-            intelligence::get_refind_pages(paths, config, session_database_key, request)
-        },
+        request.profile_id.as_deref(),
+        |vault| intelligence::get_refind_pages(vault, request),
         |data| data.is_empty(),
     )
 }
 
 /// Loads one refind-page detail payload and its freshness metadata.
 pub fn get_refind_page_detail(
-    session_database_key: Option<&str>,
+    vault: &vault_core::Vault,
     request: &RefindPageDetailRequest,
 ) -> Result<CoreIntelligenceSectionResult<RefindPageDetail>> {
     with_core_intelligence_section(
-        session_database_key,
+        vault,
         "refind-page-detail",
         CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
-        |paths, config| {
-            intelligence::get_refind_page_detail(paths, config, session_database_key, request)
-        },
+        request.profile_id.as_deref(),
+        |vault| intelligence::get_refind_page_detail(vault, request),
         refind_page_detail_is_empty,
     )
 }
@@ -279,38 +294,16 @@ fn refind_page_detail_is_empty(data: &RefindPageDetail) -> bool {
 
 /// Explains why one canonical refind page qualifies as refind-worthy.
 pub fn explain_refind(
-    session_database_key: Option<&str>,
+    vault: &vault_core::Vault,
     request: &vault_core::ExplainRefindRequest,
 ) -> Result<RefindExplanation> {
-    with_core_intelligence(session_database_key, |paths, config| {
-        intelligence::explain_refind(paths, config, session_database_key, request)
-    })
+    with_core_intelligence(vault, |vault| intelligence::explain_refind(vault, request))
 }
 
 /// Explains one deterministic Core Intelligence entity with evidence-backed metadata.
 pub fn explain_entity(
-    session_database_key: Option<&str>,
+    vault: &vault_core::Vault,
     request: &EntityExplanationRequest,
 ) -> Result<Explanation> {
-    with_core_intelligence(session_database_key, |paths, config| {
-        intelligence::explain_entity(paths, config, session_database_key, request)
-    })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn detail_empty_predicates_cover_related_entity_edges() {
-        assert!(query_family_detail_is_empty(&QueryFamilyDetail::default()));
-        let mut query_detail = QueryFamilyDetail::default();
-        query_detail.related_trails.push(vault_core::TrailSummary::default());
-        assert!(!query_family_detail_is_empty(&query_detail));
-
-        assert!(refind_page_detail_is_empty(&RefindPageDetail::default()));
-        let mut refind_detail = RefindPageDetail::default();
-        refind_detail.explanation.visit_ids.push(42);
-        assert!(!refind_page_detail_is_empty(&refind_detail));
-    }
+    with_core_intelligence(vault, |vault| intelligence::explain_entity(vault, request))
 }

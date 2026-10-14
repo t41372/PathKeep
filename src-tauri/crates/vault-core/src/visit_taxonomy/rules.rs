@@ -1,7 +1,8 @@
 //! Built-in visit-taxonomy rule packs.
 //!
 //! ## Responsibilities
-//! - Own the static exact-domain, host/path, and lexicon rule packs.
+//! - Own the static host/path and lexicon rule packs, and the registry of packs with the site
+//!   lists in `sites`.
 //! - Keep regional taxonomy packs separate from visit classification logic.
 //! - Preserve the accepted pack ids and versions used in explanation metadata.
 //!
@@ -17,7 +18,11 @@
 //! - Rule packs are static slices. Matching cost is bounded by the number of
 //!   built-in rules and does not grow with archive size.
 
-use super::types::{DomainCategory, InteractionKind, PageCategory};
+use super::sites;
+use super::types::{
+    DomainCategory, InteractionKind, PageCategory, TAXONOMY_VERSION, URL_RULES_VERSION,
+};
+use std::sync::LazyLock;
 
 /// Compact category tuple shared by all built-in rule variants.
 #[derive(Debug, Clone, Copy)]
@@ -47,7 +52,9 @@ pub(super) struct HostPathRule {
     pub(super) path_segment_count_at_least: usize,
 }
 
-/// Text-token match inside a rule pack.
+/// Text-token match inside a rule pack. A title or query says what kind of page a visit is, not
+/// what the site is (a Rust blog post titled "tokio vs smol" is not shopping), so these rules
+/// leave the site's category unknown and set only the page's kind.
 #[derive(Debug, Clone, Copy)]
 pub(super) struct LexiconRule {
     pub(super) rule: TaxonomyRule,
@@ -64,89 +71,56 @@ pub(super) struct TaxonomyRulePack {
     pub(super) lexicon_rules: &'static [LexiconRule],
 }
 
-const GLOBAL_CORE_EXACT_RULES: &[ExactDomainRule] = &[
+/// A site, or one host of it, all of whose pages are in `domain_category`. What kind of page each
+/// is stays unknown: one rule covers every page of the host.
+pub(super) const fn site(domain: &'static str, domain_category: DomainCategory) -> ExactDomainRule {
+    rule(domain, domain_category, PageCategory::Unknown, InteractionKind::Unknown)
+}
+
+/// A documentation site: every page of it is a docs page.
+pub(super) const fn docs(domain: &'static str) -> ExactDomainRule {
+    rule(domain, DomainCategory::Docs, PageCategory::DocsPage, InteractionKind::Learn)
+}
+
+/// A search engine: its pages are result pages.
+pub(super) const fn search_engine(domain: &'static str) -> ExactDomainRule {
+    rule(domain, DomainCategory::Search, PageCategory::SearchResults, InteractionKind::Discover)
+}
+
+/// A site whose pages are all one kind of page as well. Its domain names the rule.
+pub(super) const fn rule(
+    domain: &'static str,
+    domain_category: DomainCategory,
+    page_category: PageCategory,
+    interaction_kind: InteractionKind,
+) -> ExactDomainRule {
     ExactDomainRule {
-        domain: "baidu.com",
-        rule: TaxonomyRule {
-            id: "baidu-search",
-            domain_category: DomainCategory::Search,
-            page_category: PageCategory::SearchResults,
-            interaction_kind: InteractionKind::Discover,
-        },
-    },
-    ExactDomainRule {
-        domain: "bing.com",
-        rule: TaxonomyRule {
-            id: "bing-search",
-            domain_category: DomainCategory::Search,
-            page_category: PageCategory::SearchResults,
-            interaction_kind: InteractionKind::Discover,
-        },
-    },
-    ExactDomainRule {
-        domain: "brave.com",
-        rule: TaxonomyRule {
-            id: "brave-search",
-            domain_category: DomainCategory::Search,
-            page_category: PageCategory::SearchResults,
-            interaction_kind: InteractionKind::Discover,
-        },
-    },
-    ExactDomainRule {
-        domain: "duckduckgo.com",
-        rule: TaxonomyRule {
-            id: "duckduckgo-search",
-            domain_category: DomainCategory::Search,
-            page_category: PageCategory::SearchResults,
-            interaction_kind: InteractionKind::Discover,
-        },
-    },
-    ExactDomainRule {
-        domain: "google.com",
-        rule: TaxonomyRule {
-            id: "google-search",
-            domain_category: DomainCategory::Search,
-            page_category: PageCategory::SearchResults,
-            interaction_kind: InteractionKind::Discover,
-        },
-    },
-    ExactDomainRule {
-        domain: "sogou.com",
-        rule: TaxonomyRule {
-            id: "sogou-search",
-            domain_category: DomainCategory::Search,
-            page_category: PageCategory::SearchResults,
-            interaction_kind: InteractionKind::Discover,
-        },
-    },
-    ExactDomainRule {
-        domain: "so.com",
-        rule: TaxonomyRule {
-            id: "so-search",
-            domain_category: DomainCategory::Search,
-            page_category: PageCategory::SearchResults,
-            interaction_kind: InteractionKind::Discover,
-        },
-    },
-    ExactDomainRule {
-        domain: "yahoo.com",
-        rule: TaxonomyRule {
-            id: "yahoo-search",
-            domain_category: DomainCategory::Search,
-            page_category: PageCategory::SearchResults,
-            interaction_kind: InteractionKind::Discover,
-        },
-    },
-    ExactDomainRule {
-        domain: "yandex.ru",
-        rule: TaxonomyRule {
-            id: "yandex-search",
-            domain_category: DomainCategory::Search,
-            page_category: PageCategory::SearchResults,
-            interaction_kind: InteractionKind::Discover,
-        },
-    },
-];
+        domain,
+        rule: TaxonomyRule { id: domain, domain_category, page_category, interaction_kind },
+    }
+}
+
+/// The URL rules' version (`URL_RULES_VERSION`) with the public suffix list's: what a visit's
+/// site and search are. A build records it, and a change makes the next build start over.
+pub(crate) fn url_rules_version() -> &'static str {
+    static VERSION: LazyLock<String> = LazyLock::new(|| {
+        format!("{URL_RULES_VERSION}|psl={}", super::url::public_suffix_list_version())
+    });
+    &VERSION
+}
+
+/// The taxonomy a build sorts visits into categories with: the matcher's version and every
+/// pack's. A build records it, so a changed pack makes the next build sort the archive's pages
+/// again (only the visits whose categories move change), and opening the archive queues that
+/// build.
+pub(crate) fn taxonomy_version() -> &'static str {
+    static VERSION: LazyLock<String> = LazyLock::new(|| {
+        RULE_PACKS.iter().fold(TAXONOMY_VERSION.to_string(), |version, pack| {
+            format!("{version}|{}:{}", pack.id, pack.version)
+        })
+    });
+    &VERSION
+}
 
 const GLOBAL_CORE_HOST_PATH_RULES: &[HostPathRule] = &[
     HostPathRule {
@@ -191,14 +165,15 @@ const GLOBAL_CORE_HOST_PATH_RULES: &[HostPathRule] = &[
         query_value_contains: &[],
         path_segment_count_at_least: 2,
     },
+    // Every other page of these sites.
     HostPathRule {
         rule: TaxonomyRule {
-            id: "developer-docs",
-            domain_category: DomainCategory::Docs,
-            page_category: PageCategory::DocsPage,
-            interaction_kind: InteractionKind::Learn,
+            id: "github-site",
+            domain_category: DomainCategory::Developer,
+            page_category: PageCategory::Unknown,
+            interaction_kind: InteractionKind::Unknown,
         },
-        host_suffixes: &["developer.mozilla.org", "devdocs.io"],
+        host_suffixes: &["github.com", "gitlab.com"],
         path_prefixes: &[],
         path_contains: &[],
         query_keys: &[],
@@ -235,6 +210,20 @@ const GLOBAL_CORE_HOST_PATH_RULES: &[HostPathRule] = &[
     },
     HostPathRule {
         rule: TaxonomyRule {
+            id: "community-site",
+            domain_category: DomainCategory::Community,
+            page_category: PageCategory::Unknown,
+            interaction_kind: InteractionKind::Unknown,
+        },
+        host_suffixes: &["reddit.com", "stackoverflow.com", "news.ycombinator.com"],
+        path_prefixes: &[],
+        path_contains: &[],
+        query_keys: &[],
+        query_value_contains: &[],
+        path_segment_count_at_least: 0,
+    },
+    HostPathRule {
+        rule: TaxonomyRule {
             id: "video-watch",
             domain_category: DomainCategory::Video,
             page_category: PageCategory::VideoPage,
@@ -249,12 +238,12 @@ const GLOBAL_CORE_HOST_PATH_RULES: &[HostPathRule] = &[
     },
     HostPathRule {
         rule: TaxonomyRule {
-            id: "ai-chat",
-            domain_category: DomainCategory::Ai,
-            page_category: PageCategory::Dashboard,
-            interaction_kind: InteractionKind::Manage,
+            id: "video-site",
+            domain_category: DomainCategory::Video,
+            page_category: PageCategory::Unknown,
+            interaction_kind: InteractionKind::Unknown,
         },
-        host_suffixes: &["chat.openai.com", "claude.ai", "gemini.google.com", "chat.deepseek.com"],
+        host_suffixes: &["youtube.com", "youtu.be", "vimeo.com"],
         path_prefixes: &[],
         path_contains: &[],
         query_keys: &[],
@@ -267,7 +256,7 @@ const GLOBAL_CORE_LEXICON_RULES: &[LexiconRule] = &[
     LexiconRule {
         rule: TaxonomyRule {
             id: "docs-lexicon",
-            domain_category: DomainCategory::Docs,
+            domain_category: DomainCategory::Unknown,
             page_category: PageCategory::DocsPage,
             interaction_kind: InteractionKind::Learn,
         },
@@ -287,7 +276,7 @@ const GLOBAL_CORE_LEXICON_RULES: &[LexiconRule] = &[
     LexiconRule {
         rule: TaxonomyRule {
             id: "compare-lexicon",
-            domain_category: DomainCategory::Shopping,
+            domain_category: DomainCategory::Unknown,
             page_category: PageCategory::CategoryPage,
             interaction_kind: InteractionKind::Compare,
         },
@@ -309,7 +298,7 @@ const GLOBAL_CORE_LEXICON_RULES: &[LexiconRule] = &[
     LexiconRule {
         rule: TaxonomyRule {
             id: "forum-lexicon",
-            domain_category: DomainCategory::Community,
+            domain_category: DomainCategory::Unknown,
             page_category: PageCategory::ForumThread,
             interaction_kind: InteractionKind::Discuss,
         },
@@ -318,32 +307,11 @@ const GLOBAL_CORE_LEXICON_RULES: &[LexiconRule] = &[
     LexiconRule {
         rule: TaxonomyRule {
             id: "article-lexicon",
-            domain_category: DomainCategory::News,
+            domain_category: DomainCategory::Unknown,
             page_category: PageCategory::ArticlePage,
             interaction_kind: InteractionKind::Learn,
         },
         tokens: &["article", "blog", "newsletter", "news", "analysis"],
-    },
-];
-
-const CN_CORE_EXACT_RULES: &[ExactDomainRule] = &[
-    ExactDomainRule {
-        domain: "bilibili.com",
-        rule: TaxonomyRule {
-            id: "bilibili-video",
-            domain_category: DomainCategory::Video,
-            page_category: PageCategory::VideoPage,
-            interaction_kind: InteractionKind::Watch,
-        },
-    },
-    ExactDomainRule {
-        domain: "zhihu.com",
-        rule: TaxonomyRule {
-            id: "zhihu-community",
-            domain_category: DomainCategory::Community,
-            page_category: PageCategory::ForumThread,
-            interaction_kind: InteractionKind::Discuss,
-        },
     },
 ];
 
@@ -364,6 +332,20 @@ const CN_CORE_HOST_PATH_RULES: &[HostPathRule] = &[
     },
     HostPathRule {
         rule: TaxonomyRule {
+            id: "cn-shop-site",
+            domain_category: DomainCategory::Shopping,
+            page_category: PageCategory::Unknown,
+            interaction_kind: InteractionKind::Unknown,
+        },
+        host_suffixes: &["taobao.com", "tmall.com", "jd.com"],
+        path_prefixes: &[],
+        path_contains: &[],
+        query_keys: &[],
+        query_value_contains: &[],
+        path_segment_count_at_least: 0,
+    },
+    HostPathRule {
+        rule: TaxonomyRule {
             id: "juejin-article",
             domain_category: DomainCategory::Developer,
             page_category: PageCategory::ArticlePage,
@@ -376,37 +358,45 @@ const CN_CORE_HOST_PATH_RULES: &[HostPathRule] = &[
         query_value_contains: &[],
         path_segment_count_at_least: 0,
     },
+    HostPathRule {
+        rule: TaxonomyRule {
+            id: "cn-developer-site",
+            domain_category: DomainCategory::Developer,
+            page_category: PageCategory::Unknown,
+            interaction_kind: InteractionKind::Unknown,
+        },
+        host_suffixes: &["juejin.cn", "csdn.net"],
+        path_prefixes: &[],
+        path_contains: &[],
+        query_keys: &[],
+        query_value_contains: &[],
+        path_segment_count_at_least: 0,
+    },
 ];
 
 const CN_CORE_LEXICON_RULES: &[LexiconRule] = &[LexiconRule {
     rule: TaxonomyRule {
         id: "cn-docs-lexicon",
-        domain_category: DomainCategory::Docs,
+        domain_category: DomainCategory::Unknown,
         page_category: PageCategory::DocsPage,
         interaction_kind: InteractionKind::Learn,
     },
     tokens: &["文档", "文檔", "教程", "指南", "开发", "開發"],
 }];
 
-const US_CORE_EXACT_RULES: &[ExactDomainRule] = &[
-    ExactDomainRule {
-        domain: "linkedin.com",
-        rule: TaxonomyRule {
-            id: "linkedin-social",
-            domain_category: DomainCategory::Social,
-            page_category: PageCategory::Profile,
-            interaction_kind: InteractionKind::Manage,
-        },
-    },
-    ExactDomainRule {
-        domain: "x.com",
-        rule: TaxonomyRule {
-            id: "x-social",
-            domain_category: DomainCategory::Social,
-            page_category: PageCategory::Profile,
-            interaction_kind: InteractionKind::Discuss,
-        },
-    },
+/// Amazon's shops: product and cart pages are found by the same paths on each.
+const AMAZON: &[&str] = &[
+    "amazon.com",
+    "amazon.ca",
+    "amazon.cn",
+    "amazon.co.jp",
+    "amazon.co.uk",
+    "amazon.com.au",
+    "amazon.de",
+    "amazon.es",
+    "amazon.fr",
+    "amazon.in",
+    "amazon.it",
 ];
 
 const US_CORE_HOST_PATH_RULES: &[HostPathRule] = &[
@@ -417,7 +407,7 @@ const US_CORE_HOST_PATH_RULES: &[HostPathRule] = &[
             page_category: PageCategory::ProductPage,
             interaction_kind: InteractionKind::Compare,
         },
-        host_suffixes: &["amazon.com"],
+        host_suffixes: AMAZON,
         path_prefixes: &["/dp", "/gp/product"],
         path_contains: &["/dp/", "/gp/product/"],
         query_keys: &[],
@@ -431,9 +421,23 @@ const US_CORE_HOST_PATH_RULES: &[HostPathRule] = &[
             page_category: PageCategory::Dashboard,
             interaction_kind: InteractionKind::Transact,
         },
-        host_suffixes: &["amazon.com"],
+        host_suffixes: AMAZON,
         path_prefixes: &["/cart", "/checkout"],
         path_contains: &["/cart", "/checkout"],
+        query_keys: &[],
+        query_value_contains: &[],
+        path_segment_count_at_least: 0,
+    },
+    HostPathRule {
+        rule: TaxonomyRule {
+            id: "amazon-site",
+            domain_category: DomainCategory::Shopping,
+            page_category: PageCategory::Unknown,
+            interaction_kind: InteractionKind::Unknown,
+        },
+        host_suffixes: AMAZON,
+        path_prefixes: &[],
+        path_contains: &[],
         query_keys: &[],
         query_value_contains: &[],
         path_segment_count_at_least: 0,
@@ -452,83 +456,96 @@ const US_CORE_HOST_PATH_RULES: &[HostPathRule] = &[
         query_value_contains: &[],
         path_segment_count_at_least: 0,
     },
+    HostPathRule {
+        rule: TaxonomyRule {
+            id: "us-news-site",
+            domain_category: DomainCategory::News,
+            page_category: PageCategory::Unknown,
+            interaction_kind: InteractionKind::Unknown,
+        },
+        host_suffixes: &["nytimes.com", "wsj.com", "theverge.com", "cnn.com"],
+        path_prefixes: &[],
+        path_contains: &[],
+        query_keys: &[],
+        query_value_contains: &[],
+        path_segment_count_at_least: 0,
+    },
 ];
 
 const US_CORE_LEXICON_RULES: &[LexiconRule] = &[LexiconRule {
     rule: TaxonomyRule {
         id: "us-shopping-lexicon",
-        domain_category: DomainCategory::Shopping,
+        domain_category: DomainCategory::Unknown,
         page_category: PageCategory::CategoryPage,
         interaction_kind: InteractionKind::Compare,
     },
     tokens: &["pricing", "plan", "plans", "checkout", "coupon", "deal"],
 }];
 
-const EMPTY_EXACT_RULES: &[ExactDomainRule] = &[];
 const EMPTY_HOST_PATH_RULES: &[HostPathRule] = &[];
 const EMPTY_LEXICON_RULES: &[LexiconRule] = &[];
 
 pub(super) const RULE_PACKS: &[TaxonomyRulePack] = &[
     TaxonomyRulePack {
         id: "global-core",
-        version: "2026-04-10",
-        exact_domains: GLOBAL_CORE_EXACT_RULES,
+        version: "2026-10-08",
+        exact_domains: sites::GLOBAL_CORE,
         host_path_rules: GLOBAL_CORE_HOST_PATH_RULES,
         lexicon_rules: GLOBAL_CORE_LEXICON_RULES,
     },
     TaxonomyRulePack {
         id: "cn-core",
-        version: "2026-04-10",
-        exact_domains: CN_CORE_EXACT_RULES,
+        version: "2026-10-08",
+        exact_domains: sites::CN_CORE,
         host_path_rules: CN_CORE_HOST_PATH_RULES,
         lexicon_rules: CN_CORE_LEXICON_RULES,
     },
     TaxonomyRulePack {
         id: "us-core",
-        version: "2026-04-10",
-        exact_domains: US_CORE_EXACT_RULES,
+        version: "2026-10-08",
+        exact_domains: sites::US_CORE,
         host_path_rules: US_CORE_HOST_PATH_RULES,
         lexicon_rules: US_CORE_LEXICON_RULES,
     },
     TaxonomyRulePack {
         id: "tw-core",
-        version: "2026-04-10",
-        exact_domains: EMPTY_EXACT_RULES,
+        version: "2026-10-08",
+        exact_domains: sites::TW_CORE,
         host_path_rules: EMPTY_HOST_PATH_RULES,
         lexicon_rules: EMPTY_LEXICON_RULES,
     },
     TaxonomyRulePack {
         id: "jp-core",
-        version: "2026-04-10",
-        exact_domains: EMPTY_EXACT_RULES,
+        version: "2026-10-08",
+        exact_domains: sites::JP_CORE,
         host_path_rules: EMPTY_HOST_PATH_RULES,
         lexicon_rules: EMPTY_LEXICON_RULES,
     },
     TaxonomyRulePack {
         id: "kr-core",
-        version: "2026-04-10",
-        exact_domains: EMPTY_EXACT_RULES,
+        version: "2026-10-08",
+        exact_domains: sites::KR_CORE,
         host_path_rules: EMPTY_HOST_PATH_RULES,
         lexicon_rules: EMPTY_LEXICON_RULES,
     },
     TaxonomyRulePack {
         id: "eu-core",
-        version: "2026-04-10",
-        exact_domains: EMPTY_EXACT_RULES,
+        version: "2026-10-08",
+        exact_domains: sites::EU_CORE,
         host_path_rules: EMPTY_HOST_PATH_RULES,
         lexicon_rules: EMPTY_LEXICON_RULES,
     },
     TaxonomyRulePack {
         id: "ru-core",
-        version: "2026-04-10",
-        exact_domains: EMPTY_EXACT_RULES,
+        version: "2026-10-08",
+        exact_domains: sites::RU_CORE,
         host_path_rules: EMPTY_HOST_PATH_RULES,
         lexicon_rules: EMPTY_LEXICON_RULES,
     },
     TaxonomyRulePack {
         id: "international-common",
-        version: "2026-04-10",
-        exact_domains: EMPTY_EXACT_RULES,
+        version: "2026-10-08",
+        exact_domains: sites::INTERNATIONAL_COMMON,
         host_path_rules: EMPTY_HOST_PATH_RULES,
         lexicon_rules: EMPTY_LEXICON_RULES,
     },

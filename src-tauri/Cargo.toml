@@ -2,19 +2,13 @@
 name = "pathkeep-desktop"
 version = "0.4.0-dev"
 edition = "2024"
+publish = false
 description = "Audit-first desktop archive for browser history"
 license = "GPL-3.0-only"
 
 [features]
 default = []
 devtools-bridge = ["dep:axum", "dep:tower-http"]
-# Apple-Silicon Metal embedding backend (W-AI-9 Sub-block D): opt-in feature, still OFF in the
-# default/CI build. Forwards through vault-worker → vault-core → candle. The default `cargo build`,
-# CI, and `bun run verify` build default features only, so the metal crates are never COMPILED in the
-# default graph (`cargo tree -e features`). Defining the feature does add the optional metal crates
-# to `Cargo.lock` (same as the off-by-default `devtools-bridge`/`axum` already does). A future Metal
-# CI lane that builds `--features metal` must also re-run `cargo deny check` on that expanded graph.
-metal = ["vault-worker/metal", "vault-core/metal"]
 
 [lib]
 name = "pathkeep_desktop"
@@ -22,8 +16,12 @@ path = "src/lib.rs"
 
 [workspace]
 members = [
+  "crates/vault-store",
+  "crates/vault-convert-sqlcipher",
+  "crates/vault-owner-ipc",
   "crates/vault-core",
-  "crates/vault-metal-backend",
+  "crates/vault-crypto",
+  "crates/vault-search",
   "crates/vault-platform",
   "crates/vault-worker",
   "crates/browser-history-parser",
@@ -37,25 +35,17 @@ license = "GPL-3.0-only"
 [workspace.dependencies]
 # Floor 1.0.103 = the fix for RUSTSEC-2026-0190 (unsoundness in `Error::downcast_mut()`).
 anyhow = "1.0.103"
-# candle = the in-app embedding inference engine (D2/§C.1). DEFAULT features only:
-# accelerate/mkl/cuda/metal stay OFF for a reproducible CPU build (§C.1).
-candle-core = "0.10.2"
-candle-nn = "0.10.2"
-candle-transformers = "0.10.2"
 chrono = { version = "0.4.42", features = ["serde"] }
 directories = "6.0.0"
 futures-core = "0.3.32"
-# Stable 0.x hf-hub for consent-gated, SHA-256-verified model download (§C.5); NOT the 1.0.0-rc.
-# Sync `ureq` transport only (ureq v3 bundles rustls) — no native-tls/OpenSSL, no tokio/reqwest pull.
-hf-hub = { version = "0.5.0", default-features = false, features = ["ureq"] }
-# ureq: PROMOTED from a hf-hub transitive dep to a DIRECT dep so the streaming model download
-# (`open_download_stream`) can GET the HF resolve URL with real byte progress. Same version + a SUBSET
-# of the features hf-hub already enables (defaults = rustls + gzip), so feature-unification leaves the
-# dependency graph (and Cargo.lock) unchanged — NO new crate enters the build. ureq v3 bundles rustls.
+# ureq: the blocking HTTP client the in-app model download (`ai/model_files.rs`) streams the
+# Hugging Face resolve URL with, for real byte progress. Defaults (rustls + gzip): no native-tls or
+# OpenSSL, no tokio/reqwest pull.
 ureq = "3.3.0"
 getrandom = "0.3.4"
 hex = "0.4.3"
 icu_normalizer = { version = "2.2.0", default-features = false, features = ["compiled_data"] }
+icu_segmenter = { version = "2.3.0", default-features = false, features = ["compiled_data", "auto"] }
 keyring-core = "0.7.2"
 libc = "0.2.177"
 plist = "1.8.0"
@@ -69,30 +59,25 @@ schemars = "1"
 secrecy = "0.10.3"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.145"
+# Hugging Face's reader for the static embedding model's `model.safetensors` (one f32 matrix).
+safetensors = "0.7.0"
 sha2 = "0.10.9"
 tempfile = "3.23.0"
-# HF tokenizer (Apache-2.0). We request ONLY the pure-Rust `fancy-regex` backend (PathKeep's own
-# code never asks for the C `onig` backend) AND pin the version to 0.22 so it UNIFIES with the
-# `tokenizers` candle-core 0.10.2 pulls transitively — that alignment removed the previous duplicate
-# (0.21 + 0.22) so only ONE copy of tokenizers compiles. NOTE: candle-core 0.10.2 hardcodes
-# `tokenizers { features = ["onig"] }` in its OWN manifest, so Cargo feature-unification still
-# enables `onig` (→ onig_sys, a C/Oniguruma build) on the single shared tokenizers. Fully dropping
-# `onig` would require a `[patch]`/fork of candle-core (off-limits without an ADR); requesting
-# fancy-regex here is the most we can do from PathKeep's manifest, and it keeps OUR contribution
-# pure-Rust + the graph single-version. See the W-AI-4b closeout for the candle-core onig caveat.
+# HF tokenizer (Apache-2.0) for the static embedding model, with ONLY the pure-Rust `fancy-regex`
+# backend: no C `onig` build.
 tokenizers = { version = "0.22", default-features = false, features = ["fancy-regex"] }
 thiserror = "2.0.17"
 tokio = { version = "1.48.0", features = ["macros", "rt-multi-thread", "sync"] }
+url = "2.5.7"
 walkdir = "2.5.0"
 # code-mode sandbox runtime (W-AI-8, D7 / §G Layer 2). Pure-Rust Cranelift JIT + runtime; the
 # `component-model`/`async` features are pulled transitively by `wasmtime-wasi`'s preview1 support
-# (preview1 in wasmtime 45 is implemented atop the preview2/component machinery). NO pooling/gc; the
+# (preview1 in wasmtime 48 is implemented atop the preview2/component machinery). NO pooling/gc; the
 # build needs no C toolchain and the `wat` loader stays for the security-test guests.
-# Floor is 45.0.3, the patched line for RUSTSEC-2026-0188 (WASI hardlink/rename FilePerms bypass);
-# unreachable here anyway since the sandbox grants no fs preopens (see wasmtime-wasi below), but we
-# stay on the fixed release rather than allowlist a fix we can just take. Held at 45.x (not 46) to
-# keep the bump a patch, not a major.
-wasmtime = { version = "45.0.3", default-features = false, features = ["std", "runtime", "cranelift", "wat", "anyhow", "component-model", "async"] }
+# Floor is 48.0.4, fixing the September/October 2026 Wasmtime/WASI advisories, including
+# RUSTSEC-2026-0327 (component callback stack overflow). No 45.x release fixes this set;
+# Wasmtime 48.0.4 requires Rust 1.95 or newer.
+wasmtime = { version = "48.0.4", default-features = false, features = ["std", "runtime", "cranelift", "wat", "anyhow", "component-model", "async"] }
 # code-mode scoped WASI (W-AI-8, D7 / §G Layer 2). The Javy (QuickJS→WASM) guest reaches the host
 # ONLY through WASI fd I/O, so the sandbox grants a MINIMAL preview1 ctx: an in-memory stdin pipe
 # (the request/reply RPC channel), an in-memory stdout capture, and a stderr sink — NO fs preopens,
@@ -100,39 +85,106 @@ wasmtime = { version = "45.0.3", default-features = false, features = ["std", "r
 # "no dangerous ambient authority" contract (no fs/net/real-clock/env) while letting real JS run.
 # `default-features=false` + only `p1` drops the network/sockets stack; the preview1 sync linker is
 # all we wire. No C toolchain.
-wasmtime-wasi = { version = "45.0.3", default-features = false, features = ["p1"] }
+wasmtime-wasi = { version = "48.0.4", default-features = false, features = ["p1"] }
 # Zero-copy byte buffers named by the WASI stream traits (`InputStream`/`OutputStream`) the code-mode
 # channel implements; already in the graph via wasmtime-wasi, restated so vault-core can name it.
 bytes = "1.10.1"
 zip = { version = "2.4.2", default-features = false, features = ["deflate"] }
 
 [dependencies]
+futures-core.workspace = true
 anyhow.workspace = true
 axum = { version = "0.8.6", optional = true }
 chrono.workspace = true
 log = "0.4.28"
 serde.workspace = true
 serde_json.workspace = true
-tauri = { version = "2.8.5", features = [] }
+# macos-private-api: the transparent window behind the optional glass material (window-material.ts).
+tauri = { version = "2.8.5", features = ["macos-private-api", "tray-icon"] }
 tauri-plugin-autostart = "2.5.1"
+tauri-plugin-single-instance = "2.4.3"
 tauri-plugin-dialog = "2.4.3"
 tauri-plugin-log = "2.8.0"
 tauri-plugin-stronghold = "2.3.1"
 tauri-plugin-updater = "2.10.1"
 tokio.workspace = true
 tower-http = { version = "0.6.6", optional = true, features = ["cors"] }
-url = "2.5.7"
+url.workspace = true
 vault-core = { version = "0.1.0", path = "crates/vault-core" }
 vault-platform = { version = "0.1.0", path = "crates/vault-platform" }
+vault-owner-ipc = { path = "crates/vault-owner-ipc" }
+vault-store = { path = "crates/vault-store" }
 vault-worker = { version = "0.1.0", path = "crates/vault-worker" }
 
 [dev-dependencies]
+vault-core = { path = "crates/vault-core", features = ["test-fixtures"] }
+vault-convert-sqlcipher = { path = "crates/vault-convert-sqlcipher", features = ["test-fixtures"] }
+browser-history-fixtures = { path = "crates/browser-history-fixtures" }
 rusqlite.workspace = true
 tauri = { version = "2.8.5", features = ["test"] }
 tempfile.workspace = true
 
 [build-dependencies]
 tauri-build = { version = "2.5.1", features = [] }
+
+# Dev and test builds carry no debug info (user's call, 2026-10-12: nobody reads it). A failed
+# assertion or panic still says its file and line (that comes from the panic location, not debug
+# info), and backtraces and the thread dumps of a hung test still name each function; they lose
+# only the line inside it, and a debugger sees no variables. Full debug info made linking every
+# test binary peak at 20.6 GiB and target/debug 68 GB; line tables, 13.7 GiB and 29 GB
+# (2026-10-11, Modal). Without them, on an Apple Silicon Mac (2026-10-12): src-tauri/target 12 GB
+# instead of 34 GB, the E2E build 3.8 GB instead of 5.9 GB, and `bun run check` from a clean
+# build 26 minutes.
+[profile.dev]
+debug = false
+
+# The RustCrypto primitives are many times slower unoptimized: a debug-build unlock (Argon2id
+# over 256 MiB) took 6.6 s instead of 0.36 s, and the encrypted search index decrypts every
+# block it reads. They are small crates, so optimizing them in dev and test builds costs
+# little build time and keeps `desktop:dev` and `cargo test` usable.
+[profile.dev.package.argon2]
+opt-level = 3
+
+[profile.dev.package.blake2]
+opt-level = 3
+
+[profile.dev.package.aes]
+opt-level = 3
+
+[profile.dev.package.aes-gcm]
+opt-level = 3
+
+[profile.dev.package.ghash]
+opt-level = 3
+
+[profile.dev.package.polyval]
+opt-level = 3
+
+[profile.dev.package.ctr]
+opt-level = 3
+
+# The storage engine runs every archive statement. Unoptimised, a debug build
+# executes the E2E fixture's first backup too slowly to finish, and the test
+# suites spend most of their time inside it.
+[profile.dev.package.turso_core]
+opt-level = 3
+
+[profile.dev.package.turso_parser]
+opt-level = 3
+
+[profile.dev.package.turso_sdk_kit]
+opt-level = 3
+
+[profile.dev.package.turso]
+opt-level = 3
+
+# Code mode compiles its JavaScript engine (a wasm module) with Cranelift on every run; a debug
+# build would otherwise run that compiler unoptimised in every code-mode test and run_code call.
+[profile.dev.package.cranelift-codegen]
+opt-level = 3
+
+[profile.dev.package.regalloc2]
+opt-level = 3
 
 [profile.release]
 codegen-units = 1

@@ -18,7 +18,6 @@ import type {
   KeyringStatusReport,
   RekeyPreview,
   RekeyRequest,
-  SecurityStatus,
 } from '../types'
 import { call } from './shared'
 
@@ -28,13 +27,11 @@ import { call } from './shared'
  * The backend-client layer exists to keep command names, transport, and route code decoupled, so focused declarations here are intentional.
  */
 export const securityClient = {
-  getStatus: () => call<SecurityStatus>('security_status'),
   previewRekey: (request: RekeyRequest) =>
     call<RekeyPreview>('preview_rekey_archive', { request }),
   executeRekey: (request: RekeyRequest) =>
     call<AppSnapshot>('rekey_archive', { request }),
   getKeyringStatus: () => call<KeyringStatusReport>('keyring_status'),
-  getDatabaseKey: () => call<string | null>('keyring_get_database_key'),
   storeDatabaseKey: (value: string) =>
     call<KeyringStatusReport>('keyring_store_database_key', { value }),
   clearDatabaseKey: () =>

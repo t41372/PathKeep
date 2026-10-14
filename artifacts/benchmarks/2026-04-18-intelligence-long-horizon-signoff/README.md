@@ -93,7 +93,6 @@ The artifact still records the canonical `cargo run` replay shape shown above.
 
 - `docs/plan/program/research-and-decisions.md` (`PG-RD-AI-011`)
 - `docs/plan/core-intelligence-progress.md`
-- `docs/plan/core-intelligence-handoff.md`
 - `docs/features/intelligence-current-state.md`
 
 These docs now all align on the same closeout truth: `WORK-CI-C` is finished, current-host `14.4M` evidence exists, legacy `insights` is retired, and alternate-host evidence is intentionally deferred.

@@ -129,7 +129,8 @@ export interface AppConfig {
   selectedProfileIds: string[]
   gitEnabled: boolean
   rememberDatabaseKeyInKeyring: boolean
-  appAutostart: boolean
+  /** Backing field for the menu bar icon; change it with `set_menu_bar_icon`. */
+  menuBarIcon: boolean
   explorerBackgroundPrefetchPages: number
   appLock: AppLockConfig
   enrichment: EnrichmentSettings
@@ -141,6 +142,15 @@ export interface AppConfig {
    * shape always carries an `ogImage` value, even from older configs.
    */
   ogImage?: OgImageSettingsConfig
+  /**
+   * The IANA zone chosen for Insights in Settings. Unset, Insights keep the
+   * zone they were built in (`docs/architecture/insights-time-zone.md`).
+   */
+  insightsTimeZone?: string | null
+  /** The computer's zone when the user chose to keep Insights' own; no notice while the computer stays in it. */
+  insightsZoneKeptFor?: string | null
+  /** The user keeps the archive password safe themselves; Home stops warning about it. */
+  passwordKeptElsewhere?: boolean
 }
 
 /**
@@ -246,7 +256,7 @@ export interface AppDirectories {
   appRoot: string
   configPath: string
   archiveDatabasePath: string
-  searchDatabasePath: string
+  searchIndexDir: string
   intelligenceDatabasePath: string
   auditRepoPath: string
   manifestsDir: string

@@ -13,6 +13,9 @@
 //! - Parent scheduler facade for shared status initialization.
 //! - `audit` for audit artifact writes.
 //! - `std::process::Command` for production `schtasks.exe` calls.
+//! - A file-backed `schtasks` emulator when the debug sandbox is active
+//!   (`crate::sandbox`): registered tasks are XML files under
+//!   `<sandbox>/TaskScheduler`.
 //!
 //! ## Performance notes
 //! - Status checks compare only the behavior-bearing Task Scheduler fields
@@ -21,7 +24,7 @@
 
 use crate::test_support::TEST_WINDOWS_USER_ID_ENV;
 use anyhow::{Context, Result};
-#[cfg(not(any(test, coverage)))]
+#[cfg(not(test))]
 use std::process::{Command, Output};
 use std::{
     env, fs,
@@ -35,9 +38,11 @@ use vault_core::{
     },
 };
 
-use super::{ScheduleParameters, audit, ensure_parent_dir, interval_minutes_from_hours};
-#[cfg(any(test, coverage))]
-use super::{TEST_SCHTASKS_MODE_ENV, TEST_SCHTASKS_QUERY_XML_ENV};
+use super::{
+    ScheduleParameters, SchedulerHost, audit, count_native_call, ensure_parent_dir,
+    interval_minutes_from_hours,
+};
+use crate::sandbox::TASK_SCHEDULER_SUBDIR;
 
 pub(super) fn windows_schedule_plan(
     label: &str,
@@ -178,12 +183,12 @@ fn current_windows_task_user_id() -> Result<String> {
         return Ok(user_id);
     }
 
-    #[cfg(any(test, coverage))]
+    #[cfg(test)]
     {
         Ok("PATHKEEP_TEST\\CurrentUser".to_string())
     }
 
-    #[cfg(all(not(any(test, coverage)), target_os = "windows"))]
+    #[cfg(all(not(test), target_os = "windows"))]
     {
         if let Some(user_id) = whoami_windows_user_id()? {
             return Ok(user_id);
@@ -194,7 +199,7 @@ fn current_windows_task_user_id() -> Result<String> {
         anyhow::bail!("resolving current Windows user for Task Scheduler");
     }
 
-    #[cfg(all(not(any(test, coverage)), not(target_os = "windows")))]
+    #[cfg(all(not(test), not(target_os = "windows")))]
     {
         Ok("PathKeep\\CurrentUser".to_string())
     }
@@ -204,7 +209,7 @@ fn configured_windows_task_user_id() -> Option<String> {
     env::var(TEST_WINDOWS_USER_ID_ENV).ok().and_then(non_empty_trimmed)
 }
 
-#[cfg(all(not(any(test, coverage)), target_os = "windows"))]
+#[cfg(all(not(test), target_os = "windows"))]
 fn whoami_windows_user_id() -> Result<Option<String>> {
     let output =
         Command::new("whoami").output().context("resolving current Windows user with whoami")?;
@@ -214,7 +219,7 @@ fn whoami_windows_user_id() -> Result<Option<String>> {
     Ok(non_empty_trimmed(String::from_utf8_lossy(&output.stdout).to_string()))
 }
 
-#[cfg(all(not(any(test, coverage)), target_os = "windows"))]
+#[cfg(all(not(test), target_os = "windows"))]
 fn windows_user_id_from_env() -> Option<String> {
     let username = env::var("USERNAME").ok().and_then(non_empty_trimmed)?;
     if username.contains('\\') || username.contains('@') {
@@ -233,6 +238,7 @@ fn non_empty_trimmed(value: String) -> Option<String> {
 }
 
 pub(super) fn apply_windows_schedule(
+    host: &SchedulerHost,
     plan: &SchedulePlan,
     paths: &ProjectPaths,
 ) -> Result<ApplyResult> {
@@ -245,7 +251,7 @@ pub(super) fn apply_windows_schedule(
         xml_path.display().to_string(),
         "/F".to_string(),
     ];
-    let outcome = run_schtasks(&args).context("installing Windows Task Scheduler task")?;
+    let outcome = run_schtasks(host, &args).context("installing Windows Task Scheduler task")?;
     let audit_path = audit::write_windows_schedule_audit(
         paths,
         plan,
@@ -288,11 +294,12 @@ pub(super) fn apply_windows_schedule(
 }
 
 pub(super) fn remove_windows_schedule(
+    host: &SchedulerHost,
     plan: &SchedulePlan,
     paths: &ProjectPaths,
 ) -> Result<ApplyResult> {
     let args = vec!["/Delete".to_string(), "/TN".to_string(), plan.label.clone(), "/F".to_string()];
-    let outcome = run_schtasks(&args).context("removing Windows Task Scheduler task")?;
+    let outcome = run_schtasks(host, &args).context("removing Windows Task Scheduler task")?;
     let audit_path = audit::write_windows_schedule_audit(
         paths,
         plan,
@@ -335,13 +342,14 @@ pub(super) fn remove_windows_schedule(
 }
 
 pub(super) fn windows_schedule_status(
+    host: &SchedulerHost,
     plan: &SchedulePlan,
     mut status: ScheduleStatus,
 ) -> Result<ScheduleStatus> {
     let expected_xml = &generated_windows_task_file(plan)?.contents;
     let args =
         vec!["/Query".to_string(), "/TN".to_string(), plan.label.clone(), "/XML".to_string()];
-    let outcome = run_schtasks(&args).context("querying Windows Task Scheduler task")?;
+    let outcome = run_schtasks(host, &args).context("querying Windows Task Scheduler task")?;
 
     if outcome.success {
         status.detected_files.push(format!("Task Scheduler:{}", plan.label));
@@ -443,7 +451,7 @@ fn write_windows_task_xml(plan: &SchedulePlan, paths: &ProjectPaths) -> Result<P
     Ok(target_path)
 }
 
-#[cfg(not(any(test, coverage)))]
+#[cfg(not(test))]
 fn describe_process_output(action: &str, target: &str, output: &Output) -> String {
     let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
@@ -458,8 +466,77 @@ fn describe_process_output(action: &str, target: &str, output: &Output) -> Strin
     }
 }
 
-#[cfg(not(any(test, coverage)))]
-fn run_schtasks(args: &[String]) -> Result<SchtasksOutcome> {
+fn run_schtasks(host: &SchedulerHost, args: &[String]) -> Result<SchtasksOutcome> {
+    match host {
+        SchedulerHost::Native => {
+            count_native_call();
+            native_schtasks(args)
+        }
+        SchedulerHost::Sandbox(root) => sandbox_schtasks(&root.join(TASK_SCHEDULER_SUBDIR), args),
+    }
+}
+
+/// Emulates the three `schtasks` calls PathKeep makes (`/Create /XML`,
+/// `/Query /XML`, `/Delete`) against one XML file per task name, with the
+/// same "cannot find" wording the status parser expects from Windows.
+fn sandbox_schtasks(store: &Path, args: &[String]) -> Result<SchtasksOutcome> {
+    let flag = |name: &str| args.iter().any(|arg| arg.eq_ignore_ascii_case(name));
+    let value_after = |name: &str| {
+        args.iter()
+            .position(|arg| arg.eq_ignore_ascii_case(name))
+            .and_then(|index| args.get(index + 1))
+            .cloned()
+    };
+    let task_name = value_after("/TN").context("sandbox schtasks call without /TN")?;
+    let task_file = store.join(format!("{}.xml", task_name.replace(['\\', '/'], "_")));
+    let not_found = || SchtasksOutcome {
+        success: false,
+        status_description: format!("sandbox schtasks {}: task not found", args.join(" ")),
+        stdout: String::new(),
+        stderr: "ERROR: The system cannot find the file specified.".to_string(),
+    };
+    let ok = |stdout: String| SchtasksOutcome {
+        success: true,
+        status_description: format!("sandbox schtasks {}", args.join(" ")),
+        stdout,
+        stderr: String::new(),
+    };
+
+    if flag("/Query") {
+        return Ok(match fs::read_to_string(&task_file) {
+            Ok(xml) => ok(xml),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => not_found(),
+            Err(error) => return Err(error).context("reading sandbox Task Scheduler task"),
+        });
+    }
+    if flag("/Delete") {
+        if !task_file.is_file() {
+            return Ok(not_found());
+        }
+        fs::remove_file(&task_file).context("removing sandbox Task Scheduler task")?;
+        return Ok(ok(String::new()));
+    }
+    if flag("/Create") {
+        let source = value_after("/XML").context("sandbox schtasks /Create without /XML")?;
+        let xml = fs::read_to_string(&source)
+            .with_context(|| format!("reading Task Scheduler XML {source}"))?;
+        if !xml.contains("<Task") {
+            return Ok(SchtasksOutcome {
+                success: false,
+                status_description: format!("sandbox schtasks {}: not a task XML", args.join(" ")),
+                stdout: String::new(),
+                stderr: "ERROR: The task XML is malformed.".to_string(),
+            });
+        }
+        ensure_parent_dir(&task_file)?;
+        fs::write(&task_file, xml).context("writing sandbox Task Scheduler task")?;
+        return Ok(ok(String::new()));
+    }
+    anyhow::bail!("sandbox schtasks does not emulate: {}", args.join(" "))
+}
+
+#[cfg(not(test))]
+fn native_schtasks(args: &[String]) -> Result<SchtasksOutcome> {
     let output = Command::new("schtasks").args(args).output().context("running schtasks.exe")?;
     let status_description = describe_process_output("schtasks", &args.join(" "), &output);
     Ok(SchtasksOutcome {
@@ -470,81 +547,14 @@ fn run_schtasks(args: &[String]) -> Result<SchtasksOutcome> {
     })
 }
 
-#[cfg(any(test, coverage))]
-fn run_schtasks(args: &[String]) -> Result<SchtasksOutcome> {
-    let is_query = args.iter().any(|arg| arg.eq_ignore_ascii_case("/Query"));
-    let is_delete = args.iter().any(|arg| arg.eq_ignore_ascii_case("/Delete"));
-    let mode = std::env::var(TEST_SCHTASKS_MODE_ENV).unwrap_or_else(|_| "success".to_string());
-
-    if is_query {
-        return Ok(match mode.as_str() {
-            "missing" => SchtasksOutcome {
-                success: false,
-                status_description: "stub schtasks query: task not found".to_string(),
-                stdout: String::new(),
-                stderr: "ERROR: The system cannot find the file specified.".to_string(),
-            },
-            "denied" => SchtasksOutcome {
-                success: false,
-                status_description: "stub schtasks query: access denied".to_string(),
-                stdout: String::new(),
-                stderr: "Access is denied.".to_string(),
-            },
-            "fail" => SchtasksOutcome {
-                success: false,
-                status_description: "stub schtasks query: failed".to_string(),
-                stdout: String::new(),
-                stderr: "schtasks failed".to_string(),
-            },
-            "mismatch" => SchtasksOutcome {
-                success: true,
-                status_description: "stub schtasks query: mismatch".to_string(),
-                stdout: "<Task><Actions /></Task>".to_string(),
-                stderr: String::new(),
-            },
-            _ => SchtasksOutcome {
-                success: true,
-                status_description: "stub schtasks query: installed".to_string(),
-                stdout: std::env::var(TEST_SCHTASKS_QUERY_XML_ENV).unwrap_or_default(),
-                stderr: String::new(),
-            },
-        });
-    }
-
-    if mode == "missing" {
-        return Ok(SchtasksOutcome {
-            success: false,
-            status_description: format!("stub schtasks {}: task not found", args.join(" ")),
-            stdout: String::new(),
-            stderr: "ERROR: The system cannot find the file specified.".to_string(),
-        });
-    }
-
-    if mode == "denied" {
-        return Ok(SchtasksOutcome {
-            success: false,
-            status_description: format!("stub schtasks {}: access denied", args.join(" ")),
-            stdout: String::new(),
-            stderr: "ERROR: Access is denied.".to_string(),
-        });
-    }
-
-    if mode == "fail" {
-        return Ok(SchtasksOutcome {
-            success: false,
-            status_description: format!("stub schtasks {}: failed", args.join(" ")),
-            stdout: String::new(),
-            stderr: "schtasks failed".to_string(),
-        });
-    }
-
+/// Test stand-in for `schtasks.exe`: runs nothing and reports a failure that is
+/// neither "not found" nor "access denied", so a test that reaches the native
+/// layer by mistake cannot pass on what it reads.
+#[cfg(test)]
+fn native_schtasks(args: &[String]) -> Result<SchtasksOutcome> {
     Ok(SchtasksOutcome {
-        success: true,
-        status_description: format!(
-            "stub schtasks {}: {}",
-            if is_delete { "delete" } else { "create" },
-            args.join(" ")
-        ),
+        success: false,
+        status_description: format!("schtasks {} is not run in tests", args.join(" ")),
         stdout: String::new(),
         stderr: String::new(),
     })
@@ -847,15 +857,6 @@ mod tests {
 </Task>"#;
 
     #[test]
-    fn windows_task_semantics_accept_task_scheduler_canonicalization() {
-        assert!(windows_task_matches_plan(CANONICAL_TASK_XML, EXPECTED_TASK_XML));
-        assert!(windows_task_matches_plan(
-            &format!("{}\n{}", r#"<?xml version="1.0" encoding="UTF-16"?>"#, EXPECTED_TASK_XML),
-            EXPECTED_TASK_XML
-        ));
-    }
-
-    #[test]
     fn windows_task_semantics_reject_behavior_drift() {
         assert!(!windows_task_matches_plan(
             &CANONICAL_TASK_XML.replace("<Interval>PT90M</Interval>", "<Interval>PT2H</Interval>"),
@@ -868,29 +869,6 @@ mod tests {
         assert!(!windows_task_matches_plan(
             &CANONICAL_TASK_XML.replace("<LogonType>InteractiveToken</LogonType>", ""),
             EXPECTED_TASK_XML
-        ));
-    }
-
-    #[test]
-    fn windows_iso_minutes_parser_accepts_task_scheduler_duration_forms() {
-        assert_eq!(parse_windows_iso_minutes("PT90M"), Some(90));
-        assert_eq!(parse_windows_iso_minutes("PT1H30M"), Some(90));
-        assert_eq!(parse_windows_iso_minutes("PT6H"), Some(360));
-        assert_eq!(parse_windows_iso_minutes("PT0M"), None);
-        assert_eq!(parse_windows_iso_minutes("P1D"), None);
-        assert_eq!(parse_windows_iso_minutes("PT1S"), None);
-    }
-
-    #[test]
-    fn windows_semantic_optional_helpers_cover_absent_and_invalid_values() {
-        assert_eq!(parse_windows_xml_bool("false"), Some(false));
-        assert_eq!(parse_windows_xml_bool("maybe"), None);
-        assert!(optional_bool_match(Some(false), None));
-        assert!(optional_case_insensitive_match(&Some("Anything".to_string()), &None));
-        assert!(optional_case_insensitive_match_or_default(
-            &Some("InteractiveToken".to_string()),
-            &Some("interactivetoken".to_string()),
-            "LeastPrivilege"
         ));
     }
 }

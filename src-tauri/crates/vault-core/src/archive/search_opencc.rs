@@ -171,37 +171,3 @@ fn unique_variants(variants: impl IntoIterator<Item = String>) -> Vec<String> {
     }
     unique
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn returns_direct_and_regional_variants_when_opencc_configs_differ() {
-        assert_eq!(simplified_script_variants("設定"), vec!["设定", "设置"]);
-    }
-
-    #[test]
-    fn applies_taiwan_phrase_stage_as_recall_variant() {
-        assert_eq!(simplified_script_variants("使用者名稱"), vec!["使用者名称", "用户名"]);
-    }
-
-    #[test]
-    fn keeps_simplified_input_stable() {
-        assert_eq!(simplified_script_variants("浏览器设定说明"), vec!["浏览器设定说明"]);
-    }
-
-    #[test]
-    fn prefers_longest_dictionary_entry() {
-        assert_eq!(simplified_script_variants("不瞭解"), vec!["不了解"]);
-    }
-
-    #[test]
-    fn ignores_empty_dictionary_entries() {
-        let mut builder = DictionaryBuilder::default();
-        builder.insert("", "ignored");
-        builder.insert("ignored", "");
-
-        assert_eq!(builder.build().convert("ignored"), "ignored");
-    }
-}

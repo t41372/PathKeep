@@ -29,12 +29,17 @@ import { call } from './shared'
 export const importClient = {
   inspectTakeout: (request: TakeoutRequest) =>
     call<TakeoutInspection>('inspect_takeout', { request }),
-  importTakeout: (request: TakeoutRequest) =>
-    call<TakeoutInspection>('import_takeout', { request }),
+  /** `importId` names the run for `stopImport`. */
+  importTakeout: (request: TakeoutRequest, importId?: string) =>
+    call<TakeoutInspection>('import_takeout', { request, importId }),
+  /** True if an import was running under the id; it stops after the batch it is writing. */
+  stopImport: (importId: string) => call<boolean>('stop_import', { importId }),
   inspectBrowserHistory: (request: BrowserHistoryImportRequest) =>
     call<TakeoutInspection>('inspect_browser_history', { request }),
-  importBrowserHistory: (request: BrowserHistoryImportRequest) =>
-    call<TakeoutInspection>('import_browser_history', { request }),
+  importBrowserHistory: (
+    request: BrowserHistoryImportRequest,
+    importId?: string,
+  ) => call<TakeoutInspection>('import_browser_history', { request, importId }),
   previewBatch: (batchId: number) =>
     call<ImportBatchDetail>('preview_import_batch', { batchId }),
   revertBatch: (batchId: number) =>

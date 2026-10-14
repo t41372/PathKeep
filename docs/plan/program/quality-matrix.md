@@ -1,128 +1,92 @@
 # Program — Quality Matrix
 
-> 2026-04-07（`WORK-QC-A`）起，這份文檔是 PathKeep 在進入 M4 前的 quality gate source of truth。  
-> 原則很簡單：**文檔怎麼寫，repo 就怎麼擋**。凡是會被宣稱成 blocking、release 或 deep check 的驗收，都必須能在 scripts 與 workflow 裡兌現。
+> 這份文檔是 PathKeep quality gate 的權威定義。原則：**文檔怎麼寫，repo 就怎麼擋**。
+>
+> 2026-10 起的測試政策：不跑 mutation test，不強制 100% 覆蓋率，測試以 E2E 為主。原則見 [AGENTS.md](../../../AGENTS.md)「測試是契約」。更早的 closeout 記錄（`CHANGELOG.md`、`STATUS.md`、各 milestone 文檔）提到的 coverage / mutation gate 都是歷史，已不存在。
 
 ---
 
 ## Mainline Blocking Path
 
-| Gate           | Command / Workflow                       | 保護範圍                                                                                                                                                                                                              | 備註                                                                                               |
-| -------------- | ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| Strict checker | `bun run check` / GitHub `CI` workflow   | base checks、100% JS/Rust coverage、browser build、browser-preview e2e、desktop-bridge truth gate、desktop-contract JS mutation、Codecov upload                                                                       | 這是 signed-off per-commit checker；`main` push / PR / manual CI 與本地使用同一條 effective gate。 |
-| Base triage    | `bun run check:base`                     | Prettier、ESLint、i18n parity/raw-English guard、TypeScript、Vitest、desktop contract slice、Rust fmt / clippy / workspace tests、supply-chain audit、host-matched platform-native checks、release-config drift guard | 只作 fast triage helper；不能替代 `bun run check`。                                                |
-| JS coverage    | `bun run coverage:js`                    | active `src/**/*.{ts,tsx}` runtime source                                                                                                                                                                             | 100% statement / branch / function / line coverage。                                               |
-| Rust coverage  | `bun run coverage:rust`                  | full `src-tauri/**/src/*.rs` workspace source surface                                                                                                                                                                 | 100% line + function coverage；舊 quality slice 只保留作 triage helper。                           |
-| Browser build  | `bun run build`                          | TypeScript compile + Vite bundle                                                                                                                                                                                      | 已由 `bun run check` 觸發；可單獨跑作 build triage。                                               |
-| Browser smoke  | `bun run test:e2e`                       | browser preview 的 shell / onboarding / dashboard / trust / intelligence smoke                                                                                                                                        | 已由 `bun run check` 觸發；這是 preview surface smoke，不等於完整 desktop / Tauri signoff。        |
-| Desktop bridge | `bun run test:e2e:desktop-bridge:truth`  | Chrome + Playwright 透過 feature-gated bridge 驗證真實 Rust desktop command façade                                                                                                                                    | 已由 `bun run check` 觸發；仍不是完整 Tauri WebView/plugin signoff。                               |
-| JS mutation    | `bun run mutation:js` / `check:mutation` | `src/main.tsx`、`src/lib/ipc/bridge.ts` desktop-contract slice                                                                                                                                                        | Stryker high / low / break thresholds 都是 100；這是 per-commit mutation gate。                    |
+`bun run check` 是唯一的 per-commit gate，本地與 GitHub `CI` workflow 跑同一條。依序執行：
 
-### `bun run check` 內含的 targeted sub-gate
+| 步驟           | Command                 | 保護什麼                                                                                                                                                            |
+| -------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Format         | `bun run format:check`  | Prettier                                                                                                                                                            |
+| Lint           | `bun run lint`          | ESLint（`--max-warnings 0`）                                                                                                                                        |
+| i18n           | `bun run check:i18n`    | `en` / `zh-CN` / `zh-TW` key 對齊、不得有未翻譯的英文                                                                                                               |
+| Typecheck      | `bun run typecheck`     | `tsc -b`                                                                                                                                                            |
+| Unit           | `bun run test:unit`     | Vitest：少數必須單獨測的（例如網址參數的競爭，`search-params.test.tsx`），寫的理由在檔頭                                                                            |
+| Build          | `bun run build`         | TypeScript + Vite bundle                                                                                                                                            |
+| Rust           | `bun run check:rust`    | `cargo fmt --check`、`cargo clippy -D warnings`、`cargo test --workspace`，再加帶 `devtools-bridge` feature 的 bridge dispatcher 測試（`test:desktop-bridge:rust`） |
+| Release config | `bun run release:check` | updater URL、Windows bundle、WebView2、support link 不得漂移                                                                                                        |
+| E2E            | `bun run test:e2e`      | 真實 Rust 後端 + Vite 前端 + Playwright，見下                                                                                                                       |
 
-`bun run check:base` 目前固定包含 `bun run check:desktop-contract` 與 `bun run check:platform`，保護：
+`bun run check:base` 是不含 build 與 E2E 的快速 triage（`check:js` + `check:rust`），不能代替 `check`。
 
-- `src/main.tsx`
-- `src/lib/ipc/bridge.ts`
-- host-matched platform-native keyring / scheduler / launcher / discovery / biometric smoke
-- desktop updater / launcher command surface 與 debug desktop build smoke
-- release workflow / Tauri bundle / support-link drift，包含 unsigned Windows installer、WebView2 download bootstrapper、PathKeep updater URL、GitHub Actions runtime major 與不得重新加入 Windows signing gate
+時區（2026-10-11）：gate 在每台電腦上都一樣，不看電腦在哪個時區。Rust 測試固定在 `Pacific/Kiritimati`（UTC+14、沒有夏令時間）跑：日界跟 UTC 差最多，假設電腦在 UTC 的測試會在這裡露出來；E2E 的 app 與瀏覽器固定在 UTC（`scripts/run-playwright.mjs`），spec 照 UTC 數日子。測試要嘛釘住自己用的時區（例如設 `insights_time_zone`），要嘛照電腦時區算期望值，不能假設電腦在哪裡。之前 CI 與 Modal 都剛好是 UTC，有 4 個測試在別的時區會錯（`WORK-TESTS-ANY-TIME-ZONE`）。
 
-這些 sub-gate 的責任是保護 desktop entry、typed IPC contract 與 platform-specific host truth；它們不是替 shell / route / sidebar / trust-critical flows 做全站背書。GitHub `CI` workflow 現在會在 `main` push、PR 與 manual dispatch 時安裝 Linux desktop/native dependencies 後直接跑 `bun run check`，再把 `coverage/js/lcov.info` 與用同一 Rust verifier 口徑產出的 `coverage/rust-codecov.lcov.info` 上傳到 Codecov；所以 hosted runner 也要承擔同一條 per-commit checker；manual `Platform Native` workflow 只保留作 host-sensitive parity / triage。
+## E2E
 
----
+E2E 是證明功能的主要手段。環境是獨立的，但其餘都是真的：
 
-## Current Quality Surfaces
+- `playwright.config.ts` 透過 `scripts/pathkeep-dev-desktop-bridge.mjs` 啟動帶 `devtools-bridge` feature 的 debug Rust 後端與 Vite 前端，Playwright 驅動真正的畫面。E2E 時（`PATHKEEP_E2E_RESTART_FILE`）腳本不經 `tauri dev`：自己跑 worker sidecar、Vite 與一次 app 的建置，再自己顧著 app，讓 spec 能像當機一樣殺掉 app、由腳本在同樣的連接埠與資料上重開（`tests/e2e/support/app.ts`）；沒有 spec 要求的結束照舊結束整個 run。
+- 網路：E2E 後端擋掉自己發起的抓取（`PATHKEEP_TEST_BLOCK_NETWORK`），只有連結預覽可以連到 spec 自己在 `https://127.0.0.1` 開的網站（`PATHKEEP_TEST_PREVIEW_SERVER_CA`，憑證在 `tests/e2e/support/tls/`）；使用者設定的 AI 服務（spec 自己開的假服務）照常連。系統的儲存對話框 Playwright 答不了，`PATHKEEP_TEST_SAVE_DIR` 讓 app 不跳對話框、照建議檔名存在那個資料夾。這些開關都只在 debug 建置有效。
+- 測資是臨時目錄裡的合成瀏覽器 profile（兩個 Chrome、一個 Firefox，真實 SQLite，seed 固定，`scripts/fixtures/synthetic-browsers.mjs`；要逐格對數字的 spec 用 `FIXTURE_SCENES`：每個情境指定日子與設定檔，排在當天 09:00 開始的隨機造訪之前），archive、keyring、project root 都在該目錄內；cargo target 放在 `var/playwright/desktop-bridge/cargo-target` 以便重用編譯快取。
+- 預期數字一律由測資算出（`tests/e2e/support/fixture.ts`），不在 spec 裡手寫。
+- spec 依序跑在同一個 archive 上：`first-run` → `read` → `zone` → `change` → `restart` → `stop` → `move` → `wipe` → `upgrade`（見 config 的 `projects`；同一個 project 照檔名順序跑）。
+- 不替後端寫假實作。需要 seam 的地方只 seam 在最外層 transport，真正的 compute、decode、I/O 留在被測的 build 裡。
+- 新功能至少一條從真實入口出發的 medium-to-hard 場景：使用者做 X，觀察到 Y；要有「負 → 正」斷言（改動前找不到，改動後找得到）。
 
-> 2026-04-27 gate-cost note：`bun run check` 本身就是 per-commit gate。`check:full` 只是 `check` alias；`verify` 在 strict checker 之後額外跑 debug desktop build。全量 JS/Rust mutation 因實測成本與 current cargo-mutants sandbox fragility，不再是 per-commit hard gate，改由 `check:deep` / scheduled `Mutation` workflow 承接。
+### Artifact
 
-### JS coverage / mutation quality surface
+每次跑完（不論通過與否）都留下可驗證、可重複的產物，位置固定為 `artifacts/e2e/`：
 
-`bun run coverage:js` 目前對齊 active frontend runtime surface：
+- `fixture.json`：這次用的測資（seed、`now`、每個 profile 的每條訪問）；`PATHKEEP_E2E_NOW=<now> bun run test:e2e` 用同一份資料重跑
+- `report/index.html`：HTML report，每個檢查都附上比對的 `{ expected, actual }`
+- `results.json`：每個 test 的結果
+- `test-results/`：trace、screenshot、失敗時的 video
+- `thread-stacks/`：測試失敗或逾時的當下，app 與 worker 每條執行緒的堆疊（Linux `gdb`、macOS `sample`；Windows 沒有）。一個命令卡住、別的命令照常回應時，從這裡看它在等什麼
 
-- include：`src/**/*.{ts,tsx}`
-- allowed excludes：tests、fixtures、assets、generated declarations、type-only contract files、以及已證明不是 runtime surface 的 reference-only files。
-- required thresholds：coverage lines / functions / branches / statements = 100。
+`scripts/run-playwright.mjs` 結束時會印出這個路徑。該資料夾不進 git（見 `artifacts/e2e/README.md`）；CI 以 `if: always()` 上傳成 `e2e-artifacts`。重現同一條 run：`PATHKEEP_E2E_NOW=<fixture.json 的 now> bun run test:e2e`。
 
-這代表前端 shell / route / sidebar / primitives / page-scoped providers 都回到 checker 裡；不能再用 desktop-contract slice 或舊 living M0-M3 helper list 代替全站 runtime coverage surface。
+## 什麼時候才寫 unit test
 
-`bun run mutation:js` 是 per-commit desktop-contract mutation gate，範圍固定為 `src/main.tsx` 與 `src/lib/ipc/bridge.ts`。`bun run mutation:js:full` 仍保留 active frontend runtime surface 的 full Stryker sweep，供 `check:deep`、scheduled workflow 或高風險 release 候選使用；surviving mutant 仍必須用補測、修產品碼、或 narrow equivalent/inapplicable annotation 處理。
+功能由 E2E 證明（AGENTS.md「測試是契約」）。unit test 只在這幾種情況寫，而且寫在程式碼之前：先在測試檔頭列出這段邏輯會怎麼壞（failure modes），每個情況一個有名字的測試，再寫程式碼。
 
-### Rust coverage quality surface
+- 規格清楚的純邏輯，E2E 要逐一跑太貴：例如 query family 的歸組規則（spec 的每個例子一個測試，另拿「逐一比較」的參考實作對照）、「附加等於從頭建」。
+- 資料完整性與當機復原：寫到一半被殺掉、重開後資料要對（`vault-crypto` 的 crash / tamper 測試，種子固定、可用環境變數換）。
+- 安全邊界：SSRF 每一跳、`file://` 不能被打開、鎖定時不讀 Keychain。
+- 修過的 bug，而 E2E 重現不了（時間、競爭、14.4M 才出現的查詢計畫：`intelligence_read_plans`、`append_plans`）。
 
-`bun run coverage:rust` 現在以 `full` scope 驗證 `src-tauri/**/src/*.rs` 的 100% line + function coverage。舊的 desktop command / bridge contract slice 保留為 `bun run coverage:rust:quality`，只用於縮小 regression 追查範圍，不再是 `coverage:rust` 的預設語義：
+不寫的（2026-10 審查的 B / C，見 `docs/plan/test-audit-2026-10/`）：
 
-- `src-tauri/src/file_manager.rs`
-- `src-tauri/src/lib.rs`
-- `src-tauri/src/main.rs`
-- `src-tauri/src/session.rs`
-- `src-tauri/src/worker_bridge/`
+- 鎖住沒人看得到的細節：內部字串、私有 helper 的輸出、計數、內部順序；
+- 重述程式碼、探測常數，或為了 coverage / mutation 分數的近似重複；
+- 照抄程式碼現在的行為（寫在程式碼之後的測試就是這樣）。E2E 的手算也一樣：用 fixture 想表達的結果去驗，例如 `home.spec` 驗「每個搜尋與它的改寫是一組」，不只照抄後端規則。
 
-如果 full coverage gate 失敗，不能用 quality slice 代替 release signoff；必須把 uncovered path 補測、降出正式 surface，或在 source docs 中明確記錄不能達標的原因與後續 work block。
+測試照它要保證的事命名（`a_search_goes_to_the_first_search_it_is_most_like`），不照實作命名。
 
-### Rust mutation quality surface
+2026-10-12 再清一輪（`WORK-TEST-CUT-2026-10`，用戶：AI 寫的 unit test 多半只是 pin 住錯誤的行為、開銷大、還會變成錯誤行為的理由）：留下的要同時是 (1) 壞了會傷資料、安全或默默給錯結果，(2) E2E 合理地碰不到（崩潰注入、競爭、惡意輸入、14.4M 規模、平台怪癖），(3) 說的是 spec、ADR 或真實事故的行為。另外留安全與同意的關卡、14.4M 的查詢計畫與效能守衛、已定案文檔要求的分類規則 fixture。Rust 測試從 2,474 個減到 597 個（含效能守衛、崩潰測試的子程序入口與 `#[ignore]` 的量測）；E2E 碰得到的，刪的同時補成 E2E。
 
-`bun run mutation:rust` 現在指向 `bun run mutation:rust:full`，也就是 whole-workspace cargo-mutants sweep，但它是 manual / deep gate，不再是 per-commit `bun run check` 的一部分。舊的 focused parser + AI helper contract 保留為 `bun run mutation:rust:quality`，只用於縮小失敗 triage 範圍：
+## Slow / Optional
 
-- `browser-history-parser` crate
-- `src-tauri/crates/vault-core/src/ai.rs` 的 status/helper slice：
-  - `ai_index_status`
-  - `ai_queue_status`
-  - `reconcile_ai_queue_controls`
-  - `provider_capabilities`
-  - `provider_connection_failure_report`
-  - `test_provider_connection`
+不在 `bun run check` 內，但要在 CI 或 release 前跑：
 
-whole-workspace mutation 是 deep/release investigation gate；若成本或 surviving mutants 無法在當前 closeout 修乾淨，必須把 surviving mutant 清單與原因寫成明確缺陷，而不是把 focused contract 說成全後端驗收。2026-04-27 實測顯示 full Rust mutation 有 5869 個 candidate mutants，且 current copy-sandbox baseline 會因 repo-root `reference/.../safari.sqlite` fixture path 缺失而失敗；在修復 fixture/copy contract 前，Rust mutation 不可作 per-commit hard gate。
-
----
-
-## Focused / Release Helpers
-
-| Gate                                   | Command / Workflow                                                                          | 用途                                                                            | 備註                                                                                                                                                                                         |
-| -------------------------------------- | ------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Platform Rust native sweep             | `bun run test:platform:rust` / GitHub `Platform Native` workflow                            | 直接驗證 host keyring / scheduler / launcher / discovery / biometric capability | hosted runner 成本高且 host-sensitive，所以移到 manual workflow；Linux job 仍會在隔離 `dbus-run-session` 內啟動 `gnome-keyring-daemon`。                                                     |
-| Platform desktop slice                 | `bun run test:platform:desktop` / GitHub `Platform Native` workflow                         | debug desktop build + updater / launcher desktop command slice                  | 這是 desktop command truth，不等於 browser preview e2e。                                                                                                                                     |
-| Release config guard                   | `bun run release:check`                                                                     | release workflow / updater URL / Windows bundle config drift                    | 已納入 `check:base`；保護 unsigned Windows release path、WebView2 download bootstrapper、PathKeep support/updater URLs、GitHub Actions runtime major，且不得把 Windows signing gate 加回來。 |
-| Project-scoped native dependency proof | `bun run native-deps:doctor` + OpenCC vcpkg install / GitHub `Native Dependencies` workflow | 驗證 repo-local vcpkg native dependency contract                                | 只在 manual dispatch、PR、或 `main` push 觸及 native-deps/vcpkg contract path 時跑；macOS proof 用 `macos-15-intel` + `x64-osx`，不屬於每次 commit 的 strict checker。                       |
-| Chrome desktop bridge smoke            | `bun run test:e2e:desktop-bridge:truth`                                                     | 啟動 feature-gated desktop bridge，讓 Chrome / Playwright 驗證真實 Rust command | 已納入 `bun run check`；單獨跑只作 bridge triage。                                                                                                                                           |
-| Desktop-contract JS mutation           | `bun run mutation:js` / `bun run check:mutation`                                            | 對 desktop entry + typed IPC contract 做 lightweight mutation gate              | 已納入 `bun run check`；2026-04-27 current-host wall time 約 50 秒，break threshold 是 100。                                                                                                 |
-| Full JS mutation sweep                 | `bun run mutation:js:full` / GitHub `Mutation` workflow `javascript-mutation`               | 對 active frontend runtime surface 做 repo-level mutation investigation         | Manual / scheduled deep gate；2026-04-27 dry-run 約 2m20s，full sweep 21769 mutants，按 44m/32% 實測估算約 2-3 小時。                                                                        |
-| Rust mutation sweep                    | `bun run mutation:rust:full` / GitHub `Mutation` workflow `rust-mutation`                   | whole-workspace cargo-mutants sweep                                             | Manual / scheduled deep gate；focused `mutation:rust:quality` 只作 triage helper。                                                                                                           |
-| Full local sweep                       | `bun run check:full`                                                                        | `bun run check` alias                                                           | 保留給舊 muscle memory；不再是比 `check` 更嚴的 gate。                                                                                                                                       |
-| Release-style local verification       | `bun run verify`                                                                            | `check` + `desktop:build:debug`                                                 | 作為 release / milestone closeout 的本地預演；會先透過 `check` 自動觸發 coverage、e2e 與 mutation。                                                                                          |
-| Deep local verification                | `bun run check:deep`                                                                        | `check` + full JS/Rust mutation sweep                                           | 只用於 release candidate / long-running manual pass；不作每次 commit 要求。                                                                                                                  |
-
-> 2026-04-27 gate-cost decision：舊的 2026-04-08 signed-off parser / AI helper mutation contract 仍是 focused triage helper；不能被誤報成 Rust mutation gate。`WORK-QA-GATE-A` 的當前 truth 以 `STATUS.md` 為準，100% JS/Rust coverage 仍是 stop-ship，full JS/Rust mutation 改為 deep/manual evidence 而不是 per-commit blocker。
-
----
+| Command                                                   | 用途                                                                                                                                                                                                             |
+| --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `bun run check:slow`                                      | `check:supply-chain` + `check:platform`                                                                                                                                                                          |
+| `bun run check:supply-chain`                              | `cargo audit` + `cargo deny`（需要網路與對應 cargo 工具）；CI 另有獨立步驟                                                                                                                                       |
+| `bun run check:platform`                                  | host-matched keyring / scheduler / launcher / updater native 測試，含 debug desktop build；`vault-platform/tests/native_host.rs` 會建真的鑰匙圈項目與 launchd agent，平時 `#[ignore]`，只在這裡用 `--ignored` 跑 |
+| `bun run verify`                                          | `check` + `desktop:build:debug`；release / milestone closeout 的本地預演                                                                                                                                         |
+| GitHub `Platform Native` / `Native Dependencies` workflow | manual / path-triggered，見各 workflow                                                                                                                                                                           |
 
 ## Honest Boundaries
 
-- `bun run test:e2e` 是 browser preview smoke，不是 Tauri desktop、worker process、scheduler artifact、keyring 或 filesystem side effect 的最終驗收。
-- `bun run test:e2e:desktop-bridge` 證明 Chrome / Playwright 能透過 dev-only localhost bridge 打到真實 desktop command façade，現在也能覆蓋 updater install / relaunch 的 mirrored command transport；但它仍不是完整的 Tauri WebView / plugin guest API signoff，progress events 等 event-driven plugin surface 仍需 Tauri 實機驗證。
-- `bun run check:platform` 才是目前對 macOS / Linux host-native scheduler、keyring、launcher 與 updater desktop slice 的 blocking signoff；preview e2e 不能拿來替這些能力背書。
-- schedule / security / import / intelligence 這些高風險 surface 的 desktop truth，仍要靠 Rust tests、worker bridge tests、Tauri command tests 與對應的 PME / product docs 對齊。
-- Scheduled-backup blocking contract：每次 native wake 必須在 keyring/config/archive 之前建立 durable attempt，所有普通錯誤、due skip、lock defer 與 crash-recovered stale run 都有 typed terminal outcome；App Lock locked 不阻擋 trusted scheduled worker；manual success 不能滿足 schedule health；attempt ledger corruption/read failure 必須顯式報錯，不能降級成空歷史。macOS launcher 的 `0` 不可用來替代 worker outcome。
-- Background queue blocking contract：任何 claimed/selected deterministic、enrichment 或 AI job 每次 drain 都必須持久化 success/cancel/fail/retry outcome；malformed payload 或 executor/preflight error 不得 tight-loop、等 lease 才模糊重試、或丟失原始錯誤。Recovery snapshot inventory 只有在完整掃描成功時才可驅動 retention；任何非 `NotFound` I/O 錯誤一律 fail closed、零刪除。
-- `coverage:js` 現在覆蓋 active frontend runtime source；若某個 runtime owner 尚未被測試保護，這是 checker failure，不是文檔例外。
-- `coverage:rust` 已恢復 full `src-tauri/**/src/*.rs` 100% gate；如果實際命令失敗，失敗本身就是 release blocker，不能再降回 quality slice 後宣稱全後端達標。
-
----
-
-## 覆蓋率 ≠ 行為：behavioral-assertion 鐵律（2026-06-28）
-
-> 教訓：兩個一碰就炸、明顯影響 UX 的功能在「100% coverage」下溜過——(1) 關鍵字搜尋找不到 note 內容（note 從未進 FTS；有測試覆蓋 note 的寫入/讀取，卻沒有任何測試斷言「存了 note → 關鍵字搜得到」），(2) 語義索引寫 0 向量且中斷一次就無法恢復（真正的 embedding I/O 引擎被 `#[cfg(not(any(test, coverage)))]` **編譯掉**、換成永遠成功的 stub，連 provider-error 分支都是 `cfg(coverage)` 假造的）。根因不是運氣，是方法論漏洞：**coverage 量的是「行有沒有跑」，不是「行為對不對」**。
-
-鐵律（文檔怎麼寫，review 就怎麼擋）：
-
-1. **覆蓋率必要但不充分。** 100% line/function coverage 是地板不是天花板。一個 call 了函數卻把結果丟掉（`let _ = …`）的測試，和一個斷言輸出的測試，在 gate 眼裡一樣綠——但只有後者算數。
-2. **每個使用者可見功能至少要一條 end-to-end 行為斷言**：「使用者在真實使用的介面/路徑做 X → 觀察到 Y」。不能用「在另一個 plane 寫得進/讀得出」代替「在使用者打字的搜尋框找得到」。要負→正斷言：斷言「東西被找到/被寫入」，不是只斷言「沒丟錯」。
-3. **任何 production I/O 路徑都不得被 `cfg` 編譯出 coverage binary。** 要 seam 就 seam 在 **transport endpoint**（可注入 client / 本地 fake server），把真正的 compute/decode/timeout/empty-response 留在被量測的 build 裡。整個引擎換 stub＝把真正的失敗模式藏起來（embedding 0-byte 與 note 搜尋兩個 bug 都是這樣溜的）。
-4. **避免 coverage-theater**：`let _ =` 吞結果、`dispatch_for_coverage` 式「跑過但不斷言」、render-the-string（只斷言錯誤字串非空）。這些讓 gate 變綠卻不證明任何契約。
-5. **新功能 review 必問**：「使用者實際操作有沒有一條測試從真實入口斷言預期結果？真實 I/O 有沒有被編譯掉？」答不出＝不算 ship-ready，無論 coverage 幾趴。
-
-待辦（見 BACKLOG，2026-06-28 立項）：external embedding transport 改可注入 seam + fake-HTTP `/v1/embeddings` 整合測試（mid-batch 500 / 空 `data[]` / timeout）；`dispatch_for_coverage` 的 fire-and-forget walk 改成 per-command 契約斷言。
+- E2E 證明前端能透過 dev-only localhost bridge 打到真實 Rust command façade。它不安裝真的排程（onboarding 選 Manual），也不寫真的系統 keychain。它不是 Tauri WebView / plugin guest API（Stronghold、updater progress events）的最終驗收；那些要在真實 Tauri 視窗驗證。
+- 原生 scheduler、keyring、簽名、公證與檔案系統副作用要靠 `check:platform`、Rust 測試與真實主機驗收。Windows Task Scheduler apply / status / remove 仍需要真實 Windows 主機。
+- `release:check` 只證明 release config 還允許 unsigned Windows installer 與 WebView2 download bootstrapper，不證明特定主機能裝起來。
+- 沒有 coverage 數字。看到綠燈不代表功能被測過：review 時問「使用者實際操作有沒有一條 E2E 從真實入口斷言預期結果？」答不出就不算 ship-ready。
 
 ---
 
@@ -133,10 +97,10 @@ whole-workspace mutation 是 deep/release investigation gate；若成本或 surv
 鐵律（文檔怎麼寫，repo 就怎麼擋；每條都要能被 check 兌現）：
 
 1. **Durability（原子 + F_FULLFSYNC + dir-fsync）。** 所有 archive 寫入路徑必須走原子持久化路徑——`durable_io::atomic_durable_write` / `install_file_durably`（temp → `F_FULLFSYNC` → rename → parent-dir fsync）與 `save_config` / `remove_file_durably`；archive 寫入路徑內 **不得** 出現裸 `fs::write` / 裸 `fs::rename` 去落地一個 canonical 檔或 `config.json`。crash 中斷只能留下「完整舊值」或「完整新值」，絕不是把 mode 改動悄悄吞掉的截斷/空檔。
-2. **Config↔disk consistency（跨檔不變式）。** 每一個 archive-mutation 測試（rekey / reconcile / import / restore / backup）的 post-condition 都要斷言 `archive::at_rest::check_config_disk_consistency`（經 **真正的** `load_config` 讀 `config.json`，用 `detect_disk_encryption_mode` 讀兩個 canonical DB 的真實磁碟 at-rest mode，header-only、key-free）。config 記的 at-rest mode **永遠不得** 和已安裝的 DB 分歧——這就是能擋下本次事故的那條 check。專屬的事故重現測試（加密檔 + `Plaintext` config）斷言 checker **FAIL**；crash-window 測試（`rekey.after_swap_before_config`）斷言 checker + launch recovery **一起** 抓到「config 落後於已安裝的檔案」。
-3. **Crash-window coverage。** 每個破壞性 archive op 都要有一條 kill-at-checkpoint regression（`fault_inject` 具名 checkpoint + `FaultGuard::error_at_must_fire`），且該測試在 **未硬化的舊碼** 上會 FAIL（舊碼沒有 crash seam、在 swap 前就寫 config）。測試必須斷言 **被注入的** 錯誤有沿 `format!("{err:#}")` / `err.chain()` 傳播，不能只 `is_err()` / 只驗「可恢復」。每個 op 還要有 per-checkpoint 的 **窮舉** torture：對每個 checkpoint 注入 crash → launch recovery → 斷言收斂到 **consistent-or-fail-closed**（config 對得上檔案、canonical rows 還在，或 marker 留著 fail-closed），永不 empty/mixed。torture 必須 **DETERMINISTIC**：以固定 checkpoint 列舉或固定 seed 驅動，禁止 wall-clock / `Math.random` / thread-timing 造成的 flakiness（gate 會跑這些）。
-4. **不得把 production I/O 用 `cfg` 編譯出 coverage binary。** 真正的 compute / I/O 路徑要留在 **被量測** 的 build 裡；只有最外層 endpoint（socket / syscall fd）可以 seam，且 seam 用的 thread-local FIFO 在 production 恆為空（見 `fault_inject`、`write_lock` 的 `next_flock_fault`、`durable_io` 的 `inject_fsync_faults`）。**Coverage 量的是執行，不是行為**：每個 user-facing invariant 都要一條明確的 behavioral 斷言（負→正：斷言「被 heal / 被 restore / rows 還在」，不是只斷言「沒丟錯」）。
+2. **Config↔disk consistency（跨檔不變式）。** 每一個 archive-mutation 測試（改密碼 / 模式切換 / 匯入 / 還原 / 啟動恢復）的 post-condition 都要斷言 config 和檔案一致：原生 archive 用 `archive::at_rest::check_config_disk_consistency`（經 **真正的** `load_config` 讀 `config.json`，用 `detect_disk_encryption_mode` 讀每個持久化原生資料庫的真實 at-rest mode，header-only、key-free）；舊格式（SQLCipher）的啟動恢復用轉換器測試裡的 `assert_config_matches_disk`。config 記的 at-rest mode **永遠不得** 和已安裝的 DB 分歧——這就是能擋下本次事故的那條 check。專屬的事故重現測試（加密檔 + `Plaintext` config）斷言 checker **FAIL**；crash-window 測試（`rekey.after_swap_before_config`）斷言 checker + launch recovery **一起** 抓到「config 落後於已安裝的檔案」。
+3. **Crash-window coverage。** 每個破壞性 archive op 都要有一條 kill-at-checkpoint regression（`fault_inject` 具名 checkpoint + `FaultGuard::panic_at`，或 `exit_process_at_next_checkpoint` 讓子程序在那裡直接結束），且該測試在 **未硬化的舊碼** 上會 FAIL（舊碼沒有 crash seam、在 swap 前就寫 config）。測試必須斷言 **被注入的** 錯誤有沿 `format!("{err:#}")` / `err.chain()` 傳播，不能只 `is_err()` / 只驗「可恢復」。每個 op 還要有 per-checkpoint 的 **窮舉** torture：對每個 checkpoint 注入 crash → launch recovery → 斷言收斂到 **consistent-or-fail-closed**（config 對得上檔案、canonical rows 還在，或 marker 留著 fail-closed），永不 empty/mixed。torture 必須 **DETERMINISTIC**：以固定 checkpoint 列舉或固定 seed 驅動，禁止 wall-clock / `Math.random` / thread-timing 造成的 flakiness（gate 會跑這些）。
+4. **不得把 production I/O 用 `cfg` 編譯出 coverage binary。** 真正的 compute / I/O 路徑要留在 **被量測** 的 build 裡；只有最外層 endpoint（socket / syscall fd）可以 seam，且 seam 用的 thread-local FIFO 在 production 恆為空（見 `fault_inject`、`durable_io` 的 `inject_fsync_faults`）。**Coverage 量的是執行，不是行為**：每個 user-facing invariant 都要一條明確的 behavioral 斷言（負→正：斷言「被 heal / 被 restore / rows 還在」，不是只斷言「沒丟錯」）。
 
-新功能 / 硬化 review 必問：「破壞性 op 有沒有 kill-at-checkpoint 測試、且在舊碼上會 FAIL？成功路徑有沒有斷言 `check_config_disk_consistency`？測試走的是 `load_config` 還是手搓 config？真實 I/O 有沒有被編譯掉？」答不出＝不算 ship-ready，無論 coverage 幾趴。
+新功能 / 硬化 review 必問：「破壞性 op 有沒有 kill-at-checkpoint 測試、且在舊碼上會 FAIL？成功路徑有沒有斷言 config↔disk 一致？測試走的是 `load_config` 還是手搓 config？真實 I/O 有沒有被編譯掉？」答不出＝不算 ship-ready，無論 coverage 幾趴。
 
-對應實作（Phase E 交付，`vault-core`）：`archive::at_rest::check_config_disk_consistency`（+ 事故重現 / crash-window / 窮舉 torture / 同進程雙 op 併發序列化測試）；`migration::fault_tests` 的 import 成功 post-condition + per-checkpoint torture；`archive::maintenance` restore 成功 + interrupted-restore recovery post-condition；`archive::tests` backup 成功 post-condition + crash-window suite banner；flaky `diagnostics::tests::rust_panic_payloads_keep_owned_strings_and_fallback_text` 以 thread-local opt-in 隔離 process-global panic hook（外來 thread 的 panic forward 給 previous hook，不再污染擷取）。
+對應實作：原生 archive 在 `vault-core`：`archive::at_rest::check_config_disk_consistency`，斷言在 `maintenance::tests`（模式切換、快照還原、中斷安裝的啟動回滾）；crash window 由 `maintenance::install` 的具名 checkpoint 與 `install_tests` 覆蓋。舊格式 archive 在 `vault-convert-sqlcipher::legacy_recovery`：舊 app 留下的匯入 / 改密碼 / 還原 journal 的啟動恢復，測試直接在磁碟上造出當時的 crash 狀態（舊流程已刪除，無法再「跑到一半殺掉」）。2026-10 之前的舊流程（SQLCipher 的 rekey、import、full restore、reconcile）及其 torture 測試隨區塊 6 刪除。

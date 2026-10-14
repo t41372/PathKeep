@@ -1,0 +1,162 @@
+/** The prototype's card: title, optional subtitle and action, then content. */
+import { Component, type ReactNode } from 'react'
+import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/cn'
+import { describeError } from '@/lib/errors'
+import { useI18n } from '@/lib/i18n'
+import { recordRenderError } from '@/lib/runtime-diagnostics'
+import { CardTitle } from './card-title'
+import { dragRegion } from './drag-region'
+import { TitleBarStrip } from './title-bar'
+
+/**
+ * What a card shows when its query failed. Without it a failed card looks
+ * exactly like an empty one, which tells the user something false.
+ */
+export function CardError({
+  error,
+  onRetry,
+}: {
+  error: unknown
+  onRetry: () => void
+}) {
+  const { t } = useI18n()
+  return (
+    <div
+      role="alert"
+      className="flex items-center justify-between gap-3 text-sm text-muted-foreground"
+      title={describeError(error)}
+    >
+      {t('common.loadFailed')}
+      <Button variant="outline" size="sm" onClick={onRetry}>
+        {t('common.retry')}
+      </Button>
+    </div>
+  )
+}
+
+/**
+ * Keeps a card that throws while rendering inside its own frame: the card
+ * shows the load error with a retry, and the rest of the screen stays up.
+ */
+class CardBoundary extends Component<
+  { children: ReactNode },
+  { error: unknown }
+> {
+  state = { error: null as unknown }
+
+  static getDerivedStateFromError(error: unknown) {
+    return { error }
+  }
+
+  componentDidCatch(error: unknown) {
+    recordRenderError('card-render', error)
+  }
+
+  render() {
+    if (this.state.error === null) return this.props.children
+    return (
+      <CardError
+        error={this.state.error}
+        onRetry={() => this.setState({ error: null })}
+      />
+    )
+  }
+}
+
+export function SectionCard({
+  title,
+  subtitle,
+  action,
+  children,
+  className,
+}: {
+  title?: ReactNode
+  subtitle?: ReactNode
+  action?: ReactNode
+  children: ReactNode
+  className?: string
+}) {
+  const card = (
+    <section
+      className={cn(
+        'flex min-w-0 flex-col gap-3.5 rounded-xl border bg-card p-5 shadow-card',
+        className,
+      )}
+    >
+      {(title || action) && (
+        <header className="flex items-start justify-between gap-2">
+          <div className="flex flex-col gap-1">
+            {title && <h2 className="text-sm font-semibold">{title}</h2>}
+            {subtitle && (
+              <p className="text-[13px] text-muted-foreground">{subtitle}</p>
+            )}
+          </div>
+          {action}
+        </header>
+      )}
+      <CardBoundary>{children}</CardBoundary>
+    </section>
+  )
+  return (
+    <CardTitle.Provider value={typeof title === 'string' ? title : null}>
+      {card}
+    </CardTitle.Provider>
+  )
+}
+
+/** Page header used by Home, Insights and Backup. */
+export function PageHeader({
+  title,
+  eyebrow,
+  subtitle,
+  actions,
+}: {
+  title: ReactNode
+  eyebrow?: ReactNode
+  subtitle?: ReactNode
+  actions?: ReactNode
+}) {
+  return (
+    <header
+      {...dragRegion()}
+      className="flex flex-wrap items-end justify-between gap-4"
+    >
+      <div className="flex flex-col gap-1">
+        {eyebrow && (
+          <span className="text-[13px] text-muted-foreground">{eyebrow}</span>
+        )}
+        <h1 className="text-[30px] leading-tight font-semibold tracking-[-0.02em]">
+          {title}
+        </h1>
+        {subtitle && (
+          <p className="text-[13px] text-muted-foreground">{subtitle}</p>
+        )}
+      </div>
+      {actions && <div className="flex items-center gap-2.5">{actions}</div>}
+    </header>
+  )
+}
+
+/** Scrollable page column with the prototype's width and padding. */
+export function PageScroll({
+  children,
+  wide,
+}: {
+  children: ReactNode
+  wide?: boolean
+}) {
+  return (
+    <div className="flex-1 overflow-y-auto">
+      <TitleBarStrip />
+      <div
+        className={cn(
+          'mx-auto flex flex-col gap-5 px-10 pt-9 pb-12',
+          wide ? 'max-w-[1080px]' : 'max-w-[1040px]',
+        )}
+      >
+        {children}
+      </div>
+    </div>
+  )
+}

@@ -19,28 +19,11 @@
 //! scale by count but keep payload columns small to avoid unnecessary memory or
 //! disk pressure during normal quality gates.
 
-use rusqlite::{Connection, OptionalExtension};
-
-/// Checks whether a schema migration created a named index.
-pub(super) fn has_index(connection: &Connection, index_name: &str) -> bool {
-    connection
-        .query_row(
-            "SELECT 1
-             FROM sqlite_master
-             WHERE type = 'index'
-               AND name = ?1
-             LIMIT 1",
-            [index_name],
-            |_| Ok(()),
-        )
-        .optional()
-        .expect("index lookup")
-        .is_some()
-}
+use vault_store::{Session, params_owned as params};
 
 /// Appends one canonical URL, visit, and optional search term row.
 pub(super) fn append_fixture_visit(
-    connection: &Connection,
+    connection: &Session<'_>,
     visit_id: i64,
     url: &str,
     title: &str,
@@ -49,22 +32,25 @@ pub(super) fn append_fixture_visit(
     normalized_search_term: Option<&str>,
 ) {
     let url_id = visit_id + 10;
+    let page_id=connection.query_one("INSERT INTO pages(id,url,canonical_url,registrable_domain) VALUES(?1,?2,?3,?4) ON CONFLICT(url) DO UPDATE SET url=excluded.url RETURNING id",params![url_id,url,crate::pages::canonical_key(url),crate::visit_taxonomy::registrable_domain_for_url(url)],|r|Ok(r.get::<i64>(0)?)).unwrap();
     let visit_time_iso =
         chrono::DateTime::from_timestamp_millis(visit_time_ms).expect("timestamp millis");
     connection
         .execute(
             "INSERT INTO urls (
                 id, url, title, visit_count, typed_count, first_visit_ms, first_visit_iso, last_visit_ms, last_visit_iso,
-                source_profile_id, created_by_run_id, source_url_id, hidden, payload_hash, recorded_at
-             ) VALUES (?1, ?2, ?3, 1, 0, ?4, ?5, ?4, ?5, 1, 1, ?6, 0, ?7, '2026-04-14T00:00:00Z')",
-            rusqlite::params![
+                source_profile_id, created_by_run_id, source_url_id, hidden, payload_hash, recorded_at,
+                page_id
+             ) VALUES (?1, ?2, ?3, 1, 0, ?4, ?5, ?4, ?5, 1, 1, ?6, 0, ?7, '2026-04-14T00:00:00Z', ?8)",
+            params![
                 url_id,
                 url,
                 title,
                 visit_time_ms,
                 visit_time_iso.to_rfc3339(),
                 url_id + 100,
-                format!("hash-{visit_id}")
+                format!("hash-{visit_id}"),
+                page_id
             ],
         )
         .expect("insert url");
@@ -74,7 +60,7 @@ pub(super) fn append_fixture_visit(
                 id, url_id, source_visit_id, visit_time_ms, visit_time_iso, transition_type, visit_duration_ms,
                 source_profile_id, created_by_run_id, from_visit, is_known_to_sync, event_fingerprint, payload_hash, recorded_at
              ) VALUES (?1, ?2, ?3, ?4, ?5, 1, 0, 1, 1, ?6, 0, ?7, ?8, '2026-04-14T00:00:00Z')",
-            rusqlite::params![
+            params![
                 visit_id,
                 url_id,
                 visit_id.to_string(),
@@ -86,13 +72,14 @@ pub(super) fn append_fixture_visit(
             ],
         )
         .expect("insert visit");
+    connection.execute("UPDATE archive_totals SET value=value+1 WHERE name IN ('visits','urls','sourceVisits:1')",()).unwrap();
     if let Some(normalized_search_term) = normalized_search_term {
         connection
             .execute(
                 "INSERT INTO search_terms (
                     id, url_id, term, normalized_term, source_profile_id, created_by_run_id, profile_id
                  ) VALUES (?1, ?2, ?3, ?3, 1, 1, 'chrome:Default')",
-                rusqlite::params![visit_id + 1000, url_id, normalized_search_term],
+                params![visit_id + 1000, url_id, normalized_search_term],
             )
             .expect("insert search term");
     }
@@ -100,7 +87,7 @@ pub(super) fn append_fixture_visit(
 
 /// Appends a deterministic mixed search/content sequence across a batch boundary.
 pub(super) fn append_many_fixture_visits(
-    connection: &Connection,
+    connection: &Session<'_>,
     start_visit_id: i64,
     count: usize,
     start_time_ms: i64,
@@ -142,7 +129,7 @@ pub(super) fn append_many_fixture_visits(
 
 /// Appends a linked visit chain that should stay in one structural trail.
 pub(super) fn append_fixture_chain_visits(
-    connection: &Connection,
+    connection: &Session<'_>,
     start_visit_id: i64,
     count: usize,
     start_time_ms: i64,
@@ -166,7 +153,7 @@ pub(super) fn append_fixture_chain_visits(
 
 /// Loads derived fact rows in stable order for rebuild-equivalence checks.
 pub(super) fn load_visit_derived_fact_rows(
-    connection: &Connection,
+    connection: &Session<'_>,
 ) -> Vec<(i64, String, String, i64)> {
     connection
         .prepare(
@@ -175,48 +162,62 @@ pub(super) fn load_visit_derived_fact_rows(
              ORDER BY visit_id ASC",
         )
         .expect("prepare visit-derived facts")
-        .query_map([], |row| {
+        .query_map((), |row| {
             Ok((
-                row.get::<_, i64>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, i64>(3)?,
+                row.get::<i64>(0)?,
+                row.get::<String>(1)?,
+                row.get::<String>(2)?,
+                row.get::<i64>(3)?,
             ))
         })
         .expect("query visit-derived facts")
-        .collect::<rusqlite::Result<Vec<_>>>()
+        .collect::<vault_store::Result<Vec<_>>>()
         .expect("collect visit-derived facts")
 }
 
 /// Loads rollup rows as normalized strings so whole-table equality is easy.
-pub(super) fn load_daily_rollup_rows(connection: &Connection, table: &str) -> Vec<String> {
-    let sql = format!("SELECT * FROM {table} ORDER BY 1, 2, 3");
-    let mut statement = connection.prepare(&sql).expect("prepare rollup rows");
-    statement
-        .query_map([], |row| {
-            let mut values = Vec::with_capacity(row.as_ref().column_count());
-            for index in 0..row.as_ref().column_count() {
-                let value = row.get_ref(index)?;
-                let normalized = match value {
-                    rusqlite::types::ValueRef::Null => "NULL".to_string(),
-                    rusqlite::types::ValueRef::Integer(inner) => inner.to_string(),
-                    rusqlite::types::ValueRef::Real(inner) => format!("{inner:.6}"),
-                    rusqlite::types::ValueRef::Text(inner) => {
-                        String::from_utf8_lossy(inner).into_owned()
-                    }
-                    rusqlite::types::ValueRef::Blob(inner) => format!("blob:{}", inner.len()),
-                };
-                values.push(normalized);
+pub(super) fn load_daily_rollup_rows(connection: &Session<'_>, table: &str) -> Vec<String> {
+    let columns = match table {
+        "domain_daily_rollups" => 8,
+        "category_daily_rollups" => 5,
+        "engine_daily_rollups" => 4,
+        "daily_summary_rollups" => 8,
+        _ => panic!("rollup fixture table"),
+    };
+    connection
+        .query(&format!("SELECT * FROM {table} ORDER BY 1,2,3"), (), |row| {
+            let mut values = Vec::new();
+            for index in 0..columns {
+                values.push(match row.get_value(index)? {
+                    vault_store::Value::Null => "NULL".to_owned(),
+                    vault_store::Value::Integer(v) => v.to_string(),
+                    vault_store::Value::Real(v) => format!("{v:.6}"),
+                    vault_store::Value::Text(v) => v,
+                    vault_store::Value::Blob(v) => format!("blob:{}", v.len()),
+                });
             }
             Ok(values.join("|"))
         })
-        .expect("query rollup rows")
-        .collect::<rusqlite::Result<Vec<_>>>()
-        .expect("collect rollup rows")
+        .unwrap()
 }
 
 /// Seeds the minimal archive graph used by most Core Intelligence regressions.
-pub(super) fn seed_core_intelligence_fixture(connection: &Connection) {
+pub(super) fn seed_core_intelligence_fixture(connection: &Session<'_>) {
+    for (id, url, domain) in [
+        (1, "https://www.google.com/search?q=sqlite+wal", "google.com"),
+        (2, "https://github.com/example/repo/issues/42", "github.com"),
+    ] {
+        connection
+            .execute(
+                "INSERT INTO pages(id,url,canonical_url,registrable_domain) VALUES(?1,?2,?3,?4)",
+                params![id, url, crate::pages::canonical_key(url), domain],
+            )
+            .unwrap();
+    }
+    connection
+        .execute("INSERT INTO archive_totals(name,value) VALUES('sourceVisits:1',3)", ())
+        .unwrap();
+    connection.execute("UPDATE archive_totals SET value=CASE name WHEN 'visits' THEN 3 WHEN 'urls' THEN 2 ELSE value END",()).unwrap();
     connection
         .execute(
             "INSERT INTO runs (
@@ -224,7 +225,7 @@ pub(super) fn seed_core_intelligence_fixture(connection: &Connection) {
              ) VALUES (
                 1, 'backup', 'manual', '2026-04-14T00:00:00Z', 'UTC', 'success', '[]', '[]', '{}', 0
              )",
-            [],
+            (),
         )
         .expect("run");
     connection
@@ -234,18 +235,19 @@ pub(super) fn seed_core_intelligence_fixture(connection: &Connection) {
              ) VALUES (
                 1, 'chrome', '1', 'Default', '/tmp/profile', '2026-04-14T00:00:00Z', 1, 'chrome:Default', '2026-04-14T00:00:00Z'
              )",
-            [],
+            (),
         )
         .expect("profile");
     connection
         .execute(
             "INSERT INTO urls (
                 id, url, title, visit_count, typed_count, first_visit_ms, first_visit_iso, last_visit_ms, last_visit_iso,
-                source_profile_id, created_by_run_id, source_url_id, hidden, payload_hash, recorded_at
+                source_profile_id, created_by_run_id, source_url_id, hidden, payload_hash, recorded_at,
+                page_id
              ) VALUES
-             (1, 'https://www.google.com/search?q=sqlite+wal', 'sqlite wal - Google Search', 1, 0, 1, '1970-01-01T00:00:00Z', 1, '1970-01-01T00:00:00Z', 1, 1, 11, 0, 'hash-1', '2026-04-14T00:00:00Z'),
-             (2, 'https://github.com/example/repo/issues/42', 'Issue 42', 2, 1, 2, '1970-01-01T00:00:02Z', 86400002, '1970-01-02T00:00:00Z', 1, 1, 12, 0, 'hash-2', '2026-04-14T00:00:00Z')",
-            [],
+             (1, 'https://www.google.com/search?q=sqlite+wal', 'sqlite wal - Google Search', 1, 0, 1, '1970-01-01T00:00:00Z', 1, '1970-01-01T00:00:00Z', 1, 1, 11, 0, 'hash-1', '2026-04-14T00:00:00Z', 1),
+             (2, 'https://github.com/example/repo/issues/42', 'Issue 42', 2, 1, 2, '1970-01-01T00:00:02Z', 86400002, '1970-01-02T00:00:00Z', 1, 1, 12, 0, 'hash-2', '2026-04-14T00:00:00Z', 2)",
+            (),
         )
         .expect("urls");
     connection
@@ -257,7 +259,7 @@ pub(super) fn seed_core_intelligence_fixture(connection: &Connection) {
              (1, 1, '1', 1711929600000, '2024-04-01T00:00:00Z', 1, 0, 1, 1, NULL, 0, 'fingerprint-1', 'visit-hash-1', '2026-04-14T00:00:00Z'),
              (2, 2, '2', 1711929660000, '2024-04-01T00:01:00Z', 1, 0, 1, 1, 1, 0, 'fingerprint-2', 'visit-hash-2', '2026-04-14T00:00:00Z'),
              (3, 2, '3', 1712016000000, '2024-04-02T00:00:00Z', 1, 0, 1, 1, NULL, 0, 'fingerprint-3', 'visit-hash-3', '2026-04-14T00:00:00Z')",
-            [],
+            (),
         )
         .expect("visits");
     connection
@@ -267,37 +269,18 @@ pub(super) fn seed_core_intelligence_fixture(connection: &Connection) {
              ) VALUES (
                 1, 1, 'sqlite wal', 'sqlite wal', 1, 1, 'chrome:Default'
              )",
-            [],
+            (),
         )
         .expect("search term");
 }
 
-/// Adds URL-like query noise plus one valid repository-search query.
-pub(super) fn seed_search_keyword_noise_fixture(connection: &Connection) {
-    connection
-        .execute(
-            "INSERT INTO urls (
-                id, url, title, visit_count, typed_count, first_visit_ms, first_visit_iso, last_visit_ms, last_visit_iso,
-                source_profile_id, created_by_run_id, source_url_id, hidden, payload_hash, recorded_at
-             ) VALUES
-             (3, 'https://www.google.com/search?q=https%3A%2F%2Fasu.edu', 'asu.edu - Google Search', 1, 0, 1711929720000, '2024-04-01T00:02:00Z', 1711929720000, '2024-04-01T00:02:00Z', 1, 1, 13, 0, 'hash-3', '2026-04-14T00:00:00Z'),
-             (4, 'https://asu.edu/', 'Arizona State University', 1, 0, 1711929780000, '2024-04-01T00:03:00Z', 1711929780000, '2024-04-01T00:03:00Z', 1, 1, 14, 0, 'hash-4', '2026-04-14T00:00:00Z'),
-             (5, 'https://github.com/search?q=pathkeep+sqlite', 'Repository search results', 1, 0, 1711929840000, '2024-04-01T00:04:00Z', 1711929840000, '2024-04-01T00:04:00Z', 1, 1, 15, 0, 'hash-5', '2026-04-14T00:00:00Z'),
-             (6, 'https://github.com/example/pathkeep', 'PathKeep repo', 1, 0, 1711929900000, '2024-04-01T00:05:00Z', 1711929900000, '2024-04-01T00:05:00Z', 1, 1, 16, 0, 'hash-6', '2026-04-14T00:00:00Z')",
-            [],
-        )
-        .expect("extra urls");
-    connection
-        .execute(
-            "INSERT INTO visits (
-                id, url_id, source_visit_id, visit_time_ms, visit_time_iso, transition_type, visit_duration_ms,
-                source_profile_id, created_by_run_id, from_visit, is_known_to_sync, event_fingerprint, payload_hash, recorded_at
-             ) VALUES
-             (4, 3, '4', 1711929720000, '2024-04-01T00:02:00Z', 1, 0, 1, 1, NULL, 0, 'fingerprint-4', 'visit-hash-4', '2026-04-14T00:00:00Z'),
-             (5, 4, '5', 1711929780000, '2024-04-01T00:03:00Z', 1, 0, 1, 1, 4, 0, 'fingerprint-5', 'visit-hash-5', '2026-04-14T00:00:00Z'),
-             (6, 5, '6', 1711929840000, '2024-04-01T00:04:00Z', 1, 0, 1, 1, NULL, 0, 'fingerprint-6', 'visit-hash-6', '2026-04-14T00:00:00Z'),
-             (7, 6, '7', 1711929900000, '2024-04-01T00:05:00Z', 1, 0, 1, 1, 6, 0, 'fingerprint-7', 'visit-hash-7', '2026-04-14T00:00:00Z')",
-            [],
-        )
-        .expect("extra visits");
+/// Direct fixture edits keep the same canonical counters maintained by archive writers.
+pub(super) fn sync_archive_totals(db: &crate::test_support::native::TestDatabase) {
+    db.execute("UPDATE archive_totals SET value=(SELECT COUNT(*) FROM visits WHERE reverted_at IS NULL) WHERE name='visits'",()).unwrap();
+    db.execute(
+        "UPDATE archive_totals SET value=(SELECT COUNT(*) FROM pages) WHERE name='urls'",
+        (),
+    )
+    .unwrap();
+    db.execute("INSERT INTO archive_totals(name,value) SELECT 'sourceVisits:'||sp.id,COUNT(v.id) FROM source_profiles sp LEFT JOIN visits v ON v.source_profile_id=sp.id AND v.reverted_at IS NULL GROUP BY sp.id ON CONFLICT(name) DO UPDATE SET value=excluded.value",()).unwrap();
 }

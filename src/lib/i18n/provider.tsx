@@ -1,88 +1,108 @@
 /**
- * This module is part of PathKeep's shipping i18n contract, not a best-effort localization afterthought.
- *
- * Why this file exists:
- * - Every user-visible string, route label, callout, and loading surface should flow through this layer.
- * - Keeping the contract centralized makes it easier to reason about locale length, pseudo-locale smoke, and shared wording changes.
- *
- * Main declarations:
- * - `I18nProvider`
- *
- * Source-of-truth notes:
- * - Stay aligned with the i18n requirements in `docs/design/ux-principles.md`.
- * - The catalog must keep `en`, `zh-CN`, and `zh-TW` in sync for all shipped namespaces.
+ * Language and clock state for the whole app. The preferences live in
+ * localStorage so the first paint is already right; the shell mirrors the
+ * language into the backend config (`preferredLanguage`) for the scheduler
+ * and worker. The OS's clock setting is read once from the backend
+ * (`system_clock`), which the webview's `Intl` cannot see, and remembered for
+ * the next first paint.
  */
-
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import type { LanguagePreference } from '../types'
-import {
-  createNamespaceTranslator,
-  createTranslator,
-  localeTag,
-  resolveLanguage,
-} from './catalog'
-import {
-  I18nContext,
-  i18nStorageKey,
-  readStoredPreference,
-  type I18nContextValue,
-} from './context'
+import { supportClient } from '@/lib/backend-client/support'
+import type { LanguagePreference } from '@/lib/types'
+import { I18nContext, type ClockPreference } from './context'
+import type { HourCycle } from './format'
+import { createTranslator, localeTag, resolveLanguage } from './runtime'
 
-/**
- * Provides i18n to descendant components.
- *
- * This declaration is part of the shipping i18n contract, so clarity matters as much as correctness when new copy or namespaces are added.
- */
+const STORAGE_KEY = 'pathkeep-language-preference'
+const CLOCK_KEY = 'pathkeep-clock-preference'
+const SYSTEM_CLOCK_KEY = 'pathkeep-system-clock'
+const preferences: LanguagePreference[] = ['system', 'en', 'zh-CN', 'zh-TW']
+const clocks: ClockPreference[] = ['system', 'h12', 'h23']
+
+function read(key: string) {
+  try {
+    return localStorage.getItem(key)
+  } catch {
+    // Storage can be unavailable in hardened WebViews.
+    return null
+  }
+}
+
+function write(key: string, value: string) {
+  try {
+    localStorage.setItem(key, value)
+  } catch {
+    // Keep the in-memory choice even if it cannot be persisted.
+  }
+}
+
+function asHourCycle(value: string | null): HourCycle {
+  return value === 'h12' || value === 'h23' ? value : undefined
+}
+
+export function readStoredLanguagePreference(): LanguagePreference {
+  try {
+    const value = localStorage.getItem(STORAGE_KEY)
+    if (preferences.includes(value as LanguagePreference)) {
+      return value as LanguagePreference
+    }
+  } catch {
+    // Storage can be unavailable in hardened WebViews.
+  }
+  return 'system'
+}
+
 export function I18nProvider({ children }: { children: ReactNode }) {
-  const [preference, setPreference] = useState<LanguagePreference>(() =>
-    readStoredPreference(),
-  )
+  const [preference, setPreference] = useState(readStoredLanguagePreference)
   const language = resolveLanguage(preference)
+  const [clock, setClock] = useState<ClockPreference>(() => {
+    const stored = read(CLOCK_KEY)
+    return clocks.includes(stored as ClockPreference)
+      ? (stored as ClockPreference)
+      : 'system'
+  })
+  const [systemClock, setSystemClock] = useState(() =>
+    asHourCycle(read(SYSTEM_CLOCK_KEY)),
+  )
 
   useEffect(() => {
-    if (typeof document === 'undefined') {
-      return
-    }
-
     document.documentElement.lang = localeTag(language)
   }, [language])
 
-  const value = useMemo<I18nContextValue>(() => {
-    const t = createTranslator(language)
-    const namespaceCache = new Map<
-      Parameters<I18nContextValue['ns']>[0],
-      ReturnType<I18nContextValue['ns']>
-    >()
-    /**
-     * Explains how ns works.
-     *
-     * This declaration is part of the shipping i18n contract, so clarity matters as much as correctness when new copy or namespaces are added.
-     */
-    const ns: I18nContextValue['ns'] = (namespace) => {
-      const cached = namespaceCache.get(namespace)
-      if (cached) {
-        return cached
-      }
-
-      const translator = createNamespaceTranslator(language, namespace)
-      namespaceCache.set(namespace, translator)
-      return translator
+  useEffect(() => {
+    let live = true
+    supportClient
+      .systemClock()
+      .then((value) => {
+        if (!live) return
+        setSystemClock(asHourCycle(value))
+        write(SYSTEM_CLOCK_KEY, value ?? '')
+      })
+      .catch(() => undefined)
+    return () => {
+      live = false
     }
+  }, [])
 
-    return {
+  const value = useMemo(
+    () => ({
       language,
+      locale: localeTag(language),
       preference,
-      setLanguagePreference: (nextPreference, options) => {
-        setPreference(nextPreference)
-        if (options?.persist === false || typeof window === 'undefined') {
-          return
-        }
-        window.localStorage.setItem(i18nStorageKey, nextPreference)
+      t: createTranslator(language),
+      setPreference: (next: LanguagePreference) => {
+        write(STORAGE_KEY, next)
+        setPreference(next)
       },
-      t,
-      ns,
-    }
-  }, [language, preference])
+      clock,
+      hourCycle: clock === 'system' ? systemClock : clock,
+      setClock: (next: ClockPreference) => {
+        write(CLOCK_KEY, next)
+        setClock(next)
+      },
+    }),
+    [language, preference, clock, systemClock],
+  )
 
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>
 }

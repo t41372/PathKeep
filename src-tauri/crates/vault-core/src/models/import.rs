@@ -142,6 +142,8 @@ pub struct ImportBatchOverview {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ImportBatchDetail {
+    #[serde(default)]
+    pub preview_next_cursor: Option<String>,
     pub batch: ImportBatchOverview,
     pub preview_entries: Vec<TakeoutPreviewEntry>,
     pub recognized_files: Vec<TakeoutFileReport>,
@@ -154,6 +156,10 @@ pub struct ImportBatchDetail {
     pub detected_locale: Option<String>,
     pub preview_range_start: Option<String>,
     pub preview_range_end: Option<String>,
+    /// The profiles whose counted visits an undo or restore just changed (profile keys), so
+    /// the caller can rebuild their Insights. Empty when nothing changed; never sent to the UI.
+    #[serde(skip)]
+    pub changed_profiles: Vec<String>,
 }
 
 /// Full inspection/import payload returned by the Takeout flow.
@@ -167,6 +173,22 @@ pub struct TakeoutInspection {
     pub candidate_items: usize,
     pub imported_items: usize,
     pub duplicate_items: usize,
+    /// Written, but another source (a browser, another Takeout export) already had the same
+    /// visit, which counts there (`docs/architecture/same-visit-across-sources.md`).
+    #[serde(default)]
+    pub same_visit_items: usize,
+    /// Sources whose copies of visits this import now stands in for; their Insights are built
+    /// again.
+    #[serde(default)]
+    pub replaced_profiles: Vec<String>,
+    /// When the interrupted import of the same export this run carried on began; its counts
+    /// include what that run wrote.
+    #[serde(default)]
+    pub continued_from: Option<String>,
+    /// The user stopped it: the counts are what it saved before it stopped, and its batch is
+    /// interrupted (a Takeout export imported again carries on in it).
+    #[serde(default)]
+    pub stopped: bool,
     pub preview_entries: Vec<TakeoutPreviewEntry>,
     pub import_batch: Option<ImportBatchOverview>,
     pub notes: Vec<String>,
@@ -206,6 +228,9 @@ impl TakeoutInspection {
         self.note_details = note_details;
     }
 }
+
+/// The event `ImportProgressEvent`s go out on, to the window and to the dev bridge's browsers.
+pub const IMPORT_PROGRESS_EVENT: &str = "pathkeep://import-progress";
 
 /// Progress event streamed while a Takeout import is running.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

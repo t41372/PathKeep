@@ -3,6 +3,8 @@
 > v0.3 paper redesign 引入的 Browse 卡片模式視覺。讓每張 card 顯示頁面真正的 og:image
 > 社交卡，而非僅僅 favicon 或 domain 色塊；圖片以 byte-identical dedup 儲存，使用者可
 > 隨時關掉 fetch、清空快取，或設定 LRU / 大小 / 時間驅動的自動清理。
+> **2026-10 註記**：卡片模式已隨舊前端刪除。用戶 2026-10-04 決定繼續抓取並在介面顯示：
+> History 詳情面板的預覽卡、已加星與網站列的縮圖（§4）。後端（§3）不變。
 
 ---
 
@@ -24,7 +26,7 @@
   在 `og_image_blobs`。
 - HTTPS-only 的網路 fetch：解析 `<meta property="og:image:secure_url">` →
   `og:image` → `twitter:image` → `twitter:image:src`，HTTP body 上限 1 MiB、image
-  body 上限 2 MiB、單一 redirect、12 秒 total timeout。
+  body 上限 2 MiB、最多 8 次 redirect（每一跳都先過 SSRF 檢查）、15 秒 total timeout。
 - 顯式 fetch 狀態（`ok` / `missing` / `http_error` / `parse_error` / `too_large` /
   `unsupported_mime` / `blocked`）+ 負緩存 + 退避 refetch_after，避免 retry storm。
 - 使用者開關 `og_image.fetch_enabled`（預設 on）、per-domain blocklist、與四選一的清理
@@ -98,8 +100,10 @@ CREATE INDEX idx_og_images_last_shown   ON og_images(last_shown_at)   WHERE last
 
 ### Fetch 流程（`og_images_fetch.rs`）
 
-- `build_fetch_client()`：reqwest blocking client。UA `PathKeep/0.3 (link-preview;
-data-sovereignty)`、無 Referer、connect 8 s / total 12 s、最多 1 次 redirect、
+- `build_fetch_client()`：reqwest blocking client。UA 是桌面版 Chrome 127（Linux）的字串，
+  另帶 Chrome 會送的 `Accept-Language`、`Sec-Fetch-*` 與 `Sec-CH-UA*` 標頭（原本的
+  `PathKeep/0.3` UA 在約一半的測試網址被擋）；無 Referer、無 cookie、connect 10 s / total 15 s、
+  最多 8 次 redirect，每一跳先用 `net_guard::url_target_is_blocked` 檢查，指向非公開位址就停下不抓；
   https-only 由我們在進入點手動強制（http:// page URL 直接 `parse_error`）。
 - `fetch_og_image_for(client, page_url)` → `FetchedOgImage`：執行整條 pipeline，永遠
   回一個可持久化的結果（成功或負緩存）。
@@ -131,30 +135,57 @@ data-sovereignty)`、無 Referer、connect 8 s / total 12 s、最多 1 次 redir
 - 第一版採嚴格序列 fetch（單一 client、無 parallelism）。未來可加 per-host token
   bucket / parallelism cap，呼叫合約不變。
 
-## 4. 前端
+## 4. 前端（2026-10 redesign 之後）
 
-- `src/lib/backend-client/explorer.ts` + `src/lib/backend.ts`：6 個 typed methods
-  `loadHistoryOgImages` / `markOgImagesShown` / `triggerOgImageRefetch` /
-  `getOgImageStorageStats` / `clearOgImageCache` / `runOgImageCleanup`。
-- `src/pages/explorer/hooks/use-explorer-og-images.ts`：lazy hydration hook。
-  - 鏡像 `useExplorerFavicons` 的 dedup + inflight + cache-token 行為，但 key 只用 URL
-    （og:image 是 page-level，沒有 visit-time / profile scope）。
-  - debounced（1 s）批次呼叫 `markOgImagesShown`，把可見 URL 推進 LRU 訊號裡。
-  - `enabled` prop 讓 list mode 可以完全跳過整個 pipeline。
-- `src/components/explorer-paper/paper-contact-frame.tsx`：渲染順位 og:image > favicon
-  > domain swatch。og:image 在時，背景轉黑、`<img>` `object-cover` 填滿 16:10 區域、
-  > 加上頂底 scrim 讓 index / transition token 在任何圖上都可讀。
-- `src/pages/settings/link-previews-section.tsx`：Settings → Link previews
-  subsection。
-  - Fetch toggle 透過 `saveConfig` 寫 `AppConfig.ogImage.fetchEnabled`。
-  - 即時顯示 `getOgImageStorageStats` 結果。
-  - Run-cleanup / Clear-all（後者有 `window.confirm` guard）。
-  - 三語 i18n keys（`settings.linkPreviews*`）位於
-    `src/lib/i18n/catalog/settings-core-and-platform.ts`。
-- `src/pages/onboarding/ready-step.tsx`：onboarding Ready 步有一次性 egress 披露
-  （2026-07-26 加入）：如實說明連結預覽預設開啟、每次備份後會向造訪過的網站請求預覽圖
-  （Bilibili 經其公開 API）、不帶 cookie / 帳號資訊，並指向「設定 → 連結預覽」關閉或
-  改為按需。
+用戶 2026-10-04 決定：**繼續抓取，並在介面顯示**。History 有三個地方顯示 og:image：
+
+- **詳情面板的預覽卡**（`src/features/history/link-preview.tsx` 的 `LinkPreview`）：標題列與動作按鈕下方、
+  統計上方，固定 1.91 : 1、圓角、有邊框的框。從第一次繪製就是這個大小，圖片到了、或確定沒有圖，
+  周圍都不會移動。狀態與文案：
+  - 讀取中：網站圖示與網域的佔位，輕微脈動（`prefers-reduced-motion` 時不動）。
+  - `pending`（從沒抓過）且設定允許抓取：打開面板時對這一頁呼叫一次 `trigger_og_image_refetch`
+    （每頁每個 session 最多一次），期間寫「正在從 {網域} 取得預覽圖…」，結束後重讀。
+  - `ok`：圖片 `object-cover` 淡入；解碼完成才回報 `mark_og_images_shown`。
+  - `missing`：「這個頁面沒有提供預覽圖」；`blocked`：「這個網站的預覽圖已被封鎖」。
+  - `http://` 頁面：「只會為 HTTPS 頁面下載預覽圖」。
+  - 其他失敗（`http_error`、`parse_error`、`too_large`、`unsupported_mime`、圖片解碼失敗）：
+    「無法取得預覽圖」與「重試」（使用者明確要求才再抓一次）。
+  - 設定關閉抓取（`fetchEnabled` 為 false 或 `fetchMode` 為 `off`）而且沒有快取：「連結預覽已關閉」與
+    「去開啟」（連到 Settings → General）。已快取的圖仍會顯示，那不需要網路。
+- **已加星**與**網站**每列的縮圖（`PreviewThumb`，64 × 36）：有已存的圖就顯示，否則同一個框裡顯示網站圖示。
+  網站列用該網站最近一頁的網址。**列只讀不抓**：捲動清單不會對網站發出任何請求，
+  新頁面的圖靠備份後的 Background 預抓或打開詳情面板時那一次抓取。
+- **載入**（`src/features/history/og-image-store.ts`）：`load_history_og_images` 每批 8 個網址、
+  60 ms 合併一次（圖片以 data URL 傳回，數百 KB 一張，批次放大會讓 IPC 傳數十 MB）；
+  依網址快取約 120 筆，超過時淘汰最舊、而且沒有元件正在顯示的；`mark_og_images_shown` 每 2 秒批次送一次。
+  時間線與搜尋結果列不載入預覽圖，列表維持毫秒級。
+
+設定入口：
+
+- **Settings → General →「連結預覽」開關**（`src/features/settings/online-rows.tsx`）：
+  寫 `AppConfig.ogImage.fetchEnabled`；打開時若 `fetchMode` 是 `off`，同時改成
+  `background`。說明文字：「下載每頁提供的預覽圖，網站會看到一個來自你電腦的請求」。
+- **Settings → Storage →「連結預覽圖」**（`src/features/settings/storage-section.tsx`）：
+  張數與大小，「清除…」確認後呼叫 `clear_og_image_cache`。
+- **Settings → 背景工作 →「連結預覽」**（`src/features/settings/background/online-work-rows.tsx` 的
+  `LinkPreviewsRow`）：抓取開著時，用 `get_og_image_coverage_stats` 寫出多少網頁有預覽圖、已檢查幾個
+  （每次打開讀一次，不輪詢）；可選「何時抓取」（顯示時 / 每次備份後）與「保留圖片」（直到清除 / 30 天 /
+  90 天 / 最多 100 MB / 最多 500 MB），「立即清理」確認後呼叫 `run_og_image_cleanup`。抓取關著時只說明並連到
+  Settings → General。
+
+沒有 per-domain blocklist 介面。
+
+`src/lib/backend-client/explorer.ts` 的 typed methods 中，`loadHistoryOgImages`、`markOgImagesShown`、
+`triggerOgImageRefetch`、`getOgImageStorageStats`、`getOgImageCoverageStats`、`clearOgImageCache`、
+`runOgImageCleanup` 有呼叫者。沒有畫面用過的手動預抓命令 `prefetch_og_images` 於 2026-10-12 移除。
+
+onboarding 的完成步驟告知預設會下載每個頁面的預覽圖（「連網」一列），並說可在 Settings → General 關閉。
+
+E2E（`tests/e2e/history-tools.spec.ts`）量測預覽框在讀取中與最終狀態的大小一致、最終狀態與後端記錄的
+`fetch_status` 相符，並在傳輸層把一頁的回應換成一張 PNG，確認圖片畫出且回報 `mark_og_images_shown`；
+後端回傳 data URL 的路徑由 `load_og_images_collapses_duplicate_urls_via_tempdir_archive` 測試。
+
+真正的下載由 `tests/e2e/link-preview.spec.ts` 驗：測試在 127.0.0.1 開一個 HTTPS 網站（`support/preview-server.ts`，憑證由 `support/tls/ca.pem` 簽），把造訪寫進 Chrome 的歷史再備份；打開詳情時下載 og:image、畫出、之後不再向網站要；圖片網址轉址到 169.254.169.254 時在轉址那一步停下，詳情說拿不到預覽。E2E 的後端整個擋掉網路（`PATHKEEP_TEST_BLOCK_NETWORK`），只有 `PATHKEEP_TEST_PREVIEW_SERVER_CA` 指定憑證時，連結預覽可以連 `https://127.0.0.1`、並信任那張憑證；兩個開關都只在 debug 建置有效（`vault_core::test_support`），其他位址與其他種類的抓取照擋。
 
 ## 5. 與其他系統的互動
 
@@ -164,8 +195,7 @@ data-sovereignty)`、無 Referer、connect 8 s / total 12 s、最多 1 次 redir
 - **Schedule tick**：未來在 `schedule.rs` daily tick 接上 `run_og_image_cleanup`，
   在使用者選了 Time / Size / LRU 模式時自動回收；目前 `Off` 模式下 tick 仍跑一次
   orphan-blob GC，量級忽略不計。
-- **List mode**：列表模式只渲染 favicon，不觸發 og:image 抓取。`useExplorerOgImages`
-  在 list mode 接到 `enabled=false`。
+- **顯示**：History 詳情面板、已加星與網站列（見 §4）；背景抓取照設定進行。
 
 ## 6. 後續 backlog
 

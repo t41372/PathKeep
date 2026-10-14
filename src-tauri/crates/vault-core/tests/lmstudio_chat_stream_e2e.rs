@@ -36,7 +36,6 @@ fn lmstudio_runtime() -> AiProviderRuntime {
             temperature: Some(0.6),
             // Generous budget so the model finishes its reasoning AND emits the final answer
             // (gemma can spend hundreds of reasoning tokens before answering).
-            max_tokens: Some(2048),
             ..AiProviderConfig::default()
         },
         // LM Studio accepts any non-empty key.

@@ -8,58 +8,41 @@
 //! archive (migration 011), so every call respects the same encryption-key
 //! flow as the rest of the archive surfaces.
 
-use crate::context::load_unlocked_config;
 use anyhow::Result;
+use vault_core::Vault;
 use vault_core::{ReplaceTagsRequest, SetNotesRequest, UrlAnnotation};
 
 /// Reads the annotation bundle for a single URL. Returns `None` when no
 /// notes have been written and no tags are attached.
-pub fn get_annotation(
-    session_database_key: Option<&str>,
-    url: &str,
-) -> Result<Option<UrlAnnotation>> {
-    let paths = vault_core::project_paths()?;
-    let config = load_unlocked_config(&paths)?;
-    vault_core::get_annotation(&paths, &config, session_database_key, url)
+pub fn get_annotation(vault: &Vault, url: &str) -> Result<Option<UrlAnnotation>> {
+    vault_core::get_annotation(vault, url)
 }
 
 /// Sets or clears the notes body for a URL.
-pub fn set_notes(
-    session_database_key: Option<&str>,
-    request: SetNotesRequest,
-) -> Result<UrlAnnotation> {
-    let paths = vault_core::project_paths()?;
-    let config = load_unlocked_config(&paths)?;
-    vault_core::set_notes(&paths, &config, session_database_key, request)
+pub fn set_notes(vault: &Vault, request: SetNotesRequest) -> Result<UrlAnnotation> {
+    vault_core::set_notes(vault, request)
 }
 
 /// Replaces the full tag set for a URL.
-pub fn replace_tags(
-    session_database_key: Option<&str>,
-    request: ReplaceTagsRequest,
-) -> Result<UrlAnnotation> {
-    let paths = vault_core::project_paths()?;
-    let config = load_unlocked_config(&paths)?;
-    vault_core::replace_tags(&paths, &config, session_database_key, request)
+pub fn replace_tags(vault: &Vault, request: ReplaceTagsRequest) -> Result<UrlAnnotation> {
+    vault_core::replace_tags(vault, request)
 }
 
 /// Lists URLs that carry at least one annotation, newest-first.
 pub fn list_annotations(
-    session_database_key: Option<&str>,
+    vault: &Vault,
     limit: Option<usize>,
-) -> Result<Vec<UrlAnnotation>> {
-    let paths = vault_core::project_paths()?;
-    let config = load_unlocked_config(&paths)?;
-    vault_core::list_annotations(&paths, &config, session_database_key, limit)
+    cursor: Option<String>,
+) -> Result<vault_core::AnnotationPage> {
+    vault_core::list_annotations(vault, limit, cursor)
 }
 
 /// Searches notes by case-insensitive substring.
 pub fn search_annotations(
-    session_database_key: Option<&str>,
+    vault: &Vault,
     query: &str,
     limit: Option<usize>,
-) -> Result<Vec<UrlAnnotation>> {
-    let paths = vault_core::project_paths()?;
-    let config = load_unlocked_config(&paths)?;
-    vault_core::search_annotations(&paths, &config, session_database_key, query, limit)
+    cursor: Option<String>,
+) -> Result<vault_core::AnnotationPage> {
+    vault_core::search_annotations(vault, query, limit, cursor)
 }

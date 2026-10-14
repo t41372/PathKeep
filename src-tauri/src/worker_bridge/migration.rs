@@ -1,3 +1,8 @@
+//! Responsibilities: adapt portable migration and publish the installed owner session.
+//! Not responsible for: cryptography, ZIP validation or database copying.
+//! Failure modes: stale session after import, password serialized under the wrong name,
+//! progress/cancel blocked on SQL. Tests: worker_bridge migration round trip.
+//!
 //! Worker-bridge helpers for whole-app Export / Import.
 //!
 //! Adapts the `vault_worker::migration` surface to the string-error
@@ -10,26 +15,44 @@ use super::worker_result;
 use crate::command_error::CommandError;
 use std::path::PathBuf;
 
-#[cfg_attr(test, allow(dead_code))]
-pub(crate) fn export_app_data_impl(
-    session_database_key: Option<&str>,
-    target_path: PathBuf,
-) -> Result<vault_core::ExportedBundle, CommandError> {
-    worker_result(vault_worker::export_app_data(session_database_key, target_path))
+pub(crate) fn maintenance_progress_impl()
+-> Result<Option<vault_core::maintenance::Progress>, CommandError> {
+    worker_result(vault_worker::maintenance_progress())
+}
+pub(crate) fn cancel_maintenance_impl() -> Result<bool, CommandError> {
+    worker_result(vault_worker::cancel_maintenance())
 }
 
-#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn export_app_data_impl(
+    state: &crate::session::SessionState,
+    target_path: PathBuf,
+    export_password: String,
+) -> Result<vault_core::ExportedBundle, CommandError> {
+    worker_result(vault_worker::export_app_data(&state.vault()?, target_path, &export_password))
+}
+
 pub(crate) fn preview_app_data_import_impl(
     bundle_path: PathBuf,
 ) -> Result<vault_core::ImportPreview, CommandError> {
-    worker_result(vault_worker::preview_import(bundle_path))
+    let paths = worker_result(vault_core::project_paths())?;
+    worker_result(vault_worker::preview_import(&paths, bundle_path))
 }
 
-#[cfg_attr(test, allow(dead_code))]
 pub(crate) fn apply_app_data_import_impl(
-    session_database_key: Option<&str>,
+    state: &crate::session::SessionState,
     bundle_path: PathBuf,
     options: vault_core::ApplyImportOptions,
 ) -> Result<vault_core::ImportResult, CommandError> {
-    worker_result(vault_worker::apply_import(session_database_key, bundle_path, options))
+    let paths = worker_result(vault_core::project_paths())?;
+    let password = options.source_archive_key.clone();
+    let current = state.current_vault();
+    let (report, archive) = worker_result(vault_worker::apply_import(
+        &paths,
+        current.as_ref(),
+        state.owner(),
+        bundle_path,
+        options,
+    ))?;
+    worker_result(state.install_archive(archive, password))?;
+    Ok(report)
 }

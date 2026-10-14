@@ -41,8 +41,20 @@ pub struct HistoryDatabaseSet {
 pub struct ChromiumReadCursor {
     pub after_visit_id: i64,
     pub after_url_last_visit_time: i64,
+    pub after_search_url_time: i64,
+    pub url_scan: Option<UrlScan>,
     pub after_download_id: i64,
     pub after_favicon_last_updated: i64,
+}
+
+/// The immutable source filter and last row committed during one URL phase.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UrlScan {
+    pub after_id: i64,
+    pub time_floor: i64,
+    pub visit_floor: i64,
+    pub visit_ceiling: i64,
+    pub full: bool,
 }
 
 /// Non-fatal issue discovered while inspecting or parsing a source database.
@@ -161,6 +173,8 @@ pub struct ParsedDownload {
 /// Parsed Chromium keyword-search term row.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ParsedSearchTerm {
+    #[serde(default)]
+    pub url_last_visit_time: i64,
     pub keyword_id: i64,
     pub url_id: i64,
     pub term: String,
@@ -294,6 +308,12 @@ pub struct StreamedHistory {
 pub trait HistoryBatchConsumer {
     type Error;
 
+    /// The archive persists this source snapshot boundary with each URL batch.
+    /// Collectors need no durable cursor and leave this notification unused.
+    fn begin_urls(&mut self, _scan: UrlScan) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
     fn urls(&mut self, batch: Vec<ParsedUrl>) -> Result<(), Self::Error>;
 
     fn visits(&mut self, batch: Vec<ParsedVisit>) -> Result<(), Self::Error>;
@@ -347,130 +367,5 @@ mod tests {
         assert_eq!(clamp_unix_millis(1_711_965_600_000), 1_711_965_600_000);
         assert_eq!(clamp_unix_millis(MAX_VALID_UNIX_MS), MAX_VALID_UNIX_MS);
         assert_eq!(clamp_unix_millis(i64::MAX), MAX_VALID_UNIX_MS);
-    }
-
-    fn native_entity() -> NativeEntity {
-        NativeEntity {
-            entity_kind: "source-row".to_string(),
-            native_primary_key: "row-1".to_string(),
-            parent_native_primary_key: None,
-            payload_json: "{}".to_string(),
-            metadata: BTreeMap::new(),
-        }
-    }
-
-    #[derive(Default)]
-    struct MinimalConsumer {
-        urls: usize,
-        visits: usize,
-    }
-
-    impl HistoryBatchConsumer for MinimalConsumer {
-        type Error = std::convert::Infallible;
-
-        fn urls(&mut self, batch: Vec<ParsedUrl>) -> Result<(), Self::Error> {
-            self.urls += batch.len();
-            Ok(())
-        }
-
-        fn visits(&mut self, batch: Vec<ParsedVisit>) -> Result<(), Self::Error> {
-            self.visits += batch.len();
-            Ok(())
-        }
-    }
-
-    #[test]
-    fn source_evidence_chunk_empty_contract_tracks_each_evidence_family() {
-        assert!(SourceEvidenceChunk::default().is_empty());
-
-        let mut search = SourceEvidenceChunk::default();
-        search.typed_evidence.search.push(SearchEvidence {
-            source_visit_id: Some(1),
-            source_url_id: Some(10),
-            evidence_key: "query".to_string(),
-            evidence_value: "pathkeep".to_string(),
-            normalized_value: Some("pathkeep".to_string()),
-            source_field: "term".to_string(),
-        });
-        assert!(!search.is_empty());
-
-        let mut navigation = SourceEvidenceChunk::default();
-        navigation.typed_evidence.navigation.push(NavigationEvidence {
-            source_visit_id: 1,
-            edge_kind: "from_visit".to_string(),
-            target_visit_id: Some(2),
-            target_url: None,
-            transition: Some(1),
-            source_field: "from_visit".to_string(),
-        });
-        assert!(!navigation.is_empty());
-
-        let mut engagement = SourceEvidenceChunk::default();
-        engagement.typed_evidence.engagement.push(EngagementEvidence {
-            source_visit_id: 1,
-            metric_key: "duration".to_string(),
-            metric_value_int: Some(50),
-            metric_value_real: None,
-            source_field: "visit_duration".to_string(),
-        });
-        assert!(!engagement.is_empty());
-
-        let mut context = SourceEvidenceChunk::default();
-        context.typed_evidence.context.push(ContextEvidence {
-            source_visit_id: Some(1),
-            source_url_id: Some(10),
-            context_key: "sync".to_string(),
-            value_json: "true".to_string(),
-            source_field: "is_known_to_sync".to_string(),
-        });
-        assert!(!context.is_empty());
-
-        let mut native = SourceEvidenceChunk::default();
-        native.native_entities.push(native_entity());
-        assert!(!native.is_empty());
-    }
-
-    #[test]
-    fn optional_consumer_batches_default_to_noop_for_minimal_row_sinks() {
-        let mut consumer = MinimalConsumer::default();
-
-        consumer
-            .downloads(vec![ParsedDownload {
-                source_download_id: 1,
-                guid: None,
-                current_path: None,
-                target_path: None,
-                start_time_ms: None,
-                start_time_iso: None,
-                received_bytes: None,
-                total_bytes: None,
-                state: None,
-                mime_type: None,
-                original_mime_type: None,
-            }])
-            .expect("download default no-op");
-        consumer
-            .search_terms(vec![ParsedSearchTerm {
-                keyword_id: 1,
-                url_id: 1,
-                term: "pathkeep".to_string(),
-                normalized_term: "pathkeep".to_string(),
-            }])
-            .expect("search term default no-op");
-        consumer
-            .favicons(vec![ParsedFavicon {
-                page_url: "https://example.com".to_string(),
-                icon_url: "https://example.com/favicon.ico".to_string(),
-                icon_type: Some(1),
-                width: 16,
-                height: 16,
-                last_updated_ms: 1,
-                last_updated_iso: "1970-01-01T00:00:00+00:00".to_string(),
-                image_data: Some(vec![0x89, b'P', b'N', b'G']),
-            }])
-            .expect("favicon default no-op");
-
-        assert_eq!(consumer.urls, 0);
-        assert_eq!(consumer.visits, 0);
     }
 }

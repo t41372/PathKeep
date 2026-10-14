@@ -115,10 +115,12 @@ M14-B adds two deterministic query-expansion layers:
 - Small short-alias expansion before FTS: `gh -> github`, `yt -> youtube`,
   and `pr -> pull request`.
 - Latin typo fallback only when the normal FTS/trigram candidate count is zero.
-  The fallback asks the trigram table for an OR-of-trigrams candidate window,
-  caps that window at 200 URL documents and 400 visible visits, and then applies
-  repo-owned bounded edit distance in Rust. It does not run edit distance in SQL
-  and it does not scan canonical rows outside the FTS candidate window.
+  The fallback asks the search index for every page that shares at least one
+  trigram with the typo target. When the target is short enough that its allowed
+  edits could destroy every trigram, it also walks the pages that share none.
+  Each candidate is then checked with repo-owned bounded edit distance in Rust.
+  Nothing is sampled or capped, and edit distance never runs in SQL. See
+  [search.md](search.md).
 
 Explorer keyword input also accepts a local subset of Google-like advanced
 operators before lexical analysis:
@@ -153,10 +155,9 @@ Relevance uses FTS5 BM25 with title weighted above URL, and URL/search terms
 above compact/CJK support fields. Lower BM25 scores rank first; ties fall back
 to newest visit time and then visit id.
 
-Fuzzy fallback relevance uses Rust-side edit-distance scores with the same field
-intent: title beats URL, URL beats search terms, and compact substring support is
-lowest. Because the fallback is deliberately bounded, its `total` reflects the
-accepted candidate window, not a global approximate count.
+Fuzzy fallback relevance is the index score of the trigram match. The Rust-side
+edit distance only decides whether a page matches; it does not rank. Its `total`
+counts every visit that passes that check, like any other keyword search.
 
 Cursor behavior:
 

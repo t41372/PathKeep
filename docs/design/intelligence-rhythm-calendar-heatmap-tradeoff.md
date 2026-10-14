@@ -1,5 +1,7 @@
 # Browsing Rhythm 主图改成真实日期日历热力图 — Trade-off 决策
 
+> **2026-10-02 注记：** 本文描述 2026-10 之前的界面（Intelligence 旧页面已在 M18 redesign 删除），留作记录，不再是现行规格。现行画面见 [screens-and-nav.md](screens-and-nav.md)。
+
 > **状态：Accepted**
 > **日期：2026-04-19**
 > **范围：** `/intelligence` 的 `Browsing Rhythm` 主卡  

@@ -13,6 +13,7 @@
 mod discovery;
 mod paths;
 mod staging;
+pub(crate) use self::staging::stage_sqlite_file;
 
 use crate::{
     browser_retention::retention_boundary_for_browser,
@@ -29,25 +30,13 @@ use std::{
 };
 use tempfile::TempDir;
 
-pub use self::{
-    discovery::discover_profiles, paths::chrome_user_data_dir, staging::stage_profile_snapshot,
-};
+pub use self::{discovery::discover_profiles, staging::stage_profile_snapshot};
 
 #[cfg(test)]
 use self::{
-    discovery::{
-        direct_root_chromium_profile, discover_chromium_profiles, discover_firefox_profiles,
-        discover_safari_profile, fallback_chromium_profiles, history_access_state,
-        parse_firefox_profile_names,
-    },
-    paths::{
-        chromium_relative_paths, current_chromium_relative_paths, current_firefox_relative_paths,
-        default_chrome_user_data_dir, default_safari_root, discovery_overrides_active,
-        discovery_overrides_active_with, firefox_relative_paths, firefox_root_candidates,
-        should_discover_chromium_definition, should_discover_firefox, should_discover_safari,
-        windows_data_dirs,
-    },
-    staging::{copy_database_with_sidecars, recover_staged_database},
+    discovery::fallback_chromium_profiles,
+    paths::{chromium_relative_paths, firefox_relative_paths},
+    staging::copy_database_with_sidecars,
 };
 
 // Detection coverage is informed by the browser location patterns used in 1History
@@ -120,6 +109,23 @@ const FIREFOX_BROWSERS: [FirefoxBrowserDefinition; 4] = [
     FirefoxBrowserDefinition { key: "floorp", name: "Floorp" },
     FirefoxBrowserDefinition { key: "waterfox", name: "Waterfox" },
 ];
+
+/// User-visible browser name for a persisted `browser_kind`, matching discovery's `browser_name`.
+pub fn browser_display_name(browser_kind: &str) -> String {
+    let known = CHROMIUM_BROWSERS
+        .iter()
+        .find(|definition| definition.key == browser_kind)
+        .map(|definition| definition.name)
+        .or_else(|| {
+            FIREFOX_BROWSERS
+                .iter()
+                .find(|definition| definition.key == browser_kind)
+                .map(|definition| definition.name)
+        })
+        .or((browser_kind == "safari").then_some("Safari"))
+        .or((browser_kind == "takeout").then_some("Google Takeout"));
+    known.map_or_else(|| browser_kind.to_string(), str::to_string)
+}
 
 #[cfg(test)]
 mod tests;

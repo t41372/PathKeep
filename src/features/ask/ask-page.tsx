@@ -1,0 +1,277 @@
+/**
+ * Ask: chat with an assistant that searches the local archive.
+ *
+ * Responsibilities: opening, starting and deleting conversations, wiring the
+ * list, transcript and composer together, and the setup prompt when no AI
+ * service is set up (saved conversations stay readable then). Streaming lives in `use-chat.ts`; saved conversations in
+ * `conversations.ts`. Not responsible for configuring providers (Settings → AI).
+ */
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
+import { toast } from 'sonner'
+import { TitleBarStrip } from '@/components/app/title-bar'
+import { Skeleton } from '@/components/ui/skeleton'
+import { intelligenceClient } from '@/lib/backend-client/intelligence'
+import { useI18n } from '@/lib/i18n'
+import { useSnapshot } from '@/lib/queries/app'
+import type { AiProviderConfig } from '@/lib/types'
+import {
+  isLocalProvider,
+  usableAssistantProviders,
+} from '../ai-setup/providers'
+import { AssistantTurn } from './assistant-turn'
+import { fromAgentMessage } from './chat-model'
+import { Composer } from './composer'
+import { ModelPicker, type ModelChoice } from './model-picker'
+import { ConversationList } from './conversation-list'
+import { conversationsKey, useConversations } from './conversations'
+import { AssistantSetup, StarterEmpty } from './empty-states'
+import { useChat } from './use-chat'
+import { UserTurn } from './user-turn'
+import { useStickToBottom } from './use-stick-to-bottom'
+
+export default function AskPage() {
+  const snapshot = useSnapshot()
+  // Without a service there is no one to ask, but saved conversations are the user's and stay
+  // readable: after an upgrade, or with AI turned off, they are still here.
+  return (
+    <AskChat
+      services={usableAssistantProviders(snapshot.config.ai)}
+      systemPrompt={snapshot.config.ai.assistantSystemPrompt}
+    />
+  )
+}
+
+const contextKey = ['ask-context'] as const
+
+function AskChat({
+  services,
+  systemPrompt,
+}: {
+  /** Empty when no AI service is set up: conversations can be read, not continued. */
+  services: readonly AiProviderConfig[]
+  systemPrompt: string
+}) {
+  const { t } = useI18n()
+  const client = useQueryClient()
+  // Which model answers next: the one picked beside the composer, else the one the open
+  // conversation last answered with, else Settings' choice.
+  const fallback = services[0]
+  const [picked, setPicked] = useState<ModelChoice | null>(null)
+  const choice: ModelChoice | null =
+    picked && services.some((service) => service.id === picked.providerId)
+      ? picked
+      : fallback
+        ? { providerId: fallback.id, model: fallback.defaultModel }
+        : null
+  const service = services.find((item) => item.id === choice?.providerId)
+  const providerId = choice?.providerId ?? null
+  const remoteName = service && !isLocalProvider(service) ? service.name : null
+  const context = useQuery({
+    queryKey: [...contextKey, choice?.providerId, choice?.model],
+    queryFn: () =>
+      intelligenceClient.chatContext({
+        providerId: choice?.providerId,
+        model: choice?.model,
+      }),
+    enabled: choice !== null,
+    staleTime: 30_000,
+  })
+  const conversations = useConversations()
+  const [params, setParams] = useSearchParams()
+  const [opening, setOpening] = useState(false)
+  const openToken = useRef(0)
+  const { scrollRef, contentRef, onScroll, pin } = useStickToBottom()
+
+  const chat = useChat({
+    providerId: providerId ?? '',
+    model: choice?.model ?? null,
+    systemPrompt,
+    titleFor: (id) => conversations.data?.find((item) => item.id === id)?.title,
+    onSaved: () => {
+      void client.invalidateQueries({ queryKey: conversationsKey })
+      // The service may have loaded the model for this answer: its context is known now.
+      void client.invalidateQueries({ queryKey: contextKey })
+    },
+  })
+  const { open, startNew, send } = chat
+
+  const startFresh = useCallback(() => {
+    openToken.current += 1
+    setOpening(false)
+    startNew()
+  }, [startNew])
+
+  const openConversation = useCallback(
+    async (id: string) => {
+      const token = ++openToken.current
+      setOpening(true)
+      try {
+        const detail = await intelligenceClient.loadConversation(id)
+        if (token !== openToken.current) return
+        if (!detail) throw new Error('missing')
+        const turns = detail.messages.map(fromAgentMessage)
+        open(id, turns)
+        // Go on with the model the conversation last answered with, when it is still offered.
+        const last = turns.findLast((turn) => turn.model && turn.providerId)
+        setPicked(
+          last?.model && last.providerId
+            ? { providerId: last.providerId, model: last.model }
+            : null,
+        )
+        pin()
+      } catch {
+        if (token === openToken.current) toast.error(t('ask.loadFailed'))
+      } finally {
+        if (token === openToken.current) setOpening(false)
+      }
+    },
+    [open, pin, t],
+  )
+
+  // The command palette links to /ask?new=1; an Insights card to
+  // /ask?q=<its question>, which waits in a new chat for the user to send it.
+  // Ask is not on screen when a card links here, so it reads `q` as it mounts.
+  const [question] = useState(() => params.get('q') ?? '')
+  useEffect(() => {
+    if (params.get('new') !== '1' && !params.get('q')) return
+    startFresh()
+    setParams({}, { replace: true })
+  }, [params, setParams, startFresh])
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'n') {
+        event.preventDefault()
+        startFresh()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [startFresh])
+
+  const submit = (text: string) => {
+    pin()
+    send(text)
+  }
+
+  const firstQuestion =
+    chat.turns.find((turn) => turn.role === 'user')?.content ?? ''
+  const lastIndex = chat.turns.length - 1
+
+  return (
+    <div className="flex min-w-0 flex-1">
+      <ConversationList
+        conversations={conversations}
+        activeId={chat.conversationId}
+        draftTitle={firstQuestion.slice(0, 60)}
+        onSelect={(id) => {
+          if (id !== chat.conversationId) void openConversation(id)
+        }}
+        onNew={startFresh}
+        onDeleted={(id) => {
+          if (id === chat.conversationId) startFresh()
+        }}
+      />
+      <div className="flex min-w-0 flex-1 flex-col">
+        <div
+          ref={scrollRef}
+          onScroll={onScroll}
+          className="flex-1 overflow-y-auto"
+        >
+          <TitleBarStrip />
+          <div ref={contentRef}>
+            {opening ? (
+              <OpeningSkeleton label={t('ask.loadingConversation')} />
+            ) : chat.turns.length === 0 ? (
+              providerId ? (
+                <StarterEmpty remoteProvider={remoteName} onPick={submit} />
+              ) : (
+                <AssistantSetup />
+              )
+            ) : (
+              <div className="mx-auto flex max-w-[760px] flex-col gap-5 px-8 py-7">
+                {chat.turns.map((turn, index) =>
+                  turn.role === 'user' ? (
+                    <UserTurn
+                      key={turn.id}
+                      turn={turn}
+                      canEdit={providerId !== null && !chat.streaming}
+                      dropsLater={index < lastIndex}
+                      onEdit={(text) => {
+                        pin()
+                        chat.edit(turn.id, text)
+                      }}
+                    />
+                  ) : (
+                    <AssistantTurn
+                      key={turn.id}
+                      turn={turn}
+                      canRetry={
+                        providerId !== null &&
+                        index === lastIndex &&
+                        !chat.streaming
+                      }
+                      onRetry={chat.retry}
+                    />
+                  ),
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+        {choice ? (
+          <Composer
+            initialText={question}
+            streaming={chat.streaming}
+            picker={
+              <ModelPicker
+                services={services}
+                value={choice}
+                onChange={setPicked}
+                disabled={chat.streaming}
+              />
+            }
+            context={
+              context.data
+                ? {
+                    turns: chat.turns,
+                    fixedTokens: context.data.fixedTokens,
+                    contextLength: context.data.contextLength,
+                    service: service?.name ?? '',
+                  }
+                : null
+            }
+            onSend={submit}
+            onStop={chat.stop}
+            focusKey={chat.conversationId}
+          />
+        ) : (
+          chat.turns.length > 0 && (
+            <p className="border-t px-8 py-4 text-center text-[13px] text-muted-foreground">
+              {t('ask.setup.toContinue')}{' '}
+              <Link to="/settings/ai" className="text-foreground underline">
+                {t('ask.setup.action')}
+              </Link>
+            </p>
+          )
+        )}
+      </div>
+    </div>
+  )
+}
+
+function OpeningSkeleton({ label }: { label: string }) {
+  return (
+    <div
+      role="status"
+      aria-label={label}
+      className="mx-auto flex max-w-[760px] flex-col gap-4 px-8 py-7"
+    >
+      <Skeleton className="h-10 w-1/2 self-end rounded-[18px]" />
+      <Skeleton className="h-5 w-40" />
+      <Skeleton className="h-24 rounded-xl" />
+    </div>
+  )
+}

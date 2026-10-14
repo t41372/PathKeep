@@ -9,14 +9,14 @@
 //! whether an index library is later warranted. It measures, at synthetic 1M / 5M / 14.4M scales:
 //! - recall@10 (binary-recall + int8-rescore vs exact f32 brute force, over a query sample),
 //! - latency (recall stage + rescore stage, p50 / p95), AND the FULL interactive path latency that
-//!   adds the keyed `.pkmap` hydration seek (M-11): the prior bench timed ONLY `index.search(...)` and
+//!   adds the keyed `.pkmap` hydration seek: the prior bench timed ONLY `index.search(...)` and
 //!   never touched the `.pkmap`, so the published numbers EXCLUDED the second corpus-sized pass the old
 //!   O(n) hydration scan paid. The keyed `.pkrev` sidecar replaces that scan with O(k'·log n) binary
 //!   seeks; this bench now times `search + keyed hydration` so the reported latency reflects reality,
 //! - REAL resident RAM of the binary plane — the ONLY RAM-resident plane — including the Rust
 //!   `(u64, Vec<u8>)` per-vector overhead, not just the packed `n × ceil(dim/8)` bytes (E1),
-//! - int8 plane on-disk size (the int8 plane is now genuinely on-disk, seeked per candidate, C1),
-//! - plane build (projection) time + the fact that build peak RAM is now STREAMING-bounded (C2),
+//! - int8 plane on-disk size (the int8 plane is now genuinely on-disk, seeked per candidate),
+//! - plane build (projection) time + the fact that build peak RAM is now STREAMING-bounded,
 //! - a small full-n exact-recall PROBE (a handful of queries brute-forced at the TRUE n) so recall@k'
 //!   is reported at real scale, not only on the sub-sample (E2).
 //!
@@ -35,9 +35,9 @@ use std::collections::HashSet;
 use std::time::Instant;
 use vault_core::{
     BinaryPlane, EmbeddingDtype, EmbeddingFingerprint, EmbeddingPooling, FlatVectorIndex,
-    Int8Plane, RECALL_EXPANSION, RECALL_FLOOR, ReverseVisitMap, VectorIndex, VectorStore,
-    VisitContentMap, binarize, binary_bytes_for_dim, build_planes_from_store, dot_product,
-    hamming_distance, project_paths_with_root,
+    Int8Plane, ReverseVisitMap, VectorIndex, VectorStore, VisitContentMap, binarize,
+    binary_bytes_for_dim, build_planes_from_store, dot_product, hamming_distance,
+    project_paths_with_root,
 };
 
 /// Default scales swept when `PATHKEEP_S2_SCALES` is unset (1M / 5M / 14.4M, the 05 §3 envelope).
@@ -188,9 +188,7 @@ fn s2_flat_vector_index_scale_benchmark() {
     println!(
         "dim={dim}  queries={query_count}  exact_sample={exact_sample}  full_probes={full_probes}  top_k={TOP_K}  scales={scales:?}"
     );
-    println!(
-        "recall pool k' = max(top_k * {RECALL_EXPANSION}, RECALL_FLOOR={RECALL_FLOOR}) capped at n"
-    );
+    println!("all vectors are scored before output top-k selection");
     println!(
         "binary plane resident = {} (struct) + {} (packed bits) B/vec; int8 plane ON-DISK = {} B/vec (+ scale); f32 source = {} B/vec",
         binary_overhead,
@@ -239,7 +237,7 @@ fn run_scale(
     let build_secs = build_start.elapsed().as_secs_f64();
     assert_eq!(index.len(), n);
 
-    // REAL resident RAM of the binary plane (the only plane held resident at query time, C1): the Rust
+    // REAL resident RAM of the binary plane (the only plane held resident at query time): the Rust
     // `(u64, Vec<u8>)` struct overhead PLUS the packed bits, per vector — not just the packed bytes.
     // This is the honest footprint the 8 GB envelope must hold (E1).
     let binary_ram = (n as u64) * (binary_overhead + binary_bytes_for_dim(dim)) as u64;
@@ -300,8 +298,8 @@ fn run_scale(
     // recall@10 over the sampled population: flat (binary recall + int8 rescore) vs exact f32. We also
     // report the BINARY-RECALL coverage (does the stage-1 pool of k' candidates contain the exact
     // top-10?) so the report attributes any miss to recall (stage 1) vs rescore (stage 2). The pool is
-    // the SAME `max(k * expansion, RECALL_FLOOR)` the engine uses (X-1), capped at the sampled size.
-    let recall_pool = (TOP_K * RECALL_EXPANSION).max(RECALL_FLOOR).min(sample_n);
+    // the complete candidate set the search engine now scores.
+    let recall_pool = sample_n;
     let mut recall_hits = 0usize;
     let mut recall_total = 0usize;
     let mut binary_coverage_hits = 0usize;
@@ -376,7 +374,7 @@ fn run_scale(
     // On-disk plane projection: int8 size + build time + STREAMING build peak, via the real `.pkvec` ->
     // plane pipeline. We project the SAMPLE subset (projecting full n would duplicate the whole corpus
     // on disk); int8 size per vector is constant, so we report per-vector + extrapolate to n. The
-    // projection now STREAMS the `.pkvec` source straight into both plane writers (C2), so build peak
+    // projection now STREAMS the `.pkvec` source straight into both plane writers, so build peak
     // RAM is bounded by the dedup key-set + write buffers + one f32 record — CONSTANT in dim, O(keys)
     // not O(n·dim), i.e. it never materializes the ~14.7 GB f32 SET the old `read_all` path held.
     let temp = tempfile::tempdir().expect("tempdir");
@@ -397,7 +395,7 @@ fn run_scale(
     let project_secs = project_start.elapsed().as_secs_f64();
     assert_eq!(report.vectors, sample_n);
 
-    // M-11: build the per-VISIT `.pkmap` + the keyed `.pkrev`/`.pkfwd` sidecars for the sample so the
+    // Build the per-VISIT `.pkmap` + the keyed `.pkrev`/`.pkfwd` sidecars for the sample so the
     // FULL interactive-path latency below includes the hydration seek the old bench omitted. Each
     // content_key fans out to `MAP_FANOUT` visits (the per-visit map does NOT shrink with dedup, so the
     // sidecar is the realistic shape: a deduped vector mapping back to several visits). The sidecar's
@@ -433,7 +431,7 @@ fn run_scale(
         / (sample_n.max(1) * MAP_FANOUT as usize) as f64;
 
     // FULL interactive-path latency: `index.search` + the keyed hydration seek that resolves the result
-    // content_keys → visits via the `.pkrev` binary search (the M-11 always-on path). This is the
+    // content_keys → visits via the `.pkrev` binary search (the always-on path). This is the
     // number that reflects what a user actually waits for; the search-only `p50/p95` above is the
     // recall+rescore component, and the delta is the keyed hydration cost.
     let mut full_path_us: Vec<f64> = Vec::with_capacity(query_count);
@@ -486,7 +484,7 @@ fn run_scale(
     );
     println!("search latency (2-stage, k={TOP_K}) : p50 {p50:.0} us   p95 {p95:.0} us");
     println!(
-        "FULL interactive latency (search + keyed `.pkrev` hydration seek, M-11) : p50 {full_p50:.0} us   p95 {full_p95:.0} us  [keyed hydration adds the O(k'·log n) seek; the OLD O(n) `.pkmap` scan would have ~DOUBLED this]"
+        "FULL interactive latency (search + keyed `.pkrev` hydration seek) : p50 {full_p50:.0} us   p95 {full_p95:.0} us  [keyed hydration adds the O(k'·log n) seek; the OLD O(n) `.pkmap` scan would have ~DOUBLED this]"
     );
     println!(
         "keyed sidecars (.pkrev+.pkfwd) : {:.0} B/visit-record  build {:.3} s / {} records (sample, fan-out {MAP_FANOUT})  [on-disk, binary-searched, NOT resident]",

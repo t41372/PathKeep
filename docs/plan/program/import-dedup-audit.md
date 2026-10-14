@@ -1,7 +1,7 @@
 # Import & Dedup Architecture Audit
 
 > Written 2026-05-25 as the foundation for `WORK-IMPORT-TEST-HARNESS-A`.
-> Source of truth: the code at the commits referenced below. Scenarios cited
+> Source of truth: the code. Scenarios cited
 > here are observable behaviors, not speculation — every claim has a file:line.
 
 This audit answers one question: **when a user imports browser history into
@@ -45,13 +45,19 @@ key. The schema **cannot** merge two records that come from different
 `source_profiles` rows. Cross-browser aggregation must happen at read time
 (view layer), not at ingest.
 
+> 2026-10-09: superseded for Takeout by [same-visit-across-sources.md](../../architecture/same-visit-across-sources.md)
+> (user decision: keep every record, count the same visit once). The dedup keys above stay
+> per profile; the same visit across sources is linked at write time (`same_as`), and the
+> copies that are not its stand-in are hidden the way an undone import is, so reads need no
+> change. Two live browsers stay separate.
+
 ---
 
 ## 2. Confirmed Bugs (ranked by likely user impact)
 
 ### B1 — URL upsert silently overwrites counts with older data — FIXED
 
-**Fixed in commit 6884c10d.** The URL upsert at
+**Fixed.** The URL upsert at
 [writes.rs:123-145](../../../src-tauri/crates/vault-core/src/archive/ingest/writes.rs)
 now uses:
 
@@ -59,7 +65,7 @@ now uses:
 - `MAX(urls.typed_count, excluded.typed_count)` for `typed_count`
 - `CASE WHEN excluded.last_visit_ms >= urls.last_visit_ms` for `title` and `hidden`
 
-The same commit also fixed B2 (Firefox long-tail revisit) and B3 (Takeout
+The same change also fixed B2 (Firefox long-tail revisit) and B3 (Takeout
 path-bound source_visit_id). The C4 scenario
 [`c4_chromium_reimport_older_snapshot_regresses_visit_count_demonstrates_b1`](../../src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios.rs)
 is now a plain `#[test]` (no longer `#[should_panic]`) and asserts all four
@@ -68,7 +74,7 @@ without regression.
 
 ### B2 — Firefox incremental re-import drops long-tail revisits (Safari unaffected) — FIXED
 
-**Fixed in commit 6884c10d** (same commit as B1).
+**Fixed** together with B1.
 
 Chromium fixed this via the `OR id IN (SELECT DISTINCT url FROM visits WHERE id > ?2)`
 clause at [chromium/mod.rs:74-90](../../../src-tauri/crates/browser-history-parser/src/chromium/mod.rs).
@@ -103,7 +109,7 @@ to the identical pattern.
 
 ### B3 — Takeout `source_visit_id` is bound to file path (degraded defense) — FIXED
 
-**Fixed in commit 6884c10d** (same commit as B1 and B2).
+**Fixed** together with B1 and B2.
 
 [takeout/browser_history.rs:339](../../../src-tauri/crates/browser-history-parser/src/takeout/browser_history.rs):
 
@@ -158,7 +164,7 @@ within the same source_profile.
 
 ### B5 — Takeout `stable_key_i64` is collision-prone at scale — ✅ RESOLVED 2026-06-14
 
-**Status:** Fixed (review-pipeline 2026-06-14, finding R-HASH). The original hash:
+**Status:** Fixed 2026-06-14. The original hash:
 
 ```rust
 fn stable_key_i64(bytes: &[u8]) -> i64 {
@@ -469,7 +475,7 @@ Maps to scenarios that will be enumerated in
 | E9 — `hidden` URL flag round-trip                  | [`e9_hidden_url_flag_round_trips_for_both_true_and_false`](../../../src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios_edge_cases/unicode_and_flags.rs)                                        | `hidden = true` source URL (Chrome redirect intermediates) lands as non-zero in archive; `hidden = false` lands as 0. Pins flag-preservation contract that C-series didn't exercise.                                                                                             |
 | E10 — Chromium visit_count zero/nonzero            | [`e10_chromium_visit_counts_round_trip_for_zero_and_nonzero_urls`](../../../src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios_edge_cases/minor_data_integrity.rs)                             | Chrome URL rows with `visit_count = 0` and `visit_count = 7` preserve their lifetime counts and typed counts, even when the zero-count URL has no visit row.                                                                                                                     |
 | E11 — Chromium dangling from_visit                 | [`e11_chromium_dangling_from_visit_is_preserved_verbatim`](../../../src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios_edge_cases/minor_data_integrity.rs)                                     | A `from_visit` value pointing at a missing source visit is stored as-is instead of being rewritten to NULL/0, pinning current referential-evidence behavior.                                                                                                                     |
-| E12 — Chromium visit duration value                | [`e12_chromium_visit_duration_value_is_preserved_verbatim`](../../../src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios_edge_cases/minor_data_integrity.rs)                                    | The source `visits.visit_duration` value passes through to archive `visits.visit_duration_ms` unchanged; this pins current value-preservation semantics.                                                                                                                         |
+| E12 — Chromium visit duration value                | [`e12_chromium_visit_duration_is_stored_in_milliseconds`](../../../src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios_edge_cases/minor_data_integrity.rs)                                      | Chromium's `visits.visit_duration` (microseconds) lands in archive `visits.visit_duration_ms` divided by 1000 (2026-10-09; it used to pass through unchanged, so every duration read 1000× too long — see `docs/architecture/visit-duration-unit-tradeoff.md`).                  |
 | E13 — Safari synthesized context evidence          | [`e13_safari_synthesized_context_evidence_persists_boolean_value`](../../../src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios_edge_cases/minor_data_integrity.rs)                             | Current-schema Safari `history_visits.synthesized = 1` persists to cold `visit_context_evidence` as `context_key = safari.synthesized`, `value_json = true`, with source visit/url ids preserved.                                                                                |
 | E14 — Firefox visit_type passthrough               | [`e14_firefox_visit_type_enum_lands_as_transition_type_without_normalization`](../../../src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios_edge_cases/minor_data_integrity.rs)                 | Firefox `moz_historyvisits.visit_type` values land in archive `visits.transition_type` unchanged, rather than being normalized to Chromium transition values.                                                                                                                    |
 | T6 — Chromium downloads sidecar                    | [`t6_chromium_downloads_round_trip_to_archive_downloads_table`](../../src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios_chromium_sidecars.rs)                                                 | Chromium `downloads` rows produced by the fixture writer land in archive `downloads` with source id, paths, byte counts, state, MIME fields, and Unix-ms start time preserved.                                                                                                   |
@@ -484,10 +490,10 @@ Maps to scenarios that will be enumerated in
 
 | Bug                                                                     | Scenario                                                                                                                                                            | Status                                                                                                                                                                                     |
 | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| B1 URL upsert regresses counts                                          | [`c4_chromium_reimport_older_snapshot_regresses_visit_count_demonstrates_b1`](../../src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios.rs)              | **FIXED** (6884c10d) — now a plain `#[test]` asserting `visit_count`, `typed_count`, `title`, and `hidden` all survive re-import without regression                                        |
-| B2 Firefox long-tail revisit drop                                       | [`f2_firefox_incremental_revisit_of_old_url_drops_visit_demonstrates_b2`](../../src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios_baselines.rs)        | **FIXED** (6884c10d) — Firefox URL stream now has the OR fallback                                                                                                                          |
+| B1 URL upsert regresses counts                                          | [`c4_chromium_reimport_older_snapshot_regresses_visit_count_demonstrates_b1`](../../src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios.rs)              | **FIXED** — now a plain `#[test]` asserting `visit_count`, `typed_count`, `title`, and `hidden` all survive re-import without regression                                                   |
+| B2 Firefox long-tail revisit drop                                       | [`f2_firefox_incremental_revisit_of_old_url_drops_visit_demonstrates_b2`](../../src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios_baselines.rs)        | **FIXED** — Firefox URL stream now has the OR fallback                                                                                                                                     |
 | B2 Safari long-tail revisit drop                                        | n/a — refuted                                                                                                                                                       | Original audit claim corrected. Safari has no cached last-visit column to lag; see [`s2_...`](../../src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios_baselines.rs) contract. |
-| B3 Takeout path-bound source_visit_id (narrow case — fingerprint drift) | [`t2b_takeout_rename_with_title_change_demonstrates_b3_when_fingerprint_diverges`](../../src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios_takeout.rs) | **FIXED** (6884c10d) — fix landed in same commit as B1 and B2                                                                                                                              |
+| B3 Takeout path-bound source_visit_id (narrow case — fingerprint drift) | [`t2b_takeout_rename_with_title_change_demonstrates_b3_when_fingerprint_diverges`](../../src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios_takeout.rs) | **FIXED** — fixed together with B1 and B2                                                                                                                                                  |
 | B4 Takeout × local Chrome double-count                                  | [`t3_takeout_and_local_chrome_same_period_b4_contract`](../../src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios_takeout.rs)                            | Contract test — by-design per-profile storage; reframed from "bug" to "design constraint for any future cross-source dedup proposal"                                                       |
 | B5 Takeout hash collision at scale                                      | T4 (deferred to a dedicated scale-test slice)                                                                                                                       | needs million-record fixture infrastructure separate from per-scenario harness                                                                                                             |
 | B6 Takeout time unit ambiguity                                          | [`t5_takeout_time_usec_pinned_as_unix_microseconds_b6_contract`](../../src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios_takeout.rs)                   | Contract test pins current Unix-microseconds interpretation; the audit's "what does Google really ship" question stays open until a real-world sample lands                                |

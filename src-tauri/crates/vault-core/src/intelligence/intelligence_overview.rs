@@ -1,3 +1,5 @@
+//! Failure modes: reads write schemas, a query escapes its owner, stale scopes leak,
+//! or bounded results lose continuation. Native render-path and paging tests cover these.
 //! `/intelligence` staged overview read models.
 //!
 //! ## Responsibilities
@@ -24,33 +26,32 @@
 //!   honest staged-loading metadata without reopening data sources.
 
 use super::{
-    ensure_core_intelligence_schema,
-    intelligence_overview_snapshot::{OverviewBand, is_all_time_range, resolve_overview_snapshot},
+    intelligence_overview_snapshot::{
+        OverviewBand, is_all_time_range, resolve_overview_snapshot, snapshot_key,
+    },
     intelligence_refind::{get_refind_pages_with_connection, get_top_sites_with_connection},
     intelligence_search_metrics::{
         get_search_engine_ranking_with_connection, get_top_search_concepts_with_connection,
     },
     intelligence_search_queries::get_query_families_with_connection,
+    intelligence_summary::fill_sections_evidence,
     phase_four, phase_three,
+    site_days::SiteDayCache,
 };
 use crate::{
-    archive::open_intelligence_connection,
-    config::ProjectPaths,
     intelligence_runtime::load_intelligence_runtime_from_connection,
-    intelligence_sections::build_core_intelligence_section_meta_with_runtime,
+    intelligence_sections::build_core_intelligence_section_meta_with_modules,
     models::{
-        AppConfig, CoreIntelligencePrimaryOverview, CoreIntelligenceSecondaryOverview,
+        CoreIntelligencePrimaryOverview, CoreIntelligenceSecondaryOverview,
         CoreIntelligenceSectionResult, CoreIntelligenceSectionTiming,
         CoreIntelligenceSectionWindow, GranularityDateRangeRequest, IntelligenceRuntimeSnapshot,
-        PagedDateRangeRequest, PathFlowRequest, ProfileScopedRequest, RefindPagesRequest,
-        ScopedDateRangeRequest, SearchEffectivenessRequest, TopSearchConceptsRequest,
-        TopSitesRequest,
+        PagedDateRangeRequest, PathFlowRequest, RefindPagesRequest, ScopedDateRangeRequest,
+        SearchEffectivenessRequest, TopSearchConceptsRequest, TopSitesRequest,
     },
 };
 use anyhow::Result;
-use chrono::Local;
-use rusqlite::Connection;
 use std::time::Instant;
+use vault_store::Session;
 
 /// Loads the first-band `/intelligence` payload that has to be ready for the
 /// initial route paint.
@@ -59,67 +60,135 @@ use std::time::Instant;
 /// snapshot so the shell does not pay repeated open/close costs while staging
 /// the top row of cards.
 pub fn get_intelligence_primary_overview(
-    paths: &ProjectPaths,
-    config: &AppConfig,
-    key: Option<&str>,
+    vault: &crate::Vault,
     request: &ScopedDateRangeRequest,
 ) -> Result<CoreIntelligencePrimaryOverview> {
-    let mut connection = open_intelligence_connection(paths, config, key)?;
-    ensure_core_intelligence_schema(&connection)?;
-    let runtime = load_intelligence_runtime_from_connection(&mut connection, paths, config)?;
-    if is_all_time_range(&request.date_range) {
-        // All-time aggregates over the full archive are the heaviest scope, so
-        // serve a persisted snapshot whenever the archive fingerprint is stable
-        // and only recompute when the data actually changed.
-        return resolve_overview_snapshot(&connection, OverviewBand::Primary, request, || {
-            build_intelligence_primary_overview_with_connection(&connection, &runtime, request)
-        });
-    }
-    build_intelligence_primary_overview_with_connection(&connection, &runtime, request)
+    let paths = vault.paths().clone();
+    let config = vault.config().clone();
+    let cache = vault.site_days().clone();
+    let request = request.clone();
+    vault.read(vault_store::Db::Intelligence, move |connection| {
+        let paths = &paths;
+        let config = &config;
+        let request = &request;
+        let cache = &cache;
+
+        let runtime = load_intelligence_runtime_from_connection(connection, paths, config)?;
+        let payload = if snapshot_key(connection, request)?.is_some() {
+            // All time and the recent ranges are the scopes the page opens on, so serve a kept
+            // snapshot whenever the archive fingerprint is stable and only recompute when the
+            // data actually changed.
+            let mut payload: CoreIntelligencePrimaryOverview =
+                resolve_overview_snapshot(connection, OverviewBand::Primary, request, || {
+                    build_intelligence_primary_overview_with_connection(
+                        connection, cache, &runtime, request,
+                    )
+                })?;
+            // A recent range's snapshot is from today; all time's may be from any day.
+            if is_all_time_range(&request.date_range) {
+                refresh_for_today(connection, &runtime, request, &mut payload)?;
+            }
+            for meta in primary_metas(&mut payload) {
+                refresh_module_meta(meta, &runtime)?;
+            }
+            payload
+        } else {
+            build_intelligence_primary_overview_with_connection(
+                connection, cache, &runtime, request,
+            )?
+        };
+        Ok(payload)
+    })
+}
+
+/// Every section of the first batch: what is redone on each read, and what gets its evidence.
+fn primary_metas(
+    payload: &mut CoreIntelligencePrimaryOverview,
+) -> [&mut crate::models::CoreIntelligenceSectionMeta; 11] {
+    [
+        &mut payload.digest_summary.meta,
+        &mut payload.on_this_day.meta,
+        &mut payload.top_sites.meta,
+        &mut payload.refind_pages.meta,
+        &mut payload.search_engine_ranking.meta,
+        &mut payload.top_search_concepts.meta,
+        &mut payload.query_families.meta,
+        &mut payload.activity_mix.meta,
+        &mut payload.discovery_trend_day.meta,
+        &mut payload.habit_patterns.meta,
+        &mut payload.interrupted_habits.meta,
+    ]
+}
+
+/// Every section of the second batch.
+fn secondary_metas(
+    payload: &mut CoreIntelligenceSecondaryOverview,
+) -> [&mut crate::models::CoreIntelligenceSectionMeta; 10] {
+    [
+        &mut payload.stable_sources.meta,
+        &mut payload.search_effectiveness.meta,
+        &mut payload.friction_signals.meta,
+        &mut payload.reopened_investigations.meta,
+        &mut payload.discovery_trend_week.meta,
+        &mut payload.breadth_index.meta,
+        &mut payload.path_flows.meta,
+        &mut payload.compare_sets.meta,
+        &mut payload.multi_browser_diff.meta,
+        &mut payload.observed_interactions.meta,
+    ]
 }
 
 fn build_intelligence_primary_overview_with_connection(
-    connection: &Connection,
+    connection: &Session<'_>,
+    cache: &SiteDayCache,
     runtime: &IntelligenceRuntimeSnapshot,
     request: &ScopedDateRangeRequest,
 ) -> Result<CoreIntelligencePrimaryOverview> {
     let overview_started_at = Instant::now();
     let top_sites_request = TopSitesRequest {
+        cursor: None,
         date_range: request.date_range.clone(),
         profile_id: request.profile_id.clone(),
+        profile_ids: Vec::new(),
         sort_by: Some("visit_count".to_string()),
         limit: Some(40),
     };
     let query_family_request = PagedDateRangeRequest {
+        cursor: None,
         date_range: request.date_range.clone(),
         profile_id: request.profile_id.clone(),
-        page: 0,
+
         page_size: 10,
     };
     let top_search_concepts_request = TopSearchConceptsRequest {
+        cursor: None,
         date_range: request.date_range.clone(),
         profile_id: request.profile_id.clone(),
         limit: Some(50),
     };
+    // The card scrolls; twenty fill it beside the searches column (`useRefindPages`).
     let refind_pages_request = RefindPagesRequest {
+        cursor: None,
         date_range: request.date_range.clone(),
         profile_id: request.profile_id.clone(),
-        limit: Some(5),
+        limit: Some(20),
     };
     let discovery_trend_day_request = GranularityDateRangeRequest {
         date_range: request.date_range.clone(),
         profile_id: request.profile_id.clone(),
         granularity: "day".to_string(),
     };
-    let interrupted_habits_request =
-        ProfileScopedRequest { profile_id: request.profile_id.clone() };
 
     let mut timings = Vec::new();
     let (digest_summary, timing) = build_overview_timed_section_result(
         "digest-summary",
         CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
         runtime,
-        || super::intelligence_summary::get_digest_summary_with_connection(connection, request),
+        || {
+            super::intelligence_summary::get_digest_summary_with_connection(
+                connection, cache, request,
+            )
+        },
         |data| {
             data.total_visits.value == 0
                 && data.total_searches.value == 0
@@ -132,7 +201,7 @@ fn build_intelligence_primary_overview_with_connection(
     let (on_this_day, timing) = build_overview_timed_section_result(
         "on-this-day",
         CoreIntelligenceSectionWindow::CalendarDayHistory {
-            reference_date: Local::now().format("%Y-%m-%d").to_string(),
+            reference_date: super::InsightsZone::for_reading(connection)?.today_key(),
         },
         runtime,
         || {
@@ -148,7 +217,7 @@ fn build_intelligence_primary_overview_with_connection(
         "top-sites",
         CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
         runtime,
-        || get_top_sites_with_connection(connection, &top_sites_request),
+        || get_top_sites_with_connection(connection, cache, &top_sites_request),
         |data| data.is_empty(),
     )?;
     timings.push(timing);
@@ -209,25 +278,26 @@ fn build_intelligence_primary_overview_with_connection(
         "habits",
         CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
         runtime,
-        || phase_three::get_habit_patterns_with_connection(connection, request),
+        || phase_three::get_habit_patterns_with_connection(connection, cache, request),
         |data| data.is_empty(),
     )?;
     timings.push(timing);
+    // The scope's habits that went quiet, from the habits just read.
     let (interrupted_habits, timing) = build_overview_timed_section_result(
         "habits",
         CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
         runtime,
         || {
-            phase_three::get_interrupted_habits_with_connection(
-                connection,
-                &interrupted_habits_request,
-            )
+            Ok(phase_three::interrupted_among(
+                &habit_patterns.data,
+                chrono::Utc::now().timestamp_millis(),
+            ))
         },
         |data| data.is_empty(),
     )?;
     timings.push(timing);
 
-    Ok(CoreIntelligencePrimaryOverview {
+    let mut payload = CoreIntelligencePrimaryOverview {
         digest_summary,
         on_this_day,
         top_sites,
@@ -240,8 +310,18 @@ fn build_intelligence_primary_overview_with_connection(
         habit_patterns,
         interrupted_habits,
         timings,
-        total_duration_ms: overview_started_at.elapsed().as_millis() as u64,
-    })
+        total_duration_ms: 0,
+    };
+    // Counted here rather than on each read, so a kept snapshot carries the counts and an all-time
+    // open never walks the whole archive for them; the site counts reuse the read just made.
+    fill_sections_evidence(
+        connection,
+        cache,
+        &mut primary_metas(&mut payload),
+        request.profile_id.as_deref(),
+    )?;
+    payload.total_duration_ms = overview_started_at.elapsed().as_millis() as u64;
+    Ok(payload)
 }
 
 /// Loads the deferred `/intelligence` payload that can arrive after the first
@@ -250,46 +330,66 @@ fn build_intelligence_primary_overview_with_connection(
 /// This keeps the heavier secondary surfaces off the initial critical path
 /// while still reusing one runtime snapshot for honest section metadata.
 pub fn get_intelligence_secondary_overview(
-    paths: &ProjectPaths,
-    config: &AppConfig,
-    key: Option<&str>,
+    vault: &crate::Vault,
     request: &ScopedDateRangeRequest,
 ) -> Result<CoreIntelligenceSecondaryOverview> {
-    let mut connection = open_intelligence_connection(paths, config, key)?;
-    ensure_core_intelligence_schema(&connection)?;
-    let runtime = load_intelligence_runtime_from_connection(&mut connection, paths, config)?;
-    if is_all_time_range(&request.date_range) {
-        return resolve_overview_snapshot(&connection, OverviewBand::Secondary, request, || {
+    let observed = phase_three::get_observed_interactions(
+        vault,
+        &crate::models::ScopedPageRequest::from(request),
+    )?;
+    let paths = vault.paths().clone();
+    let config = vault.config().clone();
+    let cache = vault.site_days().clone();
+    let request = request.clone();
+    vault.read(vault_store::Db::Intelligence, move |connection| {
+        let paths = &paths;
+        let config = &config;
+        let request = &request;
+        let cache = &cache;
+
+        let runtime = load_intelligence_runtime_from_connection(connection, paths, config)?;
+        let payload = if snapshot_key(connection, request)?.is_some() {
+            let mut payload: CoreIntelligenceSecondaryOverview =
+                resolve_overview_snapshot(connection, OverviewBand::Secondary, request, || {
+                    build_intelligence_secondary_overview_with_connection(
+                        connection, cache, &observed, &runtime, request,
+                    )
+                })?;
+            // The snapshot outlives the day it was built on; report this request's dates.
+            for meta in secondary_metas(&mut payload) {
+                if let CoreIntelligenceSectionWindow::DateRange { date_range } = &mut meta.window {
+                    *date_range = request.date_range.clone();
+                }
+                refresh_module_meta(meta, &runtime)?;
+            }
+            payload.observed_interactions.data = observed.clone();
+            payload.observed_interactions.meta = build_core_intelligence_section_meta_with_modules(
+                "observed-interactions",
+                payload.observed_interactions.meta.window.clone(),
+                observed.items.is_empty() && observed.next_cursor.is_none(),
+                &runtime.modules,
+            )?;
+            payload
+        } else {
             build_intelligence_secondary_overview_with_connection(
-                paths,
-                config,
-                key,
-                &connection,
-                &runtime,
-                request,
-            )
-        });
-    }
-    build_intelligence_secondary_overview_with_connection(
-        paths,
-        config,
-        key,
-        &connection,
-        &runtime,
-        request,
-    )
+                connection, cache, &observed, &runtime, request,
+            )?
+        };
+        Ok(payload)
+    })
 }
 
 fn build_intelligence_secondary_overview_with_connection(
-    paths: &ProjectPaths,
-    config: &AppConfig,
-    key: Option<&str>,
-    connection: &Connection,
+    connection: &Session<'_>,
+    cache: &SiteDayCache,
+    observed: &crate::models::IntelligencePage<crate::models::ObservedInteraction>,
     runtime: &IntelligenceRuntimeSnapshot,
     request: &ScopedDateRangeRequest,
 ) -> Result<CoreIntelligenceSecondaryOverview> {
     let overview_started_at = Instant::now();
     let search_effectiveness_request = SearchEffectivenessRequest {
+        topics_cursor: None,
+        topics_limit: None,
         date_range: request.date_range.clone(),
         profile_id: request.profile_id.clone(),
         engine: None,
@@ -300,6 +400,7 @@ fn build_intelligence_secondary_overview_with_connection(
         granularity: "week".to_string(),
     };
     let path_flow_request = PathFlowRequest {
+        cursor: None,
         date_range: request.date_range.clone(),
         profile_id: request.profile_id.clone(),
         step_count: 3,
@@ -311,7 +412,12 @@ fn build_intelligence_secondary_overview_with_connection(
         "stable-sources",
         CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
         runtime,
-        || super::intelligence_summary::get_stable_sources_with_connection(connection, request),
+        || {
+            super::intelligence_summary::get_stable_sources_with_connection(
+                connection,
+                &crate::models::ScopedPageRequest::from(request),
+            )
+        },
         |data| data.is_empty(),
     )?;
     timings.push(timing);
@@ -332,7 +438,12 @@ fn build_intelligence_secondary_overview_with_connection(
         "friction-signals",
         CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
         runtime,
-        || super::intelligence_summary::get_friction_signals_with_connection(connection, request),
+        || {
+            super::intelligence_summary::get_friction_signals_with_connection(
+                connection,
+                &crate::models::ScopedPageRequest::from(request),
+            )
+        },
         |data| data.is_empty(),
     )?;
     timings.push(timing);
@@ -342,7 +453,8 @@ fn build_intelligence_secondary_overview_with_connection(
         runtime,
         || {
             super::intelligence_summary::get_reopened_investigations_with_connection(
-                connection, request,
+                connection,
+                &crate::models::ScopedPageRequest::from(request),
             )
         },
         |data| data.is_empty(),
@@ -365,7 +477,7 @@ fn build_intelligence_secondary_overview_with_connection(
         "breadth-index",
         CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
         runtime,
-        || phase_three::get_breadth_index_with_connection(connection, request),
+        || phase_three::get_breadth_index_with_connection(connection, cache, request),
         |_| false,
     )?;
     timings.push(timing);
@@ -381,15 +493,20 @@ fn build_intelligence_secondary_overview_with_connection(
         "compare-sets",
         CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
         runtime,
-        || phase_four::get_compare_sets_with_connection(connection, request),
-        |data| data.is_empty(),
+        || {
+            super::compare_sets::get_compare_sets_with_connection(
+                connection,
+                &crate::models::ScopedPageRequest::from(request),
+            )
+        },
+        |data| data.items.is_empty(),
     )?;
     timings.push(timing);
     let (multi_browser_diff, timing) = build_overview_timed_section_result(
         "multi-browser-diff",
         CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
         runtime,
-        || phase_four::get_multi_browser_diff_with_connection(connection, request),
+        || phase_four::get_multi_browser_diff_with_connection(connection, cache, request),
         |data| data.profiles.is_empty() && data.category_distributions.is_empty(),
     )?;
     timings.push(timing);
@@ -397,16 +514,12 @@ fn build_intelligence_secondary_overview_with_connection(
         "observed-interactions",
         CoreIntelligenceSectionWindow::DateRange { date_range: request.date_range.clone() },
         runtime,
-        || {
-            phase_three::get_observed_interactions_with_connection(
-                paths, config, key, connection, request,
-            )
-        },
-        |data| data.is_empty(),
+        || Ok(observed.clone()),
+        |data| data.items.is_empty() && data.next_cursor.is_none(),
     )?;
     timings.push(timing);
 
-    Ok(CoreIntelligenceSecondaryOverview {
+    let mut payload = CoreIntelligenceSecondaryOverview {
         stable_sources,
         search_effectiveness,
         friction_signals,
@@ -418,8 +531,87 @@ fn build_intelligence_secondary_overview_with_connection(
         multi_browser_diff,
         observed_interactions,
         timings,
-        total_duration_ms: overview_started_at.elapsed().as_millis() as u64,
-    })
+        total_duration_ms: 0,
+    };
+    // As in the first batch: counted with the build, kept with the snapshot.
+    fill_sections_evidence(
+        connection,
+        cache,
+        &mut secondary_metas(&mut payload),
+        request.profile_id.as_deref(),
+    )?;
+    payload.total_duration_ms = overview_started_at.elapsed().as_millis() as u64;
+    Ok(payload)
+}
+
+fn refresh_module_meta(
+    meta: &mut crate::models::CoreIntelligenceSectionMeta,
+    runtime: &IntelligenceRuntimeSnapshot,
+) -> Result<()> {
+    if !meta.module_ids.is_empty() {
+        // The counts belong to the snapshot's data, which has not changed.
+        let evidence = meta.evidence.take();
+        *meta = build_core_intelligence_section_meta_with_modules(
+            &meta.section_id,
+            meta.window.clone(),
+            false,
+            &runtime.modules,
+        )?;
+        meta.evidence = evidence;
+    }
+    Ok(())
+}
+
+/// Brings a primary overview served from the all-time snapshot up to today.
+/// The snapshot outlives the day it was built on (its fingerprint leaves the
+/// date out), so the parts that depend on today are redone here, each a small
+/// read: On this day, and whether each habit is interrupted by now. Every
+/// date-range section reports the dates of this request.
+fn refresh_for_today(
+    connection: &Session<'_>,
+    runtime: &IntelligenceRuntimeSnapshot,
+    request: &ScopedDateRangeRequest,
+    payload: &mut CoreIntelligencePrimaryOverview,
+) -> Result<()> {
+    let zone = super::InsightsZone::for_reading(connection)?;
+    let on_this_day = super::intelligence_domain::get_on_this_day_with_connection(
+        connection,
+        request.profile_id.as_deref(),
+    )?;
+    payload.on_this_day.meta = build_core_intelligence_section_meta_with_modules(
+        "on-this-day",
+        CoreIntelligenceSectionWindow::CalendarDayHistory { reference_date: zone.today_key() },
+        on_this_day.is_empty(),
+        &runtime.modules,
+    )?;
+    payload.on_this_day.data = on_this_day;
+    let interrupted = phase_three::interrupted_among(
+        &payload.habit_patterns.data,
+        chrono::Utc::now().timestamp_millis(),
+    );
+    for habit in &mut payload.habit_patterns.data {
+        habit.is_interrupted = interrupted
+            .iter()
+            .any(|quiet| quiet.habit.registrable_domain == habit.registrable_domain);
+    }
+    payload.interrupted_habits.data = interrupted;
+    for meta in [
+        &mut payload.digest_summary.meta,
+        &mut payload.top_sites.meta,
+        &mut payload.refind_pages.meta,
+        &mut payload.search_engine_ranking.meta,
+        &mut payload.top_search_concepts.meta,
+        &mut payload.query_families.meta,
+        &mut payload.activity_mix.meta,
+        &mut payload.discovery_trend_day.meta,
+        &mut payload.habit_patterns.meta,
+        &mut payload.interrupted_habits.meta,
+    ] {
+        if let CoreIntelligenceSectionWindow::DateRange { date_range } = &mut meta.window {
+            *date_range = request.date_range.clone();
+        }
+    }
+    Ok(())
 }
 
 fn build_overview_timed_section_result<R>(
@@ -432,11 +624,11 @@ fn build_overview_timed_section_result<R>(
     let started_at = Instant::now();
     let data = fetch()?;
     let duration_ms = started_at.elapsed().as_millis() as u64;
-    let meta = build_core_intelligence_section_meta_with_runtime(
+    let meta = build_core_intelligence_section_meta_with_modules(
         section_id,
         window,
         is_empty(&data),
-        runtime,
+        &runtime.modules,
     )?;
     Ok((
         CoreIntelligenceSectionResult { data, meta },
@@ -450,25 +642,109 @@ fn search_effectiveness_is_empty(data: &crate::models::SearchEffectiveness) -> b
         && data.hardest_topics.is_empty()
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::models::{HardTopic, SearchEffectiveness};
-
-    #[test]
-    fn search_effectiveness_empty_state_requires_all_signal_groups_to_be_empty() {
-        assert!(search_effectiveness_is_empty(&SearchEffectiveness::default()));
-
-        let search_effectiveness = SearchEffectiveness {
-            hardest_topics: vec![HardTopic {
-                family_id: "family".to_string(),
-                query_family: "rust coverage".to_string(),
-                reformulation_count: 2,
-                re_search_lag_days: 1.0,
-            }],
-            ..SearchEffectiveness::default()
-        };
-
-        assert!(!search_effectiveness_is_empty(&search_effectiveness));
+/// Warms the kept overviews after publication, outside the render path: all time, archive-wide
+/// and per profile, and the recent ranges ending today over every profile, so whichever range the
+/// page opens on answers at once. A scope whose data moved while it was built is left for the next
+/// build rather than saved stale.
+pub(super) fn warm_overview_snapshots(
+    vault: &crate::Vault,
+    checkpoint: &mut impl FnMut() -> Result<()>,
+) -> Result<()> {
+    let (profiles, zone) = vault.read(vault_store::Db::Intelligence, |s| {
+        Ok((
+            s.query(
+                "SELECT profile_id FROM intelligence_generations ORDER BY profile_id",
+                (),
+                |r| Ok(r.get::<String>(0)?),
+            )?,
+            super::InsightsZone::for_reading(s)?,
+        ))
+    })?;
+    let today = zone.today_key();
+    let all_time = std::iter::once(None).chain(profiles.into_iter().map(Some)).map(|profile| {
+        ScopedDateRangeRequest {
+            date_range: crate::models::DateRange {
+                start: super::intelligence_overview_snapshot::ALL_TIME_SCOPE_START.into(),
+                end: today.clone(),
+            },
+            profile_id: profile,
+        }
+    });
+    let recent = super::intelligence_overview_snapshot::recent_range_requests(&today);
+    for request in all_time.chain(recent) {
+        warm_one(vault, request, checkpoint)?;
     }
+    Ok(())
+}
+
+/// Keeps the recent ranges' overviews when the ones kept are from another day: the app opened on
+/// a new day, before any build that would have warmed them. Nothing to do before Insights were
+/// first built.
+pub fn warm_recent_overviews_if_stale(vault: &crate::Vault) -> Result<()> {
+    use super::intelligence_overview_snapshot::{
+        load_overview_snapshot, recent_range_requests, request_fingerprint,
+    };
+    let (built, today) = vault.read(vault_store::Db::Intelligence, |s| {
+        Ok((
+            s.query_one("SELECT EXISTS(SELECT 1 FROM intelligence_generations)", (), |r| {
+                Ok(r.get::<i64>(0)? != 0)
+            })?,
+            super::InsightsZone::for_reading(s)?.today_key(),
+        ))
+    })?;
+    if !built {
+        return Ok(());
+    }
+    for request in recent_range_requests(&today) {
+        let check = request.clone();
+        let current = vault.read(vault_store::Db::Intelligence, move |s| {
+            let Some(scope) = snapshot_key(s, &check)? else { return Ok(true) };
+            let fingerprint = request_fingerprint(s, &check)?;
+            Ok(load_overview_snapshot(s, &scope, OverviewBand::Secondary)?
+                .is_some_and(|kept| kept.fingerprint == fingerprint))
+        })?;
+        if !current {
+            warm_one(vault, request, &mut || Ok(()))?;
+        }
+    }
+    Ok(())
+}
+
+/// Builds and keeps one scope's two overviews.
+fn warm_one(
+    vault: &crate::Vault,
+    request: ScopedDateRangeRequest,
+    checkpoint: &mut impl FnMut() -> Result<()>,
+) -> Result<()> {
+    use super::intelligence_overview_snapshot::{request_fingerprint, save_overview_snapshot};
+    checkpoint()?;
+    let scope_request = request.clone();
+    let fingerprint = vault
+        .read(vault_store::Db::Intelligence, move |s| request_fingerprint(s, &scope_request))?;
+    let primary = get_intelligence_primary_overview(vault, &request)?;
+    checkpoint()?;
+    let secondary = get_intelligence_secondary_overview(vault, &request)?;
+    checkpoint()?;
+    vault.write(vault_store::Db::Intelligence, vault_store::Priority::Batch, move |s| {
+        let Some(scope) = snapshot_key(s, &request)? else { return Ok(()) };
+        if request_fingerprint(s, &request)? != fingerprint {
+            return Ok(());
+        }
+        save_overview_snapshot(
+            s,
+            &scope,
+            OverviewBand::Primary,
+            &fingerprint,
+            &serde_json::to_string(&primary)?,
+        )?;
+        save_overview_snapshot(
+            s,
+            &scope,
+            OverviewBand::Secondary,
+            &fingerprint,
+            &serde_json::to_string(&secondary)?,
+        )?;
+        Ok(())
+    })?;
+    Ok(())
 }

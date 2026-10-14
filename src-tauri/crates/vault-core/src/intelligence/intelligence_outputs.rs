@@ -1,3 +1,5 @@
+//! Failure modes: reads write schemas, a query escapes its owner, stale scopes leak,
+//! or bounded results lose continuation. Native render-path and paging tests cover these.
 //! Export-facing Core Intelligence payload builders.
 //!
 //! ## Responsibilities
@@ -21,11 +23,10 @@
 //!   of reaching back to visit-level tables.
 
 use crate::{
-    config::ProjectPaths,
     models::{
-        AppConfig, InsightEntityReference, IntelligenceEmbedCardPayload,
-        IntelligenceEmbedCardsRequest, IntelligencePublicSnapshot, IntelligenceWidgetSnapshot,
-        OnThisDayEntry, RefindPagesRequest, ScopedDateRangeRequest, TopSitesRequest,
+        InsightEntityReference, IntelligenceEmbedCardPayload, IntelligenceEmbedCardsRequest,
+        IntelligencePublicSnapshot, IntelligenceWidgetSnapshot, OnThisDayEntry, RefindPagesRequest,
+        ScopedDateRangeRequest, TopSitesRequest,
     },
     utils::now_rfc3339,
 };
@@ -34,45 +35,40 @@ use anyhow::Result;
 /// Produces compact highlight cards for trusted embeds without reopening new
 /// query contracts beyond the existing read models.
 pub fn get_intelligence_embed_cards(
-    paths: &ProjectPaths,
-    config: &AppConfig,
-    key: Option<&str>,
+    vault: &crate::Vault,
     request: &IntelligenceEmbedCardsRequest,
-) -> Result<Vec<IntelligenceEmbedCardPayload>> {
+) -> Result<crate::models::IntelligencePage<IntelligenceEmbedCardPayload>> {
     let scoped = ScopedDateRangeRequest {
         date_range: request.date_range.clone(),
         profile_id: request.profile_id.clone(),
     };
-    let digest = super::intelligence_summary::get_digest_summary(paths, config, key, &scoped)?;
+    let digest = super::intelligence_summary::get_digest_summary(vault, &scoped)?;
     let top_sites = super::get_top_sites(
-        paths,
-        config,
-        key,
+        vault,
         &TopSitesRequest {
+            cursor: None,
             date_range: request.date_range.clone(),
             profile_id: request.profile_id.clone(),
+            profile_ids: Vec::new(),
             sort_by: Some("visit_count".to_string()),
             limit: Some(3),
         },
     )?;
     let refind_pages = super::get_refind_pages(
-        paths,
-        config,
-        key,
+        vault,
         &RefindPagesRequest {
+            cursor: None,
             date_range: request.date_range.clone(),
             profile_id: request.profile_id.clone(),
             limit: Some(2),
         },
     )?;
-    let stable_sources =
-        super::intelligence_summary::get_stable_sources(paths, config, key, &scoped)?;
-    let on_this_day = super::intelligence_domain::get_on_this_day(
-        paths,
-        config,
-        key,
-        request.profile_id.as_deref(),
+    let stable_sources = super::intelligence_summary::get_stable_sources(
+        vault,
+        &crate::models::ScopedPageRequest::from(&scoped),
     )?;
+    let on_this_day =
+        super::intelligence_domain::get_on_this_day(vault, request.profile_id.as_deref())?;
     let mut cards = vec![
         IntelligenceEmbedCardPayload {
             card_id: "digest:visits".to_string(),
@@ -148,13 +144,13 @@ pub fn get_intelligence_embed_cards(
             card_id: format!("stable-source:{}", source.registrable_domain),
             card_type: "stable_source".to_string(),
             title: source.display_name.clone().unwrap_or_else(|| source.registrable_domain.clone()),
-            eyebrow: Some("Stable source".to_string()),
+            eyebrow: Some("Where searches end up".to_string()),
             body: format!(
-                "{} often resolves trails as a {} source.",
-                source.registrable_domain, source.source_role
+                "{} searches ended on {}.",
+                source.search_count, source.registrable_domain
             ),
-            metric_label: Some("effectiveness_score".to_string()),
-            metric_value: Some(format!("{:.2}", source.effectiveness_score)),
+            metric_label: Some("search_count".to_string()),
+            metric_value: Some(source.search_count.to_string()),
             href: None,
             primary_target: Some(InsightEntityReference::Domain {
                 domain: source.registrable_domain.clone(),
@@ -184,8 +180,16 @@ pub fn get_intelligence_embed_cards(
             internal_only: false,
         });
     }
-    cards.truncate(request.limit.unwrap_or(6).max(1) as usize);
-    Ok(cards)
+    let start = super::paging::cursor::<usize>(request.cursor.as_deref())?.unwrap_or(0);
+    let limit = request.limit.unwrap_or(6).clamp(1, 100) as usize;
+    let rows = cards
+        .into_iter()
+        .enumerate()
+        .skip(start)
+        .take(limit + 1)
+        .map(|(index, card)| (card, index + 1))
+        .collect();
+    super::paging::finish(rows, limit)
 }
 
 fn on_this_day_body(entry: &OnThisDayEntry) -> String {
@@ -200,35 +204,31 @@ fn on_this_day_body(entry: &OnThisDayEntry) -> String {
 /// Produces the trusted widget snapshot that other local surfaces can cache or
 /// render without exposing visit-level identifiers.
 pub fn get_intelligence_widget_snapshot(
-    paths: &ProjectPaths,
-    config: &AppConfig,
-    key: Option<&str>,
+    vault: &crate::Vault,
     request: &IntelligenceEmbedCardsRequest,
 ) -> Result<IntelligenceWidgetSnapshot> {
     let digest_summary = super::intelligence_summary::get_digest_summary(
-        paths,
-        config,
-        key,
+        vault,
         &ScopedDateRangeRequest {
             date_range: request.date_range.clone(),
             profile_id: request.profile_id.clone(),
         },
     )?;
     let highlights = get_intelligence_embed_cards(
-        paths,
-        config,
-        key,
+        vault,
         &IntelligenceEmbedCardsRequest {
+            cursor: request.cursor.clone(),
             date_range: request.date_range.clone(),
             profile_id: request.profile_id.clone(),
-            limit: Some(request.limit.unwrap_or(4).min(4)),
+            limit: Some(request.limit.unwrap_or(4)),
         },
     )?;
     Ok(IntelligenceWidgetSnapshot {
         generated_at: now_rfc3339(),
         date_range: request.date_range.clone(),
         digest_summary,
-        highlights,
+        highlights: highlights.items,
+        highlights_next_cursor: highlights.next_cursor,
         notes: vec![
             "Widget snapshots only expose aggregate Core Intelligence read models.".to_string(),
             "Cards marked internal_only should stay inside trusted PathKeep surfaces.".to_string(),
@@ -239,32 +239,30 @@ pub fn get_intelligence_widget_snapshot(
 /// Produces the redacted public snapshot that keeps only aggregate facts safe
 /// for export outside trusted local surfaces.
 pub fn get_intelligence_public_snapshot(
-    paths: &ProjectPaths,
-    config: &AppConfig,
-    key: Option<&str>,
+    vault: &crate::Vault,
     request: &ScopedDateRangeRequest,
 ) -> Result<IntelligencePublicSnapshot> {
-    let digest_summary =
-        super::intelligence_summary::get_digest_summary(paths, config, key, request)?;
-    let top_domains = super::get_top_sites(
-        paths,
-        config,
-        key,
+    let digest_summary = super::intelligence_summary::get_digest_summary(vault, request)?;
+    let sites = super::get_top_sites(
+        vault,
         &TopSitesRequest {
+            cursor: None,
             date_range: request.date_range.clone(),
             profile_id: request.profile_id.clone(),
+            profile_ids: Vec::new(),
             sort_by: Some("visit_count".to_string()),
             limit: Some(5),
         },
-    )?
-    .into_iter()
-    .map(|site| site.display_name.unwrap_or(site.registrable_domain))
-    .collect::<Vec<_>>();
-    let search_engines = super::get_search_engine_ranking(paths, config, key, request)?;
+    )?;
+    let top_domains_next_cursor = sites.next_cursor;
+    let top_domains = sites
+        .items
+        .into_iter()
+        .map(|site| site.display_name.unwrap_or(site.registrable_domain))
+        .collect::<Vec<_>>();
+    let search_engines = super::get_search_engine_ranking(vault, request)?;
     let discovery_trend = super::intelligence_domain::get_discovery_trend(
-        paths,
-        config,
-        key,
+        vault,
         &crate::models::GranularityDateRangeRequest {
             date_range: request.date_range.clone(),
             profile_id: request.profile_id.clone(),
@@ -276,6 +274,7 @@ pub fn get_intelligence_public_snapshot(
         date_range: request.date_range.clone(),
         digest_summary,
         top_domains,
+        top_domains_next_cursor,
         search_engines,
         discovery_trend,
         notes: vec![
@@ -285,23 +284,4 @@ pub fn get_intelligence_public_snapshot(
                 .to_string(),
         ],
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::on_this_day_body;
-    use crate::models::OnThisDayEntry;
-
-    #[test]
-    fn on_this_day_body_uses_summary_or_aggregate_fallback() {
-        let summarized = OnThisDayEntry {
-            summary: Some("Returned to archive research.".to_string()),
-            ..OnThisDayEntry::default()
-        };
-        assert_eq!(on_this_day_body(&summarized), "Returned to archive research.");
-
-        let fallback =
-            OnThisDayEntry { total_visits: 12, deep_dive_sessions: 3, ..OnThisDayEntry::default() };
-        assert_eq!(on_this_day_body(&fallback), "12 visits and 3 deep-dive sessions on this day.");
-    }
 }
