@@ -245,7 +245,10 @@ where
                 )?;
                 for (visit_id, time, trail) in moved {
                     s.execute(
-                        "UPDATE visit_derived_facts_rows SET domain_category=?3,page_category=?4,
+                        // By the visit's key: on its own the planner picks the generation index
+                        // and reads every fact of the generation (14.4M) for each visit.
+                        "UPDATE visit_derived_facts_rows INDEXED BY idx_vdf_visit_generation
+                         SET domain_category=?3,page_category=?4,
                            taxonomy_source=?5,taxonomy_pack=?6,taxonomy_version=?7
                          WHERE generation=?1 AND visit_id=?2",
                         params![

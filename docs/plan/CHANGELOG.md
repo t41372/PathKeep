@@ -2934,3 +2934,6 @@ that held up when checked against the code.
 
 - [x] What other apps read: the page an app was given, not every match (2026-10-13).
   - Each request in Settings → AI → What other apps read showed how many pages matched across the archive, which an app is never given at once: it gets one page and asks again for more. The list overstated what left PathKeep. Requests now record how many pages were sent and show "Sent 10 pages of 300 matching"; older ones say only how many matched.
+
+- [x] Changing a site's category no longer stalls on a large archive (2026-10-13, `WORK-RECLASSIFY-STALL`).
+  - Measured on 14.4M visits, a category change for one site ran for more than half an hour without finishing a page of URLs. Each visit whose category moved was rewritten through an index that only narrows to the build's generation, reading every visit's facts again. The rewrite now finds the row by its visit; a plan test holds it there. Not yet measured again at 14.4M.

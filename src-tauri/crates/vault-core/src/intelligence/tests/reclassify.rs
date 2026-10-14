@@ -202,3 +202,61 @@ fn a_site_category_changed_while_a_build_runs_is_in_what_it_publishes() {
     assert_ne!(report.execution_mode.as_deref(), Some("fallback-full"), "not built anew");
     assert_as_built_anew(&sorted, &all, &[("github.com", "docs", ""), ("docs.rs", "news", "")]);
 }
+
+/// Sorting a site's pages again finds each URL's visits by `url_id` and rewrites each moved
+/// visit's facts by its key. The rewrite once found its row through the generation index alone,
+/// reading every fact of the generation (14.4M) per visit: the benchmark's category change ran
+/// for more than half an hour without finishing a page (`WORK-RECLASSIFY-STALL`).
+#[test]
+fn sorting_a_sites_pages_again_reads_each_urls_visits_by_index() {
+    let all = visits();
+    let sorted = vault();
+    let archive = TestDatabase::new(&sorted, Db::Archive);
+    archive
+        .write(|s| {
+            seed_core_intelligence_fixture(s);
+            Ok(())
+        })
+        .unwrap();
+    add(&archive, &all);
+    drop(archive);
+    assert_eq!(build(&sorted), "fallback-full");
+    set_site_category(&sorted, "github.com", Some("docs"));
+    sorted.store().capture_query_plans(Db::Intelligence, true).unwrap();
+    assert_eq!(build(&sorted), "incremental");
+    let plans = sorted.store().take_query_plans(Db::Intelligence).unwrap();
+    let per_url = plans
+        .iter()
+        .filter(|plan| {
+            plan.sql.contains("FROM archive.visits v INDEXED BY idx_visits_visible_url_time")
+        })
+        .collect::<Vec<_>>();
+    assert!(!per_url.is_empty(), "the reads were captured");
+    for plan in per_url {
+        eprintln!(
+            "reclassify plan: {}\n  {:?}",
+            plan.sql.split_whitespace().collect::<Vec<_>>().join(" "),
+            plan.steps
+        );
+        assert!(
+            plan.steps.iter().any(|step| step.contains("SEARCH v") && step.contains("url_id=?")),
+            "{:?}",
+            plan.steps
+        );
+        assert!(!plan.steps.iter().any(|step| step.contains("SCAN v")), "{:?}", plan.steps);
+    }
+    // And each moved visit's facts are rewritten by key.
+    let rewrites = plans
+        .iter()
+        .filter(|plan| plan.sql.contains("UPDATE visit_derived_facts_rows"))
+        .collect::<Vec<_>>();
+    assert!(!rewrites.is_empty(), "the rewrites were captured");
+    for plan in rewrites {
+        eprintln!("reclassify rewrite plan: {:?}", plan.steps);
+        assert!(
+            plan.steps.iter().any(|step| step.contains("visit_id=?")),
+            "found by the visit, not every fact of the generation: {:?}",
+            plan.steps
+        );
+    }
+}
