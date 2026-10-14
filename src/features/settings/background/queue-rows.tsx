@@ -33,9 +33,12 @@ import { useSaveSetting } from '../use-save-setting'
 import { JobList } from './job-list'
 import { useJobViews } from './job-view'
 import {
+  aiActive,
+  runtimeActive,
   useAiJobActions,
   useAiQueue,
   useIntelligenceRuntime,
+  useJobHistory,
   useQueueRebuild,
   useRefreshQueues,
   useRuntimeJobActions,
@@ -139,6 +142,11 @@ export function InsightsQueueRow() {
   const paused = useSnapshot().config.ai.jobQueuePaused
   const runtime = useIntelligenceRuntime(paused)
   const { fromRuntime } = useJobViews()
+  const history = useJobHistory(
+    'insights',
+    runtimeActive(runtime.data, paused),
+    fromRuntime,
+  )
   const { retry, cancel } = useRuntimeJobActions()
   const rebuild = useQueueRebuild()
   const summarize = useCountSummary()
@@ -181,10 +189,11 @@ export function InsightsQueueRow() {
     >
       {data && (
         <JobList
-          jobs={data.recentJobs.map(fromRuntime)}
+          {...history}
+          command="list_intelligence_jobs"
           busy={retry.isPending || cancel.isPending}
           onRetry={(job) => retry.mutate(job.id)}
-          onCancel={(job) => cancel.mutate(job.id)}
+          onCancel={(job) => cancel.mutate(job)}
         />
       )}
       <AlertDialog open={confirm} onOpenChange={setConfirm}>
@@ -215,6 +224,7 @@ export function AiQueueRow() {
   const ai = useSnapshot().config.ai
   const queue = useAiQueue()
   const { fromAiQueue } = useJobViews()
+  const history = useJobHistory('ai', aiActive(queue.data), fromAiQueue)
   const { replay, cancel } = useAiJobActions()
   const summarize = useCountSummary()
 
@@ -253,7 +263,8 @@ export function AiQueueRow() {
     >
       {data && (aiOn || hasJobs) && (
         <JobList
-          jobs={data.recentJobs.map(fromAiQueue)}
+          {...history}
+          command="list_ai_jobs"
           busy={replay.isPending || cancel.isPending}
           retryLabel={{
             text: t('settingsBackground.ai.replay'),

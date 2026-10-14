@@ -144,115 +144,109 @@ pub(super) fn load_plugin_statuses(
     Ok(statuses)
 }
 
+/// One page of the queue, newest first by `list_order`: when the job was added or last queued again
+/// on purpose. Not by `updated_at`: a job moves every time it reports progress or finishes, so a
+/// page read while the queue ran skipped one that moved ahead of the cursor and showed one that
+/// moved behind it twice. A job only moves up, when it is queued again, and a list that reads its
+/// pages again finds it at the top.
 pub(super) fn load_job_page(
     connection: &Session<'_>,
-    cursor: Option<&crate::models::IntelligenceJobCursor>,
+    cursor: Option<i64>,
     limit: usize,
 ) -> Result<crate::models::IntelligenceJobPage> {
     let limit = limit.clamp(1, 1000);
-    // Turso seeks idx_intelligence_jobs_recent only on the bounded cursor form, and only when the
-    // statement has no `?1 IS NULL OR` escape, so the first page is a separate statement.
-    let after =
-        if cursor.is_some() { "WHERE updated_at<=?1 AND (updated_at<?1 OR id<?2)" } else { "" };
+    let (after, limit_at) =
+        if cursor.is_some() { ("WHERE list_order<?1", "?2") } else { ("", "?1") };
     let mut statement = connection.prepare(&format!(
         "SELECT id, job_type, plugin_id, state, attempt, payload_json, artifact_json, created_at,
-                started_at, finished_at, updated_at, heartbeat_at, last_error, stop_requested
+                started_at, finished_at, updated_at, heartbeat_at, last_error, stop_requested,
+                list_order
          FROM intelligence_jobs
          {after}
-         ORDER BY updated_at DESC, id DESC
-         LIMIT ?3"
+         ORDER BY list_order DESC
+         LIMIT {limit_at}"
     ))?;
+    let rows = (limit + 1) as i64;
+    let args = match cursor {
+        Some(id) => Vec::from(params![id, rows]),
+        None => Vec::from(params![rows]),
+    };
     let mut items = statement
-        .query_map(
-            params![
-                cursor.map(|c| c.updated_at.as_str()),
-                cursor.map(|c| c.id),
-                (limit + 1) as i64
-            ],
-            |row| {
-                let payload_json: String = row.get(5)?;
-                let artifact_json: String = row.get(6)?;
-                let job_type = row.get::<String>(1)?;
-                let payload = serde_json::from_str::<EnrichmentJobPayload>(&payload_json).ok();
-                let rebuild_payload =
-                    serde_json::from_str::<DeterministicRebuildJobPayload>(&payload_json).ok();
-                let artifact = serde_json::from_str::<IntelligenceJobArtifact>(&artifact_json)
-                    .unwrap_or_default();
-                let state = row.get::<String>(3)?;
-                let title = match job_type.as_str() {
-                    type_id if is_core_intelligence_job_type(type_id) => {
-                        rebuild_payload.as_ref().map(|payload| {
-                            format!(
-                                "{} · {}",
-                                payload.request.profile_id.as_deref().unwrap_or("All profiles"),
-                                core_intelligence_job_label(type_id),
-                            )
-                        })
-                    }
-                    _ => payload.as_ref().and_then(|value| value.title.clone()),
-                };
-                let progress_percent =
-                    artifact.progress_percent.map(|value| value.clamp(0.0, 100.0));
-                let progress_current = artifact.processed_items.or(artifact.completed_steps);
-                let progress_total = artifact.total_items.or(artifact.total_steps);
-                Ok(IntelligenceJobOverview {
-                    id: row.get(0)?,
-                    job_type: job_type.clone(),
-                    plugin_id: row.get(2)?,
-                    state: state.clone(),
-                    history_id: payload.as_ref().and_then(|value| value.history_id),
-                    profile_id: payload
-                        .as_ref()
-                        .and_then(|value| value.profile_id.clone())
-                        .or_else(|| {
-                            rebuild_payload
-                                .as_ref()
-                                .and_then(|value| value.request.profile_id.clone())
-                        }),
-                    url: payload.as_ref().map(|value| value.url.clone()),
-                    title,
-                    attempt: row.get::<i64>(4)?.max(0) as usize,
-                    created_at: row.get(7)?,
-                    started_at: row.get(8)?,
-                    finished_at: row.get(9)?,
-                    updated_at: row.get(10)?,
-                    heartbeat_at: if state == "running" {
-                        row.get::<Option<String>>(11)?
-                    } else {
-                        None
-                    },
-                    progress_label: artifact.phase,
-                    progress_detail: artifact.detail,
-                    progress_current,
-                    progress_total,
-                    progress_percent,
-                    execution_mode: artifact.execution_mode,
-                    affected_profiles: artifact.affected_profiles,
-                    dirty_visit_count: artifact.dirty_visit_count,
-                    dirty_date_keys: artifact.dirty_date_keys,
-                    fallback_reason: artifact.fallback_reason,
-                    fallback_reason_code: artifact.fallback_reason_code,
-                    last_error: row.get(12)?,
-                    retryable: matches!(state.as_str(), "failed" | "cancelled"),
-                    cancellable: match state.as_str() {
-                        "queued" => true,
-                        "running" => row.get::<i64>(13)? == 0,
-                        _ => false,
-                    },
-                })
-            },
-        )?
+        .query_map(args, |row| {
+            let payload_json: String = row.get(5)?;
+            let artifact_json: String = row.get(6)?;
+            let job_type = row.get::<String>(1)?;
+            let payload = serde_json::from_str::<EnrichmentJobPayload>(&payload_json).ok();
+            let rebuild_payload =
+                serde_json::from_str::<DeterministicRebuildJobPayload>(&payload_json).ok();
+            let artifact =
+                serde_json::from_str::<IntelligenceJobArtifact>(&artifact_json).unwrap_or_default();
+            let state = row.get::<String>(3)?;
+            let title = match job_type.as_str() {
+                type_id if is_core_intelligence_job_type(type_id) => {
+                    rebuild_payload.as_ref().map(|payload| {
+                        format!(
+                            "{} · {}",
+                            payload.request.profile_id.as_deref().unwrap_or("All profiles"),
+                            core_intelligence_job_label(type_id),
+                        )
+                    })
+                }
+                _ => payload.as_ref().and_then(|value| value.title.clone()),
+            };
+            let progress_percent = artifact.progress_percent.map(|value| value.clamp(0.0, 100.0));
+            let progress_current = artifact.processed_items.or(artifact.completed_steps);
+            let progress_total = artifact.total_items.or(artifact.total_steps);
+            let overview = IntelligenceJobOverview {
+                id: row.get(0)?,
+                job_type: job_type.clone(),
+                plugin_id: row.get(2)?,
+                state: state.clone(),
+                history_id: payload.as_ref().and_then(|value| value.history_id),
+                profile_id: payload.as_ref().and_then(|value| value.profile_id.clone()).or_else(
+                    || rebuild_payload.as_ref().and_then(|value| value.request.profile_id.clone()),
+                ),
+                url: payload.as_ref().map(|value| value.url.clone()),
+                title,
+                attempt: row.get::<i64>(4)?.max(0) as usize,
+                created_at: row.get(7)?,
+                started_at: row.get(8)?,
+                finished_at: row.get(9)?,
+                updated_at: row.get(10)?,
+                heartbeat_at: if state == "running" {
+                    row.get::<Option<String>>(11)?
+                } else {
+                    None
+                },
+                progress_label: artifact.phase,
+                progress_detail: artifact.detail,
+                progress_current,
+                progress_total,
+                progress_percent,
+                execution_mode: artifact.execution_mode,
+                affected_profiles: artifact.affected_profiles,
+                dirty_visit_count: artifact.dirty_visit_count,
+                dirty_date_keys: artifact.dirty_date_keys,
+                fallback_reason: artifact.fallback_reason,
+                fallback_reason_code: artifact.fallback_reason_code,
+                last_error: row.get(12)?,
+                retryable: matches!(state.as_str(), "failed" | "cancelled"),
+                cancellable: match state.as_str() {
+                    "queued" => true,
+                    "running" => row.get::<i64>(13)? == 0,
+                    _ => false,
+                },
+            };
+            Ok((overview, row.get::<i64>(14)?))
+        })?
         .collect::<vault_store::Result<Vec<_>>>()?;
     let next_cursor = if items.len() > limit {
         items.pop();
-        let last = items.last().unwrap();
-        Some(crate::models::IntelligenceJobCursor {
-            updated_at: last.updated_at.clone(),
-            id: last.id,
-        })
+        items.last().map(|(_, list_order)| *list_order)
     } else {
         None
     };
+    let items = items.into_iter().map(|(overview, _)| overview).collect();
     Ok(crate::models::IntelligenceJobPage { items, next_cursor })
 }
 

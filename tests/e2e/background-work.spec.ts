@@ -150,6 +150,101 @@ test('background work: queue, pause, cancel, retry, clear and rebuild', async ({
   )
 })
 
+test('the whole job history pages through while the queue works, each job once', async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(300_000)
+  // Sixty Insights jobs that run quickly one after another: incremental
+  // builds, each its own job (a different limit). They report progress and
+  // finish while the pages are read, which used to move them between pages.
+  const added: number[] = []
+  for (let limit = 1; limit <= 60; limit++) {
+    const report = await backend<{ jobId: number }>(
+      'queue_core_intelligence_rebuild',
+      { request: { profileId: null, fullRebuild: false, limit } },
+    )
+    added.push(report.jobId)
+  }
+  const total = async () => {
+    const { queue } = await runtime()
+    return (
+      queue.queued +
+      queue.running +
+      queue.succeeded +
+      queue.failed +
+      queue.cancelled
+    )
+  }
+
+  // Five at a time through the backend, three times over while the queue
+  // works: every job once.
+  const walks: { ids: number[]; running: number }[] = []
+  for (let walk = 0; walk < 3; walk++) {
+    const ids: number[] = []
+    let cursor: number | null = null
+    do {
+      const page: { items: { id: number }[]; nextCursor: number | null } =
+        await backend('list_intelligence_jobs', {
+          request: { cursor, limit: 5 },
+        })
+      ids.push(...page.items.map((job) => job.id))
+      cursor = page.nextCursor
+    } while (cursor !== null)
+    walks.push({ ids, running: (await runtime()).queue.running })
+  }
+  const count = await total()
+  await testInfo.attach('walks', {
+    body: JSON.stringify({ count, walks }, null, 2),
+    contentType: 'application/json',
+  })
+  for (const { ids } of walks) {
+    expect(new Set(ids).size, 'no job twice').toBe(ids.length)
+    expect(ids.length, 'every job').toBe(count)
+    expect(ids).toEqual(expect.arrayContaining(added))
+  }
+
+  // The list in Settings unfolds to all of them, read on as it scrolls.
+  await page.goto('/#/settings/background')
+  const row = insightsRow(page)
+  await row.getByRole('button', { name: 'Show all' }).click()
+  const list = row.getByRole('list', { name: 'Recent work' })
+  const end = row.getByText('That’s all the work on record.')
+  const seen = new Set<string>()
+  let first: string | null = null
+  for (let step = 0; step < 200; step++) {
+    const keys = await list
+      .locator('li[data-job]')
+      .evaluateAll((items) =>
+        items.map((item) => item.getAttribute('data-job') ?? ''),
+      )
+    first ??= keys[0] ?? null
+    keys.forEach((key) => seen.add(key))
+    // The end line sits inside the scrolling box: done once it says so and
+    // the rows just read were at the bottom of it.
+    const atBottom = await list.evaluate((element) => {
+      const box = element.parentElement!
+      return box.scrollTop + box.clientHeight >= box.scrollHeight - 1
+    })
+    if (atBottom && (await end.isVisible())) break
+    await list.evaluate((element) => {
+      element.parentElement!.scrollTop += 400
+    })
+    await page.waitForTimeout(100)
+  }
+  await expect(end).toBeVisible()
+  expect(seen.size, 'every job, once').toBe(await total())
+  // Newest first: the last one added is at the top.
+  expect(first).toBe(`runtime-${added.at(-1)}`)
+
+  // The specs after this one need a quiet queue: stop what is left.
+  for (const jobId of added) {
+    await backend('cancel_intelligence_job', { jobId }).catch(() => undefined)
+  }
+  await expect
+    .poll(async () => (await runtime()).queue.running, { timeout: 120_000 })
+    .toBe(0)
+})
+
 test('search ranking values persist in the backend config', async ({
   page,
 }) => {

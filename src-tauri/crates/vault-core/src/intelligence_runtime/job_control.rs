@@ -133,7 +133,8 @@ fn retry_intelligence_job_in_connection(
          SET state = 'queued', scheduled_at = ?1, updated_at = ?1, started_at = NULL,
              finished_at = NULL, heartbeat_at = NULL, lease_owner = NULL,
              lease_expires_at = NULL, last_error = NULL, cancellation_reason = NULL,
-             stop_requested = 0
+             stop_requested = 0,
+             list_order = (SELECT COALESCE(MAX(list_order), 0) + 1 FROM intelligence_jobs)
          WHERE id = ?2",
         params![now, job_id],
     )?;

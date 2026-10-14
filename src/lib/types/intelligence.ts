@@ -601,6 +601,22 @@ export interface IntelligenceRuntimeSnapshot {
   recentJobs: IntelligenceJobOverview[]
   notes: string[]
 }
+
+/**
+ * One page of a queue's jobs, newest first by when they were added. A job
+ * keeps its place while it runs and finishes, so reading on with
+ * `nextCursor` (the last job's id) neither skips nor repeats one.
+ */
+export interface JobPage<T> {
+  items: T[]
+  nextCursor: number | null
+}
+
+/** Request for `list_intelligence_jobs` and `list_ai_jobs`. */
+export interface ListJobsRequest {
+  cursor: number | null
+  limit: number
+}
 /**
  * Represents a completed report that the UI can review after a run finishes.
  *

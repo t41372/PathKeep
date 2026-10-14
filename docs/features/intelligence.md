@@ -46,9 +46,16 @@ pending without repeating completed jobs. Backfill visits every captured candida
 `limit` as a batch size. Working-set scoring sets priority and does not remove candidates
 through a global or per-signal pool cap.
 
-Recent-job snapshots expose continuation cursors. `list_ai_jobs` and
-`list_intelligence_jobs` retrieve the remaining history. The frontend still needs to consume
-these cursors; a first page is not the complete job history.
+Settings → Background work shows each queue's whole job history (2026-10-13). Each list
+shows the newest five and unfolds to every job, read 50 at a time from `list_ai_jobs` /
+`list_intelligence_jobs` as it scrolls, windowed, with its loading, end and failure states.
+While a queue works, every page read so far is read again every 2 s, so a job shows its
+current state wherever it is; folding the list drops all but the first page. The AI queue
+pages by job id. The Insights queue pages by `intelligence_jobs.list_order`, set when a job is
+added or deliberately queued again (enqueued again under its dedupe key, tried again) and never
+while it runs or finishes: it used to page by `updated_at`, which a job changes every time it
+reports progress, so a list read while the queue ran skipped some jobs and showed others twice.
+A rebuild reuses its row, and `list_order` brings it to the top when it is queued again.
 
 Enrichment candidates come from native canonical pages, including pages with no visit.
 `awaiting_archive` jobs are offered again once their page exists. The cache is keyed by

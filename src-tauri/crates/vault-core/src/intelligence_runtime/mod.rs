@@ -501,8 +501,8 @@ pub(crate) fn recover_owner_claims(store: &vault_store::Store) -> vault_store::R
 /// Reads every queue record through explicit continuation.
 pub fn list_intelligence_jobs(
     vault: &Vault,
-    cursor: Option<crate::models::IntelligenceJobCursor>,
+    cursor: Option<i64>,
     limit: usize,
 ) -> Result<crate::models::IntelligenceJobPage> {
-    vault.read(Db::Intelligence, move |s| snapshot::load_job_page(s, cursor.as_ref(), limit))
+    vault.read(Db::Intelligence, move |s| snapshot::load_job_page(s, cursor, limit))
 }

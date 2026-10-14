@@ -39,8 +39,11 @@ import type {
   ConversationExportOutcome,
   DeleteAgentConversationResult,
   ExportAgentConversationRequest,
+  IntelligenceJobOverview,
   IntelligenceRuntimeSnapshot,
+  JobPage,
   ListAgentConversationsRequest,
+  ListJobsRequest,
   ReembedEstimate,
   ReembedScope,
   RenameAgentConversationRequest,
@@ -73,6 +76,9 @@ export const intelligenceClient = {
   listProviderModels: (request: AiProviderModelsRequest) =>
     call<AiProviderModel[]>('list_ai_provider_models', { request }),
   getQueueStatus: () => call<AiQueueStatus>('load_ai_queue_status'),
+  /** Every search-index and assistant job, a page at a time. */
+  listQueueJobs: (request: ListJobsRequest) =>
+    call<JobPage<AiQueueJob>>('list_ai_jobs', { request }),
   runQueueJobs: (maxJobs?: number) =>
     call<AiQueueStatus>('run_ai_queue_jobs', { maxJobs }),
   replayJob: (jobId: number) => call<AiQueueJob>('replay_ai_job', { jobId }),
@@ -151,6 +157,11 @@ export const intelligenceClient = {
     }),
   getRuntime: () =>
     call<IntelligenceRuntimeSnapshot>('load_intelligence_runtime'),
+  /** Every Insights job, a page at a time. */
+  listRuntimeJobs: (request: ListJobsRequest) =>
+    call<JobPage<IntelligenceJobOverview>>('list_intelligence_jobs', {
+      request,
+    }),
   retryRuntimeJob: (jobId: number) =>
     call<IntelligenceRuntimeSnapshot>('retry_intelligence_job', { jobId }),
   cancelRuntimeJob: (jobId: number) =>

@@ -326,6 +326,10 @@ const STATEMENTS: &[&str] = &[
   last_error TEXT,
   cancellation_reason TEXT,
   stop_requested INTEGER NOT NULL DEFAULT 0,
+  -- The job's place in Background work's list, newest first: set when it is added and each time
+  -- it is queued again on purpose (enqueued again, tried again), never while it runs or finishes,
+  -- so the list can be paged while the queue works (`snapshot::load_job_page`).
+  list_order INTEGER NOT NULL DEFAULT 0,
   UNIQUE(dedupe_key)
 )",
     r"CREATE TABLE intelligence_job_triggers (
@@ -453,7 +457,7 @@ const STATEMENTS: &[&str] = &[
     "CREATE INDEX idx_assignments_generation_trail ON visit_assignments(generation,trail_id,visit_id) WHERE trail_id IS NOT NULL",
     "CREATE INDEX idx_sessions_overlap ON sessions_rows(profile_id,last_visit_ms,first_visit_ms,session_id,generation)",
     "CREATE INDEX idx_intelligence_jobs_awaiting ON intelligence_jobs(job_type,state,id,canonical_url)",
-    "CREATE INDEX idx_intelligence_jobs_recent ON intelligence_jobs(updated_at DESC,id DESC)",
+    "CREATE INDEX idx_intelligence_jobs_list ON intelligence_jobs(list_order)",
     "CREATE INDEX idx_vdf_generation_canonical_visit ON visit_derived_facts_rows(generation,profile_id,is_search_event,canonical_url,visit_id)",
     "CREATE INDEX idx_vdf_profile_domain ON visit_derived_facts_rows(profile_id, registrable_domain, generation)",
     "CREATE INDEX idx_sessions_profile_time ON sessions_rows(profile_id, first_visit_ms DESC, generation)",

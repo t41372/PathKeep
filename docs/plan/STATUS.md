@@ -368,11 +368,14 @@
   - 修法：記下結果（未知 / 待升級 / 不用），待升級時每次都回到升級畫面，升級畫面交出轉好的存檔（`enter`）才算不用；關卡改成一次只走一遍，期間再被叫就在結束後多走一遍；升級檢查本身出錯時顯示錯誤，不再當成「不用升級」往下走。
   - 證據：只做「一次只走一遍」時，`upgrade` 專案單獨跑（`--no-deps`）每次都停在「存檔已加密」（trace：第一遍 `assess_archive_upgrade` → 升級畫面，第二遍沒有檢查、`app_snapshot` → 已加密）；兩項都改之後，新資料夾上連跑 3 次都過（第 4 次編譯時撞上我改到一半的 Rust，不算）。
 
-- [ ] **WORK-JOB-HISTORY-PAGING** — Background work 看得到全部的工作紀錄，翻頁不漏（2026-10-12 修 `queue_history_dispatch_preserves_every_cursor_page` 時找到）
+- [x] **WORK-JOB-HISTORY-PAGING** — Background work 看得到全部的工作紀錄，翻頁不漏（2026-10-12 修 `queue_history_dispatch_preserves_every_cursor_page` 時找到）
   - 讀先：`docs/features/intelligence.md`（Recent-job snapshots 一段）、`vault-core/src/intelligence_runtime/snapshot.rs`（`load_job_page` 與 recent jobs）、`vault-core/src/ai_queue/store.rs`（`list_jobs`）。
   - 現象：Background work 只顯示兩個佇列的第一頁；後端已有 `list_ai_jobs` / `list_intelligence_jobs` 接著讀，但前端沒用，更早的工作在畫面上找不到。
   - 根本原因（要先修）：Insights 工作的清單按 `updated_at DESC, id DESC` 排，游標也是 `(updated_at, id)`。工作一跑、一回報進度，`updated_at` 就變，翻到一半跑完的工作會跳到游標前面，接下來的頁就漏掉它；已讀過的工作再變動也可能重複出現。最小重現：37 個 Insights 工作、每頁 5 筆、佇列不暫停，邊跑邊翻，8 次有 7 次只讀到 36 筆。AI 工作的清單按 `id DESC` 排，不受影響。測試現在暫停佇列，只證明游標本身走得完。
   - 方向：Insights 清單改成跟 AI 清單一樣按建立順序（`id DESC`）翻頁，recent jobs 快照與它的游標一起改，`idx_intelligence_jobs_recent` 不再需要；狀態變動照樣更新已載入的列，但不改它們的位置。然後前端在 Background work 捲動載入更多（虛擬化、三語的載入 / 讀完 / 失敗狀態），E2E 在佇列跑著時翻完全部頁，數目對、不重複。
+  - 做了（2026-10-13）：原本的方向是改成按 `id` 翻頁，寫到一半發現不行：Insights 的重建沿用同一筆工作（同一個 dedupe key 再排一次），按 id 排它會留在很後面，使用者按「重建」後在前五筆看不到它。改成新欄位 `intelligence_jobs.list_order`：加入時與「刻意再排一次」（同 dedupe key 再加入、重試）時取下一個號，跑、回報進度、完成都不動；清單照它新到舊、游標就是它（schema v1 原地改，`idx_intelligence_jobs_recent` 換成 `idx_intelligence_jobs_list`；用戶真實資料裝新版前要手動補，見記憶）。工作只會往上移，重讀第一頁就會在最上面看到。AI 佇列照舊按 id。
+  - 前端：兩個佇列的清單都先顯示五筆，「顯示全部」展開成虛擬化清單（每列量高度），捲到底附近讀下一頁（每頁 50），有載入中、全部讀完、讀取失敗加重試三種狀態（三語）。佇列在跑時，已讀的每一頁每 2 秒重讀，所以工作在哪一頁都看得到現在的狀態；收起時只留第一頁。取消正在跑的工作時照點的那列判斷要不要說「已要求停止」（之前查快照第一頁，深處的工作會說錯）。
+  - E2E：`background-work.spec` 加「the whole job history pages through while the queue works, each job once」：加 60 個很快跑完的 Insights 工作，佇列跑著時從後端每頁 5 筆讀三遍，每遍數目對、不重複；Settings 裡展開捲到底，看到的工作數等於總數，最上面是最後加的那個。
 
 - [ ] **WORK-AI-RUNS-AUDIT-VIEW** — AI 的 run 在哪裡給人看（2026-10-12 `WORK-RUN-LIFECYCLE-GUARDS` 找到）
   - 現象：索引建置（`ai_index`）、助理回答（`assistant`）與每次 MCP 查詢（`mcp_query`）都寫進 `runs`，以前只出現在 Backup 的「最近的執行」，寫成備份的「0 個來源 · 0 筆新造訪」，還把備份擠出 12 筆。現在那裡不列它們，畫面上就沒有地方看得到；MCP 查詢是外部工具讀了哪些歷史的審計，應該看得到。

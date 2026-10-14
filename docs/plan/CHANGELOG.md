@@ -2912,3 +2912,7 @@ that held up when checked against the code.
 
 - [x] `WORK-UPGRADE-LOCKED-FLAKE` — Updating from 0.3 no longer asks for the archive password instead (2026-10-13).
   - The app remembered only that it had checked for an update, not what it found. Any second pass through its start-up checks (React runs the first one twice in development; unlocking runs another) skipped the check, found an encrypted archive it could not open yet and asked for its password, a screen that cannot help. It now remembers that an update is due until the update is done, runs one pass at a time, and shows an error when the check itself fails.
+
+- [x] `WORK-JOB-HISTORY-PAGING` — Background work shows every job, and paging no longer loses any (2026-10-13).
+  - Each queue in Settings → Background work shows its newest five jobs and unfolds to its whole history, loaded as you scroll, with loading, end and error states. Before, only the dozen newest were ever shown.
+  - Insights jobs were listed by when they last changed, so a job moved every time it reported progress; reading the list while the queue ran skipped some and showed others twice. They are now listed by when they were added or last queued again on purpose, which running and finishing do not change, so a rebuild you start still shows at the top.

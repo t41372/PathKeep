@@ -70,7 +70,8 @@ pub(crate) fn enqueue_content_fetch_job(
                      updated_at = ?3,
                      last_error = NULL,
                      cancellation_reason = NULL,
-                     stop_requested = 0
+                     stop_requested = 0,
+                     list_order = (SELECT COALESCE(MAX(list_order), 0) + 1 FROM intelligence_jobs)
                  WHERE id = ?4",
                 params![CONTENT_FETCH_PRIORITY, payload_json, now, job_id],
             )?;
@@ -81,8 +82,8 @@ pub(crate) fn enqueue_content_fetch_job(
     connection.execute(
         "INSERT INTO intelligence_jobs
          (job_type, plugin_id, run_id, state, priority, attempt, dedupe_key, canonical_url, payload_json,
-          artifact_json, created_at, scheduled_at, updated_at)
-         VALUES (?1, ?2, NULL, 'queued', ?3, 0, ?4, ?7, ?5, '{}', ?6, ?6, ?6)",
+          artifact_json, created_at, scheduled_at, updated_at, list_order)
+         VALUES (?1, ?2, NULL, 'queued', ?3, 0, ?4, ?7, ?5, '{}', ?6, ?6, ?6, (SELECT COALESCE(MAX(list_order), 0) + 1 FROM intelligence_jobs))",
         params![
             CONTENT_FETCH_JOB_TYPE,
             CONTENT_FETCH_PLUGIN_ID,
@@ -151,7 +152,8 @@ pub fn enqueue_core_intelligence_job_in_session(
                      updated_at = ?3,
                      last_error = NULL,
                      cancellation_reason = NULL,
-                     stop_requested = 0
+                     stop_requested = 0,
+                     list_order = (SELECT COALESCE(MAX(list_order), 0) + 1 FROM intelligence_jobs)
                  WHERE id = ?5",
                 params![
                     core_intelligence_job_priority(job_type),
@@ -168,8 +170,8 @@ pub fn enqueue_core_intelligence_job_in_session(
     connection.execute(
         "INSERT INTO intelligence_jobs
          (job_type, plugin_id, run_id, state, priority, attempt, dedupe_key, payload_json,
-          artifact_json, created_at, scheduled_at, updated_at)
-         VALUES (?1, NULL, NULL, 'queued', ?2, 0, ?3, ?4, '{}', ?5, ?5, ?5)",
+          artifact_json, created_at, scheduled_at, updated_at, list_order)
+         VALUES (?1, NULL, NULL, 'queued', ?2, 0, ?3, ?4, '{}', ?5, ?5, ?5, (SELECT COALESCE(MAX(list_order), 0) + 1 FROM intelligence_jobs))",
         params![job_type, core_intelligence_job_priority(job_type), dedupe_key, payload_json, now],
     )?;
     let job_id = connection.query_one(

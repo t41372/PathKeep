@@ -1957,20 +1957,13 @@ pub struct IntelligenceJobOverview {
     pub cancellable: bool,
 }
 
-/// Continues the queue's deterministic newest-first order.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct IntelligenceJobCursor {
-    pub updated_at: String,
-    pub id: i64,
-}
-
 /// A queue page always exposes continuation when more records exist.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct IntelligenceJobPage {
     pub items: Vec<IntelligenceJobOverview>,
-    pub next_cursor: Option<IntelligenceJobCursor>,
+    /// Where the next page starts: the last job's place in the list (`list_order`).
+    pub next_cursor: Option<i64>,
 }
 
 /// One deterministic-runtime note as a stable code plus typed params.
@@ -2266,7 +2259,7 @@ pub struct IntelligenceRuntimeSnapshot {
     pub modules: Vec<DeterministicModuleRuntimeStatus>,
     pub recent_jobs: Vec<IntelligenceJobOverview>,
     #[serde(default)]
-    pub recent_jobs_next_cursor: Option<IntelligenceJobCursor>,
+    pub recent_jobs_next_cursor: Option<i64>,
     pub notes: Vec<String>,
 }
 

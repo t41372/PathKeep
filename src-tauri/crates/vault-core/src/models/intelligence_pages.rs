@@ -1,7 +1,7 @@
 //! Responsibilities: carry cursor requests for complete queue history.
 //! Not responsible for: queue transitions or database ownership.
-//! Failure modes: the status preview becomes a lifetime cap or timestamp ties lose jobs.
-use super::IntelligenceJobCursor;
+//! Failure modes: the status preview becomes a lifetime cap, or a job that changes while the
+//! pages are read is skipped or listed twice.
 use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -12,6 +12,7 @@ pub struct ListAiJobsRequest {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ListIntelligenceJobsRequest {
-    pub cursor: Option<IntelligenceJobCursor>,
+    /// The previous page's `nextCursor`.
+    pub cursor: Option<i64>,
     pub limit: Option<u32>,
 }

@@ -153,9 +153,5 @@ pub fn list_intelligence_jobs(
     vault: &vault_core::Vault,
     request: &vault_core::ListIntelligenceJobsRequest,
 ) -> Result<vault_core::IntelligenceJobPage> {
-    vault_core::list_intelligence_jobs(
-        vault,
-        request.cursor.clone(),
-        request.limit.unwrap_or(20) as usize,
-    )
+    vault_core::list_intelligence_jobs(vault, request.cursor, request.limit.unwrap_or(20) as usize)
 }
