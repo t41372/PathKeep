@@ -409,6 +409,7 @@
     - `trim_torn_tail`：向量檔與造訪對照表各一條測試，驗只切掉半筆、完好的不動、檔頭裡斷的不切、不存在的不建、切完接著寫讀得對。兩條都過，程式本來就對。
     - 內容抓取的 `#[cfg(test)]` 檢查：刪掉那份雙胞胎；`net_guard` 只在測試把「查名稱」換成固定表（localhost、`*.internal.test`、`*.invalid`），其餘照 production 的分類跑。
 
-- [ ] **WORK-REFACTOR-INDEXING**（用戶 2026-06-21 指示，承巨檔審計）— `ai/indexing.rs` 拆分重構。詳見 `main` 上的 STATUS。_非當前 focus_
+- [x] **WORK-REFACTOR-INDEXING**（用戶 2026-06-21 指示，承巨檔審計）— `ai/indexing.rs` 拆分重構。詳見 `main` 上的 STATUS。
+  - 2026-10-13 確認：2026-06-21 已做完（`8ba8df08`：拆成 `ai/indexing/{mod,backfill,candidates,store_rows,content}`，抽出 `DedupTracker`），只是這裡沒勾。附帶的兩件：`ai/search.rs` → `ai/assistant.rs` 已無意義（舊的 assistant 已刪，`WORK-ASSISTANT-JOB-TYPE`）；`repo-baseline.md` 的巨檔清單重新量過（53 → 11 個），還要拆的程式碼列在那裡。
 
 > `WORK-V03-PAPER-REDESIGN-A`（Paper 風格前端重建）被本次 redesign 取代，不再繼續。

@@ -16,62 +16,25 @@
 
 ---
 
-## 巨型檔案清單（2026-10-02 量測）
+## 巨型檔案清單（2026-10-13 量測）
 
-> 量測方式：版本庫追蹤中的 `src/`、`src-tauri/` 下 `.ts` / `.tsx` / `.rs` / `.css` / `.sql` / `.mjs` 檔，`wc -l`，列出 1000 行以上的（AGENTS.md：重構超過 1000 行的檔案前，先做審查階段）。量測對象是 v0.4 redesign 的代碼；當時另有工作在改 Rust，行數會有小幅出入。
-> 「程式碼」的行數包含同檔的 `#[cfg(test)]` 區塊。舊表中 `vault-core/src/intelligence_runtime.rs`、`vault-core/src/models.rs`、`vault-core/src/remote.rs`、`src/pages/intelligence/sections.tsx` 已不存在（前三個拆成目錄或刪除，最後一個隨舊前端刪除）。
+> 量測方式：版本庫追蹤中的 `src/`、`src-tauri/` 下 `.ts` / `.tsx` / `.rs` / `.css` / `.sql` / `.mjs` 檔（`src-tauri/gen/` 除外），`wc -l`，列出 1000 行以上的（AGENTS.md：重構超過 1000 行的檔案前，先做審查階段）。「程式碼」的行數包含同檔的 `#[cfg(test)]` 區塊。
 
-共 53 個檔案（2026-10-07 區塊 6 刪掉舊格式程式碼後，`archive/maintenance.rs`、`archive/schema.rs` 已刪除，`migration.rs`、`archive/at_rest.rs` 降到 1000 行以下，剩 49 個）。前端只有三個：兩個是照原樣保留的 EvilCharts 圖表，一個是型別定義；手寫的畫面元件最大的是 `src/features/onboarding/onboarding-page.tsx`（441 行）。
+共 11 個檔案。2026-10-02 量的時候是 53 個；之後砍 unit test（`WORK-TEST-CUT-2026-10`）刪掉了大多數測試檔與檔內測試，Ask 的舊路徑也刪了。前端三個是照原樣保留的 EvilCharts 圖表、型別定義與三語文案；手寫的畫面元件都在 1000 行以下。真正要拆的程式碼是 `agent_harness.rs`、`agent_tools.rs`、`code_mode.rs`、`archive_flows.rs` 與 `dispatch.rs`（命令分派表，隨命令增加而長）；`ai/indexing/` 在 2026-06-21 已拆成模組樹（`backfill.rs` 913 行）。
 
-| 檔案                                                                    | 行數 | 類型                               |
-| ----------------------------------------------------------------------- | ---- | ---------------------------------- |
-| `src-tauri/crates/vault-core/src/ai/tests.rs`                           | 5871 | 測試檔                             |
-| `src-tauri/crates/vault-core/src/archive/tests.rs`                      | 4540 | 測試檔                             |
-| `src-tauri/crates/vault-worker/src/tests.rs`                            | 3574 | 測試檔                             |
-| `src-tauri/crates/vault-core/src/ai/agent_harness.rs`                   | 3047 | 程式碼                             |
-| `src-tauri/crates/vault-core/src/ai/agent_tools.rs`                     | 2945 | 程式碼                             |
-| `src-tauri/crates/vault-core/src/models/intelligence.rs`                | 2713 | 程式碼                             |
-| `src-tauri/crates/vault-core/src/agent_store.rs`                        | 2318 | 程式碼                             |
-| `src-tauri/crates/vault-core/src/migration/fault_tests.rs`              | 2063 | 測試檔                             |
-| `src-tauri/crates/vault-worker/src/archive_flows.rs`                    | 2006 | 程式碼                             |
-| `src-tauri/crates/vault-core/src/archive/search_projection.rs`          | 1949 | 程式碼                             |
-| `src-tauri/crates/vault-core/src/enrichment/content_fetch.rs`           | 1928 | 程式碼                             |
-| `src-tauri/crates/vault-core/src/ai/search.rs`                          | 1747 | 程式碼                             |
-| `src-tauri/crates/vault-core/src/ai/code_mode/tests.rs`                 | 1656 | 測試檔                             |
-| `src-tauri/crates/vault-core/src/enrichment.rs`                         | 1635 | 程式碼                             |
-| `src-tauri/crates/browser-history-parser/src/chromium/mod.rs`           | 1559 | 程式碼                             |
-| `src-tauri/crates/vault-core/src/archive/history/og_images_fetch.rs`    | 1462 | 程式碼                             |
-| `src/components/evilcharts/charts/recharts-bar-chart.tsx`               | 1459 | vendored（EvilCharts，照原樣保留） |
-| `src-tauri/crates/vault-core/src/archive/ingest/dedup_scenarios.rs`     | 1368 | 測試情境                           |
-| `src-tauri/crates/vault-core/src/intelligence/tests/schema_overview.rs` | 1363 | 測試檔                             |
-| `src-tauri/crates/vault-core/src/ai/code_mode.rs`                       | 1357 | 程式碼                             |
-| `src-tauri/crates/vault-core/src/ai/llm.rs`                             | 1342 | 程式碼                             |
-| `src-tauri/crates/vault-platform/src/scheduler.rs`                      | 1341 | 程式碼                             |
-| `src-tauri/src/worker_bridge/mod.rs`                                    | 1337 | 程式碼                             |
-| `src-tauri/crates/vault-core/src/archive/history/og_images.rs`          | 1326 | 程式碼                             |
-| `src-tauri/crates/vault-worker/src/intelligence/ai_queue.rs`            | 1312 | 程式碼                             |
-| `src-tauri/crates/vault-core/src/takeout/browser_history.rs`            | 1284 | 程式碼                             |
-| `src/components/evilcharts/charts/recharts-area-chart.tsx`              | 1282 | vendored（EvilCharts，照原樣保留） |
-| `src-tauri/crates/vault-core/src/ai/embedding_static.rs`                | 1249 | 程式碼                             |
-| `src-tauri/crates/vault-core/src/stars/tests.rs`                        | 1245 | 測試檔                             |
-| `src-tauri/crates/vault-core/src/takeout/tests.rs`                      | 1243 | 測試檔                             |
-| `src-tauri/crates/vault-core/src/intelligence/tests/stage_rebuild.rs`   | 1235 | 測試檔                             |
-| `src-tauri/src/dev_ipc_bridge/dispatch.rs`                              | 1221 | 程式碼                             |
-| `src-tauri/crates/browser-history-parser/src/takeout/tests.rs`          | 1206 | 測試檔                             |
-| `src/lib/types/intelligence.ts`                                         | 1186 | 型別定義                           |
-| `src-tauri/crates/vault-core/src/archive/history.rs`                    | 1181 | 程式碼                             |
-| `src-tauri/crates/browser-history-parser/src/safari/mod.rs`             | 1177 | 程式碼                             |
-| `src-tauri/crates/vault-core/src/ai/indexing/backfill.rs`               | 1159 | 程式碼                             |
-| `src-tauri/crates/vault-core/src/chrome/tests.rs`                       | 1149 | 測試檔                             |
-| `src-tauri/src/dev_ipc_bridge/dispatch/tests.rs`                        | 1147 | 測試檔                             |
-| `src-tauri/crates/vault-core/src/archive/write_lock.rs`                 | 1137 | 程式碼                             |
-| `src-tauri/crates/vault-core/src/intelligence_runtime/tests_queue.rs`   | 1133 | 測試檔                             |
-| `src-tauri/crates/vault-worker/src/intelligence/chat.rs`                | 1131 | 程式碼                             |
-| `src-tauri/crates/vault-core/src/intelligence/host_artifacts.rs`        | 1098 | 程式碼                             |
-| `src-tauri/crates/vault-core/src/intelligence/phase_three.rs`           | 1091 | 程式碼                             |
-| `src-tauri/crates/vault-core/src/ai_queue.rs`                           | 1081 | 程式碼                             |
-| `src-tauri/crates/vault-platform/src/scheduler/macos.rs`                | 1023 | 程式碼                             |
-| `src-tauri/crates/vault-core/src/archive/history/day_insights.rs`       | 1017 | 程式碼                             |
+| 檔案                                                          | 行數 | 類型                    |
+| ------------------------------------------------------------- | ---- | ----------------------- |
+| `src-tauri/crates/vault-core/src/models/intelligence.rs`      | 2324 | 型別定義                |
+| `src/components/evilcharts/charts/recharts-bar-chart.tsx`     | 1459 | 照原樣保留的 EvilCharts |
+| `src/lib/i18n/messages/insights.ts`                           | 1347 | 三語文案                |
+| `src-tauri/crates/vault-core/src/ai/code_mode.rs`             | 1340 | 程式碼（含測試）        |
+| `src/components/evilcharts/charts/recharts-area-chart.tsx`    | 1282 | 照原樣保留的 EvilCharts |
+| `src/lib/types/intelligence.ts`                               | 1248 | 型別定義                |
+| `src-tauri/src/dev_ipc_bridge/dispatch.rs`                    | 1246 | 程式碼（命令分派表）    |
+| `src-tauri/crates/browser-history-parser/src/chromium/mod.rs` | 1222 | 程式碼（含測試）        |
+| `src-tauri/crates/vault-worker/src/archive_flows.rs`          | 1191 | 程式碼（含測試）        |
+| `src-tauri/crates/vault-core/src/ai/agent_tools.rs`           | 1069 | 程式碼（含測試）        |
+| `src-tauri/crates/vault-core/src/ai/agent_harness.rs`         | 1033 | 程式碼（含測試）        |
 
 ---
 
