@@ -2905,3 +2905,7 @@ that held up when checked against the code.
 - [x] `WORK-HISTORY-EXPORT-SAVE-DIALOG` — Exporting history asks where to save it (2026-10-13).
   - Settings → Storage → Export history opens the system's save dialog first, with Downloads and "PathKeep history <date>" offered, and writes the file where you choose; closing the dialog does nothing. Every export used to go into PathKeep's own exports folder, inside the app's data, which "Delete all data" empties. That folder now only holds old exports, which Free space still clears.
   - Progress, stopping and the file appearing only once complete work as before; the temp file sits beside the chosen file and is removed if the export stops.
+
+- [x] `WORK-NOTE-SAVE-FLAKE` — The note that once was not saved (2026-10-13).
+  - The failing version of the test typed right after clicking another page, before the details panel had switched, so the words went into the previous page's note. The test has since waited for the panel to show the new page; it passed 20 times in a row, and 20 more with every core busy. The app itself saves a note to the page whose panel it was typed in.
+  - A new check types a note and moves to another page before it saves on its own, then back: each page keeps its own note.

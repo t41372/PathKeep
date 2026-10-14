@@ -225,6 +225,37 @@ async function openDetails(page: Page, visit: FixtureVisit) {
   return row
 }
 
+test('a note typed just before moving to another page is saved on its own page', async ({
+  page,
+}) => {
+  // Not the pages the stars test uses.
+  const work = pageOf('chrome:Profile 1', [])
+  const firefox = pageOf('firefox:k3x9.default-release', [work.url])
+  const starred = [work.url, firefox.url]
+  starred.push(pageOf('chrome:Default', starred).url)
+  const first = pageOf('chrome:Default', starred)
+  const second = pageOf('chrome:Default', [...starred, first.url])
+  const note = detail(page).getByRole('textbox', { name: 'Note' })
+  const show = async (visit: FixtureVisit) => {
+    await searchBox(page).fill(`"${visit.title}"`)
+    await results(page).filter({ hasText: visit.title }).click()
+    await expect(detail(page)).toContainText(visit.url)
+  }
+
+  // Each note is written well inside the 0.8 s pause after which it saves on
+  // its own, so it is saved when its page leaves the panel.
+  await openDetails(page, first)
+  await note.fill('wallaby first')
+  await show(second)
+  await note.fill('wallaby second')
+  await show(first)
+  await expect(note).toHaveValue('wallaby first')
+  await expectSavedNote(first.url, 'wallaby first')
+  await expectSavedNote(second.url, 'wallaby second')
+  await show(second)
+  await expect(note).toHaveValue('wallaby second')
+})
+
 test('stars from two profiles: the Starred list and History agree after a reload', async ({
   page,
 }) => {

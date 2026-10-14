@@ -352,10 +352,12 @@
   - 做了（2026-10-13）：`export_history` 先由後端跳儲存對話框（建議「PathKeep history 日期.副檔名」、預設「下載」、依格式的篩選），回 `null` 表示關掉了；`vault_core::export_history` 改成接目標路徑，暫存檔在目標旁邊，下次匯出到同一個資料夾時清掉一小時以上、PathKeep 自己的 `.pk-durable-*` 暫存。儲存對話框的 helper 搬到 `worker_bridge/save_dialog.rs`，對話匯出共用。按鈕改「Export…」（三語），對話框開著時沒有進度、「停止」不能按。順手刪掉沒人呼叫的 `export_search_history` 與 `export_query` 沒用到的金鑰參數。`exports` 資料夾照舊建立（搬家檔在瀏覽器模式下的預設位置還在那），只是不再放歷史匯出。
   - E2E：`export.spec` 從 `PATHKEEP_TEST_SAVE_DIR` 讀，驗檔名、toast 上的路徑、`exports` 裡沒有新的匯出；停止後連暫存檔都沒有。關掉對話框那條路 Playwright 碰不到。
 
-- [ ] **WORK-NOTE-SAVE-FLAKE** — 筆記偶爾沒存下來（2026-10-13 寫 history E2E 時看到一次）
+- [x] **WORK-NOTE-SAVE-FLAKE** — 筆記偶爾沒存下來（2026-10-13 寫 history E2E 時看到一次）
   - 現象：`history-tools.spec` 的「a note is found by its words, in either script, until it changes」一次失敗：第二頁的筆記沒有存下來，之後用筆記的字搜不到它。其他每次都過。
   - 已知：`note-editor.tsx` 在停止輸入 0.8 秒後存，面板換到別頁時把還沒存的那次用原來的網址送出；照程式看不會丟。那次沒留下 trace（跟另一組 E2E 同時跑，產物被蓋掉）。
   - 方向：重跑那條直到失敗並留下 trace，看是沒送出、送出失敗（畫面會寫「沒存下來」）還是存了但搜尋索引沒跟上；找到時序再修，E2E 加一條快速換頁後筆記仍在。
+  - 結果（2026-10-13）：是測試的時序，不是產品。失敗的那一版在點下一頁之後立刻打字，沒等詳細面板換頁（選取經過網址，面板晚一拍才換），字打進了還開著的上一頁的筆記框，存到上一頁；之後那條改用 `select()`，等面板標題換成新頁才打字。產品這邊筆記框以網址為 key，跟標題同一次 render 換掉，看到哪頁就存到哪頁。現在的版本單獨連跑 20 次、CPU 全滿時再 20 次都過。
+  - E2E：`history-tools.spec` 加「a note typed just before moving to another page is saved on its own page」：在 0.8 秒自動儲存之前換頁、再換回來，兩頁各存自己的筆記（連跑 10 次）。
 
 - [ ] **WORK-UPGRADE-LOCKED-FLAKE** — 從 0.3.0 升級時偶爾停在「存檔已加密」（2026-10-12 本機 gate 看到一次）
   - 現象：`upgrade.spec` 解開 0.3.0 的 App Lock 之後，應該出現「Updating your archive」，那一次卻是「Your archive is encrypted」（`archive-locked`，要密碼解鎖新格式的存檔）。資料夾裡只有剛解開的 0.3.0 檔案（spec 先確認沒有 `config.json`、也沒有 `history-vault.db`）。同一份程式碼前一次與後一次的完整 E2E 都過（75 / 76 個）。
