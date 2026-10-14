@@ -586,4 +586,48 @@ mod tests {
         let error = store.existing_ids().expect_err("partial record");
         assert!(error.to_string().contains("partial record"));
     }
+
+    /// Written from the ways the repair after a crash mid-append can go wrong: it cuts whole
+    /// records with the half one, touches a store that was fine, cuts into the header of a store
+    /// torn there, creates a store that was not there, or leaves the stride so that the next
+    /// append is misread.
+    #[test]
+    fn trim_torn_tail_cuts_only_the_half_written_record() {
+        use std::io::Write as _;
+        let dir = tempdir().expect("tempdir");
+        let paths = project_paths_with_root(dir.path());
+        let live = fingerprint(2, "m");
+
+        let absent = VectorStore::for_provider(&paths, &live.provider_id, &live.model_id);
+        assert_eq!(absent.trim_torn_tail().expect("absent"), 0);
+        assert!(!absent.exists(), "nothing is created");
+
+        let store = VectorStore::create_stamped(&paths, &live).expect("create");
+        store.append_vectors(&[(1, vec![1.0, 0.0]), (2, vec![0.0, 1.0])]).expect("append");
+        let whole = std::fs::read(store.path()).unwrap();
+        assert_eq!(store.trim_torn_tail().expect("clean"), 0);
+        assert_eq!(std::fs::read(store.path()).unwrap(), whole, "a clean store is untouched");
+
+        // A crash after 7 of a record's 16 bytes.
+        std::fs::OpenOptions::new()
+            .append(true)
+            .open(store.path())
+            .unwrap()
+            .write_all(&[0xAB; 7])
+            .unwrap();
+        assert!(store.count().is_err(), "the torn store cannot be read as it is");
+        assert_eq!(store.trim_torn_tail().expect("torn"), 7);
+        assert_eq!(std::fs::read(store.path()).unwrap(), whole);
+        store.append_vectors(&[(3, vec![0.5, 0.5])]).expect("append after trim");
+        assert_eq!(
+            store.read_all().expect("read").iter().map(|(id, _)| *id).collect::<Vec<_>>(),
+            [1, 2, 3]
+        );
+
+        // Torn inside the header: refused, not cut.
+        let short = &whole[..10];
+        std::fs::write(store.path(), short).unwrap();
+        assert!(store.trim_torn_tail().is_err());
+        assert_eq!(std::fs::read(store.path()).unwrap(), short);
+    }
 }

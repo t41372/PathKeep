@@ -29,7 +29,7 @@
 //! internal service, so blocking it would only break the legitimate retry
 //! cadence without adding safety.
 
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, ToSocketAddrs};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 /// True when `ip` is anything other than a routable public address.
 pub(crate) fn ip_is_non_public(ip: IpAddr) -> bool {
@@ -94,12 +94,38 @@ pub(crate) fn url_target_is_blocked(url: &str) -> bool {
         return ip_is_non_public(ip);
     }
     let port = parsed.port_or_known_default().unwrap_or(443);
-    match (host, port).to_socket_addrs() {
+    match resolve(host, port) {
         // Block if ANY resolved address is non-public so a host that returns
         // one public and one private record can't smuggle a request through.
         Ok(addresses) => addresses.into_iter().any(|address| ip_is_non_public(address.ip())),
         Err(_) => false,
     }
+}
+
+/// The name lookup behind the check.
+#[cfg(not(test))]
+fn resolve(host: &str, port: u16) -> std::io::Result<Vec<std::net::SocketAddr>> {
+    use std::net::ToSocketAddrs;
+    Ok((host, port).to_socket_addrs()?.collect())
+}
+
+/// Unit tests answer names from this table instead of the network, so everything else they check
+/// is the production classifier (content fetch used to test a twin of it): `localhost` and
+/// `*.localhost` are loopback, `*.internal.test` a private address, `*.invalid` does not resolve,
+/// and any other name is a public address.
+#[cfg(test)]
+fn resolve(host: &str, port: u16) -> std::io::Result<Vec<std::net::SocketAddr>> {
+    use std::net::SocketAddr;
+    let ip = if host == "localhost" || host.ends_with(".localhost") {
+        Ipv4Addr::LOCALHOST
+    } else if host.ends_with(".internal.test") {
+        Ipv4Addr::new(10, 0, 0, 7)
+    } else if host.ends_with(".invalid") {
+        return Err(std::io::Error::new(std::io::ErrorKind::NotFound, "no such host"));
+    } else {
+        Ipv4Addr::new(93, 184, 215, 14)
+    };
+    Ok(vec![SocketAddr::new(ip.into(), port)])
 }
 
 #[cfg(test)]
@@ -166,5 +192,12 @@ mod tests {
         assert!(url_target_is_blocked("http://169.254.169.254/latest/meta-data/"));
         assert!(url_target_is_blocked("https://[::1]:8443/")); // bracketed IPv6
         assert!(!url_target_is_blocked("https://8.8.8.8/x"));
+
+        // Names go through the lookup (a table here): private answers are blocked, an
+        // unresolvable name fails open.
+        assert!(url_target_is_blocked("http://localhost:3000/"));
+        assert!(url_target_is_blocked("https://router.internal.test/admin"));
+        assert!(!url_target_is_blocked("https://github.com/rust-lang"));
+        assert!(!url_target_is_blocked("https://gone.invalid/"));
     }
 }

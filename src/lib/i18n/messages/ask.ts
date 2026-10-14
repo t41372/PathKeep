@@ -110,6 +110,8 @@ export const ask = defineMessages({
           'It stopped when the model’s context was nearly full, so the answer may be incomplete.',
         contextTooSmall:
           'This conversation doesn’t fit the context the model is loaded with, so it wasn’t sent: the service would have cut part of it out without saying. Load the model with a longer context in LM Studio or Ollama, or start a new chat.',
+        sourcesNotSaved:
+          'The pages this answer used couldn’t be saved. They show now, but not when you reopen this chat.',
         toolCallingUnavailable:
           'This model cannot use search tools, so it answered without looking at your archive.',
         searchIndexIncomplete:
@@ -221,6 +223,8 @@ export const ask = defineMessages({
         tokenBudgetReached: '模型的 context 快满了，所以停下，回答可能不完整。',
         contextTooSmall:
           '这段对话放不进模型目前加载的 context，所以没有送出：服务会默默截掉其中一段。在 LM Studio 或 Ollama 用更长的 context 加载模型，或开新对话。',
+        sourcesNotSaved:
+          '这个回答用到的页面没能保存。现在看得到，重新打开这段对话时就不会显示。',
         toolCallingUnavailable:
           '这个模型无法使用搜索工具，所以它没有查看你的存档就回答了。',
         searchIndexIncomplete: '搜索索引还在建立中，这个回答可能漏掉一些页面。',
@@ -331,6 +335,8 @@ export const ask = defineMessages({
         tokenBudgetReached: '模型的 context 快滿了，所以停下，回答可能不完整。',
         contextTooSmall:
           '這段對話放不進模型目前載入的 context，所以沒有送出：服務會默默截掉其中一段。在 LM Studio 或 Ollama 用更長的 context 載入模型，或開新對話。',
+        sourcesNotSaved:
+          '這個回答用到的頁面沒能儲存。現在看得到，重新打開這段對話時就不會顯示。',
         toolCallingUnavailable:
           '這個模型無法使用搜尋工具，所以它沒有查看你的存檔就回答了。',
         searchIndexIncomplete: '搜尋索引還在建立中，這個回答可能漏掉一些頁面。',

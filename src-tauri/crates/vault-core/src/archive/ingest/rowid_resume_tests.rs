@@ -226,3 +226,71 @@ fn chromium_resume_keeps_a_new_visit_to_an_older_synced_url() {
         Ok(())
     }).unwrap();
 }
+#[test]
+fn a_visit_whose_url_row_is_missing_is_kept_with_its_address() {
+    // The way this went wrong (test audit A3): the visit was skipped, a later visit in the batch
+    // moved the cursor past it, and no backup read it again.
+    let vault = crate::Vault::open_temp().unwrap();
+    let profile = test_context::profile("chromium", "chromium:orphan");
+    let (context, batch) = test_context::seed_context(&vault, 42, &profile);
+    let cancel = CancelToken::new();
+    let mut consumer =
+        ArchiveChunkConsumer::new(&vault, context, Watermark::default(), &cancel, None, batch);
+    let at = 1_800_000_000_000;
+    let iso = |ms: i64| chrono::DateTime::from_timestamp_millis(ms).unwrap().to_rfc3339();
+    consumer
+        .urls(vec![ParsedUrl {
+            source_url_id: 2,
+            url: "https://known.test/".into(),
+            title: Some("Known".into()),
+            visit_count: 1,
+            typed_count: 0,
+            last_visit_ms: at + 6,
+            last_visit_iso: iso(at + 6),
+            hidden: false,
+            source_last_visit_marker: None,
+        }])
+        .unwrap();
+    let visit = |id: i64, url_id: i64, url: &str, title: &str| ParsedVisit {
+        source_visit_id: id,
+        source_url_id: url_id,
+        url: url.into(),
+        title: Some(title.into()),
+        visit_time_ms: at + id,
+        visit_time_iso: iso(at + id),
+        from_visit: None,
+        transition: None,
+        visit_duration_ms: None,
+        is_known_to_sync: false,
+        visited_link_id: None,
+        external_referrer_url: None,
+        app_id: None,
+    };
+    consumer
+        .visits(vec![
+            visit(4, 4, "https://missed.test/page", "Missed"),
+            visit(6, 2, "https://known.test/", "Known"),
+        ])
+        .unwrap();
+    let progress = consumer.finish().unwrap();
+    assert_eq!(
+        (progress.new_visits, progress.skipped_visits, progress.urls_from_visits),
+        (2, 0, 1)
+    );
+
+    let profile_id = profile.profile_id.clone();
+    let (visits, missed, cursor) = vault
+        .store()
+        .read(Db::Archive, move |s| {
+            let visits =
+                s.query_one("SELECT COUNT(*) FROM visits", (), |r| Ok(r.get::<i64>(0)?))?;
+            let missed = s.query_one("SELECT url FROM urls WHERE source_url_id = 4", (), |r| {
+                Ok(r.get::<String>(0)?)
+            })?;
+            Ok((visits, missed, load_watermark(s, &profile_id)?.last_visit_id))
+        })
+        .unwrap();
+    assert_eq!(visits, 2);
+    assert_eq!(missed, "https://missed.test/page");
+    assert_eq!(cursor, 6);
+}

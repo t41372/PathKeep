@@ -33,27 +33,7 @@ use super::rate_limit::{DEFAULT_HOST_HOLD, acquire_host_token, hold_host, next_t
 use super::{
     EnrichmentResult, default_enrichment_refetch_after_for_status, store_enrichment_with_cache,
 };
-#[cfg(not(test))]
 use crate::archive::net_guard::url_target_is_blocked;
-
-// Unit fixtures never resolve DNS. Literal-address checks still exercise the real classifier.
-#[cfg(test)]
-fn url_target_is_blocked(value: &str) -> bool {
-    let Ok(url) = reqwest::Url::parse(value) else {
-        return true;
-    };
-    if !matches!(url.scheme(), "http" | "https") {
-        return true;
-    }
-    let Some(host) = url.host_str() else {
-        return true;
-    };
-    let literal = host.trim_start_matches('[').trim_end_matches(']');
-    match literal.parse::<std::net::IpAddr>() {
-        Ok(ip) => crate::archive::net_guard::ip_is_non_public(ip),
-        Err(_) => host == "localhost" || host.ends_with(".localhost"),
-    }
-}
 use crate::intelligence_runtime::{
     ClaimedEnrichmentJob, EnrichmentJobPayload, claim_content_fetch_job_by_id,
     intelligence_job_stop_requested, mark_intelligence_job_failed,

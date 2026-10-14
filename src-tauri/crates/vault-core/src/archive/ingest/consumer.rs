@@ -52,6 +52,8 @@ pub(crate) struct ArchiveStreamProgress {
     /// their Insights are built again.
     pub replaced_profiles: BTreeSet<i64>,
     pub skipped_visits: usize,
+    /// Visits whose URL row was missing from the archive, so their URL was written from the visit.
+    pub urls_from_visits: usize,
     pub inserted_search_terms: usize,
     pub url_count: usize,
     pub visit_count: usize,
@@ -363,22 +365,7 @@ fn apply_batch(
                     url.visit_count = url.visit_count.max(1);
                     url.typed_count = url.typed_count.max(0);
                 }
-                let UpsertedUrl { id, page, previous_page, rewritten } =
-                    upsert_url(s, c.run_id, c.source_profile_id, &url, &hash)?;
-                written.urls.insert(url.source_url_id, (id, page));
-                // An observation the row already had leaves the page's document as it is: what
-                // an import run again reads for the records it wrote before.
-                if rewritten {
-                    written.text.insert(page);
-                }
-                if let Some(old_page) = previous_page
-                    && old_page != page
-                {
-                    written.moved.insert(old_page);
-                    written.moved.insert(page);
-                }
-                p.new_urls += usize::from(previous_page.is_none());
-                p.url_count += 1;
+                write_url(s, c, p, written, &url, &hash)?;
                 let marker = url_marker(&c.browser_family, &url);
                 w.last_url_last_visit_time = w.last_url_last_visit_time.max(marker);
                 if let Some(scan) = &mut w.url_scan {
@@ -404,13 +391,27 @@ fn apply_batch(
                     p.last_visit_iso = Some(visit.visit_time_iso.clone());
                 }
                 let known = written.urls.get(&visit.source_url_id).copied();
-                let Some((id, page)) = known.map_or_else(
-                    || resolve_url(s, c.source_profile_id, visit.source_url_id),
-                    |url| Ok(Some(url)),
-                )?
-                else {
-                    p.skipped_visits += 1;
-                    continue;
+                let known = match known {
+                    Some(url) => Some(url),
+                    None => resolve_url(s, c.source_profile_id, visit.source_url_id)?,
+                };
+                // Every visit the browser gives carries its address (Chromium's visit query joins
+                // `urls`), so one whose URL row is not in the archive means a URL batch missed
+                // it. Skipping the visit lost it for good: a later visit moves the cursor past
+                // it. Its URL is written from the visit instead, and the next URL batch that
+                // reads the row brings its counts.
+                let (id, page) = match known {
+                    Some(url) => url,
+                    None if !visit.url.is_empty() => {
+                        let url = url_of_visit(&visit, c.import.is_some());
+                        let hash = sha256_hex(&serde_json::to_vec(&url)?);
+                        p.urls_from_visits += 1;
+                        write_url(s, c, p, written, &url, &hash)?
+                    }
+                    None => {
+                        p.skipped_visits += 1;
+                        continue;
+                    }
                 };
                 // Another source's copy of this visit: it stands in, unless this one outranks it.
                 let stand_in =
@@ -547,6 +548,50 @@ fn written_by(
             |r| Ok(r.get::<i64>(0)?),
         )?
         .is_empty())
+}
+
+/// Writes one URL row and records what it changed for the batch's projections.
+fn write_url(
+    s: &Session<'_>,
+    c: &WriteContext,
+    p: &mut ArchiveStreamProgress,
+    written: &mut Written,
+    url: &ParsedUrl,
+    hash: &str,
+) -> Result<(i64, i64)> {
+    let UpsertedUrl { id, page, previous_page, rewritten } =
+        upsert_url(s, c.run_id, c.source_profile_id, url, hash)?;
+    written.urls.insert(url.source_url_id, (id, page));
+    // An observation the row already had leaves the page's document as it is: what an import run
+    // again reads for the records it wrote before.
+    if rewritten {
+        written.text.insert(page);
+    }
+    if let Some(old_page) = previous_page
+        && old_page != page
+    {
+        written.moved.insert(old_page);
+        written.moved.insert(page);
+    }
+    p.new_urls += usize::from(previous_page.is_none());
+    p.url_count += 1;
+    Ok((id, page))
+}
+
+/// The URL row a visit implies when its own row is missing: its address and title, last visited
+/// at this visit, seen once.
+fn url_of_visit(visit: &ParsedVisit, import: bool) -> ParsedUrl {
+    ParsedUrl {
+        source_url_id: visit.source_url_id,
+        url: visit.url.clone(),
+        title: visit.title.clone(),
+        visit_count: i64::from(import),
+        typed_count: 0,
+        last_visit_ms: visit.visit_time_ms,
+        last_visit_iso: visit.visit_time_iso.clone(),
+        hidden: false,
+        source_last_visit_marker: None,
+    }
 }
 
 fn resolve_url(

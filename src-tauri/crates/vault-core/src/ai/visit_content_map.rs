@@ -286,4 +286,35 @@ mod tests {
         handle.ensure_created(&paths).expect("idempotent create");
         assert_eq!(handle.read_all().expect("read").get(&1), Some(&0x9));
     }
+
+    /// The same ways to go wrong as `VectorStore::trim_torn_tail` (see its test), for the map.
+    #[test]
+    fn trim_torn_tail_cuts_only_the_half_written_record() {
+        use std::io::Write as _;
+        let dir = tempdir().expect("tempdir");
+        let paths = project_paths_with_root(dir.path());
+        let handle = map(&paths);
+        assert_eq!(handle.trim_torn_tail().expect("absent"), 0);
+        assert!(!handle.exists(), "nothing is created");
+
+        let created = create_for(&paths, &handle);
+        assert_eq!(created.trim_torn_tail().expect("header only"), 0);
+        created.append(&[(1, 0x1), (2, 0x2)]).expect("append");
+        let whole = std::fs::read(created.path()).unwrap();
+        assert_eq!(created.trim_torn_tail().expect("clean"), 0);
+        assert_eq!(std::fs::read(created.path()).unwrap(), whole);
+
+        std::fs::OpenOptions::new()
+            .append(true)
+            .open(created.path())
+            .unwrap()
+            .write_all(&[0xCD; 5])
+            .unwrap();
+        assert!(created.read_all().is_err(), "the torn map cannot be read as it is");
+        assert_eq!(created.trim_torn_tail().expect("torn"), 5);
+        assert_eq!(std::fs::read(created.path()).unwrap(), whole);
+        created.append(&[(3, 0x3)]).expect("append after trim");
+        let read = created.read_all().expect("read");
+        assert_eq!((read.len(), read.get(&3)), (3, Some(&0x3)));
+    }
 }

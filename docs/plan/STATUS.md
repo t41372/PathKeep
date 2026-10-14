@@ -396,12 +396,18 @@
   - 做了（2026-10-13）：舊欄位名全部拿掉，每個用到的地方都編譯失敗、逐一決定要哪一個，沒有一處默默換意思。v0.4 的檔案是 `archive_db`、`source_evidence_db`、`intelligence_db`、`agent_db`（值取自 `vault_store::Paths::under`，布局只有一個來源）與 `search_index_dir`；v0.3 的五個 SQLCipher 檔放進 `ProjectPaths::legacy`（`LegacyPaths`），只有偵測「還沒轉換的存檔」與轉換器（`vault-convert-sqlcipher` 全部）讀。`Vault::open` 不再改寫路徑。原本經過 `Vault` 才讀 `.db` 的（備份 manifest、doctor、加密標頭、寫鎖）改用 `archive_db`；沒經過的（啟動時判斷要不要轉換、密碼解鎖前的檢查、archive_availability）明寫 `legacy.archive` 或兩者。另外 9 處手拼 `archive/history-vault.db`、2 處手拼 `derived/search-index` 改用欄位。介面拿到的 `searchDatabasePath` 改名 `searchIndexDir`，指到真的存在的資料夾（介面沒有讀它）。
   - 測試：行為沒有變，靠既有的轉換、升級、復原、清除與 E2E（`upgrade.spec`、`move.spec`、`wipe.spec`）驗。
 
-- [ ] **WORK-TEST-CUT-FINDINGS** — 清 unit test 時讀程式碼找到的（2026-10-12，都還沒重現或修）
+- [x] **WORK-TEST-CUT-FINDINGS** — 清 unit test 時讀程式碼找到的（2026-10-12，都還沒重現或修）
   - 匯入時網址缺失的那筆造訪被跳過，之後的造訪把游標推過它（`consumer.rs`；舊審查的 A3，pin 住它的測試已刪）：那筆造訪不會再被讀到。
   - Browser Direct 的備用複製（`takeout/browser_history/staging.rs:232-279`）沒有一般備份（`chrome/staging.rs:170`）那段寫到一半的日誌復原；複製到正在寫的 History 時大概會像以前的備份事故一樣以 `SQLITE_READONLY_ROLLBACK` 失敗。
   - `agent_harness.rs:507`、`:738` 用 `let _ =` 丟掉 `record_citations` 的結果：存引用失敗時，重開的對話只有答案沒有來源，也沒有錯誤。
   - `trim_torn_tail`（`backfill.rs:737`，向量檔寫到一半崩潰後的修復）沒有任何測試，E2E 也碰不到：補一個先寫失敗方式再寫的測試。
   - 內容抓取的 `#[cfg(test)]` 版 `url_target_is_blocked`（舊審查 P0 #4）還在：測試走的不是 production 的檢查。
+  - 結果（2026-10-13），每一項都照「先寫會怎麼錯」補了測試：
+    - 缺網址的造訪：Chromium 讀造訪時本來就 JOIN `urls`，每筆都帶著網址與標題，所以存檔裡沒有它的網址只可能是我們漏讀了那列。改成用造訪帶的網址寫入那列（`url_of_visit`，計數照舊由之後讀到的那列補上），造訪照存、游標照走；`urls_from_visits` 記數。測試：`rowid_resume_tests::a_visit_whose_url_row_is_missing_is_kept_with_its_address`。
+    - Browser Direct 的備用複製：跟一般備份共用同一份 `chrome::stage_sqlite_file`（線上備份 → 失敗時原始複製加 sidecar → 把熱日誌 / WAL 折回主檔），刪掉匯入自己那份（少了恢復與 busy timeout）。測試：寫到一半、留下熱日誌的 History 照樣匯入，只含已提交的資料。
+    - 存引用失敗：不再 `let _ =`。回答已存、引用沒存時多一則提示 `sourcesNotSaved`（三語：現在看得到，重開時不會顯示）；最後一輪的回答或降級回答沒存下來時，跟其他步驟一樣以錯誤結束，不再假裝完成。
+    - `trim_torn_tail`：向量檔與造訪對照表各一條測試，驗只切掉半筆、完好的不動、檔頭裡斷的不切、不存在的不建、切完接著寫讀得對。兩條都過，程式本來就對。
+    - 內容抓取的 `#[cfg(test)]` 檢查：刪掉那份雙胞胎；`net_guard` 只在測試把「查名稱」換成固定表（localhost、`*.internal.test`、`*.invalid`），其餘照 production 的分類跑。
 
 - [ ] **WORK-REFACTOR-INDEXING**（用戶 2026-06-21 指示，承巨檔審計）— `ai/indexing.rs` 拆分重構。詳見 `main` 上的 STATUS。_非當前 focus_
 

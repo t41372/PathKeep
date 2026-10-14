@@ -13,6 +13,7 @@
 mod discovery;
 mod paths;
 mod staging;
+pub(crate) use self::staging::stage_sqlite_file;
 
 use crate::{
     browser_retention::retention_boundary_for_browser,

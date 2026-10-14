@@ -2925,3 +2925,9 @@ that held up when checked against the code.
 
 - [x] `WORK-PROJECT-PATHS-V04` — One name per file in the data folder (2026-10-13).
   - The paths to the archive and its sibling databases named v0.3's files until the archive was opened, then v0.4's, so code that read them without opening the archive got a file that no longer exists; Settings → Storage once under-counted because of it. v0.4's files and v0.3's now have separate fields, and v0.3's are read only to find and convert an old archive. Nothing a person sees changes.
+
+- [x] `WORK-TEST-CUT-FINDINGS` — What reading the code during the unit-test cut found (2026-10-13).
+  - A visit whose address PathKeep had not stored yet was skipped, and the next visit moved the backup past it for good. The visit carries its address, so it is now stored with it.
+  - Importing a browser's history file the browser was writing could fail on the leftover journal: the import made its own copy without the recovery backups do. Both now stage the same way.
+  - When Ask could not save the pages an answer used, it said nothing; reopened, the answer had no sources. It now says so under the answer. A final answer that could not be saved ends with an error instead of looking complete.
+  - The repair that cuts a half-written record off the search-by-meaning files after a crash, and the content-fetch address check as it really runs, are now tested.

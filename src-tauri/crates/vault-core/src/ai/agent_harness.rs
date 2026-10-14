@@ -444,9 +444,7 @@ where
 
         // No tool calls → the model is done. Pin citations, stream them, emit Done, complete.
         if accumulated.tool_calls.is_empty() {
-            let _ = journal.record_citations(&citations);
-            emit_citations(&mut sink, &citations);
-            sink(AiChatStreamChunk::Done);
+            finish_with_citations(journal, &mut sink, &citations);
             return AgentRunOutcome::Completed {
                 iterations: turn,
                 prompt_tokens,
@@ -695,10 +693,19 @@ where
     let payload =
         json!({ "text": accumulated.text, "reasoning": accumulated.reasoning, "final": true })
             .to_string();
-    let _ = journal.journal_step(synthesis_turn, STEP_KIND_ASSISTANT_TURN, None, None, &payload);
-    let _ = journal.record_citations(citations);
-    emit_citations(sink, citations);
-    sink(AiChatStreamChunk::Done);
+    if let Err(error) =
+        journal.journal_step(synthesis_turn, STEP_KIND_ASSISTANT_TURN, None, None, &payload)
+    {
+        // Unsaved, the answer would be missing from the conversation when it is reopened.
+        sink(AiChatStreamChunk::Error { message: error.to_string() });
+        return AgentRunOutcome::Failed {
+            iterations: synthesis_turn,
+            prompt_tokens: *prompt_tokens,
+            completion_tokens: *completion_tokens,
+            message: error.to_string(),
+        };
+    }
+    finish_with_citations(journal, sink, citations);
     // `iterations` counts model turns; the tokens above already include the synthesis turn, so it must
     // be counted here too (otherwise the cost shows N+1 turns' tokens against N iterations).
     AgentRunOutcome::Completed {
@@ -706,6 +713,22 @@ where
         prompt_tokens: *prompt_tokens,
         completion_tokens: *completion_tokens,
     }
+}
+
+/// Ends a run that answered: pins its evidence, streams it, then `Done`. A pin that fails is said,
+/// not dropped (it used to be `let _ =`): the answer stands and shows its pages now, but a reopened
+/// conversation would show it without them, so the person is told (`SourcesNotSaved`).
+fn finish_with_citations<J: AgentJournal, S: AgentRunSink>(
+    journal: &J,
+    sink: &mut S,
+    citations: &[AiCitation],
+) {
+    if let Err(error) = journal.record_citations(citations) {
+        eprintln!("pathkeep: WARNING: saving the pages an answer used failed: {error:#}");
+        sink(AiChatStreamChunk::Note { code: AiAgentNote::SourcesNotSaved });
+    }
+    emit_citations(sink, citations);
+    sink(AiChatStreamChunk::Done);
 }
 
 /// Emits the run's accumulated evidence as ONE `Citations` chunk right before a terminal `Done`.
@@ -989,7 +1012,15 @@ where
         });
     }
     let payload = json!({ "text": accumulated.text, "degraded": true }).to_string();
-    let _ = journal.journal_step(1, STEP_KIND_DEGRADED_ANSWER, None, None, &payload);
+    if let Err(error) = journal.journal_step(1, STEP_KIND_DEGRADED_ANSWER, None, None, &payload) {
+        sink(AiChatStreamChunk::Error { message: error.to_string() });
+        return AgentRunOutcome::Failed {
+            iterations: 1,
+            prompt_tokens: *prompt_tokens,
+            completion_tokens: *completion_tokens,
+            message: error.to_string(),
+        };
+    }
     // The degraded path runs no tools, so the evidence set is empty — but still emit the terminal
     // `Citations` signal so the FE's success contract is uniform across both paths.
     emit_citations(sink, &[]);

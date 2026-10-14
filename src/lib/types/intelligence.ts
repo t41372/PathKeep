@@ -969,6 +969,7 @@ export type AiAgentNote =
   | { code: 'toolCallingUnavailable' }
   | { code: 'searchIndexIncomplete' }
   | { code: 'contextTooSmall' }
+  | { code: 'sourcesNotSaved' }
 
 /**
  * Envelope emitted on `pathkeep://ai-stream` pairing a chunk with its run id.

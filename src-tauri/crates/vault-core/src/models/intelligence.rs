@@ -1275,6 +1275,9 @@ pub enum AiAgentNote {
     /// the context the model is loaded with, so nothing was sent: the service would have cut the
     /// middle out without saying so.
     ContextTooSmall,
+    /// The answer was saved but the pages it used were not: they show now, and a reopened
+    /// conversation shows the answer without them.
+    SourcesNotSaved,
 }
 
 /// Tauri event channel that carries [`AiChatStreamEvent`]s to the front end.
