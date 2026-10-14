@@ -10,7 +10,6 @@
 
 mod agent_harness;
 mod agent_tools;
-mod assistant;
 mod chat_stream;
 mod code_mode;
 mod control;
@@ -45,16 +44,16 @@ use crate::{
     config::ProjectPaths,
     enrichment::{build_embedding_content_from_parts, load_best_enrichment_map_by_history_ids},
     models::{
-        AiAssistantRequest, AiAssistantResponse, AiCitation, AiIndexReport, AiIndexRequest,
-        AiIndexStatus, AiIndexWarning, AiProviderCapabilityReport, AiProviderConfig,
-        AiProviderConnectionTestReport, AiProviderPurpose, AiQueueJobType, AiQueueStatus,
-        AiRequestFormat, AiSearchEntry, AiSearchNote, AiSearchRequest, AiSearchResponse,
-        AiSemanticStaleness, AppConfig, HistoryEntry,
+        AiIndexReport, AiIndexRequest, AiIndexStatus, AiIndexWarning, AiProviderCapabilityReport,
+        AiProviderConfig, AiProviderConnectionTestReport, AiProviderPurpose, AiQueueJobType,
+        AiQueueStatus, AiRequestFormat, AiSearchEntry, AiSearchNote, AiSearchRequest,
+        AiSearchResponse, AiSemanticStaleness, AppConfig, HistoryEntry,
     },
     utils::{now_rfc3339, url_domain},
 };
 use anyhow::{Context, Result};
 use iana_time_zone::get_timezone;
+use rig::tool::ToolDyn;
 use rig::{
     client::CompletionClient,
     completion::Prompt,
@@ -62,10 +61,6 @@ use rig::{
 };
 #[cfg(not(test))]
 use rig::{client::EmbeddingsClient, embeddings::EmbeddingModel as _};
-use rig::{
-    completion::ToolDefinition,
-    tool::{Tool, ToolDyn},
-};
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -76,9 +71,7 @@ use std::{
     time::{Duration, Instant},
 };
 use thiserror::Error;
-use tokio::sync::Mutex;
 
-pub use self::assistant::{answer_history_question, answer_history_question_with_control};
 /// The enrichment summary an embedding's dedup hash includes; conversion recomputes hashes with it.
 pub(crate) use self::indexing::enrichment_summary_for as enrichment_summary_for_embedding;
 pub use self::indexing::{
@@ -87,9 +80,8 @@ pub use self::indexing::{
 pub use self::model_list::{chat_context_length, list_provider_models};
 pub use self::provider::test_provider_connection;
 pub use self::read_model::{
-    ai_index_status, ai_queue_status, load_assistant_run_response, preview_ai_integrations,
-    provider_capabilities, provider_connection_failure_report, reconcile_ai_queue_controls,
-    recoverable_ai_jobs,
+    ai_index_status, ai_queue_status, preview_ai_integrations, provider_capabilities,
+    provider_connection_failure_report, reconcile_ai_queue_controls, recoverable_ai_jobs,
 };
 pub use self::search::semantic_search_history;
 
@@ -147,8 +139,7 @@ pub use self::working_set::{
 use self::control::{await_with_ai_cancellation, checkpoint_ai_run};
 use self::native_ledger::AiIndexLedgerRow;
 use self::provider::{
-    classify_provider_error, embed_query, embedding_provider_readiness, run_llm_agent,
-    validate_provider,
+    classify_provider_error, embed_query, embedding_provider_readiness, validate_provider,
 };
 
 /// Resolved provider configuration plus the OPTIONAL secret for one AI operation.
@@ -265,7 +256,6 @@ pub struct AiIntegrationPreview {
 /// Correlated `NOT EXISTS` so each row is checked by a primary-key lookup; a `NOT IN` subquery
 /// would first copy every visible visit id into a temporary index.
 const UPSERT_EMBEDDING_SQL: &str = "INSERT OR REPLACE INTO ai_embeddings (history_id, profile_id, url, title, domain, visited_at, content_hash, content_bytes, provider_id, model, indexed_at, metadata_bytes) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)";
-const INSERT_ASSISTANT_RUN_SQL: &str = "INSERT INTO ai_assistant_runs (run_id, question, answer, provider_id, embedding_provider_id, citations_json, notes_json, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)";
 const AI_QUEUE_RECENT_LIMIT: usize = 8;
 const AI_INDEX_LEDGER_VERSION: &str = "semantic-sidecar-v1";
 /// Canonical rows embedded + persisted per resumable backfill chunk.

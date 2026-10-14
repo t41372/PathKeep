@@ -794,47 +794,6 @@ export interface AiSearchResponse {
 }
 
 /**
- * Describes a request payload in this front-end contract.
- *
- * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
- */
-export interface AiAssistantRequest {
-  question: string
-  profileId?: string | null
-  domain?: string | null
-}
-
-/**
- * Defines the typed shape for ai assistant citation.
- *
- * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
- */
-export interface AiAssistantCitation {
-  historyId: number
-  profileId: string
-  url: string
-  title?: string | null
-  visitedAt: string
-  score: number
-}
-
-/**
- * Describes a response payload in this front-end contract.
- *
- * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
- */
-export interface AiAssistantResponse {
-  state: string
-  answer: string
-  jobId?: number | null
-  runId?: number | null
-  providerId: string
-  embeddingProviderId: string
-  citations: AiAssistantCitation[]
-  notes: string[]
-}
-
-/**
  * Conversational role for one streaming chat message (mirrors the backend `LlmRole`).
  */
 export type AiChatRole = 'system' | 'user' | 'assistant' | 'tool'

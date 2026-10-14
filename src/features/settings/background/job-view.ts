@@ -38,6 +38,12 @@ const jobTypes = [
 ] as const
 type JobType = (typeof jobTypes)[number]
 
+/**
+ * Why a question an older Ask left in the queue ended unanswered
+ * (`vault_core::ai_queue::ASSISTANT_RETIRED`).
+ */
+const ASSISTANT_RETIRED = 'assistant-retired'
+
 /** Job types that work on single pages and carry the page title. */
 const pageJobTypes: readonly string[] = ['enrichment-plugin', 'content-fetch']
 
@@ -150,17 +156,20 @@ export function useJobViews() {
             : { percent: null }
           : null,
         error:
-          job.state === 'failed'
-            ? (job.errorMessage ?? job.errorCode ?? null)
-            : null,
-        // `replay_ai_job` / `cancel_ai_job` state rules (vault-core ai_queue).
-        canRetry: ['failed', 'cancelled', 'stale', 'paused'].includes(
-          job.state,
-        ),
+          job.errorCode === ASSISTANT_RETIRED
+            ? t('settingsBackground.assistantRetired')
+            : job.state === 'failed'
+              ? (job.errorMessage ?? job.errorCode ?? null)
+              : null,
+        // `replay_ai_job` / `cancel_ai_job` state rules (vault-core ai_queue);
+        // a question an older Ask queued is never run again.
+        canRetry:
+          job.jobType !== 'assistant' &&
+          ['failed', 'cancelled', 'stale', 'paused'].includes(job.state),
         canCancel: ['queued', 'paused', 'stale', 'running'].includes(job.state),
       }
     },
-    [typeName],
+    [t, typeName],
   )
 
   return { fromRuntime, fromAiQueue }

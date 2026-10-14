@@ -1848,20 +1848,6 @@ pub struct AiCitation {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
-/// Result payload for an assistant answer.
-pub struct AiAssistantResponse {
-    pub state: String,
-    pub answer: String,
-    pub job_id: Option<i64>,
-    pub run_id: Option<i64>,
-    pub provider_id: String,
-    pub embedding_provider_id: String,
-    pub citations: Vec<AiCitation>,
-    pub notes: Vec<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
 /// High-level readiness summary for Core Intelligence runtime state.
 pub struct IntelligenceStatus {
     pub ready: bool,

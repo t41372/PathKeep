@@ -422,45 +422,6 @@ pub fn provider_connection_failure_report(
     }
 }
 
-/// Loads one persisted assistant run into the public response shape.
-pub fn load_assistant_run_response(
-    vault: &crate::Vault,
-    run_id: i64,
-) -> Result<AiAssistantResponse> {
-    vault.read(Db::Intelligence, move |connection| {
-        connection
-            .query_one(
-                "SELECT answer, provider_id, embedding_provider_id, citations_json, notes_json
-             FROM ai_assistant_runs
-             WHERE run_id = ?1",
-                [run_id],
-                |row| {
-                    let citations_json: String = row.get(3)?;
-                    let notes_json: String = row.get(4)?;
-                    let citations = serde_json::from_str::<Vec<AiCitation>>(&citations_json)
-                        .map_err(|error| vault_store::Error::Operation(Box::new(error)))?;
-                    let notes = serde_json::from_str::<Vec<String>>(&notes_json)
-                        .map_err(|error| vault_store::Error::Operation(Box::new(error)))?;
-                    Ok(AiAssistantResponse {
-                        state: if citations.is_empty() {
-                            "insufficient-evidence".to_string()
-                        } else {
-                            "completed".to_string()
-                        },
-                        answer: row.get(0)?,
-                        job_id: None,
-                        run_id: Some(run_id),
-                        provider_id: row.get(1)?,
-                        embedding_provider_id: row.get(2)?,
-                        citations,
-                        notes,
-                    })
-                },
-            )
-            .with_context(|| format!("loading AI assistant run {run_id}"))
-    })
-}
-
 /// Builds the manual MCP/skill integration preview shown in Settings.
 pub fn preview_ai_integrations(
     paths: &ProjectPaths,

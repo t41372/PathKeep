@@ -1,15 +1,13 @@
 //! Responsibilities: expose optional-AI search and its model-facing tool contract.
-//! Not responsible for: result windows, database ownership, queues or assistant persistence.
+//! Not responsible for: result windows, database ownership or queues.
 //! Failure modes: lexical fallback loses coverage; provider drift is hidden; tool pagination
 //! is capped by its output page size. Tests: AI, agent-tool, code-mode and MCP suites.
 
 use super::*;
 
-/// The 50-row CONTEXT cap the MODEL-FACING `search_history` tools apply to their own `limit` BEFORE
-/// calling [`search_history_internal`]. Every row a tool returns enters the model's context, so the
-/// page stays a bounded evidence sample (02 §F). Distinct from the paged retrieval API (the retrieval
-/// ceiling the sandbox uses); see that doc for why the two paths differ. Mirrors
-/// `agent_tools::MAX_TOOL_ROWS` for the legacy rig tool path here.
+/// The 50-row cap a page of search results has on the paths a person or a model reads
+/// ([`semantic_search_history`]). Distinct from the paged retrieval API (the retrieval ceiling the
+/// sandbox uses); see that doc for why the two paths differ. Mirrors `agent_tools::MAX_TOOL_ROWS`.
 pub(super) const MODEL_FACING_ROW_CAP: u32 = 50;
 
 /// One semantic-index lookup result together with any degradation notes.
@@ -27,151 +25,6 @@ pub(super) const MODEL_FACING_ROW_CAP: u32 = 50;
 pub(super) struct SemanticMatchReport {
     pub hits: Vec<AiSearchEntry>,
     pub notes: Vec<AiSearchNote>,
-}
-
-/// Shared context captured by the assistant's `search_history` tool.
-///
-/// Tool calls need enough state to rerun retrieval with the current unlock state, scope
-/// defaults, and cooperative cancellation hook, without reopening higher-level assistant
-/// orchestration code.
-#[derive(Clone)]
-pub(super) struct SearchContext {
-    pub vault: crate::Vault,
-    pub paths: ProjectPaths,
-    pub config: AppConfig,
-    pub database_key: Option<String>,
-    pub embedding_provider: Option<AiProviderRuntime>,
-    pub default_profile_id: Option<String>,
-    pub default_domain: Option<String>,
-    pub default_limit: u32,
-    pub citations: Arc<Mutex<Vec<AiCitation>>>,
-    pub run_control: Option<Arc<dyn AiRunControl>>,
-}
-
-/// JSON payload accepted by the assistant's `search_history` tool.
-#[derive(Debug, Deserialize)]
-pub(super) struct SearchHistoryArgs {
-    pub cursor: Option<String>,
-    pub query: String,
-    pub profile_id: Option<String>,
-    pub domain: Option<String>,
-    pub limit: Option<u32>,
-}
-
-/// JSON payload returned by the assistant's `search_history` tool.
-#[derive(Debug, Serialize)]
-pub(super) struct SearchHistoryOutput {
-    pub next_cursor: Option<String>,
-    pub total: usize,
-    pub search_state: Option<crate::search::SearchCoverage>,
-    pub items: Vec<AiSearchEntry>,
-}
-
-/// Tool-layer error wrapper used by rig.rs dynamic tool calls.
-#[derive(Debug, Error)]
-#[error("{0}")]
-pub(super) struct SearchToolError(String);
-
-/// Tool wrapper that lets an assistant do follow-up evidence searches during one answer.
-#[derive(Clone)]
-pub(super) struct SearchHistoryTool {
-    pub context: SearchContext,
-}
-
-/// Implements the assistant-facing `search_history` tool contract.
-impl Tool for SearchHistoryTool {
-    const NAME: &'static str = "search_history";
-    type Error = SearchToolError;
-    type Args = SearchHistoryArgs;
-    type Output = SearchHistoryOutput;
-
-    /// Describes the tool schema exposed to the LLM runtime.
-    async fn definition(&self, _prompt: String) -> ToolDefinition {
-        ToolDefinition {
-            name: Self::NAME.to_string(),
-            description: "Search browser history by meaning, URL, title, profile, or domain and return the best matching visits.".to_string(),
-            parameters: json!({
-                "type": "object",
-                "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "What to search for in the browser history archive."
-                    },
-                    "profile_id": {
-                        "type": "string",
-                        "description": "Optional browser profile identifier."
-                    },
-                    "domain": {
-                        "type": "string",
-                        "description": "Optional domain filter."
-                    },
-                    "cursor": {"type":"string", "description":"Continuation from next_cursor; keep the query and filters unchanged."},
-                    "limit": {
-                        "type": "integer",
-                        "description": "Maximum number of visits to return."
-                    }
-                },
-                "required": ["query"]
-            }),
-        }
-    }
-
-    /// Executes one tool-driven history search and appends the resulting citations.
-    async fn call(&self, args: Self::Args) -> std::result::Result<Self::Output, Self::Error> {
-        if let Some(control) = self.context.run_control.as_ref() {
-            control
-                .checkpoint("Assistant run was cancelled before an additional history search.")
-                .map_err(|error| SearchToolError(error.to_string()))?;
-        }
-        let request = AiSearchRequest {
-            query: args.query,
-            profile_id: args.profile_id.or_else(|| self.context.default_profile_id.clone()),
-            domain: args.domain.or_else(|| self.context.default_domain.clone()),
-            // Bound one model message; next_cursor keeps every later match reachable.
-            limit: Some(args.limit.unwrap_or(self.context.default_limit).min(MODEL_FACING_ROW_CAP)),
-            cursor: args.cursor,
-            sort: None,
-            starred_only: None,
-            start_date: None,
-            end_date: None,
-            browser_kind: None,
-        };
-        let response = search_history_internal(
-            &self.context.vault,
-            &self.context.paths,
-            &self.context.config,
-            self.context.database_key.as_deref(),
-            self.context.embedding_provider.as_ref(),
-            &request,
-        )
-        .await
-        .map_err(|error| SearchToolError(error.to_string()))?;
-        if let Some(control) = self.context.run_control.as_ref() {
-            control
-                .checkpoint("Assistant run was cancelled after the latest history search.")
-                .map_err(|error| SearchToolError(error.to_string()))?;
-        }
-        let citations = response
-            .items
-            .iter()
-            .map(|item| AiCitation {
-                history_id: item.history_id,
-                profile_id: item.profile_id.clone(),
-                url: item.url.clone(),
-                title: item.title.clone(),
-                visited_at: item.visited_at.clone(),
-                score: Some(item.score),
-                canonical_url: None,
-            })
-            .collect::<Vec<_>>();
-        self.context.citations.lock().await.extend(citations);
-        Ok(SearchHistoryOutput {
-            items: response.items,
-            next_cursor: response.next_cursor,
-            total: response.total,
-            search_state: response.search_state,
-        })
-    }
 }
 
 /// Runs the semantic/keyword history search pipeline with explicit fallback behavior.

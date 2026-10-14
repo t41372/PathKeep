@@ -28,20 +28,17 @@ use super::AI_QUEUE_ACTIVE_WORKERS;
 use crate::context::{
     load_unlocked_config, provider_config_for_request, queue_failure_from_error,
     resolve_provider_runtime, search_response_with_resolution_note,
-    selected_embedding_provider_runtime, selected_llm_provider_runtime,
-    selected_optional_embedding_runtime, tokio_runtime,
+    selected_embedding_provider_runtime, selected_optional_embedding_runtime, tokio_runtime,
 };
 use crate::job_runtime::{BackgroundJobControl, maybe_spawn_worker_pool};
 use anyhow::{Context, Result};
 use std::{sync::Arc, time::Duration};
 use vault_core::{
-    AiAssistantRequest, AiAssistantResponse, AiCapability, AiIndexReport, AiIndexRequest,
-    AiIntegrationPreview, AiProviderConnectionTestReport, AiProviderConnectionTestRequest,
-    AiProviderPurpose, AiQueueJob, AiQueueStatus, AiSearchRequest, AiSearchResponse, AppConfig,
-    ReembedEstimate, ReembedScope, WorkingSetConfig, ai_queue,
-    answer_history_question_with_control, build_ai_index_with_control,
-    ensure_ai_capability_enabled, estimate_reembed, preview_ai_integrations,
-    semantic_search_history, test_provider_connection,
+    AiCapability, AiIndexReport, AiIndexRequest, AiIntegrationPreview,
+    AiProviderConnectionTestReport, AiProviderConnectionTestRequest, AiProviderPurpose, AiQueueJob,
+    AiQueueStatus, AiSearchRequest, AiSearchResponse, AppConfig, ReembedEstimate, ReembedScope,
+    WorkingSetConfig, ai_queue, build_ai_index_with_control, ensure_ai_capability_enabled,
+    estimate_reembed, preview_ai_integrations, semantic_search_history, test_provider_connection,
 };
 
 const AI_JOB_CONTROL_POLL_INTERVAL: Duration = Duration::from_millis(500);
@@ -220,82 +217,6 @@ pub(crate) fn complete_claimed_index_job(
     }
 }
 
-/// Completes one claimed assistant job and stores the persisted run trace.
-///
-/// Assistant runs can fail for queue, provider, or user-cancellation reasons.
-/// Centralizing the state transition logic here keeps the queue contract honest
-/// for both background drains and foreground "run now" paths.
-pub(crate) fn complete_claimed_assistant_job(
-    vault: &vault_core::Vault,
-    paths: &vault_core::ProjectPaths,
-    config: &AppConfig,
-    session_database_key: Option<&str>,
-    claimed: ai_queue::StoredAiJob,
-    _request: &AiAssistantRequest,
-) -> Result<AiAssistantResponse> {
-    let ai_queue::AiJobPayload::Assistant { payload } = claimed.payload.clone() else {
-        anyhow::bail!("AI job {} did not contain an assistant payload.", claimed.id);
-    };
-    // Resolve every frozen provider snapshot and the async runtime inside the persisted outcome
-    // boundary. These preflight errors are user-actionable queue outcomes, not transient worker logs.
-    let result = (|| {
-        let llm_provider = selected_llm_provider_runtime(config, Some(&payload.llm_provider_id))?;
-        let embedding_provider = payload
-            .embedding_provider_id
-            .as_deref()
-            .map(|provider_id| selected_embedding_provider_runtime(config, Some(provider_id)))
-            .transpose()?;
-        let runtime = tokio_runtime()?;
-        let run_control = start_ai_job_control(vault, claimed.id);
-        let result = runtime.block_on(answer_history_question_with_control(
-            vault,
-            paths,
-            config,
-            session_database_key,
-            &llm_provider,
-            embedding_provider.as_ref(),
-            &payload.request,
-            Some(run_control.clone()),
-        ));
-        run_control.shutdown();
-        result
-    })();
-
-    match result {
-        Ok(mut response) => {
-            response.job_id = Some(claimed.id);
-            let summary = format!("Answered with {} citation(s).", response.citations.len());
-            mark_successful_ai_job_or_cancelled(
-                vault,
-                claimed.id,
-                response.run_id,
-                Some(summary.as_str()),
-                Some("Assistant run cancelled from the UI."),
-            )?;
-            Ok(response)
-        }
-        Err(error) => {
-            let failure = queue_failure_from_error(&error);
-            if ai_queue::ai_job_stop_requested(vault, claimed.id)? {
-                let _ = ai_queue::mark_running_ai_job_cancelled(
-                    vault,
-                    claimed.id,
-                    Some("Assistant run cancelled from the UI."),
-                )?;
-            } else {
-                ai_queue::mark_ai_job_failed(
-                    vault,
-                    claimed.id,
-                    None,
-                    &failure,
-                    config.ai.job_queue_paused,
-                )?;
-            }
-            Err(error)
-        }
-    }
-}
-
 fn mark_successful_ai_job_or_cancelled(
     vault: &vault_core::Vault,
     job_id: i64,
@@ -390,16 +311,8 @@ pub(crate) fn drain_one_ai_queue_job(
                 &request,
             );
         }
-        ai_queue::AiJobPayload::Assistant { payload } => {
-            let _ = complete_claimed_assistant_job(
-                vault,
-                paths,
-                &config,
-                session_database_key,
-                job,
-                &payload.request,
-            );
-        }
+        // Claims skip these (`claim_next_ai_job`); an older archive's are retired when it opens.
+        ai_queue::AiJobPayload::Assistant { .. } => {}
     }
     Ok(true)
 }
@@ -457,16 +370,7 @@ pub fn run_ai_queue_jobs(
                     &request,
                 );
             }
-            ai_queue::AiJobPayload::Assistant { payload } => {
-                let _ = complete_claimed_assistant_job(
-                    vault,
-                    &paths,
-                    &config,
-                    session_database_key,
-                    job,
-                    &payload.request,
-                );
-            }
+            ai_queue::AiJobPayload::Assistant { .. } => {}
         }
     }
 

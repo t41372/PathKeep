@@ -29,10 +29,29 @@ pub fn list_ai_jobs(vault: &Vault, cursor: Option<i64>, limit: usize) -> Result<
 /// Startup owns every lease; workers from the previous owner cannot still be alive.
 pub(crate) fn recover_owner_claims(storage: &vault_store::Store) -> vault_store::Result<()> {
     storage.write(Db::Intelligence, Priority::Interactive, |s| {
+        let now = now_rfc3339();
         s.execute("UPDATE ai_jobs SET state=CASE WHEN stop_requested=1 THEN 'cancelled' ELSE 'queued' END,
-            lease_owner=NULL,lease_expires_at=NULL,updated_at=?1 WHERE state='running'", [now_rfc3339()])?;
+            lease_owner=NULL,lease_expires_at=NULL,updated_at=?1 WHERE state='running'", [now.as_str()])?;
+        retire_assistant_jobs(s, &now)?;
         Ok(())
     })
+}
+
+/// Why a questions-in-the-queue job ended without an answer; Background work says it in words.
+pub const ASSISTANT_RETIRED: &str = "assistant-retired";
+
+/// Ask answers as it streams (`ai_chat_send`) and no longer queues questions; an older archive may
+/// still hold queued ones. Answering a question asked long ago helps no one, so they end as
+/// cancelled with [`ASSISTANT_RETIRED`] instead of running, and are not tried again.
+fn retire_assistant_jobs(s: &vault_store::Session<'_>, now: &str) -> vault_store::Result<()> {
+    s.execute(
+        "UPDATE ai_jobs SET state='cancelled',error_code=?2,
+            error_message='Ask no longer answers questions in the background; this one was not answered.',
+            finished_at=?1,updated_at=?1,lease_owner=NULL,lease_expires_at=NULL
+         WHERE job_type='assistant' AND state NOT IN ('succeeded','failed','cancelled')",
+        [now, ASSISTANT_RETIRED],
+    )?;
+    Ok(())
 }
 
 /// Uses the current owner for `enqueue_index_job`.

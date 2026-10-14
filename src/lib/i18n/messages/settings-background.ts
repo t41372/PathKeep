@@ -64,6 +64,8 @@ export const settingsBackground = defineMessages({
     recent: 'Recent work',
     showAll: 'Show all',
     showFewer: 'Show fewer',
+    assistantRetired:
+      'Ask no longer answers questions in the background, so this one was never answered. Ask it again in Ask.',
     loadingMore: 'Loading earlier work…',
     allShown: 'That’s all the work on record.',
     moreFailed: 'Couldn’t load earlier work: {message}',
@@ -278,6 +280,8 @@ export const settingsBackground = defineMessages({
     recent: '最近的任务',
     showAll: '显示全部',
     showFewer: '收起',
+    assistantRetired:
+      'Ask 已经不在后台回答问题，所以这个问题没有被回答。请在 Ask 里再问一次。',
     loadingMore: '正在载入更早的任务…',
     allShown: '所有任务记录都在这里了。',
     moreFailed: '载入更早的任务失败：{message}',
@@ -484,6 +488,8 @@ export const settingsBackground = defineMessages({
     recent: '最近的工作',
     showAll: '顯示全部',
     showFewer: '收起',
+    assistantRetired:
+      'Ask 已經不在背景回答問題，所以這個問題沒有被回答。請在 Ask 裡再問一次。',
     loadingMore: '正在載入更早的工作…',
     allShown: '所有工作紀錄都在這裡了。',
     moreFailed: '載入更早的工作失敗：{message}',

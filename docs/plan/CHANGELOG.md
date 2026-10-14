@@ -2919,3 +2919,6 @@ that held up when checked against the code.
 
 - [x] `WORK-AI-RUNS-AUDIT-VIEW` — See what other apps read through MCP (2026-10-13).
   - Settings → AI lists every request an app made through PathKeep's MCP server, newest first: which tool, what it searched for, the site it was limited to and how many pages matched. The list stays after MCP is turned off, since it records what already left PathKeep. These requests were recorded all along but shown nowhere since Backup stopped listing them.
+
+- [x] `WORK-ASSISTANT-JOB-TYPE` — Questions an older Ask left in the queue are retired, not answered (2026-10-13).
+  - Ask answers as it streams and stopped queueing questions in v0.4, but the queue still ran any question an older archive held, sending something asked long ago to the model. Such a question now ends as cancelled when the archive opens, and Background work says why and offers no "run again". The code that answered queued questions is gone; the answers v0.3 stored stay in the archive.

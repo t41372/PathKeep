@@ -384,9 +384,11 @@
   - 做了：`load_mcp_queries`（新到舊、游標分頁，`runs(run_type, id)` 新索引；存檔 schema v1 原地改，用戶真實資料要手動補，見記憶）；每列寫 tool、搜了什麼、限哪個網站、幾頁符合、時間；虛擬化、捲動讀下一頁，載入 / 讀完 / 失敗三種狀態，三語。MCP 關掉後有紀錄仍顯示。
   - E2E：`mcp-log.spec`（新）：開 MCP、照 Settings 列出的命令啟動 MCP server（`support/mcp-client.ts`，stdio JSON-RPC），呼叫 `archive-status`、`search-history`、限網站的 `search-history`，清單新到舊三筆、結果數等於 App 拿到的數、限網站那筆寫出網站；關掉 MCP 後仍在。
 
-- [ ] **WORK-ASSISTANT-JOB-TYPE** — AI 佇列裡的「助理」工作已經沒有來源（2026-10-13 盤點 `WORK-TEST-CUT-2026-10` 刪掉的程式時找到）
+- [x] **WORK-ASSISTANT-JOB-TYPE** — AI 佇列裡的「助理」工作已經沒有來源（2026-10-13 盤點 `WORK-TEST-CUT-2026-10` 刪掉的程式時找到）
   - 現象：Ask 從 v0.4 起走串流（`ai_chat_send`），排隊提問的命令與 `enqueue_assistant_job` 都已刪掉；佇列仍認得 `assistant` 這種工作，會領取、執行、重播（`vault-worker/src/intelligence/ai_queue.rs` 的 `complete_claimed_assistant_job` 等），只會碰到舊存檔裡留下的列。
   - 方向：決定舊列怎麼處理（執行一個很久以前的問題沒有意義，應該標成取消並在 Background work 說明），再拿掉這種工作的執行路徑與計數；文檔 `desktop-command-surface.md` 同步。
+  - 做了（2026-10-13）：舊列在存檔打開時（`recover_owner_claims`）標成 cancelled、`error_code = assistant-retired`，已完成的不動；佇列只領 index-build / index-clear；`replay_ai_job` 拒絕 assistant；計數只算索引工作（`indexQueued` 與總數因此一樣）。Background work 對這種工作寫「Ask 已經不在背景回答問題……請在 Ask 裡再問一次」（三語），不給「重跑」。刪掉執行路徑：`complete_claimed_assistant_job`、`ai/assistant.rs`（`answer_history_question*`、寫 `ai_assistant_runs` 的那段）、沒人讀的 `load_assistant_run_response`、只有它用的 rig `SearchHistoryTool`、前端沒人用的 `AiAssistant*` 型別。`ai_assistant_runs` 表留著：裡面是 v0.3 存下的回答，是使用者的資料，搬家也帶走。
+  - 測試：E2E 造不出舊的排隊提問，所以照「先寫會怎麼錯」寫一條 Rust 測試（`ai_queue/tests.rs`）：很久以前的問題被送去模型、永遠「等待中」並被計數、「重跑」又排回去、當年回答過的被改寫——四項都驗。
 
 - [ ] **WORK-PROJECT-PATHS-V04** — `ProjectPaths` 的資料庫路徑還是 v0.3 的（2026-10-13 修 Settings → Storage 時找到）
   - 現象：`config.rs` 的預設是 `history-vault.sqlite`、`source-evidence.sqlite`、`history-search.sqlite`、`history-intelligence.sqlite`、`agent.sqlite`；`Vault::open` 再把其中四個改成 `.db`，搜尋那個沒改（v0.4 的搜尋索引是 `derived/search-index` 資料夾）。沒有經過 `Vault` 的讀者（`app.rs` 回給介面的 `searchDatabasePath`）拿到的是不存在的檔案；Storage 用量曾因此少算搜尋索引、對話與 WAL。

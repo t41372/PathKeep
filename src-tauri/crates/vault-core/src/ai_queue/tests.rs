@@ -88,3 +88,58 @@ fn execute(
     let params = params.into_params().unwrap();
     vault.store().write(Db::Intelligence, Priority::Interactive, move |s| s.execute(sql, params))
 }
+
+#[test]
+fn a_question_left_in_the_queue_by_an_older_ask_ends_cancelled_and_never_runs() {
+    // Ways this goes wrong (WORK-ASSISTANT-JOB-TYPE): a question asked long ago is sent to a model
+    // when the queue next drains; it stays "waiting" for ever and is counted as such; "run again"
+    // queues it once more; a question that was answered back then is rewritten as cancelled.
+    let vault = Vault::open_temp().unwrap();
+    let payload = serde_json::to_string(&AiJobPayload::Assistant {
+        payload: AssistantJobPayload {
+            request: AiAssistantRequest {
+                question: "What did I read?".into(),
+                profile_id: None,
+                domain: None,
+            },
+            llm_provider_id: "lm-studio".into(),
+            embedding_provider_id: None,
+        },
+    })
+    .unwrap();
+    let insert = |state: &str| {
+        vault
+            .store()
+            .write(Db::Intelligence, Priority::Interactive, {
+                let (state, payload) = (state.to_owned(), payload.clone());
+                move |s| {
+                    s.query_one(
+                        "INSERT INTO ai_jobs(job_type,state,priority,payload_json,available_at,
+                         created_at,updated_at) VALUES('assistant',?1,10,?2,'2020-01-01T00:00:00Z',
+                         '2020-01-01T00:00:00Z','2020-01-01T00:00:00Z') RETURNING id",
+                        vault_store::params![state, payload],
+                        |r| Ok(r.get::<i64>(0)?),
+                    )
+                }
+            })
+            .unwrap()
+    };
+    let waiting = insert("queued");
+    let answered = insert("succeeded");
+    let index = enqueue_index_job(&vault, &AiIndexRequest::default(), false).unwrap();
+
+    recover_owner_claims(vault.store()).unwrap();
+
+    let retired = load_ai_job(&vault, waiting).unwrap();
+    assert_eq!(retired.state, "cancelled");
+    assert_eq!(retired.error_code.as_deref(), Some(ASSISTANT_RETIRED));
+    assert_eq!(load_ai_job(&vault, answered).unwrap().state, "succeeded");
+    let status = load_ai_queue_status(&vault, false, 1, 8).unwrap();
+    assert_eq!((status.queued, status.running), (1, 0), "only the index job waits");
+
+    // The queue's next job is the index build, and the question cannot be queued again.
+    assert_eq!(claim_next_ai_job(&vault, 60).unwrap().map(|job| job.id), Some(index.id));
+    assert!(claim_next_ai_job(&vault, 60).unwrap().is_none());
+    assert!(replay_ai_job(&vault, waiting, false).is_err());
+    assert_eq!(load_ai_job(&vault, waiting).unwrap().state, "cancelled");
+}

@@ -168,31 +168,6 @@ fn assert_unique(ids: &[i64]) {
 }
 
 #[test]
-fn answer_history_question_checks_feature_gates_before_network() {
-    let runtime = Runtime::new().expect("runtime");
-    let (paths, mut config, connection) = prepared_archive();
-    let vault = connection.vault.clone();
-    seed_visit(&connection, 1, "chrome:Default", "https://example.com/docs", Some("Docs"), 1);
-    config.ai.assistant_enabled = false;
-    let error = runtime
-        .block_on(answer_history_question(
-            &vault,
-            &paths,
-            &config,
-            None,
-            &llm_provider(),
-            None,
-            &AiAssistantRequest {
-                question: "What did I read?".to_string(),
-                profile_id: None,
-                domain: None,
-            },
-        ))
-        .expect_err("assistant should require feature gate");
-    assert!(error.to_string().contains("assistant"));
-}
-
-#[test]
 fn validate_embedding_batch_pairs_keys_and_guards_shape() {
     // Happy path: content_keys paired with vectors, effective dim = first vector length.
     let (dim, records) =

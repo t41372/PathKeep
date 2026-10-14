@@ -37,20 +37,16 @@ pub(crate) fn load_ai_queue_status(
     concurrency: u32,
     limit: usize,
 ) -> Result<AiQueueStatus> {
+    // Only index work runs in this queue since Ask stopped queueing questions (assistant jobs left
+    // in an older archive are cancelled when it opens, `retire_assistant_jobs`), so the queue's
+    // counts and the index-only counts the Smart-search callout reads are the same.
     let counts = load_queue_job_counts(
-        connection,
-        &[AiQueueJobType::IndexBuild, AiQueueJobType::IndexClear, AiQueueJobType::Assistant],
-    )?;
-    // Index-only narrowing: the Smart-search build callout must reflect
-    // ONLY semantic-index work. Counting `Assistant` chat jobs here would make
-    // an in-flight chat read as "Building the index", which is dishonest.
-    let index_counts = load_queue_job_counts(
         connection,
         &[AiQueueJobType::IndexBuild, AiQueueJobType::IndexClear],
     )?;
     // `payload_json` is selected as the last column so the Activity page gets a determinate index-build
     // bar: the index payload's resumable cursor (embedded/scanned/scan_target) is parsed per row in
-    // `decode_ai_job_row_with_progress`. Assistant jobs (and any unparseable payload) leave the three
+    // `decode_ai_job_row_with_progress`. Retired assistant jobs (and any unparseable payload) leave the three
     // progress fields `None` — a bad row never wedges the read model.
     let page = list_jobs(connection, None, limit)?;
     Ok(AiQueueStatus {
@@ -59,8 +55,8 @@ pub(crate) fn load_ai_queue_status(
         queued: counts.queued,
         running: counts.running,
         failed: counts.failed,
-        index_queued: index_counts.queued,
-        index_running: index_counts.running,
+        index_queued: counts.queued,
+        index_running: counts.running,
         recent_jobs: page.items,
         recent_jobs_next_cursor: page.next_cursor,
     })
@@ -143,6 +139,7 @@ pub(crate) fn claim_next_ai_job(
                 "SELECT id, job_type, attempt, max_attempts, payload_json
                  FROM ai_jobs
                  WHERE state IN ('queued', 'stale')
+                   AND job_type IN ('index-build', 'index-clear')
                    AND available_at <= ?1
                  ORDER BY priority DESC, id ASC
                  LIMIT 1",
@@ -523,6 +520,11 @@ pub(crate) fn replay_ai_job(
     paused: bool,
 ) -> Result<AiQueueJob> {
     let job = load_ai_job(connection, job_id)?;
+    if decode_job_type(&job.job_type) == AiQueueJobType::Assistant {
+        anyhow::bail!(
+            "Ask no longer answers questions in the background. Ask this one again in Ask."
+        );
+    }
     let state = decode_job_state(&job.state);
     if !matches!(
         state,
