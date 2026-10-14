@@ -1091,7 +1091,7 @@ mod tests {
     use vault_core::{AppConfig, ArchiveMode};
 
     fn write_test_config(paths: &vault_core::ProjectPaths, config: &AppConfig) {
-        if let Some(parent) = paths.archive_database_path.parent() {
+        if let Some(parent) = paths.archive_db.parent() {
             std::fs::create_dir_all(parent).expect("archive db parent");
         }
         if let Some(parent) = paths.config_path.parent() {

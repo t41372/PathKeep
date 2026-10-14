@@ -49,7 +49,7 @@ CREATE TABLE IF NOT EXISTS import_batches (
 /// Opens (creating at the last old schema if needed) `archive/history-vault.sqlite`, keyed
 /// with `key` when `config` says Encrypted, as the old app opened it.
 pub fn open_archive(paths: &ProjectPaths, config: &AppConfig, key: Option<&str>) -> Connection {
-    open_keyed(&paths.archive_database_path, config, key, |db| {
+    open_keyed(&paths.legacy.archive, config, key, |db| {
         // The old app ran its archive in WAL mode.
         db.pragma_update(None, "journal_mode", "WAL").unwrap();
         let version: i64 = db
@@ -83,7 +83,7 @@ pub fn open_source_evidence(
     config: &AppConfig,
     key: Option<&str>,
 ) -> Connection {
-    open_keyed(&paths.source_evidence_database_path, config, key, |db| {
+    open_keyed(&paths.legacy.source_evidence, config, key, |db| {
         db.execute_batch(SOURCE_EVIDENCE_SCHEMA_SQL).unwrap()
     })
 }

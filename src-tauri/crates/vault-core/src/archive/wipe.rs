@@ -254,8 +254,7 @@ fn run_wipe(
 fn wipe_targets(paths: &ProjectPaths) -> Result<Vec<PathBuf>> {
     let mut targets = Vec::new();
 
-    let archive_dir =
-        paths.archive_database_path.parent().context("archive database path has no parent")?;
+    let archive_dir = paths.archive_db.parent().context("archive database path has no parent")?;
     targets.extend(entries_of(archive_dir)?.into_iter().filter(|path| {
         path.file_name()
             .is_none_or(|name| name != ARCHIVE_WRITE_LOCK_FILE && name != ".pk-owner.lock")

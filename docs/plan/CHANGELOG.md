@@ -2922,3 +2922,6 @@ that held up when checked against the code.
 
 - [x] `WORK-ASSISTANT-JOB-TYPE` — Questions an older Ask left in the queue are retired, not answered (2026-10-13).
   - Ask answers as it streams and stopped queueing questions in v0.4, but the queue still ran any question an older archive held, sending something asked long ago to the model. Such a question now ends as cancelled when the archive opens, and Background work says why and offers no "run again". The code that answered queued questions is gone; the answers v0.3 stored stay in the archive.
+
+- [x] `WORK-PROJECT-PATHS-V04` — One name per file in the data folder (2026-10-13).
+  - The paths to the archive and its sibling databases named v0.3's files until the archive was opened, then v0.4's, so code that read them without opening the archive got a file that no longer exists; Settings → Storage once under-counted because of it. v0.4's files and v0.3's now have separate fields, and v0.3's are read only to find and convert an old archive. Nothing a person sees changes.

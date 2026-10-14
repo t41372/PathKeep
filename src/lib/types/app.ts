@@ -256,7 +256,7 @@ export interface AppDirectories {
   appRoot: string
   configPath: string
   archiveDatabasePath: string
-  searchDatabasePath: string
+  searchIndexDir: string
   intelligenceDatabasePath: string
   auditRepoPath: string
   manifestsDir: string

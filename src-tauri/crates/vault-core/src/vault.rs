@@ -66,7 +66,7 @@ impl Vault {
     }
 
     fn open_database(
-        mut paths: ProjectPaths,
+        paths: ProjectPaths,
         config: AppConfig,
         key: Option<&vault_crypto::DataKey>,
         owner: Option<Arc<vault_store::OwnerLock>>,
@@ -85,10 +85,6 @@ impl Vault {
             config
         };
         let storage = storage_config(&paths, key, Some(owner))?;
-        paths.archive_database_path = paths.app_root.join("archive/history-vault.db");
-        paths.source_evidence_database_path = paths.app_root.join("archive/source-evidence.db");
-        paths.intelligence_database_path = paths.derived_dir.join("intelligence.db");
-        paths.agent_database_path = paths.derived_dir.join("agent.db");
         let store = Arc::new(Store::open(storage)?);
         if recover {
             store.write(Db::Archive, Priority::Interactive, |s| {
@@ -105,13 +101,8 @@ impl Vault {
             crate::intelligence_runtime::recover_owner_claims(&store)?;
         }
         let search = Arc::new(
-            crate::search::Indexer::open(
-                store.clone(),
-                &paths.derived_dir.join("search-index"),
-                key,
-                !recover,
-            )
-            .map_err(|e| vault_store::Error::Operation(e.into_boxed_dyn_error()))?,
+            crate::search::Indexer::open(store.clone(), &paths.search_index_dir, key, !recover)
+                .map_err(|e| vault_store::Error::Operation(e.into_boxed_dyn_error()))?,
         );
         let search_sessions = Arc::default();
         live::register(&paths.app_root, &store);

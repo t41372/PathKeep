@@ -199,7 +199,7 @@ pub fn preview(paths: &ProjectPaths, bundle: &Path) -> Result<ImportPreview> {
 
 /// Whether installing a bundle replaces an archive (native or still in the old format).
 pub fn will_overwrite(paths: &ProjectPaths) -> bool {
-    paths.app_root.join("archive/history-vault.db").exists()
+    paths.archive_db.exists()
         || paths.app_root.join("archive/history-vault.sqlite").exists()
         || maintenance::install::pending(paths)
 }

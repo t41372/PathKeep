@@ -149,7 +149,7 @@ pub fn recover(paths: &ProjectPaths) -> Result<bool> {
         // launch recovery rolls it back. Once the archive has been converted it predates the
         // native files; rolling it back would put the old config.json over them, so keep it
         // aside instead of acting on it.
-        if paths.app_root.join("archive/history-vault.db").exists() {
+        if paths.archive_db.exists() {
             rename(&paths.app_root.join(JOURNAL), &paths.app_root.join(STALE_LEGACY_JOURNAL))?;
         }
         return Ok(false);

@@ -124,7 +124,7 @@ fn wrong_export_password_and_changed_database_bytes_preserve_the_target() {
 #[test]
 fn export_cannot_replace_the_live_archive_or_its_configuration() {
     let vault = crate::Vault::open_temp().unwrap();
-    for path in [&vault.paths().archive_database_path, &vault.paths().config_path] {
+    for path in [&vault.paths().archive_db, &vault.paths().config_path] {
         let error = native::export(&vault, path, "export password", Default::default(), |_| {})
             .unwrap_err();
         assert!(error.to_string().contains("export-target-is-managed"));

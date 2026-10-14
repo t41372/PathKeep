@@ -23,7 +23,7 @@ fn legacy_full_snapshot_restores_to_turso_in_both_modes() {
             password,
             &[("https://example.com/%7Earchive", "Recovered history")],
         );
-        let source = paths.archive_database_path;
+        let source = paths.legacy.archive;
         let before = std::fs::read(&source).unwrap();
         let live = Vault::open_temp().unwrap();
         if password.is_some() {

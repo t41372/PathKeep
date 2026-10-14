@@ -434,13 +434,13 @@ impl Drop for ArchiveOpGate {
 /// Resolves the archive write-lock path: a hidden sentinel beside the canonical
 /// archive database, so every process derives the identical contended path.
 ///
-/// The `expect` is acceptable here — `archive_database_path` is always a
+/// The `expect` is acceptable here — `archive_db` is always a
 /// `<root>/archive/<file>` layout that has a parent (see `project_paths_with_root`),
 /// so a `None` parent is structurally impossible. Returning `Result` would add an
 /// error arm that no caller can ever trigger.
 fn lock_file_path(paths: &ProjectPaths) -> PathBuf {
     paths
-        .archive_database_path
+        .archive_db
         .parent()
         .expect("archive database path has a parent directory")
         .join(ARCHIVE_WRITE_LOCK_FILE)

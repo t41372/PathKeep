@@ -51,7 +51,8 @@ struct RekeyJournal {
 /// Path of the interrupted-rekey marker (beside the canonical archive database).
 pub(super) fn rekey_journal_path(paths: &ProjectPaths) -> PathBuf {
     paths
-        .archive_database_path
+        .legacy
+        .archive
         .parent()
         .expect("archive database path has a parent directory")
         .join(REKEY_JOURNAL_FILE)
@@ -131,7 +132,7 @@ pub(super) fn recover_interrupted_rekey(paths: &ProjectPaths) -> Result<bool> {
 /// as the authority (`install_file_durably` is ATOMIC, so the file is EITHER the whole old
 /// `from_mode` file OR the whole new `to_mode` file, never a partial mix).
 fn resolve_interrupted_rekey(paths: &ProjectPaths, journal: &RekeyJournal) -> Result<()> {
-    let history = detect_disk_encryption_mode(&paths.archive_database_path);
+    let history = detect_disk_encryption_mode(&paths.legacy.archive);
     if history == DiskEncryptionMode::Absent {
         // FAIL-CLOSED: the canonical archive is missing/unreadable, so its at-rest mode cannot
         // be confirmed and we must not guess a config that could brick the open. Leave the
@@ -140,7 +141,7 @@ fn resolve_interrupted_rekey(paths: &ProjectPaths, journal: &RekeyJournal) -> Re
             "interrupted-rekey recovery cannot proceed: the canonical history-vault {} is \
              missing or unreadable, so its at-rest mode cannot be confirmed. Restore it from the \
              rekey safety snapshot at {} before retrying.",
-            paths.archive_database_path.display(),
+            paths.legacy.archive.display(),
             journal.snapshot_ref,
         );
     }
@@ -166,7 +167,7 @@ fn resolve_interrupted_rekey(paths: &ProjectPaths, journal: &RekeyJournal) -> Re
         // direction (`to_mode == Encrypted`) is unaffected: a plaintext source-evidence self-heals
         // on the next KEYED open via the on-unlock `reconcile_archive_encryption`.
         if journal.to_mode == ArchiveMode::Plaintext
-            && detect_disk_encryption_mode(&paths.source_evidence_database_path)
+            && detect_disk_encryption_mode(&paths.legacy.source_evidence)
                 == DiskEncryptionMode::Encrypted
         {
             anyhow::bail!(
@@ -177,7 +178,7 @@ fn resolve_interrupted_rekey(paths: &ProjectPaths, journal: &RekeyJournal) -> Re
                  repeated backup failures, so the rekey marker is left in place to keep the state \
                  flagged and retry-able. Restore from the rekey safety snapshot at {} (or re-run \
                  the rekey with the old key) before retrying.",
-                paths.source_evidence_database_path.display(),
+                paths.legacy.source_evidence.display(),
                 journal.snapshot_ref,
             );
         }
@@ -218,7 +219,7 @@ fn base_config_for_recovery(paths: &ProjectPaths, journal: &RekeyJournal) -> App
 /// replaced it), so drop the orphaned export temp + its sidecars and restore config to the
 /// captured pre-rekey bytes (`None` = none existed pre-rekey).
 fn rollback_rekey(paths: &ProjectPaths, journal: &RekeyJournal) -> Result<()> {
-    let temp_path = paths.archive_database_path.with_extension("rekey.sqlite");
+    let temp_path = paths.legacy.archive.with_extension("rekey.sqlite");
     let _ = fs::remove_file(&temp_path);
     super::remove_stale_sidecars(&temp_path);
     match &journal.previous_config {
@@ -286,7 +287,7 @@ mod tests {
     fn a_corrupt_rekey_marker_goes_only_when_the_archive_is_consistent() {
         let dir = tempdir().expect("tempdir");
         let paths = project_paths_with_root(dir.path());
-        fs::create_dir_all(paths.archive_database_path.parent().expect("archive parent"))
+        fs::create_dir_all(paths.legacy.archive.parent().expect("archive parent"))
             .expect("archive dir");
         fs::write(rekey_journal_path(&paths), b"not valid json").expect("seed corrupt marker");
 
@@ -299,8 +300,8 @@ mod tests {
         );
 
         // The decrypt direction cut after the history-vault swap: nothing can say which way to go.
-        super::super::fixtures::plaintext_header(&paths.archive_database_path);
-        super::super::fixtures::encrypted_header(&paths.source_evidence_database_path);
+        super::super::fixtures::plaintext_header(&paths.legacy.archive);
+        super::super::fixtures::encrypted_header(&paths.legacy.source_evidence);
         fs::write(rekey_journal_path(&paths), b"not valid json").expect("seed corrupt marker");
         assert!(recover_interrupted_rekey(&paths).is_err(), "a mixed archive fails closed");
         assert!(rekey_journal_path(&paths).exists(), "the marker stays to keep the state flagged");
@@ -310,7 +311,7 @@ mod tests {
     fn recover_interrupted_rekey_same_mode_rotation_converges_config() {
         let dir = tempdir().expect("tempdir");
         let paths = project_paths_with_root(dir.path());
-        write_encrypted_db(&paths.archive_database_path);
+        write_encrypted_db(&paths.legacy.archive);
         let prev = serde_json::to_string(&encrypted_archive_config()).expect("config json");
         // from == to == Encrypted: a key rotation, not a mode change -> the complete arm via the
         // `Some(Ok)` base-config branch.
@@ -331,9 +332,9 @@ mod tests {
         let dir = tempdir().expect("tempdir");
         let paths = project_paths_with_root(dir.path());
         // history-vault is still at the OLD (plaintext) at-rest mode: the swap never landed.
-        write_plaintext_db(&paths.archive_database_path);
+        write_plaintext_db(&paths.legacy.archive);
         // An orphaned export temp + sidecar the interrupted rekey left behind.
-        let temp = paths.archive_database_path.with_extension("rekey.sqlite");
+        let temp = paths.legacy.archive.with_extension("rekey.sqlite");
         fs::write(&temp, b"stale export").expect("seed temp");
         let temp_wal = PathBuf::from(format!("{}-wal", temp.display()));
         fs::write(&temp_wal, b"stale wal").expect("seed temp wal");

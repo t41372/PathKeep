@@ -46,7 +46,7 @@ pub fn restore_snapshot(
     vault_core::save_config(&staged_paths, &config)?;
     let mut input = fs::File::open(source)?;
     let total = input.metadata()?.len();
-    let mut output = fs::File::create(&staged_paths.archive_database_path)?;
+    let mut output = fs::File::create(&staged_paths.legacy.archive)?;
     let mut buffer = [0u8; 64 * 1024];
     let mut processed = 0;
     loop {

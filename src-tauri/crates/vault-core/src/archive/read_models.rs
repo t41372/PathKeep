@@ -28,9 +28,10 @@ pub fn archive_status(vault: &Vault) -> Result<ArchiveStatus> {
 
 /// Locked/onboarding status reads metadata only and never opens a database.
 pub fn archive_availability(paths: &ProjectPaths, config: &AppConfig) -> ArchiveStatus {
-    let path = paths.app_root.join("archive/history-vault.db");
+    // An archive still in the v0.3 format counts: the upgrade screen converts it.
+    let path = &paths.archive_db;
     ArchiveStatus {
-        initialized: config.initialized && (path.exists() || paths.archive_database_path.exists()),
+        initialized: config.initialized && (path.exists() || paths.legacy.archive.exists()),
         encrypted: matches!(config.archive_mode, ArchiveMode::Encrypted),
         unlocked: false,
         database_path: path.display().to_string(),
@@ -363,7 +364,7 @@ pub(super) fn storage_summary(paths: &ProjectPaths) -> StorageSummary {
     StorageSummary {
         archive_database_bytes: database(&db.archive),
         source_evidence_database_bytes: database(&db.source_evidence),
-        search_database_bytes: directory_size(&paths.derived_dir.join("search-index")),
+        search_database_bytes: directory_size(&paths.search_index_dir),
         intelligence_database_bytes: database(&db.intelligence) + database(&db.scratch),
         manifest_bytes: directory_size(&paths.manifests_dir),
         snapshot_bytes: directory_size(&paths.raw_snapshots_dir),

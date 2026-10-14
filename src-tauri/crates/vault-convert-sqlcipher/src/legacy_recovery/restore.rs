@@ -54,7 +54,8 @@ struct RestoreJournal {
 /// Path of the interrupted-restore marker (beside the canonical archive database).
 fn restore_journal_path(paths: &ProjectPaths) -> PathBuf {
     paths
-        .archive_database_path
+        .legacy
+        .archive
         .parent()
         .expect("archive database path has a parent directory")
         .join(RESTORE_JOURNAL_FILE)
@@ -125,7 +126,7 @@ pub(super) fn recover_interrupted_restore(paths: &ProjectPaths) -> Result<bool> 
         // the quarantined originals. FAIL CLOSED when the canonical is absent (leave the marker,
         // surface Unrecoverable); only drop the unusable marker when the canonical is present (step 4
         // then reconciles config to it).
-        if detect_disk_encryption_mode(&paths.archive_database_path) == DiskEncryptionMode::Absent {
+        if detect_disk_encryption_mode(&paths.legacy.archive) == DiskEncryptionMode::Absent {
             anyhow::bail!(
                 "interrupted-restore recovery cannot proceed: the restore journal {} is present but \
                  unreadable AND the canonical history-vault is absent, so the restore can neither be \
@@ -160,7 +161,7 @@ fn resolve_interrupted_restore(paths: &ProjectPaths, journal: &RestoreJournal) -
         // COMPLETE: the canonical history-vault is absent/unverifiable but the chosen snapshot is
         // still restorable, so finish the half-done install from it. Scrub any half-staged
         // `restore.sqlite` temp + its sidecars first so no phantom file blocks the durable install.
-        let restore_temp = paths.archive_database_path.with_extension("restore.sqlite");
+        let restore_temp = paths.legacy.archive.with_extension("restore.sqlite");
         let _ = fs::remove_file(&restore_temp);
         super::remove_stale_sidecars(&restore_temp);
         install_restored_archive(&snapshot_ref, &restore_temp, paths)?;
@@ -182,14 +183,14 @@ fn resolve_interrupted_restore(paths: &ProjectPaths, journal: &RestoreJournal) -
 /// `true` when the canonical history-vault on disk is ALREADY the restored archive (so only the
 /// marker-clear commit is outstanding), judged KEY-FREE from its header.
 fn canonical_restore_already_landed(paths: &ProjectPaths, restored_mode: &ArchiveMode) -> bool {
-    match detect_disk_encryption_mode(&paths.archive_database_path) {
+    match detect_disk_encryption_mode(&paths.legacy.archive) {
         // Absent: the install never landed (the crash cut the absent-canonical window) — re-install.
         DiskEncryptionMode::Absent => false,
         // Plaintext: we can key-free `quick_check` it, so confirm it is BOTH the restored mode AND
         // structurally sound before treating the restore as landed.
         DiskEncryptionMode::Plaintext => {
             restored_mode == &ArchiveMode::Plaintext
-                && plaintext_quick_check(&paths.archive_database_path).is_ok()
+                && plaintext_quick_check(&paths.legacy.archive).is_ok()
         }
         // Encrypted: we hold NO key here, so we cannot key-free-verify it — we cannot tell a
         // correctly-restored encrypted snapshot from a still-broken encrypted pre-restore original.
@@ -236,10 +237,10 @@ fn reconcile_restore_config(paths: &ProjectPaths, journal: &RestoreJournal) -> R
 /// snapshot is gone AND the originals cannot be recovered from quarantine — never boot empty.
 fn rollback_restore(paths: &ProjectPaths, journal: &RestoreJournal) -> Result<()> {
     let quarantine_dir = PathBuf::from(&journal.quarantine_dir);
-    for canonical in [&paths.archive_database_path, &paths.source_evidence_database_path] {
+    for canonical in [&paths.legacy.archive, &paths.legacy.source_evidence] {
         restore_quarantined_original(&quarantine_dir, canonical);
     }
-    if detect_disk_encryption_mode(&paths.archive_database_path) == DiskEncryptionMode::Absent {
+    if detect_disk_encryption_mode(&paths.legacy.archive) == DiskEncryptionMode::Absent {
         // FAIL-CLOSED Unrecoverable: the chosen snapshot is missing/unverifiable AND the pre-restore
         // originals are not recoverable from quarantine, so no canonical archive can be reached.
         // Leave the marker (the caller keeps it on Err) and name both backstops so the recovery GUI
@@ -302,9 +303,9 @@ fn install_restored_archive(
 ) -> Result<()> {
     fs::copy(snapshot_path, restore_temp)
         .with_context(|| format!("staging the restore snapshot at {}", restore_temp.display()))?;
-    install_file_durably(restore_temp, &paths.archive_database_path)
+    install_file_durably(restore_temp, &paths.legacy.archive)
         .context("durably installing the restored archive")?;
-    super::remove_stale_sidecars(&paths.archive_database_path);
+    super::remove_stale_sidecars(&paths.legacy.archive);
     Ok(())
 }
 
@@ -353,8 +354,8 @@ mod tests {
         let snapshot = crash_mid_restore(&paths, &plaintext_config(), None);
 
         assert!(recover_interrupted_restore(&paths).expect("recovery"));
-        assert_eq!(quick_check(&paths.archive_database_path, None), "ok");
-        assert_eq!(sentinel_runs(&paths.archive_database_path, None), 1, "data, not an empty file");
+        assert_eq!(quick_check(&paths.legacy.archive, None), "ok");
+        assert_eq!(sentinel_runs(&paths.legacy.archive, None), 1, "data, not an empty file");
         assert!(!interrupted_restore_marker_present(&paths));
         assert!(snapshot.exists(), "the snapshot is copied, never moved");
     }
@@ -368,15 +369,15 @@ mod tests {
 
         assert!(recover_interrupted_restore(&paths).expect("key-free recovery"));
         assert_eq!(
-            detect_disk_encryption_mode(&paths.archive_database_path),
+            detect_disk_encryption_mode(&paths.legacy.archive),
             DiskEncryptionMode::Encrypted
         );
         assert!(matches!(
             vault_core::load_config(&paths).unwrap().archive_mode,
             ArchiveMode::Encrypted
         ));
-        assert_eq!(sentinel_runs(&paths.archive_database_path, Some(KEY)), 1);
-        assert_eq!(quick_check(&paths.archive_database_path, Some(KEY)), "ok");
+        assert_eq!(sentinel_runs(&paths.legacy.archive, Some(KEY)), 1);
+        assert_eq!(quick_check(&paths.legacy.archive, Some(KEY)), "ok");
     }
 
     #[test]
@@ -388,7 +389,7 @@ mod tests {
         fs::remove_file(snapshot).unwrap();
 
         assert!(recover_interrupted_restore(&paths).expect("rollback"));
-        assert_eq!(sentinel_runs(&paths.archive_database_path, None), 1, "the original came back");
+        assert_eq!(sentinel_runs(&paths.legacy.archive, None), 1, "the original came back");
         assert!(!interrupted_restore_marker_present(&paths));
     }
 
@@ -410,7 +411,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let paths = project_paths_with_root(dir.path());
         ensure_paths(&paths).unwrap();
-        let archive = &paths.archive_database_path;
+        let archive = &paths.legacy.archive;
         assert!(!canonical_restore_already_landed(&paths, &ArchiveMode::Plaintext), "absent");
         legacy_db(archive, None);
         assert!(canonical_restore_already_landed(&paths, &ArchiveMode::Plaintext));
@@ -454,9 +455,9 @@ mod tests {
         save_config(&paths, &plaintext_config()).unwrap();
 
         rollback_restore(&paths, &journal(&paths, "gone.sqlite", &quarantine)).unwrap();
-        assert!(paths.archive_database_path.exists());
-        assert!(PathBuf::from(format!("{}-wal", paths.archive_database_path.display())).exists());
-        assert!(paths.source_evidence_database_path.exists());
+        assert!(paths.legacy.archive.exists());
+        assert!(PathBuf::from(format!("{}-wal", paths.legacy.archive.display())).exists());
+        assert!(paths.legacy.source_evidence.exists());
         assert!(!paths.config_path.exists(), "no config existed before the restore");
     }
 }

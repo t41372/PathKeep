@@ -80,7 +80,7 @@ pub(super) fn open_using(
                     }
                     // A new envelope next to an archive of the old format would start an
                     // empty native archive beside it. That archive has to be converted first.
-                    if paths.archive_database_path.exists() {
+                    if paths.legacy.archive.exists() {
                         anyhow::bail!(
                             "archive-conversion-required: preview and convert the SQLCipher archive before opening it"
                         );

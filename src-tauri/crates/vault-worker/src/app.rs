@@ -210,8 +210,8 @@ pub fn app_snapshot_with_vault(
             app_root: paths.app_root.display().to_string(),
             config_path: paths.config_path.display().to_string(),
             archive_database_path: reads.archive_status.database_path.clone(),
-            search_database_path: paths.search_database_path.display().to_string(),
-            intelligence_database_path: paths.intelligence_database_path.display().to_string(),
+            search_index_dir: paths.search_index_dir.display().to_string(),
+            intelligence_database_path: paths.intelligence_db.display().to_string(),
             audit_repo_path: paths.audit_repo_path.display().to_string(),
             manifests_dir: paths.manifests_dir.display().to_string(),
             exports_dir: paths.exports_dir.display().to_string(),
@@ -428,7 +428,7 @@ pub fn assess_archive_upgrade(database_key: Option<&str>) -> Result<ArchiveUpgra
     };
     Ok(ArchiveUpgradeAssessment {
         pending: conversion.required,
-        current_schema_version: i64::from(paths.app_root.join("archive/history-vault.db").exists()),
+        current_schema_version: i64::from(paths.archive_db.exists()),
         target_schema_version: 1,
         phases,
         conversion: Some(conversion),
@@ -527,14 +527,11 @@ where
     }
     if next_config.archive_mode == ArchiveMode::Encrypted
         && database_key.is_none()
-        && (paths.archive_database_path.exists()
-            || paths.app_root.join("archive/history-vault.db").exists())
+        && (paths.legacy.archive.exists() || paths.archive_db.exists())
     {
         return app_snapshot(None);
     }
-    if paths.archive_database_path.exists()
-        && !paths.app_root.join("archive/history-vault.db").exists()
-    {
+    if paths.legacy.archive.exists() && !paths.archive_db.exists() {
         let archive =
             crate::maintenance_jobs::run(&paths.app_root, "converting", |cancel, mut sink| {
                 vault_convert_sqlcipher::convert(&paths, &next_config, database_key, cancel, |p| {
@@ -570,8 +567,7 @@ where
 
 /// The native archive exists, or a native install is waiting to be finished.
 fn is_native(paths: &vault_core::ProjectPaths) -> bool {
-    paths.app_root.join("archive/history-vault.db").exists()
-        || vault_core::maintenance::install::pending(paths)
+    paths.archive_db.exists() || vault_core::maintenance::install::pending(paths)
 }
 
 /// Brings an archive of the old format to a consistent state before anything reads it: an

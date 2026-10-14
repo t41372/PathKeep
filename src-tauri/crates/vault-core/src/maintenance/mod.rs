@@ -70,7 +70,7 @@ pub fn rewrap_password(vault: &Vault, current: &str, new: &str) -> Result<()> {
 pub fn reconcile(vault: &Vault) -> Result<crate::ReconcileReport> {
     use std::io::Read;
     let mut header = [0u8; 16];
-    fs::File::open(&vault.paths().archive_database_path)?.read_exact(&mut header)?;
+    fs::File::open(&vault.paths().archive_db)?.read_exact(&mut header)?;
     let mode = if &header == b"SQLite format 3\0" {
         ArchiveMode::Plaintext
     } else {

@@ -127,7 +127,7 @@ pub fn recover_archive_on_launch(
     config: &AppConfig,
 ) -> Result<LaunchRecovery> {
     crate::maintenance::recover_native_maintenance(paths)?;
-    let mode = detect_disk_encryption_mode(&paths.app_root.join("archive/history-vault.db"));
+    let mode = detect_disk_encryption_mode(&paths.archive_db);
     if let Some(mode) = disk_mode_to_archive_mode(mode) {
         let mut current = load_config(paths).unwrap_or_else(|_| config.clone());
         if current.archive_mode != mode {

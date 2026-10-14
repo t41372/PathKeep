@@ -62,7 +62,7 @@ fn launch_is_provably_healthy(paths: &ProjectPaths, config: &AppConfig) -> bool 
     let recorded = load_config(paths)
         .map(|on_disk| on_disk.archive_mode)
         .unwrap_or_else(|_| config.archive_mode.clone());
-    match detect_disk_encryption_mode(&paths.archive_database_path) {
+    match detect_disk_encryption_mode(&paths.legacy.archive) {
         DiskEncryptionMode::Absent => true,
         DiskEncryptionMode::Plaintext => recorded == ArchiveMode::Plaintext,
         DiskEncryptionMode::Encrypted => recorded == ArchiveMode::Encrypted,
@@ -109,7 +109,7 @@ fn recover_locked(paths: &ProjectPaths, config: &AppConfig) -> Result<LaunchReco
 
     // (4) Config to the canonical file's real at-rest mode. Steps 1–3 may have rewritten
     // config.json, so compare against what is on disk now, and write only when it still differs.
-    let target = match detect_disk_encryption_mode(&paths.archive_database_path) {
+    let target = match detect_disk_encryption_mode(&paths.legacy.archive) {
         DiskEncryptionMode::Absent => return Ok(LaunchRecovery::Healthy),
         DiskEncryptionMode::Plaintext => ArchiveMode::Plaintext,
         DiskEncryptionMode::Encrypted => ArchiveMode::Encrypted,
@@ -134,8 +134,8 @@ fn recover_locked(paths: &ProjectPaths, config: &AppConfig) -> Result<LaunchReco
 /// agree on their at-rest mode. When they disagree, the cut operation left a mixed archive: the
 /// marker stays and launch fails closed (quality-matrix 鐵律 3), so the recovery screen takes over.
 fn drop_unreadable_marker(paths: &ProjectPaths, marker: &Path) -> Result<()> {
-    let archive = detect_disk_encryption_mode(&paths.archive_database_path);
-    let evidence = detect_disk_encryption_mode(&paths.source_evidence_database_path);
+    let archive = detect_disk_encryption_mode(&paths.legacy.archive);
+    let evidence = detect_disk_encryption_mode(&paths.legacy.source_evidence);
     if evidence != DiskEncryptionMode::Absent && archive != evidence {
         anyhow::bail!(
             "the recovery marker {} cannot be read, and the archive ({archive:?}) and source \
@@ -157,9 +157,9 @@ fn unrecoverable(
     let report = ArchiveRecoveryReport {
         kind,
         config_mode: config.archive_mode.clone(),
-        history_vault_mode: archive_mode(detect_disk_encryption_mode(&paths.archive_database_path)),
+        history_vault_mode: archive_mode(detect_disk_encryption_mode(&paths.legacy.archive)),
         source_evidence_mode: archive_mode(detect_disk_encryption_mode(
-            &paths.source_evidence_database_path,
+            &paths.legacy.source_evidence,
         )),
         available_snapshots: snapshots::available_verified_snapshots(paths)
             .context("listing snapshots for the recovery report")?,
@@ -228,8 +228,8 @@ mod tests {
     fn heals_a_stale_plaintext_config_over_encrypted_files() {
         // The 2026-06-30 incident: encrypted files, a Plaintext config, no journal.
         let (_dir, paths) = paths();
-        legacy_db(&paths.archive_database_path, Some(KEY));
-        legacy_db(&paths.source_evidence_database_path, Some(KEY));
+        legacy_db(&paths.legacy.archive, Some(KEY));
+        legacy_db(&paths.legacy.source_evidence, Some(KEY));
         save_config(&paths, &plaintext_config()).unwrap();
 
         let outcome = recover_on_launch(&paths, &plaintext_config()).unwrap();
@@ -258,35 +258,32 @@ mod tests {
         assert!(matches!(outcome, LaunchRecovery::Healed { .. }), "{outcome:?}");
         assert!(!marker(&paths, ".pk-rekey-journal.json").exists());
         assert!(matches!(load_config(&paths).unwrap().archive_mode, ArchiveMode::Encrypted));
-        assert_eq!(sentinel_runs(&paths.archive_database_path, Some(KEY)), 1);
+        assert_eq!(sentinel_runs(&paths.legacy.archive, Some(KEY)), 1);
         assert_config_matches_disk(&paths);
     }
 
     #[test]
     fn rolls_back_a_fresh_import_and_reports_an_uninitialized_archive() {
         let (_dir, paths) = paths();
-        legacy_db(&paths.archive_database_path, None);
-        import_journal(&paths, &[(&paths.archive_database_path, false)], None);
+        legacy_db(&paths.legacy.archive, None);
+        import_journal(&paths, &[(&paths.legacy.archive, false)], None);
 
         let outcome = recover_on_launch(&paths, &plaintext_config()).unwrap();
         assert!(matches!(outcome, LaunchRecovery::Healthy), "{outcome:?}");
         assert!(!marker(&paths, ".pk-import-journal.json").exists());
-        assert_eq!(
-            detect_disk_encryption_mode(&paths.archive_database_path),
-            DiskEncryptionMode::Absent
-        );
+        assert_eq!(detect_disk_encryption_mode(&paths.legacy.archive), DiskEncryptionMode::Absent);
     }
 
     #[test]
     fn reports_an_import_that_left_two_modes_and_keeps_its_marker() {
         let (_dir, paths) = paths();
-        legacy_db(&paths.archive_database_path, None);
-        legacy_db(&paths.source_evidence_database_path, Some(KEY));
+        legacy_db(&paths.legacy.archive, None);
+        legacy_db(&paths.legacy.source_evidence, Some(KEY));
         save_config(&paths, &plaintext_config()).unwrap();
         let previous = serde_json::to_string(&plaintext_config()).unwrap();
         import_journal(
             &paths,
-            &[(&paths.archive_database_path, true), (&paths.source_evidence_database_path, true)],
+            &[(&paths.legacy.archive, true), (&paths.legacy.source_evidence, true)],
             Some(previous),
         );
         let config_before = fs::read(&paths.config_path).unwrap();
@@ -302,7 +299,7 @@ mod tests {
     #[test]
     fn falls_back_to_the_passed_config_when_config_json_is_corrupt() {
         let (_dir, paths) = paths();
-        legacy_db(&paths.archive_database_path, Some(KEY));
+        legacy_db(&paths.legacy.archive, Some(KEY));
         save_config(&paths, &plaintext_config()).unwrap();
         fs::write(&paths.config_path, b"{ not valid json").unwrap();
 
@@ -317,7 +314,7 @@ mod tests {
         let (_dir, paths) = paths();
         crash_mid_rekey(&paths, ArchiveMode::Plaintext, ArchiveMode::Encrypted);
         legacy_db(&paths.raw_snapshots_dir.join("rekey/archive-before-rekey-x.sqlite"), None);
-        fs::remove_file(&paths.archive_database_path).unwrap();
+        fs::remove_file(&paths.legacy.archive).unwrap();
         let config_before = fs::read(&paths.config_path).unwrap();
 
         let report =
@@ -334,7 +331,7 @@ mod tests {
     #[test]
     fn a_healthy_launch_does_not_wait_for_a_lock_held_elsewhere() {
         let (_dir, paths) = paths();
-        legacy_db(&paths.archive_database_path, Some(KEY));
+        legacy_db(&paths.legacy.archive, Some(KEY));
         save_config(&paths, &encrypted_config()).unwrap();
         let _elsewhere = hold_write_lock_elsewhere(&paths);
 
@@ -355,7 +352,7 @@ mod tests {
     #[test]
     fn a_launch_with_drift_waits_for_the_lock_then_heals() {
         let (_dir, paths) = paths();
-        legacy_db(&paths.archive_database_path, Some(KEY));
+        legacy_db(&paths.legacy.archive, Some(KEY));
         save_config(&paths, &plaintext_config()).unwrap();
         let elsewhere = hold_write_lock_elsewhere(&paths);
 
@@ -383,7 +380,7 @@ mod tests {
     fn reports_a_decrypt_cut_before_source_evidence_was_decrypted() {
         let (_dir, paths) = paths();
         crash_mid_rekey(&paths, ArchiveMode::Encrypted, ArchiveMode::Plaintext);
-        legacy_db(&paths.source_evidence_database_path, Some(KEY));
+        legacy_db(&paths.legacy.source_evidence, Some(KEY));
         let config_before = fs::read(&paths.config_path).unwrap();
 
         let report =
@@ -397,12 +394,12 @@ mod tests {
     #[test]
     fn a_restore_marker_is_never_provably_healthy() {
         let (_dir, paths) = paths();
-        plaintext_header(&paths.archive_database_path);
+        plaintext_header(&paths.legacy.archive);
         save_config(&paths, &plaintext_config()).unwrap();
         assert!(launch_is_provably_healthy(&paths, &plaintext_config()));
         fs::write(marker(&paths, ".pk-restore-journal.json"), b"{}").unwrap();
         assert!(!launch_is_provably_healthy(&paths, &plaintext_config()));
-        fs::remove_file(&paths.archive_database_path).unwrap();
+        fs::remove_file(&paths.legacy.archive).unwrap();
         assert!(
             !launch_is_provably_healthy(&paths, &plaintext_config()),
             "an absent canonical next to a restore marker is not a fresh install",
@@ -420,7 +417,7 @@ mod tests {
         assert!(matches!(report.kind, ArchiveRecoveryKind::InterruptedRestoreUnresolved));
         assert!(marker(&paths, ".pk-restore-journal.json").exists());
         assert_eq!(
-            detect_disk_encryption_mode(&paths.archive_database_path),
+            detect_disk_encryption_mode(&paths.legacy.archive),
             DiskEncryptionMode::Absent,
             "no empty archive appears",
         );
@@ -443,7 +440,7 @@ mod tests {
 
         let outcome = recover_on_launch(&paths, &plaintext_config()).unwrap();
         assert!(!matches!(outcome, LaunchRecovery::Unrecoverable(_)), "{outcome:?}");
-        assert_eq!(sentinel_runs(&paths.archive_database_path, None), 1);
+        assert_eq!(sentinel_runs(&paths.legacy.archive, None), 1);
         assert!(!marker(&paths, ".pk-restore-journal.json").exists());
         assert!(!marker(&paths, ".pk-rekey-journal.json").exists(), "the stale marker is cleared");
         assert_config_matches_disk(&paths);

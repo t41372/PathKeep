@@ -34,7 +34,7 @@ const V020_CONFIG_JSON: &str = r#"{
 /// three pages, two visits and a favicon.
 fn v020_archive(paths: &ProjectPaths) {
     vault_core::config::ensure_paths(paths).unwrap();
-    let db = Connection::open(&paths.archive_database_path).unwrap();
+    let db = Connection::open(&paths.legacy.archive).unwrap();
     db.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
     // v0.2.0 shipped migrations 001–010.
     for (index, sql) in ARCHIVE_MIGRATIONS[..10].iter().enumerate() {
@@ -83,7 +83,7 @@ fn a_v020_archive_converts_without_loss() {
 
     let assessment = assess(&paths, &config, None).unwrap();
     assert!(assessment.required);
-    let original = std::fs::read(&paths.archive_database_path).unwrap();
+    let original = std::fs::read(&paths.legacy.archive).unwrap();
 
     let converted = convert(&paths, &config, None, CancelToken::new(), |_| {})
         .expect("a v0.2.0 archive converts");
@@ -101,7 +101,7 @@ fn a_v020_archive_converts_without_loss() {
         titles,
         ["https://docs.news.bbc.co.uk/story", "https://www.example.com/page", "about:blank"]
     );
-    assert_eq!(std::fs::read(&paths.archive_database_path).unwrap(), original, "kept as it was");
+    assert_eq!(std::fs::read(&paths.legacy.archive).unwrap(), original, "kept as it was");
 }
 
 #[test]

@@ -62,7 +62,8 @@ struct ImportJournal {
 /// the next launch after a one-click restore has already healed the archive).
 pub(super) fn import_journal_path(paths: &ProjectPaths) -> PathBuf {
     paths
-        .archive_database_path
+        .legacy
+        .archive
         .parent()
         .expect("archive database path has a parent directory")
         .join(IMPORT_JOURNAL_FILE)
@@ -231,8 +232,8 @@ fn ensure_recovered_modes_are_consistent(
     paths: &ProjectPaths,
     journal: &ImportJournal,
 ) -> Result<()> {
-    let history = detect_disk_encryption_mode(&paths.archive_database_path);
-    let evidence = detect_disk_encryption_mode(&paths.source_evidence_database_path);
+    let history = detect_disk_encryption_mode(&paths.legacy.archive);
+    let evidence = detect_disk_encryption_mode(&paths.legacy.source_evidence);
     // The single at-rest mode the recovered archive must converge to.
     let required = journal
         .previous_config
@@ -318,7 +319,7 @@ mod tests {
     /// Creates `app_root/archive` so a hand-built journal can be written beside the
     /// (possibly not-yet-existent) archive database.
     fn ensure_archive_dir(paths: &ProjectPaths) {
-        fs::create_dir_all(paths.archive_database_path.parent().expect("archive parent"))
+        fs::create_dir_all(paths.legacy.archive.parent().expect("archive parent"))
             .expect("archive dir");
     }
 
@@ -339,8 +340,8 @@ mod tests {
         );
 
         // A cut commit that left the two files in different modes: a mixed archive.
-        super::super::fixtures::encrypted_header(&paths.archive_database_path);
-        super::super::fixtures::plaintext_header(&paths.source_evidence_database_path);
+        super::super::fixtures::encrypted_header(&paths.legacy.archive);
+        super::super::fixtures::plaintext_header(&paths.legacy.source_evidence);
         fs::write(import_journal_path(&paths), b"not valid json at all").expect("seed marker");
         assert!(recover_interrupted_import(&paths).is_err(), "a mixed archive fails closed");
         assert!(import_journal_path(&paths).exists(), "the marker stays to keep the state flagged");
@@ -350,7 +351,7 @@ mod tests {
     fn recover_interrupted_import_restores_a_preserved_bak_unit_over_the_target() {
         let (_dir, paths) = fresh_paths();
         ensure_archive_dir(&paths);
-        let target = paths.archive_database_path.clone();
+        let target = paths.legacy.archive.clone();
         let ts = "2026-06-30T00-00-00Z";
         // The cut commit left a NEW file at the target and the preserved OLD unit at `.bak`
         // (with a `-wal` sidecar, so the `.bak` is a complete unit).
@@ -394,7 +395,7 @@ mod tests {
         // restored DB keeps its committed-but-uncheckpointed frames.
         let (_dir, paths) = fresh_paths();
         ensure_archive_dir(&paths);
-        let target = paths.archive_database_path.clone();
+        let target = paths.legacy.archive.clone();
         let ts = "2026-06-30T03-00-00Z";
         // Mid-recovery state: the OLD main is ALREADY back at the target, the main `.bak` is
         // gone, and only its `-wal` sidecar is still orphaned at `<bak>-<ts>-wal`.

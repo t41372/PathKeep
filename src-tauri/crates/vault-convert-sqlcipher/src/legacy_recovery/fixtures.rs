@@ -70,7 +70,7 @@ pub(super) fn encrypted_header(path: &Path) {
 }
 
 pub(super) fn marker(paths: &ProjectPaths, name: &str) -> PathBuf {
-    paths.archive_database_path.parent().expect("archive parent").join(name)
+    paths.legacy.archive.parent().expect("archive parent").join(name)
 }
 
 /// The state a rekey cut between swap and config left: the canonical file already at
@@ -79,8 +79,8 @@ pub(super) fn crash_mid_rekey(paths: &ProjectPaths, from: ArchiveMode, to: Archi
     let from_config = AppConfig { archive_mode: from.clone(), ..plaintext_config() };
     save_config(paths, &from_config).expect("save config");
     match to {
-        ArchiveMode::Plaintext => legacy_db(&paths.archive_database_path, None),
-        ArchiveMode::Encrypted => legacy_db(&paths.archive_database_path, Some(KEY)),
+        ArchiveMode::Plaintext => legacy_db(&paths.legacy.archive, None),
+        ArchiveMode::Encrypted => legacy_db(&paths.legacy.archive, Some(KEY)),
     }
     let journal = serde_json::json!({
         "version": 1,
@@ -103,10 +103,10 @@ pub(super) fn crash_mid_restore(
     key: Option<&str>,
 ) -> PathBuf {
     save_config(paths, config).expect("save config");
-    legacy_db(&paths.archive_database_path, key);
+    legacy_db(&paths.legacy.archive, key);
     let snapshot = paths.raw_snapshots_dir.join("rekey").join("snap.sqlite");
     fs::create_dir_all(snapshot.parent().unwrap()).expect("snapshot dir");
-    fs::copy(&paths.archive_database_path, &snapshot).expect("copy snapshot");
+    fs::copy(&paths.legacy.archive, &snapshot).expect("copy snapshot");
     let quarantine = paths.quarantine_dir.join(CRASH_TIMESTAMP);
     let journal = serde_json::json!({
         "version": 1,
@@ -119,7 +119,7 @@ pub(super) fn crash_mid_restore(
     fs::write(marker(paths, ".pk-restore-journal.json"), serde_json::to_vec(&journal).unwrap())
         .expect("write restore journal");
     fs::create_dir_all(&quarantine).expect("quarantine dir");
-    fs::rename(&paths.archive_database_path, quarantine.join("history-vault.sqlite"))
+    fs::rename(&paths.legacy.archive, quarantine.join("history-vault.sqlite"))
         .expect("quarantine the canonical archive");
     snapshot
 }
@@ -148,7 +148,7 @@ pub(super) fn hold_write_lock_elsewhere(paths: &ProjectPaths) -> fs::File {
 /// `load_config`) matches the header of each canonical file that exists.
 pub(super) fn assert_config_matches_disk(paths: &ProjectPaths) {
     let expected = load_config(paths).expect("load config").archive_mode;
-    for path in [&paths.archive_database_path, &paths.source_evidence_database_path] {
+    for path in [&paths.legacy.archive, &paths.legacy.source_evidence] {
         let on_disk = match detect_disk_encryption_mode(path) {
             DiskEncryptionMode::Absent => continue,
             DiskEncryptionMode::Plaintext => ArchiveMode::Plaintext,

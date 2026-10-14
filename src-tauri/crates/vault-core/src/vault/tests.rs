@@ -51,8 +51,8 @@ fn a_password_open_beside_an_unconverted_archive_creates_nothing() {
         archive_mode: crate::ArchiveMode::Encrypted,
         ..Default::default()
     };
-    std::fs::write(&paths.archive_database_path, [7u8; 4096]).unwrap();
-    let before = std::fs::read(&paths.archive_database_path).unwrap();
+    std::fs::write(&paths.legacy.archive, [7u8; 4096]).unwrap();
+    let before = std::fs::read(&paths.legacy.archive).unwrap();
     for password in ["right password", "wrong password"] {
         let error =
             Vault::open_password(paths.clone(), config.clone(), password, None).unwrap_err();
@@ -61,7 +61,7 @@ fn a_password_open_beside_an_unconverted_archive_creates_nothing() {
     assert!(!paths.app_root.join("archive/keys.envelope").exists());
     assert!(!paths.app_root.join("archive/keys.envelope.pending").exists());
     assert!(!paths.app_root.join("archive/history-vault.db").exists());
-    assert_eq!(before, std::fs::read(&paths.archive_database_path).unwrap());
+    assert_eq!(before, std::fs::read(&paths.legacy.archive).unwrap());
 }
 
 #[test]

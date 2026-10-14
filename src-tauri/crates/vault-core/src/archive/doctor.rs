@@ -40,8 +40,8 @@ pub fn doctor(vault: &Vault) -> Result<HealthReport> {
         check(
             "archive-db",
             "Archive DB",
-            vault.paths().archive_database_path.exists(),
-            vault.paths().archive_database_path.display(),
+            vault.paths().archive_db.exists(),
+            vault.paths().archive_db.display(),
         ),
         check("archive-unlock", "Archive Unlock", true, "The session owns an open archive"),
     ];

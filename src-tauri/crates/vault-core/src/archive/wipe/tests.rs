@@ -79,7 +79,7 @@ fn backed_up_archive() -> Fixture {
     write(paths.app_root.join("app-lock-passcode.json"), b"{}");
     write(paths.stronghold_path.clone(), b"vault");
     write(paths.app_root.join("derived.bak-20260101T000000Z").join("old.sqlite"), b"old");
-    write(paths.archive_database_path.with_extension("sqlite.bak-20260101T000000Z"), b"old");
+    write(paths.legacy.archive.with_extension("sqlite.bak-20260101T000000Z"), b"old");
     write(paths.rust_log_path.clone(), b"log line\n");
     write(paths.schedule_dir.join("attempts").join("a.json"), b"{}");
     #[cfg(unix)]
@@ -181,7 +181,7 @@ fn wipe_removes_everything_listed_and_nothing_else() {
     assert!(paths.rust_log_path.exists());
     assert!(!paths.schedule_dir.exists(), "scheduled-run history goes with the archive");
     assert!(
-        paths.archive_database_path.with_file_name(ARCHIVE_WRITE_LOCK_FILE).exists(),
+        paths.archive_db.with_file_name(ARCHIVE_WRITE_LOCK_FILE).exists(),
         "the write-lock sentinel must survive"
     );
 

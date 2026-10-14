@@ -32,7 +32,7 @@ fn restart_recovers_before_conversion_and_keychain_decisions() {
             Some("password"),
             &[("https://example.com/%7Erestart", "Restart proof")],
         );
-        let original = fs::read(&paths.archive_database_path).unwrap();
+        let original = fs::read(&paths.legacy.archive).unwrap();
         if operation == "mode-install" {
             let installed = vault_convert_sqlcipher::convert(
                 &paths,
@@ -89,7 +89,7 @@ fn restart_recovers_before_conversion_and_keychain_decisions() {
             1
         );
         assert_eq!(vault.config().archive_mode, ArchiveMode::Encrypted);
-        assert_eq!(fs::read(&paths.archive_database_path).unwrap(), original);
+        assert_eq!(fs::read(&paths.legacy.archive).unwrap(), original);
         session.close_vault().unwrap();
     }
     for (name, value) in names.into_iter().zip(old) {

@@ -297,7 +297,8 @@ pub struct AppDirectories {
     pub app_root: String,
     pub config_path: String,
     pub archive_database_path: String,
-    pub search_database_path: String,
+    /// The full-text search index, a folder (`derived/search-index`).
+    pub search_index_dir: String,
     pub intelligence_database_path: String,
     pub audit_repo_path: String,
     pub manifests_dir: String,

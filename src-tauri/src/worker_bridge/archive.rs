@@ -29,7 +29,7 @@ pub(crate) fn initialize_archive_with_progress_impl(
     if state.recover_pending_archive(&paths)? {
         config = worker_result(vault_core::load_config(&paths))?;
     }
-    if paths.app_root.join("archive/history-vault.db").exists() {
+    if paths.archive_db.exists() {
         let stored = worker_result(vault_core::load_config(&paths))?;
         if stored.archive_mode != config.archive_mode {
             return Err(
@@ -43,9 +43,7 @@ pub(crate) fn initialize_archive_with_progress_impl(
         report_progress(vault_core::ArchiveUpgradeProgress::finished());
         return super::app_snapshot_impl(state);
     }
-    if paths.archive_database_path.exists()
-        && !paths.app_root.join("archive/history-vault.db").exists()
-    {
+    if paths.legacy.archive.exists() && !paths.archive_db.exists() {
         return worker_result(vault_worker::convert_archive_with_progress(
             state,
             &config,

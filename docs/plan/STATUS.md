@@ -390,9 +390,11 @@
   - 做了（2026-10-13）：舊列在存檔打開時（`recover_owner_claims`）標成 cancelled、`error_code = assistant-retired`，已完成的不動；佇列只領 index-build / index-clear；`replay_ai_job` 拒絕 assistant；計數只算索引工作（`indexQueued` 與總數因此一樣）。Background work 對這種工作寫「Ask 已經不在背景回答問題……請在 Ask 裡再問一次」（三語），不給「重跑」。刪掉執行路徑：`complete_claimed_assistant_job`、`ai/assistant.rs`（`answer_history_question*`、寫 `ai_assistant_runs` 的那段）、沒人讀的 `load_assistant_run_response`、只有它用的 rig `SearchHistoryTool`、前端沒人用的 `AiAssistant*` 型別。`ai_assistant_runs` 表留著：裡面是 v0.3 存下的回答，是使用者的資料，搬家也帶走。
   - 測試：E2E 造不出舊的排隊提問，所以照「先寫會怎麼錯」寫一條 Rust 測試（`ai_queue/tests.rs`）：很久以前的問題被送去模型、永遠「等待中」並被計數、「重跑」又排回去、當年回答過的被改寫——四項都驗。
 
-- [ ] **WORK-PROJECT-PATHS-V04** — `ProjectPaths` 的資料庫路徑還是 v0.3 的（2026-10-13 修 Settings → Storage 時找到）
+- [x] **WORK-PROJECT-PATHS-V04** — `ProjectPaths` 的資料庫路徑還是 v0.3 的（2026-10-13 修 Settings → Storage 時找到）
   - 現象：`config.rs` 的預設是 `history-vault.sqlite`、`source-evidence.sqlite`、`history-search.sqlite`、`history-intelligence.sqlite`、`agent.sqlite`；`Vault::open` 再把其中四個改成 `.db`，搜尋那個沒改（v0.4 的搜尋索引是 `derived/search-index` 資料夾）。沒有經過 `Vault` 的讀者（`app.rs` 回給介面的 `searchDatabasePath`）拿到的是不存在的檔案；Storage 用量曾因此少算搜尋索引、對話與 WAL。
   - 方向：先列出誰還需要 v0.3 的路徑（v0.3 → v0.4 轉換要找舊檔），把它們改成明說「舊格式」的欄位；其餘全部用 `vault_store::Paths` 的布局，`search_database_path` 換成搜尋索引資料夾。
+  - 做了（2026-10-13）：舊欄位名全部拿掉，每個用到的地方都編譯失敗、逐一決定要哪一個，沒有一處默默換意思。v0.4 的檔案是 `archive_db`、`source_evidence_db`、`intelligence_db`、`agent_db`（值取自 `vault_store::Paths::under`，布局只有一個來源）與 `search_index_dir`；v0.3 的五個 SQLCipher 檔放進 `ProjectPaths::legacy`（`LegacyPaths`），只有偵測「還沒轉換的存檔」與轉換器（`vault-convert-sqlcipher` 全部）讀。`Vault::open` 不再改寫路徑。原本經過 `Vault` 才讀 `.db` 的（備份 manifest、doctor、加密標頭、寫鎖）改用 `archive_db`；沒經過的（啟動時判斷要不要轉換、密碼解鎖前的檢查、archive_availability）明寫 `legacy.archive` 或兩者。另外 9 處手拼 `archive/history-vault.db`、2 處手拼 `derived/search-index` 改用欄位。介面拿到的 `searchDatabasePath` 改名 `searchIndexDir`，指到真的存在的資料夾（介面沒有讀它）。
+  - 測試：行為沒有變，靠既有的轉換、升級、復原、清除與 E2E（`upgrade.spec`、`move.spec`、`wipe.spec`）驗。
 
 - [ ] **WORK-TEST-CUT-FINDINGS** — 清 unit test 時讀程式碼找到的（2026-10-12，都還沒重現或修）
   - 匯入時網址缺失的那筆造訪被跳過，之後的造訪把游標推過它（`consumer.rs`；舊審查的 A3，pin 住它的測試已刪）：那筆造訪不會再被讀到。

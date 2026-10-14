@@ -31,8 +31,8 @@ pub fn assess(
     password: Option<&str>,
 ) -> Result<Assessment> {
     let mut tables = Vec::new();
-    let required = !paths.app_root.join("archive/history-vault.db").exists()
-        && paths.app_root.join("archive/history-vault.sqlite").exists();
+    let required =
+        !paths.archive_db.exists() && paths.app_root.join("archive/history-vault.sqlite").exists();
     let source_encrypted = paths.app_root.join("archive/history-vault.sqlite").is_file()
         && source::encrypted(&paths.app_root.join("archive/history-vault.sqlite"))?;
     // Without the password an encrypted source can't be counted; the screen still

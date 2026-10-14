@@ -112,7 +112,7 @@ pub fn preview_rekey_archive(request: &RekeyRequest) -> Result<vault_core::Rekey
     let paths = vault_core::project_paths()?;
     let config = load_unlocked_config(&paths)?;
     anyhow::ensure!(
-        config.initialized && paths.app_root.join("archive/history-vault.db").exists(),
+        config.initialized && paths.archive_db.exists(),
         "initialize the archive before previewing a rekey operation"
     );
     crate::current_password::verified_current_key(&paths, &config, request)?;

@@ -224,7 +224,7 @@ fn scheduled_worker_records_keyring_config_and_archive_open_failures_before_arch
         ..AppConfig::default()
     };
     vault_core::save_config(&paths, &config).expect("valid config");
-    fs::create_dir_all(paths.archive_database_path.parent().expect("archive parent"))
+    fs::create_dir_all(paths.legacy.archive.parent().expect("archive parent"))
         .expect("archive parent");
     fs::write(paths.app_root.join("archive/history-vault.db"), b"not turso")
         .expect("invalid archive");
@@ -737,7 +737,7 @@ fn launch_recovery_surfaces_an_unrecoverable_interrupted_rekey_to_the_worker() {
     legacy_archive(&config, None);
     let paths = project_paths().expect("project paths");
 
-    let archive_dir = paths.archive_database_path.parent().expect("archive parent");
+    let archive_dir = paths.legacy.archive.parent().expect("archive parent");
     let rekey_marker = archive_dir.join(".pk-rekey-journal.json");
     let snapshot_dir = paths.raw_snapshots_dir.join("rekey");
     fs::create_dir_all(&snapshot_dir).expect("snapshot dir");
@@ -753,7 +753,7 @@ fn launch_recovery_surfaces_an_unrecoverable_interrupted_rekey_to_the_worker() {
     });
     fs::write(&rekey_marker, serde_json::to_vec(&journal).expect("serialize journal"))
         .expect("seed rekey marker");
-    fs::remove_file(&paths.archive_database_path).expect("remove history-vault");
+    fs::remove_file(&paths.legacy.archive).expect("remove history-vault");
 
     let error = initialize_archive_database(&config, None)
         .expect_err("a fail-closed interrupted rekey must surface as an error");
@@ -778,7 +778,7 @@ fn seed_restore_cut_mid_install(paths: &vault_core::ProjectPaths, keep_snapshot:
     let snapshot = paths.raw_snapshots_dir.join("rekey").join("snap.sqlite");
     fs::create_dir_all(snapshot.parent().unwrap()).unwrap();
     if keep_snapshot {
-        fs::copy(&paths.archive_database_path, &snapshot).unwrap();
+        fs::copy(&paths.legacy.archive, &snapshot).unwrap();
     }
     let quarantine = paths.quarantine_dir.join("2026-06-30T00-00-00Z");
     let journal = serde_json::json!({
@@ -789,9 +789,9 @@ fn seed_restore_cut_mid_install(paths: &vault_core::ProjectPaths, keep_snapshot:
         "quarantine_dir": quarantine.to_string_lossy(),
         "previous_config": fs::read_to_string(&paths.config_path).ok(),
     });
-    let marker = paths.archive_database_path.parent().unwrap().join(".pk-restore-journal.json");
+    let marker = paths.legacy.archive.parent().unwrap().join(".pk-restore-journal.json");
     fs::write(marker, serde_json::to_vec(&journal).unwrap()).unwrap();
-    fs::remove_file(&paths.archive_database_path).unwrap();
+    fs::remove_file(&paths.legacy.archive).unwrap();
 }
 
 #[test]
@@ -805,8 +805,8 @@ fn assessing_an_old_archive_first_finishes_a_restore_the_old_app_left_half_done(
 
     let assessment = assess_archive_upgrade(None).expect("assessment after recovery");
     assert!(assessment.pending, "the restored old-format archive still needs converting");
-    assert!(paths.archive_database_path.exists(), "the snapshot is back in place");
-    assert!(!paths.archive_database_path.with_file_name(".pk-restore-journal.json").exists());
+    assert!(paths.legacy.archive.exists(), "the snapshot is back in place");
+    assert!(!paths.legacy.archive.with_file_name(".pk-restore-journal.json").exists());
 
     restore_env_var(PROJECT_ROOT_OVERRIDE_ENV, original_root.as_deref());
 }
@@ -824,7 +824,7 @@ fn assessing_an_old_archive_that_cannot_be_brought_back_asks_for_the_recovery_sc
     let report = crate::parse_archive_recovery_required(&error.to_string())
         .expect("the error carries the recovery report");
     assert!(matches!(report.kind, vault_core::ArchiveRecoveryKind::InterruptedRestoreUnresolved));
-    assert!(!paths.archive_database_path.exists(), "no empty archive was created");
+    assert!(!paths.legacy.archive.exists(), "no empty archive was created");
 
     restore_env_var(PROJECT_ROOT_OVERRIDE_ENV, original_root.as_deref());
 }

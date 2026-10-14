@@ -59,7 +59,7 @@ pub(super) fn finish(
         run_id,
         timezone,
         due_only,
-        database_path: vault.paths().archive_database_path.display().to_string(),
+        database_path: vault.paths().archive_db.display().to_string(),
         summary: summary.clone(),
         profiles: profiles.clone(),
         warnings: backup_warning_messages(&warnings),

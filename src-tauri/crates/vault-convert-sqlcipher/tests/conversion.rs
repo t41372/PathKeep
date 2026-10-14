@@ -109,7 +109,7 @@ fn a_changed_staged_value_refuses_the_swap() {
     let error = result.expect_err("digest mismatch must refuse publication");
     assert!(format!("{error:#}").contains("conversion-digest-mismatch"));
     assert!(!paths.app_root.join("archive/history-vault.db").exists());
-    assert!(paths.archive_database_path.exists());
+    assert!(paths.legacy.archive.exists());
 }
 
 #[test]
@@ -155,7 +155,7 @@ fn conversion_crash_child() {
 #[test]
 fn a_file_keyed_with_an_earlier_password_is_named_left_in_place_and_skipped() {
     let (_root, paths, config) = fixture();
-    let evidence = &paths.source_evidence_database_path;
+    let evidence = &paths.legacy.source_evidence;
     std::fs::remove_file(evidence).unwrap();
     let earlier = vault_convert_sqlcipher::test_support::open_source_evidence(
         &paths,

@@ -407,9 +407,7 @@ impl VaultSession {
 }
 
 fn require_native_archive(paths: &ProjectPaths) -> Result<(), String> {
-    if paths.app_root.join("archive/history-vault.sqlite").exists()
-        && !paths.app_root.join("archive/history-vault.db").exists()
-    {
+    if paths.app_root.join("archive/history-vault.sqlite").exists() && !paths.archive_db.exists() {
         return Err("archive-conversion-required: preview and convert the SQLCipher archive before opening it".into());
     }
     Ok(())
