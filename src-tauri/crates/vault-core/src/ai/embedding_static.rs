@@ -43,6 +43,8 @@ use anyhow::{Context, Result};
 use std::sync::Arc;
 #[cfg(not(test))]
 mod cache;
+mod storage;
+use storage::MatrixStorage;
 
 // ---------------------------------------------------------------------------
 // Model manifest (always compiled — pure data; load/download live in `model_files`).
@@ -204,8 +206,8 @@ pub fn parse_static_config(config_json: &[u8]) -> Result<StaticModelConfig> {
 
 /// The static token→vector matrix: `vocab_size` rows of `dim` columns, plus optional per-token weights.
 ///
-/// This is the pure, in-memory shape the pooling operates on — equally constructible from a real
-/// safetensors load or a tiny synthetic table in a unit test. `weights`, when present, is one scalar
+/// Production rows stay in a read-only file mapping; synthetic tables own their values. Both use
+/// the same pooling math. `weights`, when present, is one scalar
 /// per row applied before mean-pooling (model2vec's optional pre-baked per-token weighting; POTION
 /// folds SIF into the matrix and ships NO weights, so this is `None` for the default model).
 /// `unk_token_id`, when present, is the unk row the reference DROPS before pooling (see
@@ -215,7 +217,7 @@ pub fn parse_static_config(config_json: &[u8]) -> Result<StaticModelConfig> {
 #[derive(Debug, Clone, PartialEq)]
 pub struct StaticEmbeddingMatrix {
     /// Flat row-major matrix: row `i` occupies `rows[i*dim .. (i+1)*dim]`.
-    rows: Vec<f32>,
+    rows: MatrixStorage,
     /// Number of vocabulary rows (`rows.len() / dim`).
     vocab_size: usize,
     /// Per-token embedding width (the column count).
@@ -235,6 +237,10 @@ impl StaticEmbeddingMatrix {
     /// have exactly one entry per row — any of which would desync the lookup and silently corrupt
     /// every vector. Use [`Self::with_unk_token`] to attach the reference's `<unk>`-drop behavior.
     pub fn new(rows: Vec<f32>, dim: usize, weights: Option<Vec<f32>>) -> Result<Self> {
+        Self::from_storage(MatrixStorage::Owned(rows), dim, weights)
+    }
+
+    fn from_storage(rows: MatrixStorage, dim: usize, weights: Option<Vec<f32>>) -> Result<Self> {
         if dim == 0 {
             anyhow::bail!("static embedding matrix dim must be non-zero");
         }
@@ -307,10 +313,7 @@ impl StaticEmbeddingMatrix {
                 continue; // Tokenizer id outside the distilled matrix — skip, do not panic.
             }
             let scale = self.weights.as_ref().map_or(1.0, |weights| weights[index]);
-            let row = &self.rows[index * self.dim..(index + 1) * self.dim];
-            for (accumulator, &component) in sum.iter_mut().zip(row.iter()) {
-                *accumulator += component * scale;
-            }
+            self.rows.add_scaled_row(index * self.dim..(index + 1) * self.dim, scale, &mut sum);
             pooled += 1;
         }
         if pooled > 0 {
@@ -386,8 +389,17 @@ fn load_static_matrix(
     safetensors_path: &std::path::Path,
     unk_token_id: Option<u32>,
 ) -> Result<StaticEmbeddingMatrix> {
-    let bytes = std::fs::read(safetensors_path)
-        .with_context(|| format!("reading static safetensors {}", safetensors_path.display()))?;
+    let file = std::fs::File::open(safetensors_path)
+        .with_context(|| format!("opening static safetensors {}", safetensors_path.display()))?;
+    // SAFETY: this is PathKeep's own model folder. cache::load hash-verifies every model file via
+    // model_is_present_and_verified before loading, checks size/mtime again after loading and before
+    // reuse, and drops its cached engine on change. Downloads replace verified files atomically,
+    // leaving any active mapping on its original file. This relies on external tools not modifying
+    // model files in place while mapped; metadata checks cannot protect an already-borrowed engine.
+    let bytes =
+        Arc::new(unsafe { memmap2::Mmap::map(&file) }.with_context(|| {
+            format!("mapping static safetensors {}", safetensors_path.display())
+        })?);
     let tensors = safetensors::SafeTensors::deserialize(&bytes)
         .with_context(|| format!("parsing static safetensors {}", safetensors_path.display()))?;
     if let Some(mapping_name) =
@@ -410,12 +422,22 @@ fn load_static_matrix(
     let &[vocab_size, dim] = matrix_tensor.shape() else {
         anyhow::bail!("static embedding tensor is not a 2-D [vocab, dim] matrix");
     };
-    let rows = f32_values(&matrix_tensor, name)?;
+    anyhow::ensure!(
+        matrix_tensor.dtype() == safetensors::Dtype::F32,
+        "static tensor `{name}` is {:?}, not f32",
+        matrix_tensor.dtype()
+    );
+    // TensorView borrows a validated subslice of the mapping. Retain its byte range rather than a
+    // self-reference; moving or cloning the matrix never copies the tensor data.
+    let start = matrix_tensor.data().as_ptr().addr() - bytes.as_ptr().addr();
+    let data = start..start + matrix_tensor.data().len();
     let weights = match tensors.tensor("weights") {
         Ok(weights_tensor) => Some(f32_values(&weights_tensor, "weights")?),
         Err(_) => None,
     };
-    let matrix = StaticEmbeddingMatrix::new(rows, dim, weights)?.with_unk_token(unk_token_id);
+    let rows = MatrixStorage::Mapped { mapping: bytes.clone(), data };
+    let matrix =
+        StaticEmbeddingMatrix::from_storage(rows, dim, weights)?.with_unk_token(unk_token_id);
     debug_assert_eq!(matrix.vocab_size(), vocab_size);
     Ok(matrix)
 }

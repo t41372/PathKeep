@@ -31,7 +31,8 @@ fn revision(directory: &Path, files: &[ModelFile]) -> Result<Revision> {
     Ok(Revision(stamps))
 }
 
-/// Strong references keep half-GB weights alive between searches; metadata avoids rehashing hits.
+/// Strong references retain the tokenizer and mapping between searches; clean mapped pages remain
+/// reclaimable by the OS. Metadata avoids rehashing hits.
 /// The loading guard also prevents simultaneous queries from loading duplicate engines.
 pub(super) fn load(
     directory: &Path,

@@ -40,6 +40,22 @@ Our 2026-06 candle numbers (F32 6.29 docs/s, Q8 1.25 docs/s on CPU) are out of d
 
 At 10 docs/s, 14.4M documents take 400 hours; at 100 docs/s, 40 hours. What matters is the unique documents behind the visits after content dedup, which the benchmark has to count.
 
+## Measured on this Mac (2026-10-16)
+
+Apple M5 Max (6 performance + 12 efficiency cores, 64 GB), macOS 27.0.1. llama.cpp master `a30fb492` (2026-10-16), built with Metal, `llama-embedding` over 2,000 synthetic page texts shaped like what PathKeep now sends (title, site and address words, a quarter with a few hundred characters of body; mixed English and Chinese; about 45 tokens each) in its default batching (about 180 texts, 8k tokens per batch). Throughput is from the tool's batch log, leaving out the first batch (warm-up, shader compile) and the last. The CPU rows use 4 threads with no GPU layers on 600 texts. Peak memory is the process footprint, mostly the 8k-token batch buffers. Synthetic text says nothing about quality; that needs the evaluation on real history.
+
+| Model · precision         | Metal docs/s | CPU 4 threads docs/s | Peak memory (Metal / CPU) |
+| ------------------------- | -----------: | -------------------: | ------------------------- |
+| Qwen3-Embedding-0.6B Q8_0 |          640 |                   20 | 1.7 / 2.2 GB              |
+| Qwen3-Embedding-0.6B F16  |          649 |                   33 | 1.7 / 1.8 GB              |
+| EmbeddingGemma 2 Q8_0     |          810 |                   48 | 1.1 / 1.7 GB              |
+| EmbeddingGemma 2 BF16     |          784 |                   71 | 1.1 / 1.6 GB              |
+
+- On the CPU, Q8_0 is slower than F16 / BF16 on this chip: llama.cpp dequantizes for prompt processing, and the M5's half-precision matrix units are fast. A 4-core x86 machine without them will be slower still, and Q8_0 may win there; it has to be measured on one.
+- On Metal, 1 million unique pages take about 26 minutes with Qwen3 and 21 with EmbeddingGemma 2; on 4 CPU threads, from 4 hours (EmbeddingGemma 2 BF16) to 14 (Qwen3 Q8_0). The unique pages behind 14.4M visits after content dedup is still to be counted.
+- LM Studio's ~30 visits/s during the user's index build (2026-10-15) ran on the old text, often with 2,048 characters of body, over HTTP; the shorter page text should speed that up too.
+- For comparison, the in-app static model runs about 1,900 texts/s on one thread (test profile, `static_embedding_e2e`). Mapping its matrix instead of copying it (2026-10-16) took its footprint from 1,596 MiB to 618 MiB at the same speed; 578 MiB of the rest is the `tokenizers` Unigram trie (a hash map per node, 500k pieces; unchanged in tokenizers 0.23.2).
+
 ## What to benchmark, in order
 
 1. llama.cpp master (with #30054) through its own CLI or server, to get the ceiling: both models, BF16 / Q8_0 / Q4_K, Metal and `-t 4 -ngl 0`.

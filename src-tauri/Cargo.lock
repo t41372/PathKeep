@@ -8989,6 +8989,7 @@ dependencies = [
  "icu_normalizer",
  "icu_segmenter",
  "libc",
+ "memmap2",
  "mockito",
  "plist",
  "publicsuffix",

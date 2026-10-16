@@ -202,16 +202,20 @@ pub fn ensure_model_downloaded(
             continue; // Already present + verified (offline-first per-file reuse).
         }
         let dest = model_dir.join(file.name);
+        // Keep the destination inode immutable: an active embedding engine may still map it.
+        // Download and verify a sibling file, then atomically replace the directory entry.
+        let downloaded = tempfile::NamedTempFile::new_in(&model_dir)
+            .with_context(|| format!("creating temporary download for {}", dest.display()))?;
         // `fetch_one_file` now owns the per-file lifecycle: it emits `file_started` with the REAL
         // content-length (not a hardcoded 0) and streams the bytes to disk emitting throttled
         // `file_progress`. It also honors `cancelled()` MID-stream, so a cancel during the 90 MB
         // safetensors aborts without writing a partial blob, not only between files.
-        fetch_one_file(file, &dest, progress)?;
-        // Verify the freshly written file; a mismatch removes the bad blob and errors.
-        if let Err(error) = verify_file_sha256(&dest, file.sha256) {
-            let _ = std::fs::remove_file(&dest);
-            return Err(error);
-        }
+        fetch_one_file(file, downloaded.path(), progress)?;
+        // A failed download or hash check removes only the temporary file, never an active model.
+        verify_file_sha256(downloaded.path(), file.sha256)?;
+        downloaded
+            .persist(&dest)
+            .with_context(|| format!("installing verified model file {}", dest.display()))?;
         progress.file_finished(file.name);
     }
     // Every file is downloaded + verified once: record the marker so subsequent loads are cheap (S5).
@@ -497,5 +501,48 @@ mod tests {
         assert!(error.to_string().contains("failed SHA-256 verification"));
         let model_dir = model_dir_for_repo(&paths, "Stub/Repo");
         assert!(!model_dir.join("config.json").exists(), "bad blob must be removed");
+    }
+
+    // A repair must not truncate an inode that an active embedding engine still maps. Failed
+    // verification must leave that inode alone too, and temporary downloads must be removed.
+    #[test]
+    fn ensure_download_replaces_files_without_changing_open_readers() {
+        use std::io::Read;
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let paths = crate::config::project_paths_with_root(dir.path());
+        let model_dir = model_dir_for_repo(&paths, "Stub/Repo");
+        std::fs::create_dir_all(&model_dir).expect("create model dir");
+        let path = model_dir.join("model.safetensors");
+        std::fs::write(&path, b"old model bytes").expect("write old file");
+        let mut reader = std::fs::File::open(&path).expect("open old file");
+        ensure_model_downloaded(
+            &paths,
+            "Stub/Repo",
+            &stub_manifest(),
+            true,
+            &mut NoopDownloadProgress,
+        )
+        .expect("repair model");
+        let mut old_bytes = Vec::new();
+        reader.read_to_end(&mut old_bytes).expect("read old file");
+        assert_eq!(old_bytes, b"old model bytes");
+        assert_eq!(std::fs::read(path).expect("new file"), stub_file_bytes("model.safetensors"));
+        assert_eq!(std::fs::read_dir(model_dir).expect("directory").count(), 4);
+    }
+
+    #[test]
+    fn ensure_download_failed_verification_preserves_existing_file() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let paths = crate::config::project_paths_with_root(dir.path());
+        let model_dir = model_dir_for_repo(&paths, "Stub/Repo");
+        std::fs::create_dir_all(&model_dir).expect("create model dir");
+        let path = model_dir.join("model.safetensors");
+        std::fs::write(&path, b"old model bytes").expect("write old file");
+        let files = [ModelFile { name: "model.safetensors", sha256: "wrong", repo: "Stub/Repo" }];
+        ensure_model_downloaded(&paths, "Stub/Repo", &files, true, &mut NoopDownloadProgress)
+            .expect_err("reject bad download");
+        assert_eq!(std::fs::read(path).expect("old file"), b"old model bytes");
+        assert_eq!(std::fs::read_dir(model_dir).expect("directory").count(), 1);
     }
 }
