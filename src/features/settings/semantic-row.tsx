@@ -11,8 +11,12 @@ import { SettingRow } from '@/components/app/setting-row'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
+import {
+  SwitchModelDialog,
+  type SwitchTarget,
+} from '@/features/ai-setup/model-switch'
 import { ProviderDialog } from '@/features/ai-setup/provider-dialog'
-import { providerLabel } from '@/features/ai-setup/providers'
+import { isLocalProvider, providerLabel } from '@/features/ai-setup/providers'
 import { useAiProviders } from '@/features/ai-setup/use-ai-providers'
 import {
   STATIC_MODEL_APPROX_BYTES,
@@ -64,15 +68,47 @@ export function SemanticRow({ index }: { index: SemanticIndex }) {
 
 const ADD = '__add'
 
-/** Which model makes the index, and the chosen service's own panel. */
+/**
+ * Which model makes the index, and the chosen service's own panel. Another
+ * model is chosen only after the user has read what the switch does.
+ */
 function ModelPicker({ index }: { index: SemanticIndex }) {
   const { t } = useI18n()
   const providers = useAiProviders('embedding')
   const [adding, setAdding] = useState(false)
+  const [switching, setSwitching] = useState<{
+    id: string
+    name: string
+    target: SwitchTarget
+  } | null>(null)
 
   const choose = (value: string) => {
     if (value === ADD) return setAdding(true)
-    if (value !== index.modelId) void index.chooseModel(value)
+    if (value === index.modelId) return
+    if (value === BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID) {
+      return setSwitching({
+        id: value,
+        name: t('settingsAi.semantic.switch.inAppName'),
+        target: {
+          providerId: value,
+          model:
+            index.status.staticEmbedding?.modelRepo ??
+            'potion-multilingual-128M',
+          service: null,
+        },
+      })
+    }
+    const service = index.services.find((item) => item.id === value)
+    if (!service) return
+    setSwitching({
+      id: value,
+      name: service.name,
+      target: {
+        providerId: value,
+        model: service.defaultModel,
+        service: { name: service.name, local: isLocalProvider(service) },
+      },
+    })
   }
 
   return (
@@ -105,11 +141,20 @@ function ModelPicker({ index }: { index: SemanticIndex }) {
           providers={providers}
           // The new model needs its own index; the row offers to build it.
           onModelChanged={() => void index.chooseModel(index.modelId)}
-          indexOn={index.enabled}
+          hasIndex={index.status.indexedItems > 0}
         />
       ) : (
         <InAppModel index={index} />
       )}
+      <SwitchModelDialog
+        target={switching?.target ?? null}
+        name={switching?.name ?? ''}
+        onCancel={() => setSwitching(null)}
+        onConfirm={() => {
+          if (switching) void index.chooseModel(switching.id)
+          setSwitching(null)
+        }}
+      />
       <ProviderDialog
         open={adding}
         onOpenChange={setAdding}

@@ -270,9 +270,15 @@ function NeedsBuild({ index }: { index: SemanticIndex }) {
       )}
       <p className="text-muted-foreground">
         {servingOther
-          ? t('settingsAi.semantic.meanwhilePrevious', {
-              model: shortModel(servingOther.model),
-            })
+          ? [
+              t('settingsAi.semantic.meanwhilePrevious', {
+                model: shortModel(servingOther.model),
+              }),
+              // Said again where the build starts: finishing it deletes the old index.
+              t('settingsAi.semantic.switch.replaces', {
+                old: shortModel(servingOther.model),
+              }),
+            ].join(' ')
           : t('settingsAi.semantic.meanwhilePartial')}
       </p>
       <div className="flex justify-end gap-2">

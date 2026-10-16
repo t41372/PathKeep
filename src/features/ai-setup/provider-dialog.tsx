@@ -3,7 +3,6 @@
  * assistant's (`llm`) or semantic search's embeddings service (`embedding`).
  * Saving is the caller's (`useAiProviders`); this only collects the fields.
  */
-import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import {
@@ -14,10 +13,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { intelligenceClient } from '@/lib/backend-client/intelligence'
 import { describeError } from '@/lib/errors'
-import { useFormat, useI18n } from '@/lib/i18n'
+import { useI18n } from '@/lib/i18n'
 import type { AiProviderConfig, AiProviderPurpose } from '@/lib/types'
+import { SwitchConsequences } from './model-switch'
 import { ProviderForm } from './provider-form'
 import {
   draftFromProvider,
@@ -33,7 +32,6 @@ export function ProviderDialog({
   onSave,
   purpose = 'llm',
   editing = null,
-  indexOn = false,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -41,8 +39,6 @@ export function ProviderDialog({
   purpose?: AiProviderPurpose
   /** The service to change; adds a new one when absent. */
   editing?: AiProviderConfig | null
-  /** Semantic search is on, so a new embeddings model's index can be built right away. */
-  indexOn?: boolean
 }) {
   const [saving, setSaving] = useState(false)
   return (
@@ -52,7 +48,6 @@ export function ProviderDialog({
         <ProviderDialogBody
           purpose={purpose}
           editing={editing}
-          indexOn={indexOn}
           saving={saving}
           setSaving={setSaving}
           onSave={onSave}
@@ -66,7 +61,6 @@ export function ProviderDialog({
 function ProviderDialogBody({
   purpose,
   editing,
-  indexOn,
   saving,
   setSaving,
   onSave,
@@ -74,7 +68,6 @@ function ProviderDialogBody({
 }: {
   purpose: AiProviderPurpose
   editing: AiProviderConfig | null
-  indexOn: boolean
   saving: boolean
   setSaving: (saving: boolean) => void
   onSave: (draft: ProviderDraft) => Promise<unknown>
@@ -126,11 +119,11 @@ function ProviderDialogBody({
           : 'settingsAi.provider.remoteNote',
       )
   const complete = draftIsComplete(draft, { purpose, keySaved })
-  // A semantic index belongs to one model: another one means building it again.
-  const modelChange =
-    embedding && editing && draft.model.trim() !== editing.defaultModel
-      ? editing.defaultModel
-      : null
+  // An index belongs to one model. Saving a new embeddings service, or another
+  // model for this one, switches semantic search to it: say what that does.
+  const model = draft.model.trim()
+  const switches =
+    embedding && model !== '' && (!editing || model !== editing.defaultModel)
 
   return (
     <form
@@ -153,8 +146,20 @@ function ProviderDialogBody({
         providerId={editing?.id ?? null}
       />
       <p className="text-xs text-muted-foreground">{note}</p>
-      {modelChange !== null && draft.model.trim() !== '' && (
-        <ModelChangeNote old={modelChange} now={indexOn} />
+      {switches && (
+        <section role="note" className="flex flex-col gap-1.5">
+          <p className="text-[13px] font-medium">
+            {t('settingsAi.semantic.switch.onSave')}
+          </p>
+          <SwitchConsequences
+            target={{
+              providerId: editing?.id ?? null,
+              model,
+              service: { name: draft.name.trim() || model, local },
+            }}
+            dataNote={false}
+          />
+        </section>
       )}
       {error && (
         <p role="alert" className="text-[13px] text-destructive">
@@ -179,37 +184,5 @@ function ProviderDialogBody({
         </Button>
       </DialogFooter>
     </form>
-  )
-}
-
-/**
- * What changing the model means, before it is saved: the new model needs its
- * own index (how many visits), built when the user starts it; until then
- * search keeps the old one. `now`: semantic search is on.
- */
-function ModelChangeNote({ old, now }: { old: string; now: boolean }) {
-  const { t } = useI18n()
-  const format = useFormat()
-  const estimate = useQuery({
-    queryKey: ['reembed-estimate', 'full'],
-    queryFn: () => intelligenceClient.estimateReembed('full'),
-    staleTime: 30_000,
-  })
-  return (
-    <p role="note" className="text-[13px] text-foreground">
-      {estimate.data
-        ? t(
-            now
-              ? 'settingsAi.semantic.modelChange'
-              : 'settingsAi.semantic.modelChangeLater',
-            { count: format.number(estimate.data.pageCount), old },
-          )
-        : t(
-            now
-              ? 'settingsAi.semantic.modelChangeCounting'
-              : 'settingsAi.semantic.modelChangeLaterCounting',
-            { old },
-          )}
-    </p>
   )
 }

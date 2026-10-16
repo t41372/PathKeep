@@ -60,6 +60,7 @@ PathKeep 看起來是一個安靜的 macOS 原生工具：半透明的視窗浮�
 | Takeout 匯入           | Backup → 匯入卡              | `inspect_takeout`：筆數、時間範圍、會被略過的檔案                        | `import_takeout`；之後可在「近期匯入」卡「復原」                                        |
 | 瀏覽器檔案匯入         | Backup → 匯入卡              | `inspect_browser_history`：新的與已在 archive 的造訪                     | `import_browser_history`；之後可在「近期匯入」卡「復原」                                |
 | 健康檢查與修復         | Settings → About             | `doctor_report`（唯讀）                                                  | 確認後 `repair_health`                                                                  |
+| 換語意搜尋模型         | Settings → AI → 對話框       | 列出新索引要讀多少、建完前搜尋用哪個、建完刪掉哪個、外部服務不在時會怎樣 | 「換模型」只換選擇；「建立索引」才開始，建完才刪舊索引                                  |
 
 ### Trust warning grammar
 

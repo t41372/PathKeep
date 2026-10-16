@@ -149,8 +149,18 @@ test('an LM Studio service is set up from its own address and model list', async
       body: await page.screenshot(),
       contentType: 'image/png',
     })
-    await expect(edit.getByRole('note')).toHaveText(
-      `Another model needs its own index (${pageCount.toLocaleString('en-US')} visits). You can build it once semantic search is on.`,
+    // Nothing is built yet, so no index is deleted or kept in the meantime.
+    const switching = edit.getByRole('note')
+    await expect(switching).toContainText(
+      `e2e-embed-large needs its own index: ${pageCount.toLocaleString('en-US')} visits, read in the background once semantic search is on.`,
+    )
+    await expect(switching).toContainText(
+      'Until it is complete, searching by meaning only finds visits already indexed.',
+    )
+    await expect(switching).not.toContainText('keeps using')
+    await expect(switching).not.toContainText('is deleted')
+    await expect(switching).toContainText(
+      'From then on every semantic search goes to LM Studio E2E.',
     )
     const beforeSave = service.requests()
     await edit.getByRole('button', { name: 'Save', exact: true }).click()

@@ -27,6 +27,35 @@ export const settingsAi = defineMessages({
         'An online service. Each page’s title, site, the words in its address and its saved text, and your searches, are sent to it.',
       serviceRemoveBody:
         'The service and its stored API key are removed from this computer. Semantic search goes back to the in-app static model.',
+      serviceRemoveBodyIndexed:
+        'The service and its stored API key are removed from this computer. The index made with it can’t be used without it and is deleted. Semantic search goes back to the in-app static model, which has to build its own index first.',
+      switch: {
+        title: 'Switch semantic search to {name}?',
+        confirm: 'Switch model',
+        inAppName: 'the in-app static model',
+        onSave: 'Saving switches semantic search to this model:',
+        ready:
+          'The index made with {model} is complete, so semantic search uses it right away.',
+        newIndex:
+          '{model} needs its own index: {count} visits, read in the background once you choose Build index. Nothing starts before that.',
+        newIndexCounting:
+          '{model} needs its own index, read from your history in the background once you choose Build index. Nothing starts before that.',
+        newIndexLater:
+          '{model} needs its own index: {count} visits, read in the background once semantic search is on.',
+        newIndexLaterCounting:
+          '{model} needs its own index, read from your history in the background once semantic search is on.',
+        replaces:
+          'Once it is complete, the index made with {old} is deleted. Going back to {old} means building that index again.',
+        dropsUnfinished_one:
+          'The unfinished index made with {model} ({count} visit) is not kept: it is deleted the next time an index is built or updated.',
+        dropsUnfinished_other:
+          'The unfinished index made with {model} ({count} visits) is not kept: it is deleted the next time an index is built or updated.',
+        service:
+          'From then on every semantic search goes to {name}. When it isn’t running or can’t be reached, semantic search doesn’t work and no other model stands in; keyword search still works.',
+        static:
+          'It is a static embedding model: very fast, but it finds pages by meaning less well than the usual contextual embedding models.',
+        download: 'Building its index first downloads it once, about {size}.',
+      },
       modelChange:
         'Another model needs its own index ({count} visits). Nothing starts until you build it in Settings → AI; until it is complete, semantic search keeps using {old}.',
       modelChangeCounting:
@@ -304,6 +333,34 @@ export const settingsAi = defineMessages({
         '在线服务。每个页面的标题、网站、网址里的词和保存的网页正文，以及你的搜索，都会发给它。',
       serviceRemoveBody:
         '这个服务和它保存的 API 密钥会从这台电脑上移除，语义搜索改回使用应用内置静态模型。',
+      serviceRemoveBodyIndexed:
+        '这个服务和它保存的 API 密钥会从这台电脑上移除。用它建立的索引少了它就用不了，会被删除。语义搜索改回使用应用内置静态模型，要先建立它自己的索引。',
+      switch: {
+        title: '把语义搜索换成 {name}？',
+        confirm: '换模型',
+        inAppName: '应用内置静态模型',
+        onSave: '保存后，语义搜索就换成这个模型：',
+        ready: '用 {model} 建立的索引已经完整，语义搜索会直接用它。',
+        newIndex:
+          '{model} 需要自己的索引：在后台读取 {count} 条访问记录，等你点“建立索引”才开始，在此之前什么都不会做。',
+        newIndexCounting:
+          '{model} 需要自己的索引：在后台读取你的历史，等你点“建立索引”才开始，在此之前什么都不会做。',
+        newIndexLater:
+          '{model} 需要自己的索引：开启语义搜索后在后台读取 {count} 条访问记录。',
+        newIndexLaterCounting:
+          '{model} 需要自己的索引：开启语义搜索后在后台读取你的历史。',
+        replaces:
+          '新索引完成后，用 {old} 建立的索引会被删除。之后想换回 {old}，就得重新建立它的索引。',
+        dropsUnfinished_one:
+          '用 {model} 建立、还没完成的索引（{count} 条访问记录）不会保留：下次建立或更新索引时就会删除。',
+        dropsUnfinished_other:
+          '用 {model} 建立、还没完成的索引（{count} 条访问记录）不会保留：下次建立或更新索引时就会删除。',
+        service:
+          '之后每次语义搜索都要经过 {name}。它没开或连不上时，语义搜索就用不了，也没有别的模型顶替；关键词搜索照常可用。',
+        static:
+          '它是静态嵌入模型：非常快，但找意思相近的页面不如一般的上下文嵌入模型。',
+        download: '建立索引前要先下载一次，约 {size}。',
+      },
       modelChange:
         '换成别的模型需要它自己的索引（{count} 条访问记录）。要在“设置 → AI”里建立才会开始；建好之前，语义搜索继续用 {old}。',
       modelChangeCounting:
@@ -566,6 +623,34 @@ export const settingsAi = defineMessages({
         '線上服務。每個頁面的標題、網站、網址裡的字詞與儲存的網頁內文，以及你的搜尋，都會傳給它。',
       serviceRemoveBody:
         '這個服務與它儲存的 API 金鑰會從這台電腦上移除，語意搜尋改回使用 App 內建靜態模型。',
+      serviceRemoveBodyIndexed:
+        '這個服務與它儲存的 API 金鑰會從這台電腦上移除。用它建立的索引少了它就不能用，會被刪除。語意搜尋改回使用 App 內建靜態模型，要先建好它自己的索引。',
+      switch: {
+        title: '把語意搜尋換成 {name}？',
+        confirm: '換模型',
+        inAppName: 'App 內建靜態模型',
+        onSave: '儲存後，語意搜尋就換成這個模型：',
+        ready: '用 {model} 建立的索引已經完整，語意搜尋會直接用它。',
+        newIndex:
+          '{model} 要有自己的索引：在背景讀取 {count} 次造訪，等你按「建立索引」才開始，在那之前什麼都不會做。',
+        newIndexCounting:
+          '{model} 要有自己的索引：在背景讀取你的歷史，等你按「建立索引」才開始，在那之前什麼都不會做。',
+        newIndexLater:
+          '{model} 要有自己的索引：開啟語意搜尋後在背景讀取 {count} 次造訪。',
+        newIndexLaterCounting:
+          '{model} 要有自己的索引：開啟語意搜尋後在背景讀取你的歷史。',
+        replaces:
+          '新索引完成後，用 {old} 建立的索引會被刪除。之後想換回 {old}，就得重新建它的索引。',
+        dropsUnfinished_one:
+          '用 {model} 建立、還沒完成的索引（{count} 次造訪）不會保留：下次建立或更新索引時就會刪除。',
+        dropsUnfinished_other:
+          '用 {model} 建立、還沒完成的索引（{count} 次造訪）不會保留：下次建立或更新索引時就會刪除。',
+        service:
+          '之後每次語意搜尋都要經過 {name}。它沒開或連不上時，語意搜尋就不能用，也沒有別的模型頂替；關鍵字搜尋照常可用。',
+        static:
+          '它是靜態嵌入模型：非常快，但找意思相近的頁面不如一般的上下文嵌入模型。',
+        download: '建索引前要先下載一次，約 {size}。',
+      },
       modelChange:
         '換成別的模型需要它自己的索引（{count} 次造訪）。要在「設定 → AI」裡建立才會開始；建好之前，語意搜尋繼續用 {old}。',
       modelChangeCounting:

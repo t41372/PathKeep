@@ -476,8 +476,9 @@ export interface SemanticIndexState {
   chosen: EmbeddingIndexRef | null
   /**
    * The index search reads now: the chosen model's once it is complete,
-   * before that the most recent complete index whose service is still set up;
-   * null when there is none.
+   * before that the most recent complete index whose service is still set up,
+   * and without one the chosen model's own, unfinished or empty. Null only
+   * when no model is chosen.
    */
   serving: EmbeddingIndexRef | null
   /** The chosen model's index is complete and backups keep it up to date. */

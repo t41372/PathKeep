@@ -239,6 +239,17 @@ test('a search index build killed half way finishes after a restart, without sta
     await dialog.getByRole('textbox', { name: 'Address' }).fill(service.url)
     await dialog.getByRole('textbox', { name: 'Model' }).fill('e2e-embed')
     await dialog.getByRole('textbox', { name: 'Name' }).fill('E2E embeddings')
+    // Adding it switches semantic search to it: the dialog says what that means.
+    const adding = dialog.getByRole('note')
+    await expect(adding).toContainText(
+      'Saving switches semantic search to this model:',
+    )
+    await expect(adding).toContainText(
+      /e2e-embed needs its own index: [\d,]+ visits, read in the background once semantic search is on\./,
+    )
+    await expect(adding).toContainText(
+      'From then on every semantic search goes to E2E embeddings. When it isn’t running or can’t be reached, semantic search doesn’t work and no other model stands in; keyword search still works.',
+    )
     await dialog.getByRole('button', { name: 'Add service' }).click()
     await expect(page.getByText('E2E embeddings is ready.')).toBeVisible()
     await expect(page.getByRole('combobox', { name: 'Model' })).toContainText(
@@ -453,16 +464,28 @@ test('a search index build killed half way finishes after a restart, without sta
     await page.getByRole('button', { name: 'Edit' }).first().click()
     const edit = page.getByRole('dialog', { name: 'Edit E2E embeddings' })
     await edit.getByRole('textbox', { name: 'Model' }).fill('e2e-embed-next')
-    await expect(edit.getByRole('note')).toContainText(
-      'until it is complete, semantic search keeps using e2e-embed.',
+    // Before saving: what the switch keeps, what it deletes and when.
+    const switching = edit.getByRole('note')
+    await expect(switching).toContainText(
+      /e2e-embed-next needs its own index: [\d,]+ visits, read in the background once you choose Build index\. Nothing starts before that\./,
+    )
+    await expect(switching).toContainText(
+      'Until it is complete, semantic search keeps using e2e-embed.',
+    )
+    await expect(switching).toContainText(
+      'Once it is complete, the index made with e2e-embed is deleted. Going back to e2e-embed means building that index again.',
+    )
+    await expect(switching).toContainText(
+      'From then on every semantic search goes to E2E embeddings.',
     )
     await edit.getByRole('button', { name: 'Save', exact: true }).click()
     await expect(
       page.getByText(/^e2e-embed-next has no index yet\./),
     ).toBeVisible({ timeout: 30_000 })
+    // Said again next to the button that starts the build.
     await expect(
       page.getByText(
-        'Until it is complete, semantic search keeps using e2e-embed.',
+        'Until it is complete, semantic search keeps using e2e-embed. Once it is complete, the index made with e2e-embed is deleted. Going back to e2e-embed means building that index again.',
       ),
     ).toBeVisible()
     await page.waitForTimeout(3_000)
@@ -499,6 +522,60 @@ test('a search index build killed half way finishes after a restart, without sta
     expect((await queueStatus()).semanticIndex.serving).toMatchObject({
       model: 'e2e-embed-next',
     })
+
+    // Back to the in-app model from the picker: nothing changes until the
+    // user has read what the switch does and accepted it.
+    const picker = page.getByRole('combobox', { name: 'Model' })
+    const choose = async () => {
+      await picker.click()
+      await page.getByRole('option', { name: 'In-app static model' }).click()
+      return page.getByRole('alertdialog', {
+        name: 'Switch semantic search to the in-app static model?',
+      })
+    }
+    let confirm = await choose()
+    await expect(confirm).toContainText(
+      /potion-multilingual-128M needs its own index: [\d,]+ visits, read in the background once you choose Build index\./,
+    )
+    await expect(confirm).toContainText(
+      'Until it is complete, semantic search keeps using e2e-embed-next.',
+    )
+    await expect(confirm).toContainText(
+      'Once it is complete, the index made with e2e-embed-next is deleted. Going back to e2e-embed-next means building that index again.',
+    )
+    await expect(confirm).toContainText(
+      'It is a static embedding model: very fast, but it finds pages by meaning less well than the usual contextual embedding models.',
+    )
+    await expect(confirm).toContainText(
+      /Building its index first downloads it once, about [\d.]+ MB\./,
+    )
+    await testInfo.attach('switching back to the in-app model', {
+      body: await confirm.screenshot(),
+      contentType: 'image/png',
+    })
+    await confirm.getByRole('button', { name: 'Cancel' }).click()
+    await expect(confirm).toBeHidden()
+    await expect(picker).toContainText('E2E embeddings')
+    expect(
+      (await queueStatus()).semanticIndex.chosen,
+      'cancelling keeps the choice',
+    ).toMatchObject({ providerId, model: 'e2e-embed-next' })
+
+    const atStatic = service.requests()
+    confirm = await choose()
+    await confirm.getByRole('button', { name: 'Switch model' }).click()
+    await expect(picker).toContainText('In-app static model')
+    await expect
+      .poll(async () => (await queueStatus()).semanticIndex.chosen?.providerId)
+      .toBe('static-in-app')
+    // Choosing deletes and builds nothing: search keeps the complete index.
+    expect((await queueStatus()).semanticIndex).toMatchObject({
+      chosenComplete: false,
+      serving: { providerId, model: 'e2e-embed-next' },
+      build: null,
+    })
+    expect(indexFilesOf(providerId, 'e2e-embed-next').length).toBeGreaterThan(0)
+    expect(service.requests(), 'switching sends nothing').toBe(atStatic)
     finished = true
   } finally {
     service.release()

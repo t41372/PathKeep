@@ -2974,3 +2974,8 @@ that held up when checked against the code.
   - Searching a new model's index while it builds, and building newest first, wait for the user's consent in the backlog (`WORK-INDEX-SEARCH-WHILE-BUILDING`).
 
 - [x] `WORK-AI-EMBED-INAPP` — In-app embedding: the query path, the text sent, and whether to bring a transformer model back (2026-10-16).
+
+- [x] `WORK-EMBED-SWITCH-WARNING` — Switching the semantic search model says what it does first (2026-10-16).
+  - Choosing another model in Settings → AI now asks first, and the dialog says what the switch means: the new model needs its own index (how many visits, built only when you start it), search keeps the complete index until then, the old model's index is deleted once the new one is complete so going back means building it again, and an unfinished index is not kept. With an embeddings service, every semantic search goes to it and stops working when it is not there, with no other model standing in; an online service receives page text and searches. The in-app model is described as a static embedding model, with its download size when it is not here yet.
+  - Adding an embeddings service, or changing the chosen service's model, lists the same before saving, since saving switches to it. The Build index row says again that finishing deletes the old index, and removing a service that has an index says that index goes with it.
+  - Found on the way: a dialog taller than the window was cut off with no way to reach its buttons (the service dialog with this list is about 880 pixels; the window can be 760). Dialogs now scroll inside the window.

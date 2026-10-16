@@ -63,14 +63,14 @@ export function ProviderDetails({
   provider,
   providers,
   onModelChanged,
-  indexOn = false,
+  hasIndex = false,
 }: {
   provider: AiProviderConfig
   providers: ReturnType<typeof useAiProviders>
   /** After the model was changed and saved: semantic search reads its index state again. */
   onModelChanged?: () => void
-  /** Semantic search is on: the model change note says the new index can be built now. */
-  indexOn?: boolean
+  /** Semantic search has an index made with this service, which removing it gives up. */
+  hasIndex?: boolean
 }) {
   const { t } = useI18n()
   const [confirmRemove, setConfirmRemove] = useState(false)
@@ -200,7 +200,9 @@ export function ProviderDetails({
             <AlertDialogDescription>
               {t(
                 embedding
-                  ? 'settingsAi.semantic.serviceRemoveBody'
+                  ? hasIndex
+                    ? 'settingsAi.semantic.serviceRemoveBodyIndexed'
+                    : 'settingsAi.semantic.serviceRemoveBody'
                   : 'settingsAi.provider.removeBody',
               )}
             </AlertDialogDescription>
@@ -226,7 +228,6 @@ export function ProviderDetails({
         onOpenChange={setEditing}
         purpose={providers.purpose}
         editing={provider}
-        indexOn={indexOn}
         onSave={async (draft) => {
           const updated = await providers.update(provider.id, draft)
           toast.success(
