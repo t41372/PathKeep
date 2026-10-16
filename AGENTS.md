@@ -12,7 +12,7 @@ Tech: Tauri 2 + Rust + React 19 + TypeScript + Vite + Bun。
 1. **Trust & Transparency** — 所有操作走 PME（Preview → Manual → Execute），無黑盒。
 2. **Data Sovereignty** — 數據不上雲；AI 用本地或用戶自配 provider。
 3. **Performance is a constraint** — 兩端都要扛：後端在目標機 4 核 3GHz / 8GB RAM 上流暢支撐 1440 萬條歷史記錄與同量級一次性導入；前端任何時刻都流暢不卡、不凍結主線程。每段邏輯都要過：「1440 萬條時這會怎樣？」
-4. **Intelligence is optional** — 沒 LLM/Embedding 時 PathKeep 仍完整可用。
+4. **Intelligence is optional** — 核心功能（備份、瀏覽、搜索、洞察）不以用戶設了 LLM / Embedding 為前提，沒有它們照樣完整可用。有它們時可以提供沒有它們就做不到的功能與數據。
 5. **i18n is a shipping contract** — 所有 user-visible copy（含 aria-label、空/錯/載入/禁用等非顯眼狀態）開發當下就交付 `en` / `zh-CN` / `zh-TW`。
 6. **選長期最優解** — 避免臨時方案和過渡方案，不糊弄測試，不為省開發成本妥協。遷移成本、改動量、工作量都不是取捨理由，取捨只看結果好不好。代碼複雜度要控。不做工期或人力估計（永遠不準，偏差離譜）。
 7. **Accepted docs 不可隨意推翻** — `docs/` 中確立的決策要推翻，需 trade-off 文檔 + 用戶明確同意。
@@ -29,7 +29,7 @@ Tech: Tauri 2 + Rust + React 19 + TypeScript + Vite + Bun。
 
 **重活在本機跑，但磁碟很緊**：2026-10-11 起不再用 Modal（它超過用戶設的 spend limit 照樣扣款）。編譯、clippy、測試、E2E、benchmark 都在本機跑。開跑前看剩餘空間，build 產物保持精簡；工作告一段落、不再接著跑時清掉可重建的產物（`cargo clean`、`var/playwright` 的桌面 build、舊的 E2E 報告），接著做下一個 block 時留著，免得整個重編、寫更多 SSD。絕不刪用戶自己的東西來騰空間，要騰先問。
 
-**供應鏈信任**：新依賴需用戶授權，除非 GitHub stars > 6k、維護者高信譽、或由知名組織維護。不滿足門檻先寫風險評估等批准。
+**供應鏈信任**：新依賴需用戶授權，除非 GitHub stars > 6k、維護者高信譽、或由知名組織維護。不滿足門檻先寫風險評估等批准。已有的依賴跟著最新版升級，不為了「穩」停在舊版；要鎖舊版，在宣告旁寫明理由（已知回歸、上游 bug 與它的重現）。0.x 的 crate 寫 `"0.34.0"` 等於鎖在 0.34.x，升級要手動做。
 
 **模塊小、職責清**：組件單一職責，大數據必虛擬化，業務邏輯不洩漏進 UI。檔案行數硬門檻與巨型檔案清單見 `repo-baseline.md`；重構 > 1000 行的檔案先做「審查階段」（架構地圖 / 拆分方案 / E2E 覆蓋確認）再動代碼。
 
