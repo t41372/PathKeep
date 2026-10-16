@@ -338,6 +338,9 @@ pub(crate) const EMBEDDING_TEXT_TOKEN_CAP: usize = 512;
 /// Heuristic characters-per-token for the soft token cap (English ~4, CJK ~1.5; 4 is a safe average
 /// that errs toward keeping MORE text for CJK, where each char is its own token).
 const EMBEDDING_CHARS_PER_TOKEN: usize = 4;
+/// Characters of text sent to an embedding model for one page, all fields together.
+pub(crate) const EMBEDDING_TEXT_CHAR_BUDGET: usize =
+    EMBEDDING_TEXT_TOKEN_CAP * EMBEDDING_CHARS_PER_TOKEN;
 
 /// Caps free text to roughly [`EMBEDDING_TEXT_TOKEN_CAP`] tokens on a char boundary (05 §8).
 ///
@@ -346,7 +349,7 @@ const EMBEDDING_CHARS_PER_TOKEN: usize = 4;
 /// model. Truncation counts CHARACTERS (CJK-safe) and trims trailing partial whitespace. Text already
 /// under budget is returned unchanged (the common case for titles + short summaries).
 pub(crate) fn cap_embedding_text(text: &str) -> String {
-    let char_budget = EMBEDDING_TEXT_TOKEN_CAP.saturating_mul(EMBEDDING_CHARS_PER_TOKEN);
+    let char_budget = EMBEDDING_TEXT_CHAR_BUDGET;
     if text.chars().count() <= char_budget {
         return text.to_string();
     }

@@ -1,7 +1,12 @@
 //! Responsibilities: select visit-independent page text and readable URL words for embedding.
 //! Not responsible for: model prompts, dedup identity, fetching content or persistence.
 
-use super::{cap_embedding_text, normalize_whitespace, percent_decode};
+use super::{EMBEDDING_TEXT_CHAR_BUDGET, normalize_whitespace, percent_decode};
+
+/// Longest title, readable title, summary or address line sent to the model, in characters. Real
+/// ones are far shorter, but a page can put a whole article in its `<title>`, and one such text
+/// can fail every request of its batch at a service with a small context window.
+const SHORT_FIELD_CHAR_CAP: usize = 256;
 
 /// Keeps the title separate so models with a document template can place it correctly.
 pub(crate) struct EmbeddingDocument {
@@ -22,22 +27,37 @@ pub(crate) fn build_embedding_document(
         .or(readable_title)
         .map(normalize_whitespace)
         .filter(|value| !value.is_empty());
-    let mut body = page_location(url);
+    let mut body = cap_chars(&page_location(url), SHORT_FIELD_CHAR_CAP).to_owned();
+    // Repeats are judged on the whole texts; only what is sent is cut.
     if let Some(readable_title) = readable_title.filter(|value| !value.trim().is_empty())
         && !same_text(Some(readable_title), title.as_deref())
     {
-        append_line(&mut body, readable_title.trim());
+        append_line(&mut body, cap_chars(readable_title.trim(), SHORT_FIELD_CHAR_CAP));
     }
     if let Some(summary) = summary.filter(|value| !value.trim().is_empty())
         && !same_text(Some(summary), title.as_deref())
         && !same_text(Some(summary), readable_title)
     {
-        append_line(&mut body, summary.trim());
+        append_line(&mut body, cap_chars(summary.trim(), SHORT_FIELD_CHAR_CAP));
     }
-    if let Some(text) = readable_body.filter(|value| !value.trim().is_empty()) {
-        append_line(&mut body, &cap_embedding_text(text.trim()));
+    let title = title.map(|title| cap_chars(&title, SHORT_FIELD_CHAR_CAP).to_owned());
+    // The body gets what the short fields leave of the page's budget.
+    let used = title.as_deref().map_or(0, |title| title.chars().count()) + body.chars().count();
+    let room = EMBEDDING_TEXT_CHAR_BUDGET.saturating_sub(used);
+    if let Some(text) = readable_body.filter(|value| !value.trim().is_empty())
+        && room > 0
+    {
+        append_line(&mut body, cap_chars(text.trim(), room));
     }
     EmbeddingDocument { title, body }
+}
+
+/// The first `limit` characters of `text`, cut on a character boundary, without trailing space.
+fn cap_chars(text: &str, limit: usize) -> &str {
+    match text.char_indices().nth(limit) {
+        Some((end, _)) => text[..end].trim_end(),
+        None => text,
+    }
 }
 
 fn append_line(body: &mut String, line: &str) {

@@ -13,8 +13,13 @@ it (`ai/dedup.rs`). So the text describes the page and nothing about a visit
 {site} · {words of the address path}
 {readable title, when it differs from the title}
 {summary, when it differs from both titles}
-{readable body, about 512 tokens}
+{readable body}
 ```
+
+- Each line before the body is cut at 256 characters, and the whole text at 2,048 (about 512
+  tokens); the body gets what the other lines leave. Real titles are far shorter, but a page can
+  put a whole article in its `<title>`, and one overlong text fails the whole batch at a service
+  whose context window is small. Repeats are judged on the full texts; only what is sent is cut.
 
 - The title is the browser's; without one, the readable title; without either, the text starts
   at the site line.

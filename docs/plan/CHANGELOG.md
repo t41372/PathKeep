@@ -2960,3 +2960,6 @@ that held up when checked against the code.
 - [x] `WORK-AI-EMBED-INAPP` item 3, first step — The in-app model reads its matrix from the file instead of a copy (2026-10-16).
   - Loading the built-in model read its 512 MB matrix into memory and then copied it: about 1 GB at the peak, 1.6 GB of footprint afterwards. The matrix is now mapped read-only and read in place, at the same speed; the footprint is 618 MiB, most of it the tokenizer, which is next.
   - A model download no longer rewrites a file in place: it is verified in a temporary file and swapped in, so a search reading the old file is never cut short and a failed download leaves the old file alone.
+
+- [x] `WORK-AI-EMBED-INAPP` item 2, follow-up — The text sent for a page has a length limit on every line (2026-10-16).
+  - Titles, readable titles, summaries and the address line are cut at 256 characters and the whole text at 2,048, the body taking what the rest leaves. A page that puts an article in its title could make one text long enough to fail its whole batch at a service with a small context window; only the page body was capped before.
