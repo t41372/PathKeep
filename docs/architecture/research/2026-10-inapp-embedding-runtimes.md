@@ -54,7 +54,23 @@ Apple M5 Max (6 performance + 12 efficiency cores, 64 GB), macOS 27.0.1. llama.c
 - On the CPU, Q8_0 is slower than F16 / BF16 on this chip: llama.cpp dequantizes for prompt processing, and the M5's half-precision matrix units are fast. A 4-core x86 machine without them will be slower still, and Q8_0 may win there; it has to be measured on one.
 - On Metal, 1 million unique pages take about 26 minutes with Qwen3 and 21 with EmbeddingGemma 2; on 4 CPU threads, from 4 hours (EmbeddingGemma 2 BF16) to 14 (Qwen3 Q8_0). The unique pages behind 14.4M visits after content dedup is still to be counted.
 - LM Studio's ~30 visits/s during the user's index build (2026-10-15) ran on the old text, often with 2,048 characters of body, over HTTP; the shorter page text should speed that up too.
-- For comparison, the in-app static model runs about 1,900 texts/s on one thread (test profile, `static_embedding_e2e`). Mapping its matrix instead of copying it (2026-10-16) took its footprint from 1,596 MiB to 618 MiB at the same speed; 578 MiB of the rest is the `tokenizers` Unigram trie (a hash map per node, 500k pieces; unchanged in tokenizers 0.23.2).
+- For comparison, the in-app static model runs about 2,200 texts/s on one thread (test profile, `static_embedding_e2e`). Mapping its matrix instead of copying it (2026-10-16) took its footprint from 1,596 MiB to 618 MiB at the same speed. 578 MiB of the rest was the `tokenizers` Unigram trie (a hash map per node, 500k pieces; unchanged in tokenizers 0.23.2). Our own Unigram (`embedding_static/unigram.rs`, the same segmentation over one sorted byte buffer) took the footprint to 73–76 MiB and tokenizer loading from 1.1–1.2 s to 0.2 s; three runs each, median 1,918 → 2,232 texts/s. Token IDs and offsets match tokenizers 0.22.2 on 2,044 texts (`static_tokenizer_parity`). The engine's load time in that benchmark, 12–13 s, is the SHA-256 check of the 512 MB matrix in an unoptimized test build; `shasum` takes 1 s.
+
+## Retrieval quality on the user's own history (2026-10-16)
+
+The user's Chrome Takeout (264,388 visits), on this machine only, with the user's consent; only the aggregates below were kept, and the evaluation set was deleted after the run. Queries are the user's own Google searches; a query's relevant pages are the pages opened within 3 minutes after it and before the next search (4,430 searches had at least one, 4.0 pages on average; 472 contain CJK). The corpus is every distinct page (131,322), as PathKeep now sends it: the title, then the site and address words (no page bodies: content fetch is off by default). Every model ranks the whole corpus by cosine. Transformer models run in sentence-transformers at full precision on Metal with a 256-token input cap, with their query prompts (Qwen3 instruction; EmbeddingGemma 2 `task: search result | query:` and `title: … | text: …` documents); the static model through model2vec.
+
+| Model                                    | hit@1 | hit@10 | recall@10 | MRR@10 |
+| ---------------------------------------- | ----: | -----: | --------: | -----: |
+| potion-multilingual-128M, old visit text | 0.263 |  0.505 |     0.266 |  0.338 |
+| potion-multilingual-128M, page text      | 0.328 |  0.589 |     0.324 |  0.410 |
+| EmbeddingGemma 2                         | 0.427 |  0.712 |     0.418 |  0.520 |
+| Qwen3-Embedding-0.6B                     | 0.460 |  0.729 |     0.436 |  0.549 |
+
+- The page text of `WORK-AI-EMBED-INAPP` item 2 is worth 8 points of hit@10 to the static model by itself.
+- Either transformer model finds a relevant page in the top 10 for 12–14 more queries in 100 than the static model, and ranks it higher (MRR +27–34 %). Qwen3-Embedding-0.6B is ahead of EmbeddingGemma 2 by about 2 points on this history.
+- Clicks after a search are a proxy for relevance: they favor pages whose titles share the query's words, which flatters lexical matching. The comparison between models is what counts here, not the absolute numbers.
+- Embedding the 131,322 pages took 410 s with Qwen3 and 493 s with EmbeddingGemma 2 in sentence-transformers on Metal; llama.cpp is about twice as fast (above).
 
 ## What to benchmark, in order
 

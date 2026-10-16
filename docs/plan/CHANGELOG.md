@@ -2963,3 +2963,7 @@ that held up when checked against the code.
 
 - [x] `WORK-AI-EMBED-INAPP` item 2, follow-up — The text sent for a page has a length limit on every line (2026-10-16).
   - Titles, readable titles, summaries and the address line are cut at 256 characters and the whole text at 2,048, the body taking what the rest leaves. A page that puts an article in its title could make one text long enough to fail its whole batch at a service with a small context window; only the page body was capped before.
+
+- [x] `WORK-AI-EMBED-INAPP` item 3, second step — The in-app model's tokenizer no longer holds 578 MiB (2026-10-16).
+  - With the matrix mapped, 578 of the remaining 618 MiB was the tokenizer's dictionary: `tokenizers` keeps its 500,000 pieces in a trie with a hash map in every node. PathKeep now segments with its own Unigram over one sorted byte buffer, the same algorithm with the same results: the in-app model takes 73–76 MiB, loads its tokenizer in 0.2 s instead of 1.1 s, and embeds a little faster. Token IDs and offsets match tokenizers 0.22.2 on 2,044 texts, CJK, emoji, unknown characters and the longest pieces included.
+  - Models other than Unigram keep using `tokenizers` as before. A Unigram model with byte fallback works too; one with empty or duplicate pieces fails to load with a message instead of segmenting wrongly.

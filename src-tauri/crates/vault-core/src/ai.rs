@@ -107,8 +107,8 @@ pub use self::embedding_external::ExternalEmbeddingProvider;
 pub use self::embedding_static::{
     DEFAULT_STATIC_MODEL_FILES, DEFAULT_STATIC_MODEL_REPO, STATIC_EMBEDDING_DIM,
     STATIC_INAPP_BASE_URL, STATIC_MAX_INPUT_TOKENS, StaticEmbeddingMatrix, StaticEmbeddingProvider,
-    parse_static_config, runtime_uses_static, static_embed_ids, static_l2_normalize,
-    static_repo_for_runtime,
+    StaticTokenizer, parse_static_config, runtime_uses_static, static_embed_ids,
+    static_l2_normalize, static_repo_for_runtime,
 };
 pub use self::fingerprint::{EMBEDDING_FINGERPRINT_VERSION, EmbeddingFingerprint};
 pub use self::llm::{RigLlmProvider, probe_tool_capability};

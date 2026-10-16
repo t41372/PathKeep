@@ -44,7 +44,10 @@ use std::sync::Arc;
 #[cfg(not(test))]
 mod cache;
 mod storage;
+mod tokenizer;
+mod unigram;
 use storage::MatrixStorage;
+pub use tokenizer::StaticTokenizer;
 
 // ---------------------------------------------------------------------------
 // Model manifest (always compiled — pure data; load/download live in `model_files`).
@@ -468,7 +471,7 @@ fn f32_values(tensor: &safetensors::tensor::TensorView<'_>, name: &str) -> Resul
 /// OOV fixture rows). There is deliberately NO hardcoded string fallback — a hardcoded
 /// `token_to_id("[UNK]")` would wrongly drop the Unigram unk and break parity. `None` → no filtering.
 #[cfg(not(test))]
-fn resolve_unk_token_id(tokenizer: &tokenizers::Tokenizer, tokenizer_json: &[u8]) -> Option<u32> {
+fn resolve_unk_token_id(tokenizer: &StaticTokenizer, tokenizer_json: &[u8]) -> Option<u32> {
     resolve_unk_to_drop(tokenizer_json, tokenizer)
 }
 
@@ -483,10 +486,7 @@ fn resolve_unk_token_id(tokenizer: &tokenizers::Tokenizer, tokenizer_json: &[u8]
 /// export that declares an `unk_token` string (dropping → matches the reference, which DOES drop unk
 /// for those models). See [`unk_spec_from_tokenizer_json`] for the PURE parse.
 #[cfg(not(test))]
-fn resolve_unk_to_drop(
-    tokenizer_json: &[u8],
-    for_id_lookup: &tokenizers::Tokenizer,
-) -> Option<u32> {
+fn resolve_unk_to_drop(tokenizer_json: &[u8], for_id_lookup: &StaticTokenizer) -> Option<u32> {
     match unk_spec_from_tokenizer_json(tokenizer_json)? {
         // BPE / WordPiece declare a string `unk_token`; model2vec drops it, so we resolve + drop it.
         UnkSpec::Token(token) => for_id_lookup.token_to_id(&token),
@@ -513,12 +513,18 @@ pub(super) enum UnkSpec {
 /// matching model2vec's `unk_token_id = None` (pool everything, the parity-correct behavior). Also
 /// `None` for malformed JSON or a missing `model` block.
 pub(super) fn unk_spec_from_tokenizer_json(tokenizer_json: &[u8]) -> Option<UnkSpec> {
-    let parsed: serde_json::Value = serde_json::from_slice(tokenizer_json).ok()?;
-    let model = parsed.get("model")?;
+    #[derive(serde::Deserialize)]
+    struct Header {
+        model: Model,
+    }
+    #[derive(serde::Deserialize)]
+    struct Model {
+        unk_token: Option<String>,
+    }
+    let parsed: Header = serde_json::from_slice(tokenizer_json).ok()?;
     // ONLY a string `unk_token` (BPE / WordPiece) is a drop signal — mirror model2vec exactly. A
     // Unigram `unk_id` index is deliberately ignored (model2vec ignores it → so do we).
-    let unk_token = model.get("unk_token").and_then(serde_json::Value::as_str)?;
-    Some(UnkSpec::Token(unk_token.to_string()))
+    Some(UnkSpec::Token(parsed.model.unk_token?))
 }
 
 // ---------------------------------------------------------------------------
@@ -556,7 +562,7 @@ pub struct StaticEmbeddingProvider {
 /// (tokenize → matrix lookup → mean-pool → optional L2-norm) runs in every build, including tests.
 struct StaticEngine {
     matrix: StaticEmbeddingMatrix,
-    tokenizer: tokenizers::Tokenizer,
+    tokenizer: StaticTokenizer,
     normalize: bool,
 }
 
@@ -594,7 +600,7 @@ impl StaticEmbeddingProvider {
             let tokenizer_path = model_dir.join("tokenizer.json");
             let tokenizer_json = std::fs::read(&tokenizer_path)
                 .with_context(|| format!("reading tokenizer.json for {repo}"))?;
-            let tokenizer = tokenizers::Tokenizer::from_bytes(&tokenizer_json)
+            let tokenizer = StaticTokenizer::from_bytes(&tokenizer_json)
                 .map_err(|error| anyhow::anyhow!("loading tokenizer for {repo}: {error}"))?;
             let unk_token_id = resolve_unk_token_id(&tokenizer, &tokenizer_json);
             let matrix = load_static_matrix(&model_dir.join("model.safetensors"), unk_token_id)?;
@@ -817,7 +823,7 @@ fn build_stub_engine(dim: usize) -> StaticEngine {
     }
     let matrix =
         StaticEmbeddingMatrix::new(rows, dim, None).expect("stub static matrix is well-formed");
-    StaticEngine { matrix, tokenizer, normalize: true }
+    StaticEngine { matrix, tokenizer: tokenizer.into(), normalize: true }
 }
 
 #[cfg(test)]
@@ -916,7 +922,7 @@ mod tests {
             1.0, 0.0, 0.0, // [UNK]
         ];
         let matrix = StaticEmbeddingMatrix::new(rows, 3, None).expect("tiny matrix");
-        StaticEngine { matrix, tokenizer, normalize }
+        StaticEngine { matrix, tokenizer: tokenizer.into(), normalize }
     }
 
     #[tokio::test]
