@@ -20,6 +20,7 @@ mod dedup;
 mod embedding_engine;
 mod embedding_error;
 mod embedding_external;
+mod embedding_prompt;
 mod embedding_static;
 mod fingerprint;
 mod indexing;
@@ -47,7 +48,7 @@ use crate::{
     ai_queue::{self},
     ai_sidecar::{self},
     config::ProjectPaths,
-    enrichment::{build_embedding_content_from_parts, load_best_enrichment_map_by_history_ids},
+    enrichment::{build_embedding_document, load_best_enrichment_map_by_history_ids},
     models::{
         AiIndexReport, AiIndexRequest, AiIndexStatus, AiIndexWarning, AiProviderCapabilityReport,
         AiProviderConfig, AiProviderConnectionTestReport, AiProviderPurpose, AiQueueJobType,

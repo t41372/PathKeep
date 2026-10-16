@@ -65,6 +65,8 @@ pub(in crate::ai) fn collect_visit_chunk(
         Ok(raw_visits)
     })?;
     let history_ids = raw_visits.iter().map(|visit| visit.history_id).collect::<Vec<_>>();
+    let prompt =
+        super::super::embedding_prompt::PromptProfile::for_model(&provider.config.default_model);
     let provider = provider.clone();
     let paths = vault.paths().clone();
     let (existing_hashes, enrichments) = vault.read(Db::Intelligence, move |s| {
@@ -76,17 +78,14 @@ pub(in crate::ai) fn collect_visit_chunk(
     let mut visits = Vec::with_capacity(raw_visits.len());
     for mut visit in raw_visits {
         let enrichment = enrichments.get(&visit.history_id);
-        // The TEXT fed to the model still carries the per-visit enrichment funnel, now including the
-        // capped summary (06 §4) and the ~512-token-capped body (05 §8).
-        let content = build_embedding_content_from_parts(
-            &visit.profile_id,
+        let document = build_embedding_document(
             &visit.url,
             visit.title.as_deref(),
-            &visit.visited_at,
             enrichment.and_then(|value| value.readable_title.as_deref()),
             enrichment_summary_for(enrichment),
             enrichment.and_then(|value| value.readable_text.as_deref()),
         );
+        let content = prompt.render_document(&document);
         // The DEDUP IDENTITY is visit-independent (05 §1): canonical URL + title + the reserved
         // enrichment summary slot (None until W-ENRICH-1). Two visits of one page share this hash and
         // its content_key, so the page is embedded ONCE. The enrichment summary is reserved now so

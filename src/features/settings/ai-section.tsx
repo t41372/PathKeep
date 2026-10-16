@@ -4,34 +4,24 @@
  * meaning ranks results. Everything here is optional; PathKeep works
  * without any of it.
  */
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { Check, Copy } from 'lucide-react'
 import { useState } from 'react'
-import { toast } from 'sonner'
 import { SettingRow, SettingsSection } from '@/components/app/setting-row'
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
 import { useSemanticIndex } from '@/features/ai-setup/use-semantic-index'
 import { intelligenceClient } from '@/lib/backend-client/intelligence'
-import { describeError } from '@/lib/errors'
 import { useI18n } from '@/lib/i18n'
 import { useSnapshot } from '@/lib/queries/app'
 import type { AiSettings } from '@/lib/types'
 import { McpLogRow } from './mcp-log-row'
 import { ProviderRow } from './provider-row'
+import { RebuildDialog } from './rebuild-dialog'
 import { SearchTuningRow } from './search-tuning-row'
 import { SemanticRow, type SemanticIndex } from './semantic-row'
+import { useRebuild } from './use-rebuild'
 import { useSaveSetting } from './use-save-setting'
 
 export function AiSection() {
@@ -135,21 +125,7 @@ function McpDetails() {
 function RebuildRow({ index }: { index: SemanticIndex }) {
   const { t } = useI18n()
   const [open, setOpen] = useState(false)
-  const estimate = useQuery({
-    queryKey: ['ai', 'reembed-estimate', 'full'],
-    queryFn: () => intelligenceClient.estimateReembed('full'),
-    enabled: open,
-    staleTime: 60_000,
-  })
-  const start = useMutation({
-    mutationFn: () => index.rebuild('full'),
-    onSuccess: () => toast.success(t('settingsAi.rebuild.started')),
-    onError: (error) =>
-      toast.error(
-        t('settingsAi.rebuild.failed', { message: describeError(error) }),
-      ),
-  })
-
+  const start = useRebuild(index)
   const busy = index.build !== null || start.isPending
 
   return (
@@ -171,32 +147,11 @@ function RebuildRow({ index }: { index: SemanticIndex }) {
         </Button>
       }
     >
-      <AlertDialog open={open} onOpenChange={setOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {t('settingsAi.rebuild.dialogTitle')}
-            </AlertDialogTitle>
-            {estimate.isPending ? (
-              <Skeleton className="h-10 w-full" />
-            ) : (
-              <AlertDialogDescription>
-                {estimate.data && estimate.data.pageCount > 0
-                  ? t('settingsAi.rebuild.dialogBody', {
-                      count: estimate.data.pageCount,
-                    })
-                  : t('settingsAi.rebuild.dialogBodyUnknown')}
-              </AlertDialogDescription>
-            )}
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-            <AlertDialogAction onClick={() => start.mutate()}>
-              {t('settingsAi.rebuild.confirm')}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <RebuildDialog
+        open={open}
+        onOpenChange={setOpen}
+        onConfirm={() => start.mutate()}
+      />
     </SettingRow>
   )
 }

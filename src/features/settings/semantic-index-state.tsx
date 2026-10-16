@@ -1,11 +1,12 @@
 /**
  * The chosen model's semantic index under the semantic search switch: its
  * build (progress, pace, pause, continue, cancel), what it still needs and
- * what search reads meanwhile, how complete it is, and whether backups keep
- * it up to date. Behavior comes from `useSemanticIndex`; this file only
- * renders it.
+ * what search reads meanwhile, how complete it is, whether it was made from
+ * an older version of the page text, and whether backups keep it up to date.
+ * Behavior comes from `useSemanticIndex`; this file only renders it.
  */
 import { useQuery } from '@tanstack/react-query'
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -18,7 +19,9 @@ import { cn } from '@/lib/cn'
 import { describeError } from '@/lib/errors'
 import { useFormat, useI18n } from '@/lib/i18n'
 import { useSnapshot } from '@/lib/queries/app'
+import { RebuildDialog } from './rebuild-dialog'
 import type { SemanticIndex } from './semantic-row'
+import { useRebuild } from './use-rebuild'
 
 /** The chosen model's index: its build, or what it needs, or how complete it is. */
 export function IndexState({ index }: { index: SemanticIndex }) {
@@ -162,7 +165,7 @@ export function IndexState({ index }: { index: SemanticIndex }) {
     )
   }
 
-  return (
+  const summary = (
     <p className="text-[13px] text-muted-foreground">
       {status.indexedItems > 0
         ? [
@@ -176,6 +179,46 @@ export function IndexState({ index }: { index: SemanticIndex }) {
             .join(' · ')
         : t('settingsAi.semantic.nothingIndexed')}
     </p>
+  )
+  if (index.staleReason !== 'textFormat') return summary
+  return (
+    <div className="flex flex-col gap-2 text-[13px]">
+      {summary}
+      <p className="text-foreground">{t('settingsAi.semantic.olderText')}</p>
+      <div className="flex justify-end">
+        <StartOver
+          index={index}
+          label={t('settingsAi.semantic.rebuildIndex')}
+        />
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Rebuilds the chosen model's index from nothing, after the same confirmation
+ * as Rebuild search index. Offered when the index was made from an older
+ * version of the page text, which updating it never changes.
+ */
+function StartOver({ index, label }: { index: SemanticIndex; label: string }) {
+  const [open, setOpen] = useState(false)
+  const rebuild = useRebuild(index)
+  return (
+    <>
+      <Button
+        size="sm"
+        variant="outline"
+        disabled={index.acting || rebuild.isPending}
+        onClick={() => setOpen(true)}
+      >
+        {label}
+      </Button>
+      <RebuildDialog
+        open={open}
+        onOpenChange={setOpen}
+        onConfirm={() => rebuild.mutate()}
+      />
+    </>
   )
 }
 
@@ -194,6 +237,7 @@ function NeedsBuild({ index }: { index: SemanticIndex }) {
     staleTime: 60_000,
   })
   const model = chosenName(index)
+  const olderText = started && index.staleReason === 'textFormat'
   const serving = index.semantic?.serving
   const servingOther =
     serving &&
@@ -219,6 +263,11 @@ function NeedsBuild({ index }: { index: SemanticIndex }) {
               })
             : t('settingsAi.semantic.needsBuildCounting', { model })}
       </p>
+      {olderText && (
+        <p className="text-foreground">
+          {t('settingsAi.semantic.olderTextUnfinished')}
+        </p>
+      )}
       <p className="text-muted-foreground">
         {servingOther
           ? t('settingsAi.semantic.meanwhilePrevious', {
@@ -226,7 +275,10 @@ function NeedsBuild({ index }: { index: SemanticIndex }) {
             })
           : t('settingsAi.semantic.meanwhilePartial')}
       </p>
-      <div className="flex justify-end">
+      <div className="flex justify-end gap-2">
+        {olderText && (
+          <StartOver index={index} label={t('settingsAi.semantic.startOver')} />
+        )}
         <Button
           size="sm"
           variant="outline"

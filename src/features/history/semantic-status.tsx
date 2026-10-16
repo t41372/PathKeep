@@ -57,7 +57,7 @@ export function SemanticNote({
       <span>{parts.join(' · ')}</span>
       {info.stale && (
         <>
-          <span>· {t('historySearch.semantic.stale')}</span>
+          <span>· {t(`historySearch.semantic.stale.${info.stale}`)}</span>
           <Link to="/settings/ai" className={settingsLink}>
             {t('historySearch.semantic.rebuild')}
           </Link>

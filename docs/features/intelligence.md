@@ -79,12 +79,14 @@ continuation fields are listed in the [area-4 contract report](../architecture/r
 - 舊工作沒有記錄模型時，啟動一律取消（包含尚未執行、游標為 0 的工作），保留索引檔案；新的增量請求才可補缺。
 - 內建 embedding 引擎按模型目錄在程序內共用，搜尋、漂移檢查與建置使用同一份載入的權重；目錄、驗證標記或模型檔案變更才重新驗證／載入。
 - Embedding 增量計算、content-hash dedup（一個 content_key 一條向量，fan-out 到所有共享該內容的 visit）、本地索引、避免重算。
+- 送去 embedding 的是頁面本身的文字（2026-10-15 起）：標題、「網站 · 網址路徑裡的字詞」、和標題不同的可讀標題與摘要、正文（約 512 token）；不帶 profile、造訪時間、完整網址與欄位標籤。正文抽取略過 `script` / `style` / `noscript` / `template` / `svg`。查詢與文件依模型家族加上模型要的前綴（Qwen3-Embedding、EmbeddingGemma、nomic-embed-text、E5、mxbai-embed-large；只看模型 ID），每個查詢只加一次。細節見 [embedding-text.md](../architecture/embedding-text.md)。
+- 用舊版頁面文字建的索引（向量檔頭沒有目前的 `embeddedText`）照常搜尋、照常在備份後更新，狀態是 `stale`（`textFormat`）：Settings → AI 說明並提供「重建索引」（未完成的索引提供「從頭重來」），History 的語意提示說它是舊版文字建的。只有重建會換掉檔頭。
 - 索引按「服務 ID + 模型」分開。選的索引在 `ai_index_ledger.state = ready` 時提供搜尋；尚未完成時，讀完成時間最近、服務仍在設定裡的完整索引，用該服務目前的位址與金鑰、該索引的模型。沒有完整索引才讀所選模型的部分索引或空索引，沿用既有的降級提示。History、Ask 的搜尋工具、程式沙箱與 MCP 都遵守同一規則；只有實際讀到上一個模型的語意平面時帶 `previousModel` 提示；空查詢、日期排序、空索引與設定漂移後的全文退路不帶。
 - 換模型不啟動工作。建立、繼續與第一次填補都用增量：空索引填全部，部分索引補缺少的造訪；只有明確的「重建搜尋索引」清空重來。工作開始保留所選索引與正在服務的索引，刪掉其餘資料與檔案；所選模型完成整份存檔的填補後才切換，刪掉其餘索引及其完成紀錄。工作集的首次填補不算整份完成。已有完整索引的非清空更新維持 `ready`，暫停、取消或失敗仍可搜尋，下次增量補缺少的造訪。完整掃描的 watermark 與時間只在整份存檔填補成功後前進，工作集更新不能把尚未處理的造訪或 enrichment 標成最新；清空重建才改成 `building`（清除則是 `clearing`）。排隊尚未開始的工作不會降級完整索引。清理舊索引失敗寫進工作摘要並記錄日誌，不影響建置結果或所選索引，下次工作再試。
 - Settings → AI 與背景工作每秒讀 `semanticIndex`：所選與服務中的索引、是否完整，以及工作狀態、暫停來源、原因、已寫入與目標造訪數。目標在計數前是 0；讀取只查完成紀錄與有效建置工作（不含清除，優先顯示執行中的），不掃造訪或 embedding 明細。
 - day-one recall mode 明確區分 `keyword`、`semantic`、`hybrid`；semantic / hybrid 必須顯示目前使用的 provider / model / index state，語義檢索不可用時要明講退化成 keyword recall。
 - semantic result 以 canonical visit evidence 為核心：至少回傳 `historyId`、profile / browser、URL / title、visited time、match reason、score band，並能 deep-link 回 Explorer 查原始記錄。
-- semantic index state 至少要能誠實區分 `disabled`、`blocked`、`empty`、`queued`、`paused`、`rebuilding`、`stale`、`ready`、`degraded`。`stale` 代表 archive visibility / import watermark 或 approved enrichment 已改變，使用者必須明確 rebuild，而不是假裝 index 仍是最新。
+- semantic index state 至少要能誠實區分 `disabled`、`blocked`、`empty`、`queued`、`paused`、`rebuilding`、`stale`、`ready`、`degraded`。`stale` 代表 archive visibility / import watermark 或 approved enrichment 已改變，使用者必須明確 rebuild，而不是假裝 index 仍是最新；`textFormat` 代表索引是用舊版頁面文字建的，只有重建能更新。
 - 搜尋必須覆蓋全部可用的向量與詞彙匹配頁面；日期、profile 與星號篩選不能先套在有限候選池上。結果以游標接續，頁面大小不限制總覆蓋；若 sidecar 缺失、過期或失敗，PathKeep 誠實退回 lexical recall。semantic metadata / queue 固定落在 `derived/intelligence.db`、向量 payload 落在 `derived/vectors/`、assistant chat / agent trace 落在 `derived/agent.db`；Turso 不承擔向量 payload mirror。
 - 搜尋 tuning（RRF `k`、lexical / semantic weight、starred boost）是 consent knob，入口在 Settings（W-AI-9-A），於 config load 時 clamp。
 

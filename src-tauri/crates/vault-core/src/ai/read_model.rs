@@ -19,10 +19,11 @@ pub fn ai_index_status(vault: &crate::Vault) -> Result<AiIndexStatus> {
     let paths = vault.paths();
     let config = vault.config();
     let watermark = super::native_ledger::current_source_watermark(vault)?;
+    let vectors = semantic_vector_state(vault)?;
     let paths = paths.clone();
     let config = config.clone();
     vault.read(Db::Intelligence, move |s| {
-        let mut status = ai_index_status_from(&paths, &config, s, watermark)?;
+        let mut status = ai_index_status_from(&paths, &config, s, watermark, vectors)?;
         if !config.initialized && config.ai.enabled {
             status.state = "blocked".into();
             status.ready = false;
@@ -33,13 +34,49 @@ pub fn ai_index_status(vault: &crate::Vault) -> Result<AiIndexStatus> {
     })
 }
 
-/// Reads the semantic-index status from an open intelligence connection. The caller has already
-/// checked that the archive is initialized.
-pub(crate) fn ai_index_status_from(
+/// File reads stay outside database closures so vector I/O never holds a read session.
+struct SemanticVectorState {
+    index: crate::SemanticIndexState,
+    selected_count: u64,
+    serving_count: u64,
+    text_format_outdated: bool,
+}
+
+fn semantic_vector_state(vault: &crate::Vault) -> Result<SemanticVectorState> {
+    let index = crate::semantic_index::load_state(vault)?;
+    let count = |pair: &crate::EmbeddingIndexRef| {
+        // Metadata without real vectors must not report ready. A torn store degrades to zero.
+        VectorStore::for_provider(vault.paths(), &pair.provider_id, &pair.model)
+            .count()
+            .unwrap_or(0)
+    };
+    let selected_count = index.chosen.as_ref().map(&count).unwrap_or(0);
+    let serving_count = match index.serving.as_ref() {
+        Some(pair) if Some(pair) != index.chosen.as_ref() => count(pair),
+        _ => selected_count,
+    };
+    let text_format_outdated = index
+        .chosen
+        .as_ref()
+        .map(|pair| {
+            super::embedding_prompt::text_format_is_outdated(
+                vault.paths(),
+                &pair.provider_id,
+                &pair.model,
+            )
+        })
+        .transpose()?
+        .unwrap_or(false);
+    Ok(SemanticVectorState { index, selected_count, serving_count, text_format_outdated })
+}
+
+/// Combines database counters with the vector-file state read before opening this session.
+fn ai_index_status_from(
     paths: &ProjectPaths,
     config: &AppConfig,
     connection: &Session<'_>,
     watermark: i64,
+    vectors: SemanticVectorState,
 ) -> Result<AiIndexStatus> {
     let mut queue_status = ai_queue::store::load_ai_queue_status(
         connection,
@@ -47,7 +84,7 @@ pub(crate) fn ai_index_status_from(
         config.ai.job_queue_concurrency,
         AI_QUEUE_RECENT_LIMIT,
     )?;
-    queue_status.semantic_index = crate::semantic_index::load_state_from(connection, config)?;
+    queue_status.semantic_index = vectors.index;
     let index_queue_counts = ai_queue::store::load_queue_job_counts(
         connection,
         &[AiQueueJobType::IndexBuild, AiQueueJobType::IndexClear],
@@ -72,18 +109,7 @@ pub(crate) fn ai_index_status_from(
     } else {
         0
     };
-    // F3 (0-byte honesty): the REAL vector count on the `.pkvec` plane, read O(1) from the store
-    // header + file length — NOT the SQLite metadata-row count above. A build that wrote metadata rows
-    // but zero vectors leaves `indexed_items > 0` while this stays `0`, the exact dishonest case the
-    // index health must surface. `count()` errors on a torn store; degrade to 0 (treated as "no
-    // vectors") rather than failing the whole status read.
-    let semantic_vector_count = provider_id
-        .as_deref()
-        .zip(provider_readiness.selected_model.as_deref())
-        .map(|(provider_id, model)| {
-            VectorStore::for_provider(paths, provider_id, model).count().unwrap_or(0)
-        })
-        .unwrap_or(0);
+    let semantic_vector_count = vectors.selected_count;
     // The dishonest "indexed N with an empty sidecar" case: metadata rows exist but the vector plane is
     // empty/absent, AND the provider is otherwise usable (an unusable provider is reported as degraded).
     let vectors_missing =
@@ -102,6 +128,7 @@ pub(crate) fn ai_index_status_from(
                 ledger.source_watermark,
                 watermark,
                 ledger.last_indexed_at.as_deref(),
+                vectors.text_format_outdated,
             )
         })
         .transpose()?
@@ -126,16 +153,7 @@ pub(crate) fn ai_index_status_from(
     // mean "there are vectors semantic search can actually match", never "we recorded N rows".
     // Search reads the serving index: while a newly chosen model's index is built, the previous
     // complete one still answers, so semantic search stays available (History reads `ready`).
-    let serving_vector_count = match &queue_status.semantic_index.serving {
-        Some(pair)
-            if provider_id.as_deref() != Some(pair.provider_id.as_str())
-                || provider_readiness.selected_model.as_deref() != Some(pair.model.as_str()) =>
-        {
-            VectorStore::for_provider(paths, &pair.provider_id, &pair.model).count().unwrap_or(0)
-        }
-        _ => semantic_vector_count,
-    };
-    let ready = serving_vector_count > 0 && provider_readiness.available;
+    let ready = vectors.serving_count > 0 && provider_readiness.available;
     let (state, warning, warning_code) = ai_index_state_and_warning(
         config,
         &provider_readiness,

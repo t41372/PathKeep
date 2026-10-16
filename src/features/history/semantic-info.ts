@@ -5,7 +5,10 @@
  */
 import { useI18n } from '@/lib/i18n'
 import { useSnapshot } from '@/lib/queries/app'
-import { BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID } from '@/lib/types'
+import {
+  BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID,
+  type AiSemanticStaleness,
+} from '@/lib/types'
 
 export type SemanticReason =
   | 'off'
@@ -25,8 +28,12 @@ export interface SemanticInfo {
   provider: string | null
   indexed: number
   lastIndexedAt: string | null
-  /** The archive changed since the index was built; results miss new pages. */
-  stale: boolean
+  /**
+   * Why the index is behind: pages or page text added since it was built
+   * (the next update catches up), or made from an older version of the page
+   * text (only a rebuild changes that). Null when it is current.
+   */
+  stale: AiSemanticStaleness | null
 }
 
 function reasonOf(state: string, on: boolean): SemanticReason {
@@ -73,7 +80,10 @@ export function useSemanticInfo(): SemanticInfo {
     provider,
     indexed: status.indexedItems,
     lastIndexedAt: status.lastIndexedAt ?? null,
-    stale: status.state === 'stale',
+    stale:
+      status.state === 'stale' && status.warningCode?.code === 'indexStale'
+        ? status.warningCode.reason
+        : null,
   }
 }
 

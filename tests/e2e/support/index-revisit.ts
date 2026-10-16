@@ -1,7 +1,8 @@
 /**
  * The visits `semantic-index.spec` adds once the index is built: one to a
- * page as it was, and one to a page whose title changed. `wipe.spec` counts
- * them in what the archive holds.
+ * page as it was, one to a page whose title changed, and later one to a page
+ * the archive has never seen. `wipe.spec` counts them in what the archive
+ * holds.
  */
 import type { FixtureVisit } from './fixture'
 
@@ -26,6 +27,17 @@ export function indexRevisitVisits(
   ]
 }
 
+/** A page no fixture visit has, with words no other page has. */
+export const NEW_PAGE = {
+  url: 'https://bakery.example.org/notes/sourdough-starter-feeding-schedule',
+  title: 'Sourdough starter feeding schedule',
+}
+
+/** A visit a minute ago to `NEW_PAGE`. */
+export function newPageVisit(): FixtureVisit {
+  return { ...NEW_PAGE, at: Date.now() - 60_000, typed: true, duration: 30_000 }
+}
+
 export function indexRevisitVisitCount() {
-  return 2
+  return 3
 }

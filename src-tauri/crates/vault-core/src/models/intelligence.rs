@@ -1290,6 +1290,17 @@ pub enum AiAgentNote {
 /// matching literal. Both sides MUST agree on this exact string.
 pub const AI_CHAT_STREAM_EVENT: &str = "pathkeep://ai-stream";
 
+/// Lets every open screen refresh index readiness after a worker finishes an attempt.
+pub const AI_INDEX_JOB_ENDED_EVENT: &str = "pathkeep://ai-index-job-ended";
+
+/// Persisted queue state after one index attempt, including pauses and queued retries.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiIndexJobEndedEvent {
+    pub job_id: i64,
+    pub state: String,
+}
+
 // `Eq` dropped to match `AiChatStreamChunk` (its `Citations` variant is `PartialEq` only).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -1701,6 +1712,8 @@ pub struct AiSearchEntry {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum AiSemanticStaleness {
+    /// The index uses an older page-text format and needs a full rebuild.
+    TextFormat,
     /// The index no longer matches the current archive visibility / import watermark.
     Watermark,
     /// Readable-content enrichment changed after the last semantic build.
@@ -1715,6 +1728,9 @@ impl AiSemanticStaleness {
     /// localized copy resolved from the CODE on the front end instead.
     pub fn model_facing_text(self) -> &'static str {
         match self {
+            AiSemanticStaleness::TextFormat => {
+                "The semantic index was built from an older version of the page text. Rebuild it for better matches."
+            }
             AiSemanticStaleness::Watermark => {
                 "The semantic index no longer matches the current archive visibility or import watermark. Run Build index so semantic retrieval includes recent imports and reflects reverted rows."
             }

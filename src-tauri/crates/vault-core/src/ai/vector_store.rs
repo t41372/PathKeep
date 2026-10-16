@@ -95,6 +95,9 @@ pub struct VectorStoreHeader {
     pub dim: usize,
     /// The embedding fingerprint hash this store was built under (stale-detection identity).
     pub fingerprint_hash: String,
+    /// Text format of the oldest vectors; appending must never upgrade this stamp.
+    #[serde(default)]
+    pub embedded_text: Option<String>,
 }
 
 /// A handle to one provider/model vector store on the `derived/vectors/` plane.
@@ -142,6 +145,7 @@ impl VectorStore {
             model_id: fingerprint.model_id.clone(),
             dim: fingerprint.effective_dim,
             fingerprint_hash: fingerprint.hash(),
+            embedded_text: Some(super::embedding_prompt::embedded_text_tag(&fingerprint.model_id)),
         };
         let file = File::create(&store.path)
             .with_context(|| format!("creating vector store {}", store.path.display()))?;

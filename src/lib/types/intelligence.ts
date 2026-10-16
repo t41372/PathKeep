@@ -809,8 +809,11 @@ export interface AiSearchResultItem {
  * Why the semantic index is stale. Stable, locale-independent reason CODE shared
  * by the AI-search degradation notes and the Settings index-health warning. Mirrors the Rust
  * `AiSemanticStaleness` (`#[serde(rename_all = "camelCase")]`). The FE NEVER renders these raw.
+ *
+ * `watermark` and `enrichment` are caught up by the next update; `textFormat` (built from an
+ * older version of the page text) only by a rebuild.
  */
-export type AiSemanticStaleness = 'watermark' | 'enrichment'
+export type AiSemanticStaleness = 'watermark' | 'enrichment' | 'textFormat'
 
 /**
  * One stable, locale-independent AI-search degradation note CODE. Mirrors the Rust

@@ -19,7 +19,7 @@ pub(crate) struct GenericReadableExtractor;
 /// Extractor id + stored `content_source`.
 pub(crate) const GENERIC_READABLE_EXTRACTOR_ID: &str = "generic-readable";
 /// Schema version; a bump refetches only generic-readable rows (06 §3).
-pub(crate) const GENERIC_READABLE_EXTRACTOR_VERSION: u32 = 1;
+pub(crate) const GENERIC_READABLE_EXTRACTOR_VERSION: u32 = 2;
 
 impl Extractor for GenericReadableExtractor {
     fn id(&self) -> &'static str {

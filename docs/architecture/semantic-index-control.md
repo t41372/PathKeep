@@ -61,5 +61,11 @@ build outcome. Start-of-job cleanup failure also allows the build to proceed; la
 remaining deletions. A changed selection during a build retains the current chosen and serving
 pairs instead of deleting the fallback.
 
+When the background drain finishes handling an index job (succeeded, failed, cancelled, paused
+by the service, or waiting for a retry), the desktop shell emits `pathkeep://ai-index-job-ended`
+with the job's id and state; the dev bridge forwards it. The app reads its snapshot again on it,
+whichever screen is open, so History's semantic search and Settings learn about builds and
+after-backup updates that end while they are not watching the queue.
+
 Feature acceptance belongs to reviewer E2E. Rust regressions cover consent,
 stop/failure races, legacy recovery, cursor durability and serving-model isolation.

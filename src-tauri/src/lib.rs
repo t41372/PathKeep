@@ -120,6 +120,13 @@ fn run_app() -> Result<()> {
             app.handle().plugin(build_logging_plugin(&paths))?;
             // With the logger at Debug, Turso's per-page spans would otherwise each ask it.
             vault_store::route_engine_diagnostics_to_log();
+            let index_events = app.handle().clone();
+            vault_worker::register_ai_index_job_ended_listener(move |event| {
+                use tauri::Emitter;
+                if let Err(error) = index_events.emit(vault_core::AI_INDEX_JOB_ENDED_EVENT, &event) {
+                    log::warn!("Could not emit AI index job end: {error}");
+                }
+            }).map_err(tauri::Error::Anyhow)?;
             // Before the archive opens: an app started from Finder may only open 256 files.
             match vault_platform::raise_open_file_limit() {
                 Ok(limit) => log::info!("open-file limit: {limit}"),

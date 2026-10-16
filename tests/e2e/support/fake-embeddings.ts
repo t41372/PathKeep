@@ -2,7 +2,9 @@
  * An OpenAI-compatible embeddings service on 127.0.0.1, for
  * `semantic-index.spec`: each input's vector counts its words, each word in a
  * slot picked by its hash, so texts that share words are close and a search
- * for a page's words finds that page.
+ * for a page's words finds that page. A query in Qwen3-Embedding's form
+ * (`Instruct: …\nQuery:…`) counts only the words after `Query:`: the
+ * instruction tells a real model what to look for, it is not looked for.
  *
  * It can answer a few requests and then hold every later one until
  * `release()`, so a build stops half way for as long as a test needs, with
@@ -53,10 +55,13 @@ export interface FakeEmbeddings {
   close(): Promise<void>
 }
 
+const INSTRUCTED_QUERY = /^Instruct: [^\n]*\nQuery:/
+
 /** Word counts in hashed slots, scaled to length 1. */
 function vectorOf(text: string, dimensions: number) {
   const vector = new Array<number>(dimensions).fill(0)
-  for (const word of text.toLowerCase().split(/[^\p{L}\p{N}]+/u)) {
+  const searched = text.replace(INSTRUCTED_QUERY, '')
+  for (const word of searched.toLowerCase().split(/[^\p{L}\p{N}]+/u)) {
     if (!word) continue
     let hash = 2166136261
     for (const char of word)

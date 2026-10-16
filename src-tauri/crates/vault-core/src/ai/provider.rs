@@ -532,6 +532,24 @@ pub(super) async fn run_llm_probe(
     Ok(response.text)
 }
 
+/// The sole query prompt boundary. Engines and transports receive rendered inputs and never
+/// apply prompts themselves, including when this dispatches to the in-app engine.
+pub(super) async fn embed_query(
+    paths: &ProjectPaths,
+    provider: &AiProviderRuntime,
+    query: &str,
+    role: EmbeddingRole,
+) -> Result<Vec<f32>> {
+    let input = match role {
+        EmbeddingRole::Query => {
+            super::embedding_prompt::PromptProfile::for_model(&provider.config.default_model)
+                .render_query(query)
+        }
+        EmbeddingRole::Document => query.to_owned(),
+    };
+    embed_query_input(paths, provider, &input, role).await
+}
+
 /// Executes one single-text embedding request against the configured provider.
 ///
 /// D4 correctness rules (02 §C.3):
@@ -542,10 +560,9 @@ pub(super) async fn run_llm_probe(
 ///   `None` is only reachable for OpenAI-shaped transports — Gemini-without-an-explicit-dim is
 ///   rejected by the resolver because its adapter cannot request a native size.
 /// - the returned vector is defensively L2-normalized.
-/// - the `role` threads to the call (instruction injection arrives with per-provider
-///   descriptors in W-AI-4; rig's hosted `/v1/embeddings` path has no role hook today).
+/// - the input already carries its model prompt; transport dispatch never adds another.
 #[cfg(not(test))]
-pub(super) async fn embed_query(
+async fn embed_query_input(
     paths: &ProjectPaths,
     provider: &AiProviderRuntime,
     query: &str,
@@ -623,7 +640,7 @@ fn finalize_embedding_vector(vec: Vec<f64>) -> Vec<f32> {
 
 /// Returns deterministic single-text embedding vectors for tests.
 #[cfg(test)]
-pub(super) async fn embed_query(
+async fn embed_query_input(
     paths: &ProjectPaths,
     provider: &AiProviderRuntime,
     query: &str,

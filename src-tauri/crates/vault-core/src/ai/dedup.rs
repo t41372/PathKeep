@@ -9,8 +9,7 @@
 //!   store + visit→content map use (keeping the flat, mmap-friendly record layout).
 //!
 //! ## Not responsible for
-//! - the per-VISIT embedding content funnel (`enrichment::build_embedding_content_from_parts`): that
-//!   builds the TEXT fed to the model and still carries profile/visited-at for the embedding payload.
+//! - page text selection (`enrichment::build_embedding_document`) or model prompts.
 //!   This module builds the DEDUP IDENTITY, which must NOT include visit-specific parts or every
 //!   visit would be "unique" and dedup would collapse to nothing.
 //! - persistence (the vector store / map own that) or canonicalization (reuses `visit_taxonomy`).

@@ -14,7 +14,7 @@
  * responsible for any rendering or copy.
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { appClient } from '@/lib/backend-client/app'
 import { intelligenceClient } from '@/lib/backend-client/intelligence'
 import { describeError } from '@/lib/errors'
@@ -60,6 +60,10 @@ export function useSemanticIndex() {
   const snapshot = useSnapshot()
   const save = useSaveConfig()
   const status: AiIndexStatus = snapshot.aiStatus
+  // Why the chosen model's index is behind. `textFormat` (built from an older
+  // version of the page text) is the one an update never fixes: only a rebuild.
+  const staleReason =
+    status.warningCode?.code === 'indexStale' ? status.warningCode.reason : null
   const ai = snapshot.config.ai
   // Only the in-app model is downloaded; an embeddings service set in the
   // config is ready as it is.
@@ -116,16 +120,6 @@ export function useSemanticIndex() {
     await client.invalidateQueries({ queryKey: aiQueueKey })
     client.setQueryData(queryKeys.snapshot, await appClient.getSnapshot())
   }, [client])
-
-  // A build that ended (finished, or stopped from anywhere) changed what the
-  // index holds: read the snapshot again for its counts.
-  const lastBuild = useRef<number | null>(null)
-  const buildId = build?.jobId ?? null
-  useEffect(() => {
-    if (lastBuild.current !== null && buildId === null)
-      void refresh().catch(() => undefined)
-    lastBuild.current = buildId
-  }, [buildId, refresh])
 
   /**
    * Builds the chosen model's index: reads every visit it does not have yet,
@@ -266,6 +260,7 @@ export function useSemanticIndex() {
 
   return {
     status,
+    staleReason,
     enabled,
     modelDownloaded,
     download,

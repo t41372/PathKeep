@@ -29,6 +29,7 @@ use tauri::Listener;
 const APP_EVENTS: &[&str] = &[
     "pathkeep://backup-progress",
     "pathkeep://backup-finished",
+    vault_core::AI_INDEX_JOB_ENDED_EVENT,
     "pathkeep://updater-progress",
     "pathkeep://open-command-palette",
 ];

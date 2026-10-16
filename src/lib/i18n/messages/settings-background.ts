@@ -122,7 +122,7 @@ export const settingsBackground = defineMessages({
       stored_other: '{count} pages summarized.',
       fetch: 'Fetch now',
       fetchHint:
-        'Queues your starred, recent and most-visited pages that do not have a summary yet.',
+        'Queues your starred, recent and most-visited pages that have no summary yet, or one an older version of PathKeep made.',
       queued_one: '{count} page queued.',
       queued_other: '{count} pages queued.',
       nothingToFetch:
@@ -345,7 +345,8 @@ export const settingsBackground = defineMessages({
       stored_one: '已为 {count} 个网页生成摘要。',
       stored_other: '已为 {count} 个网页生成摘要。',
       fetch: '立即抓取',
-      fetchHint: '把还没有摘要的加星、最近访问和最常访问的网页加入队列。',
+      fetchHint:
+        '把还没有摘要、或摘要由旧版 PathKeep 生成的加星、最近访问和最常访问的网页加入队列。',
       queued_one: '已将 {count} 个网页加入队列。',
       queued_other: '已将 {count} 个网页加入队列。',
       nothingToFetch: '没有需要抓取的网页：它们已有摘要，或最近已经尝试过。',
@@ -564,7 +565,8 @@ export const settingsBackground = defineMessages({
       stored_one: '已為 {count} 個網頁產生摘要。',
       stored_other: '已為 {count} 個網頁產生摘要。',
       fetch: '立即抓取',
-      fetchHint: '把還沒有摘要的加星、最近造訪和最常造訪的網頁加入佇列。',
+      fetchHint:
+        '把還沒有摘要、或摘要由舊版 PathKeep 產生的加星、最近造訪和最常造訪的網頁加入佇列。',
       queued_one: '已將 {count} 個網頁加入佇列。',
       queued_other: '已將 {count} 個網頁加入佇列。',
       nothingToFetch: '沒有需要抓取的網頁：它們已有摘要，或最近已經嘗試過。',

@@ -8,8 +8,8 @@ use super::search::{
     semantic_config_drift_reason,
 };
 use super::{
-    AiProviderRuntime, EmbeddingProvider, EmbeddingRole, FlatVectorIndex, ReverseVisitMap,
-    VisitContentMap, embed_query,
+    AiProviderRuntime, EmbeddingRole, FlatVectorIndex, ReverseVisitMap, VisitContentMap,
+    embed_query,
 };
 use crate::{
     AiSearchNote, AiSearchRequest, AiSearchResponse, AppConfig, ProjectPaths, Vault,
@@ -242,15 +242,7 @@ async fn add_semantic(
         return Ok((notes, false));
     }
     let engine = super::embedding_engine::select_embedding_provider(paths, provider)?;
-    let vector = if super::embedding_static::runtime_uses_static(provider) {
-        engine
-            .embed(&[request.query.trim().to_owned()], EmbeddingRole::Query)
-            .await?
-            .pop()
-            .ok_or_else(|| anyhow::anyhow!("the in-app engine returned no query vector"))?
-    } else {
-        embed_query(paths, provider, request.query.trim(), EmbeddingRole::Query).await?
-    };
+    let vector = embed_query(paths, provider, request.query.trim(), EmbeddingRole::Query).await?;
     if let Some(reason) =
         semantic_config_drift_reason(paths, provider, &engine, &index, vector.len())?
     {

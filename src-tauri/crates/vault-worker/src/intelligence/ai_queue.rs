@@ -33,7 +33,10 @@ use crate::context::{
 };
 use crate::job_runtime::{BackgroundJobControl, maybe_spawn_worker_pool};
 use anyhow::{Context, Result};
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::{Arc, OnceLock},
+    time::Duration,
+};
 use vault_core::{
     AiCapability, AiIndexReport, AiIndexRequest, AiIntegrationPreview,
     AiProviderConnectionTestReport, AiProviderConnectionTestRequest, AiProviderPurpose, AiQueueJob,
@@ -44,6 +47,19 @@ use vault_core::{
 
 // Claims and physical index cleanup share one owner; a queued replacement never writes early.
 static INDEX_EXECUTION: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+type IndexJobEndedListener = Box<dyn Fn(vault_core::AiIndexJobEndedEvent) + Send + Sync>;
+static INDEX_JOB_ENDED_LISTENER: OnceLock<IndexJobEndedListener> = OnceLock::new();
+
+/// Connects background index attempts to the shell without giving workers an app handle.
+/// Register once at startup, before any queue work can begin. Headless workers need no listener.
+pub fn register_ai_index_job_ended_listener(
+    listener: impl Fn(vault_core::AiIndexJobEndedEvent) + Send + Sync + 'static,
+) -> Result<()> {
+    INDEX_JOB_ENDED_LISTENER
+        .set(Box::new(listener))
+        .map_err(|_| anyhow::anyhow!("AI index job listener is already registered"))
+}
 
 const AI_JOB_CONTROL_POLL_INTERVAL: Duration = Duration::from_millis(500);
 const AI_JOB_CONTROL_HEARTBEAT_EVERY: Duration = Duration::from_secs(30);
@@ -141,6 +157,28 @@ fn index_start_embedded(payload: &ai_queue::AiJobPayload) -> u64 {
 /// to manually coordinate success/failure writes, cancellation checks, and the
 /// final user-visible summary.
 pub(crate) fn complete_claimed_index_job(
+    vault: &vault_core::Vault,
+    paths: &vault_core::ProjectPaths,
+    config: &AppConfig,
+    session_database_key: Option<&str>,
+    claimed: ai_queue::StoredAiJob,
+    request: &AiIndexRequest,
+) -> Result<AiIndexReport> {
+    let job_id = claimed.id;
+    let outcome =
+        execute_claimed_index_job(vault, paths, config, session_database_key, claimed, request);
+    // Read after all outcome and cleanup writes, even when execution returned an error.
+    // A retry or service pause is an ended attempt too; the result alone cannot tell its state.
+    if let Some(listener) = INDEX_JOB_ENDED_LISTENER.get() {
+        match ai_queue::load_ai_job(vault, job_id) {
+            Ok(job) => listener(vault_core::AiIndexJobEndedEvent { job_id, state: job.state }),
+            Err(error) => log::warn!("Could not read ended AI index job {job_id}: {error:#}"),
+        }
+    }
+    outcome
+}
+
+fn execute_claimed_index_job(
     vault: &vault_core::Vault,
     _paths: &vault_core::ProjectPaths,
     config: &AppConfig,

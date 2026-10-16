@@ -67,5 +67,5 @@ fn enrichment_summary_re_embed_blast_radius_is_bounded_to_the_enriched_url() {
         "the un-enriched URL must NOT re-embed (bounded blast radius)"
     );
     // The enriched visit's embedded TEXT now carries the summary (the 06 §4 funnel).
-    assert!(visit1.content.contains("Summary: A repo about wasm"));
+    assert!(visit1.content.lines().any(|line| line == "A repo about wasm"));
 }

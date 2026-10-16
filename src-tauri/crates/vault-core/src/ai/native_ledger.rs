@@ -87,9 +87,13 @@ pub(super) fn semantic_index_staleness_reason(
     source_watermark: i64,
     current_watermark: i64,
     last_indexed_at: Option<&str>,
+    text_format_outdated: bool,
 ) -> Result<Option<AiSemanticStaleness>> {
     if provider_embedding_count(s, provider, model)? == 0 {
         return Ok(None);
+    }
+    if text_format_outdated {
+        return Ok(Some(AiSemanticStaleness::TextFormat));
     }
     if source_watermark != 0 && current_watermark != source_watermark {
         return Ok(Some(AiSemanticStaleness::Watermark));

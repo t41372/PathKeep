@@ -12,6 +12,7 @@ import { queryClient } from '@/lib/query'
 import { ThemeProvider } from '@/lib/theme'
 import { ImportRunnerProvider } from '@/features/backup/import-runner'
 import { BackupRunnerProvider } from './backup-runner'
+import { useIndexJobEvents } from './index-job-events'
 import { createAppRouter, createOnboardingRouter } from './router'
 import { SessionProvider, useSession } from './session'
 import { LockScreen } from './shell/lock-screen'
@@ -24,6 +25,7 @@ import {
 
 function SessionGate() {
   const { phase, error } = useSession()
+  useIndexJobEvents(phase === 'ready')
   const appRouter = useMemo(
     () => (phase === 'ready' ? createAppRouter() : null),
     [phase],

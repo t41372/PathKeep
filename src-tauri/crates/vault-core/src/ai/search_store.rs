@@ -9,6 +9,9 @@ pub(super) fn staleness(
     provider: &str,
     model: &str,
 ) -> anyhow::Result<Option<AiSemanticStaleness>> {
+    if super::embedding_prompt::text_format_is_outdated(vault.paths(), provider, model)? {
+        return Ok(Some(AiSemanticStaleness::TextFormat));
+    }
     let provider = provider.to_owned();
     let model = model.to_owned();
     let row=vault.store().read(Db::Intelligence,move|s| {

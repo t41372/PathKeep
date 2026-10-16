@@ -353,6 +353,8 @@ fn reply_excerpt(body: &[u8]) -> String {
 }
 
 /// Real `/v1/embeddings` embed: re-chunks, POSTs JSON, decodes + normalizes each batch.
+/// Inputs already carry their model prompts: query dispatch and page construction own them.
+/// The role stays available to engines that need it but must not add another text prefix.
 #[cfg(not(test))]
 async fn embed_impl(
     provider: &ExternalEmbeddingProvider,

@@ -20,11 +20,11 @@ export const settingsAi = defineMessages({
       serviceDialog: {
         title: 'Add an embeddings service',
         description:
-          'A service that turns text into embeddings, OpenAI-compatible. Semantic search sends it each page’s address, title and visit time to build the index, and your searches to find pages.',
+          'A service that turns text into embeddings, OpenAI-compatible. To build the index, semantic search sends it each page’s title, site and the words in its address, with the page’s saved text when there is some; to find pages, your searches.',
       },
       serviceLocalNote: 'Runs on this computer. Pages and searches stay here.',
       serviceRemoteNote:
-        'An online service. Each page’s address, title and visit time, and your searches, are sent to it.',
+        'An online service. Each page’s title, site, the words in its address and its saved text, and your searches, are sent to it.',
       serviceRemoveBody:
         'The service and its stored API key are removed from this computer. Semantic search goes back to the in-app model.',
       modelChange:
@@ -69,6 +69,12 @@ export const settingsAi = defineMessages({
         'Until it is complete, semantic search keeps using {model}.',
       meanwhilePartial:
         'Until it is complete, searching by meaning only finds visits already indexed.',
+      olderText:
+        'This index was made from an older version of the page text, which also carried visit times and leftover page code. It still works; rebuilt, it finds pages by meaning more reliably.',
+      olderTextUnfinished:
+        'The visits indexed so far were read the older way. Start over to read every visit the current way, or continue and keep them.',
+      rebuildIndex: 'Rebuild index',
+      startOver: 'Start over',
       build: 'Build index',
       continue: 'Continue',
       pause: 'Pause',
@@ -291,11 +297,11 @@ export const settingsAi = defineMessages({
       serviceDialog: {
         title: '添加嵌入服务',
         description:
-          '把文字转成嵌入向量的服务，需兼容 OpenAI。语义搜索会把每个页面的网址、标题和访问时间发给它来建立索引，搜索时也会把你的搜索发给它。',
+          '把文字转成嵌入向量的服务，需兼容 OpenAI。为了建立索引，语义搜索会把每个页面的标题、网站、网址里的词，以及保存的网页正文（如果有）发给它；搜索时也会把你的搜索发给它。',
       },
       serviceLocalNote: '在这台电脑上运行，页面和搜索都留在这里。',
       serviceRemoteNote:
-        '在线服务。每个页面的网址、标题和访问时间，以及你的搜索，都会发给它。',
+        '在线服务。每个页面的标题、网站、网址里的词和保存的网页正文，以及你的搜索，都会发给它。',
       serviceRemoveBody:
         '这个服务和它保存的 API 密钥会从这台电脑上移除，语义搜索改回使用应用内置模型。',
       modelChange:
@@ -338,6 +344,12 @@ export const settingsAi = defineMessages({
         '用 {model} 建立的索引还没完成：目前 {count} 条访问记录。',
       meanwhilePrevious: '完成之前，语义搜索继续用 {model}。',
       meanwhilePartial: '完成之前，按含义搜索只找得到已经建立索引的访问记录。',
+      olderText:
+        '这份索引是用旧版的页面文字建立的，里面还夹着访问时间和网页代码残片。它照样能用；重建之后，按含义搜索会找得更准。',
+      olderTextUnfinished:
+        '目前已经建立索引的访问记录是用旧方式读的。可以从头重来，用现在的方式读每一条访问记录；也可以继续，保留已经建好的部分。',
+      rebuildIndex: '重建索引',
+      startOver: '从头重来',
       build: '建立索引',
       continue: '继续',
       pause: '暂停',
@@ -547,11 +559,11 @@ export const settingsAi = defineMessages({
       serviceDialog: {
         title: '新增嵌入服務',
         description:
-          '把文字轉成嵌入向量的服務，需相容 OpenAI。語意搜尋會把每個頁面的網址、標題與造訪時間傳給它來建立索引，搜尋時也會把你的搜尋傳給它。',
+          '把文字轉成嵌入向量的服務，需相容 OpenAI。為了建立索引，語意搜尋會把每個頁面的標題、網站、網址裡的字詞，以及儲存的網頁內文（如果有）傳給它；搜尋時也會把你的搜尋傳給它。',
       },
       serviceLocalNote: '在這台電腦上執行，頁面與搜尋都留在這裡。',
       serviceRemoteNote:
-        '線上服務。每個頁面的網址、標題與造訪時間，以及你的搜尋，都會傳給它。',
+        '線上服務。每個頁面的標題、網站、網址裡的字詞與儲存的網頁內文，以及你的搜尋，都會傳給它。',
       serviceRemoveBody:
         '這個服務與它儲存的 API 金鑰會從這台電腦上移除，語意搜尋改回使用 App 內建模型。',
       modelChange:
@@ -592,6 +604,12 @@ export const settingsAi = defineMessages({
       unfinished_other: '用 {model} 建立的索引還沒完成：目前 {count} 次造訪。',
       meanwhilePrevious: '完成之前，語意搜尋繼續用 {model}。',
       meanwhilePartial: '完成之前，依意思搜尋只找得到已經建立索引的造訪。',
+      olderText:
+        '這份索引是用舊版的頁面文字建立的，裡面還夾著造訪時間和網頁程式碼殘片。它照樣能用；重建之後，依意思搜尋會找得更準。',
+      olderTextUnfinished:
+        '目前已經建立索引的造訪是用舊方式讀的。可以從頭重來，用現在的方式讀每一次造訪；也可以繼續，保留已經建好的部分。',
+      rebuildIndex: '重建索引',
+      startOver: '從頭重來',
       build: '建立索引',
       continue: '繼續',
       pause: '暫停',

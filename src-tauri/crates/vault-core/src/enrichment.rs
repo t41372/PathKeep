@@ -1,8 +1,8 @@
 //! Responsibilities: persist enrichment outcomes and provide text for native indexing.
 //! Not responsible for: network fetches or canonical archive ownership.
 //! Failure modes: cancellation loses a race, failures look successful, or sibling visits diverge.
-//! Tests: only content fetch's consent and private-address gates (`content_fetch::tests`); the
-//! rest is derived text that a fetch or rebuild can redo.
+//! Tests: content-fetch consent and private-address gates, page embedding parts, and HTML text
+//! extraction that excludes executable and decorative subtrees.
 //!
 //! Core Intelligence and optional AI both depend on `visit_content_enrichments`
 //! as a rebuildable evidence plane. Keeping the shared schema, enrichment
@@ -10,6 +10,7 @@
 //! module from remaining the canonical owner of readable-text evidence after
 //! the hard cutover.
 
+mod embedding_document;
 #[allow(dead_code)]
 #[path = "enrichment_site_adapters.rs"]
 mod site_adapters;
@@ -28,7 +29,7 @@ use crate::{
     intelligence_blobs::{load_readable_text_blob, store_readable_text_blob},
     intelligence_runtime::{ClaimedEnrichmentJob, claim_enrichment_job_by_id},
     models::{READABLE_CONTENT_PLUGIN_ID, TITLE_NORMALIZATION_PLUGIN_ID},
-    utils::{now_rfc3339, url_domain},
+    utils::now_rfc3339,
 };
 use anyhow::Result;
 use scraper::{Html, Selector};
@@ -36,6 +37,7 @@ use serde_json::{Value, json};
 use std::collections::HashMap;
 use vault_store::{Db, Priority, Session, params_owned as params};
 
+pub(crate) use self::embedding_document::{EmbeddingDocument, build_embedding_document};
 use self::site_adapters::{SiteAdapterResult, adapt_site_content};
 
 /// Maximum length (in characters) of the inline `enrichment_summary` (06 §3, ~280 chars).
@@ -337,43 +339,6 @@ pub(crate) const EMBEDDING_TEXT_TOKEN_CAP: usize = 512;
 /// that errs toward keeping MORE text for CJK, where each char is its own token).
 const EMBEDDING_CHARS_PER_TOKEN: usize = 4;
 
-/// Builds the canonical text blob fed into semantic indexing from visit/enrichment parts (05 §8).
-///
-/// The structured header (profile/visited-at/url/domain/title) plus, when present, the readable title,
-/// the capped enrichment SUMMARY (06 §4: short structured sources verbatim), and the readable text
-/// (capped to ~512 tokens, 05 §8 — a long transcript is truncated, never fed whole into a 512-token
-/// window). The summary is added BEFORE the body so the most-signal-dense field survives any later
-/// model-side truncation. The summary participates in the dedup hash separately; here it enriches the
-/// embedded TEXT so a structured source (GitHub topics, video channel) is searchable semantically.
-pub(crate) fn build_embedding_content_from_parts(
-    profile_id: &str,
-    url: &str,
-    title: Option<&str>,
-    visited_at: &str,
-    readable_title: Option<&str>,
-    readable_summary: Option<&str>,
-    readable_text: Option<&str>,
-) -> String {
-    let title = title.unwrap_or("(untitled)");
-    let mut content = format!(
-        "Profile: {profile_id}\nVisited at: {visited_at}\nURL: {url}\nDomain: {}\nTitle: {title}",
-        url_domain(url)
-    );
-    if let Some(readable_title) = readable_title.filter(|value| !value.trim().is_empty()) {
-        content.push_str(&format!("\nReadable title: {}", readable_title.trim()));
-    }
-    if let Some(readable_summary) = readable_summary.filter(|value| !value.trim().is_empty()) {
-        // The summary is already capped (~280 chars) by the extractor, so it is added verbatim — it is
-        // the highest-signal short field for a structured source.
-        content.push_str(&format!("\nSummary: {}", readable_summary.trim()));
-    }
-    if let Some(readable_text) = readable_text.filter(|value| !value.trim().is_empty()) {
-        content.push_str("\nReadable text:\n");
-        content.push_str(&cap_embedding_text(readable_text.trim()));
-    }
-    content
-}
-
 /// Caps free text to roughly [`EMBEDDING_TEXT_TOKEN_CAP`] tokens on a char boundary (05 §8).
 ///
 /// PURE → unit-tested. A char budget (`token cap × chars-per-token`) is a deliberately simple, model-
@@ -542,31 +507,6 @@ pub(crate) fn store_enrichment_with_cache(
     Ok(())
 }
 
-#[allow(dead_code)]
-/// Chooses the strongest available text payload for semantic indexing or assistant context.
-pub(crate) fn preferred_embedding_content(
-    paths: &ProjectPaths,
-    connection: &vault_store::Session<'_>,
-    history_id: i64,
-    profile_id: &str,
-    url: &str,
-    title: Option<&str>,
-    visited_at: &str,
-) -> Result<String> {
-    let mut enrichments =
-        load_best_enrichment_map_by_history_ids(paths, connection, &[history_id])?;
-    let enrichment = enrichments.remove(&history_id);
-    Ok(build_embedding_content_from_parts(
-        profile_id,
-        url,
-        title,
-        visited_at,
-        enrichment.as_ref().and_then(|value| value.readable_title.as_deref()),
-        enrichment.as_ref().and_then(|value| value.enrichment_summary.as_deref()),
-        enrichment.as_ref().and_then(|value| value.readable_text.as_deref()),
-    ))
-}
-
 fn normalized_title_from_url(url: &str) -> Option<String> {
     let parsed = reqwest::Url::parse(url).ok()?;
     let last_segment = parsed
@@ -611,13 +551,20 @@ pub(crate) fn build_enrichment_result_from_html(
     let mut blocks = Vec::new();
     if let Some(root) = document.select(&body_selector).next() {
         for node in root.select(&block_selector) {
-            let value = normalize_whitespace(&node.text().collect::<Vec<_>>().join(" "));
+            if node
+                .ancestors()
+                .filter_map(scraper::ElementRef::wrap)
+                .any(|ancestor| excluded_text_element(ancestor.value().name()))
+            {
+                continue;
+            }
+            let value = readable_element_text(node);
             if !value.is_empty() {
                 blocks.push(value);
             }
         }
         if blocks.is_empty() {
-            let fallback = normalize_whitespace(&root.text().collect::<Vec<_>>().join(" "));
+            let fallback = readable_element_text(root);
             if !fallback.is_empty() {
                 blocks.push(fallback);
             }
@@ -760,3 +707,32 @@ pub(crate) fn truncate_text(input: &str, limit: usize) -> String {
     }
     input.chars().take(limit).collect::<String>()
 }
+
+fn excluded_text_element(name: &str) -> bool {
+    matches!(name, "script" | "style" | "noscript" | "template" | "svg")
+}
+
+fn readable_element_text(node: scraper::ElementRef<'_>) -> String {
+    fn collect(node: scraper::ElementRef<'_>, text: &mut String) {
+        if excluded_text_element(node.value().name()) {
+            return;
+        }
+        for child in node.children() {
+            if let Some(value) = child.value().as_text() {
+                if !text.is_empty() {
+                    text.push(' ');
+                }
+                text.push_str(value);
+            } else if let Some(element) = scraper::ElementRef::wrap(child) {
+                collect(element, text);
+            }
+        }
+    }
+    let mut text = String::new();
+    collect(node, &mut text);
+    normalize_whitespace(&text)
+}
+
+#[cfg(test)]
+#[path = "enrichment/html_text_tests.rs"]
+mod html_text_tests;

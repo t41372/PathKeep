@@ -108,8 +108,7 @@ async fn static_s1_throughput_benchmark() {
     let corpus: Vec<String> = (0..512)
         .map(|i| {
             format!(
-                "Profile: default\nVisited at: 2026-06-{:02}T10:00:00Z\nURL: https://example.com/page-{i}\nDomain: example.com\nTitle: Example article number {i} about rust embeddings and history search",
-                (i % 28) + 1
+                "Example article number {i} about rust embeddings and history search\nexample.com · page"
             )
         })
         .collect();
