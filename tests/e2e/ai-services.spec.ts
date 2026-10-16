@@ -65,7 +65,7 @@ test('an LM Studio service is set up from its own address and model list', async
     await unlockIfLocked(page)
     await expect(
       page.getByText(
-        /^potion-multilingual-128M, 256 dimensions\. It comes with PathKeep and runs on this computer\. It is a static model: very fast/,
+        /^potion-multilingual-128M, 256 dimensions\. It comes with PathKeep and runs on this computer\. It is a static embedding model: .* very fast, but it finds pages by meaning less well than the usual contextual embedding models/,
       ),
     ).toBeVisible()
 

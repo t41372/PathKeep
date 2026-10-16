@@ -2,6 +2,8 @@
 
 Input for `WORK-AI-EMBED-INAPP` item 3: which runtime to benchmark for a built-in transformer embedding model next to the static one, and what to measure. Desk research only; nothing here was run on our machines. Speeds come from vendors or the community and are marked as such.
 
+Outcome (2026-10-16): measured on this Mac below, then weighed in [inapp-transformer-embedding-tradeoff.md](../inapp-transformer-embedding-tradeoff.md). The user decided PathKeep bundles no inference engine; contextual models run through an embeddings service.
+
 ## Candidates
 
 | Model                                           | License                                                                                                        | Size                                                                                   | Quality (MMTEB mean / retrieval)              | Prompting                                                                                                                                                                                                                        |

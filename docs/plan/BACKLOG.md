@@ -47,14 +47,6 @@
   - 現況：Settings → 後台任務是一列列設置卡片加工作清單。它其實是給人看「現在在跑什麼、跑多快、哪裡卡住」的地方：正在跑的工作、進度與速度、排隊的、失敗的與原因、可以暫停 / 繼續 / 取消 / 重試。
   - 先做 `WORK-AI-INDEX-CONTROL`（暫停狀態、推送的進度），再設計這頁；讀 `docs/design/` 核心四份。
 
-- [ ] **WORK-EMBED-USES** — embedding 不只用在搜索（用戶 2026-10-15）
-  - 前提：現在每次語義搜索把全部向量掃一遍（`vector_index.rs` 的 int8 暴力計算）。Turso 遷移時拿掉了二值粗篩，`05-embedding-retrieval-revision.md` 與 `vector_planes.rs` 檔頭還寫兩段式。每多一個用途就多一次全掃，14.4M 時要先換索引結構（先量）。
-  - 候選，按價值：給 Ask 的每週 / 每月主題聚類（「總結一下這週」要的就是這個，`intelligence_report` 只有數字）；洞察的主題時間線（聚類 + 最有代表性的標題命名，不需要 LLM）；頁面詳情的相關頁面與重新浮現；session 標題選語義上最居中的頁；搜索結果合併近似重複（同一篇文章的不同網址、AMP、鏡像）；用戶自訂類別的零樣本分類。
-  - 核心功能不以有 embedding 為前提（AGENTS.md 第 4 條），這些是有 embedding 時才有的功能。
-
-- [ ] **WORK-ASK-WEEKDAYS** — 工具結果的時間加上星期（2026-10-15 真模型實測看到）
-  - qwen3.8-27b-splash 回答「總結一下這週」時把 10/15 說成週五（其實週四）。工具結果的本地時間只有 `YYYY-MM-DD HH:MM`（`format_local_ms`），星期得模型自己推；系統提示只給了今天的星期。跟「不要讓模型換算 epoch」同一類：在主機上算好，日期旁寫星期（照使用者的語言或固定英文，選一種寫進文檔）。
-
 - [ ] **WORK-INDEX-REBUILD-SWAP** — 重建同一個模型的索引時，先建新的、完成才換掉舊的（2026-10-15 做 `WORK-AI-EMBED-INAPP` 第 2 項時找到）
   - 換模型時，搜尋一直用上一個完整索引，直到新的建完；但「重建搜尋索引」與舊格式索引的「重建索引」是同一組服務 + 模型，`create_stamped` 一開始就清空 `.pkvec`，建置期間語意搜尋只找得到已重建的部分。14.4M 造訪、外部服務時，這段可能很長。
   - 要做：重建寫到另一份檔案（或同名加世代），完成後原子替換並刪舊的；中斷時舊索引照常服務。E2E：重建途中暫停，語意搜尋仍找得到還沒重建到的頁面。
@@ -62,6 +54,16 @@
 - [ ] **WORK-QUIT-DURING-WORK** — 關掉視窗就結束 app，正在跑的匯出、匯入直接中斷，沒有任何提示（2026-10-16 gate 的 E2E 找到）
   - 選單列圖示關著時，關掉主視窗就是結束 app。2026-10-16 跑 `move.spec` 時有人點了測試視窗的關閉鈕：系統 log 在 07:07:01.685 記到 `windowShouldClose`，35 ms 後程序結束，進行了 40 秒的 `export_app_data` 沒有回應，畫面上只看到「could not reach the local desktop bridge」。檔案沒有寫壞（先寫暫存檔再換），只是工作白做，使用者也不知道。
   - 要做：有匯出、匯入、備份或維護在跑時，關視窗或 ⌘Q 先說正在做什麼、要不要等它做完；背景工作佇列（建索引等）能續跑的就照常結束。E2E：匯出途中送出關閉，看到提示、選等待後匯出完成。
+
+- [ ] **WORK-INDEX-SEARCH-WHILE-BUILDING** — 換模型時，新索引一邊建一邊就能搜；建置由新到舊（2026-10-16 寫內建 transformer 的 trade-off 時提出，用戶同日同意）
+  - 現況：換模型（例如從內建靜態模型換成 LM Studio 跑的 Qwen3-Embedding）後，搜尋一直用舊的完整索引，直到新索引整份建完；14.4M 造訪、外部服務時可能好幾天都用不到新模型。建置照 history ID 由小到大走，最常被搜的近期頁面最後才進新索引。
+  - 提案（[inapp-transformer-embedding-tradeoff.md](../architecture/inapp-transformer-embedding-tradeoff.md)「Searching while it builds」「Build order」）：建置中的索引與完整的舊索引一起搜，兩份語意結果和全文結果以 RRF 融合，不同模型的分數不互相比較；建置改成由新到舊，cursor 仍是一條水位線、往下走。代價：建置期間每次搜尋要用兩個模型各算一次查詢向量，外部服務多一次請求。
+  - 推翻 `semantic-index-control.md` 與 `intelligence.md` §1（未完成的索引只在沒有完整索引時才搜）：用戶 2026-10-16 同意。做的時候改這兩份文檔。和 `WORK-INDEX-REBUILD-SWAP` 一起設計。
+  - 不做：外部服務不在時退回靜態模型、兩份索引永久並存（用戶 2026-10-16：不要）。
+
+- [ ] **WORK-STATIC-MODEL-LOAD-REHASH** — 內建模型每次啟動後第一次載入都重算 531 MB 的雜湊（2026-10-16 寫 trade-off 時讀碼找到，還沒量）
+  - `embedding_static/cache.rs` 的 `load` 在快取沒命中時呼叫 `model_is_present_and_verified`，把每個模型檔整份重算 SHA-256（這台 M5 Max 約 1 秒，目標機更久）。程序啟動後第一次建索引或語意搜尋都會碰到。`VERIFIED_MARKER_FILE` 的註解說載入時信任標記、不重算，代碼沒這樣做。
+  - 要做：驗證通過時把每個檔的大小與修改時間寫進標記；載入時比對一致就信任，不一致才整份重算。先量目標機上啟動後第一次語意搜尋的延遲。
 
 - [ ] **WORK-HISTORY-SEARCH-NOTES** — History 的語意搜尋不顯示任何搜尋提示（2026-10-15 做 `WORK-AI-INDEX-CONTROL` 時找到）
   - 後端每次語意搜尋都回 `noteCodes`（索引是空的、過期、設定變了、服務解析失敗、2026-10-15 起的「用的是上一個模型的索引」），`src/features/history/` 一個都沒讀。使用者看不出語意搜尋退回了關鍵字、索引還沒建完、或用的是舊模型。

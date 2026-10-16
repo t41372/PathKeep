@@ -2,15 +2,25 @@
 
 `WORK-AI-EMBED-INAPP` item 3. The measurements behind every number here are in [2026-10-inapp-embedding-runtimes.md](research/2026-10-inapp-embedding-runtimes.md).
 
+## Decision (2026-10-16): no built-in engine
+
+The user chose C: PathKeep bundles no inference engine. The in-app model stays the static one, and Settings, onboarding and History say plainly that it is a static embedding model: very fast, but it finds pages by meaning less well than the usual contextual embedding models. Contextual models run through an embeddings service (LM Studio, Ollama or an online one).
+
+- The 2026-10-09 removal stands, now by the user's decision ([candle-removal.md](../plan/test-audit-2026-10/candle-removal.md)).
+- D2 and `05` §4 / §7 / §8 have no in-app transformer left to govern and stay as they are.
+- Searching an unfinished index together with the complete one, and building newest first, help a switch to an external model as much as they would have helped this one. They change accepted docs; the user agreed on 2026-10-16, and they are `WORK-INDEX-SEARCH-WHILE-BUILDING` in `BACKLOG.md`. A static index kept for good as a fallback when an external service is away (shape 2 below) the user declined the same day.
+- The dimension evaluation is not needed.
+- Everything below is the analysis that led here, kept as the record.
+
 ## What the user asked for
 
 On 2026-10-15 the user corrected the 2026-10-09 removal of the in-app Qwen3 tier (`847c6209`): they had asked for dead code to be checked, not for a working feature to go. A built-in model matters because an embedding model is not something to change lightly, and a built-in one is more complete and of a piece with the app. On 2026-10-16, after the evaluation on their own history, they approved bringing a transformer tier back.
 
-## What changes in accepted docs
+## What it would have changed in accepted docs
 
-1. **The removal is reversed** ([candle-removal.md](../plan/test-audit-2026-10/candle-removal.md)). The user agreed on 2026-10-16, then asked whether a bundled inference engine is worth carrying at all; that is open (see "Ship an engine at all?").
+1. **The removal reversed** ([candle-removal.md](../plan/test-audit-2026-10/candle-removal.md)). The user agreed on 2026-10-16, then asked whether a bundled inference engine is worth carrying at all, and chose not to (see "Decision").
 
-These three need the user's consent:
+These three needed the user's consent:
 
 2. **D2 changes runtime** (if an engine is bundled). `02-architecture-decisions.md` D2 makes candle the only in-app inference engine. Measured on this Mac, candle is 2.4–3.5 times slower than llama.cpp with a footprint two to three times larger, so the transformer runs on llama.cpp (see "Runtime"). The static model keeps its own Rust engine.
 3. **An unfinished index is searched while it builds** (whatever is bundled; it applies to external models too). `semantic-index-control.md` and `intelligence.md` §1 search an incomplete chosen index only when no complete index exists. Here it is searched together with the complete one (see "Searching while it builds").
@@ -31,7 +41,7 @@ On 2026-10-16 the user asked whether PathKeep should bundle an inference engine,
 | B. Built in on Apple Silicon; external elsewhere | Macs with Apple Silicon without setup; elsewhere, whoever runs a local server or uses a provider | pinned on Macs; elsewhere, theirs | llama.cpp for macOS arm64 with Metal, bindings                               |
 | C. Static plus external                          | whoever runs a local server or uses a provider                                                   | whatever their server serves      | no engine                                                                    |
 
-Recommended: **B.** It keeps what the user asked for, a built-in model that never changes under the index, where it runs in minutes, and leaves the GPU matrix to the apps whose job it is. C is a sound outcome too: semantic search still works everywhere with the static model, at 0.589 hit@10 against 0.729 on the user's history.
+Recommended: **B.** The user chose C. B keeps what the user asked for, a built-in model that never changes under the index, where it runs in minutes, and leaves the GPU matrix to the apps whose job it is. C is a sound outcome too: semantic search still works everywhere with the static model, at 0.589 hit@10 against 0.729 on the user's history.
 
 A pure-Rust engine (candle) avoids vcpkg, bindings and CPU variant libraries, since its float matrix code picks instructions at run time, and D2 stands. Measured, it is 2.4–3.5 times slower and needs 2.3–4.1 GiB at the build's batch, which is the problem on 8 GB.
 

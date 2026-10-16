@@ -149,7 +149,7 @@ export const onboarding = defineMessages({
       },
       local: {
         title: 'Local semantic search',
-        body: 'Downloads a model once, then builds the index {where}. Your searches stay offline.',
+        body: 'Downloads a static embedding model once, then builds the index {where}. Very fast, but it finds pages by meaning less well than the usual contextual embedding models. Your searches stay offline.',
       },
       provider: {
         title: 'Connect a provider',
@@ -349,7 +349,7 @@ export const onboarding = defineMessages({
       off: { title: '先不用', body: '只用全文和正则搜索，什么都不下载。' },
       local: {
         title: '本地语义搜索',
-        body: '下载一次模型，然后{where}建立索引。搜索全程离线。',
+        body: '下载一次静态嵌入模型，然后{where}建立索引。非常快，但找意思相近的页面不如一般的上下文嵌入模型。搜索全程离线。',
       },
       provider: {
         title: '连接 AI 服务',
@@ -545,7 +545,7 @@ export const onboarding = defineMessages({
       off: { title: '先不用', body: '只用全文和正則搜尋，什麼都不下載。' },
       local: {
         title: '本機語意搜尋',
-        body: '下載一次模型，然後{where}建立索引。搜尋全程離線。',
+        body: '下載一次靜態嵌入模型，然後{where}建立索引。非常快，但找意思相近的頁面不如一般的上下文嵌入模型。搜尋全程離線。',
       },
       provider: {
         title: '連接 AI 服務',

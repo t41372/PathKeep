@@ -1,6 +1,10 @@
 # Review: removing the candle embedding tier (`embedding_candle.rs`, 2056 lines)
 
-Decision: user, 2026-10-09 (`docs/plan/STATUS.md:96`, WORK-TEST-AUDIT-2026-10 item 4). Remove the in-app
+Decision: user, 2026-10-09 (`docs/plan/STATUS.md:96`, WORK-TEST-AUDIT-2026-10 item 4). On 2026-10-15 the user said they had
+asked for dead code to be checked, not for this removal. After weighing a built-in transformer model again
+([inapp-transformer-embedding-tradeoff.md](../../architecture/inapp-transformer-embedding-tradeoff.md)), they decided
+on 2026-10-16 that PathKeep bundles no inference engine: the removal stands, and contextual models run through an
+embeddings service. Remove the in-app
 Qwen3 GGUF engine, the tests that only test it, the branches that fall back to it, and the docs that call it
 shipped. Must keep working: the default `static-in-app` provider
 (`models/intelligence.rs:295,304-315,351-358`, applied in `models/app.rs:32-33`) and external

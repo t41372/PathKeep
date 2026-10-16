@@ -39,8 +39,8 @@ export const historySearch = defineMessages({
         'PathKeep uses Rust’s regex syntax, which refused this pattern: {message}',
     },
     semantic: {
-      builtIn: 'the built-in model',
-      builtInModel: 'the built-in model ({model})',
+      builtIn: 'the built-in static model',
+      builtInModel: 'the built-in static model ({model})',
       using: 'Semantic search with {provider}',
       indexed_one: '{count} page indexed',
       indexed_other: '{count} pages indexed',
@@ -100,8 +100,8 @@ export const historySearch = defineMessages({
       backendBody: 'PathKeep 使用 Rust 的正则语法，它拒绝了这个模式：{message}',
     },
     semantic: {
-      builtIn: '内置模型',
-      builtInModel: '内置模型（{model}）',
+      builtIn: '内置静态模型',
+      builtInModel: '内置静态模型（{model}）',
       using: '语义搜索使用{provider}',
       indexed_one: '已索引 {count} 个页面',
       indexed_other: '已索引 {count} 个页面',
@@ -161,8 +161,8 @@ export const historySearch = defineMessages({
         'PathKeep 使用 Rust 的正規表示式語法，它拒絕了這個模式：{message}',
     },
     semantic: {
-      builtIn: '內建模型',
-      builtInModel: '內建模型（{model}）',
+      builtIn: '內建靜態模型',
+      builtInModel: '內建靜態模型（{model}）',
       using: '語意搜尋使用{provider}',
       indexed_one: '已索引 {count} 個頁面',
       indexed_other: '已索引 {count} 個頁面',

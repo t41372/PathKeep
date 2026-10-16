@@ -2967,3 +2967,10 @@ that held up when checked against the code.
 - [x] `WORK-AI-EMBED-INAPP` item 3, second step — The in-app model's tokenizer no longer holds 578 MiB (2026-10-16).
   - With the matrix mapped, 578 of the remaining 618 MiB was the tokenizer's dictionary: `tokenizers` keeps its 500,000 pieces in a trie with a hash map in every node. PathKeep now segments with its own Unigram over one sorted byte buffer, the same algorithm with the same results: the in-app model takes 73–76 MiB, loads its tokenizer in 0.2 s instead of 1.1 s, and embeds a little faster. Token IDs and offsets match tokenizers 0.22.2 on 2,044 texts, CJK, emoji, unknown characters and the longest pieces included.
   - Models other than Unigram keep using `tokenizers` as before. A Unigram model with byte fallback works too; one with empty or duplicate pieces fails to load with a message instead of segmenting wrongly.
+
+- [x] `WORK-AI-EMBED-INAPP` item 3 — No built-in transformer model; the in-app one says it is static (2026-10-16).
+  - Measured on the user's history and on this Mac, a transformer model finds pages much better than the static one (hit@10 0.729 against 0.589), and llama.cpp runs it fastest. Bundling it would mean carrying an inference engine: a separate build for each kind of graphics card, CPU builds per x86 instruction set, bindings to redo on each upgrade, and on the 4-core target hours to weeks per index. The user decided PathKeep bundles none: contextual models run through an embeddings service such as LM Studio or Ollama, and the 2026-10-09 removal of the candle tier stands.
+  - Settings, onboarding and History now call the in-app model a static embedding model and say what that means: very fast, but it finds pages by meaning less well than the usual contextual embedding models.
+  - Searching a new model's index while it builds, and building newest first, wait for the user's consent in the backlog (`WORK-INDEX-SEARCH-WHILE-BUILDING`).
+
+- [x] `WORK-AI-EMBED-INAPP` — In-app embedding: the query path, the text sent, and whether to bring a transformer model back (2026-10-16).

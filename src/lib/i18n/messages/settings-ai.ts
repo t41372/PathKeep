@@ -12,9 +12,9 @@ export const settingsAi = defineMessages({
         'Find pages by meaning, not only by keywords. {name} builds the index.',
       model: {
         label: 'Model',
-        inApp: 'In-app model',
+        inApp: 'In-app static model',
         inAppAbout:
-          '{model}, {dims} dimensions. It comes with PathKeep and runs on this computer. It is a static model: very fast, but it reads words without their context (it cannot tell apple the fruit from Apple the company), so it finds pages that mean the same thing less well than an embedding model run by a service such as LM Studio.',
+          '{model}, {dims} dimensions. It comes with PathKeep and runs on this computer. It is a static embedding model: a word means the same to it wherever it appears, so it cannot tell apple the fruit from Apple the company. That makes it very fast, but it finds pages by meaning less well than the usual contextual embedding models, which read every word in its context. To use one, add an embeddings service such as LM Studio or Ollama.',
         add: 'Add an embeddings service…',
       },
       serviceDialog: {
@@ -26,7 +26,7 @@ export const settingsAi = defineMessages({
       serviceRemoteNote:
         'An online service. Each page’s title, site, the words in its address and its saved text, and your searches, are sent to it.',
       serviceRemoveBody:
-        'The service and its stored API key are removed from this computer. Semantic search goes back to the in-app model.',
+        'The service and its stored API key are removed from this computer. Semantic search goes back to the in-app static model.',
       modelChange:
         'Another model needs its own index ({count} visits). Nothing starts until you build it in Settings → AI; until it is complete, semantic search keeps using {old}.',
       modelChangeCounting:
@@ -289,9 +289,9 @@ export const settingsAi = defineMessages({
         '按含义而不只是关键词来查找页面。由 {name} 建立索引。',
       model: {
         label: '模型',
-        inApp: '应用内置模型',
+        inApp: '应用内置静态模型',
         inAppAbout:
-          '{model}，{dims} 维。随 PathKeep 提供，在这台电脑上运行。它是静态模型：非常快，但只看词本身、不看上下文（分不清“苹果”是水果还是公司），找意思相近的页面不如 LM Studio 这类服务运行的嵌入模型。',
+          '{model}，{dims} 维。随 PathKeep 提供，在这台电脑上运行。它是静态嵌入（static embedding）模型：同一个词不管出现在哪里，对它来说意思都一样，所以分不清“苹果”是水果还是公司。因此它非常快，但找意思相近的页面不如一般的上下文嵌入（contextual embedding）模型，那种模型会看每个词的上下文。想用的话，添加一个嵌入服务，例如 LM Studio 或 Ollama。',
         add: '添加嵌入服务…',
       },
       serviceDialog: {
@@ -303,7 +303,7 @@ export const settingsAi = defineMessages({
       serviceRemoteNote:
         '在线服务。每个页面的标题、网站、网址里的词和保存的网页正文，以及你的搜索，都会发给它。',
       serviceRemoveBody:
-        '这个服务和它保存的 API 密钥会从这台电脑上移除，语义搜索改回使用应用内置模型。',
+        '这个服务和它保存的 API 密钥会从这台电脑上移除，语义搜索改回使用应用内置静态模型。',
       modelChange:
         '换成别的模型需要它自己的索引（{count} 条访问记录）。要在“设置 → AI”里建立才会开始；建好之前，语义搜索继续用 {old}。',
       modelChangeCounting:
@@ -551,9 +551,9 @@ export const settingsAi = defineMessages({
         '依意思而不只是關鍵字來尋找頁面。由 {name} 建立索引。',
       model: {
         label: '模型',
-        inApp: 'App 內建模型',
+        inApp: 'App 內建靜態模型',
         inAppAbout:
-          '{model}，{dims} 維。隨 PathKeep 提供，在這台電腦上執行。它是靜態模型：非常快，但只看字詞本身、不看上下文（分不出「蘋果」是水果還是公司），找意思相近的頁面不如 LM Studio 這類服務執行的嵌入模型。',
+          '{model}，{dims} 維。隨 PathKeep 提供，在這台電腦上執行。它是靜態嵌入（static embedding）模型：同一個字詞不論出現在哪裡，對它來說意思都一樣，所以分不出「蘋果」是水果還是公司。因此它非常快，但找意思相近的頁面不如一般的上下文嵌入（contextual embedding）模型，那種模型會看每個字詞的前後文。想用的話，新增一個嵌入服務，例如 LM Studio 或 Ollama。',
         add: '新增嵌入服務…',
       },
       serviceDialog: {
@@ -565,7 +565,7 @@ export const settingsAi = defineMessages({
       serviceRemoteNote:
         '線上服務。每個頁面的標題、網站、網址裡的字詞與儲存的網頁內文，以及你的搜尋，都會傳給它。',
       serviceRemoveBody:
-        '這個服務與它儲存的 API 金鑰會從這台電腦上移除，語意搜尋改回使用 App 內建模型。',
+        '這個服務與它儲存的 API 金鑰會從這台電腦上移除，語意搜尋改回使用 App 內建靜態模型。',
       modelChange:
         '換成別的模型需要它自己的索引（{count} 次造訪）。要在「設定 → AI」裡建立才會開始；建好之前，語意搜尋繼續用 {old}。',
       modelChangeCounting:
