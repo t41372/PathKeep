@@ -8,7 +8,7 @@
 //!
 //! ## Not responsible for
 //!
-//! - Worker-side AI job execution.
+//! - Worker-side AI job execution or serving-index selection.
 //! - Provider network behavior.
 
 use super::*;
@@ -89,11 +89,10 @@ fn execute(
     vault.store().write(Db::Intelligence, Priority::Interactive, move |s| s.execute(sql, params))
 }
 
+/// Failure modes: an old question is sent again, counted as waiting or replayed; an answered
+/// question is cancelled; retiring old work also cancels an index job with a recorded model.
 #[test]
 fn a_question_left_in_the_queue_by_an_older_ask_ends_cancelled_and_never_runs() {
-    // Ways this goes wrong (WORK-ASSISTANT-JOB-TYPE): a question asked long ago is sent to a model
-    // when the queue next drains; it stays "waiting" for ever and is counted as such; "run again"
-    // queues it once more; a question that was answered back then is rewritten as cancelled.
     let vault = Vault::open_temp().unwrap();
     let payload = serde_json::to_string(&AiJobPayload::Assistant {
         payload: AssistantJobPayload {
@@ -126,9 +125,18 @@ fn a_question_left_in_the_queue_by_an_older_ask_ends_cancelled_and_never_runs() 
     };
     let waiting = insert("queued");
     let answered = insert("succeeded");
-    let index = enqueue_index_job(&vault, &AiIndexRequest::default(), false).unwrap();
+    let index = vault
+        .write(Db::Intelligence, Priority::Interactive, |s| {
+            store::enqueue_index_job(
+                s,
+                &AiIndexRequest { provider_id: Some("embed".into()), ..Default::default() },
+                Some("model"),
+                false,
+            )
+        })
+        .unwrap();
 
-    recover_owner_claims(vault.store()).unwrap();
+    recover_owner_claims(vault.store(), false).unwrap();
 
     let retired = load_ai_job(&vault, waiting).unwrap();
     assert_eq!(retired.state, "cancelled");

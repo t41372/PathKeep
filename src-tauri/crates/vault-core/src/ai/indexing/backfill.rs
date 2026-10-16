@@ -6,6 +6,7 @@
 //!   one-shot full-rebuild wipe, the embed backfill, and the derived-plane re-projection
 //! - embed candidate rows in resumable, cancellable chunks ([`run_embedding_backfill`]) and persist
 //!   them to the `.pkvec` store + `.pkmap` visit map + Turso metadata rows
+//! - retain explicit serving pairs until a replacement completes
 //! - encapsulate the no-dup/no-miss crash-window invariants in [`DedupTracker`] so they are tested
 //!   directly rather than only through end-to-end resume tests
 //!
@@ -143,9 +144,8 @@ pub async fn build_ai_index_with_control(
     // (the persisted cursor is still at the origin). On any resume (`start_history_id > 0`) a worker
     // restart MUST NOT re-clear the partially-rebuilt store/metadata, or every row already embedded
     // below the cursor is silently lost while the job still reports success (02 §C.6 R1).
-    // The resume APPENDS to the existing store instead. The worker also flips `request.full_rebuild`
-    // to false in the persisted payload once the first cursor is recorded, so a re-claim never sees
-    // a destructive full_rebuild again; this `start_history_id` gate is the in-process backstop.
+    // A resume appends to the existing store. Keep full-rebuild intent in the job so completion
+    // can retire the previous serving pair, while this durable cursor gates the destructive wipe.
     let is_resume = start_history_id > 0;
     // `ReembedScope::Full` carries full-rebuild semantics (wipe the plane, embed all unique pages),
     // so it triggers the one-shot wipe exactly like the legacy `full_rebuild` flag (W-AI-9-D). The
@@ -292,6 +292,7 @@ pub async fn build_ai_index_with_control(
             "Index build was cancelled before projecting keyed reverse sidecars.",
         )?;
         rebuild_reverse_sidecars(paths, provider)?;
+        checkpoint_ai_run(run_control, "Index build stopped before completion.")?;
 
         let notes = if outcome.indexed_items == 0 {
             vec!["No new or changed history rows required indexing.".to_string()]
@@ -336,6 +337,7 @@ pub async fn build_ai_index_with_control(
             source_watermark,
             &sidecar_table,
             request,
+            ledger.as_ref().and_then(|ledger| ledger.job_id()),
         )
         .and_then(|()| {
             finalize_ai_run_success(
@@ -353,6 +355,15 @@ pub async fn build_ai_index_with_control(
             Ok(()) => Ok(report),
             Err(error) => {
                 end_failed_ai_run(vault, run_id, &error, json!({}));
+                let _ = record_index_ledger_failure(
+                    vault,
+                    provider,
+                    run_id,
+                    source_watermark,
+                    &sidecar_table,
+                    request,
+                    &format!("{error:#}"),
+                );
                 Err(error)
             }
         },
@@ -375,7 +386,7 @@ pub async fn build_ai_index_with_control(
                 source_watermark,
                 &sidecar_table,
                 request,
-                &error.to_string(),
+                &format!("{error:#}"),
             ) {
                 eprintln!(
                     "pathkeep: index run {run_id}: recording its failure failed: {recording:#}"
@@ -386,21 +397,17 @@ pub async fn build_ai_index_with_control(
     }
 }
 
-/// Deletes the semantic index of every (service, model) that is no longer set up, and returns
-/// how many pairs it deleted.
+/// Deletes pairs outside the caller's retention set, including their readiness ledger.
 ///
-/// An index belongs to one service and one model (`ai_embedding_totals`, the `.pkvec` and its
-/// planes). Changing a service's model in Settings, or removing the service, leaves the old one
-/// behind: nothing reads it again, and on a large archive it is gigabytes. `configured` is every
-/// pair Settings has now; each other pair's rows and files go. Run at the start of an index job,
-/// in the background, because the rows are deleted in batches.
+/// The worker retains chosen and serving at job start, then only chosen after a full rebuild.
+/// Deletes metadata in batches and files off the UI thread.
 pub async fn forget_unconfigured_indexes(
     vault: &crate::Vault,
     configured: &[(String, String)],
     control: Option<&Arc<dyn AiRunControl>>,
 ) -> Result<usize> {
     let indexed = vault.read(Db::Intelligence, |s| {
-        Ok(s.query("SELECT provider_id,model FROM ai_embedding_totals", (), |r| {
+        Ok(s.query("SELECT provider_id,model FROM ai_embedding_totals UNION SELECT provider_id,model FROM ai_index_ledger", (), |r| {
             Ok((r.get::<String>(0)?, r.get::<String>(1)?))
         })?)
     })?;
@@ -419,6 +426,14 @@ pub async fn forget_unconfigured_indexes(
             },
             api_key: None,
         };
+        let (id, model_name) = (provider_id.clone(), model.clone());
+        vault.write(Db::Intelligence, Priority::Batch, move |s| {
+            s.execute(
+                "UPDATE ai_index_ledger SET state='incomplete' WHERE provider_id=?1 AND model=?2",
+                params![id, model_name],
+            )?;
+            Ok(())
+        })?;
         clear_provider_embeddings(vault, &gone, control)?;
         ai_sidecar::clear_provider_embeddings(&paths, &provider_id, &model).await?;
         VectorStore::for_provider(&paths, &provider_id, &model).delete()?;
@@ -434,6 +449,10 @@ pub async fn forget_unconfigured_indexes(
         vault.write(Db::Intelligence, Priority::Batch, move |s| {
             s.execute(
                 "DELETE FROM ai_embedding_totals WHERE provider_id=?1 AND model=?2",
+                params![id, kept],
+            )?;
+            s.execute(
+                "DELETE FROM ai_index_ledger WHERE provider_id=?1 AND model=?2",
                 params![id, kept],
             )?;
             Ok(())
@@ -573,17 +592,10 @@ fn scan_target_for(connection: &Session<'_>, start_history_id: i64) -> Result<i6
     max_candidate_history_id(connection)
 }
 
-/// The number of candidate pages this build still has to embed — the HONEST progress denominator.
-///
-/// Counts the `reverted_at IS NULL` candidate set (the same predicate as [`max_candidate_history_id`])
-/// minus the pages already embedded for this provider (`NOT EXISTS` against `ai_embeddings`). Because a
-/// full rebuild's wipe clears this provider's `ai_embeddings` rows BEFORE the backfill runs, at a
-/// build's true start this is "every candidate" for a full rebuild and "only the un-embedded new pages"
-/// for an incremental pass — exactly what `embedded_so_far` (cumulative changed visits) climbs to, so
-/// `embedded_so_far / embed_target` reaches ~100% on either. (Like the scan denominator it skips the
-/// `urls`/`source_profiles` join, so a rare visit with an orphaned FK is counted but never embedded —
-/// the bar can finish a hair short, which the job's completion then clears.)
-fn candidate_page_count(connection: &Session<'_>, provider_id: &str) -> Result<u64> {
+/// Counts visible visits missing metadata for this exact pair. An empty index counts every
+/// visit; a partial index counts only its missing visits. This runs once in the background,
+/// never during status polling. Durable cursor progress preserves the target across resumes.
+fn candidate_visit_count(connection: &Session<'_>, provider_id: &str, model: &str) -> Result<u64> {
     let count: i64 = connection
         .query_one(
             "SELECT COUNT(*)
@@ -591,9 +603,9 @@ fn candidate_page_count(connection: &Session<'_>, provider_id: &str) -> Result<u
              WHERE visits.reverted_at IS NULL
                AND NOT EXISTS (
                  SELECT 1 FROM ai_embeddings AS e
-                 WHERE e.provider_id = ?1 AND e.history_id = visits.id
+                 WHERE e.provider_id = ?1 AND e.model = ?2 AND e.history_id = visits.id
                )",
-            params![provider_id],
+            params![provider_id, model],
             |row| Ok(row.get(0)?),
         )
         .context("counting candidate pages needing embedding for the index embed target")?;
@@ -606,12 +618,13 @@ fn candidate_page_count(connection: &Session<'_>, provider_id: &str) -> Result<u
 fn embed_target_for(
     connection: &Session<'_>,
     provider_id: &str,
+    model: &str,
     start_history_id: i64,
 ) -> Result<u64> {
     if start_history_id > 0 {
         return Ok(0);
     }
-    candidate_page_count(connection, provider_id)
+    candidate_visit_count(connection, provider_id, model)
 }
 
 /// Embeds candidate rows in resumable, cancellable chunks and persists them to the vector plane.
@@ -670,14 +683,12 @@ async fn run_embedding_backfill(
     // stored target is preserved (see `scan_target_for` / `persist_index_cursor`).
     let scan_target =
         vault.read(Db::Intelligence, move |s| scan_target_for(s, start_history_id))?;
-    // The HONEST progress denominator: how many candidate pages this build will embed — captured at the
-    // TRUE start and preserved across resumes exactly like `scan_target`. Counts pages NOT yet embedded
-    // for this provider, so it is correct for BOTH a full rebuild (the wipe at the build's true start
-    // cleared this provider's embeddings, so every candidate counts) AND an incremental pass (only the
-    // un-embedded new pages count) — matching what `embedded_total` (cumulative changed visits) climbs to.
+    // Count visits still missing from this pair before the first request. Resume keeps its target.
     let provider_id = provider.config.id.clone();
-    let embed_target = vault
-        .read(Db::Intelligence, move |s| embed_target_for(s, &provider_id, start_history_id))?;
+    let model = provider.config.default_model.clone();
+    let embed_target = vault.read(Db::Intelligence, move |s| {
+        embed_target_for(s, &provider_id, &model, start_history_id)
+    })?;
     // The cursor reflecting the last chunk whose vectors+map+Turso are ALL durably persisted (F2.1).
     // It NEVER advances past a chunk that has not been fully persisted, so persisting it on the failure
     // path resumes from REAL progress instead of the origin — and never SKIPS an un-persisted chunk
@@ -688,6 +699,10 @@ async fn run_embedding_backfill(
         scan_target,
         embed_target,
     };
+
+    if let Some(ledger) = ledger {
+        ledger.record(last_durable)?;
+    }
 
     // The crash-window dedup state is encapsulated in
     // `DedupTracker`. `load_existing` populates the on-disk sets whenever a store/map already exists

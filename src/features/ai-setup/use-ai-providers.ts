@@ -1,13 +1,20 @@
 /**
  * Actions on the user's AI services, for the assistant (`llm`) or for
  * semantic search's embeddings (`embedding`): add, edit, select, remove,
- * test. Each one saves through `useSaveConfig` so the snapshot stays the
- * single source of truth. Not responsible for any rendering, or for building
- * the search index when the embeddings service changes (`use-semantic-index`).
+ * check, test. Each one saves through `useSaveConfig` so the snapshot stays
+ * the single source of truth.
+ *
+ * Saving a service only checks it: it reads the service's model list, which
+ * never makes LM Studio or Ollama load a model. Running the model is the
+ * connection test, and only the Test connection button does that.
+ *
+ * Not responsible for any rendering, or for building the search index
+ * (`use-semantic-index`).
  */
 import { useQueryClient } from '@tanstack/react-query'
 import { useCallback, useState } from 'react'
 import { intelligenceClient } from '@/lib/backend-client/intelligence'
+import { describeError } from '@/lib/errors'
 import { useI18n } from '@/lib/i18n'
 import { queryKeys } from '@/lib/query'
 import { useSaveConfig } from '@/lib/queries/app'
@@ -24,6 +31,13 @@ import {
   presetFor,
   type ProviderDraft,
 } from './providers'
+
+/** What reading a saved service's model list found. */
+export type ProviderCheck =
+  | { kind: 'checking' }
+  | { kind: 'found' }
+  | { kind: 'missing' }
+  | { kind: 'unreachable'; message: string }
 
 function masterStaysOn(ai: AiSettings) {
   return ai.semanticIndexEnabled || ai.mcpEnabled || ai.skillEnabled
@@ -51,9 +65,45 @@ export function useAiProviders(purpose: AiProviderPurpose = 'llm') {
   const [reports, setReports] = useState<
     Record<string, AiProviderConnectionTestReport | Error>
   >({})
+  const [checks, setChecks] = useState<Record<string, ProviderCheck>>({})
+
+  /** Reads the service's models and looks for the chosen one; loads nothing. */
+  const check = useCallback(async (provider: AiProviderConfig) => {
+    const settle = (result: ProviderCheck) =>
+      setChecks((current) => ({ ...current, [provider.id]: result }))
+    // A test of the settings before the save no longer says anything.
+    setReports((current) => {
+      const next = { ...current }
+      delete next[provider.id]
+      return next
+    })
+    settle({ kind: 'checking' })
+    try {
+      const models = await intelligenceClient.listProviderModels({
+        purpose: provider.purpose,
+        requestFormat: provider.requestFormat,
+        baseUrl: provider.baseUrl ?? null,
+        providerId: provider.id,
+        apiRootOnly: true,
+      })
+      settle({
+        kind: models.some((model) => model.id === provider.defaultModel)
+          ? 'found'
+          : 'missing',
+      })
+    } catch (reason) {
+      settle({ kind: 'unreachable', message: describeError(reason) })
+    }
+  }, [])
 
   const test = useCallback(
     async (providerId: string) => {
+      // The test's answer replaces what saving found.
+      setChecks((current) => {
+        const next = { ...current }
+        delete next[providerId]
+        return next
+      })
       setTesting(providerId)
       try {
         const report = await intelligenceClient.testProviderConnection({
@@ -86,9 +136,9 @@ export function useAiProviders(purpose: AiProviderPurpose = 'llm') {
   )
 
   /**
-   * Saves the service and stores its key, then checks the connection. An
+   * Saves the service and stores its key, then checks it (`check`). An
    * assistant service is also selected; an embeddings service is selected by
-   * the caller, since that starts a new index.
+   * the caller.
    */
   const add = useCallback(
     async (draft: ProviderDraft) => {
@@ -112,10 +162,10 @@ export function useAiProviders(purpose: AiProviderPurpose = 'llm') {
         return config
       })
       await storeKey(id, draft.apiKey)
-      void test(id)
+      void check(provider)
       return provider
     },
-    [purpose, save, storeKey, t, test],
+    [check, purpose, save, storeKey, t],
   )
 
   /**
@@ -150,10 +200,10 @@ export function useAiProviders(purpose: AiProviderPurpose = 'llm') {
       )
       if (!updated) throw new Error(`No service ${providerId} to change.`)
       await storeKey(providerId, draft.apiKey)
-      void test(providerId)
+      void check(updated)
       return updated
     },
-    [purpose, save, storeKey, test],
+    [check, purpose, save, storeKey],
   )
 
   const select = useCallback(
@@ -199,6 +249,11 @@ export function useAiProviders(purpose: AiProviderPurpose = 'llm') {
         delete next[providerId]
         return next
       })
+      setChecks((current) => {
+        const next = { ...current }
+        delete next[providerId]
+        return next
+      })
     },
     [purpose, save],
   )
@@ -212,6 +267,7 @@ export function useAiProviders(purpose: AiProviderPurpose = 'llm') {
     test,
     testing,
     reports,
+    checks,
     saving: save.isPending,
   }
 }

@@ -1,3 +1,4 @@
+//! Failure modes: dependency features reorder visit/schema fingerprint JSON and break deduplication.
 //! Regression tests for the canonical archive domain.
 use super::*;
 use crate::{
@@ -240,4 +241,19 @@ fn visit_event_fingerprint_is_stable() {
         None,
     );
     assert_eq!(fingerprint, "da53df0772e36b09afd187a0454da559fe451c828a40353f4e5c7514d17ecc59");
+}
+
+/// Source schema bytes feed a persisted fingerprint and must retain the old sorted encoding.
+#[test]
+fn browser_schema_payload_keeps_the_existing_sorted_json_encoding() {
+    let root = tempdir().unwrap();
+    let path = root.path().join("source.sqlite");
+    let source = Connection::open(&path).unwrap();
+    source.execute_batch("CREATE TABLE z (id INTEGER PRIMARY KEY)").unwrap();
+    drop(source);
+    let payload = super::browser_schema::collect_schema_payload(&path).unwrap();
+    assert_eq!(
+        payload.to_string(),
+        r#"[{"name":"z","sql":"CREATE TABLE z (id INTEGER PRIMARY KEY)","tableName":"z","type":"table"}]"#
+    );
 }

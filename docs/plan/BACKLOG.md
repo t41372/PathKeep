@@ -43,6 +43,29 @@
 
 > 2026-06-14 review-pipeline closeout：`docs/plan/program/review-pipeline.md` 全面審查完成，確認的問題已全部修復（見 CHANGELOG `WORK-REVIEW-0614-FULL-PIPELINE-A`）。剩下的是非阻塞的 polish，匯整成下方 `WORK-REVIEW-0614-FOLLOWUPS-A`（未阻塞，但非當前 focus）。被駁回 / 降級 / 列為 trade-off 的項目不重開。
 
+- [ ] **WORK-BACKGROUND-DASHBOARD** — 後台任務做成 dashboard，不是設置頁（用戶 2026-10-15，說之後再做）
+  - 現況：Settings → 後台任務是一列列設置卡片加工作清單。它其實是給人看「現在在跑什麼、跑多快、哪裡卡住」的地方：正在跑的工作、進度與速度、排隊的、失敗的與原因、可以暫停 / 繼續 / 取消 / 重試。
+  - 先做 `WORK-AI-INDEX-CONTROL`（暫停狀態、推送的進度），再設計這頁；讀 `docs/design/` 核心四份。
+
+- [ ] **WORK-EMBED-USES** — embedding 不只用在搜索（用戶 2026-10-15）
+  - 前提：現在每次語義搜索把全部向量掃一遍（`vector_index.rs` 的 int8 暴力計算）。Turso 遷移時拿掉了二值粗篩，`05-embedding-retrieval-revision.md` 與 `vector_planes.rs` 檔頭還寫兩段式。每多一個用途就多一次全掃，14.4M 時要先換索引結構（先量）。
+  - 候選，按價值：給 Ask 的每週 / 每月主題聚類（「總結一下這週」要的就是這個，`intelligence_report` 只有數字）；洞察的主題時間線（聚類 + 最有代表性的標題命名，不需要 LLM）；頁面詳情的相關頁面與重新浮現；session 標題選語義上最居中的頁；搜索結果合併近似重複（同一篇文章的不同網址、AMP、鏡像）；用戶自訂類別的零樣本分類。
+  - 核心功能不以有 embedding 為前提（AGENTS.md 第 4 條），這些是有 embedding 時才有的功能。
+
+- [ ] **WORK-ASK-WEEKDAYS** — 工具結果的時間加上星期（2026-10-15 真模型實測看到）
+  - qwen3.8-27b-splash 回答「總結一下這週」時把 10/15 說成週五（其實週四）。工具結果的本地時間只有 `YYYY-MM-DD HH:MM`（`format_local_ms`），星期得模型自己推；系統提示只給了今天的星期。跟「不要讓模型換算 epoch」同一類：在主機上算好，日期旁寫星期（照使用者的語言或固定英文，選一種寫進文檔）。
+
+- [ ] **WORK-HISTORY-SEARCH-NOTES** — History 的語意搜尋不顯示任何搜尋提示（2026-10-15 做 `WORK-AI-INDEX-CONTROL` 時找到）
+  - 後端每次語意搜尋都回 `noteCodes`（索引是空的、過期、設定變了、服務解析失敗、2026-10-15 起的「用的是上一個模型的索引」），`src/features/history/` 一個都沒讀。使用者看不出語意搜尋退回了關鍵字、索引還沒建完、或用的是舊模型。
+  - 要做：History 在結果上方照 code 用三種語言說一句，附下一步（去 Settings → AI）；E2E 驗至少「索引還沒建完」與「用上一個模型」。
+
+- [ ] **WORK-SEED-TURSO-ASSERT** — debug 版的 14.4M 種子資料觸發 Turso 的 reserved-bytes 斷言（2026-10-15 Codex 量 Takeout 匯入時看到，release 版沒事，根因沒查）
+  - 先在 debug 版重現，看是我們寫入的方式還是 Turso 的 bug；是 Turso 的就照 AGENTS.md「不對外」在我們這邊繞過並記下重現。
+
+- [ ] **WORK-DEPS-LATEST** — 依賴跟到最新版（用戶 2026-10-15：之前的 agent 過度 pin）
+  - 例：`rig-core` 停在 0.34.0（2026-03-31），最新 0.44.0（2026-10-07）。0.x 寫 `"0.34.0"` 等於鎖在 0.34.x。
+  - 列出所有落後的 Rust 與 JS 依賴，一個一個升，跑 gate；要鎖舊版的在宣告旁寫理由（AGENTS.md 供應鏈）。rig 的升級跟 `WORK-AI-AGENT-TURNS` 的傳輸層決定一起做。
+
 - [ ] **WORK-WINDOWS-SNAP-LAYOUTS** — Windows 11 的貼齊版面與自畫視窗按鈕的實機確認（2026-10-13 `WORK-UI-POLISH-2026-10` 留下）
   - 現況：Windows、Linux 已關掉系統標題列，最小化 / 最大化 / 關閉由 app 畫在右上角（`window-controls.tsx`），從沒在兩個平台的實機上看過。滑鼠停在最大化上時 Windows 11 的貼齊版面不會出現。
   - 為什麼還沒做：要讓系統把我們畫的按鈕當成最大化按鈕，得在 Rust 裡回應 `WM_NCHITTEST`（`windows` crate），但 WebView2 的子視窗蓋住整個內容區，訊息可能到不了頂層視窗；這台 Mac 也編不了 Windows 版（`ring`、`aws-lc-sys` 要 mingw），寫了無法建置也無法試。
@@ -687,7 +710,7 @@ core-intelligence/api`, all returning the same data. Reusing the existing
   - 契約：誠實態（寧可誠實 provider error 也不靜默吞；部分結果要標示）；前端流暢度不受影響；AI 可選；i18n×3；100% JS/Rust coverage + lethal tests（含 no-usage、小 window、超大最後一筆結果、空答 fallback 的案例）；`bun run check`。
   - 驗收：構造「context 逼近 budget 時最後一輪回超大結果」的測試，synthesis turn 不再 overflow（或誠實降級且有測試證明）；小 window provider 走 graceful 路徑；no-usage provider 用真 tokenizer 估算；空答有 fallback 摘要；更新 `docs/architecture/`。
 
-- [ ] **WORK-AI-INDEX-OBS-A** — Semantic Index Build Observability & Controllability（需先做設計階段）
+- [x] **WORK-AI-INDEX-OBS-A** — Semantic Index Build Observability & Controllability（2026-10-15 併入 `STATUS.md` 的 `WORK-AI-INDEX-CONTROL`，下面留作來源）
   - 來源：2026-06-24 使用者驗收 v0.3.0。當時已在 Settings → AI 服務 的 index-health box 加了「構建索引」按鈕，但使用者回報「這方面的 observability 和 controlability 似乎有些不足」。按鈕目前只 enqueue 一個背景 job、顯示一次性「已排入背景」確認，之後使用者**看不到**進度、**控制不了**正在跑的 build。本 block 要設計並實作這套觀測 + 控制面。
   - 讀先：
     `docs/features/intelligence-and-ai.md`（或對應的 AI/intelligence feature 規格）

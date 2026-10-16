@@ -10,7 +10,7 @@
  * Not responsible for fetching or for what the buttons do.
  */
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { RotateCcw, X } from 'lucide-react'
+import { Pause, Play, RotateCcw, X } from 'lucide-react'
 import { type CSSProperties, useEffect, useRef, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -55,6 +55,8 @@ interface RowActions {
   retryLabel?: { text: string; aria: (name: string) => string }
   onRetry: (job: JobView) => void
   onCancel: (job: JobView) => void
+  /** Index builds only: stops where it is, to go on later. */
+  onPause?: (job: JobView) => void
 }
 
 export function JobList({
@@ -227,6 +229,7 @@ function JobRow({
   retryLabel,
   onRetry,
   onCancel,
+  onPause,
   measure,
   index,
   className,
@@ -283,21 +286,49 @@ function JobRow({
           {stateLabel}
         </Badge>
         <div className="flex w-[60px] shrink-0 justify-end gap-1">
-          {job.canRetry && (
+          {job.canPause && onPause && (
             <Button
               size="icon-xs"
               variant="ghost"
               disabled={busy}
-              title={retryLabel?.text ?? t('settingsBackground.retry')}
-              aria-label={
-                retryLabel?.aria(job.name) ??
-                t('settingsBackground.retryLabel', { name: job.name })
-              }
-              onClick={() => onRetry(job)}
+              title={t('settingsBackground.ai.pause')}
+              aria-label={t('settingsBackground.ai.pauseLabel', {
+                name: job.name,
+              })}
+              onClick={() => onPause(job)}
             >
-              <RotateCcw />
+              <Pause />
             </Button>
           )}
+          {job.canRetry &&
+            (job.resumes ? (
+              <Button
+                size="icon-xs"
+                variant="ghost"
+                disabled={busy}
+                title={t('settingsBackground.ai.resume')}
+                aria-label={t('settingsBackground.ai.resumeLabel', {
+                  name: job.name,
+                })}
+                onClick={() => onRetry(job)}
+              >
+                <Play />
+              </Button>
+            ) : (
+              <Button
+                size="icon-xs"
+                variant="ghost"
+                disabled={busy}
+                title={retryLabel?.text ?? t('settingsBackground.retry')}
+                aria-label={
+                  retryLabel?.aria(job.name) ??
+                  t('settingsBackground.retryLabel', { name: job.name })
+                }
+                onClick={() => onRetry(job)}
+              >
+                <RotateCcw />
+              </Button>
+            ))}
           {job.canCancel && (
             <Button
               size="icon-xs"
@@ -320,6 +351,16 @@ function JobRow({
           aria-label={job.name}
           className="h-1.5"
         />
+      )}
+      {job.note && (
+        <p
+          className={cn(
+            'text-xs break-words',
+            job.note.problem ? 'text-destructive' : 'text-muted-foreground',
+          )}
+        >
+          {job.note.text}
+        </p>
       )}
       {job.error && (
         <p className="text-xs break-words text-destructive">{job.error}</p>

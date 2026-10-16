@@ -33,8 +33,6 @@ import { useSaveSetting } from '../use-save-setting'
 import { JobList } from './job-list'
 import { useJobViews } from './job-view'
 import {
-  aiActive,
-  runtimeActive,
   useAiJobActions,
   useAiQueue,
   useIntelligenceRuntime,
@@ -142,11 +140,7 @@ export function InsightsQueueRow() {
   const paused = useSnapshot().config.ai.jobQueuePaused
   const runtime = useIntelligenceRuntime(paused)
   const { fromRuntime } = useJobViews()
-  const history = useJobHistory(
-    'insights',
-    runtimeActive(runtime.data, paused),
-    fromRuntime,
-  )
+  const history = useJobHistory('insights', fromRuntime)
   const { retry, cancel } = useRuntimeJobActions()
   const rebuild = useQueueRebuild()
   const summarize = useCountSummary()
@@ -224,8 +218,8 @@ export function AiQueueRow() {
   const ai = useSnapshot().config.ai
   const queue = useAiQueue()
   const { fromAiQueue } = useJobViews()
-  const history = useJobHistory('ai', aiActive(queue.data), fromAiQueue)
-  const { replay, cancel } = useAiJobActions()
+  const history = useJobHistory('ai', fromAiQueue)
+  const { replay, cancel, pause } = useAiJobActions()
   const summarize = useCountSummary()
 
   const data = queue.data
@@ -265,13 +259,14 @@ export function AiQueueRow() {
         <JobList
           {...history}
           command="list_ai_jobs"
-          busy={replay.isPending || cancel.isPending}
+          busy={replay.isPending || cancel.isPending || pause.isPending}
           retryLabel={{
             text: t('settingsBackground.ai.replay'),
             aria: (name) => t('settingsBackground.ai.replayLabel', { name }),
           }}
           onRetry={(job) => replay.mutate(job.id)}
           onCancel={(job) => cancel.mutate(job.id)}
+          onPause={(job) => pause.mutate(job.id)}
         />
       )}
     </SettingRow>

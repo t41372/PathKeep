@@ -33,9 +33,7 @@ fn lmstudio_runtime() -> AiProviderRuntime {
             enabled: true,
             base_url: Some("http://localhost:1234/v1".to_string()),
             default_model: "google/gemma-4-26b-a4b-qat".to_string(),
-            temperature: Some(0.6),
-            // Generous budget so the model finishes its reasoning AND emits the final answer
-            // (gemma can spend hundreds of reasoning tokens before answering).
+
             ..AiProviderConfig::default()
         },
         // LM Studio accepts any non-empty key.
@@ -54,21 +52,17 @@ async fn lmstudio_chat_stream_yields_tokens_and_maybe_reasoning() {
 
     let provider = RigLlmProvider::new(lmstudio_runtime());
     // A step-by-step reasoning prompt: gemma emits `reasoning_content` deltas (which rig maps to
-    // ReasoningDelta → our `Reasoning` chunk) before the final answer.
-    let request = LlmChatRequest::new(
-        vec![
-            LlmMessage::new(
-                LlmRole::System,
-                "You are a careful assistant. Reason step by step before answering.",
-            ),
-            LlmMessage::new(
-                LlmRole::User,
-                "Think step by step, then give the final answer: what is 17 times 23?",
-            ),
-        ],
-        Some(0.6),
-        Some(2048),
-    );
+    // reasoning events → our `Reasoning` chunk) before the final answer.
+    let request = LlmChatRequest::new(vec![
+        LlmMessage::new(
+            LlmRole::System,
+            "You are a careful assistant. Reason step by step before answering.",
+        ),
+        LlmMessage::new(
+            LlmRole::User,
+            "Think step by step, then give the final answer: what is 17 times 23?",
+        ),
+    ]);
 
     let mut stream = provider.chat_stream(request).await.expect("open LM Studio stream");
 
@@ -90,6 +84,7 @@ async fn lmstudio_chat_stream_yields_tokens_and_maybe_reasoning() {
                 reasoning += 1;
                 reasoning_text.push_str(&text);
             }
+            Ok(LlmStreamChunk::Finished { .. }) => {}
             Ok(LlmStreamChunk::ToolCall { .. }) => tool_calls += 1,
             Ok(LlmStreamChunk::Usage(usage)) => {
                 usage_markers += 1;

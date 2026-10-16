@@ -1,7 +1,7 @@
 /**
  * @file semantic-setup.ts
  * @description Orchestrates the real, background local-semantic-search opt-in: ensure the on-device
- *              embedding model is present, then enqueue a full index build.
+ *              embedding model is present, then enqueue an index build for what is not indexed yet.
  * @module lib/ipc/semantic-setup
  *
  * ## Responsibilities
@@ -50,7 +50,8 @@ export const MODEL_DOWNLOAD_IDLE_TIMEOUT_MS = 120_000
 
 /**
  * Enables local semantic search in the background: ensures the on-device static embedding model is
- * downloaded/verified, THEN enqueues a full index build (which surfaces in the ambient task bar).
+ * downloaded/verified, THEN enqueues an index build that reads every visit not indexed yet. It never
+ * wipes an index already there: turning semantic search off and on again continues it.
  *
  * Fire-and-forget friendly: the caller invokes it with `void`; it never blocks the UI. Errors are NOT
  * swallowed here — they propagate so the caller can decide (the onboarding shell action swallows, and
@@ -58,10 +59,11 @@ export const MODEL_DOWNLOAD_IDLE_TIMEOUT_MS = 120_000
  */
 export async function runLocalSemanticSetup(): Promise<void> {
   await ensureStaticModelDownloaded()
+  // `incremental`: every visit the index lacks. `full` would wipe it first.
   await intelligenceClient.buildIndex({
-    fullRebuild: true,
+    fullRebuild: false,
     clearOnly: false,
-    scope: 'full',
+    scope: 'incremental',
   })
 }
 

@@ -1,3 +1,5 @@
+//! Responsibilities: unlocked configuration, provider secrets and serving-runtime resolution.
+//! Not responsible for: index mutation, model requests or queue persistence.
 //! Shared worker context helpers.
 //!
 //! This module keeps the repetitive desktop-worker setup in one place:
@@ -215,17 +217,20 @@ pub(crate) fn selected_llm_provider_runtime(
 
 /// Resolves the currently configured embedding provider when semantic search is optional.
 pub(crate) fn selected_optional_embedding_runtime(
+    vault: &vault_core::Vault,
     config: &AppConfig,
 ) -> Result<Option<AiProviderRuntime>> {
-    match config.ai.embedding_provider_id.as_deref() {
-        Some(provider_id) => resolve_provider_runtime(
-            &config.ai.embedding_providers,
-            provider_id,
-            AiProviderPurpose::Embedding,
-        )
-        .map(Some),
-        None => Ok(None),
-    }
+    let state = vault_core::semantic_index::load_state(&vault.with_config(config.clone()))?;
+    let Some(pair) = state.serving else {
+        return Ok(None);
+    };
+    let mut runtime = resolve_provider_runtime(
+        &config.ai.embedding_providers,
+        &pair.provider_id,
+        AiProviderPurpose::Embedding,
+    )?;
+    runtime.config.default_model = pair.model;
+    Ok(Some(runtime))
 }
 
 /// Adds an explicit lexical-fallback note when semantic provider resolution fails.
@@ -278,30 +283,17 @@ pub(crate) fn provider_config_for_request(
 /// failures can requeue with backoff, while configuration/purpose mismatches
 /// must stop and surface as manual-review work.
 pub(crate) fn queue_failure_from_error(error: &anyhow::Error) -> ai_queue::AiJobFailure {
-    let message = error.to_string();
-    let lower = message.to_lowercase();
-    if lower.contains("rate limit") || lower.contains("quota") || lower.contains("429") {
+    let message = format!("{error:#}");
+    if error.downcast_ref::<vault_core::EmbeddingServiceError>().is_some() {
         return ai_queue::AiJobFailure {
-            error_code: Some("rate-limited".to_string()),
-            error_message: message,
-            retryable: true,
-            retry_after_seconds: 300,
-            summary: Some("Provider quota window has not reset yet.".to_string()),
-        };
-    }
-    if lower.contains("timed out")
-        || lower.contains("dns")
-        || lower.contains("network")
-        || lower.contains("refused")
-    {
-        return ai_queue::AiJobFailure {
-            error_code: Some("network-error".to_string()),
+            error_code: Some("service-unavailable".into()),
             error_message: message,
             retryable: true,
             retry_after_seconds: 30,
-            summary: Some("Retrying the AI job after a transient network failure.".to_string()),
+            summary: None,
         };
     }
+    let lower = message.to_lowercase();
     let error_code = if lower.contains("api key") || lower.contains("store an api key") {
         Some("secret-missing".to_string())
     } else if lower.contains("model") && lower.contains("not found") {

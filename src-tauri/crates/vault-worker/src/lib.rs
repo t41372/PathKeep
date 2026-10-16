@@ -1,4 +1,4 @@
-//! Responsibilities: worker orchestration inside the database owner.
+//! Responsibilities: owner-side worker orchestration and the index pause command surface.
 //! Not responsible for: database implementation or desktop lifecycle.
 //! Failure modes: client entrypoints execute work locally. Tests: owner_client
 //! and owner_requests; the CLI/MCP adapters only forward requests.
@@ -96,7 +96,7 @@ pub use self::{
         get_top_sites, get_trail_detail, list_ai_conversations, list_ai_jobs, list_ai_messages,
         list_ai_provider_models, list_intelligence_jobs, list_search_engine_rules,
         list_visit_enrichment, load_ai_conversation, load_ai_queue,
-        load_intelligence_runtime_snapshot, preview_ai_integration_files,
+        load_intelligence_runtime_snapshot, pause_ai_job, preview_ai_integration_files,
         preview_intelligence_local_host, queue_core_intelligence_rebuild, rename_ai_conversation,
         replay_ai_job, reset_ai_index_build, retry_intelligence_job_now, run_ai_queue_jobs,
         run_core_intelligence_now, save_ai_conversation, search_ai_history,

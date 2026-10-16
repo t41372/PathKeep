@@ -1,4 +1,4 @@
-//! Responsibilities: expose optional-AI search and its model-facing tool contract.
+//! Responsibilities: expose optional-AI search and report use of a previous completed model.
 //! Not responsible for: result windows, database ownership or queues.
 //! Failure modes: lexical fallback loses coverage; provider drift is hidden; tool pagination
 //! is capped by its output page size. Tests: AI, agent-tool, code-mode and MCP suites.
@@ -65,9 +65,10 @@ pub(super) async fn search_history_internal(
         || matches!(request.sort.as_deref(), Some("oldest" | "newest"))
         || (provider.is_none() && crate::stars::load_starred_matcher(vault)?.is_empty())
     {
-        return super::search_pages::lexical_page(vault, request);
+        super::search_pages::lexical_page(vault, request)
+    } else {
+        super::search_ranking::page(vault, paths, config, provider, request).await
     }
-    super::search_ranking::page(vault, paths, config, provider, request).await
 }
 
 /// Stable, locale-independent match-reason CODE for browse-by-recency rows (blank-query path).
@@ -199,6 +200,7 @@ pub(super) async fn semantic_matches(
 pub(super) fn semantic_config_drift_reason(
     paths: &ProjectPaths,
     provider: &AiProviderRuntime,
+    engine: &super::embedding_engine::AnyEmbeddingProvider,
     index: &FlatVectorIndex,
     query_dim: usize,
 ) -> Result<Option<AiSearchNote>> {
@@ -212,7 +214,6 @@ pub(super) fn semantic_config_drift_reason(
     // ask whether the planes are stale against it. The selected engine carries the real
     // dtype/normalized/pooling/instruction (the build path uses these via `vector_store_for_chunk`);
     // we override the provider id/model + observed dim so the comparison keys match the stored stamp.
-    let engine = super::embedding_engine::select_embedding_provider(paths, provider)?;
     let live = EmbeddingFingerprint::from_descriptor(&EmbeddingDescriptor {
         provider_id: provider.config.id.clone(),
         model_id: provider.config.default_model.clone(),

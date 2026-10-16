@@ -1,4 +1,4 @@
-//! Responsibilities: seed native AI regression data and query the real metadata ledger.
+//! Responsibilities: seed native AI data with complete indexes recorded as ready.
 //! Not responsible for: implementing indexing or emulating the retired connection API.
 //! Failure modes: fixture pages lack identities, counters omit visits, search documents
 //! miss a page, enrichment text skips the search plane, or embedding totals drift.
@@ -195,7 +195,7 @@ pub(in crate::ai) fn seed_successful_index_ledger(
                last_failure_at,
                failure_reason
              )
-             VALUES (?1, ?2, 'ai_embeddings', 'test-v1', 'succeeded', ?3, 1, ?4, ?4, ?4, NULL, NULL, NULL)",
+             VALUES (?1, ?2, 'ai_embeddings', 'test-v1', 'ready', ?3, 1, ?4, ?4, ?4, NULL, NULL, NULL)",
             params![
                 provider.config.id.as_str(),
                 provider.config.default_model.as_str(),

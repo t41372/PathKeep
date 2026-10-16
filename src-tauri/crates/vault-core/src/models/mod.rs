@@ -1,4 +1,5 @@
-//! Shared backend read/write models.
+//! Responsibilities: shared backend transport models, including semantic index control.
+//! Not responsible for: queue policy, provider execution or persistence.
 //!
 //! These serde types are the contract between the desktop shell, worker layer,
 //! and canonical backend modules. They should stay descriptive and transport
@@ -14,13 +15,15 @@ pub mod intelligence;
 pub mod progress;
 pub mod schedule;
 pub mod security;
+mod semantic_index;
 pub mod stars;
 
-/// Re-exports the full backend model surface for the rest of the workspace.
 pub use self::{
     annotations::*, app::*, archive::*, audit::*, core_intelligence::*, import::*, intelligence::*,
     progress::*, schedule::*, security::*, stars::*,
 };
+/// Re-exports the full backend model surface for the rest of the workspace.
+pub use semantic_index::*;
 
 #[cfg(test)]
 mod tests {

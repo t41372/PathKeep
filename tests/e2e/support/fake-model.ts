@@ -11,7 +11,11 @@
  * A spec can script the replies instead (`script`): each request gets what
  * the script returns for it, which may be thinking (`reasoning_content`, as
  * reasoning models served by LM Studio, Ollama or DeepSeek send it), text, or
- * calls to the tools the request offered.
+ * calls to the tools the request offered, with arguments as an object or as
+ * the exact text sent. A streamed reply can also break off the way LM Studio
+ * does when the model writes a broken call (`breakOff`): the first half of
+ * each call's arguments, then an error event in the same response, and no
+ * finish reason; or end on `finish_reason: "length"`.
  *
  * It streams when asked to, the way OpenAI does (`chat.completion.chunk`
  * events, then a usage event, then `[DONE]`), and gives every tool call its
@@ -60,7 +64,12 @@ export interface Reply {
   /** Thinking, sent as `reasoning_content` before anything else. */
   reasoning?: string
   content?: string
-  toolCalls?: { name: string; arguments: object }[]
+  /** `arguments` as an object is sent as its JSON; a string is sent as it is. */
+  toolCalls?: { name: string; arguments: object | string }[]
+  /** Streamed only: stop half way through the calls with this error. */
+  breakOff?: string
+  /** Streamed only: the finish reason, instead of the usual one. */
+  finishReason?: 'length'
 }
 
 /** Decides the reply to one chat request. */
@@ -138,7 +147,7 @@ interface Call {
 function stream(
   response: http.ServerResponse,
   model: string,
-  { reasoning, content }: Reply,
+  { reasoning, content, breakOff, finishReason }: Reply,
   calls: Call[],
 ) {
   response.writeHead(200, {
@@ -159,7 +168,31 @@ function stream(
   delta({ role: 'assistant', content: '' })
   for (const word of words(reasoning ?? '')) delta({ reasoning_content: word })
   for (const word of words(content ?? '')) if (word) delta({ content: word })
-  if (calls.length > 0) {
+  if (breakOff !== undefined) {
+    delta({
+      tool_calls: calls.map((call, index) => ({
+        index,
+        ...call,
+        function: {
+          ...call.function,
+          arguments: call.function.arguments.slice(
+            0,
+            Math.ceil(call.function.arguments.length / 2),
+          ),
+        },
+      })),
+    })
+    // LM Studio's error inside a 200 stream, then the connection ends.
+    response.end(
+      `data: ${JSON.stringify({ error: { message: breakOff, type: 'server_error', code: 'invalid_model_output' } })}\n\n`,
+    )
+    return
+  }
+  if (finishReason) {
+    if (calls.length > 0)
+      delta({ tool_calls: calls.map((call, index) => ({ index, ...call })) })
+    delta({}, finishReason)
+  } else if (calls.length > 0) {
     delta({
       tool_calls: calls.map((call, index) => ({ index, ...call })),
     })
@@ -282,7 +315,10 @@ export async function startFakeModel(
         type: 'function',
         function: {
           name: call.name,
-          arguments: JSON.stringify(call.arguments),
+          arguments:
+            typeof call.arguments === 'string'
+              ? call.arguments
+              : JSON.stringify(call.arguments),
         },
       }))
       const model = body.model ?? 'e2e-model'

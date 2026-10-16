@@ -12,6 +12,8 @@
 //! - File discovery or zip traversal.
 //! - Merging multiple payload files into one combined Takeout source report.
 //! - Native-only typed-url/session payload handling.
+//!
+//! Why: sorted source JSON keeps native/context evidence identity stable across serializer features.
 
 use super::{
     KIND_BROWSER_JSON, KIND_MY_ACTIVITY_JSON, TakeoutPayloadCounts, TakeoutPayloadStreamReport,
@@ -346,12 +348,13 @@ impl<'a> BrowserHistoryAccumulator<'a> {
 fn parse_browser_record(
     source_path: &str,
     ordinal: i64,
-    record: Value,
+    mut record: Value,
 ) -> Result<BrowserRecordOutcome, ParseError> {
     let url = record.get("url").and_then(Value::as_str).unwrap_or_default().to_string();
     if url.is_empty() {
         return Ok(BrowserRecordOutcome::Ignore);
     }
+    crate::canonicalize_json(&mut record);
     let Some(visit_time_micros) = record
         .get("visitTime")
         .and_then(value_as_i64)
@@ -391,8 +394,9 @@ fn parse_browser_record(
 fn parse_activity_record(
     source_path: &str,
     same_instant: &mut SameInstant,
-    record: Value,
+    mut record: Value,
 ) -> BrowserRecordOutcome {
+    crate::canonicalize_json(&mut record);
     match my_activity::read_record(&record) {
         ActivityRecord::Visit(visit) => {
             let key = same_instant.key(&visit);

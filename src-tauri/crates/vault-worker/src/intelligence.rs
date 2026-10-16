@@ -2,7 +2,7 @@
 //! Intelligence, queue, and derived-state worker flows.
 //!
 //! ## Responsibilities
-//! - expose the worker-facing AI queue, deterministic rebuild, and read-model helpers
+//! - expose per-job index pause and the worker-facing AI queue, deterministic rebuild, and read-model helpers
 //! - keep shared worker counters and section-meta helpers in one place
 //! - re-export focused owner modules so `vault-worker` stays a thin facade
 //!
@@ -60,7 +60,7 @@ pub use self::agent_store::{
 pub(crate) use self::ai_queue::maybe_spawn_ai_queue_drain;
 pub use self::ai_queue::{
     build_ai_index_now, cancel_ai_job, estimate_reembed_now, list_ai_provider_models,
-    load_ai_queue, preview_ai_integration_files, replay_ai_job, reset_ai_index_build,
+    load_ai_queue, pause_ai_job, preview_ai_integration_files, replay_ai_job, reset_ai_index_build,
     run_ai_queue_jobs, search_ai_history, test_ai_provider_connection_report,
 };
 pub use self::chat::{ai_chat_cancel, ai_chat_context, ai_chat_send};

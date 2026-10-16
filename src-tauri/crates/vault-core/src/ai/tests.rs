@@ -1,3 +1,5 @@
+//! Responsibilities: search integrity regressions, including query embeddings scoped to the vault.
+//! Not responsible for: model server requests or UI feature acceptance.
 //! Regression tests for optional AI and semantic retrieval helpers.
 use super::indexing::{
     IndexedVisit, clear_provider_embeddings, collect_visit_chunk, select_embed_targets,
@@ -275,7 +277,7 @@ fn semantic_matches_falls_back_to_pkmap_scan_when_reverse_sidecars_absent() {
     seed_visit(&connection, 1, "chrome:Default", "https://example.com/docs", Some("Docs"), 1);
     seed_visit(&connection, 2, "chrome:Default", "https://example.com/blog", Some("Blog"), 2);
     let docs_vector = runtime
-        .block_on(embed_query(&embedding, "docs", EmbeddingRole::Query))
+        .block_on(embed_query(&paths, &embedding, "docs", EmbeddingRole::Query))
         .expect("docs vector");
     let other_vector: Vec<f32> = docs_vector.iter().rev().map(|value| -value).collect();
     // Seed the planes + `.pkmap` but DROP the keyed sidecars (the pre-sidecar on-disk shape).
@@ -327,7 +329,7 @@ fn semantic_matches_rejects_same_dim_fingerprint_drift_with_an_honest_note() {
     seed_visit(&connection, 1, "chrome:Default", "https://example.com/docs", Some("Docs"), 1);
 
     let docs_vector = runtime
-        .block_on(embed_query(&embedding, "docs", EmbeddingRole::Query))
+        .block_on(embed_query(&paths, &embedding, "docs", EmbeddingRole::Query))
         .expect("docs vector");
     // Stamp the source store (and thus the planes) with a Mean-pooled fingerprint — same dim, different
     // hash than the live External (Unknown-pooled) descriptor the guard rebuilds.
@@ -435,8 +437,9 @@ fn semantic_facets_find_eligible_pages_beyond_every_former_recall_pool() {
     let vault = connection.vault.clone();
     let provider = embedding_provider();
     let runtime = Runtime::new().unwrap();
-    let vector =
-        runtime.block_on(embed_query(&provider, "candidatephrase", EmbeddingRole::Query)).unwrap();
+    let vector = runtime
+        .block_on(embed_query(&paths, &provider, "candidatephrase", EmbeddingRole::Query))
+        .unwrap();
     let mut visits = Vec::new();
     let mut vectors = Vec::new();
     for id in 1..=1207 {

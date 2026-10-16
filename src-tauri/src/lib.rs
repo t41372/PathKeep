@@ -1,4 +1,4 @@
-//! Responsibilities: desktop entrypoint, single instance and process-level wiring.
+//! Responsibilities: desktop entrypoint, process wiring and commands including index pause.
 //! Not responsible for: storage implementation or worker business operations.
 //! Failure modes: clients enter GUI setup; second instances open databases; startup
 //! listeners precede ownership. Tests: owner_process and desktop-bridge tests.
@@ -270,6 +270,7 @@ fn run_app() -> Result<()> {
             run_ai_queue_jobs,
             replay_ai_job,
             cancel_ai_job,
+            pause_ai_job,
             build_ai_index,
             reset_ai_index_build,
             estimate_reembed,

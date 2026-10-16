@@ -9,6 +9,9 @@
 //! can evolve independently while parser behavior remains deterministic over
 //! concrete input files.
 
+mod canonical_json;
+pub use canonical_json::canonicalize_json;
+
 pub mod chromium;
 pub mod error;
 pub mod firefox;

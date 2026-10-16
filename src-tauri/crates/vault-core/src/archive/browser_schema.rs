@@ -1,5 +1,6 @@
 //! Responsibilities: inspect staged browser-owned SQLite schemas without modifying them.
 //! Not responsible for: canonical Turso reads or migrations.
+//! Why: persisted schema fingerprints must not depend on serializer feature flags.
 //! Failure modes: unreadable source, lost schema observations. Tests: ingest parser suites.
 use super::*;
 /// Captures the schema payload of one staged source database for evidence/audit.
@@ -22,7 +23,9 @@ pub(crate) fn collect_schema_payload(path: &Path) -> Result<Value> {
             "sql": row.get::<_, String>(3)?,
         }))
     })?;
-    Ok(Value::Array(rows.collect::<rusqlite::Result<Vec<_>>>()?))
+    let mut payload = Value::Array(rows.collect::<rusqlite::Result<Vec<_>>>()?);
+    browser_history_parser::canonicalize_json(&mut payload);
+    Ok(payload)
 }
 
 fn open_readonly_source(path: &Path) -> Result<Connection> {

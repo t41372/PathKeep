@@ -6,9 +6,10 @@
  *
  * It can answer a few requests and then hold every later one until
  * `release()`, so a build stops half way for as long as a test needs, with
- * no timing involved. Every text it answered for is kept, in order; a held
- * request whose app went away before the release is never answered and not
- * kept.
+ * no timing involved; `holdAfter(n)` does it again later. Every text it
+ * answered for is kept, in order; a held request whose app went away before
+ * the release is never answered and not kept. `requests()` counts every
+ * embeddings request that arrived, answered or not.
  *
  * It answers the rest the way LM Studio does: its models at `/api/v0/models`
  * (with their kind, whether loaded, and their context lengths) and at
@@ -43,8 +44,12 @@ export interface FakeEmbeddings {
   inputs: string[]
   /** How many requests are waiting for `release()`. */
   held(): number
+  /** Every embeddings request that arrived, answered, held or dropped. */
+  requests(): number
   /** Answers the held requests and every later one. */
   release(): void
+  /** Answers `count` more requests from now on, then holds the rest. */
+  holdAfter(count: number): void
   close(): Promise<void>
 }
 
@@ -74,6 +79,8 @@ export async function startFakeEmbeddings({
 } = {}): Promise<FakeEmbeddings> {
   const inputs: string[] = []
   let answered = 0
+  let arrived = 0
+  let holdAt = holdAfter
   let waiting: (() => void)[] | null = []
   const server = http.createServer((request, response) => {
     let raw = ''
@@ -99,6 +106,7 @@ export async function startFakeEmbeddings({
         return json({
           error: `Unexpected endpoint or method. (${request.method} ${path})`,
         })
+      arrived += 1
       const body = JSON.parse(raw || '{}') as {
         model?: string
         input?: string | string[]
@@ -124,7 +132,7 @@ export async function startFakeEmbeddings({
           }),
         )
       }
-      if (waiting && answered >= holdAfter) waiting.push(answer)
+      if (waiting && answered >= holdAt) waiting.push(answer)
       else answer()
     })
   })
@@ -134,10 +142,15 @@ export async function startFakeEmbeddings({
     url: `http://127.0.0.1:${port}/v1`,
     inputs,
     held: () => waiting?.length ?? 0,
+    requests: () => arrived,
     release: () => {
       const held = waiting ?? []
       waiting = null
       for (const answer of held) answer()
+    },
+    holdAfter: (count) => {
+      waiting ??= []
+      holdAt = answered + count
     },
     close: () =>
       new Promise<void>((resolve) => {

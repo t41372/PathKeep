@@ -1,4 +1,6 @@
-//! Shared schema-observation and native-row capture helpers.
+//! Responsibilities: inspect source schemas and capture stable native-row JSON.
+//! Not responsible for: persistence, deduplication or source mutation.
+//! Why: evidence identity must not change when a dependency enables JSON key-order retention.
 
 use crate::{
     error::ParseError,
@@ -131,11 +133,13 @@ fn native_entity_from_row(
         payload.get(primary_key_column).map(value_to_key).unwrap_or_else(|| "unknown".to_string());
     let parent_primary_key =
         parent_key_column.and_then(|column| payload.get(column).map(value_to_key));
+    let mut payload = Value::Object(payload);
+    crate::canonicalize_json(&mut payload);
     Ok(NativeEntity {
         entity_kind: entity_kind.to_string(),
         native_primary_key: primary_key,
         parent_native_primary_key: parent_primary_key,
-        payload_json: Value::Object(payload.clone()).to_string(),
+        payload_json: payload.to_string(),
         metadata: BTreeMap::from([
             ("primaryKeyColumn".to_string(), primary_key_column.to_string()),
             ("columnCount".to_string(), column_names.len().to_string()),
@@ -177,4 +181,25 @@ fn value_to_key(value: &Value) -> String {
 
 fn quoted_identifier(identifier: &str) -> String {
     format!("\"{}\"", identifier.replace('"', "\"\""))
+}
+
+#[cfg(test)]
+mod tests {
+    //! Failure modes: SQL column order changes native payload bytes and evidence keys when
+    //! another dependency enables serde_json/preserve_order. Values must remain intact.
+    use super::*;
+    #[test]
+    fn native_rows_keep_sorted_json_independent_of_sql_column_order() {
+        let connection = Connection::open_in_memory().unwrap();
+        let rows = capture_native_rows(
+            &connection,
+            "SELECT 1 AS z, 2 AS a, 3 AS id",
+            &[],
+            "row",
+            "id",
+            None,
+        )
+        .unwrap();
+        assert_eq!(rows[0].payload_json, r#"{"a":2,"id":3,"z":1}"#);
+    }
 }

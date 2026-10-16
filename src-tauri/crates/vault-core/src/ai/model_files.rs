@@ -41,7 +41,7 @@ pub fn model_dir_for_repo(paths: &ProjectPaths, repo: &str) -> std::path::PathBu
 /// read into memory whole.
 ///
 /// This full re-hash is the AUTHORITATIVE check used at download time and by the selector's
-/// availability gate. The per-load hot path uses the cheaper [`model_is_loadable`] presence/marker
+/// cache miss. The per-load hot path uses the cheaper [`model_is_loadable`] presence/marker
 /// check (S5) so the full SHA-256 is not recomputed on every engine load.
 pub fn model_is_present_and_verified(model_dir: &std::path::Path, files: &[ModelFile]) -> bool {
     files.iter().all(|file| {
@@ -58,7 +58,7 @@ pub fn model_is_present_and_verified(model_dir: &std::path::Path, files: &[Model
 /// Its presence means "every manifest file in this dir verified at download time"; the per-load
 /// path trusts it (plus a cheap presence/size check) instead of re-hashing hundreds of MB on every
 /// engine load (S5). Removing the weights (or the marker) forces a re-verify/re-download.
-const VERIFIED_MARKER_FILE: &str = ".pathkeep-verified";
+pub(super) const VERIFIED_MARKER_FILE: &str = ".pathkeep-verified";
 
 /// Records that a model directory passed full SHA-256 verification (writes the verified marker).
 ///
@@ -74,8 +74,7 @@ fn write_verified_marker(model_dir: &std::path::Path) -> Result<()> {
 ///
 /// Pure apart from `stat`-ing each file + the marker. Used by the engine load path so a model that
 /// was verified at download time loads without recomputing its SHA-256. The authoritative full
-/// re-hash ([`model_is_present_and_verified`]) still runs at download time and in the selector's
-/// availability gate, so a model is never LOADED unless it was verified at least once.
+/// re-hash ([`model_is_present_and_verified`]) still runs at download time and on engine-cache misses, so a model is never LOADED unless it was verified at least once.
 pub fn model_is_loadable(model_dir: &std::path::Path, files: &[ModelFile]) -> bool {
     if !model_dir.join(VERIFIED_MARKER_FILE).exists() {
         return false;

@@ -1,4 +1,4 @@
-//! Responsibilities: queue transitions inside one Intelligence transaction.
+//! Responsibilities: queue claims, durable progress and stop outcomes in one transaction.
 //! Not responsible for: ownership, migrations, providers or background threads.
 //! Failure modes: concurrent claims both win, late completion overrides cancellation,
 //! retry discards progress, malformed payload blocks the queue, or list limits hide work.
@@ -9,6 +9,10 @@ fn lease_owner_label() -> String {
     format!("pathkeep:{}:{}", std::process::id(), std::thread::current().name().unwrap_or("main"))
 }
 
+fn index_running(s: &Session<'_>) -> Result<bool> {
+    Ok(s.query_one("SELECT EXISTS(SELECT 1 FROM ai_jobs WHERE state='running' AND job_type IN ('index-build','index-clear'))", (), |r| Ok(r.get::<i64>(0)?))? != 0)
+}
+
 fn lease_expires_at(seconds: i64) -> String {
     (Utc::now() + Duration::seconds(seconds)).to_rfc3339()
 }
@@ -17,6 +21,7 @@ fn lease_expires_at(seconds: i64) -> String {
 pub(crate) fn enqueue_index_job(
     connection: &Session<'_>,
     request: &AiIndexRequest,
+    model: Option<&str>,
     paused: bool,
 ) -> Result<AiQueueJob> {
     let priority = if request.clear_only || request.full_rebuild { 90 } else { 70 };
@@ -25,7 +30,11 @@ pub(crate) fn enqueue_index_job(
         if request.clear_only { AiQueueJobType::IndexClear } else { AiQueueJobType::IndexBuild },
         priority,
         if request.clear_only || request.full_rebuild { 2 } else { 3 },
-        AiJobPayload::Index { request: request.clone(), cursor: IndexBackfillCursor::default() },
+        AiJobPayload::Index {
+            request: request.clone(),
+            model: model.map(str::to_owned),
+            cursor: IndexBackfillCursor::default(),
+        },
         paused,
     )
 }
@@ -57,6 +66,7 @@ pub(crate) fn load_ai_queue_status(
         failed: counts.failed,
         index_queued: counts.queued,
         index_running: counts.running,
+        semantic_index: Default::default(),
         recent_jobs: page.items,
         recent_jobs_next_cursor: page.next_cursor,
     })
@@ -108,7 +118,7 @@ pub(crate) fn count_recoverable_ai_jobs(
            OR
            -- orphaned running with a pending stop (mark_stale_jobs branch 1 → 'cancelled')
            (state = 'running'
-              AND stop_requested = 1
+              AND stop_requested IN (1,2)
               AND (
                 (lease_expires_at IS NOT NULL AND lease_expires_at <= ?2)
                 OR (heartbeat_at IS NOT NULL AND heartbeat_at < ?2)
@@ -125,6 +135,9 @@ pub(crate) fn claim_next_ai_job(
     stale_after_seconds: i64,
 ) -> Result<Option<StoredAiJob>> {
     mark_stale_jobs(connection, stale_after_seconds)?;
+    if index_running(connection)? {
+        return Ok(None);
+    }
     let now = now_rfc3339();
     let lease_owner = lease_owner_label();
     let lease_expires_at = lease_expires_at(AI_JOB_LEASE_SECONDS);
@@ -160,26 +173,19 @@ pub(crate) fn claim_next_ai_job(
             return Ok(None);
         };
 
-        // RETRY BOUND (the stuck-build fix): a job that has already burned its whole attempt budget
-        // must NOT be re-claimed again. Without this, a job that keeps crashing / going stale before it
-        // can fail gracefully (so `mark_ai_job_failed`'s attempt check never runs) cycles
-        // stale → running → stale forever. Each `claim` increments `attempt`; once `attempt` has reached
-        // `max_attempts` WITHOUT any durable progress in between, the budget is spent: move the job to a
-        // TERMINAL failed state with an honest reason instead of claiming it, then keep scanning for
-        // other runnable work. NOTE: durable progress RESETS `attempt` to 0 (see `persist_index_cursor`),
-        // so only a build that makes NO progress across the whole budget terminates here — an
-        // interrupted-but-progressing build keeps resuming. A reset / replay also grants a fresh budget.
+        // Crashes cannot bypass the retry budget. Preserve the last service error as a pause;
+        // exhausted local work fails. Only a new durable cursor earns back attempts.
         if attempt >= max_attempts {
             connection.execute(
                 "UPDATE ai_jobs
-                 SET state = 'failed',
+                 SET state = CASE WHEN error_code='service-unavailable' THEN 'paused' ELSE 'failed' END,
                      updated_at = ?1,
                      heartbeat_at = ?1,
-                     finished_at = ?1,
+                     finished_at = CASE WHEN error_code='service-unavailable' THEN NULL ELSE ?1 END,
                      lease_owner = NULL,
                      lease_expires_at = NULL,
-                     error_code = 'max-attempts-exhausted',
-                     error_message = ?2
+                     error_code = CASE WHEN error_code='service-unavailable' THEN error_code ELSE 'max-attempts-exhausted' END,
+                     error_message = CASE WHEN error_code='service-unavailable' THEN error_message ELSE ?2 END
                  WHERE id = ?3
                    AND state IN ('queued', 'stale')",
                 params![
@@ -190,6 +196,7 @@ pub(crate) fn claim_next_ai_job(
                     id,
                 ],
             )?;
+            index_control::mark_incomplete(connection, id)?;
             continue;
         }
 
@@ -248,6 +255,9 @@ pub(crate) fn claim_ai_job_by_id(
     stale_after_seconds: i64,
 ) -> Result<Option<StoredAiJob>> {
     mark_stale_jobs(connection, stale_after_seconds)?;
+    if index_running(connection)? {
+        return Ok(None);
+    }
     let now = now_rfc3339();
     let lease_owner = lease_owner_label();
     let lease_expires_at = lease_expires_at(AI_JOB_LEASE_SECONDS);
@@ -326,27 +336,22 @@ pub(crate) fn persist_index_cursor(
     let Some(mut payload) = load_optional_ai_job_payload(connection, job_id)? else {
         return Ok(CursorPersistOutcome::NotIndexJob);
     };
-    let AiJobPayload::Index { request, cursor: stored } = &mut payload else {
+    let AiJobPayload::Index { cursor: stored, .. } = &mut payload else {
         return Ok(CursorPersistOutcome::NotIndexJob);
     };
     // PRESERVE the determinate scan denominator across resumes: the backfill captures `scan_target`
     // ONCE at the build's true start and reports `0` ("unknown") on every resume, so a fresh build
     // sets it here while a resume keeps the value already stored. Without this, a resumed cursor would
     // clobber the original target with 0 and the Activity bar would lose its denominator mid-build.
+    let previous_history_id = stored.next_history_id;
     let scan_target = if cursor.scan_target > 0 { cursor.scan_target } else { stored.scan_target };
     // Same preserve-on-resume contract for the embed denominator: a resume reports 0, so keep the
     // value captured at the build's true start rather than clobbering it.
     let embed_target =
         if cursor.embed_target > 0 { cursor.embed_target } else { stored.embed_target };
     *stored = IndexBackfillCursor { scan_target, embed_target, ..cursor.clone() };
-    // Once the backfill has made durable progress, a `full_rebuild` must NEVER fire its destructive
-    // wipe again: a worker that re-claims this job after a crash would otherwise re-run the clear +
-    // delete and lose every row already embedded below the cursor. Flipping the stored
-    // request to a plain incremental build the moment the cursor leaves the origin is the durable
-    // backstop to the in-process `start_history_id == 0` gate in `build_ai_index_with_control`.
-    if cursor.next_history_id > 0 && request.full_rebuild {
-        request.full_rebuild = false;
-    }
+    // Keep the original rebuild intent. The persisted cursor gates the one-time wipe and the
+    // worker still needs that intent when a resumed full rebuild completes and retires old indexes.
     let payload_json = serde_json::to_string(&payload)?;
     let now = now_rfc3339();
     // DURABLE PROGRESS EARNS BACK THE RETRY BUDGET: the attempt counter increments on every
@@ -362,9 +367,16 @@ pub(crate) fn persist_index_cursor(
              updated_at = ?3,
              heartbeat_at = ?3,
              lease_expires_at = ?4,
-             attempt = 0
+             attempt = CASE WHEN ?6 THEN 0 ELSE attempt END
          WHERE id = ?5 AND state = 'running'",
-        params![payload_json, summary, now, lease_expires_at(AI_JOB_LEASE_SECONDS), job_id],
+        params![
+            payload_json,
+            summary,
+            now,
+            lease_expires_at(AI_JOB_LEASE_SECONDS),
+            job_id,
+            cursor.next_history_id > previous_history_id
+        ],
     )?;
     Ok(if updated == 1 {
         CursorPersistOutcome::Persisted
@@ -425,6 +437,9 @@ pub(crate) fn mark_ai_job_failed(
     failure: &AiJobFailure,
     paused: bool,
 ) -> Result<AiQueueJob> {
+    if ai_job_stop_requested(connection, job_id)? {
+        return mark_running_ai_job_cancelled(connection, job_id, None);
+    }
     let job = load_ai_job(connection, job_id)?;
     let now = parse_rfc3339(&now_rfc3339())?;
     let should_retry = failure.retryable
@@ -436,7 +451,8 @@ pub(crate) fn mark_ai_job_failed(
     } else {
         now.to_rfc3339()
     };
-    let next_state = if paused {
+    let service_unavailable = failure.error_code.as_deref() == Some("service-unavailable");
+    let next_state = if paused || (service_unavailable && !should_retry) {
         AiQueueJobState::Paused
     } else if should_retry {
         AiQueueJobState::Queued
@@ -465,11 +481,12 @@ pub(crate) fn mark_ai_job_failed(
             failure.summary.as_deref(),
             now.to_rfc3339(),
             next_available,
-            failure.error_code.as_deref(),
+            if paused && !service_unavailable { None } else { failure.error_code.as_deref() },
             failure.error_message.as_str(),
             job_id,
         ],
     )?;
+    index_control::mark_incomplete(connection, job_id)?;
     load_ai_job(connection, job_id)
 }
 
@@ -497,19 +514,20 @@ pub(crate) fn mark_running_ai_job_cancelled(
     let now = now_rfc3339();
     connection.execute(
         "UPDATE ai_jobs
-         SET state = 'cancelled',
+         SET state = CASE WHEN stop_requested=2 THEN 'paused' ELSE 'cancelled' END,
              summary = COALESCE(?1, summary),
              updated_at = ?2,
              heartbeat_at = ?2,
-             finished_at = ?2,
+             finished_at = CASE WHEN stop_requested=2 THEN NULL ELSE ?2 END,
              lease_owner = NULL,
              lease_expires_at = NULL,
-             error_code = NULL,
-             error_message = NULL
+             error_code = CASE WHEN stop_requested=2 THEN error_code ELSE NULL END,
+             error_message = CASE WHEN stop_requested=2 THEN error_message ELSE NULL END
          WHERE id = ?3
            AND state = 'running'",
         params![summary, now, job_id],
     )?;
+    index_control::mark_incomplete(connection, job_id)?;
     load_ai_job(connection, job_id)
 }
 
@@ -565,27 +583,20 @@ pub(crate) fn replay_ai_job(
     load_ai_job(connection, job_id)
 }
 
-/// Clears every non-terminal semantic-index job, returning how many were cleared (the reset path).
-///
-/// Recovery primitive for a WEDGED index build (F2): it moves ALL `index-build` / `index-clear` jobs
-/// that are still queued / running / stale / paused into a TERMINAL `cancelled` state, dropping any
-/// lease and requesting cooperative stop, so a fresh build can be enqueued cleanly without colliding
-/// with a stuck job. Terminal states (`succeeded`, `failed`, `cancelled`) are left untouched: a failed
-/// build stays failed, with the error the user saw.
-/// A running job is asked to stop via `stop_requested = 1` AND flipped to `cancelled` here: the reset
-/// is an explicit user action to abandon the current build, and the next `claim_next_ai_job` for that
-/// row would no longer match (it is no longer `running`). Returns the number of rows cleared so the
-/// caller can report it.
+/// Abandons index work while keeping running writers leased until they acknowledge the stop.
 pub(crate) fn clear_index_jobs(connection: &Session<'_>) -> Result<usize> {
+    for (job, _) in index_control::all_active_index_jobs(connection)? {
+        index_control::mark_incomplete(connection, job.id)?;
+    }
     let now = now_rfc3339();
     Ok(connection.execute(
         "UPDATE ai_jobs
-         SET state = 'cancelled',
+         SET state = CASE WHEN state='running' THEN 'running' ELSE 'cancelled' END,
              updated_at = ?1,
              finished_at = ?1,
-             heartbeat_at = NULL,
-             lease_owner = NULL,
-             lease_expires_at = NULL,
+             heartbeat_at = CASE WHEN state='running' THEN heartbeat_at ELSE NULL END,
+             lease_owner = CASE WHEN state='running' THEN lease_owner ELSE NULL END,
+             lease_expires_at = CASE WHEN state='running' THEN lease_expires_at ELSE NULL END,
              stop_requested = 1
          WHERE job_type IN ('index-build', 'index-clear')
            AND state IN ('queued', 'running', 'stale', 'paused')",
@@ -625,16 +636,22 @@ pub(crate) fn cancel_ai_job(connection: &Session<'_>, job_id: i64) -> Result<AiQ
         }
         _ => anyhow::bail!("AI job {job_id} is in state '{}' and cannot be cancelled.", job.state),
     }
+    index_control::mark_incomplete(connection, job_id)?;
     load_ai_job(connection, job_id)
 }
 
 /// Moves queued jobs into the paused state.
 pub(crate) fn pause_queued_jobs(connection: &Session<'_>) -> Result<usize> {
+    for (job, _) in index_control::all_active_index_jobs(connection)? {
+        index_control::mark_incomplete(connection, job.id)?;
+    }
+    connection.execute("UPDATE ai_jobs SET stop_requested=2,error_code=NULL,error_message=NULL,updated_at=?1 WHERE state='running' AND stop_requested=0", [now_rfc3339()])?;
     Ok(connection.execute(
         "UPDATE ai_jobs
          SET state = 'paused',
              updated_at = ?1,
-             stop_requested = 0
+             stop_requested = 0,
+             error_code = NULL
          WHERE state IN ('queued', 'stale')",
         params![now_rfc3339()],
     )? as usize)
@@ -648,7 +665,7 @@ pub(crate) fn resume_paused_jobs(connection: &Session<'_>) -> Result<usize> {
              updated_at = ?1,
              available_at = ?1,
              stop_requested = 0
-         WHERE state = 'paused'",
+         WHERE state = 'paused' AND error_code IS NULL",
         params![now_rfc3339()],
     )? as usize)
 }
@@ -745,14 +762,14 @@ fn mark_stale_jobs(connection: &Session<'_>, stale_after_seconds: i64) -> Result
     let now = now_rfc3339();
     connection.execute(
         "UPDATE ai_jobs
-         SET state = 'cancelled',
+         SET state = CASE WHEN stop_requested=2 THEN 'paused' ELSE 'cancelled' END,
              updated_at = ?1,
              finished_at = ?1,
              heartbeat_at = ?1,
              lease_owner = NULL,
              lease_expires_at = NULL
          WHERE state = 'running'
-           AND stop_requested = 1
+           AND stop_requested IN (1,2)
            AND (
              (lease_expires_at IS NOT NULL AND lease_expires_at <= ?2)
              OR (heartbeat_at IS NOT NULL AND heartbeat_at < ?2)
@@ -790,6 +807,16 @@ fn decode_ai_job_row(row: &Row) -> vault_store::Result<AiQueueJob> {
         heartbeat_at: row.get(12)?,
         error_code: row.get(13)?,
         error_message: row.get(14)?,
+        paused_by: if row.get::<String>(2)? == "paused" {
+            match row.get::<Option<String>>(13)?.as_deref() {
+                Some("user-paused") => Some(crate::IndexBuildPause::User),
+                Some("service-unavailable") => Some(crate::IndexBuildPause::Service),
+                None => Some(crate::IndexBuildPause::Queue),
+                _ => None,
+            }
+        } else {
+            None
+        },
         // The row-only decode (no `payload_json`) leaves progress unknown; the status path uses
         // `decode_ai_job_row_with_progress`, which fills these from the index cursor.
         progress_embedded: None,
@@ -806,7 +833,7 @@ fn decode_ai_job_row(row: &Row) -> vault_store::Result<AiQueueJob> {
 /// (scan watermark), and `scan_target` (scan denominator). ONLY an [`AiJobPayload::Index`] carries a
 /// cursor, so an assistant job leaves all three `None`; a payload that fails to parse (schema drift /
 /// corruption) is treated the same way rather than erroring the whole status read on one bad row.
-fn decode_ai_job_row_with_progress(row: &Row) -> vault_store::Result<AiQueueJob> {
+pub(super) fn decode_ai_job_row_with_progress(row: &Row) -> vault_store::Result<AiQueueJob> {
     let mut job = decode_ai_job_row(row)?;
     let payload_json: String = row.get(15)?;
     if let Ok(AiJobPayload::Index { cursor, .. }) =

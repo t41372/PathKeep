@@ -1,4 +1,4 @@
-//! Responsibilities: durable queue payloads and progress contracts.
+//! Responsibilities: frozen provider/model payloads and durable visit-progress contracts.
 //! Not responsible for: SQL or provider execution.
 //! Failure modes: retry loses cursor, provider selection drifts, or lease loss is hidden.
 use super::*;
@@ -43,7 +43,7 @@ pub struct QueueJobCounts {
 pub struct IndexBackfillCursor {
     /// Lowest canonical `history_id` not yet embedded; the next chunk starts here.
     pub next_history_id: i64,
-    /// Count of vectors durably persisted so far across all chunks of this backfill.
+    /// Count of visits durably indexed across all chunks of this backfill.
     pub embedded_so_far: u64,
     /// The max canonical `history_id` captured at the TRUE start of the build — the honest determinate
     /// scan denominator, so `next_history_id / scan_target` reaches ~100% as the scan completes.
@@ -72,6 +72,9 @@ pub struct IndexBackfillCursor {
 pub enum AiJobPayload {
     Index {
         request: AiIndexRequest,
+        /// Freeze model identity without changing the archive schema.
+        #[serde(default)]
+        model: Option<String>,
         /// Resumable backfill watermark; `default` for jobs enqueued before resumability or for
         /// a fresh build. Updated in place as chunks are persisted so a restart resumes.
         #[serde(default)]
@@ -93,7 +96,7 @@ pub struct StoredAiJob {
 }
 
 #[derive(Debug, Clone, Default)]
-/// Failure bookkeeping used when transitioning a queue job to failed state.
+/// Failure bookkeeping for retry, service pause or a local failed outcome.
 pub struct AiJobFailure {
     pub error_code: Option<String>,
     pub error_message: String,

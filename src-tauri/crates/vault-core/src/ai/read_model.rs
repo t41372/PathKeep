@@ -1,4 +1,4 @@
-//! Responsibilities: expose AI readiness, counters, queue controls and saved run read models.
+//! Responsibilities: expose AI readiness, serving state, counters and queue controls.
 //! Not responsible for: provider execution, indexing loops or database ownership.
 //! Failure modes: status opens another archive, metadata counters disagree with rows,
 //! recent-job pages hide work, or a read mutates recovery state.
@@ -41,12 +41,13 @@ pub(crate) fn ai_index_status_from(
     connection: &Session<'_>,
     watermark: i64,
 ) -> Result<AiIndexStatus> {
-    let queue_status = ai_queue::store::load_ai_queue_status(
+    let mut queue_status = ai_queue::store::load_ai_queue_status(
         connection,
         config.ai.job_queue_paused,
         config.ai.job_queue_concurrency,
         AI_QUEUE_RECENT_LIMIT,
     )?;
+    queue_status.semantic_index = crate::semantic_index::load_state_from(connection, config)?;
     let index_queue_counts = ai_queue::store::load_queue_job_counts(
         connection,
         &[AiQueueJobType::IndexBuild, AiQueueJobType::IndexClear],
@@ -123,13 +124,23 @@ pub(crate) fn ai_index_status_from(
     };
     // F3: readiness keys off the REAL vector count, not the SQLite metadata-row count — "ready" must
     // mean "there are vectors semantic search can actually match", never "we recorded N rows".
-    let ready = semantic_vector_count > 0 && provider_readiness.available;
+    // Search reads the serving index: while a newly chosen model's index is built, the previous
+    // complete one still answers, so semantic search stays available (History reads `ready`).
+    let serving_vector_count = match &queue_status.semantic_index.serving {
+        Some(pair)
+            if provider_id.as_deref() != Some(pair.provider_id.as_str())
+                || provider_readiness.selected_model.as_deref() != Some(pair.model.as_str()) =>
+        {
+            VectorStore::for_provider(paths, &pair.provider_id, &pair.model).count().unwrap_or(0)
+        }
+        _ => semantic_vector_count,
+    };
+    let ready = serving_vector_count > 0 && provider_readiness.available;
     let (state, warning, warning_code) = ai_index_state_and_warning(
         config,
         &provider_readiness,
         &queue_status,
         &index_queue_counts,
-        &ledger,
         staleness_reason,
         ready,
         vectors_missing,
@@ -202,7 +213,6 @@ pub(super) fn ai_index_warning_text(code: &AiIndexWarning) -> String {
                 .to_string()
         }
         AiIndexWarning::IndexStale { reason } => reason.model_facing_text().to_string(),
-        AiIndexWarning::BuildFailed { reason } => reason.clone(),
     }
 }
 
@@ -212,7 +222,6 @@ fn ai_index_state_and_warning(
     provider_readiness: &ProviderReadiness,
     queue_status: &AiQueueStatus,
     index_queue_counts: &ai_queue::QueueJobCounts,
-    ledger: &AiIndexLedgerRow,
     staleness_reason: Option<AiSemanticStaleness>,
     ready: bool,
     vectors_missing: bool,
@@ -225,8 +234,6 @@ fn ai_index_state_and_warning(
         "rebuilding".to_string()
     } else if queue_status.paused && index_queue_counts.queued > 0 {
         "paused".to_string()
-    } else if ledger.state == "failed" {
-        "failed".to_string()
     } else if vectors_missing {
         // Metadata rows but no vectors (F3): the index is present-but-unusable → degraded, not ready.
         "degraded".to_string()
@@ -239,18 +246,8 @@ fn ai_index_state_and_warning(
     } else {
         "empty".to_string()
     };
-    // Resolve the legacy English STRING and the stable CODE together so the FE always has a code to
-    // localize and the legacy string stays populated for any non-localizing consumer. A failed build
-    // carries its opaque transport reason (no fixed vocabulary, so the code wraps the same text);
-    // when it has no failure_reason it falls back to the last-failure timestamp (uncoded). The
-    // unavailable-provider branch reuses the readiness's own pre-rendered string + code so the exact
-    // missing prerequisite is preserved on both surfaces.
-    let (warning, warning_code) = if ledger.state == "failed" {
-        match ledger.failure_reason.clone() {
-            Some(reason) => (Some(reason.clone()), Some(AiIndexWarning::BuildFailed { reason })),
-            None => (ledger.last_failure_at.clone(), None),
-        }
-    } else if !provider_readiness.available {
+    // Keep the stable code and its model-facing text together.
+    let (warning, warning_code) = if !provider_readiness.available {
         (provider_readiness.warning.clone(), provider_readiness.warning_code.clone())
     } else if vectors_missing {
         let code = AiIndexWarning::IndexVectorsMissing;

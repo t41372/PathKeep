@@ -3,8 +3,12 @@
 //! ## Responsibilities
 //! - Dispatch recognized payload kinds to the correct parser implementation.
 //! - Parse native-only payload families that do not emit canonical rows.
+//! - Keep native evidence JSON sorted independently of serde_json feature flags.
 //! - Preserve compatibility helpers such as empty/index reports without
 //!   reintroducing one giant Takeout parser module.
+//!
+//! Not responsible for: storing evidence or choosing its dedup keys.
+//! Why: serialize owned source values once, retaining the existing evidence identity.
 
 use super::{
     KIND_BROWSER_JSON, KIND_INDEX, KIND_MY_ACTIVITY_JSON, KIND_SESSION_JSON, KIND_TYPED_URL_JSON,
@@ -111,11 +115,12 @@ where
         reader,
         spec.source_path,
         spec.record_keys,
-        |record, ordinal| {
+        |mut record, ordinal| {
             if let Some(object) = record.as_object() {
                 observed_columns.extend(object.keys().cloned());
             }
             if spec.options.collect_source_evidence {
+                crate::canonicalize_json(&mut record);
                 let entity = NativeEntity {
                     entity_kind: spec.entity_kind.to_string(),
                     native_primary_key: native_primary_key(&record, ordinal as i64),

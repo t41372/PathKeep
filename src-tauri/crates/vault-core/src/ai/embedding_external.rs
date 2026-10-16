@@ -1,6 +1,7 @@
 //! External OpenAI-compatible `/v1/embeddings` provider.
 //!
 //! ## Responsibilities
+//! - mark service replies and transport failures for retry/pause without string matching
 //! - own the ONE place reqwest/serde touch the OpenAI-compatible embeddings wire shape
 //!   (covers LM Studio / Ollama / vLLM / llama-server / OpenAI / OpenRouter)
 //! - implement the rig-free [`EmbeddingProvider`] boundary against that wire shape, honoring
@@ -121,6 +122,14 @@ pub(super) fn decode_response_body(body: &[u8], expected_count: usize) -> Result
             parsed.data.len(),
             expected_count
         );
+    }
+    if let Some(first) = parsed.data.first() {
+        if parsed.data.iter().any(|datum| datum.embedding.len() != first.embedding.len()) {
+            anyhow::bail!("embedding service returned a ragged batch");
+        }
+        if parsed.data.iter().all(|datum| datum.embedding.iter().all(|value| *value == 0.0)) {
+            anyhow::bail!("embedding service returned only zero vectors");
+        }
     }
     // Restore request order by `index`; default-0 servers (single input) stay correct.
     let mut ordered: Vec<Option<Vec<f32>>> = (0..expected_count).map(|_| None).collect();
@@ -295,12 +304,16 @@ pub(super) fn embeddings_response_to_vectors(
 ) -> Result<Vec<Vec<f32>>> {
     if !success {
         let detail = String::from_utf8_lossy(body);
-        anyhow::bail!("embeddings request failed with status {status_code}: {detail}");
+        return Err(super::EmbeddingServiceError::wrap(anyhow::anyhow!(
+            "embeddings request failed with status {status_code}: {detail}"
+        )));
     }
     if let Some(said) = service_error(body) {
-        anyhow::bail!("the embedding service answered with an error: {said}");
+        return Err(super::EmbeddingServiceError::wrap(anyhow::anyhow!(
+            "the embedding service answered with an error: {said}"
+        )));
     }
-    decode_response_body(body, expected_count)
+    decode_response_body(body, expected_count).map_err(super::EmbeddingServiceError::wrap)
 }
 
 /// The error a service put in a successful (2xx) reply instead of vectors.
@@ -368,9 +381,20 @@ async fn embed_impl(
         let response = build_embeddings_request(&client, &endpoint, body, api_key.as_deref())
             .send()
             .await
+            .map_err(|error| {
+                if error.is_builder() {
+                    anyhow::Error::from(error)
+                } else {
+                    super::EmbeddingServiceError::wrap(error.into())
+                }
+            })
             .context("sending embeddings request")?;
         let status = response.status();
-        let bytes = response.bytes().await.context("reading embeddings response body")?;
+        let bytes = response
+            .bytes()
+            .await
+            .map_err(|error| super::EmbeddingServiceError::wrap(error.into()))
+            .context("reading embeddings response body")?;
         out.extend(embeddings_response_to_vectors(
             status.as_u16(),
             status.is_success(),
@@ -468,6 +492,25 @@ mod tests {
                 ..AiProviderConfig::default()
             },
             api_key: Some(SecretString::from("test-key".to_string())),
+        }
+    }
+
+    /// Failure modes: a ragged/zero batch corrupts the vector plane, or outer context hides
+    /// the service failure so the worker fails rather than pausing with the original words.
+    #[test]
+    fn unusable_service_vectors_stay_typed_through_context() {
+        for (body, reason) in [
+            (r#"{"data":[{"index":0,"embedding":[1,0]},{"index":1,"embedding":[1]}]}"#, "ragged"),
+            (
+                r#"{"data":[{"index":0,"embedding":[0,0]},{"index":1,"embedding":[0,0]}]}"#,
+                "zero vectors",
+            ),
+        ] {
+            let error = embeddings_response_to_vectors(200, true, body.as_bytes(), 2)
+                .context("index batch")
+                .unwrap_err();
+            assert!(error.downcast_ref::<super::super::EmbeddingServiceError>().is_some());
+            assert!(format!("{error:#}").contains(reason));
         }
     }
 

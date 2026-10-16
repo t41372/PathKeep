@@ -2,7 +2,8 @@
 //! Worker-side AI queue and assistant/search orchestration.
 //!
 //! ## Responsibilities
-//! - own persisted AI queue draining, heartbeat, replay, and cancellation flows
+//! - own index draining, heartbeat, per-job pause, continuation and cancellation
+//! - retain ready indexes during updates; report cleanup warnings without failing builds
 //! - execute semantic search and assistant runs against the resolved provider runtime
 //! - enqueue foreground AI requests as background jobs when the queue is enabled
 //! - surface Settings-facing provider connectivity and integration preview helpers
@@ -41,6 +42,9 @@ use vault_core::{
     estimate_reembed, preview_ai_integrations, semantic_search_history, test_provider_connection,
 };
 
+// Claims and physical index cleanup share one owner; a queued replacement never writes early.
+static INDEX_EXECUTION: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 const AI_JOB_CONTROL_POLL_INTERVAL: Duration = Duration::from_millis(500);
 const AI_JOB_CONTROL_HEARTBEAT_EVERY: Duration = Duration::from_secs(30);
 
@@ -77,6 +81,10 @@ struct IndexCursorLedger {
 }
 
 impl vault_core::IndexBackfillLedger for IndexCursorLedger {
+    fn job_id(&self) -> Option<i64> {
+        Some(self.job_id)
+    }
+
     fn record(&self, progress: vault_core::IndexBackfillProgress) -> Result<()> {
         let cursor = ai_queue::IndexBackfillCursor {
             next_history_id: progress.next_history_id,
@@ -142,7 +150,25 @@ pub(crate) fn complete_claimed_index_job(
 ) -> Result<AiIndexReport> {
     // Provider selection and Tokio startup are part of the claimed job execution. Keep them inside
     // the persisted outcome boundary: a preflight failure must not strand the row in `running`.
+    let mut cleanup_warnings = Vec::new();
     let result = (|| {
+        let pair = vault_core::semantic_index::chosen(config);
+        let payload_pair = match &claimed.payload {
+            ai_queue::AiJobPayload::Index { request, model: Some(model), .. } => {
+                request.provider_id.as_ref().map(|id| vault_core::EmbeddingIndexRef {
+                    provider_id: id.clone(),
+                    model: model.clone(),
+                })
+            }
+            _ => None,
+        };
+        if pair.is_none() || payload_pair != pair {
+            ai_queue::cancel_ai_job(vault, claimed.id)?;
+            return Err(vault_core::AiRunCancelled::new(
+                "The index job no longer belongs to the chosen model.",
+            )
+            .into());
+        }
         let provider = selected_embedding_provider_runtime(config, request.provider_id.as_deref())?;
         let runtime = tokio_runtime()?;
         // Resume from the persisted backfill watermark so a restart never re-embeds from scratch, and
@@ -150,20 +176,19 @@ pub(crate) fn complete_claimed_index_job(
         let start_history_id = index_start_history_id(&claimed.payload);
         let start_embedded = index_start_embedded(&claimed.payload);
         let run_control = start_ai_job_control(vault, claimed.id);
-        // An index made with a model Settings no longer has (the model was changed or the
-        // service removed) is never read again; it goes before the new one is built.
-        let configured: Vec<(String, String)> = config
-            .ai
-            .embedding_providers
-            .iter()
-            .map(|provider| (provider.id.clone(), provider.default_model.clone()))
+        let state = vault_core::semantic_index::load_state(&vault.with_config(config.clone()))?;
+        let kept: Vec<(String, String)> = state
+            .chosen
+            .into_iter()
+            .chain(state.serving)
+            .map(|pair| (pair.provider_id, pair.model))
             .collect();
         let control: Arc<dyn vault_core::AiRunControl> = run_control.clone();
-        runtime.block_on(vault_core::forget_unconfigured_indexes(
-            vault,
-            &configured,
-            Some(&control),
-        ))?;
+        if let Err(error) =
+            runtime.block_on(vault_core::forget_unconfigured_indexes(vault, &kept, Some(&control)))
+        {
+            cleanup_warnings.push(format!("{error:#}"));
+        }
         let ledger: Arc<dyn vault_core::IndexBackfillLedger> =
             Arc::new(IndexCursorLedger { vault: vault.clone(), job_id: claimed.id });
         let result = runtime.block_on(build_ai_index_with_control(
@@ -179,30 +204,55 @@ pub(crate) fn complete_claimed_index_job(
         result
     })();
 
-    match result {
+    let outcome = match result {
         Ok(mut report) => {
             report.job_id = Some(claimed.id);
             let summary = format!(
                 "Indexed {} new / {} updated row(s).",
                 report.indexed_items, report.updated_items
             );
-            mark_successful_ai_job_or_cancelled(
+            let stopped = mark_successful_ai_job_or_cancelled(
                 vault,
                 claimed.id,
                 report.run_id,
                 Some(summary.as_str()),
                 Some("Index build cancelled from the UI."),
             )?;
+            if !stopped && !request.clear_only && request.scope != ReembedScope::WorkingSet {
+                let cleanup = (|| {
+                    let current = load_unlocked_config(vault.paths())?;
+                    let state =
+                        vault_core::semantic_index::load_state(&vault.with_config(current))?;
+                    let kept = state
+                        .chosen
+                        .into_iter()
+                        .chain(state.serving)
+                        .map(|p| (p.provider_id, p.model))
+                        .collect::<Vec<_>>();
+                    tokio_runtime()?
+                        .block_on(vault_core::forget_unconfigured_indexes(vault, &kept, None))
+                })();
+                if let Err(error) = cleanup {
+                    cleanup_warnings.push(format!("{error:#}"));
+                }
+            }
             Ok(report)
         }
         Err(error) => {
-            let failure = queue_failure_from_error(&error);
+            let mut failure = queue_failure_from_error(&error);
+            if failure.retryable {
+                failure.retry_after_seconds *= 1u64 << claimed.attempt.saturating_sub(1).min(4);
+            }
+            ai_queue::mark_index_job_incomplete(vault, claimed.id)?;
             if ai_queue::ai_job_stop_requested(vault, claimed.id)? {
                 let _ = ai_queue::mark_running_ai_job_cancelled(
                     vault,
                     claimed.id,
                     Some("Index build cancelled from the UI."),
                 )?;
+                if !load_unlocked_config(vault.paths())?.ai.job_queue_paused {
+                    ai_queue::resume_paused_jobs(vault)?;
+                }
             } else {
                 ai_queue::mark_ai_job_failed(
                     vault,
@@ -211,10 +261,17 @@ pub(crate) fn complete_claimed_index_job(
                     &failure,
                     config.ai.job_queue_paused,
                 )?;
+                if !load_unlocked_config(vault.paths())?.ai.job_queue_paused {
+                    ai_queue::resume_paused_jobs(vault)?;
+                }
             }
             Err(error)
         }
+    };
+    for warning in cleanup_warnings {
+        ai_queue::fail_index_cleanup(vault, claimed.id, &warning)?;
     }
+    outcome
 }
 
 fn mark_successful_ai_job_or_cancelled(
@@ -231,6 +288,9 @@ fn mark_successful_ai_job_or_cancelled(
     };
     if cancelled {
         let _ = ai_queue::mark_running_ai_job_cancelled(vault, job_id, cancellation_summary)?;
+        if !load_unlocked_config(vault.paths())?.ai.job_queue_paused {
+            ai_queue::resume_paused_jobs(vault)?;
+        }
     }
     Ok(cancelled)
 }
@@ -277,7 +337,34 @@ fn spawn_ai_queue_drain(
         move || loop {
             match drain_one_ai_queue_job(&vault, &paths, session_database_key.as_deref()) {
                 Ok(true) => {}
-                Ok(false) => break,
+                Ok(false) => match ai_queue::next_index_retry_at(&vault) {
+                    Ok(Some(available_at)) => {
+                        if load_unlocked_config(&paths)
+                            .is_ok_and(|config| !config.ai.job_queue_paused)
+                        {
+                            let due = chrono::DateTime::parse_from_rfc3339(&available_at)
+                                .context("parse AI retry availability");
+                            let delay = match due {
+                                Ok(due) => (due.with_timezone(&chrono::Utc) - chrono::Utc::now())
+                                    .to_std()
+                                    .unwrap_or_default()
+                                    .min(Duration::from_secs(30)),
+                                Err(error) => {
+                                    eprintln!("PathKeep could not read AI retry time: {error:#}");
+                                    break;
+                                }
+                            };
+                            std::thread::sleep(delay);
+                        } else {
+                            break;
+                        }
+                    }
+                    Ok(None) => break,
+                    Err(error) => {
+                        eprintln!("PathKeep could not read AI retries: {error:#}");
+                        break;
+                    }
+                },
                 Err(error) => {
                     eprintln!("PathKeep could not drain AI queue work: {error:#}");
                     break;
@@ -292,6 +379,7 @@ pub(crate) fn drain_one_ai_queue_job(
     paths: &vault_core::ProjectPaths,
     session_database_key: Option<&str>,
 ) -> Result<bool> {
+    let _execution = INDEX_EXECUTION.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let config = load_unlocked_config(paths).context("load AI queue config")?;
     if !config.initialized || config.ai.job_queue_paused {
         return Ok(false);
@@ -356,6 +444,15 @@ pub fn run_ai_queue_jobs(
 
     let limit = max_jobs.unwrap_or(config.ai.job_queue_concurrency.max(1));
     for _ in 0..limit {
+        let _execution = match INDEX_EXECUTION.try_lock() {
+            Ok(guard) => guard,
+            Err(std::sync::TryLockError::Poisoned(error)) => error.into_inner(),
+            Err(std::sync::TryLockError::WouldBlock) => break,
+        };
+        let config = load_unlocked_config(&paths)?;
+        if config.ai.job_queue_paused {
+            break;
+        }
         let Some(job) = ai_queue::claim_next_ai_job(vault, 300)? else {
             break;
         };
@@ -374,7 +471,8 @@ pub fn run_ai_queue_jobs(
         }
     }
 
-    vault_core::ai_queue_status(&vault.with_config(config.clone()))
+    let current = load_unlocked_config(&paths)?;
+    vault_core::ai_queue_status(&vault.with_config(current))
 }
 
 /// Marks one AI job as replayable and restarts the drain loop if it became queued again.
@@ -385,6 +483,20 @@ pub fn replay_ai_job(
 ) -> Result<AiQueueJob> {
     let paths = vault.paths().clone();
     let config = load_unlocked_config(&paths)?;
+    if let ai_queue::AiJobPayload::Index { request, model, .. } =
+        ai_queue::load_ai_job_payload(vault, job_id)?
+    {
+        let chosen = vault_core::semantic_index::chosen(&config)
+            .context("Select an embedding model before continuing its build.")?;
+        if request.provider_id.as_deref().is_some_and(|id| id != chosen.provider_id)
+            || model.as_ref().is_some_and(|model| model != &chosen.model)
+            || model.is_none()
+        {
+            anyhow::bail!(
+                "This job belongs to a previous model. Build the model chosen in Settings instead."
+            );
+        }
+    }
     let job = ai_queue::replay_ai_job(vault, job_id, config.ai.job_queue_paused)?;
     maybe_spawn_ai_queue_drain(
         vault,
@@ -394,6 +506,12 @@ pub fn replay_ai_job(
         if job.state == "queued" { 1 } else { 0 },
     );
     Ok(job)
+}
+
+/// Pauses one index job without discarding its last durable cursor.
+pub fn pause_ai_job(vault: &vault_core::Vault, job_id: i64) -> Result<AiQueueJob> {
+    let _config = load_unlocked_config(vault.paths())?;
+    ai_queue::pause_ai_job(vault, job_id)
 }
 
 /// Cancels one queued or retryable AI job without touching finished run artifacts.
@@ -440,7 +558,7 @@ pub fn reset_ai_index_build(
         limit: None,
         scope: ReembedScope::Full,
     };
-    let mut report = build_ai_index_now(vault, session_database_key, &rebuild)?;
+    let mut report = enqueue_index_request(vault, session_database_key, &rebuild, true)?;
     report.notes.insert(
         0,
         format!(
@@ -455,6 +573,15 @@ pub fn build_ai_index_now(
     vault: &vault_core::Vault,
     session_database_key: Option<&str>,
     request: &AiIndexRequest,
+) -> Result<AiIndexReport> {
+    enqueue_index_request(vault, session_database_key, request, false)
+}
+
+fn enqueue_index_request(
+    vault: &vault_core::Vault,
+    session_database_key: Option<&str>,
+    request: &AiIndexRequest,
+    reset: bool,
 ) -> Result<AiIndexReport> {
     let paths = vault.paths().clone();
     let config = load_unlocked_config(&paths)?;
@@ -474,7 +601,13 @@ pub fn build_ai_index_now(
     )?;
     let queued_request =
         AiIndexRequest { provider_id: Some(provider_config.id.clone()), ..request.clone() };
-    let queued = ai_queue::enqueue_index_job(vault, &queued_request, config.ai.job_queue_paused)?;
+    let current = vault.with_config(config.clone());
+    let queued = if request.clear_only || reset {
+        ai_queue::enqueue_index_job(&current, &queued_request, config.ai.job_queue_paused)?
+    } else {
+        ai_queue::request_index_job(&current, &queued_request, false)?
+            .context("a user build must return a job")?
+    };
 
     if config.ai.job_queue_paused {
         return Ok(AiIndexReport {
@@ -534,7 +667,7 @@ pub fn search_ai_history(
 ) -> Result<AiSearchResponse> {
     let paths = vault.paths().clone();
     let config = load_unlocked_config(&paths)?;
-    let embedding_provider = match selected_optional_embedding_runtime(&config) {
+    let embedding_provider = match selected_optional_embedding_runtime(vault, &config) {
         Ok(provider) => provider,
         Err(error) => {
             let lexical =
@@ -620,6 +753,7 @@ pub fn list_ai_provider_models(
         &request.request_format,
         request.base_url.as_deref().map(str::trim).filter(|url| !url.is_empty()),
         key.as_deref(),
+        request.api_root_only,
     ))
 }
 

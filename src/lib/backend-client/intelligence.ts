@@ -87,6 +87,11 @@ export const intelligenceClient = {
     call<AiQueueStatus>('run_ai_queue_jobs', { maxJobs }),
   replayJob: (jobId: number) => call<AiQueueJob>('replay_ai_job', { jobId }),
   cancelJob: (jobId: number) => call<AiQueueJob>('cancel_ai_job', { jobId }),
+  /**
+   * Pauses an index build where it is; `replayJob` goes on from there. A
+   * paused build stays paused across restarts and backups.
+   */
+  pauseJob: (jobId: number) => call<AiQueueJob>('pause_ai_job', { jobId }),
   buildIndex: (request: AiIndexRequest) =>
     call<AiIndexReport>('build_ai_index', { request }),
   estimateReembed: (scope: ReembedScope) =>

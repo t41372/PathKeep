@@ -5,7 +5,7 @@
 //!
 //! Responsibilities:
 //!
-//! - Map mirrored desktop command strings to their worker bridge adapters.
+//! - Map desktop commands, including index pause, to their worker bridge adapters.
 //! - Decode command payload DTOs without changing the browser automation JSON shape.
 //! - Keep updater and file-manager calls inside the desktop facade boundary.
 //!
@@ -564,6 +564,10 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
         "replay_ai_job" => {
             let payload = parse_payload::<JobIdPayload>(payload)?;
             json_value!(worker_bridge::replay_ai_job_impl(payload.job_id, &state.session)?)
+        }
+        "pause_ai_job" => {
+            let payload = parse_payload::<JobIdPayload>(payload)?;
+            json_value!(worker_bridge::pause_ai_job_impl(payload.job_id, &state.session)?)
         }
         "cancel_ai_job" => {
             let payload = parse_payload::<JobIdPayload>(payload)?;

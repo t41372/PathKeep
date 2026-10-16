@@ -2,17 +2,23 @@
 //! Worker-side streaming chat orchestration (W-AI-1) + tool-executing agent harness (W-AI-7).
 //!
 //! ## Responsibilities
+//! - resolve the serving embedding index for agent tools and run_code
 //! - resolve the configured LLM provider runtime and build a `RigLlmProvider`
 //! - start a background streaming chat run, forwarding each chunk to the desktop emit sink
 //!   as an `AiChatStreamEvent` until a terminal `Done`/`Error`
 //! - when `toolsEnabled`, instead drive the durable W-AI-7 agent harness (probe tool capability,
 //!   build the owned tool registry, journal every step to `derived/agent.db`, finalize the run)
+//! - reserve answer context locally, independently of provider output limits
 //! - request cooperative cancellation of a live run by id (shared by both paths)
 //!
 //! ## Not responsible for
 //! - emitting Tauri events (the desktop command supplies the sink closure)
+//! - provider encoding, sampling parameters or a third-party runtime
 //! - the agent loop / tool execution itself (vault-core `agent_harness` / `agent_tools`)
 //! - the agent.db schema/CRUD (vault-core `agent_store`; this only writes through it)
+//!
+//! ## Why
+//! The worker owns run lifecycle and context discovery while transport stays in vault-core.
 //!
 //! ## Performance notes
 //! - both paths run on a dedicated worker thread with its own scoped runtime, so the UI thread is
@@ -73,7 +79,7 @@ fn to_llm_request(request: &AiChatSendRequest) -> LlmChatRequest {
         .iter()
         .map(|AiChatMessage { role, content }| LlmMessage::new(to_llm_role(role), content.clone()))
         .collect();
-    LlmChatRequest::new(messages, request.temperature, request.max_tokens)
+    LlmChatRequest::new(messages)
 }
 
 /// Everything one agent run needs, resolved synchronously before the streaming thread starts.
@@ -85,6 +91,7 @@ struct AgentRunSetup {
     llm_runtime: AiProviderRuntime,
     embedding_runtime: Option<AiProviderRuntime>,
     request: LlmChatRequest,
+    answer_reserve_override: Option<u32>,
     conversation_id: Option<String>,
     message_id: Option<String>,
     paths: ProjectPaths,
@@ -133,12 +140,13 @@ where
         // The embedding provider is OPTIONAL: with none configured, search_history still works
         // (its hybrid plane degrades to lexical honestly). A resolution failure (e.g. missing key)
         // is not fatal to the agent run, so treat it as "no embedding provider" rather than aborting.
-        let embedding_runtime = selected_optional_embedding_runtime(&config).ok().flatten();
+        let embedding_runtime = selected_optional_embedding_runtime(vault, &config).ok().flatten();
         let setup = AgentRunSetup {
             vault: vault.clone(),
             llm_runtime: runtime,
             embedding_runtime,
             request: to_llm_request(request),
+            answer_reserve_override: request.max_tokens,
             conversation_id: request.conversation_id.clone(),
             message_id: request.message_id.clone(),
             paths,
@@ -442,8 +450,7 @@ where
     let context_window = stream_runtime
         .block_on(vault_core::chat_context_length(&setup.llm_runtime, &model))
         .map(u64::from);
-    let answer_room = request.max_tokens.unwrap_or_else(|| answer_room(context_window));
-    request.max_tokens = Some(answer_room);
+    let answer_room = setup.answer_reserve_override.unwrap_or_else(|| answer_room(context_window));
     let token_budget = context_window
         .map(|window| window.saturating_sub(u64::from(answer_room)).max(1))
         .unwrap_or(DEFAULT_TOKEN_BUDGET);
@@ -469,6 +476,7 @@ where
                 DEFAULT_MAX_ITERATIONS,
                 token_budget,
                 context_window,
+                answer_room,
                 &journal,
                 |chunk: AiChatStreamChunk| {
                     emit(AiChatStreamEvent { run_id: run_id.to_string(), chunk });
@@ -540,7 +548,7 @@ pub fn ai_chat_context(
         &vault_core::resolve_agent_system_context(vault),
         &config.ai.assistant_system_prompt,
     );
-    let mut fixed = LlmChatRequest::new(vec![LlmMessage::new(LlmRole::System, system)], None, None);
+    let mut fixed = LlmChatRequest::new(vec![LlmMessage::new(LlmRole::System, system)]);
     fixed.tools = ToolRegistry::with_default_search_tools().definitions();
     let answer = answer_room(context_length.map(u64::from));
     Ok(vault_core::AiChatContext {

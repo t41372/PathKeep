@@ -1,4 +1,4 @@
-//! Optional AI and semantic retrieval domain.
+//! Responsibilities: optional AI, embedding service errors and semantic retrieval contracts.
 //!
 //! This module coordinates provider readiness, semantic indexing, semantic
 //! search, assistant runs, and manual integration previews. It sits on top of
@@ -7,6 +7,9 @@
 //! - AI is additive and optional; the archive remains usable without it
 //! - vector/assistant state is rebuildable derived state, not canonical truth
 //! - lexical fallback must stay explicit whenever semantic readiness is missing
+//!
+//! Not responsible for: provider wire encoding or a third-party agent runtime.
+//! Why: callers share owned AI boundaries rather than rig types.
 
 mod agent_harness;
 mod agent_tools;
@@ -15,6 +18,7 @@ mod code_mode;
 mod control;
 mod dedup;
 mod embedding_engine;
+mod embedding_error;
 mod embedding_external;
 mod embedding_static;
 mod fingerprint;
@@ -31,6 +35,7 @@ mod search;
 mod search_pages;
 mod search_ranking;
 mod search_store;
+mod tool_arguments;
 mod traits;
 mod vector_index;
 mod vector_planes;
@@ -53,14 +58,6 @@ use crate::{
 };
 use anyhow::{Context, Result};
 use iana_time_zone::get_timezone;
-use rig::tool::ToolDyn;
-use rig::{
-    client::CompletionClient,
-    completion::Prompt,
-    providers::{anthropic, gemini, openai},
-};
-#[cfg(not(test))]
-use rig::{client::EmbeddingsClient, embeddings::EmbeddingModel as _};
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -104,12 +101,13 @@ pub use self::code_mode::{
 };
 pub use self::dedup::{build_dedup_content_hash, content_key_from_hash};
 pub use self::embedding_engine::{AnyEmbeddingProvider, select_embedding_provider};
+pub use self::embedding_error::EmbeddingServiceError;
 pub use self::embedding_external::ExternalEmbeddingProvider;
 pub use self::embedding_static::{
     DEFAULT_STATIC_MODEL_FILES, DEFAULT_STATIC_MODEL_REPO, STATIC_EMBEDDING_DIM,
     STATIC_INAPP_BASE_URL, STATIC_MAX_INPUT_TOKENS, StaticEmbeddingMatrix, StaticEmbeddingProvider,
-    degrade_static_to_external, parse_static_config, runtime_uses_static, static_embed_ids,
-    static_l2_normalize, static_repo_for_runtime,
+    parse_static_config, runtime_uses_static, static_embed_ids, static_l2_normalize,
+    static_repo_for_runtime,
 };
 pub use self::fingerprint::{EMBEDDING_FINGERPRINT_VERSION, EmbeddingFingerprint};
 pub use self::llm::{RigLlmProvider, probe_tool_capability};
@@ -120,8 +118,9 @@ pub use self::model_files::{
 pub use self::reverse_visit_map::{ReverseMapHeader, ReverseVisitMap};
 pub use self::traits::{
     EmbeddingDescriptor, EmbeddingDtype, EmbeddingPooling, EmbeddingProvider, EmbeddingRole,
-    LlmCapabilities, LlmChatRequest, LlmChatResponse, LlmChunkStream, LlmMessage, LlmProvider,
-    LlmResponseFormat, LlmRole, LlmStreamChunk, LlmToolCall, LlmToolDef, LlmUsage, VectorIndex,
+    LlmCapabilities, LlmChatRequest, LlmChatResponse, LlmChunkStream, LlmFinishReason, LlmMessage,
+    LlmProvider, LlmReasoning, LlmResponseFormat, LlmRole, LlmStreamChunk, LlmStreamError,
+    LlmToolCall, LlmToolDef, LlmUsage, VectorIndex,
 };
 pub use self::vector_index::FlatVectorIndex;
 pub use self::vector_planes::{
@@ -223,6 +222,11 @@ pub trait IndexBackfillLedger: Send + Sync {
     /// Called only AFTER the chunk's vectors are flushed to the vector store, so the watermark
     /// can never claim progress that is not on disk.
     fn record(&self, progress: IndexBackfillProgress) -> Result<()>;
+
+    /// Couples readiness to the persisted stop flag in the final Intelligence transaction.
+    fn job_id(&self) -> Option<i64> {
+        None
+    }
 }
 
 /// Error raised when a cooperative AI run stop request is observed.

@@ -123,6 +123,8 @@ test('the connection test says why it could not connect, and an edited key fixes
     await edit.getByLabel('API key').fill(KEY)
     await edit.getByRole('button', { name: 'Save' }).click()
     await expect(page.getByText('E2E wrong key is saved.')).toBeVisible()
+    // Saving runs nothing; the test does.
+    await page.getByRole('button', { name: 'Test connection' }).click()
     await expect(
       page.getByText(/^Connected to e2e-model in \d+ ms\.$/),
     ).toBeVisible({ timeout: 30_000 })

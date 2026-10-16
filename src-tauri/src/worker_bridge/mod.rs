@@ -1,4 +1,4 @@
-//! Responsibilities: adapt worker operations to desktop sessions and serialized command results.
+//! Responsibilities: adapt worker operations, including index pause, to desktop sessions.
 //! Not responsible for: domain rules, storage engines or frontend rendering.
 //! Failure modes: session ownership lost, typed errors flattened or imported archives left unpublished.
 //!
@@ -27,6 +27,7 @@ mod stars;
 // The Tauri command layer, which calls most of these, is compiled out of unit tests.
 #[cfg_attr(test, allow(unused_imports))]
 use self::save_dialog::save_path;
+#[cfg_attr(test, allow(unused_imports))]
 pub(crate) use self::{
     annotations::*, app::*, archive::*, import::*, intelligence::*, migration::*, schedule::*,
     search::*, security::*, stars::*,

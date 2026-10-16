@@ -1,5 +1,6 @@
 //! Responsibilities: expose complete starred-page and annotation pages to the agent.
-//! Not responsible for: search, intelligence rebuilding or record mutations.
+//! Not responsible for: argument repair, search, intelligence rebuilding or mutations.
+//! Why: typed preflight rejects unknown fields before a tool call is replayed.
 //! Failure modes: cursors disappear, note previews lose content or long output splits UTF-8.
 use super::*;
 
@@ -25,6 +26,12 @@ pub struct ListStarsTool;
 const LIST_STARS_DESCRIPTION: &str = "List the user's starred (favorited) pages. Returns entity keys, domains, titles, visit counts, and when each was starred. Use this to answer questions about the user's favorites or bookmarks.";
 
 impl AgentTool for ListStarsTool {
+    fn validate_arguments(&self, args: &Value) -> Result<()> {
+        super::super::tool_arguments::validate_optional_field::<usize>(args, "limit")?;
+        serde_json::from_value::<ListStarsArgs>(args.clone())?;
+        Ok(())
+    }
+
     fn name(&self) -> &str {
         "list_stars"
     }
@@ -127,6 +134,12 @@ pub struct ListAnnotationsTool;
 const LIST_ANNOTATIONS_DESCRIPTION: &str = "List or search the user's annotations (notes and tags on URLs). Use this to find pages the user has tagged or noted.";
 
 impl AgentTool for ListAnnotationsTool {
+    fn validate_arguments(&self, args: &Value) -> Result<()> {
+        super::super::tool_arguments::validate_optional_field::<usize>(args, "limit")?;
+        serde_json::from_value::<ListAnnotationsArgs>(args.clone())?;
+        Ok(())
+    }
+
     fn name(&self) -> &str {
         "list_annotations"
     }

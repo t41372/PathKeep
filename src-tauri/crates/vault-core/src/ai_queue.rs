@@ -1,8 +1,11 @@
-//! Responsibilities: route durable AI queue operations through the Vault owner.
+//! Responsibilities: route queue operations and pause recovery through the Vault owner.
 //! Not responsible for: providers, embeddings or schema installation.
 //! Failure modes: claims lost after restart, finished work repeated, cancellation
 //! overwritten, or jobs hidden beyond a status preview. Tests: tests and ai_queue_turso.
 
+pub(crate) mod index_control;
+#[cfg(test)]
+mod index_control_tests;
 pub(crate) mod store;
 #[cfg(test)]
 mod tests;
@@ -27,11 +30,18 @@ pub fn list_ai_jobs(vault: &Vault, cursor: Option<i64>, limit: usize) -> Result<
 }
 
 /// Startup owns every lease; workers from the previous owner cannot still be alive.
-pub(crate) fn recover_owner_claims(storage: &vault_store::Store) -> vault_store::Result<()> {
-    storage.write(Db::Intelligence, Priority::Interactive, |s| {
+pub(crate) fn recover_owner_claims(
+    storage: &vault_store::Store,
+    queue_paused: bool,
+) -> vault_store::Result<()> {
+    storage.write(Db::Intelligence, Priority::Interactive, move |s| {
         let now = now_rfc3339();
-        s.execute("UPDATE ai_jobs SET state=CASE WHEN stop_requested=1 THEN 'cancelled' ELSE 'queued' END,
+        s.execute("UPDATE ai_jobs SET state=CASE WHEN stop_requested=1 THEN 'cancelled' WHEN stop_requested=2 THEN 'paused' ELSE 'queued' END,
             lease_owner=NULL,lease_expires_at=NULL,updated_at=?1 WHERE state='running'", [now.as_str()])?;
+        index_control::retire_ambiguous_progress(s)?;
+        if !queue_paused {
+            s.execute("UPDATE ai_jobs SET state='queued',stop_requested=0,available_at=?1 WHERE state='paused' AND error_code IS NULL", [now.as_str()])?;
+        }
         retire_assistant_jobs(s, &now)?;
         Ok(())
     })
@@ -61,8 +71,13 @@ pub fn enqueue_index_job(
     paused: bool,
 ) -> Result<AiQueueJob> {
     let request = request.clone();
+    let model = request
+        .provider_id
+        .as_ref()
+        .and_then(|id| vault.config().ai.embedding_providers.iter().find(|p| &p.id == id))
+        .map(|p| p.default_model.clone());
     vault.write(Db::Intelligence, Priority::Interactive, move |s| {
-        store::enqueue_index_job(s, &request, paused)
+        store::enqueue_index_job(s, &request, model.as_deref(), paused)
     })
 }
 
@@ -73,8 +88,12 @@ pub fn load_ai_queue_status(
     concurrency: u32,
     limit: usize,
 ) -> Result<AiQueueStatus> {
-    vault
-        .read(Db::Intelligence, move |s| store::load_ai_queue_status(s, paused, concurrency, limit))
+    let config = vault.config().clone();
+    vault.read(Db::Intelligence, move |s| {
+        let mut status = store::load_ai_queue_status(s, paused, concurrency, limit)?;
+        status.semantic_index = crate::semantic_index::load_state_from(s, &config)?;
+        Ok(status)
+    })
 }
 
 /// Uses the current owner for `load_queue_job_counts`.
@@ -208,4 +227,51 @@ pub fn load_ai_job(vault: &Vault, job_id: i64) -> Result<AiQueueJob> {
 /// Uses the current owner for `load_ai_job_payload`.
 pub fn load_ai_job_payload(vault: &Vault, job_id: i64) -> Result<AiJobPayload> {
     vault.read(Db::Intelligence, move |s| store::load_ai_job_payload(s, job_id))
+}
+
+/// Deduplicates a user build or conditionally enqueues the after-backup update in one transaction.
+pub fn request_index_job(
+    vault: &Vault,
+    request: &AiIndexRequest,
+    automatic: bool,
+) -> Result<Option<AiQueueJob>> {
+    let (request, config) = (request.clone(), vault.config().clone());
+    vault.write(Db::Intelligence, Priority::Interactive, move |s| {
+        index_control::request_index_job(s, &config, &request, automatic)
+    })
+}
+
+/// Stops an index build at its last durable chunk; replay continues that cursor.
+pub fn pause_ai_job(vault: &Vault, job_id: i64) -> Result<AiQueueJob> {
+    vault.write(Db::Intelligence, Priority::Interactive, move |s| {
+        index_control::pause_ai_job(s, job_id)
+    })
+}
+
+/// Keeps a partially executed job from being advertised as a complete index.
+pub fn mark_index_job_incomplete(vault: &Vault, job_id: i64) -> Result<()> {
+    vault.write(Db::Intelligence, Priority::Interactive, move |s| {
+        index_control::mark_incomplete(s, job_id)
+    })
+}
+
+/// Keeps a retry drain alive until due work can be claimed, even with every UI closed.
+pub fn next_index_retry_at(vault: &Vault) -> Result<Option<String>> {
+    vault.read(Db::Intelligence, |s| {
+        use vault_store::OptionalRow;
+        Ok(s.query_one("SELECT available_at FROM ai_jobs WHERE state='queued' AND job_type IN ('index-build','index-clear') ORDER BY available_at LIMIT 1", (), |r| Ok(r.get(0)?)).optional()?)
+    })
+}
+
+/// Adds a cleanup warning after the job outcome is settled, preserving the index and job state.
+pub fn fail_index_cleanup(vault: &Vault, job_id: i64, message: &str) -> Result<()> {
+    eprintln!("PathKeep index job {job_id} cleanup failed: {message}");
+    let message = format!("Index cleanup failed; the next job will retry: {message}");
+    vault.write(Db::Intelligence, Priority::Interactive, move |s| {
+        s.execute(
+            "UPDATE ai_jobs SET summary=COALESCE(summary || ' ', '') || ?1 WHERE id=?2",
+            vault_store::params![message, job_id],
+        )?;
+        Ok(())
+    })
 }

@@ -10,11 +10,12 @@
 //! ## Not responsible for
 //! - resolving provider config/secrets (the worker passes a built provider)
 //! - the Tauri event emission itself (the desktop command supplies the sink closure)
-//! - persistence of the conversation (W-AI-3)
+//! - persistence of the conversation or provider reasoning replay metadata (W-AI-3)
 //!
 //! ## Why this module exists
 //! W-AI-1 needs a place that converts the boundary `LlmStreamChunk`s into the IPC
-//! `AiChatStreamChunk` shape and manages run lifetime/cancellation, without leaking rig or the
+//! `AiChatStreamChunk` shape, keeps terminal replay metadata internal, and manages cancellation
+//! without leaking rig or the
 //! Tauri `AppHandle` into `vault-core`.
 
 use super::traits::{LlmChatRequest, LlmProvider, LlmStreamChunk};
@@ -117,7 +118,11 @@ pub async fn drive_chat_stream<P, S>(
                 sink(AiChatStreamChunk::Done);
                 return;
             }
-            Some(Ok(chunk)) => sink(to_ipc_chunk(chunk)),
+            Some(Ok(chunk)) => {
+                if let Some(chunk) = to_ipc_chunk(chunk) {
+                    sink(chunk);
+                }
+            }
             Some(Err(error)) => {
                 sink(AiChatStreamChunk::Error { message: error.to_string() });
                 return;
@@ -132,8 +137,9 @@ pub async fn drive_chat_stream<P, S>(
 /// one place. The plain path only ever produces Token/Reasoning/ToolCall; `Usage` is forwarded
 /// (the FE ignores it on the non-agent path) and the harness additionally emits `ToolResult`
 /// directly (it is not a boundary chunk, so it has no arm here).
-pub(super) fn to_ipc_chunk(chunk: LlmStreamChunk) -> AiChatStreamChunk {
-    match chunk {
+pub(super) fn to_ipc_chunk(chunk: LlmStreamChunk) -> Option<AiChatStreamChunk> {
+    Some(match chunk {
+        LlmStreamChunk::Finished { .. } => return None,
         LlmStreamChunk::Token(text) => AiChatStreamChunk::Token { text },
         LlmStreamChunk::Reasoning(text) => AiChatStreamChunk::Reasoning { text },
         LlmStreamChunk::ToolCall { call_id, name, arguments } => AiChatStreamChunk::ToolCall {
@@ -147,5 +153,5 @@ pub(super) fn to_ipc_chunk(chunk: LlmStreamChunk) -> AiChatStreamChunk {
             prompt_tokens: usage.prompt_tokens,
             completion_tokens: usage.completion_tokens,
         },
-    }
+    })
 }

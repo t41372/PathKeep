@@ -1,4 +1,4 @@
-//! Responsibilities: own the shared Store, paths and config, and open the password envelope.
+//! Responsibilities: own Store/config, recover queue pause ownership and open the password envelope.
 //! Not responsible for: native keychain I/O, browser staging, IPC or search semantics.
 //! Failure modes: omitted migrations, two owners, incorrect database paths,
 //! unfinished runs surviving reopen as running, lost committed progress, ignored keys, reused sub-keys, invalid envelopes, unchecked upgrade passwords and lost envelopes creating new keys.
@@ -97,7 +97,7 @@ impl Vault {
             s.execute("UPDATE import_batches SET status='interrupted',previous_status='interrupted' WHERE status='running'", ())?;
             Ok(())
         })?;
-            crate::ai_queue::recover_owner_claims(&store)?;
+            crate::ai_queue::recover_owner_claims(&store, config.ai.job_queue_paused)?;
             crate::intelligence_runtime::recover_owner_claims(&store)?;
         }
         let search = Arc::new(

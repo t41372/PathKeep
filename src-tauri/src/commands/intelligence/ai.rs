@@ -2,7 +2,7 @@
 //!
 //! ## Responsibilities
 //!
-//! - Preserve frontend-facing command names for optional AI features.
+//! - Preserve frontend-facing command names, including individual index pause.
 //! - Pass the current session key into the worker bridge.
 //! - Keep provider secret, queue, semantic search, and assistant commands thin.
 //!
@@ -133,6 +133,18 @@ pub(crate) async fn replay_ai_job(
 ) -> Result<vault_core::AiQueueJob, CommandError> {
     let state = state.inner().clone();
     run_blocking_command("replay_ai_job", move || worker_bridge::replay_ai_job_impl(job_id, &state))
+        .await
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+/// Stops an index job at its last durable chunk, off the UI thread.
+pub(crate) async fn pause_ai_job(
+    job_id: i64,
+    state: State<'_, SessionState>,
+) -> Result<vault_core::AiQueueJob, CommandError> {
+    let state = state.inner().clone();
+    run_blocking_command("pause_ai_job", move || worker_bridge::pause_ai_job_impl(job_id, &state))
         .await
 }
 

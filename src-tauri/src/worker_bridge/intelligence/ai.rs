@@ -4,7 +4,7 @@
 //!
 //! - Keep desktop command handlers independent from `vault-worker` AI function names.
 //! - Preserve the `Result<_, String>` desktop error envelope.
-//! - Forward provider, queue, index, search, and assistant payloads without reshaping them.
+//! - Forward provider, index pause, queue and search payloads without reshaping them.
 //!
 //! ## Not responsible for
 //!
@@ -114,6 +114,15 @@ pub(crate) fn replay_ai_job_impl(
     let key = state.get_key()?;
     let session_database_key = key.as_deref();
     worker_result(vault_worker::replay_ai_job(&state.vault()?, session_database_key, job_id))
+}
+
+#[cfg_attr(test, allow(dead_code))]
+/// Preserves the typed pause response at the desktop boundary.
+pub(crate) fn pause_ai_job_impl(
+    job_id: i64,
+    state: &crate::session::SessionState,
+) -> Result<vault_core::AiQueueJob, CommandError> {
+    worker_result(vault_worker::pause_ai_job(&state.vault()?, job_id))
 }
 
 #[cfg_attr(test, allow(dead_code))]

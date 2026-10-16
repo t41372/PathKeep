@@ -1,7 +1,8 @@
 /**
  * Semantic search: the switch, which model makes the index (the in-app one,
- * downloaded once, or an embeddings service the user adds), and the index
- * build, each with live progress. Behavior comes from `useSemanticIndex` and
+ * downloaded once, or an embeddings service the user adds), and the in-app
+ * model's download. The chosen model's index under them is
+ * `semantic-index-state.tsx`. Behavior comes from `useSemanticIndex` and
  * `useAiProviders`; this file only renders it.
  */
 import { useState } from 'react'
@@ -9,7 +10,6 @@ import { toast } from 'sonner'
 import { SettingRow } from '@/components/app/setting-row'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
-import { Progress } from '@/components/ui/progress'
 import { Switch } from '@/components/ui/switch'
 import { ProviderDialog } from '@/features/ai-setup/provider-dialog'
 import { providerLabel } from '@/features/ai-setup/providers'
@@ -21,6 +21,7 @@ import {
 import { useFormat, useI18n } from '@/lib/i18n'
 import { BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID } from '@/lib/types'
 import { ProviderDetails } from './provider-details'
+import { AutoUpdate, IndexState, ProgressLine } from './semantic-index-state'
 import { RowSelect } from './row-select'
 
 export type SemanticIndex = ReturnType<typeof useSemanticIndex>
@@ -102,7 +103,7 @@ function ModelPicker({ index }: { index: SemanticIndex }) {
         <ProviderDetails
           provider={index.service}
           providers={providers}
-          // The new model's index is built; the old one goes as that build starts.
+          // The new model needs its own index; the row offers to build it.
           onModelChanged={() => void index.chooseModel(index.modelId)}
           indexOn={index.enabled}
         />
@@ -116,7 +117,7 @@ function ModelPicker({ index }: { index: SemanticIndex }) {
         onSave={async (draft) => {
           const service = await providers.add(draft)
           toast.success(t('settingsAi.provider.saved', { name: service.name }))
-          // Its index is built now if semantic search is on.
+          // Chosen, not built: the row offers to build its index.
           void index.chooseModel(service.id)
         }}
       />
@@ -142,7 +143,7 @@ function InAppModel({ index }: { index: SemanticIndex }) {
 function SemanticStatus({ index }: { index: SemanticIndex }) {
   const { t } = useI18n()
   const format = useFormat()
-  const { download, status } = index
+  const { download } = index
 
   if (download.phase === 'downloading') {
     const ratio =
@@ -171,17 +172,6 @@ function SemanticStatus({ index }: { index: SemanticIndex }) {
           </Button>
         }
       />
-    )
-  }
-
-  if (index.error) {
-    return (
-      <p
-        role="alert"
-        className="text-[13px] [overflow-wrap:anywhere] text-destructive"
-      >
-        {t('settingsAi.semantic.failed', { message: index.error })}
-      </p>
     )
   }
 
@@ -219,78 +209,18 @@ function SemanticStatus({ index }: { index: SemanticIndex }) {
     )
   }
 
-  if (index.building || index.setupRunning) {
-    return index.progress ? (
-      <ProgressLine
-        label={t('settingsAi.semantic.indexing')}
-        detail={t('settingsAi.semantic.indexProgress', {
-          done: format.number(index.progress.embedded),
-          total: format.number(index.progress.target),
-        })}
-        value={index.progress.embedded / index.progress.target}
-      />
-    ) : (
-      <ProgressLine label={t('settingsAi.semantic.indexWaiting')} />
-    )
-  }
-
-  if (status.state === 'failed') {
-    return (
-      <p className="text-[13px] text-destructive">
-        {t('settingsAi.semantic.indexFailed')}
-      </p>
-    )
-  }
-  if (status.state === 'degraded') {
-    return (
-      <p className="text-[13px] text-destructive">
-        {t('settingsAi.semantic.indexIncomplete')}
-      </p>
-    )
-  }
-
   return (
-    <p className="text-[13px] text-muted-foreground">
-      {status.indexedItems > 0
-        ? [
-            t('settingsAi.semantic.indexed', { count: status.indexedItems }),
-            status.lastIndexedAt &&
-              t('settingsAi.semantic.lastIndexed', {
-                when: format.relative(status.lastIndexedAt),
-              }),
-          ]
-            .filter(Boolean)
-            .join(' · ')
-        : t('settingsAi.semantic.nothingIndexed')}
-    </p>
-  )
-}
-
-function ProgressLine({
-  label,
-  detail,
-  value,
-  action,
-}: {
-  label: string
-  detail?: string
-  /** 0–1; leave out while the total is not known yet. */
-  value?: number
-  action?: React.ReactNode
-}) {
-  return (
-    <div role="status" className="flex flex-col gap-2">
-      <div className="flex items-center justify-between gap-3 text-[13px]">
-        <span>{label}</span>
-        <span className="flex items-center gap-2 font-mono text-xs text-muted-foreground">
-          {detail}
-          {action}
-        </span>
-      </div>
-      <Progress
-        value={value === undefined ? undefined : Math.round(value * 100)}
-        aria-label={label}
-      />
+    <div className="flex flex-col gap-3">
+      <IndexState index={index} />
+      {index.error && (
+        <p
+          role="alert"
+          className="text-[13px] [overflow-wrap:anywhere] text-destructive"
+        >
+          {t('settingsAi.semantic.actionFailed', { message: index.error })}
+        </p>
+      )}
+      <AutoUpdate index={index} />
     </div>
   )
 }

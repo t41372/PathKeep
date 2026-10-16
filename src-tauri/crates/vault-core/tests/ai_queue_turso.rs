@@ -1,18 +1,34 @@
-//! Responsibilities: verify durable queue transitions through the real owner.
+//! Responsibilities: verify crash recovery and durable queue transitions with frozen model identity.
 //! Not responsible for: model execution or search.
 //! Failure modes: two claims win, an abandoned claim remains running after reopen,
 //! completed work is claimed again, cancellation is overwritten, or paging hides jobs.
 
-use vault_core::{AiIndexRequest, Vault, ai_queue::*};
+use vault_core::{AiIndexRequest, AiProviderConfig, Vault, ai_queue::*};
+
+// Crash tests queue real model snapshots; model-less advanced legacy cursors are retired.
+fn enqueue(vault: &Vault) -> vault_core::AiQueueJob {
+    let mut config = vault.config().clone();
+    config.ai.embedding_providers.push(AiProviderConfig {
+        id: "test".into(),
+        default_model: "model".into(),
+        ..Default::default()
+    });
+    enqueue_index_job(
+        &vault.with_config(config),
+        &AiIndexRequest { provider_id: Some("test".into()), ..Default::default() },
+        false,
+    )
+    .unwrap()
+}
 
 #[test]
 fn reopening_recovers_only_abandoned_claims_and_keeps_finished_work() {
     for key in [None, Some([62; 32])] {
         let vault = Vault::open_temp_with_key(key).unwrap();
-        let finished = enqueue_index_job(&vault, &AiIndexRequest::default(), false).unwrap();
+        let finished = enqueue(&vault);
         claim_ai_job_by_id(&vault, finished.id, 300).unwrap().unwrap();
         assert!(mark_ai_job_succeeded(&vault, finished.id, None, None).unwrap());
-        let unfinished = enqueue_index_job(&vault, &AiIndexRequest::default(), false).unwrap();
+        let unfinished = enqueue(&vault);
         claim_ai_job_by_id(&vault, unfinished.id, 300).unwrap().unwrap();
         persist_index_cursor(
             &vault,
@@ -45,7 +61,7 @@ fn queue_pages_reach_every_job_and_a_cancel_cannot_become_success() {
     for key in [None, Some([63; 32])] {
         let vault = Vault::open_temp_with_key(key).unwrap();
         for _ in 0..37 {
-            enqueue_index_job(&vault, &AiIndexRequest::default(), false).unwrap();
+            enqueue(&vault);
         }
         let job = claim_next_ai_job(&vault, 300).unwrap().unwrap();
         cancel_ai_job(&vault, job.id).unwrap();
@@ -77,10 +93,10 @@ fn process_exit_requeues_inflight_claim_and_preserves_completed_job() {
             key,
         )
         .unwrap();
-        let done = enqueue_index_job(&vault, &Default::default(), false).unwrap();
+        let done = enqueue(&vault);
         claim_ai_job_by_id(&vault, done.id, 300).unwrap().unwrap();
         mark_ai_job_succeeded(&vault, done.id, None, None).unwrap();
-        let unfinished = enqueue_index_job(&vault, &Default::default(), false).unwrap();
+        let unfinished = enqueue(&vault);
         claim_ai_job_by_id(&vault, unfinished.id, 300).unwrap().unwrap();
         persist_index_cursor(
             &vault,

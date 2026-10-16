@@ -13,6 +13,7 @@
 //!   (→ [`LimitsHit::Memory`]), a per-script host-call budget (→ [`LimitsHit::HostCalls`]), and a
 //!   result OUTPUT cap in bytes (→ [`LimitsHit::Output`]). Any limit/trap yields a clean
 //!   [`CodeOutcome`] with the partial output, NEVER a host panic.
+//! - preserve serving-index notes on sandbox history responses
 //! - expose the capability-scoped host API (ADR J.6 freeze) by REUSING the W-AI-5/6 retrieval
 //!   (`search_history_internal`) verbatim and resolving each row's `canonical_url` exactly as
 //!   `agent_tools.rs` does (the W-STAR star key, so distilled output stays citable/starrable).
@@ -557,6 +558,7 @@ impl HostState {
             "total": response.total,
             "searchState": response.search_state,
             "notes": response.notes,
+            "noteCodes": response.note_codes,
             "hasMore": response.has_more,
             "nextCursor": response.next_cursor,
         });

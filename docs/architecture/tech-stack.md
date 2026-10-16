@@ -47,6 +47,15 @@
 
 ## AI 框架決策：rig.rs（external transport）+ 自有 trait 邊界
 
+2026-10-15：`rig-core = "0.44"`，只開 `reqwest` / `rustls`，關閉預設功能（沒有使用
+rig 的 derive 巨集）。只用 `Model::call` / `Model::stream` 的單輪 client；agent loop
+仍由 PathKeep 管理。不送任何採樣參數（temperature、top_p、top_k 等）。OpenAI 相容與
+Gemini 不送輸出 token 上限；Anthropic 必填的 `max_tokens` 由 rig 使用已知模型的最大輸出量，
+未知模型則明確報錯，不猜上限。Context-fit 仍在本地預留回答空間，不把預留量送給服務。
+同一次 run 的 reasoning 保留原始欄位與來源供 rig 回放，不改對話或 journal 的儲存格式。
+rig 啟用 `serde_json/preserve_order`；visit / schema fingerprint 與 native / context evidence
+在既有 JSON producer 明確排序，保留升級前的 identity bytes，不改 schema 或去重規則。
+
 > **2026-06 AI redesign 落地 note：** AI redesign 2026 program（W-AI-1..9）已交付並 reachable。rig 不再是「整個 AI 棧」，而是被藏進 `LlmProvider` / `EmbeddingProvider` adapter 的 external transport；in-app embedding（起初 candle，2026-10-09 起只剩 model2vec static）、向量盤（自製 `FlatVectorIndex`）、agent harness、code-mode 沙箱、MCP 對外面都是自有實作。下方的 supply-chain / packaging amendment 仍準確（記錄當時為何先移除 LanceDB），保留作歷史脈絡——但「optional AI deferred / no vector payload」這個 v0.1.0/v0.2.0 結論已被本 program 取代。
 
 | 維度          | 說明                                                                                                       |

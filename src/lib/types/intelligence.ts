@@ -107,7 +107,6 @@ export interface AiProviderConfig {
   apiKeySaved: boolean
   defaultModel: string
   modelCatalog: string[]
-  temperature?: number | null
   dimensions?: number | null
   notes?: string | null
 }
@@ -354,6 +353,11 @@ export interface AiProviderModelsRequest {
   baseUrl: string | null
   providerId?: string | null
   apiKey?: string | null
+  /**
+   * Read only the list under the API root the service's requests go to
+   * (saving a service checks it this way; no model is loaded).
+   */
+  apiRootOnly?: boolean
 }
 
 /** What a model is for, as the service says; `unknown` when it does not say. */
@@ -430,6 +434,55 @@ export interface AiQueueJob {
   progressScanned?: number
   progressScanTarget?: number
   progressEmbedTarget?: number
+  /** Who paused it, when its state is `paused`. */
+  pausedBy?: IndexBuildPause | null
+}
+
+/** One semantic index: the service it was made with and the model. */
+export interface EmbeddingIndexRef {
+  providerId: string
+  model: string
+}
+
+/**
+ * Who paused an index build: `user` (the pause button), `service` (the
+ * embeddings service could not load the model or could not be reached; the
+ * job's `errorMessage` has its own words), `queue` (all background work is
+ * paused). A build paused by the user or the service waits for the user; one
+ * paused with the queue goes on when the queue does.
+ */
+export type IndexBuildPause = 'user' | 'service' | 'queue'
+
+/** The chosen model's index build, while it is queued, running or paused. */
+export interface IndexBuildJob {
+  jobId: number
+  state: 'queued' | 'running' | 'paused'
+  pausedBy?: IndexBuildPause | null
+  /** The service's own words when `pausedBy` is `service`. */
+  pauseMessage?: string | null
+  /** Visits this build has indexed so far. */
+  done: number
+  /** Visits this build has to index; 0 until the build has counted them. */
+  total: number
+}
+
+/**
+ * Which index search reads and how far the chosen model's index is. Changing
+ * the model does not build anything: search keeps reading the last complete
+ * index until the user builds the chosen model's and it completes.
+ */
+export interface SemanticIndexState {
+  /** The model chosen in Settings → AI; null when semantic search has none. */
+  chosen: EmbeddingIndexRef | null
+  /**
+   * The index search reads now: the chosen model's once it is complete,
+   * before that the most recent complete index whose service is still set up;
+   * null when there is none.
+   */
+  serving: EmbeddingIndexRef | null
+  /** The chosen model's index is complete and backups keep it up to date. */
+  chosenComplete: boolean
+  build: IndexBuildJob | null
 }
 
 /**
@@ -456,6 +509,7 @@ export interface AiQueueStatus {
    */
   indexRunning: number
   recentJobs: AiQueueJob[]
+  semanticIndex: SemanticIndexState
 }
 
 /**
@@ -772,6 +826,8 @@ export type AiSearchNote =
   | { code: 'configDriftFingerprint' }
   | { code: 'stale'; reason: AiSemanticStaleness }
   | { code: 'providerResolutionFailed'; reason: string }
+  /** Searched the previous model's index; the chosen model's is not complete yet. */
+  | { code: 'previousModel'; model: string }
 
 export interface AiSearchResponse {
   total: number
@@ -808,7 +864,7 @@ export interface AiChatMessage {
 
 /**
  * Request payload for `ai_chat_send`. `providerId` defaults to the configured LLM provider when
- * omitted; `temperature`/`maxTokens` override that provider's defaults for this turn only.
+ * omitted; `maxTokens` reserves local context space; it is not sent to the provider.
  *
  * W-AI-7 additive fields (all optional, mirroring the Rust `#[serde(default)]` so the frozen W-AI-1
  * plain-chat payload still serializes byte-for-byte):
@@ -820,7 +876,6 @@ export interface AiChatMessage {
 export interface AiChatSendRequest {
   providerId?: string | null
   messages: AiChatMessage[]
-  temperature?: number | null
   maxTokens?: number | null
   toolsEnabled?: boolean
   conversationId?: string | null

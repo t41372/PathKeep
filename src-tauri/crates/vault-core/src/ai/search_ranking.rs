@@ -1,4 +1,4 @@
-//! Responsibilities: compute complete RRF inputs and let vault-search rank/page their union.
+//! Responsibilities: rank full hybrid results using the selected serving index and its engine.
 //! Not responsible for: embedding queues, canonical writes or caching materialized result rows.
 //! Failure modes: newest pools hide old matches, facets trim a finite recall pool,
 //! duplicate visits inflate ranks, strings consume corpus-sized RAM, cursors rerank on writes.
@@ -8,8 +8,8 @@ use super::search::{
     semantic_config_drift_reason,
 };
 use super::{
-    AiProviderRuntime, EmbeddingRole, FlatVectorIndex, ReverseVisitMap, VisitContentMap,
-    embed_query,
+    AiProviderRuntime, EmbeddingProvider, EmbeddingRole, FlatVectorIndex, ReverseVisitMap,
+    VisitContentMap, embed_query,
 };
 use crate::{
     AiSearchNote, AiSearchRequest, AiSearchResponse, AppConfig, ProjectPaths, Vault,
@@ -72,9 +72,17 @@ pub(super) async fn page(
         }
         let mut notes = Vec::new();
         if let Some(provider) = provider {
-            notes =
+            let (semantic_notes, read_plane) =
                 add_semantic(vault, paths, provider, &query, request, &cancel, None, &mut ranks)
                     .await?;
+            notes = semantic_notes;
+            let serving = crate::EmbeddingIndexRef {
+                provider_id: provider.config.id.clone(),
+                model: provider.config.default_model.clone(),
+            };
+            if read_plane && crate::semantic_index::chosen(config).as_ref() != Some(&serving) {
+                notes.push(AiSearchNote::PreviousModel { model: serving.model });
+            }
         } else {
             notes.push(AiSearchNote::LexicalFallbackNoProvider);
         }
@@ -220,7 +228,7 @@ async fn add_semantic(
     cancel: &vault_store::CancelToken,
     allowlist: Option<&[u64]>,
     ranks: &mut HashMap<u64, Ranks>,
-) -> Result<Vec<AiSearchNote>> {
+) -> Result<(Vec<AiSearchNote>, bool)> {
     let mut notes = Vec::new();
     super::validate_provider(provider, crate::AiProviderPurpose::Embedding)?;
     if let Some(reason) =
@@ -231,12 +239,23 @@ async fn add_semantic(
     let index = FlatVectorIndex::open(paths, &provider.config.id, &provider.config.default_model)?;
     if index.is_empty() {
         notes.push(AiSearchNote::EmptySemanticIndex);
-        return Ok(notes);
+        return Ok((notes, false));
     }
-    let vector = embed_query(provider, request.query.trim(), EmbeddingRole::Query).await?;
-    if let Some(reason) = semantic_config_drift_reason(paths, provider, &index, vector.len())? {
+    let engine = super::embedding_engine::select_embedding_provider(paths, provider)?;
+    let vector = if super::embedding_static::runtime_uses_static(provider) {
+        engine
+            .embed(&[request.query.trim().to_owned()], EmbeddingRole::Query)
+            .await?
+            .pop()
+            .ok_or_else(|| anyhow::anyhow!("the in-app engine returned no query vector"))?
+    } else {
+        embed_query(paths, provider, request.query.trim(), EmbeddingRole::Query).await?
+    };
+    if let Some(reason) =
+        semantic_config_drift_reason(paths, provider, &engine, &index, vector.len())?
+    {
         notes.push(reason);
-        return Ok(notes);
+        return Ok((notes, false));
     }
     let allowlist =
         allowlist.map(|keys| keys.iter().copied().collect::<std::collections::HashSet<_>>());
@@ -251,7 +270,7 @@ async fn add_semantic(
     if !ranks.values().any(|r| r.semantic_score.is_some()) {
         notes.push(AiSearchNote::SemanticMatchesFilteredOut);
     }
-    Ok(notes)
+    Ok((notes, true))
 }
 #[cfg(test)]
 pub(super) async fn semantic_page(
@@ -265,7 +284,7 @@ pub(super) async fn semantic_page(
     let mut session = SearchSession::start(vault, query.clone())?;
     let cancel = session.cancel_token()?;
     let mut ranks = HashMap::new();
-    let notes =
+    let (notes, _) =
         add_semantic(vault, paths, provider, &query, request, &cancel, allowlist, &mut ranks)
             .await?;
     let ids = ranks.keys().copied().collect::<Vec<_>>();

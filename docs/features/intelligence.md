@@ -18,7 +18,7 @@ M18 redesign（2026-10-02）換掉了整個前端。下文的後端行為不變�
 
 | 舊頁面 / 元件                                                  | 現在                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Explorer 的 keyword / semantic / hybrid recall                 | History 的搜尋方式：全文 / Regex / 語意。語意走 `search_ai_history`，條件是 `ai.enabled`、`semanticIndexEnabled` 都開且 `aiStatus.ready`；否則退回全文並提示                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| Explorer 的 keyword / semantic / hybrid recall                 | History 的搜尋方式：全文 / Regex / 語意。語意走 `search_ai_history`，條件是 `ai.enabled`、`semanticIndexEnabled` 都開；沒有可用索引時退回全文並提示                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | Assistant（`/assistant`）                                      | Ask（`/ask`）：串流回答、可展開思考與搜尋次數、引用頁面連回 History、停止 / 重試 / 複製、對話清單（改名、匯出成 Markdown、刪除；匯出時跳出系統的儲存對話框〔預設「下載」〕，存在使用者選的地方，有標題、每一問一答與每個回答用到的頁面〔連結與造訪時間〕，不含思考與搜尋過程，2026-10-13）                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `/intelligence` 與 day / domain / query-family / refind… 路由  | Insights（`/insights`，全部時間（預設）/ 1 年 / 90 天 / 30 天 / 7 天 / 自訂，可只看一個瀏覽器設定檔）：KPI 列；瀏覽走勢、哪類網站、熱門網站；「什麼時候」：節奏（平日 / 週末每天平均、最忙的時段）、新網站；「搜尋」：常搜尋與常重開的頁面、在哪裡搜尋、搜尋什麼、搜尋得怎麼樣、試了好幾次的搜尋、搜尋最後到了哪裡、比較過的頁面；「規律」：回頭再看的事、習慣、在網站之間怎麼走、探索還是專注、各瀏覽器對比。每個範圍都先讀 primary、再讀 secondary 兩批（§M4-A）。Drill-in：`/insights/day/:date`、`/insights/site/:domain`、`/insights/search/:query`（以搜尋字為準，合併各設定檔的 query family）、`/insights/page/:url`；session 與 trail 在 day / search 裡展開，不是獨立路由。沒有 Insight Access、compare-set、path-flow 路由：比較過的頁面連到它的搜尋、那天與每一頁 |
 | Dashboard 的 On This Day、Browsing Rhythm、threads             | Home 的 On this day、「你的一年」日曆熱力圖、「常回來的主題」（reopened investigations，90 天）                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
@@ -29,7 +29,7 @@ M18 redesign（2026-10-02）換掉了整個前端。下文的後端行為不變�
 
 2026-10 介面沒有做到、但下文仍要求的（待用戶決定補或改）：
 
-- §1 沒有獨立的 hybrid 選項（History 只有「語意」）。provider / model / index state 已在 History 顯示（2026-10-04）：語意搜尋可用時結果數下方寫出 provider 與模型、已索引頁數、更新時間與是否過期；不可用時按鈕提示與同一行說明原因（`disabled`、`rebuilding`、`queued`、`paused`、`empty`、`failed`、`degraded`、`blocked`）並說明現在是全文結果，連到 Settings → AI。
+- §1 沒有獨立的 hybrid 選項（History 只有「語意」）。provider / model / index state 已在 History 顯示（2026-10-04）：語意搜尋可用時結果數下方寫出 provider 與模型、已索引頁數、更新時間與是否過期；不可用時按鈕提示與同一行說明原因（`disabled`、`rebuilding`、`queued`、`paused`、`empty`、`degraded`、`blocked`）並說明現在是全文結果，連到 Settings → AI。
 - §2 assistant 的 `queued` / `insufficient-evidence` 狀態與 `jobId` / `runId` 顯示、共享 profile scope、seeded prompt 以外的修復入口。Ask 有四個範例問題與「去 Settings → AI」。
 - §3 Integrations 的 generated-artifact review（MCP JSON、skill markdown、consent summary）。
 - §4 Insights 的 V1 洞察卡：2026-10 補上 Threads（回頭再看的事）、Explore vs Exploit（探索還是專注，只用 breadth index 與新網站數；discovery rate 在合成資料上幾乎全為 0，沒有做成卡）、Habits、多瀏覽器對比，以及 day / site / search / page drill-in；每張卡有 freshness（`meta.state` 為 stale 時顯示「更新中」並輪詢，degraded / disabled 顯示「部分可用」與原因：`stateReasonCode` 換成使用者語言的句子，沒有對應句子的代碼顯示通用的一句，英文 `stateReason` 只留給記錄與診斷）與 ⓘ 說明（計算時間、日期範圍、算法），重開頁面的 drill-in 列出分數的每個訊號與權重。仍沒做、原因是後端沒有可信的資料：Open Loops（沒有命令）；Search effectiveness 與 Friction（每條 trail 只有一個 query，`avgReformulations` 恆為 0，friction 恆為空）；Source Role Map（`get_stable_sources` 是整段歷史的計數、每個設定檔一列、從不輸出 `entry`）；Periodic Summaries / Topic Timeline / Query Ladder / Contrastive Summary（沒有 2026-10 介面）。scope 標示：Insights 的設定檔篩選選中某個設定檔時，選單上就寫著它；沒選時是所有瀏覽器。2026-10-08 起 `WORK-INSIGHTS-RESTORE-2026-10` 補回：KPI 的新網站 / 深入瀏覽 / 重新打開的頁面、熱門網站前 40 與排序、節奏下的平日 / 週末與最忙時段、新網站走勢、在哪裡搜尋、搜尋什麼、搜尋得怎麼樣（search effectiveness，改寫次數在 trail 修正後才有意義）、試了好幾次的搜尋（friction）、搜尋最後到了哪裡（取代 stable sources 的舊定義）、比較過的頁面（compare sets）、在網站之間怎麼走（path flows，不計來回）、day 頁的回來再看的頁面。刻意沒補回的見 `screens-and-nav.md` §Insights。
@@ -75,11 +75,16 @@ continuation fields are listed in the [area-4 contract report](../architecture/r
 ### 需求要點
 
 - semantic / hybrid search 已交付（W-AI-4/5/6），但 **off by default + consent-gated**（master `ai.enabled` + `semantic_index_enabled`）；沒開時 History 搜尋維持全文 / regex（lexical recall v2）。
-- 向量相似度走 in-app（model2vec static 模型）或 external（OpenAI-compatible `/v1/embeddings`）embedding（Settings → AI 的「模型」選 in-app，或使用者加的 OpenAI 相容 embeddings 服務：Ollama、LM Studio、OpenAI 或相容的位址，存在 `ai.embeddingProviders`，加了就做連線測試），寫進 `derived/vectors/` 的 `FlatVectorIndex` sidecar plane（`.pkvec/.pkmap/.pkbin/.pki8`），不連結 LanceDB。
+- 向量相似度走 in-app（model2vec static 模型）或 external（OpenAI-compatible `/v1/embeddings`）embedding（Settings → AI 的「模型」選 in-app，或使用者加的 OpenAI 相容 embeddings 服務：Ollama、LM Studio、OpenAI 或相容的位址，存在 `ai.embeddingProviders`，加了就讀模型清單檢查），寫進 `derived/vectors/` 的 `FlatVectorIndex` sidecar plane（`.pkvec/.pkmap/.pkbin/.pki8`），不連結 LanceDB。
+- 舊工作沒有記錄模型時，啟動一律取消（包含尚未執行、游標為 0 的工作），保留索引檔案；新的增量請求才可補缺。
+- 內建 embedding 引擎按模型目錄在程序內共用，搜尋、漂移檢查與建置使用同一份載入的權重；目錄、驗證標記或模型檔案變更才重新驗證／載入。
 - Embedding 增量計算、content-hash dedup（一個 content_key 一條向量，fan-out 到所有共享該內容的 visit）、本地索引、避免重算。
+- 索引按「服務 ID + 模型」分開。選的索引在 `ai_index_ledger.state = ready` 時提供搜尋；尚未完成時，讀完成時間最近、服務仍在設定裡的完整索引，用該服務目前的位址與金鑰、該索引的模型。沒有完整索引才讀所選模型的部分索引或空索引，沿用既有的降級提示。History、Ask 的搜尋工具、程式沙箱與 MCP 都遵守同一規則；只有實際讀到上一個模型的語意平面時帶 `previousModel` 提示；空查詢、日期排序、空索引與設定漂移後的全文退路不帶。
+- 換模型不啟動工作。建立、繼續與第一次填補都用增量：空索引填全部，部分索引補缺少的造訪；只有明確的「重建搜尋索引」清空重來。工作開始保留所選索引與正在服務的索引，刪掉其餘資料與檔案；所選模型完成整份存檔的填補後才切換，刪掉其餘索引及其完成紀錄。工作集的首次填補不算整份完成。已有完整索引的非清空更新維持 `ready`，暫停、取消或失敗仍可搜尋，下次增量補缺少的造訪。完整掃描的 watermark 與時間只在整份存檔填補成功後前進，工作集更新不能把尚未處理的造訪或 enrichment 標成最新；清空重建才改成 `building`（清除則是 `clearing`）。排隊尚未開始的工作不會降級完整索引。清理舊索引失敗寫進工作摘要並記錄日誌，不影響建置結果或所選索引，下次工作再試。
+- Settings → AI 與背景工作每秒讀 `semanticIndex`：所選與服務中的索引、是否完整，以及工作狀態、暫停來源、原因、已寫入與目標造訪數。目標在計數前是 0；讀取只查完成紀錄與有效建置工作（不含清除，優先顯示執行中的），不掃造訪或 embedding 明細。
 - day-one recall mode 明確區分 `keyword`、`semantic`、`hybrid`；semantic / hybrid 必須顯示目前使用的 provider / model / index state，語義檢索不可用時要明講退化成 keyword recall。
 - semantic result 以 canonical visit evidence 為核心：至少回傳 `historyId`、profile / browser、URL / title、visited time、match reason、score band，並能 deep-link 回 Explorer 查原始記錄。
-- semantic index state 至少要能誠實區分 `disabled`、`blocked`、`empty`、`queued`、`paused`、`rebuilding`、`failed`、`stale`、`ready`、`degraded`。`stale` 代表 archive visibility / import watermark 或 approved enrichment 已改變，使用者必須明確 rebuild，而不是假裝 index 仍是最新。
+- semantic index state 至少要能誠實區分 `disabled`、`blocked`、`empty`、`queued`、`paused`、`rebuilding`、`stale`、`ready`、`degraded`。`stale` 代表 archive visibility / import watermark 或 approved enrichment 已改變，使用者必須明確 rebuild，而不是假裝 index 仍是最新。
 - 搜尋必須覆蓋全部可用的向量與詞彙匹配頁面；日期、profile 與星號篩選不能先套在有限候選池上。結果以游標接續，頁面大小不限制總覆蓋；若 sidecar 缺失、過期或失敗，PathKeep 誠實退回 lexical recall。semantic metadata / queue 固定落在 `derived/intelligence.db`、向量 payload 落在 `derived/vectors/`、assistant chat / agent trace 落在 `derived/agent.db`；Turso 不承擔向量 payload mirror。
 - 搜尋 tuning（RRF `k`、lexical / semantic weight、starred boost）是 consent knob，入口在 Settings（W-AI-9-A），於 config load 時 clamp。
 
@@ -119,6 +124,7 @@ are specified in [data-model.md](../architecture/data-model.md#migration-in-prog
   - **輸入框**：左邊選回答用的服務與模型（每個已啟用的聊天服務、它的模型、哪些已載入、各讀多少），右邊顯示下一則訊息約占模型 context 的多少（「2.9K / 32K」，不知道上限時寫「上限未知」），80% 起變色並提醒，超過時紅色並說明不會送出與修法。估算跟後端送出前的檢查是同一條規則。
   - **回答**：模型在呼叫工具前寫的話放進思考，只有最後一輪是答案。每則回答下面寫是哪個模型寫的（`agent_runs.model`）與這個回答的 token 總數（每次請求加總，重開後同一個數）。引用的頁面重開後照當下的順序（之前照 visit id，「在 History 打開」可能指到別頁）。
   - **對話**：使用者的訊息可以編輯，從那則重來，後面的回答丟掉（用戶選的）；完成的回答也能「重新回答」。對話選單可「匯出為 Markdown…」，跳系統的儲存對話框。
+  - **工具參數正規化**：只解開一層 JSON 字串，必須是物件，拒絕重複 key；去空白後只配對唯一 schema 欄位。純量只做簡單可驗證的轉換，required／enum 錯誤附 JSON 路徑與原始參數。取消時停止，不替未執行的工具補寫「已中斷」結果；往後的對話只帶文字歷史。
   - **工具**：參數名不認得就拒絕並列出合法的參數（之前默默丟掉：qwen3.6 經 LM Studio 偶爾把 `end_date` 寫成 `end_date2026-10-09`，結果查錯日期；現在它收到錯誤馬上改正）。cursor 用錯時的錯誤說明要怎麼改。
   - 在這台機器上用 LM Studio 的 qwen3.6-35b-a3b-splash 實測四種問題（中文開放式、使用者說「你隨便做」、英文「第一次」、中文「上週五」）：都用對的語言、沒有反問、內容出自工具結果，每題 2–18 秒。
 
@@ -378,13 +384,14 @@ are specified in [data-model.md](../architecture/data-model.md#migration-in-prog
   - **位址**：LM Studio、Ollama 自己的視窗顯示的位址不帶 `/v1`（`http://127.0.0.1:1234`、`http://localhost:11434`），也有人貼上整個端點（`…/v1/embeddings`）。OpenAI 相容的呼叫一律經 `openai_api_root`：LM Studio、Ollama 的位址沒有路徑就補 `/v1`，結尾的 `/embeddings`、`/chat/completions` 去掉，`localhost` 照舊固定成 IPv4。其他格式的路徑不動（雲端服務可能放在任何路徑下）。
   - **錯誤照原話**：LM Studio 對它不服務的路徑回 HTTP 200 加 `{"error": …}`，不是 404。2xx 但有 `error`、沒有 `data` 的回覆算失敗，顯示服務的原話；讀不懂的回覆附前 300 個字。錯誤碼多一個 `bad-endpoint`（LM Studio 的「Unexpected endpoint」與一般的 404）：寫成「這個位址有服務在跑，但不是它的 API」，並說 LM Studio、Ollama 的位址通常以 `/v1` 結尾。連線測試的訊息是整條錯誤鏈，服務的話常在我們的說明下面。
   - **模型清單**：`list_ai_provider_models` 依格式問服務有哪些模型——LM Studio `/api/v0/models`（有種類 llm / vlm / embeddings、是否已載入、載入的與最大的 context 長度；舊版退回 `/v1/models`）、Ollama `/api/tags` + `/api/show`（capabilities、`<arch>.context_length`）+ `/api/ps`（載入中的 context）、Anthropic `/v1/models`、Google `/v1beta/models`（`supportedGenerationMethods`、`inputTokenLimit`；金鑰放 header，不放網址）、其他 OpenAI 相容 `/models`（只有 id；id 裡有 embed 才當 embedding 模型，其餘標「不知道」，不猜）。表單填好位址（雲端服務再加金鑰）就讀，只列跟用途相符的模型（聊天：chat 與不知道；embedding：embedding 與不知道），每個標出是否已載入、能讀多少；仍可直接打名稱。讀不到時說原因，照樣可以手打。還沒存的服務也能讀：請求帶表單的格式、位址與打的金鑰，沒打金鑰時用已存服務的金鑰。
-  - **內建模型**：Settings 寫出它是 `potion-multilingual-128M`（model2vec 靜態模型，256 維），隨 PathKeep 提供、在這台電腦上跑。只有這一個：模型檔的驗證照它的雜湊，換別的 repo 不支援（`DEFAULT_STATIC_MODEL_FILES`）。
-  - **換模型就重建**：索引屬於「服務 + 模型」。在編輯對話框把 embedding 服務換成別的模型時，存檔前先說要重新建立索引、幾個頁面（`estimate_reembed`），舊模型的索引會刪掉；語意搜尋開著就「儲存並重建」，關著就寫「語意搜尋開啟時」。舊的索引（資料列、`.pkvec`、`.pkmap`、平面與側檔）在下一次建索引的背景工作開始時刪：設定裡已經沒有的每個「服務 + 模型」都刪（換了模型、移除了服務），在背景分批刪，不擋畫面。
+  - **內建模型**：Settings 寫出它是 `potion-multilingual-128M`（model2vec 靜態模型，256 維），隨 PathKeep 提供、在這台電腦上跑；2026-10-15 起也說明它是靜態模型：非常快，但不看上下文，找意思相近的頁面不如服務跑的 embedding 模型。只有這一個：模型檔的驗證照它的雜湊，換別的 repo 不支援（`DEFAULT_STATIC_MODEL_FILES`）。
+  - **換模型不自動重建**（2026-10-15 改，`WORK-AI-INDEX-CONTROL`；之前存檔就重建、下一個工作一開始就刪舊索引，搜尋變差好幾個小時）：索引屬於「服務 + 模型」。編輯對話框換模型時，存檔前說新模型需要自己的索引、幾次造訪（`estimate_reembed`），存檔什麼都不跑。Settings → AI 在語意搜尋下說這個模型還沒有索引、建好之前搜尋繼續用哪個，按「建立索引」才開始；建好之前搜尋讀上一個完整的索引，建好才換過去並刪掉舊的（規則見 §1、§6）。
+  - **存檔只檢查，不跑模型**（2026-10-15）：新增或編輯服務後讀一次它的模型清單（LM Studio、Ollama 讀清單不會載入模型），說連得上、有沒有這個模型；真正跑一次模型的連線測試只在按「測試連線」時做。之前存檔就自動測試：LM Studio 開著「JIT 載入新模型時卸載上一個」時，同時存 embedding 與聊天服務會讓兩個模型互相踢掉，兩邊都報錯。
 - secret clear 只清除 credential，不刪除 provider preset / model selection，讓使用者能先保留配置再補 key。
 - **API key 是可選的，不是前置條件**：本地 / LAN 自架 provider（LM Studio、Ollama、llama-server…）不需要 key。PathKeep 絕不因「沒存 key」就自行擋下 provider 呼叫——`resolve_provider_runtime` 在缺 key 時照常 resolve（`api_key: Option<SecretString>` 為 `None`），transport 對缺 / 空白 key 完全不送 `Authorization` header（不送空的 `Bearer `）。只有 provider 自己回傳的錯誤（真正的 401/403…）才算失敗。雲端 provider 需要 key 時，由它自己的 401 帶出，而不是我們的 precondition。
   - 新增服務的表單照這條：位址在這台電腦上（localhost / 127.0.0.1 / [::1]）時，API key 欄寫「可不填」但仍可輸入（vLLM、LiteLLM 這類本機伺服器可能要 key）；之前整欄停用，連要 key 的本機伺服器也設定不了。雲端服務仍必填。
   - 已知 transport 細節：OpenAI-compatible embeddings 走我們自管的 reqwest `/v1/embeddings`，缺 key 真正省略 header；rig 0.34 的 openai/anthropic/gemini chat client 在 `.api_key()` 後一定會帶 auth header（上游限制），keyless local model 會忽略它，仍可運作。
-  - FE（2026-10）：Settings → AI 與 onboarding 第 6 步共用「新增 AI 服務」表單（`src/features/ai-setup/`）。按下新增時依序：把 provider 寫進 config 並選為目前服務（同時打開 `ai.enabled` 與 `assistantEnabled`）→ 有填 key 才存進鑰匙圈 → 自動測一次連線。Settings → AI 另有語意搜尋的「模型」選單：內建的靜態模型，或使用者加的 embeddings 服務（`embeddingProviders`，同一個表單，用途是 embedding）。
+  - FE（2026-10）：Settings → AI 與 onboarding 第 6 步共用「新增 AI 服務」表單（`src/features/ai-setup/`）。按下新增時依序：把 provider 寫進 config 並選為目前服務（同時打開 `ai.enabled` 與 `assistantEnabled`）→ 有填 key 才存進鑰匙圈 → 讀一次模型清單檢查（不跑模型）。Settings → AI 另有語意搜尋的「模型」選單：內建的靜態模型，或使用者加的 embeddings 服務（`embeddingProviders`，同一個表單，用途是 embedding）。
 
 ---
 
@@ -394,15 +401,20 @@ are specified in [data-model.md](../architecture/data-model.md#migration-in-prog
 
 ### 任務生命週期
 
-- **任務產生**：備份完成後、導入完成後、用戶手動觸發、定時掃描發現未處理記錄。
+- **索引任務產生**：使用者明確建立或繼續；備份後的增量更新另受下方完整性與去重規則約束。
 - **任務排隊**：任務加入隊列，按優先級和產生時間排序。
 - **執行**：在背景異步執行，不阻塞 UI。
 - **成功**：結果寫入對應的表，標記任務完成。
-- **失敗**：記錄錯誤原因，按可配置的策略自動重試（最多 N 次，指數退避）。
-- **暫停**：用戶可以隨時暫停所有計算任務，之後恢復。
+- **服務不可用**：HTTP 錯誤、2xx 中的服務錯誤、連不上、逾時或模型未載入，按工作嘗試預算退避重試；畫面關閉後也照常重試。預算用完進入 `paused`，不寫成 `failed`，保留整條錯誤鏈與服務原話。資料庫、程式或無效設定的錯誤才是 `failed`。
+- **暫停**：單獨暫停與暫停整個佇列都停在最後已寫入磁碟的一批。執行中用 `stop_requested = 2` 請求暫停，1 仍是取消；等待中與 stale 工作立即變成 `paused`。重開 app 保持暫停，繼續沿用 payload 與游標。
 - queue persistence 現在存在 `derived/intelligence.db` 的 `ai_jobs` / `intelligence_jobs`；sidecar 只保存可重建的 embedding / vector 資產，不承擔 job state。
 - queue state 精確包含 `queued`、`running`、`succeeded`、`failed`、`paused`、`cancelled`、`stale`。
-- manual replay 只允許 `failed` / `cancelled` / `paused` / `stale` job；`running` job 在當前 worker 不支援 mid-flight cancel。
+- replay 只允許 `failed` / `cancelled` / `paused` / `stale` 工作；執行中能協作取消或暫停。暫停後 replay 是繼續，游標不歸零。
+- `error_code` 記暫停來源：`user-paused` → `pausedBy: user`，`service-unavailable` → `service`，NULL → `queue`。恢復整個佇列只恢復 NULL 來源，使用者或服務暫停的工作要個別繼續。
+- 使用者建立所選「服務 + 模型」的索引時，先取消其他組合的有效工作；同組合若有暫停工作就繼續，其餘有效工作直接回傳，不多排。有效包含 queued、running、paused、stale；實際索引 writer 與清理串行執行，取消中的 writer 確認停止後才開始下一個。
+- 備份後自動更新是可關閉的獨立設定，不隨開啟語意搜尋自動開啟。只有所選組合的 ledger 是 `ready` 且沒有同組合的有效工作才排增量；否則安靜略過，不在備份報告加警告。取消或暫停第一次填補後，備份不得代替使用者繼續。
+- 建置開始寫 `building`，清除開始寫 `clearing`；完整填補成功才寫 `ready`，清除成功寫 `cleared`。暫停、取消、失敗、工作集更新與啟動時回收未完成建置都寫 `incomplete`。沒有到結尾就不能被當作完成。
+- 舊版工作只存服務、沒存模型；新工作在既有 JSON payload 存模型快照，不改 schema。舊游標已前進又沒有模型時取消工作、保留部分索引；重新建立增量工作補缺。未開始的舊工作在首次執行前綁定目前模型。
 
 ### 任務類型
 

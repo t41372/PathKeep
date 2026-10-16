@@ -1,74 +1,41 @@
-//! rig adapter that implements PathKeep's `LlmProvider` boundary.
+//! Per-turn rig transport behind the rig-free LlmProvider boundary.
 //!
-//! ## Responsibilities
-//! - own the ONE place where rig's completion client/types are touched for chat
-//! - map PathKeep `LlmChatRequest`/`LlmMessage`/`LlmToolDef` into a rig request and
-//!   map rig's (streaming and non-streaming) responses back into PathKeep types
-//! - branch on `AiRequestFormat` to the right rig provider client
-//!   (OpenAi/Ollama/LmStudio → openai, Anthropic → anthropic, Google → gemini)
-//! - derive `LlmCapabilities` from the provider config
-//!
-//! ## Not responsible for
-//! - resolving provider config or secrets (that is the worker's `AiProviderRuntime`)
-//! - emitting Tauri events or owning the streaming run registry (worker/IPC layers)
-//! - executing tool calls (W-AI-7); this only threads tool DEFINITIONS through and
-//!   surfaces `ToolCall` chunks
-//!
-//! ## Why this module exists
-//! The `LlmProvider` trait is rig-free by contract (`traits.rs`). This adapter is the
-//! only file allowed to depend on rig for chat, so the transport stays swappable.
-//!
-//! ## Optional API key (key is never a precondition)
-//! The API key is OPTIONAL: a local/LAN self-hosted model (LM Studio / Ollama) needs none, so the
-//! client builders forward a key ONLY when one is stored and non-blank
-//! (`AiProviderRuntime::api_key_for_transport`). PathKeep never pre-empts a chat on a missing key;
-//! a key-enforcing cloud server returns its OWN 401 instead. NOTE (upstream limitation): rig
-//! 0.34's `openai`/`anthropic`/`gemini` `ClientBuilder::build` always inserts an auth header
-//! (`Authorization: Bearer …` / `x-api-key` / `x-goog-api-key`) once `.api_key()` is called, with
-//! no affordance to omit it for these concrete clients. A keyless local model ignores the empty
-//! header, so chat still works; the embedding path (which we own end-to-end via reqwest in
-//! `embedding_external.rs`) genuinely omits the header when keyless.
+//! Responsibilities: encode chat, decode streams, and retain native reasoning for one run.
+//! Not responsible for: tool execution, conversation storage, budgets or a multi-turn runtime.
+//! Why: provider wire differences belong here, while the agent loop remains ours.
 
 use super::traits::{
-    LlmCapabilities, LlmChatRequest, LlmChatResponse, LlmChunkStream, LlmMessage, LlmProvider,
-    LlmRole, LlmStreamChunk, LlmUsage,
+    LlmCapabilities, LlmChatRequest, LlmChatResponse, LlmChunkStream, LlmFinishReason, LlmMessage,
+    LlmProvider, LlmReasoning, LlmRole, LlmStreamChunk, LlmStreamError, LlmUsage,
 };
 use super::{AiProviderRuntime, AiRequestFormat};
 use anyhow::Result;
-use rig::OneOrMany;
-use rig::client::CompletionClient;
-use rig::completion::{
-    AssistantContent, CompletionModel, GetTokenUsage, Message as RigMessage, ToolDefinition,
-    Usage as RigUsage,
+use rig_core::completion::{
+    AssistantContent, AssistantMessage, CompletionRequest, CompletionResponse, FinishReason,
+    Message, ToolDefinition, Usage,
 };
-use rig::providers::{anthropic, gemini, openai};
-use rig::streaming::StreamedAssistantContent;
-use std::pin::Pin;
-use std::task::{Context as TaskContext, Poll};
+use rig_core::error::ProviderError;
+use rig_core::message::{CallId, ToolName, ToolResultContent, UserContent};
+use rig_core::providers::openai::wire::{Auth, Dialect, OLLAMA, OPENAI, Quirks, Route};
+use rig_core::providers::{anthropic, gemini, openai};
+use rig_core::streaming::{CompletionStream, Item, StreamEvent};
+use std::{
+    collections::VecDeque,
+    future::Future,
+    pin::Pin,
+    task::{Context, Poll},
+};
 
-/// Tokens a request leaves for thinking and the answer when nothing fits it to the model's
-/// context: plain chat, the connection test. 1,200 (the default before 2026-10-13) cut answers
-/// short, and a thinking model such as Qwen3 spent them before it answered.
-pub(crate) const DEFAULT_ANSWER_TOKENS: u32 = 4096;
-
-/// The single PathKeep `LlmProvider` implementation backed by rig.
-///
-/// Holds the resolved provider runtime (config + secret). Every method branches on
-/// `config.request_format` internally so callers above the boundary never see rig.
+/// One resolved provider; all concrete rig types stay inside this adapter.
 pub struct RigLlmProvider {
     runtime: AiProviderRuntime,
 }
-
 impl RigLlmProvider {
-    /// Wraps a resolved provider runtime as a chat provider.
-    ///
-    /// The runtime already carries the validated config and the in-memory secret, so the
-    /// adapter never reaches back into Settings or the keyring.
+    /// Keeps config and its resolved secret together without consulting storage during a turn.
     pub fn new(runtime: AiProviderRuntime) -> Self {
         Self { runtime }
     }
-
-    /// Returns the configured model id (a runtime string, never a product constant).
+    /// Identifies the selected model without hardcoding provider model names.
     pub fn model_id(&self) -> &str {
         &self.runtime.config.default_model
     }
@@ -77,7 +44,7 @@ impl RigLlmProvider {
 /// Derives the in-engine capability view from the provider config (honest, not optimistic).
 ///
 /// Shared by `capabilities()` and the connection probe so both report the same thing. Every
-/// supported request format streams chat in rig 0.34; `max_context_tokens` stays `None` because
+/// supported request format streams chat in rig 0.44; `max_context_tokens` stays `None` because
 /// rig exposes no window size and PathKeep never hardcodes one (D4).
 ///
 /// Tool calls (W-AI-7, 02 §B): `tool_call` is [`request_format_self_certifies_tools`], the same
@@ -141,356 +108,326 @@ pub async fn probe_tool_capability(provider: &RigLlmProvider) -> Result<bool> {
 }
 
 impl LlmProvider for RigLlmProvider {
-    fn chat(
-        &self,
-        req: LlmChatRequest,
-    ) -> impl std::future::Future<Output = Result<LlmChatResponse>> + Send {
-        chat_impl(&self.runtime, req)
+    async fn chat(&self, req: LlmChatRequest) -> Result<LlmChatResponse> {
+        let response = completion_model(&self.runtime).call(build_request(&req)?).await?;
+        if let Some(error) = &response.error {
+            anyhow::bail!("{error}");
+        }
+        let text = response
+            .choice
+            .iter()
+            .filter_map(|item| match item {
+                AssistantContent::Text(text) => Some(text.text.as_str()),
+                _ => None,
+            })
+            .collect::<String>();
+        let reasoning = response.reasoning();
+        Ok(LlmChatResponse {
+            text,
+            reasoning: (!reasoning.is_empty()).then_some(reasoning),
+            usage: usage(&response.usage),
+        })
     }
-
-    fn chat_stream(
-        &self,
-        req: LlmChatRequest,
-    ) -> impl std::future::Future<Output = Result<LlmChunkStream>> + Send {
-        chat_stream_impl(&self.runtime, req)
+    async fn chat_stream(&self, req: LlmChatRequest) -> Result<LlmChunkStream> {
+        let stream = completion_model(&self.runtime).stream(build_request(&req)?)?;
+        Ok(Box::pin(MappedRigStream {
+            inner: Some(stream),
+            finishing: None,
+            pending: VecDeque::new(),
+            arguments: std::collections::HashMap::new(),
+            ended: false,
+        }))
     }
-
     fn capabilities(&self) -> LlmCapabilities {
         rig_llm_capabilities(&self.runtime.config)
     }
 }
 
-// ---------------------------------------------------------------------------
-// Pure rig <-> PathKeep mappers.
-// ---------------------------------------------------------------------------
+// Chat Completions is the floor even for hosted OpenAI. A keyless gateway gets no header.
+// Keep rig's message encoding (including system content arrays) untouched.
+const COMPAT: Dialect = {
+    let mut dialect = OPENAI;
+    dialect.quirks = Quirks::openai();
+    dialect.quirks.completion_route = Route::Chat;
+    dialect.quirks.auth = Auth::OptionalBearer;
+    dialect.quirks.stream_include_usage = true;
+    dialect
+};
 
-/// Converts one PathKeep message into a rig `Message`.
-///
-/// Tool results map onto rig's `tool_result`, preserving the call id correlation when the
-/// caller supplied one. System/User/Assistant map onto the matching rig constructors.
-fn to_rig_message(message: &LlmMessage) -> RigMessage {
-    match message.role {
-        LlmRole::System => RigMessage::system(message.content.clone()),
-        LlmRole::User => RigMessage::user(message.content.clone()),
-        LlmRole::Assistant if !message.tool_calls.is_empty() => {
-            // An assistant turn that requested tool calls must be threaded back carrying those calls
-            // so an OpenAI-compatible transport can correlate the following `tool` result(s) to it
-            // (W-AI-7 tool-loop fix). Optional leading text is preserved; each call maps onto rig's
-            // `AssistantContent::ToolCall`. Malformed arguments degrade to `null` (the call shape is
-            // still threaded so the result correlates) rather than dropping the turn.
-            let mut contents: Vec<AssistantContent> = Vec::new();
-            if !message.content.is_empty() {
-                contents.push(AssistantContent::text(message.content.clone()));
-            }
-            for call in &message.tool_calls {
-                let arguments =
-                    serde_json::from_str(&call.arguments).unwrap_or(serde_json::Value::Null);
-                contents.push(AssistantContent::tool_call(
-                    call.call_id.clone(),
-                    call.name.clone(),
-                    arguments,
+fn completion_model(
+    runtime: &AiProviderRuntime,
+) -> rig_core::DynModel<rig_core::operation::Completion> {
+    let model = runtime.config.default_model.clone();
+    let key = runtime.api_key_for_transport().unwrap_or_default();
+    match runtime.config.request_format {
+        AiRequestFormat::OpenAi | AiRequestFormat::LmStudio | AiRequestFormat::Ollama => {
+            let dialect = if runtime.config.request_format == AiRequestFormat::Ollama {
+                &OLLAMA
+            } else {
+                &COMPAT
+            };
+            let mut config = openai::OpenAIConfig::with_key(dialect, key);
+            if let Some(url) = &runtime.config.base_url {
+                config = config.with_base_url(super::provider::openai_api_root(
+                    url,
+                    &runtime.config.request_format,
                 ));
             }
-            // `contents` is non-empty (there is at least one tool call), so the OneOrMany builds.
-            RigMessage::Assistant {
-                id: None,
-                content: OneOrMany::many(contents).expect("at least one tool call content"),
+            config.client().chat(model).erase()
+        }
+        AiRequestFormat::Anthropic => {
+            let mut config = anthropic::AnthropicConfig::new(key);
+            if let Some(url) = &runtime.config.base_url {
+                config = config.with_base_url(super::provider::normalize_local_base_url(url));
             }
+            // rig supplies the catalog's maximum output for known Anthropic models.
+            // An unknown model has no honest limit to invent, so rig returns an explicit error.
+            config.client().completion(model).erase()
         }
-        LlmRole::Assistant => RigMessage::assistant(message.content.clone()),
-        LlmRole::Tool => {
-            let call_id = message.tool_call_id.clone().unwrap_or_default();
-            RigMessage::tool_result(call_id, message.content.clone())
-        }
-    }
-}
-
-/// Maps PathKeep tool definitions onto rig `ToolDefinition`s.
-fn to_rig_tools(req: &LlmChatRequest) -> Vec<ToolDefinition> {
-    req.tools
-        .iter()
-        .map(|tool| ToolDefinition {
-            name: tool.name.clone(),
-            description: tool.description.clone(),
-            parameters: tool.parameters.clone(),
-        })
-        .collect()
-}
-
-/// Builds a rig completion request from a PathKeep chat request against one model.
-///
-/// The newest message is the prompt; everything before it is chat history. Temperature,
-/// max_tokens, tools, and (optional) structured-output schema are all threaded through.
-fn build_rig_request<M: CompletionModel>(
-    model: M,
-    runtime: &AiProviderRuntime,
-    req: &LlmChatRequest,
-) -> Result<rig::completion::CompletionRequest> {
-    let Some((last, history)) = req.messages.split_last() else {
-        anyhow::bail!("Chat request must contain at least one message.");
-    };
-    let mut builder = model
-        .completion_request(to_rig_message(last))
-        .messages(history.iter().map(to_rig_message))
-        .temperature(req.temperature.unwrap_or(runtime.config.temperature.unwrap_or(0.2)) as f64)
-        // The agent sets its own from the model's context (`answer_room` in the worker).
-        .max_tokens(req.max_tokens.unwrap_or(DEFAULT_ANSWER_TOKENS) as u64)
-        .tools(to_rig_tools(req));
-    if let Some(format) = req.response_format.as_ref() {
-        // `Schema` is the same `schemars` 1.x instance rig resolves to (see Cargo.toml note).
-        // `TryFrom<Value>` rejects a non-object schema, which surfaces here as a hard error
-        // rather than silently dropping the structured-output intent.
-        let schema = schemars::Schema::try_from(format.schema.clone()).map_err(|error| {
-            anyhow::anyhow!(
-                "structured-output schema '{}' is not a valid JSON-Schema object: {error}",
-                format.schema_name
-            )
-        })?;
-        builder = builder.output_schema(schema);
-    }
-    Ok(builder.build())
-}
-
-/// Pulls the visible text + separated reasoning out of a finished rig completion choice.
-fn collect_assistant_content(choice: OneOrMany<AssistantContent>) -> (String, Option<String>) {
-    let mut text = String::new();
-    let mut reasoning = String::new();
-    for item in choice.into_iter() {
-        match item {
-            AssistantContent::Text(value) => text.push_str(value.text()),
-            AssistantContent::Reasoning(value) => reasoning.push_str(&value.display_text()),
-            AssistantContent::ToolCall(_) | AssistantContent::Image(_) => {}
+        AiRequestFormat::Google => {
+            let mut config = gemini::GeminiConfig::new(key);
+            if let Some(url) = &runtime.config.base_url {
+                config = config.with_base_url(super::provider::normalize_local_base_url(url));
+            }
+            config.client().completion(model).erase()
         }
     }
-    let reasoning = if reasoning.is_empty() { None } else { Some(reasoning) };
-    (text, reasoning)
 }
 
-/// Converts rig token usage into PathKeep's prompt/completion accounting.
-fn to_llm_usage(usage: RigUsage) -> Option<LlmUsage> {
-    if usage.input_tokens == 0 && usage.output_tokens == 0 && usage.total_tokens == 0 {
-        return None;
-    }
-    Some(LlmUsage { prompt_tokens: usage.input_tokens, completion_tokens: usage.output_tokens })
-}
-
-/// Runs one non-streaming completion against a concrete rig model and maps the result.
-async fn complete_with_model<M: CompletionModel>(
-    model: M,
-    runtime: &AiProviderRuntime,
-    req: &LlmChatRequest,
-) -> Result<LlmChatResponse> {
-    let request = build_rig_request(model.clone(), runtime, req)?;
-    let response = model.completion(request).await?;
-    let (text, reasoning) = collect_assistant_content(response.choice);
-    Ok(LlmChatResponse { text, reasoning, usage: to_llm_usage(response.usage) })
-}
-
-/// Maps one streaming rig item onto an optional PathKeep stream chunk.
-///
-/// Reasoning (full block and delta) maps to `Reasoning` so thinking-heavy models such as
-/// gemma render in the reasoning lane; text maps to `Token`; complete tool calls map to
-/// `ToolCall` carrying the provider call id (so the agent harness can correlate the executed
-/// result back to its call). The terminal `Final` marker maps to `Usage` when the provider
-/// reports token counts — the agent budget loop (W-AI-7, 02 §F) sums these. Tool-call deltas
-/// are still dropped (rig aggregates them into the complete `ToolCall`); a `Final` with no usage
-/// (or all-zero counts) yields `None` exactly as before so plain chat is unaffected.
-///
-/// The `GetTokenUsage` bound is what lets `Final` surface usage; it holds for every concrete rig
-/// streaming response type (and `()`), so it does not constrain any real call site.
-fn map_streamed_content<R: Clone + Unpin + GetTokenUsage>(
-    item: StreamedAssistantContent<R>,
-) -> Option<LlmStreamChunk> {
-    match item {
-        StreamedAssistantContent::Text(text) => Some(LlmStreamChunk::Token(text.text)),
-        StreamedAssistantContent::Reasoning(reasoning) => {
-            Some(LlmStreamChunk::Reasoning(reasoning.display_text()))
-        }
-        StreamedAssistantContent::ReasoningDelta { reasoning, .. } => {
-            Some(LlmStreamChunk::Reasoning(reasoning))
-        }
-        StreamedAssistantContent::ToolCall { tool_call, internal_call_id, .. } => {
-            // Prefer the provider's own id; fall back to rig's internal correlation id so a
-            // ToolResult can still be threaded back even on transports that omit one.
-            let call_id =
-                if tool_call.id.is_empty() { internal_call_id } else { tool_call.id.clone() };
-            Some(LlmStreamChunk::ToolCall {
-                call_id,
-                name: tool_call.function.name,
-                arguments: tool_call.function.arguments.to_string(),
-            })
-        }
-        StreamedAssistantContent::Final(response) => {
-            response.token_usage().and_then(|usage| to_llm_usage(usage).map(LlmStreamChunk::Usage))
-        }
-        StreamedAssistantContent::ToolCallDelta { .. } => None,
-    }
-}
-
-/// A `Stream` that lifts rig's `StreamingCompletionResponse` into PathKeep chunks.
-///
-/// Hand-rolled on `futures_core::Stream` (already a dependency) so the adapter does not pull
-/// the full `futures` crate just for a `filter_map`. Items rig emits that have no PathKeep
-/// chunk (tool-call deltas, the final usage marker) are skipped by re-polling; a provider
-/// error becomes a single `Err` item so the consumer terminates gracefully.
-struct MappedRigStream<S> {
-    inner: S,
-}
-
-impl<S, R> futures_core::Stream for MappedRigStream<S>
-where
-    S: futures_core::Stream<
-            Item = Result<StreamedAssistantContent<R>, rig::completion::CompletionError>,
-        > + Unpin,
-    R: Clone + Unpin + GetTokenUsage,
-{
-    type Item = Result<LlmStreamChunk>;
-
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut TaskContext<'_>) -> Poll<Option<Self::Item>> {
-        loop {
-            match Pin::new(&mut self.inner).poll_next(cx) {
-                Poll::Pending => return Poll::Pending,
-                Poll::Ready(None) => return Poll::Ready(None),
-                Poll::Ready(Some(Err(error))) => {
-                    return Poll::Ready(Some(Err(anyhow::Error::new(error))));
+fn to_rig_message(message: &LlmMessage) -> Result<Message> {
+    Ok(match message.role {
+        LlmRole::System => Message::system(message.content.clone()),
+        LlmRole::User => Message::user(message.content.clone()),
+        LlmRole::Tool => Message::User {
+            content: vec![UserContent::tool_result(
+                CallId::from_wire(message.tool_call_id.clone().unwrap_or_default()),
+                ToolName::new(message.tool_name.clone().unwrap_or_default())?,
+                vec![ToolResultContent::text(message.content.clone())],
+            )],
+        },
+        LlmRole::Assistant => {
+            let mut content = Vec::new();
+            if let Some(reasoning) = &message.reasoning {
+                for block in &reasoning.blocks {
+                    content
+                        .push(AssistantContent::Reasoning(serde_json::from_value(block.clone())?));
                 }
-                Poll::Ready(Some(Ok(content))) => match map_streamed_content(content) {
-                    Some(chunk) => return Poll::Ready(Some(Ok(chunk))),
-                    // No PathKeep chunk for this rig item — keep draining.
-                    None => continue,
+            }
+            if !message.content.is_empty() {
+                content.push(AssistantContent::text(&message.content));
+            }
+            for call in &message.tool_calls {
+                // This is a last boundary guard. Malformed or non-object arguments never reach
+                // a template's arguments|items, even if a caller bypassed the harness.
+                let args = serde_json::from_str::<serde_json::Value>(&call.arguments)
+                    .ok()
+                    .filter(serde_json::Value::is_object)
+                    .unwrap_or_else(|| serde_json::json!({}));
+                content.push(AssistantContent::tool_call(
+                    &call.call_id,
+                    ToolName::new(&call.name)?,
+                    args,
+                ));
+            }
+            let mut assistant = AssistantMessage::new(content);
+            if let Some(reasoning) = &message.reasoning {
+                assistant =
+                    assistant.with_origin(Some(serde_json::from_value(reasoning.origin.clone())?));
+            }
+            Message::Assistant(assistant)
+        }
+    })
+}
+
+fn build_request(req: &LlmChatRequest) -> Result<CompletionRequest> {
+    let mut messages = req.messages.iter().map(to_rig_message).collect::<Result<Vec<_>>>()?;
+    let prompt = messages
+        .pop()
+        .ok_or_else(|| anyhow::anyhow!("Chat request must contain at least one message."))?;
+    let mut request = CompletionRequest::new(prompt).messages(messages).tools(
+        req.tools
+            .iter()
+            .map(|tool| {
+                Ok(ToolDefinition {
+                    name: ToolName::new(&tool.name)?,
+                    description: tool.description.clone(),
+                    parameters: tool.parameters.clone(),
+                })
+            })
+            .collect::<Result<Vec<_>>>()?,
+    );
+    if let Some(format) = &req.response_format {
+        request = request.output_schema(schemars::Schema::try_from(format.schema.clone())?);
+    }
+    // No sampling parameters and no output cap. Native Anthropic alone supplies its required cap.
+    Ok(request)
+}
+
+fn usage(value: &Usage) -> Option<LlmUsage> {
+    Some(LlmUsage { prompt_tokens: value.input_tokens?, completion_tokens: value.output_tokens? })
+}
+
+fn terminal(response: CompletionResponse) -> Result<LlmStreamChunk> {
+    if let Some(error) = &response.error {
+        return Err(anyhow::Error::new(LlmStreamError::Generation(error.clone())));
+    }
+    let reason = match response.finish_reason() {
+        Some(FinishReason::Stop) => LlmFinishReason::Stop,
+        Some(FinishReason::ToolCalls) => LlmFinishReason::ToolCalls,
+        Some(FinishReason::Length) => LlmFinishReason::Length,
+        Some(reason) => LlmFinishReason::Other(format!("{reason:?}")),
+        None => {
+            return Err(anyhow::Error::new(LlmStreamError::Generation(
+                "The provider ended without a finish reason.".into(),
+            )));
+        }
+    };
+    let blocks = response
+        .choice
+        .iter()
+        .filter_map(|content| match content {
+            AssistantContent::Reasoning(reasoning) => Some(serde_json::to_value(reasoning)),
+            _ => None,
+        })
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    let reasoning = if blocks.is_empty() {
+        None
+    } else {
+        Some(LlmReasoning { blocks, origin: serde_json::to_value(response.origin)? })
+    };
+    Ok(LlmStreamChunk::Finished { reason, reasoning })
+}
+
+fn stream_error(error: ProviderError) -> anyhow::Error {
+    // The network opens lazily on polling. HTTP/auth/request failures remain terminal, even
+    // though rig now delivers them as stream items. Only a failed generation may be repaired.
+    let authentication_error = error.provider_response().is_some_and(|response| {
+        response.machine_code().is_some_and(|code| {
+            matches!(
+                code.to_ascii_lowercase().as_str(),
+                "401"
+                    | "403"
+                    | "invalid_api_key"
+                    | "authentication_error"
+                    | "unauthenticated"
+                    | "unauthorized"
+                    | "permission_denied"
+            )
+        }) || error.provider_response_json().ok().flatten().is_some_and(|body| {
+            ["/error/type", "/error/status"]
+                .iter()
+                .filter_map(|path| body.pointer(path).and_then(serde_json::Value::as_str))
+                .any(|code| {
+                    matches!(
+                        code.to_ascii_lowercase().as_str(),
+                        "authentication_error" | "unauthenticated" | "permission_denied"
+                    )
+                })
+        })
+    });
+    let recoverable = !authentication_error
+        && match &error {
+            ProviderError::Truncated
+            | ProviderError::Json(_)
+            | ProviderError::Response(_)
+            | ProviderError::Provider(_) => true,
+            ProviderError::ProviderResponse(_) => {
+                error.provider_response_status().is_none_or(|status| status.is_success())
+            }
+            _ => false,
+        };
+    if recoverable {
+        anyhow::Error::new(LlmStreamError::Generation(error.to_string()))
+    } else {
+        anyhow::Error::new(LlmStreamError::Transport(error.to_string()))
+    }
+}
+
+type FinishFuture =
+    Pin<Box<dyn Future<Output = std::result::Result<CompletionResponse, ProviderError>> + Send>>;
+struct MappedRigStream {
+    inner: Option<CompletionStream>,
+    finishing: Option<FinishFuture>,
+    pending: VecDeque<LlmStreamChunk>,
+    arguments: std::collections::HashMap<usize, String>,
+    ended: bool,
+}
+impl futures_core::Stream for MappedRigStream {
+    type Item = Result<LlmStreamChunk>;
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        loop {
+            if let Some(chunk) = self.pending.pop_front() {
+                return Poll::Ready(Some(Ok(chunk)));
+            }
+            if self.ended {
+                return Poll::Ready(None);
+            }
+            if let Some(future) = &mut self.finishing {
+                let response = match future.as_mut().poll(cx) {
+                    Poll::Pending => return Poll::Pending,
+                    Poll::Ready(response) => response,
+                };
+                self.finishing = None;
+                self.ended = true;
+                return match response {
+                    Err(error) => Poll::Ready(Some(Err(stream_error(error)))),
+                    Ok(response) => {
+                        if let Some(value) = usage(&response.usage) {
+                            self.pending.push_back(LlmStreamChunk::Usage(value));
+                        }
+                        let terminal = terminal(response);
+                        if let Some(chunk) = self.pending.pop_front() {
+                            match terminal {
+                                Ok(finish) => self.pending.push_back(finish),
+                                Err(error) => return Poll::Ready(Some(Err(error))),
+                            }
+                            Poll::Ready(Some(Ok(chunk)))
+                        } else {
+                            Poll::Ready(Some(terminal))
+                        }
+                    }
+                };
+            }
+            let next = Pin::new(self.inner.as_mut().expect("active stream")).poll_next(cx);
+            match next {
+                Poll::Pending => return Poll::Pending,
+                Poll::Ready(None) => {
+                    self.finishing =
+                        Some(Box::pin(self.inner.take().expect("active stream").finish()));
+                }
+                Poll::Ready(Some(Err(error))) => {
+                    self.ended = true;
+                    self.inner = None;
+                    return Poll::Ready(Some(Err(stream_error(error))));
+                }
+                Poll::Ready(Some(Ok(Item::Event(event)))) => match event {
+                    StreamEvent::Text { text, .. } => {
+                        return Poll::Ready(Some(Ok(LlmStreamChunk::Token(text))));
+                    }
+                    StreamEvent::Reasoning { text, .. } => {
+                        return Poll::Ready(Some(Ok(LlmStreamChunk::Reasoning(text))));
+                    }
+                    StreamEvent::Arguments { part, json } => {
+                        self.arguments.entry(part.index()).or_default().push_str(&json);
+                    }
+                    StreamEvent::End { part, content: AssistantContent::ToolCall(call) } => {
+                        return Poll::Ready(Some(Ok(LlmStreamChunk::ToolCall {
+                            call_id: call.id.to_string(),
+                            name: call.function.name.to_string(),
+                            arguments: self
+                                .arguments
+                                .remove(&part.index())
+                                .filter(|raw| !raw.is_empty())
+                                .or(call.function.invalid_arguments)
+                                .unwrap_or_else(|| {
+                                    serde_json::Value::Object(call.function.arguments).to_string()
+                                }),
+                        })));
+                    }
+                    _ => {}
                 },
+                Poll::Ready(Some(Ok(Item::Unknown(_)))) => {}
             }
         }
     }
-}
-
-/// Starts a streaming completion against a concrete rig model and boxes the mapped stream.
-///
-/// A terminal provider error is surfaced as a stream `Err` item (not a panic) so the IPC
-/// layer can encode it as an `error` chunk.
-async fn stream_with_model<M>(
-    model: M,
-    runtime: &AiProviderRuntime,
-    req: &LlmChatRequest,
-) -> Result<LlmChunkStream>
-where
-    M: CompletionModel + 'static,
-{
-    let request = build_rig_request(model.clone(), runtime, req)?;
-    let stream = model.stream(request).await?;
-    Ok(Box::pin(MappedRigStream { inner: stream }))
-}
-
-/// Real non-streaming chat: branches to the right rig client by request format.
-async fn chat_impl(runtime: &AiProviderRuntime, req: LlmChatRequest) -> Result<LlmChatResponse> {
-    match runtime.config.request_format {
-        AiRequestFormat::OpenAi | AiRequestFormat::Ollama | AiRequestFormat::LmStudio => {
-            let client = build_openai_client(runtime)?;
-            complete_with_model(
-                client.completion_model(runtime.config.default_model.clone()),
-                runtime,
-                &req,
-            )
-            .await
-        }
-        AiRequestFormat::Anthropic => {
-            let client = build_anthropic_client(runtime)?;
-            complete_with_model(
-                client.completion_model(runtime.config.default_model.clone()),
-                runtime,
-                &req,
-            )
-            .await
-        }
-        AiRequestFormat::Google => {
-            let client = build_gemini_client(runtime)?;
-            complete_with_model(
-                client.completion_model(runtime.config.default_model.clone()),
-                runtime,
-                &req,
-            )
-            .await
-        }
-    }
-}
-
-/// Real streaming chat: branches to the right rig client by request format.
-async fn chat_stream_impl(
-    runtime: &AiProviderRuntime,
-    req: LlmChatRequest,
-) -> Result<LlmChunkStream> {
-    match runtime.config.request_format {
-        AiRequestFormat::OpenAi | AiRequestFormat::Ollama | AiRequestFormat::LmStudio => {
-            let client = build_openai_client(runtime)?;
-            stream_with_model(
-                client.completion_model(runtime.config.default_model.clone()),
-                runtime,
-                &req,
-            )
-            .await
-        }
-        AiRequestFormat::Anthropic => {
-            let client = build_anthropic_client(runtime)?;
-            stream_with_model(
-                client.completion_model(runtime.config.default_model.clone()),
-                runtime,
-                &req,
-            )
-            .await
-        }
-        AiRequestFormat::Google => {
-            let client = build_gemini_client(runtime)?;
-            stream_with_model(
-                client.completion_model(runtime.config.default_model.clone()),
-                runtime,
-                &req,
-            )
-            .await
-        }
-    }
-}
-
-/// Builds an OpenAI-compatible rig client (covers OpenAI/Ollama/LM Studio).
-///
-/// Uses the **Chat Completions** client (`CompletionsClient`), NOT rig's default `Client`
-/// (which targets the Responses API). LM Studio, Ollama, and llama-server only speak Chat
-/// Completions, and gemma's `reasoning_content` deltas only flow on that path — matching the
-/// existing `run_llm_agent` choice and 02 §B (OpenAI-compat Chat Completions as the floor).
-fn build_openai_client(runtime: &AiProviderRuntime) -> Result<openai::CompletionsClient> {
-    // OPTIONAL key: only a present, non-blank secret is forwarded as the bearer token. A keyless
-    // local model (LM Studio / Ollama) carries an empty token — rig 0.34's openai client always
-    // emits an `Authorization` header (see the module note on the upstream limitation), but a
-    // keyless local endpoint ignores it, and we NEVER block the call on a missing key of our own
-    // accord. A key-enforcing cloud server answers with its own 401, which surfaces verbatim.
-    let mut builder = openai::CompletionsClient::builder()
-        .api_key(runtime.api_key_for_transport().unwrap_or_default());
-    if let Some(base_url) = runtime.config.base_url.as_deref() {
-        builder = builder
-            .base_url(super::provider::openai_api_root(base_url, &runtime.config.request_format));
-    }
-    Ok(builder.build()?)
-}
-
-/// Builds an Anthropic native rig client.
-fn build_anthropic_client(runtime: &AiProviderRuntime) -> Result<anthropic::Client> {
-    // Anthropic is cloud-only and key-required; an absent key falls through to an empty token so
-    // the provider returns its own 401 rather than PathKeep pre-empting the call (see module note).
-    let mut builder =
-        anthropic::Client::builder().api_key(runtime.api_key_for_transport().unwrap_or_default());
-    if let Some(base_url) = runtime.config.base_url.as_deref() {
-        builder = builder.base_url(super::provider::normalize_local_base_url(base_url));
-    }
-    Ok(builder.build()?)
-}
-
-/// Builds a Gemini native rig client.
-fn build_gemini_client(runtime: &AiProviderRuntime) -> Result<gemini::Client> {
-    // Gemini is cloud-only and key-required; an absent key falls through to an empty token so the
-    // provider returns its own 401 rather than PathKeep pre-empting the call (see module note).
-    let mut builder =
-        gemini::Client::builder().api_key(runtime.api_key_for_transport().unwrap_or_default());
-    if let Some(base_url) = runtime.config.base_url.as_deref() {
-        builder = builder.base_url(super::provider::normalize_local_base_url(base_url));
-    }
-    Ok(builder.build()?)
 }

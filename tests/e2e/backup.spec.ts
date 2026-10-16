@@ -8,7 +8,9 @@
  * has new visits, and turning it back on catches up exactly those visits.
  * The run sheet lists every warning the run recorded, including those from
  * the work after the backup itself, as sentences in the chosen language with
- * the fix beside them; notes on side work sit under the summary instead.
+ * the fix beside them; notes on side work sit under the summary instead (the
+ * update of a complete semantic index, queued while background work is
+ * paused).
  * Insights left open on the last seven days read them again once a backup
  * adds visits to them in two profiles: Top sites shows the top site's new
  * count and the new site, with no reload.
@@ -19,6 +21,7 @@ import {
   appendChromeVisits,
   appendFirefoxVisits,
 } from '../../scripts/fixtures/synthetic-browsers.mjs'
+import { startFakeEmbeddings } from './support/fake-embeddings'
 import { archivedVisits, backend, fixture } from './support/fixture'
 import {
   LIVE_RANGE_NEW_SITE_VISITS,
@@ -64,6 +67,8 @@ interface Config {
     semanticIndexEnabled: boolean
     autoIndexAfterBackup: boolean
     jobQueuePaused: boolean
+    embeddingProviders: object[]
+    embeddingProviderId: string | null
   }
 }
 
@@ -129,10 +134,14 @@ test('new visits arrive with the next backup; a paused source waits', async ({
 test('a run that left things out says why, in your language, beside the fix', async ({
   page,
 }) => {
+  test.setTimeout(300_000)
   const { files } = fixture()
   const work = files['chrome:Profile 1']
   const away = `${work}.away`
   const before = await loadConfig()
+  // An embeddings service on this computer makes a complete index first:
+  // backups only update an index that is complete.
+  const service = await startFakeEmbeddings()
   try {
     // Chrome's Work profile lost its history file; Personal gained a search.
     renameSync(work, away)
@@ -146,17 +155,49 @@ test('a run that left things out says why, in your language, beside the fix', as
         duration: 5_000,
       },
     ])
-    // Semantic search indexes after each backup, and background work is
-    // paused. The UI only turns semantic search on through a model download.
+    // Semantic search with a complete index updates it after each backup;
+    // then background work is paused.
     const config = await loadConfig()
     config.ai = {
       ...config.ai,
       enabled: true,
       semanticIndexEnabled: true,
       autoIndexAfterBackup: true,
-      jobQueuePaused: true,
+      jobQueuePaused: false,
+      embeddingProviders: [
+        ...config.ai.embeddingProviders,
+        {
+          id: 'e2e-backup-embeddings',
+          name: 'E2E backup embeddings',
+          purpose: 'embedding',
+          requestFormat: 'openai',
+          enabled: true,
+          baseUrl: service.url,
+          apiKeySaved: false,
+          defaultModel: 'e2e-embed',
+          modelCatalog: [],
+        },
+      ],
+      embeddingProviderId: 'e2e-backup-embeddings',
     }
     await backend('save_config', { config })
+    await backend('build_ai_index', {
+      request: { fullRebuild: false, clearOnly: false, scope: 'incremental' },
+    })
+    await expect
+      .poll(
+        async () =>
+          (
+            await backend<{ semanticIndex: { chosenComplete: boolean } }>(
+              'load_ai_queue_status',
+            )
+          ).semanticIndex.chosenComplete,
+        { timeout: 180_000 },
+      )
+      .toBe(true)
+    await backend('save_config', {
+      config: { ...config, ai: { ...config.ai, jobQueuePaused: true } },
+    })
 
     // Backed up from Home: the toast says something needs a look and opens the run.
     await page.goto('/#/')
@@ -211,6 +252,13 @@ test('a run that left things out says why, in your language, beside the fix', as
     ).toBeVisible()
   } finally {
     if (existsSync(away)) renameSync(away, work)
+    // The update the paused backup queued would run against a closed service.
+    const { semanticIndex } = await backend<{
+      semanticIndex: { build: { jobId: number } | null }
+    }>('load_ai_queue_status')
+    if (semanticIndex.build)
+      await backend('cancel_ai_job', { jobId: semanticIndex.build.jobId })
+    await service.close()
     const config = await loadConfig()
     await backend('save_config', {
       config: {

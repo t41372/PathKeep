@@ -1,4 +1,5 @@
-//! AI, enrichment, and Core Intelligence models.
+//! Responsibilities: shared AI, enrichment and Core Intelligence transport models.
+//! Not responsible for: queue policy, provider execution or persistence.
 //!
 //! This file is large because it holds the cross-cutting transport models for
 //! optional AI features, enrichment plugins, deterministic modules, queue
@@ -258,7 +259,6 @@ pub struct AiProviderConfig {
     pub api_key_saved: bool,
     pub default_model: String,
     pub model_catalog: Vec<String>,
-    pub temperature: Option<f32>,
     pub dimensions: Option<u32>,
     pub notes: Option<String>,
 }
@@ -276,7 +276,6 @@ impl Default for AiProviderConfig {
             api_key_saved: false,
             default_model: String::new(),
             model_catalog: Vec::new(),
-            temperature: Some(0.2),
             dimensions: None,
             notes: None,
         }
@@ -681,8 +680,7 @@ impl Default for AiSettings {
 /// on [`AiIndexStatus::warning_code`]; the front end maps ALL variants by code to localized copy.
 /// Interpolated warnings carry their interpolation params STRUCTURALLY (provider id / name) so the FE
 /// composes the localized string rather than receiving pre-baked English. The wire is `code`-tagged
-/// camelCase; the FE NEVER renders these raw. A `reason` opaque string is carried only for
-/// [`Self::BuildFailed`], whose text comes from the provider/transport and has no fixed vocabulary.
+/// camelCase; the FE NEVER renders these raw. Opaque provider errors are reported on the build job.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "code", rename_all = "camelCase")]
 pub enum AiIndexWarning {
@@ -713,9 +711,6 @@ pub enum AiIndexWarning {
     /// The built index is stale for the carried reason (shared with the search degradation notes).
     #[serde(rename_all = "camelCase")]
     IndexStale { reason: AiSemanticStaleness },
-    /// The last index build failed; `reason` is the opaque transport/provider failure text.
-    #[serde(rename_all = "camelCase")]
-    BuildFailed { reason: String },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
@@ -836,6 +831,11 @@ pub struct AiProviderModelsRequest {
     pub provider_id: Option<String>,
     #[serde(default)]
     pub api_key: Option<String>,
+    /// Read only the OpenAI-compatible list under the API root the service's requests go to, not
+    /// LM Studio's or Ollama's own richer endpoints beside it: saving a service checks it this way,
+    /// so a wrong address fails the way a request would, and no model is loaded.
+    #[serde(default)]
+    pub api_root_only: bool,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -939,6 +939,9 @@ pub struct AiQueueJob {
     pub heartbeat_at: Option<String>,
     pub error_code: Option<String>,
     pub error_message: Option<String>,
+    /// A queue resume must preserve individual user and service pauses.
+    #[serde(default)]
+    pub paused_by: Option<crate::models::IndexBuildPause>,
     /// Vectors durably embedded so far by a RUNNING/queued index build (the resumable cursor's
     /// `embedded_so_far`). Populated ONLY for index-build/index-clear jobs (parsed from `payload_json`
     /// in [`crate::ai_queue::load_ai_queue_status`]); `None` for assistant jobs and unparseable
@@ -981,6 +984,8 @@ pub struct AiQueueStatus {
     /// Running count NARROWED to semantic-index jobs (`IndexBuild` +
     /// `IndexClear`); the index-only companion to [`Self::index_queued`].
     pub index_running: u32,
+    #[serde(default)]
+    pub semantic_index: crate::models::SemanticIndexState,
     pub recent_jobs: Vec<AiQueueJob>,
     #[serde(default)]
     pub recent_jobs_next_cursor: Option<i64>,
@@ -1091,7 +1096,7 @@ pub struct AiChatMessage {
 /// Request payload for one streaming chat turn.
 ///
 /// `providerId` is optional; when absent the worker uses the configured default LLM provider.
-/// `temperature`/`maxTokens` override the provider defaults for this turn only.
+/// `maxTokens` reserves local context space for this turn; it is not sent to the provider.
 ///
 /// W-AI-7 additive fields (all `#[serde(default)]` so the frozen W-AI-1 plain-chat payload still
 /// deserializes): `toolsEnabled` switches the run from plain streaming chat to the tool-executing
@@ -1100,7 +1105,6 @@ pub struct AiChatMessage {
 pub struct AiChatSendRequest {
     pub provider_id: Option<String>,
     pub messages: Vec<AiChatMessage>,
-    pub temperature: Option<f32>,
     pub max_tokens: Option<u32>,
     /// When true, run the tool-executing agent harness instead of plain streaming chat (W-AI-7).
     #[serde(default)]
@@ -1122,7 +1126,6 @@ impl Default for AiChatSendRequest {
         Self {
             provider_id: None,
             messages: Vec::new(),
-            temperature: None,
             max_tokens: None,
             tools_enabled: false,
             conversation_id: None,
@@ -1695,7 +1698,7 @@ pub struct AiSearchEntry {
 /// ([`AiSearchNote`]) and the Settings index-health warning ([`AiIndexWarning`]) — so the backend
 /// emits ONE reason vocabulary and each front-end surface resolves it to localized copy. The wire
 /// values are camelCase tokens; the FE NEVER renders these raw.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum AiSemanticStaleness {
     /// The index no longer matches the current archive visibility / import watermark.
@@ -1733,11 +1736,13 @@ impl AiSemanticStaleness {
 // `Copy` is intentionally NOT derived: the `ProviderResolutionFailed` variant carries an owned
 // `reason: String` (the opaque transport/provider error has no fixed vocabulary). `Clone` covers
 // every consumer (the by-value `ai_search_note_text`, the response builder, tests).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "code", rename_all = "camelCase")]
 pub enum AiSearchNote {
     /// No embedding provider is selected, so results use lexical retrieval only.
     LexicalFallbackNoProvider,
+    /// Search is using the last completed index while the chosen model is unfinished.
+    PreviousModel { model: String },
     /// The semantic index has no vectors yet; the user must run Build index.
     EmptySemanticIndex,
     /// Semantic matches existed but none are visible under the active filters.
@@ -1766,6 +1771,9 @@ impl AiSearchNote {
     /// [`Self::ProviderResolutionFailed`] interpolates its opaque reason.
     pub fn model_facing_text(&self) -> String {
         match self {
+            AiSearchNote::PreviousModel { model } => {
+                format!("Search is using the previous model’s complete index ({model}) until the chosen index is complete.")
+            }
             AiSearchNote::LexicalFallbackNoProvider => {
                 "No embedding provider is selected, so results use lexical retrieval only.".to_string()
             }

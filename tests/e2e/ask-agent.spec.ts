@@ -7,8 +7,9 @@
  * Proves:
  * - The model gets one system message, first, with the rules (reply in the
  *   language of the latest message, choose when the choice is left to it)
- *   and the user's own instructions from Settings after them; each request
- *   leaves room for the answer. What the model writes before it calls a
+ *   and the user's own instructions from Settings after them; no request
+ *   carries sampling settings or a cap on the answer, so the model's own
+ *   settings apply. What the model writes before it calls a
  *   tool is shown as thinking, and only its last turn as the answer, under
  *   the model that wrote it.
  * - With LM Studio, the composer shows how much of the loaded model's
@@ -18,6 +19,12 @@
  *   next message to that one.
  * - Editing an earlier question answers it again and drops what came after,
  *   also once saved; a finished answer can be asked for again.
+ * - A turn that breaks off half way (LM Studio's error inside the stream, as
+ *   on 2026-10-15) runs none of its calls; the next request still holds the
+ *   question and says what failed. Arguments sent as a JSON string are read
+ *   once and go back to the model as an object; arguments that cannot be
+ *   read go back as `{}`, with the error and the path in the tool result.
+ *   The model's thinking goes back with its turn in the same run.
  */
 import { expect, test, type Page } from '@playwright/test'
 import { addLmStudioService, addService } from './support/ai-service'
@@ -105,12 +112,15 @@ test('the model gets one system message with the rules, and only its last turn i
       system.indexOf(config.ai.assistantSystemPrompt.trim()),
       "the user's own instructions, after the rules",
     ).toBeGreaterThan(system.indexOf('Rules:'))
-    // No context known for this service: room for a 4K answer.
-    expect(
-      (first.body as { max_tokens?: number }).max_tokens ??
-        (first.body as { max_completion_tokens?: number })
-          .max_completion_tokens,
-    ).toBe(4096)
+    // Only what the request needs: the model's own sampling and length apply.
+    for (const key of [
+      'temperature',
+      'top_p',
+      'top_k',
+      'max_tokens',
+      'max_completion_tokens',
+    ])
+      expect(first.body, key).not.toHaveProperty(key)
     expect(toolResults(second.body)).toHaveLength(1)
 
     // The text before the search is a step, not part of the answer: hidden
@@ -277,6 +287,113 @@ test('editing an earlier question answers it again and drops what came after', a
     await expect(
       chatColumn(page).getByText('Third question', { exact: true }),
     ).toHaveCount(0)
+  } finally {
+    await model.close()
+  }
+})
+
+test('a turn that breaks off runs none of its calls, and the question stays in front of the model', async ({
+  page,
+}, testInfo) => {
+  const question = '這週我讀過哪些講 spawn_blocking 的頁面？'
+  const thinking = 'Search the archive for spawn_blocking.'
+  const answer = '你這週讀的是 spawn_blocking 用完執行緒的那篇。'
+  const failed = (body: FakeRequest['body']) =>
+    lastUserText(body).includes('None of its tool calls were executed')
+  const model = await startFakeModel({
+    apiKey: KEY,
+    script: (body) => {
+      if (!offersTools(body)) return { content: 'OK' }
+      const results = toolResults(body)
+      if (results.length === 0 && !failed(body))
+        return {
+          reasoning: 'Get the overview of this week first.',
+          toolCalls: [
+            {
+              name: 'intelligence_report',
+              arguments: { report: 'overview', start_date: '2026-10-12' },
+            },
+          ],
+          breakOff: 'model repeated a tool parameter',
+        }
+      if (results.length === 0)
+        return {
+          reasoning: thinking,
+          toolCalls: [
+            {
+              name: 'search_history',
+              // The arguments as a JSON string, once more encoded.
+              arguments: JSON.stringify(
+                JSON.stringify({ query: 'spawn_blocking' }),
+              ),
+            },
+          ],
+        }
+      if (results.length === 1)
+        return {
+          toolCalls: [{ name: 'search_history', arguments: { limit: 'lots' } }],
+        }
+      return { content: answer }
+    },
+  })
+  try {
+    await addService(page, { name: 'E2E turns', address: model.url, key: KEY })
+    await page.goto('/#/ask')
+    await ask(page, question)
+    await expect(chatColumn(page).getByText(answer)).toBeVisible({
+      timeout: 60_000,
+    })
+    await settled(page)
+
+    const requests = chatRequests(model)
+      .map(({ body }) => body)
+      .filter(offersTools)
+    await testInfo.attach('requests', {
+      body: JSON.stringify(requests, null, 2),
+      contentType: 'application/json',
+    })
+    expect(requests).toHaveLength(4)
+    const [, retry, afterSearch, afterError] = requests
+    type Wire = {
+      role: string
+      reasoning_content?: string
+      tool_calls?: { function?: { arguments?: string } }[]
+    }
+    const wire = (body: FakeRequest['body']) =>
+      (body.messages ?? []) as unknown as Wire[]
+
+    // The broken turn: nothing ran, the question is still there, and why,
+    // in a paragraph of its own (rig joins two user messages in a row).
+    expect(toolResults(retry), 'the broken call did not run').toEqual([])
+    const users = (retry.messages ?? [])
+      .filter((message) => message.role === 'user')
+      .map((message) => textOf(message.content))
+      .join('')
+    expect(users.startsWith(question), users).toBe(true)
+    expect(users).toContain(`${question}\n\nThe previous model turn failed: `)
+    expect(users).toContain('model repeated a tool parameter')
+
+    // A JSON string read once: the search ran, and went back as an object.
+    const searched = wire(afterSearch).findLast(
+      (message) => message.role === 'assistant',
+    )!
+    expect(
+      JSON.parse(searched.tool_calls?.[0].function?.arguments ?? 'null'),
+    ).toEqual({ query: 'spawn_blocking' })
+    expect(searched.reasoning_content, 'thinking goes back').toBe(thinking)
+    expect(toolResults(afterSearch)[0]).toContain('spawn_blocking')
+
+    // Arguments that cannot be read: `{}` back, the error and its path in the result.
+    const broken = wire(afterError).findLast(
+      (message) => message.role === 'assistant',
+    )!
+    expect(broken.tool_calls?.[0].function?.arguments).toBe('{}')
+    const error = toolResults(afterError)[1]
+    expect(error).toContain('$["limit"]')
+    expect(error).toContain('"lots"')
+    for (const body of requests)
+      for (const key of ['temperature', 'max_tokens'])
+        expect(body, key).not.toHaveProperty(key)
   } finally {
     await model.close()
   }

@@ -1,4 +1,4 @@
-//! Responsibilities: owner-side MCP business functions and the stdio client adapter.
+//! Responsibilities: owner-side MCP queries, serving-index notes and the stdio adapter.
 //! Not responsible for: IPC framing, app startup policy or database ownership.
 //! Failure modes: stdio tools open databases; consent/key snapshot becomes stale;
 //! tool results bypass the endpoint. Tests: owner_process.rs and worker consent tests.
@@ -59,6 +59,7 @@ pub(crate) struct McpSearchResult {
     pub(crate) items: Vec<McpSearchItem>,
     /// Honesty notes describing fallback or degraded behavior.
     pub(crate) notes: Vec<String>,
+    pub(crate) note_codes: Vec<vault_core::AiSearchNote>,
 }
 
 /// One visit-level MCP evidence item.
@@ -350,6 +351,7 @@ pub(crate) fn mcp_search_result(
             })
             .collect(),
         notes: response.notes,
+        note_codes: response.note_codes,
     })
 }
 

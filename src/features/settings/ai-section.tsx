@@ -150,7 +150,7 @@ function RebuildRow({ index }: { index: SemanticIndex }) {
       ),
   })
 
-  const busy = index.building || start.isPending
+  const busy = index.build !== null || start.isPending
 
   return (
     <SettingRow

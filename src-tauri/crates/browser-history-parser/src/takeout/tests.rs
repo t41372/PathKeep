@@ -1,3 +1,4 @@
+//! Failure modes: nested native/context JSON changes evidence identity when serializer features change.
 //! Regression tests for the Takeout parser boundary.
 
 use super::*;
@@ -182,4 +183,36 @@ fn parse_payload_preserves_typed_url_and_session_payloads_as_native_entities() {
     assert_eq!(session.history.native_entities.len(), 1);
     assert_eq!(session.history.native_entities[0].native_primary_key, "device-1");
     assert_eq!(fallback.history.native_entities[0].native_primary_key, "row-0");
+}
+
+/// Native/context payload bytes are identity: changing object order must not duplicate evidence.
+#[test]
+fn native_payloads_keep_sorted_nested_json_across_serializer_features() {
+    for (kind, input, expected) in [
+        (
+            KIND_BROWSER_JSON,
+            r#"{"Browser History":[{"url":"https://example.com","time_usec":1711965600000000,"client_id":{"z":1,"a":2}}]}"#,
+            r#"{"client_id":{"a":2,"z":1},"time_usec":1711965600000000,"url":"https://example.com"}"#,
+        ),
+        (
+            KIND_MY_ACTIVITY_JSON,
+            r#"[{"titleUrl":"https://example.com","time":"2025-04-22T18:30:56Z","products":["Chrome"],"client_id":{"z":1,"a":2}}]"#,
+            r#"{"client_id":{"a":2,"z":1},"products":["Chrome"],"time":"2025-04-22T18:30:56Z","titleUrl":"https://example.com"}"#,
+        ),
+        (
+            KIND_SESSION_JSON,
+            r#"{"Session":[{"z":{"z":1,"a":2},"sessionTag":"device-1","a":[{"z":1,"a":2}]}]}"#,
+            r#"{"a":[{"a":2,"z":1}],"sessionTag":"device-1","z":{"a":2,"z":1}}"#,
+        ),
+    ] {
+        let parsed = parse_payload("fixture.json", kind, input.as_bytes()).unwrap();
+        assert_eq!(parsed.history.native_entities[0].payload_json, expected);
+        if kind == KIND_SESSION_JSON {
+            assert!(parsed.history.typed_evidence.context.is_empty());
+        } else {
+            let context =
+                parsed.history.typed_evidence.context.first().expect("browser context is retained");
+            assert_eq!(context.value_json, r#"{"a":2,"z":1}"#);
+        }
+    }
 }

@@ -1,4 +1,4 @@
-//! Responsibilities: native AI indexing regression coverage.
+//! Responsibilities: backfill integrity and explicit serving-pair retention regressions.
 //! Not responsible for: search or network transport.
 //! Failure modes: omitted records, stale state, non-durable progress, and incorrect provider scope.
 use super::*;
@@ -57,6 +57,7 @@ fn run_backfill_chunk(
     let ledger = Arc::new(PauseAfterBatch {
         progress: std::sync::Mutex::new(None),
         pause: request.limit.is_some(),
+        start_history_id,
     });
     let dyn_ledger: Arc<dyn IndexBackfillLedger> = ledger.clone();
     let result = runtime.block_on(build_ai_index_with_control(
@@ -168,11 +169,12 @@ fn static_tier_index_writes_real_vectors_and_semantic_search_finds_the_seeded_pa
 struct PauseAfterBatch {
     progress: std::sync::Mutex<Option<IndexBackfillProgress>>,
     pause: bool,
+    start_history_id: i64,
 }
 impl IndexBackfillLedger for PauseAfterBatch {
     fn record(&self, value: IndexBackfillProgress) -> Result<()> {
         *self.progress.lock().unwrap() = Some(value);
-        if self.pause {
+        if self.pause && value.next_history_id > self.start_history_id {
             Err(AiRunCancelled::new("test interruption after a durable batch").into())
         } else {
             Ok(())
@@ -186,9 +188,9 @@ mod resume;
 
 /// Changing a service's model leaves the old model's index behind. Ways cleaning it up could go
 /// wrong: the index still in use deleted with it; the old rows deleted but its files kept (or the
-/// other way round); its totals row kept, so it is "cleaned" again on every build.
+/// other way round); a ready ledger survives deleted files; cleanup repeats on every build.
 #[test]
-fn an_index_made_with_a_model_no_longer_set_up_is_deleted_and_the_current_one_kept() {
+fn cleanup_preserves_the_serving_pair_until_replacement_then_removes_its_ledger() {
     let runtime = Runtime::new().expect("runtime");
     let (paths, config, connection) = prepared_archive();
     let vault = connection.vault.clone();
@@ -217,6 +219,12 @@ fn an_index_made_with_a_model_no_longer_set_up_is_deleted_and_the_current_one_ke
     };
     assert_eq!(files(&old), (true, true));
 
+    let retained = [
+        (new.config.id.clone(), new.config.default_model.clone()),
+        (old.config.id.clone(), old.config.default_model.clone()),
+    ];
+    assert_eq!(runtime.block_on(forget_unconfigured_indexes(&vault, &retained, None)).unwrap(), 0);
+    assert_eq!(files(&old), (true, true), "serving files survive replacement work");
     let configured = [(new.config.id.clone(), new.config.default_model.clone())];
     let forgotten =
         runtime.block_on(forget_unconfigured_indexes(&vault, &configured, None)).expect("forget");
@@ -236,6 +244,16 @@ fn an_index_made_with_a_model_no_longer_set_up_is_deleted_and_the_current_one_ke
         })
         .expect("totals");
     assert_eq!(totals, [new.config.default_model.clone()]);
+    let ledger_models = vault
+        .read(Db::Intelligence, |s| {
+            Ok(s.query("SELECT model FROM ai_index_ledger", (), |r| Ok(r.get::<String>(0)?))?)
+        })
+        .unwrap();
+    assert_eq!(
+        ledger_models,
+        [new.config.default_model.clone()],
+        "deleted files cannot remain a serving candidate"
+    );
     drop(connection);
 
     let again = runtime

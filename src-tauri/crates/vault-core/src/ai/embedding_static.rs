@@ -1,6 +1,7 @@
 //! In-app HAND-ROLLED model2vec / static embedding engine (Tier 0 fast base, W-AI-4c).
 //!
 //! ## Responsibilities
+//! - distinguish an unavailable model from corrupt model data or invalid configuration
 //! - own the ONE place a static (model2vec-style) embedding is computed: tokenize → look up each
 //!   token's row in a static embedding matrix → (optional per-token weight) mean-pool → optional
 //!   L2-normalize. No transformer forward, no KV cache — O(sequence length) per text.
@@ -9,6 +10,7 @@
 //!   dtype/normalized/pooling to THIS adapter's reality (Float32 / `config.normalize` / Mean), and
 //!   thread [`EmbeddingRole`] through (static models are symmetric — query == document — so the role
 //!   is a DOCUMENTED no-op here, mirrored in the descriptor's empty instruction template).
+//! - share one loaded engine per model directory/revision across queries and builds
 //! - load the model files (safetensors embedding matrix + tokenizer.json + config.json) via OUR OWN
 //!   code (`tokenizers` and `safetensors`), download on demand via the consent-gated,
 //!   SHA-256-verified [`super::model_files::ensure_model_downloaded`].
@@ -29,7 +31,6 @@
 //! only the real safetensors/tokenizer load + download are `cfg`-gated.
 
 use super::embedding_engine::AnyEmbeddingProvider;
-use super::embedding_external::ExternalEmbeddingProvider;
 use super::model_files::ModelFile;
 #[cfg(not(test))]
 use super::model_files::model_dir_for_repo;
@@ -40,6 +41,8 @@ use crate::AiProviderRuntime;
 use crate::config::ProjectPaths;
 use anyhow::{Context, Result};
 use std::sync::Arc;
+#[cfg(not(test))]
+mod cache;
 
 // ---------------------------------------------------------------------------
 // Model manifest (always compiled — pure data; load/download live in `model_files`).
@@ -137,47 +140,16 @@ pub fn static_repo_for_runtime(runtime: &AiProviderRuntime) -> &str {
     }
 }
 
-/// Degrades a static runtime whose model is absent to the external adapter, or a clear error (S3).
-///
-/// Pure decision logic (no matrix load, no network): if
-/// the runtime carries a usable external base URL (NOT the static sentinel), build the external
-/// provider so the backfill proceeds against `/v1/embeddings`; otherwise return an actionable "model
-/// not downloaded" error the caller turns into a download prompt. The backfill is NEVER hard-failed
-/// merely because the static model has not been fetched yet (AGENTS.md principle 4).
-pub fn degrade_static_to_external(
-    runtime: &AiProviderRuntime,
-    repo: &str,
-) -> Result<AnyEmbeddingProvider> {
-    let has_external_base =
-        runtime.config.base_url.as_deref().is_some_and(|base| base != STATIC_INAPP_BASE_URL);
-    if has_external_base {
-        return Ok(AnyEmbeddingProvider::External(ExternalEmbeddingProvider::new(
-            runtime.clone(),
-        )?));
-    }
-    anyhow::bail!(
-        "in-app static model {repo} is not downloaded; fetch it (with consent) before embedding, or configure an external embedding provider"
-    )
-}
-
-/// Selects the static engine for a static-routed runtime (config-driven, W-AI-4c).
-///
-/// Routing + DEGRADATION contract (S3): selects the static engine ONLY
-/// when the model is present + verified on disk (the consent gate); otherwise degrades to the
-/// external adapter when one is configured, else returns a clear "not downloaded" error. Called only
-/// after [`runtime_uses_static`] returns true.
+/// Selects the shared in-app engine only after its local model files are verified.
+/// Missing files return an actionable download error; this path never sends a model request.
 #[cfg(not(test))]
 pub fn select_static_embedding_provider(
     paths: &ProjectPaths,
     runtime: &AiProviderRuntime,
 ) -> Result<AnyEmbeddingProvider> {
     let repo = static_repo_for_runtime(runtime);
-    let model_dir = model_dir_for_repo(paths, repo);
-    if super::model_files::model_is_present_and_verified(&model_dir, DEFAULT_STATIC_MODEL_FILES) {
-        let provider = StaticEmbeddingProvider::load(paths, repo, DEFAULT_STATIC_MODEL_FILES)?;
-        return Ok(AnyEmbeddingProvider::Static(Box::new(provider)));
-    }
-    degrade_static_to_external(runtime, repo)
+    let provider = StaticEmbeddingProvider::load(paths, repo, DEFAULT_STATIC_MODEL_FILES)?;
+    Ok(AnyEmbeddingProvider::Static(Box::new(provider)))
 }
 
 /// Test selector: builds the deterministic static stub (treated as "present").
@@ -583,47 +555,49 @@ impl StaticEmbeddingProvider {
     pub fn load(paths: &ProjectPaths, repo: &str, files: &[ModelFile]) -> Result<Self> {
         let model_dir = model_dir_for_repo(paths, repo);
         if !super::model_files::model_is_loadable(&model_dir, files) {
-            anyhow::bail!(
+            cache::forget(&model_dir);
+            return Err(super::EmbeddingServiceError::wrap(anyhow::anyhow!(
                 "static model {repo} is not present or not verified in {}; download it (with consent) before selecting the static engine",
                 model_dir.display()
-            );
+            )));
         }
-        let config_bytes = std::fs::read(model_dir.join("config.json"))
-            .with_context(|| format!("reading config.json for {repo}"))?;
-        let config = parse_static_config(&config_bytes)?;
-        // Load the tokenizer FIRST so its unk id can be threaded into the matrix: the reference drops
-        // the unk token before pooling, so the matrix needs the id to exclude that row (S1 fix). The
-        // unk id is read from the tokenizer.json bytes (Unigram `unk_id` / BPE `unk_token`), NOT a
-        // hardcoded string — potion's Unigram unk is `[UNK]` (id 1), with no `<unk>` token at all.
-        let tokenizer_path = model_dir.join("tokenizer.json");
-        let tokenizer_json = std::fs::read(&tokenizer_path)
-            .with_context(|| format!("reading tokenizer.json for {repo}"))?;
-        let tokenizer = tokenizers::Tokenizer::from_bytes(&tokenizer_json)
-            .map_err(|error| anyhow::anyhow!("loading tokenizer for {repo}: {error}"))?;
-        let unk_token_id = resolve_unk_token_id(&tokenizer, &tokenizer_json);
-        let matrix = load_static_matrix(&model_dir.join("model.safetensors"), unk_token_id)?;
-        // Cross-check the declared dim against the loaded matrix so a mismatched config/matrix bundle
-        // fails LOUDLY at load rather than producing wrong-dim vectors (D4: read, then verify).
-        if config.hidden_dim != matrix.dim() {
-            anyhow::bail!(
-                "static model {repo} config hidden_dim {} disagrees with matrix dim {}; the bundle is inconsistent",
-                config.hidden_dim,
-                matrix.dim()
-            );
-        }
-        Ok(Self::from_engine(
-            &format!("static:{repo}"),
-            repo,
-            StaticEngine { matrix, tokenizer, normalize: config.normalize },
-        ))
+        let engine = cache::load(&model_dir, files, || {
+            let config_bytes = std::fs::read(model_dir.join("config.json"))
+                .with_context(|| format!("reading config.json for {repo}"))?;
+            let config = parse_static_config(&config_bytes)?;
+            // Load the tokenizer FIRST so its unk id can be threaded into the matrix: the reference drops
+            // the unk token before pooling, so the matrix needs the id to exclude that row (S1 fix). The
+            // unk id is read from the tokenizer.json bytes (Unigram `unk_id` / BPE `unk_token`), NOT a
+            // hardcoded string — potion's Unigram unk is `[UNK]` (id 1), with no `<unk>` token at all.
+            let tokenizer_path = model_dir.join("tokenizer.json");
+            let tokenizer_json = std::fs::read(&tokenizer_path)
+                .with_context(|| format!("reading tokenizer.json for {repo}"))?;
+            let tokenizer = tokenizers::Tokenizer::from_bytes(&tokenizer_json)
+                .map_err(|error| anyhow::anyhow!("loading tokenizer for {repo}: {error}"))?;
+            let unk_token_id = resolve_unk_token_id(&tokenizer, &tokenizer_json);
+            let matrix = load_static_matrix(&model_dir.join("model.safetensors"), unk_token_id)?;
+            // Cross-check the declared dim against the loaded matrix so a mismatched config/matrix bundle
+            // fails LOUDLY at load rather than producing wrong-dim vectors (D4: read, then verify).
+            if config.hidden_dim != matrix.dim() {
+                anyhow::bail!(
+                    "static model {repo} config hidden_dim {} disagrees with matrix dim {}; the bundle is inconsistent",
+                    config.hidden_dim,
+                    matrix.dim()
+                );
+            }
+            Ok(StaticEngine { matrix, tokenizer, normalize: config.normalize })
+        })?;
+        Ok(Self {
+            provider_id: format!("static:{repo}"),
+            model_id: repo.into(),
+            dim: engine.matrix.dim(),
+            normalize: engine.normalize,
+            engine,
+        })
     }
 
-    /// Assembles a provider from an already-built engine (matrix + tokenizer + normalize flag).
-    ///
-    /// F4 seam: the ONE always-compiled constructor both the disk [`load`](Self::load) path and the
-    /// in-memory [`new_stub`](Self::new_stub) / gate-test paths funnel through, so the descriptor
-    /// (dim/normalize) is derived from the SAME engine the real [`embed`] runs against. The dim is the
-    /// matrix's ACTUAL column count (D4: read, never assumed); `normalize` mirrors the engine's flag.
+    /// Gives tiny test engines the same descriptor fields used by the cached production engine.
+    #[cfg(test)]
     fn from_engine(provider_id: &str, model_id: &str, engine: StaticEngine) -> Self {
         Self {
             provider_id: provider_id.to_string(),

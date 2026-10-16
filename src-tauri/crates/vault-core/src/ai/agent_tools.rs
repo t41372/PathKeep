@@ -2,6 +2,7 @@
 //! PathKeep-owned agent tool registry (plain Rust, NOT rig's `Tool`).
 //!
 //! ## Responsibilities
+//! - validate arguments without executing a tool, keeping serde unknown-field diagnostics
 //! - declare the `AgentTool` boundary trait the W-AI-7 harness dispatches against, plus the
 //!   `ToolOutcome` it returns (model-facing text + structured citations) and the `ToolRegistry`
 //!   (name → tool) that builds the `LlmChatRequest.tools` definitions
@@ -188,6 +189,9 @@ impl SearchPlane {
 /// embedding/index path) and returns `Result` so the harness can journal a failure as an error
 /// ToolResult and thread an honest message back WITHOUT aborting the whole run.
 pub trait AgentTool: Send + Sync {
+    /// Validates without touching history so invalid calls replay as an empty object.
+    fn validate_arguments(&self, args: &Value) -> Result<()>;
+
     /// The tool name the model invokes (stable; also the registry key).
     fn name(&self) -> &str;
 
@@ -243,6 +247,12 @@ impl HistorySearchTool {
 }
 
 impl AgentTool for HistorySearchTool {
+    fn validate_arguments(&self, args: &Value) -> Result<()> {
+        super::tool_arguments::validate_optional_field::<u32>(args, "limit")?;
+        serde_json::from_value::<SearchToolArgs>(args.clone())?;
+        Ok(())
+    }
+
     fn name(&self) -> &str {
         self.name
     }
@@ -471,6 +481,11 @@ impl Default for RunCodeTool {
 }
 
 impl AgentTool for RunCodeTool {
+    fn validate_arguments(&self, args: &Value) -> Result<()> {
+        serde_json::from_value::<RunCodeArgs>(args.clone())?;
+        Ok(())
+    }
+
     fn name(&self) -> &str {
         "run_code"
     }
@@ -669,6 +684,12 @@ impl IntelligenceReportTool {
 const INTELLIGENCE_REPORT_DESCRIPTION: &str = "Pre-computed statistics about the user's browsing: counts, top sites, sessions, search trails, activity mix, rhythm, trends and daily rollups. Fast and complete for the shape of a period (how much, when, which sites), but it says nothing about what the pages were about: for that read the visits (report=\"session_detail\" with a sessionId for one session's pages, or search_history / run_code). A session's autoTitle is only a guess from its main site or search, and its visitCount covers every site in it.";
 
 impl AgentTool for IntelligenceReportTool {
+    fn validate_arguments(&self, args: &Value) -> Result<()> {
+        super::tool_arguments::validate_optional_field::<u32>(args, "limit")?;
+        serde_json::from_value::<IntelligenceReportArgs>(args.clone())?;
+        Ok(())
+    }
+
     fn name(&self) -> &str {
         "intelligence_report"
     }
@@ -1012,6 +1033,27 @@ impl ToolRegistry {
         self.tools.values().map(|tool| tool.definition()).collect()
     }
 
+    /// Preflights a call before its assistant message is replayed or any tool runs.
+    pub(super) fn prepare_arguments(&self, name: &str, raw: &str) -> Result<Value> {
+        let tool = self.tools.get(name).ok_or_else(|| {
+            anyhow::anyhow!("at $: unknown tool `{name}`; received arguments: {raw}")
+        })?;
+        let args = super::tool_arguments::normalize(raw, &tool.definition().parameters)?;
+        tool.validate_arguments(&args).map_err(|error| {
+            let detail = error.to_string();
+            if detail.starts_with("at $") {
+                return anyhow::anyhow!("{detail}; received arguments: {raw}");
+            }
+            let field = detail
+                .strip_prefix("unknown field `")
+                .or_else(|| detail.strip_prefix("missing field `"))
+                .and_then(|rest| rest.split_once('`').map(|(field, _)| field));
+            let path = field.map_or_else(|| "$".into(), |field| format!("$[{field:?}]"));
+            anyhow::anyhow!("at {path}: {detail}; received arguments: {raw}")
+        })?;
+        Ok(args)
+    }
+
     /// Whether the registry has any tools.
     pub fn is_empty(&self) -> bool {
         self.tools.is_empty()
@@ -1040,6 +1082,7 @@ impl ToolRegistry {
 /// `call` returns a boxed future. The shim exists only to bridge the (monomorphized, inlinable)
 /// trait to dynamic dispatch at the single registry lookup point.
 trait DynAgentTool: Send + Sync {
+    fn validate_arguments(&self, args: &Value) -> Result<()>;
     fn definition(&self) -> LlmToolDef;
     fn call<'a>(
         &'a self,
@@ -1052,6 +1095,9 @@ trait DynAgentTool: Send + Sync {
 struct DynTool<T: AgentTool>(T);
 
 impl<T: AgentTool> DynAgentTool for DynTool<T> {
+    fn validate_arguments(&self, args: &Value) -> Result<()> {
+        self.0.validate_arguments(args)
+    }
     fn definition(&self) -> LlmToolDef {
         self.0.definition()
     }

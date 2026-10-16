@@ -1,7 +1,8 @@
 /**
  * The panel under a chosen AI service, for the assistant's or semantic
- * search's: where its requests go, its connection test, and edit and remove.
- * The actions come from `useAiProviders` for that purpose.
+ * search's: where its requests go, what saving it found (its model list), its
+ * connection test, and edit and remove. The actions come from
+ * `useAiProviders` for that purpose.
  */
 import { useState } from 'react'
 import { toast } from 'sonner'
@@ -66,9 +67,9 @@ export function ProviderDetails({
 }: {
   provider: AiProviderConfig
   providers: ReturnType<typeof useAiProviders>
-  /** After the model was changed and saved: semantic search builds its index again. */
+  /** After the model was changed and saved: semantic search reads its index state again. */
   onModelChanged?: () => void
-  /** Semantic search is on, so a new model is indexed as soon as it is saved. */
+  /** Semantic search is on: the model change note says the new index can be built now. */
   indexOn?: boolean
 }) {
   const { t } = useI18n()
@@ -103,6 +104,28 @@ export function ProviderDetails({
               }),
             }
         : null
+  const checked = result ? null : providers.checks[provider.id]
+  const checkLine = checked && {
+    ok: checked.kind === 'found',
+    busy: checked.kind === 'checking',
+    text:
+      checked.kind === 'checking'
+        ? t('settingsAi.provider.checking', { name: provider.name })
+        : checked.kind === 'found'
+          ? t('settingsAi.provider.checkOk', {
+              name: provider.name,
+              model: provider.defaultModel,
+            })
+          : checked.kind === 'missing'
+            ? t('settingsAi.provider.checkNoModel', {
+                name: provider.name,
+                model: provider.defaultModel,
+              })
+            : t('settingsAi.provider.checkFailed', {
+                name: provider.name,
+                message: checked.message,
+              }),
+  }
 
   return (
     <div className="flex flex-col gap-2 border-t pt-3 text-[13px]">
@@ -130,6 +153,20 @@ export function ProviderDetails({
           className={result.ok ? 'text-green' : 'text-destructive'}
         >
           {result.text}
+        </p>
+      )}
+      {checkLine && (
+        <p
+          role="status"
+          className={
+            checkLine.busy
+              ? 'text-muted-foreground'
+              : checkLine.ok
+                ? 'text-green'
+                : 'text-destructive'
+          }
+        >
+          {checkLine.text}
         </p>
       )}
       <div className="flex justify-end gap-2">

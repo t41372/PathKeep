@@ -41,7 +41,7 @@ export function ProviderDialog({
   purpose?: AiProviderPurpose
   /** The service to change; adds a new one when absent. */
   editing?: AiProviderConfig | null
-  /** Semantic search is on, so a new embeddings model is indexed as soon as it is saved. */
+  /** Semantic search is on, so a new embeddings model's index can be built right away. */
   indexOn?: boolean
 }) {
   const [saving, setSaving] = useState(false)
@@ -173,11 +173,9 @@ function ProviderDialogBody({
         <Button type="submit" disabled={!complete || saving}>
           {saving
             ? t('settingsAi.provider.dialog.saving')
-            : modelChange !== null && indexOn
-              ? t('settingsAi.semantic.saveAndRebuild')
-              : editing
-                ? t('settingsAi.provider.editDialog.submit')
-                : t('settingsAi.provider.dialog.submit')}
+            : editing
+              ? t('settingsAi.provider.editDialog.submit')
+              : t('settingsAi.provider.dialog.submit')}
         </Button>
       </DialogFooter>
     </form>
@@ -185,8 +183,9 @@ function ProviderDialogBody({
 }
 
 /**
- * What changing the model costs, before it is saved: how many pages are
- * indexed again, now or when semantic search is turned on (`now`).
+ * What changing the model means, before it is saved: the new model needs its
+ * own index (how many visits), built when the user starts it; until then
+ * search keeps the old one. `now`: semantic search is on.
  */
 function ModelChangeNote({ old, now }: { old: string; now: boolean }) {
   const { t } = useI18n()

@@ -16,6 +16,8 @@
 //! - Parser-specific row extraction logic.
 //! - Frontend transport shaping or Tauri command orchestration.
 //!
+//! Why: shared identity helpers keep archive keys stable across dependency feature changes.
+//!
 //! ## Dependencies
 //! - `crate::chrome` for staged browser snapshots and discovery metadata.
 //! - `browser_history_parser` for deterministic source parsing.
@@ -299,7 +301,7 @@ pub(crate) fn visit_event_fingerprint(
     transition: Option<i64>,
     app_id: Option<&str>,
 ) -> String {
-    let payload = json!({
+    let mut payload = json!({
         "sourceKind": source_kind,
         "url": url,
         "visitTime": visit_time,
@@ -307,6 +309,7 @@ pub(crate) fn visit_event_fingerprint(
         "transition": transition,
         "appId": app_id.unwrap_or_default(),
     });
+    browser_history_parser::canonicalize_json(&mut payload);
     sha256_hex(payload.to_string().as_bytes())
 }
 

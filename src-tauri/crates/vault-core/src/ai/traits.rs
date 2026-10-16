@@ -8,8 +8,9 @@
 //!   transport (rig today, anything tomorrow) can be swapped behind these signatures
 //!
 //! ## Not responsible for
-//! - any concrete provider/engine implementation (rig adapters live in `provider.rs`;
+//! - any concrete provider/engine implementation (rig chat adapter lives in `llm.rs`;
 //!   the vector engine arrives in W-AI-5)
+//! - conversation storage of ephemeral reasoning or provider-native metadata
 //! - persistence, scheduling, or queue bookkeeping (those stay in the surrounding `ai`
 //!   submodules)
 //! - secret storage (API keys live in the keyring + `AiProviderRuntime`)
@@ -184,6 +185,35 @@ pub struct LlmMessage {
     /// cannot see that it already called the tool and re-issues the same call every turn (the loop
     /// bug). Defaults to empty for ordinary turns (additive, W-AI-7).
     pub tool_calls: Vec<LlmToolCall>,
+    /// Ephemeral reasoning and provenance for replay within this run; never persisted.
+    pub reasoning: Option<LlmReasoning>,
+}
+
+/// Provider reasoning blocks and their origin, kept opaque at the rig-free boundary.
+/// Native metadata lets the adapter replay signatures and the original reasoning field.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LlmReasoning {
+    pub(crate) blocks: Vec<serde_json::Value>,
+    pub(crate) origin: serde_json::Value,
+}
+
+/// Why the provider ended a turn; a length limit never authorizes tool execution.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LlmFinishReason {
+    Stop,
+    ToolCalls,
+    Length,
+    Other(String),
+}
+
+/// Distinguishes generation repair from a lazy connection, authentication or request failure.
+/// Providers whose streams open on polling must mark transport failures explicitly.
+#[derive(Debug, thiserror::Error)]
+pub enum LlmStreamError {
+    #[error("{0}")]
+    Generation(String),
+    #[error("{0}")]
+    Transport(String),
 }
 
 /// One tool/function call an assistant turn requested, threaded back so the transport can correlate
@@ -210,6 +240,7 @@ impl LlmMessage {
             tool_call_id: None,
             tool_name: None,
             tool_calls: Vec::new(),
+            reasoning: None,
         }
     }
 
@@ -225,6 +256,7 @@ impl LlmMessage {
             tool_call_id: Some(tool_call_id.into()),
             tool_name: Some(tool_name.into()),
             tool_calls: Vec::new(),
+            reasoning: None,
         }
     }
 
@@ -240,6 +272,7 @@ impl LlmMessage {
             tool_call_id: None,
             tool_name: None,
             tool_calls,
+            reasoning: None,
         }
     }
 }
@@ -307,10 +340,6 @@ pub enum LlmRole {
 pub struct LlmChatRequest {
     /// Ordered conversation, oldest first; the system message (if any) leads.
     pub messages: Vec<LlmMessage>,
-    /// Sampling temperature; `None` lets the provider/default decide.
-    pub temperature: Option<f32>,
-    /// Hard cap on generated tokens; `None` lets the provider/default decide.
-    pub max_tokens: Option<u32>,
     /// Tool DEFINITIONS exposed to the model this turn (execution is W-AI-7).
     pub tools: Vec<LlmToolDef>,
     /// Optional structured-output schema the response should conform to.
@@ -321,12 +350,8 @@ impl LlmChatRequest {
     /// Builds a plain chat request with no tools and no structured-output schema.
     ///
     /// Exists so the common case does not have to spell out the two additive fields.
-    pub fn new(
-        messages: Vec<LlmMessage>,
-        temperature: Option<f32>,
-        max_tokens: Option<u32>,
-    ) -> Self {
-        Self { messages, temperature, max_tokens, tools: Vec::new(), response_format: None }
+    pub fn new(messages: Vec<LlmMessage>) -> Self {
+        Self { messages, tools: Vec::new(), response_format: None }
     }
 }
 
@@ -353,6 +378,8 @@ pub struct LlmChatResponse {
 /// same observable behaviour.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LlmStreamChunk {
+    /// Terminal provider confirmation and opaque reasoning for this run only.
+    Finished { reason: LlmFinishReason, reasoning: Option<LlmReasoning> },
     /// A fragment of the visible answer.
     Token(String),
     /// A fragment of the reasoning/thinking stream.

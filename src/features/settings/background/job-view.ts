@@ -3,9 +3,10 @@
  * show Insights work and search-index work the same way.
  *
  * Responsibilities: map backend job types, states and profile ids to
- * localized names; decide which actions the backend allows (from its own
- * `retryable` / `cancellable` flags for Insights jobs, and from the AI
- * queue's state rules for the others).
+ * localized names; say who paused a paused index build; decide which actions
+ * the backend allows (from its own `retryable` / `cancellable` flags for
+ * Insights jobs, and from the AI queue's state rules for the others, where an
+ * index build can also be paused and a paused one continued).
  *
  * Not responsible for rendering or for running the actions.
  */
@@ -57,8 +58,13 @@ export interface JobView {
   at: string | null
   progress: { percent: number | null; current?: number; total?: number } | null
   error: string | null
+  /** Who paused it and why, for a paused index build. */
+  note: { text: string; problem: boolean } | null
   canRetry: boolean
+  /** Retrying it goes on from where it stopped (a paused index build). */
+  resumes: boolean
   canCancel: boolean
+  canPause: boolean
 }
 
 function isJobState(value: string): value is JobState {
@@ -124,8 +130,11 @@ export function useJobViews() {
             }
           : null,
         error: job.state === 'failed' ? (job.lastError ?? null) : null,
+        note: null,
         canRetry: job.retryable,
+        resumes: false,
         canCancel: job.cancellable,
+        canPause: false,
       }
     },
     [profileName, typeName],
@@ -135,6 +144,8 @@ export function useJobViews() {
     (job: AiQueueJob): JobView => {
       const running = job.state === 'running'
       const target = job.progressEmbedTarget ?? 0
+      const build = job.jobType === 'index-build'
+      const pausedBy = job.state === 'paused' ? job.pausedBy : null
       return {
         key: `ai-${job.id}`,
         id: job.id,
@@ -146,27 +157,40 @@ export function useJobViews() {
           : job.state === 'queued' || job.state === 'paused'
             ? job.queuedAt
             : (job.finishedAt ?? job.heartbeatAt ?? job.queuedAt),
-        progress: running
-          ? target > 0
-            ? {
-                percent: percentOf(job.progressEmbedded, target),
-                current: job.progressEmbedded,
-                total: target,
-              }
-            : { percent: null }
-          : null,
+        progress:
+          running || (build && job.state === 'paused')
+            ? target > 0
+              ? {
+                  percent: percentOf(job.progressEmbedded, target),
+                  current: job.progressEmbedded,
+                  total: target,
+                }
+              : { percent: null }
+            : null,
         error:
           job.errorCode === ASSISTANT_RETIRED
             ? t('settingsBackground.assistantRetired')
             : job.state === 'failed'
               ? (job.errorMessage ?? job.errorCode ?? null)
               : null,
-        // `replay_ai_job` / `cancel_ai_job` state rules (vault-core ai_queue);
-        // a question an older Ask queued is never run again.
+        note: pausedBy
+          ? {
+              text: t(`settingsBackground.ai.pausedBy.${pausedBy}`, {
+                message: job.errorMessage ?? '',
+              }),
+              problem: pausedBy === 'service',
+            }
+          : null,
+        // `replay_ai_job` / `cancel_ai_job` / `pause_ai_job` state rules
+        // (vault-core ai_queue); a question an older Ask queued is never run
+        // again, and one paused with all background work goes on with it.
         canRetry:
           job.jobType !== 'assistant' &&
+          pausedBy !== 'queue' &&
           ['failed', 'cancelled', 'stale', 'paused'].includes(job.state),
+        resumes: build && job.state === 'paused',
         canCancel: ['queued', 'paused', 'stale', 'running'].includes(job.state),
+        canPause: build && ['queued', 'stale', 'running'].includes(job.state),
       }
     },
     [t, typeName],

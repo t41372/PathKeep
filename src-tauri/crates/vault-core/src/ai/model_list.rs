@@ -11,6 +11,9 @@
 //! - Anthropic: `GET /v1/models`, every model a chat model.
 //! - Google: `GET /v1beta/models`, with the methods each supports and its input limit.
 //! - Anything else OpenAI-compatible: `GET /models` under the API root, ids only.
+//!
+//! `api_root_only` reads LM Studio and Ollama the last way too: the list under the exact root
+//! their requests use, so checking a saved service catches an address that only reaches the server.
 
 use super::provider::openai_api_root;
 use crate::models::{AiModelKind, AiProviderModel, AiRequestFormat};
@@ -26,6 +29,7 @@ pub async fn list_provider_models(
     format: &AiRequestFormat,
     base_url: Option<&str>,
     api_key: Option<&str>,
+    api_root_only: bool,
 ) -> Result<Vec<AiProviderModel>> {
     let client = reqwest::Client::builder()
         .timeout(LIST_TIMEOUT)
@@ -33,6 +37,10 @@ pub async fn list_provider_models(
         .context("building the model list client")?;
     let fetch = Fetch { client: &client, api_key };
     let mut models = match format {
+        AiRequestFormat::LmStudio | AiRequestFormat::Ollama if api_root_only => {
+            let root = openai_api_root(base_url.context("this service needs an address")?, format);
+            parse_openai(&fetch.get(&format!("{root}/models")).await?)?
+        }
         AiRequestFormat::LmStudio => {
             let root = openai_api_root(base_url.context("LM Studio needs an address")?, format);
             match fetch.get(&format!("{}/api/v0/models", origin(&root))).await {
@@ -87,6 +95,7 @@ pub async fn chat_context_length(
         format,
         runtime.config.base_url.as_deref(),
         runtime.api_key_for_transport(),
+        false,
     )
     .await
     .ok()?;

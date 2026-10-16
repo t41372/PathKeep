@@ -1,5 +1,5 @@
 //! Responsibilities: orchestrate archive reads, backup, native restore and retention through their
-//! owners.
+//! owners, with after-backup embedding updates only for a completed chosen index.
 //! Not responsible for: database copying, file journals or UI transport.
 //! Failure modes: dropped progress, lost restore reports, scheduled backup blocked by App Lock or
 //! hidden follow-up failures.
@@ -20,7 +20,7 @@
 //! payloads.
 
 use crate::{
-    context::{load_unlocked_config, selected_embedding_provider_runtime},
+    context::load_unlocked_config,
     intelligence::{maybe_spawn_ai_queue_drain, maybe_spawn_intelligence_queue_drain},
 };
 use anyhow::{Context, Result};
@@ -233,27 +233,17 @@ where
         && config.ai.enabled
         && config.ai.semantic_index_enabled
         && config.ai.auto_index_after_backup
+        && append_ai_auto_index_enqueue_result(
+            &mut report,
+            ai_queue::request_index_job(
+                &vault.with_config(config.clone()),
+                &AiIndexRequest::default(),
+                true,
+            ),
+            config.ai.job_queue_paused,
+        )
     {
-        match selected_embedding_provider_runtime(config, None) {
-            Ok(provider) => {
-                let auto_index_request = AiIndexRequest {
-                    provider_id: Some(provider.config.id),
-                    ..AiIndexRequest::default()
-                };
-                if append_ai_auto_index_enqueue_result(
-                    &mut report,
-                    ai_queue::enqueue_index_job(
-                        vault,
-                        &auto_index_request,
-                        config.ai.job_queue_paused,
-                    ),
-                    config.ai.job_queue_paused,
-                ) {
-                    maybe_spawn_ai_queue_drain(vault, paths, config, session_database_key, 1);
-                }
-            }
-            Err(error) => append_ai_auto_index_provider_warning(&mut report, error),
-        }
+        maybe_spawn_ai_queue_drain(vault, paths, config, session_database_key, 1);
     }
     if !report.due_skipped && backup_changed_archive(report.run.as_ref()) {
         // Sources whose copies of a visit a backed-up visit now stands in for count fewer
@@ -1013,11 +1003,11 @@ fn append_core_refresh_backup_result(report: &mut BackupReport, result: Result<V
 
 fn append_ai_auto_index_enqueue_result(
     report: &mut BackupReport,
-    result: Result<AiQueueJob>,
+    result: Result<Option<AiQueueJob>>,
     queue_paused: bool,
 ) -> bool {
     match result {
-        Ok(job) if queue_paused => {
+        Ok(Some(job)) if queue_paused => {
             report.push_warning(
                 BackupWarning::new(
                     "ai-autoindex-queued-while-paused",
@@ -1027,7 +1017,8 @@ fn append_ai_auto_index_enqueue_result(
             );
             false
         }
-        Ok(_) => true,
+        Ok(Some(_)) => true,
+        Ok(None) => false,
         Err(error) => {
             report.push_warning(
                 BackupWarning::new(
@@ -1039,16 +1030,6 @@ fn append_ai_auto_index_enqueue_result(
             false
         }
     }
-}
-
-fn append_ai_auto_index_provider_warning(report: &mut BackupReport, error: anyhow::Error) {
-    report.push_warning(
-        BackupWarning::new(
-            "ai-autoindex-provider-not-ready",
-            format!("AI auto-index is enabled, but the embedding provider is not ready: {error}"),
-        )
-        .with_diagnostic(format!("{error}")),
-    );
 }
 
 fn append_core_refresh_import_result(notes: &mut Vec<String>, result: Result<Vec<i64>>) {

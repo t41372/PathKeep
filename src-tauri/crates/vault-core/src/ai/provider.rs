@@ -4,16 +4,20 @@
 //! - validate configured providers before semantic or assistant work starts
 //! - classify provider errors into actionable user-facing categories
 //! - run lightweight health probes against embedding and LLM providers
-//! - bridge request-format-specific embedding and chat calls into rig.rs clients
+//! - route query embeddings to the in-app engine or external transport
+//! - bridge hosted embeddings into rig and chat probes through LlmProvider
 //!
 //! ## Not responsible for
 //! - semantic index ledger persistence or archive run bookkeeping
-//! - assistant retrieval composition or semantic search result ranking
+//! - chat encoding, multi-turn execution or semantic search result ranking
 //! - persisted read models such as `AiIndexStatus` or assistant run history
+//!
+//! ## Why
+//! Readiness probes share the production transport without starting an agent run.
 //!
 //! ## Dependencies
 //! - `super::read_model::provider_capabilities` for capability reporting
-//! - shared provider/runtime types and rig.rs imports from the parent `ai` module
+//! - shared provider/runtime types from the parent `ai` module
 //!
 //! ## Performance notes
 //! - embedding helpers batch requests where possible
@@ -235,22 +239,26 @@ pub async fn test_provider_connection(
     let started = Instant::now();
     let probe_result = match provider.config.purpose {
         AiProviderPurpose::Embedding => {
-            embed_query(provider, "PathKeep provider health check", EmbeddingRole::Query).await.map(
-                |vector| {
-                    // The effective dim is the actual returned length (D4), captured in the
-                    // runtime descriptor rather than read back from config `dimensions`.
-                    let descriptor = embedding_descriptor_for(provider, Some(vector.len()));
-                    format!(
-                        "Generated a {}-dimension probe embedding successfully.",
-                        descriptor.effective_dim.unwrap_or_default()
-                    )
-                },
+            embed_query(
+                &crate::project_paths()?,
+                provider,
+                "PathKeep provider health check",
+                EmbeddingRole::Query,
             )
+            .await
+            .map(|vector| {
+                // The effective dim is the actual returned length (D4), captured in the
+                // runtime descriptor rather than read back from config `dimensions`.
+                let descriptor = embedding_descriptor_for(provider, Some(vector.len()));
+                format!(
+                    "Generated a {}-dimension probe embedding successfully.",
+                    descriptor.effective_dim.unwrap_or_default()
+                )
+            })
         }
-        AiProviderPurpose::Llm => run_llm_agent(
+        AiProviderPurpose::Llm => run_llm_probe(
             provider,
             "You are a PathKeep connection test. Reply with a short OK message.",
-            Vec::new(),
             "Reply with OK.",
         )
         .await
@@ -508,69 +516,20 @@ pub(super) fn embedding_provider_readiness(config: &AppConfig) -> ProviderReadin
     }
 }
 
-/// Runs one LLM prompt through the configured provider request format.
-///
-/// Assistant runs centralize model dispatch here so request-format-specific rig.rs wiring
-/// does not leak into retrieval or run-ledger code.
-pub(super) async fn run_llm_agent(
+/// Runs the explicit connection test as one plain completion through the chat boundary.
+pub(super) async fn run_llm_probe(
     provider: &AiProviderRuntime,
     preamble: &str,
-    tools: Vec<Box<dyn ToolDyn>>,
     question: &str,
 ) -> Result<String> {
-    // OPTIONAL key (see `AiProviderRuntime::api_key_for_transport`): only a present, non-blank
-    // secret is forwarded as the token; an absent key sends an empty one. rig 0.34 always emits an
-    // auth header for these clients, but a keyless local endpoint (LM Studio / Ollama) ignores it
-    // and a key-enforcing cloud server returns its own 401 — we never pre-empt the call ourselves.
-    let api_key = provider.api_key_for_transport().unwrap_or_default();
-    match provider.config.request_format {
-        AiRequestFormat::OpenAi | AiRequestFormat::Ollama | AiRequestFormat::LmStudio => {
-            let mut builder = openai::CompletionsClient::builder().api_key(api_key);
-            if let Some(base_url) = provider.config.base_url.as_deref() {
-                builder =
-                    builder.base_url(openai_api_root(base_url, &provider.config.request_format));
-            }
-            let client = builder.build()?;
-            let agent = client
-                .agent(provider.config.default_model.clone())
-                .preamble(preamble)
-                .temperature(provider.config.temperature.unwrap_or(0.2) as f64)
-                .max_tokens(super::llm::DEFAULT_ANSWER_TOKENS.into())
-                .tools(tools)
-                .build();
-            Ok(agent.prompt(question).await?)
-        }
-        AiRequestFormat::Anthropic => {
-            let mut builder = anthropic::Client::builder().api_key(api_key);
-            if let Some(base_url) = provider.config.base_url.as_deref() {
-                builder = builder.base_url(normalize_local_base_url(base_url));
-            }
-            let client = builder.build()?;
-            let agent = client
-                .agent(provider.config.default_model.clone())
-                .preamble(preamble)
-                .temperature(provider.config.temperature.unwrap_or(0.2) as f64)
-                .max_tokens(super::llm::DEFAULT_ANSWER_TOKENS.into())
-                .tools(tools)
-                .build();
-            Ok(agent.prompt(question).await?)
-        }
-        AiRequestFormat::Google => {
-            let mut builder = gemini::Client::builder().api_key(api_key);
-            if let Some(base_url) = provider.config.base_url.as_deref() {
-                builder = builder.base_url(normalize_local_base_url(base_url));
-            }
-            let client = builder.build()?;
-            let agent = client
-                .agent(provider.config.default_model.clone())
-                .preamble(preamble)
-                .temperature(provider.config.temperature.unwrap_or(0.2) as f64)
-                .max_tokens(super::llm::DEFAULT_ANSWER_TOKENS.into())
-                .tools(tools)
-                .build();
-            Ok(agent.prompt(question).await?)
-        }
-    }
+    use super::traits::{LlmChatRequest, LlmMessage, LlmProvider, LlmRole};
+    let response = super::llm::RigLlmProvider::new(provider.clone())
+        .chat(LlmChatRequest::new(vec![
+            LlmMessage::new(LlmRole::System, preamble),
+            LlmMessage::new(LlmRole::User, question),
+        ]))
+        .await?;
+    Ok(response.text)
 }
 
 /// Executes one single-text embedding request against the configured provider.
@@ -587,10 +546,18 @@ pub(super) async fn run_llm_agent(
 ///   descriptors in W-AI-4; rig's hosted `/v1/embeddings` path has no role hook today).
 #[cfg(not(test))]
 pub(super) async fn embed_query(
+    paths: &ProjectPaths,
     provider: &AiProviderRuntime,
     query: &str,
     role: EmbeddingRole,
 ) -> Result<Vec<f32>> {
+    if super::embedding_static::runtime_uses_static(provider) {
+        return super::embedding_engine::select_embedding_provider(paths, provider)?
+            .embed(&[query.to_owned()], role)
+            .await?
+            .pop()
+            .context("the in-app engine returned no query vector");
+    }
     let requested_dim = resolve_embed_request_dim(provider)?;
     match provider.config.request_format {
         AiRequestFormat::OpenAi | AiRequestFormat::Ollama | AiRequestFormat::LmStudio => {
@@ -610,39 +577,29 @@ pub(super) async fn embed_query(
             let api_key = provider
                 .api_key_for_transport()
                 .context("OpenAI's embedding service needs an API key")?;
-            let client = openai::Client::builder().api_key(api_key).build()?;
-            let embedding = match requested_dim {
-                Some(ndims) => {
-                    client
-                        .embedding_model_with_ndims(provider.config.default_model.clone(), ndims)
-                        .embed_text(query)
-                        .await?
-                }
-                None => {
-                    client
-                        .embedding_model(provider.config.default_model.clone())
-                        .embed_text(query)
-                        .await?
-                }
-            };
+            let client = rig_core::providers::openai::OpenAI::new(api_key);
+            let embedding = client
+                .embedding(provider.config.default_model.clone(), requested_dim)
+                .embed_text(query)
+                .await?;
             Ok(finalize_embedding_vector(embedding.vec))
         }
         AiRequestFormat::Google => {
             let api_key = provider
                 .api_key_for_transport()
                 .context("Gemini's embedding API needs an API key")?;
-            let mut builder = gemini::Client::builder().api_key(api_key);
+            let mut provider_config = rig_core::providers::gemini::GeminiConfig::new(api_key);
             if let Some(base_url) = provider.config.base_url.as_deref() {
-                builder = builder.base_url(normalize_local_base_url(base_url));
+                provider_config = provider_config.with_base_url(normalize_local_base_url(base_url));
             }
-            let client = builder.build()?;
+            let client = provider_config.client();
             // `resolve_embed_request_dim` guarantees an explicit dim for Gemini (it rejects the
             // native-dim request the adapter cannot honor), so this is always the hint path.
             let ndims = requested_dim.context(
                 "internal: Gemini embedding reached the request path without an explicit dimension",
             )?;
             let embedding = client
-                .embedding_model_with_ndims(provider.config.default_model.clone(), ndims)
+                .embedding(provider.config.default_model.clone(), Some(ndims))
                 .embed_text(query)
                 .await?;
             Ok(finalize_embedding_vector(embedding.vec))
@@ -667,10 +624,18 @@ fn finalize_embedding_vector(vec: Vec<f64>) -> Vec<f32> {
 /// Returns deterministic single-text embedding vectors for tests.
 #[cfg(test)]
 pub(super) async fn embed_query(
+    paths: &ProjectPaths,
     provider: &AiProviderRuntime,
     query: &str,
     role: EmbeddingRole,
 ) -> Result<Vec<f32>> {
+    if super::embedding_static::runtime_uses_static(provider) {
+        return super::embedding_engine::select_embedding_provider(paths, provider)?
+            .embed(&[query.to_owned()], role)
+            .await?
+            .pop()
+            .context("the in-app engine returned no query vector");
+    }
     let dimensions = stub_embedding_dimensions(provider)?;
     Ok(stub_embedding_vector(provider, query, role, dimensions))
 }

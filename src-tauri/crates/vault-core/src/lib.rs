@@ -1,5 +1,5 @@
 //! Responsibilities: expose archive rules, native maintenance, conversion projections and shared
-//! models.
+//! models, semantic index selection and embedding service failures.
 //! Not responsible for: OS keychains, Tauri transport or worker orchestration.
 //! Failure modes: inconsistent entry-point contracts or bypassed verification/recovery.
 //!
@@ -44,6 +44,7 @@ pub mod migration;
 pub mod models;
 pub(crate) mod pages;
 pub mod schedule_attempts;
+pub mod semantic_index;
 mod snapshot_reads;
 pub mod stars;
 pub mod store_schema;
@@ -67,26 +68,25 @@ pub use ai::{
     CandidateSignals, CodeOutcome, DEFAULT_MAX_ITERATIONS, DEFAULT_STATIC_MODEL_FILES,
     DEFAULT_STATIC_MODEL_REPO, DEFAULT_TOKEN_BUDGET, EMBEDDING_FINGERPRINT_VERSION,
     EmbeddingDescriptor, EmbeddingDtype, EmbeddingFingerprint, EmbeddingPooling, EmbeddingProvider,
-    EmbeddingRole, ExternalEmbeddingProvider, FlatVectorIndex, HostCallRecord, IndexBackfillLedger,
-    IndexBackfillProgress, Int8Plane, Int8PlaneReader, Int8Vector, LimitsHit, LlmCapabilities,
-    LlmChatRequest, LlmChatResponse, LlmChunkStream, LlmMessage, LlmProvider, LlmResponseFormat,
-    LlmRole, LlmStreamChunk, LlmToolCall, LlmToolDef, LlmUsage, MAX_FETCH_IDS,
-    MAX_GUEST_MEMORY_BYTES, MAX_HOST_CALLS, MAX_OUTPUT_BYTES, MAX_ROWS_PER_CALL,
-    ModelDownloadProgress, ModelFile, NoopDownloadProgress, PlaneBuildReport, PlaneHeader,
-    ReverseMapHeader, ReverseVisitMap, RigLlmProvider, STATIC_INAPP_BASE_URL,
+    EmbeddingRole, EmbeddingServiceError, ExternalEmbeddingProvider, FlatVectorIndex,
+    HostCallRecord, IndexBackfillLedger, IndexBackfillProgress, Int8Plane, Int8PlaneReader,
+    Int8Vector, LimitsHit, LlmCapabilities, LlmChatRequest, LlmChatResponse, LlmChunkStream,
+    LlmMessage, LlmProvider, LlmResponseFormat, LlmRole, LlmStreamChunk, LlmToolCall, LlmToolDef,
+    LlmUsage, MAX_FETCH_IDS, MAX_GUEST_MEMORY_BYTES, MAX_HOST_CALLS, MAX_OUTPUT_BYTES,
+    MAX_ROWS_PER_CALL, ModelDownloadProgress, ModelFile, NoopDownloadProgress, PlaneBuildReport,
+    PlaneHeader, ReverseMapHeader, ReverseVisitMap, RigLlmProvider, STATIC_INAPP_BASE_URL,
     STATIC_MAX_INPUT_TOKENS, StaticEmbeddingMatrix, StaticEmbeddingProvider, ToolRegistry,
     VectorIndex, VectorStore, VectorStoreHeader, VisitContentMap, WALL_TIME_BUDGET,
     WorkingSetCandidate, WorkingSetConfig, WorkingSetPage, ai_index_status, ai_queue_status,
     binarize, binary_bytes_for_dim, build_agent_system_context, build_ai_index,
     build_ai_index_with_control, build_dedup_content_hash, build_planes_from_store,
-    chat_context_length, content_key_from_hash, degrade_static_to_external, dequantize_int8,
-    deregister_ai_chat_run, dot_product, drive_agent_run, drive_ai_chat_stream,
-    ensure_model_downloaded, estimate_reembed, estimate_request_tokens, estimate_tokens,
-    forget_unconfigured_indexes, hamming_distance, list_provider_models, model_dir_for_repo,
-    model_is_loadable, model_is_present_and_verified, parse_static_config, planes_are_stale,
-    preview_ai_integrations, probe_tool_capability, provider_capabilities,
-    provider_connection_failure_report, quantize_int8, reconcile_ai_queue_controls,
-    recoverable_ai_jobs, register_ai_chat_run, request_ai_chat_cancel,
+    chat_context_length, content_key_from_hash, dequantize_int8, deregister_ai_chat_run,
+    dot_product, drive_agent_run, drive_ai_chat_stream, ensure_model_downloaded, estimate_reembed,
+    estimate_request_tokens, estimate_tokens, forget_unconfigured_indexes, hamming_distance,
+    list_provider_models, model_dir_for_repo, model_is_loadable, model_is_present_and_verified,
+    parse_static_config, planes_are_stale, preview_ai_integrations, probe_tool_capability,
+    provider_capabilities, provider_connection_failure_report, quantize_int8,
+    reconcile_ai_queue_controls, recoverable_ai_jobs, register_ai_chat_run, request_ai_chat_cancel,
     request_cancel_all_ai_chat_runs, resolve_agent_system_context, run_code_in_sandbox,
     runtime_uses_static, score_candidate, select_embedding_provider, select_working_set,
     semantic_search_history, static_embed_ids, static_l2_normalize, static_repo_for_runtime,

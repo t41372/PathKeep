@@ -578,16 +578,21 @@ test('a model that keeps calling tools is stopped at the step limit and still an
     ).toBe(true)
     const last = sent[sent.length - 1].body
     expect(offersTools(last), 'the last request offers no tools').toBe(false)
+    // Without tools, rig sends each call and its result as text: the model
+    // still reads every search it made.
+    const lastText = (last.messages ?? [])
+      .map((message) => textOf(message.content))
+      .join('\n')
+    await expectCount(
+      testInfo,
+      'searches the last request carries',
+      lastText.split('[called tool search_history with').length - 1,
+      stepLimit,
+    )
     await expectCount(
       testInfo,
       'search results the last request carries',
-      toolResults(last).length,
-      stepLimit,
-    )
-    const callIds = (last.messages ?? [])
-      .filter(({ role }) => role === 'tool')
-      .map((message) => message.tool_call_id)
-    expect(new Set(callIds).size, 'each result answers its own call').toBe(
+      lastText.split('search_history: ').length - 1,
       stepLimit,
     )
   } finally {

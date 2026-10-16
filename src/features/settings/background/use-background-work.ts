@@ -3,12 +3,12 @@
  * Insights queue (`load_intelligence_runtime`: rebuilds, title tidying, page
  * summaries) and the search-index / assistant queue (`load_ai_queue_status`).
  *
- * Responsibilities: the status queries, polling them every 2 s only while one
- * of them has work running (or waiting while not paused); each queue's full
- * job history, a page at a time (`list_intelligence_jobs` / `list_ai_jobs`);
- * and the per-job actions the backend allows. Both status reads also restart
- * the backend's drain workers, so refetching after "resume" is what gets work
- * moving again.
+ * Responsibilities: the status queries and each queue's full job history, a
+ * page at a time (`list_intelligence_jobs` / `list_ai_jobs`), read again every
+ * few seconds while the page is open, so work that anything else started (a
+ * backup, Settings → AI) shows up as it starts; and the per-job actions the
+ * backend allows. Both status reads also restart the backend's drain workers,
+ * so refetching after "resume" is what gets work moving again.
  *
  * Not responsible for rendering or copy.
  */
@@ -30,6 +30,7 @@ import type {
   IntelligenceRuntimeSnapshot,
   ListJobsRequest,
 } from '@/lib/types'
+import { AI_QUEUE_POLL_MS } from '@/features/ai-setup/use-semantic-index'
 import type { JobView } from './job-view'
 
 /** Shared with `use-semantic-index`, so the two never poll the same queue twice. */
@@ -63,8 +64,7 @@ export function useIntelligenceRuntime(paused: boolean) {
     queryKey: runtimeKey,
     queryFn: intelligenceClient.getRuntime,
     staleTime: 0,
-    refetchInterval: (current) =>
-      runtimeActive(current.state.data, paused) ? POLL_MS : false,
+    refetchInterval: POLL_MS,
   })
 
   // When a run of work drains, Insights read new data: refresh what shows it.
@@ -88,8 +88,7 @@ export function useAiQueue() {
     queryKey: aiQueueKey,
     queryFn: intelligenceClient.getQueueStatus,
     staleTime: 0,
-    refetchInterval: (current) =>
-      aiActive(current.state.data) ? POLL_MS : false,
+    refetchInterval: AI_QUEUE_POLL_MS,
   })
   const wasActive = useRef(false)
   const active = aiActive(query.data)
@@ -109,14 +108,13 @@ const listJobs = {
 
 /**
  * A queue's whole job history, newest first, read on a page at a time as the
- * list scrolls. Every page read so far is read again while the queue works,
+ * list scrolls. Every page read so far is read again while the page is open,
  * so a job keeps its place and shows its current state wherever it is.
  * `onFold` drops the rest when the list folds, so a long history scrolled
  * once is not polled from then on.
  */
 export function useJobHistory<T>(
   queue: QueueName,
-  active: boolean,
   toView: (job: T) => JobView,
 ) {
   const client = useQueryClient()
@@ -131,7 +129,7 @@ export function useJobHistory<T>(
     initialPageParam: null as number | null,
     getNextPageParam: (page) => page.nextCursor ?? undefined,
     staleTime: 0,
-    refetchInterval: active ? POLL_MS : false,
+    refetchInterval: POLL_MS,
   })
   const jobs = useMemo(
     () => query.data?.pages.flatMap((page) => page.items.map(toView)) ?? [],
@@ -241,7 +239,15 @@ export function useAiJobActions() {
     },
     onError: (error) => failed(error, 'cancel_ai_job'),
   })
-  return { replay, cancel }
+  const pause = useMutation({
+    mutationFn: intelligenceClient.pauseJob,
+    onSuccess: () => {
+      void refresh()
+      toast.success(t('settingsBackground.ai.pausing'))
+    },
+    onError: (error) => failed(error, 'pause_ai_job'),
+  })
+  return { replay, cancel, pause }
 }
 
 /** Queues a full Insights rebuild and shows it in the list right away. */

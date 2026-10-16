@@ -4,16 +4,18 @@
 //! - drive ONE agent run as a thin tokio while-loop over `LlmProvider::chat_stream`: forward
 //!   token/reasoning chunks, accumulate the turn's tool calls + usage, then EXECUTE each tool call
 //!   against the owned [`ToolRegistry`] and thread the result back as a `tool_result` message
+//! - reject failed or truncated turns before dispatch and allow one repair turn
 //! - enforce the run invariants: cooperative cancel at every checkpoint, a per-run token budget, a
 //!   max-iteration ceiling, and stall/no-progress detection
-//! - JOURNAL every model turn + tool result BEFORE observing/emitting it, and pin the citations.
+//! - journal completed model turns and executed tool results, and pin the citations;
+//!   cancellation does not invent results for tools that never ran.
 //!   Nothing reads the step journal back: an interrupted answer is not resumed (decided
 //!   2026-10-09), and a reopened chat reads only the citations and the run's token usage.
 //! - degrade honestly: when the provider cannot do tool calls (the WU-1 probe), fall back to a
 //!   deterministic retrieve-then-answer shape (seeded evidence, no tool loop) + an honest note
 //!
 //! ## Not responsible for
-//! - touching rig (it consumes only `LlmStreamChunk` via the boundary) — 02 §B
+//! - touching rig, repairing argument values or encoding provider reasoning — 02 §B
 //! - owning the agent.sqlite schema/CRUD (that is `agent_store.rs`; the harness writes through the
 //!   [`AgentJournal`] seam) or the run registry/cancel token plumbing (the worker owns those)
 //! - LLM auto-compaction (deferred to W-AI-8/9); context is bounded here by row-id + count evidence,
@@ -30,12 +32,17 @@
 //!   `.pkmap` pass) can run, so a runaway loop can never spin it.
 
 use super::agent_tools::{AgentToolContext, HostCallRecord, LimitsHit, ToolOutcome, ToolRegistry};
-use super::traits::{LlmChatRequest, LlmMessage, LlmProvider, LlmRole, LlmStreamChunk, LlmUsage};
+use super::traits::{
+    LlmChatRequest, LlmFinishReason, LlmMessage, LlmProvider, LlmReasoning, LlmRole,
+    LlmStreamChunk, LlmStreamError, LlmUsage,
+};
 use super::{AiRunControl, await_with_ai_cancellation};
+mod turn;
 use crate::models::{AiAgentNote, AiChatStreamChunk, AiCitation};
 use anyhow::Result;
 use serde_json::json;
 use std::sync::Arc;
+use turn::{ToolExecution, TurnError, execute_tool, stream_one_turn, tool_result_payload};
 
 /// Runaway BACKSTOP on model turns in one agent run — NOT a functional step budget.
 ///
@@ -115,23 +122,6 @@ pub trait AgentJournal: Send + Sync {
 /// Identical contract to `drive_chat_stream`'s sink so the worker reuses the same emit closure.
 pub trait AgentRunSink: FnMut(AiChatStreamChunk) {}
 impl<F: FnMut(AiChatStreamChunk)> AgentRunSink for F {}
-
-/// Accumulated tool calls + usage for the turn currently streaming from the model.
-#[derive(Default)]
-struct TurnAccumulator {
-    text: String,
-    reasoning: String,
-    tool_calls: Vec<PendingToolCall>,
-    usage: Option<LlmUsage>,
-}
-
-/// One tool call the model requested this turn, awaiting execution.
-#[derive(Clone)]
-struct PendingToolCall {
-    call_id: String,
-    name: String,
-    arguments: String,
-}
 
 /// Host-computed facts the model cannot derive inside the run, threaded into the first-turn system
 /// message so date/recency questions resolve correctly.
@@ -278,6 +268,7 @@ pub async fn drive_agent_run<P, J, S>(
     max_iterations: u32,
     token_budget: u64,
     context_window: Option<u64>,
+    answer_reserve: u32,
     journal: &J,
     mut sink: S,
 ) -> AgentRunOutcome
@@ -319,7 +310,7 @@ where
     // A conversation that does not fit is not sent: LM Studio and Ollama would cut out its middle
     // (often the user's question) without saying so, and the answer would be about something else.
     if let Some(window) = context_window {
-        let needed = estimate_request_tokens(&request) + u64::from(request.max_tokens.unwrap_or(0));
+        let needed = estimate_request_tokens(&request) + u64::from(answer_reserve);
         if needed > window {
             sink(AiChatStreamChunk::Note { code: AiAgentNote::ContextTooSmall });
             sink(AiChatStreamChunk::Done);
@@ -334,7 +325,15 @@ where
         }
     }
 
+    let latest_question = request
+        .messages
+        .iter()
+        .rev()
+        .find(|message| message.role == LlmRole::User)
+        .map(|message| message.content.clone())
+        .unwrap_or_default();
     let mut turn: u32 = 0;
+    let mut previous_turn_failed = false;
     loop {
         turn += 1;
 
@@ -360,6 +359,32 @@ where
                     completion_tokens,
                 };
             }
+            Err(TurnError::Recoverable { message, usage }) => {
+                if let Some(usage) = usage {
+                    prompt_tokens += usage.prompt_tokens;
+                    completion_tokens += usage.completion_tokens;
+                    sink(AiChatStreamChunk::Usage {
+                        prompt_tokens: usage.prompt_tokens,
+                        completion_tokens: usage.completion_tokens,
+                    });
+                }
+                if previous_turn_failed || (max_iterations != 0 && turn >= max_iterations) {
+                    sink(AiChatStreamChunk::Error { message: message.clone() });
+                    return AgentRunOutcome::Failed {
+                        iterations: turn,
+                        prompt_tokens,
+                        completion_tokens,
+                        message,
+                    };
+                }
+                previous_turn_failed = true;
+                // A paragraph of its own: rig joins it to the question (two user messages in a
+                // row become one), and chat templates join the parts with nothing between.
+                request.messages.push(LlmMessage::new(LlmRole::User, format!(
+                    "\n\nThe previous model turn failed: {message}. None of its tool calls were executed. Re-issue complete tool calls to answer the user's question."
+                )));
+                continue;
+            }
             Err(TurnError::Stream(message)) => {
                 sink(AiChatStreamChunk::Error { message: message.clone() });
                 return AgentRunOutcome::Failed {
@@ -370,6 +395,17 @@ where
                 };
             }
         };
+
+        previous_turn_failed = false;
+        let prepared: Vec<_> = accumulated
+            .tool_calls
+            .iter()
+            .map(|call| {
+                registry
+                    .prepare_arguments(&call.name, &call.arguments)
+                    .map_err(|error| error.to_string())
+            })
+            .collect();
 
         // Account for usage + emit the Usage marker so the UI can show running cost. The live-context
         // gate reads `last_prompt_tokens` = THIS turn's prompt (the resent history), NOT the running
@@ -429,17 +465,23 @@ where
             let tool_calls = accumulated
                 .tool_calls
                 .iter()
-                .map(|call| crate::ai::traits::LlmToolCall {
+                .zip(&prepared)
+                .map(|(call, args)| crate::ai::traits::LlmToolCall {
                     call_id: call.call_id.clone(),
                     name: call.name.clone(),
-                    arguments: call.arguments.clone(),
+                    arguments: args
+                        .as_ref()
+                        .map_or_else(|_| "{}".to_string(), serde_json::Value::to_string),
                 })
                 .collect();
-            request
-                .messages
-                .push(LlmMessage::assistant_tool_calls(accumulated.text.clone(), tool_calls));
+            let mut message =
+                LlmMessage::assistant_tool_calls(accumulated.text.clone(), tool_calls);
+            message.reasoning = accumulated.replay_reasoning.clone();
+            request.messages.push(message);
         } else if !accumulated.text.is_empty() {
-            request.messages.push(LlmMessage::new(LlmRole::Assistant, accumulated.text.clone()));
+            let mut message = LlmMessage::new(LlmRole::Assistant, accumulated.text.clone());
+            message.reasoning = accumulated.replay_reasoning.clone();
+            request.messages.push(message);
         }
 
         // No tool calls → the model is done. Pin citations, stream them, emit Done, complete.
@@ -453,7 +495,7 @@ where
         }
 
         // Execute each tool call (partial-results discipline: one failure never aborts the run).
-        for call in &accumulated.tool_calls {
+        for (call, args) in accumulated.tool_calls.iter().zip(&prepared) {
             if let Err(error) = checkpoint(control, "Agent run cancelled before a tool call.") {
                 return finish_cancel_or_error(
                     &mut sink,
@@ -481,7 +523,7 @@ where
                 host_calls,
                 limits_hit,
                 coverage_incomplete,
-            } = execute_tool(registry, tool_context, call).await;
+            } = execute_tool(registry, tool_context, call, args).await;
             if coverage_incomplete && !told_incomplete_index {
                 told_incomplete_index = true;
                 sink(AiChatStreamChunk::Note { code: AiAgentNote::SearchIndexIncomplete });
@@ -550,6 +592,7 @@ where
             return run_final_synthesis_turn(
                 provider,
                 request,
+                &latest_question,
                 control,
                 journal,
                 &mut sink,
@@ -576,6 +619,13 @@ pub fn estimate_request_tokens(request: &LlmChatRequest) -> u64 {
         .map(|message| {
             // Each message carries a few tokens of role and framing.
             4 + estimate_tokens(&message.content)
+                + message.reasoning.as_ref().map_or(0, |reasoning| {
+                    reasoning
+                        .blocks
+                        .iter()
+                        .map(|block| estimate_tokens(&block.to_string()))
+                        .sum::<u64>()
+                })
                 + message
                     .tool_calls
                     .iter()
@@ -638,6 +688,7 @@ narrow the request to retrieve the rest.";
 async fn run_final_synthesis_turn<P, J, S>(
     provider: &P,
     mut request: LlmChatRequest,
+    latest_question: &str,
     control: Option<&Arc<dyn AiRunControl>>,
     journal: &J,
     sink: &mut S,
@@ -655,7 +706,10 @@ where
     // USER-facing localized note: why we are finishing up with what we have.
     sink(AiChatStreamChunk::Note { code: note });
     // MODEL-facing directive + strip tools so the final turn ANSWERS instead of calling more tools.
-    request.messages.push(LlmMessage::new(LlmRole::User, FINAL_SYNTHESIS_DIRECTIVE.to_string()));
+    let directive = format!(
+        "{FINAL_SYNTHESIS_DIRECTIVE}\n\nThe user's latest question was:\n{latest_question}"
+    );
+    request.messages.push(LlmMessage::new(LlmRole::User, directive));
     request.tools = Vec::new();
 
     let accumulated = match stream_one_turn(provider, &request, control, sink).await {
@@ -668,7 +722,7 @@ where
                 completion_tokens: *completion_tokens,
             };
         }
-        Err(TurnError::Stream(message)) => {
+        Err(TurnError::Stream(message) | TurnError::Recoverable { message, .. }) => {
             sink(AiChatStreamChunk::Error { message: message.clone() });
             return AgentRunOutcome::Failed {
                 iterations: turn,
@@ -778,183 +832,6 @@ fn checkpoint(control: Option<&Arc<dyn AiRunControl>>, detail: &str) -> Result<(
     }
 }
 
-/// Error from streaming one model turn: a cooperative cancel, or a terminal stream failure.
-enum TurnError {
-    Cancelled,
-    Stream(String),
-}
-
-/// Streams ONE model turn, forwarding token/reasoning chunks and accumulating tool calls + usage.
-///
-/// Reuses drive_chat_stream's per-turn discipline: forward each Token/Reasoning immediately; a
-/// mid-stream Err terminates the turn; cancel between chunks stops cleanly. Tool calls and the
-/// terminal Usage marker are accumulated (NOT forwarded as the visible answer) so the loop can act
-/// on them after the turn completes.
-async fn stream_one_turn<P, S>(
-    provider: &P,
-    request: &LlmChatRequest,
-    control: Option<&Arc<dyn AiRunControl>>,
-    sink: &mut S,
-) -> std::result::Result<TurnAccumulator, TurnError>
-where
-    P: LlmProvider,
-    S: AgentRunSink,
-{
-    // Open the stream under cancellation (a cancel here is observed as a cancellation error).
-    let open = await_with_ai_cancellation(
-        control,
-        "Agent run cancelled before the model responded.",
-        provider.chat_stream(request.clone()),
-    )
-    .await;
-    let mut stream = match open {
-        Ok(stream) => stream,
-        Err(error) if is_cancellation(&error) => return Err(TurnError::Cancelled),
-        Err(error) => return Err(TurnError::Stream(error.to_string())),
-    };
-
-    let mut accumulated = TurnAccumulator::default();
-    use std::future::poll_fn;
-    loop {
-        if control.is_some_and(|control| control.cancelled()) {
-            return Err(TurnError::Cancelled);
-        }
-        let next = poll_fn(|cx| stream.as_mut().poll_next(cx)).await;
-        match next {
-            None => return Ok(accumulated),
-            Some(Ok(chunk)) => match chunk {
-                LlmStreamChunk::Token(text) => {
-                    accumulated.text.push_str(&text);
-                    sink(AiChatStreamChunk::Token { text });
-                }
-                LlmStreamChunk::Reasoning(text) => {
-                    accumulated.reasoning.push_str(&text);
-                    sink(AiChatStreamChunk::Reasoning { text });
-                }
-                LlmStreamChunk::ToolCall { call_id, name, arguments } => {
-                    accumulated.tool_calls.push(PendingToolCall { call_id, name, arguments });
-                }
-                LlmStreamChunk::Usage(usage) => accumulated.usage = Some(usage),
-            },
-            Some(Err(error)) => return Err(TurnError::Stream(error.to_string())),
-        }
-    }
-}
-
-/// Builds the journaled `tool-result` step payload, widening it with the code-mode transparency
-/// fields ONLY when present (`run_code`).
-///
-/// The journal blob is opaque JSON (no schema migration), so this stays additive: a search-tool step
-/// serializes exactly `{ callId, name, result, isError }` as before; a `run_code` step adds
-/// `codeSource` (the script verbatim), `hostCalls` (the timeline), and `limitsHit` (the hard limit),
-/// each omitted when None/empty so trace replay + the explorer never see a spurious empty field.
-fn tool_result_payload(
-    call: &PendingToolCall,
-    result_text: &str,
-    is_error: bool,
-    code_source: &Option<String>,
-    host_calls: &[HostCallRecord],
-    limits_hit: Option<LimitsHit>,
-) -> String {
-    let mut payload = json!({
-        "callId": call.call_id,
-        "name": call.name,
-        "result": result_text,
-        "isError": is_error,
-    });
-    let object = payload.as_object_mut().expect("payload is a JSON object");
-    if let Some(source) = code_source {
-        object.insert("codeSource".to_string(), json!(source));
-    }
-    if !host_calls.is_empty() {
-        object.insert("hostCalls".to_string(), json!(host_calls));
-    }
-    if let Some(limit) = limits_hit {
-        object.insert("limitsHit".to_string(), json!(limit));
-    }
-    payload.to_string()
-}
-
-/// The result of executing one tool call: the model-facing text + error flag + pinned citations,
-/// plus the optional code-mode transparency fields (`run_code` only) the harness journals + streams.
-///
-/// The code-mode fields default to empty/None on the search tools and on any failure, so the journal
-/// payload + the streamed ToolResult chunk stay byte-identical for the W-AI-7 path (W-AI-8 additive).
-struct ToolExecution {
-    result_text: String,
-    is_error: bool,
-    citations: Vec<AiCitation>,
-    /// The `run_code` script verbatim (transparency); `None` for the search tools / any failure.
-    code_source: Option<String>,
-    /// The `run_code` host-call timeline; empty for the search tools / any failure.
-    host_calls: Vec<HostCallRecord>,
-    /// Which hard sandbox limit bounded a `run_code` script, if any.
-    limits_hit: Option<LimitsHit>,
-    /// A search behind the result covered only part of the archive.
-    coverage_incomplete: bool,
-}
-
-/// Executes one tool call into a [`ToolExecution`].
-///
-/// On success the result_text is the tool's bounded summary and citations are pinned; for `run_code`
-/// the code-mode transparency fields are carried too. On FAILURE the result_text becomes an honest
-/// error string, `is_error` is true, and the rest are empty — the harness threads that back so the
-/// model can recover (partial-results discipline). Invalid args produce the same honest error rather
-/// than aborting the run.
-async fn execute_tool(
-    registry: &ToolRegistry,
-    context: &AgentToolContext,
-    call: &PendingToolCall,
-) -> ToolExecution {
-    let args = match serde_json::from_str::<serde_json::Value>(&call.arguments) {
-        Ok(value) => value,
-        Err(error) => {
-            return ToolExecution {
-                result_text: format!(
-                    "Tool `{}` received arguments that are not valid JSON: {error}",
-                    call.name
-                ),
-                is_error: true,
-                citations: Vec::new(),
-                code_source: None,
-                host_calls: Vec::new(),
-                limits_hit: None,
-                coverage_incomplete: false,
-            };
-        }
-    };
-    match registry.dispatch(&call.name, args, context).await {
-        Ok(ToolOutcome {
-            model_text,
-            citations,
-            code_source,
-            host_calls,
-            limits_hit,
-            coverage_incomplete,
-        }) => ToolExecution {
-            result_text: model_text,
-            is_error: false,
-            citations,
-            code_source,
-            host_calls,
-            limits_hit,
-            coverage_incomplete,
-        },
-        Err(error) => ToolExecution {
-            result_text: format!(
-                "Tool `{}` failed: {error}. Correct the call and try again, or use another tool.",
-                call.name
-            ),
-            is_error: true,
-            citations: Vec::new(),
-            code_source: None,
-            host_calls: Vec::new(),
-            limits_hit: None,
-            coverage_incomplete: false,
-        },
-    }
-}
-
 /// Runs the deterministic retrieve-then-answer fallback for a tool-incapable provider.
 ///
 /// 02 §B/§F degradation: instead of a tool loop, this runs ONE seeded model turn (no tools attached)
@@ -993,7 +870,7 @@ where
                 completion_tokens: *completion_tokens,
             };
         }
-        Err(TurnError::Stream(message)) => {
+        Err(TurnError::Stream(message) | TurnError::Recoverable { message, .. }) => {
             sink(AiChatStreamChunk::Error { message: message.clone() });
             return AgentRunOutcome::Failed {
                 iterations: 1,

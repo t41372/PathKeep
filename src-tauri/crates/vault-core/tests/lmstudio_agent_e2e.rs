@@ -46,7 +46,7 @@ fn lmstudio_llm_runtime() -> AiProviderRuntime {
             enabled: true,
             base_url: Some("http://localhost:1234/v1".to_string()),
             default_model: "google/gemma-4-26b-a4b-qat".to_string(),
-            temperature: Some(0.2),
+
             ..AiProviderConfig::default()
         },
         api_key: Some(SecretString::from("lm-studio".to_string())),
@@ -327,20 +327,16 @@ async fn lmstudio_agent_runs_the_full_tool_loop_and_journals_a_durable_cited_tra
     let system_context =
         build_agent_system_context(&resolve_agent_system_context(&context.vault), "");
     eprintln!("agent e2e: injected system context = {system_context:?}");
-    let request = LlmChatRequest::new(
-        vec![
-            LlmMessage::new(LlmRole::System, system_context),
-            LlmMessage::new(
-                LlmRole::System,
-                "You answer questions about the user's OWN browser history. Call the \
+    let request = LlmChatRequest::new(vec![
+        LlmMessage::new(LlmRole::System, system_context),
+        LlmMessage::new(
+            LlmRole::System,
+            "You answer questions about the user's OWN browser history. Call the \
                  search_history tool to find evidence before answering — you may call it with an \
                  EMPTY query to list the most recent visits — and cite the rows you used.",
-            ),
-            LlmMessage::new(LlmRole::User, "Summarize my most recent browsing and cite the pages."),
-        ],
-        Some(0.2),
-        Some(2048),
-    );
+        ),
+        LlmMessage::new(LlmRole::User, "Summarize my most recent browsing and cite the pages."),
+    ]);
 
     // Capture the streamed chunks so we can assert the observable loop shape.
     let chunks = std::sync::Mutex::new(Vec::<AiChatStreamChunk>::new());
@@ -371,6 +367,7 @@ async fn lmstudio_agent_runs_the_full_tool_loop_and_journals_a_durable_cited_tra
         DEFAULT_MAX_ITERATIONS,
         DEFAULT_TOKEN_BUDGET,
         None,
+        4096,
         &journal,
         |chunk: AiChatStreamChunk| chunks.lock().expect("lock").push(chunk),
     )
@@ -512,11 +509,10 @@ async fn lmstudio_agent_cancel_mid_loop_emits_a_graceful_done() {
     let cancel = Arc::new(AtomicBool::new(true));
     let control: Arc<dyn AiRunControl> = Arc::new(CancelToken { cancel });
 
-    let request = LlmChatRequest::new(
-        vec![LlmMessage::new(LlmRole::User, "Search my history about the tauri guide.")],
-        Some(0.2),
-        Some(512),
-    );
+    let request = LlmChatRequest::new(vec![LlmMessage::new(
+        LlmRole::User,
+        "Search my history about the tauri guide.",
+    )]);
 
     let chunks = std::sync::Mutex::new(Vec::<AiChatStreamChunk>::new());
     let outcome = drive_agent_run(
@@ -529,6 +525,7 @@ async fn lmstudio_agent_cancel_mid_loop_emits_a_graceful_done() {
         DEFAULT_MAX_ITERATIONS,
         DEFAULT_TOKEN_BUDGET,
         None,
+        4096,
         &journal,
         |chunk: AiChatStreamChunk| chunks.lock().expect("lock").push(chunk),
     )

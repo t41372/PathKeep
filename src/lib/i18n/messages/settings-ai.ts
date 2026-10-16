@@ -14,7 +14,7 @@ export const settingsAi = defineMessages({
         label: 'Model',
         inApp: 'In-app model',
         inAppAbout:
-          '{model}, {dims} dimensions. It comes with PathKeep and runs on this computer. Another model builds the index again.',
+          '{model}, {dims} dimensions. It comes with PathKeep and runs on this computer. It is a static model: very fast, but it reads words without their context (it cannot tell apple the fruit from Apple the company), so it finds pages that mean the same thing less well than an embedding model run by a service such as LM Studio.',
         add: 'Add an embeddings service…',
       },
       serviceDialog: {
@@ -28,14 +28,13 @@ export const settingsAi = defineMessages({
       serviceRemoveBody:
         'The service and its stored API key are removed from this computer. Semantic search goes back to the in-app model.',
       modelChange:
-        'Another model means building the semantic index again: {count} pages. The index made with {old} is deleted.',
+        'Another model needs its own index ({count} visits). Nothing starts until you build it in Settings → AI; until it is complete, semantic search keeps using {old}.',
       modelChangeCounting:
-        'Another model means building the semantic index again. The index made with {old} is deleted.',
+        'Another model needs its own index. Nothing starts until you build it in Settings → AI; until it is complete, semantic search keeps using {old}.',
       modelChangeLater:
-        'Another model means building the semantic index again when semantic search is on: {count} pages. The index made with {old} is deleted then.',
+        'Another model needs its own index ({count} visits). You can build it once semantic search is on.',
       modelChangeLaterCounting:
-        'Another model means building the semantic index again when semantic search is on. The index made with {old} is deleted then.',
-      saveAndRebuild: 'Save and rebuild',
+        'Another model needs its own index. You can build it once semantic search is on.',
       description:
         'Find pages by meaning, not only by keywords. The model runs on this computer. It downloads once, about {size}.',
       offNote: 'Turning it off keeps the downloaded model.',
@@ -46,14 +45,43 @@ export const settingsAi = defineMessages({
       modelMissing: 'The model is not downloaded yet.',
       download: 'Download',
       retry: 'Try again',
-      indexed_one: '{count} page indexed',
-      indexed_other: '{count} pages indexed',
+      indexed_one: '{count} visit indexed',
+      indexed_other: '{count} visits indexed',
       lastIndexed: 'Last indexed {when}',
-      nothingIndexed:
-        'Nothing indexed yet. New history is indexed after each backup.',
-      indexing: 'Indexing your history…',
-      indexProgress: '{done} of {total} pages',
-      indexWaiting: 'Waiting to start indexing…',
+      nothingIndexed: 'Nothing indexed yet.',
+      indexing: 'Building the index…',
+      indexProgress: '{done} of {total} visits',
+      speed: '{rate} a second',
+      etaSoon: 'under a minute left',
+      etaMinutes_one: 'about {count} minute left',
+      etaMinutes_other: 'about {count} minutes left',
+      etaHours: 'about {hours} h {minutes} min left',
+      indexWaiting: 'Waiting for other background work to finish…',
+      needsBuild:
+        '{model} has no index yet. Building it reads {count} visits in the background, and you can pause it at any time.',
+      needsBuildCounting:
+        '{model} has no index yet. Building it reads your history in the background, and you can pause it at any time.',
+      unfinished_one:
+        'The index made with {model} is not finished: {count} visit so far.',
+      unfinished_other:
+        'The index made with {model} is not finished: {count} visits so far.',
+      meanwhilePrevious:
+        'Until it is complete, semantic search keeps using {model}.',
+      meanwhilePartial:
+        'Until it is complete, searching by meaning only finds visits already indexed.',
+      build: 'Build index',
+      continue: 'Continue',
+      pause: 'Pause',
+      cancelBuild: 'Cancel',
+      inBackground: 'Background work',
+      pausedByUser: 'Paused at {done} of {total} visits.',
+      pausedByService:
+        '{name} could not run the model, so building the index is paused. It said: {message}',
+      pausedByQueue:
+        'All background work is paused. Building the index goes on when it resumes.',
+      actionFailed: 'Could not do that. {message}',
+      autoUpdate: 'Index new visits after each backup',
+      autoUpdateNote: 'Starts once the index is complete.',
       indexFailed: 'Indexing failed. Rebuild the search index to try again.',
       indexIncomplete: 'The index is incomplete. Rebuild it to fix this.',
       failed: 'Could not change this setting. {message}',
@@ -68,6 +96,12 @@ export const settingsAi = defineMessages({
       remoteNote:
         'An online service. When you ask a question, the pages the assistant finds are sent to it.',
       keyMissing: 'No API key is stored for this service yet.',
+      checking: 'Checking {name}…',
+      checkOk:
+        '{name} answers and has {model}. Test connection runs the model once.',
+      checkNoModel:
+        '{name} answers, but has no model called {model}. Check the model name.',
+      checkFailed: 'Could not read {name}’s models: {message}',
       test: 'Test connection',
       testing: 'Testing…',
       testOk: 'Connected to {model} in {ms} ms.',
@@ -201,9 +235,9 @@ export const settingsAi = defineMessages({
       needsSemantic: 'Turn on local semantic search first.',
       dialogTitle: 'Rebuild the search index?',
       dialogBody_one:
-        'This indexes {count} page again, in the background: you can keep using PathKeep, and its progress shows here. Your history is not changed.',
+        'This indexes {count} visit again, in the background: you can keep using PathKeep, and its progress shows here. Your history is not changed.',
       dialogBody_other:
-        'This indexes {count} pages again, in the background: you can keep using PathKeep, and its progress shows here. Your history is not changed.',
+        'This indexes {count} visits again, in the background: you can keep using PathKeep, and its progress shows here. Your history is not changed.',
       dialogBodyUnknown:
         'This indexes your whole history again. It can take a while. Your history is not changed.',
       confirm: 'Rebuild',
@@ -251,7 +285,7 @@ export const settingsAi = defineMessages({
         label: '模型',
         inApp: '应用内置模型',
         inAppAbout:
-          '{model}，{dims} 维。随 PathKeep 提供，在这台电脑上运行。换成别的模型会重新建立索引。',
+          '{model}，{dims} 维。随 PathKeep 提供，在这台电脑上运行。它是静态模型：非常快，但只看词本身、不看上下文（分不清“苹果”是水果还是公司），找意思相近的页面不如 LM Studio 这类服务运行的嵌入模型。',
         add: '添加嵌入服务…',
       },
       serviceDialog: {
@@ -265,14 +299,13 @@ export const settingsAi = defineMessages({
       serviceRemoveBody:
         '这个服务和它保存的 API 密钥会从这台电脑上移除，语义搜索改回使用应用内置模型。',
       modelChange:
-        '换成别的模型要重新建立语义索引：{count} 个页面。用 {old} 建立的索引会删除。',
+        '换成别的模型需要它自己的索引（{count} 条访问记录）。要在“设置 → AI”里建立才会开始；建好之前，语义搜索继续用 {old}。',
       modelChangeCounting:
-        '换成别的模型要重新建立语义索引。用 {old} 建立的索引会删除。',
+        '换成别的模型需要它自己的索引。要在“设置 → AI”里建立才会开始；建好之前，语义搜索继续用 {old}。',
       modelChangeLater:
-        '换成别的模型，语义搜索打开时要重新建立语义索引：{count} 个页面。那时用 {old} 建立的索引会删除。',
+        '换成别的模型需要它自己的索引（{count} 条访问记录）。打开语义搜索后就能建立。',
       modelChangeLaterCounting:
-        '换成别的模型，语义搜索打开时要重新建立语义索引。那时用 {old} 建立的索引会删除。',
-      saveAndRebuild: '保存并重建',
+        '换成别的模型需要它自己的索引。打开语义搜索后就能建立。',
       description:
         '按含义而不只是关键词来查找页面。模型在这台电脑上运行，只需下载一次，约 {size}。',
       offNote: '关闭后会保留已下载的模型。',
@@ -283,13 +316,40 @@ export const settingsAi = defineMessages({
       modelMissing: '模型还没有下载。',
       download: '下载',
       retry: '重试',
-      indexed_one: '已索引 {count} 个页面',
-      indexed_other: '已索引 {count} 个页面',
+      indexed_one: '已索引 {count} 条访问记录',
+      indexed_other: '已索引 {count} 条访问记录',
       lastIndexed: '上次索引：{when}',
-      nothingIndexed: '还没有索引任何内容。新的历史会在每次备份后建立索引。',
-      indexing: '正在为你的历史建立索引…',
-      indexProgress: '{done} / {total} 个页面',
-      indexWaiting: '等待开始建立索引…',
+      nothingIndexed: '还没有索引任何内容。',
+      indexing: '正在建立索引…',
+      indexProgress: '{done} / {total} 条访问记录',
+      speed: '每秒 {rate} 条',
+      etaSoon: '剩不到一分钟',
+      etaMinutes_one: '大约还要 {count} 分钟',
+      etaMinutes_other: '大约还要 {count} 分钟',
+      etaHours: '大约还要 {hours} 小时 {minutes} 分钟',
+      indexWaiting: '正在等其他后台任务完成…',
+      needsBuild:
+        '{model} 还没有索引。建立索引会在后台读取 {count} 条访问记录，随时可以暂停。',
+      needsBuildCounting:
+        '{model} 还没有索引。建立索引会在后台读取你的历史，随时可以暂停。',
+      unfinished_one:
+        '用 {model} 建立的索引还没完成：目前 {count} 条访问记录。',
+      unfinished_other:
+        '用 {model} 建立的索引还没完成：目前 {count} 条访问记录。',
+      meanwhilePrevious: '完成之前，语义搜索继续用 {model}。',
+      meanwhilePartial: '完成之前，按含义搜索只找得到已经建立索引的访问记录。',
+      build: '建立索引',
+      continue: '继续',
+      pause: '暂停',
+      cancelBuild: '取消',
+      inBackground: '后台任务',
+      pausedByUser: '已暂停：{done} / {total} 条访问记录。',
+      pausedByService:
+        '{name} 没能运行这个模型，建立索引已暂停。它的回复：{message}',
+      pausedByQueue: '所有后台任务都已暂停，恢复后会继续建立索引。',
+      actionFailed: '没能完成这个操作。{message}',
+      autoUpdate: '每次备份后为新的访问记录建立索引',
+      autoUpdateNote: '索引完成后才会开始。',
       indexFailed: '建立索引失败。请重建搜索索引再试一次。',
       indexIncomplete: '索引不完整。请重建索引来修复。',
       failed: '无法更改这项设置。{message}',
@@ -303,6 +363,10 @@ export const settingsAi = defineMessages({
       localNote: '在这台电脑上运行，不会向任何地方发送内容。',
       remoteNote: '这是在线服务。你提问时，助理找到的页面会发送给它。',
       keyMissing: '还没有为这个服务保存 API 密钥。',
+      checking: '正在检查 {name}…',
+      checkOk: '{name} 有回应，也有 {model}。“测试连接”会实际运行一次模型。',
+      checkNoModel: '{name} 有回应，但没有叫 {model} 的模型。请检查模型名称。',
+      checkFailed: '没能读取 {name} 的模型：{message}',
       test: '测试连接',
       testing: '测试中…',
       testOk: '已连接到 {model}，耗时 {ms} 毫秒。',
@@ -428,9 +492,9 @@ export const settingsAi = defineMessages({
       needsSemantic: '请先开启本地语义搜索。',
       dialogTitle: '要重建搜索索引吗？',
       dialogBody_one:
-        '这会在后台重新索引 {count} 个页面，期间可以照常使用 PathKeep，进度显示在这里。你的历史不会被更改。',
+        '这会在后台重新索引 {count} 条访问记录，期间可以照常使用 PathKeep，进度显示在这里。你的历史不会被更改。',
       dialogBody_other:
-        '这会在后台重新索引 {count} 个页面，期间可以照常使用 PathKeep，进度显示在这里。你的历史不会被更改。',
+        '这会在后台重新索引 {count} 条访问记录，期间可以照常使用 PathKeep，进度显示在这里。你的历史不会被更改。',
       dialogBodyUnknown:
         '这会重新索引你的全部历史，可能要花一些时间。你的历史不会被更改。',
       confirm: '重建',
@@ -477,7 +541,7 @@ export const settingsAi = defineMessages({
         label: '模型',
         inApp: 'App 內建模型',
         inAppAbout:
-          '{model}，{dims} 維。隨 PathKeep 提供，在這台電腦上執行。換成別的模型會重新建立索引。',
+          '{model}，{dims} 維。隨 PathKeep 提供，在這台電腦上執行。它是靜態模型：非常快，但只看字詞本身、不看上下文（分不出「蘋果」是水果還是公司），找意思相近的頁面不如 LM Studio 這類服務執行的嵌入模型。',
         add: '新增嵌入服務…',
       },
       serviceDialog: {
@@ -491,14 +555,13 @@ export const settingsAi = defineMessages({
       serviceRemoveBody:
         '這個服務與它儲存的 API 金鑰會從這台電腦上移除，語意搜尋改回使用 App 內建模型。',
       modelChange:
-        '換成別的模型要重新建立語意索引：{count} 個頁面。用 {old} 建立的索引會刪除。',
+        '換成別的模型需要它自己的索引（{count} 次造訪）。要在「設定 → AI」裡建立才會開始；建好之前，語意搜尋繼續用 {old}。',
       modelChangeCounting:
-        '換成別的模型要重新建立語意索引。用 {old} 建立的索引會刪除。',
+        '換成別的模型需要它自己的索引。要在「設定 → AI」裡建立才會開始；建好之前，語意搜尋繼續用 {old}。',
       modelChangeLater:
-        '換成別的模型，語意搜尋開啟時要重新建立語意索引：{count} 個頁面。那時用 {old} 建立的索引會刪除。',
+        '換成別的模型需要它自己的索引（{count} 次造訪）。開啟語意搜尋後就能建立。',
       modelChangeLaterCounting:
-        '換成別的模型，語意搜尋開啟時要重新建立語意索引。那時用 {old} 建立的索引會刪除。',
-      saveAndRebuild: '儲存並重建',
+        '換成別的模型需要它自己的索引。開啟語意搜尋後就能建立。',
       description:
         '依含義而不只是關鍵字來尋找頁面。模型在這台電腦上執行，只需下載一次，約 {size}。',
       offNote: '關閉後會保留已下載的模型。',
@@ -509,13 +572,38 @@ export const settingsAi = defineMessages({
       modelMissing: '模型還沒有下載。',
       download: '下載',
       retry: '重試',
-      indexed_one: '已建立 {count} 個頁面的索引',
-      indexed_other: '已建立 {count} 個頁面的索引',
+      indexed_one: '已建立 {count} 次造訪的索引',
+      indexed_other: '已建立 {count} 次造訪的索引',
       lastIndexed: '上次建立索引：{when}',
-      nothingIndexed: '還沒有建立任何索引。新的歷史會在每次備份後建立索引。',
-      indexing: '正在為你的歷史建立索引…',
-      indexProgress: '{done} / {total} 個頁面',
-      indexWaiting: '等待開始建立索引…',
+      nothingIndexed: '還沒有建立任何索引。',
+      indexing: '正在建立索引…',
+      indexProgress: '{done} / {total} 次造訪',
+      speed: '每秒 {rate} 次',
+      etaSoon: '剩不到一分鐘',
+      etaMinutes_one: '大約還要 {count} 分鐘',
+      etaMinutes_other: '大約還要 {count} 分鐘',
+      etaHours: '大約還要 {hours} 小時 {minutes} 分鐘',
+      indexWaiting: '正在等其他背景工作完成…',
+      needsBuild:
+        '{model} 還沒有索引。建立索引會在背景讀取 {count} 次造訪，隨時可以暫停。',
+      needsBuildCounting:
+        '{model} 還沒有索引。建立索引會在背景讀取你的歷史，隨時可以暫停。',
+      unfinished_one: '用 {model} 建立的索引還沒完成：目前 {count} 次造訪。',
+      unfinished_other: '用 {model} 建立的索引還沒完成：目前 {count} 次造訪。',
+      meanwhilePrevious: '完成之前，語意搜尋繼續用 {model}。',
+      meanwhilePartial: '完成之前，依意思搜尋只找得到已經建立索引的造訪。',
+      build: '建立索引',
+      continue: '繼續',
+      pause: '暫停',
+      cancelBuild: '取消',
+      inBackground: '背景工作',
+      pausedByUser: '已暫停：{done} / {total} 次造訪。',
+      pausedByService:
+        '{name} 沒能執行這個模型，建立索引已暫停。它的回覆：{message}',
+      pausedByQueue: '所有背景工作都已暫停，恢復後會繼續建立索引。',
+      actionFailed: '沒能完成這個操作。{message}',
+      autoUpdate: '每次備份後為新的造訪建立索引',
+      autoUpdateNote: '索引完成後才會開始。',
       indexFailed: '建立索引失敗。請重建搜尋索引再試一次。',
       indexIncomplete: '索引不完整。請重建索引來修復。',
       failed: '無法變更這項設定。{message}',
@@ -529,6 +617,10 @@ export const settingsAi = defineMessages({
       localNote: '在這台電腦上執行，不會向任何地方傳送內容。',
       remoteNote: '這是線上服務。你提問時，助理找到的頁面會傳送給它。',
       keyMissing: '還沒有為這個服務儲存 API 金鑰。',
+      checking: '正在檢查 {name}…',
+      checkOk: '{name} 有回應，也有 {model}。「測試連線」會實際執行一次模型。',
+      checkNoModel: '{name} 有回應，但沒有叫 {model} 的模型。請檢查模型名稱。',
+      checkFailed: '沒能讀取 {name} 的模型：{message}',
       test: '測試連線',
       testing: '測試中…',
       testOk: '已連線到 {model}，耗時 {ms} 毫秒。',
@@ -654,9 +746,9 @@ export const settingsAi = defineMessages({
       needsSemantic: '請先開啟本機語意搜尋。',
       dialogTitle: '要重建搜尋索引嗎？',
       dialogBody_one:
-        '這會在背景重新索引 {count} 個頁面，期間可以照常使用 PathKeep，進度顯示在這裡。你的歷史不會被變更。',
+        '這會在背景重新索引 {count} 次造訪，期間可以照常使用 PathKeep，進度顯示在這裡。你的歷史不會被變更。',
       dialogBody_other:
-        '這會在背景重新索引 {count} 個頁面，期間可以照常使用 PathKeep，進度顯示在這裡。你的歷史不會被變更。',
+        '這會在背景重新索引 {count} 次造訪，期間可以照常使用 PathKeep，進度顯示在這裡。你的歷史不會被變更。',
       dialogBodyUnknown:
         '這會重新索引你的全部歷史，可能要花一些時間。你的歷史不會被變更。',
       confirm: '重建',
