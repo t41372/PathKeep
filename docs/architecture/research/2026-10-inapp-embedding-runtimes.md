@@ -56,6 +56,32 @@ Apple M5 Max (6 performance + 12 efficiency cores, 64 GB), macOS 27.0.1. llama.c
 - LM Studio's ~30 visits/s during the user's index build (2026-10-15) ran on the old text, often with 2,048 characters of body, over HTTP; the shorter page text should speed that up too.
 - For comparison, the in-app static model runs about 2,200 texts/s on one thread (test profile, `static_embedding_e2e`). Mapping its matrix instead of copying it (2026-10-16) took its footprint from 1,596 MiB to 618 MiB at the same speed. 578 MiB of the rest was the `tokenizers` Unigram trie (a hash map per node, 500k pieces; unchanged in tokenizers 0.23.2). Our own Unigram (`embedding_static/unigram.rs`, the same segmentation over one sorted byte buffer) took the footprint to 73–76 MiB and tokenizer loading from 1.1–1.2 s to 0.2 s; three runs each, median 1,918 → 2,232 texts/s. Token IDs and offsets match tokenizers 0.22.2 on 2,044 texts (`static_tokenizer_parity`). The engine's load time in that benchmark, 12–13 s, is the SHA-256 check of the 512 MB matrix in an unoptimized test build; `shasum` takes 1 s.
 
+## candle main against llama.cpp on this Mac (2026-10-16)
+
+Qwen3-Embedding-0.6B on the same 2,000 synthetic texts (about 45 tokens each), the first batch left out. candle at main `12bb5d1f` (2026-10-14) in a stand-alone benchmark: the dense model from the safetensors (`qwen3.rs`, whose weights here carry no `model.` prefix), Q8_0 from the LM Studio GGUF through a copy of `quantized_qwen3.rs` that returns hidden states. Texts sorted by length, cut into full batches and padded on the right: under causal attention no real token sees the padding after it, so the last real token's state is the unpadded one. Correctness is the lowest cosine against the sentence-transformers reference over 20 texts, embedded inside those padded batches. llama.cpp `a30fb492` with 4,096-token batches (about 90 texts), closer to the app's batches than the 8k above. Peak memory is the process footprint (`/usr/bin/time -l`).
+
+| candle · precision | Lowest cosine | Batch 16 docs/s | Batch 64 docs/s | Peak, batch 16 / 64 |
+| ------------------ | ------------: | --------------: | --------------: | ------------------- |
+| Metal F32          |       0.99979 |             175 |             166 | 5.0 / 10.5 GiB      |
+| Metal BF16         |       0.99918 |             189 |             178 | 2.3 / 5.0 GiB       |
+| Metal F16          |       0.99980 |             190 |             171 | 2.8 / 5.4 GiB       |
+| Metal Q8_0         |       0.99933 |             169 |             153 | 4.1 / 10.2 GiB      |
+| CPU 4 threads F32  |       0.99979 |             8.9 |             8.5 | 4.1 / 7.5 GiB       |
+| CPU 4 threads Q8_0 |       0.99854 |            15.5 |            14.0 | 3.3 / 6.7 GiB       |
+
+| llama.cpp · precision, 4,096-token batches | docs/s | Peak    |
+| ------------------------------------------ | -----: | ------- |
+| Metal F16                                  |    665 | 1.0 GiB |
+| Metal Q8_0                                 |    653 | 1.0 GiB |
+| CPU 4 threads F16                          |     37 | 1.0 GiB |
+| CPU 4 threads Q8_0                         |     22 | 1.4 GiB |
+
+- candle is 3.5 times slower than llama.cpp on Metal and 2.4 times slower on 4 CPU threads (its best, Q8_0, against llama.cpp's best, F16), and its footprint is 2–10 times larger. The footprints are not like for like: llama.cpp maps the GGUF and clean file pages do not count, so its weights (639 MB at Q8_0, 1.2 GB at F16) come on top of its figures, while candle copies its weights into tensors that do count. Larger batches make candle slower and much bigger: attention runs unfused, so the score matrices of the longest batch are materialized whole. Every candle precision is correct (cosine ≥ 0.9985).
+- The CPU runs used 4 threads (CPU time over wall time 3.5–3.9). On Metal, candle Q8_0 is no faster than F16: its quantized matmul gains nothing at these batch shapes.
+- candle main does not build as it stands: its workspace asks for `zip` 8.6.0, and every 8.x release is yanked. The benchmark moved its clone to `zip` 9.0.4 and fixed the three lines that broke. A PathKeep build would have to wait for candle to change this, or patch it.
+- The same texts without padding, in batches of equal token length only, gave candle the same speed: most such batches held 1–5 texts, so batch size was not what held it back.
+- Cold start, excluding the hash check: candle 0.3–0.7 s on a warm file cache; the first Metal run in a fresh shader cache took 7.9 s.
+
 ## Retrieval quality on the user's own history (2026-10-16)
 
 The user's Chrome Takeout (264,388 visits), on this machine only, with the user's consent; only the aggregates below were kept, and the evaluation set was deleted after the run. Queries are the user's own Google searches; a query's relevant pages are the pages opened within 3 minutes after it and before the next search (4,430 searches had at least one, 4.0 pages on average; 472 contain CJK). The corpus is every distinct page (131,322), as PathKeep now sends it: the title, then the site and address words (no page bodies: content fetch is off by default). Every model ranks the whole corpus by cosine. Transformer models run in sentence-transformers at full precision on Metal with a 256-token input cap, with their query prompts (Qwen3 instruction; EmbeddingGemma 2 `task: search result | query:` and `title: … | text: …` documents); the static model through model2vec.
@@ -74,9 +100,9 @@ The user's Chrome Takeout (264,388 visits), on this machine only, with the user'
 
 ## What to benchmark, in order
 
-1. llama.cpp master (with #30054) through its own CLI or server, to get the ceiling: both models, BF16 / Q8_0 / Q4_K, Metal and `-t 4 -ngl 0`.
-2. candle at git main (not 0.11.0): Qwen3-Embedding on CPU (Q8_0 / Q4_K) and Metal (F32 / BF16). The only candidate that passes the supply-chain rule with the model already written.
+1. llama.cpp master (with #30054) through its own CLI or server, to get the ceiling: both models, BF16 / Q8_0 / Q4_K, Metal and `-t 4 -ngl 0`. Done 2026-10-16 (Q4_K left out), above.
+2. candle at git main (not 0.11.0): Qwen3-Embedding on CPU (Q8_0 / Q4_K) and Metal (F32 / BF16). The only candidate that passes the supply-chain rule with the model already written. Done 2026-10-16, above: 2.4–3.5 times slower than llama.cpp.
 3. tract on the onnx-community exports, CPU and Metal; if they load, the cheapest pure-Rust path to EG2.
-4. Then decide how EG2 would run: a candle port, or a thin FFI in our repo over vendored llama.cpp. ort last.
+4. Then decide how EG2 would run: a candle port, or a thin FFI in our repo over vendored llama.cpp. ort last. Decided for Qwen3-Embedding-0.6B instead, on llama.cpp: [inapp-transformer-embedding-tradeoff.md](../inapp-transformer-embedding-tradeoff.md).
 
 Measure: docs/s at batch 1, 16 and 64 on real titles and URLs (64–128 tokens, mixed zh / en, after the embedding text is cleaned, `WORK-AI-EMBED-INAPP` item 2); 4 CPU threads on this Mac and on a 4-core x86 (AVX2 path); Metal; peak RSS; cold start including Metal shader compile; cosine against a sentence-transformers f32 reference (≥ 0.99) per precision, EG2 fp16 on Metal in particular; recall@10 against the static model on our own evaluation set; hours to embed the unique documents behind 14.4M visits.
