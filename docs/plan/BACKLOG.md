@@ -69,6 +69,10 @@
 - [!] **WORK-VECTOR-MEMORY-AT-SCALE** — 大語料時完整 int8 排序放不進 8 GB（等用戶在研究文件「What this means」的 A / B / C 中選）
   - 大語料時完整 int8 排序放不進 8 GB，要嘛從磁碟讀、要嘛用緊湊碼排全部再重算前段（後段順序是近似的），要嘛回到候選池（推翻 2026-10-07 的完整計分）。Turbovec 2-bit 當第一段（挑 2,000 筆再用 int8 重算）在 256 維與 1,024 維都不掉召回；sign bits 只在高維夠用。這只在 13 萬頁上量過（2,000 筆佔 1.5%）；到幾百萬頁時候選數多半要跟著放大，選 B 或 C 之前要先在幾百萬頁的真實語料上量。
 
+- [!] **WORK-DECISION-MODELS** — 量決策模型（Jev、OpenAI Decisions、開源 pplx-decider 等）在 PathKeep 的用處（用戶 2026-10-17：磁碟沒空間，之後再說）
+  - 讀先：[2026-10-decision-models.md](../architecture/research/2026-10-decision-models.md)。
+  - 先量：在 LM Studio 下載一個決策模型（3–25 GB，先問用戶），量這台 Mac 與目標機的速度、在標題＋網址（中英混雜）上的準確度。候選用途：每月固定類別、Ask 的篩選工具與語意結果重排、送雲端前的本機敏感頁檢查。
+
 - [ ] **WORK-STATIC-MODEL-LOAD-REHASH** — 內建模型每次啟動後第一次載入都重算 531 MB 的雜湊（2026-10-16 寫 trade-off 時讀碼找到，還沒量）
   - `embedding_static/cache.rs` 的 `load` 在快取沒命中時呼叫 `model_is_present_and_verified`，把每個模型檔整份重算 SHA-256（這台 M5 Max 約 1 秒，目標機更久）。程序啟動後第一次建索引或語意搜尋都會碰到。`VERIFIED_MARKER_FILE` 的註解說載入時信任標記、不重算，代碼沒這樣做。
   - 要做：驗證通過時把每個檔的大小與修改時間寫進標記；載入時比對一致就信任，不一致才整份重算。先量目標機上啟動後第一次語意搜尋的延遲。
