@@ -647,6 +647,7 @@ struct IntelligenceReportArgs {
     /// Required for the `session_detail` report: the `sessionId` from a `sessions` report row, so the
     /// model can drill from a session into its actual visits (Defect C).
     session_id: Option<String>,
+    topic: Option<String>,
 }
 
 /// The report variants `intelligence_report` dispatches to.
@@ -665,6 +666,7 @@ enum IntelReport {
     DayInsights,
     Overview,
     SessionDetail,
+    Topics,
 }
 
 impl IntelReport {
@@ -682,19 +684,20 @@ impl IntelReport {
             "day_insights" => Self::DayInsights,
             "overview" => Self::Overview,
             "session_detail" => Self::SessionDetail,
+            "topics" => Self::Topics,
             other => anyhow::bail!(
-                "unknown report variant `{other}`; expected one of: top_sites, sessions, search_trails, activity_mix, browsing_rhythm, domain_trend, day_insights, overview, session_detail"
+                "unknown report variant `{other}`; expected one of: top_sites, sessions, search_trails, activity_mix, browsing_rhythm, domain_trend, day_insights, overview, session_detail, topics"
             ),
         })
     }
 }
 
-/// Pre-computed intelligence report tool (W-AI-9 WPB-1).
+/// Gives Ask period statistics and semantic subjects through one report tool.
 ///
 /// Dispatches to deterministic Core Intelligence read models via a `report` enum parameter. Each
 /// variant maps to one intelligence query (sessions, top sites, search trails, activity mix,
-/// browsing rhythm, domain trend, day insights, overview). Faster and more complete than running
-/// code over raw search results because it reads from the materialized intelligence plane.
+/// browsing rhythm, domain trend, day insights, overview). Topics instead reads the serving
+/// semantic index on demand, so it works independently of the materialized intelligence plane.
 pub struct IntelligenceReportTool;
 
 impl IntelligenceReportTool {
@@ -706,16 +709,17 @@ impl IntelligenceReportTool {
                     "type": "string",
                     "enum": ["top_sites", "sessions", "search_trails", "activity_mix",
                              "browsing_rhythm", "domain_trend", "day_insights", "overview",
-                             "session_detail"],
-                    "description": "Which pre-computed report to retrieve."
+                             "session_detail", "topics"],
+                    "description": "Which report to retrieve; topics groups pages by meaning using the semantic index (at most 31 days)."
                 },
-                "start_date": { "type": "string", "description": "Start of date range (YYYY-MM-DD). Omit for all-time." },
-                "end_date": { "type": "string", "description": "End of date range (YYYY-MM-DD). Omit for all-time." },
+                "start_date": { "type": "string", "description": "Start of date range (YYYY-MM-DD). Required for topics; otherwise omit for all-time." },
+                "end_date": { "type": "string", "description": "End of date range (YYYY-MM-DD). Required for topics; otherwise omit for all-time." },
                 "domain": { "type": "string", "description": "Optional domain filter (e.g. 'youtube.com')." },
                 "limit": { "type": "integer", "description": "Items per data page; follow nextCursor to reach all records." },
                 "cursor": {"type":"string","description":"nextCursor from the prior data page, or visitsNextCursor for session_detail; keep the same report and scope."},
                 "trails_cursor": {"type":"string","description":"trailsNextCursor from session_detail; advances its trail list independently of visits."},
                 "output_cursor": {"type":"string","description":"nextOutputCursor from an oversized report. Join jsonFragment values until null. If restartRequired is true, discard prior fragments and restart without output_cursor."},
+                "topic": { "type": "string", "description": "For topics: an id such as t3 from the same window returns every page in that topic, largest first." },
                 "session_id": { "type": "string", "description": "Required for the session_detail report: the sessionId from a sessions report row." }
             },
             "required": ["report"]
@@ -723,7 +727,7 @@ impl IntelligenceReportTool {
     }
 }
 
-const INTELLIGENCE_REPORT_DESCRIPTION: &str = "Pre-computed statistics about the user's browsing: counts, top sites, sessions, search trails, activity mix, rhythm, trends and daily rollups. Fast and complete for the shape of a period (how much, when, which sites), but it says nothing about what the pages were about: for that read the visits (report=\"session_detail\" with a sessionId for one session's pages, or search_history / run_code). A session's autoTitle is only a guess from its main site or search, and its visitCount covers every site in it.";
+const INTELLIGENCE_REPORT_DESCRIPTION: &str = "Browsing statistics: top sites, sessions, search trails, activity mix, rhythm, trends and daily rollups. report=\"topics\" groups a period's pages by meaning, with weights, representative titles and example pages; it needs the semantic index and explicit start_date and end_date covering at most 31 days (ask month by month for longer periods). Pass topic=\"t3\" with the same dates for all its pages. Other reports use the Insights build. A session's autoTitle is only a guess from its main site or search; visitCount covers every site. Use session_detail with session_id for its actual visits.";
 
 impl AgentTool for IntelligenceReportTool {
     fn validate_arguments(&self, args: &Value) -> Result<()> {
@@ -804,6 +808,22 @@ impl AgentTool for IntelligenceReportTool {
             _ => {}
         }
 
+        let topics_result = if report == IntelReport::Topics {
+            let start = parsed
+                .start_date
+                .as_deref()
+                .filter(|s| !s.trim().is_empty())
+                .ok_or_else(|| anyhow::anyhow!("start_date is required for topics"))?;
+            let end = parsed
+                .end_date
+                .as_deref()
+                .filter(|s| !s.trim().is_empty())
+                .ok_or_else(|| anyhow::anyhow!("end_date is required for topics"))?;
+            Some(super::topics::report(context, start, end, parsed.topic.as_deref()).await?)
+        } else {
+            None
+        };
+
         // Readiness handling. The single `intelligence_status().ready` signal (sessions ||
         // search_trails || refind_pages) does NOT match what top_sites/activity_mix/domain_trend read
         // (the daily-rollup tables), so a partial build could misreport per report. The cleanest honest
@@ -812,8 +832,9 @@ impl AgentTool for IntelligenceReportTool {
         // specific data is absent — never a "no such table" error. We keep the `ready` signal only as a
         // FAST PATH: when the whole plane is empty we short-circuit to one honest "not built" note
         // instead of N empty results, but we never use it to falsely block a report whose data exists.
-        let ready = crate::intelligence::intelligence_status(&context.vault)?.ready;
-        if !ready {
+        if report != IntelReport::Topics
+            && !crate::intelligence::intelligence_status(&context.vault)?.ready
+        {
             return Ok(intelligence_not_ready_outcome(&parsed.report));
         }
 
@@ -825,6 +846,7 @@ impl AgentTool for IntelligenceReportTool {
         // Exhaustive over `IntelReport` — the compiler guarantees every variant is handled, so there
         // is no catch-all arm (the unknown case was already rejected by `IntelReport::parse` above).
         let mut result_json: Value = match report {
+            IntelReport::Topics => topics_result.expect("topics ran before the Insights gate"),
             IntelReport::TopSites => {
                 let request = TopSitesRequest {
                     cursor: parsed.cursor.clone(),

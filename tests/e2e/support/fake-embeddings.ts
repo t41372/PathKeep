@@ -76,11 +76,14 @@ export async function startFakeEmbeddings({
   dimensions = 64,
   holdAfter = Infinity,
   models = DEFAULT_MODELS,
+  vectorFor = fakeEmbeddingVector,
 }: {
   dimensions?: number
   /** Requests answered before the rest are held. */
   holdAfter?: number
   models?: FakeModel[]
+  /** A transport response with a particular edge case, without replacing index computation. */
+  vectorFor?: typeof fakeEmbeddingVector
 } = {}): Promise<FakeEmbeddings> {
   const inputs: string[] = []
   let answered = 0
@@ -130,7 +133,7 @@ export async function startFakeEmbeddings({
             data: texts.map((text, index) => ({
               object: 'embedding',
               index,
-              embedding: fakeEmbeddingVector(text, dimensions),
+              embedding: vectorFor(text, dimensions),
             })),
             model: body.model ?? 'e2e-embed',
             usage: { prompt_tokens: texts.length, total_tokens: texts.length },

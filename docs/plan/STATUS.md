@@ -460,10 +460,12 @@
   - 結果（M5 Max，`semantic_stage_bench`）：26 萬次造訪 1,145 → 130 ms，100 萬次 5,200 → 500 ms；20 組查詢第一頁與總數都和公開入口一致。剩下的大頭是範圍串流（100 萬次 385 ms，跟造訪數成正比），見 BACKLOG `WORK-SEMANTIC-VISIT-SIDECAR`。
 
 - [ ] **WORK-EMBED-USES** — embedding 不只用在搜索（用戶 2026-10-15）
-  - 讀先：`docs/features/intelligence.md`、`docs/plan/program/ai-redesign-2026/05-embedding-retrieval-revision.md`、`docs/architecture/semantic-index-control.md`、`docs/architecture/search.md`。
+  - 讀先：`docs/features/intelligence.md`、`docs/plan/program/ai-redesign-2026/05-embedding-retrieval-revision.md`、`docs/architecture/semantic-index-control.md`、`docs/architecture/search.md`、`docs/architecture/research/2026-10-topics-of-a-period.md`（item 1）。
   - 前提：每次語義搜索把全部向量掃一遍（`vector_index.rs` 對 map 起來的 int8 plane 完整計分）。每多一個用途就多一次全掃，14.4M 時要先確定代價（先量）。2026-10-16 量完：[2026-10-vector-search.md](../architecture/research/2026-10-vector-search.md)；一次全掃在 14.4M × 256 單執行緒只要 12–82 ms（Turbovec / 連續 int8，M5 Max 上量的，目標機會慢），慢的是搜尋流程本身；2026-10-17 `WORK-SEMANTIC-PIPELINE` 已改掉逐筆回查，剩下範圍串流（BACKLOG `WORK-SEMANTIC-VISIT-SIDECAR`）。
   - 候選，按價值：給 Ask 的每週 / 每月主題聚類（「總結一下這週」要的就是這個，`intelligence_report` 只有數字）；洞察的主題時間線（聚類 + 最有代表性的標題命名，不需要 LLM）；頁面詳情的相關頁面與重新浮現；session 標題選語義上最居中的頁；搜索結果合併近似重複（同一篇文章的不同網址、AMP、鏡像）；用戶自訂類別的零樣本分類。
   - 核心功能不以有 embedding 為前提（AGENTS.md 第 4 條），這些是有 embedding 時才有的功能。
+  - 第 1 項完成（2026-10-17）：Ask 的 `intelligence_report` `topics`，量測見 [2026-10-topics-of-a-period.md](../architecture/research/2026-10-topics-of-a-period.md)。其餘候選還沒做。
+  - 第 2 項（洞察的主題時間線）：用戶 2026-10-17 決定對所有有語意索引的人都顯示；用內建靜態模型時卡片寫明分組依靜態模型、同一網站的頁面容易歸在一起，並提示可改用 contextual 模型。
 
 - [x] **WORK-ASK-WEEKDAYS** — 工具結果的時間加上星期（2026-10-15 真模型實測看到；2026-10-17 完成，先於 `WORK-EMBED-USES` 做，因為它直接影響「總結一下這週」）
   - 讀先：`docs/features/intelligence.md`（Ask 與工具）、`docs/architecture/insights-time-zone.md`。

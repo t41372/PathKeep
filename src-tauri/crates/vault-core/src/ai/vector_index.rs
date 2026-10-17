@@ -35,6 +35,14 @@ impl FlatVectorIndex {
     pub fn key(&self, position: usize) -> u64 {
         self.mapped.as_ref().expect("positions require a mapped plane").key(position)
     }
+    /// Period topics reuse the serving projection instead of loading the f32 source corpus.
+    pub(super) fn vector_at(&self, position: usize) -> Vec<f32> {
+        let plane = self.mapped.as_ref().expect("positions require a mapped plane");
+        let start = position * plane.stride();
+        let record = &plane.records()[start..start + plane.stride()];
+        let scale = f32::from_le_bytes(record[8..12].try_into().unwrap());
+        record[12..].iter().map(|byte| *byte as i8 as f32 * scale).collect()
+    }
     pub(super) fn projection_id(&self) -> &str {
         self.mapped.as_ref().map_or("", |plane| plane.header.projection_id.as_str())
     }

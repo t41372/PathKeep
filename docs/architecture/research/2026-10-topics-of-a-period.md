@@ -62,4 +62,14 @@ One leader pass over the whole year (131,322 pages) took 69 s (static) and 121 s
 ## Not covered
 
 - Quality beyond the weak labels. The fixture's six labelled topics check the grouping in E2E; the user judges real topics in Ask.
-- The 4-core target and the 14.4M worst case: a month of a heavy history (about 60,000 pages) is the size to measure in Rust.
+- The 4-core target and the 14.4M worst case. The Rust measurement below covers a synthetic 60,000-page month on this Mac, not the target machine.
+
+## In the app (2026-10-17)
+
+`ai/topics.rs` does the above when Ask calls `intelligence_report` with `report="topics"`:
+
+- One read of the window's visible visits. A page's vector is the int8 record of its newest indexed visit in the serving index; a page without one, or with a zero vector, is counted in `notIndexed`.
+- The threshold comes from 20,000 sampled pairs with a fixed seed, and ties are broken by visits and page id, so the same window gives the same topics.
+- Titles are looked up only for labels and example pages; `topic="t3"` lists every page of one topic.
+
+Clustering 60,000 synthetic pages in a release build on this Mac takes 0.39 s on one worker and 0.19 s on four at 256 dimensions, 1.54 s and 0.73 s at 1,024 (`ai::topics::tests::month_clustering_measurement`, `PATHKEEP_TOPICS_BENCH=1`). Ask uses one worker. Synthetic vectors say nothing about quality.

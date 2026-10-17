@@ -37,6 +37,7 @@ mod search_pages;
 mod search_ranking;
 mod search_store;
 mod tool_arguments;
+mod topics;
 mod traits;
 mod vector_index;
 mod vector_planes;

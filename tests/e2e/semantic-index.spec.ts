@@ -52,6 +52,13 @@ import {
   retitleChromePage,
 } from '../../scripts/fixtures/synthetic-browsers.mjs'
 import { killAndRestartApp, unlockIfLocked } from './support/app'
+import { addLmStudioService } from './support/ai-service'
+import {
+  lastUserText,
+  offersTools,
+  startFakeModel,
+  toolResults,
+} from './support/fake-model'
 import {
   fakeEmbeddingVector,
   startFakeEmbeddings,
@@ -953,5 +960,343 @@ test('a browser-filtered semantic search pages through to its least similar page
       await testInfo.attach('cleanup failed too', { body: String(error) })
     })
     await service.close()
+  }
+})
+
+interface TopicPage {
+  historyId: number
+  title: string
+  url: string
+  visits: number
+  lastVisitLocal: string
+}
+interface PeriodTopic {
+  id: string
+  label: string
+  pages: number
+  visits: number
+  firstVisitLocal: string
+  lastVisitLocal: string
+  examples: TopicPage[]
+}
+interface TopicsReport {
+  window: { startDate: string; endDate: string; timeZone: string }
+  model: string
+  pages: number
+  visits: number
+  notIndexed: number
+  topics: PeriodTopic[]
+}
+
+/**
+ * The index and archive stay real: only the embeddings and chat transports are
+ * scripted. Follow every text cursor and every topic, so a correct first page
+ * cannot hide dropped pages, double membership, or wrong visit weights.
+ */
+test('Ask groups the period by meaning and every indexed page can be reached exactly once', async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(600_000)
+  const before = await loadConfig()
+  const dayMs = 86_400_000
+  const endMs =
+    new Date(`${localDay(fixture().now)}T00:00:00Z`).getTime() - 7 * dayMs
+  const startMs = endMs - 6 * dayMs
+  const start_date = localDay(startMs)
+  const end_date = localDay(endMs)
+  const visits = archivedVisits().filter(
+    (visit) => visit.at >= startMs && visit.at < endMs + dayMs,
+  )
+  const expected = new Map<string, typeof visits>()
+  for (const visit of visits) {
+    const rows = expected.get(visit.url) ?? []
+    rows.push(visit)
+    expected.set(visit.url, rows)
+  }
+  // The earlier test changes Chrome's title of one page. Use a different,
+  // unambiguous title for the unusable vector in this service's response.
+  const chrome = fixture().visitsByProfile['chrome:Default'].filter(
+    (v) => !v.term,
+  )
+  const retitledUrl = chrome.find((v) => v.url !== chrome[0].url)!.url
+  const missing = [...expected].find(
+    ([url, rows]) =>
+      url !== retitledUrl &&
+      rows.length > 1 &&
+      archivedVisits()
+        .filter((v) => v.title === rows[0].title)
+        .every((v) => v.url === url),
+  )!
+  expect(missing, 'a repeated page has no usable vector').toBeTruthy()
+  const [missingUrl, missingVisits] = missing
+  const embeddings = await startFakeEmbeddings({
+    dimensions: 256,
+    vectorFor: (text, dim) =>
+      text.startsWith(`${missingVisits[0].title}\n`)
+        ? new Array<number>(dim).fill(0)
+        : fakeEmbeddingVector(text, dim),
+  })
+  type Request = {
+    report: string
+    start_date: string
+    end_date: string
+    topic?: string
+    output_cursor?: string
+  }
+  const base: Request = { report: 'topics', start_date, end_date }
+  const results: { request: Request; text: string; value?: unknown }[] = []
+  type Task = { request: Request; fragments: string }
+  let pending: Task[] = []
+  let active: Task[] = []
+  let continued = 0
+  const answer = 'The period topics and their pages are ready.'
+  const model = await startFakeModel({
+    apiKey: null,
+    models: [{ id: 'e2e-topics-chat', loaded_context_length: 262_144 }],
+    script: (body) => {
+      if (!offersTools(body)) return { content: 'OK' }
+      if (body.messages?.at(-1)?.role !== 'tool') {
+        active = [{ request: base, fragments: '' }]
+        pending = []
+        if (lastUserText(body) !== 'Try topics before the index exists') {
+          pending.push({
+            request: { ...base, start_date: localDay(endMs - 39 * dayMs) },
+            fragments: '',
+          })
+          pending.push({
+            request: {
+              ...base,
+              start_date: '1900-01-01',
+              end_date: '1900-01-07',
+            },
+            fragments: '',
+          })
+        }
+      } else {
+        const texts = toolResults(body).slice(-active.length)
+        for (const [index, task] of active.entries()) {
+          const text = texts[index]
+          const json = text.slice(text.indexOf('\n') + 1)
+          let value: Record<string, unknown> | undefined
+          try {
+            value = JSON.parse(json) as Record<string, unknown>
+          } catch {
+            /* A refusal remains plain text. */
+          }
+          if (value && 'jsonFragment' in value) {
+            task.fragments += value.jsonFragment as string
+            if (value.nextOutputCursor) {
+              continued += 1
+              task.request = {
+                ...task.request,
+                output_cursor: value.nextOutputCursor as string,
+              }
+              pending.unshift(task)
+              continue
+            }
+            value = JSON.parse(task.fragments) as Record<string, unknown>
+          }
+          results.push({ request: task.request, text, value })
+          if (value && Array.isArray(value.topics) && value.topics.length > 0) {
+            pending.unshift(
+              ...(value.topics as PeriodTopic[]).map(({ id }) => ({
+                request: { ...base, topic: id },
+                fragments: '',
+              })),
+            )
+          }
+        }
+        active = pending.splice(0, 6)
+        if (!active.length) return { content: answer }
+      }
+      return {
+        toolCalls: active.map(({ request }) => ({
+          name: 'intelligence_report',
+          arguments: request,
+        })),
+      }
+    },
+  })
+  let finished = false
+  try {
+    await page.goto('/#/settings/ai')
+    await unlockIfLocked(page)
+    await page.getByRole('combobox', { name: 'Model' }).click()
+    await page
+      .getByRole('option', { name: 'Add an embeddings service…' })
+      .click()
+    const dialog = page.getByRole('dialog', {
+      name: 'Add an embeddings service',
+    })
+    await dialog.getByRole('combobox', { name: 'Service' }).click()
+    await page.getByRole('option', { name: 'OpenAI or compatible' }).click()
+    await dialog.getByRole('textbox', { name: 'Address' }).fill(embeddings.url)
+    await dialog.getByRole('textbox', { name: 'Model' }).fill('e2e-embed')
+    await dialog
+      .getByRole('textbox', { name: 'Name' })
+      .fill('E2E topic embeddings')
+    await dialog.getByRole('button', { name: 'Add service' }).click()
+    await expect(page.getByRole('combobox', { name: 'Model' })).toContainText(
+      'E2E topic embeddings',
+    )
+    await addLmStudioService(page, {
+      name: 'E2E topic chat',
+      address: model.url.replace(/\/v1$/, ''),
+      model: 'e2e-topics-chat',
+    })
+    const ask = async (question: string) => {
+      await page.goto('/#/ask')
+      const composer = page.getByRole('textbox', { name: 'Message' })
+      await composer.fill(question)
+      await composer.press('Enter')
+      await expect(
+        page.getByRole('main').locator('aside + div').getByText(answer).last(),
+      ).toBeVisible({ timeout: 120_000 })
+      await expect(
+        page.getByRole('button', { name: 'Send', exact: true }),
+      ).toBeVisible()
+    }
+    await ask('Try topics before the index exists')
+    expect(results[0].text).toMatch(
+      /no embedding provider|semantic index is empty/,
+    )
+    expect(results[0].text).toContain('search_history')
+    expect(results[0].text).toContain('sessions')
+
+    await page.goto('/#/settings/ai')
+    const enabled = page.getByRole('switch', { name: 'Semantic search' })
+    if (!(await enabled.isChecked())) await enabled.click()
+    else
+      await page
+        .getByRole('button', { name: 'Build index', exact: true })
+        .click()
+    await expect
+      .poll(async () => (await queueStatus()).semanticIndex.chosenComplete, {
+        timeout: 240_000,
+      })
+      .toBe(true)
+    await expect
+      .poll(
+        async () => {
+          const queue = await queueStatus()
+          return queue.running + queue.queued
+        },
+        { timeout: 120_000 },
+      )
+      .toBe(0)
+    expect(
+      embeddings.inputs.some((text) =>
+        text.startsWith(`${missingVisits[0].title}\n`),
+      ),
+    ).toBe(true)
+    const embeddingRequests = embeddings.requests()
+    await ask('Summarise this period and read every topic before answering')
+    expect(
+      embeddings.requests(),
+      'topics reuses vectors without embedding again',
+    ).toBe(embeddingRequests)
+
+    const report = results.find(
+      (r) => (r.value as TopicsReport | undefined)?.topics?.length,
+    )?.value as TopicsReport
+    expect(report, 'the model received the topic list').toBeTruthy()
+    expect(report.window).toEqual({
+      startDate: start_date,
+      endDate: end_date,
+      timeZone: 'UTC',
+    })
+    expect(report.model).toBe('e2e-embed')
+    expect(report.pages).toBe(expected.size)
+    expect(report.visits).toBe(visits.length)
+    expect(report.notIndexed).toBe(1)
+    expect(
+      report.topics.reduce((sum, t) => sum + t.pages, report.notIndexed),
+    ).toBe(expected.size)
+    expect(
+      report.topics.reduce((sum, t) => sum + t.visits, missingVisits.length),
+    ).toBe(visits.length)
+    expect(report.topics.length).toBeGreaterThan(1)
+    expect(report.topics.map((t) => t.visits)).toEqual(
+      report.topics.map((t) => t.visits).sort((a, b) => b - a),
+    )
+    expect(
+      continued,
+      'the model followed oversized reports to their end',
+    ).toBeGreaterThan(0)
+    const seen = new Set<string>()
+    const weekday = (at: number) =>
+      new Date(at).toLocaleDateString('en-US', {
+        timeZone: 'UTC',
+        weekday: 'short',
+      })
+    for (const topic of report.topics) {
+      const drill = results.find((r) => r.request.topic === topic.id)
+        ?.value as { topic: string; topicPages: TopicPage[] }
+      expect(drill?.topic).toBe(topic.id)
+      expect(drill.topicPages).toHaveLength(topic.pages)
+      expect(drill.topicPages.map((p) => p.title)).toContain(topic.label)
+      expect(drill.topicPages.map((p) => p.visits)).toEqual(
+        drill.topicPages.map((p) => p.visits).sort((a, b) => b - a),
+      )
+      expect(drill.topicPages.reduce((sum, p) => sum + p.visits, 0)).toBe(
+        topic.visits,
+      )
+      expect(topic.examples).toEqual(drill.topicPages.slice(0, 5))
+      for (const item of drill.topicPages) {
+        expect(seen.has(item.url), `${item.url} is in only one topic`).toBe(
+          false,
+        )
+        seen.add(item.url)
+        const rows = expected.get(item.url)
+        expect(rows, `${item.url} belongs to the fixture window`).toBeTruthy()
+        expect(item.visits).toBe(rows!.length)
+        expect(item.historyId).toBeGreaterThan(0)
+        const last = Math.max(...rows!.map((v) => v.at))
+        const local = new Date(last)
+          .toISOString()
+          .slice(0, 16)
+          .replace('T', ` ${weekday(last)} `)
+        expect(item.lastVisitLocal).toBe(local)
+      }
+    }
+    expect([...seen].sort()).toEqual(
+      [...expected.keys()].filter((url) => url !== missingUrl).sort(),
+    )
+    const long = results.find(
+      (r) => r.request.start_date === localDay(endMs - 39 * dayMs),
+    )!
+    expect(long.text).toContain('31 days')
+    expect(long.text).toContain('month by month')
+    const empty = results.find((r) => r.request.start_date === '1900-01-01')!
+      .value as TopicsReport
+    expect({
+      pages: empty.pages,
+      visits: empty.visits,
+      notIndexed: empty.notIndexed,
+      topics: empty.topics,
+    }).toEqual({ pages: 0, visits: 0, notIndexed: 0, topics: [] })
+    finished = true
+  } finally {
+    await testInfo.attach('period topic coverage', {
+      body: JSON.stringify(
+        { expected: [...expected], missingUrl, continued, actual: results },
+        null,
+        2,
+      ),
+      contentType: 'application/json',
+    })
+    const restore = async () => {
+      await unlockIfLocked(page)
+      const currentConfig = await loadConfig()
+      await backend('save_config', {
+        config: { ...currentConfig, ai: before.ai },
+      })
+    }
+    await restore().catch(async (error: unknown) => {
+      if (finished) throw error
+      await testInfo.attach('cleanup failed too', { body: String(error) })
+    })
+    await model.close()
+    await embeddings.close()
   }
 })

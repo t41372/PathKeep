@@ -113,6 +113,8 @@ are specified in [data-model.md](../architecture/data-model.md#migration-in-prog
   - 「我上次比較 vectorDB 方案時看了哪些東西？」
   - 「我最近三個月在哪些領域花了最多時間？」
 - Agentic search：LLM 可以多步檢索、比較、歸納。
+- `intelligence_report` 的 `report="topics"` 按語義分組一段期間的頁面，給模型每組的份量、代表頁標題、前三個網站與五個最多造訪的頁面。必須給 `start_date` / `end_date`（包含首尾的本地日期，沿用 Insights 的時區），最多 31 天；更長的期間要逐月問。它直接讀 Ask 搜尋所用的 serving semantic index，不要求先建 Insights，也不呼叫 embedding 服務。沒有 provider、索引為空或模型 fingerprint 已變時，明說原因並指向 `search_history` / `report="sessions"`。
+- topics 中每個有可用向量的頁面只屬於一組；沒有向量或向量為零的頁面計入 `notIndexed`，總頁數與造訪數仍包含它們。`topic="t3"` 配合同樣日期讀取該組的全部頁面，按造訪數排列；每頁含最新造訪的 `historyId`、標題、網址、期間造訪數與最後造訪的本地時間（含星期）。清單與 drill-down 都可用 `output_cursor` 接續長報告。topic id 是這次視窗與索引的排序結果，索引或存檔改變後應重新讀清單。服務中的是內建靜態模型時，結果附一句 `note`：同一網站的頁面容易歸成一組，提醒模型照實說明並建議改用 contextual 模型（用戶 2026-10-17 決定主題對所有模型都提供，靜態模型加註）。
 - 回答必須附帶 evidence（哪些歷史紀錄支持了這個結論）。
 - 這是**顯式觸發**的功能，不是背景常駐。
 - assistant response state 必須誠實可見：`queued`、`completed`、`insufficient-evidence`、`failed`、`cancelled`，並保留 `jobId` / `runId` / provider snapshot 供 audit trace 與 queue reload。
