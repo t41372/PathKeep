@@ -59,6 +59,20 @@ One leader pass over the whole year (131,322 pages) took 69 s (static) and 121 s
 - Leader clustering, three refinement passes, threshold the window's 95th percentile of random-pair similarity, deterministic order and seed.
 - Every page visited in the window is in exactly one topic. Topics are listed by visits; each has its most central page's title as the label, its visits, pages, first and last visit, sites and its largest pages. A page without a vector yet is counted, not hidden.
 
+## Six real months (2026-10-17)
+
+The user's Takeout, the last six months (7,000–12,000 pages and 13,000–22,000 visits a month), grouped as above with both models, shown on a local page and judged by the user and by reading it with their permission. Only the aggregate findings are written here.
+
+- Each month has 566–1,615 topics. The eight largest hold 24–38 % of the month's visits; the rest is a long tail of small topics.
+- Static model: every one of the eight largest topics is one site. A forum splits into several topics only because its board name is part of every title. One month's largest topic is a sign-in page visited many times.
+- Qwen3: some of the largest topics are real pieces of work that span sites (a repository with its pull requests, docs and the forum thread about it; coursework across two learning sites). It also merges by shared name: a self-hosted API proxy and the chat site it is named after became one topic. The largest topic every month is the AI chat sites together (7–12 %).
+- Ranked by visits, the top is pages opened many times out of habit: mail inboxes, chat home pages, calendars, a forum's front page. The month-specific work sits lower.
+- Labels: c-TF-IDF over Chinese character pairs gives fragments that read as nothing; over Latin titles it picks up hashes, account names and host names. The most central title is often the site's bare name ("ChatGPT", "Files", an untitled page) and, for forum topics, an arbitrary thread.
+
+So the Insights topic card (per-month bars of the largest topics) was not built: without an LLM it would show a top-sites chart with worse names, and two thirds of each bar would be "other". In Ask the model reads each topic's example pages and names the topic itself, so the label problem does not reach the user there.
+
+Two directions remain open. Ranking by the share of pages first seen that month brings the month's work up, but a forum's new threads are new pages too. Searches are labels the user wrote: grouping a period's searches by meaning and attaching the pages their search trails reached would name topics in the user's words and leave out habitual pages, which nobody searches for (see `WORK-EMBED-USES` in STATUS).
+
 ## Not covered
 
 - Quality beyond the weak labels. The fixture's six labelled topics check the grouping in E2E; the user judges real topics in Ask.

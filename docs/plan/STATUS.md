@@ -465,7 +465,8 @@
   - 候選，按價值：給 Ask 的每週 / 每月主題聚類（「總結一下這週」要的就是這個，`intelligence_report` 只有數字）；洞察的主題時間線（聚類 + 最有代表性的標題命名，不需要 LLM）；頁面詳情的相關頁面與重新浮現；session 標題選語義上最居中的頁；搜索結果合併近似重複（同一篇文章的不同網址、AMP、鏡像）；用戶自訂類別的零樣本分類。
   - 核心功能不以有 embedding 為前提（AGENTS.md 第 4 條），這些是有 embedding 時才有的功能。
   - 第 1 項完成（2026-10-17）：Ask 的 `intelligence_report` `topics`，量測見 [2026-10-topics-of-a-period.md](../architecture/research/2026-10-topics-of-a-period.md)。其餘候選還沒做。
-  - 第 2 項（洞察的主題時間線）：用戶 2026-10-17 決定對所有有語意索引的人都顯示；用內建靜態模型時卡片寫明分組依靜態模型、同一網站的頁面容易歸在一起，並提示可改用 contextual 模型。
+  - 第 2 項（洞察的主題時間線）：不做（用戶 2026-10-17）。用戶的六個月真實數據跑出來，靜態模型的大主題都是單一網站，Qwen3 找得到跨網站的事但也會按名字錯合；不用 LLM 的主題名讀不懂；每月前 8 個主題只占 24–38 % 的造訪。量測見 [2026-10-topics-of-a-period.md](../architecture/research/2026-10-topics-of-a-period.md)「Six real months」。
+  - 新候選（2026-10-17 用戶提出，未定）：搜尋詞按意思分組（現有 query family 只看字面），每組帶它的 search trail 打開的頁，用使用者自己的搜尋詞當名字；決策模型（Jev、OpenAI Decisions）能做什麼見 [2026-10-decision-models.md](../architecture/research/2026-10-decision-models.md)。
 
 - [x] **WORK-ASK-WEEKDAYS** — 工具結果的時間加上星期（2026-10-15 真模型實測看到；2026-10-17 完成，先於 `WORK-EMBED-USES` 做，因為它直接影響「總結一下這週」）
   - 讀先：`docs/features/intelligence.md`（Ask 與工具）、`docs/architecture/insights-time-zone.md`。
