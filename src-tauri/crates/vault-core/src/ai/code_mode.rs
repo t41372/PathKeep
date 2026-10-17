@@ -69,10 +69,9 @@
 
 use super::AiRunControl;
 use super::agent_tools::AgentToolContext;
-// LOCAL-time renderers shared with the model-facing search tools: each sandbox row carries both the
-// raw UTC `visitedAt` and a LOCAL `visitedAtLocal`/`localDate` so a script grouping by day never has
-// to do epoch/timezone math against the sandbox's 0 clock.
-use super::agent_tools::{format_local_rfc3339, local_date_rfc3339};
+// Each sandbox row carries the raw UTC `visitedAt` and its local time, day and weekday, so a script
+// grouping by day never does epoch or time-zone math against the sandbox's 0 clock.
+use super::agent_tools::sandbox_local_rfc3339;
 use super::search::search_history_internal;
 use crate::models::{AiCitation, AiSearchRequest};
 use anyhow::Result;
@@ -526,16 +525,17 @@ impl HostState {
                 score: Some(item.score),
                 canonical_url: canonical_url.clone(),
             });
+            let [local_time, local_date, local_weekday] =
+                sandbox_local_rfc3339(&item.visited_at, self.context.time_zone);
             rows.push(json!({
                 "id": item.history_id,
                 "url": item.url,
                 "title": item.title,
                 "domain": item.domain,
                 "visitedAt": item.visited_at,
-                // LOCAL renderings so a script never converts epoch/timezone against the 0 clock:
-                // `visitedAtLocal` is the wall-clock time and `localDate` the YYYY-MM-DD day bucket.
-                "visitedAtLocal": format_local_rfc3339(&item.visited_at, self.context.time_zone),
-                "localDate": local_date_rfc3339(&item.visited_at, self.context.time_zone),
+                "visitedAtLocal": local_time,
+                "localDate": local_date,
+                "localWeekday": local_weekday,
                 "score": item.score,
                 "matchReason": item.match_reason,
                 "canonicalUrl": canonical_url,

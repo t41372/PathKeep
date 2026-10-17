@@ -323,28 +323,70 @@ impl AgentTool for HistorySearchTool {
     }
 }
 
-/// Renders a UTC epoch-millis instant as a LOCAL `YYYY-MM-DD HH:MM` string in `zone`.
-/// Model-facing output uses this so the clockless model never converts epoch ms or applies a
-/// timezone by hand (a real trace showed it burning hundreds of reasoning lines doing exactly that).
+/// Local time with its weekday, as the model reads it: `2026-10-15 Thu 14:02`.
+///
+/// The host does the arithmetic so the clockless model never converts epoch ms or a time zone (a
+/// real trace burned hundreds of reasoning lines on it), and never works a weekday out of a date
+/// either (qwen3.8 called Thursday 2026-10-15 a Friday). Weekdays are English abbreviations, like
+/// the weekday in the system prompt; the model words them in the user's language.
+const MODEL_LOCAL_TIME: &str = "%Y-%m-%d %a %H:%M";
+
+/// Renders a UTC epoch-millis instant as model-facing local time in `zone` ([`MODEL_LOCAL_TIME`]).
 pub(super) fn format_local_ms(ms: i64, zone: chrono_tz::Tz) -> String {
     chrono::DateTime::from_timestamp_millis(ms)
-        .map(|dt| dt.with_timezone(&zone).format("%Y-%m-%d %H:%M").to_string())
+        .map(|dt| dt.with_timezone(&zone).format(MODEL_LOCAL_TIME).to_string())
         .unwrap_or_default()
 }
 
-/// Renders an RFC-3339 timestamp as a LOCAL `YYYY-MM-DD HH:MM` string in `zone`; returns the input
+/// Renders an RFC-3339 timestamp as model-facing local time in `zone`; returns the input
 /// unchanged if it cannot be parsed (never panics on unexpected data).
 pub(super) fn format_local_rfc3339(value: &str, zone: chrono_tz::Tz) -> String {
     chrono::DateTime::parse_from_rfc3339(value)
-        .map(|dt| dt.with_timezone(&zone).format("%Y-%m-%d %H:%M").to_string())
+        .map(|dt| dt.with_timezone(&zone).format(MODEL_LOCAL_TIME).to_string())
         .unwrap_or_else(|_| value.to_string())
 }
 
-/// The LOCAL `YYYY-MM-DD` calendar date for an RFC-3339 timestamp in `zone` (empty on parse failure).
-pub(super) fn local_date_rfc3339(value: &str, zone: chrono_tz::Tz) -> String {
+/// A sandbox row's local `YYYY-MM-DD HH:MM`, `YYYY-MM-DD` and weekday for an RFC-3339 timestamp.
+///
+/// Scripts slice and group these strings, so the time keeps its shape and the weekday is a field
+/// of its own. Empty strings when the timestamp cannot be parsed.
+pub(super) fn sandbox_local_rfc3339(value: &str, zone: chrono_tz::Tz) -> [String; 3] {
     chrono::DateTime::parse_from_rfc3339(value)
-        .map(|dt| dt.with_timezone(&zone).format("%Y-%m-%d").to_string())
+        .map(|dt| {
+            let local = dt.with_timezone(&zone);
+            ["%Y-%m-%d %H:%M", "%Y-%m-%d", "%a"].map(|format| local.format(format).to_string())
+        })
         .unwrap_or_default()
+}
+
+/// Writes the weekday right after every local day (`dateKey` or `date`, `YYYY-MM-DD`) in a report.
+///
+/// The days are already local to the insights' time zone, so the weekday follows from the date. It
+/// goes next to the date rather than at the end of the object: a long report is cut into pages, and
+/// a weekday several pages after its day is no help to the model.
+fn add_weekdays(value: &mut Value) {
+    match value {
+        Value::Array(items) => items.iter_mut().for_each(add_weekdays),
+        Value::Object(fields) => {
+            fields.values_mut().for_each(add_weekdays);
+            let day = ["dateKey", "date"].into_iter().find_map(|key| {
+                let day = fields.get(key)?.as_str()?;
+                Some((key, chrono::NaiveDate::parse_from_str(day, "%Y-%m-%d").ok()?))
+            });
+            if let Some((key, day)) = day
+                && !fields.contains_key("weekday")
+            {
+                for (name, value) in std::mem::take(fields) {
+                    let after = name == key;
+                    fields.insert(name, value);
+                    if after {
+                        fields.insert("weekday".into(), json!(day.format("%a").to_string()));
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
 }
 
 /// Builds the compact, bounded, model-facing summary of one search result.
@@ -433,7 +475,7 @@ fn append_search_state(text: &mut String, response: &crate::models::AiSearchResp
 /// (even a negative result like `{ found: false }`) — the result is bounded host-side. An empty
 /// return is honestly reported as "no value", so there is no reason to return nothing. No promise the
 /// sandbox cannot keep.
-const RUN_CODE_DESCRIPTION: &str = "Run a JavaScript program over the user's history in a read-only sandbox, for questions that need counting, grouping or other computation across many visits. No network, files, clock (Date.now() is 0) or randomness. Globals, both synchronous: query_history({ query?, sort?: \"relevance\"|\"newest\"|\"oldest\", limit? (up to 1000), cursor?, startDate?, endDate? (YYYY-MM-DD), domain?, profileId?, starredOnly?, plane?: \"hybrid\"|\"vector\"|\"bm25\" }) returns { rows, total, hasMore, nextCursor, notes, searchState }, each row with id, url, title, domain, visitedAtLocal, localDate (group days by this), score, canonicalUrl; an empty query lists the most recent visits. fetch_visits(ids) returns those visits. The rows stay in the sandbox: page through every match (pass nextCursor as cursor with the same arguments while hasMore; at most 64 calls) and `return` only a small summary, which is all you see. Read `notes`, and searchState.coverageComplete: false means indexing is unfinished and an empty result proves nothing. Example: const byDomain = {}; let cursor = null; do { const page = query_history({ startDate: \"2026-06-15\", endDate: \"2026-06-21\", limit: 1000, cursor }); for (const r of page.rows) byDomain[r.domain] = (byDomain[r.domain] || 0) + 1; cursor = page.hasMore ? page.nextCursor : null; } while (cursor); return byDomain;";
+const RUN_CODE_DESCRIPTION: &str = "Run a JavaScript program over the user's history in a read-only sandbox, for questions that need counting, grouping or other computation across many visits. No network, files, clock (Date.now() is 0) or randomness. Globals, both synchronous: query_history({ query?, sort?: \"relevance\"|\"newest\"|\"oldest\", limit? (up to 1000), cursor?, startDate?, endDate? (YYYY-MM-DD), domain?, profileId?, starredOnly?, plane?: \"hybrid\"|\"vector\"|\"bm25\" }) returns { rows, total, hasMore, nextCursor, notes, searchState }, each row with id, url, title, domain, visitedAtLocal (YYYY-MM-DD HH:MM), localDate (group days by this), localWeekday (Mon … Sun), score, canonicalUrl; an empty query lists the most recent visits. fetch_visits(ids) returns those visits. The rows stay in the sandbox: page through every match (pass nextCursor as cursor with the same arguments while hasMore; at most 64 calls) and `return` only a small summary, which is all you see. Read `notes`, and searchState.coverageComplete: false means indexing is unfinished and an empty result proves nothing. Example: const byDomain = {}; let cursor = null; do { const page = query_history({ startDate: \"2026-06-15\", endDate: \"2026-06-21\", limit: 1000, cursor }); for (const r of page.rows) byDomain[r.domain] = (byDomain[r.domain] || 0) + 1; cursor = page.hasMore ? page.nextCursor : null; } while (cursor); return byDomain;";
 
 /// The `run_code` agent tool (W-AI-8 WU-2): wraps the WU-1 sandbox as a registered [`AgentTool`].
 ///
@@ -899,6 +941,7 @@ impl AgentTool for IntelligenceReportTool {
             _ => {}
         }
 
+        add_weekdays(&mut result_json);
         // Timing diagnostics are not report data and would change a text-page fingerprint.
         super::report_pages::remove_volatile_diagnostics(&mut result_json);
         let raw = serde_json::to_string_pretty(&result_json)?;

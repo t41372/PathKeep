@@ -201,10 +201,14 @@ function rustConstant(file: string, name: string) {
 }
 
 /** `YYYY-MM-DD HH:MM` in this computer's time zone, as the search tool writes visit times. */
+/** A visit's time as the tools write it for the model: `2026-10-15 Thu 14:02`, this computer's zone. */
 function localMinute(at: number) {
   const time = new Date(at)
   const pad = (value: number) => String(value).padStart(2, '0')
-  return `${time.getFullYear()}-${pad(time.getMonth() + 1)}-${pad(time.getDate())} ${pad(time.getHours())}:${pad(time.getMinutes())}`
+  const weekday = new Intl.DateTimeFormat('en-US', { weekday: 'short' }).format(
+    time,
+  )
+  return `${time.getFullYear()}-${pad(time.getMonth() + 1)}-${pad(time.getDate())} ${weekday} ${pad(time.getHours())}:${pad(time.getMinutes())}`
 }
 
 /** Searches for `query` when asked a question, then answers from `answers`. */
@@ -642,7 +646,7 @@ test('“when did I first” gets the earliest visit across years, not a recent 
     })
     const rows = [
       ...result.matchAll(
-        /^\[(\d+)\] (\d{4}-\d{2}-\d{2} \d{2}:\d{2}) \| (\S+) — (.*) \((\S+), /gm,
+        /^\[(\d+)\] (\d{4}-\d{2}-\d{2} [A-Z][a-z]{2} \d{2}:\d{2}) \| (\S+) — (.*) \((\S+), /gm,
       ),
     ].map(([, id, time, url, title, reason]) => ({
       id,

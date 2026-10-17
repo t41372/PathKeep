@@ -101,7 +101,7 @@ impl AgentTool for ListStarsTool {
                 domain = item.domain,
                 title = if item.title.is_empty() { "(untitled)" } else { &item.title },
                 visits = item.visit_count,
-                at = item.starred_at,
+                at = super::format_local_rfc3339(&item.starred_at, context.time_zone),
             ));
         }
         if page.next_cursor.is_some() {
@@ -204,7 +204,7 @@ impl AgentTool for ListAnnotationsTool {
                 url = item.url,
                 tags = tags_str,
                 notes = item.notes,
-                at = item.updated_at,
+                at = super::format_local_rfc3339(&item.updated_at, context.time_zone),
             ));
         }
         Ok(ToolOutcome {

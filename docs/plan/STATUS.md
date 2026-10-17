@@ -465,7 +465,7 @@
   - 候選，按價值：給 Ask 的每週 / 每月主題聚類（「總結一下這週」要的就是這個，`intelligence_report` 只有數字）；洞察的主題時間線（聚類 + 最有代表性的標題命名，不需要 LLM）；頁面詳情的相關頁面與重新浮現；session 標題選語義上最居中的頁；搜索結果合併近似重複（同一篇文章的不同網址、AMP、鏡像）；用戶自訂類別的零樣本分類。
   - 核心功能不以有 embedding 為前提（AGENTS.md 第 4 條），這些是有 embedding 時才有的功能。
 
-- [ ] **WORK-ASK-WEEKDAYS** — 工具結果的時間加上星期（2026-10-15 真模型實測看到）
+- [x] **WORK-ASK-WEEKDAYS** — 工具結果的時間加上星期（2026-10-15 真模型實測看到；2026-10-17 完成，先於 `WORK-EMBED-USES` 做，因為它直接影響「總結一下這週」）
   - 讀先：`docs/features/intelligence.md`（Ask 與工具）、`docs/architecture/insights-time-zone.md`。
   - qwen3.8-27b-splash 回答「總結一下這週」時把 10/15 說成週五（其實週四）。工具結果的本地時間只有 `YYYY-MM-DD HH:MM`（`format_local_ms`），星期得模型自己推；系統提示只給了今天的星期。跟「不要讓模型換算 epoch」同一類：在主機上算好，日期旁寫星期（照使用者的語言或固定英文，選一種寫進文檔）。
 

@@ -25,6 +25,10 @@
  *   once and go back to the model as an object; arguments that cannot be
  *   read go back as `{}`, with the error and the path in the tool result.
  *   The model's thinking goes back with its turn in the same run.
+ * - Every time and day the tools give the model carries its weekday, worked
+ *   out on this computer: search rows read `2026-10-15 Thu 14:02`, report
+ *   days have a `weekday` beside them, and sandbox rows keep
+ *   `visitedAtLocal` as `YYYY-MM-DD HH:MM` with `localWeekday` beside it.
  */
 import { expect, test, type Page } from '@playwright/test'
 import { addLmStudioService, addService } from './support/ai-service'
@@ -37,7 +41,7 @@ import {
   toolResults,
   type FakeRequest,
 } from './support/fake-model'
-import { backend } from './support/fixture'
+import { archivedVisits, backend, localDay } from './support/fixture'
 
 const KEY = 'e2e-agent-key'
 
@@ -394,6 +398,122 @@ test('a turn that breaks off runs none of its calls, and the question stays in f
     for (const body of requests)
       for (const key of ['temperature', 'max_tokens'])
         expect(body, key).not.toHaveProperty(key)
+  } finally {
+    await model.close()
+  }
+})
+
+test('every time and day the tools give the model carries its weekday', async ({
+  page,
+}, testInfo) => {
+  const title = 'spawn_blocking pool exhaustion · tokio-rs/tokio'
+  const visits = archivedVisits().filter((visit) => visit.title === title)
+  expect(visits.length, 'the fixture has the page').toBeGreaterThan(0)
+  const newest = Math.max(...visits.map((visit) => visit.at))
+  // The app and this test run in the same zone (UTC, from run-playwright).
+  const weekday = (at: number) =>
+    new Intl.DateTimeFormat('en-US', { weekday: 'short' }).format(at)
+  const clock = (at: number) => new Date(at).toTimeString().slice(0, 5)
+  const shown = new Set(
+    visits.map(
+      (visit) =>
+        `${localDay(visit.at)} ${weekday(visit.at)} ${clock(visit.at)}`,
+    ),
+  )
+  const day = localDay(newest)
+  const answer = 'Done.'
+  const model = await startFakeModel({
+    apiKey: KEY,
+    script: (body) => {
+      if (!offersTools(body)) return { content: 'OK' }
+      const step = toolResults(body).length
+      if (step === 0)
+        return {
+          toolCalls: [
+            { name: 'search_history', arguments: { query: 'spawn_blocking' } },
+          ],
+        }
+      if (step === 1)
+        return {
+          toolCalls: [
+            {
+              name: 'intelligence_report',
+              arguments: { report: 'day_insights', start_date: day },
+            },
+          ],
+        }
+      if (step === 2)
+        return {
+          toolCalls: [
+            {
+              name: 'run_code',
+              arguments: {
+                source:
+                  "return query_history({ query: 'spawn_blocking', limit: 20 }).rows.map((row) => [row.visitedAtLocal, row.localDate, row.localWeekday])",
+              },
+            },
+          ],
+        }
+      return { content: answer }
+    },
+  })
+  try {
+    await addService(page, { name: 'E2E days', address: model.url, key: KEY })
+    await page.goto('/#/ask')
+    await ask(page, 'What did I read on spawn_blocking, and on which day?')
+    await expect(chatColumn(page).getByText(answer)).toBeVisible({
+      timeout: 60_000,
+    })
+    await settled(page)
+    const last = chatRequests(model)
+      .map(({ body }) => body)
+      .filter(offersTools)
+      .at(-1)!
+    const [search, report, sandbox] = toolResults(last)
+    await testInfo.attach('tool results', {
+      body: JSON.stringify({ search, report, sandbox }, null, 2),
+      contentType: 'application/json',
+    })
+
+    // The search row for the page: a time this test computes from a visit.
+    const row = search.split('\n').find((line) => line.includes(title))
+    expect(row, 'the page is in the search results').toBeTruthy()
+    const time = /^\[\d+\] (.+?) \|/.exec(row!)?.[1]
+    expect(
+      shown,
+      `${time} is one of the page's visits, with its weekday`,
+    ).toContain(time)
+
+    // The report reaches the model as pages of JSON text: every day in the
+    // first page, the requested one among them, has its weekday on the next line.
+    const fragment = (
+      JSON.parse(report.slice(report.indexOf('\n') + 1)) as {
+        jsonFragment: string
+      }
+    ).jsonFragment
+    const dated = [
+      ...fragment.matchAll(/"(?:date|dateKey)": "(\d{4}-\d{2}-\d{2})"/g),
+    ].filter((match) => match.index < fragment.length - 64)
+    const days = [
+      ...fragment.matchAll(
+        /"(?:date|dateKey)": "(\d{4}-\d{2}-\d{2})",\n\s*"weekday": "(\w+)"/g,
+      ),
+    ]
+    expect(days.map(([, date]) => date)).toContain(day)
+    expect(days.length, 'no day without its weekday').toBe(dated.length)
+    for (const [, date, name] of days)
+      expect(name, date).toBe(weekday(Date.parse(`${date}T12:00:00Z`)))
+
+    // Sandbox rows: the time keeps its shape, the weekday has a field.
+    const rows = JSON.parse(
+      /\[\s*\[[\s\S]*\]\s*\]/.exec(sandbox)?.[0] ?? '[]',
+    ) as [string, string, string][]
+    expect(rows.length, 'the sandbox found the page').toBeGreaterThan(0)
+    for (const [local, date, weekdayName] of rows) {
+      expect(local).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/)
+      expect(local.startsWith(date)).toBe(true)
+      expect(weekdayName, date).toBe(weekday(Date.parse(`${date}T12:00:00Z`)))
+    }
   } finally {
     await model.close()
   }
