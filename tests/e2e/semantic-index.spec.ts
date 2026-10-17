@@ -52,7 +52,10 @@ import {
   retitleChromePage,
 } from '../../scripts/fixtures/synthetic-browsers.mjs'
 import { killAndRestartApp, unlockIfLocked } from './support/app'
-import { startFakeEmbeddings } from './support/fake-embeddings'
+import {
+  fakeEmbeddingVector,
+  startFakeEmbeddings,
+} from './support/fake-embeddings'
 import {
   archivedVisits,
   backend,
@@ -794,6 +797,150 @@ test('the model gets each page’s own text and searches in its own form; an ind
       timeout: 30_000,
     })
     await expect(olderText).toHaveCount(0)
+    finished = true
+  } finally {
+    const restore = async () => {
+      await unlockIfLocked(page)
+      const current = await loadConfig()
+      await backend('save_config', { config: { ...current, ai: before.ai } })
+    }
+    await restore().catch(async (error: unknown) => {
+      if (finished) throw error
+      await testInfo.attach('cleanup failed too', { body: String(error) })
+    })
+    await service.close()
+  }
+})
+
+test('a browser-filtered semantic search pages through to its least similar page', async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(600_000)
+  const dimensions = 256
+  const service = await startFakeEmbeddings({ dimensions })
+  const before = await loadConfig()
+  const words = 'first seen here'
+  const outsideTitle = 'First seen here'
+  const firefox = fixture().visitsByProfile['firefox:k3x9.default-release']
+  const newest = new Map<string, number>()
+  for (const visit of firefox)
+    newest.set(visit.title, Math.max(newest.get(visit.title) ?? 0, visit.at))
+  expect(
+    newest.size,
+    'the filtered result spans more than one 50-row page',
+  ).toBeGreaterThan(50)
+  expect(newest.has(outsideTitle), 'the closest page is outside Firefox').toBe(
+    false,
+  )
+  let finished = false
+  try {
+    await page.goto('/#/settings/ai')
+    await unlockIfLocked(page)
+    await page.getByRole('combobox', { name: 'Model' }).click()
+    await page
+      .getByRole('option', { name: 'Add an embeddings service…' })
+      .click()
+    const dialog = page.getByRole('dialog', {
+      name: 'Add an embeddings service',
+    })
+    await dialog.getByRole('combobox', { name: 'Service' }).click()
+    await page.getByRole('option', { name: 'OpenAI or compatible' }).click()
+    await dialog.getByRole('textbox', { name: 'Address' }).fill(service.url)
+    await dialog.getByRole('textbox', { name: 'Model' }).fill('e2e-embed')
+    await dialog
+      .getByRole('textbox', { name: 'Name' })
+      .fill('E2E filtered embeddings')
+    await dialog.getByRole('button', { name: 'Add service' }).click()
+    await expect(page.getByRole('combobox', { name: 'Model' })).toContainText(
+      'E2E filtered embeddings',
+    )
+    const enabled = page.getByRole('switch', { name: 'Semantic search' })
+    if (!(await enabled.isChecked())) await enabled.click()
+    else
+      await page
+        .getByRole('button', { name: 'Build index', exact: true })
+        .click()
+    await expect
+      .poll(async () => (await queueStatus()).semanticIndex.chosenComplete, {
+        timeout: 240_000,
+      })
+      .toBe(true)
+
+    // Compute the tail from the service's word counts, independently of search.
+    // Zero overlap is exactly zero after int8 quantisation too. Among ties,
+    // choose the oldest page so reaching it requires following the cursor.
+    const query = fakeEmbeddingVector(words, dimensions)
+    const documents = service.inputs.flatMap((text) => {
+      const title = text.split('\n')[0]
+      if (!newest.has(title)) return []
+      const vector = fakeEmbeddingVector(text, dimensions)
+      return [
+        {
+          title,
+          score: vector.reduce((sum, value, i) => sum + value * query[i], 0),
+          newest: newest.get(title)!,
+        },
+      ]
+    })
+    documents.sort((a, b) => a.score - b.score || a.newest - b.newest)
+    const tail = documents[0]
+    expect(tail.score, 'the tail shares no query words').toBe(0)
+    expect(
+      service.inputs.some((text) => text.startsWith(`${outsideTitle}\n`)),
+    ).toBe(true)
+
+    await page.goto('/#/history')
+    await page.getByRole('searchbox', { name: 'Search history' }).fill(words)
+    await page.getByRole('radio', { name: 'Semantic' }).click()
+    await expect(page.getByText(/Semantic search with /)).toBeVisible({
+      timeout: 60_000,
+    })
+    const list = page.getByRole('listbox', { name: 'History results' })
+    const rows = list.getByRole('option')
+    await expect(rows.first()).toContainText(outsideTitle, { timeout: 60_000 })
+    await page.getByRole('button', { name: /^Browser filter: / }).click()
+    await page
+      .getByRole('menuitemradio', { name: 'Firefox', exact: true })
+      .click()
+    await expect(
+      page.getByRole('button', { name: 'Browser filter: Firefox' }),
+    ).toBeVisible()
+    await expect(rows.filter({ hasText: outsideTitle })).toHaveCount(0, {
+      timeout: 60_000,
+    })
+    const seen = new Set<string>()
+    let reached = false
+    for (let step = 0; step < 300; step++) {
+      await expect(rows.filter({ hasText: outsideTitle })).toHaveCount(0)
+      const texts = await rows.allInnerTexts()
+      texts.forEach((text) => seen.add(text))
+      if (texts.some((text) => text.includes(tail.title))) {
+        reached = true
+        break
+      }
+      await list.evaluate((element) => {
+        element.parentElement!.scrollTop += 300
+      })
+      await page.waitForTimeout(100)
+    }
+    await testInfo.attach('filtered semantic pagination', {
+      body: JSON.stringify(
+        { words, tail, seen: [...seen], outsideTitle },
+        null,
+        2,
+      ),
+      contentType: 'application/json',
+    })
+    await testInfo.attach('least similar eligible page', {
+      body: await page.screenshot(),
+      contentType: 'image/png',
+    })
+    expect(reached, 'the least similar eligible page is reachable').toBe(true)
+    expect(
+      seen.size,
+      'History followed at least one semantic cursor',
+    ).toBeGreaterThan(50)
+    expect([...seen].some((text) => text.includes(outsideTitle))).toBe(false)
     finished = true
   } finally {
     const restore = async () => {

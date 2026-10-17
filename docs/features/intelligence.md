@@ -75,7 +75,7 @@ continuation fields are listed in the [area-4 contract report](../architecture/r
 ### 需求要點
 
 - semantic / hybrid search 已交付（W-AI-4/5/6），但 **off by default + consent-gated**（master `ai.enabled` + `semantic_index_enabled`）；沒開時 History 搜尋維持全文 / regex（lexical recall v2）。
-- 向量相似度走 in-app（model2vec static 模型）或 external（OpenAI-compatible `/v1/embeddings`）embedding（Settings → AI 的「模型」選 in-app，或使用者加的 OpenAI 相容 embeddings 服務：Ollama、LM Studio、OpenAI 或相容的位址，存在 `ai.embeddingProviders`，加了就讀模型清單檢查），寫進 `derived/vectors/` 的 `FlatVectorIndex` sidecar plane（`.pkvec/.pkmap/.pkbin/.pki8`），不連結 LanceDB。
+- 向量相似度走 in-app（model2vec static 模型）或 external（OpenAI-compatible `/v1/embeddings`）embedding（Settings → AI 的「模型」選 in-app，或使用者加的 OpenAI 相容 embeddings 服務：Ollama、LM Studio、OpenAI 或相容的位址，存在 `ai.embeddingProviders`，加了就讀模型清單檢查），寫進 `derived/vectors/` 的 `FlatVectorIndex` sidecar plane（`.pkvec/.pkmap/.pkbin/.pki8`，加上投影出來的 `.pkrev/.pkfwd/.pkpos`），不連結 LanceDB。搜尋時每個向量都計分（int8 plane 整塊 map、連續掃），再用一次串流讀完搜尋範圍內的造訪，取每頁範圍內造訪的最高分；不逐筆、不逐頁回查資料庫。建索引途中搜尋用上一份完整投影，建完那一刻才換。
 - 舊工作沒有記錄模型時，啟動一律取消（包含尚未執行、游標為 0 的工作），保留索引檔案；新的增量請求才可補缺。
 - 內建 embedding 引擎按模型目錄在程序內共用，搜尋、漂移檢查與建置使用同一份載入的權重；目錄、驗證標記或模型檔案變更才重新驗證／載入。
 - Embedding 增量計算、content-hash dedup（一個 content_key 一條向量，fan-out 到所有共享該內容的 visit）、本地索引、避免重算。

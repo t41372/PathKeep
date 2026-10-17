@@ -1,44 +1,15 @@
-//! Keyed reverse/forward visit↔content sidecars over `derived/vectors/` (05 §10).
+//! Responsibilities: project the append-ordered `.pkmap` into sorted forward and reverse sidecars,
+//! then the visit → position map that search reads.
+//! Not responsible for: vector scoring, canonical eligibility or page ranking.
+//! Failure modes: a torn or half-replaced pair is trusted; sidecars outlive a model change;
+//! last-writer-wins remaps are lost. Tests: sidecar tests below, `ai/tests.rs` fallbacks.
 //!
-//! ## Responsibilities
-//! - turn the append-ordered `.pkmap` ([`super::visit_content_map::VisitContentMap`]) into two
-//!   SORTED, fixed-width sidecars that answer the two query-time joins in BOUNDED time instead of a
-//!   full corpus stride:
-//!   - the **reverse sidecar** (`.pkrev`): `(content_key, history_id)` records sorted by
-//!     `(content_key, history_id)`, so semantic hydration resolves the ~k' result content_keys to
-//!     their visits by BINARY SEARCH on disk — O(k' · log n) seeks, NOT the O(n) `.pkmap` stride the
-//!     always-on hydration path used. A content_key's visits form ONE contiguous run, so a
-//!     single binary search to the run start plus a forward scan collects every history_id.
-//!   - the **forward sidecar** (`.pkfwd`): `(history_id, content_key)` records sorted by
-//!     `(history_id, content_key)`; semantic search streams it as the last-writer-wins
-//!     visit→content projection without holding the map in RAM.
-//! - stay DERIVED + REBUILDABLE: both sidecars are pure projections of the `.pkmap`, stamped with the
-//!   SAME [`EmbeddingFingerprint`] hash as the `.pkvec`/planes so a model/dim change marks them stale
-//!   and they re-project (zero training), and EXPORT-EXCLUDED like every `derived/vectors/` plane.
-//!
-//! ## Not responsible for
-//! - the append-ordered authoritative `.pkmap` (this is a downstream sorted projection of it, never a
-//!   source of truth — a torn/missing sidecar re-projects from the `.pkmap`);
-//! - the vectors / dedup hashing / nearest-neighbour search (those stay with their owners).
-//!
-//! ## Why a persisted SORTED sidecar instead of a resident `HashMap`
-//! At the 14.4M-visit tail the `.pkmap` is per-VISIT (it does NOT shrink with dedup), so a resident
-//! `HashMap<content_key, Vec<history_id>>` is ~300–460 MB stacked on top of the ~879 MB binary plane —
-//! a meaningful bite of the 8 GB envelope when the WebView + SQLCipher cache + a running embedder also
-//! need room (Principle 3). The whole retrieval plane's posture is "binary-plane-only resident; int8
-//! seeked on disk" (05 §10); a resident reverse map would break it. So these sidecars MIRROR the
-//! int8 plane exactly: fixed-width records, sorted, BINARY-SEARCHED by file position with ~0 added
-//! resident RAM. A keyed lookup touches only the wanted keys' records.
-//!
-//! ## Format (little-endian; both sidecars mirror the `.pkvec` magic+header discipline)
 //! ```text
-//! .pkrev  magic 8 = b"PKREV\0\x01\0" | u32 len + JSON ReverseMapHeader | records [ content_key:u64 | history_id:i64 ]  sorted by (content_key, history_id)
-//! .pkfwd  magic 8 = b"PKFWD\0\x01\0" | u32 len + JSON ReverseMapHeader | records [ history_id:i64  | content_key:u64 ]  sorted by (history_id, content_key)
+//! .pkrev  magic b"PKREV\0\x01\0" | u32 len + JSON ReverseMapHeader | records [ content_key:u64 | history_id:i64 ] sorted by key
+//! .pkfwd  magic b"PKFWD\0\x01\0" | u32 len + JSON ReverseMapHeader | records [ history_id:i64 | content_key:u64 ] sorted by visit
 //! ```
-//! Each record is a fixed 16 bytes (two u64/i64). The leading 8 bytes are the SORT KEY of that
-//! sidecar (content_key for `.pkrev`, history_id for `.pkfwd`), so a binary search compares only the
-//! first 8 bytes of each probed record. The header carries the source fingerprint hash + the record
-//! COUNT (so the binary search bound is read without a metadata round-trip per probe).
+//! Both carry the source fingerprint, the record count and one projection id. They are rebuilt at
+//! the end of every index pass; until then search keeps using the previous complete pair.
 
 use super::visit_content_map::VisitContentMap;
 use crate::ai_sidecar::provider_table_name;
@@ -76,6 +47,9 @@ pub struct ReverseMapHeader {
     pub fingerprint_hash: String,
     /// Number of fixed-width records (the binary-search upper bound).
     pub record_count: u64,
+    /// Identifies one projection, so a position map built against another one is never used.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub projection_id: String,
 }
 
 /// Resolves the reverse (`.pkrev`) sidecar path for one provider/model pair under `derived/vectors/`.
@@ -96,6 +70,8 @@ fn forward_map_path(paths: &ProjectPaths, provider_id: &str, model: &str) -> Pat
 /// (project from `.pkmap`) and the query-time binary searches stay separate concerns, mirroring the
 /// [`super::vector_planes`] handles.
 pub struct ReverseVisitMap {
+    provider: String,
+    model: String,
     reverse_path: PathBuf,
     forward_path: PathBuf,
 }
@@ -104,6 +80,8 @@ impl ReverseVisitMap {
     /// Resolves the sidecar-pair handle for one provider/model pair.
     pub fn for_provider(paths: &ProjectPaths, provider_id: &str, model: &str) -> Self {
         Self {
+            provider: provider_id.into(),
+            model: model.into(),
             reverse_path: reverse_map_path(paths, provider_id, model),
             forward_path: forward_map_path(paths, provider_id, model),
         }
@@ -169,6 +147,9 @@ impl ReverseVisitMap {
         ensure_paths(paths)?;
         // `read_all` is last-writer-wins per history_id, so a torn-resume re-map is already collapsed:
         // one (history_id, content_key) pair per visit — the dedup parity the `.pkvec` reader holds.
+        let mut id = [0; 16];
+        getrandom::fill(&mut id)?;
+        let projection_id = hex::encode(id);
         let map = visit_map.read_all()?;
         let mut pairs: Vec<(i64, u64)> = map.into_iter().collect();
         let record_count = pairs.len() as u64;
@@ -182,6 +163,7 @@ impl ReverseVisitMap {
             &REVERSE_MAP_MAGIC,
             fingerprint_hash,
             record_count,
+            &projection_id,
             pairs.iter().map(|&(history_id, content_key)| (content_key, history_id as u64)),
         )?;
 
@@ -200,9 +182,34 @@ impl ReverseVisitMap {
             &FORWARD_MAP_MAGIC,
             fingerprint_hash,
             record_count,
+            &projection_id,
             pairs.iter().map(|&(history_id, content_key)| (history_id as u64, content_key)),
         )?;
+        super::visit_position_map::rebuild(paths, &self.provider, &self.model)?;
         Ok(record_count)
+    }
+
+    /// The forward projection's identity when both sidecars are complete and stamped for these planes.
+    ///
+    /// Appends to `.pkmap` during a pass do not invalidate it: search keeps the last complete
+    /// projection until the pass re-projects at its end.
+    pub(super) fn projection_header(&self, fingerprint: &str) -> Result<Option<(String, u64)>> {
+        let pair = (|| -> Result<_> {
+            let reverse = read_sidecar_header(&self.reverse_path, &REVERSE_MAP_MAGIC)?;
+            let forward = read_sidecar_header(&self.forward_path, &FORWARD_MAP_MAGIC)?;
+            Ok(reverse.zip(forward))
+        })();
+        let Ok(Some((reverse, forward))) = pair else {
+            return Ok(None);
+        };
+        if reverse != forward || forward.fingerprint_hash != fingerprint {
+            return Ok(None);
+        }
+        let expected = data_start_offset(&forward)? + forward.record_count * RECORD_LEN as u64;
+        if fs::metadata(&self.forward_path)?.len() != expected {
+            return Ok(None);
+        }
+        Ok(Some((forward.projection_id, forward.record_count)))
     }
 
     /// Collects, for each WANTED `content_key`, every `history_id` that maps to it (keyed hydration).
@@ -276,7 +283,8 @@ impl ReverseVisitMap {
     /// is the correct reset (a later build re-projects them from the surviving `.pkmap`).
     pub fn delete(&self) -> Result<bool> {
         let mut removed = false;
-        for path in [&self.reverse_path, &self.forward_path] {
+        let positions = self.forward_path.with_extension("pkpos");
+        for path in [&self.reverse_path, &self.forward_path, &positions] {
             if path.exists() {
                 fs::remove_file(path)
                     .with_context(|| format!("removing reverse sidecar {}", path.display()))?;
@@ -298,6 +306,7 @@ fn write_sidecar_atomic(
     magic: &[u8; 8],
     fingerprint_hash: &str,
     record_count: u64,
+    projection_id: &str,
     records: impl Iterator<Item = (u64, u64)>,
 ) -> Result<()> {
     let tmp = sidecar_tmp_path(path);
@@ -306,8 +315,11 @@ fn write_sidecar_atomic(
             .with_context(|| format!("creating reverse sidecar temp {}", tmp.display()))?;
         let mut writer = BufWriter::new(file);
         writer.write_all(magic).context("writing reverse sidecar magic")?;
-        let header =
-            ReverseMapHeader { fingerprint_hash: fingerprint_hash.to_string(), record_count };
+        let header = ReverseMapHeader {
+            fingerprint_hash: fingerprint_hash.to_string(),
+            record_count,
+            projection_id: projection_id.into(),
+        };
         let json = serde_json::to_vec(&header).context("serializing reverse sidecar header")?;
         let len = u32::try_from(json.len()).context("reverse sidecar header too large")?;
         writer.write_all(&len.to_le_bytes()).context("writing reverse sidecar header length")?;
@@ -484,6 +496,7 @@ mod tests {
             &FORWARD_MAP_MAGIC,
             "fp-1",
             1, // a count that does NOT match the reverse sidecar's 2
+            "test",
             std::iter::once((1u64, 0x1u64)),
         )
         .expect("rewrite forward with a diverging count");

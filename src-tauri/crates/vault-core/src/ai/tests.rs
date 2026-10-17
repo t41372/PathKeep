@@ -479,3 +479,90 @@ fn semantic_facets_find_eligible_pages_beyond_every_former_recall_pool() {
 
 #[path = "tests_native/mod.rs"]
 pub(in crate::ai) mod native;
+
+#[test]
+fn semantic_search_rejects_a_position_map_from_another_projection() {
+    // Counts and fingerprint can stay equal while positions and visit mappings change.
+    // A stale cache must rank exactly like rebuilding from the authoritative map.
+    let runtime = Runtime::new().unwrap();
+    let (paths, config, connection) = prepared_archive();
+    let provider = embedding_provider();
+    for id in 1..=3 {
+        seed_visit(
+            &connection,
+            id,
+            "chrome:Default",
+            &format!("https://example.com/{id}"),
+            Some("Page"),
+            id,
+        );
+    }
+    let vector =
+        runtime.block_on(embed_query(&paths, &provider, "docs", EmbeddingRole::Query)).unwrap();
+    let opposite = vector.iter().map(|x| -x).collect::<Vec<_>>();
+    seed_vector_planes(
+        &paths,
+        &provider,
+        &[(1, 11, vector.clone()), (2, 22, opposite.clone()), (3, 33, opposite.clone())],
+    );
+    let cache = super::visit_position_map::path(
+        &paths,
+        &provider.config.id,
+        &provider.config.default_model,
+    );
+    let old = std::fs::read(&cache).unwrap();
+    seed_vector_planes(
+        &paths,
+        &provider,
+        &[(1, 22, opposite), (2, 11, vector.clone()), (3, 33, vector)],
+    );
+    let request = AiSearchRequest { query: "docs".into(), limit: Some(10), ..Default::default() };
+    let search = || {
+        runtime
+            .block_on(semantic_matches(
+                &connection.vault,
+                &paths,
+                &config,
+                None,
+                &provider,
+                &request,
+                None,
+            ))
+            .unwrap()
+            .hits
+    };
+    let current = std::fs::read(&cache).unwrap();
+    let mut truncated = current.clone();
+    truncated.pop();
+    let mut out_of_range = current.clone();
+    let end = out_of_range.len();
+    out_of_range[end - 4..].copy_from_slice(&(u32::MAX - 1).to_le_bytes());
+    let header_len = u32::from_le_bytes(current[8..12].try_into().unwrap()) as usize;
+    let mut header: serde_json::Value =
+        serde_json::from_slice(&current[12..12 + header_len]).unwrap();
+    header["fingerprintHash"] = serde_json::json!("another fingerprint");
+    let json = serde_json::to_vec(&header).unwrap();
+    let mut different_fingerprint = current[..8].to_vec();
+    different_fingerprint.extend_from_slice(&(json.len() as u32).to_le_bytes());
+    different_fingerprint.extend_from_slice(&json);
+    different_fingerprint.extend_from_slice(&current[12 + header_len..]);
+
+    std::fs::remove_file(&cache).unwrap();
+    let ranked = |hits: Vec<AiSearchEntry>| {
+        hits.into_iter().map(|hit| (hit.history_id, hit.score)).collect::<Vec<_>>()
+    };
+    let absent = ranked(search());
+    assert_eq!(absent.iter().map(|hit| hit.0).collect::<Vec<_>>(), [3, 2, 1]);
+    assert!(!cache.exists(), "search must not write the derived cache");
+    for (name, bytes) in [
+        ("current", current),
+        ("stale projection", old),
+        ("torn file", truncated),
+        ("position beyond plane", out_of_range),
+        ("fingerprint", different_fingerprint),
+    ] {
+        std::fs::write(&cache, &bytes).unwrap();
+        assert_eq!(ranked(search()), absent, "{name}");
+        assert_eq!(std::fs::read(&cache).unwrap(), bytes, "search must not repair {name} on disk");
+    }
+}

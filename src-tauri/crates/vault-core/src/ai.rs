@@ -42,6 +42,7 @@ mod vector_index;
 mod vector_planes;
 mod vector_store;
 mod visit_content_map;
+mod visit_position_map;
 mod working_set;
 
 use crate::{
@@ -125,7 +126,7 @@ pub use self::traits::{
 };
 pub use self::vector_index::FlatVectorIndex;
 pub use self::vector_planes::{
-    BinaryPlane, Int8Plane, Int8PlaneReader, Int8Vector, PlaneBuildReport, PlaneHeader, binarize,
+    BinaryPlane, Int8Plane, Int8Vector, PlaneBuildReport, PlaneHeader, binarize,
     binary_bytes_for_dim, build_planes_from_store, dequantize_int8, dot_product, hamming_distance,
     planes_are_stale, quantize_int8,
 };

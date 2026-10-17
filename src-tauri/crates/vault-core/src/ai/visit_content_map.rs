@@ -172,12 +172,24 @@ impl VisitContentMap {
 
     /// Deletes the map file if it exists, returning whether a file was removed.
     pub fn delete(&self) -> Result<bool> {
+        self.invalidate_projections()?;
         if !self.exists() {
             return Ok(false);
         }
         fs::remove_file(&self.path)
             .with_context(|| format!("removing visit map {}", self.path.display()))?;
         Ok(true)
+    }
+
+    // Projections of a deleted map must not outlive it.
+    fn invalidate_projections(&self) -> Result<()> {
+        for extension in ["pkrev", "pkfwd", "pkpos"] {
+            let path = self.path.with_extension(extension);
+            if path.exists() {
+                fs::remove_file(path)?;
+            }
+        }
+        Ok(())
     }
 
     /// Strides record-by-record, invoking `sink` for each `(history_id, content_key)`.

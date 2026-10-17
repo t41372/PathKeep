@@ -1,14 +1,13 @@
 //! Responsibilities: measure the real semantic pipeline with ordinary archive/index files.
 //! Not responsible for: embedding model speed, production changes, or substituting fake storage.
 //!
-//! This is a child of search_ranking solely to reach its private hydration/rank types. The copied
-//! ranking tail must stay in sync with `page`; each probe compares its page with the public entry.
-//! Query embeddings are computed before stage timing; the public cross-check includes the existing
-//! cfg(test) external provider stub (no model, download, HTTP or inference). All storage is real.
+//! Stage probes call the same private functions as History and cross-check the public result.
 
 use super::*;
 use crate::ai::traits::{EmbeddingDescriptor, EmbeddingProvider};
-use crate::ai::{EmbeddingFingerprint, VectorStore, build_planes_from_store};
+use crate::ai::{
+    EmbeddingFingerprint, ReverseVisitMap, VectorStore, VisitContentMap, build_planes_from_store,
+};
 use anyhow::{Context, ensure};
 use serde::Serialize;
 use std::fs::OpenOptions;
@@ -100,6 +99,7 @@ fn seed(vault: &Vault, visits: i64, provider: &AiProviderRuntime) -> Result<()> 
     build_planes_from_store(paths, &provider.config.id, &provider.config.default_model)?;
     ReverseVisitMap::for_provider(paths, &provider.config.id, &provider.config.default_model)
         .build_from_visit_map(paths, &map, &fingerprint.hash())?;
+    let watermark = crate::ai::native_ledger::current_source_watermark(vault)?;
     let provider = provider.clone();
     vault.store().write(Db::Intelligence,Priority::Batch,move|s| {
         let mut row=s.prepare("INSERT INTO ai_embeddings(history_id,profile_id,url,title,domain,visited_at,content_hash,content_bytes,metadata_bytes,provider_id,model,indexed_at) VALUES(?1,'chrome:Default',?2,?3,?4,'2026-01-01T00:00:00Z',?5,64,0,?6,?7,'2026-10-16T00:00:00Z')")?;
@@ -109,7 +109,7 @@ fn seed(vault: &Vault, visits: i64, provider: &AiProviderRuntime) -> Result<()> 
             row.execute(params![id,format!("https://{domain}/page/{page}"),format!("Page {page} topic{}",page%20),domain,format!("page-{page}"),provider.config.id.as_str(),provider.config.default_model.as_str()])?;
         }
         s.execute("INSERT INTO ai_embedding_totals(provider_id,model,item_count,content_bytes,metadata_bytes,last_indexed_at) VALUES(?1,?2,?3,?4,0,'2026-10-16T00:00:00Z')",params![provider.config.id.as_str(),provider.config.default_model.as_str(),visits,visits*64])?;
-        s.execute("INSERT INTO ai_index_ledger(provider_id,model,sidecar_table,index_version,state,source_watermark,last_run_id,build_started_at,build_finished_at,last_indexed_at) VALUES(?1,?2,'ai_embeddings','stage-bench','ready',?3,1,'2026-10-16T00:00:00Z','2026-10-16T00:00:00Z','2026-10-16T00:00:00Z')",params![provider.config.id.as_str(),provider.config.default_model.as_str(),(visits<<32)^visits])?;
+        s.execute("INSERT INTO ai_index_ledger(provider_id,model,sidecar_table,index_version,state,source_watermark,last_run_id,build_started_at,build_finished_at,last_indexed_at) VALUES(?1,?2,'ai_embeddings','stage-bench','ready',?3,1,'2026-10-16T00:00:00Z','2026-10-16T00:00:00Z','2026-10-16T00:00:00Z')",params![provider.config.id.as_str(),provider.config.default_model.as_str(),watermark])?;
         Ok(())
     })?;
     Ok(())
@@ -118,12 +118,11 @@ fn seed(vault: &Vault, visits: i64, provider: &AiProviderRuntime) -> Result<()> 
 #[derive(Serialize)]
 struct Probe {
     query: String,
-    setup_ms: f64,
-    validation_cleanup_ms: f64,
-    open_ms: f64,
-    scan_ms: f64,
-    hydrate_ms: f64,
-    rank_page_ms: f64,
+    lexical_ms: f64,
+    semantic_ms: f64,
+    scope_ms: f64,
+    rank_fuse_ms: f64,
+    first_page_ms: f64,
     total_ms: f64,
     public_ms: f64,
     pages: usize,
@@ -150,105 +149,27 @@ fn measured_page(
     vector: &[f32],
 ) -> Result<(Probe, Vec<i64>)> {
     let total = Instant::now();
-    let mut scope = query(request);
-    scope.ranking_key = Some(serde_json::to_string(&(
-        Some((&provider.config.id, &provider.config.default_model)),
-        config.ai.hybrid_rrf_k,
-        config.ai.lexical_weight,
-        config.ai.semantic_weight,
-        config.ai.starred_boost,
-    ))?);
+    let scope = ranked_query(config, Some(provider), request)?;
     let mut session = SearchSession::start(vault, scope.clone())?;
+    let ranks = lexical_ranks(&mut session)?;
     let cancel = session.cancel_token()?;
-    let lexical = session.collect_matches()?;
-    let mut ranks = HashMap::<u64, Ranks>::with_capacity(lexical.len());
-    for (rank, hit) in lexical.into_iter().enumerate() {
-        ranks.insert(
-            hit.page_id,
-            Ranks { lexical: rank as u64 + 1, newest: hit.visit_ms, ..Default::default() },
-        );
-    }
-    crate::ai::validate_provider(provider, crate::AiProviderPurpose::Embedding)?;
-    ensure!(
-        crate::ai::search_store::staleness(
-            vault,
-            &provider.config.id,
-            &provider.config.default_model
-        )?
-        .is_none(),
-        "seeded index is stale"
-    );
-    let setup_ms = elapsed(total);
+    let lexical_ms = elapsed(total);
     let start = Instant::now();
-    let index = FlatVectorIndex::open(paths, &provider.config.id, &provider.config.default_model)?;
-    let open_ms = elapsed(start);
-    let engine = crate::ai::embedding_engine::select_embedding_provider(paths, provider)?;
-    ensure!(
-        semantic_config_drift_reason(paths, provider, &engine, &index, vector.len())?.is_none(),
-        "seeded fingerprint drift"
-    );
+    let mut notes = Vec::new();
+    let index =
+        semantic_index(vault, paths, provider, &mut notes)?.context("empty seeded index")?;
+    let semantic = semantic_scores(paths, provider, &index, vector, &cancel, None, &mut notes)?
+        .context("seeded index drifted")?;
+    ensure!(notes.is_empty(), "seeded semantic stage degraded: {notes:?}");
+    let semantic_ms = elapsed(start);
     let start = Instant::now();
-    let mut scores = HashMap::with_capacity(index.len());
-    index.visit_scores(vector, &cancel, |key, score| {
-        scores.insert(key, score);
-        Ok(())
-    })?;
-    let scan_ms = elapsed(start);
+    let ranks = scope_pass(&mut session, ranks, semantic)?;
+    let scope_ms = elapsed(start);
     let start = Instant::now();
-    hydrate_scores(vault, paths, provider, &scope, &scores, &cancel, &mut ranks)?;
-    let hydrate_ms = elapsed(start);
-    // add_semantic's locals are freed before page() begins canonical-time lookup and RRF ranking.
-    drop(scores);
-    drop(index);
+    let scores = rank_and_fuse(vault, config, &session, ranks)?;
+    let rank_fuse_ms = elapsed(start);
     let start = Instant::now();
-    cancel.check()?;
-    let ids = ranks.keys().copied().collect::<Vec<_>>();
-    for (id, newest) in ids.iter().copied().zip(session.canonical_times(&ids)?) {
-        ranks.get_mut(&id).unwrap().newest = newest;
-    }
-    let mut semantic = ranks
-        .iter()
-        .filter_map(|(id, r)| r.semantic_score.map(|score| (*id, score, r.newest)))
-        .collect::<Vec<_>>();
-    semantic.sort_unstable_by(|a, b| b.1.total_cmp(&a.1).then(b.2.cmp(&a.2)).then(b.0.cmp(&a.0)));
-    for (rank, (id, _, _)) in semantic.into_iter().enumerate() {
-        ranks.get_mut(&id).unwrap().semantic = rank as u64 + 1;
-    }
-    if config.ai.starred_boost > 0. {
-        for page in crate::search::starred_pages(vault, &ids)? {
-            ranks.get_mut(&page).unwrap().starred = true;
-        }
-    }
-    let k = config.ai.hybrid_rrf_k.max(1) as f32;
-    let score = |r: &Ranks| {
-        (if r.lexical == 0 { 0. } else { config.ai.lexical_weight / (k + (r.lexical - 1) as f32) })
-            + (if r.semantic == 0 {
-                0.
-            } else {
-                config.ai.semantic_weight / (k + (r.semantic - 1) as f32)
-            })
-    };
-    let max = ranks.values().map(score).fold(0f32, f32::max);
-    let scale = if max > 0. { 1. / max } else { 1. };
-    let scores = ranks
-        .into_iter()
-        .map(|(id, r)| {
-            let boosted = r.starred && config.ai.starred_boost > 0.;
-            let value = score(&r) * scale + if boosted { config.ai.starred_boost } else { 0. };
-            let reason = match (r.lexical > 0, r.semantic > 0, boosted) {
-                (true, true, true) => "lexical+semantic+starred",
-                (true, true, false) => crate::ai::search::MATCH_REASON_LEXICAL_SEMANTIC,
-                (false, true, true) => "semantic+starred",
-                (false, true, false) => crate::ai::search::MATCH_REASON_SEMANTIC,
-                (_, false, true) => "lexical+starred",
-                _ => "lexical",
-            };
-            (id, (value, reason))
-        })
-        .collect::<Scores>();
-    session.install_scores(scores)?;
-    session.set_search_notes(Vec::new())?;
-    let step = crate::search::page_prepared(vault, scope, session)?;
+    let step = install_first_page(vault, scope, session, scores, notes)?;
     let pages = step.count.value as usize;
     // Include the same 50-row response hydration/conversion used by History.
     let items = step
@@ -263,19 +184,17 @@ fn measured_page(
         })
         .collect::<Vec<_>>();
     let ids = items.iter().map(|hit| hit.history_id).collect();
-    let rank_page_ms = elapsed(start);
+    let first_page_ms = elapsed(start);
     let total_ms = elapsed(total);
-    let validation_cleanup_ms = total_ms - setup_ms - open_ms - scan_ms - hydrate_ms - rank_page_ms;
     release_cursor(vault, step.cursor.as_deref())?;
     Ok((
         Probe {
             query: request.query.clone(),
-            setup_ms,
-            validation_cleanup_ms,
-            open_ms,
-            scan_ms,
-            hydrate_ms,
-            rank_page_ms,
+            lexical_ms,
+            semantic_ms,
+            scope_ms,
+            rank_fuse_ms,
+            first_page_ms,
             total_ms,
             public_ms: 0.,
             pages,
@@ -377,7 +296,6 @@ async fn semantic_stage_benchmark() -> Result<()> {
         "Stage queries use precomputed vectors. Public semantic_search_history uses the existing cfg(test) external embedding stub; no inference or transport measured. Warm OS cache; no cache flushing. Peak includes archive/index seeding and all 40 searches; separate process per visit count."
     );
     ensure!(crate::semantic_index::load_state(&vault)?.chosen_complete, "ledger is not complete");
-    ensure!(reverse_sidecars_usable(paths, &provider)?, "reverse sidecars not selected");
     let mut probes = Vec::new();
     for number in 0..QUERIES {
         let request = AiSearchRequest {
@@ -408,12 +326,11 @@ async fn semantic_stage_benchmark() -> Result<()> {
     println!("| stage | median ms | max ms |\n|---|---:|---:|");
     let mut summary = serde_json::Map::new();
     for (name, select) in [
-        ("setup (lexical + validation)", (|p: &Probe| p.setup_ms) as fn(&Probe) -> f64),
-        ("validation + temporary release", |p: &Probe| p.validation_cleanup_ms),
-        ("index open", |p: &Probe| p.open_ms),
-        ("scan + score map", |p: &Probe| p.scan_ms),
-        ("hydrate", |p: &Probe| p.hydrate_ms),
-        ("ranking + first page", |p: &Probe| p.rank_page_ms),
+        ("lexical ranks + session", (|p: &Probe| p.lexical_ms) as fn(&Probe) -> f64),
+        ("semantic scores + position map", |p: &Probe| p.semantic_ms),
+        ("scope pass", |p: &Probe| p.scope_ms),
+        ("rank + fuse + stars", |p: &Probe| p.rank_fuse_ms),
+        ("install + first page", |p: &Probe| p.first_page_ms),
         ("total (embedding excluded)", |p: &Probe| p.total_ms),
         ("public entry (test stub embedding)", |p: &Probe| p.public_ms),
     ] {

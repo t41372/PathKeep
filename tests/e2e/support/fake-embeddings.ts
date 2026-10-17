@@ -58,7 +58,7 @@ export interface FakeEmbeddings {
 const INSTRUCTED_QUERY = /^Instruct: [^\n]*\nQuery:/
 
 /** Word counts in hashed slots, scaled to length 1. */
-function vectorOf(text: string, dimensions: number) {
+export function fakeEmbeddingVector(text: string, dimensions: number) {
   const vector = new Array<number>(dimensions).fill(0)
   const searched = text.replace(INSTRUCTED_QUERY, '')
   for (const word of searched.toLowerCase().split(/[^\p{L}\p{N}]+/u)) {
@@ -130,7 +130,7 @@ export async function startFakeEmbeddings({
             data: texts.map((text, index) => ({
               object: 'embedding',
               index,
-              embedding: vectorOf(text, dimensions),
+              embedding: fakeEmbeddingVector(text, dimensions),
             })),
             model: body.model ?? 'e2e-embed',
             usage: { prompt_tokens: texts.length, total_tokens: texts.length },

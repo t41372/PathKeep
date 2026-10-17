@@ -1,197 +1,126 @@
-//! Responsibilities: persist vector planes and score every stored vector for search.
-//! Not responsible for: canonical eligibility, page fusion, query transport or vector generation.
-//! Failure modes: finite binary recall hides the true winner; facets hide eligible old keys;
-//! vector dimensions drift; disk/resident planes disagree; ties vary between queries.
-//! Tests: the complete score stream here; semantic pool tests in `ai/tests.rs`.
-
+//! Responsibilities: map the int8 projection and score every vector in plane order.
+//! Not responsible for: canonical eligibility, page fusion or embedding generation.
+//! Failure modes: a candidate pool hides a distant vector; a query of another dimension is scored;
+//! cancellation is ignored on a large plane. Tests: below, and the complete-pool suites in
+//! `ai/tests.rs`; `tests/vector_scan_bench` for cost.
 use crate::ai::traits::VectorIndex;
-use crate::ai::vector_planes::{
-    BinaryPlane, Int8Plane, Int8Vector, binarize, dequantize_int8, dot_product, quantize_int8,
-};
+use crate::ai::vector_planes::{Int8Plane, MappedInt8Plane};
 use crate::config::ProjectPaths;
 use anyhow::Result;
 use std::collections::HashSet;
 
-/// A flat vector store with complete scoring over its int8 plane.
-///
-/// Holds the binary plane for key/position alignment; the int8 score plane is
-/// seeked off disk by position for a plane-backed index (resident = binary only), or held
-/// resident for an in-memory index (tests/bench, no on-disk plane). Construct via
-/// [`FlatVectorIndex::open`] (reads the on-disk binary plane, seeks int8) or [`FlatVectorIndex::empty`]
-/// (an in-memory index a caller `build`s); either way it implements the [`VectorIndex`] trait so a
-/// future indexed engine is a drop-in replacement.
+/// Keeps query memory bounded by mapping the immutable score plane.
 pub struct FlatVectorIndex {
-    /// `(content_key, packed_sign_bits)` for the Hamming recall sweep, in projection order (the same
-    /// order the int8 plane was written, so a binary position indexes the aligned int8 record).
-    binary: Vec<(u64, Vec<u8>)>,
-    /// `(content_key, int8_vector)` for the rescore stage — populated ONLY for an in-memory index;
-    /// EMPTY for a plane-backed index (which seeks int8 records off disk by position instead).
-    int8: Vec<(u64, Int8Vector)>,
-    /// Effective dim of the held vectors; `0` until the first vector is ingested (D4: never assumed).
-    dim: usize,
-    /// On-disk plane handles for `load` + int8 seek-by-position; `None` in-memory.
-    planes: Option<PlaneHandles>,
+    mapped: Option<MappedInt8Plane>,
+    plane: Int8Plane,
 }
-
-/// On-disk plane handles backing an index built from a provider/model's projected planes.
-struct PlaneHandles {
-    binary: BinaryPlane,
-    int8: Int8Plane,
-}
-
 impl FlatVectorIndex {
-    /// Builds an empty, purely in-memory index (no on-disk planes; `load` is a no-op).
-    ///
-    /// Used by the projection-free `build`-from-vectors path (the vector index benchmark). The `dim` is `0` until the
-    /// first vector arrives via [`VectorIndex::build`]/[`VectorIndex::append`].
-    pub fn empty() -> Self {
-        Self { binary: Vec::new(), int8: Vec::new(), dim: 0, planes: None }
-    }
-
-    /// Opens the index over one provider/model's derived planes, loading them into RAM.
-    ///
-    /// Reads the binary + int8 planes (projected from `.pkvec` by [`super::vector_planes`]). Missing
-    /// planes load as EMPTY (never an error): a never-built index yields zero results with an honest
-    /// note from the search layer, never a panic. The dim is taken from the binary plane header so the
-    /// recall stride is the truth, not an assumption.
-    pub fn open(paths: &ProjectPaths, provider_id: &str, model: &str) -> Result<Self> {
-        let binary = BinaryPlane::for_provider(paths, provider_id, model);
-        let int8 = Int8Plane::for_provider(paths, provider_id, model);
-        let mut index = Self {
-            binary: Vec::new(),
-            int8: Vec::new(),
-            dim: 0,
-            planes: Some(PlaneHandles { binary, int8 }),
-        };
+    /// Opens headers and maps the int8 file; sign bits are not needed for complete scoring.
+    pub fn open(paths: &ProjectPaths, provider: &str, model: &str) -> Result<Self> {
+        let mut index =
+            Self { plane: Int8Plane::for_provider(paths, provider, model), mapped: None };
         index.load()?;
         Ok(index)
     }
-
-    /// Returns the number of vectors held by the index.
     pub fn len(&self) -> usize {
-        self.binary.len()
+        self.mapped.as_ref().map_or(0, |plane| plane.len())
     }
-
-    /// Returns whether the index holds no vectors.
     pub fn is_empty(&self) -> bool {
-        self.binary.is_empty()
+        self.len() == 0
     }
-
-    /// Returns the effective dim of the held vectors (`0` when empty).
     pub fn dim(&self) -> usize {
-        self.dim
+        self.mapped.as_ref().map_or(0, |plane| plane.header.dim)
     }
-
-    /// Scores every stored vector with bounded buffers. Search callers apply canonical
-    /// filters before selecting a page, so a distant candidate can never be hidden by recall_k.
-    pub(super) fn visit_scores(
-        &self,
-        query: &[f32],
-        cancel: &vault_store::CancelToken,
-        mut visit: impl FnMut(u64, f32) -> Result<()>,
-    ) -> Result<()> {
-        if self.binary.is_empty() {
-            return Ok(());
-        }
-        if self.int8.is_empty() {
-            let Some(planes) = &self.planes else { return Ok(()) };
-            let mut reader = planes.int8.reader()?;
-            for position in 0..self.binary.len() {
-                if position % 256 == 0 {
-                    cancel.check()?;
-                }
-                let (key, vector) = reader.record_at(position)?;
-                visit(key, dot_product(query, &dequantize_int8(&vector)))?;
-            }
-        } else {
-            for (position, (key, vector)) in self.int8.iter().enumerate() {
-                if position % 256 == 0 {
-                    cancel.check()?;
-                }
-                visit(*key, dot_product(query, &dequantize_int8(vector)))?;
-            }
-        }
-        Ok(())
+    /// Positions bind scores to the same immutable projection throughout a query.
+    pub fn key(&self, position: usize) -> u64 {
+        self.mapped.as_ref().expect("positions require a mapped plane").key(position)
     }
-
-    /// Ingests one f32 vector into both resident planes, binarizing + int8-quantizing it.
-    ///
-    /// The first ingested vector fixes the dim (D4); a later vector of a different length errors
-    /// rather than corrupting the fixed-stride planes. A repeated key is NOT deduped here — callers
-    /// feed the deduped `.pkvec` set (its `read_all` is already a last-writer-wins SET), so this stays
-    /// a thin ingest. Returns the projected `(binary, int8)` rows so a caller can persist them too.
-    fn ingest(&mut self, key: u64, vector: &[f32]) -> Result<()> {
-        if self.dim == 0 {
-            self.dim = vector.len();
-        } else if vector.len() != self.dim {
-            anyhow::bail!(
-                "vector for key {key} has length {} but index dim is {}",
-                vector.len(),
-                self.dim
-            );
+    pub(super) fn projection_id(&self) -> &str {
+        self.mapped.as_ref().map_or("", |plane| plane.header.projection_id.as_str())
+    }
+    pub(super) fn fingerprint_hash(&self) -> &str {
+        self.mapped.as_ref().map_or("", |plane| plane.header.fingerprint_hash.as_str())
+    }
+    /// Scores the complete plane with the original f32 query, without query quantisation.
+    pub fn score_all(&self, query: &[f32], cancel: &vault_store::CancelToken) -> Result<Vec<f32>> {
+        cancel.check()?;
+        if self.is_empty() {
+            return Ok(Vec::new());
         }
-        self.binary.push((key, binarize(vector)));
-        self.int8.push((key, quantize_int8(vector)));
-        Ok(())
+        anyhow::ensure!(query.len() == self.dim(), "query dimension does not match index");
+        let plane = self.mapped.as_ref().expect("nonempty index has a mapped plane");
+        let mut scores = vec![0.; self.len()];
+        let threads = std::thread::available_parallelism().map_or(1, usize::from).min(4);
+        let chunk = self.len().div_ceil(threads);
+        std::thread::scope(|scope| -> Result<()> {
+            let handles = scores
+                .chunks_mut(chunk)
+                .enumerate()
+                .map(|(part, output)| {
+                    scope.spawn(move || -> Result<()> {
+                        let stride = plane.stride();
+                        let start = part * chunk * stride;
+                        let records = &plane.records()[start..start + output.len() * stride];
+                        for (block, out) in records.chunks(256 * stride).zip(output.chunks_mut(256))
+                        {
+                            cancel.check()?;
+                            for (record, score) in block.chunks_exact(stride).zip(out) {
+                                let scale = f32::from_le_bytes(record[8..12].try_into().unwrap());
+                                *score = scaled_dot(query, &record[12..], scale);
+                            }
+                        }
+                        Ok(())
+                    })
+                })
+                .collect::<Vec<_>>();
+            for handle in handles {
+                handle.join().expect("vector scoring worker panicked")?;
+            }
+            Ok(())
+        })?;
+        Ok(scores)
     }
 }
 
+// Independent lanes let the compiler vectorise without a loop-carried f32 reduction.
+fn scaled_dot(query: &[f32], codes: &[u8], scale: f32) -> f32 {
+    let mut sums = [0f32; 8];
+    let mut q = query.chunks_exact(8);
+    let mut c = codes.chunks_exact(8);
+    for (q, c) in q.by_ref().zip(c.by_ref()) {
+        for lane in 0..8 {
+            sums[lane] += q[lane] * c[lane] as i8 as f32;
+        }
+    }
+    let mut sum = sums.into_iter().sum::<f32>();
+    for (q, c) in q.remainder().iter().zip(c.remainder()) {
+        sum += q * *c as i8 as f32;
+    }
+    scale * sum
+}
 impl VectorIndex for FlatVectorIndex {
-    /// Builds a fresh index from `(content_key, f32)` pairs, replacing any held vectors.
-    fn build(&mut self, items: &[(u64, Vec<f32>)]) -> Result<()> {
-        self.binary.clear();
-        self.int8.clear();
-        self.dim = 0;
-        for (key, vector) in items {
-            self.ingest(*key, vector)?;
-        }
-        Ok(())
-    }
-
-    /// Appends `(content_key, f32)` pairs to the held vectors (dim must match once fixed).
-    fn append(&mut self, items: &[(u64, Vec<f32>)]) -> Result<()> {
-        for (key, vector) in items {
-            self.ingest(*key, vector)?;
-        }
-        Ok(())
-    }
-
-    /// Ranks the complete eligible vector set; k limits output, never candidates.
     fn search(
         &self,
         query: &[f32],
         k: usize,
         allowlist: Option<&[u64]>,
     ) -> Result<Vec<(u64, f32)>> {
-        let allow: Option<HashSet<u64>> = allowlist.map(|ids| ids.iter().copied().collect());
-        let mut scores = Vec::new();
-        self.visit_scores(query, &vault_store::CancelToken::new(), |key, score| {
-            if allow.as_ref().is_none_or(|set| set.contains(&key)) {
-                scores.push((key, score));
-            }
-            Ok(())
-        })?;
-        scores
-            .sort_unstable_by(|left, right| right.1.total_cmp(&left.1).then(left.0.cmp(&right.0)));
+        let allow = allowlist.map(|ids| ids.iter().copied().collect::<HashSet<_>>());
+        let mut scores = self
+            .score_all(query, &vault_store::CancelToken::new())?
+            .into_iter()
+            .enumerate()
+            .filter_map(|(position, score)| {
+                let key = self.key(position);
+                allow.as_ref().is_none_or(|set| set.contains(&key)).then_some((key, score))
+            })
+            .collect::<Vec<_>>();
+        scores.sort_unstable_by(|a, b| b.1.total_cmp(&a.1).then(a.0.cmp(&b.0)));
         scores.truncate(k);
         Ok(scores)
     }
-
-    /// Reloads the RESIDENT BINARY plane from disk (the int8 plane stays on disk, seeked per query).
-    ///
-    /// For an in-memory index (no plane handles) this is a no-op that leaves the held vectors intact.
-    /// For a plane-backed index it replaces the resident binary copy with the on-disk projection,
-    /// picking up a fresh build; the int8 plane is NOT loaded resident (resident = binary only),
-    /// it is read by seek-by-position during rescore. The resident int8 Vec stays empty for a
-    /// plane-backed index so a stale copy can never be read instead of the on-disk plane.
     fn load(&mut self) -> Result<()> {
-        let Some(handles) = self.planes.as_ref() else {
-            return Ok(());
-        };
-        // Missing planes load as empty rather than erroring (never-built index path).
-        self.binary = if handles.binary.exists() { handles.binary.read_all()? } else { Vec::new() };
-        self.int8 = Vec::new();
-        self.dim = handles.binary.read_header()?.map(|header| header.dim).unwrap_or(0);
+        self.mapped = self.plane.map()?;
         Ok(())
     }
 }
@@ -206,8 +135,7 @@ mod tests {
 
     #[test]
     fn the_complete_score_stream_has_no_recall_pool_and_observes_cancellation() {
-        // Built the way search opens it: `.pkvec` projected to planes, binary resident, int8 read
-        // off disk by position.
+        // Exercise the mapped production index, including complete coverage and cancellation.
         let dir = tempfile::tempdir().expect("tempdir");
         let paths = project_paths_with_root(dir.path());
         let fingerprint = EmbeddingFingerprint::new(
@@ -229,17 +157,12 @@ mod tests {
         let index = FlatVectorIndex::open(&paths, "static-embed", "model-a").expect("open");
 
         let cancel = vault_store::CancelToken::new();
-        let mut keys = Vec::new();
-        index
-            .visit_scores(&[1., 0., 0., 0.], &cancel, |key, score| {
-                assert!(score.is_finite());
-                keys.push(key);
-                Ok(())
-            })
-            .unwrap();
+        let scores = index.score_all(&[1., 0., 0., 0.], &cancel).unwrap();
+        assert!(scores.iter().all(|score| score.is_finite()));
+        let mut keys = (0..scores.len()).map(|position| index.key(position)).collect::<Vec<_>>();
         keys.sort_unstable();
         assert_eq!(keys, (1..=1207).collect::<Vec<_>>());
         cancel.cancel();
-        assert!(index.visit_scores(&[1., 0., 0., 0.], &cancel, |_, _| Ok(())).is_err());
+        assert!(index.score_all(&[1., 0., 0., 0.], &cancel).is_err());
     }
 }

@@ -30,6 +30,8 @@
 
 ## 3. 存儲 — binary 召回 → int8 rescore
 
+> **2026-10-17 現況：** 下面的兩段式已不是現在的做法。2026-10-07 搬到 Turso 時拿掉了 2,000 筆召回池（每個向量都要計分，篩選不能藏住頁面）；2026-10-17（`WORK-SEMANTIC-PIPELINE`）起搜尋把 int8 plane 整塊 map 起來、最多 4 條執行緒連續計分，sign-bit plane 搜尋時不讀，造訪對應到 plane 位置的 `.pkpos` 讓一次範圍串流就能算出每頁分數。量測與取捨見 [2026-10-vector-search.md](../../../architecture/research/2026-10-vector-search.md)。
+
 256-dim 向量存兩份：
 
 - **binary**（每條 32 B；14.4M ≈ **460 MB** 常駐 RAM）→ SIMD popcount/Hamming 做第一階段召回。

@@ -136,7 +136,12 @@ impl Scope {
         ));
     }
     pub fn from(&self) -> &'static str {
-        if self.sql.contains("sp.profile_key=") || self.sql.contains("sp.browser_kind=") {
+        // Visits, URLs and pages are linked by NOT NULL foreign keys, so a scope that only tests
+        // visits needs no page or profile row. Skipping them made a whole-archive pass at 1M
+        // visits 30 % faster (552 → 385 ms).
+        if !self.sql.contains("p.") {
+            "visits v INDEXED BY idx_visits_visible_time_id CROSS JOIN urls u ON u.id=v.url_id"
+        } else if self.sql.contains("sp.profile_key=") || self.sql.contains("sp.browser_kind=") {
             "source_profiles sp CROSS JOIN visits v INDEXED BY idx_visits_visible_profile_time_id ON v.source_profile_id=sp.id CROSS JOIN urls u ON u.id=v.url_id CROSS JOIN pages p ON p.id=u.page_id"
         } else {
             "visits v INDEXED BY idx_visits_visible_time_id CROSS JOIN urls u ON u.id=v.url_id CROSS JOIN pages p ON p.id=u.page_id JOIN source_profiles sp ON sp.id=v.source_profile_id"
@@ -185,12 +190,11 @@ impl Membership {
         }
         self.bits[id / 64] |= 1u64 << (id % 64);
     }
-    pub(super) fn retain_verified_membership(&mut self) {
-        self.complete = false;
-        self.checked.clone_from(&self.bits);
-    }
     pub fn contains(&self, id: u64) -> bool {
         self.bits.get(id as usize / 64).is_some_and(|word| word & (1u64 << (id % 64)) != 0)
+    }
+    pub(super) fn newest_times(&self) -> &[i64] {
+        &self.newest
     }
     pub fn count(&self, id: u64) -> u64 {
         self.counts.get(id as usize).copied().unwrap_or(0)
@@ -220,20 +224,38 @@ pub(super) fn load(
     first: bool,
     cancel: vault_store::CancelToken,
 ) -> Result<Membership> {
+    load_visits(store, scope, first, cancel, (), |_, _, _| {}).map(|(membership, ())| membership)
+}
+
+pub(super) fn load_visits<T: Send + 'static>(
+    store: &Store,
+    scope: Scope,
+    first: bool,
+    cancel: vault_store::CancelToken,
+    mut state: T,
+    mut visit: impl FnMut(&mut T, i64, u64) + Send + 'static,
+) -> Result<(Membership, T)> {
     store.read(Db::Archive, move |s| {
         let max = maximum_page_id(s)?;
         let mut membership = Membership::new(max, first);
         s.for_each(
-            &format!("SELECT u.page_id,v.visit_time_ms FROM {} WHERE {}", scope.from(), scope.sql),
+            &format!(
+                "SELECT v.id,u.page_id,v.visit_time_ms FROM {} WHERE {}",
+                scope.from(),
+                scope.sql
+            ),
             scope.params,
             |r| {
                 cancel.check()?;
-                membership.insert(r.get::<i64>(0)? as usize, r.get(1)?);
+                let id = r.get::<i64>(0)?;
+                let page = r.get::<i64>(1)? as usize;
+                membership.insert(page, r.get(2)?);
+                visit(&mut state, id, page as u64);
                 Ok(())
             },
         )?;
         membership.complete = true;
-        Ok(membership)
+        Ok((membership, state))
     })
 }
 

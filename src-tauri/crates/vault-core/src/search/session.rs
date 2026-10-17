@@ -12,14 +12,32 @@ use super::{
     query,
 };
 use anyhow::{Context, Result, bail};
-use std::collections::HashMap;
 use std::{
     sync::{Arc, Mutex, Weak},
     time::Duration,
 };
 use vault_search::{Hit, MatchHandle, RankCollector, SortOrder};
 use vault_store::{CancelToken, Db, Store};
-pub(crate) type Scores = HashMap<u64, (f32, &'static str)>;
+/// Dense fused scores keep retained sessions proportional to page IDs, without hash buckets.
+pub(crate) struct Scores {
+    pub values: Vec<f32>,
+    pub reasons: Vec<u8>,
+}
+impl Scores {
+    fn contains(&self, id: u64) -> bool {
+        self.reasons.get(id as usize).is_some_and(|reason| *reason != 0)
+    }
+}
+const MATCH_REASONS: [&str; 8] = [
+    "",
+    "lexical",
+    "semantic",
+    "lexical+semantic",
+    "",
+    "lexical+starred",
+    "semantic+starred",
+    "lexical+semantic+starred",
+];
 const CANDIDATE_BATCH: usize = 1024;
 
 /// A session retains one immutable index snapshot and its canonical page membership.
@@ -285,7 +303,8 @@ impl RunningSession {
         }
         if let Some(scores) = &self.scores {
             for item in &mut items {
-                item.reason = Some(scores[&(item.page_id as u64)].1.to_owned());
+                item.reason =
+                    Some(MATCH_REASONS[scores.reasons[item.page_id as usize] as usize].to_owned());
             }
         }
         let indexer =
@@ -356,20 +375,24 @@ impl RunningSession {
         hits.sort_unstable_by(|a, b| b.cmp(a));
         Ok(hits)
     }
-    fn canonical_times(&mut self, ids: &[u64]) -> Result<Vec<i64>> {
+    fn resolve_scope<T: Send + 'static>(
+        &mut self,
+        state: T,
+        visit: impl FnMut(&mut T, i64, u64) + Send + 'static,
+    ) -> Result<T> {
         let store = self.store.upgrade().context("search owner closed")?;
+        let (membership, state) = eligibility::load_visits(
+            &store,
+            self.scope.clone(),
+            self.order == SortOrder::Oldest,
+            self.cancel.clone(),
+            state,
+            visit,
+        )?;
+        self.membership = membership;
         self.ast = vault_search::Ast::And(Vec::new());
         self.fuzzy = None;
-        self.membership.retain_verified_membership();
-        for ids in ids.chunks(CANDIDATE_BATCH) {
-            self.cancel.check()?;
-            let hits = ids
-                .iter()
-                .map(|id| Hit { page_id: *id, score: 0., visit_ms: 0 })
-                .collect::<Vec<_>>();
-            self.resolve(&store, &hits)?;
-        }
-        Ok(ids.iter().map(|id| self.membership.newest(*id)).collect())
+        Ok(state)
     }
     fn install_scores(&mut self, scores: Scores) -> Result<()> {
         let scores = Arc::new(scores);
@@ -378,8 +401,8 @@ impl RunningSession {
         let reader = self.reader.as_ref().context("search owner closed")?.requery(
             vault_search::Ast::And(Vec::new()),
             vault_search::Filters {
-                eligibility: Some(Arc::new(move |id| filter.contains_key(&id))),
-                score: Some(Arc::new(move |id, _| scorer[&id].0)),
+                eligibility: Some(Arc::new(move |id| filter.contains(id))),
+                score: Some(Arc::new(move |id, _| scorer.values[id as usize])),
                 ..Default::default()
             },
         )?;
@@ -513,8 +536,23 @@ impl SearchSession {
     pub(crate) fn install_scores(&mut self, scores: Scores) -> Result<()> {
         self.inner.lock().unwrap().as_mut().context("search session closed")?.install_scores(scores)
     }
-    pub(crate) fn canonical_times(&mut self, ids: &[u64]) -> Result<Vec<i64>> {
-        self.inner.lock().unwrap().as_mut().context("search session closed")?.canonical_times(ids)
+    /// Resolves the pinned same-visit scope once before semantic page selection.
+    pub(crate) fn resolve_scope<T: Send + 'static>(
+        &mut self,
+        state: T,
+        visit: impl FnMut(&mut T, i64, u64) + Send + 'static,
+    ) -> Result<T> {
+        self.inner
+            .lock()
+            .unwrap()
+            .as_mut()
+            .context("search session closed")?
+            .resolve_scope(state, visit)
+    }
+    pub(crate) fn with_newest<T>(&self, read: impl FnOnce(&[i64]) -> T) -> Result<T> {
+        let slot = self.inner.lock().unwrap();
+        let running = slot.as_ref().context("search session closed")?;
+        Ok(read(running.membership.newest_times()))
     }
     pub(crate) fn set_search_notes(&mut self, notes: Vec<crate::AiSearchNote>) -> Result<()> {
         self.inner.lock().unwrap().as_mut().context("search session closed")?.notes = notes;

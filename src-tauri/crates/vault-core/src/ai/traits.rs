@@ -454,12 +454,6 @@ pub trait LlmProvider: Send + Sync {
 /// `u64` external ids are the stable join key back to canonical history rows, so allowlist
 /// filtering addresses vectors without depending on the engine's internal ordering.
 pub trait VectorIndex: Send + Sync {
-    /// Builds a fresh index from `(external_id, vector)` pairs.
-    fn build(&mut self, items: &[(u64, Vec<f32>)]) -> Result<()>;
-
-    /// Appends `(external_id, vector)` pairs to the existing index.
-    fn append(&mut self, items: &[(u64, Vec<f32>)]) -> Result<()>;
-
     /// Returns the top-`k` `(external_id, score)` matches for `query`.
     ///
     /// When `allowlist` is `Some`, only those external ids are eligible (visibility/filter).

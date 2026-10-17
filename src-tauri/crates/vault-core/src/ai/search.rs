@@ -81,12 +81,6 @@ pub(super) const MATCH_REASON_RECENT_VISIT: &str = "recent-visit";
 /// Match-reason CODE for a page only the lexical (keyword/FTS) plane matched.
 pub(super) const MATCH_REASON_LEXICAL: &str = "lexical";
 
-/// Match-reason CODE for a page only the semantic (embedding) plane matched.
-pub(super) const MATCH_REASON_SEMANTIC: &str = "semantic";
-
-/// Match-reason CODE for a page BOTH planes matched — the strongest hybrid signal.
-pub(super) const MATCH_REASON_LEXICAL_SEMANTIC: &str = "lexical+semantic";
-
 /// Match-reason CODE for lexical matches enumerated in pure visit-date order.
 ///
 /// Distinct from [`MATCH_REASON_LEXICAL`] because the ordering is chronological, not relevance: it
@@ -118,30 +112,6 @@ pub(super) const MATCH_REASON_STARRED_SUFFIX: &str = "+starred";
 // namespace, `+starred` handled as a suffix) and falls back to printing an UNKNOWN code verbatim, so
 // adding a code here degrades to a visible token rather than a silently wrong translation. Codes are
 // therefore additive-only: renaming one is a breaking wire change that must land with the catalog.
-
-/// Whether the keyed reverse/forward sidecars are trustworthy for this provider's CURRENT planes.
-///
-/// The read-path staleness guard: the sidecars are stamped with the `.pkvec` fingerprint hash,
-/// so they are usable iff both are present AND stamped for the live store's hash. A missing store
-/// (nothing embedded) or a missing/stale/torn sidecar (an older index built before the sidecar
-/// existed, or a half-written pair) makes the keyed path UNTRUSTED, and the caller falls back to the
-/// authoritative `.pkmap` scan so results stay correct. `Ok(false)` whenever anything is off — the
-/// keyed path is a pure optimization layered over the always-correct `.pkmap`.
-pub(super) fn reverse_sidecars_usable(
-    paths: &ProjectPaths,
-    provider: &AiProviderRuntime,
-) -> Result<bool> {
-    let store =
-        VectorStore::for_provider(paths, &provider.config.id, &provider.config.default_model);
-    let Some(header) = store.read_header()? else {
-        return Ok(false); // No `.pkvec` source ⇒ no trustworthy sidecar to key off.
-    };
-    let sidecars =
-        ReverseVisitMap::for_provider(paths, &provider.config.id, &provider.config.default_model);
-    // A sidecar that cannot be read (a corrupt header, a torn write) only costs the fast path;
-    // the `.pkmap` scan surfaces any real I/O problem itself.
-    Ok(sidecars.is_stale_against(&header.fingerprint_hash).is_ok_and(|stale| !stale))
-}
 
 /// Resolves result content_keys → their visits via the keyed `.pkrev` sidecar, falling back to scan.
 ///

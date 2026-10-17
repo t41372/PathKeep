@@ -89,14 +89,36 @@ fn rows(s: &Session<'_>, ids: &[i64], scope: &Scope) -> vault_store::Result<Vec<
     })
 }
 
-/// Stars are resolved by canonical keys before ranking, never after taking a candidate page.
-pub(crate) fn starred_pages(vault: &Vault, ids: &[u64]) -> anyhow::Result<Vec<u64>> {
-    let mut result = Vec::new();
-    for ids in ids.chunks(1024) {
-        let ids = ids.iter().map(|id| *id as i64).collect::<Vec<_>>();
-        result.extend(vault.store().read(Db::Archive,move|s| {
-            s.query(&format!("SELECT p.id FROM pages p WHERE p.id IN ({}) AND EXISTS(SELECT 1 FROM star st WHERE (st.entity_kind='url' AND st.entity_key=p.canonical_url) OR (st.entity_kind='domain' AND st.entity_key=p.registrable_domain))",vec!["?";ids.len()].join(",")),ids,|r|Ok(r.get::<i64>(0)? as u64))
-        })?);
+/// Each branch seeks the page index from the star set, independent of result count.
+pub(super) const STARRED_PAGES: &str = "SELECT p.id FROM star st CROSS JOIN pages p INDEXED BY idx_pages_canonical_url ON p.canonical_url=st.entity_key WHERE st.entity_kind='url'
+UNION SELECT p.id FROM star st CROSS JOIN pages p INDEXED BY idx_pages_registrable_domain ON p.registrable_domain=st.entity_key WHERE st.entity_kind='domain' AND p.registrable_domain IS NOT NULL";
+pub(crate) fn starred_pages(vault: &Vault) -> anyhow::Result<Vec<u64>> {
+    Ok(vault
+        .store()
+        .read(Db::Archive, |s| s.query(STARRED_PAGES, (), |r| Ok(r.get::<i64>(0)? as u64)))?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn starred_page_union_seeks_both_page_indexes() {
+        let vault = Vault::open_temp().unwrap();
+        let plan = vault
+            .store()
+            .read(Db::Archive, |s| {
+                s.query(&format!("EXPLAIN QUERY PLAN {STARRED_PAGES}"), (), |r| {
+                    Ok(r.get::<String>(3)?)
+                })
+            })
+            .unwrap()
+            .join("\n");
+        for index in ["idx_pages_canonical_url", "idx_pages_registrable_domain"] {
+            assert!(
+                plan.lines().any(|line| line.contains("SEARCH p") && line.contains(index)),
+                "{plan}"
+            );
+        }
+        assert!(!plan.contains("SCAN p"), "{plan}");
     }
-    Ok(result)
 }

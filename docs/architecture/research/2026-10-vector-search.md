@@ -6,7 +6,7 @@ Short version:
 
 - A semantic search spends about 7 % of its time on the vector scan. Hydration and ranking take the rest: 5.75 s per search at 1M visits, about 80 s or more at 14.4M. No vector engine changes that.
 - The shipped scan is about 90× slower than a plain scan of the same int8 codes, because it reads every record from disk with its own seek, read and three allocations.
-- Turbovec is the fastest scan measured (12.7 ms at 14.4M × 256 on one thread) and needs a third (4-bit) to two thirds (2-bit) less memory than int8. Alone it loses recall: recall@10 0.948 with the static model, 0.76 when a site filter leaves 1 % of the pages. As a first stage that picks 2,000 candidates for an int8 rescore it loses nothing, filters included. Its API returns the top k only, which conflicts with complete ranking (below).
+- Turbovec is the fastest scan measured (12.7 ms at 14.4M × 256 on one thread) and needs a third (4-bit) to two thirds (2-bit) less memory than int8. Alone it loses recall: recall@10 0.948 with the static model, 0.76 when a site filter leaves 1 % of the pages. As a first stage that picks 2,000 candidates for an int8 rescore it lost nothing on our 131,322 pages, filters included; whether 2,000 is still enough at millions of pages is not measured. Its API returns the top k only, which conflicts with complete ranking (below).
 - LEANN was not measured. It recomputes embeddings at query time, which with an embeddings service means hundreds of requests per search, and we bundle no engine.
 
 ## How we got here
@@ -105,6 +105,7 @@ Python over all 4,430 queries (`recall.py`, `shortlist.py`, `fullscan.py`). A re
 - With the staged search turned off (`TURBOVEC_4BIT_PLANES=0`, `TURBOVEC_2BIT_PLANES=0`), Turbovec's recall is the same to the third decimal: its loss is quantization, not the shortlist. That is also what an x86 CPU without AVX-512 gets.
 - Pages of one site embed close together, so a site filter leaves candidates whose scores differ by less than the 4-bit or 2-bit rounding. That is why Turbovec alone falls apart under filters, and why an int8 rescore of its candidates repairs it completely.
 - Sign bits are a poor first stage at 256 dims (recall@100 0.81) and nearly lossless at 1,024 (0.98). Turbovec's codes are lossless as a first stage at both.
+- All of this is on 131,322 pages, where 2,000 candidates are 1.5 % of the corpus. At 7.2M pages they are 0.03 %, and more pages crowd the scores near the top, so the shortlist probably has to grow with the corpus. Option B or C below must not be chosen on these numbers alone: measure the shortlist size it needs on a corpus of millions of real pages first.
 - hit@10 moves by about 0.006 at most across every scan, Turbovec 2-bit alone included: the pages users opened are found either way. The recall losses show up lower in the list and under filters, which is exactly where the coverage rule applies.
 
 ## Turbovec beyond the numbers
@@ -122,7 +123,7 @@ Not measured. LEANN keeps a pruned proximity graph, stores no vectors, and recom
 
 ## What this means
 
-Two changes keep every current decision and should go first:
+Two changes keep every current decision and should go first (both done 2026-10-17, see the next section):
 
 1. **Rank without per-visit SQL.** Keep a position → page mapping next to the planes, apply the search's filters as an eligibility mask before selecting, keep scores in a dense array indexed by position, and hydrate only the rows the current page shows. Every vector is still scored and nothing is hidden; only when the work happens changes.
 2. **Scan the int8 plane as one mapped, contiguous block** with a SIMD dot product, and stop reading the sign-bit plane and counting `visits` on every search. That is the 90× above.
@@ -135,9 +136,32 @@ Then one question is the user's, because it touches the coverage rule. At large 
 | B. A compact code scores every vector; int8 rescores the head, and further chunks as the user pages on | yes; beyond the rescored head the order comes from the compact code | 0.77 / 0.92 GB resident (Turbovec 2-bit / sign bits) | user agreement that order beyond the head may be approximate; a trade-off doc |
 | C. Shortlist of k, as in June                                                                          | no                                                                  | as B                                                 | reverses the 2026-10-07 decision; trade-off doc and user agreement            |
 
-For B, the measurements point to Turbovec 2-bit codes at low dimensions (sign bits lose too much there) and sign bits at 1,024 and above (as good, and 2.6× smaller). Turbovec's top-k API makes B awkward: each chunk is one more search with a larger k, which is cheap (12 ms at 14.4M here) but is not a dense score array. Our own sign bits give one directly.
+For B, the measurements at 131k pages point to Turbovec 2-bit codes at low dimensions (sign bits lose too much there) and sign bits at 1,024 and above (as good, and 2.6× smaller); how large the rescored head must be at millions of pages is the open measurement. Turbovec's top-k API makes B awkward: each chunk is one more search with a larger k, which is cheap (12 ms at 14.4M here) but is not a dense score array. Our own sign bits give one directly.
 
 The f32 source on disk (four fifths of the index) is a separate question: dropping it saves 29 GB at 7.2M × 1,024, but every format change or code change then means embedding again through the user's service.
+
+## After the pipeline change (2026-10-17)
+
+`WORK-SEMANTIC-PIPELINE` did both changes above, a little differently in the details:
+
+- The int8 plane is mapped and every record is scored in one pass over up to four threads, with the query kept in f32. Search no longer reads the sign-bit plane.
+- A new sidecar `.pkpos` holds each visit's position in the int8 plane. It is written at the end of an index pass, after the reverse sidecars, and carries the projection ids it was built from; when it is missing or from another projection, search builds the same array in memory.
+- One statement streams every visit in the search's scope. It fills the session's page membership (newest and first visit, visit counts) and gives each page the best score of its in-scope visits. It replaces both the per-visit hydration and the per-page newest-time lookups. When the scope tests nothing but the visit, it joins only `urls`.
+- Stars come from one query, fused scores are arrays indexed by page id, and the staleness check reads the archive totals instead of counting `visits`.
+- During an index pass, search keeps the previous complete projection; the new one takes over when the pass projects it at the end.
+
+Same benchmark, same machine, medians in milliseconds:
+
+| Stage                             |  264,388 visits | 1,000,000 visits |
+| --------------------------------- | --------------: | ---------------: |
+| Keyword ranks and session         |              22 |               82 |
+| Vector scores and visit positions |               2 |                6 |
+| Scope pass                        |              99 |              385 |
+| Rank, fuse, stars                 |               4 |               15 |
+| Install and first page            |               3 |               10 |
+| **Total** (before)                | **130** (1,145) |  **500** (5,200) |
+
+Every probe's first page and total match the public entry point. The scope pass is now nearly the whole cost, and it grows with the visits: about 5.5 s at 14.4M on this Mac, more on the target. Getting below that means not reading the visits at all for the common scopes; that is `WORK-SEMANTIC-VISIT-SIDECAR` in the backlog.
 
 ## Reproduce
 

@@ -61,10 +61,13 @@
   - 推翻 `semantic-index-control.md` 與 `intelligence.md` §1（未完成的索引只在沒有完整索引時才搜）：用戶 2026-10-16 同意。做的時候改這兩份文檔。和 `WORK-INDEX-REBUILD-SWAP` 一起設計。
   - 不做：外部服務不在時退回靜態模型、兩份索引永久並存（用戶 2026-10-16：不要）。
 
-- [ ] **WORK-SEMANTIC-PIPELINE** — 語意搜尋 1M 次造訪要 5.75 秒，14.4M 時估 80 秒以上；時間花在逐筆造訪的回查與全量排序，不在向量（2026-10-16 量 Turbovec / LEANN 時找到）
-  - 量測與數字：[2026-10-vector-search.md](../architecture/research/2026-10-vector-search.md)。100 萬次造訪：掃描 369 ms、hydration 1,654 ms（每 512 次造訪一次 SQL）、排序加第一頁 3,588 ms。現行掃描本身也比連續 int8 掃描慢約 90 倍（每筆各自 seek、read、三次配置）。每次搜尋還整份讀一遍 sign-bit plane（只用到長度）、對 `visits` 跑 `COUNT(*)`。
-  - 要做（不推翻任何決策，每個向量照樣計分）：plane 旁存位置 → 頁面的對應；搜尋的篩選先變成資格遮罩再選；分數放在按位置索引的陣列；只 hydrate 當頁要顯示的列。int8 plane 整塊 map 起來 SIMD 掃；不再每次讀 sign-bit plane；staleness 不再數 `visits`。用 `semantic_stage_bench` 量 1M / 4M 前後對比，E2E 驗篩選下最低分的合格頁仍翻得到。
-  - 之後要用戶決定的（研究文件「What this means」A / B / C）：大語料時完整 int8 排序放不進 8 GB，要嘛從磁碟讀、要嘛用緊湊碼排全部再重算前段（後段順序是近似的），要嘛回到候選池（推翻 2026-10-07 的完整計分）。Turbovec 2-bit 當第一段在 256 維與 1,024 維都不掉召回；sign bits 只在高維夠用。
+- [ ] **WORK-SEMANTIC-VISIT-SIDECAR** — 語意搜尋每次都讀一遍範圍內的所有造訪：100 萬次 385 ms，14.4M 估 5.5 秒（M5 Max），目標機更慢（2026-10-17 做完 `WORK-SEMANTIC-PIPELINE` 量到）
+  - 現況：一次語意搜尋 100 萬次造訪 500 ms，其中 385 ms 是一條 SQL 串流範圍內每次造訪（算頁面成員、最新時間與每頁最高分）。向量掃描只要 6 ms。
+  - 串流是一次讀取，整段佔住 archive 兩條讀取連線中的一條；writer 做 WAL truncate checkpoint 前要等進行中的讀取結束（`vault-store/src/worker.rs` 的 `wait_for_readers`），這段時間進來的寫入也跟著等。14.4M 時一次語意搜尋可能讓匯入、備份的寫入延後數秒。以前的逐批回查是很多次短讀取，不會這樣；日期篩選的全文搜尋（`eligibility::load`）本來就是同一種長讀取。
+  - 方向（先設計、先量）：建索引時把每次造訪的頁面與時間投影到索引旁（跟 `.pkpos` 同一份或並排），加上撤銷造訪的集合；沒有篩選或只有日期篩選時，頁面成員與每頁分數在記憶體裡算完，用到網站、標籤、筆記、星號、profile 等篩選才走 SQL 串流。要處理：索引之後才進來的造訪（成員與最新時間仍要算到它們）、撤銷與還原、App Lock 時放掉記憶體、`semantic_stage_bench` 量 1M / 4M。
+
+- [!] **WORK-VECTOR-MEMORY-AT-SCALE** — 大語料時完整 int8 排序放不進 8 GB（等用戶在研究文件「What this means」的 A / B / C 中選）
+  - 大語料時完整 int8 排序放不進 8 GB，要嘛從磁碟讀、要嘛用緊湊碼排全部再重算前段（後段順序是近似的），要嘛回到候選池（推翻 2026-10-07 的完整計分）。Turbovec 2-bit 當第一段（挑 2,000 筆再用 int8 重算）在 256 維與 1,024 維都不掉召回；sign bits 只在高維夠用。這只在 13 萬頁上量過（2,000 筆佔 1.5%）；到幾百萬頁時候選數多半要跟著放大，選 B 或 C 之前要先在幾百萬頁的真實語料上量。
 
 - [ ] **WORK-STATIC-MODEL-LOAD-REHASH** — 內建模型每次啟動後第一次載入都重算 531 MB 的雜湊（2026-10-16 寫 trade-off 時讀碼找到，還沒量）
   - `embedding_static/cache.rs` 的 `load` 在快取沒命中時呼叫 `model_is_present_and_verified`，把每個模型檔整份重算 SHA-256（這台 M5 Max 約 1 秒，目標機更久）。程序啟動後第一次建索引或語意搜尋都會碰到。`VERIFIED_MARKER_FILE` 的註解說載入時信任標記、不重算，代碼沒這樣做。

@@ -22,8 +22,8 @@ use turbovec::IdMapIndex;
 mod host;
 use host::{Footprint, begin_allocation_count, disk_fits, end_allocation_count, footprint};
 use vault_core::{
-    EmbeddingDtype, EmbeddingFingerprint, EmbeddingPooling, FlatVectorIndex, VectorIndex,
-    VectorStore, build_planes_from_store, project_paths_with_root, quantize_int8,
+    EmbeddingDtype, EmbeddingFingerprint, EmbeddingPooling, FlatVectorIndex, VectorStore,
+    build_planes_from_store, project_paths_with_root, quantize_int8,
 };
 
 struct Random(u64);
@@ -495,8 +495,8 @@ impl Measurement<'_> {
                 let eligible = filter.ids.as_ref().map_or(n, Vec::len);
                 let (read_bytes, note) = match self.name {
                     "shipped" => (
-                        n * (8 + dim.div_ceil(8) + 12 + dim),
-                        "disk layout payload incl. per-query binary open; all int8 scored before filter; excludes JSON headers",
+                        n * (12 + dim),
+                        "mapped int8 payload; all vectors scored before filter; excludes JSON headers",
                     ),
                     "int8" => (
                         n * usize::from(filter.set.is_some()) + eligible * (dim + 4),
@@ -635,7 +635,7 @@ fn run_dataset(data: &Dataset, tmp: &Path, threads: &[usize], out: &Path) -> Res
             truth: truth.as_ref(),
             out,
             name: "shipped",
-            threads: 1,
+            threads: std::thread::available_parallelism().map_or(1, usize::from).min(4),
             built: &built,
         }
         .run(|q, k, filter| {
@@ -643,7 +643,17 @@ fn run_dataset(data: &Dataset, tmp: &Path, threads: &[usize], out: &Path) -> Res
             let index = FlatVectorIndex::open(&paths, "scan-bench", "unit")?;
             let open = begin.elapsed().as_secs_f64() * 1000.;
             let start = Instant::now();
-            let result = index.search(q, k, filter.ids.as_deref())?;
+            let mut result = index
+                .score_all(q, &vault_store::CancelToken::new())?
+                .into_iter()
+                .enumerate()
+                .filter_map(|(position, score)| {
+                    let id = index.key(position);
+                    filter.set.as_ref().is_none_or(|set| set.contains(&id)).then_some((id, score))
+                })
+                .collect::<Vec<_>>();
+            result.sort_unstable_by(|a, b| b.1.total_cmp(&a.1).then(a.0.cmp(&b.0)));
+            result.truncate(k);
             let search_ms = start.elapsed().as_secs_f64() * 1000.;
             let result = result.into_iter().map(|(id, score)| Hit { id, score }).collect();
             Ok((open, Some(search_ms), result))

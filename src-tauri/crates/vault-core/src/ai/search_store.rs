@@ -20,13 +20,7 @@ pub(super) fn staleness(
     })?;
     let Some((watermark, indexed_at)) = row else { return Ok(None) };
     if watermark != 0 {
-        let visible = vault.store().read(Db::Archive, |s| {
-            s.query_one(
-                "SELECT COUNT(*),COALESCE(MAX(id),0) FROM visits WHERE reverted_at IS NULL",
-                (),
-                |r| Ok((r.get::<i64>(0)? << 32) ^ r.get::<i64>(1)?),
-            )
-        })?;
+        let visible = super::native_ledger::current_source_watermark(vault)?;
         if visible != watermark {
             return Ok(Some(AiSemanticStaleness::Watermark));
         }
