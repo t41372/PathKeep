@@ -30,6 +30,9 @@ mod model_list;
 mod native_ledger;
 mod provider;
 mod read_model;
+mod related_pages;
+#[cfg(test)]
+mod related_pages_bench;
 mod report_pages;
 mod reverse_visit_map;
 mod search;
@@ -83,6 +86,7 @@ pub use self::read_model::{
     ai_index_status, ai_queue_status, preview_ai_integrations, provider_capabilities,
     provider_connection_failure_report, reconcile_ai_queue_controls, recoverable_ai_jobs,
 };
+pub use self::related_pages::{RelatedPage, RelatedPages, related_pages};
 pub use self::search::semantic_search_history;
 
 pub use self::agent_harness::{

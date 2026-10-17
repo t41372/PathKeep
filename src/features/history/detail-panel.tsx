@@ -1,6 +1,6 @@
 /**
  * The right-hand panel for the selected page: title and URL, open / star /
- * copy, the link preview, visit stats, the same-session list, tags and the
+ * copy, the link preview, visit stats, same-session and related pages, tags and the
  * note.
  *
  * Responsible for: layout and the three actions.
@@ -21,6 +21,7 @@ import type { DetailTarget, VisitItem } from './history-types'
 import { AnnotationSection } from './annotation-section'
 import { LinkPreview } from './link-preview'
 import { useOpenPage } from './open-link'
+import { RelatedPages } from './related-pages'
 import { SiteIcon } from './site-icon'
 
 interface Props {
@@ -32,6 +33,7 @@ interface Props {
   onClose: () => void
   onToggleStar: () => void
   onSelectMate: (item: VisitItem) => void
+  onSelectRelated: (target: DetailTarget) => void
   /** Filters History to pages carrying this tag. */
   onFilterTag: (tag: string) => void
 }
@@ -76,6 +78,7 @@ export function DetailPanel({
   onClose,
   onToggleStar,
   onSelectMate,
+  onSelectRelated,
   onFilterTag,
 }: Props) {
   const { t } = useI18n()
@@ -209,6 +212,8 @@ export function DetailPanel({
           )}
         </div>
       )}
+
+      <RelatedPages target={target} onSelect={onSelectRelated} />
 
       <AnnotationSection
         key={`annotations:${target.url}`}

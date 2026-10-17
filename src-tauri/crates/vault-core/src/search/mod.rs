@@ -37,6 +37,7 @@ mod ported_grouped;
 #[cfg(test)]
 mod ported_regex;
 mod visits;
+pub(crate) use visits::newest_visible_by_page;
 pub(crate) use visits::starred_pages;
 pub use visits::visits;
 #[cfg(test)]

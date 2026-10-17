@@ -91,6 +91,16 @@ continuation fields are listed in the [area-4 contract report](../architecture/r
 - 搜尋必須覆蓋全部可用的向量與詞彙匹配頁面；日期、profile 與星號篩選不能先套在有限候選池上。結果以游標接續，頁面大小不限制總覆蓋；若 sidecar 缺失、過期或失敗，PathKeep 誠實退回 lexical recall。semantic metadata / queue 固定落在 `derived/intelligence.db`、向量 payload 落在 `derived/vectors/`、assistant chat / agent trace 落在 `derived/agent.db`；Turso 不承擔向量 payload mirror。
 - 搜尋 tuning（RRF `k`、lexical / semantic weight、starred boost）是 consent knob，入口在 Settings（W-AI-9-A），於 config load 時 clamp。
 
+### History 詳情的相關頁面
+
+選一頁後，詳情面板在「同一次瀏覽」之後列出最多六個相關頁面：語意索引裡跟它最像的頁，不分時間，也不受目前列表的搜尋與篩選影響。每列有網站圖示、標題、網站和多久以前看過。點一列，詳情面板換成那一頁，列表不動。
+
+- 同一頁換了網址（翻頁、錨點、標題後面多了版塊名或未讀數）只出現一次，頁面自己不出現，已撤銷的匯入也不出現。
+- 其他網站還有夠像的頁時，同一網站最多佔三列。
+- 太不像的不列：分數要高於索引裡隨機兩頁相似度的第 98 百分位。一頁都沒有時寫「沒有找到相似的頁面」。
+- 這頁還沒進索引時寫「這個頁面還沒有建立索引」；索引正在改寫時寫「搜尋索引正在更新」；語意搜尋關閉或服務不能用時，整段不顯示。用內建靜態模型時，標題下說明同網站的頁容易排在前面。
+- 不呼叫 embedding 服務，用索引裡已有的向量掃一遍 int8 plane，不跑搜尋的造訪範圍串流。100 萬次造訪時一次約 13 ms（256 維）、28 ms（1,024 維）。超大語料的記憶體限制跟語意搜尋一樣（BACKLOG `WORK-VECTOR-MEMORY-AT-SCALE`）。規則的來由與量測見 [related pages 研究記錄](../architecture/research/2026-10-related-pages.md)。
+
 ---
 
 ## 2. AI 助手（Ask My History）

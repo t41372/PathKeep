@@ -466,3 +466,11 @@ pub(super) struct ImportBatchPagePayload {
     pub(super) cursor: Option<String>,
     pub(super) limit: Option<usize>,
 }
+
+/// The selected visit is optional for starred pages without a visit row.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct RelatedPagesPayload {
+    pub(super) url: String,
+    pub(super) visit_id: Option<i64>,
+}

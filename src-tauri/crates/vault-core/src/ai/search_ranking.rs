@@ -337,4 +337,4 @@ pub(super) async fn semantic_page(
 
 #[cfg(test)]
 #[path = "semantic_stage_bench.rs"]
-mod semantic_stage_bench;
+pub(super) mod semantic_stage_bench;

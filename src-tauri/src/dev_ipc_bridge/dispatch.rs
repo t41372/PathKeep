@@ -367,6 +367,14 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
         "load_source_stats" => {
             json_value!(worker_bridge::source_stats_impl(&state.session)?)
         }
+        "get_related_pages" => {
+            let payload = parse_payload::<RelatedPagesPayload>(payload)?;
+            json_value!(worker_bridge::related_pages_impl(
+                &payload.url,
+                payload.visit_id,
+                &state.session
+            )?)
+        }
         "get_url_detail" => {
             let payload = parse_payload::<UrlPayload>(payload)?;
             json_value!(worker_bridge::url_detail_impl(&payload.url, &state.session)?)

@@ -445,6 +445,7 @@ export default function HistoryPage() {
                   )
                 }
                 onSelectMate={select}
+                onSelectRelated={selectTarget}
                 onFilterTag={filterByTag}
               />
             )}

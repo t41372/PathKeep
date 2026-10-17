@@ -28,8 +28,8 @@ impl Random {
         x = (x ^ (x >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
         x ^ (x >> 31)
     }
-    fn vector(&mut self) -> Vec<f32> {
-        let mut row = (0..DIM)
+    fn vector(&mut self, dim: usize) -> Vec<f32> {
+        let mut row = (0..dim)
             .map(|_| (self.next() >> 40) as f32 / (1_u32 << 23) as f32 - 1.)
             .collect::<Vec<_>>();
         let norm = row.iter().map(|x| x * x).sum::<f32>().sqrt();
@@ -40,7 +40,12 @@ impl Random {
     }
 }
 
-fn seed(vault: &Vault, visits: i64, provider: &AiProviderRuntime) -> Result<()> {
+pub(in crate::ai) fn seed(
+    vault: &Vault,
+    visits: i64,
+    provider: &AiProviderRuntime,
+    dim: usize,
+) -> Result<()> {
     let pages = (visits + 1) / 2;
     // Prepared statements, one transaction, one URL per page; each page has two visible visits.
     // Search documents/outbox are produced by the same refresh path used by archive writes.
@@ -77,7 +82,7 @@ fn seed(vault: &Vault, visits: i64, provider: &AiProviderRuntime) -> Result<()> 
     let fingerprint = EmbeddingFingerprint::from_descriptor(&EmbeddingDescriptor {
         provider_id: provider.config.id.clone(),
         model_id: provider.config.default_model.clone(),
-        effective_dim: Some(DIM),
+        effective_dim: Some(dim),
         ..engine.descriptor()
     })
     .unwrap();
@@ -88,7 +93,7 @@ fn seed(vault: &Vault, visits: i64, provider: &AiProviderRuntime) -> Result<()> 
     let mut random = Random(0x5041_5448_4b45_4550);
     for start in (1..=pages).step_by(4096) {
         let end = (start + 4096).min(pages + 1);
-        let vectors = (start..end).map(|id| (id as u64, random.vector())).collect::<Vec<_>>();
+        let vectors = (start..end).map(|id| (id as u64, random.vector(dim))).collect::<Vec<_>>();
         store.append_vectors(&vectors)?;
         let mappings = (start..end)
             .flat_map(|id| [(id * 2 - 1, id as u64), (id * 2, id as u64)])
@@ -286,7 +291,7 @@ async fn semantic_stage_benchmark() -> Result<()> {
     let vault = Vault::open_temp()?.with_config(config.clone());
     let paths = vault.paths();
     let seed_start = Instant::now();
-    seed(&vault, visits, &provider)?;
+    seed(&vault, visits, &provider, DIM)?;
     println!(
         "\nSemantic stages: visits={visits}, pages={}, dim={DIM}, queries={QUERIES}, plaintext real Vault, seed {:.2}s",
         (visits + 1) / 2,

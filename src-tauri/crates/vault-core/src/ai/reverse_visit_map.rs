@@ -206,7 +206,9 @@ impl ReverseVisitMap {
             return Ok(None);
         }
         let expected = data_start_offset(&forward)? + forward.record_count * RECORD_LEN as u64;
-        if fs::metadata(&self.forward_path)?.len() != expected {
+        if fs::metadata(&self.forward_path)?.len() != expected
+            || fs::metadata(&self.reverse_path)?.len() != expected
+        {
             return Ok(None);
         }
         Ok(Some((forward.projection_id, forward.record_count)))
@@ -250,6 +252,35 @@ impl ReverseVisitMap {
             }
         }
         Ok(inverse)
+    }
+
+    /// One visit per content key is enough to find its page; a key that thousands of visits share
+    /// (an inbox) is not walked.
+    pub(super) fn first_history_id_for_content_keys(
+        &self,
+        wanted: &HashSet<u64>,
+    ) -> Result<std::collections::HashMap<u64, i64>> {
+        let mut first = std::collections::HashMap::new();
+        if wanted.is_empty() {
+            return Ok(first);
+        }
+        let Some((mut file, header)) = open_sidecar(&self.reverse_path, &REVERSE_MAP_MAGIC)? else {
+            return Ok(first);
+        };
+        let data_start = data_start_offset(&header)?;
+        for &key in wanted {
+            let position = lower_bound(&mut file, data_start, header.record_count, key)?;
+            if position < header.record_count {
+                let record = read_record_at(&mut file, data_start, position)?;
+                if u64::from_le_bytes(record[..8].try_into().expect("8-byte key")) == key {
+                    first.insert(
+                        key,
+                        i64::from_le_bytes(record[8..].try_into().expect("8-byte id")),
+                    );
+                }
+            }
+        }
+        Ok(first)
     }
 
     /// Streams the last-writer-wins projection without a full visit-ID map in RAM.

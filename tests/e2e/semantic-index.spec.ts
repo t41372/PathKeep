@@ -39,6 +39,7 @@
  */
 import { createHash } from 'node:crypto'
 import {
+  mkdirSync,
   readFileSync,
   readdirSync,
   renameSync,
@@ -50,6 +51,7 @@ import { expect, test } from '@playwright/test'
 import {
   appendChromeVisits,
   retitleChromePage,
+  writeChromeHistory,
 } from '../../scripts/fixtures/synthetic-browsers.mjs'
 import { killAndRestartApp, unlockIfLocked } from './support/app'
 import { addLmStudioService } from './support/ai-service'
@@ -76,6 +78,17 @@ import {
   indexRevisitVisits,
   newPageVisit,
 } from './support/index-revisit'
+
+import {
+  RELATED_SOURCE,
+  RELATED_LATE,
+  RELATED_HIDDEN,
+  relatedVisits,
+  relatedVector,
+  importRelatedFile,
+  undoRelatedFile,
+} from './support/related-pages'
+import type { RelatedPages } from '../../src/lib/backend-client/related-pages'
 
 interface QueueStatus {
   queued: number
@@ -1297,6 +1310,247 @@ test('Ask groups the period by meaning and every indexed page can be reached exa
       await testInfo.attach('cleanup failed too', { body: String(error) })
     })
     await model.close()
+    await embeddings.close()
+  }
+})
+
+/** Related pages reuse the published vectors, with current archive visibility and panel selection. */
+test('History finds related pages across sites, folds titles and keeps the list while navigating', async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(600_000)
+  const before = await loadConfig()
+  const embeddings = await startFakeEmbeddings({
+    dimensions: 64,
+    vectorFor: relatedVector,
+  })
+  const folder = path.join(fixture().root, 'related-pages')
+  mkdirSync(folder, { recursive: true })
+  const corpus = relatedVisits(Date.now() - 120_000)
+  const mainFile = path.join(folder, 'related-main.sqlite')
+  const hiddenFile = path.join(folder, 'related-hidden.sqlite')
+  const lateFile = path.join(folder, 'related-late.sqlite')
+  const extraVisit = (item: { url: string; title: string }) => ({
+    ...item,
+    at: Date.now() - 1000,
+    typed: true,
+    duration: 1000,
+  })
+  writeChromeHistory(mainFile, corpus)
+  writeChromeHistory(hiddenFile, [extraVisit(RELATED_HIDDEN)])
+  const imported: string[] = []
+  let completed = false
+  try {
+    await page.goto('/#/settings/ai')
+    await unlockIfLocked(page)
+    // Finish any previous test's index work before replacing its service.
+    await expect
+      .poll(async () => (await queueStatus()).running, { timeout: 120_000 })
+      .toBe(0)
+    // Imports must not be indexed on their own: the late page has to stay unindexed.
+    const noAutoIndex = async () => {
+      const current = await loadConfig()
+      await backend('save_config', {
+        config: {
+          ...current,
+          ai: {
+            ...(current.ai as Record<string, unknown>),
+            autoIndexAfterBackup: false,
+          },
+        },
+      })
+    }
+    await noAutoIndex()
+    await importRelatedFile(page, mainFile, corpus.length)
+    imported.push(path.basename(mainFile))
+    await importRelatedFile(page, hiddenFile, 1)
+    imported.push(path.basename(hiddenFile))
+
+    await page.goto('/#/settings/ai')
+    await unlockIfLocked(page)
+    await page.getByRole('combobox', { name: 'Model' }).click()
+    await page
+      .getByRole('option', { name: 'Add an embeddings service…' })
+      .click()
+    const dialog = page.getByRole('dialog', {
+      name: 'Add an embeddings service',
+    })
+    await dialog.getByRole('combobox', { name: 'Service' }).click()
+    await page.getByRole('option', { name: 'OpenAI or compatible' }).click()
+    await dialog.getByRole('textbox', { name: 'Address' }).fill(embeddings.url)
+    await dialog.getByRole('textbox', { name: 'Model' }).fill('e2e-embed')
+    await dialog
+      .getByRole('textbox', { name: 'Name' })
+      .fill('E2E related embeddings')
+    await dialog
+      .getByRole('button', { name: 'Add service', exact: true })
+      .click()
+    await expect(page.getByRole('combobox', { name: 'Model' })).toContainText(
+      'E2E related embeddings',
+    )
+    const enabled = page.getByRole('switch', {
+      name: 'Semantic search',
+      exact: true,
+    })
+    if (!(await enabled.isChecked())) await enabled.click()
+    else
+      await page
+        .getByRole('button', { name: 'Build index', exact: true })
+        .click()
+    await expect
+      .poll(async () => (await queueStatus()).semanticIndex.chosenComplete, {
+        timeout: 240_000,
+      })
+      .toBe(true)
+    await expect
+      .poll(
+        async () => {
+          const q = await queueStatus()
+          return q.running + q.queued
+        },
+        { timeout: 120_000 },
+      )
+      .toBe(0)
+    expect(
+      embeddings.inputs.some((text) => text.startsWith(RELATED_HIDDEN.title)),
+    ).toBe(true)
+    await undoRelatedFile(page, path.basename(hiddenFile))
+    imported.splice(imported.indexOf(path.basename(hiddenFile)), 1)
+    await noAutoIndex()
+    writeChromeHistory(lateFile, [extraVisit(RELATED_LATE)])
+    await importRelatedFile(page, lateFile, 1)
+    imported.push(path.basename(lateFile))
+    const calls = embeddings.requests()
+    const read = (url: string) =>
+      backend<RelatedPages>('get_related_pages', { url })
+
+    await page.goto('/#/history')
+    await unlockIfLocked(page)
+    const search = page.getByRole('searchbox', { name: 'Search history' })
+    await search.fill(RELATED_SOURCE.title)
+    const list = page.getByRole('listbox', { name: 'History results' })
+    await page
+      .getByRole('main')
+      .getByText(RELATED_SOURCE.title, { exact: true })
+      .first()
+      .click()
+    const panel = page.getByRole('complementary', { name: 'Page details' })
+    const related = panel.getByRole('region', { name: 'Related pages' })
+    await expect(related.getByRole('button')).toHaveCount(6)
+    const beforeList = await list.innerText()
+    const rows = related.locator('button[data-related-url]')
+    const urls = await rows.evaluateAll((nodes) =>
+      nodes.map((node) => node.getAttribute('data-related-url')),
+    )
+    const expected = [
+      'https://alpha.example.org/related/two',
+      'https://alpha.example.org/related/three',
+      'https://alpha.example.org/related/four',
+      'https://beta.example.net/related/toolkit?page=2',
+      'https://beta.example.net/related/library',
+      'https://gamma.example.com/related/docs',
+    ]
+    expect([...urls].sort()).toEqual([...expected].sort())
+    expect(
+      urls.filter((url) => url?.includes('alpha.example.org')),
+    ).toHaveLength(3)
+    expect(new Set(urls).size).toBe(6)
+    const first = await read(RELATED_SOURCE.url)
+    expect(first.state).toBe('ready')
+    if (first.state !== 'ready') throw new Error('Related pages unavailable')
+    expect(first.items.map((row) => row.url).sort()).toEqual(
+      [...expected].sort(),
+    )
+    await testInfo.attach('related-pages.json', {
+      body: JSON.stringify(
+        { source: RELATED_SOURCE, expected, actual: first },
+        null,
+        2,
+      ),
+      contentType: 'application/json',
+    })
+    await related.scrollIntoViewIfNeeded()
+    await testInfo.attach('related-pages-panel.png', {
+      body: await panel.screenshot(),
+      contentType: 'image/png',
+    })
+
+    await related
+      .getByRole('button', {
+        name: 'Show details for Related subject A toolkit | Board',
+        exact: true,
+      })
+      .click()
+    await expect(panel.getByRole('heading', { level: 2 })).toHaveText(
+      'Related subject A toolkit | Board',
+    )
+    await expect(
+      related.getByRole('button', {
+        name: `Show details for ${RELATED_SOURCE.title}`,
+        exact: true,
+      }),
+    ).toBeVisible()
+    await expect(search).toHaveValue(RELATED_SOURCE.title)
+    expect(await list.innerText()).toBe(beforeList)
+    await related
+      .getByRole('button', {
+        name: `Show details for ${RELATED_SOURCE.title}`,
+        exact: true,
+      })
+      .click()
+    await expect(panel.getByRole('heading', { level: 2 })).toHaveText(
+      RELATED_SOURCE.title,
+    )
+
+    await search.fill(RELATED_LATE.title)
+    await page
+      .getByRole('main')
+      .getByText(RELATED_LATE.title, { exact: true })
+      .first()
+      .click()
+    await expect(
+      related.getByText('This page hasn’t been indexed yet.', { exact: true }),
+    ).toBeVisible()
+    expect((await read(RELATED_LATE.url)).state).toBe('notIndexed')
+    expect(
+      embeddings.requests(),
+      'opening related pages never sends text to the service',
+    ).toBe(calls)
+
+    await page.goto('/#/settings/ai')
+    await unlockIfLocked(page)
+    const details = page.getByRole('button', { name: 'Remove', exact: true })
+    // There is one Remove button for the selected embedding service; LLM controls live elsewhere.
+    await details.first().click()
+    const remove = page.getByRole('alertdialog', {
+      name: 'Remove E2E related embeddings?',
+    })
+    await remove.getByRole('button', { name: 'Remove', exact: true }).click()
+    await expect(remove).toBeHidden()
+    await page.goto('/#/history')
+    await unlockIfLocked(page)
+    await page
+      .getByRole('searchbox', { name: 'Search history' })
+      .fill(RELATED_SOURCE.title)
+    await page
+      .getByRole('main')
+      .getByText(RELATED_SOURCE.title, { exact: true })
+      .first()
+      .click()
+    await expect(
+      page
+        .getByRole('complementary', { name: 'Page details' })
+        .getByRole('region', { name: 'Related pages' }),
+    ).toHaveCount(0)
+    expect((await read(RELATED_SOURCE.url)).state).toBe('unavailable')
+    completed = true
+  } finally {
+    if (completed) {
+      for (const filename of imported.reverse())
+        await undoRelatedFile(page, filename)
+      const current = await loadConfig()
+      await backend('save_config', { config: { ...current, ai: before.ai } })
+    }
     await embeddings.close()
   }
 })

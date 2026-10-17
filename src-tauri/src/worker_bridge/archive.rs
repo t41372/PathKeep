@@ -303,6 +303,16 @@ pub(crate) fn url_detail_impl(
 }
 
 #[cfg_attr(test, allow(dead_code))]
+/// Keeps optional related-page reads behind the same unlocked archive session.
+pub(crate) fn related_pages_impl(
+    url: &str,
+    visit_id: Option<i64>,
+    state: &SessionState,
+) -> Result<vault_core::RelatedPages, CommandError> {
+    worker_result(vault_worker::related_pages(&state.vault()?, url, visit_id))
+}
+
+#[cfg_attr(test, allow(dead_code))]
 /// Loads the full audit detail for one run ID.
 pub(crate) fn audit_run_detail_impl(
     run_id: i64,

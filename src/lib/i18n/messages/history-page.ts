@@ -3,6 +3,18 @@ import { defineMessages } from '../define'
 
 export const historyPage = defineMessages({
   en: {
+    related: {
+      label: 'Related pages',
+      loading: 'Finding related pages',
+      show: 'Show details for {title}',
+      staticNote:
+        'Found with the built-in model, so pages from the same site tend to rank first.',
+      notIndexed: 'This page hasn’t been indexed yet.',
+      updating: 'The search index is being updated.',
+      empty: 'No similar pages found.',
+      failed: 'Couldn’t load related pages.',
+    },
+
     preview: {
       label: 'Link preview',
       alt: 'Preview image of {title}',
@@ -31,6 +43,17 @@ export const historyPage = defineMessages({
     },
   },
   'zh-CN': {
+    related: {
+      label: '相关页面',
+      loading: '正在查找相关页面',
+      show: '查看 {title} 的详情',
+      staticNote: '用内置模型查找，同一网站的页面容易排在前面。',
+      notIndexed: '这个页面还没有建立索引。',
+      updating: '搜索索引正在更新。',
+      empty: '没有找到相似的页面。',
+      failed: '没能加载相关页面。',
+    },
+
     preview: {
       label: '链接预览',
       alt: '{title} 的预览图',
@@ -58,6 +81,17 @@ export const historyPage = defineMessages({
     },
   },
   'zh-TW': {
+    related: {
+      label: '相關頁面',
+      loading: '正在尋找相關頁面',
+      show: '查看 {title} 的詳情',
+      staticNote: '用內建模型尋找，同一網站的頁面容易排在前面。',
+      notIndexed: '這個頁面還沒有建立索引。',
+      updating: '搜尋索引正在更新。',
+      empty: '沒有找到相似的頁面。',
+      failed: '無法載入相關頁面。',
+    },
+
     preview: {
       label: '連結預覽',
       alt: '{title} 的預覽圖',

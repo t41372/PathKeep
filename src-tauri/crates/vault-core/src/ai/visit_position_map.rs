@@ -3,13 +3,14 @@
 //! Not responsible for: eligibility, scoring or repairing source files during search.
 //! Failure modes: positions from another projection attribute scores to the wrong page; a torn
 //! file is read; a visit beyond the array is looked up. Tests: `ai/tests.rs`
-//! `semantic_search_rejects_a_position_map_from_another_projection`.
+//! `semantic_search_rejects_a_position_map_from_another_projection` and `ai/related_pages.rs`.
 //!
 //! ```text
 //! .pkpos  magic b"PKPOS\0\x01\0" | u32 len + JSON Header | u32 position per history id (u32::MAX: none)
 //! ```
 //! Written after the reverse sidecars at the end of a pass. When it is missing or does not match the
 //! current planes and forward sidecar, search builds the same array in memory and writes nothing.
+//! The detail panel uses PointLookup instead and reports updating until the writer publishes it.
 use super::{FlatVectorIndex, ReverseVisitMap, VisitContentMap};
 use crate::{ProjectPaths, ai_sidecar::provider_table_name};
 use anyhow::{Result, ensure};
@@ -17,7 +18,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     fs::{self, File},
-    io::{BufWriter, Read, Write},
+    io::{BufWriter, Read, Seek, SeekFrom, Write},
     path::PathBuf,
 };
 use vault_store::CancelToken;
@@ -25,7 +26,7 @@ use vault_store::CancelToken;
 const MAGIC: &[u8; 8] = b"PKPOS\0\x01\0";
 pub(super) const ABSENT: u32 = u32::MAX;
 
-#[derive(Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 struct Header {
     fingerprint_hash: String,
@@ -34,6 +35,79 @@ struct Header {
     forward_projection: String,
     forward_records: u64,
     positions: usize,
+}
+
+/// Detail-panel reads must never rebuild or copy a visit-sized array on a click.
+pub(super) struct PointLookup {
+    file: File,
+    start: u64,
+    positions: usize,
+    records: usize,
+    header: Header,
+}
+
+impl PointLookup {
+    /// A missing or mismatched projection means updating, rather than an unindexed page.
+    pub(super) fn open(
+        paths: &ProjectPaths,
+        provider: &str,
+        model: &str,
+        index: &FlatVectorIndex,
+    ) -> Result<Option<Self>> {
+        let read = || -> Result<Option<Self>> {
+            let (mut expected, _) = source_header(paths, provider, model, index)?;
+            if expected.int8_projection.is_empty() || expected.forward_projection.is_empty() {
+                return Ok(None);
+            }
+            let mut file = File::open(path(paths, provider, model))?;
+            let found = read_header(&mut file)?;
+            expected.positions = found.positions;
+            if found != expected {
+                return Ok(None);
+            }
+            Ok(Some(Self {
+                start: file.stream_position()?,
+                positions: found.positions,
+                records: index.len(),
+                header: found,
+                file,
+            }))
+        };
+        // Writers replace these files separately; any incomplete header is transient unavailability.
+        Ok(read().ok().flatten())
+    }
+
+    /// Bounds fallback lookups by the published visit prefix.
+    pub(super) fn max_visit(&self) -> i64 {
+        self.positions.saturating_sub(1) as i64
+    }
+
+    /// Reject a reverse-map replacement that raced candidate hydration.
+    pub(super) fn is_current(
+        &self,
+        paths: &ProjectPaths,
+        provider: &str,
+        model: &str,
+        index: &FlatVectorIndex,
+    ) -> Result<bool> {
+        let (mut current, _) = source_header(paths, provider, model, index)?;
+        current.positions = self.positions;
+        Ok(current == self.header)
+    }
+
+    /// Reads just the selected visit's u32 from the validated, pinned file.
+    pub(super) fn get(&mut self, visit: i64) -> Result<Option<usize>> {
+        let Ok(visit) = usize::try_from(visit) else { return Ok(None) };
+        if visit >= self.positions {
+            return Ok(None);
+        }
+        self.file.seek(SeekFrom::Start(self.start + visit as u64 * 4))?;
+        let mut bytes = [0; 4];
+        self.file.read_exact(&mut bytes)?;
+        let position = u32::from_le_bytes(bytes);
+        ensure!(position == ABSENT || (position as usize) < self.records, "invalid visit position");
+        Ok((position != ABSENT).then_some(position as usize))
+    }
 }
 
 pub(super) fn path(paths: &ProjectPaths, provider: &str, model: &str) -> PathBuf {
@@ -146,12 +220,24 @@ pub(super) fn rebuild(paths: &ProjectPaths, provider: &str, model: &str) -> Resu
 
 fn read(path: &std::path::Path) -> Result<(Header, Vec<u32>)> {
     let mut file = File::open(path)?;
+    let header = read_header(&mut file)?;
+    let mut bytes = vec![0; header.positions * 4];
+    file.read_exact(&mut bytes)?;
+    let positions =
+        bytes.chunks_exact(4).map(|b| u32::from_le_bytes(b.try_into().unwrap())).collect();
+    Ok((header, positions))
+}
+
+fn read_header(file: &mut File) -> Result<Header> {
     let mut prefix = [0; 12];
     file.read_exact(&mut prefix)?;
     ensure!(&prefix[..8] == MAGIC, "invalid visit position magic");
     let length = u32::from_le_bytes(prefix[8..].try_into().unwrap()) as usize;
     let file_bytes = file.metadata()?.len() as usize;
-    ensure!(length <= file_bytes.saturating_sub(12), "truncated visit position header");
+    ensure!(
+        length <= 65_536 && length <= file_bytes.saturating_sub(12),
+        "invalid visit position header"
+    );
     let mut json = vec![0; length];
     file.read_exact(&mut json)?;
     let header: Header = serde_json::from_slice(&json)?;
@@ -160,11 +246,7 @@ fn read(path: &std::path::Path) -> Result<(Header, Vec<u32>)> {
             == Some(file_bytes),
         "truncated visit positions"
     );
-    let mut bytes = vec![0; header.positions * 4];
-    file.read_exact(&mut bytes)?;
-    let positions =
-        bytes.chunks_exact(4).map(|b| u32::from_le_bytes(b.try_into().unwrap())).collect();
-    Ok((header, positions))
+    Ok(header)
 }
 
 pub(super) fn delete(paths: &ProjectPaths, provider: &str, model: &str) -> Result<bool> {

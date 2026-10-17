@@ -370,6 +370,21 @@ pub(crate) async fn get_url_detail(
 
 #[cfg(not(test))]
 #[tauri::command]
+/// Finds related pages without blocking the UI or calling an embedding service.
+pub(crate) async fn get_related_pages(
+    url: String,
+    visit_id: Option<i64>,
+    state: State<'_, SessionState>,
+) -> Result<vault_core::RelatedPages, CommandError> {
+    let session = state.inner().clone();
+    run_blocking_command("get_related_pages", move || {
+        worker_bridge::related_pages_impl(&url, visit_id, &session)
+    })
+    .await
+}
+
+#[cfg(not(test))]
+#[tauri::command]
 /// Loads the full audit detail for one archived run, off the UI thread.
 pub(crate) async fn load_audit_run_detail(
     run_id: i64,

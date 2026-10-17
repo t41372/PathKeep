@@ -10,6 +10,55 @@ use vault_store::{Db, Session, Store, Value};
 pub fn visits(vault: &Vault, ids: &[i64]) -> anyhow::Result<Vec<HistoryEntry>> {
     Ok(evidence(vault, ids, &SearchRequest::default())?.into_iter().map(|hit| hit.visit).collect())
 }
+/// Related pages show a candidate page by its newest visible visit, which may be newer than the
+/// index pass; a page with no visible visit left is dropped. `ids` holds one visit of each
+/// candidate (its key in the result), so the cost follows the candidates, not how often each page
+/// was visited: one seek per URL of the page, under the unfiltered search scope.
+pub(crate) fn newest_visible_by_page(
+    vault: &Vault,
+    ids: &[i64],
+) -> anyhow::Result<Vec<(i64, HistoryEntry)>> {
+    let mut result = Vec::new();
+    for ids in ids.chunks(512) {
+        let ids = ids.to_vec();
+        result.extend(vault.store().read(Db::Archive, move |s| {
+            let scope = Scope::new(&SearchRequest::default(), &Default::default());
+            let placeholders = vec!["?"; ids.len()].join(",");
+            let pairs = s.query(
+                &format!(
+                    "SELECT cv.id,(SELECT v.id FROM visits v INDEXED BY idx_visits_visible_url_time
+                 WHERE v.url_id=u.id AND {} ORDER BY v.visit_time_ms DESC,v.id DESC LIMIT 1)
+                 FROM visits cv CROSS JOIN urls cu ON cu.id=cv.url_id
+                 CROSS JOIN urls u INDEXED BY idx_urls_page_id ON u.page_id=cu.page_id
+                 WHERE cv.id IN ({placeholders})",
+                    scope.sql
+                ),
+                ids,
+                |r| Ok((r.get::<i64>(0)?, r.get::<Option<i64>>(1)?)),
+            )?;
+            let wanted =
+                pairs.iter().filter_map(|(_, id)| *id).collect::<std::collections::HashSet<_>>();
+            let mut newest = std::collections::HashMap::<i64, HistoryEntry>::new();
+            let mut hydrated = std::collections::HashMap::new();
+            for ids in wanted.into_iter().collect::<Vec<_>>().chunks(512) {
+                hydrated
+                    .extend(rows(s, ids, &scope)?.into_iter().map(|hit| (hit.visit.id, hit.visit)));
+            }
+            for (original, id) in pairs {
+                let Some(row) = id.and_then(|id| hydrated.get(&id)) else { continue };
+                if newest
+                    .get(&original)
+                    .is_none_or(|old| (row.visit_time, row.id) > (old.visit_time, old.id))
+                {
+                    newest.insert(original, row.clone());
+                }
+            }
+            Ok(newest.into_iter().collect::<Vec<_>>())
+        })?);
+    }
+    Ok(result)
+}
+
 /// Semantic candidates use the same canonical same-visit scope as lexical retrieval.
 pub(crate) fn evidence(
     vault: &Vault,

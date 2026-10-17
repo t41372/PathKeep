@@ -180,8 +180,12 @@ export function createFormatters(
         month: 'long',
         day: 'numeric',
       }).format(toDate(value)),
-    /** "just now", "12 min ago", "3 days ago", then a plain date. */
-    relative: (value: DateInput, now = Date.now()) => {
+    /** Relative time; elapsed keeps months and years relative for related pages. */
+    relative: (
+      value: DateInput,
+      now = Date.now(),
+      style: 'date' | 'elapsed' = 'date',
+    ) => {
       const diff = Math.max(0, now - toDate(value).getTime())
       const minutes = Math.floor(diff / 60_000)
       if (minutes < 1) return t('common.justNow')
@@ -190,6 +194,12 @@ export function createFormatters(
       if (hours < 24) return t('common.hoursAgo', { count: hours })
       const days = Math.floor(hours / 24)
       if (days < 30) return t('common.daysAgo', { count: days })
+      if (style === 'elapsed') {
+        const months = Math.floor(days / 30)
+        return months < 12
+          ? t('common.monthsAgo', { count: months })
+          : t('common.yearsAgo', { count: Math.floor(days / 365) || 1 })
+      }
       return at({ dateStyle: 'medium' }).format(toDate(value))
     },
     /** "14:12" today, "Yesterday", otherwise a short date. */

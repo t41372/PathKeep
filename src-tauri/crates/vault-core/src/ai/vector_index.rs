@@ -43,6 +43,14 @@ impl FlatVectorIndex {
         let scale = f32::from_le_bytes(record[8..12].try_into().unwrap());
         record[12..].iter().map(|byte| *byte as i8 as f32 * scale).collect()
     }
+    /// Samples the same quantised dot-product scale used by the complete scan.
+    pub(super) fn score_pair(&self, a: usize, b: usize) -> f32 {
+        let query = self.vector_at(a);
+        let plane = self.mapped.as_ref().expect("positions require a mapped plane");
+        let start = b * plane.stride();
+        let record = &plane.records()[start..start + plane.stride()];
+        scaled_dot(&query, &record[12..], f32::from_le_bytes(record[8..12].try_into().unwrap()))
+    }
     pub(super) fn projection_id(&self) -> &str {
         self.mapped.as_ref().map_or("", |plane| plane.header.projection_id.as_str())
     }

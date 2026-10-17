@@ -54,6 +54,7 @@ pub mod utils;
 mod vault;
 pub mod visit_taxonomy;
 
+pub use ai::{RelatedPage, RelatedPages, related_pages};
 pub use vault::{ArchivePasswordWrong, BackupAlreadyRunning, EnvelopeMissing, Vault};
 
 pub use agent_store::{

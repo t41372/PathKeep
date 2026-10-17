@@ -241,6 +241,7 @@ fn run_app() -> Result<()> {
             load_recent_runs,
             load_import_batches,
             get_url_detail,
+            get_related_pages,
             load_audit_run_detail,
             export_history,
             get_export_progress,
