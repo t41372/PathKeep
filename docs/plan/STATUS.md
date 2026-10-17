@@ -457,7 +457,7 @@
 
 - [ ] **WORK-EMBED-USES** — embedding 不只用在搜索（用戶 2026-10-15）
   - 讀先：`docs/features/intelligence.md`、`docs/plan/program/ai-redesign-2026/05-embedding-retrieval-revision.md`、`docs/architecture/semantic-index-control.md`、`docs/architecture/search.md`。
-  - 前提：現在每次語義搜索把全部向量掃一遍（`vector_index.rs` 的 int8 暴力計算）。Turso 遷移時拿掉了二值粗篩，`05-embedding-retrieval-revision.md` 與 `vector_planes.rs` 檔頭還寫兩段式。每多一個用途就多一次全掃，14.4M 時要先換索引結構（先量）。
+  - 前提：現在每次語義搜索把全部向量掃一遍（`vector_index.rs` 的 int8 暴力計算）。Turso 遷移時拿掉了二值粗篩，`05-embedding-retrieval-revision.md` 與 `vector_planes.rs` 檔頭還寫兩段式。每多一個用途就多一次全掃，14.4M 時要先換索引結構（先量）。2026-10-16 量完：[2026-10-vector-search.md](../architecture/research/2026-10-vector-search.md)；一次全掃在 14.4M × 256 單執行緒只要 12–82 ms（Turbovec / 連續 int8，M5 Max 上量的，目標機會慢），慢的是搜尋流程本身，見 BACKLOG `WORK-SEMANTIC-PIPELINE`。
   - 候選，按價值：給 Ask 的每週 / 每月主題聚類（「總結一下這週」要的就是這個，`intelligence_report` 只有數字）；洞察的主題時間線（聚類 + 最有代表性的標題命名，不需要 LLM）；頁面詳情的相關頁面與重新浮現；session 標題選語義上最居中的頁；搜索結果合併近似重複（同一篇文章的不同網址、AMP、鏡像）；用戶自訂類別的零樣本分類。
   - 核心功能不以有 embedding 為前提（AGENTS.md 第 4 條），這些是有 embedding 時才有的功能。
 

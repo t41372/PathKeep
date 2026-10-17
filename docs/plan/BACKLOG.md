@@ -61,6 +61,11 @@
   - 推翻 `semantic-index-control.md` 與 `intelligence.md` §1（未完成的索引只在沒有完整索引時才搜）：用戶 2026-10-16 同意。做的時候改這兩份文檔。和 `WORK-INDEX-REBUILD-SWAP` 一起設計。
   - 不做：外部服務不在時退回靜態模型、兩份索引永久並存（用戶 2026-10-16：不要）。
 
+- [ ] **WORK-SEMANTIC-PIPELINE** — 語意搜尋 1M 次造訪要 5.75 秒，14.4M 時估 80 秒以上；時間花在逐筆造訪的回查與全量排序，不在向量（2026-10-16 量 Turbovec / LEANN 時找到）
+  - 量測與數字：[2026-10-vector-search.md](../architecture/research/2026-10-vector-search.md)。100 萬次造訪：掃描 369 ms、hydration 1,654 ms（每 512 次造訪一次 SQL）、排序加第一頁 3,588 ms。現行掃描本身也比連續 int8 掃描慢約 90 倍（每筆各自 seek、read、三次配置）。每次搜尋還整份讀一遍 sign-bit plane（只用到長度）、對 `visits` 跑 `COUNT(*)`。
+  - 要做（不推翻任何決策，每個向量照樣計分）：plane 旁存位置 → 頁面的對應；搜尋的篩選先變成資格遮罩再選；分數放在按位置索引的陣列；只 hydrate 當頁要顯示的列。int8 plane 整塊 map 起來 SIMD 掃；不再每次讀 sign-bit plane；staleness 不再數 `visits`。用 `semantic_stage_bench` 量 1M / 4M 前後對比，E2E 驗篩選下最低分的合格頁仍翻得到。
+  - 之後要用戶決定的（研究文件「What this means」A / B / C）：大語料時完整 int8 排序放不進 8 GB，要嘛從磁碟讀、要嘛用緊湊碼排全部再重算前段（後段順序是近似的），要嘛回到候選池（推翻 2026-10-07 的完整計分）。Turbovec 2-bit 當第一段在 256 維與 1,024 維都不掉召回；sign bits 只在高維夠用。
+
 - [ ] **WORK-STATIC-MODEL-LOAD-REHASH** — 內建模型每次啟動後第一次載入都重算 531 MB 的雜湊（2026-10-16 寫 trade-off 時讀碼找到，還沒量）
   - `embedding_static/cache.rs` 的 `load` 在快取沒命中時呼叫 `model_is_present_and_verified`，把每個模型檔整份重算 SHA-256（這台 M5 Max 約 1 秒，目標機更久）。程序啟動後第一次建索引或語意搜尋都會碰到。`VERIFIED_MARKER_FILE` 的註解說載入時信任標記、不重算，代碼沒這樣做。
   - 要做：驗證通過時把每個檔的大小與修改時間寫進標記；載入時比對一致就信任，不一致才整份重算。先量目標機上啟動後第一次語意搜尋的延遲。
