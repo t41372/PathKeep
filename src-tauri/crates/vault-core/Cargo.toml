@@ -71,6 +71,11 @@ futures-core.workspace = true
 mockito = "1.7.0"
 tempfile.workspace = true
 tokio.workspace = true
+# Only for the env-gated vector scan benchmark (`tests/vector_scan_bench/`), which compares the
+# shipped flat index with TurboQuant codes; nothing in the product links it.
+turbovec = "1.1.2"
+# Already in the lockfile through tantivy and turbovec; thread pools of a chosen size for the benchmark.
+rayon = "1.12.0"
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(coverage)'] }
