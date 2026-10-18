@@ -31,7 +31,9 @@ use crate::context::{
     resolve_provider_runtime, search_response_with_resolution_note,
     selected_embedding_provider_runtime, selected_optional_embedding_runtime, tokio_runtime,
 };
-use crate::job_runtime::{BackgroundJobControl, maybe_spawn_worker_pool};
+use crate::job_runtime::{
+    BackgroundJobControl, maybe_spawn_worker_pool, wait_unless_stopped, worker_stopped,
+};
 use anyhow::{Context, Result};
 use std::{
     sync::{Arc, OnceLock},
@@ -373,6 +375,9 @@ fn spawn_ai_queue_drain(
         &AI_QUEUE_ACTIVE_WORKERS,
         desired_workers,
         move || loop {
+            if worker_stopped() {
+                break;
+            }
             match drain_one_ai_queue_job(&vault, &paths, session_database_key.as_deref()) {
                 Ok(true) => {}
                 Ok(false) => match ai_queue::next_index_retry_at(&vault) {
@@ -392,7 +397,9 @@ fn spawn_ai_queue_drain(
                                     break;
                                 }
                             };
-                            std::thread::sleep(delay);
+                            if !wait_unless_stopped(delay) {
+                                break;
+                            }
                         } else {
                             break;
                         }

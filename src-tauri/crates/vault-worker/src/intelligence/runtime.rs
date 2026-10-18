@@ -24,7 +24,7 @@
 
 use super::{INTELLIGENCE_ENRICHMENT_WORKERS, INTELLIGENCE_PRIORITY_WORKERS};
 use crate::context::load_unlocked_config;
-use crate::job_runtime::maybe_spawn_worker_pool;
+use crate::job_runtime::{maybe_spawn_worker_pool, worker_stopped};
 use anyhow::{Context, Result};
 use serde_json::json;
 use vault_core::{
@@ -61,6 +61,9 @@ fn spawn_intelligence_queue_drain(vault: vault_core::Vault, desired_workers: usi
     maybe_spawn_worker_pool("pathkeep-intelligence-priority", &INTELLIGENCE_PRIORITY_WORKERS, 1, {
         let vault = vault.clone();
         move || loop {
+            if worker_stopped() {
+                break;
+            }
             match drain_one_priority_intelligence_job(&vault) {
                 Ok(true) => {}
                 Ok(false) => break,
@@ -81,7 +84,9 @@ fn spawn_intelligence_queue_drain(vault: vault_core::Vault, desired_workers: usi
         &INTELLIGENCE_ENRICHMENT_WORKERS,
         enrichment_workers,
         move || loop {
-            if !continue_enrichment_queue_drain(drain_one_enrichment_intelligence_job(&vault)) {
+            if worker_stopped()
+                || !continue_enrichment_queue_drain(drain_one_enrichment_intelligence_job(&vault))
+            {
                 break;
             }
         },

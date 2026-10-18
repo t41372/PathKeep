@@ -166,6 +166,9 @@ fn log_schedule_outcome(report: &WipeReport) {
 /// Stops background work that writes under the app root. `archive_open` says the
 /// archive is still there to ask its running jobs to stop.
 fn stop_background_work(paths: &ProjectPaths, archive_open: bool) -> Result<()> {
+    // Before anything else: a worker waiting for a retry, or a job whose database closes below,
+    // never reads the stop request written to its queue row.
+    crate::job_runtime::stop_all_background_work();
     if archive_open && let Err(error) = vault_core::request_running_jobs_stop(paths) {
         // Workers still stop at their next config check; this only makes it sooner.
         log::warn!(target: "pathkeep::data_wipe", "could not ask running jobs to stop: {error:#}");

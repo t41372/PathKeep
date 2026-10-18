@@ -18,7 +18,9 @@
 //! starving the local enrichment work and bounds egress concurrency to one (06 §5).
 
 use crate::context::load_unlocked_config;
-use crate::job_runtime::{WorkerPool, maybe_spawn_worker_pool};
+use crate::job_runtime::{
+    WorkerPool, maybe_spawn_worker_pool, wait_unless_stopped, worker_stopped,
+};
 use anyhow::Result;
 use vault_core::{
     AppConfig, AppSnapshot, ContentFetchNowRequest, ContentFetchNowResult, ContentFetchSettings,
@@ -145,8 +147,16 @@ fn spawn_content_fetch_drain(vault: &vault_core::Vault) {
     let vault = vault.clone();
     maybe_spawn_worker_pool("pathkeep-content-fetch", &CONTENT_FETCH_WORKERS, 1, move || {
         run_content_fetch_lane(
-            || drain_content_fetch_lane_step(&vault),
-            |secs| std::thread::sleep(std::time::Duration::from_secs(secs)),
+            || {
+                if worker_stopped() {
+                    LaneStep::Stop
+                } else {
+                    drain_content_fetch_lane_step(&vault)
+                }
+            },
+            |secs| {
+                wait_unless_stopped(std::time::Duration::from_secs(secs));
+            },
         );
     });
 }

@@ -5,12 +5,15 @@
 //!
 //! - configured concurrency must translate into real parallel workers
 //! - long-running jobs must observe stop requests at safe checkpoints
+//! - "Delete all data" stops every worker and job already started, even while one waits between
+//!   jobs or its database is already closed (`stop_all_background_work`)
 
 use anyhow::Result;
 use std::{
+    cell::Cell,
     sync::{
         Arc,
-        atomic::{AtomicBool, AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
         mpsc,
     },
     thread,
@@ -31,6 +34,41 @@ impl WorkerPool {
 
     pub(crate) fn active(&self) -> usize {
         self.active.load(Ordering::Acquire)
+    }
+}
+
+/// Moves on when everything running has to stop. A stop request written to a job's queue row is
+/// not enough for "Delete all data": a worker waiting for a retry reads no row, and once the
+/// databases are closed a job cannot read its row and would carry on writing files.
+static STOP_EPOCH: AtomicU64 = AtomicU64::new(0);
+
+thread_local! {
+    /// The epoch a worker thread started in; `None` outside the worker pools.
+    static WORKER_EPOCH: Cell<Option<u64>> = const { Cell::new(None) };
+}
+
+/// Stops every worker and job started before this call; ones started after it run normally.
+pub(crate) fn stop_all_background_work() {
+    STOP_EPOCH.fetch_add(1, Ordering::AcqRel);
+}
+
+/// Whether this worker thread was told to stop. Threads outside the pools never are.
+pub(crate) fn worker_stopped() -> bool {
+    WORKER_EPOCH.get().is_some_and(|epoch| epoch != STOP_EPOCH.load(Ordering::Acquire))
+}
+
+/// Waits between jobs, ending early when this worker is told to stop. False when it was.
+pub(crate) fn wait_unless_stopped(duration: Duration) -> bool {
+    let deadline = Instant::now() + duration;
+    loop {
+        if worker_stopped() {
+            return false;
+        }
+        let left = deadline.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return true;
+        }
+        thread::sleep(left.min(Duration::from_millis(100)));
     }
 }
 
@@ -75,11 +113,15 @@ fn run_worker(
     mut slot: WorkerSlotGuard,
     worker: &dyn Fn(),
 ) {
+    WORKER_EPOCH.set(Some(STOP_EPOCH.load(Ordering::Acquire)));
     loop {
         let asked = pool.wakes.load(Ordering::Acquire);
-        worker();
+        if !worker_stopped() {
+            worker();
+        }
         drop(slot);
-        if pool.wakes.load(Ordering::Acquire) == asked
+        if worker_stopped()
+            || pool.wakes.load(Ordering::Acquire) == asked
             || claim_free_slot(pool, desired_workers).is_none()
         {
             return;
@@ -118,6 +160,9 @@ fn claim_worker_slot(active_workers: &AtomicUsize, active: usize) -> bool {
 #[derive(Clone)]
 pub(crate) struct BackgroundJobControl {
     cancelled: Arc<AtomicBool>,
+    /// The stop epoch the job started in: once its database is closed a job cannot read its stop
+    /// request, and the epoch still stops it (`stop_all_background_work`).
+    epoch: u64,
     stop_tx: mpsc::Sender<()>,
 }
 
@@ -133,6 +178,7 @@ impl BackgroundJobControl {
         FStopRequested: Fn() -> Result<bool> + Send + 'static,
     {
         let cancelled = Arc::new(AtomicBool::new(false));
+        let epoch = STOP_EPOCH.load(Ordering::Acquire);
         let monitor_cancelled = Arc::clone(&cancelled);
         let (stop_tx, stop_rx) = mpsc::channel::<()>();
         thread::spawn(move || {
@@ -152,7 +198,7 @@ impl BackgroundJobControl {
                 }
             }
         });
-        Self { cancelled, stop_tx }
+        Self { cancelled, epoch, stop_tx }
     }
 
     pub(crate) fn shutdown(&self) {
@@ -162,14 +208,14 @@ impl BackgroundJobControl {
 
 impl AiRunControl for BackgroundJobControl {
     fn checkpoint(&self, detail: &str) -> Result<()> {
-        if self.cancelled.load(Ordering::Acquire) {
+        if self.cancelled() {
             return Err(AiRunCancelled::new(detail).into());
         }
         Ok(())
     }
 
     fn cancelled(&self) -> bool {
-        self.cancelled.load(Ordering::Acquire)
+        self.cancelled.load(Ordering::Acquire) || STOP_EPOCH.load(Ordering::Acquire) != self.epoch
     }
 }
 
