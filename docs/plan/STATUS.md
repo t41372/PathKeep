@@ -467,7 +467,7 @@
   - 第 1 項完成（2026-10-17）：Ask 的 `intelligence_report` `topics`，量測見 [2026-10-topics-of-a-period.md](../architecture/research/2026-10-topics-of-a-period.md)。其餘候選還沒做。
   - 第 2 項（洞察的主題時間線）：不做（用戶 2026-10-17）。用戶的六個月真實數據跑出來，靜態模型的大主題都是單一網站，Qwen3 找得到跨網站的事但也會按名字錯合；不用 LLM 的主題名讀不懂；每月前 8 個主題只占 24–38 % 的造訪。量測見 [2026-10-topics-of-a-period.md](../architecture/research/2026-10-topics-of-a-period.md)「Six real months」。
   - 第 3 項完成（2026-10-17）：History 詳情的「相關頁面」，用索引裡已有的向量，不呼叫 embedding 服務。規則與量測見 [2026-10-related-pages.md](../architecture/research/2026-10-related-pages.md)。
-  - 搜尋詞按意思分組（用戶 2026-10-17 選了三處都做）：Ask 的 `intelligence_report` `report="searches"` 與搜尋 drill-in 的「相似搜尋」完成（2026-10-17）；Insights 的「查過的事」卡還沒做。量測見 [2026-10-search-groups.md](../architecture/research/2026-10-search-groups.md)。決策模型等磁碟空間（BACKLOG `WORK-DECISION-MODELS`）。
+  - 搜尋詞按意思分組（用戶 2026-10-17 選了三處都做）：Ask 的 `intelligence_report` `report="searches"`、搜尋 drill-in 的「相似搜尋」與 Insights 的「查過的事」卡完成（2026-10-17）。量測見 [2026-10-search-groups.md](../architecture/research/2026-10-search-groups.md)。決策模型等磁碟空間（BACKLOG `WORK-DECISION-MODELS`）。
 
 - [x] **WORK-ASK-WEEKDAYS** — 工具結果的時間加上星期（2026-10-15 真模型實測看到；2026-10-17 完成，先於 `WORK-EMBED-USES` 做，因為它直接影響「總結一下這週」）
   - 讀先：`docs/features/intelligence.md`（Ask 與工具）、`docs/architecture/insights-time-zone.md`。

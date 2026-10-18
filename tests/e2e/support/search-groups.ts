@@ -24,8 +24,8 @@ async function visit(page: Page, url: string) {
   await unlockIfLocked(page)
 }
 
-const SUBJECT_A = ['lumincam', 'portable stills', 'travel sensor']
-const SUBJECT_B = [
+export const SUBJECT_A = ['lumincam', 'portable stills', 'travel sensor']
+export const SUBJECT_B = [
   'sourdough starter',
   'rye feeding',
   'wild yeast',
@@ -71,7 +71,7 @@ const B_PAGE = {
   title: 'Search group bread starter',
 }
 
-function corpus(): FixtureVisit[] {
+export function corpus(): FixtureVisit[] {
   const visits: FixtureVisit[] = []
   const search = (query: string, at: number, pages = A_PAGES) => {
     visits.push({
@@ -167,7 +167,7 @@ const idle = async () =>
     )
     .toBe(0)
 
-async function rebuildInsights(page: Page) {
+export async function rebuildInsights(page: Page) {
   await visit(page, '/#/settings/background')
   await page.getByRole('button', { name: 'Rebuild', exact: true }).click()
   const dialog = page.getByRole('alertdialog', { name: 'Rebuild Insights?' })
@@ -193,7 +193,7 @@ async function rebuildInsights(page: Page) {
  * wordings put the window's cut below A's three pairs. Other all-time searches use
  * orthogonal dimensions, keeping their own percentile independent of the window.
  */
-function searchVector(text: string, dimensions: number): number[] {
+export function searchVector(text: string, dimensions: number): number[] {
   const vector = new Array<number>(dimensions).fill(0)
   const a = text === UNDONE ? SUBJECT_A.length : SUBJECT_A.indexOf(text)
   const b = SUBJECT_B.indexOf(text)

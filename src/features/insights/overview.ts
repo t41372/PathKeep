@@ -10,7 +10,8 @@
  * 74 ms and 47 ms).
  *
  * Responsible for: the two batch reads, filling the cache, telling cards when
- * their batch has settled. Not responsible for: what a card shows.
+ * their batch has settled. Not responsible for: what a card shows or the
+ * optional search-group snapshots.
  */
 import {
   useQuery,

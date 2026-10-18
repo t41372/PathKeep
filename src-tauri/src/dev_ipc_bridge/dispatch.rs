@@ -367,6 +367,10 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
         "load_source_stats" => {
             json_value!(worker_bridge::source_stats_impl(&state.session)?)
         }
+        "get_search_groups" => {
+            let payload = parse_payload::<SearchGroupsPayload>(payload)?;
+            json_value!(worker_bridge::search_groups_impl(&payload.request, &state.session)?)
+        }
         "get_similar_searches" => {
             let payload = parse_payload::<SimilarSearchesPayload>(payload)?;
             json_value!(worker_bridge::similar_searches_impl(

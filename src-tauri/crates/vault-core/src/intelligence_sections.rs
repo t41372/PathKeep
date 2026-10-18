@@ -34,7 +34,17 @@ struct CoreIntelligenceSectionDescriptor {
     empty_degraded_reason: Option<&'static str>,
 }
 
-const CORE_INTELLIGENCE_SECTION_DESCRIPTORS: [CoreIntelligenceSectionDescriptor; 23] = [
+const CORE_INTELLIGENCE_SECTION_DESCRIPTORS: [CoreIntelligenceSectionDescriptor; 24] = [
+    CoreIntelligenceSectionDescriptor {
+        id: "search-groups",
+        module_ids: &["search-trails"],
+        source_tables: &["search_events", "search_trail_members"],
+        includes_enrichment: false,
+        data_kind: SectionDataKind::PersistedDerived,
+        evidence: Some(SectionEvidenceUnit::Searches),
+        notes: &[],
+        empty_degraded_reason: None,
+    },
     CoreIntelligenceSectionDescriptor {
         id: "digest-summary",
         module_ids: &["daily-rollups"],

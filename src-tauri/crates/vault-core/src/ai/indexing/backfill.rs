@@ -356,7 +356,20 @@ pub async fn build_ai_index_with_control(
                 }),
             )
         }) {
-            Ok(()) => Ok(report),
+            Ok(()) => {
+                // Group once after all page/search vectors and maps are published, never inside
+                // an embedding chunk. Snapshot failure must not downgrade a completed index.
+                if let Err(error) =
+                    super::super::search_group_snapshots::warm_search_group_snapshots(
+                        vault,
+                        provider,
+                        run_control.as_ref(),
+                    )
+                {
+                    eprintln!("warming search groups after index pass: {error:#}");
+                }
+                Ok(report)
+            }
             Err(error) => {
                 end_failed_ai_run(vault, run_id, &error, json!({}));
                 let _ = record_index_ledger_failure(

@@ -209,7 +209,7 @@ pub(super) fn load_checkpoint_source_watermark(
 /// of those, which moves when a revert or restore leaves both ids alone. `MAX(id)` and
 /// `COUNT(*)` would read every row in Turso, which has no shortcut for them: for visits, the
 /// whole archive on every all-time open and every Insights card read.
-pub(super) fn load_archive_delta_signature(connection: &Session<'_>) -> Result<String> {
+pub(crate) fn load_archive_delta_signature(connection: &Session<'_>) -> Result<String> {
     let (last_visit_id, last_run_id): (i64, i64) = connection.query_one(
         "SELECT COALESCE(MAX(CASE WHEN name='visits' THEN seq END), 0),
                 COALESCE(MAX(CASE WHEN name='runs' THEN seq END), 0)

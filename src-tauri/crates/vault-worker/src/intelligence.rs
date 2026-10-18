@@ -102,8 +102,11 @@ pub use self::section_queries::{
 static AI_QUEUE_ACTIVE_WORKERS: WorkerPool = WorkerPool::new();
 static INTELLIGENCE_PRIORITY_WORKERS: WorkerPool = WorkerPool::new();
 static INTELLIGENCE_ENRICHMENT_WORKERS: WorkerPool = WorkerPool::new();
+/// Recomputes the "Things you looked into" snapshots after an Insights build, outside its lane.
+pub(crate) static SEARCH_GROUP_WORKERS: WorkerPool = WorkerPool::new();
 
-/// Queue workers running in this process: AI queue, both intelligence lanes and content fetch.
+/// Queue workers running in this process: AI queue, both intelligence lanes, content fetch and
+/// the search-group snapshots.
 /// "Delete all data" waits for this to reach zero before removing the databases they write.
 pub(crate) fn running_background_workers() -> usize {
     [
@@ -111,6 +114,7 @@ pub(crate) fn running_background_workers() -> usize {
         &INTELLIGENCE_PRIORITY_WORKERS,
         &INTELLIGENCE_ENRICHMENT_WORKERS,
         &content_fetch::CONTENT_FETCH_WORKERS,
+        &SEARCH_GROUP_WORKERS,
     ]
     .iter()
     .map(|workers| workers.active())

@@ -534,3 +534,17 @@ pub(crate) async fn get_similar_searches(
     })
     .await
 }
+
+#[cfg(not(test))]
+#[tauri::command]
+/// Short custom windows group on a worker; kept months only read their snapshots.
+pub(crate) async fn get_search_groups(
+    request: vault_core::ScopedDateRangeRequest,
+    state: State<'_, SessionState>,
+) -> Result<vault_core::SearchGroupsCard, CommandError> {
+    let session = state.inner().clone();
+    run_blocking_command("get_search_groups", move || {
+        worker_bridge::search_groups_impl(&request, &session)
+    })
+    .await
+}

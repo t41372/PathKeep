@@ -98,6 +98,9 @@ pub struct VectorStoreHeader {
     /// Text format of the oldest vectors; appending must never upgrade this stamp.
     #[serde(default)]
     pub embedded_text: Option<String>,
+    /// A recreation changes identity even for the same model and vector count.
+    #[serde(default)]
+    pub store_id: String,
 }
 
 /// A handle to one provider/model vector store on the `derived/vectors/` plane.
@@ -156,12 +159,15 @@ impl VectorStore {
     ) -> Result<Self> {
         ensure_paths(paths)?;
         let store = self;
+        let mut store_id = [0; 16];
+        getrandom::fill(&mut store_id)?;
         let header = VectorStoreHeader {
             provider_id: fingerprint.provider_id.clone(),
             model_id: fingerprint.model_id.clone(),
             dim: fingerprint.effective_dim,
             fingerprint_hash: fingerprint.hash(),
             embedded_text: Some(embedded_text),
+            store_id: hex::encode(store_id),
         };
         let file = File::create(&store.path)
             .with_context(|| format!("creating vector store {}", store.path.display()))?;

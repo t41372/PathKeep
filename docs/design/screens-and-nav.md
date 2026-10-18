@@ -54,7 +54,7 @@ SessionGate（src/app/index.tsx）
 ### 畫面之間的連結
 
 - Home：統計卡分別連到 History、Insights、Settings → Storage、Backup；年度熱力圖點某天 → `/insights/day/YYYY-MM-DD`；On this day 的日期 → `/history?date=YYYY-MM-DD`；「常回來的主題」→ 搜尋或頁面的 drill-in（範圍 90 天），「全部」→ Insights；來源卡「管理」→ Backup；備份狀態膠囊 → Backup。
-- Insights：每日活動點某天 → day；熱門網站 → site；常搜尋 → search；常重開的頁面 → page（帶該列的設定檔，`scores=`）；「你回頭再看的事」→ search 或 page；習慣、各瀏覽器對比的網站 → site。drill-in 都帶目前的範圍與設定檔；day 本身涵蓋所有設定檔，帶著範圍只為了「← 洞察」回得去。
+- Insights：每日活動點某天 → day；熱門網站 → site；查過的事、常搜尋 → search；常重開的頁面 → page（帶該列的設定檔，`scores=`）；「你回頭再看的事」→ search 或 page；習慣、各瀏覽器對比的網站 → site。drill-in 都帶目前的範圍與設定檔；day 本身涵蓋所有設定檔，帶著範圍只為了「← 洞察」回得去。
 - Insights drill-in 往外：day 的熱門網站 → `/history?date=D&domain=…`，時段裡的頁面 → `/history?date=D&visit=<id>`，時段與搜尋卡裡的搜尋 → search；site 的每日長條 → day，頁面 → `/history?q=<標題>&domain=…`，「帶你來到這裡的搜尋」→ search，「在歷史中打開」→ `/history?domain=…&date=<range>`；search 的每一次 → day，打開的網站 → site，「在歷史中搜尋」→ `/history?q=…`；page 的最近日子 → day，網站 → site，搜尋 → search，「在歷史中打開」→ `/history?q=<標題>&domain=…`；day 的「在歷史中打開」→ `/history?date=D`，前一天 / 後一天，回來再看的頁面 → page。每個 drill-in 左上角「← 洞察」回到 Insights，保留打開它時的範圍與設定檔。
 - Ask：回答引用的頁面 → `/history?q=<標題>&visit=<id>`；未設定 AI → Settings → AI。
 - ⌘K：頁面結果 → `/history?q=…&visit=<id>`；「搜尋歷史『…』」→ `/history?q=…`。
@@ -85,6 +85,12 @@ SessionGate（src/app/index.tsx）
 | **Storage**         | Archive 位置（在 Finder / 資料夾中顯示）；磁碟用量（archive / 搜尋索引 / 快照 / 其他）；釋放空間；連結預覽圖快取（數量、大小、清除）；匯出歷史（HTML / Markdown / 純文字 / JSON Lines，整個歷史一個檔）。「搬移與還原」分組：搬到另一台電腦（打包成一個 `.pathkeep` 檔 / 打開一個）、從安全副本還原、刪除所有資料。                                                                                                                                                                                                                                                                                                                                                                      |
 | **Background work** | 開頭說明備份不等這些工作。執行背景工作（開關＝暫停 / 恢復，管所有佇列）；同時執行的工作數（1–4）；洞察與網頁細節佇列（摘要、最近工作清單：名稱、狀態、時間、進度、錯誤、重試 / 取消；「重建」先確認）；搜尋索引與助理佇列（AI 關閉時連到 Settings → AI；「再執行一次」/ 取消）；網頁摘要（已摘要數、佇列、「立即抓取」；關閉時連到 General）；連結預覽（覆蓋率、何時抓取、保留圖片規則、立即清理）。「搜尋與洞察資料」分組：洞察資料（每個 module 的版本、狀態、上次建立、過期原因；「清除…」先預覽會刪的筆數與保留的內容，重建執行中不能清除，清除後提供「立即重建」）、額外的網頁資訊（每個 plugin 的筆數、上次執行、上次錯誤）。只在有工作執行（或未暫停時有工作等待）時每 2 秒更新。 |
 | **About**           | 版本（產品名、版本號、commit，有未提交修改時標示）；更新（檢查、下載安裝、重啟）；記錄檔（顯示資料夾，列出資料夾 / 應用程式記錄檔 / 視窗記錄檔路徑，可複製）；當機報告（資料夾路徑、顯示資料夾、最近一次當機）；複製診斷資訊（只含版本、平台、設定開關、最近一次執行、路徑等 metadata，可先查看內容）；檢查存檔（唯讀健康檢查，失敗時可修復）。                                                                                                                                                                                                                                                                                                                                          |
+
+### Insights 的「查過的事」
+
+「搜尋」區的第一張兩欄摘要卡，只在服務中的語意索引有搜尋向量時出現。旁邊仍是常搜尋／常重開，接著是搜尋引擎與詞語卡；沒有搜尋向量時保留原排列。最多 31 天列前 6 組，較長範圍列各月前 3 組（新月在上、整月日期帶），副標交代範圍、按意思分組、整月邊界與跨瀏覽器口徑。靜態模型的共詞限制連到 Settings → AI。每組是自己的搜尋文字、數字及日期格，不加裝飾圖；日期格可朗讀日期與有無搜尋。超過三種文字時顯示其餘數量，避免用一個文字假裝命名整個大組。點列保留目前範圍／設定檔進 search drill-in。
+
+卡內清單限高並保留溢出淡出提示；月份虛擬化。載入立即給列 skeleton，未完成月份標「更新中…」並輪詢。空範圍說清楚只計哪些搜尋；讀取失敗留在本卡，有重試。ⓘ 沿用卡片的資料說明與「問問助理」。
 
 ### Onboarding
 

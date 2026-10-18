@@ -55,7 +55,9 @@ mod vault;
 pub mod visit_taxonomy;
 
 pub use ai::{
-    RelatedPage, RelatedPages, SimilarSearch, SimilarSearches, related_pages, similar_searches,
+    RelatedPage, RelatedPages, SearchGroup, SearchGroupWindow, SearchGroupsCard, SimilarSearch,
+    SimilarSearches, related_pages, search_groups_card, similar_searches,
+    warm_search_group_snapshots,
 };
 pub use vault::{ArchivePasswordWrong, BackupAlreadyRunning, EnvelopeMissing, Vault};
 

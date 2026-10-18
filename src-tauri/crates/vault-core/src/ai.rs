@@ -36,6 +36,12 @@ mod related_pages_bench;
 mod report_pages;
 mod reverse_visit_map;
 mod search;
+#[cfg(test)]
+mod search_group_fixture;
+mod search_group_signatures;
+mod search_group_snapshots;
+#[cfg(test)]
+mod search_group_snapshots_tests;
 mod search_groups;
 #[cfg(test)]
 mod search_groups_bench;
@@ -293,4 +299,8 @@ const SQLITE_BATCH_SIZE: usize = 400;
 #[cfg(test)]
 mod tests;
 
+pub use self::search_group_snapshots::{
+    SearchGroup, SearchGroupWindow, SearchGroupsCard, search_groups_card,
+    warm_search_group_snapshots,
+};
 pub use self::similar_searches::{SimilarSearch, SimilarSearches, similar_searches};

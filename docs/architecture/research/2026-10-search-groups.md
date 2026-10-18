@@ -62,4 +62,32 @@ CARGO_TARGET_DIR=src-tauri/target PATHKEEP_SEARCH_GROUPS_BENCH=1 \
   ai::search_groups_bench::search_groups_measurement -- --ignored --nocapture
 ```
 
-Rust tests cover numeric edges, linkage against a direct implementation, the cap and shared trails. The new E2E scenario requires opened-page context to reunite unrelated wordings, checks report accounting and the drill-in, and checks undo with Insights paused. It writes reports, rows and a screenshot when run.
+### Insights: Things you looked into
+
+The first summary card in Insights' Searches section uses the same grouping as Ask. Up to 31 days it shows six groups, including a selected browser profile; longer ranges show three per whole calendar month, across all browsers. Rows use the most searched wording and two more, state how many other wordings a larger group contains, count searches/days/distinct opened pages, and mark the searched days. Each row opens that wording's search drill-in with the current range and profile. Static-model groups link to Settings → AI with their shared-word limitation. No search vectors means the original section stays as it was. Months scroll with an overflow fade and are virtualized.
+
+Monthly and rolling 7-/30-day windows are kept in `intelligence_overview_snapshots` (`band=all`, `search-groups:YYYY-MM` / `search-groups:d7` / `search-groups:d30`). The index pass warms them once after search-vector publication; Insights builds warm them too. A missing or stale row shows Updating while the card polls. A read that finds such a window (a new day, an upgrade) asks the worker crate to warm; the warm runs on its own background worker, counted and stopped with the queues, never on the Insights lane or on a thread of its own. Custom/profile short windows group on the command worker while skeleton rows show. Grouping errors stay inside the card with retry; the card inherits the search-trails module's freshness as well.
+
+A cheap signature guards the input read: navigation generations, the existing search-rule signature, window event/member counts and maximum visit IDs, both vector counts and store identities, the page forward-map identity, model fingerprint, zone and grouping-rule version. It also includes the existing archive delta signature (undo must take effect before Insights catches up) and both int8 projection identities (reject publication races even at equal counts). Changed guards reread and digest the actual events, wordings/counts/days/trails and visible opened visits with their vector presence/content keys. Generations and projection identities alone do not change that digest. Events are hashed as they stream rather than retained just for invalidation. Equal digests retain the linkage result. New vector-store headers carry a random recreation ID; legacy headers use file creation identity, or device/inode on Unix filesystems without birth time. Publication checks the guard again on the Intelligence writer; warmers serialize. Stored rows contain display evidence and top-page visit IDs, never titles.
+
+The complete-path probe seeds real Archive/Insights databases, page/search stores and published visit projections. Each month has 4,096 distinct searches and 4,096 trail pages; twelve months reuse those vector keys, giving 49,152 search events and the same number of opened-page visits. Directions are synthetic normalized vectors, without model inference. Times include input reads, page-vector combination, streaming digest, linkage, serialization and snapshot publication. The unchanged-year probe executes the cheap guards and skips input reads/linkage. These remain measurements on this Mac, not the four-core target machine or a UI frame-time profile.
+
+Complete-path release measurements on this M5 Max, 2026-10-17, warm OS cache, median of three runs, in milliseconds.
+
+| Read / step             | 256 dimensions | 1,024 dimensions |
+| ----------------------- | -------------: | ---------------: |
+| on-demand 31 days       |            267 |              729 |
+| one month recomputation |            277 |              734 |
+| year recomputation      |          3,322 |            8,806 |
+| year unchanged          |             68 |               68 |
+
+```sh
+CARGO_TARGET_DIR=src-tauri/target PATHKEEP_SEARCH_GROUPS_BENCH=1 \
+  PATHKEEP_SEARCH_GROUPS_OUT=/tmp/pathkeep-search-card-timings.jsonl \
+  cargo test --manifest-path src-tauri/Cargo.toml -p vault-core --release --lib \
+  ai::search_groups_bench::search_group_card_measurement -- --ignored --nocapture
+```
+
+Rust tests cover numeric edges, linkage against a direct implementation, the cap and shared trails. The Ask E2E scenario requires opened-page context to reunite unrelated wordings, checks report accounting and the drill-in, and checks undo with Insights paused. It writes reports, rows and a screenshot when run.
+
+The card E2E scenario builds Insights before the index, imports two subjects in two months and two browser profiles, waits for computed month groups, and checks counts, searched days, broad-group size, range/profile drill-ins, all-browser monthly scope and service removal. It attaches the fixture, rows and light/dark card screenshots when run.

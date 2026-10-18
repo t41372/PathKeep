@@ -1,12 +1,14 @@
 /**
  * Insights: deterministic statistics over a chosen scope, computed locally
- * from the archive. No AI involved. Grouped by the questions people ask of
- * their history: how much and where, when, what they search for, and what
- * they keep coming back to. Every card links into a drill-in (day, site,
- * search, page), and the drill-ins link onward to History.
+ * from the archive, plus optional search groups from saved vectors. Grouped
+ * by the questions people ask of their history: how much and where, when,
+ * what they search for, and what they keep coming back to. Every card links
+ * into a drill-in (day, site, search, page), and the drill-ins link onward to
+ * History.
  *
  * Opening the page reads two batches (`overview.ts`) rather than one request
- * per card.
+ * per deterministic card; the optional search-group card reads its own
+ * snapshots.
  */
 import type { ReactNode } from 'react'
 import { PageHeader, PageScroll } from '@/components/app/section-card'
@@ -19,6 +21,8 @@ import {
   SearchesAndRefindCard,
   TopSitesCard,
 } from './insights-cards'
+import { SearchGroupsCard } from './search-groups-card'
+import { useSearchGroups } from './queries'
 import { ComparedPagesCard } from './compare-card'
 import { ActivityMixCard } from './mix-card'
 import { NewSitesCard } from './new-sites-card'
@@ -57,6 +61,7 @@ export default function InsightsPage() {
   const { t } = useI18n()
   const [scope] = useScope()
   const bands = useOverviewBands(scope)
+  const searchGroups = useSearchGroups(scope)
 
   return (
     <BandsProvider value={bands}>
@@ -82,12 +87,26 @@ export default function InsightsPage() {
         </Row>
         <Heading>{t('insights.sections.searching')}</Heading>
         <Row>
-          <SearchesAndRefindCard scope={scope} />
-          <div className="flex min-w-0 flex-col gap-4">
+          {searchGroups.visible ? (
+            <SearchGroupsCard scope={scope} query={searchGroups.query} />
+          ) : (
+            <SearchesAndRefindCard scope={scope} />
+          )}
+          {searchGroups.visible ? (
+            <SearchesAndRefindCard scope={scope} />
+          ) : (
+            <div className="flex min-w-0 flex-col gap-4">
+              <SearchEnginesCard scope={scope} />
+              <SearchWordsCard scope={scope} />
+            </div>
+          )}
+        </Row>
+        {searchGroups.visible && (
+          <Row>
             <SearchEnginesCard scope={scope} />
             <SearchWordsCard scope={scope} />
-          </div>
-        </Row>
+          </Row>
+        )}
         <Row>
           <SearchOutcomesCard scope={scope} />
           <SearchTriesCard scope={scope} />

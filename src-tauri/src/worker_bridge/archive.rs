@@ -424,3 +424,11 @@ pub(crate) fn similar_searches_impl(
 ) -> Result<vault_core::SimilarSearches, CommandError> {
     worker_result(vault_worker::similar_searches(&state.vault()?, query, wordings))
 }
+
+/// Keeps the optional semantic Insights read behind the same unlocked worker boundary.
+pub(crate) fn search_groups_impl(
+    request: &vault_core::ScopedDateRangeRequest,
+    state: &SessionState,
+) -> Result<vault_core::SearchGroupsCard, CommandError> {
+    worker_result(vault_worker::search_groups_card(&state.vault()?, request))
+}

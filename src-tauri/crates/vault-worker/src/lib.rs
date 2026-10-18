@@ -124,5 +124,5 @@ pub(crate) mod tests;
 mod search;
 pub use search::{cancel_search, next_search_page, search_indexer_state, start_search};
 
-mod related_pages;
-pub use related_pages::{related_pages, similar_searches};
+mod semantic_reads;
+pub use semantic_reads::{related_pages, search_groups_card, similar_searches};

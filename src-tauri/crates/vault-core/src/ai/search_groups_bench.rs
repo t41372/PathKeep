@@ -99,3 +99,67 @@ fn search_groups_measurement() -> Result<()> {
     }
     Ok(())
 }
+
+#[test]
+#[ignore = "opt-in full card measurement; --release --ignored --nocapture"]
+fn search_group_card_measurement() -> Result<()> {
+    if std::env::var("PATHKEEP_SEARCH_GROUPS_BENCH").as_deref() != Ok("1") {
+        return Ok(());
+    }
+    ensure!(!cfg!(debug_assertions), "measure with --release");
+    let out = std::env::var_os("PATHKEEP_SEARCH_GROUPS_OUT").context("set timing artifact")?;
+    let mut artifact = OpenOptions::new().create(true).append(true).open(out)?;
+    for dim in [256, 1024] {
+        let vault = crate::Vault::open_temp()?;
+        let provider = super::search_group_fixture::seed(&vault, 4096, 12, dim)?;
+        let mut config = vault.config().clone();
+        config.ai.enabled = true;
+        config.ai.semantic_index_enabled = true;
+        let vault = vault.with_config(config);
+        for run in 0..3 {
+            let scopes = (1..=12)
+                .rev()
+                .map(|m| {
+                    super::search_group_snapshots::SnapshotScope::month(&format!("2025-{m:02}"))
+                })
+                .collect::<Result<Vec<_>>>()?;
+            let start = Instant::now();
+            let request = crate::ScopedDateRangeRequest {
+                date_range: scopes.last().unwrap().range.clone(),
+                profile_id: Some("probe".into()),
+            };
+            let card = super::search_group_snapshots::search_groups_card(
+                &vault,
+                Some(&provider),
+                &request,
+            )?;
+            ensure!(card.available && !card.data[0].groups.is_empty(), "must group actual month");
+            let record = serde_json::json!({"operation":"on-demand 31 days","searches":4096,"dim":dim,"run":run,"ms":start.elapsed().as_secs_f64()*1000.});
+            writeln!(artifact, "{record}")?;
+            eprintln!("{record}");
+            vault.write(Db::Intelligence,Priority::Batch,|s| {s.execute("DELETE FROM intelligence_overview_snapshots WHERE scope_key LIKE 'search-groups:%'",())?;Ok(())})?;
+            let start = Instant::now();
+            super::search_group_snapshots::warm_scopes(
+                &vault,
+                &provider,
+                None,
+                vec![scopes.last().unwrap().clone()],
+            )?;
+            let record = serde_json::json!({"operation":"one month recomputation","searches":4096,"dim":dim,"run":run,"ms":start.elapsed().as_secs_f64()*1000.});
+            writeln!(artifact, "{record}")?;
+            eprintln!("{record}");
+            vault.write(Db::Intelligence,Priority::Batch,|s| {s.execute("DELETE FROM intelligence_overview_snapshots WHERE scope_key LIKE 'search-groups:%'",())?;Ok(())})?;
+            let start = Instant::now();
+            super::search_group_snapshots::warm_scopes(&vault, &provider, None, scopes.clone())?;
+            let record = serde_json::json!({"operation":"year recomputation","months":12,"searches":49152,"dim":dim,"run":run,"ms":start.elapsed().as_secs_f64()*1000.});
+            writeln!(artifact, "{record}")?;
+            eprintln!("{record}");
+            let start = Instant::now();
+            super::search_group_snapshots::warm_scopes(&vault, &provider, None, scopes)?;
+            let record = serde_json::json!({"operation":"year unchanged","months":12,"dim":dim,"run":run,"ms":start.elapsed().as_secs_f64()*1000.});
+            writeln!(artifact, "{record}")?;
+            eprintln!("{record}");
+        }
+    }
+    Ok(())
+}

@@ -243,6 +243,7 @@ fn run_app() -> Result<()> {
             get_url_detail,
             get_related_pages,
             get_similar_searches,
+            get_search_groups,
             load_audit_run_detail,
             export_history,
             get_export_progress,

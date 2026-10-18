@@ -6,6 +6,8 @@
  * returns it, and cards shape it with `select`.
  */
 import { useQuery } from '@tanstack/react-query'
+import { useSemanticInfo } from '@/features/history/semantic-info'
+import { searchGroupsClient } from '@/lib/backend-client/search-groups'
 import {
   insightsClient,
   pollWhileStale,
@@ -291,4 +293,25 @@ export function useBrowsers(scope: Scope) {
   return useSection(scope, 'browsers', 'secondary', () =>
     insightsClient.browsers(request(scope)),
   )
+}
+
+/** Serving-index changes refresh availability even when the Insights scope stays put. */
+export function useSearchGroups(scope: Scope) {
+  const semantic = useSemanticInfo()
+  const query = useQuery({
+    queryKey: insightsKey(
+      scope,
+      'search-groups',
+      semantic.provider,
+      semantic.lastIndexedAt,
+      semantic.available,
+    ),
+    queryFn: () => searchGroupsClient.get(request(scope)),
+    enabled: semantic.available,
+    refetchInterval: pollWhileStale,
+  })
+  return {
+    query,
+    visible: semantic.available && query.data?.available !== false,
+  }
 }

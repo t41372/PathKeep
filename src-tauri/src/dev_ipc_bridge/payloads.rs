@@ -482,3 +482,10 @@ pub(super) struct SimilarSearchesPayload {
     pub(super) query: String,
     pub(super) wordings: Vec<String>,
 }
+
+/// Scoped search grouping shares Insights' date/profile contract.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct SearchGroupsPayload {
+    pub(super) request: vault_core::ScopedDateRangeRequest,
+}

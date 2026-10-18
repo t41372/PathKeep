@@ -89,6 +89,7 @@ import {
   undoRelatedFile,
 } from './support/related-pages'
 import { searchGroupsScenario } from './support/search-groups'
+import { insightsSearchGroupsScenario } from './support/insights-search-groups'
 import type { RelatedPages } from '../../src/lib/backend-client/related-pages'
 
 interface QueueStatus {
@@ -1562,4 +1563,11 @@ test('Ask groups searches by meaning and the drill-in links to similar searches'
 }, testInfo) => {
   test.setTimeout(600_000)
   await searchGroupsScenario(page, testInfo)
+})
+
+test('Insights shows things looked into by day and month with profile-scoped drill-ins', async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(600_000)
+  await insightsSearchGroupsScenario(page, testInfo)
 })

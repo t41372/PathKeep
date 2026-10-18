@@ -2,6 +2,35 @@ import { defineMessages } from '../define'
 
 export const insights = defineMessages({
   en: {
+    groups: {
+      title: 'Things you looked into',
+      loading: 'Loading search groups…',
+      all: 'all time',
+      recent: 'last {days} days',
+      range: '{range} · Searches grouped by meaning',
+      monthly: 'By month, {range} · Searches grouped by meaning',
+      wholeMonths:
+        'Whole calendar months; partial months extend beyond the selected dates.',
+      allBrowsers: 'Monthly groups include all browsers.',
+      static: 'Groups follow shared words more than meaning. Settings → AI',
+      explain:
+        'Keyword searches grouped by meaning, using the pages their searches opened. Very short searches stay out. A group is shown if it opened pages or was searched on more than one day. Searches without saved vectors are not grouped yet.',
+      empty:
+        'No groups here. Counts keyword searches that opened pages or returned on several days; very short searches stay out.',
+      updating: 'Updating…',
+      others_one: 'and {count} other search',
+      others_other: 'and {count} other searches',
+      searchCount_one: '{count} search',
+      searchCount_other: '{count} searches',
+      dayCount_one: '{count} day',
+      dayCount_other: '{count} days',
+      pageCount_one: '{count} page opened',
+      pageCount_other: '{count} pages opened',
+      strip: 'Days this group was searched',
+      searched: '{date}: searched',
+      notSearched: '{date}: no searches',
+    },
+
     title: 'Insights',
     subtitle: 'Computed from your local archive. Nothing leaves this computer.',
     zone: {
@@ -465,6 +494,34 @@ export const insights = defineMessages({
     stale: 'Updating your Insights…',
   },
   'zh-CN': {
+    groups: {
+      title: '查过的事',
+      loading: '正在加载搜索分组…',
+      all: '全部时间',
+      recent: '最近 {days} 天',
+      range: '{range} · 按意思给搜索分组',
+      monthly: '按月，{range} · 按意思给搜索分组',
+      wholeMonths: '显示完整的日历月；不足一个月的部分会延伸到所选日期以外。',
+      allBrowsers: '每月分组包含所有浏览器。',
+      static: '分组更偏向共同用词，而非意思。设置 → AI',
+      explain:
+        '按意思给关键词搜索分组，也参考搜索后打开的页面。排除过短的搜索；只显示打开过页面或在多天搜索过的组。尚无向量的搜索暂不分组。',
+      empty:
+        '没有可显示的分组。统计打开过页面或在多天重复的关键词搜索，排除过短的搜索。',
+      updating: '更新中…',
+      others_one: '以及其他 {count} 个搜索',
+      others_other: '以及其他 {count} 个搜索',
+      searchCount_one: '{count} 次搜索',
+      searchCount_other: '{count} 次搜索',
+      dayCount_one: '{count} 天',
+      dayCount_other: '{count} 天',
+      pageCount_one: '打开 {count} 个页面',
+      pageCount_other: '打开 {count} 个页面',
+      strip: '这组搜索出现的日期',
+      searched: '{date}：有搜索',
+      notSearched: '{date}：无搜索',
+    },
+
     title: '洞察',
     subtitle: '全部来自本机存档，不经过网络',
     zone: {
@@ -919,6 +976,34 @@ export const insights = defineMessages({
     stale: '正在更新你的洞察…',
   },
   'zh-TW': {
+    groups: {
+      title: '查過的事',
+      loading: '正在載入搜尋分組…',
+      all: '全部時間',
+      recent: '最近 {days} 天',
+      range: '{range} · 按意思將搜尋分組',
+      monthly: '按月，{range} · 按意思將搜尋分組',
+      wholeMonths: '顯示完整的日曆月；不足一個月的部分會延伸到所選日期以外。',
+      allBrowsers: '每月分組包含所有瀏覽器。',
+      static: '分組偏向共同用詞，而非意思。設定 → AI',
+      explain:
+        '按意思將關鍵字搜尋分組，也參考搜尋後打開的頁面。排除過短的搜尋；只顯示打開過頁面或在多天搜尋過的組。尚無向量的搜尋暫不分組。',
+      empty:
+        '沒有可顯示的分組。統計打開過頁面或在多天重複的關鍵字搜尋，排除過短的搜尋。',
+      updating: '更新中…',
+      others_one: '以及其他 {count} 個搜尋',
+      others_other: '以及其他 {count} 個搜尋',
+      searchCount_one: '{count} 次搜尋',
+      searchCount_other: '{count} 次搜尋',
+      dayCount_one: '{count} 天',
+      dayCount_other: '{count} 天',
+      pageCount_one: '打開 {count} 個頁面',
+      pageCount_other: '打開 {count} 個頁面',
+      strip: '這組搜尋出現的日期',
+      searched: '{date}：有搜尋',
+      notSearched: '{date}：無搜尋',
+    },
+
     title: '洞察',
     subtitle: '全部來自本機存檔，不經過網路',
     zone: {

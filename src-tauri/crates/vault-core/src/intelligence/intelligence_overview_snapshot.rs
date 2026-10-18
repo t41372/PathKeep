@@ -296,7 +296,7 @@ fn load_checkpoint_signature(connection: &Session<'_>, profile_id: Option<&str>)
 /// Summarizes mutable search-engine rules so editing them (which reshapes query
 /// families and search trails) invalidates the snapshot even though no canonical
 /// visit changed.
-pub(super) fn load_search_rule_signature(connection: &Session<'_>) -> Result<String> {
+pub(crate) fn load_search_rule_signature(connection: &Session<'_>) -> Result<String> {
     connection
         .query_one(
             "SELECT COUNT(*), COALESCE(SUM(enabled), 0), COALESCE(MAX(updated_at), 'none')

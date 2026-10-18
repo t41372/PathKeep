@@ -167,7 +167,9 @@ pub fn run_core_intelligence_now(
     request: &CoreIntelligenceRebuildRequest,
 ) -> Result<CoreIntelligenceRebuildReport> {
     let config = load_unlocked_config(vault.paths())?;
-    intelligence::run_core_intelligence(&vault.with_config(config), request)
+    let report = intelligence::run_core_intelligence(&vault.with_config(config), request)?;
+    crate::semantic_reads::warm_search_groups(vault);
+    Ok(report)
 }
 
 /// Gets Insights going when an archive opens. A build the app quit in the middle of is queued
@@ -303,6 +305,7 @@ pub(crate) fn execute_core_intelligence_job(
         },
     ) {
         Ok(report) => {
+            crate::semantic_reads::warm_search_groups(vault);
             finish_core_intelligence_job_success(vault, job_id, job_type, job_label, report)
         }
         Err(error) => record_core_intelligence_job_error(vault, job_id, error),

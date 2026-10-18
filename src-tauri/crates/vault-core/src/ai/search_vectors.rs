@@ -13,7 +13,7 @@ use std::sync::Arc;
 use vault_store::{Db, params_owned as params};
 
 // Only file names use this namespace. Headers keep the actual serving model fingerprint.
-fn identity(provider: &AiProviderRuntime) -> String {
+pub(super) fn identity(provider: &AiProviderRuntime) -> String {
     format!("searches:{}", provider.config.id)
 }
 

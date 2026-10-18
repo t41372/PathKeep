@@ -72,6 +72,22 @@ pub(crate) fn wait_unless_stopped(duration: Duration) -> bool {
     }
 }
 
+/// The run control of work on a pool thread that has no queue row: it stops with the epoch.
+pub(crate) struct WorkerStopControl;
+
+impl AiRunControl for WorkerStopControl {
+    fn checkpoint(&self, detail: &str) -> Result<()> {
+        if worker_stopped() {
+            return Err(AiRunCancelled::new(detail).into());
+        }
+        Ok(())
+    }
+
+    fn cancelled(&self) -> bool {
+        worker_stopped()
+    }
+}
+
 /// Spawns workers until the active count reaches the requested pool size. Each worker drains
 /// its queue until it finds nothing (see `run_worker` for what happens then).
 pub(crate) fn maybe_spawn_worker_pool<F>(
