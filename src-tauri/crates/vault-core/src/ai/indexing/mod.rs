@@ -51,9 +51,7 @@ pub use self::backfill::{
 pub(super) use self::candidates::{collect_visit_chunk, select_embed_targets};
 pub(crate) use self::content::enrichment_summary_for;
 #[cfg(test)]
-pub(super) use self::store_rows::{
-    clear_provider_embeddings, upsert_embedding, validate_embedding_batch_for_keys,
-};
+pub(super) use self::store_rows::{clear_provider_embeddings, upsert_embedding};
 
 /// One canonical visit that needs to be embedded into the semantic sidecar.
 ///
@@ -106,3 +104,5 @@ pub(super) struct BackfillOutcome {
     /// every counted row produced a vector.
     pub embedded_vectors: u64,
 }
+
+pub(super) use self::store_rows::validate_embedding_batch_for_keys;

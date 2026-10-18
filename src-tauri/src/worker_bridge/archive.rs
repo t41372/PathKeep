@@ -414,3 +414,13 @@ pub(crate) fn load_import_batches_impl(
 ) -> Result<vault_core::ImportBatchPage, CommandError> {
     worker_result(vault_core::load_import_batches(&state.vault()?, cursor, limit.unwrap_or(16)))
 }
+
+#[cfg_attr(test, allow(dead_code))]
+/// Keeps search-vector reads within the unlocked session.
+pub(crate) fn similar_searches_impl(
+    query: &str,
+    wordings: &[String],
+    state: &SessionState,
+) -> Result<vault_core::SimilarSearches, CommandError> {
+    worker_result(vault_worker::similar_searches(&state.vault()?, query, wordings))
+}

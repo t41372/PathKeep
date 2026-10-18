@@ -18,3 +18,20 @@ pub fn related_pages(vault: &Vault, url: &str, visit_id: Option<i64>) -> Result<
     };
     vault_core::related_pages(&vault.with_config(config), provider.as_ref(), url, visit_id)
 }
+
+/// Similar searches share the unlocked serving-provider resolution used by related pages.
+pub fn similar_searches(
+    vault: &Vault,
+    query: &str,
+    wordings: &[String],
+) -> Result<vault_core::SimilarSearches> {
+    let config = load_unlocked_config(vault.paths())?;
+    if !config.ai.enabled || !config.ai.semantic_index_enabled {
+        return Ok(vault_core::SimilarSearches::unavailable("semantic search is off"));
+    }
+    let provider = match selected_optional_embedding_runtime(vault, &config) {
+        Ok(provider) => provider,
+        Err(e) => return Ok(vault_core::SimilarSearches::unavailable(e.to_string())),
+    };
+    vault_core::similar_searches(&vault.with_config(config), provider.as_ref(), query, wordings)
+}

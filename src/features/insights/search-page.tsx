@@ -7,7 +7,8 @@
  * Reads: the range's query families (`get_query_families`, shared with the
  * Frequent searches card) to find this text's families (one per browser
  * profile and engine), `get_query_family_detail` for each, and
- * `get_trail_detail` only when a search is opened.
+ * `get_trail_detail` only when a search is opened. SimilarSearches adds the
+ * optional serving-vector read across all time, independently of this range.
  */
 import { ChevronDown, Search } from 'lucide-react'
 import { useState } from 'react'
@@ -48,6 +49,7 @@ import {
 import { useScope, type Scope } from './range'
 import { ScopeControls } from './scope-controls'
 import { useInsightsFormat, useInsightsZone } from './zone'
+import { SimilarSearches } from './similar-searches'
 
 /** Engine ids are lowercase (`google`); show them as names. */
 function engineName(id: string) {
@@ -114,11 +116,19 @@ export default function SearchPage() {
           />
         </SectionCard>
       ) : !loading && matches.length === 0 ? (
-        <SectionCard>
-          <p className="text-sm text-muted-foreground">
-            {t('insights.search.notFound')}
-          </p>
-        </SectionCard>
+        <div className="grid grid-cols-2 gap-4 max-[900px]:grid-cols-1">
+          <SectionCard>
+            <p className="text-sm text-muted-foreground">
+              {t('insights.search.notFound')}
+            </p>
+          </SectionCard>
+          <SimilarSearches
+            query={query}
+            wordings={wordings}
+            scope={scope}
+            wordingsLoading={false}
+          />
+        </div>
       ) : (
         <>
           <div className="grid grid-cols-[repeat(auto-fit,minmax(170px,1fr))] gap-3">
@@ -181,6 +191,12 @@ export default function SearchPage() {
                 trails={search.trails}
                 loading={loading || search.pending}
                 scope={scope}
+              />
+              <SimilarSearches
+                query={query}
+                wordings={wordings}
+                scope={scope}
+                wordingsLoading={loading}
               />
               <SectionCard title={t('insights.search.wordings')}>
                 {loading ? (

@@ -125,4 +125,4 @@ mod search;
 pub use search::{cancel_search, next_search_page, search_indexer_state, start_search};
 
 mod related_pages;
-pub use related_pages::related_pages;
+pub use related_pages::{related_pages, similar_searches};

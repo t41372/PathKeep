@@ -35,6 +35,12 @@ impl FlatVectorIndex {
     pub fn key(&self, position: usize) -> u64 {
         self.mapped.as_ref().expect("positions require a mapped plane").key(position)
     }
+    /// A zero record is missing evidence, rather than a valid neighbour with similarity zero.
+    pub(super) fn has_vector(&self, position: usize) -> bool {
+        let plane = self.mapped.as_ref().expect("positions require a mapped plane");
+        let start = position * plane.stride();
+        plane.records()[start + 12..start + plane.stride()].iter().any(|code| *code != 0)
+    }
     /// Period topics reuse the serving projection instead of loading the f32 source corpus.
     pub(super) fn vector_at(&self, position: usize) -> Vec<f32> {
         let plane = self.mapped.as_ref().expect("positions require a mapped plane");

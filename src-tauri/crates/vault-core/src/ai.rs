@@ -36,9 +36,15 @@ mod related_pages_bench;
 mod report_pages;
 mod reverse_visit_map;
 mod search;
+mod search_groups;
+#[cfg(test)]
+mod search_groups_bench;
+mod search_groups_cluster;
 mod search_pages;
 mod search_ranking;
 mod search_store;
+mod search_vectors;
+mod similar_searches;
 mod tool_arguments;
 mod topics;
 mod traits;
@@ -286,3 +292,5 @@ const SQLITE_BATCH_SIZE: usize = 400;
 
 #[cfg(test)]
 mod tests;
+
+pub use self::similar_searches::{SimilarSearch, SimilarSearches, similar_searches};

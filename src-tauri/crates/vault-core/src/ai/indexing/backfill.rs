@@ -162,6 +162,7 @@ pub async fn build_ai_index_with_control(
         checkpoint_ai_run(run_control, "Index build was cancelled before collecting stale rows.")?;
         if perform_wipe {
             clear_provider_embeddings(vault, provider, run_control)?;
+            super::super::search_vectors::delete(paths, provider)?;
         }
         let removed_items = cleanup_stale_embeddings(vault, provider, run_control)?;
         let sidecar_removed = if perform_wipe {
@@ -292,9 +293,11 @@ pub async fn build_ai_index_with_control(
             "Index build was cancelled before projecting keyed reverse sidecars.",
         )?;
         rebuild_reverse_sidecars(paths, provider)?;
+        let embedded_searches =
+            super::super::search_vectors::backfill(vault, provider, run_control).await?;
         checkpoint_ai_run(run_control, "Index build stopped before completion.")?;
 
-        let notes = if outcome.indexed_items == 0 {
+        let mut notes = if outcome.indexed_items == 0 {
             vec!["No new or changed history rows required indexing.".to_string()]
         } else if outcome.embedded_vectors == 0 {
             // Changed visits were processed but every page was already embedded (a re-visit / pure
@@ -312,6 +315,7 @@ pub async fn build_ai_index_with_control(
                 outcome.effective_dim.unwrap_or_default()
             )]
         };
+        notes.push(format!("Embedded {embedded_searches} distinct keyword search vector(s)."));
         Ok(AiIndexReport {
             job_id: None,
             run_id: Some(run_id),
@@ -435,6 +439,7 @@ pub async fn forget_unconfigured_indexes(
             Ok(())
         })?;
         clear_provider_embeddings(vault, &gone, control)?;
+        super::super::search_vectors::delete(&paths, &gone)?;
         ai_sidecar::clear_provider_embeddings(&paths, &provider_id, &model).await?;
         VectorStore::for_provider(&paths, &provider_id, &model).delete()?;
         VisitContentMap::for_provider(&paths, &provider_id, &model).delete()?;

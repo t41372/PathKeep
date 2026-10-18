@@ -80,6 +80,8 @@ continuation fields are listed in the [area-4 contract report](../architecture/r
 - 內建 embedding 引擎按模型目錄在程序內共用，搜尋、漂移檢查與建置使用同一份載入的權重；目錄、驗證標記或模型檔案變更才重新驗證／載入。
 - Embedding 增量計算、content-hash dedup（一個 content_key 一條向量，fan-out 到所有共享該內容的 visit）、本地索引、避免重算。
 - 送去 embedding 的是頁面本身的文字（2026-10-15 起）：標題、「網站 · 網址路徑裡的字詞」、和標題不同的可讀標題與摘要、正文（約 512 token）；不帶 profile、造訪時間、完整網址與欄位標籤。正文抽取略過 `script` / `style` / `noscript` / `template` / `svg`。查詢與文件依模型家族加上模型要的前綴（Qwen3-Embedding、EmbeddingGemma、nomic-embed-text、E5、mxbai-embed-large；只看模型 ID），每個查詢只加一次。細節見 [embedding-text.md](../architecture/embedding-text.md)。
+- 每次索引回填頁面之後，也會讀目前 Insights build 提供的 keyword search events，把每種不同的 `normalized_query` 嵌入一次。Insights 重建前可能仍有剛撤銷的搜尋，所以同時核對原始造訪仍可見，已撤銷的搜尋不會送出。送出的就是該字串，不加文件模板、位置或指令；同一個搜尋不因引擎或結果頁不同而重送。搜尋結果頁原本就會以頁面文件嵌入（標題可能含搜尋詞），現在另外保留搜尋自己的向量。還沒建 Insights 時沒有搜尋可填，下次索引更新會補；沒有向量的搜尋不會從報告裡消失。
+- 搜尋向量重用 `.pkvec/.pkbin/.pki8` 格式，以 `searches:<providerId>` 的獨立檔名空間放在 `derived/vectors/`，檔頭仍是實際 serving model 的 fingerprint，文字格式記為 `normalized-query-v1`；不建 visit map，不改 Archive 或 intelligence schema。每個完成的 chunk 都可接著跑，同一次工作的暫停與取消也適用；清除、重建或淘汰頁面索引時一起處理搜尋檔案。
 - 用舊版頁面文字建的索引（向量檔頭沒有目前的 `embeddedText`）照常搜尋、照常在備份後更新，狀態是 `stale`（`textFormat`）：Settings → AI 說明並提供「重建索引」（未完成的索引提供「從頭重來」），History 的語意提示說它是舊版文字建的。只有重建會換掉檔頭。
 - 索引按「服務 ID + 模型」分開。選的索引在 `ai_index_ledger.state = ready` 時提供搜尋；尚未完成時，讀完成時間最近、服務仍在設定裡的完整索引，用該服務目前的位址與金鑰、該索引的模型。沒有完整索引才讀所選模型的部分索引或空索引，沿用既有的降級提示。History、Ask 的搜尋工具、程式沙箱與 MCP 都遵守同一規則；只有實際讀到上一個模型的語意平面時帶 `previousModel` 提示；空查詢、日期排序、空索引與設定漂移後的全文退路不帶。
 - 換模型不啟動工作。建立、繼續與第一次填補都用增量：空索引填全部，部分索引補缺少的造訪；只有明確的「重建搜尋索引」清空重來。工作開始保留所選索引與正在服務的索引，刪掉其餘資料與檔案；所選模型完成整份存檔的填補後才切換，刪掉其餘索引及其完成紀錄。工作集的首次填補不算整份完成。已有完整索引的非清空更新維持 `ready`，暫停、取消或失敗仍可搜尋，下次增量補缺少的造訪。完整掃描的 watermark 與時間只在整份存檔填補成功後前進，工作集更新不能把尚未處理的造訪或 enrichment 標成最新；清空重建才改成 `building`（清除則是 `clearing`）。排隊尚未開始的工作不會降級完整索引。清理舊索引失敗寫進工作摘要並記錄日誌，不影響建置結果或所選索引，下次工作再試。
@@ -100,6 +102,12 @@ continuation fields are listed in the [area-4 contract report](../architecture/r
 - 太不像的不列：分數要高於索引裡隨機兩頁相似度的第 98 百分位。一頁都沒有時寫「沒有找到相似的頁面」。
 - 這頁還沒進索引時寫「這個頁面還沒有建立索引」；索引正在改寫時寫「搜尋索引正在更新」；語意搜尋關閉或服務不能用時，整段不顯示。用內建靜態模型時，標題下說明同網站的頁容易排在前面。
 - 不呼叫 embedding 服務，用索引裡已有的向量掃一遍 int8 plane，不跑搜尋的造訪範圍串流。100 萬次造訪時一次約 13 ms（256 維）、28 ms（1,024 維）。超大語料的記憶體限制跟語意搜尋一樣（BACKLOG `WORK-VECTOR-MEMORY-AT-SCALE`）。規則的來由與量測見 [related pages 研究記錄](../architecture/research/2026-10-related-pages.md)。
+
+### Search drill-in 的相似搜尋
+
+`/insights/search/:query` 的「相似搜尋」列出最多八種其他搜尋，不受目前日期範圍限制。每列保留使用者最近一次的拼字、所有時間的搜尋次數和最後搜尋時間，點擊開啟它自己的 drill-in。頁面已列出的其他說法、搜尋自己和很短的搜尋不再列出。
+
+這次讀取只用搜尋自己的向量，不加頁面向量，也不分組。它掃過所有已存的搜尋向量，只保留目前 Insights generation 還有、且原始造訪仍可見的 keyword searches；相似度至少要達到這批有效向量隨機兩兩比較的第 99 百分位（固定種子，20,000 對）。沒有結果、尚未索引、載入與錯誤都有各自的狀態；載入立即顯示 skeleton。語意索引不可用時整段隱藏，靜態模型附一句主要按共同字詞找相似搜尋的說明。讀取不呼叫 embedding 服務。第一次打開要走過所有搜尋事件一次（100 萬種搜尋約 1 秒），之後到 Insights 重建、archive 有新的備份 / 匯入 / 撤銷 / 還原或搜尋向量更新之前，都用記憶體裡的結果（約 50–75 ms）。不同搜尋若有一天累積到數百萬，這次掃描的記憶體限制和頁面搜尋相同，追蹤在 BACKLOG `WORK-VECTOR-MEMORY-AT-SCALE`。
 
 ---
 
@@ -125,6 +133,10 @@ are specified in [data-model.md](../architecture/data-model.md#migration-in-prog
 - Agentic search：LLM 可以多步檢索、比較、歸納。
 - `intelligence_report` 的 `report="topics"` 按語義分組一段期間的頁面，給模型每組的份量、代表頁標題、前三個網站與五個最多造訪的頁面。必須給 `start_date` / `end_date`（包含首尾的本地日期，沿用 Insights 的時區），最多 31 天；更長的期間要逐月問。它直接讀 Ask 搜尋所用的 serving semantic index，不要求先建 Insights，也不呼叫 embedding 服務。沒有 provider、索引為空或模型 fingerprint 已變時，明說原因並指向 `search_history` / `report="sessions"`。
 - topics 中每個有可用向量的頁面只屬於一組；沒有向量或向量為零的頁面計入 `notIndexed`，總頁數與造訪數仍包含它們。`topic="t3"` 配合同樣日期讀取該組的全部頁面，按造訪數排列；每頁含最新造訪的 `historyId`、標題、網址、期間造訪數與最後造訪的本地時間（含星期）。清單與 drill-down 都可用 `output_cursor` 接續長報告。topic id 是這次視窗與索引的排序結果，索引或存檔改變後應重新讀清單。服務中的是內建靜態模型時，結果附一句 `note`：同一網站的頁面容易歸成一組，提醒模型照實說明並建議改用 contextual 模型（用戶 2026-10-17 決定主題對所有模型都提供，靜態模型加註）。
+- `intelligence_report` 的 `report="searches"` 按意思分組一段期間的 keyword searches，連同 search trails 打開的頁面。必須給首尾本地日期 `start_date` / `end_date`，最多 31 天（更長逐月問），沿用 topics 的時區、星期與 `output_cursor` 輸出方式。需要已發布的 Insights build 和 Ask 搜尋使用的 serving semantic index；少了哪個就明說，並指向 `report="search_trails"`。
+- 每種搜尋以自己的向量，加上其 trails 最常打開的三頁之平均向量，再正規化。頁面只取 trail member 的 `landing` / `click`，透過 `.pkpos` 讀既有頁面向量。沒有已索引的開啟頁面就用搜尋本身；查詢與頁面方向剛好完全抵消時，也保留搜尋本身。分組用 average linkage（最近鄰鏈與 Lance–Williams 更新），門檻是視窗向量隨機兩兩比較的第 98 百分位，固定種子抽 20,000 對。
+- 視窗的每種 keyword search 恰好在一組，或計入 `short`、`notIndexed`、`notGrouped`。短詞指不足三個拉丁字母／數字，或一個中日韓字元。平均連結需要平方記憶體，所以最多分組 4,096 種已索引搜尋；超量時先保留 trail 較多的，同量按首次搜尋和文字排序，未分的數量、搜尋次數、原因與少量例子會回報。導覽型搜尋不在 keyword searches 的母數裡。
+- 群組依涵蓋天數、trail 數、首次搜尋時間排序，id 是 `s1`、`s2`……。每組列出說法（按 trail 數、最後搜尋時間）、搜尋次數、去重的 trail 數、本地日期的天數與首尾、開啟頁面按造訪數的前三個網站與前五頁。`group="s3"` 配合同樣日期，列出該組每種說法、每次搜尋事件與全部開啟頁面；頁面含最新 trail 造訪的 `historyId`、標題、網址與造訪次數。同一 trail 可能含兩組的搜尋，所以它可在兩組各出現一次；組內不因有多種說法重複計數。靜態模型附一句分組比較依賴共同字詞的說明。這些群組不保存，也不取代 deterministic query families。
 - 回答必須附帶 evidence（哪些歷史紀錄支持了這個結論）。
 - 這是**顯式觸發**的功能，不是背景常駐。
 - assistant response state 必須誠實可見：`queued`、`completed`、`insufficient-evidence`、`failed`、`cancelled`，並保留 `jobId` / `runId` / provider snapshot 供 audit trace 與 queue reload。

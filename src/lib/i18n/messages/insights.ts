@@ -395,6 +395,16 @@ export const insights = defineMessages({
       trendHint: 'Click a day to see it in detail',
     },
     search: {
+      similar: {
+        title: 'Similar searches',
+        hint: 'Across all time',
+        staticNote:
+          'With the in-app static model, similar searches follow shared words.',
+        loading: 'Loading similar searches',
+        open: 'Show searches for “{query}”',
+        notIndexed: 'This search hasn’t been indexed yet.',
+        empty: 'No similar searches found.',
+      },
       eyebrow: 'Search',
       inHistory: 'Search History for this',
       notFound:
@@ -841,6 +851,15 @@ export const insights = defineMessages({
       trendHint: '点某一天查看详情',
     },
     search: {
+      similar: {
+        title: '相似搜索',
+        hint: '所有时间',
+        staticNote: '内置静态模型主要按共同字词找相似搜索。',
+        loading: '正在加载相似搜索',
+        open: '查看“{query}”的搜索',
+        notIndexed: '这个搜索还没有建立索引。',
+        empty: '没有找到相似搜索。',
+      },
       eyebrow: '搜索',
       inHistory: '在历史中搜索',
       notFound:
@@ -1286,6 +1305,15 @@ export const insights = defineMessages({
       trendHint: '點某一天查看詳情',
     },
     search: {
+      similar: {
+        title: '相似搜尋',
+        hint: '所有時間',
+        staticNote: '內建靜態模型主要依共同字詞找相似搜尋。',
+        loading: '正在載入相似搜尋',
+        open: '查看「{query}」的搜尋',
+        notIndexed: '這個搜尋還沒有建立索引。',
+        empty: '沒有找到相似搜尋。',
+      },
       eyebrow: '搜尋',
       inHistory: '在歷史中搜尋',
       notFound:

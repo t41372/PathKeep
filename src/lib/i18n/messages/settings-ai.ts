@@ -20,7 +20,7 @@ export const settingsAi = defineMessages({
       serviceDialog: {
         title: 'Add an embeddings service',
         description:
-          'A service that turns text into embeddings, OpenAI-compatible. To build the index, semantic search sends it each page’s title, site and the words in its address, with the page’s saved text when there is some; to find pages, your searches.',
+          'A service that turns text into embeddings, OpenAI-compatible. To build the index, semantic search sends it each page’s title, site and the words in its address, with the page’s saved text when there is some, and each different search you have made; to find pages, your searches.',
       },
       serviceLocalNote: 'Runs on this computer. Pages and searches stay here.',
       serviceRemoteNote:
@@ -326,7 +326,7 @@ export const settingsAi = defineMessages({
       serviceDialog: {
         title: '添加嵌入服务',
         description:
-          '把文字转成嵌入向量的服务，需兼容 OpenAI。为了建立索引，语义搜索会把每个页面的标题、网站、网址里的词，以及保存的网页正文（如果有）发给它；搜索时也会把你的搜索发给它。',
+          '把文字转成嵌入向量的服务，需兼容 OpenAI。为了建立索引，语义搜索会把每个页面的标题、网站、网址里的词，以及保存的网页正文（如果有）发给它，也会发送你搜索过的每一组关键词；搜索时也会把你的搜索发给它。',
       },
       serviceLocalNote: '在这台电脑上运行，页面和搜索都留在这里。',
       serviceRemoteNote:
@@ -616,7 +616,7 @@ export const settingsAi = defineMessages({
       serviceDialog: {
         title: '新增嵌入服務',
         description:
-          '把文字轉成嵌入向量的服務，需相容 OpenAI。為了建立索引，語意搜尋會把每個頁面的標題、網站、網址裡的字詞，以及儲存的網頁內文（如果有）傳給它；搜尋時也會把你的搜尋傳給它。',
+          '把文字轉成嵌入向量的服務，需相容 OpenAI。為了建立索引，語意搜尋會把每個頁面的標題、網站、網址裡的字詞，以及儲存的網頁內文（如果有）傳給它，也會傳送你搜尋過的每一組關鍵字；搜尋時也會把你的搜尋傳給它。',
       },
       serviceLocalNote: '在這台電腦上執行，頁面與搜尋都留在這裡。',
       serviceRemoteNote:

@@ -138,14 +138,30 @@ impl VectorStore {
         paths: &ProjectPaths,
         fingerprint: &EmbeddingFingerprint,
     ) -> Result<Self> {
+        Self::for_provider(paths, &fingerprint.provider_id, &fingerprint.model_id)
+            .create_stamped_at(
+                paths,
+                fingerprint,
+                super::embedding_prompt::embedded_text_tag(&fingerprint.model_id),
+            )
+    }
+
+    /// Separate derived corpora keep their own file name and text format, while preserving the
+    /// serving model's fingerprint rather than pretending to be a different provider.
+    pub(super) fn create_stamped_at(
+        self,
+        paths: &ProjectPaths,
+        fingerprint: &EmbeddingFingerprint,
+        embedded_text: String,
+    ) -> Result<Self> {
         ensure_paths(paths)?;
-        let store = Self::for_provider(paths, &fingerprint.provider_id, &fingerprint.model_id);
+        let store = self;
         let header = VectorStoreHeader {
             provider_id: fingerprint.provider_id.clone(),
             model_id: fingerprint.model_id.clone(),
             dim: fingerprint.effective_dim,
             fingerprint_hash: fingerprint.hash(),
-            embedded_text: Some(super::embedding_prompt::embedded_text_tag(&fingerprint.model_id)),
+            embedded_text: Some(embedded_text),
         };
         let file = File::create(&store.path)
             .with_context(|| format!("creating vector store {}", store.path.display()))?;

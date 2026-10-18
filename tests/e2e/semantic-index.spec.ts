@@ -88,6 +88,7 @@ import {
   importRelatedFile,
   undoRelatedFile,
 } from './support/related-pages'
+import { searchGroupsScenario } from './support/search-groups'
 import type { RelatedPages } from '../../src/lib/backend-client/related-pages'
 
 interface QueueStatus {
@@ -1553,4 +1554,12 @@ test('History finds related pages across sites, folds titles and keeps the list 
     }
     await embeddings.close()
   }
+})
+
+/** Searches use their own vectors and actual trail pages, through both Ask and the drill-in. */
+test('Ask groups searches by meaning and the drill-in links to similar searches', async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(600_000)
+  await searchGroupsScenario(page, testInfo)
 })

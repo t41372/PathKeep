@@ -519,3 +519,18 @@ pub(crate) async fn load_import_batches(
     })
     .await
 }
+
+#[cfg(not(test))]
+#[tauri::command]
+/// Scans search vectors on a worker so the drill-in remains responsive.
+pub(crate) async fn get_similar_searches(
+    query: String,
+    wordings: Vec<String>,
+    state: State<'_, SessionState>,
+) -> Result<vault_core::SimilarSearches, CommandError> {
+    let session = state.inner().clone();
+    run_blocking_command("get_similar_searches", move || {
+        worker_bridge::similar_searches_impl(&query, &wordings, &session)
+    })
+    .await
+}

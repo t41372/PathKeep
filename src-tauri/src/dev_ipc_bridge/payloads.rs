@@ -474,3 +474,11 @@ pub(super) struct RelatedPagesPayload {
     pub(super) url: String,
     pub(super) visit_id: Option<i64>,
 }
+
+/// Known lexical wordings stay out of the optional semantic suggestions.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct SimilarSearchesPayload {
+    pub(super) query: String,
+    pub(super) wordings: Vec<String>,
+}
