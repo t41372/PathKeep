@@ -459,7 +459,15 @@
   - 讀先：`docs/architecture/research/2026-10-vector-search.md`、`docs/architecture/search.md`、`docs/architecture/semantic-index-control.md`、`docs/features/intelligence.md` §1。
   - 結果（M5 Max，`semantic_stage_bench`）：26 萬次造訪 1,145 → 130 ms，100 萬次 5,200 → 500 ms；20 組查詢第一頁與總數都和公開入口一致。剩下的大頭是範圍串流（100 萬次 385 ms，跟造訪數成正比），見 BACKLOG `WORK-SEMANTIC-VISIT-SIDECAR`。
 
-- [ ] **WORK-EMBED-USES** — embedding 不只用在搜索（用戶 2026-10-15）
+- [ ] **WORK-INDEX-REBUILD-SWAP** — 重建同一個模型的索引時，先建新的、完成才換掉舊的（2026-10-15 做 `WORK-AI-EMBED-INAPP` 第 2 項時找到）
+  - 換模型時，搜尋一直用上一個完整索引，直到新的建完；但「重建搜尋索引」與舊格式索引的「重建索引」是同一組服務 + 模型，`create_stamped` 一開始就清空 `.pkvec`，建置期間語意搜尋只找得到已重建的部分。14.4M 造訪、外部服務時，這段可能很長。
+  - 要做：重建寫到另一份檔案（或同名加世代），完成後原子替換並刪舊的；中斷時舊索引照常服務。E2E：重建途中暫停，語意搜尋仍找得到還沒重建到的頁面。
+
+- [ ] **WORK-QUIT-DURING-WORK** — 關掉視窗就結束 app，正在跑的匯出、匯入直接中斷，沒有任何提示（2026-10-16 gate 的 E2E 找到）
+  - 選單列圖示關著時，關掉主視窗就是結束 app。2026-10-16 跑 `move.spec` 時有人點了測試視窗的關閉鈕：系統 log 在 07:07:01.685 記到 `windowShouldClose`，35 ms 後程序結束，進行了 40 秒的 `export_app_data` 沒有回應，畫面上只看到「could not reach the local desktop bridge」。檔案沒有寫壞（先寫暫存檔再換），只是工作白做，使用者也不知道。
+  - 要做：有匯出、匯入、備份或維護在跑時，關視窗或 ⌘Q 先說正在做什麼、要不要等它做完；背景工作佇列（建索引等）能續跑的就照常結束。E2E：匯出途中送出關閉，看到提示、選等待後匯出完成。
+
+- [x] **WORK-EMBED-USES** — embedding 不只用在搜索（用戶 2026-10-15；2026-10-17 結束，剩下的候選移到 BACKLOG `WORK-SEARCH-NEAR-DUPLICATES`、`WORK-SESSION-TITLE-SEARCHES`、`WORK-DECISION-MODELS`）
   - 讀先：`docs/features/intelligence.md`、`docs/plan/program/ai-redesign-2026/05-embedding-retrieval-revision.md`、`docs/architecture/semantic-index-control.md`、`docs/architecture/search.md`、`docs/architecture/research/2026-10-topics-of-a-period.md`（item 1）；item 3 加讀 `docs/architecture/research/2026-10-related-pages.md`。
   - 前提：每次語義搜索把全部向量掃一遍（`vector_index.rs` 對 map 起來的 int8 plane 完整計分）。每多一個用途就多一次全掃，14.4M 時要先確定代價（先量）。2026-10-16 量完：[2026-10-vector-search.md](../architecture/research/2026-10-vector-search.md)；一次全掃在 14.4M × 256 單執行緒只要 12–82 ms（Turbovec / 連續 int8，M5 Max 上量的，目標機會慢），慢的是搜尋流程本身；2026-10-17 `WORK-SEMANTIC-PIPELINE` 已改掉逐筆回查，剩下範圍串流（BACKLOG `WORK-SEMANTIC-VISIT-SIDECAR`）。
   - 候選，按價值：給 Ask 的每週 / 每月主題聚類（「總結一下這週」要的就是這個，`intelligence_report` 只有數字）；洞察的主題時間線（聚類 + 最有代表性的標題命名，不需要 LLM）；頁面詳情的相關頁面與重新浮現；session 標題選語義上最居中的頁；搜索結果合併近似重複（同一篇文章的不同網址、AMP、鏡像）；用戶自訂類別的零樣本分類。
@@ -468,6 +476,7 @@
   - 第 2 項（洞察的主題時間線）：不做（用戶 2026-10-17）。用戶的六個月真實數據跑出來，靜態模型的大主題都是單一網站，Qwen3 找得到跨網站的事但也會按名字錯合；不用 LLM 的主題名讀不懂；每月前 8 個主題只占 24–38 % 的造訪。量測見 [2026-10-topics-of-a-period.md](../architecture/research/2026-10-topics-of-a-period.md)「Six real months」。
   - 第 3 項完成（2026-10-17）：History 詳情的「相關頁面」，用索引裡已有的向量，不呼叫 embedding 服務。規則與量測見 [2026-10-related-pages.md](../architecture/research/2026-10-related-pages.md)。
   - 搜尋詞按意思分組（用戶 2026-10-17 選了三處都做）：Ask 的 `intelligence_report` `report="searches"`、搜尋 drill-in 的「相似搜尋」與 Insights 的「查過的事」卡完成（2026-10-17）。量測見 [2026-10-search-groups.md](../architecture/research/2026-10-search-groups.md)。決策模型等磁碟空間（BACKLOG `WORK-DECISION-MODELS`）。
+  - 剩下的候選（2026-10-17 看過真實數據後）：搜尋結果合併近似重複（同一篇的不同網址、AMP、鏡像；相關頁面的標題折疊規則可以沿用）；session 標題不用語意上最居中的頁（真實數據裡居中頁常是「ChatGPT」「Files」這類只有網站名的標題），session 裡有搜尋時改用搜尋詞；用戶自訂類別的零樣本分類併入 `WORK-DECISION-MODELS`（embedding 做不準）。
 
 - [x] **WORK-ASK-WEEKDAYS** — 工具結果的時間加上星期（2026-10-15 真模型實測看到；2026-10-17 完成，先於 `WORK-EMBED-USES` 做，因為它直接影響「總結一下這週」）
   - 讀先：`docs/features/intelligence.md`（Ask 與工具）、`docs/architecture/insights-time-zone.md`。

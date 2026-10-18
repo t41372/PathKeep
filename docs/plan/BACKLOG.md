@@ -47,14 +47,6 @@
   - 現況：Settings → 後台任務是一列列設置卡片加工作清單。它其實是給人看「現在在跑什麼、跑多快、哪裡卡住」的地方：正在跑的工作、進度與速度、排隊的、失敗的與原因、可以暫停 / 繼續 / 取消 / 重試。
   - 先做 `WORK-AI-INDEX-CONTROL`（暫停狀態、推送的進度），再設計這頁；讀 `docs/design/` 核心四份。
 
-- [ ] **WORK-INDEX-REBUILD-SWAP** — 重建同一個模型的索引時，先建新的、完成才換掉舊的（2026-10-15 做 `WORK-AI-EMBED-INAPP` 第 2 項時找到）
-  - 換模型時，搜尋一直用上一個完整索引，直到新的建完；但「重建搜尋索引」與舊格式索引的「重建索引」是同一組服務 + 模型，`create_stamped` 一開始就清空 `.pkvec`，建置期間語意搜尋只找得到已重建的部分。14.4M 造訪、外部服務時，這段可能很長。
-  - 要做：重建寫到另一份檔案（或同名加世代），完成後原子替換並刪舊的；中斷時舊索引照常服務。E2E：重建途中暫停，語意搜尋仍找得到還沒重建到的頁面。
-
-- [ ] **WORK-QUIT-DURING-WORK** — 關掉視窗就結束 app，正在跑的匯出、匯入直接中斷，沒有任何提示（2026-10-16 gate 的 E2E 找到）
-  - 選單列圖示關著時，關掉主視窗就是結束 app。2026-10-16 跑 `move.spec` 時有人點了測試視窗的關閉鈕：系統 log 在 07:07:01.685 記到 `windowShouldClose`，35 ms 後程序結束，進行了 40 秒的 `export_app_data` 沒有回應，畫面上只看到「could not reach the local desktop bridge」。檔案沒有寫壞（先寫暫存檔再換），只是工作白做，使用者也不知道。
-  - 要做：有匯出、匯入、備份或維護在跑時，關視窗或 ⌘Q 先說正在做什麼、要不要等它做完；背景工作佇列（建索引等）能續跑的就照常結束。E2E：匯出途中送出關閉，看到提示、選等待後匯出完成。
-
 - [ ] **WORK-INDEX-SEARCH-WHILE-BUILDING** — 換模型時，新索引一邊建一邊就能搜；建置由新到舊（2026-10-16 寫內建 transformer 的 trade-off 時提出，用戶同日同意）
   - 現況：換模型（例如從內建靜態模型換成 LM Studio 跑的 Qwen3-Embedding）後，搜尋一直用舊的完整索引，直到新索引整份建完；14.4M 造訪、外部服務時可能好幾天都用不到新模型。建置照 history ID 由小到大走，最常被搜的近期頁面最後才進新索引。
   - 提案（[inapp-transformer-embedding-tradeoff.md](../architecture/inapp-transformer-embedding-tradeoff.md)「Searching while it builds」「Build order」）：建置中的索引與完整的舊索引一起搜，兩份語意結果和全文結果以 RRF 融合，不同模型的分數不互相比較；建置改成由新到舊，cursor 仍是一條水位線、往下走。代價：建置期間每次搜尋要用兩個模型各算一次查詢向量，外部服務多一次請求。
@@ -72,6 +64,13 @@
 - [!] **WORK-DECISION-MODELS** — 量決策模型（Jev、OpenAI Decisions、開源 pplx-decider 等）在 PathKeep 的用處（用戶 2026-10-17：磁碟沒空間，之後再說）
   - 讀先：[2026-10-decision-models.md](../architecture/research/2026-10-decision-models.md)。
   - 先量：在 LM Studio 下載一個決策模型（3–25 GB，先問用戶），量這台 Mac 與目標機的速度、在標題＋網址（中英混雜）上的準確度。候選用途：每月固定類別、Ask 的篩選工具與語意結果重排、送雲端前的本機敏感頁檢查。
+
+- [ ] **WORK-SEARCH-NEAR-DUPLICATES** — 搜尋結果合併近似重複：同一篇文章的不同網址、AMP、鏡像（`WORK-EMBED-USES` 剩下的候選，2026-10-17）
+  - 相關頁面在真實歷史上看到約三成的近鄰是同一頁換了網址；`ai/related_pages.rs` 的折疊規則（可註冊網域＋標題主體，去掉計數括號）可以沿用。搜尋結果要合併的範圍更大（跨網站的鏡像、AMP），先在真實資料上量哪些情況值得合、合錯的代價。
+  - 讀先：[2026-10-related-pages.md](../architecture/research/2026-10-related-pages.md)、`docs/architecture/search.md`。
+
+- [ ] **WORK-SESSION-TITLE-SEARCHES** — session 的自動標題用它裡面的搜尋詞，而不是猜（`WORK-EMBED-USES` 剩下的候選，2026-10-17）
+  - 原本的候選是「選語意上最居中的頁當標題」；真實資料上居中頁常是「ChatGPT」「Files」這類只有網站名的標題（[2026-10-topics-of-a-period.md](../architecture/research/2026-10-topics-of-a-period.md)「Six real months」），所以不做。session 裡有搜尋時，用最常用的那個說法；沒有搜尋才照現在的規則。不需要 embedding。
 
 - [ ] **WORK-STATIC-MODEL-LOAD-REHASH** — 內建模型每次啟動後第一次載入都重算 531 MB 的雜湊（2026-10-16 寫 trade-off 時讀碼找到，還沒量）
   - `embedding_static/cache.rs` 的 `load` 在快取沒命中時呼叫 `model_is_present_and_verified`，把每個模型檔整份重算 SHA-256（這台 M5 Max 約 1 秒，目標機更久）。程序啟動後第一次建索引或語意搜尋都會碰到。`VERIFIED_MARKER_FILE` 的註解說載入時信任標記、不重算，代碼沒這樣做。
