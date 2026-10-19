@@ -52,7 +52,7 @@ memmap2 = "0.9.11"
 plist = "1.8.0"
 regex = "1.12.2"
 rig-core = { version = "0.44", default-features = false, features = ["reqwest", "rustls"] }
-rmcp = { version = "1.3.0", features = ["transport-io"] }
+rmcp = { version = "3.5.1", features = ["transport-io"] }
 rusqlite = { version = "0.39.0", features = ["backup", "bundled-sqlcipher-vendored-openssl", "serde_json"] }
 # Same major as rig-core's `schemars` (1.x) so `LlmProvider`'s structured-output schema
 # unifies with rig's `output_schema` type rather than introducing a second instance.
@@ -75,10 +75,10 @@ walkdir = "2.5.0"
 # `component-model`/`async` features are pulled transitively by `wasmtime-wasi`'s preview1 support
 # (preview1 in wasmtime 48 is implemented atop the preview2/component machinery). NO pooling/gc; the
 # build needs no C toolchain and the `wat` loader stays for the security-test guests.
-# Floor is 48.0.4, fixing the September/October 2026 Wasmtime/WASI advisories, including
-# RUSTSEC-2026-0327 (component callback stack overflow). No 45.x release fixes this set;
-# Wasmtime 48.0.4 requires Rust 1.95 or newer.
-wasmtime = { version = "48.0.4", default-features = false, features = ["std", "runtime", "cranelift", "wat", "anyhow", "component-model", "async"] }
+# Floor is 48.0.6, fixing the September/October 2026 Wasmtime/WASI advisories, from
+# RUSTSEC-2026-0327 (component callback stack overflow) to RUSTSEC-2026-0364. No 45.x release
+# fixes this set; Wasmtime 48 requires Rust 1.95 or newer.
+wasmtime = { version = "48.0.6", default-features = false, features = ["std", "runtime", "cranelift", "wat", "anyhow", "component-model", "async"] }
 # code-mode scoped WASI (W-AI-8, D7 / §G Layer 2). The Javy (QuickJS→WASM) guest reaches the host
 # ONLY through WASI fd I/O, so the sandbox grants a MINIMAL preview1 ctx: an in-memory stdin pipe
 # (the request/reply RPC channel), an in-memory stdout capture, and a stderr sink — NO fs preopens,
@@ -86,11 +86,11 @@ wasmtime = { version = "48.0.4", default-features = false, features = ["std", "r
 # "no dangerous ambient authority" contract (no fs/net/real-clock/env) while letting real JS run.
 # `default-features=false` + only `p1` drops the network/sockets stack; the preview1 sync linker is
 # all we wire. No C toolchain.
-wasmtime-wasi = { version = "48.0.4", default-features = false, features = ["p1"] }
+wasmtime-wasi = { version = "48.0.6", default-features = false, features = ["p1"] }
 # Zero-copy byte buffers named by the WASI stream traits (`InputStream`/`OutputStream`) the code-mode
 # channel implements; already in the graph via wasmtime-wasi, restated so vault-core can name it.
 bytes = "1.10.1"
-zip = { version = "2.4.2", default-features = false, features = ["deflate"] }
+zip = { version = "9.0.5", default-features = false, features = ["deflate"] }
 
 [dependencies]
 futures-core.workspace = true

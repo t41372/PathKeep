@@ -86,6 +86,7 @@
 - [ ] **WORK-DEPS-LATEST** — 依賴跟到最新版（用戶 2026-10-15：之前的 agent 過度 pin）
   - 例：`rig-core` 停在 0.34.0（2026-03-31），最新 0.44.0（2026-10-07）。0.x 寫 `"0.34.0"` 等於鎖在 0.34.x。
   - 列出所有落後的 Rust 與 JS 依賴，一個一個升，跑 gate；要鎖舊版的在宣告旁寫理由（AGENTS.md 供應鏈）。rig 的升級跟 `WORK-AI-AGENT-TURNS` 的傳輸層決定一起做。
+  - 2026-10-18 發布 v0.4.0 前為了清 RustSec 先升了 rustls、wasmtime、zip（到 9）、rmcp（到 3）、tar、serde_with、openssl（CHANGELOG）。其餘的還沒掃。
 
 - [ ] **WORK-WINDOWS-SNAP-LAYOUTS** — Windows 11 的貼齊版面與自畫視窗按鈕的實機確認（2026-10-13 `WORK-UI-POLISH-2026-10` 留下）
   - 現況：Windows、Linux 已關掉系統標題列，最小化 / 最大化 / 關閉由 app 畫在右上角（`window-controls.tsx`），從沒在兩個平台的實機上看過。滑鼠停在最大化上時 Windows 11 的貼齊版面不會出現。

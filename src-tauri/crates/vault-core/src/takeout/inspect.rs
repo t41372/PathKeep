@@ -306,8 +306,9 @@ pub(super) fn gather_takeout_files(source: &Path) -> Result<Vec<TakeoutFile>> {
     let mut files = Vec::new();
     for index in 0..archive.len() {
         let entry = archive.by_index(index)?;
-        if entry.is_file() && !should_skip_takeout_file(entry.name()) {
-            files.push(TakeoutFile { path: entry.name().to_string(), from_zip: true });
+        let name = entry.name()?;
+        if entry.is_file() && !should_skip_takeout_file(&name) {
+            files.push(TakeoutFile { path: name.into_owned(), from_zip: true });
         }
     }
     // Name order, as for a folder, not the order the zip was written in.

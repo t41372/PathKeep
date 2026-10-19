@@ -101,8 +101,9 @@ fn wrong_export_password_and_changed_database_bytes_preserve_the_target() {
     let mut output = zip::ZipWriter::new(std::fs::File::create(&damaged).unwrap());
     for index in 0..original.len() {
         let mut entry = original.by_index(index).unwrap();
-        output.start_file(entry.name(), zip::write::SimpleFileOptions::default()).unwrap();
-        if entry.name() == "archive/history-vault.db" {
+        let name = entry.name().unwrap().into_owned();
+        output.start_file(name.as_str(), zip::write::SimpleFileOptions::default()).unwrap();
+        if name == "archive/history-vault.db" {
             output.write_all(b"changed database").unwrap();
         } else {
             std::io::copy(&mut entry, &mut output).unwrap();

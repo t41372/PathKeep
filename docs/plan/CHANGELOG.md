@@ -3024,3 +3024,8 @@ that held up when checked against the code.
   - E2E: two subjects in two months and two browser profiles, Insights built before the index; counts, searched days, the broad-group size, drill-ins keeping range and profile, months across all browsers, removal of the service.
 
 - `WORK-EMBED-USES` closed (2026-10-17). Done: Ask's topics of a period, related pages in History, searches grouped by meaning (Ask report, similar searches, Insights "Things you looked into"). Not done, by decision on real data: the Insights topic timeline. Moved to BACKLOG: near-duplicate merging in search results, session titles from their searches, decision models (also covering user-defined categories). `WORK-INDEX-REBUILD-SWAP` and `WORK-QUIT-DURING-WORK` moved up to STATUS.
+
+- Release prep for v0.4.0: dependency advisories (2026-10-18).
+  - Taken: rustls 0.23.46, wasmtime / wasmtime-wasi 48.0.6 (floor raised), zip 9.0.5 (an entry's name is now read fallibly), rmcp 3.5.1 (stdio only, no code change), tar 0.4.46, serde_with 3.24, openssl 0.10.80.
+  - Allowed with a reason in `scripts/check-rust-security.mjs`: the zip extract advisories for upstream's zip 4 (tauri-plugin-updater) and zip 8 (libsodium-sys-stable build script), and zbus 5's crates that moved into zbus 6 (tauri-plugin-single-instance).
+  - The backup run spec waits for the index build to leave the queue; CI's slower runner backed up in the gap where the index was complete but its job was still running.
