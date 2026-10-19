@@ -22,6 +22,7 @@
  * - Prefer additive, explicit fields over ambiguous catch-all objects so the trust surface stays auditable.
  */
 
+import type { SearchCoverage } from '../backend-client/search'
 import type { ProgressLogEvent } from './import'
 
 /**
@@ -208,8 +209,11 @@ export interface StorageSummary {
   exportBytes: number
   stagingBytes: number
   quarantineBytes: number
+  /** The semantic index's vectors and visit maps. */
   semanticSidecarBytes: number
   intelligenceBlobBytes: number
+  /** Ask's conversations. */
+  agentDatabaseBytes: number
 }
 
 /**
@@ -330,6 +334,14 @@ export interface HistoryQuery {
   page?: number | null
   cursor?: string | null
   regexMode?: boolean
+  /** Skip the exact total count. Set it for paged lists; counting 14M rows on every page is slow. */
+  includeTotal?: boolean
+  /**
+   * One row per page (URL) instead of one per visit: the page's newest
+   * matching visit, with `visitCount`. Applies only when `q` is set; read
+   * further pages with `nextCursor`.
+   */
+  groupByUrl?: boolean
 }
 
 /**
@@ -367,6 +379,8 @@ export interface HistoryEntry {
    * highlights query terms inside it and suppresses the affordance when empty.
    */
   enrichmentExcerpt?: string | null
+  /** On `groupByUrl` rows only: how many visits to this page matched. */
+  visitCount?: number
 }
 
 /**
@@ -392,6 +406,14 @@ export interface HistoryFaviconLookupResult {
   profileId: string
   url: string
   visitTime: number
+  favicon?: {
+    dataUrl: string
+  } | null
+}
+
+/** A site's own icon, for screens that list sites rather than visits. */
+export interface SiteFaviconResult {
+  domain: string
   favicon?: {
     dataUrl: string
   } | null
@@ -488,7 +510,14 @@ export interface OgImageSettings {
  * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
  */
 export interface HistoryQueryResponse {
+  /** Whether the search index covered the whole archive for this answer; null for the timeline. */
+  searchState?: SearchCoverage | null
+  /** Matching rows (pages when grouped), or only this page's size when the count was skipped. */
   total: number
+  /** False when the query was sent with `includeTotal: false`. */
+  totalExact: boolean
+  /** Grouped queries with a total: matching visits across all pages. */
+  totalVisits?: number | null
   items: HistoryEntry[]
   page: number
   pageSize: number
@@ -511,8 +540,21 @@ export type ExportFormat = 'html' | 'markdown' | 'text' | 'jsonl'
  * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
  */
 export interface ExportRequest {
+  exportId?: string
   query: HistoryQuery
   format: ExportFormat
+}
+
+/** Pollable in-memory export state, retained briefly after completion. */
+export interface ExportProgress {
+  exportId: string
+  state: 'running' | 'finishing' | 'done' | 'cancelled' | 'failed'
+  rowsWritten: number
+  /** Cached archive-wide estimate, including when the export has filters. */
+  totalRows: number | null
+  bytesWritten: number
+  startedAt: string
+  error: string | null
 }
 
 /**
@@ -597,6 +639,8 @@ export interface ArchiveRecoveryReport {
  * so it is surfaced as an informational line rather than a streamed bar.
  */
 export type ArchiveUpgradePhase =
+  | 'storageConversion'
+  | 'contentVerification'
   | 'schemaMigration'
   | 'registrableDomainBackfill'
   | 'searchReprojection'
@@ -613,6 +657,9 @@ export type ArchiveUpgradePhase =
  * shell can transition without inferring completion from the counters.
  */
 export interface ArchiveUpgradeProgress {
+  /** During conversion: the database and table being copied or checked. */
+  database?: string
+  table?: string
   phase: ArchiveUpgradePhase
   phaseLabel: string
   processed: number
@@ -637,14 +684,40 @@ export interface ArchiveUpgradePhaseAssessment {
 }
 
 /**
- * Result of the cheap first-run upgrade pre-check (`assess_archive_upgrade`).
- *
- * The shell reads `pending` at bootstrap to decide whether to show the upgrade
- * screen at all: a fresh install or already-migrated archive reports
- * `pending === false` (no screen), while a genuine version-behind archive
- * reports `pending === true` plus the per-phase breakdown seeding the UI.
+ * What converting an archive from the old SQLCipher files to Turso involves.
+ * Table counts are empty for an encrypted archive until its password is given.
+ */
+export interface ArchiveConversionAssessment {
+  required: boolean
+  sourceEncrypted: boolean
+  sourceFormat: string
+  targetFormat: string
+  sourceBytes: number
+  requiredFreeBytes: number
+  filesTouched: string[]
+  /** The old files; conversion never deletes them. */
+  filesRetained: string[]
+  /**
+   * Old files the password doesn't open although it opens the archive (an install
+   * that changed its password before v0.4). Conversion leaves them in place and
+   * doesn't carry them over. Empty until a password is given.
+   */
+  filesLocked: {
+    database: 'SourceEvidence' | 'Intelligence' | 'Agent'
+    path: string
+  }[]
+  tables: { database: string; table: string; rows: number }[]
+  /** An interrupted conversion continues where it stopped. */
+  resumable: boolean
+}
+
+/**
+ * Result of the cheap startup pre-check (`assess_archive_upgrade`). `pending`
+ * means the archive is still in the old format and must be converted before
+ * it can open; `conversion` says what that involves.
  */
 export interface ArchiveUpgradeAssessment {
+  conversion?: ArchiveConversionAssessment | null
   pending: boolean
   currentSchemaVersion: number
   targetSchemaVersion: number

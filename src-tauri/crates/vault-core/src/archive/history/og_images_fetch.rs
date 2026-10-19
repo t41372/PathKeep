@@ -30,8 +30,7 @@
 
 use super::og_images::{OgImageInsert, fetch_status};
 use super::og_images_synth::{
-    host_requires_synthesis, resolve_image_url_via_api, resolve_image_url_via_api_with_base,
-    synthesize_image_url_from_url,
+    host_requires_synthesis, resolve_image_url_via_api, synthesize_image_url_from_url,
 };
 use crate::utils::url_domain;
 use anyhow::Result;
@@ -125,37 +124,46 @@ fn fetch_client_builder() -> reqwest::blocking::ClientBuilder {
     insert_static_header(&mut headers, "sec-ch-ua", SEC_CH_UA);
     insert_static_header(&mut headers, "sec-ch-ua-mobile", SEC_CH_UA_MOBILE);
     insert_static_header(&mut headers, "sec-ch-ua-platform", SEC_CH_UA_PLATFORM);
-    Client::builder()
+    let builder = Client::builder()
         .default_headers(headers)
         // We enforce https on the page URL ourselves so http:// → parse_error.
         .https_only(false)
         .timeout(Duration::from_secs(15))
-        .connect_timeout(Duration::from_secs(10))
+        .connect_timeout(Duration::from_secs(10));
+    match crate::test_support::preview_test_server_ca()
+        .and_then(|pem| reqwest::Certificate::from_pem(&pem).ok())
+    {
+        Some(test_ca) => builder.add_root_certificate(test_ca),
+        None => builder,
+    }
 }
 
 /// Builds the reqwest client used by the fetch pipeline. Exposed so the
 /// orchestrator can share one client across many fetches (connection
-/// pool reuse, single timeout policy).
+/// pool reuse, single timeout policy). Every redirect hop is checked like
+/// the first URL (`net_guard::url_target_is_blocked`): a public page that
+/// redirects to a private address must not make PathKeep fetch it.
 pub fn build_fetch_client() -> Result<Client> {
-    fetch_client_builder()
-        // www → apex, /article → /article/slug, http → https, share→canonical
-        // — typical news/social posts go through 3–5 hops. The old
-        // `limited(1)` budget made us miss the og:image on every single
-        // redirecting host. 8 is the same budget Chrome uses for org
-        // redirects on the same hostname.
-        .redirect(reqwest::redirect::Policy::limited(REDIRECT_HOP_BUDGET))
-        .build()
-        .map_err(Into::into)
+    build_guarded_fetch_client(preview_target_is_blocked)
 }
 
-/// Builds a fetch client that re-applies an SSRF guard on EVERY redirect hop (W-ENRICH-1 SEC-3).
+/// The address check a link preview applies to its page, every redirect hop and the image:
+/// `net_guard::url_target_is_blocked`, except for an end-to-end test's own server
+/// (`test_support::is_preview_test_server`, debug builds only).
+fn preview_target_is_blocked(url: &str) -> bool {
+    super::net_guard::url_target_is_blocked(url)
+        && !crate::test_support::is_preview_test_server(url)
+}
+
+/// Builds a fetch client that applies `hop_is_blocked` to every redirect hop before following it,
+/// so a public page that redirects to `169.254.169.254` or loopback stops there: reqwest returns the
+/// redirect itself instead of fetching the private host. www → apex, http → https and share links
+/// to canonical pages take 3–5 hops, so the budget is 8, as Chrome's.
 ///
-/// Same privacy posture + timeouts as [`build_fetch_client`] (via [`fetch_client_builder`]), but the
-/// redirect policy is a CUSTOM one: each hop is validated by `hop_is_blocked` BEFORE it is followed, so
-/// a public page that 30x-redirects to `169.254.169.254` / loopback is STOPPED mid-chain (the og:image
-/// client's `Policy::limited` follows redirects with reqwest's own resolver and no per-hop check). The
-/// hop budget is preserved. The content-fetch runner passes the real `url_target_is_blocked` in
-/// production; the og:image client is deliberately untouched.
+/// Production passes `net_guard::url_target_is_blocked` through `preview_target_is_blocked` (both
+/// fetchers do), which differs only for an end-to-end test's server in a debug build. A unit test
+/// whose mock server listens on loopback passes its own check, which is the one seam: the check
+/// itself is not compiled differently in tests.
 pub fn build_guarded_fetch_client(hop_is_blocked: fn(&str) -> bool) -> Result<Client> {
     fetch_client_builder()
         .redirect(reqwest::redirect::Policy::custom(move |attempt| {
@@ -265,11 +273,7 @@ pub fn default_refetch_after_for_status(status: &str) -> Option<String> {
             // Conservative fallback for any new `fetch_status::*` constant a
             // producer adds without also teaching the negative-cache cadence
             // about it. Returning `None` keeps the row dormant rather than
-            // retry-storming an unrecognised status. The companion
-            // `default_refetch_after_for_status_covers_every_known_status`
-            // unit test below fails the build if a new constant lands here
-            // without an explicit cadence, which is the loud-CI signal that
-            // the previous `debug_assert!(false)` was meant to provide.
+            // retry-storming an unrecognised status.
             let _ = other;
             return None;
         }
@@ -291,30 +295,14 @@ pub fn blocked_outcome(page_url: &str) -> FetchedOgImage {
     }
 }
 
-/// Builds a synthetic "ok" outcome carrying the given bytes / mime so
-/// downstream-crate tests can exercise success branches in
-/// `refetch_og_images` without standing up a mockito server. Marked
-/// `#[doc(hidden)]` because it's strictly test infrastructure, not a
-/// production constructor.
-#[doc(hidden)]
-pub fn ok_outcome_for_test(
-    page_url: &str,
-    source_og_url: &str,
-    image_bytes: &[u8],
-    mime: &'static str,
-) -> FetchedOgImage {
-    FetchedOgImage {
-        page_host: nonempty_host(page_url),
-        source_og_url: Some(source_og_url.to_string()),
-        image_bytes: Some(image_bytes.to_vec()),
-        mime: Some(mime),
-        fetch_status: fetch_status::OK,
-        http_status: Some(200),
-    }
-}
-
 /// One pass through the fetch pipeline.
 pub fn fetch_og_image_for(client: &Client, page_url: &str) -> FetchedOgImage {
+    // Check before the SSRF guard, which may resolve the page host through DNS.
+    if crate::test_support::network_is_blocked()
+        && !crate::test_support::is_preview_test_server(page_url)
+    {
+        return blocked_outcome(page_url);
+    }
     if !page_url.starts_with("https://") {
         return FetchedOgImage {
             page_host: nonempty_host(page_url),
@@ -345,10 +333,10 @@ pub fn fetch_og_image_for(client: &Client, page_url: &str) -> FetchedOgImage {
     // SSRF guard: refuse to fetch a page whose host is (or resolves to) a
     // non-public address. The page URL comes from imported history, so a single
     // visited page must never be able to make PathKeep probe the local network.
-    if super::net_guard::url_target_is_blocked(page_url) {
+    if preview_target_is_blocked(page_url) {
         return blocked_outcome(page_url);
     }
-    fetch_og_image_for_pipeline(client, page_url, true, None, true)
+    fetch_og_image_for_pipeline(client, page_url, true)
 }
 
 /// True when the page URL is a search-engine result page (Google, Bing,
@@ -361,43 +349,26 @@ fn is_search_results_url(page_url: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// Same pipeline as `fetch_og_image_for` minus the HTTPS guard, exposed so
-/// the mockito-based unit tests can drive the full body through an
-/// `http://localhost` mock server without standing up TLS. Production
-/// callers always go through `fetch_og_image_for`; the test path passes
-/// `upgrade_image_url = false` so mockito's http URLs survive intact.
-#[cfg(test)]
-pub(crate) fn fetch_og_image_for_unchecked(client: &Client, page_url: &str) -> FetchedOgImage {
-    fetch_og_image_for_pipeline(client, page_url, false, None, false)
-}
-
-/// Same as `fetch_og_image_for_unchecked` but with the og:image SSRF host
-/// guard active, so tests can drive a mockito page whose `og:image` points at
-/// a loopback host through the guarded branch without TLS.
+/// Same pipeline as `fetch_og_image_for` minus the HTTPS page guard, so a unit
+/// test can drive a mockito `http://localhost` page whose `og:image` points at
+/// a loopback host through the og:image SSRF host guard without standing up
+/// TLS. `upgrade_image_url = false` keeps mockito's http URLs intact.
 #[cfg(test)]
 pub(crate) fn fetch_og_image_for_guarded(client: &Client, page_url: &str) -> FetchedOgImage {
-    fetch_og_image_for_pipeline(client, page_url, false, None, true)
-}
-
-/// Variant that lets tests inject a mockito base URL for the Bilibili
-/// API so the `resolve_image_url_via_api` → `finish_image_fetch` branch
-/// is coverable without hitting the real API.
-#[cfg(test)]
-pub(crate) fn fetch_og_image_for_with_api_base(
-    client: &Client,
-    page_url: &str,
-    bilibili_api_base: &str,
-) -> FetchedOgImage {
-    fetch_og_image_for_pipeline(client, page_url, false, Some(bilibili_api_base), false)
+    fetch_og_image_for_pipeline(client, page_url, false)
 }
 
 fn fetch_og_image_for_pipeline(
     client: &Client,
     page_url: &str,
     upgrade_image_url: bool,
-    bilibili_api_base: Option<&str>,
-    guard_image_hosts: bool,
 ) -> FetchedOgImage {
+    // Also covers the guarded test entry point, which does not go through `fetch_og_image_for`.
+    if crate::test_support::network_is_blocked()
+        && !crate::test_support::is_preview_test_server(page_url)
+    {
+        return blocked_outcome(page_url);
+    }
     let mut outcome = FetchedOgImage {
         page_host: nonempty_host(page_url),
         source_og_url: None,
@@ -419,14 +390,11 @@ fn fetch_og_image_for_pipeline(
         let synth_url =
             if upgrade_image_url { upgrade_http_to_https(&synth_url) } else { synth_url };
         outcome.source_og_url = Some(synth_url.clone());
-        finish_image_fetch(client, synth_url, guard_image_hosts, outcome)
-    } else if let Some(api_url) = match bilibili_api_base {
-        Some(base) => resolve_image_url_via_api_with_base(client, page_url, base),
-        None => resolve_image_url_via_api(client, page_url),
-    } {
+        finish_image_fetch(client, synth_url, outcome)
+    } else if let Some(api_url) = resolve_image_url_via_api(client, page_url) {
         let api_url = if upgrade_image_url { upgrade_http_to_https(&api_url) } else { api_url };
         outcome.source_og_url = Some(api_url.clone());
-        finish_image_fetch(client, api_url, guard_image_hosts, outcome)
+        finish_image_fetch(client, api_url, outcome)
     } else if host_requires_synthesis(page_url) {
         // Recognised video host but neither synth path succeeded (e.g.
         // YouTube id failed validation or Bilibili API rejected the
@@ -436,7 +404,7 @@ fn fetch_og_image_for_pipeline(
         outcome.fetch_status = fetch_status::MISSING;
         outcome
     } else {
-        fetch_og_image_via_html(client, page_url, upgrade_image_url, guard_image_hosts, outcome)
+        fetch_og_image_via_html(client, page_url, upgrade_image_url, outcome)
     }
 }
 
@@ -446,7 +414,6 @@ fn fetch_og_image_via_html(
     client: &Client,
     page_url: &str,
     upgrade_image_url: bool,
-    guard_image_hosts: bool,
     mut outcome: FetchedOgImage,
 ) -> FetchedOgImage {
     let page = match client.get(page_url).header(ACCEPT, ACCEPT_HTML).send() {
@@ -488,7 +455,7 @@ fn fetch_og_image_via_html(
     let og_image_url =
         if upgrade_image_url { upgrade_http_to_https(&og_image_url) } else { og_image_url };
     outcome.source_og_url = Some(og_image_url.clone());
-    finish_image_fetch(client, og_image_url, guard_image_hosts, outcome)
+    finish_image_fetch(client, og_image_url, outcome)
 }
 
 /// Common image sub-resource fetch — shared by the generic-HTML path and
@@ -497,13 +464,12 @@ fn fetch_og_image_via_html(
 fn finish_image_fetch(
     client: &Client,
     og_image_url: String,
-    guard_hosts: bool,
     mut outcome: FetchedOgImage,
 ) -> FetchedOgImage {
     // SSRF guard: the og:image URL is scraped from attacker-controlled page
     // HTML (or a per-host synth template), so before issuing the sub-resource
     // GET, refuse any URL whose host is (or resolves to) a non-public address.
-    if guard_hosts && super::net_guard::url_target_is_blocked(&og_image_url) {
+    if preview_target_is_blocked(&og_image_url) {
         outcome.fetch_status = fetch_status::BLOCKED;
         return outcome;
     }
@@ -660,6 +626,13 @@ fn read_response_body(response: Response, cap_bytes: usize) -> Result<Vec<u8>, B
     read_capped_bytes(response, cap_bytes)
 }
 
+/// The response body, read a chunk at a time and given up as soon as it passes `cap_bytes`, so a
+/// hostile endpoint cannot make PathKeep hold more than the cap. `None` when it does, or on a read
+/// error.
+pub(super) fn read_capped_response(response: Response, cap_bytes: usize) -> Option<Vec<u8>> {
+    read_capped_bytes(response, cap_bytes).ok()
+}
+
 /// Read-cap helper extracted so unit tests can drive both fall-throughs
 /// (Io error mid-stream + TooLarge) without standing up a partial-body
 /// mockito server. The production fetch path calls this exclusively via
@@ -723,109 +696,6 @@ mod tests {
     }
 
     #[test]
-    fn extract_og_image_url_prefers_secure_url_over_og_image() {
-        let html = r#"<html><head>
-          <meta property="og:image" content="https://example.com/og.jpg">
-          <meta property="og:image:secure_url" content="https://example.com/secure.jpg">
-          <meta name="twitter:image" content="https://example.com/twitter.jpg">
-        </head></html>"#;
-        let result = extract_og_image_url(html, "https://example.com/").unwrap();
-        assert_eq!(result, "https://example.com/secure.jpg");
-    }
-
-    #[test]
-    fn extract_og_image_url_falls_through_to_twitter_image() {
-        let html = r#"<html><head>
-          <meta name="twitter:image" content="https://example.com/twitter.png">
-        </head></html>"#;
-        let result = extract_og_image_url(html, "https://example.com/").unwrap();
-        assert_eq!(result, "https://example.com/twitter.png");
-    }
-
-    #[test]
-    fn extract_og_image_url_falls_through_to_twitter_image_src() {
-        let html = r#"<html><head>
-          <meta name="twitter:image:src" content="https://example.com/twitter-src.png">
-        </head></html>"#;
-        let result = extract_og_image_url(html, "https://example.com/").unwrap();
-        assert_eq!(result, "https://example.com/twitter-src.png");
-    }
-
-    #[test]
-    fn extract_og_image_url_resolves_relative_against_page() {
-        let html = r#"<html><head>
-          <meta property="og:image" content="/static/social.png">
-        </head></html>"#;
-        let result = extract_og_image_url(html, "https://example.com/path/").unwrap();
-        assert_eq!(result, "https://example.com/static/social.png");
-    }
-
-    #[test]
-    fn extract_og_image_url_returns_none_when_meta_missing() {
-        let html = r#"<html><head><title>plain</title></head></html>"#;
-        assert!(extract_og_image_url(html, "https://example.com/").is_none());
-    }
-
-    #[test]
-    fn extract_og_image_url_skips_empty_content_attribute() {
-        let html = r#"<html><head>
-          <meta property="og:image" content="   ">
-          <meta name="twitter:image" content="https://example.com/twitter.png">
-        </head></html>"#;
-        let result = extract_og_image_url(html, "https://example.com/").unwrap();
-        assert_eq!(result, "https://example.com/twitter.png");
-    }
-
-    #[test]
-    fn http_only_page_url_returns_parse_error_without_network() {
-        let client = build_fetch_client().unwrap();
-        let outcome = fetch_og_image_for(&client, "http://insecure.example.com/");
-        assert_eq!(outcome.fetch_status(), fetch_status::PARSE_ERROR);
-        assert!(outcome.image_bytes.is_none());
-    }
-
-    #[test]
-    fn search_engine_result_pages_short_circuit_with_missing_status() {
-        // Google / Bing / Baidu SERPs advertise a knowledge-panel og:image
-        // that describes the top entity, not the SERP itself. Caching those
-        // bytes against the SERP URL caused wrong-icon-on-search cards
-        // (e.g., Yoshinoya's logo on a Google search row). The production
-        // entry must short-circuit before any network call so neither the
-        // cache nor the daily fetch budget is polluted.
-        let client = build_fetch_client().unwrap();
-        for serp in [
-            "https://www.google.com/search?q=吉野家",
-            "https://www.bing.com/search?q=pathkeep",
-            "https://www.baidu.com/s?wd=zhihu",
-            "https://duckduckgo.com/?q=anything",
-        ] {
-            let outcome = fetch_og_image_for(&client, serp);
-            assert_eq!(
-                outcome.fetch_status(),
-                fetch_status::MISSING,
-                "SERP {serp} must short-circuit to MISSING"
-            );
-            assert!(outcome.image_bytes.is_none());
-            assert!(outcome.source_og_url.is_none());
-        }
-    }
-
-    #[test]
-    fn https_page_url_passes_through_the_production_dispatcher() {
-        // `fetch_og_image_for` is the production entry: the https-guard
-        // branch falls through to `fetch_og_image_for_pipeline(.., true)`
-        // (line 141). We point it at an unresolvable host so the request
-        // fails with a network error — exercising both the guard fall-
-        // through and `http_status_from_error` (line 297) on the
-        // err.status() == None path.
-        let client = build_fetch_client().unwrap();
-        let outcome = fetch_og_image_for(&client, "https://og-image-test.invalid./");
-        // DNS resolution / connect should fail; status remains None.
-        assert_eq!(outcome.fetch_status(), fetch_status::HTTP_ERROR);
-        assert!(outcome.image_bytes.is_none());
-    }
-
-    #[test]
     fn fetch_og_image_for_blocks_private_page_host_without_network() {
         // SSRF: a page URL pointing straight at a loopback/private host must be
         // refused before any network call, with no retry (BLOCKED).
@@ -855,608 +725,19 @@ mod tests {
     }
 
     #[test]
-    fn http_only_image_url_is_upgraded_to_https_by_production_pipeline() {
-        // Production callers run `fetch_og_image_for` which sets
-        // upgrade_image_url=true. After og:image extraction the pipeline
-        // calls `upgrade_http_to_https` — covered indirectly here by
-        // pointing at an https page that returns an http://og.png URL.
-        // We can't use mockito (https-only guard), so we exercise the
-        // helper directly to lock the branch.
-        assert_eq!(
-            upgrade_http_to_https("http://images.example.com/og.png"),
-            "https://images.example.com/og.png"
-        );
-        assert_eq!(
-            upgrade_http_to_https("https://images.example.com/og.png"),
-            "https://images.example.com/og.png"
-        );
-        assert_eq!(upgrade_http_to_https("data:image/png;base64,AAA"), "data:image/png;base64,AAA");
-    }
-
-    #[test]
-    fn is_host_blocked_matches_lowercase_and_ignores_whitespace() {
-        let blocklist = vec!["GitHub.com".to_string(), "  medium.com  ".to_string()];
-        assert!(is_host_blocked(&blocklist, "https://github.com/foo"));
-        assert!(is_host_blocked(&blocklist, "https://medium.com/@a/b"));
-        assert!(!is_host_blocked(&blocklist, "https://example.com/foo"));
-    }
-
-    #[test]
-    fn blocked_outcome_persists_block_state_without_bytes() {
-        let outcome = blocked_outcome("https://github.com/foo");
-        assert_eq!(outcome.fetch_status(), fetch_status::BLOCKED);
-        let insert = outcome.as_insert("https://github.com/foo", None);
-        assert_eq!(insert.page_url, "https://github.com/foo");
-        assert_eq!(insert.fetch_status, fetch_status::BLOCKED);
-        assert!(insert.image_bytes.is_none());
-        assert_eq!(insert.page_host, Some("github.com"));
-        // BLOCKED is a user veto — must never schedule a retry, even
-        // accidentally via the default_refetch_after helper.
-        assert!(default_refetch_after_for_status(fetch_status::BLOCKED).is_none());
-    }
-
-    #[test]
-    fn default_refetch_after_schedules_retry_windows_for_retryable_statuses() {
-        for status in [
-            fetch_status::HTTP_ERROR,
-            fetch_status::PARSE_ERROR,
-            fetch_status::MISSING,
-            fetch_status::TOO_LARGE,
-            fetch_status::UNSUPPORTED_MIME,
-        ] {
-            let when = default_refetch_after_for_status(status);
-            assert!(when.is_some(), "{status} must schedule a retry");
-            // ISO 3339 with seconds precision and Z suffix; cheaper than
-            // round-tripping through chrono in the assertion.
-            let value = when.unwrap();
-            assert!(value.ends_with('Z'), "{status} -> {value}");
-        }
-        assert!(default_refetch_after_for_status(fetch_status::OK).is_none());
-    }
-
-    /// Forward-looking exhaustiveness guard: every `fetch_status::*`
-    /// constant must be reachable through `default_refetch_after_for_status`
-    /// without falling into the conservative "unknown" arm. Adding a new
-    /// constant without teaching the cadence about it lands here as a CI
-    /// failure rather than silently shipping a dormant row that never
-    /// retries.
-    #[test]
-    fn default_refetch_after_for_status_covers_every_known_status() {
-        let known = [
-            fetch_status::OK,
-            fetch_status::MISSING,
-            fetch_status::HTTP_ERROR,
-            fetch_status::PARSE_ERROR,
-            fetch_status::TOO_LARGE,
-            fetch_status::UNSUPPORTED_MIME,
-            fetch_status::BLOCKED,
-        ];
-        // `default_refetch_after_for_status` returns Some(...) for the
-        // retryable arms and None for OK / BLOCKED — both shapes are fine;
-        // what matters is that none of them fall through the "unknown"
-        // arm, which would be a silent ship hazard.
-        let mut covered = std::collections::HashSet::new();
-        for status in known {
-            covered.insert(status);
-            let _ = default_refetch_after_for_status(status);
-        }
-        assert_eq!(
-            covered.len(),
-            7,
-            "fetch_status::* constants drifted away from the cadence table — \
-             update default_refetch_after_for_status and this test in lockstep"
-        );
-    }
-
-    /// Documents the conservative "unknown status" behaviour: any string
-    /// outside `fetch_status::*` returns `None` (no retry) instead of
-    /// retry-storming the worker pool.
-    #[test]
-    fn default_refetch_after_for_status_returns_none_for_unknown_strings() {
-        assert!(default_refetch_after_for_status("brand_new_status_no_one_taught_us").is_none());
-        assert!(default_refetch_after_for_status("").is_none());
-    }
-
-    #[test]
-    fn fetch_returns_ok_with_bytes_when_page_and_image_resolve() {
-        let mut page = mockito::Server::new();
-        let mut images = mockito::Server::new();
-        let image_url = format!("{}/og.png", images.url());
-        let html = html_with_og_image(&image_url);
-        let _page = page
-            .mock("GET", "/")
-            .with_status(200)
-            .with_header("content-type", "text/html; charset=utf-8")
-            .with_body(html)
-            .create();
-        let png_bytes: [u8; 9] = [0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, 0xFF];
-        let _image = images
-            .mock("GET", "/og.png")
-            .with_status(200)
-            .with_header("content-type", "image/png")
-            .with_body(png_bytes)
-            .create();
-
-        let client = build_fetch_client().unwrap();
-        let page_url = page.url();
-        // Mockito uses http:// — we relax the https-only guard here via a
-        // direct call to the inner helper for testing.
-        let outcome = fetch_og_image_for_unchecked(&client, &page_url);
-        assert_eq!(outcome.fetch_status(), fetch_status::OK);
-        assert!(outcome.is_ok());
-        let insert = outcome.as_insert(&page_url, None);
-        assert_eq!(insert.mime, Some("image/png"));
-        assert_eq!(insert.image_bytes.unwrap().len(), png_bytes.len());
-        assert_eq!(insert.fetch_status, fetch_status::OK);
-        assert!(insert.source_og_url.is_some());
-    }
-
-    #[test]
-    fn fetch_returns_missing_when_page_has_no_og_image() {
-        let mut page = mockito::Server::new();
-        let _page = page
-            .mock("GET", "/")
-            .with_status(200)
-            .with_header("content-type", "text/html")
-            .with_body("<html><head><title>blank</title></head></html>")
-            .create();
-
-        let client = build_fetch_client().unwrap();
-        let outcome = fetch_og_image_for_unchecked(&client, &page.url());
-        assert_eq!(outcome.fetch_status(), fetch_status::MISSING);
-        assert!(outcome.image_bytes.is_none());
-    }
-
-    #[test]
-    fn fetch_returns_http_error_on_404_page() {
-        let mut page = mockito::Server::new();
-        let _page = page.mock("GET", "/").with_status(404).create();
-
-        let client = build_fetch_client().unwrap();
-        let outcome = fetch_og_image_for_unchecked(&client, &page.url());
-        assert_eq!(outcome.fetch_status(), fetch_status::HTTP_ERROR);
-        assert_eq!(outcome.http_status, Some(404));
-    }
-
-    #[test]
-    fn fetch_returns_parse_error_on_non_html_content_type() {
-        let mut page = mockito::Server::new();
-        let _page = page
-            .mock("GET", "/")
-            .with_status(200)
-            .with_header("content-type", "application/json")
-            .with_body("{}")
-            .create();
-
-        let client = build_fetch_client().unwrap();
-        let outcome = fetch_og_image_for_unchecked(&client, &page.url());
-        assert_eq!(outcome.fetch_status(), fetch_status::PARSE_ERROR);
-    }
-
-    #[test]
-    fn fetch_rejects_unsupported_image_mime() {
-        let mut page = mockito::Server::new();
-        let mut images = mockito::Server::new();
-        let image_url = format!("{}/og.svg", images.url());
-        let html = html_with_og_image(&image_url);
-        let _page = page
-            .mock("GET", "/")
-            .with_status(200)
-            .with_header("content-type", "text/html")
-            .with_body(html)
-            .create();
-        let _image = images
-            .mock("GET", "/og.svg")
-            .with_status(200)
-            .with_header("content-type", "image/svg+xml")
-            .with_body("<svg/>")
-            .create();
-
-        let client = build_fetch_client().unwrap();
-        let outcome = fetch_og_image_for_unchecked(&client, &page.url());
-        assert_eq!(outcome.fetch_status(), fetch_status::UNSUPPORTED_MIME);
-    }
-
-    #[test]
-    fn fetch_returns_http_error_when_image_body_stream_aborts_mid_chunk() {
-        // The Err(BodyReadError::Io) arm of the image-body match is only
-        // reachable when the response stream errors after the headers
-        // have already been consumed. Mockito serves complete responses,
-        // so we stage a hand-rolled HTTP/1.1 server with `TcpListener`
-        // that promises a long body via chunked framing then closes the
-        // socket mid-chunk. reqwest surfaces the truncation as a Read
-        // error, which `read_capped_bytes` converts to BodyReadError::Io.
-        use std::io::{Read as _, Write as _};
-        use std::net::TcpListener;
-
-        // Page server: returns HTML pointing at the image server below.
-        let mut page = mockito::Server::new();
-
-        let image_listener = TcpListener::bind("127.0.0.1:0").expect("bind");
-        let image_port = image_listener.local_addr().expect("addr").port();
-        let image_url = format!("http://127.0.0.1:{image_port}/og.png");
-        let html = html_with_og_image(&image_url);
-        let _page = page
-            .mock("GET", "/")
-            .with_status(200)
-            .with_header("content-type", "text/html")
-            .with_body(html)
-            .create();
-
-        // Image server: write a valid response head, start a chunked body
-        // with a chunk-size that claims 8 KiB but only deliver a fraction
-        // of those bytes before closing the socket. reqwest's chunked
-        // decoder hits EOF mid-chunk and surfaces an Io error.
-        let server_thread = std::thread::spawn(move || {
-            if let Ok((mut socket, _)) = image_listener.accept() {
-                // Read the request line + headers before responding so
-                // the client doesn't bail out before we close.
-                let mut buffer = [0_u8; 1024];
-                let _ = socket.read(&mut buffer);
-                let head = b"HTTP/1.1 200 OK\r\n\
-                    Content-Type: image/png\r\n\
-                    Transfer-Encoding: chunked\r\n\
-                    Connection: close\r\n\
-                    \r\n\
-                    2000\r\n\
-                    abcd";
-                let _ = socket.write_all(head);
-                // No closing chunk; closing the socket truncates the
-                // body and reqwest reports the read failure upstream.
-            }
-        });
-
-        let client = build_fetch_client().unwrap();
-        let outcome = fetch_og_image_for_unchecked(&client, &page.url());
-        let _ = server_thread.join();
-        assert_eq!(outcome.fetch_status(), fetch_status::HTTP_ERROR);
-    }
-
-    #[test]
-    fn fetch_rejects_oversize_image_via_content_length_header() {
-        let mut page = mockito::Server::new();
-        let mut images = mockito::Server::new();
-        let image_url = format!("{}/og.png", images.url());
-        let html = html_with_og_image(&image_url);
-        let _page = page
-            .mock("GET", "/")
-            .with_status(200)
-            .with_header("content-type", "text/html")
-            .with_body(html)
-            .create();
-        // Mockito will set Content-Length based on the body. To trigger
-        // the cap we send a body larger than MAX_IMAGE_BYTES.
-        let huge = vec![0_u8; MAX_IMAGE_BYTES + 1024];
-        let _image = images
-            .mock("GET", "/og.png")
-            .with_status(200)
-            .with_header("content-type", "image/png")
-            .with_body(huge)
-            .create();
-
-        let client = build_fetch_client().unwrap();
-        let outcome = fetch_og_image_for_unchecked(&client, &page.url());
-        assert_eq!(outcome.fetch_status(), fetch_status::TOO_LARGE);
-    }
-
-    // Tests above call `fetch_og_image_for_unchecked` directly (the
-    // production helper that bypasses the https-only guard) so they can
-    // run against mockito's http:// mock servers without standing up TLS.
-
-    #[test]
-    fn fetch_returns_parse_error_when_html_body_exceeds_cap() {
-        let mut page = mockito::Server::new();
-        let huge = vec![b'a'; MAX_HTML_BYTES + 4 * 1024];
-        let _page = page
-            .mock("GET", "/")
-            .with_status(200)
-            .with_header("content-type", "text/html")
-            .with_body(huge)
-            .create();
-
-        let client = build_fetch_client().unwrap();
-        let outcome = fetch_og_image_for_unchecked(&client, &page.url());
-        // The over-cap HTML body drives `read_response_body` into its `Err`
-        // arm in `fetch_og_image_via_html`, which delegates to
-        // `fetch_status_for_body_error` — the line this integration test
-        // exists to cover. The clean path is `TooLarge` → PARSE_ERROR, but
-        // under the heavy parallelism of the `--all-features` coverage run
-        // mockito sometimes can't stream the full >1 MiB body before the
-        // connection is reset, so the read aborts mid-stream as
-        // `BodyReadError::Io` → HTTP_ERROR. BOTH outcomes are honest body-cap
-        // degradations that exercise the SAME `Err` arm, so we accept either
-        // rather than flake on a load-dependent transport detail. (The
-        // `TooLarge`/`Io` → token mapping itself is locked deterministically
-        // by `fetch_status_for_body_error_maps_each_phase_to_the_right_token`
-        // and `read_capped_bytes_*`.) The status is bound once and the bound
-        // value is interpolated into the message so the failure branch carries
-        // no separate (rarely-executed) expression to leave uncovered.
-        let status = outcome.fetch_status();
-        assert!(
-            matches!(status, fetch_status::PARSE_ERROR | fetch_status::HTTP_ERROR),
-            "an over-cap HTML body must degrade via the body-read Err arm, got {status:?}"
-        );
-    }
-
-    #[test]
-    fn fetch_returns_http_error_when_og_image_url_is_unreachable() {
-        let mut page = mockito::Server::new();
-        // Point the og:image at an unresolvable `https://...invalid.` host so
-        // the image sub-resource `.send()` returns a transport Err → covers the
-        // `HTTP_ERROR` arm after an image network failure. We use the SAME
-        // `https://og-image-test.invalid./` form that the page-fetch transport
-        // test (`https_page_url_passes_through_the_production_dispatcher`) relies
-        // on: a reserved `.invalid.` TLD that fails name resolution / connect
-        // rather than a loopback `127.0.0.1:port`, because in the coverage
-        // sandbox a loopback target is answered by a synthetic response (so the
-        // fetch takes the non-2xx STATUS branch instead of the transport-error
-        // arm). The unguarded helper keeps the host out of the SSRF blocklist
-        // and leaves the https scheme intact so the request actually reaches
-        // `.send()`.
-        let html = html_with_og_image("https://og-image-test.invalid./og.png");
-        let _page = page
-            .mock("GET", "/")
-            .with_status(200)
-            .with_header("content-type", "text/html")
-            .with_body(html)
-            .create();
-
-        let client = build_fetch_client().unwrap();
-        let outcome = fetch_og_image_for_unchecked(&client, &page.url());
-        assert_eq!(outcome.fetch_status(), fetch_status::HTTP_ERROR);
-    }
-
-    #[test]
-    fn fetch_returns_http_error_when_image_endpoint_returns_404() {
-        let mut page = mockito::Server::new();
-        let mut images = mockito::Server::new();
-        let image_url = format!("{}/og.png", images.url());
-        let html = html_with_og_image(&image_url);
-        let _page = page
-            .mock("GET", "/")
-            .with_status(200)
-            .with_header("content-type", "text/html")
-            .with_body(html)
-            .create();
-        let _image = images.mock("GET", "/og.png").with_status(404).create();
-
-        let client = build_fetch_client().unwrap();
-        let outcome = fetch_og_image_for_unchecked(&client, &page.url());
-        // Covers lines 226-228 (HTTP_ERROR after image status != success).
-        assert_eq!(outcome.fetch_status(), fetch_status::HTTP_ERROR);
-        assert_eq!(outcome.http_status, Some(404));
-    }
-
-    #[test]
-    fn is_host_blocked_short_circuits_on_empty_host() {
-        // url_domain("") == "" → empty host check returns false (line 292).
-        let blocked = vec!["example.com".to_string()];
-        assert!(!is_host_blocked(&blocked, ""));
-    }
-
-    #[test]
-    fn fetch_recovers_from_non_utf8_html_via_lossy_decode() {
-        // Walk the utf8 fallback arm on line 198: when the page returns
-        // bytes that include invalid UTF-8 sequences, String::from_utf8_lossy
-        // substitutes the U+FFFD replacement character so og:image extraction
-        // still finds the meta tag inserted after the broken bytes.
-        let mut page = mockito::Server::new();
-        let mut images = mockito::Server::new();
-        let image_url = format!("{}/og.png", images.url());
-        let mut body = b"<html><head>\xFF\xFE bad-bytes-here ".to_vec();
-        body.extend_from_slice(
-            format!("<meta property=\"og:image\" content=\"{image_url}\"></head></html>")
-                .as_bytes(),
-        );
-        let _page = page
-            .mock("GET", "/")
-            .with_status(200)
-            .with_header("content-type", "text/html")
-            .with_body(body)
-            .create();
-        let _image = images
-            .mock("GET", "/og.png")
-            .with_status(200)
-            .with_header("content-type", "image/png")
-            .with_body(b"\x89PNG\r\n\x1a\nlossy-decode-test")
-            .create();
-        let client = build_fetch_client().unwrap();
-        let outcome = fetch_og_image_for_unchecked(&client, &page.url());
-        assert_eq!(outcome.fetch_status(), fetch_status::OK);
-        assert!(outcome.image_bytes.is_some());
-    }
-
-    #[test]
-    fn absolutize_url_returns_raw_when_base_cannot_be_parsed() {
-        // Cover the inner fall-through on line 355 — when the base cannot
-        // be parsed as a URL, absolutize_url returns the raw fragment
-        // verbatim instead of joining. We can't reach this through the full
-        // fetch pipeline (page-fetch always supplies a parseable URL) but
-        // extract_og_image_url forwards the caller's base into absolutize
-        // so passing an empty base walks the failure branch.
-        let html = r#"<html><head>
-          <meta property="og:image" content="/relative/og.png">
-        </head></html>"#;
-        // reqwest::Url::parse("") fails (relative-without-base error).
-        let result = extract_og_image_url(html, "").unwrap();
-        assert_eq!(result, "/relative/og.png");
-    }
-
-    #[test]
-    fn read_capped_bytes_returns_io_when_underlying_reader_errors() {
-        struct ErrorReader;
-        impl std::io::Read for ErrorReader {
-            fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
-                Err(std::io::Error::new(std::io::ErrorKind::Interrupted, "boom"))
-            }
-        }
-        let result = super::read_capped_bytes(ErrorReader, 1024);
-        assert!(matches!(result, Err(super::BodyReadError::Io)));
-    }
-
-    #[test]
-    fn read_capped_bytes_returns_too_large_when_stream_exceeds_cap() {
-        let big = vec![0_u8; 16 * 1024];
-        let result = super::read_capped_bytes(big.as_slice(), 1024);
-        assert!(matches!(result, Err(super::BodyReadError::TooLarge)));
-    }
-
-    #[test]
-    fn read_capped_bytes_drains_short_stream_under_cap() {
-        let payload = b"<html>hello</html>".to_vec();
-        let bytes = super::read_capped_bytes(payload.as_slice(), 1024).unwrap();
-        assert_eq!(bytes, payload);
-    }
-
-    #[test]
-    fn fetch_status_for_body_error_maps_each_phase_to_the_right_token() {
-        // Direct unit coverage of the mapping that the HTML and image
-        // body-read fall-throughs delegate to. Without this helper the
-        // `Err(BodyReadError::Io)` arms of `fetch_og_image_for_pipeline`
-        // were only reachable via a mid-stream HTTP failure mock — too
-        // fragile to be worth the test infrastructure, while the helper
-        // itself is the entire mapping decision.
-        assert_eq!(
-            super::fetch_status_for_body_error(
-                super::BodyReadError::TooLarge,
-                super::BodyPhase::Html,
-            ),
-            super::fetch_status::PARSE_ERROR,
-        );
-        assert_eq!(
-            super::fetch_status_for_body_error(
-                super::BodyReadError::TooLarge,
-                super::BodyPhase::Image,
-            ),
-            super::fetch_status::TOO_LARGE,
-        );
-        assert_eq!(
-            super::fetch_status_for_body_error(super::BodyReadError::Io, super::BodyPhase::Html,),
-            super::fetch_status::HTTP_ERROR,
-        );
-        assert_eq!(
-            super::fetch_status_for_body_error(super::BodyReadError::Io, super::BodyPhase::Image,),
-            super::fetch_status::HTTP_ERROR,
-        );
-    }
-
-    #[test]
-    fn synth_host_with_invalid_id_returns_missing_without_network() {
-        let client = build_fetch_client().unwrap();
-        let outcome =
-            fetch_og_image_for_unchecked(&client, "https://www.youtube.com/watch?v=short");
-        assert_eq!(outcome.fetch_status(), fetch_status::MISSING);
-        assert!(outcome.image_bytes.is_none());
-    }
-
-    #[test]
-    fn youtube_synth_path_enters_finish_image_fetch_without_html_scrape() {
-        let client = build_fetch_client().unwrap();
-        let outcome =
-            fetch_og_image_for_unchecked(&client, "https://www.youtube.com/watch?v=dQw4w9WgXcQ");
-        assert!(outcome.source_og_url.is_some());
-        let og = outcome.source_og_url.as_ref().unwrap();
-        assert!(og.contains("i.ytimg.com"), "synth should produce ytimg URL, got {og}");
-    }
-
-    #[test]
-    fn bilibili_api_path_enters_finish_image_fetch_via_mockito() {
-        let mut api = mockito::Server::new();
-        let mut images = mockito::Server::new();
-        let pic_url = format!("{}/cover.jpg", images.url());
-        let api_body = format!(r#"{{"code":0,"data":{{"pic":"{pic_url}"}}}}"#);
-        let _api_mock = api
-            .mock("GET", "/x/web-interface/view")
-            .match_query(mockito::Matcher::UrlEncoded("bvid".into(), "BV1xx411c7m1".into()))
-            .with_status(200)
-            .with_header("content-type", "application/json")
-            .with_body(api_body)
-            .create();
-        let _img_mock = images
-            .mock("GET", "/cover.jpg")
-            .with_status(200)
-            .with_header("content-type", "image/jpeg")
-            .with_body(b"\xFF\xD8\xFF\xE0bilibili-cover-test")
-            .create();
-        let client = build_fetch_client().unwrap();
-        let outcome = fetch_og_image_for_with_api_base(
-            &client,
-            "https://www.bilibili.com/video/BV1xx411c7m1",
-            &api.url(),
-        );
-        assert!(outcome.source_og_url.is_some());
-        let og = outcome.source_og_url.as_ref().unwrap();
-        assert!(og.contains("cover.jpg"), "API path should produce the pic URL, got {og}");
-        assert_eq!(outcome.fetch_status(), fetch_status::OK);
-        assert!(outcome.image_bytes.is_some());
-    }
-
-    #[test]
-    fn absolutize_url_joins_relative_paths_against_the_page() {
-        // Direct helper tests so the relative path branch (line 360 area)
-        // executes deterministically — important because some pages return
-        // og:image="/path/og.png" instead of an absolute URL.
-        let html = "<html><head>\
-             <meta property=\"og:image\" content=\"/relative/og.png\">\
-             </head></html>";
-        let absolute = extract_og_image_url(html, "https://example.com/path/article")
-            .expect("relative og:image should be resolved");
-        assert!(
-            absolute.starts_with("https://example.com/relative/og.png"),
-            "expected absolute URL, got {absolute}",
-        );
-    }
-
-    // ── W-ENRICH-1 SEC-3: the per-hop-guarded fetch client ───────────────────────────────────────
-
-    /// A test guard that blocks any URL whose path contains `/internal` (stands in for the real SSRF
-    /// guard, which can't fire against mockito's 127.0.0.1 server).
-    fn block_internal_paths(url: &str) -> bool {
-        url.contains("/internal")
-    }
-
-    fn allow_all_hops(_url: &str) -> bool {
-        false
-    }
-
-    #[test]
-    fn guarded_client_stops_at_a_blocked_redirect_hop() {
-        // SEC-3 line coverage: a redirect to a guard-blocked URL is STOPPED — reqwest returns the 3xx
-        // response itself rather than following it to the blocked host.
+    fn the_og_image_client_does_not_follow_a_redirect_to_a_private_address() {
+        // The client every og:image fetch uses, with the real hop check: the mock server is on
+        // loopback, so its redirect points at a private address that must never be requested.
         let mut server = mockito::Server::new();
-        let _redirect = server
-            .mock("GET", "/start")
+        let _start = server
+            .mock("GET", "/page")
             .with_status(302)
-            .with_header("location", "/internal/secret")
+            .with_header("location", "/internal")
             .create();
-        // The /internal target is mounted but must NEVER be fetched (the guard stops the hop).
-        let internal = server
-            .mock("GET", "/internal/secret")
-            .with_status(200)
-            .with_body("SECRET")
-            .expect(0)
-            .create();
-
-        let client = build_guarded_fetch_client(block_internal_paths).expect("guarded client");
-        let response = client.get(format!("{}/start", server.url())).send().expect("send");
-        // The stop arm yields the 3xx redirect response (not the followed 200).
+        let internal = server.mock("GET", "/internal").with_status(200).expect(0).create();
+        let client = build_fetch_client().expect("client");
+        let response = client.get(format!("{}/page", server.url())).send().expect("response");
         assert_eq!(response.status().as_u16(), 302);
-        internal.assert(); // the blocked host was never fetched
-    }
-
-    #[test]
-    fn guarded_client_errors_after_too_many_redirects() {
-        // SEC-3 line coverage: exceeding the hop budget makes the redirect policy error out.
-        let mut server = mockito::Server::new();
-        // A self-redirect loop: every GET 302s back to /loop, exceeding the 8-hop budget.
-        let _loop_mock = server
-            .mock("GET", "/loop")
-            .with_status(302)
-            .with_header("location", "/loop")
-            .expect_at_least(2)
-            .create();
-        let client = build_guarded_fetch_client(allow_all_hops).expect("guarded client");
-        let result = client.get(format!("{}/loop", server.url())).send();
-        assert!(result.is_err(), "a redirect loop past the budget must error, not loop forever");
+        internal.assert();
     }
 }

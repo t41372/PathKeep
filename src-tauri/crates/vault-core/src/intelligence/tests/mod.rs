@@ -15,11 +15,23 @@
 //!
 //! ## Performance notes
 //! Fixtures stay small while still covering batch and fallback boundaries; the
-//! large-data contract is protected by batch-size assertions and equivalence
-//! checks rather than by allocating huge in-memory test datasets.
+//! large-data contract is protected by equivalence checks across batch boundaries,
+//! read-plan guards and the ignored `family_scale` benchmark rather than by
+//! allocating huge in-memory test datasets.
 
+mod append_aggregates;
+mod append_plans;
 mod batch_equivalence;
+mod build_needed;
+mod family_scale;
 mod fixtures;
+mod frequent_searches;
+mod reclassify;
 mod schema_overview;
+mod search_families;
+mod session_paths;
+mod site_flows;
 mod stage_rebuild;
 mod structural_incremental;
+mod top_sites_profiles;
+mod zone_change;

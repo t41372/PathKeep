@@ -1,0 +1,336 @@
+//! "Delete all data": the fixed list of what PathKeep removes, a preview of it, and the removal.
+//!
+//! ## Responsibilities
+//! - Name every file and folder under the app root that holds the user's history or something
+//!   derived from it.
+//! - Preview them with their sizes and the archive's visit count.
+//! - Remove them under the archive write lock, with an on-disk marker so a wipe cut short by a
+//!   crash or power loss finishes on the next launch instead of leaving half an archive behind.
+//!
+//! ## Not responsible for
+//! - The confirmation word, keychain entries, the OS backup task, stopping background workers and
+//!   the in-memory session key. `vault-worker` owns those and passes the platform steps in as
+//!   closures.
+//! - The user's browser profiles. Nothing here reads a browser path: every target is a fixed path
+//!   under [`ProjectPaths::app_root`].
+//!
+//! ## What is removed
+//! - Everything in `archive/` except the write-lock and owner-lock sentinels: the archive
+//!   and source-evidence databases with their WAL/SHM files, import backstops (`*.bak-*`) and rekey/restore/import
+//!   markers.
+//! - `derived/` (search, intelligence, AI vectors, agent conversations), `sidecars/`,
+//!   `raw-snapshots/`, `staging/`, `quarantine/`, `audit/` (run ledger and manifests), `exports/`,
+//!   `models/` (downloaded embedding models), `integrations/` and `schedule/` (scheduled-run logs
+//!   and attempt history).
+//! - Import backstops in the app root, the App Lock state and passcode files, the Stronghold vault
+//!   and its salt, and `config.json`.
+//! - Outside the app root, through the caller's closures: the archive key and AI provider keys in
+//!   the keychain, and an installed automatic backup (LaunchAgent or Task Scheduler task).
+//!
+//! ## What stays, and why
+//! - `logs/` and `diagnostics/`. The log plugin keeps `rust.log` open, and if a wipe fails the logs
+//!   are the only record of why. They hold no visit rows.
+//! - `audit/scheduler/remove-<time>.json`, when an automatic backup was removed. The scheduler
+//!   writes this record of the removal after `audit/` is gone; it names the task, nothing else.
+//! - `archive/.pk-archive-write.lock` and `archive/.pk-owner.lock`. Deleting either inode
+//!   would let a second process lock a new file while the first still holds the old one.
+//!
+//! ## Order
+//! Gate and write lock, marker, `config.json`, `quiesce`, the files, the keychain, the automatic
+//! backup, the marker. The task goes after the files so that a removal that fails cannot keep any
+//! history on disk. A failed removal does not fail the wipe: the data is gone, the app is not
+//! initialized, and the [`WipeReport`] says what is still installed so the UI can tell the user.
+//! The marker is removed anyway; keeping it would rerun the whole wipe at every launch and before
+//! every onboarding, and a task the OS will not let PathKeep remove would block setup for good.
+//!
+//! ## Ways this can go wrong, and what guards each
+//! 1. A browser profile gets touched. Targets come only from `ProjectPaths`; the test runs a real
+//!    backup from a fixture profile and checks those files are byte-identical afterwards.
+//! 2. A backup, import or rekey writes while files are being deleted. The wipe holds the
+//!    in-process gate and the cross-process write lock for its whole run, so a scheduled backup
+//!    that starts meanwhile defers and an in-flight one finishes first.
+//! 3. Background workers keep writing and recreate an empty archive. `config.json` goes first, so
+//!    every worker loop stops at its next check, and `quiesce` waits for running workers before
+//!    anything else is deleted.
+//! 4. A crash midway leaves part of the archive, and onboarding reopens it. The marker is written
+//!    before anything is deleted and removed last; launch and archive initialization finish an
+//!    interrupted wipe first.
+//! 5. A symlinked folder (say `models/` on another disk) is followed and its target emptied.
+//!    Symlinks are unlinked, never followed.
+//! 6. A second wipe fails because everything is already gone. Missing targets are skipped.
+//! 7. Stale in-process caches make the next archive in the same process skip its bootstrap. Each
+//!    cache already re-checks that its file exists (or has its schema table) before trusting
+//!    itself; the test builds, backs up and searches a new archive in the same process.
+//! 8. The automatic backup survives and fails every run with "archive has not been initialized".
+//!    Its plan is taken before `config.json` goes and saved in the marker, so an interrupted wipe
+//!    removes it on the next launch too; `vault-worker` tests install a sandboxed task and check it
+//!    is gone.
+//!
+//! 9. Deleting the owner lock lets a second app acquire a different inode. The deletion
+//!    list retains it; desktop `owner_lock_wipe` proves the file and OS lock survive.
+//!
+//! ## Performance notes
+//! - The preview takes the visit count from the last backup's cached totals; it only counts rows
+//!   when no successful run has cached them. Folder sizes are a metadata walk.
+
+use super::write_lock::{ARCHIVE_WRITE_LOCK_FILE, ArchiveOpGate, ArchiveWriteLock};
+use crate::{
+    config::ProjectPaths,
+    durable_io::{atomic_durable_write, remove_file_durably},
+    models::{AppConfig, SchedulePlan, WipeItem, WipePreview, WipeReport},
+};
+use anyhow::{Context, Result};
+use serde::{Deserialize, Serialize};
+use std::{
+    fs, io,
+    path::{Path, PathBuf},
+};
+
+/// Marker file in the app root that exists exactly while a wipe is unfinished.
+const WIPE_MARKER_FILE: &str = ".pk-wipe-in-progress.json";
+
+/// What a wipe clears outside the app root, saved in the marker because `config.json` (where the
+/// provider list and the schedule settings live) is the first thing the wipe deletes.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WipeOutsideState {
+    /// Every configured AI provider id, LLM and embedding, whose API key may be in the keychain.
+    pub provider_ids: Vec<String>,
+    /// The installed automatic backup to remove, planned while the config was still there.
+    #[serde(default)]
+    pub schedule: Option<SchedulePlan>,
+}
+
+impl WipeOutsideState {
+    /// Collects the AI provider ids from `config`; `schedule` is the installed task, if any.
+    pub fn from_config(config: &AppConfig, schedule: Option<SchedulePlan>) -> Self {
+        let provider_ids = config
+            .ai
+            .llm_providers
+            .iter()
+            .chain(&config.ai.embedding_providers)
+            .map(|provider| provider.id.clone())
+            .collect();
+        Self { provider_ids, schedule }
+    }
+}
+
+/// Lists what "Delete all data" would remove, with sizes and the visible visit count.
+///
+/// `clears_keychain`, `removes_schedule` and `schedule_items` are left empty; the caller fills them
+/// from the platform keychain and scheduler.
+pub fn preview_data_wipe(paths: &ProjectPaths) -> Result<WipePreview> {
+    // Read from the open archive's kept totals. Without an open archive (locked, or
+    // not created yet) there is nothing PathKeep can count, and the old-format files
+    // a conversion leaves behind are never opened here.
+    let visit_count = if let Some(store) = crate::vault::live::store(&paths.app_root) {
+        store.read(vault_store::Db::Archive, |s| {
+            s.query_one("SELECT value FROM archive_totals WHERE name='visits'", (), |r| {
+                Ok(r.get(0)?)
+            })
+        })?
+    } else {
+        0
+    };
+    let items: Vec<WipeItem> = wipe_targets(paths)?
+        .into_iter()
+        .map(|path| WipeItem { bytes: path_size(&path), path: path.display().to_string() })
+        .collect();
+    Ok(WipePreview {
+        total_bytes: items.iter().map(|item| item.bytes).sum(),
+        items,
+        visit_count,
+        ..WipePreview::default()
+    })
+}
+
+/// Deletes everything [`preview_data_wipe`] lists, leaving PathKeep not initialized.
+///
+/// `quiesce` runs after `config.json` is gone and before anything else is deleted; it should stop
+/// background work. `clear_secrets` runs after the files are gone, then `remove_schedule` when
+/// `outside` names an installed task. All run under the write lock; see the module docs for the
+/// order and for why a failed schedule removal is reported instead of failing the wipe.
+pub fn wipe_all_data(
+    paths: &ProjectPaths,
+    outside: &WipeOutsideState,
+    quiesce: impl FnOnce() -> Result<()>,
+    clear_secrets: impl FnOnce(&WipeOutsideState) -> Result<()>,
+    remove_schedule: impl FnOnce(&SchedulePlan) -> Result<()>,
+) -> Result<WipeReport> {
+    let _gate = ArchiveOpGate::acquire(paths);
+    let _write_lock =
+        ArchiveWriteLock::acquire(paths).context("waiting for other archive work to finish")?;
+    fs::create_dir_all(&paths.app_root)
+        .with_context(|| format!("creating {}", paths.app_root.display()))?;
+    let marker = serde_json::to_vec(outside).context("serializing the wipe marker")?;
+    atomic_durable_write(&wipe_marker_path(paths), &marker).context("writing the wipe marker")?;
+    run_wipe(paths, outside, quiesce, clear_secrets, remove_schedule)
+}
+
+/// Asks running AI and intelligence queue jobs to stop at their next checkpoint.
+///
+/// Called before a wipe with the archive still in place. A long rebuild that kept going could
+/// otherwise open fresh connections after the wipe and write the old archive's derived rows into
+/// whatever archive the user creates next. Jobs only run in a process with the archive open.
+pub fn request_running_jobs_stop(paths: &ProjectPaths) -> Result<()> {
+    let Some(store) = crate::vault::live::store(&paths.app_root) else { return Ok(()) };
+    store
+        .write(vault_store::Db::Intelligence, vault_store::Priority::Interactive, |s| {
+            s.execute("UPDATE ai_jobs SET stop_requested=1 WHERE state='running'", ())?;
+            s.execute("UPDATE intelligence_jobs SET stop_requested=1 WHERE state='running'", ())?;
+            Ok(())
+        })
+        .context("asking running jobs to stop")
+}
+
+/// True while a wipe has started but not finished.
+pub fn data_wipe_interrupted(paths: &ProjectPaths) -> bool {
+    wipe_marker_path(paths).exists()
+}
+
+/// Finishes a wipe that a crash or failure cut short. `None` when there was none.
+///
+/// The user already confirmed it, so this runs without asking again. An unreadable marker still
+/// finishes the file deletion; only the provider keys and the task it would have named are left.
+pub fn finish_interrupted_data_wipe(
+    paths: &ProjectPaths,
+    quiesce: impl FnOnce() -> Result<()>,
+    clear_secrets: impl FnOnce(&WipeOutsideState) -> Result<()>,
+    remove_schedule: impl FnOnce(&SchedulePlan) -> Result<()>,
+) -> Result<Option<WipeReport>> {
+    let marker_path = wipe_marker_path(paths);
+    if !marker_path.exists() {
+        return Ok(None);
+    }
+    let _gate = ArchiveOpGate::acquire(paths);
+    let _write_lock =
+        ArchiveWriteLock::acquire(paths).context("waiting for other archive work to finish")?;
+    let outside = fs::read(&marker_path)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<WipeOutsideState>(&bytes).ok())
+        .unwrap_or_default();
+    run_wipe(paths, &outside, quiesce, clear_secrets, remove_schedule).map(Some)
+}
+
+/// The deletion itself. Callers hold the gate and the write lock and have written the marker.
+fn run_wipe(
+    paths: &ProjectPaths,
+    outside: &WipeOutsideState,
+    quiesce: impl FnOnce() -> Result<()>,
+    clear_secrets: impl FnOnce(&WipeOutsideState) -> Result<()>,
+    remove_schedule: impl FnOnce(&SchedulePlan) -> Result<()>,
+) -> Result<WipeReport> {
+    remove_file_durably(&paths.config_path).context("removing the configuration")?;
+    quiesce()?;
+
+    // Keep going past a failure so one locked file does not leave everything else behind; the
+    // marker stays, and the next launch retries what is left.
+    let failures: Vec<String> = wipe_targets(paths)?
+        .iter()
+        .filter_map(|target| {
+            remove_path(target).err().map(|error| format!("{}: {error}", target.display()))
+        })
+        .collect();
+    if !failures.is_empty() {
+        anyhow::bail!("could not remove {}", failures.join("; "));
+    }
+
+    clear_secrets(outside)?;
+
+    let report = match &outside.schedule {
+        None => WipeReport::default(),
+        Some(plan) => match remove_schedule(plan) {
+            Ok(()) => WipeReport { schedule_removed: true, schedule_error: None },
+            Err(error) => {
+                WipeReport { schedule_removed: false, schedule_error: Some(format!("{error:#}")) }
+            }
+        },
+    };
+    remove_file_durably(&wipe_marker_path(paths)).context("removing the wipe marker")?;
+    Ok(report)
+}
+
+/// Every existing path the wipe removes. See the module docs for what is left alone.
+fn wipe_targets(paths: &ProjectPaths) -> Result<Vec<PathBuf>> {
+    let mut targets = Vec::new();
+
+    let archive_dir = paths.archive_db.parent().context("archive database path has no parent")?;
+    targets.extend(entries_of(archive_dir)?.into_iter().filter(|path| {
+        path.file_name()
+            .is_none_or(|name| name != ARCHIVE_WRITE_LOCK_FILE && name != ".pk-owner.lock")
+    }));
+
+    targets.extend([
+        paths.derived_dir.clone(),
+        paths.sidecars_dir.clone(),
+        paths.raw_snapshots_dir.clone(),
+        paths.staging_dir.clone(),
+        paths.quarantine_dir.clone(),
+        paths.audit_repo_path.clone(),
+        paths.exports_dir.clone(),
+        paths.models_dir.clone(),
+        paths.app_root.join("integrations"),
+        paths.schedule_dir.clone(),
+        paths.app_root.join("app-lock-state.json"),
+        paths.app_root.join("app-lock-passcode.json"),
+        paths.stronghold_path.clone(),
+        paths.stronghold_salt_path.clone(),
+        paths.config_path.clone(),
+    ]);
+
+    // Whole-app imports keep the replaced folders beside the originals as `<name>.bak-<time>`.
+    targets.extend(entries_of(&paths.app_root)?.into_iter().filter(|path| {
+        path.file_name().is_some_and(|name| name.to_string_lossy().contains(".bak-"))
+    }));
+
+    targets.retain(|path| fs::symlink_metadata(path).is_ok());
+    Ok(targets)
+}
+
+fn entries_of(dir: &Path) -> Result<Vec<PathBuf>> {
+    match fs::read_dir(dir) {
+        Ok(entries) => entries
+            .map(|entry| entry.map(|entry| entry.path()))
+            .collect::<io::Result<Vec<_>>>()
+            .with_context(|| format!("listing {}", dir.display())),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(Vec::new()),
+        Err(error) => Err(error).with_context(|| format!("listing {}", dir.display())),
+    }
+}
+
+/// Removes a file, folder or symlink. A symlink is unlinked; its target is never touched.
+fn remove_path(path: &Path) -> io::Result<()> {
+    let result = match fs::symlink_metadata(path) {
+        Ok(meta) if meta.is_dir() => fs::remove_dir_all(path),
+        // Windows keeps directory symlinks as directories, which `remove_file` refuses.
+        Ok(meta) if meta.file_type().is_symlink() => {
+            fs::remove_file(path).or_else(|_| fs::remove_dir(path))
+        }
+        Ok(_) => fs::remove_file(path),
+        Err(error) => Err(error),
+    };
+    match result {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        other => other,
+    }
+}
+
+/// Bytes on disk under `path`, without following symlinks.
+fn path_size(path: &Path) -> u64 {
+    let Ok(meta) = fs::symlink_metadata(path) else {
+        return 0;
+    };
+    if !meta.is_dir() {
+        return if meta.file_type().is_symlink() { 0 } else { meta.len() };
+    }
+    fs::read_dir(path)
+        .map(|entries| entries.flatten().map(|entry| path_size(&entry.path())).sum())
+        .unwrap_or(0)
+}
+
+fn wipe_marker_path(paths: &ProjectPaths) -> PathBuf {
+    paths.app_root.join(WIPE_MARKER_FILE)
+}
+
+#[cfg(test)]
+mod tests;

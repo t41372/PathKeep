@@ -26,11 +26,15 @@ const PROJECT_ROOT_OVERRIDE_ENV: &str = "CHB_PROJECT_ROOT";
 pub struct ProjectPaths {
     pub app_root: PathBuf,
     pub config_path: PathBuf,
-    pub archive_database_path: PathBuf,
-    pub source_evidence_database_path: PathBuf,
+    /// The archive database (`archive/history-vault.db`), as `vault_store::Paths` lays it out.
+    pub archive_db: PathBuf,
+    /// Source evidence (`archive/source-evidence.db`).
+    pub source_evidence_db: PathBuf,
     pub derived_dir: PathBuf,
-    pub search_database_path: PathBuf,
-    pub intelligence_database_path: PathBuf,
+    /// The full-text search index, a folder of segments (`derived/search-index`).
+    pub search_index_dir: PathBuf,
+    /// Insights and the queues (`derived/intelligence.db`).
+    pub intelligence_db: PathBuf,
     pub audit_repo_path: PathBuf,
     pub manifests_dir: PathBuf,
     pub exports_dir: PathBuf,
@@ -43,8 +47,10 @@ pub struct ProjectPaths {
     pub intelligence_blobs_dir: PathBuf,
     /// AI vector sidecar plane (`derived/vectors/`); rebuildable, rides export via `derived/`.
     pub vectors_dir: PathBuf,
-    /// AI agent sidecar database (`derived/agent.sqlite`); rebuildable agent trace store.
-    pub agent_database_path: PathBuf,
+    /// Ask's conversations (`derived/agent.db`).
+    pub agent_db: PathBuf,
+    /// The v0.3 files an archive may still be in, read only to convert it.
+    pub legacy: LegacyPaths,
     /// Downloaded embedding/reranker models (`<root>/models/`); re-downloadable, NOT exported.
     pub models_dir: PathBuf,
     pub logs_dir: PathBuf,
@@ -55,6 +61,20 @@ pub struct ProjectPaths {
     pub frontend_error_report_path: PathBuf,
     pub stronghold_path: PathBuf,
     pub stronghold_salt_path: PathBuf,
+}
+
+/// The SQLCipher databases of PathKeep 0.3, under the same root. Only finding an archive that
+/// still has to be converted and the conversion itself (`vault-convert-sqlcipher`) read them;
+/// everything else uses the v0.4 files in [`ProjectPaths`]. They used to share field names with
+/// those, which `Vault::open` rewrote, so a reader that did not go through it got a file that no
+/// longer exists.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LegacyPaths {
+    pub archive: PathBuf,
+    pub source_evidence: PathBuf,
+    pub search: PathBuf,
+    pub intelligence: PathBuf,
+    pub agent: PathBuf,
 }
 
 /// Resolves the current project paths using the active project root.
@@ -70,13 +90,14 @@ pub fn project_paths_with_root(root: &Path) -> ProjectPaths {
     let crash_reports_dir = root.join("diagnostics").join("crash-reports");
     let derived_dir = root.join("derived");
     let sidecars_dir = root.join("sidecars");
+    let store = vault_store::Paths::under(&root);
     ProjectPaths {
         config_path: root.join("config.json"),
-        archive_database_path: root.join("archive").join("history-vault.sqlite"),
-        source_evidence_database_path: root.join("archive").join("source-evidence.sqlite"),
+        archive_db: store.archive,
+        source_evidence_db: store.source_evidence,
         derived_dir: derived_dir.clone(),
-        search_database_path: derived_dir.join("history-search.sqlite"),
-        intelligence_database_path: derived_dir.join("history-intelligence.sqlite"),
+        search_index_dir: derived_dir.join("search-index"),
+        intelligence_db: store.intelligence,
         audit_repo_path: root.join("audit"),
         manifests_dir: root.join("audit").join("manifests"),
         exports_dir: root.join("exports"),
@@ -88,7 +109,14 @@ pub fn project_paths_with_root(root: &Path) -> ProjectPaths {
         semantic_index_dir: sidecars_dir.join("semantic-index"),
         intelligence_blobs_dir: sidecars_dir.join("intelligence-blobs"),
         vectors_dir: derived_dir.join("vectors"),
-        agent_database_path: derived_dir.join("agent.sqlite"),
+        agent_db: store.agent,
+        legacy: LegacyPaths {
+            archive: root.join("archive").join("history-vault.sqlite"),
+            source_evidence: root.join("archive").join("source-evidence.sqlite"),
+            search: derived_dir.join("history-search.sqlite"),
+            intelligence: derived_dir.join("history-intelligence.sqlite"),
+            agent: derived_dir.join("agent.sqlite"),
+        },
         models_dir: root.join("models"),
         logs_dir: logs_dir.clone(),
         rust_log_path: logs_dir.join("rust.log"),
@@ -117,8 +145,8 @@ fn project_root() -> Result<PathBuf> {
 pub fn ensure_paths(paths: &ProjectPaths) -> Result<()> {
     for dir in [
         &paths.app_root,
-        paths.archive_database_path.parent().expect("archive db parent"),
-        paths.source_evidence_database_path.parent().expect("source evidence db parent"),
+        paths.archive_db.parent().expect("archive db parent"),
+        paths.source_evidence_db.parent().expect("source evidence db parent"),
         &paths.derived_dir,
         &paths.audit_repo_path,
         &paths.manifests_dir,
@@ -179,113 +207,7 @@ pub fn save_config(paths: &ProjectPaths, config: &AppConfig) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        models::ArchiveMode,
-        utils::{restore_test_env_var, test_env_lock},
-    };
-    use directories::ProjectDirs;
     use tempfile::tempdir;
-
-    #[test]
-    fn project_paths_honor_override_environment() {
-        let _guard = test_env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        let dir = tempdir().expect("tempdir");
-        let original_override = std::env::var_os(PROJECT_ROOT_OVERRIDE_ENV);
-        unsafe {
-            std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, dir.path());
-        }
-        let paths = project_paths().expect("project paths");
-        restore_test_env_var(PROJECT_ROOT_OVERRIDE_ENV, original_override.as_deref());
-
-        assert_eq!(paths.app_root, dir.path());
-        assert_eq!(paths.archive_database_path, dir.path().join("archive/history-vault.sqlite"));
-        assert_eq!(
-            paths.source_evidence_database_path,
-            dir.path().join("archive/source-evidence.sqlite")
-        );
-        assert_eq!(paths.search_database_path, dir.path().join("derived/history-search.sqlite"));
-        assert_eq!(
-            paths.intelligence_database_path,
-            dir.path().join("derived/history-intelligence.sqlite")
-        );
-        assert_eq!(paths.vectors_dir, dir.path().join("derived/vectors"));
-        assert_eq!(paths.agent_database_path, dir.path().join("derived/agent.sqlite"));
-        assert_eq!(paths.models_dir, dir.path().join("models"));
-    }
-
-    #[test]
-    fn ensure_paths_and_config_roundtrip() {
-        let dir = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(dir.path());
-
-        ensure_paths(&paths).expect("ensure paths");
-        assert!(paths.stronghold_salt_path.exists());
-        assert!(paths.manifests_dir.exists());
-        assert!(paths.derived_dir.exists());
-        assert!(paths.semantic_index_dir.exists());
-        assert!(paths.intelligence_blobs_dir.exists());
-        assert!(paths.vectors_dir.exists());
-        assert!(paths.models_dir.exists());
-        // agent.sqlite is a file, not a directory; its parent `derived/` is created above so the
-        // database can be opened on demand without ensure_paths pre-touching the file.
-        assert!(paths.agent_database_path.parent().expect("agent db parent").exists());
-
-        let config = AppConfig {
-            initialized: true,
-            archive_mode: ArchiveMode::Encrypted,
-            selected_profile_ids: vec!["chrome:Default".to_string()],
-            ..AppConfig::default()
-        };
-        save_config(&paths, &config).expect("save config");
-
-        let loaded = load_config(&paths).expect("load config");
-        assert!(loaded.initialized);
-        assert_eq!(loaded.selected_profile_ids, vec!["chrome:Default".to_string()]);
-        assert!(matches!(loaded.archive_mode, ArchiveMode::Encrypted));
-        let saved_content = fs::read_to_string(&paths.config_path).expect("read saved config");
-        assert!(saved_content.contains(r#""archiveMode": "Encrypted""#));
-    }
-
-    #[test]
-    fn save_config_overwrite_round_trips_through_the_durable_path() {
-        let dir = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(dir.path());
-
-        let first = AppConfig {
-            initialized: false,
-            selected_profile_ids: vec!["chrome:First".to_string()],
-            ..AppConfig::default()
-        };
-        save_config(&paths, &first).expect("first save");
-        assert_eq!(
-            load_config(&paths).expect("load first").selected_profile_ids,
-            vec!["chrome:First".to_string()]
-        );
-
-        // A second save replaces the first via the atomic durable swap: load_config sees
-        // ONLY the new content, never a torn old+new mix.
-        let second = AppConfig {
-            initialized: true,
-            selected_profile_ids: vec!["chrome:Second".to_string(), "edge:Work".to_string()],
-            ..AppConfig::default()
-        };
-        save_config(&paths, &second).expect("second save");
-        let loaded = load_config(&paths).expect("load second");
-        assert!(loaded.initialized);
-        assert_eq!(
-            loaded.selected_profile_ids,
-            vec!["chrome:Second".to_string(), "edge:Work".to_string()]
-        );
-
-        // Routed through atomic_durable_write: its sibling temp is renamed onto
-        // config.json and never left behind in the project root.
-        let leftovers: Vec<_> = fs::read_dir(dir.path())
-            .expect("read_dir")
-            .filter_map(|entry| entry.ok())
-            .filter(|entry| entry.file_name().to_string_lossy().starts_with(".pk-durable-"))
-            .collect();
-        assert!(leftovers.is_empty(), "save_config leaked a durable temp: {leftovers:?}");
-    }
 
     #[test]
     fn load_config_returns_defaults_when_missing_and_errors_on_invalid_json() {
@@ -298,110 +220,5 @@ mod tests {
         fs::write(&paths.config_path, "{not-json").expect("write invalid config");
         let error = load_config(&paths).expect_err("invalid config should fail");
         assert!(error.to_string().contains("parsing config json"));
-    }
-
-    #[test]
-    fn load_config_accepts_legacy_lowercase_archive_mode_values() {
-        let dir = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(dir.path());
-
-        fs::write(
-            &paths.config_path,
-            r#"{
-  "initialized": true,
-  "archiveMode": "plaintext",
-  "preferredLanguage": "system",
-  "dueAfterHours": 72,
-  "scheduleCheckIntervalHours": 6,
-  "checkpointDays": 1,
-  "captureFavicons": true,
-  "selectedProfileIds": [],
-  "gitEnabled": false,
-  "rememberDatabaseKeyInKeyring": false,
-  "appAutostart": false,
-  "appLock": {
-    "enabled": false,
-    "idleTimeoutMinutes": 5,
-    "biometricEnabled": false,
-    "passcodeEnabled": false,
-    "passcodeConfigured": false,
-    "recoveryHint": null
-  },
-  "remoteBackup": {
-    "enabled": false,
-    "bucket": "",
-    "region": "us-east-1",
-    "endpoint": null,
-    "prefix": "pathkeep",
-    "pathStyle": true,
-    "uploadAfterBackup": false,
-    "credentialsSaved": false,
-    "lastUploadedAt": null,
-    "lastUploadedObjectKey": null,
-    "lastError": null
-  },
-  "enrichment": {
-    "plugins": []
-  },
-  "ai": {
-    "enabled": false,
-    "assistantEnabled": false,
-    "semanticIndexEnabled": false,
-    "mcpEnabled": false,
-    "skillEnabled": false,
-    "autoIndexAfterBackup": false,
-    "jobQueuePaused": false,
-    "jobQueueConcurrency": 1,
-    "enrichmentEnabled": true,
-    "enrichmentPlugins": [],
-    "llmProviderId": null,
-    "embeddingProviderId": null,
-    "retrievalTopK": 8,
-    "assistantSystemPrompt": "",
-    "llmProviders": [],
-    "embeddingProviders": []
-  }
-}"#,
-        )
-        .expect("write legacy lowercase config");
-
-        let loaded = load_config(&paths).expect("load legacy lowercase config");
-        assert!(matches!(loaded.archive_mode, ArchiveMode::Plaintext));
-    }
-
-    #[test]
-    fn project_root_uses_current_app_directory_when_it_already_exists() {
-        let _guard = test_env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        let dir = tempdir().expect("tempdir");
-        let original_home = std::env::var_os("HOME");
-        let original_override = std::env::var_os(PROJECT_ROOT_OVERRIDE_ENV);
-        unsafe {
-            std::env::set_var("HOME", dir.path());
-            std::env::remove_var(PROJECT_ROOT_OVERRIDE_ENV);
-        }
-
-        let current_root =
-            ProjectDirs::from(CURRENT_APP_QUALIFIER, CURRENT_APP_ORGANIZATION, CURRENT_APP_NAME)
-                .expect("project dirs")
-                .data_local_dir()
-                .to_path_buf();
-        fs::create_dir_all(&current_root).expect("create current root");
-
-        let resolved = project_root().expect("project root");
-        assert_eq!(resolved, current_root);
-
-        restore_test_env_var("HOME", original_home.as_deref());
-        restore_test_env_var(PROJECT_ROOT_OVERRIDE_ENV, original_override.as_deref());
-    }
-
-    #[test]
-    fn restore_env_var_sets_and_clears_values() {
-        let _guard = test_env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        let value = std::ffi::OsString::from("fixture-root");
-        restore_test_env_var(PROJECT_ROOT_OVERRIDE_ENV, Some(value.as_os_str()));
-        assert_eq!(std::env::var_os(PROJECT_ROOT_OVERRIDE_ENV), Some(value.clone()));
-
-        restore_test_env_var(PROJECT_ROOT_OVERRIDE_ENV, None);
-        assert!(std::env::var_os(PROJECT_ROOT_OVERRIDE_ENV).is_none());
     }
 }

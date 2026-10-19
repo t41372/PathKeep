@@ -1,3 +1,5 @@
+//! Responsibilities: unlocked configuration, provider secrets and serving-runtime resolution.
+//! Not responsible for: index mutation, model requests or queue persistence.
 //! Shared worker context helpers.
 //!
 //! This module keeps the repetitive desktop-worker setup in one place:
@@ -22,8 +24,8 @@ use tokio::runtime::Runtime;
 use vault_core::{
     AiIndexStatus, AiProviderConfig, AiProviderPurpose, AiProviderRuntime, AiSearchNote,
     AiSearchResponse, AppConfig, AppLockStatus, IntelligenceStatus, SecretString, ai_index_status,
-    ai_queue, app_lock_status_with_biometric, archive, ensure_app_lock_unlocked,
-    hydrate_app_lock_config, intelligence_status, load_config,
+    ai_queue, app_lock_status_with_biometric, ensure_app_lock_unlocked, hydrate_app_lock_config,
+    load_config,
 };
 use vault_platform::{
     app_lock_biometric_state, keyring_get_provider_api_key, provider_api_key_saved,
@@ -99,11 +101,23 @@ pub(crate) fn resolved_app_lock_status(
 
 /// Loads the semantic-index read model, degrading to an honest warning on error.
 pub(crate) fn derive_ai_status(
-    paths: &vault_core::ProjectPaths,
+    vault: Option<&vault_core::Vault>,
     config: &AppConfig,
-    session_database_key: Option<&str>,
 ) -> AiIndexStatus {
-    match ai_index_status(paths, config, session_database_key) {
+    match vault {
+        Some(vault) => {
+            degrade_ai_status(config, ai_index_status(&vault.with_config(config.clone())))
+        }
+        None => AiIndexStatus::default(),
+    }
+}
+
+/// Turns a failed semantic-index read into a status that carries the reason as a warning.
+pub(crate) fn degrade_ai_status(
+    config: &AppConfig,
+    status: Result<AiIndexStatus>,
+) -> AiIndexStatus {
+    match status {
         Ok(status) => status,
         Err(error) => AiIndexStatus {
             enabled: config.ai.enabled,
@@ -118,13 +132,11 @@ pub(crate) fn derive_ai_status(
     }
 }
 
-/// Loads the derived-intelligence read model, degrading to a warning on error.
-pub(crate) fn derive_intelligence_status(
-    paths: &vault_core::ProjectPaths,
-    config: &AppConfig,
-    session_database_key: Option<&str>,
+/// Turns a failed derived-intelligence read into a status that carries the reason as a warning.
+pub(crate) fn degrade_intelligence_status(
+    status: Result<IntelligenceStatus>,
 ) -> IntelligenceStatus {
-    match intelligence_status(paths, config, session_database_key) {
+    match status {
         Ok(status) => status,
         Err(error) => {
             IntelligenceStatus { warning: Some(error.to_string()), ..IntelligenceStatus::default() }
@@ -205,22 +217,25 @@ pub(crate) fn selected_llm_provider_runtime(
 
 /// Resolves the currently configured embedding provider when semantic search is optional.
 pub(crate) fn selected_optional_embedding_runtime(
+    vault: &vault_core::Vault,
     config: &AppConfig,
 ) -> Result<Option<AiProviderRuntime>> {
-    match config.ai.embedding_provider_id.as_deref() {
-        Some(provider_id) => resolve_provider_runtime(
-            &config.ai.embedding_providers,
-            provider_id,
-            AiProviderPurpose::Embedding,
-        )
-        .map(Some),
-        None => Ok(None),
-    }
+    let state = vault_core::semantic_index::load_state(&vault.with_config(config.clone()))?;
+    let Some(pair) = state.serving else {
+        return Ok(None);
+    };
+    let mut runtime = resolve_provider_runtime(
+        &config.ai.embedding_providers,
+        &pair.provider_id,
+        AiProviderPurpose::Embedding,
+    )?;
+    runtime.config.default_model = pair.model;
+    Ok(Some(runtime))
 }
 
 /// Adds an explicit lexical-fallback note when semantic provider resolution fails.
 ///
-/// Review-fix M-6: emit a stable [`AiSearchNote::ProviderResolutionFailed`] CODE (carrying the opaque
+/// Emit a stable [`AiSearchNote::ProviderResolutionFailed`] CODE (carrying the opaque
 /// transport error STRUCTURALLY) so the front end localizes it, and derive the legacy English
 /// `notes` string from that SAME code via [`AiSearchNote::model_facing_text`] (model-facing /
 /// persisted-trace only) — never push raw English prose onto the user-facing wire.
@@ -234,15 +249,6 @@ pub(crate) fn search_response_with_resolution_note(
         response.note_codes.push(note);
     }
     response
-}
-
-/// Opens the rebuildable intelligence storage plane for worker-owned AI state.
-pub(crate) fn ai_archive_connection(
-    paths: &vault_core::ProjectPaths,
-    config: &AppConfig,
-    session_database_key: Option<&str>,
-) -> Result<rusqlite::Connection> {
-    archive::open_intelligence_connection(paths, config, session_database_key)
 }
 
 /// Looks up the provider config referenced by a request before resolving secrets.
@@ -277,30 +283,17 @@ pub(crate) fn provider_config_for_request(
 /// failures can requeue with backoff, while configuration/purpose mismatches
 /// must stop and surface as manual-review work.
 pub(crate) fn queue_failure_from_error(error: &anyhow::Error) -> ai_queue::AiJobFailure {
-    let message = error.to_string();
-    let lower = message.to_lowercase();
-    if lower.contains("rate limit") || lower.contains("quota") || lower.contains("429") {
+    let message = format!("{error:#}");
+    if error.downcast_ref::<vault_core::EmbeddingServiceError>().is_some() {
         return ai_queue::AiJobFailure {
-            error_code: Some("rate-limited".to_string()),
-            error_message: message,
-            retryable: true,
-            retry_after_seconds: 300,
-            summary: Some("Provider quota window has not reset yet.".to_string()),
-        };
-    }
-    if lower.contains("timed out")
-        || lower.contains("dns")
-        || lower.contains("network")
-        || lower.contains("refused")
-    {
-        return ai_queue::AiJobFailure {
-            error_code: Some("network-error".to_string()),
+            error_code: Some("service-unavailable".into()),
             error_message: message,
             retryable: true,
             retry_after_seconds: 30,
-            summary: Some("Retrying the AI job after a transient network failure.".to_string()),
+            summary: None,
         };
     }
+    let lower = message.to_lowercase();
     let error_code = if lower.contains("api key") || lower.contains("store an api key") {
         Some("secret-missing".to_string())
     } else if lower.contains("model") && lower.contains("not found") {

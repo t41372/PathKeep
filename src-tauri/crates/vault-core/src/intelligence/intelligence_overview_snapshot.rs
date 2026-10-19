@@ -1,3 +1,5 @@
+//! Failure modes: reads write schemas, a query escapes its owner, stale scopes leak,
+//! or bounded results lose continuation. Native render-path and paging tests cover these.
 //! Persistent all-time `/intelligence` overview snapshot cache.
 //!
 //! ## Responsibilities
@@ -11,7 +13,9 @@
 //! ## Not responsible for
 //! - Building the overview payloads (owned by `intelligence_overview`).
 //! - Deciding when to warm the snapshot (the shell preloads it on idle).
-//! - Any scope other than all-time; only all-time is materialized.
+//! - Any other scope: only all time and the recent ranges the page offers, over every profile
+//!   (`RECENT_RANGE_DAYS`), are materialized; custom ranges and one profile's recent ranges are
+//!   computed each time.
 //!
 //! ## Dependencies
 //! - `incremental` for the per-profile source watermark and profile list.
@@ -29,41 +33,22 @@
 //!   into "recompute per data change".
 
 use super::incremental::{
-    ProfileSourceWatermark, ensure_core_intelligence_stage_checkpoint_schema,
-    list_fingerprint_profiles, load_archive_delta_signature, load_checkpoint_source_watermark,
-    load_site_dictionary_signature,
+    ProfileSourceWatermark, list_fingerprint_profiles, load_archive_delta_signature,
+    load_checkpoint_source_watermark, load_site_dictionary_signature,
 };
 use crate::models::{DateRange, ScopedDateRangeRequest};
 use crate::utils::now_rfc3339;
 use crate::visit_taxonomy::taxonomy_version;
 use anyhow::{Context, Result};
-use chrono::Local;
-use rusqlite::{Connection, OptionalExtension, params};
+use chrono::NaiveDate;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
+use vault_store::{OptionalRow, Session, params_owned as params};
 
 /// Sentinel start date the frontend emits for the `All time` preset. Kept in
 /// sync with `ALL_TIME_DATE_RANGE_START` in `src/lib/core-intelligence/hooks.ts`;
 /// the two constants form the all-time transport contract.
 pub(crate) const ALL_TIME_SCOPE_START: &str = "1900-01-01";
-
-pub(super) const OVERVIEW_SNAPSHOT_SCHEMA_SQL: &str = r#"
-CREATE TABLE IF NOT EXISTS intelligence_overview_snapshots (
-  scope_key    TEXT NOT NULL,
-  band         TEXT NOT NULL,
-  fingerprint  TEXT NOT NULL,
-  payload_json TEXT NOT NULL,
-  computed_at  TEXT NOT NULL,
-  PRIMARY KEY (scope_key, band)
-);
-"#;
-
-/// Creates the snapshot table when missing so unit-level callers and the
-/// migration runner share one definition.
-pub(super) fn ensure_overview_snapshot_schema(connection: &Connection) -> Result<()> {
-    connection.execute_batch(OVERVIEW_SNAPSHOT_SCHEMA_SQL)?;
-    Ok(())
-}
 
 /// Selects which staged overview band a snapshot row belongs to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -81,11 +66,53 @@ impl OverviewBand {
     }
 }
 
-/// Returns true when a request targets the all-time scope, the only scope the
-/// snapshot cache materializes. Detected by the shared sentinel start date so
-/// the transport stays a plain `DateRange`.
+/// Returns true when a request targets the all-time scope. Detected by the shared sentinel start
+/// date so the transport stays a plain `DateRange`.
 pub(super) fn is_all_time_range(date_range: &DateRange) -> bool {
     date_range.start == ALL_TIME_SCOPE_START
+}
+
+/// The recent ranges the page offers (`presetDays` in `src/features/insights/range.ts`), each
+/// ending today. Their overviews over every profile are kept like all time's, so the range toggle
+/// answers at once whatever the archive's size.
+pub(super) const RECENT_RANGE_DAYS: [i64; 4] = [365, 90, 30, 7];
+
+/// The kept snapshot a request reads: all time (every profile, or one), or a recent range ending
+/// today over every profile. `None` for any other range, which is computed each time.
+pub(super) fn snapshot_key(
+    connection: &Session<'_>,
+    request: &ScopedDateRangeRequest,
+) -> Result<Option<String>> {
+    if is_all_time_range(&request.date_range) {
+        return Ok(Some(all_time_scope_key(request.profile_id.as_deref())));
+    }
+    if request.profile_id.is_some() {
+        return Ok(None);
+    }
+    let today = super::InsightsZone::for_reading(connection)?.today_key();
+    Ok(recent_range_days(&request.date_range, &today).map(|days| format!("recent:{days}")))
+}
+
+/// How many days `range` covers when it is one of the recent ranges ending `today`.
+fn recent_range_days(range: &DateRange, today: &str) -> Option<i64> {
+    let day = |key: &str| NaiveDate::parse_from_str(key, "%Y-%m-%d").ok();
+    let days = (day(&range.end)? - day(&range.start)?).num_days() + 1;
+    (range.end == today && RECENT_RANGE_DAYS.contains(&days)).then_some(days)
+}
+
+/// The recent ranges ending `today`, over every profile: the requests a build warms.
+pub(super) fn recent_range_requests(today: &str) -> Vec<ScopedDateRangeRequest> {
+    let Ok(end) = NaiveDate::parse_from_str(today, "%Y-%m-%d") else { return Vec::new() };
+    RECENT_RANGE_DAYS
+        .iter()
+        .map(|days| ScopedDateRangeRequest {
+            date_range: DateRange {
+                start: (end - chrono::Duration::days(days - 1)).format("%Y-%m-%d").to_string(),
+                end: today.to_owned(),
+            },
+            profile_id: None,
+        })
+        .collect()
 }
 
 /// Builds the snapshot scope key, distinguishing archive-wide from
@@ -97,15 +124,15 @@ pub(super) fn all_time_scope_key(profile_id: Option<&str>) -> String {
     }
 }
 
-/// Resolves one overview band for an all-time request, returning a persisted
-/// snapshot when its fingerprint still matches the current archive state and
-/// otherwise recomputing, persisting, and returning fresh data.
+/// Resolves one overview band for a request with a kept snapshot (`snapshot_key`), returning it
+/// when its fingerprint still matches the current archive state and otherwise recomputing and
+/// returning fresh data; any other request is computed.
 ///
 /// `build` is only invoked on a cache miss or fingerprint change, so steady-state
 /// opens never pay the all-time aggregation cost. A serialization or persistence
 /// failure degrades to returning freshly built data rather than erroring.
 pub(super) fn resolve_overview_snapshot<T, F>(
-    connection: &Connection,
+    connection: &Session<'_>,
     band: OverviewBand,
     request: &ScopedDateRangeRequest,
     build: F,
@@ -114,8 +141,8 @@ where
     T: Serialize + DeserializeOwned,
     F: FnOnce() -> Result<T>,
 {
-    let scope_key = all_time_scope_key(request.profile_id.as_deref());
-    let fingerprint = compute_overview_fingerprint(connection, request.profile_id.as_deref())?;
+    let Some(scope_key) = snapshot_key(connection, request)? else { return build() };
+    let fingerprint = request_fingerprint(connection, request)?;
     if let Some(existing) = load_overview_snapshot(connection, &scope_key, band)?
         && existing.fingerprint == fingerprint
         && let Ok(payload) = serde_json::from_str::<T>(&existing.payload_json)
@@ -123,12 +150,24 @@ where
         return Ok(payload);
     }
     let payload = build()?;
-    if let Ok(json) = serde_json::to_string(&payload) {
-        // A persistence failure must not fail the request; the next open simply
-        // recomputes instead of serving a snapshot.
-        let _ = save_overview_snapshot(connection, &scope_key, band, &fingerprint, &json);
-    }
     Ok(payload)
+}
+
+/// The fingerprint a request with a kept snapshot is served under. All time always ends today, so
+/// its end date only says which day it was asked and is left out; the sections that depend on
+/// today are recomputed when a snapshot is served (`intelligence_overview::refresh_for_today`).
+/// A recent range's days move every day, so they are in its fingerprint: a snapshot from
+/// yesterday is not served today.
+pub(super) fn request_fingerprint(
+    connection: &Session<'_>,
+    request: &ScopedDateRangeRequest,
+) -> Result<String> {
+    let content = compute_overview_fingerprint(connection, request.profile_id.as_deref())?;
+    Ok(if is_all_time_range(&request.date_range) {
+        content
+    } else {
+        format!("{content}|days={}..{}", request.date_range.start, request.date_range.end)
+    })
 }
 
 /// Computes the content fingerprint for one all-time scope. The snapshot is
@@ -136,17 +175,17 @@ where
 /// can change an aggregate: the archive watermark (raw visits / search terms),
 /// the taxonomy / site-dictionary / search-engine-rule versions, the rebuild
 /// checkpoint ledger (which moves on every derived rebuild or clear), an O(1)
-/// archive-delta probe (ingest/reverts not yet rebuilt), and the current local
-/// date.
+/// archive-delta probe (ingest/reverts not yet rebuilt), and the UTC offset,
+/// since a visit's local day depends on it. The leading `v` changes with what a
+/// snapshot holds (v4: each section's evidence count; v5: a page topic's site, for its icon), so
+/// older ones are rebuilt.
 ///
-/// The local-date dimension exists because the all-time primary overview bakes
-/// in an "On this day" section computed against `Local::now()`; without it a
-/// snapshot built yesterday would keep serving yesterday's anniversaries (and a
-/// stale `reference_date`) after midnight for any user who has not ingested new
-/// data since. Folding the date in forces at least one recompute per local day.
-/// The UTC offset is included so a timezone change also invalidates.
+/// Today's date is deliberately not in it. It used to be, for "On this day";
+/// then the first open of every day recomputed all of history (seconds at
+/// 387k visits, far more at 14.4M), and nothing saved the result until the next
+/// rebuild. The parts that depend on today are recomputed when served instead.
 pub(super) fn compute_overview_fingerprint(
-    connection: &Connection,
+    connection: &Session<'_>,
     profile_id: Option<&str>,
 ) -> Result<String> {
     let profiles = list_fingerprint_profiles(connection, profile_id)?;
@@ -163,9 +202,8 @@ pub(super) fn compute_overview_fingerprint(
     let checkpoint_signature = load_checkpoint_signature(connection, profile_id)?;
     let site_dictionary_signature = load_site_dictionary_signature(connection)?;
     let search_rule_signature = load_search_rule_signature(connection)?;
-    let now = Local::now();
     Ok(format!(
-        "v2|profiles={}|visits={}|maxVisit={}|maxUrlMs={}|terms={}|tax={}|{}|{}|{}|{}|day={}{}",
+        "v5|profiles={}|visits={}|maxVisit={}|maxUrlMs={}|terms={}|tax={}|{}|{}|{}|{}|tz={}",
         profiles.len(),
         aggregate.visible_visit_count,
         aggregate.max_visit_id,
@@ -176,8 +214,7 @@ pub(super) fn compute_overview_fingerprint(
         search_rule_signature,
         checkpoint_signature,
         archive_delta_signature,
-        now.format("%Y-%m-%d"),
-        now.offset(),
+        super::InsightsZone::for_reading(connection)?.name(),
     ))
 }
 
@@ -189,13 +226,12 @@ pub(super) struct OverviewSnapshotRow {
 
 /// Loads a snapshot row when one exists for the scope and band.
 pub(super) fn load_overview_snapshot(
-    connection: &Connection,
+    connection: &Session<'_>,
     scope_key: &str,
     band: OverviewBand,
 ) -> Result<Option<OverviewSnapshotRow>> {
-    ensure_overview_snapshot_schema(connection)?;
     let row = connection
-        .query_row(
+        .query_one(
             "SELECT fingerprint, payload_json
              FROM intelligence_overview_snapshots
              WHERE scope_key = ?1 AND band = ?2",
@@ -208,13 +244,12 @@ pub(super) fn load_overview_snapshot(
 
 /// Inserts or replaces the snapshot row for one scope and band.
 pub(super) fn save_overview_snapshot(
-    connection: &Connection,
+    connection: &Session<'_>,
     scope_key: &str,
     band: OverviewBand,
     fingerprint: &str,
     payload_json: &str,
 ) -> Result<()> {
-    ensure_overview_snapshot_schema(connection)?;
     connection.execute(
         "INSERT INTO intelligence_overview_snapshots
            (scope_key, band, fingerprint, payload_json, computed_at)
@@ -230,21 +265,17 @@ pub(super) fn save_overview_snapshot(
 
 /// Drops every persisted snapshot. Used by full derived-state clears and archive
 /// repair, where the derived tables change without moving the archive watermark.
-pub(super) fn clear_overview_snapshots(connection: &Connection) -> Result<usize> {
-    if !table_exists(connection, "intelligence_overview_snapshots")? {
-        return Ok(0);
-    }
-    let cleared = connection.execute("DELETE FROM intelligence_overview_snapshots", [])?;
-    Ok(cleared)
+pub(super) fn clear_overview_snapshots(connection: &Session<'_>) -> Result<usize> {
+    let cleared = connection.execute("DELETE FROM intelligence_overview_snapshots", ())?;
+    Ok(cleared as usize)
 }
 
 /// Summarizes the rebuild checkpoint ledger so any derived rebuild or clear
 /// changes the fingerprint even when the canonical archive watermark is stable.
-fn load_checkpoint_signature(connection: &Connection, profile_id: Option<&str>) -> Result<String> {
-    ensure_core_intelligence_stage_checkpoint_schema(connection)?;
+fn load_checkpoint_signature(connection: &Session<'_>, profile_id: Option<&str>) -> Result<String> {
     let (count, max_run_id, max_updated): (i64, i64, String) = if let Some(profile_id) = profile_id
     {
-        connection.query_row(
+        connection.query_one(
             "SELECT COUNT(*), COALESCE(MAX(last_run_id), 0), COALESCE(MAX(updated_at), 'none')
              FROM core_intelligence_stage_checkpoints
              WHERE profile_id = ?1",
@@ -252,10 +283,10 @@ fn load_checkpoint_signature(connection: &Connection, profile_id: Option<&str>) 
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )?
     } else {
-        connection.query_row(
+        connection.query_one(
             "SELECT COUNT(*), COALESCE(MAX(last_run_id), 0), COALESCE(MAX(updated_at), 'none')
              FROM core_intelligence_stage_checkpoints",
-            [],
+            (),
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )?
     };
@@ -265,312 +296,138 @@ fn load_checkpoint_signature(connection: &Connection, profile_id: Option<&str>) 
 /// Summarizes mutable search-engine rules so editing them (which reshapes query
 /// families and search trails) invalidates the snapshot even though no canonical
 /// visit changed.
-fn load_search_rule_signature(connection: &Connection) -> Result<String> {
-    if !table_exists(connection, "search_engine_rules")? {
-        return Ok("srules:absent".to_string());
-    }
+pub(crate) fn load_search_rule_signature(connection: &Session<'_>) -> Result<String> {
     connection
-        .query_row(
+        .query_one(
             "SELECT COUNT(*), COALESCE(SUM(enabled), 0), COALESCE(MAX(updated_at), 'none')
              FROM search_engine_rules",
-            [],
-            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?, row.get::<_, String>(2)?)),
+            (),
+            |row| Ok((row.get::<i64>(0)?, row.get::<i64>(1)?, row.get::<String>(2)?)),
         )
         .map(|(count, enabled, updated)| format!("srules:{count}:{enabled}:{updated}"))
         .context("loading search engine rule signature")
-}
-
-fn table_exists(connection: &Connection, table: &str) -> Result<bool> {
-    let count: i64 = connection.query_row(
-        "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
-        [table],
-        |row| row.get(0),
-    )?;
-    Ok(count > 0)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn open_schema_connection() -> Connection {
-        let connection = Connection::open_in_memory().expect("memory connection");
-        ensure_overview_snapshot_schema(&connection).expect("snapshot schema");
-        ensure_core_intelligence_stage_checkpoint_schema(&connection).expect("checkpoint schema");
-        connection
+    use crate::test_support::native::TestDatabase;
+    use vault_store::{Db, Priority};
+    fn open_schema_connection() -> TestDatabase {
+        let vault = crate::Vault::open_temp().unwrap();
+        TestDatabase::new(&vault, Db::Intelligence)
     }
-
-    /// Builds a connection with an attached (empty) archive plus the derived
-    /// tables the fingerprint queries touch, so fingerprint behavior can be
-    /// exercised without a full rebuild fixture. The `runs` table mirrors the
-    /// archive ledger the O(1) delta probe reads.
-    fn open_fingerprint_connection() -> Connection {
-        let connection = open_schema_connection();
-        connection
-            .execute_batch(
-                "ATTACH DATABASE ':memory:' AS archive;
-                 CREATE TABLE archive.source_profiles (
-                   id INTEGER PRIMARY KEY,
-                   profile_key TEXT NOT NULL
-                 );
-                 CREATE TABLE archive.urls (
-                   id INTEGER PRIMARY KEY,
-                   last_visit_ms INTEGER
-                 );
-                 CREATE TABLE archive.visits (
-                   id INTEGER PRIMARY KEY,
-                   url_id INTEGER,
-                   source_profile_id INTEGER,
-                   reverted_at TEXT
-                 );
-                 CREATE TABLE archive.search_terms (
-                   id INTEGER PRIMARY KEY,
-                   profile_id TEXT,
-                   reverted_at TEXT
-                 );
-                 CREATE TABLE archive.runs (
-                   id INTEGER PRIMARY KEY,
-                   run_type TEXT
-                 );
-                 CREATE TABLE visit_derived_facts (
-                   visit_id INTEGER PRIMARY KEY,
-                   profile_id TEXT
-                 );",
-            )
-            .expect("archive + derived schema");
-        connection
+    fn open_fingerprint_connection() -> TestDatabase {
+        open_schema_connection()
     }
-
-    /// Inserts one stage-checkpoint row carrying the given source watermark, so
-    /// fingerprint tests can move a single watermark dimension at a time.
-    fn insert_checkpoint_with_watermark(
-        connection: &Connection,
-        profile_id: &str,
-        stage: &str,
-        visible_visit_count: i64,
-        max_visit_id: i64,
-        max_url_last_visit_ms: i64,
-        visible_search_term_count: i64,
-    ) {
-        connection
-            .execute(
-                "INSERT INTO core_intelligence_stage_checkpoints
-                   (profile_id, stage, stage_version,
-                    visible_visit_count, max_visit_id, max_url_last_visit_ms,
-                    visible_search_term_count, updated_at, last_run_id)
-                 VALUES (?1, ?2, 'v', ?3, ?4, ?5, ?6, '2026-06-20T00:00:00Z', 1)",
-                params![
-                    profile_id,
-                    stage,
-                    visible_visit_count,
-                    max_visit_id,
-                    max_url_last_visit_ms,
-                    visible_search_term_count,
-                ],
-            )
-            .expect("insert checkpoint watermark");
+    fn fingerprint(db: &TestDatabase, profile: Option<&str>) -> Result<String> {
+        let profile = profile.map(str::to_owned);
+        db.read(move |s| compute_overview_fingerprint(s, profile.as_deref()))
     }
-
-    #[test]
-    fn detects_all_time_range_by_sentinel_start() {
-        assert!(is_all_time_range(&DateRange {
-            start: ALL_TIME_SCOPE_START.to_string(),
-            end: "2026-06-20".to_string(),
-        }));
-        assert!(!is_all_time_range(&DateRange {
-            start: "2026-05-01".to_string(),
-            end: "2026-06-20".to_string(),
-        }));
+    fn save(
+        db: &TestDatabase,
+        scope: &str,
+        band: OverviewBand,
+        fp: &str,
+        json: &str,
+    ) -> Result<()> {
+        let (scope, fp, json) = (scope.to_owned(), fp.to_owned(), json.to_owned());
+        db.write(move |s| save_overview_snapshot(s, &scope, band, &fp, &json))
     }
-
-    #[test]
-    fn scope_key_separates_archive_wide_from_profile() {
-        assert_eq!(all_time_scope_key(None), "all-time:archive-wide");
-        assert_eq!(all_time_scope_key(Some("chrome:Default")), "all-time:profile:chrome:Default");
+    fn resolve(
+        db: &TestDatabase,
+        request: &ScopedDateRangeRequest,
+        value: i64,
+        calls: &mut u32,
+    ) -> i64 {
+        let request = request.clone();
+        let (result, built) = db
+            .read(move |s| {
+                let mut built = false;
+                let result = resolve_overview_snapshot(s, OverviewBand::Primary, &request, || {
+                    built = true;
+                    Ok(value)
+                })?;
+                Ok((result, built))
+            })
+            .unwrap();
+        *calls += u32::from(built);
+        result
     }
-
-    #[test]
-    fn snapshot_round_trips_and_overwrites() {
-        let connection = open_schema_connection();
-        save_overview_snapshot(
-            &connection,
-            "all-time:archive-wide",
+    fn warm(db: &TestDatabase, request: &ScopedDateRangeRequest, value: i64) {
+        let request_copy = request.clone();
+        let fp = db.read(move |s| request_fingerprint(s, &request_copy)).unwrap();
+        save(
+            db,
+            &all_time_scope_key(request.profile_id.as_deref()),
             OverviewBand::Primary,
-            "fp1",
-            "{\"a\":1}",
+            &fp,
+            &value.to_string(),
         )
-        .expect("save");
-        let row =
-            load_overview_snapshot(&connection, "all-time:archive-wide", OverviewBand::Primary)
-                .expect("load")
-                .expect("row present");
-        assert_eq!(row.fingerprint, "fp1");
-        assert_eq!(row.payload_json, "{\"a\":1}");
-
-        save_overview_snapshot(
-            &connection,
-            "all-time:archive-wide",
-            OverviewBand::Primary,
-            "fp2",
-            "{\"a\":2}",
-        )
-        .expect("overwrite");
-        let row =
-            load_overview_snapshot(&connection, "all-time:archive-wide", OverviewBand::Primary)
-                .expect("load")
-                .expect("row present");
-        assert_eq!(row.fingerprint, "fp2");
-        assert_eq!(row.payload_json, "{\"a\":2}");
-
-        // The secondary band is stored independently of the primary band.
-        assert!(
-            load_overview_snapshot(&connection, "all-time:archive-wide", OverviewBand::Secondary)
-                .expect("load secondary")
-                .is_none()
-        );
+        .unwrap();
+    }
+    fn append_visit(db: &TestDatabase) {
+        db.vault.write(Db::Archive,Priority::Batch,|s| {
+            s.execute("INSERT INTO source_profiles(id,browser_kind,profile_name,profile_path,profile_key,discovered_at) VALUES(1,'chrome','Default','/fixture','chrome:Default','')",())?;
+            s.execute("INSERT INTO pages(id,url,canonical_url,registrable_domain) VALUES(1,'https://example.com/','https://example.com/','example.com')",())?;
+            s.execute("INSERT INTO urls(id,page_id,url,source_profile_id,created_by_run_id,first_visit_ms,first_visit_iso,last_visit_ms,last_visit_iso) VALUES(1,1,'https://example.com/',1,0,1,'',1,'')",())?;
+            s.execute("INSERT INTO visits(id,url_id,source_profile_id,created_by_run_id,visit_time_ms,visit_time_iso) VALUES(1,1,1,0,1,'')",())?;Ok(())
+        }).unwrap();
+    }
+    fn append_run(db: &TestDatabase, id: i64, kind: &str) {
+        let kind = kind.to_owned();
+        db.vault.write(Db::Archive,Priority::Batch,move |s| {
+            s.execute("INSERT INTO runs(id,run_type,trigger,started_at,timezone,status,profile_scope_json,warnings_json,stats_json,due_only) VALUES(?1,?2,'test','','UTC','success','[]','[]','{}',0)",params![id,kind])?;Ok(())
+        }).unwrap();
     }
 
+    // Recent ranges: what goes wrong if the scope rules do —
+    // - a range the page does not offer is kept (every build would compute it for nothing);
+    // - yesterday's "last 30 days" is served today (its days moved);
+    // - one profile's recent range is served from the snapshot of every profile.
     #[test]
-    fn clear_removes_all_snapshots() {
-        let connection = open_schema_connection();
-        save_overview_snapshot(
-            &connection,
-            "all-time:archive-wide",
-            OverviewBand::Primary,
-            "fp",
-            "{}",
-        )
-        .expect("save");
-        assert_eq!(clear_overview_snapshots(&connection).expect("clear"), 1);
-        assert!(
-            load_overview_snapshot(&connection, "all-time:archive-wide", OverviewBand::Primary)
-                .expect("load")
-                .is_none()
-        );
-    }
-
-    #[test]
-    fn clear_is_noop_when_table_absent() {
-        // A connection that never created the snapshot table (e.g. archive repair
-        // running against an un-migrated derived DB) must report zero cleared rows
-        // rather than erroring on a missing table.
-        let connection = Connection::open_in_memory().expect("memory connection");
-        assert_eq!(clear_overview_snapshots(&connection).expect("clear"), 0);
-    }
-
-    #[test]
-    fn resolve_serves_snapshot_until_fingerprint_changes() {
-        let connection = open_fingerprint_connection();
-        let request = ScopedDateRangeRequest {
+    fn recent_ranges_are_kept_for_today_over_every_profile() {
+        let db = open_schema_connection();
+        let today =
+            db.read(|s| Ok(super::super::InsightsZone::for_reading(s)?.today_key())).unwrap();
+        let requests = recent_range_requests(&today);
+        assert_eq!(requests.len(), RECENT_RANGE_DAYS.len());
+        let day = |key: &str| NaiveDate::parse_from_str(key, "%Y-%m-%d").unwrap();
+        let shifted = |request: &ScopedDateRangeRequest, by: i64| ScopedDateRangeRequest {
             date_range: DateRange {
-                start: ALL_TIME_SCOPE_START.to_string(),
-                end: "2026-06-20".to_string(),
+                start: (day(&request.date_range.start) + chrono::Duration::days(by))
+                    .format("%Y-%m-%d")
+                    .to_string(),
+                end: (day(&request.date_range.end) + chrono::Duration::days(by))
+                    .format("%Y-%m-%d")
+                    .to_string(),
+            },
+            profile_id: request.profile_id.clone(),
+        };
+        let key =
+            |request: ScopedDateRangeRequest| db.read(move |s| snapshot_key(s, &request)).unwrap();
+        let print = |request: ScopedDateRangeRequest| {
+            db.read(move |s| request_fingerprint(s, &request)).unwrap()
+        };
+        for (request, days) in requests.iter().zip(RECENT_RANGE_DAYS) {
+            assert_eq!(key(request.clone()), Some(format!("recent:{days}")));
+            assert_eq!(key(shifted(request, -1)), None, "{days} days ending yesterday");
+            let one_profile = ScopedDateRangeRequest {
+                profile_id: Some("chrome:Default".into()),
+                ..request.clone()
+            };
+            assert_eq!(key(one_profile), None);
+            assert_ne!(print(request.clone()), print(shifted(request, -1)));
+        }
+        let thirty_one = ScopedDateRangeRequest {
+            date_range: DateRange {
+                start: (day(&today) - chrono::Duration::days(30)).format("%Y-%m-%d").to_string(),
+                end: today.clone(),
             },
             profile_id: None,
         };
-
-        let mut build_calls = 0u32;
-        let first = resolve_overview_snapshot(&connection, OverviewBand::Primary, &request, || {
-            build_calls += 1;
-            Ok::<i64, anyhow::Error>(11)
-        })
-        .expect("first resolve");
-        assert_eq!(first, 11);
-        assert_eq!(build_calls, 1);
-
-        // A second resolve with unchanged inputs must serve the cached value
-        // without invoking the builder again.
-        let cached =
-            resolve_overview_snapshot(&connection, OverviewBand::Primary, &request, || {
-                build_calls += 1;
-                Ok::<i64, anyhow::Error>(22)
-            })
-            .expect("cached resolve");
-        assert_eq!(cached, 11);
-        assert_eq!(build_calls, 1);
-
-        // Moving the checkpoint ledger changes the fingerprint and forces a
-        // rebuild on the next resolve.
-        connection
-            .execute(
-                "INSERT INTO core_intelligence_stage_checkpoints
-                   (profile_id, stage, stage_version, updated_at, last_run_id)
-                 VALUES ('chrome:Default', 'visit-derive', 'v', '2026-06-20T00:00:00Z', 7)",
-                [],
-            )
-            .expect("insert checkpoint");
-        let rebuilt =
-            resolve_overview_snapshot(&connection, OverviewBand::Primary, &request, || {
-                build_calls += 1;
-                Ok::<i64, anyhow::Error>(33)
-            })
-            .expect("rebuilt resolve");
-        assert_eq!(rebuilt, 33);
-        assert_eq!(build_calls, 2);
-    }
-
-    #[test]
-    fn fingerprint_changes_with_checkpoint_ledger() {
-        let connection = open_fingerprint_connection();
-        let before = compute_overview_fingerprint(&connection, None).expect("fingerprint");
-        connection
-            .execute(
-                "INSERT INTO core_intelligence_stage_checkpoints
-                   (profile_id, stage, stage_version, updated_at, last_run_id)
-                 VALUES ('chrome:Default', 'visit-derive', 'v', '2026-06-20T00:00:00Z', 1)",
-                [],
-            )
-            .expect("insert checkpoint");
-        let after = compute_overview_fingerprint(&connection, None).expect("fingerprint");
-        assert_ne!(before, after);
-    }
-
-    /// Each watermark dimension folded into the fingerprint must independently
-    /// change it, so a snapshot is never reused after a backup moves any one of
-    /// them. This is the behavioral guard the fingerprint's watermark fields
-    /// previously lacked: hardcoding any field to a constant collapses two
-    /// distinct watermarks to one fingerprint and fails here.
-    #[test]
-    fn fingerprint_reacts_to_each_watermark_dimension() {
-        let connection = open_fingerprint_connection();
-        // Seed one checkpoint row with a fixed run id / timestamp and zero
-        // watermarks. Mutating a single watermark *column* in place then isolates
-        // that fingerprint dimension: the checkpoint count, last_run_id, and
-        // updated_at (which load_checkpoint_signature folds in) all stay fixed,
-        // so any observed fingerprint change must come from the watermark field
-        // under test.
-        insert_checkpoint_with_watermark(&connection, "chrome:Default", "visit-derive", 0, 0, 0, 0);
-        let mut previous =
-            compute_overview_fingerprint(&connection, None).expect("baseline fingerprint");
-        let mut seen = std::collections::BTreeSet::from([previous.clone()]);
-
-        for (index, column) in [
-            "visible_visit_count",
-            "max_visit_id",
-            "max_url_last_visit_ms",
-            "visible_search_term_count",
-        ]
-        .iter()
-        .enumerate()
-        {
-            connection
-                .execute(
-                    &format!(
-                        "UPDATE core_intelligence_stage_checkpoints
-                         SET {column} = {column} + 11
-                         WHERE profile_id = 'chrome:Default' AND stage = 'visit-derive'"
-                    ),
-                    [],
-                )
-                .expect("bump one watermark column");
-            let fingerprint = compute_overview_fingerprint(&connection, None).expect("fingerprint");
-            assert_ne!(
-                previous, fingerprint,
-                "moving the {column} watermark must change the fingerprint (step {index})"
-            );
-            assert!(seen.insert(fingerprint.clone()), "fingerprints must stay distinct");
-            previous = fingerprint;
-        }
+        assert_eq!(key(thirty_one), None, "31 days is not a range the page offers");
     }
 
     /// Inserting a raw archive visit (and the backup `runs` row that always
@@ -589,76 +446,24 @@ mod tests {
             profile_id: None,
         };
 
-        let before = compute_overview_fingerprint(&connection, None).expect("before fingerprint");
+        let before = fingerprint(&connection, None).expect("before fingerprint");
 
         let mut build_calls = 0u32;
-        let first = resolve_overview_snapshot(&connection, OverviewBand::Primary, &request, || {
-            build_calls += 1;
-            Ok::<i64, anyhow::Error>(1)
-        })
-        .expect("first resolve");
+        let first = resolve(&connection, &request, 1, &mut build_calls);
         assert_eq!(first, 1);
         assert_eq!(build_calls, 1);
+        warm(&connection, &request, 1);
 
         // Simulate a backup: a new visit row plus the run row ingest records.
-        connection
-            .execute(
-                "INSERT INTO archive.visits (id, url_id, source_profile_id) VALUES (1, 1, 1)",
-                [],
-            )
-            .expect("insert visit");
-        connection
-            .execute("INSERT INTO archive.runs (id, run_type) VALUES (1, 'backup')", [])
-            .expect("insert run");
+        append_visit(&connection);
+        append_run(&connection, 1, "backup");
 
-        let after = compute_overview_fingerprint(&connection, None).expect("after fingerprint");
+        let after = fingerprint(&connection, None).expect("after fingerprint");
         assert_ne!(before, after, "an un-ingested archive delta must change the fingerprint");
 
-        let second =
-            resolve_overview_snapshot(&connection, OverviewBand::Primary, &request, || {
-                build_calls += 1;
-                Ok::<i64, anyhow::Error>(2)
-            })
-            .expect("second resolve");
+        let second = resolve(&connection, &request, 2, &mut build_calls);
         assert_eq!(second, 2, "the snapshot must be rebuilt, not served stale");
         assert_eq!(build_calls, 2);
-    }
-
-    /// The profile-scoped fingerprint folds in only that profile's checkpoint
-    /// watermark, so a sibling profile's rebuild must not invalidate it while a
-    /// change to the scoped profile must.
-    #[test]
-    fn profile_scoped_fingerprint_isolates_its_own_profile() {
-        let connection = open_fingerprint_connection();
-        insert_checkpoint_with_watermark(&connection, "chrome:Default", "visit-derive", 1, 1, 1, 1);
-        let scoped =
-            compute_overview_fingerprint(&connection, Some("chrome:Default")).expect("scoped");
-
-        // A different profile's checkpoint must not move the scoped fingerprint.
-        insert_checkpoint_with_watermark(
-            &connection,
-            "firefox:Default",
-            "visit-derive",
-            9,
-            9,
-            9,
-            9,
-        );
-        let after_sibling = compute_overview_fingerprint(&connection, Some("chrome:Default"))
-            .expect("after sibling");
-        assert_eq!(scoped, after_sibling);
-
-        // But a change to the scoped profile must.
-        connection
-            .execute(
-                "UPDATE core_intelligence_stage_checkpoints SET visible_visit_count = 42
-                 WHERE profile_id = 'chrome:Default'",
-                [],
-            )
-            .expect("bump scoped profile");
-        let after_self =
-            compute_overview_fingerprint(&connection, Some("chrome:Default")).expect("after self");
-        assert_ne!(scoped, after_self);
     }
 
     /// A revert that touches only existing visits leaves `MAX(visits.id)`
@@ -666,73 +471,32 @@ mod tests {
     #[test]
     fn fingerprint_reacts_to_revert_runs_without_new_visits() {
         let connection = open_fingerprint_connection();
-        connection
-            .execute(
-                "INSERT INTO archive.visits (id, url_id, source_profile_id) VALUES (1, 1, 1)",
-                [],
-            )
-            .expect("seed visit");
-        let before = compute_overview_fingerprint(&connection, None).expect("before fingerprint");
+        append_visit(&connection);
+        let before = fingerprint(&connection, None).expect("before fingerprint");
         // A repair/revert run adds no visit row but always records a run.
-        connection
-            .execute("INSERT INTO archive.runs (id, run_type) VALUES (7, 'repair')", [])
-            .expect("insert revert run");
-        let after = compute_overview_fingerprint(&connection, None).expect("after fingerprint");
+        append_run(&connection, 7, "repair");
+        let after = fingerprint(&connection, None).expect("after fingerprint");
         assert_ne!(before, after);
     }
 
-    /// Editing the site dictionary or the search-engine rules reshapes derived
-    /// aggregates without moving any canonical watermark, so each must change
-    /// the fingerprint on its own.
+    /// A snapshot outlives the day it was built on: the fingerprint leaves the
+    /// date out (the parts that depend on today are recomputed when served), and
+    /// two all-time requests asked on different days share it.
     #[test]
-    fn fingerprint_reacts_to_site_dictionary_and_search_rule_edits() {
+    fn fingerprint_outlives_the_day_but_not_the_timezone() {
         let connection = open_fingerprint_connection();
-        let baseline = compute_overview_fingerprint(&connection, None).expect("baseline");
-
-        // load_site_dictionary_signature lazily creates the overrides table; a
-        // row insert must then change the fingerprint.
-        let _ = load_site_dictionary_signature(&connection).expect("ensure overrides table");
-        connection
-            .execute(
-                "INSERT INTO site_dictionary_overrides
-                   (target_kind, target_value, created_at, updated_at)
-                 VALUES ('domain', 'example.com', 'now', 'now')",
-                [],
-            )
-            .expect("insert override");
-        let after_override =
-            compute_overview_fingerprint(&connection, None).expect("after override");
-        assert_ne!(baseline, after_override, "a site-dictionary edit must change the fingerprint");
-
-        connection
-            .execute_batch(
-                "CREATE TABLE search_engine_rules (
-                   id INTEGER PRIMARY KEY,
-                   enabled INTEGER NOT NULL DEFAULT 1,
-                   updated_at TEXT
-                 );
-                 INSERT INTO search_engine_rules (id, enabled, updated_at)
-                 VALUES (1, 1, '2026-06-20T00:00:00Z');",
-            )
-            .expect("create search rules");
-        let after_rule = compute_overview_fingerprint(&connection, None).expect("after rule");
-        assert_ne!(
-            after_override, after_rule,
-            "a search-engine-rule edit must change the fingerprint"
-        );
-    }
-
-    /// The fingerprint must carry the current local date so the date-relative
-    /// "On this day" section forces at least one recompute per local day; a
-    /// mutant that drops the date dimension fails this.
-    #[test]
-    fn fingerprint_embeds_current_local_date() {
-        let connection = open_fingerprint_connection();
-        let fingerprint = compute_overview_fingerprint(&connection, None).expect("fingerprint");
-        let today = Local::now().format("day=%Y-%m-%d").to_string();
-        assert!(
-            fingerprint.contains(&today),
-            "fingerprint must embed today's local date ({today}) but was {fingerprint}"
-        );
+        let fingerprint = fingerprint(&connection, None).expect("fingerprint");
+        assert!(!fingerprint.contains("day="), "{fingerprint} must not hold today's date");
+        // Before any build the zone is the computer's.
+        let zone = super::super::InsightsZone::system();
+        assert!(fingerprint.ends_with(&format!("tz={}", zone.name())), "{fingerprint}");
+        let asked_on = |end: &str| {
+            let request = ScopedDateRangeRequest {
+                date_range: DateRange { start: ALL_TIME_SCOPE_START.into(), end: end.into() },
+                profile_id: None,
+            };
+            connection.read(move |s| request_fingerprint(s, &request)).expect("fingerprint")
+        };
+        assert_eq!(asked_on("2026-10-07"), asked_on("2026-10-08"));
     }
 }

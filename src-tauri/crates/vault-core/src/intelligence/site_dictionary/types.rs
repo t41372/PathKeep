@@ -1,3 +1,4 @@
+//! Failure modes: taxonomy keys fail to round-trip or override targets change their identity.
 //! Data contracts shared by site-dictionary classification and persistence.
 //!
 //! ## Responsibilities

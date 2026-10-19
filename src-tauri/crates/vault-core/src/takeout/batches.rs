@@ -1,272 +1,84 @@
-//! Takeout batch review and rollback helpers.
-//!
-//! ## Responsibilities
-//! - Load import-batch review read models and repair missing audit artifacts.
-//! - Revert/restore imported visibility without deleting canonical audit facts.
-//! - Maintain batch summary JSON and review artifact pointers.
-//!
-//! ## Not responsible for
-//! - Parsing Takeout payloads.
-//! - Executing the main import transaction.
-//! - Persisting source-evidence payload rows.
-//!
-//! ## Dependencies
-//! - Canonical archive helpers from `crate::archive`.
-//! - Audit-repo helpers from `crate::git_audit`.
-//!
-//! ## Performance notes
-//! - Batch review queries are bounded and preview-limited.
-//! - Revert/restore rebuild the search projection after visibility changes so
-//!   recall stays honest.
+//! Responsibilities: retain import provenance and atomically revert/restore visibility.
+//! Not responsible for: parsing, full-text indexing or browser staging.
+//! Failure modes: shared pages disappear, hidden visits retain memberships,
+//! changed-URL walks skip chunk boundaries, active producers race reversal,
+//! outbox errors partially commit,
+//! batch audit/provenance is lost. Tests: batch_search_tests and takeout::tests.
 
-use super::batch_review::{load_import_batch_detail, load_import_batch_record};
-use super::*;
+use super::{batch_review::load_import_batch_detail, *};
+use crate::Vault;
+use vault_store::{Db, Priority, Session, params};
 
-/// Reverts one import batch by hiding its visits from the visible archive surface.
-pub fn revert_import_batch(
-    paths: &ProjectPaths,
-    config: &AppConfig,
-    key: Option<&str>,
-    batch_id: i64,
-) -> Result<ImportBatchDetail> {
-    let mut connection = open_archive_connection(paths, config, key)?;
-    create_schema(&connection)?;
-    let transaction = connection.transaction()?;
-
-    let existing = load_import_batch_record(&transaction, batch_id)?
-        .with_context(|| format!("import batch {batch_id} was not found"))?;
-    if existing.overview.status == "reverted" {
-        drop(transaction);
-        return preview_import_batch(paths, config, key, batch_id);
-    }
-
-    let reverted_at = now_rfc3339();
-    let removed: i64 = transaction.query_row(
-        "SELECT COUNT(*) FROM visits WHERE import_batch_id = ?1 AND reverted_at IS NULL",
-        [batch_id],
-        |row| row.get(0),
-    )?;
-    let rollback_run_id = create_import_revert_run(
-        &transaction,
-        existing.overview.profile_id.as_str(),
+/// Hides one import in resumable chunks without deleting its provenance.
+pub fn revert_import_batch(vault: &Vault, batch_id: i64) -> Result<ImportBatchDetail> {
+    super::visibility::change_visibility(
+        vault,
         batch_id,
-        &reverted_at,
-    )?;
-    transaction.execute(
-        "UPDATE visits
-         SET reverted_at = ?1,
-             reverted_by_run_id = ?2
-         WHERE import_batch_id = ?3
-           AND reverted_at IS NULL",
-        params![reverted_at, rollback_run_id, batch_id],
-    )?;
-    let mut notes = existing.notes.clone();
-    let mut note_details = existing.note_details.clone();
-    let revert_note = TakeoutNote::new(
-        "batch-reverted",
-        format!(
-            "Reverted at {}. Soft-hid {} live history rows from the archive view.",
-            reverted_at, removed
-        ),
+        false,
+        &vault_store::CancelToken::new(),
+        |_| {},
     )
-    .with_count(removed.max(0) as usize)
-    .with_at(reverted_at.clone())
-    .with_run_id(rollback_run_id);
-    notes.push(revert_note.message.clone());
-    note_details.push(revert_note);
-    update_batch_summary(
-        &transaction,
-        BatchSummaryUpdate {
-            batch_id,
-            status: "reverted",
-            imported_items: existing.overview.imported_items,
-            duplicate_items: existing.overview.duplicate_items,
-            candidate_items: existing.overview.candidate_items,
-            recognized_files: &existing.recognized_files,
-            quarantined_files: &existing.quarantined_files,
-            notes: &notes,
-            note_details: &note_details,
-            detected_locale: existing.detected_locale.as_deref(),
-            preview_range_start: existing.preview_range_start.as_deref(),
-            preview_range_end: existing.preview_range_end.as_deref(),
-            reverted_at: Some(reverted_at),
-        },
-    )?;
-    refresh_completed_run_stats(
-        &transaction,
-        rollback_run_id,
-        json!({
-            "importBatchId": batch_id,
-            "softHiddenVisits": removed.max(0),
-        }),
-    )?;
-    transaction.commit()?;
-    let rebuild_warning = rebuild_search_projection(paths, config, key)
-        .err()
-        .map(|error| import_batch_projection_warning("Revert", error));
-
-    ensure_import_batch_audit_artifact(paths, config, key, batch_id, Some("reverted"))?;
-    let mut detail = preview_import_batch(paths, config, key, batch_id)?;
-    append_import_batch_projection_warning(&mut detail, rebuild_warning);
-    Ok(detail)
 }
-
-/// Restores a previously reverted import batch to the visible archive surface.
-pub fn restore_import_batch(
-    paths: &ProjectPaths,
-    config: &AppConfig,
-    key: Option<&str>,
-    batch_id: i64,
-) -> Result<ImportBatchDetail> {
-    let mut connection = open_archive_connection(paths, config, key)?;
-    create_schema(&connection)?;
-    let transaction = connection.transaction()?;
-
-    let existing = load_import_batch_record(&transaction, batch_id)?
-        .with_context(|| format!("import batch {batch_id} was not found"))?;
-    if existing.overview.status != "reverted" {
-        drop(transaction);
-        return preview_import_batch(paths, config, key, batch_id);
-    }
-
-    let restored_at = now_rfc3339();
-    let restored: i64 = transaction.query_row(
-        "SELECT COUNT(*) FROM visits WHERE import_batch_id = ?1 AND reverted_at IS NOT NULL",
-        [batch_id],
-        |row| row.get(0),
-    )?;
-    let restore_run_id = create_import_restore_run(
-        &transaction,
-        existing.overview.profile_id.as_str(),
+/// Restores the batch's original imported, failed or interrupted state.
+pub fn restore_import_batch(vault: &Vault, batch_id: i64) -> Result<ImportBatchDetail> {
+    super::visibility::change_visibility(
+        vault,
         batch_id,
-        &restored_at,
-    )?;
-    transaction.execute(
-        "UPDATE visits
-         SET reverted_at = NULL,
-             reverted_by_run_id = NULL
-         WHERE import_batch_id = ?1
-           AND reverted_at IS NOT NULL",
-        [batch_id],
-    )?;
-    let mut notes = existing.notes.clone();
-    let mut note_details = existing.note_details.clone();
-    let restore_note = TakeoutNote::new(
-        "batch-restored",
-        format!(
-            "Restored at {}. Returned {} hidden history rows to the visible archive view via restore run #{}.",
-            restored_at, restored, restore_run_id
-        ),
+        true,
+        &vault_store::CancelToken::new(),
+        |_| {},
     )
-    .with_count(restored.max(0) as usize)
-    .with_at(restored_at.clone())
-    .with_run_id(restore_run_id);
-    notes.push(restore_note.message.clone());
-    note_details.push(restore_note);
-    update_batch_summary(
-        &transaction,
-        BatchSummaryUpdate {
-            batch_id,
-            status: "imported",
-            imported_items: existing.overview.imported_items,
-            duplicate_items: existing.overview.duplicate_items,
-            candidate_items: existing.overview.candidate_items,
-            recognized_files: &existing.recognized_files,
-            quarantined_files: &existing.quarantined_files,
-            notes: &notes,
-            note_details: &note_details,
-            detected_locale: existing.detected_locale.as_deref(),
-            preview_range_start: existing.preview_range_start.as_deref(),
-            preview_range_end: existing.preview_range_end.as_deref(),
-            reverted_at: None,
-        },
-    )?;
-    transaction
-        .execute("UPDATE import_batches SET reverted_at = NULL WHERE id = ?1", [batch_id])?;
-    refresh_completed_run_stats(
-        &transaction,
-        restore_run_id,
-        json!({
-            "importBatchId": batch_id,
-            "restoredVisits": restored.max(0),
-            "action": "restore",
-        }),
-    )?;
-    transaction.commit()?;
-    let rebuild_warning = rebuild_search_projection(paths, config, key)
-        .err()
-        .map(|error| import_batch_projection_warning("Restore", error));
-
-    ensure_import_batch_audit_artifact(paths, config, key, batch_id, Some("restored"))?;
-    let mut detail = preview_import_batch(paths, config, key, batch_id)?;
-    append_import_batch_projection_warning(&mut detail, rebuild_warning);
-    Ok(detail)
 }
 
-/// Builds the coded note for a revert/restore whose search projection lagged.
-///
-/// `action` names the completed mutation in the English fallback sentence and
-/// picks the matching stable code so the UI can localize each case separately.
-fn import_batch_projection_warning(action: &str, error: anyhow::Error) -> TakeoutNote {
-    let code = if action.eq_ignore_ascii_case("revert") {
-        "batch-revert-projection-rebuild-needed"
-    } else {
-        "batch-restore-projection-rebuild-needed"
-    };
-    TakeoutNote::new(
-        code,
-        format!("{action} completed, but the keyword-recall projection needs a rebuild: {error}"),
-    )
-    .with_diagnostic(format!("{error}"))
+/// Lets a caller stop between committed URL chunks and later resume the same batch.
+pub fn revert_import_batch_with_control(
+    vault: &Vault,
+    batch_id: i64,
+    cancel: &vault_store::CancelToken,
+    progress: impl FnMut(usize),
+) -> Result<ImportBatchDetail> {
+    super::visibility::change_visibility(vault, batch_id, false, cancel, progress)
 }
 
-fn append_import_batch_projection_warning(
-    detail: &mut ImportBatchDetail,
-    warning: Option<TakeoutNote>,
-) {
-    if let Some(warning) = warning {
-        detail.notes.push(warning.message.clone());
-        detail.note_details.push(warning);
-    }
+/// Restores a partial visibility operation with cooperative cancellation.
+pub fn restore_import_batch_with_control(
+    vault: &Vault,
+    batch_id: i64,
+    cancel: &vault_store::CancelToken,
+    progress: impl FnMut(usize),
+) -> Result<ImportBatchDetail> {
+    super::visibility::change_visibility(vault, batch_id, true, cancel, progress)
 }
 
-/// Ensures an import batch has an audit artifact that matches its current state.
 pub(crate) fn ensure_import_batch_audit_artifact(
-    paths: &ProjectPaths,
-    config: &AppConfig,
-    key: Option<&str>,
+    vault: &Vault,
     batch_id: i64,
     action_hint: Option<&str>,
 ) -> Result<(Option<String>, Option<String>)> {
-    let connection = open_archive_connection(paths, config, key)?;
-    create_schema(&connection)?;
-    let detail = load_import_batch_detail(&connection, batch_id)?;
-    if detail
-        .batch
-        .audit_path
-        .as_deref()
-        .is_some_and(|path| !path.trim().is_empty() && Path::new(path).exists())
-    {
-        return Ok((detail.batch.audit_path.clone(), detail.batch.git_commit.clone()));
+    let detail = vault.read(Db::Archive, move |s| load_import_batch_detail(s, batch_id))?;
+    if detail.batch.audit_path.as_deref().is_some_and(|p| Path::new(p).exists()) {
+        return Ok((detail.batch.audit_path, detail.batch.git_commit));
     }
-
-    let action = action_hint.unwrap_or(match detail.batch.status.as_str() {
-        "reverted" => "reverted",
-        _ => "imported",
+    let action = action_hint.unwrap_or(if detail.batch.status == "reverted" {
+        "reverted"
+    } else {
+        "imported"
     });
-    let (audit_path, git_commit) =
-        write_batch_audit_detail(paths, config, batch_id, &detail, action)?;
-    update_batch_audit(&connection, batch_id, Some(audit_path.as_str()), git_commit.as_deref())?;
-    Ok((Some(audit_path), git_commit))
+    let (path, commit) =
+        write_batch_audit_detail(vault.paths(), vault.config(), batch_id, &detail, action)?;
+    let (stored_path, stored_commit) = (path.clone(), commit.clone());
+    vault.write(Db::Archive, Priority::Batch, move |s| {
+        update_batch_audit(s, batch_id, Some(&stored_path), stored_commit.as_deref())
+    })?;
+    Ok((Some(path), commit))
 }
 
-/// Creates the initial running import-batch row before any payload writes begin.
-pub(super) fn create_import_batch(
-    archive: &Transaction<'_>,
+pub(super) fn continue_or_create_takeout_batch(
+    archive: &Session<'_>,
     profile_id: &str,
     request: &TakeoutRequest,
-) -> Result<i64> {
-    create_import_batch_for_source(
+) -> Result<(i64, Option<ContinuedBatch>)> {
+    continue_or_create_import_batch(
         archive,
         ImportBatchSource { source_kind: "takeout", source_path: &request.source_path, profile_id },
     )
@@ -281,7 +93,7 @@ pub(super) struct ImportBatchSource<'a> {
 
 /// Creates the initial running import-batch row for any preview-first import source.
 pub(super) fn create_import_batch_for_source(
-    archive: &Transaction<'_>,
+    archive: &Session<'_>,
     source: ImportBatchSource<'_>,
 ) -> Result<i64> {
     let summary_json = serde_json::to_string(&json!({
@@ -296,9 +108,9 @@ pub(super) fn create_import_batch_for_source(
         "previewRangeStart": null,
         "previewRangeEnd": null,
     }))?;
-    archive.execute(
-        "INSERT INTO import_batches (source_kind, source_path, profile_id, created_at, status, summary_json)
-         VALUES (?1, ?2, ?3, ?4, 'running', ?5)",
+    let id=archive.query_one(
+        "INSERT INTO import_batches (source_kind, source_path, profile_id, created_at, status, summary_json, previous_status)
+         VALUES (?1, ?2, ?3, ?4, 'running', ?5, 'running') RETURNING id",
         params![
             source.source_kind,
             source.source_path,
@@ -306,13 +118,111 @@ pub(super) fn create_import_batch_for_source(
             now_rfc3339(),
             summary_json
         ],
+        |r|Ok(r.get::<i64>(0)?),
     )?;
-    Ok(archive.last_insert_rowid())
+    Ok(id)
+}
+
+/// An interrupted import of the same source that a new run carries on (`continue_or_create`).
+#[derive(Debug, Clone)]
+pub(super) struct ContinuedBatch {
+    /// When the interrupted import began.
+    pub(super) created_at: String,
+    /// What its earlier runs wrote, which this run adds to.
+    pub(super) imported_items: usize,
+    pub(super) same_visit_items: usize,
+}
+
+/// The batch a new import of `source` writes into: the latest import of the same kind and path
+/// that broke off or that the user stopped, carried on so that one import stays one batch (to
+/// undo together), or a new one. An import that finished, or was undone, is never reopened: a run
+/// of the same file then adds a new batch, whose records the earlier one already holds count as
+/// duplicates.
+pub(super) fn continue_or_create_import_batch(
+    archive: &Session<'_>,
+    source: ImportBatchSource<'_>,
+) -> Result<(i64, Option<ContinuedBatch>)> {
+    let unfinished = archive.query(
+        "SELECT id, created_at, summary_json FROM import_batches
+         WHERE source_kind=?1 AND source_path=?2 AND status IN ('interrupted','stopped')
+         ORDER BY id DESC LIMIT 1",
+        params![source.source_kind, source.source_path],
+        |r| Ok((r.get::<i64>(0)?, r.get::<String>(1)?, r.get::<String>(2)?)),
+    )?;
+    let Some((id, created_at, summary)) = unfinished.into_iter().next() else {
+        return Ok((create_import_batch_for_source(archive, source)?, None));
+    };
+    let mut summary: serde_json::Value = serde_json::from_str(&summary)?;
+    let count =
+        |summary: &serde_json::Value, key: &str| summary[key].as_u64().unwrap_or(0) as usize;
+    let (imported_items, same_visit_items) =
+        (count(&summary, "importedItems"), count(&summary, "sameVisitItems"));
+    // This run reads the whole export again, so what it reads and finds elsewhere is counted
+    // afresh; what the earlier run wrote stays counted.
+    summary["candidateItems"] = json!(0);
+    summary["duplicateItems"] = json!(0);
+    archive.execute(
+        "UPDATE import_batches SET status='running', previous_status='running', summary_json=?2
+         WHERE id=?1",
+        params![id, summary.to_string()],
+    )?;
+    Ok((id, Some(ContinuedBatch { created_at, imported_items, same_visit_items })))
+}
+
+/// Ends an import the user stopped, after its run marked it interrupted (`ImportRun`): the batch
+/// is `stopped`, a normal end with what it saved, not an import that broke off and waits to be
+/// finished (those are listed first, `batch_review`). A Takeout export imported again still
+/// carries on in it. Returns what it reports: the counts its batch holds, which every committed
+/// batch of records has added to (`consumer::flush`), since a stop in the middle of a file
+/// leaves the run's own tallies short. `continued_from` is set when it carried on an earlier
+/// run, whose counts the batch includes.
+pub(super) fn stopped_inspection(
+    vault: &crate::Vault,
+    batch_id: i64,
+    source_path: &str,
+    continued_from: Option<String>,
+) -> Result<TakeoutInspection> {
+    vault.write(Db::Archive, Priority::Batch, move |s| {
+        s.execute(
+            "UPDATE import_batches SET status='stopped',previous_status='stopped'
+             WHERE id=?1 AND status='interrupted'",
+            [batch_id],
+        )?;
+        Ok(())
+    })?;
+    let (detail, same_visit_items) = vault.read(Db::Archive, move |s| {
+        let detail = load_import_batch_detail(s, batch_id)?;
+        let summary =
+            s.query_one("SELECT summary_json FROM import_batches WHERE id=?1", [batch_id], |r| {
+                Ok(r.get::<String>(0)?)
+            })?;
+        let summary: serde_json::Value = serde_json::from_str(&summary)?;
+        Ok((detail, summary["sameVisitItems"].as_u64().unwrap_or(0) as usize))
+    })?;
+    Ok(TakeoutInspection {
+        source_path: source_path.to_owned(),
+        candidate_items: detail.batch.candidate_items,
+        imported_items: detail.batch.imported_items,
+        duplicate_items: detail.batch.duplicate_items,
+        same_visit_items,
+        continued_from,
+        stopped: true,
+        preview_entries: detail.preview_entries,
+        recognized_files: detail.recognized_files,
+        quarantined_files: detail.quarantined_files,
+        notes: detail.notes,
+        note_details: detail.note_details,
+        detected_locale: detail.detected_locale,
+        preview_range_start: detail.preview_range_start,
+        preview_range_end: detail.preview_range_end,
+        import_batch: Some(detail.batch),
+        ..TakeoutInspection::default()
+    })
 }
 
 /// Finalizes the import-batch summary after canonical writes complete.
 pub(super) fn finalize_import_batch(
-    archive: &Connection,
+    archive: &Session<'_>,
     batch_id: i64,
     inspection: &TakeoutInspection,
 ) -> Result<()> {
@@ -335,112 +245,14 @@ pub(super) fn finalize_import_batch(
         },
     )?;
     archive.execute(
-        "UPDATE import_batches SET imported_at = ?1 WHERE id = ?2",
+        "UPDATE import_batches SET imported_at = ?1, audit_path=NULL, git_commit=NULL WHERE id = ?2",
         params![now_rfc3339(), batch_id],
     )?;
     Ok(())
 }
 
-/// Creates the rollback ledger row used when an import batch is reverted.
-fn create_import_revert_run(
-    archive: &Transaction<'_>,
-    profile_id: &str,
-    batch_id: i64,
-    started_at: &str,
-) -> Result<i64> {
-    archive.execute(
-        "INSERT INTO runs (
-           run_type,
-           trigger,
-           started_at,
-           finished_at,
-           timezone,
-           status,
-           profile_scope_json,
-           stats_json,
-           warnings_json,
-           error_message,
-           due_only
-         )
-         VALUES (
-           'rollback',
-           'manual',
-           ?1,
-           ?1,
-           'UTC',
-           'success',
-           ?2,
-           ?3,
-           '[]',
-           NULL,
-           0
-         )",
-        params![
-            started_at,
-            serde_json::to_string(&vec![profile_id])?,
-            serde_json::to_string(&json!({ "importBatchId": batch_id }))?,
-        ],
-    )?;
-    Ok(archive.last_insert_rowid())
-}
-
-/// Creates the restore ledger row used when a reverted batch becomes visible again.
-fn create_import_restore_run(
-    archive: &Transaction<'_>,
-    profile_id: &str,
-    batch_id: i64,
-    started_at: &str,
-) -> Result<i64> {
-    archive.execute(
-        "INSERT INTO runs (
-           run_type,
-           trigger,
-           started_at,
-           finished_at,
-           timezone,
-           status,
-           profile_scope_json,
-           stats_json,
-           warnings_json,
-           error_message,
-           due_only
-         )
-         VALUES (
-           'restore',
-           'manual',
-           ?1,
-           ?1,
-           'UTC',
-           'success',
-           ?2,
-           ?3,
-           '[]',
-           NULL,
-           0
-         )",
-        params![
-            started_at,
-            serde_json::to_string(&vec![profile_id])?,
-            serde_json::to_string(&json!({ "importBatchId": batch_id, "action": "restore" }))?,
-        ],
-    )?;
-    Ok(archive.last_insert_rowid())
-}
-
-/// Recomputes completed run stats after a revert/restore action mutates visibility.
-fn refresh_completed_run_stats(archive: &Connection, run_id: i64, stats: Value) -> Result<()> {
-    let stats_json = stats_with_archive_totals(archive, stats)?;
-    archive.execute(
-        "UPDATE runs
-         SET stats_json = ?1
-         WHERE id = ?2",
-        params![serde_json::to_string(&stats_json)?, run_id],
-    )?;
-    Ok(())
-}
-
 /// Updates the import-batch summary JSON and status in one place.
-fn update_batch_summary(archive: &Connection, update: BatchSummaryUpdate<'_>) -> Result<()> {
+fn update_batch_summary(archive: &Session<'_>, update: BatchSummaryUpdate<'_>) -> Result<()> {
     let summary_json = serde_json::to_string(&json!({
         "candidateItems": update.candidate_items,
         "importedItems": update.imported_items,
@@ -454,7 +266,7 @@ fn update_batch_summary(archive: &Connection, update: BatchSummaryUpdate<'_>) ->
         "previewRangeEnd": update.preview_range_end,
     }))?;
     archive.execute(
-        "UPDATE import_batches SET status = ?1, summary_json = ?2, reverted_at = COALESCE(?3, reverted_at) WHERE id = ?4",
+        "UPDATE import_batches SET status = ?1, previous_status = ?1, summary_json = ?2, reverted_at = COALESCE(?3, reverted_at) WHERE id = ?4",
         params![update.status, summary_json, update.reverted_at, update.batch_id],
     )?;
     Ok(())
@@ -486,7 +298,7 @@ fn write_batch_audit_detail(
 
 /// Stores the latest audit artifact pointer for one batch.
 pub(super) fn update_batch_audit(
-    connection: &Connection,
+    connection: &Session<'_>,
     batch_id: i64,
     audit_path: Option<&str>,
     git_commit: Option<&str>,
@@ -499,34 +311,29 @@ pub(super) fn update_batch_audit(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{
-        ImportBatchDetail, append_import_batch_projection_warning, import_batch_projection_warning,
-    };
+#[path = "batch_search_tests.rs"]
+mod search_tests;
 
-    #[test]
-    fn import_batch_projection_warning_names_the_completed_action() {
-        let revert =
-            import_batch_projection_warning("Revert", anyhow::anyhow!("projection offline"));
-        assert_eq!(revert.code, "batch-revert-projection-rebuild-needed");
-        assert!(revert.message.contains("Revert completed"));
-        assert!(revert.message.contains("projection offline"));
-        assert_eq!(revert.diagnostic.as_deref(), Some("projection offline"));
-
-        let restore =
-            import_batch_projection_warning("Restore", anyhow::anyhow!("projection offline"));
-        assert_eq!(restore.code, "batch-restore-projection-rebuild-needed");
-        assert!(restore.message.contains("Restore completed"));
-
-        let mut detail =
-            ImportBatchDetail { notes: vec!["kept".to_string()], ..ImportBatchDetail::default() };
-        append_import_batch_projection_warning(&mut detail, None);
-        assert_eq!(detail.notes.len(), 1);
-        assert!(detail.note_details.is_empty());
-
-        append_import_batch_projection_warning(&mut detail, Some(restore));
-        assert_eq!(detail.notes.len(), 2);
-        assert_eq!(detail.note_details.len(), 1);
-        assert_eq!(detail.note_details[0].code, "batch-restore-projection-rebuild-needed");
-    }
+/// Preserve review evidence on an unsuccessful import without overwriting committed counts.
+pub(super) fn save_partial_review(
+    s: &Session<'_>,
+    batch: i64,
+    inspection: &TakeoutInspection,
+) -> Result<()> {
+    let text =
+        s.query_one("SELECT summary_json FROM import_batches WHERE id=?1", [batch], |r| {
+            Ok(r.get::<String>(0)?)
+        })?;
+    let mut summary: Value = serde_json::from_str(&text)?;
+    summary["recognizedFiles"] = serde_json::to_value(&inspection.recognized_files)?;
+    summary["quarantinedFiles"] = serde_json::to_value(&inspection.quarantined_files)?;
+    summary["notes"] = serde_json::to_value(&inspection.notes)?;
+    summary["noteDetails"] = serde_json::to_value(&inspection.note_details)?;
+    summary["previewRangeStart"] = json!(inspection.preview_range_start);
+    summary["previewRangeEnd"] = json!(inspection.preview_range_end);
+    s.execute(
+        "UPDATE import_batches SET summary_json=?2 WHERE id=?1",
+        params![batch, summary.to_string()],
+    )?;
+    Ok(())
 }

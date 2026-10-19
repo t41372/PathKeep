@@ -1,7 +1,7 @@
 /**
  * @file semantic-setup.ts
  * @description Orchestrates the real, background local-semantic-search opt-in: ensure the on-device
- *              embedding model is present, then enqueue a full index build.
+ *              embedding model is present, then enqueue an index build for what is not indexed yet.
  * @module lib/ipc/semantic-setup
  *
  * ## Responsibilities
@@ -30,7 +30,7 @@
  * - `./model-download` for the progress subscription + the shared in-flight latch.
  */
 
-import { backend } from '../backend-client'
+import { intelligenceClient } from '../backend-client/intelligence'
 import {
   markModelDownloadSettled,
   markModelDownloadStarted,
@@ -50,7 +50,8 @@ export const MODEL_DOWNLOAD_IDLE_TIMEOUT_MS = 120_000
 
 /**
  * Enables local semantic search in the background: ensures the on-device static embedding model is
- * downloaded/verified, THEN enqueues a full index build (which surfaces in the ambient task bar).
+ * downloaded/verified, THEN enqueues an index build that reads every visit not indexed yet. It never
+ * wipes an index already there: turning semantic search off and on again continues it.
  *
  * Fire-and-forget friendly: the caller invokes it with `void`; it never blocks the UI. Errors are NOT
  * swallowed here — they propagate so the caller can decide (the onboarding shell action swallows, and
@@ -58,10 +59,11 @@ export const MODEL_DOWNLOAD_IDLE_TIMEOUT_MS = 120_000
  */
 export async function runLocalSemanticSetup(): Promise<void> {
   await ensureStaticModelDownloaded()
-  await backend.buildAiIndex({
-    fullRebuild: true,
+  // `incremental`: every visit the index lacks. `full` would wipe it first.
+  await intelligenceClient.buildIndex({
+    fullRebuild: false,
     clearOnly: false,
-    scope: 'full',
+    scope: 'incremental',
   })
 }
 
@@ -140,13 +142,15 @@ async function ensureStaticModelDownloaded(): Promise<void> {
     // The command spawns a background thread and returns immediately; the real terminal outcome still
     // arrives on the channel. A command-level rejection is itself terminal, so route it through the
     // same single-settle latch.
-    backend.downloadStaticEmbeddingModel().catch((error: unknown) => {
-      settle(() =>
-        rejectDownload(
-          error instanceof Error ? error : new Error(String(error)),
-        ),
-      )
-    })
+    intelligenceClient
+      .downloadStaticEmbeddingModel()
+      .catch((error: unknown) => {
+        settle(() =>
+          rejectDownload(
+            error instanceof Error ? error : new Error(String(error)),
+          ),
+        )
+      })
   }
 
   try {

@@ -24,9 +24,8 @@
 
 1. [`../features/core-intelligence-ultimate-design.md`](../features/core-intelligence-ultimate-design.md)
 2. 這份文件
-3. [`core-intelligence-handoff.md`](core-intelligence-handoff.md)
-4. [`../features/intelligence-current-state.md`](../features/intelligence-current-state.md)
-5. [`../design/screens-and-nav.md`](../design/screens-and-nav.md)
+3. [`../features/intelligence-current-state.md`](../features/intelligence-current-state.md)
+4. [`../design/screens-and-nav.md`](../design/screens-and-nav.md)
 
 ### 繼續後端時再讀
 
@@ -125,7 +124,7 @@
   - shell / onboarding / lock / diagnostics 現在都支援 compact `version · short-sha[+]` build label，dirty worktree 會在 short SHA 後面加 `+`
   - 但這台主機 fresh `bun run desktop:dev` restart 仍然可能顯示舊的 generic dashboard copy 與不帶 SHA 的 shell chrome；如果再次看到這種 screenshot，優先懷疑 current-host stale WebView / bundle cache drift，而不是直接回滾剛 landed 的 source 修補
 - 2026-04-20 desktop truth closeout：
-  - 重打 current-host release `.app`（`bunx tauri build --bundles app --no-sign`）後，live desktop 終於和 source 對齊：chrome 顯示 `6412ad59+`，`/intelligence` 不再外露 raw glyph ids，而 domain deep-dive `打開網域證據` 也會正確導向 `#/explorer?...`
+  - 重打 current-host release `.app`（`bunx tauri build --bundles app --no-sign`）後，live desktop 終於和 source 對齊：chrome 顯示當前 build label，`/intelligence` 不再外露 raw glyph ids，而 domain deep-dive `打開網域證據` 也會正確導向 `#/explorer?...`
   - rebuilt bundle 重新建出一份空 app root，所以真實 re-import 直接在這個新 bundle 上重跑：Chrome `Yi-Ting`、archive encryption `000000`、不寫入鑰匙圈；目前 `config.json` 已記錄 `rememberDatabaseKeyInKeyring: false`，Dashboard 也載入 `64,498` visits / `35,110` URLs
   - `WORK-CI-N` 現在已完成；Core Intelligence 現行 follow-up 不再是 desktop truth repair，而是回到 M13 reuse audit 與未來 optional profiling / external-host 工作
 - 2026-04-18 backend closeout：
@@ -181,8 +180,7 @@
   - `BACKLOG.md`
   - `README.md`
   - `program/traceability-map.md`
-  - `core-intelligence-handoff.md`
-- 後續只要 frontend/backend 的完成度再變動，必須先更新這份文件和 handoff，再更新 code-closeout 敘事；不要讓 planning truth 再次落後於實作。
+- 後續只要 frontend/backend 的完成度再變動，必須先更新這份文件，再更新 code-closeout 敘事；不要讓 planning truth 再次落後於實作。
 
 ---
 
@@ -194,7 +192,6 @@
 
 1. [`../features/core-intelligence-ultimate-design.md`](../features/core-intelligence-ultimate-design.md)
 2. 這份文件
-3. [`core-intelligence-handoff.md`](core-intelligence-handoff.md)
 
 然後直接從這兩條 residual work 挑第一個還值得做的 backend follow-up：
 
@@ -209,8 +206,7 @@
 
 1. [`../features/core-intelligence-ultimate-design.md`](../features/core-intelligence-ultimate-design.md)
 2. 這份文件
-3. [`core-intelligence-handoff.md`](core-intelligence-handoff.md)
-4. [`../design/screens-and-nav.md`](../design/screens-and-nav.md)
+3. [`../design/screens-and-nav.md`](../design/screens-and-nav.md)
 
 然後優先做：
 

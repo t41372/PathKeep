@@ -29,27 +29,23 @@
 
 ## 品質標準
 
-### 測試覆蓋
+### 測試
 
-- 最終標準：
-  - Rust 側：100% test coverage + integration test；whole-workspace mutation 保留為 deep/manual gate。
-  - JS/TS 側：100% statement/branch/function/line coverage + desktop-contract mutation gate；full frontend mutation 保留為 deep/manual gate。
-- E2E：Playwright spec 覆蓋關鍵用戶流程。
+- E2E 是證明功能的主要手段（甚至是唯一手段），跑在真實 app 上：Rust 後端 + 前端 + Playwright。不跑 mutation test，也不強制覆蓋率門檻。原則見 [AGENTS.md](../AGENTS.md)。
+- 每個 E2E run 都留下可驗證、可重複的 artifact（HTML report、`results.json`、trace / screenshot），位置 `artifacts/e2e/<config>/`。
+- Rust 側保留 `cargo test`，用於 E2E 碰不到的失敗模式（例如 crash window）。
+- 不在寫完代碼後補 unit test；真的需要隔離測試時，先列出所有可能的失敗方式，再寫代碼。
 
-### 目前的 blocking / release gate（2026-04-27，per-commit checker baseline）
+### 目前的 blocking / release gate
 
 - 現行 gate 以 [docs/plan/program/quality-matrix.md](plan/program/quality-matrix.md) 為準。
-- mainline blocking path 是 `bun run check`，它必須內含 `check:base`、100% JS/Rust coverage、browser build、browser-preview e2e、desktop-bridge truth gate、以及 desktop-contract JS mutation。
-- `bun run coverage:js` 以 active `src/**/*.{ts,tsx}` runtime source 為範圍；只允許排除 tests、fixtures、assets、generated/type-only files、以及已證明不是 runtime surface 的 reference-only files。
-- `bun run coverage:rust` 以 full `src-tauri/**/src/*.rs` workspace source 為範圍，要求 100% line + function coverage。
-- `bun run mutation:js:full` 與 `bun run mutation:rust:full` 是 long-running deep gates；surviving mutant 只能用補測、修產品碼、或 narrow equivalent/inapplicable exclusion + doc note 處理。
-- `check:base`、Rust quality slice、full mutation sweeps 等 focused/deep commands 只作 triage helper，不能替代 signed-off checker。
+- mainline blocking path 是 `bun run check`：format、lint、i18n、typecheck、build、Rust fmt / clippy / test、release-config 檢查、desktop-bridge E2E。
+- `bun run check:slow`（supply-chain audit、host-matched platform 測試）與 `bun run verify`（`check` + debug desktop build）用於 release 前。
 - release / platform / support 變更除了跑命令，還必須同步維護 `README.md`、`RELEASE.md`、`TESTING.md`、`TROUBLESHOOTING.md`、`SUPPORT.md` 與對應的 `docs/` source docs，不能把 operator contract 留在聊天記錄裡。
-- 所有**新建**或**整段重寫**的模組，必須有 colocated tests，並讓該 slice 達到 100% coverage + mutation verification。
-- browser preview e2e 只代表 preview shell smoke；不等於完整 desktop / worker / filesystem / keyring acceptance。
-- route / feature 大改時，除了 unit / contract test，也要補至少一輪 keyboard / locale smoke review，尤其是設定、排程、安全、導入等高風險頁面。
+- desktop-bridge E2E 不等於完整 Tauri WebView / keyring / scheduler 驗收；那些由 `check:platform` 與真實主機驗收承接。
+- route / feature 大改時，要補至少一輪 keyboard / locale smoke review，尤其是設定、排程、安全、導入等高風險頁面。
 - 驗證舊產品假設的測試應直接刪除或重寫，不保留作長期 legacy harness。
-- 不接受把「目前 typecheck 會紅」「先關掉 coverage 再說」寫成完成狀態；即使 deep checks 分層執行，也不代表可以接受失真的驗收敘事。
+- 不接受把「目前 typecheck 會紅」「先跳過 E2E 再說」寫成完成狀態。
 
 ### 代碼品質
 
@@ -60,12 +56,11 @@
 ### CI/CD
 
 - GitHub Actions：
-  - `CI` workflow（PR + manual）直接執行 `bun run check`，並安裝 cargo coverage tools、Playwright browser、以及 Linux desktop/native dependencies。
-  - `Mutation` workflow 保留 scheduled / manual entrypoint，跑 full JS/Rust mutation deep sweep，不等同每次 commit 的 `bun run check`。
+  - `CI` workflow（PR + manual）直接執行 `bun run check`，安裝 Playwright browser 與 Linux desktop/native dependencies，另跑 `check:supply-chain`，並上傳 `artifacts/e2e/` 為 `e2e-artifacts`。
   - `Platform Native` workflow 可保留作 host-sensitive triage / parity，但不能替代 `CI` 的 strict checker。
 - Release pipeline：多平台構建 + 自動產出安裝檔。
 - Release pipeline 要做 version-sync preflight，並產出 checksum 與 release manifest，避免 tag / artifact / repo version 漂移。
-- README badges 顯示 CI 狀態、coverage。
+- README badges 顯示 CI 狀態。
 
 ## 支援與診斷
 

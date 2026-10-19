@@ -8,7 +8,6 @@
  * Main declarations:
  * - `KeyringStatusReport`
  * - `RekeyRequest`
- * - `SecurityStatus`
  * - `RekeyPreview`
  *
  * Source-of-truth notes:
@@ -37,33 +36,13 @@ export interface KeyringStatusReport {
 export interface RekeyRequest {
   newMode: ArchiveMode
   newKey?: string | null
-}
-
-/**
- * Represents a read model or status snapshot for security.
- *
- * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
- */
-export interface SecurityStatus {
-  initialized: boolean
-  mode: string
-  encrypted: boolean
-  unlocked: boolean
-  databasePath: string
-  strongholdPath: string
-  rememberDatabaseKeyInKeyring: boolean
-  lastSuccessfulBackupAt?: string | null
-  lastRekeyAt?: string | null
-  lastRekeyRunId?: number | null
-  lastRekeySnapshotPath?: string | null
-  keyringStatus: KeyringStatusReport
-  /** Diagnostic English prose; only rendered when a code has no catalog entry. */
-  warnings: string[]
   /**
-   * Stable warning codes aligned index-for-index with `warnings`. An entry is
-   * `''` when the backend is passing an opaque diagnostic through.
+   * The archive's current password. The backend refuses to change the
+   * password of, or decrypt, an encrypted archive without it
+   * (`archive-password-required` / `archive-password-wrong`); a plaintext
+   * archive has none, so encrypting one leaves it out.
    */
-  warningCodes?: string[]
+  currentKey?: string | null
 }
 
 /**
@@ -93,9 +72,8 @@ export interface RekeyPreview {
   /** Diagnostic English prose; only rendered when a code has no catalog entry. */
   warnings: string[]
   /**
-   * Stable warning codes aligned index-for-index with `warnings`, mirroring
-   * `SecurityStatus.warningCodes`. An entry is `''` when the backend is passing
-   * an opaque diagnostic through.
+   * Stable warning codes aligned index-for-index with `warnings`. An entry is
+   * `''` when the backend is passing an opaque diagnostic through.
    */
   warningCodes?: string[]
 }

@@ -2,6 +2,7 @@
 name = "browser-history-parser"
 version = "0.1.0"
 edition = "2024"
+publish = false
 license.workspace = true
 
 [dependencies]
@@ -12,8 +13,10 @@ serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 thiserror.workspace = true
-walkdir.workspace = true
+# My Activity wraps visited pages in a Google redirect (`takeout/my_activity.rs`).
+url.workspace = true
 zip.workspace = true
 
 [dev-dependencies]
+browser-history-fixtures = { path = "../browser-history-fixtures" }
 tempfile.workspace = true

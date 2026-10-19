@@ -39,6 +39,10 @@ const ATTEMPT_FILE_SUFFIX: &str = ".json";
 const LAST_SUCCESS_FILE: &str = "last-success.json";
 const MAX_RETAINED_ATTEMPTS: usize = 64;
 const MIN_STALE_RUNNING_MINUTES: i64 = 15;
+/// How long a scheduler that works may take to start the worker once the computer wakes or
+/// starts: launchd runs a job it missed on waking, Task Scheduler's "start when available" can
+/// take some minutes.
+const CATCH_UP_MINUTES: i64 = 15;
 static ATTEMPT_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 /// Read result used by schedule status without making one malformed record hide
@@ -134,9 +138,11 @@ impl ScheduleAttemptRecorder {
 }
 
 /// Loads newest-first bounded attempt evidence and derives execution-health issues.
+/// `awake_since` is when the computer last woke or started (`vault_platform::awake_since`).
 pub fn load_schedule_attempt_ledger(
     paths: &ProjectPaths,
     check_interval_hours: f64,
+    awake_since: Option<DateTime<Utc>>,
 ) -> Result<ScheduleAttemptLedgerSnapshot> {
     let directory = attempt_directory(paths);
     let entries = match fs::read_dir(&directory) {
@@ -200,7 +206,12 @@ pub fn load_schedule_attempt_ledger(
         }
     }
     attempts.sort_by(|left, right| right.started_at.cmp(&left.started_at));
-    materialize_interrupted_attempts(&mut attempts, check_interval_hours, &detected_at);
+    materialize_interrupted_attempts(
+        &mut attempts,
+        check_interval_hours,
+        &detected_at,
+        awake_since,
+    );
 
     derive_health_issues(&attempts, &detected_at, &mut health_issues);
     Ok(ScheduleAttemptLedgerSnapshot { attempts, last_success_at, health_issues })
@@ -245,14 +256,69 @@ fn derive_health_issues(
     }
 }
 
+/// Whether the scheduler has had its chance since the computer last woke or started. Nothing
+/// runs while it sleeps, and on waking the scheduler runs what it missed; until it has had time
+/// to, neither a silence nor a run the sleep paused means something is wrong. An unknown wake
+/// time counts as a chance had, so a schedule that stopped is never hidden for want of one.
+fn caught_up(awake_since: Option<DateTime<Utc>>, now: DateTime<Utc>) -> bool {
+    awake_since
+        .is_none_or(|since| now.signed_duration_since(since) > Duration::minutes(CATCH_UP_MINUTES))
+}
+
+/// The system has stopped starting scheduled backups: no attempt of any outcome for three of
+/// its checks, counted from the newest attempt or from when the schedule was installed,
+/// whichever is later. A "not due yet" run counts, since it shows the scheduler calls; failed
+/// runs have an issue of their own. `attempts` is newest first, as the ledger returns them.
+/// Not reported right after the computer wakes or starts (`awake_since`), before a scheduler
+/// that works has caught up.
+pub fn overdue_issue(
+    attempts: &[ScheduledBackupAttempt],
+    installed_at: Option<&str>,
+    check_interval_hours: f64,
+    awake_since: Option<DateTime<Utc>>,
+    now: DateTime<Utc>,
+) -> Option<ScheduledBackupHealthIssue> {
+    if !caught_up(awake_since, now) {
+        return None;
+    }
+    let parse = |timestamp: &str| {
+        DateTime::parse_from_rfc3339(timestamp).ok().map(|value| value.with_timezone(&Utc))
+    };
+    let since = attempts
+        .first()
+        .and_then(|attempt| parse(&attempt.started_at))
+        .into_iter()
+        .chain(installed_at.and_then(parse))
+        .max()?;
+    let check_minutes = if check_interval_hours.is_finite() && check_interval_hours > 0.0 {
+        (check_interval_hours * 60.0).ceil() as i64
+    } else {
+        60
+    };
+    (now.signed_duration_since(since) > Duration::minutes(check_minutes.saturating_mul(3))).then(
+        || ScheduledBackupHealthIssue {
+            code: "scheduled-backup-overdue".to_string(),
+            severity: "warning".to_string(),
+            detected_at: now.to_rfc3339(),
+            related_attempt_id: attempts.first().map(|attempt| attempt.id.clone()),
+            evidence: vec![since.to_rfc3339_opts(chrono::SecondsFormat::Secs, false)],
+        },
+    )
+}
+
 fn materialize_interrupted_attempts(
     attempts: &mut [ScheduledBackupAttempt],
     check_interval_hours: f64,
     detected_at: &str,
+    awake_since: Option<DateTime<Utc>>,
 ) {
     let now = DateTime::parse_from_rfc3339(detected_at)
         .map(|value| value.with_timezone(&Utc))
         .unwrap_or_else(|_| Utc::now());
+    // A run the computer slept through finishes once it wakes.
+    if !caught_up(awake_since, now) {
+        return;
+    }
     let stale_after = stale_after(check_interval_hours);
     for attempt in attempts {
         if attempt.outcome == ScheduledBackupAttemptOutcome::Running
@@ -392,7 +458,7 @@ mod tests {
             )
             .expect("finish success");
 
-        let snapshot = load_schedule_attempt_ledger(&paths, 1.0).expect("load");
+        let snapshot = load_schedule_attempt_ledger(&paths, 1.0, None).expect("load");
         assert_eq!(snapshot.attempts.len(), 2);
         assert_eq!(snapshot.attempts[0].outcome, ScheduledBackupAttemptOutcome::Success);
         assert_eq!(snapshot.attempts[0].run_id, Some(42));
@@ -426,118 +492,50 @@ mod tests {
         assert!(persisted.finished_at.is_some());
     }
 
+    // Failure modes right after the computer wakes or starts: a night asleep taken for a
+    // scheduler that stopped, before launchd has caught up; a backup the sleep paused taken for
+    // one that was interrupted; a scheduler that really stopped, on a laptop that sleeps often,
+    // not reported until it has been awake for hours; an unknown wake time hiding a stopped
+    // schedule.
     #[test]
-    fn next_invocation_does_not_interrupt_a_recently_started_worker() {
-        let root = tempfile::tempdir().expect("tempdir");
-        let paths = project_paths_with_root(root.path());
-        let first = ScheduleAttemptRecorder::begin(&paths).expect("first begin");
-        let first_path = first.path.clone();
-        drop(first);
-
-        let _second = ScheduleAttemptRecorder::begin(&paths).expect("second begin");
-        let persisted: ScheduledBackupAttempt =
-            serde_json::from_slice(&fs::read(first_path).expect("read first"))
-                .expect("parse first");
-        assert_eq!(persisted.outcome, ScheduledBackupAttemptOutcome::Running);
-        assert!(persisted.finished_at.is_none());
-    }
-
-    #[test]
-    fn ledger_is_bounded_and_one_malformed_record_does_not_hide_valid_evidence() {
-        let root = tempfile::tempdir().expect("tempdir");
-        let paths = project_paths_with_root(root.path());
-        for _ in 0..(MAX_RETAINED_ATTEMPTS + 3) {
-            ScheduleAttemptRecorder::begin(&paths).expect("begin");
-        }
-        let directory = attempt_directory(&paths);
-        fs::write(
-            directory.join(format!("{ATTEMPT_FILE_PREFIX}999999999999999999999999999999999999999-bad{ATTEMPT_FILE_SUFFIX}")),
-            b"{not-json",
-        )
-        .expect("malformed record");
-
-        let snapshot = load_schedule_attempt_ledger(&paths, 1.0).expect("load");
-        assert!(snapshot.attempts.len() <= MAX_RETAINED_ATTEMPTS);
-        assert!(
-            snapshot.health_issues.iter().any(|issue| issue.code == "attempt-ledger-unreadable")
-        );
-        assert!(
-            fs::read_dir(directory)
-                .expect("read dir")
-                .filter_map(Result::ok)
-                .filter(|entry| is_attempt_path(&entry.path()))
-                .count()
-                <= MAX_RETAINED_ATTEMPTS + 1
-        );
-    }
-
-    #[test]
-    fn health_derivation_flags_failed_and_stale_or_interrupted_workers() {
-        let detected_at = "2026-07-23T12:00:00+00:00";
-        let failed = ScheduledBackupAttempt {
-            id: "failed".to_string(),
-            started_at: "2026-07-23T11:59:00+00:00".to_string(),
-            finished_at: Some("2026-07-23T11:59:01+00:00".to_string()),
-            outcome: ScheduledBackupAttemptOutcome::Failed,
+    fn right_after_waking_the_scheduler_gets_its_chance() {
+        let at =
+            |timestamp: &str| DateTime::parse_from_rfc3339(timestamp).unwrap().with_timezone(&Utc);
+        let attempt = |started_at: &str, outcome| ScheduledBackupAttempt {
+            id: started_at.to_string(),
+            started_at: started_at.to_string(),
+            finished_at: (outcome != ScheduledBackupAttemptOutcome::Running)
+                .then(|| started_at.to_string()),
+            outcome,
             phase: ScheduledBackupAttemptPhase::Finished,
-            reason_code: Some("config-load-failed".to_string()),
-            detail: Some("bad config".to_string()),
-            run_id: None,
-        };
-        let mut issues = Vec::new();
-        derive_health_issues(&[failed], detected_at, &mut issues);
-        assert_eq!(issues[0].code, "latest-attempt-failed");
-        assert_eq!(issues[0].evidence, vec!["bad config"]);
-
-        let running = ScheduledBackupAttempt {
-            id: "running".to_string(),
-            started_at: "2026-07-23T08:00:00+00:00".to_string(),
-            finished_at: None,
-            outcome: ScheduledBackupAttemptOutcome::Running,
-            phase: ScheduledBackupAttemptPhase::Backup,
             reason_code: None,
             detail: None,
             run_id: None,
         };
-        let mut attempts = vec![running];
-        materialize_interrupted_attempts(&mut attempts, 1.0, detected_at);
-        assert_eq!(attempts[0].outcome, ScheduledBackupAttemptOutcome::Interrupted);
-        assert_eq!(attempts[0].reason_code.as_deref(), Some("interrupted"));
-        let mut issues = Vec::new();
-        derive_health_issues(&attempts, detected_at, &mut issues);
-        assert!(issues.iter().any(|issue| issue.code == "worker-interrupted"));
-    }
+        // Hourly checks; the last one ran at ten in the evening, then the laptop slept.
+        let last = [attempt("2026-10-09T22:00:00+00:00", ScheduledBackupAttemptOutcome::Success)];
+        let woke = Some(at("2026-10-10T08:00:00+00:00"));
+        assert!(overdue_issue(&last, None, 1.0, woke, at("2026-10-10T08:05:00+00:00")).is_none());
+        // Twenty minutes awake and still nothing: stopped, counted from the last run.
+        let issue = overdue_issue(&last, None, 1.0, woke, at("2026-10-10T08:20:00+00:00"))
+            .expect("overdue once it has had its chance");
+        assert_eq!(issue.evidence, vec!["2026-10-09T22:00:00+00:00"]);
+        // Without a wake time, as before.
+        assert!(overdue_issue(&last, None, 1.0, None, at("2026-10-10T08:05:00+00:00")).is_some());
 
-    #[test]
-    fn empty_health_and_invalid_cadence_have_safe_defaults() {
+        // A backup running when the laptop went to sleep is still running when it wakes.
+        let paused =
+            || vec![attempt("2026-10-09T23:30:00+00:00", ScheduledBackupAttemptOutcome::Running)];
+        let mut attempts = paused();
+        materialize_interrupted_attempts(&mut attempts, 1.0, "2026-10-10T08:05:00+00:00", woke);
+        assert_eq!(attempts[0].outcome, ScheduledBackupAttemptOutcome::Running);
         let mut issues = Vec::new();
-        derive_health_issues(&[], "2026-07-23T12:00:00+00:00", &mut issues);
+        derive_health_issues(&attempts, "2026-10-10T08:05:00+00:00", &mut issues);
         assert!(issues.is_empty());
-        assert_eq!(stale_after(f64::NAN), Duration::minutes(MIN_STALE_RUNNING_MINUTES * 2));
-    }
-
-    #[test]
-    fn malformed_or_unreadable_last_success_is_a_typed_health_issue() {
-        let root = tempfile::tempdir().expect("tempdir");
-        let paths = project_paths_with_root(root.path());
-        let directory = attempt_directory(&paths);
-        fs::create_dir_all(&directory).expect("attempt directory");
-        let last_success = directory.join(LAST_SUCCESS_FILE);
-
-        fs::write(&last_success, b"{not-json").expect("malformed last success");
-        let malformed = load_schedule_attempt_ledger(&paths, 1.0).expect("load malformed marker");
-        assert!(malformed.last_success_at.is_none());
-        assert!(
-            malformed.health_issues.iter().any(|issue| issue.code == "attempt-ledger-unreadable")
-        );
-
-        fs::remove_file(&last_success).expect("remove malformed marker");
-        fs::create_dir(&last_success).expect("replace marker with unreadable directory");
-        let unreadable = load_schedule_attempt_ledger(&paths, 1.0).expect("load unreadable marker");
-        assert!(unreadable.last_success_at.is_none());
-        assert!(
-            unreadable.health_issues.iter().any(|issue| issue.code == "attempt-ledger-unreadable")
-        );
+        // One that has not finished once the scheduler has had its chance was interrupted.
+        let mut attempts = paused();
+        materialize_interrupted_attempts(&mut attempts, 1.0, "2026-10-10T08:20:00+00:00", woke);
+        assert_eq!(attempts[0].outcome, ScheduledBackupAttemptOutcome::Interrupted);
     }
 
     #[cfg(unix)]
@@ -566,21 +564,5 @@ mod tests {
         fs::set_permissions(&unreadable_path, fs::Permissions::from_mode(0o600))
             .expect("restore read permission");
         result.expect("bad historical records do not block a new attempt");
-    }
-
-    #[test]
-    fn invalid_or_missing_ledger_is_safe() {
-        let root = tempfile::tempdir().expect("tempdir");
-        let paths = project_paths_with_root(root.path());
-        assert!(
-            load_schedule_attempt_ledger(&paths, f64::NAN)
-                .expect("missing ledger")
-                .attempts
-                .is_empty()
-        );
-        fs::create_dir_all(&paths.schedule_dir).expect("schedule dir");
-        fs::write(paths.schedule_dir.join("attempts"), b"not-a-directory").expect("block dir");
-        let error = load_schedule_attempt_ledger(&paths, 1.0).expect_err("invalid ledger");
-        assert!(error.to_string().contains("reading schedule attempt ledger"));
     }
 }

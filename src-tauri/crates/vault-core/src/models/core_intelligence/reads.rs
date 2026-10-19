@@ -56,6 +56,26 @@ pub struct EngineRanking {
     pub search_engine: String,
     pub display_name: Option<String>,
     pub search_count: i64,
+    /// The site its searches are on (the host of its search rule), so the engine can be shown
+    /// with that site's icon. None for an engine no rule names any more.
+    #[serde(default)]
+    pub site: Option<String>,
+}
+
+/// One query the user searched for, counted over a date range.
+///
+/// Exists because query families carry all-time member counts; Insights needs counts that add up
+/// to no more than the "Searches" figure for the same range.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct FrequentSearch {
+    /// The most recent spelling the user typed, for display and for searching History.
+    pub query: String,
+    /// The grouping key: lower-cased, whitespace-collapsed query text.
+    pub normalized_query: String,
+    /// Keyword searches for this query inside the range, across every search engine.
+    pub search_count: i64,
+    pub last_searched_at: String,
 }
 
 /// Search term aggregate used by top-concept surfaces.
@@ -94,7 +114,8 @@ pub struct SearchQueryRow {
 pub struct SearchQueryListResult {
     pub rows: Vec<SearchQueryRow>,
     pub total: i64,
-    pub page: u32,
+    #[serde(default)]
+    pub next_cursor: Option<String>,
     pub page_size: u32,
 }
 
@@ -133,7 +154,7 @@ pub struct QueryFamily {
 pub struct QueryFamilyResult {
     pub families: Vec<QueryFamily>,
     pub total: i64,
-    pub page: u32,
+    pub next_cursor: Option<String>,
     pub page_size: u32,
 }
 
@@ -142,13 +163,21 @@ pub struct QueryFamilyResult {
 #[serde(rename_all = "camelCase")]
 pub struct QueryFamilyDetail {
     pub family: QueryFamily,
-    pub related_trails: Vec<TrailSummary>,
+    pub related_trails: crate::models::IntelligencePage<TrailSummary>,
 }
 
 /// Refind-page row summarizing cross-day reuse of one canonical URL.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct RefindPage {
+    /// The browser profile this row was scored in. Re-find scores are kept
+    /// per profile: the same page re-found in two browsers is two rows.
+    #[serde(default)]
+    pub profile_id: String,
+    /// How many profiles re-found this page. Archive-wide lists keep one row
+    /// per page (the highest score) and report the rest here.
+    #[serde(default = "one")]
+    pub profile_count: i64,
     pub canonical_url: String,
     pub url: String,
     pub title: Option<String>,
@@ -160,6 +189,10 @@ pub struct RefindPage {
     pub refind_score: f32,
     pub first_seen_at: String,
     pub last_seen_at: String,
+}
+
+fn one() -> i64 {
+    1
 }
 
 /// One factor contributing to a refind score explanation.
@@ -176,6 +209,8 @@ pub struct RefindScoreFactor {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct RefindExplanation {
+    pub profile_id: String,
+    pub visit_ids_next_cursor: Option<String>,
     pub canonical_url: String,
     pub refind_score: f32,
     pub factors: Vec<RefindScoreFactor>,
@@ -189,7 +224,7 @@ pub struct RefindPageDetail {
     pub page: RefindPage,
     pub explanation: RefindExplanation,
     pub recent_days: Vec<String>,
-    pub related_trails: Vec<TrailSummary>,
+    pub related_trails: crate::models::IntelligencePage<TrailSummary>,
 }
 
 /// Session summary row used by session lists and related-detail surfaces.
@@ -212,7 +247,7 @@ pub struct SessionSummary {
 pub struct SessionListResult {
     pub sessions: Vec<SessionSummary>,
     pub total: i64,
-    pub page: u32,
+    pub next_cursor: Option<String>,
     pub page_size: u32,
 }
 
@@ -246,6 +281,8 @@ pub struct TrailSummary {
     pub landing_domain: Option<String>,
     pub first_visit_ms: i64,
     pub last_visit_ms: i64,
+    /// The pages the search opened: its landing and the pages after it, not its rewordings
+    /// (`visit_count` counts those too).
     pub max_depth: i64,
     pub queries: Vec<String>,
 }
@@ -254,6 +291,8 @@ pub struct TrailSummary {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionDetail {
+    pub visits_next_cursor: Option<String>,
+    pub trails_next_cursor: Option<String>,
     pub session: SessionSummary,
     pub visits: Vec<SessionVisit>,
     pub trails: Vec<TrailSummary>,
@@ -265,7 +304,7 @@ pub struct SessionDetail {
 pub struct TrailListResult {
     pub trails: Vec<TrailSummary>,
     pub total: i64,
-    pub page: u32,
+    pub next_cursor: Option<String>,
     pub page_size: u32,
 }
 
@@ -289,6 +328,7 @@ pub struct TrailMember {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct TrailDetail {
+    pub members_next_cursor: Option<String>,
     pub trail: TrailSummary,
     pub members: Vec<TrailMember>,
 }

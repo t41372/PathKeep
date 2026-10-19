@@ -28,7 +28,8 @@ use browser_history_parser::{
     ChromiumReadCursor, HistoryBatchConsumer, HistoryDatabaseSet, StreamHistoryError,
     StreamedHistory, chromium, firefox, safari,
 };
-use rusqlite::{MAIN_DB, OpenFlags};
+use rusqlite::Connection;
+use rusqlite::OpenFlags;
 use tempfile::TempDir;
 
 const BROWSER_IMPORT_CHUNK_SIZE: usize = 10_000;
@@ -165,12 +166,22 @@ where
                 consumer,
             )
         }
-        BrowserHistoryFamily::Firefox => {
-            firefox::stream_history(&staged.history_path, 0, 0, BROWSER_IMPORT_CHUNK_SIZE, consumer)
-        }
-        BrowserHistoryFamily::Safari => {
-            safari::stream_history(&staged.history_path, 0, 0, BROWSER_IMPORT_CHUNK_SIZE, consumer)
-        }
+        BrowserHistoryFamily::Firefox => firefox::stream_history(
+            &staged.history_path,
+            0,
+            0,
+            None,
+            BROWSER_IMPORT_CHUNK_SIZE,
+            consumer,
+        ),
+        BrowserHistoryFamily::Safari => safari::stream_history(
+            &staged.history_path,
+            0,
+            0,
+            None,
+            BROWSER_IMPORT_CHUNK_SIZE,
+            consumer,
+        ),
     }
     .map_err(browser_history_stream_error_to_anyhow)
 }
@@ -223,46 +234,19 @@ fn snapshot_or_copy_sqlite_database(
     destination: &Path,
     request: &BrowserHistoryImportRequest,
 ) -> Result<()> {
-    if let Err(snapshot_error) = snapshot_sqlite_database(source, destination) {
-        copy_sqlite_database_with_sidecars(source, destination).with_context(|| {
-            safari_access_hint(request, source)
-                .unwrap_or_else(|| format!("copying browser database {}", source.display()))
-        })?;
-        if let Err(check_error) = quick_check_sqlite(destination) {
-            return Err(check_error).with_context(|| {
-                format!(
-                    "staged copy from {} failed SQLite quick_check after online backup failed: {snapshot_error:#}",
-                    source.display()
-                )
-            });
-        }
-    }
-    Ok(())
-}
-
-fn snapshot_sqlite_database(source: &Path, destination: &Path) -> Result<()> {
-    let source_connection = Connection::open_with_flags(
-        source,
-        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
-    )
-    .with_context(|| format!("opening source database {}", source.display()))?;
-    source_connection
-        .backup(MAIN_DB, destination, None)
-        .with_context(|| format!("creating SQLite snapshot from {}", source.display()))?;
-    Ok(())
-}
-
-fn copy_sqlite_database_with_sidecars(source: &Path, destination: &Path) -> Result<()> {
-    fs::copy(source, destination)
-        .with_context(|| format!("copying {} to {}", source.display(), destination.display()))?;
-    for suffix in ["-wal", "-shm", "-journal"] {
-        let source_sidecar = PathBuf::from(format!("{}{}", source.display(), suffix));
-        if source_sidecar.exists() {
-            let destination_sidecar = PathBuf::from(format!("{}{}", destination.display(), suffix));
-            fs::copy(&source_sidecar, &destination_sidecar).with_context(|| {
-                format!("copying {} to {}", source_sidecar.display(), destination_sidecar.display())
-            })?;
-        }
+    let staged = crate::chrome::stage_sqlite_file(source, destination).with_context(|| {
+        safari_access_hint(request, source)
+            .unwrap_or_else(|| format!("copying browser database {}", source.display()))
+    })?;
+    if let Some(snapshot_error) = staged.fallback_reason
+        && let Err(check_error) = quick_check_sqlite(destination)
+    {
+        return Err(check_error).with_context(|| {
+            format!(
+                "staged copy from {} failed SQLite quick_check after online backup failed: {snapshot_error}",
+                source.display()
+            )
+        });
     }
     Ok(())
 }
@@ -364,344 +348,64 @@ fn safari_access_hint(request: &BrowserHistoryImportRequest, source: &Path) -> O
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::project_paths_with_root;
     use rusqlite::Connection;
-    use std::path::{Path, PathBuf};
+    use std::path::PathBuf;
 
-    fn browser_history_request(
-        source_path: &Path,
-        browser_family: Option<&str>,
-    ) -> BrowserHistoryImportRequest {
-        BrowserHistoryImportRequest {
-            source_path: source_path.display().to_string(),
+    /// A History caught mid-write, its writer gone: a hot rollback journal beside it. The online
+    /// backup cannot open it read-only, and the import's own raw copy used to hand it on as it
+    /// was, so the check after staging failed with SQLITE_READONLY_ROLLBACK and the import with
+    /// it (WORK-TEST-CUT-FINDINGS). Staged now, it holds what was committed and nothing else.
+    #[test]
+    fn a_history_caught_mid_write_is_staged_with_its_committed_rows() {
+        let source_dir = tempfile::tempdir().expect("source dir");
+        let destination_dir = tempfile::tempdir().expect("destination dir");
+        let clean = source_dir.path().join("clean");
+        Connection::open(&clean)
+            .expect("open")
+            .execute_batch(
+                "CREATE TABLE urls (id INTEGER PRIMARY KEY, url TEXT NOT NULL);
+                 INSERT INTO urls VALUES (1, 'https://example.test/committed');",
+            )
+            .expect("committed rows");
+        let writer = Connection::open(&clean).expect("reopen");
+        writer
+            .execute_batch(
+                "BEGIN IMMEDIATE;
+                 INSERT INTO urls VALUES (2, 'https://example.test/in-flight');
+                 UPDATE urls SET url = 'https://example.test/torn' WHERE id = 1;",
+            )
+            .expect("uncommitted write");
+        writer.cache_flush().expect("flush into the journal");
+        let source = source_dir.path().join("History");
+        std::fs::copy(&clean, &source).expect("copy database");
+        std::fs::copy(
+            format!("{}-journal", clean.display()),
+            format!("{}-journal", source.display()),
+        )
+        .expect("copy hot journal");
+        writer.execute_batch("ROLLBACK").ok();
+
+        let destination = destination_dir.path().join("History");
+        let request = BrowserHistoryImportRequest {
+            source_path: source.display().to_string(),
             dry_run: true,
-            browser_family: browser_family.map(str::to_string),
+            browser_family: Some("chromium".to_string()),
             profile_id: None,
             browser_name: None,
             profile_name: None,
-        }
-    }
-
-    fn write_minimal_chromium_history(path: &Path) {
-        let connection = Connection::open(path).expect("open chromium history");
-        connection
-            .execute_batch(
-                "CREATE TABLE urls (
-                   id INTEGER PRIMARY KEY,
-                   url TEXT NOT NULL,
-                   title TEXT,
-                   visit_count INTEGER NOT NULL,
-                   typed_count INTEGER NOT NULL,
-                   last_visit_time INTEGER NOT NULL,
-                   hidden INTEGER NOT NULL
-                 );
-                 CREATE TABLE visits (
-                   id INTEGER PRIMARY KEY,
-                   url INTEGER NOT NULL,
-                   visit_time INTEGER NOT NULL,
-                   from_visit INTEGER,
-                   transition INTEGER,
-                   visit_duration INTEGER,
-                   is_known_to_sync INTEGER,
-                   visited_link_id INTEGER,
-                   external_referrer_url TEXT,
-                   app_id TEXT
-                 );
-                 INSERT INTO urls (
-                   id, url, title, visit_count, typed_count, last_visit_time, hidden
-                 )
-                 VALUES (1, 'https://example.test/atlas', 'Atlas', 1, 0, 13358534400000000, 0);
-                 INSERT INTO visits (
-                   id, url, visit_time, from_visit, transition, visit_duration,
-                   is_known_to_sync, visited_link_id, external_referrer_url, app_id
-                 )
-                 VALUES (7, 1, 13358534400000000, NULL, 1, 1000, 0, NULL, NULL, 'atlas');",
-            )
-            .expect("write chromium history");
-    }
-
-    fn write_minimal_safari_history(path: &Path) {
-        let connection = Connection::open(path).expect("open safari history");
-        connection
-            .execute_batch(
-                "CREATE TABLE history_items (
-                   id INTEGER PRIMARY KEY,
-                   url TEXT NOT NULL
-                 );
-                 CREATE TABLE history_visits (
-                   id INTEGER PRIMARY KEY,
-                   history_item INTEGER NOT NULL,
-                   visit_time REAL NOT NULL
-                 );",
-            )
-            .expect("write safari history");
-    }
-
-    fn write_minimal_firefox_history(path: &Path) {
-        let connection = Connection::open(path).expect("open firefox history");
-        connection
-            .execute_batch(
-                "CREATE TABLE moz_places (
-                   id INTEGER PRIMARY KEY,
-                   url TEXT NOT NULL,
-                   title TEXT,
-                   visit_count INTEGER,
-                   hidden INTEGER,
-                   last_visit_date INTEGER
-                 );
-                 CREATE TABLE moz_historyvisits (
-                   id INTEGER PRIMARY KEY,
-                   place_id INTEGER NOT NULL,
-                   visit_date INTEGER NOT NULL,
-                   from_visit INTEGER,
-                   visit_type INTEGER
-                 );
-                 INSERT INTO moz_places (
-                   id, url, title, visit_count, hidden, last_visit_date
-                 )
-                 VALUES (1, 'https://example.test/firefox', 'Firefox', 1, 0, 1744146000000000);
-                 INSERT INTO moz_historyvisits (
-                   id, place_id, visit_date, from_visit, visit_type
-                 )
-                 VALUES (9, 1, 1744146000000000, NULL, 1);",
-            )
-            .expect("write firefox history");
-    }
-
-    #[test]
-    fn copy_sqlite_database_with_sidecars_preserves_wal_backed_chromium_rows() {
-        let source_dir = tempfile::tempdir().expect("source dir");
-        let destination_dir = tempfile::tempdir().expect("destination dir");
-        let source = source_dir.path().join("History");
-        let destination = destination_dir.path().join("History");
-        let connection = Connection::open(&source).expect("open source");
-        connection.pragma_update(None, "journal_mode", "WAL").expect("enable wal");
-        connection.pragma_update(None, "wal_autocheckpoint", 0).expect("disable autocheckpoint");
-        connection
-            .execute_batch(
-                "CREATE TABLE urls (
-                   id INTEGER PRIMARY KEY,
-                   url TEXT NOT NULL,
-                   title TEXT,
-                   visit_count INTEGER NOT NULL,
-                   typed_count INTEGER NOT NULL,
-                   last_visit_time INTEGER NOT NULL,
-                   hidden INTEGER NOT NULL
-                 );
-                 CREATE TABLE visits (
-                   id INTEGER PRIMARY KEY,
-                   url INTEGER NOT NULL,
-                   visit_time INTEGER NOT NULL,
-                   from_visit INTEGER,
-                   transition INTEGER,
-                   visit_duration INTEGER,
-                   is_known_to_sync INTEGER,
-                   visited_link_id INTEGER,
-                   external_referrer_url TEXT,
-                   app_id TEXT
-                 );
-                 INSERT INTO urls (
-                   id, url, title, visit_count, typed_count, last_visit_time, hidden
-                 )
-                 VALUES (1, 'https://example.test/atlas', 'Atlas', 1, 0, 13358534400000000, 0);
-                 INSERT INTO visits (
-                   id, url, visit_time, from_visit, transition, visit_duration,
-                   is_known_to_sync, visited_link_id, external_referrer_url, app_id
-                 )
-                 VALUES (7, 1, 13358534400000000, NULL, 1, 1000, 0, NULL, NULL, 'atlas');",
-            )
-            .expect("write wal-backed chromium rows");
-
-        assert!(PathBuf::from(format!("{}-wal", source.display())).exists());
-
-        copy_sqlite_database_with_sidecars(&source, &destination).expect("copy with sidecars");
-        quick_check_sqlite(&destination).expect("quick check copied db");
-        let copied = Connection::open_with_flags(
-            &destination,
-            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
-        )
-        .expect("open copied db");
-        let visit_count: i64 = copied
-            .query_row("SELECT COUNT(*) FROM visits", [], |row| row.get(0))
-            .expect("count copied visits");
-
-        assert_eq!(visit_count, 1);
-    }
-
-    #[test]
-    fn stage_browser_history_source_resolves_directories_defaults_and_family_mismatch() {
-        let root = tempfile::tempdir().expect("root");
-        let paths = project_paths_with_root(root.path());
-        fs::create_dir_all(&paths.staging_dir).expect("staging dir");
-        let profile_dir = root.path().join("SafariProfile");
-        fs::create_dir_all(&profile_dir).expect("profile dir");
-        let history = profile_dir.join("History.db");
-        write_minimal_safari_history(&history);
-
-        let staged = stage_browser_history_source(
-            &paths,
-            &browser_history_request(&profile_dir, Some("safari")),
-        )
-        .expect("stage safari directory");
-        assert_eq!(staged.requested_path, history);
-        assert_eq!(staged.family, BrowserHistoryFamily::Safari);
-        assert_eq!(staged.family.source_kind(), "safari-history");
-        assert_eq!(staged.browser_name, "Safari");
-        assert_eq!(staged.profile_name, "Imported browser profile");
-        assert!(staged.profile_id.starts_with("browser-direct::safari::"));
-
-        let report = browser_file_report(&staged, "recognized", 0);
-        assert_eq!(report.kind, "safari-history-db");
-        assert_eq!(report.reason_code.as_deref(), Some("safari-history-sqlite"));
-
-        let mismatch = stage_browser_history_source(
-            &paths,
-            &browser_history_request(&profile_dir, Some("chromium")),
-        )
-        .expect_err("family mismatch");
-        assert!(mismatch.to_string().contains("selected file looks like safari"));
-
-        let empty_dir = root.path().join("EmptyProfile");
-        fs::create_dir_all(&empty_dir).expect("empty profile");
-        let missing = resolve_requested_history_path(&empty_dir).expect_err("missing history");
-        assert!(
-            missing.to_string().contains("does not contain History.db, History, or places.sqlite")
-        );
-    }
-
-    #[test]
-    fn stage_browser_history_source_accepts_firefox_places_sqlite() {
-        let root = tempfile::tempdir().expect("root");
-        let paths = project_paths_with_root(root.path());
-        fs::create_dir_all(&paths.staging_dir).expect("staging dir");
-        let profile_dir = root.path().join("FirefoxProfile");
-        fs::create_dir_all(&profile_dir).expect("profile dir");
-        let history = profile_dir.join("places.sqlite");
-        write_minimal_firefox_history(&history);
-
-        let staged = stage_browser_history_source(
-            &paths,
-            &browser_history_request(&profile_dir, Some("firefox")),
-        )
-        .expect("stage firefox directory");
-        assert_eq!(staged.requested_path, history);
-        assert_eq!(staged.family, BrowserHistoryFamily::Firefox);
-        assert_eq!(staged.family.source_kind(), "firefox-history");
-        assert_eq!(staged.browser_name, "Firefox");
-        assert_eq!(staged.profile_name, "Imported browser profile");
-        assert!(staged.profile_id.starts_with("browser-direct::firefox::"));
-        assert!(staged.favicons_path.is_none());
-
-        let report = browser_file_report(&staged, "recognized", 1);
-        assert_eq!(report.kind, "firefox-places-db");
-        assert_eq!(report.reason_code.as_deref(), Some("firefox-history-sqlite"));
-
-        let mismatch = stage_browser_history_source(
-            &paths,
-            &browser_history_request(&profile_dir, Some("safari")),
-        )
-        .expect_err("family mismatch");
-        assert!(mismatch.to_string().contains("selected file looks like firefox"));
-    }
-
-    #[test]
-    fn staging_helpers_cover_error_fallbacks_and_chromium_favicons() {
-        let root = tempfile::tempdir().expect("root");
-        let history = root.path().join("History");
-        let favicons = root.path().join("Favicons");
-        let destination_dir = tempfile::tempdir().expect("destination dir");
-        let staged_favicons_dir = tempfile::tempdir().expect("favicons destination");
-        write_minimal_chromium_history(&history);
-        Connection::open(&favicons).expect("create favicons");
-
-        let detected = detect_browser_history_family(&history).expect("detect chromium");
-        assert_eq!(detected, BrowserHistoryFamily::Chromium);
-        assert_eq!(BrowserHistoryFamily::Chromium.source_kind(), "chromium-history");
-        assert_eq!(BrowserHistoryFamily::Chromium.file_kind(), "chromium-history-db");
-        assert_eq!(BrowserHistoryFamily::Chromium.default_browser_name(), "Google Chrome");
-        assert_eq!(
-            normalize_requested_family(Some("Chrome")),
-            Some(BrowserHistoryFamily::Chromium)
-        );
-        assert_eq!(normalize_requested_family(Some("unknown")), None);
-
-        let firefox_history = root.path().join("places.sqlite");
-        write_minimal_firefox_history(&firefox_history);
-        let detected = detect_browser_history_family(&firefox_history).expect("detect firefox");
-        assert_eq!(detected, BrowserHistoryFamily::Firefox);
-        assert_eq!(BrowserHistoryFamily::Firefox.source_kind(), "firefox-history");
-        assert_eq!(BrowserHistoryFamily::Firefox.file_kind(), "firefox-places-db");
-        assert_eq!(BrowserHistoryFamily::Firefox.default_browser_name(), "Firefox");
-        assert_eq!(
-            normalize_requested_family(Some("Firefox")),
-            Some(BrowserHistoryFamily::Firefox)
-        );
-
-        let staged_favicons =
-            stage_chromium_favicons(&history, staged_favicons_dir.path()).expect("stage favicons");
-        quick_check_sqlite(&staged_favicons).expect("staged favicons quick check");
-
-        let missing_favicons_dir = tempfile::tempdir().expect("missing favicons dir");
-        let missing_history = missing_favicons_dir.path().join("History");
-        write_minimal_chromium_history(&missing_history);
-        let missing_favicons =
-            stage_chromium_favicons(&missing_history, staged_favicons_dir.path())
-                .expect_err("missing favicons");
-        assert!(missing_favicons.to_string().contains("Favicons database is not present"));
-        let root_parent_error = stage_chromium_favicons(Path::new("/"), staged_favicons_dir.path())
-            .expect_err("root path has no parent");
-        assert!(root_parent_error.to_string().contains("no parent directory"));
-
-        let quick_check_error =
-            ensure_sqlite_quick_check_ok(&history, "database disk image is malformed")
-                .expect_err("bad quick check result");
-        assert!(quick_check_error.to_string().contains("SQLite quick_check failed"));
-
-        let stream_error =
-            browser_history_stream_error_to_anyhow(StreamHistoryError::<anyhow::Error>::Parse(
-                browser_history_parser::ParseError::UnsupportedProvider { provider: "fixture" },
-            ));
-        assert!(format!("{stream_error:#}").contains("fixture"));
-        let stream_error = browser_history_stream_error_to_anyhow(StreamHistoryError::Consumer(
-            anyhow::anyhow!("consumer failed"),
-        ));
-        assert!(format!("{stream_error:#}").contains("consumer failed"));
-
-        let unsupported = root.path().join("Other.sqlite");
-        Connection::open(&unsupported)
-            .expect("open unsupported")
-            .execute_batch("CREATE TABLE unrelated (id INTEGER PRIMARY KEY);")
-            .expect("write unsupported");
-        let unsupported_error =
-            detect_browser_history_family(&unsupported).expect_err("unsupported family");
-        assert!(unsupported_error.to_string().contains("unsupported browser history database"));
-
-        let not_sqlite = root.path().join("History.db");
-        fs::write(&not_sqlite, b"not sqlite").expect("write invalid sqlite");
-        let invalid_destination = destination_dir.path().join("History.db");
-        let fallback_error = snapshot_or_copy_sqlite_database(
-            &not_sqlite,
-            &invalid_destination,
-            &browser_history_request(&not_sqlite, Some("safari")),
-        )
-        .expect_err("invalid sqlite fallback");
-        let fallback_text = format!("{fallback_error:#}");
-        assert!(fallback_text.contains("failed SQLite quick_check after online backup failed"));
-        let safari_hint =
-            safari_access_hint(&browser_history_request(&not_sqlite, Some("safari")), &not_sqlite)
-                .expect("safari access hint");
-        assert!(safari_hint.contains("Safari History.db is not readable yet"));
-
-        let sidecar_source = root.path().join("CopySource");
-        let sidecar_destination = destination_dir.path().join("CopyDestination");
-        fs::write(&sidecar_source, b"main").expect("write source");
-        fs::write(PathBuf::from(format!("{}-wal", sidecar_source.display())), b"wal")
-            .expect("write sidecar");
-        fs::create_dir(PathBuf::from(format!("{}-wal", sidecar_destination.display())))
-            .expect("conflicting destination sidecar directory");
-        let sidecar_error =
-            copy_sqlite_database_with_sidecars(&sidecar_source, &sidecar_destination)
-                .expect_err("sidecar copy conflict");
-        assert!(sidecar_error.to_string().contains("copying"));
+        };
+        snapshot_or_copy_sqlite_database(&source, &destination, &request).expect("stage");
+        quick_check_sqlite(&destination).expect("readable as staged");
+        assert!(!PathBuf::from(format!("{}-journal", destination.display())).exists());
+        let staged = Connection::open_with_flags(&destination, OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .expect("open staged");
+        let urls: Vec<String> = staged
+            .prepare("SELECT url FROM urls ORDER BY id")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap();
+        assert_eq!(urls, ["https://example.test/committed"]);
     }
 }

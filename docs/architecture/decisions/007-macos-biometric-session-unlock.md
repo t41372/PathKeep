@@ -18,6 +18,7 @@ Accepted
 
 - PathKeep 在 M4-K 只對 macOS 接上 `LocalAuthentication` / Touch ID。
 - Windows / Linux 仍維持 truthful capability / degradation state，不假裝已經有 native biometric。
+- 2026-10-04 修訂（[app-lock-panel-tradeoff.md](../../design/app-lock-panel-tradeoff.md) 選項 B）：後端仍對 Windows / Linux 回報 `unsupported`，但 2026-10 介面在 `unsupported` 時不顯示任何生物辨識控制項或說明，而不是顯示一句沒有功能的 honesty copy。Touch ID 可用與否只在開關從關到開時檢查，之後暫時不可用時解鎖退回 passcode。
 
 ### 2. Touch ID 是 additive convenience，不是新的 security boundary
 

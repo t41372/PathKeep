@@ -19,6 +19,7 @@ import type {
   ArchiveUpgradeAssessment,
   BackupReport,
   ExportRequest,
+  ExportProgress,
   ExportResult,
   FullArchiveRestoreReport,
   RecoverySnapshot,
@@ -41,8 +42,9 @@ export const archiveClient = {
       config,
       databaseKey,
     }),
-  assessArchiveUpgrade: () =>
-    call<ArchiveUpgradeAssessment>('assess_archive_upgrade'),
+  /** With the old archive's password, the conversion's table counts too. */
+  assessArchiveUpgrade: (databaseKey?: string | null) =>
+    call<ArchiveUpgradeAssessment>('assess_archive_upgrade', { databaseKey }),
   runBackupNow: (dueOnly = false) =>
     call<BackupReport>('run_backup_now', { dueOnly }),
   previewSnapshotRestore: (request: SnapshotRestoreRequest) =>
@@ -53,8 +55,13 @@ export const archiveClient = {
     call<RetentionPreview>('preview_retention_prune'),
   runRetentionPrune: (request: RetentionPruneRequest) =>
     call<RetentionPruneResult>('run_retention_prune', { request }),
+  /** Asks where to save first; `null` when the person closes the dialog. */
   exportHistory: (request: ExportRequest) =>
-    call<ExportResult>('export_history', { request }),
+    call<ExportResult | null>('export_history', { request }),
+  getExportProgress: (exportId: string) =>
+    call<ExportProgress | null>('get_export_progress', { exportId }),
+  cancelExport: (exportId: string) =>
+    call<boolean>('cancel_export', { exportId }),
   listRecoverySnapshots: () =>
     call<RecoverySnapshot[]>('list_recovery_snapshots'),
   runFullArchiveRestore: (

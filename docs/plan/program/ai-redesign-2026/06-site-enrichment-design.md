@@ -1,6 +1,6 @@
 # AI Redesign 2026 — Site-Specific Content Enrichment (W-ENRICH) Design
 
-> 狀態：2026-06-21 設計鎖定（獨立 subagent 評估產出）。承 [05-embedding-retrieval-revision.md](05-embedding-retrieval-revision.md)。**取代並解封** `BACKLOG.md` 的 `WORK-READABLE-CONTENT-V03-A`（其 4 個 blocker：privacy model / network policy / failure UX / real-site acceptance 由本設計解掉）。
+> 狀態：2026-06-21 設計鎖定。承 [05-embedding-retrieval-revision.md](05-embedding-retrieval-revision.md)。**取代並解封** `BACKLOG.md` 的 `WORK-READABLE-CONTENT-V03-A`（其 4 個 blocker：privacy model / network policy / failure UX / real-site acceptance 由本設計解掉）。
 >
 > 目標：從特定網站抓取結構化內容（GitHub repo 描述/topics、YouTube/Bilibili 字幕+標題、X 帖文、通用網頁摘要），存為 enrichment metadata，**同時餵進 FTS5 全文搜尋 + embedding/AI 語義搜尋**。
 

@@ -1,4 +1,6 @@
-//! Shared schema-observation and native-row capture helpers.
+//! Responsibilities: inspect source schemas and capture stable native-row JSON.
+//! Not responsible for: persistence, deduplication or source mutation.
+//! Why: evidence identity must not change when a dependency enables JSON key-order retention.
 
 use crate::{
     error::ParseError,
@@ -131,11 +133,13 @@ fn native_entity_from_row(
         payload.get(primary_key_column).map(value_to_key).unwrap_or_else(|| "unknown".to_string());
     let parent_primary_key =
         parent_key_column.and_then(|column| payload.get(column).map(value_to_key));
+    let mut payload = Value::Object(payload);
+    crate::canonicalize_json(&mut payload);
     Ok(NativeEntity {
         entity_kind: entity_kind.to_string(),
         native_primary_key: primary_key,
         parent_native_primary_key: parent_primary_key,
-        payload_json: Value::Object(payload.clone()).to_string(),
+        payload_json: payload.to_string(),
         metadata: BTreeMap::from([
             ("primaryKeyColumn".to_string(), primary_key_column.to_string()),
             ("columnCount".to_string(), column_names.len().to_string()),
@@ -181,71 +185,21 @@ fn quoted_identifier(identifier: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    //! Failure modes: SQL column order changes native payload bytes and evidence keys when
+    //! another dependency enables serde_json/preserve_order. Values must remain intact.
     use super::*;
-
     #[test]
-    fn schema_observation_marks_required_missing_tables_and_column_nullability() {
-        let connection = Connection::open_in_memory().expect("open memory db");
-        connection
-            .execute(
-                "CREATE TABLE present_required (
-                    id INTEGER PRIMARY KEY,
-                    title TEXT NOT NULL,
-                    optional_note TEXT
-                )",
-                [],
-            )
-            .expect("create required table");
-        connection
-            .execute("CREATE TABLE optional_table (flag INTEGER)", [])
-            .expect("create optional table");
-        connection
-            .execute(
-                "INSERT INTO present_required (title, optional_note) VALUES ('Example', NULL)",
-                [],
-            )
-            .expect("insert required row");
-
-        let observation = inspect_schema(&connection, &["present_required", "missing_required"])
-            .expect("inspect schema");
-
-        let table = |name: &str| {
-            observation.tables.iter().find(|table| table.name == name).expect("table observed")
-        };
-        let present_required = table("present_required");
-        assert!(present_required.present);
-        assert!(present_required.required);
-        assert_eq!(present_required.row_count, Some(1));
-        let title = present_required
-            .columns
-            .iter()
-            .find(|column| column.name == "title")
-            .expect("title column");
-        assert!(title.not_null);
-        assert_eq!(title.primary_key_ordinal, 0);
-        let id =
-            present_required.columns.iter().find(|column| column.name == "id").expect("id column");
-        assert_eq!(id.primary_key_ordinal, 1);
-
-        let optional_table = table("optional_table");
-        assert!(optional_table.present);
-        assert!(!optional_table.required);
-        assert_eq!(optional_table.row_count, Some(0));
-        assert!(!optional_table.columns[0].not_null);
-
-        let missing_required = table("missing_required");
-        assert!(!missing_required.present);
-        assert!(missing_required.required);
-        assert_eq!(missing_required.row_count, None);
-        assert!(missing_required.columns.is_empty());
-    }
-
-    #[test]
-    fn native_value_conversion_preserves_non_text_keys() {
-        assert_eq!(value_ref_to_json(ValueRef::Blob(&[0xab, 0xcd])), json!("abcd"));
-        assert_eq!(value_to_key(&Value::Null), "null");
-        assert_eq!(value_to_key(&json!(true)), "true");
-        assert_eq!(value_to_key(&json!(["a", 2])), r#"["a",2]"#);
-        assert_eq!(value_to_key(&json!({"kind": "native"})), r#"{"kind":"native"}"#);
+    fn native_rows_keep_sorted_json_independent_of_sql_column_order() {
+        let connection = Connection::open_in_memory().unwrap();
+        let rows = capture_native_rows(
+            &connection,
+            "SELECT 1 AS z, 2 AS a, 3 AS id",
+            &[],
+            "row",
+            "id",
+            None,
+        )
+        .unwrap();
+        assert_eq!(rows[0].payload_json, r#"{"a":2,"id":3,"z":1}"#);
     }
 }

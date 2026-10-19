@@ -162,13 +162,24 @@ pub struct AppConfig {
     pub selected_profile_ids: Vec<String>,
     pub git_enabled: bool,
     pub remember_database_key_in_keyring: bool,
-    pub app_autostart: bool,
+    /// Whether the menu bar / system tray icon is shown. Restored at launch.
+    pub menu_bar_icon: bool,
     pub explorer_background_prefetch_pages: u64,
     pub app_lock: AppLockConfig,
     pub enrichment: EnrichmentSettings,
     pub deterministic: DeterministicSettings,
     pub ai: AiSettings,
     pub og_image: OgImageSettings,
+    /// The IANA zone Insights puts visits on days in, when chosen in Settings
+    /// (`docs/architecture/insights-time-zone.md`). Unset, Insights keeps the zone its data was
+    /// built in, and the computer's zone for the first build.
+    pub insights_time_zone: Option<String>,
+    /// The computer's zone when the user chose to keep Insights in its own: the notice that the
+    /// two differ stays hidden until the computer's zone changes again.
+    pub insights_zone_kept_for: Option<String>,
+    /// The user said they keep the archive password safe themselves: Home stops warning that an
+    /// encrypted archive whose password is not in the keychain cannot be opened without it.
+    pub password_kept_elsewhere: bool,
 }
 
 /// How aggressively the og:image worker fetches link-preview bytes.
@@ -257,20 +268,24 @@ impl Default for AppConfig {
             initialized: false,
             archive_mode: ArchiveMode::Plaintext,
             preferred_language: LanguagePreference::System,
-            due_after_hours: 72.0,
+            // Hourly, as onboarding offers it (`docs/design/backup-interval-tradeoff.md`).
+            due_after_hours: 1.0,
             schedule_check_interval_hours: 6,
             checkpoint_days: 90,
             capture_favicons: true,
             selected_profile_ids: Vec::new(),
             git_enabled: true,
             remember_database_key_in_keyring: false,
-            app_autostart: false,
+            menu_bar_icon: false,
             explorer_background_prefetch_pages: DEFAULT_EXPLORER_BACKGROUND_PREFETCH_PAGES,
             app_lock: AppLockConfig::default(),
             enrichment: EnrichmentSettings::default(),
             deterministic: DeterministicSettings::default(),
             ai: AiSettings::default(),
             og_image: OgImageSettings::default(),
+            insights_time_zone: None,
+            insights_zone_kept_for: None,
+            password_kept_elsewhere: false,
         }
     }
 }
@@ -282,7 +297,8 @@ pub struct AppDirectories {
     pub app_root: String,
     pub config_path: String,
     pub archive_database_path: String,
-    pub search_database_path: String,
+    /// The full-text search index, a folder (`derived/search-index`).
+    pub search_index_dir: String,
     pub intelligence_database_path: String,
     pub audit_repo_path: String,
     pub manifests_dir: String,
@@ -423,5 +439,9 @@ pub struct AppSnapshot {
     #[serde(default)]
     pub browser_discovery_issue: Option<String>,
     pub recent_runs: Vec<BackupRunOverview>,
+    #[serde(default)]
+    pub recent_runs_next_cursor: Option<i64>,
     pub recent_import_batches: Vec<ImportBatchOverview>,
+    #[serde(default)]
+    pub recent_import_batches_next_cursor: Option<String>,
 }

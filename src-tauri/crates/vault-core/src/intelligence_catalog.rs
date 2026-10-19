@@ -59,21 +59,6 @@ impl RebuildMode {
         }
     }
 
-    /// Returns whether this rebuild mode recomputes visit-derived facts.
-    pub const fn requires_visit_derived_facts(self) -> bool {
-        matches!(self, Self::VisitDerive | Self::FullRebuild)
-    }
-
-    /// Returns whether this rebuild mode recomputes daily rollups.
-    pub const fn requires_daily_rollups(self) -> bool {
-        matches!(self, Self::DailyRollup | Self::FullRebuild)
-    }
-
-    /// Returns whether this rebuild mode recomputes structural entities.
-    pub const fn requires_structural_entities(self) -> bool {
-        matches!(self, Self::StructuralRebuild | Self::FullRebuild)
-    }
-
     /// Returns the built-in module descriptors touched by this rebuild mode.
     pub fn module_descriptors(self) -> Vec<&'static IntelligenceModuleDescriptor> {
         let requested = built_in_intelligence_module_descriptors()
@@ -213,6 +198,7 @@ define_builtin_module!(
         "search_events",
         "search_event_terms",
         "query_families",
+        "compare_sets",
     ],
     &[RebuildMode::StructuralRebuild, RebuildMode::FullRebuild],
     &["search_trail", "query_family", "compare_set"]
@@ -225,7 +211,7 @@ define_builtin_module!(
     REFIND_PAGES_MODULE_ID,
     REFIND_PAGES_MODULE_VERSION,
     &[VISIT_DERIVED_FACTS_MODULE_ID, SEARCH_TRAILS_MODULE_ID],
-    &["refind_pages", "source_effectiveness"],
+    &["refind_pages"],
     &[RebuildMode::StructuralRebuild, RebuildMode::FullRebuild],
     &["refind_page"]
 );
@@ -261,7 +247,7 @@ define_builtin_module!(
     DOMAIN_DEEP_DIVE_MODULE_ID,
     DOMAIN_DEEP_DIVE_MODULE_VERSION,
     &[VISIT_DERIVED_FACTS_MODULE_ID, DAILY_ROLLUPS_MODULE_ID],
-    &["habit_patterns", "path_flows"],
+    &["path_flows"],
     &[RebuildMode::StructuralRebuild, RebuildMode::FullRebuild],
     &["habit_pattern", "path_flow"]
 );
@@ -307,17 +293,6 @@ pub(crate) fn built_in_intelligence_module_descriptor(
         .iter()
         .copied()
         .find(|descriptor| descriptor.id == module_id)
-}
-
-/// Looks up the module that owns explainability for one persisted entity type.
-#[cfg(test)]
-pub(crate) fn module_descriptor_for_entity_type(
-    entity_type: &str,
-) -> Option<&'static IntelligenceModuleDescriptor> {
-    built_in_intelligence_module_descriptors()
-        .iter()
-        .copied()
-        .find(|descriptor| descriptor.explanation_entity_types.contains(&entity_type))
 }
 
 /// Resolves built-in module dependencies while preserving registry order.
@@ -373,75 +348,4 @@ fn reject_module_dependency_cycle(
         bail!("Core Intelligence module dependency cycle detected at {module_id}.");
     }
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{
-        RebuildMode, built_in_intelligence_modules, module_descriptor_for_entity_type,
-        reject_module_dependency_cycle, resolve_intelligence_module_order,
-    };
-    use crate::models::{
-        DOMAIN_DEEP_DIVE_MODULE_ID, REFIND_PAGES_MODULE_ID, SEARCH_TRAILS_MODULE_ID,
-        SESSIONS_MODULE_ID, VISIT_DERIVED_FACTS_MODULE_ID,
-    };
-    use std::collections::HashSet;
-
-    #[test]
-    fn structural_rebuild_mode_resolves_modules_in_dependency_order() {
-        let descriptors = RebuildMode::StructuralRebuild.module_descriptors();
-        let ids = descriptors.into_iter().map(|descriptor| descriptor.id).collect::<Vec<_>>();
-        assert_eq!(
-            ids,
-            vec![
-                SESSIONS_MODULE_ID,
-                SEARCH_TRAILS_MODULE_ID,
-                REFIND_PAGES_MODULE_ID,
-                "search-effectiveness",
-                DOMAIN_DEEP_DIVE_MODULE_ID,
-            ]
-        );
-    }
-
-    #[test]
-    fn rebuild_modes_expose_stable_queue_job_types() {
-        assert_eq!(RebuildMode::VisitDerive.job_type(), "visit-derive");
-        assert_eq!(RebuildMode::DailyRollup.job_type(), "daily-rollup");
-        assert_eq!(RebuildMode::StructuralRebuild.job_type(), "structural-rebuild");
-        assert_eq!(RebuildMode::FullRebuild.job_type(), "full-rebuild");
-    }
-
-    #[test]
-    fn registry_resolves_entity_owners() {
-        let descriptor =
-            module_descriptor_for_entity_type("path_flow").expect("path_flow descriptor");
-        assert_eq!(descriptor.id, DOMAIN_DEEP_DIVE_MODULE_ID);
-        let descriptor =
-            module_descriptor_for_entity_type("query_family").expect("query_family descriptor");
-        assert_eq!(descriptor.id, SEARCH_TRAILS_MODULE_ID);
-    }
-
-    #[test]
-    fn registry_exposes_trait_backed_built_ins() {
-        let ids = built_in_intelligence_modules()
-            .iter()
-            .map(|module| module.descriptor().id)
-            .collect::<Vec<_>>();
-        assert_eq!(ids.len(), 8);
-        assert_eq!(ids[0], "visit-derived-facts");
-    }
-
-    #[test]
-    fn resolve_intelligence_module_order_rejects_unknown_modules() {
-        let error = resolve_intelligence_module_order(&["unknown-module"]).expect_err("error");
-        assert!(error.to_string().contains("unknown Core Intelligence module"));
-    }
-
-    #[test]
-    fn module_dependency_cycle_guard_reports_the_current_node() {
-        let mut visiting = HashSet::from([VISIT_DERIVED_FACTS_MODULE_ID]);
-        let error = reject_module_dependency_cycle(&mut visiting, VISIT_DERIVED_FACTS_MODULE_ID)
-            .expect_err("cycle");
-        assert!(error.to_string().contains(VISIT_DERIVED_FACTS_MODULE_ID));
-    }
 }

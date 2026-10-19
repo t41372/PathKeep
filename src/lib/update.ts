@@ -17,7 +17,7 @@
  * - Avoid burying user-visible copy or route-only workflow rules here unless the helper truly owns that cross-cutting contract.
  */
 
-import { backend } from './backend-client'
+import { updateClient } from './backend-client/update'
 import { describeError } from './errors'
 import { subscribeToUpdaterProgress } from './ipc/updater-progress'
 import { hasDesktopCommandTransport, hasTauriGuestApi } from './runtime'
@@ -93,7 +93,7 @@ export async function checkForAppUpdate(
     return previewAvailability(currentVersion)
   }
 
-  const result = await backend.checkForAppUpdate()
+  const result = await updateClient.checkForAppUpdate()
   return {
     availability: {
       ...result.availability,
@@ -141,7 +141,7 @@ export async function downloadAndInstallAppUpdate(
   }
 
   try {
-    const result = await backend.downloadAndInstallAppUpdate(
+    const result = await updateClient.downloadAndInstallAppUpdate(
       pendingUpdate.version,
     )
     if (lastProgressPhase !== result.phase) {
@@ -176,5 +176,5 @@ export async function relaunchAfterUpdate() {
     return false
   }
 
-  return await backend.relaunchAfterUpdate()
+  return await updateClient.relaunchAfterUpdate()
 }

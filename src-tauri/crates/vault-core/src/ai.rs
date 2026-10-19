@@ -1,4 +1,4 @@
-//! Optional AI and semantic retrieval domain.
+//! Responsibilities: optional AI, embedding service errors and semantic retrieval contracts.
 //!
 //! This module coordinates provider readiness, semantic indexing, semantic
 //! search, assistant runs, and manual integration previews. It sits on top of
@@ -7,6 +7,9 @@
 //! - AI is additive and optional; the archive remains usable without it
 //! - vector/assistant state is rebuildable derived state, not canonical truth
 //! - lexical fallback must stay explicit whenever semantic readiness is missing
+//!
+//! Not responsible for: provider wire encoding or a third-party agent runtime.
+//! Why: callers share owned AI boundaries rather than rig types.
 
 mod agent_harness;
 mod agent_tools;
@@ -14,87 +17,94 @@ mod chat_stream;
 mod code_mode;
 mod control;
 mod dedup;
-mod embedding_candle;
+mod embedding_engine;
+mod embedding_error;
 mod embedding_external;
+mod embedding_prompt;
 mod embedding_static;
 mod fingerprint;
 mod indexing;
-mod ledger;
 mod llm;
-mod narrative;
+mod model_files;
+mod model_list;
+mod native_ledger;
 mod provider;
 mod read_model;
+mod related_pages;
+#[cfg(test)]
+mod related_pages_bench;
+mod report_pages;
 mod reverse_visit_map;
 mod search;
+#[cfg(test)]
+mod search_group_fixture;
+mod search_group_signatures;
+mod search_group_snapshots;
+#[cfg(test)]
+mod search_group_snapshots_tests;
+mod search_groups;
+#[cfg(test)]
+mod search_groups_bench;
+mod search_groups_cluster;
+mod search_pages;
+mod search_ranking;
+mod search_store;
+mod search_vectors;
+mod similar_searches;
+mod tool_arguments;
+mod topics;
 mod traits;
 mod vector_index;
 mod vector_planes;
 mod vector_store;
 mod visit_content_map;
+mod visit_position_map;
 mod working_set;
 
-#[cfg(test)]
-use crate::archive::create_schema;
 use crate::{
     ai_queue::{self},
     ai_sidecar::{self},
-    archive::{
-        attach_search_database, cap_enrichment_excerpt, list_history, open_archive_connection,
-        open_intelligence_connection,
-    },
     config::ProjectPaths,
-    enrichment::{build_embedding_content_from_parts, load_best_enrichment_map_by_history_ids},
+    enrichment::{build_embedding_document, load_best_enrichment_map_by_history_ids},
     models::{
-        AiAssistantRequest, AiAssistantResponse, AiCitation, AiIndexReport, AiIndexRequest,
-        AiIndexStatus, AiIndexWarning, AiProviderCapabilityReport, AiProviderConfig,
-        AiProviderConnectionTestReport, AiProviderPurpose, AiQueueJobType, AiQueueStatus,
-        AiRequestFormat, AiSearchEntry, AiSearchNote, AiSearchRequest, AiSearchResponse,
-        AiSearchSort, AiSemanticStaleness, AppConfig, HistoryEntry, HistoryQuery,
+        AiIndexReport, AiIndexRequest, AiIndexStatus, AiIndexWarning, AiProviderCapabilityReport,
+        AiProviderConfig, AiProviderConnectionTestReport, AiProviderPurpose, AiQueueJobType,
+        AiQueueStatus, AiRequestFormat, AiSearchEntry, AiSearchNote, AiSearchRequest,
+        AiSearchResponse, AiSemanticStaleness, AppConfig, HistoryEntry,
     },
     utils::{now_rfc3339, url_domain},
 };
 use anyhow::{Context, Result};
 use iana_time_zone::get_timezone;
-#[cfg(not(any(test, coverage)))]
-use rig::{
-    client::{CompletionClient, EmbeddingsClient},
-    completion::Prompt,
-    embeddings::EmbeddingModel as _,
-    providers::{anthropic, gemini, openai},
-};
-use rig::{
-    completion::ToolDefinition,
-    tool::{Tool, ToolDyn},
-};
-use rusqlite::{Connection, OptionalExtension, Row, params};
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::{
-    cmp::Ordering,
     collections::HashMap,
     future::Future,
     sync::Arc,
     time::{Duration, Instant},
 };
 use thiserror::Error;
-use tokio::sync::Mutex;
 
-pub use self::indexing::{build_ai_index, build_ai_index_with_control};
+/// The enrichment summary an embedding's dedup hash includes; conversion recomputes hashes with it.
+pub(crate) use self::indexing::enrichment_summary_for as enrichment_summary_for_embedding;
+pub use self::indexing::{
+    build_ai_index, build_ai_index_with_control, forget_unconfigured_indexes,
+};
+pub use self::model_list::{chat_context_length, list_provider_models};
 pub use self::provider::test_provider_connection;
 pub use self::read_model::{
-    ai_index_status, ai_queue_status, ensure_ai_schema, load_assistant_run_response,
-    preview_ai_integrations, provider_capabilities, provider_connection_failure_report,
-    reconcile_ai_queue_controls, recoverable_ai_jobs,
+    ai_index_status, ai_queue_status, preview_ai_integrations, provider_capabilities,
+    provider_connection_failure_report, reconcile_ai_queue_controls, recoverable_ai_jobs,
 };
-pub use self::search::{
-    answer_history_question, answer_history_question_with_control, semantic_search_history,
-};
+pub use self::related_pages::{RelatedPage, RelatedPages, related_pages};
+pub use self::search::semantic_search_history;
 
 pub use self::agent_harness::{
     AgentJournal, AgentRunOutcome, AgentRunSink, AgentSystemContext, DEFAULT_MAX_ITERATIONS,
-    DEFAULT_TOKEN_BUDGET, build_agent_system_context, drive_agent_run,
-    resolve_agent_system_context,
+    DEFAULT_TOKEN_BUDGET, build_agent_system_context, drive_agent_run, estimate_request_tokens,
+    estimate_tokens, resolve_agent_system_context,
 };
 pub use self::agent_tools::{
     AgentTool, AgentToolContext, HistorySearchTool, ToolOutcome, ToolRegistry,
@@ -102,77 +112,52 @@ pub use self::agent_tools::{
 pub use self::chat_stream::{
     deregister_run as deregister_ai_chat_run, drive_chat_stream as drive_ai_chat_stream,
     register_run as register_ai_chat_run, request_cancel as request_ai_chat_cancel,
+    request_cancel_all as request_cancel_all_ai_chat_runs,
 };
 pub use self::code_mode::{
     CodeOutcome, HostCallRecord, LimitsHit, MAX_FETCH_IDS, MAX_GUEST_MEMORY_BYTES, MAX_HOST_CALLS,
     MAX_OUTPUT_BYTES, MAX_ROWS_PER_CALL, WALL_TIME_BUDGET, run_code_in_sandbox,
 };
 pub use self::dedup::{build_dedup_content_hash, content_key_from_hash};
-pub use self::embedding_candle::{
-    CANDLE_INAPP_BASE_URL, CANDLE_MAX_INPUT_TOKENS, CandleEmbeddingProvider,
-    DEFAULT_CANDLE_MODEL_FILES, DEFAULT_CANDLE_MODEL_REPO, DEFAULT_CANDLE_QUANT,
-    DEFAULT_CANDLE_TOKENIZER_REPO, ModelDownloadProgress, ModelFile, NoopDownloadProgress,
-    QWEN3_QUERY_TASK, apply_role_instruction, candle_repo_for_runtime, degrade_candle_to_external,
-    ensure_model_downloaded, gguf_file_name, last_token_pool, model_dir_for_repo,
-    model_is_loadable, model_is_present_and_verified, query_instruction_template,
-    runtime_uses_candle, select_embedding_provider,
-};
-pub use self::embedding_external::{AnyEmbeddingProvider, ExternalEmbeddingProvider};
+pub use self::embedding_engine::{AnyEmbeddingProvider, select_embedding_provider};
+pub use self::embedding_error::EmbeddingServiceError;
+pub use self::embedding_external::ExternalEmbeddingProvider;
 pub use self::embedding_static::{
     DEFAULT_STATIC_MODEL_FILES, DEFAULT_STATIC_MODEL_REPO, STATIC_EMBEDDING_DIM,
     STATIC_INAPP_BASE_URL, STATIC_MAX_INPUT_TOKENS, StaticEmbeddingMatrix, StaticEmbeddingProvider,
-    degrade_static_to_external, parse_static_config, runtime_uses_static, static_embed_ids,
+    StaticTokenizer, parse_static_config, runtime_uses_static, static_embed_ids,
     static_l2_normalize, static_repo_for_runtime,
 };
 pub use self::fingerprint::{EMBEDDING_FINGERPRINT_VERSION, EmbeddingFingerprint};
 pub use self::llm::{RigLlmProvider, probe_tool_capability};
-pub use self::narrative::{
-    NarrativeSummary, QueryFamilyFacts, TopicFacts, summarize_query_family, summarize_topic,
+pub use self::model_files::{
+    ModelDownloadProgress, ModelFile, NoopDownloadProgress, ensure_model_downloaded,
+    model_dir_for_repo, model_is_loadable, model_is_present_and_verified,
 };
-pub use self::reverse_visit_map::{ReverseMapHeader, ReverseVisitMap, reverse_map_plane_bytes};
+pub use self::reverse_visit_map::{ReverseMapHeader, ReverseVisitMap};
 pub use self::traits::{
     EmbeddingDescriptor, EmbeddingDtype, EmbeddingPooling, EmbeddingProvider, EmbeddingRole,
-    LlmCapabilities, LlmChatRequest, LlmChatResponse, LlmChunkStream, LlmMessage, LlmProvider,
-    LlmResponseFormat, LlmRole, LlmStreamChunk, LlmToolCall, LlmToolDef, LlmUsage, VectorIndex,
+    LlmCapabilities, LlmChatRequest, LlmChatResponse, LlmChunkStream, LlmFinishReason, LlmMessage,
+    LlmProvider, LlmReasoning, LlmResponseFormat, LlmRole, LlmStreamChunk, LlmStreamError,
+    LlmToolCall, LlmToolDef, LlmUsage, VectorIndex,
 };
-pub use self::vector_index::{
-    ALLOWLIST_EXPANSION, FlatVectorIndex, RECALL_EXPANSION, RECALL_FLOOR, prepare_query,
-};
+pub use self::vector_index::FlatVectorIndex;
 pub use self::vector_planes::{
-    BinaryPlane, Int8Plane, Int8PlaneReader, Int8Vector, PlaneBuildReport, PlaneHeader, binarize,
-    binary_bytes_for_dim, build_planes_from_store, dequantize_int8, derived_plane_bytes,
-    dot_product, hamming_distance, planes_are_stale, quantize_int8,
+    BinaryPlane, Int8Plane, Int8Vector, PlaneBuildReport, PlaneHeader, binarize,
+    binary_bytes_for_dim, build_planes_from_store, dequantize_int8, dot_product, hamming_distance,
+    planes_are_stale, quantize_int8,
 };
-pub use self::vector_store::{VectorStore, VectorStoreHeader, vector_plane_bytes};
-pub use self::visit_content_map::{VisitContentMap, visit_map_plane_bytes};
+pub use self::vector_store::{VectorStore, VectorStoreHeader};
+pub use self::visit_content_map::VisitContentMap;
 pub use self::working_set::{
-    CANDLE_CPU_DOCS_PER_SEC, CandidateSignals, MAX_WORKING_SET, METAL_SPEEDUP, WorkingSetCandidate,
-    WorkingSetConfig, estimate_reembed, reembed_estimate_for, score_candidate, select_working_set,
+    CandidateSignals, WorkingSetCandidate, WorkingSetConfig, WorkingSetPage, estimate_reembed,
+    score_candidate, select_working_set,
 };
 
 use self::control::{await_with_ai_cancellation, checkpoint_ai_run};
-use self::indexing::provider_embedding_count;
-#[cfg(test)]
-use self::indexing::{build_embedding_content, cleanup_stale_embeddings, collect_visits_to_index};
-use self::ledger::{
-    AiIndexLedgerRow, ai_embedding_token_estimate, ai_embeddings_storage_bytes, begin_ai_run,
-    current_source_watermark, finalize_ai_run_failure, finalize_ai_run_success, load_index_ledger,
-    record_index_ledger_failure, record_index_ledger_start, record_index_ledger_success,
-};
+use self::native_ledger::AiIndexLedgerRow;
 use self::provider::{
-    classify_provider_error, embed_query, embedding_provider_readiness, run_llm_agent,
-    validate_provider,
-};
-#[cfg(test)]
-use self::provider::{
-    embed_batch_with_retry, embed_single_with_retry, embedding_error_is_rate_limited,
-    provider_connection_report_from_probe,
-};
-use self::search::semantic_index_staleness_reason;
-#[cfg(test)]
-use self::search::{
-    SearchContext, SearchHistoryArgs, SearchHistoryTool, StoredEmbedding, build_assistant_preamble,
-    cosine_similarity, search_history_internal, semantic_matches, sort_stored_embeddings_desc,
+    classify_provider_error, embed_query, embedding_provider_readiness, validate_provider,
 };
 
 /// Resolved provider configuration plus the OPTIONAL secret for one AI operation.
@@ -256,6 +241,11 @@ pub trait IndexBackfillLedger: Send + Sync {
     /// Called only AFTER the chunk's vectors are flushed to the vector store, so the watermark
     /// can never claim progress that is not on disk.
     fn record(&self, progress: IndexBackfillProgress) -> Result<()>;
+
+    /// Couples readiness to the persisted stop flag in the final Intelligence transaction.
+    fn job_id(&self) -> Option<i64> {
+        None
+    }
 }
 
 /// Error raised when a cooperative AI run stop request is observed.
@@ -286,60 +276,9 @@ pub struct AiIntegrationPreview {
     pub warnings: Vec<String>,
 }
 
-const AI_SCHEMA_SQL: &str = r#"
-    CREATE TABLE IF NOT EXISTS ai_embeddings (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      history_id INTEGER NOT NULL,
-      profile_id TEXT NOT NULL,
-      url TEXT NOT NULL,
-      title TEXT,
-      domain TEXT NOT NULL,
-      visited_at TEXT NOT NULL,
-      content_hash TEXT NOT NULL,
-      content_bytes INTEGER NOT NULL,
-      provider_id TEXT NOT NULL,
-      model TEXT NOT NULL,
-      indexed_at TEXT NOT NULL,
-      UNIQUE(history_id, provider_id, model, content_hash)
-    );
-    CREATE TABLE IF NOT EXISTS ai_assistant_runs (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      run_id INTEGER,
-      question TEXT NOT NULL,
-      answer TEXT NOT NULL,
-      provider_id TEXT NOT NULL,
-      embedding_provider_id TEXT NOT NULL,
-      citations_json TEXT NOT NULL,
-      notes_json TEXT NOT NULL,
-      created_at TEXT NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS ai_index_ledger (
-      provider_id TEXT NOT NULL,
-      model TEXT NOT NULL,
-      sidecar_table TEXT NOT NULL,
-      index_version TEXT NOT NULL,
-      state TEXT NOT NULL,
-      source_watermark INTEGER,
-      last_run_id INTEGER,
-      build_started_at TEXT,
-      build_finished_at TEXT,
-      last_indexed_at TEXT,
-      last_cleared_at TEXT,
-      last_failure_at TEXT,
-      failure_reason TEXT,
-      PRIMARY KEY(provider_id, model)
-    );
-    CREATE INDEX IF NOT EXISTS idx_ai_embeddings_provider_model
-      ON ai_embeddings(provider_id, model);
-    CREATE INDEX IF NOT EXISTS idx_ai_embeddings_history_id
-      ON ai_embeddings(history_id);
-"#;
-
-const CLEAR_PROVIDER_EMBEDDINGS_SQL: &str =
-    "DELETE FROM ai_embeddings WHERE provider_id = ?1 AND model = ?2";
-const DELETE_STALE_EMBEDDINGS_SQL: &str = "DELETE FROM ai_embeddings WHERE provider_id = ?1 AND model = ?2 AND history_id NOT IN (SELECT id FROM archive.visits WHERE reverted_at IS NULL)";
-const UPSERT_EMBEDDING_SQL: &str = "INSERT OR REPLACE INTO ai_embeddings (history_id, profile_id, url, title, domain, visited_at, content_hash, content_bytes, provider_id, model, indexed_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)";
-const INSERT_ASSISTANT_RUN_SQL: &str = "INSERT INTO ai_assistant_runs (run_id, question, answer, provider_id, embedding_provider_id, citations_json, notes_json, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)";
+/// Correlated `NOT EXISTS` so each row is checked by a primary-key lookup; a `NOT IN` subquery
+/// would first copy every visible visit id into a temporary index.
+const UPSERT_EMBEDDING_SQL: &str = "INSERT OR REPLACE INTO ai_embeddings (history_id, profile_id, url, title, domain, visited_at, content_hash, content_bytes, provider_id, model, indexed_at, metadata_bytes) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)";
 const AI_QUEUE_RECENT_LIMIT: usize = 8;
 const AI_INDEX_LEDGER_VERSION: &str = "semantic-sidecar-v1";
 /// Canonical rows embedded + persisted per resumable backfill chunk.
@@ -349,19 +288,19 @@ const AI_INDEX_LEDGER_VERSION: &str = "semantic-sidecar-v1";
 /// modest so the 4-core host stays responsive (the embed loop yields between chunks and the
 /// vector store append is O(chunk), never O(store)).
 ///
-/// LEASE SAFETY (HIGH-3): bounded to ONE `EMBEDDING_HTTP_BATCH` so a single chunk issues at most
+/// LEASE SAFETY: bounded to ONE `EMBEDDING_HTTP_BATCH` so a single chunk issues at most
 /// one HTTP embed call (≤ `EMBEDDING_HTTP_TIMEOUT` = 120s), comfortably under the 300s queue lease
 /// even if the 30s heartbeat thread stalls. The earlier 256-row chunk fanned out to 4 HTTP calls
 /// (4 × 120s = 480s) which could outlive the lease and let a reclaimed worker keep writing — the
 /// lease-loss abort plus this smaller chunk together close that double-write window.
-#[cfg(not(coverage))]
 const EMBEDDING_BACKFILL_CHUNK: usize = embedding_external::EMBEDDING_HTTP_BATCH;
-/// Tiny chunk under coverage so multi-chunk + cursor-advance paths run on small fixtures.
-#[cfg(coverage)]
-const EMBEDDING_BACKFILL_CHUNK: usize = 2;
-#[cfg(test)]
-const EMBEDDING_RETRY_ATTEMPTS: usize = 2;
 const SQLITE_BATCH_SIZE: usize = 400;
 
 #[cfg(test)]
 mod tests;
+
+pub use self::search_group_snapshots::{
+    SearchGroup, SearchGroupWindow, SearchGroupsCard, search_groups_card,
+    warm_search_group_snapshots,
+};
+pub use self::similar_searches::{SimilarSearch, SimilarSearches, similar_searches};

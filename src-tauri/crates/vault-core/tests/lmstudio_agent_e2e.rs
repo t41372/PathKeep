@@ -29,10 +29,10 @@ use vault_core::{
     AiProviderConfig, AiProviderPurpose, AiProviderRuntime, AiRequestFormat, AiRunCancelled,
     AiRunControl, AiSettings, AppConfig, ArchiveMode, BeginAgentRun, BrowserHistoryImportRequest,
     DEFAULT_MAX_ITERATIONS, DEFAULT_TOKEN_BUDGET, LlmChatRequest, LlmMessage, LlmRole,
-    ProjectPaths, RigLlmProvider, SecretString, ToolRegistry, append_agent_step, begin_agent_run,
+    RigLlmProvider, SecretString, ToolRegistry, Vault, append_agent_step, begin_agent_run,
     build_agent_system_context, drive_agent_run, finalize_agent_run, load_agent_run,
-    load_conversation, probe_tool_capability, project_paths_with_root, record_agent_citations,
-    resolve_agent_system_context, save_conversation,
+    load_conversation, probe_tool_capability, record_agent_citations, resolve_agent_system_context,
+    save_conversation,
 };
 
 /// LM Studio fixture (matches the chat-stream + embedding e2es): tool-capable gemma LLM.
@@ -46,8 +46,7 @@ fn lmstudio_llm_runtime() -> AiProviderRuntime {
             enabled: true,
             base_url: Some("http://localhost:1234/v1".to_string()),
             default_model: "google/gemma-4-26b-a4b-qat".to_string(),
-            temperature: Some(0.2),
-            max_tokens: Some(2048),
+
             ..AiProviderConfig::default()
         },
         api_key: Some(SecretString::from("lm-studio".to_string())),
@@ -94,10 +93,10 @@ fn agent_config() -> AppConfig {
     }
 }
 
-/// Seeds a small, distinctive archive at `paths` by importing a real Firefox `places.sqlite`
+/// Seeds a small, distinctive archive in `vault` by importing a real Firefox `places.sqlite`
 /// fixture, so the lexical (BM25) plane has rows to surface for the agent's `search_history` call.
 /// Returns the imported visit count (a sanity check the seed actually landed).
-fn seed_archive(paths: &ProjectPaths, config: &AppConfig, source_dir: &Path) -> usize {
+fn seed_archive(vault: &Vault, source_dir: &Path) -> usize {
     let history_path = source_dir.join("places.sqlite");
     // A handful of recognizable pages; the prompt asks about "tauri", which only the first row
     // matches, so a faithful tool call must surface it.
@@ -159,19 +158,19 @@ fn seed_archive(paths: &ProjectPaths, config: &AppConfig, source_dir: &Path) -> 
         browser_name: Some("Mozilla Firefox".to_string()),
         profile_name: Some("default".to_string()),
     };
-    let inspection = vault_core::import_browser_history(paths, config, None, &request)
-        .expect("import seeded archive");
+    let inspection =
+        vault_core::import_browser_history(vault, &request).expect("import seeded archive");
     inspection.candidate_items
 }
 
 /// A real-database [`AgentJournal`] backed by `agent.sqlite`, mirroring the worker's journal so the
 /// e2e exercises the SAME durable write path the desktop app uses (journal-before-observe).
-struct SqliteJournal {
-    paths: ProjectPaths,
+struct VaultJournal {
+    vault: vault_core::Vault,
     run_id: String,
 }
 
-impl AgentJournal for SqliteJournal {
+impl AgentJournal for VaultJournal {
     fn journal_step(
         &self,
         turn: u32,
@@ -181,7 +180,7 @@ impl AgentJournal for SqliteJournal {
         payload: &str,
     ) -> anyhow::Result<()> {
         append_agent_step(
-            &self.paths,
+            &self.vault,
             &vault_core::AppendAgentStep {
                 run_id: self.run_id.clone(),
                 turn: turn as i64,
@@ -207,9 +206,10 @@ impl AgentJournal for SqliteJournal {
                 title: citation.title.clone(),
                 visited_at: Some(citation.visited_at.clone()),
                 score: citation.score,
+                profile_id: Some(citation.profile_id.clone()),
             })
             .collect();
-        record_agent_citations(&self.paths, &self.run_id, &records)?;
+        record_agent_citations(&self.vault, &self.run_id, &records)?;
         Ok(())
     }
 }
@@ -234,9 +234,10 @@ impl AiRunControl for CancelToken {
 
 /// Builds the tool context the harness drives: the seeded archive + the real LM Studio embedding
 /// provider so `search_history` runs the full hybrid pipeline.
-fn tool_context(paths: &ProjectPaths, config: &AppConfig) -> AgentToolContext {
+fn tool_context(vault: &Vault, config: &AppConfig) -> AgentToolContext {
     AgentToolContext {
-        paths: paths.clone(),
+        vault: vault.clone(),
+        paths: vault.paths().clone(),
         config: config.clone(),
         database_key: None,
         embedding_provider: Some(AiProviderRuntime {
@@ -248,11 +249,12 @@ fn tool_context(paths: &ProjectPaths, config: &AppConfig) -> AgentToolContext {
         default_limit: config.ai.retrieval_top_k.max(1),
         run_control: None,
         // Pin UTC so the LOCAL-time rendering stays deterministic regardless of the host clock.
-        tz_offset: chrono::FixedOffset::east_opt(0).unwrap(),
+        time_zone: chrono_tz::UTC,
     }
 }
 
 #[tokio::test]
+#[ignore = "requires an explicitly enabled external LM Studio provider"]
 async fn lmstudio_agent_runs_the_full_tool_loop_and_journals_a_durable_cited_trace() {
     if std::env::var("PATHKEEP_AGENT_E2E").as_deref() != Ok("1") {
         eprintln!(
@@ -263,9 +265,10 @@ async fn lmstudio_agent_runs_the_full_tool_loop_and_journals_a_durable_cited_tra
     }
 
     let dir = tempfile::tempdir().expect("tempdir");
-    let paths = project_paths_with_root(dir.path());
     let config = agent_config();
-    let seeded = seed_archive(&paths, &config, dir.path());
+    let vault = Vault::open_temp().unwrap().with_config(config.clone());
+    let seeded = seed_archive(&vault, dir.path());
+    let context = tool_context(&vault, &config);
     assert!(seeded > 0, "the seeded archive must hold at least one visit");
     eprintln!("agent e2e: seeded {seeded} visit(s)");
 
@@ -274,7 +277,7 @@ async fn lmstudio_agent_runs_the_full_tool_loop_and_journals_a_durable_cited_tra
     let conversation_id = "conv-agent-e2e";
     let message_id = "assistant-agent-e2e";
     save_conversation(
-        &paths,
+        &vault,
         &vault_core::SaveAgentConversationRequest {
             id: conversation_id.to_string(),
             title: None,
@@ -300,12 +303,13 @@ async fn lmstudio_agent_runs_the_full_tool_loop_and_journals_a_durable_cited_tra
 
     let run_id = "run-agent-e2e";
     begin_agent_run(
-        &paths,
+        &vault,
         &BeginAgentRun {
             id: run_id.to_string(),
             conversation_id: Some(conversation_id.to_string()),
             message_id: Some(message_id.to_string()),
             provider_id: Some(lmstudio_llm_runtime().config.id),
+            model: Some(lmstudio_llm_runtime().config.default_model),
             embedding_provider_id: Some(lmstudio_embedding_config().id),
         },
     )
@@ -313,8 +317,7 @@ async fn lmstudio_agent_runs_the_full_tool_loop_and_journals_a_durable_cited_tra
 
     let provider = RigLlmProvider::new(lmstudio_llm_runtime());
     let registry = ToolRegistry::with_default_search_tools();
-    let context = tool_context(&paths, &config);
-    let journal = SqliteJournal { paths: paths.clone(), run_id: run_id.to_string() };
+    let journal = VaultJournal { vault: vault.clone(), run_id: run_id.to_string() };
 
     // Mirror the worker: prepend the host-computed system-context block (current date/time/timezone
     // + archive span) ahead of the run's own system guidance. This is the date/recency fix under
@@ -322,22 +325,18 @@ async fn lmstudio_agent_runs_the_full_tool_loop_and_journals_a_durable_cited_tra
     // year, searches empty date ranges, and loops. The retrieval guidance then tells it to enumerate
     // recent visits via an EMPTY query (the other half of the fix), which the seeded rows satisfy.
     let system_context =
-        build_agent_system_context(&resolve_agent_system_context(&paths, &config, None));
+        build_agent_system_context(&resolve_agent_system_context(&context.vault), "");
     eprintln!("agent e2e: injected system context = {system_context:?}");
-    let request = LlmChatRequest::new(
-        vec![
-            LlmMessage::new(LlmRole::System, system_context),
-            LlmMessage::new(
-                LlmRole::System,
-                "You answer questions about the user's OWN browser history. Call the \
+    let request = LlmChatRequest::new(vec![
+        LlmMessage::new(LlmRole::System, system_context),
+        LlmMessage::new(
+            LlmRole::System,
+            "You answer questions about the user's OWN browser history. Call the \
                  search_history tool to find evidence before answering — you may call it with an \
                  EMPTY query to list the most recent visits — and cite the rows you used.",
-            ),
-            LlmMessage::new(LlmRole::User, "Summarize my most recent browsing and cite the pages."),
-        ],
-        Some(0.2),
-        Some(2048),
-    );
+        ),
+        LlmMessage::new(LlmRole::User, "Summarize my most recent browsing and cite the pages."),
+    ]);
 
     // Capture the streamed chunks so we can assert the observable loop shape.
     let chunks = std::sync::Mutex::new(Vec::<AiChatStreamChunk>::new());
@@ -367,6 +366,8 @@ async fn lmstudio_agent_runs_the_full_tool_loop_and_journals_a_durable_cited_tra
         None,
         DEFAULT_MAX_ITERATIONS,
         DEFAULT_TOKEN_BUDGET,
+        None,
+        4096,
         &journal,
         |chunk: AiChatStreamChunk| chunks.lock().expect("lock").push(chunk),
     )
@@ -439,7 +440,7 @@ async fn lmstudio_agent_runs_the_full_tool_loop_and_journals_a_durable_cited_tra
     // Finalize the durable header to match the harness outcome (mirrors the worker).
     if let AgentRunOutcome::Completed { iterations, prompt_tokens, completion_tokens } = outcome {
         finalize_agent_run(
-            &paths,
+            &vault,
             run_id,
             vault_core::AgentRunStatus::Completed,
             iterations as i64,
@@ -451,7 +452,7 @@ async fn lmstudio_agent_runs_the_full_tool_loop_and_journals_a_durable_cited_tra
     }
 
     // --- Durable trace: resume = replay ---------------------------------------------------------
-    let trace = load_agent_run(&paths, run_id).expect("load trace").expect("trace present");
+    let trace = load_agent_run(&vault, run_id).expect("load trace").expect("trace present");
     assert!(!trace.steps.is_empty(), "the journal must hold the replayable steps");
     assert!(
         trace.steps.iter().any(|s| s.kind == "tool-result"),
@@ -461,7 +462,7 @@ async fn lmstudio_agent_runs_the_full_tool_loop_and_journals_a_durable_cited_tra
     assert_eq!(trace.status, vault_core::AgentRunStatus::Completed);
 
     // --- WU-7: reconstruction on reopen ---------------------------------------------------------
-    let detail = load_conversation(&paths, conversation_id)
+    let detail = load_conversation(&vault, conversation_id)
         .expect("load conversation")
         .expect("conversation present");
     let assistant =
@@ -482,6 +483,7 @@ async fn lmstudio_agent_runs_the_full_tool_loop_and_journals_a_durable_cited_tra
 }
 
 #[tokio::test]
+#[ignore = "requires an explicitly enabled external LM Studio provider"]
 async fn lmstudio_agent_cancel_mid_loop_emits_a_graceful_done() {
     if std::env::var("PATHKEEP_AGENT_E2E").as_deref() != Ok("1") {
         eprintln!("skipping LM Studio agent cancel e2e: set PATHKEEP_AGENT_E2E=1");
@@ -489,29 +491,28 @@ async fn lmstudio_agent_cancel_mid_loop_emits_a_graceful_done() {
     }
 
     let dir = tempfile::tempdir().expect("tempdir");
-    let paths = project_paths_with_root(dir.path());
     let config = agent_config();
-    seed_archive(&paths, &config, dir.path());
+    let vault = Vault::open_temp().unwrap().with_config(config.clone());
+    seed_archive(&vault, dir.path());
+    let context = tool_context(&vault, &config);
 
     let run_id = "run-agent-cancel-e2e";
-    begin_agent_run(&paths, &BeginAgentRun { id: run_id.to_string(), ..Default::default() })
+    begin_agent_run(&vault, &BeginAgentRun { id: run_id.to_string(), ..Default::default() })
         .expect("begin run");
 
     let provider = RigLlmProvider::new(lmstudio_llm_runtime());
     let registry = ToolRegistry::with_default_search_tools();
-    let context = tool_context(&paths, &config);
-    let journal = SqliteJournal { paths: paths.clone(), run_id: run_id.to_string() };
+    let journal = VaultJournal { vault: vault.clone(), run_id: run_id.to_string() };
 
     // Pre-armed cancel: the FIRST checkpoint (before the first model turn) trips, so the loop stops
     // cooperatively and emits a graceful Done — the same contract plain chat honors.
     let cancel = Arc::new(AtomicBool::new(true));
     let control: Arc<dyn AiRunControl> = Arc::new(CancelToken { cancel });
 
-    let request = LlmChatRequest::new(
-        vec![LlmMessage::new(LlmRole::User, "Search my history about the tauri guide.")],
-        Some(0.2),
-        Some(512),
-    );
+    let request = LlmChatRequest::new(vec![LlmMessage::new(
+        LlmRole::User,
+        "Search my history about the tauri guide.",
+    )]);
 
     let chunks = std::sync::Mutex::new(Vec::<AiChatStreamChunk>::new());
     let outcome = drive_agent_run(
@@ -523,6 +524,8 @@ async fn lmstudio_agent_cancel_mid_loop_emits_a_graceful_done() {
         Some(control),
         DEFAULT_MAX_ITERATIONS,
         DEFAULT_TOKEN_BUDGET,
+        None,
+        4096,
         &journal,
         |chunk: AiChatStreamChunk| chunks.lock().expect("lock").push(chunk),
     )

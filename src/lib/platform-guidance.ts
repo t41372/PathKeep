@@ -8,21 +8,17 @@
  * Main declarations:
  * - `SupportedPlatform`
  * - `normalizePlatform`
- * - `platformLabelKey`
- * - `platformSummaryKey`
  * - `macosFullDiskAccessSettingsUrl`
  * - `hasSafariAccessIssue`
  * - `browserDiscoveryState`
  * - `needsSchedulerReview`
- * - `keyringNeedsReview`
  *
  * Source-of-truth notes:
  * - Keep helper behavior aligned with the shipping design, feature, and architecture docs rather than local route assumptions.
  * - Avoid burying user-visible copy or route-only workflow rules here unless the helper truly owns that cross-cutting contract.
  */
 
-import type { BrowserProfile, ScheduleStatus, SecurityStatus } from './types'
-import type { TranslationKey } from './i18n'
+import type { BrowserProfile, ScheduleStatus } from './types'
 
 /**
  * Defines the type-level contract for supported platform.
@@ -64,30 +60,6 @@ export function normalizePlatform(platform?: string | null): SupportedPlatform {
   if (platform === 'windows') return 'windows'
   if (platform === 'linux') return 'linux'
   return 'macos'
-}
-
-/**
- * Explains how platform label key works.
- *
- * This helper should stay small, explicit, and easy to test because multiple routes rely on it as a shared contract.
- */
-export function platformLabelKey(platform?: string | null): TranslationKey {
-  const normalized = normalizePlatform(platform)
-  if (normalized === 'windows') return 'platform.windowsLabel'
-  if (normalized === 'linux') return 'platform.linuxLabel'
-  return 'platform.macosLabel'
-}
-
-/**
- * Explains how platform summary key works.
- *
- * This helper should stay small, explicit, and easy to test because multiple routes rely on it as a shared contract.
- */
-export function platformSummaryKey(platform?: string | null): TranslationKey {
-  const normalized = normalizePlatform(platform)
-  if (normalized === 'windows') return 'platform.windowsSummary'
-  if (normalized === 'linux') return 'platform.linuxSummary'
-  return 'platform.macosSummary'
 }
 
 /**
@@ -160,14 +132,4 @@ export function needsSchedulerReview(status: ScheduleStatus | null) {
     status.installState === 'legacy-install-detected' ||
     status.installState === 'manual-review'
   )
-}
-
-/**
- * Explains how keyring needs review works.
- *
- * This helper should stay small, explicit, and easy to test because multiple routes rely on it as a shared contract.
- */
-export function keyringNeedsReview(status: SecurityStatus | null) {
-  if (!status) return false
-  return !status.keyringStatus.available || status.warnings.length > 0
 }

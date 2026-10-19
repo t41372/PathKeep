@@ -4,7 +4,7 @@
 > Intelligence 是建立在 Archive 夠好的基礎上的增值層。  
 > AI 功能已由 AI redesign 2026 program 交付並 reachable；整個 AI 面 **預設關閉、consent-gated**，沒有 AI 時 deterministic intelligence 仍完整可用。
 >
-> **2026-06-22 AI shipped note（取代下方所有 v0.1/v0.2 deferral）：** AI redesign 2026 program（W-AI-1..9）已交付：streaming external LLM chat、durable agent harness、in-app（candle Qwen3）+ external embedding、`FlatVectorIndex` 語義/混合檢索（RRF + bounded starred boost + `is:starred` facet）、code-mode（Wasmtime + Javy 沙箱）、MCP 對外面、skills、site content-fetch enrichment。下方 2026-04/05 寫下的「AI Assistant / embedding / semantic / MCP / readable-content 全部 deferred、UI 必須顯示 `Coming in v0.3`」結論**已過時，不再適用**——這些 surface 現在已 reachable，但 **off by default + consent-gated**（master `ai.enabled` + 各 sub-flag）。安全邊界與 threat model 見 [ai-security-posture.md](../architecture/ai-security-posture.md)。
+> **2026-06-22 AI shipped note（取代下方所有 v0.1/v0.2 deferral）：** AI redesign 2026 program（W-AI-1..9）已交付：streaming external LLM chat、durable agent harness、in-app（model2vec static）+ external embedding（2026-10-09 移除 candle Qwen3 層；2026-10-16 用戶決定不內建推理引擎，contextual 模型走外部服務）、`FlatVectorIndex` 語義/混合檢索（RRF + bounded starred boost + `is:starred` facet）、code-mode（Wasmtime + Javy 沙箱）、MCP 對外面、skills、site content-fetch enrichment。下方 2026-04/05 寫下的「AI Assistant / embedding / semantic / MCP / readable-content 全部 deferred、UI 必須顯示 `Coming in v0.3`」結論**已過時，不再適用**——這些 surface 現在已 reachable，但 **off by default + consent-gated**（master `ai.enabled` + 各 sub-flag）。安全邊界與 threat model 見 [ai-security-posture.md](../architecture/ai-security-posture.md)。
 >
 > **2026-04-15 truth note:** deterministic baseline 已由 [core-intelligence-ultimate-design.md](core-intelligence-ultimate-design.md) 正式接管；[deterministic-intelligence.md](deterministic-intelligence.md) 與 [ADR-006](../architecture/decisions/006-deterministic-intelligence-boundary.md) 保留為它的歷史與 trade-off 背景。這份文檔現在描述 optional AI / assistant / MCP / semantic runtime / queue review 的 shipping contract；任何殘留的 deterministic insights / session / dwell / embedding-first baseline wording，都屬 legacy 敘述，不再是 accepted source of truth。
 >
@@ -12,24 +12,114 @@
 
 ---
 
+## 0. 2026-10 介面對照
+
+M18 redesign（2026-10-02）換掉了整個前端。下文的後端行為不變；提到舊頁面的地方對照如下（畫面細節見 [screens-and-nav.md](../design/screens-and-nav.md)）：
+
+| 舊頁面 / 元件                                                  | 現在                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Explorer 的 keyword / semantic / hybrid recall                 | History 的搜尋方式：全文 / Regex / 語意。語意走 `search_ai_history`，條件是 `ai.enabled`、`semanticIndexEnabled` 都開；沒有可用索引時退回全文並提示                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Assistant（`/assistant`）                                      | Ask（`/ask`）：串流回答、可展開思考與搜尋次數、引用頁面連回 History、停止 / 重試 / 複製、對話清單（改名、匯出成 Markdown、刪除；匯出時跳出系統的儲存對話框〔預設「下載」〕，存在使用者選的地方，有標題、每一問一答與每個回答用到的頁面〔連結與造訪時間〕，不含思考與搜尋過程，2026-10-13）                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `/intelligence` 與 day / domain / query-family / refind… 路由  | Insights（`/insights`，全部時間（預設）/ 1 年 / 90 天 / 30 天 / 7 天 / 自訂，可只看一個瀏覽器設定檔）：KPI 列；瀏覽走勢、哪類網站、熱門網站；「什麼時候」：節奏（平日 / 週末每天平均、最忙的時段）、新網站；「搜尋」：查過的事（有搜尋向量時）、常搜尋與常重開的頁面、在哪裡搜尋、搜尋什麼、搜尋得怎麼樣、試了好幾次的搜尋、搜尋最後到了哪裡、比較過的頁面；「規律」：回頭再看的事、習慣、在網站之間怎麼走、探索還是專注、各瀏覽器對比。每個範圍都先讀 primary、再讀 secondary 兩批（§M4-A）。Drill-in：`/insights/day/:date`、`/insights/site/:domain`、`/insights/search/:query`（以搜尋字為準，合併各設定檔的 query family）、`/insights/page/:url`；session 與 trail 在 day / search 裡展開，不是獨立路由。沒有 Insight Access、compare-set、path-flow 路由：比較過的頁面連到它的搜尋、那天與每一頁 |
+| Dashboard 的 On This Day、Browsing Rhythm、threads             | Home 的 On this day、「你的一年」日曆熱力圖、「常回來的主題」（reopened investigations，90 天）                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| Settings 的 AI provider editor                                 | Settings → AI 的「AI 服務」列與新增對話框（onboarding 第 6 步共用同一張表單）                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| Integrations 的 MCP / skill artifact review                    | Settings → AI 的「MCP 伺服器」開關；開啟後顯示可複製的 MCP 指令。沒有 JSON / skill markdown 預覽                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| Jobs、Maintenance 的 derived-state 面板、sidebar footer 工作條 | Settings → Background work（佇列、暫停 / 恢復、併發數、重試 / 取消、重建洞察、清除洞察資料）。語意索引的下載 / 建索引進度與「重建搜尋索引」仍在 Settings → AI                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| 共享 profile scope                                             | Insights 與其 drill-in 有自己的設定檔篩選（`?profile=`，2026-10-08 起）；Ask 一律是整個 archive；History 只能依瀏覽器種類篩選                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+
+2026-10 介面沒有做到、但下文仍要求的（待用戶決定補或改）：
+
+- §1 沒有獨立的 hybrid 選項（History 只有「語意」）。provider / model / index state 已在 History 顯示（2026-10-04）：語意搜尋可用時結果數下方寫出 provider 與模型、已索引頁數、更新時間與是否過期；不可用時按鈕提示與同一行說明原因（`disabled`、`rebuilding`、`queued`、`paused`、`empty`、`degraded`、`blocked`）並說明現在是全文結果，連到 Settings → AI。
+- §2 assistant 的 `queued` / `insufficient-evidence` 狀態與 `jobId` / `runId` 顯示、共享 profile scope、seeded prompt 以外的修復入口。Ask 有四個範例問題與「去 Settings → AI」。
+- §3 Integrations 的 generated-artifact review（MCP JSON、skill markdown、consent summary）。
+- §4 Insights 的 V1 洞察卡：2026-10 補上 Threads（回頭再看的事）、Explore vs Exploit（探索還是專注，只用 breadth index 與新網站數；discovery rate 在合成資料上幾乎全為 0，沒有做成卡）、Habits、多瀏覽器對比，以及 day / site / search / page drill-in；每張卡有 freshness（`meta.state` 為 stale 時顯示「更新中」並輪詢，degraded / disabled 顯示「部分可用」與原因：`stateReasonCode` 換成使用者語言的句子，沒有對應句子的代碼顯示通用的一句，英文 `stateReason` 只留給記錄與診斷）與 ⓘ 說明（計算時間、日期範圍、算法），重開頁面的 drill-in 列出分數的每個訊號與權重。仍沒做、原因是後端沒有可信的資料：Open Loops（沒有命令）；Search effectiveness 與 Friction（每條 trail 只有一個 query，`avgReformulations` 恆為 0，friction 恆為空）；Source Role Map（`get_stable_sources` 是整段歷史的計數、每個設定檔一列、從不輸出 `entry`）；Periodic Summaries / Topic Timeline / Query Ladder / Contrastive Summary（沒有 2026-10 介面）。scope 標示：Insights 的設定檔篩選選中某個設定檔時，選單上就寫著它；沒選時是所有瀏覽器。2026-10-08 起 `WORK-INSIGHTS-RESTORE-2026-10` 補回：KPI 的新網站 / 深入瀏覽 / 重新打開的頁面、熱門網站前 40 與排序、節奏下的平日 / 週末與最忙時段、新網站走勢、在哪裡搜尋、搜尋什麼、搜尋得怎麼樣（search effectiveness，改寫次數在 trail 修正後才有意義）、試了好幾次的搜尋（friction）、搜尋最後到了哪裡（取代 stable sources 的舊定義）、比較過的頁面（compare sets）、在網站之間怎麼走（path flows，不計來回）、day 頁的回來再看的頁面。刻意沒補回的見 `screens-and-nav.md` §Insights。
+- §6 Job Queue 的使用者控制：2026-10-04 起在 Settings → Background work（隊列數、執行中與最近完成 / 失敗的工作、進度、暫停 / 恢復、併發 1–4、單筆重試 / 取消、手動「重建洞察」與「立即抓取」網頁摘要）。沒有：一次重排全部失敗任務、清理失敗任務（後端沒有批次命令）、前景「立即執行」(`run_ai_queue_jobs` 會在一次 IPC 內跑完工作，索引建置可長達數分鐘，所以不接)。最近工作目前顯示第一頁；Turso 後端另提供 continuation cursor 與完整工作列表命令。
+- 搜尋 tuning：2026-10-04 起在 Settings → AI「搜尋排序」（RRF `k`、文字 / 意思權重、加星加分；預設值、範圍、說明、恢復預設值；範圍與 `normalize_search_knobs` 一致）。
+
+---
+
+## Turso storage contracts (2026-10)
+
+AI queue state and embedding metadata use the session's `Vault` in `Db::Intelligence`;
+vectors remain in their documented sidecars. Queue recovery returns abandoned claims to
+pending without repeating completed jobs. Backfill visits every captured candidate, using
+`limit` as a batch size. Working-set scoring sets priority and does not remove candidates
+through a global or per-signal pool cap.
+
+Settings → Background work shows each queue's whole job history (2026-10-13). Each list
+shows the newest five and unfolds to every job, read 50 at a time from `list_ai_jobs` /
+`list_intelligence_jobs` as it scrolls, windowed, with its loading, end and failure states.
+While a queue works, every page read so far is read again every 2 s, so a job shows its
+current state wherever it is; folding the list drops all but the first page. The AI queue
+pages by job id. The Insights queue pages by `intelligence_jobs.list_order`, set when a job is
+added or deliberately queued again (enqueued again under its dedupe key, tried again) and never
+while it runs or finishes: it used to page by `updated_at`, which a job changes every time it
+reports progress, so a list read while the queue ran skipped some jobs and showed others twice.
+A rebuild reuses its row, and `list_order` brings it to the top when it is queued again.
+
+Enrichment candidates come from native canonical pages, including pages with no visit.
+`awaiting_archive` jobs are offered again once their page exists. The cache is keyed by
+canonical URL and content source; a stored fetch result survives interruption between cache
+storage and Archive publication and is replayed without another fetch. Later URL variants
+reuse the same content. Existing fetch consent and transport behavior are unchanged.
+
+Agent intelligence reports and annotations expose `output_cursor` fragments when the whole
+JSON cannot fit one response. Notes retain their full text. Fragment cursors pin the content
+revision; changed content requests a restart. Deterministic list/detail DTO changes and all
+continuation fields are listed in the [area-4 contract report](../architecture/research/2026-10-turso-area4.md).
+
 ## 1. 語義搜尋（Semantic Search）
 
 **作為**用戶，**我想要**用自然語言搜尋我的歷史紀錄，**以便**能找到「我記得看過某個講 local-first 的文章但記不得具體名字」這類模糊記憶。
 
 ### 需求要點
 
-- semantic / hybrid search 已交付（W-AI-4/5/6），但 **off by default + consent-gated**（master `ai.enabled` + `semantic_index_enabled`）；沒開時 Explorer recall 維持 keyword / regex / lexical recall v2。
-- 向量相似度走 in-app（candle Qwen3）或 external（OpenAI-compatible `/v1/embeddings`）embedding，寫進 `derived/vectors/` 的 `FlatVectorIndex` sidecar plane（`.pkvec/.pkmap/.pkbin/.pki8`），不連結 LanceDB。
+- semantic / hybrid search 已交付（W-AI-4/5/6），但 **off by default + consent-gated**（master `ai.enabled` + `semantic_index_enabled`）；沒開時 History 搜尋維持全文 / regex（lexical recall v2）。
+- 向量相似度走 in-app（model2vec static 模型）或 external（OpenAI-compatible `/v1/embeddings`）embedding（Settings → AI 的「模型」選 in-app，或使用者加的 OpenAI 相容 embeddings 服務：Ollama、LM Studio、OpenAI 或相容的位址，存在 `ai.embeddingProviders`，加了就讀模型清單檢查），寫進 `derived/vectors/` 的 `FlatVectorIndex` sidecar plane（`.pkvec/.pkmap/.pkbin/.pki8`，加上投影出來的 `.pkrev/.pkfwd/.pkpos`），不連結 LanceDB。搜尋時每個向量都計分（int8 plane 整塊 map、連續掃），再用一次串流讀完搜尋範圍內的造訪，取每頁範圍內造訪的最高分；不逐筆、不逐頁回查資料庫。建索引途中搜尋用上一份完整投影，建完那一刻才換。
+- 舊工作沒有記錄模型時，啟動一律取消（包含尚未執行、游標為 0 的工作），保留索引檔案；新的增量請求才可補缺。
+- 內建 embedding 引擎按模型目錄在程序內共用，搜尋、漂移檢查與建置使用同一份載入的權重；目錄、驗證標記或模型檔案變更才重新驗證／載入。
 - Embedding 增量計算、content-hash dedup（一個 content_key 一條向量，fan-out 到所有共享該內容的 visit）、本地索引、避免重算。
+- 送去 embedding 的是頁面本身的文字（2026-10-15 起）：標題、「網站 · 網址路徑裡的字詞」、和標題不同的可讀標題與摘要、正文（約 512 token）；不帶 profile、造訪時間、完整網址與欄位標籤。正文抽取略過 `script` / `style` / `noscript` / `template` / `svg`。查詢與文件依模型家族加上模型要的前綴（Qwen3-Embedding、EmbeddingGemma、nomic-embed-text、E5、mxbai-embed-large；只看模型 ID），每個查詢只加一次。細節見 [embedding-text.md](../architecture/embedding-text.md)。
+- 每次索引回填頁面之後，也會讀目前 Insights build 提供的 keyword search events，把每種不同的 `normalized_query` 嵌入一次。Insights 重建前可能仍有剛撤銷的搜尋，所以同時核對原始造訪仍可見，已撤銷的搜尋不會送出。送出的就是該字串，不加文件模板、位置或指令；同一個搜尋不因引擎或結果頁不同而重送。搜尋結果頁原本就會以頁面文件嵌入（標題可能含搜尋詞），現在另外保留搜尋自己的向量。還沒建 Insights 時沒有搜尋可填，下次索引更新會補；沒有向量的搜尋不會從報告裡消失。
+- 搜尋向量重用 `.pkvec/.pkbin/.pki8` 格式，以 `searches:<providerId>` 的獨立檔名空間放在 `derived/vectors/`，檔頭仍是實際 serving model 的 fingerprint，文字格式記為 `normalized-query-v1`；不建 visit map，不改 Archive 或 intelligence schema。每個完成的 chunk 都可接著跑，同一次工作的暫停與取消也適用；清除、重建或淘汰頁面索引時一起處理搜尋檔案。
+- 用舊版頁面文字建的索引（向量檔頭沒有目前的 `embeddedText`）照常搜尋、照常在備份後更新，狀態是 `stale`（`textFormat`）：Settings → AI 說明並提供「重建索引」（未完成的索引提供「從頭重來」），History 的語意提示說它是舊版文字建的。只有重建會換掉檔頭。
+- 索引按「服務 ID + 模型」分開。選的索引在 `ai_index_ledger.state = ready` 時提供搜尋；尚未完成時，讀完成時間最近、服務仍在設定裡的完整索引，用該服務目前的位址與金鑰、該索引的模型。沒有完整索引才讀所選模型的部分索引或空索引，沿用既有的降級提示。History、Ask 的搜尋工具、程式沙箱與 MCP 都遵守同一規則；只有實際讀到上一個模型的語意平面時帶 `previousModel` 提示；空查詢、日期排序、空索引與設定漂移後的全文退路不帶。
+- 換模型不啟動工作。建立、繼續與第一次填補都用增量：空索引填全部，部分索引補缺少的造訪；只有明確的「重建搜尋索引」清空重來。工作開始保留所選索引與正在服務的索引，刪掉其餘資料與檔案；所選模型完成整份存檔的填補後才切換，刪掉其餘索引及其完成紀錄。工作集的首次填補不算整份完成。已有完整索引的非清空更新維持 `ready`，暫停、取消或失敗仍可搜尋，下次增量補缺少的造訪。完整掃描的 watermark 與時間只在整份存檔填補成功後前進，工作集更新不能把尚未處理的造訪或 enrichment 標成最新；清空重建才改成 `building`（清除則是 `clearing`）。排隊尚未開始的工作不會降級完整索引。清理舊索引失敗寫進工作摘要並記錄日誌，不影響建置結果或所選索引，下次工作再試。
+- 換模型前先說後果（用戶 2026-10-16：換 embedding 模型都要有明確的警告）。Settings → AI 的模型選單換模型要先在確認對話框按「換模型」，取消就什麼都不變；新增嵌入服務、或改所選服務的模型時，存檔前在對話框裡列出同樣的內容（`model-switch.tsx`）：新模型要建自己的索引（幾次造訪，按「建立索引」才開始；語意搜尋關著時，開啟後才建）；建完之前搜尋繼續用哪個索引；建完後舊模型的索引會刪掉，換回去要重建；所選模型還沒建完的索引不保留，下次建立或更新索引時刪掉；外部服務之後每次語意搜尋都要經過它，它沒開或連不上時語意搜尋不能用，不會退回別的模型，關鍵字搜尋照常；線上服務會收到頁面文字與搜尋；內建模型是靜態嵌入模型、還沒下載時要先下載多大。「建立索引」按鈕旁再說一次舊索引會刪。移除有索引的服務時，對話框說它的索引會作廢、語意搜尋改回內建靜態模型且要先建索引。
+- Settings → AI 與背景工作每秒讀 `semanticIndex`：所選與服務中的索引、是否完整，以及工作狀態、暫停來源、原因、已寫入與目標造訪數。目標在計數前是 0；讀取只查完成紀錄與有效建置工作（不含清除，優先顯示執行中的），不掃造訪或 embedding 明細。
 - day-one recall mode 明確區分 `keyword`、`semantic`、`hybrid`；semantic / hybrid 必須顯示目前使用的 provider / model / index state，語義檢索不可用時要明講退化成 keyword recall。
 - semantic result 以 canonical visit evidence 為核心：至少回傳 `historyId`、profile / browser、URL / title、visited time、match reason、score band，並能 deep-link 回 Explorer 查原始記錄。
-- semantic index state 至少要能誠實區分 `disabled`、`blocked`、`empty`、`queued`、`paused`、`rebuilding`、`failed`、`stale`、`ready`、`degraded`。`stale` 代表 archive visibility / import watermark 或 approved enrichment 已改變，使用者必須明確 rebuild，而不是假裝 index 仍是最新。
-- runtime contract：semantic retrieval 走 `FlatVectorIndex`（binary-recall → int8-rescore 兩階段），**不做全庫 cosine 掃描**；若 sidecar 缺失、過期或失敗，PathKeep 誠實退回 lexical recall。semantic metadata / queue 固定落在 `derived/history-intelligence.sqlite`、向量 payload 落在 `derived/vectors/`、assistant chat / agent trace 落在 `derived/agent.sqlite`；SQLite 不承擔向量 payload mirror。
+- semantic index state 至少要能誠實區分 `disabled`、`blocked`、`empty`、`queued`、`paused`、`rebuilding`、`stale`、`ready`、`degraded`。`stale` 代表 archive visibility / import watermark 或 approved enrichment 已改變，使用者必須明確 rebuild，而不是假裝 index 仍是最新；`textFormat` 代表索引是用舊版頁面文字建的，只有重建能更新。
+- 搜尋必須覆蓋全部可用的向量與詞彙匹配頁面；日期、profile 與星號篩選不能先套在有限候選池上。結果以游標接續，頁面大小不限制總覆蓋；若 sidecar 缺失、過期或失敗，PathKeep 誠實退回 lexical recall。semantic metadata / queue 固定落在 `derived/intelligence.db`、向量 payload 落在 `derived/vectors/`、assistant chat / agent trace 落在 `derived/agent.db`；Turso 不承擔向量 payload mirror。
 - 搜尋 tuning（RRF `k`、lexical / semantic weight、starred boost）是 consent knob，入口在 Settings（W-AI-9-A），於 config load 時 clamp。
+
+### History 詳情的相關頁面
+
+選一頁後，詳情面板在「同一次瀏覽」之後列出最多六個相關頁面：語意索引裡跟它最像的頁，不分時間，也不受目前列表的搜尋與篩選影響。每列有網站圖示、標題、網站和多久以前看過。點一列，詳情面板換成那一頁，列表不動。
+
+- 同一頁換了網址（翻頁、錨點、標題後面多了版塊名或未讀數）只出現一次，頁面自己不出現，已撤銷的匯入也不出現。
+- 其他網站還有夠像的頁時，同一網站最多佔三列。
+- 太不像的不列：分數要高於索引裡隨機兩頁相似度的第 98 百分位。一頁都沒有時寫「沒有找到相似的頁面」。
+- 這頁還沒進索引時寫「這個頁面還沒有建立索引」；索引正在改寫時寫「搜尋索引正在更新」；語意搜尋關閉或服務不能用時，整段不顯示。用內建靜態模型時，標題下說明同網站的頁容易排在前面。
+- 不呼叫 embedding 服務，用索引裡已有的向量掃一遍 int8 plane，不跑搜尋的造訪範圍串流。100 萬次造訪時一次約 13 ms（256 維）、28 ms（1,024 維）。超大語料的記憶體限制跟語意搜尋一樣（BACKLOG `WORK-VECTOR-MEMORY-AT-SCALE`）。規則的來由與量測見 [related pages 研究記錄](../architecture/research/2026-10-related-pages.md)。
+
+### Search drill-in 的相似搜尋
+
+`/insights/search/:query` 的「相似搜尋」列出最多八種其他搜尋，不受目前日期範圍限制。每列保留使用者最近一次的拼字、所有時間的搜尋次數和最後搜尋時間，點擊開啟它自己的 drill-in。頁面已列出的其他說法、搜尋自己和很短的搜尋不再列出。
+
+這次讀取只用搜尋自己的向量，不加頁面向量，也不分組。它掃過所有已存的搜尋向量，只保留目前 Insights generation 還有、且原始造訪仍可見的 keyword searches；相似度至少要達到這批有效向量隨機兩兩比較的第 99 百分位（固定種子，20,000 對）。沒有結果、尚未索引、載入與錯誤都有各自的狀態；載入立即顯示 skeleton。語意索引不可用時整段隱藏，靜態模型附一句主要按共同字詞找相似搜尋的說明。讀取不呼叫 embedding 服務。第一次打開要走過所有搜尋事件一次（100 萬種搜尋約 1 秒），之後到 Insights 重建、archive 有新的備份 / 匯入 / 撤銷 / 還原或搜尋向量更新之前，都用記憶體裡的結果（約 50–75 ms）。不同搜尋若有一天累積到數百萬，這次掃描的記憶體限制和頁面搜尋相同，追蹤在 BACKLOG `WORK-VECTOR-MEMORY-AT-SCALE`。
 
 ---
 
 ## 2. AI 助手（Ask My History）
+
+2026-10 Turso agent storage: transcripts and run journals use the session's
+`Vault` and `derived/agent.db`. Conversation lists return `nextCursor`, so the old
+200-row limit bounds one page. `list_ai_messages` provides sequence-based message
+pages. Full transcript loading and atomic whole-transcript saving keep their existing
+contract. The frontend must follow list cursors to expose all conversations; it must
+not submit a partial message page as a complete transcript. Request/response fields
+are specified in [data-model.md](../architecture/data-model.md#migration-in-progress).
 
 **作為**用戶，**我想要**用自然語言問我的歷史紀錄問題，**以便**能在不手動翻閱的情況下回顧過去的研究。
 
@@ -41,14 +131,30 @@
   - 「我上次比較 vectorDB 方案時看了哪些東西？」
   - 「我最近三個月在哪些領域花了最多時間？」
 - Agentic search：LLM 可以多步檢索、比較、歸納。
+- `intelligence_report` 的 `report="topics"` 按語義分組一段期間的頁面，給模型每組的份量、代表頁標題、前三個網站與五個最多造訪的頁面。必須給 `start_date` / `end_date`（包含首尾的本地日期，沿用 Insights 的時區），最多 31 天；更長的期間要逐月問。它直接讀 Ask 搜尋所用的 serving semantic index，不要求先建 Insights，也不呼叫 embedding 服務。沒有 provider、索引為空或模型 fingerprint 已變時，明說原因並指向 `search_history` / `report="sessions"`。
+- topics 中每個有可用向量的頁面只屬於一組；沒有向量或向量為零的頁面計入 `notIndexed`，總頁數與造訪數仍包含它們。`topic="t3"` 配合同樣日期讀取該組的全部頁面，按造訪數排列；每頁含最新造訪的 `historyId`、標題、網址、期間造訪數與最後造訪的本地時間（含星期）。清單與 drill-down 都可用 `output_cursor` 接續長報告。topic id 是這次視窗與索引的排序結果，索引或存檔改變後應重新讀清單。服務中的是內建靜態模型時，結果附一句 `note`：同一網站的頁面容易歸成一組，提醒模型照實說明並建議改用 contextual 模型（用戶 2026-10-17 決定主題對所有模型都提供，靜態模型加註）。
+- `intelligence_report` 的 `report="searches"` 按意思分組一段期間的 keyword searches，連同 search trails 打開的頁面。必須給首尾本地日期 `start_date` / `end_date`，最多 31 天（更長逐月問），沿用 topics 的時區、星期與 `output_cursor` 輸出方式。需要已發布的 Insights build 和 Ask 搜尋使用的 serving semantic index；少了哪個就明說，並指向 `report="search_trails"`。
+- 每種搜尋以自己的向量，加上其 trails 最常打開的三頁之平均向量，再正規化。頁面只取 trail member 的 `landing` / `click`，透過 `.pkpos` 讀既有頁面向量。沒有已索引的開啟頁面就用搜尋本身；查詢與頁面方向剛好完全抵消時，也保留搜尋本身。分組用 average linkage（最近鄰鏈與 Lance–Williams 更新），門檻是視窗向量隨機兩兩比較的第 98 百分位，固定種子抽 20,000 對。
+- 視窗的每種 keyword search 恰好在一組，或計入 `short`、`notIndexed`、`notGrouped`。短詞指不足三個拉丁字母／數字，或一個中日韓字元。平均連結需要平方記憶體，所以最多分組 4,096 種已索引搜尋；超量時先保留 trail 較多的，同量按首次搜尋和文字排序，未分的數量、搜尋次數、原因與少量例子會回報。導覽型搜尋不在 keyword searches 的母數裡。
+- 群組依涵蓋天數、trail 數、首次搜尋時間排序，id 是 `s1`、`s2`……。每組列出說法（按 trail 數、最後搜尋時間）、搜尋次數、去重的 trail 數、本地日期的天數與首尾、開啟頁面按造訪數的前三個網站與前五頁。`group="s3"` 配合同樣日期，列出該組每種說法、每次搜尋事件與全部開啟頁面；頁面含最新 trail 造訪的 `historyId`、標題、網址與造訪次數。同一 trail 可能含兩組的搜尋，所以它可在兩組各出現一次；組內不因有多種說法重複計數。靜態模型附一句分組比較依賴共同字詞的說明。這些群組不保存，也不取代 deterministic query families。
 - 回答必須附帶 evidence（哪些歷史紀錄支持了這個結論）。
 - 這是**顯式觸發**的功能，不是背景常駐。
 - assistant response state 必須誠實可見：`queued`、`completed`、`insufficient-evidence`、`failed`、`cancelled`，並保留 `jobId` / `runId` / provider snapshot 供 audit trace 與 queue reload。
 - citation contract 至少包含 `historyId`、`profileId`、URL / title、visited time、score；若 citation ranking 後沒有可保留 evidence，assistant 必須拒答，而不是補一個看似合理的答案。
-- queued assistant request 可在執行前 replay / cancel；running AI / deterministic job 改為 cooperative stop request，而不是假裝立即中斷。UI 必須清楚說明「已請求取消，會在目前 phase / chunk 邊界停止」。
+- running AI / deterministic job 改為 cooperative stop request，而不是假裝立即中斷。UI 必須清楚說明「已請求取消，會在目前 phase / chunk 邊界停止」。
 - Assistant 必須尊重 shell 的共享 profile scope；若使用者透過 deep-link 帶進明確 `profileId`，頁面級 scope 優先於共享 scope。
 - Assistant 的 empty / AI-disabled state 不能只剩靜態說明；至少要提供 seeded prompt 建議、queue / settings 修復入口，以及在共享 profile scope 生效時明講目前回答邊界是 scoped view。
-- shipped（W-AI-1/2/3/7）：Assistant 現在是 streaming chat surface——token / reasoning / tool-use 即時可視，markdown 串流渲染，evidence/citation panel 可深鏈回 Explorer。底層是 durable agent harness（journal-before-observe + replay，崩潰可續跑不重複收費），可呼叫 5 個工具：`search_history`（hybrid）、`search_bm25`、`search_vector`、`search_hybrid`、`run_code`（code-mode 沙箱，見 §4-code-mode）。chat 持久化在 `derived/agent.sqlite`，transcript **不進 export**。整個 surface gated on `ai.enabled && assistant_enabled`（預設關）。
+- shipped（W-AI-1/2/3/7）：Assistant 現在是 streaming chat surface——token / reasoning / tool-use 即時可視，markdown 串流渲染，引用的頁面可連回 History（`/history?q=<標題>&visit=<id>`）。底層是自己寫的 agent loop（取消、token 預算、回合上限、引用）。回答中途 app 被關掉或當掉，那則回答標成中斷，要重問；不會從中斷處續跑（用戶 2026-10-09 決定：不做續跑，改正這裡原本「崩潰可續跑不重複收費」的說法）。重開對話時讀得到的是每則回答的引用與 token 用量。Agent 可呼叫 5 個工具：`search_history`（hybrid，沒有 embedding provider 時只用關鍵字）、`run_code`（code-mode 沙箱，見 §4-code-mode）、`intelligence_report`（洞察的統計與結構報告）、`list_stars`（已加星的頁面與網站）、`list_annotations`（備註與標籤）。chat 持久化在 `derived/agent.db`，transcript **不進 export**。整個 surface gated on `ai.enabled && assistant_enabled`（預設關）。
+- 2026-10-13（`WORK-ASK-2026-10`，用戶 2026-10-12 回報助理答非所問、看不到 context）：
+  - **給模型的話**：每次 run 只有一則 system message，放在最前面：今天的日期、時區、存檔的範圍，然後幾條規則（用使用者最新一則訊息的語言回答；使用者把選擇交給它時自己挑一件事做、不要再問；每個標題、網址、時間、數字都要出自這段對話的工具結果；相對日期換成 start_date / end_date；工具給的時間已是本地時間；夠了就停下來回答並列出用到的頁面），最後接使用者在 Settings 寫的指示（`assistantSystemPrompt`）。之前前端送的指示是第二則 system message，很多模型的 chat template 只讀第一則。系統說明與工具說明從約 5K token 縮到約 2K（實測 qwen3.6 第一輪 2,091 token）。
+  - **context**：從服務讀模型一次能讀多少（`chat_context_length`：LM Studio、Ollama 只算已載入的、Google 給輸入上限、OpenAI 與 Anthropic 不說就是不知道）。每輪留給思考與回答的空間是 context 的四分之一（1K 到 8K，不知道 context 時 4K；之前一律 1,200，Qwen3 的思考就用完了。那個 1,200 是服務設定裡一個介面上改不到的欄位 `maxTokens` 的預設值，所以每個存下來的服務都帶著它；這個欄位拿掉了，舊設定裡的值讀進來時忽略），整次 run 的 prompt 用剩下的。送出前先估：放不下就不送、回答寫明原因與修法（`contextTooSmall`）——LM Studio、Ollama 塞不下會默默把中間截掉，使用者那句常剛好在中間。估算不用 tokenizer：中日韓文字一字一 token，其餘每 4 bytes 一 token（`estimate_request_tokens`）。
+  - **輸入框**：左邊選回答用的服務與模型（每個已啟用的聊天服務、它的模型、哪些已載入、各讀多少），右邊顯示下一則訊息約占模型 context 的多少（「2.9K / 32K」，不知道上限時寫「上限未知」），80% 起變色並提醒，超過時紅色並說明不會送出與修法。估算跟後端送出前的檢查是同一條規則。
+  - **回答**：模型在呼叫工具前寫的話放進思考，只有最後一輪是答案。每則回答下面寫是哪個模型寫的（`agent_runs.model`）與這個回答的 token 總數（每次請求加總，重開後同一個數）。引用的頁面重開後照當下的順序（之前照 visit id，「在 History 打開」可能指到別頁）。
+  - **對話**：使用者的訊息可以編輯，從那則重來，後面的回答丟掉（用戶選的）；完成的回答也能「重新回答」。對話選單可「匯出為 Markdown…」，跳系統的儲存對話框。
+  - **時間與星期**（2026-10-17，`WORK-ASK-WEEKDAYS`）：工具給模型的時間一律是本地時間加星期（`2026-10-15 Thu 14:02`，搜尋結果、報告的 `*Local`、星號與備註）；報告裡每個日子（`date` / `dateKey`）下一行是 `weekday`，緊挨著日期，報告分頁時不會跟日期分開。星期用固定的英文縮寫，跟 system prompt 一樣，模型照使用者的語言說。程式沙箱的 `visitedAtLocal` 仍是 `YYYY-MM-DD HH:MM`（腳本會切這個字串），星期是另一個欄位 `localWeekday`。起因：qwen3.8-27b-splash 回答「總結一下這週」時把週四 10/15 說成週五——星期留給模型自己推就會錯。
+  - **工具參數正規化**：只解開一層 JSON 字串，必須是物件，拒絕重複 key；去空白後只配對唯一 schema 欄位。純量只做簡單可驗證的轉換，required／enum 錯誤附 JSON 路徑與原始參數。取消時停止，不替未執行的工具補寫「已中斷」結果；往後的對話只帶文字歷史。
+  - **工具**：參數名不認得就拒絕並列出合法的參數（之前默默丟掉：qwen3.6 經 LM Studio 偶爾把 `end_date` 寫成 `end_date2026-10-09`，結果查錯日期；現在它收到錯誤馬上改正）。cursor 用錯時的錯誤說明要怎麼改。
+  - 在這台機器上用 LM Studio 的 qwen3.6-35b-a3b-splash 實測四種問題（中文開放式、使用者說「你隨便做」、英文「第一次」、中文「上週五」）：都用對的語言、沒有反問、內容出自工具結果，每題 2–18 秒。
 
 ---
 
@@ -61,7 +167,8 @@
 > **shipped（W-AI-9-B）：** localhost stdio MCP server 已交付（`vault-worker/src/mcp.rs`，`mcp-server` CLI），opt-in、hard-default-OFF（`ai.enabled && mcp_enabled`，皆預設關）、unlock-gated、**read-only**（只有 `search-history` / `archive-status` / `usage-guide` 三個 tool，無任何 write/mutation tool）。SQLCipher key 留在 worker，**永遠不跨給外部 caller**；search limit clamp 到 `[1, 50]`；每次外部查詢寫一筆 `mcp_query` run 進 Audit ledger。詳細邊界見 [ai-security-posture.md](../architecture/ai-security-posture.md) §3。
 
 - 在 Settings 的 AI provider / integration preferences 中手動開啟。
-- App 只會在 AI / MCP 明確啟用、且當前 app session 處於 unlocked 時啟動本地 MCP server。
+- 外部 App 讀了什麼（2026-10-13）：Settings → AI 的「其他 App 讀了什麼」列出每一筆 `mcp_query`，新的在前：哪個 tool、搜了什麼、限哪個網站、交出幾頁、整個存檔有幾頁符合（「交出 10 頁（符合 300 頁）」：App 一次只拿到一頁結果，要更多得再查一次，那是另一列；2026-10-13 之前的紀錄沒有記交出幾頁，只寫符合幾頁）。MCP 開著時一定顯示；關掉後只要有紀錄也照樣顯示，因為那是已經離開 PathKeep 的東西。紀錄可能有上千筆，清單虛擬化、捲動時每次讀 50 筆（`load_mcp_queries`，`runs(run_type, id)` 索引）。索引建置（`ai_index`）在 Background work 的工作清單看得到，不另外列；舊的 `assistant` run 見 `WORK-ASSISTANT-JOB-TYPE`。E2E：`mcp-log.spec` 用 Settings 列出的命令真的啟動 MCP server、用 stdio 呼叫 tool，再看清單。
+- App 只會在 AI / MCP 明確啟用、且當前 app session 處於 unlocked 時允許本地 MCP server 回答。v0.4：PathKeep 自己不常駐 server；使用者的工具需要時用 Settings → AI 列出的命令啟動它，開關只決定准不准。
 - 提供搜尋、檢索歷史紀錄的 MCP tools；若 session 之後被 App Lock 鎖住，history query 相關 tool 必須回傳 locked refusal，而不是繞過 UI 直接讀 archive。
 - 安全考量：只綁定 localhost，不對外暴露，並且必須尊重 visibility、lock state 與 capability gating。
 - 若沒有 embedding provider，但使用者仍明確啟用 AI + MCP，read-only recall 仍可在 lexical mode 下運作；consent / capability copy 必須明講 semantic recall 目前不可用。
@@ -70,7 +177,7 @@
 
 ### AI IDE Skill
 
-- 提供一個 skill 定義檔（markdown 格式的指令文件），讓 AI coding assistant（如 Cursor, Gemini CLI, Copilot 等）能夠理解如何使用 MCP server 搜尋用戶的歷史紀錄。
+- （v0.4 沒有介面產生或顯示這個檔案。）提供一個 skill 定義檔（markdown 格式的指令文件），讓 AI coding assistant（如 Cursor, Gemini CLI, Copilot 等）能夠理解如何使用 MCP server 搜尋用戶的歷史紀錄。
 - Skill 描述：可用的 MCP tools、典型查詢範例、回傳資料格式。
 - 搭配 MCP server 使用 — skill 告訴 AI「怎麼問」，MCP server 負責「怎麼答」。
 
@@ -97,6 +204,19 @@
 - **觸發條件**：什麼時候重算（每次備份後、每天、每週、手動）
 - **UI 組件**：怎麼展示
 
+### 查過的事（Things you looked into）
+
+Insights「搜尋」的第一張摘要卡，只在目前服務中的語意索引有搜尋向量時顯示；沒有時原有搜尋區不變。用搜尋本身的文字，加上 trail 開啟頁面的向量分組，不呼叫模型。與 Ask `report="searches"` 共用分組、短詞規則、4,096 個搜尋上限與按天數／trail 數排序；Ask 的輸出契約不變。內建靜態模型會註明分組偏向共同用詞，連到 Settings → AI。
+
+- 最多 31 天顯示前 6 組，可只看一個瀏覽器設定檔。每組列最常用的文字與另外兩種文字、搜尋次數、出現天數、開啟的不同頁面數，以及每天一格的日期帶（有搜尋的日期填品牌熱度色）。超過三種文字的組另列其餘搜尋的數量。只顯示開過頁面或在多天出現的組；過短、未索引與超額搜尋的計數仍由共用分組負責。
+- 更長範圍按日曆月由新到舊，每月前 3 組，日期帶涵蓋整月。卡片說明月份邊界可能超出所選日期；即使選了一個設定檔，月份仍涵蓋所有瀏覽器，副標會說明。月份在卡內捲動，邊緣淡出提示還有內容，清單虛擬化。
+- 每組連到最常用文字的 `/insights/search/:query`，保留目前範圍與設定檔；drill-in 原有的相似搜尋可繼續找。ⓘ 說明資料邊界、日期、搜尋筆數與計算時間，有助理服務時提供「問問助理」。
+- 立即顯示列 skeleton；錯誤只影響本卡並可重試。未完成的月份是「更新中…」，每 5 秒重讀，不當成沒有資料。沒有可顯示的組時，明說只計哪些關鍵字搜尋。
+
+7／30 天到今天、所有瀏覽器，以及每個日曆月的分組，存入既有 `intelligence_overview_snapshots`（`band=all`，`scope_key=search-groups:d7`／`search-groups:d30`／`search-groups:YYYY-MM`），不改 archive schema。索引 pass 填完搜尋向量後，以及每次 Insights 建置後，各跑一次獨立背景步驟；模型切換的完整重建在向量齊全後一次處理全部月份。啟動既有索引或跨過午夜後第一次讀到過期列，也會排同一步驟，避免一直停在更新中。其他最多 31 天的範圍在命令 worker 上分組。
+
+失效分兩層：便宜簽章包含服務中的 navigation generations、搜尋規則簽章、該窗搜尋事件與 trail 成員的數量／最高 visit id、頁面與搜尋向量數量、forward-map 與向量投影身分、模型／兩個 store 身分、時區、規則版本及 archive 變更簽章（讓尚未重建的 undo 也失效）。簽章沒變不讀分組輸入；變了才 digest 實際搜尋事件、文字／次數／日期／trail、可見 trail 頁面及其向量 content key／是否存在，再加模型、store 身分、時區與分組規則版本。digest 相同保留分組；generation 與投影本身不迫使 linkage 重跑。事件直接串流雜湊，不為指紋保留所有事件。新向量檔頭有隨重建更換的 `storeId`；舊檔以檔案建立時間辨識（沒有建立時間的 Unix 檔案系統用裝置／inode），不必重寫向量檔，相容既有索引。寫入時在 Intelligence writer 上重驗簽章，拒絕跨世代結果；背景 warmers 串行，讀取不等它們。只存文字、計數、日期和前幾個頁面的 visit id，不存標題。
+
 ### 分析管線
 
 ```
@@ -110,7 +230,7 @@
   相鄰訪問 → burst → query group → cross-burst / cross-day thread merge → 偵測 reopen
 
 層 3：Topic 聚類和時間序列
-  deterministic topic / reference-page / source-effectiveness signals →
+  deterministic topic / refind-page / 搜尋落地網站 signals →
   optional embeddings 只作 additive coverage，而不是 baseline truth
 
 層 4：LLM 增強
@@ -125,7 +245,7 @@
 讓用戶看到過去幾年的同一天，自己在瀏覽什麼。
 
 - 拉出歷年同一天（±1 天容差）的歷史紀錄，按年份分組展示。
-- 同一天的比對以使用者目前系統 timezone 的本地日曆日為準，不用 raw UTC 日期切片假裝對齊「今天」。
+- 同一天的比對以洞察時區的日曆日為準（`docs/architecture/insights-time-zone.md`），不用 raw UTC 日期切片假裝對齊「今天」。
 - 當前年份今天的紀錄不屬於 `On This Day`；這張卡只用來回看過去幾年的同一天，不能把今天剛產生的瀏覽紀錄混進歷史回顧。
 - 如果有足夠數據，用 LLM 生成一句話摘要。
 - 這張卡現在是 **Dashboard-only** surface，不再放進 `/intelligence`；因為它不受 Intelligence route time scope 影響，留在 Dashboard 更誠實。
@@ -196,41 +316,42 @@
 
 ### V1 洞察顯示契約
 
-- 每張 insight card 都必須顯示生成時間、資料視窗、evidence 數量，以及是否依賴 Chromium-only enhancement。
+- 每張 insight card 都必須顯示生成時間、資料視窗、evidence 數量，以及是否依賴 Chromium-only enhancement。（v0.4：每張卡的 ⓘ 寫出計算時間、範圍、狀態、算法，以及這張卡依據多少資料：它在這個範圍與設定檔裡看過的全部資料，不是它列出來的那幾列；用它自己數的東西當單位〔section meta 的 `evidence`：`count` 與 `unit`〕。看同一批資料的卡寫同一個數。熱門網站是網站造訪、不含搜尋；常搜尋、在哪裡搜尋、搜尋什麼是搜尋；搜尋得怎麼樣、試了好幾次的搜尋、比較過的頁面是搜尋與之後打開的頁面〔範圍內開始的 search trail〕；搜尋最後到了哪裡只看有打開網站的搜尋；新網站、習慣是有瀏覽的天數；探索還是專注、各瀏覽器對比是網站造訪；在網站之間怎麼走是範圍內開始的瀏覽 session〔它按天讀 session 的片段，前一晚跨進範圍第一天的那段是唯一的差別〕；常重開的頁面、你回頭再看的事、哪類網站、節奏、day 是全部造訪。單位在 `intelligence_sections.rs` 的登記表；數法在 `fill_sections_evidence`，跟兩批讀取一起算、存進快照〔全部時間與到今天為止的範圍打開時不再數〕，每個範圍與單位只數一次，讀日 rollup、站-日快取或 trail / session 的範圍索引，不掃造訪表。沒有單一單位的卡〔摘要、這一天、drill-in〕不寫；site、search、page drill-in 的 KPI 已經是它自己的數；只用 Chromium 才記錄的資料的卡加註〔`chromiumOnly`〕。有 AI 服務時 ⓘ 裡有「問問助理」：在 Ask 開新對話，輸入框放好這張卡的問題與日期，使用者送出才送。）
 - Dashboard 的 On This Day，以及 Intelligence 的 Site Analytics / Periodic Summary / Topic Timeline，都必須能 deep-link 回 Explorer evidence，或帶著 scoped question 跳進 Assistant。
 - deterministic intelligence baseline 也屬於正式 shipping surface：`open-loop` / `revisit` cards 與 `query ladders` 必須在沒有 embedding / LLM 時仍可用；`query ladders` 只在 Chromium search term evidence 形成至少 2-step refinement 時顯示，並能 deep-link 回 Explorer 的 canonical query。
 - 即使 AI disabled、provider unavailable、embedding 尚未建立，或 AI-generated card / topic surface 暫時為空，On This Day（Dashboard）、Site Analytics、Periodic Summary 這類 canonical / statistical surface 仍必須用純資料庫 / 統計結果繼續顯示，而不是讓整個 intelligence 區塊變空白。
 - explainability panel 必須可列出該 insight 使用的 evidence 與補充 notes，不能只顯示一段摘要。
 - 切換共享 profile scope、重新整理 insights，或 explain request 失敗時，Insights 必須先清空上一個 scope / 上一次 explain 的 cards、selected insight、explanation 與相關 error，再等待新的結果；不能把舊 evidence 殘留在新的 scoped view。
 - zero-data、新 archive、AI disabled、index rebuilding、provider unavailable 等情境都必須回傳 honest fallback，而不是合成看似完整的 insight。
-- Insights page 必須顯示目前是否套用了共享 profile scope；若有套用，UI 要明講這是 scoped view，而不是假裝所有 KPI 都已 per-profile 重算。
+- ~~Insights page 必須顯示目前是否套用了共享 profile scope~~：2026-10-08 起 Insights 有自己的設定檔篩選，頁首的「瀏覽器設定檔」顯示選了哪個，每張卡與 drill-in 都按它重算（`insights.spec`「a custom range and one browser profile count only their visits」）。
 
 ### M4-A 進階 intelligence slice
 
-- Insights 頁現在還必須顯示 storage analytics：tracked storage、reclaimable bytes、dominant group，以及 latest growth signal。這個 growth signal 必須能 deep-link 回對應的 Audit run，而不是只停在摘要數字。
+- （v0.4：storage analytics 在 Settings → Storage，不在 Insights。）Insights 頁現在還必須顯示 storage analytics：tracked storage、reclaimable bytes、dominant group，以及 latest growth signal。這個 growth signal 必須能 deep-link 回對應的 Audit run，而不是只停在摘要數字。
 - storage analytics 的 top-level summary 現在固定先分成兩個 bucket：`core history`（canonical archive + source evidence）與 `other data`（search / intelligence projection、semantic index、content blobs、audit artifacts、exports、temporary files）。更細的 breakdown 再在卡片內展開，而不是先讓使用者背四個內部 slice 名稱。
 - Maintenance 頁必須提供 enrichment / derived-state panel，顯示 built-in plugin registry、network boundary、freshness、derived tables、storage impact、enable / disable control，以及 rebuild / clear controls。runtime queue / recent job review 不在 Maintenance 內複製，必須 deep-link 到 Jobs。plugin / module 的內部版本標記屬 diagnostics / runtime trace，不應佔據主產品 review chrome。
 - shell chrome 左下角必須常駐一個小型 background-work status strip，顯示 queued / running / failed 概況並 deep-link 到 dedicated Jobs 頁；使用者不應該只能靠 Settings / Intelligence 才知道 background queue 還在跑什麼。
 - `/intelligence` route entry 不得再一次 fan-out 二十多條 foreground IPC request。accepted shipping contract 是 route-level staged overview：先批次載入 runtime digest、digest summary、首屏可見卡片與其 section metadata，再在 first paint / idle 後補 secondary grid 與較低優先 detail。
-- `/intelligence` 的 time scope bar 提供 `Day / Week / Month / Quarter / Year / All time / Custom`；首次進入仍預設 `Month`。`All time` 用 `?range=all` 深連結，不用 custom `start/end` 偽裝；目前 frontend 仍映射成 concrete `DateRange` payload，後續快取 / 預載 / invalidation 策略見 [intelligence-all-time-cache-invalidation.md](../plan/intelligence-all-time-cache-invalidation.md)。
+- Insights 的範圍：全部時間（預設）/ 1 年 / 90 天 / 30 天 / 7 天 / 自訂，另可只看一個瀏覽器設定檔。舊 `/intelligence` 的 `Day / Week / Month / Quarter / Year` 已不存在。首次進入一直是全部時間（2026-06-20 起，見 intelligence-all-time-cache-invalidation.md）；2026-10 redesign 一度改成 30 天並拿掉全部時間，2026-10-08 依用戶要求恢復。全部時間用 `?range=all` 深連結，不用 custom `start/end` 偽裝；送給後端的仍是具體的 `DateRange`。全部時間（所有設定檔與單一設定檔）和到今天為止的 1 年 / 90 天 / 30 天 / 7 天（所有設定檔）的兩批，都由每次建置後暖好的快照回答（`warm_overview_snapshots`），所以範圍切換在任何大小的 archive 上都馬上有數字；最近的範圍每天往前移，快照的指紋含它的日期，app 在新的一天打開時，背景先把它們算好（`warm_recent_overviews_if_stale`）。自訂範圍與單一設定檔的最近範圍每次現算。快照的失效策略見 [intelligence-all-time-cache-invalidation.md](../plan/intelligence-all-time-cache-invalidation.md)。
 - secondary grid 不能再被單一 all-or-nothing ready flag 鎖住。若某張 secondary card 的 overview cache 或 section cache 已經 warm，它應該先獨立 render；尚未有 cache 的卡片保留 skeleton。cold path 仍以 secondary overview batch 為主，不能退回多個 foreground IPC fan-out。
 - sidebar、Dashboard 與 `/intelligence` 的 runtime digest 必須共享同一份 shell-level runtime polling source；不能讓 `loadAiQueueStatus` / `loadIntelligenceRuntime` 因多個 route/surface 同時掛載而被重複輪詢。
 - long-running derived-data job 不能只顯示抽象的 `running`。deterministic rebuild 至少要持續更新 phase、heartbeat 與 coarse progress（例如目前在哪個 phase、已處理幾筆 / 總筆數），讓 Jobs 頁和 shell footer 都能分辨「仍在前進」與「疑似卡死」。
-- Jobs 頁的 primary UX contract 不是把所有 queue / plugin / module 平鋪出來，而是先讓使用者分清楚 `running now`、`queued / deferred`、`needs review` 三件事。特別是 `readable-content-refetch` 的大量 queued work 必須先明講這是為了讓 deterministic rebuild 先完成，而不是用 layout 讓人誤以為「所有網頁內容抓取都失敗」。
-- `readable-content-refetch` 的 failure surface 必須先回到人話：像 `PDF / JSON / sign-in redirect / rate-limit` 這類常見邊界，要比 raw `unsupported-content` 或抽象 status 更先被使用者看到。raw status / runtime trace 仍可保留在 support 層，但不應當是主 review copy。
-- built-in enrichment registry：`title-normalization`（local-only，預設啟用）+ network-backed content-fetch（W-ENRICH，site adapters + og:image）。content-fetch 的 master switch `content_fetch_enabled` **預設 OFF**：開啟前沒有任何網路 egress；它和只管離線 title plugin 的 `enrichment_enabled` 是兩個獨立 flag。
-- `title-normalization` 預設啟用，負責把 noisy browser title、redirect suffix 與 URL fallback 收斂成更穩定的 evidence label。停用後，deterministic insights 仍可用，但必須誠實回退到 raw title / URL structural signals。
+- Jobs 頁的 primary UX contract 不是把所有 queue / plugin / module 平鋪出來，而是先讓使用者分清楚 `running now`、`queued / deferred`、`needs review` 三件事。特別是網頁內容抓取（`content-fetch`）的大量 queued work 必須先明講這是為了讓 deterministic rebuild 先完成，而不是用 layout 讓人誤以為「所有網頁內容抓取都失敗」。
+- 網頁內容抓取（`content-fetch`）的 failure surface 必須先回到人話：像 `PDF / JSON / sign-in redirect / rate-limit` 這類常見邊界，要比 raw `unsupported-content` 或抽象 status 更先被使用者看到。raw status / runtime trace 仍可保留在 support 層，但不應當是主 review copy。
+- built-in enrichment registry：`title-normalization`（local-only，目前不會執行，見下一條）+ network-backed content-fetch（W-ENRICH，site adapters + og:image）。content-fetch 的 master switch `content_fetch_enabled` **預設 OFF**：開啟前沒有任何網路 egress；它和只管離線 title plugin 的 `enrichment_enabled` 是兩個獨立 flag。
+- `title-normalization` 目前不會執行。它的用途是把 noisy browser title、redirect suffix 與 URL fallback 收斂成更穩定的 evidence label；設定裡預設為啟用，但正式程式沒有任何地方建立它的 job（`enqueue_enrichment_job` 只在測試中編譯，見 `intelligence_runtime/enqueue.rs`），所以它從不產生結果。Deterministic insights 不需要它也能用。
 - content-fetch（W-ENRICH）已交付：site adapters（如 YouTube / Vimeo metadata）+ og:image 預覽抓取，正文 blob 存 `sidecars/intelligence-blobs/`（content-addressed，不進 export），capped `enrichment_summary` 進 intelligence DB 供離線搜尋。egress hard-default-OFF、triple consent gate（master + per-extractor + per-domain）、SSRF-guarded、無 cookie/Referer、per-host rate-limited（見 [ai-security-posture.md](../architecture/ai-security-posture.md) §4）。
 - built-in enrichment runtime 目前仍是 first-party only：Maintenance / Jobs / Intelligence 可以 review 內建 runtime state，retry / cancel 的 canonical runtime queue surface 是 Jobs；third-party plugin execution 仍 deferred，直到獨立 sandbox / permission ADR 存在。
 - queue / runtime contract 以 durable lease + heartbeat + cooperative stop 為準：claim 必須 compare-and-set，running cancel 只會設 stop request，worker 需在 phase / chunk 邊界自行結束並留下 cancelled trace；terminal success 不得覆蓋已 cancel / failed 的 job。
 - derived intelligence refresh 在 backup / import 成功後必須自動排入 runtime job 並留下可 review 的 queue / recent-job trace；Insights / Settings 仍保留手動 rebuild 作為 override，但不能再把最新 derived state 完全變成使用者自己記得去按的 follow-up。
-- 2026-04-15 之後，deterministic/Core Intelligence 的主路徑改為直接讀 `sessions`、`search_trails`、`query_families`、rollups、`refind_pages`、`source_effectiveness`、`reopened_investigations` 等 persisted entities / rollups，而不是再靠 `load_insights()` 這種整包 snapshot-first read model。若 repo 內仍保留舊 snapshot payload fallback，只能視為 legacy inert path，不再是 accepted shipping contract。
-- Insights 頁自己的頂部 runtime surface 只能是 digest，而不是第二個 Jobs。它應該先顯示 analysis snapshot，再把 runtime queue 收斂成一個小型摘要與 `Open Jobs` 入口，避免整頁一打開就被 runtime / retry / cancel chrome 吞掉主洞察內容。
+- 2026-04-15 之後，deterministic/Core Intelligence 的主路徑改為直接讀 `sessions`、`search_trails`、`query_families`、rollups、`refind_pages`、`compare_sets`、`reopened_investigations` 等 persisted entities / rollups，而不是再靠 `load_insights()` 這種整包 snapshot-first read model。若 repo 內仍保留舊 snapshot payload fallback，只能視為 legacy inert path，不再是 accepted shipping contract。
+- （v0.4：Insights 頁沒有 runtime surface；佇列在 Settings → Background work，卡片只標「正在更新」。卡片順序見 screens-and-nav.md。）Insights 頁自己的頂部 runtime surface 只能是 digest，而不是第二個 Jobs。它應該先顯示 analysis snapshot，再把 runtime queue 收斂成一個小型摘要與 `Open Jobs` 入口，避免整頁一打開就被 runtime / retry / cancel chrome 吞掉主洞察內容。
 - Insights 的內容分組必須符合 `spotlight -> research signals -> evidence / health`：最先看到的是 highlights / summary / top sites / browsing rhythm，接著才是 query groups、topic timeline、query evolution，最後才是 reference pages、source effectiveness、storage analytics 與 deterministic module health。`On This Day` 留在 Dashboard，不再佔據 `/intelligence` 的 spotlight 區。
 - clear derived state 必須回傳按 stage 分組的清除數量報告：至少涵蓋 `visit-derived-facts` rows、daily rollup rows、structural rows、runtime rows；只有在該維護路徑真的清 enrichment 時才額外回 enrichment rows。報告也必須明講 canonical archive、manifests、rollback state 完全未被動到。
 - full rebuild 不得先把 live derived snapshot 清空再等待後續重算完成；scope 內的 derived rows、snapshot payload 與 deterministic module runtime 狀態更新必須以同一個 archive transaction 原子替換，避免只清掉一半或留下不一致的 stale trace。這一輪 rebuild 仍必須留下 run-linked report 和 notes，避免 advanced intelligence 變成不可追蹤的黑盒。
 - queue / progress persistence 也屬 recoverability contract：如果使用者突然關閉 app、程序崩潰或主機斷電，重新開啟後 Jobs 頁必須能誠實呈現上次停在哪個 job、是否已被 recover/requeue，以及最後一次 heartbeat / progress update；不可把 interrupted long-running work 假裝成從未發生。
-- source-effectiveness / reference-page 類 surface 的 domain key 必須跟 canonical visit evidence 使用同一套 registrable-domain normalization；不能因為 `docs.example.com` / `www.example.com` 分裂而把同一來源錯拆成多個 source role。
+- Top sites（Insights 與單日視圖）不計搜尋結果頁：在搜尋引擎上的搜尋算「搜尋」，列在 Searches / Frequent searches，不算對該網站的造訪；單日視圖的 Distinct sites 同理。網站詳情頁（某一網站在所選範圍內的造訪）仍計入該網站的所有造訪。2026-10-07 起這樣算，讓兩處 Top sites 的數字一致，也合乎 E2E 規格。
+- 搜尋落地網站（stable sources）/ refind 類 surface 的 domain key 必須跟 canonical visit evidence 使用同一套 registrable-domain normalization；不能因為 `docs.example.com` / `www.example.com` 分裂而把同一來源錯拆成多個 source role。
 - Dashboard 的 aggregate archive KPIs 仍以 archive-wide read model 為準；共享 profile scope 目前只保證影響 insight fetch、assistant retrieval 與 Explorer 預設 filter，不能誤寫成所有 dashboard 指標都已 profile-partitioned。
 - Dashboard 的 `Browsing Rhythm` preview 固定以 calendar year 呈現，若 archive 內橫跨多個年份可切換年份；年份來源來自 `getDiscoveryTrend(..., 'day')` 的 `availableYears`，而不是把 hourly detail API 誤當成年視圖的 source of truth。year pager 必須遵守時間直覺：左箭頭看更早的年份、右箭頭看較新的年份；若選中的年份只覆蓋部分日期，卡片還要直接顯示該年份內實際有資料的起訖範圍。
 - `Browsing Rhythm` 初次進頁時只顯示日曆熱力圖 shell；不得在 first paint 自動抓同日 digest / top sites / hourly detail。點日格後的 primary workflow 現在是進 `/intelligence/day/:date`；若 overview 保留任何 inline preview，也只能是 secondary information。
@@ -243,6 +364,8 @@
 - 2026-04-09 truth closeout：目前的 intelligence 支援邊界與未完成項，見 [../plan/m4-full-polish/intelligence-60-year-envelope.md](../plan/m4-full-polish/intelligence-60-year-envelope.md)。在該文件有真實 large-archive artifact 之前，不可把 PathKeep 寫成已完成「60 年資料量、所有 AI 開啟、仍可流暢使用全部功能」的最終性能背書。
 
 ### Profile-Scoped Insights（Profile 級別洞察篩選）
+
+> v0.4：設定檔篩選在 Insights 右上角（`?profile=`，兩個以上有瀏覽紀錄的設定檔才出現），不是 topbar 的共享 scope；路由是 `/insights`、`/insights/day|site|search|page/…`。site、search、page 帶著設定檔，day 涵蓋所有設定檔。下面以 `/intelligence` 為準的段落是舊前端的。
 
 洞察系統支援以特定瀏覽器 profile 為範圍查看洞察資料，增強現有的 shared profile scope 功能。
 
@@ -287,21 +410,29 @@
   - **請求格式**（Request Format）= API 協議，如 OpenAI-compatible, Anthropic, Google
   - **Provider** = 請求格式 + Base URL + API Key + 可用模型列表 + 模型配置
   - 用戶可以創建多個 Provider
-  - Provider 可以被啟用/禁用
+  - Provider 可以被啟用/禁用（v0.4 的 Settings → AI：選用、新增、就地編輯、連線測試與移除，沒有停用開關；移除連同金鑰一起刪）
 - 預設 Provider preset：Ollama, LM Studio, OpenAI, Anthropic, Google
 - 所有 preset 都支援自定義 Base URL
 - Embedding 和 LLM 分別配置：兩者可以用不同的 Provider 和模型。
 - **底層使用 rig.rs** 作為統一的 AI 框架，處理所有 provider 的請求格式和通信。
-- Settings 的 provider editor 採本地 draft + explicit save：欄位編輯不應在每次輸入時直接落盤或觸發 blocking overlay；secret store / clear 仍保留獨立明確動作。
+- （v0.4：編輯對話框在本地改，按「儲存」才寫入；金鑰欄留空就保留已存的，填了才換。）Settings 的 provider editor 採本地 draft + explicit save：欄位編輯不應在每次輸入時直接落盤或觸發 blocking overlay；secret store / clear 仍保留獨立明確動作。
 - day-one provider matrix：
   - chat / assistant：OpenAI-compatible、Anthropic、Google、Ollama、LM Studio
   - embeddings：OpenAI-compatible、Google、Ollama、LM Studio
   - Anthropic 在 day one 只作 chat provider，不作 embedding provider
-- provider connection test 必須回傳 latency、capability report、error code、action hint、retry hint，而不是只有 pass / fail。
+- provider connection test 必須回傳 latency、capability report、error code、action hint、retry hint，而不是只有 pass / fail。 2026-10-09 起 Settings → AI 失敗時依 error code 用使用者的語言寫原因（金鑰不被接受、連不上那個位址、被限流、沒有那個模型、這個服務不能用在這裡、服務已關閉），不認得的 code 才引用後端的訊息；`ask.spec` 驗錯的金鑰與沒有東西在聽的位址。
+- 2026-10-12（`WORK-AI-SERVICES-2026-10`）：
+  - **位址**：LM Studio、Ollama 自己的視窗顯示的位址不帶 `/v1`（`http://127.0.0.1:1234`、`http://localhost:11434`），也有人貼上整個端點（`…/v1/embeddings`）。OpenAI 相容的呼叫一律經 `openai_api_root`：LM Studio、Ollama 的位址沒有路徑就補 `/v1`，結尾的 `/embeddings`、`/chat/completions` 去掉，`localhost` 照舊固定成 IPv4。其他格式的路徑不動（雲端服務可能放在任何路徑下）。
+  - **錯誤照原話**：LM Studio 對它不服務的路徑回 HTTP 200 加 `{"error": …}`，不是 404。2xx 但有 `error`、沒有 `data` 的回覆算失敗，顯示服務的原話；讀不懂的回覆附前 300 個字。錯誤碼多一個 `bad-endpoint`（LM Studio 的「Unexpected endpoint」與一般的 404）：寫成「這個位址有服務在跑，但不是它的 API」，並說 LM Studio、Ollama 的位址通常以 `/v1` 結尾。連線測試的訊息是整條錯誤鏈，服務的話常在我們的說明下面。
+  - **模型清單**：`list_ai_provider_models` 依格式問服務有哪些模型——LM Studio `/api/v0/models`（有種類 llm / vlm / embeddings、是否已載入、載入的與最大的 context 長度；舊版退回 `/v1/models`）、Ollama `/api/tags` + `/api/show`（capabilities、`<arch>.context_length`）+ `/api/ps`（載入中的 context）、Anthropic `/v1/models`、Google `/v1beta/models`（`supportedGenerationMethods`、`inputTokenLimit`；金鑰放 header，不放網址）、其他 OpenAI 相容 `/models`（只有 id；id 裡有 embed 才當 embedding 模型，其餘標「不知道」，不猜）。表單填好位址（雲端服務再加金鑰）就讀，只列跟用途相符的模型（聊天：chat 與不知道；embedding：embedding 與不知道），每個標出是否已載入、能讀多少；仍可直接打名稱。讀不到時說原因，照樣可以手打。還沒存的服務也能讀：請求帶表單的格式、位址與打的金鑰，沒打金鑰時用已存服務的金鑰。
+  - **內建模型**：Settings 寫出它是 `potion-multilingual-128M`（model2vec 靜態模型，256 維），隨 PathKeep 提供、在這台電腦上跑；2026-10-16 起標籤寫「App 內建靜態模型」，說明寫明它是靜態嵌入（static embedding）模型：同一個字詞到哪裡意思都一樣，所以非常快，但找意思相近的頁面不如一般的上下文嵌入（contextual embedding）模型；想用後者就新增嵌入服務（LM Studio、Ollama 等）。引導的「本機語意搜尋」與 History 的語意搜尋狀態也寫「靜態」。PathKeep 不內建推理引擎（2026-10-16 用戶決定，[inapp-transformer-embedding-tradeoff.md](../architecture/inapp-transformer-embedding-tradeoff.md)）。只有這一個：模型檔的驗證照它的雜湊，換別的 repo 不支援（`DEFAULT_STATIC_MODEL_FILES`）。
+  - **換模型不自動重建**（2026-10-15 改，`WORK-AI-INDEX-CONTROL`；之前存檔就重建、下一個工作一開始就刪舊索引，搜尋變差好幾個小時）：索引屬於「服務 + 模型」。編輯對話框換模型時，存檔前說新模型需要自己的索引、幾次造訪（`estimate_reembed`），存檔什麼都不跑。Settings → AI 在語意搜尋下說這個模型還沒有索引、建好之前搜尋繼續用哪個，按「建立索引」才開始；建好之前搜尋讀上一個完整的索引，建好才換過去並刪掉舊的（規則見 §1、§6）。
+  - **存檔只檢查，不跑模型**（2026-10-15）：新增或編輯服務後讀一次它的模型清單（LM Studio、Ollama 讀清單不會載入模型），說連得上、有沒有這個模型；真正跑一次模型的連線測試只在按「測試連線」時做。之前存檔就自動測試：LM Studio 開著「JIT 載入新模型時卸載上一個」時，同時存 embedding 與聊天服務會讓兩個模型互相踢掉，兩邊都報錯。
 - secret clear 只清除 credential，不刪除 provider preset / model selection，讓使用者能先保留配置再補 key。
 - **API key 是可選的，不是前置條件**：本地 / LAN 自架 provider（LM Studio、Ollama、llama-server…）不需要 key。PathKeep 絕不因「沒存 key」就自行擋下 provider 呼叫——`resolve_provider_runtime` 在缺 key 時照常 resolve（`api_key: Option<SecretString>` 為 `None`），transport 對缺 / 空白 key 完全不送 `Authorization` header（不送空的 `Bearer `）。只有 provider 自己回傳的錯誤（真正的 401/403…）才算失敗。雲端 provider 需要 key 時，由它自己的 401 帶出，而不是我們的 precondition。
+  - 新增服務的表單照這條：位址在這台電腦上（localhost / 127.0.0.1 / [::1]）時，API key 欄寫「可不填」但仍可輸入（vLLM、LiteLLM 這類本機伺服器可能要 key）；之前整欄停用，連要 key 的本機伺服器也設定不了。雲端服務仍必填。
   - 已知 transport 細節：OpenAI-compatible embeddings 走我們自管的 reqwest `/v1/embeddings`，缺 key 真正省略 header；rig 0.34 的 openai/anthropic/gemini chat client 在 `.api_key()` 後一定會帶 auth header（上游限制），keyless local model 會忽略它，仍可運作。
-  - FE：新增 provider 需先 Save settings（key 依 provider id 存進 keyring，id 在存檔前不存在於 saved config）；Save key 在 provider 尚未持久化時會 disable 並顯示 inline hint 指引「先存設定」，不留死路。
+  - FE（2026-10）：Settings → AI 與 onboarding 第 6 步共用「新增 AI 服務」表單（`src/features/ai-setup/`）。按下新增時依序：把 provider 寫進 config 並選為目前服務（同時打開 `ai.enabled` 與 `assistantEnabled`）→ 有填 key 才存進鑰匙圈 → 讀一次模型清單檢查（不跑模型）。Settings → AI 另有語意搜尋的「模型」選單：內建的靜態模型，或使用者加的 embeddings 服務（`embeddingProviders`，同一個表單，用途是 embedding）。
 
 ---
 
@@ -311,19 +442,24 @@
 
 ### 任務生命週期
 
-- **任務產生**：備份完成後、導入完成後、用戶手動觸發、定時掃描發現未處理記錄。
+- **索引任務產生**：使用者明確建立或繼續；備份後的增量更新另受下方完整性與去重規則約束。
 - **任務排隊**：任務加入隊列，按優先級和產生時間排序。
 - **執行**：在背景異步執行，不阻塞 UI。
 - **成功**：結果寫入對應的表，標記任務完成。
-- **失敗**：記錄錯誤原因，按可配置的策略自動重試（最多 N 次，指數退避）。
-- **暫停**：用戶可以隨時暫停所有計算任務，之後恢復。
-- queue persistence 現在存在 `derived/history-intelligence.sqlite` 的 `ai_jobs` / `intelligence_jobs`；sidecar 只保存可重建的 embedding / vector 資產，不承擔 job state。
+- **服務不可用**：HTTP 錯誤、2xx 中的服務錯誤、連不上、逾時或模型未載入，按工作嘗試預算退避重試；畫面關閉後也照常重試。預算用完進入 `paused`，不寫成 `failed`，保留整條錯誤鏈與服務原話。資料庫、程式或無效設定的錯誤才是 `failed`。
+- **暫停**：單獨暫停與暫停整個佇列都停在最後已寫入磁碟的一批。執行中用 `stop_requested = 2` 請求暫停，1 仍是取消；等待中與 stale 工作立即變成 `paused`。重開 app 保持暫停，繼續沿用 payload 與游標。
+- queue persistence 現在存在 `derived/intelligence.db` 的 `ai_jobs` / `intelligence_jobs`；sidecar 只保存可重建的 embedding / vector 資產，不承擔 job state。
 - queue state 精確包含 `queued`、`running`、`succeeded`、`failed`、`paused`、`cancelled`、`stale`。
-- manual replay 只允許 `failed` / `cancelled` / `paused` / `stale` job；`running` job 在當前 worker 不支援 mid-flight cancel。
+- replay 只允許 `failed` / `cancelled` / `paused` / `stale` 工作；執行中能協作取消或暫停。暫停後 replay 是繼續，游標不歸零。
+- `error_code` 記暫停來源：`user-paused` → `pausedBy: user`，`service-unavailable` → `service`，NULL → `queue`。恢復整個佇列只恢復 NULL 來源，使用者或服務暫停的工作要個別繼續。
+- 使用者建立所選「服務 + 模型」的索引時，先取消其他組合的有效工作；同組合若有暫停工作就繼續，其餘有效工作直接回傳，不多排。有效包含 queued、running、paused、stale；實際索引 writer 與清理串行執行，取消中的 writer 確認停止後才開始下一個。
+- 備份後自動更新是可關閉的獨立設定，不隨開啟語意搜尋自動開啟。只有所選組合的 ledger 是 `ready` 且沒有同組合的有效工作才排增量；否則安靜略過，不在備份報告加警告。取消或暫停第一次填補後，備份不得代替使用者繼續。
+- 建置開始寫 `building`，清除開始寫 `clearing`；完整填補成功才寫 `ready`，清除成功寫 `cleared`。暫停、取消、失敗、工作集更新與啟動時回收未完成建置都寫 `incomplete`。沒有到結尾就不能被當作完成。
+- 舊版工作只存服務、沒存模型；新工作在既有 JSON payload 存模型快照，不改 schema。舊游標已前進又沒有模型時取消工作、保留部分索引；重新建立增量工作補缺。未開始的舊工作在首次執行前綁定目前模型。
 
 ### 任務類型
 
-- **Embedding 計算**：已交付（W-AI-4）；chunked / resumable backfill 生成 embedding vector 進 `derived/vectors/` sidecar plane，gated on `semantic_index_enabled`。re-embed scope 分 `incremental` / `working-set` / `full`，並有 cost / time estimator（CPU vs Metal GPU）。
+- **Embedding 計算**：已交付（W-AI-4）；chunked / resumable backfill 生成 embedding vector 進 `derived/vectors/` sidecar plane，gated on `semantic_index_enabled`。re-embed scope 分 `incremental` / `working-set` / `full`；重建前先說要重新索引幾個頁面（`estimate_reembed`）。2026-10-08 拿掉了時間估計：它用已移除的 candle 引擎的速度（1.25 頁 / 秒）計算，實際跑的是內建靜態模型，10 萬頁說要約 22 小時、實際幾分鐘。
 - **Content-fetch（readable content / og:image）**：已交付（W-ENRICH）但 **egress hard-default-OFF**（`content_fetch_enabled`，預設關）；開啟後背景抓取頁面內容做內容增強，SSRF-guarded、無 cookie/Referer、per-host rate-limited（見 [ai-security-posture.md](../architecture/ai-security-posture.md) §4）。
 - **Insight 計算**：計算各洞察模塊的結果。
 - **LLM 摘要生成**：生成 topic 命名、對比式摘要、定期總結等（有 LLM provider 時加值，無 provider 退 deterministic）。

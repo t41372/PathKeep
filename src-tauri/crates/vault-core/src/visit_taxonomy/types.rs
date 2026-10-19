@@ -17,12 +17,19 @@
 //! - These are compact value types; large-archive memory behavior is governed
 //!   by the caller's batching strategy, not by this type module.
 
-pub(super) const TAXONOMY_VERSION: &str = "m5-taxonomy-v1";
+/// The category matcher's version: which category a page and its site get. v2: a host is matched
+/// before its parents (`mail.google.com` before `google.com`). v3: a Latin lexicon word matches
+/// whole words only ("api" not in "rapid"). v4: no change of its own (it carried the first URL
+/// rule change below). What builds record is `taxonomy_version()`, which adds every pack's
+/// version; a change there sorts visits into categories again without building Insights anew.
+pub(super) const TAXONOMY_VERSION: &str = "m5-taxonomy-v4";
 
-/// Returns the current visit-taxonomy baseline version.
-pub(crate) const fn taxonomy_version() -> &'static str {
-    TAXONOMY_VERSION
-}
+/// The URL rules' version: how a URL is normalized, which site it belongs to and which search it
+/// is. A change moves visits between sites and searches, so Insights are built anew. v1: only
+/// http(s) pages have a site; an extension's page no longer counts as one. v2: sites are split by
+/// the full public suffix list, as browsers split them (`url_rules_version` adds the list's own
+/// version, so a refreshed list builds them anew too).
+pub(super) const URL_RULES_VERSION: &str = "m5-url-v2";
 
 /// URL normalized for rule-based visit taxonomy and matching.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -39,6 +46,29 @@ pub struct NormalizedVisitUrl {
 }
 
 /// Strength of local evidence supporting a derived interpretation.
+/// Which page opened a visit, from the browser's `from_visit`. Chromium and Firefox write 0 when
+/// nothing did (an address typed, a bookmark, a new tab, another app); Safari and Google Takeout
+/// record nothing at all, so their visits say neither.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Opener {
+    /// The browser does not record what opened a page.
+    Unrecorded,
+    /// Nothing did.
+    Nothing,
+    /// The browser's own id of the visit that did (`source_visit_id`).
+    Visit(i64),
+}
+
+impl Opener {
+    pub(crate) fn of(from_visit: Option<i64>) -> Self {
+        match from_visit {
+            None => Self::Unrecorded,
+            Some(id) if id <= 0 => Self::Nothing,
+            Some(id) => Self::Visit(id),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum EvidenceTier {
     TierA,
@@ -253,14 +283,17 @@ pub enum TaxonomyOverrideTarget {
     UrlPrefix,
 }
 
-/// User-provided taxonomy override used ahead of built-in rules.
+/// User-provided taxonomy override used ahead of built-in rules. With a page kind and an
+/// interaction it decides the whole classification; with only a site category it is like an exact
+/// rule: the site category is the user's, the page kind and interaction stay the rules' (a
+/// GitHub issue is still an issue on a site the user calls work).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TaxonomyOverride {
     pub target: TaxonomyOverrideTarget,
     pub value: String,
     pub domain_category: DomainCategory,
-    pub page_category: PageCategory,
-    pub interaction_kind: InteractionKind,
+    pub page_category: Option<PageCategory>,
+    pub interaction_kind: Option<InteractionKind>,
     pub note: Option<String>,
 }
 

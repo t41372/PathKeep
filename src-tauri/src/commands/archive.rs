@@ -1,4 +1,7 @@
-//! Tauri commands for canonical archive flows.
+//! Responsibilities: expose archive operations and progress off the UI thread.
+//! Not responsible for: storage, conversion or maintenance policy.
+//! Failure modes: changed payload names, blocked UI thread or lost progress events.
+//! Tests: desktop bridge dispatch and worker contract tests.
 
 #[cfg(not(test))]
 use super::blocking::run_blocking_command;
@@ -28,7 +31,7 @@ pub(crate) async fn initialize_archive(
             database_key,
             &session,
             |event| {
-                let _ = app.emit("pathkeep://archive-upgrade", &event);
+                let _ = app.emit(vault_core::ARCHIVE_UPGRADE_EVENT, &event);
             },
         )
     })
@@ -37,15 +40,17 @@ pub(crate) async fn initialize_archive(
 
 #[cfg(not(test))]
 #[tauri::command]
-/// Cheap first-run upgrade pre-check: reports whether the next archive open will
-/// do minutes of upgrade work, so the shell can decide whether to show the
-/// "Upgrading your archive…" screen. Runs off the UI thread.
+/// Reports source counts, retained files and conversion work off the UI thread.
 pub(crate) async fn assess_archive_upgrade(
     state: State<'_, SessionState>,
+    database_key: Option<String>,
 ) -> Result<vault_core::ArchiveUpgradeAssessment, CommandError> {
-    let session_database_key = state.get_key();
+    let session_database_key_state = state.inner().clone();
     run_blocking_command("assess_archive_upgrade", move || {
-        worker_bridge::assess_archive_upgrade_impl(session_database_key.as_deref())
+        worker_bridge::assess_archive_upgrade_impl(
+            &session_database_key_state,
+            database_key.or(session_database_key_state.get_key()?).as_deref(),
+        )
     })
     .await
 }
@@ -82,11 +87,9 @@ pub(crate) async fn reconcile_archive_encryption(
 /// Previews the archive rekey plan before any encryption-mode mutation happens, off the UI thread.
 pub(crate) async fn preview_rekey_archive(
     request: RekeyRequest,
-    state: State<'_, SessionState>,
 ) -> Result<vault_core::RekeyPreview, CommandError> {
-    let session = state.inner().clone();
     run_blocking_command("preview_rekey_archive", move || {
-        worker_bridge::preview_rekey_archive_impl(request, &session)
+        worker_bridge::preview_rekey_archive_impl(request)
     })
     .await
 }
@@ -175,16 +178,19 @@ pub(crate) async fn run_retention_prune(
 #[cfg(not(test))]
 #[tauri::command]
 /// Starts a backup run and streams progress events back to the renderer.
+///
+/// Shares one path with the menu bar's "Back up now", so the menu's status
+/// line and `pathkeep://backup-finished` cover backups started here too.
 pub(crate) async fn run_backup_now(
     app: AppHandle,
     due_only: bool,
-    state: State<'_, SessionState>,
 ) -> Result<vault_core::BackupReport, CommandError> {
-    let session_database_key = state.get_key();
     run_blocking_command("run_backup_now", move || {
-        worker_bridge::run_backup_now_impl(due_only, session_database_key.as_deref(), |event| {
-            let _ = app.emit("pathkeep://backup-progress", &event);
-        })
+        crate::desktop_integration::run_backup(
+            &app,
+            crate::desktop_integration::BackupSource::App,
+            due_only,
+        )
     })
     .await
 }
@@ -196,9 +202,23 @@ pub(crate) async fn query_history(
     query: vault_core::HistoryQuery,
     state: State<'_, SessionState>,
 ) -> Result<vault_core::HistoryQueryResponse, CommandError> {
-    let session_database_key = state.get_key();
+    let session_database_key_state = state.inner().clone();
     run_blocking_command("query_history", move || {
-        worker_bridge::query_history_impl(query, session_database_key.as_deref())
+        worker_bridge::query_history_impl(query, &session_database_key_state)
+    })
+    .await
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+/// Loads the icons of the sites a screen lists, off the UI thread.
+pub(crate) async fn load_site_favicons(
+    domains: Vec<String>,
+    state: State<'_, SessionState>,
+) -> Result<Vec<vault_core::SiteFavicon>, CommandError> {
+    let session = state.inner().clone();
+    run_blocking_command("load_site_favicons", move || {
+        worker_bridge::load_site_favicons_impl(domains, &session)
     })
     .await
 }
@@ -211,9 +231,9 @@ pub(crate) async fn load_history_favicons(
     entries: Vec<vault_core::HistoryFaviconLookupEntry>,
     state: State<'_, SessionState>,
 ) -> Result<Vec<vault_core::HistoryFaviconLookupResult>, CommandError> {
-    let session_database_key = state.get_key();
+    let session_database_key_state = state.inner().clone();
     run_blocking_command("load_history_favicons", move || {
-        worker_bridge::load_history_favicons_impl(entries, session_database_key.as_deref())
+        worker_bridge::load_history_favicons_impl(entries, &session_database_key_state)
     })
     .await
 }
@@ -225,9 +245,9 @@ pub(crate) async fn load_history_og_images(
     entries: Vec<vault_core::HistoryOgImageLookupEntry>,
     state: State<'_, SessionState>,
 ) -> Result<Vec<vault_core::HistoryOgImageLookupResult>, CommandError> {
-    let session_database_key = state.get_key();
+    let state = state.inner().clone();
     run_blocking_command("load_history_og_images", move || {
-        worker_bridge::load_history_og_images_impl(entries, session_database_key.as_deref())
+        worker_bridge::load_history_og_images_impl(entries, &state)
     })
     .await
 }
@@ -239,9 +259,9 @@ pub(crate) async fn mark_og_images_shown(
     urls: Vec<String>,
     state: State<'_, SessionState>,
 ) -> Result<(), CommandError> {
-    let session_database_key = state.get_key();
+    let state = state.inner().clone();
     run_blocking_command("mark_og_images_shown", move || {
-        worker_bridge::mark_og_images_shown_impl(urls, session_database_key.as_deref())
+        worker_bridge::mark_og_images_shown_impl(urls, &state)
     })
     .await
 }
@@ -253,28 +273,9 @@ pub(crate) async fn trigger_og_image_refetch(
     urls: Vec<String>,
     state: State<'_, SessionState>,
 ) -> Result<u32, CommandError> {
-    let session_database_key = state.get_key();
+    let state = state.inner().clone();
     run_blocking_command("trigger_og_image_refetch", move || {
-        worker_bridge::refetch_og_images_impl(urls, session_database_key.as_deref())
-    })
-    .await
-}
-
-#[cfg(not(test))]
-#[tauri::command]
-/// Sweeps `urls` minus their existing og:image rows and runs the
-/// difference through the worker pool, capped at `budget`. Powers the
-/// Settings → Link Previews → "Rebuild now" button so the user can warm
-/// the cache for the whole archive without waiting for the daily
-/// post-backup pass. `budget` lands behind the worker's hard cap so a
-/// pathological request can't tie up the pool.
-pub(crate) async fn prefetch_og_images(
-    budget: u32,
-    state: State<'_, SessionState>,
-) -> Result<(u32, u32), CommandError> {
-    let session_database_key = state.get_key();
-    run_blocking_command("prefetch_og_images", move || {
-        worker_bridge::prefetch_og_images_impl(budget, session_database_key.as_deref())
+        worker_bridge::refetch_og_images_impl(urls, &state)
     })
     .await
 }
@@ -285,9 +286,9 @@ pub(crate) async fn prefetch_og_images(
 pub(crate) async fn get_og_image_storage_stats(
     state: State<'_, SessionState>,
 ) -> Result<vault_core::OgImageStorageStats, CommandError> {
-    let session_database_key = state.get_key();
+    let state = state.inner().clone();
     run_blocking_command("get_og_image_storage_stats", move || {
-        worker_bridge::og_image_storage_stats_impl(session_database_key.as_deref())
+        worker_bridge::og_image_storage_stats_impl(&state)
     })
     .await
 }
@@ -298,9 +299,9 @@ pub(crate) async fn get_og_image_storage_stats(
 pub(crate) async fn get_og_image_coverage_stats(
     state: State<'_, SessionState>,
 ) -> Result<vault_core::OgImageCoverageStats, CommandError> {
-    let session_database_key = state.get_key();
+    let state = state.inner().clone();
     run_blocking_command("get_og_image_coverage_stats", move || {
-        worker_bridge::og_image_coverage_stats_impl(session_database_key.as_deref())
+        worker_bridge::og_image_coverage_stats_impl(&state)
     })
     .await
 }
@@ -311,9 +312,9 @@ pub(crate) async fn get_og_image_coverage_stats(
 pub(crate) async fn clear_og_image_cache(
     state: State<'_, SessionState>,
 ) -> Result<vault_core::OgImageCleanupReport, CommandError> {
-    let session_database_key = state.get_key();
+    let state = state.inner().clone();
     run_blocking_command("clear_og_image_cache", move || {
-        worker_bridge::clear_og_image_cache_impl(session_database_key.as_deref())
+        worker_bridge::clear_og_image_cache_impl(&state)
     })
     .await
 }
@@ -324,9 +325,9 @@ pub(crate) async fn clear_og_image_cache(
 pub(crate) async fn run_og_image_cleanup(
     state: State<'_, SessionState>,
 ) -> Result<vault_core::OgImageCleanupReport, CommandError> {
-    let session_database_key = state.get_key();
+    let state = state.inner().clone();
     run_blocking_command("run_og_image_cleanup", move || {
-        worker_bridge::run_og_image_cleanup_impl(session_database_key.as_deref())
+        worker_bridge::run_og_image_cleanup_impl(&state)
     })
     .await
 }
@@ -337,26 +338,47 @@ pub(crate) async fn run_og_image_cleanup(
 pub(crate) async fn load_dashboard_snapshot(
     state: State<'_, SessionState>,
 ) -> Result<vault_core::DashboardSnapshot, CommandError> {
-    let key = state.get_key();
+    let key_state = state.inner().clone();
     run_blocking_command("load_dashboard_snapshot", move || {
-        worker_bridge::dashboard_snapshot_impl(key.as_deref())
+        worker_bridge::dashboard_snapshot_impl(&key_state)
     })
     .await
 }
 
 #[cfg(not(test))]
 #[tauri::command]
-/// Aggregates one local-day Browse insights panel from the full archive
-/// (sparkline, top domains, top URLs, search queries, activity tallies,
-/// session stats), off the UI thread. Replaces the previous scroll-coupled
-/// client-side `aggregateDayInsights` — see feedback-2026-05-25 §3.1.
-pub(crate) async fn get_browse_day_insights(
-    request: vault_core::BrowseDayInsightsRequest,
+/// Loads per-source visit counts and date spans, off the UI thread.
+pub(crate) async fn load_source_stats(
     state: State<'_, SessionState>,
-) -> Result<vault_core::BrowseDayInsights, CommandError> {
-    let key = state.get_key();
-    run_blocking_command("get_browse_day_insights", move || {
-        worker_bridge::browse_day_insights_impl(key.as_deref(), request)
+) -> Result<Vec<vault_core::SourceStats>, CommandError> {
+    let key_state = state.inner().clone();
+    run_blocking_command("load_source_stats", move || worker_bridge::source_stats_impl(&key_state))
+        .await
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+/// Loads the History detail panel data for one URL, off the UI thread.
+pub(crate) async fn get_url_detail(
+    url: String,
+    state: State<'_, SessionState>,
+) -> Result<vault_core::UrlDetail, CommandError> {
+    let key_state = state.inner().clone();
+    run_blocking_command("get_url_detail", move || worker_bridge::url_detail_impl(&url, &key_state))
+        .await
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+/// Finds related pages without blocking the UI or calling an embedding service.
+pub(crate) async fn get_related_pages(
+    url: String,
+    visit_id: Option<i64>,
+    state: State<'_, SessionState>,
+) -> Result<vault_core::RelatedPages, CommandError> {
+    let session = state.inner().clone();
+    run_blocking_command("get_related_pages", move || {
+        worker_bridge::related_pages_impl(&url, visit_id, &session)
     })
     .await
 }
@@ -368,25 +390,41 @@ pub(crate) async fn load_audit_run_detail(
     run_id: i64,
     state: State<'_, SessionState>,
 ) -> Result<vault_core::AuditRunDetail, CommandError> {
-    let key = state.get_key();
+    let key_state = state.inner().clone();
     run_blocking_command("load_audit_run_detail", move || {
-        worker_bridge::audit_run_detail_impl(run_id, key.as_deref())
+        worker_bridge::audit_run_detail_impl(run_id, &key_state)
     })
     .await
 }
 
 #[cfg(not(test))]
 #[tauri::command]
-/// Exports a history query result to the requested artifact format, off the UI thread.
+/// Exports history to the file the person chooses in the system's save dialog, off the UI
+/// thread; `None` when they close the dialog. The interface never names a path.
 pub(crate) async fn export_history(
+    app: tauri::AppHandle,
     request: vault_core::ExportRequest,
     state: State<'_, SessionState>,
-) -> Result<vault_core::ExportResult, CommandError> {
-    let key = state.get_key();
+) -> Result<Option<vault_core::ExportResult>, CommandError> {
+    let state = state.inner().clone();
     run_blocking_command("export_history", move || {
-        worker_bridge::export_history_impl(request, key.as_deref())
+        worker_bridge::export_history_impl(Some(&app), request, &state)
     })
     .await
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+/// Polls export state without waiting for the blocking export command.
+pub(crate) fn get_export_progress(export_id: String) -> Option<vault_core::ExportProgress> {
+    worker_bridge::get_export_progress_impl(&export_id)
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+/// Stops a running export before its durable publication barrier.
+pub(crate) fn cancel_export(export_id: String) -> bool {
+    worker_bridge::cancel_export_impl(&export_id)
 }
 
 #[cfg(not(test))]
@@ -395,8 +433,8 @@ pub(crate) async fn export_history(
 pub(crate) async fn doctor_report(
     state: State<'_, SessionState>,
 ) -> Result<vault_core::HealthReport, CommandError> {
-    let key = state.get_key();
-    run_blocking_command("doctor_report", move || worker_bridge::doctor_report_impl(key.as_deref()))
+    let key_state = state.inner().clone();
+    run_blocking_command("doctor_report", move || worker_bridge::doctor_report_impl(&key_state))
         .await
 }
 
@@ -406,9 +444,22 @@ pub(crate) async fn doctor_report(
 pub(crate) async fn repair_health(
     state: State<'_, SessionState>,
 ) -> Result<vault_core::HealthRepairReport, CommandError> {
-    let key = state.get_key();
-    run_blocking_command("repair_health", move || worker_bridge::repair_health_impl(key.as_deref()))
-        .await
+    let state = state.inner().clone();
+    run_blocking_command("repair_health", move || worker_bridge::repair_health_impl(&state)).await
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+/// Counts what `clear_derived_intelligence` would remove, off the UI thread, so the clear can
+/// be previewed before the user confirms it.
+pub(crate) async fn preview_clear_derived_intelligence(
+    state: State<'_, SessionState>,
+) -> Result<vault_core::ClearDerivedIntelligenceReport, CommandError> {
+    let key_state = state.inner().clone();
+    run_blocking_command("preview_clear_derived_intelligence", move || {
+        worker_bridge::preview_clear_derived_intelligence_impl(&key_state)
+    })
+    .await
 }
 
 #[cfg(not(test))]
@@ -417,9 +468,83 @@ pub(crate) async fn repair_health(
 pub(crate) async fn clear_derived_intelligence(
     state: State<'_, SessionState>,
 ) -> Result<vault_core::ClearDerivedIntelligenceReport, CommandError> {
-    let key = state.get_key();
+    let key_state = state.inner().clone();
     run_blocking_command("clear_derived_intelligence", move || {
-        worker_bridge::clear_derived_intelligence_impl(key.as_deref())
+        worker_bridge::clear_derived_intelligence_impl(&key_state)
+    })
+    .await
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+/// Reads a page of what outside apps asked through the MCP server, off the UI thread.
+pub(crate) async fn load_mcp_queries(
+    cursor: Option<i64>,
+    limit: Option<usize>,
+    state: State<'_, SessionState>,
+) -> Result<vault_core::McpQueryPage, CommandError> {
+    let state = state.inner().clone();
+    run_blocking_command("load_mcp_queries", move || {
+        worker_bridge::load_mcp_queries_impl(cursor, limit, &state)
+    })
+    .await
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+/// Reads another page of the audit ledger on the session's reader pool.
+pub(crate) async fn load_recent_runs(
+    cursor: Option<i64>,
+    limit: Option<usize>,
+    state: State<'_, SessionState>,
+) -> Result<vault_core::RunPage, CommandError> {
+    let state = state.inner().clone();
+    run_blocking_command("load_recent_runs", move || {
+        worker_bridge::load_recent_runs_impl(cursor, limit, &state)
+    })
+    .await
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+/// Reads another page of import history on the session's reader pool.
+pub(crate) async fn load_import_batches(
+    cursor: Option<String>,
+    limit: Option<usize>,
+    state: State<'_, SessionState>,
+) -> Result<vault_core::ImportBatchPage, CommandError> {
+    let state = state.inner().clone();
+    run_blocking_command("load_import_batches", move || {
+        worker_bridge::load_import_batches_impl(cursor, limit, &state)
+    })
+    .await
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+/// Scans search vectors on a worker so the drill-in remains responsive.
+pub(crate) async fn get_similar_searches(
+    query: String,
+    wordings: Vec<String>,
+    state: State<'_, SessionState>,
+) -> Result<vault_core::SimilarSearches, CommandError> {
+    let session = state.inner().clone();
+    run_blocking_command("get_similar_searches", move || {
+        worker_bridge::similar_searches_impl(&query, &wordings, &session)
+    })
+    .await
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+/// Short custom windows group on a worker; kept months only read their snapshots.
+pub(crate) async fn get_search_groups(
+    request: vault_core::ScopedDateRangeRequest,
+    state: State<'_, SessionState>,
+) -> Result<vault_core::SearchGroupsCard, CommandError> {
+    let session = state.inner().clone();
+    run_blocking_command("get_search_groups", move || {
+        worker_bridge::search_groups_impl(&request, &session)
     })
     .await
 }

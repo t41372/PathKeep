@@ -17,11 +17,15 @@ use tauri::State;
 #[cfg(not(test))]
 #[tauri::command]
 /// Previews the native scheduler plan for one platform, off the UI thread.
+/// `due_after_hours` previews an interval that is not saved yet.
 pub(crate) async fn preview_schedule(
     platform: Option<String>,
+    due_after_hours: Option<f64>,
 ) -> Result<vault_core::SchedulePlan, CommandError> {
-    run_blocking_command("preview_schedule", move || worker_bridge::preview_schedule_impl(platform))
-        .await
+    run_blocking_command("preview_schedule", move || {
+        worker_bridge::preview_schedule_impl(platform, due_after_hours)
+    })
+    .await
 }
 
 #[cfg(not(test))]
@@ -58,9 +62,9 @@ pub(crate) async fn schedule_status(
     platform: Option<String>,
     state: State<'_, SessionState>,
 ) -> Result<vault_core::ScheduleStatus, CommandError> {
-    let key = state.get_key();
+    let key_state = state.inner().clone();
     run_blocking_command("schedule_status", move || {
-        worker_bridge::schedule_status_impl(platform, key.as_deref())
+        worker_bridge::schedule_status_impl(platform, &key_state)
     })
     .await
 }

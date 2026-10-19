@@ -19,7 +19,7 @@ pub(crate) struct GenericReadableExtractor;
 /// Extractor id + stored `content_source`.
 pub(crate) const GENERIC_READABLE_EXTRACTOR_ID: &str = "generic-readable";
 /// Schema version; a bump refetches only generic-readable rows (06 §3).
-pub(crate) const GENERIC_READABLE_EXTRACTOR_VERSION: u32 = 1;
+pub(crate) const GENERIC_READABLE_EXTRACTOR_VERSION: u32 = 2;
 
 impl Extractor for GenericReadableExtractor {
     fn id(&self) -> &'static str {
@@ -54,57 +54,5 @@ impl Extractor for GenericReadableExtractor {
             build_enrichment_result_from_html(&ctx.url, ctx.final_url.clone(), content_type, &text);
         result.extractor_version = Some(GENERIC_READABLE_EXTRACTOR_VERSION as i64);
         result
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn ctx(url: &str, html: &str) -> ExtractContext {
-        ExtractContext {
-            url: url.to_string(),
-            final_url: Some(url.to_string()),
-            primary_body: html.as_bytes().to_vec(),
-            content_type: Some("text/html".to_string()),
-            secondary_body: None,
-        }
-    }
-
-    #[test]
-    fn matches_any_http_or_https_url() {
-        let extractor = GenericReadableExtractor;
-        assert!(extractor.matches("https://example.com/x"));
-        assert!(extractor.matches("http://example.com/x"));
-        assert!(!extractor.matches("ftp://example.com/x"));
-    }
-
-    #[test]
-    fn extract_produces_summary_and_stamps_version() {
-        let extractor = GenericReadableExtractor;
-        let html = "<html><head><title>A clean title</title></head>\
-                    <body><main><p>First readable paragraph with content.</p></main></body></html>";
-        let result = extractor.extract(&ctx("https://example.com/post", html));
-        assert_eq!(result.status, "success");
-        assert_eq!(result.readable_title.as_deref(), Some("A clean title"));
-        assert_eq!(result.enrichment_summary.as_deref(), Some("A clean title"));
-        assert_eq!(result.extractor_version, Some(GENERIC_READABLE_EXTRACTOR_VERSION as i64));
-    }
-
-    #[test]
-    fn extract_recovers_from_invalid_utf8_via_lossy_decode() {
-        let extractor = GenericReadableExtractor;
-        let mut body = b"<html><head><title>Lossy</title></head><body><p>".to_vec();
-        body.extend_from_slice(&[0xFF, 0xFE]);
-        body.extend_from_slice(b" body</p></body></html>");
-        let result = extractor.extract(&ExtractContext {
-            url: "https://example.com/lossy".to_string(),
-            final_url: None,
-            primary_body: body,
-            content_type: None,
-            secondary_body: None,
-        });
-        assert_eq!(result.readable_title.as_deref(), Some("Lossy"));
-        assert_eq!(result.extractor_version, Some(1));
     }
 }

@@ -1,0 +1,274 @@
+//! Responsibilities: keep statements/cursors on one thread and scope each transaction.
+//! Not responsible for: scheduling, application SQL or accumulating large result sets.
+//! Failure modes: reads write; errors/panics leak transactions; cursor escape shares
+//! ownership; failed rollback is hidden; prepared batches retain old bindings; doctor cannot inspect encrypted files or metadata. Tests: concurrency, api compile-fail docs.
+use crate::{Error, Result};
+use std::{
+    cell::{Cell, RefCell},
+    marker::PhantomData,
+    panic::{AssertUnwindSafe, catch_unwind},
+    rc::Rc,
+};
+use tokio::runtime::Runtime;
+
+/// Borrowed synchronous access exists only during an owner-thread closure.
+/// Cursors never escape; map rows to application values before returning.
+///
+/// ```compile_fail
+/// fn escape(store: &vault_store::Store) {
+///     store.read(vault_store::Db::Archive, |conn| Ok(conn));
+/// }
+/// ```
+/// ```compile_fail
+/// fn send(conn: &vault_store::Session<'_>) {
+///     std::thread::scope(|s| { s.spawn(move || conn.execute("SELECT 1", ())); });
+/// }
+/// ```
+pub struct Session<'a> {
+    pub(crate) plans: Option<&'a crate::query_plans::PlanCapture>,
+    pub(crate) statements: Cell<usize>,
+    pub(crate) runtime: &'a Runtime,
+    pub(crate) conn: &'a turso::Connection,
+    pub(crate) prepared: Option<&'a crate::statement_cache::StatementCache>,
+    pub(crate) read_only: bool,
+    pub(crate) _thread: PhantomData<Rc<()>>,
+    pub(crate) scratch: Option<&'a crate::checkpoint::Gate>,
+    pub(crate) archive: Option<&'a crate::checkpoint::Gate>,
+    pub(crate) archive_read: RefCell<Option<crate::checkpoint::ReadGuard<'a>>>,
+    pub(crate) scratch_read: RefCell<Option<crate::checkpoint::ReadGuard<'a>>>,
+}
+impl<'a> Session<'a> {
+    pub(crate) fn with_plans(mut self, plans: &'a crate::query_plans::PlanCapture) -> Self {
+        self.plans = Some(plans);
+        self
+    }
+    pub(crate) fn record_plan(&self, sql: &str, params: &turso::params::Params) -> Result<()> {
+        if let Some(plans) = self.plans {
+            plans.record(self, sql, params)?;
+        }
+        Ok(())
+    }
+    pub(crate) fn with_scratch(mut self, gate: Option<&'a crate::checkpoint::Gate>) -> Self {
+        self.scratch = gate;
+        self
+    }
+    pub(crate) fn with_archive(mut self, gate: Option<&'a crate::checkpoint::Gate>) -> Self {
+        self.archive = gate;
+        self
+    }
+    pub(crate) fn check_sql(&self, sql: &str) -> Result<()> {
+        let (scratch, archive) = match self.prepared {
+            Some(cache) => cache.validated(sql, self.read_only)?,
+            None => crate::sql::validate(sql, self.read_only)?,
+        };
+        if archive && let Some(gate) = self.archive {
+            let mut held = self.archive_read.borrow_mut();
+            if held.is_none() {
+                *held = Some(gate.enter());
+            }
+        }
+        if scratch && let Some(gate) = self.scratch {
+            let mut held = self.scratch_read.borrow_mut();
+            if held.is_none() {
+                *held = Some(gate.enter());
+            }
+        }
+        self.statements.set(self.statements.get() + 1);
+        Ok(())
+    }
+    /// Counts application statements in this job, for bounded-write diagnostics.
+    pub fn statement_count(&self) -> usize {
+        self.statements.get()
+    }
+
+    /// Doctor needs migration metadata without opening another database owner.
+    pub fn schema_version(&self) -> Result<i64> {
+        crate::migration::version(self)
+    }
+
+    /// Conversion needs named columns without exposing arbitrary PRAGMA execution.
+    pub fn table_columns(&self, table: &str) -> Result<Vec<String>> {
+        self.runtime.block_on(async {
+            let rows = self
+                .conn
+                .query(format!("SELECT * FROM \"{}\" LIMIT 0", table.replace('"', "\"\"")), ())
+                .await?;
+            Ok(rows.column_names())
+        })
+    }
+
+    /// Runs Turso's structural and row/index consistency checks on this snapshot.
+    /// This fixed read-only pragma does not expose arbitrary connection settings.
+    pub fn integrity_check(&self) -> Result<Vec<String>> {
+        self.runtime.block_on(async {
+            let mut rows = self.conn.query("PRAGMA integrity_check", ()).await?;
+            let mut messages = Vec::new();
+            while let Some(row) = rows.next().await? {
+                messages.push(row.get::<String>(0)?);
+            }
+            Ok(messages)
+        })
+    }
+
+    /// Runs `work` with this connection's compiled statement for `sql`, compiling
+    /// it only the first time. The statement goes back to the cache afterwards.
+    fn with_statement<T>(
+        &self,
+        sql: &str,
+        work: impl FnOnce(&mut turso::Statement) -> Result<T>,
+    ) -> Result<T> {
+        self.check_sql(sql)?;
+        let mut statement = self.take_statement(sql)?;
+        let result = work(&mut statement);
+        self.return_statement(sql, statement);
+        result
+    }
+    /// A compiled statement for `sql`: from this connection's cache, or newly compiled.
+    pub(crate) fn take_statement(&self, sql: &str) -> Result<turso::Statement> {
+        match self.prepared {
+            Some(cache) => cache.take(self.runtime, self.conn, sql),
+            None => Ok(self.runtime.block_on(self.conn.prepare(sql))?),
+        }
+    }
+    /// Gives a statement back for reuse; DDL instead invalidates the whole cache.
+    pub(crate) fn return_statement(&self, sql: &str, statement: turso::Statement) {
+        if let Some(cache) = self.prepared {
+            if changes_schema(sql) {
+                cache.clear();
+            } else {
+                cache.put(sql, statement);
+            }
+        }
+    }
+
+    /// Apply one statement within the transaction already owned by the facade.
+    pub fn execute(&self, sql: &str, params: impl turso::IntoParams) -> Result<u64> {
+        let params = params.into_params()?;
+        self.with_statement(sql, |statement| {
+            self.record_plan(sql, &params)?;
+            Ok(self.runtime.block_on(statement.execute(params))?)
+        })
+    }
+
+    /// Inserts one row and returns its rowid, or `None` when the statement inserted nothing
+    /// (`INSERT OR IGNORE` over an existing key). Per-row writers use this rather than
+    /// `RETURNING`: Turso buffers `RETURNING` rows in an ephemeral table on every execution, and
+    /// with `temp_store=FILE` each one is a new temporary file.
+    pub fn insert(&self, sql: &str, params: impl turso::IntoParams) -> Result<Option<i64>> {
+        let changed = self.execute(sql, params)?;
+        Ok((changed > 0).then(|| self.conn.last_insert_rowid()))
+    }
+
+    /// Applies one statement to each row of a caller-bounded page. The statement is
+    /// compiled once, through this connection's cache, and counts once per row.
+    pub fn execute_rows(&self, sql: &str, rows: Vec<Vec<turso::Value>>) -> Result<u64> {
+        let extra = rows.len().saturating_sub(1);
+        let changed = self.with_statement(sql, |statement| {
+            let mut changed = 0;
+            for values in rows {
+                changed += self.runtime.block_on(statement.execute(values))?;
+            }
+            Ok(changed)
+        })?;
+        self.statements.set(self.statements.get() + extra);
+        Ok(changed)
+    }
+    /// Collect a bounded application page. For unbounded queries use `for_each`.
+    pub fn query<T>(
+        &self,
+        sql: &str,
+        params: impl turso::IntoParams,
+        mut map: impl FnMut(&turso::Row) -> Result<T>,
+    ) -> Result<Vec<T>> {
+        let mut values = Vec::new();
+        self.for_each(sql, params, |row| {
+            values.push(map(row)?);
+            Ok(())
+        })?;
+        Ok(values)
+    }
+    /// Decode a single result without exposing a live cursor to the caller.
+    pub fn query_one<T>(
+        &self,
+        sql: &str,
+        params: impl turso::IntoParams,
+        map: impl FnOnce(&turso::Row) -> Result<T>,
+    ) -> Result<T> {
+        let params = params.into_params()?;
+        self.with_statement(sql, |statement| {
+            self.record_plan(sql, &params)?;
+            self.runtime.block_on(async {
+                let mut rows = statement.query(params).await?;
+                let row = rows.next().await?.ok_or(turso::Error::QueryReturnedNoRows)?;
+                let result = map(&row)?;
+                // Drain RETURNING so its statement completes before the transaction.
+                while rows.next().await?.is_some() {}
+                Ok(result)
+            })
+        })
+    }
+    /// Stream rows without an archive-sized allocation. Long walks should use Store::walk.
+    pub fn for_each(
+        &self,
+        sql: &str,
+        params: impl turso::IntoParams,
+        mut visit: impl FnMut(&turso::Row) -> Result<()>,
+    ) -> Result<()> {
+        let params = params.into_params()?;
+        self.with_statement(sql, |statement| {
+            self.record_plan(sql, &params)?;
+            self.runtime.block_on(async {
+                let mut rows = statement.query(params).await?;
+                while let Some(row) = rows.next().await? {
+                    visit(&row)?
+                }
+                Ok(())
+            })
+        })
+    }
+}
+
+fn changes_schema(sql: &str) -> bool {
+    let first = sql.trim_start().split(|c: char| !c.is_ascii_alphabetic()).next().unwrap_or("");
+    ["CREATE", "ALTER", "DROP"].iter().any(|ddl| first.eq_ignore_ascii_case(ddl))
+}
+
+pub(crate) fn catch_job<T>(work: impl FnOnce() -> Result<T>) -> Result<T> {
+    catch_unwind(AssertUnwindSafe(work)).unwrap_or_else(|payload| {
+        let message = payload
+            .downcast_ref::<String>()
+            .cloned()
+            .or_else(|| payload.downcast_ref::<&str>().map(|s| (*s).to_owned()))
+            .unwrap_or_else(|| "non-string panic payload".into());
+        Err(Error::JobPanicked { message })
+    })
+}
+
+pub(crate) fn transaction<T>(
+    session: &Session<'_>,
+    work: impl FnOnce(&Session<'_>) -> Result<T>,
+) -> Result<T> {
+    // Each database already has one writer. IMMEDIATE would also reserve the
+    // attached scratch writer, unnecessarily serializing unrelated databases.
+    session.runtime.block_on(session.conn.execute("BEGIN", ()))?;
+    let result = catch_job(|| work(session));
+    match result {
+        Ok(value) => match session.runtime.block_on(session.conn.execute("COMMIT", ())) {
+            Ok(_) => Ok(value),
+            Err(error) => rollback(session, Error::from(error)),
+        },
+        Err(error) => rollback(session, error),
+    }
+}
+fn rollback<T>(s: &Session<'_>, original: Error) -> Result<T> {
+    // Some engine errors auto-rollback; only rollback a transaction that remains open.
+    if s.conn.is_autocommit()? {
+        return Err(original);
+    }
+    match s.runtime.block_on(s.conn.execute("ROLLBACK", ())) {
+        Ok(_) => Err(original),
+        Err(error) => {
+            Err(Error::Rollback { original: Box::new(original), rollback: Box::new(error.into()) })
+        }
+    }
+}

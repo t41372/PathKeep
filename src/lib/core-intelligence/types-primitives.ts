@@ -31,6 +31,23 @@ export interface DateRange {
   end: string
 }
 
+/**
+ * The zone Insights put days and hours in (`docs/architecture/insights-time-zone.md`).
+ * Mirrors `vault_core::InsightsTimeZone`.
+ */
+export interface InsightsTimeZone {
+  /** The IANA zone of the Insights on screen; every date range is read in it. */
+  shown: string
+  /** The zone the next build uses; differs from `shown` while a rebuild in a newly chosen zone runs. */
+  next: string
+  /**
+   * The zone some profiles' Insights are still in while a rebuild moves them
+   * to `next`. Reads move to `next` with the first profile rebuilt, so this
+   * outlasts `shown !== next`.
+   */
+  rebuildingFrom: string | null
+}
+
 /** Standard pagination params. */
 export interface PaginationParams {
   page: number
@@ -53,7 +70,6 @@ export interface CoreIntelligenceRebuildReport {
   searchTrails: number
   queryFamilies: number
   refindPages: number
-  sourceEffectiveness: number
   reopenedInvestigations: number
   stageTimingsMs?: CoreIntelligenceStageTimings | null
   notes: string[]
@@ -77,6 +93,10 @@ export type CoreIntelligenceSectionWindow =
       kind: 'calendar-day-history'
       referenceDate: string
     }
+  | {
+      /** Everything the archive holds, whatever range the page shows. */
+      kind: 'all-time'
+    }
 
 /** Shared evidence/freshness metadata emitted alongside one section payload. */
 export interface CoreIntelligenceSectionMeta {
@@ -88,8 +108,29 @@ export interface CoreIntelligenceSectionMeta {
   includesEnrichment: boolean
   state: 'ready' | 'stale' | 'disabled' | 'degraded'
   stateReason?: string | null
+  /** The reason as a code the interface translates; the English `stateReason` is for logs. */
+  stateReasonCode?: string | null
   notes: string[]
+  /**
+   * How much of the archive the card was computed from, in the unit it
+   * counts, for the scope it was read for. Absent for sections that show
+   * their own counts.
+   */
+  evidence?: { count: number; unit: EvidenceUnit } | null
+  /** Needs what only Chromium browsers record; Safari and Takeout visits leave it empty. */
+  chromiumOnly?: boolean
 }
+
+/** What a card counts as its evidence; mirrors `vault_core::SectionEvidenceUnit`. */
+export type EvidenceUnit =
+  | 'visits'
+  | 'siteVisits'
+  | 'pageVisits'
+  | 'searches'
+  | 'searchTrails'
+  | 'landedSearches'
+  | 'days'
+  | 'sessions'
 
 /** Generic transport envelope for `/intelligence` section payloads. */
 export interface CoreIntelligenceSectionResult<T> {
@@ -165,3 +206,12 @@ export type TimeRangePreset =
   | 'year'
   | 'all'
   | 'custom'
+
+/**
+ * One page of a list. Pass `nextCursor` back with the same filters to continue;
+ * null means there is nothing more. Lists are never cut at a limit.
+ */
+export interface Page<T> {
+  items: T[]
+  nextCursor: string | null
+}

@@ -1,12 +1,15 @@
+//! Failure modes: payload drift, cancelled maintenance reported as successful or progress blocked
+//! behind SQL work.
+//!
 //! Command dispatcher for the dev-only IPC bridge.
 //!
-//! ## Responsibilities
+//! Responsibilities:
 //!
-//! - Map mirrored desktop command strings to their worker bridge adapters.
+//! - Map desktop commands, including index pause, to their worker bridge adapters.
 //! - Decode command payload DTOs without changing the browser automation JSON shape.
 //! - Keep updater and file-manager calls inside the desktop facade boundary.
 //!
-//! ## Not responsible for
+//! Not responsible for:
 //!
 //! - Starting the localhost HTTP listener or configuring CORS.
 //! - Defining payload DTO field names.
@@ -20,19 +23,18 @@
 //!
 //! ## Performance notes
 //!
-//! Dispatch only decodes small command envelopes. Heavy archive, import, and
-//! intelligence work must stay behind the existing worker bridge and
-//! off-main-thread command contracts.
+//! Dispatch only decodes small command envelopes, and runs on the blocking pool
+//! (`router::bridge_invoke`), so a long command here holds up nothing else.
 
 use crate::command_error::CommandError;
-use crate::{file_manager, session::session_key, updater, worker_bridge};
+use crate::{desktop_integration, file_manager, session::session_key, updater, worker_bridge};
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::Value;
 use vault_core::{
-    AiAssistantRequest, AiChatSendRequest, AiIndexRequest, AiProviderConnectionTestRequest,
-    AiSearchRequest, CategoryFilteredDateRangeRequest, CompareSetDetailRequest,
-    CoreIntelligenceRebuildRequest, DayInsightsRequest, DomainDeepDiveRequest, DomainTrendRequest,
-    EntityExplanationRequest, ExplainRefindRequest, FrontendErrorReportRequest,
+    AiChatSendRequest, AiIndexRequest, AiProviderConnectionTestRequest, AiSearchRequest,
+    CategoryFilteredDateRangeRequest, CompareSetDetailRequest, CoreIntelligenceRebuildRequest,
+    DayInsightsRequest, DomainDeepDiveRequest, DomainTrendRequest, EntityExplanationRequest,
+    ExplainRefindRequest, FrequentSearchesRequest, FrontendErrorReportRequest,
     GranularityDateRangeRequest, IntelligenceEmbedCardsRequest, IntelligenceLocalHostRequest,
     ListAgentConversationsRequest, PagedDateRangeRequest, PathFlowRequest, ProfileScopedRequest,
     QueryFamilyDetailRequest, RefindPageDetailRequest, RefindPagesRequest,
@@ -62,40 +64,77 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
         };
     }
 
+    if matches!(
+        command,
+        "start_search" | "next_search_page" | "cancel_search" | "search_indexer_state"
+    ) {
+        return super::search::dispatch(state, command, payload).await;
+    }
+    #[cfg(debug_assertions)]
+    if command == "debug_set_search_indexer_paused" {
+        #[derive(serde::Deserialize)]
+        struct Paused {
+            paused: bool,
+        }
+        let Paused { paused } = parse_payload::<Paused>(payload)?;
+        worker_bridge::debug_set_search_indexer_paused_impl(&state.session, paused)?;
+        return Ok(Value::Null);
+    }
     match command {
         "app_build_info" => json_value!(worker_bridge::app_build_info_impl()),
         "app_snapshot" => {
-            json_value!(worker_bridge::app_snapshot_impl(session_key(&state.session).as_deref())?)
+            json_value!(worker_bridge::app_snapshot_impl(&state.session)?)
         }
         "app_lock_status" => json_value!(worker_bridge::app_lock_status_impl()?),
         "save_config" => {
             let payload = parse_payload::<WrappedConfigPayload>(payload)?;
-            json_value!(worker_bridge::save_config_with_base_impl(
+            let snapshot = worker_bridge::save_config_with_base_impl(
                 payload.config,
                 payload.base_config,
-                session_key(&state.session).as_deref()
-            )?)
+                &state.session,
+            )?;
+            // Same follow-up as the Tauri command: menu language and icon.
+            if let Ok(app) = require_app_handle(state) {
+                desktop_integration::config_saved(&app, &snapshot.config);
+            }
+            json_value!(snapshot)
+        }
+        "preview_wipe_all_data" => {
+            json_value!(worker_bridge::preview_wipe_all_data_impl()?)
+        }
+        "wipe_all_data" => {
+            let payload = parse_payload::<WipeConfirmationPayload>(payload)?;
+            // Waits for background workers, so it must not hold an async worker thread.
+            let session = state.session.clone();
+            let report = tokio::task::spawn_blocking(move || {
+                worker_bridge::wipe_all_data_impl(&payload.confirmation, &session)
+            })
+            .await
+            .unwrap_or_else(|error| join_failure("wipe_all_data", error))?;
+            json_value!(report)
         }
         "initialize_archive" => {
             let payload = parse_payload::<InitializeArchivePayload>(payload)?;
-            // The dev HTTP bridge does NOT deliver Tauri events, so the upgrade
-            // progress reporter is a documented no-op here (mirroring how the dev
-            // backup path drops its emit sink); the upgrade work still runs.
+            let events = state.events.clone();
             json_value!(worker_bridge::initialize_archive_with_progress_impl(
                 payload.config,
                 payload.database_key,
                 &state.session,
-                |_| {}
+                move |event| events.emit(vault_core::ARCHIVE_UPGRADE_EVENT, &event)
             )?)
         }
         "assess_archive_upgrade" => {
             json_value!(worker_bridge::assess_archive_upgrade_impl(
-                session_key(&state.session).as_deref()
+                &state.session,
+                payload
+                    .get("databaseKey")
+                    .and_then(serde_json::Value::as_str)
+                    .or(session_key(&state.session)?.as_deref())
             )?)
         }
         "preview_rekey_archive" => {
             let payload = parse_payload::<WrappedRequest<RekeyRequest>>(payload)?;
-            json_value!(worker_bridge::preview_rekey_archive_impl(payload.request, &state.session)?)
+            json_value!(worker_bridge::preview_rekey_archive_impl(payload.request)?)
         }
         "rekey_archive" => {
             let payload = parse_payload::<WrappedRequest<RekeyRequest>>(payload)?;
@@ -157,124 +196,106 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
         }
         "run_backup_now" => {
             let payload = parse_payload::<RunBackupPayload>(payload)?;
-            let key = session_key(&state.session);
-            json_value!(backup_now_off_thread(payload.due_only, key).await?)
+            let app = require_app_handle(state).ok();
+            json_value!(
+                backup_now_off_thread(
+                    app,
+                    payload.due_only,
+                    state.session.clone(),
+                    state.events.clone()
+                )
+                .await?
+            )
         }
         "query_history" => {
             let payload = parse_payload::<QueryHistoryPayload>(payload)?;
-            json_value!(worker_bridge::query_history_impl(
-                payload.query,
-                session_key(&state.session).as_deref()
-            )?)
+            json_value!(worker_bridge::query_history_impl(payload.query, &state.session)?)
         }
         "load_history_favicons" => {
             let payload = parse_payload::<HistoryFaviconPayload>(payload)?;
-            json_value!(worker_bridge::load_history_favicons_impl(
-                payload.entries,
-                session_key(&state.session).as_deref()
-            )?)
+            json_value!(worker_bridge::load_history_favicons_impl(payload.entries, &state.session)?)
+        }
+        "load_site_favicons" => {
+            let payload = parse_payload::<SiteFaviconPayload>(payload)?;
+            json_value!(worker_bridge::load_site_favicons_impl(payload.domains, &state.session)?)
         }
         "load_history_og_images" => {
             let payload = parse_payload::<HistoryOgImagePayload>(payload)?;
             json_value!(worker_bridge::load_history_og_images_impl(
                 payload.entries,
-                session_key(&state.session).as_deref()
+                &state.session
             )?)
         }
         "mark_og_images_shown" => {
             let payload = parse_payload::<OgImageUrlsPayload>(payload)?;
-            json_value!(worker_bridge::mark_og_images_shown_impl(
-                payload.urls,
-                session_key(&state.session).as_deref()
-            )?)
+            json_value!(worker_bridge::mark_og_images_shown_impl(payload.urls, &state.session)?)
         }
         "trigger_og_image_refetch" => {
             let payload = parse_payload::<OgImageUrlsPayload>(payload)?;
-            let session_key = session_key(&state.session);
+            let session = state.session.clone();
             // refetch builds a reqwest::blocking::Client whose internal tokio runtime
             // panics if dropped from inside another async runtime (Tauri commands wrap
             // in spawn_blocking via run_blocking_command; the dev bridge must mirror it).
             let result = tokio::task::spawn_blocking(move || {
-                worker_bridge::refetch_og_images_impl(payload.urls, session_key.as_deref())
+                worker_bridge::refetch_og_images_impl(payload.urls, &session)
             })
             .await
             .map_err(|error| format!("trigger_og_image_refetch join failed: {error}"))??;
             json_value!(result)
         }
         "get_og_image_storage_stats" => {
-            json_value!(worker_bridge::og_image_storage_stats_impl(
-                session_key(&state.session).as_deref()
-            )?)
+            json_value!(worker_bridge::og_image_storage_stats_impl(&state.session)?)
         }
         "get_og_image_coverage_stats" => {
-            json_value!(worker_bridge::og_image_coverage_stats_impl(
-                session_key(&state.session).as_deref()
-            )?)
+            json_value!(worker_bridge::og_image_coverage_stats_impl(&state.session)?)
         }
         "clear_og_image_cache" => {
-            json_value!(worker_bridge::clear_og_image_cache_impl(
-                session_key(&state.session).as_deref()
-            )?)
+            json_value!(worker_bridge::clear_og_image_cache_impl(&state.session)?)
         }
         "run_og_image_cleanup" => {
-            json_value!(worker_bridge::run_og_image_cleanup_impl(
-                session_key(&state.session).as_deref()
-            )?)
+            json_value!(worker_bridge::run_og_image_cleanup_impl(&state.session)?)
         }
         "get_url_annotation" => {
             let payload = parse_payload::<UrlPayload>(payload)?;
-            json_value!(worker_bridge::get_annotation_impl(
-                session_key(&state.session).as_deref(),
-                &payload.url,
-            )?)
+            json_value!(worker_bridge::get_annotation_impl(&state.session, &payload.url,)?)
         }
         "set_url_notes" => {
             let payload = parse_payload::<SetNotesPayload>(payload)?;
-            json_value!(worker_bridge::set_notes_impl(
-                session_key(&state.session).as_deref(),
-                payload.request,
-            )?)
+            json_value!(worker_bridge::set_notes_impl(&state.session, payload.request,)?)
         }
         "replace_url_tags" => {
             let payload = parse_payload::<ReplaceTagsPayload>(payload)?;
-            json_value!(worker_bridge::replace_tags_impl(
-                session_key(&state.session).as_deref(),
-                payload.request,
-            )?)
+            json_value!(worker_bridge::replace_tags_impl(&state.session, payload.request,)?)
         }
         "list_url_annotations" => {
             let payload = parse_payload::<AnnotationLimitPayload>(payload)?;
             json_value!(worker_bridge::list_annotations_impl(
-                session_key(&state.session).as_deref(),
+                &state.session,
                 payload.limit,
+                payload.cursor
             )?)
         }
         "search_url_annotations" => {
             let payload = parse_payload::<AnnotationSearchPayload>(payload)?;
             json_value!(worker_bridge::search_annotations_impl(
-                session_key(&state.session).as_deref(),
+                &state.session,
                 &payload.query,
                 payload.limit,
+                payload.cursor,
             )?)
         }
         "set_star" => {
             let payload = parse_payload::<SetStarPayload>(payload)?;
-            json_value!(worker_bridge::set_star_impl(
-                session_key(&state.session).as_deref(),
-                payload.request,
-            )?)
+            json_value!(worker_bridge::set_star_impl(&state.session, payload.request,)?)
         }
         "unset_star" => {
             let payload = parse_payload::<SetStarPayload>(payload)?;
-            json_value!(worker_bridge::unset_star_impl(
-                session_key(&state.session).as_deref(),
-                payload.request,
-            )?)
+            json_value!(worker_bridge::unset_star_impl(&state.session, payload.request,)?)
         }
         "get_star_status" => {
             let payload = parse_payload::<StarStatusPayload>(payload)?;
             json_value!(worker_bridge::is_starred_batch_impl(
-                session_key(&state.session).as_deref(),
+                &state.session,
                 payload.request.entity_kind,
                 &payload.request.entity_keys,
             )?)
@@ -282,20 +303,24 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
         "list_stars" => {
             let payload = parse_payload::<ListStarsPayload>(payload)?;
             json_value!(worker_bridge::list_stars_impl(
-                session_key(&state.session).as_deref(),
+                &state.session,
                 payload.kind,
                 payload.sort,
                 payload.limit,
+                payload.cursor,
             )?)
         }
         "get_star_counts" => {
-            json_value!(worker_bridge::star_counts_impl(session_key(&state.session).as_deref(),)?)
+            json_value!(worker_bridge::star_counts_impl(&state.session,)?)
         }
+        "get_maintenance_progress" => json_value!(worker_bridge::maintenance_progress_impl()?),
+        "cancel_maintenance" => json_value!(worker_bridge::cancel_maintenance_impl()?),
         "export_app_data" => {
             let payload = parse_payload::<ExportAppDataPayload>(payload)?;
             json_value!(worker_bridge::export_app_data_impl(
-                session_key(&state.session).as_deref(),
+                &state.session,
                 std::path::PathBuf::from(payload.target_path),
+                payload.export_password,
             )?)
         }
         "preview_app_data_import" => {
@@ -307,36 +332,89 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
         "apply_app_data_import" => {
             let payload = parse_payload::<ApplyAppDataImportPayload>(payload)?;
             json_value!(worker_bridge::apply_app_data_import_impl(
-                session_key(&state.session).as_deref(),
+                &state.session,
                 std::path::PathBuf::from(payload.bundle_path),
                 payload.options,
             )?)
         }
         "load_dashboard_snapshot" => {
-            json_value!(worker_bridge::dashboard_snapshot_impl(
-                session_key(&state.session).as_deref()
+            json_value!(worker_bridge::dashboard_snapshot_impl(&state.session)?)
+        }
+        "load_mcp_queries" => {
+            let payload = parse_payload::<RunPagePayload>(payload)?;
+            json_value!(worker_bridge::load_mcp_queries_impl(
+                payload.cursor,
+                payload.limit,
+                &state.session
             )?)
         }
-        "get_browse_day_insights" => {
-            let payload = parse_payload::<BrowseDayInsightsPayload>(payload)?;
-            json_value!(worker_bridge::browse_day_insights_impl(
-                session_key(&state.session).as_deref(),
-                payload.request,
+        "load_recent_runs" => {
+            let payload = parse_payload::<RunPagePayload>(payload)?;
+            json_value!(worker_bridge::load_recent_runs_impl(
+                payload.cursor,
+                payload.limit,
+                &state.session
             )?)
+        }
+        "load_import_batches" => {
+            let payload = parse_payload::<ImportBatchPagePayload>(payload)?;
+            json_value!(worker_bridge::load_import_batches_impl(
+                payload.cursor,
+                payload.limit,
+                &state.session
+            )?)
+        }
+        "load_source_stats" => {
+            json_value!(worker_bridge::source_stats_impl(&state.session)?)
+        }
+        "get_search_groups" => {
+            let payload = parse_payload::<SearchGroupsPayload>(payload)?;
+            json_value!(worker_bridge::search_groups_impl(&payload.request, &state.session)?)
+        }
+        "get_similar_searches" => {
+            let payload = parse_payload::<SimilarSearchesPayload>(payload)?;
+            json_value!(worker_bridge::similar_searches_impl(
+                &payload.query,
+                &payload.wordings,
+                &state.session
+            )?)
+        }
+        "get_related_pages" => {
+            let payload = parse_payload::<RelatedPagesPayload>(payload)?;
+            json_value!(worker_bridge::related_pages_impl(
+                &payload.url,
+                payload.visit_id,
+                &state.session
+            )?)
+        }
+        "get_url_detail" => {
+            let payload = parse_payload::<UrlPayload>(payload)?;
+            json_value!(worker_bridge::url_detail_impl(&payload.url, &state.session)?)
         }
         "load_audit_run_detail" => {
             let payload = parse_payload::<RunIdPayload>(payload)?;
-            json_value!(worker_bridge::audit_run_detail_impl(
-                payload.run_id,
-                session_key(&state.session).as_deref()
-            )?)
+            json_value!(worker_bridge::audit_run_detail_impl(payload.run_id, &state.session)?)
         }
         "export_history" => {
             let payload = parse_payload::<ExportPayload>(payload)?;
-            json_value!(worker_bridge::export_history_impl(
-                payload.request,
-                session_key(&state.session).as_deref()
-            )?)
+            // The save dialog and the export block; the runtime stays free to serve polling
+            // and cancellation.
+            let app = require_app_handle(state).ok();
+            let session = state.session.clone();
+            let result = tokio::task::spawn_blocking(move || {
+                worker_bridge::export_history_impl(app.as_ref(), payload.request, &session)
+            })
+            .await
+            .unwrap_or_else(|error| join_failure("export_history", error))?;
+            json_value!(result)
+        }
+        "get_export_progress" => {
+            let payload = parse_payload::<ExportIdPayload>(payload)?;
+            json_value!(worker_bridge::get_export_progress_impl(&payload.export_id))
+        }
+        "cancel_export" => {
+            let payload = parse_payload::<ExportIdPayload>(payload)?;
+            json_value!(worker_bridge::cancel_export_impl(&payload.export_id))
         }
         "inspect_takeout" => {
             let payload = parse_payload::<TakeoutPayload>(payload)?;
@@ -344,55 +422,62 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
         }
         "import_takeout" => {
             let payload = parse_payload::<TakeoutPayload>(payload)?;
+            let events = state.events.clone();
             json_value!(worker_bridge::import_takeout_impl(
                 payload.request,
-                session_key(&state.session).as_deref(),
-                std::mem::drop::<vault_core::ImportProgressEvent>
+                payload.import_id,
+                &state.session,
+                move |event| events.emit(vault_core::IMPORT_PROGRESS_EVENT, &event)
             )?)
+        }
+        "stop_import" => {
+            let payload = parse_payload::<ImportIdPayload>(payload)?;
+            json_value!(worker_bridge::stop_import_impl(&payload.import_id))
         }
         "inspect_browser_history" => {
             let payload = parse_payload::<BrowserHistoryPayload>(payload)?;
-            json_value!(worker_bridge::inspect_browser_history_impl(payload.request)?)
+            json_value!(worker_bridge::inspect_browser_history_impl(
+                payload.request,
+                &state.session
+            )?)
         }
         "import_browser_history" => {
             let payload = parse_payload::<BrowserHistoryPayload>(payload)?;
+            let events = state.events.clone();
             json_value!(worker_bridge::import_browser_history_impl(
                 payload.request,
-                session_key(&state.session).as_deref(),
-                std::mem::drop::<vault_core::ImportProgressEvent>
+                payload.import_id,
+                &state.session,
+                move |event| events.emit(vault_core::IMPORT_PROGRESS_EVENT, &event)
             )?)
         }
         "preview_import_batch" => {
             let payload = parse_payload::<BatchIdPayload>(payload)?;
             json_value!(worker_bridge::preview_import_batch_impl(
                 payload.batch_id,
-                session_key(&state.session).as_deref()
+                payload.cursor,
+                payload.limit,
+                &state.session
             )?)
         }
         "revert_import_batch" => {
             let payload = parse_payload::<BatchIdPayload>(payload)?;
-            json_value!(worker_bridge::revert_import_batch_impl(
-                payload.batch_id,
-                session_key(&state.session).as_deref()
-            )?)
+            json_value!(worker_bridge::revert_import_batch_impl(payload.batch_id, &state.session)?)
         }
         "restore_import_batch" => {
             let payload = parse_payload::<BatchIdPayload>(payload)?;
-            json_value!(worker_bridge::restore_import_batch_impl(
-                payload.batch_id,
-                session_key(&state.session).as_deref()
-            )?)
+            json_value!(worker_bridge::restore_import_batch_impl(payload.batch_id, &state.session)?)
         }
         "preview_schedule" => {
-            let payload = parse_payload::<PlatformPayload>(payload)?;
-            json_value!(worker_bridge::preview_schedule_impl(payload.platform)?)
+            let payload = parse_payload::<SchedulePreviewPayload>(payload)?;
+            json_value!(worker_bridge::preview_schedule_impl(
+                payload.platform,
+                payload.due_after_hours
+            )?)
         }
         "schedule_status" => {
             let payload = parse_payload::<PlatformPayload>(payload)?;
-            json_value!(worker_bridge::schedule_status_impl(
-                payload.platform,
-                session_key(&state.session).as_deref()
-            )?)
+            json_value!(worker_bridge::schedule_status_impl(payload.platform, &state.session)?)
         }
         "apply_schedule" => {
             let payload = parse_payload::<PlanPayload>(payload)?;
@@ -407,20 +492,21 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
             json_value!(worker_bridge::repair_schedule_impl(payload.plan)?)
         }
         "doctor_report" => {
-            json_value!(worker_bridge::doctor_report_impl(session_key(&state.session).as_deref())?)
+            json_value!(worker_bridge::doctor_report_impl(&state.session)?)
         }
         "repair_health" => {
-            json_value!(worker_bridge::repair_health_impl(session_key(&state.session).as_deref())?)
+            json_value!(worker_bridge::repair_health_impl(&state.session)?)
+        }
+        "preview_clear_derived_intelligence" => {
+            json_value!(worker_bridge::preview_clear_derived_intelligence_impl(&state.session)?)
         }
         "clear_derived_intelligence" => {
-            json_value!(worker_bridge::clear_derived_intelligence_impl(
-                session_key(&state.session).as_deref()
-            )?)
+            json_value!(worker_bridge::clear_derived_intelligence_impl(&state.session)?)
         }
         "keyring_status" => json_value!(worker_bridge::keyring_status_impl()),
-        "security_status" => json_value!(worker_bridge::security_status_impl(
-            session_key(&state.session).as_deref()
-        )?),
+        "unlock_archive_from_keychain" => {
+            json_value!(worker_bridge::unlock_archive_from_keychain_impl(&state.session)?)
+        }
         "keyring_get_database_key" => json_value!(worker_bridge::keyring_get_database_key_impl()?),
         "keyring_store_database_key" => {
             let payload = parse_payload::<ValuePayload>(payload)?;
@@ -433,18 +519,18 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
             let payload = parse_payload::<AiProviderSecretPayload>(payload)?;
             json_value!(worker_bridge::store_ai_provider_api_key_impl(
                 payload.input,
-                session_key(&state.session).as_deref()
+                &state.session
             )?)
         }
         "clear_ai_provider_api_key" => {
             let payload = parse_payload::<ProviderIdPayload>(payload)?;
             json_value!(worker_bridge::clear_ai_provider_api_key_impl(
                 payload.provider_id,
-                session_key(&state.session).as_deref()
+                &state.session
             )?)
         }
         "test_ai_provider_connection" => {
-            // Same panic mechanism as `run_backup_now` before f580761:
+            // Same panic mechanism `run_backup_now` once had:
             // the worker builds a fresh `tokio::runtime::Runtime` via
             // `Runtime::new()` and calls `block_on(...)` on the provider
             // probe. Dropping that runtime inside the dev-IPC bridge's
@@ -452,392 +538,400 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
             // context where blocking is not allowed", crashes the bridge
             // thread, and clients see `socket hang up`. Production Tauri
             // commands sidestep this via `run_blocking_command`; the
-            // dev bridge must mirror it. Claude review findings #1–4
-            // (the four AI arms below all share this root cause).
+            // dev bridge must mirror it. The four AI arms below all
+            // share this root cause.
             let payload =
                 parse_payload::<WrappedRequest<AiProviderConnectionTestRequest>>(payload)?;
-            let key = session_key(&state.session);
+            let key = session_key(&state.session)?;
             json_value!(test_ai_provider_connection_off_thread(payload.request, key).await?)
         }
-        "load_ai_queue_status" => json_value!(worker_bridge::load_ai_queue_status_impl(
-            session_key(&state.session).as_deref()
-        )?),
+        "list_ai_provider_models" => {
+            // Blocks on the worker's own runtime, like the connection test above.
+            let payload =
+                parse_payload::<WrappedRequest<vault_core::AiProviderModelsRequest>>(payload)?;
+            json_value!(
+                tokio::task::spawn_blocking(move || {
+                    worker_bridge::list_ai_provider_models_impl(payload.request)
+                })
+                .await
+                .unwrap_or_else(|error| join_failure("list_ai_provider_models", error))?
+            )
+        }
+        "list_ai_jobs" => {
+            let payload = parse_payload::<WrappedRequest<vault_core::ListAiJobsRequest>>(payload)?;
+            json_value!(worker_bridge::list_ai_jobs_impl(payload.request, &state.session)?)
+        }
+        "list_intelligence_jobs" => {
+            let payload =
+                parse_payload::<WrappedRequest<vault_core::ListIntelligenceJobsRequest>>(payload)?;
+            json_value!(worker_bridge::list_intelligence_jobs_impl(
+                payload.request,
+                &state.session
+            )?)
+        }
+        "load_ai_queue_status" => {
+            json_value!(worker_bridge::load_ai_queue_status_impl(&state.session)?)
+        }
         "run_ai_queue_jobs" => {
             // Drains queued AI jobs synchronously and calls block_on
             // inside each `complete_claimed_*_job`. Same panic mechanism
             // as the arms above; hop off the async thread.
             let payload = parse_payload::<MaxJobsPayload>(payload)?;
-            let key = session_key(&state.session);
-            json_value!(run_ai_queue_jobs_off_thread(payload.max_jobs, key).await?)
+            json_value!(
+                run_ai_queue_jobs_off_thread(payload.max_jobs, state.session.clone()).await?
+            )
         }
         "replay_ai_job" => {
             let payload = parse_payload::<JobIdPayload>(payload)?;
-            json_value!(worker_bridge::replay_ai_job_impl(
-                payload.job_id,
-                session_key(&state.session).as_deref()
-            )?)
+            json_value!(worker_bridge::replay_ai_job_impl(payload.job_id, &state.session)?)
+        }
+        "pause_ai_job" => {
+            let payload = parse_payload::<JobIdPayload>(payload)?;
+            json_value!(worker_bridge::pause_ai_job_impl(payload.job_id, &state.session)?)
         }
         "cancel_ai_job" => {
             let payload = parse_payload::<JobIdPayload>(payload)?;
-            json_value!(worker_bridge::cancel_ai_job_impl(
-                payload.job_id,
-                session_key(&state.session).as_deref()
-            )?)
-        }
-        "load_ai_assistant_job" => {
-            let payload = parse_payload::<JobIdPayload>(payload)?;
-            json_value!(worker_bridge::load_ai_assistant_job_impl(
-                payload.job_id,
-                session_key(&state.session).as_deref()
-            )?)
+            json_value!(worker_bridge::cancel_ai_job_impl(payload.job_id, &state.session)?)
         }
         "build_ai_index" => {
             let payload = parse_payload::<WrappedRequest<AiIndexRequest>>(payload)?;
-            json_value!(worker_bridge::build_ai_index_impl(
-                payload.request,
-                session_key(&state.session).as_deref()
-            )?)
+            json_value!(worker_bridge::build_ai_index_impl(payload.request, &state.session)?)
+        }
+        "estimate_reembed" => {
+            let payload = parse_payload::<ReembedScopePayload>(payload)?;
+            json_value!(worker_bridge::estimate_reembed_impl(payload.scope, &state.session)?)
         }
         "reset_ai_index_build" => {
             // Clears stuck index jobs then enqueues a clean build via `build_ai_index_now` (which only
             // SPAWNS the drain — no `block_on` on this thread — so it is safe inline like `build_ai_index`).
             let payload = parse_payload::<WrappedRequest<AiIndexRequest>>(payload)?;
-            json_value!(worker_bridge::reset_ai_index_build_impl(
-                payload.request,
-                session_key(&state.session).as_deref()
-            )?)
+            json_value!(worker_bridge::reset_ai_index_build_impl(payload.request, &state.session)?)
         }
         "search_ai_history" => {
             // `run_semantic_search` calls `block_on` against the embedding
             // provider; same panic mechanism as the AI arms above.
             let payload = parse_payload::<WrappedRequest<AiSearchRequest>>(payload)?;
-            let key = session_key(&state.session);
-            json_value!(search_ai_history_off_thread(payload.request, key).await?)
-        }
-        "ask_ai_assistant" => {
-            // When `job_queue_paused=false`, `ask_ai_assistant` runs the
-            // assistant job synchronously and reaches `block_on` via
-            // `complete_claimed_assistant_job`. The paused path is safe
-            // (it only stages the job), but we wrap unconditionally so
-            // the panic cannot fire on a config flip.
-            let payload = parse_payload::<WrappedRequest<AiAssistantRequest>>(payload)?;
-            let key = session_key(&state.session);
-            json_value!(ask_ai_assistant_off_thread(payload.request, key).await?)
+            json_value!(search_ai_history_off_thread(payload.request, state.session.clone()).await?)
         }
         "ai_chat_send" => {
             // `ai_chat_send` resolves config + provider SYNCHRONOUSLY on the calling
             // thread (blocking keyring/file IO), then spawns a background thread that
             // creates its own scoped `Runtime::new()` and drives the stream there. That
             // blocking config IO is why this arm must hop off the bridge's async thread.
-            // The dev HTTP bridge does NOT deliver Tauri events, so the emit sink is a
-            // no-op here (documented); streaming chunks only flow under real Tauri. The
-            // returned `{ runId }` is still verifiable.
+            // The chunks go to the browsers on `/events`.
             let payload = parse_payload::<WrappedRequest<AiChatSendRequest>>(payload)?;
-            let key = session_key(&state.session);
-            json_value!(ai_chat_send_off_thread(payload.request, key).await?)
+            json_value!(
+                ai_chat_send_off_thread(
+                    payload.request,
+                    state.session.clone(),
+                    state.events.clone()
+                )
+                .await?
+            )
+        }
+        "ai_chat_context" => {
+            let payload =
+                parse_payload::<WrappedRequest<vault_core::AiChatContextRequest>>(payload)?;
+            let session = state.session.clone();
+            json_value!(
+                tokio::task::spawn_blocking(move || {
+                    worker_bridge::ai_chat_context_impl(&session, payload.request)
+                })
+                .await
+                .unwrap_or_else(|error| join_failure("ai_chat_context", error))?
+            )
         }
         "ai_chat_cancel" => {
             let payload = parse_payload::<RunIdStringPayload>(payload)?;
             json_value!(worker_bridge::ai_chat_cancel_impl(
                 payload.run_id,
-                session_key(&state.session).as_deref()
+                session_key(&state.session)?.as_deref()
             )?)
         }
-        "download_ai_embedding_model" => {
-            // Spawns a background download thread off the worker; the dev HTTP bridge does NOT
-            // deliver Tauri events, so the progress emit sink is a documented no-op here (progress
-            // only flows under real Tauri). The `Ok(())` ack is still verifiable.
-            json_value!(download_ai_embedding_model_off_thread().await?)
-        }
         "download_static_embedding_model" => {
-            // Same posture as `download_ai_embedding_model`: spawns a background download thread off the
-            // worker; the dev HTTP bridge does NOT deliver Tauri events so the progress sink is a no-op.
-            json_value!(download_static_embedding_model_off_thread().await?)
+            // Spawns a background download thread off the worker; progress goes to the browsers
+            // on `/events`.
+            json_value!(download_static_embedding_model_off_thread(state.events.clone()).await?)
         }
         "cancel_ai_embedding_model_download" => {
             json_value!(worker_bridge::cancel_model_download_impl()?)
         }
         "save_ai_conversation" => {
             let payload = parse_payload::<WrappedRequest<SaveAgentConversationRequest>>(payload)?;
-            json_value!(worker_bridge::save_ai_conversation_impl(payload.request)?)
+            json_value!(worker_bridge::save_ai_conversation_impl(&state.session, payload.request)?)
         }
         "list_ai_conversations" => {
             let payload = parse_payload::<WrappedRequest<ListAgentConversationsRequest>>(payload)?;
-            json_value!(worker_bridge::list_ai_conversations_impl(payload.request)?)
+            json_value!(worker_bridge::list_ai_conversations_impl(&state.session, payload.request)?)
+        }
+        "list_ai_messages" => {
+            let payload =
+                parse_payload::<WrappedRequest<vault_core::ListAgentMessagesRequest>>(payload)?;
+            json_value!(worker_bridge::list_ai_messages_impl(&state.session, payload.request)?)
         }
         "load_ai_conversation" => {
             let payload = parse_payload::<ConversationIdPayload>(payload)?;
-            json_value!(worker_bridge::load_ai_conversation_impl(payload.conversation_id)?)
+            json_value!(worker_bridge::load_ai_conversation_impl(
+                &state.session,
+                payload.conversation_id
+            )?)
         }
         "delete_ai_conversation" => {
             let payload = parse_payload::<ConversationIdPayload>(payload)?;
-            json_value!(worker_bridge::delete_ai_conversation_impl(payload.conversation_id)?)
+            json_value!(worker_bridge::delete_ai_conversation_impl(
+                &state.session,
+                payload.conversation_id
+            )?)
         }
         "rename_ai_conversation" => {
             let payload = parse_payload::<WrappedRequest<RenameAgentConversationRequest>>(payload)?;
-            json_value!(worker_bridge::rename_ai_conversation_impl(payload.request)?)
+            json_value!(worker_bridge::rename_ai_conversation_impl(
+                &state.session,
+                payload.request
+            )?)
+        }
+        "export_ai_conversation" => {
+            let payload = parse_payload::<
+                WrappedRequest<vault_core::ExportAgentConversationRequest>,
+            >(payload)?;
+            // The save dialog blocks, so it waits off the bridge's async thread.
+            let app = require_app_handle(state).ok();
+            let session = state.session.clone();
+            json_value!(
+                tokio::task::spawn_blocking(move || {
+                    worker_bridge::export_ai_conversation_impl(
+                        app.as_ref(),
+                        &session,
+                        payload.request,
+                    )
+                })
+                .await
+                .unwrap_or_else(|error| join_failure("export_ai_conversation", error))?
+            )
         }
         "get_content_fetch_settings" => {
-            json_value!(worker_bridge::content_fetch_settings_impl(
-                session_key(&state.session).as_deref()
-            )?)
+            json_value!(worker_bridge::content_fetch_settings_impl(&state.session)?)
         }
         "set_content_fetch_settings" => {
             let payload = parse_payload::<ContentFetchSettingsPayload>(payload)?;
             json_value!(worker_bridge::set_content_fetch_settings_impl(
                 payload.settings,
-                session_key(&state.session).as_deref()
+                &state.session
             )?)
         }
         "list_visit_enrichment" => {
             let payload = parse_payload::<HistoryIdPayload>(payload)?;
             json_value!(worker_bridge::list_visit_enrichment_impl(
                 payload.history_id,
-                session_key(&state.session).as_deref()
+                &state.session
             )?)
         }
         "content_fetch_now" => {
             let payload = parse_payload::<ContentFetchNowPayload>(payload)?;
-            json_value!(worker_bridge::content_fetch_now_impl(
-                payload.request,
-                session_key(&state.session).as_deref()
-            )?)
+            json_value!(worker_bridge::content_fetch_now_impl(payload.request, &state.session)?)
         }
         "enqueue_content_fetch_working_set" => {
             let payload = parse_payload::<ContentFetchWorkingSetPayload>(payload)?;
             json_value!(worker_bridge::enqueue_content_fetch_working_set_impl(
                 payload.limit,
-                session_key(&state.session).as_deref()
+                &state.session
             )?)
         }
         "run_core_intelligence_now" => {
             let payload = parse_payload::<WrappedRequest<CoreIntelligenceRebuildRequest>>(payload)?;
             json_value!(worker_bridge::run_core_intelligence_now_impl(
                 payload.request,
-                session_key(&state.session).as_deref()
+                &state.session
+            )?)
+        }
+        "set_site_category" => {
+            let payload = parse_payload::<SiteCategoryPayload>(payload)?;
+            json_value!(worker_bridge::set_site_category_impl(
+                &payload.site,
+                payload.category.as_deref(),
+                &state.session
             )?)
         }
         "queue_core_intelligence_rebuild" => {
             let payload = parse_payload::<WrappedRequest<CoreIntelligenceRebuildRequest>>(payload)?;
             json_value!(worker_bridge::queue_core_intelligence_rebuild_impl(
                 payload.request,
-                session_key(&state.session).as_deref()
+                &state.session
             )?)
+        }
+        "get_insights_time_zone" => {
+            json_value!(worker_bridge::get_insights_time_zone_impl(&state.session)?)
         }
         "get_sessions" => {
             let payload = parse_payload::<WrappedRequest<PagedDateRangeRequest>>(payload)?;
-            json_value!(worker_bridge::get_sessions_impl(
-                payload.request,
-                session_key(&state.session).as_deref()
-            )?)
+            json_value!(worker_bridge::get_sessions_impl(payload.request, &state.session)?)
         }
         "get_session_detail" => {
-            let payload = parse_payload::<SessionIdPayload>(payload)?;
-            json_value!(worker_bridge::get_session_detail_impl(
-                payload.session_id,
-                session_key(&state.session).as_deref()
-            )?)
+            let payload =
+                parse_payload::<WrappedRequest<vault_core::SessionDetailRequest>>(payload)?;
+            json_value!(worker_bridge::get_session_detail_impl(payload.request, &state.session)?)
         }
         "get_search_trails" => {
             let payload = parse_payload::<WrappedRequest<SearchTrailQueryRequest>>(payload)?;
-            json_value!(worker_bridge::get_search_trails_impl(
-                payload.request,
-                session_key(&state.session).as_deref()
-            )?)
+            json_value!(worker_bridge::get_search_trails_impl(payload.request, &state.session)?)
         }
         "get_trail_detail" => {
-            let payload = parse_payload::<TrailIdPayload>(payload)?;
-            json_value!(worker_bridge::get_trail_detail_impl(
-                payload.trail_id,
-                session_key(&state.session).as_deref()
-            )?)
+            let payload = parse_payload::<WrappedRequest<vault_core::TrailDetailRequest>>(payload)?;
+            json_value!(worker_bridge::get_trail_detail_impl(payload.request, &state.session)?)
         }
         "get_navigation_path" => {
             let payload = parse_payload::<VisitIdPayload>(payload)?;
-            json_value!(worker_bridge::get_navigation_path_impl(
-                payload.visit_id,
-                session_key(&state.session).as_deref()
-            )?)
+            json_value!(worker_bridge::get_navigation_path_impl(payload.visit_id, &state.session)?)
         }
         "get_hub_pages" => {
             let payload = parse_payload::<WrappedRequest<TopSitesRequest>>(payload)?;
-            json_value!(worker_bridge::get_hub_pages_impl(
-                payload.request,
-                session_key(&state.session).as_deref()
-            )?)
+            json_value!(worker_bridge::get_hub_pages_impl(payload.request, &state.session)?)
         }
         "get_search_engine_ranking" => {
             let payload = parse_payload::<WrappedRequest<ScopedDateRangeRequest>>(payload)?;
             json_value!(worker_bridge::get_search_engine_ranking_impl(
                 payload.request,
-                session_key(&state.session).as_deref()
+                &state.session
             )?)
         }
         "list_search_engine_rules" => {
-            json_value!(worker_bridge::list_search_engine_rules_impl(
-                session_key(&state.session).as_deref()
-            )?)
+            json_value!(worker_bridge::list_search_engine_rules_impl(&state.session)?)
         }
         "upsert_search_engine_rule" => {
             let payload = parse_payload::<InputPayload<SearchEngineRuleInput>>(payload)?;
             json_value!(worker_bridge::upsert_search_engine_rule_impl(
                 payload.input,
-                session_key(&state.session).as_deref()
+                &state.session
             )?)
         }
         "delete_search_engine_rule" => {
             let payload = parse_payload::<RuleIdPayload>(payload)?;
             json_value!(worker_bridge::delete_search_engine_rule_impl(
                 payload.rule_id,
-                session_key(&state.session).as_deref()
+                &state.session
             )?)
         }
         "get_top_search_concepts" => {
             let payload = parse_payload::<WrappedRequest<TopSearchConceptsRequest>>(payload)?;
             json_value!(worker_bridge::get_top_search_concepts_impl(
                 payload.request,
-                session_key(&state.session).as_deref()
+                &state.session
             )?)
+        }
+        "get_frequent_searches" => {
+            let payload = parse_payload::<WrappedRequest<FrequentSearchesRequest>>(payload)?;
+            json_value!(worker_bridge::get_frequent_searches_impl(payload.request, &state.session)?)
         }
         "get_search_queries" => {
             let payload = parse_payload::<WrappedRequest<SearchQueryListRequest>>(payload)?;
-            json_value!(worker_bridge::get_search_queries_impl(
-                payload.request,
-                session_key(&state.session).as_deref()
-            )?)
+            json_value!(worker_bridge::get_search_queries_impl(payload.request, &state.session)?)
+        }
+        "get_search_families" => {
+            let payload =
+                parse_payload::<WrappedRequest<vault_core::SearchFamiliesRequest>>(payload)?;
+            json_value!(worker_bridge::get_search_families_impl(payload.request, &state.session)?)
         }
         "get_query_families" => {
             let payload = parse_payload::<WrappedRequest<PagedDateRangeRequest>>(payload)?;
-            json_value!(worker_bridge::get_query_families_impl(
-                payload.request,
-                session_key(&state.session).as_deref()
-            )?)
+            json_value!(worker_bridge::get_query_families_impl(payload.request, &state.session)?)
         }
         "get_query_family_detail" => {
             let payload = parse_payload::<WrappedRequest<QueryFamilyDetailRequest>>(payload)?;
             json_value!(worker_bridge::get_query_family_detail_impl(
                 payload.request,
-                session_key(&state.session).as_deref()
+                &state.session
             )?)
+        }
+        "get_sites_in_category" => {
+            let payload =
+                parse_payload::<WrappedRequest<vault_core::SitesInCategoryRequest>>(payload)?;
+            json_value!(worker_bridge::get_sites_in_category_impl(payload.request, &state.session)?)
         }
         "get_top_sites" => {
             let payload = parse_payload::<WrappedRequest<TopSitesRequest>>(payload)?;
-            json_value!(worker_bridge::get_top_sites_impl(
-                payload.request,
-                session_key(&state.session).as_deref()
-            )?)
+            json_value!(worker_bridge::get_top_sites_impl(payload.request, &state.session)?)
         }
         "get_domain_trend" => {
             let payload = parse_payload::<WrappedRequest<DomainTrendRequest>>(payload)?;
-            json_value!(worker_bridge::get_domain_trend_impl(
-                payload.request,
-                session_key(&state.session).as_deref()
-            )?)
+            json_value!(worker_bridge::get_domain_trend_impl(payload.request, &state.session)?)
         }
         "get_refind_pages" => {
             let payload = parse_payload::<WrappedRequest<RefindPagesRequest>>(payload)?;
-            json_value!(worker_bridge::get_refind_pages_impl(
-                payload.request,
-                session_key(&state.session).as_deref()
-            )?)
+            json_value!(worker_bridge::get_refind_pages_impl(payload.request, &state.session)?)
         }
         "get_refind_page_detail" => {
             let payload = parse_payload::<WrappedRequest<RefindPageDetailRequest>>(payload)?;
             json_value!(worker_bridge::get_refind_page_detail_impl(
                 payload.request,
-                session_key(&state.session).as_deref()
+                &state.session
             )?)
         }
         "explain_refind" => {
             let payload = parse_payload::<WrappedRequest<ExplainRefindRequest>>(payload)?;
-            json_value!(worker_bridge::explain_refind_impl(
-                payload.request,
-                session_key(&state.session).as_deref()
-            )?)
+            json_value!(worker_bridge::explain_refind_impl(payload.request, &state.session)?)
         }
         "explain_entity" => {
             let payload = parse_payload::<WrappedRequest<EntityExplanationRequest>>(payload)?;
-            json_value!(worker_bridge::explain_entity_impl(
-                payload.request,
-                session_key(&state.session).as_deref()
-            )?)
+            json_value!(worker_bridge::explain_entity_impl(payload.request, &state.session)?)
         }
         "get_activity_mix" => {
             let payload = parse_payload::<WrappedRequest<ScopedDateRangeRequest>>(payload)?;
-            json_value!(worker_bridge::get_activity_mix_impl(
-                payload.request,
-                session_key(&state.session).as_deref()
-            )?)
+            json_value!(worker_bridge::get_activity_mix_impl(payload.request, &state.session)?)
         }
         "get_activity_mix_trend" => {
             let payload = parse_payload::<WrappedRequest<GranularityDateRangeRequest>>(payload)?;
             json_value!(worker_bridge::get_activity_mix_trend_impl(
                 payload.request,
-                session_key(&state.session).as_deref()
+                &state.session
             )?)
         }
         "get_digest_summary" => {
             let payload = parse_payload::<WrappedRequest<ScopedDateRangeRequest>>(payload)?;
-            json_value!(worker_bridge::get_digest_summary_impl(
-                payload.request,
-                session_key(&state.session).as_deref()
-            )?)
+            json_value!(worker_bridge::get_digest_summary_impl(payload.request, &state.session)?)
         }
         "get_intelligence_primary_overview" => {
             let payload = parse_payload::<WrappedRequest<ScopedDateRangeRequest>>(payload)?;
             json_value!(worker_bridge::get_intelligence_primary_overview_impl(
                 payload.request,
-                session_key(&state.session).as_deref()
+                &state.session
             )?)
         }
         "get_intelligence_secondary_overview" => {
             let payload = parse_payload::<WrappedRequest<ScopedDateRangeRequest>>(payload)?;
             json_value!(worker_bridge::get_intelligence_secondary_overview_impl(
                 payload.request,
-                session_key(&state.session).as_deref()
+                &state.session
             )?)
         }
         "get_stable_sources" => {
-            let payload = parse_payload::<WrappedRequest<ScopedDateRangeRequest>>(payload)?;
-            json_value!(worker_bridge::get_stable_sources_impl(
-                payload.request,
-                session_key(&state.session).as_deref()
-            )?)
+            let payload = parse_payload::<WrappedRequest<vault_core::ScopedPageRequest>>(payload)?;
+            json_value!(worker_bridge::get_stable_sources_impl(payload.request, &state.session)?)
         }
         "get_search_effectiveness" => {
             let payload = parse_payload::<WrappedRequest<SearchEffectivenessRequest>>(payload)?;
             json_value!(worker_bridge::get_search_effectiveness_impl(
                 payload.request,
-                session_key(&state.session).as_deref()
+                &state.session
             )?)
         }
         "get_friction_signals" => {
-            let payload = parse_payload::<WrappedRequest<ScopedDateRangeRequest>>(payload)?;
-            json_value!(worker_bridge::get_friction_signals_impl(
-                payload.request,
-                session_key(&state.session).as_deref()
-            )?)
+            let payload = parse_payload::<WrappedRequest<vault_core::ScopedPageRequest>>(payload)?;
+            json_value!(worker_bridge::get_friction_signals_impl(payload.request, &state.session)?)
         }
         "get_reopened_investigations" => {
-            let payload = parse_payload::<WrappedRequest<ScopedDateRangeRequest>>(payload)?;
+            let payload = parse_payload::<WrappedRequest<vault_core::ScopedPageRequest>>(payload)?;
             json_value!(worker_bridge::get_reopened_investigations_impl(
                 payload.request,
-                session_key(&state.session).as_deref()
+                &state.session
             )?)
         }
         "get_domain_deep_dive" => {
             let payload = parse_payload::<WrappedRequest<DomainDeepDiveRequest>>(payload)?;
-            json_value!(worker_bridge::get_domain_deep_dive_impl(
-                payload.request,
-                session_key(&state.session).as_deref()
-            )?)
+            json_value!(worker_bridge::get_domain_deep_dive_impl(payload.request, &state.session)?)
         }
         "get_day_insights" => {
             let payload = parse_payload::<WrappedRequest<DayInsightsRequest>>(payload)?;
-            json_value!(worker_bridge::get_day_insights_impl(
-                payload.request,
-                session_key(&state.session).as_deref()
-            )?)
+            json_value!(worker_bridge::get_day_insights_impl(payload.request, &state.session)?)
         }
         // TODO: M13 - Revisit this dev-only intelligence mirror only if the
         // next transport parity audit proves a shared manifest or generation
@@ -845,133 +939,107 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
         "get_browsing_rhythm" => {
             let payload =
                 parse_payload::<WrappedRequest<CategoryFilteredDateRangeRequest>>(payload)?;
-            json_value!(worker_bridge::get_browsing_rhythm_impl(
-                payload.request,
-                session_key(&state.session).as_deref()
-            )?)
+            json_value!(worker_bridge::get_browsing_rhythm_impl(payload.request, &state.session)?)
         }
         "get_discovery_trend" => {
             let payload = parse_payload::<WrappedRequest<GranularityDateRangeRequest>>(payload)?;
-            json_value!(worker_bridge::get_discovery_trend_impl(
-                payload.request,
-                session_key(&state.session).as_deref()
-            )?)
+            json_value!(worker_bridge::get_discovery_trend_impl(payload.request, &state.session)?)
         }
         "get_intelligence_embed_cards" => {
             let payload = parse_payload::<WrappedRequest<IntelligenceEmbedCardsRequest>>(payload)?;
             json_value!(worker_bridge::get_intelligence_embed_cards_impl(
                 payload.request,
-                session_key(&state.session).as_deref()
+                &state.session
             )?)
         }
         "get_intelligence_widget_snapshot" => {
             let payload = parse_payload::<WrappedRequest<IntelligenceEmbedCardsRequest>>(payload)?;
             json_value!(worker_bridge::get_intelligence_widget_snapshot_impl(
                 payload.request,
-                session_key(&state.session).as_deref()
+                &state.session
             )?)
         }
         "get_intelligence_public_snapshot" => {
             let payload = parse_payload::<WrappedRequest<ScopedDateRangeRequest>>(payload)?;
             json_value!(worker_bridge::get_intelligence_public_snapshot_impl(
                 payload.request,
-                session_key(&state.session).as_deref()
+                &state.session
             )?)
         }
         "preview_intelligence_local_host" => {
             let payload = parse_payload::<WrappedRequest<IntelligenceLocalHostRequest>>(payload)?;
             json_value!(worker_bridge::preview_intelligence_local_host_impl(
                 payload.request,
-                session_key(&state.session).as_deref()
+                &state.session
             )?)
         }
         "build_intelligence_local_host" => {
             let payload = parse_payload::<WrappedRequest<IntelligenceLocalHostRequest>>(payload)?;
             json_value!(worker_bridge::build_intelligence_local_host_impl(
                 payload.request,
-                session_key(&state.session).as_deref()
+                &state.session
             )?)
         }
         "get_on_this_day" => {
             let payload = parse_payload::<ProfileIdPayload>(payload)?;
-            json_value!(worker_bridge::get_on_this_day_impl(
-                payload.profile_id,
-                session_key(&state.session).as_deref()
-            )?)
+            json_value!(worker_bridge::get_on_this_day_impl(payload.profile_id, &state.session)?)
         }
         "get_breadth_index" => {
             let payload = parse_payload::<WrappedRequest<ScopedDateRangeRequest>>(payload)?;
-            json_value!(worker_bridge::get_breadth_index_impl(
-                payload.request,
-                session_key(&state.session).as_deref()
-            )?)
+            json_value!(worker_bridge::get_breadth_index_impl(payload.request, &state.session)?)
         }
         "get_habit_patterns" => {
             let payload = parse_payload::<WrappedRequest<ScopedDateRangeRequest>>(payload)?;
-            json_value!(worker_bridge::get_habit_patterns_impl(
-                payload.request,
-                session_key(&state.session).as_deref()
-            )?)
+            json_value!(worker_bridge::get_habit_patterns_impl(payload.request, &state.session)?)
         }
         "get_interrupted_habits" => {
             let payload = parse_payload::<WrappedRequest<ProfileScopedRequest>>(payload)?;
             json_value!(worker_bridge::get_interrupted_habits_impl(
                 payload.request,
-                session_key(&state.session).as_deref()
+                &state.session
             )?)
         }
         "get_path_flows" => {
             let payload = parse_payload::<WrappedRequest<PathFlowRequest>>(payload)?;
-            json_value!(worker_bridge::get_path_flows_impl(
-                payload.request,
-                session_key(&state.session).as_deref()
-            )?)
+            json_value!(worker_bridge::get_path_flows_impl(payload.request, &state.session)?)
         }
         "get_observed_interactions" => {
-            let payload = parse_payload::<WrappedRequest<ScopedDateRangeRequest>>(payload)?;
+            let payload = parse_payload::<WrappedRequest<vault_core::ScopedPageRequest>>(payload)?;
             json_value!(worker_bridge::get_observed_interactions_impl(
                 payload.request,
-                session_key(&state.session).as_deref()
+                &state.session
             )?)
         }
         "get_compare_sets" => {
-            let payload = parse_payload::<WrappedRequest<ScopedDateRangeRequest>>(payload)?;
-            json_value!(worker_bridge::get_compare_sets_impl(
-                payload.request,
-                session_key(&state.session).as_deref()
-            )?)
+            let payload = parse_payload::<WrappedRequest<vault_core::ScopedPageRequest>>(payload)?;
+            json_value!(worker_bridge::get_compare_sets_impl(payload.request, &state.session)?)
         }
         "get_compare_set_detail" => {
             let payload = parse_payload::<WrappedRequest<CompareSetDetailRequest>>(payload)?;
             json_value!(worker_bridge::get_compare_set_detail_impl(
                 payload.request,
-                session_key(&state.session).as_deref()
+                &state.session
             )?)
         }
         "get_multi_browser_diff" => {
             let payload = parse_payload::<WrappedRequest<ScopedDateRangeRequest>>(payload)?;
             json_value!(worker_bridge::get_multi_browser_diff_impl(
                 payload.request,
-                session_key(&state.session).as_deref()
+                &state.session
             )?)
         }
         "load_intelligence_runtime" => {
-            json_value!(worker_bridge::load_intelligence_runtime_impl(
-                session_key(&state.session).as_deref()
-            )?)
+            json_value!(worker_bridge::load_intelligence_runtime_impl(&state.session)?)
         }
         "retry_intelligence_job" => {
             let payload = parse_payload::<JobIdPayload>(payload)?;
-            json_value!(worker_bridge::retry_intelligence_job_impl(
-                payload.job_id,
-                session_key(&state.session).as_deref()
-            )?)
+            json_value!(worker_bridge::retry_intelligence_job_impl(payload.job_id, &state.session)?)
         }
         "cancel_intelligence_job" => {
             let payload = parse_payload::<JobIdPayload>(payload)?;
             json_value!(worker_bridge::cancel_intelligence_job_impl(
                 payload.job_id,
-                session_key(&state.session).as_deref()
+                &state.session
             )?)
         }
         "preview_ai_integrations" => json_value!(worker_bridge::preview_ai_integrations_impl()?),
@@ -991,19 +1059,17 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
             let payload = parse_payload::<PathPayload>(payload)?;
             json_value!(file_manager::open_path_in_file_manager_impl(payload.path)?)
         }
+        "system_clock" => json_value!(vault_platform::system_hour_cycle()),
         "open_external_url" => {
             let payload = parse_payload::<UrlPayload>(payload)?;
             json_value!(file_manager::open_external_url_impl(payload.url)?)
         }
+        "open_visited_page" => {
+            let payload = parse_payload::<UrlPayload>(payload)?;
+            json_value!(file_manager::open_visited_page_impl(payload.url, &state.session)?)
+        }
         "reveal_logs" => {
             json_value!(file_manager::reveal_logs_impl()?)
-        }
-        "export_conversation_file" => {
-            let payload = parse_payload::<ExportConversationFilePayload>(payload)?;
-            json_value!(file_manager::export_conversation_file_impl(
-                payload.target_path,
-                payload.contents,
-            )?)
         }
         "check_for_app_update" => {
             let app = require_app_handle(state)?;
@@ -1017,6 +1083,35 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
         "relaunch_after_update" => {
             let app = require_app_handle(state)?;
             json_value!(updater::relaunch_after_update(app))
+        }
+        "get_desktop_integration" => {
+            let app = require_app_handle(state)?;
+            json_value!(
+                desktop_integration_off_thread("get_desktop_integration", move || {
+                    desktop_integration::desktop_integration(&app)
+                })
+                .await?
+            )
+        }
+        "set_launch_at_login" => {
+            let app = require_app_handle(state)?;
+            let payload = parse_payload::<EnabledPayload>(payload)?;
+            json_value!(
+                desktop_integration_off_thread("set_launch_at_login", move || {
+                    desktop_integration::set_launch_at_login(&app, payload.enabled)
+                })
+                .await?
+            )
+        }
+        "set_menu_bar_icon" => {
+            let app = require_app_handle(state)?;
+            let payload = parse_payload::<EnabledPayload>(payload)?;
+            json_value!(
+                desktop_integration_off_thread("set_menu_bar_icon", move || {
+                    desktop_integration::set_menu_bar_icon(&app, payload.enabled)
+                })
+                .await?
+            )
         }
         other => Err(CommandError::internal(format!(
             "PathKeep dev IPC bridge does not recognize desktop command \"{other}\"."
@@ -1062,19 +1157,37 @@ fn join_failure<T>(command: &str, error: tokio::task::JoinError) -> Result<T, Co
 /// dev IPC bridge must mirror it. Without this hop the dev-IPC HTTP
 /// server thread crashes mid-response and the client sees a
 /// `socket hang up` with no body.
+///
+/// With a live app it takes the same path as the Tauri command, so the menu
+/// bar status follows bridge-started backups too, and its progress reaches the
+/// browsers through the app's events; without one, progress goes to them directly.
 async fn backup_now_off_thread(
+    app: Option<DevIpcAppHandle>,
     due_only: bool,
-    key: Option<String>,
+    session: crate::session::SessionState,
+    events: super::events::Hub,
 ) -> Result<vault_core::BackupReport, CommandError> {
-    tokio::task::spawn_blocking(move || {
-        worker_bridge::run_backup_now_impl(
-            due_only,
-            key.as_deref(),
-            std::mem::drop::<vault_core::BackupProgressEvent>,
-        )
+    tokio::task::spawn_blocking(move || match app {
+        Some(app) => {
+            desktop_integration::run_backup(&app, desktop_integration::BackupSource::App, due_only)
+        }
+        None => worker_bridge::run_backup_now_impl(due_only, &session, move |event| {
+            events.emit(desktop_integration::BACKUP_PROGRESS_EVENT, &event)
+        }),
     })
     .await
     .unwrap_or_else(|error| join_failure("run_backup_now", error))
+}
+
+/// Hops a desktop-integration command onto the blocking pool: it touches
+/// login items and config, and its tray calls wait for the main thread.
+async fn desktop_integration_off_thread(
+    command: &'static str,
+    task: impl FnOnce() -> Result<desktop_integration::DesktopIntegration, CommandError>
+    + Send
+    + 'static,
+) -> Result<desktop_integration::DesktopIntegration, CommandError> {
+    tokio::task::spawn_blocking(task).await.unwrap_or_else(|error| join_failure(command, error))
 }
 
 /// Hops `test_ai_provider_connection_impl` onto the tokio blocking
@@ -1100,13 +1213,11 @@ async fn test_ai_provider_connection_off_thread(
 /// so the bridge thread cannot host it directly.
 async fn run_ai_queue_jobs_off_thread(
     max_jobs: Option<u32>,
-    key: Option<String>,
+    session: crate::session::SessionState,
 ) -> Result<vault_core::AiQueueStatus, CommandError> {
-    tokio::task::spawn_blocking(move || {
-        worker_bridge::run_ai_queue_jobs_impl(max_jobs, key.as_deref())
-    })
-    .await
-    .unwrap_or_else(|error| join_failure("run_ai_queue_jobs", error))
+    tokio::task::spawn_blocking(move || worker_bridge::run_ai_queue_jobs_impl(max_jobs, &session))
+        .await
+        .unwrap_or_else(|error| join_failure("run_ai_queue_jobs", error))
 }
 
 /// Hops `search_ai_history_impl` onto the tokio blocking thread pool.
@@ -1115,72 +1226,41 @@ async fn run_ai_queue_jobs_off_thread(
 /// async context.
 async fn search_ai_history_off_thread(
     request: vault_core::AiSearchRequest,
-    key: Option<String>,
+    session: crate::session::SessionState,
 ) -> Result<vault_core::AiSearchResponse, CommandError> {
-    tokio::task::spawn_blocking(move || {
-        worker_bridge::search_ai_history_impl(request, key.as_deref())
-    })
-    .await
-    .unwrap_or_else(|error| join_failure("search_ai_history", error))
-}
-
-/// Hops `ask_ai_assistant_impl` onto the tokio blocking thread pool.
-/// When `job_queue_paused=false`, the assistant job runs synchronously
-/// and reaches `block_on` via `complete_claimed_assistant_job`. The
-/// paused path is safe (it only stages the job) but we wrap
-/// unconditionally so the panic cannot fire on a config flip.
-async fn ask_ai_assistant_off_thread(
-    request: vault_core::AiAssistantRequest,
-    key: Option<String>,
-) -> Result<vault_core::AiAssistantResponse, CommandError> {
-    tokio::task::spawn_blocking(move || {
-        worker_bridge::ask_ai_assistant_impl(request, key.as_deref())
-    })
-    .await
-    .unwrap_or_else(|error| join_failure("ask_ai_assistant", error))
+    tokio::task::spawn_blocking(move || worker_bridge::search_ai_history_impl(request, &session))
+        .await
+        .unwrap_or_else(|error| join_failure("search_ai_history", error))
 }
 
 /// Hops `ai_chat_send_impl` onto the tokio blocking thread pool. The worker
 /// resolves config + provider synchronously (blocking keyring/file IO) and then
 /// spawns the streaming thread, which creates its own scoped runtime; that
 /// blocking config IO is why this must not run on the bridge's async thread. The
-/// emit sink is dropped because the dev HTTP bridge does not deliver Tauri events.
+/// chunks go to the browsers on `/events`, on the event the window gets them on.
 async fn ai_chat_send_off_thread(
     request: vault_core::AiChatSendRequest,
-    key: Option<String>,
+    session: crate::session::SessionState,
+    events: super::events::Hub,
 ) -> Result<vault_core::AiChatSendAck, CommandError> {
     tokio::task::spawn_blocking(move || {
-        worker_bridge::ai_chat_send_impl(
-            request,
-            key.as_deref(),
-            std::mem::drop::<vault_core::AiChatStreamEvent>,
-        )
+        worker_bridge::ai_chat_send_impl(request, &session, move |event| {
+            events.emit(vault_core::AI_CHAT_STREAM_EVENT, &event)
+        })
     })
     .await
     .unwrap_or_else(|error| join_failure("ai_chat_send", error))
 }
 
-/// Hops `download_ai_embedding_model_impl` onto the tokio blocking thread pool. The worker spawns
-/// the actual download thread; the emit sink is dropped because the dev HTTP bridge does not deliver
-/// Tauri events (progress only flows under real Tauri).
-async fn download_ai_embedding_model_off_thread() -> Result<(), CommandError> {
+/// Hops `download_static_embedding_model_impl` onto the tokio blocking thread pool (F1). The worker
+/// spawns the actual download thread; its progress goes to the browsers on `/events`.
+async fn download_static_embedding_model_off_thread(
+    events: super::events::Hub,
+) -> Result<(), CommandError> {
     tokio::task::spawn_blocking(move || {
-        worker_bridge::download_ai_embedding_model_impl(
-            std::mem::drop::<vault_core::ModelDownloadProgressEvent>,
-        )
-    })
-    .await
-    .unwrap_or_else(|error| join_failure("download_ai_embedding_model", error))
-}
-
-/// Hops `download_static_embedding_model_impl` onto the tokio blocking thread pool (F1). Same posture
-/// as the heavy-tier download above: the worker spawns the actual download thread and the emit sink is
-/// dropped (the dev HTTP bridge does not deliver Tauri events).
-async fn download_static_embedding_model_off_thread() -> Result<(), CommandError> {
-    tokio::task::spawn_blocking(move || {
-        worker_bridge::download_static_embedding_model_impl(
-            std::mem::drop::<vault_core::ModelDownloadProgressEvent>,
-        )
+        worker_bridge::download_static_embedding_model_impl(move |event| {
+            events.emit(vault_core::MODEL_DOWNLOAD_PROGRESS_EVENT, &event)
+        })
     })
     .await
     .unwrap_or_else(|error| join_failure("download_static_embedding_model", error))

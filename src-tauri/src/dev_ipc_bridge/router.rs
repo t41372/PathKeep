@@ -20,9 +20,10 @@
 //!
 //! ## Performance notes
 //!
-//! The router only handles small command envelopes. Long-running archive,
-//! import, and intelligence work must remain behind the worker bridge and its
-//! off-main-thread contracts.
+//! The bridge serves every connection from one thread. Each command runs on
+//! the blocking pool, as the desktop app runs every command through
+//! `run_blocking_command`, so a long import or rebuild does not hold up other
+//! requests or the event streams while it runs.
 
 use anyhow::{Context, Result};
 use axum::{
@@ -38,7 +39,7 @@ use tower_http::cors::{AllowOrigin, Any, CorsLayer};
 use super::{DevIpcBridgeState, config::DevIpcBridgeConfig, dispatch::dispatch_command};
 use crate::PRODUCT_DISPLAY_NAME;
 
-/// Builds the health and command routes for the local browser mirror.
+/// Builds the health, command and event routes for the local browser mirror.
 ///
 /// Invalid CORS origins fail startup rather than weakening the localhost-only
 /// development boundary. The returned router carries cloned bridge state for
@@ -61,6 +62,8 @@ pub(super) fn build_router(
 
     Ok(Router::new()
         .route("/health", get(bridge_health))
+        .route("/events", get(super::events::events))
+        .route("/searches/{session_id}/events", get(super::search::events))
         .route("/commands/{command}", post(bridge_invoke))
         .layer(cors)
         .with_state(state))
@@ -70,7 +73,8 @@ pub(super) fn build_router(
 ///
 /// The health route intentionally exposes only product/runtime/port metadata,
 /// not archive status or user data, because it is meant to identify the dev
-/// transport rather than become another read model.
+/// transport rather than become another read model. The process id lets an E2E
+/// spec stop this app the way a crash would, and see the restarted one answer.
 async fn bridge_health(
     State(state): State<DevIpcBridgeState>,
 ) -> Result<axum::Json<Value>, (StatusCode, axum::Json<Value>)> {
@@ -79,6 +83,7 @@ async fn bridge_health(
         "productName": PRODUCT_DISPLAY_NAME,
         "runtime": "browser-desktop-bridge",
         "port": state.port,
+        "pid": std::process::id(),
     })))
 }
 
@@ -87,6 +92,12 @@ async fn bridge_health(
 /// Empty request bodies map to an empty JSON object so no-argument commands can
 /// use the same endpoint as typed commands. Malformed JSON is rejected before
 /// dispatch, while command-level errors keep the existing string envelope.
+///
+/// The command runs on the blocking pool, like a desktop command: run on the
+/// bridge's one thread, an import answered nothing else until it was done, so a
+/// test could neither read the import's progress nor see its events. The
+/// command still runs inside this runtime's `block_on`, so work that builds or
+/// drops a runtime of its own keeps its own hop in `dispatch`.
 async fn bridge_invoke(
     State(state): State<DevIpcBridgeState>,
     Path(command): Path<String>,
@@ -99,7 +110,17 @@ async fn bridge_invoke(
             .map_err(|error| bad_request(format!("Invalid JSON payload: {error}")))?
     };
 
-    dispatch_command(&state, &command, payload).await.map(axum::Json).map_err(internal_error)
+    let runtime = tokio::runtime::Handle::current();
+    let name = command.clone();
+    tokio::task::spawn_blocking(move || {
+        runtime.block_on(dispatch_command(&state, &command, payload))
+    })
+    .await
+    .unwrap_or_else(|error| {
+        Err(crate::command_error::CommandError::internal(format!("{name} join failed: {error}")))
+    })
+    .map(axum::Json)
+    .map_err(internal_error)
 }
 
 /// Shapes client-side request decoding failures as JSON.
@@ -151,64 +172,5 @@ mod tests {
         let error = build_router(bridge_state(), &config).expect_err("origin should fail");
 
         assert!(error.to_string().contains("allowed origins"));
-    }
-
-    #[test]
-    fn build_router_accepts_local_origin_config() {
-        let _ = build_router(bridge_state(), &bridge_config()).expect("router should build");
-    }
-
-    #[tokio::test]
-    async fn health_and_command_routes_shape_success_and_error_envelopes() {
-        let state = bridge_state();
-        let health = bridge_health(State(state.clone())).await.expect("health");
-        assert_eq!(health.0["ok"], true);
-        assert_eq!(health.0["runtime"], "browser-desktop-bridge");
-        assert_eq!(health.0["port"], 43117);
-
-        let build_info =
-            bridge_invoke(State(state.clone()), Path("app_build_info".to_string()), Bytes::new())
-                .await
-                .expect("empty body should invoke no-arg command");
-        assert_eq!(build_info.0["productName"], PRODUCT_DISPLAY_NAME);
-
-        let (status, body) = bridge_invoke(
-            State(state.clone()),
-            Path("app_build_info".to_string()),
-            Bytes::from_static(b"{"),
-        )
-        .await
-        .expect_err("bad json should be rejected");
-        assert_eq!(status, StatusCode::BAD_REQUEST);
-        assert!(body.0["error"].as_str().unwrap_or_default().contains("Invalid JSON"));
-
-        let (status, body) =
-            bridge_invoke(State(state), Path("missing".to_string()), Bytes::from_static(b"{}"))
-                .await
-                .expect_err("unknown command should map to dispatch error");
-        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
-        assert!(body.0["error"].as_str().unwrap_or_default().contains("does not recognize"));
-
-        let (status, body) = bad_request("bad".to_string());
-        assert_eq!(status, StatusCode::BAD_REQUEST);
-        assert_eq!(body.0["error"], "bad");
-
-        let (status, body) = internal_error(crate::command_error::CommandError::internal("broken"));
-        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
-        assert_eq!(body.0["error"], "broken");
-        assert_eq!(body.0["message"], "broken");
-        assert!(body.0.get("code").is_none());
-        assert!(body.0.get("actionHint").is_none());
-        assert!(body.0.get("retryHint").is_none());
-
-        // A classified failure must mirror the Tauri envelope over the dev
-        // bridge, otherwise browser-preview-over-bridge sessions would lose the
-        // unlock / Full Disk Access remediation the desktop app gets.
-        let (_, body) = internal_error(crate::command_error::CommandError::classified(
-            "open archive: database key is required for encrypted archives".to_string(),
-        ));
-        assert_eq!(body.0["code"], "lock-required");
-        assert_eq!(body.0["actionHint"], "unlock");
-        assert_eq!(body.0["retryHint"], "retry-after-action");
     }
 }

@@ -1,0 +1,558 @@
+//! Responsibilities: define derived facts, rollups, enrichment, queues and AI metadata.
+//! Not responsible for: computation, vector payloads, canonical history or keys.
+//! Failure modes: late runtime tables/columns/indexes missing, unique keys lost,
+//! queue triggers orphaned, or clear/rebuild blocked by invented cross-plane FKs.
+//! Tests: newer_versions_are_refused; the maintenance round trips seed every table.
+//! Drops: intelligence_schema_migrations (version/name/applied_at), replaced by
+//! __pk_migrations. The already-retired insight_bursts, insight_query_groups,
+//! insight_query_group_members, insight_topics, insight_threads,
+//! insight_thread_members, insight_reference_pages, insight_source_effectiveness,
+//! insight_cards, insight_snapshot_payloads, insight_runs and visit_insight_features
+//! have no live storage consumers; the existing runtime already drops them.
+//! No live data columns are dropped. Visit/profile/run IDs referencing the archive
+//! stay logical references; independently rebuilt derived tables retain their
+//! existing lack of foreign keys. AI vectors remain outside this database.
+
+use vault_store::Migration;
+
+pub(super) fn migration() -> Migration {
+    super::v1(STATEMENTS)
+}
+
+const STATEMENTS: &[&str] = &[
+    r"CREATE TABLE visit_derived_facts_rows (
+  generation INTEGER NOT NULL DEFAULT 0,
+  visit_id INTEGER NOT NULL,
+  profile_id TEXT NOT NULL,
+  registrable_domain TEXT NOT NULL,
+  canonical_url TEXT NOT NULL,
+  domain_category TEXT NOT NULL DEFAULT 'unknown',
+  page_category TEXT NOT NULL DEFAULT 'unknown',
+  search_engine TEXT,
+  search_query TEXT,
+  is_new_domain INTEGER NOT NULL DEFAULT 0,
+  is_search_event INTEGER NOT NULL DEFAULT 0,
+  evidence_tier TEXT NOT NULL DEFAULT 'tier-c',
+  taxonomy_source TEXT NOT NULL DEFAULT 'unknown',
+  taxonomy_pack TEXT,
+  taxonomy_version TEXT,
+  computed_at TEXT NOT NULL,
+  PRIMARY KEY(generation, visit_id)
+)",
+    r"CREATE TABLE domain_daily_rollups_rows (
+  generation INTEGER NOT NULL DEFAULT 0,
+  date_key TEXT NOT NULL,
+  profile_id TEXT NOT NULL,
+  registrable_domain TEXT NOT NULL,
+  domain_category TEXT NOT NULL,
+  visit_count INTEGER NOT NULL,
+  search_count INTEGER NOT NULL,
+  new_domain_visits INTEGER NOT NULL,
+  unique_urls INTEGER NOT NULL,
+  last_visit_ms INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY(generation, date_key, profile_id, registrable_domain)
+)",
+    r"CREATE TABLE category_daily_rollups_rows (
+  generation INTEGER NOT NULL DEFAULT 0,
+  date_key TEXT NOT NULL,
+  profile_id TEXT NOT NULL,
+  domain_category TEXT NOT NULL,
+  visit_count INTEGER NOT NULL,
+  unique_domains INTEGER NOT NULL,
+  PRIMARY KEY(generation, date_key, profile_id, domain_category)
+)",
+    r"CREATE TABLE engine_daily_rollups_rows (
+  generation INTEGER NOT NULL DEFAULT 0,
+  date_key TEXT NOT NULL,
+  profile_id TEXT NOT NULL,
+  search_engine TEXT NOT NULL,
+  search_count INTEGER NOT NULL,
+  PRIMARY KEY(generation, date_key, profile_id, search_engine)
+)",
+    r"CREATE TABLE daily_summary_rollups_rows (
+  generation INTEGER NOT NULL DEFAULT 0,
+  date_key TEXT NOT NULL,
+  profile_id TEXT NOT NULL,
+  total_visits INTEGER NOT NULL,
+  total_searches INTEGER NOT NULL,
+  new_domains INTEGER NOT NULL,
+  unique_domains INTEGER NOT NULL,
+  hhi_score REAL,
+  discovery_rate REAL,
+  hours TEXT NOT NULL DEFAULT '',
+  PRIMARY KEY(generation, date_key, profile_id)
+)",
+    r"CREATE TABLE sessions_rows (
+  generation INTEGER NOT NULL DEFAULT 0,
+  session_id TEXT NOT NULL,
+  profile_id TEXT NOT NULL,
+  first_visit_ms INTEGER NOT NULL,
+  last_visit_ms INTEGER NOT NULL,
+  visit_count INTEGER NOT NULL,
+  search_count INTEGER NOT NULL,
+  domain_count INTEGER NOT NULL,
+  is_deep_dive INTEGER NOT NULL DEFAULT 0,
+  auto_title TEXT,
+  computed_at TEXT NOT NULL,
+  PRIMARY KEY(generation, session_id)
+)",
+    r"CREATE TABLE search_trails_rows (
+  generation INTEGER NOT NULL DEFAULT 0,
+  trail_id TEXT NOT NULL,
+  profile_id TEXT NOT NULL,
+  session_id TEXT,
+  initial_query TEXT NOT NULL,
+  search_engine TEXT NOT NULL,
+  reformulation_count INTEGER NOT NULL DEFAULT 0,
+  visit_count INTEGER NOT NULL,
+  landing_url TEXT,
+  landing_domain TEXT,
+  first_visit_ms INTEGER NOT NULL,
+  last_visit_ms INTEGER NOT NULL,
+  max_depth INTEGER NOT NULL DEFAULT 0,
+  queries_json TEXT NOT NULL,
+  computed_at TEXT NOT NULL,
+  PRIMARY KEY(generation, trail_id)
+)",
+    r"CREATE TABLE search_trail_members_rows (
+  generation INTEGER NOT NULL DEFAULT 0,
+  trail_id TEXT NOT NULL,
+  profile_id TEXT NOT NULL,
+  visit_id INTEGER NOT NULL,
+  ordinal INTEGER NOT NULL,
+  role TEXT NOT NULL,
+  PRIMARY KEY(generation, trail_id, visit_id)
+)",
+    r"CREATE TABLE search_events_rows (
+  generation INTEGER NOT NULL DEFAULT 0,
+  visit_id INTEGER NOT NULL,
+  profile_id TEXT NOT NULL,
+  search_engine TEXT NOT NULL,
+  raw_query TEXT NOT NULL,
+  normalized_query TEXT NOT NULL,
+  query_kind TEXT NOT NULL DEFAULT 'keyword',
+  trail_id TEXT,
+  computed_at TEXT NOT NULL,
+  visit_time_ms INTEGER,
+  PRIMARY KEY(generation, visit_id)
+)",
+    r"CREATE TABLE search_event_terms_rows (
+  generation INTEGER NOT NULL DEFAULT 0,
+  visit_id INTEGER NOT NULL,
+  profile_id TEXT NOT NULL,
+  term TEXT NOT NULL,
+  PRIMARY KEY(generation, visit_id, term)
+)",
+    r"CREATE TABLE query_families_rows (
+  generation INTEGER NOT NULL DEFAULT 0,
+  family_id TEXT NOT NULL,
+  profile_id TEXT NOT NULL,
+  anchor_query TEXT NOT NULL,
+  member_count INTEGER NOT NULL,
+  search_engine TEXT NOT NULL,
+  first_seen_ms INTEGER NOT NULL,
+  last_seen_ms INTEGER NOT NULL,
+  queries_json TEXT NOT NULL,
+  computed_at TEXT NOT NULL,
+  PRIMARY KEY(generation, family_id)
+)",
+    r"CREATE TABLE query_family_queries_rows (
+  generation INTEGER NOT NULL DEFAULT 0,
+  family_id TEXT NOT NULL,
+  profile_id TEXT NOT NULL,
+  normalized_query TEXT NOT NULL,
+  PRIMARY KEY(generation, family_id, normalized_query)
+)",
+    r"CREATE TABLE refind_pages_rows (
+  generation INTEGER NOT NULL DEFAULT 0,
+  profile_id TEXT NOT NULL,
+  canonical_url TEXT NOT NULL,
+  url TEXT NOT NULL,
+  title TEXT,
+  registrable_domain TEXT NOT NULL,
+  cross_day_count INTEGER NOT NULL,
+  trail_count INTEGER NOT NULL,
+  search_arrival_count INTEGER NOT NULL,
+  typed_revisit_count INTEGER NOT NULL,
+  refind_score REAL NOT NULL,
+  evidence_json TEXT NOT NULL,
+  first_seen_ms INTEGER NOT NULL,
+  last_seen_ms INTEGER NOT NULL,
+  computed_at TEXT NOT NULL,
+  page_key INTEGER NOT NULL,
+  PRIMARY KEY(generation, profile_id, canonical_url)
+)",
+    // The refind pages opened on each local day (Insights' zone), as a blob of their sorted
+    // `page_key`s: what counts the pages reopened in a range, which the span in
+    // `refind_pages_rows` cannot (`intelligence::refind_days`).
+    r"CREATE TABLE refind_day_pages_rows (
+  generation INTEGER NOT NULL,
+  profile_id TEXT NOT NULL,
+  date_key TEXT NOT NULL,
+  page_keys BLOB NOT NULL,
+  PRIMARY KEY(generation, profile_id, date_key)
+)",
+    r"CREATE TABLE reopened_investigations_rows (
+  generation INTEGER NOT NULL DEFAULT 0,
+  investigation_id TEXT NOT NULL,
+  profile_id TEXT NOT NULL,
+  anchor_type TEXT NOT NULL,
+  anchor_id TEXT NOT NULL,
+  anchor_label TEXT NOT NULL,
+  occurrence_count INTEGER NOT NULL,
+  distinct_days INTEGER NOT NULL,
+  first_seen_ms INTEGER NOT NULL,
+  last_seen_ms INTEGER NOT NULL,
+  evidence_json TEXT NOT NULL,
+  computed_at TEXT NOT NULL,
+  PRIMARY KEY(generation, investigation_id)
+)",
+    r"CREATE TABLE path_flows_rows (
+  generation INTEGER NOT NULL DEFAULT 0,
+  profile_id TEXT NOT NULL,
+  flow_pattern TEXT NOT NULL,
+  step_count INTEGER NOT NULL,
+  occurrence_count INTEGER NOT NULL,
+  last_seen_ms INTEGER NOT NULL,
+  PRIMARY KEY(generation, profile_id, flow_pattern, step_count)
+)",
+    r"CREATE TABLE compare_sets_rows (
+  generation INTEGER NOT NULL DEFAULT 0,
+  compare_set_id TEXT NOT NULL,
+  profile_id TEXT NOT NULL,
+  trail_id TEXT NOT NULL,
+  search_query TEXT NOT NULL,
+  page_category TEXT NOT NULL,
+  first_visit_ms INTEGER NOT NULL,
+  last_visit_ms INTEGER NOT NULL,
+  pages_json TEXT NOT NULL,
+  computed_at TEXT NOT NULL,
+  PRIMARY KEY(generation, compare_set_id)
+)",
+    r"CREATE TABLE page_content_enrichments (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  canonical_url TEXT NOT NULL,
+  content_source TEXT NOT NULL,
+  fetch_status TEXT NOT NULL,
+  fetched_at TEXT NOT NULL,
+  final_url TEXT,
+  language TEXT,
+  readable_title TEXT,
+  readable_text_blob_path TEXT,
+  readable_text_bytes INTEGER NOT NULL DEFAULT 0,
+  text_hash TEXT,
+  snippet_json TEXT NOT NULL,
+  extraction_json TEXT NOT NULL,
+  pipeline_version TEXT NOT NULL,
+  extractor_version INTEGER,
+  enrichment_summary TEXT,
+  refetch_after TEXT,
+  http_status INTEGER,
+  UNIQUE(canonical_url, content_source)
+)",
+    r"CREATE TABLE site_dictionary_overrides (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  target_kind TEXT NOT NULL,
+  target_value TEXT NOT NULL,
+  domain_category TEXT,
+  page_category TEXT,
+  interaction_kind TEXT,
+  display_name TEXT,
+  search_engine TEXT,
+  is_noisy INTEGER NOT NULL DEFAULT 0,
+  note TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE(target_kind, target_value)
+)",
+    r"CREATE TABLE search_engine_rules (
+  rule_id TEXT PRIMARY KEY,
+  engine_id TEXT NOT NULL,
+  display_name TEXT NOT NULL,
+  host_pattern TEXT NOT NULL,
+  path_prefix TEXT,
+  query_param_key TEXT NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  note TEXT,
+  example_url TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+)",
+    r"CREATE TABLE core_intelligence_stage_checkpoints (
+  profile_id TEXT NOT NULL,
+  stage TEXT NOT NULL,
+  stage_version TEXT NOT NULL,
+  visible_visit_count INTEGER NOT NULL DEFAULT 0,
+  max_visit_id INTEGER NOT NULL DEFAULT 0,
+  max_url_last_visit_ms INTEGER NOT NULL DEFAULT 0,
+  visible_search_term_count INTEGER NOT NULL DEFAULT 0,
+  last_processed_visit_id INTEGER NOT NULL DEFAULT 0,
+  dirty_from_visit_ms INTEGER,
+  dirty_date_key TEXT,
+  last_run_id INTEGER,
+  fallback_reason TEXT,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY(profile_id, stage)
+)",
+    r"CREATE TABLE intelligence_overview_snapshots (
+  scope_key TEXT NOT NULL,
+  band TEXT NOT NULL,
+  fingerprint TEXT NOT NULL,
+  payload_json TEXT NOT NULL,
+  computed_at TEXT NOT NULL,
+  PRIMARY KEY (scope_key, band)
+)",
+    r"CREATE TABLE intelligence_jobs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  job_type TEXT NOT NULL,
+  plugin_id TEXT,
+  run_id INTEGER,
+  state TEXT NOT NULL,
+  priority INTEGER NOT NULL DEFAULT 100,
+  attempt INTEGER NOT NULL DEFAULT 0,
+  dedupe_key TEXT NOT NULL,
+  trigger_cursor INTEGER NOT NULL DEFAULT 0,
+  canonical_url TEXT,
+  payload_json TEXT NOT NULL,
+  artifact_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL,
+  scheduled_at TEXT NOT NULL,
+  started_at TEXT,
+  finished_at TEXT,
+  heartbeat_at TEXT,
+  lease_owner TEXT,
+  lease_expires_at TEXT,
+  updated_at TEXT NOT NULL,
+  last_error TEXT,
+  cancellation_reason TEXT,
+  stop_requested INTEGER NOT NULL DEFAULT 0,
+  -- The job's place in Background work's list, newest first: set when it is added and each time
+  -- it is queued again on purpose (enqueued again, tried again), never while it runs or finishes,
+  -- so the list can be paged while the queue works (`snapshot::load_job_page`).
+  list_order INTEGER NOT NULL DEFAULT 0,
+  UNIQUE(dedupe_key)
+)",
+    r"CREATE TABLE intelligence_job_triggers (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  job_id INTEGER NOT NULL REFERENCES intelligence_jobs(id) ON DELETE CASCADE,
+  run_id INTEGER,
+  reason TEXT,
+  requested_at TEXT NOT NULL
+)",
+    r"CREATE TABLE deterministic_module_runtime (
+  module_id TEXT PRIMARY KEY,
+  invalidation_revision INTEGER NOT NULL DEFAULT 0,
+  version TEXT NOT NULL,
+  status TEXT NOT NULL,
+  depends_on_json TEXT NOT NULL,
+  derived_tables_json TEXT NOT NULL,
+  last_run_id INTEGER,
+  last_built_at TEXT,
+  last_invalidated_at TEXT,
+  stale_reason TEXT,
+  stale_reason_code TEXT,
+  notes_json TEXT NOT NULL DEFAULT '[]',
+  updated_at TEXT NOT NULL
+)",
+    r"CREATE TABLE ai_embeddings (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  history_id INTEGER NOT NULL,
+  profile_id TEXT NOT NULL,
+  url TEXT NOT NULL,
+  title TEXT,
+  domain TEXT NOT NULL,
+  visited_at TEXT NOT NULL,
+  content_hash TEXT NOT NULL,
+  content_bytes INTEGER NOT NULL,
+  metadata_bytes INTEGER NOT NULL DEFAULT 0,
+  provider_id TEXT NOT NULL,
+  model TEXT NOT NULL,
+  indexed_at TEXT NOT NULL,
+  UNIQUE(history_id, provider_id, model, content_hash)
+)",
+    "CREATE TABLE ai_embedding_totals(provider_id TEXT NOT NULL,model TEXT NOT NULL,item_count INTEGER NOT NULL,content_bytes INTEGER NOT NULL,metadata_bytes INTEGER NOT NULL,last_indexed_at TEXT,PRIMARY KEY(provider_id,model))",
+    "CREATE INDEX idx_ai_embeddings_provider_id ON ai_embeddings(provider_id,model,id)",
+    r"CREATE TABLE ai_assistant_runs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  run_id INTEGER,
+  question TEXT NOT NULL,
+  answer TEXT NOT NULL,
+  provider_id TEXT NOT NULL,
+  embedding_provider_id TEXT NOT NULL,
+  citations_json TEXT NOT NULL,
+  notes_json TEXT NOT NULL,
+  created_at TEXT NOT NULL
+)",
+    r"CREATE TABLE ai_index_ledger (
+  provider_id TEXT NOT NULL,
+  model TEXT NOT NULL,
+  sidecar_table TEXT NOT NULL,
+  index_version TEXT NOT NULL,
+  state TEXT NOT NULL,
+  source_watermark INTEGER,
+  last_run_id INTEGER,
+  build_started_at TEXT,
+  build_finished_at TEXT,
+  last_indexed_at TEXT,
+  last_cleared_at TEXT,
+  last_failure_at TEXT,
+  failure_reason TEXT,
+  PRIMARY KEY(provider_id, model)
+)",
+    r"CREATE TABLE ai_jobs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  job_type TEXT NOT NULL,
+  state TEXT NOT NULL,
+  priority INTEGER NOT NULL,
+  attempt INTEGER NOT NULL DEFAULT 0,
+  max_attempts INTEGER NOT NULL DEFAULT 1,
+  payload_json TEXT NOT NULL,
+  run_id INTEGER,
+  summary TEXT,
+  available_at TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  started_at TEXT,
+  finished_at TEXT,
+  heartbeat_at TEXT,
+  lease_owner TEXT,
+  lease_expires_at TEXT,
+  stop_requested INTEGER NOT NULL DEFAULT 0,
+  error_code TEXT,
+  error_message TEXT
+)",
+
+    // `time_zone`: the IANA zone the published data puts visits on days in (`insights_zone.rs`).
+    "CREATE TABLE intelligence_generations(profile_id TEXT PRIMARY KEY, facts INTEGER NOT NULL DEFAULT 0,
+        daily INTEGER NOT NULL DEFAULT 0,navigation INTEGER NOT NULL DEFAULT 0,aggregates INTEGER NOT NULL DEFAULT 0,
+        time_zone TEXT)",
+    "CREATE TABLE intelligence_builds(id INTEGER PRIMARY KEY AUTOINCREMENT,profile_id TEXT NOT NULL,
+        state_json TEXT NOT NULL,updated_at TEXT NOT NULL)",
+    "CREATE INDEX idx_intelligence_builds_profile ON intelligence_builds(profile_id,id DESC)",
+    "CREATE TABLE intelligence_counts(generation INTEGER NOT NULL,profile_id TEXT NOT NULL,table_name TEXT NOT NULL,value INTEGER NOT NULL,
+        PRIMARY KEY(generation,profile_id,table_name))",
+    "CREATE TABLE intelligence_day_counts(generation INTEGER NOT NULL,profile_id TEXT NOT NULL,date_key TEXT NOT NULL,
+        domains INTEGER NOT NULL,categories INTEGER NOT NULL,engines INTEGER NOT NULL,summaries INTEGER NOT NULL,
+        PRIMARY KEY(generation,profile_id,date_key))",
+    "CREATE TABLE intelligence_seen_domains(generation INTEGER NOT NULL,profile_id TEXT NOT NULL,domain TEXT NOT NULL,
+        PRIMARY KEY(generation,profile_id,domain))",
+    "CREATE TABLE visit_assignments(generation INTEGER NOT NULL DEFAULT 0,visit_id INTEGER NOT NULL,profile_id TEXT NOT NULL,
+        session_id TEXT NOT NULL,trail_id TEXT,ordinal INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(generation,visit_id))",
+    "CREATE TABLE session_domains(generation INTEGER NOT NULL,profile_id TEXT NOT NULL,session_id TEXT NOT NULL,domain TEXT NOT NULL,visit_count INTEGER NOT NULL,PRIMARY KEY(generation,session_id,domain))",
+    // Each session's sites in visit order, one row per local day and at most a few hundred sites, so
+    // common paths for a date range read the sessions of those days instead of every visit. A row
+    // starts with the last sites of the one before it (`prefix_len`); see `PathSegment`.
+    "CREATE TABLE session_paths(generation INTEGER NOT NULL,profile_id TEXT NOT NULL,session_id TEXT NOT NULL,segment INTEGER NOT NULL,
+        date_key TEXT NOT NULL,prefix_len INTEGER NOT NULL,sites_json TEXT NOT NULL,PRIMARY KEY(generation,session_id,segment))",
+    // How each site's visits began and where its links led, per local day: `kind` is `direct`
+    // (no opener), `search` or `link` (the opener's site in `other`, empty when PathKeep did not
+    // see the opener) for arrivals, `onward` for visits to `other` opened from the site, and
+    // `unrecorded` for visits whose browser does not record openers.
+    "CREATE TABLE site_flows_rows(generation INTEGER NOT NULL,profile_id TEXT NOT NULL,date_key TEXT NOT NULL,
+        registrable_domain TEXT NOT NULL,kind TEXT NOT NULL,other TEXT NOT NULL,visit_count INTEGER NOT NULL,
+        PRIMARY KEY(generation,date_key,profile_id,registrable_domain,kind,other))",
+    "CREATE INDEX idx_vdf_visit_generation ON visit_derived_facts_rows(visit_id,generation)",
+    "CREATE INDEX idx_assignments_visit_generation ON visit_assignments(visit_id,generation)",
+    "CREATE INDEX idx_assignments_generation_session ON visit_assignments(generation,session_id,ordinal,visit_id)",
+    "CREATE INDEX idx_assignments_generation_trail ON visit_assignments(generation,trail_id,visit_id) WHERE trail_id IS NOT NULL",
+    "CREATE INDEX idx_sessions_overlap ON sessions_rows(profile_id,last_visit_ms,first_visit_ms,session_id,generation)",
+    "CREATE INDEX idx_intelligence_jobs_awaiting ON intelligence_jobs(job_type,state,id,canonical_url)",
+    "CREATE INDEX idx_intelligence_jobs_list ON intelligence_jobs(list_order)",
+    "CREATE INDEX idx_vdf_generation_canonical_visit ON visit_derived_facts_rows(generation,profile_id,is_search_event,canonical_url,visit_id)",
+    "CREATE INDEX idx_vdf_profile_domain ON visit_derived_facts_rows(profile_id, registrable_domain, generation)",
+    "CREATE INDEX idx_sessions_profile_time ON sessions_rows(profile_id, first_visit_ms DESC, generation)",
+    "CREATE INDEX idx_search_trails_profile_time ON search_trails_rows(profile_id, first_visit_ms DESC, generation)",
+    "CREATE INDEX idx_search_trails_profile_time_trail ON search_trails_rows(profile_id, first_visit_ms ASC, trail_id ASC, generation)",
+    "CREATE INDEX idx_search_trail_members_order ON search_trail_members_rows(generation,trail_id,ordinal,visit_id)",
+    "CREATE INDEX idx_search_trail_members_profile_visit ON search_trail_members_rows(profile_id, visit_id, generation)",
+    "CREATE INDEX idx_search_events_profile_engine ON search_events_rows(profile_id, search_engine, generation)",
+    "CREATE INDEX idx_search_events_profile_visit ON search_events_rows(profile_id, visit_id, generation)",
+    "CREATE INDEX idx_search_event_terms_profile_term ON search_event_terms_rows(profile_id, term, generation)",
+    "CREATE INDEX idx_query_families_profile_time ON query_families_rows(profile_id, last_seen_ms DESC, generation)",
+    "CREATE INDEX idx_query_family_queries_query ON query_family_queries_rows(normalized_query, generation)",
+    "CREATE INDEX idx_refind_pages_score ON refind_pages_rows(refind_score DESC,last_seen_ms DESC,canonical_url,profile_id,generation)",
+    "CREATE INDEX idx_refind_pages_canonical ON refind_pages_rows(canonical_url,generation,refind_score DESC,last_seen_ms DESC,profile_id)",
+    "CREATE INDEX idx_refind_pages_profile_score ON refind_pages_rows(profile_id, refind_score DESC, last_seen_ms DESC, generation)",
+    "CREATE INDEX idx_reopened_investigations_profile_time ON reopened_investigations_rows(profile_id, last_seen_ms DESC, generation)",
+    // Ranked lists page through these in list order and seek to their keyset cursor.
+    "CREATE INDEX idx_sessions_recent ON sessions_rows(first_visit_ms DESC, session_id DESC, generation)",
+    "CREATE INDEX idx_search_trails_recent ON search_trails_rows(first_visit_ms DESC, trail_id DESC, generation)",
+    // Searches that landed on one site, by time (the site page).
+    "CREATE INDEX idx_search_trails_landing ON search_trails_rows(landing_domain, first_visit_ms, generation, profile_id, initial_query)",
+    // The trails that may be friction (reworded twice or more, or no landing after three
+    // visits), by when they began: a range reads only its own, then sorts them.
+    "CREATE INDEX idx_search_trails_friction ON search_trails_rows(first_visit_ms, generation, profile_id) WHERE reformulation_count >= 2 OR (landing_domain IS NULL AND visit_count >= 3)",
+    "CREATE INDEX idx_query_families_recent ON query_families_rows(last_seen_ms DESC, family_id DESC, generation)",
+    "CREATE INDEX idx_reopened_investigations_recent ON reopened_investigations_rows(last_seen_ms DESC, occurrence_count DESC, investigation_id, generation)",
+    "CREATE INDEX idx_path_flows_profile_rank ON path_flows_rows(profile_id, step_count, occurrence_count DESC, last_seen_ms DESC, flow_pattern, generation)",
+    // Compare sets newest first, for every profile or one (`compare_sets::get_compare_sets`).
+    "CREATE INDEX idx_compare_sets_recent ON compare_sets_rows(last_visit_ms DESC, compare_set_id DESC, generation, profile_id, first_visit_ms)",
+    "CREATE INDEX idx_page_content_enrichments_canonical ON page_content_enrichments(canonical_url)",
+    "CREATE INDEX idx_page_content_enrichments_status ON page_content_enrichments(fetch_status, fetched_at)",
+    "CREATE INDEX idx_site_dictionary_overrides_target ON site_dictionary_overrides(target_kind, target_value)",
+    "CREATE INDEX idx_search_engine_rules_host ON search_engine_rules(host_pattern, enabled)",
+    "CREATE INDEX idx_intelligence_jobs_state ON intelligence_jobs(job_type, state, updated_at DESC)",
+    "CREATE INDEX idx_intelligence_jobs_plugin_state ON intelligence_jobs(plugin_id, state, updated_at DESC)",
+    "CREATE INDEX idx_intelligence_job_triggers_job_id ON intelligence_job_triggers(job_id, id)",
+    "CREATE INDEX idx_ai_embeddings_provider_model ON ai_embeddings(provider_id, model)",
+    "CREATE INDEX idx_ai_embeddings_history_id ON ai_embeddings(history_id)",
+    "CREATE INDEX idx_ai_jobs_state_available ON ai_jobs(state, available_at, priority DESC, id ASC)",
+    "CREATE INDEX idx_search_events_profile_kind ON search_events_rows(profile_id,query_kind, generation)",
+    "CREATE INDEX idx_search_events_query_time ON search_events_rows(query_kind,normalized_query,visit_time_ms DESC,visit_id DESC,generation)",
+    "CREATE INDEX idx_search_events_kind_time ON search_events_rows(query_kind,visit_time_ms, generation)",
+    // Each site's first day in each profile, for "new sites" (`new_sites_by_day`).
+    "CREATE INDEX idx_domain_daily_first_day ON domain_daily_rollups_rows(registrable_domain,generation,profile_id,date_key) WHERE new_domain_visits > 0",
+    // Range reads of the rollups, sessions and re-found pages (the KPI row and others). The range
+    // column leads so Turso seeks the range; generation and profile are filters on the same index.
+    // Read through the generation views, these tables were read whole.
+    "CREATE INDEX idx_daily_summary_range ON daily_summary_rollups_rows(date_key,generation,profile_id)",
+    "CREATE INDEX idx_domain_daily_range ON domain_daily_rollups_rows(date_key,generation,profile_id,registrable_domain)",
+    // One site's days (the site page and its trend).
+    "CREATE INDEX idx_domain_daily_site ON domain_daily_rollups_rows(registrable_domain,date_key,generation,profile_id)",
+    "CREATE INDEX idx_sessions_range ON sessions_rows(first_visit_ms,generation,profile_id)",
+    "CREATE INDEX idx_session_paths_range ON session_paths(date_key,generation,profile_id)",
+    // One site's days (the site page's arrivals and onward sites).
+    "CREATE INDEX idx_site_flows_site ON site_flows_rows(registrable_domain,date_key,generation,profile_id)",
+    "CREATE INDEX idx_refind_pages_range ON refind_pages_rows(last_seen_ms,generation,profile_id,first_seen_ms)",
+    "CREATE INDEX idx_refind_pages_key ON refind_pages_rows(page_key,generation,profile_id)",
+    "CREATE INDEX idx_search_events_profile_query ON search_events_rows(profile_id,normalized_query, generation)",
+    // One engine's keyword searches in a range (what was searched on a site, the site page).
+    "CREATE INDEX idx_search_events_engine_time ON search_events_rows(query_kind,search_engine,visit_time_ms,generation)",
+
+    "CREATE VIEW visit_derived_facts AS SELECT r.visit_id,r.profile_id,a.session_id,a.trail_id,r.registrable_domain,r.canonical_url,r.domain_category,r.page_category,r.search_engine,r.search_query,r.is_new_domain,r.is_search_event,r.evidence_tier,r.taxonomy_source,r.taxonomy_pack,r.taxonomy_version,r.computed_at
+      FROM visit_derived_facts_rows r
+      LEFT JOIN visit_assignments a INDEXED BY idx_assignments_visit_generation ON a.visit_id=r.visit_id AND a.generation IN (SELECT navigation FROM intelligence_generations)
+      WHERE r.generation IN (SELECT facts FROM intelligence_generations)",
+    "CREATE VIEW domain_daily_rollups AS SELECT r.date_key,r.profile_id,r.registrable_domain,r.domain_category,r.visit_count,r.search_count,r.new_domain_visits,r.unique_urls,r.last_visit_ms FROM domain_daily_rollups_rows r
+      WHERE r.generation IN (SELECT daily FROM intelligence_generations)",
+    "CREATE VIEW category_daily_rollups AS SELECT r.date_key,r.profile_id,r.domain_category,r.visit_count,r.unique_domains FROM category_daily_rollups_rows r
+      WHERE r.generation IN (SELECT daily FROM intelligence_generations)",
+    "CREATE VIEW engine_daily_rollups AS SELECT r.date_key,r.profile_id,r.search_engine,r.search_count FROM engine_daily_rollups_rows r
+      WHERE r.generation IN (SELECT daily FROM intelligence_generations)",
+    "CREATE VIEW daily_summary_rollups AS SELECT r.date_key,r.profile_id,r.total_visits,r.total_searches,r.new_domains,r.unique_domains,r.hhi_score,r.discovery_rate,r.hours FROM daily_summary_rollups_rows r
+      WHERE r.generation IN (SELECT daily FROM intelligence_generations)",
+    "CREATE VIEW sessions AS SELECT r.session_id,r.profile_id,r.first_visit_ms,r.last_visit_ms,r.visit_count,r.search_count,r.domain_count,r.is_deep_dive,r.auto_title,r.computed_at FROM sessions_rows r
+      WHERE r.generation IN (SELECT navigation FROM intelligence_generations)",
+    "CREATE VIEW search_trails AS SELECT r.trail_id,r.profile_id,r.session_id,r.initial_query,r.search_engine,r.reformulation_count,r.visit_count,r.landing_url,r.landing_domain,r.first_visit_ms,r.last_visit_ms,r.max_depth,r.queries_json,r.computed_at FROM search_trails_rows r
+      WHERE r.generation IN (SELECT navigation FROM intelligence_generations)",
+    "CREATE VIEW search_trail_members AS SELECT r.trail_id,r.profile_id,r.visit_id,r.ordinal,r.role FROM search_trail_members_rows r
+      WHERE r.generation IN (SELECT navigation FROM intelligence_generations)",
+    "CREATE VIEW search_events AS SELECT r.visit_id,r.profile_id,r.search_engine,r.raw_query,r.normalized_query,r.query_kind,r.trail_id,r.computed_at,r.visit_time_ms FROM search_events_rows r
+      WHERE r.generation IN (SELECT navigation FROM intelligence_generations)",
+    "CREATE VIEW search_event_terms AS SELECT r.visit_id,r.profile_id,r.term FROM search_event_terms_rows r
+      WHERE r.generation IN (SELECT navigation FROM intelligence_generations)",
+    "CREATE VIEW query_families AS SELECT r.family_id,r.profile_id,r.anchor_query,r.member_count,r.search_engine,r.first_seen_ms,r.last_seen_ms,r.queries_json,r.computed_at FROM query_families_rows r
+      WHERE r.generation IN (SELECT aggregates FROM intelligence_generations)",
+    "CREATE VIEW query_family_queries AS SELECT r.family_id,r.profile_id,r.normalized_query FROM query_family_queries_rows r
+      WHERE r.generation IN (SELECT aggregates FROM intelligence_generations)",
+    "CREATE VIEW refind_pages AS SELECT r.profile_id,r.canonical_url,r.url,r.title,r.registrable_domain,r.cross_day_count,r.trail_count,r.search_arrival_count,r.typed_revisit_count,r.refind_score,r.evidence_json,r.first_seen_ms,r.last_seen_ms,r.computed_at FROM refind_pages_rows r
+      WHERE r.generation IN (SELECT aggregates FROM intelligence_generations)",
+    "CREATE VIEW reopened_investigations AS SELECT r.investigation_id,r.profile_id,r.anchor_type,r.anchor_id,r.anchor_label,r.occurrence_count,r.distinct_days,r.first_seen_ms,r.last_seen_ms,CASE WHEN r.anchor_type='reference_page' THEN
+        (SELECT p.evidence_json FROM refind_pages_rows p WHERE p.generation=r.generation AND p.profile_id=r.profile_id AND p.canonical_url=r.anchor_id LIMIT 1 OFFSET 0)
+        ELSE r.evidence_json END AS evidence_json,r.computed_at FROM reopened_investigations_rows r
+      WHERE r.generation IN (SELECT aggregates FROM intelligence_generations)",
+    "CREATE VIEW compare_sets AS SELECT r.compare_set_id,r.profile_id,r.trail_id,r.search_query,r.page_category,r.first_visit_ms,r.last_visit_ms,r.pages_json,r.computed_at FROM compare_sets_rows r
+      WHERE r.generation IN (SELECT aggregates FROM intelligence_generations)",
+    "CREATE VIEW path_flows AS SELECT r.profile_id,r.flow_pattern,r.step_count,r.occurrence_count,r.last_seen_ms FROM path_flows_rows r
+      WHERE r.generation IN (SELECT aggregates FROM intelligence_generations)",
+];

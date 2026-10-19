@@ -1,7 +1,8 @@
 # ANNOTATIONS — 每網址筆記與標籤
 
-> v0.3 paper redesign 引入的使用者可手寫資料。讓 Browse detail panel 寫下的 notes 與 tags
+> v0.3 paper redesign 引入的使用者可手寫資料。讓詳情面板寫下的 notes 與 tags
 > 進入 canonical archive，跨 session、跨備份、跨 restore 保存下來。
+> 2026-10 起筆記與標籤都在 History 詳情面板（見 §4）。
 
 ---
 
@@ -22,7 +23,7 @@
 - 每網址一段 notes 文字（最長 16 KiB），與一組 tags（最多 64 個，每個最長 64 bytes）。
 - Notes / tags 都跟 URL 綁定，不是 visit ID — 同一個頁面下次訪問仍會帶出上次寫的內容。
 - Audit 時間戳（`created_at` / `updated_at`）與寫入時的 `source_profile`（純記錄用途）。
-- Tags 在持久化前會被 trim、case-insensitive de-dupe，並依寫入時間升冪排序回傳。
+- Tags 在持久化前會被 trim、case-insensitive de-dupe，並依第一次加上的時間升冪排序回傳（`replace_tags` 會保留沒被移除的標籤原本的 `created_at` 與 `source_profile`，所以清單維持使用者加入的順序；同一次寫入的新標籤時間相同，依字母排）。
 - 提供 list / search API 給未來的 annotations browse / 匯出流程。
 
 ### 不在範圍
@@ -95,18 +96,32 @@ CREATE INDEX idx_url_tags_tag                ON url_tags(tag, url);
 所有 command 都吃 session database key（與 archive 的 App Lock session 同層），加密 archive
 鎖住時不會回傳資料。
 
-## 4. 前端
+## 4. 前端（2026-10 redesign 之後）
 
-- `src/lib/backend-client/annotations.ts` 提供 typed client：`backend.getUrlAnnotation`、
-  `backend.setUrlNotes`、`backend.replaceUrlTags`、`backend.listUrlAnnotations`、
-  `backend.searchUrlAnnotations`。
-- `src/pages/explorer/use-desktop-annotations.ts`：backend-backed hook，optimistic
-  cache + write-through。形狀與 `useLocalAnnotations` 一致，所以 Browse detail panel
-  完全不知道後面接誰。
-- `src/pages/explorer/index.tsx` 用 `hasDesktopCommandTransport()` 在 `useDesktopAnnotations`
-  與 `useLocalAnnotations` 之間切換。Browser-preview build 仍走 localStorage。
-- 「Saved · local」這條 mono 文字目前還是維持的；之後 surface 真實的 backend save state
-  時會由 detail panel 自行調整。
+- `src/lib/backend-client/annotations.ts`：typed client `annotationsClient`
+  （`getUrlAnnotation`、`setUrlNotes`、`replaceUrlTags`、`listUrlAnnotations`、
+  `searchUrlAnnotations`）。
+- **筆記**：History 詳情面板底部的「備註」框（`src/features/history/note-editor.tsx`）。
+  停止輸入 800 ms 後自動存（`set_url_notes`），換到另一頁時先把未存的內容寫掉；
+  旁邊顯示「正在儲存… / 已儲存 / 無法儲存備註」。讀取用 `useUrlAnnotation(url)`
+  （`src/features/history/queries.ts`），讀取失敗會說「無法載入這個頁面的標籤和備註」。
+- **已加星**視圖用 `useStarList()`（`list_stars`，依加星時間由新到舊，每頁 500 筆，捲到底
+  再載入下一頁，沒有總數上限）在每列顯示筆記預覽；筆記與標籤跟著每一項一起回傳。
+  History 的列在加星的頁面旁畫星號，星號帶「已加星」的標籤（三種語言），讀螢幕的人也聽得到。
+  E2E（`history-tools.spec`）：筆記的字（拉丁字與中文）找到那一頁、`note:` / `-note:`、改了筆記舊字找不到；
+  兩個設定檔的頁面加星，Starred、列上的星號與 `is:starred` 一致，拿掉一個重新整理後三處都沒有。
+- **標籤**：詳情面板備註上方的標籤列（`src/features/history/tag-editor.tsx`）。
+  輸入後按 Enter 或逗號新增（可一次貼上逗號分隔的多個）；輸入框空著時按 Backspace 移到最後一個標籤，
+  在標籤上按 Backspace / Delete 移除，←/→ 在標籤與輸入框之間移動；每個標籤也有「移除」按鈕。
+  每次變更都用 `replace_url_tags` 存整組，寫入依序執行；前端先套用與後端相同的規則
+  （trim、大小寫不分去重、最多 64 個、每個最多 64 bytes，`tags.ts`），超過時就地說明而不送出；
+  寫入失敗會退回上次存好的那組並說明。點標籤本身會把 History 搜尋改成 `tag:名稱`
+  （有空白或引號時加引號，例如 `tag:"e2e fts"`），切回全文。
+  **已加星**每列顯示最多三個標籤（多的寫 +N），資料來自同一個 `list_stars`。
+  標籤與備註共用一次 `get_url_annotation` 讀取，載入中與讀取失敗只顯示一次
+  （`annotation-section.tsx`）。依 §2，介面不推薦既有標籤。
+- 沒有 localStorage 備援，也沒有 browser-preview 版本；舊的 `useLocalAnnotations`、
+  `use-desktop-annotations.ts` 與「Saved · local」字樣已隨舊前端刪除。
 
 ## 5. 與其他系統的互動
 
@@ -115,13 +130,14 @@ CREATE INDEX idx_url_tags_tag                ON url_tags(tag, url);
   視為 derived state 刪掉（不在 `clear_derived_intelligence` 範圍）。
 - **Audit ledger**：寫入 annotations 不會產生新的 backup run，但 `source_profile` 欄位讓
   後續 audit 想 trace「這條筆記是誰在哪個 profile 寫的」時有來源 hint。
-- **Search 入口**：未來 Recall 與 paper Search 都會把 `search_annotations` 接成第三條
-  signal（與 history、semantic 並列），但目前的 paper Search 仍只用 history。
+- **搜尋**：search projection v4 把筆記與標籤寫進 `search_documents` 的
+  `notes_text` / `tags_text`，也併進 CJK gram 與 trigram，所以 History 的全文搜尋直接
+  找得到筆記內容；`set_notes` / `replace_tags` 寫入後立即重算該網址的搜尋文件。
+  另外可用 `note:字串`、`-note:字串`、`tag:名稱`、`-tag:名稱` 篩選
+  （`vault-core/src/archive/search_query.rs`）。`search_url_annotations` 這條獨立 API
+  目前沒有前端呼叫者。
 
 ## 6. 後續 backlog
 
-- `search_annotations` 接上 FTS 索引（單獨 migration），保留現有 API。
-- Notes export / import（含 CSV 與 markdown），由 maintenance 流程觸發。
-- Detail panel 用 backend save-state 取代「Saved · local」字串，配合 toast / inline
-  status pill。
+- Notes export / import（含 CSV 與 markdown）。
 - Tag aliasing / canonical tag list 由 Settings 管理（先做使用者觀察再設計）。

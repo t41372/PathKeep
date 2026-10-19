@@ -22,6 +22,7 @@
  * - Prefer additive, explicit fields over ambiguous catch-all objects so the trust surface stays auditable.
  */
 
+import type { SearchCoverage } from '../backend-client/search'
 import type { ScheduleGeneratedFile } from './schedule'
 
 /**
@@ -106,8 +107,6 @@ export interface AiProviderConfig {
   apiKeySaved: boolean
   defaultModel: string
   modelCatalog: string[]
-  temperature?: number | null
-  maxTokens?: number | null
   dimensions?: number | null
   notes?: string | null
 }
@@ -175,14 +174,6 @@ export interface AiSettings {
   lexicalWeight?: number
   semanticWeight?: number
   starredBoost?: number
-  /**
-   * Opt-in to the Apple-Silicon Metal GPU heavy embedding tier (W-AI-9 Sub-block D, 05 §7). Mirrors
-   * the Rust `gpu_enabled` (`#[serde(default)]`, hard-default-OFF). Optional here so older snapshots
-   * without it still type-check; absent/false means "off". INERT unless the binary was built with the
-   * `metal` cargo feature — the Settings UI reads `ReembedEstimate.gpuAvailable` to tell the honest
-   * story ("requires a Metal-enabled build") rather than showing a green toggle that does nothing.
-   */
-  gpuEnabled?: boolean
 }
 /**
  * Represents a read model or status snapshot for ai index.
@@ -190,7 +181,7 @@ export interface AiSettings {
  * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
  */
 /**
- * One stable, locale-independent index-health warning CODE (review-fix M-7). Mirrors the Rust
+ * One stable, locale-independent index-health warning CODE. Mirrors the Rust
  * `AiIndexWarning` (`#[serde(tag = "code", rename_all = "camelCase")]`). Interpolated variants carry
  * their params STRUCTURALLY (provider id / name) so the FE composes the localized string; `buildFailed`
  * carries the opaque transport reason (no fixed vocabulary). The FE maps ALL variants to localized
@@ -249,8 +240,7 @@ export interface StaticEmbeddingStatus {
  * `pathkeep://model-download-progress` Tauri channel. Mirrors the Rust
  * `ModelDownloadProgressEvent` (`#[serde(tag = "kind", rename_all = "camelCase")]`).
  *
- * Both the static tier and the heavy candle tier emit on this single channel; the
- * stream is per-file (no upfront file count and `totalBytes` may be 0 when unknown),
+ * The in-app model download emits on this channel; the stream is per-file (no upfront file count and `totalBytes` may be 0 when unknown),
  * so the UI shows honest per-file / indeterminate progress, never a fabricated percent.
  * Exactly one terminal `done`/`error` always follows so a subscriber never hangs.
  *
@@ -296,7 +286,7 @@ export interface AiIndexStatus {
    */
   warning?: string | null
   /**
-   * Stable index-health warning CODE (review-fix M-7), additive (mirrors Rust
+   * Stable index-health warning CODE, additive (mirrors Rust
    * `#[serde(default, skip_serializing_if)]`). The FE maps ALL variants to localized copy.
    */
   warningCode?: AiIndexWarning | null
@@ -351,6 +341,38 @@ export interface LlmProviderCapabilityReport {
 export interface AiProviderConnectionTestRequest {
   providerId: string
   purpose: AiProviderPurpose
+}
+
+/**
+ * Which service to ask for its models: the form's values, saved or not. The
+ * key is the one typed in the form, else the stored key of `providerId`.
+ */
+export interface AiProviderModelsRequest {
+  purpose: AiProviderPurpose
+  requestFormat: AiRequestFormat
+  baseUrl: string | null
+  providerId?: string | null
+  apiKey?: string | null
+  /**
+   * Read only the list under the API root the service's requests go to
+   * (saving a service checks it this way; no model is loaded).
+   */
+  apiRootOnly?: boolean
+}
+
+/** What a model is for, as the service says; `unknown` when it does not say. */
+export type AiModelKind = 'chat' | 'embedding' | 'unknown'
+
+/**
+ * One model a service offers. `loadedContextLength` is how much it can read
+ * as loaded now; `maxContextLength` the most it could be loaded with.
+ */
+export interface AiProviderModel {
+  id: string
+  kind: AiModelKind
+  loaded: boolean | null
+  loadedContextLength: number | null
+  maxContextLength: number | null
 }
 
 /**
@@ -412,6 +434,56 @@ export interface AiQueueJob {
   progressScanned?: number
   progressScanTarget?: number
   progressEmbedTarget?: number
+  /** Who paused it, when its state is `paused`. */
+  pausedBy?: IndexBuildPause | null
+}
+
+/** One semantic index: the service it was made with and the model. */
+export interface EmbeddingIndexRef {
+  providerId: string
+  model: string
+}
+
+/**
+ * Who paused an index build: `user` (the pause button), `service` (the
+ * embeddings service could not load the model or could not be reached; the
+ * job's `errorMessage` has its own words), `queue` (all background work is
+ * paused). A build paused by the user or the service waits for the user; one
+ * paused with the queue goes on when the queue does.
+ */
+export type IndexBuildPause = 'user' | 'service' | 'queue'
+
+/** The chosen model's index build, while it is queued, running or paused. */
+export interface IndexBuildJob {
+  jobId: number
+  state: 'queued' | 'running' | 'paused'
+  pausedBy?: IndexBuildPause | null
+  /** The service's own words when `pausedBy` is `service`. */
+  pauseMessage?: string | null
+  /** Visits this build has indexed so far. */
+  done: number
+  /** Visits this build has to index; 0 until the build has counted them. */
+  total: number
+}
+
+/**
+ * Which index search reads and how far the chosen model's index is. Changing
+ * the model does not build anything: search keeps reading the last complete
+ * index until the user builds the chosen model's and it completes.
+ */
+export interface SemanticIndexState {
+  /** The model chosen in Settings → AI; null when semantic search has none. */
+  chosen: EmbeddingIndexRef | null
+  /**
+   * The index search reads now: the chosen model's once it is complete,
+   * before that the most recent complete index whose service is still set up,
+   * and without one the chosen model's own, unfinished or empty. Null only
+   * when no model is chosen.
+   */
+  serving: EmbeddingIndexRef | null
+  /** The chosen model's index is complete and backups keep it up to date. */
+  chosenComplete: boolean
+  build: IndexBuildJob | null
 }
 
 /**
@@ -429,7 +501,7 @@ export interface AiQueueStatus {
    * Queued/paused/stale count NARROWED to semantic-index jobs (index-build +
    * index-clear). The Smart-search build callout keys its phase off this so an
    * in-flight assistant chat job — counted in the aggregate `queued`/`running`
-   * above — never reads as build progress (M-5).
+   * above — never reads as build progress.
    */
   indexQueued: number
   /**
@@ -438,6 +510,7 @@ export interface AiQueueStatus {
    */
   indexRunning: number
   recentJobs: AiQueueJob[]
+  semanticIndex: SemanticIndexState
 }
 
 /**
@@ -583,6 +656,22 @@ export interface IntelligenceRuntimeSnapshot {
   recentJobs: IntelligenceJobOverview[]
   notes: string[]
 }
+
+/**
+ * One page of a queue's jobs, newest first by when they were added. A job
+ * keeps its place while it runs and finishes, so reading on with
+ * `nextCursor` (the last job's id) neither skips nor repeats one.
+ */
+export interface JobPage<T> {
+  items: T[]
+  nextCursor: number | null
+}
+
+/** Request for `list_intelligence_jobs` and `list_ai_jobs`. */
+export interface ListJobsRequest {
+  cursor: number | null
+  limit: number
+}
 /**
  * Represents a completed report that the UI can review after a run finishes.
  *
@@ -630,16 +719,12 @@ export interface AiIndexRequest {
 }
 
 /**
- * Read-only cost/time estimate for a re-embed run (W-AI-9 Sub-block D, 05 §7). Mirrors the Rust
- * `ReembedEstimate`. Surfaced BEFORE a re-embed fires so the user sees the cost (PME). `gpuAvailable`
- * is the single honest source of whether THIS binary can run the GPU path (built with `metal`).
+ * How much a re-embed run would index, shown before it starts (W-AI-9 Sub-block D, 05 §7). Mirrors
+ * the Rust `ReembedEstimate`. No time: the rate depends on the engine and the machine.
  */
 export interface ReembedEstimate {
   scope: ReembedScope
   pageCount: number
-  estMinutesCpu: number
-  estMinutesGpu: number
-  gpuAvailable: boolean
 }
 
 /**
@@ -676,6 +761,11 @@ export interface AiSearchRequest {
    * pages. Optional/absent means unfiltered. Mirrors the Rust `starred_only` (`#[serde(default)]`).
    */
   starredOnly?: boolean | null
+  /** Inclusive local days, `YYYY-MM-DD`. Like every filter, applied before ranking. */
+  startDate?: string | null
+  endDate?: string | null
+  /** A browser (`chrome`, `firefox`, …), all of its profiles. */
+  browserKind?: string | null
 }
 
 /**
@@ -717,14 +807,17 @@ export interface AiSearchResultItem {
  * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
  */
 /**
- * Why the semantic index is stale (review-fix M-6/M-7). Stable, locale-independent reason CODE shared
+ * Why the semantic index is stale. Stable, locale-independent reason CODE shared
  * by the AI-search degradation notes and the Settings index-health warning. Mirrors the Rust
  * `AiSemanticStaleness` (`#[serde(rename_all = "camelCase")]`). The FE NEVER renders these raw.
+ *
+ * `watermark` and `enrichment` are caught up by the next update; `textFormat` (built from an
+ * older version of the page text) only by a rebuild.
  */
-export type AiSemanticStaleness = 'watermark' | 'enrichment'
+export type AiSemanticStaleness = 'watermark' | 'enrichment' | 'textFormat'
 
 /**
- * One stable, locale-independent AI-search degradation note CODE (review-fix M-6). Mirrors the Rust
+ * One stable, locale-independent AI-search degradation note CODE. Mirrors the Rust
  * `AiSearchNote` (`#[serde(tag = "code", rename_all = "camelCase")]`). The FE resolves each to
  * localized copy and NEVER renders these raw; the legacy English `AiSearchResponse.notes` are kept
  * only for the model-facing agent-tool path + the persisted run trace.
@@ -737,6 +830,8 @@ export type AiSearchNote =
   | { code: 'configDriftFingerprint' }
   | { code: 'stale'; reason: AiSemanticStaleness }
   | { code: 'providerResolutionFailed'; reason: string }
+  /** Searched the previous model's index; the chosen model's is not complete yet. */
+  | { code: 'previousModel'; model: string }
 
 export interface AiSearchResponse {
   total: number
@@ -749,52 +844,13 @@ export interface AiSearchResponse {
    */
   notes: string[]
   /**
-   * Stable degradation note CODES (review-fix M-6), additive (mirrors Rust `#[serde(default)]`). One
+   * Stable degradation note CODES, additive (mirrors Rust `#[serde(default)]`). One
    * code per English note in `notes`, same order. The FE resolves each to localized copy.
    */
   noteCodes?: AiSearchNote[]
   nextCursor?: string | null
-}
-
-/**
- * Describes a request payload in this front-end contract.
- *
- * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
- */
-export interface AiAssistantRequest {
-  question: string
-  profileId?: string | null
-  domain?: string | null
-}
-
-/**
- * Defines the typed shape for ai assistant citation.
- *
- * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
- */
-export interface AiAssistantCitation {
-  historyId: number
-  profileId: string
-  url: string
-  title?: string | null
-  visitedAt: string
-  score: number
-}
-
-/**
- * Describes a response payload in this front-end contract.
- *
- * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
- */
-export interface AiAssistantResponse {
-  state: string
-  answer: string
-  jobId?: number | null
-  runId?: number | null
-  providerId: string
-  embeddingProviderId: string
-  citations: AiAssistantCitation[]
-  notes: string[]
+  /** Whether the search index covered the whole archive for this answer. */
+  searchState?: SearchCoverage | null
 }
 
 /**
@@ -812,7 +868,7 @@ export interface AiChatMessage {
 
 /**
  * Request payload for `ai_chat_send`. `providerId` defaults to the configured LLM provider when
- * omitted; `temperature`/`maxTokens` override that provider's defaults for this turn only.
+ * omitted; `maxTokens` reserves local context space; it is not sent to the provider.
  *
  * W-AI-7 additive fields (all optional, mirroring the Rust `#[serde(default)]` so the frozen W-AI-1
  * plain-chat payload still serializes byte-for-byte):
@@ -824,11 +880,29 @@ export interface AiChatMessage {
 export interface AiChatSendRequest {
   providerId?: string | null
   messages: AiChatMessage[]
-  temperature?: number | null
   maxTokens?: number | null
   toolsEnabled?: boolean
   conversationId?: string | null
   messageId?: string | null
+  /** The model to answer with; the service's default when absent. */
+  model?: string | null
+}
+
+/** Request for `ai_chat_context`: the service and model Ask would answer with next. */
+export interface AiChatContextRequest {
+  providerId?: string | null
+  model?: string | null
+}
+
+/**
+ * How much a model can read at a time (`null` when its service does not
+ * say) and how much every request already takes: the instructions, the
+ * tools' descriptions and the room kept for the answer.
+ */
+export interface AiChatContext {
+  model: string
+  contextLength: number | null
+  fixedTokens: number
 }
 
 /**
@@ -942,7 +1016,7 @@ export type AiChatStreamChunk =
   | { kind: 'error'; message: string }
 
 /**
- * One stable, locale-independent USER-facing agent-harness control note CODE (review-fix M-6).
+ * One stable, locale-independent USER-facing agent-harness control note CODE.
  * Mirrors the Rust `AiAgentNote` (`#[serde(tag = "code", rename_all = "camelCase")]`), streamed inside
  * an `AiChatStreamChunk` `note` chunk. The FE resolves each to localized copy; these are the
  * user-facing twin of the harness's model-facing English (which stays English to steer the LLM). The
@@ -952,6 +1026,9 @@ export type AiAgentNote =
   | { code: 'maxStepsReached' }
   | { code: 'tokenBudgetReached' }
   | { code: 'toolCallingUnavailable' }
+  | { code: 'searchIndexIncomplete' }
+  | { code: 'contextTooSmall' }
+  | { code: 'sourcesNotSaved' }
 
 /**
  * Envelope emitted on `pathkeep://ai-stream` pairing a chunk with its run id.
@@ -1013,6 +1090,9 @@ export interface AgentMessage {
   citations?: AgentCitation[] | null
   /** Reconstructed per-turn token usage (load-only; omitted on save). */
   usage?: AgentUsage | null
+  /** The service and model that wrote this answer (load-only; recorded by the run). */
+  providerId?: string | null
+  model?: string | null
 }
 
 /**
@@ -1052,7 +1132,9 @@ export interface SaveAgentConversationRequest {
  * Request payload for `list_ai_conversations`: a bounded, newest-first page cap.
  */
 export interface ListAgentConversationsRequest {
+  /** Page size; the cursor reaches every conversation. */
   limit?: number | null
+  cursor?: string | null
 }
 
 /**
@@ -1060,6 +1142,7 @@ export interface ListAgentConversationsRequest {
  */
 export interface AgentConversationListResponse {
   conversations: AgentConversationSummary[]
+  nextCursor: string | null
 }
 
 /**
@@ -1069,6 +1152,27 @@ export interface RenameAgentConversationRequest {
   id: string
   title: string
 }
+
+/** Request for `export_ai_conversation`: the conversation and the file's words, in the interface's language. */
+export interface ExportAgentConversationRequest {
+  id: string
+  labels: {
+    untitled: string
+    you: string
+    assistant: string
+    pagesUsed: string
+  }
+}
+
+/**
+ * What `export_ai_conversation` did: saved where the person chose in the
+ * system's save dialog, nothing because they cancelled it, or nothing because
+ * the conversation is no longer saved.
+ */
+export type ConversationExportOutcome =
+  | { status: 'saved'; path: string; bytes: number }
+  | { status: 'cancelled' }
+  | { status: 'gone' }
 
 /**
  * Result of `delete_ai_conversation`: whether a row with the id existed and was removed.
@@ -1183,4 +1287,26 @@ export interface ContentFetchNowResult {
   jobId: number
   state: string
   note: string
+}
+
+/**
+ * One request an outside app made through PathKeep's MCP server
+ * (`load_mcp_queries`): which tool, what it asked and how much came back.
+ */
+export interface McpQueryRecord {
+  id: number
+  at: string
+  /** `search-history`, `archive-status` or `usage-guide`. */
+  tool: string
+  query?: string | null
+  domain?: string | null
+  profileId?: string | null
+  /** How many pages matched a search, across the archive. */
+  results?: number | null
+  /**
+   * How many of them the app was given (one page of results); absent on
+   * requests recorded before PathKeep kept it.
+   */
+  returned?: number | null
+  notes: string[]
 }

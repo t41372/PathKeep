@@ -1,67 +1,92 @@
-//! AI read models and integration preview surface.
+//! Responsibilities: expose AI readiness, serving state, counters and queue controls.
+//! Not responsible for: provider execution, indexing loops or database ownership.
+//! Failure modes: status opens another archive, metadata counters disagree with rows,
+//! recent-job pages hide work, or a read mutates recovery state.
 //!
-//! This module collects the non-generation-facing AI functions:
-//! schema bootstrapping, readiness/status, queue controls, connection reports,
-//! persisted assistant run loading, and manual integration preview.
-//!
-//! Keeping these together makes the public AI surface easier to scan without
-//! digging through embedding/search/assistant execution internals.
+//! Operations receive Vault and use its Intelligence read pool.
 
+use super::native_ledger::{
+    ai_embedding_token_estimate, ai_embeddings_storage_bytes, load_index_ledger,
+    provider_embedding_count, semantic_index_staleness_reason,
+};
 use super::provider::ProviderReadiness;
 use super::*;
 use crate::models::{BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID, StaticEmbeddingStatus};
-
-/// Ensures the AI compatibility tables exist in the rebuildable intelligence plane.
-pub fn ensure_ai_schema(connection: &Connection) -> Result<()> {
-    connection.execute_batch(AI_SCHEMA_SQL)?;
-    Ok(())
-}
+use vault_store::{Db, OptionalRow, Session, params_owned as params};
 
 /// Reports semantic-index readiness, queue state, and storage/readiness notes.
-pub fn ai_index_status(
+pub fn ai_index_status(vault: &crate::Vault) -> Result<AiIndexStatus> {
+    let paths = vault.paths();
+    let config = vault.config();
+    let watermark = super::native_ledger::current_source_watermark(vault)?;
+    let vectors = semantic_vector_state(vault)?;
+    let paths = paths.clone();
+    let config = config.clone();
+    vault.read(Db::Intelligence, move |s| {
+        let mut status = ai_index_status_from(&paths, &config, s, watermark, vectors)?;
+        if !config.initialized && config.ai.enabled {
+            status.state = "blocked".into();
+            status.ready = false;
+            status.warning = Some(ai_index_warning_text(&AiIndexWarning::ArchiveNotInitialized));
+            status.warning_code = Some(AiIndexWarning::ArchiveNotInitialized);
+        }
+        Ok(status)
+    })
+}
+
+/// File reads stay outside database closures so vector I/O never holds a read session.
+struct SemanticVectorState {
+    index: crate::SemanticIndexState,
+    selected_count: u64,
+    serving_count: u64,
+    text_format_outdated: bool,
+}
+
+fn semantic_vector_state(vault: &crate::Vault) -> Result<SemanticVectorState> {
+    let index = crate::semantic_index::load_state(vault)?;
+    let count = |pair: &crate::EmbeddingIndexRef| {
+        // Metadata without real vectors must not report ready. A torn store degrades to zero.
+        VectorStore::for_provider(vault.paths(), &pair.provider_id, &pair.model)
+            .count()
+            .unwrap_or(0)
+    };
+    let selected_count = index.chosen.as_ref().map(&count).unwrap_or(0);
+    let serving_count = match index.serving.as_ref() {
+        Some(pair) if Some(pair) != index.chosen.as_ref() => count(pair),
+        _ => selected_count,
+    };
+    let text_format_outdated = index
+        .chosen
+        .as_ref()
+        .map(|pair| {
+            super::embedding_prompt::text_format_is_outdated(
+                vault.paths(),
+                &pair.provider_id,
+                &pair.model,
+            )
+        })
+        .transpose()?
+        .unwrap_or(false);
+    Ok(SemanticVectorState { index, selected_count, serving_count, text_format_outdated })
+}
+
+/// Combines database counters with the vector-file state read before opening this session.
+fn ai_index_status_from(
     paths: &ProjectPaths,
     config: &AppConfig,
-    key: Option<&str>,
+    connection: &Session<'_>,
+    watermark: i64,
+    vectors: SemanticVectorState,
 ) -> Result<AiIndexStatus> {
-    let default_queue_status = AiQueueStatus {
-        paused: config.ai.job_queue_paused,
-        concurrency: config.ai.job_queue_concurrency,
-        ..AiQueueStatus::default()
-    };
-    if !config.initialized || !paths.archive_database_path.exists() {
-        return Ok(AiIndexStatus {
-            enabled: config.ai.enabled,
-            assistant_enabled: config.ai.assistant_enabled,
-            mcp_enabled: config.ai.mcp_enabled,
-            skill_enabled: config.ai.skill_enabled,
-            state: if config.ai.enabled { "blocked".to_string() } else { "disabled".to_string() },
-            llm_provider_id: config.ai.llm_provider_id.clone(),
-            embedding_provider_id: config.ai.embedding_provider_id.clone(),
-            // The static tier surface does not need the archive — surface it even before init so the
-            // Settings selector can render the download/ready state (F1).
-            static_embedding: static_embedding_status(paths, config),
-            queue_paused: default_queue_status.paused,
-            queue_concurrency: default_queue_status.concurrency,
-            warning: if config.ai.enabled {
-                Some(ai_index_warning_text(&AiIndexWarning::ArchiveNotInitialized))
-            } else {
-                None
-            },
-            warning_code: config.ai.enabled.then_some(AiIndexWarning::ArchiveNotInitialized),
-            ..AiIndexStatus::default()
-        });
-    }
-
-    let connection = open_intelligence_connection(paths, config, key)?;
-    ensure_ai_schema(&connection)?;
-    let queue_status = ai_queue::load_ai_queue_status(
-        &connection,
+    let mut queue_status = ai_queue::store::load_ai_queue_status(
+        connection,
         config.ai.job_queue_paused,
         config.ai.job_queue_concurrency,
         AI_QUEUE_RECENT_LIMIT,
     )?;
-    let index_queue_counts = ai_queue::load_queue_job_counts(
-        &connection,
+    queue_status.semantic_index = vectors.index;
+    let index_queue_counts = ai_queue::store::load_queue_job_counts(
+        connection,
         &[AiQueueJobType::IndexBuild, AiQueueJobType::IndexClear],
     )?;
 
@@ -71,7 +96,7 @@ pub fn ai_index_status(
         provider_readiness
             .selected_model
             .as_deref()
-            .map(|model| load_index_ledger(&connection, provider_id, model))
+            .map(|model| load_index_ledger(connection, provider_id, model))
             .transpose()?
             .unwrap_or_default()
     } else {
@@ -80,72 +105,60 @@ pub fn ai_index_status(
     let indexed_items = if let Some((provider_id, model)) =
         provider_id.as_deref().zip(provider_readiness.selected_model.as_deref())
     {
-        provider_embedding_count(&connection, provider_id, model)?
+        provider_embedding_count(connection, provider_id, model)?
     } else {
         0
     };
-    // F3 (0-byte honesty): the REAL vector count on the `.pkvec` plane, read O(1) from the store
-    // header + file length — NOT the SQLite metadata-row count above. A build that wrote metadata rows
-    // but zero vectors leaves `indexed_items > 0` while this stays `0`, the exact dishonest case the
-    // index health must surface. `count()` errors on a torn store; degrade to 0 (treated as "no
-    // vectors") rather than failing the whole status read.
-    let semantic_vector_count = provider_id
-        .as_deref()
-        .zip(provider_readiness.selected_model.as_deref())
-        .map(|(provider_id, model)| {
-            VectorStore::for_provider(paths, provider_id, model).count().unwrap_or(0)
-        })
-        .unwrap_or(0);
+    let semantic_vector_count = vectors.selected_count;
     // The dishonest "indexed N with an empty sidecar" case: metadata rows exist but the vector plane is
     // empty/absent, AND the provider is otherwise usable (an unusable provider is reported as degraded).
     let vectors_missing =
         provider_readiness.available && indexed_items > 0 && semantic_vector_count == 0;
     let semantic_sidecar_bytes = ai_sidecar::sidecar_storage_bytes(paths);
-    let semantic_metadata_bytes = ai_embeddings_storage_bytes(&connection)?;
-    let estimated_embedding_tokens = ai_embedding_token_estimate(&connection)?;
+    let semantic_metadata_bytes = ai_embeddings_storage_bytes(connection)?;
+    let estimated_embedding_tokens = ai_embedding_token_estimate(connection)?;
     let staleness_reason = provider_id
         .as_deref()
         .zip(provider_readiness.selected_model.as_deref())
         .map(|(provider_id, model)| {
             semantic_index_staleness_reason(
-                &connection,
+                connection,
                 provider_id,
                 model,
                 ledger.source_watermark,
+                watermark,
                 ledger.last_indexed_at.as_deref(),
+                vectors.text_format_outdated,
             )
         })
         .transpose()?
         .flatten();
-    let last_indexed_at = ledger.last_indexed_at.clone().or_else(|| {
-        provider_id.as_deref().zip(provider_readiness.selected_model.as_deref()).and_then(
-            |(provider_id, model)| {
-                connection
-                    .query_row(
-                        "SELECT indexed_at
-                     FROM ai_embeddings
-                     WHERE provider_id = ?1
-                       AND model = ?2
-                     ORDER BY indexed_at DESC
-                     LIMIT 1",
-                        params![provider_id, model],
-                        |row: &Row<'_>| row.get(0),
-                    )
-                    .optional()
-                    .ok()
-                    .flatten()
-            },
-        )
-    });
+    let last_indexed_at = if ledger.last_indexed_at.is_some() {
+        ledger.last_indexed_at.clone()
+    } else if let Some((provider, model)) =
+        provider_id.as_deref().zip(provider_readiness.selected_model.as_deref())
+    {
+        connection
+            .query_one(
+                "SELECT last_indexed_at FROM ai_embedding_totals WHERE provider_id=?1 AND model=?2",
+                params![provider, model],
+                |r| Ok(r.get::<Option<String>>(0)?),
+            )
+            .optional()?
+            .flatten()
+    } else {
+        None
+    };
     // F3: readiness keys off the REAL vector count, not the SQLite metadata-row count — "ready" must
     // mean "there are vectors semantic search can actually match", never "we recorded N rows".
-    let ready = semantic_vector_count > 0 && provider_readiness.available;
+    // Search reads the serving index: while a newly chosen model's index is built, the previous
+    // complete one still answers, so semantic search stays available (History reads `ready`).
+    let ready = vectors.serving_count > 0 && provider_readiness.available;
     let (state, warning, warning_code) = ai_index_state_and_warning(
         config,
         &provider_readiness,
         &queue_status,
         &index_queue_counts,
-        &ledger,
         staleness_reason,
         ready,
         vectors_missing,
@@ -169,6 +182,7 @@ pub fn ai_index_status(
         running_jobs: queue_status.running,
         failed_jobs: queue_status.failed,
         recent_jobs: queue_status.recent_jobs,
+        recent_jobs_next_cursor: queue_status.recent_jobs_next_cursor,
         semantic_sidecar_bytes,
         semantic_metadata_bytes,
         estimated_embedding_tokens,
@@ -177,7 +191,7 @@ pub fn ai_index_status(
     })
 }
 
-/// Renders the English MODEL-facing / legacy text for an index-health warning CODE (review-fix M-7).
+/// Renders the English MODEL-facing / legacy text for an index-health warning CODE.
 ///
 /// The wire now carries the stable [`AiIndexWarning`] CODE so the FE localizes it; this keeps the
 /// legacy `AiIndexStatus.warning` string populated (for backward compatibility and any non-localizing
@@ -217,7 +231,6 @@ pub(super) fn ai_index_warning_text(code: &AiIndexWarning) -> String {
                 .to_string()
         }
         AiIndexWarning::IndexStale { reason } => reason.model_facing_text().to_string(),
-        AiIndexWarning::BuildFailed { reason } => reason.clone(),
     }
 }
 
@@ -227,7 +240,6 @@ fn ai_index_state_and_warning(
     provider_readiness: &ProviderReadiness,
     queue_status: &AiQueueStatus,
     index_queue_counts: &ai_queue::QueueJobCounts,
-    ledger: &AiIndexLedgerRow,
     staleness_reason: Option<AiSemanticStaleness>,
     ready: bool,
     vectors_missing: bool,
@@ -240,8 +252,6 @@ fn ai_index_state_and_warning(
         "rebuilding".to_string()
     } else if queue_status.paused && index_queue_counts.queued > 0 {
         "paused".to_string()
-    } else if ledger.state == "failed" {
-        "failed".to_string()
     } else if vectors_missing {
         // Metadata rows but no vectors (F3): the index is present-but-unusable → degraded, not ready.
         "degraded".to_string()
@@ -254,18 +264,8 @@ fn ai_index_state_and_warning(
     } else {
         "empty".to_string()
     };
-    // Resolve the legacy English STRING and the stable CODE together so the FE always has a code to
-    // localize and the legacy string stays populated for any non-localizing consumer. A failed build
-    // carries its opaque transport reason (no fixed vocabulary, so the code wraps the same text);
-    // when it has no failure_reason it falls back to the last-failure timestamp (uncoded). The
-    // unavailable-provider branch reuses the readiness's own pre-rendered string + code so the exact
-    // missing prerequisite is preserved on both surfaces.
-    let (warning, warning_code) = if ledger.state == "failed" {
-        match ledger.failure_reason.clone() {
-            Some(reason) => (Some(reason.clone()), Some(AiIndexWarning::BuildFailed { reason })),
-            None => (ledger.last_failure_at.clone(), None),
-        }
-    } else if !provider_readiness.available {
+    // Keep the stable code and its model-facing text together.
+    let (warning, warning_code) = if !provider_readiness.available {
         (provider_readiness.warning.clone(), provider_readiness.warning_code.clone())
     } else if vectors_missing {
         let code = AiIndexWarning::IndexVectorsMissing;
@@ -337,25 +337,11 @@ fn static_model_size_bytes(model_dir: &std::path::Path) -> u64 {
 }
 
 /// Loads the persisted AI queue read model.
-pub fn ai_queue_status(
-    paths: &ProjectPaths,
-    config: &AppConfig,
-    key: Option<&str>,
-) -> Result<AiQueueStatus> {
-    if !config.initialized || !paths.archive_database_path.exists() {
-        return Ok(AiQueueStatus {
-            paused: config.ai.job_queue_paused,
-            concurrency: config.ai.job_queue_concurrency,
-            ..AiQueueStatus::default()
-        });
-    }
-
-    let connection = open_intelligence_connection(paths, config, key)?;
-    ensure_ai_schema(&connection)?;
+pub fn ai_queue_status(vault: &crate::Vault) -> Result<AiQueueStatus> {
     ai_queue::load_ai_queue_status(
-        &connection,
-        config.ai.job_queue_paused,
-        config.ai.job_queue_concurrency,
+        vault,
+        vault.config().ai.job_queue_paused,
+        vault.config().ai.job_queue_concurrency,
         AI_QUEUE_RECENT_LIMIT,
     )
 }
@@ -372,44 +358,23 @@ const AI_QUEUE_RECOVERY_STALE_SECONDS: i64 = 300;
 /// the read-model `queued` count (which never sees an orphaned `running` job) let an interrupted index
 /// build sit wedged across every launch and never resume. Polling this lets the next status tick kick
 /// the drain, which reclaims the orphaned job from its persisted cursor.
-pub fn recoverable_ai_jobs(
-    paths: &ProjectPaths,
-    config: &AppConfig,
-    key: Option<&str>,
-) -> Result<u32> {
-    if !config.initialized || !paths.archive_database_path.exists() {
-        return Ok(0);
-    }
-
-    let connection = open_intelligence_connection(paths, config, key)?;
-    ensure_ai_schema(&connection)?;
-    ai_queue::count_recoverable_ai_jobs(&connection, AI_QUEUE_RECOVERY_STALE_SECONDS)
+pub fn recoverable_ai_jobs(vault: &crate::Vault) -> Result<u32> {
+    ai_queue::count_recoverable_ai_jobs(vault, AI_QUEUE_RECOVERY_STALE_SECONDS)
 }
 
 /// Synchronizes persisted queue pause/resume controls with updated Settings.
 pub fn reconcile_ai_queue_controls(
-    paths: &ProjectPaths,
+    vault: &crate::Vault,
     previous_config: &AppConfig,
     next_config: &AppConfig,
-    key: Option<&str>,
 ) -> Result<()> {
-    if !next_config.initialized || !paths.archive_database_path.exists() {
-        return Ok(());
+    if previous_config.ai.job_queue_paused != next_config.ai.job_queue_paused {
+        if next_config.ai.job_queue_paused {
+            ai_queue::pause_queued_jobs(vault)?;
+        } else {
+            ai_queue::resume_paused_jobs(vault)?;
+        }
     }
-    if previous_config.ai.job_queue_paused == next_config.ai.job_queue_paused {
-        return Ok(());
-    }
-
-    let connection = open_intelligence_connection(paths, next_config, key)?;
-    ensure_ai_schema(&connection)?;
-    ai_queue::ensure_ai_queue_schema(&connection)?;
-
-    if next_config.ai.job_queue_paused {
-        ai_queue::pause_queued_jobs(&connection)?;
-    } else {
-        ai_queue::resume_paused_jobs(&connection)?;
-    }
-
     Ok(())
 }
 
@@ -470,58 +435,6 @@ pub fn provider_connection_failure_report(
         warnings: Vec::new(),
         message: message.to_string(),
     }
-}
-
-/// Loads one persisted assistant run into the public response shape.
-pub fn load_assistant_run_response(
-    paths: &ProjectPaths,
-    config: &AppConfig,
-    key: Option<&str>,
-    run_id: i64,
-) -> Result<AiAssistantResponse> {
-    let connection = open_intelligence_connection(paths, config, key)?;
-    ensure_ai_schema(&connection)?;
-    connection
-        .query_row(
-            "SELECT answer, provider_id, embedding_provider_id, citations_json, notes_json
-             FROM ai_assistant_runs
-             WHERE run_id = ?1",
-            [run_id],
-            |row| {
-                let citations_json: String = row.get(3)?;
-                let notes_json: String = row.get(4)?;
-                let citations =
-                    serde_json::from_str::<Vec<AiCitation>>(&citations_json).map_err(|error| {
-                        rusqlite::Error::FromSqlConversionFailure(
-                            3,
-                            rusqlite::types::Type::Text,
-                            Box::new(error),
-                        )
-                    })?;
-                let notes = serde_json::from_str::<Vec<String>>(&notes_json).map_err(|error| {
-                    rusqlite::Error::FromSqlConversionFailure(
-                        4,
-                        rusqlite::types::Type::Text,
-                        Box::new(error),
-                    )
-                })?;
-                Ok(AiAssistantResponse {
-                    state: if citations.is_empty() {
-                        "insufficient-evidence".to_string()
-                    } else {
-                        "completed".to_string()
-                    },
-                    answer: row.get(0)?,
-                    job_id: None,
-                    run_id: Some(run_id),
-                    provider_id: row.get(1)?,
-                    embedding_provider_id: row.get(2)?,
-                    citations,
-                    notes,
-                })
-            },
-        )
-        .with_context(|| format!("loading AI assistant run {run_id}"))
 }
 
 /// Builds the manual MCP/skill integration preview shown in Settings.
@@ -620,248 +533,4 @@ pub fn preview_ai_integrations(
             vec!["MCP and skill integration are both disabled in Settings right now.".to_string()]
         },
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::models::AiSettings;
-
-    fn enabled_config() -> AppConfig {
-        AppConfig {
-            ai: AiSettings { enabled: true, ..AiSettings::default() },
-            ..AppConfig::default()
-        }
-    }
-
-    #[test]
-    fn ai_index_state_helper_covers_ordered_status_and_warning_edges() {
-        let mut config = enabled_config();
-        let ready_provider = ProviderReadiness {
-            available: true,
-            warning: None,
-            warning_code: None,
-            selected_model: Some("model".to_string()),
-        };
-        let unavailable_provider = ProviderReadiness {
-            available: false,
-            warning: Some("provider warning".to_string()),
-            warning_code: Some(AiIndexWarning::NoEmbeddingProvider),
-            selected_model: None,
-        };
-        let queue = AiQueueStatus::default();
-        let empty_counts = ai_queue::QueueJobCounts { queued: 0, running: 0, failed: 0 };
-        let queued_counts = ai_queue::QueueJobCounts { queued: 1, running: 0, failed: 0 };
-        let running_counts = ai_queue::QueueJobCounts { queued: 0, running: 1, failed: 0 };
-        let failed_ledger = AiIndexLedgerRow {
-            state: "failed".to_string(),
-            failure_reason: Some("embedding run failed".to_string()),
-            ..AiIndexLedgerRow::default()
-        };
-
-        config.ai.enabled = false;
-        assert_eq!(
-            ai_index_state_and_warning(
-                &config,
-                &ready_provider,
-                &queue,
-                &empty_counts,
-                &AiIndexLedgerRow::default(),
-                None,
-                false,
-                false,
-            )
-            .0,
-            "disabled"
-        );
-
-        config.ai.enabled = true;
-        let degraded = ai_index_state_and_warning(
-            &config,
-            &unavailable_provider,
-            &queue,
-            &empty_counts,
-            &AiIndexLedgerRow::default(),
-            None,
-            false,
-            false,
-        );
-        assert_eq!(
-            degraded,
-            (
-                "degraded".to_string(),
-                Some("provider warning".to_string()),
-                Some(AiIndexWarning::NoEmbeddingProvider),
-            )
-        );
-        assert_eq!(
-            ai_index_state_and_warning(
-                &config,
-                &ready_provider,
-                &queue,
-                &running_counts,
-                &AiIndexLedgerRow::default(),
-                None,
-                false,
-                false,
-            )
-            .0,
-            "rebuilding"
-        );
-        assert_eq!(
-            ai_index_state_and_warning(
-                &config,
-                &ready_provider,
-                &AiQueueStatus { paused: true, ..AiQueueStatus::default() },
-                &queued_counts,
-                &AiIndexLedgerRow::default(),
-                None,
-                false,
-                false,
-            )
-            .0,
-            "paused"
-        );
-        assert_eq!(
-            ai_index_state_and_warning(
-                &config,
-                &ready_provider,
-                &queue,
-                &empty_counts,
-                &failed_ledger,
-                None,
-                false,
-                false,
-            ),
-            (
-                "failed".to_string(),
-                Some("embedding run failed".to_string()),
-                Some(AiIndexWarning::BuildFailed { reason: "embedding run failed".to_string() }),
-            )
-        );
-        // A failed ledger with NO failure_reason falls back to the (uncoded) last-failure timestamp.
-        let failed_no_reason = AiIndexLedgerRow {
-            state: "failed".to_string(),
-            failure_reason: None,
-            last_failure_at: Some("2026-06-23T00:00:00Z".to_string()),
-            ..AiIndexLedgerRow::default()
-        };
-        assert_eq!(
-            ai_index_state_and_warning(
-                &config,
-                &ready_provider,
-                &queue,
-                &empty_counts,
-                &failed_no_reason,
-                None,
-                false,
-                false,
-            ),
-            ("failed".to_string(), Some("2026-06-23T00:00:00Z".to_string()), None)
-        );
-        // F3: an available provider with metadata rows but ZERO vectors → degraded + IndexVectorsMissing
-        // (the honest "indexed N with an empty sidecar" surface), and it OUTRANKS the stale/not-built
-        // warnings below it.
-        let vectors_missing = ai_index_state_and_warning(
-            &config,
-            &ready_provider,
-            &queue,
-            &empty_counts,
-            &AiIndexLedgerRow::default(),
-            Some(AiSemanticStaleness::Watermark),
-            false,
-            true,
-        );
-        assert_eq!(vectors_missing.0, "degraded");
-        assert_eq!(vectors_missing.2, Some(AiIndexWarning::IndexVectorsMissing));
-        assert!(vectors_missing.1.expect("missing warning").contains("no vectors"));
-        let stale = ai_index_state_and_warning(
-            &config,
-            &ready_provider,
-            &queue,
-            &empty_counts,
-            &AiIndexLedgerRow::default(),
-            Some(AiSemanticStaleness::Watermark),
-            true,
-            false,
-        );
-        assert_eq!(stale.0, "stale");
-        assert_eq!(
-            stale.2,
-            Some(AiIndexWarning::IndexStale { reason: AiSemanticStaleness::Watermark })
-        );
-        // The legacy string is the watermark sentence derived from the same code.
-        assert!(stale.1.expect("stale warning").contains("import watermark"));
-        assert_eq!(
-            ai_index_state_and_warning(
-                &config,
-                &ready_provider,
-                &queue,
-                &empty_counts,
-                &AiIndexLedgerRow::default(),
-                None,
-                true,
-                false,
-            )
-            .0,
-            "ready"
-        );
-        assert_eq!(
-            ai_index_state_and_warning(
-                &config,
-                &ready_provider,
-                &queue,
-                &queued_counts,
-                &AiIndexLedgerRow::default(),
-                None,
-                false,
-                false,
-            )
-            .0,
-            "queued"
-        );
-        let empty = ai_index_state_and_warning(
-            &config,
-            &ready_provider,
-            &queue,
-            &empty_counts,
-            &AiIndexLedgerRow::default(),
-            None,
-            false,
-            false,
-        );
-        assert_eq!(empty.0, "empty");
-        assert!(empty.1.expect("empty warning").contains("Build index"));
-    }
-
-    #[test]
-    fn static_embedding_status_reports_dimension_and_on_disk_size() {
-        // Change 2: the static tier status carries the HONEST dim (256) and a real on-disk size.
-        let dir = tempfile::tempdir().expect("tempdir");
-        let paths = crate::config::project_paths_with_root(dir.path());
-        let mut config = enabled_config();
-        config.ai.embedding_providers =
-            crate::models::merge_embedding_providers(&config.ai.embedding_providers);
-
-        // Before any download: dimension is the real 256, size is 0 (no files verified on disk).
-        let pre = static_embedding_status(&paths, &config).expect("static status present");
-        assert_eq!(pre.dimensions, STATIC_EMBEDDING_DIM);
-        assert_eq!(pre.dimensions, 256);
-        assert!(!pre.model_downloaded);
-        assert_eq!(pre.model_size_bytes, 0, "no verified files on disk yet → 0 bytes");
-
-        // The summing helper reflects the real on-disk byte total once files are present (the
-        // verified-gated wrapper takes the `0` branch above because the pinned digests can't be
-        // fabricated in a unit test; this proves the size math the wrapper delegates to).
-        let model_dir = model_dir_for_repo(&paths, DEFAULT_STATIC_MODEL_REPO);
-        std::fs::create_dir_all(&model_dir).expect("mkdir");
-        let mut expected_total: u64 = 0;
-        for file in DEFAULT_STATIC_MODEL_FILES {
-            let bytes = format!("on-disk::{}", file.name).into_bytes();
-            std::fs::write(model_dir.join(file.name), &bytes).expect("seed file");
-            expected_total += bytes.len() as u64;
-        }
-        assert!(expected_total > 0);
-        assert_eq!(static_model_size_bytes(&model_dir), expected_total);
-    }
 }

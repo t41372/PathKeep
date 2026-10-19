@@ -1,2 +1,0 @@
--- Search projection moved to `derived/history-search.sqlite`.
--- The canonical archive no longer creates or maintains FTS tables in-place.

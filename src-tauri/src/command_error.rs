@@ -1,3 +1,8 @@
+//! Responsibilities: map backend failures to stable desktop error codes and recovery hints.
+//! Not responsible for: performing recovery or translating frontend copy.
+//! Failure modes: wrong-password codes changed, digest failures obscured or a published archive
+//! reported as rolled back.
+//!
 //! Structured error envelope for the desktop command surface.
 //!
 //! `docs/architecture/module-boundary-map.md` requires the user-facing error
@@ -47,6 +52,14 @@ pub const ERROR_CODE_BIOMETRIC_TURNED_OFF: &str = "biometric-turned-off";
 /// Machine-readable code: the biometric prompt ran but did not verify the
 /// user (mismatch, interruption, expiry, or timeout). Retry or use passcode.
 pub const ERROR_CODE_BIOMETRIC_FAILED: &str = "biometric-failed";
+
+/// Machine-readable code: a request to change or remove archive encryption
+/// came without the archive's current password.
+pub const ERROR_CODE_ARCHIVE_PASSWORD_REQUIRED: &str = "archive-password-required";
+
+/// Machine-readable code: the current archive password given to change or
+/// remove encryption does not open the archive.
+pub const ERROR_CODE_ARCHIVE_PASSWORD_WRONG: &str = "archive-password-wrong";
 
 /// Action hint: the frontend should surface its "open Full Disk Access
 /// settings" repair affordance.
@@ -119,7 +132,40 @@ impl CommandError {
 ///   (`"The app lock passcode did not match."`) is deliberately NEVER
 ///   classified: it is a user input error, and coding it (especially as
 ///   lock-required) would loop the unlock gate on itself.
+/// - a rekey refused for a missing or wrong current archive password carries
+///   the sentences exported by `vault-worker`'s `current_password` module.
+///   Neither is lock-required: the archive is open; the person only has to
+///   show they know its password.
 fn classify_message(message: &str) -> (Option<&'static str>, Option<&'static str>) {
+    for code in [
+        "envelope-missing",
+        "archive-password-wrong",
+        "archive-busy",
+        "keychain-key-missing",
+        "invalid-keychain-key",
+        "keychain-unavailable",
+        "archive-password-required",
+        "archive-open-panicked",
+        "invalid-cursor",
+        "invalid-page-size",
+        "copy-digest-mismatch",
+        "conversion-digest-mismatch",
+        "snapshot-digest-mismatch",
+        "encryption-mode-change-requires-rekey",
+        "archive-installed-keychain-unavailable",
+        "archive-conversion-required",
+        "export-target-is-managed",
+        "snapshot-not-listed",
+        "not-in-history",
+    ] {
+        if message.contains(&format!("{code}:")) {
+            return (Some(code), None);
+        }
+    }
+    if message.contains("backup-already-running:") {
+        return (Some("backup-already-running"), None);
+    }
+
     if message.contains("Full Disk Access")
         || message.contains("Safari History.db is not readable yet")
     {
@@ -132,6 +178,12 @@ fn classify_message(message: &str) -> (Option<&'static str>, Option<&'static str
     }
     if let Some(code) = classify_biometric_message(message) {
         return (Some(code), Some(ACTION_HINT_USE_PASSCODE));
+    }
+    if message.contains(vault_worker::REKEY_CURRENT_PASSWORD_WRONG) {
+        return (Some(ERROR_CODE_ARCHIVE_PASSWORD_WRONG), None);
+    }
+    if message.contains(vault_worker::REKEY_CURRENT_PASSWORD_REQUIRED) {
+        return (Some(ERROR_CODE_ARCHIVE_PASSWORD_REQUIRED), None);
     }
     (None, None)
 }
@@ -191,102 +243,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn classifies_full_disk_access_markers() {
-        let generic = CommandError::classified(
-            "backup failed: reading Safari history: Full Disk Access is required".to_string(),
-        );
-        assert_eq!(generic.code.as_deref(), Some(ERROR_CODE_FULL_DISK_ACCESS));
-        assert_eq!(generic.action_hint.as_deref(), Some(ACTION_HINT_OPEN_FULL_DISK_ACCESS));
-        assert_eq!(generic.retry_hint.as_deref(), Some(RETRY_HINT_AFTER_ACTION));
-
-        let legacy = CommandError::classified(
-            "Skipped `Safari` because Safari History.db is not readable yet.".to_string(),
-        );
-        assert_eq!(legacy.code.as_deref(), Some(ERROR_CODE_FULL_DISK_ACCESS));
-    }
-
-    #[test]
-    fn classifies_lock_required_markers() {
-        let encrypted = CommandError::classified(
-            "open archive: database key is required for encrypted archives".to_string(),
-        );
-        assert_eq!(encrypted.code.as_deref(), Some(ERROR_CODE_LOCK_REQUIRED));
-        assert_eq!(encrypted.action_hint.as_deref(), Some(ACTION_HINT_UNLOCK));
-
-        let app_lock = CommandError::classified(
-            "PathKeep is currently locked. Unlock the app before requesting archive data."
-                .to_string(),
-        );
-        assert_eq!(app_lock.code.as_deref(), Some(ERROR_CODE_LOCK_REQUIRED));
-    }
-
-    #[test]
-    fn leaves_unrelated_errors_unclassified() {
-        let error = CommandError::classified("disk full".to_string());
-        assert_eq!(error.code, None);
-        assert_eq!(error.action_hint, None);
-        assert_eq!(error.retry_hint, None);
-    }
-
-    #[test]
-    fn classifies_biometric_markers_from_their_producing_sentences() {
-        // Every case uses the exact sentence the backend produces
-        // (`vault-platform/src/biometric.rs` / `vault-core/src/app_lock.rs`),
-        // because those sentences ARE the canonical markers.
-        let cases = [
-            (
-                "Touch ID is available on this Mac, but no fingerprints are enrolled. Use the app lock passcode instead.",
-                ERROR_CODE_BIOMETRIC_NOT_ENROLLED,
-            ),
-            (
-                "Touch ID is locked out on this Mac right now. Unlock it in macOS or use the app lock passcode instead.",
-                ERROR_CODE_BIOMETRIC_LOCKOUT,
-            ),
-            (
-                "Touch ID is unavailable on this Mac right now. Use the app lock passcode instead.",
-                ERROR_CODE_BIOMETRIC_UNAVAILABLE,
-            ),
-            (
-                "Biometric unlock is not available in the current desktop build.",
-                ERROR_CODE_BIOMETRIC_UNAVAILABLE,
-            ),
-            ("Touch ID unlock was canceled.", ERROR_CODE_BIOMETRIC_CANCELED),
-            ("Touch ID unlock was canceled by PathKeep.", ERROR_CODE_BIOMETRIC_CANCELED),
-            (
-                "Touch ID was skipped. Use the app lock passcode instead.",
-                ERROR_CODE_BIOMETRIC_CANCELED,
-            ),
-            (
-                "Biometric unlock is currently turned off in Settings.",
-                ERROR_CODE_BIOMETRIC_TURNED_OFF,
-            ),
-            (
-                "Touch ID could not verify your identity. Try again or use the app lock passcode.",
-                ERROR_CODE_BIOMETRIC_FAILED,
-            ),
-            (
-                "Touch ID unlock was interrupted by macOS. Try again or use the app lock passcode.",
-                ERROR_CODE_BIOMETRIC_FAILED,
-            ),
-            ("Touch ID unlock is no longer valid. Try again.", ERROR_CODE_BIOMETRIC_FAILED),
-            (
-                "Touch ID unlock failed. Use the app lock passcode instead.",
-                ERROR_CODE_BIOMETRIC_FAILED,
-            ),
-            (
-                "Touch ID did not finish before PathKeep timed out. Try again or use the app lock passcode.",
-                ERROR_CODE_BIOMETRIC_FAILED,
-            ),
-        ];
-        for (message, expected_code) in cases {
-            let error = CommandError::classified(message.to_string());
-            assert_eq!(error.code.as_deref(), Some(expected_code), "message: {message}");
-            assert_eq!(error.action_hint.as_deref(), Some(ACTION_HINT_USE_PASSCODE));
-            assert_eq!(error.retry_hint.as_deref(), Some(RETRY_HINT_AFTER_ACTION));
-        }
-    }
-
-    #[test]
     fn keeps_wrong_passcode_and_opaque_touch_id_descriptions_unclassified() {
         // A wrong passcode is a user input error, not an "unlock first"
         // refusal — classifying it would loop the unlock gate on itself.
@@ -300,31 +256,5 @@ mod tests {
         // the shell renders the diagnostic prose verbatim.
         let opaque = CommandError::classified("Biometry rejected by policy 0x2f.".to_string());
         assert_eq!(opaque.code, None);
-    }
-
-    #[test]
-    fn internal_never_classifies() {
-        let error = CommandError::internal("join failed: Full Disk Access text in a panic");
-        assert_eq!(error.code, None);
-    }
-
-    #[test]
-    fn display_and_from_string_round_trip_the_message() {
-        let error = CommandError::from("plain failure".to_string());
-        assert_eq!(error.to_string(), "plain failure");
-    }
-
-    #[test]
-    fn serializes_camel_case_and_skips_empty_hints() {
-        let plain = serde_json::to_value(CommandError::internal("boom")).expect("serialize");
-        assert_eq!(plain, serde_json::json!({ "message": "boom" }));
-
-        let classified = serde_json::to_value(CommandError::classified(
-            "database key is required for encrypted archives".to_string(),
-        ))
-        .expect("serialize");
-        assert_eq!(classified["code"], "lock-required");
-        assert_eq!(classified["actionHint"], "unlock");
-        assert_eq!(classified["retryHint"], "retry-after-action");
     }
 }

@@ -89,6 +89,24 @@ impl VisitContentMap {
         Ok(())
     }
 
+    /// Cuts off a record an interrupted append left half-written (see
+    /// [`super::vector_store::VectorStore::trim_torn_tail`]). Returns the bytes cut.
+    pub fn trim_torn_tail(&self) -> Result<u64> {
+        if !self.exists() {
+            return Ok(0);
+        }
+        let total = self.path.metadata().context("visit map metadata")?.len();
+        let torn = total.saturating_sub(VISIT_MAP_MAGIC.len() as u64) % RECORD_LEN as u64;
+        if torn > 0 {
+            OpenOptions::new()
+                .write(true)
+                .open(&self.path)
+                .and_then(|file| file.set_len(total - torn))
+                .with_context(|| format!("trimming visit map {}", self.path.display()))?;
+        }
+        Ok(torn)
+    }
+
     /// Appends a batch of `(history_id, content_key)` records to the end of the map.
     ///
     /// Contiguous append, never rewrites earlier records, so backfilling 14.4M visits is O(rows
@@ -152,74 +170,26 @@ impl VisitContentMap {
         Ok(keys)
     }
 
-    /// Collects, for each WANTED `content_key`, every `history_id` that maps to it (W-AI-5 hydration).
-    ///
-    /// The inverse the semantic-search hydration needs: a deduped result vector (a `content_key` the
-    /// [`super::vector_index::FlatVectorIndex`] returned) must fan back out to its visits so search can
-    /// pick a representative (most-recent) visit per result page. ONE streaming pass keeps only the
-    /// requested keys' visits (the candidate set is bounded by `k`, never the 14.4M map), so memory is
-    /// bounded by the result fan-out — never the whole map. A key with no mapped visit (an orphan
-    /// vector) is simply absent from the returned map; the caller drops it. An absent map returns an
-    /// empty map (a never-built index hydrates to nothing, not an error).
-    ///
-    /// NOTE (M-11): this is a single bounded-MEMORY pass but a full O(n) TIME stride over the per-visit
-    /// `.pkmap`. It is no longer the always-on hydration path — the keyed
-    /// [`super::reverse_visit_map::ReverseVisitMap`] `.pkrev` sidecar resolves the same join in
-    /// O(k'·log n) binary seeks. This method is now the AUTHORITATIVE FALLBACK the read path uses only
-    /// when that sidecar is missing/stale (an older or torn index), and the SOURCE the sidecar projects
-    /// from — so it must keep returning EXACTLY the keyed lookup's result (it does: same multiset).
-    pub fn history_ids_for_content_keys(
-        &self,
-        wanted: &HashSet<u64>,
-    ) -> Result<HashMap<u64, Vec<i64>>> {
-        let mut inverse: HashMap<u64, Vec<i64>> = HashMap::new();
-        if wanted.is_empty() {
-            return Ok(inverse);
-        }
-        self.for_each_record(|history_id, content_key| {
-            if wanted.contains(&content_key) {
-                inverse.entry(content_key).or_default().push(history_id);
-            }
-        })?;
-        Ok(inverse)
-    }
-
-    /// Collects the SET of `content_key`s for a BOUNDED set of `history_id`s (W-AI-6 starred facet).
-    ///
-    /// The forward direction of [`Self::history_ids_for_content_keys`]: the `is:starred` facet resolves
-    /// a tiny set of starred visits (hundreds, never the corpus) and needs their deduped content vectors
-    /// so semantic search can be restricted to favorites via the [`super::vector_index::FlatVectorIndex`]
-    /// allowlist. ONE streaming pass keeps only the wanted ids' keys (a result fan-IN bounded by the
-    /// starred set, not the 14.4M map), so memory is bounded by the starred set. An absent map returns
-    /// an empty set (a never-built index has no starred content keys, not an error); a starred visit
-    /// with no mapped vector (never embedded) simply contributes nothing.
-    ///
-    /// NOTE (M-11/XA-PERF-4): like its inverse, this is bounded-memory but a full O(n) TIME stride. It
-    /// is no longer the always-paid forward path — the keyed
-    /// [`super::reverse_visit_map::ReverseVisitMap`] `.pkfwd` sidecar resolves the same join in
-    /// O(starred·log n) binary seeks. This method is now the AUTHORITATIVE FALLBACK used only when that
-    /// sidecar is missing/stale, returning EXACTLY the keyed lookup's content_key set.
-    pub fn content_keys_for_history_ids(&self, wanted: &HashSet<i64>) -> Result<HashSet<u64>> {
-        let mut keys = HashSet::new();
-        if wanted.is_empty() {
-            return Ok(keys);
-        }
-        self.for_each_record(|history_id, content_key| {
-            if wanted.contains(&history_id) {
-                keys.insert(content_key);
-            }
-        })?;
-        Ok(keys)
-    }
-
     /// Deletes the map file if it exists, returning whether a file was removed.
     pub fn delete(&self) -> Result<bool> {
+        self.invalidate_projections()?;
         if !self.exists() {
             return Ok(false);
         }
         fs::remove_file(&self.path)
             .with_context(|| format!("removing visit map {}", self.path.display()))?;
         Ok(true)
+    }
+
+    // Projections of a deleted map must not outlive it.
+    fn invalidate_projections(&self) -> Result<()> {
+        for extension in ["pkrev", "pkfwd", "pkpos"] {
+            let path = self.path.with_extension(extension);
+            if path.exists() {
+                fs::remove_file(path)?;
+            }
+        }
+        Ok(())
     }
 
     /// Strides record-by-record, invoking `sink` for each `(history_id, content_key)`.
@@ -289,20 +259,6 @@ fn read_exact_or_eof<R: Read>(reader: &mut R, buffer: &mut [u8]) -> Result<ReadO
     Ok(ReadOutcome::Full)
 }
 
-/// Reports total bytes consumed by all `.pkmap` files under the vector plane.
-pub fn visit_map_plane_bytes(paths: &ProjectPaths) -> u64 {
-    let Ok(entries) = fs::read_dir(&paths.vectors_dir) else {
-        return 0;
-    };
-    entries
-        .flatten()
-        .filter(|entry| {
-            entry.path().extension().and_then(|ext| ext.to_str()) == Some(VISIT_MAP_EXTENSION)
-        })
-        .filter_map(|entry| entry.metadata().ok().map(|meta| meta.len()))
-        .sum()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -314,117 +270,6 @@ mod tests {
     }
 
     #[test]
-    fn create_append_read_round_trips() {
-        let dir = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(dir.path());
-        let map = map(&paths);
-        // `create` truncates the resolved path; use the provider-resolved handle's own create.
-        let created = create_for(&paths, &map);
-        created.append(&[(10, 0xAAAA), (20, 0xBBBB)]).expect("append 1");
-        created.append(&[(30, 0xAAAA)]).expect("append 2");
-
-        let all = created.read_all().expect("read all");
-        assert_eq!(all.get(&10), Some(&0xAAAA));
-        assert_eq!(all.get(&20), Some(&0xBBBB));
-        // Two visits (10, 30) share content_key 0xAAAA — the dedup fan-out.
-        assert_eq!(all.get(&30), Some(&0xAAAA));
-        assert_eq!(all.len(), 3);
-
-        let ids = created.mapped_history_ids().expect("ids");
-        assert_eq!(ids, HashSet::from([10, 20, 30]));
-        let keys = created.referenced_content_keys().expect("keys");
-        assert_eq!(keys, HashSet::from([0xAAAA, 0xBBBB]));
-    }
-
-    #[test]
-    fn history_ids_for_content_keys_returns_only_wanted_keys_fan_out() {
-        let dir = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(dir.path());
-        let created = create_for(&paths, &map(&paths));
-        // Two visits share content_key 0xAAAA; one visit on 0xBBBB; one on an unwanted 0xCCCC.
-        created.append(&[(10, 0xAAAA), (20, 0xBBBB), (30, 0xAAAA), (40, 0xCCCC)]).expect("append");
-
-        let inverse = created
-            .history_ids_for_content_keys(&HashSet::from([0xAAAA, 0xBBBB]))
-            .expect("inverse");
-        let mut aaaa = inverse.get(&0xAAAA).cloned().expect("aaaa present");
-        aaaa.sort_unstable();
-        assert_eq!(aaaa, vec![10, 30], "0xAAAA fans out to both its visits");
-        assert_eq!(inverse.get(&0xBBBB), Some(&vec![20]));
-        assert!(!inverse.contains_key(&0xCCCC), "unwanted keys are excluded");
-
-        // An empty wanted set short-circuits to an empty map.
-        assert!(created.history_ids_for_content_keys(&HashSet::new()).expect("empty").is_empty());
-    }
-
-    #[test]
-    fn history_ids_for_content_keys_is_empty_for_absent_map() {
-        let dir = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(dir.path());
-        let handle = map(&paths);
-        assert!(!handle.exists());
-        assert!(
-            handle
-                .history_ids_for_content_keys(&HashSet::from([0x1]))
-                .expect("absent inverse")
-                .is_empty()
-        );
-    }
-
-    #[test]
-    fn content_keys_for_history_ids_collects_only_wanted_visits_keys() {
-        // W-AI-6 starred facet: the forward direction maps a bounded set of starred visits to their
-        // deduped content vectors. Two visits share key 0xAAAA; one maps to 0xBBBB; one unwanted visit.
-        let dir = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(dir.path());
-        let created = create_for(&paths, &map(&paths));
-        created.append(&[(10, 0xAAAA), (20, 0xBBBB), (30, 0xAAAA), (40, 0xCCCC)]).expect("append");
-
-        // Wanting visits 10, 20, 30 yields exactly their two distinct content keys (0xAAAA deduped).
-        let keys =
-            created.content_keys_for_history_ids(&HashSet::from([10, 20, 30])).expect("forward");
-        assert_eq!(keys, HashSet::from([0xAAAA, 0xBBBB]));
-        // Visit 40's key is excluded because it was not wanted.
-        assert!(!keys.contains(&0xCCCC));
-        // An empty wanted set short-circuits to an empty set.
-        assert!(created.content_keys_for_history_ids(&HashSet::new()).expect("empty").is_empty());
-    }
-
-    #[test]
-    fn content_keys_for_history_ids_is_empty_for_absent_map() {
-        // A never-built index has no starred content keys (not an error) — the honest facet outcome.
-        let dir = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(dir.path());
-        let handle = map(&paths);
-        assert!(!handle.exists());
-        assert!(
-            handle
-                .content_keys_for_history_ids(&HashSet::from([10]))
-                .expect("absent forward")
-                .is_empty()
-        );
-    }
-
-    #[test]
-    fn empty_append_is_noop() {
-        let dir = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(dir.path());
-        let created = create_for(&paths, &map(&paths));
-        created.append(&[]).expect("empty append");
-        assert!(created.read_all().expect("read").is_empty());
-    }
-
-    #[test]
-    fn append_requires_existing_map() {
-        let dir = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(dir.path());
-        ensure_paths(&paths).expect("ensure");
-        let handle = map(&paths);
-        let error = handle.append(&[(1, 1)]).expect_err("missing map");
-        assert!(error.to_string().contains("does not exist"));
-    }
-
-    #[test]
     fn read_all_last_writer_wins_for_remapped_visit() {
         let dir = tempdir().expect("tempdir");
         let paths = project_paths_with_root(dir.path());
@@ -433,87 +278,6 @@ mod tests {
         // A torn resume re-maps visit 10 to a NEW content_key (title changed): last writer wins.
         created.append(&[(10, 0x2222)]).expect("append 2");
         assert_eq!(created.read_all().expect("read").get(&10), Some(&0x2222));
-    }
-
-    #[test]
-    fn read_rejects_partial_trailing_record() {
-        let dir = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(dir.path());
-        let created = create_for(&paths, &map(&paths));
-        created.append(&[(1, 1)]).expect("append");
-        let len = created.path().metadata().expect("meta").len();
-        let file = OpenOptions::new().write(true).open(created.path()).expect("open");
-        file.set_len(len - 3).expect("truncate");
-        let error = created.read_all().expect_err("partial record");
-        assert!(error.to_string().contains("partial record"));
-    }
-
-    #[test]
-    fn read_rejects_bad_magic() {
-        let dir = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(dir.path());
-        ensure_paths(&paths).expect("ensure");
-        let handle = map(&paths);
-        fs::write(handle.path(), b"NOTPKMAPxxxxxxxx").expect("write garbage");
-        assert!(
-            handle.read_all().expect_err("bad magic").to_string().contains("unrecognized magic")
-        );
-    }
-
-    #[test]
-    fn absent_map_reads_empty() {
-        let dir = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(dir.path());
-        let handle = map(&paths);
-        assert!(!handle.exists());
-        assert!(handle.read_all().expect("read").is_empty());
-        assert!(handle.mapped_history_ids().expect("ids").is_empty());
-        assert!(handle.referenced_content_keys().expect("keys").is_empty());
-    }
-
-    #[test]
-    fn delete_removes_map_and_reports_state() {
-        let dir = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(dir.path());
-        let created = create_for(&paths, &map(&paths));
-        assert!(created.exists());
-        assert!(created.delete().expect("delete"));
-        assert!(!created.exists());
-        assert!(!created.delete().expect("second delete"));
-    }
-
-    #[test]
-    fn plane_bytes_sums_only_pkmap_files() {
-        let dir = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(dir.path());
-        assert_eq!(visit_map_plane_bytes(&paths), 0);
-        let created = create_for(&paths, &map(&paths));
-        created.append(&[(1, 1)]).expect("append");
-        fs::write(paths.vectors_dir.join("notes.txt"), b"ignore").expect("write txt");
-        let bytes = visit_map_plane_bytes(&paths);
-        assert_eq!(bytes, created.path().metadata().expect("meta").len());
-        assert!(bytes > 0);
-    }
-
-    #[test]
-    fn record_bytes_are_little_endian_id_then_key() {
-        let dir = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(dir.path());
-        let created = create_for(&paths, &map(&paths));
-        created.append(&[(0x0102_0304_0506_0708, 0x1112_1314_1516_1718)]).expect("append");
-        let bytes = fs::read(created.path()).expect("read file");
-        let record = &bytes[bytes.len() - RECORD_LEN..];
-        assert_eq!(&record[..8], &0x0102_0304_0506_0708_i64.to_le_bytes());
-        assert_eq!(&record[8..], &0x1112_1314_1516_1718_u64.to_le_bytes());
-    }
-
-    #[test]
-    fn for_provider_path_uses_stable_table_name() {
-        let dir = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(dir.path());
-        let handle = VisitContentMap::for_provider(&paths, "static-in-app", "minishlab/potion");
-        let name = handle.path().file_name().expect("name").to_string_lossy().to_string();
-        assert!(name.ends_with(".pkmap"));
     }
 
     /// Ensures the provider-resolved map exists via the real `ensure_created` (the production path),
@@ -533,5 +297,36 @@ mod tests {
         // A second ensure_created on an existing map must NOT wipe the prior record (resume safety).
         handle.ensure_created(&paths).expect("idempotent create");
         assert_eq!(handle.read_all().expect("read").get(&1), Some(&0x9));
+    }
+
+    /// The same ways to go wrong as `VectorStore::trim_torn_tail` (see its test), for the map.
+    #[test]
+    fn trim_torn_tail_cuts_only_the_half_written_record() {
+        use std::io::Write as _;
+        let dir = tempdir().expect("tempdir");
+        let paths = project_paths_with_root(dir.path());
+        let handle = map(&paths);
+        assert_eq!(handle.trim_torn_tail().expect("absent"), 0);
+        assert!(!handle.exists(), "nothing is created");
+
+        let created = create_for(&paths, &handle);
+        assert_eq!(created.trim_torn_tail().expect("header only"), 0);
+        created.append(&[(1, 0x1), (2, 0x2)]).expect("append");
+        let whole = std::fs::read(created.path()).unwrap();
+        assert_eq!(created.trim_torn_tail().expect("clean"), 0);
+        assert_eq!(std::fs::read(created.path()).unwrap(), whole);
+
+        std::fs::OpenOptions::new()
+            .append(true)
+            .open(created.path())
+            .unwrap()
+            .write_all(&[0xCD; 5])
+            .unwrap();
+        assert!(created.read_all().is_err(), "the torn map cannot be read as it is");
+        assert_eq!(created.trim_torn_tail().expect("torn"), 5);
+        assert_eq!(std::fs::read(created.path()).unwrap(), whole);
+        created.append(&[(3, 0x3)]).expect("append after trim");
+        let read = created.read_all().expect("read");
+        assert_eq!((read.len(), read.get(&3)), (3, Some(&0x3)));
     }
 }

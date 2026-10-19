@@ -27,22 +27,49 @@ pub(crate) fn app_build_info() -> vault_core::AppBuildInfo {
 pub(crate) async fn app_snapshot(
     state: State<'_, SessionState>,
 ) -> Result<vault_core::AppSnapshot, CommandError> {
-    let key = state.get_key();
-    run_blocking_command("app_snapshot", move || worker_bridge::app_snapshot_impl(key.as_deref()))
-        .await
+    let key_state = state.inner().clone();
+    run_blocking_command("app_snapshot", move || worker_bridge::app_snapshot_impl(&key_state)).await
 }
 
 #[cfg(not(test))]
 #[tauri::command]
 /// Persists user config changes and returns the refreshed desktop snapshot, off the UI thread.
+///
+/// Also brings the menu bar menu in line with the saved config (language, icon on/off).
 pub(crate) async fn save_config(
+    app: tauri::AppHandle,
     config: vault_core::AppConfig,
     base_config: Option<vault_core::AppConfig>,
     state: State<'_, SessionState>,
 ) -> Result<vault_core::AppSnapshot, CommandError> {
-    let key = state.get_key();
+    let key_state = state.inner().clone();
     run_blocking_command("save_config", move || {
-        worker_bridge::save_config_with_base_impl(config, base_config, key.as_deref())
+        let snapshot = worker_bridge::save_config_with_base_impl(config, base_config, &key_state)?;
+        crate::desktop_integration::config_saved(&app, &snapshot.config);
+        Ok(snapshot)
+    })
+    .await
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+/// Lists what "Delete all data" would remove, with sizes, off the UI thread.
+pub(crate) async fn preview_wipe_all_data() -> Result<vault_core::WipePreview, CommandError> {
+    run_blocking_command("preview_wipe_all_data", worker_bridge::preview_wipe_all_data_impl).await
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+/// Deletes all PathKeep data once `confirmation` is the literal word "DELETE", off the UI thread.
+/// The next `app_snapshot` reports the app as not initialized. The report says whether an
+/// installed automatic backup was removed, or why it could not be.
+pub(crate) async fn wipe_all_data(
+    confirmation: String,
+    state: State<'_, SessionState>,
+) -> Result<vault_core::WipeReport, CommandError> {
+    let session = state.inner().clone();
+    run_blocking_command("wipe_all_data", move || {
+        worker_bridge::wipe_all_data_impl(&confirmation, &session)
     })
     .await
 }
@@ -50,20 +77,28 @@ pub(crate) async fn save_config(
 #[cfg(not(test))]
 #[tauri::command]
 /// Stores a session-only archive key without touching native keyrings.
-pub(crate) fn set_session_database_key(
+pub(crate) async fn set_session_database_key(
     database_key: String,
     state: State<'_, SessionState>,
 ) -> Result<(), CommandError> {
-    worker_bridge::set_session_database_key_impl(database_key, &state)
+    let session = state.inner().clone();
+    run_blocking_command("set_session_database_key", move || {
+        worker_bridge::set_session_database_key_impl(database_key, &session)
+    })
+    .await
 }
 
 #[cfg(not(test))]
 #[tauri::command]
 /// Clears the transient session database key cached by the desktop process.
-pub(crate) fn clear_session_database_key(
+pub(crate) async fn clear_session_database_key(
     state: State<'_, SessionState>,
 ) -> Result<(), CommandError> {
-    worker_bridge::clear_session_database_key_impl(&state)
+    let session = state.inner().clone();
+    run_blocking_command("clear_session_database_key", move || {
+        worker_bridge::clear_session_database_key_impl(&session)
+    })
+    .await
 }
 
 #[cfg(not(test))]

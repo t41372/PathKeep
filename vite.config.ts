@@ -6,10 +6,6 @@ import tailwindcss from '@tailwindcss/vite'
 
 const rootDir = path.dirname(fileURLToPath(import.meta.url))
 const devServerPort = Number(process.env.PATHKEEP_DEV_SERVER_PORT || 1420)
-const browserPreviewDataset =
-  process.env.PATHKEEP_BROWSER_PREVIEW_DATASET ||
-  process.env.VITE_PATHKEEP_BROWSER_PREVIEW_DATASET ||
-  (process.env.VERCEL ? 'showcase' : 'setup')
 
 // https://vite.dev/config/
 export default defineConfig({
@@ -18,9 +14,6 @@ export default defineConfig({
     alias: {
       '@': path.join(rootDir, 'src'),
     },
-  },
-  define: {
-    __PATHKEEP_BROWSER_PREVIEW_DATASET__: JSON.stringify(browserPreviewDataset),
   },
   build: {
     manifest: true,
@@ -34,6 +27,11 @@ export default defineConfig({
         '**/src-tauri/target/**',
         '**/var/playwright/**',
         '**/cargo-target/**',
+        // Agent worktrees and the design prototypes are full of HTML that
+        // would otherwise trigger page reloads. Anchored to this checkout, so
+        // a dev server started inside a worktree still sees its own files.
+        path.join(rootDir, '.claude/**'),
+        path.join(rootDir, 'docs/**'),
       ],
     },
   },

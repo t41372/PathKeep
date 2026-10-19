@@ -17,16 +17,18 @@ import type {
   AgentConversationDetail,
   AgentConversationListResponse,
   AgentConversationSummary,
-  AiAssistantRequest,
-  AiAssistantResponse,
   AiChatCancelResult,
   AiChatSendAck,
+  AiChatContext,
+  AiChatContextRequest,
   AiChatSendRequest,
   AiIndexReport,
   AiIndexRequest,
   AiIntegrationPreview,
   AiProviderConnectionTestReport,
   AiProviderConnectionTestRequest,
+  AiProviderModel,
+  AiProviderModelsRequest,
   AiProviderSecretInput,
   AiQueueJob,
   AiQueueStatus,
@@ -34,9 +36,15 @@ import type {
   AiSearchResponse,
   AppSnapshot,
   ClearDerivedIntelligenceReport,
+  ConversationExportOutcome,
   DeleteAgentConversationResult,
+  ExportAgentConversationRequest,
+  IntelligenceJobOverview,
   IntelligenceRuntimeSnapshot,
+  JobPage,
   ListAgentConversationsRequest,
+  ListJobsRequest,
+  McpQueryRecord,
   ReembedEstimate,
   ReembedScope,
   RenameAgentConversationRequest,
@@ -66,21 +74,32 @@ export const intelligenceClient = {
     call<AiProviderConnectionTestReport>('test_ai_provider_connection', {
       request,
     }),
+  listProviderModels: (request: AiProviderModelsRequest) =>
+    call<AiProviderModel[]>('list_ai_provider_models', { request }),
   getQueueStatus: () => call<AiQueueStatus>('load_ai_queue_status'),
+  /** What outside apps asked through the MCP server, newest first. */
+  listMcpQueries: (cursor: number | null, limit: number) =>
+    call<JobPage<McpQueryRecord>>('load_mcp_queries', { cursor, limit }),
+  /** Every search-index and assistant job, a page at a time. */
+  listQueueJobs: (request: ListJobsRequest) =>
+    call<JobPage<AiQueueJob>>('list_ai_jobs', { request }),
   runQueueJobs: (maxJobs?: number) =>
     call<AiQueueStatus>('run_ai_queue_jobs', { maxJobs }),
   replayJob: (jobId: number) => call<AiQueueJob>('replay_ai_job', { jobId }),
   cancelJob: (jobId: number) => call<AiQueueJob>('cancel_ai_job', { jobId }),
+  /**
+   * Pauses an index build where it is; `replayJob` goes on from there. A
+   * paused build stays paused across restarts and backups.
+   */
+  pauseJob: (jobId: number) => call<AiQueueJob>('pause_ai_job', { jobId }),
   buildIndex: (request: AiIndexRequest) =>
     call<AiIndexReport>('build_ai_index', { request }),
   estimateReembed: (scope: ReembedScope) =>
     call<ReembedEstimate>('estimate_reembed', { scope }),
   searchHistory: (request: AiSearchRequest) =>
     call<AiSearchResponse>('search_ai_history', { request }),
-  askAssistant: (request: AiAssistantRequest) =>
-    call<AiAssistantResponse>('ask_ai_assistant', { request }),
-  getAssistantJob: (jobId: number) =>
-    call<AiAssistantResponse>('load_ai_assistant_job', { jobId }),
+  chatContext: (request: AiChatContextRequest) =>
+    call<AiChatContext>('ai_chat_context', { request }),
   sendChat: (request: AiChatSendRequest) =>
     call<AiChatSendAck>('ai_chat_send', { request }),
   cancelChat: (runId: string) =>
@@ -101,6 +120,10 @@ export const intelligenceClient = {
     call<AgentConversationSummary | null>('rename_ai_conversation', {
       request,
     }),
+  exportConversation: (request: ExportAgentConversationRequest) =>
+    call<ConversationExportOutcome>('export_ai_conversation', {
+      request,
+    }),
   listSearchEngineRules: () =>
     call<SearchEngineRule[]>('list_search_engine_rules'),
   upsertSearchEngineRule: (input: SearchEngineRuleInput) =>
@@ -115,6 +138,9 @@ export const intelligenceClient = {
     call<CoreIntelligenceQueueReport>('queue_core_intelligence_rebuild', {
       request,
     }),
+  /** Counts what `clearDerivedState` would remove, without removing it (the PME preview). */
+  previewClearDerivedState: () =>
+    call<ClearDerivedIntelligenceReport>('preview_clear_derived_intelligence'),
   clearDerivedState: () =>
     call<ClearDerivedIntelligenceReport>('clear_derived_intelligence'),
   getPrimaryOverview: (request: {
@@ -140,6 +166,11 @@ export const intelligenceClient = {
     }),
   getRuntime: () =>
     call<IntelligenceRuntimeSnapshot>('load_intelligence_runtime'),
+  /** Every Insights job, a page at a time. */
+  listRuntimeJobs: (request: ListJobsRequest) =>
+    call<JobPage<IntelligenceJobOverview>>('list_intelligence_jobs', {
+      request,
+    }),
   retryRuntimeJob: (jobId: number) =>
     call<IntelligenceRuntimeSnapshot>('retry_intelligence_job', { jobId }),
   cancelRuntimeJob: (jobId: number) =>
@@ -155,8 +186,8 @@ export const intelligenceClient = {
   downloadStaticEmbeddingModel: () =>
     call<void>('download_static_embedding_model'),
   /**
-   * Requests cancellation of an in-flight in-app embedding model download (static or heavy tier;
-   * they share one process-global cancel flag). The cancelled download emits a terminal `error`
+   * Requests cancellation of an in-flight in-app embedding model download (a process-global
+   * cancel flag). The cancelled download emits a terminal `error`
    * event on the progress channel. No-op when nothing is downloading.
    */
   cancelStaticEmbeddingModelDownload: () =>

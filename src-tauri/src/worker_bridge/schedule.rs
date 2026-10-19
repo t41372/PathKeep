@@ -5,11 +5,13 @@ use vault_core::SchedulePlan;
 
 use super::worker_result;
 
-/// Previews the native schedule plan for one platform.
+/// Previews the native schedule plan for one platform, optionally for an
+/// interval that is not saved yet.
 pub(crate) fn preview_schedule_impl(
     platform: Option<String>,
+    due_after_hours: Option<f64>,
 ) -> Result<SchedulePlan, CommandError> {
-    worker_result(vault_worker::preview_schedule_plan(platform.as_deref(), None))
+    worker_result(vault_worker::preview_schedule_plan(platform.as_deref(), None, due_after_hours))
 }
 
 /// Applies one previously previewed native schedule plan.
@@ -38,7 +40,11 @@ pub(crate) fn repair_schedule_impl(
 /// Loads status for the selected native scheduler implementation.
 pub(crate) fn schedule_status_impl(
     platform: Option<String>,
-    session_database_key: Option<&str>,
+    state: &crate::session::SessionState,
 ) -> Result<vault_core::ScheduleStatus, CommandError> {
-    worker_result(vault_worker::schedule_status(session_database_key, platform.as_deref(), None))
+    worker_result(vault_worker::schedule_status(
+        state.current_vault().as_ref(),
+        platform.as_deref(),
+        None,
+    ))
 }

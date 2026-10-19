@@ -30,11 +30,26 @@ pub(crate) async fn ai_chat_send(
     request: vault_core::AiChatSendRequest,
     state: State<'_, SessionState>,
 ) -> Result<vault_core::AiChatSendAck, CommandError> {
-    let session_database_key = state.get_key();
+    let state = state.inner().clone();
     run_blocking_command("ai_chat_send", move || {
-        worker_bridge::ai_chat_send_impl(request, session_database_key.as_deref(), move |event| {
+        worker_bridge::ai_chat_send_impl(request, &state, move |event| {
             let _ = app.emit(vault_core::AI_CHAT_STREAM_EVENT, &event);
         })
+    })
+    .await
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+/// How much the model Ask would answer with next can read, and how much every request already
+/// takes; it asks the service, off the UI thread.
+pub(crate) async fn ai_chat_context(
+    request: vault_core::AiChatContextRequest,
+    state: State<'_, SessionState>,
+) -> Result<vault_core::AiChatContext, CommandError> {
+    let state = state.inner().clone();
+    run_blocking_command("ai_chat_context", move || {
+        worker_bridge::ai_chat_context_impl(&state, request)
     })
     .await
 }
@@ -46,26 +61,9 @@ pub(crate) async fn ai_chat_cancel(
     run_id: String,
     state: State<'_, SessionState>,
 ) -> Result<vault_core::AiChatCancelResult, CommandError> {
-    let session_database_key = state.get_key();
+    let session_database_key_state = state.inner().clone();
     run_blocking_command("ai_chat_cancel", move || {
-        worker_bridge::ai_chat_cancel_impl(run_id, session_database_key.as_deref())
-    })
-    .await
-}
-
-#[cfg(not(test))]
-#[tauri::command]
-/// Starts the consent-gated in-app embedding model download; progress arrives on
-/// `pathkeep://model-download-progress` (W-AI-4b §C.5).
-///
-/// Reaching this command IS the explicit user consent action (pressing "Download model"); the
-/// first-class consent TOGGLE + provider-config UI is W-AI-9. The download runs off the UI thread
-/// and emits a terminal `Done`/`Error` so the renderer never hangs.
-pub(crate) async fn download_ai_embedding_model(app: AppHandle) -> Result<(), CommandError> {
-    run_blocking_command("download_ai_embedding_model", move || {
-        worker_bridge::download_ai_embedding_model_impl(move |event| {
-            let _ = app.emit(vault_core::MODEL_DOWNLOAD_PROGRESS_EVENT, &event);
-        })
+        worker_bridge::ai_chat_cancel_impl(run_id, session_database_key_state.get_key()?.as_deref())
     })
     .await
 }
@@ -76,8 +74,8 @@ pub(crate) async fn download_ai_embedding_model(app: AppHandle) -> Result<(), Co
 /// `pathkeep://model-download-progress`.
 ///
 /// Reaching this command IS the explicit consent action (the "Download local model" button for the
-/// built-in static provider). It reuses the same SHA-256-verified download path as the heavy tier and
-/// shares the cancel flag, so an in-flight download is cancelable via
+/// built-in static provider). The download is SHA-256-verified and has a cancel flag, so an
+/// in-flight download is cancelable via
 /// `cancel_ai_embedding_model_download`. Always emits a terminal `Done`/`Error` so the renderer never
 /// hangs.
 pub(crate) async fn download_static_embedding_model(app: AppHandle) -> Result<(), CommandError> {

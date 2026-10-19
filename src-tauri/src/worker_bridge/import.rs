@@ -12,37 +12,55 @@ pub(crate) fn inspect_takeout_impl(
     worker_result(vault_worker::inspect_takeout_source(&request))
 }
 
-/// Imports one Takeout source into the archive.
+/// Imports one Takeout source into the archive; `stop_import_impl(import_id)` stops it.
 pub(crate) fn import_takeout_impl(
     request: TakeoutRequest,
-    session_database_key: Option<&str>,
+    import_id: Option<String>,
+    state: &crate::session::SessionState,
     report_progress: impl FnMut(vault_core::ImportProgressEvent),
 ) -> Result<vault_core::TakeoutInspection, CommandError> {
+    let vault = state.vault()?;
+    let key = state.typed_password();
+    let session_database_key = key.as_deref();
     worker_result(vault_worker::import_takeout_source_with_progress(
+        &vault,
         session_database_key,
         &request,
+        import_id.as_deref(),
         report_progress,
     ))
+}
+
+/// Asks a running import to stop after the batch it is writing; false if none runs under the id.
+pub(crate) fn stop_import_impl(import_id: &str) -> bool {
+    vault_core::stop_import(import_id)
 }
 
 #[cfg_attr(test, allow(dead_code))]
 /// Inspects one local browser history database without mutating the archive.
 pub(crate) fn inspect_browser_history_impl(
     request: BrowserHistoryImportRequest,
+    state: &crate::session::SessionState,
 ) -> Result<vault_core::TakeoutInspection, CommandError> {
-    worker_result(vault_worker::inspect_browser_history_source(&request))
+    worker_result(vault_worker::inspect_browser_history_source(&state.vault()?, &request))
 }
 
 #[cfg_attr(test, allow(dead_code))]
-/// Imports one local browser history database into the archive.
+/// Imports one local browser history database into the archive; stoppable like Takeout.
 pub(crate) fn import_browser_history_impl(
     request: BrowserHistoryImportRequest,
-    session_database_key: Option<&str>,
+    import_id: Option<String>,
+    state: &crate::session::SessionState,
     report_progress: impl FnMut(vault_core::ImportProgressEvent),
 ) -> Result<vault_core::TakeoutInspection, CommandError> {
+    let vault = state.vault()?;
+    let key = state.typed_password();
+    let session_database_key = key.as_deref();
     worker_result(vault_worker::import_browser_history_source_with_progress(
+        &vault,
         session_database_key,
         &request,
+        import_id.as_deref(),
         report_progress,
     ))
 }
@@ -50,24 +68,31 @@ pub(crate) fn import_browser_history_impl(
 /// Loads the detailed preview for one import batch.
 pub(crate) fn preview_import_batch_impl(
     batch_id: i64,
-    session_database_key: Option<&str>,
+    cursor: Option<String>,
+    limit: Option<usize>,
+    state: &crate::session::SessionState,
 ) -> Result<vault_core::ImportBatchDetail, CommandError> {
-    worker_result(vault_worker::preview_import_batch_detail(session_database_key, batch_id))
+    worker_result(vault_core::preview_import_batch_page(
+        &state.vault()?,
+        batch_id,
+        cursor,
+        limit.unwrap_or(24),
+    ))
 }
 
 /// Hides one import batch from the visible archive surface.
 pub(crate) fn revert_import_batch_impl(
     batch_id: i64,
-    session_database_key: Option<&str>,
+    state: &crate::session::SessionState,
 ) -> Result<vault_core::ImportBatchDetail, CommandError> {
-    worker_result(vault_worker::revert_import_batch_detail(session_database_key, batch_id))
+    worker_result(vault_worker::revert_import_batch_detail(&state.vault()?, batch_id))
 }
 
 #[cfg_attr(test, allow(dead_code))]
 /// Restores a previously reverted import batch to visible status.
 pub(crate) fn restore_import_batch_impl(
     batch_id: i64,
-    session_database_key: Option<&str>,
+    state: &crate::session::SessionState,
 ) -> Result<vault_core::ImportBatchDetail, CommandError> {
-    worker_result(vault_worker::restore_import_batch_detail(session_database_key, batch_id))
+    worker_result(vault_worker::restore_import_batch_detail(&state.vault()?, batch_id))
 }

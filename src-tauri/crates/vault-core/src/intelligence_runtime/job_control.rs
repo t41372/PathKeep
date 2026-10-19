@@ -1,3 +1,6 @@
+//! Not responsible for: archive ingestion, provider execution or connection ownership.
+//! Failure modes: duplicate claims, lost recovery progress, overwritten cancellation,
+//! hidden jobs, or a read initializes storage. Tests: runtime native queue regressions.
 //! Runtime job state transition helpers.
 //!
 //! ## Responsibilities
@@ -6,33 +9,34 @@
 //!   consistent with the persisted queue contract.
 
 use super::*;
-use crate::{archive::open_intelligence_connection, config::ProjectPaths, utils::now_rfc3339};
-use rusqlite::{Connection, params};
+use crate::{config::ProjectPaths, utils::now_rfc3339};
 use serde_json::Value;
+use vault_store::{Session, params_owned as params};
 
 /// Marks one intelligence job as succeeded.
-pub fn mark_intelligence_job_succeeded(
-    connection: &Connection,
+pub fn mark_intelligence_job_succeeded_in_session(
+    connection: &Session<'_>,
     job_id: i64,
     artifact: &Value,
 ) -> Result<bool> {
+    let pending=connection.query_one("SELECT EXISTS(SELECT 1 FROM intelligence_job_triggers WHERE job_id=?1 AND id>(SELECT trigger_cursor FROM intelligence_jobs WHERE id=?1) LIMIT 1)",[job_id],|r|Ok(r.get::<i64>(0)?!=0))?;
     let now = now_rfc3339();
     let updated = connection.execute(
         "UPDATE intelligence_jobs
-         SET state = 'succeeded', artifact_json = ?1, finished_at = ?2, updated_at = ?2,
+         SET state = ?4, artifact_json = ?1, finished_at = CASE WHEN ?4='queued' THEN NULL ELSE ?2 END, updated_at = ?2, scheduled_at=?2,
              heartbeat_at = ?2, lease_owner = NULL, lease_expires_at = NULL,
              last_error = NULL, cancellation_reason = NULL
          WHERE id = ?3
            AND state = 'running'
            AND stop_requested = 0",
-        params![serde_json::to_string(artifact)?, now, job_id],
+        params![serde_json::to_string(artifact)?, now, job_id,if pending {"queued"} else {"succeeded"}],
     )?;
     Ok(updated == 1)
 }
 
 /// Updates one running intelligence job with progress/heartbeat metadata.
-pub fn update_intelligence_job_artifact(
-    connection: &Connection,
+pub fn update_intelligence_job_artifact_in_session(
+    connection: &Session<'_>,
     job_id: i64,
     artifact: &Value,
 ) -> Result<()> {
@@ -56,8 +60,8 @@ pub fn update_intelligence_job_artifact(
 }
 
 /// Marks one intelligence job as failed.
-pub fn mark_intelligence_job_failed(
-    connection: &Connection,
+pub fn mark_intelligence_job_failed_in_session(
+    connection: &Session<'_>,
     job_id: i64,
     error: &str,
 ) -> Result<bool> {
@@ -80,8 +84,8 @@ pub fn mark_intelligence_job_failed(
 }
 
 /// Marks one running intelligence job as cancelled after its worker observes a stop request.
-pub fn mark_running_intelligence_job_cancelled(
-    connection: &Connection,
+pub fn mark_running_intelligence_job_cancelled_in_session(
+    connection: &Session<'_>,
     job_id: i64,
     reason: &str,
 ) -> Result<bool> {
@@ -104,25 +108,23 @@ pub fn mark_running_intelligence_job_cancelled(
 }
 
 /// Retries one deterministic intelligence job if its current state allows it.
-pub fn retry_intelligence_job(
+pub fn retry_intelligence_job_in_session(
+    connection: &Session<'_>,
     paths: &ProjectPaths,
     config: &AppConfig,
-    key: Option<&str>,
     job_id: i64,
 ) -> Result<IntelligenceRuntimeSnapshot> {
-    let connection = open_intelligence_connection(paths, config, key)?;
-    ensure_intelligence_runtime_schema(&connection)?;
-    let state = super::snapshot::load_job_state(&connection, job_id)?;
+    let state = super::snapshot::load_job_state(connection, job_id)?;
     if !matches!(state.as_str(), "failed" | "cancelled") {
         anyhow::bail!("Intelligence job {job_id} is in state '{state}' and cannot be retried.");
     }
     let now = now_rfc3339();
-    retry_intelligence_job_in_connection(&connection, job_id, &now)?;
-    super::snapshot::load_intelligence_runtime(paths, config, key)
+    retry_intelligence_job_in_connection(connection, job_id, &now)?;
+    super::snapshot::load_intelligence_runtime_from_connection(connection, paths, config)
 }
 
 fn retry_intelligence_job_in_connection(
-    connection: &Connection,
+    connection: &Session<'_>,
     job_id: i64,
     now: &str,
 ) -> Result<()> {
@@ -131,7 +133,8 @@ fn retry_intelligence_job_in_connection(
          SET state = 'queued', scheduled_at = ?1, updated_at = ?1, started_at = NULL,
              finished_at = NULL, heartbeat_at = NULL, lease_owner = NULL,
              lease_expires_at = NULL, last_error = NULL, cancellation_reason = NULL,
-             stop_requested = 0
+             stop_requested = 0,
+             list_order = (SELECT COALESCE(MAX(list_order), 0) + 1 FROM intelligence_jobs)
          WHERE id = ?2",
         params![now, job_id],
     )?;
@@ -142,25 +145,23 @@ fn retry_intelligence_job_in_connection(
 }
 
 /// Cancels one deterministic intelligence job if its current state allows it.
-pub fn cancel_intelligence_job(
+pub fn cancel_intelligence_job_in_session(
+    connection: &Session<'_>,
     paths: &ProjectPaths,
     config: &AppConfig,
-    key: Option<&str>,
     job_id: i64,
 ) -> Result<IntelligenceRuntimeSnapshot> {
-    let connection = open_intelligence_connection(paths, config, key)?;
-    ensure_intelligence_runtime_schema(&connection)?;
-    let state = super::snapshot::load_job_state(&connection, job_id)?;
+    let state = super::snapshot::load_job_state(connection, job_id)?;
     if !matches!(state.as_str(), "queued" | "running") {
         anyhow::bail!("Intelligence job {job_id} is in state '{state}' and cannot be cancelled.");
     }
     let now = now_rfc3339();
-    cancel_intelligence_job_in_connection(&connection, job_id, &state, &now)?;
-    super::snapshot::load_intelligence_runtime(paths, config, key)
+    cancel_intelligence_job_in_connection(connection, job_id, &state, &now)?;
+    super::snapshot::load_intelligence_runtime_from_connection(connection, paths, config)
 }
 
 fn cancel_intelligence_job_in_connection(
-    connection: &Connection,
+    connection: &Session<'_>,
     job_id: i64,
     state: &str,
     now: &str,
@@ -196,64 +197,4 @@ fn cancel_intelligence_job_in_connection(
         anyhow::bail!("Intelligence job {job_id} could not be cancelled.");
     }
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    #[test]
-    fn connection_level_retry_and_cancel_cover_race_edges() {
-        let connection = Connection::open_in_memory().expect("memory db");
-        ensure_intelligence_runtime_schema(&connection).expect("runtime schema");
-        let now = "2026-04-26T00:00:00Z";
-        connection
-            .execute(
-                "INSERT INTO intelligence_jobs
-                 (id, job_type, plugin_id, run_id, state, priority, attempt, dedupe_key,
-                  payload_json, artifact_json, created_at, scheduled_at, updated_at)
-                 VALUES
-                    (1, 'full-rebuild', NULL, NULL, 'failed', 10, 1, 'failed-job', ?1, '{}', ?2, ?2, ?2),
-                    (2, 'full-rebuild', NULL, NULL, 'queued', 10, 0, 'queued-job', ?1, '{}', ?2, ?2, ?2),
-                    (3, 'full-rebuild', NULL, NULL, 'running', 10, 1, 'running-job', ?1, '{}', ?2, ?2, ?2)",
-                params![json!({}).to_string(), now],
-            )
-            .expect("insert jobs");
-
-        retry_intelligence_job_in_connection(&connection, 1, now).expect("retry failed job");
-        cancel_intelligence_job_in_connection(&connection, 2, "queued", now)
-            .expect("cancel queued job");
-        cancel_intelligence_job_in_connection(&connection, 3, "running", now)
-            .expect("cancel running job");
-
-        let states = connection
-            .prepare("SELECT id, state, stop_requested FROM intelligence_jobs ORDER BY id")
-            .expect("prepare states")
-            .query_map([], |row| {
-                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?))
-            })
-            .expect("query states")
-            .collect::<rusqlite::Result<Vec<_>>>()
-            .expect("collect states");
-        assert_eq!(
-            states,
-            vec![
-                (1, "queued".to_string(), 0),
-                (2, "cancelled".to_string(), 1),
-                (3, "running".to_string(), 1),
-            ]
-        );
-
-        let retry_error = retry_intelligence_job_in_connection(&connection, 404, now)
-            .expect_err("missing retry should fail after state race");
-        assert!(retry_error.to_string().contains("could not be retried"));
-        let cancel_error = cancel_intelligence_job_in_connection(&connection, 404, "running", now)
-            .expect_err("missing cancel should fail after state race");
-        assert!(cancel_error.to_string().contains("could not be cancelled"));
-        let invalid_state_error =
-            cancel_intelligence_job_in_connection(&connection, 3, "succeeded", now)
-                .expect_err("invalid internal state should fail");
-        assert!(invalid_state_error.to_string().contains("could not be cancelled"));
-    }
 }

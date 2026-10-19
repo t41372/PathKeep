@@ -1,3 +1,6 @@
+//! Responsibilities: carry reviewable audit facts and exact repair effects across IPC.
+//! Not responsible for: executing reads, repairs or localizing diagnostic prose.
+//! Failure modes: new repair work is reported as zero changes or old payloads fail to decode.
 //! Audit and health-report read models.
 
 use super::{BackupRunOverview, BackupWarning};
@@ -69,5 +72,13 @@ pub struct HealthRepairReport {
     pub repaired_import_audits: usize,
     pub repaired_visibility_rows: usize,
     pub cleared_derived_rows: usize,
+    #[serde(default)]
+    pub repaired_total_counters: usize,
+    #[serde(default)]
+    pub repaired_batch_totals: usize,
+    #[serde(default)]
+    pub refreshed_search_pages: usize,
+    #[serde(default)]
+    pub queued_search_updates: usize,
     pub notes: Vec<String>,
 }

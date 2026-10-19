@@ -48,9 +48,6 @@ const workflowSources = Object.fromEntries(
 const allWorkflowText = Object.values(workflowSources).join('\n')
 const updaterSource = readText('src-tauri/src/updater.rs')
 const frontendUpdaterSource = readText('src/lib/update.ts')
-const previewShellCommands = readText(
-  'src/lib/backend-preview-shell-commands.ts',
-)
 const issueTemplate = readText('.github/ISSUE_TEMPLATE/config.yml')
 
 assert(
@@ -102,11 +99,6 @@ includes(
   frontendUpdaterSource,
   'https://github.com/t41372/PathKeep/releases',
   'frontend updater fallback URL',
-)
-includes(
-  previewShellCommands,
-  'https://github.com/t41372/PathKeep/releases',
-  'browser preview updater fallback URL',
 )
 includes(issueTemplate, 'https://github.com/t41372/PathKeep', 'issue template')
 
@@ -160,7 +152,6 @@ excludes(
   'BrowserHistoryBackup',
   'frontend updater source',
 )
-excludes(previewShellCommands, 'BrowserHistoryBackup', 'preview shell commands')
 
 if (failures.length > 0) {
   console.error('Release configuration drift detected:')

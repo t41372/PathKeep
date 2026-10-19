@@ -68,7 +68,6 @@ pub struct CoreIntelligenceRebuildReport {
     pub search_trails: usize,
     pub query_families: usize,
     pub refind_pages: usize,
-    pub source_effectiveness: usize,
     pub reopened_investigations: usize,
     pub execution_mode: Option<String>,
     pub affected_profiles: Option<Vec<String>>,
@@ -109,6 +108,8 @@ pub enum CoreIntelligenceSectionWindow {
         #[serde(rename = "referenceDate")]
         reference_date: String,
     },
+    /// Everything the archive holds, whatever range the page shows.
+    AllTime,
 }
 
 /// Shared metadata emitted alongside one `/intelligence` section payload.
@@ -122,8 +123,52 @@ pub struct CoreIntelligenceSectionMeta {
     pub source_tables: Vec<String>,
     pub includes_enrichment: bool,
     pub state: String,
+    /// Why the section is not ready, in English, for logs and diagnostics.
     pub state_reason: Option<String>,
+    /// The same reason as a stable code (`module-never-built`, `module-disabled`, ...) the
+    /// interface turns into a sentence in the user's language; None when the reason has no code.
+    #[serde(default)]
+    pub state_reason_code: Option<String>,
     pub notes: Vec<String>,
+    /// How much of the archive the card was computed from, counted for the scope it was read
+    /// for. None for sections that show their own counts (a site's, a search's).
+    #[serde(default)]
+    pub evidence: Option<SectionEvidence>,
+    /// The section needs what only Chromium browsers record (`intelligence.md`, V1 card
+    /// contract): Safari and Takeout visits leave it empty.
+    #[serde(default)]
+    pub chromium_only: bool,
+}
+
+/// How much of the archive a section's card was computed from, in the unit it counts.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SectionEvidence {
+    pub count: i64,
+    pub unit: SectionEvidenceUnit,
+}
+
+/// What a card counts as its evidence: everything it looked at in its range and scope, not just the
+/// rows it lists. Cards that look at the same things show the same count.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum SectionEvidenceUnit {
+    /// Every visit (the KPI row's page visits).
+    Visits,
+    /// Visits to websites, search result pages included.
+    SiteVisits,
+    /// Visits to websites other than search result pages (Top sites).
+    PageVisits,
+    /// Keyword searches.
+    Searches,
+    /// Searches with the pages each led to (search trails).
+    SearchTrails,
+    /// Searches that led to a website (search trails with a landing site).
+    LandedSearches,
+    /// Days with any visit.
+    Days,
+    /// Browsing sessions begun in the range.
+    Sessions,
 }
 
 /// Generic transport envelope for one Core Intelligence section payload.
@@ -144,7 +189,7 @@ pub struct CoreIntelligenceSectionTiming {
 
 /// Reusable shared-entity reference carried by trusted output payloads.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(tag = "kind", rename_all = "camelCase")]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum InsightEntityReference {
     Day { date: String },
     Domain { domain: String },

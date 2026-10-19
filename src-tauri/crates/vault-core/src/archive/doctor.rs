@@ -1,673 +1,391 @@
-//! Archive doctor and repair flows.
-//!
-//! The doctor surface verifies recoverability/trust invariants that sit above
-//! ordinary backup success:
-//!
-//! - manifest chain integrity
-//! - snapshot artifact presence
-//! - import audit artifact presence
-//! - rollback visibility references
-//! - derived-state freshness
-//!
-//! Repair is intentionally conservative. It can regenerate review artifacts,
-//! relink broken visibility pointers, and invalidate stale derived state, but it
-//! does not rewrite canonical history facts.
-
+//! Responsibilities: inspect native files and repair recoverable archive metadata.
+//! Not responsible for: file recovery, search index consumption or intelligence algorithms.
+//! Failure modes: schema/integrity damage reported healthy, counters drift from facts,
+//! broken outbox events, missing artifacts, hidden visits restored by repair, failed
+//! repairs recorded as success. Tests: doctor_tests in plaintext and encrypted stores.
+//! Turso 0.8.1 supports integrity_check and quick_check, but not foreign_key_check
+//! or SQLite's progress-handler interruption. We check relationships explicitly;
+//! long repairs check each keyset batch. Structural corruption is reported, never
+//! repaired by inventing or deleting canonical facts. Integrity checking is not interruptible.
+use super::doctor_facts::{
+    BAD_BATCH_TOTAL, BROKEN_OUTBOX, BROKEN_VISIBILITY, DAMAGED_PAGES, incorrect_batch_count,
+    incorrect_totals, orphan_facts, outbox_damage,
+};
 use super::*;
+use crate::Vault;
+use vault_store::{Db, Priority, Session};
+#[cfg(test)]
+#[path = "doctor_tests.rs"]
+mod tests;
 
-/// Runs the doctor checks for the current archive/config state.
-pub fn doctor(paths: &ProjectPaths, config: &AppConfig, key: Option<&str>) -> Result<HealthReport> {
-    ensure_paths(paths)?;
-    let discovered_profiles = discover_profiles().unwrap_or_default();
-    let status = archive_status(paths, config, key)?;
-    let archive = if status.initialized && status.unlocked {
-        Some(open_archive_connection(paths, config, key)?)
-    } else {
-        None
-    };
-    let intelligence = if status.initialized && status.unlocked {
-        Some(open_intelligence_connection(paths, config, key)?)
-    } else {
-        None
-    };
-
-    let mut checks = Vec::new();
-    checks.push(HealthCheck {
-        code: "config".to_string(),
-        name: "Config".to_string(),
-        ok: paths.config_path.exists(),
-        detail: paths.config_path.display().to_string(),
-    });
-    checks.push(HealthCheck {
-        code: "browser-sources".to_string(),
-        name: "Browser sources".to_string(),
-        ok: !discovered_profiles.is_empty(),
-        detail: if discovered_profiles.is_empty() {
-            "No supported browser profiles were detected in the known source locations.".to_string()
-        } else {
-            format!(
-                "{} supported browser profiles detected across local data roots.",
-                discovered_profiles.len()
-            )
-        },
-    });
-    checks.push(HealthCheck {
-        code: "archive-db".to_string(),
-        name: "Archive DB".to_string(),
-        ok: paths.archive_database_path.exists(),
-        detail: paths.archive_database_path.display().to_string(),
-    });
-    checks.push(HealthCheck {
-        code: "archive-unlock".to_string(),
-        name: "Archive Unlock".to_string(),
-        ok: status.unlocked,
-        detail: if matches!(config.archive_mode, ArchiveMode::Encrypted) {
-            "Encrypted archive requires an active session key".to_string()
-        } else {
-            "Plaintext archive".to_string()
-        },
-    });
-
-    if let Some(connection) = archive.as_ref() {
-        create_schema(connection)?;
-        checks.push(HealthCheck {
-            code: "schema-version".to_string(),
-            name: "Schema version".to_string(),
-            ok: current_version(connection)? >= 2,
-            detail: format!("current canonical schema version is {}", current_version(connection)?),
-        });
-        checks.push(check_manifest_chain(connection)?);
-        checks.push(check_snapshot_files(connection)?);
-        checks.push(check_import_audit_artifacts(connection)?);
-        checks.push(check_broken_visibility(connection)?);
+fn check(code: &str, name: &str, ok: bool, detail: impl ToString) -> HealthCheck {
+    HealthCheck { code: code.into(), name: name.into(), ok, detail: detail.to_string() }
+}
+/// Checks all four durable Turso files and canonical metadata without opening another owner.
+pub fn doctor(vault: &Vault) -> Result<HealthReport> {
+    let profiles = crate::chrome::discover_profiles().unwrap_or_default();
+    let mut checks = vec![
+        check(
+            "config",
+            "Config",
+            vault.paths().config_path.exists(),
+            vault.paths().config_path.display(),
+        ),
+        check(
+            "browser-sources",
+            "Browser sources",
+            !profiles.is_empty(),
+            format!("{} supported browser profiles detected", profiles.len()),
+        ),
+        check(
+            "archive-db",
+            "Archive DB",
+            vault.paths().archive_db.exists(),
+            vault.paths().archive_db.display(),
+        ),
+        check("archive-unlock", "Archive Unlock", true, "The session owns an open archive"),
+    ];
+    let mut versions = Vec::new();
+    for (db, name, label) in [
+        (Db::Archive, "archive", "Archive integrity"),
+        (Db::SourceEvidence, "source-evidence", "Source evidence integrity"),
+        (Db::Intelligence, "intelligence", "Intelligence data integrity"),
+        (Db::Agent, "agent", "Conversation data integrity"),
+    ] {
+        match vault.read(db, |s| Ok((s.schema_version()?, s.integrity_check()?))) {
+            Ok((version, messages)) => {
+                versions.push((
+                    name,
+                    version,
+                    if db == Db::Archive { crate::store_schema::ARCHIVE_SCHEMA_VERSION } else { 1 },
+                ));
+                checks.push(check(
+                    &format!("{name}-integrity"),
+                    label,
+                    messages == ["ok"],
+                    messages.join("; "),
+                ));
+            }
+            Err(error) => {
+                checks.push(check(&format!("{name}-integrity"), label, false, format!("{error:#}")))
+            }
+        }
     }
-    if let Some(connection) = intelligence.as_ref() {
-        checks.push(check_stale_derived_state(connection)?);
-    }
-
+    checks.push(check(
+        "schema-version",
+        "Schema version",
+        versions.len() == 4 && versions.iter().all(|(_, actual, expected)| actual == expected),
+        format!("{versions:?}"),
+    ));
+    checks.extend(vault.read(Db::Archive, |s| {
+        let visibility = s.query_one(
+            &format!("SELECT COUNT(*) FROM visits WHERE {BROKEN_VISIBILITY}"),
+            (),
+            |r| Ok(r.get::<i64>(0)?),
+        )?;
+        let orphan = orphan_facts(s)?;
+        let totals = incorrect_totals(s)?;
+        let batch_totals = incorrect_batch_count(s)?;
+        let outbox = outbox_damage(s)?;
+        Ok(vec![
+            check(
+                "canonical-references",
+                "Canonical references",
+                orphan == 0,
+                format!("{orphan} orphan references"),
+            ),
+            check(
+                "broken-visibility-references",
+                "Broken visibility references",
+                visibility == 0,
+                format!("{visibility} hidden visits lack a rollback run"),
+            ),
+            check(
+                "cached-totals",
+                "Cached totals",
+                totals.is_empty() && batch_totals == 0,
+                format!("{} counters differ from facts", totals.len() + batch_totals as usize),
+            ),
+            check(
+                "search-outbox",
+                "Search outbox",
+                outbox == 0,
+                format!("{outbox} missing documents or invalid latest events"),
+            ),
+            check_manifest_chain(s)?,
+            check_snapshot_files(s)?,
+            check_import_audits(s)?,
+        ])
+    })?);
     Ok(HealthReport { generated_at: now_rfc3339(), checks })
 }
 
-/// Repairs the subset of doctor findings that are explicitly recoverable in-place.
-pub fn repair_health_issues(
-    paths: &ProjectPaths,
-    config: &AppConfig,
-    key: Option<&str>,
-) -> Result<HealthRepairReport> {
-    ensure_paths(paths)?;
-    let archive = open_archive_connection(paths, config, key)?;
-    let intelligence = open_intelligence_connection(paths, config, key)?;
-
-    let missing_import_audits = missing_import_audit_batches(&archive)?;
-    let broken_visibility_rows: usize = archive
-        .query_row(
-            "SELECT COUNT(*)
-             FROM visits
-             LEFT JOIN runs
-               ON runs.id = visits.reverted_by_run_id
-             WHERE visits.reverted_at IS NOT NULL
-               AND (visits.reverted_by_run_id IS NULL OR runs.id IS NULL)",
-            [],
-            |row| row.get::<_, i64>(0),
-        )?
-        .max(0) as usize;
-    let stale_ai_embeddings = count_stale_ai_embeddings(&intelligence)?;
-    let stale_insight_state = if table_exists(&intelligence, "search_trail_members")?
-        || table_exists(&intelligence, "visit_derived_facts")?
-    {
-        let stale_members = if table_exists(&intelligence, "search_trail_members")? {
-            intelligence
-                .query_row(
-                    "SELECT COUNT(*)
-                     FROM search_trail_members
-                     WHERE visit_id NOT IN (
-                       SELECT id FROM archive.visits WHERE reverted_at IS NULL
-                     )",
-                    [],
-                    |row| row.get::<_, i64>(0),
-                )?
-                .max(0) as usize
-        } else {
-            0
-        };
-        let stale_features = if table_exists(&intelligence, "visit_derived_facts")? {
-            intelligence
-                .query_row(
-                    "SELECT COUNT(*)
-                     FROM visit_derived_facts
-                     WHERE visit_id NOT IN (
-                       SELECT id FROM archive.visits WHERE reverted_at IS NULL
-                     )",
-                    [],
-                    |row| row.get::<_, i64>(0),
-                )?
-                .max(0) as usize
-        } else {
-            0
-        };
-        stale_members + stale_features
-    } else {
-        0
-    };
-
-    if missing_import_audits.is_empty()
-        && broken_visibility_rows == 0
-        && stale_ai_embeddings == 0
-        && stale_insight_state == 0
-    {
+/// Rebuilds metadata from canonical facts; never unhides or deletes visits.
+pub fn repair_health_issues(vault: &Vault) -> Result<HealthRepairReport> {
+    let derived_damage = !super::doctor_derived::derived_health(vault)?.ok;
+    let (missing, needs_repair) = vault.read(Db::Archive, |s| {
+        let missing = missing_import_audits(s)?;
+        let hidden = s.query_one(
+            &format!("SELECT COUNT(*) FROM visits WHERE {BROKEN_VISIBILITY}"),
+            (),
+            |r| Ok(r.get::<i64>(0)?),
+        )?;
+        let damaged = !missing.is_empty()
+            || hidden > 0
+            || !incorrect_totals(s)?.is_empty()
+            || incorrect_batch_count(s)? > 0
+            || outbox_damage(s)? > 0;
+        Ok((missing, damaged))
+    })?;
+    if !needs_repair && !derived_damage {
         return Ok(HealthRepairReport {
-            run_id: None,
-            notes: vec!["Doctor repair found no actionable damage.".to_string()],
-            ..HealthRepairReport::default()
+            notes: vec!["Doctor repair found no actionable damage.".into()],
+            ..Default::default()
         });
     }
-
-    let started_at = now_rfc3339();
-    let timezone = current_timezone_name();
-    archive.execute(
-        "INSERT INTO runs (run_type, trigger, started_at, timezone, status, profile_scope_json, warnings_json, stats_json, due_only)
-         VALUES ('doctor', 'manual', ?1, ?2, 'running', '[]', '[]', '{}', 0)",
-        params![started_at, timezone],
-    )?;
-    let run_id = archive.last_insert_rowid();
-
-    let repair_result = (|| -> Result<HealthRepairReport> {
-        let mut notes = Vec::new();
-        let repaired_audit_paths =
-            rewrite_import_audit_artifacts(paths, config, key, &missing_import_audits)?;
-        let repaired_import_audits = repaired_audit_paths.len();
-        for (batch_id, audit_path) in &repaired_audit_paths {
-            archive.execute(
-                "UPDATE import_batches SET audit_path = ?1 WHERE id = ?2",
-                params![audit_path, batch_id],
-            )?;
-        }
-        if repaired_import_audits > 0 {
-            notes.push(format!(
-                "Rebuilt {} missing import audit artifact(s).",
-                repaired_import_audits
-            ));
-        }
-
-        let repaired_visibility_rows = archive.execute(
-            "UPDATE visits
-             SET reverted_by_run_id = ?1
-             WHERE reverted_at IS NOT NULL
-               AND (
-                 reverted_by_run_id IS NULL
-                 OR reverted_by_run_id NOT IN (SELECT id FROM runs)
-               )",
-            [run_id],
-        )?;
-        if repaired_visibility_rows > 0 {
-            notes.push(format!(
-                "Re-linked {} reverted visit rows to doctor repair run #{}.",
-                repaired_visibility_rows, run_id
-            ));
-        }
-
-        let cleared_ai_embeddings = clear_stale_ai_embeddings(&intelligence)?;
-        if cleared_ai_embeddings > 0 {
-            notes.push(format!(
-                "Removed {} stale AI embedding rows that pointed at hidden or missing visits.",
-                cleared_ai_embeddings
-            ));
-        }
-
-        let cleared_insight_rows =
-            if stale_insight_state > 0 { invalidate_insight_state(&intelligence)? } else { 0 };
-        if cleared_insight_rows > 0 {
-            notes.push(format!(
-                "Cleared {} stale Core Intelligence rows so the next rebuild runs from visible history only.",
-                cleared_insight_rows
-            ));
-        }
-
-        let cleared_derived_rows = cleared_ai_embeddings + cleared_insight_rows;
-        let git_commit = if config.git_enabled && repaired_import_audits > 0 {
-            let (git_commit, git_warning) = git_audit::commit_all_optional(
-                &paths.audit_repo_path,
-                "doctor repair import audit artifacts",
-            );
-            notes.extend(git_warning.map(|warning| warning.message));
-            git_commit
+    let run = super::write_runs::start(vault, "doctor", "manual", &[])?;
+    let result = (|| {
+        let mut report = if needs_repair {
+            repair_native_metadata(vault, run, &missing)?
         } else {
-            None
+            HealthRepairReport { run_id: Some(run), ..Default::default() }
         };
-        if let Some(git_commit) = git_commit {
-            for batch_id in &missing_import_audits {
-                archive.execute(
-                    "UPDATE import_batches SET git_commit = ?1 WHERE id = ?2",
-                    params![git_commit, batch_id],
+        if derived_damage {
+            report.cleared_derived_rows = super::doctor_derived::repair_derived(vault)?;
+        }
+        append_repair_notes(&mut report);
+        Ok(report)
+    })();
+    let result = result.and_then(|report| {
+        super::write_runs::complete(
+            vault,
+            run,
+            serde_json::to_value(&report)?,
+            json!([]),
+            now_rfc3339(),
+        )?;
+        Ok(report)
+    });
+    if let Err(error) = &result {
+        super::write_runs::end_failed(vault, run, error, json!({}), None);
+    }
+    result
+}
+
+fn repair_native_metadata(vault: &Vault, run: i64, missing: &[i64]) -> Result<HealthRepairReport> {
+    let repaired = rewrite_import_audit_artifacts(vault, missing)?;
+    let (refreshed_search_pages, queued_search_updates) = repair_search_metadata(vault)?;
+    let repaired_batch_totals = repair_batch_totals(vault)?;
+    let notes = record_audit_commit(vault, &repaired)?;
+    let (repaired_visibility_rows,repaired_total_counters)=vault.write(Db::Archive,Priority::Batch,move |s| {
+        let changed=s.execute(&format!("UPDATE visits SET reverted_by_run_id=?1 WHERE {BROKEN_VISIBILITY}"),[run])?;
+        let totals=incorrect_totals(s)?;
+        let count=totals.len();
+        for (name,value) in totals {
+            s.execute("INSERT INTO archive_totals(name,value) VALUES(?1,?2) ON CONFLICT(name) DO UPDATE SET value=excluded.value",vault_store::params![name,value])?;
+        }
+        Ok((changed as usize,count))
+    })?;
+    Ok(HealthRepairReport {
+        run_id: Some(run),
+        repaired_import_audits: repaired.len(),
+        repaired_visibility_rows,
+        repaired_total_counters,
+        repaired_batch_totals,
+        refreshed_search_pages,
+        queued_search_updates,
+        notes,
+        ..Default::default()
+    })
+}
+
+fn append_repair_notes(report: &mut HealthRepairReport) {
+    for (amount, label) in [
+        (report.repaired_import_audits, "Rebuilt import audit artifacts"),
+        (report.repaired_visibility_rows, "Re-linked reverted visit rows"),
+        (report.repaired_total_counters, "Recomputed archive total counters"),
+        (report.repaired_batch_totals, "Recomputed import visibility counts"),
+        (report.refreshed_search_pages, "Refreshed page summaries"),
+        (report.queued_search_updates, "Queued search updates"),
+        (report.cleared_derived_rows, "Cleared stale derived rows"),
+    ] {
+        if amount > 0 {
+            report.notes.push(format!("{label}: {amount}."));
+        }
+    }
+}
+
+fn record_audit_commit(vault: &Vault, repaired: &[(i64, String)]) -> Result<Vec<String>> {
+    if !vault.config().git_enabled || repaired.is_empty() {
+        return Ok(Vec::new());
+    }
+    let (commit, warning) = git_audit::commit_all_optional(
+        &vault.paths().audit_repo_path,
+        "doctor: restore import audit artifacts\n\nKeep import provenance reviewable after an artifact is removed.",
+    );
+    let mut notes = warning.map(|w| vec![w.message]).unwrap_or_default();
+    if let Some(commit) = commit {
+        notes.push(format!("Recorded repaired import artifacts in audit commit {commit}."));
+        let ids = repaired.iter().map(|(id, _)| *id).collect::<Vec<_>>();
+        vault.write(Db::Archive, Priority::Interactive, move |s| {
+            for id in ids {
+                s.execute(
+                    "UPDATE import_batches SET git_commit=?2 WHERE id=?1",
+                    vault_store::params![id, commit.as_str()],
                 )?;
             }
-            notes.push(format!(
-                "Recorded repaired import artifacts in audit commit {}.",
-                git_commit
-            ));
-        }
+            Ok(())
+        })?;
+    }
+    Ok(notes)
+}
 
-        Ok(HealthRepairReport {
-            run_id: Some(run_id),
-            repaired_import_audits,
-            repaired_visibility_rows,
-            cleared_derived_rows,
-            notes,
-        })
-    })();
+fn repair_search_metadata(vault: &Vault) -> Result<(usize, usize)> {
+    let mut cursor = 0;
+    let (mut pages, mut updates) = (0, 0);
+    loop {
+        let ids = vault.read(Db::Archive, move |s| {
+            Ok(s.query(
+                &format!(
+                    "SELECT id FROM pages WHERE id>?1 AND ({DAMAGED_PAGES}) ORDER BY id LIMIT 1000"
+                ),
+                [cursor],
+                |r| Ok(r.get::<i64>(0)?),
+            )?)
+        })?;
+        let Some(last) = ids.last().copied() else { break };
+        pages += ids.len();
+        updates += ids.len();
+        vault.write(Db::Archive, Priority::Batch, move |s| {
+            for id in ids {
+                super::search_documents::refresh(s, id)?;
+            }
+            Ok(())
+        })?;
+        cursor = last;
+    }
+    loop {
+        let ids=vault.read(Db::Archive,|s|Ok(s.query(&format!("SELECT page_id FROM search_outbox WHERE {BROKEN_OUTBOX} ORDER BY seq LIMIT 1000"),(),|r|Ok(r.get::<i64>(0)?))?))?;
+        if ids.is_empty() {
+            break;
+        }
+        updates += ids.len();
+        vault.write(Db::Archive,Priority::Batch,move |s| {
+            for id in ids {
+                s.execute("INSERT INTO search_outbox(page_id,change) SELECT ?1,CASE WHEN EXISTS(SELECT 1 FROM search_documents WHERE page_id=?1) THEN 'upsert' ELSE 'delete' END",[id])?;
+            }
+            Ok(())
+        })?;
+    }
+    Ok((pages, updates))
+}
 
-    match repair_result {
-        Ok(report) => {
-            archive.execute(
-                "UPDATE runs
-                 SET finished_at = ?1,
-                     status = 'success',
-                     stats_json = ?2,
-                     warnings_json = ?3
-                 WHERE id = ?4",
-                params![
-                    now_rfc3339(),
-                    serde_json::to_string(&json!({
-                        "repairedImportAudits": report.repaired_import_audits,
-                        "repairedVisibilityRows": report.repaired_visibility_rows,
-                        "clearedDerivedRows": report.cleared_derived_rows,
-                    }))?,
-                    serde_json::to_string(&report.notes)?,
-                    run_id,
-                ],
-            )?;
-            Ok(report)
+fn repair_batch_totals(vault: &Vault) -> Result<usize> {
+    let mut total = 0;
+    loop {
+        let changed=vault.write(Db::Archive,Priority::Batch,|s| {
+            let ids=s.query(&format!("SELECT id FROM import_batches WHERE {BAD_BATCH_TOTAL} ORDER BY id LIMIT 1000"),(),|r|Ok(r.get::<i64>(0)?))?;
+            for id in &ids {
+                s.execute("UPDATE import_batches SET visible_items=(SELECT COUNT(*) FROM visits WHERE import_batch_id=?1 AND reverted_at IS NULL) WHERE id=?1",[*id])?;
+            }
+            Ok(ids.len())
+        })?;
+        if changed == 0 {
+            return Ok(total);
         }
-        Err(error) => {
-            archive.execute(
-                "UPDATE runs
-                 SET finished_at = ?1,
-                     status = 'failed',
-                     error_message = ?2
-                 WHERE id = ?3",
-                params![now_rfc3339(), error.to_string(), run_id],
-            )?;
-            Err(error)
-        }
+        total += changed;
     }
 }
 
-/// Validates the manifest hash chain and artifact contents.
-fn check_manifest_chain(connection: &Connection) -> Result<HealthCheck> {
-    let mut statement = connection.prepare(
-        "SELECT id, parent_manifest_id, content_hash, file_path
-         FROM manifests
-         ORDER BY id ASC",
-    )?;
-    let rows = statement.query_map([], |row| {
-        Ok((
-            row.get::<_, i64>(0)?,
-            row.get::<_, Option<i64>>(1)?,
-            row.get::<_, String>(2)?,
-            row.get::<_, Option<String>>(3)?,
-        ))
-    })?;
-
-    let mut previous_id = None;
-    let mut previous_hash = None::<String>;
-    for row in rows {
-        let (id, parent_id, hash, file_path) = row?;
-        if previous_id.is_some() && parent_id != previous_id {
-            return Ok(HealthCheck {
-                code: "manifest-chain".to_string(),
-                name: "Manifest chain".to_string(),
-                ok: false,
-                detail: format!("manifest {id} does not point to the previous manifest id"),
-            });
-        }
-        if let Some(path) = file_path {
-            let content = fs::read_to_string(&path)
-                .with_context(|| format!("reading manifest artifact {}", path))?;
-            let recalculated = sha256_hex(content.as_bytes());
-            if recalculated != hash {
-                return Ok(HealthCheck {
-                    code: "manifest-chain".to_string(),
-                    name: "Manifest chain".to_string(),
-                    ok: false,
-                    detail: format!("manifest hash mismatch at run artifact {}", path),
+fn check_manifest_chain(s: &Session<'_>) -> Result<HealthCheck> {
+    let mut previous = None;
+    let mut problem = None;
+    s.for_each(
+        "SELECT id,parent_manifest_id,content_hash,file_path FROM manifests ORDER BY id",
+        (),
+        |r| {
+            let id: i64 = r.get(0)?;
+            let parent: Option<i64> = r.get(1)?;
+            if previous.is_some() && parent != previous {
+                problem.get_or_insert_with(|| {
+                    format!("manifest {id} does not point to the previous manifest")
                 });
             }
-        }
-        previous_id = Some(id);
-        previous_hash = Some(hash);
-    }
-
-    Ok(HealthCheck {
-        code: "manifest-chain".to_string(),
-        name: "Manifest chain".to_string(),
-        ok: true,
-        detail: previous_hash.unwrap_or_else(|| "No manifest artifacts recorded yet.".to_string()),
-    })
-}
-
-/// Verifies that recorded snapshot artifacts still exist on disk.
-fn check_snapshot_files(connection: &Connection) -> Result<HealthCheck> {
-    let missing = connection
-        .query_row(
-            "SELECT file_path
-             FROM snapshots
-             WHERE file_path IS NOT NULL
-             ORDER BY id DESC",
-            [],
-            |row| row.get::<_, String>(0),
-        )
-        .optional()?
-        .filter(|path| !Path::new(path).exists());
-
-    Ok(match missing {
-        Some(path) => HealthCheck {
-            code: "snapshot-artifacts".to_string(),
-            name: "Snapshot artifacts".to_string(),
-            ok: false,
-            detail: format!("missing snapshot artifact {}", path),
-        },
-        None => HealthCheck {
-            code: "snapshot-artifacts".to_string(),
-            name: "Snapshot artifacts".to_string(),
-            ok: true,
-            detail: "All recorded snapshot artifacts are present.".to_string(),
-        },
-    })
-}
-
-/// Verifies that every import batch still has a readable review artifact.
-fn check_import_audit_artifacts(connection: &Connection) -> Result<HealthCheck> {
-    let mut statement = connection.prepare(
-        "SELECT id, audit_path
-         FROM import_batches
-         ORDER BY id DESC",
-    )?;
-    let mut rows = statement.query([])?;
-    let mut missing = None;
-    while let Some(row) = rows.next()? {
-        let batch_id = row.get::<_, i64>(0)?;
-        let audit_path = row.get::<_, Option<String>>(1)?;
-        match audit_path {
-            Some(path) if !path.is_empty() && Path::new(&path).exists() => continue,
-            other => {
-                missing = Some((batch_id, other));
-                break;
+            if let Some(path) = r.get::<Option<String>>(3)? {
+                match fs::read(&path) {
+                    Ok(bytes) if sha256_hex(&bytes) == r.get::<String>(2)? => (),
+                    Ok(_) => {
+                        problem.get_or_insert_with(|| format!("manifest hash mismatch: {path}"));
+                    }
+                    Err(error) => {
+                        problem.get_or_insert_with(|| {
+                            format!("missing manifest artifact {path}: {error}")
+                        });
+                    }
+                }
             }
-        }
-    }
-
-    Ok(match missing {
-        Some((batch_id, Some(path))) => HealthCheck {
-            code: "import-audit-artifacts".to_string(),
-            name: "Import audit artifacts".to_string(),
-            ok: false,
-            detail: format!("import batch {batch_id} points to a missing audit artifact at {path}"),
+            previous = Some(id);
+            Ok(())
         },
-        Some((batch_id, None)) => HealthCheck {
-            code: "import-audit-artifacts".to_string(),
-            name: "Import audit artifacts".to_string(),
-            ok: false,
-            detail: format!("import batch {batch_id} does not have an audit artifact yet"),
-        },
-        None => HealthCheck {
-            code: "import-audit-artifacts".to_string(),
-            name: "Import audit artifacts".to_string(),
-            ok: true,
-            detail: "All recorded import batches have readable audit artifacts.".to_string(),
-        },
-    })
-}
-
-/// Verifies that hidden visit rows still point at a valid rollback/repair run.
-fn check_broken_visibility(connection: &Connection) -> Result<HealthCheck> {
-    let broken_visibility: i64 = connection.query_row(
-        "SELECT COUNT(*)
-         FROM visits
-         LEFT JOIN runs
-           ON runs.id = visits.reverted_by_run_id
-         WHERE visits.reverted_at IS NOT NULL
-           AND (visits.reverted_by_run_id IS NULL OR runs.id IS NULL)",
-        [],
-        |row| row.get(0),
     )?;
-
-    Ok(if broken_visibility > 0 {
-        HealthCheck {
-            code: "broken-visibility-references".to_string(),
-            name: "Broken visibility references".to_string(),
-            ok: false,
-            detail: format!(
-                "{broken_visibility} reverted visit rows are missing the rollback run that should explain their hidden state"
-            ),
-        }
-    } else {
-        HealthCheck {
-            code: "broken-visibility-references".to_string(),
-            name: "Broken visibility references".to_string(),
-            ok: true,
-            detail: "All hidden visit rows still point at a valid rollback run.".to_string(),
-        }
-    })
+    Ok(check(
+        "manifest-chain",
+        "Manifest chain",
+        problem.is_none(),
+        problem.unwrap_or_else(|| "All recorded manifests agree.".into()),
+    ))
 }
-
-/// Verifies that derived AI/insight tables only reference currently visible visits.
-fn check_stale_derived_state(connection: &Connection) -> Result<HealthCheck> {
-    let mut stale_details = Vec::new();
-
-    if table_exists(connection, "ai_embeddings")? {
-        let stale_embeddings: i64 = connection.query_row(
-            "SELECT COUNT(*)
-             FROM ai_embeddings
-             WHERE history_id NOT IN (
-               SELECT id FROM archive.visits WHERE reverted_at IS NULL
-             )",
-            [],
-            |row| row.get(0),
-        )?;
-        if stale_embeddings > 0 {
-            stale_details.push(format!("{stale_embeddings} stale AI embeddings"));
+fn check_snapshot_files(s: &Session<'_>) -> Result<HealthCheck> {
+    let mut missing = 0;
+    s.for_each("SELECT file_path FROM snapshots", (), |r| {
+        if !Path::new(&r.get::<String>(0)?).exists() {
+            missing += 1;
         }
-    }
-
-    if table_exists(connection, "search_trail_members")? {
-        let stale_members: i64 = connection.query_row(
-            "SELECT COUNT(*)
-             FROM search_trail_members
-             WHERE visit_id NOT IN (
-               SELECT id FROM archive.visits WHERE reverted_at IS NULL
-             )",
-            [],
-            |row| row.get(0),
-        )?;
-        if stale_members > 0 {
-            stale_details.push(format!("{stale_members} stale search trail members"));
-        }
-    }
-
-    if table_exists(connection, "visit_derived_facts")? {
-        let stale_features: i64 = connection.query_row(
-            "SELECT COUNT(*)
-             FROM visit_derived_facts
-             WHERE visit_id NOT IN (
-               SELECT id FROM archive.visits WHERE reverted_at IS NULL
-             )",
-            [],
-            |row| row.get(0),
-        )?;
-        if stale_features > 0 {
-            stale_details.push(format!("{stale_features} stale visit-derived-fact rows"));
-        }
-    }
-
-    Ok(if stale_details.is_empty() {
-        HealthCheck {
-            code: "derived-state-freshness".to_string(),
-            name: "Derived state freshness".to_string(),
-            ok: true,
-            detail: "Derived AI and Core Intelligence tables match the visible visit set."
-                .to_string(),
-        }
-    } else {
-        HealthCheck {
-            code: "derived-state-freshness".to_string(),
-            name: "Derived state freshness".to_string(),
-            ok: false,
-            detail: stale_details.join(", "),
-        }
-    })
+        Ok(())
+    })?;
+    Ok(check(
+        "snapshot-artifacts",
+        "Snapshot artifacts",
+        missing == 0,
+        format!("{missing} missing snapshot artifacts"),
+    ))
 }
-
-/// Checks whether a table exists in the current archive schema.
-fn table_exists(connection: &Connection, table_name: &str) -> Result<bool> {
-    let table_count = connection.query_row(
-        "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
-        [table_name],
-        |row| row.get::<_, i64>(0),
-    )?;
-    Ok(table_count > 0)
+fn missing_import_audits(s: &Session<'_>) -> Result<Vec<i64>> {
+    let mut missing = Vec::new();
+    s.for_each("SELECT id,audit_path FROM import_batches WHERE status NOT IN ('running','reverting','restoring') ORDER BY id",(),|r| {
+        if r.get::<Option<String>>(1)?.is_none_or(|p|p.is_empty() || !Path::new(&p).exists()) {missing.push(r.get(0)?);}
+        Ok(())
+    })?;
+    Ok(missing)
 }
-
-fn count_stale_ai_embeddings(intelligence: &Connection) -> Result<usize> {
-    if table_exists(intelligence, "ai_embeddings")? {
-        intelligence
-            .query_row(
-                "SELECT COUNT(*)
-                 FROM ai_embeddings
-                 WHERE history_id NOT IN (
-                   SELECT id FROM archive.visits WHERE reverted_at IS NULL
-                 )",
-                [],
-                |row| row.get::<_, i64>(0),
-            )
-            .map(|count| count.max(0) as usize)
-            .map_err(Into::into)
-    } else {
-        Ok(0)
-    }
+fn check_import_audits(s: &Session<'_>) -> Result<HealthCheck> {
+    let missing = missing_import_audits(s)?;
+    Ok(check(
+        "import-audit-artifacts",
+        "Import audit artifacts",
+        missing.is_empty(),
+        format!("{} import batches do not have an audit artifact", missing.len()),
+    ))
 }
-
-fn clear_stale_ai_embeddings(intelligence: &Connection) -> Result<usize> {
-    if table_exists(intelligence, "ai_embeddings")? {
-        intelligence
-            .execute(
-                "DELETE FROM ai_embeddings
-                 WHERE history_id NOT IN (
-                   SELECT id FROM archive.visits WHERE reverted_at IS NULL
-                 )",
-                [],
-            )
-            .map_err(Into::into)
-    } else {
-        Ok(0)
-    }
-}
-
-/// Lists import batches whose review artifacts need to be rebuilt.
-fn missing_import_audit_batches(connection: &Connection) -> Result<Vec<i64>> {
-    let mut statement = connection.prepare(
-        "SELECT id, audit_path
-         FROM import_batches
-         ORDER BY id ASC",
-    )?;
-    let rows = statement
-        .query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, Option<String>>(1)?)))?;
-
-    let mut batch_ids = Vec::new();
-    for row in rows {
-        let (batch_id, audit_path) = row?;
-        match audit_path {
-            Some(path) if !path.is_empty() && Path::new(&path).exists() => {}
-            _ => batch_ids.push(batch_id),
-        }
-    }
-    Ok(batch_ids)
-}
-
 /// Rebuilds missing import audit artifacts from persisted import batch facts.
 fn rewrite_import_audit_artifacts(
-    paths: &ProjectPaths,
-    config: &AppConfig,
-    key: Option<&str>,
+    vault: &crate::Vault,
     batch_ids: &[i64],
 ) -> Result<Vec<(i64, String)>> {
     if batch_ids.is_empty() {
         return Ok(Vec::new());
     }
 
-    let mut repair_config = config.clone();
+    let mut repair_config = vault.config().clone();
     repair_config.git_enabled = false;
+    let vault = vault.with_config(repair_config);
     let mut rewritten = Vec::new();
     for batch_id in batch_ids {
-        let (audit_path, _) = crate::takeout::ensure_import_batch_audit_artifact(
-            paths,
-            &repair_config,
-            key,
-            *batch_id,
-            None,
-        )?;
+        let (audit_path, _) =
+            crate::takeout::ensure_import_batch_audit_artifact(&vault, *batch_id, None)?;
         if let Some(audit_path) = audit_path {
             rewritten.push((*batch_id, audit_path));
         }
     }
     Ok(rewritten)
-}
-
-/// Clears stale derived intelligence state and marks runtime modules stale for rebuild.
-fn invalidate_insight_state(connection: &Connection) -> Result<usize> {
-    let mut cleared_rows = 0usize;
-    for table_name in [
-        "path_flows",
-        "reopened_investigations",
-        "habit_patterns",
-        "source_effectiveness",
-        "refind_pages",
-        "query_families",
-        "search_event_terms",
-        "search_events",
-        "search_trail_members",
-        "search_trails",
-        "sessions",
-        "daily_summary_rollups",
-        "engine_daily_rollups",
-        "category_daily_rollups",
-        "domain_daily_rollups",
-        "visit_derived_facts",
-        // Repair rewrites derived tables without moving the archive watermark,
-        // so the all-time overview snapshot must be dropped explicitly or it
-        // would keep serving pre-repair aggregates.
-        "intelligence_overview_snapshots",
-    ] {
-        if table_exists(connection, table_name)? {
-            cleared_rows += connection
-                .execute(&format!("DELETE FROM {table_name}"), [])
-                .with_context(|| format!("clearing stale derived table {table_name}"))?;
-        }
-    }
-    crate::intelligence_runtime::ensure_intelligence_runtime_schema(connection)?;
-    crate::intelligence_runtime::mark_all_deterministic_modules_stale(
-        connection,
-        crate::models::DERIVED_STALE_VISIBILITY_OR_ROLLBACK_CHANGED,
-        "Archive visibility or rollback state changed after the last Core Intelligence rebuild.",
-    )?;
-    Ok(cleared_rows)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{clear_stale_ai_embeddings, count_stale_ai_embeddings, table_exists};
-    use rusqlite::Connection;
-
-    #[test]
-    fn stale_ai_embedding_helpers_treat_missing_optional_table_as_clean() {
-        let connection = Connection::open_in_memory().expect("sqlite");
-
-        assert!(!table_exists(&connection, "ai_embeddings").expect("table exists"));
-        connection
-            .execute("CREATE TABLE ai_embeddings (history_id INTEGER)", [])
-            .expect("create optional embeddings table");
-        assert!(table_exists(&connection, "ai_embeddings").expect("table exists"));
-        connection.execute("DROP TABLE ai_embeddings", []).expect("drop optional embeddings table");
-        assert_eq!(count_stale_ai_embeddings(&connection).expect("count stale embeddings"), 0);
-        assert_eq!(clear_stale_ai_embeddings(&connection).expect("clear stale embeddings"), 0);
-    }
 }

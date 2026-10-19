@@ -1,15 +1,16 @@
 //! Env-gated real-machine tests for the in-app HAND-ROLLED static (model2vec) engine (W-AI-4c).
 //!
 //! These link `vault-core` as a normal dependency, so they exercise the REAL safetensors matrix
-//! load, tokenizer, and hf-hub download path (NOT the `cfg(test)` stub). They are gated on env vars
+//! load, tokenizer, and download path (NOT the `cfg(test)` stub). They are gated on env vars
 //! so they NEVER run in the coverage gate / CI:
 //!
 //! - `PATHKEEP_STATIC_S1=1` → S1 throughput benchmark (docs/sec single + batched, plus the
 //!   extrapolated 14.4M first-fill wall clock). The static tier is the WHOLE point of W-AI-4c: it
-//!   must be ORDERS faster than candle's ~1.25 d/s (so the 14.4M first fill is minutes, not days).
+//!   must be orders of magnitude faster than a transformer forward pass (~1.25 d/s measured for a
+//!   quantized Qwen3 on the target), so the 14.4M first fill is minutes, not days.
 //! - `PATHKEEP_STATIC_PARITY=1` → hand-roll-vs-reference cosine parity (THE static correctness
 //!   proof): the SAME texts embedded by our hand-rolled engine and by the Python model2vec reference
-//!   must have cosine > 0.999. The reference vectors are PINNED in a committed fixture
+//!   must have cosine >= 0.999999. The reference vectors are PINNED in a committed fixture
 //!   (`tests/fixtures/static_parity_potion_multilingual.json`), generated ONCE from Python model2vec
 //!   (`StaticModel.from_pretrained("minishlab/potion-multilingual-128M").encode(texts)`). The test is
 //!   a STANDING gate: it does NOT depend on Python at test time, only on the committed reference and
@@ -22,7 +23,14 @@
 //!   would COLLAPSE those rows to ~0.80 cosine, which is precisely the divergence this gate catches.
 //!
 //! Both reuse a persistent model directory under `PATHKEEP_STATIC_MODELS_DIR` (default
-//! `<repo>/artifacts/static-models`) so the matrix downloads once and is reused.
+//! `<repo>/src-tauri/artifacts/static-models`) so the matrix downloads once and is reused.
+//! `PATHKEEP_STATIC_MEMORY=1` runs the macOS physical-footprint benchmark in fresh child processes
+//! for the engine and tokenizer separately. `PATHKEEP_STATIC_MEMORY_LABEL` names its JSON artifact
+//! under that same models root (default `latest`). Run only `static_memory_footprint_benchmark`
+//! when measuring, so other tests cannot warm the engine cache or allocator in the child.
+//! Model preparation warms the filesystem cache; each child starts with an empty engine cache.
+//! To measure optimized loader/pooling code while reusing existing dependency builds, add
+//! `--config 'profile.test.package.vault-core.opt-level=3'`. This is not a full release build.
 //!
 //! ```sh
 //! PATHKEEP_STATIC_S1=1 cargo test --manifest-path src-tauri/Cargo.toml \
@@ -30,6 +38,11 @@
 //! PATHKEEP_STATIC_PARITY=1 \
 //!   cargo test --manifest-path src-tauri/Cargo.toml \
 //!   -p vault-core --test static_embedding_e2e --release -- --nocapture
+//! PATHKEEP_STATIC_MEMORY=1 PATHKEEP_STATIC_MEMORY_LABEL=after \
+//!   cargo test --manifest-path src-tauri/Cargo.toml \
+//!   --config 'profile.test.package.vault-core.opt-level=3' \
+//!   -p vault-core --test static_embedding_e2e static_memory_footprint_benchmark \
+//!   -- --exact --nocapture --test-threads=1
 //! ```
 //!
 //! Regenerating the pinned fixture (only when the model or input set changes), from a venv with
@@ -107,8 +120,7 @@ async fn static_s1_throughput_benchmark() {
     let corpus: Vec<String> = (0..512)
         .map(|i| {
             format!(
-                "Profile: default\nVisited at: 2026-06-{:02}T10:00:00Z\nURL: https://example.com/page-{i}\nDomain: example.com\nTitle: Example article number {i} about rust embeddings and history search",
-                (i % 28) + 1
+                "Example article number {i} about rust embeddings and history search\nexample.com · page"
             )
         })
         .collect();
@@ -136,9 +148,12 @@ async fn static_s1_throughput_benchmark() {
     eprintln!(
         "| static | dim {dim} | single {single_dps:.0} d/s | batched {batch_dps:.0} d/s | 14.4M ETA {eta_14m_minutes:.1} min |"
     );
-    eprintln!("(candle Q8_0 baseline: ~1.25 d/s → 14.4M ≈ days; static should be ORDERS faster)");
+    eprintln!("(a quantized transformer did ~1.25 d/s → 14.4M ≈ days; static must be far faster)");
     eprintln!("=== end S1 ===\n");
-    assert!(batch_dps > 100.0, "static throughput must be ORDERS faster than candle (>100 d/s)");
+    assert!(
+        batch_dps > 100.0,
+        "static throughput must be far faster than a transformer (>100 d/s)"
+    );
 }
 
 /// Path to the COMMITTED Python-model2vec reference fixture (the standing parity gate).
@@ -188,16 +203,181 @@ async fn static_vs_reference_cosine_parity() {
         let c = cosine(&ours[i], &ref_vec);
         min_cosine = min_cosine.min(c);
         let preview: String = text.chars().take(38).collect();
-        eprintln!("[{i:>2}] cosine = {c:.6}  ({preview})");
+        eprintln!("[{i:>2}] cosine = {c:.9}  ({preview})");
     }
-    eprintln!("min reference cosine = {min_cosine:.6}");
+    eprintln!("min reference cosine = {min_cosine:.9}");
     eprintln!("=== end parity ===\n");
     assert!(
-        min_cosine > 0.999,
-        "hand-rolled static pooling must match the model2vec reference on EVERY fixture text (incl. OOV/CJK/emoji/URL): min cosine {min_cosine} <= 0.999"
+        min_cosine >= 0.999999,
+        "static pooling must match the model2vec reference on every fixture text: min cosine {min_cosine} < 0.999999"
     );
 
     // SYMMETRY: query and document encodings match (static has no instruction asymmetry).
     let as_query = provider.embed(&texts, EmbeddingRole::Query).await.expect("query embed");
     assert_eq!(as_query, ours, "static is symmetric: query == document encoding");
+}
+
+/// Physical footprint includes anonymous and compressed memory charged to this process. File-backed
+/// clean pages are reclaimable and are not charged like a heap copy of the matrix. This is not RSS.
+#[cfg(target_os = "macos")]
+fn physical_footprint() -> u64 {
+    let mut usage = std::mem::MaybeUninit::<libc::rusage_info_v0>::uninit();
+    // SAFETY: the buffer has the size and alignment required by RUSAGE_INFO_V0. The kernel writes
+    // it synchronously; we only read the initialized result after a successful call.
+    let result = unsafe {
+        libc::proc_pid_rusage(
+            std::process::id() as libc::pid_t,
+            libc::RUSAGE_INFO_V0,
+            usage.as_mut_ptr().cast(),
+        )
+    };
+    assert_eq!(result, 0, "proc_pid_rusage failed: {}", std::io::Error::last_os_error());
+    // SAFETY: proc_pid_rusage succeeded and initialized the RUSAGE_INFO_V0 buffer.
+    unsafe { usage.assume_init() }.ri_phys_footprint
+}
+
+/// A bounded batch of page text in the backfill format, with varied topics and languages. Each
+/// body is a few hundred characters; numeric page IDs make the 10,000 inputs distinct.
+#[cfg(target_os = "macos")]
+fn memory_benchmark_pages(start: usize, end: usize) -> Vec<String> {
+    const PAGES: &[(&str, &str, &str, &str)] = &[
+        (
+            "Rust database transactions",
+            "docs.rs",
+            "storage transaction recovery",
+            "A local database keeps committed records after a crash. This article explains write ahead logs, durable checkpoints, concurrent readers, encrypted storage and recovery. The examples compare a sequential scan with an indexed lookup and show how to keep a desktop application responsive during a large import.",
+        ),
+        (
+            "Walking through Kyoto",
+            "travel.example",
+            "japan kyoto walking gardens",
+            "The route starts near the railway station and follows a quiet river toward the temple gardens. There are small cafes, covered markets and places to rest along the way. This guide includes public transport connections, rainy day alternatives, seasonal flowers and practical notes for a relaxed afternoon walk.",
+        ),
+        (
+            "家庭麵包製作筆記",
+            "cooking.example",
+            "recipes bread sourdough",
+            "這篇筆記記錄了家庭製作酸種麵包的流程，從培養酵母、調整含水量，到揉麵、摺疊與低溫發酵。麵粉種類、室內溫度與等待時間都會影響口感。烘烤前先預熱鑄鐵鍋，入爐時保留蒸氣，最後開蓋讓表皮上色。文章也整理了常見問題：麵團太黏、發酵不足、切口不展開，以及如何保存隔夜麵包。每次只調整一項條件，記下結果，下一次才能知道哪個改變有效。",
+        ),
+        (
+            "Solar panels and home energy",
+            "energy.example",
+            "guides solar battery efficiency",
+            "A home energy system balances generation, battery storage and daily electricity demand. Roof direction and shade affect the output across the seasons. The guide compares installation costs, inverter efficiency, maintenance, household consumption and ways to measure savings from actual meter readings rather than estimates.",
+        ),
+        (
+            "Understanding musical harmony",
+            "music.example",
+            "lessons harmony chords piano",
+            "These piano exercises connect scales, chord progressions and voice leading. Listen for the tension before a cadence and practise moving each voice by a small interval. The lesson covers major and minor keys, rhythm, ear training and arranging a melody with simple accompaniment, with short examples for daily practice.",
+        ),
+        (
+            "星空攝影入門",
+            "photo.example",
+            "photography night sky exposure",
+            "拍攝星空需要選擇光害較少的地點，先確認天氣、月相和交通路線。使用穩固腳架與手動對焦，從短曝光開始，逐步調整感光度與光圈。這份指南比較廣角鏡頭、赤道儀、降噪和多張疊合的方法，也提醒拍攝者保留原始檔案與現場筆記。回家後檢查星點是否拖線，觀察暗部細節，按實際結果調整下次的設定。後製時保持自然的色彩，避免過度銳化，讓照片呈現當晚真正看到的天空。",
+        ),
+    ];
+    (start..end)
+        .map(|index| {
+            let (title, site, path, body) = PAGES[index % PAGES.len()];
+            format!("{title} {index}\n{site} · {path}\n{body}")
+        })
+        .collect()
+}
+
+/// Separate processes prevent tokenizer-only allocations and retained cached engines from
+/// contaminating each other's measurements. No timing threshold: this records a real workload.
+#[cfg(target_os = "macos")]
+#[tokio::test]
+async fn static_memory_footprint_benchmark() {
+    if std::env::var("PATHKEEP_STATIC_MEMORY").as_deref() != Ok("1") {
+        eprintln!("skipping static memory: set PATHKEEP_STATIC_MEMORY=1 on macOS");
+        return;
+    }
+    if let Ok(phase) = std::env::var("PATHKEEP_STATIC_MEMORY_CHILD") {
+        let paths = project_paths();
+        let baseline = physical_footprint();
+        let started = Instant::now();
+        let report = if phase == "tokenizer" {
+            let directory = vault_core::model_dir_for_repo(&paths, DEFAULT_STATIC_MODEL_REPO);
+            let bytes = std::fs::read(directory.join("tokenizer.json")).expect("read tokenizer");
+            let tokenizer =
+                vault_core::ai::StaticTokenizer::from_bytes(&bytes).expect("load tokenizer");
+            drop(bytes);
+            let load_ms = started.elapsed().as_secs_f64() * 1000.0;
+            let footprint = physical_footprint();
+            std::hint::black_box(&tokenizer);
+            serde_json::json!({"baseline_bytes": baseline, "loaded_bytes": footprint,
+                "load_ms": load_ms})
+        } else {
+            assert_eq!(phase, "engine");
+            // Includes the production cache-miss SHA-256 verification, but excludes download setup.
+            let provider = StaticEmbeddingProvider::load_default(&paths).expect("load engine");
+            let load_ms = started.elapsed().as_secs_f64() * 1000.0;
+            let loaded = physical_footprint();
+            let query = ["find articles about local first encrypted browser history".to_string()];
+            let vector = provider.embed(&query, EmbeddingRole::Query).await.expect("query");
+            std::hint::black_box(&vector);
+            drop(vector);
+            let queried = physical_footprint();
+            // Match the backfill's bounded 64-text batches; retain neither all texts nor vectors.
+            let started = Instant::now();
+            for start in (0..10_000).step_by(64) {
+                let texts = memory_benchmark_pages(start, (start + 64).min(10_000));
+                let vectors = provider.embed(&texts, EmbeddingRole::Document).await.expect("pages");
+                assert_eq!(vectors.len(), texts.len());
+                std::hint::black_box(vectors);
+            }
+            let seconds = started.elapsed().as_secs_f64();
+            let built = physical_footprint();
+            serde_json::json!({"baseline_bytes": baseline, "loaded_bytes": loaded,
+                "after_query_bytes": queried, "after_10000_bytes": built,
+                "load_ms": load_ms, "texts": 10_000, "batch_size": 64,
+                "build_seconds": seconds, "texts_per_second": 10_000.0 / seconds})
+        };
+        println!("STATIC_MEMORY_REPORT={report}");
+        return;
+    }
+
+    let paths = project_paths();
+    ensure_model_downloaded(
+        &paths,
+        DEFAULT_STATIC_MODEL_REPO,
+        DEFAULT_STATIC_MODEL_FILES,
+        true,
+        &mut NoopDownloadProgress,
+    )
+    .expect("prepare model once before measurement");
+    let mut report = serde_json::Map::new();
+    for phase in ["tokenizer", "engine"] {
+        let output = std::process::Command::new(std::env::current_exe().expect("test executable"))
+            .args([
+                "--exact",
+                "static_memory_footprint_benchmark",
+                "--nocapture",
+                "--test-threads=1",
+            ])
+            .env("PATHKEEP_STATIC_MEMORY_CHILD", phase)
+            .output()
+            .expect("run isolated measurement");
+        assert!(
+            output.status.success(),
+            "measurement failed: {}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8(output.stdout).expect("measurement UTF-8");
+        let json = stdout
+            .lines()
+            .find_map(|line| line.split_once("STATIC_MEMORY_REPORT=").map(|(_, json)| json))
+            .expect("child measurement report");
+        report.insert(phase.into(), serde_json::from_str(json).expect("measurement JSON"));
+    }
+    let label = std::env::var("PATHKEEP_STATIC_MEMORY_LABEL").unwrap_or_else(|_| "latest".into());
+    assert!(label.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'));
+    let artifact = models_root().join(format!("memory-{label}.json"));
+    let json = serde_json::to_string_pretty(&report).expect("serialize measurement");
+    std::fs::write(&artifact, &json).expect("write measurement artifact");
+    eprintln!("{json}\nMeasurement artifact: {}", artifact.display());
 }

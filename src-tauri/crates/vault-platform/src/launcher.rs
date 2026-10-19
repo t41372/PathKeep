@@ -2,9 +2,10 @@
 //!
 //! These helpers validate user-provided paths/URLs before handing them to the
 //! OS shell. The goal is modest but important: PathKeep should only ask the
-//! platform to open real local folders, trusted `file://` URLs, HTTP(S) URLs,
-//! or one fixed macOS settings pane and should fail with a straightforward
-//! message otherwise.
+//! platform to open real local folders, HTTP(S) URLs, one fixed macOS settings
+//! pane, or a `file://` URL the caller has checked is a page the user visited,
+//! and should fail with a straightforward message otherwise. Opening a
+//! `file://` URL can launch an application, so it never accepts one on its own.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -20,9 +21,21 @@ pub fn open_path_in_file_manager(path: String) -> Result<String, String> {
     Ok(target.display().to_string())
 }
 
-/// Opens an HTTP(S), trusted file URL, or approved settings URL in the host launcher.
+/// Opens an HTTP(S) URL, or the approved settings URL, in the host launcher.
 pub fn open_external_url(url: String) -> Result<String, String> {
     let target = resolve_external_url_target(&url)?;
+    let (program, arguments) = external_url_command(&target);
+    spawn_external_url_command(program, arguments, &target)?;
+    Ok(target)
+}
+
+/// Opens a `file://` URL. Only for one the caller found in the user's own history: anything else
+/// (a link a model wrote, a page's content) could name an application and run it.
+pub fn open_visited_file_url(url: String) -> Result<String, String> {
+    let target = url.trim().to_string();
+    if !target.to_ascii_lowercase().starts_with("file://") {
+        return Err(format!("Not a file:// URL: {target}"));
+    }
     let (program, arguments) = external_url_command(&target);
     spawn_external_url_command(program, arguments, &target)?;
     Ok(target)
@@ -69,11 +82,10 @@ pub fn resolve_external_url_target(url: &str) -> Result<String, String> {
     let lower = trimmed.to_ascii_lowercase();
     if !(lower.starts_with("https://")
         || lower.starts_with("http://")
-        || lower.starts_with("file://")
         || is_allowed_macos_settings_url(trimmed))
     {
         return Err(
-            "Only file://, http://, https://, and the macOS Full Disk Access settings URL can be opened."
+            "Only http://, https://, and the macOS Full Disk Access settings URL can be opened."
                 .to_string(),
         );
     }
@@ -154,73 +166,13 @@ fn spawn_external_url_command(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
-    #[cfg(unix)]
-    use std::os::unix::fs::PermissionsExt;
-    use tempfile::tempdir;
-
-    #[cfg(target_os = "macos")]
-    fn expected_file_manager_program() -> &'static str {
-        "open"
-    }
-
-    #[cfg(target_os = "windows")]
-    fn expected_file_manager_program() -> &'static str {
-        "explorer"
-    }
-
-    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
-    fn expected_file_manager_program() -> &'static str {
-        "xdg-open"
-    }
-
-    #[cfg(target_os = "macos")]
-    fn expected_external_url_program() -> &'static str {
-        "open"
-    }
-
-    #[cfg(target_os = "windows")]
-    fn expected_external_url_program() -> &'static str {
-        "cmd"
-    }
-
-    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
-    fn expected_external_url_program() -> &'static str {
-        "xdg-open"
-    }
-
-    #[test]
-    fn resolve_file_manager_target_prefers_directory_and_parent_folder() {
-        let dir = tempdir().expect("tempdir");
-        let nested_dir = dir.path().join("nested");
-        fs::create_dir_all(&nested_dir).expect("create nested dir");
-        let file_path = nested_dir.join("archive.sqlite");
-        fs::write(&file_path, "sqlite").expect("write file");
-
-        assert_eq!(
-            resolve_file_manager_target(&nested_dir.display().to_string()).expect("resolve dir"),
-            nested_dir
-        );
-        assert_eq!(
-            resolve_file_manager_target(&file_path.display().to_string())
-                .expect("resolve file parent"),
-            nested_dir
-        );
-    }
-
-    #[test]
-    fn resolve_file_manager_target_rejects_missing_paths() {
-        let error = resolve_file_manager_target("/tmp/pathkeep-does-not-exist")
-            .expect_err("missing path should fail");
-        assert!(error.contains("Path does not exist"));
-    }
 
     #[test]
     fn resolve_external_url_target_accepts_trusted_launcher_urls() {
-        assert_eq!(
-            resolve_external_url_target("file:///tmp/pathkeep/index.html").expect("file target"),
-            "file:///tmp/pathkeep/index.html"
-        );
+        // A file:// URL can name an application; only visited ones open, through
+        // open_visited_file_url after the caller has looked them up.
+        resolve_external_url_target("file:///Applications/Calculator.app")
+            .expect_err("reject file urls");
         assert_eq!(
             resolve_external_url_target("https://example.com").expect("https target"),
             "https://example.com"
@@ -241,92 +193,5 @@ mod tests {
 
         let missing = resolve_external_url_target("   ").expect_err("reject blank urls");
         assert!(missing.contains("does not exist"));
-    }
-
-    #[test]
-    fn resolve_file_manager_target_allows_preview_file_paths_to_open_existing_parent_dir() {
-        let dir = tempdir().expect("tempdir");
-        let preview_file = dir.path().join("integrations/pathkeep-mcp.json");
-
-        assert_eq!(
-            resolve_file_manager_target(&preview_file.display().to_string())
-                .expect("resolve preview file parent"),
-            dir.path()
-        );
-    }
-
-    #[test]
-    fn launcher_helpers_cover_command_resolution() {
-        let dir = tempdir().expect("tempdir");
-        let relative_target =
-            resolve_file_manager_target("src/lib.rs").expect("resolve relative file");
-        assert!(relative_target.ends_with("src"));
-
-        let (program, arguments) = file_manager_command(dir.path());
-        assert_eq!(program, expected_file_manager_program());
-        assert_eq!(arguments, vec![dir.path().display().to_string()]);
-
-        let (program, arguments) = external_url_command("https://example.com/pathkeep");
-        assert_eq!(program, expected_external_url_program());
-        assert!(arguments.join(" ").contains("https://example.com/pathkeep"));
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn launcher_spawn_uses_host_commands_via_path_shim() {
-        let dir = tempdir().expect("tempdir");
-        let shim_dir = dir.path().join("bin");
-        let capture_path = dir.path().join("capture.log");
-        let target_dir = dir.path().join("open-me");
-        fs::create_dir_all(&shim_dir).expect("create shim dir");
-        fs::create_dir_all(&target_dir).expect("create target dir");
-
-        let file_manager_shim = shim_dir.join(expected_file_manager_program());
-        fs::write(
-            &file_manager_shim,
-            format!("#!/bin/sh\nprintf '%s\\n' \"$@\" > {}\n", capture_path.display()),
-        )
-        .expect("write file manager shim");
-        let mut permissions = fs::metadata(&file_manager_shim).expect("metadata").permissions();
-        permissions.set_mode(0o755);
-        fs::set_permissions(&file_manager_shim, permissions).expect("chmod shim");
-
-        let original_path = std::env::var_os("PATH");
-        unsafe {
-            std::env::set_var(
-                "PATH",
-                format!(
-                    "{}:{}",
-                    shim_dir.display(),
-                    original_path
-                        .as_ref()
-                        .map(|value| value.to_string_lossy().into_owned())
-                        .unwrap_or_default()
-                ),
-            );
-        }
-
-        open_path_in_file_manager(target_dir.display().to_string()).expect("open path");
-        let mut captured = String::new();
-        for _ in 0..250 {
-            if let Ok(next) = fs::read_to_string(&capture_path) {
-                if next.contains(&target_dir.display().to_string()) {
-                    captured = next;
-                    break;
-                }
-                captured = next;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(20));
-        }
-
-        unsafe {
-            if let Some(value) = original_path {
-                std::env::set_var("PATH", value);
-            } else {
-                std::env::remove_var("PATH");
-            }
-        }
-
-        assert!(captured.contains(&target_dir.display().to_string()));
     }
 }

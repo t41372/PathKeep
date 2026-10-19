@@ -20,41 +20,103 @@
  */
 
 import type { DomainTrendPoint } from './types-overview'
+import type { Page } from './types-primitives'
 import type { SessionSummary, TrailSummary } from './types-navigation'
 
 // ---------------------------------------------------------------------------
 // 4.1 Domain Deep Dive (網站深度分析)
 // ---------------------------------------------------------------------------
 
+/**
+ * One site over a window. Totals, active days and the trend come from the
+ * same daily rollups as Top sites, so the numbers agree with it.
+ */
 export interface DomainDeepDive {
   registrableDomain: string
   displayName?: string | null
   domainCategory: string
   totalVisits: number
   activeDays: number
-  trailCount: number
-  arrivalBreakdown: ArrivalBreakdown
-  topPages: DomainPageStat[]
-  topReferrers: DomainFlowStat[]
-  topExits: DomainFlowStat[]
+  /** Distinct URLs on the site visited in the window. */
+  pageCount: number
+  /** Searches whose trail landed on this site in the window. */
+  landingSearchCount: number
+  /** Most visited first; one page of them, continued by `nextCursor`. */
+  topPages: Page<DomainPageStat>
+  /** Most frequent first; one page of them, continued by `nextCursor`. */
+  landingSearches: Page<DomainSearchStat>
+  /** Days without visits are left out. */
   visitTrend: DomainTrendPoint[]
+  arrivals: SiteArrivals
+  /** Sites whose links opened this one, most visits first. */
+  referrers: SiteFlowStat[]
+  /** Search engines whose results opened it, by the engine's site. */
+  searchSites: SiteFlowStat[]
+  /** Sites opened from links on this one. */
+  onward: SiteFlowStat[]
+  /**
+   * What was searched on the site (its search engines' keyword searches),
+   * most often first; empty for a site with no search engine.
+   */
+  siteSearches: DomainSearchStat[]
+  /**
+   * The category the user set for the site, as set now; `domainCategory` is
+   * the one Insights were built with, which follows once they are rebuilt.
+   */
+  userCategory?: string | null
+  /** The category PathKeep's own lists give the site (`unknown`: none). */
+  listCategory?: string
+  /**
+   * The parts of the site the lists sort on their own (`mail.google.com` in
+   * `google.com`), which keep their categories whatever the user sets for the
+   * site; only those the archive has pages on.
+   */
+  listedParts?: SitePart[]
+  /** Insights were built with another category for the site than the one set now. */
+  categoryPending?: boolean
 }
 
-export interface ArrivalBreakdown {
+/** A host of a site that PathKeep's lists sort on its own. */
+export interface SitePart {
+  host: string
+  /** The category the lists give it. */
+  category: string
+}
+
+/**
+ * How the visits to a site began: each visit whose opener (the page the
+ * browser says opened it) was not on the site.
+ */
+export interface SiteArrivals {
+  /** No opener: typed, a bookmark, a new tab or another app. */
+  direct: number
+  /** Opened from a search's results. */
   search: number
+  /** Opened from a link on another site, or on a page PathKeep did not see. */
   link: number
-  typed: number
-  other: number
+  /**
+   * Visits from browsers that do not record what opened a page (Safari,
+   * Google Takeout): how they began is not known.
+   */
+  unrecorded: number
+}
+
+/** Another site, and how many visits went between it and the site. */
+export interface SiteFlowStat {
+  registrableDomain: string
+  visitCount: number
 }
 
 export interface DomainPageStat {
+  url: string
+  title?: string | null
+  /** The URL without scheme and host. */
   path: string
   visitCount: number
 }
 
-export interface DomainFlowStat {
-  domain: string
-  displayName?: string | null
+export interface DomainSearchStat {
+  query: string
   count: number
 }
 
@@ -62,13 +124,14 @@ export interface DomainFlowStat {
 // 4.2 Stable Answer Sources (穩定答案來源)
 // ---------------------------------------------------------------------------
 
+/** A site searches ended on: where the user's answers come from. */
 export interface StableSource {
   registrableDomain: string
   displayName?: string | null
-  sourceRole: 'entry' | 'landing' | 'reference'
-  trailCount: number
-  stableLandingCount: number
-  effectivenessScore: number
+  /** Searches in the range whose landing page was on this site. */
+  searchCount: number
+  /** How many different searches those were. */
+  queryCount: number
 }
 
 // ---------------------------------------------------------------------------
@@ -77,8 +140,8 @@ export interface StableSource {
 
 export interface SearchEffectiveness {
   engineStats: EngineEffectiveness[]
-  topResolvingSources: StableSource[]
-  hardestTopics: HardTopic[]
+  topResolvingSources: Page<StableSource>
+  hardestTopics: Page<HardTopic>
 }
 
 export interface EngineEffectiveness {
@@ -110,6 +173,12 @@ export interface FrictionSignal {
   signalKind: string
   occurrenceCount: number
   description: string
+  /** The search as first typed. */
+  searchQuery: string
+  /** How many times it was reworded. */
+  reformulationCount: number
+  /** Pages opened from it, the searches included. */
+  visitCount: number
 }
 
 // ---------------------------------------------------------------------------
@@ -121,6 +190,8 @@ export interface ReopenedInvestigation {
   anchorType: 'query_family' | 'reference_page'
   anchorId: string
   anchorLabel: string
+  /** The page's site, for its icon; absent for a search. */
+  site?: string | null
   occurrenceCount: number
   distinctDays: number
   firstSeenAt: string
@@ -239,6 +310,8 @@ export interface CompareSet {
   searchQuery: string
   pageCategory: string
   pages: CompareSetPage[]
+  /** The last time one of the pages was opened in this search. */
+  lastVisitedAt: string
 }
 
 export interface CompareSetPage {
@@ -264,6 +337,7 @@ export interface CompareSetDetail {
 export interface BrowserDiff {
   profiles: BrowserProfileSummary[]
   exclusiveDomains: ExclusiveDomainEntry[]
+  /** Sites more than one profile visited, most visits (all profiles) first. */
   sharedDomains: string[]
   categoryDistributions: BrowserCategoryDistribution[]
 }

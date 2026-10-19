@@ -1,45 +1,15 @@
-//! Keyed reverse/forward visit↔content sidecars over `derived/vectors/` (M-11, 05 §10).
+//! Responsibilities: project the append-ordered `.pkmap` into sorted forward and reverse sidecars,
+//! then the visit → position map that search reads.
+//! Not responsible for: vector scoring, canonical eligibility or page ranking.
+//! Failure modes: a torn or half-replaced pair is trusted; sidecars outlive a model change;
+//! last-writer-wins remaps are lost. Tests: sidecar tests below, `ai/tests.rs` fallbacks.
 //!
-//! ## Responsibilities
-//! - turn the append-ordered `.pkmap` ([`super::visit_content_map::VisitContentMap`]) into two
-//!   SORTED, fixed-width sidecars that answer the two query-time joins in BOUNDED time instead of a
-//!   full corpus stride:
-//!   - the **reverse sidecar** (`.pkrev`): `(content_key, history_id)` records sorted by
-//!     `(content_key, history_id)`, so semantic hydration resolves the ~k' result content_keys to
-//!     their visits by BINARY SEARCH on disk — O(k' · log n) seeks, NOT the O(n) `.pkmap` stride the
-//!     always-on hydration path used (M-11). A content_key's visits form ONE contiguous run, so a
-//!     single binary search to the run start plus a forward scan collects every history_id.
-//!   - the **forward sidecar** (`.pkfwd`): `(history_id, content_key)` records sorted by
-//!     `(history_id, content_key)`, so the `is:starred` facet resolves a BOUNDED starred history_id
-//!     set to its content_keys by binary search — O(starred · log n), closing XA-PERF-4 (the
-//!     acknowledged O(n) forward stride in `resolve_starred_content_keys`).
-//! - stay DERIVED + REBUILDABLE: both sidecars are pure projections of the `.pkmap`, stamped with the
-//!   SAME [`EmbeddingFingerprint`] hash as the `.pkvec`/planes so a model/dim change marks them stale
-//!   and they re-project (zero training), and EXPORT-EXCLUDED like every `derived/vectors/` plane.
-//!
-//! ## Not responsible for
-//! - the append-ordered authoritative `.pkmap` (this is a downstream sorted projection of it, never a
-//!   source of truth — a torn/missing sidecar re-projects from the `.pkmap`);
-//! - the vectors / dedup hashing / nearest-neighbour search (those stay with their owners).
-//!
-//! ## Why a persisted SORTED sidecar instead of a resident `HashMap`
-//! At the 14.4M-visit tail the `.pkmap` is per-VISIT (it does NOT shrink with dedup), so a resident
-//! `HashMap<content_key, Vec<history_id>>` is ~300–460 MB stacked on top of the ~879 MB binary plane —
-//! a meaningful bite of the 8 GB envelope when the WebView + SQLCipher cache + a running embedder also
-//! need room (Principle 3). The whole retrieval plane's posture is "binary-plane-only resident; int8
-//! seeked on disk" (05 §10 C1); a resident reverse map would break it. So these sidecars MIRROR the
-//! int8 plane exactly: fixed-width records, sorted, BINARY-SEARCHED by file position with ~0 added
-//! resident RAM. Hydration touches only the k' result keys' records; is:starred only the starred set's.
-//!
-//! ## Format (little-endian; both sidecars mirror the `.pkvec` magic+header discipline)
 //! ```text
-//! .pkrev  magic 8 = b"PKREV\0\x01\0" | u32 len + JSON ReverseMapHeader | records [ content_key:u64 | history_id:i64 ]  sorted by (content_key, history_id)
-//! .pkfwd  magic 8 = b"PKFWD\0\x01\0" | u32 len + JSON ReverseMapHeader | records [ history_id:i64  | content_key:u64 ]  sorted by (history_id, content_key)
+//! .pkrev  magic b"PKREV\0\x01\0" | u32 len + JSON ReverseMapHeader | records [ content_key:u64 | history_id:i64 ] sorted by key
+//! .pkfwd  magic b"PKFWD\0\x01\0" | u32 len + JSON ReverseMapHeader | records [ history_id:i64 | content_key:u64 ] sorted by visit
 //! ```
-//! Each record is a fixed 16 bytes (two u64/i64). The leading 8 bytes are the SORT KEY of that
-//! sidecar (content_key for `.pkrev`, history_id for `.pkfwd`), so a binary search compares only the
-//! first 8 bytes of each probed record. The header carries the source fingerprint hash + the record
-//! COUNT (so the binary search bound is read without a metadata round-trip per probe).
+//! Both carry the source fingerprint, the record count and one projection id. They are rebuilt at
+//! the end of every index pass; until then search keeps using the previous complete pair.
 
 use super::visit_content_map::VisitContentMap;
 use crate::ai_sidecar::provider_table_name;
@@ -77,6 +47,9 @@ pub struct ReverseMapHeader {
     pub fingerprint_hash: String,
     /// Number of fixed-width records (the binary-search upper bound).
     pub record_count: u64,
+    /// Identifies one projection, so a position map built against another one is never used.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub projection_id: String,
 }
 
 /// Resolves the reverse (`.pkrev`) sidecar path for one provider/model pair under `derived/vectors/`.
@@ -97,6 +70,8 @@ fn forward_map_path(paths: &ProjectPaths, provider_id: &str, model: &str) -> Pat
 /// (project from `.pkmap`) and the query-time binary searches stay separate concerns, mirroring the
 /// [`super::vector_planes`] handles.
 pub struct ReverseVisitMap {
+    provider: String,
+    model: String,
     reverse_path: PathBuf,
     forward_path: PathBuf,
 }
@@ -105,6 +80,8 @@ impl ReverseVisitMap {
     /// Resolves the sidecar-pair handle for one provider/model pair.
     pub fn for_provider(paths: &ProjectPaths, provider_id: &str, model: &str) -> Self {
         Self {
+            provider: provider_id.into(),
+            model: model.into(),
             reverse_path: reverse_map_path(paths, provider_id, model),
             forward_path: forward_map_path(paths, provider_id, model),
         }
@@ -147,7 +124,7 @@ impl ReverseVisitMap {
             || reverse.record_count != forward.record_count)
     }
 
-    /// Projects BOTH sorted sidecars from the authoritative append-ordered `.pkmap` (M-11).
+    /// Projects BOTH sorted sidecars from the authoritative append-ordered `.pkmap`.
     ///
     /// Reads the `.pkmap`'s last-writer-wins `history_id → content_key` map (so a torn-resume duplicate
     /// is already collapsed — the SAME dedup the `.pkvec` reader applies), then writes:
@@ -170,6 +147,9 @@ impl ReverseVisitMap {
         ensure_paths(paths)?;
         // `read_all` is last-writer-wins per history_id, so a torn-resume re-map is already collapsed:
         // one (history_id, content_key) pair per visit — the dedup parity the `.pkvec` reader holds.
+        let mut id = [0; 16];
+        getrandom::fill(&mut id)?;
+        let projection_id = hex::encode(id);
         let map = visit_map.read_all()?;
         let mut pairs: Vec<(i64, u64)> = map.into_iter().collect();
         let record_count = pairs.len() as u64;
@@ -183,6 +163,7 @@ impl ReverseVisitMap {
             &REVERSE_MAP_MAGIC,
             fingerprint_hash,
             record_count,
+            &projection_id,
             pairs.iter().map(|&(history_id, content_key)| (content_key, history_id as u64)),
         )?;
 
@@ -201,20 +182,47 @@ impl ReverseVisitMap {
             &FORWARD_MAP_MAGIC,
             fingerprint_hash,
             record_count,
+            &projection_id,
             pairs.iter().map(|&(history_id, content_key)| (history_id as u64, content_key)),
         )?;
+        super::visit_position_map::rebuild(paths, &self.provider, &self.model)?;
         Ok(record_count)
     }
 
-    /// Collects, for each WANTED `content_key`, every `history_id` that maps to it (M-11 hydration).
+    /// The forward projection's identity when both sidecars are complete and stamped for these planes.
     ///
-    /// The bounded replacement for `VisitContentMap::history_ids_for_content_keys`'s O(n) stride: for
-    /// each of the ~k' wanted keys it BINARY-SEARCHES the `.pkrev` to the first record carrying that key,
-    /// then forward-reads the contiguous run of that key's records (sorted layout) collecting their
-    /// history_ids — O(k' · log n + matched_visits) seeks/reads, never the corpus. Returns EXACTLY the
-    /// history_ids the old full scan returned for the same key set (the sorted projection is the SAME
-    /// `(content_key, history_id)` multiset as the `.pkmap`'s last-writer-wins map). A key with no
-    /// mapped visit is simply absent from the result; an empty wanted set short-circuits.
+    /// Appends to `.pkmap` during a pass do not invalidate it: search keeps the last complete
+    /// projection until the pass re-projects at its end.
+    pub(super) fn projection_header(&self, fingerprint: &str) -> Result<Option<(String, u64)>> {
+        let pair = (|| -> Result<_> {
+            let reverse = read_sidecar_header(&self.reverse_path, &REVERSE_MAP_MAGIC)?;
+            let forward = read_sidecar_header(&self.forward_path, &FORWARD_MAP_MAGIC)?;
+            Ok(reverse.zip(forward))
+        })();
+        let Ok(Some((reverse, forward))) = pair else {
+            return Ok(None);
+        };
+        if reverse != forward || forward.fingerprint_hash != fingerprint {
+            return Ok(None);
+        }
+        let expected = data_start_offset(&forward)? + forward.record_count * RECORD_LEN as u64;
+        if fs::metadata(&self.forward_path)?.len() != expected
+            || fs::metadata(&self.reverse_path)?.len() != expected
+        {
+            return Ok(None);
+        }
+        Ok(Some((forward.projection_id, forward.record_count)))
+    }
+
+    /// Collects, for each WANTED `content_key`, every `history_id` that maps to it (keyed hydration).
+    ///
+    /// For each of the ~k' wanted keys it BINARY-SEARCHES the `.pkrev` to the first record carrying
+    /// that key, then forward-reads the contiguous run of that key's records (sorted layout) collecting
+    /// their history_ids — O(k' · log n + matched_visits) seeks/reads, never the corpus. The sorted
+    /// projection is the SAME `(content_key, history_id)` multiset as the `.pkmap`'s last-writer-wins
+    /// map. A key with no mapped visit is simply absent from the result; an empty wanted set
+    /// short-circuits. Search streams the forward sidecar instead; the vector index benchmark times
+    /// this keyed lookup.
     pub fn history_ids_for_content_keys(
         &self,
         wanted: &HashSet<u64>,
@@ -246,39 +254,58 @@ impl ReverseVisitMap {
         Ok(inverse)
     }
 
-    /// Collects the SET of `content_key`s for a BOUNDED set of `history_id`s (XA-PERF-4, `is:starred`).
-    ///
-    /// The bounded replacement for `VisitContentMap::content_keys_for_history_ids`'s O(n) stride: for
-    /// each of the (tiny) starred history_ids it BINARY-SEARCHES the `.pkfwd` to that history_id's row
-    /// and reads its content_key — O(starred · log n) seeks, never the corpus. history_id is unique in
-    /// the `.pkmap` map, so each starred visit contributes at most one content_key; a starred visit not
-    /// in the map (never embedded) contributes nothing. An empty wanted set short-circuits.
-    pub fn content_keys_for_history_ids(&self, wanted: &HashSet<i64>) -> Result<HashSet<u64>> {
-        let mut keys = HashSet::new();
+    /// One visit per content key is enough to find its page; a key that thousands of visits share
+    /// (an inbox) is not walked.
+    pub(super) fn first_history_id_for_content_keys(
+        &self,
+        wanted: &HashSet<u64>,
+    ) -> Result<std::collections::HashMap<u64, i64>> {
+        let mut first = std::collections::HashMap::new();
         if wanted.is_empty() {
-            return Ok(keys);
+            return Ok(first);
         }
-        let Some((mut file, header)) = open_sidecar(&self.forward_path, &FORWARD_MAP_MAGIC)? else {
-            return Ok(keys);
+        let Some((mut file, header)) = open_sidecar(&self.reverse_path, &REVERSE_MAP_MAGIC)? else {
+            return Ok(first);
         };
         let data_start = data_start_offset(&header)?;
-        for &history_id in wanted {
-            // The forward sidecar's leading 8 bytes are the history_id (the sort key, reinterpreted as
-            // a u64 for the byte compare — see `lower_bound`'s ordering note). Binary-search to the
-            // first matching row; a unique history_id has exactly one row, so read it and take its key.
-            let probe = history_id as u64;
-            let position = lower_bound(&mut file, data_start, header.record_count, probe)?;
+        for &key in wanted {
+            let position = lower_bound(&mut file, data_start, header.record_count, key)?;
             if position < header.record_count {
                 let record = read_record_at(&mut file, data_start, position)?;
-                let record_id = i64::from_le_bytes(record[..8].try_into().expect("8-byte id"));
-                if record_id == history_id {
-                    let content_key =
-                        u64::from_le_bytes(record[8..].try_into().expect("8-byte key"));
-                    keys.insert(content_key);
+                if u64::from_le_bytes(record[..8].try_into().expect("8-byte key")) == key {
+                    first.insert(
+                        key,
+                        i64::from_le_bytes(record[8..].try_into().expect("8-byte id")),
+                    );
                 }
             }
         }
-        Ok(keys)
+        Ok(first)
+    }
+
+    /// Streams the last-writer-wins projection without a full visit-ID map in RAM.
+    pub(super) fn visit_forward(
+        &self,
+        cancel: &vault_store::CancelToken,
+        mut visit: impl FnMut(i64, u64) -> Result<()>,
+    ) -> Result<()> {
+        let Some((mut file, header)) = open_sidecar(&self.forward_path, &FORWARD_MAP_MAGIC)? else {
+            return Ok(());
+        };
+        file.seek(SeekFrom::Start(data_start_offset(&header)?))?;
+        let mut reader = std::io::BufReader::new(file);
+        let mut record = [0u8; RECORD_LEN];
+        for position in 0..header.record_count {
+            if position % 1024 == 0 {
+                cancel.check()?;
+            }
+            reader.read_exact(&mut record).context("reading forward mapping")?;
+            visit(
+                i64::from_le_bytes(record[..8].try_into().unwrap()),
+                u64::from_le_bytes(record[8..].try_into().unwrap()),
+            )?;
+        }
+        Ok(())
     }
 
     /// Deletes both sidecars if present, returning whether anything was removed.
@@ -287,7 +314,8 @@ impl ReverseVisitMap {
     /// is the correct reset (a later build re-projects them from the surviving `.pkmap`).
     pub fn delete(&self) -> Result<bool> {
         let mut removed = false;
-        for path in [&self.reverse_path, &self.forward_path] {
+        let positions = self.forward_path.with_extension("pkpos");
+        for path in [&self.reverse_path, &self.forward_path, &positions] {
             if path.exists() {
                 fs::remove_file(path)
                     .with_context(|| format!("removing reverse sidecar {}", path.display()))?;
@@ -296,25 +324,6 @@ impl ReverseVisitMap {
         }
         Ok(removed)
     }
-}
-
-/// Reports total bytes consumed by all `.pkrev` + `.pkfwd` sidecars under the vector plane dir.
-///
-/// Filesystem-only so storage review can size the keyed sidecars without loading any engine.
-pub fn reverse_map_plane_bytes(paths: &ProjectPaths) -> u64 {
-    let Ok(entries) = fs::read_dir(&paths.vectors_dir) else {
-        return 0;
-    };
-    entries
-        .flatten()
-        .filter(|entry| {
-            matches!(
-                entry.path().extension().and_then(|ext| ext.to_str()),
-                Some(REVERSE_MAP_EXTENSION) | Some(FORWARD_MAP_EXTENSION)
-            )
-        })
-        .filter_map(|entry| entry.metadata().ok().map(|meta| meta.len()))
-        .sum()
 }
 
 /// Writes one sorted sidecar to a temp file + atomically renames it over the destination.
@@ -328,6 +337,7 @@ fn write_sidecar_atomic(
     magic: &[u8; 8],
     fingerprint_hash: &str,
     record_count: u64,
+    projection_id: &str,
     records: impl Iterator<Item = (u64, u64)>,
 ) -> Result<()> {
     let tmp = sidecar_tmp_path(path);
@@ -336,8 +346,11 @@ fn write_sidecar_atomic(
             .with_context(|| format!("creating reverse sidecar temp {}", tmp.display()))?;
         let mut writer = BufWriter::new(file);
         writer.write_all(magic).context("writing reverse sidecar magic")?;
-        let header =
-            ReverseMapHeader { fingerprint_hash: fingerprint_hash.to_string(), record_count };
+        let header = ReverseMapHeader {
+            fingerprint_hash: fingerprint_hash.to_string(),
+            record_count,
+            projection_id: projection_id.into(),
+        };
         let json = serde_json::to_vec(&header).context("serializing reverse sidecar header")?;
         let len = u32::try_from(json.len()).context("reverse sidecar header too large")?;
         writer.write_all(&len.to_le_bytes()).context("writing reverse sidecar header length")?;
@@ -471,168 +484,6 @@ mod tests {
     }
 
     #[test]
-    fn hydration_returns_exactly_the_old_full_scan_result() {
-        // M-11 correctness: the binary-search hydration must return EXACTLY the history_ids the old
-        // O(n) `.pkmap` stride returned for the same content_key set — a page with multiple visits fans
-        // out to ALL of them (no miss), and an unwanted key is excluded (no extra).
-        let dir = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(dir.path());
-        // Two visits share content_key 0xAAAA; one on 0xBBBB; one on an unwanted 0xCCCC.
-        let records = [(10, 0xAAAA), (20, 0xBBBB), (30, 0xAAAA), (40, 0xCCCC)];
-        let sidecars = build(&paths, &records, "fp-1");
-
-        let inverse = sidecars
-            .history_ids_for_content_keys(&HashSet::from([0xAAAA, 0xBBBB]))
-            .expect("inverse");
-        let mut aaaa = inverse.get(&0xAAAA).cloned().expect("aaaa present");
-        aaaa.sort_unstable();
-        assert_eq!(aaaa, vec![10, 30], "0xAAAA fans out to BOTH its visits (no miss)");
-        assert_eq!(inverse.get(&0xBBBB), Some(&vec![20]));
-        assert!(!inverse.contains_key(&0xCCCC), "an unwanted key is excluded");
-
-        // The keyed result is identical to the authoritative full-scan `.pkmap` result.
-        let visit_map = VisitContentMap::for_provider(&paths, "static-embed", "model-a");
-        let scan =
-            visit_map.history_ids_for_content_keys(&HashSet::from([0xAAAA, 0xBBBB])).expect("scan");
-        let mut keyed_sorted: Vec<(u64, Vec<i64>)> = inverse
-            .into_iter()
-            .map(|(key, mut ids)| {
-                ids.sort_unstable();
-                (key, ids)
-            })
-            .collect();
-        keyed_sorted.sort_unstable_by_key(|(key, _)| *key);
-        let mut scan_sorted: Vec<(u64, Vec<i64>)> = scan
-            .into_iter()
-            .map(|(key, mut ids)| {
-                ids.sort_unstable();
-                (key, ids)
-            })
-            .collect();
-        scan_sorted.sort_unstable_by_key(|(key, _)| *key);
-        assert_eq!(keyed_sorted, scan_sorted, "keyed hydration must equal the full scan exactly");
-    }
-
-    #[test]
-    fn hydration_empty_wanted_short_circuits_and_missing_key_absent() {
-        let dir = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(dir.path());
-        let sidecars = build(&paths, &[(1, 0x1), (2, 0x2)], "fp-1");
-        // Empty wanted set short-circuits to an empty map (no file read).
-        assert!(sidecars.history_ids_for_content_keys(&HashSet::new()).expect("empty").is_empty());
-        // A content_key with no mapped visit is simply absent from the result.
-        let inverse =
-            sidecars.history_ids_for_content_keys(&HashSet::from([0xDEAD])).expect("missing key");
-        assert!(inverse.is_empty(), "a never-mapped content_key yields no entry");
-    }
-
-    #[test]
-    fn forward_resolution_is_bounded_and_matches_full_scan() {
-        // XA-PERF-4: the `is:starred` forward direction must return the same content_key SET the old
-        // O(n) `content_keys_for_history_ids` stride returned for the same bounded history_id set.
-        let dir = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(dir.path());
-        let records = [(10, 0xAAAA), (20, 0xBBBB), (30, 0xAAAA), (40, 0xCCCC)];
-        let sidecars = build(&paths, &records, "fp-1");
-
-        let keys =
-            sidecars.content_keys_for_history_ids(&HashSet::from([10, 20, 30])).expect("forward");
-        assert_eq!(keys, HashSet::from([0xAAAA, 0xBBBB]), "0xAAAA deduped across visits 10+30");
-        assert!(!keys.contains(&0xCCCC), "visit 40's key is excluded (not wanted)");
-
-        // Identical to the authoritative full-scan `.pkmap` forward result.
-        let visit_map = VisitContentMap::for_provider(&paths, "static-embed", "model-a");
-        let scan =
-            visit_map.content_keys_for_history_ids(&HashSet::from([10, 20, 30])).expect("scan");
-        assert_eq!(keys, scan, "keyed forward must equal the full scan exactly");
-
-        // Empty wanted set short-circuits; a never-mapped history_id contributes nothing.
-        assert!(sidecars.content_keys_for_history_ids(&HashSet::new()).expect("empty").is_empty());
-        assert!(
-            sidecars
-                .content_keys_for_history_ids(&HashSet::from([999]))
-                .expect("absent id")
-                .is_empty()
-        );
-    }
-
-    #[test]
-    fn binary_search_holds_across_many_keys_and_runs() {
-        // A larger corpus with multi-visit runs of varying length, so the binary search + run-scan is
-        // exercised at non-trivial positions (not just the 4-record toy). Every key's fan-out and every
-        // history_id's key must round-trip exactly.
-        let dir = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(dir.path());
-        let mut records: Vec<(i64, u64)> = Vec::new();
-        let mut history_id = 1i64;
-        // content_key k has k visits (k = 1..=20), so runs vary in length and positions interleave.
-        for key in 1u64..=20 {
-            for _ in 0..key {
-                records.push((history_id, key));
-                history_id += 1;
-            }
-        }
-        let sidecars = build(&paths, &records, "fp-1");
-
-        let wanted: HashSet<u64> = (1u64..=20).collect();
-        let inverse = sidecars.history_ids_for_content_keys(&wanted).expect("inverse");
-        for key in 1u64..=20 {
-            assert_eq!(
-                inverse.get(&key).map(|ids| ids.len()),
-                Some(key as usize),
-                "content_key {key} must fan out to exactly {key} visits"
-            );
-        }
-        // Every history_id resolves to its content_key via the forward sidecar.
-        let all_ids: HashSet<i64> = records.iter().map(|&(id, _)| id).collect();
-        let keys = sidecars.content_keys_for_history_ids(&all_ids).expect("forward");
-        assert_eq!(keys, (1u64..=20).collect::<HashSet<u64>>());
-    }
-
-    #[test]
-    fn torn_resume_duplicate_collapses_via_last_writer_wins() {
-        // RESUMABLE parity: a torn resume re-maps visit 10 to a NEW content_key; the `.pkmap`'s
-        // last-writer-wins map collapses it, so the sidecar projects ONE record for visit 10 (the LAST
-        // key), not two — no dup, mirroring the `.pkvec` read_all contract.
-        let dir = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(dir.path());
-        let visit_map = VisitContentMap::for_provider(&paths, "static-embed", "model-a");
-        visit_map.ensure_created(&paths).expect("ensure");
-        visit_map.append(&[(10, 0x1111)]).expect("append 1");
-        visit_map.append(&[(10, 0x2222)]).expect("append 2 (re-map)");
-        let sidecars = ReverseVisitMap::for_provider(&paths, "static-embed", "model-a");
-        let count = sidecars.build_from_visit_map(&paths, &visit_map, "fp-1").expect("build");
-        assert_eq!(count, 1, "the re-mapped visit collapses to one record");
-
-        // Visit 10 resolves to the LAST content_key only; the stale 0x1111 has no visits.
-        let keys = sidecars.content_keys_for_history_ids(&HashSet::from([10])).expect("forward");
-        assert_eq!(keys, HashSet::from([0x2222]));
-        let stale =
-            sidecars.history_ids_for_content_keys(&HashSet::from([0x1111])).expect("stale key");
-        assert!(stale.is_empty(), "the superseded content_key fans out to nothing");
-        let live =
-            sidecars.history_ids_for_content_keys(&HashSet::from([0x2222])).expect("live key");
-        assert_eq!(live.get(&0x2222), Some(&vec![10]));
-    }
-
-    #[test]
-    fn rebuild_from_current_visit_map_is_idempotent_no_dup_no_miss() {
-        // RESTART-SAFE: re-projecting from the SAME `.pkmap` (a stale-sidecar rebuild) produces the
-        // SAME sidecars — re-running the build twice never doubles or drops a record.
-        let dir = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(dir.path());
-        let records = [(10, 0xAAAA), (20, 0xBBBB), (30, 0xAAAA)];
-        let visit_map = seeded_visit_map(&paths, &records);
-        let sidecars = ReverseVisitMap::for_provider(&paths, "static-embed", "model-a");
-        let first = sidecars.build_from_visit_map(&paths, &visit_map, "fp-1").expect("build 1");
-        let first_bytes = fs::read(sidecars.reverse_path()).expect("read 1");
-        let second = sidecars.build_from_visit_map(&paths, &visit_map, "fp-1").expect("build 2");
-        let second_bytes = fs::read(sidecars.reverse_path()).expect("read 2");
-        assert_eq!(first, second, "record count stable across rebuilds");
-        assert_eq!(first_bytes, second_bytes, "the projected bytes are deterministic");
-    }
-
-    #[test]
     fn staleness_flips_on_fingerprint_change_or_missing_sidecar() {
         let dir = tempdir().expect("tempdir");
         let paths = project_paths_with_root(dir.path());
@@ -676,6 +527,7 @@ mod tests {
             &FORWARD_MAP_MAGIC,
             "fp-1",
             1, // a count that does NOT match the reverse sidecar's 2
+            "test",
             std::iter::once((1u64, 0x1u64)),
         )
         .expect("rewrite forward with a diverging count");
@@ -683,99 +535,5 @@ mod tests {
             sidecars.is_stale_against("fp-1").expect("count mismatch"),
             "diverging record counts mark the pair stale"
         );
-    }
-
-    #[test]
-    fn absent_sidecars_read_empty_not_error() {
-        // The read-path guard relies on an absent sidecar reading as empty (so the caller re-projects
-        // or falls back) rather than erroring.
-        let dir = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(dir.path());
-        let sidecars = ReverseVisitMap::for_provider(&paths, "static-embed", "never-built");
-        assert!(
-            sidecars
-                .history_ids_for_content_keys(&HashSet::from([0x1]))
-                .expect("absent reverse")
-                .is_empty()
-        );
-        assert!(
-            sidecars
-                .content_keys_for_history_ids(&HashSet::from([1]))
-                .expect("absent forward")
-                .is_empty()
-        );
-    }
-
-    #[test]
-    fn empty_visit_map_projects_empty_sidecars() {
-        let dir = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(dir.path());
-        let visit_map = VisitContentMap::for_provider(&paths, "static-embed", "model-a");
-        visit_map.ensure_created(&paths).expect("ensure");
-        let sidecars = ReverseVisitMap::for_provider(&paths, "static-embed", "model-a");
-        let count = sidecars.build_from_visit_map(&paths, &visit_map, "fp-1").expect("build empty");
-        assert_eq!(count, 0);
-        assert!(sidecars.exists(), "empty (header-only) sidecars still exist");
-        assert!(
-            sidecars
-                .history_ids_for_content_keys(&HashSet::from([0x1]))
-                .expect("empty reverse")
-                .is_empty()
-        );
-        assert!(!sidecars.is_stale_against("fp-1").expect("empty fresh"));
-    }
-
-    #[test]
-    fn delete_removes_both_sidecars_and_reports_state() {
-        let dir = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(dir.path());
-        let sidecars = build(&paths, &[(1, 0x1)], "fp-1");
-        assert!(sidecars.exists());
-        assert!(sidecars.delete().expect("delete"));
-        assert!(!sidecars.reverse_path().exists());
-        assert!(!sidecars.forward_path().exists());
-        // Deleting absent sidecars is a harmless false.
-        assert!(!sidecars.delete().expect("second delete"));
-    }
-
-    #[test]
-    fn plane_bytes_sums_only_reverse_and_forward_sidecars() {
-        let dir = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(dir.path());
-        assert_eq!(reverse_map_plane_bytes(&paths), 0);
-        let sidecars = build(&paths, &[(1, 0x1), (2, 0x2)], "fp-1");
-        fs::write(paths.vectors_dir.join("notes.txt"), b"ignore").expect("write txt");
-        let bytes = reverse_map_plane_bytes(&paths);
-        let expected = sidecars.reverse_path().metadata().expect("rev meta").len()
-            + sidecars.forward_path().metadata().expect("fwd meta").len();
-        assert_eq!(bytes, expected);
-        assert!(bytes > 0);
-    }
-
-    #[test]
-    fn read_rejects_bad_magic() {
-        let dir = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(dir.path());
-        ensure_paths(&paths).expect("ensure");
-        let sidecars = ReverseVisitMap::for_provider(&paths, "static-embed", "model-a");
-        fs::write(sidecars.reverse_path(), b"NOTPKREVxxxxxxxx").expect("write garbage");
-        let error =
-            sidecars.history_ids_for_content_keys(&HashSet::from([0x1])).expect_err("bad magic");
-        assert!(error.to_string().contains("unrecognized magic"));
-    }
-
-    #[test]
-    fn record_bytes_are_little_endian_sort_key_then_payload() {
-        // Byte-pin the on-disk layout so a symmetric write+read endianness mutant (which round-trips
-        // undetected) is killed: `.pkrev` record = content_key (u64 LE) then history_id (i64 LE).
-        let dir = tempdir().expect("tempdir");
-        let paths = project_paths_with_root(dir.path());
-        let sidecars = build(&paths, &[(0x0102_0304_0506_0708, 0x1112_1314_1516_1718)], "fp-1");
-        let bytes = fs::read(sidecars.reverse_path()).expect("read file");
-        let record = &bytes[bytes.len() - RECORD_LEN..];
-        // Sort key first: the content_key u64.
-        assert_eq!(&record[..8], &0x1112_1314_1516_1718_u64.to_le_bytes());
-        // Payload: the history_id i64.
-        assert_eq!(&record[8..], &0x0102_0304_0506_0708_i64.to_le_bytes());
     }
 }

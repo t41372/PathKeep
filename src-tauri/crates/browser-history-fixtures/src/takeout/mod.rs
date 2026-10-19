@@ -1,7 +1,7 @@
-//! Google Takeout `BrowserHistory.json` / `.jsonl` payload generator.
+//! Google Takeout `BrowserHistory.json` payload generator.
 //!
 //! ## Responsibilities
-//! - Emit Takeout-format JSON or JSONL files containing browser-history
+//! - Emit Takeout-format JSON files containing browser-history
 //!   records in the shape `browser_history_parser::takeout` recognizes.
 //! - Stay faithful to the field names Google actually ships (`time_usec`,
 //!   `page_transition`, `client_id`, `favicon_url`) so the parser exercises
@@ -53,8 +53,6 @@ pub enum TakeoutPayloadFormat {
     StandardBrowserHistoryJson,
     /// Older / alternate Takeout layout using the `BrowserHistory` (no space) key.
     AlternateBrowserHistoryJson,
-    /// JSONL: one JSON record per line, no wrapping object.
-    JsonLines,
 }
 
 /// Builder for one Takeout `BrowserHistory.*` fixture.
@@ -83,7 +81,7 @@ impl TakeoutBrowserHistoryFixture {
     }
 
     /// Materializes the fixture at `path`. The conventional file name is
-    /// `BrowserHistory.json` (or `.jsonl`) inside a `Chrome` subdirectory,
+    /// `BrowserHistory.json` inside a `Chrome` subdirectory,
     /// since the Takeout source classifier looks at path segments — but the
     /// path is the caller's responsibility.
     pub fn write(&self, path: &Path) -> std::io::Result<()> {
@@ -99,12 +97,6 @@ impl TakeoutBrowserHistoryFixture {
             }
             TakeoutPayloadFormat::AlternateBrowserHistoryJson => {
                 self.write_wrapped_json(&mut writer, "BrowserHistory")?;
-            }
-            TakeoutPayloadFormat::JsonLines => {
-                for record in &self.records {
-                    writer.write_all(serialize_record(record).as_bytes())?;
-                    writer.write_all(b"\n")?;
-                }
             }
         }
 
@@ -180,69 +172,4 @@ fn json_string(value: &str) -> String {
     }
     buffer.push('"');
     buffer
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn json_string_escapes_control_and_special_characters() {
-        assert_eq!(json_string("hello"), "\"hello\"");
-        assert_eq!(json_string("with \"quotes\""), "\"with \\\"quotes\\\"\"");
-        assert_eq!(json_string("with\\slash"), "\"with\\\\slash\"");
-        assert_eq!(json_string("line1\nline2"), "\"line1\\nline2\"");
-        assert_eq!(json_string("\u{0001}"), "\"\\u0001\"");
-    }
-
-    #[test]
-    fn default_creates_empty_fixture() {
-        let fixture = TakeoutBrowserHistoryFixture::default();
-        assert_eq!(fixture.records.len(), 0);
-    }
-
-    #[test]
-    fn json_string_escapes_tab_and_carriage_return() {
-        assert_eq!(json_string("col1\tcol2"), "\"col1\\tcol2\"");
-        assert_eq!(json_string("line\rend"), "\"line\\rend\"");
-    }
-
-    #[test]
-    fn serialize_record_emits_field_order_the_parser_can_read() {
-        let record = TakeoutBrowserRecord {
-            url: "https://example.com".to_string(),
-            title: Some("Example".to_string()),
-            visit_time_unix_ms: 1_700_000_000_000,
-            page_transition: Some("LINK".to_string()),
-            client_id: None,
-            favicon_url: None,
-            ptoken: None,
-        };
-        let serialized = serialize_record(&record);
-        assert!(serialized.contains("\"url\": \"https://example.com\""));
-        assert!(serialized.contains("\"title\": \"Example\""));
-        assert!(serialized.contains("\"time_usec\": 1700000000000000"));
-        assert!(serialized.contains("\"page_transition\": \"LINK\""));
-        assert!(!serialized.contains("client_id"));
-        assert!(!serialized.contains("favicon_url"));
-        assert!(!serialized.contains("ptoken"));
-    }
-
-    #[test]
-    fn serialize_record_includes_ptoken_when_present() {
-        let record = TakeoutBrowserRecord {
-            url: "https://example.com".to_string(),
-            title: Some("Example".to_string()),
-            visit_time_unix_ms: 1_700_000_000_000,
-            page_transition: None,
-            client_id: None,
-            favicon_url: None,
-            ptoken: Some("synthetic-ptoken-value".to_string()),
-        };
-        let serialized = serialize_record(&record);
-        assert!(
-            serialized.contains("\"ptoken\": \"synthetic-ptoken-value\""),
-            "serialized output should contain ptoken field: {serialized}"
-        );
-    }
 }

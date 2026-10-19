@@ -24,6 +24,7 @@ import type {
   CoreIntelligenceSectionTiming,
   DateRange,
   KpiMetric,
+  Page,
 } from './types-primitives'
 import type { TrailSummary } from './types-navigation'
 import type {
@@ -52,16 +53,20 @@ export interface DigestSummary {
   newDomains: KpiMetric
   deepReadPages: KpiMetric
   refindPages: KpiMetric
+  /** Distinct registrable domains visited in the range. */
+  distinctDomains: KpiMetric
+  /** Estimated time spent actively browsing, in milliseconds. */
+  activeTimeMs: KpiMetric
 }
 
 /** First-band `/intelligence` payload used to keep route entry responsive. */
 export interface CoreIntelligencePrimaryOverview {
   digestSummary: CoreIntelligenceSectionResult<DigestSummary>
   onThisDay: CoreIntelligenceSectionResult<OnThisDayEntry[]>
-  topSites: CoreIntelligenceSectionResult<TopSite[]>
-  refindPages: CoreIntelligenceSectionResult<RefindPage[]>
+  topSites: CoreIntelligenceSectionResult<Page<TopSite>>
+  refindPages: CoreIntelligenceSectionResult<Page<RefindPage>>
   searchEngineRanking: CoreIntelligenceSectionResult<EngineRanking[]>
-  topSearchConcepts: CoreIntelligenceSectionResult<SearchConcept[]>
+  topSearchConcepts: CoreIntelligenceSectionResult<Page<SearchConcept>>
   queryFamilies: CoreIntelligenceSectionResult<QueryFamilyResult>
   activityMix: CoreIntelligenceSectionResult<ActivityMix>
   discoveryTrendDay: CoreIntelligenceSectionResult<DiscoveryTrend>
@@ -73,16 +78,18 @@ export interface CoreIntelligencePrimaryOverview {
 
 /** Deferred `/intelligence` payload for below-the-fold sections. */
 export interface CoreIntelligenceSecondaryOverview {
-  stableSources: CoreIntelligenceSectionResult<StableSource[]>
+  stableSources: CoreIntelligenceSectionResult<Page<StableSource>>
   searchEffectiveness: CoreIntelligenceSectionResult<SearchEffectiveness>
-  frictionSignals: CoreIntelligenceSectionResult<FrictionSignal[]>
-  reopenedInvestigations: CoreIntelligenceSectionResult<ReopenedInvestigation[]>
+  frictionSignals: CoreIntelligenceSectionResult<Page<FrictionSignal>>
+  reopenedInvestigations: CoreIntelligenceSectionResult<
+    Page<ReopenedInvestigation>
+  >
   discoveryTrendWeek: CoreIntelligenceSectionResult<DiscoveryTrend>
   breadthIndex: CoreIntelligenceSectionResult<BreadthIndex>
-  pathFlows: CoreIntelligenceSectionResult<PathFlow[]>
-  compareSets: CoreIntelligenceSectionResult<CompareSet[]>
+  pathFlows: CoreIntelligenceSectionResult<Page<PathFlow>>
+  compareSets: CoreIntelligenceSectionResult<Page<CompareSet>>
   multiBrowserDiff: CoreIntelligenceSectionResult<BrowserDiff>
-  observedInteractions: CoreIntelligenceSectionResult<ObservedInteraction[]>
+  observedInteractions: CoreIntelligenceSectionResult<Page<ObservedInteraction>>
   timings: CoreIntelligenceSectionTiming[]
   totalDurationMs: number
 }
@@ -100,9 +107,9 @@ export interface DayInsightsHourlyBucket {
 export interface DayInsights {
   date: string
   digestSummary: DigestSummary
-  topSites: TopSite[]
+  topSites: Page<TopSite>
   activityMix: ActivityMix
-  refindPages: RefindPage[]
+  refindPages: Page<RefindPage>
   queryFamilies: QueryFamilyResult
   hourlyActivity: DayInsightsHourlyBucket[]
   drilldown: DayInsightsDrilldown
@@ -118,6 +125,8 @@ export interface OnThisDayEntry {
   date: string
   totalVisits: number
   topDomains: string[]
+  /** More of that day's sites, through the top-sites read for that date. */
+  topDomainsNextCursor: string | null
   /** Human-readable summary, e.g. "在研究 Tauri v2 文檔" */
   summary?: string | null
   /** Deep dive sessions on that day */
@@ -157,6 +166,22 @@ export interface EngineRanking {
   searchEngine: string
   displayName?: string | null
   searchCount: number
+  /** The site its searches are on, for its icon. */
+  site?: string | null
+}
+
+/**
+ * One query and how often it was searched inside the requested date range
+ * (`get_frequent_searches`). Counts are range-scoped, unlike query families.
+ */
+export interface FrequentSearch {
+  /** The most recent spelling the user typed. */
+  query: string
+  /** Lower-cased, whitespace-collapsed grouping key. */
+  normalizedQuery: string
+  /** Keyword searches inside the range, across every search engine. */
+  searchCount: number
+  lastSearchedAt: string
 }
 
 /** Token frequency for word cloud */
@@ -188,7 +213,7 @@ export interface SearchQueryRow {
 export interface SearchQueryListResult {
   rows: SearchQueryRow[]
   total: number
-  page: number
+  nextCursor: string | null
   pageSize: number
 }
 
@@ -237,13 +262,13 @@ export interface QueryFamily {
 export interface QueryFamilyResult {
   families: QueryFamily[]
   total: number
-  page: number
+  nextCursor: string | null
   pageSize: number
 }
 
 export interface QueryFamilyDetail {
   family: QueryFamily
-  relatedTrails: TrailSummary[]
+  relatedTrails: Page<TrailSummary>
 }
 
 // ---------------------------------------------------------------------------
@@ -251,6 +276,10 @@ export interface QueryFamilyDetail {
 // ---------------------------------------------------------------------------
 
 export interface RefindPage {
+  /** The browser profile this row was scored in; scores are per profile. */
+  profileId: string
+  /** How many profiles re-found the page. Archive-wide lists keep one row per page. */
+  profileCount: number
   canonicalUrl: string
   url: string
   title?: string | null
@@ -270,13 +299,16 @@ export interface RefindExplanation {
   refindScore: number
   factors: RefindScoreFactor[]
   visitIds: number[]
+  /** The profile this explanation was scored in. */
+  profileId: string
+  visitIdsNextCursor: string | null
 }
 
 export interface RefindPageDetail {
   page: RefindPage
   explanation: RefindExplanation
   recentDays: string[]
-  relatedTrails: TrailSummary[]
+  relatedTrails: Page<TrailSummary>
 }
 
 export interface RefindScoreFactor {

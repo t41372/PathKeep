@@ -1,4 +1,5 @@
-//! AI, enrichment, and Core Intelligence models.
+//! Responsibilities: shared AI, enrichment and Core Intelligence transport models.
+//! Not responsible for: queue policy, provider execution or persistence.
 //!
 //! This file is large because it holds the cross-cutting transport models for
 //! optional AI features, enrichment plugins, deterministic modules, queue
@@ -258,8 +259,6 @@ pub struct AiProviderConfig {
     pub api_key_saved: bool,
     pub default_model: String,
     pub model_catalog: Vec<String>,
-    pub temperature: Option<f32>,
-    pub max_tokens: Option<u32>,
     pub dimensions: Option<u32>,
     pub notes: Option<String>,
 }
@@ -277,8 +276,6 @@ impl Default for AiProviderConfig {
             api_key_saved: false,
             default_model: String::new(),
             model_catalog: Vec::new(),
-            temperature: Some(0.2),
-            max_tokens: Some(1200),
             dimensions: None,
             notes: None,
         }
@@ -318,7 +315,7 @@ pub fn built_in_static_embedding_provider() -> AiProviderConfig {
 ///
 /// Mirrors the built-in-merge pattern used for enrichment plugins / deterministic modules: the static
 /// provider is re-materialized FIRST on every load so it can never be deleted or corrupted out of the
-/// list, while every user-defined provider (external / candle) is preserved verbatim after it. A
+/// list, while every user-defined (external) provider is preserved verbatim after it. A
 /// user-customized static `default_model` (a future swapped static model) is the ONE field carried
 /// over from the stored row; the identity fields are always forced back to canonical so a hand-edited
 /// config cannot disable the sentinel or flip its purpose. Idempotent: re-merging an already-merged
@@ -343,7 +340,7 @@ pub fn merge_embedding_providers(current: &[AiProviderConfig]) -> Vec<AiProvider
 
 /// Defaults the selected embedding provider to the built-in static one when none is validly selected.
 ///
-/// Respects an explicit, still-VALID user selection (an external/candle provider that exists in the
+/// Respects an explicit, still-VALID user selection (an external provider that exists in the
 /// list) — it is never silently overridden. Only `None` or a DANGLING id (pointing at a provider that
 /// no longer exists) falls back to the built-in static provider, so the always-on local tier is the
 /// honest default the moment AI is configured. Must be called AFTER [`merge_embedding_providers`] so
@@ -529,16 +526,6 @@ pub struct AiSettings {
     /// one (the normalized top is `1.0`, the boost cap is `0.5`). Zero disables the boost entirely.
     #[serde(default = "default_starred_boost")]
     pub starred_boost: f32,
-    /// Opt-in: run the heavy-tier candle embedding on the Apple-Silicon Metal GPU (W-AI-9 Sub-block D,
-    /// 05 §7). ADDITIVE + `#[serde(default)]` so a frozen config without the field deserializes to
-    /// `false`. HARD-DEFAULT-OFF: a fresh install never touches the GPU. INERT unless the binary was
-    /// built with the off-by-default `metal` cargo feature — in a CPU-only build the engine selects
-    /// `Device::Cpu` regardless of this flag (the FE renders an honest "needs a Metal build" state
-    /// rather than a green toggle that lies). Toggling this does NOT change `model_id`/fingerprint
-    /// (CPU and Metal produce the same vectors), so it never auto-invalidates the index — re-embedding
-    /// is an explicit user action.
-    #[serde(default)]
-    pub gpu_enabled: bool,
 }
 
 /// Default RRF `k` constant (the canonical Reciprocal Rank Fusion value).
@@ -680,13 +667,11 @@ impl Default for AiSettings {
             lexical_weight: default_search_weight(),
             semantic_weight: default_search_weight(),
             starred_boost: default_starred_boost(),
-            // Hard-default-OFF: no GPU is touched until the user opts in AND the binary is a Metal build.
-            gpu_enabled: false,
         }
     }
 }
 
-/// One stable, locale-independent index-health warning CODE for Settings (review-fix M-7).
+/// One stable, locale-independent index-health warning CODE for Settings.
 ///
 /// The Settings index-health surface used to receive ≥8 distinct English sentences (several
 /// `format!`-interpolated) on [`AiIndexStatus::warning`] and could only localize ONE of them via a
@@ -695,8 +680,7 @@ impl Default for AiSettings {
 /// on [`AiIndexStatus::warning_code`]; the front end maps ALL variants by code to localized copy.
 /// Interpolated warnings carry their interpolation params STRUCTURALLY (provider id / name) so the FE
 /// composes the localized string rather than receiving pre-baked English. The wire is `code`-tagged
-/// camelCase; the FE NEVER renders these raw. A `reason` opaque string is carried only for
-/// [`Self::BuildFailed`], whose text comes from the provider/transport and has no fixed vocabulary.
+/// camelCase; the FE NEVER renders these raw. Opaque provider errors are reported on the build job.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "code", rename_all = "camelCase")]
 pub enum AiIndexWarning {
@@ -727,9 +711,6 @@ pub enum AiIndexWarning {
     /// The built index is stale for the carried reason (shared with the search degradation notes).
     #[serde(rename_all = "camelCase")]
     IndexStale { reason: AiSemanticStaleness },
-    /// The last index build failed; `reason` is the opaque transport/provider failure text.
-    #[serde(rename_all = "camelCase")]
-    BuildFailed { reason: String },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
@@ -802,6 +783,8 @@ pub struct AiIndexStatus {
     pub running_jobs: u32,
     pub failed_jobs: u32,
     pub recent_jobs: Vec<AiQueueJob>,
+    #[serde(default)]
+    pub recent_jobs_next_cursor: Option<i64>,
     pub semantic_sidecar_bytes: u64,
     pub semantic_metadata_bytes: u64,
     pub estimated_embedding_tokens: u64,
@@ -809,7 +792,7 @@ pub struct AiIndexStatus {
     /// The USER-facing Settings surface reads [`Self::warning_code`] instead and never renders this
     /// raw for a code it can localize.
     pub warning: Option<String>,
-    /// Stable index-health warning CODE (review-fix M-7), additive (`#[serde(default,
+    /// Stable index-health warning CODE, additive (`#[serde(default,
     /// skip_serializing_if)]`) so older payloads still deserialize. The front end maps ALL variants
     /// to localized copy; `None` mirrors `warning == None`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -833,6 +816,49 @@ pub struct AiProviderCapabilityReport {
 pub struct AiProviderConnectionTestRequest {
     pub provider_id: String,
     pub purpose: AiProviderPurpose,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+/// Which service to ask for its models: the form's values, saved or not, so the list can
+/// show while someone is still adding the service. The key is the one typed in the form, or
+/// else the stored key of `provider_id`; a local server needs none.
+pub struct AiProviderModelsRequest {
+    pub purpose: AiProviderPurpose,
+    pub request_format: AiRequestFormat,
+    pub base_url: Option<String>,
+    #[serde(default)]
+    pub provider_id: Option<String>,
+    #[serde(default)]
+    pub api_key: Option<String>,
+    /// Read only the OpenAI-compatible list under the API root the service's requests go to, not
+    /// LM Studio's or Ollama's own richer endpoints beside it: saving a service checks it this way,
+    /// so a wrong address fails the way a request would, and no model is loaded.
+    #[serde(default)]
+    pub api_root_only: bool,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+/// What a model is for, as the service says; `Unknown` when it does not say (a plain
+/// OpenAI-compatible `/v1/models`).
+pub enum AiModelKind {
+    Chat,
+    Embedding,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+/// One model a service offers. `loaded_context_length` is how much the model can read as it is
+/// loaded now (LM Studio, Ollama), `max_context_length` the most it could be loaded with; the
+/// assistant budgets with the first, and says it does not know when neither is given.
+pub struct AiProviderModel {
+    pub id: String,
+    pub kind: AiModelKind,
+    pub loaded: Option<bool>,
+    pub loaded_context_length: Option<u32>,
+    pub max_context_length: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
@@ -913,6 +939,9 @@ pub struct AiQueueJob {
     pub heartbeat_at: Option<String>,
     pub error_code: Option<String>,
     pub error_message: Option<String>,
+    /// A queue resume must preserve individual user and service pauses.
+    #[serde(default)]
+    pub paused_by: Option<crate::models::IndexBuildPause>,
     /// Vectors durably embedded so far by a RUNNING/queued index build (the resumable cursor's
     /// `embedded_so_far`). Populated ONLY for index-build/index-clear jobs (parsed from `payload_json`
     /// in [`crate::ai_queue::load_ai_queue_status`]); `None` for assistant jobs and unparseable
@@ -950,12 +979,16 @@ pub struct AiQueueStatus {
     /// Queued/paused/stale count NARROWED to semantic-index jobs
     /// (`IndexBuild` + `IndexClear`). The Smart-search build callout keys its
     /// phase off this so an in-flight `Assistant` chat job — counted in the
-    /// aggregate `queued`/`running` above — never reads as build progress (M-5).
+    /// aggregate `queued`/`running` above — never reads as build progress.
     pub index_queued: u32,
     /// Running count NARROWED to semantic-index jobs (`IndexBuild` +
     /// `IndexClear`); the index-only companion to [`Self::index_queued`].
     pub index_running: u32,
+    #[serde(default)]
+    pub semantic_index: crate::models::SemanticIndexState,
     pub recent_jobs: Vec<AiQueueJob>,
+    #[serde(default)]
+    pub recent_jobs_next_cursor: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -1011,26 +1044,16 @@ pub struct AiIndexRequest {
     pub scope: ReembedScope,
 }
 
-/// Read-only cost/time estimate for a re-embed run (W-AI-9 Sub-block D, 05 §7 PME "estimate ~X time").
-///
-/// Pure math over bounded reads (working-set length or unique-content-key count) and the S1 throughput
-/// constants — NO model load, NO network, NO embedding. Surfaced BEFORE a re-embed fires so the user
-/// sees the cost (PME transparency). `gpu_available` reflects whether this binary was built with the
-/// `metal` feature, so the FE can tell an honest story instead of promising a speedup a CPU-only build
-/// cannot deliver.
+/// How much a re-embed run would index, shown before it starts (PME): the pages it covers. It says
+/// nothing about time: the rate depends on the engine and the machine, and a guessed rate told users
+/// a minutes-long rebuild would take most of a day.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ReembedEstimate {
     /// The scope this estimate was computed for (echoed back so the FE can label it).
     pub scope: ReembedScope,
-    /// How many pages would be embedded (working-set length, or unique `content_key` count for Full).
+    /// How many pages would be embedded (working-set length, or unique page count for Full).
     pub page_count: u64,
-    /// Estimated wall-clock minutes on the 4-core CPU baseline (S1: 1.25 docs/sec).
-    pub est_minutes_cpu: f64,
-    /// Estimated wall-clock minutes on the Metal GPU (CPU estimate ÷ the measured speedup).
-    pub est_minutes_gpu: f64,
-    /// Whether this binary can actually run the GPU path (`cfg!(feature = "metal")`).
-    pub gpu_available: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -1073,7 +1096,7 @@ pub struct AiChatMessage {
 /// Request payload for one streaming chat turn.
 ///
 /// `providerId` is optional; when absent the worker uses the configured default LLM provider.
-/// `temperature`/`maxTokens` override the provider defaults for this turn only.
+/// `maxTokens` reserves local context space for this turn; it is not sent to the provider.
 ///
 /// W-AI-7 additive fields (all `#[serde(default)]` so the frozen W-AI-1 plain-chat payload still
 /// deserializes): `toolsEnabled` switches the run from plain streaming chat to the tool-executing
@@ -1082,7 +1105,6 @@ pub struct AiChatMessage {
 pub struct AiChatSendRequest {
     pub provider_id: Option<String>,
     pub messages: Vec<AiChatMessage>,
-    pub temperature: Option<f32>,
     pub max_tokens: Option<u32>,
     /// When true, run the tool-executing agent harness instead of plain streaming chat (W-AI-7).
     #[serde(default)]
@@ -1093,6 +1115,9 @@ pub struct AiChatSendRequest {
     /// Message this run answers (links the agent trace; agent path only).
     #[serde(default)]
     pub message_id: Option<String>,
+    /// The model to answer with, picked beside the composer; the service's default when absent.
+    #[serde(default)]
+    pub model: Option<String>,
 }
 
 impl Default for AiChatSendRequest {
@@ -1101,13 +1126,35 @@ impl Default for AiChatSendRequest {
         Self {
             provider_id: None,
             messages: Vec::new(),
-            temperature: None,
             max_tokens: None,
             tools_enabled: false,
             conversation_id: None,
             message_id: None,
+            model: None,
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+/// Request for `ai_chat_context`: the service and model Ask would answer with next.
+pub struct AiChatContextRequest {
+    pub provider_id: Option<String>,
+    pub model: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+/// How much a model can read at a time, and how much of it every request already takes, so Ask
+/// can show how full the conversation is before and while it is sent.
+pub struct AiChatContext {
+    /// The model these numbers are for.
+    pub model: String,
+    /// Tokens the model is loaded with, when its service says; `None` when nobody knows.
+    pub context_length: Option<u32>,
+    /// Tokens every request takes before the conversation: the instructions, the tools'
+    /// descriptions and the room kept for the answer. An estimate.
+    pub fixed_tokens: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -1191,7 +1238,7 @@ pub enum AiChatStreamChunk {
     /// starrable evidence rows without re-normalizing. Empty when no tool surfaced a row. This is
     /// the streaming twin of the harness's `record_citations` journal write (02 §G transparency).
     Citations { citations: Vec<AiCitation> },
-    /// A harness CONTROL note for the USER (review-fix M-6), carried as a stable locale-independent
+    /// A harness CONTROL note for the USER, carried as a stable locale-independent
     /// CODE the front end resolves to localized copy — NOT raw English prose.
     ///
     /// The agent harness used to stream its control notes (max-steps / token-budget reached,
@@ -1207,7 +1254,7 @@ pub enum AiChatStreamChunk {
     Error { message: String },
 }
 
-/// One stable, locale-independent USER-facing agent-harness control note CODE (review-fix M-6).
+/// One stable, locale-independent USER-facing agent-harness control note CODE.
 ///
 /// Streamed inside [`AiChatStreamChunk::Note`]. The closed set covers the harness's control notes;
 /// the front end resolves each to localized copy. These are the USER-facing twin of the harness's
@@ -1224,6 +1271,16 @@ pub enum AiAgentNote {
     TokenBudgetReached,
     /// The provider cannot do tool calls, so the run answered from seeded evidence directly.
     ToolCallingUnavailable,
+    /// A search the run made covered only part of the archive: the index was still being built
+    /// (after an upgrade or a reset) or hadn't caught up yet, so the answer can miss pages.
+    SearchIndexIncomplete,
+    /// The conversation, with the assistant's instructions and room for an answer, does not fit
+    /// the context the model is loaded with, so nothing was sent: the service would have cut the
+    /// middle out without saying so.
+    ContextTooSmall,
+    /// The answer was saved but the pages it used were not: they show now, and a reopened
+    /// conversation shows the answer without them.
+    SourcesNotSaved,
 }
 
 /// Tauri event channel that carries [`AiChatStreamEvent`]s to the front end.
@@ -1232,6 +1289,17 @@ pub enum AiAgentNote {
 /// mutation of the literal is caught by a Rust test; the front-end `ai-stream.ts` pins its own
 /// matching literal. Both sides MUST agree on this exact string.
 pub const AI_CHAT_STREAM_EVENT: &str = "pathkeep://ai-stream";
+
+/// Lets every open screen refresh index readiness after a worker finishes an attempt.
+pub const AI_INDEX_JOB_ENDED_EVENT: &str = "pathkeep://ai-index-job-ended";
+
+/// Persisted queue state after one index attempt, including pauses and queued retries.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiIndexJobEndedEvent {
+    pub job_id: i64,
+    pub state: String,
+}
 
 // `Eq` dropped to match `AiChatStreamChunk` (its `Citations` variant is `PartialEq` only).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -1255,7 +1323,7 @@ pub const MODEL_DOWNLOAD_PROGRESS_EVENT: &str = "pathkeep://model-download-progr
 /// [`MODEL_DOWNLOAD_PROGRESS_EVENT`].
 ///
 /// Mirrors the [`crate::ModelDownloadProgress`] trait callbacks so the worker can forward per-file
-/// download progress to the UI without leaking hf-hub types across the IPC boundary. `kind`-tagged
+/// download progress to the UI without leaking download types across the IPC boundary. `kind`-tagged
 /// so the front end can route each phase (started / finished / done / error) into the right UI state.
 pub enum ModelDownloadProgressEvent {
     /// One model file started downloading (`total_bytes` is the HTTP content-length, 0 if unknown).
@@ -1286,12 +1354,10 @@ pub enum ModelDownloadProgressEvent {
 /// Mirrors the front-end `AiChatCitation` shape so a reopened conversation renders the SAME
 /// starrable evidence rows the live turn streamed. The fields come from the durable `agent_citations`
 /// journal (keyed by the run that answered this message), so the evidence — and its W-STAR star key —
-/// survives a reopen exactly as it survived a crash. `profile_id` is not journaled with a citation
-/// (the star key is the canonical url, not the profile), so it is empty on the reconstructed row;
-/// every consumer (the evidence panel) keys off `canonical_url` / `url`, never `profile_id`.
+/// survives a reopen exactly as it survived a crash, with the same profile the live turn showed.
 pub struct AgentCitation {
     pub history_id: i64,
-    /// Empty on a reconstructed citation: the agent_citations journal does not retain the profile.
+    /// Empty only on rows converted from an archive that predates keeping it.
     #[serde(default)]
     pub profile_id: String,
     pub url: String,
@@ -1349,6 +1415,12 @@ pub struct AgentMessage {
     /// this message or the run never tallied tokens.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub usage: Option<AgentUsage>,
+    /// The service and model that wrote this answer, from its run (load-only; absent on save
+    /// and for answers recorded before runs kept their model).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -1398,10 +1470,12 @@ pub struct SaveAgentConversationRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
-/// Request payload for `list_ai_conversations`: a bounded, newest-first page cap.
+/// Request payload for a newest-first conversation page.
 pub struct ListAgentConversationsRequest {
-    /// Maximum conversations to return (newest-first); the store clamps this to a safe ceiling.
+    /// Page size: defaults to 50, at most 200. This does not cap the reachable history.
     pub limit: Option<u32>,
+    /// Continue with the preceding response's cursor, unchanged.
+    pub cursor: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -1409,6 +1483,24 @@ pub struct ListAgentConversationsRequest {
 /// Response for `list_ai_conversations`.
 pub struct AgentConversationListResponse {
     pub conversations: Vec<AgentConversationSummary>,
+    pub next_cursor: Option<String>,
+}
+
+/// A transcript page in persisted sequence order; continue with `nextCursor`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentMessagePage {
+    pub messages: Vec<AgentMessage>,
+    pub next_cursor: Option<i64>,
+}
+
+/// Requests the next persisted transcript page without loading the whole chat.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ListAgentMessagesRequest {
+    pub conversation_id: String,
+    pub limit: Option<u32>,
+    pub cursor: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -1417,6 +1509,48 @@ pub struct AgentConversationListResponse {
 pub struct RenameAgentConversationRequest {
     pub id: String,
     pub title: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+/// Request payload for `export_ai_conversation`: the conversation, and the words the file uses
+/// for its parts in the language the interface shows.
+pub struct ExportAgentConversationRequest {
+    pub id: String,
+    pub labels: ConversationExportLabels,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+/// What an exported conversation calls its parts, so the file reads in the user's language.
+pub struct ConversationExportLabels {
+    /// The title of a conversation that has none.
+    pub untitled: String,
+    pub you: String,
+    pub assistant: String,
+    pub pages_used: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+/// One conversation as a Markdown file, before anyone has said where it goes.
+pub struct ConversationMarkdown {
+    /// A file name from the title and the day, for the save dialog to suggest.
+    pub file_name: String,
+    pub markdown: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "status", rename_all = "camelCase")]
+/// What `export_ai_conversation` did: saved where the person chose, nothing because they
+/// cancelled the save dialog, or nothing because the conversation is no longer saved.
+pub enum ConversationExportOutcome {
+    #[serde(rename_all = "camelCase")]
+    Saved {
+        path: String,
+        bytes: u64,
+    },
+    Cancelled,
+    Gone,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -1457,17 +1591,18 @@ pub struct AiSearchRequest {
     pub starred_only: Option<bool>,
     /// Optional inclusive start date filter in `"YYYY-MM-DD"` format (W-PKG-A).
     ///
-    /// When set, only visits on or after the START of this day (UTC midnight) are returned. Converted
-    /// to Unix milliseconds internally and threaded into `list_history`'s `start_time_ms` filter.
-    /// Additive with `#[serde(default)]` so older payloads without the field still deserialize.
+    /// When set, only visits on or after the start of this local day are returned. Converted to
+    /// Unix milliseconds and applied to every visit before ranking, like the other filters.
     #[serde(default)]
     pub start_date: Option<String>,
-    /// Optional inclusive end date filter in `"YYYY-MM-DD"` format (W-PKG-A).
-    ///
-    /// When set, only visits on or before the END of this day (23:59:59.999 UTC) are returned.
-    /// Converted to Unix milliseconds internally and threaded into `list_history`'s `end_time_ms`.
+    /// Optional inclusive end date filter in `"YYYY-MM-DD"` format (W-PKG-A): visits up to the end
+    /// of this local day.
     #[serde(default)]
     pub end_date: Option<String>,
+    /// Optional browser filter (`chrome`, `firefox`, …), covering all of that browser's profiles.
+    /// History's browser filter is per browser, not per profile, so it cannot use `profile_id`.
+    #[serde(default)]
+    pub browser_kind: Option<String>,
 }
 
 impl Default for AiSearchRequest {
@@ -1483,6 +1618,7 @@ impl Default for AiSearchRequest {
             starred_only: None,
             start_date: None,
             end_date: None,
+            browser_kind: None,
         }
     }
 }
@@ -1566,16 +1702,18 @@ pub struct AiSearchEntry {
     pub enrichment_excerpt: Option<String>,
 }
 
-/// Why the semantic index is stale for the selected provider/model (review-fix M-6/M-7).
+/// Why the semantic index is stale for the selected provider/model.
 ///
 /// Stable, locale-independent reason CODE replacing the prior English staleness prose. It is shared
 /// by BOTH user-facing surfaces that report staleness — the AI-search degradation notes
 /// ([`AiSearchNote`]) and the Settings index-health warning ([`AiIndexWarning`]) — so the backend
 /// emits ONE reason vocabulary and each front-end surface resolves it to localized copy. The wire
 /// values are camelCase tokens; the FE NEVER renders these raw.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum AiSemanticStaleness {
+    /// The index uses an older page-text format and needs a full rebuild.
+    TextFormat,
     /// The index no longer matches the current archive visibility / import watermark.
     Watermark,
     /// Readable-content enrichment changed after the last semantic build.
@@ -1590,6 +1728,9 @@ impl AiSemanticStaleness {
     /// localized copy resolved from the CODE on the front end instead.
     pub fn model_facing_text(self) -> &'static str {
         match self {
+            AiSemanticStaleness::TextFormat => {
+                "The semantic index was built from an older version of the page text. Rebuild it for better matches."
+            }
             AiSemanticStaleness::Watermark => {
                 "The semantic index no longer matches the current archive visibility or import watermark. Run Build index so semantic retrieval includes recent imports and reflects reverted rows."
             }
@@ -1600,7 +1741,7 @@ impl AiSemanticStaleness {
     }
 }
 
-/// One stable, locale-independent degradation note CODE for AI history search (review-fix M-6).
+/// One stable, locale-independent degradation note CODE for AI history search.
 ///
 /// The backend used to push full English sentences into [`AiSearchResponse::notes`], which rendered
 /// raw to zh-CN/zh-TW users on the trust-critical lexical-fallback path. The closed set of variants
@@ -1611,11 +1752,13 @@ impl AiSemanticStaleness {
 // `Copy` is intentionally NOT derived: the `ProviderResolutionFailed` variant carries an owned
 // `reason: String` (the opaque transport/provider error has no fixed vocabulary). `Clone` covers
 // every consumer (the by-value `ai_search_note_text`, the response builder, tests).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "code", rename_all = "camelCase")]
 pub enum AiSearchNote {
     /// No embedding provider is selected, so results use lexical retrieval only.
     LexicalFallbackNoProvider,
+    /// Search is using the last completed index while the chosen model is unfinished.
+    PreviousModel { model: String },
     /// The semantic index has no vectors yet; the user must run Build index.
     EmptySemanticIndex,
     /// Semantic matches existed but none are visible under the active filters.
@@ -1627,7 +1770,7 @@ pub enum AiSearchNote {
     /// The index is stale for the carried reason (shared vocabulary with the index-health warning).
     #[serde(rename_all = "camelCase")]
     Stale { reason: AiSemanticStaleness },
-    /// Semantic provider resolution failed at search time (worker-side degradation, review-fix M-6).
+    /// Semantic provider resolution failed at search time (worker-side degradation).
     /// Carries the opaque transport/provider error STRUCTURALLY so the front end composes the
     /// localized "semantic unavailable: {reason}" sentence instead of receiving pre-baked English.
     #[serde(rename_all = "camelCase")]
@@ -1644,6 +1787,9 @@ impl AiSearchNote {
     /// [`Self::ProviderResolutionFailed`] interpolates its opaque reason.
     pub fn model_facing_text(&self) -> String {
         match self {
+            AiSearchNote::PreviousModel { model } => {
+                format!("Search is using the previous model’s complete index ({model}) until the chosen index is complete.")
+            }
             AiSearchNote::LexicalFallbackNoProvider => {
                 "No embedding provider is selected, so results use lexical retrieval only.".to_string()
             }
@@ -1671,6 +1817,8 @@ impl AiSearchNote {
 #[serde(rename_all = "camelCase")]
 /// Full response for semantic-plus-lexical history search.
 pub struct AiSearchResponse {
+    #[serde(default)]
+    pub search_state: Option<crate::search::SearchCoverage>,
     pub total: usize,
     pub provider_id: String,
     pub model: String,
@@ -1679,7 +1827,7 @@ pub struct AiSearchResponse {
     /// these back to the LLM so it can reflect limited recall) and the persisted run trace. The
     /// USER-facing surface reads [`Self::note_codes`] instead and never renders these raw.
     pub notes: Vec<String>,
-    /// Stable degradation note CODES (review-fix M-6), additive so older shell payloads without the
+    /// Stable degradation note CODES, additive so older shell payloads without the
     /// field still deserialize (`#[serde(default)]`). The front end resolves each to localized copy;
     /// there is one code per English note in [`Self::notes`], in the same order.
     #[serde(default)]
@@ -1727,20 +1875,6 @@ pub struct AiCitation {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
-/// Result payload for an assistant answer.
-pub struct AiAssistantResponse {
-    pub state: String,
-    pub answer: String,
-    pub job_id: Option<i64>,
-    pub run_id: Option<i64>,
-    pub provider_id: String,
-    pub embedding_provider_id: String,
-    pub citations: Vec<AiCitation>,
-    pub notes: Vec<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
 /// High-level readiness summary for Core Intelligence runtime state.
 pub struct IntelligenceStatus {
     pub ready: bool,
@@ -1753,6 +1887,22 @@ pub struct IntelligenceStatus {
     pub reference_pages: usize,
     pub content_coverage: f32,
     pub warning: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+/// The time zone Insights put days and hours in (`docs/architecture/insights-time-zone.md`).
+/// Screens read dates in `shown`; Settings shows `next`, and that a rebuild is under way while
+/// the two differ or `rebuilding_from` is set.
+pub struct InsightsTimeZone {
+    /// The IANA zone of the Insights on screen.
+    pub shown: String,
+    /// The IANA zone the next Insights build uses.
+    pub next: String,
+    /// The zone some profiles' Insights are still in while a rebuild moves them to `next`. It
+    /// outlasts `shown != next`: reads move to `next` with the first profile rebuilt, so until
+    /// the last one the numbers mix the two zones.
+    pub rebuilding_from: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -1818,6 +1968,15 @@ pub struct IntelligenceJobOverview {
     pub last_error: Option<String>,
     pub retryable: bool,
     pub cancellable: bool,
+}
+
+/// A queue page always exposes continuation when more records exist.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct IntelligenceJobPage {
+    pub items: Vec<IntelligenceJobOverview>,
+    /// Where the next page starts: the last job's place in the list (`list_order`).
+    pub next_cursor: Option<i64>,
 }
 
 /// One deterministic-runtime note as a stable code plus typed params.
@@ -1955,6 +2114,10 @@ pub const DERIVED_STALE_MISSING_BUILD_TIMESTAMP: &str = "missing-build-timestamp
 /// mutated archive facts, so the code travels with the runtime row.
 pub const DERIVED_STALE_ARCHIVE_DATA_CHANGED: &str = "archive-data-changed";
 
+/// Stale-reason code for "no build has finished yet and one is queued or running". Read-derived:
+/// a build publishes each browser profile as it finishes it, so until then the numbers are partial.
+pub const DERIVED_STALE_FIRST_BUILD_RUNNING: &str = "first-build-running";
+
 /// Stale-reason code for "archive visibility or rollback state changed".
 ///
 /// Persisted by the doctor repair path after it clears derived tables.
@@ -2082,8 +2245,8 @@ pub struct ContentFetchSettings {
 #[serde(rename_all = "camelCase")]
 /// Request payload for the manual "fetch now" PME trigger (W-ENRICH-1, 06 §6).
 pub struct ContentFetchNowRequest {
-    pub history_id: i64,
-    pub profile_id: String,
+    pub history_id: Option<i64>,
+    pub profile_id: Option<String>,
     pub url: String,
     pub title: Option<String>,
 }
@@ -2108,322 +2271,14 @@ pub struct IntelligenceRuntimeSnapshot {
     pub plugins: Vec<EnrichmentPluginStatus>,
     pub modules: Vec<DeterministicModuleRuntimeStatus>,
     pub recent_jobs: Vec<IntelligenceJobOverview>,
+    #[serde(default)]
+    pub recent_jobs_next_cursor: Option<i64>,
     pub notes: Vec<String>,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
-
-    #[test]
-    fn ai_chat_stream_event_channel_is_pinned() {
-        // The desktop command emits on this exact channel; the FE `ai-stream.ts` pins its match.
-        assert_eq!(AI_CHAT_STREAM_EVENT, "pathkeep://ai-stream");
-    }
-
-    #[test]
-    fn ai_chat_stream_chunk_variants_serialize_with_kind_tag() {
-        assert_eq!(
-            serde_json::to_value(AiChatStreamChunk::Token { text: "hi".to_string() }).unwrap(),
-            json!({ "kind": "token", "text": "hi" })
-        );
-        assert_eq!(
-            serde_json::to_value(AiChatStreamChunk::Reasoning { text: "why".to_string() }).unwrap(),
-            json!({ "kind": "reasoning", "text": "why" })
-        );
-        // W-AI-1 wire shape is PINNED: a `ToolCall` with no `callId` serializes exactly as before
-        // (the additive `callId` is `skip_serializing_if = None`), proving W-AI-7 is additive.
-        assert_eq!(
-            serde_json::to_value(AiChatStreamChunk::ToolCall {
-                name: "search".to_string(),
-                arguments: "{}".to_string(),
-                call_id: None,
-            })
-            .unwrap(),
-            json!({ "kind": "toolCall", "name": "search", "arguments": "{}" })
-        );
-        assert_eq!(
-            serde_json::to_value(AiChatStreamChunk::Done).unwrap(),
-            json!({ "kind": "done" })
-        );
-        assert_eq!(
-            serde_json::to_value(AiChatStreamChunk::Error { message: "boom".to_string() }).unwrap(),
-            json!({ "kind": "error", "message": "boom" })
-        );
-    }
-
-    #[test]
-    fn ai_chat_stream_chunk_w_ai_7_additive_variants_serialize_with_kind_tag() {
-        // The agent harness emits a `callId` when the provider reports one.
-        assert_eq!(
-            serde_json::to_value(AiChatStreamChunk::ToolCall {
-                name: "search".to_string(),
-                arguments: "{}".to_string(),
-                call_id: Some("call-1".to_string()),
-            })
-            .unwrap(),
-            json!({ "kind": "toolCall", "name": "search", "arguments": "{}", "callId": "call-1" })
-        );
-        // The W-AI-7 (search-tool) ToolResult leaves the W-AI-8 code-mode fields at their defaults,
-        // which `skip_serializing_if` omits — so the wire shape is BYTE-IDENTICAL to before W-AI-8.
-        assert_eq!(
-            serde_json::to_value(AiChatStreamChunk::ToolResult {
-                call_id: "call-1".to_string(),
-                name: "search".to_string(),
-                result: "3 rows".to_string(),
-                is_error: false,
-                code_source: None,
-                host_calls: vec![],
-                limits_hit: None,
-            })
-            .unwrap(),
-            json!({ "kind": "toolResult", "callId": "call-1", "name": "search", "result": "3 rows", "isError": false })
-        );
-        // A `run_code` ToolResult carries the additive code-mode transparency fields (W-AI-8): the
-        // script verbatim, the host-call timeline (camelCase + kebab-case limit per their serde),
-        // and the hard limit. These wire ONLY when populated, so the FE sees the code-mode trace.
-        assert_eq!(
-            serde_json::to_value(AiChatStreamChunk::ToolResult {
-                call_id: "call-2".to_string(),
-                name: "run_code".to_string(),
-                result: "{\"count\":3}".to_string(),
-                is_error: false,
-                code_source: Some("return query_history({query:'x'});".to_string()),
-                host_calls: vec![crate::ai::HostCallRecord {
-                    function: "query_history".to_string(),
-                    query: Some("x".to_string()),
-                    plane: Some("hybrid".to_string()),
-                    limit: Some(8),
-                    requested_ids: None,
-                    args_summary: "query=\"x\" plane=hybrid limit=8".to_string(),
-                    row_count: 3,
-                }],
-                limits_hit: Some(crate::ai::LimitsHit::Output),
-            })
-            .unwrap(),
-            json!({
-                "kind": "toolResult",
-                "callId": "call-2",
-                "name": "run_code",
-                "result": "{\"count\":3}",
-                "isError": false,
-                "codeSource": "return query_history({query:'x'});",
-                // The host-call timeline carries STRUCTURED args (query/plane/limit) the FE localizes,
-                // plus the non-localized argsSummary fallback — all camelCase; requestedIds omitted.
-                "hostCalls": [{
-                    "function": "query_history",
-                    "query": "x",
-                    "plane": "hybrid",
-                    "limit": 8,
-                    "argsSummary": "query=\"x\" plane=hybrid limit=8",
-                    "rowCount": 3
-                }],
-                "limitsHit": "output",
-            })
-        );
-        assert_eq!(
-            serde_json::to_value(AiChatStreamChunk::Usage {
-                prompt_tokens: 12,
-                completion_tokens: 7,
-            })
-            .unwrap(),
-            json!({ "kind": "usage", "promptTokens": 12, "completionTokens": 7 })
-        );
-        // The agent emits the run's accumulated evidence once before Done; each citation carries its
-        // canonicalUrl (the W-STAR star key) so the FE renders starrable evidence rows.
-        assert_eq!(
-            serde_json::to_value(AiChatStreamChunk::Citations {
-                citations: vec![AiCitation {
-                    history_id: 7,
-                    profile_id: "p".to_string(),
-                    url: "https://a.example/x".to_string(),
-                    title: Some("X".to_string()),
-                    visited_at: "2026-01-01T00:00:00Z".to_string(),
-                    score: Some(0.5),
-                    canonical_url: Some("https://a.example/x".to_string()),
-                }],
-            })
-            .unwrap(),
-            json!({
-                "kind": "citations",
-                "citations": [{
-                    "historyId": 7,
-                    "profileId": "p",
-                    "url": "https://a.example/x",
-                    "title": "X",
-                    "visitedAt": "2026-01-01T00:00:00Z",
-                    "score": 0.5,
-                    "canonicalUrl": "https://a.example/x",
-                }],
-            })
-        );
-        // An empty Citations chunk (no tool surfaced a row) is still well-formed.
-        assert_eq!(
-            serde_json::to_value(AiChatStreamChunk::Citations { citations: vec![] }).unwrap(),
-            json!({ "kind": "citations", "citations": [] })
-        );
-    }
-
-    #[test]
-    fn model_download_progress_event_wires_camel_case_fields() {
-        // The struct-variant FIELDS (total_bytes / downloaded_bytes) only wire as camelCase because
-        // each multi-word variant carries its OWN `#[serde(rename_all = "camelCase")]` — the
-        // container-level `rename_all` renames variant NAMES only, not struct-variant FIELDS (review
-        // H-1). Pin the EXACT wire shape so the camelCase FE contract (downloadedBytes/totalBytes) can
-        // never silently regress to snake_case `undefined` again.
-        assert_eq!(
-            serde_json::to_value(ModelDownloadProgressEvent::FileStarted {
-                file: "model.safetensors".to_string(),
-                total_bytes: 94_371_840,
-            })
-            .unwrap(),
-            json!({ "kind": "fileStarted", "file": "model.safetensors", "totalBytes": 94_371_840 })
-        );
-        assert_eq!(
-            serde_json::to_value(ModelDownloadProgressEvent::FileProgress {
-                file: "model.safetensors".to_string(),
-                downloaded_bytes: 47_185_920,
-                total_bytes: 94_371_840,
-            })
-            .unwrap(),
-            json!({
-                "kind": "fileProgress",
-                "file": "model.safetensors",
-                "downloadedBytes": 47_185_920,
-                "totalBytes": 94_371_840,
-            })
-        );
-        assert_eq!(
-            serde_json::to_value(ModelDownloadProgressEvent::FileFinished {
-                file: "config.json".to_string(),
-            })
-            .unwrap(),
-            json!({ "kind": "fileFinished", "file": "config.json" })
-        );
-        assert_eq!(
-            serde_json::to_value(ModelDownloadProgressEvent::Done).unwrap(),
-            json!({ "kind": "done" })
-        );
-        assert_eq!(
-            serde_json::to_value(ModelDownloadProgressEvent::Error { message: "boom".to_string() })
-                .unwrap(),
-            json!({ "kind": "error", "message": "boom" })
-        );
-    }
-
-    #[test]
-    fn ai_citation_omits_canonical_url_on_the_legacy_path() {
-        // The additive `canonicalUrl` is `skip_serializing_if = None`, so a legacy/insight citation
-        // (resolved without a canonical url) serializes EXACTLY as it did before W-AI-7.
-        let legacy = AiCitation {
-            history_id: 3,
-            profile_id: "p".to_string(),
-            url: "https://b.example/".to_string(),
-            title: None,
-            visited_at: "2026-02-02T00:00:00Z".to_string(),
-            score: None,
-            canonical_url: None,
-        };
-        let value = serde_json::to_value(&legacy).unwrap();
-        assert_eq!(
-            value,
-            json!({
-                "historyId": 3,
-                "profileId": "p",
-                "url": "https://b.example/",
-                "title": null,
-                "visitedAt": "2026-02-02T00:00:00Z",
-                "score": null,
-            })
-        );
-        assert!(value.get("canonicalUrl").is_none());
-        // And a payload without the key round-trips back to `None`.
-        let parsed: AiCitation = serde_json::from_value(value).unwrap();
-        assert_eq!(parsed.canonical_url, None);
-    }
-
-    #[test]
-    fn ai_chat_role_serializes_kebab_case() {
-        assert_eq!(serde_json::to_value(AiChatRole::System).unwrap(), json!("system"));
-        assert_eq!(serde_json::to_value(AiChatRole::User).unwrap(), json!("user"));
-        assert_eq!(serde_json::to_value(AiChatRole::Assistant).unwrap(), json!("assistant"));
-        assert_eq!(serde_json::to_value(AiChatRole::Tool).unwrap(), json!("tool"));
-    }
-
-    #[test]
-    fn ai_chat_send_request_uses_camel_case_keys() {
-        let value = serde_json::to_value(AiChatSendRequest {
-            provider_id: Some("p1".to_string()),
-            messages: vec![AiChatMessage { role: AiChatRole::User, content: "hi".to_string() }],
-            temperature: Some(0.5),
-            max_tokens: Some(64),
-            ..AiChatSendRequest::default()
-        })
-        .unwrap();
-        assert_eq!(value["providerId"], json!("p1"));
-        assert_eq!(value["maxTokens"], json!(64));
-        // The nested message also uses camelCase role/content keys.
-        assert_eq!(value["messages"][0], json!({ "role": "user", "content": "hi" }));
-        // W-AI-7 additive flag is camelCase and defaults to false (plain chat).
-        assert_eq!(value["toolsEnabled"], json!(false));
-    }
-
-    #[test]
-    fn ai_chat_send_request_deserializes_legacy_w_ai_1_payload() {
-        // The frozen W-AI-1 payload (no toolsEnabled/conversationId/messageId) still deserializes,
-        // defaulting to plain streaming chat — proving the W-AI-7 fields are additive.
-        let legacy = json!({
-            "providerId": "p1",
-            "messages": [{ "role": "user", "content": "hi" }],
-            "temperature": 0.5,
-            "maxTokens": 64
-        });
-        let request: AiChatSendRequest = serde_json::from_value(legacy).expect("legacy payload");
-        assert!(!request.tools_enabled);
-        assert_eq!(request.conversation_id, None);
-        assert_eq!(request.message_id, None);
-    }
-
-    #[test]
-    fn ai_chat_send_ack_and_stream_event_use_run_id_camel_case() {
-        assert_eq!(
-            serde_json::to_value(AiChatSendAck { run_id: "chat-1".to_string() }).unwrap(),
-            json!({ "runId": "chat-1" })
-        );
-        assert_eq!(
-            serde_json::to_value(AiChatStreamEvent {
-                run_id: "chat-1".to_string(),
-                chunk: AiChatStreamChunk::Done,
-            })
-            .unwrap(),
-            json!({ "runId": "chat-1", "chunk": { "kind": "done" } })
-        );
-    }
-
-    #[test]
-    fn ai_chat_cancel_result_uses_camel_case_key() {
-        assert_eq!(
-            serde_json::to_value(AiChatCancelResult { cancelled: true }).unwrap(),
-            json!({ "cancelled": true })
-        );
-    }
-
-    #[test]
-    fn llm_provider_capability_report_uses_camel_case_keys() {
-        let value = serde_json::to_value(LlmProviderCapabilityReport {
-            tool_call: true,
-            structured_output: true,
-            streaming: true,
-            prompt_cache: false,
-            max_context_tokens: Some(8192),
-        })
-        .unwrap();
-        assert_eq!(value["toolCall"], json!(true));
-        assert_eq!(value["structuredOutput"], json!(true));
-        assert_eq!(value["promptCache"], json!(false));
-        assert_eq!(value["maxContextTokens"], json!(8192));
-    }
 
     #[test]
     fn content_fetch_domain_blocked_matches_case_insensitively_and_ignores_blank() {
@@ -2441,197 +2296,6 @@ mod tests {
         // A blank/whitespace domain is never blocked (covers the empty-domain early-out).
         assert!(!content_fetch_domain_blocked(&config, ""));
         assert!(!content_fetch_domain_blocked(&config, "   "));
-    }
-
-    #[test]
-    fn content_extractor_enabled_defaults_on_and_honors_explicit_disable() {
-        let mut config = AppConfig::default();
-        // No explicit preference → enabled by default.
-        assert!(content_extractor_enabled(&config, "github-repo"));
-        // An explicit disable turns it off; an unrelated extractor stays on.
-        config.ai.content_fetch_extractors = vec![ContentFetchExtractorPreference {
-            extractor_id: "github-repo".to_string(),
-            enabled: false,
-        }];
-        assert!(!content_extractor_enabled(&config, "github-repo"));
-        assert!(content_extractor_enabled(&config, "generic-readable"));
-    }
-
-    #[test]
-    fn ai_settings_search_knobs_default_to_conservative_values() {
-        // W-AI-6: the hybrid-search knobs ship at safe, equal-weight, bounded defaults.
-        let settings = AiSettings::default();
-        assert_eq!(settings.hybrid_rrf_k, 60, "RRF k defaults to the canonical 60");
-        assert_eq!(settings.lexical_weight, 1.0);
-        assert_eq!(settings.semantic_weight, 1.0);
-        assert_eq!(settings.starred_boost, 0.15, "the starred boost is conservative by default");
-    }
-
-    #[test]
-    fn ai_settings_search_knobs_serialize_camel_case() {
-        // The FE binds these later (W-AI-9), so the wire keys must be camelCase like the rest.
-        let value = serde_json::to_value(AiSettings::default()).unwrap();
-        assert_eq!(value["hybridRrfK"], json!(60));
-        assert_eq!(value["lexicalWeight"].as_f64().unwrap(), 1.0);
-        assert_eq!(value["semanticWeight"].as_f64().unwrap(), 1.0);
-        // f32 0.15 widens to a non-exact f64; compare with tolerance rather than a literal.
-        assert!((value["starredBoost"].as_f64().unwrap() - 0.15).abs() < 1e-6);
-        // The camelCase keys must exist (not snake_case) so the FE binding contract holds.
-        assert!(value.get("starredBoost").is_some());
-    }
-
-    #[test]
-    fn ai_settings_search_knobs_deserialize_from_older_payload_without_them() {
-        // Older configs lack the W-AI-6 knobs; `#[serde(default)]` must fill them with the defaults so
-        // an upgrade never fails to parse and never silently zeroes the RRF denominator.
-        let older = json!({});
-        let settings: AiSettings = serde_json::from_value(older).unwrap();
-        assert_eq!(settings.hybrid_rrf_k, 60);
-        assert_eq!(settings.lexical_weight, 1.0);
-        assert_eq!(settings.semantic_weight, 1.0);
-        assert_eq!(settings.starred_boost, 0.15);
-        // W-AI-9-D: the GPU opt-in is additive + hard-default-OFF, so an older config parses to false.
-        assert!(!settings.gpu_enabled);
-    }
-
-    #[test]
-    fn ai_settings_gpu_enabled_round_trips_when_present() {
-        // An explicit `gpuEnabled: true` deserializes (and survives re-serialization), so a future
-        // Metal build honors the persisted opt-in.
-        let payload = json!({ "gpuEnabled": true });
-        let settings: AiSettings = serde_json::from_value(payload).unwrap();
-        assert!(settings.gpu_enabled);
-        let reserialized = serde_json::to_value(&settings).unwrap();
-        assert_eq!(reserialized["gpuEnabled"], json!(true));
-    }
-
-    #[test]
-    fn ai_index_request_scope_defaults_to_incremental_and_round_trips() {
-        // The frozen payload (no `scope`) must deserialize to Incremental so prior behavior is kept.
-        let frozen = json!({ "fullRebuild": false, "clearOnly": false });
-        let request: AiIndexRequest = serde_json::from_value(frozen).unwrap();
-        assert_eq!(request.scope, ReembedScope::Incremental);
-        // The two new scopes round-trip in kebab-case (the FE sends `working-set` / `full` alongside
-        // the existing required `fullRebuild`/`clearOnly` flags).
-        let ws: AiIndexRequest = serde_json::from_value(
-            json!({ "fullRebuild": false, "clearOnly": false, "scope": "working-set" }),
-        )
-        .unwrap();
-        assert_eq!(ws.scope, ReembedScope::WorkingSet);
-        let full: AiIndexRequest = serde_json::from_value(
-            json!({ "fullRebuild": false, "clearOnly": false, "scope": "full" }),
-        )
-        .unwrap();
-        assert_eq!(full.scope, ReembedScope::Full);
-        let value = serde_json::to_value(&full).unwrap();
-        assert_eq!(value["scope"], json!("full"));
-    }
-
-    #[test]
-    fn normalize_search_knobs_clamps_into_valid_ranges() {
-        // A hand-edited / hostile config must be clamped: k >= 1 (non-zero denominator), weights into
-        // [0, MAX_SEARCH_WEIGHT], boost into [0, MAX_STARRED_BOOST]. Negative + over-cap + zero-k all hit.
-        let mut settings = AiSettings {
-            hybrid_rrf_k: 0,
-            lexical_weight: -5.0,
-            semantic_weight: 1_000.0,
-            starred_boost: 9.0,
-            ..AiSettings::default()
-        };
-        settings.normalize_search_knobs();
-        assert_eq!(
-            settings.hybrid_rrf_k, 1,
-            "k=0 is lifted to 1 so the RRF denominator is non-zero"
-        );
-        assert_eq!(settings.lexical_weight, 0.0, "a negative weight clamps up to 0");
-        assert_eq!(settings.semantic_weight, MAX_SEARCH_WEIGHT, "an over-cap weight clamps down");
-        assert_eq!(
-            settings.starred_boost, MAX_STARRED_BOOST,
-            "an over-cap boost clamps to the cap"
-        );
-    }
-
-    #[test]
-    fn normalize_search_knobs_resets_nan_weights_and_boost_to_defaults() {
-        // NaN must never reach the score comparison; it resets to the conservative default.
-        let mut settings = AiSettings {
-            lexical_weight: f32::NAN,
-            semantic_weight: f32::NAN,
-            starred_boost: f32::NAN,
-            ..AiSettings::default()
-        };
-        settings.normalize_search_knobs();
-        assert_eq!(settings.lexical_weight, 1.0);
-        assert_eq!(settings.semantic_weight, 1.0);
-        assert_eq!(settings.starred_boost, 0.15);
-    }
-
-    #[test]
-    fn normalize_search_knobs_is_idempotent_for_valid_values() {
-        // Clamping an already-valid config is a no-op (covers the in-range branches).
-        let mut settings = AiSettings {
-            hybrid_rrf_k: 30,
-            lexical_weight: 0.5,
-            semantic_weight: 2.0,
-            starred_boost: 0.25,
-            ..AiSettings::default()
-        };
-        settings.normalize_search_knobs();
-        assert_eq!(settings.hybrid_rrf_k, 30);
-        assert_eq!(settings.lexical_weight, 0.5);
-        assert_eq!(settings.semantic_weight, 2.0);
-        assert_eq!(settings.starred_boost, 0.25);
-    }
-
-    #[test]
-    fn ai_search_request_starred_only_round_trips_and_defaults_absent() {
-        // The `is:starred` facet field serializes camelCase and tolerates an older payload omitting it.
-        let value = serde_json::to_value(AiSearchRequest {
-            starred_only: Some(true),
-            ..AiSearchRequest::default()
-        })
-        .unwrap();
-        assert_eq!(value["starredOnly"], json!(true));
-        let older: AiSearchRequest = serde_json::from_value(json!({ "query": "rust" })).unwrap();
-        assert_eq!(older.starred_only, None, "absent facet defaults to None (unfiltered)");
-    }
-
-    #[test]
-    fn ai_search_request_sort_round_trips_and_defaults_absent() {
-        // The `sort` field serializes camelCase (a plain `sort`) and tolerates an older payload that
-        // omits it (the FIX field must be additive — a frozen request still deserializes).
-        let value = serde_json::to_value(AiSearchRequest {
-            sort: Some("oldest".to_string()),
-            ..AiSearchRequest::default()
-        })
-        .unwrap();
-        assert_eq!(value["sort"], json!("oldest"));
-        let older: AiSearchRequest = serde_json::from_value(json!({ "query": "mlx" })).unwrap();
-        assert_eq!(older.sort, None, "absent sort defaults to None (relevance)");
-    }
-
-    #[test]
-    fn ai_search_sort_parse_maps_tokens_and_degrades_unknown_to_relevance() {
-        // The vocabulary parse is the single source of truth the router relies on; an unknown/absent
-        // value must degrade to relevance (the historical hybrid behavior), NEVER an error.
-        assert_eq!(AiSearchSort::parse(Some("oldest")), AiSearchSort::Oldest);
-        assert_eq!(AiSearchSort::parse(Some(" newest ")), AiSearchSort::Newest);
-        assert_eq!(AiSearchSort::parse(Some("relevance")), AiSearchSort::Relevance);
-        assert_eq!(AiSearchSort::parse(Some("garbage")), AiSearchSort::Relevance);
-        assert_eq!(AiSearchSort::parse(None), AiSearchSort::Relevance);
-        assert_eq!(AiSearchSort::default(), AiSearchSort::Relevance);
-    }
-
-    #[test]
-    fn ai_search_sort_date_ordered_and_list_history_token() {
-        // The date-ordered variants drive the lexical-only list_history path; relevance does not.
-        assert!(AiSearchSort::Oldest.is_date_ordered());
-        assert!(AiSearchSort::Newest.is_date_ordered());
-        assert!(!AiSearchSort::Relevance.is_date_ordered());
-        assert_eq!(AiSearchSort::Oldest.list_history_sort(), "oldest");
-        assert_eq!(AiSearchSort::Newest.list_history_sort(), "newest");
-        // Relevance never reaches list_history via the date path; it maps conservatively to "newest".
-        assert_eq!(AiSearchSort::Relevance.list_history_sort(), "newest");
     }
 
     /// Every consent-gated capability and the sub-flag mutator that turns it on. Used to drive the
@@ -2678,35 +2342,6 @@ mod tests {
             assert!(
                 error.to_string().contains("in Settings"),
                 "refusal names Settings for {capability:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn ensure_ai_capability_passes_only_when_master_and_sub_flag_are_on() {
-        // Both the master AND the capability's sub-flag ON (with every sibling OFF) → Ok. This proves
-        // the guard does not depend on any sibling sub-flag.
-        for (capability, set_sub_flag) in ALL_CAPABILITIES {
-            let mut config = AppConfig::default();
-            config.ai.enabled = true;
-            // Every sibling OFF so only this capability's flag is on alongside the master.
-            for (_, set_other) in ALL_CAPABILITIES {
-                set_other(&mut config.ai, false);
-            }
-            set_sub_flag(&mut config.ai, true);
-            ensure_ai_capability_enabled(&config, *capability)
-                .unwrap_or_else(|error| panic!("{capability:?} should pass: {error}"));
-        }
-    }
-
-    #[test]
-    fn ensure_ai_capability_refuses_when_both_flags_are_off() {
-        // The default config: master + every sub-flag off → every capability refused.
-        let config = AppConfig::default();
-        for (capability, _) in ALL_CAPABILITIES {
-            assert!(
-                ensure_ai_capability_enabled(&config, *capability).is_err(),
-                "default (all off) must refuse {capability:?}"
             );
         }
     }

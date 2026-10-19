@@ -1,4 +1,7 @@
-//! Canonical archive read/write models.
+//! Responsibilities: serialized archive requests, read models and upgrade progress.
+//! Not responsible for: storage, conversion or frontend rendering.
+//! Failure modes: changed command fields, missing progress context or false completion.
+//! Tests: worker and desktop bridge command contracts.
 
 use super::ProgressLogEvent;
 use serde::{Deserialize, Serialize};
@@ -56,6 +59,86 @@ pub struct BrowserProfile {
     pub retention_boundary: BrowserRetentionBoundary,
 }
 
+/// Visits one source profile has contributed to the archive.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SourceStats {
+    /// Same id as `BrowserProfile.profile_id` (`chrome:Default`).
+    pub profile_id: String,
+    pub browser_name: String,
+    pub profile_name: String,
+    pub visit_count: i64,
+    pub first_visit_at: Option<String>,
+    pub last_visit_at: Option<String>,
+}
+
+/// One calendar week of visits to a single URL.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct UrlWeeklyVisits {
+    /// Local Monday of the week, `YYYY-MM-DD`.
+    pub week_start: String,
+    pub visits: i64,
+}
+
+/// Everything the History detail panel shows about one URL.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct UrlDetail {
+    pub url: String,
+    pub title: Option<String>,
+    pub domain: String,
+    pub total_visits: i64,
+    pub first_visit_at: Option<String>,
+    pub last_visit_at: Option<String>,
+    /// Browser names that recorded the URL, most visits first.
+    pub browsers: Vec<String>,
+    /// Sources that also recorded these visits, which count under one of `browsers`
+    /// (`docs/architecture/same-visit-across-sources.md`).
+    #[serde(default)]
+    pub also_recorded_by: Vec<String>,
+    /// Twelve entries, oldest first, ending with the current week.
+    pub weekly_visits: Vec<UrlWeeklyVisits>,
+}
+
+/// One file or folder that "Delete all data" removes.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct WipeItem {
+    pub path: String,
+    /// Size on disk; folders are summed recursively.
+    pub bytes: u64,
+}
+
+/// What "Delete all data" would remove, shown before the user types the confirmation word.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct WipePreview {
+    pub items: Vec<WipeItem>,
+    pub total_bytes: u64,
+    /// Visible visits in the archive, from the last backup's cached totals when available.
+    pub visit_count: i64,
+    /// True when an archive key is stored in the system keychain and will be removed too.
+    pub clears_keychain: bool,
+    /// True when an automatic backup is installed in the OS scheduler; the wipe removes it after
+    /// the files.
+    #[serde(default)]
+    pub removes_schedule: bool,
+    /// What the scheduler reports installed: the LaunchAgent file, or the Task Scheduler task.
+    #[serde(default)]
+    pub schedule_items: Vec<String>,
+}
+
+/// What "Delete all data" did besides deleting the files, which it always does when it returns.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct WipeReport {
+    /// True when an installed automatic backup was removed.
+    pub schedule_removed: bool,
+    /// Why removing the installed automatic backup failed. It is still installed.
+    pub schedule_error: Option<String>,
+}
+
 /// Compact run-ledger summary used in lists and dashboards.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -84,6 +167,14 @@ pub struct BackupRunOverview {
 pub struct BackupProfileSummary {
     pub profile_id: String,
     pub new_visits: usize,
+    /// New visits that another source already had (a Takeout import of the same visit): kept,
+    /// and counted under that source (`docs/architecture/same-visit-across-sources.md`).
+    #[serde(default)]
+    pub same_visits: usize,
+    /// Sources whose copies of visits this backup's own records now stand in for: they count
+    /// fewer visits, and their Insights are built again.
+    #[serde(default)]
+    pub replaced_profiles: Vec<String>,
     pub new_urls: usize,
     pub new_downloads: usize,
     pub checkpoint_created: bool,
@@ -278,8 +369,11 @@ impl BackupProgressEvent {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ArchiveUpgradePhase {
+    StorageConversion,
+    ContentVerification,
     SchemaMigration,
     RegistrableDomainBackfill,
+    /// Legacy persisted phase; native search rebuilds report IndexerState instead.
     SearchReprojection,
     Intelligence,
     Finalizing,
@@ -291,6 +385,8 @@ impl ArchiveUpgradePhase {
     /// stable so a phase never silently loses its label across renames.
     pub fn label_key(self) -> &'static str {
         match self {
+            Self::StorageConversion => "archiveUpgrade.phase.storageConversion",
+            Self::ContentVerification => "archiveUpgrade.phase.contentVerification",
             Self::SchemaMigration => "archiveUpgrade.phase.schemaMigration",
             Self::RegistrableDomainBackfill => "archiveUpgrade.phase.registrableDomainBackfill",
             Self::SearchReprojection => "archiveUpgrade.phase.searchReprojection",
@@ -299,6 +395,9 @@ impl ArchiveUpgradePhase {
         }
     }
 }
+
+/// The event `ArchiveUpgradeProgress` goes out on, to the window and to the dev bridge's browsers.
+pub const ARCHIVE_UPGRADE_EVENT: &str = "pathkeep://archive-upgrade";
 
 /// Streamed progress for the first-run "Upgrading your archive…" experience.
 ///
@@ -311,6 +410,10 @@ impl ArchiveUpgradePhase {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ArchiveUpgradeProgress {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub database: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub table: Option<String>,
     pub phase: ArchiveUpgradePhase,
     pub phase_label: String,
     pub processed: u64,
@@ -321,13 +424,23 @@ pub struct ArchiveUpgradeProgress {
 impl ArchiveUpgradeProgress {
     /// Builds a phase progress tick with honest processed/total counts.
     pub fn phase(phase: ArchiveUpgradePhase, processed: u64, total: u64) -> Self {
-        Self { phase, phase_label: phase.label_key().to_string(), processed, total, done: false }
+        Self {
+            database: None,
+            table: None,
+            phase,
+            phase_label: phase.label_key().to_string(),
+            processed,
+            total,
+            done: false,
+        }
     }
 
     /// The single terminal event: the upgrade finished and the shell may dismiss
     /// the screen. Counts are `0/0` — finalize is opaque, not a countable unit.
     pub fn finished() -> Self {
         Self {
+            database: None,
+            table: None,
             phase: ArchiveUpgradePhase::Finalizing,
             phase_label: ArchiveUpgradePhase::Finalizing.label_key().to_string(),
             processed: 0,
@@ -366,6 +479,8 @@ pub struct ArchiveUpgradePhaseAssessment {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ArchiveUpgradeAssessment {
+    #[serde(default)]
+    pub conversion: Option<crate::conversion::Assessment>,
     pub pending: bool,
     pub current_schema_version: i64,
     pub target_schema_version: i64,
@@ -385,8 +500,12 @@ pub struct StorageSummary {
     pub export_bytes: u64,
     pub staging_bytes: u64,
     pub quarantine_bytes: u64,
+    /// The semantic index's vectors and visit maps.
     pub semantic_sidecar_bytes: u64,
     pub intelligence_blob_bytes: u64,
+    /// Ask's conversations.
+    #[serde(default)]
+    pub agent_database_bytes: u64,
 }
 
 /// Dashboard snapshot used by the archive home surface.
@@ -408,6 +527,8 @@ pub struct DashboardSnapshot {
     /// `earliest_visit_at`; both are populated together or both are `None`.
     pub latest_visit_at: Option<String>,
     pub recent_runs: Vec<BackupRunOverview>,
+    #[serde(default)]
+    pub recent_runs_next_cursor: Option<i64>,
     pub storage: StorageSummary,
     pub next_action: Option<String>,
 }
@@ -563,6 +684,17 @@ pub struct HistoryQuery {
     pub page: Option<u32>,
     pub cursor: Option<String>,
     pub regex_mode: Option<bool>,
+    /// `Some(false)` skips the exact match count. Paged lists need it off: the count walks every
+    /// matching visit, which is seconds on a 14M-row archive.
+    #[serde(default)]
+    pub include_total: Option<bool>,
+    /// `Some(true)` returns one row per page (URL) instead of one per visit: the page's most recent
+    /// matching visit, with `visit_count` set to how many visits matched. Only applies with search
+    /// text (keyword or regex); browsing without text always lists visits. Pages are read with
+    /// `cursor`; `page` is ignored. Regex is scanned in chunks, so the same page can come back in a
+    /// later chunk with the visits found there; add its `visit_count`s together.
+    #[serde(default)]
+    pub group_by_url: Option<bool>,
 }
 
 impl Default for HistoryQuery {
@@ -580,6 +712,8 @@ impl Default for HistoryQuery {
             page: None,
             cursor: None,
             regex_mode: Some(false),
+            include_total: None,
+            group_by_url: None,
         }
     }
 }
@@ -589,6 +723,14 @@ impl Default for HistoryQuery {
 #[serde(rename_all = "camelCase")]
 pub struct HistoryFavicon {
     pub data_url: String,
+}
+
+/// A site's icon, for screens that list sites rather than visits (Insights).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SiteFavicon {
+    pub domain: String,
+    pub favicon: Option<HistoryFavicon>,
 }
 
 /// One batch favicon lookup entry used by Explorer's post-reveal icon hydration path.
@@ -716,13 +858,27 @@ pub struct HistoryEntry {
     /// payloads (and preview fixtures) that omit it deserializable.
     #[serde(default)]
     pub enrichment_excerpt: Option<String>,
+    /// Set only on rows of a `group_by_url` query: how many visits to this page matched the
+    /// search and filters. The row itself is the most recent of them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub visit_count: Option<u64>,
 }
 
 /// Paginated history-query response.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HistoryQueryResponse {
+    #[serde(default)]
+    pub search_state: Option<crate::search::SearchCoverage>,
+    /// Exact matching pages, or this page's size when include_total is false.
     pub total: usize,
+    /// False when the caller asked for `include_total: false`.
+    #[serde(default = "default_total_exact")]
+    pub total_exact: bool,
+    /// For `group_by_url` queries with a total: the matching visits across all `total` pages.
+    /// `None` otherwise.
+    #[serde(default)]
+    pub total_visits: Option<usize>,
     pub items: Vec<HistoryEntry>,
     pub page: usize,
     pub page_size: usize,
@@ -732,10 +888,17 @@ pub struct HistoryQueryResponse {
     pub next_cursor: Option<String>,
 }
 
+fn default_total_exact() -> bool {
+    true
+}
+
 impl Default for HistoryQueryResponse {
     fn default() -> Self {
         Self {
+            search_state: None,
             total: 0,
+            total_exact: true,
+            total_visits: None,
             items: Vec::new(),
             page: 1,
             page_size: 0,
@@ -756,9 +919,23 @@ pub enum ExportFormat {
     Jsonl,
 }
 
+impl ExportFormat {
+    /// The file extension an export in this format is saved with.
+    pub const fn extension(&self) -> &'static str {
+        match self {
+            Self::Html => "html",
+            Self::Markdown => "md",
+            Self::Text => "txt",
+            Self::Jsonl => "jsonl",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExportRequest {
+    #[serde(default)]
+    pub export_id: Option<String>,
     pub query: HistoryQuery,
     pub format: ExportFormat,
 }
@@ -769,4 +946,29 @@ pub struct ExportResult {
     pub format: ExportFormat,
     pub path: String,
     pub count: usize,
+}
+
+/// Pollable lifecycle of an export; finishing protects the durable publication barrier.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ExportState {
+    Running,
+    Finishing,
+    Done,
+    Cancelled,
+    Failed,
+}
+
+/// Small in-memory snapshot shared by Tauri and the polling-only dev bridge.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportProgress {
+    pub export_id: String,
+    pub state: ExportState,
+    pub rows_written: u64,
+    /// Cached archive-wide estimate, also for filtered exports; never a pre-export COUNT(*).
+    pub total_rows: Option<u64>,
+    pub bytes_written: u64,
+    pub started_at: String,
+    pub error: Option<String>,
 }

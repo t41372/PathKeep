@@ -1,3 +1,5 @@
+//! Failure modes: reads write schemas, a query escapes its owner, stale scopes leak,
+//! or bounded results lose continuation. Native render-path and paging tests cover these.
 //! Refind and top-site Core Intelligence read models.
 //!
 //! ## Responsibilities
@@ -23,226 +25,352 @@
 //! - Refind detail only loads trails and days referenced by persisted evidence
 //!   visit ids; it does not rescan all trails for a profile.
 
-use super::{
-    date_range_bounds, display_name_for_domain, ensure_core_intelligence_schema,
-    intelligence_sessions::trail_summary_from_row, rfc3339_from_millis,
-};
-use crate::{
-    archive::open_intelligence_connection,
-    config::ProjectPaths,
-    models::{
-        AppConfig, ExplainRefindRequest, RefindExplanation, RefindPage, RefindPageDetail,
-        RefindPageDetailRequest, RefindPagesRequest, RefindScoreFactor, TopSite, TopSitesRequest,
-    },
+use super::site_days::{SiteDay, SiteDayCache, SiteDayScope, SiteDays};
+use super::{date_range_bounds, display_name_for_domain, rfc3339_from_millis};
+use crate::models::{
+    ExplainRefindRequest, RefindExplanation, RefindPage, RefindPageDetail, RefindPageDetailRequest,
+    RefindPagesRequest, RefindScoreFactor, TopSite, TopSitesRequest,
 };
 use anyhow::{Context, Result};
-use rusqlite::{Connection, OptionalExtension, Row, params};
+use vault_store::{OptionalRow, Row, Session, params_owned as params};
 
 /// Returns the most-visited domains in the requested window for overview cards
 /// and trusted exports.
 pub fn get_top_sites(
-    paths: &ProjectPaths,
-    config: &AppConfig,
-    key: Option<&str>,
+    vault: &crate::Vault,
     request: &TopSitesRequest,
-) -> Result<Vec<TopSite>> {
-    let connection = open_intelligence_connection(paths, config, key)?;
-    ensure_core_intelligence_schema(&connection)?;
-    get_top_sites_with_connection(&connection, request)
+) -> Result<crate::models::IntelligencePage<TopSite>> {
+    let cache = vault.site_days().clone();
+    let request = request.clone();
+    vault.read(vault_store::Db::Intelligence, move |connection| {
+        get_top_sites_with_connection(connection, &cache, &request)
+    })
 }
 
-/// Reuses an existing SQLite handle for top-site reads so overview loaders can
-/// compose multiple intelligence widgets without reopening the database.
+/// Ranks the sites of the range's one shared site-day read (`site_days`), so another order or
+/// the next page reads nothing.
 pub(super) fn get_top_sites_with_connection(
-    connection: &Connection,
+    connection: &Session<'_>,
+    cache: &SiteDayCache,
     request: &TopSitesRequest,
-) -> Result<Vec<TopSite>> {
-    let order_clause = match request.sort_by.as_deref() {
-        Some("unique_days") => {
-            "unique_days DESC, average_daily_visits DESC, registrable_domain ASC"
-        }
-        Some("average_daily_visits") => {
-            "average_daily_visits DESC, visit_count DESC, registrable_domain ASC"
-        }
-        _ => "visit_count DESC, unique_days DESC, registrable_domain ASC",
+) -> Result<crate::models::IntelligencePage<TopSite>> {
+    let profiles = if request.profile_ids.is_empty() {
+        request.profile_id.iter().cloned().collect()
+    } else {
+        request.profile_ids.clone()
     };
-    let sql = format!(
-        "SELECT registrable_domain,
-                MIN(domain_category),
-                SUM(visit_count) AS visit_count,
-                COUNT(DISTINCT date_key) AS unique_days,
-                CAST(SUM(visit_count) AS REAL) / COUNT(DISTINCT date_key) AS average_daily_visits,
-                SUM(unique_urls) AS unique_urls
-         FROM domain_daily_rollups
-         WHERE (?1 IS NULL OR profile_id = ?1)
-           AND date_key >= ?2
-           AND date_key <= ?3
-         GROUP BY registrable_domain
-         ORDER BY {order_clause}
-         LIMIT ?4"
-    );
-    let mut statement = connection.prepare(&sql)?;
-    statement
-        .query_map(
-            params![
-                request.profile_id.as_deref(),
-                request.date_range.start,
-                request.date_range.end,
-                request.limit.unwrap_or(20).max(1) as i64
-            ],
-            |row| {
-                let domain: String = row.get(0)?;
-                Ok(TopSite {
-                    display_name: display_name_for_domain(&domain),
-                    registrable_domain: domain,
-                    domain_category: row.get(1)?,
-                    visit_count: row.get(2)?,
-                    unique_days: row.get(3)?,
-                    average_daily_visits: row.get::<_, f32>(4)?,
-                    unique_urls: row.get(5)?,
-                })
-            },
-        )?
-        .collect::<rusqlite::Result<Vec<_>>>()
-        .map_err(Into::into)
+    let days = cache.get(connection, &SiteDayScope::new(&request.date_range, profiles))?;
+    rank_top_sites(&days, request)
+}
+
+/// One page of `request`'s order: visits that were not searches (a search result page is a
+/// search, see Frequent searches), the days they fell on, or visits per such day; ties go to
+/// the other measure, then the site's name.
+/// The sites whose visits in the range went to `category` (`unknown`: sites on no list), most
+/// visits first: a row of the "What kind of sites" card opened up, so the sites no list knows can
+/// be found and given a category on their site page.
+pub fn get_sites_in_category(
+    vault: &crate::Vault,
+    request: &crate::models::SitesInCategoryRequest,
+) -> Result<crate::models::IntelligencePage<TopSite>> {
+    let cache = vault.site_days().clone();
+    let request = request.clone();
+    vault.read(vault_store::Db::Intelligence, move |connection| {
+        let profiles: Vec<String> = request.profile_id.iter().cloned().collect();
+        let days = cache.get(connection, &SiteDayScope::new(&request.date_range, profiles))?;
+        let ranking = TopSitesRequest {
+            cursor: request.cursor.clone(),
+            date_range: request.date_range.clone(),
+            profile_id: request.profile_id.clone(),
+            profile_ids: Vec::new(),
+            sort_by: None,
+            limit: request.limit,
+        };
+        rank_top_sites_where(&days, &ranking, |site| {
+            site.category.as_deref() == Some(request.category.as_str())
+        })
+    })
+}
+
+pub(super) fn rank_top_sites(
+    days: &SiteDays,
+    request: &TopSitesRequest,
+) -> Result<crate::models::IntelligencePage<TopSite>> {
+    rank_top_sites_where(days, request, |_| true)
+}
+
+/// `rank_top_sites` over the sites `keep` keeps.
+fn rank_top_sites_where(
+    days: &SiteDays,
+    request: &TopSitesRequest,
+    keep: impl Fn(&SiteDay) -> bool,
+) -> Result<crate::models::IntelligencePage<TopSite>> {
+    let limit = request.limit.unwrap_or(20).clamp(1, 1000) as usize;
+    let cursor = super::paging::cursor::<(f64, f64, String)>(request.cursor.as_deref())?;
+    let key = |site: &SiteDay| {
+        let visits = site.page_visits as f64;
+        let days = site.page_days as f64;
+        let average = visits / days;
+        match request.sort_by.as_deref() {
+            Some("unique_days") => (days, average),
+            Some("average_daily_visits") => (average, visits),
+            _ => (visits, days),
+        }
+    };
+    let mut ranked = days
+        .sites
+        .iter()
+        .filter(|site| site.page_days > 0 && keep(site))
+        .map(|site| (key(site), site))
+        .filter(|((first, second), site)| {
+            cursor.as_ref().is_none_or(|(after_first, after_second, after_site)| {
+                first < after_first
+                    || (first == after_first
+                        && (second < after_second
+                            || (second == after_second && site.domain > *after_site)))
+            })
+        })
+        .collect::<Vec<_>>();
+    ranked.sort_by(|(a, a_site), (b, b_site)| {
+        b.0.total_cmp(&a.0)
+            .then(b.1.total_cmp(&a.1))
+            .then_with(|| a_site.domain.cmp(&b_site.domain))
+    });
+    ranked.truncate(limit + 1);
+    let rows = ranked
+        .into_iter()
+        .map(|((first, second), site)| {
+            (
+                TopSite {
+                    display_name: display_name_for_domain(&site.domain),
+                    registrable_domain: site.domain.clone(),
+                    domain_category: site.category.clone().unwrap_or_default(),
+                    visit_count: site.page_visits,
+                    unique_days: site.page_days,
+                    average_daily_visits: (site.page_visits as f64 / site.page_days as f64) as f32,
+                    unique_urls: site.page_urls,
+                },
+                (first, second, site.domain.clone()),
+            )
+        })
+        .collect();
+    super::paging::finish(rows, limit)
 }
 
 /// Returns the highest-scoring refind pages in the requested window.
 pub fn get_refind_pages(
-    paths: &ProjectPaths,
-    config: &AppConfig,
-    key: Option<&str>,
+    vault: &crate::Vault,
     request: &RefindPagesRequest,
-) -> Result<Vec<RefindPage>> {
-    let connection = open_intelligence_connection(paths, config, key)?;
-    ensure_core_intelligence_schema(&connection)?;
-    get_refind_pages_with_connection(&connection, request)
+) -> Result<crate::models::IntelligencePage<RefindPage>> {
+    let request = request.clone();
+    vault.read(vault_store::Db::Intelligence, move |connection| {
+        let request = &request;
+
+        get_refind_pages_with_connection(connection, request)
+    })
 }
 
 /// Reuses an existing SQLite handle for refind-page reads so overview and
 /// export surfaces can share one intelligence transaction.
 pub(super) fn get_refind_pages_with_connection(
-    connection: &Connection,
+    connection: &Session<'_>,
     request: &RefindPagesRequest,
-) -> Result<Vec<RefindPage>> {
-    let (start_ms, end_ms) = date_range_bounds(&request.date_range)?;
-    let mut statement = connection.prepare(
-        "SELECT canonical_url, url, title, registrable_domain, cross_day_count, trail_count,
-                search_arrival_count, typed_revisit_count, refind_score, first_seen_ms, last_seen_ms
-         FROM refind_pages
-         WHERE (?1 IS NULL OR profile_id = ?1)
-           AND last_seen_ms >= ?2
-           AND first_seen_ms < ?3
-         ORDER BY refind_score DESC, last_seen_ms DESC
-         LIMIT ?4",
-    )?;
-    statement
-        .query_map(
-            params![
-                request.profile_id.as_deref(),
-                start_ms,
-                end_ms,
-                request.limit.unwrap_or(20).max(1) as i64
-            ],
-            |row| refind_page_from_row_with_offset(row, 0),
-        )?
-        .collect::<rusqlite::Result<Vec<_>>>()
-        .map_err(Into::into)
+) -> Result<crate::models::IntelligencePage<RefindPage>> {
+    let (start_ms, end_ms) = date_range_bounds(connection, &request.date_range)?;
+    let limit = request.limit.unwrap_or(20).clamp(1, 1000) as usize;
+    let cursor = super::paging::cursor::<(f64, i64, String, String)>(request.cursor.as_deref())?;
+    // Through the `refind_pages` view Turso sorts the whole generation on every page and builds
+    // a temporary index over it for the per-URL lookups. The rows table is read in list order
+    // through idx_refind_pages_score and seeks to the cursor, which must be in the bounded form
+    // and only present after the first page; the lookups use idx_refind_pages_canonical.
+    let after = if cursor.is_some() {
+        "AND p.refind_score<=?4 AND (p.refind_score<?4 OR (p.last_seen_ms<=?5 AND (p.last_seen_ms<?5 OR (p.canonical_url>=?6 AND (p.canonical_url>?6 OR p.profile_id>?7)))))"
+    } else {
+        ""
+    };
+    let other = "refind_pages_rows other INDEXED BY idx_refind_pages_canonical WHERE other.canonical_url=p.canonical_url
+        AND other.generation IN (SELECT aggregates FROM intelligence_generations) AND other.last_seen_ms>=?2 AND other.first_seen_ms<?3";
+    let rows=connection.query(
+        &format!("SELECT p.profile_id,p.canonical_url,p.url,p.title,p.registrable_domain,p.cross_day_count,p.trail_count,
+            p.search_arrival_count,p.typed_revisit_count,p.refind_score,p.first_seen_ms,p.last_seen_ms,
+            CASE WHEN ?1 IS NOT NULL THEN 1 ELSE (SELECT COUNT(*) FROM {other} LIMIT 1 OFFSET 0) END
+         FROM refind_pages_rows p INDEXED BY idx_refind_pages_score
+         WHERE p.generation IN (SELECT aggregates FROM intelligence_generations)
+           AND (?1 IS NULL OR p.profile_id=?1) AND p.last_seen_ms>=?2 AND p.first_seen_ms<?3
+           AND (?1 IS NOT NULL OR NOT EXISTS(SELECT 1 FROM {other}
+              AND (other.refind_score>p.refind_score OR (other.refind_score=p.refind_score AND (other.last_seen_ms>p.last_seen_ms OR (other.last_seen_ms=p.last_seen_ms AND other.profile_id<p.profile_id)))) LIMIT 1 OFFSET 0))
+           {after}
+         ORDER BY p.refind_score DESC,p.last_seen_ms DESC,p.canonical_url ASC,p.profile_id ASC LIMIT ?8"),
+         params![request.profile_id.as_deref(),start_ms,end_ms,cursor.as_ref().map(|c|c.0),cursor.as_ref().map(|c|c.1),cursor.as_ref().map(|c|c.2.as_str()),cursor.as_ref().map(|c|c.3.as_str()),(limit+1) as i64],|r|Ok((refind_page_from_row(r)?,(r.get::<f64>(9)?,r.get::<i64>(11)?,r.get::<String>(1)?,r.get::<String>(0)?))))?;
+    super::paging::finish(rows, limit)
+}
+
+/// Re-found pages opened in `range` (one day, for the day page), highest score first, one row
+/// per page with its best profile. `get_refind_pages` takes every re-found page whose first and
+/// last visit span the range, opened in it or not; this one starts from the days each was opened
+/// on (`refind_days`), as the "Pages reopened" count does.
+pub(super) fn get_opened_refind_pages_with_connection(
+    connection: &Session<'_>,
+    range: &crate::models::DateRange,
+    profile_id: Option<&str>,
+    limit: usize,
+) -> Result<crate::models::IntelligencePage<RefindPage>> {
+    // The pages opened on the range's days (`refind_days`), the ones "Pages reopened" counts.
+    let opened = super::refind_days::opened(connection, range, profile_id)?;
+    let mut rows = Vec::with_capacity(opened.len());
+    for (profile, key) in opened {
+        rows.extend(connection.query(
+            "SELECT p.profile_id,p.canonical_url,p.url,p.title,p.registrable_domain,p.cross_day_count,
+                    p.trail_count,p.search_arrival_count,p.typed_revisit_count,p.refind_score,
+                    p.first_seen_ms,p.last_seen_ms,1
+             FROM intelligence_generations g
+             CROSS JOIN refind_pages_rows p INDEXED BY idx_refind_pages_key
+               ON p.page_key=?2 AND p.generation=g.aggregates AND p.profile_id=g.profile_id
+             WHERE g.profile_id=?1",
+            params![profile.as_str(), key],
+            refind_page_from_row,
+        )?);
+    }
+    rows.sort_by(|a, b| {
+        b.refind_score
+            .total_cmp(&a.refind_score)
+            .then_with(|| b.last_seen_at.cmp(&a.last_seen_at))
+            .then_with(|| a.canonical_url.cmp(&b.canonical_url))
+            .then_with(|| a.profile_id.cmp(&b.profile_id))
+    });
+    let mut items: Vec<RefindPage> = Vec::new();
+    for page in rows {
+        match items.iter_mut().find(|kept| kept.canonical_url == page.canonical_url) {
+            Some(kept) => kept.profile_count += 1,
+            None => items.push(page),
+        }
+    }
+    items.truncate(limit);
+    Ok(crate::models::IntelligencePage { items, next_cursor: None })
 }
 
 /// Loads one refind page plus the evidence-derived days and related trails that
 /// justify why the page is considered worth resurfacing.
 pub fn get_refind_page_detail(
-    paths: &ProjectPaths,
-    config: &AppConfig,
-    key: Option<&str>,
+    vault: &crate::Vault,
     request: &RefindPageDetailRequest,
 ) -> Result<RefindPageDetail> {
-    let connection = open_intelligence_connection(paths, config, key)?;
-    ensure_core_intelligence_schema(&connection)?;
-    let (start_ms, end_ms) = date_range_bounds(&request.date_range)?;
-    let (profile_id, page) = load_refind_page_detail_row(&connection, request)?;
-    let explanation = build_refind_explanation(&connection, &page.canonical_url)?;
-    let recent_days = load_refind_recent_days(&connection, &explanation.visit_ids)?;
-    let related_trails = load_refind_related_trails(
-        &connection,
-        &profile_id,
-        &explanation.visit_ids,
-        start_ms,
-        end_ms,
-    )?;
+    let request = request.clone();
+    vault.read(vault_store::Db::Intelligence, move |connection| {
+        let request = &request;
 
-    Ok(RefindPageDetail { page, explanation, recent_days, related_trails })
+        let (start_ms, end_ms) = date_range_bounds(connection, &request.date_range)?;
+        let page = load_refind_page_detail_row(connection, request)?;
+        let profile_id = page.profile_id.clone();
+        let explanation = build_refind_explanation(
+            connection,
+            &page.canonical_url,
+            Some(&profile_id),
+            request.visits_cursor.as_deref(),
+            request.page_size.unwrap_or(50).clamp(1, 1000) as usize,
+        )?;
+        let recent_days = super::refind_evidence::days(
+            connection,
+            &profile_id,
+            &page.canonical_url,
+            start_ms,
+            end_ms,
+        )?;
+        let related_trails = super::refind_evidence::trails(
+            connection,
+            &profile_id,
+            &page.canonical_url,
+            start_ms,
+            end_ms,
+            request.trails_cursor.as_deref(),
+            request.page_size.unwrap_or(8).clamp(1, 1000) as usize,
+        )?;
+
+        Ok(RefindPageDetail { page, explanation, recent_days, related_trails })
+    })
 }
 
 /// Returns only the persisted refind scoring evidence for one canonical URL.
 pub fn explain_refind(
-    paths: &ProjectPaths,
-    config: &AppConfig,
-    key: Option<&str>,
+    vault: &crate::Vault,
     request: &ExplainRefindRequest,
 ) -> Result<RefindExplanation> {
-    let connection = open_intelligence_connection(paths, config, key)?;
-    ensure_core_intelligence_schema(&connection)?;
-    build_refind_explanation(&connection, &request.canonical_url)
+    let request = request.clone();
+    vault.read(vault_store::Db::Intelligence, move |connection| {
+        let request = &request;
+
+        build_refind_explanation(
+            connection,
+            &request.canonical_url,
+            request.profile_id.as_deref(),
+            request.cursor.as_deref(),
+            request.page_size.unwrap_or(50).clamp(1, 1000) as usize,
+        )
+    })
 }
 
 /// Decodes the persisted refind evidence payload for one canonical URL instead
-/// of recomputing the score from archive facts at request time.
+/// of recomputing the score from archive facts at request time. With a
+/// profile, the evidence is that profile's row (the one the caller shows);
+/// without one, the best-scoring profile's.
 pub(super) fn build_refind_explanation(
-    connection: &Connection,
+    connection: &Session<'_>,
     canonical_url: &str,
+    profile_id: Option<&str>,
+    cursor: Option<&str>,
+    limit: usize,
 ) -> Result<RefindExplanation> {
-    let (canonical_url, refind_score, evidence_json) = connection
-        .query_row(
-            "SELECT canonical_url, refind_score, evidence_json
+    let (canonical_url, refind_score, profile_id, counts) = connection
+        .query_one(
+            "SELECT canonical_url, refind_score, profile_id,cross_day_count,trail_count,search_arrival_count,typed_revisit_count
              FROM refind_pages
              WHERE canonical_url = ?1
-             ORDER BY refind_score DESC
+               AND (?2 IS NULL OR profile_id = ?2)
+             ORDER BY refind_score DESC,last_seen_ms DESC,profile_id
              LIMIT 1",
-            [canonical_url],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, f32>(1)?, row.get::<_, String>(2)?)),
+            params![canonical_url, profile_id],
+            |row| Ok((row.get::<String>(0)?, row.get::<f64>(1)? as f32, row.get::<String>(2)?,[row.get::<i64>(3)?,row.get(4)?,row.get(5)?,row.get(6)?])),
         )
         .optional()?
         .with_context(|| format!("refind page {canonical_url} was not found"))?;
-    let evidence: serde_json::Value = serde_json::from_str(&evidence_json).unwrap_or_default();
-    let factors = evidence
-        .get("factors")
-        .and_then(|value| value.as_array())
-        .cloned()
-        .unwrap_or_default()
-        .into_iter()
-        .filter_map(|factor| {
-            Some(RefindScoreFactor {
-                signal: factor.get("signal")?.as_str()?.to_string(),
-                raw_value: factor.get("rawValue")?.as_f64().unwrap_or_default() as f32,
-                weight: factor.get("weight")?.as_f64().unwrap_or_default() as f32,
-                contribution: factor.get("contribution")?.as_f64().unwrap_or_default() as f32,
-            })
-        })
-        .collect::<Vec<_>>();
-    let visit_ids = evidence
-        .get("visitIds")
-        .and_then(|value| value.as_array())
-        .cloned()
-        .unwrap_or_default()
-        .into_iter()
-        .filter_map(|value| value.as_i64())
-        .collect::<Vec<_>>();
-    Ok(RefindExplanation { canonical_url, refind_score, factors, visit_ids })
+    let factors = super::intelligence_structural_aggregates::refind_signals(
+        counts[0], counts[1], counts[2], counts[3],
+    )
+    .into_iter()
+    .map(|(signal, raw, weight)| RefindScoreFactor {
+        signal: signal.into(),
+        raw_value: raw as f32,
+        weight,
+        contribution: raw as f32 * weight,
+    })
+    .collect();
+    let visits =
+        super::refind_evidence::visits(connection, &profile_id, &canonical_url, cursor, limit)?;
+    Ok(RefindExplanation {
+        canonical_url,
+        profile_id,
+        refind_score,
+        factors,
+        visit_ids: visits.items,
+        visit_ids_next_cursor: visits.next_cursor,
+    })
 }
 
 /// Resolves the persisted refind row that anchors the detail page and keeps the
 /// list/detail filtering rules identical for profile and date-range scope.
 fn load_refind_page_detail_row(
-    connection: &Connection,
+    connection: &Session<'_>,
     request: &RefindPageDetailRequest,
-) -> Result<(String, RefindPage)> {
-    let (start_ms, end_ms) = date_range_bounds(&request.date_range)?;
+) -> Result<RefindPage> {
+    let (start_ms, end_ms) = date_range_bounds(connection, &request.date_range)?;
     connection
-        .query_row(
+        .query_one(
             "SELECT profile_id, canonical_url, url, title, registrable_domain, cross_day_count, trail_count,
-                    search_arrival_count, typed_revisit_count, refind_score, first_seen_ms, last_seen_ms
+                    search_arrival_count, typed_revisit_count, refind_score, first_seen_ms, last_seen_ms,
+                    (SELECT COUNT(*) FROM refind_pages AS other
+                     WHERE other.canonical_url = refind_pages.canonical_url
+                       AND other.last_seen_ms >= ?3
+                       AND other.first_seen_ms < ?4 LIMIT 1 OFFSET 0)
              FROM refind_pages
              WHERE canonical_url = ?1
                AND (?2 IS NULL OR profile_id = ?2)
@@ -251,160 +379,28 @@ fn load_refind_page_detail_row(
              ORDER BY refind_score DESC, last_seen_ms DESC
              LIMIT 1",
             params![request.canonical_url, request.profile_id.as_deref(), start_ms, end_ms],
-            |row| Ok((row.get::<_, String>(0)?, refind_page_from_row_with_offset(row, 1)?)),
+            refind_page_from_row,
         )
         .optional()?
         .with_context(|| format!("refind page {} was not found", request.canonical_url))
 }
 
-/// Collapses evidence visit ids into distinct local date keys so the detail
-/// page can show why the page keeps resurfacing across separate days.
-fn load_refind_recent_days(connection: &Connection, visit_ids: &[i64]) -> Result<Vec<String>> {
-    if visit_ids.is_empty() {
-        return Ok(Vec::new());
-    }
-
-    let placeholders = std::iter::repeat_n("?", visit_ids.len()).collect::<Vec<_>>().join(", ");
-    let sql = format!(
-        "SELECT DISTINCT strftime('%Y-%m-%d', datetime(visit_time_ms / 1000, 'unixepoch', 'localtime'))
-         FROM archive.visits
-         WHERE id IN ({placeholders})
-         ORDER BY 1 DESC"
-    );
-    let mut statement = connection.prepare(&sql)?;
-    statement
-        .query_map(
-            rusqlite::params_from_iter(visit_ids.iter().map(|value| value as &dyn rusqlite::ToSql)),
-            |row| row.get::<_, String>(0),
-        )?
-        .collect::<rusqlite::Result<Vec<_>>>()
-        .map_err(Into::into)
-}
-
-/// Loads only the search trails touched by the refind evidence ids, which keeps
-/// the detail page bounded even when the profile has a large trail history.
-fn load_refind_related_trails(
-    connection: &Connection,
-    profile_id: &str,
-    visit_ids: &[i64],
-    start_ms: i64,
-    end_ms: i64,
-) -> Result<Vec<crate::models::TrailSummary>> {
-    if visit_ids.is_empty() {
-        return Ok(Vec::new());
-    }
-
-    let placeholders = std::iter::repeat_n("?", visit_ids.len()).collect::<Vec<_>>().join(", ");
-    let sql = format!(
-        "SELECT DISTINCT visit_derived_facts.trail_id
-         FROM visit_derived_facts
-         JOIN archive.visits AS visits ON visits.id = visit_derived_facts.visit_id
-         WHERE visit_derived_facts.profile_id = ?
-           AND visit_derived_facts.visit_id IN ({placeholders})
-           AND visit_derived_facts.trail_id IS NOT NULL
-           AND visits.visit_time_ms >= ?
-           AND visits.visit_time_ms < ?"
-    );
-    let mut trail_id_statement = connection.prepare(&sql)?;
-    let params = std::iter::once(&profile_id as &dyn rusqlite::ToSql)
-        .chain(visit_ids.iter().map(|value| value as &dyn rusqlite::ToSql))
-        .chain(std::iter::once(&start_ms as &dyn rusqlite::ToSql))
-        .chain(std::iter::once(&end_ms as &dyn rusqlite::ToSql));
-    let trail_ids = trail_id_statement
-        .query_map(rusqlite::params_from_iter(params), |row| row.get::<_, String>(0))?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    if trail_ids.is_empty() {
-        return Ok(Vec::new());
-    }
-
-    let placeholders = std::iter::repeat_n("?", trail_ids.len()).collect::<Vec<_>>().join(", ");
-    let sql = format!(
-        "SELECT trail_id, session_id, initial_query, search_engine, reformulation_count, visit_count,
-                landing_url, landing_domain, first_visit_ms, last_visit_ms, max_depth, queries_json
-         FROM search_trails
-         WHERE trail_id IN ({placeholders})
-         ORDER BY last_visit_ms DESC, trail_id DESC"
-    );
-    let mut statement = connection.prepare(&sql)?;
-    statement
-        .query_map(
-            rusqlite::params_from_iter(trail_ids.iter().map(|value| value as &dyn rusqlite::ToSql)),
-            trail_summary_from_row,
-        )?
-        .collect::<rusqlite::Result<Vec<_>>>()
-        .map(|items| items.into_iter().take(8).collect::<Vec<_>>())
-        .map_err(Into::into)
-}
-
 /// Rehydrates a `RefindPage` from a shared SQL projection where some callers
 /// prepend `profile_id` ahead of the canonical refind columns.
-fn refind_page_from_row_with_offset(row: &Row<'_>, offset: usize) -> rusqlite::Result<RefindPage> {
+fn refind_page_from_row(row: &Row) -> vault_store::Result<RefindPage> {
     Ok(RefindPage {
-        canonical_url: row.get(offset)?,
-        url: row.get(offset + 1)?,
-        title: row.get(offset + 2)?,
-        registrable_domain: row.get(offset + 3)?,
-        cross_day_count: row.get(offset + 4)?,
-        trail_count: row.get(offset + 5)?,
-        search_arrival_count: row.get(offset + 6)?,
-        typed_revisit_count: row.get(offset + 7)?,
-        refind_score: row.get(offset + 8)?,
-        first_seen_at: rfc3339_from_millis(row.get(offset + 9)?),
-        last_seen_at: rfc3339_from_millis(row.get(offset + 10)?),
+        profile_id: row.get(0)?,
+        canonical_url: row.get(1)?,
+        url: row.get(2)?,
+        title: row.get(3)?,
+        registrable_domain: row.get(4)?,
+        cross_day_count: row.get(5)?,
+        trail_count: row.get(6)?,
+        search_arrival_count: row.get(7)?,
+        typed_revisit_count: row.get(8)?,
+        refind_score: row.get::<f64>(9)? as f32,
+        first_seen_at: rfc3339_from_millis(row.get(10)?),
+        last_seen_at: rfc3339_from_millis(row.get(11)?),
+        profile_count: row.get(12)?,
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn refind_detail_helpers_skip_empty_or_unlinked_visit_sets() {
-        let connection = Connection::open_in_memory().expect("memory db");
-        assert!(load_refind_recent_days(&connection, &[]).expect("empty recent days").is_empty());
-        assert!(
-            load_refind_related_trails(&connection, "chrome:Default", &[], 0, 1)
-                .expect("empty related trails")
-                .is_empty()
-        );
-
-        connection
-            .execute_batch(
-                "
-                ATTACH DATABASE ':memory:' AS archive;
-                CREATE TABLE archive.visits (
-                  id INTEGER PRIMARY KEY,
-                  visit_time_ms INTEGER NOT NULL
-                );
-                CREATE TABLE visit_derived_facts (
-                  profile_id TEXT NOT NULL,
-                  visit_id INTEGER NOT NULL,
-                  trail_id TEXT
-                );
-                CREATE TABLE search_trails (
-                  trail_id TEXT PRIMARY KEY,
-                  session_id TEXT,
-                  initial_query TEXT NOT NULL,
-                  search_engine TEXT NOT NULL,
-                  reformulation_count INTEGER NOT NULL,
-                  visit_count INTEGER NOT NULL,
-                  landing_url TEXT,
-                  landing_domain TEXT,
-                  first_visit_ms INTEGER NOT NULL,
-                  last_visit_ms INTEGER NOT NULL,
-                  max_depth INTEGER NOT NULL,
-                  queries_json TEXT NOT NULL
-                );
-                INSERT INTO archive.visits (id, visit_time_ms) VALUES (1, 1711929600000);
-                INSERT INTO visit_derived_facts (profile_id, visit_id, trail_id)
-                VALUES ('chrome:Default', 1, NULL);
-                ",
-            )
-            .expect("schema");
-        assert!(
-            load_refind_related_trails(&connection, "chrome:Default", &[1], 0, 1712016000000)
-                .expect("unlinked related trails")
-                .is_empty()
-        );
-    }
 }

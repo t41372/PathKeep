@@ -18,7 +18,7 @@ PathKeep support is metadata-first. We need enough context to debug platform, sc
 - scheduler install state
 - keyring backend and whether a convenience secret is stored
 - latest run ID, audit artifact path, or remote bundle path if relevant
-- whether the problem happened in browser preview, desktop dev, or a packaged release
+- whether the problem happened in desktop dev (`bun run desktop:dev` / `dev:demo`) or a packaged release
 
 ## Redaction Rules
 

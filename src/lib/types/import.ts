@@ -148,6 +148,22 @@ export interface TakeoutInspection {
   candidateItems: number
   importedItems: number
   duplicateItems: number
+  /**
+   * Written, but another source (the browser, another export) already had the
+   * same visit, which counts there (`same-visit-across-sources.md`). Absent
+   * on payloads from before.
+   */
+  sameVisitItems?: number
+  /**
+   * When the interrupted import of the same export that this run carried on
+   * began; the counts include what it wrote then.
+   */
+  continuedFrom?: string | null
+  /**
+   * The user stopped it: the counts are what it saved, and its batch is
+   * interrupted (the same Takeout export imported again carries on in it).
+   */
+  stopped?: boolean
   /** Diagnostic English prose; rendered only when a code has no catalog entry. */
   notes: string[]
   /** Coded mirror of `notes`; absent on payloads written before code-ification. */

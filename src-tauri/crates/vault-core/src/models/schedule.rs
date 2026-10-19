@@ -140,11 +140,17 @@ pub struct ScheduleVerificationCheck {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ScheduleLastAction {
+    /// `apply`, `remove` or `repair`.
     pub action: String,
+    /// `ok`, `failed`, or `unknown` for audit files older than the outcome field.
     pub status: String,
+    /// Scheduler output (launchctl / schtasks), kept for diagnostics.
     pub message: String,
     pub at: String,
     pub audit_path: Option<String>,
+    /// Files the action wrote or removed (`Task Scheduler:<label>` for a task).
+    #[serde(default)]
+    pub files: Vec<String>,
 }
 
 /// Runtime schedule status surfaced to the shell.

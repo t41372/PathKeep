@@ -3,11 +3,15 @@
 //! ## Responsibilities
 //! - Dispatch recognized payload kinds to the correct parser implementation.
 //! - Parse native-only payload families that do not emit canonical rows.
+//! - Keep native evidence JSON sorted independently of serde_json feature flags.
 //! - Preserve compatibility helpers such as empty/index reports without
 //!   reintroducing one giant Takeout parser module.
+//!
+//! Not responsible for: storing evidence or choosing its dedup keys.
+//! Why: serialize owned source values once, retaining the existing evidence identity.
 
 use super::{
-    KIND_BROWSER_JSON, KIND_INDEX, KIND_JSONL, KIND_SESSION_JSON, KIND_TYPED_URL_JSON,
+    KIND_BROWSER_JSON, KIND_INDEX, KIND_MY_ACTIVITY_JSON, KIND_SESSION_JSON, KIND_TYPED_URL_JSON,
     TakeoutPayloadCounts, TakeoutPayloadStreamReport, TakeoutSourceEvidenceChunk,
     TakeoutSourceEvidenceConsumer, TakeoutStreamOptions, browser_history, json_stream,
 };
@@ -26,7 +30,7 @@ use std::collections::{BTreeMap, BTreeSet};
 pub(super) fn stream_payload<C>(
     source_path: &str,
     kind: &str,
-    bytes: &[u8],
+    reader: impl std::io::Read,
     chunk_size: usize,
     options: TakeoutStreamOptions,
     consumer: &mut C,
@@ -36,11 +40,11 @@ where
     C::Error: std::fmt::Display,
 {
     match kind {
-        KIND_JSONL | KIND_BROWSER_JSON => {
+        KIND_BROWSER_JSON | KIND_MY_ACTIVITY_JSON => {
             browser_history::stream_browser_history_payload(
                 source_path,
                 kind,
-                bytes,
+                reader,
                 chunk_size,
                 options,
                 consumer,
@@ -51,14 +55,13 @@ where
                 NativeOnlyPayloadSpec {
                     source_path,
                     kind,
-                    bytes,
                     chunk_size,
                     entity_kind: "takeout-typed-url",
                     record_keys: &["TypedUrl", "Typed Url", "TypedUrls", "typedUrl"],
                     capability_key: "context.takeout.typed_url",
                     options,
                 },
-                consumer,
+                reader, consumer,
             )
         }
         KIND_SESSION_JSON => {
@@ -66,14 +69,13 @@ where
                 NativeOnlyPayloadSpec {
                     source_path,
                     kind,
-                    bytes,
                     chunk_size,
                     entity_kind: "takeout-session",
                     record_keys: &["Session", "Sessions", "session"],
                     capability_key: "context.takeout.session",
                     options,
                 },
-                consumer,
+                reader, consumer,
             )
         }
         KIND_INDEX => Ok(empty_stream_report(source_path, kind, vec![ParserWarning {
@@ -90,7 +92,6 @@ where
 struct NativeOnlyPayloadSpec<'a> {
     source_path: &'a str,
     kind: &'a str,
-    bytes: &'a [u8],
     chunk_size: usize,
     entity_kind: &'a str,
     record_keys: &'a [&'a str],
@@ -100,6 +101,7 @@ struct NativeOnlyPayloadSpec<'a> {
 
 fn stream_native_only_payload<C>(
     spec: NativeOnlyPayloadSpec<'_>,
+    reader: impl std::io::Read,
     consumer: &mut C,
 ) -> Result<TakeoutPayloadStreamReport, StreamHistoryError<C::Error>>
 where
@@ -110,14 +112,15 @@ where
     let mut pending_native_entities = Vec::new();
     let chunk_size = spec.chunk_size.max(1);
     let record_count = json_stream::stream_payload_records(
-        spec.bytes,
+        reader,
         spec.source_path,
         spec.record_keys,
-        |record, ordinal| {
+        |mut record, ordinal| {
             if let Some(object) = record.as_object() {
                 observed_columns.extend(object.keys().cloned());
             }
             if spec.options.collect_source_evidence {
+                crate::canonicalize_json(&mut record);
                 let entity = NativeEntity {
                     entity_kind: spec.entity_kind.to_string(),
                     native_primary_key: native_primary_key(&record, ordinal as i64),

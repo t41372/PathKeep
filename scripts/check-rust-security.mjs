@@ -13,46 +13,6 @@ const tauriRoot = resolve(workspaceRoot, 'src-tauri')
 
 const allowedAdvisories = new Map([
   [
-    'RUSTSEC-2024-0411',
-    "Tauri's Linux WebKit/GTK3 runtime still depends on gdkwayland-sys until upstream migrates to GTK4.",
-  ],
-  [
-    'RUSTSEC-2024-0412',
-    "Tauri's Linux WebKit/GTK3 runtime still depends on gdk until upstream migrates to GTK4.",
-  ],
-  [
-    'RUSTSEC-2024-0413',
-    "Tauri's Linux WebKit/GTK3 runtime still depends on atk until upstream migrates to GTK4.",
-  ],
-  [
-    'RUSTSEC-2024-0414',
-    "Tauri's Linux WebKit/GTK3 runtime still depends on gdkx11-sys until upstream migrates to GTK4.",
-  ],
-  [
-    'RUSTSEC-2024-0415',
-    "Tauri's Linux WebKit/GTK3 runtime still depends on gtk until upstream migrates to GTK4.",
-  ],
-  [
-    'RUSTSEC-2024-0416',
-    "Tauri's Linux WebKit/GTK3 runtime still depends on atk-sys until upstream migrates to GTK4.",
-  ],
-  [
-    'RUSTSEC-2024-0417',
-    "Tauri's Linux WebKit/GTK3 runtime still depends on gdkx11 until upstream migrates to GTK4.",
-  ],
-  [
-    'RUSTSEC-2024-0418',
-    "Tauri's Linux WebKit/GTK3 runtime still depends on gdk-sys until upstream migrates to GTK4.",
-  ],
-  [
-    'RUSTSEC-2024-0419',
-    "Tauri's Linux WebKit/GTK3 runtime still depends on gtk3-macros until upstream migrates to GTK4.",
-  ],
-  [
-    'RUSTSEC-2024-0420',
-    "Tauri's Linux WebKit/GTK3 runtime still depends on gtk-sys until upstream migrates to GTK4.",
-  ],
-  [
     'RUSTSEC-2024-0429',
     "glib is only pulled transitively through Tauri's Linux GTK3 stack, and the affected VariantStrIter API is not part of our app code path.",
   ],
@@ -88,6 +48,22 @@ const allowedAdvisories = new Map([
     'RUSTSEC-2025-0100',
     'unic-ucd-ident is only pulled transitively by tauri-utils/urlpattern; upstream has not migrated off rust-unic yet.',
   ],
+  [
+    'RUSTSEC-2026-0253',
+    "lru 0.16 is only pulled by tantivy 0.26's store reader, whose only cache is LruCache<usize, Block>: a usize key's Drop cannot panic, which the unsound pop() path needs. The fix is lru 0.18.2, which tantivy 0.26 does not accept yet.",
+  ],
+  ...['RUSTSEC-2026-0367', 'RUSTSEC-2026-0368', 'RUSTSEC-2026-0369'].map(
+    (id) => [
+      id,
+      "Our own zip is 9.x and never calls extract(). The flagged copies are upstream's: tauri-plugin-updater 2.10's zip 4 extracts only a Windows update bundle after checking its signature against our updater key, and libsodium-sys-stable's zip 8 is a build dependency that unpacks libsodium's signature-checked Windows MSVC archive. Neither crate has a release on zip 9 yet.",
+    ],
+  ),
+  ...['RUSTSEC-2026-0370', 'RUSTSEC-2026-0371', 'RUSTSEC-2026-0372'].map(
+    (id) => [
+      id,
+      'zvariant, zvariant_derive and zbus_names were folded into zbus 6, not abandoned. They are only pulled through zbus 5 by tauri-plugin-single-instance 2.4 on Linux, which has no zbus 6 release yet.',
+    ],
+  ),
   [
     'RUSTSEC-2025-0141',
     'bincode 1.x is only pulled transitively by tauri-plugin-stronghold/iota_stronghold; replacing it requires an upstream stronghold migration.',

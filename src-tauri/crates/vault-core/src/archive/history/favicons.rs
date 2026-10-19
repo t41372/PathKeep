@@ -1,13 +1,15 @@
+//! Failure modes: future/unrelated icons, duplicate results, missing-profile errors, candidate scans.
 //! Lazy Explorer favicon hydration.
 //!
 //! ## Responsibilities
-//! - Resolve favicon payloads for already-visible history rows.
+//! - Resolve favicon payloads for already-visible history rows, and a site's own icon for
+//!   screens that list sites.
 //! - Preserve exact page → same-host fallback precedence. Cross-host
 //!   fallbacks at the registrable-domain level are intentionally
 //!   forbidden — `tim.github.io` must not borrow `nick.github.io`'s
 //!   icon, and a Chronicle entry on `tim.dev` must not borrow GitHub's
 //!   icon just because they share a registrable suffix.
-//! - Deduplicate repeated lookup entries before touching SQLite.
+//! - Deduplicate repeated lookup entries before querying Turso.
 //!
 //! ## Not responsible for
 //! - Selecting visible history rows.
@@ -20,23 +22,25 @@
 //! - Archive connections and favicon URL metadata from the archive schema.
 //! - `image_data_to_data_url` for shaping browser-safe payloads.
 //!
+//! Turso 0.8.1 needs the explicit host IS NOT NULL predicate to match its partial index.
+//!
 //! ## Performance notes
-//! - The lookup path prepares each statement once per request and relies on
+//! - The lookup path reads one candidate per fallback stage and relies on
 //!   dedicated favicon indexes. It must not degrade back to full-table scans.
 //! - The registrable-domain indexes (`idx_favicons_registrable*`) still
 //!   exist in the schema for forward-compatibility but are dormant. The
 //!   per-row write cost is acceptable; revisiting their removal would
 //!   require a schema migration.
 
-use super::super::{open_archive_connection, schema::favicon_url_metadata};
+use super::super::favicon_metadata::favicon_url_metadata;
 use crate::{
-    config::ProjectPaths,
-    models::{AppConfig, HistoryFavicon, HistoryFaviconLookupEntry, HistoryFaviconLookupResult},
+    Vault,
+    models::{HistoryFavicon, HistoryFaviconLookupEntry, HistoryFaviconLookupResult, SiteFavicon},
     utils::image_data_to_data_url,
 };
 use anyhow::Result;
-use rusqlite::{OptionalExtension, Params, Statement, params};
 use std::collections::{HashMap, HashSet};
+use vault_store::{Db, Session, params};
 
 const LOAD_FAVICON_PROFILE_SQL: &str = r#"
 SELECT id
@@ -83,6 +87,7 @@ FROM (
   SELECT image_blob_hash, image_data
   FROM favicons INDEXED BY idx_favicons_host_profile_lookup
   WHERE source_profile_id = ?1
+    AND page_host IS NOT NULL
     AND page_host = ?2
     AND page_url != ?3
     AND (?4 <= 0 OR last_updated_ms <= ?4)
@@ -100,6 +105,7 @@ FROM (
   SELECT image_blob_hash, image_data
   FROM favicons INDEXED BY idx_favicons_host_lookup
   WHERE source_profile_id != ?1
+    AND page_host IS NOT NULL
     AND page_host = ?2
     AND page_url != ?3
     AND (?4 <= 0 OR last_updated_ms <= ?4)
@@ -109,6 +115,28 @@ FROM (
 ) AS favicon_match
 LEFT JOIN favicon_blobs
   ON favicon_blobs.blob_hash = favicon_match.image_blob_hash
+"#;
+
+/// A site's own icon among the icons stored for its host's pages, in any profile: the front
+/// page's when there is one, else the one most of its pages share (the newest on a tie). Taking
+/// the newest alone gave a host that serves several products whichever was opened last, so a
+/// site showed another product's icon (Maps' for google.com). `?1` is the host, `?2` and `?3`
+/// its front page over https and http.
+pub(crate) const LOAD_SITE_ICON_SQL: &str = r#"
+SELECT COALESCE(favicon_blobs.image_data, icon.image_data)
+FROM (
+  SELECT image_blob_hash, image_data, MAX(page_url IN (?2, ?3)) AS front_page,
+         COUNT(*) AS pages, MAX(last_updated_ms) AS updated
+  FROM favicons INDEXED BY idx_favicons_host_lookup
+  WHERE page_host IS NOT NULL
+    AND page_host = ?1
+    AND (image_blob_hash IS NOT NULL OR image_data IS NOT NULL)
+  GROUP BY image_blob_hash, image_data
+  ORDER BY front_page DESC, pages DESC, updated DESC
+  LIMIT 1
+) AS icon
+LEFT JOIN favicon_blobs
+  ON favicon_blobs.blob_hash = icon.image_blob_hash
 "#;
 
 // NOTE: registrable-domain fallback queries used to live here. They were
@@ -125,23 +153,16 @@ LEFT JOIN favicon_blobs
 /// Keeps the history query payload small by hydrating favicon bytes only for
 /// rows the Explorer has already chosen to render.
 pub fn load_history_favicons(
-    paths: &ProjectPaths,
-    config: &AppConfig,
-    key: Option<&str>,
+    vault: &Vault,
     entries: Vec<HistoryFaviconLookupEntry>,
 ) -> Result<Vec<HistoryFaviconLookupResult>> {
-    if entries.is_empty() {
-        return Ok(Vec::new());
-    }
+    vault.read(Db::Archive, move |s| load_favicons(s, entries))
+}
 
-    let connection = open_archive_connection(paths, config, key)?;
-    let mut profile_statement = connection.prepare(LOAD_FAVICON_PROFILE_SQL)?;
-    let mut same_profile_page_statement = connection.prepare(LOAD_FAVICON_SAME_PROFILE_PAGE_SQL)?;
-    let mut cross_profile_page_statement =
-        connection.prepare(LOAD_FAVICON_CROSS_PROFILE_PAGE_SQL)?;
-    let mut same_profile_host_statement = connection.prepare(LOAD_FAVICON_SAME_PROFILE_HOST_SQL)?;
-    let mut cross_profile_host_statement =
-        connection.prepare(LOAD_FAVICON_CROSS_PROFILE_HOST_SQL)?;
+fn load_favicons(
+    s: &Session<'_>,
+    entries: Vec<HistoryFaviconLookupEntry>,
+) -> Result<Vec<HistoryFaviconLookupResult>> {
     let mut profile_ids = HashMap::<String, Option<i64>>::new();
     let mut seen = HashSet::new();
     let mut results = Vec::with_capacity(entries.len());
@@ -156,19 +177,18 @@ pub fn load_history_favicons(
         let source_profile_id = match profile_ids.get(&entry.profile_id) {
             Some(profile_id) => *profile_id,
             None => {
-                let profile_id = profile_statement
-                    .query_row([&entry.profile_id], |row| row.get::<_, i64>(0))
-                    .optional()?;
+                let profile_id = s
+                    .query(LOAD_FAVICON_PROFILE_SQL, [entry.profile_id.as_str()], |r| {
+                        Ok(r.get::<i64>(0)?)
+                    })?
+                    .pop();
                 profile_ids.insert(entry.profile_id.clone(), profile_id);
                 profile_id
             }
         };
         let image_data = if let Some(source_profile_id) = source_profile_id {
             load_entry_favicon(
-                &mut same_profile_page_statement,
-                &mut cross_profile_page_statement,
-                &mut same_profile_host_statement,
-                &mut cross_profile_host_statement,
+                s,
                 source_profile_id,
                 &entry.url,
                 entry.visit_time,
@@ -192,55 +212,80 @@ pub fn load_history_favicons(
     Ok(results)
 }
 
+/// Each site's own icon (`LOAD_SITE_ICON_SQL`): for the site's own host, else for `www.` plus
+/// the site, in any profile. For screens that list sites, not visits (Insights);
+/// History looks icons up through a visit instead. A site's icon is never borrowed from another
+/// host under the same registrable domain (see the module note).
+pub fn load_site_favicons(vault: &Vault, domains: Vec<String>) -> Result<Vec<SiteFavicon>> {
+    vault.read(Db::Archive, move |s| {
+        let mut seen = HashSet::new();
+        let mut results = Vec::new();
+        for domain in domains.into_iter().take(SITE_FAVICON_BATCH) {
+            let domain = domain.trim().trim_end_matches('.').to_ascii_lowercase();
+            if domain.is_empty() || !seen.insert(domain.clone()) {
+                continue;
+            }
+            let mut image = None;
+            for host in [domain.clone(), format!("www.{domain}")] {
+                // No profile is -1, so the cross-profile query looks in every profile.
+                let front = (format!("https://{host}/"), format!("http://{host}/"));
+                image = s
+                    .query(LOAD_SITE_ICON_SQL, params![host, front.0, front.1], |r| {
+                        Ok(r.get::<Option<Vec<u8>>>(0)?)
+                    })?
+                    .pop()
+                    .flatten();
+                if image.is_some() {
+                    break;
+                }
+            }
+            results.push(SiteFavicon {
+                favicon: image
+                    .as_deref()
+                    .and_then(image_data_to_data_url)
+                    .map(|data_url| HistoryFavicon { data_url }),
+                domain,
+            });
+        }
+        Ok(results)
+    })
+}
+
+/// At most this many sites per call: two indexed lookups each, for the rows on screen.
+const SITE_FAVICON_BATCH: usize = 64;
+
 fn load_entry_favicon(
-    same_profile_page_statement: &mut Statement<'_>,
-    cross_profile_page_statement: &mut Statement<'_>,
-    same_profile_host_statement: &mut Statement<'_>,
-    cross_profile_host_statement: &mut Statement<'_>,
-    source_profile_id: i64,
+    s: &Session<'_>,
+    profile: i64,
     url: &str,
-    visit_time: i64,
+    time: i64,
     host: Option<&str>,
 ) -> Result<Option<Vec<u8>>> {
-    if let Some(image_data) = query_favicon_statement(
-        same_profile_page_statement,
-        params![source_profile_id, url, visit_time],
-    )? {
-        return Ok(Some(image_data));
+    for sql in [LOAD_FAVICON_SAME_PROFILE_PAGE_SQL, LOAD_FAVICON_CROSS_PROFILE_PAGE_SQL] {
+        if let Some(bytes) = s
+            .query(sql, params![profile, url, time], |r| Ok(r.get::<Option<Vec<u8>>>(0)?))?
+            .pop()
+            .flatten()
+        {
+            return Ok(Some(bytes));
+        }
     }
-    if let Some(image_data) = query_favicon_statement(
-        cross_profile_page_statement,
-        params![source_profile_id, url, visit_time],
-    )? {
-        return Ok(Some(image_data));
-    }
-
     if let Some(host) = host {
-        // Same-FQDN fallback only. Different pages on the same host share
-        // an icon, so this is safe. Cross-FQDN guessing
-        // (registrable-domain / parent domain / referer) was intentionally
-        // removed — it leaked icons across unrelated sites that share a
-        // public suffix.
-        if let Some(image_data) = query_favicon_statement(
-            same_profile_host_statement,
-            params![source_profile_id, host, url, visit_time],
-        )? {
-            return Ok(Some(image_data));
-        }
-        if let Some(image_data) = query_favicon_statement(
-            cross_profile_host_statement,
-            params![source_profile_id, host, url, visit_time],
-        )? {
-            return Ok(Some(image_data));
+        for sql in [LOAD_FAVICON_SAME_PROFILE_HOST_SQL, LOAD_FAVICON_CROSS_PROFILE_HOST_SQL] {
+            if let Some(bytes) =
+                s.query(sql, params![profile, host, url, time], |r| {
+                    Ok(r.get::<Option<Vec<u8>>>(0)?)
+                })?
+                .pop()
+                .flatten()
+            {
+                return Ok(Some(bytes));
+            }
         }
     }
-
     Ok(None)
 }
 
-fn query_favicon_statement<P: Params>(
-    statement: &mut Statement<'_>,
-    params: P,
-) -> Result<Option<Vec<u8>>> {
-    Ok(statement.query_row(params, |row| row.get::<_, Option<Vec<u8>>>(0)).optional()?.flatten())
-}
+#[cfg(test)]
+#[path = "favicon_tests.rs"]
+mod tests;

@@ -1,9 +1,11 @@
 # INTELLIGENCE CURRENT STATE — 2026-04-18 Reset Transition Truth
 
+> **2026-10-02 註記：** M18 redesign 換掉了整個前端。本文的後端描述（§3–§7）仍然有效；提到 Dashboard、Explorer、Assistant、`/intelligence`、Jobs、Maintenance、Integrations、sidebar 工作條的地方都是舊介面。現在的對照見 §8 開頭「2026-10 起」與 [intelligence.md](intelligence.md) §0。
+
 > 這份文檔不是在描述「理想上想做什麼」，而是在描述 **PathKeep 現在實際上已經做了什麼、怎麼做、哪些地方只做到一半、哪些舊文檔已經不夠準**。  
 > 如果你要重新設計 intelligence UI，或要先搞清楚現在 repo 裡的 intelligence 到底是什麼，先讀這份。
 >
-> **2026-06-22 AI-shipped note:** optional AI layer 已由 AI redesign 2026 program（W-AI-1..9）交付並 reachable——streaming assistant、durable agent harness、in-app（candle Qwen3）+ external embedding、`FlatVectorIndex` 語義/混合檢索、code-mode 沙箱、MCP 對外面、skills、content-fetch enrichment 都已落地，但整個 AI 面 **off by default + consent-gated**（master `ai.enabled` + 各 sub-flag）。本文中早期標 `v0.2 disabled / Coming in v0.3` 的 AI 行已更新為 shipped 狀態；安全邊界與 threat model 見 [../architecture/ai-security-posture.md](../architecture/ai-security-posture.md)。
+> **2026-06-22 AI-shipped note:** optional AI layer 已由 AI redesign 2026 program（W-AI-1..9）交付並 reachable——streaming assistant、durable agent harness、in-app（model2vec static）+ external embedding（2026-10-09 移除 candle Qwen3 層）、`FlatVectorIndex` 語義/混合檢索、code-mode 沙箱、MCP 對外面、skills、content-fetch enrichment 都已落地，但整個 AI 面 **off by default + consent-gated**（master `ai.enabled` + 各 sub-flag）。本文中早期標 `v0.2 disabled / Coming in v0.3` 的 AI 行已更新為 shipped 狀態；安全邊界與 threat model 見 [../architecture/ai-security-posture.md](../architecture/ai-security-posture.md)。
 >
 > **2026-04-15 reset note:** deterministic / Core Intelligence 的 accepted baseline 已改由 [core-intelligence-ultimate-design.md](core-intelligence-ultimate-design.md) 接管，主產品 route 也已 hard-cut 到 `/intelligence`。這份文檔保留的價值，現在主要是說明 pre-reset shipping surface、optional AI layer、Jobs/runtime review 與哪些舊 `insights` / snapshot 概念只剩歷史脈絡；不要再把本文中提到的 `load_insights` / thread-detail snapshot surface 當成新的 product contract。除非特別標示 pre-reset，本文中的「Insights」都應理解為現在的 `/intelligence` deterministic product surface。
 >
@@ -518,7 +520,21 @@ cancel 也不是假裝立即中止，而是 cooperative stop：
 
 ## 8. 前端各頁目前各自扮演什麼角色
 
-### Dashboard
+### 2026-10 起（M18 redesign）
+
+舊的 Dashboard / Explorer / Assistant / Intelligence / Jobs / Maintenance / Integrations 與 sidebar 工作條都已刪除。現在用到 intelligence 的畫面（逐卡的內容見 [screens-and-nav.md](../design/screens-and-nav.md)）：
+
+- **Home**：最近 30 天趨勢（`get_discovery_trend`）、On this day、「你的一年」日曆熱力圖（某年的 `get_discovery_trend`，點某天進 Insights 的 day，`/insights/day/D`）、「常回來的主題」（90 天 reopened investigations，點進 search 或 page drill-in，範圍 90 天）。
+- **History**：「語意」搜尋方式（`search_ai_history`，需開啟本機語意搜尋且索引就緒）；網站視圖用 top sites。
+- **Insights**：唯一的分析頁。範圍 全部時間（預設）/ 1 年 / 90 天 / 30 天 / 7 天 / 自訂，可只看一個瀏覽器設定檔（`?profile=`）。進頁讀 primary 與 secondary overview 兩批；全部時間與到今天為止的最近範圍由快照回答。drill-in：day、site、search、page（`/insights/day|site|search|page/…`）。每張卡的 ⓘ 說明計算時間、範圍、狀態與算法；背景重算中卡片顯示「正在更新」並每 5 秒重拉。
+- **Ask**：串流對話（`ai_chat_send` + 串流事件 + `ai_chat_cancel`），對話存在 `derived/agent.sqlite`，清單可改名、刪除。不經過 AI queue。
+- **Settings → AI**：本機語意搜尋（模型下載、建索引進度）、AI 服務、MCP 伺服器、重建搜尋索引。**Settings → Background work**：洞察與搜尋索引 / 助理兩個背景佇列的工作（重試、取消）、暫停 / 繼續、同時跑幾個工作、重建洞察（`queue_core_intelligence_rebuild`，full rebuild）。
+
+前端沒有呼叫的讀取命令列在 [desktop-command-surface.md](../architecture/desktop-command-surface.md) §2026-10。
+
+以下是 2026-10 之前的描述，留作紀錄。
+
+### Dashboard（已刪除）
 
 目前不是完整 intelligence 頁，而是入口與摘要頁。
 

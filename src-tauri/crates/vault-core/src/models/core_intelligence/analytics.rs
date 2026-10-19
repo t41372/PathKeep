@@ -1,7 +1,7 @@
 //! Core Intelligence analytics and explainability DTOs.
 //!
 //! ## Responsibilities
-//! - Define activity, discovery, domain, source-effectiveness, path-flow,
+//! - Define activity, discovery, domain, stable-source, path-flow,
 //!   compare-set, browser-diff, and explanation payloads.
 //! - Keep advanced read surfaces separate from basic session/query/read rows.
 //! - Preserve transport shape for Phase 3/4 Core Intelligence commands.
@@ -22,34 +22,55 @@
 use super::reads::{DomainTrendPoint, SessionSummary, TrailSummary};
 use serde::{Deserialize, Serialize};
 
-/// Arrival-channel counts for one domain deep dive.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct ArrivalBreakdown {
-    pub search: i64,
-    pub link: i64,
-    pub typed: i64,
-    pub other: i64,
-}
-
-/// Top page row inside a domain deep dive.
+/// One page on a site inside a domain deep dive: a URL string and its
+/// visits in the window, across every selected profile.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct DomainPageStat {
+    pub url: String,
+    pub title: Option<String>,
+    /// The URL without scheme and host, for display.
     pub path: String,
     pub visit_count: i64,
 }
 
-/// Inbound/outbound domain flow row inside a domain deep dive.
+/// A search whose trail ended on the site, with how often it did in the
+/// window.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
-pub struct DomainFlowStat {
-    pub domain: String,
-    pub display_name: Option<String>,
+pub struct DomainSearchStat {
+    pub query: String,
     pub count: i64,
 }
 
+/// How the visits to a site in the window began: each visit whose opener (the page the browser
+/// says opened it) was not on the site.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct SiteArrivals {
+    /// No opener: typed, a bookmark, a new tab or another app.
+    pub direct: i64,
+    /// Opened from a search's results.
+    pub search: i64,
+    /// Opened from a link on another site, or on a page PathKeep did not see.
+    pub link: i64,
+    /// Visits to the site from browsers that do not record what opened a page (Safari, Google
+    /// Takeout): how they began is not known, so they count toward none of the above.
+    pub unrecorded: i64,
+}
+
+/// Another site, and how many visits went between it and the deep dive's site in the window.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct SiteFlowStat {
+    pub registrable_domain: String,
+    pub visit_count: i64,
+}
+
 /// Full read model for one registrable-domain deep dive.
+///
+/// Totals, active days and the trend come from `domain_daily_rollups`, the
+/// same rows Top sites reads, so the numbers agree with it.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct DomainDeepDive {
@@ -58,24 +79,63 @@ pub struct DomainDeepDive {
     pub domain_category: String,
     pub total_visits: i64,
     pub active_days: i64,
-    pub trail_count: i64,
-    pub arrival_breakdown: ArrivalBreakdown,
-    pub top_pages: Vec<DomainPageStat>,
-    pub top_referrers: Vec<DomainFlowStat>,
-    pub top_exits: Vec<DomainFlowStat>,
+    /// Distinct URLs on the site visited in the window.
+    pub page_count: i64,
+    /// Searches whose trail landed on this site in the window.
+    pub landing_search_count: i64,
+    /// Ranked URL page with continuation.
+    pub top_pages: crate::models::IntelligencePage<DomainPageStat>,
+    /// Ranked landing queries with continuation.
+    pub landing_searches: crate::models::IntelligencePage<DomainSearchStat>,
+    /// Visits per local day; days without visits are left out.
     pub visit_trend: Vec<DomainTrendPoint>,
+    pub arrivals: SiteArrivals,
+    /// Sites whose links opened this one, most visits first.
+    pub referrers: Vec<SiteFlowStat>,
+    /// Search engines whose results opened it, by the engine's site.
+    pub search_sites: Vec<SiteFlowStat>,
+    /// Sites opened from links on this one.
+    pub onward: Vec<SiteFlowStat>,
+    /// What was searched on the site (its search engines' keyword searches) in the window, most
+    /// often first, each as last typed; empty for a site with no search engine.
+    pub site_searches: Vec<DomainSearchStat>,
+    /// The category the user set for the site, as set now: `domain_category` is the one Insights
+    /// were built with, which follows once they are built again.
+    #[serde(default)]
+    pub user_category: Option<String>,
+    /// The category PathKeep's own lists give the site (`unknown`: on none), which it goes back
+    /// to without the user's.
+    #[serde(default)]
+    pub list_category: String,
+    /// The parts of the site the lists sort on their own, which keep their categories whatever
+    /// the user sets for the site; only those the archive has pages on.
+    #[serde(default)]
+    pub listed_parts: Vec<SitePart>,
+    /// Insights were built with another category for the site than the one set now: the change
+    /// is being built.
+    #[serde(default)]
+    pub category_pending: bool,
 }
 
-/// Stable source row used by source-effectiveness and secondary overview reads.
+/// A host of a site that PathKeep's lists sort on its own (`mail.google.com` in `google.com`).
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SitePart {
+    pub host: String,
+    /// The category the lists give it.
+    pub category: String,
+}
+
+/// A site searches ended on: where the user's answers come from.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct StableSource {
     pub registrable_domain: String,
     pub display_name: Option<String>,
-    pub source_role: String,
-    pub trail_count: i64,
-    pub stable_landing_count: i64,
-    pub effectiveness_score: f32,
+    /// Searches in the range whose landing page was on this site.
+    pub search_count: i64,
+    /// How many different searches those were.
+    pub query_count: i64,
 }
 
 /// Per-engine search effectiveness aggregate.
@@ -104,8 +164,8 @@ pub struct HardTopic {
 #[serde(rename_all = "camelCase")]
 pub struct SearchEffectiveness {
     pub engine_stats: Vec<EngineEffectiveness>,
-    pub top_resolving_sources: Vec<StableSource>,
-    pub hardest_topics: Vec<HardTopic>,
+    pub top_resolving_sources: crate::models::IntelligencePage<StableSource>,
+    pub hardest_topics: crate::models::IntelligencePage<HardTopic>,
 }
 
 /// Friction signal row surfaced by secondary Core Intelligence sections.
@@ -118,6 +178,12 @@ pub struct FrictionSignal {
     pub signal_kind: String,
     pub occurrence_count: i64,
     pub description: String,
+    /// The search as first typed.
+    pub search_query: String,
+    /// How many times it was reworded.
+    pub reformulation_count: i64,
+    /// Pages opened from it, the searches included.
+    pub visit_count: i64,
 }
 
 /// Reopened investigation aggregate row.
@@ -128,6 +194,10 @@ pub struct ReopenedInvestigation {
     pub anchor_type: String,
     pub anchor_id: String,
     pub anchor_label: String,
+    /// The page's site (registrable domain) for a page anchor, so a list can show its icon;
+    /// `None` for a search.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub site: Option<String>,
     pub occurrence_count: i64,
     pub distinct_days: i64,
     pub first_seen_at: String,
@@ -216,7 +286,9 @@ pub struct ActivityMixTrend {
 #[serde(rename_all = "camelCase")]
 pub struct BreadthIndex {
     pub hhi: f32,
+    /// 0 (focused) .. 100 (wide), from how many sites hold half the visits.
     pub breadth_score: f32,
+    /// How many of the most visited sites hold half the visits.
     pub concentration_domain_count: i64,
 }
 
@@ -286,6 +358,8 @@ pub struct CompareSet {
     pub search_query: String,
     pub page_category: String,
     pub pages: Vec<CompareSetPage>,
+    /// The last time one of the pages was opened in this search.
+    pub last_visited_at: String,
 }
 
 /// Compare set detail with its owning trail and optional session context.
@@ -333,6 +407,7 @@ pub struct BrowserCategoryDistribution {
 pub struct BrowserDiff {
     pub profiles: Vec<BrowserProfileSummary>,
     pub exclusive_domains: Vec<ExclusiveDomainEntry>,
+    /// Sites more than one profile visited in the range, most visits (all profiles) first.
     pub shared_domains: Vec<String>,
     pub category_distributions: Vec<BrowserCategoryDistribution>,
 }
@@ -373,6 +448,7 @@ pub struct ExplainabilityFactor {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Explanation {
+    pub participating_visit_ids_next_cursor: Option<String>,
     pub entity_type: String,
     pub entity_id: String,
     pub trigger_rule: String,

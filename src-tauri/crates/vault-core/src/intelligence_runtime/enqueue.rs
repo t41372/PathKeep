@@ -1,3 +1,6 @@
+//! Not responsible for: archive ingestion, provider execution or connection ownership.
+//! Failure modes: duplicate claims, lost recovery progress, overwritten cancellation,
+//! hidden jobs, or a read initializes storage. Tests: runtime native queue regressions.
 //! Queue enqueue and module-runtime mutation helpers.
 //!
 //! ## Responsibilities
@@ -7,10 +10,10 @@
 
 use super::*;
 use crate::utils::now_rfc3339;
-use rusqlite::{Connection, OptionalExtension, params};
+use vault_store::{OptionalRow, Session, params_owned as params};
 
 fn record_intelligence_job_trigger(
-    connection: &Connection,
+    connection: &Session<'_>,
     job_id: i64,
     run_id: Option<i64>,
     reason: Option<&str>,
@@ -24,85 +27,6 @@ fn record_intelligence_job_trigger(
     Ok(())
 }
 
-/// Enqueues one enrichment job for a history row when plugin/runtime rules allow it.
-#[cfg(test)]
-pub(crate) fn enqueue_enrichment_job(
-    connection: &Connection,
-    run_id: i64,
-    plugin: &EnrichmentPluginDefinition,
-    payload: &EnrichmentJobPayload,
-) -> Result<()> {
-    ensure_intelligence_runtime_schema(connection)?;
-    let now = now_rfc3339();
-    let dedupe_key = format!("{}:{}", plugin.id, payload.history_id);
-    let payload_json = serde_json::to_string(payload)?;
-
-    let existing = connection
-        .query_row(
-            "SELECT id, state
-             FROM intelligence_jobs
-             WHERE dedupe_key = ?1",
-            [&dedupe_key],
-            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)),
-        )
-        .optional()?;
-
-    if let Some((job_id, state)) = existing {
-        record_intelligence_job_trigger(
-            connection,
-            job_id,
-            Some(run_id),
-            Some("Deterministic rebuild requested matching enrichment."),
-            &now,
-        )?;
-        if state != "running" {
-            connection.execute(
-                "UPDATE intelligence_jobs
-                 SET state = 'queued',
-                     priority = ?1,
-                     payload_json = ?2,
-                     scheduled_at = ?3,
-                     started_at = NULL,
-                     finished_at = NULL,
-                     heartbeat_at = NULL,
-                     lease_owner = NULL,
-                     lease_expires_at = NULL,
-                     updated_at = ?3,
-                     last_error = NULL,
-                     cancellation_reason = NULL,
-                     stop_requested = 0
-                 WHERE id = ?4",
-                params![plugin.priority, payload_json, now, job_id],
-            )?;
-        }
-    } else {
-        connection.execute(
-            "INSERT INTO intelligence_jobs
-             (job_type, plugin_id, run_id, state, priority, attempt, dedupe_key, payload_json,
-              artifact_json, created_at, scheduled_at, updated_at)
-             VALUES (?1, ?2, ?3, 'queued', ?4, 0, ?5, ?6, '{}', ?7, ?7, ?7)",
-            params![
-                ENRICHMENT_JOB_TYPE,
-                plugin.id,
-                run_id,
-                plugin.priority,
-                dedupe_key,
-                payload_json,
-                now,
-            ],
-        )?;
-        record_intelligence_job_trigger(
-            connection,
-            connection.last_insert_rowid(),
-            Some(run_id),
-            Some("Deterministic rebuild scheduled enrichment."),
-            &now,
-        )?;
-    }
-
-    Ok(())
-}
-
 /// Enqueues one W-ENRICH-1 content-fetch job, deduped by CANONICAL URL (06 §3).
 ///
 /// Keying by canonical URL (not history_id) means 5000 gmail visits enqueue ONE fetch that fans out to
@@ -111,22 +35,19 @@ pub(crate) fn enqueue_enrichment_job(
 /// history_id so the stored enrichment maps to a live visit). Returns the job id. The caller gates on
 /// consent + the negative cache BEFORE enqueueing; this is the durable handoff to the drain lane.
 pub(crate) fn enqueue_content_fetch_job(
-    connection: &Connection,
+    connection: &Session<'_>,
     payload: &EnrichmentJobPayload,
 ) -> Result<i64> {
-    ensure_intelligence_runtime_schema(connection)?;
     let now = now_rfc3339();
-    let canonical = crate::visit_taxonomy::normalize_visit_url(&payload.url)
-        .map(|normalized| normalized.canonical_url)
-        .unwrap_or_else(|| payload.url.trim().to_string());
+    let canonical = crate::pages::canonical_key(&payload.url);
     let dedupe_key = format!("{CONTENT_FETCH_PLUGIN_ID}:{canonical}");
     let payload_json = serde_json::to_string(payload)?;
 
     let existing = connection
-        .query_row(
+        .query_one(
             "SELECT id, state FROM intelligence_jobs WHERE dedupe_key = ?1",
-            [&dedupe_key],
-            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)),
+            [dedupe_key.as_str()],
+            |row| Ok((row.get::<i64>(0)?, row.get::<String>(1)?)),
         )
         .optional()?;
 
@@ -139,6 +60,7 @@ pub(crate) fn enqueue_content_fetch_job(
                  SET state = 'queued',
                      priority = ?1,
                      payload_json = ?2,
+                     artifact_json = '{}',
                      scheduled_at = ?3,
                      started_at = NULL,
                      finished_at = NULL,
@@ -148,7 +70,8 @@ pub(crate) fn enqueue_content_fetch_job(
                      updated_at = ?3,
                      last_error = NULL,
                      cancellation_reason = NULL,
-                     stop_requested = 0
+                     stop_requested = 0,
+                     list_order = (SELECT COALESCE(MAX(list_order), 0) + 1 FROM intelligence_jobs)
                  WHERE id = ?4",
                 params![CONTENT_FETCH_PRIORITY, payload_json, now, job_id],
             )?;
@@ -158,9 +81,9 @@ pub(crate) fn enqueue_content_fetch_job(
 
     connection.execute(
         "INSERT INTO intelligence_jobs
-         (job_type, plugin_id, run_id, state, priority, attempt, dedupe_key, payload_json,
-          artifact_json, created_at, scheduled_at, updated_at)
-         VALUES (?1, ?2, NULL, 'queued', ?3, 0, ?4, ?5, '{}', ?6, ?6, ?6)",
+         (job_type, plugin_id, run_id, state, priority, attempt, dedupe_key, canonical_url, payload_json,
+          artifact_json, created_at, scheduled_at, updated_at, list_order)
+         VALUES (?1, ?2, NULL, 'queued', ?3, 0, ?4, ?7, ?5, '{}', ?6, ?6, ?6, (SELECT COALESCE(MAX(list_order), 0) + 1 FROM intelligence_jobs))",
         params![
             CONTENT_FETCH_JOB_TYPE,
             CONTENT_FETCH_PLUGIN_ID,
@@ -168,19 +91,23 @@ pub(crate) fn enqueue_content_fetch_job(
             dedupe_key,
             payload_json,
             now,
+            canonical,
         ],
     )?;
-    Ok(connection.last_insert_rowid())
+    Ok(connection.query_one(
+        "SELECT id FROM intelligence_jobs WHERE dedupe_key=?1",
+        [dedupe_key.as_str()],
+        |r| Ok(r.get::<i64>(0)?),
+    )?)
 }
 
 /// Enqueues one Core Intelligence job for the requested scope and stage.
-pub fn enqueue_core_intelligence_job(
-    connection: &Connection,
+pub fn enqueue_core_intelligence_job_in_session(
+    connection: &Session<'_>,
     job_type: &str,
     request: &CoreIntelligenceRebuildRequest,
     reason: &str,
 ) -> Result<i64> {
-    ensure_intelligence_runtime_schema(connection)?;
     if !is_core_intelligence_job_type(job_type) {
         anyhow::bail!("'{job_type}' is not a valid Core Intelligence job type.");
     }
@@ -200,10 +127,10 @@ pub fn enqueue_core_intelligence_job(
     );
 
     let existing = connection
-        .query_row(
+        .query_one(
             "SELECT id, state FROM intelligence_jobs WHERE dedupe_key = ?1",
-            [&dedupe_key],
-            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)),
+            [dedupe_key.as_str()],
+            |row| Ok((row.get::<i64>(0)?, row.get::<String>(1)?)),
         )
         .optional()?;
 
@@ -225,7 +152,8 @@ pub fn enqueue_core_intelligence_job(
                      updated_at = ?3,
                      last_error = NULL,
                      cancellation_reason = NULL,
-                     stop_requested = 0
+                     stop_requested = 0,
+                     list_order = (SELECT COALESCE(MAX(list_order), 0) + 1 FROM intelligence_jobs)
                  WHERE id = ?5",
                 params![
                     core_intelligence_job_priority(job_type),
@@ -242,30 +170,38 @@ pub fn enqueue_core_intelligence_job(
     connection.execute(
         "INSERT INTO intelligence_jobs
          (job_type, plugin_id, run_id, state, priority, attempt, dedupe_key, payload_json,
-          artifact_json, created_at, scheduled_at, updated_at)
-         VALUES (?1, NULL, NULL, 'queued', ?2, 0, ?3, ?4, '{}', ?5, ?5, ?5)",
+          artifact_json, created_at, scheduled_at, updated_at, list_order)
+         VALUES (?1, NULL, NULL, 'queued', ?2, 0, ?3, ?4, '{}', ?5, ?5, ?5, (SELECT COALESCE(MAX(list_order), 0) + 1 FROM intelligence_jobs))",
         params![job_type, core_intelligence_job_priority(job_type), dedupe_key, payload_json, now],
     )?;
-    let job_id = connection.last_insert_rowid();
+    let job_id = connection.query_one(
+        "SELECT id FROM intelligence_jobs WHERE dedupe_key=?1",
+        [dedupe_key.as_str()],
+        |r| Ok(r.get::<i64>(0)?),
+    )?;
     record_intelligence_job_trigger(connection, job_id, None, Some(reason), &now)?;
     Ok(job_id)
 }
 
 /// Enqueues one full Core Intelligence rebuild job for the requested scope.
-pub fn enqueue_deterministic_rebuild_job(
-    connection: &Connection,
+pub fn enqueue_deterministic_rebuild_job_in_session(
+    connection: &Session<'_>,
     request: &CoreIntelligenceRebuildRequest,
     reason: &str,
 ) -> Result<i64> {
-    enqueue_core_intelligence_job(connection, RebuildMode::FullRebuild.job_type(), request, reason)
+    enqueue_core_intelligence_job_in_session(
+        connection,
+        RebuildMode::FullRebuild.job_type(),
+        request,
+        reason,
+    )
 }
 
 /// Persists runtime bookkeeping updates for deterministic modules.
 pub(crate) fn persist_deterministic_module_runtime_updates(
-    connection: &Connection,
+    connection: &Session<'_>,
     updates: &[DeterministicModuleRuntimeUpdate],
 ) -> Result<()> {
-    ensure_intelligence_runtime_schema(connection)?;
     let now = now_rfc3339();
     for update in updates {
         let Some(definition) = built_in_deterministic_module(&update.module_id) else {
@@ -275,9 +211,10 @@ pub(crate) fn persist_deterministic_module_runtime_updates(
             "INSERT INTO deterministic_module_runtime
              (module_id, version, status, depends_on_json, derived_tables_json, last_run_id,
               last_built_at, last_invalidated_at, stale_reason, stale_reason_code, notes_json,
-              updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+              updated_at,invalidation_revision)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12,?13)
              ON CONFLICT(module_id) DO UPDATE SET
+               invalidation_revision=invalidation_revision+excluded.invalidation_revision,
                version = excluded.version,
                status = excluded.status,
                depends_on_json = excluded.depends_on_json,
@@ -302,6 +239,7 @@ pub(crate) fn persist_deterministic_module_runtime_updates(
                 update.stale_reason_code,
                 serde_json::to_string(&update.notes)?,
                 now,
+                i64::from(update.status == "stale"),
             ],
         )?;
     }
@@ -312,8 +250,8 @@ pub(crate) fn persist_deterministic_module_runtime_updates(
 ///
 /// `reason_code` is the stable code the shell localizes; `reason` stays the
 /// diagnostic prose fallback for builds that ship no copy for the code.
-pub fn mark_all_deterministic_modules_stale(
-    connection: &Connection,
+pub fn mark_all_deterministic_modules_stale_in_session(
+    connection: &Session<'_>,
     reason_code: &str,
     reason: &str,
 ) -> Result<()> {

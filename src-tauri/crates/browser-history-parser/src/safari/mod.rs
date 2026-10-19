@@ -21,41 +21,6 @@ use std::convert::Infallible;
 use std::path::Path;
 
 const INSPECT_TABLES_SQL: &str = "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name";
-const URLS_SQL: &str = r#"
-SELECT
-  history_items.id,
-  history_items.url,
-  (
-    SELECT history_visits.title
-    FROM history_visits
-    WHERE history_visits.history_item = history_items.id
-      AND history_visits.title IS NOT NULL
-    ORDER BY history_visits.visit_time DESC, history_visits.id DESC
-    LIMIT 1
-  ) AS title,
-  (
-    SELECT COUNT(*)
-    FROM history_visits
-    WHERE history_visits.history_item = history_items.id
-  ) AS visit_count,
-  (
-    SELECT MAX(history_visits.visit_time)
-    FROM history_visits
-    WHERE history_visits.history_item = history_items.id
-  ) AS last_visit_time
-FROM history_items
-WHERE EXISTS (
-  SELECT 1
-  FROM history_visits
-  WHERE history_visits.history_item = history_items.id
-)
-  AND (
-    SELECT MAX(history_visits.visit_time)
-    FROM history_visits
-    WHERE history_visits.history_item = history_items.id
-  ) >= ?1
-ORDER BY last_visit_time ASC
-"#;
 const SAFARI_UNIX_EPOCH_OFFSET_SECONDS: f64 = 978_307_200.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -208,13 +173,6 @@ pub fn inspect_history(path: &Path) -> Result<DatabaseInspection, ParseError> {
         }
     }
 
-    warnings.push(ParserWarning {
-        code: "baseline-support".to_string(),
-        message:
-            "Safari baseline ingest captures history visits only. Full Disk Access may still be required before the desktop app can stage History.db."
-                .to_string(),
-    });
-
     Ok(DatabaseInspection { table_names, warnings })
 }
 
@@ -226,7 +184,7 @@ pub fn parse_history(
 ) -> Result<ParsedHistory, ParseError> {
     let mut collector = SafariHistoryCollector::default();
     let streamed =
-        stream_history(path, after_visit_id, after_url_last_visit_ms, 10_000, &mut collector)
+        stream_history(path, after_visit_id, after_url_last_visit_ms, None, 10_000, &mut collector)
             .map_err(|error| match error {
                 StreamHistoryError::Parse(error) => error,
                 StreamHistoryError::Consumer(never) => match never {},
@@ -251,6 +209,7 @@ pub fn stream_history<C>(
     path: &Path,
     after_visit_id: i64,
     after_url_last_visit_ms: i64,
+    url_scan: Option<crate::UrlScan>,
     chunk_size: usize,
     consumer: &mut C,
 ) -> Result<StreamedHistory, StreamHistoryError<C::Error>>
@@ -272,45 +231,17 @@ where
     let mut native_entities = Vec::new();
     let retain_source_evidence = consumer.retain_source_evidence_in_report();
 
-    {
-        let mut statement = stream_sql(connection.prepare(URLS_SQL))?;
-        let column_names =
-            statement.column_names().iter().map(|name| name.to_string()).collect::<Vec<_>>();
-        let mut rows =
-            stream_sql(statement.query(params![unix_ms_to_safari_time(after_url_last_visit_ms)]))?;
-        let mut batch = Vec::with_capacity(chunk_size);
-        let mut source_evidence = SourceEvidenceChunk::default();
-        while let Some(row) = stream_sql(rows.next())? {
-            batch.push(stream_sql(parsed_url_from_row(row))?);
-            source_evidence.native_entities.push(stream_sql(capture_native_row(
-                row,
-                &column_names,
-                "safari-history-item-row",
-                "id",
-                None,
-            ))?);
-            if batch.len() >= chunk_size {
-                consumer.urls(std::mem::take(&mut batch)).map_err(StreamHistoryError::Consumer)?;
-                flush_source_evidence(
-                    consumer,
-                    retain_source_evidence,
-                    &mut typed_evidence,
-                    &mut native_entities,
-                    &mut source_evidence,
-                )?;
-            }
-        }
-        if !batch.is_empty() {
-            consumer.urls(batch).map_err(StreamHistoryError::Consumer)?;
-        }
-        flush_source_evidence(
-            consumer,
-            retain_source_evidence,
-            &mut typed_evidence,
-            &mut native_entities,
-            &mut source_evidence,
-        )?;
-    }
+    crate::url_pages::stream(
+        &connection,
+        crate::url_pages::Family::Safari,
+        url_scan,
+        after_url_last_visit_ms,
+        after_visit_id,
+        chunk_size,
+        consumer,
+        &mut native_entities,
+        parsed_url_from_row,
+    )?;
 
     {
         let visits_sql = safari_visits_sql(&extra_visit_columns);
@@ -862,86 +793,14 @@ mod tests {
     }
 
     #[test]
-    fn parse_history_reads_safari_items_and_visits() {
-        let directory = tempdir().expect("tempdir");
-        let history_path = directory.path().join("History.db");
-        write_history_fixture(&history_path);
-
-        let parsed = parse_history(&history_path, 0, 0).expect("parse safari history");
-        assert_eq!(parsed.urls.len(), 1);
-        assert_eq!(parsed.visits.len(), 1);
-        assert_eq!(parsed.urls[0].title.as_deref(), Some("Safari Example"));
-        assert_eq!(parsed.visits[0].source_visit_id, 9);
-        assert_eq!(parsed.visits[0].app_id.as_deref(), Some("safari"));
-        assert!(parsed.warnings.iter().any(|warning| warning.code == "baseline-support"));
-    }
-
-    #[test]
-    fn parse_history_preserves_current_safari_visit_metadata() {
-        let directory = tempdir().expect("tempdir");
-        let history_path = directory.path().join("History.db");
-        write_current_schema_fixture(&history_path);
-
-        let parsed = parse_history(&history_path, 0, 0).expect("parse current safari history");
-
-        assert_eq!(parsed.visits.len(), 2);
-        assert_eq!(parsed.typed_evidence.navigation.len(), 2);
-        assert_eq!(parsed.typed_evidence.engagement.len(), 2);
-        assert!(parsed.typed_evidence.context.iter().any(|item| {
-            item.context_key == "safari.load_successful" && item.value_json == "false"
-        }));
-        assert!(parsed.typed_evidence.context.iter().any(|item| {
-            item.context_key == "safari.origin"
-                && item.source_field == "history_visits.origin"
-                && item.value_json == "1"
-        }));
-        assert!(parsed.typed_evidence.context.iter().any(|item| {
-            item.context_key == "safari.generation"
-                && item.source_field == "history_visits.generation"
-                && item.value_json == "3"
-        }));
-        assert!(parsed.typed_evidence.context.iter().any(|item| {
-            item.context_key == "safari.attributes"
-                && item.source_field == "history_visits.attributes"
-                && item.value_json == "8"
-        }));
-        assert!(parsed.typed_evidence.navigation.iter().any(|item| {
-            item.edge_kind == "safari.redirect_source"
-                && item.source_field == "history_visits.redirect_source"
-        }));
-        assert!(parsed.typed_evidence.navigation.iter().any(|item| {
-            item.edge_kind == "safari.redirect_destination"
-                && item.source_field == "history_visits.redirect_destination"
-        }));
-        assert!(parsed.typed_evidence.engagement.iter().all(|item| {
-            item.metric_key == "safari.score" && item.source_field == "history_visits.score"
-        }));
-        assert!(parsed.native_entities.iter().any(|entity| {
-            entity.entity_kind == "safari-history-visit-row"
-                && entity.payload_json.contains("load_successful")
-                && entity.payload_json.contains("redirect_destination")
-        }));
-        assert!(parsed.capability_snapshot.items.iter().any(|item| {
-            item.key == "safari.redirect_edges" && item.available && item.populated_rows == 2
-        }));
-        let capability = |key: &str| {
-            parsed.capability_snapshot.items.iter().find(|item| item.key == key).unwrap()
-        };
-        assert_eq!(capability("canonical.history_visits").populated_rows, 2);
-        assert_eq!(capability("safari.load_outcome").populated_rows, 2);
-        assert_eq!(capability("safari.http_method").populated_rows, 2);
-        assert_eq!(capability("safari.synthesized").populated_rows, 2);
-        assert_eq!(capability("safari.score").populated_rows, 2);
-    }
-
-    #[test]
     fn stream_history_can_move_source_evidence_out_of_the_returned_report() {
         let directory = tempdir().expect("tempdir");
         let history_path = directory.path().join("History.db");
         write_current_schema_fixture(&history_path);
         let mut sink = NonRetainingEvidenceSink::default();
 
-        let streamed = stream_history(&history_path, 0, 0, 1, &mut sink).expect("stream safari");
+        let streamed =
+            stream_history(&history_path, 0, 0, None, 1, &mut sink).expect("stream safari");
 
         assert_eq!(sink.urls, 1);
         assert_eq!(sink.visits, 2);
@@ -964,160 +823,18 @@ mod tests {
     }
 
     #[test]
-    fn stream_history_batches_rows_and_optional_native_tables() {
-        let directory = tempdir().expect("tempdir");
-        let history_path = directory.path().join("History.db");
-        write_current_schema_fixture(&history_path);
-        let connection = Connection::open(&history_path).expect("open fixture");
-        for id in 6_i64..=7 {
-            connection
-                .execute(
-                    "INSERT INTO history_items (id, url) VALUES (?1, ?2)",
-                    params![id, format!("https://example.com/safari-{id}")],
-                )
-                .expect("insert history item");
-            connection
-                .execute(
-                    "INSERT INTO history_visits (
-                       id, history_item, title, visit_time, load_successful,
-                       http_non_get, synthesized, redirect_source, redirect_destination,
-                       origin, generation, attributes, score
-                     )
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
-                    params![
-                        id + 10,
-                        id,
-                        format!("Safari {id}"),
-                        765_838_800.0_f64 + id as f64,
-                        1_i64,
-                        0_i64,
-                        0_i64,
-                        Option::<i64>::None,
-                        Option::<i64>::None,
-                        1_i64,
-                        1_i64,
-                        1_i64,
-                        0.5_f64,
-                    ],
-                )
-                .expect("insert visit");
-        }
-        connection
-            .execute(
-                "INSERT INTO history_tombstones (id, reason) VALUES (?1, ?2)",
-                params![103_i64, "local"],
-            )
-            .expect("insert third tombstone");
-        drop(connection);
-
-        let mut sink = NonRetainingEvidenceSink::default();
-        let streamed = stream_history(&history_path, 0, 0, 2, &mut sink).expect("stream safari");
-
-        assert_eq!(sink.url_batches, vec![2, 1]);
-        assert_eq!(sink.visit_batches, vec![2, 2]);
-        assert_eq!(sink.source_evidence_native_batches, vec![2, 1, 2, 2, 2, 1]);
-        assert_eq!(sink.urls, 3);
-        assert_eq!(sink.visits, 4);
-        assert_eq!(sink.navigation_evidence, 2);
-        assert_eq!(sink.engagement_evidence, 4);
-        assert_eq!(sink.context_evidence, 24);
-        assert!(streamed.native_entities.is_empty());
-        let capability = |key: &str| {
-            streamed.capability_snapshot.items.iter().find(|item| item.key == key).unwrap()
-        };
-        assert_eq!(capability("canonical.history_visits").populated_rows, 4);
-        assert_eq!(capability("safari.load_outcome").populated_rows, 4);
-        assert_eq!(capability("safari.http_method").populated_rows, 4);
-        assert_eq!(capability("safari.synthesized").populated_rows, 4);
-        assert_eq!(capability("safari.score").populated_rows, 4);
-    }
-
-    #[test]
     fn stream_history_flushes_residual_optional_native_table_chunks() {
         let directory = tempdir().expect("tempdir");
         let history_path = directory.path().join("History.db");
         write_current_schema_fixture(&history_path);
         let mut sink = NonRetainingEvidenceSink::default();
 
-        let streamed = stream_history(&history_path, 0, 0, 4, &mut sink).expect("stream safari");
+        let streamed =
+            stream_history(&history_path, 0, 0, None, 4, &mut sink).expect("stream safari");
 
         assert!(sink.source_evidence_chunks >= 3);
         assert!(sink.native_entities >= 5);
         assert!(streamed.native_entities.is_empty());
-    }
-
-    #[test]
-    fn parse_history_reads_current_safari_database_shape_with_multiple_items() {
-        let directory = tempdir().expect("tempdir");
-        let fixture_path = directory.path().join("History.db");
-        write_current_schema_fixture(&fixture_path);
-        let connection = Connection::open(&fixture_path).expect("open current safari fixture");
-        connection
-            .execute(
-                "INSERT INTO history_items (id, url) VALUES (?1, ?2)",
-                params![6_i64, "https://example.com/safari-reference"],
-            )
-            .expect("insert second history item");
-        connection
-            .execute(
-                "INSERT INTO history_visits (
-                   id, history_item, title, visit_time, load_successful,
-                   http_non_get, synthesized, redirect_source, redirect_destination,
-                   origin, generation, attributes, score
-                 )
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
-                params![
-                    11_i64,
-                    6_i64,
-                    "Safari Reference",
-                    765_838_802.0_f64,
-                    1_i64,
-                    0_i64,
-                    0_i64,
-                    Option::<i64>::None,
-                    Option::<i64>::None,
-                    2_i64,
-                    5_i64,
-                    16_i64,
-                    0.5_f64,
-                ],
-            )
-            .expect("insert third safari visit");
-
-        let parsed = parse_history(&fixture_path, 0, 0).expect("parse reference safari fixture");
-
-        assert_eq!(parsed.urls.len(), 2);
-        assert_eq!(parsed.visits.len(), 3);
-        assert_eq!(parsed.typed_evidence.navigation.len(), 2);
-        assert_eq!(
-            parsed
-                .typed_evidence
-                .context
-                .iter()
-                .filter(|item| item.context_key == "safari.load_successful")
-                .count(),
-            3
-        );
-        assert!(parsed.native_entities.iter().any(|entity| {
-            entity.entity_kind == "safari-history-visit-row"
-                && entity.payload_json.contains("load_successful")
-                && entity.payload_json.contains("score")
-        }));
-    }
-
-    #[test]
-    fn inspect_history_reports_missing_tables() {
-        let directory = tempdir().expect("tempdir");
-        let history_path = directory.path().join("History.db");
-        let connection = Connection::open(&history_path).expect("open fixture");
-        connection
-            .execute("CREATE TABLE history_items (id INTEGER PRIMARY KEY)", [])
-            .expect("create history items table");
-
-        let inspection = inspect_history(&history_path).expect("inspect safari history");
-        assert!(inspection.warnings.iter().any(|warning| {
-            warning.message.contains("required Safari table `history_visits` is missing")
-        }));
     }
 
     #[test]

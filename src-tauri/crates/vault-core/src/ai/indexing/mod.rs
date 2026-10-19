@@ -1,9 +1,10 @@
+//! Failure modes: metadata, vector maps and ledger watermarks disagree after interruption.
 //! Semantic index build and ledger persistence.
 //!
 //! ## Responsibilities
-//! - build or clear the semantic sidecar for one embedding provider
+//! - build or clear the semantic index for one embedding provider
 //! - keep the AI index ledger and unified `runs` trace in sync with build outcomes
-//! - collect changed canonical visits and write compatibility metadata rows
+//! - collect changed canonical visits and write native metadata rows
 //! - expose storage/watermark helpers consumed by AI read models
 //!
 //! ## Not responsible for
@@ -13,26 +14,23 @@
 //!
 //! ## Module layout (W-AI-4 indexing split)
 //! This is the orchestration root; the load-bearing logic lives in focused submodules so the
-//! crash/resume dedup state and the SQLite/candidate plumbing are each cohesive and directly tested:
+//! crash/resume dedup state and the Session/candidate queries are each cohesive and directly tested:
 //! - [`backfill`] — the resumable embed loop ([`run_embedding_backfill`]) and the
 //!   [`backfill::DedupTracker`] that encapsulates the W-AI-4c crash-window invariants.
-//! - [`candidates`] — candidate collection + the pure embed-target selection (MEDIUM-4 dedup).
-//! - [`store_rows`] — SQLite `ai_embeddings` compatibility-row helpers + batch validation.
-//! - [`content`] — the embedding-content rendering + the enrichment→dedup-hash seam.
+//! - [`candidates`] — candidate collection + the pure embed-target selection (content-hash dedup).
+//! - [`store_rows`] — Turso `ai_embeddings` metadata helpers + batch validation.
+//! - [`content`] — the enrichment→dedup-hash seam.
 //!
 //! ## Dependencies
 //! - `super::control` for cooperative cancellation checkpoints
 //! - `super::provider` for embedding retries and provider validation
-//! - `crate::ai_sidecar` for optional vector sidecar synchronization
+//! - `crate::ai_sidecar` for the stable provider/model file name
 //!
 //! ## Performance notes
 //! - candidate collection diffs content hashes before embedding, which avoids re-embedding
 //!   unchanged visits on large archives
-//! - SQLite lookups chunk `history_id` predicates with `SQLITE_BATCH_SIZE` to keep
+//! - Session lookups chunk `history_id` predicates with `SQLITE_BATCH_SIZE` to keep
 //!   statement size and memory bounded on 14.4M+ histories
-
-#[cfg(test)]
-use super::*;
 
 mod backfill;
 mod candidates;
@@ -45,20 +43,15 @@ mod store_rows;
 // remaining helpers are consumed only by the AI test surface (`ai/tests.rs` + `ai.rs`'s cfg(test)
 // imports) — the production loop reaches them directly via the submodule paths — so their
 // `indexing::` re-export is gated `#[cfg(test)]` to stay warning-clean in release builds.
-pub use self::backfill::{build_ai_index, build_ai_index_with_control};
-pub(super) use self::store_rows::provider_embedding_count;
+pub use self::backfill::{
+    build_ai_index, build_ai_index_with_control, forget_unconfigured_indexes,
+};
 
 #[cfg(test)]
-pub(super) use self::candidates::{
-    collect_stale_history_ids, collect_visit_chunk, select_embed_targets,
-};
+pub(super) use self::candidates::{collect_visit_chunk, select_embed_targets};
+pub(crate) use self::content::enrichment_summary_for;
 #[cfg(test)]
-pub(super) use self::content::build_embedding_content;
-#[cfg(test)]
-pub(super) use self::store_rows::{
-    chunk_size, cleanup_stale_embeddings, clear_provider_embeddings, upsert_embedding,
-    validate_embedding_batch_for_keys,
-};
+pub(super) use self::store_rows::{clear_provider_embeddings, upsert_embedding};
 
 /// One canonical visit that needs to be embedded into the semantic sidecar.
 ///
@@ -104,7 +97,7 @@ pub(super) struct BackfillOutcome {
     pub effective_dim: Option<usize>,
     /// Count of vectors actually appended to the `.pkvec` store this pass (F3 0-byte honesty).
     ///
-    /// DISTINCT from `indexed_items`, which counts changed VISITS (each gets a SQLite row + map
+    /// DISTINCT from `indexed_items`, which counts changed VISITS (each gets a Turso row + map
     /// entry). A re-visit of an already-embedded page bumps `indexed_items` but appends NO vector, so
     /// `embedded_vectors == 0` with `indexed_items > 0` is legitimate ONLY when the store already
     /// holds the page's vector. The build's honesty note reports this real count rather than implying
@@ -112,94 +105,4 @@ pub(super) struct BackfillOutcome {
     pub embedded_vectors: u64,
 }
 
-/// Collects the canonical visits that need fresh embeddings for the selected provider.
-///
-/// Legacy recency-ordered (DESC) collector kept for the existing change-detection/cleanup unit
-/// tests. The production backfill uses [`candidates::collect_visit_chunk`] (ascending, resumable from
-/// a cursor); this DESC variant is no longer on the production path. It lives here in the
-/// test-support surface so `ai/tests.rs` can reach it via `indexing::collect_visits_to_index`.
-#[cfg(test)]
-pub(super) fn collect_visits_to_index(
-    paths: &ProjectPaths,
-    connection: &Connection,
-    provider: &AiProviderRuntime,
-    limit: Option<u32>,
-) -> Result<Vec<IndexedVisit>> {
-    let limit_sql = limit.unwrap_or(0).max(1);
-    let sql = if limit.is_some() {
-        "SELECT visits.id,
-                source_profiles.profile_key,
-                urls.url,
-                urls.title,
-                (visits.visit_time_ms * 1000 + 11644473600000000) AS visit_time
-         FROM archive.visits AS visits
-         JOIN archive.urls AS urls ON urls.id = visits.url_id
-         JOIN archive.source_profiles AS source_profiles ON source_profiles.id = visits.source_profile_id
-         WHERE visits.reverted_at IS NULL
-         ORDER BY visits.visit_time_ms DESC
-         LIMIT ?1"
-    } else {
-        "SELECT visits.id,
-                source_profiles.profile_key,
-                urls.url,
-                urls.title,
-                (visits.visit_time_ms * 1000 + 11644473600000000) AS visit_time
-         FROM archive.visits AS visits
-         JOIN archive.urls AS urls ON urls.id = visits.url_id
-         JOIN archive.source_profiles AS source_profiles ON source_profiles.id = visits.source_profile_id
-         WHERE visits.reverted_at IS NULL
-         ORDER BY visits.visit_time_ms DESC"
-    };
-
-    let mut statement = connection.prepare(sql)?;
-    let mut rows =
-        if limit.is_some() { statement.query(params![limit_sql])? } else { statement.query([])? };
-
-    let mut raw_visits = Vec::new();
-    while let Some(row) = rows.next()? {
-        raw_visits.push(IndexedVisit {
-            history_id: row.get(0)?,
-            profile_id: row.get(1)?,
-            url: row.get(2)?,
-            title: row.get(3)?,
-            domain: String::new(),
-            visited_at: crate::utils::chrome_time_to_rfc3339(row.get::<_, i64>(4)?),
-            content: String::new(),
-            content_hash: String::new(),
-            content_key: 0,
-            needs_embedding: true,
-        });
-    }
-
-    let history_ids = raw_visits.iter().map(|visit| visit.history_id).collect::<Vec<_>>();
-    let existing_hashes =
-        candidates::load_existing_embedding_hashes(connection, provider, &history_ids)?;
-    let enrichments = load_best_enrichment_map_by_history_ids(paths, connection, &history_ids)?;
-    let mut visits = Vec::with_capacity(raw_visits.len());
-    for mut visit in raw_visits {
-        let enrichment = enrichments.get(&visit.history_id);
-        let content = build_embedding_content_from_parts(
-            &visit.profile_id,
-            &visit.url,
-            visit.title.as_deref(),
-            &visit.visited_at,
-            enrichment.and_then(|value| value.readable_title.as_deref()),
-            content::enrichment_summary_for(enrichment),
-            enrichment.and_then(|value| value.readable_text.as_deref()),
-        );
-        let content_hash = super::dedup::build_dedup_content_hash(
-            &visit.url,
-            visit.title.as_deref(),
-            content::enrichment_summary_for(enrichment),
-        );
-        if existing_hashes.get(&visit.history_id) == Some(&content_hash) {
-            continue;
-        }
-        visit.domain = url_domain(&visit.url);
-        visit.content = content;
-        visit.content_key = super::dedup::content_key_from_hash(&content_hash);
-        visit.content_hash = content_hash;
-        visits.push(visit);
-    }
-    Ok(visits)
-}
+pub(super) use self::store_rows::validate_embedding_batch_for_keys;

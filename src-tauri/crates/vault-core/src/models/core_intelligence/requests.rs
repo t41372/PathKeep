@@ -28,7 +28,8 @@ use serde::{Deserialize, Serialize};
 pub struct PagedDateRangeRequest {
     pub date_range: DateRange,
     pub profile_id: Option<String>,
-    pub page: u32,
+    #[serde(default)]
+    pub cursor: Option<String>,
     pub page_size: u32,
 }
 
@@ -38,6 +39,27 @@ pub struct PagedDateRangeRequest {
 pub struct ScopedDateRangeRequest {
     pub date_range: DateRange,
     pub profile_id: Option<String>,
+}
+
+/// A date/profile list whose limit bounds one page and whose cursor reaches the remainder.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ScopedPageRequest {
+    pub date_range: DateRange,
+    pub profile_id: Option<String>,
+    #[serde(default)]
+    pub limit: Option<u32>,
+    #[serde(default)]
+    pub cursor: Option<String>,
+}
+impl From<&ScopedDateRangeRequest> for ScopedPageRequest {
+    fn from(scope: &ScopedDateRangeRequest) -> Self {
+        Self {
+            date_range: scope.date_range.clone(),
+            profile_id: scope.profile_id.clone(),
+            ..Default::default()
+        }
+    }
 }
 
 /// Common request shape for profile-scoped reads that do not need a date window.
@@ -54,7 +76,8 @@ pub struct SearchTrailQueryRequest {
     pub date_range: DateRange,
     pub profile_id: Option<String>,
     pub engine: Option<String>,
-    pub page: u32,
+    #[serde(default)]
+    pub cursor: Option<String>,
     pub page_size: u32,
 }
 
@@ -62,8 +85,14 @@ pub struct SearchTrailQueryRequest {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct TopSitesRequest {
+    #[serde(default)]
+    pub cursor: Option<String>,
     pub date_range: DateRange,
     pub profile_id: Option<String>,
+    /// Several profiles summed together (one browser can have several); takes
+    /// precedence over `profile_id`. Empty with no `profile_id` means every profile.
+    #[serde(default)]
+    pub profile_ids: Vec<String>,
     pub sort_by: Option<String>,
     pub limit: Option<u32>,
 }
@@ -77,10 +106,24 @@ pub struct DomainTrendRequest {
     pub date_range: DateRange,
 }
 
+/// Request shape for the most frequent searches in a date range.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct FrequentSearchesRequest {
+    #[serde(default)]
+    pub cursor: Option<String>,
+    pub date_range: DateRange,
+    pub profile_id: Option<String>,
+    /// Page size; continuation remains available after the first 100 queries.
+    pub limit: Option<u32>,
+}
+
 /// Request shape for top search concepts.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct TopSearchConceptsRequest {
+    #[serde(default)]
+    pub cursor: Option<String>,
     pub date_range: DateRange,
     pub profile_id: Option<String>,
     pub limit: Option<u32>,
@@ -97,7 +140,8 @@ pub struct SearchQueryListRequest {
     pub domain: Option<String>,
     pub query: Option<String>,
     pub sort: Option<String>,
-    pub page: u32,
+    #[serde(default)]
+    pub cursor: Option<String>,
     pub page_size: u32,
 }
 
@@ -120,6 +164,8 @@ pub struct SearchEngineRuleInput {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct RefindPagesRequest {
+    #[serde(default)]
+    pub cursor: Option<String>,
     pub date_range: DateRange,
     pub profile_id: Option<String>,
     pub limit: Option<u32>,
@@ -129,6 +175,13 @@ pub struct RefindPagesRequest {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ExplainRefindRequest {
+    #[serde(default)]
+    pub profile_id: Option<String>,
+    #[serde(default)]
+    pub cursor: Option<String>,
+    #[serde(default)]
+    pub page_size: Option<u32>,
+
     pub canonical_url: String,
 }
 
@@ -139,6 +192,19 @@ pub struct GranularityDateRangeRequest {
     pub date_range: DateRange,
     pub profile_id: Option<String>,
     pub granularity: String,
+}
+
+/// The sites put in one category in a range (`get_sites_in_category`).
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct SitesInCategoryRequest {
+    pub date_range: DateRange,
+    pub profile_id: Option<String>,
+    /// A site category key, as `ActivityMix` names them; `unknown` for sites on no list.
+    pub category: String,
+    #[serde(default)]
+    pub cursor: Option<String>,
+    pub limit: Option<u32>,
 }
 
 /// Request shape for optional category filters on rhythm/activity queries.
@@ -154,6 +220,10 @@ pub struct CategoryFilteredDateRangeRequest {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct SearchEffectivenessRequest {
+    #[serde(default)]
+    pub topics_cursor: Option<String>,
+    #[serde(default)]
+    pub topics_limit: Option<u32>,
     pub date_range: DateRange,
     pub profile_id: Option<String>,
     pub engine: Option<String>,
@@ -163,9 +233,24 @@ pub struct SearchEffectivenessRequest {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct DomainDeepDiveRequest {
+    #[serde(default)]
+    pub pages_cursor: Option<String>,
+    #[serde(default)]
+    pub searches_cursor: Option<String>,
+    #[serde(default)]
+    pub page_size: Option<u32>,
     #[serde(alias = "domain")]
     pub registrable_domain: String,
     pub date_range: DateRange,
+    pub profile_id: Option<String>,
+}
+
+/// Every query family that holds one search, across all time.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchFamiliesRequest {
+    /// The search as typed; matched ignoring case and surrounding spaces.
+    pub query: String,
     pub profile_id: Option<String>,
 }
 
@@ -173,6 +258,10 @@ pub struct DomainDeepDiveRequest {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct QueryFamilyDetailRequest {
+    #[serde(default)]
+    pub cursor: Option<String>,
+    #[serde(default)]
+    pub page_size: Option<u32>,
     pub family_id: String,
     pub date_range: DateRange,
     pub profile_id: Option<String>,
@@ -182,6 +271,13 @@ pub struct QueryFamilyDetailRequest {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct RefindPageDetailRequest {
+    #[serde(default)]
+    pub visits_cursor: Option<String>,
+    #[serde(default)]
+    pub trails_cursor: Option<String>,
+    #[serde(default)]
+    pub page_size: Option<u32>,
+
     pub canonical_url: String,
     pub date_range: DateRange,
     pub profile_id: Option<String>,
@@ -199,6 +295,8 @@ pub struct DayInsightsRequest {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct PathFlowRequest {
+    #[serde(default)]
+    pub cursor: Option<String>,
     pub date_range: DateRange,
     pub profile_id: Option<String>,
     pub step_count: u32,
@@ -218,6 +316,8 @@ pub struct CompareSetDetailRequest {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct IntelligenceEmbedCardsRequest {
+    #[serde(default)]
+    pub cursor: Option<String>,
     pub date_range: DateRange,
     pub profile_id: Option<String>,
     pub limit: Option<u32>,
@@ -227,6 +327,11 @@ pub struct IntelligenceEmbedCardsRequest {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct EntityExplanationRequest {
+    #[serde(default)]
+    pub cursor: Option<String>,
+    #[serde(default)]
+    pub page_size: Option<u32>,
+
     pub entity_type: String,
     pub entity_id: String,
 }
@@ -238,4 +343,22 @@ pub struct IntelligenceLocalHostRequest {
     pub date_range: DateRange,
     pub profile_id: Option<String>,
     pub locale: String,
+}
+
+/// Navigation detail with independent visit and related-trail continuation.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionDetailRequest {
+    pub session_id: String,
+    pub visits_cursor: Option<String>,
+    pub trails_cursor: Option<String>,
+    pub page_size: Option<u32>,
+}
+/// A trail's members remain reachable regardless of its length.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct TrailDetailRequest {
+    pub trail_id: String,
+    pub cursor: Option<String>,
+    pub page_size: Option<u32>,
 }
