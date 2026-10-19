@@ -2,75 +2,42 @@
 
 <img alt="PathKeep" src="docs/design/brand-icon/source/icon-1024.png" width="112" />
 
-# PathKeep —— 留住你走过的路
+# PathKeep
 
-<img alt="demo" src="https://github.com/user-attachments/assets/6118f6f4-80ee-4cd2-bf44-3989d26eb5e5" />
+**留住你走过的路。**
 
-**别让浏览器悄悄替你删掉你的浏览记录**
+浏览器会悄悄删掉你的历史记录。PathKeep 把它们全部留在你自己的电脑上，也帮你找回走过的路。
 
-<a href="./README.CN.md">
-<img alt="zh-CN" src="https://img.shields.io/badge/lang-简体中文-red.svg" />
-</a>
-<a href="./README.md">
-<img alt="en" src="https://img.shields.io/badge/lang-English-blue.svg" />
-</a>
-
-<a href="https://github.com/t41372/PathKeep/actions/workflows/ci.yml">
-<img alt="CI" src="https://github.com/t41372/PathKeep/actions/workflows/ci.yml/badge.svg?branch=main&event=push" />
-</a>
-<a href="https://github.com/t41372/PathKeep/actions/workflows/native-deps.yml">
-<img alt="Native Dependencies" src="https://github.com/t41372/PathKeep/actions/workflows/native-deps.yml/badge.svg?branch=main" />
-</a>
-<a href="https://github.com/t41372/PathKeep/actions/workflows/release.yml">
-<img alt="Release" src="https://github.com/t41372/PathKeep/actions/workflows/release.yml/badge.svg?branch=main" />
-</a>
-<br />
-<a href="https://github.com/t41372/PathKeep/releases">
-<img alt="Latest release" src="https://img.shields.io/github/v/release/t41372/PathKeep?display_name=tag&label=release" />
-</a>
-<a href="https://www.rust-lang.org/">
-<img alt="Rust 1.94.1" src="https://img.shields.io/badge/Rust-1.94.1-000000?logo=rust&logoColor=white" />
-</a>
-<a href="https://tauri.app/">
-<img alt="Tauri v2" src="https://img.shields.io/badge/Tauri-v2-24C8DB?logo=tauri&logoColor=white" />
-</a>
-<a href="https://react.dev/">
-<img alt="React 19" src="https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=000000" />
-</a>
-<a href="https://bun.sh/">
-<img alt="Bun 1.3.11" src="https://img.shields.io/badge/Bun-1.3.11-000000?logo=bun&logoColor=white" />
-</a>
-<a href="https://www.typescriptlang.org/">
-<img alt="TypeScript 5.9" src="https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript&logoColor=white" />
-</a>
-<a href="https://vite.dev/">
-<img alt="Vite 8" src="https://img.shields.io/badge/Vite-8-646CFF?logo=vite&logoColor=white" />
-</a>
-<a href="./LICENSE">
-<img alt="License: GPL-3.0" src="https://img.shields.io/github/license/t41372/PathKeep?label=license" />
-</a>
-
-</div>
+<a href="https://github.com/t41372/PathKeep/releases"><img alt="Latest release" src="https://img.shields.io/github/v/release/t41372/PathKeep?display_name=tag&label=release" /></a>
+<a href="https://github.com/t41372/PathKeep/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/t41372/PathKeep/actions/workflows/ci.yml/badge.svg?branch=main&event=push" /></a>
+<a href="./LICENSE"><img alt="License: GPL-3.0" src="https://img.shields.io/github/license/t41372/PathKeep?label=license" /></a>
+<a href="https://tauri.app/"><img alt="Tauri 2" src="https://img.shields.io/badge/Tauri-2-24C8DB?logo=tauri&logoColor=white" /></a>
+<a href="https://www.rust-lang.org/"><img alt="Rust 1.96" src="https://img.shields.io/badge/Rust-1.96-000000?logo=rust&logoColor=white" /></a>
 
 中文 | [English](./README.md)
 
-<br/>
+</div>
 
-PathKeep 是一款**本地优先**的桌面应用，用来长期归档浏览历史，并在归档之上做进一步的分析。基于 Tauri 2、Rust、React 19、TypeScript、Vite、Bun 构建。目前公开承诺支持的浏览器包括 Google Chrome、Microsoft Edge、Firefox，以及 macOS 上的 ChatGPT Atlas、Perplexity Comet 和 Safari（Safari 需要"完全磁盘访问权限"）。其他 Chromium 系 / Firefox 系浏览器的适配器其实已经实现，只是暂未纳入公开承诺。
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/zh-CN/home-dark.jpg" />
+  <img alt="PathKeep 首页：已保存的访问、最近 30 天、往年今日，以及按天排开的一整年" src="docs/screenshots/zh-CN/home.jpg" />
+</picture>
 
----
+PathKeep 是一个 macOS 和 Windows 上的桌面应用。它把你用的每个浏览器的历史，一点一点备份进你自己硬盘上的一份存档，想留多久就留多久。然后你可以在里面搜索全部记录，看看你的浏览习惯说明了什么；愿意的话，也可以直接用自然语言问它。
 
-## 为什么需要 PathKeep
+数据不上传任何服务器。AI 是可选的，你打开之前一直关着。
 
-### 你的浏览器，正在悄悄删掉你的历史记录
+## 为什么
 
-很多人默认以为浏览历史一直都在那里，需要的时候随时能翻出来。**其实并不是。**
+### 浏览器正在删你的历史
 
-绝大多数 Chromium 内核浏览器——Chrome、Edge、Brave、Arc 等等——都继承了上游的一个默认行为：**本地浏览历史超过大约 90 天就会被自动清除**。这不是 bug，是直接[硬编码在 Chromium 源码里](https://chromium.googlesource.com/chromium/src/+/master/components/history/core/browser/history_backend.cc)的。Safari 默认[只保留一年](https://support.apple.com/guide/safari/search-your-web-browsing-history-ibrw1114/mac)，除非你自己改设置。即使是相对宽松的 Firefox，最终也会根据[数据库大小](https://searchfox.org/firefox-main/source/toolkit/components/places/PlacesExpiration.sys.mjs)清理旧记录。
+大多数人以为浏览历史一直都在，需要时随时能找到。**并不是。**
 
-云同步也别指望。云同步是为了多设备体验，而不是为了长期归档。Firefox Sync [只上传最近 30 天，且云端 60 天后过期](https://searchfox.org/firefox-main/source/services/sync/modules/constants.sys.mjs)。Brave Sync [只同步你手动输入的网址](https://support.brave.com/hc/en-us/articles/360047642371-Sync-FAQ)。Arc [则根本不同步历史](https://resources.arc.net/hc/en-us/articles/20272860828823-Arc-Sync)。
+Chrome、Edge、Brave、Arc 等大多数 Chromium 浏览器，都沿用了上游的一个默认设置：**本地历史超过大约 90 天就删掉**。这不是 bug，而是[写在 Chromium 源码里](https://chromium.googlesource.com/chromium/src/+/master/components/history/core/browser/history_backend.cc)的。Safari [默认只留一年](https://support.apple.com/guide/safari/search-your-web-browsing-history-ibrw1114/mac)。Firefox 宽松一些，但也会[按数据库大小](https://searchfox.org/firefox-main/source/toolkit/components/places/PlacesExpiration.sys.mjs)清理。
 
-**如果你只用 Chrome，又从来没手动备份过，那么三个月之前的本地浏览历史，基本可以认定已经没了。** 去年看过的网页、人生关键节点搜过的关键词、深夜钻研某个新领域留下的全部足迹——都被你的浏览器替你"决定"删掉了。
+同步也救不了它。同步是为了在几台设备之间用，不是为了保存。Firefox Sync 只上传[最近 30 天，并在 60 天后丢掉同步的历史](https://searchfox.org/firefox-main/source/services/sync/modules/constants.sys.mjs)。Brave Sync 只同步[你手动输入的网址](https://support.brave.com/hc/en-us/articles/360047642371-Sync-FAQ)。Arc [完全不同步历史](https://resources.arc.net/hc/en-us/articles/20272860828823-Arc-Sync)。
+
+**如果你用 Chrome，又从没备份过历史，三个月前的记录多半已经没了。**
 
 <details><summary><b>📋 各家浏览器到底会保留多久？（参考表格）</b></summary>
 
@@ -100,235 +67,136 @@ _注：约 3 个月的 Chromium 上限是基于上游 Chromium 源码推断出�
 
 </details>
 
-### 浏览历史比你以为的有价值
+### 它值得留下来
 
-你可能会想：_这真的有那么重要吗？_
+浏览历史记录了你怎么学会一件事，做重大决定前查过什么，人生发生变化的那一周在读什么。对大多数人来说，它最接近一本记录网上时光的日记，而浏览器按一个没人同意过的时间表把它丢掉。
 
-不妨想想浏览历史到底是什么。它记录了你**怎么学会一件事**、在**做重大决定前看了什么资料**、人生发生重要变化的那一周你**在读什么**。它记下了你做学生时关心的话题、入职那份工作之前的搜索、搬到新城市之前的功课。对越来越多人来说，相当一部分人生发生在线上——而浏览历史，是离一份"网络生活日志"最近的东西。
+以前这不太要紧，因为几百万条原始网址摆在那里，谁也看不出什么。现在不一样了：在你自己电脑上跑的模型，已经能读完几年的浏览记录，告诉你那段时间在忙什么。今天留下的数据，就是以后能问的东西；已经没了的，就问不了了。
 
-那些年的记录消失了，不是因为你选择删除，而是因为浏览器替你判断："不值得留。"
+## 它能做什么
 
-_在不久之前，浏览器删旧历史问题并不大_，因为几千万条原始 URL 摆在面前，也没什么实用方法从中提炼意义。但情况正在变。本地 AI 推理已经足够快、足够便宜，可以直接在你自己的机器上对**多年**的浏览数据跑 agentic 分析。Andrej Karpathy 提出的 ["LLM Knowledge Bases"](https://x.com/karpathy/status/2039805659525644595) 概念——让大模型为每个人维护一套个人知识库——正在变成现实。
+- **备份每一个浏览器。** PathKeep 找到你的浏览器和它们的用户资料，把历史复制进一份存档。每次只加新的，同一次访问只存一次，即使两个来源都有它。自动备份在后台运行，PathKeep 关着也照样跑。
+- **找回更早的历史。** 导入 Google Takeout 里的 Chrome 历史（通常约 18 个月，取决于你的 Google 账号设置），或另一个浏览器、另一台电脑的历史文件。每次导入都可以撤销。
+- **历史。** 每一次访问，按天、按浏览片段排开，几百万条也一样流畅。可以搜标题、网址和页面内容，也可以用正则表达式。按日期、浏览器和网站筛选，给页面加星标，写下以后能搜到的笔记。全部导出成 HTML、Markdown、纯文本或 JSON Lines。
+- **洞察。** 在你的电脑上从存档算出来，看全部时间或任意一段：最常去的网站和它们属于哪一类，你什么时候上网，搜什么、搜索怎么收尾，反复打开的页面，在网站之间怎么走。大多数卡片都能点进去看背后的记录。
+- **助理**（可选）。用自然语言问你的历史，用你电脑上的模型（LM Studio、Ollama），或你设置的服务（OpenAI 或兼容服务、Anthropic、Gemini）。它会搜索你的存档，并列出它用到的页面。
+- **语义搜索**（可选）。按页面讲的是什么来找，不只是按字面。索引在你的电脑上建，用 PathKeep 下载一次的小模型，或你选的服务里的模型。
+- **归你所有。** 存档可以用密码加密。每次备份和导入都留下一份看得懂的记录。PathKeep 从不写入浏览器自己的文件。
 
-所以问题已经不是"几十年的浏览历史能不能挖出价值"。问题是：等那一天真的到来，你**手里还有没有数据**。
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <a href="docs/screenshots/zh-CN/history.jpg"><img src="docs/screenshots/zh-CN/history.jpg" alt="历史：今天的访问按浏览片段分组，旁边打开了一个页面"></a>
+      <br><b>历史</b> · 每一次访问按天、按片段排开。打开一条，看你去过几次、那时还读了什么。
+    </td>
+    <td width="50%" valign="top">
+      <a href="docs/screenshots/zh-CN/insights.jpg"><img src="docs/screenshots/zh-CN/insights.jpg" alt="全部时间的洞察：页面浏览、网站、搜索次数、每月浏览、网站类别和最常浏览"></a>
+      <br><b>洞察</b> · 默认看全部时间，也可以选任意一段、某一个浏览器。
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <a href="docs/screenshots/zh-CN/page.jpg"><img src="docs/screenshots/zh-CN/page.jpg" alt="反复打开的页面：12 周的访问、为什么列出它、把你带到这里的搜索"></a>
+      <br><b>反复打开的页面</b> · 洞察为什么列出它，以及把你带到这里的搜索。
+    </td>
+    <td width="50%" valign="top">
+      <a href="docs/screenshots/zh-CN/backup.jpg"><img src="docs/screenshots/zh-CN/backup.jpg" alt="备份：每个浏览器和用户资料的访问数、自动备份和 Google Takeout 导入"></a>
+      <br><b>备份</b> · 每个浏览器和用户资料、自动备份，以及导入。
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <a href="docs/screenshots/zh-CN/rhythm.jpg"><img src="docs/screenshots/zh-CN/rhythm.jpg" alt="深色模式的洞察：一周里什么时候浏览、新网站，以及搜索什么"></a>
+      <br><b>什么时候浏览</b> · 一周里每个小时的浏览，以及你搜什么。深色模式。
+    </td>
+    <td width="50%" valign="top">
+      <a href="docs/screenshots/zh-CN/ask.jpg"><img src="docs/screenshots/zh-CN/ask.jpg" alt="深色模式的助理：问去年看相机的事，它搜索存档后回答，并列出用到的页面"></a>
+      <br><b>助理</b> · 它搜索你的存档，带着找到的页面回答。深色模式。
+    </td>
+  </tr>
+</table>
 
-**今天保住的数据，是明天智能的原料。** 但已经丢掉的，再也分析不出来了。
+界面有英文、简体中文和繁体中文，有浅色和深色两种外观。图里是演示存档（`bun run dev:demo`）的虚构浏览记录，不是任何人自己的；助理那张图里模型的话是写好的。
 
-### PathKeep 在解决什么
+## 怎么运作
 
-PathKeep 安静地跑在你的电脑上，**按计划增量地备份所有浏览器的历史**。macOS 和 Windows 上定时备份可以自动安装和运行；Linux 上你需要在应用内生成 systemd 文件后手动启用计时器。如果归档已加密，请将密码保存到系统钥匙串，这样后台工作进程才能解锁数据库——否则定时备份会静默失败。PathKeep 从不直接读取正在运行的浏览器数据库，而是先复制出一份安全副本，去重后追加进一个**完全归你所有、归你控制**的本地归档。
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/zh-CN/how-it-works-dark.svg" />
+  <img alt="你的浏览器和 Google Takeout 以只读副本进入这台电脑上的存档；存档每次只加新的，同一次访问只存一次，可以加密，每次备份和导入都有记录。历史、洞察，以及可选的助理和语义搜索都从存档读取。" src="docs/screenshots/zh-CN/how-it-works-light.svg" />
+</picture>
 
-在这份归档之上，PathKeep 提供强大的回溯能力（全文检索、正则、时间线、过滤器、导出），以及基于归档事实的确定性 Core Intelligence。语义搜索、问答助手（Ask）和 MCP 服务器也都有，但都是可选的，你打开之前一直是关着的。
-
-> 用 Chrome 且开了 Google Sync？PathKeep 支持 **Google Takeout 导入**，可以把延伸到云端的那部分历史（通常约 18 个月，具体取决于你的 Google 账号设置）一并恢复回来，而不仅仅是本地的约 3 个月。
-
----
+- PathKeep 从不打开浏览器正在用的数据库。它先复制文件，再读副本，所以浏览器照常运行，它的文件也从不被改动。
+- 存档保存每一次访问的时间、标题、浏览器和用户资料。已经有的访问不会再加一次，所以常备份也不费事。
+- 历史、洞察和助理都从存档读取，而不是从浏览器，所以浏览器删掉的，它们还在。
+- 它的设计目标是 4 核、8 GB 内存的电脑上 1440 万条访问的存档。
 
 ## 安装
 
 从 [GitHub Releases](https://github.com/t41372/PathKeep/releases) 下载最新版本。
 
-- **macOS：** 打开 `.dmg`，把 `PathKeep.app` 拖进 `/Applications`，再启动。如果要扫描 Safari 历史，需要先给 PathKeep 授予"完全磁盘访问权限"。
-- **Windows：** 安装未签名的 `.msi` 或 `-setup.exe` 安装包。Windows 会提示 `Unknown Publisher`，SmartScreen 可能需要点击 **更多信息 → 仍要运行**，直到 PathKeep 积累出发行商信誉。计划任务备份走 Windows Task Scheduler。当系统缺少 WebView2 时，安装器会启动 WebView2 下载引导，因此首次安装可能需要联网；Windows Server Core / 无头 Server 不在 GUI 验收目标内。
-- **Linux：** 正在路上。想现在就试用请从源码构建。~~下载 `.AppImage`、`.deb` 或 `.rpm` 包。Linux 上的计划备份仍处于预览/人工审核阶段，因为桌面 keyring 和 `systemd --user` 的行为因发行版而异。~~
+- **macOS。** 打开 `.dmg`，把 PathKeep 拖进“应用程序”。应用还没有 Apple 签名，所以第一次打开前要去掉隔离标记（`xattr -dr com.apple.quarantine /Applications/PathKeep.app`），或者右键点它选“打开”。步骤和校验值在版本说明里。要备份 Safari，在 PathKeep 请求时给它“完全磁盘访问权限”。
+- **Windows。** 运行 `.msi` 或 `-setup.exe`。还没有签名，所以 Windows 会显示“未知发布者”，SmartScreen 可能要你选“更多信息 → 仍要运行”。缺少 WebView2 时，安装程序会下载它。
+- **Linux。** 支持还在路上。每个版本都附有安装包（`.AppImage`、`.deb`、`.rpm`）可以试用，但还没在真实桌面上测过。自动备份需要你自己打开 PathKeep 写好的 systemd 计时器。
 
-## 卸载
+如果存档加了密又想自动备份，让 PathKeep 把密码存进系统钥匙串，后台备份才打得开存档。
 
-- 在 **备份 → 自动备份** 里选 **关闭**，移除已安装的计划任务。（设置 → 存储 → 删除所有数据不会移除它。）
-- 退出 PathKeep，删除应用本体，或用系统包管理器卸载。
-- 可选清理本地数据：仅在你确实想连归档、配置、审计产物和派生索引一起清掉时，删除 PathKeep 的应用数据目录。macOS 上该目录是 `~/Library/Application Support/com.yi-ting.pathkeep`。
+### 从 0.3 升级
 
----
+第一次打开时，PathKeep 会把存档转成新格式。开始前，它先告诉你要多少空闲空间（大约是存档的三倍）、会动到哪些文件。新存档和旧文件核对过之前，旧文件原样留着；升级中断了，下次从停下的地方接着做。如果开着 App Lock，先用 0.3 的密码解锁。
 
-## 它具体做了什么
+### 卸载
 
-PathKeep 围绕三个功能支柱构建，按优先级从下到上：
+1. 把 **备份 → 自动备份** 设成 **关闭**，这会移除定时任务。只删掉应用不会。
+2. 退出 PathKeep，删除应用，或用系统卸载它。
+3. 如果连存档也不要了：删除 PathKeep 的数据文件夹（macOS 上是 `~/Library/Application Support/com.yi-ting.pathkeep`）。
 
+## 浏览器
+
+| 状态   | 浏览器                                                                                                                    |
+| ------ | ------------------------------------------------------------------------------------------------------------------------- |
+| 已测试 | Google Chrome、Microsoft Edge（含 Edge Dev）、Firefox、Safari（macOS）、ChatGPT Atlas（macOS）、Perplexity Comet（macOS） |
+| 已实现 | Chromium、Brave、Vivaldi、Arc、Opera、Opera GX、LibreWolf、Floorp、Waterfox：能找到并备份，但还没为正式版本测过           |
+
+浏览器怎么从“已实现”变成“已测试”：[adapter playbook](./docs/architecture/browser-support-and-adapter-playbook.md)。
+
+## 隐私
+
+- 你的历史留在你的电脑上。没有账号，也没有服务器。
+- 有两个功能会联系网站：链接预览（页面提供的图片）和页面摘要。设置 → 通用里能看到这两项，都可以关掉。
+- 用应用内模型打开语义搜索时，会下载一次那个模型。
+- AI 在你打开之前一直关着。用你电脑上的模型时，什么都不会离开电脑。用你设置的服务时，助理会把你的问题和回答需要的搜索结果发给那个服务，语义搜索会把要建索引的页面发给它。
+- MCP 服务器让你电脑上的其他应用只读地搜索你的历史。它默认关闭，设置 → AI 里会列出它们读了什么。
+
+## 从源码构建
+
+需要 [Bun](https://bun.sh)、Rust 1.96（`rust-toolchain.toml` 会自动选它）、Git，以及你的系统上的 [Tauri 前置依赖](https://v2.tauri.app/start/prerequisites/)。Debian 或 Ubuntu 上：
+
+```bash
+sudo apt-get install -y pkg-config libglib2.0-dev libgtk-3-dev \
+  libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf rpm
 ```
 
-┌─────────────────────────────────────────────────────┐
-
-│               INTELLIGENCE 智能                      │
-
-│   本地洞察 · 可选 AI（问答、语义搜索）               │
-
-├─────────────────────────────────────────────────────┤
-
-│               RECALL 回溯                            │
-
-│   全文检索 · 时间线 · 过滤器 · 导出                  │
-
-├─────────────────────────────────────────────────────┤
-
-│               ARCHIVE 归档                           │
-
-│   增量备份 · 计划任务 · 安全 · 导入 · 审计 · 加密     │
-
-└─────────────────────────────────────────────────────┘
-
-```
-
-### Archive 归档
-
-地基。其他一切都建立在一份可信的归档之上。
-
-- **增量备份**——先把数据库复制到暂存区（绝不直接读正在运行的浏览器 DB），归档只增不改，自动去重
-- **多浏览器发现**——自动识别已安装的浏览器与配置文件，备份哪些由你选择
-- **计划备份**——macOS（`launchd`）和 Windows（Task Scheduler）原生支持安装/查询/移除；Linux `systemd --user` 仍保留为人工审核的预览状态
-- **Google Takeout 导入**——预览、导入、回退、恢复、修复一整套流程，全部支持 dry-run
-- **加密**——明文或 SQLCipher 加密归档可选，配套改密预览和审计轨迹
-- **审计账本**——每一次备份、导入、回滚、恢复都留下不可变的运行记录，清单和产物以哈希链相连
-- **回滚**——任何写操作都可逆；面向用户可见的事实采用软隐藏，而非破坏性删除
-
-### Recall 回溯
-
-在多年历史中找回你"见过的那个东西"。
-
-- **全文检索**——基于 FTS5，在 URL、标题、搜索词上做关键词检索
-- **正则搜索**——可选的正则模式，针对规范化结果做后置过滤
-- **时间线**——每一次访问按天和浏览时段分组，列表虚拟滚动，百万级记录也不卡
-- **过滤**——按日期（预设或自定义范围）、浏览器、网站过滤
-- **加星与备注**——给页面或整个网站加星，写下之后能搜到的备注
-- **导出**——把全部历史导出为 HTML、Markdown、纯文本或 JSONL
-
-### Intelligence 智能
-
-在扎实的归档之上理解你的浏览模式。下面这些都不需要 AI 提供商。
-
-- **洞察**——7 天到 1 年范围内的页面浏览、不同网站数、搜索次数和活跃时间；每日活动、热门网站、星期 × 小时的浏览节律、常搜的内容、反复重开的页面——全部在本地从归档事实算出
-- **首页**——全年日历热力图、历史上的今天、你反复回来的主题
-- **语义搜索**——可选；一次性下载一个小模型，索引在你自己的电脑上建
-- **问答（Ask）**——可选；用本地模型（Ollama、LM Studio）或你配置的服务提问，回答会列出用到的页面
-- **MCP 服务器**——可选、只读、只监听本机，默认关闭
-
----
-
-## 浏览器支持
-
-PathKeep 严格区分"已实现的适配器"和"公开承诺的支持"。README 只承诺**已经独立验证过**的那一部分。
-
-| 状态       | 浏览器                                                                                                                                |
-| ---------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| **已验证** | Google Chrome；Microsoft Edge / Edge Dev；Firefox；ChatGPT Atlas（macOS）；Perplexity Comet（macOS）；Safari（macOS，需完全磁盘访问） |
-| **已实现** | Chromium、Brave、Vivaldi、Arc、Opera、Opera GX、LibreWolf、Floorp、Waterfox                                                           |
-
-已实现但未列入公开支持承诺的浏览器，会出现在发现与归档数据里。准入门槛见[适配器手册](./docs/architecture/browser-support-and-adapter-playbook.md)。
-
----
-
-## 平台支持
-
-| 平台    | 状态 | 备注                                                                        |
-| ------- | ---- | --------------------------------------------------------------------------- |
-| macOS   | 主力 | 签名 / 公证构建；Safari 支持需完全磁盘访问                                  |
-| Windows | 预览 | 未签名 MSI / NSIS 安装包；`Unknown Publisher` 属于预期；支持 Task Scheduler |
-| Linux   | 预览 | 提供 AppImage / `.deb` / `.rpm`；keyring 行为因桌面环境而异                 |
-
----
-
-## 技术栈
-
-| 层          | 选型                                                             | 选它的理由                       |
-| ----------- | ---------------------------------------------------------------- | -------------------------------- |
-| 桌面框架    | Tauri 2                                                          | 跨平台、Rust 内核、轻量          |
-| 核心逻辑    | Rust workspace（`vault-core`、`vault-worker`、`vault-platform`） | 高性能、安全、跨平台             |
-| 浏览器解析  | `browser-history-parser`（独立 Rust crate）                      | 可复用、可独立发布               |
-| 前端        | React 19 + TypeScript + Vite                                     | 现代、类型安全                   |
-| 工具链      | Bun                                                              | 包管理与脚本                     |
-| 主存储      | SQLite（可选 SQLCipher 加密）                                    | 20 年级别耐用性、本地优先        |
-| 全文检索    | SQLite FTS5                                                      | 核心回溯，不依赖外部服务         |
-| 前端 UI     | shadcn/ui + Tailwind CSS 4，EvilCharts（Recharts）               | 无障碍的基础组件，一套设计 token |
-| 向量 / 语义 | 自研平面向量索引，放在可重建的 sidecar                           | 可选、默认关闭、不依赖外部服务   |
-| AI 推理     | Ollama / LM Studio 或你自己配置的服务；内置 embedding 模型       | 可选，由用户配置                 |
-
----
-
-## 上手
-
-### 前置条件
-
-- [Bun](https://bun.sh/)
-- Rust `1.94.1`，包含 `clippy`、`rustfmt`
-- Git
-- [Tauri 2 平台先决条件](https://v2.tauri.app/distribute/)
-
-Linux（Debian / Ubuntu）开发依赖：
-
-```
-
-sudo apt-get update
-
-sudo apt-get install -y \
-
-pkg-config libglib2.0-dev libgtk-3-dev \
-
-libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
-
-librsvg2-dev patchelf rpm
-
-```
-
-### 安装与运行
-
-```
-
+```bash
 bun install
-
-bun run desktop:dev      # 完整 Tauri 桌面应用
-
-bun run dev:demo         # 真实后端 + 合成浏览器数据，在浏览器打开 127.0.0.1:1420
-                         # （加 --first-run --fresh 从首次设置开始）
-
+bun run desktop:dev       # 桌面应用，读你自己的浏览器
+bun run dev:demo          # 真实应用配虚构浏览器，打开 http://127.0.0.1:1420
+bun run desktop:build     # 正式版本构建
+bun run check             # 完整检查：lint、构建、Rust 检查和全部 E2E 测试
 ```
 
-### 构建
-
-```
-
-bun run build            # TypeScript + Vite 打包
-
-bun run desktop:build    # 桌面 release 包
-
-```
-
----
-
-## 质量与测试
-
-```
-
-bun run check            # lint、构建、Rust 检查与 E2E 套件
-bun run build            # TypeScript + Vite 打包
-bun run test:e2e         # 对真实 Rust 后端跑 E2E，产物在 artifacts/e2e/
-bun run test:unit        # Vitest（数量很少，E2E 是主要手段）
-bun run verify           # check + debug 桌面构建演练
-
-```
-
-门的定义、E2E 产物和发版命令见 [TESTING.md](./TESTING.md)。
-
----
+README 里的图由 `node scripts/readme-screenshots.mjs` 生成（同时开着 `bun run dev:demo -- --fresh`），示意图由 `node scripts/readme-diagram.mjs` 生成。
 
 ## 文档
 
-| 需求                   | 去哪看                                                                                                                   |
+| 你要找的               | 在哪里                                                                                                                   |
 | ---------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| 贡献者工作流           | [CONTRIBUTING.md](./CONTRIBUTING.md)                                                                                     |
-| 本地环境与仓库布局     | [DEVELOPMENT.md](./DEVELOPMENT.md)                                                                                       |
-| 测试面与命令矩阵       | [TESTING.md](./TESTING.md)                                                                                               |
-| 发版手册与产物矩阵     | [RELEASE.md](./RELEASE.md)                                                                                               |
-| 面向用户的故障排查     | [TROUBLESHOOTING.md](./TROUBLESHOOTING.md)                                                                               |
-| 支持与 bug 报告        | [SUPPORT.md](./SUPPORT.md)                                                                                               |
-| 浏览器支持与适配器准入 | [docs/architecture/browser-support-and-adapter-playbook.md](./docs/architecture/browser-support-and-adapter-playbook.md) |
-| 产品愿景、特性与设计   | [docs/](./docs/)                                                                                                         |
-
----
-
-## 贡献
-
-PathKeep 采用 Conventional Commits、就近测试、文档优先更新。请先看 [CONTRIBUTING.md](./CONTRIBUTING.md)。
-
----
+| 怎么参与贡献           | [CONTRIBUTING.md](./CONTRIBUTING.md)                                                                                     |
+| 搭环境、认识代码结构   | [DEVELOPMENT.md](./DEVELOPMENT.md)                                                                                       |
+| 测试和检查跑了什么     | [TESTING.md](./TESTING.md)                                                                                               |
+| 发布                   | [RELEASE.md](./RELEASE.md)                                                                                               |
+| 出问题时               | [TROUBLESHOOTING.md](./TROUBLESHOOTING.md)、[SUPPORT.md](./SUPPORT.md)                                                   |
+| 浏览器支持             | [docs/architecture/browser-support-and-adapter-playbook.md](./docs/architecture/browser-support-and-adapter-playbook.md) |
+| 产品、功能、设计、决策 | [docs/](./docs/)                                                                                                         |
 
 ## 许可证
 

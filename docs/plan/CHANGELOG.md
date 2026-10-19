@@ -3029,3 +3029,9 @@ that held up when checked against the code.
   - Taken: rustls 0.23.46, wasmtime / wasmtime-wasi 48.0.6 (floor raised), zip 9.0.5 (an entry's name is now read fallibly), rmcp 3.5.1 (stdio only, no code change), tar 0.4.46, serde_with 3.24, openssl 0.10.80.
   - Allowed with a reason in `scripts/check-rust-security.mjs`: the zip extract advisories for upstream's zip 4 (tauri-plugin-updater) and zip 8 (libsodium-sys-stable build script), and zbus 5's crates that moved into zbus 6 (tauri-plugin-single-instance).
   - The backup run spec waits for the index build to leave the queue; CI's slower runner backed up in the gap where the index was complete but its job was still running.
+
+- README rewritten for v0.4.0 (2026-10-18).
+  - Both READMEs describe the v0.4 app as it is: Turso and Tantivy instead of SQLite FTS5, Rust 1.96, unsigned macOS builds, Linux as a preview, upgrading from 0.3, and what contacts the network. The browser-retention argument and its table stay.
+  - New pictures from the demo archive, in English and Simplified Chinese: a hero that follows GitHub's light or dark theme, and six screens in a 2 × 3 table. `scripts/readme-screenshots.mjs` takes them over two paintings made with OpenAI's image model through Codex (`docs/screenshots/backdrops/`); Ask's answer comes from the E2E fake model, scripted.
+  - The ASCII pillar chart is replaced by an SVG diagram, generated per language and theme by `scripts/readme-diagram.mjs`.
+  - Found while taking them: Insights lists one Chinese search twice (`WORK-SEARCH-FAMILY-DUPLICATE` in BACKLOG).

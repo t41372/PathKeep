@@ -83,6 +83,11 @@
 - [ ] **WORK-SEED-TURSO-ASSERT** — debug 版的 14.4M 種子資料觸發 Turso 的 reserved-bytes 斷言（2026-10-15 Codex 量 Takeout 匯入時看到，release 版沒事，根因沒查）
   - 先在 debug 版重現，看是我們寫入的方式還是 Turso 的 bug；是 Turso 的就照 AGENTS.md「不對外」在我們這邊繞過並記下重現。
 
+- [ ] **WORK-SEARCH-FAMILY-DUPLICATE** — Insights 的「Searches you came back to most」把同一個中文搜尋列兩次（2026-10-18 拍 README 圖時在 demo 存檔看到）
+  - 現象：`bun run dev:demo -- --fresh` 的存檔，Insights 全部時間，「How your searches go」列了兩行「台北天氣」：57 searches over 1,137 days 與 43 over 930 days，兩行都連到 `#/insights/search/台北天氣`，文字逐碼相同。「Searches that took several tries」也有一行台北天氣。fixture 的 `台北天氣` 與 `台北天氣預報` 應是同一族（`FIXTURE_CJK_WORDS`），57 + 43 = 100。英文搜尋沒有重複。
+  - 沒查根因。可能是族的鍵不同、顯示的代表寫法卻相同，也可能同一族按別的維度拆成兩行。
+  - 要做：找到根因，同一個搜尋或同一族只列一次；E2E 用 fixture 的兩個中文搜尋驗。README 的圖暫時避開這張卡。
+
 - [ ] **WORK-DEPS-LATEST** — 依賴跟到最新版（用戶 2026-10-15：之前的 agent 過度 pin）
   - 例：`rig-core` 停在 0.34.0（2026-03-31），最新 0.44.0（2026-10-07）。0.x 寫 `"0.34.0"` 等於鎖在 0.34.x。
   - 列出所有落後的 Rust 與 JS 依賴，一個一個升，跑 gate；要鎖舊版的在宣告旁寫理由（AGENTS.md 供應鏈）。rig 的升級跟 `WORK-AI-AGENT-TURNS` 的傳輸層決定一起做。
