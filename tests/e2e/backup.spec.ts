@@ -184,14 +184,16 @@ test('a run that left things out says why, in your language, beside the fix', as
     await backend('build_ai_index', {
       request: { fullRebuild: false, clearOnly: false, scope: 'incremental' },
     })
+    // The build marks the index complete a moment before its job leaves the
+    // queue, and a backup adds no update while a build of the same index is active.
     await expect
       .poll(
-        async () =>
-          (
-            await backend<{ semanticIndex: { chosenComplete: boolean } }>(
-              'load_ai_queue_status',
-            )
-          ).semanticIndex.chosenComplete,
+        async () => {
+          const { semanticIndex } = await backend<{
+            semanticIndex: { chosenComplete: boolean; build: unknown }
+          }>('load_ai_queue_status')
+          return semanticIndex.chosenComplete && semanticIndex.build === null
+        },
         { timeout: 180_000 },
       )
       .toBe(true)
