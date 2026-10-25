@@ -2,13 +2,15 @@
  * Google Takeout: import Chrome history from a Takeout folder.
  *
  * Proves: the preview counts exactly the visits in `BrowserHistory.json`,
- * the import adds exactly those (search finds them), files that are not a
- * Chrome history payload stay out even when they look like history (My
- * Activity's Chrome entries in HTML, JSON Lines), the card says to export My
- * Activity as JSON, and importing the same folder again adds nothing. Takeout
- * records no page's opener, so its site's Insights page says it cannot tell
- * how the visits began rather than that none came from elsewhere. My
- * Activity in JSON, in a Chinese account's folder, imports its visits: each
+ * the import adds exactly those (search finds them), a record with no time
+ * is left out and both the preview and the import's review in Recent imports
+ * say so, files that are not a Chrome history payload stay out even when
+ * they look like history (My Activity's Chrome entries in HTML, JSON Lines),
+ * the card says to export My Activity as JSON, and importing the same folder
+ * again adds nothing. Takeout records no page's opener, so its site's
+ * Insights page says it cannot tell how the visits began rather than that
+ * none came from elsewhere. My Activity in JSON, in a Chinese account's
+ * folder, imports its visits: each
  * the page behind Google's redirect, titled without "Visited ", the "Used
  * Chrome" record left out, and nothing new the second time. A My Activity
  * export of visits the browsers already recorded keeps them and counts them
@@ -70,6 +72,10 @@ async function expectSearchHits(
 const MY_ACTIVITY_HINT =
   'This export has My Activity’s Chrome entries as HTML, which PathKeep cannot read. In Takeout, choose JSON as the format for My Activity, or tick Chrome.'
 
+/** What the folder's record without a time leaves behind. */
+const SKIPPED_UNTIMED =
+  'Skipped 1 entry in the import file because it has no time.'
+
 async function inspect(page: Page, folder: string) {
   await page.goto('/#/backup')
   // The card keeps the last import's result until the user starts another.
@@ -97,10 +103,27 @@ test('a Takeout folder imports its Chrome history and nothing else, once', async
     timeout: 30_000,
   })
   await expect(page.getByText(MY_ACTIVITY_HINT)).toBeVisible()
+  // Said before anything is written.
+  await expect(page.getByText(SKIPPED_UNTIMED)).toBeVisible()
   await page.getByRole('button', { name: 'Import', exact: true }).click()
   await expect(page.getByText(`${visits} new visits imported`)).toBeVisible({
     timeout: 60_000,
   })
+
+  // The import's review says it too, from what the import recorded.
+  await page.goto('/#/backup')
+  await page
+    .getByRole('heading', { name: 'Recent imports' })
+    .locator('xpath=ancestor::section[1]')
+    .getByRole('listitem')
+    .filter({ hasText: 'Google Takeout' })
+    .filter({ hasText: `${visits} new · 0 already there` })
+    .getByRole('button', { name: 'Undo' })
+    .click()
+  const review = page.getByRole('dialog', { name: /^Import from / })
+  await expect(review.getByText(SKIPPED_UNTIMED)).toBeVisible()
+  await review.getByRole('button', { name: 'Cancel' }).click()
+  await expect(review).toBeHidden()
   await expectSearchHits(page, { pages: takeoutPageCount(), visits })
 
   // Only Takeout visited the folder's site, and Takeout keeps no opener.

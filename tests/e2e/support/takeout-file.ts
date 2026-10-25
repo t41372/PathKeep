@@ -1,7 +1,8 @@
 /**
  * The Google Takeout folders `takeout-import.spec` imports: Chrome's
  * `BrowserHistory.json` in the shape Takeout writes it (a `Browser History`
- * array, times in Unix microseconds), plus files that must stay out: My
+ * array, times in Unix microseconds, one record without a time, which the
+ * import leaves out and says so), plus files that must stay out: My
  * Activity's Chrome entries in HTML (Takeout's default), Search's My Activity,
  * JSON Lines and the archive index; My Activity's Chrome entries in JSON, in a
  * Traditional Chinese account's folder; and a download as Google sends it, one
@@ -56,14 +57,25 @@ export function writeTakeoutFolder() {
   writeFileSync(
     path.join(root, 'Chrome', 'BrowserHistory.json'),
     JSON.stringify({
-      'Browser History': takeoutVisits().map((visit) => ({
-        favicon_url: '',
-        page_transition: 'LINK',
-        title: visit.title,
-        url: visit.url,
-        client_id: 'e2e-takeout-client',
-        time_usec: visit.at * 1000,
-      })),
+      'Browser History': [
+        ...takeoutVisits().map((visit) => ({
+          favicon_url: '',
+          page_transition: 'LINK',
+          title: visit.title,
+          url: visit.url,
+          client_id: 'e2e-takeout-client',
+          time_usec: visit.at * 1000,
+        })),
+        // No time, so it is not a visit PathKeep can place. It carries the
+        // title prefix: if it were imported, the search would count it.
+        {
+          favicon_url: '',
+          page_transition: 'LINK',
+          title: `${TAKEOUT_TITLE} untimed`,
+          url: 'https://takeout.example/ledger/untimed',
+          client_id: 'e2e-takeout-client',
+        },
+      ],
     }),
   )
   // History-shaped lines with the same title prefix. Takeout never writes
