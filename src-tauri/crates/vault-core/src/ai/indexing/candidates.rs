@@ -28,6 +28,7 @@ pub(in crate::ai) fn collect_visit_chunk(
     start_history_id: i64,
     upper_history_id: i64,
     limit: usize,
+    lineage: &str,
 ) -> Result<Vec<IndexedVisit>> {
     let raw_visits = vault.read(Db::Archive, move |connection| {
         let mut statement = connection.prepare(
@@ -67,11 +68,12 @@ pub(in crate::ai) fn collect_visit_chunk(
     let history_ids = raw_visits.iter().map(|visit| visit.history_id).collect::<Vec<_>>();
     let prompt =
         super::super::embedding_prompt::PromptProfile::for_model(&provider.config.default_model);
+    let lineage = lineage.to_owned();
     let provider = provider.clone();
     let paths = vault.paths().clone();
     let (existing_hashes, enrichments) = vault.read(Db::Intelligence, move |s| {
         Ok((
-            load_existing_embedding_hashes(s, &provider, &history_ids)?,
+            load_existing_embedding_hashes(s, &provider, &history_ids, &lineage)?,
             load_best_enrichment_map_by_history_ids(&paths, s, &history_ids)?,
         ))
     })?;
@@ -112,19 +114,21 @@ pub(in crate::ai) fn load_existing_embedding_hashes(
     connection: &Session<'_>,
     provider: &AiProviderRuntime,
     history_ids: &[i64],
+    lineage: &str,
 ) -> Result<HashMap<i64, String>> {
     let mut hashes = HashMap::new();
     for chunk in history_ids.chunks(SQLITE_BATCH_SIZE) {
         let placeholders =
-            (3..chunk.len() + 3).map(|index| format!("(?{index})")).collect::<Vec<_>>().join(",");
+            (4..chunk.len() + 4).map(|index| format!("(?{index})")).collect::<Vec<_>>().join(",");
         let sql = format!(
             "WITH requested(history_id) AS (VALUES {placeholders}) SELECT e.history_id,e.content_hash
-             FROM requested CROSS JOIN ai_embeddings e INDEXED BY idx_ai_embeddings_history_id ON e.history_id=requested.history_id
-             WHERE e.provider_id=?1 AND e.model=?2"
+             FROM requested CROSS JOIN ai_embeddings e INDEXED BY idx_ai_embeddings_lineage_history ON e.history_id=requested.history_id
+             WHERE e.provider_id=?1 AND e.model=?2 AND e.lineage=?3"
         );
         let mut statement = connection.prepare(&sql)?;
         let params = std::iter::once(vault_store::Value::Text(provider.config.id.clone()))
             .chain(std::iter::once(vault_store::Value::Text(provider.config.default_model.clone())))
+            .chain(std::iter::once(vault_store::Value::Text(lineage.to_owned())))
             .chain(chunk.iter().copied().map(vault_store::Value::Integer));
         let rows = statement.query_map(vault_store::params_from_iter(params), |row| {
             Ok((row.get::<i64>(0)?, row.get::<String>(1)?))

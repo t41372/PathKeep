@@ -79,12 +79,12 @@ pub(crate) fn clear_stale_ai_embeddings(vault: &crate::Vault) -> Result<usize> {
     })?;
     loop {
         let (next,count)=vault.write(Db::Intelligence,Priority::Batch,move |s| {
-            let rows=s.query("SELECT id,provider_id,model,content_bytes,metadata_bytes,NOT EXISTS(SELECT 1 FROM archive.visits v WHERE v.id=e.history_id AND v.reverted_at IS NULL LIMIT 1 OFFSET 0) FROM ai_embeddings e WHERE id>?1 AND id<=?2 ORDER BY id LIMIT 512",params![after,upper],|r|Ok((r.get::<i64>(0)?,r.get::<String>(1)?,r.get::<String>(2)?,r.get::<i64>(3)?,r.get::<i64>(4)?,r.get::<i64>(5)?!=0)))?;
+            let rows=s.query("SELECT id,provider_id,model,content_bytes,metadata_bytes,lineage,NOT EXISTS(SELECT 1 FROM archive.visits v WHERE v.id=e.history_id AND v.reverted_at IS NULL LIMIT 1 OFFSET 0) FROM ai_embeddings e WHERE id>?1 AND id<=?2 ORDER BY id LIMIT 512",params![after,upper],|r|Ok((r.get::<i64>(0)?,r.get::<String>(1)?,r.get::<String>(2)?,r.get::<i64>(3)?,r.get::<i64>(4)?,r.get::<String>(5)?,r.get::<i64>(6)?!=0)))?;
             let next=rows.last().map(|r|r.0);let mut count=0;
             let mut delete=s.prepare("DELETE FROM ai_embeddings WHERE id=?1")?;
-            let mut totals=s.prepare("UPDATE ai_embedding_totals SET last_indexed_at=CASE WHEN item_count=1 THEN NULL ELSE last_indexed_at END,item_count=item_count-1,content_bytes=content_bytes-?3,metadata_bytes=metadata_bytes-?4 WHERE provider_id=?1 AND model=?2")?;
-            for (id,provider,model,content,metadata,stale) in rows {
-                if stale {delete.execute([id])?;totals.execute(params![provider,model,content,metadata])?;count+=1;}
+            let mut totals=s.prepare("UPDATE ai_embedding_totals SET last_indexed_at=CASE WHEN item_count=1 THEN NULL ELSE last_indexed_at END,item_count=item_count-1,content_bytes=content_bytes-?3,metadata_bytes=metadata_bytes-?4 WHERE provider_id=?1 AND model=?2 AND lineage=?5")?;
+            for (id,provider,model,content,metadata,lineage,stale) in rows {
+                if stale {delete.execute([id])?;totals.execute(params![provider,model,content,metadata,lineage])?;count+=1;}
             }
             Ok((next,count))
         })?;
@@ -138,9 +138,9 @@ mod tests {
             s.execute("INSERT INTO intelligence_generations(profile_id) VALUES('profile')",())?;
             for id in 1..=3_i64 {
                 s.execute("INSERT INTO visit_derived_facts_rows(visit_id,profile_id,canonical_url,registrable_domain,computed_at) VALUES(?1,'profile',?2,'example.com','')",params![id,format!("https://example.com/{id}")])?;
-                s.execute("INSERT INTO ai_embeddings(history_id,profile_id,url,domain,visited_at,content_hash,content_bytes,metadata_bytes,provider_id,model,indexed_at) VALUES(?1,'profile',?2,'example.com','','hash',2,3,'provider','model','')",params![id,format!("https://example.com/{id}")])?;
+                s.execute("INSERT INTO ai_embeddings(history_id,profile_id,url,domain,visited_at,content_hash,content_bytes,metadata_bytes,provider_id,model,indexed_at,lineage) VALUES(?1,'profile',?2,'example.com','','hash',2,3,'provider','model','','legacy')",params![id,format!("https://example.com/{id}")])?;
             }
-            s.execute("INSERT INTO ai_embedding_totals(provider_id,model,item_count,content_bytes,metadata_bytes,last_indexed_at) VALUES('provider','model',3,6,9,'')",())?;Ok(())
+            s.execute("INSERT INTO ai_embedding_totals(provider_id,model,item_count,content_bytes,metadata_bytes,last_indexed_at,lineage) VALUES('provider','model',3,6,9,'','legacy')",())?;Ok(())
         }).unwrap();
         vault
     }

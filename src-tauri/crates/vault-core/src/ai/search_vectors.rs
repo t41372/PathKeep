@@ -14,7 +14,12 @@ use vault_store::{Db, params_owned as params};
 
 // Only file names use this namespace. Headers keep the actual serving model fingerprint.
 pub(super) fn identity(provider: &AiProviderRuntime) -> String {
-    format!("searches:{}", provider.config.id)
+    identity_of(&provider.config.id)
+}
+
+/// A rebuild moves these files with the page index it belongs to, knowing only the service's id.
+pub(super) fn identity_of(provider_id: &str) -> String {
+    format!("searches:{provider_id}")
 }
 
 fn fingerprint(
@@ -171,13 +176,7 @@ pub(super) async fn backfill(
         embedded += records.len();
     }
     super::control::checkpoint_ai_run(control, "publishing keyword search vectors")?;
-    if store.exists() {
-        super::vector_planes::build_planes_from_store(
-            paths,
-            &identity(provider),
-            &provider.config.default_model,
-        )?;
-    }
+
     Ok(embedded)
 }
 

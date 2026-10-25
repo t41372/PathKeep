@@ -27,6 +27,7 @@ fn build_index_incremental_rejects_a_stale_store() {
         None,
     );
     VectorStore::create_stamped(&paths, &stale_fp).expect("stamp stale store");
+    migrate_fixture(&vault, &embedding);
 
     let error = runtime
         .block_on(build_ai_index(
@@ -53,8 +54,21 @@ fn run_backfill_chunk(
     request: &AiIndexRequest,
     start_history_id: i64,
 ) -> (Vec<i64>, IndexBackfillProgress) {
-    let paths = vault.paths();
+    let existing = vault
+        .read(Db::Intelligence, |s| {
+            Ok(s.query("SELECT id FROM ai_jobs WHERE state='running'", (), |r| {
+                Ok(r.get::<i64>(0)?)
+            })?)
+        })
+        .unwrap();
+    let job_id = existing.first().copied().unwrap_or_else(|| {
+        let request =
+            AiIndexRequest { provider_id: Some(provider.config.id.clone()), ..request.clone() };
+        crate::ai_queue::enqueue_index_job(vault, &request, false).unwrap();
+        crate::ai_queue::claim_next_ai_job(vault, 300).unwrap().unwrap().id
+    });
     let ledger = Arc::new(PauseAfterBatch {
+        job_id,
         progress: std::sync::Mutex::new(None),
         pause: request.limit.is_some(),
         start_history_id,
@@ -74,8 +88,9 @@ fn run_backfill_chunk(
     } else {
         result.expect("backfill chunk");
     }
+    let paths = source_paths(vault, provider);
     let map =
-        VisitContentMap::for_provider(paths, &provider.config.id, &provider.config.default_model);
+        VisitContentMap::for_provider(&paths, &provider.config.id, &provider.config.default_model);
     let mut ids: Vec<i64> = map.mapped_history_ids().expect("mapped ids").into_iter().collect();
     ids.sort_unstable();
     let last = ledger.progress.lock().unwrap().unwrap_or_default();
@@ -123,8 +138,9 @@ fn static_tier_index_writes_real_vectors_and_semantic_search_finds_the_seeded_pa
     );
 
     // The `.pkvec` plane is NON-ZERO and its vector count matches the indexed rows (F3 honesty).
+    let source = source_paths(&vault, &provider);
     let store =
-        VectorStore::for_provider(&paths, &provider.config.id, &provider.config.default_model);
+        VectorStore::for_provider(&source, &provider.config.id, &provider.config.default_model);
     assert!(store.exists());
     let vector_count = store.count().expect("count");
     assert_eq!(vector_count, 3, "one vector per distinct page");
@@ -167,11 +183,15 @@ fn static_tier_index_writes_real_vectors_and_semantic_search_finds_the_seeded_pa
 }
 
 struct PauseAfterBatch {
+    job_id: i64,
     progress: std::sync::Mutex<Option<IndexBackfillProgress>>,
     pause: bool,
     start_history_id: i64,
 }
 impl IndexBackfillLedger for PauseAfterBatch {
+    fn job_id(&self) -> Option<i64> {
+        Some(self.job_id)
+    }
     fn record(&self, value: IndexBackfillProgress) -> Result<()> {
         *self.progress.lock().unwrap() = Some(value);
         if self.pause && value.next_history_id > self.start_history_id {
@@ -183,6 +203,8 @@ impl IndexBackfillLedger for PauseAfterBatch {
 }
 
 mod metadata;
+
+mod rebuild;
 
 mod resume;
 
@@ -212,10 +234,8 @@ fn cleanup_preserves_the_serving_pair_until_replacement_then_removes_its_ledger(
     }
     let files = |provider: &AiProviderRuntime| {
         let (id, model) = (&provider.config.id, &provider.config.default_model);
-        (
-            VectorStore::for_provider(&paths, id, model).exists(),
-            VisitContentMap::for_provider(&paths, id, model).exists(),
-        )
+        let directory = paths.vectors_dir.join(crate::ai_sidecar::provider_table_name(id, model));
+        (directory.exists(), directory.exists())
     };
     assert_eq!(files(&old), (true, true));
 

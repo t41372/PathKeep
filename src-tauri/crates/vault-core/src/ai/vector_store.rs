@@ -314,6 +314,14 @@ impl VectorStore {
         &self,
         mut sink: impl FnMut(u64, &[f32]) -> Result<()>,
     ) -> Result<()> {
+        self.read_records_streaming_cancellable(&mut sink, &vault_store::CancelToken::new())
+    }
+    pub(super) fn read_records_streaming_cancellable(
+        &self,
+        mut sink: impl FnMut(u64, &[f32]) -> Result<()>,
+        cancel: &vault_store::CancelToken,
+    ) -> Result<()> {
+        cancel.check()?;
         let file = File::open(&self.path)
             .with_context(|| format!("opening vector store {}", self.path.display()))?;
         let mut reader = BufReader::new(file);
@@ -327,7 +335,12 @@ impl VectorStore {
         let mut last_offset: std::collections::HashMap<u64, u64> = std::collections::HashMap::new();
         let mut record = vec![0u8; record_len];
         let mut offset = data_start;
+        let mut records = 0;
         loop {
+            if records % 1024 == 0 {
+                cancel.check()?;
+            }
+            records += 1;
             match read_exact_or_eof(&mut reader, &mut record)? {
                 ReadOutcome::Eof => break,
                 ReadOutcome::Partial(read) => {
@@ -349,7 +362,10 @@ impl VectorStore {
         // reader to the recorded offset. Reusing the open handle (no second `File::open`) keeps memory
         // bounded to the record buffer + one decoded vector.
         let mut vector = Vec::with_capacity(header.dim);
-        for id in order {
+        for (position, id) in order.into_iter().enumerate() {
+            if position % 1024 == 0 {
+                cancel.check()?;
+            }
             let at = last_offset[&id];
             reader.seek(std::io::SeekFrom::Start(at)).context("seeking vector store record")?;
             reader.read_exact(&mut record).context("reading vector store record body")?;

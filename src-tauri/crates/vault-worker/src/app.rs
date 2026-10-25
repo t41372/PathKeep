@@ -578,9 +578,10 @@ where
     // Opening the session's store creates the archive in the native format, with
     // its key envelope when encrypted. Nothing here may create the old SQLCipher
     // files: they would be taken for an archive to convert.
-    session.update_password(database_key.map(str::to_owned)).map_err(anyhow::Error::msg)?;
-    let vault = session.background_vault().map_err(anyhow::Error::msg)?;
-    report_progress(ArchiveUpgradeProgress::finished());
+    let vault = vault_core::with_archive_upgrade_progress(&mut report_progress, || {
+        session.update_password(database_key.map(str::to_owned)).map_err(anyhow::Error::msg)?;
+        session.background_vault().map_err(anyhow::Error::msg)
+    })?;
     app_snapshot_with_vault(Some(&vault), database_key)
 }
 

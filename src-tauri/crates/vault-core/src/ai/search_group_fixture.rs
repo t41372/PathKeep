@@ -106,6 +106,26 @@ pub(super) fn seed(
     Ok(provider)
 }
 pub(super) fn project(vault: &Vault, provider: &AiProviderRuntime) -> Result<()> {
+    if super::generations::resolve(vault, &provider.config.id, &provider.config.default_model)?
+        .is_some()
+    {
+        let run =
+            super::native_ledger::begin_ai_run(vault, "ai_index", "test", serde_json::json!({}))?;
+        let build =
+            super::generations::BuildGeneration::open(vault, provider, None, run, false, false)?;
+        build.prepare(provider)?;
+        super::native_ledger::record_index_ledger_success(
+            vault,
+            provider,
+            run,
+            "now",
+            0,
+            build.relative(),
+            &crate::AiIndexRequest::default(),
+            None,
+        )?;
+        return Ok(());
+    }
     let paths = vault.paths();
     let id = &provider.config.id;
     let model = &provider.config.default_model;
@@ -114,5 +134,6 @@ pub(super) fn project(vault: &Vault, provider: &AiProviderRuntime) -> Result<()>
     let hash = VectorStore::for_provider(paths, id, model).read_header()?.unwrap().fingerprint_hash;
     let map = VisitContentMap::for_provider(paths, id, model);
     ReverseVisitMap::for_provider(paths, id, model).build_from_visit_map(paths, &map, &hash)?;
+    super::tests::native::fixtures::migrate_fixture(vault, provider);
     Ok(())
 }

@@ -69,8 +69,15 @@ fn build(
         .ok_or_else(|| unavailable("no embedding provider is configured"))?;
     super::validate_provider(provider, crate::AiProviderPurpose::Embedding)
         .map_err(|error| unavailable(&error.to_string()))?;
+    let lease = super::generations::resolve(
+        &context.vault,
+        &provider.config.id,
+        &provider.config.default_model,
+    )?
+    .ok_or_else(|| unavailable("the semantic index is empty"))?;
+    let paths = lease.paths();
     let index =
-        FlatVectorIndex::open(&context.paths, &provider.config.id, &provider.config.default_model)
+        FlatVectorIndex::open(paths, &provider.config.id, &provider.config.default_model)
             .map_err(|error| unavailable(&format!("the semantic index cannot be read: {error}")))?;
     ensure!(
         !index.is_empty(),
@@ -78,14 +85,8 @@ fn build(
     );
     let engine = super::embedding_engine::select_embedding_provider(&context.paths, provider)
         .map_err(|error| unavailable(&error.to_string()))?;
-    if super::search::semantic_config_drift_reason(
-        &context.paths,
-        provider,
-        &engine,
-        &index,
-        index.dim(),
-    )?
-    .is_some()
+    if super::search::semantic_config_drift_reason(paths, provider, &engine, &index, index.dim())?
+        .is_some()
     {
         return Err(unavailable(
             "the semantic index has drifted from this model; rebuild it in Settings → AI",
@@ -93,7 +94,7 @@ fn build(
     }
     let cancel = CancelToken::new();
     let positions = super::visit_position_map::load(
-        &context.paths,
+        paths,
         &provider.config.id,
         &provider.config.default_model,
         &index,

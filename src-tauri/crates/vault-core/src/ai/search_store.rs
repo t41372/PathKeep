@@ -9,7 +9,8 @@ pub(super) fn staleness(
     provider: &str,
     model: &str,
 ) -> anyhow::Result<Option<AiSemanticStaleness>> {
-    if super::embedding_prompt::text_format_is_outdated(vault.paths(), provider, model)? {
+    let Some(lease) = super::generations::resolve(vault, provider, model)? else { return Ok(None) };
+    if super::embedding_prompt::text_format_is_outdated(lease.paths(), provider, model)? {
         return Ok(Some(AiSemanticStaleness::TextFormat));
     }
     let provider = provider.to_owned();

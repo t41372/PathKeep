@@ -11,7 +11,8 @@
  * hand-imported batch, visit durations in milliseconds (v0.3.0 kept Chrome's
  * microseconds), the page and domain stars, the note and tags, the saved page
  * text (its fetch record unchanged, its text in the file the record points
- * to), the chat.
+ * to), the chat; and the health check finds every database in the format
+ * this version writes.
  * The old files are left exactly as they were.
  *
  * For the v0.3.0 file: the preview says it was made by an older PathKeep and
@@ -233,6 +234,17 @@ test('a data folder made by PathKeep 0.3.0 is updated with all its data', async 
     .getByRole('button', { name: expected.chat.title })
     .click()
   await expect(page.getByRole('main')).toContainText(expected.chat.answer)
+
+  // The update brings every database to the format this version writes: the
+  // health check compares each one with it.
+  await page.goto('/#/settings/about')
+  await page.getByRole('button', { name: 'Check', exact: true }).click()
+  await expect(
+    page
+      .getByRole('listitem')
+      .filter({ hasText: 'Archive format' })
+      .getByLabel('Passed'),
+  ).toBeVisible({ timeout: 60_000 })
 
   expect(hashes(), 'the old files must stay as they were').toEqual(before)
 })

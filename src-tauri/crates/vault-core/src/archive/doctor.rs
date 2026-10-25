@@ -54,11 +54,7 @@ pub fn doctor(vault: &Vault) -> Result<HealthReport> {
     ] {
         match vault.read(db, |s| Ok((s.schema_version()?, s.integrity_check()?))) {
             Ok((version, messages)) => {
-                versions.push((
-                    name,
-                    version,
-                    if db == Db::Archive { crate::store_schema::ARCHIVE_SCHEMA_VERSION } else { 1 },
-                ));
+                versions.push((name, version, crate::store_schema::schema_version(db)));
                 checks.push(check(
                     &format!("{name}-integrity"),
                     label,

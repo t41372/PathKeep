@@ -68,7 +68,7 @@ fn next_fsync_fault() -> Option<i32> {
 
 /// Queues per-`full_fsync` fault directives for the current test thread (replacing any prior queue).
 #[cfg(all(unix, test))]
-fn inject_fsync_faults(faults: Vec<Option<i32>>) {
+pub(crate) fn inject_fsync_faults(faults: Vec<Option<i32>>) {
     FSYNC_FAULTS.with(|queue| {
         let mut queue = queue.borrow_mut();
         queue.clear();

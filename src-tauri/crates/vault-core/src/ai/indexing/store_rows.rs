@@ -77,13 +77,14 @@ pub(in crate::ai) fn chunk_size(remaining: Option<usize>) -> usize {
     }
 }
 
-/// Clears or prunes metadata with one bounded writer job at a time.
-fn remove_metadata(
+/// Prunes stale provenance with one bounded writer job at a time.
+pub(in crate::ai) fn cleanup_stale_embeddings(
     vault: &crate::Vault,
     provider: &AiProviderRuntime,
-    all: bool,
+    lineage: &str,
     control: Option<&Arc<dyn AiRunControl>>,
 ) -> Result<usize> {
+    let lineage = lineage.to_owned();
     let mut after = 0;
     let mut removed = 0;
     let upper = vault.read(vault_store::Db::Intelligence, |s| {
@@ -94,13 +95,14 @@ fn remove_metadata(
     loop {
         checkpoint_ai_run(control, "Index cleanup was cancelled between batches.")?;
         let provider = provider.clone();
+        let lineage = lineage.clone();
         let (last,count)=vault.write(vault_store::Db::Intelligence,vault_store::Priority::Batch,move |s| {
-            let rows=s.query("SELECT id,content_bytes,metadata_bytes,CASE WHEN ?5=1 THEN 1 ELSE NOT EXISTS(SELECT 1 FROM archive.visits WHERE id=ai_embeddings.history_id AND reverted_at IS NULL LIMIT 1 OFFSET 0) END FROM ai_embeddings INDEXED BY idx_ai_embeddings_provider_id WHERE provider_id=?1 AND model=?2 AND id>?3 AND id<=?4 ORDER BY id LIMIT 512",params![provider.config.id,provider.config.default_model,after,upper,i64::from(all)],|r|Ok((r.get::<i64>(0)?,r.get::<i64>(1)?,r.get::<i64>(2)?,r.get::<i64>(3)?!=0)))?;
+            let rows=s.query("SELECT id,content_bytes,metadata_bytes,NOT EXISTS(SELECT 1 FROM archive.visits WHERE id=ai_embeddings.history_id AND reverted_at IS NULL LIMIT 1 OFFSET 0) FROM ai_embeddings INDEXED BY idx_ai_embeddings_lineage_id WHERE provider_id=?1 AND model=?2 AND lineage=?5 AND id>?3 AND id<=?4 ORDER BY id LIMIT 512",params![provider.config.id,provider.config.default_model,after,upper,lineage],|r|Ok((r.get::<i64>(0)?,r.get::<i64>(1)?,r.get::<i64>(2)?,r.get::<i64>(3)?!=0)))?;
             let last=rows.last().map(|r|r.0);let mut count=0;let mut content=0;let mut metadata=0;
             let mut delete=s.prepare("DELETE FROM ai_embeddings WHERE id=?1")?;
             for (id,bytes,meta,remove) in rows {if remove {delete.execute([id])?;count+=1;content+=bytes;metadata+=meta;}}
             drop(delete);
-            if count>0 {s.execute("UPDATE ai_embedding_totals SET last_indexed_at=CASE WHEN item_count-?3=0 THEN NULL ELSE last_indexed_at END,item_count=item_count-?3,content_bytes=content_bytes-?4,metadata_bytes=metadata_bytes-?5 WHERE provider_id=?1 AND model=?2",params![provider.config.id,provider.config.default_model,count,content,metadata])?;}
+            if count>0 {s.execute("UPDATE ai_embedding_totals SET last_indexed_at=CASE WHEN item_count-?3=0 THEN NULL ELSE last_indexed_at END,item_count=item_count-?3,content_bytes=content_bytes-?4,metadata_bytes=metadata_bytes-?5 WHERE provider_id=?1 AND model=?2 AND lineage=?6",params![provider.config.id,provider.config.default_model,count,content,metadata,lineage])?;}
             Ok((last,count as usize))
         })?;
         removed += count;
@@ -111,19 +113,33 @@ fn remove_metadata(
     }
     Ok(removed)
 }
-pub(in crate::ai) fn clear_provider_embeddings(
+/// Bounded primary-prefix deletes preserve retryability without inspecting other lineages.
+pub(in crate::ai) fn remove_lineage_rows(
     vault: &crate::Vault,
-    provider: &AiProviderRuntime,
-    control: Option<&Arc<dyn AiRunControl>>,
-) -> Result<usize> {
-    remove_metadata(vault, provider, true, control)
-}
-pub(in crate::ai) fn cleanup_stale_embeddings(
-    vault: &crate::Vault,
-    provider: &AiProviderRuntime,
-    control: Option<&Arc<dyn AiRunControl>>,
-) -> Result<usize> {
-    remove_metadata(vault, provider, false, control)
+    provider: &str,
+    model: &str,
+    lineage: &str,
+) -> Result<()> {
+    loop {
+        anyhow::ensure!(
+            !vault.vector_generations.is_closed(),
+            "lineage cleanup stopped because the archive is closing"
+        );
+        let (provider, model, lineage) =
+            (provider.to_owned(), model.to_owned(), lineage.to_owned());
+        let removed=vault.write(vault_store::Db::Intelligence,vault_store::Priority::Batch,move |s| {
+            let ids=s.query("SELECT id FROM ai_embeddings INDEXED BY idx_ai_embeddings_lineage_id WHERE provider_id=?1 AND model=?2 AND lineage=?3 ORDER BY id LIMIT 512",params![provider,model,lineage],|r| Ok(r.get::<i64>(0)?))?;
+            let mut delete=s.prepare("DELETE FROM ai_embeddings WHERE id=?1")?;
+            for id in &ids { delete.execute([*id])?; }
+            if ids.is_empty() { s.execute("DELETE FROM ai_embedding_totals WHERE provider_id=?1 AND model=?2 AND lineage=?3",params![provider,model,lineage])?; }
+            Ok(ids.len())
+        })?;
+        #[cfg(test)]
+        vault.vector_generations.test_hook("after_row_batch");
+        if removed == 0 {
+            return Ok(());
+        }
+    }
 }
 
 /// Upserts one SQLite compatibility row after a semantic embedding was produced.
@@ -137,11 +153,12 @@ pub(in crate::ai) fn upsert_embedding(
     provider: &AiProviderRuntime,
     visit: &IndexedVisit,
     indexed_at: &str,
+    lineage: &str,
 ) -> Result<bool> {
     let (prior_rows,prior_content,prior_metadata): (i64,i64,i64) = connection.query_one(
         "SELECT COUNT(*),COALESCE(SUM(content_bytes),0),COALESCE(SUM(metadata_bytes),0) FROM ai_embeddings
-         WHERE history_id = ?1 AND provider_id = ?2 AND model = ?3",
-        params![visit.history_id, provider.config.id, provider.config.default_model],
+         WHERE history_id = ?1 AND provider_id = ?2 AND model = ?3 AND lineage = ?4",
+        params![visit.history_id, provider.config.id, provider.config.default_model, lineage],
         |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?)),
     )?;
     let metadata_bytes = (visit.url.len()
@@ -157,8 +174,8 @@ pub(in crate::ai) fn upsert_embedding(
     // leave a duplicate UNIQUE(history_id, provider, model, content_hash) row behind.
     connection.execute(
         "DELETE FROM ai_embeddings
-         WHERE history_id = ?1 AND provider_id = ?2 AND model = ?3",
-        params![visit.history_id, provider.config.id, provider.config.default_model],
+         WHERE history_id = ?1 AND provider_id = ?2 AND model = ?3 AND lineage = ?4",
+        params![visit.history_id, provider.config.id, provider.config.default_model, lineage],
     )?;
     #[rustfmt::skip]
     connection.execute(
@@ -175,9 +192,10 @@ pub(in crate::ai) fn upsert_embedding(
             provider.config.id,
             provider.config.default_model,
             indexed_at,
-            metadata_bytes
+            metadata_bytes,
+            lineage
         ],
     )?;
-    connection.execute("INSERT INTO ai_embedding_totals(provider_id,model,item_count,content_bytes,metadata_bytes,last_indexed_at) VALUES(?1,?2,?3,?4,?5,?6) ON CONFLICT(provider_id,model) DO UPDATE SET item_count=item_count+excluded.item_count,content_bytes=content_bytes+excluded.content_bytes,metadata_bytes=metadata_bytes+excluded.metadata_bytes,last_indexed_at=excluded.last_indexed_at",params![provider.config.id,provider.config.default_model,1-prior_rows,visit.content.len() as i64-prior_content,metadata_bytes-prior_metadata,indexed_at])?;
+    connection.execute("INSERT INTO ai_embedding_totals(provider_id,model,item_count,content_bytes,metadata_bytes,last_indexed_at,lineage) VALUES(?1,?2,?3,?4,?5,?6,?7) ON CONFLICT(provider_id,model,lineage) DO UPDATE SET item_count=item_count+excluded.item_count,content_bytes=content_bytes+excluded.content_bytes,metadata_bytes=metadata_bytes+excluded.metadata_bytes,last_indexed_at=excluded.last_indexed_at",params![provider.config.id,provider.config.default_model,1-prior_rows,visit.content.len() as i64-prior_content,metadata_bytes-prior_metadata,indexed_at,lineage])?;
     Ok(existed)
 }

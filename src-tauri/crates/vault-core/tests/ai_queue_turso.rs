@@ -34,6 +34,8 @@ fn reopening_recovers_only_abandoned_claims_and_keeps_finished_work() {
             &vault,
             unfinished.id,
             &IndexBackfillCursor {
+                lineage: None,
+                updated_so_far: 0,
                 next_history_id: 317,
                 embedded_so_far: 316,
                 scan_target: 700,
@@ -102,6 +104,8 @@ fn process_exit_requeues_inflight_claim_and_preserves_completed_job() {
             &vault,
             unfinished.id,
             &IndexBackfillCursor {
+                lineage: None,
+                updated_so_far: 0,
                 next_history_id: 6001,
                 embedded_so_far: 6000,
                 scan_target: 70_000,

@@ -23,11 +23,13 @@ mod embedding_external;
 mod embedding_prompt;
 mod embedding_static;
 mod fingerprint;
+pub(crate) mod generations;
 mod indexing;
 mod llm;
 mod model_files;
 mod model_list;
 mod native_ledger;
+mod projection_sort;
 mod provider;
 mod read_model;
 mod related_pages;
@@ -59,7 +61,11 @@ mod vector_planes;
 mod vector_store;
 mod visit_content_map;
 mod visit_position_map;
+mod work_gate;
+#[cfg(test)]
+mod work_gate_tests;
 mod working_set;
+pub use work_gate::SemanticWorkGate;
 
 use crate::{
     ai_queue::{self},
@@ -90,9 +96,11 @@ use thiserror::Error;
 /// The enrichment summary an embedding's dedup hash includes; conversion recomputes hashes with it.
 pub(crate) use self::indexing::enrichment_summary_for as enrichment_summary_for_embedding;
 pub use self::indexing::{
-    build_ai_index, build_ai_index_with_control, forget_unconfigured_indexes,
+    build_ai_index, build_ai_index_with_control, collect_index_generations,
+    collect_index_generations_in_background, forget_unconfigured_indexes,
 };
 pub use self::model_list::{chat_context_length, list_provider_models};
+pub use self::native_ledger::index_success_summary;
 pub use self::provider::test_provider_connection;
 pub use self::read_model::{
     ai_index_status, ai_queue_status, preview_ai_integrations, provider_capabilities,
@@ -216,6 +224,8 @@ pub struct IndexBackfillProgress {
     pub next_history_id: i64,
     /// Vectors durably persisted so far across all chunks of this backfill.
     pub embedded_so_far: u64,
+    /// Changed existing rows, retained with the cursor for an honest final queue summary.
+    pub updated_so_far: u64,
     /// The determinate scan denominator: the max candidate `history_id` captured at the build's TRUE
     /// start, so `next_history_id / scan_target` is honest scan progress that reaches ~100%. Reported
     /// as the captured value on a fresh build and as `0` ("unknown — keep the stored target") on a
@@ -278,7 +288,7 @@ pub struct AiIntegrationPreview {
 
 /// Correlated `NOT EXISTS` so each row is checked by a primary-key lookup; a `NOT IN` subquery
 /// would first copy every visible visit id into a temporary index.
-const UPSERT_EMBEDDING_SQL: &str = "INSERT OR REPLACE INTO ai_embeddings (history_id, profile_id, url, title, domain, visited_at, content_hash, content_bytes, provider_id, model, indexed_at, metadata_bytes) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)";
+const UPSERT_EMBEDDING_SQL: &str = "INSERT OR REPLACE INTO ai_embeddings (history_id, profile_id, url, title, domain, visited_at, content_hash, content_bytes, provider_id, model, indexed_at, metadata_bytes, lineage) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)";
 const AI_QUEUE_RECENT_LIMIT: usize = 8;
 const AI_INDEX_LEDGER_VERSION: &str = "semantic-sidecar-v1";
 /// Canonical rows embedded + persisted per resumable backfill chunk.

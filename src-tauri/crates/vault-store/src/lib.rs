@@ -28,7 +28,7 @@ pub use copy::{CopyPhase, CopyProgress, TableDigest};
 pub use engine_log::route_engine_diagnostics_to_log;
 pub use error::{Error, Result};
 pub use maintenance::Maintenance;
-pub use migration::{Migration, MigrationRegistry};
+pub use migration::{BackfillProgress, Migration, MigrationRegistry};
 pub use owner_lock::OwnerLock;
 pub use queue::Priority;
 pub use session::Session;
