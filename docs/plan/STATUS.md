@@ -9,6 +9,11 @@
 
 ## CURRENT FOCUS
 
+- [x] **WORK-GATE-2026-10-25** — 先讓整合分支 `feat/search-sort-builder` 過完整 gate，再合 main（2026-10-25 晚上的 gate 在 E2E 的 change 專案連鎖失敗，restart 之後沒跑）
+  - 2026-10-25 16:13 在 Modal（Linux，8 vCPU / 32 GB，閒著）跑完整 `bun run check` 過了（合併換上之前的整合分支）；合併換上與它的修正、整理成 PR 分支 `feat/2026-10-25-search-and-index` 之後，17:14 再跑一次也過了（Rust 91 組、E2E 119 過、1 跳過）：JS 檢查、build、fmt、clippy、Rust 測試 91 組全過（含 `the_block_cache_bounds_memory`）、desktop bridge、release check；E2E 118 過、1 跳過（`schedule.spec` 在 Linux 上本來就跳過），restart 之後的專案（`quit-during-work.spec`、`semantic-index.spec`）都跑到了。晚上本機的連鎖失敗是負載造成的。
+  - 中途修了一個測試自己的錯：`insights.spec.ts:628` 寫死 Work 設定檔（`chrome:Profile 1`）先搜「台北天氣」，但 fixture 依 `now` 產生，哪一句先搜每天不同（併在 `2351ba22`）。
+  - Linux gate 不涵蓋 macOS 才有的部分（Keychain、launchd、`schedule.spec`）；發布前仍要在 Mac 上跑一次。
+
 - [x] **WORK-FRONTEND-REDESIGN-2026-10** — 用新 prototype 整個替換前端（用戶 2026-10-02 指示）
   - 讀先：
     `docs/design/prototype-2026-10/`（prototype HTML + 截圖；用 `python3 -m http.server` 開）
@@ -459,13 +464,27 @@
   - 讀先：`docs/architecture/research/2026-10-vector-search.md`、`docs/architecture/search.md`、`docs/architecture/semantic-index-control.md`、`docs/features/intelligence.md` §1。
   - 結果（M5 Max，`semantic_stage_bench`）：26 萬次造訪 1,145 → 130 ms，100 萬次 5,200 → 500 ms；20 組查詢第一頁與總數都和公開入口一致。剩下的大頭是範圍串流（100 萬次 385 ms，跟造訪數成正比），見 BACKLOG `WORK-SEMANTIC-VISIT-SIDECAR`。
 
-- [ ] **WORK-INDEX-REBUILD-SWAP** — 重建同一個模型的索引時，先建新的、完成才換掉舊的（2026-10-15 做 `WORK-AI-EMBED-INAPP` 第 2 項時找到）
+- [x] **WORK-INDEX-REBUILD-SWAP** — 重建同一個模型的索引時，先建新的、完成才換掉舊的（2026-10-15 做 `WORK-AI-EMBED-INAPP` 第 2 項時找到）
   - 換模型時，搜尋一直用上一個完整索引，直到新的建完；但「重建搜尋索引」與舊格式索引的「重建索引」是同一組服務 + 模型，`create_stamped` 一開始就清空 `.pkvec`，建置期間語意搜尋只找得到已重建的部分。14.4M 造訪、外部服務時，這段可能很長。
   - 要做：重建寫到另一份檔案（或同名加世代），完成後原子替換並刪舊的；中斷時舊索引照常服務。E2E：重建途中暫停，語意搜尋仍找得到還沒重建到的頁面。
+  - 2026-10-25 進度：實作在分支 `feat/index-rebuild-swap`（commit `db6a8405`，worktree `pathkeep-wt-swap`），沒有合進來。完整重建寫到 `derived/vectors/rebuild/` 的複本，完成才換上、刪舊的；中斷、取消、當機都留著舊的服務；開 archive 時清掉沒完成的複本。Rust 測試與一條新的 E2E（重建暫停時搜尋仍找得到還沒讀到的頁）在分支上過了。沒合的原因：Codex 審查提了五點（換上時一次查詢讀到新舊混合的檔、換上失敗卻回報成功並可能刪掉還在用的舊索引、當機後把已取消的重建換上、復原時用現在的水位線、E2E 的斷言關鍵字也能過），都要逐條驗證再修，當晚來不及在 gate 前做完；先留在分支，收尾時處理（審查全文在 CHANGELOG 同日）。
+  - 2026-10-25 驗證 Codex 對分支的五點（讀分支的程式碼，沒有跑）：
+    1. 換上時一次查詢讀到新舊混合的檔（`query_semantic` 先開舊的 int8 plane、等嵌入服務，之後才讀 map）：成立，但只影響跨過換上那一刻的單一查詢，下一次就對了；修法是一次讀進同一代的所有檔（plane 與 map 一起 pin）。
+    2. 換上失敗只印出、工作照樣回報成功（`backfill.rs` 的 `committed.publish` 錯誤只 `eprintln!`），之後 `forget_unconfigured_indexes` 可能把還在用的上一個模型的索引忘掉：成立；Windows 上覆蓋被 map 住的檔會失敗，所以在那裡是走得到的。這是合併前一定要修的：換上成功才記成功，或失敗時不忘掉其他索引。
+    3. 當機落在「停止已贏、複本還沒撤回」之間時，重開會把已取消的重建換上（settle 不看工作是否已取消）：成立，但換上的是建完的完整索引，不會掉資料；修法是 settle 照 ledger 的 stop 決定換上或撤回。
+    4. 復原已 commit 的複本時，用的是現在的水位線而不是複本建到的水位線，之後新進的造訪會被當成已涵蓋、增量更新跳過它們：成立（窄的時窗：commit 後當機，重開前又有備份）；修法是 manifest 記下複本的水位線與時間，復原時用它。
+    5. 新 E2E 的斷言用 `NEW_PAGE` 的字，關鍵字比對也能過：成立；要改成只有語意才找得到的頁，或斷言 match reason 是 semantic。
+  - 2026-10-25 合併前修了第 2、4 點（各有一條先失敗後通過的 Rust 測試，在 `tests_native/indexing/rebuild.rs`）：
+    - 第 2 點：有完整的複本在等換上時，`forget_unconfigured_indexes` 一個都不忘（`rebuild::waiting_to_publish`）；換上失敗照舊由每次 settle 重試、記成工作的 cleanup 警告。沒有改成「換上成功才記成功」：那樣停止贏過成功時，已換上的索引會被記成未完成。
+    - 第 4 點：commit 時把建置開始時的水位線寫進 manifest，回來找到已 commit 複本的工作記下它；之間的備份讓索引照樣顯示過期（`Watermark`），下一次更新讀進新造訪。原本的說法「增量更新跳過它們」誇大了：水位線只決定索引是否顯示過期，造訪不會永遠漏掉，但下一次備份前不會更新。
+    - 第 5 點也修了：重建暫停時與換上之後，E2E 用 `search_ai_history` 確認那一頁是語意找到的（`matchReason` 含 `semantic`），不只是全文。
+    - 第 2 點的另一半沒修，寫在 BACKLOG：換上失敗時工作仍顯示成功，Settings 在重試成功前說索引已完成。第 1、3 點不擋合併，也在 `WORK-INDEX-REBUILD-SWAP-FOLLOWUPS`。
+    - 合併進分支 `feat/2026-10-25-search-and-index`，commit「fix(ai): build a full rebuild beside the index search reads」。
 
-- [ ] **WORK-QUIT-DURING-WORK** — 關掉視窗就結束 app，正在跑的匯出、匯入直接中斷，沒有任何提示（2026-10-16 gate 的 E2E 找到）
+- [x] **WORK-QUIT-DURING-WORK** — 關掉視窗就結束 app，正在跑的匯出、匯入直接中斷，沒有任何提示（2026-10-16 gate 的 E2E 找到；2026-10-25 完成）
   - 選單列圖示關著時，關掉主視窗就是結束 app。2026-10-16 跑 `move.spec` 時有人點了測試視窗的關閉鈕：系統 log 在 07:07:01.685 記到 `windowShouldClose`，35 ms 後程序結束，進行了 40 秒的 `export_app_data` 沒有回應，畫面上只看到「could not reach the local desktop bridge」。檔案沒有寫壞（先寫暫存檔再換），只是工作白做，使用者也不知道。
   - 要做：有匯出、匯入、備份或維護在跑時，關視窗或 ⌘Q 先說正在做什麼、要不要等它做完；背景工作佇列（建索引等）能續跑的就照常結束。E2E：匯出途中送出關閉，看到提示、選等待後匯出完成。
+  - 2026-10-25 做完（agent 在 worktree 做，Codex 審查後修）：vault-worker 記著使用者開始、正在等的工作（`foreground_work.rs`：備份、匯出、匯入、搬家、還原、釋放空間、升級、改密碼、改加密、刪除全部、復原 / 還原匯入），關視窗（選單列圖示關著時）或 ⌘Q 時先問：等做完再結束、現在結束（說會怎樣）、不結束。排程備份與背景佇列不問。macOS 的 ⌘Q 換成 PathKeep 自己的項目（AppKit 的 terminate: 攔不住）；Dock 的結束、登出、關機照舊立刻結束，不拖住系統。審查後修：等做完要等到存檔裝好、鑰匙存好（不只是複製完）；復原 / 還原匯入也列進去；提示先訂閱再讀目前的問題。E2E `quit-during-work.spec`（restart 專案）：匯出中關視窗、不結束時匯出照樣做完；第二次選等做完，檔案完整寫好才結束、launcher 再開回來。沒做：更新後重開（`RESTART_EXIT_CODE`）不攔、macOS 選單的「Quit PathKeep」只有英文（BACKLOG `WORK-QUIT-FOLLOWUPS`）。
 
 - [x] **WORK-SEARCH-SORT-AND-BUILDER** — History 的搜尋可以選排序，進階搜尋不用記語法（用戶 2026-10-25）
   - 用戶 2026-10-25：「搜索歷史紀錄的時候，應該要有不同排序方式，比如相關度優先，時間排序優先等等。另外，正則搜索技巧，應該要設計一個二級菜單或是某種別的交互模式，用戶可以和 UI 交互來做高級搜索，不用背正則表達式。」
