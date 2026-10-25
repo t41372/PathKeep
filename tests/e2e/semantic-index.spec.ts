@@ -71,6 +71,7 @@ import {
   fixture,
   localDay,
   parseCount,
+  type FixtureVisit,
 } from './support/fixture'
 import {
   NEW_PAGE,
@@ -206,6 +207,18 @@ const pagesOf = (texts: string[]) =>
 const OLD_LABELS = /^(Profile|Visited at|URL|Domain|Title|Readable text):/m
 const RUN_URL = 'https://www.strava.com/activities/1001'
 const RUN_TITLE = 'Strava · Afternoon run'
+
+/**
+ * The page the later backup gives a new title: not the first page (that one
+ * is visited again as it was), and never the run page, which the searches
+ * after the backup look for by its old text and title. Which page comes first
+ * depends on the fixture's visits, so the run page could otherwise be picked.
+ */
+function retitledPage(pages: FixtureVisit[]) {
+  return pages.find(
+    (visit) => visit.url !== pages[0].url && visit.url !== RUN_URL,
+  )!
+}
 
 test('a search index build killed half way finishes after a restart, without starting over', async ({
   page,
@@ -428,7 +441,7 @@ test('a search index build killed half way finishes after a restart, without sta
       (visit) => !visit.term,
     )
     const same = pages[0]
-    const retitled = pages.find((visit) => visit.url !== same.url)!
+    const retitled = retitledPage(pages)
     const atBackup = service.inputs.length
     retitleChromePage(chromeFile, retitled.url, RETITLED_TITLE)
     appendChromeVisits(chromeFile, indexRevisitVisits(same, retitled))
@@ -1033,7 +1046,7 @@ test('Ask groups the period by meaning and every indexed page can be reached exa
   const chrome = fixture().visitsByProfile['chrome:Default'].filter(
     (v) => !v.term,
   )
-  const retitledUrl = chrome.find((v) => v.url !== chrome[0].url)!.url
+  const retitledUrl = retitledPage(chrome).url
   const missing = [...expected].find(
     ([url, rows]) =>
       url !== retitledUrl &&
