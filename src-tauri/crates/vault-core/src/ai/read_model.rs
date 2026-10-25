@@ -20,10 +20,12 @@ pub fn ai_index_status(vault: &crate::Vault) -> Result<AiIndexStatus> {
     let config = vault.config();
     let watermark = super::native_ledger::current_source_watermark(vault)?;
     let vectors = semantic_vector_state(vault)?;
+    let static_embedding = static_embedding_status(paths, config);
     let paths = paths.clone();
     let config = config.clone();
     vault.read(Db::Intelligence, move |s| {
-        let mut status = ai_index_status_from(&paths, &config, s, watermark, vectors)?;
+        let mut status =
+            ai_index_status_from(&paths, &config, s, watermark, vectors, static_embedding)?;
         if !config.initialized && config.ai.enabled {
             status.state = "blocked".into();
             status.ready = false;
@@ -70,13 +72,14 @@ fn semantic_vector_state(vault: &crate::Vault) -> Result<SemanticVectorState> {
     Ok(SemanticVectorState { index, selected_count, serving_count, text_format_outdated })
 }
 
-/// Combines database counters with the vector-file state read before opening this session.
+/// Combines database counters with the vector and model file state read before this session.
 fn ai_index_status_from(
     paths: &ProjectPaths,
     config: &AppConfig,
     connection: &Session<'_>,
     watermark: i64,
     vectors: SemanticVectorState,
+    static_embedding: Option<StaticEmbeddingStatus>,
 ) -> Result<AiIndexStatus> {
     let mut queue_status = ai_queue::store::load_ai_queue_status(
         connection,
@@ -172,7 +175,7 @@ fn ai_index_status_from(
         ready,
         indexed_items: indexed_items as usize,
         semantic_vector_count,
-        static_embedding: static_embedding_status(paths, config),
+        static_embedding,
         last_indexed_at,
         llm_provider_id: config.ai.llm_provider_id.clone(),
         embedding_provider_id: config.ai.embedding_provider_id.clone(),
@@ -286,9 +289,11 @@ fn ai_index_state_and_warning(
 ///
 /// Returns `None` only when the merged config somehow lacks the built-in static provider (it is
 /// normally always present via [`crate::models::merge_embedding_providers`]). `model_downloaded`
-/// checks the consent-gated download target on disk (files present + SHA-verified); `selected` mirrors
-/// the active embedding selection. Pure over the config + filesystem — no network, no archive — so it
-/// can be surfaced even before the archive is initialized.
+/// checks the consent-gated download target on disk (files present and verified, hashed only when
+/// they changed since they last passed); `selected` mirrors the active embedding selection. Reads
+/// only the config and the model folder (it may rewrite the verified marker), no network and no
+/// archive, so it can be surfaced even before the archive is initialized. Every app snapshot asks
+/// it, so it runs before the Intelligence read session opens.
 fn static_embedding_status(
     paths: &ProjectPaths,
     config: &AppConfig,
@@ -304,7 +309,7 @@ fn static_embedding_status(
         provider.default_model.as_str()
     };
     let model_dir = model_dir_for_repo(paths, repo);
-    let model_downloaded = model_is_present_and_verified(&model_dir, DEFAULT_STATIC_MODEL_FILES);
+    let model_downloaded = model_files_verified(&model_dir, DEFAULT_STATIC_MODEL_FILES);
     // On-disk size only AFTER the files are present + verified; 0 before download (the FE shows a
     // static pre-download estimate). Summed from the real files so the Settings card states the honest
     // footprint instead of a guess.

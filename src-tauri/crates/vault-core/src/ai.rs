@@ -132,7 +132,7 @@ pub use self::fingerprint::{EMBEDDING_FINGERPRINT_VERSION, EmbeddingFingerprint}
 pub use self::llm::{RigLlmProvider, probe_tool_capability};
 pub use self::model_files::{
     ModelDownloadProgress, ModelFile, NoopDownloadProgress, ensure_model_downloaded,
-    model_dir_for_repo, model_is_loadable, model_is_present_and_verified,
+    model_dir_for_repo, model_files_present, model_files_verified, model_is_present_and_verified,
 };
 pub use self::reverse_visit_map::{ReverseMapHeader, ReverseVisitMap};
 pub use self::traits::{

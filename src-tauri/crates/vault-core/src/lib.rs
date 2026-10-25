@@ -88,7 +88,7 @@ pub use ai::{
     chat_context_length, content_key_from_hash, dequantize_int8, deregister_ai_chat_run,
     dot_product, drive_agent_run, drive_ai_chat_stream, ensure_model_downloaded, estimate_reembed,
     estimate_request_tokens, estimate_tokens, forget_unconfigured_indexes, hamming_distance,
-    list_provider_models, model_dir_for_repo, model_is_loadable, model_is_present_and_verified,
+    list_provider_models, model_dir_for_repo, model_files_present, model_is_present_and_verified,
     parse_static_config, planes_are_stale, preview_ai_integrations, probe_tool_capability,
     provider_capabilities, provider_connection_failure_report, quantize_int8,
     reconcile_ai_queue_controls, recoverable_ai_jobs, register_ai_chat_run, request_ai_chat_cancel,
