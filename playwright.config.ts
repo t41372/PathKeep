@@ -74,8 +74,8 @@ function prepareFixture() {
     PATHKEEP_TEST_SAVE_DIR: path.join(root, 'saved'),
     // Lets export.spec.ts watch and stop an export of the small fixture. Debug only.
     PATHKEEP_TEST_EXPORT_ROW_DELAY_US: '500',
-    // The launcher runs the app itself and starts it again when a spec kills
-    // it after creating this file (semantic-index.spec.ts).
+    // The launcher runs the app itself and starts it again when it exits
+    // after a spec created this file (the 'restart' project).
     PATHKEEP_E2E_RESTART_FILE: path.join(root, 'restart-app'),
     // Keep the build cache between runs; a cold Rust build takes minutes.
     CARGO_TARGET_DIR:
@@ -188,11 +188,13 @@ export default defineConfig({
       ],
       'zone',
     ),
-    // They kill the app and the launcher starts it again, behind App Lock.
+    // They kill the app, or let it quit, and the launcher starts it again,
+    // behind App Lock.
     project(
       'restart',
       [
         'insights-reopen.spec.ts',
+        'quit-during-work.spec.ts',
         'semantic-index.spec.ts',
         'takeout-continue.spec.ts',
       ],

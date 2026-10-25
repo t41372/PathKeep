@@ -651,6 +651,7 @@ fn rekey_requires_the_current_password_and_rewraps_the_native_envelope() {
             new_mode: ArchiveMode::Encrypted,
             new_key: Some("new password".into()),
             current_key: current.map(str::to_owned),
+            remember_in_keychain: None,
         };
         assert!(preview_rekey_archive(&request).is_err());
         assert!(rekey_archive_database(&session, &request).is_err());
@@ -659,12 +660,61 @@ fn rekey_requires_the_current_password_and_rewraps_the_native_envelope() {
         new_mode: ArchiveMode::Encrypted,
         new_key: Some("new password".into()),
         current_key: Some("old password".into()),
+        remember_in_keychain: None,
     };
     assert!(preview_rekey_archive(&request).unwrap().snapshot_path.is_empty());
     rekey_archive_database(&session, &request).unwrap();
     assert!(vault_core::Vault::unlock_data_key(&paths, "old password").is_err());
     assert!(vault_core::Vault::unlock_data_key(&paths, "new password").is_ok());
     restore_env_var(PROJECT_ROOT_OVERRIDE_ENV, old_env.as_deref());
+}
+
+/// A keychain that will not take the key while an archive is encrypted: the archive still
+/// changes, but the setting stays as it was and the result says the keychain was not updated,
+/// so nothing at the next start expects a key the keychain does not hold. Ways it can fail:
+/// - the requested "remember" reaches `config.json` with the new archive although no key was
+///   saved;
+/// - the result reports a clean success and the window says nothing;
+/// - the archive cannot be opened with its new password afterwards.
+#[test]
+fn a_keychain_that_refuses_the_new_key_leaves_the_setting_as_it_was_and_says_so() {
+    let _guard = lock_env();
+    let root = tempdir().unwrap();
+    let keyring_root = root.path().join("test-keyring");
+    fs::create_dir_all(&keyring_root).unwrap();
+    fs::write(keyring_root.join(vault_platform::test_support::TEST_KEYRING_UNAVAILABLE_FILE), "")
+        .unwrap();
+    let old_root = std::env::var_os(PROJECT_ROOT_OVERRIDE_ENV);
+    let old_keyring = std::env::var_os(TEST_KEYRING_OVERRIDE_ENV);
+    unsafe {
+        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, root.path().join("app"));
+        std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, &keyring_root);
+    }
+    let paths = project_paths().unwrap();
+    let config = initialized_config();
+    initialize_archive_database(&config, None).expect("initialize archive");
+    save_user_config(&config, None).expect("save config");
+    let session = crate::VaultSession::default();
+    let outcome = rekey_archive_database(
+        &session,
+        &RekeyRequest {
+            new_mode: ArchiveMode::Encrypted,
+            new_key: Some("new password".into()),
+            current_key: None,
+            remember_in_keychain: Some(true),
+        },
+    )
+    .expect("the archive is encrypted although the keychain refused the key");
+    assert!(outcome.keychain_failed);
+    let saved = vault_core::load_config(&paths).unwrap();
+    assert_eq!(saved.archive_mode, ArchiveMode::Encrypted);
+    assert!(!saved.remember_database_key_in_keyring);
+    drop(session);
+    crate::VaultSession::default()
+        .open_password(paths, saved, "new password".into())
+        .expect("the new password opens the archive");
+    restore_env_var(PROJECT_ROOT_OVERRIDE_ENV, old_root.as_deref());
+    restore_env_var(TEST_KEYRING_OVERRIDE_ENV, old_keyring.as_deref());
 }
 
 #[test]
@@ -857,6 +907,77 @@ fn full_restore_takes_only_a_snapshot_pathkeep_listed() {
     }
     assert!(session.vault().unwrap().store().is_open());
     restore_env_var(PROJECT_ROOT_OVERRIDE_ENV, old_env.as_deref());
+}
+
+/// A restore installs the archive with the keychain setting it already has; nobody asked for a
+/// keychain change. With nothing to remember, a keychain that cannot be reached must not turn
+/// a restore that finished into an error.
+#[test]
+fn a_restore_with_nothing_to_remember_finishes_while_the_keychain_cannot_be_reached() {
+    let _guard = lock_env();
+    let root = tempdir().unwrap();
+    let keyring_root = root.path().join("test-keyring");
+    fs::create_dir_all(&keyring_root).unwrap();
+    fs::write(keyring_root.join(vault_platform::test_support::TEST_KEYRING_UNAVAILABLE_FILE), "")
+        .unwrap();
+    let old_root = std::env::var_os(PROJECT_ROOT_OVERRIDE_ENV);
+    let old_keyring = std::env::var_os(TEST_KEYRING_OVERRIDE_ENV);
+    unsafe {
+        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, root.path().join("app"));
+        std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, &keyring_root);
+    }
+    let paths = project_paths().unwrap();
+    vault_core::save_config(&paths, &initialized_config()).unwrap();
+    let session = crate::VaultSession::default();
+    let saved = paths.raw_snapshots_dir.join("maintenance/before-restore");
+    vault_core::maintenance::snapshot(&session.vault().unwrap(), &saved).unwrap();
+    crate::run_full_archive_restore(
+        &session,
+        None,
+        &vault_core::SnapshotRestoreRequest { snapshot_path: saved.display().to_string() },
+    )
+    .expect("the restore finishes");
+    restore_env_var(PROJECT_ROOT_OVERRIDE_ENV, old_root.as_deref());
+    restore_env_var(TEST_KEYRING_OVERRIDE_ENV, old_keyring.as_deref());
+}
+
+#[test]
+fn a_restore_whose_key_the_keychain_refuses_still_reports_the_restore() {
+    // The settings say to remember the key, so the restore tries to keep it; the keychain
+    // refuses. The archive is already the restored one, and an error here would have the user
+    // run the restore again over it.
+    let _guard = lock_env();
+    let root = tempdir().unwrap();
+    let keyring_root = root.path().join("test-keyring");
+    let old_root = std::env::var_os(PROJECT_ROOT_OVERRIDE_ENV);
+    let old_keyring = std::env::var_os(TEST_KEYRING_OVERRIDE_ENV);
+    unsafe {
+        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, root.path().join("app"));
+        std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, &keyring_root);
+    }
+    let paths = project_paths().unwrap();
+    let config = AppConfig {
+        archive_mode: ArchiveMode::Encrypted,
+        remember_database_key_in_keyring: true,
+        ..initialized_config()
+    };
+    vault_core::save_config(&paths, &config).unwrap();
+    let session = crate::VaultSession::default();
+    session.open_password(paths.clone(), config, "password".into()).unwrap();
+    let saved = paths.raw_snapshots_dir.join("maintenance/before-restore");
+    vault_core::maintenance::snapshot(&session.vault().unwrap(), &saved).unwrap();
+    fs::write(keyring_root.join(vault_platform::test_support::TEST_KEYRING_UNAVAILABLE_FILE), "")
+        .unwrap();
+    let report = crate::run_full_archive_restore(
+        &session,
+        Some("password"),
+        &vault_core::SnapshotRestoreRequest { snapshot_path: saved.display().to_string() },
+    )
+    .expect("the restore reports itself done while the keychain refuses the key");
+    assert_eq!(report.restored_mode, ArchiveMode::Encrypted);
+    assert!(session.current_vault().is_some(), "the restored archive is the open one");
+    restore_env_var(PROJECT_ROOT_OVERRIDE_ENV, old_root.as_deref());
+    restore_env_var(TEST_KEYRING_OVERRIDE_ENV, old_keyring.as_deref());
 }
 
 #[test]

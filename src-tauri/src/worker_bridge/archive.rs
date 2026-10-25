@@ -80,7 +80,7 @@ pub(crate) fn assess_archive_upgrade_impl(
 pub(crate) fn rekey_archive_impl(
     request: RekeyRequest,
     state: &SessionState,
-) -> Result<vault_core::AppSnapshot, CommandError> {
+) -> Result<vault_core::RekeyOutcome, CommandError> {
     worker_result(vault_worker::rekey_archive_database(state, &request))
 }
 

@@ -60,19 +60,40 @@ impl VaultSession {
         self.inner.0.lock().expect("session state").owner.clone()
     }
 
-    /// Publish a verified maintenance replacement without reopening a second owner.
+    /// Publish a verified maintenance replacement without reopening a second owner, and leave
+    /// the keychain as `keychain` says. The archive is in place even when this fails with
+    /// [`KeychainNotUpdated`], which only a change the user asked for of the keychain returns.
     pub fn install_archive(
         &self,
         archive: vault_core::maintenance::InstalledArchive,
         password: Option<String>,
+        keychain: KeychainAfterInstall,
     ) -> anyhow::Result<()> {
         let keyring_result = (|| -> anyhow::Result<()> {
-            if archive.vault.config().remember_database_key_in_keyring
-                && let Some(key) = &archive.data_key
-            {
-                crate::security::store_data_key_in_keyring(key)?;
-            } else if vault_platform::keyring_status().stored_secret {
+            let wants_key = match keychain {
+                KeychainAfterInstall::Key => true,
+                KeychainAfterInstall::Nothing => false,
+                KeychainAfterInstall::AsSaved => {
+                    archive.vault.config().remember_database_key_in_keyring
+                }
+            };
+            if wants_key && let Some(key) = &archive.data_key {
+                if let Err(error) = crate::security::store_data_key_in_keyring(key) {
+                    if keychain == KeychainAfterInstall::Key {
+                        return Err(error);
+                    }
+                    // As an unlock does: the next start asks for the password, and Home says the
+                    // key is not in the keychain.
+                    eprintln!("PathKeep could not keep the archive key in the keychain: {error:#}");
+                }
+            } else if keychain != KeychainAfterInstall::AsSaved {
+                // Asked for: tried even when the status shows no key (a keychain that cannot
+                // be read shows none), and a clear that fails is reported.
                 crate::security::clear_database_key_from_keyring()?;
+            } else if vault_platform::keyring_status().stored_secret
+                && let Err(error) = crate::security::clear_database_key_from_keyring()
+            {
+                eprintln!("PathKeep could not remove the archive key from the keychain: {error:#}");
             }
             Ok(())
         })();
@@ -83,7 +104,7 @@ impl VaultSession {
             state.vault.replace(archive.vault)
         };
         drop(old);
-        keyring_result.map_err(|error|anyhow::anyhow!("archive-installed-keychain-unavailable: the archive was installed, but its remembered key could not be updated: {error}"))
+        keyring_result.map_err(|error| KeychainNotUpdated(error).into())
     }
 
     /// Rewrap keeps the owner and remembered data key; only typed legacy state changes.
@@ -454,6 +475,41 @@ pub(crate) fn encode_data_key(key: &DataKey) -> Zeroizing<String> {
     }
     text
 }
+
+/// The archive change went through, but the keychain could not be made to match it. Callers
+/// that can say so in their own words (a password change ends with a warning, not an error)
+/// tell this apart from a change that failed.
+#[derive(Debug)]
+pub struct KeychainNotUpdated(pub anyhow::Error);
+
+/// What the keychain holds once [`VaultSession::install_archive`] has put an archive in place.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KeychainAfterInstall {
+    /// The archive's key, asked for with this change; a refusal is [`KeychainNotUpdated`].
+    Key,
+    /// No key, asked for with this change; a clear that fails, or a keychain that cannot be
+    /// reached, is [`KeychainNotUpdated`].
+    Nothing,
+    /// What the installed archive's settings say, nobody having asked for a change (a restore,
+    /// an upgrade, a move): its key when they say to remember it; otherwise a key the keychain
+    /// shows is removed. A keychain that refuses either is left as it is and never fails the
+    /// change: the archive is already in place, and saying the restore failed would have the
+    /// user run it again over the one it installed.
+    AsSaved,
+}
+
+impl std::fmt::Display for KeychainNotUpdated {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "archive-installed-keychain-unavailable: the archive was installed, but its remembered key could not be updated: {}",
+            self.0
+        )
+    }
+}
+
+impl std::error::Error for KeychainNotUpdated {}
+
 #[cfg(test)]
 mod tests;
 

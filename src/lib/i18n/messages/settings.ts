@@ -153,7 +153,7 @@ export const settings = defineMessages({
           decrypt: 'Encryption is off.',
         },
         keychainFailed:
-          'The archive changed, but the keychain could not be updated. Turn “Save password in the keychain” off and on again.',
+          'The archive changed, but the keychain could not be updated, so “Save password in the keychain” stays as it was. Change it there to try again.',
         previewFailed: 'Could not check this change. {message}',
         failed: 'The archive was not changed. {message}',
       },
@@ -346,7 +346,7 @@ export const settings = defineMessages({
           decrypt: '加密已关闭。',
         },
         keychainFailed:
-          '存档已更改，但钥匙串没能更新。请把「把密码存到钥匙串」关掉再打开。',
+          '存档已更改，但钥匙串没能更新，所以「把密码存到钥匙串」保持原样。到那里再改一次就会重试。',
         previewFailed: '无法检查这项更改。{message}',
         failed: '存档没有改动。{message}',
       },
@@ -538,7 +538,7 @@ export const settings = defineMessages({
           decrypt: '加密已關閉。',
         },
         keychainFailed:
-          '存檔已變更，但鑰匙圈沒能更新。請把「把密碼存到鑰匙圈」關掉再打開。',
+          '存檔已變更，但鑰匙圈沒能更新，所以「把密碼存到鑰匙圈」維持原樣。到那裡再改一次就會重試。',
         previewFailed: '無法檢查這項變更。{message}',
         failed: '存檔沒有變動。{message}',
       },

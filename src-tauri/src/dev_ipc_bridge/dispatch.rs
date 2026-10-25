@@ -70,6 +70,34 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
     ) {
         return super::search::dispatch(state, command, payload).await;
     }
+    // Debug builds only: quits the way the close button (`window`) or ⌘Q and the menu bar icon's
+    // Quit (`app`) do, through the same handlers, because a browser cannot press either.
+    #[cfg(debug_assertions)]
+    if command == "debug_request_quit" {
+        #[derive(serde::Deserialize)]
+        #[serde(rename_all = "kebab-case")]
+        enum Via {
+            Window,
+            App,
+        }
+        #[derive(serde::Deserialize)]
+        struct Request {
+            via: Via,
+        }
+        let Request { via } = parse_payload::<Request>(payload)?;
+        let app = require_app_handle(state)?;
+        match via {
+            Via::Window => {
+                use tauri::Manager;
+                let window = app
+                    .get_webview_window(desktop_integration::MAIN_WINDOW)
+                    .ok_or_else(|| CommandError::internal("There is no window to close."))?;
+                window.close().map_err(|error| CommandError::internal(error.to_string()))?;
+            }
+            Via::App => app.exit(0),
+        }
+        return Ok(Value::Null);
+    }
     #[cfg(debug_assertions)]
     if command == "debug_set_search_indexer_paused" {
         #[derive(serde::Deserialize)]
@@ -1099,6 +1127,14 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
                 })
                 .await?
             )
+        }
+        "get_quit_request" => {
+            json_value!(desktop_integration::quit_request(&require_app_handle(state)?))
+        }
+        "answer_quit_request" => {
+            let app = require_app_handle(state)?;
+            let payload = parse_payload::<QuitAnswerPayload>(payload)?;
+            json_value!(desktop_integration::answer_quit_request(&app, payload.id, payload.answer))
         }
         "set_menu_bar_icon" => {
             let app = require_app_handle(state)?;

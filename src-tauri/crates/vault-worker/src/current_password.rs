@@ -111,6 +111,7 @@ mod tests {
             new_mode: ArchiveMode::Plaintext,
             new_key: None,
             current_key: current_key.map(str::to_string),
+            remember_in_keychain: None,
         }
     }
 
@@ -155,6 +156,7 @@ mod tests {
             new_mode: ArchiveMode::Encrypted,
             new_key: Some("new password".to_string()),
             current_key: None,
+            remember_in_keychain: None,
         };
         assert_eq!(verified_current_key(&paths, &config, &encrypt).expect("plaintext"), None);
     }
@@ -175,6 +177,7 @@ mod tests {
             new_mode: ArchiveMode::Encrypted,
             new_key: Some("new-secret-value".to_string()),
             current_key: Some("old-secret-value".to_string()),
+            remember_in_keychain: None,
         };
         let printed = format!("{request:?}");
         assert!(!printed.contains("new-secret-value"));
