@@ -2,14 +2,16 @@
 //! Not responsible for: lexical ranking, UI scheduling or a newest-record window.
 //! Failure modes: an empty chunk ends search, repeated visits duplicate pages, a cursor
 //! skips equal timestamps, cancellation waits for the full archive, a pattern with a
-//! literal fragment still reads every visit.
+//! literal fragment still reads every visit, most visited ranks a page before the walk has
+//! counted all its visits.
 //! Tests: search::tests::regex_steps_scan_past_empty_chunks_and_page_without_duplicates,
-//! ported_regex, and the plan tests below.
+//! ported_regex, most_visited_tests and the plan tests below.
 use super::{SearchProgress, eligibility::Scope};
 use anyhow::{Context, Result};
 use regex::RegexBuilder;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
+use vault_search::{Hit, RankCollector, SortOrder};
 use vault_store::{CancelToken, Db, Store, Value};
 
 /// Candidate pages read per query.
@@ -39,11 +41,23 @@ impl Source {
 #[derive(Clone, Copy)]
 enum Shown {
     Visit(i64),
-    /// Candidate reads group by URL; the visit is looked up when the row is shown.
-    Url {
-        url: i64,
-        time: i64,
-    },
+    /// Candidate reads group by URL; the URL's visit at the winner's time is looked up when the
+    /// row is shown.
+    Url(i64),
+}
+
+/// What the scan keeps of a page it may show.
+struct Winner {
+    /// The time of the visit the order goes by.
+    time: i64,
+    /// The page's matching visits read so far; all of them once its key is final.
+    visits: u64,
+    shown: Shown,
+}
+impl Winner {
+    fn hit(&self, page_id: u64) -> Hit {
+        Hit { page_id, visit_ms: self.time, score: 0.0, visits: self.visits }
+    }
 }
 
 pub(super) struct Scan {
@@ -51,28 +65,35 @@ pub(super) struct Scan {
     scope: Scope,
     source: Source,
     seen: Vec<u64>,
-    pub hits: Vec<vault_search::Hit>,
+    pub hits: Vec<Hit>,
     pub count: u64,
     pub visits: u64,
     pub complete: bool,
-    after: Option<vault_search::Hit>,
+    after: Option<Hit>,
     limit: usize,
     processed: u64,
-    winners: HashMap<u64, (Shown, u64)>,
-    oldest: bool,
+    /// The pages the scan may still show. Usually only those in `hits`; while a walk ranks by
+    /// visits, every matching page it has met (memory grows with the matches, not the archive),
+    /// because a page's count is complete only once the walk has read all its visits.
+    winners: HashMap<u64, Winner>,
+    /// Pages whose count the last walk chunk changed, while a walk ranks by visits.
+    touched: Vec<u64>,
+    order: SortOrder,
 }
 impl Scan {
     pub fn new(
         pattern: &str,
         scope: Scope,
         limit: usize,
-        oldest: bool,
+        order: SortOrder,
         indexer: &super::Indexer,
         store: &Store,
     ) -> Result<Self> {
+        // A regex match has no relevance score: best match lists the newest matches first.
+        let order = if order == SortOrder::Relevance { SortOrder::Newest } else { order };
         let source = match super::regex_prefilter::Prefilter::start(indexer, store, pattern)? {
             Some(prefilter) => Source::Listing(Box::new(prefilter)),
-            None => Source::walk_start(oldest),
+            None => Source::walk_start(order == SortOrder::Oldest),
         };
         Ok(Self {
             source,
@@ -87,21 +108,31 @@ impl Scan {
             limit,
             processed: 0,
             winners: HashMap::new(),
-            oldest,
+            touched: Vec::new(),
+            order,
         })
     }
-    pub fn next_page(&mut self, after: Option<vault_search::Hit>) {
+    pub fn next_page(&mut self, after: Option<Hit>) {
         self.after = after;
         self.reset_scan();
+    }
+    fn oldest(&self) -> bool {
+        self.order == SortOrder::Oldest
+    }
+    /// Whether a page's key can still change after the scan first meets it. Only its visit
+    /// count can, and only in a walk: a candidate read counts every visit of its pages at once.
+    fn counts_grow(&self) -> bool {
+        self.order == SortOrder::Visits && matches!(self.source, Source::Walk { .. })
     }
     fn reset_scan(&mut self) {
         match &mut self.source {
             Source::Listing(_) => {}
             Source::Candidates { next, .. } => *next = 0,
-            Source::Walk { .. } => self.source = Source::walk_start(self.oldest),
+            Source::Walk { .. } => self.source = Source::walk_start(self.oldest()),
         }
         self.hits.clear();
         self.winners.clear();
+        self.touched.clear();
         self.seen.fill(0);
         self.count = 0;
         self.visits = 0;
@@ -124,7 +155,7 @@ impl Scan {
                     self.source = Source::Candidates { pages, next: 0 };
                 }
                 // A damaged index can't vouch for its matches; read every visit instead.
-                Err(_) => self.source = Source::walk_start(self.oldest),
+                Err(_) => self.source = Source::walk_start(self.oldest()),
             }
         }
         while !self.complete {
@@ -133,15 +164,47 @@ impl Scan {
                 Source::Candidates { .. } => self.read_candidates(store, returned)?,
                 _ => self.walk_chunk(store, returned)?,
             }
-            let oldest = self.oldest;
-            self.hits.sort_unstable_by(|a, b| rank(b, a, oldest));
-            self.hits.truncate(self.limit);
-            self.winners.retain(|page, _| self.hits.iter().any(|hit| hit.page_id == *page));
+            self.rank();
             if started.elapsed() >= budget {
                 break;
             }
         }
         Ok(())
+    }
+    /// Puts the best `limit` pages the scan has met in `hits`, and forgets the rest when their
+    /// keys are final. While a walk ranks by visits, keys grow: each chunk re-ranks the pages
+    /// it counted, and the end of the walk ranks every matching page against the cursor once.
+    fn rank(&mut self) {
+        if self.counts_grow() {
+            let mut top = RankCollector::new(self.limit, self.after, self.order);
+            if self.complete {
+                self.touched.clear();
+                for (page, winner) in &self.winners {
+                    top.collect(winner.hit(*page));
+                }
+            } else {
+                self.touched.extend(self.hits.iter().map(|hit| hit.page_id));
+                self.touched.sort_unstable();
+                self.touched.dedup();
+                for page in self.touched.drain(..) {
+                    top.collect(self.winners[&page].hit(page));
+                }
+            }
+            self.hits = top.hits();
+            if !self.complete {
+                return;
+            }
+        } else {
+            let order = self.order;
+            self.hits.sort_unstable_by(|a, b| order.compare(b, a));
+            self.hits.truncate(self.limit);
+        }
+        let shown = self.hits.iter().map(|hit| hit.page_id).collect::<HashSet<_>>();
+        self.winners.retain(|page, _| shown.contains(page));
+    }
+    /// Whether a page with this final key belongs after the cursor.
+    fn after_cursor(&self, hit: &Hit) -> bool {
+        self.after.is_none_or(|after| self.order.compare(hit, &after).is_lt())
     }
     /// The next candidate pages: one row per URL with a visible visit in scope.
     fn read_candidates(&mut self, store: &Store, returned: &[u64]) -> Result<()> {
@@ -152,10 +215,11 @@ impl Scan {
         if batch.is_empty() {
             return Ok(());
         }
+        let oldest = self.oldest();
         let mut params = self.scope.params.clone();
         let first = params.len() + 1;
         params.extend(batch.iter().map(|page| Value::Integer(*page as i64)));
-        let sql = candidates_sql(&self.scope.sql, first, batch.len(), self.oldest);
+        let sql = candidates_sql(&self.scope.sql, first, batch.len(), oldest);
         let rows = store.read(Db::Archive, move |s| {
             s.query(&sql, params, |r| {
                 Ok((
@@ -176,7 +240,7 @@ impl Scan {
                 continue;
             }
             let entry = matched.entry(page).or_insert((time, url_id, 0));
-            let goes_by = if self.oldest {
+            let goes_by = if oldest {
                 (time, url_id) < (entry.0, entry.1)
             } else {
                 (time, url_id) > (entry.0, entry.1)
@@ -186,33 +250,32 @@ impl Scan {
             }
             entry.2 += visits;
         }
+        // Every URL of these pages was read, so each page's key is final here.
         for (page, (time, url, visits)) in matched {
             self.visits += visits;
             self.count += 1;
             if super::session::already_returned(returned, page) {
                 continue;
             }
-            let hit = vault_search::Hit { page_id: page, visit_ms: time, score: 0.0 };
-            if self
-                .after
-                .is_some_and(|after| self.compare(&hit, &after) != std::cmp::Ordering::Less)
-            {
+            let winner = Winner { time, visits, shown: Shown::Url(url) };
+            if !self.after_cursor(&winner.hit(page)) {
                 continue;
             }
-            self.winners.insert(page, (Shown::Url { url, time }, visits));
-            self.hits.push(hit);
+            self.hits.push(winner.hit(page));
+            self.winners.insert(page, winner);
         }
         Ok(())
     }
     /// The next 512 visible visits past the cursor.
     fn walk_chunk(&mut self, store: &Store, returned: &[u64]) -> Result<()> {
         let Source::Walk { time: cursor_time, id: cursor_id } = self.source else { unreachable!() };
+        let counts_grow = self.counts_grow();
         let mut params = self.scope.params.clone();
         let time = params.len() + 1;
         params.push(Value::Integer(cursor_time));
         let id = params.len() + 1;
         params.push(Value::Integer(cursor_id));
-        let sql = chunk_sql(&self.scope.sql, time, id, self.oldest);
+        let sql = chunk_sql(&self.scope.sql, time, id, self.oldest());
         let rows = store.read(Db::Archive, move |s| {
             s.query(&sql, params, |r| {
                 Ok((
@@ -238,8 +301,11 @@ impl Scan {
             }
             let mask = 1u64 << (page % 64);
             if self.seen[word] & mask != 0 {
-                if let Some((_, count)) = self.winners.get_mut(&page) {
-                    *count += 1;
+                if let Some(winner) = self.winners.get_mut(&page) {
+                    winner.visits += 1;
+                    if counts_grow {
+                        self.touched.push(page);
+                    }
                 }
                 continue;
             }
@@ -248,37 +314,38 @@ impl Scan {
             if super::session::already_returned(returned, page) {
                 continue;
             }
-            let hit = vault_search::Hit { page_id: page, visit_ms: time, score: 0.0 };
-            if self
-                .after
-                .is_some_and(|after| self.compare(&hit, &after) != std::cmp::Ordering::Less)
-            {
+            let winner = Winner { time, visits: 1, shown: Shown::Visit(id) };
+            if counts_grow {
+                // The count is known only once the walk ends; `rank` checks the cursor then.
+                self.touched.push(page);
+            } else if self.after_cursor(&winner.hit(page)) {
+                self.hits.push(winner.hit(page));
+            } else {
                 continue;
             }
-            self.winners.insert(page, (Shown::Visit(id), 1));
-            self.hits.push(hit);
+            self.winners.insert(page, winner);
         }
         Ok(())
-    }
-    fn compare(&self, a: &vault_search::Hit, b: &vault_search::Hit) -> std::cmp::Ordering {
-        rank(a, b, self.oldest)
     }
     pub fn hydrate(&self, store: &Store) -> Result<Vec<super::SearchHit>> {
         let shown = self
             .hits
             .iter()
-            .map(|hit| (hit.page_id, self.winners[&hit.page_id].0))
+            .map(|hit| {
+                let winner = &self.winners[&hit.page_id];
+                (hit.page_id, winner.shown, winner.time)
+            })
             .collect::<Vec<_>>();
         let scope = self.scope.clone();
-        let oldest = self.oldest;
+        let oldest = self.oldest();
         // A URL found by a candidate read shows its visit at the matching time.
         let ids = store.read(Db::Archive, move |s| {
             let sql = shown_visit_sql(&scope.sql, scope.params.len() + 1, oldest);
             let mut ids = Vec::with_capacity(shown.len());
-            for (page, shown) in shown {
+            for (page, shown, time) in shown {
                 match shown {
                     Shown::Visit(id) => ids.push(id),
-                    Shown::Url { url, time } => {
+                    Shown::Url(url) => {
                         let mut params = scope.params.clone();
                         params.extend([page as i64, url, time].map(Value::Integer));
                         ids.extend(s.query(&sql, params, |r| Ok(r.get::<i64>(0)?))?);
@@ -301,7 +368,7 @@ impl Scan {
                 {
                     return None;
                 }
-                row.visit.visit_count = Some(self.winners[&hit.page_id].1);
+                row.visit.visit_count = Some(self.winners[&hit.page_id].visits);
                 row.visit.enrichment_excerpt = None;
                 Some(row)
             })
@@ -347,11 +414,6 @@ fn chunk_sql(scope: &str, time: usize, id: usize, oldest: bool) -> String {
     format!(
         "SELECT v.visit_time_ms,v.id,u.page_id,p.url,COALESCE(u.title,'') FROM visits v INDEXED BY idx_visits_visible_time_id CROSS JOIN urls u ON u.id=v.url_id CROSS JOIN pages p ON p.id=u.page_id JOIN source_profiles sp ON sp.id=v.source_profile_id WHERE {scope} AND v.visit_time_ms{bound}?{time} AND (v.visit_time_ms{past}?{time} OR v.id{past}?{id}) ORDER BY v.visit_time_ms {order},v.id {order} LIMIT 512"
     )
-}
-
-fn rank(a: &vault_search::Hit, b: &vault_search::Hit, oldest: bool) -> std::cmp::Ordering {
-    (if oldest { b.visit_ms.cmp(&a.visit_ms) } else { a.visit_ms.cmp(&b.visit_ms) })
-        .then(a.page_id.cmp(&b.page_id))
 }
 
 /// Compiles a History regex: Rust `regex` syntax, case-insensitive.

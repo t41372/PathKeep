@@ -12,6 +12,7 @@ pub struct SearchRequest {
     /// Internal optional-AI ranking identity; never accepted from an IPC payload.
     #[serde(skip)]
     pub ranking_key: Option<String>,
+    /// `relevance` (also when absent or unknown), `newest`, `oldest` or `visits` (most visited).
     pub sort: Option<String>,
     pub page_size: usize,
     pub profile_id: Option<String>,
