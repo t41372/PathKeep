@@ -501,6 +501,23 @@ Measured after the fix (this Mac, release, encrypted, 2026-10-14):
 
 It finishes, but every day the site was visited has all its rollups made again from that day's visits, though only the category rows can change; and 21 s for about 720 visits is slow. Both are `WORK-RECLASSIFY-STALL`, with the memory peaks of the incremental build and the export (2.07 GB for a 5 GB JSONL file) in `WORK-SCALE-BENCH-RERUN`.
 
+**On a machine the size of the target (2026-10-25).** The same benchmark (`turso_intelligence::encrypted_intelligence_at_scale`, release, encrypted, 14.4M visits, 2.88M pages) on a Modal microVM with 4 vCPUs and 8 GB, at load average 1.0 (log: `artifacts/e2e/bench-intel.log` of that run). The data peaked at 22.5 GB, so most of it never fits in the page cache.
+
+| 14.4M visits                            | This Mac, 2026-10-14 | 4 vCPU / 8 GB, 2026-10-25 |
+| --------------------------------------- | -------------------- | ------------------------- |
+| Full Insights build                     | 4,288 s, 410 MiB     | 5,179 s, 462 MiB          |
+| Incremental, 10,000 new visits          | 134 s, 1.26 GB       | 213 s, 646 MiB            |
+| One site's category changed             | 958 s, 1.5 GB        | 1,220 s, 1.12 GiB         |
+| — of which: sorting its 144 pages again | 21 s                 | 35 s                      |
+| — of which: daily rollups, 1,669 days   | 845 s                | 1,013 s                   |
+| Export, 5.0 GB of JSON Lines            | 289 s, 2.07 GB       | 394 s, 993 MiB            |
+
+The build stages on the small machine: visit-derived facts 1,564 s, daily rollups 1,102 s, sessions 1,030 s, refind pages 1,328 s, the overview snapshot about 155 s. The interactive write waited under 1 ms during the build.
+
+The memory peaks that looked high on this Mac are lower with 8 GB: the incremental build and the export stay near or under 1 GB, so they grow with the memory there is (cache) rather than with the work. They fit the target.
+
+Reads on the small machine, first / second call in a fresh process: the overview 3.1 s / 199 ms, a site page 49 / 2 ms, sessions 1.2 / 0.8 ms; opening Insights for 30 days 2.4 s / 202 ms (first batch), for a year 29.5 s / 516 ms, for all time 72 / 60 ms (the snapshot). Three first reads are far slower than in §11's per-read table (2026-10-09, an EPYC VM with the `habits` shape; this run used the default shape, one site-day row per visit, so the two are not like for like): interrupted habits 66 s for 30 days and 68 s for a year (2.7 s there), and the all-time digest read on its own 67 s, then 1.0 s (2.9 s there). The year's first batch, 29.5 s, is close to §11's 39.1 s on the same default shape. Each later call is fast, so the first one is probably reading from disk what a larger machine keeps in its cache; not checked. Those three and the year's first batch are open in `WORK-SCALE-BENCH-RERUN`.
+
 ## Other reads
 
 | call                                          | 1M visits     | 14.4M visits  |
