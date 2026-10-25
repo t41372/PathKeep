@@ -1,6 +1,8 @@
 /**
  * App root: providers, then whichever full-screen state the session is in.
- * Only the `ready` state mounts the router and the screens.
+ * Only the `ready` state mounts the router and the screens. A screen that
+ * fails to render, in any state, shows the error view (`route-error.tsx`)
+ * instead of leaving the window blank.
  */
 import { QueryClientProvider } from '@tanstack/react-query'
 import { useMemo } from 'react'
@@ -16,6 +18,7 @@ import { useIndexJobEvents } from './index-job-events'
 import { createAppRouter, createOnboardingRouter } from './router'
 import { SessionProvider, useSession } from './session'
 import { LockScreen } from './shell/lock-screen'
+import { SessionErrorBoundary } from './shell/route-error'
 import {
   BootErrorScreen,
   BootScreen,
@@ -64,7 +67,9 @@ export default function App() {
             <SessionProvider>
               <BackupRunnerProvider>
                 <ImportRunnerProvider>
-                  <SessionGate />
+                  <SessionErrorBoundary>
+                    <SessionGate />
+                  </SessionErrorBoundary>
                   <Toaster position="bottom-right" />
                 </ImportRunnerProvider>
               </BackupRunnerProvider>
