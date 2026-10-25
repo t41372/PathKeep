@@ -83,6 +83,14 @@ export const FIXTURE_COMPARE: {
   order: number[]
 }
 
+/** One session's searches and pages, oldest first, for its automatic title. */
+export const FIXTURE_SESSION_TITLE: {
+  /** Each step is a search (`term`) or the page at `page` in `pages`. */
+  steps: ({ term: string } | { page: number })[]
+  /** URL and title of each page. */
+  pages: [string, string][]
+}
+
 /** Host → base64 PNG of the icons Chrome stored in the personal profile's `Favicons`. */
 export const FIXTURE_FAVICON_HOSTS: Record<string, string>
 

@@ -29,6 +29,9 @@
  *   the one set on its day's "Pages you compared": both pages, most opened
  *   first, how often each was opened and which the search opened first; the
  *   set leads to the page's view and the search's.
+ * - A session is named after its main site and the search it made most
+ *   often, as last typed: not its first search, and a tie goes to the
+ *   search made first.
  *
  * Insights are computed by a background job after the first backup, so
  * every read waits for real numbers instead of reading a "computing" state.
@@ -37,6 +40,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test'
 import {
   FIXTURE_COMPARE,
   FIXTURE_PAGES_SITE,
+  FIXTURE_SESSION_TITLE,
   openedFrom,
 } from '../../scripts/fixtures/synthetic-browsers.mjs'
 import {
@@ -547,6 +551,48 @@ test('a search that went back and forth between two shops is a set of compared p
   await page.goBack()
   await set.getByRole('link', { name: term, exact: true }).click()
   await drillIn(page, `“${term}”`)
+})
+
+test('a session is named after its main site and its most-used search', async ({
+  page,
+}, testInfo) => {
+  const { steps, pages } = FIXTURE_SESSION_TITLE
+  const terms = steps.flatMap((step) => ('term' in step ? [step.term] : []))
+  const start = archivedVisits().find((visit) => visit.term === terms[0])
+  expect(start, 'the fixture made the session').toBeTruthy()
+  const day = localDateKey(start!.at)
+  expect(
+    archivedVisits().filter((visit) => localDateKey(visit.at) === day),
+    'the session is alone on its day',
+  ).toHaveLength(steps.length)
+  // By hand: "write ahead checkpoint" and "busy timeout retry" were each
+  // searched twice, "btree page layout" once. The tie goes to the one
+  // searched first, shown as last typed. The pages, all on sqlite.org,
+  // outnumber the searches, so that site comes first.
+  const counts = countBy(terms, (term) => term.toLowerCase())
+  expect(counts.get('write ahead checkpoint')).toBe(2)
+  expect(counts.get('busy timeout retry')).toBe(2)
+  expect(steps.length - terms.length).toBeGreaterThan(terms.length)
+  expect(new Set(pages.map(([url]) => siteOf(url)))).toEqual(
+    new Set(['sqlite.org']),
+  )
+  const title = 'SQLite · write ahead checkpoint'
+  await testInfo.attach('session', {
+    body: JSON.stringify({ day, terms, title }, null, 2),
+    contentType: 'application/json',
+  })
+
+  await page.goto(`/#/insights/day/${day}`)
+  const sessions = card(page, 'Sessions').getByRole('listitem')
+  await expect(sessions).toHaveCount(1, { timeout: JOB_TIMEOUT })
+  await expect(sessions.first()).toContainText(title)
+  await expect(sessions.first()).toContainText(
+    `${steps.length} pages · 2 sites · ${terms.length} searches`,
+  )
+  await testInfo.attach('the session on its day', {
+    body: await sessions.first().screenshot(),
+    contentType: 'image/png',
+  })
 })
 
 test('a search from Frequent searches shows how often and when', async ({

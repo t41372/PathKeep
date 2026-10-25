@@ -72,7 +72,8 @@ pub(super) fn stage_version(connection: &Session<'_>, stage: RebuildMode) -> Res
         // of the search before it joins that search's family (v9 chained through wordings).
         // v11: each day keeps the refind pages opened on it (`refind_day_pages_rows`), which
         // "Pages reopened" counts.
-        RebuildMode::StructuralRebuild => Ok("structural-rebuild-v11".to_string()),
+        // v12: a session's title takes its most-used search (ties: the earliest), not its first.
+        RebuildMode::StructuralRebuild => Ok("structural-rebuild-v12".to_string()),
         RebuildMode::FullRebuild => Ok("full-rebuild-v2".to_string()),
     }
 }

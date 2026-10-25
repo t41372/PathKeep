@@ -127,6 +127,15 @@ impl PathSegment {
     }
 }
 
+/// How often one session used a search wording, when it first did, and how it was typed last.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct SearchWordingUse {
+    count: u32,
+    /// The wording's place among the session's distinct wordings, so a tie goes to the earliest.
+    first: u32,
+    latest: String,
+}
+
 /// Tracks one in-progress browsing session while visits stream through the
 /// deterministic grouping rules.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -134,7 +143,10 @@ pub(super) struct SessionBuildState {
     pub(super) record: SessionRecord,
     #[serde(skip)]
     pub(super) domain_counts: HashMap<String, usize>,
-    first_search_query: Option<String>,
+    /// Every visit's search, by its family key (case and surrounding spaces ignored), for the
+    /// title. A saved state from before this field resumes with none.
+    #[serde(default)]
+    searches: HashMap<String, SearchWordingUse>,
     navigation_chain_depth: i64,
     new_domain_count: i64,
     /// The open path segment; earlier ones are already saved.
@@ -159,7 +171,7 @@ impl SessionBuildState {
                 auto_title: None,
             },
             domain_counts: HashMap::new(),
-            first_search_query: None,
+            searches: HashMap::new(),
             navigation_chain_depth: 0,
             new_domain_count: 0,
             path: PathSegment::default(),
@@ -173,8 +185,14 @@ impl SessionBuildState {
         self.record.visit_count += 1;
         self.record.search_count += i64::from(visit.is_search_event);
         *self.domain_counts.entry(visit.registrable_domain.clone()).or_default() += 1;
-        if self.first_search_query.is_none() {
-            self.first_search_query = visit.search_query.clone();
+        if let Some(query) = &visit.search_query {
+            let first = self.searches.len() as u32;
+            let wording = self
+                .searches
+                .entry(super::build_rows::search_family_key(query))
+                .or_insert_with(|| SearchWordingUse { count: 0, first, latest: String::new() });
+            wording.count += 1;
+            wording.latest.clone_from(query);
         }
         self.navigation_chain_depth +=
             i64::from(matches!(Opener::of(visit.from_visit), Opener::Visit(_)));
@@ -185,10 +203,14 @@ impl SessionBuildState {
     /// heuristic once no more visits belong to this session.
     pub(super) fn finish(mut self) -> SessionRecord {
         self.record.domain_count = self.domain_counts.len() as i64;
-        self.record.auto_title = build_session_title_from_summary(
-            &self.domain_counts,
-            self.first_search_query.as_deref(),
-        );
+        let most_used = self
+            .searches
+            .values()
+            .max_by(|left, right| {
+                left.count.cmp(&right.count).then_with(|| right.first.cmp(&left.first))
+            })
+            .map(|wording| wording.latest.as_str());
+        self.record.auto_title = build_session_title_from_summary(&self.domain_counts, most_used);
         self.record.is_deep_dive = self.navigation_chain_depth >= 4
             && self.record.domain_count >= 5
             && self.record.visit_count >= 8
@@ -384,16 +406,21 @@ impl TrailBuildState {
 }
 
 /// Produces a stable human-readable title for a deterministic session from the
-/// dominant domain and the first search query, when either exists.
+/// dominant domain and its most-used search wording, when either exists.
+///
+/// The site stays in front of the search: neither a day's session rows in Insights nor the
+/// sessions Ask reads carry another field saying where a session's visits went, so without it
+/// every session with a search would lose its main site. It reads redundantly when that site is
+/// the search engine itself ("Google · …"), which is the smaller loss.
 pub(super) fn build_session_title_from_summary(
     domain_counts: &HashMap<String, usize>,
-    first_search_query: Option<&str>,
+    search: Option<&str>,
 ) -> Option<String> {
     let top_domain = domain_counts
         .iter()
         .max_by(|left, right| left.1.cmp(right.1).then_with(|| right.0.cmp(left.0)))
         .map(|(domain, _)| display_name_for_domain(domain).unwrap_or_else(|| domain.clone()));
-    match (top_domain, first_search_query) {
+    match (top_domain, search) {
         (Some(domain), Some(query)) => Some(format!("{domain} · {query}")),
         (Some(domain), None) => Some(domain),
         (None, Some(query)) => Some(query.to_string()),
