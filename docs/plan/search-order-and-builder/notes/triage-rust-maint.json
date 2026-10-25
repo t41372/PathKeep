@@ -1,0 +1,97 @@
+{
+  "blocks": [
+    {
+      "id": "WORK-FLAKY-WRITE-LOCK-TEST",
+      "verdict": "partial",
+      "evidence": "- 測試現在在 src-tauri/crates/vault-core/src/archive/write_lock.rs:615。block 寫的 :835 已經過時，整個檔案只剩 681 行。\n- 立這個 block 的 commit 551f851d（2026-07-27）同時把 drop 後的單次斷言改成最多 5 秒的輪詢（write_lock.rs:636-658，drop(first) 在 :647，from_secs(5) 在 :648）。CHANGELOG.md:2550 寫「untouched by this work」，跟 diff 對不上。\n- 會 fork 的測試還在同一個測試二進位裡：git_audit.rs:68/77/124 用 Command::new(\"git\")；test_support.rs:110、maintenance/rewrap_crash_tests.rs:19、search/recovery_tests.rs:21、archive/ingest/concurrency_tests.rs:256、takeout/batch_search_tests.rs:223、vault/tests.rs:149 會 re-exec current_exe。\n- 生產的釋放路徑 LockInner::drop（write_lock.rs:171-186）是先 LOCK_UN 再 close，可是註解（:173-176）說這只是 belt-and-suspenders。vault-store/src/owner_lock.rs:42-49 在 45ab0902（2026-10-07）修過同一類 flake，commit 訊息寫明：fork→exec 窗口裡子程序持有描述符副本時，只 close 不會釋放鎖，要靠 unlock。它的測試 owner_lock.rs:57-63 用 try_clone() 模擬那個副本，再單次斷言。\n- 現行測試釋放 first 只靠 close（:647），走的是生產根本不用的路徑。就算把 LockInner::drop 的 LOCK_UN 刪掉，這個測試照樣綠；wipe/tests.rs:264 也守不住這一點。\n- 在本機用 scratch 量的（沒進 repo）：/tmp/claude-1000/-home-agent-PathKeep/862dae19-3719-411a-9608-44a1ac8899da/scratchpad/triage-b5-locks/flock_fork_window.py。強制走 fork 路徑、4 條線程一直 spawn 時，只 close 的話單次重鎖被拒 26/5000；先 LOCK_UN 再 close 是 0/5000。走預設的 vfork 路徑時，兩種都是 0/20000。\n- vault-core lib 全套件（320 個，其中 10 個 #[ignore]），TZ=Pacific/Kiritimati、16 線程，本機連跑 3 次都是 310 passed / 0 failed，每次約 250 秒。結果在 /tmp/claude-1000/-home-agent-PathKeep/862dae19-3719-411a-9608-44a1ac8899da/scratchpad/triage-b5-locks/vault-core-full-runs.txt。\n- BACKLOG.md:134 那行「驗收」其實屬於 WORK-RUN-LIFECYCLE-GUARDS：551f851d 把本 block 插進了那個 block 的正文和驗收行之間；那個 block 2026-10-12 搬到 STATUS.md 完成時（5dd01844），這行被留了下來。\n- hold_write_lock_as_foreign_process_for_test 的 doc（write_lock.rs:587-596）說它給 backup-defer 測試用，但現在只有 archive/wipe/tests.rs:267 在用。",
+      "remaining_scope": "只改 src-tauri/crates/vault-core/src/archive/write_lock.rs，不動生產行為：\n1. 改寫 distinct_open_file_descriptions_exclude_each_other，名字照它保證的事取，例如 a_dropped_lock_is_free_while_a_spawning_child_still_holds_a_copy。做法：用 ArchiveWriteLock::try_acquire(&paths) 拿真正的 guard；用 guard.inner.as_ref().unwrap().file.try_clone() 模擬 fork→exec 窗口裡子程序持有的副本（tests 是子模組，看得到私有欄位）；用 open_lock_file + flock_try_exclusive 開第二個 open file description，單次斷言它被拒（跨進程互斥）；drop(guard) 之後，趁副本還活著，單次斷言第二個 description 拿得到鎖；最後才 drop 副本。刪掉 5 秒輪詢和它的註解。\n2. 改 LockInner::drop 的註解：子程序還拿著副本時，是 LOCK_UN 把鎖放掉，只 close 不夠（指向 owner_lock.rs），所以不是可有可無的保險。\n3. 更新 hold_write_lock_as_foreign_process_for_test 的 doc，寫明只有 wipe 測試在用。\n4. 驗證：先暫時拿掉 LOCK_UN，新測試必定失敗（負→正）；恢復後通過。再跑 bun run check。這個測試符合 quality-matrix「什麼時候才寫 unit test」：處理的是競爭、E2E 碰不到，而且牽涉 2026-06-30 事故的資料完整性。\n5. BACKLOG 條目：改正行號，刪掉孤兒驗收行，做完就關掉。",
+      "risks": "只動測試和註解，生產行為不變。如果只保留輪詢就關掉 block，真正負責釋放的 LOCK_UN 不會有任何測試守著，註解又暗示它可以刪，等於留了一條沒人看守的回歸路徑。違反 AGENTS.md「不糊弄測試」，也違反本 block 自己的契約（不加 retry）。",
+      "suggested_action": "改寫成：照 owner_lock.rs 的做法把這個測試改成確定性的單次斷言，修正 LockInner::drop 的註解，刪掉孤兒驗收行，然後關閉。不要再加 retry。",
+      "sub_items": [
+        {
+          "title": "消除 flake（全量 gate 6 跑 2 失敗）",
+          "verdict": "done",
+          "note": "551f851d 加了 5 秒輪詢；本機全套件連跑 3 次都過。"
+        },
+        {
+          "title": "契約：隔離 fork 窗口、不加 retry、不弱化斷言",
+          "verdict": "valid",
+          "note": "現在用的輪詢正是契約說不要的做法，而且驗的是裸 close；owner_lock.rs 已經有確定性的寫法可以照抄。"
+        },
+        {
+          "title": "LockInner::drop 註解稱 LOCK_UN 只是保險",
+          "verdict": "valid",
+          "note": "註解低估了它：fork 窗口下真正釋放鎖的是 LOCK_UN（45ab0902 的結論；本機量測 26/5000 對 0/5000）。"
+        },
+        {
+          "title": "驗收行（running leak / Audit / worker logs）",
+          "verdict": "obsolete",
+          "note": "屬於已完成的 WORK-RUN-LIFECYCLE-GUARDS（5dd01844），不是本 block 的驗收。"
+        }
+      ]
+    },
+    {
+      "id": "WORK-MAINT-PARSER-CHROMIUM-A",
+      "verdict": "partial",
+      "evidence": "- src-tauri/crates/browser-history-parser/src/chromium/mod.rs 現在 1222 行，跟 repo-baseline.md:34（2026-10-13 量的）一致。生產部分 1–757 行，2026-10-07（54eaf10b）以後幾乎沒動。#[cfg(test)] mod tests 佔 758–1222，6 個測試約 465 行，其中約 180 行是手寫的 History/Favicons schema 和插入（:832-1011），約 67 行是計數用的 sink（:764-830）。\n- 立項理由已經不在了：BACKLOG.md:42 記的是 2026-05-27 檔案到 1544 行、超過「1400 行硬限制」。AGENTS.md 的 >1200 / >1400 規則在 abfb4e67（2026-06-20）刪掉了，現行 AGENTS.md:34 只要求「重構 >1000 行的檔案先做審查階段（架構地圖 / 拆分方案 / E2E 覆蓋確認）」。repo-baseline.md:23 列「真正要拆的程式碼」時寫的是 agent_harness、agent_tools、code_mode、archive_flows、dispatch，沒有這個檔。\n- 行數歷史：1559（b4a4249d）→ 1486（54eaf10b）→ 1222（1e0fadce，WORK-TEST-CUT-2026-10）。\n- 契約裡的「Rust coverage/mutation parser slice 要保持綠」和「確認 mutation evidence」已經退役：見 quality-matrix.md:5；package.json 的 coverage / mutation 腳本在 1ccbae40 刪了。\n- 同一個 crate 的慣例：takeout/mod.rs:35-36 和 url_pages.rs:164-165 都用 `mod tests;` 把測試放到獨立檔案；url_pages/tests.rs:8,57 已經在用 browser_history_fixtures::ChromiumHistoryFixture。fixtures 是 parser 的 dev-dependency，本身只依賴 rusqlite。\n- E2E 覆蓋：scripts/fixtures/synthetic-browsers.mjs:642-676 的合成 Chrome 有 urls / visits / keyword_search_terms，:566-611 有 Favicons；downloads 表有建，但一列都沒有。vault-core 的 T6–T9 sidecar 場景在 1e0fadce 刪了，所以 Chromium 的 download 列現在只剩 chromium/mod.rs:1098 parse_history_returns_incremental_rows_from_provided_paths 在驗。\n- 本機 baseline：parser 測試二進位 29 個全過，6 個 chromium 測試都在裡面。",
+      "remaining_scope": "1. 審查階段（AGENTS.md:34），寫在 block 或 CHANGELOG 裡即可：\n   - 架構地圖：stream_history 的編排在 :159-247；各表的 batch streamer 在 :329-561；evidence / capability 在 :562-676；row mapper 在 :677-757；測試在 :758-1222。\n   - 拆分方案：只搬測試，生產代碼不拆。\n   - E2E 覆蓋確認：見上，downloads 只有單元測試。\n2. 執行：改成 `#[cfg(test)] mod tests;`，測試放到 src/chromium/tests.rs。表齊全的 fixture（write_history_fixture / write_favicons_fixture）改用 ChromiumHistoryFixture，但至少保留一筆 download 列。專門測「缺表」的 parse_history_requires_urls_and_visits_tables 和 parse_history_skips_favicons_when_support_tables_are_missing 保留最小的手寫 schema。生產代碼一行都不改。\n3. 驗證：cargo test -p browser-history-parser 裡 6 個 chromium 測試照原名全過；bun run check 綠。\n4. 回寫 repo-baseline.md 的巨型檔案清單，把這一列拿掉（mod.rs 會降到約 760 行）。",
+      "risks": "整理 fixture 時如果把 download 列也清掉，Chromium downloads 就沒有任何測試了。不要順手改 parse / stream / capability 的語義。如果動到檔頭，要依 AGENTS.md 補上 Responsibilities / Not responsible for。另外 AGENTS.md:34 說「行數硬門檻見 repo-baseline.md」，可是 repo-baseline.md 只列 ≥1000 行的檔案，沒有寫硬門檻；別有人從舊筆記把 1400 行規則又搬回來。",
+      "suggested_action": "改寫成一個小 block：只把 chromium 的測試搬到 chromium/tests.rs，並改用 ChromiumHistoryFixture；刪掉生產拆分和 mutation / coverage 條款。如果不想為這件事花一個 block，也可以直接刪掉，因為現行規則沒有要求拆它。",
+      "sub_items": [
+        {
+          "title": "1400 行硬限制 / 禁止新增業務邏輯（立項觸發條件）",
+          "verdict": "obsolete",
+          "note": "規則在 abfb4e67（2026-06-20）刪除；檔案已從 1544 行降到 1222 行。"
+        },
+        {
+          "title": "拆分前後 coverage/mutation parser slice 要綠、確認 mutation evidence",
+          "verdict": "obsolete",
+          "note": "quality-matrix.md:5 在 2026-10 退役了 mutation 與 100% 覆蓋；相關腳本在 1ccbae40 刪除。"
+        },
+        {
+          "title": "把生產代碼拆成 streaming row / source-evidence / capability 等 owner",
+          "verdict": "obsolete",
+          "note": "生產代碼約 757 行、職責單一（讀已 staged 的 Chromium History/Favicons），repo-baseline 也沒把它列為要拆的檔案。"
+        },
+        {
+          "title": "把測試搬出 mod.rs、劃清 fixture / test owner",
+          "verdict": "valid",
+          "note": "機械性搬到 chromium/tests.rs，並重用 ChromiumHistoryFixture；download 列要留著。"
+        }
+      ]
+    },
+    {
+      "id": "WORK-IMPORT-SCALE-TEST-A",
+      "verdict": "done",
+      "evidence": "- 雜湊早就換掉了：src-tauri/crates/browser-history-parser/src/takeout/browser_history.rs:568-576 現在取 SHA-256 的前 8 位元組（大端），再去掉符號位，等於 63 位元。doc（:523-567）寫了 14.4M 時約 1.1e-5 的生日界，也寫了「不可再改」的跨版本警告。修復 commit 是 b4a4249d（2026-06-15）；docs/plan/program/import-dedup-audit.md:165 已經標了「B5 ✅ RESOLVED 2026-06-14」。\n- 雜湊的輸入：BrowserHistory 的造訪是 \"{url}:{visit_time_micros}:{ordinal}\"（:383）；My Activity 是 \"{url}:{time_micros}:{seen}\"（my_activity.rs:113-128）；URL 是 \"url::{url}\"（:369、:405）。時間和序號都是整數，從右邊拆只有一種拆法，所以不同紀錄不可能產生相同的輸入；只要 key 相同，就一定是真的雜湊碰撞。\n- 唯一性的範圍：Turso schema 的 UNIQUE(source_profile_id, source_url_id) 和 UNIQUE(source_profile_id, source_visit_id) 在 src-tauri/crates/vault-core/src/store_schema/archive.rs:303-304。Takeout 固定只用兩個 profile（vault-core/src/takeout/mod.rs:206），所以每次匯入的 key 都累積在同一個範圍裡。\n- 真的碰撞會怎樣：造訪走 INSERT OR IGNORE（archive/ingest/writes.rs:309），會默默少一筆；URL 走 upsert_url（writes.rs:131-222），用 source_url_id 會查到別的 URL 那一列，如果新來的比較新，會把那一列的 url 和 title 改寫掉。\n- 理論值 P ≈ n(n−1)/2^64：14.4M 個造訪 1.12e-5；3M 個 URL 4.9e-7；1M 個 5.4e-8。\n- 本機實測（scratch 腳本，沒進 repo：/tmp/claude-1000/-home-agent-PathKeep/862dae19-3719-411a-9608-44a1ac8899da/scratchpad/triage-b5-locks/b5_collisions.py，結果在同目錄 b5-14.4M.txt）：照上面的演算法和輸入形狀做了 14.4M 個造訪 key 加 3M 個 URL key。8 個進程算雜湊 4.5 秒，連排序總共 85 秒。63 位元時 0 碰撞。把 key 截短到 36/40/44/48 位元，觀察到 1568/109/6/1 對碰撞，生日界期望值是 1508.7/94.3/5.9/0.4，分佈均勻，所以外推到 63 位元站得住。\n- 「需要百萬筆 fixture 基礎建設」這個阻塞理由不成立：根本不需要 fixture，這台機器跑 14.4M 只要一分半。1M 筆的碰撞測試期望值只有 5e-8，永遠是綠的，什麼也證明不了；quality-matrix.md:62-66 也不收這種重述程式碼、探測常數的測試。\n- 還沒更新的文檔：import-dedup-audit.md:498（B5 還寫著 deferred / needs million-record fixture）、import-test-harness-spec.md:300 和 :336（T4 還寫著「B5 failing test」）、BACKLOG.md:216、:220、:223-230。",
+      "remaining_scope": "",
+      "risks": "不要再改 stable_key_i64。key 是存在 archive 裡的去重身分，一改，跨版本重新匯入就會重複（browser_history.rs:557-567、import-dedup-audit.md:197-212）。\n另一件事不屬於 B5（只讀代碼得出，沒實跑）：BrowserHistory.json 的造訪 key 含有記錄在檔案裡的位置 ordinal，也就是陣列索引（json_stream.rs:43-49）。如果較新的匯出把新紀錄排在前面，舊紀錄的 ordinal 會整批位移，source_visit_id 全部改變。同一個 Takeout profile 裡就只剩含 title 的 event_fingerprint（archive.rs:305）兜底：same_visit 只連結不同來源（same_visit.rs:55-58），t2b（dedup_scenarios_takeout.rs:97）也只測「同位置改標題」。My Activity 的 key 不看位置（my_activity.rs:112）。要確認的話另開一個 block，在 tests/e2e/takeout-import.spec.ts 加一條「更長的新匯出，加上一頁改了標題，不會重複」。",
+      "suggested_action": "刪除這個 block：B5 已在 b4a4249d 修好，問題也已經答了。刪除時一併回寫 import-dedup-audit.md:498 和 import-test-harness-spec.md:300/:336（附上本次量測數字和 b4a4249d），並修正 BACKLOG.md:216/:220 對它的引用。不要把規模碰撞測試加進 gate。",
+      "sub_items": [
+        {
+          "title": "確認 14.4M 時需不需要換 hash function",
+          "verdict": "done",
+          "note": "已在 b4a4249d 換成 SHA-256 取 63 位元；14.4M 時碰撞機率約 1.1e-5，不需要再換。"
+        },
+        {
+          "title": "用 1M+ 筆資料產出碰撞統計",
+          "verdict": "done",
+          "note": "本機實測 14.4M 筆：0 碰撞；截短位元數的觀察值與生日界一致。"
+        },
+        {
+          "title": "百萬筆 fixture 與 benchmark 工具（原本的阻塞理由）",
+          "verdict": "obsolete",
+          "note": "不需要 fixture，純雜湊在記憶體裡算 85 秒就完成。"
+        }
+      ]
+    },
+    {
+      "id": "WORK-ARCHIVE-TEST-MAINT-A",
+      "verdict": "obsolete",
+      "evidence": "- src-tauri/crates/vault-core/src/archive/tests.rs 立項時是 3272 行（BACKLOG.md:38，2026-05-07），最多長到 4556 行（a5eeb982，2026-10-04）。Turso 遷移 54eaf10b（2026-10-07）降到 2092 行，0613cf16 降到 1390 行，WORK-TEST-CUT-2026-10 的 1e0fadce（2026-10-12）降到 243 行。現在 259 行，只剩 4 個測試（:158 Safari staging 失去權限、:200 大型 source evidence 不落明文暫存檔、:233 fingerprint 穩定、:247 schema JSON 編碼）。\n- archive/ 底下沒有 ≥1000 行的檔案，最大的是 history/og_images_fetch.rs，743 行。整個 repo ≥1000 行的 10 個檔案都不在 archive。\n- 測試已經按模組分開放：archive/ingest/{dedup_scenarios*,concurrency_tests,import_equivalence,rowid_resume_tests}.rs、archive/wipe/tests.rs、maintenance/*_tests.rs 等。\n- 契約裡的 coverage:rust 100% 已經退役（quality-matrix.md:5）；package.json 的 coverage 腳本在 1ccbae40（2026-10-04）刪掉了，所以驗收裡的 bun run coverage:rust 這個命令已經不存在。",
+      "remaining_scope": "",
+      "risks": "無。",
+      "suggested_action": "刪除這個 block（BACKLOG.md:629-637），一併刪掉 BACKLOG.md:38 那條 2026-05-07 的 note。"
+    }
+  ]
+}

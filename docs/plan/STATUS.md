@@ -9,6 +9,12 @@
 
 ## CURRENT FOCUS
 
+- [ ] **WORK-SEARCH-ORDER-AND-BUILDER** — 搜尋結果可以選排序；進階搜尋可以點選組合，不用背語法與 regex（用戶 2026-10-25）
+  - 用戶：「搜索歷史紀錄的時候，應該要有不同排序方式，比如相關度優先，時間排序優先等等。另外，正則搜索技巧，應該要設計一個二級菜單或是某種別的交互模式，用戶可以和 UI 交互來做高級搜索，不用背正則表達式。」
+  - 讀先：[交接筆記](search-order-and-builder/README.md)（讀碼報告，未逐條驗證）、`docs/features/recall.md`、`docs/architecture/search.md`、`docs/design/` 核心四份。
+  - 現況：後端串流搜尋已支援 relevance / newest / oldest，History 沒讓人選（全文固定 relevance、regex 固定 newest）；「?」語法速查只有一個 regex 例子。方向與還沒讀完的部分見交接筆記。
+  - 用戶同日另交代：這個做完後，STATUS 與 BACKLOG 裡看得到的任務全部做完，不合理的改寫或刪掉，需要的新增（用戶授權自行決定）；里程碑後請 Codex（`gpt-6-astra`、xhigh）審查，審查結果當未驗證的假設逐條核對。分支 `feat/search-order-and-builder`，最後整理成幾個 conventional commits 再 force push。
+
 - [x] **WORK-FRONTEND-REDESIGN-2026-10** — 用新 prototype 整個替換前端（用戶 2026-10-02 指示）
   - 讀先：
     `docs/design/prototype-2026-10/`（prototype HTML + 截圖；用 `python3 -m http.server` 開）

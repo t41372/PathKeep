@@ -1,0 +1,76 @@
+{
+  "blocks": [
+    {
+      "id": "WORK-CI-DESKTOP-BRIDGE-REENABLE",
+      "verdict": "obsolete",
+      "evidence": "1) 要重新啟用的目標已刪除。`tests/e2e/desktop-bridge.spec.ts`（裡面兩個 `test.fixme`）、`playwright.desktop-bridge.config.ts`，以及 `test:e2e:desktop-bridge` / `:headed` / `:truth` 三個 script，都在 `1ccbae40`（2026-10-04，feat(frontend): replace the frontend with the shadcn redesign）刪掉。redesign 分支上的 `3e299057`（2026-10-02，test(e2e): rewrite the suite for the new UI on the real backend）也刪過同一個 spec。\n2) 取代它的 `bun run test:e2e` 架構相同，而且已經在 Linux CI 上跑：`scripts/pathkeep-dev-desktop-bridge.mjs:95-157` 自己 build 並啟動真正的 `pathkeep-desktop`（帶 `devtools-bridge`）和 Vite；`playwright.config.ts:106,136` 在沒有 DISPLAY 的 Linux 上包一層 `xvfb-run -a`；`.github/workflows/ci.yml:61` 跑 `dbus-run-session -- xvfb-run -a bun run check`。\n3) 當初隔離的兩個 Linux 失敗模式都沒再出現：\n- `tests/e2e/first-run.spec.ts:27,41,91-97,144-156` 斷言第一次備份和 Home 上的造訪數，正好等於兩個合成 Chrome profile 加 Firefox 的 fixture 數，舊的「Linux 匯入 0 筆」會直接讓它失敗。\n- main 上 CI run 39217122767（2026-10-19）的「Check (lint, build, Rust, desktop-bridge E2E)」步驟是 success。\n4) `/health` 仍然硬編 `\"runtime\": \"browser-desktop-bridge\"`（`src-tauri/src/dev_ipc_bridge/router.rs:84`），但現在 readiness 只看 `webServer.url = ${devIpcUrl}/health`，並設了 `reuseExistingServer: false`（`playwright.config.ts:139`）和隨機埠（`:87-88`）。連到殘留的舊 server 時 Playwright 會直接報錯，不會黏上去。回應裡也多了 `pid`（`router.rs:86`）。\n5) 唯一在 Linux 跳過的是 `tests/e2e/schedule.spec.ts:21-24`，理由是 PathKeep 在 Linux 不能安裝排程，屬於產品限制，跟 bridge 無關。",
+      "remaining_scope": "",
+      "risks": "- Tauri WebView / plugin guest API 本身仍然不在 E2E 內。這條邊界 `quality-matrix.md` 的「Honest Boundaries」已經列出；舊的 truth gate 也是用 Chrome 打 bridge，從沒驗過 WebView，所以不算這個 block 的殘餘。\n- 舊 spec 註解提到 macOS 上有個「processedVisits accounting quirk」，但它從來不在這個 block 的範圍內，而且當時用的 `rebuild_core_intelligence` 已經不在桌面命令層（在 `src` 和 `src-tauri/src` 用 `git grep` 都找不到）。",
+      "suggested_action": "刪除這個 block（`BACKLOG.md:164-169`）。"
+    },
+    {
+      "id": "WORK-V03-RUST-COVERAGE-RESIDUAL",
+      "verdict": "obsolete",
+      "evidence": "1) 列出的殘餘行其實早已補完。`da007f67`（2026-05-22，test(rust): close the 100% line-coverage gate residuals via targeted refactors and new tests）的 commit body 寫著：\"Coverage gate now passes at 100% for 31,762 instrumented Rust lines / 1,501 functions, with no exclusions\"。做法是：\n- 把 worker loop 拆成 `finalize_refetch_run` / `drain_one_worker_url` / `record_refetch_outcome` / `lock_or_recover`（現在在 `src-tauri/crates/vault-worker/src/archive_flows.rs:653,663,700,728`）。\n- 新增 `BodyPhase` 和 `fetch_status_for_body_error`（`og_images_fetch.rs:617`）。\n- 把 `Selector::parse` 改成 `.expect()`。\n\n當時 `check:coverage` 已經是 full 的 `coverage:js && coverage:rust`（見 `git show 1ccbae40^:package.json`）。兩條驗收條件都達成了，只是 BACKLOG 裡的 entry 沒刪。\n2) 之後整個 gate 被取消。`1ccbae40`（2026-10-04）刪了 `coverage:rust:raw` / `coverage:rust:quality` / `coverage:rust` / `check:coverage` 和 `scripts/verify-rust-coverage.mjs`。CI 也拿掉了 `cargo-llvm-cov`、`llvm-tools-preview` 和兩個 Codecov 上傳步驟。\n3) 政策依據：`AGENTS.md:38`「不跑 mutation test，也不強制 100% 覆蓋率」；`quality-matrix.md:5`「…coverage / mutation gate 都是歷史，已不存在」；`quality-matrix.md:89`「沒有 coverage 數字」；`TESTING.md:21`。\n4) 為了 coverage 寫的那批測試在 `1e0fadce`（2026-10-12，WORK-TEST-CUT-2026-10）刪掉了：`og_images_fetch.rs` 少了 874 行，`archive_flows.rs` 少了 798 行。現在 `og_images_fetch.rs` 只剩 3 個 SSRF 測試（`:699`、`:710`、`:728`），`archive_flows.rs` 沒有測試模組。",
+      "remaining_scope": "",
+      "risks": "- 驗收用的 `node scripts/verify-rust-coverage.mjs ... full` 和 `check:coverage` 都已經不存在。照字面執行等於把退役的 gate 重建回來，會違反 `AGENTS.md:38` 和 Accepted 的 `quality-matrix`（原則 7：推翻需要 trade-off 文檔加用戶明確同意）。\n- 附帶觀察，不屬於這個 block：HTML 1 MiB / 圖片 2 MiB 的串流上限（`og_images_fetch.rs:50,54,625-653` 的 `read_capped_bytes`）現在沒有任何測試，`tests/e2e/link-preview.spec.ts` 也沒碰到它。如果要守住這個惡意輸入邊界，另開 block 比較合適，例如在 link-preview.spec 自己開的 `https://127.0.0.1` 站送一個沒有 Content-Length 的超大 body，斷言它變成負快取或 too-large 狀態，而且 app 照常可用。這是 E2E，也符合 `quality-matrix`「什麼時候才寫 unit test」裡的安全邊界條款。",
+      "suggested_action": "刪除這個 block（`BACKLOG.md:488-543`）。"
+    },
+    {
+      "id": "WORK-V03-CODEX-REVIEW-FOLLOWUP",
+      "verdict": "obsolete",
+      "evidence": "1) 「讀先」清單裡的 `src/app/shell.tsx`、`src/lib/paper-preferences.ts`、`src/components/explorer-paper/paper-contact-sheet.tsx`、`src/pages/explorer/hooks/use-explorer-og-images.ts`，都在 `1ccbae40`（2026-10-04）刪除。`package.json` 已經沒有 `check:coverage`，`vitest.config.ts` 也沒有 coverage 區塊。\n2) 這個 block 標的阻塞理由是「Rust + JS coverage residuals still open」，已經不成立：\n- Rust 在 `da007f67`（2026-05-22）補到 100%。\n- JS 在 `99084f7a`（2026-05-27）把 threshold 拉回 100/100/100/100（見 `git show 1ccbae40^:vitest.config.ts:76-81`）。\n- 之後 `1ccbae40` 把 gate 整個拿掉，`AGENTS.md:38` 和 `quality-matrix.md:5` 正式宣告退役。",
+      "sub_items": [
+        {
+          "title": "shell.tsx palette 查詢契約（{search,limit,offset}/rows → {q,limit,sort}/items）",
+          "verdict": "obsolete",
+          "note": "舊檔在 `1ccbae40` 刪除。新的 palette `src/app/shell/command-palette.tsx:76-81` 用 typed 的 `explorerClient.searchPages({ q, limit, sort, includeTotal })`（`src/lib/backend-client/explorer.ts:42`），用的就是舊 bug 本該用的那組參數，同類錯誤現在 typecheck 就擋得住。"
+        },
+        {
+          "title": "i18n raw English copy",
+          "verdict": "obsolete",
+          "note": "舊 catalog 跟著舊前端一起刪了。新前端的三語對齊由 `check:js` 裡的 `bun run check:i18n`（`scripts/i18n-progress.ts`）擋。"
+        },
+        {
+          "title": "theme dual state",
+          "verdict": "obsolete",
+          "note": "`paper-preferences.ts` 已刪。新的 `src/lib/theme.tsx:49-89` 是單一的 `ThemeProvider` / `useTheme` context，沒有兩份狀態要同步。"
+        },
+        {
+          "title": "paper Explorer pagination",
+          "verdict": "obsolete",
+          "note": "`paper-contact-sheet.tsx` 已刪。新的 History 用 cursor 型 `useInfiniteQuery`（`src/features/history/queries.ts:111-122,161-175`）加 `fetchNextPage`（`src/features/history/history-page.tsx:114,214`）分頁。"
+        },
+        {
+          "title": "og:image fetch trigger",
+          "verdict": "obsolete",
+          "note": "`use-explorer-og-images.ts` 已刪。新的 `src/features/history/og-image-store.ts` 在 `:71` 批次呼叫 `loadHistoryOgImages`，在 `:112` 由詳情面板按需呼叫 `triggerOgImageRefetch`，由 `tests/e2e/link-preview.spec.ts` 覆蓋。"
+        },
+        {
+          "title": "100% coverage gate restoration（🟡）",
+          "verdict": "obsolete",
+          "note": "先在 `da007f67`（Rust）和 `99084f7a`（JS）完成，之後在 `1ccbae40` 退役（見 `AGENTS.md:38`、`quality-matrix.md:5,89`、`TESTING.md:21`）。"
+        }
+      ],
+      "remaining_scope": "",
+      "risks": "這個 block 的契約寫著「coverage gate 恢復是 merge blocker…不要私自降回 quality slice」，跟現行的 `AGENTS.md` 和 `quality-matrix` 直接衝突。留著它會誤導後面的 agent 去重建 coverage gate。",
+      "suggested_action": "刪除這個 block（`BACKLOG.md:545-591`）。"
+    },
+    {
+      "id": "WORK-V03-COVERAGE-RESIDUAL",
+      "verdict": "obsolete",
+      "evidence": "1) 目標檔案全部已刪：`src/app/shell.tsx`、`src/app/shell-helpers.ts`、`src/pages/dashboard/index.tsx`、`src/components/explorer-paper/*`、`src/components/shell/pk-topbar.tsx` / `pk-status-bar.tsx` / `pk-search-palette.tsx`、`src/test/setup.ts`，都在 `1ccbae40`（2026-10-04）刪除。`date-helpers.ts` 也已經不在 `src` 裡。清單裡只剩 `src/lib/backend-client/annotations.ts` 還在，但它已經沒有 coverage 要求。\n2) 這個 block 的目標其實在 `99084f7a`（2026-05-27，test(js): close final coverage residuals）就達成了：threshold 拉回 100/100/100/100（見 `git show 1ccbae40^:vitest.config.ts:76-81`）。\n3) 之後 gate 退役。`1ccbae40` 刪了 `coverage:js`、`coverage:js:desktop-contract`、`check:coverage`、`check:desktop-contract`、`vitest.desktop-contract.config.ts`、CI 的 Codecov 步驟，以及 `vitest.config.ts` 整個 `coverage` 區塊。現在的狀態是：\n- `vitest.config.ts` 沒有任何 threshold。\n- `bun.lock` 裡沒有 `@vitest/coverage-v8`。\n- `src` 和 `scripts` 只剩 2 個 unit test：`src/lib/search-params.test.tsx` 和 `scripts/build-release-size-audit.test.ts`。\n4) 這個 block 指出的「`quality-matrix` 寫死 100/100/100/100，vitest 卻是 99/99/98/99」的契約衝突也已經解了：`quality-matrix.md:5,89` 和 `TESTING.md:21` 現在都明寫沒有 coverage threshold。",
+      "remaining_scope": "",
+      "risks": "照驗收執行（`bun run coverage:js` 全部 ≥100%）得先把 `@vitest/coverage-v8` 加回來（要走依賴授權），還要重建已退役的 gate，會違反 `AGENTS.md:38` 和 Accepted 的 `quality-matrix`（原則 7）。",
+      "suggested_action": "刪除這個 block（`BACKLOG.md:593-618`）。"
+    },
+    {
+      "id": "WORK-QA-GATE-B",
+      "verdict": "obsolete",
+      "evidence": "1) 政策已經取消 mutation：`AGENTS.md:38`「不跑 mutation test」；`quality-matrix.md:5`；`TESTING.md:21` 寫著 \"There is no coverage threshold and no mutation testing\"。\n2) 「讀先」裡的 `.github/workflows/mutation.yml` 在 `1ccbae40`（2026-10-04）刪除。同一個 commit 從 `package.json` 刪了 `mutation`、`mutation:js`、`mutation:js:full`、`mutation:js:desktop-contract`、`mutation:rust`、`mutation:rust:full`、`mutation:rust:parser`、`mutation:rust:ai-helpers`、`mutation:rust:quality`、`check:mutation`、`check:deep`，也刪了 `stryker.config.json` 和 `stryker.desktop-contract.config.json`。commit body 寫著：\"E2E on that backend replaces mutation testing and the 100% coverage gate as the main proof that features work\"。\n3) 現在 `bun.lock` 裡沒有 `@stryker-mutator`，repo 裡也沒有 cargo-mutants 設定。在非 docs 的檔案裡 `git grep` 只找到 `.cargo/config.toml:7` 和 vault-crypto README 裡兩行跟 llvm-cov 有關的註解。\n4) 驗收要求的 `bun run mutation:js:full` 和 `bun run mutation:rust:full` 已經不存在。",
+      "remaining_scope": "",
+      "risks": "- 要恢復 mutation sweep，得先寫 trade-off 文檔並拿到用戶明確同意（原則 7），還要把 Stryker 和 cargo-mutants 加回來。\n- `BACKLOG.md:31,32,35` 有幾條帶日期的歷史註記，寫著「BACKLOG 目前仍只有 blocked 的 `WORK-QA-GATE-B`」。它們是歷史紀錄，刪 block 時可以保留不動。",
+      "suggested_action": "刪除這個 block（`BACKLOG.md:681-691`）。"
+    }
+  ]
+}

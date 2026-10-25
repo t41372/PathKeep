@@ -1,0 +1,159 @@
+{
+  "blocks": [
+    {
+      "id": "WORK-REVIEW-FOLLOWUPS-COPY-CHANNELS-2",
+      "verdict": "partial",
+      "evidence": "舊前端已整批刪除：`src/lib/format.ts` 在 5edf5645（2026-10-02）刪掉；`src/pages/**` 在 1ccbae40（2026-10-04）刪掉，裡面有 `settings/helpers.ts` 的 `localizeLocalHostLine` 與 45 句影子表、三個 `index.tsx` 的 `enableAiIntegrationPreview`、`intelligence/sections/shared.ts`。同一個 commit 也刪了 `components/explorer-paper/paper-day-insights-helpers.ts`、`lib/core-intelligence/{routes.ts,api/shared.ts}`、heatmap/dashboard helpers 與 `useExplorerUrlState`。在 `src/` grep 不到 localizeLocalHostLine、enableAiIntegrationPreview、isoDateOnly、formatLocalDateKey、applyDateShortcut、buildRecentSearchLabel。\n\n仍然存在的：\n- `vault-core/src/intelligence/host_artifacts.rs:272-413`：`host_copy` 和 `build_boundary_notes` 的中文仍夾著『deterministic Core Intelligence read models』『trusted-only』。但前端沒有任何 local host 呼叫，只剩 `src/lib/core-intelligence/types-outputs.ts:62-121` 的型別。`docs/architecture/desktop-command-surface.md:191` 把這兩個指令列為沒有畫面呼叫，並記錄用戶 2026-10-02 決定保留。\n- `vault-core/src/ai/read_model.rs:440-530` 仍組出整包英文 prose 和兩個 GeneratedFile，但 UI 只讀 `mcpCommand`（`src/features/settings/ai-section.tsx:107,115`；`tests/e2e/mcp-log.spec.ts:27-30`）。\n- 兩個 M13 TODO：`src-tauri/src/worker_bridge/intelligence.rs:3-5`、`src-tauri/src/dev_ipc_bridge/dispatch.rs:936-938`。M13 已在 2026-04-23 收口（`docs/plan/README.md:111`）。\n- 鑰匙圈開關關閉時直接 `forget.mutate()`，沒有確認（`src/features/settings/security-section.tsx:121-123`）。\n- 新增 AI 服務：`src/features/ai-setup/use-ai-providers.ts:152` 先寫 config，`:164` 才 `storeKey`；id 每次隨機（`providers.ts:180-186`）。清除 key：`use-ai-providers.ts:224` 用 `.catch(() => undefined)` 吞掉失敗，`vault-platform/src/keyring.rs:203-214` 也用 `let _ = entry.delete_credential()` 忽略錯誤。\n- 後端自己按語言分支寫文案、但沒有畫面顯示：`vault-worker/src/security.rs:149-176`、`vault-core/src/migration/native.rs:207-231`、`vault-convert-sqlcipher/src/bundle.rs:40-53`、`intelligence/intelligence_rebuild.rs:225-229`。i18n gate 只掃前端 catalog（`scripts/i18n-progress.ts`）。`src-tauri/src/desktop_integration/copy.rs:4` 卻說它是『後端唯一寫 UI 文案的地方』。\n- `src/features/settings/move-dialogs.tsx:59` 用 `toISOString().slice(0,10)` 取 UTC 日期當預設檔名。\n\nSettings 已經做好的：\n- `search-tuning-row.tsx:6-7,135-170` 用本地 draft 加 Save，沒有滑桿。\n- `free-space-dialog.tsx:59-66` 快照預設不勾。\n- `move-dialogs.tsx:242-244` 匯入後顯示 toast 並 `session.restart()`。\n- `ai-setup/provider-dialog.tsx:83-95,164-166` 存 key 失敗會顯示錯誤。\n- wipe、restore、rekey、clear-derived、預覽快取、移除 passcode、刪服務、重建索引、修復都會先開 Dialog 或 AlertDialog。\n- `insights/site-category.tsx:50-56` 改網站類別時會說正在更新；新 UI 沒有搜尋規則編輯器。",
+      "remaining_scope": "1) 刪掉或改寫兩個 M13 TODO：`src-tauri/src/worker_bridge/intelligence.rs:3-5`、`src-tauri/src/dev_ipc_bridge/dispatch.rs:936-938`。\n\n2) 把 `AiIntegrationPreview` 收窄到只剩 `mcpCommand`（`vault-core/src/ai.rs:265-277`、`vault-core/src/ai/read_model.rs:440-530`、`src/lib/types/intelligence.ts:1189-1198`）。刪掉 consentSummary、manualSteps、capabilityNotes、scopeBoundary、auditTrace，以及兩個從沒寫到磁碟的 generatedFiles（內容還提到已退役的 `ai_assistant_runs`）。指令名不變，同步改 `desktop-command-surface.md`。證明：`mcp-log.spec.ts` 用這個指令接上真的 MCP client，再看 Settings → AI 的 MCP 詳情仍顯示指令。\n\n3) 關閉『把密碼存到鑰匙圈』前先跳 AlertDialog（`security-section.tsx:121-123`），三語說清楚三件事：排程備份會停、之後開啟要輸入密碼、密碼無法重設。E2E 擴充 `tests/e2e/security.spec.ts`：關掉 → 取消 → `keyring_get_database_key` 仍為 true；關掉 → 確認 → 變成 false。\n\n4) AI 服務 key 的失敗路徑。新增時要等 key 存好才寫 config，或失敗就回滾 / 改成編輯同一個 id，不然重試會多出第二個沒有 key 的服務。清除時 `keyring.rs` 只把 NoEntry 當成功、其他錯誤往上回報；`use-ai-providers.ts:224` 不再吞掉錯誤，UI 要說 key 還留在鑰匙圈。E2E 用 `home-alerts.spec.ts:69-71` 的 `unavailable` 標記讓測試鑰匙圈失敗：新增服務 → 看到錯誤 → 恢復鑰匙圈 → 再存 → config 裡只有一個服務；鑰匙圈不可用時刪服務 → 看到失敗提示。\n\n5) 拿掉後端自己翻譯、但沒有畫面讀的文案的語言分支，只留英文 diagnostic 或直接刪欄位：rekey `steps`（`vault-worker/src/security.rs:149-176`）、`exclusion_notes`（`migration/native.rs:207-231`、`vault-convert-sqlcipher/src/bundle.rs:40-53`）、progress detail（`intelligence_rebuild.rs:225-229`）。同時改掉 `desktop_integration/copy.rs:1-5` 的不實說法。host_artifacts 照用戶決定保留，等有畫面再設計 code 通道。\n\n6) `move-dialogs.tsx:59` 預設檔名改用本地日期 `localDateKey(new Date())`。`localDateKey` 目前放在 `backend-client/insights.ts:274`，但 History 也在用，可以順便搬到 `src/lib/time-zone.ts`。",
+      "suggested_action": "rewrite as：把本 block 改寫成只含上面第 1–6 項的新 block，也可以和 COPY-CHANNELS 的殘項合併成一個『copy 通道殘項』block。其他子項從 BACKLOG 刪掉：host_artifacts / localizeLocalHostLine、formatDuration、前端 AI integration preview、isoDateOnly / formatLocalDateKey、useExplorerUrlState、滑桿、retention、搜尋規則、遷移排除的 UI 文案、匯入後重啟。在 CHANGELOG 註明這些已由 5edf5645 和 1ccbae40 的前端替換、以及之後的 Settings 工作取代。",
+      "risks": "- 原則 7：`preview_intelligence_local_host` / `build_intelligence_local_host` 和其他沒有畫面呼叫的 intelligence 指令，是用戶 2026-10-02 決定保留的（`desktop-command-surface.md:191`），不要順手刪。\n- `preview_ai_integrations` 不在那批保留的指令裡，但收窄它的 payload 屬於 command 契約變更，要同步改 `desktop-command-surface.md`。\n- `dispatch.rs`（1270 行）和 `models/intelligence.rs`（2348 行）是巨型檔。這裡只刪註釋和常量，不算重構，不需要先做審查階段。\n- 鑰匙圈確認和 API key 錯誤提示都是 UI 變更：先讀 `docs/design/` 的核心四份，文案三語一起交。\n- 調整 add 的寫入順序時，注意它會一併切換 `llmProviderId` 和 `ai.enabled`。\n- 磁碟：這次核查期間可用空間從約 20 GB 掉到 9.6 GB。`src-tauri/target` 有 15 GB，而且有其他程序正在寫（07:12）。跑 `bun run check`（含 build 和 E2E 的桌面 build）前要先確認空間。",
+      "sub_items": [
+        {
+          "title": "後端平行 i18n：host_artifacts `build_boundary_notes` 加前端 `localizeLocalHostLine` 整句匹配",
+          "verdict": "obsolete",
+          "note": "前端那半（`src/pages/settings/helpers.ts`）在 1ccbae40 刪掉了。目前沒有任何畫面呼叫 local host 指令（`desktop-command-surface.md:191`，用戶 2026-10-02 決定保留）。`host_artifacts.rs:272-413` 的夾英文中文因此到不了用戶眼前。等 external outputs 重新上畫面時再做 code 通道，並記得 i18n gate 不掃 Rust。"
+        },
+        {
+          "title": "（同類新發現）後端自己按語言翻譯、但沒有畫面顯示的文案，以及一條不實註釋",
+          "verdict": "valid",
+          "note": "`vault-worker/src/security.rs:149-176` 的 rekey steps：前端自帶步驟，從不讀 `steps`。`migration/native.rs:207-231` 和 `vault-convert-sqlcipher/src/bundle.rs:40-53` 的 exclusion_notes：`move-dialogs.tsx` 用自己的 catalog。`intelligence_rebuild.rs:225-229` 的 progress detail 也沒有畫面顯示。這些字串都不在 `check:i18n` 範圍內。`desktop_integration/copy.rs:4` 卻說托盤選單是後端唯一的 UI 文案。"
+        },
+        {
+          "title": "`formatDuration` 三個實現與兩段聲稱一致性的假註釋",
+          "verdict": "obsolete",
+          "note": "三個檔案都刪了（`src/lib/format.ts` 在 5edf5645，另兩個在 1ccbae40）。新代碼有三處：`insights/display.ts:9`、`backup/run-duration.ts:5`、`settings/semantic-index-state.tsx:348-368`。三處都走 catalog，各自表達不同的意思（活躍時間、執行耗時、剩餘時間），沒有硬編碼英文。"
+        },
+        {
+          "title": "前端 AI integration preview 死路徑（`enableAiIntegrationPreview`）與 45 句英文影子翻譯表",
+          "verdict": "obsolete",
+          "note": "`settings/index.tsx`、`integrations/index.tsx`、`maintenance/index.tsx`、`ai-providers-section.tsx`、`helpers.ts` 都在 1ccbae40 刪除，`src/` 裡 grep 不到。"
+        },
+        {
+          "title": "後端 `preview_ai_integrations` 仍組整包英文 prose，只有 `mcpCommand` 有人讀",
+          "verdict": "valid",
+          "note": "`ai/read_model.rs:440-530` 組出 consent、steps、notes、boundary、audit 和兩個檔案，沒有任何地方寫出那兩個檔。UI（`ai-section.tsx:107,115`）和 E2E（`mcp-log.spec.ts:27-30`）都只用 `mcpCommand`。"
+        },
+        {
+          "title": "`isoDateOnly`×2、`formatLocalDateKey`×2、`src/lib/format.ts:153-156` 在 catalog 外的三語 fallback",
+          "verdict": "obsolete",
+          "note": "相關檔案都刪了。新樹只有一份 `dateKeyIn`（`src/lib/time-zone.ts:35`，指定時區）和一份 `localDateKey`（`backend-client/insights.ts:274`，本機時區），沒有重複。catalog 外的中文只剩註釋和語言自稱。"
+        },
+        {
+          "title": "（同類新發現）匯出檔預設日期用 UTC",
+          "verdict": "valid",
+          "note": "`move-dialogs.tsx:59` 的 `new Date().toISOString().slice(0,10)`：在 UTC 以西的晚上，檔名會變成明天的日期。改用 `localDateKey`。"
+        },
+        {
+          "title": "`worker_bridge/intelligence.rs` 和 `dev_ipc_bridge/dispatch.rs` 兩個引用 M13 的 TODO",
+          "verdict": "valid",
+          "note": "還在：`intelligence.rs:3-5`，`dispatch.rs` 已移到 936-938。M13 在 2026-04-23 收口（`docs/plan/README.md:111`），這兩個是過期註釋，刪掉或改寫即可。"
+        },
+        {
+          "title": "`useExplorerUrlState` 導出 applyDateShortcut 等函數但沒有消費者",
+          "verdict": "obsolete",
+          "note": "這個 hook 在 1ccbae40 刪除，`src/` 裡找不到這些名字。"
+        },
+        {
+          "title": "Settings：滑桿每動一格就寫一次 config，沒有 debounce",
+          "verdict": "obsolete",
+          "note": "新 Settings 沒有滑桿。搜尋排序參數改成本地 draft 加 Save（`search-tuning-row.tsx:6-7,135-170`）。"
+        },
+        {
+          "title": "Settings：危險操作缺確認",
+          "verdict": "valid",
+          "note": "大多已有 Dialog 或 AlertDialog：wipe、restore、rekey、clear-derived、預覽快取、移除 passcode（`security-section.tsx:289-305`）、刪服務、重建索引、修復、騰空間。只剩關閉『把密碼存到鑰匙圈』會立刻刪掉存好的密碼（`security-section.tsx:121-123`）。密碼無法重設，排程備份也需要它。"
+        },
+        {
+          "title": "Settings：retention 預設勾選 snapshots",
+          "verdict": "done",
+          "note": "`free-space-dialog.tsx:59-66`：快照要自己勾，其他殘留預設勾選；勾了快照會另外警告。"
+        },
+        {
+          "title": "Settings：存搜尋規則時靜默觸發全量重建",
+          "verdict": "obsolete",
+          "note": "新 UI 沒有搜尋規則編輯器。改網站類別會觸發增量重建，畫面會說正在更新（`insights/site-category.tsx:50-56`）。重建要花多久由 WORK-RECLASSIFY-STALL 追。"
+        },
+        {
+          "title": "Settings：遷移排除說明硬編碼英文",
+          "verdict": "obsolete",
+          "note": "新的匯出 / 匯入對話框用 catalog 文案（`src/lib/i18n/messages/settings-storage.ts:102-140` 的 exportIntro、stays、noChats）。後端那份三語 `exclusion_notes` 沒有畫面顯示，已併入上面『後端自己翻譯的文案』那一項。"
+        },
+        {
+          "title": "Settings：匯入 bundle 後不刷新、不提示重啟",
+          "verdict": "done",
+          "note": "`move-dialogs.tsx:242-244`：先顯示 toast，再呼叫 `session.restart()`。"
+        },
+        {
+          "title": "Settings：AI API key 存 / 清失敗沒有回饋",
+          "verdict": "valid",
+          "note": "部分已做：存失敗會在對話框顯示錯誤（`provider-dialog.tsx:83-95,164-166`）。剩下兩處。一是新增時先寫 config、再存 key（`use-ai-providers.ts:152,164`），存 key 失敗後重按 Save 會多出第二個沒有 key 的服務。二是清除失敗在 `keyring.rs:203-214` 和 `use-ai-providers.ts:224` 兩層都被吞掉，用戶不知道 key 可能還留著。"
+        }
+      ]
+    },
+    {
+      "id": "WORK-REVIEW-FOLLOWUPS-COPY-CHANNELS",
+      "verdict": "partial",
+      "evidence": "六個目標面都在 551f851d（2026-07-27）落地。本 block 也是同一個 commit 加進 BACKLOG 的，但一直沒打勾；`docs/architecture/desktop-command-surface.md:54-55` 有記錄。Turso 遷移和前端替換之後，以下都還成立：\n- RekeyPreview：`vault-core/src/models/security.rs:19-44` 加 `vault-worker/src/security.rs:142-145` → `src/features/settings/rekey-dialog.tsx:276-316`。\n- fallback 原因：`vault-core/src/intelligence/intelligence_rebuild.rs:144-159` → `vault-worker/src/intelligence/runtime.rs:348-349` → `intelligence_runtime/snapshot.rs:230-231`。新的 Background work（`settings/background/job-view.ts:106-141`）根本不顯示 fallback 原因。\n- Touch ID：`vault-platform/src/biometric.rs:19-48` → `src-tauri/src/command_error.rs:191-227` → `src/app/shell/touch-id-unlock.tsx:42-52`，畫面只用 catalog 文案（`src/lib/i18n/messages/shell.ts:77-80,225-227,370-372`）。\n- stale reason：`store_schema/intelligence.rs:353`、`intelligence_runtime/enqueue.rs:249-275`、`vault-worker/src/archive_flows.rs:956-958`、`archive/doctor_derived.rs:114-116` → `settings/background/derived-data-rows.tsx:41-47,113,129`。\n- 備份警告：`archive/ingest/selection.rs:43-71`、`chrome/staging.rs:112`、`git_audit.rs:102`、`archive/ingest/mod.rs:101-120` → `src/features/backup/run-codes.ts:20-50`、`run-entries.ts:47-82`。唯一剩下的 `BackupWarning::opaque` 是讀舊 ledger 的 `archive/read_models.rs:305`。\n- `ImportBatchDetail.note_details`：新的 `src/features/backup/imports-card.tsx:324-374` 不渲染 notes。撤銷 / 還原會以 `rollback` / `restore` run 列出（`takeout/visibility.rs:117-122`、`runs-card.tsx:14-25`）。\n\n殘項：\n- parser 的 `missing-table` / `missing-source`（`browser-history-parser/src/chromium/mod.rs:115-121,203-207,221-235`，firefox 和 safari 也有 missing-table）經 `archive/backup.rs:162` 進 run ledger。`run-codes.ts` 不認得這兩個 code，會落到 `run-entries.ts:76-80`：先顯示『Recorded during this run:』，下面接英文原文。\n- 改密碼預覽：`rekey-dialog.tsx:291-306` 對 change 模式也渲染『存副本（路徑空白）/ 寫加密副本 / 替換檔案』三步，但後端同模式只做 `rewrap_password`（`vault-worker/src/app.rs:628-637`）。rewrap 在 0613cf16（2026-10-07）才引入，對話框寫於 1ccbae40（2026-10-04），之後沒跟上。`tests/e2e/security.spec.ts:89` 只驗標題。\n- `src/features/onboarding/done-step.tsx:207` 仍用英文標記句判斷 Safari 被略過。\n- 16 個 `REBUILD_FALLBACK_*`（`models/intelligence.rs:2126-2170`）和 `REKEY_WARNING_SAME_MODE_REWRITE`（`models/security.rs:42-44`）都沒有產出點。\n- `desktop-command-surface.md:54-55` 仍描述已刪的 Jobs Recent zone、Audit `localizedBackupWarningText` 和 batch review 卡。",
+      "remaining_scope": "1) parser code 的譯文。`ParserWarning`（`browser-history-parser/src/types.rs:62-65`）加型別參數（表名、檔名），或拆成三個 code：必需表缺失、可選表缺失、沒有圖示檔。`archive/ingest/mod.rs:101-108` 把參數帶進 `BackupWarning`。`run-codes.ts` 分類：可選表和圖示檔歸 NOTES，必需表歸 WARNINGS。`src/lib/i18n/messages/backup-runs.ts` 補三語。Takeout 路徑會加 `parser-` 前綴（`takeout/browser_history/progress.rs:62`），要一起對齊。順手修 `chrome/staging.rs:69-72`：Favicons 複製失敗時被 `.ok()` 吞掉，之後會被報成『沒有提供』。E2E：合成的 Work profile 沒有 Favicons（`scripts/fixtures/synthetic-browsers.mjs:824-871`），備份後切到繁中打開 run sheet，要看到對應句子、沒有 fallback 行；若歸為 note，也不算進警告數。\n\n2) 改密碼預覽。`PreviewSteps` 在 `preview.currentMode === preview.nextMode` 時改顯示 rewrap 的說明，新增三語 key：用新密碼重新包裝金鑰，歷史檔案不複製也不改動；也不再顯示空的副本路徑。encrypt / decrypt 照舊顯示三步。E2E 擴充 `security.spec.ts:86-90`，驗 change 模式的步驟文字。之後就能刪掉後端 `rekey_copy` 的 steps。\n\n3) `done-step.tsx:207` 改用 `entriesOf(report)` 查 `safari-full-disk-access-skip` 這個 code。這樣 `archive/backup.rs:250-265` 那句英文就不必再『凍結』。\n\n4) 清死常量。讓 `intelligence_rebuild.rs:149-159` 直接用 `REBUILD_FALLBACK_*`，或乾脆刪掉這些常量（`legacy-debug-rebuild` 已經沒有產出點）。刪 `REKEY_WARNING_SAME_MODE_REWRITE`，以及 `rekey-dialog.tsx:283` 過濾它的死分支。\n\n5) 文檔。把 `desktop-command-surface.md:54-55` 改成現在的消費者：Background work 不顯示 fallback 原因、batch 對話框不顯示 notes、run sheet 走 `run-entries.ts`。",
+      "suggested_action": "本 block 標 `[x]`，CHANGELOG 補一行：六個面已在 551f851d 完成，`ImportBatchDetail.note_details` 那條因新 UI 改用 run 列表而作廢。殘項 1–5 移到新 block，建議和 COPY-CHANNELS-2 的殘項合併。",
+      "risks": "- `ParserWarning` 也被 Takeout 匯入使用，改型別要兩條路一起改。\n- 把 `missing-source` 從 warning 改成 note，會改變備份完成通知裡的警告數；`tests/e2e/backup.spec.ts:206-235` 斷言了『Warnings (n)』和 toast 文字，要一起調整。\n- Touch ID 的句子和 code 之間靠英文字串耦合。test cut 後只剩一個反例測試（`command_error.rs:239-254`），沒有正向測試守著。這段只在 macOS 編譯，若要改成型別化錯誤得在 macOS 上驗證，這個 sandbox 做不到；目前不影響用戶看到的文案，所以不急。\n- Safari 被略過是 macOS TCC 的情境。在 Linux E2E 上只能用不可讀的合成 Safari History.db 嘗試觸發，我沒有驗證過。\n- `desktop-command-surface.md` 是 architecture 文檔。照實際代碼改寫屬於『文檔跟著代碼走』，不是推翻已確立的決策。\n- 磁碟同上：可用空間已降到 9.6 GB，跑 gate 前先確認。",
+      "sub_items": [
+        {
+          "title": "`RekeyPreview.warnings` 補 code 通道",
+          "verdict": "done",
+          "note": "`models/security.rs:26-44` 有 `warning_codes`，`vault-worker/src/security.rs:142-145` 產出 `new-key-required`。新對話框 `rekey-dialog.tsx:276-316` 按 code 過濾，未知 code 原文顯示。`same-mode-rewrite` 常量沒有產出點。"
+        },
+        {
+          "title": "（相鄰新發現）改密碼預覽描述的步驟和後端實際做的不一樣",
+          "verdict": "valid",
+          "note": "change 模式下，後端只用新密碼重新包裝金鑰信封（`app.rs:628-637`；`security.rs:119-136` 回空的 snapshotPath）。畫面卻說會存副本、寫加密副本、替換檔案（`rekey-dialog.tsx:291-306`）。這違反 Trust & Transparency（PME 預覽要說真話），E2E 也沒抓到。"
+        },
+        {
+          "title": "Jobs `IntelligenceJobOverview.fallbackReason` 英文 prose",
+          "verdict": "done",
+          "note": "後端組出 `{stage}-{reason}` code（`intelligence_rebuild.rs:149-159`），帶到 `fallback_reason_code`（`snapshot.rs:230-231`）。新的 Background work 不顯示 fallback 原因（`job-view.ts:106-141`），英文到不了畫面。16 個 `REBUILD_FALLBACK_*` 常量零引用。"
+        },
+        {
+          "title": "Touch ID 解鎖錯誤的英文字串（`map_touch_id_error`）",
+          "verdict": "done",
+          "note": "`command_error.rs:191-227` 把這些句子歸成 `biometric-*` code。/lock 畫面（`touch-id-unlock.tsx:42-52`）只看是否為 `biometric-canceled`，其他情況一律顯示 catalog 的三語文案，從不顯示後端英文。"
+        },
+        {
+          "title": "`mark_all_deterministic_modules_stale` 的兩條 stale reason（需要 `stale_reason_code` 遷移）",
+          "verdict": "done",
+          "note": "Turso schema 有 `stale_reason_code` 欄位（`store_schema/intelligence.rs:353`）。`enqueue.rs:249-275` 同時寫 code 和 prose，兩個呼叫點傳 archive-data-changed / visibility-or-rollback-changed。前端 `derived-data-rows.tsx:41-47,129` 按 code 顯示三語。轉換器不帶舊 runtime 列，不會出現沒有 code 的舊資料。"
+        },
+        {
+          "title": "備份警告裡仍為 `code: \"\"` 的四類產出點（略過的 profile、staging fallback、per-profile notes、git commit 失敗）",
+          "verdict": "done",
+          "note": "四類都帶 code 了：`selection.rs:43-71`、`chrome/staging.rs:112`、`git_audit.rs:102`、`ingest/mod.rs:101-120`。唯一剩下的 opaque 是讀舊 ledger 的 `read_models.rs:305`。run sheet 經 `run-codes.ts` 和 `run-entries.ts` 顯示三語。"
+        },
+        {
+          "title": "per-profile ingest notes 裡 parser 的 `missing-table` / `missing-source` 沒有譯文",
+          "verdict": "valid",
+          "note": "這兩個 code 由 `ingest/mod.rs:101-108` 原樣帶進 run，但 `run-codes.ts` 不認得，zh 用戶會看到『Recorded during this run:』加英文。沒有 Favicons 檔就一定會出現，例如合成的 Work profile；這是前端替換後的退步。"
+        },
+        {
+          "title": "onboarding 用英文標記句判斷 Safari 被略過",
+          "verdict": "valid",
+          "note": "`done-step.tsx:207` 用 `report.warnings.some(isFullDiskAccessIssueMessage)`，而同一件事已有 `safari-full-disk-access-skip` code。後端為了這個匹配，只好把那句英文凍結（`backup.rs:250-265`）。"
+        },
+        {
+          "title": "`ImportBatchDetail.note_details` 接到 batch review 畫面",
+          "verdict": "obsolete",
+          "note": "舊的 batch review 卡已刪。新的撤銷 / 還原對話框只顯示範圍、樣本和稽核記錄（`imports-card.tsx:324-374`）；狀態寫在列表那一列（`:126-146`），撤銷和還原本身會以 rollback / restore run 列出，匯入的警告也經 run sheet 的 code 顯示。後端仍把 notes 寫進 `summary_json`（`visibility.rs:47-54`），沒有畫面讀，無害。"
+        },
+        {
+          "title": "死常量：16 個 `REBUILD_FALLBACK_*` 和 `REKEY_WARNING_SAME_MODE_REWRITE`",
+          "verdict": "valid",
+          "note": "在 `models/intelligence.rs:2126-2170` 和 `models/security.rs:42-44`，都沒有任何產出點；`rekey-dialog.tsx:283` 過濾 same-mode-rewrite 是死分支。屬於清理項。"
+        },
+        {
+          "title": "`desktop-command-surface.md:54-55` 描述的消費者已不存在",
+          "verdict": "valid",
+          "note": "文檔寫的 Jobs Recent zone 按 code 查 catalog、Audit 的 `localizedBackupWarningText`、batch review 卡，都是已刪的舊前端，要改成現在的消費者。"
+        }
+      ]
+    }
+  ]
+}

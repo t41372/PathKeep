@@ -1,0 +1,184 @@
+{
+  "blocks": [
+    {
+      "id": "WORK-AI-V03-A",
+      "verdict": "obsolete",
+      "evidence": "1) BACKLOG.md:362-363 本身標 `[~]`，寫明此 block「已被乾淨重做的 AI-redesign-2026 取代」。\n2) docs/features/intelligence.md:5-7（2026-06-22 AI shipped note）：W-AI-1..9 已交付，「UI 必須顯示 `Coming in v0.3`」的結論「已過時，不再適用」。docs/architecture/tech-stack.md:59 也說 v0.1/v0.2 的 deferral 已被取代；tech-stack.md:27、43、66：向量層是自製 `FlatVectorIndex`，不連 LanceDB。\n3) `git tag` 有 v0.3.0、v0.4.0。src-tauri/Cargo.toml、各 crate 的 Cargo.toml、Cargo.lock 都沒有 lancedb / lance。\n4) 目標逐項都已落地：Ask agent（vault-core/src/ai/agent_harness.rs:261 `drive_agent_run`、vault-worker/src/intelligence/chat.rs:377 `run_agent_stream`；E2E ask.spec、ask-agent.spec、ask-chats.spec）；provider probe 與模型清單（ai/model_list.rs:28，ai-services.spec）；索引工作的暫停、取消、重跑（STATUS.md:416-430 WORK-AI-INDEX-CONTROL，semantic-index.spec）；語意搜尋（intelligence.md:21）；MCP（vault-worker/src/mcp.rs、mcp-log.spec），MCP JSON 與 SKILL.md 由 ai/read_model.rs:506-529 產生。\n5) 真實 provider smoke：vault-core/tests/lmstudio_agent_e2e.rs、STATUS.md:436（用 qwen3.8-27b-splash 實測）。release-size 工具還在（scripts/build-release-size-audit.mjs、package.json:50 `release:size-audit`）。",
+      "remaining_scope": "",
+      "suggested_action": "刪除這個 block（可在 CHANGELOG 記一行「被 AI-redesign-2026 取代」），同時刪掉 BACKLOG.md:811 依賴圖裡過時的 `WORK-RELEASE-020-A → WORK-AI-V03-A / WORK-READABLE-CONTENT-V03-A`。它範圍裡唯一還沒有畫面的是「MCP JSON / skill markdown 預覽」，那是 2026-10 redesign 的規格缺口（intelligence.md:26、34、180，「待用戶決定補或改」），要做就另開 block。STATUS.md:31 說這類缺口「列進 BACKLOG `WORK-REDESIGN-SPEC-GAPS`」，可是 BACKLOG.md 裡沒有這個 block（`git log -S` 只在 cd866854 的 STATUS 文字裡找到），應該補建，或改掉 STATUS 的說法。",
+      "risks": "沒有別的 block 依賴它。唯一的風險是預覽缺口跟著被刪而沒人記得，所以刪之前先決定它放哪。tech-stack.md:84-92 的 v0.1/v0.2 修正案仍寫「未來若要在 v0.3 重新打開 AI … 需補 release-size 與 supply-chain evidence」，但 tech-stack.md:59 已把它標成歷史，可以不動。我沒有核對 v0.3.0 / v0.4.0 實際跑過 release-size audit 的產物。",
+      "sub_items": [
+        {
+          "title": "Assistant / agent",
+          "verdict": "done",
+          "note": "agent_harness.rs:261、chat.rs:377；E2E ask-agent.spec、ask-chats.spec。"
+        },
+        {
+          "title": "provider probes",
+          "verdict": "done",
+          "note": "連線測試只在按按鈕時才推理（STATUS.md:421），模型清單在 model_list.rs:28；ai-services.spec。"
+        },
+        {
+          "title": "embedding / index jobs、queue cancel / replay",
+          "verdict": "done",
+          "note": "WORK-AI-INDEX-CONTROL（STATUS.md:416-430）；semantic-index.spec 驗暫停、重開、繼續、取消。"
+        },
+        {
+          "title": "semantic / hybrid search",
+          "verdict": "done",
+          "note": "FlatVectorIndex（tech-stack.md:27、43）。History 只有「語意」、沒有獨立的 hybrid 選項，這是 2026-10 介面的已記錄缺口（intelligence.md:32），不屬這個 block。"
+        },
+        {
+          "title": "MCP / skill artifacts",
+          "verdict": "done",
+          "note": "後端已有：read_model.rs:506-529 產生 integrations/pathkeep-mcp.json 與 SKILL.md，MCP 開著時會提供使用指南。介面沒有預覽（intelligence.md:26、34），處理方式見 suggested_action。"
+        },
+        {
+          "title": "vector sidecar，不恢復 LanceDB",
+          "verdict": "done",
+          "note": "Cargo.lock 沒有 lancedb；tech-stack.md:66。"
+        },
+        {
+          "title": "契約：可用前保持 `Coming in v0.3` disabled",
+          "verdict": "obsolete",
+          "note": "intelligence.md:7 明文作廢。"
+        }
+      ]
+    },
+    {
+      "id": "WORK-READABLE-CONTENT-V03-A",
+      "verdict": "partial",
+      "evidence": "1) CHANGELOG.md:2316、2333：W-ENRICH（docs/plan/program/ai-redesign-2026/06-site-enrichment-design.md）設計完成並交付 WORK-ENRICH-1，明寫「Supersedes WORK-READABLE-CONTENT-V03-A」。BACKLOG 這個 block 一直沒關，`[!blocked]` 的四個原因裡，隱私模型、網路政策、失敗 UX 已經解決。\n2) 程式：vault-core/src/enrichment/content_fetch.rs:1-29 是唯一的對外出口（同意、每一跳都做 SSRF 檢查、只走 https、redirect / 大小 / MIME 有上限、每個 host 限速）；:347-358 `content_fetch_allowed`（總開關預設關，加上 extractor 與網域兩道）；:640-696、:753-759 處理 429、Retry-After 與 GitHub 配額 403，交給 `hold_host`（enrichment/rate_limit.rs:10、31、203）；:66-70 是誠實的失敗狀態。extractor 有 enrichment/extractors/generic_readable.rs、github_repo.rs。背景 drain 在 vault-worker/src/intelligence/content_fetch.rs:67-127，只由開關與「立即抓取」觸發，備份 / 匯入流程不會呼叫。\n3) 抓到的文字會進搜尋：enrichment/search_text.rs 寫進 `search_documents.enrichment_text`，再進 vault-search 的欄位（vault-search/src/model.rs:43）；也會進 embedding 文字（enrichment/embedding_document.rs）。\n4) 介面：Settings → General 的「頁面摘要」開關（src/features/settings/online-rows.tsx:63-114）；Background work 的狀態與「立即抓取」（src/features/settings/background/online-work-rows.tsx:47-135）；content-fetch 工作出現在佇列（job-view.ts:34、49）。docs/features/archive.md:355-360、391-394 已改寫成「已交付」。\n5) 缺 E2E：tests/e2e 沒有任何 spec 碰頁面摘要（grep content_fetch / contentFetch / page summar 都沒有結果）。E2E 後端用 `PATHKEEP_TEST_BLOCK_NETWORK` 擋掉內容抓取（content_fetch.rs:142、475、671、733），能連 `https://127.0.0.1` 的只有連結預覽（vault-core/src/test_support.rs:77-100）。WORK-TEST-CUT 之後，content fetch 只剩 4 條 Rust 測試：SSRF redirect（content_fetch/tests/transport.rs:7、routing.rs:37）和同意（routing.rs:8、storage.rs:7）。HTML / PDF / 登入 / 429 的 fixture 都沒了。\n6) 清除：`clear_derived_intelligence_state`（vault-core/src/intelligence/intelligence_schema.rs:56-101）不碰 `visit_content_enrichments`，也不碰 `sidecars/intelligence-blobs/`。intelligence_blobs.rs 只有 store 和 load（:24、:51），整個 repo 沒有刪除它們的路徑，關掉開關也不刪。archive.md:395 卻寫 clear derived state 會清 enrichment 表。用量有算到（archive/read_models.rs:379 `intelligence_blob_bytes`）。\n7) 同意的粒度：archive.md:360 寫「triple consent gate（master + per-extractor + per-domain）」。後端三道都有（worker content_fetch.rs:73-75），2026-10 介面只有總開關；archive.md:37 自己也記著「個別 plugin 開關…介面沒有」。抓到的摘要在介面上沒地方看：`listVisitEnrichment`、`contentFetchNow`（src/lib/backend-client/content-enrichment.ts:95-110）沒有呼叫者，`enrichmentExcerpt`（src/lib/types/archive.ts:381）沒畫出來。\n8) 測試雙胞胎：content_fetch.rs:367-416 的 production 入口仍是 `#[cfg(not(any(test, coverage)))]`，測試版換成 `OfflineStubFetcher`；檔頭 :27-29 還在說 coverage gate。",
+      "remaining_scope": "1) E2E（最大的缺口）：在 vault-core/src/test_support.rs 加一個只給內容抓取用的 debug-only 放行，照檔內慣例先寫 failure modes：release build 不認；只放行 `https://127.0.0.1`；轉址到其他私網仍擋；其他種類的抓取仍擋。讓 content_fetch.rs 的 `network_is_blocked` 檢查對 spec 自己的 HTTPS 站放行。擴充 tests/e2e/support/preview-server.ts，提供一般文章頁、PDF、轉到登入頁、帶 `Retry-After` 的 429、轉到私網位址。新 spec（change project）要驗：開關關著時站點一個請求都沒收到；打開後 Background work 寫出已存和失敗的筆數；只在正文出現的一個字，History 全文搜尋找得到（改動前找不到、改動後找得到）；PDF、登入、429 都不算成功；被 429 的 host 在等待期間不再收到請求；轉到私網的那一跳沒有發出。\n2) 清除與 blob 回收：先決定「清除頁面摘要」放哪（Background work 的頁面摘要那一列，或併進 Insights 資料的清除，同時改 `preview_clear_derived_intelligence` 的預覽）。要刪 `visit_content_enrichments` 的列、對應的 `search_documents.enrichment_text`（經 outbox 讓索引跟上），以及沒人引用的 blob。同一個 E2E 驗：清除後那個字搜不到，blob 資料夾變小。\n3) 同意粒度與摘要顯示：跟用戶確認是要補介面（per-extractor、per-domain，以及 History 詳情顯示摘要），還是改 archive.md:360、:395 的寫法。原則 7：要推翻定案文檔，需要 trade-off 文檔和用戶同意。文案要三語。\n4) 拿掉 content_fetch.rs:367-416 的 cfg 雙胞胎：production 入口只留一個，留下的 Rust 測試改走 `execute_content_fetch_job_with_fetcher` 加 mockito（已是 dev-dependency，vault-core/Cargo.toml:71），並更新檔頭。\n5) （可選）真實網站驗收：用公開頁面（一個 GitHub repo、一篇一般文章）手動跑一次並存下證據。這不需要用戶的歷史，但這台機器要能連外，而且要先問用戶。",
+      "suggested_action": "改寫：把這個 block 標成「被 WORK-ENRICH-1 取代」、拿掉 `[!blocked]`，另開一個小 block（例如 `WORK-PAGE-SUMMARIES-GAPS`），只放上面 1–4；第 4 項也可以併進 WORK-TEST-REAL-IO-A，但只放一邊。同時刪掉 BACKLOG.md:811 的過時依賴。",
+      "risks": "放寬 E2E 的網路封鎖要很小心：test_support.rs:77-81 的 failure mode (b) 明寫「其他種類的抓取一律拒絕」，擴大範圍就要另寫 failure modes，並確保 release build 不認。清除路徑要一起處理 vault-search 的 outbox，否則搜尋結果和資料庫會對不上。第 3 項是產品決定，不能自己挑。E2E 的 desktop build 放在 var/playwright，跑之前先看剩餘空間（約 20 GB）。",
+      "sub_items": [
+        {
+          "title": "有網路的 runtime，以及明確的隱私／網路邊界（預設關、每一跳都檢查 SSRF、只走 https、不帶 cookie 和 Referer、限速、429 等待）",
+          "verdict": "done",
+          "note": "content_fetch.rs:1-29、347-358、640-696；rate_limit.rs:10、203；archive.md:355-360。"
+        },
+        {
+          "title": "不在備份／匯入的關鍵路徑上同步抓取",
+          "verdict": "done",
+          "note": "只由 vault-worker/src/intelligence/content_fetch.rs:67-127 的開關與「立即抓取」排進背景 drain。"
+        },
+        {
+          "title": "失敗分類（登入、付費牆、PDF、非 HTML、429 都回誠實的狀態）",
+          "verdict": "done",
+          "note": "程式已有（content_fetch.rs:24、66-70），但測試裁減後沒有任何斷言，要併進 E2E。"
+        },
+        {
+          "title": "Settings / Background work 的關→開流程、邊界文案、佇列重試與取消",
+          "verdict": "done",
+          "note": "online-rows.tsx:63-114、online-work-rows.tsx:47-135、job-view.ts:34、49。"
+        },
+        {
+          "title": "從真實入口出發的 E2E，以及 HTML / PDF / redirect / rate-limit fixture",
+          "verdict": "valid",
+          "note": "沒有 spec。Rust 只剩 SSRF 與同意的測試。E2E 後端擋掉內容抓取，需要 debug-only 放行。"
+        },
+        {
+          "title": "clear/rebuild 與 blob 回收",
+          "verdict": "valid",
+          "note": "intelligence_schema.rs:56-101 不清這些資料；intelligence_blobs.rs 沒有刪除路徑；archive.md:395 卻說會清。"
+        },
+        {
+          "title": "三重同意的介面、摘要的顯示",
+          "verdict": "valid",
+          "note": "需要用戶決定：archive.md:360 跟 online-rows.tsx 只有總開關不一致；content-enrichment.ts:95-110 沒有呼叫者。"
+        },
+        {
+          "title": "production 入口的 cfg 雙胞胎",
+          "verdict": "valid",
+          "note": "content_fetch.rs:367-416，檔頭 :27-29。"
+        },
+        {
+          "title": "真實網站驗收",
+          "verdict": "valid",
+          "note": "不需要用戶資料，但要能連外，且先問用戶。"
+        }
+      ]
+    },
+    {
+      "id": "WORK-AI-MAPREDUCE-A",
+      "verdict": "valid",
+      "evidence": "1) 程式裡沒有任何 sub-agent / map-reduce：在 src-tauri/crates 搜 map_reduce、sub_agent、subagent、fan_out，只找到無關的註解（agent_harness.rs:55 說的是 `run_code` 可以做 map-reduce 式聚合）。\n2) option A 已經有：`run_code` 在沙箱內分頁聚合（commit 0f3b2f27；host-call 上限 64，ai-security-posture.md:173；輸出上限 256 KiB，ai/code_mode.rs:156-158）。之後又多一層：`intelligence_report` 的 `topics`（2026-10-17 的 WORK-EMBED-USES，intelligence.md:135）用向量分群給出一段期間的主題，不必每塊都呼叫 LLM；長報告用 `output_cursor` 接續（intelligence.md:66-69）。\n3) 讀先列的程式都在：`drive_agent_run`（agent_harness.rs:261-274，一個 run 只有一個 context，沒有子 run 的概念）、`run_agent_stream` / `ai_chat_send`（vault-worker/src/intelligence/chat.rs:377、112）、`ToolRegistry::with_default_search_tools`（chat.rs:407；agent_tools.rs）。`AgentToolContext`（chat.rs:410-425）只有 `default_profile_id`、`default_domain`、`default_limit`，沒有把工具限定在某個時間範圍的欄位。\n4) 讀先的 `docs/features/intelligence-and-ai.md` 不存在，現在是 `docs/features/intelligence.md`（§2 Ask）。\n5) 契約的「100% JS/Rust coverage + lethal tests」已作廢（quality-matrix.md:5）。\n6) 定案文檔的限制：docs/plan/program/ai-redesign-2026/02-architecture-decisions.md:148「sub-agents：支援但並發上限 ~2、低優先、餵 pre-filtered 結果、禁止觸發 bulk embedding」；:147 是 context engineering。",
+      "remaining_scope": "1) 設計文檔（先交用戶核准，再動程式；放 docs/architecture/，摘要回寫 intelligence.md §2）。內容包括：\n- 觸發方式：建議主 agent 呼叫一個由 host 確定性執行的工具（例如「分析這段期間」），不要讓模型自己 spawn。\n- 切塊策略：依 intelligence 的每日計數，切成造訪量相近、彼此不重疊、涵蓋整段的時間窗。\n- 每塊跑一次 `drive_agent_run`；搜尋工具和 `run_code` 的 `query_history` 都限定在該塊範圍。這要在 `AgentToolContext` 加範圍邊界，由 host 端強制，不靠提示詞。\n- 結構化結果的 schema：摘要、引用的 history id、這塊看了多少、是否完整。\n- reduce 那一輪怎麼合成、怎麼合併引用。\n- 預算模型：每個子 run 用模型 context 的預算、N 的上限、並發 ≤2。LM Studio 只載一個模型時多半會排隊。\n- 取消：同一個 cancel token 傳給所有子 run。\n- journal：`agent_runs` 要記父 run，agent.db 的 schema 會改。\n- 部分失敗的語義：失敗的塊要在答案裡用新的 note code 誠實標出，不能默默丟掉。\n- 跟其他做法的分界：純統計用 run_code；期間主題用 topics；需要逐塊質性判讀、或資料一個 context 裝不下，才用 map-reduce。\n2) 實作：vault-core 的 orchestrator 重用 `drive_agent_run`；加新的串流 chunk 種類，讓前端看到 fan-out 進度（第 i/N 塊、各自的狀態）；Ask 介面顯示進度和取消（不阻塞主線程、~100ms 內有回饋、有動畫）；新 note 三語。\n3) E2E（ask-agent.spec 或新 spec）：tests/e2e/support/fake-model.ts 的 script 依請求內容分辨主 agent 和子 agent，子 agent 回結構化摘要。要驗：切塊涵蓋 fixture 的整段歷史、不重疊，每塊只看得到自己範圍的造訪；中途取消後剩下的塊不再送出；某塊失敗時，答案和 note 都說出缺了哪段；進度在畫面上看得到。\n4) 真模型驗收（「總結我這一整年的瀏覽」）要在用戶的 LM Studio 上做，這台沙箱沒有 LLM。",
+      "suggested_action": "保留為「先設計」的 block，但改寫：讀先路徑改成 docs/features/intelligence.md；契約換成用 fake-model.ts 的 E2E；明寫 02 §F:148 的並發 ≤2；加上跟 `topics` 報告的分界；排在 WORK-AI-CTX-BUDGET-A 之後，因為每個子 run 都會遇到同樣的 overflow 和空答案問題。",
+      "risks": "agent.db 的 schema 會改：之前兩次都是 v1 原地改，用戶的真實資料要手動補（STATUS.md:333、384），這次也一樣，設計時要先定遷移方式。本機跑 N 次 LLM 呼叫很慢；LM Studio 只載一個模型時，實際並發是 1，要先量再定 N，以及要不要預設開。子 agent 的摘要也是不可信的模型輸出，引用一定要是 host 驗過的 history id。觸發方式、預算、預設是否開，都要用戶核准。",
+      "sub_items": [
+        {
+          "title": "設計文檔（切塊、結果 schema、預算、部分失敗、UI、與 option A / topics 的分界）",
+          "verdict": "valid",
+          "note": "尚未存在；要先交用戶核准。"
+        },
+        {
+          "title": "orchestrator、進度串流、Ask 介面、用 fake model 的 E2E",
+          "verdict": "valid",
+          "note": "在這台 Linux 沙箱上可以做：fake-model.ts 已支援腳本化回覆與工具呼叫。"
+        },
+        {
+          "title": "真模型驗收",
+          "verdict": "blocked",
+          "note": "沙箱沒有 LLM 服務，也沒有用戶的資料；要在用戶的 LM Studio 上跑。"
+        }
+      ]
+    },
+    {
+      "id": "WORK-AI-CTX-BUDGET-A",
+      "verdict": "partial",
+      "evidence": "1) block 開頭說「當時已修」的都在：64 步 backstop（vault-core/src/ai/agent_harness.rs:59）、只量最後一輪 prompt 的 gate（:419-430、:584-590）、沒有 usage 時用估算（:429）、到頂時跑一輪無工具的總結（:688-770）。\n2) WORK-ASK-2026-10（commit 7b88d324）之後又做了：worker 從服務讀 context 長度（vault-worker/src/intelligence/chat.rs:446-456 呼叫 `vault_core::chat_context_length`，ai/model_list.rs:82-113），budget = window 減回答空間（answer_room 是 context 的四分之一、限 1K–8K，chat.rs:561-565），讀不到才用 110k（`DEFAULT_TOKEN_BUDGET`，agent_harness.rs:74）；送出前檢查放不放得下，放不下就發 `ContextTooSmall`（agent_harness.rs:310-326）；估算改成中日韓文字一字一 token、其他每 4 bytes 一 token（`estimate_request_tokens` / `estimate_tokens`，:610-658，取代 block 說的 `estimate_context_tokens`）。前端 src/features/ask/context-usage.ts:1-33 用同一條規則；intelligence.md:150 把「估算不用 tokenizer」寫成定案行為。`capabilities().max_context_tokens` 仍恆為 None（llm.rs:44-49、74，照 D4 不寫死），真正的 window 走模型清單；`to_llm_usage` 已改名為 `usage`（llm.rs:266）。\n3) 子項 1 仍在：gate 看的是剛跑完那輪的 prompt（:419-430）；總結請求會把剛接回的 tool results 加上 directive 再送一次（:571-575、:709-713），中間沒有投影大小、也沒有修剪；一筆 `run_code` 結果最多 256 KiB（code_mode.rs:156-158）。送出前的放得下檢查只在第一輪前做（:310-326），所以 window 已知時，之後任何一輪都可能比 window 多出「上一輪的回答＋新的結果」，而 LM Studio、Ollama 會默默截掉中間（就是 7b88d324 修的那個事故）。agent 路徑裡完全沒有修剪（搜 prune / recency 沒有結果），但 ai-security-posture.md:310 寫著 context 是「recency-pruned」，02-architecture-decisions.md:147 也要求 recency pruning。\n4) 子項 2：OpenAI、Anthropic 和一般 OpenAI 相容服務不回報 context（model_list.rs:240、263 的 `max_context_length: None`）；LM Studio、Ollama 只有已載入的模型才算（model_list.rs:85-88、110）。STATUS.md:435 記過「送出時模型還沒載入就讀不到 context…也不檢查放不放得下」，WORK-AI-AGENT-TURNS 沒有修。這些情況下 budget 仍是 110k，也不做檢查。服務報 context 超長時，在 agent_harness/turn.rs:55-59 變成 `TurnError::Stream`，run 以 Failed 結束：誠實，但不算 graceful。\n5) 子項 3 仍在：`run_final_synthesis_turn` 不管文字是不是空的，都照樣 journal 並 Completed（:715-769）；迴圈自然結束時（:487-495）也一樣。前端只會顯示 note 和來源（src/features/ask/assistant-turn.tsx:52-62）；`AiAgentNote` 沒有對應的 code（models/intelligence.rs:1265-1284）。\n6) 子項 4：總結那輪的 payload 是 `{text, reasoning, final: true}`（:746-749），寫這個 block 的 commit ec6b4188 就已經有了。production 沒有任何程式讀 agent_steps：`load_agent_run`（agent_store/journal.rs:158-222）只被 tests/lmstudio_agent_e2e.rs:455、tests/agent_store_paging.rs:60-65 呼叫。2026-10-09 已決定不重放中斷的 run（data-model.md:137-139；agent_harness.rs:12-13）。\n7) 沒有 E2E 測 budget 或空答案：ask-chats.spec.ts:530 只測步數上限；fake-model.ts:139 的 usage 固定是 12/8。",
+      "remaining_scope": "1) agent_harness.rs：每一輪送出前（不只第一輪）都算投影大小：上一輪服務回報的 `prompt_tokens`，加上之後新加訊息（assistant 的 tool call、新的 tool results、總結的 directive）的估算，再加 answer_reserve。超過 window（已知時）或 token_budget，就改走總結那一輪。\n總結那輪（以及任何放不下的一輪）要先修剪：照 02 §F:147 的 recency pruning，把最舊或最肥的 tool result 內容換成一句誠實的短句（例如「這筆結果 N KB，放不進模型的 context，已略過；引用的頁面仍列在下面」），tool_call 和 result 的配對要保留。修剪後連問題加 directive 都放不下，就發 `ContextTooSmall`。\n估算可以用這次 run 上一輪的「回報值 ÷ 估算值」比例來校正，不需要 tokenizer。改完之後，ai-security-posture.md:310 的說法才成立。\n2) window 不明：每輪結束後（這時模型已載入）重讀 `chat_context_length`，讀到了就重算 budget、啟用上面的檢查。服務回 context 超長錯誤時，修剪後重試一次，或以 `ContextTooSmall` 結束，不要只丟原始錯誤字串。`LlmCapabilities::max_context_tokens` 要嘛由模型清單填入，要嘛刪掉這個恆為 None 的欄位。\n3) 空答案：最後一輪（總結那輪、迴圈自然結束那輪、degraded 那輪）的 `text.trim()` 為空時，發一個新的 `AiAgentNote`（例如 `noAnswerWritten`）。要改 models/intelligence.rs:1265 加 variant、src/lib/types/intelligence.ts:1025 加型別、src/lib/i18n/messages/ask.ts 加三語文案：說模型沒寫出答案、下面是它找到的頁面、可以「再回答一次」或換模型。用 note code，不要讓後端拼在地化文字，跟現有 note 一致。\n4) E2E（ask-agent.spec）：fake-model.ts 的 `Reply` 加可設定的 `usage`（以及不送 usage 的選項），`ListedModel` 支援先 not-loaded、之後 loaded。場景：\n(a) 模型載入 8K，第一輪 `run_code` 回很大的結果、usage 接近上限：斷言 PathKeep 送出的每個 chat 請求（fake 全都留著）照 context-usage.ts 的估算都放得進 8K，總結請求帶著「已略過」的說明，畫面有答案和 `tokenBudgetReached`。\n(b) 不回 usage 的服務，照樣在上限前停下。\n(c) 送出時模型未載入、第一輪後才讀到小 window：第二輪照新的 window 走。\n(d) 無工具那輪回空字串（或回 tool call）：畫面出現新 note 的文案。\n5) 文檔：intelligence.md §2 Ask、ai-security-posture.md:310。",
+      "suggested_action": "改寫後執行：\n- 刪第 4 項（journal 已有 `final: true`，trace replay 已不存在）。\n- 第 2 項只留「window 不明／模型未載入」和「服務報 context 超長」兩件，拿掉「換成真 tokenizer」：這跟 intelligence.md:150 的定案衝突，真要做先寫 trade-off 給用戶。\n- 第 1 項擴大成「每一輪都不超過 window」。\n- 契約的 100% coverage / lethal tests 換成上面的 E2E。\n- 排在 WORK-AI-MAPREDUCE-A 之前。",
+      "risks": "原則 7：intelligence.md:150 定了「估算不用 tokenizer」，前端的 meter（context-usage.ts）用同一條規則；要用 tokenizer 或改估算規則，前後端得一起改，並先有 trade-off 文檔和用戶同意。02 §F:147 寫「working tokens 壓 <~32k」，現在的 budget 可以到整個 window（E2E 裡有 262K 的模型），改 budget 的語義時要對齊這份文檔，或另寫 trade-off。修剪 tool result 會讓模型少看到證據，要在答案裡用 note 誠實說，不能默默丟。LM Studio 真實的截斷行為只能在用戶機器上看，這台沙箱只能用 fake model。",
+      "sub_items": [
+        {
+          "title": "synthesis turn 自身可能 overflow",
+          "verdict": "valid",
+          "note": "gate 只看上一輪的 prompt（agent_harness.rs:419-430、584-590），總結請求沒有投影大小、也沒有修剪（:709-713）。更一般地說，只有第一輪前做放得下檢查（:310-326），之後每一輪都可能超過已知的 window。"
+        },
+        {
+          "title": "budget 寫死 110k、不知道 provider 的真實 window",
+          "verdict": "valid",
+          "note": "一部分已修：從服務讀 window（chat.rs:446-456、model_list.rs:89-113），budget = window − answer_room。仍在的：window 不明（OpenAI、Anthropic、一般 OpenAI 相容服務），或 LM Studio / Ollama 送出時還沒載入模型時，仍用 110k 且不檢查（STATUS.md:435）。「換成真 tokenizer」跟 intelligence.md:150 的定案衝突，要做得先有 trade-off。"
+        },
+        {
+          "title": "synthesis turn 回空字串沒有 fallback",
+          "verdict": "valid",
+          "note": "agent_harness.rs:715-769 與 :487-495 在文字為空時照樣 Completed；前端（assistant-turn.tsx:52-62）只會顯示 note 和來源。"
+        },
+        {
+          "title": "synthesis directive 沒進 journal",
+          "verdict": "obsolete",
+          "note": "payload 從 ec6b4188 起就帶 `final: true`（agent_harness.rs:746-749）。production 不讀 agent_steps（`load_agent_run` 只有測試在用），2026-10-09 已決定不重放（data-model.md:137-139）。"
+        }
+      ]
+    },
+    {
+      "id": "WORK-TEST-REAL-IO-A",
+      "verdict": "partial",
+      "evidence": "1) 子項 (2) 已在 block 裡劃掉：`dispatch_for_coverage` 在 1e0fadce（WORK-TEST-CUT-2026-10）刪除，repo 裡已經沒有這個名字。\n2) 子項 (1) 仍在：vault-core/src/ai/embedding_external.rs:17-21 檔頭明寫真實 HTTP 路徑是 `#[cfg(not(test))]`、`cfg(test)` 下換成 stub。真實路徑：`endpoint()` :229-239、`embed_impl` :358-408、timeout 常數 :48-49。stub：`embed_impl` :417-439、`stub_response_bytes` :454-475。查詢路徑在 ai/provider.rs 也有一對：真實的 `embed_query_input` 在 :564-640，`cfg(test)` stub 在 :642-688。coverage 那一半已經不存在，現在只剩 `cfg(test)`。\n3) 影響範圍變了：`cfg(test)` 只作用在 vault-core 自己的 unit test。app 與 E2E（debug build）、vault-core/tests/ 的整合測試、worker 的測試都編進真實路徑。E2E 已經用 tests/e2e/support/fake-embeddings.ts 走過真的 send 和 decode：成功、hold（暫停、殺掉重開）、全零向量（semantic-index.spec.ts:1047-1053）、LM Studio 的 200 加 error（ai-services.spec）。\n4) 真實路徑上沒有任何測試跑過這些情況：HTTP 5xx、`data: []` 或筆數不符、壞 JSON、斷線、逾時（120 s）。fake-embeddings.ts:93-145 永遠回 200、每個輸入一個向量，做不出這些情況。decode 的純邏輯有 unit test（embedding_external.rs:573-620：筆數不符、index 越界、缺 index），但使用者看得到的結果——建置誠實地停下、不標成完成、不會 0 向量也算成功——沒人測。backfill 把錯誤往上丟（ai/indexing/backfill.rs:780-789），重試用完後以 `service-unavailable` 暫停（ai_queue/store.rs:181-188），這只有 Rust 測試（ai_queue/index_control_tests.rs:115、250）。\n5) stub 仍有 unit test 在用：ai/tests.rs:40-54 的 `embedding_provider()`（OpenAi 格式），被 :269、:320、:435、:484 的語意搜尋測試，以及 ai/tests_native/indexing.rs 的建索引測試使用。\n6) mockito 1.7 已是 vault-core 的 dev-dependency（vault-core/Cargo.toml:71）；`AiProviderConfig.base_url` 本來就能指到任意 endpoint，不需要新的 seam 型別。\n7) 政策：quality-matrix.md:38「不替後端寫假實作…seam 只在最外層 transport」。:102 鐵律 4 仍寫「不得把 production I/O 用 cfg 編譯出 coverage binary」，但 coverage binary 已經不存在（:5）。test-audit-2026-10/README.md:85 和 vault-core-ai.md:219-239 都把這些 stub 列為要刪。STATUS.md:305 說 WORK-TEST-CUT 刪了「所有 `cfg(coverage)`」，但 enrichment/content_fetch.rs:367-416 仍有 `cfg(not(any(test, coverage)))` 雙胞胎，vault-core/Cargo.toml:80-81 仍宣告 `cfg(coverage)`，tests/static_embedding_e2e.rs:56-59 仍是 `#![cfg(not(coverage))]`。\n8) 相關，但屬允許的最外層 seam：ai/model_files.rs:315-336 的 `open_download_stream`、archive/history/net_guard.rs:106-110 的 `resolve`。embedding_static.rs:150、390、575、582 的模型載入整段是 `cfg(not(test))`（unit test 用 36 字的假矩陣），這已不只是最外層。",
+      "remaining_scope": "1) 刪掉 embedding_external.rs 的 `cfg(test)` 雙胞胎（含 `STUB_EXTERNAL_DIM`、`stub_response_bytes`、:31 與 :48 的條件式匯入），以及 provider.rs:642-688 的查詢 stub，只留一份真實的 `embed_impl` / `embed_query_input`，並更新檔頭。\n2) 依賴 stub 的 vault-core unit test（ai/tests.rs 的語意搜尋測試、tests_native/indexing.rs）改成把 `base_url` 指向 mockito 起的本機假服務：寫一個小 helper，照 OpenAI 的格式回 deterministic 向量，做法比照 fake-embeddings.ts 的字詞雜湊。不能這樣改的，評估是否已被 E2E 覆蓋，是就刪掉。\n3) 失敗模式用 E2E 證明（quality-matrix §什麼時候才寫 unit test：E2E 碰得到就不寫 unit test）。fake-embeddings.ts 加腳本化的失敗：第 N 個請求回 500、回 `{\\\"data\\\":[]}`、少一個向量、斷線。semantic-index.spec 加新場景：建置途中服務出錯，建置以服務的原因暫停（不是「完成」，也不是 0 向量成功）；語意搜尋仍用舊的完整索引，或明說還沒建好；服務恢復後按「繼續」能完成，已回答過的頁不重送。\n逾時 120 s 放進 E2E 太慢，兩條路：加一個只在 debug build 有效的環境變數縮短它（照 test_support.rs 的慣例，先寫 failure modes）；或承認用斷線代表同一錯誤類別（embedding_external.rs:386-399，兩者都經 `EmbeddingServiceError::wrap`）。\n4) 文檔：把 quality-matrix.md:102 的鐵律 4 改寫成「被測的 build」，不再提 coverage binary；列出仍存在的 cfg 雙胞胎（content_fetch.rs:367-416、embedding_static 的模型載入），要嘛一起處理，要嘛記成下一步。若 content_fetch 那對也拿掉，就一併刪 vault-core/Cargo.toml:80-81 的 `cfg(coverage)` 宣告，以及 static_embedding_e2e.rs:56-59 講 coverage 的文字。",
+      "suggested_action": "改寫後執行：\n- 標題和 (1) 改成「刪掉外部 embedding 的 cfg(test) 雙胞胎（含 provider.rs 的查詢路徑），失敗模式用擴充後的 fake-embeddings E2E 證明」。\n- 拿掉「fake-HTTP 整合測試」的寫法：現行政策下優先 E2E，只有 E2E 碰不到的逾時才考慮 Rust 測試，而且要先寫 failure modes。\n- 已劃掉的 (2) 保留或直接刪。\n- 驗收的「鐵律全達成」換成具體清單。\n- content_fetch.rs 那對可以併進這個 block，或 WORK-READABLE-CONTENT 的後續 block，二選一，不要兩邊都寫。",
+      "risks": "拿掉 stub 之後，vault-core 的 unit test 要起本機 HTTP 服務，會慢一點；mockito 每個 server 有自己的埠，並行問題不大。AGENTS.md 說「Don't write unit tests after the code」：不要因為拿掉 stub，就順手補一批照抄現在行為的 Rust 測試。quality-matrix.md 是 gate 的權威定義，改它要讓文字跟 repo 實際擋的東西一致。E2E 的 desktop build 要佔不少磁碟，跑之前先看剩餘空間。",
+      "sub_items": [
+        {
+          "title": "(1) external embedding transport 可注入 seam，加 fake-HTTP 失敗測試",
+          "verdict": "valid",
+          "note": "cfg 雙胞胎仍在 embedding_external.rs:358-475 與 provider.rs:564-688。真實路徑上沒有 5xx、空 data、斷線、逾時的測試。endpoint 本來就能經 base_url 注入，mockito 已在 dev-deps。"
+        },
+        {
+          "title": "(2) `dispatch_for_coverage` 改成契約斷言",
+          "verdict": "obsolete",
+          "note": "1e0fadce 已刪除；IPC 契約改由 E2E 經 dev bridge 證明。"
+        },
+        {
+          "title": "驗收：quality-matrix 鐵律全達成",
+          "verdict": "valid",
+          "note": "鐵律 4 的文字還在講 coverage binary（quality-matrix.md:102）；其他 cfg 雙胞胎仍在（content_fetch.rs:367-416、embedding_static 的模型載入），STATUS.md:305 說「所有 cfg(coverage) 已刪」並不準。"
+        }
+      ]
+    }
+  ]
+}
