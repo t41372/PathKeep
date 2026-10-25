@@ -177,8 +177,8 @@ pub fn refresh_embedding_totals(vault: &Vault) -> Result<()> {
     vault.store().write(Db::Intelligence, Priority::Batch, |s| {
         s.execute("DELETE FROM ai_embedding_totals", ())?;
         s.execute(
-            "INSERT INTO ai_embedding_totals(provider_id,model,item_count,content_bytes,metadata_bytes,last_indexed_at)
-             SELECT provider_id,model,COUNT(*),SUM(content_bytes),SUM(metadata_bytes),MAX(indexed_at) FROM ai_embeddings GROUP BY provider_id,model",
+            "INSERT INTO ai_embedding_totals(provider_id,model,item_count,content_bytes,metadata_bytes,last_indexed_at,lineage)
+             SELECT provider_id,model,COUNT(*),SUM(content_bytes),SUM(metadata_bytes),MAX(indexed_at),lineage FROM ai_embeddings GROUP BY provider_id,model,lineage",
             (),
         )?;
         Ok(())

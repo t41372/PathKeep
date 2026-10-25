@@ -41,10 +41,16 @@ pub struct QueueJobCounts {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct IndexBackfillCursor {
+    /// Source identity that makes this scan position meaningful; older cursors restart safely.
+    #[serde(default)]
+    pub lineage: Option<String>,
     /// Lowest canonical `history_id` not yet embedded; the next chunk starts here.
     pub next_history_id: i64,
     /// Count of visits durably indexed across all chunks of this backfill.
     pub embedded_so_far: u64,
+    /// Updated rows are a subset of embedded_so_far; both counts survive retry and pause.
+    #[serde(default)]
+    pub updated_so_far: u64,
     /// The max canonical `history_id` captured at the TRUE start of the build — the honest determinate
     /// scan denominator, so `next_history_id / scan_target` reaches ~100% as the scan completes.
     ///

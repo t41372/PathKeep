@@ -1,6 +1,7 @@
 /**
  * Full-screen states that replace the app before it is usable: boot,
- * boot failure, the one-time archive upgrade, and launch recovery.
+ * boot failure, the one-time archive upgrade, a schema update while the
+ * archive opens, and launch recovery.
  */
 import { useState } from 'react'
 import { backdropDragRegion } from '@/components/app/drag-region'
@@ -45,6 +46,44 @@ export function BootScreen() {
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
         <Spinner />
         {t('shell.boot.loading')}
+      </div>
+    </Centered>
+  )
+}
+
+/** Shown while a schema update runs as the archive opens; see `useSchemaUpdate`. */
+export function SchemaUpdateScreen({
+  progress,
+}: {
+  progress: ArchiveUpgradeProgress
+}) {
+  const { t } = useI18n()
+  const format = useFormat()
+  return (
+    <Centered>
+      <h1 className="text-lg font-semibold">
+        {t('shell.upgrade.schema.title')}
+      </h1>
+      <p className="text-sm text-muted-foreground">
+        {t('shell.upgrade.schema.body')}
+      </p>
+      <div className="mt-2 flex w-full flex-col gap-2" role="status">
+        <Progress
+          value={
+            progress.total > 0
+              ? (progress.processed / progress.total) * 100
+              : undefined
+          }
+          className="h-1.5"
+        />
+        {progress.total > 0 && (
+          <span className="text-xs text-muted-foreground tabular">
+            {t('shell.upgrade.progress', {
+              done: format.number(progress.processed),
+              total: format.number(progress.total),
+            })}
+          </span>
+        )}
       </div>
     </Centered>
   )

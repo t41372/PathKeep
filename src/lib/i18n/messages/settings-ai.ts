@@ -98,6 +98,10 @@ export const settingsAi = defineMessages({
         'Until it is complete, semantic search keeps using {model}.',
       meanwhilePartial:
         'Until it is complete, searching by meaning only finds visits already indexed.',
+      meanwhileCurrent_one:
+        'Until this finishes, search uses the index you have now: {count} page.',
+      meanwhileCurrent_other:
+        'Until this finishes, search uses the index you have now: {count} pages.',
       olderText:
         'This index was made from an older version of the page text, which also carried visit times and leftover page code. It still works; rebuilt, it finds pages by meaning more reliably.',
       olderTextUnfinished:
@@ -270,11 +274,11 @@ export const settingsAi = defineMessages({
       needsSemantic: 'Turn on local semantic search first.',
       dialogTitle: 'Rebuild the search index?',
       dialogBody_one:
-        'This indexes {count} visit again, in the background: you can keep using PathKeep, and its progress shows here. Your history is not changed.',
+        'This indexes {count} visit again, in the background: you can keep using PathKeep, and its progress shows here. Search keeps using the current index until the new one is ready, so the disk holds both until then. Your history is not changed.',
       dialogBody_other:
-        'This indexes {count} visits again, in the background: you can keep using PathKeep, and its progress shows here. Your history is not changed.',
+        'This indexes {count} visits again, in the background: you can keep using PathKeep, and its progress shows here. Search keeps using the current index until the new one is ready, so the disk holds both until then. Your history is not changed.',
       dialogBodyUnknown:
-        'This indexes your whole history again. It can take a while. Your history is not changed.',
+        'This indexes your whole history again. It can take a while. Search keeps using the current index until the new one is ready, so the disk holds both until then. Your history is not changed.',
       confirm: 'Rebuild',
       started: 'Rebuilding the search index.',
       failed: 'Could not start the rebuild. {message}',
@@ -401,6 +405,9 @@ export const settingsAi = defineMessages({
         '用 {model} 建立的索引还没完成：目前 {count} 条访问记录。',
       meanwhilePrevious: '完成之前，语义搜索继续用 {model}。',
       meanwhilePartial: '完成之前，按含义搜索只找得到已经建立索引的访问记录。',
+      meanwhileCurrent_one: '完成之前，搜索继续用现有的索引：{count} 个页面。',
+      meanwhileCurrent_other:
+        '完成之前，搜索继续用现有的索引：{count} 个页面。',
       olderText:
         '这份索引是用旧版的页面文字建立的，里面还夹着访问时间和网页代码残片。它照样能用；重建之后，按含义搜索会找得更准。',
       olderTextUnfinished:
@@ -561,11 +568,11 @@ export const settingsAi = defineMessages({
       needsSemantic: '请先开启本地语义搜索。',
       dialogTitle: '要重建搜索索引吗？',
       dialogBody_one:
-        '这会在后台重新索引 {count} 条访问记录，期间可以照常使用 PathKeep，进度显示在这里。你的历史不会被更改。',
+        '这会在后台重新索引 {count} 条访问记录，期间可以照常使用 PathKeep，进度显示在这里。新索引建好之前，搜索继续用现有的索引，所以这段时间磁盘上会同时有两份。你的历史不会被更改。',
       dialogBody_other:
-        '这会在后台重新索引 {count} 条访问记录，期间可以照常使用 PathKeep，进度显示在这里。你的历史不会被更改。',
+        '这会在后台重新索引 {count} 条访问记录，期间可以照常使用 PathKeep，进度显示在这里。新索引建好之前，搜索继续用现有的索引，所以这段时间磁盘上会同时有两份。你的历史不会被更改。',
       dialogBodyUnknown:
-        '这会重新索引你的全部历史，可能要花一些时间。你的历史不会被更改。',
+        '这会重新索引你的全部历史，可能要花一些时间。新索引建好之前，搜索继续用现有的索引，所以这段时间磁盘上会同时有两份。你的历史不会被更改。',
       confirm: '重建',
       started: '正在重建搜索索引。',
       failed: '无法开始重建。{message}',
@@ -689,6 +696,9 @@ export const settingsAi = defineMessages({
       unfinished_other: '用 {model} 建立的索引還沒完成：目前 {count} 次造訪。',
       meanwhilePrevious: '完成之前，語意搜尋繼續用 {model}。',
       meanwhilePartial: '完成之前，依意思搜尋只找得到已經建立索引的造訪。',
+      meanwhileCurrent_one: '完成之前，搜尋繼續用現有的索引：{count} 個頁面。',
+      meanwhileCurrent_other:
+        '完成之前，搜尋繼續用現有的索引：{count} 個頁面。',
       olderText:
         '這份索引是用舊版的頁面文字建立的，裡面還夾著造訪時間和網頁程式碼殘片。它照樣能用；重建之後，依意思搜尋會找得更準。',
       olderTextUnfinished:
@@ -849,11 +859,11 @@ export const settingsAi = defineMessages({
       needsSemantic: '請先開啟本機語意搜尋。',
       dialogTitle: '要重建搜尋索引嗎？',
       dialogBody_one:
-        '這會在背景重新索引 {count} 次造訪，期間可以照常使用 PathKeep，進度顯示在這裡。你的歷史不會被變更。',
+        '這會在背景重新索引 {count} 次造訪，期間可以照常使用 PathKeep，進度顯示在這裡。新索引建好之前，搜尋繼續用現有的索引，所以這段時間磁碟上會同時有兩份。你的歷史不會被變更。',
       dialogBody_other:
-        '這會在背景重新索引 {count} 次造訪，期間可以照常使用 PathKeep，進度顯示在這裡。你的歷史不會被變更。',
+        '這會在背景重新索引 {count} 次造訪，期間可以照常使用 PathKeep，進度顯示在這裡。新索引建好之前，搜尋繼續用現有的索引，所以這段時間磁碟上會同時有兩份。你的歷史不會被變更。',
       dialogBodyUnknown:
-        '這會重新索引你的全部歷史，可能要花一些時間。你的歷史不會被變更。',
+        '這會重新索引你的全部歷史，可能要花一些時間。新索引建好之前，搜尋繼續用現有的索引，所以這段時間磁碟上會同時有兩份。你的歷史不會被變更。',
       confirm: '重建',
       started: '正在重建搜尋索引。',
       failed: '無法開始重建。{message}',

@@ -12,7 +12,8 @@
  * Projects run in order, because they share one backend and one archive:
  * first-run (onboarding) → read (history, insights; nothing changes) →
  * change (background work, new visits, schedule, imports, lock, archive
- * password) → wipe (delete everything) → upgrade (an archive left by 0.3).
+ * password) → wipe (delete everything) → empty (a new archive with no visits,
+ * deleted again) → upgrade (an archive left by 0.3).
  */
 import { copyFileSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
@@ -207,7 +208,10 @@ export default defineConfig({
     // after every test that relies on the archive first-run created.
     project('move', ['move.spec.ts'], 'stop'),
     project('wipe', ['wipe.spec.ts'], 'move'),
-    // Needs the empty data folder wipe leaves behind.
-    project('upgrade', ['upgrade.spec.ts'], 'wipe'),
+    // Sets up a new archive in the empty data folder wipe leaves behind, and
+    // deletes it again.
+    project('empty', ['semantic-empty-archive.spec.ts'], 'wipe'),
+    // Needs an empty data folder.
+    project('upgrade', ['upgrade.spec.ts'], 'empty'),
   ],
 })

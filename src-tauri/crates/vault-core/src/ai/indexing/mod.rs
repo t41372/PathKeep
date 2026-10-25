@@ -35,23 +35,22 @@
 mod backfill;
 mod candidates;
 mod content;
-mod store_rows;
+pub(in crate::ai) mod store_rows;
 
 // Re-export the surface `super` (ai.rs) consumes so `ai::indexing::{...}` keeps working verbatim
-// after the split. The PUBLIC entrypoints stay `pub`; `provider_embedding_count` is the one helper a
-// non-test sibling (read_model / search) reaches through `ai.rs`, so it stays unconditional. The
-// remaining helpers are consumed only by the AI test surface (`ai/tests.rs` + `ai.rs`'s cfg(test)
-// imports) — the production loop reaches them directly via the submodule paths — so their
-// `indexing::` re-export is gated `#[cfg(test)]` to stay warning-clean in release builds.
+// after the split. Test helpers stay test-only; production imports from their owning modules.
 pub use self::backfill::{
     build_ai_index, build_ai_index_with_control, forget_unconfigured_indexes,
+};
+pub use super::generations::{
+    collect_in_background as collect_index_generations_in_background, collect_index_generations,
 };
 
 #[cfg(test)]
 pub(super) use self::candidates::{collect_visit_chunk, select_embed_targets};
 pub(crate) use self::content::enrichment_summary_for;
 #[cfg(test)]
-pub(super) use self::store_rows::{clear_provider_embeddings, upsert_embedding};
+pub(super) use self::store_rows::upsert_embedding;
 
 /// One canonical visit that needs to be embedded into the semantic sidecar.
 ///

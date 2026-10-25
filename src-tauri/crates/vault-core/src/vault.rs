@@ -6,6 +6,7 @@
 
 pub(crate) mod live;
 pub(crate) mod password;
+pub(crate) mod upgrade;
 pub use password::ArchivePasswordWrong;
 #[cfg(test)]
 mod tests;
@@ -26,6 +27,8 @@ pub struct Vault {
     search_sessions: Arc<crate::search::SearchSessions>,
     search: Arc<crate::search::Indexer>,
     store: Arc<Store>,
+    pub(crate) generation_lease: Option<Arc<crate::ai::generations::GenerationLease>>,
+    pub(crate) vector_generations: Arc<crate::ai::generations::GenerationState>,
     paths: ProjectPaths,
     config: AppConfig,
     backup: Arc<std::sync::Mutex<()>>,
@@ -85,7 +88,17 @@ impl Vault {
             config
         };
         let storage = storage_config(&paths, key, Some(owner))?;
-        let store = Arc::new(Store::open(storage)?);
+        let store = match Store::open(storage) {
+            Ok(store) => Arc::new(store),
+            Err(error) => {
+                // A migration that stopped partway reported its progress; the window shows it
+                // until told otherwise, over the lock or error screen that could act on this.
+                if let Some(report) = crate::vault::upgrade::observer() {
+                    report(crate::ArchiveUpgradeProgress::finished());
+                }
+                return Err(error);
+            }
+        };
         if recover {
             store.write(Db::Archive, Priority::Interactive, |s| {
             s.execute(
@@ -112,18 +125,31 @@ impl Vault {
             search: Arc::downgrade(&search),
             sessions: Arc::downgrade(&search_sessions),
         });
-        Ok(Self {
+        let vault = Self {
             lifetime,
             search_sessions,
             search,
             store,
             paths,
             config,
+            generation_lease: None,
+            vector_generations: Arc::default(),
             backup: Arc::default(),
             intelligence: Arc::default(),
             site_days: Arc::default(),
             _temporary_root: None,
-        })
+        };
+        if recover {
+            if let Err(error) = crate::ai::generations::migrate_flat_indexes(&vault) {
+                eprintln!("pathkeep: semantic index migration will retry on next open: {error:#}");
+                return Ok(vault);
+            }
+            if let Err(error) = crate::ai::collect_index_generations(&vault, false) {
+                eprintln!("pathkeep: collecting semantic index generations at open: {error:#}");
+            }
+            crate::ai::generations::schedule_recovery(&vault);
+        }
+        Ok(vault)
     }
 
     /// Password unlock is the only path that may create an envelope. It refuses
@@ -200,6 +226,7 @@ impl Vault {
     }
 
     pub fn close(&self) -> Result<()> {
+        self.vector_generations.stop_reaper();
         self.lifetime.close()
     }
 
@@ -216,6 +243,13 @@ impl Vault {
     /// New requests can use saved settings without opening another database owner.
     pub fn with_config(&self, config: AppConfig) -> Self {
         Self { config, ..self.clone() }
+    }
+
+    /// Build sources use their lineage directory while sharing the database owner.
+    pub(crate) fn with_vectors_dir(&self, vectors_dir: std::path::PathBuf) -> Self {
+        let mut paths = self.paths.clone();
+        paths.vectors_dir = vectors_dir;
+        Self { paths, ..self.clone() }
     }
 
     /// Preserve domain errors while Store remains responsible for rollback.

@@ -130,22 +130,45 @@ fn semantic_scores(
 /// saying why: core search never depends on the optional embedding service (AGENTS.md 4).
 async fn query_semantic(
     vault: &Vault,
-    paths: &ProjectPaths,
+    _paths: &ProjectPaths,
     provider: &AiProviderRuntime,
     query: &str,
     cancel: &vault_store::CancelToken,
     allowlist: Option<&[u64]>,
     notes: &mut Vec<AiSearchNote>,
 ) -> Result<Option<SemanticScores>> {
-    let Some(index) = semantic_index(vault, paths, provider, notes)? else { return Ok(None) };
-    let vector = match embed_query(paths, provider, query.trim(), EmbeddingRole::Query).await {
-        Ok(vector) => vector,
-        Err(error) => {
-            notes.push(AiSearchNote::ProviderResolutionFailed { reason: format!("{error:#}") });
+    let result: Result<Option<SemanticScores>> = async {
+        let Some(pinned) = super::generations::serving_vault(
+            vault,
+            &provider.config.id,
+            &provider.config.default_model,
+        )?
+        else {
+            notes.push(AiSearchNote::EmptySemanticIndex);
             return Ok(None);
+        };
+        let vault = &pinned;
+        let paths = vault.paths();
+        let Some(index) = semantic_index(vault, paths, provider, notes)? else { return Ok(None) };
+        let vector = match embed_query(paths, provider, query.trim(), EmbeddingRole::Query).await {
+            Ok(vector) => vector,
+            Err(error) => {
+                notes.push(AiSearchNote::ProviderResolutionFailed { reason: format!("{error:#}") });
+                return Ok(None);
+            }
+        };
+        semantic_scores(paths, provider, &index, &vector, cancel, allowlist, notes)
+    }
+    .await;
+    match result {
+        Ok(scores) => Ok(scores),
+        Err(error) => {
+            cancel.check()?;
+            eprintln!("pathkeep: semantic search unavailable; using words: {error:#}");
+            notes.push(AiSearchNote::EmptySemanticIndex);
+            Ok(None)
         }
-    };
-    semantic_scores(paths, provider, &index, &vector, cancel, allowlist, notes)
+    }
 }
 
 /// One pass over the search's own scope gives each page the best score of its in-scope visits.
