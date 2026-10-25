@@ -43,6 +43,13 @@ export interface RekeyRequest {
    * archive has none, so encrypting one leaves it out.
    */
   currentKey?: string | null
+  /**
+   * Whether the keychain should hold the archive's key once the change is
+   * done, and the setting with it. The backend applies both under the same
+   * hold as the rewrite, so quitting as soon as the rewrite ends cannot leave
+   * them behind. Left out, both stay as they are (previews).
+   */
+  rememberInKeychain?: boolean | null
 }
 
 /**

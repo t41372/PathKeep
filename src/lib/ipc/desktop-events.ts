@@ -1,9 +1,11 @@
 /**
  * Events the desktop shell sends that did not start in this window: the menu
- * bar icon's "Search history…", backups it ran, and index jobs the background
- * queue finished. Through the dev bridge they arrive when the bridge runs
- * beside the app (`listenDesktopEvent`).
+ * bar icon's "Search history…", backups it ran, index jobs the background
+ * queue finished, and the question asked when someone quits while work runs.
+ * Through the dev bridge they arrive when the bridge runs beside the app
+ * (`listenDesktopEvent`).
  */
+import type { QuitRequest } from '../backend-client/desktop'
 import type { BackupReport } from '../types'
 import { listenDesktopEvent } from './events'
 
@@ -41,6 +43,19 @@ export function subscribeToIndexJobEnded(
 ) {
   return listenDesktopEvent<IndexJobEndedEvent>(
     'pathkeep://ai-index-job-ended',
+    listener,
+  )
+}
+
+/**
+ * The quit question as it changes: sent when a quit is held, when what is
+ * running changes, and `null` once it is answered.
+ */
+export function subscribeToQuitRequest(
+  listener: (request: QuitRequest | null) => void,
+) {
+  return listenDesktopEvent<QuitRequest | null>(
+    'pathkeep://quit-request',
     listener,
   )
 }

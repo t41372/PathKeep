@@ -651,6 +651,7 @@ fn rekey_requires_the_current_password_and_rewraps_the_native_envelope() {
             new_mode: ArchiveMode::Encrypted,
             new_key: Some("new password".into()),
             current_key: current.map(str::to_owned),
+            remember_in_keychain: None,
         };
         assert!(preview_rekey_archive(&request).is_err());
         assert!(rekey_archive_database(&session, &request).is_err());
@@ -659,6 +660,7 @@ fn rekey_requires_the_current_password_and_rewraps_the_native_envelope() {
         new_mode: ArchiveMode::Encrypted,
         new_key: Some("new password".into()),
         current_key: Some("old password".into()),
+        remember_in_keychain: None,
     };
     assert!(preview_rekey_archive(&request).unwrap().snapshot_path.is_empty());
     rekey_archive_database(&session, &request).unwrap();

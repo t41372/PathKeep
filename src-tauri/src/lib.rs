@@ -101,6 +101,12 @@ fn run_app() -> Result<()> {
         .manage(launches.clone())
         .plugin(tauri_plugin_single_instance::init(owner::handoff))
         .plugin(tauri_plugin_dialog::init());
+    // ⌘Q asks before quitting while work runs; AppKit's own Quit cannot. `desktop_integration`
+    // installs the menus at setup, in the app's language (`app_menu.rs`).
+    #[cfg(target_os = "macos")]
+    let builder = builder
+        .enable_macos_default_menu(false)
+        .on_menu_event(desktop_integration::on_app_menu_event);
     // macOS writes its own login LaunchAgent; see `vault_platform::login_item`.
     #[cfg(not(target_os = "macos"))]
     let builder = builder.plugin(
@@ -372,15 +378,24 @@ fn run_app() -> Result<()> {
             relaunch_after_update,
             get_desktop_integration,
             set_launch_at_login,
-            set_menu_bar_icon
+            set_menu_bar_icon,
+            get_quit_request,
+            answer_quit_request
         ])
         .build(context)?
-        .run(|_app, _event| {
+        .run(|app, event| match event {
+            // Every `AppHandle::exit` (the menu bar icon's and ⌘Q's Quit) and the last window
+            // closing: running work gets its question first. An update's restart is not held.
+            tauri::RunEvent::ExitRequested { code, api, .. }
+                if code != Some(tauri::RESTART_EXIT_CODE)
+                    && desktop_integration::hold_quit(app) =>
+            {
+                api.prevent_exit();
+            }
             // Clicking the Dock icon brings back a window hidden to the menu bar.
             #[cfg(target_os = "macos")]
-            if let tauri::RunEvent::Reopen { .. } = _event {
-                desktop_integration::show_main_window(_app);
-            }
+            tauri::RunEvent::Reopen { .. } => desktop_integration::show_main_window(app),
+            _ => {}
         });
     Ok(())
 }

@@ -6,10 +6,11 @@
 //!
 //! ## Responsibilities
 //! - Pick the menu language from the config preference and the OS languages.
-//! - Produce the menu labels and the backup status line.
+//! - Produce the menu labels and the backup status line, and the macOS menu bar's labels.
 //!
 //! ## Not responsible for
-//! - Deciding the backup status (`status.rs`) or building the menu (`tray.rs`).
+//! - Deciding the backup status (`status.rs`) or building the menus (`tray.rs`,
+//!   `app_menu.rs`).
 
 use chrono::{DateTime, Utc};
 use vault_core::LanguagePreference;
@@ -78,6 +79,104 @@ pub(crate) fn menu_labels(language: MenuLanguage) -> MenuLabels {
             search_history: "搜尋歷史…",
             open: "打開 PathKeep",
             quit: "結束 PathKeep",
+        },
+    }
+}
+
+/// The macOS menu bar's labels, in the words macOS itself uses for these items.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub(crate) struct AppMenuLabels {
+    pub(crate) about: &'static str,
+    pub(crate) services: &'static str,
+    pub(crate) hide: &'static str,
+    pub(crate) hide_others: &'static str,
+    pub(crate) quit: &'static str,
+    pub(crate) file: &'static str,
+    pub(crate) close_window: &'static str,
+    pub(crate) edit: &'static str,
+    pub(crate) undo: &'static str,
+    pub(crate) redo: &'static str,
+    pub(crate) cut: &'static str,
+    pub(crate) copy: &'static str,
+    pub(crate) paste: &'static str,
+    pub(crate) select_all: &'static str,
+    pub(crate) view: &'static str,
+    pub(crate) full_screen: &'static str,
+    pub(crate) window: &'static str,
+    pub(crate) minimize: &'static str,
+    pub(crate) zoom: &'static str,
+    pub(crate) help: &'static str,
+}
+
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub(crate) fn app_menu_labels(language: MenuLanguage) -> AppMenuLabels {
+    let quit = menu_labels(language).quit;
+    match language {
+        MenuLanguage::En => AppMenuLabels {
+            about: "About PathKeep",
+            services: "Services",
+            hide: "Hide PathKeep",
+            hide_others: "Hide Others",
+            quit,
+            file: "File",
+            close_window: "Close Window",
+            edit: "Edit",
+            undo: "Undo",
+            redo: "Redo",
+            cut: "Cut",
+            copy: "Copy",
+            paste: "Paste",
+            select_all: "Select All",
+            view: "View",
+            full_screen: "Enter Full Screen",
+            window: "Window",
+            minimize: "Minimize",
+            zoom: "Zoom",
+            help: "Help",
+        },
+        MenuLanguage::ZhCn => AppMenuLabels {
+            about: "关于 PathKeep",
+            services: "服务",
+            hide: "隐藏 PathKeep",
+            hide_others: "隐藏其他",
+            quit,
+            file: "文件",
+            close_window: "关闭窗口",
+            edit: "编辑",
+            undo: "撤销",
+            redo: "重做",
+            cut: "剪切",
+            copy: "拷贝",
+            paste: "粘贴",
+            select_all: "全选",
+            view: "显示",
+            full_screen: "进入全屏幕",
+            window: "窗口",
+            minimize: "最小化",
+            zoom: "缩放",
+            help: "帮助",
+        },
+        MenuLanguage::ZhTw => AppMenuLabels {
+            about: "關於 PathKeep",
+            services: "服務",
+            hide: "隱藏 PathKeep",
+            hide_others: "隱藏其他",
+            quit,
+            file: "檔案",
+            close_window: "關閉視窗",
+            edit: "編輯",
+            undo: "還原",
+            redo: "重做",
+            cut: "剪下",
+            copy: "拷貝",
+            paste: "貼上",
+            select_all: "全選",
+            view: "顯示方式",
+            full_screen: "進入全螢幕",
+            window: "視窗",
+            minimize: "縮到最小",
+            zoom: "縮放",
+            help: "輔助說明",
         },
     }
 }

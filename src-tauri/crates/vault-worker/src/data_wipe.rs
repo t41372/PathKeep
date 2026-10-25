@@ -63,6 +63,7 @@ pub fn wipe_all_data(
             "Deleting all data needs the confirmation word {WIPE_CONFIRMATION_WORD}; nothing was deleted."
         );
     }
+    let _running = crate::foreground_work::begin(crate::ForegroundWork::DataWipe);
     let paths = vault_core::project_paths()?;
     let config = load_unlocked_config(&paths)?;
     let schedule = installed_schedule(&paths, &config).map(|installed| installed.plan);

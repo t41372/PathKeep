@@ -23,11 +23,15 @@ mod cli;
 mod context;
 mod current_password;
 mod data_wipe;
+mod foreground_work;
 mod intelligence;
 mod job_runtime;
 mod maintenance_jobs;
 mod mcp;
 mod migration;
+pub use foreground_work::{
+    ForegroundWork, Running as ForegroundRun, begin as begin_foreground_work, foreground_work,
+};
 pub use maintenance_jobs::{cancel_maintenance, maintenance_progress};
 pub mod owner_requests;
 mod schedule;

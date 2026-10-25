@@ -60,7 +60,8 @@ impl VaultSession {
         self.inner.0.lock().expect("session state").owner.clone()
     }
 
-    /// Publish a verified maintenance replacement without reopening a second owner.
+    /// Publish a verified maintenance replacement without reopening a second owner. The
+    /// archive is in place even when this fails with [`KeychainNotUpdated`].
     pub fn install_archive(
         &self,
         archive: vault_core::maintenance::InstalledArchive,
@@ -83,7 +84,7 @@ impl VaultSession {
             state.vault.replace(archive.vault)
         };
         drop(old);
-        keyring_result.map_err(|error|anyhow::anyhow!("archive-installed-keychain-unavailable: the archive was installed, but its remembered key could not be updated: {error}"))
+        keyring_result.map_err(|error| KeychainNotUpdated(error).into())
     }
 
     /// Rewrap keeps the owner and remembered data key; only typed legacy state changes.
@@ -454,6 +455,25 @@ pub(crate) fn encode_data_key(key: &DataKey) -> Zeroizing<String> {
     }
     text
 }
+
+/// The archive change went through, but the keychain could not be made to match it. Callers
+/// that can say so in their own words (a password change ends with a warning, not an error)
+/// tell this apart from a change that failed.
+#[derive(Debug)]
+pub struct KeychainNotUpdated(pub anyhow::Error);
+
+impl std::fmt::Display for KeychainNotUpdated {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "archive-installed-keychain-unavailable: the archive was installed, but its remembered key could not be updated: {}",
+            self.0
+        )
+    }
+}
+
+impl std::error::Error for KeychainNotUpdated {}
+
 #[cfg(test)]
 mod tests;
 

@@ -12,7 +12,9 @@
 //!   - with the icon off on Windows / Linux, it opens minimized, because a
 //!     hidden window with no tray icon and no Dock could not be reached.
 //! - With the icon on, closing the window hides it; the app keeps running in
-//!   the menu bar. With the icon off, closing the window quits, as before.
+//!   the menu bar. With the icon off, closing the window quits, as before,
+//!   unless work someone is waiting on is running: then the window stays and
+//!   asks first (`quit.rs`).
 //! - On Windows and Linux the window has no system title bar: the app draws
 //!   its window buttons (`src/app/shell/window-controls.tsx`), so the window
 //!   is the same two layers as on macOS (`back-forward-window-frame-tradeoff.md`
@@ -22,7 +24,8 @@
 //! - Startup visibility, the close-button policy, and bringing the window back.
 //!
 //! ## Not responsible for
-//! - Creating the icon (`tray.rs`) or reading the preference (`mod.rs`).
+//! - Creating the icon (`tray.rs`), reading the preference (`mod.rs`), or
+//!   whether a quit may go ahead (`quit.rs`).
 //!
 //! Failure modes: background startup creates a webview; a later foreground launch
 //! cannot create it. Tests: owner_process and startup_window below.
@@ -100,13 +103,18 @@ fn frame<R: Runtime>(window: &tauri::WebviewWindow<R>) {
     let _ = window;
 }
 
-/// Hides the main window instead of closing it while the menu bar icon exists.
+/// The close button: while the menu bar icon exists it hides the main window instead of closing
+/// it; without the icon closing quits, so running work first gets its question (`quit.rs`),
+/// asked in this window, which therefore stays open.
 pub(crate) fn on_window_event<R: Runtime>(window: &Window<R>, event: &WindowEvent) {
     if let WindowEvent::CloseRequested { api, .. } = event
         && window.label() == MAIN_WINDOW
-        && window.app_handle().tray_by_id(TRAY_ID).is_some()
     {
-        api.prevent_close();
-        let _ = window.hide();
+        if window.app_handle().tray_by_id(TRAY_ID).is_some() {
+            api.prevent_close();
+            let _ = window.hide();
+        } else if super::quit::hold_quit(window.app_handle()) {
+            api.prevent_close();
+        }
     }
 }

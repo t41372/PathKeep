@@ -46,6 +46,9 @@ pub(crate) fn apply_app_data_import_impl(
     let paths = worker_result(vault_core::project_paths())?;
     let password = options.source_archive_key.clone();
     let current = state.current_vault();
+    // Through installing the imported archive and its key, not only the import, so a quit
+    // that waits for it doesn't leave the keychain behind.
+    let _running = vault_worker::begin_foreground_work(vault_worker::ForegroundWork::MoveImport);
     let (report, archive) = worker_result(vault_worker::apply_import(
         &paths,
         current.as_ref(),

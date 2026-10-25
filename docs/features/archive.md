@@ -161,6 +161,7 @@ Settings → General 的兩個開關。
   - Linux 需要 libappindicator 與面板上的 StatusNotifier host（GNOME 預設沒有）；缺任一個時 `menuBarIconSupported` 為 false。
 - **登入啟動時的行為**：登入啟動永遠不把視窗推到用戶面前。選單列圖示開著 → 不開視窗，只在選單列出現（設定文案「登入時在選單列運行」）。圖示關著：macOS 同樣不開視窗，Dock 圖示還在，點它就叫出視窗；Windows / Linux 以最小化開在工作列，因為沒有 Dock，隱藏又沒圖示等於用戶找不到 app。
 - **關閉視窗**：圖示開著 → 視窗隱藏，app 留在選單列（「結束 PathKeep」或 ⌘Q 才結束）。圖示關著 → 關視窗就結束 app，與之前一致。關掉圖示時若視窗是隱藏的，會把視窗叫回來。macOS 點 Dock 圖示會叫回隱藏的視窗。
+- **結束時還有工作在跑**：手動備份、匯出、匯入或存檔維護在跑時，關視窗（圖示關著）、⌘Q 或「結束 PathKeep」都先說正在做什麼，問要等它做完、現在結束還是不結束；背景佇列照常結束。macOS 的 Dock「結束」、登出與關機攔不到，照舊立刻結束。畫面見 [screens-and-nav.md](../design/screens-and-nav.md)「結束時還有工作在跑」，機制見 [desktop-command-surface.md](../architecture/desktop-command-surface.md)。
 - 已知缺口：Windows / Linux 沒有 single-instance，app 隱藏在系統匣時再從開始選單啟動會開第二個 process。
 
 ### 平台注意事項
