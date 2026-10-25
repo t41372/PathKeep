@@ -107,7 +107,7 @@ A build walks visits by ascending history ID today, oldest first. Every build wi
 
 - **Download:** consent-gated, SHA-256-pinned and swapped in atomically, through `model_files.rs` like the static model.
 - **Loaded** while a build runs and for searches, released after a few idle minutes. The static model stays resident (73–76 MiB).
-- **No re-hash on every load.** Today a cache miss re-verifies every model file (`embedding_static/cache.rs`), about 1 s per 512 MB on this Mac and more on the target. Loading will trust the verified marker together with each file's size and modification time recorded at verification; a full re-hash runs only when they differ.
+- **No re-hash on every load** (done 2026-10-25, `ai/model_files.rs` `model_files_verified`). A cache miss used to re-verify every model file, about 1 s per 512 MB on this Mac and more on the target, and so did every app snapshot's model status. The verified marker now records each file's digest, size and modification time when it passed a full hash; loads and the status trust it while those match, and a full re-hash runs only when one differs (or the marker is missing or from an older build). The hash guards against a broken or half-written download, not against someone rewriting a file and restoring its size and time.
 - **Batches** are capped by tokens, not texts, so one long page cannot blow up a batch.
 - **Vectors** per unique page (binary plane resident, int8 plane and f32 source on disk):
 
