@@ -6,7 +6,7 @@ use super::{
     SearchRequest, SearchSession,
     fixture::{Archive, CHROME},
 };
-use crate::archive::search_lexical::{FuzzyDocument, fuzzy_query, normalized_tokens};
+use crate::archive::search_lexical::{FuzzyDocument, fuzzy_clauses, normalized_tokens};
 use vault_store::Db;
 #[test]
 fn fuzzy_prefilters_equal_brute_force_even_without_a_shared_trigram() {
@@ -38,7 +38,7 @@ fn fuzzy_prefilters_equal_brute_force_even_without_a_shared_trigram() {
         archive.index();
         let docs=archive.vault.store().read(Db::Archive,|s|s.query("SELECT page_id,normalized_url,normalized_title,normalized_search_terms,compact_text FROM search_documents",(),|r|Ok((r.get::<i64>(0)?,r.get::<String>(1)?,r.get::<String>(2)?,r.get::<String>(3)?,r.get::<String>(4)?)))).unwrap();
         for query in ["abcd", "abxd", "abcdefg", "abcdefghij", "abcdefghijklmnopq"] {
-            let predicate = fuzzy_query(query).unwrap();
+            let predicate = fuzzy_clauses(&[vec![query.to_owned()]]).unwrap();
             let mut expected = docs
                 .iter()
                 .filter_map(|(id, url, title, terms, compact)| {

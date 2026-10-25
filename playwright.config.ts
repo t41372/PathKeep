@@ -154,6 +154,7 @@ export default defineConfig({
         'export.spec.ts',
         'search-loading.spec.ts',
         'search-limits.spec.ts',
+        'search-builder.spec.ts',
         'shell-and-lists.spec.ts',
         'links.spec.ts',
         'home.spec.ts',

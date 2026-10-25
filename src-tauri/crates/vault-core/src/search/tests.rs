@@ -44,6 +44,17 @@ fn query_forms_and_pages_match_the_generated_corpus() {
             ("common -excluded", vec![0, 2, 3, 4]),
             ("intitle:rare", vec![4]),
             ("rare OR cafe", vec![0, 4]),
+            // OR joins only its neighbours: release, and notes or rare. Read as "release
+            // notes, or rare", page 4 ("common rare") would match.
+            ("release notes OR rare", vec![0, 2]),
+            // A quoted phrase can be one side of an OR; 2 has the words, not the phrase.
+            ("\"release notes\" OR rare", vec![0, 4]),
+            // OR does not reach past the operator to `cafe`: cafe, release and
+            // intitle:notes. Reaching past it, page 2 (release, no café) would match.
+            ("cafe intitle:notes OR release", vec![0]),
+            // No exact match, so the typo retry answers, and it reads OR the same way: a
+            // release, and a design or rare. Reading OR the old way, page 4 ("rare") would.
+            ("relase designn OR rarre", vec![2]),
         ] {
             let request = SearchRequest { query: query.into(), page_size: 7, ..Default::default() };
             let mut session = SearchSession::start(&vault, request).unwrap();

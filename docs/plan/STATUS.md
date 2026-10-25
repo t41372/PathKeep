@@ -467,6 +467,15 @@
   - 選單列圖示關著時，關掉主視窗就是結束 app。2026-10-16 跑 `move.spec` 時有人點了測試視窗的關閉鈕：系統 log 在 07:07:01.685 記到 `windowShouldClose`，35 ms 後程序結束，進行了 40 秒的 `export_app_data` 沒有回應，畫面上只看到「could not reach the local desktop bridge」。檔案沒有寫壞（先寫暫存檔再換），只是工作白做，使用者也不知道。
   - 要做：有匯出、匯入、備份或維護在跑時，關視窗或 ⌘Q 先說正在做什麼、要不要等它做完；背景工作佇列（建索引等）能續跑的就照常結束。E2E：匯出途中送出關閉，看到提示、選等待後匯出完成。
 
+- [x] **WORK-SEARCH-SORT-AND-BUILDER** — History 的搜尋可以選排序，進階搜尋不用記語法（用戶 2026-10-25）
+  - 用戶 2026-10-25：「搜索歷史紀錄的時候，應該要有不同排序方式，比如相關度優先，時間排序優先等等。另外，正則搜索技巧，應該要設計一個二級菜單或是某種別的交互模式，用戶可以和 UI 交互來做高級搜索，不用背正則表達式。」
+  - 讀先：`docs/architecture/search.md`、`docs/features/recall.md` §0、`docs/design/screens-and-nav.md`（History）、`docs/design/ui-review-guardrails.md` §8。
+  - 排序：搜尋時篩選列右邊的選單，寫在 URL `sort`。後端本來就支援最相關、最新、最早，前端原本寫死（全文最相關、regex 最新）；「最常瀏覽」是新的（後端 `sort: "visits"`：範圍內的瀏覽次數，全文與 regex 都有，見 `search.md`）。Regex 沒有「最相關」，語意搜尋只依意思排序（它的日期排序其實是關鍵字結果）；選單照樣列出、不能選，並說明原因。選的排序在支援它的方式之間保留。
+  - 進階搜尋：搜尋框裡的滑桿圖示，兩個分頁。「關鍵字」照 Google 進階搜尋的欄位；「樣式」把 regex 拆成一段一段（這段文字、其中之一、一串數字…），附四個範例。下方即時顯示會搜尋的字串，按「搜尋」填進搜尋框並切換方式（`words-query.ts`、`regex-pieces.ts`、`search-builder.tsx`）。
+  - `OR` 改成和 Google 一樣，只連兩邊的字或片語，其他照 AND（用戶同日：「不用管文檔」，同意推翻原本「OR 把整串字切成兩組」的決定）。`search/query.rs`；`search.md`、`recall.md` 照改。
+  - 順手做了 BACKLOG `WORK-HISTORY-SEARCH-NOTES` 的前端：語意搜尋回的提示（上一個模型、索引是空的、連不上服務…）在結果上方說一句，連到 Settings → AI。
+  - E2E `search-builder.spec`（read）：排序依第一次 / 最近一次瀏覽，URL 保留、重新整理、切到 regex 都還在；關鍵字分頁的 all + any + none 照 Google 的讀法找到的頁（照整串切兩組的讀法會多出只有 smol 的頁）；樣式分頁兩個範例與一段一段組出的 regex 找到的頁都和 fixture 一致。Rust：`search::tests` 加三個 OR 的語料案例。
+
 - [x] **WORK-EMBED-USES** — embedding 不只用在搜索（用戶 2026-10-15；2026-10-17 結束，剩下的候選移到 BACKLOG `WORK-SEARCH-NEAR-DUPLICATES`、`WORK-SESSION-TITLE-SEARCHES`、`WORK-DECISION-MODELS`）
   - 讀先：`docs/features/intelligence.md`、`docs/plan/program/ai-redesign-2026/05-embedding-retrieval-revision.md`、`docs/architecture/semantic-index-control.md`、`docs/architecture/search.md`、`docs/architecture/research/2026-10-topics-of-a-period.md`（item 1）；item 3 加讀 `docs/architecture/research/2026-10-related-pages.md`。
   - 前提：每次語義搜索把全部向量掃一遍（`vector_index.rs` 對 map 起來的 int8 plane 完整計分）。每多一個用途就多一次全掃，14.4M 時要先確定代價（先量）。2026-10-16 量完：[2026-10-vector-search.md](../architecture/research/2026-10-vector-search.md)；一次全掃在 14.4M × 256 單執行緒只要 12–82 ms（Turbovec / 連續 int8，M5 Max 上量的，目標機會慢），慢的是搜尋流程本身；2026-10-17 `WORK-SEMANTIC-PIPELINE` 已改掉逐筆回查，剩下範圍串流（BACKLOG `WORK-SEMANTIC-VISIT-SIDECAR`）。

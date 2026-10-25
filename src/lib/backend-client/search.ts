@@ -22,7 +22,7 @@ import { call } from './shared'
 export interface SearchRequest {
   query?: string
   pageSize?: number
-  sort?: 'relevance' | 'newest' | 'oldest' | null
+  sort?: 'relevance' | 'newest' | 'oldest' | 'visits' | null
   profileId?: string | null
   browserKind?: string | null
   domain?: string | null

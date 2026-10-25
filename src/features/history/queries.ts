@@ -25,7 +25,11 @@ import { urlDetailClient } from '@/lib/backend-client/url-detail'
 import { supportedBrowsers } from '@/lib/browser-icons'
 import { queryKeys } from '@/lib/query'
 import { useDashboard, useSnapshot } from '@/lib/queries/app'
-import type { HistoryEntry, HistoryQueryResponse } from '@/lib/types'
+import type {
+  AiSearchNote,
+  HistoryEntry,
+  HistoryQueryResponse,
+} from '@/lib/types'
 import type { DayRange, SearchSpec } from './history-params'
 import {
   browserKindOf,
@@ -76,6 +80,8 @@ export interface SearchStatus {
   /** False while the search index hasn't caught up with the archive: pages can be missing. */
   coverageComplete: boolean
   indexer: IndexerState | null
+  /** What a semantic search fell back to or ran on instead; empty for the others. */
+  notes: AiSearchNote[]
 }
 
 /** The pages of a visit list, flattened. */
@@ -134,7 +140,7 @@ export function useVisitList(
         ? {
             query: search.pattern,
             regex: search.mode === 'regex',
-            sort: search.mode === 'full' ? 'relevance' : 'newest',
+            sort: search.sort,
             pageSize: PAGE_SIZE,
             startTimeMs,
             endTimeMs,
@@ -148,6 +154,7 @@ export function useVisitList(
       search.regexError,
       search.pattern,
       search.mode,
+      search.sort,
       startTimeMs,
       endTimeMs,
       browserKind,
@@ -215,6 +222,7 @@ export function useVisitList(
             sorting: current?.pages.some((page) => page.provisional) ?? false,
             coverageComplete: last.coverageComplete,
             indexer: current?.indexer ?? last.indexer,
+            notes: [],
           }
         : null,
       isPending: enabled && shown === null,
@@ -239,6 +247,7 @@ export function useVisitList(
             sorting: false,
             coverageComplete: first.searchState?.coverageComplete ?? true,
             indexer: first.searchState?.indexer ?? null,
+            notes: first.noteCodes ?? [],
           }
         : null,
     isPending: enabled && (semantic || search.text === '') && active.isPending,

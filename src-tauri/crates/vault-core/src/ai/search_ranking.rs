@@ -32,7 +32,7 @@ pub(super) fn query(request: &AiSearchRequest) -> SearchRequest {
     let (start_time_ms, end_time_ms) = resolve_date_filter_ms(request);
     SearchRequest {
         query: request.query.clone(),
-        sort: request.sort.clone(),
+        sort: Some(crate::AiSearchSort::parse(request.sort.as_deref()).search_sort().into()),
         page_size: request.limit.unwrap_or(8).max(1) as usize,
         profile_id: request.profile_id.clone(),
         browser_kind: request.browser_kind.clone(),

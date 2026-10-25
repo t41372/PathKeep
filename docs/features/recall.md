@@ -15,8 +15,9 @@ what is presented at once. Relevance order is score, newest matching visible vis
 then page ID; explicit chronological sorts remain available: newest by each page's
 latest visit, oldest by its first visit, and the row shows that visit. Prefixes, phrases,
 exclusions, field operators, CJK and fuzzy queries share complete cursor paging.
-Date and profile constraints must hold for the same visit. Field/phrase/exclusion
-constraints apply across keyword OR groups. Title and URL filters retain substring
+Date and profile constraints must hold for the same visit. `OR` joins the word or
+phrase on either side of it, as in Google (`rust tokio OR tauri`: rust, and tokio or
+tauri); field and exclusion constraints apply to every result. Title and URL filters retain substring
 matching; quoting an alias makes it literal. Regex requires explicit regex mode;
 slashes and operator names in a regex are pattern text.
 
@@ -39,9 +40,11 @@ closing the Vault releases all sessions. App Lock keeps the Vault open.
 - **三個視圖**：時間線（依天分組，同一天內相隔 30 分鐘以上切成 session）、網站（所選範圍內去過的網站，按瀏覽次數，每次載 200 個、捲到底再載，沒有上限；每列帶該網站最近一頁的連結預覽縮圖，點一個切回時間線並篩選）、已加星（頁面與整個網站，附連結預覽縮圖、最多三個標籤與筆記預覽）。「整個網站」是照公共後綴清單切的網站（`deterministic-intelligence.md` §5.1）：舊版用「最後兩段」切，在舊版替 `*.github.io` 某一頁的網站加的星存成 `github.io`，涵蓋所有 `*.github.io`。現在每個 `*.github.io` 各是一個網站，那顆星會換成它底下每個造訪過的網站各一顆星，時間與設定檔照舊（用戶 2026-10-10 決定；`archive::sites`）；之後才第一次去的 `*.github.io` 網站不會自動有星。搜尋時改為結果列表，同一頁面只列一行並標出符合的瀏覽次數。
 - **搜尋框**：一個輸入框，打字 250 ms 後才寫進 URL 並查詢。三種方式：
   - **全文**（預設）：串流的搜尋 session（`start_search` / `next_search_page` / `cancel_search`，[search.md](../architecture/search.md)），每頁一列，依相關度排序；§1 的進階語法（`site:`、`-詞`、`"片語"`、`OR`、`intitle:`、`inurl:`、`filetype:`、`after:` / `before:`、`note:` / `tag:`）由後端解析。搜尋框裡的「?」（點擊、鍵盤或滑鼠停留）打開語法速查（`search-help.tsx`）：每個運算子一個例子，點一下就填進搜尋框並切回全文；日期例子固定是上個月。只有 `tag:` 而沒有關鍵字的搜尋從 `url_tags` 找候選，不掃整個 `urls`（[ipc-performance.md](../architecture/ipc-performance.md) §6）。
-  - **Regex**：同一個搜尋 session 加 `regex`，依時間新到舊。把查詢用 `/…/` 包起來時，不管選了哪種方式都當 regex。前端用 Rust `regex` 的規則檢查（`regex-dialect.ts`：群組、巢狀字元類、跳脫字元、重複次數），擋下 look-around、反向參照、atomic / 條件群組、Rust 不認得的跳脫字元與不是重複次數的 `{`，用白話說明哪裡不支援，不送出查詢，畫面保留上一批結果（淡化）。不再用 JavaScript `RegExp`：它會擋下 Rust 接受的寫法（`a++`、`(?i)`、`(?P<name>…)`）。只有編譯時才知道的錯誤（不存在的 Unicode 屬性、反向範圍、大小上限）仍會送到後端，畫面顯示「這個正規表示式無法執行」與 Rust 的訊息，不再是「搜尋沒有執行成功」。
+  - **Regex**：同一個搜尋 session 加 `regex`，依選的排序（預設新到舊）。把查詢用 `/…/` 包起來時，不管選了哪種方式都當 regex。前端用 Rust `regex` 的規則檢查（`regex-dialect.ts`：群組、巢狀字元類、跳脫字元、重複次數），擋下 look-around、反向參照、atomic / 條件群組、Rust 不認得的跳脫字元與不是重複次數的 `{`，用白話說明哪裡不支援，不送出查詢，畫面保留上一批結果（淡化）。不再用 JavaScript `RegExp`：它會擋下 Rust 接受的寫法（`a++`、`(?i)`、`(?P<name>…)`）。只有編譯時才知道的錯誤（不存在的 Unicode 屬性、反向範圍、大小上限）仍會送到後端，畫面顯示「這個正規表示式無法執行」與 Rust 的訊息，不再是「搜尋沒有執行成功」。
     - **完整掃描**：逐段掃描全部符合篩選的訪問，漸進回傳去重後的頁面與目前計數；完成前不把計數標為精確。完成後的游標接續全域排序，分頁不重複頁面。取消或關閉 Vault 會終止搜尋。
   - **語意**：`search_ai_history`（AI 搜尋），只有 `ai.enabled`、`semanticIndexEnabled` 都開而且索引就緒時可選；否則自動退回全文。不可選時，按鈕的提示與結果數下方一行說明原因（未開啟、建立中、等待建立、已暫停、索引是空的、建立失敗、無法使用、archive 未設定），並連到 Settings → AI；可用時同一行寫出 provider 與模型、已索引頁數、更新時間，索引過期時提示去重建。日期、瀏覽器與網站篩選都交給後端（`search_ai_history`），先篩每次造訪再排名，所以頁面與筆數都是篩過的。
+- **進階搜尋**（搜尋框裡的滑桿圖示，2026-10-25）：不用記語法就能組出搜尋。「關鍵字」分頁照 Google 進階搜尋的欄位：包含所有這些字、完整詞組、其中任一個字、不包含這些字，再加只看某網站、標題或網址裡有的字、檔案類型、標籤（逗號分開，要全部都有）、備註提到的字、只看已加星；「樣式」分頁把 regex 拆成一段一段（這段文字、其中之一、一串數字、一個字、到下一個 / 為止的任何內容、任何內容），加上「從開頭開始」「到結尾為止」「區分大小寫」，並有幾個範例（GitHub 的 pull request 和 issue、Hacker News 討論串、YouTube 影片、Stack Overflow 問題）可以從那裡改。下方即時顯示會搜尋的字串；按「搜尋」就填進搜尋框並切到全文或 Regex。只組字串、不從搜尋框反推回表單（`words-query.ts`、`regex-pieces.ts`）；打開時如果搜尋框只有一般的字，會先填進「包含所有這些字」。
+- **排序**（搜尋時篩選列右邊，URL `sort`）：最相關（全文預設）、最新的在前（依每個頁面最近一次瀏覽，regex 預設）、最早的在前（依每個頁面第一次瀏覽，列上顯示那一次）、最常瀏覽（依每個頁面在這次搜尋的範圍〔日期、瀏覽器等篩選〕內的瀏覽次數，一樣多的照最近一次；列上的次數就是排序用的那個數）。Regex 沒有「最相關」，語意搜尋只依意思排序（它的日期排序會變成關鍵字結果，`AiSearchSort`），選單裡照樣列出、不能選，並說明原因。選的排序在支援它的方式之間保留。
 - **篩選**：日期（今天、昨天、最近 7 天、最近 30 天、自訂起訖日）、瀏覽器（依瀏覽器種類，不是單一 profile）、網站（從網站視圖或 Insights 帶入的 chip）。全部寫在 URL（`date`、`browser`、`domain`），可一鍵清除。
 - **列表**：虛擬化、固定列高；cursor 分頁，捲到接近底部自動載下一頁（每頁 100 筆，語意每頁 50 筆）。全文與 regex 的結果數跟著串流更新：還沒數完時是「N+ 頁」（下限），數完換成精確的頁數與瀏覽次數。
 - **詳情面板**：標題、網址；在瀏覽器打開、加星 / 取消、複製連結；連結預覽（og:image，固定 1.91 : 1 的框，見 [og-images.md](og-images.md) §4）；總瀏覽次數、第一次與最近一次瀏覽、來源瀏覽器（`get_url_detail`）；最近 12 週每週瀏覽數；同一 session 的其他頁面；標籤（點標籤就搜尋 `tag:名稱`，見 [annotations.md](annotations.md) §4）；備註。
@@ -102,7 +105,7 @@ closing the Vault releases all sessions. App Lock keeps the Vault open.
   - `site:github.com`：限制 URL/site/domain；也可繼續使用獨立 Domain 篩選欄。
   - `-pathkeep`、`-"release candidate"`：排除 URL、title、search terms / normalized compact projection 中包含指定詞或片語的結果。常見用法是 Domain 篩選 `github.com` + query `-pathkeep`。
   - `"release notes"`：要求 URL、title 或 search terms 中出現 exact phrase，同時保留相關度排序。
-  - `manual OR youtube`：任一側詞組命中即可返回，對應 Google Advanced Search 的「any of these words」。
+  - `manual OR youtube`：任一側的字命中即可返回，對應 Google Advanced Search 的「any of these words」。`OR` 只連它兩邊的字或片語，其他照 AND（`rust tokio OR tauri` 是 rust，加上 tokio 或 tauri），與 Google 相同（2026-10-25 用戶決定；之前 `OR` 把整串字切成兩組）。
   - `intitle:manual` / `inurl:pull-request`：要求詞出現在 title 或 URL 欄位。
   - `filetype:pdf` / `ext:pdf`：依 URL 副檔名篩選本地歷史結果。
   - `after:2026-05-01` / `before:2026-05-07`：依 visit time 收窄；會與 UI date filters 取交集。

@@ -111,11 +111,7 @@ impl RunningSession {
         } else {
             None
         };
-        let fuzzy = query
-            .filters
-            .keyword_text
-            .as_deref()
-            .and_then(crate::archive::search_lexical::fuzzy_query);
+        let fuzzy = query.fuzzy.clone();
         let fallback = (!request.fuzzy && fuzzy.is_some() && regex.is_none())
             .then(|| SearchRequest { fuzzy: true, ..request.clone() });
         // Date scopes use canonical range indexes; fuzzy candidates are validated per batch.

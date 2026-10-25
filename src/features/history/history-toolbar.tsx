@@ -1,6 +1,7 @@
 /**
- * The History header: search box, view switch, filter row and search-mode
- * toggle. Controlled by the page; holds no data of its own.
+ * The History header: search box (with Advanced search and the search tips),
+ * view switch, filter row, sort menu and search-mode toggle. Controlled by
+ * the page; holds no data of its own.
  */
 import { ChevronDown, Globe, Search, X } from 'lucide-react'
 import { dragRegion } from '@/components/app/drag-region'
@@ -24,9 +25,11 @@ import { BrowserIcon } from '@/lib/browser-icons'
 import { cn } from '@/lib/cn'
 import { useFormat, useI18n } from '@/lib/i18n'
 import { DateFilterButton } from './date-filter'
-import type { HistoryView, SearchMode } from './history-params'
+import type { HistoryView, SearchMode, SearchSort } from './history-params'
 import type { BrowserOption } from './queries'
+import { SearchBuilder } from './search-builder'
 import { SearchHelp } from './search-help'
+import { SortMenu } from './sort-menu'
 
 const shortcut =
   typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform)
@@ -51,12 +54,17 @@ interface Props {
   searching: boolean
   mode: SearchMode
   onMode: (mode: SearchMode) => void
+  /** The order results come in, for the current mode. */
+  sort: SearchSort
+  onSort: (sort: SearchSort) => void
   semanticAvailable: boolean
   /** Why semantic search is unavailable, for the disabled toggle's tooltip. */
   semanticOffReason: string | null
   invalidRegex: boolean
   /** A cheat-sheet example was picked: put it in the search box. */
   onExample: (query: string) => void
+  /** Advanced search made a query: search for it in that mode. */
+  onBuild: (query: string, mode: SearchMode) => void
 }
 
 function BrowserFilter({
@@ -136,7 +144,7 @@ function ModeToggle({
       onValueChange={(next) => next && onMode(next as SearchMode)}
       spacing={1}
       aria-label={t('history.modes.label')}
-      className="ml-auto animate-rise"
+      className="animate-rise"
     >
       <ToggleGroupItem value="full" className={item}>
         {t('history.modes.full')}
@@ -187,7 +195,7 @@ export function HistoryToolbar(props: Props) {
             placeholder={t('history.search.placeholder')}
             aria-label={t('history.search.label')}
             aria-invalid={props.invalidRegex || undefined}
-            className="h-10 rounded-[10px] bg-card pr-[140px] pl-[38px] shadow-card [&::-webkit-search-cancel-button]:hidden"
+            className="h-10 rounded-[10px] bg-card pr-[168px] pl-[38px] shadow-card [&::-webkit-search-cancel-button]:hidden"
           />
           <div className="absolute right-2.5 flex items-center gap-1.5">
             {draft && (
@@ -200,6 +208,11 @@ export function HistoryToolbar(props: Props) {
                 <X className="size-3" />
               </button>
             )}
+            <SearchBuilder
+              query={draft}
+              mode={props.mode}
+              onApply={props.onBuild}
+            />
             <SearchHelp onPick={props.onExample} />
             <kbd className="pointer-events-none rounded-[5px] border px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
               {shortcut}
@@ -267,12 +280,19 @@ export function HistoryToolbar(props: Props) {
           </Button>
         )}
         {props.searching && (
-          <ModeToggle
-            mode={props.mode}
-            onMode={props.onMode}
-            semanticAvailable={props.semanticAvailable}
-            semanticOffReason={props.semanticOffReason}
-          />
+          <div className="ml-auto flex items-center gap-2">
+            <SortMenu
+              mode={props.mode}
+              sort={props.sort}
+              onSort={props.onSort}
+            />
+            <ModeToggle
+              mode={props.mode}
+              onMode={props.onMode}
+              semanticAvailable={props.semanticAvailable}
+              semanticOffReason={props.semanticOffReason}
+            />
+          </div>
         )}
       </div>
     </div>

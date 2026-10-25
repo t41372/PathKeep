@@ -1656,6 +1656,17 @@ impl AiSearchSort {
         matches!(self, Self::Oldest | Self::Newest)
     }
 
+    /// The search session's `sort` for this ordering. AI search passes only the orders it
+    /// defines: a session also knows `visits`, which would rank its lexical plane without
+    /// scores and page fused results in another order.
+    pub fn search_sort(self) -> &'static str {
+        match self {
+            Self::Relevance => "relevance",
+            Self::Oldest => "oldest",
+            Self::Newest => "newest",
+        }
+    }
+
     /// The `list_history` sort token this ordering maps to (`"oldest"` / `"newest"`).
     ///
     /// Only meaningful for the date-ordered variants; [`Self::Relevance`] never reaches `list_history`
