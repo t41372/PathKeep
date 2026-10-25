@@ -1281,6 +1281,10 @@ pub enum AiAgentNote {
     /// The answer was saved but the pages it used were not: they show now, and a reopened
     /// conversation shows the answer without them.
     SourcesNotSaved,
+    /// The model ended its last turn without writing an answer (nothing, or only thinking), so
+    /// the turn says so: otherwise the person sees the pages it found and no answer, as if one
+    /// were still on its way.
+    NoAnswer,
 }
 
 /// Tauri event channel that carries [`AiChatStreamEvent`]s to the front end.
