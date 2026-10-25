@@ -144,20 +144,35 @@ impl ReverseVisitMap {
         visit_map: &VisitContentMap,
         fingerprint_hash: &str,
     ) -> Result<u64> {
+        self.build_from_visit_map_cancellable(
+            paths,
+            visit_map,
+            fingerprint_hash,
+            &vault_store::CancelToken::new(),
+        )
+    }
+    pub(super) fn build_from_visit_map_cancellable(
+        &self,
+        paths: &ProjectPaths,
+        visit_map: &VisitContentMap,
+        fingerprint_hash: &str,
+        cancel: &vault_store::CancelToken,
+    ) -> Result<u64> {
+        cancel.check()?;
         ensure_paths(paths)?;
         // `read_all` is last-writer-wins per history_id, so a torn-resume re-map is already collapsed:
         // one (history_id, content_key) pair per visit — the dedup parity the `.pkvec` reader holds.
         let mut id = [0; 16];
         getrandom::fill(&mut id)?;
         let projection_id = hex::encode(id);
-        let map = visit_map.read_all()?;
+        let map = visit_map.read_all_cancellable(cancel)?;
         let mut pairs: Vec<(i64, u64)> = map.into_iter().collect();
         let record_count = pairs.len() as u64;
 
         // `.pkrev` sorted by (content_key, history_id): a content_key's visits form ONE contiguous run
         // so hydration binary-searches the run start then forward-scans it. The history_id sub-sort
         // makes the on-disk byte layout deterministic (stable across rebuilds, golden-vector testable).
-        pairs.sort_unstable_by(|left, right| left.1.cmp(&right.1).then(left.0.cmp(&right.0)));
+        super::projection_sort::sort(&mut pairs, |p| (p.1, p.0 as u64), cancel)?;
         write_sidecar_atomic(
             &self.reverse_path,
             &REVERSE_MAP_MAGIC,
@@ -165,6 +180,7 @@ impl ReverseVisitMap {
             record_count,
             &projection_id,
             pairs.iter().map(|&(history_id, content_key)| (content_key, history_id as u64)),
+            cancel,
         )?;
 
         // `.pkfwd` sorted by (history_id, content_key): the bounded starred history_id set binary-
@@ -174,9 +190,7 @@ impl ReverseVisitMap {
         // search's comparison order — correct UNCONDITIONALLY, not just because `visits.id` ROWIDs
         // happen to be positive. (`.pkrev`'s history_id is only a SUB-sort within a content_key run, so
         // its order never affects the search, which keys solely on the leading content_key.)
-        pairs.sort_unstable_by(|left, right| {
-            (left.0 as u64).cmp(&(right.0 as u64)).then(left.1.cmp(&right.1))
-        });
+        super::projection_sort::sort(&mut pairs, |p| (p.0 as u64, p.1), cancel)?;
         write_sidecar_atomic(
             &self.forward_path,
             &FORWARD_MAP_MAGIC,
@@ -184,8 +198,9 @@ impl ReverseVisitMap {
             record_count,
             &projection_id,
             pairs.iter().map(|&(history_id, content_key)| (history_id as u64, content_key)),
+            cancel,
         )?;
-        super::visit_position_map::rebuild(paths, &self.provider, &self.model)?;
+        super::visit_position_map::rebuild_cancellable(paths, &self.provider, &self.model, cancel)?;
         Ok(record_count)
     }
 
@@ -194,12 +209,11 @@ impl ReverseVisitMap {
     /// Appends to `.pkmap` during a pass do not invalidate it: search keeps the last complete
     /// projection until the pass re-projects at its end.
     pub(super) fn projection_header(&self, fingerprint: &str) -> Result<Option<(String, u64)>> {
-        let pair = (|| -> Result<_> {
-            let reverse = read_sidecar_header(&self.reverse_path, &REVERSE_MAP_MAGIC)?;
-            let forward = read_sidecar_header(&self.forward_path, &FORWARD_MAP_MAGIC)?;
-            Ok(reverse.zip(forward))
-        })();
-        let Ok(Some((reverse, forward))) = pair else {
+        // An absent sidecar is no projection; a sidecar that cannot be read is an error, so a
+        // passing fault is not taken for a missing projection (pointer repair acts on the latter).
+        let Some((reverse, forward)) = read_sidecar_header(&self.reverse_path, &REVERSE_MAP_MAGIC)?
+            .zip(read_sidecar_header(&self.forward_path, &FORWARD_MAP_MAGIC)?)
+        else {
             return Ok(None);
         };
         if reverse != forward || forward.fingerprint_hash != fingerprint {
@@ -339,6 +353,7 @@ fn write_sidecar_atomic(
     record_count: u64,
     projection_id: &str,
     records: impl Iterator<Item = (u64, u64)>,
+    cancel: &vault_store::CancelToken,
 ) -> Result<()> {
     let tmp = sidecar_tmp_path(path);
     {
@@ -356,7 +371,10 @@ fn write_sidecar_atomic(
         writer.write_all(&len.to_le_bytes()).context("writing reverse sidecar header length")?;
         writer.write_all(&json).context("writing reverse sidecar header body")?;
         let mut buffer = [0u8; RECORD_LEN];
-        for (sort_key, payload) in records {
+        for (position, (sort_key, payload)) in records.enumerate() {
+            if position % 1024 == 0 {
+                cancel.check()?;
+            }
             buffer[..8].copy_from_slice(&sort_key.to_le_bytes());
             buffer[8..].copy_from_slice(&payload.to_le_bytes());
             writer.write_all(&buffer).context("writing reverse sidecar record")?;
@@ -529,6 +547,7 @@ mod tests {
             1, // a count that does NOT match the reverse sidecar's 2
             "test",
             std::iter::once((1u64, 0x1u64)),
+            &vault_store::CancelToken::new(),
         )
         .expect("rewrite forward with a diverging count");
         assert!(

@@ -158,6 +158,11 @@ export const shell = defineMessages({
         continue: 'Update without them',
       },
       progress: '{done} of {total}',
+      /** A newer version updating the archive's databases as it opens. */
+      schema: {
+        title: 'Updating your archive',
+        body: 'This version stores your search index differently, so it updates the archive once. On a large archive this takes a while; if PathKeep is closed, it carries on next time.',
+      },
       failed: 'The update did not finish. Your archive was not changed.',
       phases: {
         storageConversion: 'Copying the archive',
@@ -340,6 +345,10 @@ export const shell = defineMessages({
         continue: '不带上它们，继续更新',
       },
       progress: '{done} / {total}',
+      schema: {
+        title: '正在更新存档',
+        body: '这个版本用不同的方式保存搜索索引，所以会更新一次存档。存档很大时需要一段时间；如果关掉 PathKeep，下次打开会接着做。',
+      },
       failed: '更新没有完成，存档没有被改动。',
       phases: {
         storageConversion: '正在复制存档',
@@ -521,6 +530,10 @@ export const shell = defineMessages({
         continue: '不帶上它們，繼續更新',
       },
       progress: '{done} / {total}',
+      schema: {
+        title: '正在更新存檔',
+        body: '這個版本用不同的方式保存搜尋索引，所以會更新一次存檔。存檔很大時需要一段時間；如果關掉 PathKeep，下次打開會接著做。',
+      },
       failed: '更新沒有完成，存檔沒有被改動。',
       phases: {
         storageConversion: '正在複製存檔',

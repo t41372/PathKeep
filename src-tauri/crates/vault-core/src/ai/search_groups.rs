@@ -120,6 +120,7 @@ pub(super) struct Prepared {
     generations: Vec<(String, i64)>,
     rows: Vec<Search>,
     opened: HashMap<Trail, Vec<Opened>>,
+    _generation: crate::Vault,
     bounds: (i64, i64),
     pub digest: String,
 }
@@ -132,6 +133,13 @@ pub(super) fn prepare(
     profile: Option<&str>,
     control: Option<&Arc<dyn AiRunControl>>,
 ) -> Result<Prepared> {
+    let pinned = super::generations::serving_vault(
+        vault,
+        &provider.config.id,
+        &provider.config.default_model,
+    )?
+    .context("the semantic index is empty")?;
+    let vault = &pinned;
     let page_index = search_vectors::available(vault.paths(), provider).map_err(|e| {
         anyhow::anyhow!(
             "searches unavailable: {e}. Use intelligence_report report=\"search_trails\"."
@@ -257,6 +265,7 @@ pub(super) fn prepare(
         indexed,
     ))?);
     Ok(Prepared {
+        _generation: pinned.clone(),
         page_index,
         search_index,
         positions,
@@ -277,7 +286,7 @@ pub(super) struct Grouped {
 /// The same linkage and ordering feed both surfaces; only Ask hydrates its model-facing evidence.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn build(
-    vault: &Vault,
+    _vault: &Vault,
     provider: &AiProviderRuntime,
     input: Prepared,
     window: Value,
@@ -286,6 +295,7 @@ pub(super) fn build(
     time_zone: chrono_tz::Tz,
 ) -> Result<Grouped> {
     let Prepared {
+        _generation,
         page_index,
         search_index,
         positions,
@@ -296,6 +306,7 @@ pub(super) fn build(
         bounds,
         ..
     } = input;
+    let vault = &_generation;
     let total = rows.len();
     let searches = rows.iter().map(|r| r.searches).sum::<u64>();
     let mut short = Vec::new();

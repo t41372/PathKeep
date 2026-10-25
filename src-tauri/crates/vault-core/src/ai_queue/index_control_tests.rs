@@ -40,6 +40,8 @@ fn ai_queue_build_requests_reuse_progress_and_wait_for_the_previous_writer() {
         &vault,
         first.id,
         &IndexBackfillCursor {
+            lineage: None,
+            updated_so_far: 0,
             next_history_id: 65,
             embedded_so_far: 64,
             embed_target: 200,

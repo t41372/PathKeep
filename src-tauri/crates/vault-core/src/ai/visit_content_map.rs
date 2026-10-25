@@ -139,10 +139,19 @@ impl VisitContentMap {
     /// history_id, the last persisted content_key) so a re-mapped visit collapses, mirroring the
     /// `.pkvec` `read_all` dedup contract. A trailing partial record errors.
     pub fn read_all(&self) -> Result<HashMap<i64, u64>> {
+        self.read_all_cancellable(&vault_store::CancelToken::new())
+    }
+    pub(super) fn read_all_cancellable(
+        &self,
+        cancel: &vault_store::CancelToken,
+    ) -> Result<HashMap<i64, u64>> {
         let mut map = HashMap::new();
-        self.for_each_record(|history_id, content_key| {
-            map.insert(history_id, content_key);
-        })?;
+        self.for_each_record_cancellable(
+            |history_id, content_key| {
+                map.insert(history_id, content_key);
+            },
+            cancel,
+        )?;
         Ok(map)
     }
 
@@ -197,6 +206,14 @@ impl VisitContentMap {
     /// One reusable 16-byte record buffer, so memory stays bounded regardless of map size. An absent
     /// file is an empty map (the caller's set/map simply stays empty); a torn trailing record errors.
     fn for_each_record<F: FnMut(i64, u64)>(&self, mut sink: F) -> Result<()> {
+        self.for_each_record_cancellable(&mut sink, &vault_store::CancelToken::new())
+    }
+    fn for_each_record_cancellable(
+        &self,
+        mut sink: impl FnMut(i64, u64),
+        cancel: &vault_store::CancelToken,
+    ) -> Result<()> {
+        cancel.check()?;
         if !self.exists() {
             return Ok(());
         }
@@ -212,7 +229,12 @@ impl VisitContentMap {
             );
         }
         let mut record = [0u8; RECORD_LEN];
+        let mut records = 0;
         loop {
+            if records % 1024 == 0 {
+                cancel.check()?;
+            }
+            records += 1;
             match read_exact_or_eof(&mut reader, &mut record)? {
                 ReadOutcome::Eof => break,
                 ReadOutcome::Partial(read) => {

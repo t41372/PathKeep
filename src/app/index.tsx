@@ -25,11 +25,14 @@ import {
   BootErrorScreen,
   BootScreen,
   RecoveryScreen,
+  SchemaUpdateScreen,
   UpgradeScreen,
 } from './shell/status-screens'
+import { useSchemaUpdate } from './schema-update'
 
 function SessionGate() {
   const { phase, error } = useSession()
+  const schemaUpdate = useSchemaUpdate()
   useIndexJobEvents(phase === 'ready')
   const appRouter = useMemo(
     () => (phase === 'ready' ? createAppRouter() : null),
@@ -40,6 +43,19 @@ function SessionGate() {
     [phase],
   )
 
+  // A schema update while the archive opens (at launch, from the keychain or
+  // an unlock) can take a while on a large archive; show it rather than a
+  // spinner. Only on the screens an archive opens behind: onboarding creates
+  // a new archive (nothing to copy) and must keep its own state, and the
+  // conversion screen shows its own progress.
+  if (
+    schemaUpdate &&
+    (phase === 'booting' ||
+      phase === 'archive-locked' ||
+      phase === 'app-locked')
+  ) {
+    return <SchemaUpdateScreen progress={schemaUpdate} />
+  }
   switch (phase) {
     case 'booting':
       return <BootScreen />

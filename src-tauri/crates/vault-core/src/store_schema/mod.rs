@@ -6,13 +6,13 @@
 //! Drops: legacy migration ledgers are replaced by vault-store's __pk_migrations;
 //! their checksums, timestamps and backup paths describe the old SQLite steps.
 //!
-//! Until a release has written these databases, every schema change edits version 1 in
-//! place; no install holds an earlier version to migrate from. The first change after
-//! that release adds version 2.
+//! PathKeep v0.4.0 has written version 1 databases. Released steps are immutable;
+//! each database has its own ordered sequence of transactional migrations.
 
 mod agent;
 mod archive;
 mod intelligence;
+mod intelligence_lineage;
 mod scratch;
 mod source_evidence;
 
@@ -21,15 +21,21 @@ pub(crate) mod tests;
 
 use vault_store::{Db, Migration, MigrationRegistry};
 
-/// Doctor and startup agree on the current native archive revision.
-pub(crate) const ARCHIVE_SCHEMA_VERSION: i64 = 1;
+/// The version each database is at once it opens: Doctor compares with it. Read from the
+/// registered steps, so adding one cannot leave the check a version behind.
+pub(crate) fn schema_version(db: Db) -> i64 {
+    migration_registry().latest_version(db)
+}
 
 /// Gives the owner one complete schema contract before it opens any database.
 pub fn migration_registry() -> MigrationRegistry {
     let mut registry = MigrationRegistry::default();
     registry.register(Db::Archive, vec![archive::migration()]);
     registry.register(Db::SourceEvidence, vec![source_evidence::migration()]);
-    registry.register(Db::Intelligence, vec![intelligence::migration()]);
+    registry.register(
+        Db::Intelligence,
+        vec![intelligence::migration(), intelligence_lineage::migration()],
+    );
     registry.register(Db::Agent, vec![agent::migration()]);
     registry.register(Db::Scratch, scratch::migrations());
     registry

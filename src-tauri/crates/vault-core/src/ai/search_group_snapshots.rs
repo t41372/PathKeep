@@ -24,7 +24,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use vault_store::{Db, OptionalRow, Priority, Session, params_owned as params};
 
-static WARMER: Mutex<()> = Mutex::new(());
+static WARMER: super::SemanticWorkGate = super::SemanticWorkGate::new();
 static WARM_ERRORS: Mutex<Option<HashMap<PathBuf, String>>> = Mutex::new(None);
 
 /// Only bounded display evidence is persisted; titles remain owned by the archive.
@@ -160,8 +160,15 @@ pub(super) fn publish_if_current(
 }
 fn signature(vault: &Vault, provider: &AiProviderRuntime, scope: &SnapshotScope) -> Result<String> {
     let (paths, provider, range) = (vault.paths().clone(), provider.clone(), scope.range.clone());
+    let files = search_group_signatures::files(&paths, &provider)?;
+    let expected = vault.generation_lease.as_ref().map(|lease| lease.relative().to_owned());
     vault.read(Db::Intelligence, move |s| {
-        search_group_signatures::cheap(s, &paths, &provider, &range)
+        ensure!(
+            super::generations::pointer(s, &provider.config.id, &provider.config.default_model)?
+                == expected,
+            "search index changed while reading groups; retry"
+        );
+        search_group_signatures::cheap(s, &files, &provider, &range)
     })
 }
 fn compute(
@@ -228,7 +235,7 @@ fn archive_start(vault: &Vault, zone: InsightsZone) -> Result<NaiveDate> {
          WHERE e.query_kind='keyword' AND v.reverted_at IS NULL ORDER BY e.visit_time_ms LIMIT 1",(),|r| Ok(r.get::<i64>(0)?)).optional()?))?;
     Ok(first.map_or(zone.today(), |ms| zone.datetime(ms).date_naive()))
 }
-/// Independent end-of-pass step. One warmer at a time; readers never wait for this mutex.
+/// Independent end-of-pass step. One warmer at a time; readers never wait for this admission token.
 /// A changed cheap signature rereads inputs; an equal digest reuses the stored groups.
 pub fn warm_search_group_snapshots(
     vault: &Vault,
@@ -255,7 +262,16 @@ fn warm(
     provider: &AiProviderRuntime,
     control: Option<&Arc<dyn AiRunControl>>,
 ) -> Result<()> {
-    let _guard = WARMER.lock().unwrap_or_else(|error| error.into_inner());
+    let _warming = WARMER.enter();
+    let Some(pinned) = super::generations::serving_vault(
+        vault,
+        &provider.config.id,
+        &provider.config.default_model,
+    )?
+    else {
+        return Ok(());
+    };
+    let vault = &pinned;
     let zone = vault.read(Db::Intelligence, InsightsZone::for_reading)?;
     let index = search_vectors::available(vault.paths(), provider)?;
     if search_vectors::open(vault.paths(), provider, index.dim())?.is_empty() {
@@ -274,6 +290,15 @@ pub(super) fn warm_scopes(
     control: Option<&Arc<dyn AiRunControl>>,
     scopes: Vec<SnapshotScope>,
 ) -> Result<()> {
+    let Some(pinned) = super::generations::serving_vault(
+        vault,
+        &provider.config.id,
+        &provider.config.default_model,
+    )?
+    else {
+        return Ok(());
+    };
+    let vault = &pinned;
     for scope in scopes {
         super::control::checkpoint_ai_run(control, "updating search groups")?;
         let cheap = signature(vault, provider, &scope)?;
@@ -289,8 +314,9 @@ pub(super) fn warm_scopes(
             previous.unwrap().payload
         };
         let (paths, pair, range) = (vault.paths().clone(), provider.clone(), scope.range.clone());
+        let files = search_group_signatures::files(&paths, &pair)?;
         publish_if_current(vault, &scope, &Fingerprint { cheap, digest }, &payload, move |s| {
-            search_group_signatures::cheap(s, &paths, &pair, &range)
+            search_group_signatures::cheap(s, &files, &pair, &range)
         })?;
     }
     Ok(())
@@ -306,6 +332,15 @@ pub fn search_groups_card(
     if !vault.config().ai.enabled || !vault.config().ai.semantic_index_enabled {
         return Ok(SearchGroupsCard::unavailable());
     }
+    let Some(pinned) = super::generations::serving_vault(
+        vault,
+        &provider.config.id,
+        &provider.config.default_model,
+    )?
+    else {
+        return Ok(SearchGroupsCard::unavailable());
+    };
+    let vault = &pinned;
     let Ok(pages) = search_vectors::available(vault.paths(), provider) else {
         return Ok(SearchGroupsCard::unavailable());
     };

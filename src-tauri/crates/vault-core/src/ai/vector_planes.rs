@@ -336,8 +336,34 @@ pub fn build_planes_from_store(
     provider_id: &str,
     model: &str,
 ) -> Result<PlaneBuildReport> {
+    build_planes_into(paths, paths, provider_id, model)
+}
+
+/// Project mutable lineage sources into a new, unpublished generation.
+pub(super) fn build_planes_into(
+    source: &ProjectPaths,
+    paths: &ProjectPaths,
+    provider_id: &str,
+    model: &str,
+) -> Result<PlaneBuildReport> {
+    build_planes_into_cancellable(
+        source,
+        paths,
+        provider_id,
+        model,
+        &vault_store::CancelToken::new(),
+    )
+}
+pub(super) fn build_planes_into_cancellable(
+    source: &ProjectPaths,
+    paths: &ProjectPaths,
+    provider_id: &str,
+    model: &str,
+    cancel: &vault_store::CancelToken,
+) -> Result<PlaneBuildReport> {
+    cancel.check()?;
     ensure_paths(paths)?;
-    let store = VectorStore::for_provider(paths, provider_id, model);
+    let store = VectorStore::for_provider(source, provider_id, model);
     let Some(header) = store.read_header()? else {
         // No source store yet: write empty, dim-0 planes under an empty fingerprint so the loader
         // sees "present but empty" and search returns no semantic hits with an honest note.
@@ -352,10 +378,16 @@ pub fn build_planes_from_store(
         header.dim,
         &header.fingerprint_hash,
         |project| {
-            store.read_records_streaming(|key, vector| {
-                vectors += 1;
-                project(key, vector)
-            })
+            store.read_records_streaming_cancellable(
+                |key, vector| {
+                    if vectors % 1024 == 0 {
+                        cancel.check()?;
+                    }
+                    vectors += 1;
+                    project(key, vector)
+                },
+                cancel,
+            )
         },
     )?;
     Ok(PlaneBuildReport { vectors, dim: (vectors != 0).then_some(header.dim) })

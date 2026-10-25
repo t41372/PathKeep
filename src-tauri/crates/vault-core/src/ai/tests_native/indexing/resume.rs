@@ -32,7 +32,15 @@ fn resume_after_dropped_cursor_does_not_duplicate_vectors() {
 
     // Simulate the crash window: the vectors for 1,2 are on disk but their SQLite hash rows were
     // never written (so they look un-embedded to the next pass).
-    clear_provider_embeddings(&vault, &provider, None).expect("drop metadata");
+    let source = source_paths(&vault, &provider);
+    let lineage = source.vectors_dir.file_name().unwrap().to_str().unwrap();
+    crate::ai::indexing::store_rows::remove_lineage_rows(
+        &vault,
+        &provider.config.id,
+        &provider.config.default_model,
+        lineage,
+    )
+    .expect("drop metadata");
     drop(connection);
 
     // Resume re-scanning from id 1 (cursor lost back to the start of the boundary chunk): rows 1,2

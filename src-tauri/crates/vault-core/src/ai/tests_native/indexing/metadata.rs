@@ -32,7 +32,7 @@ fn enrichment_summary_re_embed_blast_radius_is_bounded_to_the_enriched_url() {
     );
 
     // Nothing changed yet → both are skipped (needs_embedding = false).
-    let before = collect_visit_chunk(&vault, &provider, 0, i64::MAX, 10).expect("before");
+    let before = collect_visit_chunk(&vault, &provider, 0, i64::MAX, 10, "legacy").expect("before");
     assert!(
         before.iter().all(|visit| !visit.needs_embedding),
         "no enrichment → nothing to re-embed"
@@ -58,7 +58,7 @@ fn enrichment_summary_re_embed_blast_radius_is_bounded_to_the_enriched_url() {
         })
         .expect("store enrichment for visit 1");
 
-    let after = collect_visit_chunk(&vault, &provider, 0, i64::MAX, 10).expect("after");
+    let after = collect_visit_chunk(&vault, &provider, 0, i64::MAX, 10, "legacy").expect("after");
     let visit1 = after.iter().find(|visit| visit.history_id == 1).expect("visit 1");
     let visit2 = after.iter().find(|visit| visit.history_id == 2).expect("visit 2");
     assert!(visit1.needs_embedding, "the enriched URL must re-embed (its dedup hash changed)");
