@@ -125,7 +125,9 @@ fn semantic_scores(
     Ok(Some(SemanticScores { scores, positions }))
 }
 
-/// Embeds the query and scores it when the serving index can answer it.
+/// Embeds the query and scores it when the serving index can answer it. A service that can't
+/// embed the query (down, busy, refusing it) leaves this search to its words, with a note
+/// saying why: core search never depends on the optional embedding service (AGENTS.md 4).
 async fn query_semantic(
     vault: &Vault,
     paths: &ProjectPaths,
@@ -136,7 +138,13 @@ async fn query_semantic(
     notes: &mut Vec<AiSearchNote>,
 ) -> Result<Option<SemanticScores>> {
     let Some(index) = semantic_index(vault, paths, provider, notes)? else { return Ok(None) };
-    let vector = embed_query(paths, provider, query.trim(), EmbeddingRole::Query).await?;
+    let vector = match embed_query(paths, provider, query.trim(), EmbeddingRole::Query).await {
+        Ok(vector) => vector,
+        Err(error) => {
+            notes.push(AiSearchNote::ProviderResolutionFailed { reason: format!("{error:#}") });
+            return Ok(None);
+        }
+    };
     semantic_scores(paths, provider, &index, &vector, cancel, allowlist, notes)
 }
 
