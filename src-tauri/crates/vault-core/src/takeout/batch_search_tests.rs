@@ -316,3 +316,57 @@ fn startup_lists_unfinished_visibility_even_outside_the_recent_batch_limit() {
     restore_import_batch(&f.vault, f.batch_id).unwrap();
     assert_eq!(f.visible(), 1_001);
 }
+
+#[test]
+fn undo_and_restore_finish_for_a_batch_written_before_coded_notes() {
+    // Batches from before 2026-07-27 carry `notes` but no `noteDetails`. The last step of an
+    // undo failed on that after every row was already hidden, so the batch was never marked
+    // undone and each retry failed the same way.
+    let f = Fixture::new(3, None);
+    let batch = f.batch_id;
+    let before = f.visible();
+    let summary = |f: &Fixture| -> Value {
+        let text = f
+            .vault
+            .store()
+            .read(Db::Archive, move |s| {
+                s.query_one("SELECT summary_json FROM import_batches WHERE id=?1", [batch], |r| {
+                    Ok(r.get::<String>(0)?)
+                })
+            })
+            .unwrap();
+        serde_json::from_str(&text).unwrap()
+    };
+    let mut old = summary(&f);
+    old.as_object_mut().expect("summary object").remove("noteDetails");
+    let old = old.to_string();
+    f.vault
+        .store()
+        .write(Db::Archive, Priority::Interactive, move |s| {
+            s.execute(
+                "UPDATE import_batches SET summary_json=?2 WHERE id=?1",
+                vault_store::params![batch, old],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+    let status = |f: &Fixture| {
+        f.vault
+            .store()
+            .read(Db::Archive, move |s| {
+                s.query_one("SELECT status FROM import_batches WHERE id=?1", [batch], |r| {
+                    Ok(r.get::<String>(0)?)
+                })
+            })
+            .unwrap()
+    };
+
+    revert_import_batch(&f.vault, batch).unwrap();
+    assert_eq!(f.visible(), before - 3);
+    assert_eq!(status(&f), "reverted");
+    restore_import_batch(&f.vault, batch).unwrap();
+    assert_eq!(f.visible(), before);
+    assert_ne!(status(&f), "reverted");
+    let notes = summary(&f);
+    assert_eq!(notes["noteDetails"].as_array().map(Vec::len), Some(2), "the undo and the restore");
+}
