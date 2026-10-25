@@ -933,9 +933,6 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
             let payload = parse_payload::<WrappedRequest<DayInsightsRequest>>(payload)?;
             json_value!(worker_bridge::get_day_insights_impl(payload.request, &state.session)?)
         }
-        // TODO: M13 - Revisit this dev-only intelligence mirror only if the
-        // next transport parity audit proves a shared manifest or generation
-        // layer would reduce real maintenance cost.
         "get_browsing_rhythm" => {
             let payload =
                 parse_payload::<WrappedRequest<CategoryFilteredDateRangeRequest>>(payload)?;
