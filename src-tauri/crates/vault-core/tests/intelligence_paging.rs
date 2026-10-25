@@ -471,7 +471,7 @@ fn search_effectiveness_pages_through_every_hard_topic() {
             )
             .unwrap();
             for topic in result.hardest_topics.items {
-                assert!(seen.insert(topic.family_id));
+                assert!(seen.insert(topic.topic_key));
             }
             cursor = result.hardest_topics.next_cursor;
             if cursor.is_none() {
@@ -480,6 +480,93 @@ fn search_effectiveness_pages_through_every_hard_topic() {
         }
         assert_eq!(seen.len(), 37);
     }
+}
+
+/// A search typed in two browsers, or sent to two engines, is several families: they are kept per
+/// profile and engine. "Searches you came back to most" lists it once, whatever the case of each
+/// wording (lower-cased beyond ASCII, as the search's own page matches it), with their searches
+/// summed and the first and last time of any of them. Paged a row at a time, no search shows
+/// twice or goes missing, and one profile's list counts only that profile's families.
+#[test]
+fn hardest_topics_are_one_row_per_search_across_profiles_and_engines() {
+    const START: i64 = 1_767_268_800_000; // 2026-01-01 12:00 UTC
+    const DAY: i64 = 86_400_000;
+    let vault = Vault::open_temp().unwrap();
+    vault.store().write(Db::Intelligence, Priority::Batch, |s| {
+        for profile in ["personal", "work"] {
+            s.execute("INSERT INTO intelligence_generations(profile_id) VALUES(?1)", params![profile])?;
+        }
+        // (id, profile, engine, first wording, searches, first and last day)
+        for (id, profile, engine, anchor, searches, first, last) in [
+            ("family:personal:0001", "personal", "google", "台北天氣", 57_i64, 0, 3),
+            ("family:work:0001", "work", "google", "台北天氣", 43, 1, 4),
+            ("family:personal:0002", "personal", "google", "Rust Async", 4, 0, 0),
+            ("family:personal:0003", "personal", "bing", "rust async", 6, 1, 3),
+            ("family:work:0002", "work", "duckduckgo", "RUST ASYNC", 1, 3, 3),
+            ("family:work:0003", "work", "google", "tokio", 11, 0, 1),
+            ("family:personal:0004", "personal", "google", "Ölpreis", 2, 2, 2),
+            ("family:work:0004", "work", "google", "ölpreis", 3, 2, 2),
+        ] {
+            s.execute(
+                "INSERT INTO query_families_rows(family_id,profile_id,anchor_query,member_count,search_engine,first_seen_ms,last_seen_ms,queries_json,computed_at) VALUES(?1,?2,?3,?4,?5,?6,?7,'[]','')",
+                params![id, profile, anchor, searches, engine, START + first * DAY, START + last * DAY],
+            )?;
+        }
+        Ok(())
+    }).unwrap();
+    let list = |profile: Option<&str>| {
+        let mut cursor = None;
+        let mut rows = Vec::new();
+        loop {
+            let topics = vault_core::get_search_effectiveness(
+                &vault,
+                &vault_core::SearchEffectivenessRequest {
+                    date_range: DateRange { start: "2026-01-01".into(), end: "2026-01-10".into() },
+                    profile_id: profile.map(str::to_owned),
+                    engine: None,
+                    topics_limit: Some(1),
+                    topics_cursor: cursor,
+                },
+            )
+            .unwrap()
+            .hardest_topics;
+            assert!(topics.items.len() <= 1);
+            rows.extend(topics.items.into_iter().map(|topic| {
+                (
+                    topic.topic_key,
+                    topic.query_family,
+                    topic.search_count,
+                    topic.re_search_lag_days.round() as i64,
+                )
+            }));
+            cursor = topics.next_cursor;
+            if cursor.is_none() {
+                break rows;
+            }
+        }
+    };
+    let row = |key: &str, shown: &str, searches: i64, days: i64| {
+        (key.to_owned(), shown.to_owned(), searches, days)
+    };
+    // Most searches first; rust async and tokio tie on 11, the one seen last first.
+    assert_eq!(
+        list(None),
+        [
+            row("台北天氣", "台北天氣", 100, 4),
+            row("rust async", "rust async", 11, 3),
+            row("tokio", "tokio", 11, 1),
+            row("ölpreis", "ölpreis", 5, 0),
+        ]
+    );
+    assert_eq!(
+        list(Some("work")),
+        [
+            row("台北天氣", "台北天氣", 43, 3),
+            row("tokio", "tokio", 11, 1),
+            row("ölpreis", "ölpreis", 3, 0),
+            row("rust async", "RUST ASYNC", 1, 0),
+        ]
+    );
 }
 
 #[test]
