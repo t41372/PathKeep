@@ -4,10 +4,7 @@
 //! the source of truth for that layout and for reading/writing the serialized
 //! app config under the project root.
 
-use crate::{
-    models::{AppConfig, normalize_app_config},
-    utils::now_rfc3339,
-};
+use crate::models::{AppConfig, normalize_app_config};
 use anyhow::{Context, Result};
 use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
@@ -59,8 +56,6 @@ pub struct ProjectPaths {
     pub crash_reports_dir: PathBuf,
     pub rust_panic_report_path: PathBuf,
     pub frontend_error_report_path: PathBuf,
-    pub stronghold_path: PathBuf,
-    pub stronghold_salt_path: PathBuf,
 }
 
 /// The SQLCipher databases of PathKeep 0.3, under the same root. Only finding an archive that
@@ -124,8 +119,6 @@ pub fn project_paths_with_root(root: &Path) -> ProjectPaths {
         crash_reports_dir: crash_reports_dir.clone(),
         rust_panic_report_path: crash_reports_dir.join("rust-panic-latest.json"),
         frontend_error_report_path: crash_reports_dir.join("frontend-error-latest.json"),
-        stronghold_path: root.join("vault.hold"),
-        stronghold_salt_path: root.join("stronghold-salt.txt"),
         app_root: root,
     }
 }
@@ -164,11 +157,6 @@ pub fn ensure_paths(paths: &ProjectPaths) -> Result<()> {
         &paths.crash_reports_dir,
     ] {
         fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
-    }
-
-    if !paths.stronghold_salt_path.exists() {
-        fs::write(&paths.stronghold_salt_path, format!("{}\n", now_rfc3339()))
-            .with_context(|| format!("writing {}", paths.stronghold_salt_path.display()))?;
     }
     Ok(())
 }

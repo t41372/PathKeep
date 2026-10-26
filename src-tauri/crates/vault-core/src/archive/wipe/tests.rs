@@ -77,7 +77,7 @@ fn backed_up_archive() -> Fixture {
     write(paths.exports_dir.join("history.csv"), b"url,title\n");
     write(paths.models_dir.join("bge").join("model.safetensors"), &[7; 4096]);
     write(paths.app_root.join("app-lock-passcode.json"), b"{}");
-    write(paths.stronghold_path.clone(), b"vault");
+    write(paths.app_root.join("stronghold-salt.txt"), b"2026-01-01T00:00:00Z\n");
     write(paths.app_root.join("derived.bak-20260101T000000Z").join("old.sqlite"), b"old");
     write(paths.legacy.archive.with_extension("sqlite.bak-20260101T000000Z"), b"old");
     write(paths.rust_log_path.clone(), b"log line\n");

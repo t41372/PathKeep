@@ -232,8 +232,6 @@ pub fn app_snapshot_with_vault(
             rust_log_path: paths.rust_log_path.display().to_string(),
             frontend_log_path: paths.frontend_log_path.display().to_string(),
             crash_reports_dir: paths.crash_reports_dir.display().to_string(),
-            stronghold_path: paths.stronghold_path.display().to_string(),
-            stronghold_salt_path: paths.stronghold_salt_path.display().to_string(),
         },
         runtime_diagnostics,
         config,

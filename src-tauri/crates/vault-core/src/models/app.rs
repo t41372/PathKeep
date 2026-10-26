@@ -313,8 +313,6 @@ pub struct AppDirectories {
     pub rust_log_path: String,
     pub frontend_log_path: String,
     pub crash_reports_dir: String,
-    pub stronghold_path: String,
-    pub stronghold_salt_path: String,
 }
 
 /// Immutable build metadata for About/support surfaces.

@@ -23,8 +23,7 @@ use crate::{
         resolved_app_lock_status,
     },
 };
-use anyhow::{Context, Result};
-use std::{fs, path::Path};
+use anyhow::Result;
 use vault_core::{
     AiProviderSecretInput, AppLockStatus, ArchiveMode, KeyringStatusReport,
     clear_app_lock_passcode, lock_app_session, set_app_lock_passcode,
@@ -195,21 +194,6 @@ pub fn store_data_key_in_keyring(key: &vault_crypto::DataKey) -> Result<KeyringS
 pub fn clear_database_key_from_keyring() -> Result<KeyringStatusReport> {
     keyring_clear_database_key()?;
     Ok(keyring_status())
-}
-
-/// Removes the local Stronghold vault file used for wrapped secrets.
-pub fn reset_local_secret_vault() -> Result<()> {
-    let paths = vault_core::project_paths()?;
-    remove_file_if_exists(&paths.stronghold_path)?;
-    Ok(())
-}
-
-/// Deletes a file only when it exists.
-fn remove_file_if_exists(path: &Path) -> Result<()> {
-    if path.exists() {
-        fs::remove_file(path).with_context(|| format!("removing {}", path.display()))?;
-    }
-    Ok(())
 }
 
 /// Returns the current native keyring status snapshot.
