@@ -1076,10 +1076,6 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
                     .map_err(|error| error.to_string())?
             )
         }
-        "reset_local_secret_vault" => {
-            worker_bridge::reset_local_secret_vault_impl()?;
-            Ok(Value::Null)
-        }
         "open_path_in_file_manager" => {
             let payload = parse_payload::<PathPayload>(payload)?;
             json_value!(file_manager::open_path_in_file_manager_impl(payload.path)?)

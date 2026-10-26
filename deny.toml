@@ -13,7 +13,7 @@ ignore = [
   { id = "RUSTSEC-2024-0419", reason = "Tauri's Linux WebKit/GTK3 stack still pulls gtk3-macros until upstream migrates to GTK4." },
   { id = "RUSTSEC-2024-0420", reason = "Tauri's Linux WebKit/GTK3 stack still pulls gtk-sys until upstream migrates to GTK4." },
   { id = "RUSTSEC-2024-0429", reason = "glib is only pulled transitively through Tauri's Linux GTK3 stack; the affected VariantStrIter APIs are not part of our app code path." },
-  { id = "RUSTSEC-2024-0436", reason = "paste is only pulled transitively by upstream stronghold and Turso-backed keyring crates; no maintained drop-in is available without replacing those integrations." },
+  { id = "RUSTSEC-2024-0436", reason = "paste is a compile-time proc macro, pulled only through tokenizers (macro_rules_attribute); no maintained drop-in is available upstream yet." },
   { id = "RUSTSEC-2024-0370", reason = "proc-macro-error is only pulled transitively by GTK3 proc-macro dependencies in the current Tauri Linux stack." },
   { id = "RUSTSEC-2025-0057", reason = "fxhash is only pulled transitively by Tauri/urlpattern internals; upstream has not migrated that path yet." },
   { id = "RUSTSEC-2025-0075", reason = "unic-char-range is only pulled transitively by tauri-utils/urlpattern; upstream has not migrated off rust-unic yet." },
@@ -21,8 +21,7 @@ ignore = [
   { id = "RUSTSEC-2025-0081", reason = "unic-char-property is only pulled transitively by tauri-utils/urlpattern; upstream has not migrated off rust-unic yet." },
   { id = "RUSTSEC-2025-0098", reason = "unic-ucd-version is only pulled transitively by tauri-utils/urlpattern; upstream has not migrated off rust-unic yet." },
   { id = "RUSTSEC-2025-0100", reason = "unic-ucd-ident is only pulled transitively by tauri-utils/urlpattern; upstream has not migrated off rust-unic yet." },
-  { id = "RUSTSEC-2025-0141", reason = "bincode 1.x is only pulled transitively by tauri-plugin-stronghold/iota_stronghold; replacing it requires an upstream stronghold migration." },
-  { id = "RUSTSEC-2026-0097", reason = "rand 0.7/0.8/0.9 is only pulled transitively by Stronghold, rig-core/nanoid, and build-time phf tooling; PathKeep does not call rand::rng() directly, and the reported unsoundness requires a custom logger path outside our owned code surface." },
+  { id = "RUSTSEC-2026-0097", reason = "rand 0.8/0.9 is only pulled transitively by Turso (turso_core, antithesis_sdk, shuttle), tokenizers, twox-hash and build-time phf tooling; PathKeep does not call rand::rng() directly, and the reported unsoundness requires a custom logger path outside our owned code surface." },
 ]
 unmaintained = "workspace"
 unsound = "workspace"

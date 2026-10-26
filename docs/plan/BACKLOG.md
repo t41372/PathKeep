@@ -22,6 +22,11 @@
   - (2 的另一半) 換上失敗時工作仍是成功，cleanup 警告只寫在工作的 summary，Settings 不顯示，所以在重試成功前 Settings 說索引已完成、搜尋還讀舊檔（Windows 上檔案被 map 住時走得到）。改成「換上成功才記成功」的話，停止搶在最後一刻時會把已換上的完整索引記成未完成，所以沒那樣改。長期的解法和 (1) 是同一個：不再覆蓋搜尋開著的檔，每一代用自己的檔名，讀的一方一步換到新的一代；這樣 Windows 上不會失敗，跨過換上的查詢也只讀一代。在那之前至少讓 Settings 顯示「重建好了，等著換上」。
   - (3) 當機落在「停止已贏、複本還沒撤回」之間時，重開會把已取消的重建換上（settle 不看工作是否已取消）：settle 照 ledger 的 stop 決定換上或撤回。換上的是建完的索引，不掉資料。
 
+- [ ] **WORK-STRONGHOLD-UNUSED** — `tauri-plugin-stronghold` 註冊了卻沒人用，還帶進幾個要放行的 RustSec advisory（2026-10-25 清 CI 的 supply-chain audit 時找到）
+  - 現況：`src-tauri/src/lib.rs` 註冊 plugin、`capabilities/default.json` 給了 `stronghold:default`，但沒有 Rust 代碼呼叫它、前端也沒有它的套件；只有重設時刪掉 `vault.hold`（`vault-worker/src/security.rs`）。`ai-security-posture.md` 卻寫 App Lock 的秘密在 Stronghold，要先查清楚是文檔過期還是哪個舊版本寫過、現有用戶的資料夾裡有沒有要遷移的東西。
+  - 它帶進 `iota-crypto` → `k256` → `crypto-bigint 0.5`（`RUSTSEC-2026-0387`，在 `check-rust-security.mjs` 放行）與 bincode 1（`RUSTSEC-2025-0141`）。
+  - 要做：確認沒有用途後，移除 plugin、capability、`stronghold_path` / `stronghold_salt_path` 與相關文檔，再把只因它放行的 advisory 從清單拿掉；有用途就把用途寫進文檔。
+
 - [ ] **WORK-FLAKY-BLOCK-CACHE-RSS** — `vault-crypto` 的 `the_block_cache_bounds_memory` 量常駐記憶體（RSS），記憶體緊時不準（2026-10-25 gate 連兩次失敗，同一晚 03:31 的整套 Rust 測試過了；vault-crypto 當晚沒改）
   - 現象：上限 2 MiB 的快取 RSS 漲 8.3 / 6.9 MiB，沒有上限的漲 11.1 / 4.9 MiB（它的快取最多 9.9 MiB），斷言要前者比後者少 4 MiB 以上。
   - 根因：測試的索引只有 16.6 MiB，兩種快取的差距本來就只比門檻大一點；macOS 記憶體緊時會壓縮頁面，RSS 不跟著快取長（那時另一個 session 在跑 benchmark，壓縮器裡有約 126 萬頁）。

@@ -115,9 +115,8 @@ pub use self::{
     security::{
         clear_ai_provider_api_key, clear_database_key_from_keyring, configure_app_lock_passcode,
         keyring_report, load_app_lock_status, lock_app_ui_session, preview_rekey_archive,
-        read_database_key_from_keyring, remove_app_lock_passcode, reset_local_secret_vault,
-        store_ai_provider_api_key, store_data_key_in_keyring, unlock_app_ui_session,
-        write_database_key_to_keyring,
+        read_database_key_from_keyring, remove_app_lock_passcode, store_ai_provider_api_key,
+        store_data_key_in_keyring, unlock_app_ui_session, write_database_key_to_keyring,
     },
     stars::{is_starred_batch, list_stars, set_star, star_counts, unset_star},
 };

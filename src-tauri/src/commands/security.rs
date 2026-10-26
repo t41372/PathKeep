@@ -61,14 +61,6 @@ pub(crate) async fn keyring_clear_database_key()
 
 #[cfg(not(test))]
 #[tauri::command]
-/// Clears PathKeep's local secret vault after explicit user confirmation, off the UI thread.
-pub(crate) async fn reset_local_secret_vault() -> Result<(), CommandError> {
-    run_blocking_command("reset_local_secret_vault", worker_bridge::reset_local_secret_vault_impl)
-        .await
-}
-
-#[cfg(not(test))]
-#[tauri::command]
 pub(crate) async fn unlock_archive_from_keychain(
     state: State<'_, SessionState>,
 ) -> Result<(), CommandError> {
