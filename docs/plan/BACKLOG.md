@@ -22,6 +22,11 @@
   - (2 的另一半) 換上失敗時工作仍是成功，cleanup 警告只寫在工作的 summary，Settings 不顯示，所以在重試成功前 Settings 說索引已完成、搜尋還讀舊檔（Windows 上檔案被 map 住時走得到）。改成「換上成功才記成功」的話，停止搶在最後一刻時會把已換上的完整索引記成未完成，所以沒那樣改。長期的解法和 (1) 是同一個：不再覆蓋搜尋開著的檔，每一代用自己的檔名，讀的一方一步換到新的一代；這樣 Windows 上不會失敗，跨過換上的查詢也只讀一代。在那之前至少讓 Settings 顯示「重建好了，等著換上」。
   - (3) 當機落在「停止已贏、複本還沒撤回」之間時，重開會把已取消的重建換上（settle 不看工作是否已取消）：settle 照 ledger 的 stop 決定換上或撤回。換上的是建完的索引，不掉資料。
 
+- [ ] **WORK-STRONGHOLD-UNUSED** — `tauri-plugin-stronghold` 註冊了卻沒人用，還帶進幾個要放行的 RustSec advisory（2026-10-25 清 CI 的 supply-chain audit 時找到）
+  - 現況：`src-tauri/src/lib.rs` 註冊 plugin、`capabilities/default.json` 給了 `stronghold:default`，但沒有 Rust 代碼呼叫它、前端也沒有它的套件；只有重設時刪掉 `vault.hold`（`vault-worker/src/security.rs`）。`ai-security-posture.md` 卻寫 App Lock 的秘密在 Stronghold，要先查清楚是文檔過期還是哪個舊版本寫過、現有用戶的資料夾裡有沒有要遷移的東西。
+  - 它帶進 `iota-crypto` → `k256` → `crypto-bigint 0.5`（`RUSTSEC-2026-0387`，在 `check-rust-security.mjs` 放行）與 bincode 1（`RUSTSEC-2025-0141`）。
+  - 要做：確認沒有用途後，移除 plugin、capability、`stronghold_path` / `stronghold_salt_path` 與相關文檔，再把只因它放行的 advisory 從清單拿掉；有用途就把用途寫進文檔。
+
 - [ ] **WORK-FLAKY-BLOCK-CACHE-RSS** — `vault-crypto` 的 `the_block_cache_bounds_memory` 量常駐記憶體（RSS），記憶體緊時不準（2026-10-25 gate 連兩次失敗，同一晚 03:31 的整套 Rust 測試過了；vault-crypto 當晚沒改）
   - 現象：上限 2 MiB 的快取 RSS 漲 8.3 / 6.9 MiB，沒有上限的漲 11.1 / 4.9 MiB（它的快取最多 9.9 MiB），斷言要前者比後者少 4 MiB 以上。
   - 根因：測試的索引只有 16.6 MiB，兩種快取的差距本來就只比門檻大一點；macOS 記憶體緊時會壓縮頁面，RSS 不跟著快取長（那時另一個 session 在跑 benchmark，壓縮器裡有約 126 萬頁）。
@@ -59,6 +64,11 @@
   - 現況：`OR` 只連兩邊的字或引號片語；旁邊是運算子或減號時什麼都不連（`search.md`），所以 `site:a OR site:b` 還是兩個都要，什麼都找不到。Google 允許這樣寫。
   - 為什麼沒一起做：`site:`、`intitle:`、`inurl:`、`filetype:`、`tag:`、`note:` 是 canonical SQL 上的 AND 條件（`eligibility::Scope`），索引那層的候選也照 AND 算；要讓它們能 OR，條件要變成一棵 AND / OR 樹，SQL 與索引候選兩層都得照這棵樹算，還要保持完整覆蓋與現在的查詢計畫。
   - 要做：先設計（解析成樹、兩層怎麼各自求值、14.4M 的查詢計畫），再做；E2E 用 fixture 驗 `site:a OR site:b` 找到兩個網站的頁、`-site:` 與 OR 一起用的情形。
+
+- [ ] **WORK-SCRAPER-LATEST** — `scraper` 0.24 → 0.29，順便拿掉 `fxhash` 的 allowlist（2026-11-05 核對 RustSec allowlist 時找到）
+  - 現況：`fxhash` 現在只經 `selectors` 0.31 ← `scraper` 0.24 進來（Tauri 2.12 已經不帶它）；`scraper` 0.29 用 `selectors` 0.41，不再需要 `fxhash`。`scraper` 是 0.x，宣告鎖在 0.24，要手動升。
+  - 為什麼沒一起做：CI 不靠這條，而升級會動到讀網頁內容的 selector API，要看 enrichment 與連結預覽的行為有沒有變。
+  - 要做：升級、跑 enrichment 與 link-preview 的 E2E、把 `scripts/check-rust-security.mjs` 與 `deny.toml` 的 `RUSTSEC-2025-0057` 拿掉。
 
 - [ ] **WORK-REGEX-NEXT-PAGE-REWALK** — 沒有字面片段的 regex，每一頁都從頭讀 archive（2026-10-25 加「最常瀏覽」時找到）
   - 現況：`regex.rs` 的 `next_page` 把走訪重設到起點（`reset_scan`）。時間排序要先讀過 cursor 之前所有比它新（或舊）的造訪才到下一頁；「最常瀏覽」要整個 archive 重讀一次、重建每頁的計數。14.4M 時，一個沒有三個字元以上字面片段的 regex，每多一頁就是一次完整走訪。

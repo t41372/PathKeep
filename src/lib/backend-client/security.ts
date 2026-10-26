@@ -36,5 +36,4 @@ export const securityClient = {
     call<KeyringStatusReport>('keyring_store_database_key', { value }),
   clearDatabaseKey: () =>
     call<KeyringStatusReport>('keyring_clear_database_key'),
-  resetLocalSecretVault: () => call<void>('reset_local_secret_vault'),
 }

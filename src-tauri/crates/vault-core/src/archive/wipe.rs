@@ -22,8 +22,8 @@
 //!   `raw-snapshots/`, `staging/`, `quarantine/`, `audit/` (run ledger and manifests), `exports/`,
 //!   `models/` (downloaded embedding models), `integrations/` and `schedule/` (scheduled-run logs
 //!   and attempt history).
-//! - Import backstops in the app root, the App Lock state and passcode files, the Stronghold vault
-//!   and its salt, and `config.json`.
+//! - Import backstops in the app root, the App Lock state and passcode files, the Stronghold files
+//!   versions before 0.5 left (`vault.hold`, `stronghold-salt.txt`), and `config.json`.
 //! - Outside the app root, through the caller's closures: the archive key and AI provider keys in
 //!   the keychain, and an installed automatic backup (LaunchAgent or Task Scheduler task).
 //!
@@ -273,8 +273,9 @@ fn wipe_targets(paths: &ProjectPaths) -> Result<Vec<PathBuf>> {
         paths.schedule_dir.clone(),
         paths.app_root.join("app-lock-state.json"),
         paths.app_root.join("app-lock-passcode.json"),
-        paths.stronghold_path.clone(),
-        paths.stronghold_salt_path.clone(),
+        // Versions before 0.5 registered the Stronghold plugin and wrote its salt; nothing uses them.
+        paths.app_root.join("vault.hold"),
+        paths.app_root.join("stronghold-salt.txt"),
         paths.config_path.clone(),
     ]);
 

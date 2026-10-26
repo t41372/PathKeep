@@ -299,8 +299,8 @@ the user's data, encrypted with the export password, and leaves out what the oth
 
 ### Assets
 
-The user's full local browsing history (canonical, in the encrypted Turso archive), the App Lock secret material (Stronghold,
-local-only), and the user's configured provider API keys (in the OS keyring).
+The user's full local browsing history (canonical, in the encrypted Turso archive), the App Lock passcode hash
+(`app-lock-passcode.json` in the app folder, local-only), and the user's configured provider API keys (in the OS keyring).
 
 ### Assumptions / trust boundaries
 

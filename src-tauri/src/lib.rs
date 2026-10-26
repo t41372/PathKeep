@@ -155,9 +155,6 @@ fn run_app() -> Result<()> {
                 .map_err(tauri::Error::Anyhow)?;
             vault_core::initialize_app_lock_session(&paths, &config)
                 .map_err(tauri::Error::Anyhow)?;
-            app.handle().plugin(
-                tauri_plugin_stronghold::Builder::with_argon2(&paths.stronghold_salt_path).build(),
-            )?;
             app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
             if config.initialized { opening_session.begin_startup(); }
             use tauri::Manager;
@@ -374,7 +371,6 @@ fn run_app() -> Result<()> {
             cancel_intelligence_job,
             preview_ai_integrations,
             record_frontend_error,
-            reset_local_secret_vault,
             open_path_in_file_manager,
             open_external_url,
             open_visited_page,
