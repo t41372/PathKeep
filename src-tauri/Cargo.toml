@@ -78,7 +78,7 @@ walkdir = "2.5.0"
 # Floor is 48.0.6, fixing the September/October 2026 Wasmtime/WASI advisories, from
 # RUSTSEC-2026-0327 (component callback stack overflow) to RUSTSEC-2026-0364. No 45.x release
 # fixes this set; Wasmtime 48 requires Rust 1.95 or newer.
-wasmtime = { version = "48.0.6", default-features = false, features = ["std", "runtime", "cranelift", "wat", "anyhow", "component-model", "async"] }
+wasmtime = { version = "50.0.0", default-features = false, features = ["std", "runtime", "cranelift", "wat", "anyhow", "component-model", "async"] }
 # code-mode scoped WASI (W-AI-8, D7 / §G Layer 2). The Javy (QuickJS→WASM) guest reaches the host
 # ONLY through WASI fd I/O, so the sandbox grants a MINIMAL preview1 ctx: an in-memory stdin pipe
 # (the request/reply RPC channel), an in-memory stdout capture, and a stderr sink — NO fs preopens,
