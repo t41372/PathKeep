@@ -9,6 +9,27 @@
 
 ## CURRENT FOCUS
 
+- [x] **WORK-PR16-REVIEW-2026-10-29** — 驗證 ChatGPT 與自己對 PR #16 的審查，修確認的問題
+  - 每條 finding 先當假設對照代碼驗證；判定與理由見 PR 描述。確認並修的：
+    - 語意索引改成「代」：每次 pass 寫一個完整的新代（`derived/vectors/<table>/<lineage>/g<run>/`），`ai_index_ledger.sidecar_table` 指向它，只在 `record_index_ledger_success` 那筆交易裡切換；查詢整段持有同一代的租約，GC 只刪沒人用、不是服務中、不屬於進行中工作的代。取代 `rebuild.rs` 的 copy / `.publish` / withdraw / settle，連帶修掉 Windows 覆蓋被 map 住的檔、一次查詢讀兩代、取消的重建在當機後被換上、提交不落盤、settle 遇錯就停、`rows_since` 誤刪更新寫的列。`ai_embeddings` / totals 加 `lineage`（Intelligence schema v2；v0.4.0 已發布，所以是註冊的 migration：一筆便宜的 rename + 建表，之後每批 5 萬列複製，1M / 4M 列峰值 84 / 86 MiB）；開啟時的升級畫面顯示進度。Codex 實作，我審查。
+    - 備註：回到還在儲存中的頁面後，改回原來那句會被略過；兩次儲存的回應亂序會讓框退回舊的。一次只送一個儲存、跟存檔的值比（unit test：E2E 排不出這種競爭）。
+    - 進階搜尋 Words 的範例字、macOS 選單列（三語，換語言時重建，取代比對英文 "Quit" 的做法）。
+    - Insights「最常回來搜的」欄位改名（`topicKey`、`searchCount`）；讀法與合併前同一複雜度，debug 對照不比舊 SQL 慢，14.4M 量測併入 `WORK-INSIGHTS-COLD-READS`。
+    - `Hit` 的相等改照排序；`foreground_work` 的測試各用自己的 registry（跟同一個 test binary 的 wipe / restore 測試搶全域清單會 flaky）。
+    - 移除沒人用的 Stronghold plugin 與它的 allowlist；tantivy 0.27（同索引格式 7），修掉本週新的 zstd advisory 與 lru 的 allowlist。
+  - 不修的：Advanced Search 改 AST（產品決定是 Google 式）、quit 協議重寫（µs 競爭、工作本身當機安全）、semantic fallback 分類、模型 marker 的威脅模型、regex 最常瀏覽的記憶體（已記錄的取捨）、標籤跨頁污染（每頁各自 mount，前提不成立）。引號裡的運算子當字面 → `WORK-SEARCH-QUOTED-LITERALS`。
+  - macOS 選單與真 ⌘Q（2026-10-30 手動驗，debug build 包成另一個 bundle id 的 `.app`，46 萬筆合成資料）：三語選單在設定換語言時立刻重建；匯出途中按 ⌘Q，或圖示關著時按關閉鈕，都先問；選不結束就留著；選做完再結束，檔案改成正式檔名的同一秒結束，沒留暫存檔；選現在結束立刻結束、不產生檔案，暫存區下次開啟時清掉、存檔筆數不變；沒有工作時 ⌘Q 直接結束；圖示開著時關視窗只是隱藏。
+  - 沒驗到的：Windows 的 mmap / 目錄 fsync 沒實測。
+  - 第三輪（2026-10-30）：上面語意索引分代的第二輪修正約 3,300 行，當時只跑了 gate、沒有逐行審，補上兩份獨立審查（遷移與當機復原、並行與 GC），每條對照代碼確認，確認的都先寫會失敗的 Rust 測試再修：
+    - GC 在退休舊代時會把服務中的 lineage 整個保留住，同一刻的搜尋或建置以為沒有索引；建置因此開新 lineage、把所有造訪重新 embed。改成 GC 不保留指標指著的代，查詢與建置遇到保留就等它放掉再讀，不再當成沒有或直接失敗（失敗會讓排隊的工作變成「需要人工處理」）。
+    - 舊版平鋪索引的搬移：只有 `legacy` 資料夾、沒有平鋪檔時也會重跑，清除過的索引在下次開啟時以空的代回來；v0.4.0 停在中途的 pass 留下比投影多的向量，搬移發布了讀者會拒絕的數量，升級後就沒有語意搜尋。改成只有平鋪檔或搬移開始前寫的註記才搬，發布 plane 本身的數量並先過讀者的驗證；有列卻沒有向量時不發布空的代。清除後的 `legacy` 來源若因為還有搜尋在讀而沒刪掉，下一次更新會拿來接著建、把清掉的向量帶回來：改成只有帳本還帶著復原註記時才沿用 `legacy`。
+    - Intelligence v2 遷移：每批用 `COALESCE(MAX(id),0)` 找游標，Turso 不走 MIN/MAX 捷徑，每批掃整張新表，時間超線性；也先複製完整張表才刪舊的，檔案一度有兩份。改成每批在同一個交易裡搬（複製再刪同一段 id），1M / 4M 由 26.5 / 129 s 變 16.4 / 66.9 s。
+    - GC 遇到一個壞的舊 `.publish` 資料夾就整輪停掉（只有未發布的開發版會留下）；完整重建後先暖搜尋分組再刪舊列。
+    - 狀態：搬好但還沒發布的舊索引算 `legacy` 的列，顯示「向量缺失、需要建一次」，不顯示成從沒建過。
+    - 第三輪修正本身又做了一次獨立審查：沒有死結或漏掉的喚醒；它找到的「清除後沿用 `legacy`」「有列卻發布空的代」已修，三個等待的測試改用 test hook 確認真的等了。從未發布的開發版中途升級留下的 v2 資料庫（舊階段名）不支援。
+    - 沒修、記進 BACKLOG：`WORK-INDEX-ROW-CLEANUP-OFF-JOB`、`WORK-INTELLIGENCE-MIGRATION-OPEN`、`WORK-TURSO-MINMAX-WRAPPER-AUDIT`。只影響開發版資料的 `rows_since` 時間界線、GC 把建置中的輸出記成 retired（會自己收斂）不修。
+    - wasmtime 48.0.8：同日公布的 RUSTSEC-2026-0420 / 0422 / 0423 / 0424。
+
 - [x] **WORK-GATE-2026-10-25** — 先讓整合分支 `feat/search-sort-builder` 過完整 gate，再合 main（2026-10-25 晚上的 gate 在 E2E 的 change 專案連鎖失敗，restart 之後沒跑）
   - 2026-10-25 16:13 在 Modal（Linux，8 vCPU / 32 GB，閒著）跑完整 `bun run check` 過了（合併換上之前的整合分支）；合併換上與它的修正、整理成 PR 分支 `feat/2026-10-25-search-and-index` 之後，17:14 再跑一次也過了（Rust 91 組、E2E 119 過、1 跳過）：JS 檢查、build、fmt、clippy、Rust 測試 91 組全過（含 `the_block_cache_bounds_memory`）、desktop bridge、release check；E2E 118 過、1 跳過（`schedule.spec` 在 Linux 上本來就跳過），restart 之後的專案（`quit-during-work.spec`、`semantic-index.spec`）都跑到了。晚上本機的連鎖失敗是負載造成的。
   - 中途修了一個測試自己的錯：`insights.spec.ts:628` 寫死 Work 設定檔（`chrome:Profile 1`）先搜「台北天氣」，但 fixture 依 `now` 產生，哪一句先搜每天不同（併在 `2351ba22`）。

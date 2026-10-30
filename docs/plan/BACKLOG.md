@@ -14,18 +14,8 @@
   - 現象（Modal microVM 4 vCPU / 8 GB，release、加密，14.4M 造訪，預設形狀；資料最大 22.5 GB）：app 剛起來的第一次讀，interrupted habits 30 天 66 s、一年 68 s，全部時間的 digest 單獨讀 67 s，一年的第一批卡片 29.5 s；同一個讀取第二次 1 s 以內到 0.5 s。
   - 對照：2026-10-09 在 Modal EPYC VM、`habits` 形狀上，interrupted habits 第一次 2.7 s、全部時間 digest 2.9 s；形狀和機器都不同，不是同條件比較。一年的第一批在預設形狀上當時是 39.1 s，所以那一條不是新退步，而是一直都慢。
   - 猜測（沒驗證）：資料進不了 8 GB 的頁快取，第一次讀要從磁碟拿；Modal 的磁碟和真機不同，實際可能沒這麼慢，也可能更慢。
+  - 「最常回來搜的」（`get_search_effectiveness` 的 hardest topics，`2351ba22` 起跨瀏覽器與引擎合併同一句搜尋）每一頁仍讀完範圍內所有 query family，跟合併之前一樣（舊的 SQL 排序也讀完範圍）；2026-10-29 本機 debug build 同一份資料比較：10 萬個 family 新讀法每頁 0.3 s、舊 SQL 0.16 s，30 萬個新讀法 1.4–1.6 s、舊 SQL 2.3–3.0 s。這次 14.4M 也量它的第一頁與下一頁；太慢就在建置時存好合併用的 key，讓 SQL 分組、只排前 k 個。
   - 要做：(1) 先量每條讀了多少頁、多少列（同一台小機器，預設與 `habits` 兩種形狀各一次），分清是讀太多還是磁碟慢；(2) 讀太多就改讀法（例如 interrupted habits 在建置時算好存起來、all-time digest 走快照）；(3) 不管多快，卡片等的時候都要有 skeleton 與漸進載入，不能讓整頁空著；(4) 結果寫回 `ipc-performance.md`。
-
-- [ ] **WORK-INDEX-REBUILD-SWAP-FOLLOWUPS** — 重建換上不擋合併的問題（2026-10-25 Codex 審查，驗證見 STATUS `WORK-INDEX-REBUILD-SWAP`）
-  - 讀先：`docs/architecture/semantic-index-control.md`「Full rebuilds build beside the index they replace」、`vault-core/src/ai/indexing/rebuild.rs`。
-  - (1) 跨過換上那一刻的一次查詢可能讀到新的 int8 plane 配舊的 map（`query_semantic` 先開 plane、等嵌入服務，之後才讀 map）：一次讀進同一代的所有檔。
-  - (2 的另一半) 換上失敗時工作仍是成功，cleanup 警告只寫在工作的 summary，Settings 不顯示，所以在重試成功前 Settings 說索引已完成、搜尋還讀舊檔（Windows 上檔案被 map 住時走得到）。改成「換上成功才記成功」的話，停止搶在最後一刻時會把已換上的完整索引記成未完成，所以沒那樣改。長期的解法和 (1) 是同一個：不再覆蓋搜尋開著的檔，每一代用自己的檔名，讀的一方一步換到新的一代；這樣 Windows 上不會失敗，跨過換上的查詢也只讀一代。在那之前至少讓 Settings 顯示「重建好了，等著換上」。
-  - (3) 當機落在「停止已贏、複本還沒撤回」之間時，重開會把已取消的重建換上（settle 不看工作是否已取消）：settle 照 ledger 的 stop 決定換上或撤回。換上的是建完的索引，不掉資料。
-
-- [ ] **WORK-STRONGHOLD-UNUSED** — `tauri-plugin-stronghold` 註冊了卻沒人用，還帶進幾個要放行的 RustSec advisory（2026-10-25 清 CI 的 supply-chain audit 時找到）
-  - 現況：`src-tauri/src/lib.rs` 註冊 plugin、`capabilities/default.json` 給了 `stronghold:default`，但沒有 Rust 代碼呼叫它、前端也沒有它的套件；只有重設時刪掉 `vault.hold`（`vault-worker/src/security.rs`）。`ai-security-posture.md` 卻寫 App Lock 的秘密在 Stronghold，要先查清楚是文檔過期還是哪個舊版本寫過、現有用戶的資料夾裡有沒有要遷移的東西。
-  - 它帶進 `iota-crypto` → `k256` → `crypto-bigint 0.5`（`RUSTSEC-2026-0387`，在 `check-rust-security.mjs` 放行）與 bincode 1（`RUSTSEC-2025-0141`）。
-  - 要做：確認沒有用途後，移除 plugin、capability、`stronghold_path` / `stronghold_salt_path` 與相關文檔，再把只因它放行的 advisory 從清單拿掉；有用途就把用途寫進文檔。
 
 - [ ] **WORK-FLAKY-BLOCK-CACHE-RSS** — `vault-crypto` 的 `the_block_cache_bounds_memory` 量常駐記憶體（RSS），記憶體緊時不準（2026-10-25 gate 連兩次失敗，同一晚 03:31 的整套 Rust 測試過了；vault-crypto 當晚沒改）
   - 現象：上限 2 MiB 的快取 RSS 漲 8.3 / 6.9 MiB，沒有上限的漲 11.1 / 4.9 MiB（它的快取最多 9.9 MiB），斷言要前者比後者少 4 MiB 以上。
@@ -43,6 +33,19 @@
   - 推翻 `semantic-index-control.md` 與 `intelligence.md` §1（未完成的索引只在沒有完整索引時才搜）：用戶 2026-10-16 同意。做的時候改這兩份文檔。和 `WORK-INDEX-REBUILD-SWAP` 一起設計：同一個模型重建時也是「兩份索引、一邊建一邊搜」，查詢向量只要算一次；等 REBUILD-SWAP 合進 main 再開工（2026-10-25 在做）。
   - 不做：外部服務不在時退回靜態模型、兩份索引永久並存（用戶 2026-10-16：不要）。
 
+- [ ] **WORK-INDEX-ROW-CLEANUP-OFF-JOB** — 完整重建成功後，刪舊 lineage 的 provenance 列在工作執行緒上同步跑，14.4M 時約 28k 個寫入交易（2026-10-30 PR #16 第三輪審查找到，讀程式碼確認，沒量）
+  - 現況：`indexing/backfill.rs` 結尾的 `generations::collect(vault, true)` 在 `INDEX_EXECUTION` 裡刪完舊列才返回，所以 `pathkeep://ai-index-job-ended` 要等刪完才發，排隊的下一個工作也跟著等。搜尋分組的暖機已經移到刪除之前（同日）。如果刪除改由背景 reaper 做，下一個工作開頭的 `collect` 會在 `admit()` 等它，停在 0%。
+  - 方向（先量 14.4M 刪一個 lineage 要多久）：工作結束只做決定與改名，列的刪除交給 reaper；工作開頭的清理在已有 collector 時不等它（它本來就在做同一件事），但要先確認 `recover_pending` 等開頭清理不是建置的前提。
+
+- [ ] **WORK-INTELLIGENCE-MIGRATION-OPEN** — Intelligence 資料庫的 schema 遷移失敗（例如磁碟滿）會讓整個存檔打不開，雖然語意索引是可選的衍生資料（2026-10-30 PR #16 第三輪審查找到）
+  - 現況：vault-store 開檔時依序跑每個資料庫的遷移，任何一個失敗 `Store::open` 就失敗。v2 遷移已改成每批搬移，峰值只多一批，但磁碟幾乎滿時仍可能失敗，而且每次啟動都在同一點失敗，直到用戶騰出空間。
+  - 要決定（寫 trade-off 再改）：Intelligence 遷移失敗時是否先開 archive、把 AI 功能標成不可用並說明原因；或啟動前先檢查空間並給明確的錯誤。牽涉 vault-store 的開檔契約，不是這個 PR 的範圍。
+
+- [ ] **WORK-TURSO-MINMAX-WRAPPER-AUDIT** — `COALESCE(MAX(id),0)` 這種包了一層的 MAX 在 Turso 是全表掃描（2026-10-30 PR #16 第三輪審查找到）
+  - 根因：Turso 0.8.1 `translate/optimizer/mod.rs` 的 `detect_simple_aggregate` 只在結果欄「正好是」聚合式時走 MIN/MAX 捷徑（沿索引或 rowid 直接走到極值）；外面包 `COALESCE`、`+1` 都不算，就退回掃描。Intelligence v2 遷移因此每批掃一次越長越大的新表，1M / 4M 量到 26.5 s / 129 s；改成不包、在 Rust 裡處理 NULL 之後 16.4 s / 66.9 s（`semantic-index-control.md`）。
+  - 要查（14.4M 時每次都掃一遍的優先）：`intelligence/build_pipeline.rs:24`（每次 intelligence 建置掃 `visits`）、`ai/indexing/backfill.rs:413` 與 `:539`、`ai/generations/build.rs:145`、`ai/similar_searches.rs:198`、`ai/indexing/store_rows.rs:91`、`archive/doctor_derived.rs:76`，以及 `intelligence_runtime/enqueue.rs`、`job_control.rs` 的 `MAX(list_order)+1`（小表，可能不用改）。
+  - 做法：先用 `EXPLAIN` 確認每一條真的掃表，再改成不包的 `MAX(...)` 並在 Rust 裡處理 NULL；有 WHERE 的要確認存取路徑能直接走到極值。結果記進 `turso-review-ledger.md`。
+
 - [ ] **WORK-SEMANTIC-VISIT-SIDECAR** — 語意搜尋每次都讀一遍範圍內的所有造訪：100 萬次 385 ms，14.4M 估 5.5 秒（M5 Max），目標機更慢（2026-10-17 做完 `WORK-SEMANTIC-PIPELINE` 量到）
   - 現況：一次語意搜尋 100 萬次造訪 500 ms，其中 385 ms 是一條 SQL 串流範圍內每次造訪（算頁面成員、最新時間與每頁最高分）。向量掃描只要 6 ms。
   - 串流是一次讀取，整段佔住 archive 兩條讀取連線中的一條；writer 做 WAL truncate checkpoint 前要等進行中的讀取結束（`vault-store/src/checkpoint.rs` 的 `wait_for_readers`，`worker.rs` 呼叫），這段時間進來的寫入也跟著等。14.4M 時一次語意搜尋可能讓匯入、備份的寫入延後數秒。以前的逐批回查是很多次短讀取，不會這樣；日期篩選的全文搜尋（`eligibility::load`）本來就是同一種長讀取。
@@ -57,13 +60,16 @@
 
 - [ ] **WORK-QUIT-FOLLOWUPS** — 結束前詢問的收尾（2026-10-25 `WORK-QUIT-DURING-WORK` 留下）
   - 更新後重開（`relaunch_after_update` → `RESTART_EXIT_CODE`）不攔：匯出中按了更新重開，工作照樣中斷。方向：有工作在跑時，About 頁的更新先說正在做什麼，等做完或確認再重開。
-  - macOS 選單的「Quit PathKeep」只有英文（跟 Tauri 預設選單其他項目一樣）；選單列圖示的同一個項目有三語（`copy.rs`）。要讓它跟著 app 的語言，得在換語言時重建這個選單項目。
   - E2E 只驗了匯出；匯入、備份、維護、復原匯入、兩種工作同時、問題開著時工作先做完，都還沒有 E2E。「現在結束」不先停下工作，匯出的暫存檔會留在目標旁。
 
 - [ ] **WORK-SEARCH-OR-OPERATORS** — `OR` 也能連運算子：`site:a.com OR site:b.com`、`intitle:x OR inurl:y`（2026-10-25 把 `OR` 改成 Google 的讀法時留下）
   - 現況：`OR` 只連兩邊的字或引號片語；旁邊是運算子或減號時什麼都不連（`search.md`），所以 `site:a OR site:b` 還是兩個都要，什麼都找不到。Google 允許這樣寫。
   - 為什麼沒一起做：`site:`、`intitle:`、`inurl:`、`filetype:`、`tag:`、`note:` 是 canonical SQL 上的 AND 條件（`eligibility::Scope`），索引那層的候選也照 AND 算；要讓它們能 OR，條件要變成一棵 AND / OR 樹，SQL 與索引候選兩層都得照這棵樹算，還要保持完整覆蓋與現在的查詢計畫。
   - 要做：先設計（解析成樹、兩層怎麼各自求值、14.4M 的查詢計畫），再做；E2E 用 fixture 驗 `site:a OR site:b` 找到兩個網站的頁、`-site:` 與 OR 一起用的情形。
+
+- [ ] **WORK-SEARCH-QUOTED-LITERALS** — 引號裡的字照字面找：`"site:x"`、`"-beta"` 現在還是被讀成運算子或排除（2026-10-29 審查 PR 16 時找到，進階搜尋的表單因此帶不出這種字）
+  - 現況：`archive/search_query.rs` 先看運算子與開頭的 `-`，再看是否在引號裡，所以整段加了引號也還是運算子或排除；`intitle:"release notes"` 這種運算子後面接引號值的寫法要照舊。Google 把整段引號當字面。
+  - 要做：tokenizer 記下一個 token 是不是從引號開始，從引號開始的不當運算子、不當排除；`search/query.rs` 的 `OR` 分組讀同一個判斷。進階搜尋的 `words-query.ts` 就能把字面的 `site:x`、`-beta` 加引號送出，拿掉它的註解裡「quoted, still an operator」那條例外。E2E：搜一個標題含 `site:` 字樣的頁、一個以 `-` 開頭的字。
 
 - [ ] **WORK-REGEX-NEXT-PAGE-REWALK** — 沒有字面片段的 regex，每一頁都從頭讀 archive（2026-10-25 加「最常瀏覽」時找到）
   - 現況：`regex.rs` 的 `next_page` 把走訪重設到起點（`reset_scan`）。時間排序要先讀過 cursor 之前所有比它新（或舊）的造訪才到下一頁；「最常瀏覽」要整個 archive 重讀一次、重建每頁的計數。14.4M 時，一個沒有三個字元以上字面片段的 regex，每多一頁就是一次完整走訪。
