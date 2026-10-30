@@ -383,6 +383,30 @@ mod tests {
         }).unwrap();
     }
 
+    // Every stage of one build checkpoints with the build's start time, so the ledger alone did
+    // not move when a build switched the data Insights reads. A range read between a stage's
+    // checkpoint and the switch stayed cached under the same fingerprint, and once the build was
+    // marked ready its rows from before the backup were served as current.
+    #[test]
+    fn publishing_a_build_changes_the_fingerprint_with_the_same_checkpoints() {
+        let db = open_fingerprint_connection();
+        db.write(|s| {
+            s.execute("INSERT INTO core_intelligence_stage_checkpoints(profile_id,stage,stage_version,updated_at) VALUES('chrome:Default','daily-rollup','v','2026-10-30T00:00:00Z')",())?;
+            Ok(())
+        })
+        .unwrap();
+        let before = fingerprint(&db, None).unwrap();
+        let state = super::super::build_state::BuildState {
+            id: 1,
+            profile_id: "chrome:Default".into(),
+            computed_at: "2026-10-30T00:00:00Z".into(),
+            daily_generation: 7,
+            ..Default::default()
+        };
+        db.write(move |s| super::super::build_state::publish(s, &state, &["daily"])).unwrap();
+        assert_ne!(fingerprint(&db, None).unwrap(), before);
+    }
+
     // Recent ranges: what goes wrong if the scope rules do —
     // - a range the page does not offer is kept (every build would compute it for nothing);
     // - yesterday's "last 30 days" is served today (its days moved);

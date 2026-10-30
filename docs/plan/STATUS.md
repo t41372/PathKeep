@@ -29,6 +29,7 @@
     - 第三輪修正本身又做了一次獨立審查：沒有死結或漏掉的喚醒；它找到的「清除後沿用 `legacy`」「有列卻發布空的代」已修，三個等待的測試改用 test hook 確認真的等了。從未發布的開發版中途升級留下的 v2 資料庫（舊階段名）不支援。
     - 沒修、記進 BACKLOG：`WORK-INDEX-ROW-CLEANUP-OFF-JOB`、`WORK-INTELLIGENCE-MIGRATION-OPEN`、`WORK-TURSO-MINMAX-WRAPPER-AUDIT`。只影響開發版資料的 `rows_since` 時間界線、GC 把建置中的輸出記成 retired（會自己收斂）不修。
     - wasmtime 48.0.8：同日公布的 RUSTSEC-2026-0420 / 0422 / 0423 / 0424。
+    - 推上去後 CI 的 `backup.spec`「Insights 開著時備份，範圍要重讀」失敗，重新整理才看到新造訪。不是這個 PR 帶進來的（2026-10-08 起就有）：Insights 的快取與存下的讀取用 checkpoint 帳本的指紋當鍵，同一次建置的每個階段都用建置開始的時間寫 checkpoint，發布（切換 Insights 讀的資料）時帳本不變；在最後一個 checkpoint 和發布之間讀的範圍，就以同一個指紋被快取，建置標成完成後把備份前的列當成最新的給出去。改成發布在同一個交易裡更新帳本的時間（Rust 測試先失敗）。
 
 - [x] **WORK-GATE-2026-10-25** — 先讓整合分支 `feat/search-sort-builder` 過完整 gate，再合 main（2026-10-25 晚上的 gate 在 E2E 的 change 專案連鎖失敗，restart 之後沒跑）
   - 2026-10-25 16:13 在 Modal（Linux，8 vCPU / 32 GB，閒著）跑完整 `bun run check` 過了（合併換上之前的整合分支）；合併換上與它的修正、整理成 PR 分支 `feat/2026-10-25-search-and-index` 之後，17:14 再跑一次也過了（Rust 91 組、E2E 119 過、1 跳過）：JS 檢查、build、fmt、clippy、Rust 測試 91 組全過（含 `the_block_cache_bounds_memory`）、desktop bridge、release check；E2E 118 過、1 跳過（`schedule.spec` 在 Linux 上本來就跳過），restart 之後的專案（`quit-during-work.spec`、`semantic-index.spec`）都跑到了。晚上本機的連鎖失敗是負載造成的。
