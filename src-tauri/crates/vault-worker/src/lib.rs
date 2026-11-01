@@ -42,7 +42,7 @@ pub use session::VaultSession;
 /// Whether a queue worker (Insights, enrichment, page fetching, AI) is running; a
 /// background launch stays until they finish.
 pub fn background_work_running() -> bool {
-    intelligence::running_background_workers() > 0
+    intelligence::running_background_workers() > 0 || archive_flows::previews::active() > 0
 }
 mod stars;
 

@@ -52,6 +52,24 @@ pub(crate) fn stop_all_background_work() {
     STOP_EPOCH.fetch_add(1, Ordering::AcqRel);
 }
 
+/// The stop generation now: a thread started with it stops when the worker is told to.
+pub(crate) fn background_epoch() -> u64 {
+    STOP_EPOCH.load(Ordering::Acquire)
+}
+
+/// Runs `work` as a background thread started at `epoch`: `worker_stopped` turns true for it once
+/// the worker is told to stop.
+pub(crate) fn with_worker_epoch<T>(epoch: u64, work: impl FnOnce() -> T) -> T {
+    struct Restore(Option<u64>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            WORKER_EPOCH.set(self.0);
+        }
+    }
+    let _restore = Restore(WORKER_EPOCH.replace(Some(epoch)));
+    work()
+}
+
 /// Whether this worker thread was told to stop. Threads outside the pools never are.
 pub(crate) fn worker_stopped() -> bool {
     WORKER_EPOCH.get().is_some_and(|epoch| epoch != STOP_EPOCH.load(Ordering::Acquire))

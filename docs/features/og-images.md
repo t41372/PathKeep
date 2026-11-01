@@ -155,6 +155,9 @@ CREATE INDEX idx_og_images_last_shown   ON og_images(last_shown_at)   WHERE last
 - **已加星**與**網站**每列的縮圖（`PreviewThumb`，64 × 36）：有已存的圖就顯示，否則同一個框裡顯示網站圖示。
   網站列用該網站最近一頁的網址。**列只讀不抓**：捲動清單不會對網站發出任何請求，
   新頁面的圖靠備份後的 Background 預抓或打開詳情面板時那一次抓取。
+  備份存好就回覆，預抓與到期重抓在背景做（`archive_flows/previews.rs`）：同一時間只有一輪，
+  輪到時才讀當下的設定與額度（使用者中途關掉抓取就不抓），只留最新一個等著的要求；
+  抓不到的寫回要求它的那次備份紀錄。
 - **載入**（`src/features/history/og-image-store.ts`）：`load_history_og_images` 每批 8 個網址、
   60 ms 合併一次（圖片以 data URL 傳回，數百 KB 一張，批次放大會讓 IPC 傳數十 MB）；
   依網址快取約 120 筆，超過時淘汰最舊、而且沒有元件正在顯示的；`mark_og_images_shown` 每 2 秒批次送一次。
