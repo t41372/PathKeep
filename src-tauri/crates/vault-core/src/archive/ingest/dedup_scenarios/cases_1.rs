@@ -172,7 +172,7 @@ fn x1_edge_imports_chrome_then_both_diverge() {
 /// columns like `favicon_id` on `urls`, plus `segment_id`,
 /// `opener_visit`, and the `originator_*` sync metadata fields on
 /// `visits`). PathKeep's parser uses **explicit column lists** in
-/// SELECTs (see `INGEST_URLS_SQL`, `INGEST_VISITS_SQL`), so extra
+/// SELECTs (see `url_pages`, `chromium::ingest_visits_sql`), so extra
 /// columns in the source DB must not break ingest. A fixture DB with
 /// `ALTER TABLE`-added columns must import without error and produce the
 /// same canonical rows. Whether the extra values are also kept as source
@@ -256,6 +256,7 @@ fn c6_chromium_extra_columns_on_source_db_do_not_break_ingest() {
                 path: "History".to_string(),
                 sha256: "synthetic-fixture-hash".to_string(),
             }],
+            captured_at_ms: chrono::Utc::now().timestamp_millis(),
         };
 
         let summary = run_one_ingest(&env, 1, &snapshot, false);

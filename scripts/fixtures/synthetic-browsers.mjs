@@ -776,8 +776,8 @@ export function writeFirefoxPlaces(file, visits) {
     CREATE TABLE moz_places (id INTEGER PRIMARY KEY, url TEXT NOT NULL, title TEXT, visit_count INTEGER, hidden INTEGER, last_visit_date INTEGER);
     CREATE TABLE moz_historyvisits (id INTEGER PRIMARY KEY, place_id INTEGER NOT NULL, visit_date INTEGER NOT NULL, from_visit INTEGER, visit_type INTEGER);
     CREATE INDEX moz_places_url_index ON moz_places(url);
-    CREATE INDEX moz_historyvisits_place_index ON moz_historyvisits(place_id);
-    CREATE INDEX moz_historyvisits_date_index ON moz_historyvisits(visit_date);
+    CREATE INDEX moz_historyvisits_placedateindex ON moz_historyvisits(place_id, visit_date);
+    CREATE INDEX moz_historyvisits_dateindex ON moz_historyvisits(visit_date);
   `)
   insertFirefoxVisits(db, visits)
   db.close()

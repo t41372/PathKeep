@@ -102,6 +102,7 @@ fn browser_snapshot() -> ProfileSnapshot {
             path: "History".to_string(),
             sha256: "synthetic-fixture-hash".to_string(),
         }],
+        captured_at_ms: chrono::Utc::now().timestamp_millis(),
     }
 }
 

@@ -129,7 +129,7 @@ pub fn import(
     let report = ImportResult {
         manifest: preview.manifest,
         migrations_applied: Vec::new(),
-        final_schema_version: 1,
+        final_schema_version: vault_core::store_schema::schema_version(vault_store::Db::Archive),
         preserved_previous_as_bak: preview.will_overwrite_existing,
     };
     Ok((report, installed))

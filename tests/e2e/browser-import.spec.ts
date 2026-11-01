@@ -14,12 +14,16 @@
  * once undone, leaves Insights with no rebuild asked for: its profile shows
  * no visits, and its day and Top sites over all profiles no longer count them;
  * a page it alone brought that was starred stays in Starred, with its site.
+ * A file Firefox Sync rebuilt after a reset, holding only copies of visits
+ * already imported (their times cut to the millisecond), previews as copies
+ * to keep, not as nothing to import; importing saves them counted once, and
+ * only then is there nothing left in it.
  *
  * The files are written for this test (see `support/browser-file.ts` and
  * `support/safari-file.ts`), not profiles the archive backs up, so nothing in
  * them is in the archive before the first import.
  */
-import { mkdirSync } from 'node:fs'
+import { mkdirSync, rmSync } from 'node:fs'
 import path from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
 import {
@@ -30,11 +34,14 @@ import {
 } from '../../scripts/fixtures/synthetic-browsers.mjs'
 import {
   BROWSER_FILE_TITLE,
+  SYNC_RESET_TITLE,
   UNDONE_FILE_SITE,
   UNDONE_FILE_TITLE,
   browserFilePath,
   firstBrowserFileVisits,
   laterBrowserFileVisits,
+  syncResetFilePath,
+  syncResetVisits,
   undoneBrowserFilePath,
   undoneBrowserFileVisits,
 } from './support/browser-file'
@@ -425,4 +432,47 @@ test('an undone import leaves Insights, and its starred page stays in Starred', 
     .filter({ hasText: starredTitle })
   await expect(entry).toHaveCount(1)
   await expect(entry).toContainText(UNDONE_FILE_SITE)
+})
+
+test('a file Firefox Sync rebuilt imports its copies, counted once', async ({
+  page,
+}) => {
+  const file = syncResetFilePath()
+  mkdirSync(path.dirname(file), { recursive: true })
+  rmSync(file, { force: true })
+  writeFirefoxPlaces(file, syncResetVisits(false))
+  await inspectFile(page, file)
+  await page.getByRole('button', { name: 'Import 3 visits' }).click()
+  await expect(page.getByText('Imported 3 new visits').first()).toBeVisible({
+    timeout: 60_000,
+  })
+
+  // Firefox rebuilt the file from Sync: the same visits, on the millisecond.
+  rmSync(file)
+  writeFirefoxPlaces(file, syncResetVisits(true))
+  let preview = await inspectFile(page, file)
+  await expect(preview).toContainText('0 new visits')
+  await expect(preview).toContainText('0 are already in your archive')
+  await expect(preview).toContainText(
+    '3 are Firefox Sync copies of visits in your archive: kept, counted once',
+  )
+  await expect(page.getByText('Sync copy').first()).toBeVisible()
+  await page.getByRole('button', { name: 'Import 3 visits' }).click()
+  await expect(page.getByText('Imported 0 new visits').first()).toBeVisible({
+    timeout: 60_000,
+  })
+  await expect(
+    page.getByText(
+      '3 are Firefox Sync copies of visits in your archive: kept, counted once',
+    ),
+  ).toBeVisible()
+  await expectPagesAndVisits(page, SYNC_RESET_TITLE, { pages: 1, visits: 3 })
+
+  // Saved now: nothing left to import.
+  preview = await inspectFile(page, file)
+  await expect(preview).toContainText('3 are already in your archive')
+  await expect(
+    page.getByText('Everything in this file is already in your archive.'),
+  ).toBeVisible()
+  await expect(page.getByRole('button', { name: /^Import \d/ })).toHaveCount(0)
 })

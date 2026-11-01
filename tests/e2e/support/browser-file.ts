@@ -51,7 +51,37 @@ export function laterBrowserFileVisits(): FixtureVisit[] {
 
 /** Visits the archive shows once browser-import.spec has finished (all restored). */
 export function browserFileVisitCount() {
-  return firstBrowserFileVisits().length + laterBrowserFileVisits().length
+  return (
+    firstBrowserFileVisits().length +
+    laterBrowserFileVisits().length +
+    syncResetVisits(false).length
+  )
+}
+
+/** The title of the page in the file Firefox Sync rebuilds. */
+export const SYNC_RESET_TITLE = 'Sync reset page'
+
+/** A Firefox profile's places.sqlite that Firefox Sync later rebuilds. */
+export function syncResetFilePath() {
+  return path.join(fixture().root, 'sync-reset', 'places.sqlite')
+}
+
+/**
+ * Three visits to one page, an hour apart from 09:00 on a day 300 days back
+ * that the other specs add nothing to, with the microseconds Firefox writes;
+ * `synced`: as Firefox Sync gives them back after a reset, cut to the
+ * millisecond.
+ */
+export function syncResetVisits(synced: boolean): FixtureVisit[] {
+  const start = new Date(fixture().now - 300 * DAY_MS)
+  start.setHours(9, 0, 0, 0)
+  return Array.from({ length: 3 }, (_, index) => ({
+    url: 'https://sync-reset.e2e.example/page',
+    title: SYNC_RESET_TITLE,
+    at: start.getTime() + index * HOUR_MS + (synced ? 0 : 0.123),
+    typed: false,
+    duration: 20_000,
+  }))
 }
 
 /**

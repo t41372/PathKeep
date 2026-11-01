@@ -207,7 +207,7 @@ test('a run that left things out says why, in your language, beside the fix', as
     await page.getByRole('button', { name: 'Back up now' }).first().click()
     const toast = page
       .locator('[data-sonner-toast]')
-      .filter({ hasText: 'Backup done · 1 new visit' })
+      .filter({ hasText: 'Backup incomplete · 1 new visit saved' })
     await expect(toast).toContainText(/\d+ warnings?: /, { timeout: 60_000 })
     await toast.getByRole('button', { name: 'Details' }).click()
     await expect(page).toHaveURL(/#\/backup\?run=\d+$/)

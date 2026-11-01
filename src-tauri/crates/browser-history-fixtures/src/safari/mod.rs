@@ -3,7 +3,7 @@
 //! ## Responsibilities
 //! - Emit a SQLite file with the `history_items` / `history_visits` shape
 //!   `browser_history_parser::safari` reads.
-//! - Support both the minimal historical schema (just `visit_time`) and the
+//! - Support both a reduced parser-compatibility schema and the
 //!   current macOS Safari schema with `load_successful`, `synthesized`,
 //!   `redirect_*`, `origin`, `score`, etc. — selectable per fixture.
 //! - Convert fixture-author Unix milliseconds into Safari's CFAbsoluteTime
@@ -21,8 +21,8 @@ const SAFARI_UNIX_EPOCH_OFFSET_SECONDS: f64 = 978_307_200.0;
 
 /// Which Safari schema variant the writer should produce.
 ///
-/// Real macOS Safari ships the `Current` schema today; the `Minimal` variant
-/// covers older OS versions and the legacy parser-test fixture path.
+/// `Current` has Safari's page/time/synthesized visit index. `Minimal` omits optional
+/// columns and that index to test parsing files without those fields.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SafariSchemaVariant {
     /// Minimal `history_visits` columns: only `id`, `history_item`, `title`, `visit_time`.
@@ -87,7 +87,7 @@ impl SafariHistoryFixture {
         Self::default()
     }
 
-    /// Switches the writer to the minimal historical schema (for legacy testing).
+    /// Omits optional columns and their index for parser-compatibility tests.
     pub fn with_variant(mut self, variant: SafariSchemaVariant) -> Self {
         self.variant = variant;
         self
@@ -200,8 +200,7 @@ CREATE TABLE history_visits (
   visit_time REAL NOT NULL
 );
 
-CREATE INDEX history_visits_item_index ON history_visits(history_item);
-CREATE INDEX history_visits_time_index ON history_visits(visit_time);
+-- The minimal parser fixture omits synthesized, so it also omits the index that needs it.
 "#;
 
 const SCHEMA_CURRENT_SQL: &str = r#"
@@ -226,6 +225,5 @@ CREATE TABLE history_visits (
   score REAL
 );
 
-CREATE INDEX history_visits_item_index ON history_visits(history_item);
-CREATE INDEX history_visits_time_index ON history_visits(visit_time);
+CREATE INDEX history_visits__last_visit ON history_visits(history_item, visit_time DESC, synthesized ASC);
 "#;

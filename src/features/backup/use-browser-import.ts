@@ -68,8 +68,27 @@ function request(
 }
 
 /** Visits an import of this preview would add. */
+/** Visits the import adds that count. */
 export function newVisits(inspection: TakeoutInspection) {
-  return Math.max(0, inspection.candidateItems - inspection.duplicateItems)
+  return Math.max(
+    0,
+    inspection.candidateItems -
+      inspection.duplicateItems -
+      syncCopies(inspection),
+  )
+}
+
+/**
+ * Firefox Sync copies the import saves beside the visits they copy, counted
+ * once: not new visits, but not in the archive yet either.
+ */
+export function syncCopies(inspection: TakeoutInspection) {
+  return inspection.sameVisitItems ?? 0
+}
+
+/** What the import writes; with none, there is nothing to import. */
+export function toSave(inspection: TakeoutInspection) {
+  return newVisits(inspection) + syncCopies(inspection)
 }
 
 export type BrowserImportState =

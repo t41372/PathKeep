@@ -9,9 +9,16 @@ use crate::Vault;
 use anyhow::Result;
 use vault_store::{Db, Session, params_owned as params};
 
+/// A visit and its opener by archive id: the build matches a visit to the one that opened it
+/// (`OpenerWindow`, a trail's pages), and a browser row id names another visit after the browser
+/// numbers its rows again, while rows of one visit (a redirect's hops) share one archive id. An
+/// opener the browser names that is not archived stays a link (`Opener::Visit`) that matches no
+/// visit (`i64::MAX`); 0 and empty keep their meaning (`Opener`).
 const SOURCE_COLUMNS: &str =
-    "SELECT v.id,?1,v.source_profile_id,COALESCE(CAST(v.source_visit_id AS INTEGER),0),
-    u.id,u.url,u.title,v.visit_time_ms,v.from_visit,v.transition_type,v.external_referrer_url
+    "SELECT v.id,?1,v.source_profile_id,v.id,
+    u.id,u.url,u.title,v.visit_time_ms,
+    COALESCE(v.parent_visit_id,CASE WHEN v.from_visit>0 THEN 9223372036854775807 ELSE v.from_visit END),
+    v.transition_type,v.external_referrer_url
     FROM visits v INDEXED BY idx_visits_visible_profile_time_id JOIN urls u ON u.id=v.url_id
     WHERE v.source_profile_id=?2 AND v.reverted_at IS NULL AND v.id<=?3";
 

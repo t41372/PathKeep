@@ -1,5 +1,7 @@
 //! Responsibilities: the same visit recorded by two sources — a Google Takeout import and a
-//! browser, or two imports — kept in both and counted once
+//! browser, or two imports — kept in both and counted once (and the ingest's Firefox Sync copies,
+//! which `identity` finds within one profile and writes hidden the same way; they stay with the
+//! visit they copy through every undo and restore)
 //! (`docs/architecture/same-visit-across-sources.md`). One copy stands in for the visit; the
 //! others point at it (`same_as`) and are hidden the way an undone import is (`reverted_at`), so
 //! every read, total, search document and Insights build counts the stand-in only.
@@ -158,8 +160,11 @@ const HIDE_SQL: &str =
 
 /// Points the copies of a visit at its new stand-in (`?1`) instead of the old one (`?2`).
 /// `same_as IS NOT NULL` lets the partial index answer; without it every visit is read, once
-/// per copy hidden.
-const FOLLOW_SQL: &str = "UPDATE visits SET same_as=?1 WHERE same_as IS NOT NULL AND same_as=?2";
+/// per copy hidden. A Firefox Sync copy (`visits.sync_copy`, set by the read that wrote it,
+/// `ingest::identity` rule 2) stays with the visit it copies: which one that is only that read
+/// knew, and another source's copy within a second is not that visit.
+const FOLLOW_SQL: &str = "UPDATE visits SET same_as=?1 WHERE same_as IS NOT NULL AND same_as=?2
+    AND sync_copy IS NOT 1";
 
 /// A copy that now stands in for its visit, after the stand-in was undone.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -169,7 +174,9 @@ pub(crate) struct Promoted {
 }
 
 /// When the stand-in `visit` is undone (its import reverted), the best of its copies that are
-/// not undone themselves (in `batch`, or in another reverted import) stands in instead.
+/// not undone themselves (in `batch`, or in another reverted import) stands in instead. Not a
+/// Firefox Sync copy of it (`FOLLOW_SQL`): that one waits behind it, uncounted while its import
+/// is undone, and counts once with it again when it is restored.
 pub(crate) fn promote(s: &Session<'_>, visit: i64, batch: i64) -> Result<Option<Promoted>> {
     let copies = s.query(COPIES_SQL, params![visit, batch], |r| {
         Ok((r.get::<i64>(0)?, r.get::<i64>(1)?, r.get::<String>(2)?))
@@ -189,7 +196,8 @@ const COPIES_SQL: &str = "SELECT v.id, v.source_profile_id, COALESCE(p.profile_k
     JOIN source_profiles p ON p.id=v.source_profile_id
     LEFT JOIN import_batches b ON b.id=v.import_batch_id
     WHERE v.same_as IS NOT NULL AND v.same_as=?1 AND (v.import_batch_id IS NULL
-      OR (v.import_batch_id!=?2 AND b.status NOT IN ('reverted','reverting')))";
+      OR (v.import_batch_id!=?2 AND b.status NOT IN ('reverted','reverting')))
+      AND v.sync_copy IS NOT 1";
 const PROMOTE_SQL: &str =
     "UPDATE visits SET reverted_at=NULL, reverted_by_run_id=NULL, same_as=NULL WHERE id=?1";
 const SHOW_IN_BATCH_SQL: &str = "UPDATE import_batches SET visible_items=visible_items+1

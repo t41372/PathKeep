@@ -241,12 +241,22 @@ pub fn get_observed_interactions(
     let profile = request.profile_id.clone();
     let limit = request.limit.unwrap_or(100).clamp(1, 512) as usize;
     let after = super::paging::cursor::<(i64, i64)>(request.cursor.as_deref())?;
-    let rows = vault.read(Db::Intelligence, move |s| {
-        load_observed_interaction_visits(s, profile.as_deref(), start, end, after, limit + 1)
+    let (rows, last_legacy_run) = vault.read(Db::Intelligence, move |s| {
+        let rows =
+            load_observed_interaction_visits(s, profile.as_deref(), start, end, after, limit + 1)?;
+        let last_legacy_run = s.query_one(
+            "SELECT last_legacy_run FROM archive.identity_upgrade WHERE id=1",
+            (),
+            |r| Ok(r.get::<i64>(0)?),
+        )?;
+        Ok((rows, last_legacy_run))
     })?;
     let page = super::paging::finish(rows, limit)?;
     vault.read(Db::SourceEvidence, move |s| {
-        let evidence = load_engagement_evidence(s, &page.items)?;
+        // Only visits archived before browser times were kept are looked up by browser row id:
+        // that id was unique among them. A later visit's duration is on its own row.
+        let legacy = page.items.iter().filter(|visit| !visit.keyed).cloned().collect::<Vec<_>>();
+        let evidence = load_engagement_evidence(s, &legacy, last_legacy_run)?;
         Ok(crate::models::IntelligencePage {
             items: observed_interactions_from_visits(page.items, &evidence),
             next_cursor: page.next_cursor,
@@ -264,8 +274,16 @@ fn observed_interactions_from_visits(
     visits
         .into_iter()
         .filter_map(|visit| {
-            let observed =
-                evidence.get(&(visit.source_profile_id, visit.source_visit_id.clone()))?;
+            // The browser's duration, kept current by every backup that reads the visit again.
+            let own = ObservedEvidence {
+                foreground_duration_ms: visit.duration_ms,
+                ..ObservedEvidence::default()
+            };
+            let observed = if visit.keyed {
+                &own
+            } else {
+                evidence.get(&(visit.source_profile_id, visit.source_visit_id.clone()))?
+            };
             if !observed.has_any_signal() {
                 return None;
             }
@@ -294,6 +312,9 @@ struct ObservedVisit {
     url: String,
     title: Option<String>,
     browser_family: String,
+    duration_ms: Option<i64>,
+    /// Archived with its browser time: its browser row id may be another visit's too.
+    keyed: bool,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -374,7 +395,8 @@ fn load_observed_interaction_visits(
     } else {
         "v.visit_time_ms<?3"
     };
-    Ok(s.query(&format!("SELECT v.id,v.source_profile_id,v.source_visit_id,u.url,u.title,COALESCE(p.browser_family,p.browser_kind),v.visit_time_ms
+    Ok(s.query(&format!("SELECT v.id,v.source_profile_id,v.source_visit_id,u.url,u.title,COALESCE(p.browser_family,p.browser_kind),v.visit_time_ms,
+               v.visit_duration_ms,v.source_visit_time IS NOT NULL
         FROM archive.visits v INDEXED BY idx_visits_visible_time_id
         CROSS JOIN archive.urls u ON u.id=v.url_id
         CROSS JOIN archive.source_profiles p ON p.id=v.source_profile_id
@@ -383,16 +405,21 @@ fn load_observed_interaction_visits(
         ORDER BY v.visit_time_ms DESC,v.id DESC LIMIT ?6"),
         params![profile,start,end,after.map(|c|c.0),after.map(|c|c.1),limit as i64],|r| {
             let id=r.get::<i64>(0)?;
-            Ok((ObservedVisit {visit_id:id,source_profile_id:r.get(1)?,source_visit_id:r.get(2)?,url:r.get(3)?,title:r.get(4)?,browser_family:r.get(5)?},(r.get::<i64>(6)?,id)))
+            Ok((ObservedVisit {visit_id:id,source_profile_id:r.get(1)?,source_visit_id:r.get(2)?,url:r.get(3)?,title:r.get(4)?,browser_family:r.get(5)?,
+                duration_ms:r.get(7)?,keyed:r.get::<i64>(8)?!=0},(r.get::<i64>(6)?,id)))
         })?)
 }
 
 /// A visit's engagement and how its page ended. A value read again later is a row of its own when
 /// it changed (Chrome writes a visit's duration when its tab closes), so rows are read in the order
 /// they were written and the newest one wins.
+/// Only evidence version 1's runs captured: a later visit the browser gave the same row id
+/// writes its evidence under that id too. Evidence whose batch is not on record counts as
+/// version 1's.
 fn load_engagement_evidence(
     source_evidence: &Session<'_>,
     visits: &[ObservedVisit],
+    last_legacy_run: i64,
 ) -> Result<HashMap<(i64, String), ObservedEvidence>> {
     let mut by_profile = HashMap::<i64, Vec<String>>::new();
     for visit in visits {
@@ -409,11 +436,15 @@ fn load_engagement_evidence(
                  SELECT e.source_profile_id,e.source_visit_id,e.metric_key,e.metric_value_int,e.metric_value_real
                  FROM requested CROSS JOIN visit_engagement_evidence e INDEXED BY idx_visit_engagement_profile_visit
                  ON e.source_profile_id=?1 AND e.source_visit_id=requested.source_visit_id
-                 ORDER BY e.id"
+                 LEFT JOIN source_batches b ON b.id=e.source_batch_id
+                 WHERE b.run_id IS NULL OR b.run_id<=?{legacy}
+                 ORDER BY e.id",
+                legacy = chunk.len() + 2
             );
-            let mut bindings = Vec::<SqlValue>::with_capacity(chunk.len() + 1);
+            let mut bindings = Vec::<SqlValue>::with_capacity(chunk.len() + 2);
             bindings.push(SqlValue::from(source_profile_id));
             bindings.extend(chunk.iter().cloned().map(SqlValue::from));
+            bindings.push(SqlValue::from(last_legacy_run));
             let mut statement = source_evidence.prepare(&sql)?;
             let rows = statement.query_map(params_from_iter(bindings.iter().cloned()), |row| {
                 Ok((
@@ -466,7 +497,8 @@ fn load_engagement_evidence(
         }
     }
 
-    if let Some(context_evidence) = load_context_evidence(source_evidence, visits)? {
+    if let Some(context_evidence) = load_context_evidence(source_evidence, visits, last_legacy_run)?
+    {
         for ((source_profile_id, source_visit_id), context) in context_evidence {
             let entry = evidence.entry((source_profile_id, source_visit_id)).or_default();
             if entry.load_successful.is_none() {
@@ -484,6 +516,7 @@ fn load_engagement_evidence(
 fn load_context_evidence(
     source_evidence: &Session<'_>,
     visits: &[ObservedVisit],
+    last_legacy_run: i64,
 ) -> Result<Option<HashMap<(i64, String), ObservedEvidence>>> {
     let mut by_profile = HashMap::<i64, Vec<String>>::new();
     for visit in visits {
@@ -501,12 +534,16 @@ fn load_context_evidence(
                  SELECT e.source_profile_id,e.source_visit_id,e.context_key,e.value_json
                  FROM requested CROSS JOIN visit_context_evidence e INDEXED BY idx_visit_context_profile_visit
                  ON e.source_profile_id=?1 AND e.source_visit_id=requested.source_visit_id
+                 LEFT JOIN source_batches b ON b.id=e.source_batch_id
                  WHERE e.context_key IN ('context.load_successful','context.page_end_reason')
-                 ORDER BY e.id"
+                   AND (b.run_id IS NULL OR b.run_id<=?{legacy})
+                 ORDER BY e.id",
+                legacy = chunk.len() + 2
             );
-            let mut bindings = Vec::<SqlValue>::with_capacity(chunk.len() + 1);
+            let mut bindings = Vec::<SqlValue>::with_capacity(chunk.len() + 2);
             bindings.push(SqlValue::from(source_profile_id));
             bindings.extend(chunk.iter().cloned().map(SqlValue::from));
+            bindings.push(SqlValue::from(last_legacy_run));
             let mut statement = source_evidence.prepare(&sql)?;
             let rows = statement.query_map(params_from_iter(bindings.iter().cloned()), |row| {
                 Ok((

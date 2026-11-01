@@ -72,7 +72,7 @@ M18 redesign（2026-10-02）換掉了整個前端。下面各節的後端行為�
 - Onboarding / Dashboard 的 profile boundary surface 必須誠實顯示 browser-retention reality：本地瀏覽器歷史可能在 PathKeep 下次 backup 前就被瀏覽器策略或使用者清除；只有成功寫進 archive 之後，PathKeep 才提供 append-only 的長期保存。
 - Onboarding 不是陷阱頁：使用者可以在 setup 中途明確退出，PathKeep 會保留目前已選的 archive 選項，之後可從 Dashboard / Settings 回來繼續。
 - Onboarding / first import 的 execute step 必須先讓 overlay repaint，再開始真正的 archive init / import / backup work；背景計算再重，也不能把 loading 動畫整段凍住到最後一幀才一次補完。
-- 備份是**增量的**：只新增/更新有變化的記錄。
+- 備份是**增量的**：只新增/更新有變化的記錄。瀏覽器的列號不是造訪的身分（Chrome 清除全部紀錄或重建損壞的檔案後從 1 重新編號，Firefox 把刪掉的列號給下一筆），造訪以設定檔、完整網址和瀏覽器自己的時間（不失精度）認定。每次備份讀上次讀到的那一列之後的列，再加最近 24 小時（Chrome 在分頁關掉時才寫停留時間）；先確認那一列還是同一筆造訪，不是就整個檔案重讀。第一次備份、更新後的第一次、每週一次也整個重讀。細節見 [backup-integrity.md](../architecture/backup-integrity.md)。
 - Archive 是 **append-only** 的：即使瀏覽器端的紀錄已過期或被手動刪除，archive 中的歷史紀錄永不刪除。
 - 對於會變動的記錄（如 URL metadata），採用 row versioning，保留所有歷史版本。
 - 原始來源數據採 **checkpoint-first**：保留 source checkpoint、schema 指紋、瀏覽器版本、run ID 與 manifest trace，不再把每筆來源 row 的完整 JSON payload 長期熱存在 canonical archive。
@@ -82,7 +82,15 @@ M18 redesign（2026-10-02）換掉了整個前端。下面各節的後端行為�
 
 - 增量備份的核心挑戰是去重。
 - canonical facts 的去重以來源主鍵 / canonical identity / payload hash 組合處理；search / intelligence / semantic 都是後續 projection，不參與 source-of-truth dedupe。
-- 多次導入相同數據不會產生重複記錄。
+- 多次導入相同數據不會產生重複記錄。同一次讀到的同網址、同時間的列是同一筆造訪（重新導向的各步共用一個時間）；Firefox Sync 送回、時間被截到毫秒的副本也算同一筆。搜尋詞跟著頁面的網址，下載以 guid 認定。
+
+### 完整性與部分完成
+
+- 每個選定的 profile 都有結果：完成、讀不到（找不到或沒有權限，`unavailable`）、讀到一半停了（`failed`，停之前讀到的都已保存）。全部完成是 `success`；備份有跑完但有 profile 沒完成是 `partial`；只有備份本身出錯（存檔、磁碟、鎖）才是 `failed`，保留原本的錯誤。選定範圍裡一個 profile 都沒有是 `backup-no-profiles` 錯誤，不是讀了零筆的成功。
+- 瀏覽器自己也顯示不了的列（頁面那一列已經不在、沒有網址）沒有東西可存：在備註裡按 profile 算出筆數，run 仍然是 `success`。
+- 瀏覽器重新編號時，那次備份整個重讀並在備註說明（`source-ids-reset`）。
+- 至少一個 profile 讀完的 `partial` 會推進排程的 due 時鐘（不會每次檢查都重讀）；所有 profile 都失敗或打不開、什麼都沒存的 `partial` 不推進，下一次排程照樣再試；健康狀態與「上次成功備份」只看 `success`。首次備份遇到 `partial` 照樣完成、顯示說明，Safari 的完整磁碟取用提示讀 profile 的結果碼，不比對英文句子。
+- v1 存檔已經造成的錯綁（被重用的列號改掉網址的 URL 列、v1 忽略掉而瀏覽器已經不在的造訪）不修：沒有紀錄能說哪個才對。
 - 需要考慮的邊緣案例：
   - 同一 URL 在不同 profiles 下的 visit 是獨立的。
   - 同一 URL 在不同時間點的 visit 是獨立事件。
@@ -106,7 +114,7 @@ M18 redesign（2026-10-02）換掉了整個前端。下面各節的後端行為�
 - rollback 採 soft-hide visibility：user-visible facts 以 `reverted_at` / `reverted_by_run_id` 隱藏，checkpoint / manifests / snapshots 保持 immutable。
 - canonical archive 已和 keyword recall / intelligence runtime 拆成不同 storage plane；canonical archive 只保留 source-of-truth facts 與 immutable audit facts，rebuildable search / intelligence / semantic state 全部留在 derived/search/intelligence/sidecars。
 - import batch 的 un-revert / restore 必須留下獨立 `restore` run，而不是繼續冒充 `rollback`；`snapshot_restore` 則保留給未來真正的 archive snapshot restore flow。
-- v1 shipping 的 `snapshot_restore` 是 **checkpoint replay**：使用者從 Audit review 一個已保存的 browser source checkpoint（`raw-source-checkpoint`）做 Preview / Execute，PathKeep 會把該 checkpoint 重新 ingest 回 canonical archive，留下獨立 `snapshot_restore` run 與 artifact 關聯；既有可見 facts 不會因為 restore 被 destructive 覆寫，重複資料則由 dedupe / watermark 邊界跳過。
+- v1 shipping 的 `snapshot_restore` 是 **checkpoint replay**：使用者從 Audit review 一個已保存的 browser source checkpoint（`raw-source-checkpoint`）做 Preview / Execute，PathKeep 會把該 checkpoint 重新 ingest 回 canonical archive，留下獨立 `snapshot_restore` run 與 artifact 關聯；既有可見 facts 不會因為 restore 被 destructive 覆寫，已有的造訪由事件身分（網址加瀏覽器時間）認出，不再多一份。
 - rekey flow 產生的 archive safety snapshot file 也必須寫進 audit / security summary，保留 open / copy path 與 manifest / run detail；但若該 snapshot 需要舊的 database key，v1 仍保持 manual-first recovery，而不是假裝任何 archive file snapshot 都能自動 replay。
 
 ---
@@ -121,7 +129,7 @@ M18 redesign（2026-10-02）換掉了整個前端。下面各節的後端行為�
   - macOS：LaunchAgent（`RunAtLoad=true` + 固定週期檢查）
   - Windows：Task Scheduler
   - Linux：systemd user timer（支援 persistent timer）
-- 預設邏輯：原生排程器按用戶設定的備份間隔喚醒；如果平台只能用較小步長安全表達該間隔，worker 仍會用 `--due-only` 根據上次成功備份時間判斷真正「該不該跑」。
+- 預設邏輯：原生排程器按用戶設定的備份間隔喚醒；如果平台只能用較小步長安全表達該間隔，worker 仍會用 `--due-only` 根據上次有存到東西（`success`，或至少一個 profile 讀完的 `partial`）的備份時間判斷真正「該不該跑」。
 - 每一次原生排程喚醒都是 first-class **schedule attempt**。attempt 必須在讀取 config、keyring 或 archive 之前先落到 archive-independent、crash-safe、bounded 的本機 ledger，並以 typed outcome 區分 `running`、`success`、`skipped-not-due`、`deferred-lock`、`failed` 與中斷後復原出的 `interrupted`。不能把 skip / defer / pre-archive failure 只寫進 stdout/stderr。
 - Schedule health 只能以 scheduled attempt / scheduled success 判斷；手動 backup success 不得冒充排程成功或清除排程 failure/overdue warning。Native artifact 已安裝只代表「排程存在」，不代表 worker 已健康完成。
 - Native scheduler 直接執行隨 app bundle 發佈的 `pathkeep-worker` sidecar，避免 GUI lifecycle / Dock activation，並讓 native host 取得真正的 worker exit code。Durable attempt outcome 仍是產品內健康狀態的 source of truth；任何 launcher / host 的 `0` 都不能單獨充當 backup success。
@@ -155,7 +163,7 @@ Settings → General 的兩個開關。
   - macOS：PathKeep 自己寫 `~/Library/LaunchAgents/com.yi-ting.pathkeep.login.plist`，內容是 `/usr/bin/open -g -a PathKeep.app --args --launched-at-login`。不用 `tauri-plugin-autostart` 的 LaunchAgent，因為它讓 launchd 直接執行 app 內的 GUI binary，macOS 26 會以 Launch Constraint Violation 殺掉（排程備份之前修過同一個問題）。不呼叫 `launchctl`，下次登入才生效。App 搬家後，下次啟動會把 plist 改指到新位置。
   - Windows / Linux：`tauri-plugin-autostart`（登錄檔 `Run` 值 / XDG autostart `.desktop`），同樣帶 `--launched-at-login`。
 - **選單列圖示**：macOS 選單列 / Windows、Linux 系統匣。偏好存在 `AppConfig.menuBarIcon`（預設關），下次啟動照設定還原。選單：備份狀態（不可點）、立即備份、搜尋歷史…、打開 PathKeep、分隔線、結束 PathKeep。文字跟隨 `preferredLanguage`；「跟隨系統」時讀 OS 語言（與前端 `detectSystemLanguage` 同規則）。
-  - 狀態行：備份中… / N 分鐘前已備份 / 備份失敗 / 還沒有備份過 / 尚未設定 / 暫時無法讀取備份狀態。來源是 app 內的備份（視窗或選單觸發，走同一條路徑）、啟動時讀一次 archive 的最後成功時間，以及每 5 分鐘讀一次排程備份 ledger（sidecar 在另一個 process 跑）。相對時間每分鐘重畫，不做 I/O。
+  - 狀態行：備份中… / N 分鐘前已備份 / 備份未完成 / 備份失敗 / 還沒有備份過 / 尚未設定 / 暫時無法讀取備份狀態。來源是 app 內的備份（視窗或選單觸發，走同一條路徑）、啟動時讀 archive 的 runs（到 archive 打開為止），以及每 5 分鐘讀一次排程備份 ledger（排程備份不走 app 內的那條路徑）。後兩者都取最後一次成功和最新一次沒存完整的備份，所以重開之後、或排程備份之後，「未完成」「失敗」跟視窗裡剛備份完一樣會顯示；比它新的成功蓋過它。相對時間每分鐘重畫，不做 I/O。
   - 「搜尋歷史…」打開視窗並送出 `pathkeep://open-command-palette`，由前端打開 ⌘K。
   - 任何 app 內備份結束都送出 `pathkeep://backup-finished`（`{ source: "app" | "menu-bar", report?, error? }`），讓視窗在選單觸發的備份後刷新。
   - Linux 需要 libappindicator 與面板上的 StatusNotifier host（GNOME 預設沒有）；缺任一個時 `menuBarIconSupported` 為 false。
@@ -210,7 +218,7 @@ Settings → General 的兩個開關。
 
 - 同樣走 Preview/Manual/Execute 流程。
 - 2026-10 介面：Backup →「匯入瀏覽器歷史」卡，選檔案或資料夾（瀏覽器模式貼路徑），可選「來自」哪個瀏覽器（預設自動辨識；Edge / Atlas / Comet 會帶 `browserName` 保留產品名）。拖進視窗的檔案依名稱分給這張卡或 Takeout 卡（`History` / `History.db` / `places.sqlite` / `.sqlite` / `.db` 與其他資料夾 → 這張；`.zip` / `.json` / 名稱含 takeout → Takeout）。預覽顯示新增幾筆、存檔已有幾筆、檔案裡共幾筆、時間範圍與最近幾筆；按「匯入 N 筆」才寫入。
-- `inspect_browser_history` 讀存檔（需要 session key，受 App Lock 限制）計算 `duplicateItems`：同一個來源 profile 下 `(source_profile_id, source_visit_id)` 或 `(source_profile_id, event_fingerprint)` 已存在的 visit，和匯入的 `INSERT OR IGNORE` 用同兩個唯一鍵，所以預覽的「新增」就是匯入會加的數量；預覽列 `status` 為 `duplicate`。手選檔案的 profile id 由路徑雜湊得出，同一個檔案再匯入時才會比對到；換路徑視為另一個來源。同一檔案內 fingerprint 相同的兩筆不在預覽偵測範圍（瀏覽器不會寫這種資料）。
+- `inspect_browser_history` 讀存檔（需要 session key，受 App Lock 限制），每筆照匯入的同一套身分規則（`archive/ingest/identity.rs` 的 `Preview::classify`：網址加瀏覽器原始時間，Firefox 再加造訪種類）分成三種：存檔已有（`duplicateItems`，預覽列 `status` 為 `duplicate`）、新增、以及 Firefox Sync 給回的副本（`sameVisitItems`，`status` 為 `same-visit`）：副本會一併保存在原本那筆後面、只算一次，不是新造訪，也還不在存檔裡。所以預覽的「新增」就是匯入會加的可見造訪數；只有副本的檔案仍有「匯入 N 筆」，卡片多一行說幾筆是同步副本，匯入完成的結果也列出來。存檔從沒見過這個 profile 時也照這套規則，檔案裡同一次造訪的幾列（Chrome redirect 的幾跳）算一次。沒有瀏覽器原始時間的舊資料仍照 `(source_profile_id, source_visit_id)` 或 `event_fingerprint` 比對。手選檔案的 profile id 由路徑雜湊得出，同一個檔案再匯入時才會比對到；換路徑視為另一個來源。`browser-import.spec` 驗一份被 Firefox Sync 重建、只剩副本的檔案。
 - Backup 的瀏覽器檔案匯入（Browser Direct）必須走 `inspect_browser_history` / `import_browser_history`，不得把本地 `History` / `History.db` 送進 Google Takeout parser。
 - Browser Direct 目前公開承諾只顯示已驗證的 Google Chrome、Microsoft Edge / Edge Dev、Firefox、macOS ChatGPT Atlas browser history profile、macOS Perplexity Comet browser history profile、與 macOS Safari baseline；其他 adapter 即使有內部 parser / discovery coverage，也不能在這個 UI 入口升級成公開承諾。
 - Microsoft Edge / Edge Dev 必須被當成 Chromium-family adapter：`browserFamily` 使用 `chromium`，但 `profileId`、`source_profiles.browser_product` 與 UI 顯示必須保留 `Microsoft Edge` / `Microsoft Edge Dev`。只有手動選 raw `History` 且沒有 discovery metadata 時，才可使用 generic Chromium fallback。

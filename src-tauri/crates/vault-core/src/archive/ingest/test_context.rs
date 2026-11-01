@@ -82,6 +82,7 @@ pub(super) fn seed_context(
             profile_id: profile.profile_id.clone(),
             browser_family: profile.browser_family.clone(),
             import: None,
+            captured_at_ms: chrono::Utc::now().timestamp_millis(),
         },
         batch,
     )

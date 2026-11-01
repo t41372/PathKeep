@@ -14,23 +14,12 @@ use crate::{
     },
 };
 use chrono::{TimeZone, Utc};
-use rusqlite::{Connection, OpenFlags, Row, params};
+use rusqlite::{Connection, OpenFlags, Row};
 use std::convert::Infallible;
 use std::path::Path;
 
 const INSPECT_TABLES_SQL: &str = "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name";
-/// Incremental URL ingest query used by re-imports after at least one
-/// previous import. Mirrors the Chromium `INGEST_URLS_SQL` pattern:
-///
-/// - `last_visit_date >= ?1` catches every place whose most recent visit
-///   landed at or after the URL cursor (the common path).
-/// - `id IN (SELECT DISTINCT place_id FROM moz_historyvisits WHERE id > ?2)`
-///   widens the set to any place referenced by a new visit beyond the visit
-///   cursor, even when Firefox didn't bump `moz_places.last_visit_date`.
-///   Without this OR, long-tail revisited pages lose their new visits to
-///   `skipped_visits++` because the URL is absent from `url_id_map` (B2).
-const VISITS_SQL: &str = r#"
-SELECT
+const VISIT_COLUMNS: &str = r#"
   moz_historyvisits.id,
   moz_historyvisits.place_id,
   moz_places.url,
@@ -38,12 +27,14 @@ SELECT
   moz_historyvisits.visit_date,
   moz_historyvisits.from_visit,
   moz_historyvisits.visit_type
-FROM moz_historyvisits
-JOIN moz_places
-  ON moz_places.id = moz_historyvisits.place_id
-WHERE moz_historyvisits.id > ?1
-ORDER BY moz_historyvisits.id ASC
 "#;
+
+/// Visits after the cursor, including old-time Sync rows, and recent visits below it again.
+/// The two disjoint ranges keep id order without walking all older visits; a full read uses
+/// only the rowid range. Joining each visit to its page supplies its address and title.
+fn visits_sql(window: crate::VisitWindow) -> String {
+    crate::visit_query::visits(crate::native_visits::VisitTable::Firefox, VISIT_COLUMNS, window)
+}
 
 #[derive(Debug, Default)]
 struct FirefoxHistoryCollector {
@@ -155,6 +146,24 @@ pub fn stream_history<C>(
 where
     C: HistoryBatchConsumer,
 {
+    let window = crate::VisitWindow { after_id: after_visit_id, recent_since_ms: None };
+    stream_history_window(path, window, after_url_last_visit_ms, url_scan, chunk_size, consumer)
+}
+
+/// [`stream_history`] over a [`crate::VisitWindow`]: the visits after one row, and the recent ones
+/// again.
+pub fn stream_history_window<C>(
+    path: &Path,
+    window: crate::VisitWindow,
+    after_url_last_visit_ms: i64,
+    url_scan: Option<crate::UrlScan>,
+    chunk_size: usize,
+    consumer: &mut C,
+) -> Result<StreamedHistory, StreamHistoryError<C::Error>>
+where
+    C: HistoryBatchConsumer,
+{
+    let after_visit_id = window.after_id;
     let inspection = inspect_history(path)?;
     let schema_observation =
         inspect_schema(&open_readonly(path)?, &["moz_places", "moz_historyvisits"])?;
@@ -184,10 +193,12 @@ where
     )?;
 
     {
-        let mut statement = stream_sql(connection.prepare(VISITS_SQL))?;
+        let mut statement = stream_sql(connection.prepare(&visits_sql(window)))?;
         let column_names =
             statement.column_names().iter().map(|name| name.to_string()).collect::<Vec<_>>();
-        let mut rows = stream_sql(statement.query(params![after_visit_id]))?;
+        let mut rows = stream_sql(statement.query(rusqlite::params_from_iter(
+            crate::visit_query::parameters(crate::native_visits::VisitTable::Firefox, window),
+        )))?;
         let mut batch = Vec::with_capacity(chunk_size);
         while let Some(row) = stream_sql(rows.next())? {
             let visit = stream_sql(parsed_visit_from_row(row))?;
@@ -332,6 +343,7 @@ fn parsed_url_from_row(row: &Row<'_>) -> rusqlite::Result<ParsedUrl> {
 fn parsed_visit_from_row(row: &Row<'_>) -> rusqlite::Result<ParsedVisit> {
     let visit_date = row.get::<_, i64>(4)?;
     Ok(ParsedVisit {
+        source_visit_time: Some(crate::native_visits::firefox_key(visit_date)),
         source_visit_id: row.get(0)?,
         source_url_id: row.get(1)?,
         url: row.get(2)?,
@@ -397,6 +409,32 @@ mod tests {
     use super::*;
     use rusqlite::params;
     use tempfile::tempdir;
+
+    #[test]
+    fn visit_query_rows_match_the_original_window() {
+        crate::visit_query::tests::rows_match(
+            crate::native_visits::VisitTable::Firefox,
+            VISIT_COLUMNS,
+            visits_sql,
+        );
+    }
+
+    #[test]
+    fn recent_visit_query_seeks_both_ranges() {
+        crate::visit_query::tests::recent_read_work(
+            crate::native_visits::VisitTable::Firefox,
+            VISIT_COLUMNS,
+            visits_sql,
+        );
+    }
+
+    #[test]
+    fn full_and_continued_visit_queries_seek_by_rowid() {
+        crate::visit_query::tests::full_read_seeks(
+            crate::native_visits::VisitTable::Firefox,
+            visits_sql,
+        );
+    }
 
     #[derive(Default)]
     struct RecordingConsumer {

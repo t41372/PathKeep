@@ -41,6 +41,7 @@ pub struct ScheduledBackupAttempt {
 pub enum ScheduledBackupAttemptOutcome {
     Running,
     Success,
+    Partial,
     Skipped,
     Deferred,
     Failed,

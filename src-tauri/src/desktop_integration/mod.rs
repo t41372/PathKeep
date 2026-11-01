@@ -195,15 +195,8 @@ fn refresh_status_from_disk<R: Runtime>(app: &AppHandle<R>) {
     let include_archive =
         with_state(app, |state| state.status.archive() != ArchiveReadiness::Ready);
     let vault = app.try_state::<SessionState>().and_then(|session| session.current_vault());
-    let (archive, successes) = read_backup_status_from_disk(vault.as_ref(), include_archive);
-    update_status(app, |status| {
-        if let Some(archive) = archive {
-            status.set_archive(archive);
-        }
-        for at in successes {
-            status.record_success(at);
-        }
-    });
+    let disk = read_backup_status_from_disk(vault.as_ref(), include_archive);
+    update_status(app, |status| status.apply(disk));
 }
 
 /// Keeps the menu in step after Settings saves the config: language, and the

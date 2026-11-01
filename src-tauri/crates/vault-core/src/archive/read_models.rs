@@ -40,6 +40,20 @@ pub fn archive_availability(paths: &ProjectPaths, config: &AppConfig) -> Archive
     }
 }
 
+/// The newest backup that ended and how (`success`, `partial` or `failed`), with when: the menu
+/// bar says it after a restart, not only when a backup last succeeded.
+pub fn last_finished_backup(vault: &Vault) -> Result<Option<(String, String)>> {
+    vault.read(Db::Archive, |s| {
+        Ok(s.query(
+            "SELECT finished_at,status FROM runs WHERE run_type='backup' AND finished_at IS NOT NULL
+               AND status IN ('success','partial','failed') ORDER BY id DESC LIMIT 1",
+            (),
+            |r| Ok((r.get::<String>(0)?, r.get::<String>(1)?)),
+        )?
+        .pop())
+    })
+}
+
 fn last_successful_backup(s: &Session<'_>) -> Result<Option<String>> {
     Ok(s.query("SELECT finished_at FROM runs WHERE run_type='backup' AND status='success' ORDER BY id DESC LIMIT 1",(),|r|Ok(r.get::<Option<String>>(0)?))?.pop().flatten())
 }

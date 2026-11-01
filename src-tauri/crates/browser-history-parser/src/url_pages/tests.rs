@@ -4,7 +4,7 @@
 //! the persisted rowid is excluded by the resume predicate.
 use super::*;
 #[test]
-fn browser_url_pages_seek_rowids_without_order_sorters() {
+fn browser_url_pages_seek_rowids_without_sorting_the_url_table() {
     use browser_history_fixtures::{
         ChromiumHistoryFixture, FirefoxPlacesFixture, SafariHistoryFixture,
     };
@@ -31,21 +31,27 @@ fn browser_url_pages_seek_rowids_without_order_sorters() {
                 let plan = db
                     .prepare(&format!("EXPLAIN QUERY PLAN {sql}"))
                     .unwrap()
-                    .query_map(rusqlite::params_from_iter(values), |r| r.get::<_, String>(3))
+                    .query_map(rusqlite::params_from_iter(values), |r| {
+                        Ok((r.get::<_, i64>(1)?, r.get::<_, String>(3)?))
+                    })
                     .unwrap()
                     .collect::<rusqlite::Result<Vec<_>>>()
                     .unwrap();
                 assert!(
-                    plan.iter()
-                        .any(|line| line
-                            .contains(&format!("SEARCH {table} USING INTEGER PRIMARY KEY"))),
+                    plan.iter().any(|(_, line)| line
+                        .contains(&format!("SEARCH {table} USING INTEGER PRIMARY KEY"))),
                     "{plan:?}"
                 );
+                // Safari may sort tied latest visits within one page to pick its title.
+                // Paging must never sort the URL table itself (the root query, parent 0).
                 assert!(
-                    !plan.iter().any(|line| line.contains("TEMP B-TREE FOR ORDER BY")),
+                    !plan
+                        .iter()
+                        .any(|(parent, line)| *parent == 0
+                            && line.contains("TEMP B-TREE FOR ORDER BY")),
                     "{plan:?}"
                 );
-                assert!(!plan.iter().any(|line| line.starts_with("SCAN v")), "{plan:?}");
+                assert!(!plan.iter().any(|(_, line)| line.starts_with("SCAN v")), "{plan:?}");
             }
         }
     }

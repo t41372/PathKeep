@@ -15,11 +15,13 @@ pub use canonical_json::canonicalize_json;
 pub mod chromium;
 pub mod error;
 pub mod firefox;
+pub mod native_visits;
 mod observation;
 pub mod safari;
 pub mod takeout;
 pub mod types;
 mod url_pages;
+mod visit_query;
 pub use types::UrlScan;
 
 pub use error::ParseError;
@@ -31,5 +33,5 @@ pub use types::{
     DatabaseInspection, EngagementEvidence, HistoryBatchConsumer, HistoryDatabaseSet, NativeEntity,
     NavigationEvidence, ObservedColumn, ObservedTable, ParsedDownload, ParsedFavicon,
     ParsedSearchTerm, ParsedUrl, ParsedVisit, ParserWarning, SchemaObservation, SearchEvidence,
-    SourceEvidenceChunk, StreamHistoryError, StreamedHistory, TypedEvidenceBatch,
+    SourceEvidenceChunk, StreamHistoryError, StreamedHistory, TypedEvidenceBatch, VisitWindow,
 };

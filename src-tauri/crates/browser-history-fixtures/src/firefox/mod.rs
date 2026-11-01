@@ -162,6 +162,6 @@ CREATE TABLE moz_historyvisits (
 );
 
 CREATE INDEX moz_places_url_index ON moz_places(url);
-CREATE INDEX moz_historyvisits_place_index ON moz_historyvisits(place_id);
-CREATE INDEX moz_historyvisits_date_index ON moz_historyvisits(visit_date);
+CREATE INDEX moz_historyvisits_placedateindex ON moz_historyvisits(place_id, visit_date);
+CREATE INDEX moz_historyvisits_dateindex ON moz_historyvisits(visit_date);
 "#;

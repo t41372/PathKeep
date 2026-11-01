@@ -131,6 +131,11 @@ pub fn schedule_status(
 
 fn schedule_attempt_issue(issue: vault_core::ScheduledBackupHealthIssue) -> ScheduleIssue {
     let (title_key, detail_key, consequence_key) = match issue.code.as_str() {
+        "latest-attempt-incomplete" => (
+            "schedule.issueScheduleAttemptIncompleteTitle",
+            "schedule.issueScheduleAttemptIncompleteDetail",
+            "schedule.issueScheduleAttemptIncompleteConsequence",
+        ),
         "latest-attempt-failed" => (
             "schedule.issueScheduleAttemptFailedTitle",
             "schedule.issueScheduleAttemptFailedDetail",
