@@ -614,10 +614,5 @@ mod tests {
         let error = ai_chat_send(&vault, None, &request, |_| panic!("sink must never be reached"))
             .expect_err("assistant sub-flag off must refuse");
         assert!(error.to_string().contains("assistant"), "names the assistant capability");
-
-        unsafe {
-            std::env::remove_var(crate::tests::PROJECT_ROOT_OVERRIDE_ENV);
-            std::env::remove_var(crate::tests::TEST_KEYRING_OVERRIDE_ENV);
-        }
     }
 }

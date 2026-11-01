@@ -27,8 +27,35 @@ fn env_lock() -> &'static Mutex<()> {
     LOCK.get_or_init(|| Mutex::new(()))
 }
 
-pub(crate) fn lock_env() -> MutexGuard<'static, ()> {
-    env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+/// Restores the caller's isolated roots before releasing the process environment lock.
+pub(crate) struct EnvGuard {
+    _lock: MutexGuard<'static, ()>,
+    saved: Vec<(&'static str, Option<std::ffi::OsString>)>,
+}
+
+impl Drop for EnvGuard {
+    fn drop(&mut self) {
+        for (name, value) in &self.saved {
+            restore_env_var(name, value.as_deref());
+        }
+    }
+}
+
+pub(crate) fn lock_env() -> EnvGuard {
+    let lock = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let saved = [
+        PROJECT_ROOT_OVERRIDE_ENV,
+        CHROME_USER_DATA_OVERRIDE_ENV,
+        TEST_KEYRING_OVERRIDE_ENV,
+        "CHB_FIREFOX_PROFILES_DIR",
+        "CHB_SAFARI_ROOT",
+        "PATHKEEP_PLATFORM_TEST_SANDBOX_DIR",
+        "PATHKEEP_TEST_SAVE_DIR",
+    ]
+    .into_iter()
+    .map(|name| (name, std::env::var_os(name)))
+    .collect();
+    EnvGuard { _lock: lock, saved }
 }
 
 pub(crate) fn restore_env_var(name: &str, value: Option<&std::ffi::OsStr>) {
@@ -258,12 +285,6 @@ fn worker_cli_rejects_mcp_server_until_explicitly_enabled() {
     let error =
         run_worker_cli(&["mcp-server".to_string()]).expect_err("mcp server should be gated");
     assert!(error.to_string().contains("Enable AI and the MCP server"));
-
-    unsafe {
-        std::env::remove_var(PROJECT_ROOT_OVERRIDE_ENV);
-        std::env::remove_var(CHROME_USER_DATA_OVERRIDE_ENV);
-        std::env::remove_var(TEST_KEYRING_OVERRIDE_ENV);
-    }
 }
 
 #[test]
@@ -474,12 +495,6 @@ fn mcp_surface_respects_native_visibility_and_locked_app_sessions() {
         "App Lock must not turn a scheduled backup into a failure: {:?}",
         ledger.attempts[0]
     );
-
-    unsafe {
-        std::env::remove_var(PROJECT_ROOT_OVERRIDE_ENV);
-        std::env::remove_var(CHROME_USER_DATA_OVERRIDE_ENV);
-        std::env::remove_var(TEST_KEYRING_OVERRIDE_ENV);
-    }
 }
 
 #[test]
@@ -572,12 +587,6 @@ fn mcp_per_call_gate_refuses_search_and_status_when_mcp_consent_is_revoked_mid_s
         .is_err(),
         "master AI off must seal the MCP search face even with the sub-flag on"
     );
-
-    unsafe {
-        std::env::remove_var(PROJECT_ROOT_OVERRIDE_ENV);
-        std::env::remove_var(CHROME_USER_DATA_OVERRIDE_ENV);
-        std::env::remove_var(TEST_KEYRING_OVERRIDE_ENV);
-    }
 }
 
 #[test]
