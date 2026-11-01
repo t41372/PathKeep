@@ -61,6 +61,9 @@ async function unlockIfAsked(page: Page, password: string) {
 test('a moved archive opens only with the password chosen at export', async ({
   page,
 }) => {
+  // Export and import each write the whole archive, encrypted, and the debug
+  // build does that slowly: on CI the two took 97 s of the default two minutes.
+  test.setTimeout(600_000)
   const dir = join(fixture().root, 'move')
   mkdirSync(dir, { recursive: true })
   const file = join(dir, 'pathkeep-move.pathkeep')

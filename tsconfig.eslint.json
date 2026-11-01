@@ -4,6 +4,7 @@
     "vite.config.ts",
     "eslint.config.js",
     "playwright.config.ts",
+    "playwright.backup-integrity.config.ts",
     "playwright.desktop-bridge.config.ts",
     "scripts/i18n-progress.ts",
     "scripts/pathkeep-dev-desktop-bridge.d.ts",

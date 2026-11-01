@@ -15,6 +15,23 @@ export function resolveDesktopBridgeEnv(env = process.env) {
   }
 }
 
+const repoRoot = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '..',
+)
+
+/**
+ * Where the E2E configurations and the demo build the desktop app. One folder
+ * kept between runs: a cold Rust build takes minutes, and a gate that runs
+ * several configurations builds the app once, not once per configuration.
+ */
+export function e2eCargoTargetDir(env = process.env) {
+  return (
+    env.CARGO_TARGET_DIR ??
+    path.join(repoRoot, 'var', 'playwright', 'desktop-bridge', 'cargo-target')
+  )
+}
+
 const scriptPath = fileURLToPath(import.meta.url)
 
 if (process.argv[1] === scriptPath) {
