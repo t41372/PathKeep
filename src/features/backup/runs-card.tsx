@@ -41,6 +41,8 @@ function summary(run: BackupRunOverview, t: Translator) {
       sources: t('backup.runs.sources', { count: run.profilesProcessed }),
       visits: t('backup.runs.newVisits', { count: run.newVisits }),
     })
+    if (run.status === 'partial')
+      return t('backup.runs.incomplete', { summary })
     return stopped ? t('backup.runs.stoppedBackup', { summary }) : summary
   }
   const label = t(`backup.runs.types.${type}`)

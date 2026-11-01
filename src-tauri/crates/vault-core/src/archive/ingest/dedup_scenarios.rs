@@ -83,6 +83,7 @@ fn snapshot_for_fixture(
             path: "History".to_string(),
             sha256: "synthetic-fixture-hash".to_string(),
         }],
+        captured_at_ms: chrono::Utc::now().timestamp_millis(),
     }
 }
 
@@ -254,3 +255,12 @@ mod cases_1;
 
 #[path = "dedup_scenarios/cases_2.rs"]
 mod cases_2;
+
+#[path = "dedup_scenarios/identity_cases.rs"]
+mod identity_cases;
+
+#[path = "dedup_scenarios/read_plan_cases.rs"]
+mod read_plan_cases;
+
+#[path = "dedup_scenarios/download_cases.rs"]
+mod download_cases;

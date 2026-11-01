@@ -83,7 +83,7 @@
 - **來源 snapshot / raw capture 層**：對來源 DB 先做一致性 snapshot / checkpoint，保存 source DB snapshot、schema fingerprint、browser version、profile metadata 與 manifest trace。
 - **Derived normalizer 層**：把 snapshot 中的來源資料映射到統一 schema。新增未知欄位時只降級該欄位，不丟全部數據。
 - canonical archive 與 intelligence plane 都已拔掉 `profiles` / `visit_events` compatibility bridge，也不再用 archive / intelligence bootstrap 替舊 schema 補欄位。
-- `profile_watermarks` 是 canonical backup pipeline 的正式一部分：每個 profile 分別記錄 visit / URL metadata / download / favicon 的增量 cursor，只在成功 ingest 後前推，並且要能回鏈最後成功的 `source_batch`。
+- `profile_watermarks` 是 canonical backup pipeline 的正式一部分：每個 profile 分別記錄 visit / URL metadata / search term / favicon 的增量 cursor，只在成功 ingest 後前推，並且要能回鏈最後成功的 `source_batch`。visit cursor 同時記下那一列當時是哪一筆造訪（瀏覽器時間與網址）：下次備份先確認它沒變才只讀之後的列，變了（瀏覽器重新編號）就從頭讀，cursor 先歸零（`restart_cursors`）。下載每次全讀（表小、列號會重複出現）。見 [backup-integrity.md](backup-integrity.md)。
 - 真正的 canonical 寫入面是 `source_profiles`、`urls`、`visits`、`downloads`、`search_terms`、`favicons`；archive 內的舊 `profiles` / `visit_events` bridge 已移除。
 - `source_profiles` 只保存穩定身份：`browser_family`、`browser_product`、`profile_key`、`profile_name`、`profile_path` 與少量 account/user hint。每次 backup/import 的來源觀測、browser version、schema version / fingerprint、parser version、capability snapshot 與 coverage stats 要落在 `archive/source-evidence.sqlite` 的 `source_batches`。
 - PathKeep 的 ingest / intelligence contract 以 **capability snapshot** 為主，不以 browser/version 為主：版本資訊要保留，但主要用於 provenance、debug 與 extractor heuristics。

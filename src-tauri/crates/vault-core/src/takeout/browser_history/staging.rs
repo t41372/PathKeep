@@ -85,6 +85,8 @@ pub(super) struct StagedBrowserHistorySource {
     pub(super) profile_id: String,
     pub(super) browser_name: String,
     pub(super) profile_name: String,
+    /// When the file was copied (`ProfileSnapshot::captured_at_ms`).
+    pub(super) captured_at_ms: i64,
 }
 
 /// Stages one Browser Direct source before parser or archive access.
@@ -103,6 +105,7 @@ pub(super) fn stage_browser_history_source(
     let history_file_name =
         requested_path.file_name().and_then(|name| name.to_str()).unwrap_or("History");
     let history_path = temp_dir.path().join(history_file_name);
+    let captured_at_ms = chrono::Utc::now().timestamp_millis();
     snapshot_or_copy_sqlite_database(&requested_path, &history_path, request)?;
     quick_check_sqlite(&history_path)?;
     let detected_family = detect_browser_history_family(&history_path)?;
@@ -139,6 +142,7 @@ pub(super) fn stage_browser_history_source(
             .profile_name
             .clone()
             .unwrap_or_else(|| "Imported browser profile".to_string()),
+        captured_at_ms,
     })
 }
 

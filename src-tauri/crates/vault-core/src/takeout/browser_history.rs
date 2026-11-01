@@ -34,11 +34,10 @@ pub fn inspect_browser_history(
 ) -> Result<TakeoutInspection> {
     ensure_paths(vault.paths())?;
     let staged = stage_browser_history_source(vault.paths(), request)?;
-    let mut collector = BrowserPreviewCollector {
-        source_path: staged.requested_path.display().to_string(),
-        duplicates: ArchiveDuplicateProbe::open(vault, &staged)?,
-        ..BrowserPreviewCollector::default()
-    };
+    let mut collector = BrowserPreviewCollector::new(
+        staged.requested_path.display().to_string(),
+        ArchiveDuplicateProbe::open(vault, &staged)?,
+    );
     let streamed = stream_browser_history(&staged, &mut collector)?;
     let notes = parser_warning_notes(&streamed.warnings);
     Ok(TakeoutInspection {
@@ -51,6 +50,7 @@ pub fn inspect_browser_history(
         )],
         candidate_items: collector.candidate_items,
         duplicate_items: collector.duplicate_items,
+        same_visit_items: collector.same_visit_items,
         preview_entries: collector.preview_entries,
         preview_range_start: collector.preview_range.start,
         preview_range_end: collector.preview_range.end,
@@ -149,6 +149,7 @@ pub fn import_browser_history_with_control(
             // A browser's history file starts a new batch each time (Takeout carries on).
             continuing: false,
         }),
+        captured_at_ms: staged.captured_at_ms,
     };
     let source_label = staged.requested_path.display().to_string();
     let logs = vec![format!("Staged {} for {}.", source_label, staged.browser_name)];
@@ -182,7 +183,15 @@ pub fn import_browser_history_with_control(
         source_batch_id,
     );
     let streamed=stream_browser_history(&staged,&mut consumer)?;
-    let counts=consumer.finish()?;
+    let mut counts=consumer.finish()?;
+    crate::archive::ingest::name_openers_in(
+        vault,
+        source_profile_id,
+        &staged.history_path,
+        staged.family.as_str(),
+        std::mem::take(&mut counts.unresolved_parents),
+        cancel,
+    )?;
     let stats = ImportStats {
         imported_items: counts.new_visits,
         duplicate_items: counts.visit_count - counts.new_visits - counts.same_visits,

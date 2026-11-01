@@ -100,9 +100,22 @@ pub(crate) fn complete(
     warnings: Value,
     finished_at: String,
 ) -> Result<()> {
+    complete_as(vault, run_id, "success", extra, warnings, finished_at)
+}
+
+/// Ends a run whose work is committed: `success`, or `partial` when a selected browser could
+/// not be read and the others were saved.
+pub(crate) fn complete_as(
+    vault: &Vault,
+    run_id: i64,
+    status: &'static str,
+    extra: Value,
+    warnings: Value,
+    finished_at: String,
+) -> Result<()> {
     // Read counters and indexed bounds; no fact table recount.
     let extra = vault.read(Db::Archive, move |s| with_totals(s, extra))?;
-    finish(vault, run_id, "success", extra, Some(warnings), None, finished_at)
+    finish(vault, run_id, status, extra, Some(warnings), None, finished_at)
 }
 
 /// Ends a run that failed with `error`. The caller goes on to return `error`, so a failure to

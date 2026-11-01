@@ -235,6 +235,15 @@ fn derive_health_issues(
     let Some(latest) = attempts.first() else {
         return;
     };
+    if latest.outcome == ScheduledBackupAttemptOutcome::Partial {
+        issues.push(ScheduledBackupHealthIssue {
+            code: "latest-attempt-incomplete".into(),
+            severity: "warning".into(),
+            detected_at: detected_at.into(),
+            related_attempt_id: Some(latest.id.clone()),
+            evidence: Vec::new(),
+        });
+    }
     if latest.outcome == ScheduledBackupAttemptOutcome::Failed {
         issues.push(ScheduledBackupHealthIssue {
             code: "latest-attempt-failed".to_string(),

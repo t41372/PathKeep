@@ -31,6 +31,8 @@ import { StopButton } from './import-card'
 import {
   browserSources,
   newVisits,
+  syncCopies,
+  toSave,
   type BrowserImportState,
   type BrowserSource,
 } from './use-browser-import'
@@ -207,6 +209,13 @@ function Preview({
             count: inspection.duplicateItems,
           })}
         </span>
+        {syncCopies(inspection) > 0 && (
+          <span className="text-muted-foreground tabular">
+            {t('backupImport.browser.syncCopies', {
+              count: syncCopies(inspection),
+            })}
+          </span>
+        )}
         <span className="text-muted-foreground tabular">
           {t('backupImport.browser.inFile', {
             count: inspection.candidateItems,
@@ -238,6 +247,11 @@ function Preview({
                 {entry.status === 'duplicate' && (
                   <span className="shrink-0 text-xs text-muted-foreground">
                     {t('backupImport.browser.alreadySaved')}
+                  </span>
+                )}
+                {entry.status === 'same-visit' && (
+                  <span className="shrink-0 text-xs text-muted-foreground">
+                    {t('backupImport.browser.syncCopy')}
                   </span>
                 )}
                 <span className="shrink-0 font-mono text-xs text-muted-foreground tabular">
@@ -365,7 +379,7 @@ export function BrowserImportCard({
             source={state.source}
             inspection={state.inspection}
           />
-          {newVisits(state.inspection) === 0 && (
+          {toSave(state.inspection) === 0 && (
             <p className="text-[13px] text-muted-foreground">
               {t('backupImport.browser.nothingNew')}
             </p>
@@ -376,10 +390,10 @@ export function BrowserImportCard({
             </p>
           )}
           <div className="flex gap-2">
-            {newVisits(state.inspection) > 0 && (
+            {toSave(state.inspection) > 0 && (
               <Button size="sm" disabled={backup.running} onClick={onConfirm}>
                 {t('backupImport.browser.confirm', {
-                  count: newVisits(state.inspection),
+                  count: toSave(state.inspection),
                 })}
               </Button>
             )}
@@ -414,6 +428,13 @@ export function BrowserImportCard({
                 count: state.result.duplicateItems,
               })}
             </span>
+            {syncCopies(state.result) > 0 && (
+              <span className="text-muted-foreground">
+                {t('backupImport.browser.syncCopies', {
+                  count: syncCopies(state.result),
+                })}
+              </span>
+            )}
             {state.result.stopped && (
               <span>{t('backupImport.browser.stoppedNext')}</span>
             )}

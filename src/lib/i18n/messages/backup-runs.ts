@@ -8,6 +8,9 @@ import { defineMessages } from '../define'
  */
 export const backupRuns = defineMessages({
   en: {
+    incomplete: 'Backup incomplete',
+    incompleteBody:
+      'Some selected browsers weren’t fully backed up. Saved history is kept. Open Warnings for details.',
     tabs: {
       summary: 'Summary',
       files: 'Files',
@@ -38,6 +41,18 @@ export const backupRuns = defineMessages({
         'Skipped {profile}: its history file is missing or can’t be read.',
       'profile-not-detected-skip':
         'Skipped {profile}: it’s no longer on this computer. What earlier backups saved from it stays in the archive.',
+      'source-profile-not-discovered':
+        'Skipped {profile}: it’s no longer on this computer. What earlier backups saved from it stays in the archive.',
+      'source-unreadable':
+        'Skipped {profile}: its history file is missing or can’t be read.',
+      'source-permission-denied':
+        'Skipped {profile}: PathKeep isn’t allowed to read its history. Grant Full Disk Access, and the next backup includes it.',
+      'source-read-failed':
+        'Couldn’t read {profile}’s history file. Nothing from it was added this time.',
+      'source-stream-failed':
+        'Reading {profile}’s history stopped part way. What was read before that is saved.',
+      'source-favicons-unavailable':
+        'Couldn’t read {profile}’s site icons. The history was saved without new icons.',
       'staging-fallback-recovered-copy':
         '{profile} was in use, so PathKeep read a copy of its history file instead of the live one.',
       'git-history-skipped':
@@ -71,7 +86,12 @@ export const backupRuns = defineMessages({
       other: 'Recorded during this run:',
     },
     notes: {
+      'source-ids-reset': 'Checked all history still available in {profile}.',
       title: 'Also during this run',
+      'source-visits-without-page_one':
+        '{count} entry in {profile}’s history has no page in the browser’s file, so it has no address to save.',
+      'source-visits-without-page_other':
+        '{count} entries in {profile}’s history have no page in the browser’s file, so they have no address to save.',
       'profile-search-terms-captured_one':
         'Saved {count} search typed in {profile}.',
       'profile-search-terms-captured_other':
@@ -103,6 +123,9 @@ export const backupRuns = defineMessages({
     },
   },
   'zh-CN': {
+    incomplete: '备份未完成',
+    incompleteBody:
+      '部分所选浏览器未能完整备份。已保存的历史仍会保留，原因见“警告”。',
     tabs: {
       summary: '摘要',
       files: '文件',
@@ -133,6 +156,17 @@ export const backupRuns = defineMessages({
         '已跳过 {profile}：它的历史文件不存在或无法读取。',
       'profile-not-detected-skip':
         '已跳过 {profile}：这台电脑上已经找不到它。之前备份的内容仍在存档中。',
+      'source-profile-not-discovered':
+        '已跳过 {profile}：这台电脑上已经找不到它。之前备份的内容仍在存档中。',
+      'source-unreadable': '已跳过 {profile}：它的历史文件不存在或无法读取。',
+      'source-permission-denied':
+        '已跳过 {profile}：PathKeep 没有读取它历史记录的权限。授予“完全磁盘访问权限”后，下次备份就会包含它。',
+      'source-read-failed':
+        '无法读取 {profile} 的历史文件，这次没有从它加入任何内容。',
+      'source-stream-failed':
+        '读取 {profile} 的历史记录中途停止了，之前读到的部分已保存。',
+      'source-favicons-unavailable':
+        '无法读取 {profile} 的网站图标。历史已保存，没有加入新图标。',
       'staging-fallback-recovered-copy':
         '{profile} 正在使用中，因此 PathKeep 读取的是历史文件的副本，而不是正在使用的文件。',
       'git-history-skipped': '这次运行的记录已保存，但未能写入 Git 历史。',
@@ -159,7 +193,12 @@ export const backupRuns = defineMessages({
       other: '这次运行记录了：',
     },
     notes: {
+      'source-ids-reset': '已重新核对 {profile} 中仍可读取的全部历史记录。',
       title: '这次运行还做了',
+      'source-visits-without-page_one':
+        '{profile} 的历史记录中有 {count} 条在浏览器文件里找不到对应的页面，没有网址可以保存。',
+      'source-visits-without-page_other':
+        '{profile} 的历史记录中有 {count} 条在浏览器文件里找不到对应的页面，没有网址可以保存。',
       'profile-search-terms-captured_one':
         '保存了在 {profile} 中输入的 {count} 次搜索。',
       'profile-search-terms-captured_other':
@@ -190,6 +229,9 @@ export const backupRuns = defineMessages({
     },
   },
   'zh-TW': {
+    incomplete: '備份未完成',
+    incompleteBody:
+      '部分所選瀏覽器未能完整備份。已儲存的歷史仍會保留，原因見「警告」。',
     tabs: {
       summary: '摘要',
       files: '檔案',
@@ -220,6 +262,17 @@ export const backupRuns = defineMessages({
         '已略過 {profile}：它的歷史檔案不存在或無法讀取。',
       'profile-not-detected-skip':
         '已略過 {profile}：這台電腦上已經找不到它。之前備份的內容仍在存檔中。',
+      'source-profile-not-discovered':
+        '已略過 {profile}：這台電腦上已經找不到它。之前備份的內容仍在存檔中。',
+      'source-unreadable': '已略過 {profile}：它的歷史檔案不存在或無法讀取。',
+      'source-permission-denied':
+        '已略過 {profile}：PathKeep 沒有讀取它歷史紀錄的權限。給予「完整磁碟取用權限」後，下次備份就會包含它。',
+      'source-read-failed':
+        '無法讀取 {profile} 的歷史檔案，這次沒有從它加入任何內容。',
+      'source-stream-failed':
+        '讀取 {profile} 的歷史紀錄中途停止了，之前讀到的部分已儲存。',
+      'source-favicons-unavailable':
+        '無法讀取 {profile} 的網站圖示。歷史已儲存，沒有加入新圖示。',
       'staging-fallback-recovered-copy':
         '{profile} 正在使用中，因此 PathKeep 讀取的是歷史檔案的副本，而不是正在使用的檔案。',
       'git-history-skipped': '這次執行的記錄已儲存，但未能寫入 Git 歷史。',
@@ -246,7 +299,12 @@ export const backupRuns = defineMessages({
       other: '這次執行記錄了：',
     },
     notes: {
+      'source-ids-reset': '已重新核對 {profile} 中仍可讀取的全部歷史紀錄。',
       title: '這次執行還做了',
+      'source-visits-without-page_one':
+        '{profile} 的歷史紀錄中有 {count} 筆在瀏覽器檔案裡找不到對應的頁面，沒有網址可以儲存。',
+      'source-visits-without-page_other':
+        '{profile} 的歷史紀錄中有 {count} 筆在瀏覽器檔案裡找不到對應的頁面，沒有網址可以儲存。',
       'profile-search-terms-captured_one':
         '儲存了在 {profile} 中輸入的 {count} 次搜尋。',
       'profile-search-terms-captured_other':

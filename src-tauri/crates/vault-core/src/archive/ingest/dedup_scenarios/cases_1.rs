@@ -256,6 +256,7 @@ fn c6_chromium_extra_columns_on_source_db_do_not_break_ingest() {
                 path: "History".to_string(),
                 sha256: "synthetic-fixture-hash".to_string(),
             }],
+            captured_at_ms: chrono::Utc::now().timestamp_millis(),
         };
 
         let summary = run_one_ingest(&env, 1, &snapshot, false);

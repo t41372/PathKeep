@@ -40,11 +40,23 @@ pub struct HistoryDatabaseSet {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ChromiumReadCursor {
     pub after_visit_id: i64,
+    /// Visits at or after this time (Unix milliseconds) are read again: see [`VisitWindow`].
+    pub recent_visits_since_ms: Option<i64>,
     pub after_url_last_visit_time: i64,
     pub after_search_url_time: i64,
     pub url_scan: Option<UrlScan>,
     pub after_download_id: i64,
     pub after_favicon_last_updated: i64,
+}
+
+/// The visit rows one read covers: every row after `after_id`, and, again, every visit at or
+/// after `recent_since_ms`. Browsers write some of a visit's values after the visit: Chrome its
+/// duration when the tab closes, Sync a parent it fills in. Reading the recent visits again brings
+/// those to visits a backup already saved.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct VisitWindow {
+    pub after_id: i64,
+    pub recent_since_ms: Option<i64>,
 }
 
 /// The immutable source filter and last row committed during one URL phase.
@@ -139,6 +151,11 @@ pub struct ParsedUrl {
 /// Parsed browser visit row before archive ingest.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ParsedVisit {
+    /// Lossless browser timestamp used for native identity. Integer browsers keep their
+    /// original microseconds; Safari keeps its floating-point bits. Takeout uses its
+    /// existing synthetic identity and leaves this absent.
+    #[serde(default)]
+    pub source_visit_time: Option<String>,
     pub source_visit_id: i64,
     pub source_url_id: i64,
     pub url: String,
@@ -175,6 +192,10 @@ pub struct ParsedDownload {
 pub struct ParsedSearchTerm {
     #[serde(default)]
     pub url_last_visit_time: i64,
+    /// The address of the page the search led to. The page's row id names another page once the
+    /// browser numbers its rows again; the address does not.
+    #[serde(default)]
+    pub url: String,
     pub keyword_id: i64,
     pub url_id: i64,
     pub term: String,
