@@ -124,6 +124,15 @@ fn all_browsers_resume_url_rowids_without_reupserting_committed_prefixes() {
             let vault = crate::Vault::open_temp_with_key(key).unwrap();
             let source = source(family);
             let (context, batch) = test_context::seed_context(&vault, 42, &source.profile);
+            // A first backup reads every row and says so before it starts, as
+            // `process_profile_snapshot` does.
+            let profile = source.profile.profile_id.clone();
+            vault
+                .store()
+                .write(Db::Archive, vault_store::Priority::Batch, move |s| {
+                    super::parser::begin_full_read(s, &profile, "2026-11-01T00:00:00Z")
+                })
+                .unwrap();
             let cancel = CancelToken::new();
             let inner = ArchiveChunkConsumer::new(
                 &vault,
@@ -252,6 +261,9 @@ fn a_visit_whose_url_row_is_missing_is_kept_with_its_address() {
         }])
         .unwrap();
     let visit = |id: i64, url_id: i64, url: &str, title: &str| ParsedVisit {
+        source_visit_time: Some(browser_history_parser::native_visits::chromium_key(
+            crate::utils::unix_micros_to_chrome_time((at + id) * 1_000),
+        )),
         source_visit_id: id,
         source_url_id: url_id,
         url: url.into(),

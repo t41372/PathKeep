@@ -109,7 +109,17 @@ export interface BackupRunOverview {
  *
  * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
  */
+/**
+ * How one selected profile ended (`ProfileOutcome`). Anything but `complete`
+ * makes the run `partial`; the code says why, and is translated as a warning.
+ */
+export type ProfileOutcome =
+  | { status: 'complete' }
+  | { status: 'unavailable'; code: string }
+  | { status: 'failed'; code: string }
+
 export interface BackupProfileSummary {
+  outcome: ProfileOutcome
   profileId: string
   newVisits: number
   newUrls: number

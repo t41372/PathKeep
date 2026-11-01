@@ -28,19 +28,17 @@
 
 use super::{VisitRecord, date_range_bounds, visit_from_row};
 use crate::models::{HubPage, NavigationPath, NavigationPathStep, TopSitesRequest};
-use crate::visit_taxonomy::Opener;
 use anyhow::{Context, Result};
 use std::collections::HashSet;
 use vault_store::{OptionalRow, Session, params_owned as params};
 
-/// Reconstructs the visible parent chain for one visit using source-visit ids
-/// inside the same source profile.
+/// Reconstructs the visible parent chain for one visit, following each visit's opener by archive
+/// id (`parent_visit_id`).
 pub fn get_navigation_path(vault: &crate::Vault, visit_id: i64) -> Result<NavigationPath> {
     vault.read(vault_store::Db::Intelligence, move |connection| {
         let mut steps = Vec::<NavigationPathStep>::new();
         let mut current = load_navigation_visit(connection, visit_id)?
             .with_context(|| format!("visit {visit_id} was not found"))?;
-        let source_profile_id = current.source_profile_id;
         steps.push(NavigationPathStep {
             visit_id: current.visit_id,
             url: current.url.clone(),
@@ -50,15 +48,7 @@ pub fn get_navigation_path(vault: &crate::Vault, visit_id: i64) -> Result<Naviga
         });
         let mut depth = 1_i64;
         let mut seen = HashSet::<i64>::from([current.visit_id]);
-        while let Opener::Visit(parent_source_visit_id) = Opener::of(current.from_visit) {
-            let Some(parent) = load_navigation_visit_by_source(
-                connection,
-                source_profile_id,
-                parent_source_visit_id,
-            )?
-            else {
-                break;
-            };
+        while let Some(parent) = load_opener(connection, &current)? {
             if !seen.insert(parent.visit_id) {
                 break;
             }
@@ -131,27 +121,18 @@ fn load_navigation_visit(connection: &Session<'_>, visit_id: i64) -> Result<Opti
         .map_err(Into::into)
 }
 
-/// Loads the parent visit that shares the same source profile and
-/// `source_visit_id`.
-fn load_navigation_visit_by_source(
-    connection: &Session<'_>,
-    source_profile_id: i64,
-    source_visit_id: i64,
-) -> Result<Option<VisitRecord>> {
-    connection
-        .query_one(
-            "SELECT visits.id, source_profiles.profile_key, visits.source_profile_id, CAST(visits.source_visit_id AS INTEGER),
-                    urls.id, urls.url, urls.title, visits.visit_time_ms, visits.from_visit, visits.transition_type,
-                    visits.external_referrer_url
-             FROM archive.visits AS visits
-             JOIN archive.urls AS urls ON urls.id = visits.url_id
-             JOIN archive.source_profiles AS source_profiles ON source_profiles.id = visits.source_profile_id
-             WHERE visits.source_profile_id = ?1
-               AND visits.source_visit_id = CAST(?2 AS TEXT)
-             LIMIT 1",
-            params![source_profile_id, source_visit_id],
-            visit_from_row,
-        )
-        .optional()
-        .map_err(Into::into)
+/// The visit that opened `visit`, by archive id. Backups name it from the browser's record;
+/// visits archived before that were given theirs from the row id they named, when the archive
+/// was updated (`store_schema::backup_identity`). A browser row id alone is not used: the browser
+/// gives it to another visit after it numbers its rows again.
+fn load_opener(connection: &Session<'_>, visit: &VisitRecord) -> Result<Option<VisitRecord>> {
+    let parent = connection.query_one(
+        "SELECT parent_visit_id FROM archive.visits WHERE id=?1",
+        [visit.visit_id],
+        |r| Ok(r.get::<Option<i64>>(0)?),
+    )?;
+    match parent {
+        Some(parent) => load_navigation_visit(connection, parent),
+        None => Ok(None),
+    }
 }

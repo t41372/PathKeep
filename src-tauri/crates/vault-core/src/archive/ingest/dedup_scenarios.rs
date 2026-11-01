@@ -254,3 +254,6 @@ mod cases_1;
 
 #[path = "dedup_scenarios/cases_2.rs"]
 mod cases_2;
+
+#[path = "dedup_scenarios/identity_cases.rs"]
+mod identity_cases;

@@ -73,7 +73,10 @@ pub(super) fn stage_version(connection: &Session<'_>, stage: RebuildMode) -> Res
         // v11: each day keeps the refind pages opened on it (`refind_day_pages_rows`), which
         // "Pages reopened" counts.
         // v12: a session's title takes its most-used search (ties: the earliest), not its first.
-        RebuildMode::StructuralRebuild => Ok("structural-rebuild-v12".to_string()),
+        // v13: a visit's opener is matched by archive id (`visits.parent_visit_id`), not by the
+        // browser row id, which the browser gives to another visit after it numbers its rows
+        // again; a redirect's hops are one visit.
+        RebuildMode::StructuralRebuild => Ok("structural-rebuild-v13".to_string()),
         RebuildMode::FullRebuild => Ok("full-rebuild-v2".to_string()),
     }
 }

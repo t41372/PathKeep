@@ -82,6 +82,9 @@ export const shell = defineMessages({
       hintOpen: 'open',
     },
     backup: {
+      partial_one: 'Backup incomplete · {count} new visit saved',
+      partial_other: 'Backup incomplete · {count} new visits saved',
+      partialNothingNew: 'Backup incomplete · no new visits saved',
       now: 'Back up now',
       running: 'Backing up…',
       runningDetail: 'Backing up {done} of {total} sources',
@@ -91,7 +94,7 @@ export const shell = defineMessages({
       scheduleOff: 'automatic backup off',
       done_one: 'Backup done · {count} new visit',
       done_other: 'Backup done · {count} new visits',
-      doneNothingNew: 'Backup done · nothing new',
+      doneNothingNew: 'Backup done · no new visits',
       failed: 'Backup failed',
       warnings_one: '{count} warning: something was left out or didn’t finish.',
       warnings_other:
@@ -99,6 +102,11 @@ export const shell = defineMessages({
       viewDetails: 'Details',
       fullDiskAccess:
         'Safari was skipped because PathKeep does not have Full Disk Access.',
+      /** A failed run's error code (`CommandError.code`). */
+      errors: {
+        'backup-no-profiles':
+          'PathKeep found no browser profile on this computer to back up.',
+      },
     },
     lock: {
       appTitle: 'PathKeep is locked',
@@ -273,6 +281,9 @@ export const shell = defineMessages({
       hintOpen: '打开',
     },
     backup: {
+      partial_one: '备份未完成，已保存 {count} 条新记录',
+      partial_other: '备份未完成，已保存 {count} 条新记录',
+      partialNothingNew: '备份未完成，未新增访问记录',
       now: '立即备份',
       running: '备份中…',
       runningDetail: '正在备份第 {done} / {total} 个来源',
@@ -282,12 +293,16 @@ export const shell = defineMessages({
       scheduleOff: '自动备份已关闭',
       done_one: '备份完成，新增 {count} 条记录',
       done_other: '备份完成，新增 {count} 条记录',
-      doneNothingNew: '备份完成，没有新记录',
+      doneNothingNew: '备份完成，没有新增访问记录',
       failed: '备份失败',
       warnings_one: '{count} 条警告：有内容被跳过或没有完成。',
       warnings_other: '{count} 条警告：有内容被跳过或没有完成。',
       viewDetails: '详情',
       fullDiskAccess: 'Safari 已跳过：PathKeep 没有完全磁盘访问权限。',
+      errors: {
+        'backup-no-profiles':
+          'PathKeep 在这台电脑上找不到可以备份的浏览器配置文件。',
+      },
     },
     lock: {
       appTitle: 'PathKeep 已锁定',
@@ -458,6 +473,9 @@ export const shell = defineMessages({
       hintOpen: '打開',
     },
     backup: {
+      partial_one: '備份未完成，已儲存 {count} 筆新記錄',
+      partial_other: '備份未完成，已儲存 {count} 筆新記錄',
+      partialNothingNew: '備份未完成，未新增造訪',
       now: '立即備份',
       running: '備份中…',
       runningDetail: '正在備份第 {done} / {total} 個來源',
@@ -467,12 +485,16 @@ export const shell = defineMessages({
       scheduleOff: '自動備份已關閉',
       done_one: '備份完成，新增 {count} 條記錄',
       done_other: '備份完成，新增 {count} 條記錄',
-      doneNothingNew: '備份完成，沒有新記錄',
+      doneNothingNew: '備份完成，沒有新增造訪',
       failed: '備份失敗',
       warnings_one: '{count} 則警告：有內容被略過或沒有完成。',
       warnings_other: '{count} 則警告：有內容被略過或沒有完成。',
       viewDetails: '詳情',
       fullDiskAccess: 'Safari 已略過：PathKeep 沒有「完整磁碟取用權限」。',
+      errors: {
+        'backup-no-profiles':
+          'PathKeep 在這台電腦上找不到可以備份的瀏覽器設定檔。',
+      },
     },
     lock: {
       appTitle: 'PathKeep 已鎖定',

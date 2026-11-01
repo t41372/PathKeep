@@ -105,7 +105,7 @@ pub fn export(
     let manifest = ExportManifest {
         format_version: VERSION,
         app_version: env!("CARGO_PKG_VERSION").into(),
-        archive_schema_version: 1,
+        archive_schema_version: crate::store_schema::schema_version(vault_store::Db::Archive),
         archive_mode: "encrypted".into(),
         exported_at: crate::utils::now_rfc3339(),
         exporter_hostname: None,
@@ -174,7 +174,8 @@ pub fn preview(paths: &ProjectPaths, bundle: &Path) -> Result<ImportPreview> {
         manifest.format_version
     );
     anyhow::ensure!(
-        manifest.archive_schema_version == 1,
+        (1..=crate::store_schema::schema_version(vault_store::Db::Archive))
+            .contains(&manifest.archive_schema_version),
         "unsupported Turso archive schema {}",
         manifest.archive_schema_version
     );
@@ -188,7 +189,9 @@ pub fn preview(paths: &ProjectPaths, bundle: &Path) -> Result<ImportPreview> {
         super::validate_bundle_relative_path(&file.path)?;
     }
     Ok(ImportPreview {
-        schema_up_to_date: true,
+        // An older archive opens and its migrations run, as when this app updates in place.
+        schema_up_to_date: manifest.archive_schema_version
+            == crate::store_schema::schema_version(vault_store::Db::Archive),
         migrations_to_apply: Vec::new(),
         bytes_to_extract: manifest.files.iter().map(|f| f.size_bytes).sum(),
         will_overwrite_existing: will_overwrite(paths),
@@ -293,7 +296,7 @@ pub fn import(
     let report = ImportResult {
         manifest: preview.manifest,
         migrations_applied: Vec::new(),
-        final_schema_version: 1,
+        final_schema_version: crate::store_schema::schema_version(vault_store::Db::Archive),
         preserved_previous_as_bak: preview.will_overwrite_existing,
     };
     Ok((report, installed))

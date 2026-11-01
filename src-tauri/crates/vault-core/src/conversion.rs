@@ -184,6 +184,24 @@ pub fn link_same_visits(vault: &Vault) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Treats the copied visits and runs as version 1's: the new archive's migrations ran while it
+/// was empty (`store_schema::backup_identity`). The visits get their openers by archive id, and
+/// the runs mark which source evidence version 1 captured. Bounded transactions; idempotent.
+pub fn adopt_version_one_facts(vault: &Vault) -> anyhow::Result<()> {
+    vault.store().write(vault_store::Db::Archive, vault_store::Priority::Batch, |s| {
+        crate::store_schema::backup_identity::adopt_copied_runs(s)?;
+        crate::store_schema::backup_identity::restart_legacy_openers(s)
+    })?;
+    while vault
+        .store()
+        .write(vault_store::Db::Archive, vault_store::Priority::Batch, |s| {
+            crate::store_schema::backup_identity::link_legacy_openers(s)
+        })?
+        .is_some_and(|progress| !progress.complete)
+    {}
+    Ok(())
+}
+
 pub fn refresh_totals(vault: &Vault) -> anyhow::Result<()> {
     Ok(vault.store().write(Db::Archive, Priority::Batch, |s| {
         for (name, table, predicate) in [

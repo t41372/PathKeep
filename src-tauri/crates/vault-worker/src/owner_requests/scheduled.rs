@@ -5,7 +5,7 @@
 use crate::{
     archive_flows::run_scheduled_backup_with_progress, context::load_background_backup_config,
 };
-use anyhow::{Error, Result, anyhow};
+use anyhow::{Error, Result};
 use vault_core::{
     ScheduleAttemptRecorder as AttemptRecorder, ScheduledBackupAttemptOutcome,
     ScheduledBackupAttemptPhase,
@@ -25,7 +25,7 @@ pub(super) fn run_scheduled_backup_cli(
     let config = match load_background_backup_config(&paths) {
         Ok(config) => config,
         Err(error) => {
-            return Err(finalize_attempt_failure(&mut attempt, "config", &error));
+            return Err(finalize_attempt_failure(&mut attempt, "config", error));
         }
     };
 
@@ -40,7 +40,7 @@ pub(super) fn run_scheduled_backup_cli(
                 } else {
                     "archive-open"
                 },
-                &error,
+                error,
             ));
         }
     };
@@ -64,12 +64,15 @@ pub(super) fn run_scheduled_backup_cli(
         }
         Err(error) => {
             let reason_code = classify_backup_failure(&error);
-            return Err(finalize_attempt_failure(&mut attempt, reason_code, &error));
+            return Err(finalize_attempt_failure(&mut attempt, reason_code, error));
         }
     };
 
-    let (outcome, reason_code) =
-        classify_scheduled_report(report.due_skipped, report.reason_code.as_deref());
+    let (outcome, reason_code) = if report.run.as_ref().is_some_and(|run| run.status == "partial") {
+        (ScheduledBackupAttemptOutcome::Partial, "backup-incomplete")
+    } else {
+        classify_scheduled_report(report.due_skipped, report.reason_code.as_deref())
+    };
     attempt.finish(
         outcome,
         Some(reason_code),
@@ -94,7 +97,28 @@ fn classify_scheduled_report(
 }
 
 fn classify_backup_failure(error: &anyhow::Error) -> &'static str {
+    if error.chain().any(|cause| {
+        matches!(
+            cause.downcast_ref::<vault_store::Error>(),
+            Some(vault_store::Error::OwnedElsewhere { .. } | vault_store::Error::Busy { .. })
+        )
+    }) {
+        return "write-lock";
+    }
+    if error.chain().any(|cause| {
+        cause
+            .downcast_ref::<std::io::Error>()
+            .is_some_and(|error| error.kind() == std::io::ErrorKind::StorageFull)
+    }) {
+        return "disk-full";
+    }
     let detail = format!("{error:#}").to_ascii_lowercase();
+    if detail.contains("disk full")
+        || detail.contains("no space left")
+        || detail.contains("database or disk is full")
+    {
+        return "disk-full";
+    }
     if detail.contains("app lock") || detail.contains("pathkeep is locked") {
         return "app-lock";
     }
@@ -112,7 +136,7 @@ fn classify_backup_failure(error: &anyhow::Error) -> &'static str {
 fn finalize_attempt_failure(
     attempt: &mut AttemptRecorder,
     reason_code: &str,
-    error: &Error,
+    error: Error,
 ) -> Error {
     let detail = format!("{error:#}");
     match attempt.finish(
@@ -121,10 +145,10 @@ fn finalize_attempt_failure(
         Some(&detail),
         None,
     ) {
-        Ok(()) => anyhow!(detail),
-        Err(ledger_error) => anyhow!(
-            "{detail}; additionally failed to persist scheduled-backup failure evidence: {ledger_error:#}"
-        ),
+        Ok(()) => error,
+        Err(ledger_error) => error.context(format!(
+            "additionally failed to persist scheduled-backup failure evidence: {ledger_error:#}"
+        )),
     }
 }
 
@@ -154,12 +178,51 @@ mod tests {
         let error = finalize_attempt_failure(
             &mut recorder,
             "worker-error",
-            &anyhow::anyhow!("original scheduled worker failure"),
+            anyhow::anyhow!("original scheduled worker failure"),
         );
         let rendered = format!("{error:#}");
         assert!(rendered.contains("original scheduled worker failure"));
         assert!(rendered.contains("additionally failed to persist"));
 
         restore_env_var(PROJECT_ROOT_OVERRIDE_ENV, original_project_root.as_deref());
+    }
+}
+
+#[cfg(test)]
+mod failure_chain_tests {
+    // The attempt ledger must not erase a typed machinery error after classification.
+    #[derive(Debug)]
+    struct ArchiveFailure;
+    impl std::fmt::Display for ArchiveFailure {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str("synthetic archive disk failure")
+        }
+    }
+    impl std::error::Error for ArchiveFailure {}
+
+    #[test]
+    fn machinery_causes_are_classified_through_run_context() {
+        let error = anyhow::Error::new(std::io::Error::from_raw_os_error(libc::ENOSPC))
+            .context("backup run 1 failed");
+        assert_eq!(super::classify_backup_failure(&error), "disk-full");
+        let error = anyhow::Error::new(vault_store::Error::OwnedElsewhere {
+            path: "synthetic archive".into(),
+            source: std::fs::TryLockError::WouldBlock,
+        })
+        .context("backup run 1 failed");
+        assert_eq!(super::classify_backup_failure(&error), "write-lock");
+    }
+
+    #[test]
+    fn attempt_keeps_the_original_error_type() {
+        let root = tempfile::tempdir().unwrap();
+        let paths = vault_core::project_paths_with_root(root.path());
+        let mut attempt = vault_core::ScheduleAttemptRecorder::begin(&paths).unwrap();
+        let error = super::finalize_attempt_failure(
+            &mut attempt,
+            "archive-open",
+            anyhow::Error::new(ArchiveFailure),
+        );
+        assert!(error.downcast_ref::<ArchiveFailure>().is_some());
     }
 }

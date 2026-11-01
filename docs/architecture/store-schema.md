@@ -124,7 +124,7 @@ invented between independently rebuilt intelligence tables.
 - Unique: `url` (automatic index).
 - Index `idx_pages_canonical_url`: `pages(canonical_url)`, computed by the shared vault-core URL normalizer.
 
-**`urls`** — Browser profile observations: source URL ID, title, counts, times, hidden flag and provenance. Writer: `archive/ingest/writes; takeout`.
+**`urls`** — Browser profile observations: address, title, counts, times, hidden flag, the browser's latest row id for it, and provenance. A profile's URL is its address; `source_url_id` is provenance only (version 2 dropped its uniqueness: a browser gives a row id to another address after it numbers its rows again). Writer: `archive/ingest/writes; takeout`.
 
 - Primary key: `id`.
 - Foreign key: `page_id` → `pages.id`; delete no action.
@@ -133,10 +133,12 @@ invented between independently rebuilt intelligence tables.
 - Index `idx_urls_page_id`: `urls(page_id)`.
 - Index `idx_urls_url`: `urls(url)`.
 - Index `idx_urls_last_visit_ms`: `urls(last_visit_ms DESC, id DESC)`.
-- Unique index `idx_urls_profile_source_url_id`: `urls(source_profile_id, source_url_id)`.
 - Index `idx_urls_profile_last_visit`: `urls(source_profile_id, last_visit_ms DESC)`.
 
 **`visits`** — Visits with source identity, navigation metadata and rollback visibility. Writer: `archive/ingest/writes; takeout/batches`.
+
+- `source_visit_time` (version 2): the browser's own time without loss (`chromium-us:<µs>`, `firefox-us:<µs>`, `safari-f64:<bits>`). With the profile and the address it is a native visit's identity; empty for visits version 1 archived (until a backup reads their browser row again) and for Takeout, which keeps its fingerprint identity. See [backup-integrity.md](backup-integrity.md).
+- `parent_visit_id` (version 2): the visit that opened this one, by archive id. Navigation follows it; version 1 visits have none and are followed by `from_visit`, the browser row id they name.
 
 - Primary key: `id`.
 - Foreign key: `reverted_by_run_id` → `runs.id`; delete no action.
@@ -160,9 +162,9 @@ invented between independently rebuilt intelligence tables.
 - Index `idx_visits_import_batch_id`: `visits(import_batch_id)`.
 - Index `idx_visits_batch_url`: `visits(import_batch_id, url_id)`; keyset walks stay within the changed batch.
 - Resumable visibility uses `import_batches.previous_status`, `visibility_cursor`, and `visibility_run_id`; `reverting` / `restoring` resume from the last committed URL chunk. The schema also includes `idx_og_images_eviction` and `idx_og_images_lru` so eviction follows an index rather than sorting each page.
-- Unique index `idx_visits_profile_event_fingerprint`: `visits(source_profile_id, event_fingerprint) WHERE event_fingerprint IS NOT NULL AND event_fingerprint != ''`.
-- Unique index `idx_visits_profile_source_visit_id`: `visits(source_profile_id, source_visit_id)`.
-- Index `idx_visits_profile_time`: `visits(source_profile_id, visit_time_ms DESC)`.
+- Unique index `idx_visits_profile_event_fingerprint`: `visits(source_profile_id, event_fingerprint) WHERE event_fingerprint IS NOT NULL AND event_fingerprint != ''`. Rows with a `source_visit_time` have no fingerprint.
+- Unique index `idx_visits_profile_source_visit_id`: `visits(source_profile_id, source_visit_id) WHERE source_visit_time IS NULL` (from version 2; version 1 made it unique for every visit). A row id identifies a visit without a browser time — version 1's, and Takeout's synthetic ids — and a visit with one may share its row id with an older visit. Looked up by a Takeout import carrying on where it stopped and by version 1 visits naming their opener.
+- Index `idx_visits_profile_time`: `visits(source_profile_id, visit_time_ms DESC)`. Also the identity probe: it holds hidden copies, which the partial `idx_visits_visible_*` indexes do not.
 
 **`downloads`** — Observed downloads, paths, progress and rollback visibility. Writer: `archive/ingest/writes`.
 
@@ -170,7 +172,9 @@ invented between independently rebuilt intelligence tables.
 - Foreign key: `reverted_by_run_id` → `runs.id`; delete no action.
 - Foreign key: `created_by_run_id` → `runs.id`; delete no action.
 - Foreign key: `source_profile_id` → `source_profiles.id`; delete no action.
-- Unique index `idx_downloads_profile_source_download_id`: `downloads(source_profile_id, source_download_id)`.
+- Index `idx_downloads_profile_guid`: `downloads(source_profile_id, guid)` (version 2). A download is its guid.
+- Index `idx_downloads_profile_path_time`: `downloads(source_profile_id, target_path, start_time_ms)` (version 2), for the oldest downloads without a guid.
+- Version 1 made `(source_profile_id, source_download_id)` unique; Chrome numbers downloads max+1, so a deleted newest download's id comes back, and version 2 dropped it.
 - Index `idx_downloads_profile_start`: `downloads(source_profile_id, start_time_ms DESC)`.
 
 **`search_terms`** — Source search terms and rollback visibility. Writer: `archive/ingest/writes; takeout`.
@@ -215,6 +219,10 @@ invented between independently rebuilt intelligence tables.
 **`profile_watermarks`** — Per-profile incremental cursors and last successful evidence batch. Writer: `archive/ingest/parser; takeout/payload_import`.
 
 - Primary key: `profile_id`.
+- `last_visit_key`, `last_visit_url` (version 2): the visit the row `last_visit_id` held when a backup read it. The next backup reads only the rows after it while that row still holds this visit.
+- `last_full_scan_at` (version 2): when a backup last read every visit row; it does again after a week.
+- `full_scan_started_at` (version 2): set while a read of every row is under way, so a backup stopped part way carries on from its cursor; cleared when the read reaches the end.
+- `newest_visit_ms` (version 2): the newest visit time any backup read since the last full read started. A row at or below the cursor newer than it is a new visit under an old id, and the next backup reads every row.
 
 **`favicon_blobs`** — Content-addressed icon bytes shared by favicon observations. Writer: `archive/ingest/writes`.
 
@@ -535,6 +543,14 @@ The archive retains the `runs.id = 0` system provenance row used by existing
 writers. It is data, not another migration. New run states remain text, so the
 batched writer model can record `running`, `completed` and `interrupted` without
 losing older audit statuses.
+
+## Archive versions
+
+Archive version 1 is what v0.4.0 wrote. Versions 2–14 (`store_schema/backup_identity.rs`)
+let it hold visits whose browser row ids were used before: one DDL statement each, so building
+one index never holds another's pages in the same transaction (building several at once went
+past 8 GiB on a 14.4M-visit archive). No data is rewritten at open. Source Evidence, Agent stay
+at version 1.
 
 ## Archive read indexes and source totals
 

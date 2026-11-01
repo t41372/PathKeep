@@ -157,6 +157,7 @@ fn classify_message(message: &str) -> (Option<&'static str>, Option<&'static str
         "export-target-is-managed",
         "snapshot-not-listed",
         "not-in-history",
+        "backup-no-profiles",
     ] {
         if message.contains(&format!("{code}:")) {
             return (Some(code), None);

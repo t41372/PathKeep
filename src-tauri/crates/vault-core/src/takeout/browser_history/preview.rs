@@ -1,7 +1,7 @@
 //! Responsibilities: bounded Browser Direct previews and indexed duplicate probes.
 //! Not responsible for: canonical writes or staging source files.
-//! Failure modes: preview overflows, duplicate counts use another profile, the
-//! fingerprint fallback is missed. Tests: browser_history suites.
+//! Failure modes: preview overflows, duplicate counts use another profile, a visit the
+//! import skips counted as new or the reverse. Tests: browser_history suites.
 use super::*;
 const DUPLICATE_PROBE_CHUNK: usize = 500;
 
@@ -9,14 +9,17 @@ const DUPLICATE_PROBE_CHUNK: usize = 500;
 /// has them for this source profile.
 ///
 /// Exists so the Browser Direct preview can show "N new, M already in your
-/// archive" before anything is written. It checks the same two unique keys as
-/// the import's `INSERT OR IGNORE`: the browser's own visit id, then the event
-/// fingerprint. Two visits inside one file that share a fingerprint are not
-/// detected here (the import keeps one); browsers do not write those.
+/// archive" before anything is written. It asks what the import does
+/// (`archive::ingest::identity`): a visit is its address and browser time, not
+/// its row id, which the browser gives to another visit after it numbers its
+/// rows again. Rows of one visit anywhere in the file are one visit, and a
+/// version 1 visit is matched once, as the import keeps them.
 pub(super) struct ArchiveDuplicateProbe {
     store: std::sync::Arc<vault_store::Store>,
     source_profile_id: i64,
     source_kind: &'static str,
+    family: &'static str,
+    seen: Option<crate::archive::ingest::identity::Preview>,
 }
 
 impl ArchiveDuplicateProbe {
@@ -34,11 +37,29 @@ impl ArchiveDuplicateProbe {
             store: vault.store().clone(),
             source_profile_id,
             source_kind: staged.family.source_kind(),
+            family: staged.family.as_str(),
+            seen: Some(Default::default()),
         }))
     }
 
-    /// One flag per visit: whether the archive already holds it.
-    fn existing(&self, batch: &[ParsedVisit]) -> Result<Vec<bool>> {
+    /// One flag per visit: whether the import would skip it.
+    fn existing(&mut self, batch: &[ParsedVisit]) -> Result<Vec<bool>> {
+        let keyed = batch.iter().all(|visit| visit.source_visit_time.is_some());
+        if keyed {
+            let visits = batch.to_vec();
+            let (profile, family) = (self.source_profile_id, self.family);
+            let mut seen = self.seen.take().unwrap_or_default();
+            let (flags, seen) = self.store.read(Db::Archive, move |s| {
+                let mut flags = Vec::with_capacity(visits.len());
+                for visit in &visits {
+                    let key = visit.source_visit_time.clone().unwrap_or_default();
+                    flags.push(seen.already_archived(s, profile, family, visit, &key)?);
+                }
+                Ok((flags, seen))
+            })?;
+            self.seen = Some(seen);
+            return Ok(flags);
+        }
         let mut flags = Vec::with_capacity(batch.len());
         for chunk in batch.chunks(DUPLICATE_PROBE_CHUNK) {
             let ids =
@@ -112,7 +133,7 @@ impl HistoryBatchConsumer for BrowserPreviewCollector {
 
     fn visits(&mut self, batch: Vec<ParsedVisit>) -> Result<(), Self::Error> {
         self.candidate_items += batch.len();
-        let existing = match &self.duplicates {
+        let existing = match &mut self.duplicates {
             Some(probe) => probe.existing(&batch)?,
             None => vec![false; batch.len()],
         };

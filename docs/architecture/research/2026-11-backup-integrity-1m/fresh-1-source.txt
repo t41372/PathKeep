@@ -1,0 +1,25 @@
+
+running 1 test
+SCALE phase=source rows=1000000 seconds=0.588
+test archive::ingest::scale_measure::measure_native_backup ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 393 filtered out; finished in 0.59s
+
+        1.06 real         0.51 user         0.07 sys
+            16580608  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                1437  page reclaims
+                   0  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                 348  voluntary context switches
+                 163  involuntary context switches
+         14350157104  instructions retired
+          2537565944  cycles elapsed
+             8995368  peak memory footprint

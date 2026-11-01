@@ -163,6 +163,7 @@ export const backup = defineMessages({
       },
     },
     runs: {
+      incomplete: 'Backup incomplete · {summary}',
       title: 'Recent runs',
       empty: 'No backups yet. Run one and it will show up here.',
       failed: 'Backup failed',
@@ -361,6 +362,7 @@ export const backup = defineMessages({
       },
     },
     runs: {
+      incomplete: '备份未完成 · {summary}',
       title: '最近记录',
       empty: '还没有备份。运行一次，记录就会出现在这里。',
       failed: '备份失败',
@@ -558,6 +560,7 @@ export const backup = defineMessages({
       },
     },
     runs: {
+      incomplete: '備份未完成 · {summary}',
       title: '最近記錄',
       empty: '還沒有備份。執行一次，記錄就會出現在這裡。',
       failed: '備份失敗',

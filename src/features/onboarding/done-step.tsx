@@ -20,9 +20,12 @@ import { useMemo } from 'react'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { ProgressCard } from '@/features/backup/progress-card'
+import {
+  leftOutOtherThanSafari,
+  skippedSafariForFullDiskAccess,
+} from '@/features/backup/run-codes'
 import { cn } from '@/lib/cn'
 import { useI18n } from '@/lib/i18n'
-import { isFullDiskAccessIssueMessage } from '@/lib/ipc/command-error'
 import { useSnapshot } from '@/lib/queries/app'
 import type { Draft } from './draft'
 import { InlineError } from './inline-error'
@@ -204,7 +207,9 @@ function StageRow({ stage, finish }: { stage: Stage; finish: FinishState }) {
 function Result({ draft, finish }: { draft: Draft; finish: FinishState }) {
   const { t } = useI18n()
   const report = finish.report
-  const safariSkipped = report?.warnings.some(isFullDiskAccessIssueMessage)
+  const safariSkipped = report ? skippedSafariForFullDiskAccess(report) : false
+  // A first backup that saved some browsers and not others finishes setup, and says so.
+  const leftOut = report ? leftOutOtherThanSafari(report) : false
   return (
     <div
       role="status"
@@ -219,6 +224,11 @@ function Result({ draft, finish }: { draft: Draft; finish: FinishState }) {
       {safariSkipped && (
         <span className="text-muted-foreground">
           {t('onboarding.done.safariSkipped')}
+        </span>
+      )}
+      {leftOut && (
+        <span className="text-muted-foreground">
+          {t('onboarding.done.partial')}
         </span>
       )}
       {draft.ai === 'local' &&

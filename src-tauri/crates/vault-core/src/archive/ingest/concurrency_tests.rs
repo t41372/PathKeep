@@ -347,7 +347,10 @@ fn resume_does_not_reupsert_committed_url_batches_or_skip_terms() {
                 stats["processedUrls"], 0,
                 "resume must not read/upsert any committed URL batch"
             );
-            assert_eq!(stats["processedRecords"], 10_003);
+            // The visits are read from the first again: the openers the stopped read was
+            // waiting for were only in memory. The 10,000 it saved are matched, not added.
+            assert_eq!(stats["processedRecords"], 20_003);
+            assert_eq!(stats["newVisits"], 10_003);
             for table in ["urls", "visits", "search_terms", "downloads", "favicons"] {
                 assert_eq!(
                     s.query_one(&format!("SELECT COUNT(*) FROM {table}"), (), |r| Ok(

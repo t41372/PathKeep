@@ -60,6 +60,7 @@ pub(crate) struct BackupStatus {
     running: usize,
     last_success_at: Option<DateTime<Utc>>,
     last_failure_at: Option<DateTime<Utc>>,
+    last_failure_partial: bool,
     archive: ArchiveReadiness,
 }
 
@@ -70,7 +71,7 @@ impl BackupStatus {
         }
         match (self.last_success_at, self.last_failure_at) {
             (success, Some(failure)) if success.is_none_or(|success| failure > success) => {
-                StatusLine::Failed
+                if self.last_failure_partial { StatusLine::Partial } else { StatusLine::Failed }
             }
             (Some(success), _) => StatusLine::BackedUp(success),
             (None, _) => match self.archive {
@@ -92,6 +93,7 @@ impl BackupStatus {
 
     pub(crate) fn finished(&mut self, succeeded: bool, at: DateTime<Utc>) {
         self.running = self.running.saturating_sub(1);
+        self.last_failure_partial = false;
         if succeeded {
             self.record_success(at);
             self.archive = ArchiveReadiness::Ready;
@@ -175,11 +177,14 @@ pub(crate) fn run_backup<R: Runtime>(
     let result = worker_bridge::run_backup_now_impl(due_only, &session, |event| {
         let _ = app.emit(BACKUP_PROGRESS_EVENT, &event);
     });
-    let ran = result.as_ref().map(|report| !report.due_skipped);
-    super::update_status(app, |status| match ran {
-        Ok(true) => status.finished(true, Utc::now()),
-        // A due-only call that found nothing due neither succeeded nor failed.
-        Ok(false) => status.skipped(),
+    super::update_status(app, |status| match &result {
+        Ok(report) if report.due_skipped => status.skipped(),
+        Ok(report) if report.run.as_ref().is_some_and(|run| run.status == "partial") => {
+            status.finished(false, Utc::now());
+            status.last_failure_partial = true;
+        }
+        Ok(report) => status
+            .finished(report.run.as_ref().is_some_and(|run| run.status == "success"), Utc::now()),
         Err(_) => status.finished(false, Utc::now()),
     });
     let _ = app.emit(

@@ -5,8 +5,12 @@
 //! worker-owned staging directory before `vault-core` or the parser reads them.
 
 use super::*;
+use crate::archive::source_error::SourceError;
 use rusqlite::{Connection, MAIN_DB, OpenFlags};
-use std::{io::Read, time::Duration};
+use std::{
+    io::{Read, Write},
+    time::Duration,
+};
 
 /// How long staging operations wait on a lock held by a live browser before
 /// giving up. Long enough to outlast a browser's brief write transactions,
@@ -66,10 +70,25 @@ pub fn stage_profile_snapshot(
     }
     let history_path = staged_history.path;
 
-    let staged_favicons = profile
-        .favicons_path
-        .as_ref()
-        .and_then(|_| copy_database_with_sidecars(&source_dir, "Favicons", temp_dir.path()).ok());
+    let staged_favicons = if profile.favicons_path.is_some() {
+        match copy_database_with_sidecars(&source_dir, "Favicons", temp_dir.path()) {
+            Ok(staged) => Some(staged),
+            Err(error) if error.downcast_ref::<SourceError>().is_some() => {
+                warnings.push(
+                    crate::models::BackupWarning::new(
+                        "source-favicons-unavailable",
+                        "source-favicons-unavailable",
+                    )
+                    .with_profile_id(profile.profile_id.clone())
+                    .with_diagnostic(format!("{error:#}")),
+                );
+                None
+            }
+            Err(error) => return Err(error),
+        }
+    } else {
+        None
+    };
     if let Some(reason) =
         staged_favicons.as_ref().and_then(|staged| staged.fallback_reason.as_ref())
     {
@@ -151,7 +170,8 @@ pub(crate) fn stage_sqlite_file(source: &Path, destination: &Path) -> Result<Sta
         Ok(()) => {
             return Ok(StagedDatabase { path: destination.to_path_buf(), fallback_reason: None });
         }
-        Err(error) => format!("{error:#}"),
+        Err(error) if error.downcast_ref::<SourceError>().is_some() => format!("{error:#}"),
+        Err(error) => return Err(error),
     };
 
     // Fallback: a plain file copy. This can capture the live browser's hot
@@ -173,8 +193,14 @@ pub(crate) fn stage_sqlite_file(source: &Path, destination: &Path) -> Result<Sta
     // on our private throwaway copy where writing is safe — never the live
     // browser file. Non-SQLite sources (the usual reason the online backup
     // failed) have nothing to recover; let the parser report their real problem.
-    if is_sqlite_database(destination) {
-        recover_staged_database(destination)?;
+    if is_sqlite_database(destination)? {
+        recover_staged_database(destination).map_err(|error| {
+            if let Some(sqlite) = error.downcast_ref::<rusqlite::Error>()
+                && matches!(sqlite, rusqlite::Error::SqliteFailure(code, _) if matches!(code.code, rusqlite::ErrorCode::DatabaseCorrupt | rusqlite::ErrorCode::NotADatabase)) {
+                return error.context(SourceError::Failed("source-read-failed"));
+            }
+            error
+        })?;
     }
 
     Ok(StagedDatabase { path: destination.to_path_buf(), fallback_reason: Some(fallback_reason) })
@@ -185,6 +211,9 @@ fn snapshot_sqlite_database(source: &Path, destination: &Path) -> Result<()> {
         source,
         OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
     )
+    .map_err(|error| {
+        anyhow::Error::new(error).context(SourceError::Unavailable("source-unreadable"))
+    })
     .with_context(|| format!("opening source database {}", source.display()))?;
     // The browser is still writing while we copy. Wait out its short write locks
     // instead of dropping into the slower, torn-copy-prone raw fallback on the
@@ -192,13 +221,27 @@ fn snapshot_sqlite_database(source: &Path, destination: &Path) -> Result<()> {
     source_connection
         .busy_timeout(STAGING_BUSY_TIMEOUT)
         .context("configuring snapshot busy timeout")?;
-    source_connection.backup(MAIN_DB, destination, None).with_context(|| {
-        format!(
-            "creating online SQLite snapshot from {} to {}",
-            source.display(),
-            destination.display()
-        )
-    })?;
+    // Opening the destination is machinery work; its failures never become source outcomes.
+    let mut destination_connection = Connection::open(destination)
+        .with_context(|| format!("opening staging destination {}", destination.display()))?;
+    let backup = rusqlite::backup::Backup::new_with_names(
+        &source_connection,
+        MAIN_DB,
+        &mut destination_connection,
+        MAIN_DB,
+    )
+    .map_err(classify_source_sqlite_error)?;
+    loop {
+        match backup.step(100).map_err(classify_source_sqlite_error)? {
+            rusqlite::backup::StepResult::Done => break,
+            rusqlite::backup::StepResult::More => {}
+            rusqlite::backup::StepResult::Busy | rusqlite::backup::StepResult::Locked => {
+                return Err(anyhow::anyhow!("browser snapshot is busy")
+                    .context(SourceError::Failed("source-read-failed")));
+            }
+            _ => return Err(anyhow::anyhow!("unexpected browser snapshot step")),
+        }
+    }
     Ok(())
 }
 
@@ -235,19 +278,53 @@ pub(super) fn recover_staged_database(path: &Path) -> Result<()> {
 
 /// Cheap check for the SQLite file header, used to skip recovery on the
 /// non-database files that send the staging copy down the raw-copy fallback.
-fn is_sqlite_database(path: &Path) -> bool {
+fn is_sqlite_database(path: &Path) -> Result<bool> {
     let mut header = [0u8; 16];
-    fs::File::open(path)
-        .and_then(|mut file| file.read_exact(&mut header))
-        .map(|()| &header == SQLITE_FILE_HEADER)
-        .unwrap_or(false)
+    let mut file = fs::File::open(path)
+        .with_context(|| format!("opening staged header {}", path.display()))?;
+    match file.read_exact(&mut header) {
+        Ok(()) => Ok(&header == SQLITE_FILE_HEADER),
+        Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => Ok(false),
+        Err(error) => {
+            Err(error).with_context(|| format!("reading staged header {}", path.display()))
+        }
+    }
 }
 
 /// Copies one file while preserving the source/destination context in errors.
 fn copy_with_context(source: &Path, destination: &Path) -> Result<()> {
-    fs::copy(source, destination)
-        .with_context(|| format!("copying {} to {}", source.display(), destination.display()))?;
+    let mut input = fs::File::open(source)
+        .map_err(|error| {
+            let marker = SourceError::access(&error);
+            anyhow::Error::new(error).context(marker)
+        })
+        .with_context(|| format!("opening source {}", source.display()))?;
+    let mut output = fs::File::create(destination)
+        .with_context(|| format!("creating staging destination {}", destination.display()))?;
+    let mut buffer = [0; 64 * 1024];
+    loop {
+        let count = input.read(&mut buffer).map_err(|error| {
+            anyhow::Error::new(error).context(SourceError::Unavailable("source-unreadable"))
+        })?;
+        if count == 0 {
+            break;
+        }
+        output
+            .write_all(&buffer[..count])
+            .with_context(|| format!("writing staging destination {}", destination.display()))?;
+    }
     Ok(())
+}
+
+/// SQLite reports destination IO/full errors through the same API as source failures.
+/// Only unambiguous source conditions are recoverable; everything else retains its chain.
+fn classify_source_sqlite_error(error: rusqlite::Error) -> anyhow::Error {
+    let source = matches!(&error, rusqlite::Error::SqliteFailure(code, _) if matches!(code.code,
+        rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked |
+        rusqlite::ErrorCode::DatabaseCorrupt | rusqlite::ErrorCode::NotADatabase)
+        || matches!(code.extended_code, rusqlite::ffi::SQLITE_READONLY_ROLLBACK | rusqlite::ffi::SQLITE_READONLY_RECOVERY));
+    let error = anyhow::Error::new(error);
+    if source { error.context(SourceError::Failed("source-read-failed")) } else { error }
 }
 
 fn staging_access_hint(profile: &BrowserProfile) -> String {
@@ -256,4 +333,21 @@ fn staging_access_hint(profile: &BrowserProfile) -> String {
     }
 
     format!("staging {} history database from {}", profile.browser_name, profile.profile_path)
+}
+
+#[cfg(test)]
+mod error_origin_tests {
+    use super::*;
+    // A missing source is unavailable; an unwritable destination is machinery failure even
+    // when snapshot fallback is used. Optional favicon callers must distinguish these too.
+    #[test]
+    fn staging_classifies_source_but_never_destination_errors() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("History");
+        let missing = stage_sqlite_file(&source, &dir.path().join("copy")).err().unwrap();
+        assert!(missing.downcast_ref::<crate::archive::source_error::SourceError>().is_some());
+        Connection::open(&source).unwrap().execute_batch("CREATE TABLE urls(id INTEGER)").unwrap();
+        let failed = stage_sqlite_file(&source, &dir.path().join("absent/copy")).err().unwrap();
+        assert!(failed.downcast_ref::<crate::archive::source_error::SourceError>().is_none());
+    }
 }

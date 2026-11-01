@@ -9,6 +9,21 @@
 
 ## CURRENT FOCUS
 
+- [x] **WORK-BACKUP-INTEGRITY** — 瀏覽器重新編號時備份漏掉新紀錄還說成功（PR #18；2026-11-01 重做）
+  - 讀先：`docs/architecture/backup-integrity.md`、`store-schema.md`（Archive versions）、`same-visit-across-sources.md`；`docs/features/archive.md`。
+  - 原因：下一次備份只讀 `visits.id > 上次讀到的`、`UNIQUE(profile, source_visit_id)` 加 `INSERT OR IGNORE`、URL 用瀏覽器的列號找。Chrome 清除全部紀錄或重建檔案後從 1 重新編號，Firefox 把刪掉的最新列號給下一筆，Chrome 的下載編號 max+1：新紀錄全掉，run 照樣 `success`。行為對照 Chromium / Firefox 原始碼，並在一份真實 Chrome 歷史的副本上數過（只數筆數）。
+  - 前一版（`88e9278b`，GPT 寫）每次備份重讀整個來源、在 Scratch 建 capture map、逐欄位比對 scalar、加 15 個 migration 與兩張 boundary 表；驗證報告的數字對不到原始檔（檔案已刪）。這次從 PR #16 的 tip 重寫核心，只帶過來站得住的部分（每個 profile 的結果與 `partial`、排程與狀態列、staging 的來源錯誤分類、E2E 與 v1 fixture、測試的環境隔離、Turso 0.8.3）。
+  - 造訪的身分：設定檔 + 完整網址 + 瀏覽器自己的時間（不失精度，`visits.source_visit_time`）。同一次讀到的同身分列合併（重新導向）；Firefox Sync 截到毫秒的副本算同一筆；v1 的造訪在同網址同毫秒時拿到時間。有瀏覽器時間的列不存 fingerprint（毫秒的 fingerprint 會把不到一毫秒的兩筆併成一筆）。URL 以網址、搜尋詞以頁面網址、下載以 guid 認定。開啟者以 archive id 存（`parent_visit_id`），導覽順著它走；v1 造訪照舊用列號。Observed interactions 讀造訪自己的停留時間，只有 v1 造訪查 evidence。
+  - 讀多少（`read_plan`）：上次停的那一列還是同一筆造訪，就讀之後的列再加最近 24 小時；不是（或 AUTOINCREMENT 的 sequence 也證明不了刪掉的那列不會被重用）就整個重讀並在備註說明。第一次、更新後的第一次、每週一次也整個重讀；整個重讀停在一半，下次從停的地方接著讀。
+  - 結果：每個 profile 有 outcome（complete / unavailable / failed）；有 profile 沒完成是 `partial`，只有備份本身出錯才 `failed`。瀏覽器自己也顯示不了的列（沒有頁面那一列）在備註算出筆數，run 仍 `success`。
+  - Archive migrations 2–16，一個 DDL 一個版本；15 把 v1 造訪用列號記的開啟者換成 archive id（每批 5 萬筆、可接續、更新畫面有進度），16 記下 v1 最後一次 run，v1 造訪查 evidence 只看它之前的。開啟時不改其他資料，更新後第一次備份整個重讀。SQLCipher converter 複製完 v1 資料後兩個都再跑一次。
+  - 備份後的連結預覽在背景做，備份回覆不等網路。
+  - 測試：parser 的 `native_visits`、`read_plan` 的 unit test 與實作一起寫（先列失敗模式）；dedup / resume / Takeout 的既有測試照原本的斷言過（兩個 resume 測試改成跟真實流程一樣先標記整個重讀；接著讀時造訪從頭再讀，所以其中一個的 processedRecords 從 10,003 改成 20,003，新增筆數仍是 10,003）；E2E `backup-integrity.spec`（healthy v1 fixture，8 個場景）與 `backup-integrity-damaged.spec` 照 PR 18 寫的斷言過；途中抓到一個真的漏讀：fixture 把造訪全刪了再用顯式列號寫回 1–8，sequence 還停在 100，「那列刪了但 sequence 證明沒重用」就只讀 100 之後。加上「游標以下有比讀過的都新的造訪就是新造訪用了舊列號」（`newest_visit_ms`，走瀏覽器的時間索引），只有「頁面列不見的造訪」改成備註加 `success`，拿掉一個只是在找舊版文案的反向檢查。
+  - 量測（M5 Max、release、加密、合成 100 萬筆，原始輸出在 `docs/architecture/research/2026-11-backup-integrity-1m/`）：新存檔第一次備份 157 s（RSS 1003 MiB）；之後沒有新東西的備份 0.6 s；每週整個重讀 32 s；同一份資料的 v1 存檔更新後開啟 4 s、第一次備份 38 s、沒有多出任何一筆，100 萬筆都有瀏覽器時間、50 萬個開啟者都換成 archive id。量在第二次審查的兩個修正之前（一個在每筆讀到的造訪多一次比較，一個給新造訪的檢查加上界，仍是一次時間索引查詢），之後沒重量。14.4M 與目標機沒量（`WORK-BACKUP-INTEGRITY-SCALE`）。
+  - 最後一次審查（Codex，讀碼不跑；十條，逐條對照代碼）全部確認並修：匯入預覽沒有記住已配對的 v1 造訪，兩筆新的都算成已有、匯入按鈕不見（預覽改成跟匯入一樣記住）；v1 的開啟者在其中一筆拿到瀏覽器時間後斷掉（改成更新時就換成 archive id，導覽只看它）；整個重讀停在一半，已讀那段等著的開啟者只在記憶體（接著讀時造訪從頭再讀、URL 照舊接著）；讀完才找到的開啟者一個交易寫完（分批）；重新導向的後一步合併後變成自己的開啟者（擋掉）；Insights 用瀏覽器列號配開啟者（改用 archive id，structural v13，會重建一次）；過期的 v1 造訪拿到後來同列號造訪的停留時間（只看 v1 自己 run 的 evidence）；頁面列不見的列讓每次備份都整個重讀（檢查也 join 頁面）；重播舊 checkpoint 把停留時間改回 0（只增不減）；首次設定把 Safari 以外的部分完成顯示成全綠（加一句說明）。測試：`identity_cases` 四個場景（合併的重新導向不是自己的開啟者、晚到的開啟者、重播不倒退、v1 開啟者、預覽只配一次；合併那個把修法拿掉會失敗），`read_plan` / `native_visits` 各加一個；Insights 的 fixture 照實補上 `parent_visit_id`。
+  - 修完後請它只看修改的部分（Codex，讀碼不跑；五條，這裡兩條，逐條對照代碼）都確認並修：預覽配到 v1 造訪後，同一重新導向的第二列（同網址同時間）被算成新的，匯入其實會把第一列的時間蓋上去、第二列併進同一筆（預覽改成記得匯入會給的身分，新的與蓋上的都算）；瀏覽器檔裡時間超過 9999 年的列，parser 存成 9999 年，檢查卻拿瀏覽器的原值比，每次備份都整個重讀（記錄最新時間與檢查都不算這種列）。`identity_cases` 兩個場景與 `native_visits` 一個測試，修法拿掉都會失敗。
+  - 最後再請它只看這兩個修正（Codex，讀碼不跑）：這裡一條，確認並修：parser 把 Safari 的秒四捨五入到毫秒，檢查用的界線卻是直接換算，差半毫秒；9999 年前最後半毫秒的 Safari 時間在記錄最新時間時不算、檢查時又算，每次備份都整個重讀（下界也差同樣的半毫秒）。界線改成 parser 換算的反函數；unit test 先失敗再過。
+  - 沒做：v1 已經造成的錯綁（被重用的列號改掉網址的 URL 列）不修，沒有紀錄能說哪個對。瀏覽器檔案匯入的「頁面列不見」不另外寫備註。14.4M 與目標機的量測、Sync 從新到舊寫的大檔（開啟者大多在後面）進 BACKLOG。
 - [x] **WORK-PR16-REVIEW-2026-10-29** — 驗證 ChatGPT 與自己對 PR #16 的審查，修確認的問題
   - 每條 finding 先當假設對照代碼驗證；判定與理由見 PR 描述。確認並修的：
     - 語意索引改成「代」：每次 pass 寫一個完整的新代（`derived/vectors/<table>/<lineage>/g<run>/`），`ai_index_ledger.sidecar_table` 指向它，只在 `record_index_ledger_success` 那筆交易裡切換；查詢整段持有同一代的租約，GC 只刪沒人用、不是服務中、不屬於進行中工作的代。取代 `rebuild.rs` 的 copy / `.publish` / withdraw / settle，連帶修掉 Windows 覆蓋被 map 住的檔、一次查詢讀兩代、取消的重建在當機後被換上、提交不落盤、settle 遇錯就停、`rows_since` 誤刪更新寫的列。`ai_embeddings` / totals 加 `lineage`（Intelligence schema v2；v0.4.0 已發布，所以是註冊的 migration：一筆便宜的 rename + 建表，之後每批 5 萬列複製，1M / 4M 列峰值 84 / 86 MiB）；開啟時的升級畫面顯示進度。Codex 實作，我審查。

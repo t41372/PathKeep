@@ -72,7 +72,7 @@ M18 redesign（2026-10-02）換掉了整個前端。下面各節的後端行為�
 - Onboarding / Dashboard 的 profile boundary surface 必須誠實顯示 browser-retention reality：本地瀏覽器歷史可能在 PathKeep 下次 backup 前就被瀏覽器策略或使用者清除；只有成功寫進 archive 之後，PathKeep 才提供 append-only 的長期保存。
 - Onboarding 不是陷阱頁：使用者可以在 setup 中途明確退出，PathKeep 會保留目前已選的 archive 選項，之後可從 Dashboard / Settings 回來繼續。
 - Onboarding / first import 的 execute step 必須先讓 overlay repaint，再開始真正的 archive init / import / backup work；背景計算再重，也不能把 loading 動畫整段凍住到最後一幀才一次補完。
-- 備份是**增量的**：只新增/更新有變化的記錄。
+- 備份是**增量的**：只新增/更新有變化的記錄。瀏覽器的列號不是造訪的身分（Chrome 清除全部紀錄或重建損壞的檔案後從 1 重新編號，Firefox 把刪掉的列號給下一筆），造訪以設定檔、完整網址和瀏覽器自己的時間（不失精度）認定。每次備份讀上次讀到的那一列之後的列，再加最近 24 小時（Chrome 在分頁關掉時才寫停留時間）；先確認那一列還是同一筆造訪，不是就整個檔案重讀。第一次備份、更新後的第一次、每週一次也整個重讀。細節見 [backup-integrity.md](../architecture/backup-integrity.md)。
 - Archive 是 **append-only** 的：即使瀏覽器端的紀錄已過期或被手動刪除，archive 中的歷史紀錄永不刪除。
 - 對於會變動的記錄（如 URL metadata），採用 row versioning，保留所有歷史版本。
 - 原始來源數據採 **checkpoint-first**：保留 source checkpoint、schema 指紋、瀏覽器版本、run ID 與 manifest trace，不再把每筆來源 row 的完整 JSON payload 長期熱存在 canonical archive。
@@ -82,7 +82,15 @@ M18 redesign（2026-10-02）換掉了整個前端。下面各節的後端行為�
 
 - 增量備份的核心挑戰是去重。
 - canonical facts 的去重以來源主鍵 / canonical identity / payload hash 組合處理；search / intelligence / semantic 都是後續 projection，不參與 source-of-truth dedupe。
-- 多次導入相同數據不會產生重複記錄。
+- 多次導入相同數據不會產生重複記錄。同一次讀到的同網址、同時間的列是同一筆造訪（重新導向的各步共用一個時間）；Firefox Sync 送回、時間被截到毫秒的副本也算同一筆。搜尋詞跟著頁面的網址，下載以 guid 認定。
+
+### 完整性與部分完成
+
+- 每個選定的 profile 都有結果：完成、讀不到（找不到或沒有權限，`unavailable`）、讀到一半停了（`failed`，停之前讀到的都已保存）。全部完成是 `success`；備份有跑完但有 profile 沒完成是 `partial`；只有備份本身出錯（存檔、磁碟、鎖）才是 `failed`，保留原本的錯誤。選定範圍裡一個 profile 都沒有是 `backup-no-profiles` 錯誤，不是讀了零筆的成功。
+- 瀏覽器自己也顯示不了的列（頁面那一列已經不在、沒有網址）沒有東西可存：在備註裡按 profile 算出筆數，run 仍然是 `success`。
+- 瀏覽器重新編號時，那次備份整個重讀並在備註說明（`source-ids-reset`）。
+- `partial` 會推進排程的 due 時鐘（不會每次檢查都重讀）；健康狀態與「上次成功備份」只看 `success`。首次備份遇到 `partial` 照樣完成、顯示說明，Safari 的完整磁碟取用提示讀 profile 的結果碼，不比對英文句子。
+- v1 存檔已經造成的錯綁（被重用的列號改掉網址的 URL 列、v1 忽略掉而瀏覽器已經不在的造訪）不修：沒有紀錄能說哪個才對。
 - 需要考慮的邊緣案例：
   - 同一 URL 在不同 profiles 下的 visit 是獨立的。
   - 同一 URL 在不同時間點的 visit 是獨立事件。
@@ -106,7 +114,7 @@ M18 redesign（2026-10-02）換掉了整個前端。下面各節的後端行為�
 - rollback 採 soft-hide visibility：user-visible facts 以 `reverted_at` / `reverted_by_run_id` 隱藏，checkpoint / manifests / snapshots 保持 immutable。
 - canonical archive 已和 keyword recall / intelligence runtime 拆成不同 storage plane；canonical archive 只保留 source-of-truth facts 與 immutable audit facts，rebuildable search / intelligence / semantic state 全部留在 derived/search/intelligence/sidecars。
 - import batch 的 un-revert / restore 必須留下獨立 `restore` run，而不是繼續冒充 `rollback`；`snapshot_restore` 則保留給未來真正的 archive snapshot restore flow。
-- v1 shipping 的 `snapshot_restore` 是 **checkpoint replay**：使用者從 Audit review 一個已保存的 browser source checkpoint（`raw-source-checkpoint`）做 Preview / Execute，PathKeep 會把該 checkpoint 重新 ingest 回 canonical archive，留下獨立 `snapshot_restore` run 與 artifact 關聯；既有可見 facts 不會因為 restore 被 destructive 覆寫，重複資料則由 dedupe / watermark 邊界跳過。
+- v1 shipping 的 `snapshot_restore` 是 **checkpoint replay**：使用者從 Audit review 一個已保存的 browser source checkpoint（`raw-source-checkpoint`）做 Preview / Execute，PathKeep 會把該 checkpoint 重新 ingest 回 canonical archive，留下獨立 `snapshot_restore` run 與 artifact 關聯；既有可見 facts 不會因為 restore 被 destructive 覆寫，已有的造訪由事件身分（網址加瀏覽器時間）認出，不再多一份。
 - rekey flow 產生的 archive safety snapshot file 也必須寫進 audit / security summary，保留 open / copy path 與 manifest / run detail；但若該 snapshot 需要舊的 database key，v1 仍保持 manual-first recovery，而不是假裝任何 archive file snapshot 都能自動 replay。
 
 ---
@@ -121,7 +129,7 @@ M18 redesign（2026-10-02）換掉了整個前端。下面各節的後端行為�
   - macOS：LaunchAgent（`RunAtLoad=true` + 固定週期檢查）
   - Windows：Task Scheduler
   - Linux：systemd user timer（支援 persistent timer）
-- 預設邏輯：原生排程器按用戶設定的備份間隔喚醒；如果平台只能用較小步長安全表達該間隔，worker 仍會用 `--due-only` 根據上次成功備份時間判斷真正「該不該跑」。
+- 預設邏輯：原生排程器按用戶設定的備份間隔喚醒；如果平台只能用較小步長安全表達該間隔，worker 仍會用 `--due-only` 根據上次完成（`success` 或 `partial`）的備份時間判斷真正「該不該跑」。
 - 每一次原生排程喚醒都是 first-class **schedule attempt**。attempt 必須在讀取 config、keyring 或 archive 之前先落到 archive-independent、crash-safe、bounded 的本機 ledger，並以 typed outcome 區分 `running`、`success`、`skipped-not-due`、`deferred-lock`、`failed` 與中斷後復原出的 `interrupted`。不能把 skip / defer / pre-archive failure 只寫進 stdout/stderr。
 - Schedule health 只能以 scheduled attempt / scheduled success 判斷；手動 backup success 不得冒充排程成功或清除排程 failure/overdue warning。Native artifact 已安裝只代表「排程存在」，不代表 worker 已健康完成。
 - Native scheduler 直接執行隨 app bundle 發佈的 `pathkeep-worker` sidecar，避免 GUI lifecycle / Dock activation，並讓 native host 取得真正的 worker exit code。Durable attempt outcome 仍是產品內健康狀態的 source of truth；任何 launcher / host 的 `0` 都不能單獨充當 backup success。

@@ -161,10 +161,35 @@ pub struct BackupRunOverview {
     pub error_message: Option<String>,
 }
 
+/// How one selected browser profile's backup ended. A browser that cannot be read does not stop
+/// the others: the run saves what it can and says which ones it could not read.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(tag = "status", rename_all = "camelCase")]
+pub enum ProfileOutcome {
+    /// Every row the backup read was saved.
+    #[default]
+    Complete,
+    /// The profile's files could not be found or opened (permissions, a profile removed).
+    Unavailable { code: String },
+    /// The files opened but could not be read to the end; what was read before is saved.
+    Failed { code: String },
+}
+impl ProfileOutcome {
+    /// Warning and remediation surfaces translate this code, never diagnostic prose.
+    pub fn code(&self) -> Option<&str> {
+        match self {
+            Self::Complete => None,
+            Self::Unavailable { code } | Self::Failed { code } => Some(code),
+        }
+    }
+}
+
 /// Per-profile backup summary returned by one run.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct BackupProfileSummary {
+    #[serde(default)]
+    pub outcome: ProfileOutcome,
     pub profile_id: String,
     pub new_visits: usize,
     /// New visits that another source already had (a Takeout import of the same visit): kept,
