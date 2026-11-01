@@ -20,7 +20,10 @@ import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, rmSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { resolveDesktopBridgeEnv } from './pathkeep-dev-desktop-bridge.mjs'
+import {
+  e2eCargoTargetDir,
+  resolveDesktopBridgeEnv,
+} from './pathkeep-dev-desktop-bridge.mjs'
 import { writeSyntheticBrowsers } from './fixtures/synthetic-browsers.mjs'
 
 const repoRoot = path.resolve(
@@ -70,9 +73,7 @@ const env = {
   // A label of its own as well, so even a sandbox mix-up could never touch
   // the real PathKeep LaunchAgent.
   PATHKEEP_PLATFORM_TEST_SCHEDULE_LABEL: 'com.yi-ting.pathkeep.demo.backup',
-  CARGO_TARGET_DIR:
-    process.env.CARGO_TARGET_DIR ??
-    path.join(repoRoot, 'var', 'playwright', 'desktop-bridge', 'cargo-target'),
+  CARGO_TARGET_DIR: e2eCargoTargetDir(),
 }
 
 const headless = process.platform === 'linux' && !process.env.DISPLAY
