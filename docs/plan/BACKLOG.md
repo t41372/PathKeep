@@ -37,6 +37,11 @@
   - 現況：`indexing/backfill.rs` 結尾的 `generations::collect(vault, true)` 在 `INDEX_EXECUTION` 裡刪完舊列才返回，所以 `pathkeep://ai-index-job-ended` 要等刪完才發，排隊的下一個工作也跟著等。搜尋分組的暖機已經移到刪除之前（同日）。如果刪除改由背景 reaper 做，下一個工作開頭的 `collect` 會在 `admit()` 等它，停在 0%。
   - 方向（先量 14.4M 刪一個 lineage 要多久）：工作結束只做決定與改名，列的刪除交給 reaper；工作開頭的清理在已有 collector 時不等它（它本來就在做同一件事），但要先確認 `recover_pending` 等開頭清理不是建置的前提。
 
+- [ ] **WORK-INDEX-RESOLVE-RETRY-LIMIT** — 讀語意索引時，指標在讀的過程中連換四次就當作沒有索引（2026-11-01 PR #16 第四輪審查找到，讀程式碼確認，現在碰不到）
+  - 現況：`generations::resolve` 釘住指標指的那一代，再讀一次指標確認沒換；換了就重來，最多四次，之後回 `None`：搜尋只比對字詞，建置當成沒有索引。
+  - 為什麼現在碰不到：同一個 provider / model 的指標只有一個寫入者在動（佇列一次只跑一個索引工作；開啟時的部分復原等那個工作的 writer），一次發布之間隔著至少一個 embedding 塊，而 resolve 一輪只讀兩次指標。
+  - 要做的時候（例如部分發布變得比一輪 resolve 還頻繁）：改成等發布的通知再讀，不設次數，跟等 GC 保留時一樣；測試用 hook 在每次讀指標之間發布一次。
+
 - [ ] **WORK-INTELLIGENCE-MIGRATION-OPEN** — Intelligence 資料庫的 schema 遷移失敗（例如磁碟滿）會讓整個存檔打不開，雖然語意索引是可選的衍生資料（2026-10-30 PR #16 第三輪審查找到）
   - 現況：vault-store 開檔時依序跑每個資料庫的遷移，任何一個失敗 `Store::open` 就失敗。v2 遷移已改成每批搬移，峰值只多一批，但磁碟幾乎滿時仍可能失敗，而且每次啟動都在同一點失敗，直到用戶騰出空間。
   - 要決定（寫 trade-off 再改）：Intelligence 遷移失敗時是否先開 archive、把 AI 功能標成不可用並說明原因；或啟動前先檢查空間並給明確的錯誤。牽涉 vault-store 的開檔契約，不是這個 PR 的範圍。

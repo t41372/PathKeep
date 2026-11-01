@@ -29,6 +29,24 @@
     - 第三輪修正本身又做了一次獨立審查：沒有死結或漏掉的喚醒；它找到的「清除後沿用 `legacy`」「有列卻發布空的代」已修，三個等待的測試改用 test hook 確認真的等了。從未發布的開發版中途升級留下的 v2 資料庫（舊階段名）不支援。
     - 沒修、記進 BACKLOG：`WORK-INDEX-ROW-CLEANUP-OFF-JOB`、`WORK-INTELLIGENCE-MIGRATION-OPEN`、`WORK-TURSO-MINMAX-WRAPPER-AUDIT`。只影響開發版資料的 `rows_since` 時間界線、GC 把建置中的輸出記成 retired（會自己收斂）不修。
     - wasmtime 48.0.8：同日公布的 RUSTSEC-2026-0420 / 0422 / 0423 / 0424。
+    - 第四輪（2026-11-01，兩份獨立審查逐條對照代碼，確認的才修）。測試的實際情況：備註框的 unit test 先寫、先失敗、修好後通過；索引的兩個 regression test 是修完才寫的，各自把對應的修法還原時會失敗、放回來會通過（只證明它們抓得到這兩個問題）；Doctor 的版本檢查有 Rust 測試先失敗、也加進 E2E；其餘修法（pointer repair 的暫時錯誤與平鋪指標、failed 保留 lineage、等別的 writer、trash、鑰匙圈、升級失敗的畫面、進階搜尋的減號、語意備註）目前沒有測試：
+      - 分代：`serving.json` 的向量數取自來源檔的列數，而 plane 每個 key 只留一筆（torn resume 會留重複 key）；讀者比對不符就拒絕這一代，pointer repair 再把指標清掉，下一次建置開新 lineage 全部重新 embed。改成取 plane 的數，且發布前先用讀者的檢查驗一次。pointer repair 只在檔案確實不在／壞掉／對不上時清指標，暫時讀不到（分享鎖、檔案開太多、磁碟錯誤）只記錄；平鋪格式的舊指標留給開啟時的搬移，不清。重建或 Reset 蓋在部分索引上又停在第一塊，不再用小的那一代取代涵蓋更多的那一代；failed 的工作保留 lineage，Replay 接著做而不是從零；建置遇到別的 writer（開啟後的部分復原在投影）改等而不是讓工作失敗；trash 裡一個刪不掉的項目不再擋住後面的。兩個 regression test：`a_source_holding_a_key_twice_still_publishes_a_generation_readers_accept`、`a_rebuild_stopped_after_one_chunk_keeps_the_partial_that_covers_more`。
+      - 備註：存檔中加一個字再刪掉，儲存的回應落地時框看起來像沒改過，會把回應填回去、刪除永遠不寫。改成記「有沒有打過字還沒寫」，不看文字是否等於起點。
+      - 改密碼／開關加密後的鑰匙圈與設定改由 worker 在同一個 hold 裡做（`RekeyRequest.rememberInKeychain`）；之前視窗在命令回來後才寫，「做完再結束」可能在那之前結束。鑰匙圈寫不進去時跟以前一樣：改動算完成、設定不動、視窗提醒（`KeychainNotUpdated`），不當成改動失敗。
+      - 開啟時的 schema 升級失敗，進度畫面蓋在鎖定畫面上不會消失：失敗也送結束事件。
+      - 進階搜尋「任一」欄位開頭的 `-` 會變成排除並拆掉 OR 鏈；「全部」亦同：去掉減號。
+      - 語意搜尋連不上嵌入服務時的備註把服務的英文錯誤夾在翻譯好的句子裡：拿掉，原因仍留在給 Ask 的 trace。
+      - Doctor 的「存檔格式」檢查除了 Archive 都當成第 1 版，這個 PR 把 Intelligence 升到第 2 版後它就一直報有問題：改成讀已登記的 migration 的最新版本（`MigrationRegistry::latest_version`）。doctor 的 Rust 測試先失敗再過；`upgrade.spec`（0.3.0 的資料夾更新後）加了健康檢查的「存檔格式」要通過。
+      - `insights.spec`「一句搜尋在幾個瀏覽器裡是一行」最後兩個斷言仍寫死「台北天氣」，哪一句先搜依 fixture 的 `now` 每天不同（2026-11-01 的 gate 就失敗在這）：改讀 fixture，跟同一個測試前面的斷言一樣。
+      - 看過、量過、不改：Intelligence v2 升級第一步的 `COUNT(*)`。本機 release、未加密、熱快取，100 萬列 3–4 ms（`EXISTS` 0.2 ms），Turso 不讀每一列；14.4M 照比例是幾十 ms。冷快取、加密、目標機都沒量。
+      - 最後一次審查（Codex，對整個 PR 讀碼、不跑測試；五條，逐條對照代碼驗證；修完之後又請它只看修改的部分，再找到三條，也都確認並修進下面）：
+        - 確認並修：failed 的重建保留 lineage 給 Replay，可是 failed 的工作取消不了、清不掉、之後也沒有任何東西改它，它的索引檔就永遠留著（這一輪的 F5 修法帶進來的）。改成保留到它要做的索引被取代為止：之後別的工作的 lineage 在服務同一組 provider / model，或這組 provider / model 在它失敗之後被清掉（ledger 的 `last_cleared_at`，所以別的模型的 Reset 不算、從舊工作重播的 Reset 算）；同一 lineage 之後的更新不算。Rust 測試先失敗再過；取代的判斷另有 unit test。
+        - 確認並修：備註／標籤的儲存佇列是每次打開詳情各一條；離開時上一次的存檔還在路上、回來又改，新的先到、舊的後到，存檔留下較舊的那句。改成同一頁同一欄位共用一條佇列（`annotation-writes.ts`），排著的存檔執行時跟共用快取裡的備註比，不跟自己那次打開時看到的比（不然第二次離開前改回原句會被當成沒改）。兩個 unit test 都先失敗再過。
+        - 確認並修：備註存檔的回應帶著整份 annotation，等 `cancelQueries` 的空檔裡標籤存檔先落地，備註的舊回應把快取裡的標籤蓋回舊的，標籤欄位接著採用它，下一次加標籤就寫出少了一個的清單、刪掉存檔裡的標籤（這個 PR 讓標籤欄位會採用快取的變化）。改成各自只把自己那個欄位寫進快取。unit test 先失敗再過；標籤欄位的佇列也一起共用。
+        - 確認並修：改密碼的「做完再結束」hold 只包住改寫那一段，鑰匙圈設定在 hold 結束後才存，結束可能落在中間。改成 hold 包住到設定存好。沒有測試（從變數的作用範圍就看得出來，E2E 的結束測試只做匯出）。
+        - 看過、不改：`hardest_topics_in_range` 讀整個範圍（同上，`WORK-INSIGHTS-COLD-READS`）。
+      - 看過、記進 BACKLOG：resolve 指標連換四次就放棄（`WORK-INDEX-RESOLVE-RETRY-LIMIT`，現在碰不到）。錯字容忍只做拉丁字母是既定設計（`lexical-recall-v2.md`），不改。
+      - 看過、不改：`hardest_topics_in_range` 每頁把範圍內的 query family 讀進記憶體（已量：30 萬 family 1.4–1.6 s，`WORK-INSIGHTS-COLD-READS`）；更新重啟不問（已記 `WORK-QUIT-FOLLOWUPS`）。
     - 推上去後 CI 的 `backup.spec`「Insights 開著時備份，範圍要重讀」失敗，重新整理才看到新造訪。不是這個 PR 帶進來的（2026-10-08 起就有）：Insights 的快取與存下的讀取用 checkpoint 帳本的指紋當鍵，同一次建置的每個階段都用建置開始的時間寫 checkpoint，發布（切換 Insights 讀的資料）時帳本不變；在最後一個 checkpoint 和發布之間讀的範圍，就以同一個指紋被快取，建置標成完成後把備份前的列當成最新的給出去。改成發布在同一個交易裡更新帳本的時間（Rust 測試先失敗）。
 
 - [x] **WORK-GATE-2026-10-25** — 先讓整合分支 `feat/search-sort-builder` 過完整 gate，再合 main（2026-10-25 晚上的 gate 在 E2E 的 change 專案連鎖失敗，restart 之後沒跑）
