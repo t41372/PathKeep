@@ -77,16 +77,18 @@ export function useTakeoutImportRun() {
       if (result.stopped) toast.success(t('backup.import.stoppedToast'))
       else
         toast.success(t('backup.import.done', { count: result.importedItems }))
-      await refreshAfterArchiveChange()
     } catch (error) {
       const description = describeError(error, 'import_takeout')
       setState({ step: 'idle', error: description })
       toast.error(t('backup.import.failed'), { description })
-      await refreshAfterArchiveChange().catch(() => undefined)
     } finally {
       unsubscribe?.()
       busy.current = false
     }
+    // After the run, not part of it: the next export can be inspected while
+    // the pages read the archive again, and a refresh that fails does not undo
+    // an import that finished. A failed import may have saved part of it.
+    await refreshAfterArchiveChange().catch(() => undefined)
   }, [state, t])
 
   /**

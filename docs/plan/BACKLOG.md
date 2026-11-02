@@ -17,6 +17,12 @@
   - 「最常回來搜的」（`get_search_effectiveness` 的 hardest topics，`2351ba22` 起跨瀏覽器與引擎合併同一句搜尋）每一頁仍讀完範圍內所有 query family，跟合併之前一樣（舊的 SQL 排序也讀完範圍）；2026-10-29 本機 debug build 同一份資料比較：10 萬個 family 新讀法每頁 0.3 s、舊 SQL 0.16 s，30 萬個新讀法 1.4–1.6 s、舊 SQL 2.3–3.0 s。這次 14.4M 也量它的第一頁與下一頁；太慢就在建置時存好合併用的 key，讓 SQL 分組、只排前 k 個。
   - 要做：(1) 先量每條讀了多少頁、多少列（同一台小機器，預設與 `habits` 兩種形狀各一次），分清是讀太多還是磁碟慢；(2) 讀太多就改讀法（例如 interrupted habits 在建置時算好存起來、all-time digest 走快照）；(3) 不管多快，卡片等的時候都要有 skeleton 與漸進載入，不能讓整頁空著；(4) 結果寫回 `ipc-performance.md`。
 
+- [ ] **WORK-SNAPSHOT-WRITE-ORDER** — 快取的 app snapshot 被較舊的讀取蓋掉（2026-11-01 PR #16 最後一次審查找到）
+  - 讀先：`src/lib/queries/app.ts`（`useSnapshot`，`staleTime: Infinity`）、`src/app/backup-runner.tsx` 的 `refreshAfterArchiveChange`、`src/lib/query.ts`。
+  - 現象：十幾處（備份、匯入、索引工作事件、設定的各個對話框、onboarding）各自 `getSnapshot` 再 `setQueryData(queryKeys.snapshot, …)`，不管先後。兩個讀取同時在路上、先發的後回來，就把新的 snapshot 換回舊的；snapshot 不會自己過期，畫面上的存檔狀態要等下一次有東西改了存檔才對。存檔本身不受影響。
+  - 2026-11-01 匯入改成回覆後就放開、重新整理放在後面（`fix(import): take the next file while the pages refresh after an import`），連續兩次匯入也會讓兩次重新整理重疊；之前要等前一次整理完，這條路碰不到，其他來源一直都會。
+  - 方向：所有寫入走同一個地方，丟掉比已寫入的更舊的回答（請求開始時取號，或後端給 snapshot 一個遞增的版本）。不要只在 `refreshAfterArchiveChange` 裡擋：其他寫入照樣會蓋。
+
 - [ ] **WORK-FLAKY-BLOCK-CACHE-RSS** — `vault-crypto` 的 `the_block_cache_bounds_memory` 量常駐記憶體（RSS），記憶體緊時不準（2026-10-25 gate 連兩次失敗，同一晚 03:31 的整套 Rust 測試過了；vault-crypto 當晚沒改）
   - 現象：上限 2 MiB 的快取 RSS 漲 8.3 / 6.9 MiB，沒有上限的漲 11.1 / 4.9 MiB（它的快取最多 9.9 MiB），斷言要前者比後者少 4 MiB 以上。
   - 根因：測試的索引只有 16.6 MiB，兩種快取的差距本來就只比門檻大一點；macOS 記憶體緊時會壓縮頁面，RSS 不跟著快取長（那時另一個 session 在跑 benchmark，壓縮器裡有約 126 萬頁）。

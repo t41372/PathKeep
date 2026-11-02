@@ -45,6 +45,8 @@
         - 確認並修：備註存檔的回應帶著整份 annotation，等 `cancelQueries` 的空檔裡標籤存檔先落地，備註的舊回應把快取裡的標籤蓋回舊的，標籤欄位接著採用它，下一次加標籤就寫出少了一個的清單、刪掉存檔裡的標籤（這個 PR 讓標籤欄位會採用快取的變化）。改成各自只把自己那個欄位寫進快取。unit test 先失敗再過；標籤欄位的佇列也一起共用。
         - 確認並修：改密碼的「做完再結束」hold 只包住改寫那一段，鑰匙圈設定在 hold 結束後才存，結束可能落在中間。改成 hold 包住到設定存好。沒有測試（從變數的作用範圍就看得出來，E2E 的結束測試只做匯出）。
         - 看過、不改：`hardest_topics_in_range` 讀整個範圍（同上，`WORK-INSIGHTS-COLD-READS`）。
+        - gate 抓到的（不是這個 PR 帶進來的，2026-10-04 起就有）：匯入完成、頁面還在重新整理時，匯入仍算在忙，接著檢查下一個檔案會被默默丟掉，卡片停在填好的路徑上什麼也不做（`semantic-index.spec` 的匯入 helper 因此偶發失敗）；重新整理失敗也會把已完成的匯入報成失敗。Takeout 與瀏覽器檔案的匯入都改成匯入回覆後就放開，重新整理放在後面、失敗不影響結果。unit test（`import-runs.test.tsx`，E2E 排不出這個競爭）先失敗再過。
+        - 最後再請它只看上面這一輪的修改（Codex，讀碼不跑）：這裡的修正都確認站得住；找到一條，確認但不在這裡修：快取的 app snapshot 十幾處各自讀了就寫、不管先後，兩次讀取亂序回來時舊的會蓋掉新的。匯入不再等重新整理之後，連續兩次匯入也會碰到；其他來源本來就會。存檔不受影響，畫面上的狀態要等下一次變動才對。要所有寫入走同一條有順序的路，進 BACKLOG（`WORK-SNAPSHOT-WRITE-ORDER`）。
       - 看過、記進 BACKLOG：resolve 指標連換四次就放棄（`WORK-INDEX-RESOLVE-RETRY-LIMIT`，現在碰不到）。錯字容忍只做拉丁字母是既定設計（`lexical-recall-v2.md`），不改。
       - 看過、不改：`hardest_topics_in_range` 每頁把範圍內的 query family 讀進記憶體（已量：30 萬 family 1.4–1.6 s，`WORK-INSIGHTS-COLD-READS`）；更新重啟不問（已記 `WORK-QUIT-FOLLOWUPS`）。
     - 推上去後 CI 的 `backup.spec`「Insights 開著時備份，範圍要重讀」失敗，重新整理才看到新造訪。不是這個 PR 帶進來的（2026-10-08 起就有）：Insights 的快取與存下的讀取用 checkpoint 帳本的指紋當鍵，同一次建置的每個階段都用建置開始的時間寫 checkpoint，發布（切換 Insights 讀的資料）時帳本不變；在最後一個 checkpoint 和發布之間讀的範圍，就以同一個指紋被快取，建置標成完成後把備份前的列當成最新的給出去。改成發布在同一個交易裡更新帳本的時間（Rust 測試先失敗）。
