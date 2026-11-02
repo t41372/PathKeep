@@ -82,8 +82,9 @@ impl VaultSession {
                     if keychain == KeychainAfterInstall::Key {
                         return Err(error);
                     }
-                    // As an unlock does: the next start asks for the password, and Home says the
-                    // key is not in the keychain.
+                    // As an unlock does: the keychain holds no other key afterwards
+                    // (`store_data_key_in_keyring`), so the next start asks for the password and
+                    // Home says the key is not in the keychain.
                     eprintln!("PathKeep could not keep the archive key in the keychain: {error:#}");
                 }
             } else if keychain != KeychainAfterInstall::AsSaved {
@@ -314,8 +315,13 @@ impl VaultSession {
             Vault::open_owned(paths, config.clone(), Some(data), owner)
                 .map_err(|e| e.to_string())?
         };
-        if remember && let Some(key) = &key {
-            crate::security::store_data_key_in_keyring(key).map_err(|e| e.to_string())?;
+        // Remembering the key spares the password next time; it is never a condition for this
+        // one. A keychain that refuses it leaves the next start asking for the password.
+        if remember
+            && let Some(key) = &key
+            && let Err(error) = crate::security::store_data_key_in_keyring(key)
+        {
+            eprintln!("PathKeep could not keep the archive key in the keychain: {error:#}");
         }
         let mut state = self.inner.0.lock().expect("session state");
         if password.is_some() {
