@@ -62,8 +62,8 @@ M18 redesign（2026-10-02）換掉了整個前端。下面各節的後端行為�
   - 排程自動備份只會處理用戶明確勾選過的 profiles。
   - 用戶可以隨時調整選擇，新增或移除要備份的 profiles。
 - 備份流程：
-  1. 對瀏覽器的 History / Favicons SQLite 做一致性 snapshot，寫到 staging 區；原則上優先使用 SQLite Backup API，而不是單純 raw file copy。
-  2. 對 staging 副本做完整性檢查（`PRAGMA quick_check`）。
+  1. 對瀏覽器的 History / Favicons SQLite 做一致性 snapshot，寫到 staging 區；優先使用 SQLite Backup API。Chrome 與桌面版 Firefox 執行時一直鎖著自己的歷史檔，Backup API 拿不到鎖，所以瀏覽器開著時讀的是直接複製的檔案（連同 journal / WAL）：複製前後比對主檔、WAL、journal 的大小與修改時間，複製期間瀏覽器寫過就重新複製，一直在寫就這次不讀這個 profile（`partial`），下次再試。
+  2. 直接複製的副本在 staging 上把 journal / WAL 併回主檔。備份不做 `PRAGMA quick_check`（它讀每一頁，1440 萬筆時太慢）；使用者匯入的瀏覽器檔案在直接複製後會做。
   3. 解析並寫入 archive 數據庫。
   4. 無法讀取的 profile 仍保留在 onboarding 與 Backup 的來源清單中，並附帶權限或支援限制說明。
 - Staging / raw-source checkpoint 的實際檔案或目錄名稱不得直接使用 raw `profile_id`；`firefox:default-release`、`chrome:Default` 這類 ID 必須在檔案系統邊界轉成可逆的 Windows-safe path segment，archive metadata / UI / selected profile contract 則繼續保留原始 ID。

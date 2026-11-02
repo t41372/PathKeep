@@ -163,7 +163,8 @@ fn stage_profile_snapshot_recovers_a_hot_journal_for_the_chromium_parser() {
     // The degraded staging path was recorded as a run warning, not swallowed.
     assert_eq!(staged.warnings.len(), 1, "the recovered-copy fallback must be reported");
     assert!(staged.warnings[0].message.contains("chrome:Default"), "the warning names the profile");
-    assert_eq!(staged.warnings[0].code, "staging-fallback-recovered-copy");
+    // A hot journal with no browser holding the file: the copy needed repair, not "in use".
+    assert_eq!(staged.warnings[0].code, "staging-fallback-repaired-copy");
     assert_eq!(staged.warnings[0].profile_id.as_deref(), Some("chrome:Default"));
     assert!(
         staged.warnings[0].diagnostic.is_some(),

@@ -131,6 +131,28 @@ current. Only version 1 visits are looked up in source evidence by row id, as be
 in evidence version 1's own runs captured (`identity_upgrade.last_legacy_run`, migration 16):
 a later visit given the same row id writes its evidence under that id too.
 
+## Reading a file the browser has open
+
+Chrome and desktop Firefox keep their history file locked while they run (Chrome's
+`sql::Database` uses exclusive locking; Firefox opens through `unix-excl`), so SQLite's online
+backup never gets in and a backup copies the file and its journal or WAL directly. That copy
+is taken again until nothing wrote to the main file, WAL or journal while it ran, at most five
+times. "Nothing wrote" is read from the files: the same size, modification time and creation
+time before and after. On macOS (APFS) and Linux every write sets the modification time another
+process reads at once, kept to the nanosecond or near it, and a file put in another's place has
+its own creation time; a filesystem that keeps times to the second (FAT, exFAT) could hide a
+write of the same size, and browser profiles do not live on one. Windows does not promise it:
+Microsoft's `WriteFile` documentation says a file's last-write time may not be fully updated
+until every handle that wrote to it is closed, and a running browser keeps its handle open. So on
+Windows a write that keeps the size can pass unseen, and a copy that overlapped it can still be
+saved; there the check is not yet a guarantee (`WORK-WINDOWS-RAW-COPY-CHECK`, which needs a
+Windows machine to measure). Comparing the bytes of two copies would prove more and read the
+whole file twice more on every backup, gigabytes at 14.4M visits; a browser that writes through all
+five fails that profile's read and the run is `partial`. Before this check a copy that
+overlapped a commit could be a database that never existed and still be saved as a success
+(older than this branch, from 2026-06). Safari's file is read by the online backup, in one
+step. Details: `browser-support-and-adapter-playbook.md` (staging).
+
 ## How much a backup reads
 
 `read_plan::plan` decides per profile:

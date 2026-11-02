@@ -8,14 +8,20 @@ use super::*;
 use crate::archive::source_error::SourceError;
 use rusqlite::{Connection, MAIN_DB, OpenFlags};
 use std::{
-    io::{Read, Write},
-    time::Duration,
+    io::{ErrorKind, Read, Write},
+    time::{Duration, SystemTime},
 };
 
 /// How long staging operations wait on a lock held by a live browser before
 /// giving up. Long enough to outlast a browser's brief write transactions,
 /// short enough to keep a backup from stalling on a wedged writer.
 const STAGING_BUSY_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// How many times a raw copy is taken when the browser wrote to the file while it was copied,
+/// and the pause before the next. Chrome commits about every ten seconds and a copy takes far
+/// less, so the second nearly always fits between two commits.
+const RAW_COPY_ATTEMPTS: u32 = 5;
+const RAW_COPY_PAUSE: Duration = Duration::from_millis(200);
 
 /// The 16-byte magic every SQLite database file begins with.
 const SQLITE_FILE_HEADER: &[u8; 16] = b"SQLite format 3\0";
@@ -128,12 +134,18 @@ pub fn stage_profile_snapshot(
 fn staging_fallback_warning(
     profile: &BrowserProfile,
     source_label: &str,
-    reason: &str,
+    fallback: &Fallback,
 ) -> crate::models::BackupWarning {
+    let (code, why) = if fallback.in_use {
+        ("staging-fallback-recovered-copy", "the browser held the database")
+    } else {
+        ("staging-fallback-repaired-copy", "the database needed repair")
+    };
+    let reason = &fallback.reason;
     crate::models::BackupWarning::new(
-        "staging-fallback-recovered-copy",
+        code,
         format!(
-            "{} ({source_label}): the live database was busy, so the backup used a recovered file copy instead of an online snapshot — {reason}",
+            "{} ({source_label}): {why}, so the backup used a recovered file copy instead of an online snapshot — {reason}",
             profile.profile_id
         ),
     )
@@ -146,9 +158,18 @@ pub(crate) struct StagedDatabase {
     /// The staged copy the parser will read.
     pub path: PathBuf,
     /// Set when the preferred online snapshot failed and we used the slower
-    /// raw-copy + recovery fallback. Carries the snapshot failure reason so the
-    /// backup run can record why staging was degraded; `None` on the clean path.
-    pub fallback_reason: Option<String>,
+    /// raw-copy + recovery fallback, with why, so the backup run can record why
+    /// staging was degraded; `None` on the clean path.
+    pub fallback_reason: Option<Fallback>,
+}
+
+/// Why a database was staged from a raw copy.
+pub(crate) struct Fallback {
+    /// The browser held the database locked: Chrome and desktop Firefox do while they run, so
+    /// this is how their files are read while they are open.
+    pub in_use: bool,
+    /// The online snapshot's error chain.
+    pub reason: String,
 }
 
 /// Copies one SQLite database plus its known sidecars into the staging directory.
@@ -169,27 +190,21 @@ pub(crate) fn stage_sqlite_file(source: &Path, destination: &Path) -> Result<Sta
     // consistent, journal-free file even while the browser keeps writing. Its
     // failure is not terminal — we fall back to the raw copy below — but we keep
     // the reason so the run can surface why staging was degraded.
-    let fallback_reason = match snapshot_sqlite_database(source, destination) {
+    let fallback = match snapshot_sqlite_database(source, destination) {
         Ok(()) => {
             return Ok(StagedDatabase { path: destination.to_path_buf(), fallback_reason: None });
         }
-        Err(error) if error.downcast_ref::<SourceError>().is_some() => format!("{error:#}"),
+        Err(error) if error.downcast_ref::<SourceError>().is_some() => {
+            Fallback { in_use: held_by_another_process(&error), reason: format!("{error:#}") }
+        }
         Err(error) => return Err(error),
     };
 
     // Fallback: a plain file copy. This can capture the live browser's hot
     // rollback journal or WAL, so we copy those sidecars too — they hold the
     // pages needed to reach a consistent state. Without them the main file is a
-    // torn copy.
-    copy_with_context(source, destination)?;
-
-    for suffix in ["-wal", "-shm", "-journal"] {
-        let source_sidecar = PathBuf::from(format!("{}{suffix}", source.display()));
-        if source_sidecar.exists() {
-            let target_sidecar = PathBuf::from(format!("{}{suffix}", destination.display()));
-            copy_with_context(&source_sidecar, &target_sidecar)?;
-        }
-    }
+    // torn copy. A copy the browser wrote during is taken again.
+    copy_while_still(source, || copy_with_sidecars(source, destination))?;
 
     // The read-only parser cannot replay a hot journal or WAL itself
     // (SQLITE_READONLY_ROLLBACK / _RECOVERY). Fold them into the main file now,
@@ -206,7 +221,94 @@ pub(crate) fn stage_sqlite_file(source: &Path, destination: &Path) -> Result<Sta
         })?;
     }
 
-    Ok(StagedDatabase { path: destination.to_path_buf(), fallback_reason: Some(fallback_reason) })
+    Ok(StagedDatabase { path: destination.to_path_buf(), fallback_reason: Some(fallback) })
+}
+
+/// Whether the online snapshot failed because another process held the database (BUSY or
+/// LOCKED), rather than on the file itself (a hot journal, damage, not a database at all).
+fn held_by_another_process(error: &anyhow::Error) -> bool {
+    error.chain().any(|cause| {
+        cause.downcast_ref::<rusqlite::Error>().is_some_and(|error| {
+            matches!(error, rusqlite::Error::SqliteFailure(code, _) if matches!(code.code,
+                rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked))
+        }) || cause.downcast_ref::<SnapshotBusy>().is_some()
+    })
+}
+
+/// The online snapshot could not go on: another process holds the database.
+#[derive(Debug, thiserror::Error)]
+#[error("browser snapshot is busy")]
+struct SnapshotBusy;
+
+/// Runs `copy` until nothing wrote to `source` while it ran. The browser keeps writing while a
+/// raw copy is taken (Chrome commits about every ten seconds, Firefox appends to its WAL), and
+/// a copy that overlapped a write can hold pages from before and after it: a database that never
+/// existed, which still opens and parses, and nothing in the file says so. A browser that writes
+/// through every try fails this read; the next backup tries again.
+fn copy_while_still(source: &Path, mut copy: impl FnMut() -> Result<()>) -> Result<()> {
+    for attempt in 1..=RAW_COPY_ATTEMPTS {
+        let before = write_marks(source);
+        copy()?;
+        if write_marks(source) == before {
+            return Ok(());
+        }
+        if attempt < RAW_COPY_ATTEMPTS {
+            std::thread::sleep(RAW_COPY_PAUSE);
+        }
+    }
+    Err(anyhow::anyhow!(
+        "the browser wrote to {} during each of {RAW_COPY_ATTEMPTS} copies",
+        source.display()
+    )
+    .context(SourceError::Failed("source-read-failed")))
+}
+
+/// Size, modification time and creation time of the main file and of the sidecars that hold its
+/// pages. On macOS (APFS) and Linux every write sets the modification time another process reads
+/// at once, kept to the nanosecond or near it, and a file put in another's place has its own
+/// creation time; so equal before and after a copy, nothing wrote to them or replaced them in
+/// between. Windows does not promise this: NTFS may not update a file's last-write time until the
+/// handles that wrote to it are closed (`WriteFile`), and a running browser keeps its handle
+/// open, so a write that keeps the size can leave every mark as it was. There the check catches
+/// writes that change a size, not all of them (`WORK-WINDOWS-RAW-COPY-CHECK`). A filesystem that
+/// keeps times to the second (FAT, exFAT) could hide a write of the same size within one; browser
+/// profiles do not live on those. `-shm` is left out: SQLite rebuilds it from the WAL when the
+/// copy is first opened, and readers write to it too.
+fn write_marks(source: &Path) -> [Option<WriteMark>; 3] {
+    ["", "-wal", "-journal"].map(|suffix| {
+        fs::metadata(with_suffix(source, suffix))
+            .ok()
+            .map(|metadata| (metadata.len(), metadata.modified().ok(), metadata.created().ok()))
+    })
+}
+
+type WriteMark = (u64, Option<SystemTime>, Option<SystemTime>);
+
+/// Copies the main file and whichever of its sidecars exist. One an earlier try copied that is
+/// gone now is removed from the copy, which would otherwise replay it.
+fn copy_with_sidecars(source: &Path, destination: &Path) -> Result<()> {
+    copy_with_context(source, destination)?;
+    for suffix in ["-wal", "-shm", "-journal"] {
+        let target = with_suffix(destination, suffix);
+        match fs::remove_file(&target) {
+            Err(error) if error.kind() != ErrorKind::NotFound => {
+                return Err(error)
+                    .with_context(|| format!("removing staged sidecar {}", target.display()));
+            }
+            _ => {}
+        }
+        // Gone between the browser's writes is not an error: the marks above see the change.
+        match fs::File::open(with_suffix(source, suffix)) {
+            Ok(file) => copy_open_file(file, &with_suffix(source, suffix), &target)?,
+            Err(error) if error.kind() == ErrorKind::NotFound => {}
+            Err(error) => return Err(open_error(error, &with_suffix(source, suffix))),
+        }
+    }
+    Ok(())
+}
+
+fn with_suffix(path: &Path, suffix: &str) -> PathBuf {
+    PathBuf::from(format!("{}{suffix}", path.display()))
 }
 
 fn snapshot_sqlite_database(source: &Path, destination: &Path) -> Result<()> {
@@ -234,18 +336,16 @@ fn snapshot_sqlite_database(source: &Path, destination: &Path) -> Result<()> {
         MAIN_DB,
     )
     .map_err(classify_source_sqlite_error)?;
-    loop {
-        match backup.step(100).map_err(classify_source_sqlite_error)? {
-            rusqlite::backup::StepResult::Done => break,
-            rusqlite::backup::StepResult::More => {}
-            rusqlite::backup::StepResult::Busy | rusqlite::backup::StepResult::Locked => {
-                return Err(anyhow::anyhow!("browser snapshot is busy")
-                    .context(SourceError::Failed("source-read-failed")));
-            }
-            _ => return Err(anyhow::anyhow!("unexpected browser snapshot step")),
+    // All pages in one step, under one read transaction: between smaller steps SQLite lets go of
+    // the source, and every write the browser makes starts the copy again from the first page.
+    // A WAL reader does not hold up the browser's writes.
+    match backup.step(-1).map_err(classify_source_sqlite_error)? {
+        rusqlite::backup::StepResult::Done => Ok(()),
+        rusqlite::backup::StepResult::Busy | rusqlite::backup::StepResult::Locked => {
+            Err(anyhow::Error::new(SnapshotBusy).context(SourceError::Failed("source-read-failed")))
         }
+        _ => Err(anyhow::anyhow!("unexpected browser snapshot step")),
     }
-    Ok(())
 }
 
 /// Folds a captured hot rollback journal or live WAL back into the main database
@@ -296,18 +396,35 @@ fn is_sqlite_database(path: &Path) -> Result<bool> {
 
 /// Copies one file while preserving the source/destination context in errors.
 fn copy_with_context(source: &Path, destination: &Path) -> Result<()> {
-    let mut input = fs::File::open(source)
-        .map_err(|error| {
-            let marker = SourceError::access(&error);
-            anyhow::Error::new(error).context(marker)
-        })
-        .with_context(|| format!("opening source {}", source.display()))?;
+    let input = fs::File::open(source).map_err(|error| open_error(error, source))?;
+    copy_open_file(input, source, destination)
+}
+
+/// A source that cannot be opened is `unavailable`, with why (`SourceError::access`).
+fn open_error(error: std::io::Error, source: &Path) -> anyhow::Error {
+    let marker = SourceError::access(&error);
+    anyhow::Error::new(error)
+        .context(marker)
+        .context(format!("opening source {}", source.display()))
+}
+
+fn copy_open_file(mut input: fs::File, source: &Path, destination: &Path) -> Result<()> {
     let mut output = fs::File::create(destination)
         .with_context(|| format!("creating staging destination {}", destination.display()))?;
     let mut buffer = [0; 64 * 1024];
     loop {
         let count = input.read(&mut buffer).map_err(|error| {
-            anyhow::Error::new(error).context(SourceError::Unavailable("source-unreadable"))
+            // Opened but not read to the end is `failed`. A directory opens on Unix and fails
+            // here (Safari's History.db is one when its profile is not the expected shape): that
+            // is no history file, `unavailable` as if it had not opened.
+            let marker = if error.kind() == ErrorKind::IsADirectory {
+                SourceError::Unavailable("source-unreadable")
+            } else {
+                SourceError::Failed("source-read-failed")
+            };
+            anyhow::Error::new(error)
+                .context(marker)
+                .context(format!("reading source {}", source.display()))
         })?;
         if count == 0 {
             break;
@@ -352,5 +469,75 @@ mod error_origin_tests {
         Connection::open(&source).unwrap().execute_batch("CREATE TABLE urls(id INTEGER)").unwrap();
         let failed = stage_sqlite_file(&source, &dir.path().join("absent/copy")).err().unwrap();
         assert!(failed.downcast_ref::<crate::archive::source_error::SourceError>().is_none());
+    }
+}
+
+#[cfg(test)]
+mod raw_copy_tests {
+    //! A raw copy of a database a running browser holds locked. Ways it can fail:
+    //! - the browser commits while the main file is copied, and the copy holds pages from
+    //!   before and after the commit: a database that never existed, which opens and parses;
+    //! - the browser keeps writing through every try, and a copy is used anyway;
+    //! - a journal or WAL an earlier try copied, gone by the next, is replayed into that copy.
+    use super::*;
+
+    fn write(path: &Path, bytes: &[u8]) {
+        fs::OpenOptions::new()
+            .append(true)
+            .create(true)
+            .open(path)
+            .unwrap()
+            .write_all(bytes)
+            .unwrap();
+    }
+
+    #[test]
+    fn a_copy_the_browser_wrote_during_is_taken_again() {
+        let dir = tempfile::tempdir().unwrap();
+        let (source, copy) = (dir.path().join("History"), dir.path().join("copy"));
+        write(&source, b"before");
+        let mut tries = 0;
+        copy_while_still(&source, || {
+            tries += 1;
+            copy_with_sidecars(&source, &copy)?;
+            if tries == 1 {
+                write(&source, b" commit");
+            }
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(tries, 2);
+        assert_eq!(fs::read(&copy).unwrap(), b"before commit");
+    }
+
+    #[test]
+    fn a_browser_that_writes_through_every_copy_fails_the_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let (source, copy) = (dir.path().join("History"), dir.path().join("copy"));
+        write(&source, b"start");
+        let error = copy_while_still(&source, || {
+            copy_with_sidecars(&source, &copy)?;
+            write(&source, b"+");
+            Ok(())
+        })
+        .unwrap_err();
+        assert!(matches!(
+            error.downcast_ref::<SourceError>(),
+            Some(SourceError::Failed("source-read-failed"))
+        ));
+    }
+
+    #[test]
+    fn a_journal_gone_by_the_next_try_is_not_kept_in_the_copy() {
+        let dir = tempfile::tempdir().unwrap();
+        let (source, copy) = (dir.path().join("History"), dir.path().join("copy"));
+        write(&source, b"pages");
+        let journal = |path: &Path| PathBuf::from(format!("{}-journal", path.display()));
+        write(&journal(&source), b"hot");
+        copy_with_sidecars(&source, &copy).unwrap();
+        assert!(journal(&copy).exists());
+        fs::remove_file(journal(&source)).unwrap();
+        copy_with_sidecars(&source, &copy).unwrap();
+        assert!(!journal(&copy).exists());
     }
 }
