@@ -50,6 +50,14 @@
       - 看過、記進 BACKLOG：resolve 指標連換四次就放棄（`WORK-INDEX-RESOLVE-RETRY-LIMIT`，現在碰不到）。錯字容忍只做拉丁字母是既定設計（`lexical-recall-v2.md`），不改。
       - 看過、不改：`hardest_topics_in_range` 每頁把範圍內的 query family 讀進記憶體（已量：30 萬 family 1.4–1.6 s，`WORK-INSIGHTS-COLD-READS`）；更新重啟不問（已記 `WORK-QUIT-FOLLOWUPS`）。
     - 推上去後 CI 的 `backup.spec`「Insights 開著時備份，範圍要重讀」失敗，重新整理才看到新造訪。不是這個 PR 帶進來的（2026-10-08 起就有）：Insights 的快取與存下的讀取用 checkpoint 帳本的指紋當鍵，同一次建置的每個階段都用建置開始的時間寫 checkpoint，發布（切換 Insights 讀的資料）時帳本不變；在最後一個 checkpoint 和發布之間讀的範圍，就以同一個指紋被快取，建置標成完成後把備份前的列當成最新的給出去。改成發布在同一個交易裡更新帳本的時間（Rust 測試先失敗）。
+    - 第五輪（2026-11-01，ChatGPT 對整個 PR 的審查，五條加一條 PR 組織的意見，逐條對照代碼，確認的才修）：
+      - 確認並修：清除語意索引（`clear_only`）開始時把存檔目前的水位記到還在服務的舊索引上，清除失敗、暫停或停下後，舊索引看起來涵蓋了它沒讀過的造訪，「索引過期」的提示不見，備份後的自動建索引也停了。介面沒有地方送 `clear_only`，只有命令本身與測試碰得到。改成 ready 的索引在任何一次建置發布之前都維持 ready、水位與完成時間不動（清除到成功才拿掉指標）。Rust 測試先改、先失敗、修好後通過。
+      - 確認並修：開關加密時，要求的「把密碼存到鑰匙圈」跟著新存檔的 `config.json` 一起裝上，鑰匙圈寫不進去時設定已經是開的；下次用密碼開存檔，又因為鑰匙圈存不進去而打不開。改成裝上時帶原本的設定，鑰匙圈存好或清掉了才改設定（只寫這一欄，App Lock 在長時間改寫中鎖上也不擋）；`install_archive` 明確收到要不要記住，不再從設定讀；清除不再先看狀態有沒有鑰匙（讀不到鑰匙圈時狀態也說沒有）。存檔換好之後的步驟不再讓命令失敗（之前 App Lock 鎖上時稽核紀錄那一步會讓視窗說「存檔沒有改動」）；`rekey_archive` 回傳 `RekeyOutcome { snapshot, keychainFailed }`，視窗照它提醒，不從快照的鑰匙圈狀態猜（舊鑰匙還在時猜不出）。Rust 測試先寫、先失敗、修好後通過；視窗那邊沒有測試。
+      - 驗證時另外找到並修（不是這個 PR 帶進來的）：設定開著「存到鑰匙圈」時，用密碼開存檔要先把鑰匙存進鑰匙圈，存不進去就整個打不開。改成記錄後照樣打開。測試先寫，第一版失敗在 owner lock 而不是鑰匙圈（測試本身的錯）；改正時修法已經在了，所以是把修法還原確認它失敗在鑰匙圈的錯誤、放回來通過。
+      - 文件改、程式不改：問題開著、工作已經做完時再按一次結束，程式照第二次的要求結束；模組說明與 `desktop-command-surface.md` 寫的是「回到前面」。問題上已經寫著沒有東西在跑，再結束一次就是要結束，改文件。
+      - 看過、記進 BACKLOG：引號裡看起來像運算子的字（`"site:x"`、`"-foo"`）仍當運算子（`WORK-SEARCH-QUOTED-OPERATORS`）。parser 的規則早於這個 PR，進階搜尋讓它更容易碰到，`words-query.ts` 寫明了、預覽顯示實際的查詢。
+      - 不採納：「head 上只看得到 Vercel」不對，GitHub 的 `strict-check`（Ubuntu 上完整的 `bun run check`）在兩個 PR 的 head 都過了；Windows 確實沒跑。拆成六個 PR 是用戶的決定，不在這裡做。
+      - 修完後請 Codex 只看這一輪的修改（讀碼不跑）：三條，都確認並修。(1) 改寫途中 App Lock 鎖上，最後組快照（`load_unlocked_config`）失敗，命令仍回錯誤、視窗說存檔沒改；改成讀不到就回 `snapshot: null`，解鎖時視窗再讀。沒有測試（要在改寫中途鎖上）。(2) 原生的鑰匙圈刪除把錯誤吞掉，拒絕刪除也回報成功，而視窗不再猜之後就沒有提醒；改成只有「本來就沒有」算成功（也影響設定的開關與刪除所有資料：後者會留下標記重試）。沒有測試（測試用的鑰匙圈本來就回報錯誤，原生的拒絕在測試裡做不出來）。(3) 無條件清除讓還原、升級、搬移匯入在鑰匙圈讀不到、又不需要記住時變成失敗（存檔其實已經裝好）；`install_archive` 改收 `KeychainAfterInstall`（`Key` / `Nothing` 由改密碼與開關加密的要求決定，`AsSaved` 給沒人要求改的路徑，照以前只清看得到的鑰匙、清不掉只記錄）。還原的測試先寫、先失敗。
 
 - [x] **WORK-GATE-2026-10-25** — 先讓整合分支 `feat/search-sort-builder` 過完整 gate，再合 main（2026-10-25 晚上的 gate 在 E2E 的 change 專案連鎖失敗，restart 之後沒跑）
   - 2026-10-25 16:13 在 Modal（Linux，8 vCPU / 32 GB，閒著）跑完整 `bun run check` 過了（合併換上之前的整合分支）；合併換上與它的修正、整理成 PR 分支 `feat/2026-10-25-search-and-index` 之後，17:14 再跑一次也過了（Rust 91 組、E2E 119 過、1 跳過）：JS 檢查、build、fmt、clippy、Rust 測試 91 組全過（含 `the_block_cache_bounds_memory`）、desktop bridge、release check；E2E 118 過、1 跳過（`schedule.spec` 在 Linux 上本來就跳過），restart 之後的專案（`quit-during-work.spec`、`semantic-index.spec`）都跑到了。晚上本機的連鎖失敗是負載造成的。
