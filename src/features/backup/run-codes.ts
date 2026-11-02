@@ -34,6 +34,7 @@ export const WARNINGS = {
   'source-stream-failed': { evidence: 'diagnostic' },
   'source-favicons-unavailable': { evidence: 'diagnostic' },
   'staging-fallback-recovered-copy': { evidence: 'diagnostic' },
+  'staging-fallback-repaired-copy': { evidence: 'diagnostic' },
   'git-history-skipped': { evidence: 'diagnostic' },
   'intelligence-refresh-failed': { evidence: 'diagnostic' },
   'ai-autoindex-enqueue-failed': { evidence: 'diagnostic' },

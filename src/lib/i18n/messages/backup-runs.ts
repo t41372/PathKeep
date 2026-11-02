@@ -55,6 +55,8 @@ export const backupRuns = defineMessages({
         'Couldn’t read {profile}’s site icons. The history was saved without new icons.',
       'staging-fallback-recovered-copy':
         '{profile} was in use, so PathKeep read a copy of its history file instead of the live one.',
+      'staging-fallback-repaired-copy':
+        '{profile}’s history file needed repair, so PathKeep read a repaired copy of it.',
       'git-history-skipped':
         'This run’s records were saved, but adding them to the Git history failed.',
       'intelligence-refresh-failed':
@@ -169,6 +171,8 @@ export const backupRuns = defineMessages({
         '无法读取 {profile} 的网站图标。历史已保存，没有加入新图标。',
       'staging-fallback-recovered-copy':
         '{profile} 正在使用中，因此 PathKeep 读取的是历史文件的副本，而不是正在使用的文件。',
+      'staging-fallback-repaired-copy':
+        '{profile} 的历史文件需要修复，因此 PathKeep 读取的是修复后的副本。',
       'git-history-skipped': '这次运行的记录已保存，但未能写入 Git 历史。',
       'intelligence-refresh-failed': '洞察没能开始用这次备份的访问记录更新。',
       'ai-autoindex-enqueue-failed': '新页面没能加入语义搜索的索引队列。',
@@ -275,6 +279,8 @@ export const backupRuns = defineMessages({
         '無法讀取 {profile} 的網站圖示。歷史已儲存，沒有加入新圖示。',
       'staging-fallback-recovered-copy':
         '{profile} 正在使用中，因此 PathKeep 讀取的是歷史檔案的副本，而不是正在使用的檔案。',
+      'staging-fallback-repaired-copy':
+        '{profile} 的歷史檔案需要修復，因此 PathKeep 讀取的是修復後的副本。',
       'git-history-skipped': '這次執行的記錄已儲存，但未能寫入 Git 歷史。',
       'intelligence-refresh-failed': '洞察沒能開始用這次備份的造訪記錄更新。',
       'ai-autoindex-enqueue-failed': '新頁面沒能加入語意搜尋的索引佇列。',

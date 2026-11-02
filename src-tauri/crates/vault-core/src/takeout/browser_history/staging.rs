@@ -242,13 +242,14 @@ fn snapshot_or_copy_sqlite_database(
         safari_access_hint(request, source)
             .unwrap_or_else(|| format!("copying browser database {}", source.display()))
     })?;
-    if let Some(snapshot_error) = staged.fallback_reason
+    if let Some(fallback) = staged.fallback_reason
         && let Err(check_error) = quick_check_sqlite(destination)
     {
         return Err(check_error).with_context(|| {
             format!(
-                "staged copy from {} failed SQLite quick_check after online backup failed: {snapshot_error}",
-                source.display()
+                "staged copy from {} failed SQLite quick_check after online backup failed: {}",
+                source.display(),
+                fallback.reason
             )
         });
     }
