@@ -288,6 +288,15 @@ mod tests {
     };
     use tempfile::tempdir;
 
+    /// Run by cargo, tests keep their keys in an item of their own (the repo's
+    /// `.cargo/config.toml`), never the installed app's: one that saves or clears the archive
+    /// key without its file-backed keychain would change the real one.
+    #[test]
+    fn tests_never_use_the_installed_apps_keychain_item() {
+        let _guard = env_lock().lock().expect("env lock");
+        assert_ne!(keyring_service(), crate::test_support::DEFAULT_KEYRING_SERVICE);
+    }
+
     #[test]
     fn provider_key_does_not_satisfy_database_key_status_or_clear_database_secret() {
         let _guard = env_lock().lock().expect("env lock");

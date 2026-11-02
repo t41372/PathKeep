@@ -26,6 +26,8 @@
 
 時區（2026-10-11）：gate 在每台電腦上都一樣，不看電腦在哪個時區。Rust 測試固定在 `Pacific/Kiritimati`（UTC+14、沒有夏令時間）跑：日界跟 UTC 差最多，假設電腦在 UTC 的測試會在這裡露出來；E2E 的 app 與瀏覽器固定在 UTC（`scripts/run-playwright.mjs`），spec 照 UTC 數日子。測試要嘛釘住自己用的時區（例如設 `insights_time_zone`），要嘛照電腦時區算期望值，不能假設電腦在哪裡。之前 CI 與 Modal 都剛好是 UTC，有 4 個測試在別的時區會錯（`WORK-TESTS-ANY-TIME-ZONE`）。
 
+鑰匙圈（2026-11-02）：Rust 測試用的鑰匙圈服務名稱預設是已安裝 app 的 `com.yi-ting.pathkeep`，測試沒設 `CHB_TEST_KEYRING_DIR`（檔案模擬的鑰匙圈）就存或清封存鑰匙，會改到使用者真正的那一項。repo 的 `.cargo/config.toml` 用 `[env]` 把 `PATHKEEP_PLATFORM_TEST_KEYRING_SERVICE` 設成 `com.yi-ting.pathkeep.dev`，cargo 啟動的每個程序（測試、`cargo run`、`tauri dev`）都用自己那一項；打包好的 app 自己開不會帶這個變數。會碰鑰匙圈的測試仍要設 `CHB_TEST_KEYRING_DIR`；碰真正 OS 鑰匙圈的只有 `vault-platform/tests/native_host.rs`（`#[ignore]`，用獨立的服務名稱）。E2E 與 `dev:demo` 用檔案模擬的鑰匙圈。
+
 ## E2E
 
 E2E 是證明功能的主要手段。環境是獨立的，但其餘都是真的：
