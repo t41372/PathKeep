@@ -14,6 +14,26 @@
   - 另外量一份 Sync 從新到舊寫的大檔（開啟者大多在子造訪之後）：讀完才找到的開啟者分批寫，量它的時間。
   - 工具：`archive::ingest::scale_measure`（`docs/architecture/research/2026-11-backup-integrity-1m/README.md`）。
 
+- [ ] **WORK-INSIGHTS-LATE-OPENERS** — Insights 已經建過的造訪後來才有開啟者，站點流向與路徑要等下一次完整重建才看到（2026-11-01 PR #18 第五輪審查）
+  - 讀先：`docs/architecture/backup-integrity.md` §Openers、`vault-core/src/intelligence/build_pipeline.rs`（`count == 0` 與 append 的判斷）、`build_append.rs`（只讀 `visit_id > old max`）、`build_rows.rs` 讀 `parent_visit_id` 的地方。
+  - 現象：PR #18 讓備份可以更新已存的造訪：時長（查詢時才讀，不受影響）、開啟者（`parent_visit_id`，只在原本沒有時填上）。Navigation 跟著連結走，馬上對；Insights 的站點流向、trail、導航鏈深度是建置時算好的，append 只建比上次大的 id，`backup_changed_archive` 也只看新造訪，所以後來才填上的開啟者要等下一次完整重建（規則或階段版本變了、手動重建）。會碰到的：Sync 分批從新到舊寫，一批的子造訪先備份、它的開啟者下一批才進檔案；備份在寫開啟者之前被打斷（下一次備份會補上連結）。
+  - 不採用：每次這樣就整個重建。`ipc-performance.md` 的完整建置在 14.4M 上是 40–100 分鐘（伺服器 CPU），目標機更久；為了少數連結這樣做不行。
+  - 方向：備份在同一個交易裡記下「哪些已建過的造訪換了開啟者」（造訪 id，不是一個計數），建置只重算那些造訪所在的 session／trail 與它們加減的站點流向。先量 Sync 使用者一週會有多少這種造訪，再決定做法。
+
+- [ ] **WORK-URL-TITLE-REFRESH** — 最後造訪時間沒變時，頁面標題不會更新（2026-11-01 PR #18 第五輪審查；規則早於 PR #18）
+  - 讀先：`vault-core/src/archive/ingest/writes.rs` 的 `upsert_url`（`url.last_visit_ms > last` 才更新）、`browser-history-parser/src/url_pages.rs` 的 URL 讀取條件。
+  - 現象：Chrome 在造訪開始時記下時間，標題載完才寫（單頁應用會改好幾次）；那之間跑的備份存到舊標題，之後的備份看到同一個最後造訪時間就不更新，要等下一次造訪那一頁。
+  - 方向：不是直接改成 `>=`：重播舊的 checkpoint 也是同一個時間，會把舊標題寫回來。要分清楚「這次讀的是瀏覽器現在的檔案」與「重播」：前者在時間相同時也可以更新標題，後者不行（跟時長「不往回拿」同一個規則）。
+
+- [ ] **WORK-WIPE-WAITS-FOR-BACKUP** — 刪除所有資料不等正在跑的備份（2026-11-01 PR #18 第五輪審查時看到；早於 PR #18）
+  - 讀先：`vault-worker/src/data_wipe.rs`（`stop_background_work`）、`vault-core/src/archive/wipe.rs` 的檔頭（說「進行中的先做完」）、`Vault::begin_backup`。
+  - 現象：刪除只停並等背景佇列與連結預覽，正在跑的備份照跑；存檔關掉之後它的寫入都失敗（`Closed`），不會把資料寫回來，但那次備份會以錯誤結束，檔頭的說法也不對。
+  - 方向：刪除取得備份那把鎖（或讓備份走 `ArchiveOpGate`），等它結束或請它停；檔頭照實寫。
+
+- [ ] **WORK-STAGING-BUSY-WAIT** — 瀏覽器開著時，每個 profile 每次備份先空等 10 秒（2026-11-01 PR #18 第五輪審查時從代碼與瀏覽器原始碼找到，本機用 SQLite 重現了鎖，沒在真的瀏覽器上量；早於 PR #18）
+  - 現象：Chrome 與桌面版 Firefox 執行時一直鎖著歷史檔，線上備份每次都等滿 5 秒的 busy timeout 才改成直接複製，History 和 Favicons 各一次。Safari 不鎖，等待有用。
+  - 方向：鎖是瀏覽器整段執行期間都在的（排他鎖），不是短暫的寫入；先用很短的 timeout 試一次，拿不到就直接複製，只有 Safari 這類一般鎖定的檔案才等。改之前先在真的 Chrome／Firefox 開著時量一次。
+
 - [ ] **WORK-INSIGHTS-COLD-READS** — 目標機大小的機器上，Insights 有卡片第一次讀要等一分鐘以上（2026-10-25 14.4M 量測找到；和「目標機上流暢」的硬指標衝突，下一輪先做）
   - 讀先：`docs/architecture/ipc-performance.md` §11（各讀取的量法與 2026-10-09 的表）與 §16 最後一段、`vault-worker/tests/archive_scale_bench/turso_intelligence.rs`。
   - 現象（Modal microVM 4 vCPU / 8 GB，release、加密，14.4M 造訪，預設形狀；資料最大 22.5 GB）：app 剛起來的第一次讀，interrupted habits 30 天 66 s、一年 68 s，全部時間的 digest 單獨讀 67 s，一年的第一批卡片 29.5 s；同一個讀取第二次 1 s 以內到 0.5 s。
