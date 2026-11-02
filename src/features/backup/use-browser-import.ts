@@ -147,16 +147,18 @@ export function useBrowserImportRun() {
         toast.success(
           t('backupImport.browser.done', { count: result.importedItems }),
         )
-      await refreshAfterArchiveChange()
     } catch (error) {
       const description = describeError(error, 'import_browser_history')
       setState({ step: 'idle', error: description })
       toast.error(t('backupImport.browser.failed'), { description })
-      await refreshAfterArchiveChange().catch(() => undefined)
     } finally {
       unsubscribe?.()
       busy.current = false
     }
+    // After the run, not part of it: the next file can be inspected while the
+    // pages read the archive again, and a refresh that fails does not undo an
+    // import that finished. A failed import may have saved part of the file.
+    await refreshAfterArchiveChange().catch(() => undefined)
   }, [state, t])
 
   /** Asks the import to stop after the batch it is writing, as for Takeout. */
