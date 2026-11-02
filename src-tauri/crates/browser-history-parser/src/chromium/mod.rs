@@ -78,7 +78,7 @@ pub const INGEST_VISITS_SQL: &str =
             visits.visited_link_id, visits.external_referrer_url, visits.app_id
      FROM visits
      JOIN urls ON urls.id = visits.url
-     WHERE visits.id > ?1
+     WHERE visits.id > ?1 OR visits.visit_time >= ?2
      ORDER BY visits.id ASC";
 /// Incremental download ingest query used by the archive pipeline.
 pub const DOWNLOADS_SQL: &str =
@@ -89,7 +89,7 @@ pub const DOWNLOADS_SQL: &str =
      ORDER BY id ASC";
 /// Incremental keyword-search-term query used by the archive pipeline.
 pub const SEARCH_TERMS_SQL: &str =
-    "SELECT keyword_id, url_id, term, normalized_term, urls.last_visit_time
+    "SELECT keyword_id, url_id, term, normalized_term, urls.last_visit_time, urls.url
      FROM keyword_search_terms JOIN urls ON urls.id = keyword_search_terms.url_id
      WHERE urls.last_visit_time >= ?1 ORDER BY urls.last_visit_time, urls.id, keyword_id";
 /// Incremental favicons query used by the archive pipeline.
@@ -181,7 +181,10 @@ where
     stream_url_batches(&history, cursor, chunk_size, consumer, &mut native_entities)?;
     stream_visit_batches(
         &history,
-        cursor.after_visit_id,
+        crate::VisitWindow {
+            after_id: cursor.after_visit_id,
+            recent_since_ms: cursor.recent_visits_since_ms,
+        },
         chunk_size,
         consumer,
         retain_source_evidence,
@@ -351,7 +354,7 @@ where
 
 fn stream_visit_batches<C>(
     connection: &Connection,
-    last_visit_id: i64,
+    window: crate::VisitWindow,
     chunk_size: usize,
     consumer: &mut C,
     retain_source_evidence: bool,
@@ -365,7 +368,8 @@ where
     let mut statement = stream_sql(connection.prepare(INGEST_VISITS_SQL))?;
     let column_names =
         statement.column_names().iter().map(|name| name.to_string()).collect::<Vec<_>>();
-    let mut rows = stream_sql(statement.query(params![last_visit_id]))?;
+    let since = crate::native_visits::VisitTable::Chromium.time_floor(window.recent_since_ms);
+    let mut rows = stream_sql(statement.query(params![window.after_id, since]))?;
     let mut batch = Vec::with_capacity(chunk_size);
     let mut source_evidence = SourceEvidenceChunk::default();
     while let Some(row) = stream_sql(rows.next())? {
@@ -697,6 +701,7 @@ fn parsed_url_from_row(row: &Row<'_>) -> rusqlite::Result<ParsedUrl> {
 fn parsed_visit_from_row(row: &Row<'_>) -> rusqlite::Result<ParsedVisit> {
     let visit_time = row.get::<_, i64>(4)?;
     Ok(ParsedVisit {
+        source_visit_time: Some(crate::native_visits::chromium_key(visit_time)),
         source_visit_id: row.get(0)?,
         source_url_id: row.get(1)?,
         url: row.get(2)?,
@@ -734,6 +739,7 @@ fn parsed_download_from_row(row: &Row<'_>) -> rusqlite::Result<ParsedDownload> {
 fn parsed_search_term_from_row(row: &Row<'_>) -> rusqlite::Result<ParsedSearchTerm> {
     Ok(ParsedSearchTerm {
         url_last_visit_time: row.get(4)?,
+        url: row.get(5)?,
         keyword_id: row.get(0)?,
         url_id: row.get(1)?,
         term: row.get(2)?,

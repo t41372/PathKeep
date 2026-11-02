@@ -182,12 +182,18 @@ fn backup_keeps_readable_profiles_when_safari_staging_loses_access() {
     crate::config::ensure_paths(&paths).expect("paths");
     let report = run_backup(&vault.with_config(config.clone()), false).expect("run backup");
     assert_eq!(report.run.as_ref().expect("run").new_visits, 2);
-    assert_eq!(report.profiles.len(), 1);
+    assert_eq!(report.run.as_ref().expect("run").status, "partial");
+    assert_eq!(report.profiles.len(), 2);
     assert_eq!(report.profiles[0].profile_id, "chrome:Default");
-    assert!(report.warnings.iter().any(|warning| {
-        warning.contains("safari:default")
-            && warning.contains("grant Full Disk Access before the next backup")
-    }));
+    assert!(matches!(&report.profiles[1].outcome,
+        crate::models::ProfileOutcome::Unavailable { code } if code == "source-unreadable"));
+    assert!(
+        report
+            .warning_details
+            .iter()
+            .any(|warning| warning.profile_id.as_deref() == Some("safari:default")
+                && warning.code == "source-unreadable")
+    );
 
     let history = vault.store().read(vault_store::Db::Archive,|s| s.query("SELECT p.profile_key FROM visits v JOIN source_profiles p ON p.id=v.source_profile_id",(),|r|Ok(r.get::<String>(0)?))).unwrap();
     assert_eq!(history.len(), 2);

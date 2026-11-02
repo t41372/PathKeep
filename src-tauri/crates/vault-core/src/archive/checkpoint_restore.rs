@@ -66,6 +66,9 @@ pub fn run_snapshot_restore(
                 })
                 .unwrap_or_default();
             profiles.push(BackupProfileSummary {
+                outcome: crate::models::ProfileOutcome::Failed {
+                    code: "source-read-failed".into(),
+                },
                 profile_id: checkpoint.profile.profile_id.clone(),
                 new_urls: stats["newUrls"].as_u64().unwrap_or(0) as usize,
                 new_visits: stats["newVisits"].as_u64().unwrap_or(0) as usize,

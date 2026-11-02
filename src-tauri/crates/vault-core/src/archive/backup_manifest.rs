@@ -24,6 +24,16 @@ pub(super) fn finish(
     mut warnings: Vec<BackupWarning>,
     source_hashes: BTreeMap<String, BTreeMap<String, String>>,
 ) -> Result<BackupReport> {
+    for profile in &profiles {
+        if let Some(code) = profile.outcome.code()
+            && !warnings.iter().any(|warning| {
+                warning.code == code && warning.profile_id.as_deref() == Some(&profile.profile_id)
+            })
+        {
+            warnings
+                .push(BackupWarning::new(code, code).with_profile_id(profile.profile_id.clone()));
+        }
+    }
     let finished = now_rfc3339();
     let (kind,started,trigger,scope_json,due_only,timezone)=vault.store().read(Db::Archive,move |s|s.query_one(
         "SELECT run_type,started_at,trigger,profile_scope_json,due_only,timezone FROM runs WHERE id=?1",[run_id],
@@ -31,6 +41,29 @@ pub(super) fn finish(
     let scope: Vec<String> = serde_json::from_str(&scope_json)?;
     let mut summary =
         backup_run_summary(&kind, run_id, &started, &finished, &trigger, &scope, &profiles);
+    let complete = scope.iter().all(|id| {
+        profiles.iter().any(|profile| {
+            profile.profile_id == *id && profile.outcome == crate::models::ProfileOutcome::Complete
+        })
+    });
+    let complete = complete
+        && profiles
+            .iter()
+            .all(|profile| profile.outcome == crate::models::ProfileOutcome::Complete);
+    let status = if complete { "success" } else { "partial" };
+    summary.status = status.into();
+    // A failed profile may have a committed prefix. Keep its counts in the run result.
+    let progress = vault.read(Db::Archive, move |s| {
+        Ok(serde_json::from_str::<serde_json::Value>(&s.query_one(
+            "SELECT stats_json FROM runs WHERE id=?1",
+            [run_id],
+            |r| Ok(r.get::<String>(0)?),
+        )?)?)
+    })?;
+    summary.new_visits = progress["newVisits"].as_u64().map_or(summary.new_visits, |n| n as usize);
+    summary.new_urls = progress["newUrls"].as_u64().map_or(summary.new_urls, |n| n as usize);
+    summary.new_downloads =
+        progress["newDownloads"].as_u64().map_or(summary.new_downloads, |n| n as usize);
     let (parent, counts, snapshots) = vault.read(Db::Archive, move |s| {
         let parent = s
             .query("SELECT id,content_hash FROM manifests ORDER BY id DESC LIMIT 1", (), |r| {
@@ -87,10 +120,11 @@ pub(super) fn finish(
     } else {
         None
     };
-    write_runs::complete(
+    write_runs::complete_as(
         vault,
         run_id,
-        serde_json::json!({"manifestHash":hash,"profilesProcessed":profiles.len()}),
+        status,
+        serde_json::json!({"manifestHash":hash,"profilesProcessed":profiles.len(),"profiles":profiles}),
         serde_json::to_value(&warnings)?,
         finished,
     )?;

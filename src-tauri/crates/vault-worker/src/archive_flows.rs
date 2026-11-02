@@ -19,6 +19,8 @@
 //! boundaries described in the design docs remain visible in the returned
 //! payloads.
 
+pub(crate) mod previews;
+
 use crate::{
     context::load_unlocked_config,
     intelligence::{maybe_spawn_ai_queue_drain, maybe_spawn_intelligence_queue_drain},
@@ -299,39 +301,12 @@ where
     // driving daily cadence and a manual run shouldn't double-fire.
     if !report.due_skipped {
         append_og_image_cleanup_result(&mut report, run_og_image_cleanup(vault));
-        // Negative-cache auto-refetch: try again for any URL whose
-        // `refetch_after` has elapsed. Bounded by NEGATIVE_CACHE_DAILY_BUDGET
-        // so a single overnight backlog can't burst-fire hundreds of
-        // outbound requests; remaining URLs roll into the next daily
-        // tick. Same warning channel as the cleanup pass.
-        // Load config once and reuse — both budget reads + the wrapped
-        // worker calls would otherwise hit disk three times per backup
-        // tick. `load_unlocked_config` does parse the on-disk JSON, so
-        // the saving is non-trivial on a hot post-backup path.
-        // The two helpers will still re-load internally (they need it
-        // for `effective_mode`); the dedupe here is for the budget
-        // lookups + future readers that want to extend this block.
-        let (refetch_budget, prefetch_budget) = vault_core::project_paths()
-            .ok()
-            .and_then(|paths| load_unlocked_config(&paths).ok())
-            .map(|config| {
-                (
-                    clamp_budget(config.og_image.daily_refetch_budget),
-                    clamp_budget(config.og_image.new_visit_prefetch_budget),
-                )
-            })
-            .unwrap_or((clamp_budget(50), clamp_budget(100)));
-        append_og_image_refetch_due_result(
-            &mut report,
-            try_refetch_due_og_images(vault, refetch_budget),
-        );
-        // Background-mode prefetch: warm the cache for URLs the user
-        // visited but the worker hasn't seen yet. OnDemand / Off
-        // short-circuit inside `try_prefetch_new_visit_og_images`.
-        append_og_image_prefetch_result(
-            &mut report,
-            try_prefetch_new_visit_og_images(vault, prefetch_budget),
-        );
+        // Link previews fetch over the network; the backup's reply does not wait for them.
+        if let Some(run) = report.run.as_ref()
+            && let Err(error) = previews::enqueue(vault, run.id)
+        {
+            append_og_image_prefetch_result(&mut report, Err(error));
+        }
     }
     if let Some(run) = report.run.as_ref()
         && report.warning_details.len() > recorded

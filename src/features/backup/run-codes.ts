@@ -5,7 +5,7 @@
  * same kind of entries. Kept apart from the sentences so the shell's backup
  * toast can count warnings without loading the Backup screen's code.
  */
-import type { BackupWarning } from '@/lib/types'
+import type { BackupReport, BackupWarning } from '@/lib/types'
 
 export type RunAction =
   | 'full-disk-access'
@@ -22,6 +22,17 @@ export const WARNINGS = {
   'safari-full-disk-access-skip': { action: 'full-disk-access' },
   'profile-history-unreadable-skip': { evidence: 'diagnostic' },
   'profile-not-detected-skip': {},
+  // A backup's per-profile outcome codes (`ProfileOutcome`); the older codes
+  // above stay for runs recorded before them.
+  'source-profile-not-discovered': {},
+  'source-unreadable': { evidence: 'diagnostic' },
+  'source-permission-denied': {
+    action: 'full-disk-access',
+    evidence: 'diagnostic',
+  },
+  'source-read-failed': { evidence: 'diagnostic' },
+  'source-stream-failed': { evidence: 'diagnostic' },
+  'source-favicons-unavailable': { evidence: 'diagnostic' },
   'staging-fallback-recovered-copy': { evidence: 'diagnostic' },
   'git-history-skipped': { evidence: 'diagnostic' },
   'intelligence-refresh-failed': { evidence: 'diagnostic' },
@@ -44,6 +55,9 @@ export const WARNINGS = {
 } as const satisfies Record<string, Rule>
 
 export const NOTES = {
+  'source-ids-reset': {},
+  // Rows the browser cannot show either: their page row is gone.
+  'source-visits-without-page': {},
   'profile-search-terms-captured': {},
   'og-prefetch-summary': {},
   'og-refetch-summary': {},
@@ -90,6 +104,31 @@ export function entriesOf(recorded: Recorded): BackupWarning[] {
       .map((message) => ({ code: '', message })),
     ...coded,
   ]
+}
+
+/**
+ * Whether the backup skipped Safari because PathKeep may not read its history
+ * (macOS Full Disk Access). Read from the profile's outcome, never from text.
+ */
+export function skippedSafariForFullDiskAccess(report: BackupReport) {
+  return report.profiles.some(
+    (profile) =>
+      profile.profileId.startsWith('safari:') &&
+      profile.outcome.status === 'unavailable' &&
+      profile.outcome.code === 'source-permission-denied',
+  )
+}
+
+/** A profile the backup could not read, other than Safari waiting for Full Disk Access. */
+export function leftOutOtherThanSafari(report: BackupReport) {
+  return report.profiles.some(
+    (profile) =>
+      profile.outcome.status !== 'complete' &&
+      !(
+        profile.profileId.startsWith('safari:') &&
+        profile.outcome.code === 'source-permission-denied'
+      ),
+  )
 }
 
 /** How many entries are warnings, for the toast when a backup finishes. */

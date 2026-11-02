@@ -114,12 +114,6 @@ fn dispatch_rekey_requires_the_current_password_and_keeps_keychain_unlock() {
         true
     );
     state.session.close_vault().unwrap();
-
-    unsafe {
-        std::env::remove_var(PROJECT_ROOT_OVERRIDE_ENV);
-        std::env::remove_var(CHROME_USER_DATA_OVERRIDE_ENV);
-        std::env::remove_var(TEST_KEYRING_OVERRIDE_ENV);
-    }
 }
 
 fn assert_agent_crud_after_keychain_unlock(state: &DevIpcBridgeState) {

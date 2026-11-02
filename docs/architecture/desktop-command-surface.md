@@ -207,3 +207,37 @@ Still not called by any screen (2026-10-10): `run_core_intelligence_now`, `get_s
 App 在任何資料庫工作前持有 `archive/.pk-owner.lock`，並提供同一使用者才能連線的本機 endpoint。
 排程、worker CLI 與 MCP stdio 都透過它執行；未啟動時會以 `--background` 啟動 app。
 協定、方法、權限、各平台啟動和驗收方式見 [owner-process.md](owner-process.md)。
+
+### Backup outcomes
+
+`run_backup_now` and `run_snapshot_restore` return a `BackupReport` in Tauri and the devtools
+bridge. A backup that ran returns `Ok(report)` with `run.status` `success` (every selected
+profile complete) or `partial` (some profile could not be read; what could be read is saved).
+`Err(CommandError)` means the backup itself failed (archive, disk, lock); its `message` is the
+original chain, as for other commands, and `backup-no-profiles` (nothing selected or found) is
+a classified code. Every selected profile appears in `profiles` with an `outcome`, also kept in
+the run's `stats_json.profiles`:
+
+```ts
+type ProfileOutcome =
+  | { status: 'complete' }
+  | { status: 'unavailable'; code: string } // could not be found or opened
+  | { status: 'failed'; code: string } // opened, could not be read to the end
+```
+
+| Code                            | Meaning                                                               |
+| ------------------------------- | --------------------------------------------------------------------- |
+| `source-profile-not-discovered` | A selected profile is no longer on this computer                      |
+| `source-unreadable`             | Its history file is missing or cannot be read                         |
+| `source-permission-denied`      | The OS refused access (macOS: Full Disk Access)                       |
+| `source-read-failed`            | The staged file or its schema could not be read                       |
+| `source-stream-failed`          | Reading stopped part way; what was read before is saved               |
+| `source-favicons-unavailable`   | Icons could not be read; history is saved (a warning, not an outcome) |
+| `source-visits-without-page`    | Note: rows whose page row is gone, counted; the run stays `success`   |
+| `source-ids-reset`              | Note: the browser numbered its rows again; every row was read         |
+
+Each non-complete outcome is also a warning with the same code and `profileId`, translated in
+all three languages; the frontend reads codes, never English text (Safari's Full Disk Access
+guidance reads the outcome). Scheduled attempts record a partial run as `partial` with reason
+`backup-incomplete`, and tell `write-lock` and `disk-full` failures apart. Request fields and
+command names are unchanged.

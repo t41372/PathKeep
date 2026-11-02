@@ -20,6 +20,15 @@ use tempfile::tempdir;
 struct EnvVars(Vec<(&'static str, Option<OsString>)>);
 
 impl EnvVars {
+    /// The native-counter sanity check needs both sandbox selectors absent temporarily.
+    fn remove(names: &[&'static str]) -> Self {
+        let saved = names.iter().map(|name| (*name, std::env::var_os(name))).collect();
+        for name in names {
+            unsafe { std::env::remove_var(name) };
+        }
+        Self(saved)
+    }
+
     fn set(vars: &[(&'static str, &std::ffi::OsStr)]) -> Self {
         let saved = vars.iter().map(|(name, _)| (*name, std::env::var_os(name))).collect();
         for (name, value) in vars {
@@ -135,14 +144,12 @@ fn without_the_sandbox_scheduler_calls_go_to_the_native_layer() {
     // The counter itself must work, or the zero-call assertions above prove nothing.
     let _guard = env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     let dir = tempdir().expect("tempdir");
-    let original = std::env::var_os(SANDBOX_DIR_ENV);
-    unsafe { std::env::remove_var(SANDBOX_DIR_ENV) };
+    let _env = EnvVars::remove(&[SANDBOX_DIR_ENV, crate::sandbox::PROJECT_ROOT_OVERRIDE_ENV]);
     let paths = vault_core::config::project_paths_with_root(dir.path());
     let before = native_call_count();
 
     let status = schedule_status(Some("windows"), Path::new("C:/pk.exe"), &paths, &params());
 
-    restore_env_var(SANDBOX_DIR_ENV, original.as_deref());
     status.expect("status");
     assert_eq!(native_call_count(), before + 1);
 }

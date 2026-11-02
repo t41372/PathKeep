@@ -41,7 +41,7 @@ SELECT
 FROM moz_historyvisits
 JOIN moz_places
   ON moz_places.id = moz_historyvisits.place_id
-WHERE moz_historyvisits.id > ?1
+WHERE moz_historyvisits.id > ?1 OR moz_historyvisits.visit_date >= ?2
 ORDER BY moz_historyvisits.id ASC
 "#;
 
@@ -155,6 +155,24 @@ pub fn stream_history<C>(
 where
     C: HistoryBatchConsumer,
 {
+    let window = crate::VisitWindow { after_id: after_visit_id, recent_since_ms: None };
+    stream_history_window(path, window, after_url_last_visit_ms, url_scan, chunk_size, consumer)
+}
+
+/// [`stream_history`] over a [`crate::VisitWindow`]: the visits after one row, and the recent ones
+/// again.
+pub fn stream_history_window<C>(
+    path: &Path,
+    window: crate::VisitWindow,
+    after_url_last_visit_ms: i64,
+    url_scan: Option<crate::UrlScan>,
+    chunk_size: usize,
+    consumer: &mut C,
+) -> Result<StreamedHistory, StreamHistoryError<C::Error>>
+where
+    C: HistoryBatchConsumer,
+{
+    let after_visit_id = window.after_id;
     let inspection = inspect_history(path)?;
     let schema_observation =
         inspect_schema(&open_readonly(path)?, &["moz_places", "moz_historyvisits"])?;
@@ -187,7 +205,8 @@ where
         let mut statement = stream_sql(connection.prepare(VISITS_SQL))?;
         let column_names =
             statement.column_names().iter().map(|name| name.to_string()).collect::<Vec<_>>();
-        let mut rows = stream_sql(statement.query(params![after_visit_id]))?;
+        let since = crate::native_visits::VisitTable::Firefox.time_floor(window.recent_since_ms);
+        let mut rows = stream_sql(statement.query(params![after_visit_id, since]))?;
         let mut batch = Vec::with_capacity(chunk_size);
         while let Some(row) = stream_sql(rows.next())? {
             let visit = stream_sql(parsed_visit_from_row(row))?;
@@ -332,6 +351,7 @@ fn parsed_url_from_row(row: &Row<'_>) -> rusqlite::Result<ParsedUrl> {
 fn parsed_visit_from_row(row: &Row<'_>) -> rusqlite::Result<ParsedVisit> {
     let visit_date = row.get::<_, i64>(4)?;
     Ok(ParsedVisit {
+        source_visit_time: Some(crate::native_visits::firefox_key(visit_date)),
         source_visit_id: row.get(0)?,
         source_url_id: row.get(1)?,
         url: row.get(2)?,

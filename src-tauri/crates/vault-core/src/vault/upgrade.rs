@@ -30,6 +30,13 @@ pub(crate) fn event(progress: vault_store::BackfillProgress) -> ArchiveUpgradePr
     event
 }
 
+/// [`event`] for a backfill of the Archive database.
+pub(crate) fn archive_event(progress: vault_store::BackfillProgress) -> ArchiveUpgradeProgress {
+    let mut event = event(progress);
+    event.database = Some("Archive".into());
+    event
+}
+
 /// Existing upgrade commands can forward a non-Send callback while storage opens on its worker.
 /// The callback runs on the calling thread; captured reporters never extend the wait past `work`.
 pub fn with_archive_upgrade_progress<T: Send + 'static>(

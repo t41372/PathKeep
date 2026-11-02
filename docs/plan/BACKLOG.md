@@ -9,6 +9,11 @@
 
 > 2026-10-25：清掉已完成或前提已不存在的 block（v0.3 Paper 前端、已移除的 coverage / mutation gate、已修好的 flaky 測試等，清單見 CHANGELOG 同日）。2026-04 到 2026-06 的收尾註記也一併移除，要看去 git 歷史或 CHANGELOG。
 
+- [ ] **WORK-BACKUP-INTEGRITY-SCALE** — 原生備份的新身分與讀法在 14.4M 和目標機上的量測（2026-11-01 PR #18 只量了 100 萬筆、M5 Max）
+  - 要量：14.4M 的 v1 存檔更新（migration 2–16，含開啟者 backfill 與重建列號索引）的時間與峰值記憶體；更新後第一次備份（整個重讀、給每筆時間）；之後每小時與每週的備份。目標機 4 核 / 8 GB，冷快取。
+  - 另外量一份 Sync 從新到舊寫的大檔（開啟者大多在子造訪之後）：讀完才找到的開啟者分批寫，量它的時間。
+  - 工具：`archive::ingest::scale_measure`（`docs/architecture/research/2026-11-backup-integrity-1m/README.md`）。
+
 - [ ] **WORK-INSIGHTS-COLD-READS** — 目標機大小的機器上，Insights 有卡片第一次讀要等一分鐘以上（2026-10-25 14.4M 量測找到；和「目標機上流暢」的硬指標衝突，下一輪先做）
   - 讀先：`docs/architecture/ipc-performance.md` §11（各讀取的量法與 2026-10-09 的表）與 §16 最後一段、`vault-worker/tests/archive_scale_bench/turso_intelligence.rs`。
   - 現象（Modal microVM 4 vCPU / 8 GB，release、加密，14.4M 造訪，預設形狀；資料最大 22.5 GB）：app 剛起來的第一次讀，interrupted habits 30 天 66 s、一年 68 s，全部時間的 digest 單獨讀 67 s，一年的第一批卡片 29.5 s；同一個讀取第二次 1 s 以內到 0.5 s。

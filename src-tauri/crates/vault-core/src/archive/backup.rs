@@ -11,7 +11,10 @@ use super::{
 };
 use crate::{
     Vault,
-    models::{BackupProgressEvent, BackupReport, BackupRunOverview, BackupWarning, BrowserProfile},
+    models::{
+        BackupProfileSummary, BackupProgressEvent, BackupReport, BackupRunOverview, BrowserProfile,
+        ProfileOutcome,
+    },
 };
 use anyhow::{Context, Result};
 use vault_store::{CancelToken, Db, Priority, params};
@@ -82,16 +85,43 @@ fn execute(
             all_profiles || !vault.config().selected_profile_ids.is_empty(),
             "select at least one readable browser profile before running a backup"
         );
-        let discovered = profiles()?;
-        let selected = if all_profiles {
-            discovered.iter().collect::<Vec<_>>()
-        } else {
-            ingest::select_supported_profiles(&discovered, &vault.config().selected_profile_ids)
+        let (discovered, discovery_outcome) = match profiles() {
+            Ok(profiles) => (profiles, None),
+            Err(error) => {
+                if let Some(source) = error.downcast_ref::<super::source_error::SourceError>() {
+                    (Vec::new(), Some(source.outcome()))
+                } else {
+                    return Err(error);
+                }
+            }
         };
+        let scope = if all_profiles && !discovered.is_empty() {
+            discovered.iter().map(|profile| profile.profile_id.clone()).collect::<Vec<_>>()
+        } else {
+            vault.config().selected_profile_ids.clone()
+        };
+        // With no profile at all there is nothing a run could report on; "success" would claim
+        // a backup that read nothing.
         anyhow::ensure!(
-            !selected.is_empty(),
-            "the selected profiles are not readable yet; choose at least one detected profile with a readable history database"
+            !scope.is_empty(),
+            "backup-no-profiles: PathKeep found no browser profile to back up on this computer"
         );
+        let mut selected = Vec::new();
+        for id in scope {
+            let profile = discovered.iter().find(|profile| profile.profile_id == id);
+            let code = profile.is_none().then_some("source-profile-not-discovered");
+            if let Some(code) = code {
+                summaries.push(BackupProfileSummary {
+                    profile_id: id,
+                    outcome: discovery_outcome
+                        .clone()
+                        .unwrap_or(ProfileOutcome::Unavailable { code: code.into() }),
+                    ..Default::default()
+                });
+            } else if let Some(profile) = profile {
+                selected.push(profile);
+            }
+        }
         report(
             BackupProgressEvent {
                 phase: "prepare".into(),
@@ -101,8 +131,6 @@ fn execute(
             }
             .with_log_event("info", "backup.prepare"),
         );
-        warnings =
-            ingest::collect_skipped_profiles(&discovered, &vault.config().selected_profile_ids);
         let mut hashes = std::collections::BTreeMap::new();
         for (index, profile) in selected.iter().enumerate() {
             cancel.check()?;
@@ -119,13 +147,23 @@ fn execute(
             );
             let staged = match crate::chrome::stage_profile_snapshot(vault.paths(), profile) {
                 Ok(staged) => staged,
-                Err(error) if is_skippable_staging_access_error(profile, &error) => {
-                    warnings.push(staging_access_skip_warning(profile));
-                    continue;
-                }
                 Err(error) => {
-                    return Err(error)
-                        .with_context(|| format!("staging profile {}", profile.profile_id));
+                    if let Some(source) = error.downcast_ref::<super::source_error::SourceError>() {
+                        let outcome = source.outcome();
+                        let code = outcome.code().expect("source errors have a code");
+                        warnings.push(
+                            crate::models::BackupWarning::new(code, code)
+                                .with_profile_id(profile.profile_id.clone())
+                                .with_diagnostic(format!("{error:#}")),
+                        );
+                        summaries.push(BackupProfileSummary {
+                            profile_id: profile.profile_id.clone(),
+                            outcome,
+                            ..Default::default()
+                        });
+                        continue;
+                    }
+                    return Err(error);
                 }
             };
             warnings.extend(staged.warnings);
@@ -154,7 +192,29 @@ fn execute(
                     profile.profile_id,
                     staged.snapshot.history_path.display()
                 )
-            })?;
+            });
+            let summary = match summary {
+                Ok(summary) => summary,
+                Err(error) => {
+                    cancel.check()?;
+                    if let Some(source) = error.downcast_ref::<super::source_error::SourceError>() {
+                        let outcome = source.outcome();
+                        let code = outcome.code().expect("source errors have a code");
+                        warnings.push(
+                            crate::models::BackupWarning::new(code, code)
+                                .with_profile_id(profile.profile_id.clone())
+                                .with_diagnostic(format!("{error:#}")),
+                        );
+                        summaries.push(BackupProfileSummary {
+                            profile_id: profile.profile_id.clone(),
+                            outcome,
+                            ..Default::default()
+                        });
+                        continue;
+                    }
+                    return Err(error);
+                }
+            };
             hashes.insert(
                 profile.profile_id.clone(),
                 ingest::snapshot_source_hashes(&staged.snapshot),
@@ -189,7 +249,7 @@ fn execute(
 
 fn due_skip_reason(vault: &Vault) -> Result<Option<String>> {
     let latest=vault.store().read(Db::Archive,|s| {
-        Ok(s.query("SELECT finished_at FROM runs WHERE run_type='backup' AND status='success' ORDER BY id DESC LIMIT 1",(),|r|Ok(r.get::<String>(0)?))?.pop())
+        Ok(s.query("SELECT finished_at FROM runs WHERE run_type='backup' AND status IN ('success','partial') ORDER BY id DESC LIMIT 1",(),|r|Ok(r.get::<String>(0)?))?.pop())
     })?;
     Ok(latest.and_then(|text| chrono::DateTime::parse_from_rfc3339(&text).ok()).and_then(|at| {
         super::run_support::backup_due_skip_reason_at(
@@ -234,34 +294,14 @@ fn skipped(vault: &Vault, reason: String) -> Result<BackupReport> {
 
 pub(super) fn classify_browser_access_error(error: anyhow::Error) -> anyhow::Error {
     if crate::browser_access::is_permission_denied(&error) {
-        error.context(
-            "PathKeep needs Full Disk Access to read your browser history. Grant it in System Settings \u{2192} Privacy & Security \u{2192} Full Disk Access, then run the backup again.",
-        )
+        error.context(super::source_error::SourceError::Unavailable("source-permission-denied"))
+    } else if let Some(io) = error.chain().find_map(|cause| cause.downcast_ref::<std::io::Error>())
+    {
+        let marker = super::source_error::SourceError::access(io);
+        error.context(marker)
     } else {
         error
     }
-}
-
-fn is_skippable_staging_access_error(profile: &BrowserProfile, error: &anyhow::Error) -> bool {
-    profile.browser_family == "safari"
-        && format!("{error:#}").contains("Safari History.db is not readable yet")
-}
-
-/// Records a Safari profile skipped for missing Full Disk Access.
-///
-/// The English sentence is FROZEN: `isFullDiskAccessIssueMessage` in the shell
-/// matches on its marker text to route the user to the FDA remediation notice.
-/// The parallel `safari-full-disk-access-skip` code is what the localized
-/// surfaces read, so both channels must keep describing the same skip.
-fn staging_access_skip_warning(profile: &BrowserProfile) -> BackupWarning {
-    BackupWarning::new(
-        "safari-full-disk-access-skip",
-        format!(
-            "Skipped `{}` because Safari History.db is not readable yet. On macOS, grant Full Disk Access before the next backup.",
-            profile.profile_id
-        ),
-    )
-    .with_profile_id(profile.profile_id.clone())
 }
 
 pub(super) fn emit_backup_ingest_progress_if_changed(

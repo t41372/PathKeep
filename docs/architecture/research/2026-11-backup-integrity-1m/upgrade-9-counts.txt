@@ -1,0 +1,25 @@
+
+running 1 test
+SCALE phase=backup open_seconds=500000 backup_seconds=0.799 status=success new_visits=0 new_urls=0 archive_visits=1000000 with_browser_time=1000000 with_opener=500000 notes=["missing-source"]
+test archive::ingest::scale_measure::measure_native_backup ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 397 filtered out; finished in 1.11s
+
+        1.59 real         1.21 user         0.29 sys
+           150503424  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                9814  page reclaims
+                   1  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                 520  voluntary context switches
+                 627  involuntary context switches
+         26322700398  instructions retired
+          6101728640  cycles elapsed
+           101024440  peak memory footprint

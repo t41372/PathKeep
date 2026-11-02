@@ -12,6 +12,17 @@ use rusqlite::{Connection, OpenFlags};
 #[derive(Debug, Clone, Default)]
 pub(crate) struct Watermark {
     pub(crate) last_visit_id: i64,
+    /// The visit row `last_visit_id` held when it was read: its browser time and address. A row
+    /// id names another visit once the browser numbers its rows again; the next backup reads
+    /// only the rows after it while that row still holds this visit.
+    pub(crate) last_visit_key: Option<String>,
+    pub(crate) last_visit_url: Option<String>,
+    /// When a backup last read every visit in the browser file.
+    pub(crate) last_full_scan_at: Option<String>,
+    /// When the read of every row now under way started; `None` once it finished.
+    pub(crate) full_scan_started_at: Option<String>,
+    /// The newest visit time (Unix ms) any backup read since the last read of every row started.
+    pub(crate) newest_visit_ms: i64,
     pub(crate) last_url_last_visit_time: i64,
     pub(crate) last_search_url_time: i64,
     pub(crate) url_scan: Option<browser_history_parser::UrlScan>,
@@ -48,7 +59,9 @@ pub(super) fn load_watermark(
                last_checkpoint_at,
                last_schema_hash,
                last_source_batch_id,
-               updated_at, last_search_url_time, url_scan_json
+               updated_at, last_search_url_time, url_scan_json,
+               last_visit_key, last_visit_url, last_full_scan_at, full_scan_started_at,
+               newest_visit_ms
              FROM profile_watermarks
              WHERE profile_id = ?1",
             [profile_id],
@@ -68,6 +81,11 @@ pub(super) fn load_watermark(
                         .map(|text| serde_json::from_str(&text))
                         .transpose()
                         .map_err(|error| vault_store::Error::Operation(Box::new(error)))?,
+                    last_visit_key: row.get(10)?,
+                    last_visit_url: row.get(11)?,
+                    last_full_scan_at: row.get(12)?,
+                    full_scan_started_at: row.get(13)?,
+                    newest_visit_ms: row.get(14)?,
                 })
             },
         )
@@ -78,7 +96,8 @@ pub(super) fn load_watermark(
         })
 }
 
-/// Saves the next incremental cursors after one staged profile has been processed.
+/// Saves the next incremental cursors after one staged profile has been processed. The last
+/// row read and the visit it held move together, only forward.
 pub(super) fn save_watermark(
     archive: &vault_store::Session<'_>,
     profile_id: &str,
@@ -94,10 +113,19 @@ pub(super) fn save_watermark(
            last_checkpoint_at,
            last_schema_hash,
            last_source_batch_id,
-           updated_at, last_search_url_time, url_scan_json
+           updated_at, last_search_url_time, url_scan_json,
+           last_visit_key, last_visit_url, last_full_scan_at, full_scan_started_at,
+           newest_visit_ms
          )
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)
          ON CONFLICT(profile_id) DO UPDATE SET
+           last_visit_key = CASE WHEN excluded.last_visit_id >= profile_watermarks.last_visit_id
+             THEN excluded.last_visit_key ELSE profile_watermarks.last_visit_key END,
+           last_visit_url = CASE WHEN excluded.last_visit_id >= profile_watermarks.last_visit_id
+             THEN excluded.last_visit_url ELSE profile_watermarks.last_visit_url END,
+           last_full_scan_at = COALESCE(excluded.last_full_scan_at, profile_watermarks.last_full_scan_at),
+           full_scan_started_at = COALESCE(excluded.full_scan_started_at, profile_watermarks.full_scan_started_at),
+           newest_visit_ms = MAX(profile_watermarks.newest_visit_ms, excluded.newest_visit_ms),
            last_visit_id = MAX(profile_watermarks.last_visit_id, excluded.last_visit_id),
            last_url_last_visit_time = MAX(profile_watermarks.last_url_last_visit_time, excluded.last_url_last_visit_time),
            last_download_id = MAX(profile_watermarks.last_download_id, excluded.last_download_id),
@@ -120,7 +148,45 @@ pub(super) fn save_watermark(
             watermark.updated_at.clone(),
             watermark.last_search_url_time,
             watermark.url_scan.map(|scan|serde_json::to_string(&scan).expect("scalar URL scan")),
+            watermark.last_visit_key.clone(),
+            watermark.last_visit_url.clone(),
+            watermark.last_full_scan_at.clone(),
+            watermark.full_scan_started_at.clone(),
+            watermark.newest_visit_ms,
         ],
+    )?;
+    Ok(())
+}
+
+/// Ends a read of every row: it is the latest full read, and no longer under way. The only
+/// write that clears the mark: a checkpoint replay saving its cursors leaves it alone.
+pub(super) fn finish_full_read(
+    archive: &vault_store::Session<'_>,
+    profile_id: &str,
+    finished_at: &str,
+) -> vault_store::Result<()> {
+    archive.execute(
+        "UPDATE profile_watermarks SET last_full_scan_at=?2, full_scan_started_at=NULL WHERE profile_id=?1",
+        [profile_id, finished_at],
+    )?;
+    Ok(())
+}
+
+/// Starts a read of every row: the cursors go back to the start, and the read is marked under
+/// way. `save_watermark` only moves cursors forward, and after the browser numbered its rows
+/// again the new ones are lower. Rows are read in id order, so a read stopped part way leaves a
+/// cursor the next backup carries on from while the mark is set.
+pub(super) fn begin_full_read(
+    archive: &vault_store::Session<'_>,
+    profile_id: &str,
+    started_at: &str,
+) -> vault_store::Result<()> {
+    archive.execute(
+        "INSERT INTO profile_watermarks(profile_id,updated_at,full_scan_started_at) VALUES(?1,?2,?2)
+         ON CONFLICT(profile_id) DO UPDATE SET last_visit_id=0, last_visit_key=NULL,
+           last_visit_url=NULL, last_url_last_visit_time=0, last_search_url_time=0,
+           url_scan_json=NULL, newest_visit_ms=0, full_scan_started_at=excluded.full_scan_started_at",
+        [profile_id, started_at],
     )?;
     Ok(())
 }

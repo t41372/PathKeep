@@ -187,6 +187,7 @@ pub(crate) enum StatusLine {
     BackingUp,
     BackedUp(DateTime<Utc>),
     Failed,
+    Partial,
     NeverBackedUp,
     NotSetUp,
     /// The archive could not be read (for example, it is locked) and no
@@ -203,6 +204,9 @@ pub(crate) fn status_text(language: MenuLanguage, line: &StatusLine, now: DateTi
         (StatusLine::BackedUp(at), En) => format!("Backed up {}", ago(language, *at, now)),
         (StatusLine::BackedUp(at), ZhCn) => format!("{}已备份", ago(language, *at, now)),
         (StatusLine::BackedUp(at), ZhTw) => format!("{}已備份", ago(language, *at, now)),
+        (StatusLine::Partial, En) => "Backup incomplete".into(),
+        (StatusLine::Partial, ZhCn) => "备份未完成".into(),
+        (StatusLine::Partial, ZhTw) => "備份未完成".into(),
         (StatusLine::Failed, En) => "Backup failed".into(),
         (StatusLine::Failed, ZhCn) => "备份失败".into(),
         (StatusLine::Failed, ZhTw) => "備份失敗".into(),

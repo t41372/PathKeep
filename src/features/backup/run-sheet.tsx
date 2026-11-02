@@ -95,6 +95,14 @@ function Summary({
   )
   return (
     <div className="flex flex-col gap-5">
+      {run.status === 'partial' && (
+        <div role="status" className="rounded-lg bg-brand-soft p-3 text-[13px]">
+          <p className="font-medium">{t('backupRuns.incomplete')}</p>
+          <p className="mt-1 text-muted-foreground">
+            {t('backupRuns.incompleteBody')}
+          </p>
+        </div>
+      )}
       <dl className="flex flex-col gap-2 text-[13px]">
         <Fact label={t('backup.runs.detail.started')}>
           {format.dayAndTime(run.startedAt)}

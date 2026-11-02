@@ -448,6 +448,7 @@ fn merge_url_state(existing: &mut ParsedUrl, record: &ParsedBrowserRecord) {
 
 fn parsed_visit_from_record(record: &ParsedBrowserRecord) -> ParsedVisit {
     ParsedVisit {
+        source_visit_time: None,
         source_visit_id: record.source_visit_id,
         source_url_id: record.source_url_id,
         url: record.url.clone(),

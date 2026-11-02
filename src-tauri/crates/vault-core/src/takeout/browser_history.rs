@@ -182,7 +182,14 @@ pub fn import_browser_history_with_control(
         source_batch_id,
     );
     let streamed=stream_browser_history(&staged,&mut consumer)?;
-    let counts=consumer.finish()?;
+    let mut counts=consumer.finish()?;
+    crate::archive::ingest::name_openers_in(
+        vault,
+        source_profile_id,
+        &staged.history_path,
+        staged.family.as_str(),
+        std::mem::take(&mut counts.unresolved_parents),
+    )?;
     let stats = ImportStats {
         imported_items: counts.new_visits,
         duplicate_items: counts.visit_count - counts.new_visits - counts.same_visits,

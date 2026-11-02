@@ -241,7 +241,7 @@ mod tests {
     struct Fixture {
         vault: Vault,
         previous: Option<std::ffi::OsString>,
-        _guard: std::sync::MutexGuard<'static, ()>,
+        _guard: crate::tests::EnvGuard,
     }
     impl Fixture {
         fn new(config: AppConfig) -> Self {

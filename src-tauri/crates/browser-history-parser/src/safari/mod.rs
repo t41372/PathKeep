@@ -216,6 +216,24 @@ pub fn stream_history<C>(
 where
     C: HistoryBatchConsumer,
 {
+    let window = crate::VisitWindow { after_id: after_visit_id, recent_since_ms: None };
+    stream_history_window(path, window, after_url_last_visit_ms, url_scan, chunk_size, consumer)
+}
+
+/// [`stream_history`] over a [`crate::VisitWindow`]: the visits after one row, and the recent ones
+/// again.
+pub fn stream_history_window<C>(
+    path: &Path,
+    window: crate::VisitWindow,
+    after_url_last_visit_ms: i64,
+    url_scan: Option<crate::UrlScan>,
+    chunk_size: usize,
+    consumer: &mut C,
+) -> Result<StreamedHistory, StreamHistoryError<C::Error>>
+where
+    C: HistoryBatchConsumer,
+{
+    let after_visit_id = window.after_id;
     let inspection = inspect_history(path)?;
     let schema_observation =
         inspect_schema(&open_readonly(path)?, &["history_items", "history_visits"])?;
@@ -248,7 +266,8 @@ where
         let mut statement = stream_sql(connection.prepare(&visits_sql))?;
         let column_names =
             statement.column_names().iter().map(|name| name.to_string()).collect::<Vec<_>>();
-        let mut rows = stream_sql(statement.query(params![after_visit_id]))?;
+        let since = crate::native_visits::VisitTable::Safari.time_floor(window.recent_since_ms);
+        let mut rows = stream_sql(statement.query(params![after_visit_id, since]))?;
         let mut batch = Vec::with_capacity(chunk_size);
         let mut source_evidence = SourceEvidenceChunk::default();
         while let Some(row) = stream_sql(rows.next())? {
@@ -403,6 +422,7 @@ fn parsed_url_from_row(row: &Row<'_>) -> rusqlite::Result<ParsedUrl> {
 fn parsed_visit_from_row(row: &Row<'_>) -> rusqlite::Result<ParsedVisit> {
     let visit_time = row.get::<_, f64>(4)?;
     Ok(ParsedVisit {
+        source_visit_time: Some(crate::native_visits::safari_key(visit_time)),
         source_visit_id: row.get(0)?,
         source_url_id: row.get(1)?,
         url: row.get(2)?,
@@ -457,7 +477,7 @@ fn safari_visits_sql(extra_columns: &[SafariVisitExtraColumn]) -> String {
         extra_columns.iter().map(|column| format!("history_visits.{}", column.column_name())),
     );
     format!(
-        "SELECT {}\nFROM history_visits\nJOIN history_items\n  ON history_items.id = history_visits.history_item\nWHERE history_visits.id > ?1\nORDER BY history_visits.id ASC",
+        "SELECT {}\nFROM history_visits\nJOIN history_items\n  ON history_items.id = history_visits.history_item\nWHERE history_visits.id > ?1 OR history_visits.visit_time >= ?2\nORDER BY history_visits.id ASC",
         select_list.join(",\n  ")
     )
 }

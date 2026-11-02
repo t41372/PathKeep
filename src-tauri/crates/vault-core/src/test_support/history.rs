@@ -111,6 +111,10 @@ impl<'a> History<'a> {
         }
         let (address, title) = (url.url.clone(), url.title.clone());
         self.visits.push(ParsedVisit {
+            // The browser's time, as Chromium's parser keeps it.
+            source_visit_time: Some(browser_history_parser::native_visits::chromium_key(
+                crate::utils::unix_micros_to_chrome_time(visit_ms.saturating_mul(1_000)),
+            )),
             source_visit_id,
             source_url_id,
             url: address,
@@ -130,8 +134,16 @@ impl<'a> History<'a> {
 
     /// A search the browser recorded as leading to a URL added earlier.
     pub fn search_term(mut self, source_url_id: i64, term: &str) -> Self {
+        let url = self
+            .urls
+            .iter()
+            .find(|url| url.source_url_id == source_url_id)
+            .expect("search of a URL the fixture added")
+            .url
+            .clone();
         self.terms.push(ParsedSearchTerm {
             url_last_visit_time: 0,
+            url,
             keyword_id: 1,
             url_id: source_url_id,
             term: term.to_owned(),
