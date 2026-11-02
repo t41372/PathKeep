@@ -1281,6 +1281,10 @@ pub enum AiAgentNote {
     /// The answer was saved but the pages it used were not: they show now, and a reopened
     /// conversation shows the answer without them.
     SourcesNotSaved,
+    /// The model ended its last turn without writing an answer (nothing, or only thinking), so
+    /// the turn says so: otherwise the person sees the pages it found and no answer, as if one
+    /// were still on its way.
+    NoAnswer,
 }
 
 /// Tauri event channel that carries [`AiChatStreamEvent`]s to the front end.
@@ -1654,6 +1658,17 @@ impl AiSearchSort {
     /// Whether this ordering is a DATE-ordered enumeration (lexical-only, no semantic re-rank).
     pub fn is_date_ordered(self) -> bool {
         matches!(self, Self::Oldest | Self::Newest)
+    }
+
+    /// The search session's `sort` for this ordering. AI search passes only the orders it
+    /// defines: a session also knows `visits`, which would rank its lexical plane without
+    /// scores and page fused results in another order.
+    pub fn search_sort(self) -> &'static str {
+        match self {
+            Self::Relevance => "relevance",
+            Self::Oldest => "oldest",
+            Self::Newest => "newest",
+        }
     }
 
     /// The `list_history` sort token this ordering maps to (`"oldest"` / `"newest"`).

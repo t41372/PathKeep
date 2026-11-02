@@ -1029,6 +1029,7 @@ export type AiAgentNote =
   | { code: 'searchIndexIncomplete' }
   | { code: 'contextTooSmall' }
   | { code: 'sourcesNotSaved' }
+  | { code: 'noAnswer' }
 
 /**
  * Envelope emitted on `pathkeep://ai-stream` pairing a chunk with its run id.

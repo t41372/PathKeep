@@ -5,6 +5,7 @@
 mod agent;
 mod archive;
 mod intelligence;
+mod lineage;
 mod source_evidence;
 
 use std::{num::NonZeroUsize, path::Path};
@@ -89,7 +90,7 @@ fn newer_versions_are_refused() {
             );
             drop(Store::open(future).unwrap());
             assert!(
-                matches!(Store::open(config(root.path(), key)), Err(Error::SchemaTooNew { db: found_db, found: 5, supported }) if found_db == db && supported == if db == Db::Scratch {0} else {1})
+                matches!(Store::open(config(root.path(), key)), Err(Error::SchemaTooNew { db: found_db, found: 5, supported }) if found_db == db && supported == if db == Db::Scratch {0} else if db == Db::Intelligence {2} else {1})
             );
         }
     }

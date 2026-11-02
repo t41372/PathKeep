@@ -6,8 +6,8 @@
 //! Operations receive Vault and use its Intelligence read pool.
 
 use super::native_ledger::{
-    ai_embedding_token_estimate, ai_embeddings_storage_bytes, load_index_ledger,
-    provider_embedding_count, semantic_index_staleness_reason,
+    ai_embedding_token_estimate, ai_embeddings_storage_bytes, lineage_embedding_count,
+    load_index_ledger, semantic_index_staleness_reason,
 };
 use super::provider::ProviderReadiness;
 use super::*;
@@ -20,10 +20,14 @@ pub fn ai_index_status(vault: &crate::Vault) -> Result<AiIndexStatus> {
     let config = vault.config();
     let watermark = super::native_ledger::current_source_watermark(vault)?;
     let vectors = semantic_vector_state(vault)?;
+    #[cfg(test)]
+    vault.vector_generations.test_hook("status_before_db");
+    let static_embedding = static_embedding_status(paths, config);
     let paths = paths.clone();
     let config = config.clone();
     vault.read(Db::Intelligence, move |s| {
-        let mut status = ai_index_status_from(&paths, &config, s, watermark, vectors)?;
+        let mut status =
+            ai_index_status_from(&paths, &config, s, watermark, vectors, static_embedding)?;
         if !config.initialized && config.ai.enabled {
             status.state = "blocked".into();
             status.ready = false;
@@ -40,43 +44,92 @@ struct SemanticVectorState {
     selected_count: u64,
     serving_count: u64,
     text_format_outdated: bool,
+    sidecar_bytes: u64,
+    selected_lineage: Option<String>,
 }
 
 fn semantic_vector_state(vault: &crate::Vault) -> Result<SemanticVectorState> {
     let index = crate::semantic_index::load_state(vault)?;
-    let count = |pair: &crate::EmbeddingIndexRef| {
-        // Metadata without real vectors must not report ready. A torn store degrades to zero.
-        VectorStore::for_provider(vault.paths(), &pair.provider_id, &pair.model)
-            .count()
-            .unwrap_or(0)
-    };
-    let selected_count = index.chosen.as_ref().map(&count).unwrap_or(0);
-    let serving_count = match index.serving.as_ref() {
-        Some(pair) if Some(pair) != index.chosen.as_ref() => count(pair),
-        _ => selected_count,
-    };
-    let text_format_outdated = index
+    let selected = index
         .chosen
         .as_ref()
-        .map(|pair| {
-            super::embedding_prompt::text_format_is_outdated(
-                vault.paths(),
-                &pair.provider_id,
-                &pair.model,
-            )
-        })
+        .map(|p| super::generations::resolve(vault, &p.provider_id, &p.model))
         .transpose()?
+        .flatten();
+    let serving = if index.serving == index.chosen {
+        selected.clone()
+    } else {
+        index
+            .serving
+            .as_ref()
+            .map(|p| super::generations::resolve(vault, &p.provider_id, &p.model))
+            .transpose()?
+            .flatten()
+    };
+    let count = |lease: &Option<Arc<super::generations::GenerationLease>>,
+                 pair: &Option<crate::EmbeddingIndexRef>| {
+        lease.as_ref().zip(pair.as_ref()).map_or(0, |(lease, pair)| {
+            FlatVectorIndex::open(lease.paths(), &pair.provider_id, &pair.model)
+                .map_or(0, |i| i.len() as u64)
+        })
+    };
+    let selected_count = count(&selected, &index.chosen);
+    let serving_count = count(&serving, &index.serving);
+    let text_format_outdated = selected
+        .as_ref()
+        .map(|lease| {
+            let metadata = lease.metadata()?;
+            Ok::<_, anyhow::Error>(metadata.pages.is_some_and(|h| {
+                h.embedded_text.as_deref()
+                    != Some(super::embedding_prompt::embedded_text_tag(&metadata.model).as_str())
+            }))
+        })
+        .transpose()
+        .unwrap_or(Some(true))
         .unwrap_or(false);
-    Ok(SemanticVectorState { index, selected_count, serving_count, text_format_outdated })
+    // Provenance remains useful diagnostic data even when the pointer's files are gone.
+    // Pass only this identity to the reader, never the pin that protected file inspection.
+    let selected_lineage = if let Some(lease) = &selected {
+        Some(lease.lineage().to_owned())
+    } else if let Some(pair) = index.chosen.clone() {
+        vault.read(Db::Intelligence, move |s| {
+            if let Some(pointer) = super::generations::pointer(s, &pair.provider_id, &pair.model)? {
+                return Ok(pointer.split('/').nth(1).map(str::to_owned));
+            }
+            // A moved v0.4.0 index that is not served yet keeps its rows under `legacy`, so status
+            // says its vectors are missing and a pass is needed, not that nothing was indexed.
+            let note = super::generations::recovery_note(s, &pair.provider_id, &pair.model)?;
+            Ok(note
+                .filter(|note| {
+                    matches!(
+                        note.as_str(),
+                        super::generations::LEGACY_NEEDS_PASS
+                            | super::generations::LEGACY_WAS_READY
+                    )
+                })
+                .map(|_| "legacy".to_owned()))
+        })?
+    } else {
+        None
+    };
+    Ok(SemanticVectorState {
+        index,
+        sidecar_bytes: ai_sidecar::sidecar_storage_bytes(vault.paths()),
+        selected_count,
+        serving_count,
+        text_format_outdated,
+        selected_lineage,
+    })
 }
 
-/// Combines database counters with the vector-file state read before opening this session.
+/// Combines database counters with the vector and model file state read before this session.
 fn ai_index_status_from(
-    paths: &ProjectPaths,
+    _paths: &ProjectPaths,
     config: &AppConfig,
     connection: &Session<'_>,
     watermark: i64,
     vectors: SemanticVectorState,
+    static_embedding: Option<StaticEmbeddingStatus>,
 ) -> Result<AiIndexStatus> {
     let mut queue_status = ai_queue::store::load_ai_queue_status(
         connection,
@@ -105,30 +158,34 @@ fn ai_index_status_from(
     let indexed_items = if let Some((provider_id, model)) =
         provider_id.as_deref().zip(provider_readiness.selected_model.as_deref())
     {
-        provider_embedding_count(connection, provider_id, model)?
+        if let Some(lineage) = &vectors.selected_lineage {
+            lineage_embedding_count(connection, provider_id, model, lineage)?
+        } else {
+            0
+        }
     } else {
         0
     };
     let semantic_vector_count = vectors.selected_count;
     // The dishonest "indexed N with an empty sidecar" case: metadata rows exist but the vector plane is
     // empty/absent, AND the provider is otherwise usable (an unusable provider is reported as degraded).
-    let vectors_missing =
-        provider_readiness.available && indexed_items > 0 && semantic_vector_count == 0;
-    let semantic_sidecar_bytes = ai_sidecar::sidecar_storage_bytes(paths);
+    let vectors_missing = provider_readiness.available
+        && semantic_vector_count == 0
+        && (indexed_items > 0 || ledger.last_indexed_at.is_some());
+    let semantic_sidecar_bytes = vectors.sidecar_bytes;
     let semantic_metadata_bytes = ai_embeddings_storage_bytes(connection)?;
     let estimated_embedding_tokens = ai_embedding_token_estimate(connection)?;
     let staleness_reason = provider_id
         .as_deref()
         .zip(provider_readiness.selected_model.as_deref())
-        .map(|(provider_id, model)| {
+        .map(|(_provider_id, _model)| {
             semantic_index_staleness_reason(
                 connection,
-                provider_id,
-                model,
                 ledger.source_watermark,
                 watermark,
                 ledger.last_indexed_at.as_deref(),
                 vectors.text_format_outdated,
+                indexed_items,
             )
         })
         .transpose()?
@@ -138,14 +195,11 @@ fn ai_index_status_from(
     } else if let Some((provider, model)) =
         provider_id.as_deref().zip(provider_readiness.selected_model.as_deref())
     {
-        connection
-            .query_one(
-                "SELECT last_indexed_at FROM ai_embedding_totals WHERE provider_id=?1 AND model=?2",
-                params![provider, model],
-                |r| Ok(r.get::<Option<String>>(0)?),
-            )
-            .optional()?
-            .flatten()
+        if let Some(lineage) = &vectors.selected_lineage {
+            connection.query_one("SELECT last_indexed_at FROM ai_embedding_totals WHERE provider_id=?1 AND model=?2 AND lineage=?3",params![provider,model,lineage],|r| Ok(r.get::<Option<String>>(0)?)).optional()?.flatten()
+        } else {
+            None
+        }
     } else {
         None
     };
@@ -172,7 +226,7 @@ fn ai_index_status_from(
         ready,
         indexed_items: indexed_items as usize,
         semantic_vector_count,
-        static_embedding: static_embedding_status(paths, config),
+        static_embedding,
         last_indexed_at,
         llm_provider_id: config.ai.llm_provider_id.clone(),
         embedding_provider_id: config.ai.embedding_provider_id.clone(),
@@ -286,9 +340,11 @@ fn ai_index_state_and_warning(
 ///
 /// Returns `None` only when the merged config somehow lacks the built-in static provider (it is
 /// normally always present via [`crate::models::merge_embedding_providers`]). `model_downloaded`
-/// checks the consent-gated download target on disk (files present + SHA-verified); `selected` mirrors
-/// the active embedding selection. Pure over the config + filesystem — no network, no archive — so it
-/// can be surfaced even before the archive is initialized.
+/// checks the consent-gated download target on disk (files present and verified, hashed only when
+/// they changed since they last passed); `selected` mirrors the active embedding selection. Reads
+/// only the config and the model folder (it may rewrite the verified marker), no network and no
+/// archive, so it can be surfaced even before the archive is initialized. Every app snapshot asks
+/// it, so it runs before the Intelligence read session opens.
 fn static_embedding_status(
     paths: &ProjectPaths,
     config: &AppConfig,
@@ -304,7 +360,7 @@ fn static_embedding_status(
         provider.default_model.as_str()
     };
     let model_dir = model_dir_for_repo(paths, repo);
-    let model_downloaded = model_is_present_and_verified(&model_dir, DEFAULT_STATIC_MODEL_FILES);
+    let model_downloaded = model_files_verified(&model_dir, DEFAULT_STATIC_MODEL_FILES);
     // On-disk size only AFTER the files are present + verified; 0 before download (the FE shows a
     // static pre-download estimate). Summed from the real files so the Settings card states the honest
     // footprint instead of a guess.

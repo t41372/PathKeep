@@ -1,7 +1,10 @@
 //! Responsibilities: translate the existing syntax and normalization into a typed AST.
 //! Not responsible for: SQL, ranking, candidate windows or query-string escaping.
 //! Failure modes: quotes become unordered words; exclusions are truncated; Unicode
-//! prefixes disappear; compact recall changes word intersections; OR becomes AND.
+//! prefixes disappear; compact recall changes word intersections; OR becomes AND; OR
+//! swallows the words around its neighbours (`rust tokio OR tauri` read as
+//! "rust tokio, or tauri" instead of "rust, and tokio or tauri"); OR reaches past an
+//! operator to a word further away.
 //! Tests: search::tests, ported_queries and projection_tests.
 use crate::archive::{
     search_lexical::{
@@ -18,21 +21,25 @@ pub(super) struct Query {
     pub exact: Ast,
     pub filters: ParsedHistorySearchQuery,
     pub starred: bool,
+    /// The typo predicate for the same clauses, when any has a Latin target: what a fuzzy
+    /// search validates pages against, and whether a search without matches retries fuzzily.
+    pub fuzzy: Option<crate::archive::search_lexical::FuzzyQuery>,
+}
+/// A query token as `OR` sees it: a word or quoted phrase it can join, an `OR`, or
+/// anything else (an operator, an exclusion), which `OR` does not reach across.
+enum Piece {
+    Text { value: String, quoted: bool },
+    Or,
+    Other,
 }
 pub(super) fn build(raw: &str, fuzzy: bool) -> Query {
     let filters = parse_history_search_query(raw);
-    let fuzzy = fuzzy
-        && filters
-            .keyword_text
-            .as_deref()
-            .and_then(crate::archive::search_lexical::fuzzy_query)
-            .is_some();
-    let mut groups = vec![Vec::<String>::new()];
+    let mut pieces = Vec::new();
     let mut clauses = Vec::new();
     let mut starred = false;
     for token in tokenize_query(raw) {
         if !token.quoted && token.value.eq_ignore_ascii_case("OR") {
-            groups.push(Vec::new());
+            pieces.push(Piece::Or);
             continue;
         }
         let (negative, value) = token
@@ -44,44 +51,102 @@ pub(super) fn build(raw: &str, fuzzy: bool) -> Query {
         if operator.as_deref() == Some("is") && operand.eq_ignore_ascii_case("starred") && !negative
         {
             starred = true;
+            pieces.push(Piece::Other);
             continue;
         }
         let field = match operator.as_deref() {
             Some("intitle" | "title") => Some(TextField::Title),
             Some("inurl" | "url") => Some(TextField::Url),
-            Some("tag" | "note" | "site" | "filetype" | "ext") => continue,
-            Some("after" | "before") if !negative => continue,
+            Some("tag" | "note" | "site" | "filetype" | "ext") => {
+                pieces.push(Piece::Other);
+                continue;
+            }
+            Some("after" | "before") if !negative => {
+                pieces.push(Piece::Other);
+                continue;
+            }
             _ => None,
         };
         if let Some(field) = field {
             if !negative {
                 clauses.push(field_candidates(operand, field));
             }
+            pieces.push(Piece::Other);
             continue;
         }
         // Exclusions are canonical substring constraints, including short fragments.
         if negative {
+            pieces.push(Piece::Other);
             continue;
         }
-        if token.quoted {
-            groups.last_mut().unwrap().push(value.into());
-        }
-        if field.is_none() && !negative && !token.quoted {
-            groups.last_mut().unwrap().push(value.into());
+        pieces.push(Piece::Text { value: value.into(), quoted: token.quoted });
+    }
+    // `OR` joins the word or phrase right before it with the one right after it, as in
+    // Google: `rust tokio OR tauri` is rust, and tokio or tauri. Everything else is AND.
+    // An `OR` with no word or phrase on one side (at an end, doubled, next to an
+    // operator or an exclusion) joins nothing.
+    let mut lone = Vec::new();
+    let mut alternatives = Vec::new();
+    let mut at = 0;
+    while at < pieces.len() {
+        if !matches!(pieces[at], Piece::Text { .. }) {
+            at += 1;
             continue;
         }
-        clauses.push(phrase(value, None));
+        let mut chain = vec![at];
+        while let (Some(Piece::Or), Some(Piece::Text { .. })) =
+            (pieces.get(at + 1), pieces.get(at + 2))
+        {
+            at += 2;
+            chain.push(at);
+        }
+        at += 1;
+        if chain.len() == 1 {
+            lone.push(chain[0]);
+        } else {
+            alternatives.push(chain);
+        }
     }
-    let groups = groups
-        .into_iter()
-        .filter(|group| !group.is_empty())
-        .map(|group| words(&group.join(" "), fuzzy))
-        .collect::<Vec<_>>();
-    if !groups.is_empty() {
-        clauses.push(Ast::Or(groups));
+    let text = |index: usize| match &pieces[index] {
+        Piece::Text { value, quoted } => (value.as_str(), *quoted),
+        Piece::Or | Piece::Other => ("", false),
+    };
+    // The typo fallback groups words exactly as the exact search below does.
+    let typo = crate::archive::search_lexical::fuzzy_clauses(
+        &std::iter::once(lone.iter().map(|&index| text(index).0).collect::<Vec<_>>().join(" "))
+            .filter(|run| !run.is_empty())
+            .map(|run| vec![run])
+            .chain(alternatives.iter().map(|chain| {
+                chain.iter().map(|&index| text(index).0.to_owned()).collect::<Vec<_>>()
+            }))
+            .collect::<Vec<_>>(),
+    );
+    let fuzzy = fuzzy && typo.is_some();
+    // Words outside any OR are searched together, as one run, so compact recall still
+    // finds them written as one word; a phrase among them also has to match as written.
+    let mut run = Vec::new();
+    for &index in &lone {
+        let (value, quoted) = text(index);
+        run.push(value);
+        if quoted {
+            clauses.push(phrase(value, None));
+        }
     }
-    // The existing parser treats phrases, fields and exclusions as constraints
-    // on every keyword OR group, rather than extra alternatives.
+    if !run.is_empty() {
+        clauses.push(Ast::Or(vec![words(&run.join(" "), fuzzy)]));
+    }
+    for chain in alternatives {
+        clauses.push(Ast::Or(
+            chain
+                .into_iter()
+                .map(|index| match text(index) {
+                    (value, true) => Ast::And(vec![words(value, fuzzy), phrase(value, None)]),
+                    (value, false) => words(value, fuzzy),
+                })
+                .collect(),
+        ));
+    }
+    // Fields and exclusions are constraints on every result, whatever OR joins.
     let mut ast = Ast::And(clauses);
     // Facets are global in the existing syntax, including across OR branches.
     // Positive tags can preselect posting candidates; canonical SQL checks exact labels.
@@ -98,7 +163,7 @@ pub(super) fn build(raw: &str, fuzzy: bool) -> Query {
     if fuzzy {
         ast = Ast::Or(vec![ast, exact.clone()]);
     }
-    Query { ast, exact, filters, starred }
+    Query { ast, exact, filters, starred, fuzzy: typo }
 }
 fn words(raw: &str, fuzzy: bool) -> Ast {
     Ast::Or(

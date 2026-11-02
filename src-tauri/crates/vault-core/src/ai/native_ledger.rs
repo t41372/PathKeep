@@ -55,14 +55,26 @@ pub(super) fn current_source_watermark(vault: &crate::Vault) -> Result<i64> {
     })
 }
 
+#[cfg(test)]
 pub(super) fn provider_embedding_count(
     s: &Session<'_>,
     provider: &str,
     model: &str,
 ) -> Result<i64> {
+    let Some(pointer) = super::generations::pointer(s, provider, model)? else { return Ok(0) };
+    let lineage = pointer.split('/').nth(1).expect("validated pointer");
+    lineage_embedding_count(s, provider, model, lineage)
+}
+
+pub(super) fn lineage_embedding_count(
+    s: &Session<'_>,
+    provider: &str,
+    model: &str,
+    lineage: &str,
+) -> Result<i64> {
     Ok(s.query_one(
-        "SELECT item_count FROM ai_embedding_totals WHERE provider_id=?1 AND model=?2",
-        params![provider, model],
+        "SELECT item_count FROM ai_embedding_totals WHERE provider_id=?1 AND model=?2 AND lineage=?3",
+        params![provider, model, lineage],
         |r| Ok(r.get::<i64>(0)?),
     )
     .optional()?
@@ -74,7 +86,7 @@ pub(super) fn ai_embeddings_storage_bytes(s: &Session<'_>) -> Result<u64> {
     })? as u64)
 }
 pub(super) fn ai_embedding_token_estimate(s: &Session<'_>) -> Result<u64> {
-    Ok((s.query_one("SELECT COALESCE(SUM(content_bytes),0) FROM ai_embedding_totals", (), |r| {
+    Ok((s.query_one("SELECT COALESCE(SUM(t.content_bytes),0) FROM ai_embedding_totals t JOIN ai_index_ledger l ON l.provider_id=t.provider_id AND l.model=t.model WHERE l.sidecar_table LIKE '%/' || t.lineage || '/%'", (), |r| {
         Ok(r.get::<i64>(0)?)
     })? as u64)
         .div_ceil(4))
@@ -82,14 +94,13 @@ pub(super) fn ai_embedding_token_estimate(s: &Session<'_>) -> Result<u64> {
 
 pub(super) fn semantic_index_staleness_reason(
     s: &Session<'_>,
-    provider: &str,
-    model: &str,
     source_watermark: i64,
     current_watermark: i64,
     last_indexed_at: Option<&str>,
     text_format_outdated: bool,
+    indexed_items: i64,
 ) -> Result<Option<AiSemanticStaleness>> {
-    if provider_embedding_count(s, provider, model)? == 0 {
+    if indexed_items == 0 {
         return Ok(None);
     }
     if text_format_outdated {
@@ -210,21 +221,22 @@ pub(super) fn record_index_ledger_start(
     run_id: i64,
     started_at: &str,
     source_watermark: i64,
-    sidecar_table: &str,
     request: &AiIndexRequest,
 ) -> Result<()> {
     let provider = provider.clone();
     let started_at = started_at.to_owned();
-    let sidecar_table = sidecar_table.to_owned();
     let request = request.clone();
     vault.write(vault_store::Db::Intelligence, vault_store::Priority::Batch, move |connection| {
         let provider = &provider;
         let started_at = started_at.as_str();
-        let sidecar_table = sidecar_table.as_str();
+
         let request = &request;
 
         let state = if request.clear_only { "clearing" } else { "building" };
-        let wipes = request.full_rebuild || request.clear_only || request.scope == crate::ReembedScope::Full;
+        // Every pass prepares immutable files; a clear removes the pointer only at success.
+        // A ready index keeps its coverage while a replacement is prepared.
+        let clearing = request.clear_only;
+        let recovery=super::generations::recovery_note(connection,&provider.config.id,&provider.config.default_model)?;
         connection.execute(
             "INSERT INTO ai_index_ledger (
            provider_id,
@@ -243,31 +255,44 @@ pub(super) fn record_index_ledger_start(
          )
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, NULL, NULL, NULL, NULL, NULL)
          ON CONFLICT(provider_id, model) DO UPDATE SET
-           sidecar_table = excluded.sidecar_table,
            index_version = excluded.index_version,
            state = CASE WHEN ?9 = 0 AND ai_index_ledger.state = 'ready' THEN 'ready' ELSE excluded.state END,
-           source_watermark = CASE WHEN ?9 = 0 AND ai_index_ledger.state = 'ready' THEN ai_index_ledger.source_watermark ELSE excluded.source_watermark END,
+           source_watermark = CASE WHEN (?9 = 0 AND ai_index_ledger.state = 'ready') OR ?10 IS NOT NULL THEN ai_index_ledger.source_watermark ELSE excluded.source_watermark END,
            last_run_id = excluded.last_run_id,
            build_started_at = excluded.build_started_at,
-           build_finished_at = CASE WHEN ?9 = 0 AND ai_index_ledger.state = 'ready' THEN ai_index_ledger.build_finished_at ELSE NULL END,
+           build_finished_at = CASE WHEN (?9 = 0 AND ai_index_ledger.state = 'ready') OR ?10 IS NOT NULL THEN ai_index_ledger.build_finished_at ELSE NULL END,
            last_failure_at = NULL,
-           failure_reason = NULL",
+           failure_reason = ?10",
             params![
                 provider.config.id,
                 provider.config.default_model,
-                sidecar_table,
+                "",
                 AI_INDEX_LEDGER_VERSION,
                 state,
                 source_watermark,
                 run_id,
                 started_at,
-                wipes as i64,
+                clearing as i64,
+                recovery,
             ],
         )?;
         Ok(())
     })
 }
 
+/// Queue summaries distinguish new rows from the updated subset, including resumed attempts.
+pub fn index_success_summary(indexed: usize, updated: usize) -> String {
+    format!("Indexed {} new / {updated} updated row(s).", indexed.saturating_sub(updated))
+}
+
+/// Keeps the queue outcome and its explanation at the same publication commit point.
+pub(super) struct IndexJobSuccess {
+    pub id: i64,
+    pub summary: String,
+}
+
+/// Records a finished build, unless a stop requested for its job won over this success: then it
+/// writes nothing and returns false, which the build reports as stopped.
 pub(super) fn record_index_ledger_success(
     vault: &crate::Vault,
     provider: &AiProviderRuntime,
@@ -276,8 +301,8 @@ pub(super) fn record_index_ledger_success(
     source_watermark: i64,
     sidecar_table: &str,
     request: &AiIndexRequest,
-    queue_job_id: Option<i64>,
-) -> Result<()> {
+    queue_job: Option<IndexJobSuccess>,
+) -> Result<bool> {
     let provider = provider.clone();
     let finished_at = finished_at.to_owned();
     let sidecar_table = sidecar_table.to_owned();
@@ -288,14 +313,15 @@ pub(super) fn record_index_ledger_success(
         let sidecar_table = sidecar_table.as_str();
         let request = &request;
 
-        if let Some(id) = queue_job_id {
+        if let Some(job) = &queue_job {
+            let id=job.id;
             let can_finish = connection.query_one(
                 "SELECT state='running' AND stop_requested=0 FROM ai_jobs WHERE id=?1",
                 [id],
                 |r| Ok(r.get::<i64>(0)?),
             )? != 0;
             if !can_finish {
-                return Err(AiRunCancelled::new("Index build stopped before completion.").into());
+                return Ok(false);
             }
         }
         connection.execute(
@@ -330,7 +356,11 @@ pub(super) fn record_index_ledger_success(
                 provider.config.default_model,
             ],
         )?;
-        Ok(())
+        if let Some(job)=&queue_job {
+            // Queue success is irrevocable at the same point as the serving pointer.
+            crate::ai_queue::store::mark_ai_job_succeeded(connection,job.id,Some(run_id),Some(&job.summary))?;
+        }
+        Ok(true)
     })
 }
 
@@ -339,34 +369,31 @@ pub(super) fn record_index_ledger_failure(
     provider: &AiProviderRuntime,
     run_id: i64,
     source_watermark: i64,
-    sidecar_table: &str,
-    _request: &AiIndexRequest,
     error_message: &str,
 ) -> Result<()> {
     let provider = provider.clone();
-    let sidecar_table = sidecar_table.to_owned();
-    let _request = _request.clone();
     let error_message = error_message.to_owned();
     vault.write(vault_store::Db::Intelligence, vault_store::Priority::Batch, move |connection| {
         let provider = &provider;
-        let sidecar_table = sidecar_table.as_str();
-        let _request = &_request;
         let error_message = error_message.as_str();
+        let recovery = super::generations::recovery_note(
+            connection,
+            &provider.config.id,
+            &provider.config.default_model,
+        )?;
 
         let failed_at = now_rfc3339();
         connection.execute(
             "UPDATE ai_index_ledger
          SET state = 'incomplete',
-             sidecar_table = ?1,
-             index_version = ?2,
-             source_watermark = ?3,
-             last_run_id = ?4,
-             build_finished_at = ?5,
-             last_failure_at = ?5,
-             failure_reason = ?6
-         WHERE provider_id = ?7 AND model = ?8 AND state IN ('building','clearing')",
+             index_version = ?1,
+             source_watermark = CASE WHEN ?8 IS NOT NULL THEN source_watermark ELSE ?2 END,
+             last_run_id = ?3,
+             build_finished_at = CASE WHEN ?8 IS NOT NULL THEN build_finished_at ELSE ?4 END,
+             last_failure_at = ?4,
+             failure_reason = COALESCE(?8,?5)
+         WHERE provider_id = ?6 AND model = ?7 AND state IN ('building','clearing')",
             params![
-                sidecar_table,
                 AI_INDEX_LEDGER_VERSION,
                 source_watermark,
                 run_id,
@@ -374,6 +401,7 @@ pub(super) fn record_index_ledger_failure(
                 error_message,
                 provider.config.id,
                 provider.config.default_model,
+                recovery,
             ],
         )?;
         Ok(())
@@ -384,17 +412,18 @@ pub(super) fn record_index_ledger_failure(
 mod tests {
     use super::*;
 
-    /// Failure modes: an interrupted non-wiping update drops a ready index from search;
-    /// a wiping build advertises ready while deleting vectors; a first fill claims completion;
+    /// Failure modes: an interrupted update or rebuild drops a ready index from search;
+    /// a clear advertises ready while deleting vectors; a first fill claims completion;
     /// a working-set success demotes a complete index or certifies unscanned visits/enrichment.
     /// Only a full-archive success may advance complete coverage watermarks and timestamps.
+    /// A full rebuild prepares another lineage while the complete generation keeps serving.
     #[test]
     fn ai_queue_ledger_preserves_ready_updates_and_marks_wiping_builds() {
         for (full_rebuild, clear_only, scope, expected) in [
             (false, false, crate::ReembedScope::Incremental, "ready"),
             (false, false, crate::ReembedScope::WorkingSet, "ready"),
-            (true, false, crate::ReembedScope::Incremental, "building"),
-            (false, false, crate::ReembedScope::Full, "building"),
+            (true, false, crate::ReembedScope::Incremental, "ready"),
+            (false, false, crate::ReembedScope::Full, "ready"),
             (false, true, crate::ReembedScope::Incremental, "clearing"),
         ] {
             let vault = crate::Vault::open_temp().unwrap();
@@ -411,16 +440,8 @@ mod tests {
                 Ok(())
             }).unwrap();
             let request = AiIndexRequest { full_rebuild, clear_only, scope, ..Default::default() };
-            record_index_ledger_start(
-                &vault,
-                &provider,
-                1,
-                "2026-10-15T00:00:00Z",
-                9,
-                "test",
-                &request,
-            )
-            .unwrap();
+            record_index_ledger_start(&vault, &provider, 1, "2026-10-15T00:00:00Z", 9, &request)
+                .unwrap();
             let read = || {
                 vault
                     .read(vault_store::Db::Intelligence, |s| {
@@ -438,21 +459,22 @@ mod tests {
                 assert_eq!(read().2, 7);
                 assert_eq!(read().3.as_deref(), Some("2026-10-14T00:00:00Z"));
             }
-            record_index_ledger_failure(&vault, &provider, 1, 9, "test", &request, "interrupted")
-                .unwrap();
+            record_index_ledger_failure(&vault, &provider, 1, 9, "interrupted").unwrap();
             assert_eq!(read().0, if expected == "ready" { "ready" } else { "incomplete" });
             if expected == "ready" {
-                record_index_ledger_success(
-                    &vault,
-                    &provider,
-                    1,
-                    "2026-10-15T00:00:00Z",
-                    9,
-                    "test",
-                    &request,
-                    None,
-                )
-                .unwrap();
+                assert!(
+                    record_index_ledger_success(
+                        &vault,
+                        &provider,
+                        1,
+                        "2026-10-15T00:00:00Z",
+                        9,
+                        "test",
+                        &request,
+                        None,
+                    )
+                    .unwrap()
+                );
                 let (watermark, finished) = if request.scope == crate::ReembedScope::WorkingSet {
                     (7, "2026-10-14T00:00:00Z")
                 } else {
@@ -467,16 +489,8 @@ mod tests {
         let vault = crate::Vault::open_temp().unwrap();
         let provider =
             AiProviderRuntime { config: crate::AiProviderConfig::default(), api_key: None };
-        record_index_ledger_start(
-            &vault,
-            &provider,
-            1,
-            "now",
-            0,
-            "test",
-            &AiIndexRequest::default(),
-        )
-        .unwrap();
+        record_index_ledger_start(&vault, &provider, 1, "now", 0, &AiIndexRequest::default())
+            .unwrap();
         assert_eq!(
             vault
                 .read(vault_store::Db::Intelligence, |s| Ok(s.query_one(
@@ -487,5 +501,55 @@ mod tests {
                 .unwrap(),
             "building"
         );
+    }
+}
+
+#[cfg(test)]
+mod recovery_coverage_tests {
+    use super::*;
+    #[test]
+    fn recovery_ownership_preserves_coverage_until_publication_even_when_a_clear_fails() {
+        // A legacy index may regain ready state after migration resumes. Failed intervening
+        // work must never lend that old index the new archive's watermark/completion time.
+        for clear_only in [false, true] {
+            for completed in [None, Some("completed")] {
+                let vault = crate::Vault::open_temp().unwrap();
+                let provider = AiProviderRuntime {
+                    config: AiProviderConfig {
+                        id: "recovering".into(),
+                        default_model: "model".into(),
+                        ..Default::default()
+                    },
+                    api_key: None,
+                };
+                vault.write(vault_store::Db::Intelligence,vault_store::Priority::Batch,move |s| {
+                    s.execute("INSERT INTO ai_index_ledger(provider_id,model,sidecar_table,index_version,state,source_watermark,build_finished_at,last_indexed_at,failure_reason) VALUES('recovering','model','','v','incomplete',7,?2,'indexed',?1)",params![super::super::generations::LEGACY_WAS_READY,completed])?;Ok(())
+                }).unwrap();
+                let check = || {
+                    let found=vault.read(vault_store::Db::Intelligence,|s| Ok(s.query_one("SELECT source_watermark,build_finished_at,last_indexed_at,failure_reason FROM ai_index_ledger",(),|r|Ok((r.get::<i64>(0)?,r.get::<Option<String>>(1)?,r.get::<String>(2)?,r.get::<String>(3)?)))?)).unwrap();
+                    assert_eq!(
+                        found,
+                        (
+                            7,
+                            completed.map(str::to_owned),
+                            "indexed".into(),
+                            super::super::generations::LEGACY_WAS_READY.into()
+                        )
+                    );
+                };
+                record_index_ledger_start(
+                    &vault,
+                    &provider,
+                    42,
+                    "later",
+                    9,
+                    &AiIndexRequest { clear_only, ..Default::default() },
+                )
+                .unwrap();
+                check();
+                record_index_ledger_failure(&vault, &provider, 42, 9, "failed").unwrap();
+                check();
+            }
+        }
     }
 }

@@ -2,15 +2,14 @@
 //! Not responsible for: model server requests or UI feature acceptance.
 //! Regression tests for optional AI and semantic retrieval helpers.
 use super::indexing::{
-    IndexedVisit, clear_provider_embeddings, collect_visit_chunk, select_embed_targets,
-    validate_embedding_batch_for_keys,
+    IndexedVisit, collect_visit_chunk, select_embed_targets, validate_embedding_batch_for_keys,
 };
 use super::search::{search_history_internal, semantic_matches};
 use super::*;
 use crate::models::{AiSettings, ArchiveMode};
 use native::fixtures::{
-    SeedVisit, prepared_archive, prepared_archive_with_key, seed_embedding,
-    seed_successful_index_ledger, seed_visit, seed_visits,
+    SeedVisit, migrate_fixture, prepared_archive, prepared_archive_with_key, seed_embedding,
+    seed_successful_index_ledger, seed_visit, seed_visits, source_paths,
 };
 use tokio::runtime::Runtime;
 
@@ -266,10 +265,9 @@ fn select_embed_targets_keeps_distinct_pages_that_collide_on_truncated_u64() {
 }
 
 #[test]
-fn semantic_matches_falls_back_to_pkmap_scan_when_reverse_sidecars_absent() {
-    // Read-path guard: an OLDER index (planes + `.pkmap` present, but no `.pkrev`/`.pkfwd`) must
-    // still resolve the SAME hits via the authoritative `.pkmap` scan fallback — no wrong/empty result.
-    // This exercises the `reverse_sidecars_usable == false` branch + `VisitContentMap` scan path.
+fn legacy_index_without_visit_projections_waits_for_a_normal_pass() {
+    // Open cannot build the missing immutable maps or scan mutable lineage sources from a query.
+    // A normal index pass, explicitly requested through the queue, supplies the projections.
     let runtime = Runtime::new().expect("runtime");
     let (paths, config, connection) = prepared_archive();
     let vault = connection.vault.clone();
@@ -289,6 +287,7 @@ fn semantic_matches_falls_back_to_pkmap_scan_when_reverse_sidecars_absent() {
     seed_embedding(&connection, 1, &embedding, "hash-1");
     seed_successful_index_ledger(&connection, &embedding, 1);
 
+    migrate_fixture(&vault, &embedding);
     let report = runtime
         .block_on(semantic_matches(
             &vault,
@@ -311,9 +310,8 @@ fn semantic_matches_falls_back_to_pkmap_scan_when_reverse_sidecars_absent() {
             None,
         ))
         .expect("semantic matches via fallback");
-    assert!(!report.hits.is_empty(), "the `.pkmap`-scan fallback must still return the real hit");
-    assert_eq!(report.hits[0].history_id, 1, "fallback resolves the same most-recent visit");
-    assert!(report.hits[0].url.contains("/docs"));
+    assert!(report.hits.is_empty());
+    assert!(report.notes.contains(&AiSearchNote::EmptySemanticIndex));
 }
 
 #[test]
@@ -358,6 +356,10 @@ fn semantic_matches_rejects_same_dim_fingerprint_drift_with_an_honest_note() {
     )
     .expect("build planes");
 
+    ReverseVisitMap::for_provider(&paths, &embedding.config.id, &embedding.config.default_model)
+        .build_from_visit_map(&paths, &map, &drifted.hash())
+        .unwrap();
+    migrate_fixture(&vault, &embedding);
     let report = runtime
         .block_on(semantic_matches(
             &vault,
@@ -458,6 +460,7 @@ fn semantic_facets_find_eligible_pages_beyond_every_former_recall_pool() {
     }
     seed_visits(&vault, visits);
     seed_vector_planes(&paths, &provider, &vectors);
+    migrate_fixture(&vault, &provider);
     let response = runtime
         .block_on(search_history_internal(
             &vault,
@@ -515,6 +518,19 @@ fn semantic_search_rejects_a_position_map_from_another_projection() {
         &paths,
         &provider,
         &[(1, 22, opposite), (2, 11, vector.clone()), (3, 33, vector)],
+    );
+    migrate_fixture(&connection.vault, &provider);
+    let lease = super::generations::resolve(
+        &connection.vault,
+        &provider.config.id,
+        &provider.config.default_model,
+    )
+    .unwrap()
+    .unwrap();
+    let cache = super::visit_position_map::path(
+        lease.paths(),
+        &provider.config.id,
+        &provider.config.default_model,
     );
     let request = AiSearchRequest { query: "docs".into(), limit: Some(10), ..Default::default() };
     let search = || {

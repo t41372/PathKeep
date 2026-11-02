@@ -38,10 +38,14 @@ pub(crate) fn initialize_archive_with_progress_impl(
                     .into(),
             );
         }
-        update_session_key(state, database_key)?;
-        state.background_vault()?;
-        report_progress(vault_core::ArchiveUpgradeProgress::finished());
-        return super::app_snapshot_impl(state);
+        return worker_result(vault_core::with_archive_upgrade_progress(
+            &mut report_progress,
+            || {
+                update_session_key(state, database_key).map_err(anyhow::Error::msg)?;
+                state.background_vault().map_err(anyhow::Error::msg)?;
+                super::app_snapshot_impl(state).map_err(|e| anyhow::anyhow!(e.to_string()))
+            },
+        ));
     }
     if paths.legacy.archive.exists() && !paths.archive_db.exists() {
         return worker_result(vault_worker::convert_archive_with_progress(

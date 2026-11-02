@@ -1,4 +1,4 @@
-/** History's search aids: the syntax cheat sheet, regex dialect errors and semantic status. */
+/** History's search aids: the syntax cheat sheet, the sort menu, the advanced search form, regex dialect errors and semantic status. */
 import { defineMessages } from '../define'
 
 export const historySearch = defineMessages({
@@ -21,6 +21,93 @@ export const historySearch = defineMessages({
       regex: 'Slashes around it make it a regex',
       footer:
         'Regex follows Rust’s syntax: no look-ahead, look-behind or back-references. Everything is searched on this computer.',
+    },
+    sort: {
+      label: 'Sort results: {order}',
+      relevance: 'Best match',
+      newest: 'Newest first',
+      oldest: 'Oldest first',
+      visits: 'Most visited',
+      about: {
+        relevance: 'Closest to what you typed',
+        newest: 'By each page’s latest visit',
+        oldest: 'By each page’s first visit',
+        visits: 'By how often you visited each page',
+      },
+      regexNote:
+        'A regex either matches or it doesn’t, so there’s no best match.',
+      semanticNote: 'Semantic search sorts by meaning only.',
+    },
+    builder: {
+      button: 'Advanced search',
+      title: 'Advanced search',
+      tabs: {
+        words: 'Words',
+        pattern: 'Pattern',
+      },
+      words: {
+        intro:
+          'Fill in any of these. They’re combined into one full-text search.',
+        all: 'All of these words',
+        phrase: 'This exact phrase',
+        any: 'Any of these words',
+        none: 'None of these words',
+        narrow: 'Only pages',
+        site: 'On this site',
+        title: 'With these words in the title',
+        url: 'With these words in the address',
+        fileType: 'Of this file type',
+        tags: 'Tagged',
+        tagsHint: 'Separate tags with commas. A page needs all of them.',
+        note: 'Whose note mentions',
+        starred: 'Only starred pages',
+        /** What each field takes, shown while it is empty; the site field shows a domain. */
+        examples: {
+          all: 'tokio runtime',
+          phrase: 'release notes',
+          any: 'tauri electron',
+          none: 'beta',
+          title: 'guide',
+          url: 'issues',
+          fileType: 'pdf',
+          tags: 'reading, rust',
+          note: 'rewrite',
+        },
+      },
+      pattern: {
+        intro:
+          'Describe the address or title piece by piece, and PathKeep writes the regex.',
+        piece: 'Piece {n}',
+        kind: {
+          text: 'This text',
+          oneOf: 'One of',
+          number: 'A number',
+          word: 'A word',
+          segment: 'Anything up to the next /',
+          any: 'Anything',
+        },
+        textPlaceholder: 'github.com/',
+        oneOfPlaceholder: 'pull, issues',
+        oneOfHint: 'Separate the choices with commas.',
+        add: 'Add a piece',
+        remove: 'Remove piece {n}',
+        atStart: 'Must start where the address or title starts',
+        atEnd: 'Must end where the address or title ends',
+        matchCase: 'Match upper and lower case',
+        examples: 'Start from an example',
+        example: {
+          githubThreads: 'GitHub pull requests and issues',
+          hackerNews: 'Hacker News threads',
+          youtube: 'YouTube videos',
+          stackOverflow: 'Stack Overflow questions',
+        },
+        matches: 'Matched against each page’s address and title.',
+      },
+      preview: 'Searches for',
+      previewEmpty: 'Fill in a field to build a search.',
+      search: 'Search',
+      clear: 'Clear',
+      replaces: 'Replaces what’s in the search box.',
     },
     regex: {
       syntax: 'Check the brackets, parentheses and backslashes.',
@@ -52,6 +139,22 @@ export const historySearch = defineMessages({
       },
       rebuild: 'Rebuild in Settings → AI',
       fellBack: 'These are full-text results instead.',
+      note: {
+        previousModel:
+          'The chosen model’s index isn’t finished yet, so this uses the previous one.',
+        lexicalFallbackNoProvider:
+          'No embedding service is chosen, so these results match words only.',
+        emptySemanticIndex:
+          'The semantic index is empty, so these results match words only.',
+        semanticMatchesFilteredOut:
+          'Pages close in meaning were found, but none fit the filters.',
+        configDriftDimension:
+          'The index was built for another model, so these results match words only until it’s rebuilt.',
+        configDriftFingerprint:
+          'The index was built with other model settings, so these results match words only until it’s rebuilt.',
+        providerResolutionFailed:
+          'The embedding service couldn’t be reached, so these results match words only.',
+      },
       openSettings: 'Settings → AI',
       whereToFix: 'See Settings → AI.',
       reason: {
@@ -87,6 +190,89 @@ export const historySearch = defineMessages({
       footer:
         '正则使用 Rust 的语法：不支持前瞻、后顾和反向引用。所有搜索都在这台电脑上进行。',
     },
+    sort: {
+      label: '结果排序：{order}',
+      relevance: '最相关',
+      newest: '最新的在前',
+      oldest: '最早的在前',
+      visits: '最常浏览',
+      about: {
+        relevance: '最接近你输入的内容',
+        newest: '按每个页面最近一次浏览',
+        oldest: '按每个页面第一次浏览',
+        visits: '按每个页面浏览的次数',
+      },
+      regexNote: '正则只分匹配和不匹配，没有「最相关」。',
+      semanticNote: '语义搜索只按意思排序。',
+    },
+    builder: {
+      button: '高级搜索',
+      title: '高级搜索',
+      tabs: {
+        words: '关键词',
+        pattern: '样式',
+      },
+      words: {
+        intro: '填任意几项就行，会合成一个全文搜索。',
+        all: '包含所有这些词',
+        phrase: '包含这个完整词组',
+        any: '包含其中任意一个词',
+        none: '不包含这些词',
+        narrow: '只看这些页面',
+        site: '在这个网站',
+        title: '标题里有这些词',
+        url: '网址里有这些词',
+        fileType: '这种文件类型',
+        tags: '加了这些标签',
+        tagsHint: '标签用逗号分开，页面要有全部标签。',
+        note: '备注里提到',
+        starred: '只看已加星的页面',
+        examples: {
+          all: '机器学习 入门',
+          phrase: '发布说明',
+          any: '咖啡 茶',
+          none: '广告',
+          title: '教程',
+          url: 'issues',
+          fileType: 'pdf',
+          tags: '稍后读, rust',
+          note: '重写',
+        },
+      },
+      pattern: {
+        intro: '一段一段描述网址或标题，PathKeep 帮你写成正则。',
+        piece: '第 {n} 段',
+        kind: {
+          text: '这段文字',
+          oneOf: '其中之一',
+          number: '一串数字',
+          word: '一个词',
+          segment: '到下一个 / 为止的任何内容',
+          any: '任何内容',
+        },
+        textPlaceholder: 'github.com/',
+        oneOfPlaceholder: 'pull, issues',
+        oneOfHint: '选项用逗号分开。',
+        add: '加一段',
+        remove: '删除第 {n} 段',
+        atStart: '必须从网址或标题的开头开始',
+        atEnd: '必须到网址或标题的结尾为止',
+        matchCase: '区分大小写',
+        examples: '从示例开始',
+        example: {
+          githubThreads: 'GitHub 的 pull request 和 issue',
+          hackerNews: 'Hacker News 讨论帖',
+          youtube: 'YouTube 视频',
+          stackOverflow: 'Stack Overflow 问题',
+        },
+        matches: '会和每个页面的网址和标题比对。',
+      },
+      preview: '会搜索',
+      previewEmpty: '填一项就会组成搜索。',
+      search: '搜索',
+      clear: '清除',
+      replaces: '会替换搜索框里现在的内容。',
+    },
     regex: {
       syntax: '检查一下方括号、圆括号和反斜线。',
       lookAround:
@@ -113,6 +299,17 @@ export const historySearch = defineMessages({
       },
       rebuild: '到“设置 → AI”重建',
       fellBack: '下面是全文搜索的结果。',
+      note: {
+        previousModel: '所选模型的索引还没建完，所以先用上一个模型的索引。',
+        lexicalFallbackNoProvider: '还没选嵌入服务，所以这些结果只匹配字词。',
+        emptySemanticIndex: '语义索引是空的，所以这些结果只匹配字词。',
+        semanticMatchesFilteredOut: '有意思相近的页面，但都不符合筛选条件。',
+        configDriftDimension:
+          '索引是为另一个模型建的，重建之前这些结果只匹配字词。',
+        configDriftFingerprint:
+          '索引是用不同的模型设置建的，重建之前这些结果只匹配字词。',
+        providerResolutionFailed: '连不上嵌入服务，所以这些结果只匹配字词。',
+      },
       openSettings: '设置 → AI',
       whereToFix: '请看“设置 → AI”。',
       reason: {
@@ -147,6 +344,89 @@ export const historySearch = defineMessages({
       footer:
         '正規表示式使用 Rust 的語法：不支援前瞻、後顧和反向參照。所有搜尋都在這台電腦上進行。',
     },
+    sort: {
+      label: '結果排序：{order}',
+      relevance: '最相關',
+      newest: '最新的在前',
+      oldest: '最早的在前',
+      visits: '最常瀏覽',
+      about: {
+        relevance: '最接近你輸入的內容',
+        newest: '依每個頁面最近一次瀏覽',
+        oldest: '依每個頁面第一次瀏覽',
+        visits: '依每個頁面瀏覽的次數',
+      },
+      regexNote: '正規表示式只分符合和不符合，沒有「最相關」。',
+      semanticNote: '語意搜尋只依意思排序。',
+    },
+    builder: {
+      button: '進階搜尋',
+      title: '進階搜尋',
+      tabs: {
+        words: '關鍵字',
+        pattern: '樣式',
+      },
+      words: {
+        intro: '填任意幾項就好，會合成一個全文搜尋。',
+        all: '包含所有這些字',
+        phrase: '包含這個完整詞組',
+        any: '包含其中任一個字',
+        none: '不包含這些字',
+        narrow: '只看這些頁面',
+        site: '在這個網站',
+        title: '標題裡有這些字',
+        url: '網址裡有這些字',
+        fileType: '這種檔案類型',
+        tags: '加了這些標籤',
+        tagsHint: '標籤用逗號分開，頁面要有全部標籤。',
+        note: '備註裡提到',
+        starred: '只看已加星的頁面',
+        examples: {
+          all: '機器學習 入門',
+          phrase: '版本說明',
+          any: '咖啡 茶',
+          none: '廣告',
+          title: '教學',
+          url: 'issues',
+          fileType: 'pdf',
+          tags: '稍後讀, rust',
+          note: '重寫',
+        },
+      },
+      pattern: {
+        intro: '一段一段描述網址或標題，PathKeep 幫你寫成正規表示式。',
+        piece: '第 {n} 段',
+        kind: {
+          text: '這段文字',
+          oneOf: '其中之一',
+          number: '一串數字',
+          word: '一個字',
+          segment: '到下一個 / 為止的任何內容',
+          any: '任何內容',
+        },
+        textPlaceholder: 'github.com/',
+        oneOfPlaceholder: 'pull, issues',
+        oneOfHint: '選項用逗號分開。',
+        add: '加一段',
+        remove: '移除第 {n} 段',
+        atStart: '必須從網址或標題的開頭開始',
+        atEnd: '必須到網址或標題的結尾為止',
+        matchCase: '區分大小寫',
+        examples: '從範例開始',
+        example: {
+          githubThreads: 'GitHub 的 pull request 和 issue',
+          hackerNews: 'Hacker News 討論串',
+          youtube: 'YouTube 影片',
+          stackOverflow: 'Stack Overflow 問題',
+        },
+        matches: '會和每個頁面的網址和標題比對。',
+      },
+      preview: '會搜尋',
+      previewEmpty: '填一項就會組成搜尋。',
+      search: '搜尋',
+      clear: '清除',
+      replaces: '會取代搜尋框裡現在的內容。',
+    },
     regex: {
       syntax: '檢查一下方括號、圓括號和反斜線。',
       lookAround:
@@ -174,6 +454,17 @@ export const historySearch = defineMessages({
       },
       rebuild: '到「設定 → AI」重建',
       fellBack: '下面是全文搜尋的結果。',
+      note: {
+        previousModel: '所選模型的索引還沒建完，所以先用上一個模型的索引。',
+        lexicalFallbackNoProvider: '還沒選嵌入服務，所以這些結果只比對字詞。',
+        emptySemanticIndex: '語意索引是空的，所以這些結果只比對字詞。',
+        semanticMatchesFilteredOut: '有意思相近的頁面，但都不符合篩選條件。',
+        configDriftDimension:
+          '索引是為另一個模型建的，重建之前這些結果只比對字詞。',
+        configDriftFingerprint:
+          '索引是用不同的模型設定建的，重建之前這些結果只比對字詞。',
+        providerResolutionFailed: '連不上嵌入服務，所以這些結果只比對字詞。',
+      },
       openSettings: '設定 → AI',
       whereToFix: '請看「設定 → AI」。',
       reason: {

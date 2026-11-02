@@ -28,6 +28,8 @@ fn repairs_counters_missing_documents_and_visibility_provenance_without_unhiding
         for code in ["cached-totals", "search-outbox", "broken-visibility-references"] {
             assert!(before.checks.iter().any(|c| c.code == code && !c.ok), "{code}");
         }
+        // Every database was just opened at the version this binary writes.
+        assert!(before.checks.iter().any(|c| c.code == "schema-version" && c.ok), "{before:?}");
         let repaired = repair_health_issues(&vault).unwrap();
         assert!(repaired.run_id.is_some());
         assert_eq!(repaired.repaired_visibility_rows, 1);

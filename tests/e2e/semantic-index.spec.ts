@@ -29,7 +29,10 @@
  * - An index made from the older page text (its file as PathKeep wrote it
  *   before) keeps working and keeps taking new visits after a backup, and
  *   Settings and History say so; Rebuild index reads every page again and
- *   the note goes away.
+ *   the note goes away. Paused half way, the old index still answers
+ *   searches, pages the rebuild has not read yet included, and Settings says
+ *   so; continued, the new index replaces it and only its files remain. Rebuild
+ *   search index does the same for an index made the current way.
  *
  * The app is killed for real (`support/app.ts`; the E2E launcher starts it
  * again). The service runs on this computer (`support/fake-embeddings.ts`);
@@ -47,7 +50,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import path from 'node:path'
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 import {
   appendChromeVisits,
   retitleChromePage,
@@ -71,12 +74,15 @@ import {
   fixture,
   localDay,
   parseCount,
+  type FixtureVisit,
 } from './support/fixture'
 import {
   NEW_PAGE,
+  PAUSED_REBUILD_PAGE,
   RETITLED_TITLE,
   indexRevisitVisits,
   newPageVisit,
+  pausedRebuildPageVisit,
 } from './support/index-revisit'
 
 import {
@@ -89,6 +95,7 @@ import {
   undoRelatedFile,
 } from './support/related-pages'
 import { searchGroupsScenario } from './support/search-groups'
+import { IN_TITLE } from './support/ranking-pages'
 import { insightsSearchGroupsScenario } from './support/insights-search-groups'
 import type { RelatedPages } from '../../src/lib/backend-client/related-pages'
 
@@ -128,23 +135,125 @@ function folderBytes(dir: string): number {
   }
 }
 
-/**
- * Files of the index `model` made with service `providerId`, under
- * `derived/vectors`: named like `ai_sidecar::provider_table_name`.
- */
-const indexFilesOf = (providerId: string, model: string) => {
-  const dir = path.join(fixture().dirs.projectRoot, 'derived', 'vectors')
-  const stem = `pathkeep_${providerId.replace(/[^A-Za-z0-9]/g, '_')}_${createHash(
-    'sha256',
-  )
+/** An index's name on disk, as `ai_sidecar::provider_table_name` writes it. */
+const indexStem = (providerId: string, model: string) =>
+  `pathkeep_${providerId.replace(/[^A-Za-z0-9]/g, '_')}_${createHash('sha256')
     .update(`${providerId}::${model}`)
     .digest('hex')
     .slice(0, 12)}`
+
+/** The folder of an index in `derived/vectors`, one folder per lineage in it. */
+const indexDir = (providerId: string, model: string) =>
+  path.join(
+    fixture().dirs.projectRoot,
+    'derived',
+    'vectors',
+    indexStem(providerId, model),
+  )
+
+const subfolders = (dir: string) => {
   try {
-    return readdirSync(dir).filter((name) => name.startsWith(`${stem}.`))
+    return readdirSync(dir, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
   } catch {
     return []
   }
+}
+
+/**
+ * The lineages of an index (`semantic-index-control.md`): one while it is
+ * idle, two while a full rebuild builds beside it.
+ */
+const lineagesOf = (providerId: string, model: string) =>
+  subfolders(indexDir(providerId, model))
+
+/** A lineage's generations, `g<run>` folders, oldest first. */
+const generationsOf = (providerId: string, model: string, lineage: string) =>
+  subfolders(path.join(indexDir(providerId, model), lineage))
+    .filter((name) => /^g\d+$/.test(name))
+    .sort((a, b) => Number(a.slice(1)) - Number(b.slice(1)))
+
+/**
+ * The index search reads: the newest generation of any lineage (a rebuild's
+ * lineage has none until it is done), its `serving.json`, and its lineage's
+ * page vector file.
+ */
+function servingOf(providerId: string, model: string) {
+  const [newest] = lineagesOf(providerId, model)
+    .flatMap((lineage) =>
+      generationsOf(providerId, model, lineage).map((generation) => ({
+        lineage,
+        generation,
+      })),
+    )
+    .sort(
+      (a, b) => Number(b.generation.slice(1)) - Number(a.generation.slice(1)),
+    )
+  if (!newest) return null
+  const dir = path.join(indexDir(providerId, model), newest.lineage)
+  return {
+    ...newest,
+    store: path.join(dir, `${indexStem(providerId, model)}.pkvec`),
+    serving: path.join(dir, newest.generation, 'serving.json'),
+  }
+}
+
+/** Adds an OpenAI-compatible embeddings service in Settings → AI and picks it. */
+async function addEmbeddingsService(
+  page: Page,
+  url: string,
+  model: string,
+  name: string,
+) {
+  await page.goto('/#/settings/ai')
+  await unlockIfLocked(page)
+  await page.getByRole('combobox', { name: 'Model' }).click()
+  await page.getByRole('option', { name: 'Add an embeddings service…' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Add an embeddings service' })
+  await dialog.getByRole('combobox', { name: 'Service' }).click()
+  await page.getByRole('option', { name: 'OpenAI or compatible' }).click()
+  await dialog.getByRole('textbox', { name: 'Address' }).fill(url)
+  await dialog.getByRole('textbox', { name: 'Model' }).fill(model)
+  await dialog.getByRole('textbox', { name: 'Name' }).fill(name)
+  await dialog.getByRole('button', { name: 'Add service' }).click()
+  await expect(page.getByRole('combobox', { name: 'Model' })).toContainText(
+    name,
+  )
+}
+
+/** Files of the index `model` made with service `providerId`, in every lineage and generation. */
+const indexFilesOf = (providerId: string, model: string) => {
+  const list = (dir: string): string[] => {
+    try {
+      return readdirSync(dir, { withFileTypes: true }).flatMap((entry) =>
+        entry.isDirectory()
+          ? list(path.join(dir, entry.name)).map((name) =>
+              path.join(entry.name, name),
+            )
+          : [entry.name],
+      )
+    } catch {
+      return []
+    }
+  }
+  return list(indexDir(providerId, model))
+}
+
+/**
+ * Makes the serving index look like one made from the older page text, as an
+ * index PathKeep wrote before the text changed: its vector file's header and
+ * the generation's copy of it name no text format.
+ */
+function markOlderText(serving: { store: string; serving: string }) {
+  const { embeddedText, ...older } = readStoreHeader(serving.store)
+  writeStoreHeader(serving.store, older)
+  const metadata = JSON.parse(readFileSync(serving.serving, 'utf8')) as {
+    pages?: Record<string, unknown>
+  }
+  if (metadata.pages) delete metadata.pages.embeddedText
+  writeFileSync(serving.serving, JSON.stringify(metadata))
+  return embeddedText
 }
 
 /**
@@ -161,8 +270,8 @@ function readStoreHeader(file: string) {
 }
 
 /**
- * The text format a rebuild has stamped so far, or null while there is none to
- * read: a rebuild deletes the vector file and writes it again.
+ * The text format the index search reads was made from, or null when its
+ * header names none (or there is no file to read).
  */
 function rebuiltTextFormat(file: string) {
   try {
@@ -170,6 +279,29 @@ function rebuiltTextFormat(file: string) {
   } catch {
     return null
   }
+}
+
+/**
+ * Once a build has ended, the index keeps one lineage with one generation:
+ * its sources beside the generation search reads, nothing else.
+ */
+async function expectOneGeneration(providerId: string, model: string) {
+  await expect
+    .poll(() => lineagesOf(providerId, model), { timeout: 30_000 })
+    .toHaveLength(1)
+  const [lineage] = lineagesOf(providerId, model)
+  await expect
+    .poll(() => generationsOf(providerId, model, lineage), { timeout: 30_000 })
+    .toHaveLength(1)
+  const files = indexFilesOf(providerId, model)
+  const stem = indexStem(providerId, model)
+  const [generation] = generationsOf(providerId, model, lineage)
+  for (const name of [`${stem}.pkvec`, `${stem}.pkmap`])
+    expect(files).toContain(path.join(lineage, name))
+  for (const extension of ['.pkbin', '.pki8', '.pkrev', '.pkfwd'])
+    expect(files).toContain(
+      path.join(lineage, generation, `${stem}${extension}`),
+    )
 }
 
 /** Puts `header` in place of the file's own, keeping its vectors. */
@@ -206,6 +338,18 @@ const pagesOf = (texts: string[]) =>
 const OLD_LABELS = /^(Profile|Visited at|URL|Domain|Title|Readable text):/m
 const RUN_URL = 'https://www.strava.com/activities/1001'
 const RUN_TITLE = 'Strava · Afternoon run'
+
+/**
+ * The page the later backup gives a new title: not the first page (that one
+ * is visited again as it was), and never the run page, which the searches
+ * after the backup look for by its old text and title. Which page comes first
+ * depends on the fixture's visits, so the run page could otherwise be picked.
+ */
+function retitledPage(pages: FixtureVisit[]) {
+  return pages.find(
+    (visit) => visit.url !== pages[0].url && visit.url !== RUN_URL,
+  )!
+}
 
 test('a search index build killed half way finishes after a restart, without starting over', async ({
   page,
@@ -428,7 +572,7 @@ test('a search index build killed half way finishes after a restart, without sta
       (visit) => !visit.term,
     )
     const same = pages[0]
-    const retitled = pages.find((visit) => visit.url !== same.url)!
+    const retitled = retitledPage(pages)
     const atBackup = service.inputs.length
     retitleChromePage(chromeFile, retitled.url, RETITLED_TITLE)
     appendChromeVisits(chromeFile, indexRevisitVisits(same, retitled))
@@ -654,11 +798,21 @@ test('the model gets each page’s own text and searches in its own form; an ind
   // says the results on screen came from semantic search.
   const searchByMeaning = async (words: string) => {
     await page.goto('/#/history')
+    await unlockIfLocked(page)
     await page.getByRole('searchbox', { name: 'Search history' }).fill(words)
     await page.getByRole('radio', { name: 'Semantic' }).click()
     await expect(page.getByText(/Semantic search with /)).toBeVisible({
       timeout: 60_000,
     })
+  }
+  // Semantic search merges in full-text results, so a page listed for words
+  // it holds proves nothing about the index: ask why it matched. `semantic`
+  // or `lexical+semantic` means the index found it.
+  const matchedByMeaning = async (words: string, url: string) => {
+    const { items } = await backend<{
+      items: { url: string; matchReason: string }[]
+    }>('search_ai_history', { request: { query: words, limit: 20 } })
+    return items.find((item) => item.url === url)?.matchReason ?? 'not found'
   }
   const olderText = page.getByText(
     /^This index was made from an older version of the page text/,
@@ -732,22 +886,13 @@ test('the model gets each page’s own text and searches in its own form; an ind
     for (const text of searches)
       expect(text).toMatch(/^Instruct: [^\n]+\nQuery:afternoon run strava$/)
 
-    // The index file as PathKeep wrote it before the page text changed.
+    // The index as PathKeep wrote it before the page text changed.
     const { providerId } = (await queueStatus()).semanticIndex.chosen!
-    const [vectors] = indexFilesOf(providerId, MODEL).filter((name) =>
-      name.endsWith('.pkvec'),
-    )
-    const store = path.join(
-      fixture().dirs.projectRoot,
-      'derived',
-      'vectors',
-      vectors,
-    )
-    const { embeddedText, ...older } = readStoreHeader(store)
+    const store = () => servingOf(providerId, MODEL)?.store ?? ''
+    const embeddedText = markOlderText(servingOf(providerId, MODEL)!)
     expect(embeddedText, 'the index names the text it was made from').toEqual(
       expect.any(String),
     )
-    writeStoreHeader(store, older)
 
     // It still works, and both places say what it was made from.
     await page.goto('/#/settings/ai')
@@ -782,7 +927,7 @@ test('the model gets each page’s own text and searches in its own form; an ind
       .toBe(true)
     await expect.poll(busy, { timeout: 120_000 }).toBe(0)
     expect(
-      readStoreHeader(store).embeddedText,
+      readStoreHeader(store()).embeddedText,
       'adding pages does not make it current',
     ).toBeUndefined()
     await searchByMeaning('sourdough starter feeding')
@@ -791,16 +936,60 @@ test('the model gets each page’s own text and searches in its own form; an ind
     })
 
     // Rebuilt, every page is read again the current way and the note goes.
+    // It reads the visits oldest first, so the backup's new page comes last:
+    // paused after the first batch, the rebuild has not read it.
     await page.goto('/#/settings/ai')
     await expect(olderText).toBeVisible({ timeout: 30_000 })
     const atRebuild = service.inputs.length
+    service.holdAfter(1)
     await page.getByRole('button', { name: 'Rebuild index' }).click()
     await page
       .getByRole('alertdialog', { name: 'Rebuild the search index?' })
       .getByRole('button', { name: 'Rebuild' })
       .click()
     await expect
-      .poll(() => rebuiltTextFormat(store), { timeout: 240_000 })
+      .poll(() => service.held(), { timeout: 120_000 })
+      .toBeGreaterThan(0)
+    await page.getByRole('button', { name: 'Pause' }).click()
+    await expect(
+      page.getByText(/^Paused at [\d,]+ of [\d,]+ visits\.$/),
+    ).toBeVisible({ timeout: 30_000 })
+    service.release()
+
+    // Meanwhile search reads the old index, which the rebuild writes beside,
+    // never into, and Settings says so.
+    await expect(
+      page.getByText(
+        /^Until this finishes, search uses the index you have now: [\d,]+ pages?\.$/,
+      ),
+    ).toBeVisible()
+    expect(rebuiltTextFormat(store()), 'the old index is still in place').toBe(
+      null,
+    )
+    expect(
+      lineagesOf(providerId, MODEL),
+      'the rebuild writes a lineage of its own',
+    ).toHaveLength(2)
+    expect((await queueStatus()).semanticIndex).toMatchObject({
+      chosenComplete: true,
+      build: { state: 'paused', pausedBy: 'user' },
+    })
+    await searchByMeaning('sourdough starter feeding')
+    await expect(rows.first()).toContainText(NEW_PAGE.title, {
+      timeout: 60_000,
+    })
+    // Found by the old index, not only by its words: a rebuild that emptied
+    // the index first would list it by full text alone.
+    expect(
+      await matchedByMeaning('sourdough starter feeding', NEW_PAGE.url),
+    ).toMatch(/semantic/)
+
+    // Continued to the end, the new index takes the old one's place.
+    await page.goto('/#/settings/ai')
+    await unlockIfLocked(page)
+    await page.getByRole('button', { name: 'Continue' }).click()
+    await expect
+      .poll(() => rebuiltTextFormat(store()), { timeout: 240_000 })
       .toBe(embeddedText)
     await expect
       .poll(
@@ -813,6 +1002,16 @@ test('the model gets each page’s own text and searches in its own form; an ind
     const rebuilt = service.inputs.slice(atRebuild)
     expect(pages.filter((text) => !rebuilt.includes(text))).toEqual([])
     expect(rebuilt.filter((text) => OLD_LABELS.test(text))).toEqual([])
+    // One lineage with one generation left once the job has ended.
+    await expectOneGeneration(providerId, MODEL)
+    await searchByMeaning('sourdough starter feeding')
+    await expect(rows.first()).toContainText(NEW_PAGE.title, {
+      timeout: 60_000,
+    })
+    expect(
+      await matchedByMeaning('sourdough starter feeding', NEW_PAGE.url),
+    ).toMatch(/semantic/)
+    await page.goto('/#/settings/ai')
     await page.reload()
     await unlockIfLocked(page)
     await expect(page.getByText(/ visits? indexed/)).toBeVisible({
@@ -1033,7 +1232,7 @@ test('Ask groups the period by meaning and every indexed page can be reached exa
   const chrome = fixture().visitsByProfile['chrome:Default'].filter(
     (v) => !v.term,
   )
-  const retitledUrl = chrome.find((v) => v.url !== chrome[0].url)!.url
+  const retitledUrl = retitledPage(chrome).url
   const missing = [...expected].find(
     ([url, rows]) =>
       url !== retitledUrl &&
@@ -1570,4 +1769,306 @@ test('Insights shows things looked into by day and month with profile-scoped dri
 }, testInfo) => {
   test.setTimeout(600_000)
   await insightsSearchGroupsScenario(page, testInfo)
+})
+
+/**
+ * Rebuild search index writes the new index beside the one search reads:
+ * paused half way, search still finds the pages the rebuild has not read yet,
+ * and once it is done the new index takes the old one's place.
+ */
+test('a rebuild leaves the complete index answering searches until it replaces it', async ({
+  page,
+}) => {
+  test.setTimeout(600_000)
+  const MODEL = 'e2e-rebuild-embed'
+  const service = await startFakeEmbeddings({
+    dimensions: 256,
+    models: [
+      {
+        id: MODEL,
+        type: 'embeddings',
+        state: 'loaded',
+        max_context_length: 8192,
+        loaded_context_length: 8192,
+      },
+    ],
+  })
+  const before = await loadConfig()
+  const busy = async () => {
+    const queue = await queueStatus()
+    return queue.queued + queue.running
+  }
+  const rows = page
+    .getByRole('listbox', { name: 'History results' })
+    .getByRole('option')
+  const findsByMeaning = async (words: string, title: string) => {
+    await page.goto('/#/history')
+    await unlockIfLocked(page)
+    await page.getByRole('searchbox', { name: 'Search history' }).fill(words)
+    await page.getByRole('radio', { name: 'Semantic' }).click()
+    await expect(page.getByText(/Semantic search with /)).toBeVisible({
+      timeout: 60_000,
+    })
+    await expect(rows.first()).toContainText(title, { timeout: 60_000 })
+  }
+  let finished = false
+  try {
+    await page.goto('/#/settings/ai')
+    await unlockIfLocked(page)
+    await page.getByRole('combobox', { name: 'Model' }).click()
+    await page
+      .getByRole('option', { name: 'Add an embeddings service…' })
+      .click()
+    const dialog = page.getByRole('dialog', {
+      name: 'Add an embeddings service',
+    })
+    await dialog.getByRole('combobox', { name: 'Service' }).click()
+    await page.getByRole('option', { name: 'OpenAI or compatible' }).click()
+    await dialog.getByRole('textbox', { name: 'Address' }).fill(service.url)
+    await dialog.getByRole('textbox', { name: 'Model' }).fill(MODEL)
+    await dialog.getByRole('textbox', { name: 'Name' }).fill('E2E Rebuild')
+    await dialog.getByRole('button', { name: 'Add service' }).click()
+    await expect(page.getByRole('combobox', { name: 'Model' })).toContainText(
+      'E2E Rebuild',
+    )
+    await page.getByRole('switch', { name: 'Semantic search' }).click()
+    await expect
+      .poll(
+        async () =>
+          (await queueStatus()).semanticIndex.chosenComplete &&
+          (await busy()) === 0,
+        { timeout: 240_000 },
+      )
+      .toBe(true)
+    const { providerId } = (await queueStatus()).semanticIndex.chosen!
+    const complete = servingOf(providerId, MODEL)!
+    // Search ranking's pages were visited last, so a rebuild reads them last.
+    await findsByMeaning('lighthouse keeper journal', IN_TITLE.title)
+
+    // Rebuilt, paused after its first batch.
+    await page.goto('/#/settings/ai')
+    await unlockIfLocked(page)
+    service.holdAfter(1)
+    await page.getByRole('button', { name: 'Rebuild', exact: true }).click()
+    await page
+      .getByRole('alertdialog', { name: 'Rebuild the search index?' })
+      .getByRole('button', { name: 'Rebuild' })
+      .click()
+    await expect
+      .poll(() => service.held(), { timeout: 120_000 })
+      .toBeGreaterThan(0)
+    await page.getByRole('button', { name: 'Pause' }).click()
+    await expect(
+      page.getByText(/^Paused at [\d,]+ of [\d,]+ visits\.$/),
+    ).toBeVisible({ timeout: 30_000 })
+    service.release()
+
+    // Search still reads the complete index, which the rebuild writes beside,
+    // never into, and Settings says so.
+    await expect(
+      page.getByText(
+        /^Until this finishes, search uses the index you have now: [\d,]+ pages?\.$/,
+      ),
+    ).toBeVisible()
+    expect(servingOf(providerId, MODEL), 'the same index serves').toEqual(
+      complete,
+    )
+    expect(
+      lineagesOf(providerId, MODEL),
+      'the rebuild writes a lineage of its own',
+    ).toHaveLength(2)
+    expect((await queueStatus()).semanticIndex).toMatchObject({
+      chosenComplete: true,
+      build: { state: 'paused', pausedBy: 'user' },
+    })
+    await findsByMeaning('lighthouse keeper journal', IN_TITLE.title)
+
+    // Continued to the end, the new index takes the old one's place, and
+    // only its files remain.
+    await page.goto('/#/settings/ai')
+    await unlockIfLocked(page)
+    await page.getByRole('button', { name: 'Continue' }).click()
+    await expect
+      .poll(
+        async () =>
+          servingOf(providerId, MODEL)?.lineage !== complete.lineage &&
+          (await busy()) === 0,
+        { timeout: 240_000 },
+      )
+      .toBe(true)
+    await expectOneGeneration(providerId, MODEL)
+    await findsByMeaning('lighthouse keeper journal', IN_TITLE.title)
+    finished = true
+  } finally {
+    const restore = async () => {
+      await unlockIfLocked(page)
+      const current = await loadConfig()
+      await backend('save_config', { config: { ...current, ai: before.ai } })
+    }
+    await restore().catch((error: unknown) => {
+      if (finished) throw error
+    })
+    await service.close()
+  }
+})
+
+/**
+ * A rebuild cancelled half way leaves the index it would have replaced as it
+ * was: it still answers by meaning and still counts every visit it holds. A
+ * page backed up while the rebuild was paused is added by the next update,
+ * and nothing that index already had is sent again. Nothing of the rebuild
+ * stays on disk.
+ */
+test('a cancelled rebuild leaves the index it would have replaced, and the next update adds what was backed up meanwhile', async ({
+  page,
+}) => {
+  test.setTimeout(600_000)
+  const MODEL = 'e2e-cancelled-rebuild'
+  const NEW = PAUSED_REBUILD_PAGE
+  const service = await startFakeEmbeddings({
+    dimensions: 256,
+    models: [
+      {
+        id: MODEL,
+        type: 'embeddings',
+        state: 'loaded',
+        max_context_length: 8192,
+        loaded_context_length: 8192,
+      },
+    ],
+  })
+  const before = await loadConfig()
+  const busy = async () => {
+    const queue = await queueStatus()
+    return queue.queued + queue.running
+  }
+  // Semantic search merges in full-text results: ask why a page matched.
+  const matchReason = async (words: string, url: string) => {
+    const { items } = await backend<{
+      items: { url: string; matchReason: string }[]
+    }>('search_ai_history', { request: { query: words, limit: 20 } })
+    return items.find((item) => item.url === url)?.matchReason ?? 'not found'
+  }
+  const indexedVisits = async () =>
+    (await backend<{ aiStatus: { indexedItems: number } }>('app_snapshot'))
+      .aiStatus.indexedItems
+  const backUp = async () => {
+    await page.goto('/#/backup')
+    await unlockIfLocked(page)
+    await page.getByRole('button', { name: 'Back up now' }).first().click()
+  }
+  let finished = false
+  try {
+    await addEmbeddingsService(page, service.url, MODEL, 'E2E Cancelled')
+    await page.getByRole('switch', { name: 'Semantic search' }).click()
+    await expect
+      .poll(
+        async () =>
+          (await queueStatus()).semanticIndex.chosenComplete &&
+          (await busy()) === 0,
+        { timeout: 240_000 },
+      )
+      .toBe(true)
+    const { providerId } = (await queueStatus()).semanticIndex.chosen!
+    const indexed = await indexedVisits()
+    expect(
+      await matchReason('lighthouse keeper journal', IN_TITLE.url),
+    ).toMatch(/semantic/)
+
+    // Rebuilt, paused after its first batch.
+    await page.goto('/#/settings/ai')
+    await unlockIfLocked(page)
+    service.holdAfter(1)
+    await page.getByRole('button', { name: 'Rebuild', exact: true }).click()
+    await page
+      .getByRole('alertdialog', { name: 'Rebuild the search index?' })
+      .getByRole('button', { name: 'Rebuild' })
+      .click()
+    await expect
+      .poll(() => service.held(), { timeout: 120_000 })
+      .toBeGreaterThan(0)
+    await page.getByRole('button', { name: 'Pause' }).click()
+    await expect(
+      page.getByText(/^Paused at [\d,]+ of [\d,]+ visits\.$/),
+    ).toBeVisible({ timeout: 30_000 })
+    service.release()
+    expect(
+      lineagesOf(providerId, MODEL),
+      'the rebuild builds beside it',
+    ).toHaveLength(2)
+
+    // A page backed up meanwhile is in the archive, found by its words only:
+    // the paused rebuild holds the update back.
+    appendChromeVisits(fixture().files['chrome:Default'], [
+      pausedRebuildPageVisit(),
+    ])
+    await backUp()
+    await expect
+      .poll(() => matchReason('anemone survey tide pool', NEW.url), {
+        timeout: 120_000,
+      })
+      .toBe('lexical')
+
+    // Cancelled, the index it would have replaced answers as before, counts
+    // what it counted, and the rebuild's files are gone.
+    await page.goto('/#/settings/ai')
+    await unlockIfLocked(page)
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click()
+    await expect
+      .poll(async () => (await queueStatus()).semanticIndex.build, {
+        timeout: 60_000,
+      })
+      .toBeNull()
+    expect((await queueStatus()).semanticIndex.chosenComplete).toBe(true)
+    expect(
+      await matchReason('lighthouse keeper journal', IN_TITLE.url),
+    ).toMatch(/semantic/)
+    expect(await indexedVisits()).toBe(indexed)
+    // Its files are gone at once; the folder keeps only the note that names
+    // its rows until the next pass deletes them.
+    const serving = servingOf(providerId, MODEL)!.lineage
+    await expect
+      .poll(
+        () =>
+          indexFilesOf(providerId, MODEL).filter(
+            (file) =>
+              !file.startsWith(`${serving}${path.sep}`) &&
+              !file.startsWith(`trash${path.sep}`) &&
+              path.basename(file) !== 'identity.json',
+          ),
+        { timeout: 60_000 },
+      )
+      .toEqual([])
+
+    // The next update adds the new page, and sends nothing else that index had.
+    const sentBefore = service.inputs.length
+    await backUp()
+    await expect
+      .poll(() => matchReason('anemone survey tide pool', NEW.url), {
+        timeout: 120_000,
+      })
+      .toMatch(/semantic/)
+    await expect.poll(busy, { timeout: 120_000 }).toBe(0)
+    const sent = service.inputs.slice(sentBefore)
+    expect(sent.filter((text) => text.startsWith(NEW.title))).toHaveLength(1)
+    expect(sent.some((text) => text.startsWith(IN_TITLE.title))).toBe(false)
+    expect(await indexedVisits()).toBe(indexed + 1)
+    await expect
+      .poll(
+        () => lineagesOf(providerId, MODEL).filter((name) => name !== 'trash'),
+        { timeout: 60_000 },
+      )
+      .toEqual([serving])
+    finished = true
+  } finally {
+    const restore = async () => {
+      await unlockIfLocked(page)
+      const current = await loadConfig()
+      await backend('save_config', { config: { ...current, ai: before.ai } })
+    }
+    await restore().catch((error: unknown) => {
+      if (finished) throw error
+    })
+    await service.close()
+  }
 })

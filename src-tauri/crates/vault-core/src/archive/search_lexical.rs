@@ -49,38 +49,35 @@ pub(crate) struct LexicalDocument {
 /// Latin typo targets evaluated without a candidate or text window.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct FuzzyQuery {
-    targets: Vec<String>,
+    /// The query's clauses as `search::query` groups them: a page must be close to every
+    /// clause, and a clause is close when one of its targets is (its `OR` alternatives).
+    clauses: Vec<Vec<String>>,
 }
 
 impl FuzzyQuery {
-    /// Scores one candidate document. Lower scores are better;
-    /// `None` means the document was too far from every query target.
+    /// Scores one candidate document. Lower scores are better; the worst clause decides.
+    /// `None` means the document was too far from some clause.
     pub(crate) fn score_document(&self, document: &FuzzyDocument<'_>) -> Option<f64> {
-        let mut best = None;
-        for target in &self.targets {
-            best = best_score(
-                best,
-                best_token_score(target, document.normalized_title, TITLE_FUZZY_PENALTY),
-            );
-            best = best_score(
-                best,
-                best_token_score(target, document.normalized_url, URL_FUZZY_PENALTY),
-            );
-            best = best_score(
-                best,
-                best_token_score(
-                    target,
-                    document.normalized_search_terms,
-                    SEARCH_TERM_FUZZY_PENALTY,
-                ),
-            );
-            best = best_score(
-                best,
-                best_compact_score(target, document.compact_text, COMPACT_FUZZY_PENALTY),
-            );
+        let mut worst: Option<f64> = None;
+        for clause in &self.clauses {
+            let best = clause
+                .iter()
+                .fold(None, |best, target| best_score(best, target_score(target, document)))?;
+            worst = Some(worst.map_or(best, |worst| worst.max(best)));
         }
-        best
+        worst
     }
+}
+
+/// How close one target is to the document's fields, or `None` when it is too far from all.
+fn target_score(target: &str, document: &FuzzyDocument<'_>) -> Option<f64> {
+    let mut best = best_token_score(target, document.normalized_title, TITLE_FUZZY_PENALTY);
+    best = best_score(best, best_token_score(target, document.normalized_url, URL_FUZZY_PENALTY));
+    best = best_score(
+        best,
+        best_token_score(target, document.normalized_search_terms, SEARCH_TERM_FUZZY_PENALTY),
+    );
+    best_score(best, best_compact_score(target, document.compact_text, COMPACT_FUZZY_PENALTY))
 }
 
 /// Borrowed search projection fields used by the Rust-side fuzzy scorer.
@@ -151,29 +148,6 @@ pub(crate) fn append_enrichment(document: &mut LexicalDocument, text: &str) {
         }
     }
     document.cjk_grams = cjk_grams_for_fields(document.compact_text.split_whitespace());
-}
-
-fn split_query_or(raw: &str) -> Vec<String> {
-    raw.split_whitespace()
-        .fold(vec![String::new()], |mut segments, token| {
-            if token.eq_ignore_ascii_case("or") {
-                if segments.last().is_some_and(|segment| !segment.trim().is_empty()) {
-                    segments.push(String::new());
-                }
-                return segments;
-            }
-            if let Some(current) = segments.last_mut() {
-                if !current.is_empty() {
-                    current.push(' ');
-                }
-                current.push_str(token);
-            }
-            segments
-        })
-        .into_iter()
-        .map(|segment| segment.trim().to_string())
-        .filter(|segment| !segment.is_empty())
-        .collect()
 }
 
 /// Produces normalized text variants for SQL-side advanced query filters.
@@ -260,18 +234,29 @@ fn compact_text(normalized: &str) -> String {
     normalized.chars().filter(|character| character.is_alphanumeric()).collect()
 }
 
-/// Keeps every eligible query target; candidate retrieval belongs to vault-search.
-pub(crate) fn fuzzy_query(raw: &str) -> Option<FuzzyQuery> {
-    let mut targets = Vec::new();
-    for segment in split_query_or(raw) {
-        for variant in query_variants(&segment) {
-            let compact = compact_text(&normalized_tokens(&variant));
-            if is_latin_fuzzy_target(&compact) {
-                push_unique(&mut targets, compact);
+/// Keeps every eligible target of each clause; candidate retrieval belongs to vault-search.
+/// `clauses` come from the query's own grouping (`search::query::build`): every clause must
+/// match, through any one of its alternatives, so the typo fallback reads `OR` exactly as the
+/// exact search does. A clause with no Latin target (CJK, too short) is left to the exact
+/// predicate, as before.
+pub(crate) fn fuzzy_clauses(clauses: &[Vec<String>]) -> Option<FuzzyQuery> {
+    let clauses = clauses
+        .iter()
+        .map(|alternatives| {
+            let mut targets = Vec::new();
+            for alternative in alternatives {
+                for variant in query_variants(alternative) {
+                    let compact = compact_text(&normalized_tokens(&variant));
+                    if is_latin_fuzzy_target(&compact) {
+                        push_unique(&mut targets, compact);
+                    }
+                }
             }
-        }
-    }
-    (!targets.is_empty()).then_some(FuzzyQuery { targets })
+            targets
+        })
+        .filter(|targets| !targets.is_empty())
+        .collect::<Vec<_>>();
+    (!clauses.is_empty()).then_some(FuzzyQuery { clauses })
 }
 
 fn is_latin_fuzzy_target(compact: &str) -> bool {
@@ -488,7 +473,7 @@ mod tests {
     fn fuzzy_validation_has_no_query_length_or_document_prefix_window() {
         let target = "a".repeat(80) + "bcdef";
         let candidate = "a".repeat(80) + "bcxef";
-        let fuzzy = fuzzy_query(&target).unwrap();
+        let fuzzy = fuzzy_clauses(&[vec![target.clone()]]).unwrap();
         assert!(
             fuzzy
                 .score_document(&FuzzyDocument {
@@ -501,7 +486,7 @@ mod tests {
         );
         let text = "z".repeat(600) + " gihub";
         assert!(
-            fuzzy_query("github")
+            fuzzy_clauses(&[vec!["github".to_owned()]])
                 .unwrap()
                 .score_document(&FuzzyDocument {
                     normalized_url: "",

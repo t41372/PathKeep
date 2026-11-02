@@ -14,6 +14,17 @@ fn ai_index_status_flags_metadata_rows_with_an_empty_vector_store() {
     let provider = embedding_provider();
     seed_visit(&connection, 1, "chrome:Default", "https://example.com/ghost", Some("Ghost"), 1);
     seed_embedding(&connection, 1, &provider, "hash-ghost");
+    let fp = EmbeddingFingerprint::new(
+        provider.config.id.clone(),
+        provider.config.default_model.clone(),
+        3,
+        EmbeddingDtype::Float32,
+        true,
+        EmbeddingPooling::Unknown,
+        None,
+    );
+    VectorStore::create_stamped(vault.paths(), &fp).unwrap();
+    migrate_fixture(&vault, &provider);
     // Deliberately do NOT seed vector planes — the dishonest "indexed N with an empty sidecar" case.
 
     let status = ai_index_status(&vault.with_config(config.clone())).expect("status");

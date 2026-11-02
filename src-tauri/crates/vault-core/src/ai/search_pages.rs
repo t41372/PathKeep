@@ -15,10 +15,11 @@ use anyhow::Result;
 pub(super) fn lexical_page(vault: &Vault, request: &AiSearchRequest) -> Result<AiSearchResponse> {
     let (start_time_ms, end_time_ms) = resolve_date_filter_ms(request);
     let blank = request.query.trim().is_empty();
-    let chronological = matches!(request.sort.as_deref(), Some("oldest" | "newest"));
+    let sort = crate::AiSearchSort::parse(request.sort.as_deref());
+    let chronological = sort.is_date_ordered();
     let query = SearchRequest {
         query: request.query.clone(),
-        sort: if blank { Some("newest".into()) } else { request.sort.clone() },
+        sort: Some(if blank { "newest" } else { sort.search_sort() }.into()),
         page_size: request.limit.unwrap_or(8).max(1) as usize,
         profile_id: request.profile_id.clone(),
         domain: request.domain.clone(),

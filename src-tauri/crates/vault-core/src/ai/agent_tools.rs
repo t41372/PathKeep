@@ -731,7 +731,7 @@ impl IntelligenceReportTool {
     }
 }
 
-const INTELLIGENCE_REPORT_DESCRIPTION: &str = "Browsing statistics: top sites, sessions, search trails, activity mix, rhythm, trends and daily rollups. report=\"topics\" groups a period's pages by meaning, with weights, representative titles and example pages; it needs the semantic index and explicit start_date and end_date covering at most 31 days (ask month by month for longer periods). Pass topic=\"t3\" with the same dates for all its pages. report=\"searches\" groups keyword searches by meaning with their trails and opened pages; it needs Insights and the serving semantic index, and the same explicit 31-day date window. Pass group=\"s3\" for every search and opened page. Other reports use the Insights build. A session's autoTitle is only a guess from its main site or search; visitCount covers every site. Use session_detail with session_id for its actual visits.";
+const INTELLIGENCE_REPORT_DESCRIPTION: &str = "Browsing statistics: top sites, sessions, search trails, activity mix, rhythm, trends and daily rollups. report=\"topics\" groups a period's pages by meaning, with weights, representative titles and example pages; it needs the semantic index and explicit start_date and end_date covering at most 31 days (ask month by month for longer periods). Pass topic=\"t3\" with the same dates for all its pages. report=\"searches\" groups keyword searches by meaning with their trails and opened pages; it needs Insights and the serving semantic index, and the same explicit 31-day date window. Pass group=\"s3\" for every search and opened page. Other reports use the Insights build. A session's autoTitle is its most-visited site and its most-used search, not the subject of every visit; visitCount covers every site. Use session_detail with session_id for its actual visits.";
 
 impl AgentTool for IntelligenceReportTool {
     fn validate_arguments(&self, args: &Value) -> Result<()> {
@@ -987,8 +987,8 @@ impl AgentTool for IntelligenceReportTool {
         // backslash-continued literal here desyncs the coverage gate's brace-counting line-mask and
         // falsely reports this arm as uncovered.
         let sessions_preamble = concat!(
-            "intelligence_report(sessions): result follows. NOTE: autoTitle is a heuristic label ",
-            "naming each session by its most salient domain/query — NOT the subject of every visit; ",
+            "intelligence_report(sessions): result follows. NOTE: autoTitle names each session ",
+            "by its most-visited domain and its most-used search — NOT the subject of every visit; ",
             "visitCount is the TOTAL visits in the session across all domains, NOT visits to the ",
             "autoTitle term.\n",
         );

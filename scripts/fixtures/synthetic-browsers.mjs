@@ -207,6 +207,70 @@ function compareScene(dayStart) {
 }
 
 /**
+ * One session that searched three things: the first once, the other two
+ * twice each, the first of those in two letter cases. Insights names a
+ * session after its main site and its most-used search, so this one is
+ * named after the second search as last typed, not after the first. It
+ * happens at 05:00, `days + 3` days before `now`, where no other visit
+ * falls, in the Personal profile. Its searches share no words with each
+ * other or with the fixture's other searches, and it opens more pages on
+ * one site the fixture already visits than it makes searches, so its main
+ * site is that one, not Google.
+ */
+export const FIXTURE_SESSION_TITLE = {
+  /** Oldest first, two minutes apart: a search, or the page it opened. */
+  steps: [
+    { term: 'btree page layout' },
+    { page: 0 },
+    { term: 'Write Ahead Checkpoint' },
+    { page: 1 },
+    { term: 'busy timeout retry' },
+    { page: 2 },
+    { term: 'write ahead checkpoint' },
+    { page: 1 },
+    { term: 'busy timeout retry' },
+    { page: 2 },
+    { page: 0 },
+    { page: 1 },
+  ],
+  pages: [
+    ['https://www.sqlite.org/fileformat2.html', 'Database File Format'],
+    [
+      'https://www.sqlite.org/c3ref/wal_checkpoint_v2.html',
+      'Checkpoint a database',
+    ],
+    ['https://www.sqlite.org/c3ref/busy_timeout.html', 'Set A Busy Timeout'],
+  ],
+}
+
+/** The visits of FIXTURE_SESSION_TITLE on the day starting at `dayStart`. */
+function sessionTitleScene(dayStart) {
+  const { steps, pages } = FIXTURE_SESSION_TITLE
+  return steps.map((step, index) => {
+    const at = dayStart + 5 * 3_600_000 + index * 120_000
+    if (step.term)
+      return {
+        url: `https://www.google.com/search?q=${encodeURIComponent(step.term)}`,
+        title: `${step.term} - Google Search`,
+        at,
+        typed: true,
+        term: step.term,
+        duration: 20_000,
+        profile: 'chrome:Default',
+      }
+    const [url, title] = pages[step.page]
+    return {
+      url,
+      title,
+      at,
+      typed: false,
+      duration: 90_000,
+      profile: 'chrome:Default',
+    }
+  })
+}
+
+/**
  * A second site on github.io, besides the rust topic's rust-lang.github.io:
  * browsers count every `*.github.io` site as its own (the public suffix
  * list's private section), and so must Insights. Three evenings two days
@@ -492,6 +556,7 @@ export function generateVisits({
     }
   }
   visits.push(...compareScene(today.getTime() - (days + 1) * DAY_MS))
+  visits.push(...sessionTitleScene(today.getTime() - (days + 3) * DAY_MS))
   visits.push(...pagesSiteScene(today.getTime() - 2 * DAY_MS))
   visits.push(...scenes(today))
   // The scenes can land on the instant of a session's visit. A browser never

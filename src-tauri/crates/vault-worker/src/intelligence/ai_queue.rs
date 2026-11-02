@@ -48,7 +48,7 @@ use vault_core::{
 };
 
 // Claims and physical index cleanup share one owner; a queued replacement never writes early.
-static INDEX_EXECUTION: std::sync::Mutex<()> = std::sync::Mutex::new(());
+static INDEX_EXECUTION: vault_core::ai::SemanticWorkGate = vault_core::ai::SemanticWorkGate::new();
 
 type IndexJobEndedListener = Box<dyn Fn(vault_core::AiIndexJobEndedEvent) + Send + Sync>;
 static INDEX_JOB_ENDED_LISTENER: OnceLock<IndexJobEndedListener> = OnceLock::new();
@@ -107,12 +107,14 @@ impl vault_core::IndexBackfillLedger for IndexCursorLedger {
         let cursor = ai_queue::IndexBackfillCursor {
             next_history_id: progress.next_history_id,
             embedded_so_far: progress.embedded_so_far,
+            updated_so_far: progress.updated_so_far,
             // The determinate scan denominator (Change 1): the backfill reports the captured max on a
             // fresh build and 0 on a resume; `persist_index_cursor` preserves the stored value on 0.
             scan_target: progress.scan_target,
             // The honest embed-progress denominator (total candidate pages), same capture/preserve
             // contract as `scan_target`.
             embed_target: progress.embed_target,
+            ..Default::default()
         };
         let summary = format!("Embedded {} row(s) so far.", progress.embedded_so_far);
         match ai_queue::persist_index_cursor(&self.vault, self.job_id, &cursor, Some(&summary))? {
@@ -188,6 +190,10 @@ fn execute_claimed_index_job(
     claimed: ai_queue::StoredAiJob,
     request: &AiIndexRequest,
 ) -> Result<AiIndexReport> {
+    // All nested ownership and recovery decisions need the same current settings snapshot as
+    // provider selection. The base archive view can predate services added while unlocked.
+    let execution_vault = vault.with_config(config.clone());
+    let vault = &execution_vault;
     // Provider selection and Tokio startup are part of the claimed job execution. Keep them inside
     // the persisted outcome boundary: a preflight failure must not strand the row in `running`.
     let mut cleanup_warnings = Vec::new();
@@ -224,6 +230,11 @@ fn execute_claimed_index_job(
             .map(|pair| (pair.provider_id, pair.model))
             .collect();
         let control: Arc<dyn vault_core::AiRunControl> = run_control.clone();
+        // Retired generations and their isolated provenance can be reclaimed independently.
+        // Paused/queued lineages remain owned until their jobs end.
+        if let Err(error) = vault_core::collect_index_generations(vault, true) {
+            cleanup_warnings.push(format!("{error:#}"));
+        }
         if let Err(error) =
             runtime.block_on(vault_core::forget_unconfigured_indexes(vault, &kept, Some(&control)))
         {
@@ -247,10 +258,8 @@ fn execute_claimed_index_job(
     let outcome = match result {
         Ok(mut report) => {
             report.job_id = Some(claimed.id);
-            let summary = format!(
-                "Indexed {} new / {} updated row(s).",
-                report.indexed_items, report.updated_items
-            );
+            let summary =
+                vault_core::ai::index_success_summary(report.indexed_items, report.updated_items);
             let stopped = mark_successful_ai_job_or_cancelled(
                 vault,
                 claimed.id,
@@ -308,8 +317,18 @@ fn execute_claimed_index_job(
             Err(error)
         }
     };
+    // Every ended attempt retries collection, including cancellation and service pauses.
+    // Active paused jobs retain their source lineage; readers retain their leased generation.
+    if let Err(error) = vault_core::collect_index_generations(vault, true) {
+        cleanup_warnings.push(format!("{error:#}"));
+    }
     for warning in cleanup_warnings {
-        ai_queue::fail_index_cleanup(vault, claimed.id, &warning)?;
+        if let Err(error) = ai_queue::fail_index_cleanup(vault, claimed.id, &warning) {
+            log::warn!(
+                "Could not record index cleanup warning for job {}: {error:#}; {warning}",
+                claimed.id
+            );
+        }
     }
     outcome
 }
@@ -321,6 +340,9 @@ fn mark_successful_ai_job_or_cancelled(
     success_summary: Option<&str>,
     cancellation_summary: Option<&str>,
 ) -> Result<bool> {
+    if ai_queue::load_ai_job(vault, job_id)?.state == "succeeded" {
+        return Ok(false);
+    }
     let cancelled = if ai_queue::ai_job_stop_requested(vault, job_id)? {
         true
     } else {
@@ -424,7 +446,7 @@ pub(crate) fn drain_one_ai_queue_job(
     paths: &vault_core::ProjectPaths,
     session_database_key: Option<&str>,
 ) -> Result<bool> {
-    let _execution = INDEX_EXECUTION.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let _execution = INDEX_EXECUTION.enter();
     let config = load_unlocked_config(paths).context("load AI queue config")?;
     if !config.initialized || config.ai.job_queue_paused {
         return Ok(false);
@@ -489,11 +511,7 @@ pub fn run_ai_queue_jobs(
 
     let limit = max_jobs.unwrap_or(config.ai.job_queue_concurrency.max(1));
     for _ in 0..limit {
-        let _execution = match INDEX_EXECUTION.try_lock() {
-            Ok(guard) => guard,
-            Err(std::sync::TryLockError::Poisoned(error)) => error.into_inner(),
-            Err(std::sync::TryLockError::WouldBlock) => break,
-        };
+        let Some(_execution) = INDEX_EXECUTION.try_enter() else { break };
         let config = load_unlocked_config(&paths)?;
         if config.ai.job_queue_paused {
             break;
@@ -563,7 +581,11 @@ pub fn pause_ai_job(vault: &vault_core::Vault, job_id: i64) -> Result<AiQueueJob
 pub fn cancel_ai_job(vault: &vault_core::Vault, job_id: i64) -> Result<AiQueueJob> {
     let paths = vault.paths().clone();
     let _config = load_unlocked_config(&paths)?;
-    ai_queue::cancel_ai_job(vault, job_id)
+    let job = ai_queue::cancel_ai_job(vault, job_id)?;
+    // A paused or queued build ends here without a pass of its own to clean up after it, so its
+    // lineage would hold its disk until the next job.
+    vault_core::collect_index_generations_in_background(vault);
+    Ok(job)
 }
 
 /// Recovers a WEDGED or DEGRADED semantic-index build: clears the stuck index job(s) and re-enqueues
@@ -579,10 +601,10 @@ pub fn cancel_ai_job(vault: &vault_core::Vault, job_id: i64) -> Result<AiQueueJo
 /// over. This is deliberate and load-bearing: incremental dedup decides `needs_embedding` from the
 /// SQLite `ai_embeddings` rows (`candidates.rs`), NOT from the `.pkvec`. So the DEGRADED case — SQLite
 /// recorded "embedded" but the vector store is empty/torn (`IndexVectorsMissing`) — would be skipped
-/// wholesale by an incremental pass and stay broken forever. A full rebuild wipes the provider's
-/// `ai_embeddings` rows AND the `.pkvec`/derived planes (`backfill.rs`), so every page is re-embedded
-/// and a 0-vector index genuinely self-heals. The returned [`AiIndexReport`] is the new job's
-/// acknowledgement, exactly like a manual build.
+/// wholesale by an incremental pass and stay broken forever. A full rebuild embeds every page into a
+/// new copy whatever the rows say (`indexing/rebuild.rs`) and puts it in place of the broken files
+/// once complete, so a 0-vector index genuinely self-heals. The returned [`AiIndexReport`] is the new
+/// job's acknowledgement, exactly like a manual build.
 pub fn reset_ai_index_build(
     vault: &vault_core::Vault,
     session_database_key: Option<&str>,
@@ -591,6 +613,7 @@ pub fn reset_ai_index_build(
     let paths = vault.paths().clone();
     let _config = load_unlocked_config(&paths)?;
     let cleared = ai_queue::clear_index_jobs(vault)?;
+    vault_core::collect_index_generations_in_background(vault);
     // Drop the connection before `build_ai_index_now` opens its own (it re-resolves paths/config).
     // Coerce to a full rebuild so the degraded 0-vector index actually re-embeds (see fn docs). Only
     // the provider selection survives from the caller; the rebuild owns the rest. This cannot be
@@ -846,6 +869,7 @@ mod tests {
         let error = vault_core::IndexBackfillLedger::record(
             &ledger,
             vault_core::IndexBackfillProgress {
+                updated_so_far: 0,
                 next_history_id: 5,
                 embedded_so_far: 4,
                 ..Default::default()
@@ -855,3 +879,60 @@ mod tests {
         assert!(error.to_string().contains("lost its queue lease"));
     }
 }
+
+#[cfg(test)]
+mod generation_success_tests {
+    use super::*;
+    use vault_core::test_support::native::TestDatabase;
+    use vault_core::{AiProviderConfig, AiProviderPurpose, AiProviderRuntime};
+    use vault_store::Db;
+
+    /// Failure mode: the worker's second stop check cancels success after pointer publication.
+    #[test]
+    fn final_worker_bookkeeping_cannot_cancel_a_committed_index_pass() {
+        let vault = vault_core::Vault::open_temp().unwrap();
+        let db = TestDatabase::new(&vault, Db::Intelligence);
+        let job = ai_queue::enqueue_index_job(&vault, &AiIndexRequest::default(), false).unwrap();
+        ai_queue::claim_ai_job_by_id(&vault, job.id, 300).unwrap().unwrap();
+        let provider = AiProviderRuntime {
+            config: AiProviderConfig {
+                id: "generation-test".into(),
+                default_model: "model".into(),
+                purpose: AiProviderPurpose::Embedding,
+                enabled: true,
+                base_url: Some("http://127.0.0.1:1/v1".into()),
+                ..Default::default()
+            },
+            api_key: None,
+        };
+        let ledger: Arc<dyn vault_core::IndexBackfillLedger> =
+            Arc::new(IndexCursorLedger { vault: vault.clone(), job_id: job.id });
+        let report = tokio_runtime()
+            .unwrap()
+            .block_on(build_ai_index_with_control(
+                &vault,
+                &provider,
+                &AiIndexRequest::default(),
+                None,
+                0,
+                0,
+                Some(ledger),
+            ))
+            .unwrap();
+        db.execute("UPDATE ai_jobs SET stop_requested=1 WHERE id=?1", [job.id]).unwrap();
+        assert!(
+            !mark_successful_ai_job_or_cancelled(
+                &vault,
+                job.id,
+                report.run_id,
+                Some("complete"),
+                Some("cancelled")
+            )
+            .unwrap()
+        );
+        assert_eq!(ai_queue::load_ai_job(&vault, job.id).unwrap().state, "succeeded");
+    }
+}
+
+#[cfg(test)]
+mod config_tests;

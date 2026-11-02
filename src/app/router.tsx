@@ -32,49 +32,61 @@ export function createAppRouter() {
   return createHashRouter([
     {
       element: <AppFrame />,
+      // The frame itself failed: the error takes the window.
       errorElement: <RouteError />,
       children: [
         {
-          index: true,
-          element: screen(() => import('@/features/home/home-page')),
+          // One screen failed: the error takes its place in the frame, the
+          // navigation stays, and going to another screen clears it.
+          errorElement: <RouteError />,
+          children: [
+            {
+              index: true,
+              element: screen(() => import('@/features/home/home-page')),
+            },
+            {
+              path: 'history',
+              element: screen(() => import('@/features/history/history-page')),
+            },
+            {
+              path: 'insights',
+              element: screen(
+                () => import('@/features/insights/insights-page'),
+              ),
+            },
+            {
+              path: 'insights/day/:date',
+              element: screen(() => import('@/features/insights/day-page')),
+            },
+            {
+              path: 'insights/site/:domain',
+              element: screen(() => import('@/features/insights/site-page')),
+            },
+            {
+              path: 'insights/search/:query',
+              element: screen(() => import('@/features/insights/search-page')),
+            },
+            {
+              path: 'insights/page/:url',
+              element: screen(() => import('@/features/insights/page-page')),
+            },
+            {
+              path: 'ask',
+              element: screen(() => import('@/features/ask/ask-page')),
+            },
+            {
+              path: 'backup',
+              element: screen(() => import('@/features/backup/backup-page')),
+            },
+            {
+              path: 'settings/:section?',
+              element: screen(
+                () => import('@/features/settings/settings-page'),
+              ),
+            },
+            { path: '*', element: <Navigate to="/" replace /> },
+          ],
         },
-        {
-          path: 'history',
-          element: screen(() => import('@/features/history/history-page')),
-        },
-        {
-          path: 'insights',
-          element: screen(() => import('@/features/insights/insights-page')),
-        },
-        {
-          path: 'insights/day/:date',
-          element: screen(() => import('@/features/insights/day-page')),
-        },
-        {
-          path: 'insights/site/:domain',
-          element: screen(() => import('@/features/insights/site-page')),
-        },
-        {
-          path: 'insights/search/:query',
-          element: screen(() => import('@/features/insights/search-page')),
-        },
-        {
-          path: 'insights/page/:url',
-          element: screen(() => import('@/features/insights/page-page')),
-        },
-        {
-          path: 'ask',
-          element: screen(() => import('@/features/ask/ask-page')),
-        },
-        {
-          path: 'backup',
-          element: screen(() => import('@/features/backup/backup-page')),
-        },
-        {
-          path: 'settings/:section?',
-          element: screen(() => import('@/features/settings/settings-page')),
-        },
-        { path: '*', element: <Navigate to="/" replace /> },
       ],
     },
   ])
@@ -85,6 +97,7 @@ export function createOnboardingRouter() {
     {
       path: '*',
       element: screen(() => import('@/features/onboarding/onboarding-page')),
+      errorElement: <RouteError />,
     },
   ])
 }

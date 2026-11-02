@@ -20,21 +20,20 @@
 
 > 量測方式：版本庫追蹤中的 `src/`、`src-tauri/` 下 `.ts` / `.tsx` / `.rs` / `.css` / `.sql` / `.mjs` 檔（`src-tauri/gen/` 除外），`wc -l`，列出 1000 行以上的（AGENTS.md：重構超過 1000 行的檔案前，先做審查階段）。「程式碼」的行數包含同檔的 `#[cfg(test)]` 區塊。
 
-共 11 個檔案。2026-10-02 量的時候是 53 個；之後砍 unit test（`WORK-TEST-CUT-2026-10`）刪掉了大多數測試檔與檔內測試，Ask 的舊路徑也刪了。前端三個是照原樣保留的 EvilCharts 圖表、型別定義與三語文案；手寫的畫面元件都在 1000 行以下。真正要拆的程式碼是 `agent_harness.rs`、`agent_tools.rs`、`code_mode.rs`、`archive_flows.rs` 與 `dispatch.rs`（命令分派表，隨命令增加而長）；`ai/indexing/` 在 2026-06-21 已拆成模組樹（`backfill.rs` 913 行）。
+共 10 個檔案（2026-10-25：`browser-history-parser/src/chromium/mod.rs` 把測試移到同目錄的 `tests.rs`，剩 759 行，移出清單）。2026-10-02 量的時候是 53 個；之後砍 unit test（`WORK-TEST-CUT-2026-10`）刪掉了大多數測試檔與檔內測試，Ask 的舊路徑也刪了。前端三個是照原樣保留的 EvilCharts 圖表、型別定義與三語文案；手寫的畫面元件都在 1000 行以下。真正要拆的程式碼是 `agent_harness.rs`、`agent_tools.rs`、`code_mode.rs`、`archive_flows.rs` 與 `dispatch.rs`（命令分派表，隨命令增加而長）；`ai/indexing/` 在 2026-06-21 已拆成模組樹（`backfill.rs` 913 行）。
 
-| 檔案                                                          | 行數 | 類型                    |
-| ------------------------------------------------------------- | ---- | ----------------------- |
-| `src-tauri/crates/vault-core/src/models/intelligence.rs`      | 2324 | 型別定義                |
-| `src/components/evilcharts/charts/recharts-bar-chart.tsx`     | 1459 | 照原樣保留的 EvilCharts |
-| `src/lib/i18n/messages/insights.ts`                           | 1347 | 三語文案                |
-| `src-tauri/crates/vault-core/src/ai/code_mode.rs`             | 1340 | 程式碼（含測試）        |
-| `src/components/evilcharts/charts/recharts-area-chart.tsx`    | 1282 | 照原樣保留的 EvilCharts |
-| `src/lib/types/intelligence.ts`                               | 1248 | 型別定義                |
-| `src-tauri/src/dev_ipc_bridge/dispatch.rs`                    | 1246 | 程式碼（命令分派表）    |
-| `src-tauri/crates/browser-history-parser/src/chromium/mod.rs` | 1222 | 程式碼（含測試）        |
-| `src-tauri/crates/vault-worker/src/archive_flows.rs`          | 1191 | 程式碼（含測試）        |
-| `src-tauri/crates/vault-core/src/ai/agent_tools.rs`           | 1069 | 程式碼（含測試）        |
-| `src-tauri/crates/vault-core/src/ai/agent_harness.rs`         | 1033 | 程式碼（含測試）        |
+| 檔案                                                       | 行數 | 類型                    |
+| ---------------------------------------------------------- | ---- | ----------------------- |
+| `src-tauri/crates/vault-core/src/models/intelligence.rs`   | 2324 | 型別定義                |
+| `src/components/evilcharts/charts/recharts-bar-chart.tsx`  | 1459 | 照原樣保留的 EvilCharts |
+| `src/lib/i18n/messages/insights.ts`                        | 1347 | 三語文案                |
+| `src-tauri/crates/vault-core/src/ai/code_mode.rs`          | 1340 | 程式碼（含測試）        |
+| `src/components/evilcharts/charts/recharts-area-chart.tsx` | 1282 | 照原樣保留的 EvilCharts |
+| `src/lib/types/intelligence.ts`                            | 1248 | 型別定義                |
+| `src-tauri/src/dev_ipc_bridge/dispatch.rs`                 | 1246 | 程式碼（命令分派表）    |
+| `src-tauri/crates/vault-worker/src/archive_flows.rs`       | 1191 | 程式碼（含測試）        |
+| `src-tauri/crates/vault-core/src/ai/agent_tools.rs`        | 1069 | 程式碼（含測試）        |
+| `src-tauri/crates/vault-core/src/ai/agent_harness.rs`      | 1033 | 程式碼（含測試）        |
 
 ---
 

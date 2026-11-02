@@ -17,7 +17,13 @@ pub(crate) fn fields(
 ) -> Result<Vec<String>> {
     let name = table.to_owned();
     let target = vault.store().read(db, move |s| s.table_columns(&name))?;
-    Ok(source::columns(source, table)?.into_iter().filter(|c| target.contains(c)).collect())
+    Ok(source::columns(source, table)?
+        .into_iter()
+        .filter(|c| {
+            target.contains(c)
+                && !(matches!(table, "ai_embeddings" | "ai_embedding_totals") && c == "lineage")
+        })
+        .collect())
 }
 
 fn text<'a>(fields: &[String], values: &'a [Value], name: &str) -> Option<&'a str> {
@@ -95,6 +101,10 @@ pub(crate) fn write(
         if table == "urls" {
             names.push("page_id".into());
         }
+        let legacy_embeddings = table == "ai_embeddings" || table == "ai_embedding_totals";
+        if legacy_embeddings {
+            names.push("lineage".into());
+        }
         let sql = format!(
             "INSERT OR REPLACE INTO {}(rowid,{}) VALUES(?1,{})",
             quote(&table),
@@ -124,6 +134,9 @@ pub(crate) fn write(
             if table == "urls" {
                 let page = pages[text(&fields, &row.values, "url").unwrap()];
                 row.values.push(Value::Integer(page));
+            }
+            if legacy_embeddings {
+                row.values.push(Value::Text("legacy".into()));
             }
             let mut values = vec![Value::Integer(row.id)];
             values.extend(row.values);

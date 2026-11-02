@@ -42,6 +42,7 @@ import {
 // A visit's site as Insights counts it (`visit_taxonomy::registrable_domain_for_host`).
 import { siteOf as site } from './support/public-suffix'
 import { kindOf } from './support/site-kinds'
+import { unlockIfLocked } from './support/app'
 import {
   searchFamilies,
   searchTrails,
@@ -621,6 +622,135 @@ test('reworded searches are counted, and listed as searches that took several tr
   await expect(tries).toHaveCount(expected.length)
   for (const [index, row] of (await tries.all()).entries())
     await expect(row).toContainText(`Reworded ${expected[index]} times`)
+  await expectScreenIntact(page)
+})
+
+test('a search made in several browsers is one row among the searches you came back to most', async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(180_000)
+  // All time. Families are kept per browser profile (and engine), so a search
+  // made in two browsers is two families. Across browsers the card shows the
+  // families that begin with the same search, case aside, as one row: their
+  // searches summed, over the days from the first of them to the last, under
+  // the wording of the largest. Most searches first, then the one searched
+  // last; five rows.
+  type Topic = {
+    key: string
+    shown: string
+    largest: [number, number]
+    searches: number
+    earliest: number
+    latest: number
+    profiles: number
+  }
+  const topics = (profiles: readonly (typeof archivedProfiles)[number][]) => {
+    const byKey = new Map<string, Topic>()
+    for (const profile of profiles)
+      for (const family of searchFamilies(fixture().visitsByProfile[profile])) {
+        const key = family.anchor.trim().toLowerCase()
+        const size: [number, number] = [family.members, family.latest]
+        const topic = byKey.get(key)
+        if (!topic) {
+          byKey.set(key, {
+            key,
+            shown: family.anchor,
+            largest: size,
+            searches: family.members,
+            earliest: family.earliest,
+            latest: family.latest,
+            profiles: 1,
+          })
+          continue
+        }
+        topic.searches += family.members
+        topic.earliest = Math.min(topic.earliest, family.earliest)
+        topic.latest = Math.max(topic.latest, family.latest)
+        topic.profiles += 1
+        const [count, last] = topic.largest
+        if (
+          size[0] > count ||
+          (size[0] === count && size[1] > last) ||
+          (size[0] === count && size[1] === last && family.anchor < topic.shown)
+        ) {
+          topic.largest = size
+          topic.shown = family.anchor
+        }
+      }
+    return [...byKey.values()]
+      .sort(
+        (a, b) =>
+          b.searches - a.searches ||
+          b.latest - a.latest ||
+          (a.key < b.key ? -1 : a.key > b.key ? 1 : 0),
+      )
+      .slice(0, 5)
+  }
+  const number = new Intl.NumberFormat('en')
+  const meta = (topic: Topic) => {
+    const days = Math.max(
+      1,
+      Math.round((topic.latest - topic.earliest) / 86_400_000),
+    )
+    return `${number.format(topic.searches)} ${topic.searches === 1 ? 'search' : 'searches'} over ${number.format(days)} days`
+  }
+  const everywhere = topics(archivedProfiles)
+  const work = topics(['chrome:Profile 1'])
+  await testInfo.attach('searches come back to most, by hand', {
+    body: JSON.stringify({ everywhere, work }, null, 2),
+    contentType: 'application/json',
+  })
+  // The fixture makes its English searches in all three browsers, so the
+  // rows listed across browsers sum families from more than one of them.
+  expect(
+    everywhere.filter((topic) => topic.profiles > 1).length,
+  ).toBeGreaterThan(0)
+  // In one browser, 台北天氣 and 台北天氣預報 are one family, listed under
+  // the wording searched first. Which one that is depends on the fixture's
+  // `now`, so it is read from the fixture.
+  const taipei = searchFamilies(
+    fixture().visitsByProfile['chrome:Profile 1'],
+  ).filter((family) => family.queries.has('台北天氣'))
+  expect(taipei).toHaveLength(1)
+  expect(taipei[0].queries).toContain('台北天氣預報')
+  expect(work.map((topic) => topic.key)).toContain(taipei[0].anchor)
+
+  const rows = card(page, 'How your searches go')
+    .getByRole('heading', { name: 'Searches you came back to most' })
+    .locator('xpath=following-sibling::ul[1]')
+    .getByRole('listitem')
+  // The list loads, and reloads for another scope, while the old rows show.
+  const expectRows = async (expected: Topic[]) => {
+    await expect(rows).toHaveCount(expected.length, { timeout: 60_000 })
+    await expect(rows).toContainText(
+      expected.map((topic) => topic.shown),
+      { timeout: 60_000 },
+    )
+    await expect(rows).toContainText(expected.map(meta), { timeout: 60_000 })
+  }
+
+  await page.goto('/#/insights')
+  await unlockIfLocked(page)
+  await expectRows(everywhere)
+
+  // One browser: only its own families.
+  await page.getByRole('combobox', { name: 'Browser profile' }).click()
+  await page
+    .getByRole('option', { name: 'Google Chrome · Work', exact: true })
+    .click()
+  await expect(page).toHaveURL(/profile=chrome%3AProfile(\+|%20)1/)
+  await expectRows(work)
+  await expect(
+    rows.filter({ has: page.getByText(taipei[0].anchor, { exact: true }) }),
+  ).toHaveCount(1)
+  await expect(
+    rows.filter({
+      has: page.getByText(
+        taipei[0].anchor === '台北天氣' ? '台北天氣預報' : '台北天氣',
+        { exact: true },
+      ),
+    }),
+  ).toHaveCount(0)
   await expectScreenIntact(page)
 })
 

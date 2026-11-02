@@ -107,16 +107,17 @@ pub(in crate::ai) fn seed(
     let watermark = crate::ai::native_ledger::current_source_watermark(vault)?;
     let provider = provider.clone();
     vault.store().write(Db::Intelligence,Priority::Batch,move|s| {
-        let mut row=s.prepare("INSERT INTO ai_embeddings(history_id,profile_id,url,title,domain,visited_at,content_hash,content_bytes,metadata_bytes,provider_id,model,indexed_at) VALUES(?1,'chrome:Default',?2,?3,?4,'2026-01-01T00:00:00Z',?5,64,0,?6,?7,'2026-10-16T00:00:00Z')")?;
+        let mut row=s.prepare("INSERT INTO ai_embeddings(history_id,profile_id,url,title,domain,visited_at,content_hash,content_bytes,metadata_bytes,provider_id,model,indexed_at,lineage) VALUES(?1,'chrome:Default',?2,?3,?4,'2026-01-01T00:00:00Z',?5,64,0,?6,?7,'2026-10-16T00:00:00Z','legacy')")?;
         for id in 1..=visits {
             let page=(id+1)/2;
             let domain=format!("site{}.example",page%2000);
             row.execute(params![id,format!("https://{domain}/page/{page}"),format!("Page {page} topic{}",page%20),domain,format!("page-{page}"),provider.config.id.as_str(),provider.config.default_model.as_str()])?;
         }
-        s.execute("INSERT INTO ai_embedding_totals(provider_id,model,item_count,content_bytes,metadata_bytes,last_indexed_at) VALUES(?1,?2,?3,?4,0,'2026-10-16T00:00:00Z')",params![provider.config.id.as_str(),provider.config.default_model.as_str(),visits,visits*64])?;
+        s.execute("INSERT INTO ai_embedding_totals(provider_id,model,item_count,content_bytes,metadata_bytes,last_indexed_at,lineage) VALUES(?1,?2,?3,?4,0,'2026-10-16T00:00:00Z','legacy')",params![provider.config.id.as_str(),provider.config.default_model.as_str(),visits,visits*64])?;
         s.execute("INSERT INTO ai_index_ledger(provider_id,model,sidecar_table,index_version,state,source_watermark,last_run_id,build_started_at,build_finished_at,last_indexed_at) VALUES(?1,?2,'ai_embeddings','stage-bench','ready',?3,1,'2026-10-16T00:00:00Z','2026-10-16T00:00:00Z','2026-10-16T00:00:00Z')",params![provider.config.id.as_str(),provider.config.default_model.as_str(),watermark])?;
         Ok(())
     })?;
+    super::super::generations::migrate_flat_indexes(vault)?;
     Ok(())
 }
 

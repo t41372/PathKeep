@@ -1,7 +1,6 @@
 //! Responsibilities: choose model-family prompts and version the embedded document format.
 //! Not responsible for: provider selection, transport, vector-space fingerprints or page extraction.
 
-use super::VectorStore;
 use crate::config::ProjectPaths;
 use crate::enrichment::EmbeddingDocument;
 
@@ -109,7 +108,8 @@ pub(crate) fn text_format_is_outdated(
     provider: &str,
     model: &str,
 ) -> anyhow::Result<bool> {
-    Ok(VectorStore::for_provider(paths, provider, model).read_header()?.is_some_and(|header| {
+    let _ = provider;
+    Ok(super::generations::serving_metadata(paths)?.pages.is_some_and(|header| {
         header.embedded_text.as_deref() != Some(embedded_text_tag(model).as_str())
     }))
 }

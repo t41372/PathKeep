@@ -3,6 +3,8 @@ import { defineMessages } from '../define'
 /**
  * Backup → Recent runs → run detail sheet: tabs, files kept, safety copy, and
  * one sentence per recorded warning or note code (see `run-warnings.tsx`).
+ * An import's preview and its review in Recent imports use the same
+ * sentences.
  */
 export const backupRuns = defineMessages({
   en: {
@@ -88,6 +90,12 @@ export const backupRuns = defineMessages({
         'Link preview cache: removed {count} old entries and freed {bytes}.',
       'ai-autoindex-queued-while-paused':
         'New pages are queued for semantic search. They’ll be indexed when background work resumes.',
+      'batch-reverted_one': 'Undone: this import’s {count} visit is hidden.',
+      'batch-reverted_other':
+        'Undone: this import’s {count} visits are hidden.',
+      'batch-restored_one': 'Restored: this import’s {count} visit is back.',
+      'batch-restored_other':
+        'Restored: this import’s {count} visits are back.',
     },
     actions: {
       aiSettings: 'Go to AI settings',
@@ -170,6 +178,11 @@ export const backupRuns = defineMessages({
         '链接预览缓存：移除了 {count} 条旧记录，释放了 {bytes}。',
       'ai-autoindex-queued-while-paused':
         '新页面已加入语义搜索的索引队列，后台任务恢复后就会建立索引。',
+      'batch-reverted_one': '已撤销：这次导入的 {count} 条浏览记录已隐藏。',
+      'batch-reverted_other': '已撤销：这次导入的 {count} 条浏览记录已隐藏。',
+      'batch-restored_one': '已恢复：这次导入的 {count} 条浏览记录已重新显示。',
+      'batch-restored_other':
+        '已恢复：这次导入的 {count} 条浏览记录已重新显示。',
     },
     actions: {
       aiSettings: '前往 AI 设置',
@@ -252,6 +265,11 @@ export const backupRuns = defineMessages({
         '連結預覽快取：移除了 {count} 筆舊記錄，釋放了 {bytes}。',
       'ai-autoindex-queued-while-paused':
         '新頁面已加入語意搜尋的索引佇列，背景工作恢復後就會建立索引。',
+      'batch-reverted_one': '已復原：這次匯入的 {count} 筆瀏覽記錄已隱藏。',
+      'batch-reverted_other': '已復原：這次匯入的 {count} 筆瀏覽記錄已隱藏。',
+      'batch-restored_one': '已還原：這次匯入的 {count} 筆瀏覽記錄已重新顯示。',
+      'batch-restored_other':
+        '已還原：這次匯入的 {count} 筆瀏覽記錄已重新顯示。',
     },
     actions: {
       aiSettings: '前往 AI 設定',

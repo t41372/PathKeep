@@ -44,6 +44,17 @@ fn query_forms_and_pages_match_the_generated_corpus() {
             ("common -excluded", vec![0, 2, 3, 4]),
             ("intitle:rare", vec![4]),
             ("rare OR cafe", vec![0, 4]),
+            // OR joins only its neighbours: release, and notes or rare. Read as "release
+            // notes, or rare", page 4 ("common rare") would match.
+            ("release notes OR rare", vec![0, 2]),
+            // A quoted phrase can be one side of an OR; 2 has the words, not the phrase.
+            ("\"release notes\" OR rare", vec![0, 4]),
+            // OR does not reach past the operator to `cafe`: cafe, release and
+            // intitle:notes. Reaching past it, page 2 (release, no café) would match.
+            ("cafe intitle:notes OR release", vec![0]),
+            // No exact match, so the typo retry answers, and it reads OR the same way: a
+            // release, and a design or rare. Reading OR the old way, page 4 ("rare") would.
+            ("relase designn OR rarre", vec![2]),
         ] {
             let request = SearchRequest { query: query.into(), page_size: 7, ..Default::default() };
             let mut session = SearchSession::start(&vault, request).unwrap();
@@ -168,7 +179,11 @@ fn paging_keeps_its_visit_snapshot_when_a_backup_adds_a_new_visit_to_an_old_matc
 
 #[test]
 fn paging_does_not_repeat_a_shared_page_when_its_newest_visit_is_revoked() {
-    for regex in [false, true] {
+    // Page 6 comes first by its newest visit, and by its visit count. Once that visit is
+    // revoked it belongs below the cursor either way, and must not come back.
+    for (regex, sort) in [false, true].into_iter().flat_map(|regex| {
+        [None, Some("visits".to_owned())].into_iter().map(move |sort| (regex, sort))
+    }) {
         let archive = super::fixture::Archive::with_key(Some([110; 32]));
         for id in 1..=5 {
             archive.url(
@@ -183,12 +198,18 @@ fn paging_does_not_repeat_a_shared_page_when_its_newest_visit_is_revoked() {
         archive.index();
         let mut session = SearchSession::start(
             &archive.vault,
-            SearchRequest { query: "sameword".into(), regex, page_size: 2, ..Default::default() },
+            SearchRequest {
+                query: "sameword".into(),
+                regex,
+                sort: sort.clone(),
+                page_size: 2,
+                ..Default::default()
+            },
         )
         .unwrap();
         let first = session.finish_page().unwrap();
         let mut ids = first.items.iter().map(|hit| hit.page_id).collect::<Vec<_>>();
-        assert_eq!(ids, vec![6, 5]);
+        assert_eq!(ids, vec![6, 5], "{regex} {sort:?}");
         archive
             .vault
             .store()
@@ -207,6 +228,6 @@ fn paging_does_not_repeat_a_shared_page_when_its_newest_visit_is_revoked() {
             ids.extend(page.items.into_iter().map(|hit| hit.page_id));
             cursor = page.cursor;
         }
-        assert_eq!(ids, vec![6, 5, 4, 3, 2, 1]);
+        assert_eq!(ids, vec![6, 5, 4, 3, 2, 1], "{regex} {sort:?}");
     }
 }

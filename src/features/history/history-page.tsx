@@ -88,8 +88,8 @@ export default function HistoryPage() {
   const semanticAvailable = semantic.available
   const semanticReasonText = useSemanticReasonText(semantic)
   const search = useMemo(
-    () => resolveSearch(params.q, params.mode, semanticAvailable),
-    [params.q, params.mode, semanticAvailable],
+    () => resolveSearch(params.q, params.mode, semanticAvailable, params.sort),
+    [params.q, params.mode, semanticAvailable, params.sort],
   )
   const searching = search.text !== ''
   const showList = searching || params.view === 'timeline'
@@ -108,7 +108,7 @@ export default function HistoryPage() {
   )
   const hasFilters =
     params.date !== null || params.browser !== null || params.domain !== null
-  const resetKey = `${search.text}|${search.mode}|${JSON.stringify(filters)}`
+  const resetKey = `${search.text}|${search.mode}|${search.sort}|${JSON.stringify(filters)}`
 
   const list = useVisitList(search, filters, showList)
   const { items, hasNextPage, isFetchingNextPage, fetchNextPage } = list
@@ -369,6 +369,8 @@ export default function HistoryPage() {
         searching={draft.trim() !== ''}
         mode={search.mode}
         onMode={(mode: SearchMode) => update({ mode })}
+        sort={search.sort}
+        onSort={(sort) => update({ sort })}
         semanticAvailable={semanticAvailable}
         semanticOffReason={semanticReasonText}
         invalidRegex={search.regexError !== null}
@@ -376,6 +378,10 @@ export default function HistoryPage() {
           setDraft(query)
           // Operators are full-text syntax; a /regex/ example works in any mode.
           if (!query.startsWith('/')) update({ mode: 'full' })
+        }}
+        onBuild={(q, mode) => {
+          setDraft(null)
+          update({ q, mode })
         }}
       />
       <div className="flex min-h-0 flex-1">
@@ -392,6 +398,7 @@ export default function HistoryPage() {
               <SemanticNote
                 info={semantic}
                 active={search.mode === 'semantic'}
+                notes={list.search?.notes ?? []}
               />
             )}
           {searching && !search.regexError && (

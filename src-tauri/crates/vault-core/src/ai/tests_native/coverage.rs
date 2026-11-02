@@ -46,30 +46,30 @@ fn backfill_reaches_every_distinct_page_beyond_fifty_thousand() {
             ))
             .unwrap();
         assert_eq!(report.indexed_items, TOTAL as usize);
+        let source = source_paths(&vault, &provider);
         let map = VisitContentMap::for_provider(
-            vault.paths(),
+            &source,
             &provider.config.id,
             &provider.config.default_model,
         );
         let ids = map.mapped_history_ids().unwrap();
         assert_eq!(ids.len(), TOTAL as usize);
         assert!((1..=TOTAL).all(|id| ids.contains(&id)));
+        let lineage = source.vectors_dir.file_name().unwrap().to_str().unwrap().to_owned();
         let count = vault
-            .read(Db::Intelligence, |s| {
-                Ok(s.query_one("SELECT COUNT(DISTINCT history_id) FROM ai_embeddings", (), |r| {
-                    Ok(r.get::<i64>(0)?)
-                })?)
+            .read(Db::Intelligence, move |s| {
+                Ok(s.query_one(
+                    "SELECT COUNT(DISTINCT history_id) FROM ai_embeddings WHERE lineage=?1",
+                    [lineage],
+                    |r| Ok(r.get::<i64>(0)?),
+                )?)
             })
             .unwrap();
         assert_eq!(count, TOTAL);
         assert_eq!(
-            VectorStore::for_provider(
-                vault.paths(),
-                &provider.config.id,
-                &provider.config.default_model
-            )
-            .count()
-            .unwrap(),
+            VectorStore::for_provider(&source, &provider.config.id, &provider.config.default_model)
+                .count()
+                .unwrap(),
             TOTAL as u64
         );
     }

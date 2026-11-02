@@ -394,8 +394,9 @@ fn load_static_matrix(
 ) -> Result<StaticEmbeddingMatrix> {
     let file = std::fs::File::open(safetensors_path)
         .with_context(|| format!("opening static safetensors {}", safetensors_path.display()))?;
-    // SAFETY: this is PathKeep's own model folder. cache::load hash-verifies every model file via
-    // model_is_present_and_verified before loading, checks size/mtime again after loading and before
+    // SAFETY: this is PathKeep's own model folder. cache::load verifies every model file before
+    // loading (model_files_verified: a full SHA-256 unless the file's size and mtime still match
+    // those recorded when it last passed one), checks size/mtime again after loading and before
     // reuse, and drops its cached engine on change. Downloads replace verified files atomically,
     // leaving any active mapping on its original file. This relies on external tools not modifying
     // model files in place while mapped; metadata checks cannot protect an already-borrowed engine.
@@ -577,15 +578,17 @@ impl StaticEmbeddingProvider {
         Self::load(paths, DEFAULT_STATIC_MODEL_REPO, DEFAULT_STATIC_MODEL_FILES)
     }
 
-    /// Loads a static engine for one repo from `models_dir`, verifying readiness first (cheap S5
-    /// presence + verified-marker check, NOT a full re-hash on every load).
+    /// Loads a static engine for one repo from `models_dir`.
+    ///
+    /// Missing files make the engine an unavailable service, retried later; files that are there
+    /// but fail verification (in `cache::load`, hashed only when they changed) are an error.
     #[cfg(not(test))]
     pub fn load(paths: &ProjectPaths, repo: &str, files: &[ModelFile]) -> Result<Self> {
         let model_dir = model_dir_for_repo(paths, repo);
-        if !super::model_files::model_is_loadable(&model_dir, files) {
+        if !super::model_files::model_files_present(&model_dir, files) {
             cache::forget(&model_dir);
             return Err(super::EmbeddingServiceError::wrap(anyhow::anyhow!(
-                "static model {repo} is not present or not verified in {}; download it (with consent) before selecting the static engine",
+                "static model {repo} is not present in {}; download it (with consent) before selecting the static engine",
                 model_dir.display()
             )));
         }

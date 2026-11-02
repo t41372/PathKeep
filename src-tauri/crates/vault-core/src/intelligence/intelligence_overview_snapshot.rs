@@ -177,8 +177,9 @@ pub(super) fn request_fingerprint(
 /// checkpoint ledger (which moves on every derived rebuild or clear), an O(1)
 /// archive-delta probe (ingest/reverts not yet rebuilt), and the UTC offset,
 /// since a visit's local day depends on it. The leading `v` changes with what a
-/// snapshot holds (v4: each section's evidence count; v5: a page topic's site, for its icon), so
-/// older ones are rebuilt.
+/// snapshot holds (v4: each section's evidence count; v5: a page topic's site, for its icon;
+/// v6: searches merged across profiles and engines into one row per wording), so older ones are
+/// rebuilt.
 ///
 /// Today's date is deliberately not in it. It used to be, for "On this day";
 /// then the first open of every day recomputed all of history (seconds at
@@ -203,7 +204,7 @@ pub(super) fn compute_overview_fingerprint(
     let site_dictionary_signature = load_site_dictionary_signature(connection)?;
     let search_rule_signature = load_search_rule_signature(connection)?;
     Ok(format!(
-        "v5|profiles={}|visits={}|maxVisit={}|maxUrlMs={}|terms={}|tax={}|{}|{}|{}|{}|tz={}",
+        "v6|profiles={}|visits={}|maxVisit={}|maxUrlMs={}|terms={}|tax={}|{}|{}|{}|{}|tz={}",
         profiles.len(),
         aggregate.visible_visit_count,
         aggregate.max_visit_id,
@@ -380,6 +381,30 @@ mod tests {
         db.vault.write(Db::Archive,Priority::Batch,move |s| {
             s.execute("INSERT INTO runs(id,run_type,trigger,started_at,timezone,status,profile_scope_json,warnings_json,stats_json,due_only) VALUES(?1,?2,'test','','UTC','success','[]','[]','{}',0)",params![id,kind])?;Ok(())
         }).unwrap();
+    }
+
+    // Every stage of one build checkpoints with the build's start time, so the ledger alone did
+    // not move when a build switched the data Insights reads. A range read between a stage's
+    // checkpoint and the switch stayed cached under the same fingerprint, and once the build was
+    // marked ready its rows from before the backup were served as current.
+    #[test]
+    fn publishing_a_build_changes_the_fingerprint_with_the_same_checkpoints() {
+        let db = open_fingerprint_connection();
+        db.write(|s| {
+            s.execute("INSERT INTO core_intelligence_stage_checkpoints(profile_id,stage,stage_version,updated_at) VALUES('chrome:Default','daily-rollup','v','2026-10-30T00:00:00Z')",())?;
+            Ok(())
+        })
+        .unwrap();
+        let before = fingerprint(&db, None).unwrap();
+        let state = super::super::build_state::BuildState {
+            id: 1,
+            profile_id: "chrome:Default".into(),
+            computed_at: "2026-10-30T00:00:00Z".into(),
+            daily_generation: 7,
+            ..Default::default()
+        };
+        db.write(move |s| super::super::build_state::publish(s, &state, &["daily"])).unwrap();
+        assert_ne!(fingerprint(&db, None).unwrap(), before);
     }
 
     // Recent ranges: what goes wrong if the scope rules do —

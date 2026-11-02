@@ -104,6 +104,15 @@ pub(super) fn measured(
     let Some(provider) = provider else {
         return Ok(RelatedPages::unavailable("no embedding provider is configured"));
     };
+    let Some(pinned) = super::generations::serving_vault(
+        vault,
+        &provider.config.id,
+        &provider.config.default_model,
+    )?
+    else {
+        return Ok(RelatedPages::unavailable("the semantic index is empty"));
+    };
+    let vault = &pinned;
     // Match topics' availability checks, including the engine descriptor, without inference.
     let available = || -> Result<FlatVectorIndex> {
         super::validate_provider(provider, crate::AiProviderPurpose::Embedding)?;
@@ -378,15 +387,19 @@ fn select(rows: Vec<RelatedPage>, url: &str, source: &(String, String)) -> Vec<R
 fn published_cutoff(index: &FlatVectorIndex) -> f32 {
     static CUTOFF: std::sync::Mutex<Option<(String, f32)>> = std::sync::Mutex::new(None);
     let id = index.projection_id();
-    let mut cached = CUTOFF.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    match cached.as_ref() {
-        Some((published, value)) if !id.is_empty() && published == id => *value,
-        _ => {
-            let value = cutoff(index);
-            *cached = Some((id.to_owned(), value));
-            value
-        }
+    if let Some((published, value)) =
+        CUTOFF.lock().unwrap_or_else(std::sync::PoisonError::into_inner).as_ref()
+        && !id.is_empty()
+        && published == id
+    {
+        return *value;
     }
+    // Sampling reads scattered mmap pages. Readers of another generation must not wait behind
+    // disk faults while holding the cache mutex; redundant samples are harmless.
+    let value = cutoff(index);
+    *CUTOFF.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+        Some((id.to_owned(), value));
+    value
 }
 
 fn cutoff(index: &FlatVectorIndex) -> f32 {

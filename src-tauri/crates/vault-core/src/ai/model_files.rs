@@ -1,7 +1,8 @@
 //! Responsibilities: the files of an in-app model on disk: the manifest entry (name, pinned
-//! SHA-256, source repo), one directory per repo under `models_dir`, verifying the files, and the
-//! consent-gated download that fetches only what is missing, verifies each file, reports byte
-//! progress and can be cancelled between files and mid-file.
+//! SHA-256, source repo), one directory per repo under `models_dir`, verifying the files and
+//! remembering that they passed until they change, and the consent-gated download that fetches
+//! only what is missing, verifies each file, reports byte progress and can be cancelled between
+//! files and mid-file.
 //! Not responsible for: any engine that reads the files (`embedding_static`), choosing which model
 //! to use, or running the download off the UI thread (the worker does).
 
@@ -40,9 +41,8 @@ pub fn model_dir_for_repo(paths: &ProjectPaths, repo: &str) -> std::path::PathBu
 /// each file through [`crate::utils::file_sha256_hex`] so a multi-hundred-MB weight file is never
 /// read into memory whole.
 ///
-/// This full re-hash is the AUTHORITATIVE check used at download time and by the selector's
-/// cache miss. The per-load hot path uses the cheaper [`model_is_loadable`] presence/marker
-/// check (S5) so the full SHA-256 is not recomputed on every engine load.
+/// This full re-hash is the AUTHORITATIVE check the download runs. Loading the engine and the
+/// status read go through [`model_files_verified`], which runs it only when the files changed.
 pub fn model_is_present_and_verified(model_dir: &std::path::Path, files: &[ModelFile]) -> bool {
     files.iter().all(|file| {
         let path = model_dir.join(file.name);
@@ -55,30 +55,93 @@ pub fn model_is_present_and_verified(model_dir: &std::path::Path, files: &[Model
 
 /// Name of the marker file written next to the weights once they pass full SHA-256 verification.
 ///
-/// Its presence means "every manifest file in this dir verified at download time"; the per-load
-/// path trusts it (plus a cheap presence/size check) instead of re-hashing hundreds of MB on every
-/// engine load (S5). Removing the weights (or the marker) forces a re-verify/re-download.
-pub(super) const VERIFIED_MARKER_FILE: &str = ".pathkeep-verified";
+/// It holds a [`FileStamp`] per file: the digest the file matched, and its length and modification
+/// time at that moment. While those still match, the files are the ones that were hashed, so
+/// [`model_files_verified`] trusts the marker instead of reading hundreds of MB again. The hash
+/// guards against a broken or half-written download, not against someone rewriting a file and
+/// putting its old length and time back. A marker written before the stamps (`ok`) or a missing
+/// one matches nothing, so the next check hashes once and writes the stamps.
+const VERIFIED_MARKER_FILE: &str = ".pathkeep-verified";
 
-/// Records that a model directory passed full SHA-256 verification (writes the verified marker).
-///
-/// Called once after a download verifies every file, so subsequent loads can use the cheap
-/// presence check instead of re-hashing the weights (S5).
-fn write_verified_marker(model_dir: &std::path::Path) -> Result<()> {
-    std::fs::write(model_dir.join(VERIFIED_MARKER_FILE), b"ok")
+/// One manifest file as it was when it last matched its pinned digest.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+struct FileStamp {
+    name: String,
+    /// The digest it matched: a manifest that pins another one must not trust this stamp.
+    sha256: String,
+    len: u64,
+    modified_secs: u64,
+    modified_nanos: u32,
+}
+
+/// What the verified marker holds.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct VerifiedMarker {
+    files: Vec<FileStamp>,
+}
+
+/// Every manifest file's stamp as it is now, or `None` when one is missing, is not a regular file
+/// or has no modification time after 1970 (such a model is hashed on every check).
+fn file_stamps(model_dir: &std::path::Path, files: &[ModelFile]) -> Option<Vec<FileStamp>> {
+    files
+        .iter()
+        .map(|file| {
+            let metadata = std::fs::metadata(model_dir.join(file.name)).ok()?;
+            let modified = metadata.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?;
+            metadata.is_file().then(|| FileStamp {
+                name: file.name.to_string(),
+                sha256: file.sha256.to_string(),
+                len: metadata.len(),
+                modified_secs: modified.as_secs(),
+                modified_nanos: modified.subsec_nanos(),
+            })
+        })
+        .collect()
+}
+
+/// Records that the files, as `stamps` describe them, passed full SHA-256 verification.
+fn write_verified_marker(model_dir: &std::path::Path, stamps: Vec<FileStamp>) -> Result<()> {
+    let marker = serde_json::to_vec(&VerifiedMarker { files: stamps })?;
+    std::fs::write(model_dir.join(VERIFIED_MARKER_FILE), marker)
         .with_context(|| format!("writing verified marker in {}", model_dir.display()))
 }
 
-/// Cheap per-load readiness check: every manifest file is present + non-empty AND the dir is marked
-/// verified (S5 — avoids re-hashing the weights on each load).
+/// Whether the marker holds every one of `stamps`.
+fn marker_holds(model_dir: &std::path::Path, stamps: &[FileStamp]) -> bool {
+    let Ok(bytes) = std::fs::read(model_dir.join(VERIFIED_MARKER_FILE)) else {
+        return false;
+    };
+    serde_json::from_slice::<VerifiedMarker>(&bytes)
+        .is_ok_and(|marker| stamps.iter().all(|stamp| marker.files.contains(stamp)))
+}
+
+/// Whether every manifest file is present and matches its pinned digest, hashing only when needed.
 ///
-/// Pure apart from `stat`-ing each file + the marker. Used by the engine load path so a model that
-/// was verified at download time loads without recomputing its SHA-256. The authoritative full
-/// re-hash ([`model_is_present_and_verified`]) still runs at download time and on engine-cache misses, so a model is never LOADED unless it was verified at least once.
-pub fn model_is_loadable(model_dir: &std::path::Path, files: &[ModelFile]) -> bool {
-    if !model_dir.join(VERIFIED_MARKER_FILE).exists() {
+/// Loading the engine and every app snapshot (the Settings status) ask this, and the full check
+/// reads the whole model. When each file's length and modification time still match the marker,
+/// nothing is read. Otherwise it runs [`model_is_present_and_verified`] and, if that passes,
+/// records the new stamps; a failure leaves the marker as it was. The stamps are taken before the
+/// hash, so a file that changes while it is read no longer matches them afterwards.
+pub fn model_files_verified(model_dir: &std::path::Path, files: &[ModelFile]) -> bool {
+    let stamps = file_stamps(model_dir, files);
+    if stamps.as_deref().is_some_and(|stamps| marker_holds(model_dir, stamps)) {
+        return true;
+    }
+    if !model_is_present_and_verified(model_dir, files) {
         return false;
     }
+    if let Some(stamps) = stamps {
+        // A marker that cannot be written costs the next check another full hash, nothing more.
+        let _ = write_verified_marker(model_dir, stamps);
+    }
+    true
+}
+
+/// Whether every manifest file is present and non-empty, without reading any of them.
+///
+/// The engine load asks this first, so a model that is not downloaded is an unavailable service
+/// the worker retries later, while files that are there but fail verification are an error.
+pub fn model_files_present(model_dir: &std::path::Path, files: &[ModelFile]) -> bool {
     files.iter().all(|file| match std::fs::metadata(model_dir.join(file.name)) {
         Ok(meta) => meta.is_file() && meta.len() > 0,
         Err(_) => false,
@@ -160,7 +223,7 @@ pub fn download_needed(model_dir: &std::path::Path, file: &ModelFile) -> bool {
 ///   every file satisfied the function returns without any network call even when `consented`.
 /// - **SHA-256 verified**: every freshly downloaded file is hashed and a mismatch is a hard error
 ///   (the bad blob is removed), so a truncated/tampered download is never accepted. On full success
-///   a verified marker is written so later loads skip the full re-hash (S5).
+///   the verified marker records each file's stamp, so later loads and status reads skip the hash.
 /// - **cancelable**: `progress.cancelled()` is checked before each file; a cancel returns an error
 ///   without leaving a partial file in `models_dir`.
 /// - **progress**: `progress.file_started/finished` bracket each downloaded file.
@@ -180,8 +243,11 @@ pub fn ensure_model_downloaded(
     // Offline-first: if everything is already present + verified, we are done with NO network and
     // regardless of consent (the user already has the bytes). Refresh the verified marker so a
     // sideloaded (manually-placed) model is also fast to load thereafter.
+    let stamps = file_stamps(&model_dir, files);
     if model_is_present_and_verified(&model_dir, files) {
-        write_verified_marker(&model_dir)?;
+        if let Some(stamps) = stamps {
+            write_verified_marker(&model_dir, stamps)?;
+        }
         return Ok(model_dir);
     }
 
@@ -218,8 +284,10 @@ pub fn ensure_model_downloaded(
             .with_context(|| format!("installing verified model file {}", dest.display()))?;
         progress.file_finished(file.name);
     }
-    // Every file is downloaded + verified once: record the marker so subsequent loads are cheap (S5).
-    write_verified_marker(&model_dir)?;
+    // Every file is downloaded + verified once: record their stamps so later checks skip the hash.
+    if let Some(stamps) = file_stamps(&model_dir, files) {
+        write_verified_marker(&model_dir, stamps)?;
+    }
     Ok(model_dir)
 }
 
@@ -404,27 +472,97 @@ mod tests {
         assert!(model_is_present_and_verified(model_dir, &files));
     }
 
+    // How `model_files_verified` could go wrong, written down before it was:
+    // - an unchanged model is read again on every check (the hundreds of MB it exists to save);
+    // - a file whose length or modification time changed is trusted without a hash;
+    // - a marker from before the stamps, or none at all, keeps a good model unavailable or keeps
+    //   it hashed on every check;
+    // - a manifest that pins another digest trusts files that matched the old one;
+    // - a missing file passes.
+
+    /// Writes `bytes` over `path`, then gives it `modified` as its modification time.
+    fn write_with_mtime(path: &std::path::Path, bytes: &[u8], modified: std::time::SystemTime) {
+        std::fs::write(path, bytes).expect("write file");
+        std::fs::File::options()
+            .write(true)
+            .open(path)
+            .and_then(|file| file.set_modified(modified))
+            .expect("set modification time");
+    }
+
+    fn mtime(path: &std::path::Path) -> std::time::SystemTime {
+        std::fs::metadata(path).and_then(|meta| meta.modified()).expect("modification time")
+    }
+
+    /// Two files that verify, and a time unlike any the test writes them with.
+    fn verified_pair() -> (tempfile::TempDir, Vec<ModelFile>, std::time::SystemTime) {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(dir.path().join("a.txt"), b"alpha").expect("write a");
+        std::fs::write(dir.path().join("b.txt"), b"beta").expect("write b");
+        let files = leak_manifest(&[("a.txt", b"alpha"), ("b.txt", b"beta")]);
+        let other_time = std::time::UNIX_EPOCH + std::time::Duration::from_secs(86_400);
+        (dir, files, other_time)
+    }
+
+    // Swapping bytes while keeping a file's length and time stands in for "was it read?": a check
+    // that hashed would see the swap, one that trusted the stamp does not.
     #[test]
-    fn model_is_loadable_requires_marker_and_present_nonempty_files() {
+    fn model_files_verified_trusts_unchanged_stamps_and_hashes_changed_files() {
+        let (dir, files, other_time) = verified_pair();
+        let b = dir.path().join("b.txt");
+        assert!(model_files_verified(dir.path(), &files), "first check hashes and passes");
+
+        write_with_mtime(&b, b"BETA", mtime(&b));
+        assert!(model_files_verified(dir.path(), &files), "same length and time: not read again");
+
+        write_with_mtime(&b, b"BETA", other_time);
+        assert!(!model_files_verified(dir.path(), &files), "another time: hashed, and wrong");
+        write_with_mtime(&b, b"beta", other_time);
+        assert!(model_files_verified(dir.path(), &files), "hashed again and right");
+        write_with_mtime(&b, b"BETA", other_time);
+        assert!(model_files_verified(dir.path(), &files), "the new stamp was recorded");
+
+        write_with_mtime(&b, b"beta!", other_time);
+        assert!(!model_files_verified(dir.path(), &files), "another length: hashed, and wrong");
+        std::fs::remove_file(&b).expect("remove b");
+        assert!(!model_files_verified(dir.path(), &files), "a missing file never passes");
+    }
+
+    #[test]
+    fn model_files_verified_replaces_an_old_or_missing_marker_after_one_hash() {
+        for old_marker in [Some(&b"ok"[..]), None] {
+            let (dir, files, _) = verified_pair();
+            if let Some(contents) = old_marker {
+                std::fs::write(dir.path().join(VERIFIED_MARKER_FILE), contents).expect("marker");
+            }
+            assert!(model_files_verified(dir.path(), &files), "a good model stays available");
+            let b = dir.path().join("b.txt");
+            write_with_mtime(&b, b"BETA", mtime(&b));
+            assert!(model_files_verified(dir.path(), &files), "the stamps replaced {old_marker:?}");
+        }
+    }
+
+    #[test]
+    fn model_files_verified_does_not_carry_stamps_to_another_pinned_digest() {
+        let (dir, files, _) = verified_pair();
+        assert!(model_files_verified(dir.path(), &files));
+        let repinned = leak_manifest(&[("a.txt", b"alpha"), ("b.txt", b"BETA")]);
+        assert!(!model_files_verified(dir.path(), &repinned), "b.txt never matched the new pin");
+        assert!(model_files_verified(dir.path(), &files), "the old pin still holds");
+    }
+
+    #[test]
+    fn model_files_present_requires_every_file_non_empty_and_no_marker() {
         let dir = tempfile::tempdir().expect("tempdir");
         let model_dir = dir.path();
         let files = leak_manifest(&[("model.safetensors", b"weights"), ("tokenizer.json", b"tok")]);
-        // No marker, no files → not loadable.
-        assert!(!model_is_loadable(model_dir, &files));
+        assert!(!model_files_present(model_dir, &files));
         std::fs::write(model_dir.join("model.safetensors"), b"weights").expect("write w");
+        assert!(!model_files_present(model_dir, &files), "one file is still missing");
         std::fs::write(model_dir.join("tokenizer.json"), b"tok").expect("write tok");
-        // Files present but no verified marker → not loadable (never load an unverified model).
-        assert!(!model_is_loadable(model_dir, &files));
-        write_verified_marker(model_dir).expect("marker");
-        // Marker + present non-empty files → loadable.
-        assert!(model_is_loadable(model_dir, &files));
-        // Marker present but a file MISSING (metadata errors) → not loadable (covers the Err arm).
-        std::fs::remove_file(model_dir.join("model.safetensors")).expect("remove w");
-        assert!(!model_is_loadable(model_dir, &files));
-        std::fs::write(model_dir.join("model.safetensors"), b"weights").expect("rewrite w");
-        // An empty file is not loadable even with the marker.
+        assert!(model_files_present(model_dir, &files), "verification is the load's job");
         std::fs::write(model_dir.join("model.safetensors"), b"").expect("truncate");
-        assert!(!model_is_loadable(model_dir, &files));
+        assert!(!model_files_present(model_dir, &files), "an empty file is not a download");
     }
 
     // ---- download path (consent / offline-first / cancel / verify / progress) ----
@@ -479,6 +617,13 @@ mod tests {
         // First download places + verifies the files.
         let mut first = RecordingProgress::default();
         ensure_model_downloaded(&paths, "Stub/Repo", &manifest, true, &mut first).expect("first");
+        // The download's stamps are ones loads and status reads trust: bytes swapped under the
+        // same length and time are not read again.
+        let config = model_dir_for_repo(&paths, "Stub/Repo").join("config.json");
+        let (original, modified) = (std::fs::read(&config).expect("config"), mtime(&config));
+        write_with_mtime(&config, &vec![b'x'; original.len()], modified);
+        assert!(model_files_verified(config.parent().expect("model dir"), &manifest));
+        write_with_mtime(&config, &original, modified);
         // A second call WITHOUT consent succeeds (already present) and reports no new progress —
         // proving the offline-first reuse path runs without touching the fetch.
         let mut second = RecordingProgress::default();

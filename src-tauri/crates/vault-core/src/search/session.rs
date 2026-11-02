@@ -98,23 +98,20 @@ impl RunningSession {
             Ok((super::documents::watermark(s)?, through))
         })?;
         scope.pin_visits(through);
+        let order = sort_order(request.sort.as_deref());
         let regex = if request.regex {
             Some(super::regex::Scan::new(
                 &request.query,
                 scope.clone(),
                 request.page_size + 1,
-                request.sort.as_deref() == Some("oldest"),
+                order,
                 indexer,
                 store,
             )?)
         } else {
             None
         };
-        let fuzzy = query
-            .filters
-            .keyword_text
-            .as_deref()
-            .and_then(crate::archive::search_lexical::fuzzy_query);
+        let fuzzy = query.fuzzy.clone();
         let fallback = (!request.fuzzy && fuzzy.is_some() && regex.is_none())
             .then(|| SearchRequest { fuzzy: true, ..request.clone() });
         // Date scopes use canonical range indexes; fuzzy candidates are validated per batch.
@@ -124,11 +121,6 @@ impl RunningSession {
                 || request.end_time_ms.is_some()
                 || query.filters.after_ms.is_some()
                 || query.filters.before_ms.is_some());
-        let order = match request.sort.as_deref() {
-            Some("newest") => SortOrder::Newest,
-            Some("oldest") => SortOrder::Oldest,
-            _ => SortOrder::Relevance,
-        };
         let first = order == SortOrder::Oldest;
         let indexed_seq = indexer.index()?.last_applied_seq()?;
         let membership = if eager && regex.is_none() && indexed_seq >= canonical_seq {
@@ -228,11 +220,14 @@ impl RunningSession {
                     if self.membership.contains(hit.page_id)
                         && !already_returned(&self.returned, hit.page_id)
                     {
+                        // Membership holds every in-scope visit of a resolved page, so the
+                        // key is final here and the bounded collector stays exact.
                         hit.visit_ms = if self.order == SortOrder::Oldest {
                             self.membership.first(hit.page_id)
                         } else {
                             self.membership.newest(hit.page_id)
                         };
+                        hit.visits = self.membership.count(hit.page_id);
                         self.collector.collect(hit);
                     }
                 }
@@ -413,7 +408,10 @@ impl RunningSession {
         self.fuzzy = None;
         self.fallback = None;
 
-        self.collector = RankCollector::new(self.page_size + 1, None, SortOrder::Relevance);
+        // Fused scores are the order now, whatever the request asked for: the next page's
+        // collector must rank the same way this one does, or its cursor skips pages.
+        self.order = SortOrder::Relevance;
+        self.collector = RankCollector::new(self.page_size + 1, None, self.order);
         self.rank_done = false;
         self.count_done = false;
         self.matched_pages = 0;
@@ -461,6 +459,17 @@ impl RunningSession {
         self.count = None;
         self.cursor = None;
         self.regex = None;
+    }
+}
+
+/// The order a search lists pages in. The wire value is free text: anything it does not name
+/// ranks by relevance, as it always has.
+fn sort_order(sort: Option<&str>) -> SortOrder {
+    match sort {
+        Some("newest") => SortOrder::Newest,
+        Some("oldest") => SortOrder::Oldest,
+        Some("visits") => SortOrder::Visits,
+        _ => SortOrder::Relevance,
     }
 }
 

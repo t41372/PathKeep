@@ -22,7 +22,7 @@ fn the_cursor_reaches_every_page_once_even_when_pages_tie() {
         .url(6, FIREFOX, "https://e.test/tokio", "tokio page", &[700])
         .index();
 
-    for sort in ["relevance", "newest", "oldest"] {
+    for sort in ["relevance", "newest", "oldest", "visits"] {
         let query =
             HistoryQuery { q: Some("tokio".into()), sort: Some(sort.into()), ..Default::default() };
         let all = archive.search(HistoryQuery { limit: Some(100), ..query.clone() });
@@ -70,7 +70,7 @@ fn three_copies_of_one_page_stay_one_row_on_every_page_of_the_walk() {
         .index();
 
     for query in ["why I left tokio", "tokio"] {
-        for sort in ["relevance", "newest", "oldest"] {
+        for sort in ["relevance", "newest", "oldest", "visits"] {
             let search = HistoryQuery {
                 q: Some(query.into()),
                 sort: Some(sort.into()),

@@ -1,7 +1,9 @@
-//! Responsibilities: share maintenance progress/cancellation across worker transports.
+//! Responsibilities: share maintenance progress/cancellation across worker transports, and list
+//! each operation as foreground work while it runs, so quitting asks first.
 //! Not responsible for: database work, thread creation or frontend presentation.
 //! Failure modes: a second operation overwrites active progress; cancellation waits
 //! behind SQL; terminal failures look successful. Tests: maintenance_jobs::tests.
+use crate::ForegroundWork;
 use anyhow::Result;
 use std::{
     collections::HashMap,
@@ -21,9 +23,12 @@ fn jobs() -> &'static Mutex<HashMap<PathBuf, Job>> {
     JOBS.get_or_init(Default::default)
 }
 
+/// Runs one maintenance operation: `kind` is the phase its progress starts with, `foreground`
+/// what the quit prompt calls it while it runs.
 pub(crate) fn run<T>(
     root: &Path,
     kind: &str,
+    foreground: ForegroundWork,
     work: impl FnOnce(CancelToken, Box<dyn FnMut(Progress) + Send>) -> Result<T>,
 ) -> Result<T> {
     let token = CancelToken::new();
@@ -48,6 +53,7 @@ pub(crate) fn run<T>(
             },
         );
     }
+    let _running = crate::foreground_work::begin(foreground);
     let path = root.to_owned();
     let sink = Box::new(move |progress| {
         if let Some(job) = jobs().lock().unwrap().get_mut(&path) {

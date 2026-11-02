@@ -11,7 +11,7 @@
 //! Written after the reverse sidecars at the end of a pass. When it is missing or does not match the
 //! current planes and forward sidecar, search builds the same array in memory and writes nothing.
 //! The detail panel uses PointLookup instead and reports updating until the writer publishes it.
-use super::{FlatVectorIndex, ReverseVisitMap, VisitContentMap};
+use super::{FlatVectorIndex, ReverseVisitMap};
 use crate::{ProjectPaths, ai_sidecar::provider_table_name};
 use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
@@ -189,18 +189,24 @@ fn build(
     if forward {
         ReverseVisitMap::for_provider(paths, provider, model).visit_forward(cancel, &mut insert)?;
     } else {
-        for (id, key) in VisitContentMap::for_provider(paths, provider, model).read_all()? {
-            insert(id, key)?;
-        }
+        // Mutable lineage maps are never a serving fallback. Missing forward files have no
+        // attributable visits until a complete generation is built.
+        return Ok(Vec::new());
     }
     Ok(positions)
 }
 
 /// Projection writers publish the cache only after its complete payload has been flushed.
-pub(super) fn rebuild(paths: &ProjectPaths, provider: &str, model: &str) -> Result<()> {
+pub(super) fn rebuild_cancellable(
+    paths: &ProjectPaths,
+    provider: &str,
+    model: &str,
+    cancel: &CancelToken,
+) -> Result<()> {
+    cancel.check()?;
     let index = FlatVectorIndex::open(paths, provider, model)?;
     let (mut header, forward) = source_header(paths, provider, model, &index)?;
-    let positions = build(paths, provider, model, &index, forward, &CancelToken::new())?;
+    let positions = build(paths, provider, model, &index, forward, cancel)?;
     header.positions = positions.len();
     let destination = path(paths, provider, model);
     let temporary = destination.with_extension("pkpos.tmp");
@@ -209,7 +215,10 @@ pub(super) fn rebuild(paths: &ProjectPaths, provider: &str, model: &str) -> Resu
     writer.write_all(MAGIC)?;
     writer.write_all(&(u32::try_from(json.len())?).to_le_bytes())?;
     writer.write_all(&json)?;
-    for position in positions {
+    for (offset, position) in positions.into_iter().enumerate() {
+        if offset % 1024 == 0 {
+            cancel.check()?;
+        }
         writer.write_all(&position.to_le_bytes())?;
     }
     writer.flush()?;

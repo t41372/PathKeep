@@ -51,8 +51,8 @@ pub(super) const ROWS: &[Fixture] = &[
     },
     Fixture {
         table: "ai_embedding_totals",
-        columns: "provider_id,model,item_count,content_bytes,metadata_bytes,last_indexed_at",
-        values: "'sample','sample',1,1,1,'sample'",
+        columns: "provider_id,model,item_count,content_bytes,metadata_bytes,last_indexed_at,lineage",
+        values: "'sample','sample',1,1,1,'sample','legacy'",
     },
     Fixture {
         table: "visit_derived_facts_rows",
@@ -181,8 +181,8 @@ pub(super) const ROWS: &[Fixture] = &[
     },
     Fixture {
         table: "ai_embeddings",
-        columns: "id, history_id, profile_id, url, title, domain, visited_at, content_hash, content_bytes, provider_id, model, indexed_at, metadata_bytes",
-        values: "1, 1, 'sample', 'sample', 'sample', 'sample', 'sample', 'sample', 1, 'sample', 'sample', 'sample', 1",
+        columns: "id, history_id, profile_id, url, title, domain, visited_at, content_hash, content_bytes, provider_id, model, indexed_at, metadata_bytes, lineage",
+        values: "1, 1, 'sample', 'sample', 'sample', 'sample', 'sample', 'sample', 1, 'sample', 'sample', 'sample', 1, 'legacy'",
     },
     Fixture {
         table: "ai_assistant_runs",

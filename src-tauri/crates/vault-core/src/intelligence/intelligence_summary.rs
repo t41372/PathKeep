@@ -36,7 +36,7 @@ use crate::models::{
     SearchEffectivenessRequest, SectionEvidence, SectionEvidenceUnit, StableSource,
 };
 use anyhow::Result;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, hash_map::Entry};
 use vault_store::{Session, params_owned as params};
 
 /// Builds the category-share mix and the delta versus the immediately previous
@@ -325,50 +325,109 @@ pub(crate) fn get_search_effectiveness_with_connection(
     )?;
     let limit = request.topics_limit.unwrap_or(5).clamp(1, 1000) as usize;
     let after = super::paging::cursor::<(i64, i64, String)>(request.topics_cursor.as_deref())?;
-    let after_clause = if after.is_some() {
-        "AND r.member_count<=?5 AND (r.member_count<?5 OR (r.last_seen_ms<=?6 AND (r.last_seen_ms<?6 OR r.family_id>?7)))"
-    } else {
-        ""
-    };
-    // The families searched in the range, from its start in recency order, sorted by size.
-    // Walked in size order instead, a short range read families until it found a page of its own.
-    let rows = connection.query(
-        &format!(
-            "SELECT r.family_id,r.anchor_query,r.member_count,r.first_seen_ms,r.last_seen_ms
+    let mut topics = hardest_topics_in_range(connection, request, start_ms, end_ms)?
+        .into_iter()
+        .map(|(key, topic)| {
+            let cursor = (topic.searches, topic.last_seen_ms, key);
+            (topic, cursor)
+        })
+        .filter(|(_, cursor)| after.as_ref().is_none_or(|after| topic_order(cursor, after).is_gt()))
+        .collect::<Vec<_>>();
+    // The page and the one row past it, without sorting every search in the range.
+    if topics.len() > limit + 1 {
+        topics.select_nth_unstable_by(limit, |(_, a), (_, b)| topic_order(a, b));
+        topics.truncate(limit + 1);
+    }
+    topics.sort_unstable_by(|(_, a), (_, b)| topic_order(a, b));
+    let rows = topics
+        .into_iter()
+        .map(|(topic, cursor)| {
+            let item = HardTopic {
+                topic_key: cursor.2.clone(),
+                query_family: topic.anchor,
+                search_count: topic.searches,
+                re_search_lag_days: ((topic.last_seen_ms - topic.first_seen_ms) as f32
+                    / 86_400_000.0)
+                    .max(0.0),
+            };
+            (item, cursor)
+        })
+        .collect();
+    let hardest_topics = super::paging::finish(rows, limit)?;
+    Ok(SearchEffectiveness { engine_stats, top_resolving_sources, hardest_topics })
+}
+
+/// One search as "Searches you came back to most" lists it: every family holding it as its
+/// first wording, across browser profiles and engines, keyed the way the search's own page finds
+/// its families (`search_family_key`). Families are kept per profile and engine, so a search typed
+/// in two browsers is two families; listed apart, it showed twice with its count split.
+struct TopicTotals {
+    /// The wording shown: the anchor of its largest family (by searches, then the latest seen,
+    /// then the first in text order), so every page shows the same one.
+    anchor: String,
+    /// That family's searches and last seen.
+    largest: (i64, i64),
+    searches: i64,
+    first_seen_ms: i64,
+    last_seen_ms: i64,
+}
+
+/// Most searches first, then the latest seen, then the key: the list's order, which its cursor
+/// `(searches, last seen, key)` continues.
+fn topic_order(a: &(i64, i64, String), b: &(i64, i64, String)) -> std::cmp::Ordering {
+    b.0.cmp(&a.0).then(b.1.cmp(&a.1)).then_with(|| a.2.cmp(&b.2))
+}
+
+/// The families searched in the range, read from its start in recency order and summed by
+/// search. Walked in size order instead, a short range read families until it found a page of its
+/// own; and a search's total is only known once all its families are read, so every page reads
+/// the range (as the size sort already did) and holds one entry per search, not per family.
+fn hardest_topics_in_range(
+    connection: &Session<'_>,
+    request: &SearchEffectivenessRequest,
+    start_ms: i64,
+    end_ms: i64,
+) -> Result<HashMap<String, TopicTotals>> {
+    let mut topics = HashMap::<String, TopicTotals>::new();
+    connection.for_each(
+        "SELECT r.anchor_query,r.member_count,r.first_seen_ms,r.last_seen_ms
         FROM query_families_rows r INDEXED BY idx_query_families_recent
         WHERE r.last_seen_ms>=?3 AND r.first_seen_ms<?4
           AND r.generation IN (SELECT aggregates FROM intelligence_generations)
-          AND (?1 IS NULL OR r.profile_id=?1) AND (?2 IS NULL OR r.search_engine=?2) {after_clause}
-        ORDER BY r.member_count DESC,r.last_seen_ms DESC,r.family_id LIMIT ?8"
-        ),
-        params![
-            request.profile_id,
-            request.engine,
-            start_ms,
-            end_ms,
-            after.as_ref().map(|v| v.0),
-            after.as_ref().map(|v| v.1),
-            after.as_ref().map(|v| v.2.as_str()),
-            (limit + 1) as i64
-        ],
+          AND (?1 IS NULL OR r.profile_id=?1) AND (?2 IS NULL OR r.search_engine=?2)",
+        params![request.profile_id, request.engine, start_ms, end_ms],
         |r| {
-            let id = r.get::<String>(0)?;
-            let count = r.get::<i64>(2)?;
-            let first = r.get::<i64>(3)?;
-            let last = r.get::<i64>(4)?;
-            Ok((
-                HardTopic {
-                    family_id: id.clone(),
-                    query_family: r.get(1)?,
-                    reformulation_count: count,
-                    re_search_lag_days: ((last - first) as f32 / 86_400_000.0).max(0.0),
-                },
-                (count, last, id),
-            ))
+            let anchor = r.get::<String>(0)?;
+            let count = r.get::<i64>(1)?;
+            let first = r.get::<i64>(2)?;
+            let last = r.get::<i64>(3)?;
+            match topics.entry(super::build_rows::search_family_key(&anchor)) {
+                Entry::Occupied(mut entry) => {
+                    let topic = entry.get_mut();
+                    topic.searches += count;
+                    topic.first_seen_ms = topic.first_seen_ms.min(first);
+                    topic.last_seen_ms = topic.last_seen_ms.max(last);
+                    if (count, last) > topic.largest
+                        || ((count, last) == topic.largest && anchor < topic.anchor)
+                    {
+                        topic.largest = (count, last);
+                        topic.anchor = anchor;
+                    }
+                }
+                Entry::Vacant(entry) => {
+                    entry.insert(TopicTotals {
+                        anchor,
+                        largest: (count, last),
+                        searches: count,
+                        first_seen_ms: first,
+                        last_seen_ms: last,
+                    });
+                }
+            }
+            Ok(())
         },
     )?;
-    let hardest_topics = super::paging::finish(rows, limit)?;
-    Ok(SearchEffectiveness { engine_stats, top_resolving_sources, hardest_topics })
+    Ok(topics)
 }
 
 /// Flags likely friction patterns from deterministic search-trail heuristics so

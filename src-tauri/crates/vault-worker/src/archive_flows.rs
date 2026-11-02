@@ -61,6 +61,7 @@ pub fn run_snapshot_restore_plan(
     vault: &Vault,
     request: &vault_core::SnapshotRestoreRequest,
 ) -> Result<vault_core::BackupReport> {
+    let _running = crate::foreground_work::begin(crate::ForegroundWork::Restore);
     vault_core::run_snapshot_restore(vault, request)
 }
 
@@ -84,6 +85,9 @@ pub fn run_full_archive_restore(
     password: Option<&str>,
     request: &vault_core::SnapshotRestoreRequest,
 ) -> Result<vault_core::FullArchiveRestoreReport> {
+    // Until the restored archive is installed and its key stored, not only while the copy
+    // runs: a quit that waited for the copy alone would leave the keychain behind.
+    let _running = crate::foreground_work::begin(crate::ForegroundWork::Restore);
     let paths = vault_core::project_paths()?;
     if let Ok(config) = vault_core::load_config(&paths) {
         vault_core::ensure_app_lock_unlocked(&paths, &config)?;
@@ -100,8 +104,11 @@ pub fn run_full_archive_restore(
     );
     let current = session.current_vault();
     let legacy = source.is_file();
-    let installed =
-        crate::maintenance_jobs::run(&paths.app_root, "restoring", |cancel, progress| {
+    let installed = crate::maintenance_jobs::run(
+        &paths.app_root,
+        "restoring",
+        crate::ForegroundWork::Restore,
+        |cancel, progress| {
             if legacy {
                 return vault_convert_sqlcipher::restore_snapshot(
                     &paths,
@@ -121,7 +128,8 @@ pub fn run_full_archive_restore(
                 password,
                 cancel,
             )
-        })?;
+        },
+    )?;
     let audit = vault_core::maintenance::record_restore(&installed.vault, &request.snapshot_path);
     let (run_id, warnings) = match audit {
         Ok(id) => (Some(id), Vec::new()),
@@ -160,9 +168,12 @@ pub fn run_retention_plan(
         .into_iter()
         .find(|snapshot| snapshot.verified_openable)
         .map(|snapshot| std::path::PathBuf::from(snapshot.path));
-    crate::maintenance_jobs::run(&vault.paths().app_root, "pruning", |cancel, _| {
-        vault_core::maintenance::prune(vault, request, keep.as_deref(), &cancel)
-    })
+    crate::maintenance_jobs::run(
+        &vault.paths().app_root,
+        "pruning",
+        crate::ForegroundWork::FreeUpSpace,
+        |cancel, _| vault_core::maintenance::prune(vault, request, keep.as_deref(), &cancel),
+    )
 }
 
 /// Runs a backup without exposing per-profile progress.
@@ -189,6 +200,7 @@ pub fn run_backup_now_with_progress<F>(
 where
     F: FnMut(BackupProgressEvent),
 {
+    let _running = crate::foreground_work::begin(crate::ForegroundWork::Backup);
     let paths = vault_core::project_paths()?;
     let config = load_unlocked_config(&paths)?;
     run_backup_with_loaded_config(
@@ -783,6 +795,7 @@ pub fn export_query(
     request: ExportRequest,
     target: &std::path::Path,
 ) -> Result<vault_core::ExportResult> {
+    let _running = crate::foreground_work::begin(crate::ForegroundWork::HistoryExport);
     export_history(vault, request, target)
 }
 
@@ -835,6 +848,7 @@ pub fn import_takeout_source_with_progress<F>(
 where
     F: FnMut(ImportProgressEvent),
 {
+    let _running = crate::foreground_work::begin(crate::ForegroundWork::HistoryImport);
     let paths = vault_core::project_paths()?;
     let config = load_unlocked_config(&paths)?;
     let job = vault_core::ImportJob::start(import_id)?;
@@ -875,6 +889,7 @@ pub fn import_browser_history_source_with_progress<F>(
 where
     F: FnMut(ImportProgressEvent),
 {
+    let _running = crate::foreground_work::begin(crate::ForegroundWork::HistoryImport);
     let paths = vault_core::project_paths()?;
     let config = load_unlocked_config(&paths)?;
     let job = vault_core::ImportJob::start(import_id)?;
@@ -906,11 +921,13 @@ pub fn preview_import_batch_detail(vault: &Vault, batch_id: i64) -> Result<Impor
 
 /// Soft-hides one imported batch and returns its updated detail.
 pub fn revert_import_batch_detail(vault: &Vault, batch_id: i64) -> Result<ImportBatchDetail> {
+    let _running = crate::foreground_work::begin(crate::ForegroundWork::ImportUndo);
     refresh_after_visibility_change(vault, revert_import_batch(vault, batch_id)?)
 }
 
 /// Restores one previously reverted import batch to visible status.
 pub fn restore_import_batch_detail(vault: &Vault, batch_id: i64) -> Result<ImportBatchDetail> {
+    let _running = crate::foreground_work::begin(crate::ForegroundWork::ImportUndo);
     refresh_after_visibility_change(vault, restore_import_batch(vault, batch_id)?)
 }
 

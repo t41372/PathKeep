@@ -38,6 +38,26 @@ export function newPageVisit(): FixtureVisit {
   return { ...NEW_PAGE, at: Date.now() - 60_000, typed: true, duration: 30_000 }
 }
 
+/**
+ * A page backed up while a rebuild is paused (`semantic-index.spec`'s
+ * cancelled rebuild), with words no other page has.
+ */
+export const PAUSED_REBUILD_PAGE = {
+  url: 'https://tidepool.example.net/field-notes/anemone-survey',
+  title: 'Tide pool anemone survey field notes',
+}
+
+/** A visit a minute ago to `PAUSED_REBUILD_PAGE`. */
+export function pausedRebuildPageVisit(): FixtureVisit {
+  return {
+    ...PAUSED_REBUILD_PAGE,
+    at: Date.now() - 60_000,
+    typed: true,
+    duration: 30_000,
+  }
+}
+
+/** Visits `semantic-index.spec` adds to Chrome: `indexRevisitVisits`, `NEW_PAGE` and `PAUSED_REBUILD_PAGE`. */
 export function indexRevisitVisitCount() {
-  return 3
+  return 4
 }

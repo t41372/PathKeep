@@ -21,10 +21,19 @@ use super::{
 };
 use vault_store::params_owned as params;
 fn fingerprint(vault: &Vault, provider: &crate::AiProviderRuntime) -> Fingerprint {
+    let pinned = super::generations::serving_vault(
+        vault,
+        &provider.config.id,
+        &provider.config.default_model,
+    )
+    .unwrap()
+    .unwrap();
+    let vault = &pinned;
     let scope = SnapshotScope::month("2025-03").unwrap();
     let (paths, pair, range) = (vault.paths().clone(), provider.clone(), scope.range.clone());
+    let files = search_group_signatures::files(&paths, &pair).unwrap();
     let cheap = vault
-        .read(Db::Intelligence, move |s| search_group_signatures::cheap(s, &paths, &pair, &range))
+        .read(Db::Intelligence, move |s| search_group_signatures::cheap(s, &files, &pair, &range))
         .unwrap();
     let zone =
         vault.read(Db::Intelligence, crate::intelligence::InsightsZone::for_reading).unwrap();
@@ -62,10 +71,18 @@ fn a_late_month_cannot_replace_a_new_generation_or_another_pass() {
             save(s, &scope_copy, &saved, &MonthGroups::default())
         })
         .unwrap();
-    let (paths, pair, range) = (vault.paths().clone(), provider, scope.range.clone());
+    let pinned = super::generations::serving_vault(
+        &vault,
+        &provider.config.id,
+        &provider.config.default_model,
+    )
+    .unwrap()
+    .unwrap();
+    let (paths, pair, range) = (pinned.paths().clone(), provider, scope.range.clone());
+    let files = search_group_signatures::files(&paths, &pair).unwrap();
     assert!(
         !publish_if_current(&vault, &scope, &old, &MonthGroups::default(), move |s| {
-            search_group_signatures::cheap(s, &paths, &pair, &range)
+            search_group_signatures::cheap(s, &files, &pair, &range)
         })
         .unwrap()
     );
@@ -81,9 +98,13 @@ fn mapping_undo_and_store_recreation_invalidate_inputs_without_regrouping_unrela
     assert!(needs_read(Some(&initial), &projected.cheap));
     assert!(!needs_group(Some(&initial), &projected.digest));
     // March's first opened visit is 14. Remap it to another existing vector: no new vectors.
-    VisitContentMap::for_provider(vault.paths(), "group-probe", "model")
-        .append(&[(14, 2)])
-        .unwrap();
+    VisitContentMap::for_provider(
+        &super::tests::native::fixtures::source_paths(&vault, &provider),
+        "group-probe",
+        "model",
+    )
+    .append(&[(14, 2)])
+    .unwrap();
     project(&vault, &provider).unwrap();
     let mapped = fingerprint(&vault, &provider);
     assert_ne!(projected.cheap, mapped.cheap);
@@ -97,14 +118,22 @@ fn mapping_undo_and_store_recreation_invalidate_inputs_without_regrouping_unrela
     let undone = fingerprint(&vault, &provider);
     assert_ne!(mapped.cheap, undone.cheap);
     assert_ne!(mapped.digest, undone.digest);
-    let store = VectorStore::for_provider(vault.paths(), "group-probe", "model");
+    let store = VectorStore::for_provider(
+        &super::tests::native::fixtures::source_paths(&vault, &provider),
+        "group-probe",
+        "model",
+    );
     let header = store.read_header().unwrap().unwrap();
     let records = store.read_all().unwrap();
     let fp = super::EmbeddingFingerprint::from_descriptor(
         &super::embedding_external::external_descriptor(&provider, Some(4)),
     )
     .unwrap();
-    let recreated = VectorStore::create_stamped(vault.paths(), &fp).unwrap();
+    let recreated = VectorStore::create_stamped(
+        &super::tests::native::fixtures::source_paths(&vault, &provider),
+        &fp,
+    )
+    .unwrap();
     recreated.append_vectors(&records).unwrap();
     assert_ne!(header.store_id, recreated.read_header().unwrap().unwrap().store_id);
     project(&vault, &provider).unwrap();
@@ -122,13 +151,18 @@ fn mapping_undo_and_store_recreation_invalidate_inputs_without_regrouping_unrela
     assert_ne!(rebuilt.cheap, rules.cheap);
     assert_eq!(rebuilt.digest, rules.digest);
     let search_store = VectorStore::for_provider(
-        vault.paths(),
+        &super::tests::native::fixtures::source_paths(&vault, &provider),
         &super::search_vectors::identity(&provider),
         "model",
     );
     let searches = search_store.read_all().unwrap();
-    let recreated_searches =
-        search_store.create_stamped_at(vault.paths(), &fp, "normalized-query-v1".into()).unwrap();
+    let recreated_searches = search_store
+        .create_stamped_at(
+            &super::tests::native::fixtures::source_paths(&vault, &provider),
+            &fp,
+            "normalized-query-v1".into(),
+        )
+        .unwrap();
     recreated_searches.append_vectors(&searches).unwrap();
     project(&vault, &provider).unwrap();
     let rebuilt_searches = fingerprint(&vault, &provider);
@@ -156,8 +190,13 @@ fn mapping_undo_and_store_recreation_invalidate_inputs_without_regrouping_unrela
     .unwrap()
     .append_vectors(&searches)
     .unwrap();
-    let old_map =
-        VisitContentMap::for_provider(vault.paths(), "group-probe", "model").read_all().unwrap();
+    let old_map = VisitContentMap::for_provider(
+        &super::tests::native::fixtures::source_paths(&vault, &provider),
+        "group-probe",
+        "model",
+    )
+    .read_all()
+    .unwrap();
     let new_map = VisitContentMap::for_provider(vault.paths(), "group-probe", "other-model");
     new_map.ensure_created(vault.paths()).unwrap();
     new_map.append(&old_map.into_iter().collect::<Vec<_>>()).unwrap();

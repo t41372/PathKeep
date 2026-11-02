@@ -75,7 +75,19 @@
 - `menuBarIcon` 是「圖示現在在不在」；偏好存 `AppConfig.menuBarIcon`。`set_menu_bar_icon` 先改圖示再存 config，存失敗就把圖示改回去並回錯。`save_config` 存完也會讓圖示與選單語言跟上 config。
 - `menuBarIconSupported`：macOS / Windows 恆為 true；Linux 需要能載入 libappindicator，且 session bus 上有 `org.kde.StatusNotifierWatcher`（問不到時不擋）。不支援時 `set_menu_bar_icon(true)` 回錯。
 - 事件：`pathkeep://open-command-palette`（選單「搜尋歷史…」，無 payload）；`pathkeep://backup-finished`（任何 app 內備份結束，`{ source: "app" | "menu-bar", report?, error? }`）。`run_backup_now` 與選單的「立即備份」走同一條 `desktop_integration::run_backup`，`pathkeep://backup-progress` 不變。dev bridge 的 `run_backup_now` 在 app 已啟動時也走這條路徑。
-- 登入啟動帶 `--launched-at-login`。主視窗在 `tauri.conf.json` 設為 `visible: false`，由 setup 決定：一般啟動顯示；登入啟動時保持隱藏（圖示開著，或 macOS 有 Dock 可叫回），Windows / Linux 沒圖示時以最小化開啟。圖示開著時關視窗只是隱藏。細節與理由見 `docs/features/archive.md` §2「開機啟動與選單列圖示」。
+- 登入啟動帶 `--launched-at-login`。主視窗在 `tauri.conf.json` 設為 `visible: false`，由 setup 決定：一般啟動顯示；登入啟動時保持隱藏（圖示開著，或 macOS 有 Dock 可叫回），Windows / Linux 沒圖示時以最小化開啟。圖示開著時關視窗只是隱藏；圖示關著時關視窗就是結束，有工作在跑時先問（見下節）。細節與理由見 `docs/features/archive.md` §2「開機啟動與選單列圖示」。
+
+## 結束時還有工作在跑（2026-10 / `WORK-QUIT-DURING-WORK`）
+
+有人等著的工作在跑時要結束 PathKeep，先問再結束（`src-tauri/src/desktop_integration/quit.rs`）。起因：2026-10-16 有人在 move.spec 途中按了測試視窗的關閉鈕，35 ms 後程序結束，跑了 40 秒的 `export_app_data` 白做，畫面只說連不上 desktop bridge。
+
+- **哪些工作算**：`vault_worker::foreground_work()`，一份只讀記憶體的登記表（`vault-worker/src/foreground_work.rs`）。手動備份（視窗與選單列的「立即備份」）、匯出歷史、匯入 Takeout / 瀏覽器檔案、搬到另一台電腦的匯出與匯入、從安全快照還原、釋放空間、升級存檔、更改存檔密碼、開關加密、刪除所有資料。登記在 vault-worker 的入口與 `maintenance_jobs::run`，所以 Tauri 命令、dev bridge 與 owner endpoint 都看到同一份。排程備份不算（下次檢查會再跑）；背景佇列（建索引、洞察、連結預覽）也不算，重開後自己續跑，結束照常。
+- **攔在哪**：選單列圖示關著時按視窗的關閉鈕，攔在 `CloseRequested`（視窗還在，就地問；圖示開著時關視窗只是隱藏，不問）。其餘都經 `AppHandle::exit` 到 `RunEvent::ExitRequested`：選單列圖示的「結束 PathKeep」、macOS 的 ⌘Q、問題的回答本身。Tauri 預設選單的 Quit 走 AppKit 的 `terminate:`，app 攔不到，所以 macOS 的 app 選單換成同一份預設選單、只把 Quit 換成 PathKeep 自己的項目（`app_menu.rs`；文字跟著 app 的語言，取自 `copy.rs`，設定換語言時重建。AutoFill、聽寫、視窗排列這些 macOS 自己加進去的項目跟著系統語言）。更新後重開（`RESTART_EXIT_CODE`）不攔。判斷在主執行緒上做，只讀記憶體，不碰選單狀態的鎖。
+- **事件與命令**：`pathkeep://quit-request`，payload 是 `QuitRequest = { id, work: ForegroundWork[], waiting }`，或 `null`（沒有問題了）；`work` 依開始順序、每種一次，做完會變空陣列。dev bridge 的 `/events` 也轉發。視窗晚開或重新載入時用 `get_quit_request` 讀。`answer_quit_request({ id, answer: "wait" | "quit-now" | "keep-open" })` 回傳回答後的 `QuitRequest | null`；`id` 不是目前的問題時什麼都不做，因為可能有兩個視窗都在問（E2E 的 Tauri 視窗與 Chromium）。
+- **之後的行為**：選「做完再結束」，工作清單一空就結束。改密碼與開關加密把鑰匙圈和「把密碼存到鑰匙圈」設定一起算在工作裡（`RekeyRequest.rememberInKeychain`，worker 在同一個 hold 裡寫），不是視窗事後再補，所以「做完再結束」不會把鑰匙圈留在上一步。鑰匙圈寫不進去時，改動照樣算完成、設定不動，視窗看快照裡的鑰匙圈狀態跟要求的不同就提醒。沒回答時工作做完了，問題改說都做完了，仍由使用者選：不會自己結束，也不會自己消失。問題開著時再結束一次，視窗回到前面、問題再送一次。沒有視窗（`--background` 啟動）時會開出視窗來問。
+- **「現在結束」**跟以前的結束一樣，程序直接結束，不先取消工作：匯出先寫暫存檔再換名，不會留下半個檔案；匯入已存進去的批次保留，再匯入同一個檔案可以做完；存檔變更由下次開啟時各自的恢復流程收拾；刪除所有資料在下次開啟時做完（`finish_interrupted_data_wipe`）。
+- **攔不到的**：macOS Dock 選單的「結束」、登出與關機也走 `terminate:`，tao 0.35 沒有 `applicationShouldTerminate:` 讓 app 回答，程序立刻結束，跟以前一樣。所以 PathKeep 不會擋住登出或關機；工作會中斷，檔案不會寫壞（同上）。Windows、Linux 的登出與關機沒有驗證過。
+- **測試**：debug build 的 dev bridge 有 `debug_request_quit({ via: "window" | "app" })`，關閉主視窗或呼叫 `AppHandle::exit(0)`，走的就是關閉鈕與 ⌘Q 的處理。E2E：`tests/e2e/quit-during-work.spec.ts`（`restart` project）。真的 ⌘Q、關閉鈕與三語選單是手動驗的（2026-10-30）：沒打包的 debug binary 沒有 bundle id，自動化工具只指得到已安裝的 PathKeep，所以把 debug 的 `pathkeep-desktop` 與 `pathkeep-worker` 放進另一個 bundle id 的 `.app`，用 `bun run dev:demo -- --backend <app>/Contents/MacOS/pathkeep-desktop` 跑；示範資料要加大（例如 `perDay: 1200`，約 46 萬筆），匯出才跑得夠久來回答問題。
 
 ## Debug 平台沙盒（2026-10）
 
@@ -91,7 +103,7 @@ Plan 產生、plist / XML 內容、audit 與 status 解析照常執行。每次 
 
 - repo 現在有一條 **feature-gated** `devtools-bridge` local mirror：`bun run desktop:dev:bridge` 會在保留 Tauri desktop runtime 的前提下，把現行 typed command surface 映射到 localhost，讓 Chrome / Playwright / CDP 能從真正的 Rust façade 讀資料與觸發命令。
 - 前端 runtime 也因此正式分成三種：`tauri`、`browser-desktop-bridge`、`browser-preview`。不要再把「不是 Tauri」直接等同於 static preview fixture。
-- 這條 mirror 只覆蓋 command façade，不承諾所有 WebView plugin guest API 都能從 Chrome 使用。`browser-desktop-bridge` 現在可以透過 mirrored desktop command transport 驅動 update check / install / relaunch，但 updater progress event、Stronghold guest binding、或其他直接依賴 Tauri event/plugin 的 surface，仍需實際 Tauri window 驗證。
+- 這條 mirror 只覆蓋 command façade，不承諾所有 WebView plugin guest API 都能從 Chrome 使用。`browser-desktop-bridge` 現在可以透過 mirrored desktop command transport 驅動 update check / install / relaunch，但 updater progress event、或其他直接依賴 Tauri event/plugin 的 surface，仍需實際 Tauri window 驗證。
 - 這是 dev-only、localhost-only 的 automation boundary，不是產品 shipping API，也不應被擴寫成外部 remote control 介面。
 - 2026-04-24 backend follow-up：dev bridge implementation 已拆成 `config` / `router` / `payloads` / `dispatch` focused owners。這只是 desktop-layer ownership cleanup；現有 command strings、payload shape、worker bridge export surface、feature gate、env gate 與 localhost-only safety boundary 不變。
 
