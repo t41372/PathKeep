@@ -262,6 +262,9 @@ fn test_keyring_get(root: &Path, user: &str) -> Result<Option<String>> {
 
 fn test_keyring_set(root: &Path, user: &str, value: &str) -> Result<()> {
     test_keyring_available(root)?;
+    if root.join(crate::test_support::TEST_KEYRING_REFUSES_WRITES_FILE).exists() {
+        anyhow::bail!("The keychain refused to save the item.");
+    }
     fs::create_dir_all(root).with_context(|| format!("creating {}", root.display()))?;
     let path = test_keyring_path(root, user);
     fs::write(&path, value).with_context(|| format!("writing {}", path.display()))?;

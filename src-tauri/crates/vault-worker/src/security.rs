@@ -184,10 +184,32 @@ pub fn write_database_key_to_keyring(key: &str) -> Result<KeyringStatusReport> {
     store_data_key_in_keyring(&data_key)
 }
 
-/// Stores an already unwrapped data key in the existing OS credential entry.
+/// Stores an already unwrapped data key in the existing OS credential entry. A keychain that
+/// refuses it keeps what it held, which may be another archive's key (the one a restore
+/// replaced) and would open nothing while the status and Home say a key is remembered. So the
+/// keychain is left holding this archive's key or none: an entry that is neither this key nor a
+/// password that opens it is removed.
 pub fn store_data_key_in_keyring(key: &vault_crypto::DataKey) -> Result<KeyringStatusReport> {
-    keyring_set_database_key(&crate::session::encode_data_key(key))?;
+    let encoded = crate::session::encode_data_key(key);
+    if let Err(error) = keyring_set_database_key(&encoded) {
+        if let Ok(Some(held)) = read_database_key_from_keyring()
+            && !opens_with(&held, &encoded)
+        {
+            let _ = keyring_clear_database_key();
+        }
+        return Err(error);
+    }
     Ok(keyring_status())
+}
+
+/// Whether the keychain's `held` text is the archive key `encoded`, or an older version's
+/// password that unwraps it (`VaultSession::open_keychain` reads both).
+fn opens_with(held: &str, encoded: &str) -> bool {
+    held == encoded
+        || vault_core::project_paths().ok().is_some_and(|paths| {
+            vault_core::Vault::unlock_data_key(&paths, held)
+                .is_ok_and(|key| *crate::session::encode_data_key(&key) == *encoded)
+        })
 }
 
 /// Clears the stored archive key from the native keyring.
