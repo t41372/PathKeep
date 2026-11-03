@@ -10,7 +10,8 @@ counts archive visits or embedding rows during status polling.
 The serving index is chosen when ready, otherwise the latest ready pair whose
 provider remains configured, otherwise chosen as partial or empty. Worker context
 resolves that pair with the provider's current address and secret and the pair's
-model. History and MCP use that runtime; Ask gives it to both search tools and
+model, and resolves nothing while AI or semantic search is off (the reads then use words
+alone). History and MCP use that runtime; Ask gives it to both search tools and
 run_code for the turn. `AiIndexStatus` counts the chosen index for Settings; its `ready` and
 `serving` (provider, model, visits, last update, whether it is the chosen one) are the serving
 index's, so History names the index that answered and its numbers, and says it is stale only

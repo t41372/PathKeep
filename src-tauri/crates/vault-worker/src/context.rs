@@ -215,11 +215,19 @@ pub(crate) fn selected_llm_provider_runtime(
     resolve_provider_runtime(&config.ai.llm_providers, provider_id, AiProviderPurpose::Llm)
 }
 
-/// Resolves the currently configured embedding provider when semantic search is optional.
+/// Resolves the embedding service the serving index was made with, for every read that may
+/// use it (History and Ask searches, related pages, similar searches, search groups). `None`
+/// while AI or semantic search is off: no service is looked up, no key is read and nothing is
+/// sent, whatever asked (the UI hides semantic search then, but the commands are callable).
 pub(crate) fn selected_optional_embedding_runtime(
     vault: &vault_core::Vault,
     config: &AppConfig,
 ) -> Result<Option<AiProviderRuntime>> {
+    if vault_core::ensure_ai_capability_enabled(config, vault_core::AiCapability::SemanticIndex)
+        .is_err()
+    {
+        return Ok(None);
+    }
     let state = vault_core::semantic_index::load_state(&vault.with_config(config.clone()))?;
     let Some(pair) = state.serving else {
         return Ok(None);

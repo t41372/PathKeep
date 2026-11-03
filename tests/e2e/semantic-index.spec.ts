@@ -695,6 +695,24 @@ test('a search index build killed half way finishes after a restart, without sta
       contentType: 'image/png',
     })
 
+    // Semantic search turned off: asked anyway (the command is callable
+    // without the UI), the search uses its words alone and sends nothing.
+    const withSemantic = await loadConfig()
+    const ai = withSemantic.ai as Record<string, unknown>
+    await backend('save_config', {
+      config: { ...withSemantic, ai: { ...ai, semanticIndexEnabled: false } },
+    })
+    const atOff = service.requests()
+    const off = await backend<{ noteCodes: { code: string }[] }>(
+      'search_ai_history',
+      { request: { query: 'afternoon run strava', limit: 20 } },
+    )
+    expect(service.requests(), 'semantic search off: nothing sent').toBe(atOff)
+    expect(off.noteCodes.map((note) => note.code)).not.toContain(
+      'previousModel',
+    )
+    await backend('save_config', { config: withSemantic })
+
     // Built: search reads the new index and the old one's files are gone.
     const { providerId } = (await queueStatus()).semanticIndex.chosen!
     expect(indexFilesOf(providerId, 'e2e-embed').length).toBeGreaterThan(0)
