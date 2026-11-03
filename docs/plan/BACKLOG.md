@@ -10,7 +10,7 @@
 > 2026-10-25：清掉已完成或前提已不存在的 block（v0.3 Paper 前端、已移除的 coverage / mutation gate、已修好的 flaky 測試等，清單見 CHANGELOG 同日）。2026-04 到 2026-06 的收尾註記也一併移除，要看去 git 歷史或 CHANGELOG。
 
 - [ ] **WORK-BACKUP-INTEGRITY-SCALE** — 原生備份的新身分與讀法在 14.4M 和目標機上的量測（2026-11-01 PR #18 只量了 100 萬筆、M5 Max）
-  - 要量：14.4M 的 v1 存檔更新（migration 2–20，含開啟者 backfill 與重建列號索引）的時間與峰值記憶體；更新後第一次備份（整個重讀、給每筆時間）；之後每小時與每週的備份。目標機 4 核 / 8 GB，冷快取。
+  - 要量：14.4M 的 v1 存檔更新（migration 2–21，含開啟者 backfill 與重建列號索引）的時間與峰值記憶體；更新後第一次備份（整個重讀、給每筆時間）；之後每小時與每週的備份。目標機 4 核 / 8 GB，冷快取。
   - 另外量一份 Sync 從新到舊寫的大檔（開啟者大多在子造訪之後）：讀完才找到的開啟者分批寫，量它的時間。
   - 工具：`archive::ingest::scale_measure`（`docs/architecture/research/2026-11-backup-integrity-1m/README.md`）。
 
@@ -62,6 +62,11 @@
   - 讀先：`docs/architecture/same-visit-across-sources.md` §3、`archive/same_visit.rs`（`promote`、`link`、`FOLLOW_SQL`）、`takeout/visibility.rs` 的 `chunk`、`dedup_scenarios_baselines/firefox_sync.rs` 的復原／恢復場景。
   - 試過、不行：恢復時讓副本頂上、並把被復原的代表指向它。跨來源「一秒內算同一次」會遞移地合併組，這個指向之後被帶到同一個瀏覽器的另一次造訪或另一個設定檔的造訪，兩次不同的造訪恢復後只算一次；PR #18 第六輪連四輪讀碼都找到新的順序。
   - 方向：不靠跟著組走的指向。例如恢復時只用「這筆副本當初是跟誰配的」（寫入時另存、不跟著組換），代表已復原時它頂上、那筆回來時照順序比；先把一秒規則能不能遞移、要不要限制在同一對之內想清楚。每個順序寫成場景，每一步檢查各匯入的可見數、總數與每個來源的數。
+
+- [ ] **WORK-WINDOWS-RAW-COPY-CHECK** — Windows 上，瀏覽器開著時的直接複製可能收下一份複製途中被寫過的檔案（2026-11-03 PR #18 第七輪審查指出；早於 PR #18：之前連這個檢查都沒有）
+  - 根因：`chrome/staging.rs` 的 `copy_while_still` 用複製前後的大小、修改時間、建立時間判斷「期間沒人寫」。macOS 與 Linux 每次寫入都立刻更新修改時間；Windows 的 `WriteFile` 文件說寫入用的 handle 關掉之前 last-write time 不一定更新，而 Chrome 一直開著它。大小不變的原地寫入（rollback journal 模式最常見）於是看不出來。
+  - 要先做：在 Windows 上量。Chrome 開著、持續寫入時連續複製，看修改時間何時變；用能判斷交易是否完整的資料（例如每筆交易同時改兩張表的計數）檢查收下的複製。只測 append 的假資料測不到。
+  - 方向（量過再選）：Windows 上換一種接受條件，例如兩次複製逐位元組比對（每次備份多讀一兩次檔案，要量成本）；或拿不到一致的複製時照實回報這個來源這次讀不到。不要無限重試，也不要沒量過就讓所有平台多複製。
 
 - [ ] **WORK-FLAKY-BLOCK-CACHE-RSS** — `vault-crypto` 的 `the_block_cache_bounds_memory` 量常駐記憶體（RSS），記憶體緊時不準（2026-10-25 gate 連兩次失敗，同一晚 03:31 的整套 Rust 測試過了；vault-crypto 當晚沒改）
   - 現象：上限 2 MiB 的快取 RSS 漲 8.3 / 6.9 MiB，沒有上限的漲 11.1 / 4.9 MiB（它的快取最多 9.9 MiB），斷言要前者比後者少 4 MiB 以上。

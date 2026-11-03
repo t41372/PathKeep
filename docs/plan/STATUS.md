@@ -16,7 +16,7 @@
   - 造訪的身分：設定檔 + 完整網址 + 瀏覽器自己的時間（不失精度，`visits.source_visit_time`）。同一次讀到的同身分列合併（重新導向）；Firefox Sync 截到毫秒的副本算同一筆；v1 的造訪在同網址同毫秒時拿到時間。有瀏覽器時間的列不存 fingerprint（毫秒的 fingerprint 會把不到一毫秒的兩筆併成一筆）。URL 以網址、搜尋詞以頁面網址、下載以 guid 認定。開啟者以 archive id 存（`parent_visit_id`），導覽順著它走；v1 造訪照舊用列號。Observed interactions 讀造訪自己的停留時間，只有 v1 造訪查 evidence。
   - 讀多少（`read_plan`）：上次停的那一列還是同一筆造訪，就讀之後的列再加最近 24 小時；不是（或 AUTOINCREMENT 的 sequence 也證明不了刪掉的那列不會被重用）就整個重讀並在備註說明。第一次、更新後的第一次、每週一次也整個重讀；整個重讀停在一半，下次從停的地方接著讀。
   - 結果：每個 profile 有 outcome（complete / unavailable / failed）；有 profile 沒完成是 `partial`，只有備份本身出錯才 `failed`。瀏覽器自己也顯示不了的列（沒有頁面那一列）在備註算出筆數，run 仍 `success`。
-  - Archive migrations 2–20，一個 DDL 一個版本；15 把 v1 造訪用列號記的開啟者換成 archive id（每批 5 萬筆、可接續、更新畫面有進度），16 記下 v1 最後一次 run，v1 造訪查 evidence 只看它之前的；17–19 記下 visits 表 id 最小的那列；20 標出 Firefox Sync 副本。開啟時不改其他資料，更新後第一次備份整個重讀。SQLCipher converter 複製完 v1 資料後兩個都再跑一次。
+  - Archive migrations 2–21，一個 DDL 一個版本；15 把 v1 造訪用列號記的開啟者換成 archive id（每批 5 萬筆、可接續、更新畫面有進度），16 記下 v1 最後一次 run，v1 造訪查 evidence 只看它之前的；17–19 記下 visits 表 id 最小的那列；20 標出 Firefox Sync 副本；21 記下下載是哪一份複製讀到的。開啟時不改其他資料，更新後第一次備份整個重讀。SQLCipher converter 複製完 v1 資料後兩個都再跑一次。
   - 備份後的連結預覽在背景做，備份回覆不等網路。
   - 測試：parser 的 `native_visits`、`read_plan` 的 unit test 與實作一起寫（先列失敗模式）；dedup / resume / Takeout 的既有測試照原本的斷言過（兩個 resume 測試改成跟真實流程一樣先標記整個重讀；接著讀時造訪從頭再讀，所以其中一個的 processedRecords 從 10,003 改成 20,003，新增筆數仍是 10,003）；E2E `backup-integrity.spec`（healthy v1 fixture，8 個場景）與 `backup-integrity-damaged.spec` 照 PR 18 寫的斷言過；途中抓到一個真的漏讀：fixture 把造訪全刪了再用顯式列號寫回 1–8，sequence 還停在 100，「那列刪了但 sequence 證明沒重用」就只讀 100 之後。加上「游標以下有比讀過的都新的造訪就是新造訪用了舊列號」（`newest_visit_ms`，走瀏覽器的時間索引），只有「頁面列不見的造訪」改成備註加 `success`，拿掉一個只是在找舊版文案的反向檢查。
   - 量測（M5 Max、release、加密、合成 100 萬筆，原始輸出在 `docs/architecture/research/2026-11-backup-integrity-1m/`）：新存檔第一次備份 157 s（RSS 1003 MiB）；之後沒有新東西的備份 0.6 s；每週整個重讀 32 s；同一份資料的 v1 存檔更新後開啟 4 s、第一次備份 38 s、沒有多出任何一筆，100 萬筆都有瀏覽器時間、50 萬個開啟者都換成 archive id。量在第二次審查的兩個修正與第五輪之前（一個在每筆讀到的造訪多一次比較，一個給新造訪的檢查加上界，仍是一次時間索引查詢；第五輪在每次直接複製前後多讀三個檔案的大小與時間、Firefox 的配對多比一個欄位，量的是 fixture 檔案，走線上備份），之後沒重量。14.4M 與目標機沒量（`WORK-BACKUP-INTEGRITY-SCALE`）。
@@ -49,6 +49,15 @@
     - 看過、不改：預覽的 64 位元雜湊（第五輪理由不變）；只改開啟者的更新不觸發 Insights 重建（`backup-integrity.md` 本來就寫明要等下一次完整建置，`WORK-INSIGHTS-LATE-OPENERS`）。
     - 本機完整 `bun run check`（2026-11-02，這一輪最後的 commit，含 #16 的最後修正）：Rust 91 組、前端 unit 92、E2E 主專案 121、健康的 v0.4.0 存檔 8、損壞的 1，全過。
     - 看過、記著：14.4M 與目標機的量測（`WORK-BACKUP-INTEGRITY-SCALE`，發布前要做）。
+  - 第七輪（2026-11-03，ChatGPT Pro 對 PR 18 相對 #16 的增量的審查，三條確定問題、Windows、兩條已知的、效能一條；逐條對照代碼，每條先找根因再修）：
+    - 確認並修（PR 自己的回歸）：回放舊 checkpoint 會把已完成的下載寫回進行中，`recorded_at` 也改成回放的時間。main 對下載只 insert-or-ignore；這個 PR 改成照 guid 更新，卻沒比新舊。把 ingest 每個依來源更新現有紀錄的地方都查過：網址看 `last_visit_ms`、造訪的欄位只增不減、搜尋詞與 favicon 只新增，只有下載的狀態能往任何方向變、列裡也沒有東西說哪個比較新，根因在這裡。每份來源帶上複製的時間（`ProfileSnapshot.captured_at_ms`：備份與匯入是複製開始時，回放是 checkpoint 的時間），下載存 `observed_at_ms`（migration 21；之前的列用 `recorded_at`），較早的複製不動它，只有它有的下載照樣補進來。兩個場景測試，拿掉判斷時回放那個失敗。
+    - 確認並修：Firefox 同一網址、同一時間、不同種類的兩筆被當成一筆。Firefox 本機寫的時間到微秒，實際只會在 Sync 切到毫秒時遇到，但身分規則本身漏了：Firefox 和它的 Sync 都靠種類分這兩筆。根因是身分散在三處各自比：capture 的 `find`、預覽的雜湊、沒讀到的開啟者（`VisitMark` 沒有種類）。收成 `identity::same_event` 一處，Firefox 比時間加種類，`VisitMark` 帶 `kind`；Chrome 不變（redirect 的幾跳同時間、不同種類，是同一次）。
+    - 確認並修：只有 Sync 副本的檔案，預覽說「都已經在存檔裡」、沒有匯入鈕，但匯入其實會把副本寫進去。根因是預覽回 `bool`（有沒有），匯入卻有三種結果（新增、已有、寫入但算在別處 `sameVisitItems`）。預覽改回同樣三種（`Previewed`），卡片多一行說幾筆是同步副本，有副本就有「匯入 N 筆」，匯入結果也列出來；三語文案。Browser Direct 匯入時跨來源的副本一定是瀏覽器勝出、不會被藏，所以這條路上「算在別處」的只有 Sync 副本。場景測試走真的預覽與匯入 API，E2E（`browser-import.spec`）在卡片上跑一份被 Sync 重建、只剩副本的檔案。
+    - 部分成立，修說法、記 BACKLOG：直接複製的「沒有寫入」靠修改時間，在 macOS 與 Linux 成立；Windows 的 `WriteFile` 文件說寫入用的 handle 關掉前 last-write time 不一定更新，Chrome 一直開著它。註解與 `backup-integrity.md` 原本說 NTFS 也成立，改正。main 連這個檢查都沒有，不是回歸；這台沒有 Windows，量過才選修法：`WORK-WINDOWS-RAW-COPY-CHECK`。
+    - 看過、不改：只補開啟者時 Insights 不知道要重建（已在 BACKLOG，審查也這麼說）；撤銷一個匯入連帶藏起另一個匯入裡的 Sync 副本（第六輪的取捨，文件寫著；要兩次匯入同一 Firefox profile、互相是副本，再只撤其中一個，恢復就回來）。
+    - 看過、不改：增量讀取的 `id > ? OR visit_time >= ?` 讓 SQLite 掃整張 visits。在 100 萬筆的 Chrome 結構上量過：`SCAN visits`，約 22 ms。每次備份本來就把整個瀏覽器檔案複製一遍，多掃一次是同一個量級，為此把查詢寫複雜不划算。
+    - 修完後請 Codex 只看這一輪的修改（讀碼不跑），與 #16 一起：一條確認並修，存檔從沒見過這個 profile 時，預覽完全不比身分，Chrome redirect 的兩跳算成兩筆新造訪，匯入卻寫成一筆（PR 18 的身分規則帶進來的）；改成預覽一律走 `Preview::classify`，沒有 profile 時只比檔案裡的，測試先跑、拿掉修法時失敗。一條不改：重建的 Firefox 檔案在同一個 row id 放進網址、微秒時間都相同、只有種類不同的另一筆，讀取計畫的哨兵看不出來；這種檔案不會出現。
+    - 本機完整 `bun run check`（2026-11-03，#18 這一輪最後的 commit，含 #16 的全部修改）：Rust 91 組、unit 102、E2E 122 + 8 全過；最後一段 E2E 的 1 個在 gate 裡沒起來（隨機選到的 bridge 埠 44438 正被別的程式占著），單獨重跑通過。
   - 沒做：v1 已經造成的錯綁（被重用的列號改掉網址的 URL 列）不修，沒有紀錄能說哪個對。瀏覽器檔案匯入的「頁面列不見」不另外寫備註。14.4M 與目標機的量測、Sync 從新到舊寫的大檔（開啟者大多在後面）進 BACKLOG。
 - [x] **WORK-PR16-REVIEW-2026-10-29** — 驗證 ChatGPT 與自己對 PR #16 的審查，修確認的問題
   - 每條 finding 先當假設對照代碼驗證；判定與理由見 PR 描述。確認並修的：
