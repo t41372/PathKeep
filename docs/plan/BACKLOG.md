@@ -10,7 +10,7 @@
 > 2026-10-25：清掉已完成或前提已不存在的 block（v0.3 Paper 前端、已移除的 coverage / mutation gate、已修好的 flaky 測試等，清單見 CHANGELOG 同日）。2026-04 到 2026-06 的收尾註記也一併移除，要看去 git 歷史或 CHANGELOG。
 
 - [ ] **WORK-BACKUP-INTEGRITY-SCALE** — 原生備份的新身分與讀法在 14.4M 和目標機上的量測（2026-11-01 PR #18 只量了 100 萬筆、M5 Max）
-  - 要量：14.4M 的 v1 存檔更新（migration 2–16，含開啟者 backfill 與重建列號索引）的時間與峰值記憶體；更新後第一次備份（整個重讀、給每筆時間）；之後每小時與每週的備份。目標機 4 核 / 8 GB，冷快取。
+  - 要量：14.4M 的 v1 存檔更新（migration 2–20，含開啟者 backfill 與重建列號索引）的時間與峰值記憶體；更新後第一次備份（整個重讀、給每筆時間）；之後每小時與每週的備份。目標機 4 核 / 8 GB，冷快取。
   - 另外量一份 Sync 從新到舊寫的大檔（開啟者大多在子造訪之後）：讀完才找到的開啟者分批寫，量它的時間。
   - 工具：`archive::ingest::scale_measure`（`docs/architecture/research/2026-11-backup-integrity-1m/README.md`）。
 
@@ -57,6 +57,11 @@
   - 讀碼看到的：增量建置從頭掃，內容 hash 變了的造訪會重新 embedding、provenance 換成新的 key；但 `indexing/backfill.rs` 的 `DedupTracker::take_unmapped` 只看 `history_id` 有沒有映射過，已有的不再 append，`.pkmap` 仍是舊 key，新 generation 的投影從 `.pkmap` 建（`read_all` 是同一 `history_id` 後寫的算數）。
   - 要先做：寫測試確認。同一次造訪改 enrichment summary 再增量建置，看 forward 映射是不是換成新 key、舊 key 的 reverse 成員有沒有留著；再看中途當掉、續跑會不會把舊映射帶回來。
   - 方向：內容 key 變了的造訪 append 一筆新映射（`read_all` 本來就是後寫的算數），去重只擋同一個 key 的重複；不要只是拿掉去重，續跑會重複映射。
+
+- [ ] **WORK-SAME-VISIT-UNDONE-STAND-IN** — 兩個匯入記了同一次造訪、都復原（代表所在的那個最後），先恢復另一個時，它的副本仍藏在那筆看不到的代表後面，那次造訪不算，要等另一個匯入也恢復（2026-11-02 PR #18 第六輪審查找到；早於 PR #18，2026-10-09 的跨來源同一次造訪就是這樣）
+  - 讀先：`docs/architecture/same-visit-across-sources.md` §3、`archive/same_visit.rs`（`promote`、`link`、`FOLLOW_SQL`）、`takeout/visibility.rs` 的 `chunk`、`dedup_scenarios_baselines/firefox_sync.rs` 的復原／恢復場景。
+  - 試過、不行：恢復時讓副本頂上、並把被復原的代表指向它。跨來源「一秒內算同一次」會遞移地合併組，這個指向之後被帶到同一個瀏覽器的另一次造訪或另一個設定檔的造訪，兩次不同的造訪恢復後只算一次；PR #18 第六輪連四輪讀碼都找到新的順序。
+  - 方向：不靠跟著組走的指向。例如恢復時只用「這筆副本當初是跟誰配的」（寫入時另存、不跟著組換），代表已復原時它頂上、那筆回來時照順序比；先把一秒規則能不能遞移、要不要限制在同一對之內想清楚。每個順序寫成場景，每一步檢查各匯入的可見數、總數與每個來源的數。
 
 - [ ] **WORK-FLAKY-BLOCK-CACHE-RSS** — `vault-crypto` 的 `the_block_cache_bounds_memory` 量常駐記憶體（RSS），記憶體緊時不準（2026-10-25 gate 連兩次失敗，同一晚 03:31 的整套 Rust 測試過了；vault-crypto 當晚沒改）
   - 現象：上限 2 MiB 的快取 RSS 漲 8.3 / 6.9 MiB，沒有上限的漲 11.1 / 4.9 MiB（它的快取最多 9.9 MiB），斷言要前者比後者少 4 MiB 以上。
