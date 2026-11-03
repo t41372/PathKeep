@@ -22,13 +22,13 @@
  *    are escaped with a backslash, the only escape the tokenizer knows; so
  *    are the curly quotes it also treats as quotes.
  * 4. A plain word that is syntax: a typed `OR` would join its neighbours,
- *    so it is quoted.
- *    (Operator-looking words such as `site:x` stay operators even quoted; a
- *    field that receives one passes it on, and the preview shows it.)
+ *    and `site:x` would filter them. Whole-token quotes make both literal;
+ *    quotes after an operator still quote only its operand.
  * 5. Empty or blank fields leaving `site:` or `""` behind: blank values
  *    write nothing.
  * 6. A phrase typed in a word field ("release notes" in quotes) split into
- *    two words: quoted runs stay one term, as the parser reads them.
+ *    two words, or a quote escaped inside it ending it: the field is split
+ *    by the tokenizer's own rules (`fieldTerms`), not an approximation.
  * 7. A query that starts and ends with a slash (`/docs/`) read as a regex:
  *    the search box treats `/…/` that way, so the first word is quoted.
  * 8. A minus typed in "all" or "any" (`-foo`) read as an exclusion: in "any"
@@ -78,14 +78,58 @@ interface Term {
   quoted: boolean
 }
 
-/** Splits a field into terms the way the query tokenizer does: by spaces, keeping quoted runs whole. */
+const QUOTES = new Set(['"', '“', '”'])
+/**
+ * What the tokenizer splits and trims on: Rust's `char::is_whitespace`, the
+ * Unicode White_Space set, which JS's `\s` and `trim` are not (U+0085, U+FEFF).
+ */
+const SPACE = /^\p{White_Space}$/u
+const trim = (text: string) =>
+  text.replace(/^\p{White_Space}+|\p{White_Space}+$/gu, '')
+
+/**
+ * Splits a field into terms as the query tokenizer (`tokenize_query` in
+ * `search_query.rs`) splits a query, rule for rule: a quote opens only at the
+ * start of a term, after its minus or after a colon, and is text anywhere
+ * else; inside quotes a backslash takes the next character as it is, and
+ * spaces do not split. A term is `quoted` when its text after any minus is
+ * the quoted part, as the tokenizer reads a whole-quoted term as text.
+ */
 export function fieldTerms(text: string): Term[] {
   const terms: Term[] = []
-  for (const match of text.matchAll(/["“”]([^"“”]*)["“”]?|[^\s"“”]+/g)) {
-    const quoted = match[1] !== undefined
-    const value = (quoted ? match[1] : match[0]).trim()
+  let current = ''
+  let inQuotes = false
+  let quoteStart: number | null = null
+  const push = () => {
+    const value = trim(current)
+    const quoted =
+      quoteStart === 0 || (quoteStart === 1 && value.startsWith('-'))
     if (value) terms.push({ value, quoted })
+    current = ''
+    quoteStart = null
   }
+  const characters = [...text]
+  for (let i = 0; i < characters.length; i++) {
+    const character = characters[i]
+    if (QUOTES.has(character)) {
+      if (inQuotes) {
+        inQuotes = false
+      } else if (current === '' || current === '-' || current.endsWith(':')) {
+        quoteStart ??= current.length
+        inQuotes = true
+      } else {
+        current += character
+      }
+    } else if (character === '\\' && inQuotes) {
+      i++
+      if (i < characters.length) current += characters[i]
+    } else if (SPACE.test(character) && !inQuotes) {
+      push()
+    } else {
+      current += character
+    }
+  }
+  push()
   return terms
 }
 
@@ -96,13 +140,13 @@ function quote(value: string) {
 
 /** A value the parser reads back as one token. */
 function token(value: string) {
-  return /[\s"“”\\]/.test(value) ? quote(value) : value
+  return /[\p{White_Space}"“”\\]/u.test(value) ? quote(value) : value
 }
 
 function word(term: Term) {
-  if (term.quoted) return quote(term.value)
-  // A bare OR splits groups; quoted, it is just a word.
-  return term.value.toUpperCase() === 'OR'
+  // Word fields describe text, even when it looks like query syntax: a bare
+  // OR joins its neighbours and `site:x` filters by it; quoted, each is text.
+  return term.quoted || /^(?:OR$|[a-z]+:)/i.test(term.value)
     ? quote(term.value)
     : token(term.value)
 }
@@ -147,8 +191,10 @@ export function composeWordsQuery(form: WordsForm): string {
 /** Whether a typed query is only plain words, so the form can start from it. */
 export function isPlainWords(query: string) {
   return (
-    query.trim() !== '' &&
-    !/["“”:\\]|(^|\s)-|(^|\s)OR(\s|$)/i.test(query) &&
-    !/^\/.*\/$/s.test(query.trim())
+    trim(query) !== '' &&
+    !/["“”:\\]|(^|\p{White_Space})-|(^|\p{White_Space})OR(\p{White_Space}|$)/iu.test(
+      query,
+    ) &&
+    !/^\/.*\/$/s.test(trim(query))
   )
 }

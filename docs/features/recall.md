@@ -105,6 +105,7 @@ closing the Vault releases all sessions. App Lock keeps the Vault open.
   - `site:github.com`：限制 URL/site/domain；也可繼續使用獨立 Domain 篩選欄。
   - `-pathkeep`、`-"release candidate"`：排除 URL、title、search terms / normalized compact projection 中包含指定詞或片語的結果。常見用法是 Domain 篩選 `github.com` + query `-pathkeep`。
   - `"release notes"`：要求 URL、title 或 search terms 中出現 exact phrase，同時保留相關度排序。
+  - 從引號開始的 token 一律當字面片語，不讀成運算子或排除：`"site:github.com"` 搜的是 `site:github.com`，`"-foo"` 搜的是 `-foo`。引號接在運算子或排除用的減號後面時，只包住運算元：`site:"x"`、`tag:"a b"`、`intitle:"release notes"`、`-"release candidate"`、`-site:"x"` 仍照原來的篩選或排除；`-"site:x"` 排除的是字面文字，不是網站。進階搜尋的四個字詞欄位會把看起來像運算子的字（`site:x`、單獨的 `OR`）加上引號，搜的就是使用者打的字；「全部」「任一」「排除」欄位裡打在字前面的 `-` 照舊拿掉（「排除」本身就是排除），「完全符合」整段加引號，`-` 留在片語裡。預覽就是實際執行的查詢。舊的 `?q=` 連結裡，整個 token 加引號的寫法也改成字面片語。
   - `manual OR youtube`：任一側的字命中即可返回，對應 Google Advanced Search 的「any of these words」。`OR` 只連它兩邊的字或片語，其他照 AND（`rust tokio OR tauri` 是 rust，加上 tokio 或 tauri），與 Google 相同（2026-10-25 用戶決定；之前 `OR` 把整串字切成兩組）。
   - `intitle:manual` / `inurl:pull-request`：要求詞出現在 title 或 URL 欄位。
   - `filetype:pdf` / `ext:pdf`：依 URL 副檔名篩選本地歷史結果。
