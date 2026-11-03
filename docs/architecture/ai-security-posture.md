@@ -77,6 +77,12 @@ capability it needs:
   tail). A `clear_only` cleanup job is exempt (it embeds nothing). The GPU re-embed UI
   (`src/pages/settings/ai-gpu-section.tsx`) mirrors the same gate: with Smart search off, both re-embed
   actions are disabled with an honest reason rather than offering an action the backend would refuse.
+  Retrieval is gated where every read finds its embedding service:
+  `vault-worker/src/context.rs::selected_optional_embedding_runtime` returns no service unless the
+  capability is on, so History's and Ask's searches, related pages, similar searches and search groups
+  read no key and send nothing to the service with semantic search off, whatever calls them; a search
+  then ranks by its words alone. (Until 2026-11 History's search command and Ask resolved the service
+  without asking; only the UI hid semantic search.)
 - **MCP** (`AiCapability::Mcp` ⇒ `enabled && mcp_enabled`): enforced at server start
   (`vault-worker/src/mcp.rs::run_mcp_stdio_server`, which additionally refuses if the app session is locked
   — see §3) AND re-checked on EVERY per-tool call (`mcp_search_result`, `mcp_archive_status_result`,
