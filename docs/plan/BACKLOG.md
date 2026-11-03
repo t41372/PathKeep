@@ -28,6 +28,11 @@
   - 現象：整個 token 加引號已經是字面片語（2026-11-02），但這些連結不加引號，標題裡的字照查詢語法讀。
   - 方向：先決定這個連結要的是「這個標題的頁面」還是「跟這些字相關的頁面」：前者用片語或直接帶頁面，後者把看起來像運算子的字加引號（`words-query.ts` 的 `word()` 已經這樣做）。
 
+- [ ] **WORK-SEMANTIC-REMAP-CHANGED-CONTENT** — 造訪的內容變了、重新 embedding 之後，語意搜尋仍拿舊內容比對（2026-11-03 PR #16 第七輪審查找到；main 就有）
+  - 讀碼看到的：增量建置從頭掃，內容 hash 變了的造訪會重新 embedding、provenance 換成新的 key；但 `indexing/backfill.rs` 的 `DedupTracker::take_unmapped` 只看 `history_id` 有沒有映射過，已有的不再 append，`.pkmap` 仍是舊 key，新 generation 的投影從 `.pkmap` 建（`read_all` 是同一 `history_id` 後寫的算數）。
+  - 要先做：寫測試確認。同一次造訪改 enrichment summary 再增量建置，看 forward 映射是不是換成新 key、舊 key 的 reverse 成員有沒有留著；再看中途當掉、續跑會不會把舊映射帶回來。
+  - 方向：內容 key 變了的造訪 append 一筆新映射（`read_all` 本來就是後寫的算數），去重只擋同一個 key 的重複；不要只是拿掉去重，續跑會重複映射。
+
 - [ ] **WORK-FLAKY-BLOCK-CACHE-RSS** — `vault-crypto` 的 `the_block_cache_bounds_memory` 量常駐記憶體（RSS），記憶體緊時不準（2026-10-25 gate 連兩次失敗，同一晚 03:31 的整套 Rust 測試過了；vault-crypto 當晚沒改）
   - 現象：上限 2 MiB 的快取 RSS 漲 8.3 / 6.9 MiB，沒有上限的漲 11.1 / 4.9 MiB（它的快取最多 9.9 MiB），斷言要前者比後者少 4 MiB 以上。
   - 根因：測試的索引只有 16.6 MiB，兩種快取的差距本來就只比門檻大一點；macOS 記憶體緊時會壓縮頁面，RSS 不跟著快取長（那時另一個 session 在跑 benchmark，壓縮器裡有約 126 萬頁）。

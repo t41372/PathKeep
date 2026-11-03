@@ -68,6 +68,14 @@
       - 本機完整 `bun run check`（2026-11-02，(1) 之前的 commit，那一處只差前端的快取鍵）：Rust 91 組、E2E 121 全過；最後的 commit 由 #18 的 gate 一起跑。
       - 看過、不改：改密碼時鑰匙圈存好、設定卻存不進去（審查要持久化的 reconciliation 標記）。設定寫不進去是磁碟或權限壞了，整個 app 都會出問題；現在記成警告顯示，首頁的鑰匙圈提醒也看得到不一致。為這個加一套收斂機制不划算。
       - 看過、做不到：Windows 上實測 mmap、rename、刪資料夾與 GC。這台是 macOS，CI 只有 Ubuntu；CI 加不加 Windows runner 由用戶決定。拆 PR 仍是用戶的決定。
+    - 第七輪（2026-11-03，ChatGPT Pro 對 PR 16 的審查，三條加一條 main 就有的；逐條對照代碼，每條先找根因再修）：
+      - 確認並修：History 那行「已索引 N 次造訪」讀的是 lineage 的計數，增量更新每存一批就先加，發布新索引之前、或更新中途停掉之後，數字比搜尋實際讀的那份多。serving 的時間與 watermark 本來就只在發布時寫，只有筆數不是，根因在這裡：建 generation 時把它涵蓋的造訪數寫進自己的 `serving.json`，status 讀這個；v0.4.0 搬過來的沒有這個數，退回 lineage 的。Rust 測試讓更新在最後一道 barrier 失敗，rows 已存、serving 仍是 3，修之前是 4。
+      - 確認並修：鑰匙圈不肯存新鑰匙時，原本那一項照樣留著；還原之後那可能是被換掉的存檔的鑰匙，什麼都打不開，首頁看到有一項就不提醒。審查只指出還原這條路；用密碼開存檔、設定裡存鑰匙都走同一個 `store_data_key_in_keyring`，根因在那裡：存不進去時，那一項不是這個存檔的鑰匙、也不是打得開它的舊版密碼，就刪掉，是這個存檔的就留著。沒有照審查另加警告 UI：首頁的提醒和下次問密碼本來就在說這個狀態，現在說的是真的。測試鑰匙圈加「拒絕寫入、仍可讀與刪」，測試先寫，修之前失敗。
+      - 確認並修：進階搜尋表單用正則近似後端分詞，片語裡跳脫的引號會提早結束片語（「任一字詞」變成三個 OR，「不包含」排除三個字），詞中間的引號、`-"…"` 也和後端不同。`fieldTerms` 改成照搬 `tokenize_query` 的狀態機，空白用 Unicode White_Space（和 Rust 的 `is_whitespace`、`trim` 同一組，JS 的 `\s` 少 U+0085、多 U+FEFF）。TS 表格測試加這幾種寫法；Rust 測試把表單寫出的跳脫片語交給兩個 parser，讀回一個片語、排除一個片語。
+      - 確認、記進 BACKLOG（main 就有）：造訪內容變了（例如事後加上摘要）重新 embedding 之後，`.pkmap` 仍指著舊內容，`take_unmapped` 不替已有映射的造訪換 key。讀碼確認，還沒寫測試：`WORK-SEMANTIC-REMAP-CHANGED-CONTENT`。
+      - 看過、不改：`store_rows.rs` 長 SQL 的可讀性（審查自己說不擋合併）。
+      - 修完後請 Codex 只看這一輪的修改（讀碼不跑），與 #18 一起：一條確認並修（上面空白那句），一條不改：初次建置在向量與映射 fsync 之後、資料庫還沒 commit 時當掉，開啟時的部分恢復會發布那份映射，記下的筆數少了那一批。改之前讀的也是同一個 lineage 計數；續跑把那一批存進去、再發布時就對了。改用映射檔自己的筆數更糟：映射只增不刪，撤銷匯入之後被清掉的造訪還在裡面，會一直多算到下次整個重建。
+      - 本機完整 `bun run check`（2026-11-03，#18 這一輪最後的 commit，含 #16 的全部修改）：Rust 91 組、unit 102、E2E 122 + 8 全過；最後一段 E2E 的 1 個在 gate 裡沒起來（隨機選到的 bridge 埠 44438 正被別的程式占著），單獨重跑通過。
 
 - [x] **WORK-GATE-2026-10-25** — 先讓整合分支 `feat/search-sort-builder` 過完整 gate，再合 main（2026-10-25 晚上的 gate 在 E2E 的 change 專案連鎖失敗，restart 之後沒跑）
   - 2026-10-25 16:13 在 Modal（Linux，8 vCPU / 32 GB，閒著）跑完整 `bun run check` 過了（合併換上之前的整合分支）；合併換上與它的修正、整理成 PR 分支 `feat/2026-10-25-search-and-index` 之後，17:14 再跑一次也過了（Rust 91 組、E2E 119 過、1 跳過）：JS 檢查、build、fmt、clippy、Rust 測試 91 組全過（含 `the_block_cache_bounds_memory`）、desktop bridge、release check；E2E 118 過、1 跳過（`schedule.spec` 在 Linux 上本來就跳過），restart 之後的專案（`quit-during-work.spec`、`semantic-index.spec`）都跑到了。晚上本機的連鎖失敗是負載造成的。
