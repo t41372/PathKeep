@@ -88,6 +88,11 @@ pub(super) struct ServingMetadata {
     pub pages: Option<VectorStoreHeader>,
     pub searches: Option<VectorStoreHeader>,
     pub vector_count: u64,
+    /// The visits it covers, counted when it was made: the lineage's count goes on rising as
+    /// the next update saves rows, before that update is published. `None` in a generation made
+    /// before this was recorded.
+    #[serde(default)]
+    pub visits: Option<u64>,
 }
 
 /// The pair identity survives file cleanup until the last lineage row has been deleted.

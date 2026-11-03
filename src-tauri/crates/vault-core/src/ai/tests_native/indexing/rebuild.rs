@@ -595,3 +595,26 @@ fn a_crash_before_writing_a_lineage_identity_does_not_leak_its_directory() {
 
 mod partial;
 mod recovery;
+
+/// The serving count is the published index's: an update whose rows are saved but whose index
+/// never got published (here its last barrier fails) adds nothing to what searches read.
+#[cfg(unix)]
+#[test]
+fn an_update_not_yet_published_is_not_counted_as_serving() {
+    let (runtime, vault, provider, archive) = complete_index(DEFAULT_STATIC_MODEL_REPO);
+    let serving = |vault: &crate::Vault| {
+        ai_index_status(vault).unwrap().serving.expect("an index serves").indexed_items
+    };
+    assert_eq!(serving(&vault), 3);
+    seed_visit(&archive, 4, "chrome:Default", "https://example.com/d", Some("nebula comet"), 4);
+    vault.vector_generations.set_test_hook("before_prepared_sync", || {
+        crate::durable_io::inject_fsync_faults(vec![Some(libc::EIO)]);
+    });
+    assert!(
+        runtime.block_on(build_ai_index(&vault, &provider, &AiIndexRequest::default())).is_err()
+    );
+    assert_eq!(ai_index_status(&vault).unwrap().indexed_items, 4, "the update's rows are saved");
+    assert_eq!(serving(&vault), 3, "searches still read the three-visit index");
+    runtime.block_on(build_ai_index(&vault, &provider, &AiIndexRequest::default())).unwrap();
+    assert_eq!(serving(&vault), 4);
+}

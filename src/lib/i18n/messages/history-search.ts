@@ -129,8 +129,8 @@ export const historySearch = defineMessages({
       builtIn: 'the built-in static model',
       builtInModel: 'the built-in static model ({model})',
       using: 'Semantic search with {provider}',
-      indexed_one: '{count} page indexed',
-      indexed_other: '{count} pages indexed',
+      indexed_one: '{count} visit indexed',
+      indexed_other: '{count} visits indexed',
       updated: 'updated {when}',
       stale: {
         watermark: 'pages added since then aren’t in it yet',
@@ -289,8 +289,8 @@ export const historySearch = defineMessages({
       builtIn: '内置静态模型',
       builtInModel: '内置静态模型（{model}）',
       using: '语义搜索使用{provider}',
-      indexed_one: '已索引 {count} 个页面',
-      indexed_other: '已索引 {count} 个页面',
+      indexed_one: '已索引 {count} 条访问记录',
+      indexed_other: '已索引 {count} 条访问记录',
       updated: '{when}更新',
       stale: {
         watermark: '之后新增的页面还没有加进去',
@@ -444,8 +444,8 @@ export const historySearch = defineMessages({
       builtIn: '內建靜態模型',
       builtInModel: '內建靜態模型（{model}）',
       using: '語意搜尋使用{provider}',
-      indexed_one: '已索引 {count} 個頁面',
-      indexed_other: '已索引 {count} 個頁面',
+      indexed_one: '已索引 {count} 次造訪',
+      indexed_other: '已索引 {count} 次造訪',
       updated: '{when}更新',
       stale: {
         watermark: '之後新增的頁面還沒有加進去',

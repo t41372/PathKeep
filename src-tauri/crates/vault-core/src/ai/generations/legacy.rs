@@ -147,6 +147,9 @@ fn migrate(vault: &Vault, mut after_move: impl FnMut() -> Result<()>) -> Result<
                     pages: store.read_header()?,
                     searches: searches.read_header()?,
                     vector_count: count,
+                    // How many visits a v0.4.0 pass had made searchable is not known (one that
+                    // stopped saved more rows than it served); the lineage's count stands in.
+                    visits: None,
                 };
                 crate::durable_io::atomic_durable_write(
                     &generation.join("serving.json"),
