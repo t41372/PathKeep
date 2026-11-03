@@ -23,10 +23,10 @@
   - 2026-11-01 匯入改成回覆後就放開、重新整理放在後面（`fix(import): take the next file while the pages refresh after an import`），連續兩次匯入也會讓兩次重新整理重疊；之前要等前一次整理完，這條路碰不到，其他來源一直都會。
   - 方向：所有寫入走同一個地方，丟掉比已寫入的更舊的回答（請求開始時取號，或後端給 snapshot 一個遞增的版本）。不要只在 `refreshAfterArchiveChange` 裡擋：其他寫入照樣會蓋。
 
-- [ ] **WORK-SEARCH-QUOTED-OPERATORS** — 引號裡看起來像運算子的字仍當運算子（2026-11-01 PR #16 第五輪審查；規則早於 PR #16）
-  - 讀先：`vault-core/src/archive/search_query.rs`（tokenizer 與 `parse_history_search_query`）、`vault-core/src/search/query.rs`（`build`）、`src/features/history/words-query.ts`（檔頭第 24–27 行寫明了這個限制）、`docs/features/recall.md` §搜尋。
-  - 現象：tokenizer 的 `quoted` 不分「整個 token 在引號裡」（`"site:x"`）和「運算元在引號裡」（`site:"x"`、`-"x y"`），兩邊都先試運算子與開頭的 `-`，最後才當片語。所以 `"site:github.com"`、`"Note: 會議"`、`"-foo"` 不是字面片語，而是 site／note 篩選或排除。進階搜尋的「完全符合」「全部字詞」欄位就這樣把使用者打的字變成篩選（預覽會顯示實際的查詢）；Insights 開到 History 的連結用頁面標題當 `q`，標題以 `Note:`、`Title:` 開頭時也一樣（那個不加引號，另一回事）。
-  - 方向：tokenizer 另記「token 從引號開始」；兩個 parser 一起改成整個 token 在引號裡就是字面，不看運算子與 `-`（只改一邊會讓 SQL 篩選和索引 AST 不一致）。`site:"x"`、`tag:"a b"`、`intitle:"release notes"`、`-"release candidate"` 的意思不變（`words-query.ts`、`tags.ts` 靠它們）。`words-query.ts` 把看起來像運算子的字詞加上引號送出。每個運算子 × 全部／任一／完全符合／排除四個欄位寫成表格測試（現在完全沒有測試鎖住引號的行為），cheat sheet 與 `recall.md` 三種語言寫上新規則。舊的 `?q=` URL 裡有這種寫法的會變成字面搜尋（沒有存下來的搜尋）。
+- [ ] **WORK-INSIGHTS-TITLE-QUERY** — Insights 開到 History 的連結把頁面標題原樣當 `q`，標題以 `Note:`、`Title:`、`site:` 這類字開頭時就變成篩選（2026-11-02 從 `WORK-SEARCH-QUOTED-OPERATORS` 分出來）
+  - 讀先：Insights 組 History 連結的地方（`src/features/insights/` 裡帶 `q` 的 `Link`）、`docs/features/recall.md` §搜尋與篩選的引號規則。
+  - 現象：整個 token 加引號已經是字面片語（2026-11-02），但這些連結不加引號，標題裡的字照查詢語法讀。
+  - 方向：先決定這個連結要的是「這個標題的頁面」還是「跟這些字相關的頁面」：前者用片語或直接帶頁面，後者把看起來像運算子的字加引號（`words-query.ts` 的 `word()` 已經這樣做）。
 
 - [ ] **WORK-FLAKY-BLOCK-CACHE-RSS** — `vault-crypto` 的 `the_block_cache_bounds_memory` 量常駐記憶體（RSS），記憶體緊時不準（2026-10-25 gate 連兩次失敗，同一晚 03:31 的整套 Rust 測試過了；vault-crypto 當晚沒改）
   - 現象：上限 2 MiB 的快取 RSS 漲 8.3 / 6.9 MiB，沒有上限的漲 11.1 / 4.9 MiB（它的快取最多 9.9 MiB），斷言要前者比後者少 4 MiB 以上。

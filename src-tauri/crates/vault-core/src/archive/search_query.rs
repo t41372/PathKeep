@@ -66,12 +66,22 @@ pub(crate) fn parse_history_search_query(raw: &str) -> ParsedHistorySearchQuery 
 
     for token in tokens {
         let raw_value = token.value.trim();
+        if token.quote_start == Some(0) {
+            keyword_terms.push(raw_value.to_string());
+            push_normalized_compact_filter_values(&mut parsed.exact_terms, raw_value);
+            continue;
+        }
         let (negated, value) = match raw_value.strip_prefix('-') {
             Some(stripped) if !stripped.is_empty() => (true, stripped.trim()),
             _ => (false, raw_value),
         };
 
-        let (operator, operand) = split_operator(value);
+        // In -"site:x", the minus is syntax but the colon is quoted text.
+        let (operator, operand) = if negated && token.quote_start == Some(1) {
+            (None, value)
+        } else {
+            split_operator(value)
+        };
         match operator.as_deref() {
             // Page search owns the star predicate; it is not part of a typo target.
             Some("is") if !negated && operand.eq_ignore_ascii_case("starred") => {}
@@ -132,7 +142,7 @@ pub(crate) fn parse_history_search_query(raw: &str) -> ParsedHistorySearchQuery 
             _ if negated => {
                 push_normalized_compact_filter_values(&mut parsed.excluded_terms, value);
             }
-            _ if token.quoted => {
+            _ if token.quote_start.is_some() => {
                 keyword_terms.push(value.to_string());
                 push_normalized_compact_filter_values(&mut parsed.exact_terms, value);
             }
@@ -148,7 +158,7 @@ pub(crate) fn tokenize_query(raw: &str) -> Vec<QueryToken> {
     let mut tokens = Vec::new();
     let mut current = String::new();
     let mut quoted = false;
-    let mut current_was_quoted = false;
+    let mut quote_start = None;
     let mut characters = raw.chars().peekable();
 
     while let Some(character) = characters.next() {
@@ -156,10 +166,10 @@ pub(crate) fn tokenize_query(raw: &str) -> Vec<QueryToken> {
             '"' | '“' | '”' => {
                 if quoted {
                     quoted = false;
-                    current_was_quoted = true;
                     continue;
                 }
                 if current.is_empty() || current == "-" || current.ends_with(':') {
+                    quote_start.get_or_insert(current.len());
                     quoted = true;
                     continue;
                 }
@@ -171,20 +181,20 @@ pub(crate) fn tokenize_query(raw: &str) -> Vec<QueryToken> {
                 }
             }
             character if character.is_whitespace() && !quoted => {
-                push_token(&mut tokens, &mut current, current_was_quoted);
-                current_was_quoted = false;
+                push_token(&mut tokens, &mut current, quote_start);
+                quote_start = None;
             }
             _ => current.push(character),
         }
     }
-    push_token(&mut tokens, &mut current, current_was_quoted || quoted);
+    push_token(&mut tokens, &mut current, quote_start);
     tokens
 }
 
-fn push_token(tokens: &mut Vec<QueryToken>, current: &mut String, quoted: bool) {
+fn push_token(tokens: &mut Vec<QueryToken>, current: &mut String, quote_start: Option<usize>) {
     let value = current.trim();
     if !value.is_empty() {
-        tokens.push(QueryToken { value: value.to_string(), quoted });
+        tokens.push(QueryToken { value: value.to_string(), quote_start });
     }
     current.clear();
 }
@@ -192,7 +202,9 @@ fn push_token(tokens: &mut Vec<QueryToken>, current: &mut String, quoted: bool) 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct QueryToken {
     pub value: String,
-    pub quoted: bool,
+    /// Byte offset of the first quoted run, so parsers can separate syntax from text.
+    /// Zero quotes the whole token; one after a minus quotes excluded text.
+    pub quote_start: Option<usize>,
 }
 
 pub(crate) fn split_operator(value: &str) -> (Option<String>, &str) {

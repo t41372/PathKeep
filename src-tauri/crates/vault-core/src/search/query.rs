@@ -5,7 +5,7 @@
 //! swallows the words around its neighbours (`rust tokio OR tauri` read as
 //! "rust tokio, or tauri" instead of "rust, and tokio or tauri"); OR reaches past an
 //! operator to a word further away.
-//! Tests: search::tests, ported_queries and projection_tests.
+//! Tests: query_tests, search::tests and projection_tests.
 use crate::archive::{
     search_lexical::{
         cjk_runs, contains_cjk, normalized_compact_filter_terms, normalized_filter_terms,
@@ -16,6 +16,10 @@ use crate::archive::{
     },
 };
 use vault_search::{Ast, PhraseTerm, TextField};
+#[cfg(test)]
+#[path = "query_tests.rs"]
+mod tests;
+
 pub(super) struct Query {
     pub ast: Ast,
     pub exact: Ast,
@@ -38,7 +42,11 @@ pub(super) fn build(raw: &str, fuzzy: bool) -> Query {
     let mut clauses = Vec::new();
     let mut starred = false;
     for token in tokenize_query(raw) {
-        if !token.quoted && token.value.eq_ignore_ascii_case("OR") {
+        if token.quote_start == Some(0) {
+            pieces.push(Piece::Text { value: token.value, quoted: true });
+            continue;
+        }
+        if token.quote_start.is_none() && token.value.eq_ignore_ascii_case("OR") {
             pieces.push(Piece::Or);
             continue;
         }
@@ -47,7 +55,12 @@ pub(super) fn build(raw: &str, fuzzy: bool) -> Query {
             .strip_prefix('-')
             .filter(|value| !value.is_empty())
             .map_or((false, token.value.as_str()), |value| (true, value));
-        let (operator, operand) = split_operator(value);
+        // In -"site:x", the minus is syntax but the colon is quoted text.
+        let (operator, operand) = if negative && token.quote_start == Some(1) {
+            (None, value)
+        } else {
+            split_operator(value)
+        };
         if operator.as_deref() == Some("is") && operand.eq_ignore_ascii_case("starred") && !negative
         {
             starred = true;
@@ -79,7 +92,7 @@ pub(super) fn build(raw: &str, fuzzy: bool) -> Query {
             pieces.push(Piece::Other);
             continue;
         }
-        pieces.push(Piece::Text { value: value.into(), quoted: token.quoted });
+        pieces.push(Piece::Text { value: value.into(), quoted: token.quote_start.is_some() });
     }
     // `OR` joins the word or phrase right before it with the one right after it, as in
     // Google: `rust tokio OR tauri` is rust, and tokio or tauri. Everything else is AND.
