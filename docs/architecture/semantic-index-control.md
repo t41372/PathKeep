@@ -11,7 +11,14 @@ The serving index is chosen when ready, otherwise the latest ready pair whose
 provider remains configured, otherwise chosen as partial or empty. Worker context
 resolves that pair with the provider's current address and secret and the pair's
 model. History and MCP use that runtime; Ask gives it to both search tools and
-run_code for the turn. Ranked search adds `previousModel` only after reading the semantic plane of a pair
+run_code for the turn. `AiIndexStatus` counts the chosen index for Settings; its `ready` and
+`serving` (provider, model, visits, last update, whether it is the chosen one) are the serving
+index's, so History names the index that answered and its numbers, and says it is stale only
+when that is the chosen one. Its visits are counted when the generation is made and kept in its
+`serving.json`: an update adds rows to the same lineage before it is published, and keeps them
+when it stops, so the lineage's count can be ahead of what searches read. A generation
+made before this count was kept (a moved v0.4.0 index) falls back to the lineage's. History keeps semantic results per serving index (provider, model,
+last update), so a newly published one asks again instead of labelling the old rows with it. Ranked search adds `previousModel` only after reading the semantic plane of a pair
 that differs from chosen; blank queries, date sorting, empty indexes and drift fallbacks do not. The in-app sentinel uses the same static engine for query and
 build, with the current vault's model paths. One process-wide strong `Arc` per canonical
 model directory retains the engine between requests. Directory, verified-marker and model-file

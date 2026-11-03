@@ -11,7 +11,7 @@ use super::native_ledger::{
 };
 use super::provider::ProviderReadiness;
 use super::*;
-use crate::models::{BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID, StaticEmbeddingStatus};
+use crate::models::{AiServingIndex, BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID, StaticEmbeddingStatus};
 use vault_store::{Db, OptionalRow, Session, params_owned as params};
 
 /// Reports semantic-index readiness, queue state, and storage/readiness notes.
@@ -46,6 +46,9 @@ struct SemanticVectorState {
     text_format_outdated: bool,
     sidecar_bytes: u64,
     selected_lineage: Option<String>,
+    serving_lineage: Option<String>,
+    /// The visits the serving generation covers, as recorded when it was published.
+    serving_visits: Option<u64>,
 }
 
 fn semantic_vector_state(vault: &crate::Vault) -> Result<SemanticVectorState> {
@@ -119,6 +122,8 @@ fn semantic_vector_state(vault: &crate::Vault) -> Result<SemanticVectorState> {
         serving_count,
         text_format_outdated,
         selected_lineage,
+        serving_lineage: serving.as_ref().map(|lease| lease.lineage().to_owned()),
+        serving_visits: serving.as_ref().and_then(|lease| lease.metadata().ok()?.visits),
     })
 }
 
@@ -206,8 +211,53 @@ fn ai_index_status_from(
     // F3: readiness keys off the REAL vector count, not the SQLite metadata-row count — "ready" must
     // mean "there are vectors semantic search can actually match", never "we recorded N rows".
     // Search reads the serving index: while a newly chosen model's index is built, the previous
-    // complete one still answers, so semantic search stays available (History reads `ready`).
-    let ready = vectors.serving_count > 0 && provider_readiness.available;
+    // complete one still answers, through the service it was made with, so semantic search stays
+    // available while that service can be used (History reads `ready`).
+    let chosen_serves = queue_status.semantic_index.serving.is_some()
+        && queue_status.semantic_index.serving == queue_status.semantic_index.chosen;
+    let serving = match &queue_status.semantic_index.serving {
+        Some(pair) => {
+            // The count published with the generation: the lineage's own rises as an update saves
+            // rows, before it is published or after it stopped. A generation from before that was
+            // recorded falls back to the lineage's.
+            let lineage_count = || -> Result<i64> {
+                Ok(match &vectors.serving_lineage {
+                    Some(lineage) => lineage_embedding_count(
+                        connection,
+                        &pair.provider_id,
+                        &pair.model,
+                        lineage,
+                    )?,
+                    None => 0,
+                })
+            };
+            let items = match vectors.serving_visits {
+                Some(visits) => visits as i64,
+                None => lineage_count()?,
+            };
+            let at = if chosen_serves {
+                last_indexed_at.clone()
+            } else {
+                load_index_ledger(connection, &pair.provider_id, &pair.model)?.last_indexed_at
+            };
+            Some(AiServingIndex {
+                provider_id: pair.provider_id.clone(),
+                model: pair.model.clone(),
+                indexed_items: items as usize,
+                last_indexed_at: at,
+                chosen: chosen_serves,
+            })
+        }
+        None => None,
+    };
+    let serving_usable = if chosen_serves {
+        provider_readiness.available
+    } else {
+        queue_status.semantic_index.serving.as_ref().is_some_and(|pair| {
+            config.ai.embedding_providers.iter().any(|p| p.id == pair.provider_id && p.enabled)
+        })
+    };
+    let ready = vectors.serving_count > 0 && serving_usable;
     let (state, warning, warning_code) = ai_index_state_and_warning(
         config,
         &provider_readiness,
@@ -225,6 +275,7 @@ fn ai_index_status_from(
         state,
         ready,
         indexed_items: indexed_items as usize,
+        serving,
         semantic_vector_count,
         static_embedding,
         last_indexed_at,

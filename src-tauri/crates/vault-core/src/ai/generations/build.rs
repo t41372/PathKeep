@@ -234,6 +234,13 @@ impl BuildGeneration {
                 cancel,
             )?;
         }
+        // Every row of this generation is saved by now, and the lineage's writer is this build.
+        let visits = {
+            let (id, model, lineage) = (id.clone(), model.clone(), self.lineage().to_owned());
+            self.lease.vault.read(vault_store::Db::Intelligence, move |s| {
+                super::super::native_ledger::lineage_embedding_count(s, &id, &model, &lineage)
+            })?
+        };
         let metadata = ServingMetadata {
             version: 1,
             provider_id: id.clone(),
@@ -243,6 +250,7 @@ impl BuildGeneration {
             pages: page_header,
             searches: searches.read_header()?,
             vector_count: planes.vectors as u64,
+            visits: Some(visits as u64),
         };
         cancel.check()?;
         crate::durable_io::atomic_durable_write(

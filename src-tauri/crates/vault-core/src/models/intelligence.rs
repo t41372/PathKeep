@@ -750,17 +750,39 @@ pub struct StaticEmbeddingStatus {
     pub model_size_bytes: u64,
 }
 
+/// The index searches read now, described from itself: while a newly chosen model's index is
+/// built the previous complete one answers, and History says which one, how many visits it holds
+/// and when it was last updated, not the unfinished one's numbers.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AiServingIndex {
+    pub provider_id: String,
+    pub model: String,
+    /// Visits it holds.
+    pub indexed_items: usize,
+    pub last_indexed_at: Option<String>,
+    /// It is the chosen model's index, so the status's state and staleness are about it too.
+    pub chosen: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
-/// Shell-facing semantic-index readiness snapshot.
+/// Shell-facing semantic-index readiness snapshot. Its counts, times and state are the chosen
+/// model's index, the one Settings builds; [`Self::ready`] and [`Self::serving`] are the index
+/// searches read, which is another one while the chosen one is unfinished.
 pub struct AiIndexStatus {
     pub enabled: bool,
     pub assistant_enabled: bool,
     pub mcp_enabled: bool,
     pub skill_enabled: bool,
     pub state: String,
+    /// The serving index has vectors and the service it was made with can be used.
     pub ready: bool,
     pub indexed_items: usize,
+    /// The index searches read: the latest complete one, or without one the chosen model's,
+    /// partial or empty. `None` with no embedding model chosen and none complete.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub serving: Option<AiServingIndex>,
     /// The REAL number of vectors on the `.pkvec` plane for the selected provider (F3 0-byte honesty).
     ///
     /// DISTINCT from `indexed_items` (the SQLite `ai_embeddings` metadata-row count): a build that

@@ -61,13 +61,13 @@ export function SemanticNote({
     )
   }
 
-  // While the chosen model's index is unfinished, the previous model answers.
-  const previous = notes.find((note) => note.code === 'previousModel')
-  const provider = previous ? previous.model : info.provider
+  // `info` describes the index that answered, the previous model's while the
+  // chosen one is unfinished; the `previousModel` note says why, below.
   // Staleness comes with the status too, and is said once, below.
   const said = notes.filter((note) => !(note.code === 'stale' && info.stale))
   const parts = [
-    provider && t('historySearch.semantic.using', { provider }),
+    info.provider &&
+      t('historySearch.semantic.using', { provider: info.provider }),
     t('historySearch.semantic.indexed', { count: info.indexed }),
     info.lastIndexedAt &&
       t('historySearch.semantic.updated', {

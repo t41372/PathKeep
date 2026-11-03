@@ -672,6 +672,28 @@ test('a search index build killed half way finishes after a restart, without sta
       .fill('afternoon run strava')
     await page.getByRole('radio', { name: 'Semantic' }).click()
     await expect(rows.first()).toContainText(RUN_TITLE, { timeout: 60_000 })
+    // The line under the results is about the index that answered: the old
+    // model's, with its visits and time, not the unbuilt one's zero.
+    const { aiStatus } = await backend<{
+      aiStatus: {
+        indexedItems: number
+        serving: { model: string; indexedItems: number; chosen: boolean }
+      }
+    }>('app_snapshot')
+    expect(aiStatus.indexedItems, 'the chosen model has none yet').toBe(0)
+    expect(aiStatus.serving).toMatchObject({
+      model: 'e2e-embed',
+      chosen: false,
+    })
+    expect(aiStatus.serving.indexedItems).toBeGreaterThan(0)
+    const answered = page.getByText(
+      `Semantic search with E2E embeddings · e2e-embed · ${aiStatus.serving.indexedItems.toLocaleString('en-US')} visits indexed · updated`,
+    )
+    await expect(answered).toBeVisible()
+    await testInfo.attach('History while the chosen model is unbuilt', {
+      body: await answered.locator('..').screenshot(),
+      contentType: 'image/png',
+    })
 
     // Built: search reads the new index and the old one's files are gone.
     const { providerId } = (await queueStatus()).semanticIndex.chosen!

@@ -165,9 +165,20 @@ export function useVisitList(
   if (!search.regexError && lastValid !== typed) setLastValid(typed)
   const stream = useSearchStream(search.regexError ? lastValid : typed)
 
+  // Results belong to the index that answered: a newly published one (an
+  // update, or the chosen model's index replacing the previous model's) asks
+  // again, so the rows and the line naming their index never disagree.
+  const serving = useSnapshot().aiStatus.serving
   const smart = useInfiniteQuery({
     enabled: enabled && semantic,
-    queryKey: key('semantic', search.text, filters),
+    queryKey: key(
+      'semantic',
+      search.text,
+      filters,
+      serving?.providerId,
+      serving?.model,
+      serving?.lastIndexedAt,
+    ),
     initialPageParam: null as string | null,
     // Filters apply to every visit before ranking, so pages and the count are the filtered ones.
     queryFn: ({ pageParam }) =>
