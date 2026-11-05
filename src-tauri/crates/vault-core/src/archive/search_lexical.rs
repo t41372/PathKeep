@@ -30,10 +30,6 @@ use icu_normalizer::ComposingNormalizerBorrowed;
 use std::collections::BTreeSet;
 
 const FUZZY_MIN_CHARS: usize = 4;
-const TITLE_FUZZY_PENALTY: f64 = 0.0;
-const URL_FUZZY_PENALTY: f64 = 0.08;
-const SEARCH_TERM_FUZZY_PENALTY: f64 = 0.12;
-const COMPACT_FUZZY_PENALTY: f64 = 0.2;
 const QUERY_ALIASES: &[(&str, &[&str])] =
     &[("gh", &["github"]), ("yt", &["youtube"]), ("pr", &["pull request"])];
 
@@ -46,41 +42,35 @@ pub(crate) struct LexicalDocument {
     pub cjk_grams: String,
 }
 
-/// Latin typo targets evaluated without a candidate or text window.
+/// A Latin spelling the query may be a typo of, checked without a candidate or text window.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct FuzzyQuery {
-    /// The query's clauses as `search::query` groups them: a page must be close to every
-    /// clause, and a clause is close when one of its targets is (its `OR` alternatives).
-    clauses: Vec<Vec<String>>,
+pub(crate) struct FuzzyTarget {
+    pub text: String,
+    /// How far a page's text may differ.
+    pub edits: usize,
 }
 
-impl FuzzyQuery {
-    /// Scores one candidate document. Lower scores are better; the worst clause decides.
-    /// `None` means the document was too far from some clause.
-    pub(crate) fn score_document(&self, document: &FuzzyDocument<'_>) -> Option<f64> {
-        let mut worst: Option<f64> = None;
-        for clause in &self.clauses {
-            let best = clause
-                .iter()
-                .fold(None, |best, target| best_score(best, target_score(target, document)))?;
-            worst = Some(worst.map_or(best, |worst| worst.max(best)));
-        }
-        worst
+impl FuzzyTarget {
+    /// Whether a page this close can share no trigram with the target, so the index has to
+    /// visit the pages that share none. Each edit can destroy three grams. This reads the full
+    /// allowance for the target's length, not `edits`: the index keeps accents (`déjàvu`) that
+    /// the check folds away, so a page can differ from the target by more than its edits.
+    pub(crate) fn can_lose_every_gram(&self) -> bool {
+        let length = self.text.chars().count();
+        length <= max_allowed_distance(length) * 3 + 2
+    }
+
+    /// Whether any field of the document holds this text, within the allowed edits.
+    pub(crate) fn is_near(&self, document: &FuzzyDocument<'_>) -> bool {
+        let target = self.text.chars().collect::<Vec<_>>();
+        [document.normalized_title, document.normalized_url, document.normalized_search_terms]
+            .into_iter()
+            .any(|field| near_token(&target, self.edits, field))
+            || near_compact(&self.text, &target, self.edits, document.compact_text)
     }
 }
 
-/// How close one target is to the document's fields, or `None` when it is too far from all.
-fn target_score(target: &str, document: &FuzzyDocument<'_>) -> Option<f64> {
-    let mut best = best_token_score(target, document.normalized_title, TITLE_FUZZY_PENALTY);
-    best = best_score(best, best_token_score(target, document.normalized_url, URL_FUZZY_PENALTY));
-    best = best_score(
-        best,
-        best_token_score(target, document.normalized_search_terms, SEARCH_TERM_FUZZY_PENALTY),
-    );
-    best_score(best, best_compact_score(target, document.compact_text, COMPACT_FUZZY_PENALTY))
-}
-
-/// Borrowed search projection fields used by the Rust-side fuzzy scorer.
+/// Borrowed search projection fields used by the Rust-side typo check.
 pub(crate) struct FuzzyDocument<'a> {
     pub normalized_url: &'a str,
     pub normalized_title: &'a str,
@@ -234,29 +224,33 @@ fn compact_text(normalized: &str) -> String {
     normalized.chars().filter(|character| character.is_alphanumeric()).collect()
 }
 
-/// Keeps every eligible target of each clause; candidate retrieval belongs to vault-search.
-/// `clauses` come from the query's own grouping (`search::query::build`): every clause must
-/// match, through any one of its alternatives, so the typo fallback reads `OR` exactly as the
-/// exact search does. A clause with no Latin target (CJK, too short) is left to the exact
-/// predicate, as before.
-pub(crate) fn fuzzy_clauses(clauses: &[Vec<String>]) -> Option<FuzzyQuery> {
-    let clauses = clauses
-        .iter()
-        .map(|alternatives| {
-            let mut targets = Vec::new();
-            for alternative in alternatives {
-                for variant in query_variants(alternative) {
-                    let compact = compact_text(&normalized_tokens(&variant));
-                    if is_latin_fuzzy_target(&compact) {
-                        push_unique(&mut targets, compact);
-                    }
-                }
-            }
-            targets
-        })
-        .filter(|targets| !targets.is_empty())
-        .collect::<Vec<_>>();
-    (!clauses.is_empty()).then_some(FuzzyQuery { clauses })
+/// The typo targets of a word, or of several words read as one (`git hubb`). CJK and words
+/// under four letters have none: they can only match as written.
+///
+/// Edits stop short of the shortest word as typed, so `e-comerce` is one word, not `e` and
+/// `comerce`. Otherwise they could delete it, and `typescript api` would match every TypeScript
+/// page, with `api` nowhere on it.
+pub(crate) fn fuzzy_targets(raw: &str) -> Vec<FuzzyTarget> {
+    let mut targets = Vec::new();
+    for variant in query_variants(raw) {
+        let tokens = normalized_tokens(&variant);
+        let text = compact_text(&tokens);
+        if !is_latin_fuzzy_target(&text) {
+            continue;
+        }
+        let shortest = variant
+            .split_whitespace()
+            .map(|word| compact_text(word).chars().count())
+            .filter(|length| *length > 0)
+            .min()
+            .unwrap_or(0);
+        let edits = max_allowed_distance(text.chars().count()).min(shortest.saturating_sub(1));
+        let target = FuzzyTarget { text, edits };
+        if !targets.contains(&target) {
+            targets.push(target);
+        }
+    }
+    targets
 }
 
 fn is_latin_fuzzy_target(compact: &str) -> bool {
@@ -266,47 +260,33 @@ fn is_latin_fuzzy_target(compact: &str) -> bool {
         && compact.chars().all(|character| character.is_ascii_alphanumeric())
 }
 
-fn best_token_score(target: &str, field: &str, penalty: f64) -> Option<f64> {
-    field
-        .split(|character: char| !character.is_alphanumeric())
-        .filter(|token| !token.is_empty())
-        .filter_map(|token| fuzzy_score(target, token, penalty))
-        .min_by(|left, right| left.total_cmp(right))
+fn near_token(target: &[char], edits: usize, field: &str) -> bool {
+    let mut token_chars = Vec::new();
+    field.split(|character: char| !character.is_alphanumeric()).any(|token| {
+        token_chars.clear();
+        token_chars.extend(token.chars());
+        !token_chars.is_empty() && bounded_edit_distance(target, &token_chars, edits).is_some()
+    })
 }
 
-fn best_compact_score(target: &str, compact: &str, penalty: f64) -> Option<f64> {
-    let target_len = target.chars().count();
-    let mut best = None;
-    for run in compact.split_whitespace() {
+fn near_compact(text: &str, target: &[char], edits: usize, compact: &str) -> bool {
+    let min_window = target.len().saturating_sub(edits).max(FUZZY_MIN_CHARS);
+    compact.split_whitespace().any(|run| {
+        if run.contains(text) {
+            return true;
+        }
         let chars = run.chars().collect::<Vec<_>>();
-        if run.contains(target) {
-            best = best_score(best, Some(penalty));
-            continue;
-        }
-        let distance = max_allowed_distance(target_len);
-        let min_window = target_len.saturating_sub(distance).max(FUZZY_MIN_CHARS);
-        let max_window = target_len.saturating_add(distance).min(chars.len());
-        for window_len in min_window..=max_window {
-            for window in chars.windows(window_len) {
-                let candidate = window.iter().collect::<String>();
-                best = best_score(best, fuzzy_score(target, &candidate, penalty));
-            }
-        }
-    }
-    best
+        let max_window = target.len().saturating_add(edits).min(chars.len());
+        (min_window..=max_window).any(|length| {
+            chars
+                .windows(length)
+                .any(|window| bounded_edit_distance(target, window, edits).is_some())
+        })
+    })
 }
 
-fn fuzzy_score(target: &str, candidate: &str, penalty: f64) -> Option<f64> {
-    let target_chars = target.chars().collect::<Vec<_>>();
-    let candidate_chars = candidate.chars().collect::<Vec<_>>();
-    let max_distance = max_allowed_distance(target_chars.len());
-    let distance = bounded_edit_distance(&target_chars, &candidate_chars, max_distance)?;
-    let denominator = target_chars.len().max(candidate_chars.len()).max(1) as f64;
-    Some((distance as f64 / denominator) + penalty)
-}
-
-/// Shares the edit bound so the index adapter cannot choose a lossy gram filter.
-pub(crate) fn max_allowed_distance(target_len: usize) -> usize {
+/// How far a target of this length may be from a page's text.
+fn max_allowed_distance(target_len: usize) -> usize {
     match target_len {
         0..=3 => 0,
         4..=5 => 1,
@@ -353,14 +333,6 @@ fn bounded_edit_distance(left: &[char], right: &[char], max_distance: usize) -> 
         std::mem::swap(&mut previous, &mut current);
     }
     (previous[right.len()] <= max_distance).then_some(previous[right.len()])
-}
-
-fn best_score(current: Option<f64>, candidate: Option<f64>) -> Option<f64> {
-    match (current, candidate) {
-        (Some(left), Some(right)) => Some(left.min(right)),
-        (Some(score), None) | (None, Some(score)) => Some(score),
-        (None, None) => None,
-    }
 }
 
 fn push_unique(values: &mut Vec<String>, value: String) {
@@ -473,29 +445,19 @@ mod tests {
     fn fuzzy_validation_has_no_query_length_or_document_prefix_window() {
         let target = "a".repeat(80) + "bcdef";
         let candidate = "a".repeat(80) + "bcxef";
-        let fuzzy = fuzzy_clauses(&[vec![target.clone()]]).unwrap();
-        assert!(
-            fuzzy
-                .score_document(&FuzzyDocument {
-                    normalized_url: "",
-                    normalized_title: &candidate,
-                    normalized_search_terms: "",
-                    compact_text: ""
-                })
-                .is_some()
-        );
+        assert!(fuzzy_targets(&target)[0].is_near(&FuzzyDocument {
+            normalized_url: "",
+            normalized_title: &candidate,
+            normalized_search_terms: "",
+            compact_text: ""
+        }));
         let text = "z".repeat(600) + " gihub";
-        assert!(
-            fuzzy_clauses(&[vec!["github".to_owned()]])
-                .unwrap()
-                .score_document(&FuzzyDocument {
-                    normalized_url: "",
-                    normalized_title: "",
-                    normalized_search_terms: "",
-                    compact_text: &text
-                })
-                .is_some()
-        );
+        assert!(fuzzy_targets("github")[0].is_near(&FuzzyDocument {
+            normalized_url: "",
+            normalized_title: "",
+            normalized_search_terms: "",
+            compact_text: &text
+        }));
     }
     #[test]
     fn distance_bands_equal_an_exhaustive_reference() {

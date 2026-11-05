@@ -122,6 +122,31 @@ M14-B adds two deterministic query-expansion layers:
   Nothing is sampled or capped, and edit distance never runs in SQL. See
   [search.md](search.md).
 
+  The fallback reads the query the way the exact search does. Every word stays
+  required, and an `OR` stays an `OR`: a word matches as written or, if it is
+  Latin and at least four letters, within its edits. A CJK word, a shorter word
+  and a quoted phrase can only match as written, so `ruste go OR js` does not
+  find a page that only says Rust, and `javascrippt react OR vue` finds a page
+  with Vue.
+
+  Words outside an `OR` have two readings. Each word on its own, in any order, or
+  all of them as one word sharing one edit budget: five letters allow one edit,
+  so `tokoi` alone is too far from `tokio` while `rust tokoi` is not, and `bok`
+  is too short for typos while `face bok` is not. That budget stops short of the
+  shortest word, or the edits could delete it and `typescript api` would match
+  every TypeScript page.
+
+  This has a cost that is not measured yet. The fallback also runs for a correctly
+  spelled search that finds nothing, and with several words it now usually walks
+  every page, because a short word's edits can destroy all its trigrams; the old
+  whole-run target skipped the pages sharing no trigram with it. One word has
+  always walked this way. The check itself is cheaper per page (about 17 µs
+  against 56 µs for one word, 48 µs against 102 µs for two, on synthetic pages on
+  the M-series dev machine, not counting reading the pages from the database), but
+  how much the old filter saved on real pages is unknown, so such a search may
+  take longer overall than it did. The `typo-word`, `typo-words` and
+  `no-match-words` cases of the search benchmark measure it at 14.4M visits.
+
 Explorer keyword input also accepts a local subset of Google-like advanced
 operators before lexical analysis:
 

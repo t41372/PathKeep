@@ -39,6 +39,18 @@ fn encrypted_archive_search() {
                     PAGES / 317,
                 ),
                 "rare" => (SearchRequest { query: "raresentinel".into(), ..Default::default() }, 1),
+                // These three find nothing as typed, so each retries with typos allowed and
+                // walks every page. The last is spelled right: a search that simply has no
+                // match pays the same walk.
+                "typo-word" => {
+                    (SearchRequest { query: "raresentinl".into(), ..Default::default() }, 1)
+                }
+                "typo-words" => {
+                    (SearchRequest { query: "archive raresentinl".into(), ..Default::default() }, 1)
+                }
+                "no-match-words" => {
+                    (SearchRequest { query: "quartz lantern".into(), ..Default::default() }, 0)
+                }
                 "date" => (
                     SearchRequest {
                         query: "archive".into(),
@@ -118,7 +130,18 @@ fn encrypted_archive_search() {
     );
     vault.close().unwrap();
     drop(vault);
-    for case in ["common", "medium", "rare", "date", "profile", "rebuild", "backup"] {
+    for case in [
+        "common",
+        "medium",
+        "rare",
+        "typo-word",
+        "typo-words",
+        "no-match-words",
+        "date",
+        "profile",
+        "rebuild",
+        "backup",
+    ] {
         let status = Command::new(std::env::current_exe().unwrap())
             .args([
                 "search::benchmark::encrypted_archive_search",
