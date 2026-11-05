@@ -6,6 +6,7 @@
 mod backup;
 mod fixture;
 mod measure;
+mod walk;
 use super::{SearchRequest, SearchSession};
 use serde_json::json;
 use std::{process::Command, time::Instant};
@@ -22,6 +23,10 @@ fn encrypted_archive_search() {
         let case = std::env::var("PATHKEEP_SEARCH_BENCH_CASE").unwrap();
         if case == "backup" {
             backup::run(&vault);
+        } else if case == "walk-cancel" {
+            walk::cancel(&vault);
+        } else if case == "walk-writes" {
+            walk::writes(&vault);
         } else if case == "rebuild" {
             let started = Instant::now();
             vault.search().rebuild().unwrap();
@@ -69,7 +74,10 @@ fn encrypted_archive_search() {
                 ),
                 _ => panic!("unknown case"),
             };
-            for run in 0..4 {
+            // A walk is long, so two runs tell a fresh process from a warm one.
+            let walks = matches!(case.as_str(), "typo-word" | "typo-words" | "no-match-words");
+            for run in 0..if walks { 2 } else { 4 } {
+                let (cpu, read) = (measure::cpu_seconds(), measure::read_mib());
                 let start = Instant::now();
                 let mut session = SearchSession::start(&vault, request.clone()).unwrap();
                 let mut first = None;
@@ -112,7 +120,7 @@ fn encrypted_archive_search() {
                 };
                 println!(
                     "{}",
-                    json!({"case":case,"run":run,"cache":if run==0{"fresh-process"}else{"warm"},"firstProvisionalMs":first,"firstPageMs":final_page,"nextPageMs":next_ms,"countMs":count_time,"count":result.count.value,"steps":steps,"maxStepMs":max_step,"steadyRssMiB":measure::rss(),"peakRssMiB":measure::peak(),"uptime":measure::uptime()})
+                    json!({"case":case,"run":run,"cache":if run==0{"fresh-process"}else{"warm"},"firstProvisionalMs":first,"firstPageMs":final_page,"nextPageMs":next_ms,"countMs":count_time,"count":result.count.value,"documents":result.progress.documents_processed,"countDocuments":result.count_progress.documents_processed,"cpuSeconds":measure::cpu_seconds()-cpu,"readMiB":measure::read_mib().zip(read).map(|(now,before)|now-before),"steps":steps,"maxStepMs":max_step,"steadyRssMiB":measure::rss(),"peakRssMiB":measure::peak(),"uptime":measure::uptime()})
                 );
             }
         }
@@ -137,6 +145,8 @@ fn encrypted_archive_search() {
         "typo-word",
         "typo-words",
         "no-match-words",
+        "walk-cancel",
+        "walk-writes",
         "date",
         "profile",
         "rebuild",
