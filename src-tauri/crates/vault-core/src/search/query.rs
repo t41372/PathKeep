@@ -33,7 +33,10 @@ pub(super) struct Query {
 /// What a typo search accepts, in the shape of the query itself. Every word stays in it,
 /// matching as the exact search would or, where it can be misspelled, within its edits, so
 /// a word that cannot be misspelled still has to be there. The candidates the index reads
-/// and the check each page passes both come from here, so they cannot disagree.
+/// and the check each page passes share this shape. That the candidates hold every page the
+/// check accepts is still a separate promise for each kind of target, kept by
+/// `FuzzyTarget::can_lose_every_gram` and known not to hold on some accented pages
+/// (`WORK-SEARCH-ACCENT-GRAMS`).
 #[derive(Debug, Clone)]
 pub(super) enum FuzzyQuery {
     Exact(Ast),

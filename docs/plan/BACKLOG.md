@@ -92,6 +92,10 @@
   - 現況：索引的 trigram 保留重音（`déjàvu`），頁面檢查把重音折掉（`dejavu`）。夠長的目標（12 個字元以上）只走共同 trigram，假設改動以外的字都一樣；重音不算改動，所以每三個字就有重音的頁面可能一個 trigram 都不共用，檢查明明會接受，候選集卻沒拿到它。短目標會連不共用的頁一起走，不受影響。
   - 要做：讓索引也存折過重音的 compact 文字，索引和檢查讀同一份；要重建索引，先量 14.4M 的重建時間與索引變大多少。
 
+- [ ] **WORK-TAG-SAVE-FAILURE-STALE** — 標籤存失敗時退回的可能是舊清單，下一次編輯會把另一個編輯器存好的標籤蓋掉（2026-11-05 PR #16 第九輪審查提到，讀程式碼確認，沒重現；main 就有）
+  - 現況：`tag-editor.tsx` 有存檔在路上時，收到別處存好的新 `initial` 會整段跳過，連 `saved.current` 也不更新；這時排隊的存檔失敗，`catch` 退回的是更舊的清單，`applied.current` 又已經記下新值，畫面不會再改回來。
+  - 方向：`saved.current` 記的是已存下的內容，收到 `initial` 就更新，只有 `setTags` 等存檔結束。要先有能讓這一次寫入失敗的 E2E。
+
 - [ ] **WORK-SCRAPER-LATEST** — `scraper` 0.24 → 0.29，順便拿掉 `fxhash` 的 allowlist（2026-11-05 核對 RustSec allowlist 時找到）
   - 現況：`fxhash` 現在只經 `selectors` 0.31 ← `scraper` 0.24 進來（Tauri 2.12 已經不帶它）；`scraper` 0.29 用 `selectors` 0.41，不再需要 `fxhash`。`scraper` 是 0.x，宣告鎖在 0.24，要手動升。
   - 為什麼沒一起做：CI 不靠這條，而升級會動到讀網頁內容的 selector API，要看 enrichment 與連結預覽的行為有沒有變。
