@@ -88,6 +88,11 @@
   - 為什麼沒一起做：`site:`、`intitle:`、`inurl:`、`filetype:`、`tag:`、`note:` 是 canonical SQL 上的 AND 條件（`eligibility::Scope`），索引那層的候選也照 AND 算；要讓它們能 OR，條件要變成一棵 AND / OR 樹，SQL 與索引候選兩層都得照這棵樹算，還要保持完整覆蓋與現在的查詢計畫。
   - 要做：先設計（解析成樹、兩層怎麼各自求值、14.4M 的查詢計畫），再做；E2E 用 fixture 驗 `site:a OR site:b` 找到兩個網站的頁、`-site:` 與 OR 一起用的情形。
 
+- [ ] **WORK-SCRAPER-LATEST** — `scraper` 0.24 → 0.29，順便拿掉 `fxhash` 的 allowlist（2026-11-05 核對 RustSec allowlist 時找到）
+  - 現況：`fxhash` 現在只經 `selectors` 0.31 ← `scraper` 0.24 進來（Tauri 2.12 已經不帶它）；`scraper` 0.29 用 `selectors` 0.41，不再需要 `fxhash`。`scraper` 是 0.x，宣告鎖在 0.24，要手動升。
+  - 為什麼沒一起做：CI 不靠這條，而升級會動到讀網頁內容的 selector API，要看 enrichment 與連結預覽的行為有沒有變。
+  - 要做：升級、跑 enrichment 與 link-preview 的 E2E、把 `scripts/check-rust-security.mjs` 與 `deny.toml` 的 `RUSTSEC-2025-0057` 拿掉。
+
 - [ ] **WORK-SEARCH-QUOTED-LITERALS** — 引號裡的字照字面找：`"site:x"`、`"-beta"` 現在還是被讀成運算子或排除（2026-10-29 審查 PR 16 時找到，進階搜尋的表單因此帶不出這種字）
   - 現況：`archive/search_query.rs` 先看運算子與開頭的 `-`，再看是否在引號裡，所以整段加了引號也還是運算子或排除；`intitle:"release notes"` 這種運算子後面接引號值的寫法要照舊。Google 把整段引號當字面。
   - 要做：tokenizer 記下一個 token 是不是從引號開始，從引號開始的不當運算子、不當排除；`search/query.rs` 的 `OR` 分組讀同一個判斷。進階搜尋的 `words-query.ts` 就能把字面的 `site:x`、`-beta` 加引號送出，拿掉它的註解裡「quoted, still an operator」那條例外。E2E：搜一個標題含 `site:` 字樣的頁、一個以 `-` 開頭的字。

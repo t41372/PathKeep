@@ -26,34 +26,8 @@ const allowedAdvisories = new Map([
   ],
   [
     'RUSTSEC-2025-0057',
-    'fxhash is only pulled transitively by Tauri/urlpattern internals; upstream has not migrated that path yet.',
+    'fxhash is only pulled through selectors 0.31 by scraper 0.24; scraper 0.29 drops it (WORK-SCRAPER-LATEST).',
   ],
-  [
-    'RUSTSEC-2025-0075',
-    'unic-char-range is only pulled transitively by tauri-utils/urlpattern; upstream has not migrated off rust-unic yet.',
-  ],
-  [
-    'RUSTSEC-2025-0080',
-    'unic-common is only pulled transitively by tauri-utils/urlpattern; upstream has not migrated off rust-unic yet.',
-  ],
-  [
-    'RUSTSEC-2025-0081',
-    'unic-char-property is only pulled transitively by tauri-utils/urlpattern; upstream has not migrated off rust-unic yet.',
-  ],
-  [
-    'RUSTSEC-2025-0098',
-    'unic-ucd-version is only pulled transitively by tauri-utils/urlpattern; upstream has not migrated off rust-unic yet.',
-  ],
-  [
-    'RUSTSEC-2025-0100',
-    'unic-ucd-ident is only pulled transitively by tauri-utils/urlpattern; upstream has not migrated off rust-unic yet.',
-  ],
-  ...['RUSTSEC-2026-0367', 'RUSTSEC-2026-0368', 'RUSTSEC-2026-0369'].map(
-    (id) => [
-      id,
-      "Our own zip is 9.x and never calls extract(). The flagged copies are upstream's: tauri-plugin-updater 2.10's zip 4 extracts only a Windows update bundle after checking its signature against our updater key, and libsodium-sys-stable's zip 8 is a build dependency that unpacks libsodium's signature-checked Windows MSVC archive. Neither crate has a release on zip 9 yet.",
-    ],
-  ),
   ...['RUSTSEC-2026-0370', 'RUSTSEC-2026-0371', 'RUSTSEC-2026-0372'].map(
     (id) => [
       id,
