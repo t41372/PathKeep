@@ -48,8 +48,7 @@ pub(super) struct RunningSession {
     scores: Option<Arc<Scores>>,
     notes: Vec<crate::AiSearchNote>,
     ast: vault_search::Ast,
-    exact_ast: vault_search::Ast,
-    fuzzy: Option<crate::archive::search_lexical::FuzzyQuery>,
+    fuzzy: Option<query::FuzzyQuery>,
     reader: Option<vault_search::SearchSession>,
     rank: Option<MatchHandle>,
     count: Option<MatchHandle>,
@@ -159,7 +158,6 @@ impl RunningSession {
             scores: None,
             notes: Vec::new(),
             ast: query.ast,
-            exact_ast: query.exact,
             fuzzy: if request.fuzzy { fuzzy } else { None },
             reader,
             rank,
@@ -281,7 +279,7 @@ impl RunningSession {
         } else {
             let text = eligibility::TextCheck {
                 ast: self.ast.clone(),
-                fuzzy: self.fuzzy.clone().map(|fuzzy| (fuzzy, self.exact_ast.clone())),
+                fuzzy: self.fuzzy.clone(),
                 indexed_seq: self.reader.as_ref().map_or(0, |reader| reader.last_applied_seq()),
             };
             let first = self.order == SortOrder::Oldest;
@@ -333,7 +331,7 @@ impl RunningSession {
             &self.cancel,
             &self.ast,
             self.reader.as_ref().map_or(0, |reader| reader.last_applied_seq()),
-            self.fuzzy.as_ref().map(|fuzzy| (fuzzy, &self.exact_ast)),
+            self.fuzzy.as_ref(),
         )?;
         Ok(())
     }
