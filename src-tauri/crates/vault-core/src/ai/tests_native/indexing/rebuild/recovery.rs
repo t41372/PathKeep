@@ -839,6 +839,132 @@ fn a_build_waits_for_gc_to_release_its_lineage_instead_of_failing() {
     assert!(dir.join("identity.json").exists());
 }
 
+/// Puts a directory where `path` was: a read then fails with an I/O error that proves nothing about
+/// the file, on every platform, the way a sharing violation does. The closure puts the file back.
+fn unreadable(path: &std::path::Path) -> impl FnOnce() + use<> {
+    let (path, kept) = (path.to_owned(), path.with_extension("kept"));
+    std::fs::rename(&path, &kept).unwrap();
+    std::fs::create_dir(&path).unwrap();
+    move || {
+        std::fs::remove_dir(&path).unwrap();
+        std::fs::rename(&kept, &path).unwrap();
+    }
+}
+
+/// Puts a link to itself where `path` was: even looking at it then fails, which `Path::exists`
+/// reports as nothing there. The closure puts the file back.
+#[cfg(unix)]
+fn unstatable(path: &std::path::Path) -> impl FnOnce() + use<> {
+    let (path, kept) = (path.to_owned(), path.with_extension("kept"));
+    std::fs::rename(&path, &kept).unwrap();
+    std::os::unix::fs::symlink(&path, &path).unwrap();
+    move || {
+        std::fs::remove_file(&path).unwrap();
+        std::fs::rename(&kept, &path).unwrap();
+    }
+}
+
+/// Failure modes: a plane or map that cannot even be looked at counts as missing, pointer repair
+/// clears the pointer, and the next build embeds every visit again.
+#[cfg(unix)]
+#[test]
+fn a_serving_file_that_cannot_be_looked_at_keeps_the_pointer() {
+    let (_runtime, vault, provider, _archive) = complete_index(DEFAULT_STATIC_MODEL_REPO);
+    let (id, model) = (&provider.config.id, &provider.config.default_model);
+    let serving = lease(&vault, &provider);
+    let relative = serving.relative().to_owned();
+    let plane = crate::ai::vector_planes::Int8Plane::for_provider(serving.paths(), id, model);
+    let map = ReverseVisitMap::for_provider(serving.paths(), id, model);
+    let files = [plane.path().to_owned(), map.forward_path().to_owned()];
+    drop(serving);
+    for file in files {
+        let restore = unstatable(&file);
+        let _ = generations::collect(&vault, true);
+        restore();
+        assert_eq!(lease(&vault, &provider).relative(), relative);
+    }
+}
+
+/// Failure modes: a lineage's identity that cannot be looked at counts as none, and GC writes one
+/// over it saying the sources are no good, so the next build deletes them.
+#[cfg(unix)]
+#[test]
+fn an_identity_that_cannot_be_looked_at_is_not_written_over() {
+    let (_runtime, vault, provider, _archive) = complete_index(DEFAULT_STATIC_MODEL_REPO);
+    let identity = source_paths(&vault, &provider).vectors_dir.join("identity.json");
+    let _restore = unstatable(&identity);
+    let _ = generations::collect(&vault, true);
+    assert!(identity.is_symlink(), "GC left the identity alone");
+}
+
+/// Failure modes: a serving file that fails to read this once passes for a missing index, so an
+/// ordinary update starts a new lineage and embeds every visit again, at a service's prices.
+#[test]
+fn a_serving_file_that_cannot_be_read_right_now_does_not_restart_the_index() {
+    let (runtime, vault, provider, _archive) = complete_index(DEFAULT_STATIC_MODEL_REPO);
+    let serving = lease(&vault, &provider);
+    let lineage = serving.lineage().to_owned();
+    let metadata = serving.paths().vectors_dir.join("serving.json");
+    drop(serving);
+    let _ = unreadable(&metadata);
+
+    let report =
+        runtime.block_on(build_ai_index(&vault, &provider, &AiIndexRequest::default())).unwrap();
+
+    assert_eq!(report.indexed_items, 0, "nothing new to embed");
+    assert_eq!(lease(&vault, &provider).lineage(), lineage);
+}
+
+/// Failure modes: a lineage's identity that fails to read this once passes for a missing one, and
+/// the build deletes the sources of the job it came to carry on.
+#[test]
+fn an_identity_that_cannot_be_read_right_now_keeps_a_stopped_jobs_sources() {
+    let (_runtime, vault, provider, _archive) = complete_index(DEFAULT_STATIC_MODEL_REPO);
+    let open = |run, resume| {
+        generations::BuildGeneration::open(&vault, &provider, Some(41), run, true, resume)
+    };
+    let source = {
+        let build = open(1, false).unwrap();
+        build.source().paths().vectors_dir.clone()
+    };
+    std::fs::write(source.join("progress"), "embedded so far").unwrap();
+    let restore = unreadable(&source.join("identity.json"));
+
+    assert!(open(2, true).is_err());
+
+    assert!(source.join("progress").exists());
+    restore();
+    assert!(!open(3, true).unwrap().fresh);
+}
+
+/// Failure modes: the same for the sources a v0.4.0 index moved into: taken for missing, the
+/// build starts a new lineage beside them.
+#[test]
+fn a_legacy_identity_that_cannot_be_read_right_now_starts_no_new_lineage() {
+    let (paths, _, connection) = prepared_archive();
+    let provider = embedding_provider();
+    let vault = connection.vault.clone();
+    let dir = write_legacy_identity(&paths, &provider);
+    connection
+        .execute(
+            "INSERT INTO ai_index_ledger(provider_id,model,sidecar_table,index_version,state,failure_reason) VALUES(?1,?2,'','v','incomplete',?3)",
+            params![
+                provider.config.id.as_str(),
+                provider.config.default_model.as_str(),
+                generations::LEGACY_NEEDS_PASS
+            ],
+        )
+        .unwrap();
+    let restore = unreadable(&dir.join("identity.json"));
+
+    assert!(generations::BuildGeneration::open(&vault, &provider, None, 7, false, false).is_err());
+
+    restore();
+    let build =
+        generations::BuildGeneration::open(&vault, &provider, None, 8, false, false).unwrap();
+    assert_eq!(build.lineage(), "legacy");
+}
+
 /// A torn resume can append a key the lineage source already holds. The planes keep one record
 /// per key, so a count taken from the source would not match them, readers would reject the
 /// generation, and pointer repair would clear it: every visit embedded again at the next build.
@@ -882,6 +1008,17 @@ fn a_source_holding_a_key_twice_still_publishes_a_generation_readers_accept() {
 /// rebuild's lineage waits for its job.
 #[test]
 fn a_rebuild_stopped_after_one_chunk_keeps_the_partial_that_covers_more() {
+    rebuild_stopped_over_a_partial(false);
+}
+
+/// Failure modes: a partial whose metadata fails to read this once counts as covering nothing,
+/// so the smaller rebuild replaces it and GC takes the larger one away.
+#[test]
+fn a_partial_that_cannot_be_read_right_now_does_not_count_as_empty() {
+    rebuild_stopped_over_a_partial(true);
+}
+
+fn rebuild_stopped_over_a_partial(unreadable_meanwhile: bool) {
     let runtime = Runtime::new().unwrap();
     let (_, _, connection) = prepared_archive();
     let config = static_config(DEFAULT_STATIC_MODEL_REPO);
@@ -924,9 +1061,11 @@ fn a_rebuild_stopped_after_one_chunk_keeps_the_partial_that_covers_more() {
     let partial = lease(&vault, &provider);
     let lineage = partial.lineage().to_owned();
     assert_eq!(partial.metadata().unwrap().vector_count, 2);
+    let metadata = partial.paths().vectors_dir.join("serving.json");
     drop(partial);
     cancel_ai_job(&vault, fill.id).unwrap();
     let rebuild = running_rebuild_job(&vault, &provider);
+    let restore = unreadable_meanwhile.then(|| unreadable(&metadata));
     assert!(
         runtime
             .block_on(build_ai_index_with_control(
@@ -943,6 +1082,9 @@ fn a_rebuild_stopped_after_one_chunk_keeps_the_partial_that_covers_more() {
             ))
             .is_err()
     );
+    if let Some(restore) = restore {
+        restore();
+    }
     crate::ai_queue::pause_ai_job(&vault, rebuild).unwrap();
     mark_running_ai_job_cancelled(&vault, rebuild, None).unwrap();
     generations::collect(&vault, true).unwrap();

@@ -91,7 +91,7 @@ impl BuildGeneration {
         // place of the partial that covers more; that one keeps serving and the new lineage waits
         // for its job to go on (GC keeps a paused or failed job's sources).
         if let Some(previous) = intent.previous_pointer.as_deref().filter(|p| *p != intent.relative)
-            && serving_count(&self.lease.vault, previous) > self.lease.metadata()?.vector_count
+            && serving_count(&self.lease.vault, previous)? > self.lease.metadata()?.vector_count
         {
             self.finish_intent()?;
             return Ok(false);
@@ -106,12 +106,14 @@ impl BuildGeneration {
         Ok(published)
     }
 }
-/// How many vectors the generation at `relative` serves; nothing when its metadata is unreadable.
-fn serving_count(vault: &Vault, relative: &str) -> u64 {
-    fs::read(vault.paths().vectors_dir.join(relative).join("serving.json"))
-        .ok()
-        .and_then(|bytes| serde_json::from_slice::<ServingMetadata>(&bytes).ok())
-        .map_or(0, |metadata| metadata.vector_count)
+/// How many vectors the generation at `relative` serves; nothing when its metadata is gone or torn.
+fn serving_count(vault: &Vault, relative: &str) -> Result<u64> {
+    let path = vault.paths().vectors_dir.join(relative).join("serving.json");
+    let count = || Ok(serde_json::from_slice::<ServingMetadata>(&fs::read(path)?)?.vector_count);
+    match count() {
+        Err(error) if proves_defect(&error) => Ok(0),
+        counted => counted,
+    }
 }
 fn authorized(vault: &Vault, id: &LineageIdentity, intent: &Intent) -> Result<bool> {
     let (config, id, intent) = (

@@ -399,7 +399,7 @@ fn sidecar_tmp_path(path: &Path) -> PathBuf {
 
 /// Reads + validates a sidecar's magic + JSON header, returning `None` when the file is absent.
 fn read_sidecar_header(path: &Path, magic: &[u8; 8]) -> Result<Option<ReverseMapHeader>> {
-    if !path.exists() {
+    if !path.try_exists()? {
         return Ok(None);
     }
     let (_, header) = open_sidecar(path, magic)?.expect("present file opens");
@@ -413,7 +413,7 @@ fn read_sidecar_header(path: &Path, magic: &[u8; 8]) -> Result<Option<ReverseMap
 /// never-built sidecar reads as empty), a present-but-corrupt file errors.
 #[allow(clippy::type_complexity)]
 fn open_sidecar(path: &Path, magic: &[u8; 8]) -> Result<Option<(File, ReverseMapHeader)>> {
-    if !path.exists() {
+    if !path.try_exists()? {
         return Ok(None);
     }
     let mut file =

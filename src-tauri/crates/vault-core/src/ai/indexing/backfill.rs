@@ -811,7 +811,7 @@ fn vector_store_for_chunk<'a>(
         )?;
         let existing =
             VectorStore::for_provider(paths, &provider.config.id, &provider.config.default_model);
-        let created = if new_source || !existing.exists() {
+        let created = if new_source || !existing.path().try_exists()? {
             VectorStore::create_stamped(paths, &fingerprint)?
         } else if existing.is_stale_against(&fingerprint)? {
             anyhow::bail!(

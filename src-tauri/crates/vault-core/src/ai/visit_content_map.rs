@@ -79,7 +79,7 @@ impl VisitContentMap {
     /// untouched so prior mappings survive. `paths` is threaded so the vectors dir is ensured.
     pub fn ensure_created(&self, paths: &ProjectPaths) -> Result<()> {
         ensure_paths(paths)?;
-        if self.exists() {
+        if self.path.try_exists()? {
             return Ok(());
         }
         let mut file = File::create(&self.path)

@@ -222,7 +222,13 @@ incomplete with a reserved recovery reason. Definitive means the files are gone,
 the ones the metadata describes; a read that failed for a reason that may pass next time (a
 sharing violation while another program scans a new file, too many open files, a disk error)
 leaves the pointer alone and is logged, because a cleared pointer makes the next build start a
-new lineage and embed every visit again. A pointer that is not a generation path is a v0.4.0
+new lineage and embed every visit again. For the same reason a build takes its lineage from the
+pointer and never from a check of the serving files, which it does not read: search can go
+without an index for a moment, but a build that took "unreadable now" for "no index" would embed
+everything. Identity files follow the same rule: only a file that is gone or torn counts as no
+identity, and any other read error ends the attempt with the sources untouched. So does the count
+a stopped rebuild compares with the partial it would replace. `Path::exists` says no when it could
+not look, so a check that clears, overwrites or truncates on that answer uses `try_exists`. A pointer that is not a generation path is a v0.4.0
 flat index whose startup move has not finished; repair leaves it to the move. The count a
 generation's metadata records is the planes' count (one record per content key), and a pass
 checks its prepared generation the way readers will before it publishes, so a lineage source

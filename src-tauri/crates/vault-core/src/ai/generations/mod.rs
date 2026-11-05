@@ -248,6 +248,18 @@ pub(super) fn resolve(
         );
         return Ok(Some(lease.clone()));
     }
+    let Some(lease) = pin_serving(vault, provider, model)? else { return Ok(None) };
+    if let Err(error) = validate_serving(&lease) {
+        eprintln!("pathkeep: semantic index unavailable: {error:#}");
+        return Ok(None);
+    }
+    Ok(Some(lease))
+}
+
+/// Pins what the pointer names without reading its files, so `None` means there is no pointer.
+/// `resolve` adds whether the files can be read now, which a reader can do without; nothing that
+/// decides what to write may take that answer for this one.
+fn pin_serving(vault: &Vault, provider: &str, model: &str) -> Result<Option<Arc<GenerationLease>>> {
     // A pin closes the read/GC race. Re-read after pinning, with no mutex held: publication
     // may have changed the pointer while we waited, and a collector may have reserved its name.
     for _ in 0..4 {
@@ -278,16 +290,11 @@ pub(super) fn resolve(
             }
             Arc::new(pin(vault, relative.clone(), lineage, &mut registry))
         };
-        if read_pointer(vault, provider, model)? != Some(relative) {
-            continue;
+        if read_pointer(vault, provider, model)? == Some(relative) {
+            return Ok(Some(lease));
         }
-        if let Err(error) = validate_serving(&lease) {
-            eprintln!("pathkeep: semantic index unavailable: {error:#}");
-            return Ok(None);
-        }
-        return Ok(Some(lease));
     }
-    Ok(None)
+    anyhow::bail!("the serving index kept moving; try again")
 }
 
 fn read_pointer(vault: &Vault, provider: &str, model: &str) -> Result<Option<String>> {
@@ -295,12 +302,12 @@ fn read_pointer(vault: &Vault, provider: &str, model: &str) -> Result<Option<Str
     vault.read(Db::Intelligence, move |s| pointer(s, &provider, &model))
 }
 
-/// Whether a failed serving check proves the generation unusable (files gone, torn, or not the
-/// ones the metadata describes), as opposed to a read that failed this time and may pass the
-/// next (a sharing violation while something scans a new file, too many open files, a disk
-/// error). Pointer repair clears a pointer only on proof: clearing it on a passing fault makes
-/// the next build start a new lineage and embed every visit again.
-fn serving_defect(error: &anyhow::Error) -> bool {
+/// Whether a failed check proves the files unusable (gone, torn, or not the ones the metadata
+/// describes), as opposed to a read that failed this time and may pass the next (a sharing
+/// violation while something scans a new file, too many open files, a disk error). Anything
+/// that acts on the answer needs the proof: a passing fault taken for a missing index or lineage
+/// makes a build start over, embed every visit again, and delete sources it could have used.
+fn proves_defect(error: &anyhow::Error) -> bool {
     !error.chain().any(|cause| {
         cause.downcast_ref::<std::io::Error>().is_some_and(|io| {
             !matches!(
@@ -382,6 +389,14 @@ fn valid_name(value: &str) -> bool {
 }
 fn identity(dir: &Path) -> Result<LineageIdentity> {
     Ok(serde_json::from_slice(&std::fs::read(dir.join("identity.json"))?)?)
+}
+/// A build's reading of `identity`: `None` when the file proves there is no usable identity.
+fn stored_identity(dir: &Path) -> Result<Option<LineageIdentity>> {
+    match identity(dir) {
+        Ok(identity) => Ok(Some(identity)),
+        Err(error) if proves_defect(&error) => Ok(None),
+        Err(error) => Err(error),
+    }
 }
 fn write_identity(dir: &Path, identity: &LineageIdentity) -> Result<()> {
     crate::durable_io::atomic_durable_write(

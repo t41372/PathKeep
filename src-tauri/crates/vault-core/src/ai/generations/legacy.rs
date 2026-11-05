@@ -220,7 +220,7 @@ fn trim_sources(
 }
 
 fn move_once(source: &Path, target: &Path) -> Result<()> {
-    if !target.exists() {
+    if !target.try_exists()? {
         fs::rename(source, target)?;
     }
     // Destination wins if an older migration left both names. Never overwrite the resumed file.

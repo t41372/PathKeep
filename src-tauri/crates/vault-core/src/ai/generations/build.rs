@@ -27,8 +27,10 @@ impl BuildGeneration {
         let (initial_pointer, _serving_lease, serving, lineage, source_dir, lease) = loop {
             let initial_pointer =
                 read_pointer(vault, &provider.config.id, &provider.config.default_model)?;
+            // The pointer alone names the lineage. A build reads its sources, not the generation
+            // being served, so a serving file that cannot be read right now changes nothing here.
             let serving_lease =
-                resolve(vault, &provider.config.id, &provider.config.default_model)?;
+                pin_serving(vault, &provider.config.id, &provider.config.default_model)?;
             let serving = serving_lease.as_ref().map(|lease| lease.relative().to_owned());
             // Moved v0.4.0 sources are reused only while the ledger still says they need a pass
             // or lost their generation. After a Clear (no note) they are leftovers GC deletes:
@@ -42,8 +44,8 @@ impl BuildGeneration {
                 serving.split('/').nth(1).unwrap().to_owned()
             } else if !full_rebuild
                 && recovering
-                && identity(&vault.paths().vectors_dir.join(&table).join("legacy"))
-                    .is_ok_and(|id| id.sources_valid)
+                && stored_identity(&vault.paths().vectors_dir.join(&table).join("legacy"))?
+                    .is_some_and(|id| id.sources_valid)
             {
                 "legacy".to_owned()
             } else {
@@ -85,7 +87,7 @@ impl BuildGeneration {
                 == initial_pointer,
             "serving index changed while pinning the build; retry the job"
         );
-        let existing = identity(&source_dir).ok().filter(|i| {
+        let existing = stored_identity(&source_dir)?.filter(|i| {
             i.sources_valid
                 && i.provider_id == provider.config.id
                 && i.model == provider.config.default_model
@@ -108,14 +110,15 @@ impl BuildGeneration {
                 &provider.config.id,
                 &provider.config.default_model,
             )
-            .exists()
+            .path()
+            .try_exists()?
                 && VisitContentMap::for_provider(
                     &source_paths,
                     &provider.config.id,
                     &provider.config.default_model,
                 )
                 .path()
-                .exists());
+                .try_exists()?);
         let serving_here = serving.as_ref().is_some_and(|pointer| {
             vault.paths().vectors_dir.join(pointer).parent() == Some(source_dir.as_path())
         });

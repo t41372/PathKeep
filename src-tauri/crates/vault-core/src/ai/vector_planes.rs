@@ -245,7 +245,7 @@ impl Int8Plane {
 
     /// Maps a complete projection without copying its payload into heap memory.
     pub(crate) fn map(&self) -> Result<Option<MappedInt8Plane>> {
-        if !self.exists() {
+        if !self.path.try_exists()? {
             return Ok(None);
         }
         let (header, mut reader) = open_plane(&self.path, &INT8_PLANE_MAGIC)?;

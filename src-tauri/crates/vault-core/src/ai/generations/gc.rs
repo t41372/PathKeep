@@ -108,7 +108,7 @@ pub(super) fn repair_pointers(vault: &Vault) -> Result<()> {
         };
         let usable = match validate_serving(&lease) {
             Ok(()) => true,
-            Err(error) if serving_defect(&error) => false,
+            Err(error) if proves_defect(&error) => false,
             Err(error) => {
                 eprintln!(
                     "pathkeep: semantic index pointer kept; its files could not be read this time: {error:#}"
@@ -394,7 +394,7 @@ fn discover_row_lineages(vault: &Vault) -> Vec<String> {
                 .vectors_dir
                 .join(provider_table_name(&provider, &model))
                 .join(&lineage);
-            if dir.join("identity.json").exists() {
+            if dir.join("identity.json").try_exists()? {
                 return Ok(());
             }
             let reservation = {
