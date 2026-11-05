@@ -213,8 +213,13 @@ A rename or deletion failure leaves retryable state; one broken lineage does not
 Row cleanup checks archive closure between batches of at most 512 rows. Explicit close shuts
 collector admission before waiting for the current pass, so it waits for at most the current
 batch/file operation, rather than a complete 14.4M-row cleanup. Identity remains until all rows and
-totals are gone. The next owner/pass resumes deletion through the lineage/id index. Windows
-rename failures retain the original directory for another pass; no Windows persistence claim is
+totals are gone. The next owner/pass resumes deletion through the lineage/id index. Closing stops
+new work, not bookkeeping: a lease dropped after close still gives up its pin and writer, and
+only the reaper it would have started is skipped. A build waiting for a lineage ends at close
+without waiting for that writer, or the worker would keep the process-wide index gate past an App
+Lock and no index job would run until the app restarted. The job stays `running`, and the next
+open queues it again, as after a quit: a failure caused by closing must not mark it for manual
+review. Windows rename failures retain the original directory for another pass; no Windows persistence claim is
 added beyond the existing `durable_io` behavior.
 
 GC compares and clears a definitively dangling/invalid serving pointer and marks its ledger

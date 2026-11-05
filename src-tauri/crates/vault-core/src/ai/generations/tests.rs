@@ -126,6 +126,16 @@ fn set_pointer(vault: &Vault, relative: &str) {
 fn hook(vault: &Vault, name: &'static str, action: impl FnOnce() + Send + 'static) {
     vault.vector_generations.hooks.lock().unwrap().insert(name, Box::new(action));
 }
+fn provider() -> crate::ai::AiProviderRuntime {
+    crate::ai::AiProviderRuntime {
+        config: crate::AiProviderConfig {
+            id: "service".into(),
+            default_model: "model".into(),
+            ..Default::default()
+        },
+        api_key: None,
+    }
+}
 
 #[test]
 fn publication_before_gc_reservation_cannot_delete_new_serving_files() {
@@ -208,6 +218,37 @@ fn close_stops_row_gc_between_batches_and_next_owner_finishes() {
             .unwrap(),
         0
     );
+}
+
+/// Failure modes: the writer's lease skips its release once the vault is closed, and the wait has
+/// no other way out, so the build never returns. The worker holds the process-wide index gate
+/// through a build, so after an App Lock no index job runs again until the app restarts.
+#[test]
+fn closing_ends_a_build_waiting_for_a_writer_and_frees_the_index_gate() {
+    let vault = Vault::open_temp().unwrap();
+    let writer = BuildGeneration::open(&vault, &provider(), Some(1), 1, false, false).unwrap();
+    let (waiting, waited) = mpsc::channel();
+    hook(&vault, "build_waits_for_gc", move || waiting.send(()).unwrap());
+    let gate = Arc::new(crate::ai::SemanticWorkGate::new());
+    let (ended, outcome) = mpsc::channel();
+    let (building, held) = (vault.clone(), gate.clone());
+    std::thread::spawn(move || {
+        let permit = held.enter();
+        let build = BuildGeneration::open(&building, &provider(), Some(1), 2, false, false);
+        drop(permit);
+        ended.send(build.is_err()).unwrap();
+    });
+    waited.recv_timeout(Duration::from_secs(10)).expect("the build waits for the writer");
+
+    vault.vector_generations.stop_reaper();
+
+    let failed = outcome.recv_timeout(Duration::from_secs(10)).expect("closing ends the wait");
+    assert!(failed, "a closed vault starts no build");
+    assert!(gate.try_enter().is_some());
+    drop(writer);
+    let registry = vault.vector_generations.registry.lock().unwrap();
+    assert!(registry.writers.is_empty(), "closing does not keep a writer's ownership");
+    assert!(registry.pins.is_empty());
 }
 
 #[test]

@@ -24,7 +24,9 @@ impl BuildGeneration {
         let table = provider_table_name(&provider.config.id, &provider.config.default_model);
         // GC holds a lineage only while it decides and renames. Wait for it, then choose again,
         // since the lineage may be gone afterwards; failing would end a queued job for good.
+        let state = &vault.vector_generations;
         let (initial_pointer, _serving_lease, serving, lineage, source_dir, lease) = loop {
+            state.projection_cancel.check()?;
             let initial_pointer =
                 read_pointer(vault, &provider.config.id, &provider.config.default_model)?;
             // The pointer alone names the lineage. A build reads its sources, not the generation
@@ -61,15 +63,13 @@ impl BuildGeneration {
                     .any(|path| source_dir.starts_with(path) || path.starts_with(&source_dir))
                     || registry.writers.contains(&source_dir)
             };
-            let mut registry =
-                vault.vector_generations.registry.lock().unwrap_or_else(|e| e.into_inner());
+            let mut registry = state.registry.lock().unwrap_or_else(|e| e.into_inner());
             if touched(&mut registry) {
                 #[cfg(test)]
-                vault.vector_generations.test_hook("build_waits_for_gc");
-                let registry = vault
-                    .vector_generations
+                state.test_hook("build_waits_for_gc");
+                let registry = state
                     .released
-                    .wait_while(registry, touched)
+                    .wait_while(registry, |registry| !state.is_closed() && touched(registry))
                     .unwrap_or_else(|e| e.into_inner());
                 // The serving lease takes the registry when dropped.
                 drop(registry);

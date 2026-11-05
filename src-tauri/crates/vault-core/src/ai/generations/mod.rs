@@ -59,7 +59,8 @@ pub(crate) struct GenerationState {
     #[cfg(test)]
     hooks: Mutex<HashMap<&'static str, TestHook>>,
     registry: Mutex<Registry>,
-    /// Signalled whenever GC releases a reservation; a build waits on it instead of failing.
+    /// Signalled when GC or a writer lets go of a lineage, and at close: a build waits on it
+    /// instead of failing.
     released: std::sync::Condvar,
     collector: std::sync::atomic::AtomicBool,
     idle: (Mutex<()>, std::sync::Condvar),
@@ -146,9 +147,6 @@ impl GenerationLease {
 impl Drop for GenerationLease {
     fn drop(&mut self) {
         let state = &self.vault.vector_generations;
-        if state.closed.load(std::sync::atomic::Ordering::Acquire) {
-            return;
-        }
         let mut registry = state.registry.lock().unwrap_or_else(|e| e.into_inner());
         let path = &self.paths.vectors_dir;
         if let Some(count) = registry.pins.get_mut(path) {
@@ -166,7 +164,7 @@ impl Drop for GenerationLease {
             return;
         }
         drop(registry);
-        // Requests never do row scans or file deletion in Drop.
+        // Requests never do row scans or file deletion in Drop, and a closed vault starts none.
         collect_in_background(&self.vault);
     }
 }
@@ -469,6 +467,9 @@ impl GenerationState {
         let mut idle = self.idle.0.lock().unwrap_or_else(|e| e.into_inner());
         self.closed.store(true, std::sync::atomic::Ordering::Release);
         self.projection_cancel.cancel();
+        // Through the registry lock, or a build between its check and its sleep misses this.
+        drop(self.registry.lock().unwrap_or_else(|e| e.into_inner()));
+        self.released.notify_all();
         while self.collector.load(std::sync::atomic::Ordering::Acquire) {
             idle = self.idle.1.wait(idle).unwrap_or_else(|e| e.into_inner());
         }
