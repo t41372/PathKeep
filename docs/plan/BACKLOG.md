@@ -88,6 +88,10 @@
   - 為什麼沒一起做：`site:`、`intitle:`、`inurl:`、`filetype:`、`tag:`、`note:` 是 canonical SQL 上的 AND 條件（`eligibility::Scope`），索引那層的候選也照 AND 算；要讓它們能 OR，條件要變成一棵 AND / OR 樹，SQL 與索引候選兩層都得照這棵樹算，還要保持完整覆蓋與現在的查詢計畫。
   - 要做：先設計（解析成樹、兩層怎麼各自求值、14.4M 的查詢計畫），再做；E2E 用 fixture 驗 `site:a OR site:b` 找到兩個網站的頁、`-site:` 與 OR 一起用的情形。
 
+- [ ] **WORK-SEARCH-ACCENT-GRAMS** — 錯字搜尋的候選集在重音很多的頁面上會漏（2026-11-05 Codex 審查錯字回退時找到，不是這個 PR 帶進來的）
+  - 現況：索引的 trigram 保留重音（`déjàvu`），頁面檢查把重音折掉（`dejavu`）。夠長的目標（12 個字元以上）只走共同 trigram，假設改動以外的字都一樣；重音不算改動，所以每三個字就有重音的頁面可能一個 trigram 都不共用，檢查明明會接受，候選集卻沒拿到它。短目標會連不共用的頁一起走，不受影響。
+  - 要做：讓索引也存折過重音的 compact 文字，索引和檢查讀同一份；要重建索引，先量 14.4M 的重建時間與索引變大多少。
+
 - [ ] **WORK-SCRAPER-LATEST** — `scraper` 0.24 → 0.29，順便拿掉 `fxhash` 的 allowlist（2026-11-05 核對 RustSec allowlist 時找到）
   - 現況：`fxhash` 現在只經 `selectors` 0.31 ← `scraper` 0.24 進來（Tauri 2.12 已經不帶它）；`scraper` 0.29 用 `selectors` 0.41，不再需要 `fxhash`。`scraper` 是 0.x，宣告鎖在 0.24，要手動升。
   - 為什麼沒一起做：CI 不靠這條，而升級會動到讀網頁內容的 selector API，要看 enrichment 與連結預覽的行為有沒有變。
