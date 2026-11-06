@@ -49,7 +49,7 @@ export const AssistantTurn = memo(function AssistantTurn({
         </div>
       )}
 
-      {turn.content !== '' && (
+      {turn.content.trim() !== '' && (
         <div className="rounded-xl bg-popover px-[18px] py-3.5 shadow-card">
           <Markdown content={turn.content} streaming={streaming} />
         </div>
@@ -99,7 +99,7 @@ export const AssistantTurn = memo(function AssistantTurn({
               </Link>
             </Button>
           )}
-          {turn.content !== '' && (
+          {turn.content.trim() !== '' && (
             <Button variant="ghost" size="sm" onClick={() => void copy()}>
               {copied ? <Check /> : <Copy />}
               {copied ? t('ask.turn.copied') : t('ask.turn.copy')}

@@ -32,7 +32,7 @@ pub(super) fn query(request: &AiSearchRequest) -> SearchRequest {
     let (start_time_ms, end_time_ms) = resolve_date_filter_ms(request);
     SearchRequest {
         query: request.query.clone(),
-        sort: request.sort.clone(),
+        sort: Some(crate::AiSearchSort::parse(request.sort.as_deref()).search_sort().into()),
         page_size: request.limit.unwrap_or(8).max(1) as usize,
         profile_id: request.profile_id.clone(),
         browser_kind: request.browser_kind.clone(),
@@ -125,19 +125,50 @@ fn semantic_scores(
     Ok(Some(SemanticScores { scores, positions }))
 }
 
-/// Embeds the query and scores it when the serving index can answer it.
+/// Embeds the query and scores it when the serving index can answer it. A service that can't
+/// embed the query (down, busy, refusing it) leaves this search to its words, with a note
+/// saying why: core search never depends on the optional embedding service (AGENTS.md 4).
 async fn query_semantic(
     vault: &Vault,
-    paths: &ProjectPaths,
+    _paths: &ProjectPaths,
     provider: &AiProviderRuntime,
     query: &str,
     cancel: &vault_store::CancelToken,
     allowlist: Option<&[u64]>,
     notes: &mut Vec<AiSearchNote>,
 ) -> Result<Option<SemanticScores>> {
-    let Some(index) = semantic_index(vault, paths, provider, notes)? else { return Ok(None) };
-    let vector = embed_query(paths, provider, query.trim(), EmbeddingRole::Query).await?;
-    semantic_scores(paths, provider, &index, &vector, cancel, allowlist, notes)
+    let result: Result<Option<SemanticScores>> = async {
+        let Some(pinned) = super::generations::serving_vault(
+            vault,
+            &provider.config.id,
+            &provider.config.default_model,
+        )?
+        else {
+            notes.push(AiSearchNote::EmptySemanticIndex);
+            return Ok(None);
+        };
+        let vault = &pinned;
+        let paths = vault.paths();
+        let Some(index) = semantic_index(vault, paths, provider, notes)? else { return Ok(None) };
+        let vector = match embed_query(paths, provider, query.trim(), EmbeddingRole::Query).await {
+            Ok(vector) => vector,
+            Err(error) => {
+                notes.push(AiSearchNote::ProviderResolutionFailed { reason: format!("{error:#}") });
+                return Ok(None);
+            }
+        };
+        semantic_scores(paths, provider, &index, &vector, cancel, allowlist, notes)
+    }
+    .await;
+    match result {
+        Ok(scores) => Ok(scores),
+        Err(error) => {
+            cancel.check()?;
+            eprintln!("pathkeep: semantic search unavailable; using words: {error:#}");
+            notes.push(AiSearchNote::EmptySemanticIndex);
+            Ok(None)
+        }
+    }
 }
 
 /// One pass over the search's own scope gives each page the best score of its in-scope visits.

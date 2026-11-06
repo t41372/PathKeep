@@ -9,6 +9,8 @@ use std::{
     time::SystemTime,
 };
 
+/// Each model file's length and modification time. The verified marker is not part of it: a status
+/// read may rewrite the marker while an engine loads, and that changes nothing the engine reads.
 #[derive(PartialEq, Eq)]
 struct Revision(Vec<(u64, SystemTime)>);
 struct CachedEngine {
@@ -18,11 +20,10 @@ struct CachedEngine {
 static ENGINES: OnceLock<Mutex<HashMap<PathBuf, CachedEngine>>> = OnceLock::new();
 
 fn revision(directory: &Path, files: &[ModelFile]) -> Result<Revision> {
-    let paths = std::iter::once(directory.to_path_buf())
-        .chain(std::iter::once(directory.join(super::super::model_files::VERIFIED_MARKER_FILE)))
-        .chain(files.iter().map(|file| directory.join(file.name)));
-    let stamps = paths
-        .map(|path| {
+    let stamps = files
+        .iter()
+        .map(|file| {
+            let path = directory.join(file.name);
             let metadata =
                 std::fs::metadata(&path).with_context(|| format!("stat {}", path.display()))?;
             Ok((metadata.len(), metadata.modified()?))
@@ -32,8 +33,9 @@ fn revision(directory: &Path, files: &[ModelFile]) -> Result<Revision> {
 }
 
 /// Strong references retain the tokenizer and mapping between searches; clean mapped pages remain
-/// reclaimable by the OS. Metadata avoids rehashing hits.
-/// The loading guard also prevents simultaneous queries from loading duplicate engines.
+/// reclaimable by the OS. Metadata avoids rehashing hits, and a miss hashes only files whose
+/// stamps no longer match the verified marker. The loading guard also prevents simultaneous
+/// queries from loading duplicate engines.
 pub(super) fn load(
     directory: &Path,
     files: &[ModelFile],
@@ -58,7 +60,7 @@ pub(super) fn load(
     }
     engines.remove(&directory);
     anyhow::ensure!(
-        super::super::model_files::model_is_present_and_verified(&directory, files),
+        super::super::model_files::model_files_verified(&directory, files),
         "static model files in {} failed verification",
         directory.display()
     );

@@ -25,6 +25,20 @@ fn ready(vault: &Vault, model: &str, finished: &str) {
     }).unwrap();
 }
 
+/// Failure modes: the archive closes under a job, and the failure that causes ends the job as
+/// needing manual review, when nothing is wrong with it and the next open could carry it on.
+#[test]
+fn a_job_the_archive_closed_under_runs_again_at_the_next_open() {
+    let vault = configured("model");
+    let job = request(&vault, false).unwrap();
+    claim_next_ai_job(&vault, 300).unwrap().unwrap();
+    vault.vector_generations.stop_reaper();
+    let failure = AiJobFailure { error_message: "cancelled".into(), ..Default::default() };
+    mark_ai_job_failed(&vault, job.id, None, &failure, false).unwrap();
+    recover_owner_claims(vault.store(), false).unwrap();
+    assert_eq!(load_ai_job(&vault, job.id).unwrap().state, "queued");
+}
+
 /// Failure modes: repeated requests create competing writers; pause loses its cursor; a full
 /// request silently replaces active partial work; a build reuses a clear; another writer starts
 /// before the old writer stops.
@@ -40,6 +54,8 @@ fn ai_queue_build_requests_reuse_progress_and_wait_for_the_previous_writer() {
         &vault,
         first.id,
         &IndexBackfillCursor {
+            lineage: None,
+            updated_so_far: 0,
             next_history_id: 65,
             embedded_so_far: 64,
             embed_target: 200,

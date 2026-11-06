@@ -1,6 +1,6 @@
 //! Responsibilities: carry the desktop events (`pathkeep://…`) to a browser on the dev bridge as
 //! server-sent events on `/events`, so E2E and `dev:demo` see what the app's window sees: Ask's
-//! streamed answer, backup, import, upgrade and download progress.
+//! streamed answer, backup, import, upgrade and download progress, the quit question.
 //! Not responsible for: which events exist (the commands emit them, under Tauri through the app
 //! handle) or replaying old ones: a browser gets what is emitted after it connects, so it listens
 //! before it starts the work it listens to.
@@ -25,13 +25,15 @@ use std::{
 use tauri::Listener;
 
 /// The events the app emits to its window itself (backups the app or the menu bar run, the
-/// updater, the menu bar's search), forwarded to the browser as they are.
+/// updater, the menu bar's search, the question asked when someone quits while work runs),
+/// forwarded to the browser as they are.
 const APP_EVENTS: &[&str] = &[
     "pathkeep://backup-progress",
     "pathkeep://backup-finished",
     vault_core::AI_INDEX_JOB_ENDED_EVENT,
     "pathkeep://updater-progress",
     "pathkeep://open-command-palette",
+    crate::desktop_integration::QUIT_REQUEST_EVENT,
 ];
 
 /// Events held for a browser that is not reading; past that the oldest go.

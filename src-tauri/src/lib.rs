@@ -101,6 +101,12 @@ fn run_app() -> Result<()> {
         .manage(launches.clone())
         .plugin(tauri_plugin_single_instance::init(owner::handoff))
         .plugin(tauri_plugin_dialog::init());
+    // ⌘Q asks before quitting while work runs; AppKit's own Quit cannot. `desktop_integration`
+    // installs the menus at setup, in the app's language (`app_menu.rs`).
+    #[cfg(target_os = "macos")]
+    let builder = builder
+        .enable_macos_default_menu(false)
+        .on_menu_event(desktop_integration::on_app_menu_event);
     // macOS writes its own login LaunchAgent; see `vault_platform::login_item`.
     #[cfg(not(target_os = "macos"))]
     let builder = builder.plugin(
@@ -121,6 +127,13 @@ fn run_app() -> Result<()> {
             // With the logger at Debug, Turso's per-page spans would otherwise each ask it.
             vault_store::route_engine_diagnostics_to_log();
             let index_events = app.handle().clone();
+            let upgrade_events=app.handle().clone();
+            vault_core::register_archive_upgrade_listener(move |event| {
+                use tauri::Emitter;
+                if let Err(error)=upgrade_events.emit(vault_core::ARCHIVE_UPGRADE_EVENT,&event) {
+                    log::warn!("Could not report archive upgrade progress: {error}");
+                }
+            });
             vault_worker::register_ai_index_job_ended_listener(move |event| {
                 use tauri::Emitter;
                 if let Err(error) = index_events.emit(vault_core::AI_INDEX_JOB_ENDED_EVENT, &event) {
@@ -142,9 +155,6 @@ fn run_app() -> Result<()> {
                 .map_err(tauri::Error::Anyhow)?;
             vault_core::initialize_app_lock_session(&paths, &config)
                 .map_err(tauri::Error::Anyhow)?;
-            app.handle().plugin(
-                tauri_plugin_stronghold::Builder::with_argon2(&paths.stronghold_salt_path).build(),
-            )?;
             app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
             if config.initialized { opening_session.begin_startup(); }
             use tauri::Manager;
@@ -361,7 +371,6 @@ fn run_app() -> Result<()> {
             cancel_intelligence_job,
             preview_ai_integrations,
             record_frontend_error,
-            reset_local_secret_vault,
             open_path_in_file_manager,
             open_external_url,
             open_visited_page,
@@ -372,15 +381,24 @@ fn run_app() -> Result<()> {
             relaunch_after_update,
             get_desktop_integration,
             set_launch_at_login,
-            set_menu_bar_icon
+            set_menu_bar_icon,
+            get_quit_request,
+            answer_quit_request
         ])
         .build(context)?
-        .run(|_app, _event| {
+        .run(|app, event| match event {
+            // Every `AppHandle::exit` (the menu bar icon's and ⌘Q's Quit) and the last window
+            // closing: running work gets its question first. An update's restart is not held.
+            tauri::RunEvent::ExitRequested { code, api, .. }
+                if code != Some(tauri::RESTART_EXIT_CODE)
+                    && desktop_integration::hold_quit(app) =>
+            {
+                api.prevent_exit();
+            }
             // Clicking the Dock icon brings back a window hidden to the menu bar.
             #[cfg(target_os = "macos")]
-            if let tauri::RunEvent::Reopen { .. } = _event {
-                desktop_integration::show_main_window(_app);
-            }
+            tauri::RunEvent::Reopen { .. } => desktop_integration::show_main_window(app),
+            _ => {}
         });
     Ok(())
 }

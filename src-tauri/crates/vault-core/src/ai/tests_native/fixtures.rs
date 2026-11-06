@@ -251,7 +251,7 @@ pub(in crate::ai) fn put_embedding(
     time: &str,
 ) -> Result<bool> {
     let (provider, visit, time) = (provider.clone(), visit.clone(), time.to_owned());
-    db.write(move |s| upsert_embedding(s, &provider, &visit, &time))
+    db.write(move |s| upsert_embedding(s, &provider, &visit, &time, "legacy"))
 }
 pub(in crate::ai) fn embedding_count(
     db: &TestDatabase,
@@ -260,4 +260,48 @@ pub(in crate::ai) fn embedding_count(
 ) -> Result<i64> {
     let (provider, model) = (provider.to_owned(), model.to_owned());
     db.read(move |s| crate::ai::native_ledger::provider_embedding_count(s, &provider, &model))
+}
+
+/// Legacy fixtures deliberately write released flat files, then use the real startup migration.
+pub(in crate::ai) fn migrate_fixture(vault: &crate::Vault, provider: &AiProviderRuntime) {
+    let pair = provider.clone();
+    vault.write(Db::Intelligence,Priority::Batch,move |s| {
+        s.execute("INSERT INTO ai_index_ledger(provider_id,model,sidecar_table,index_version,state) VALUES(?1,?2,'','test','ready') ON CONFLICT(provider_id,model) DO UPDATE SET sidecar_table=''",params![pair.config.id,pair.config.default_model])?;
+        Ok(())
+    }).unwrap();
+    crate::ai::generations::migrate_flat_indexes(vault).unwrap();
+}
+
+/// Source assertions inspect a lineage explicitly; production readers only use serving leases.
+pub(in crate::ai) fn source_paths(
+    vault: &crate::Vault,
+    provider: &AiProviderRuntime,
+) -> ProjectPaths {
+    if let Some(lease) =
+        crate::ai::generations::resolve(vault, &provider.config.id, &provider.config.default_model)
+            .unwrap()
+    {
+        let mut paths = vault.paths().clone();
+        paths.vectors_dir = lease.paths().vectors_dir.parent().unwrap().to_owned();
+        return paths;
+    }
+    let pair = provider.clone();
+    let lineage = vault
+        .read(Db::Intelligence, move |s| {
+            Ok(s.query_one(
+                "SELECT lineage FROM ai_embedding_totals WHERE provider_id=?1 AND model=?2 LIMIT 1",
+                params![pair.config.id, pair.config.default_model],
+                |r| Ok(r.get::<String>(0)?),
+            )?)
+        })
+        .unwrap();
+    let mut paths = vault.paths().clone();
+    paths.vectors_dir = paths
+        .vectors_dir
+        .join(crate::ai_sidecar::provider_table_name(
+            &provider.config.id,
+            &provider.config.default_model,
+        ))
+        .join(lineage);
+    paths
 }

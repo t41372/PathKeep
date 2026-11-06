@@ -71,6 +71,7 @@ rig 啟用 `serde_json/preserve_order`；visit / schema fingerprint 與 native /
 - semantic index 的 operational metadata 與 intelligence runtime state 不再回寫 canonical archive；它們進 `derived/history-intelligence.sqlite`，與 hot archive facts 隔離。
 - 2026-04-29 amendment：v0.1.0 default build 已移除直接 LanceDB / DataFusion / tantivy 依賴，`RUSTSEC-2026-0002` 的 `lru 0.12.x` allowlist 同步刪除；future vector sidecar 重新開放前必須重跑 supply-chain / packaging evidence。
 - 2026-04-21 follow-up：`rustls-webpki` 已升到 `0.103.13`，先前為 `0.103.10` 留下的 `RUSTSEC-2026-0098` / `RUSTSEC-2026-0099` supply-chain allowlist 已移除；目前的 security allowlist 只保留仍存在於實際依賴圖中的 advisories。
+- 2026-10-29：`tauri-plugin-stronghold` 移除（註冊了卻沒有任何代碼或前端套件用它，用戶的資料夾裡也沒有 `vault.hold`），它帶進的 `crypto-bigint 0.5`（`RUSTSEC-2026-0387`）、bincode 1（`RUSTSEC-2025-0141`）一起離開依賴圖，allowlist 同步刪除。同日 tantivy 0.26.2 → 0.27.0（索引格式同為 7，舊索引照常打開）：帶進修好的 zstd 0.14.3 / zstd-safe 8.2（`RUSTSEC-2026-0391`、`0398`、`0403`）與 lru 0.18，`RUSTSEC-2026-0253` 的 allowlist 刪除。
 - 2026-04-22 follow-up：`core2 0.4.0` 先前只以 cargo-audit `yanked` warning 出現，現在已升格成 `RUSTSEC-2026-0105` unmaintained advisory。它仍只經由 `libsodium-sys-stable -> libflate` 出現在 Stronghold build 依賴鏈裡；PathKeep 的 owned code surface 不直接依賴 `core2`，而 upstream 目前也尚未提供可直接替換的 maintained path，因此 allowlist 轉為 advisory 形式並保留 provenance。
 
 2026-04-10 backend size audit note：

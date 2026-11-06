@@ -133,6 +133,13 @@ pub(super) fn publish(s: &Session<'_>, state: &BuildState, groups: &[&str]) -> R
         "UPDATE intelligence_generations SET time_zone=?2 WHERE profile_id=?1",
         params![state.profile_id, state.zone],
     )?;
+    // Insights keys cached and saved reads by a fingerprint of this ledger, and every stage of one
+    // build checkpoints with the build's start time. Without a new time at the switch itself, a
+    // range read between a checkpoint and here would keep serving the rows from before it.
+    s.execute(
+        "UPDATE core_intelligence_stage_checkpoints SET updated_at=?2 WHERE profile_id=?1",
+        params![state.profile_id, crate::utils::now_rfc3339()],
+    )?;
     save(s, state)
 }
 

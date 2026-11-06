@@ -451,6 +451,14 @@ pub(super) struct EnabledPayload {
     pub(super) enabled: bool,
 }
 
+/// Carries `answer_quit_request`'s question id and answer.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct QuitAnswerPayload {
+    pub(super) id: u64,
+    pub(super) answer: crate::desktop_integration::QuitAnswer,
+}
+
 /// Continues an audit-ledger page without an offset.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]

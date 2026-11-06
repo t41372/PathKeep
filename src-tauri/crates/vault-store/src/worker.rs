@@ -68,6 +68,8 @@ impl Workers {
         let write_scratch = scratch_gate.clone();
         let write_compiled = compiled.clone();
         let write_archive = archive_gate.clone();
+        let migration_gate = gate.clone();
+        let migration_metrics = metrics.clone();
         owners.threads.push(thread::Builder::new().name(format!("store-{db:?}-writer")).spawn(
             move || {
                 IN_OWNER.with(|v| v.set(true));
@@ -80,6 +82,23 @@ impl Workers {
                             .with_archive(write_archive.as_deref()),
                         db,
                         &steps,
+                        || {
+                            // No read pool or ready signal exists yet. Truncating between batches
+                            // also bounds retained WAL state as the migrated corpus grows.
+                            let _admission = migration_gate.reserve_truncate();
+                            _admission.wait_for_readers();
+                            if !crate::checkpoint::run(&engine, true, &migration_metrics) {
+                                let metrics = migration_metrics.lock().unwrap();
+                                return Err(Error::Operation(
+                                    std::io::Error::other(format!(
+                                        "startup backfill checkpoint failed: {:?}",
+                                        metrics.last_checkpoint_error
+                                    ))
+                                    .into(),
+                                ));
+                            }
+                            Ok(())
+                        },
                     )?;
                     Ok(engine)
                 });

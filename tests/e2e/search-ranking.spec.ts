@@ -5,7 +5,7 @@
  * Proves: a word in one page's title lists that page above a page with the
  * word only in its address, although the other page was visited more often
  * and more recently; two pages with the same title list the one visited last
- * first.
+ * first; a misspelled search still needs every word, in any order.
  *
  * The pages (`support/ranking-pages.ts`) go into Chrome's history and are
  * backed up like any other browsing.
@@ -65,4 +65,24 @@ test('a title match ranks above an address match; the same title, newest first',
     NEWER_TWIN.title,
     OLDER_TWIN.title,
   ])
+})
+
+test('a misspelled search still needs every word, in any order', async ({
+  page,
+}) => {
+  // The title has `journal` last, and another word between the two.
+  await expectOrder(page, 'journal lighthhouse', [IN_TITLE.title])
+  // `timetable` answers as written beside the typo; `weekly` is on neither page.
+  await expectOrder(page, 'ferrry weekly OR timetable', [
+    NEWER_TWIN.title,
+    OLDER_TWIN.title,
+  ])
+  // Too short to be a typo and on no page, so the word has no way to answer.
+  await page.goto('/#/history')
+  await page
+    .getByRole('searchbox', { name: 'Search history' })
+    .fill('lighthhouse zq')
+  await expect(page.getByText('Nothing found')).toBeVisible({
+    timeout: 30_000,
+  })
 })

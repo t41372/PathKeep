@@ -222,6 +222,8 @@ export interface SearchFamily {
   members: number
   /** The local days with a search in it, `YYYY-M-D`. */
   days: Set<string>
+  /** When its first search was made. */
+  earliest: number
   /** When its newest search was made. */
   latest: number
 }
@@ -278,6 +280,7 @@ export function searchFamilies(visits: FixtureVisit[]) {
         queries: new Set([visit.term.toLowerCase()]),
         members: 1,
         days: new Set([key]),
+        earliest: visit.at,
         latest: visit.at,
       }
       families.push(family)

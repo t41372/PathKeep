@@ -165,8 +165,12 @@ pub fn keyring_clear_database_key() -> Result<()> {
 
     ensure_native_keyring_store().ok();
     let entry = keyring_entry(KEYRING_DATABASE_USER)?;
-    let _ = entry.delete_credential();
-    Ok(())
+    // No key there is what was asked for; a keychain that refuses the delete is not, and the
+    // caller says so instead of reporting the key gone.
+    match entry.delete_credential() {
+        Ok(()) | Err(keyring_core::Error::NoEntry) => Ok(()),
+        Err(error) => Err(error).context("removing the archive key from the keychain"),
+    }
 }
 
 /// Reads an AI provider API key from the current backend.
@@ -258,6 +262,9 @@ fn test_keyring_get(root: &Path, user: &str) -> Result<Option<String>> {
 
 fn test_keyring_set(root: &Path, user: &str, value: &str) -> Result<()> {
     test_keyring_available(root)?;
+    if root.join(crate::test_support::TEST_KEYRING_REFUSES_WRITES_FILE).exists() {
+        anyhow::bail!("The keychain refused to save the item.");
+    }
     fs::create_dir_all(root).with_context(|| format!("creating {}", root.display()))?;
     let path = test_keyring_path(root, user);
     fs::write(&path, value).with_context(|| format!("writing {}", path.display()))?;
@@ -280,6 +287,15 @@ mod tests {
         TEST_KEYRING_DIR_ENV, TEST_KEYRING_SERVICE_ENV, env_lock, restore_env_var,
     };
     use tempfile::tempdir;
+
+    /// Run by cargo, tests keep their keys in an item of their own (the repo's
+    /// `.cargo/config.toml`), never the installed app's: one that saves or clears the archive
+    /// key without its file-backed keychain would change the real one.
+    #[test]
+    fn tests_never_use_the_installed_apps_keychain_item() {
+        let _guard = env_lock().lock().expect("env lock");
+        assert_ne!(keyring_service(), crate::test_support::DEFAULT_KEYRING_SERVICE);
+    }
 
     #[test]
     fn provider_key_does_not_satisfy_database_key_status_or_clear_database_secret() {

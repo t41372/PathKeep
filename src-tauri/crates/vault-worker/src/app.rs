@@ -55,6 +55,12 @@ pub struct RekeyRequest {
     /// archive, which has none. See [`crate::current_password`].
     #[serde(default)]
     pub current_key: Option<String>,
+    /// Whether the keychain should hold the archive's key once the change is done, and the
+    /// setting to go with it. Applied here, under the same hold as the rewrite: done by the
+    /// window afterwards, a quit that waited for the rewrite could leave them a step behind.
+    /// `None` leaves both as they are.
+    #[serde(default)]
+    pub remember_in_keychain: Option<bool>,
 }
 
 impl std::fmt::Debug for RekeyRequest {
@@ -65,6 +71,7 @@ impl std::fmt::Debug for RekeyRequest {
             .field("new_mode", &self.new_mode)
             .field("new_key", &redacted(&self.new_key))
             .field("current_key", &redacted(&self.current_key))
+            .field("remember_in_keychain", &self.remember_in_keychain)
             .finish()
     }
 }
@@ -225,8 +232,6 @@ pub fn app_snapshot_with_vault(
             rust_log_path: paths.rust_log_path.display().to_string(),
             frontend_log_path: paths.frontend_log_path.display().to_string(),
             crash_reports_dir: paths.crash_reports_dir.display().to_string(),
-            stronghold_path: paths.stronghold_path.display().to_string(),
-            stronghold_salt_path: paths.stronghold_salt_path.display().to_string(),
         },
         runtime_diagnostics,
         config,
@@ -442,12 +447,17 @@ pub fn convert_archive_with_progress(
     password: Option<&str>,
     mut report: impl FnMut(ArchiveUpgradeProgress),
 ) -> Result<AppSnapshot> {
+    // Through installing the converted archive and its key, not only the conversion.
+    let _running = crate::foreground_work::begin(crate::ForegroundWork::ArchiveUpgrade);
     let paths = vault_core::project_paths()?;
     let mut config = config.clone();
     recover_unconverted(&paths, &mut config)?;
     let config = &config;
-    let installed =
-        crate::maintenance_jobs::run(&paths.app_root, "converting", |cancel, mut sink| {
+    let installed = crate::maintenance_jobs::run(
+        &paths.app_root,
+        "converting",
+        crate::ForegroundWork::ArchiveUpgrade,
+        |cancel, mut sink| {
             vault_convert_sqlcipher::convert_owned(
                 &paths,
                 config,
@@ -468,8 +478,13 @@ pub fn convert_archive_with_progress(
                 },
                 session.owner(),
             )
-        })?;
-    session.install_archive(installed, password.map(str::to_owned))?;
+        },
+    )?;
+    session.install_archive(
+        installed,
+        password.map(str::to_owned),
+        crate::session::KeychainAfterInstall::AsSaved,
+    )?;
     report(ArchiveUpgradeProgress::finished());
     app_snapshot_with_vault(session.current_vault().as_ref(), None)
 }
@@ -532,8 +547,13 @@ where
         return app_snapshot(None);
     }
     if paths.legacy.archive.exists() && !paths.archive_db.exists() {
-        let archive =
-            crate::maintenance_jobs::run(&paths.app_root, "converting", |cancel, mut sink| {
+        // Through storing the key the converted archive opens with, not only the conversion.
+        let _running = crate::foreground_work::begin(crate::ForegroundWork::ArchiveUpgrade);
+        let archive = crate::maintenance_jobs::run(
+            &paths.app_root,
+            "converting",
+            crate::ForegroundWork::ArchiveUpgrade,
+            |cancel, mut sink| {
                 vault_convert_sqlcipher::convert(&paths, &next_config, database_key, cancel, |p| {
                     let phase = match p.phase.as_str() {
                         "verifying" => vault_core::ArchiveUpgradePhase::ContentVerification,
@@ -547,7 +567,8 @@ where
                     report_progress(event);
                     sink(p);
                 })
-            })?;
+            },
+        )?;
         let snapshot = app_snapshot_with_vault(Some(&archive.vault), None)?;
         archive.vault.close()?;
         report_progress(ArchiveUpgradeProgress::finished());
@@ -559,9 +580,10 @@ where
     // Opening the session's store creates the archive in the native format, with
     // its key envelope when encrypted. Nothing here may create the old SQLCipher
     // files: they would be taken for an archive to convert.
-    session.update_password(database_key.map(str::to_owned)).map_err(anyhow::Error::msg)?;
-    let vault = session.background_vault().map_err(anyhow::Error::msg)?;
-    report_progress(ArchiveUpgradeProgress::finished());
+    let vault = vault_core::with_archive_upgrade_progress(&mut report_progress, || {
+        session.update_password(database_key.map(str::to_owned)).map_err(anyhow::Error::msg)?;
+        session.background_vault().map_err(anyhow::Error::msg)
+    })?;
     app_snapshot_with_vault(Some(&vault), database_key)
 }
 
@@ -613,32 +635,68 @@ pub fn parse_archive_recovery_required(message: &str) -> Option<ArchiveRecoveryR
 pub fn rekey_archive_database(
     session: &crate::VaultSession,
     request: &RekeyRequest,
-) -> Result<AppSnapshot> {
+) -> Result<vault_core::RekeyOutcome> {
     let paths = vault_core::project_paths()?;
-    let config = load_unlocked_config(&paths)?;
-    let current = crate::current_password::verified_current_key(&paths, &config, request)?;
+    let saved_config = load_unlocked_config(&paths)?;
+    let current = crate::current_password::verified_current_key(&paths, &saved_config, request)?;
+    // The rewritten archive is installed with the setting as it is. The setting changes only
+    // once the keychain holds what it says (below), so a keychain that refuses leaves nothing
+    // expecting a key it does not have.
+    let config = saved_config.clone();
+    let remember =
+        request.remember_in_keychain.unwrap_or(saved_config.remember_database_key_in_keyring);
     let vault = if let Some(vault) = session.current_vault() {
         vault.with_config(config)
     } else if let Some(password) = current {
-        session.open_password(paths, config, password.into()).map_err(anyhow::Error::msg)?
+        session.open_password(paths.clone(), config, password.into()).map_err(anyhow::Error::msg)?
     } else {
         session.vault().map_err(anyhow::Error::msg)?
     };
     let mut audit_warning = None;
-    if request.new_mode == vault.config().archive_mode {
+    // Once the archive has changed, nothing after it fails the command: the window would say
+    // the archive was not changed. A keychain that could not be updated keeps the setting as it
+    // was and is reported in the result.
+    let mut keychain_failure = None;
+    // Held until the keychain setting below is saved, not only through the rewrite: "quit when
+    // done" waits for all of it (see `run_full_archive_restore`).
+    let same_mode = request.new_mode == vault.config().archive_mode;
+    let _running = if !same_mode {
+        Some(crate::foreground_work::begin(crate::ForegroundWork::EncryptionChange))
+    } else if request.new_mode == ArchiveMode::Encrypted {
+        Some(crate::foreground_work::begin(crate::ForegroundWork::PasswordChange))
+    } else {
+        None
+    };
+    if same_mode {
         if request.new_mode == ArchiveMode::Encrypted {
             let password =
                 request.new_key.as_deref().context("new archive password is required")?;
-            crate::maintenance_jobs::run(&vault.paths().app_root, "rewrapping", |cancel, _| {
-                cancel.check()?;
-                vault_core::maintenance::rewrap_password(&vault, current.unwrap(), password)
-            })?;
+            crate::maintenance_jobs::run(
+                &vault.paths().app_root,
+                "rewrapping",
+                crate::ForegroundWork::PasswordChange,
+                |cancel, _| {
+                    cancel.check()?;
+                    vault_core::maintenance::rewrap_password(&vault, current.unwrap(), password)
+                },
+            )?;
             session.remember_password(password.into());
+            // A rewrap keeps the data key, so a remembered key stays valid; what changes is
+            // whether one is remembered at all.
+            if request.remember_in_keychain.is_some() {
+                let keychain = if remember {
+                    crate::security::write_database_key_to_keyring(password).map(|_| ())
+                } else {
+                    crate::security::clear_database_key_from_keyring().map(|_| ())
+                };
+                keychain_failure = keychain.err();
+            }
         }
     } else {
         let installed = crate::maintenance_jobs::run(
             &vault.paths().app_root,
             "copying",
+            crate::ForegroundWork::EncryptionChange,
             |cancel, progress| {
                 vault_core::maintenance::switch_mode(
                     &vault,
@@ -651,21 +709,63 @@ pub fn rekey_archive_database(
             },
         )?;
         let snapshot_path = installed.previous_files.display().to_string();
-        session.install_archive(installed, request.new_key.clone())?;
-        if let Err(error) = vault_core::maintenance::record_mode_change(
-            &session.vault().map_err(anyhow::Error::msg)?,
-            &snapshot_path,
-        ) {
+        let keychain = match request.remember_in_keychain {
+            Some(true) => crate::session::KeychainAfterInstall::Key,
+            Some(false) => crate::session::KeychainAfterInstall::Nothing,
+            None => crate::session::KeychainAfterInstall::AsSaved,
+        };
+        if let Err(error) = session.install_archive(installed, request.new_key.clone(), keychain) {
+            match error.downcast::<crate::session::KeychainNotUpdated>() {
+                Ok(crate::session::KeychainNotUpdated(error)) => keychain_failure = Some(error),
+                Err(error) => return Err(error),
+            }
+        }
+        // The installed handle, not `session.vault()`: App Lock may have locked the window
+        // during a long rewrite, and that must not turn a finished change into an error.
+        if let Some(installed) = session.current_vault()
+            && let Err(error) =
+                vault_core::maintenance::record_mode_change(&installed, &snapshot_path)
+        {
             audit_warning = Some(format!(
                 "Archive mode changed, but its review artifact could not be saved: {error}"
             ));
         }
     }
-    let mut snapshot = app_snapshot_with_vault(session.current_vault().as_ref(), None)?;
-    if audit_warning.is_some() {
-        snapshot.archive_status.warning = audit_warning;
+    if let Some(error) = &keychain_failure {
+        eprintln!("PathKeep archive change: the keychain could not be updated: {error:#}");
     }
-    Ok(snapshot)
+    if keychain_failure.is_none() && saved_config.remember_database_key_in_keyring != remember {
+        // Only this field, written as the rest of the change was: the request carried it, and
+        // the settings path would refuse it while App Lock is on.
+        let saved = vault_core::load_config(&paths).and_then(|mut next| {
+            next.remember_database_key_in_keyring = remember;
+            vault_core::save_config(&paths, &next)
+        });
+        if let Err(error) = saved {
+            eprintln!("PathKeep archive change: the keychain setting was not saved: {error:#}");
+            audit_warning.get_or_insert_with(|| {
+                format!("Archive changed, but the keychain setting could not be saved: {error}")
+            });
+        }
+    }
+    // App Lock may have locked the window during the rewrite, and the snapshot is not read while
+    // it is; the window reads one once it is unlocked.
+    let snapshot = match app_snapshot_with_vault(session.current_vault().as_ref(), None) {
+        Ok(mut snapshot) => {
+            if audit_warning.is_some() {
+                snapshot.archive_status.warning = audit_warning;
+            }
+            Some(snapshot)
+        }
+        Err(error) => {
+            if let Some(warning) = &audit_warning {
+                eprintln!("PathKeep archive change: {warning}");
+            }
+            eprintln!("PathKeep archive change: the snapshot after it was not read: {error:#}");
+            None
+        }
+    };
+    Ok(vault_core::RekeyOutcome { snapshot, keychain_failed: keychain_failure.is_some() })
 }
 
 /// Repairs stale native encryption configuration after the owner authenticates

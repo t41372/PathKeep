@@ -1,5 +1,6 @@
 /**
- * What a run recorded besides its counts, as sentences in the user's language.
+ * What a run or an import recorded besides its counts, as sentences in the
+ * user's language.
  *
  * Backups, imports and post-backup work record coded entries; this module
  * turns each into one sentence, sorted into warnings and notes by
@@ -8,14 +9,15 @@
  * lead-in with the recorded English text under it, because that text is all
  * the evidence there is.
  *
- * Not responsible for loading the run (`run-sheet.tsx`) or drawing the
- * entries (`run-warnings.tsx`).
+ * Not responsible for loading the run or the import (`run-sheet.tsx`,
+ * `imports-card.tsx`, `import-card.tsx`) or drawing the entries
+ * (`run-warnings.tsx`).
  */
 import { useMemo } from 'react'
 import { useSourceStats } from '@/features/home/queries'
 import { useFormat, useI18n, type Translator } from '@/lib/i18n'
 import { useSnapshot } from '@/lib/queries/app'
-import type { AuditRunDetail, BackupWarning } from '@/lib/types'
+import type { BackupWarning } from '@/lib/types'
 import {
   entriesOf,
   isNote,
@@ -23,6 +25,7 @@ import {
   NOTES,
   PARSER_PREFIX,
   WARNINGS,
+  type Recorded,
   type Rule,
   type RunAction,
 } from './run-codes'
@@ -100,19 +103,33 @@ function useProfileName() {
   }, [stats.data, snapshot.browserProfiles])
 }
 
-/** The run's warnings and notes, ready to render. */
-export function useRunEntries(detail: AuditRunDetail): RunEntries {
+const SKIP_NONE: readonly string[] = []
+
+/**
+ * The warnings and notes a run or an import recorded, ready to render.
+ * `skip` leaves out codes whose meaning the surrounding screen already says.
+ */
+export function useRecordedEntries(
+  { warnings, warningDetails }: Recorded,
+  skip: readonly string[] = SKIP_NONE,
+): RunEntries {
   const { t } = useI18n()
   const format = useFormat()
   const profileName = useProfileName()
   return useMemo(
     () =>
-      describeRunEntries(entriesOf(detail), t, (warning) => ({
-        profile: profileName(warning.profileId),
-        count: warning.count ?? 0,
-        succeeded: warning.succeeded ?? 0,
-        bytes: format.bytes(warning.bytes ?? 0),
-      })),
-    [detail, t, format, profileName],
+      describeRunEntries(
+        entriesOf({ warnings, warningDetails }).filter(
+          (warning) => !skip.includes(warning.code),
+        ),
+        t,
+        (warning) => ({
+          profile: profileName(warning.profileId),
+          count: warning.count ?? 0,
+          succeeded: warning.succeeded ?? 0,
+          bytes: format.bytes(warning.bytes ?? 0),
+        }),
+      ),
+    [warnings, warningDetails, skip, t, format, profileName],
   )
 }

@@ -15,9 +15,14 @@ pub fn export_app_data(
     target: PathBuf,
     export_password: &str,
 ) -> Result<ExportedBundle> {
-    crate::maintenance_jobs::run(&vault.paths().app_root, "exporting", |cancel, progress| {
-        vault_core::migration::native::export(vault, &target, export_password, cancel, progress)
-    })
+    crate::maintenance_jobs::run(
+        &vault.paths().app_root,
+        "exporting",
+        crate::ForegroundWork::MoveExport,
+        |cancel, progress| {
+            vault_core::migration::native::export(vault, &target, export_password, cancel, progress)
+        },
+    )
 }
 
 /// Files v0.3 exported (format 1) hold the old databases; the converter imports those.
@@ -42,13 +47,20 @@ pub fn apply_import(
 ) -> Result<(ImportResult, InstalledArchive)> {
     crate::context::load_unlocked_config(paths)?;
     let v0_3 = made_by_v0_3(&bundle)?;
-    crate::maintenance_jobs::run(&paths.app_root, "importing", |cancel, progress| {
-        if v0_3 {
-            vault_convert_sqlcipher::bundle::import(
-                paths, current, owner, &bundle, &options, cancel, progress,
-            )
-        } else {
-            vault_core::migration::native::import(paths, current, owner, &bundle, &options, cancel)
-        }
-    })
+    crate::maintenance_jobs::run(
+        &paths.app_root,
+        "importing",
+        crate::ForegroundWork::MoveImport,
+        |cancel, progress| {
+            if v0_3 {
+                vault_convert_sqlcipher::bundle::import(
+                    paths, current, owner, &bundle, &options, cancel, progress,
+                )
+            } else {
+                vault_core::migration::native::import(
+                    paths, current, owner, &bundle, &options, cancel,
+                )
+            }
+        },
+    )
 }

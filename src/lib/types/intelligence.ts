@@ -260,14 +260,37 @@ export type ModelDownloadProgressEvent =
   | { kind: 'done' }
   | { kind: 'error'; message: string }
 
+/**
+ * The index searches read now. While a newly chosen model's index is built,
+ * the previous complete one answers; this describes that one, not the
+ * unfinished one the rest of `AiIndexStatus` counts.
+ */
+export interface AiServingIndex {
+  providerId: string
+  model: string
+  /** Visits it holds. */
+  indexedItems: number
+  lastIndexedAt?: string | null
+  /** It is the chosen model's index: the status's state and staleness are about it too. */
+  chosen: boolean
+}
+
 export interface AiIndexStatus {
   enabled: boolean
   assistantEnabled: boolean
   mcpEnabled: boolean
   skillEnabled: boolean
   state: string
+  /** The serving index has vectors and its service can be used. */
   ready: boolean
+  /** Visits in the chosen model's index (the one Settings builds). */
   indexedItems: number
+  /**
+   * The index searches read: the latest complete one, or without one the
+   * chosen model's, partial or empty. Absent with no model chosen and none
+   * complete.
+   */
+  serving?: AiServingIndex | null
   lastIndexedAt?: string | null
   llmProviderId?: string | null
   embeddingProviderId?: string | null
@@ -1029,6 +1052,7 @@ export type AiAgentNote =
   | { code: 'searchIndexIncomplete' }
   | { code: 'contextTooSmall' }
   | { code: 'sourcesNotSaved' }
+  | { code: 'noAnswer' }
 
 /**
  * Envelope emitted on `pathkeep://ai-stream` pairing a chunk with its run id.

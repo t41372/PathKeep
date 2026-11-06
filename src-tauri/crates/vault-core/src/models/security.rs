@@ -1,7 +1,20 @@
 //! Security and keyring read models.
 
-use super::ArchiveMode;
+use super::{AppSnapshot, ArchiveMode};
 use serde::{Deserialize, Serialize};
+
+/// What an archive encryption change did. Once the archive has changed the command no longer
+/// fails, so what could not follow it is said here instead.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RekeyOutcome {
+    /// `None` when App Lock locked the window before the change finished: the snapshot is not
+    /// read while it is locked.
+    pub snapshot: Option<AppSnapshot>,
+    /// The keychain could not be set to match the archive, so the setting to remember its key
+    /// stays as it was.
+    pub keychain_failed: bool,
+}
 
 /// Snapshot of keyring availability and whether a database key is stored.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

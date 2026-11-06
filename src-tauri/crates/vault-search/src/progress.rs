@@ -348,6 +348,12 @@ impl Walker {
                             } else {
                                 0.0
                             },
+                            visits: self
+                                .snapshot
+                                .filters
+                                .visit_count
+                                .as_ref()
+                                .map_or(0, |count| count(page_id)),
                         });
                     }
                 }

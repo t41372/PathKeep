@@ -1,6 +1,9 @@
 /**
  * App root: providers, then whichever full-screen state the session is in.
- * Only the `ready` state mounts the router and the screens.
+ * Only the `ready` state mounts the router and the screens. A screen that
+ * fails to render, in any state, shows the error view (`route-error.tsx`)
+ * instead of leaving the window blank. The quit question sits beside them, so
+ * it can show whatever state the session is in.
  */
 import { QueryClientProvider } from '@tanstack/react-query'
 import { useMemo } from 'react'
@@ -16,15 +19,20 @@ import { useIndexJobEvents } from './index-job-events'
 import { createAppRouter, createOnboardingRouter } from './router'
 import { SessionProvider, useSession } from './session'
 import { LockScreen } from './shell/lock-screen'
+import { QuitPrompt } from './shell/quit-prompt'
+import { SessionErrorBoundary } from './shell/route-error'
 import {
   BootErrorScreen,
   BootScreen,
   RecoveryScreen,
+  SchemaUpdateScreen,
   UpgradeScreen,
 } from './shell/status-screens'
+import { useSchemaUpdate } from './schema-update'
 
 function SessionGate() {
   const { phase, error } = useSession()
+  const schemaUpdate = useSchemaUpdate()
   useIndexJobEvents(phase === 'ready')
   const appRouter = useMemo(
     () => (phase === 'ready' ? createAppRouter() : null),
@@ -35,6 +43,19 @@ function SessionGate() {
     [phase],
   )
 
+  // A schema update while the archive opens (at launch, from the keychain or
+  // an unlock) can take a while on a large archive; show it rather than a
+  // spinner. Only on the screens an archive opens behind: onboarding creates
+  // a new archive (nothing to copy) and must keep its own state, and the
+  // conversion screen shows its own progress.
+  if (
+    schemaUpdate &&
+    (phase === 'booting' ||
+      phase === 'archive-locked' ||
+      phase === 'app-locked')
+  ) {
+    return <SchemaUpdateScreen progress={schemaUpdate} />
+  }
   switch (phase) {
     case 'booting':
       return <BootScreen />
@@ -64,7 +85,10 @@ export default function App() {
             <SessionProvider>
               <BackupRunnerProvider>
                 <ImportRunnerProvider>
-                  <SessionGate />
+                  <SessionErrorBoundary>
+                    <SessionGate />
+                  </SessionErrorBoundary>
+                  <QuitPrompt />
                   <Toaster position="bottom-right" />
                 </ImportRunnerProvider>
               </BackupRunnerProvider>

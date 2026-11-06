@@ -49,8 +49,12 @@ pub(super) fn change_visibility(
                 let at=now_rfc3339();
                 let message=if restore {format!("Restored at {at}. Returned {count} hidden history rows to the visible archive view via restore run #{run}.")} else {format!("Reverted at {at}. Soft-hid {count} live history rows from the archive view.")};
                 let note=TakeoutNote::new(if restore {"batch-restored"} else {"batch-reverted"},message.clone()).with_count(count as usize).with_at(at).with_run_id(run);
-                summary["notes"].as_array_mut().context("batch notes must be an array")?.push(json!(message));
-                summary["noteDetails"].as_array_mut().context("batch note details must be an array")?.push(serde_json::to_value(note)?);
+                let lists=summary.as_object_mut().context("batch summary must be an object")?;
+                // A batch written before notes had codes (2026-07-27) has no `noteDetails`: its
+                // list starts here. Failing instead left the rows changed and the batch unmarked.
+                for (key,value) in [("notes",json!(message)),("noteDetails",serde_json::to_value(note)?)] {
+                    lists.entry(key).or_insert_with(||json!([])).as_array_mut().context("batch notes must be a list")?.push(value);
+                }
                 s.execute("UPDATE import_batches SET summary_json=?2 WHERE id=?1",params![batch,summary.to_string()])?;
                 s.execute("UPDATE import_batches SET status=CASE WHEN ?2=1 THEN previous_status ELSE 'reverted' END,
                     reverted_at=CASE WHEN ?2=1 THEN NULL ELSE ?3 END,visibility_run_id=NULL,audit_path=NULL WHERE id=?1",

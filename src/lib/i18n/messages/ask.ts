@@ -116,6 +116,8 @@ export const ask = defineMessages({
           'This model cannot use search tools, so it answered without looking at your archive.',
         searchIndexIncomplete:
           'The search index was still being built, so this answer may miss some pages.',
+        noAnswer:
+          'The model stopped without writing an answer. Ask again, or pick another model beside the message box.',
       },
     },
   },
@@ -228,6 +230,8 @@ export const ask = defineMessages({
         toolCallingUnavailable:
           '这个模型无法使用搜索工具，所以它没有查看你的存档就回答了。',
         searchIndexIncomplete: '搜索索引还在建立中，这个回答可能漏掉一些页面。',
+        noAnswer:
+          '模型没有写出回答就停下了。可以再问一次，或在输入框旁换一个模型。',
       },
     },
   },
@@ -340,6 +344,8 @@ export const ask = defineMessages({
         toolCallingUnavailable:
           '這個模型無法使用搜尋工具，所以它沒有查看你的存檔就回答了。',
         searchIndexIncomplete: '搜尋索引還在建立中，這個回答可能漏掉一些頁面。',
+        noAnswer:
+          '模型沒有寫出回答就停下了。可以再問一次，或在輸入框旁換一個模型。',
       },
     },
   },

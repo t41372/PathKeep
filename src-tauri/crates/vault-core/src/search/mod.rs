@@ -45,6 +45,8 @@ mod coverage_tests;
 #[cfg(test)]
 mod fuzzy_tests;
 #[cfg(test)]
+mod most_visited_tests;
+#[cfg(test)]
 mod projection_tests;
 #[cfg(test)]
 mod recovery_tests;

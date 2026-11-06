@@ -8,6 +8,7 @@
  * Main declarations:
  * - `KeyringStatusReport`
  * - `RekeyRequest`
+ * - `RekeyOutcome`
  * - `RekeyPreview`
  *
  * Source-of-truth notes:
@@ -15,6 +16,7 @@
  * - Prefer additive, explicit fields over ambiguous catch-all objects so the trust surface stays auditable.
  */
 
+import type { AppSnapshot } from './app'
 import type { ArchiveMode } from './archive'
 
 /**
@@ -43,6 +45,30 @@ export interface RekeyRequest {
    * archive has none, so encrypting one leaves it out.
    */
   currentKey?: string | null
+  /**
+   * Whether the keychain should hold the archive's key once the change is
+   * done, and the setting with it. The backend applies both under the same
+   * hold as the rewrite, so quitting as soon as the rewrite ends cannot leave
+   * them behind. Left out, both stay as they are (previews).
+   */
+  rememberInKeychain?: boolean | null
+}
+
+/**
+ * What an archive encryption change did. Once the archive has changed the
+ * command no longer fails, so what could not follow it is said here.
+ */
+export interface RekeyOutcome {
+  /**
+   * Missing when App Lock locked the window before the change finished: the
+   * snapshot is not read while it is locked.
+   */
+  snapshot: AppSnapshot | null
+  /**
+   * The keychain could not be set to match the archive, so the setting to
+   * remember its key stays as it was.
+   */
+  keychainFailed: boolean
 }
 
 /**

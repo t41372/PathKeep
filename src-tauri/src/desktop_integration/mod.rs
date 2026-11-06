@@ -13,8 +13,9 @@
 //!
 //! ## Not responsible for
 //! - Drawing the menu (`tray.rs`), its text (`copy.rs`), backup status
-//!   bookkeeping (`status.rs`), login items (`login_item.rs`) or window
-//!   behaviour (`window.rs`).
+//!   bookkeeping (`status.rs`), login items (`login_item.rs`), window
+//!   behaviour (`window.rs`), quitting while work runs (`quit.rs`) or the
+//!   macOS menu bar's own menus (`app_menu.rs`).
 //!
 //! ## Failure modes
 //! Background startup shows a window or loses the tray when its preference is off.
@@ -30,8 +31,11 @@
 //! (`tray.rs`); AppKit traps when a status item is torn down anywhere else.
 //! Off the main thread, ask [`icon_shown`] instead of `tray_by_id`.
 
+#[cfg(target_os = "macos")]
+mod app_menu;
 mod copy;
 mod login_item;
+mod quit;
 mod status;
 mod tray;
 mod window;
@@ -58,9 +62,20 @@ pub(crate) use status::BACKUP_PROGRESS_EVENT;
 pub(crate) use status::{BackupSource, run_backup};
 #[cfg_attr(test, allow(unused_imports))]
 pub(crate) use window::on_window_event;
+// The menu bar's menu clicks (macOS); `setup` installs the menus.
+#[cfg(all(target_os = "macos", not(test)))]
+pub(crate) use app_menu::on_menu_event as on_app_menu_event;
+// For lib.rs's exit hook and the quit commands (the app's and the dev bridge's).
+#[cfg(feature = "devtools-bridge")]
+pub(crate) use quit::QUIT_REQUEST_EVENT;
+#[cfg_attr(test, allow(unused_imports))]
+pub(crate) use quit::{QuitAnswer, QuitRequest, answer_quit_request, hold_quit, quit_request};
 // Only the macOS Dock "reopen" handler in lib.rs needs it from outside.
 #[cfg(not(test))]
 pub(crate) use window::show_main_window;
+// The dev bridge's debug quit closes this window as its close button would.
+#[cfg(all(feature = "devtools-bridge", debug_assertions))]
+pub(crate) use window::MAIN_WINDOW;
 
 /// How often the "12 min ago" text is redrawn (no I/O).
 const RELABEL_INTERVAL: Duration = Duration::from_secs(60);
@@ -137,7 +152,10 @@ pub(crate) fn setup<R: Runtime>(
     launched_at_login: bool,
     background: bool,
 ) {
-    with_state(app, |state| state.language = menu_language(config));
+    let language = menu_language(config);
+    with_state(app, |state| state.language = language);
+    #[cfg(target_os = "macos")]
+    app_menu::install(app, language);
     let shown = (background || config.menu_bar_icon)
         && show_icon(app)
             .inspect_err(|error| log::warn!("menu bar icon: {}", error.message))
@@ -199,10 +217,22 @@ pub(crate) fn config_saved<R: Runtime>(app: &AppHandle<R>, config: &AppConfig) {
     } else if !config.menu_bar_icon && shown {
         hide_icon(app);
     }
-    with_state(app, |state| {
-        state.language = menu_language(config);
+    let language = menu_language(config);
+    let changed = with_state(app, |state| {
+        let changed = state.language != language;
+        state.language = language;
         state.render();
+        changed
     });
+    #[cfg(target_os = "macos")]
+    if changed {
+        let handle = app.clone();
+        if let Err(error) = app.run_on_main_thread(move || app_menu::install(&handle, language)) {
+            log::warn!("could not rebuild the menu bar in the new language: {error}");
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = changed;
 }
 
 fn show_icon<R: Runtime>(app: &AppHandle<R>) -> Result<(), CommandError> {
