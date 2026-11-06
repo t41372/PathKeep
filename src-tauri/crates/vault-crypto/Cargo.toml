@@ -24,7 +24,7 @@ ownedbytes = "0.9.0"
 sha2.workspace = true
 tantivy = { version = "0.27.0", default-features = false }
 thiserror.workspace = true
-turso_core = "=0.8.1"
+turso_core = "=0.8.3"
 zeroize = "1.8.2"
 
 [dev-dependencies]
@@ -33,5 +33,5 @@ libc.workspace = true
 tantivy = "0.27.0"
 tempfile.workspace = true
 tokio = { workspace = true, features = ["rt"] }
-turso = { version = "=0.8.1", default-features = false }
+turso = { version = "=0.8.3", default-features = false }
 vault-crypto = { path = ".", features = ["crash-points"] }

@@ -207,6 +207,8 @@ export const onboarding = defineMessages({
         'Setup is finished. Press Back up now whenever you’re ready.',
       safariSkipped:
         'Safari was left out because PathKeep doesn’t have Full Disk Access yet.',
+      partial:
+        'Some of the browsers you chose couldn’t be read. What could be read is saved; Backup shows which ones and why.',
       fullDiskAccess:
         'Safari needs Full Disk Access before it can be backed up. Allow PathKeep in System Settings → Privacy & Security, then try again.',
       localAi:
@@ -404,6 +406,8 @@ export const onboarding = defineMessages({
       saved_other: '完成，共保存 {count} 条记录。',
       skippedBackup: '设置已完成。准备好了就点“立即备份”。',
       safariSkipped: 'Safari 已跳过：PathKeep 还没有“完全磁盘访问权限”。',
+      partial:
+        '部分所选浏览器读取失败。读得到的都已保存，是哪些、为什么，请看“备份”。',
       fullDiskAccess:
         'Safari 需要“完全磁盘访问权限”才能备份。请在系统设置 → 隐私与安全性中允许 PathKeep，然后再试一次。',
       localAi: '语义搜索模型正在后台下载，可以在“设置 → AI”查看进度。',
@@ -600,6 +604,8 @@ export const onboarding = defineMessages({
       saved_other: '完成，共保存 {count} 條記錄。',
       skippedBackup: '設定已完成。準備好了就點「立即備份」。',
       safariSkipped: 'Safari 已略過：PathKeep 還沒有「完整磁碟取用權限」。',
+      partial:
+        '部分所選瀏覽器讀取失敗。讀得到的都已儲存，是哪些、為什麼，請看「備份」。',
       fullDiskAccess:
         'Safari 需要「完整磁碟取用權限」才能備份。請在系統設定 → 隱私權與安全性中允許 PathKeep，然後再試一次。',
       localAi: '語意搜尋模型正在背景下載，可以在「設定 → AI」查看進度。',

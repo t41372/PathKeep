@@ -86,12 +86,15 @@ fn newer_versions_are_refused() {
             let mut future = config(root.path(), key);
             future.migrations.register(
                 db,
-                vec![Migration::sql(5, "CREATE TABLE future_marker(id INTEGER PRIMARY KEY)")],
+                vec![Migration::sql(99, "CREATE TABLE future_marker(id INTEGER PRIMARY KEY)")],
             );
             drop(Store::open(future).unwrap());
-            assert!(
-                matches!(Store::open(config(root.path(), key)), Err(Error::SchemaTooNew { db: found_db, found: 5, supported }) if found_db == db && supported == if db == Db::Scratch {0} else if db == Db::Intelligence {2} else {1})
-            );
+            let supported_version = crate::store_schema::schema_version(db);
+            assert!(matches!(
+                Store::open(config(root.path(), key)),
+                Err(Error::SchemaTooNew { db: found_db, found: 99, supported })
+                    if found_db == db && supported == supported_version
+            ));
         }
     }
 }

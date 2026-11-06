@@ -182,12 +182,18 @@ fn backup_keeps_readable_profiles_when_safari_staging_loses_access() {
     crate::config::ensure_paths(&paths).expect("paths");
     let report = run_backup(&vault.with_config(config.clone()), false).expect("run backup");
     assert_eq!(report.run.as_ref().expect("run").new_visits, 2);
-    assert_eq!(report.profiles.len(), 1);
+    assert_eq!(report.run.as_ref().expect("run").status, "partial");
+    assert_eq!(report.profiles.len(), 2);
     assert_eq!(report.profiles[0].profile_id, "chrome:Default");
-    assert!(report.warnings.iter().any(|warning| {
-        warning.contains("safari:default")
-            && warning.contains("grant Full Disk Access before the next backup")
-    }));
+    assert!(matches!(&report.profiles[1].outcome,
+        crate::models::ProfileOutcome::Unavailable { code } if code == "source-unreadable"));
+    assert!(
+        report
+            .warning_details
+            .iter()
+            .any(|warning| warning.profile_id.as_deref() == Some("safari:default")
+                && warning.code == "source-unreadable")
+    );
 
     let history = vault.store().read(vault_store::Db::Archive,|s| s.query("SELECT p.profile_key FROM visits v JOIN source_profiles p ON p.id=v.source_profile_id",(),|r|Ok(r.get::<String>(0)?))).unwrap();
     assert_eq!(history.len(), 2);
@@ -195,6 +201,33 @@ fn backup_keeps_readable_profiles_when_safari_staging_loses_access() {
 
     restore_test_env_var("CHB_CHROME_USER_DATA_DIR", original_chrome.as_deref());
     restore_test_env_var("CHB_SAFARI_ROOT", original_safari.as_deref());
+}
+
+#[test]
+fn a_scheduled_backup_waits_its_interval_only_after_a_run_that_kept_a_profile() {
+    // Every profile failed (the browser held its file busy through every copy): the run is
+    // partial, but it kept nothing, so the next scheduled run goes ahead.
+    let dir = tempdir().expect("tempdir");
+    let vault = crate::Vault::open_temp().unwrap();
+    let config = AppConfig { initialized: true, ..AppConfig::default() };
+    let vault = vault.with_config(config);
+    crate::config::ensure_paths(&sample_paths(dir.path())).expect("paths");
+    let ended = |id: i64, outcome: &str| {
+        let stats = serde_json::json!({"profiles": [{"outcome": {"status": outcome}}]});
+        crate::test_support::store::Probe::new(&vault)
+            .execute(
+                "INSERT INTO runs (id, run_type, trigger, started_at, finished_at, timezone, status,
+                   profile_scope_json, warnings_json, stats_json, due_only)
+                 VALUES (?1, 'backup', 'schedule', ?2, ?2, 'UTC', 'partial', '[]', '[]', ?3, 1)",
+                vault_store::params![id, now_rfc3339(), stats.to_string()],
+            )
+            .expect("seed run");
+    };
+    let skipped = || run_backup(&vault, true).is_ok_and(|report| report.due_skipped);
+    ended(100, "failed");
+    assert!(!skipped(), "a run that kept nothing does not put the next one off");
+    ended(200, "complete");
+    assert!(skipped(), "one that read a profile to the end does");
 }
 
 #[test]

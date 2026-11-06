@@ -159,10 +159,4 @@ fn keychain_only_session_reads_imported_ties_and_exports_every_visit() {
         );
         dispatch_command(&state, "repair_health", json!({})).await.unwrap();
     });
-    unsafe {
-        std::env::remove_var(PROJECT_ROOT_OVERRIDE_ENV);
-        std::env::remove_var(CHROME_USER_DATA_OVERRIDE_ENV);
-        std::env::remove_var(TEST_KEYRING_OVERRIDE_ENV);
-        std::env::remove_var("PATHKEEP_TEST_SAVE_DIR");
-    }
 }

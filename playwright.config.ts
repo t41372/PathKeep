@@ -18,7 +18,10 @@ import { copyFileSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { defineConfig, devices } from '@playwright/test'
-import { resolveDesktopBridgeEnv } from './scripts/pathkeep-dev-desktop-bridge.mjs'
+import {
+  e2eCargoTargetDir,
+  resolveDesktopBridgeEnv,
+} from './scripts/pathkeep-dev-desktop-bridge.mjs'
 import { writeSyntheticBrowsers } from './scripts/fixtures/synthetic-browsers.mjs'
 
 const artifactsDir = 'artifacts/e2e'
@@ -31,7 +34,10 @@ const FIXTURE_SEED = 7
 function prepareFixture() {
   if (process.env.PATHKEEP_E2E_FIXTURE) return
 
-  const root = mkdtempSync(path.join(os.tmpdir(), 'pathkeep-e2e-'))
+  // `run-playwright.mjs` makes the folder and deletes it after a run that passed.
+  const root =
+    process.env.PATHKEEP_E2E_ROOT ??
+    mkdtempSync(path.join(os.tmpdir(), 'pathkeep-e2e-'))
   const now = Number(process.env.PATHKEEP_E2E_NOW) || Date.now()
   const browsers = writeSyntheticBrowsers(path.join(root, 'browsers'), {
     now,
@@ -77,10 +83,7 @@ function prepareFixture() {
     // The launcher runs the app itself and starts it again when it exits
     // after a spec created this file (the 'restart' project).
     PATHKEEP_E2E_RESTART_FILE: path.join(root, 'restart-app'),
-    // Keep the build cache between runs; a cold Rust build takes minutes.
-    CARGO_TARGET_DIR:
-      process.env.CARGO_TARGET_DIR ??
-      path.resolve('var/playwright/desktop-bridge/cargo-target'),
+    CARGO_TARGET_DIR: e2eCargoTargetDir(),
   })
   if (!process.env.PATHKEEP_DEV_SERVER_PORT) {
     const offset = Math.trunc(Math.random() * 2_000)

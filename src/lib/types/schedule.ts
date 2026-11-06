@@ -127,6 +127,7 @@ export interface ScheduledBackupAttempt {
   outcome:
     | 'running'
     | 'success'
+    | 'partial'
     | 'skipped'
     | 'deferred'
     | 'failed'

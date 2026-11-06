@@ -90,6 +90,8 @@ pub(super) fn import_supported_payload_with_progress<'a>(
             source_path: Some(path),
             continuing,
         }),
+        // Takeout's files say nothing that a later copy of them replaces.
+        captured_at_ms: chrono::Utc::now().timestamp_millis(),
     };
     let mut consumer = ArchiveChunkConsumer::new(
         vault,

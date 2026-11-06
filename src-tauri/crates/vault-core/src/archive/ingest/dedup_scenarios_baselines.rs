@@ -136,6 +136,7 @@ fn firefox_snapshot(fixture: &FirefoxPlacesFixture, profile_id: &str) -> Profile
             path: "places.sqlite".to_string(),
             sha256: "synthetic-firefox-hash".to_string(),
         }],
+        captured_at_ms: chrono::Utc::now().timestamp_millis(),
     }
 }
 
@@ -202,6 +203,7 @@ fn safari_snapshot(fixture: &SafariHistoryFixture, profile_id: &str) -> ProfileS
             path: "History.db".to_string(),
             sha256: "synthetic-safari-hash".to_string(),
         }],
+        captured_at_ms: chrono::Utc::now().timestamp_millis(),
     }
 }
 
@@ -263,6 +265,7 @@ fn snapshot_for_chromium_fixture(
             path: "History".to_string(),
             sha256: "synthetic-fixture-hash".to_string(),
         }],
+        captured_at_ms: chrono::Utc::now().timestamp_millis(),
     }
 }
 
@@ -280,3 +283,6 @@ fn snapshot_for_chromium_fixture(
 
 #[path = "dedup_scenarios_baselines/cases_1.rs"]
 mod cases_1;
+
+#[path = "dedup_scenarios_baselines/firefox_sync.rs"]
+mod firefox_sync;

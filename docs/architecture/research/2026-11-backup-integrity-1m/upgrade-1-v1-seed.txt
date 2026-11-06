@@ -1,0 +1,26 @@
+
+running 1 test
+test archive::ingest::scale_measure::measure_native_backup has been running for over 60 seconds
+SCALE phase=backup open_seconds=0.100 backup_seconds=192.417 status=success new_visits=1000000 new_urls=200000 archive_visits=1000000 notes=["missing-source", "profile-search-terms-captured"]
+test archive::ingest::scale_measure::measure_native_backup ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 386 filtered out; finished in 192.97s
+
+      193.47 real       177.74 user        40.53 sys
+          1010384896  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+               98736  page reclaims
+                   0  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+             1332705  voluntary context switches
+               93051  involuntary context switches
+       3714602866697  instructions retired
+        943819587713  cycles elapsed
+           507544632  peak memory footprint

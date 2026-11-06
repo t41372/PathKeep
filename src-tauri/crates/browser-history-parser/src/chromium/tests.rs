@@ -328,6 +328,7 @@ fn parse_history_includes_urls_whose_last_visit_time_is_below_cursor_when_new_vi
             url_scan: None,
             after_url_last_visit_time: 13_000_000_001_000_000_i64,
             after_visit_id: 50_i64,
+            recent_visits_since_ms: None,
             after_download_id: 0,
             after_favicon_last_updated: 0,
         },

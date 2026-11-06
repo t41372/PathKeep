@@ -66,6 +66,9 @@ pub fn run_snapshot_restore(
                 })
                 .unwrap_or_default();
             profiles.push(BackupProfileSummary {
+                outcome: crate::models::ProfileOutcome::Failed {
+                    code: "source-read-failed".into(),
+                },
                 profile_id: checkpoint.profile.profile_id.clone(),
                 new_urls: stats["newUrls"].as_u64().unwrap_or(0) as usize,
                 new_visits: stats["newVisits"].as_u64().unwrap_or(0) as usize,
@@ -115,12 +118,17 @@ pub(super) fn checkpoint(
         &history,
         favicons.exists().then_some(favicons.as_path()),
     )?;
+    // The checkpoint holds the files as the backup that saved it copied them, then.
+    let captured_at_ms = chrono::DateTime::parse_from_rfc3339(&record.created_at)
+        .with_context(|| format!("checkpoint time {}", record.created_at))?
+        .timestamp_millis();
     Ok(ProfileSnapshot {
         profile,
         temp_dir: tempdir()?,
         history_path: history,
         favicons_path: favicons.exists().then_some(favicons),
         source_hashes,
+        captured_at_ms,
     })
 }
 
