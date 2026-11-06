@@ -84,6 +84,16 @@
       - gate 抓到的（不是這一輪帶進來的，語意索引分代那個 commit 起就有）：`fresh_execution_settings_protect_a_complete_fallback_from_a_failed_new_model` 的假服務把 listener 設成非阻塞，macOS 上 accept 出來的 socket 會繼承，請求還沒到時 read 立刻回 `WouldBlock`，不等 read timeout；機器忙才碰得到，Linux 的 CI 看不到。accept 之後改回阻塞。獨立小程式確認：不改回 2 µs 就 `WouldBlock`，改回等 197 ms 讀到請求。
       - 請 Codex 只看這一輪的修改（讀碼不跑）：依賴升級沒有確認到的問題；一條確認並修：索引的 trigram 保留重音、檢查把重音折掉，`deja vo` 找 `Déjà vu`，縮小改動次數之後候選集以為一定有共同 trigram，把舊版找得到的頁篩掉了。候選集改回看字長的完整改動次數，跟舊版相同。夠長的目標在重音很多的頁上本來就會漏，不是這個 PR 帶進來的，記 `WORK-SEARCH-ACCENT-GRAMS`。`rand` 的理由少寫 `tantivy-columnar`，補上；`paste` 另經 `simba` 不採納（`simba` 只在 lockfile，`cargo tree` 沒有它）。
       - 本機完整 `bun run check`（2026-11-05）：#16 Rust 91 組、unit 102、E2E 122 全過；#18 這一輪最後的 commit（含 #16 的全部修改）Rust 91 組、unit 102、E2E 123 + 8 + 1 全過。`audit:rust`、`deny:rust` 不在 `check` 裡，兩個 head 另外跑過。
+    - 第九輪（2026-11-05，ChatGPT 對 PR 16 的審查：兩條生命週期、一條效能門檻；逐條對照代碼，先找根因再修）：
+      - 確認並修：serving 的檔案暫時讀不到時，建置當成沒有索引，開新 lineage 把全部造訪重新 embedding（修之前的測試：3 筆全重做）。指標修復本來就留著指標，但建置問的是 `resolve`，它替讀者回答「現在讀不讀得到」。建置只讀自己的來源，不讀 serving 的檔案，所以改成照指標決定 lineage（`pin_serving`），沒有照審查開一個「暫時不可用」的狀態、讓工作失敗：那樣一個暫時的錯誤就要等人手動重跑，這裡根本不需要失敗。
+      - 同一個根因還有審查沒看到的，有的更糟：`identity.json` 暫時讀不到就當沒有，續跑的工作刪掉自己的來源，v0.4.0 的來源也會被新 lineage 取代；這兩條測試先失敗再修。Codex 再找到：比較部分索引大小時讀不到算 0，小的會取代大的；`Path::exists` 查不到時回「沒有」，指標被清、identity 被蓋成無效、map 被截斷。現在只有檔案不見或損毀才算沒有，會清除、覆蓋、截斷的判斷改用 `try_exists`。`exists` 這幾條在本機磁碟上很難碰到，留著是因為改法沒有多餘的代碼。
+      - 確認並修：關閉時 lease 直接 return，連 writer 都不釋放，等它的建置永遠睡著，手上拿著整個 process 共用的索引閘。App Lock 在同一個 process 裡關閉再重開 Vault，所以索引工作會停到重啟 app（修之前的測試：逾時）。崩潰後部分恢復與續跑的工作正好碰同一個 lineage，不算罕見。現在 lease 一律釋放，等待也會被關閉打斷，`stop_reaper` 經過 registry 鎖再通知，不會錯過正要睡的建置。
+      - 這個修法會打開新的窗：關閉等 collector 時 store 還開著，提前結束的工作會被標成 failed、等人手動重跑；投影被關閉取消本來也有這個窗。關閉中的失敗現在不改工作狀態，下次開啟排回去，跟 quit 一樣。
+      - 效能門檻：多字錯字確實多半走完所有頁，但「base 靠 trigram 省掉」在量到的資料上不成立。14.4M 造訪、2.9M 頁、4 vCPU / 8 GB、同一台 VM 交替跑兩輪：精確搜尋不變（1.00～1.04 倍），錯字 head 全部較快（一個字 143 → 92 s、兩個字 149 → 139 s、拼對沒結果 140 → 116 s），兩個字 base 找不到那一頁、head 找得到。走訪中取消 26 ms 內，小寫入中位數 0.6 ms，記憶體 165 MiB 內。第一次分開兩台 VM 量，精確搜尋像是慢了三成；沒改過的種子、重建、備份也慢三成，才知道是機器不同，同一台重量才算數。合成頁面讓舊的 trigram 篩選省不到東西，真實資料上省多少沒量。沒有改候選集：絕對時間仍長，但不是這個 PR 帶來的，記 `WORK-SEARCH-TYPO-WALK`。benchmark 加了文件數、CPU、讀取量、取消與寫入等待（`research/2026-11-typo-walk-benchmark.md`）。
+      - 看過、接受：`query.rs` 的註解確實說過頭，「候選和檢查不會不一致」改成這是每種目標各自要守的承諾。審查列的已知項目都在 BACKLOG，不重複算。
+      - 確認、記進 BACKLOG（main 就有）：標籤存失敗時退回的可能是舊清單，下次編輯會蓋掉別處存好的標籤。讀碼確認，還沒重現：`WORK-TAG-SAVE-FAILURE-STALE`。
+      - 請 Codex 只看這一輪的修改（讀碼不跑）：四條同根因的（上面已列）、一條 benchmark 的（走訪可能已經結束卻算成走訪中，現在回報），都確認並修；`pin_serving`、鎖的順序、每個等待、工作狀態都查過沒問題。
+      - 本機完整 `bun run check`（2026-11-05）：#16 Rust 91 組、unit 102、E2E 122 全過。#18 Rust 91 組、unit 102；E2E 第一次 3 個失敗、18 個沒跑到，同一份代碼重跑 123 + 8 + 1 全過。失敗的都在解鎖與密碼路徑，那段時間走密碼的測試慢 5～13 倍，其他不慢，重跑回到平常的時間；原因沒查到。
 
 - [x] **WORK-GATE-2026-10-25** — 先讓整合分支 `feat/search-sort-builder` 過完整 gate，再合 main（2026-10-25 晚上的 gate 在 E2E 的 change 專案連鎖失敗，restart 之後沒跑）
   - 2026-10-25 16:13 在 Modal（Linux，8 vCPU / 32 GB，閒著）跑完整 `bun run check` 過了（合併換上之前的整合分支）；合併換上與它的修正、整理成 PR 分支 `feat/2026-10-25-search-and-index` 之後，17:14 再跑一次也過了（Rust 91 組、E2E 119 過、1 跳過）：JS 檢查、build、fmt、clippy、Rust 測試 91 組全過（含 `the_block_cache_bounds_memory`）、desktop bridge、release check；E2E 118 過、1 跳過（`schedule.spec` 在 Linux 上本來就跳過），restart 之後的專案（`quit-during-work.spec`、`semantic-index.spec`）都跑到了。晚上本機的連鎖失敗是負載造成的。

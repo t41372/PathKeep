@@ -136,16 +136,17 @@ M14-B adds two deterministic query-expansion layers:
   shortest word, or the edits could delete it and `typescript api` would match
   every TypeScript page.
 
-  This has a cost that is not measured yet. The fallback also runs for a correctly
-  spelled search that finds nothing, and with several words it now usually walks
-  every page, because a short word's edits can destroy all its trigrams; the old
-  whole-run target skipped the pages sharing no trigram with it. One word has
-  always walked this way. The check itself is cheaper per page (about 17 µs
-  against 56 µs for one word, 48 µs against 102 µs for two, on synthetic pages on
-  the M-series dev machine, not counting reading the pages from the database), but
-  how much the old filter saved on real pages is unknown, so such a search may
-  take longer overall than it did. The `typo-word`, `typo-words` and
-  `no-match-words` cases of the search benchmark measure it at 14.4M visits.
+  This is slow on a large archive. The fallback also runs for a correctly spelled
+  search that finds nothing, and with several words it usually walks every page,
+  because a short word's edits can destroy all its trigrams. At 14.4M visits and
+  2.9M pages on a 4-vCPU, 8 GB VM, one such search took 92 to 139 s of one core. It
+  stays out of the way meanwhile: a cancel took at most 26 ms, 95% of small writes
+  took under 1 ms, and memory stayed under 170 MiB. The old whole-run target
+  was no faster on the same machine (140 to 149 s, and it found nothing for
+  `archive raresentinl`), though the synthetic pages gave it nothing to skip; what
+  it saves on real pages is not measured. See
+  [the benchmark](research/2026-11-typo-walk-benchmark.md).
+  `WORK-SEARCH-TYPO-WALK` tracks making this faster.
 
 Explorer keyword input also accepts a local subset of Google-like advanced
 operators before lexical analysis:
