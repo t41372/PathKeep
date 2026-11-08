@@ -9,6 +9,106 @@
 
 ## CURRENT FOCUS
 
+- [x] **WORK-PR16-REVIEW-2026-10-29** — 驗證 ChatGPT 與自己對 PR #16 的審查，修確認的問題
+  - 每條 finding 先當假設對照代碼驗證；判定與理由見 PR 描述。確認並修的：
+    - 語意索引改成「代」：每次 pass 寫一個完整的新代（`derived/vectors/<table>/<lineage>/g<run>/`），`ai_index_ledger.sidecar_table` 指向它，只在 `record_index_ledger_success` 那筆交易裡切換；查詢整段持有同一代的租約，GC 只刪沒人用、不是服務中、不屬於進行中工作的代。取代 `rebuild.rs` 的 copy / `.publish` / withdraw / settle，連帶修掉 Windows 覆蓋被 map 住的檔、一次查詢讀兩代、取消的重建在當機後被換上、提交不落盤、settle 遇錯就停、`rows_since` 誤刪更新寫的列。`ai_embeddings` / totals 加 `lineage`（Intelligence schema v2；v0.4.0 已發布，所以是註冊的 migration：一筆便宜的 rename + 建表，之後每批 5 萬列複製，1M / 4M 列峰值 84 / 86 MiB）；開啟時的升級畫面顯示進度。Codex 實作，我審查。
+    - 備註：回到還在儲存中的頁面後，改回原來那句會被略過；兩次儲存的回應亂序會讓框退回舊的。一次只送一個儲存、跟存檔的值比（unit test：E2E 排不出這種競爭）。
+    - 進階搜尋 Words 的範例字、macOS 選單列（三語，換語言時重建，取代比對英文 "Quit" 的做法）。
+    - Insights「最常回來搜的」欄位改名（`topicKey`、`searchCount`）；讀法與合併前同一複雜度，debug 對照不比舊 SQL 慢，14.4M 量測併入 `WORK-INSIGHTS-COLD-READS`。
+    - `Hit` 的相等改照排序；`foreground_work` 的測試各用自己的 registry（跟同一個 test binary 的 wipe / restore 測試搶全域清單會 flaky）。
+    - 移除沒人用的 Stronghold plugin 與它的 allowlist；tantivy 0.27（同索引格式 7），修掉本週新的 zstd advisory 與 lru 的 allowlist。
+  - 不修的：Advanced Search 改 AST（產品決定是 Google 式）、quit 協議重寫（µs 競爭、工作本身當機安全）、semantic fallback 分類、模型 marker 的威脅模型、regex 最常瀏覽的記憶體（已記錄的取捨）、標籤跨頁污染（每頁各自 mount，前提不成立）。引號裡的運算子當字面 → `WORK-SEARCH-QUOTED-LITERALS`。
+  - macOS 選單與真 ⌘Q（2026-10-30 手動驗，debug build 包成另一個 bundle id 的 `.app`，46 萬筆合成資料）：三語選單在設定換語言時立刻重建；匯出途中按 ⌘Q，或圖示關著時按關閉鈕，都先問；選不結束就留著；選做完再結束，檔案改成正式檔名的同一秒結束，沒留暫存檔；選現在結束立刻結束、不產生檔案，暫存區下次開啟時清掉、存檔筆數不變；沒有工作時 ⌘Q 直接結束；圖示開著時關視窗只是隱藏。
+  - 沒驗到的：Windows 的 mmap / 目錄 fsync 沒實測。
+  - 第三輪（2026-10-30）：上面語意索引分代的第二輪修正約 3,300 行，當時只跑了 gate、沒有逐行審，補上兩份獨立審查（遷移與當機復原、並行與 GC），每條對照代碼確認，確認的都先寫會失敗的 Rust 測試再修：
+    - GC 在退休舊代時會把服務中的 lineage 整個保留住，同一刻的搜尋或建置以為沒有索引；建置因此開新 lineage、把所有造訪重新 embed。改成 GC 不保留指標指著的代，查詢與建置遇到保留就等它放掉再讀，不再當成沒有或直接失敗（失敗會讓排隊的工作變成「需要人工處理」）。
+    - 舊版平鋪索引的搬移：只有 `legacy` 資料夾、沒有平鋪檔時也會重跑，清除過的索引在下次開啟時以空的代回來；v0.4.0 停在中途的 pass 留下比投影多的向量，搬移發布了讀者會拒絕的數量，升級後就沒有語意搜尋。改成只有平鋪檔或搬移開始前寫的註記才搬，發布 plane 本身的數量並先過讀者的驗證；有列卻沒有向量時不發布空的代。清除後的 `legacy` 來源若因為還有搜尋在讀而沒刪掉，下一次更新會拿來接著建、把清掉的向量帶回來：改成只有帳本還帶著復原註記時才沿用 `legacy`。
+    - Intelligence v2 遷移：每批用 `COALESCE(MAX(id),0)` 找游標，Turso 不走 MIN/MAX 捷徑，每批掃整張新表，時間超線性；也先複製完整張表才刪舊的，檔案一度有兩份。改成每批在同一個交易裡搬（複製再刪同一段 id），1M / 4M 由 26.5 / 129 s 變 16.4 / 66.9 s。
+    - GC 遇到一個壞的舊 `.publish` 資料夾就整輪停掉（只有未發布的開發版會留下）；完整重建後先暖搜尋分組再刪舊列。
+    - 狀態：搬好但還沒發布的舊索引算 `legacy` 的列，顯示「向量缺失、需要建一次」，不顯示成從沒建過。
+    - 第三輪修正本身又做了一次獨立審查：沒有死結或漏掉的喚醒；它找到的「清除後沿用 `legacy`」「有列卻發布空的代」已修，三個等待的測試改用 test hook 確認真的等了。從未發布的開發版中途升級留下的 v2 資料庫（舊階段名）不支援。
+    - 沒修、記進 BACKLOG：`WORK-INDEX-ROW-CLEANUP-OFF-JOB`、`WORK-INTELLIGENCE-MIGRATION-OPEN`、`WORK-TURSO-MINMAX-WRAPPER-AUDIT`。只影響開發版資料的 `rows_since` 時間界線、GC 把建置中的輸出記成 retired（會自己收斂）不修。
+    - wasmtime 48.0.8：同日公布的 RUSTSEC-2026-0420 / 0422 / 0423 / 0424。
+    - 第四輪（2026-11-01，兩份獨立審查逐條對照代碼，確認的才修）。測試的實際情況：備註框的 unit test 先寫、先失敗、修好後通過；索引的兩個 regression test 是修完才寫的，各自把對應的修法還原時會失敗、放回來會通過（只證明它們抓得到這兩個問題）；Doctor 的版本檢查有 Rust 測試先失敗、也加進 E2E；其餘修法（pointer repair 的暫時錯誤與平鋪指標、failed 保留 lineage、等別的 writer、trash、鑰匙圈、升級失敗的畫面、進階搜尋的減號、語意備註）目前沒有測試：
+      - 分代：`serving.json` 的向量數取自來源檔的列數，而 plane 每個 key 只留一筆（torn resume 會留重複 key）；讀者比對不符就拒絕這一代，pointer repair 再把指標清掉，下一次建置開新 lineage 全部重新 embed。改成取 plane 的數，且發布前先用讀者的檢查驗一次。pointer repair 只在檔案確實不在／壞掉／對不上時清指標，暫時讀不到（分享鎖、檔案開太多、磁碟錯誤）只記錄；平鋪格式的舊指標留給開啟時的搬移，不清。重建或 Reset 蓋在部分索引上又停在第一塊，不再用小的那一代取代涵蓋更多的那一代；failed 的工作保留 lineage，Replay 接著做而不是從零；建置遇到別的 writer（開啟後的部分復原在投影）改等而不是讓工作失敗；trash 裡一個刪不掉的項目不再擋住後面的。兩個 regression test：`a_source_holding_a_key_twice_still_publishes_a_generation_readers_accept`、`a_rebuild_stopped_after_one_chunk_keeps_the_partial_that_covers_more`。
+      - 備註：存檔中加一個字再刪掉，儲存的回應落地時框看起來像沒改過，會把回應填回去、刪除永遠不寫。改成記「有沒有打過字還沒寫」，不看文字是否等於起點。
+      - 改密碼／開關加密後的鑰匙圈與設定改由 worker 在同一個 hold 裡做（`RekeyRequest.rememberInKeychain`）；之前視窗在命令回來後才寫，「做完再結束」可能在那之前結束。鑰匙圈寫不進去時跟以前一樣：改動算完成、設定不動、視窗提醒（`KeychainNotUpdated`），不當成改動失敗。
+      - 開啟時的 schema 升級失敗，進度畫面蓋在鎖定畫面上不會消失：失敗也送結束事件。
+      - 進階搜尋「任一」欄位開頭的 `-` 會變成排除並拆掉 OR 鏈；「全部」亦同：去掉減號。
+      - 語意搜尋連不上嵌入服務時的備註把服務的英文錯誤夾在翻譯好的句子裡：拿掉，原因仍留在給 Ask 的 trace。
+      - Doctor 的「存檔格式」檢查除了 Archive 都當成第 1 版，這個 PR 把 Intelligence 升到第 2 版後它就一直報有問題：改成讀已登記的 migration 的最新版本（`MigrationRegistry::latest_version`）。doctor 的 Rust 測試先失敗再過；`upgrade.spec`（0.3.0 的資料夾更新後）加了健康檢查的「存檔格式」要通過。
+      - `insights.spec`「一句搜尋在幾個瀏覽器裡是一行」最後兩個斷言仍寫死「台北天氣」，哪一句先搜依 fixture 的 `now` 每天不同（2026-11-01 的 gate 就失敗在這）：改讀 fixture，跟同一個測試前面的斷言一樣。
+      - 看過、量過、不改：Intelligence v2 升級第一步的 `COUNT(*)`。本機 release、未加密、熱快取，100 萬列 3–4 ms（`EXISTS` 0.2 ms），Turso 不讀每一列；14.4M 照比例是幾十 ms。冷快取、加密、目標機都沒量。
+      - 最後一次審查（Codex，對整個 PR 讀碼、不跑測試；五條，逐條對照代碼驗證；修完之後又請它只看修改的部分，再找到三條，也都確認並修進下面）：
+        - 確認並修：failed 的重建保留 lineage 給 Replay，可是 failed 的工作取消不了、清不掉、之後也沒有任何東西改它，它的索引檔就永遠留著（這一輪的 F5 修法帶進來的）。改成保留到它要做的索引被取代為止：之後別的工作的 lineage 在服務同一組 provider / model，或這組 provider / model 在它失敗之後被清掉（ledger 的 `last_cleared_at`，所以別的模型的 Reset 不算、從舊工作重播的 Reset 算）；同一 lineage 之後的更新不算。Rust 測試先失敗再過；取代的判斷另有 unit test。
+        - 確認並修：備註／標籤的儲存佇列是每次打開詳情各一條；離開時上一次的存檔還在路上、回來又改，新的先到、舊的後到，存檔留下較舊的那句。改成同一頁同一欄位共用一條佇列（`annotation-writes.ts`），排著的存檔執行時跟共用快取裡的備註比，不跟自己那次打開時看到的比（不然第二次離開前改回原句會被當成沒改）。兩個 unit test 都先失敗再過。
+        - 確認並修：備註存檔的回應帶著整份 annotation，等 `cancelQueries` 的空檔裡標籤存檔先落地，備註的舊回應把快取裡的標籤蓋回舊的，標籤欄位接著採用它，下一次加標籤就寫出少了一個的清單、刪掉存檔裡的標籤（這個 PR 讓標籤欄位會採用快取的變化）。改成各自只把自己那個欄位寫進快取。unit test 先失敗再過；標籤欄位的佇列也一起共用。
+        - 確認並修：改密碼的「做完再結束」hold 只包住改寫那一段，鑰匙圈設定在 hold 結束後才存，結束可能落在中間。改成 hold 包住到設定存好。沒有測試（從變數的作用範圍就看得出來，E2E 的結束測試只做匯出）。
+        - 看過、不改：`hardest_topics_in_range` 讀整個範圍（同上，`WORK-INSIGHTS-COLD-READS`）。
+        - gate 抓到的（不是這個 PR 帶進來的，2026-10-04 起就有）：匯入完成、頁面還在重新整理時，匯入仍算在忙，接著檢查下一個檔案會被默默丟掉，卡片停在填好的路徑上什麼也不做（`semantic-index.spec` 的匯入 helper 因此偶發失敗）；重新整理失敗也會把已完成的匯入報成失敗。Takeout 與瀏覽器檔案的匯入都改成匯入回覆後就放開，重新整理放在後面、失敗不影響結果。unit test（`import-runs.test.tsx`，E2E 排不出這個競爭）先失敗再過。
+        - 最後再請它只看上面這一輪的修改（Codex，讀碼不跑）：這裡的修正都確認站得住；找到一條，確認但不在這裡修：快取的 app snapshot 十幾處各自讀了就寫、不管先後，兩次讀取亂序回來時舊的會蓋掉新的。匯入不再等重新整理之後，連續兩次匯入也會碰到；其他來源本來就會。存檔不受影響，畫面上的狀態要等下一次變動才對。要所有寫入走同一條有順序的路，進 BACKLOG（`WORK-SNAPSHOT-WRITE-ORDER`）。
+      - 看過、記進 BACKLOG：resolve 指標連換四次就放棄（`WORK-INDEX-RESOLVE-RETRY-LIMIT`，現在碰不到）。錯字容忍只做拉丁字母是既定設計（`lexical-recall-v2.md`），不改。
+      - 看過、不改：`hardest_topics_in_range` 每頁把範圍內的 query family 讀進記憶體（已量：30 萬 family 1.4–1.6 s，`WORK-INSIGHTS-COLD-READS`）；更新重啟不問（已記 `WORK-QUIT-FOLLOWUPS`）。
+    - 推上去後 CI 的 `backup.spec`「Insights 開著時備份，範圍要重讀」失敗，重新整理才看到新造訪。不是這個 PR 帶進來的（2026-10-08 起就有）：Insights 的快取與存下的讀取用 checkpoint 帳本的指紋當鍵，同一次建置的每個階段都用建置開始的時間寫 checkpoint，發布（切換 Insights 讀的資料）時帳本不變；在最後一個 checkpoint 和發布之間讀的範圍，就以同一個指紋被快取，建置標成完成後把備份前的列當成最新的給出去。改成發布在同一個交易裡更新帳本的時間（Rust 測試先失敗）。
+    - 第五輪（2026-11-01，ChatGPT 對整個 PR 的審查，五條加一條 PR 組織的意見，逐條對照代碼，確認的才修）：
+      - 確認並修：清除語意索引（`clear_only`）開始時把存檔目前的水位記到還在服務的舊索引上，清除失敗、暫停或停下後，舊索引看起來涵蓋了它沒讀過的造訪，「索引過期」的提示不見，備份後的自動建索引也停了。介面沒有地方送 `clear_only`，只有命令本身與測試碰得到。改成 ready 的索引在任何一次建置發布之前都維持 ready、水位與完成時間不動（清除到成功才拿掉指標）。Rust 測試先改、先失敗、修好後通過。
+      - 確認並修：開關加密時，要求的「把密碼存到鑰匙圈」跟著新存檔的 `config.json` 一起裝上，鑰匙圈寫不進去時設定已經是開的；下次用密碼開存檔，又因為鑰匙圈存不進去而打不開。改成裝上時帶原本的設定，鑰匙圈存好或清掉了才改設定（只寫這一欄，App Lock 在長時間改寫中鎖上也不擋）；`install_archive` 明確收到要不要記住，不再從設定讀；清除不再先看狀態有沒有鑰匙（讀不到鑰匙圈時狀態也說沒有）。存檔換好之後的步驟不再讓命令失敗（之前 App Lock 鎖上時稽核紀錄那一步會讓視窗說「存檔沒有改動」）；`rekey_archive` 回傳 `RekeyOutcome { snapshot, keychainFailed }`，視窗照它提醒，不從快照的鑰匙圈狀態猜（舊鑰匙還在時猜不出）。Rust 測試先寫、先失敗、修好後通過；視窗那邊沒有測試。
+      - 驗證時另外找到並修（不是這個 PR 帶進來的）：設定開著「存到鑰匙圈」時，用密碼開存檔要先把鑰匙存進鑰匙圈，存不進去就整個打不開。改成記錄後照樣打開。測試先寫，第一版失敗在 owner lock 而不是鑰匙圈（測試本身的錯）；改正時修法已經在了，所以是把修法還原確認它失敗在鑰匙圈的錯誤、放回來通過。
+      - 文件改、程式不改：問題開著、工作已經做完時再按一次結束，程式照第二次的要求結束；模組說明與 `desktop-command-surface.md` 寫的是「回到前面」。問題上已經寫著沒有東西在跑，再結束一次就是要結束，改文件。
+      - 看過、記進 BACKLOG：引號裡看起來像運算子的字（`"site:x"`、`"-foo"`）仍當運算子（`WORK-SEARCH-QUOTED-OPERATORS`）。parser 的規則早於這個 PR，進階搜尋讓它更容易碰到，`words-query.ts` 寫明了、預覽顯示實際的查詢。
+      - 不採納：「head 上只看得到 Vercel」不對，GitHub 的 `strict-check`（Ubuntu 上完整的 `bun run check`）在兩個 PR 的 head 都過了；Windows 確實沒跑。拆成六個 PR 是用戶的決定，不在這裡做。
+      - 修完後請 Codex 只看這一輪的修改（讀碼不跑）：三條，都確認並修。(1) 改寫途中 App Lock 鎖上，最後組快照（`load_unlocked_config`）失敗，命令仍回錯誤、視窗說存檔沒改；改成讀不到就回 `snapshot: null`，解鎖時視窗再讀。沒有測試（要在改寫中途鎖上）。(2) 原生的鑰匙圈刪除把錯誤吞掉，拒絕刪除也回報成功，而視窗不再猜之後就沒有提醒；改成只有「本來就沒有」算成功（也影響設定的開關與刪除所有資料：後者會留下標記重試）。沒有測試（測試用的鑰匙圈本來就回報錯誤，原生的拒絕在測試裡做不出來）。(3) 無條件清除讓還原、升級、搬移匯入在鑰匙圈讀不到、又不需要記住時變成失敗（存檔其實已經裝好）；`install_archive` 改收 `KeychainAfterInstall`（`Key` / `Nothing` 由改密碼與開關加密的要求決定，`AsSaved` 給沒人要求改的路徑，照以前只清看得到的鑰匙、清不掉只記錄）。還原的測試先寫、先失敗。
+      - 之後另外加的保護（用戶轉來的提醒）：Rust 測試的鑰匙圈服務名稱預設是已安裝 app 的 `com.yi-ting.pathkeep`，`bun run check` 跑 `cargo test` 時沒有檔案模擬的鑰匙圈，測試自己沒設就存或清封存鑰匙會改到真正的那一項。逐一看過所有碰得到鑰匙圈的測試（`vault-platform`、`vault-worker`、桌面 crate；看測試本身直接呼叫的，沒有追到每一層 helper），目前沒有這樣的測試。`.cargo/config.toml` 的 `[env]` 讓 cargo 啟動的每個程序用 `com.yi-ting.pathkeep.dev`；`vault-platform` 加一個測試，用到已安裝 app 那一項就失敗（把設定拿掉時失敗過）。
+    - 第六輪（2026-11-02，ChatGPT 對整個 PR 的審查，六條加 Windows 與 PR 組織的意見，逐條對照代碼，確認的才修）：
+      - 確認並修：還原、升級、搬移匯入在存檔已經換好之後，鑰匙圈不肯存鑰匙（設定說要記住）仍讓整個命令回錯誤，視窗說還原失敗，使用者會在已經裝好的存檔上再還原一次。上一輪的 `KeychainAfterInstall::AsSaved` 只顧到了清除。改成這條路徑存不進去也只記 log，跟用密碼開存檔一樣；首頁本來就會提醒「設定要記住密碼，鑰匙圈裡卻沒有」。只有改密碼、開關加密這種使用者要求改鑰匙圈的才回 `KeychainNotUpdated`。Rust 測試先寫，修法還原時失敗、放回通過。
+      - 確認並修：換了 embedding 模型、新索引還沒建好時，搜尋讀的是上一個模型的索引，History 結果下面那行卻用新模型的數字：「e2e-embed · 已索引 0 個頁面」；`ready` 也看新模型的服務能不能用。`AiIndexStatus` 加 `serving`（服務、模型、造訪數、最後更新、是不是選中的那個），`ready` 看 serving 索引；其餘欄位仍是選中的索引，給 Settings。History 只在 serving 就是選中的索引時才說過期。數的其實是造訪（每筆造訪一列），三種語言的「頁面」改成「造訪」。換模型的 E2E 加檢查。
+      - 確認並修（不是這個 PR 帶進來的）：History 的搜尋命令與 Ask 不管 AI 和語意搜尋開關，照樣找 embedding 服務、讀它的金鑰、把查詢送去；只有 History 的模式切換把語意搜尋藏起來。相關頁面、相似搜尋、搜尋分組自己會檢查。改成它們共用的 `selected_optional_embedding_runtime` 先過 `ensure_ai_capability_enabled(SemanticIndex)`，關著就沒有服務、只用字搜。E2E 關掉語意搜尋後直接呼叫命令，假服務收不到請求。
+      - 確認並修：`WORK-SEARCH-QUOTED-OPERATORS` 這次做掉（上一輪記進 BACKLOG；審查說進階搜尋讓它成了這個 PR 交付的一部分，同意）。token 記下第一個引號的位置：從引號開始的整個 token 是字面片語，兩個 parser 一起改；引號接在運算子或 `-` 後面只包運算元，原來的寫法意思不變。表單把看起來像運算子的字和單獨的 OR 加引號；三個字詞欄位打的 `-` 照舊拿掉。Rust 每個運算子 × 三種寫法 × 兩個 parser 的表格測試，TS 每個運算子 × 四個欄位。Insights 連結把標題原樣當查詢的另記 `WORK-INSIGHTS-TITLE-QUERY`。
+      - 修完後請 Codex 只看這一輪的修改（讀碼不跑）：兩條，都確認並修。(1) History 開著時新模型的索引建好，畫面上還是舊索引的結果，那行字卻改說新模型：語意結果的快取鍵沒有 serving 索引。改成鍵裡帶 serving 的服務、模型與最後更新，換代就重查（增量更新發布新的一代時也會重查）。沒有測試（要在 History 開著時等一次建置完成）。(2) `serving` 的說明寫「沒有完整索引時不存在」，實際上會退回選中模型的部分或空索引；改說明。
+      - 本機完整 `bun run check`（2026-11-02，(1) 之前的 commit，那一處只差前端的快取鍵）：Rust 91 組、E2E 121 全過；最後的 commit 由 #18 的 gate 一起跑。
+      - 看過、不改：改密碼時鑰匙圈存好、設定卻存不進去（審查要持久化的 reconciliation 標記）。設定寫不進去是磁碟或權限壞了，整個 app 都會出問題；現在記成警告顯示，首頁的鑰匙圈提醒也看得到不一致。為這個加一套收斂機制不划算。
+      - 看過、做不到：Windows 上實測 mmap、rename、刪資料夾與 GC。這台是 macOS，CI 只有 Ubuntu；CI 加不加 Windows runner 由用戶決定。拆 PR 仍是用戶的決定。
+    - 第七輪（2026-11-03，ChatGPT Pro 對 PR 16 的審查，三條加一條 main 就有的；逐條對照代碼，每條先找根因再修）：
+      - 確認並修：History 那行「已索引 N 次造訪」讀的是 lineage 的計數，增量更新每存一批就先加，發布新索引之前、或更新中途停掉之後，數字比搜尋實際讀的那份多。serving 的時間與 watermark 本來就只在發布時寫，只有筆數不是，根因在這裡：建 generation 時把它涵蓋的造訪數寫進自己的 `serving.json`，status 讀這個；v0.4.0 搬過來的沒有這個數，退回 lineage 的。Rust 測試讓更新在最後一道 barrier 失敗，rows 已存、serving 仍是 3，修之前是 4。
+      - 確認並修：鑰匙圈不肯存新鑰匙時，原本那一項照樣留著；還原之後那可能是被換掉的存檔的鑰匙，什麼都打不開，首頁看到有一項就不提醒。審查只指出還原這條路；用密碼開存檔、設定裡存鑰匙都走同一個 `store_data_key_in_keyring`，根因在那裡：存不進去時，那一項不是這個存檔的鑰匙、也不是打得開它的舊版密碼，就刪掉，是這個存檔的就留著。沒有照審查另加警告 UI：首頁的提醒和下次問密碼本來就在說這個狀態，現在說的是真的。測試鑰匙圈加「拒絕寫入、仍可讀與刪」，測試先寫，修之前失敗。
+      - 確認並修：進階搜尋表單用正則近似後端分詞，片語裡跳脫的引號會提早結束片語（「任一字詞」變成三個 OR，「不包含」排除三個字），詞中間的引號、`-"…"` 也和後端不同。`fieldTerms` 改成照搬 `tokenize_query` 的狀態機，空白用 Unicode White_Space（和 Rust 的 `is_whitespace`、`trim` 同一組，JS 的 `\s` 少 U+0085、多 U+FEFF）。TS 表格測試加這幾種寫法；Rust 測試把表單寫出的跳脫片語交給兩個 parser，讀回一個片語、排除一個片語。
+      - 確認、記進 BACKLOG（main 就有）：造訪內容變了（例如事後加上摘要）重新 embedding 之後，`.pkmap` 仍指著舊內容，`take_unmapped` 不替已有映射的造訪換 key。讀碼確認，還沒寫測試：`WORK-SEMANTIC-REMAP-CHANGED-CONTENT`。
+      - 看過、不改：`store_rows.rs` 長 SQL 的可讀性（審查自己說不擋合併）。
+      - 修完後請 Codex 只看這一輪的修改（讀碼不跑），與 #18 一起：一條確認並修（上面空白那句），一條不改：初次建置在向量與映射 fsync 之後、資料庫還沒 commit 時當掉，開啟時的部分恢復會發布那份映射，記下的筆數少了那一批。改之前讀的也是同一個 lineage 計數；續跑把那一批存進去、再發布時就對了。改用映射檔自己的筆數更糟：映射只增不刪，撤銷匯入之後被清掉的造訪還在裡面，會一直多算到下次整個重建。
+      - 本機完整 `bun run check`（2026-11-03，#18 這一輪最後的 commit，含 #16 的全部修改）：Rust 91 組、unit 102、E2E 122 + 8 全過；最後一段 E2E 的 1 個在 gate 裡沒起來（隨機選到的 bridge 埠 44438 正被別的程式占著），單獨重跑通過。
+    - 第八輪（2026-11-05，ChatGPT Pro 對 PR 16 的審查：一條搜尋、CI 紅燈，其餘接受；逐條對照代碼，先找根因再修）：
+      - 確認並修：錯字回退會掉字。`javascrippt react OR vue` 找不到有 Vue 的頁（`vue` 太短，從 OR 裡消失），`ruste go OR js` 找到只有 Rust 的頁（整個子句被刪）。審查只看到 OR；根因更底下：錯字檢查是另外造的一份縮水查詢，只留下能打錯的字，到最頂層才跟精確比對合併。同一個根因還有審查沒提的：不在 OR 裡的字被黏成一個字串，所以 `typescript api` 找到所有 TypeScript 頁（改動把 `api` 刪掉了）、打錯的查詢只能照輸入的順序找到、旁邊有中文就整個不回退，引號片語在 OR 旁邊也能靠錯字距離比中。`FuzzyQuery` 改成跟查詢同形的一棵樹，每個字都在裡面，照精確比對或在改動次數內比中；索引候選和頁面檢查都讀這棵樹，不會再各說各話。不在 OR 裡的字有兩種讀法：各自比，或黏成一個字共用改動次數（`rust tokoi`、`face bok` 靠這個，拿掉就是回歸），改動次數小於最短的字。測試先寫，先在舊代碼上跑過；代價：多字的錯字查詢、以及拼對但查無結果的多字查詢，現在多半要走完所有頁（一個字本來就這樣），舊的整段 trigram 預篩省不到了。檢查本身不再每個視窗配置字串，單頁較便宜（一個字 56 → 17 µs、兩個字 102 → 48 µs，合成資料、本機、不含讀資料庫），但舊預篩在真實資料上省多少沒量過，總時間可能變長。search benchmark 加了 `typo-word`、`typo-words`、`no-match-words`，下一次 14.4M 實測一起量。
+      - 確認並修：CI 的 audit 紅燈是 `RUSTSEC-2026-0429`（zip 4.6.1）。只有 updater 帶進來，走到的只有簽章驗過的 Windows 更新包，加例外站得住；但 allowlist 寫的「上游還沒有 zip 9 的版本」10-28 就過期了。`tauri-plugin-updater` 2.14.1 用 zip 9，要 Tauri 2.12：升上去，四條 zip 公告與五條 `unic-*` 的 allowlist 一起拿掉。audit 排在後面的 `async-executor` 1.14.0 被 yank，也升了（只修 zip 下一輪 CI 還是紅）。`fxhash` 的理由過期了，現在經 `scraper` 進來，改寫並記 `WORK-SCRAPER-LATEST`。E2E 走 bridge 不開真視窗，另外在沙盒起了 debug 版確認原生視窗與畫面正常。
+      - 看過、不改：`store_rows.rs` 長 SQL 的可讀性（審查自己說不擋合併，第七輪也這麼判）。其餘上一輪的修法審查都接受了。
+      - 修完自己再看 diff 找到一條：改動次數用去掉標點後的 token 算，`e-comerce` 被當成 `e` 和 `comerce`，改動歸零，舊版找得到的找不到了。改成看使用者打的字，測試先失敗再修。
+      - gate 抓到的（不是這一輪帶進來的，語意索引分代那個 commit 起就有）：`fresh_execution_settings_protect_a_complete_fallback_from_a_failed_new_model` 的假服務把 listener 設成非阻塞，macOS 上 accept 出來的 socket 會繼承，請求還沒到時 read 立刻回 `WouldBlock`，不等 read timeout；機器忙才碰得到，Linux 的 CI 看不到。accept 之後改回阻塞。獨立小程式確認：不改回 2 µs 就 `WouldBlock`，改回等 197 ms 讀到請求。
+      - 請 Codex 只看這一輪的修改（讀碼不跑）：依賴升級沒有確認到的問題；一條確認並修：索引的 trigram 保留重音、檢查把重音折掉，`deja vo` 找 `Déjà vu`，縮小改動次數之後候選集以為一定有共同 trigram，把舊版找得到的頁篩掉了。候選集改回看字長的完整改動次數，跟舊版相同。夠長的目標在重音很多的頁上本來就會漏，不是這個 PR 帶進來的，記 `WORK-SEARCH-ACCENT-GRAMS`。`rand` 的理由少寫 `tantivy-columnar`，補上；`paste` 另經 `simba` 不採納（`simba` 只在 lockfile，`cargo tree` 沒有它）。
+      - 本機完整 `bun run check`（2026-11-05）：#16 Rust 91 組、unit 102、E2E 122 全過；#18 這一輪最後的 commit（含 #16 的全部修改）Rust 91 組、unit 102、E2E 123 + 8 + 1 全過。`audit:rust`、`deny:rust` 不在 `check` 裡，兩個 head 另外跑過。
+    - 第九輪（2026-11-05，ChatGPT 對 PR 16 的審查：兩條生命週期、一條效能門檻；逐條對照代碼，先找根因再修）：
+      - 確認並修：serving 的檔案暫時讀不到時，建置當成沒有索引，開新 lineage 把全部造訪重新 embedding（修之前的測試：3 筆全重做）。指標修復本來就留著指標，但建置問的是 `resolve`，它替讀者回答「現在讀不讀得到」。建置只讀自己的來源，不讀 serving 的檔案，所以改成照指標決定 lineage（`pin_serving`），沒有照審查開一個「暫時不可用」的狀態、讓工作失敗：那樣一個暫時的錯誤就要等人手動重跑，這裡根本不需要失敗。
+      - 同一個根因還有審查沒看到的，有的更糟：`identity.json` 暫時讀不到就當沒有，續跑的工作刪掉自己的來源，v0.4.0 的來源也會被新 lineage 取代；這兩條測試先失敗再修。Codex 再找到：比較部分索引大小時讀不到算 0，小的會取代大的；`Path::exists` 查不到時回「沒有」，指標被清、identity 被蓋成無效、map 被截斷。現在只有檔案不見或損毀才算沒有，會清除、覆蓋、截斷的判斷改用 `try_exists`。`exists` 這幾條在本機磁碟上很難碰到，留著是因為改法沒有多餘的代碼。
+      - 確認並修：關閉時 lease 直接 return，連 writer 都不釋放，等它的建置永遠睡著，手上拿著整個 process 共用的索引閘。App Lock 在同一個 process 裡關閉再重開 Vault，所以索引工作會停到重啟 app（修之前的測試：逾時）。崩潰後部分恢復與續跑的工作正好碰同一個 lineage，不算罕見。現在 lease 一律釋放，等待也會被關閉打斷，`stop_reaper` 經過 registry 鎖再通知，不會錯過正要睡的建置。
+      - 這個修法會打開新的窗：關閉等 collector 時 store 還開著，提前結束的工作會被標成 failed、等人手動重跑；投影被關閉取消本來也有這個窗。關閉中的失敗現在不改工作狀態，下次開啟排回去，跟 quit 一樣。
+      - 效能門檻：多字錯字確實多半走完所有頁，但「base 靠 trigram 省掉」在量到的資料上不成立。14.4M 造訪、2.9M 頁、4 vCPU / 8 GB、同一台 VM 交替跑兩輪：精確搜尋不變（1.00～1.04 倍），錯字 head 全部較快（一個字 143 → 92 s、兩個字 149 → 139 s、拼對沒結果 140 → 116 s），兩個字 base 找不到那一頁、head 找得到。走訪中取消 26 ms 內，小寫入中位數 0.6 ms，記憶體 165 MiB 內。第一次分開兩台 VM 量，精確搜尋像是慢了三成；沒改過的種子、重建、備份也慢三成，才知道是機器不同，同一台重量才算數。合成頁面讓舊的 trigram 篩選省不到東西，真實資料上省多少沒量。沒有改候選集：絕對時間仍長，但不是這個 PR 帶來的，記 `WORK-SEARCH-TYPO-WALK`。benchmark 加了文件數、CPU、讀取量、取消與寫入等待（`research/2026-11-typo-walk-benchmark.md`）。
+      - 看過、接受：`query.rs` 的註解確實說過頭，「候選和檢查不會不一致」改成這是每種目標各自要守的承諾。審查列的已知項目都在 BACKLOG，不重複算。
+      - 確認、記進 BACKLOG（main 就有）：標籤存失敗時退回的可能是舊清單，下次編輯會蓋掉別處存好的標籤。讀碼確認，還沒重現：`WORK-TAG-SAVE-FAILURE-STALE`。
+      - 請 Codex 只看這一輪的修改（讀碼不跑）：四條同根因的（上面已列）、一條 benchmark 的（走訪可能已經結束卻算成走訪中，現在回報），都確認並修；`pin_serving`、鎖的順序、每個等待、工作狀態都查過沒問題。
+      - 本機完整 `bun run check`（2026-11-05）：#16 Rust 91 組、unit 102、E2E 122 全過。#18 Rust 91 組、unit 102；E2E 第一次 3 個失敗、18 個沒跑到，同一份代碼重跑 123 + 8 + 1 全過。失敗的都在解鎖與密碼路徑，那段時間走密碼的測試慢 5～13 倍，其他不慢，重跑回到平常的時間；原因沒查到。
+    - 第十輪（2026-11-08，Claude Code 的 `/code-review`（high）對整個 PR，十條；逐條對照代碼，確認實際觸發得到、找到根因才修）：
+      - 確認並修：存檔還沒有造訪時開語意搜尋（瀏覽器設定檔是空的，或 onboarding 跳過第一次備份再選本機語意搜尋），建置成功、發布一代沒有向量的索引，Settings → AI 卻用紅字說「索引不完整。請重建索引來修復。」，History 說語意索引現在不能用；重建只會再做出同樣的空索引。審查報的是清除（`clear_only`）之後同樣的錯，介面沒有地方送清除。根因在判斷「向量缺失」：把 ledger 有 `last_indexed_at` 當成這個索引應該有向量，而清除和沒有東西可嵌入的 pass 也會寫這個時間（分代那個 commit 帶進來的，main 只看列數）。改成只看確實的證據：lineage 有列，或 ledger 帶著復原註記（指標指的那一代遺失、v0.4.0 的索引等著搬）。新的 E2E `semantic-empty-archive.spec`（wipe 之後的空資料夾、一個沒有歷史的 Chrome 設定檔）修之前失敗在「Nothing indexed yet.」（畫面是那句紅字），修之後通過；它接著備份第一次造訪，確認索引自己補上、History 用語意找得到，最後照使用者的方式刪掉資料，`upgrade.spec` 照樣拿到空資料夾。遺失的一代修好指標之後仍要報向量缺失：`unavailable_generation_degrades_status_and_search_and_cannot_authorize_gc` 加了這條斷言，把修法的復原註記那一半拿掉時它失敗。
+      - 確認並修（main 就有，`WORK-REGEX-NEXT-PAGE-REWALK`；一開始判成早於這個 PR、留在 BACKLOG，用戶 2026-11-08 說 #18 沒修就是這個 PR 的責任）：regex 的下一頁把掃描重設到起點，每一頁都重讀整個 archive。審查只看到「最常瀏覽」的走訪；根因是第一頁讀完、每頁的鍵都定了之後，掃描只留下當頁，所以時間排序的走訪也一樣，有字面片段的候選讀取也一樣（片段很常見時，例如 `https`，候選幾乎是全部的頁）。改成後面的頁接著第一頁讀到的：候選讀取（各種排序）與「最常瀏覽」的走訪留下一百頁的鍵（顯示的這一頁和後面的；History 每頁 100 筆時約 1 MB），下一頁直接排、一次造訪都不讀；用完了才重讀一次來源，略過已經顯示過的頁，再留下一百頁。第一版把每個符合頁的鍵留到 session 結束，常見的樣式在 History 開著時最多佔約 170 MB（另一個審查提出）；改成一百頁，限的是記憶體，不是結果，每一筆都翻得到。「最常瀏覽」的走訪走完時也把計數佔的記憶體還回去：`retain` 只丟掉內容、不還記憶體，main 就這樣，一直佔到 session 結束。時間排序的走訪不留，下一頁從游標的時間接著走（那個時間要重讀：時間相同的頁照 page ID 排，走訪卻照 visit ID 遇到它們），走過這一頁最後一個鍵就停，再用一個查詢數這一頁各列的造訪次數。總數照第一頁算的，不再每頁歸零重算。E2E：`search-builder.spec` 在 History 把 regex 搜尋捲到底，每個符合的頁出現一次、順序對、造訪數對；最新的在前與最常瀏覽，走訪每次造訪與只讀有那個字的頁兩種都跑（fixture 107 頁，兩頁結果；鍵用完要一萬多筆符合，交給 Rust 測試）。讓下一頁從游標那一列重新開始時，它在最常瀏覽那份清單抓到第 100 列重複。測試先寫（`regex_paging_tests`）：各頁接續第一頁的測試在舊代碼上就過（重讀雖慢但結果對），讀取量的測試在舊代碼上失敗（第二頁又讀了全部 308 次造訪）；八種寫錯的版本（跳過游標那個時間、走到最後一個鍵的時間就停、不補數造訪次數、鍵用完不重讀、丟掉鍵時沒記下、重走時沒忘掉遇過的頁、重讀時疊在剩下的鍵上、走完不還記憶體）各放回一次，測試都失敗。「重讀時疊在剩下的鍵上」只會讓某一頁少幾筆，所以測試改成檢查每一頁的筆數，並加了鍵剛好在最後一整頁之前用完的情境。14.4M 上時間排序走訪的後面一頁要多久，沒有量。
+      - 確認、記進 BACKLOG（main 就有，2026-10-04 前端改版起）：app 裡沒有清除語意索引的入口。舊前端的 Clear index 沒有帶過來，語意搜尋關掉之後索引的檔案（14.4M 時 4–59 GB）只有「刪除所有資料」刪得掉；移除服務也要等下一次索引工作才刪，內建模型的索引連這條路都沒有。功能文件仍要求清除入口，要不要加回來、放在哪裡由用戶決定：`WORK-SEMANTIC-INDEX-CLEAR-ENTRY`。加回來時不會再碰到上面那個錯：清除後的狀態已是 `empty`。
+      - 看過、不改：
+        - 停下的首次填補在工作結束前同步投影、取消也不中斷（`publish_partial`）：設計文件明定停下時投影一次、取消也保留部分索引；投影期間心跳照送，工作不會被當成卡住而被別人接走。
+        - 語意路徑讀檔出錯時備註說「語意索引是空的」：只有 I/O 錯誤或檔案損毀碰得到；第一輪已決定不做 fallback 的錯誤分類。
+        - 開啟存檔時同步跑 GC：設計文件明定（只做目錄與標記，開啟時清 trash）；在這台 Mac 實測刪一個 4.2 GB、generation 大小的資料夾要 0.18 s，不是審查說的幾秒到幾十秒。
+        - 每個索引工作跑三次 GC：每次只看目錄與一個 lineage 一行的 totals，不隨造訪數增加；三次各有用途（建置前回收空間、直接執行的建置自己清、工作定案後回收取消的 lineage）。
+        - status 讀 `serving.json` 失敗就當成舊版文字：同一個 lease 剛在 `resolve` 讀過這個被 pin 住、不會改的檔，要在幾微秒內碰上暫時的讀取錯誤。
+        - 模型的驗證標記寫不進去時，每次快照都重算 SHA-256：main 每次快照都無條件重算，這個 PR 已改成標記不符才算。
+        - `hardest_topics_in_range` 每頁讀整個範圍：main 的 SQL 用時間索引、照 member_count 排序，LIMIT 之前一樣讀完範圍；已量，記在 `WORK-INSIGHTS-COLD-READS`。
+        - `text_format_is_outdated` 沒用到的 `provider` 參數、status 裡另一份同樣的判斷：整理，不是錯誤。
+      - 本機完整 `bun run check`（2026-11-08，這一輪的全部改動）：Rust 91 組、unit 102、E2E 124 全過。前一次 gate 的 E2E 在 `move.spec` 失敗：Playwright 預設整個測試兩分鐘，機器忙時光匯出就要 72–81 s，這一輪之前的代碼（`e3332e95`）也這樣失敗過一次；測試自己的等待加起來近九分鐘，改成給十分鐘，跟 #18 的改法一字不差，#18 rebase 時那份會消掉。那幾次 import-stop 與 takeout-continue 也比舊代碼慢，最後一次全套跑起來比舊代碼的兩次都快，是機器的負載，不是代碼。
+
 - [x] **WORK-GATE-2026-10-25** — 先讓整合分支 `feat/search-sort-builder` 過完整 gate，再合 main（2026-10-25 晚上的 gate 在 E2E 的 change 專案連鎖失敗，restart 之後沒跑）
   - 2026-10-25 16:13 在 Modal（Linux，8 vCPU / 32 GB，閒著）跑完整 `bun run check` 過了（合併換上之前的整合分支）；合併換上與它的修正、整理成 PR 分支 `feat/2026-10-25-search-and-index` 之後，17:14 再跑一次也過了（Rust 91 組、E2E 119 過、1 跳過）：JS 檢查、build、fmt、clippy、Rust 測試 91 組全過（含 `the_block_cache_bounds_memory`）、desktop bridge、release check；E2E 118 過、1 跳過（`schedule.spec` 在 Linux 上本來就跳過），restart 之後的專案（`quit-during-work.spec`、`semantic-index.spec`）都跑到了。晚上本機的連鎖失敗是負載造成的。
   - 中途修了一個測試自己的錯：`insights.spec.ts:628` 寫死 Work 設定檔（`chrome:Profile 1`）先搜「台北天氣」，但 fixture 依 `now` 產生，哪一句先搜每天不同（併在 `2351ba22`）。
