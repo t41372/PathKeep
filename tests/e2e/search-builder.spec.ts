@@ -6,7 +6,10 @@
  * visit, "Most visited" by its visits, with the count the order goes by on
  * the row; the order is kept in the URL, survives a reload and holds in
  * Regex mode, which ranks by visits too and where "Best match" can't be
- * picked and the menu says why. Advanced
+ * picked and the menu says why. Scrolled to its end, a regex search lists
+ * every page it matches once, in its order and with its visits, past the
+ * first page of results, whether it reads only the pages that hold a word
+ * of the pattern or walks every visit. Advanced
  * search's Words tab writes "all of", "any of" and "none of" as one query
  * that finds what Google would (tokio, and runtime or smol, but not google):
  * the page about smol alone, which an OR splitting the whole query would
@@ -15,7 +18,13 @@
  * escaped and "one of" and "anything up to the next /" mean what they say;
  * a pattern put together piece by piece does the same.
  */
-import { expect, test, type Page, type TestInfo } from '@playwright/test'
+import {
+  expect,
+  test,
+  type Locator,
+  type Page,
+  type TestInfo,
+} from '@playwright/test'
 import { unlockIfLocked } from './support/app'
 import {
   archivedVisits,
@@ -135,6 +144,88 @@ async function expectOrder(page: Page, titles: string[]) {
     )
 }
 
+/** Scrolls to the end until nothing more loads: every page of results is in the list. */
+async function loadEveryPage(list: Locator) {
+  let height = -1
+  for (let step = 0; step < 200; step++) {
+    const now = await list.evaluate((box) => {
+      const scroller = box.parentElement!
+      scroller.scrollTop = scroller.scrollHeight
+      // While a page loads, the list ends in rows with no result in them.
+      const loading = [...box.children].some(
+        (row) => !row.querySelector('[role="option"]'),
+      )
+      return loading ? -1 : scroller.scrollHeight
+    })
+    if (now >= 0 && now === height) return
+    height = now
+    await list.page().waitForTimeout(300)
+  }
+}
+
+/** The text of every row, top to bottom, read by scrolling down from the top. */
+async function readEveryRow(list: Locator) {
+  const rows = new Map<number, string>()
+  for (let step = 0; step < 500; step++) {
+    const view = await list.evaluate((box, first) => {
+      const scroller = box.parentElement!
+      if (first) scroller.scrollTop = 0
+      const shown = [...box.children].map((row) => ({
+        // The list only draws the rows near the screen, each at its offset.
+        top: Number(
+          /translateY\(([\d.]+)px\)/.exec(
+            (row as HTMLElement).style.transform,
+          )?.[1],
+        ),
+        text:
+          row.querySelector<HTMLElement>('[role="option"]')?.innerText ?? '',
+      }))
+      const atEnd =
+        scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 1
+      scroller.scrollTop += scroller.clientHeight / 2
+      return { shown, atEnd }
+    }, step === 0)
+    for (const row of view.shown) rows.set(row.top, row.text)
+    if (view.atEnd) break
+    await list.page().waitForTimeout(50)
+  }
+  return [...rows.entries()].sort(([a], [b]) => a - b).map(([, text]) => text)
+}
+
+/** Scrolled to its end, the list holds these pages once each, in this order, with their visits. */
+async function expectEveryRow(
+  page: Page,
+  testInfo: TestInfo,
+  name: string,
+  want: FoundPage[],
+) {
+  const list = page.getByRole('listbox', { name: 'History results' })
+  const titles = new Set(want.map((found) => found.title))
+  const row = (title: string, visits: number) => `${title} (${visits})`
+  let rows: string[] = []
+  await expect
+    .poll(
+      async () => {
+        await loadEveryPage(list)
+        rows = (await readEveryRow(list)).map((text) => {
+          const lines = text.split('\n').map((line) => line.trim())
+          const visits = lines.find((line) => /^[\d,]+ visits?$/.test(line))
+          return row(
+            lines.find((line) => titles.has(line)) ?? lines.join(' / '),
+            visits ? parseCount(visits) : Number.NaN,
+          )
+        })
+        return rows
+      },
+      { timeout: 60_000, intervals: [1_000] },
+    )
+    .toEqual(want.map((found) => row(found.title, found.visits)))
+  await testInfo.attach(name, {
+    body: JSON.stringify(rows, null, 2),
+    contentType: 'application/json',
+  })
+}
+
 async function pickSort(page: Page, from: string, to: string) {
   await page.getByRole('button', { name: `Sort results: ${from}` }).click()
   await page.getByRole('menuitemradio', { name: new RegExp(`^${to}`) }).click()
@@ -218,6 +309,45 @@ test('the sort menu orders results by first or latest visit and keeps the order'
     page.getByRole('button', { name: 'Sort results: Oldest first' }),
   ).toBeVisible()
   await expectOrder(page, top(byFirst))
+})
+
+test('a regex search lists every page it matches once, in order, through its last page', async ({
+  page,
+}, testInfo) => {
+  // Four lists of more than a page each, and each read waits for its rows.
+  test.setTimeout(300_000)
+  // Every address in the fixture starts with "https". `^ht` has no three
+  // letters in a row for the search index to look up, so the search walks
+  // every visit; `https?:` has "http", so it reads only the pages that hold
+  // it. Either finds more pages than one page of results holds.
+  for (const pattern of ['^ht', 'https?:']) {
+    const regex = new RegExp(pattern, 'i')
+    const found = pagesMatching(
+      (visit) => regex.test(visit.url) || regex.test(visit.title),
+    )
+    expect(found.length, 'more pages than a page of results').toBeGreaterThan(
+      100,
+    )
+
+    await visit(page, '/#/history')
+    await searchBox(page).fill('tokio')
+    await page.getByRole('radio', { name: 'Regex' }).click()
+    await searchBox(page).fill(pattern)
+    await expectTotals(page, testInfo, `regex ${pattern}`, 'Regex', found)
+    await expectEveryRow(
+      page,
+      testInfo,
+      `regex ${pattern}, newest first`,
+      [...found].sort((a, b) => b.last - a.last),
+    )
+    await pickSort(page, 'Newest first', 'Most visited')
+    await expectEveryRow(
+      page,
+      testInfo,
+      `regex ${pattern}, most visited`,
+      [...found].sort((a, b) => b.visits - a.visits || b.last - a.last),
+    )
+  }
 })
 
 test('Advanced search writes all, any and none of these words as one query', async ({

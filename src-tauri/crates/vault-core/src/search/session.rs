@@ -200,7 +200,7 @@ impl RunningSession {
         if let Some(regex) = &mut self.regex {
             regex.step(&store, &self.cancel, budget, &self.returned)?;
             self.rank_done = regex.complete;
-            self.count_done = regex.complete;
+            self.count_done = regex.counted;
             self.matched_pages = regex.count;
             self.matched_visits = regex.visits;
             self.rank_progress = regex.progress();
@@ -264,7 +264,7 @@ impl RunningSession {
             }
         }
         let mut hits =
-            self.regex.as_ref().map_or_else(|| self.collector.hits(), |r| r.hits.clone());
+            self.regex.as_ref().map_or_else(|| self.collector.hits(), |r| r.page().to_vec());
         let has_next = self.rank_done && hits.len() > self.page_size;
         hits.truncate(self.page_size);
         if self.rank_done && self.token.is_none() && !hits.is_empty() {
@@ -436,10 +436,7 @@ impl RunningSession {
         self.page += 1;
         self.after = self.cursor;
         if let Some(regex) = &mut self.regex {
-            regex.next_page(self.cursor);
-            self.count_done = false;
-            self.matched_pages = 0;
-            self.matched_visits = 0;
+            regex.next_page(self.cursor, &self.returned);
         } else {
             self.rank =
                 Some(self.reader.as_ref().context("search session closed")?.start_matches(true)?);
@@ -555,6 +552,12 @@ impl SearchSession {
             .as_mut()
             .context("search session closed")?
             .resolve_scope(state, visit)
+    }
+    /// How many pages the regex scan has memory for between pages.
+    #[cfg(test)]
+    pub(crate) fn regex_room(&self) -> usize {
+        let slot = self.inner.lock().unwrap();
+        slot.as_ref().and_then(|running| running.regex.as_ref()).map_or(0, |regex| regex.room())
     }
     pub(crate) fn with_newest<T>(&self, read: impl FnOnce(&[i64]) -> T) -> Result<T> {
         let slot = self.inner.lock().unwrap();

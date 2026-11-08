@@ -50,3 +50,5 @@ mod most_visited_tests;
 mod projection_tests;
 #[cfg(test)]
 mod recovery_tests;
+#[cfg(test)]
+mod regex_paging_tests;
