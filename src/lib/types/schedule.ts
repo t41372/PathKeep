@@ -37,6 +37,8 @@ export interface SchedulePlan {
   platform: string
   label: string
   executablePath: string
+  /** Actual interval in the generated native schedule, including Linux's calendar grid. */
+  wakeIntervalSeconds: number
   generatedFiles: ScheduleGeneratedFile[]
   manualSteps: string[]
   manualStepDetails?: ScheduleManualStep[]
@@ -169,6 +171,10 @@ export interface ScheduleStatus {
   manualStepDetails?: ScheduleManualStep[]
   auditPath?: string | null
   lastSuccessfulBackupAt?: string | null
+  /** Current-grid estimate from Rust; login restarts the grid and sleep may shift it. */
+  nextScheduledBackupAt?: string | null
+  /** Actual native wake interval; present with the estimate for an open archive. */
+  wakeIntervalSeconds?: number | null
   /** Last successful native scheduled run; manual backups never populate it. */
   lastScheduledSuccessAt?: string | null
   /** Bounded newest-first native worker attempt history. */

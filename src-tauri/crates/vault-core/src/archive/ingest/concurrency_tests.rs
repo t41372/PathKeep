@@ -104,7 +104,7 @@ fn safety_snapshot_during_backup_restores_a_consistent_committed_prefix() {
             let mut paused = false;
             super::super::backup::run_backup_profiles(
                 &writer,
-                false,
+                None,
                 &CancelToken::new(),
                 vec![profile],
                 |p| {
@@ -135,7 +135,7 @@ fn safety_snapshot_during_backup_restores_a_consistent_committed_prefix() {
         assert_eq!(counts(&restored.vault), (10_000, 10_000, 10_000));
         super::super::backup::run_backup_profiles(
             &restored.vault,
-            false,
+            None,
             &CancelToken::new(),
             vec![source.profile.clone()],
             |_| {},
@@ -250,7 +250,7 @@ fn backup_crash_child() {
     let vault = Vault::open(crate::project_paths_with_root(Path::new(&root)), config, key).unwrap();
     super::super::backup::run_backup_profiles(
         &vault,
-        false,
+        None,
         &CancelToken::new(),
         vec![profile],
         |event| {
@@ -300,7 +300,7 @@ fn process_exit_preserves_committed_batches_and_resume_watermark() {
         assert_eq!(state, "interrupted");
         super::super::backup::run_backup_profiles(
             &vault,
-            false,
+            None,
             &CancelToken::new(),
             vec![source.profile],
             |_| {},
@@ -318,7 +318,7 @@ fn resume_does_not_reupsert_committed_url_batches_or_skip_terms() {
     assert!(
         super::super::backup::run_backup_profiles(
             &vault,
-            false,
+            None,
             &cancel,
             vec![source.profile.clone()],
             |event| {
@@ -343,7 +343,7 @@ fn resume_does_not_reupsert_committed_url_batches_or_skip_terms() {
     assert_eq!(cursors.1, 0, "terms have not been read yet");
     super::super::backup::run_backup_profiles(
         &vault,
-        false,
+        None,
         &CancelToken::new(),
         vec![source.profile],
         |_| {},

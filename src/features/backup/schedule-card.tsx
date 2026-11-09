@@ -11,6 +11,7 @@ import { SectionCard } from '@/components/app/section-card'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
+import { useNow } from '@/lib/hooks/use-now'
 import { useFormat, useI18n } from '@/lib/i18n'
 import {
   needsSchedulerReview,
@@ -76,6 +77,7 @@ export function ScheduleCard() {
   const snapshot = useSnapshot()
   const query = useScheduleStatus()
   const status = query.data
+  const now = useNow()
   const [intent, setIntent] = useState<ScheduleIntent | null>(null)
   const [details, setDetails] = useState(false)
 
@@ -90,7 +92,7 @@ export function ScheduleCard() {
     : applySupported && !active
       ? 'off'
       : (preset ?? 'custom')
-  const next = nextScheduledBackup(status)
+  const next = nextScheduledBackup(status, now)
   const platform = normalizePlatform(status?.platform)
   const changeMode = applySupported && active ? 'update' : 'install'
 

@@ -129,7 +129,8 @@ M18 redesign（2026-10-02）換掉了整個前端。下面各節的後端行為�
   - macOS：LaunchAgent（`RunAtLoad=true` + 固定週期檢查）
   - Windows：Task Scheduler
   - Linux：systemd user timer（支援 persistent timer）
-- 預設邏輯：原生排程器按用戶設定的備份間隔喚醒；如果平台只能用較小步長安全表達該間隔，worker 仍會用 `--due-only` 根據上次有存到東西（`success`，或至少一個 profile 讀完的 `partial`）的備份時間判斷真正「該不該跑」。
+- 預設邏輯：原生排程器按備份間隔與健康檢查間隔的較小者喚醒。`--due-only` 從上次計入排程的備份開始時計算，經過「備份間隔減去平台實際喚醒間隔的一半」就執行，讓備份落在最接近到期時間的喚醒，也容得下啟動時間的差異；備份本身花多久不會拉長下次的間隔。`success` 與至少一個 profile 讀完的 `partial` 都計入，手動備份也一樣。
+- 顯示的「下次備份」由 Rust 以同一個 due 時鐘估算，沿 ledger 最新喚醒的實際間隔格線找下一個到期喚醒；沒有 ledger 時以安裝時間作起點，再沒有才用計入的備份開始時間加間隔，完全沒有紀錄時用現在加一個喚醒間隔；前端只按整個喚醒間隔推進過期快取。登入會重設格線，睡眠也會移動它，因此顯示的是預估時間。
 - 每一次原生排程喚醒都是 first-class **schedule attempt**。attempt 必須在讀取 config、keyring 或 archive 之前先落到 archive-independent、crash-safe、bounded 的本機 ledger，並以 typed outcome 區分 `running`、`success`、`partial`、`skipped-not-due`、`deferred-lock`、`failed` 與中斷後復原出的 `interrupted`。不能把 skip / defer / pre-archive failure 只寫進 stdout/stderr。
 - Schedule health 只能以 scheduled attempt / scheduled success 判斷；手動 backup success 不得冒充排程成功或清除排程 failure/overdue warning。Native artifact 已安裝只代表「排程存在」，不代表 worker 已健康完成。
 - 未完成、失敗與中斷的警告取最新一次備份結果（`success` / `partial` / `failed` / `interrupted`），略過尚無備份結果的喚醒（`running` / `skipped-not-due` / `deferred-lock`）；真正的排程成功才清除警告，更早的部分完成不會再出現。「排程已經停了」仍看每次喚醒，因為「還沒到時間」也證明排程器有啟動 worker。
@@ -177,7 +178,7 @@ Settings → General 的兩個開關。
 
 - **macOS**：`LaunchAgent` + `StartInterval` 使用秒級整數，可以承載分鐘級自訂間隔。
 - **Windows**：`Task Scheduler` + `StartWhenAvailable=true`，XML repetition interval 使用 ISO 8601 duration（例如 `PT90M` 或 `PT1H30M`），能承載分鐘級自訂間隔並補跑錯過的任務。PathKeep 寫入給 `schtasks /Create /XML` 的 Task Scheduler XML 不包含 XML declaration，避免 Windows import path 因 encoding declaration 報 `unable to switch the encoding`；`LogonTrigger` 與 `Principal` 都綁定目前 Windows 使用者，避免非管理員安裝時變成 all-users logon trigger。Status verification 不做整段 XML 相等比對，因為 `schtasks /Query /XML` 會重排節點、補上 battery / idle / unified scheduling defaults，並可能把 principal user canonicalize 成 SID；PathKeep 只比對 command、arguments、repetition interval、logon trigger、interactive token、least privilege 與 `StartWhenAvailable` 這些行為欄位。
-- **Linux**：必須使用 `OnCalendar=` 搭配 `Persistent=true`，而**不是** `OnUnitActiveSec=`。原因：systemd 的 `Persistent=` 只對 `OnCalendar=` 有效，monotonic timer 無法保證補跑；對於 90 分鐘這類 calendar 不能精準表達的間隔，timer 使用較小分鐘步長喚醒，worker 再用 `--due-only` 按用戶設定判斷是否執行。
+- **Linux**：使用 `OnCalendar=` 搭配 `Persistent=true`，因為 persistent 補跑只對 calendar timer 有效。不能直接表達的間隔改用較小步長：90 分鐘每 30 分鐘喚醒，7 分鐘每分鐘喚醒。plan 與 worker 共用這個實際步長；due 判斷只提前半個實際步長，因此 90 分鐘在第 90 分鐘執行，不會在第 60 分鐘執行，7 分鐘也要等到第 7 分鐘。
 
 ---
 

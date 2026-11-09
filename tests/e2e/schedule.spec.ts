@@ -74,7 +74,7 @@ test('a custom interval is previewed, installed exactly as shown, verified and r
     .getByRole('spinbutton', { name: 'How many' })
     .fill(String(CUSTOM_MINUTES))
   await expect(dialog).toContainText(
-    `more than ${CUSTOM_MINUTES} minutes old. The system checks every ${CUSTOM_MINUTES} minutes`,
+    `PathKeep backs up about every ${CUSTOM_MINUTES} minutes, at the check closest to that interval. The system checks every ${CUSTOM_MINUTES} minutes and when you log in, so a backup missed while the computer was off runs soon after.`,
   )
 
   const file = dialog.getByLabel('File contents')

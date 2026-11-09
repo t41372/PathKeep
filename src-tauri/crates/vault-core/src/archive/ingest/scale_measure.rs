@@ -69,7 +69,7 @@ fn backup(root: &Path) {
     let vault = Vault::open(paths, config(), Some(KEY)).unwrap();
     let opened = started.elapsed().as_secs_f64();
     let started = Instant::now();
-    let report = run_backup(&vault, false).unwrap();
+    let report = run_backup(&vault, None).unwrap();
     let backed_up = started.elapsed().as_secs_f64();
     let run = report.run.expect("a run");
     // How many visits have their browser time and their opener by archive id: the update's

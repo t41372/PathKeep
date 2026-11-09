@@ -18,6 +18,7 @@ use serde::Serialize;
 use std::{
     fs,
     path::{Path, PathBuf},
+    time::Duration,
 };
 use vault_core::{
     ProjectPaths,
@@ -26,10 +27,40 @@ use vault_core::{
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-/// Runtime parameters that shape the generated backup schedule plan.
+/// Requested backup and check intervals. The native grid is resolved by `wake_interval`.
 pub struct ScheduleParameters {
     pub due_after_hours: f64,
     pub check_interval_hours: f64,
+}
+
+impl From<&vault_core::AppConfig> for ScheduleParameters {
+    fn from(config: &vault_core::AppConfig) -> Self {
+        let check = config.schedule_check_interval_hours as f64;
+        Self {
+            due_after_hours: config.due_after_hours,
+            check_interval_hours: if config.due_after_hours.is_finite()
+                && config.due_after_hours > 0.0
+            {
+                config.due_after_hours.min(check)
+            } else {
+                check
+            },
+        }
+    }
+}
+
+impl ScheduleParameters {
+    /// The interval written to the native schedule, also used for the due-only half-wake
+    /// allowance. Linux may need a shorter calendar grid; `None` selects the current host.
+    pub fn wake_interval(&self, platform: Option<&str>) -> Duration {
+        let platform = platform.map(ToOwned::to_owned).unwrap_or_else(current_platform_name);
+        let minutes = interval_minutes_from_hours(self.check_interval_hours);
+        let minutes = match platform.as_str() {
+            "macos" | "windows" => minutes,
+            _ => linux::linux_on_calendar(minutes).1,
+        };
+        Duration::from_secs(minutes * 60)
+    }
 }
 
 const LEGACY_MACOS_SCHEDULE_LABELS: &[&str] =
@@ -281,10 +312,6 @@ pub(super) fn interval_minutes_from_hours(hours: f64) -> u64 {
     } else {
         1
     }
-}
-
-pub(super) fn interval_seconds_from_hours(hours: f64) -> u64 {
-    interval_minutes_from_hours(hours) * 60
 }
 
 pub(super) fn format_interval_label(minutes: u64) -> String {

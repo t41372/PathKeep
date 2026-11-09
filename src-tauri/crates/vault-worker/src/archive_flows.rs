@@ -241,8 +241,10 @@ fn run_backup_with_loaded_config<F>(
 where
     F: FnMut(BackupProgressEvent),
 {
+    let wake_interval =
+        due_only.then(|| vault_platform::ScheduleParameters::from(config).wake_interval(None));
     let mut report =
-        run_backup_with_progress(&vault.with_config(config.clone()), due_only, |event| {
+        run_backup_with_progress(&vault.with_config(config.clone()), wake_interval, |event| {
             report_progress(event);
         })?;
     // The run record holds the warnings up to here; what the follow-ups add is saved at the end.

@@ -180,7 +180,7 @@ fn backup_keeps_readable_profiles_when_safari_staging_loses_access() {
     };
 
     crate::config::ensure_paths(&paths).expect("paths");
-    let report = run_backup(&vault.with_config(config.clone()), false).expect("run backup");
+    let report = run_backup(&vault.with_config(config.clone()), None).expect("run backup");
     assert_eq!(report.run.as_ref().expect("run").new_visits, 2);
     assert_eq!(report.run.as_ref().expect("run").status, "partial");
     assert_eq!(report.profiles.len(), 2);
@@ -223,11 +223,20 @@ fn a_scheduled_backup_waits_its_interval_only_after_a_run_that_kept_a_profile() 
             )
             .expect("seed run");
     };
-    let skipped = || run_backup(&vault, true).is_ok_and(|report| report.due_skipped);
+    let due_only = || {
+        super::run_backup_profiles(
+            &vault,
+            Some(std::time::Duration::from_secs(3_600)),
+            &vault_store::CancelToken::new(),
+            Vec::new(),
+            |_| {},
+        )
+    };
     ended(100, "failed");
-    assert!(!skipped(), "a run that kept nothing does not put the next one off");
+    let error = due_only().expect_err("a run that kept nothing must reach profile selection");
+    assert!(format!("{error:#}").contains("backup-no-profiles"), "{error:#}");
     ended(200, "complete");
-    assert!(skipped(), "one that read a profile to the end does");
+    assert!(due_only().expect("a recent completed profile skips before discovery").due_skipped);
 }
 
 #[test]

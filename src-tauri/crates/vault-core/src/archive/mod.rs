@@ -50,6 +50,10 @@ mod read_models;
 pub(crate) mod totals;
 pub(crate) use self::read_models::recent_runs_from;
 mod run_support;
+mod schedule;
+pub use schedule::{backup_due_anchor, next_scheduled_backup_at};
+#[cfg(test)]
+mod schedule_estimate_tests;
 pub(crate) use run_support::write_manifest_artifact;
 pub(crate) mod search_documents;
 pub(crate) mod write_runs;

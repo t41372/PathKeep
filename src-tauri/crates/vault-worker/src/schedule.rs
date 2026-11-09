@@ -34,15 +34,7 @@ pub fn preview_schedule_plan(
     let executable = executable_path
         .or_else(|| std::env::current_exe().ok())
         .context("resolving executable path for schedule preview")?;
-    preview_schedule(
-        platform,
-        executable.as_path(),
-        &paths,
-        &ScheduleParameters {
-            due_after_hours: config.due_after_hours,
-            check_interval_hours: native_schedule_interval_hours(&config),
-        },
-    )
+    preview_schedule(platform, executable.as_path(), &paths, &ScheduleParameters::from(&config))
 }
 
 /// Longest interval the schedule preview accepts: 30 days.
@@ -78,7 +70,7 @@ pub fn repair_schedule_plan(plan: &SchedulePlan) -> Result<vault_core::ApplyResu
     repair_schedule(plan, &paths)
 }
 
-/// Loads the current schedule status and annotates it with the last successful backup.
+/// Adds archive backup history and a due-clock estimate to native schedule status.
 pub fn schedule_status(
     vault: Option<&vault_core::Vault>,
     platform: Option<&str>,
@@ -89,15 +81,8 @@ pub fn schedule_status(
     let executable = executable_path
         .or_else(|| std::env::current_exe().ok())
         .context("resolving executable path for schedule status")?;
-    let mut status = detect_schedule_status(
-        platform,
-        executable.as_path(),
-        &paths,
-        &ScheduleParameters {
-            due_after_hours: config.due_after_hours,
-            check_interval_hours: native_schedule_interval_hours(&config),
-        },
-    )?;
+    let params = ScheduleParameters::from(&config);
+    let mut status = detect_schedule_status(platform, executable.as_path(), &paths, &params)?;
     status.last_successful_backup_at = vault
         .map(vault_core::archive_status)
         .transpose()?
@@ -112,13 +97,27 @@ pub fn schedule_status(
             .as_ref()
             .filter(|action| action.action == "apply" && action.status == "ok")
             .map(|action| action.at.as_str());
+        let now = chrono::Utc::now();
+        if let Some(vault) = vault {
+            let wake_interval = params.wake_interval(platform);
+            status.next_scheduled_backup_at = vault_core::next_scheduled_backup_at(
+                vault_core::backup_due_anchor(vault)?,
+                &ledger.attempts,
+                installed_at,
+                params.due_after_hours,
+                wake_interval,
+                now,
+            )
+            .map(|at| at.to_rfc3339());
+            status.wake_interval_seconds = Some(wake_interval.as_secs());
+        }
         status.issues.extend(
             vault_core::overdue_issue(
                 &ledger.attempts,
                 installed_at,
                 native_schedule_interval_hours(&config),
                 awake_since,
-                chrono::Utc::now(),
+                now,
             )
             .map(schedule_attempt_issue),
         );
@@ -169,12 +168,10 @@ fn schedule_attempt_issue(issue: vault_core::ScheduledBackupHealthIssue) -> Sche
     }
 }
 
-/// How often the native scheduler wakes: the backup interval, capped at the health-check interval.
+/// Requested check interval for schedule health; the native grid may wake more often on Linux.
 pub(crate) fn native_schedule_interval_hours(config: &vault_core::AppConfig) -> f64 {
-    let configured_check_interval = config.schedule_check_interval_hours as f64;
-    if config.due_after_hours.is_finite() && config.due_after_hours > 0.0 {
-        config.due_after_hours.min(configured_check_interval)
-    } else {
-        configured_check_interval
-    }
+    ScheduleParameters::from(config).check_interval_hours
 }
+
+#[cfg(test)]
+mod tests;

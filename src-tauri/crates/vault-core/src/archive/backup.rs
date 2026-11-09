@@ -17,32 +17,41 @@ use crate::{
     },
 };
 use anyhow::{Context, Result};
+use std::time::Duration;
 use vault_store::{CancelToken, Db, Priority, params};
 
-/// Backups use the same owner as interactive commands.
-pub fn run_backup(vault: &Vault, due_only: bool) -> Result<BackupReport> {
-    run_backup_with_progress(vault, due_only, |_| {})
+#[cfg(test)]
+#[path = "backup_due_tests.rs"]
+mod due_tests;
+
+/// Backups use the same owner as interactive commands. `None` runs manually; a native wake
+/// interval enables due-only timing without making core depend on platform schedulers.
+pub fn run_backup(
+    vault: &Vault,
+    scheduled_wake_interval: Option<Duration>,
+) -> Result<BackupReport> {
+    run_backup_with_progress(vault, scheduled_wake_interval, |_| {})
 }
 
 /// Progress is emitted after each committed batch, on the requesting thread.
 pub fn run_backup_with_progress(
     vault: &Vault,
-    due_only: bool,
+    scheduled_wake_interval: Option<Duration>,
     progress: impl FnMut(BackupProgressEvent),
 ) -> Result<BackupReport> {
-    run_backup_with_control(vault, due_only, &CancelToken::new(), progress)
+    run_backup_with_control(vault, scheduled_wake_interval, &CancelToken::new(), progress)
 }
 
 /// Cancellation stops between batches; the committed prefix remains visible.
 pub fn run_backup_with_control(
     vault: &Vault,
-    due_only: bool,
+    scheduled_wake_interval: Option<Duration>,
     cancel: &CancelToken,
     progress: impl FnMut(BackupProgressEvent),
 ) -> Result<BackupReport> {
     execute(
         vault,
-        due_only,
+        scheduled_wake_interval,
         cancel,
         || crate::chrome::discover_profiles().map_err(classify_browser_access_error),
         false,
@@ -53,17 +62,17 @@ pub fn run_backup_with_control(
 #[cfg(test)]
 pub(crate) fn run_backup_profiles(
     vault: &Vault,
-    due_only: bool,
+    scheduled_wake_interval: Option<Duration>,
     cancel: &CancelToken,
     profiles: Vec<BrowserProfile>,
     progress: impl FnMut(BackupProgressEvent),
 ) -> Result<BackupReport> {
-    execute(vault, due_only, cancel, || Ok(profiles), true, progress)
+    execute(vault, scheduled_wake_interval, cancel, || Ok(profiles), true, progress)
 }
 
 fn execute(
     vault: &Vault,
-    due_only: bool,
+    scheduled_wake_interval: Option<Duration>,
     cancel: &CancelToken,
     profiles: impl FnOnce() -> Result<Vec<BrowserProfile>>,
     all_profiles: bool,
@@ -72,10 +81,12 @@ fn execute(
     let _backup = vault.begin_backup()?;
     anyhow::ensure!(vault.config().initialized, "archive has not been initialized");
     crate::config::ensure_paths(vault.paths())?;
-    if due_only && let Some(reason) = due_skip_reason(vault)? {
+    if let Some(wake_interval) = scheduled_wake_interval
+        && let Some(reason) = due_skip_reason(vault, wake_interval)?
+    {
         return skipped(vault, reason);
     }
-    let trigger = if due_only { "schedule" } else { "manual" };
+    let trigger = if scheduled_wake_interval.is_some() { "schedule" } else { "manual" };
     let run_id = write_runs::start(vault, "backup", trigger, &vault.config().selected_profile_ids)?;
     let mut warnings = Vec::new();
     let mut summaries = Vec::new();
@@ -247,54 +258,20 @@ fn execute(
     result
 }
 
-/// A scheduled backup waits its interval after the last one that kept something: a success, or
-/// a partial run that read at least one profile to the end. One whose every profile failed or
-/// could not be opened (a browser holding its file busy, a disk not mounted) protected nothing,
-/// and the next scheduled run tries again instead of waiting a whole interval.
-fn due_skip_reason(vault: &Vault) -> Result<Option<String>> {
-    let latest = vault.store().read(Db::Archive, |s| {
-        let mut before = i64::MAX;
-        loop {
-            let runs = s.query(
-                "SELECT id,finished_at,status,stats_json FROM runs
-                 WHERE run_type='backup' AND status IN ('success','partial') AND id<?1
-                 ORDER BY id DESC LIMIT 16",
-                [before],
-                |r| {
-                    Ok((
-                        r.get::<i64>(0)?,
-                        r.get::<String>(1)?,
-                        r.get::<String>(2)?,
-                        r.get::<String>(3)?,
-                    ))
-                },
-            )?;
-            let Some((last, ..)) = runs.last() else { return Ok(None) };
-            before = *last;
-            if let Some((_, finished, ..)) = runs
-                .into_iter()
-                .find(|(_, _, status, stats)| status == "success" || read_one_to_the_end(stats))
-            {
-                return Ok(Some(finished));
-            }
-        }
-    })?;
-    Ok(latest.and_then(|text| chrono::DateTime::parse_from_rfc3339(&text).ok()).and_then(|at| {
+/// A due-only backup runs at the wake nearest its next due start: one backup interval after
+/// the last counted start, with half the native wake interval allowed. Counting from the start
+/// keeps backup duration out of the cadence; the half-wake allowance absorbs startup jitter.
+/// Successes and partials that read a profile to the end count, including manual runs. Partials
+/// whose profiles all failed or could not be opened do not delay the next attempt.
+fn due_skip_reason(vault: &Vault, wake_interval: Duration) -> Result<Option<String>> {
+    Ok(super::schedule::backup_due_anchor(vault)?.and_then(|at| {
         super::run_support::backup_due_skip_reason_at(
-            at.with_timezone(&chrono::Utc),
+            at,
             vault.config(),
+            wake_interval,
             chrono::Utc::now(),
         )
     }))
-}
-
-/// Whether a partial run's stats name a profile it read to the end.
-fn read_one_to_the_end(stats: &str) -> bool {
-    serde_json::from_str::<serde_json::Value>(stats).ok().is_some_and(|stats| {
-        stats["profiles"].as_array().is_some_and(|profiles| {
-            profiles.iter().any(|profile| profile["outcome"]["status"] == "complete")
-        })
-    })
 }
 
 fn skipped(vault: &Vault, reason: String) -> Result<BackupReport> {

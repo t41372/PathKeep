@@ -21,6 +21,8 @@ use vault_core::models::{GeneratedFile, ScheduleManualStep, SchedulePlan};
 
 use super::{ScheduleParameters, format_interval_label, interval_minutes_from_hours};
 
+/// Uses the same calendar grid as the worker's half-wake allowance, so a shorter Linux grid
+/// does not make a backup run a whole wake early.
 pub(super) fn linux_schedule_plan(
     label: &str,
     executable_path: &Path,
@@ -40,6 +42,7 @@ pub(super) fn linux_schedule_plan(
     );
     Ok(SchedulePlan {
         platform: "linux".to_string(),
+        wake_interval_seconds: wake_interval_minutes * 60,
         label: label.to_string(),
         executable_path: executable_path.display().to_string(),
         generated_files: vec![
@@ -122,7 +125,8 @@ pub(super) fn linux_schedule_plan(
     })
 }
 
-fn linux_on_calendar(minutes: u64) -> (String, u64) {
+/// Calendar expression and its actual spacing. Both the plan and due-only timing use this.
+pub(super) fn linux_on_calendar(minutes: u64) -> (String, u64) {
     if minutes % 60 == 0 {
         let hours = minutes / 60;
         if hours == 1 {

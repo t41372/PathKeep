@@ -1,4 +1,4 @@
-/** Native scheduler status and the "next backup" estimate built from it. */
+/** Native scheduler status and presentation of its backend backup estimate. */
 import { useQuery } from '@tanstack/react-query'
 import { scheduleClient } from '@/lib/backend-client/schedule'
 import { queryKeys } from '@/lib/query'
@@ -17,22 +17,17 @@ export function scheduleInstalled(status: ScheduleStatus | undefined) {
 }
 
 /**
- * When the scheduler will next run a backup. The scheduler wakes every
- * `checkIntervalHours` and backs up once the last success is older than
- * `dueAfterHours`, so this is an estimate, not a promise.
+ * Shows Rust's estimate. When a cached time has passed, move it forward only
+ * by whole native wake intervals, preserving its phase without redoing the due rule.
  */
 export function nextScheduledBackup(
   status: ScheduleStatus | undefined,
   now = Date.now(),
 ): Date | null {
-  if (!status || !scheduleInstalled(status)) return null
-  const last = status.lastSuccessfulBackupAt
-    ? Date.parse(status.lastSuccessfulBackupAt)
-    : NaN
-  const due = Number.isFinite(last)
-    ? last + status.dueAfterHours * 3_600_000
-    : now
-  if (due > now) return new Date(due)
-  const step = Math.max(status.checkIntervalHours, 1) * 3_600_000
-  return new Date(Math.ceil(now / step) * step)
+  if (!scheduleInstalled(status) || !status?.nextScheduledBackupAt) return null
+  const next = Date.parse(status.nextScheduledBackupAt)
+  const step = (status.wakeIntervalSeconds ?? 0) * 1_000
+  if (!Number.isFinite(next) || !Number.isFinite(step) || step <= 0) return null
+  if (next > now) return new Date(next)
+  return new Date(next + (Math.floor((now - next) / step) + 1) * step)
 }
