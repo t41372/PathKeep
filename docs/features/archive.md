@@ -130,8 +130,9 @@ M18 redesign（2026-10-02）換掉了整個前端。下面各節的後端行為�
   - Windows：Task Scheduler
   - Linux：systemd user timer（支援 persistent timer）
 - 預設邏輯：原生排程器按用戶設定的備份間隔喚醒；如果平台只能用較小步長安全表達該間隔，worker 仍會用 `--due-only` 根據上次有存到東西（`success`，或至少一個 profile 讀完的 `partial`）的備份時間判斷真正「該不該跑」。
-- 每一次原生排程喚醒都是 first-class **schedule attempt**。attempt 必須在讀取 config、keyring 或 archive 之前先落到 archive-independent、crash-safe、bounded 的本機 ledger，並以 typed outcome 區分 `running`、`success`、`skipped-not-due`、`deferred-lock`、`failed` 與中斷後復原出的 `interrupted`。不能把 skip / defer / pre-archive failure 只寫進 stdout/stderr。
+- 每一次原生排程喚醒都是 first-class **schedule attempt**。attempt 必須在讀取 config、keyring 或 archive 之前先落到 archive-independent、crash-safe、bounded 的本機 ledger，並以 typed outcome 區分 `running`、`success`、`partial`、`skipped-not-due`、`deferred-lock`、`failed` 與中斷後復原出的 `interrupted`。不能把 skip / defer / pre-archive failure 只寫進 stdout/stderr。
 - Schedule health 只能以 scheduled attempt / scheduled success 判斷；手動 backup success 不得冒充排程成功或清除排程 failure/overdue warning。Native artifact 已安裝只代表「排程存在」，不代表 worker 已健康完成。
+- 未完成、失敗與中斷的警告取最新一次備份結果（`success` / `partial` / `failed` / `interrupted`），略過尚無備份結果的喚醒（`running` / `skipped-not-due` / `deferred-lock`）；真正的排程成功才清除警告，更早的部分完成不會再出現。「排程已經停了」仍看每次喚醒，因為「還沒到時間」也證明排程器有啟動 worker。
 - Native scheduler 直接執行隨 app bundle 發佈的 `pathkeep-worker` sidecar，避免 GUI lifecycle / Dock activation，並讓 native host 取得真正的 worker exit code。Durable attempt outcome 仍是產品內健康狀態的 source of truth；任何 launcher / host 的 `0` 都不能單獨充當 backup success。
 - Settings、Onboarding 與 Schedule 都必須把 browser discovery 的 permission / discovery failure 視為 blocked 或 degraded state；不得把它渲染成空白 profile 清單。Full Disk Access case 必須說明影響、提供直達 System Settings、重新偵測，以及任何 launcher failure 的可見 diagnostic。
 - Reinstall / update schedule 是以**執行當下**的 current build + current config 重新產生 plan 的 reconciliation，不得重播 route cache 的舊 plan。若無法卸載仍 loaded 的既有 LaunchAgent，apply 必須失敗並回傳 `launchctl` evidence，不得宣稱已修復。
