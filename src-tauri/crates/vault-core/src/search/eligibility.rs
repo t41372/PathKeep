@@ -152,7 +152,7 @@ impl Scope {
 /// What a session matched against, so hydration can recheck pages written after its snapshot.
 pub(super) struct TextCheck {
     pub ast: vault_search::Ast,
-    pub fuzzy: Option<(crate::archive::search_lexical::FuzzyQuery, vault_search::Ast)>,
+    pub fuzzy: Option<super::query::FuzzyQuery>,
     pub indexed_seq: u64,
 }
 
@@ -266,7 +266,7 @@ fn text_mismatches(
     s: &Session<'_>,
     ids: &[i64],
     ast: &vault_search::Ast,
-    fuzzy: Option<&(crate::archive::search_lexical::FuzzyQuery, vault_search::Ast)>,
+    fuzzy: Option<&super::query::FuzzyQuery>,
 ) -> Result<Vec<u64>> {
     let mut valid = std::collections::HashSet::new();
     s.for_each(
@@ -279,21 +279,7 @@ fn text_mismatches(
         |row| {
             let doc = super::documents::document(row)?;
             let matches = super::query::matches_document(ast, &doc)
-                && fuzzy.is_none_or(|(fuzzy, exact)| {
-                    super::query::matches_document(exact, &doc)
-                        || fuzzy
-                            .score_document(&crate::archive::search_lexical::FuzzyDocument {
-                                normalized_url: &doc.text[vault_search::TextField::NormalizedUrl as usize],
-                                normalized_title: &doc.text
-                                    [vault_search::TextField::NormalizedTitle as usize],
-                                normalized_search_terms: &doc.text
-                                    [vault_search::TextField::NormalizedSearchTerms as usize],
-                                compact_text: &crate::archive::search_lexical::normalized_tokens(
-                                    &doc.compact_text,
-                                ),
-                            })
-                            .is_some()
-                });
+                && fuzzy.is_none_or(|fuzzy| fuzzy.matches(&doc));
             if matches {
                 valid.insert(doc.page_id);
             }
@@ -409,7 +395,7 @@ impl Membership {
         cancel: &vault_store::CancelToken,
         ast: &vault_search::Ast,
         indexed_seq: u64,
-        fuzzy: Option<(&crate::archive::search_lexical::FuzzyQuery, &vault_search::Ast)>,
+        fuzzy: Option<&super::query::FuzzyQuery>,
     ) -> Result<()> {
         let ids =
             ids.iter().filter(|id| !self.resolved(**id)).map(|id| *id as i64).collect::<Vec<_>>();
@@ -418,7 +404,7 @@ impl Membership {
         }
         let requested = ids.clone();
         let ast = ast.clone();
-        let fuzzy = fuzzy.map(|(predicate, exact)| (predicate.clone(), exact.clone()));
+        let fuzzy = fuzzy.cloned();
         let scope = scope.clone();
         let cancel = cancel.clone();
         let found = store.read(Db::Archive, move |s| {

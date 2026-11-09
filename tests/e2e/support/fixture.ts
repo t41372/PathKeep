@@ -24,6 +24,8 @@ interface Fixture {
   seed: number
   visitsByProfile: Record<ProfileId, SyntheticVisit[]>
   files: Record<ProfileId, string>
+  /** Chrome's user data folder: one folder per profile, named in `Local State`. */
+  chromeUserDataRoot: string
   /** Folders the backend runs against; `osSandbox` stands in for launchd / Task Scheduler. */
   dirs: {
     projectRoot: string

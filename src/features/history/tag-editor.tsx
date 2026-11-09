@@ -6,14 +6,22 @@
  * Delete on a chip removes it; ←/→ move between chips and the input.
  *
  * Every change saves the whole set (`replace_url_tags`). Writes run one after
- * another, so the archive ends up with the last set the user saw.
+ * another, across visits to the page too (`annotation-writes`), so the archive
+ * ends up with the last set the user saw.
  */
 import { useQueryClient } from '@tanstack/react-query'
 import { Hash, X } from 'lucide-react'
-import { useCallback, useRef, useState, type KeyboardEvent } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+} from 'react'
 import { annotationsClient } from '@/lib/backend-client/annotations'
 import { cn } from '@/lib/cn'
 import { useI18n } from '@/lib/i18n'
+import { cacheSavedField, enqueueSave } from './annotation-writes'
 import { invalidateSearches } from './queries'
 import { addTags, type TagProblem } from './tags'
 
@@ -34,7 +42,9 @@ export function TagField({
   const [draft, setDraft] = useState('')
   const [problem, setProblem] = useState<TagProblem | 'saveFailed' | null>(null)
   const saved = useRef<string[]>([...initial])
-  const chain = useRef(Promise.resolve())
+  /** Saves sent and not yet answered: while any is, the tags shown are the newest. */
+  const pending = useRef(0)
+  const applied = useRef(initial.join('\n'))
   const input = useRef<HTMLInputElement>(null)
   const chips = useRef<(HTMLButtonElement | null)[]>([])
 
@@ -42,7 +52,8 @@ export function TagField({
     (next: string[]) => {
       setTags(next)
       setProblem(null)
-      chain.current = chain.current.then(async () => {
+      pending.current += 1
+      void enqueueSave('tags', url, async () => {
         try {
           const annotation = await annotationsClient.replaceUrlTags({
             url,
@@ -50,17 +61,33 @@ export function TagField({
             sourceProfile: profileId ?? null,
           })
           saved.current = annotation.tags
-          client.setQueryData(['annotations', 'url', url], annotation)
+          // A read started before this write would land later with the old tags.
+          await client.cancelQueries({ queryKey: ['annotations', 'url', url] })
+          cacheSavedField(client, url, 'tags', annotation)
           void client.invalidateQueries({ queryKey: ['stars', 'list'] })
           invalidateSearches(client)
         } catch {
           setTags(saved.current)
           setProblem('saveFailed')
+        } finally {
+          pending.current -= 1
         }
       })
     },
     [client, profileId, url],
   )
+
+  // Tags saved from elsewhere (this page's own save still in flight when the
+  // panel came back to it) replace the ones shown, unless a save from here is
+  // still on its way; then the next edit would write the old list over them.
+  useEffect(() => {
+    const key = initial.join('\n')
+    if (key === applied.current) return
+    applied.current = key
+    if (pending.current > 0) return
+    saved.current = [...initial]
+    setTags([...initial])
+  }, [initial])
 
   const add = () => {
     const result = addTags(tags, draft)

@@ -64,6 +64,15 @@ pub fn similar_searches(
     let Some(provider) = provider else {
         return Ok(SimilarSearches::unavailable("no embedding provider is configured"));
     };
+    let Some(pinned) = super::generations::serving_vault(
+        vault,
+        &provider.config.id,
+        &provider.config.default_model,
+    )?
+    else {
+        return Ok(SimilarSearches::unavailable("the semantic index is empty"));
+    };
+    let vault = &pinned;
     let available = || -> Result<FlatVectorIndex> {
         let pages = search_vectors::available(vault.paths(), provider)?;
         search_vectors::open(vault.paths(), provider, pages.dim())

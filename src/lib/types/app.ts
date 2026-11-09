@@ -271,8 +271,6 @@ export interface AppDirectories {
   rustLogPath: string
   frontendLogPath: string
   crashReportsDir: string
-  strongholdPath: string
-  strongholdSaltPath: string
 }
 
 /**

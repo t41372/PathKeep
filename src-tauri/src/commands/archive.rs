@@ -57,11 +57,12 @@ pub(crate) async fn assess_archive_upgrade(
 
 #[cfg(not(test))]
 #[tauri::command]
-/// Executes an archive rekey/mode switch and returns the refreshed app snapshot.
+/// Executes an archive rekey/mode switch and returns the refreshed app snapshot, with what
+/// could not follow the archive.
 pub(crate) async fn rekey_archive(
     request: RekeyRequest,
     state: State<'_, SessionState>,
-) -> Result<vault_core::AppSnapshot, CommandError> {
+) -> Result<vault_core::RekeyOutcome, CommandError> {
     let session = state.inner().clone();
     run_blocking_command("rekey_archive", move || {
         worker_bridge::rekey_archive_impl(request, &session)

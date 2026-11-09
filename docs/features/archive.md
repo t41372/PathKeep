@@ -161,6 +161,7 @@ Settings → General 的兩個開關。
   - Linux 需要 libappindicator 與面板上的 StatusNotifier host（GNOME 預設沒有）；缺任一個時 `menuBarIconSupported` 為 false。
 - **登入啟動時的行為**：登入啟動永遠不把視窗推到用戶面前。選單列圖示開著 → 不開視窗，只在選單列出現（設定文案「登入時在選單列運行」）。圖示關著：macOS 同樣不開視窗，Dock 圖示還在，點它就叫出視窗；Windows / Linux 以最小化開在工作列，因為沒有 Dock，隱藏又沒圖示等於用戶找不到 app。
 - **關閉視窗**：圖示開著 → 視窗隱藏，app 留在選單列（「結束 PathKeep」或 ⌘Q 才結束）。圖示關著 → 關視窗就結束 app，與之前一致。關掉圖示時若視窗是隱藏的，會把視窗叫回來。macOS 點 Dock 圖示會叫回隱藏的視窗。
+- **結束時還有工作在跑**：手動備份、匯出、匯入或存檔維護在跑時，關視窗（圖示關著）、⌘Q 或「結束 PathKeep」都先說正在做什麼，問要等它做完、現在結束還是不結束；背景佇列照常結束。macOS 的 Dock「結束」、登出與關機攔不到，照舊立刻結束。畫面見 [screens-and-nav.md](../design/screens-and-nav.md)「結束時還有工作在跑」，機制見 [desktop-command-surface.md](../architecture/desktop-command-surface.md)。
 - 已知缺口：Windows / Linux 沒有 single-instance，app 隱藏在系統匣時再從開始選單啟動會開第二個 process。
 
 ### 平台注意事項
@@ -268,7 +269,7 @@ PathKeep 是 local-first，**不再提供雲端備份/上傳**。如果使用者
 
 Settings → Storage 的「刪除所有資料」走 PME：`preview_wipe_all_data` 列出每個會刪的路徑與大小、總位元組、archive 可見 visit 數（取最近一次成功 backup 快取的總數，不跑 `COUNT(*)`）、系統 keychain 裡是否存有 archive key，以及是否裝了自動備份（`removesSchedule`，`scheduleItems` 是排程器自己回報的已安裝項目：macOS 的 LaunchAgent plist 路徑、Windows 的 `Task Scheduler:<label>`）；`wipe_all_data` 只接受字面上的 `"DELETE"`，否則拒絕且什麼都不刪，成功時回傳 `WipeReport { scheduleRemoved, scheduleError }`。App Lock 鎖定時兩者都拒絕。
 
-- **會刪**：`archive/` 內所有檔案（archive / source-evidence DB 與 WAL/SHM、import 留下的 `*.bak-*`、rekey/restore/import marker），`derived/`（search、intelligence、AI 向量、agent 對話）、`sidecars/`、`raw-snapshots/`、`staging/`、`quarantine/`、`audit/`、`exports/`、`models/`（下載的 embedding 模型）、`integrations/`、`schedule/`（排程執行的 log 與嘗試紀錄），app root 的 `*.bak-*`、App Lock 狀態與 passcode 檔、Stronghold `vault.hold` 與 salt、`config.json`；keychain 的 archive key 與每個 AI provider API key；**已安裝的自動備份**（用戶 2026-10-02 決定：留著它只會每次執行都失敗在 "archive has not been initialized"）。排程狀態為 installed / mismatch / permission-warning 時才移除；Linux 只有手動設定、舊 label 的安裝（`legacy-install-detected`）走 Backup 的修復，都不碰。
+- **會刪**：`archive/` 內所有檔案（archive / source-evidence DB 與 WAL/SHM、import 留下的 `*.bak-*`、rekey/restore/import marker），`derived/`（search、intelligence、AI 向量、agent 對話）、`sidecars/`、`raw-snapshots/`、`staging/`、`quarantine/`、`audit/`、`exports/`、`models/`（下載的 embedding 模型）、`integrations/`、`schedule/`（排程執行的 log 與嘗試紀錄），app root 的 `*.bak-*`、App Lock 狀態與 passcode 檔、0.5 以前的版本留下的 Stronghold 檔（`vault.hold`、`stronghold-salt.txt`；Stronghold plugin 註冊了卻從沒用過，2026-10 移除）、`config.json`；keychain 的 archive key 與每個 AI provider API key；**已安裝的自動備份**（用戶 2026-10-02 決定：留著它只會每次執行都失敗在 "archive has not been initialized"）。排程狀態為 installed / mismatch / permission-warning 時才移除；Linux 只有手動設定、舊 label 的安裝（`legacy-install-detected`）走 Backup 的修復，都不碰。
 - **保留**：`logs/`、`diagnostics/`（刪除失敗時唯一的紀錄；不含 visit 資料）、移除排程時排程器自己寫的 `audit/scheduler/remove-<時間>.json`（只記 task 名稱與移除的檔案）、`archive/.pk-archive-write.lock` 與 `archive/.pk-owner.lock`（擁有權鎖的 inode，刪掉會讓兩個程序各鎖一個檔）。使用者的瀏覽器 profile 永遠不碰：所有目標都是 app root 底下的固定路徑。
 - **順序**：查排程狀態並產生移除用的 plan（此時 config 還在）→ 取得 in-process gate 與跨程序 write lock → 寫 `.pk-wipe-in-progress.json` marker（含要清的 provider id 與排程 plan）→ 刪 `config.json`（所有背景 worker 迴圈在下一次檢查時停）→ 讓這之前啟動的所有背景 worker 與 job 停下（process 內的停止世代：等下一次重試的 worker 不再睡、執行中的 job 在下一個檢查點停，不必讀它在資料庫裡的那一列）、也要求執行中的 AI / intelligence job 停止、取消 chat 與模型下載、等背景 worker 結束（最多 30 秒）→ 刪檔 → 清 keychain → 走排程器既有的 remove 路徑移除自動備份 → 刪 marker。執行後 `app_snapshot` 回報 not initialized，前端導回 onboarding；desktop session key 一併清除。
 - **排程移除失敗**：排在檔案之後，失敗時資料已經刪完。不讓整個刪除失敗：app 仍是 not initialized，marker 照樣刪（留著會讓每次啟動與每次 onboarding 重跑刪除，OS 不讓移除的 task 會永遠擋住設定），`WipeReport.scheduleError` 帶原因；對話框先顯示「資料已刪除，但自動備份沒能移除…設定完成後到「備份」關閉」，按「繼續」才回 onboarding。
@@ -288,7 +289,7 @@ Settings → Storage 的「刪除所有資料」走 PME：`preview_wipe_all_data
 
 - 加密方案：
   - 使用隨機數據庫金鑰，由用戶主密碼經 Argon2id 導出的金鑰包裝。
-  - 包裝後的 data key 存在 `archive/keys.envelope`；Stronghold 只負責 App Lock secret。
+  - 包裝後的 data key 存在 `archive/keys.envelope`；App Lock 的 passcode hash 存在 app root 的 `app-lock-passcode.json`（`vault-core/src/app_lock.rs`）。
 - 可選擇把便利解鎖信息存入系統 keyring（macOS Keychain, Windows Credential Manager, Linux Secret Service/KWallet）。
 - 若使用者選擇記住 database key，PathKeep 只在啟動後的第一個 unlocked app session 讀取一次 keyring，之後把 active session key 保留在記憶體直到使用者手動鎖定 archive 或結束 app；不得在每次 shell refresh / status hydrate 時反覆重讀 keyring 並造成原生授權提示。
 - 不加密模式也可以使用，但 UI 必須明確標示「數據庫為明文」。

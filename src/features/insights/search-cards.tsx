@@ -195,7 +195,7 @@ export function SearchOutcomesCard({ scope }: { scope: Scope }) {
                 </h3>
                 <ul className="-mx-2 flex flex-col">
                   {result.data.hardestTopics.items.map((topic) => (
-                    <li key={topic.familyId}>
+                    <li key={topic.topicKey}>
                       <Link
                         to={searchPath(topic.queryFamily, scope)}
                         className={rowLink}
@@ -209,8 +209,8 @@ export function SearchOutcomesCard({ scope }: { scope: Scope }) {
                         </span>
                         <span className="text-xs text-muted-foreground tabular">
                           {t('insights.outcomes.topic', {
-                            count: topic.reformulationCount,
-                            searches: format.number(topic.reformulationCount),
+                            count: topic.searchCount,
+                            searches: format.number(topic.searchCount),
                             days: format.number(
                               Math.max(1, Math.round(topic.reSearchLagDays)),
                             ),

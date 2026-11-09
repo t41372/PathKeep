@@ -1,7 +1,8 @@
 /**
  * The chosen model's semantic index under the semantic search switch: its
- * build (progress, pace, pause, continue, cancel), what it still needs and
- * what search reads meanwhile, how complete it is, whether it was made from
+ * build (progress, pace, pause, continue, cancel) and the complete index search
+ * keeps using while it runs, what it still needs and what search reads
+ * meanwhile, how complete it is, whether it was made from
  * an older version of the page text, and whether backups keep it up to date.
  * Behavior comes from `useSemanticIndex`; this file only renders it.
  */
@@ -54,45 +55,60 @@ export function IndexState({ index }: { index: SemanticIndex }) {
             total: format.number(progress.total),
           })
         : undefined
+    // A complete index keeps answering searches while it is updated, and while
+    // a rebuild writes its replacement beside it.
+    const meanwhile = semantic?.chosenComplete ? (
+      <p className="text-[13px] text-muted-foreground">
+        {t('settingsAi.semantic.meanwhileCurrent', {
+          count: status.semanticVectorCount ?? 0,
+        })}
+      </p>
+    ) : null
 
     if (build.state === 'running') {
       return (
-        <ProgressLine
-          label={t('settingsAi.semantic.indexing')}
-          detail={[counts, pace(t, format, progress)]
-            .filter(Boolean)
-            .join(' · ')}
-          value={
-            progress.total > 0 ? progress.done / progress.total : undefined
-          }
-          action={
-            <>
-              <Button
-                size="xs"
-                variant="outline"
-                disabled={index.acting}
-                onClick={() => index.pause(build.jobId)}
-              >
-                {t('settingsAi.semantic.pause')}
-              </Button>
-              {cancel}
-              {backgroundLink}
-            </>
-          }
-        />
+        <div className="flex flex-col gap-2">
+          <ProgressLine
+            label={t('settingsAi.semantic.indexing')}
+            detail={[counts, pace(t, format, progress)]
+              .filter(Boolean)
+              .join(' · ')}
+            value={
+              progress.total > 0 ? progress.done / progress.total : undefined
+            }
+            action={
+              <>
+                <Button
+                  size="xs"
+                  variant="outline"
+                  disabled={index.acting}
+                  onClick={() => index.pause(build.jobId)}
+                >
+                  {t('settingsAi.semantic.pause')}
+                </Button>
+                {cancel}
+                {backgroundLink}
+              </>
+            }
+          />
+          {meanwhile}
+        </div>
       )
     }
     if (build.state === 'queued') {
       return (
-        <ProgressLine
-          label={t('settingsAi.semantic.indexWaiting')}
-          action={
-            <>
-              {cancel}
-              {backgroundLink}
-            </>
-          }
-        />
+        <div className="flex flex-col gap-2">
+          <ProgressLine
+            label={t('settingsAi.semantic.indexWaiting')}
+            action={
+              <>
+                {cancel}
+                {backgroundLink}
+              </>
+            }
+          />
+          {meanwhile}
+        </div>
       )
     }
     // Paused: by the user, by the service, or with all background work.
@@ -118,6 +134,7 @@ export function IndexState({ index }: { index: SemanticIndex }) {
                   total: format.number(progress.total),
                 })}
         </p>
+        {meanwhile}
         <div className="flex justify-end gap-2">
           {byQueue ? (
             backgroundLink

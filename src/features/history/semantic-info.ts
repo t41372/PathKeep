@@ -1,7 +1,9 @@
 /**
  * What semantic search is running on, or why it is not available, from
  * `aiStatus` and the AI config: provider and model, index size and age, or
- * the reason it is off. Shown by `SemanticNote` and the mode toggle.
+ * the reason it is off. Shown by `SemanticNote` and the mode toggle. All of
+ * it describes the index searches read (`aiStatus.serving`), which is the
+ * previous model's while a newly chosen one is still being built.
  */
 import { useI18n } from '@/lib/i18n'
 import { useSnapshot } from '@/lib/queries/app'
@@ -60,7 +62,8 @@ export function useSemanticInfo(): SemanticInfo {
   const on = ai.enabled && ai.semanticIndexEnabled
   const available = on && status.ready
 
-  const providerId = status.embeddingProviderId ?? ai.embeddingProviderId
+  const serving = status.serving ?? null
+  const providerId = serving?.providerId ?? null
   let provider: string | null = null
   if (providerId === BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID) {
     const model = status.staticEmbedding?.modelRepo.split('/').pop()
@@ -69,19 +72,23 @@ export function useSemanticInfo(): SemanticInfo {
       : t('historySearch.semantic.builtIn')
   } else if (providerId) {
     const config = ai.embeddingProviders.find((item) => item.id === providerId)
-    provider = config
-      ? [config.name, config.defaultModel].filter(Boolean).join(' · ')
-      : providerId
+    provider = [config?.name ?? providerId, serving?.model]
+      .filter(Boolean)
+      .join(' · ')
   }
 
   return {
     available,
     reason: available ? null : reasonOf(status.state, on),
     provider,
-    indexed: status.indexedItems,
-    lastIndexedAt: status.lastIndexedAt ?? null,
+    indexed: serving?.indexedItems ?? 0,
+    lastIndexedAt: serving?.lastIndexedAt ?? null,
+    // The status's state is the chosen index's; a previous model's index is
+    // not updated any more, and the chosen one being built is its update.
     stale:
-      status.state === 'stale' && status.warningCode?.code === 'indexStale'
+      serving?.chosen &&
+      status.state === 'stale' &&
+      status.warningCode?.code === 'indexStale'
         ? status.warningCode.reason
         : null,
   }

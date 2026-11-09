@@ -8,3 +8,11 @@
 # builds run that way use the software fallback. Results stay correct; only speed changes.
 [target.'cfg(target_arch = "aarch64")']
 rustflags = ["--cfg", "aes_armv8", "--cfg", "polyval_armv8"]
+
+# Every process cargo starts (the Rust tests, `cargo run` and `tauri dev`) keeps the archive key
+# in a keychain item of its own. The tests' default service is the installed app's
+# `com.yi-ting.pathkeep`, so a test that saves or clears the key without its file-backed keychain
+# (`CHB_TEST_KEYRING_DIR`) would change the real one. A bundled app started on its own does not
+# get this variable; a value already set in the shell still wins.
+[env]
+PATHKEEP_PLATFORM_TEST_KEYRING_SERVICE = "com.yi-ting.pathkeep.dev"

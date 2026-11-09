@@ -122,6 +122,32 @@ M14-B adds two deterministic query-expansion layers:
   Nothing is sampled or capped, and edit distance never runs in SQL. See
   [search.md](search.md).
 
+  The fallback reads the query the way the exact search does. Every word stays
+  required, and an `OR` stays an `OR`: a word matches as written or, if it is
+  Latin and at least four letters, within its edits. A CJK word, a shorter word
+  and a quoted phrase can only match as written, so `ruste go OR js` does not
+  find a page that only says Rust, and `javascrippt react OR vue` finds a page
+  with Vue.
+
+  Words outside an `OR` have two readings. Each word on its own, in any order, or
+  all of them as one word sharing one edit budget: five letters allow one edit,
+  so `tokoi` alone is too far from `tokio` while `rust tokoi` is not, and `bok`
+  is too short for typos while `face bok` is not. That budget stops short of the
+  shortest word, or the edits could delete it and `typescript api` would match
+  every TypeScript page.
+
+  This is slow on a large archive. The fallback also runs for a correctly spelled
+  search that finds nothing, and with several words it usually walks every page,
+  because a short word's edits can destroy all its trigrams. At 14.4M visits and
+  2.9M pages on a 4-vCPU, 8 GB VM, one such search took 92 to 139 s of one core. It
+  stays out of the way meanwhile: a cancel took at most 26 ms, 95% of small writes
+  took under 1 ms, and memory stayed under 170 MiB. The old whole-run target
+  was no faster on the same machine (140 to 149 s, and it found nothing for
+  `archive raresentinl`), though the synthetic pages gave it nothing to skip; what
+  it saves on real pages is not measured. See
+  [the benchmark](research/2026-11-typo-walk-benchmark.md).
+  `WORK-SEARCH-TYPO-WALK` tracks making this faster.
+
 Explorer keyword input also accepts a local subset of Google-like advanced
 operators before lexical analysis:
 

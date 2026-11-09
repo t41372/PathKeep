@@ -25,6 +25,9 @@
  *   once and go back to the model as an object; arguments that cannot be
  *   read go back as `{}`, with the error and the path in the tool result.
  *   The model's thinking goes back with its turn in the same run.
+ * - A model that searches and then ends its turn without writing anything
+ *   (only thinking) is said to have stopped without an answer: the turn
+ *   keeps the pages it found and can be asked again.
  * - Every time and day the tools give the model carries its weekday, worked
  *   out on this computer: search rows read `2026-10-15 Thu 14:02`, report
  *   days have a `weekday` beside them, and sandbox rows keep
@@ -41,6 +44,7 @@ import {
   toolResults,
   type FakeRequest,
 } from './support/fake-model'
+import { unlockIfLocked } from './support/app'
 import { archivedVisits, backend, localDay } from './support/fixture'
 
 const KEY = 'e2e-agent-key'
@@ -514,6 +518,62 @@ test('every time and day the tools give the model carries its weekday', async ({
       expect(local.startsWith(date)).toBe(true)
       expect(weekdayName, date).toBe(weekday(Date.parse(`${date}T12:00:00Z`)))
     }
+  } finally {
+    await model.close()
+  }
+})
+
+test('a model that stops without writing an answer is said so, and the pages it found stay', async ({
+  page,
+}) => {
+  const issue = 'spawn_blocking pool exhaustion · tokio-rs/tokio'
+  const model = await startFakeModel({
+    apiKey: KEY,
+    script: (body) => {
+      if (!offersTools(body)) return { content: 'OK' }
+      // Some models end on their thinking alone once they have results.
+      if (body.messages?.at(-1)?.role === 'tool')
+        return { reasoning: 'The issue about spawn_blocking is the one.' }
+      return {
+        toolCalls: [
+          { name: 'search_history', arguments: { query: 'spawn_blocking' } },
+        ],
+      }
+    },
+  })
+  try {
+    await addService(page, {
+      name: 'E2E silent',
+      address: model.url,
+      key: KEY,
+    })
+    await page.goto('/#/ask')
+    await unlockIfLocked(page)
+    await ask(page, 'Where did I read about spawn_blocking?')
+    await expect(
+      chatColumn(page).getByText(
+        'The model stopped without writing an answer. Ask again, or pick another model beside the message box.',
+      ),
+    ).toBeVisible({ timeout: 60_000 })
+    await settled(page)
+    expect(
+      chatRequests(model).some(
+        (request) => toolResults(request.body).length > 0,
+      ),
+      'the search ran',
+    ).toBe(true)
+    await expect(
+      chatColumn(page)
+        .getByLabel('Pages used')
+        .getByRole('link', { name: issue, exact: false }),
+    ).toBeVisible()
+    // Nothing to copy, and the question can be asked again.
+    await expect(
+      chatColumn(page).getByRole('button', { name: 'Copy answer' }),
+    ).toHaveCount(0)
+    await expect(
+      chatColumn(page).getByRole('button', { name: 'Answer again' }),
+    ).toBeVisible()
   } finally {
     await model.close()
   }

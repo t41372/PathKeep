@@ -22,6 +22,9 @@ pub struct Filters {
     pub profile_id: Option<u64>,
     /// Canonical recency for this snapshot, including revokes not yet indexed.
     pub newest_visit: Option<Arc<dyn Fn(u64) -> i64 + Send + Sync>>,
+    /// Canonical visit counts in the caller's scope for this snapshot, which `Visits` ranks
+    /// by. The index stores no counts, so without these every page counts zero.
+    pub visit_count: Option<Arc<dyn Fn(u64) -> u64 + Send + Sync>>,
     pub eligibility: Option<Arc<dyn Fn(u64) -> bool + Send + Sync>>,
 }
 
@@ -122,4 +125,7 @@ pub enum SortOrder {
     Relevance,
     Newest,
     Oldest,
+    /// Most visited first: the page's visits in scope, then its newest visit. The walk still
+    /// covers every posting; only the key differs, and it needs no BM25 statistics.
+    Visits,
 }

@@ -349,7 +349,8 @@ pub(crate) fn persist_index_cursor(
     // value captured at the build's true start rather than clobbering it.
     let embed_target =
         if cursor.embed_target > 0 { cursor.embed_target } else { stored.embed_target };
-    *stored = IndexBackfillCursor { scan_target, embed_target, ..cursor.clone() };
+    let lineage = cursor.lineage.clone().or_else(|| stored.lineage.clone());
+    *stored = IndexBackfillCursor { lineage, scan_target, embed_target, ..cursor.clone() };
     // Keep the original rebuild intent. The persisted cursor gates the one-time wipe and the
     // worker still needs that intent when a resumed full rebuild completes and retires old indexes.
     let payload_json = serde_json::to_string(&payload)?;

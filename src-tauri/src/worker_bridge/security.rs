@@ -29,11 +29,6 @@ pub(crate) fn keyring_clear_database_key_impl()
     worker_result(vault_worker::clear_database_key_from_keyring())
 }
 
-/// Resets PathKeep's local secret vault for recovery/testing flows.
-pub(crate) fn reset_local_secret_vault_impl() -> Result<(), CommandError> {
-    worker_result(vault_worker::reset_local_secret_vault())
-}
-
 /// Opens the Vault from the native credential entry without exposing its data key.
 pub(crate) fn unlock_archive_from_keychain_impl(
     state: &crate::session::SessionState,

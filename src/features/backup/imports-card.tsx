@@ -1,8 +1,9 @@
 /**
  * Recent imports (Takeout and browser files), each with undo or restore.
  * Both go through a preview dialog (`preview_import_batch`): what the import
- * added, from where, how many visits are shown now, and the audit record;
- * then the action. Undo hides the visits; restore shows them again.
+ * added, from where, how many visits are shown now, what it left out or could
+ * not read, each earlier undo and restore of it, and the audit record; then
+ * the action. Undo hides the visits; restore shows them again.
  *
  * An import, undo or restore the app was closed in the middle of stays in
  * the list first (the backend lists unfinished ones first) and says so; an
@@ -31,6 +32,7 @@ import { queryKeys } from '@/lib/query'
 import { useSnapshot } from '@/lib/queries/app'
 import type { ImportBatchDetail, ImportBatchOverview } from '@/lib/types'
 import { PathLine } from './path-actions'
+import { ImportEntries } from './run-warnings'
 
 const baseName = (path: string) =>
   path.split(/[\\/]/).filter(Boolean).pop() ?? path
@@ -361,6 +363,7 @@ function BatchDetail({ detail }: { detail: ImportBatchDetail }) {
           </ul>
         )}
       </div>
+      <ImportEntries recorded={detail} />
       {detail.batch.auditPath && (
         <div className="flex flex-col gap-0.5">
           <span className="text-xs text-muted-foreground">

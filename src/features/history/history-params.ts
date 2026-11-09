@@ -3,7 +3,7 @@
  * (Home day links, the command palette) and a reload keeps the view.
  *
  * Responsible for: parsing and updating the params, the date filter value and
- * how a typed query resolves to a search mode.
+ * how a typed query resolves to a search mode and order.
  * Not responsible for: fetching anything.
  */
 import { useCallback, useMemo } from 'react'
@@ -13,10 +13,37 @@ import { checkRustRegex, type RegexProblem } from './regex-dialect'
 
 export type HistoryView = 'timeline' | 'sites' | 'starred'
 export type SearchMode = 'full' | 'regex' | 'semantic'
+/** The orders the search engine can return results in (`SearchRequest.sort`). */
+export type SearchSort = 'relevance' | 'newest' | 'oldest' | 'visits'
+
+/**
+ * The orders each search mode offers, its default first. A regex either
+ * matches or not, so it has no best match. Semantic search ranks by meaning
+ * only: its date orders would list keyword matches (`AiSearchSort`), which is
+ * not what a semantic search asked for.
+ */
+const sortsByMode: Record<SearchMode, readonly SearchSort[]> = {
+  full: ['relevance', 'newest', 'oldest', 'visits'],
+  regex: ['newest', 'oldest', 'visits'],
+  semantic: ['relevance'],
+}
+
+export const searchSorts: readonly SearchSort[] = [
+  'relevance',
+  'newest',
+  'oldest',
+  'visits',
+]
+
+export function sortsFor(mode: SearchMode) {
+  return sortsByMode[mode]
+}
 
 export interface HistoryParams {
   q: string
   mode: SearchMode
+  /** The order picked in the sort menu; null means the mode's default. */
+  sort: SearchSort | null
   view: HistoryView
   /** `today`, `yesterday`, `7d`, `30d`, `YYYY-MM-DD` or `YYYY-MM-DD..YYYY-MM-DD`. */
   date: string | null
@@ -32,10 +59,12 @@ const modes: readonly SearchMode[] = ['full', 'regex', 'semantic']
 function parse(search: URLSearchParams): HistoryParams {
   const view = search.get('view') as HistoryView
   const mode = search.get('mode') as SearchMode
+  const sort = search.get('sort') as SearchSort
   const visit = Number(search.get('visit'))
   return {
     q: search.get('q') ?? '',
     mode: modes.includes(mode) ? mode : 'full',
+    sort: searchSorts.includes(sort) ? sort : null,
     view: views.includes(view) ? view : 'timeline',
     date: search.get('date') || null,
     browser: search.get('browser') || null,
@@ -47,6 +76,7 @@ function parse(search: URLSearchParams): HistoryParams {
 const defaults: HistoryParams = {
   q: '',
   mode: 'full',
+  sort: null,
   view: 'timeline',
   date: null,
   browser: null,
@@ -159,17 +189,24 @@ export interface SearchSpec {
   /** What the user typed, trimmed. */
   text: string
   mode: SearchMode
+  /** The order results come in: the one picked, when this mode offers it. */
+  sort: SearchSort
   /** The text sent to the backend: the regex body when in regex mode. */
   pattern: string
   /** Why the backend's regex dialect (Rust) would refuse the pattern; the search is not sent. */
   regexError: RegexProblem | null
 }
 
-/** A query wrapped in slashes is a regex whatever the mode toggle says. */
+/**
+ * A query wrapped in slashes is a regex whatever the mode toggle says. The
+ * picked order holds in every mode that offers it, so switching modes and
+ * back keeps it; a mode without it uses its own default.
+ */
 export function resolveSearch(
   q: string,
   mode: SearchMode,
   semanticAvailable: boolean,
+  sort: SearchSort | null = null,
 ): SearchSpec {
   const text = q.trim()
   const wrapped = /^\/(.+)\/$/s.exec(text)
@@ -179,9 +216,11 @@ export function resolveSearch(
       ? 'full'
       : mode
   const pattern = wrapped ? wrapped[1] : text
+  const offered = sortsFor(effective)
   return {
     text,
     mode: effective,
+    sort: sort !== null && offered.includes(sort) ? sort : offered[0],
     pattern,
     regexError: text && effective === 'regex' ? checkRustRegex(pattern) : null,
   }

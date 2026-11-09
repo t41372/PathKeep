@@ -14,8 +14,8 @@
  */
 
 import type {
-  AppSnapshot,
   KeyringStatusReport,
+  RekeyOutcome,
   RekeyPreview,
   RekeyRequest,
 } from '../types'
@@ -30,11 +30,10 @@ export const securityClient = {
   previewRekey: (request: RekeyRequest) =>
     call<RekeyPreview>('preview_rekey_archive', { request }),
   executeRekey: (request: RekeyRequest) =>
-    call<AppSnapshot>('rekey_archive', { request }),
+    call<RekeyOutcome>('rekey_archive', { request }),
   getKeyringStatus: () => call<KeyringStatusReport>('keyring_status'),
   storeDatabaseKey: (value: string) =>
     call<KeyringStatusReport>('keyring_store_database_key', { value }),
   clearDatabaseKey: () =>
     call<KeyringStatusReport>('keyring_clear_database_key'),
-  resetLocalSecretVault: () => call<void>('reset_local_secret_vault'),
 }

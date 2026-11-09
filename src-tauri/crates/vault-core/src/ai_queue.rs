@@ -169,6 +169,11 @@ pub fn mark_ai_job_failed(
     failure: &AiJobFailure,
     paused: bool,
 ) -> Result<AiQueueJob> {
+    // An archive closing under a job says nothing about the job: left running, the next open
+    // queues it again, as it does after a quit.
+    if vault.vector_generations.is_closed() {
+        return load_ai_job(vault, job_id);
+    }
     let failure = failure.clone();
     vault.write(Db::Intelligence, Priority::Interactive, move |s| {
         store::mark_ai_job_failed(s, job_id, run_id, &failure, paused)

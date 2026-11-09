@@ -540,7 +540,8 @@ losing older audit statuses.
 
 The consolidated v1 includes the batch-review, outbox-page, manifest-run and
 snapshot-run indexes, and the URL recency index `(last_visit_ms DESC, id DESC)`.
-No read path runs DDL. Doctor expects v1 for every durable database. The catalog,
+No read path runs DDL. Doctor expects each durable database at the version its registered
+migrations reach (`MigrationRegistry::latest_version`); Intelligence is at 2. The catalog,
 reopen and consolidated-version tests cover the schema in plaintext and with a key.
 
 `archive_totals` keys named `sourceVisits:<source_profile_id>` track visible visits.

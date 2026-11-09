@@ -6,10 +6,11 @@
  * visits are new), the import adds exactly the new ones (search finds them,
  * no duplicates), undoing an import hides exactly what it added, and
  * restoring brings exactly those back. Each undo / restore shows the batch
- * before acting. A Safari History.db puts each visit on its own day (Safari
- * counts seconds from 2001), names each page by the newest title Safari
- * saved for it (an untitled latest visit keeps the one before), and Insights
- * says Safari keeps no opener. An import whose visits all came from it,
+ * before acting, and the restore lists the undo before it. A Safari
+ * History.db puts each visit on its own day (Safari counts seconds from
+ * 2001), names each page by the newest title Safari saved for it (an
+ * untitled latest visit keeps the one before), and Insights says Safari
+ * keeps no opener. An import whose visits all came from it,
  * once undone, leaves Insights with no rebuild asked for: its profile shows
  * no visits, and its day and Top sites over all profiles no longer count them;
  * a page it alone brought that was starred stays in Starred, with its site.
@@ -185,6 +186,11 @@ test('a browser file previews new vs archived visits, imports, undoes and restor
   await expect(restore.getByTestId('batch-counts')).toContainText(
     'Shown in history0',
   )
+  await expect(
+    restore.getByText(
+      `Undone: this import’s ${visitsLabel(later.length, 'visit')} ${later.length === 1 ? 'is' : 'are'} hidden.`,
+    ),
+  ).toBeVisible()
   await restore.getByRole('button', { name: 'Restore import' }).click()
   await expect(restore).toBeHidden({ timeout: 60_000 })
   await expectSearchHits(page, first.length + later.length)

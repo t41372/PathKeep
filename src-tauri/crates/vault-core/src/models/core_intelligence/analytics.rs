@@ -149,13 +149,19 @@ pub struct EngineEffectiveness {
     pub avg_depth: f32,
 }
 
-/// Query-family row that needed repeated search effort.
+/// A search the user came back to: every query family that begins with it, across browser
+/// profiles and engines, as one row (families are kept per profile and engine, so a search typed
+/// in two browsers is two families).
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct HardTopic {
-    pub family_id: String,
+    /// The key the families share (`search_family_key`), which tells rows apart.
+    pub topic_key: String,
+    /// The wording shown: the first search of the largest of those families.
     pub query_family: String,
-    pub reformulation_count: i64,
+    /// Their searches, summed.
+    pub search_count: i64,
+    /// Days from the first of their searches to the last.
     pub re_search_lag_days: f32,
 }
 

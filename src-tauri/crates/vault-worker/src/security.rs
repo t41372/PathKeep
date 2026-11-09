@@ -23,8 +23,7 @@ use crate::{
         resolved_app_lock_status,
     },
 };
-use anyhow::{Context, Result};
-use std::{fs, path::Path};
+use anyhow::Result;
 use vault_core::{
     AiProviderSecretInput, AppLockStatus, ArchiveMode, KeyringStatusReport,
     clear_app_lock_passcode, lock_app_session, set_app_lock_passcode,
@@ -185,31 +184,38 @@ pub fn write_database_key_to_keyring(key: &str) -> Result<KeyringStatusReport> {
     store_data_key_in_keyring(&data_key)
 }
 
-/// Stores an already unwrapped data key in the existing OS credential entry.
+/// Stores an already unwrapped data key in the existing OS credential entry. A keychain that
+/// refuses it keeps what it held, which may be another archive's key (the one a restore
+/// replaced) and would open nothing while the status and Home say a key is remembered. So the
+/// keychain is left holding this archive's key or none: an entry that is neither this key nor a
+/// password that opens it is removed.
 pub fn store_data_key_in_keyring(key: &vault_crypto::DataKey) -> Result<KeyringStatusReport> {
-    keyring_set_database_key(&crate::session::encode_data_key(key))?;
+    let encoded = crate::session::encode_data_key(key);
+    if let Err(error) = keyring_set_database_key(&encoded) {
+        if let Ok(Some(held)) = read_database_key_from_keyring()
+            && !opens_with(&held, &encoded)
+        {
+            let _ = keyring_clear_database_key();
+        }
+        return Err(error);
+    }
     Ok(keyring_status())
+}
+
+/// Whether the keychain's `held` text is the archive key `encoded`, or an older version's
+/// password that unwraps it (`VaultSession::open_keychain` reads both).
+fn opens_with(held: &str, encoded: &str) -> bool {
+    held == encoded
+        || vault_core::project_paths().ok().is_some_and(|paths| {
+            vault_core::Vault::unlock_data_key(&paths, held)
+                .is_ok_and(|key| *crate::session::encode_data_key(&key) == *encoded)
+        })
 }
 
 /// Clears the stored archive key from the native keyring.
 pub fn clear_database_key_from_keyring() -> Result<KeyringStatusReport> {
     keyring_clear_database_key()?;
     Ok(keyring_status())
-}
-
-/// Removes the local Stronghold vault file used for wrapped secrets.
-pub fn reset_local_secret_vault() -> Result<()> {
-    let paths = vault_core::project_paths()?;
-    remove_file_if_exists(&paths.stronghold_path)?;
-    Ok(())
-}
-
-/// Deletes a file only when it exists.
-fn remove_file_if_exists(path: &Path) -> Result<()> {
-    if path.exists() {
-        fs::remove_file(path).with_context(|| format!("removing {}", path.display()))?;
-    }
-    Ok(())
 }
 
 /// Returns the current native keyring status snapshot.

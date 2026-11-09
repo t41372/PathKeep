@@ -2,6 +2,19 @@
  * The detail panel's note box. Edits save on their own after a pause, and any
  * pending edit is written when the panel moves to another page. Loading and
  * load errors are handled by `AnnotationSection`.
+ *
+ * Coming back to a page whose note is still being saved shows the note as the
+ * archive had it before; when the save lands, the box takes the saved note,
+ * unless something typed here is still waiting to be saved. "Waiting" is
+ * tracked, not read off the text: a box typed back to the note it started
+ * from looks unedited and would otherwise take the answer of the save it is
+ * correcting. A save compares what the box shows with the note the archive
+ * holds now, never with an older copy of its own, so an edit back to the note
+ * the save replaced is written. Saves go one at a time, each with the box's
+ * newest text, so their answers cannot arrive in another order and put an
+ * older note back in the box; one at a time across visits to the page too
+ * (`annotation-writes`), so a save left from the last visit cannot land after
+ * a newer one.
  */
 import { useQueryClient } from '@tanstack/react-query'
 import { Check } from 'lucide-react'
@@ -10,6 +23,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { annotationsClient } from '@/lib/backend-client/annotations'
 import { cn } from '@/lib/cn'
 import { useI18n } from '@/lib/i18n'
+import { cacheSavedField, cachedNotes, enqueueSave } from './annotation-writes'
 import { invalidateSearches } from './queries'
 
 const SAVE_DELAY_MS = 800
@@ -29,32 +43,55 @@ export function NoteField({
   const { t } = useI18n()
   const client = useQueryClient()
   const [text, setText] = useState(initial)
+  /** The archive's note this box last took; the box is unedited while it shows it. */
+  const [base, setBase] = useState(initial)
+  /** Typed here and not yet written: the archive's note must not replace it. */
+  const [edited, setEdited] = useState(false)
+  if (initial !== base) {
+    setBase(initial)
+    if (text === base && !edited) setText(initial)
+  }
   const [state, setState] = useState<SaveState>('idle')
-  const latest = useRef(initial)
-  const saved = useRef(initial)
+  // What the box shows and the archive's note, for saves that run after this render.
+  const shown = useRef(text)
+  const archived = useRef(base)
+  useEffect(() => {
+    shown.current = text
+    archived.current = base
+  }, [text, base])
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined)
   const fade = useRef<ReturnType<typeof setTimeout>>(undefined)
 
-  const save = useCallback(async () => {
-    const value = latest.current
-    if (value === saved.current) return
-    setState('saving')
-    try {
-      const annotation = await annotationsClient.setUrlNotes({
-        url,
-        notes: value,
-        sourceProfile: profileId ?? null,
-      })
-      saved.current = value
-      client.setQueryData(['annotations', 'url', url], annotation)
-      void client.invalidateQueries({ queryKey: ['stars', 'list'] })
-      invalidateSearches(client)
-      setState('saved')
-      clearTimeout(fade.current)
-      fade.current = setTimeout(() => setState('idle'), SAVED_VISIBLE_MS)
-    } catch {
-      setState('error')
-    }
+  const save = useCallback(() => {
+    void enqueueSave('notes', url, async () => {
+      const value = shown.current
+      if (value === (cachedNotes(client, url) ?? archived.current)) {
+        if (timer.current === undefined) setEdited(false)
+        return
+      }
+      setState('saving')
+      try {
+        const annotation = await annotationsClient.setUrlNotes({
+          url,
+          notes: value,
+          sourceProfile: profileId ?? null,
+        })
+        archived.current = annotation.notes
+        if (timer.current === undefined && shown.current === archived.current) {
+          setEdited(false)
+        }
+        // A read started before this write would land later with the old note.
+        await client.cancelQueries({ queryKey: ['annotations', 'url', url] })
+        cacheSavedField(client, url, 'notes', annotation)
+        void client.invalidateQueries({ queryKey: ['stars', 'list'] })
+        invalidateSearches(client)
+        setState('saved')
+        clearTimeout(fade.current)
+        fade.current = setTimeout(() => setState('idle'), SAVED_VISIBLE_MS)
+      } catch {
+        setState('error')
+      }
+    })
   }, [client, profileId, url])
 
   useEffect(
@@ -62,19 +99,19 @@ export function NoteField({
       clearTimeout(fade.current)
       if (timer.current) {
         clearTimeout(timer.current)
-        void save()
+        save()
       }
     },
     [save],
   )
 
   const onChange = (value: string) => {
+    setEdited(true)
     setText(value)
-    latest.current = value
     clearTimeout(timer.current)
     timer.current = setTimeout(() => {
       timer.current = undefined
-      void save()
+      save()
     }, SAVE_DELAY_MS)
   }
 

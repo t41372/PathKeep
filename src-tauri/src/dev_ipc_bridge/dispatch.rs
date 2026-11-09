@@ -70,6 +70,34 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
     ) {
         return super::search::dispatch(state, command, payload).await;
     }
+    // Debug builds only: quits the way the close button (`window`) or ⌘Q and the menu bar icon's
+    // Quit (`app`) do, through the same handlers, because a browser cannot press either.
+    #[cfg(debug_assertions)]
+    if command == "debug_request_quit" {
+        #[derive(serde::Deserialize)]
+        #[serde(rename_all = "kebab-case")]
+        enum Via {
+            Window,
+            App,
+        }
+        #[derive(serde::Deserialize)]
+        struct Request {
+            via: Via,
+        }
+        let Request { via } = parse_payload::<Request>(payload)?;
+        let app = require_app_handle(state)?;
+        match via {
+            Via::Window => {
+                use tauri::Manager;
+                let window = app
+                    .get_webview_window(desktop_integration::MAIN_WINDOW)
+                    .ok_or_else(|| CommandError::internal("There is no window to close."))?;
+                window.close().map_err(|error| CommandError::internal(error.to_string()))?;
+            }
+            Via::App => app.exit(0),
+        }
+        return Ok(Value::Null);
+    }
     #[cfg(debug_assertions)]
     if command == "debug_set_search_indexer_paused" {
         #[derive(serde::Deserialize)]
@@ -933,9 +961,6 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
             let payload = parse_payload::<WrappedRequest<DayInsightsRequest>>(payload)?;
             json_value!(worker_bridge::get_day_insights_impl(payload.request, &state.session)?)
         }
-        // TODO: M13 - Revisit this dev-only intelligence mirror only if the
-        // next transport parity audit proves a shared manifest or generation
-        // layer would reduce real maintenance cost.
         "get_browsing_rhythm" => {
             let payload =
                 parse_payload::<WrappedRequest<CategoryFilteredDateRangeRequest>>(payload)?;
@@ -1051,10 +1076,6 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
                     .map_err(|error| error.to_string())?
             )
         }
-        "reset_local_secret_vault" => {
-            worker_bridge::reset_local_secret_vault_impl()?;
-            Ok(Value::Null)
-        }
         "open_path_in_file_manager" => {
             let payload = parse_payload::<PathPayload>(payload)?;
             json_value!(file_manager::open_path_in_file_manager_impl(payload.path)?)
@@ -1102,6 +1123,14 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
                 })
                 .await?
             )
+        }
+        "get_quit_request" => {
+            json_value!(desktop_integration::quit_request(&require_app_handle(state)?))
+        }
+        "answer_quit_request" => {
+            let app = require_app_handle(state)?;
+            let payload = parse_payload::<QuitAnswerPayload>(payload)?;
+            json_value!(desktop_integration::answer_quit_request(&app, payload.id, payload.answer))
         }
         "set_menu_bar_icon" => {
             let app = require_app_handle(state)?;

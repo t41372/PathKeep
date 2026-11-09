@@ -23,7 +23,7 @@ import { messages, useFormat, useI18n } from '@/lib/i18n'
 import { queryKeys } from '@/lib/query'
 import type { AuditArtifact, AuditRunDetail } from '@/lib/types'
 import { PathLine } from './path-actions'
-import { useRunEntries, type RunEntry } from './run-entries'
+import { useRecordedEntries, type RunEntry } from './run-entries'
 import { RunIcon } from './run-icon'
 import { runDuration } from './run-duration'
 import { NoteList, WarningList } from './run-warnings'
@@ -194,7 +194,7 @@ function Files({ detail }: { detail: AuditRunDetail }) {
 
 function Detail({ detail }: { detail: AuditRunDetail }) {
   const { t } = useI18n()
-  const { warnings, notes } = useRunEntries(detail)
+  const { warnings, notes } = useRecordedEntries(detail)
   return (
     <Tabs defaultValue="summary" className="gap-4 px-4 pb-6">
       <TabsList className="w-full">

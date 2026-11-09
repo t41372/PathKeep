@@ -152,10 +152,16 @@ export interface EngineEffectiveness {
   avgDepth: number
 }
 
+/**
+ * A search the user came back to, as one row across browser profiles and
+ * engines: the families that begin with it, their searches summed.
+ */
 export interface HardTopic {
-  familyId: string
+  /** The key the families share, which tells rows apart. */
+  topicKey: string
   queryFamily: string
-  reformulationCount: number
+  /** Their searches, summed. */
+  searchCount: number
   reSearchLagDays: number
 }
 

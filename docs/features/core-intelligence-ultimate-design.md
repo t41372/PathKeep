@@ -585,7 +585,7 @@ Query Family 範例:
 - 起止時間、visit 數量、涉及 domain 列表
 - 是否含搜索事件
 - 是否為深度研究 session（見 4.10）
-- 自動標題：session 內最高頻 domain + 搜索關鍵詞
+- 自動標題：session 內最高頻 domain + 搜索關鍵詞。搜索關鍵詞取 session 裡用得最多的寫法（大小寫與前後空白不分，一樣多取先出現的），顯示最後一次打的樣子；沒有搜尋的 session 只有 domain（2026-10-25，之前取第一個搜尋，常常是最含糊的那個；`structural-rebuild-v12`）。
 
 **展示：** Explorer 的「按會話分組」view by 選項。每個 session 是可折疊區塊。
 

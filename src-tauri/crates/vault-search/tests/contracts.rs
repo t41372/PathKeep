@@ -2,7 +2,8 @@
 //! Not responsible for: canonical visit SQL or the application's presentation.
 //! Failure modes: score ties lose older pages; deep paging repeats/skips;
 //! filters change scores or disagree with counts; tombstones leak; new commits/merges
-//! change an existing session; progressive traversal loses its place within a segment.
+//! change an existing session; progressive traversal loses its place within a segment;
+//! the most-visited order lets scores leak in or loses pages that tie on count and time.
 mod support;
 use std::sync::Arc;
 use std::time::Duration;
@@ -65,7 +66,12 @@ fn brute(
             let seg = searcher.segment_reader(address.segment_ord);
             let id = seg.fast_fields().u64("page_id").unwrap().first(address.doc_id).unwrap();
             let doc = docs.iter().find(|p| p.page_id == id).unwrap();
-            accept(doc).then_some(Hit { page_id: id, visit_ms: doc.newest_visit_ms, score })
+            accept(doc).then_some(Hit {
+                page_id: id,
+                visit_ms: doc.newest_visit_ms,
+                score,
+                visits: 0,
+            })
         })
         .collect();
     out.sort_by(|a, b| {
@@ -99,6 +105,72 @@ fn ranking_and_every_page_equal_a_brute_force_sort() {
     assert!(search.page(0, None).is_err());
     let foreign = session(&index, term("archive"));
     assert!(foreign.page(10, cursor.as_ref()).is_err());
+}
+
+/// Ways the most-visited order can fail: pages with equal counts drop out or come in no fixed
+/// order (ties go newest visit first, then page ID); a cursor that equals the next page's key
+/// repeats or skips it; BM25 scores leak into the order; filters disagree with the count; a
+/// step before the walk ends hands out a cursor.
+#[test]
+fn most_visited_ranks_caller_counts_with_time_and_page_ties_on_every_page() {
+    let tmp = tempfile::tempdir().unwrap();
+    let docs = corpus();
+    let index = create(tmp.path(), docs.clone());
+    // Four counts and seven times (`newest_visit_ms` is id % 7), so most pages tie on both
+    // and only the page ID separates them. The corpus's scores differ and must not matter.
+    let visits = |id: u64| id % 4;
+    for (domain, profile, eligible) in [(None, None, false), (Some("other.test"), Some(1), true)] {
+        let filters = Filters {
+            order: SortOrder::Visits,
+            domain: domain.map(str::to_owned),
+            profile_id: profile,
+            visit_count: Some(Arc::new(visits)),
+            eligibility: eligible
+                .then(|| Arc::new(|id: u64| id % 5 != 1) as Arc<dyn Fn(u64) -> bool + Send + Sync>),
+            ..Filters::default()
+        };
+        let mut expected: Vec<_> = brute(tmp.path(), &docs, |p| {
+            domain.is_none_or(|d| p.domain == d)
+                && profile.is_none_or(|id| p.profile_ids.contains(&id))
+                && (!eligible || p.page_id % 5 != 1)
+        })
+        .into_iter()
+        .map(|hit| Hit { score: 0.0, visits: visits(hit.page_id), ..hit })
+        .collect();
+        expected.sort_by(|a, b| {
+            b.visits
+                .cmp(&a.visits)
+                .then(b.visit_ms.cmp(&a.visit_ms))
+                .then(b.page_id.cmp(&a.page_id))
+        });
+        assert!(expected.len() > 100, "the case must hold many ties");
+        let search = index.search(term("needle"), filters).unwrap();
+        for size in [1, 37, 4096] {
+            let mut all = Vec::new();
+            let mut cursor = None;
+            loop {
+                let page = search.page(size, cursor.as_ref()).unwrap();
+                if page.hits.is_empty() {
+                    break;
+                }
+                all.extend(page.hits);
+                cursor = page.next;
+            }
+            assert_eq!(all, expected, "page size {size}");
+        }
+        assert_eq!(search.count().unwrap(), expected.len() as u64);
+        let mut ranking = search.start_page(37, None).unwrap();
+        loop {
+            let step = ranking.step(Duration::ZERO).unwrap();
+            if step.provisional {
+                assert!(step.next.is_none(), "a partial walk has no cursor");
+                continue;
+            }
+            assert_eq!(step.hits, expected[..37]);
+            assert!(step.next.is_some());
+            break;
+        }
+    }
 }
 
 #[test]

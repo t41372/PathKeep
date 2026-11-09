@@ -486,6 +486,7 @@ where
 
         // No tool calls → the model is done. Pin citations, stream them, emit Done, complete.
         if accumulated.tool_calls.is_empty() {
+            note_if_unanswered(&mut sink, &accumulated.text);
             finish_with_citations(journal, &mut sink, &citations);
             return AgentRunOutcome::Completed {
                 iterations: turn,
@@ -759,6 +760,7 @@ where
             message: error.to_string(),
         };
     }
+    note_if_unanswered(sink, &accumulated.text);
     finish_with_citations(journal, sink, citations);
     // `iterations` counts model turns; the tokens above already include the synthesis turn, so it must
     // be counted here too (otherwise the cost shows N+1 turns' tokens against N iterations).
@@ -766,6 +768,15 @@ where
         iterations: synthesis_turn,
         prompt_tokens: *prompt_tokens,
         completion_tokens: *completion_tokens,
+    }
+}
+
+/// Says so when the model's last turn wrote no answer: some models end with only their thinking,
+/// or with nothing, after their searches. The turn keeps what it found and what it offers (asking
+/// again, another model); without the note it shows pages and no answer, as if one were coming.
+fn note_if_unanswered<S: AgentRunSink>(sink: &mut S, text: &str) {
+    if text.trim().is_empty() {
+        sink(AiChatStreamChunk::Note { code: AiAgentNote::NoAnswer });
     }
 }
 
@@ -898,6 +909,7 @@ where
             message: error.to_string(),
         };
     }
+    note_if_unanswered(sink, &accumulated.text);
     // The degraded path runs no tools, so the evidence set is empty — but still emit the terminal
     // `Citations` signal so the FE's success contract is uniform across both paths.
     emit_citations(sink, &[]);

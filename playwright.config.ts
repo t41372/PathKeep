@@ -12,7 +12,8 @@
  * Projects run in order, because they share one backend and one archive:
  * first-run (onboarding) → read (history, insights; nothing changes) →
  * change (background work, new visits, schedule, imports, lock, archive
- * password) → wipe (delete everything) → upgrade (an archive left by 0.3).
+ * password) → wipe (delete everything) → empty (a new archive with no visits,
+ * deleted again) → upgrade (an archive left by 0.3).
  */
 import { copyFileSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
@@ -74,8 +75,8 @@ function prepareFixture() {
     PATHKEEP_TEST_SAVE_DIR: path.join(root, 'saved'),
     // Lets export.spec.ts watch and stop an export of the small fixture. Debug only.
     PATHKEEP_TEST_EXPORT_ROW_DELAY_US: '500',
-    // The launcher runs the app itself and starts it again when a spec kills
-    // it after creating this file (semantic-index.spec.ts).
+    // The launcher runs the app itself and starts it again when it exits
+    // after a spec created this file (the 'restart' project).
     PATHKEEP_E2E_RESTART_FILE: path.join(root, 'restart-app'),
     // Keep the build cache between runs; a cold Rust build takes minutes.
     CARGO_TARGET_DIR:
@@ -154,6 +155,7 @@ export default defineConfig({
         'export.spec.ts',
         'search-loading.spec.ts',
         'search-limits.spec.ts',
+        'search-builder.spec.ts',
         'shell-and-lists.spec.ts',
         'links.spec.ts',
         'home.spec.ts',
@@ -187,11 +189,13 @@ export default defineConfig({
       ],
       'zone',
     ),
-    // They kill the app and the launcher starts it again, behind App Lock.
+    // They kill the app, or let it quit, and the launcher starts it again,
+    // behind App Lock.
     project(
       'restart',
       [
         'insights-reopen.spec.ts',
+        'quit-during-work.spec.ts',
         'semantic-index.spec.ts',
         'takeout-continue.spec.ts',
       ],
@@ -204,7 +208,10 @@ export default defineConfig({
     // after every test that relies on the archive first-run created.
     project('move', ['move.spec.ts'], 'stop'),
     project('wipe', ['wipe.spec.ts'], 'move'),
-    // Needs the empty data folder wipe leaves behind.
-    project('upgrade', ['upgrade.spec.ts'], 'wipe'),
+    // Sets up a new archive in the empty data folder wipe leaves behind, and
+    // deletes it again.
+    project('empty', ['semantic-empty-archive.spec.ts'], 'wipe'),
+    // Needs an empty data folder.
+    project('upgrade', ['upgrade.spec.ts'], 'empty'),
   ],
 })

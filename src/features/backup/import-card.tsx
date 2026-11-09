@@ -1,7 +1,8 @@
 /**
  * Import: bring in a Google Takeout export. Says how to make one (which
  * product to tick), then follows preview → confirm → import, so nothing is
- * written until the user has seen what was found, and says when the export
+ * written until the user has seen what was found and what will be left out
+ * (records with no time, files it cannot read), and says when the export
  * holds the wrong product.
  * Earlier imports (of any kind) are in the Recent imports card. The state
  * and the window-wide drop live in the page, which routes each drop to this
@@ -24,6 +25,7 @@ import { describeError } from '@/lib/errors'
 import { useFormat, useI18n } from '@/lib/i18n'
 import type { TakeoutInspection } from '@/lib/types'
 import { canUseNativeFiles, pickTakeoutFile } from './file-drop'
+import { ImportEntries } from './run-warnings'
 import type { ImportState, useTakeoutImportRun } from './use-takeout-import'
 
 const baseName = (path: string) =>
@@ -141,6 +143,9 @@ const isMyActivity = (inspection: TakeoutInspection) =>
   inspection.quarantinedFiles.some((file) =>
     file.reasonCode?.startsWith('chrome-my-activity'),
   )
+
+/** When nothing was found, the headline and its hint already say this. */
+const SAID_WHEN_EMPTY = ['no-importable-files'] as const
 
 function Found({
   inspection,
@@ -302,6 +307,14 @@ export function ImportCard({
       {state.step === 'preview' && (
         <>
           <Found inspection={state.inspection} path={state.path} />
+          <ImportEntries
+            recorded={state.inspection}
+            skip={
+              state.inspection.candidateItems === 0
+                ? SAID_WHEN_EMPTY
+                : undefined
+            }
+          />
           <div className="flex gap-2">
             {state.inspection.candidateItems > 0 && (
               <Button
