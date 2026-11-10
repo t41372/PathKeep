@@ -28,6 +28,10 @@ const allowedAdvisories = new Map([
     'RUSTSEC-2025-0057',
     'fxhash is only pulled through selectors 0.31 by scraper 0.24; scraper 0.29 drops it (WORK-SCRAPER-LATEST).',
   ],
+  [
+    'RUSTSEC-2026-0459',
+    'SQLite before 3.54 can return stale memory when it opens a crafted database with a -wal of another page size. PathKeep builds SQLCipher (bundled-sqlcipher, for the v0.4.0 archive converter), and the patched libsqlite3-sys 0.39 builds it from sqlcipher-src 419.0.6 on SQLite 3.53.4, which the advisory says is still affected; upgrading would only hide it, and add a new dependency. PathKeep opens only the browser files of this computer and files the person picks to import. Remove this entry once libsqlite3-sys bundles SQLCipher on SQLite 3.54 (WORK-SQLCIPHER-SQLITE-354).',
+  ],
   ...['RUSTSEC-2026-0370', 'RUSTSEC-2026-0371', 'RUSTSEC-2026-0372'].map(
     (id) => [
       id,
