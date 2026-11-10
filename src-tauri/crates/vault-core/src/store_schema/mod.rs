@@ -11,6 +11,7 @@
 
 mod agent;
 mod archive;
+pub(crate) mod backup_identity;
 mod intelligence;
 mod intelligence_lineage;
 mod scratch;
@@ -23,14 +24,16 @@ use vault_store::{Db, Migration, MigrationRegistry};
 
 /// The version each database is at once it opens: Doctor compares with it. Read from the
 /// registered steps, so adding one cannot leave the check a version behind.
-pub(crate) fn schema_version(db: Db) -> i64 {
+pub fn schema_version(db: Db) -> i64 {
     migration_registry().latest_version(db)
 }
 
 /// Gives the owner one complete schema contract before it opens any database.
 pub fn migration_registry() -> MigrationRegistry {
     let mut registry = MigrationRegistry::default();
-    registry.register(Db::Archive, vec![archive::migration()]);
+    let mut archive_steps = vec![archive::migration()];
+    archive_steps.extend(backup_identity::archive());
+    registry.register(Db::Archive, archive_steps);
     registry.register(Db::SourceEvidence, vec![source_evidence::migration()]);
     registry.register(
         Db::Intelligence,

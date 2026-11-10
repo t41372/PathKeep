@@ -7,6 +7,7 @@
 //! Tests: concurrency_tests, rowid_resume_tests, dedup_scenarios* and the statement budget below.
 
 use super::{
+    identity::{Capture, Found},
     parser::{Watermark, load_watermark, save_watermark},
     selection::*,
     writes::*,
@@ -52,6 +53,16 @@ pub(crate) struct ArchiveStreamProgress {
     /// their Insights are built again.
     pub replaced_profiles: BTreeSet<i64>,
     pub skipped_visits: usize,
+    /// Archived visits this read changed: a duration Chrome wrote when the tab closed, an opener
+    /// Sync filled in, a version 1 visit given its browser time. Not new visits.
+    pub updated_visits: usize,
+    /// Visits whose opener this read names but never reached: (archive id, the opener's browser
+    /// row id). Filled when the read ends; `process_profile_snapshot` looks them up in the
+    /// browser file.
+    pub unresolved_parents: Vec<(i64, i64)>,
+    /// The watermark the read reached, when its visit mark was held
+    /// ([`ArchiveChunkConsumer::hold_visit_mark`]); set when the read ends.
+    pub reached: Option<Watermark>,
     /// Visits whose URL row was missing from the archive, so their URL was written from the visit.
     pub urls_from_visits: usize,
     pub inserted_search_terms: usize,
@@ -83,6 +94,8 @@ pub(crate) struct WriteContext {
     pub profile_id: String,
     pub browser_family: String,
     pub import: Option<ImportOrigin>,
+    /// When the browser's file being read was copied (`ProfileSnapshot::captured_at_ms`).
+    pub captured_at_ms: i64,
 }
 
 impl WriteContext {
@@ -139,6 +152,12 @@ pub(crate) struct ArchiveChunkConsumer<'a> {
     report_progress: Option<Box<dyn FnMut(ArchiveIngestProgress) + 'a>>,
     evidence: crate::archive::source_evidence::EvidenceWriter<'a>,
     pending: Vec<Batch>,
+    /// The archived visit each row of this read became.
+    capture: Capture,
+    /// The watermark this read started from, when its visit mark is held.
+    held: Option<Watermark>,
+    /// Whether the read's cursors are the profile's: not for a saved copy of its file.
+    saves_cursors: bool,
 }
 
 impl<'a> ArchiveChunkConsumer<'a> {
@@ -164,12 +183,62 @@ impl<'a> ArchiveChunkConsumer<'a> {
             report_progress,
             evidence,
             pending: Vec::new(),
+            capture: Capture::default(),
+            held: None,
+            saves_cursors: true,
         }
+    }
+
+    /// Leaves the profile's cursors as they are, saving only which source batch it read last:
+    /// for a checkpoint replay, whose rows are numbered by an older copy of the browser file.
+    /// Its ids say nothing about the file the next backup reads; saved, a cursor past rows that
+    /// file added since (and has since deleted, with its sequence past them) would have the next
+    /// backup read only after them.
+    pub(crate) fn leave_cursors(mut self) -> Self {
+        self.saves_cursors = false;
+        self
+    }
+
+    /// Saves the visit mark this read started from with every batch, instead of the one it
+    /// reaches; the caller saves that one ([`ArchiveStreamProgress::reached`]) once the openers
+    /// are named. The openers a saved visit waits for are only in memory until then, so a read
+    /// cut off before (the process ending, a stop, a file that fails part way) is read again
+    /// from where it started, and a visit Sync wrote with an old time is not left without its
+    /// opener until the next read of every row.
+    pub(crate) fn hold_visit_mark(mut self) -> Self {
+        self.held = Some(self.watermark.clone());
+        self
     }
 
     pub(crate) fn finish(mut self) -> Result<ArchiveStreamProgress> {
         self.flush()?;
-        if self.context.tracks_watermark() {
+        // An opener that came after its child in the file (Sync writes older visits after newer
+        // ones) is in the capture now.
+        let pending = std::mem::take(&mut self.capture.pending_openers);
+        let (found, unresolved): (Vec<_>, Vec<_>) = pending
+            .into_iter()
+            .map(|(child, native)| (child, native, self.capture.visits.get(&native).copied()))
+            .partition(|(_, _, parent)| parent.is_some());
+        // Bounded transactions, like the read's own: a file Sync wrote newest-first can name
+        // half its openers here, and interactive writes must not wait for all of them.
+        for chunk in found.chunks(BATCH_ROWS) {
+            self.cancel.check()?;
+            let links = chunk
+                .iter()
+                .filter_map(|(child, _, parent)| parent.map(|parent| (*child, parent)))
+                .filter(|(child, parent)| child != parent)
+                .collect::<Vec<_>>();
+            self.vault.write(Db::Archive, Priority::Batch, move |s| {
+                for (child, parent) in links {
+                    set_parent(s, child, parent)?;
+                }
+                Ok(())
+            })?;
+        }
+        self.progress.unresolved_parents =
+            unresolved.into_iter().map(|(child, native, _)| (child, native)).collect();
+        self.progress.reached = self.held.is_some().then(|| self.watermark.clone());
+        if self.saves_cursors && self.context.tracks_watermark() {
             let context = self.context.clone();
             let evidence_batch = self.evidence.batch_id();
             self.vault.write(Db::Archive, Priority::Batch, move |s| {
@@ -183,6 +252,15 @@ impl<'a> ArchiveChunkConsumer<'a> {
                 Ok(())
             })?;
         }
+        self.progress.evidence_counts = self.evidence.counts();
+        Ok(self.progress)
+    }
+
+    /// What a read that stopped part way saved: the batches it parsed are written, and the
+    /// watermark stays where the last of them left it, or where the read started when its visit
+    /// mark is held, so the next backup carries on from there.
+    pub(crate) fn interrupted(mut self) -> Result<ArchiveStreamProgress> {
+        self.flush()?;
         self.progress.evidence_counts = self.evidence.counts();
         Ok(self.progress)
     }
@@ -208,17 +286,32 @@ impl<'a> ArchiveChunkConsumer<'a> {
             let mut progress = self.progress.clone();
             let mut watermark = self.watermark.clone();
             watermark.last_source_batch_id = Some(self.evidence.batch_id());
+            let held = self.held.clone();
+            let saves_cursors = self.saves_cursors && self.context.tracks_watermark();
             let report_visits = batches.iter().any(|batch| matches!(batch, Batch::Visits(_)));
-            let (next, cursor) = self.vault.write(Db::Archive, Priority::Batch, move |s| {
+            let mut capture = std::mem::take(&mut self.capture);
+            let (next, cursor, capture) = self.vault.write(Db::Archive, Priority::Batch, move |s| {
                 let before = progress.clone();
                 let mut written = Written::default();
                 for batch in batches {
-                    apply_batch(s, &context, batch, &mut progress, &mut watermark, &mut written)?;
+                    apply_batch(
+                        s,
+                        &context,
+                        batch,
+                        &mut progress,
+                        &mut watermark,
+                        &mut written,
+                        &mut capture,
+                    )?;
                 }
                 write_documents(s, &context, &written)?;
                 crate::archive::totals::add_batch(s,context.source_profile_id,progress.new_urls-before.new_urls,progress.new_visits-before.new_visits,progress.new_downloads-before.new_downloads)?;
-                if context.tracks_watermark() {
-                    save_watermark(s, &context.profile_id, &watermark)?;
+                if saves_cursors {
+                    let mut saved = watermark.clone();
+                    if let Some(start) = &held {
+                        saved.take_visit_mark(start);
+                    }
+                    save_watermark(s, &context.profile_id, &saved)?;
                 } else {
                     s.execute("INSERT INTO profile_watermarks(profile_id,last_source_batch_id,updated_at) VALUES(?1,?2,?3) ON CONFLICT(profile_id) DO UPDATE SET last_source_batch_id=excluded.last_source_batch_id",
                         params![context.profile_id.clone(), watermark.last_source_batch_id, watermark.updated_at.clone()])?;
@@ -272,10 +365,11 @@ impl<'a> ArchiveChunkConsumer<'a> {
                         params![origin.batch_id, summary.to_string(), (progress.new_visits-before.new_visits) as i64],
                     )?;
                 }
-                Ok((progress, watermark))
+                Ok((progress, watermark, capture))
             })?;
             self.progress = next;
             self.watermark = cursor;
+            self.capture = capture;
             if report_visits && let Some(report) = self.report_progress.as_mut() {
                 report(self.progress.event());
             }
@@ -357,6 +451,7 @@ fn apply_batch(
     p: &mut ArchiveStreamProgress,
     w: &mut Watermark,
     written: &mut Written,
+    capture: &mut Capture,
 ) -> Result<()> {
     match batch {
         Batch::Urls(rows) => {
@@ -377,6 +472,7 @@ fn apply_batch(
             }
         }
         Batch::Visits(rows) => {
+            let table = super::read_plan::table(&c.browser_family);
             let mut bounds = HashMap::new();
             let span = rows.iter().map(|(visit, _)| visit.visit_time_ms);
             let candidates = match (span.clone().min(), span.max()) {
@@ -390,10 +486,12 @@ fn apply_batch(
                 if p.last_visit_iso.as_ref().is_none_or(|v| v < &visit.visit_time_iso) {
                     p.last_visit_iso = Some(visit.visit_time_iso.clone());
                 }
+                // Row ids from the same file name the same URL within one transaction; across
+                // backups only the address does.
                 let known = written.urls.get(&visit.source_url_id).copied();
                 let known = match known {
                     Some(url) => Some(url),
-                    None => resolve_url(s, c.source_profile_id, visit.source_url_id)?,
+                    None => url_by_address(s, c.source_profile_id, &visit.url)?,
                 };
                 // Every visit the browser gives carries its address (Chromium's visit query joins
                 // `urls`), so one whose URL row is not in the archive means a URL batch missed
@@ -413,12 +511,28 @@ fn apply_batch(
                         continue;
                     }
                 };
+                // A row with a browser time that is an archived visit: brought up to this read.
+                let copy_of = match visit.source_visit_time.clone() {
+                    Some(key) => match native_visit(s, c, p, capture, &visit, &hash, &key)? {
+                        Native::Archived => {
+                            p.visit_count += 1;
+                            track_newest(w, p, &visit, &key, table);
+                            continue;
+                        }
+                        Native::New => None,
+                        Native::SyncCopyOf(visit) => Some(visit),
+                    },
+                    None => None,
+                };
                 // Another source's copy of this visit: it stands in, unless this one outranks it.
-                let stand_in =
-                    same_visit::stand_in(s, &candidates, &visit.url, visit.visit_time_ms)?;
-                let hidden = stand_in
+                // A Firefox Sync copy stands behind the visit it copies.
+                let stand_in = match copy_of {
+                    Some(_) => None,
+                    None => same_visit::stand_in(s, &candidates, &visit.url, visit.visit_time_ms)?,
+                };
+                let hidden = copy_of.or(stand_in
                     .filter(|stand_in| !stand_in.outranked_by(&candidates))
-                    .map(|stand_in| stand_in.visit);
+                    .map(|stand_in| stand_in.visit));
                 let inserted = if let Some(origin) = &c.import {
                     if origin.source_kind == "takeout" {
                         visit.transition = None;
@@ -438,10 +552,31 @@ fn apply_batch(
                         &hash,
                         origin,
                         hidden,
+                        parent_of(capture, &visit),
                     )?
                 } else {
-                    insert_visit(s, c.run_id, c.source_profile_id, id, &visit, &hash, hidden)?
+                    insert_visit(
+                        s,
+                        c.run_id,
+                        c.source_profile_id,
+                        id,
+                        &visit,
+                        &hash,
+                        hidden,
+                        parent_of(capture, &visit),
+                    )?
                 };
+                if let (Some(new_visit), Some(_)) = (inserted, visit.source_visit_time.as_ref()) {
+                    match copy_of {
+                        Some(counted) => {
+                            // Undo and restore leave it with this visit: only this read knew.
+                            s.execute("UPDATE visits SET sync_copy=1 WHERE id=?1", [new_visit])?;
+                            capture.record_copy(visit.source_visit_id, new_visit, counted)
+                        }
+                        None => capture.record(visit.source_visit_id, new_visit),
+                    }
+                    defer_parent(capture, &visit, new_visit);
+                }
                 if inserted.is_none()
                     && let Some(origin) = c.import.as_ref().filter(|origin| origin.continuing)
                     && written_by(s, c.source_profile_id, &visit, origin.batch_id)?
@@ -469,8 +604,13 @@ fn apply_batch(
                         .or_insert((1, visit.visit_time_ms));
                 }
                 p.visit_count += 1;
-                p.last_visit_id = p.last_visit_id.max(visit.source_visit_id);
-                w.last_visit_id = w.last_visit_id.max(visit.source_visit_id);
+                match visit.source_visit_time.clone() {
+                    Some(key) => track_newest(w, p, &visit, &key, table),
+                    None => {
+                        p.last_visit_id = p.last_visit_id.max(visit.source_visit_id);
+                        w.last_visit_id = w.last_visit_id.max(visit.source_visit_id);
+                    }
+                }
             }
             for (id, bounds) in bounds {
                 sync_url_bounds(s, id, &bounds)?;
@@ -478,8 +618,14 @@ fn apply_batch(
         }
         Batch::Downloads(rows) => {
             for (row, hash) in rows {
-                p.new_downloads +=
-                    insert_download(s, c.run_id, c.source_profile_id, &row, &hash)? as usize;
+                p.new_downloads += upsert_download(
+                    s,
+                    c.run_id,
+                    c.source_profile_id,
+                    c.captured_at_ms,
+                    &row,
+                    &hash,
+                )? as usize;
                 p.download_count += 1;
                 w.last_download_id = w.last_download_id.max(row.source_download_id);
                 p.last_download_id = Some(w.last_download_id);
@@ -488,7 +634,7 @@ fn apply_batch(
         Batch::Terms(rows) => {
             for row in rows {
                 w.last_search_url_time = w.last_search_url_time.max(row.url_last_visit_time);
-                if let Some((id, page)) = resolve_url(s, c.source_profile_id, row.url_id)? {
+                if let Some((id, page)) = url_by_address(s, c.source_profile_id, &row.url)? {
                     p.inserted_search_terms += insert_search_term(
                         s,
                         c.run_id,
@@ -543,7 +689,8 @@ fn written_by(
     Ok(!s
         .query(
             "SELECT 1 FROM visits INDEXED BY idx_visits_profile_source_visit_id
-             WHERE source_profile_id=?1 AND source_visit_id=?2 AND import_batch_id=?3",
+             WHERE source_profile_id=?1 AND source_visit_id=?2 AND source_visit_time IS NULL
+               AND import_batch_id=?3",
             params![profile, visit.source_visit_id.to_string(), batch],
             |r| Ok(r.get::<i64>(0)?),
         )?
@@ -594,17 +741,115 @@ fn url_of_visit(visit: &ParsedVisit, import: bool) -> ParsedUrl {
     }
 }
 
-fn resolve_url(
+/// A profile's URL row for `address`, and its page. The first row when version 1 left more than
+/// one (it joined by the browser's row id, which names another address after a renumbering).
+fn url_by_address(
     s: &Session<'_>,
     profile: i64,
-    source_id: i64,
+    address: &str,
 ) -> vault_store::Result<Option<(i64, i64)>> {
+    if address.is_empty() {
+        return Ok(None);
+    }
     Ok(s.query(
-        "SELECT id,page_id FROM urls WHERE source_profile_id=?1 AND source_url_id=?2",
-        params![profile, source_id],
+        "SELECT id,page_id FROM urls INDEXED BY idx_urls_url
+         WHERE url=?2 AND source_profile_id=?1 ORDER BY id LIMIT 1",
+        params![profile, address],
         |r| Ok((r.get(0)?, r.get(1)?)),
     )?
     .pop())
+}
+
+/// What a row with a browser time is in the archive.
+enum Native {
+    /// An archived visit, brought up to this read.
+    Archived,
+    /// A new visit, written like any other.
+    New,
+    /// A Firefox Sync copy of this visit: written as its own visit, hidden behind it.
+    SyncCopyOf(i64),
+}
+
+/// What a row with a browser time is: an archived visit, which is brought up to this read, a
+/// copy of one, or new.
+fn native_visit(
+    s: &Session<'_>,
+    c: &WriteContext,
+    p: &mut ArchiveStreamProgress,
+    capture: &mut Capture,
+    visit: &ParsedVisit,
+    hash: &str,
+    key: &str,
+) -> Result<Native> {
+    let found =
+        super::identity::find(s, c.source_profile_id, &c.browser_family, visit, key, capture)?;
+    let (archived, refresh, stamp) = match found {
+        Found::New => return Ok(Native::New),
+        Found::SyncCopy(archived) => {
+            // Matched once: another row of this read is not a copy of the same copy.
+            capture.claim(archived.id);
+            return Ok(Native::SyncCopyOf(archived.counted()));
+        }
+        Found::Same(archived) => (archived, Refresh::Latest, false),
+        Found::Legacy(archived) => (archived, Refresh::Latest, true),
+        Found::Collapsed(archived) => (archived, Refresh::SameCapture, false),
+    };
+    // A redirect's later hop names the earlier one, and both are this visit: not its opener.
+    let parent = parent_of(capture, visit).filter(|parent| *parent != archived.id);
+    if let Some(origin) = c.import.as_ref().filter(|origin| origin.continuing)
+        && archived.import_batch_id == Some(origin.batch_id)
+        && refresh == Refresh::Latest
+    {
+        p.written_before += 1;
+    }
+    if refresh_visit(s, &archived, visit, hash, parent, refresh, stamp)?
+        && refresh == Refresh::Latest
+    {
+        p.updated_visits += 1;
+    }
+    capture.record_copy(visit.source_visit_id, archived.id, archived.counted());
+    if parent.is_none() && archived.parent_visit_id.is_none() {
+        defer_parent(capture, visit, archived.id);
+    }
+    Ok(Native::Archived)
+}
+
+/// The archive id of the visit that opened `visit`, when this read already wrote or found it.
+fn parent_of(capture: &Capture, visit: &ParsedVisit) -> Option<i64> {
+    visit
+        .from_visit
+        .filter(|opener| *opener > 0)
+        .and_then(|opener| capture.visits.get(&opener).copied())
+}
+
+/// Keeps a visit whose opener this read has not reached, for the end of the read.
+pub(super) fn defer_parent(capture: &mut Capture, visit: &ParsedVisit, id: i64) {
+    if let Some(opener) = visit.from_visit.filter(|opener| *opener > 0)
+        && !capture.visits.contains_key(&opener)
+    {
+        capture.pending_openers.push((id, opener));
+    }
+}
+
+/// The newest browser row read so far and the visit it holds: the next backup checks that row
+/// still holds the same visit before it reads only the rows after it.
+fn track_newest(
+    w: &mut Watermark,
+    p: &mut ArchiveStreamProgress,
+    visit: &ParsedVisit,
+    key: &str,
+    table: Option<browser_history_parser::native_visits::VisitTable>,
+) {
+    p.last_visit_id = p.last_visit_id.max(visit.source_visit_id);
+    if !browser_history_parser::native_visits::past_latest_time(visit.visit_time_ms) {
+        w.newest_visit_ms = w.newest_visit_ms.max(visit.visit_time_ms);
+    }
+    if visit.source_visit_id > w.last_visit_id {
+        w.last_visit_id = visit.source_visit_id;
+        w.last_visit_key = Some(key.to_owned());
+        w.last_visit_url = Some(visit.url.clone());
+        w.last_visit_kind = table.and_then(|table| table.identity_kind(visit.transition));
+    }
 }
 #[cfg(test)]
 mod statement_benchmark {
@@ -622,19 +867,23 @@ mod statement_benchmark {
     // Document, once: read page/title/terms/annotations + write (5), profile membership + newest
     // time (2), outbox (1).
     const RECORD_BUDGET: usize = 4 + 2 + 5 + 2 + 1;
+    // A browser's record has a browser time: which archived visit it is is asked first (1).
+    const NATIVE_RECORD_BUDGET: usize = RECORD_BUDGET + 1;
     // Watermark (1), run progress read/write (2), three cached totals (3), the sources a visit
     // batch may share visits with (1, and one more per other source; `archive::same_visit`).
     const BATCH_BUDGET: usize = 1 + 2 + 3 + 1;
     #[test]
     fn statements_follow_the_row_and_batch_budget() {
-        measure(32);
+        measure(32, false);
+        measure(32, true);
     }
     #[test]
     #[ignore = "scaled measurement; the same budgets run in the normal test suite"]
     fn statements_per_ten_thousand_record_chunk() {
-        measure(10_000);
+        measure(10_000, false);
+        measure(10_000, true);
     }
-    fn measure(size: i64) {
+    fn measure(size: i64, native: bool) {
         let vault = Vault::open_temp().unwrap();
         let profile = super::super::test_context::profile("chromium", "benchmark");
         let count = vault
@@ -646,6 +895,7 @@ mod statement_benchmark {
                     profile_id: profile.profile_id,
                     browser_family: "chromium".into(),
                     import: None,
+                    captured_at_ms: 0,
                 };
                 let urls = (1..=size)
                     .map(|id| {
@@ -669,6 +919,9 @@ mod statement_benchmark {
                     .map(|id| {
                         (
                             ParsedVisit {
+                                source_visit_time: native.then(|| {
+                                    browser_history_parser::native_visits::chromium_key(id)
+                                }),
                                 source_visit_id: id,
                                 source_url_id: id,
                                 url: format!("https://benchmark.test/{id}"),
@@ -691,8 +944,17 @@ mod statement_benchmark {
                 let mut progress = ArchiveStreamProgress::default();
                 let mut watermark = Watermark::default();
                 let mut written = Written::default();
+                let mut capture = Capture::default();
                 for batch in [Batch::Urls(urls), Batch::Visits(visits)] {
-                    apply_batch(s, &context, batch, &mut progress, &mut watermark, &mut written)?;
+                    apply_batch(
+                        s,
+                        &context,
+                        batch,
+                        &mut progress,
+                        &mut watermark,
+                        &mut written,
+                        &mut capture,
+                    )?;
                 }
                 write_documents(s, &context, &written)?;
                 save_watermark(s, &context.profile_id, &watermark)?;
@@ -711,9 +973,12 @@ mod statement_benchmark {
                 Ok(s.statement_count() - before)
             })
             .unwrap();
-        eprintln!("{size} URLs and their visits in one transaction: {count} statements");
+        eprintln!(
+            "{size} URLs and their visits (native: {native}) in one transaction: {count} statements"
+        );
+        let record = if native { NATIVE_RECORD_BUDGET } else { RECORD_BUDGET };
         assert!(
-            count <= size as usize * RECORD_BUDGET + BATCH_BUDGET,
+            count <= size as usize * record + BATCH_BUDGET,
             "a chunk's statements grew past its budget: {count}"
         );
     }

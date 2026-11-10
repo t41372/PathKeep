@@ -41,6 +41,7 @@ pub struct ScheduledBackupAttempt {
 pub enum ScheduledBackupAttemptOutcome {
     Running,
     Success,
+    Partial,
     Skipped,
     Deferred,
     Failed,
@@ -86,6 +87,9 @@ pub struct SchedulePlan {
     pub platform: String,
     pub label: String,
     pub executable_path: String,
+    /// Lets the preview explain the actual native grid, including Linux calendar rounding.
+    #[serde(default)]
+    pub wake_interval_seconds: u64,
     pub generated_files: Vec<GeneratedFile>,
     pub manual_steps: Vec<String>,
     #[serde(default)]
@@ -169,6 +173,10 @@ pub struct ScheduleStatus {
     pub manual_step_details: Vec<ScheduleManualStep>,
     pub audit_path: Option<String>,
     pub last_successful_backup_at: Option<String>,
+    /// Current-grid estimate; login restarts the grid and sleep may shift it.
+    pub next_scheduled_backup_at: Option<String>,
+    /// Actual native wake interval, available with the estimate for an open archive.
+    pub wake_interval_seconds: Option<u64>,
     pub warnings: Vec<String>,
     #[serde(default)]
     pub issues: Vec<ScheduleIssue>,

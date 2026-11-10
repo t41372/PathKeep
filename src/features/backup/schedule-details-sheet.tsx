@@ -117,6 +117,7 @@ function IssueRow({ issue }: { issue: ScheduleIssue }) {
 const attemptOutcomes = [
   'running',
   'success',
+  'partial',
   'skipped',
   'deferred',
   'failed',
@@ -269,6 +270,7 @@ export function ScheduleDetailsSheet({
                     >
                       <span
                         className={cn(
+                          outcome === 'partial' && 'text-brand',
                           (outcome === 'failed' || outcome === 'interrupted') &&
                             'text-destructive',
                         )}

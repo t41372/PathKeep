@@ -227,14 +227,37 @@ fn unreadable_issue(detected_at: &str, evidence: String) -> ScheduledBackupHealt
     }
 }
 
+/// Wakes that ran no backup cannot resolve the last backup's warning. The ledger is newest
+/// first; a success ends the search even when an older backup was incomplete.
+fn latest_backup_result(attempts: &[ScheduledBackupAttempt]) -> Option<&ScheduledBackupAttempt> {
+    attempts.iter().find(|attempt| {
+        matches!(
+            attempt.outcome,
+            ScheduledBackupAttemptOutcome::Success
+                | ScheduledBackupAttemptOutcome::Partial
+                | ScheduledBackupAttemptOutcome::Failed
+                | ScheduledBackupAttemptOutcome::Interrupted
+        )
+    })
+}
+
 fn derive_health_issues(
     attempts: &[ScheduledBackupAttempt],
     detected_at: &str,
     issues: &mut Vec<ScheduledBackupHealthIssue>,
 ) {
-    let Some(latest) = attempts.first() else {
+    let Some(latest) = latest_backup_result(attempts) else {
         return;
     };
+    if latest.outcome == ScheduledBackupAttemptOutcome::Partial {
+        issues.push(ScheduledBackupHealthIssue {
+            code: "latest-attempt-incomplete".into(),
+            severity: "warning".into(),
+            detected_at: detected_at.into(),
+            related_attempt_id: Some(latest.id.clone()),
+            evidence: Vec::new(),
+        });
+    }
     if latest.outcome == ScheduledBackupAttemptOutcome::Failed {
         issues.push(ScheduledBackupHealthIssue {
             code: "latest-attempt-failed".to_string(),
@@ -430,8 +453,111 @@ fn new_attempt_id() -> String {
 
 #[cfg(test)]
 mod tests {
+    //! Failure modes: a wake that skips, defers or is still running clears an unresolved backup
+    //! warning; a failure or interruption is hidden by a later wake; an older partial result
+    //! returns after a success. Each must hold both before and after the first scheduled success.
     use super::*;
     use crate::project_paths_with_root;
+
+    fn record_attempt(paths: &ProjectPaths, outcome: ScheduledBackupAttemptOutcome) -> String {
+        let mut recorder = ScheduleAttemptRecorder::begin(paths).unwrap();
+        if outcome != ScheduledBackupAttemptOutcome::Running {
+            recorder.finish(outcome, None, None, None).unwrap();
+        }
+        recorder.attempt.id.clone()
+    }
+
+    fn warning_survives_wake(
+        result: ScheduledBackupAttemptOutcome,
+        wake: ScheduledBackupAttemptOutcome,
+        code: &str,
+    ) {
+        for had_success in [false, true] {
+            let root = tempfile::tempdir().unwrap();
+            let paths = project_paths_with_root(root.path());
+            if had_success {
+                record_attempt(&paths, ScheduledBackupAttemptOutcome::Success);
+            }
+            let result_id = record_attempt(&paths, result);
+            let before = load_schedule_attempt_ledger(&paths, 1.0, None).unwrap();
+            assert_eq!(before.health_issues.len(), 1);
+            assert_eq!(before.health_issues[0].code, code);
+            assert_eq!(before.last_success_at.is_some(), had_success);
+
+            record_attempt(&paths, wake);
+            let after = load_schedule_attempt_ledger(&paths, 1.0, None).unwrap();
+            assert_eq!(after.attempts[0].outcome, wake);
+            assert_eq!(after.last_success_at, before.last_success_at);
+            assert_eq!(after.health_issues.len(), 1, "prior success: {had_success}");
+            assert_eq!(after.health_issues[0].code, code);
+            assert_eq!(
+                after.health_issues[0].related_attempt_id.as_deref(),
+                Some(result_id.as_str())
+            );
+        }
+    }
+
+    #[test]
+    fn partial_then_skipped_keeps_the_warning() {
+        use ScheduledBackupAttemptOutcome::{Partial, Skipped};
+        warning_survives_wake(Partial, Skipped, "latest-attempt-incomplete");
+    }
+
+    #[test]
+    fn partial_then_deferred_keeps_the_warning() {
+        use ScheduledBackupAttemptOutcome::{Deferred, Partial};
+        warning_survives_wake(Partial, Deferred, "latest-attempt-incomplete");
+    }
+
+    #[test]
+    fn partial_then_running_keeps_the_warning() {
+        use ScheduledBackupAttemptOutcome::{Partial, Running};
+        warning_survives_wake(Partial, Running, "latest-attempt-incomplete");
+    }
+
+    #[test]
+    fn failed_then_skipped_keeps_the_failure() {
+        use ScheduledBackupAttemptOutcome::{Failed, Skipped};
+        warning_survives_wake(Failed, Skipped, "latest-attempt-failed");
+    }
+
+    #[test]
+    fn interrupted_then_skipped_keeps_the_interruption() {
+        use ScheduledBackupAttemptOutcome::{Interrupted, Skipped};
+        warning_survives_wake(Interrupted, Skipped, "worker-interrupted");
+    }
+
+    fn partial_then_success(later_wake: bool) {
+        use ScheduledBackupAttemptOutcome::{Partial, Skipped, Success};
+        for had_success in [false, true] {
+            let root = tempfile::tempdir().unwrap();
+            let paths = project_paths_with_root(root.path());
+            if had_success {
+                record_attempt(&paths, Success);
+            }
+            record_attempt(&paths, Partial);
+            record_attempt(&paths, Success);
+            let success = load_schedule_attempt_ledger(&paths, 1.0, None).unwrap();
+            assert!(success.health_issues.is_empty());
+            assert_eq!(success.last_success_at, success.attempts[0].finished_at);
+            if later_wake {
+                record_attempt(&paths, Skipped);
+                let after = load_schedule_attempt_ledger(&paths, 1.0, None).unwrap();
+                assert_eq!(after.last_success_at, success.last_success_at);
+                assert!(after.health_issues.is_empty(), "an older partial result stays resolved");
+            }
+        }
+    }
+
+    #[test]
+    fn partial_then_success_clears_the_warning() {
+        partial_then_success(false);
+    }
+
+    #[test]
+    fn a_partial_before_a_later_success_does_not_return() {
+        partial_then_success(true);
+    }
 
     #[test]
     fn recorder_persists_pre_archive_failure_and_success_transitions() {

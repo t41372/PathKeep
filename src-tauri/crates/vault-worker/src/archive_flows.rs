@@ -19,6 +19,8 @@
 //! boundaries described in the design docs remain visible in the returned
 //! payloads.
 
+pub(crate) mod previews;
+
 use crate::{
     context::load_unlocked_config,
     intelligence::{maybe_spawn_ai_queue_drain, maybe_spawn_intelligence_queue_drain},
@@ -239,8 +241,10 @@ fn run_backup_with_loaded_config<F>(
 where
     F: FnMut(BackupProgressEvent),
 {
+    let wake_interval =
+        due_only.then(|| vault_platform::ScheduleParameters::from(config).wake_interval(None));
     let mut report =
-        run_backup_with_progress(&vault.with_config(config.clone()), due_only, |event| {
+        run_backup_with_progress(&vault.with_config(config.clone()), wake_interval, |event| {
             report_progress(event);
         })?;
     // The run record holds the warnings up to here; what the follow-ups add is saved at the end.
@@ -303,39 +307,12 @@ where
     // driving daily cadence and a manual run shouldn't double-fire.
     if !report.due_skipped {
         append_og_image_cleanup_result(&mut report, run_og_image_cleanup(vault));
-        // Negative-cache auto-refetch: try again for any URL whose
-        // `refetch_after` has elapsed. Bounded by NEGATIVE_CACHE_DAILY_BUDGET
-        // so a single overnight backlog can't burst-fire hundreds of
-        // outbound requests; remaining URLs roll into the next daily
-        // tick. Same warning channel as the cleanup pass.
-        // Load config once and reuse — both budget reads + the wrapped
-        // worker calls would otherwise hit disk three times per backup
-        // tick. `load_unlocked_config` does parse the on-disk JSON, so
-        // the saving is non-trivial on a hot post-backup path.
-        // The two helpers will still re-load internally (they need it
-        // for `effective_mode`); the dedupe here is for the budget
-        // lookups + future readers that want to extend this block.
-        let (refetch_budget, prefetch_budget) = vault_core::project_paths()
-            .ok()
-            .and_then(|paths| load_unlocked_config(&paths).ok())
-            .map(|config| {
-                (
-                    clamp_budget(config.og_image.daily_refetch_budget),
-                    clamp_budget(config.og_image.new_visit_prefetch_budget),
-                )
-            })
-            .unwrap_or((clamp_budget(50), clamp_budget(100)));
-        append_og_image_refetch_due_result(
-            &mut report,
-            try_refetch_due_og_images(vault, refetch_budget),
-        );
-        // Background-mode prefetch: warm the cache for URLs the user
-        // visited but the worker hasn't seen yet. OnDemand / Off
-        // short-circuit inside `try_prefetch_new_visit_og_images`.
-        append_og_image_prefetch_result(
-            &mut report,
-            try_prefetch_new_visit_og_images(vault, prefetch_budget),
-        );
+        // Link previews fetch over the network; the backup's reply does not wait for them.
+        if let Some(run) = report.run.as_ref()
+            && let Err(error) = previews::enqueue(vault, run.id)
+        {
+            append_og_image_prefetch_result(&mut report, Err(error));
+        }
     }
     if let Some(run) = report.run.as_ref()
         && report.warning_details.len() > recorded
@@ -631,6 +608,9 @@ pub fn refetch_og_images(vault: &Vault, urls: Vec<String>) -> Result<u32> {
     let (sender, receiver) =
         mpsc::channel::<(String, vault_core::og_images_fetch::FetchedOgImage)>();
 
+    // Run by a background pass (after a backup), the fetchers stop with it, between pages:
+    // Delete All Data waits for the pass, and a stopped one must not go on fetching the list.
+    let epoch = crate::job_runtime::current_worker_epoch();
     let mut handles = Vec::with_capacity(WORKER_POOL_SIZE);
     for _ in 0..WORKER_POOL_SIZE {
         let work = Arc::clone(&work);
@@ -639,16 +619,23 @@ pub fn refetch_og_images(vault: &Vault, urls: Vec<String>) -> Result<u32> {
         let blocked_hosts = Arc::clone(&blocked_hosts);
         let sender = sender.clone();
         handles.push(std::thread::spawn(move || {
-            while drain_one_worker_url(
-                &work,
-                &host_state,
-                client.as_ref(),
-                blocked_hosts.as_ref(),
-                &sender,
-                RATE_LIMIT_PER_HOST,
-            )
-            .is_continue()
-            {}
+            let fetch = || {
+                while !crate::job_runtime::worker_stopped()
+                    && drain_one_worker_url(
+                        &work,
+                        &host_state,
+                        client.as_ref(),
+                        blocked_hosts.as_ref(),
+                        &sender,
+                        RATE_LIMIT_PER_HOST,
+                    )
+                    .is_continue()
+                {}
+            };
+            match epoch {
+                Some(epoch) => crate::job_runtime::with_worker_epoch(epoch, fetch),
+                None => fetch(),
+            }
         }));
     }
     drop(sender);

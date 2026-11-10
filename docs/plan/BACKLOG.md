@@ -9,6 +9,31 @@
 
 > 2026-10-25：清掉已完成或前提已不存在的 block（v0.3 Paper 前端、已移除的 coverage / mutation gate、已修好的 flaky 測試等，清單見 CHANGELOG 同日）。2026-04 到 2026-06 的收尾註記也一併移除，要看去 git 歷史或 CHANGELOG。
 
+- [ ] **WORK-BACKUP-INTEGRITY-SCALE** — 原生備份的新身分與讀法在 14.4M 和目標機上的量測（2026-11-01 PR #18 只量了 100 萬筆、M5 Max）
+  - 要量：14.4M 的 v1 存檔更新（migration 2–21，含開啟者 backfill 與重建列號索引）的時間與峰值記憶體；更新後第一次備份（整個重讀、給每筆時間）；之後每小時與每週的備份。目標機 4 核 / 8 GB，冷快取。
+  - 另外量一份 Sync 從新到舊寫的大檔（開啟者大多在子造訪之後）：讀完才找到的開啟者分批寫，量它的時間。
+  - 工具：`archive::ingest::scale_measure`（`docs/architecture/research/2026-11-backup-integrity-1m/README.md`）。
+
+- [ ] **WORK-INSIGHTS-LATE-OPENERS** — Insights 已經建過的造訪後來才有開啟者，站點流向與路徑要等下一次完整重建才看到（2026-11-01 PR #18 第五輪審查）
+  - 讀先：`docs/architecture/backup-integrity.md` §Openers、`vault-core/src/intelligence/build_pipeline.rs`（`count == 0` 與 append 的判斷）、`build_append.rs`（只讀 `visit_id > old max`）、`build_rows.rs` 讀 `parent_visit_id` 的地方。
+  - 現象：PR #18 讓備份可以更新已存的造訪：時長（查詢時才讀，不受影響）、開啟者（`parent_visit_id`，只在原本沒有時填上）。Navigation 跟著連結走，馬上對；Insights 的站點流向、trail、導航鏈深度是建置時算好的，append 只建比上次大的 id，`backup_changed_archive` 也只看新造訪，所以後來才填上的開啟者要等下一次完整重建（規則或階段版本變了、手動重建）。會碰到的：Sync 分批從新到舊寫，一批的子造訪先備份、它的開啟者下一批才進檔案；備份在寫開啟者之前被打斷（下一次備份會補上連結）。
+  - 不採用：每次這樣就整個重建。`ipc-performance.md` 的完整建置在 14.4M 上是 40–100 分鐘（伺服器 CPU），目標機更久；為了少數連結這樣做不行。
+  - 方向：備份在同一個交易裡記下「哪些已建過的造訪換了開啟者」（造訪 id，不是一個計數），建置只重算那些造訪所在的 session／trail 與它們加減的站點流向。先量 Sync 使用者一週會有多少這種造訪，再決定做法。
+
+- [ ] **WORK-URL-TITLE-REFRESH** — 最後造訪時間沒變時，頁面標題不會更新（2026-11-01 PR #18 第五輪審查；規則早於 PR #18）
+  - 讀先：`vault-core/src/archive/ingest/writes.rs` 的 `upsert_url`（`url.last_visit_ms > last` 才更新）、`browser-history-parser/src/url_pages.rs` 的 URL 讀取條件。
+  - 現象：Chrome 在造訪開始時記下時間，標題載完才寫（單頁應用會改好幾次）；那之間跑的備份存到舊標題，之後的備份看到同一個最後造訪時間就不更新，要等下一次造訪那一頁。
+  - 方向：不是直接改成 `>=`：重播舊的 checkpoint 也是同一個時間，會把舊標題寫回來。要分清楚「這次讀的是瀏覽器現在的檔案」與「重播」：前者在時間相同時也可以更新標題，後者不行（跟時長「不往回拿」同一個規則）。
+
+- [ ] **WORK-WIPE-WAITS-FOR-BACKUP** — 刪除所有資料不等正在跑的備份（2026-11-01 PR #18 第五輪審查時看到；早於 PR #18）
+  - 讀先：`vault-worker/src/data_wipe.rs`（`stop_background_work`）、`vault-core/src/archive/wipe.rs` 的檔頭（說「進行中的先做完」）、`Vault::begin_backup`。
+  - 現象：刪除只停並等背景佇列與連結預覽，正在跑的備份照跑；存檔關掉之後它的寫入都失敗（`Closed`），不會把資料寫回來，但那次備份會以錯誤結束，檔頭的說法也不對。
+  - 方向：刪除取得備份那把鎖（或讓備份走 `ArchiveOpGate`），等它結束或請它停；檔頭照實寫。
+
+- [ ] **WORK-STAGING-BUSY-WAIT** — 瀏覽器開著時，每個 profile 每次備份先空等 10 秒（2026-11-01 PR #18 第五輪審查時從代碼與瀏覽器原始碼找到，本機用 SQLite 重現了鎖，沒在真的瀏覽器上量；早於 PR #18）
+  - 現象：Chrome 與桌面版 Firefox 執行時一直鎖著歷史檔，線上備份每次都等滿 5 秒的 busy timeout 才改成直接複製，History 和 Favicons 各一次。Safari 不鎖，等待有用。
+  - 方向：鎖是瀏覽器整段執行期間都在的（排他鎖），不是短暫的寫入；先用很短的 timeout 試一次，拿不到就直接複製，只有 Safari 這類一般鎖定的檔案才等。改之前先在真的 Chrome／Firefox 開著時量一次。
+
 - [ ] **WORK-INSIGHTS-COLD-READS** — 目標機大小的機器上，Insights 有卡片第一次讀要等一分鐘以上（2026-10-25 14.4M 量測找到；和「目標機上流暢」的硬指標衝突，下一輪先做）
   - 讀先：`docs/architecture/ipc-performance.md` §11（各讀取的量法與 2026-10-09 的表）與 §16 最後一段、`vault-worker/tests/archive_scale_bench/turso_intelligence.rs`。
   - 現象（Modal microVM 4 vCPU / 8 GB，release、加密，14.4M 造訪，預設形狀；資料最大 22.5 GB）：app 剛起來的第一次讀，interrupted habits 30 天 66 s、一年 68 s，全部時間的 digest 單獨讀 67 s，一年的第一批卡片 29.5 s；同一個讀取第二次 1 s 以內到 0.5 s。
@@ -38,6 +63,16 @@
   - 讀碼看到的：增量建置從頭掃，內容 hash 變了的造訪會重新 embedding、provenance 換成新的 key；但 `indexing/backfill.rs` 的 `DedupTracker::take_unmapped` 只看 `history_id` 有沒有映射過，已有的不再 append，`.pkmap` 仍是舊 key，新 generation 的投影從 `.pkmap` 建（`read_all` 是同一 `history_id` 後寫的算數）。
   - 要先做：寫測試確認。同一次造訪改 enrichment summary 再增量建置，看 forward 映射是不是換成新 key、舊 key 的 reverse 成員有沒有留著；再看中途當掉、續跑會不會把舊映射帶回來。
   - 方向：內容 key 變了的造訪 append 一筆新映射（`read_all` 本來就是後寫的算數），去重只擋同一個 key 的重複；不要只是拿掉去重，續跑會重複映射。
+
+- [ ] **WORK-SAME-VISIT-UNDONE-STAND-IN** — 兩個匯入記了同一次造訪、都復原（代表所在的那個最後），先恢復另一個時，它的副本仍藏在那筆看不到的代表後面，那次造訪不算，要等另一個匯入也恢復（2026-11-02 PR #18 第六輪審查找到；早於 PR #18，2026-10-09 的跨來源同一次造訪就是這樣）
+  - 讀先：`docs/architecture/same-visit-across-sources.md` §3、`archive/same_visit.rs`（`promote`、`link`、`FOLLOW_SQL`）、`takeout/visibility.rs` 的 `chunk`、`dedup_scenarios_baselines/firefox_sync.rs` 的復原／恢復場景。
+  - 試過、不行：恢復時讓副本頂上、並把被復原的代表指向它。跨來源「一秒內算同一次」會遞移地合併組，這個指向之後被帶到同一個瀏覽器的另一次造訪或另一個設定檔的造訪，兩次不同的造訪恢復後只算一次；PR #18 第六輪連四輪讀碼都找到新的順序。
+  - 方向：不靠跟著組走的指向。例如恢復時只用「這筆副本當初是跟誰配的」（寫入時另存、不跟著組換），代表已復原時它頂上、那筆回來時照順序比；先把一秒規則能不能遞移、要不要限制在同一對之內想清楚。每個順序寫成場景，每一步檢查各匯入的可見數、總數與每個來源的數。
+
+- [ ] **WORK-WINDOWS-RAW-COPY-CHECK** — Windows 上，瀏覽器開著時的直接複製可能收下一份複製途中被寫過的檔案（2026-11-03 PR #18 第七輪審查指出；早於 PR #18：之前連這個檢查都沒有）
+  - 根因：`chrome/staging.rs` 的 `copy_while_still` 用複製前後的大小、修改時間、建立時間判斷「期間沒人寫」。macOS 與 Linux 每次寫入都立刻更新修改時間；Windows 的 `WriteFile` 文件說寫入用的 handle 關掉之前 last-write time 不一定更新，而 Chrome 一直開著它。大小不變的原地寫入（rollback journal 模式最常見）於是看不出來。
+  - 要先做：在 Windows 上量。Chrome 開著、持續寫入時連續複製，看修改時間何時變；用能判斷交易是否完整的資料（例如每筆交易同時改兩張表的計數）檢查收下的複製。只測 append 的假資料測不到。
+  - 方向（量過再選）：Windows 上換一種接受條件，例如兩次複製逐位元組比對（每次備份多讀一兩次檔案，要量成本）；或拿不到一致的複製時照實回報這個來源這次讀不到。不要無限重試，也不要沒量過就讓所有平台多複製。
 
 - [ ] **WORK-FLAKY-BLOCK-CACHE-RSS** — `vault-crypto` 的 `the_block_cache_bounds_memory` 量常駐記憶體（RSS），記憶體緊時不準（2026-10-25 gate 連兩次失敗，同一晚 03:31 的整套 Rust 測試過了；vault-crypto 當晚沒改）
   - 現象：上限 2 MiB 的快取 RSS 漲 8.3 / 6.9 MiB，沒有上限的漲 11.1 / 4.9 MiB（它的快取最多 9.9 MiB），斷言要前者比後者少 4 MiB 以上。
@@ -110,6 +145,13 @@
   - 現況：`fxhash` 現在只經 `selectors` 0.31 ← `scraper` 0.24 進來（Tauri 2.12 已經不帶它）；`scraper` 0.29 用 `selectors` 0.41，不再需要 `fxhash`。`scraper` 是 0.x，宣告鎖在 0.24，要手動升。
   - 為什麼沒一起做：CI 不靠這條，而升級會動到讀網頁內容的 selector API，要看 enrichment 與連結預覽的行為有沒有變。
   - 要做：升級、跑 enrichment 與 link-preview 的 E2E、把 `scripts/check-rust-security.mjs` 與 `deny.toml` 的 `RUSTSEC-2025-0057` 拿掉。
+
+- [ ] **WORK-SQLCIPHER-SQLITE-354** — 內建的 SQLCipher 還是 SQLite 3.53，RUSTSEC-2026-0459 修不掉，暫時在允許清單裡（2026-11-09 PR #18 第十二輪 gate 的 `audit:rust` 找到）
+  - 現象：SQLite 3.54 之前，資料庫檔和它的 `-wal` 頁大小不同時，查詢可能讀回未初始化的記憶體（只有打開別人做出來的檔案對才會碰到）。我們用 `rusqlite` 的 `bundled-sqlcipher`。修補版 `libsqlite3-sys` 0.39（`rusqlite` 0.41）的 SQLCipher 來自 `sqlcipher-src =419.0.6`，包的是 SQLite 3.53.4，公告自己寫仍受影響；升上去只會讓稽核閉嘴。
+  - `sqlcipher-src` 是新依賴：個人維護、repo 2026-09 才建、2 顆星，不到自動放行的門檻，要風險評估和用戶同意。它的 420.0.0（SQLCipher 4.20.0、SQLite 3.54.1）已經發布，等 `libsqlite3-sys` 改用它。
+  - 現在：用戶同意（2026-11-09）把它加進 `scripts/check-rust-security.mjs` 的允許清單，理由寫在條目裡；之前 CI 的供應鏈稽核一直紅，下一條新公告會看不到。
+  - 方向：那一版出來時寫風險評估，用戶同意後升 `rusqlite` 與 `libsqlite3-sys`，跑 v0.4.0 存檔的轉換 E2E（SQLCipher 的加密後端可能從 OpenSSL 換成 libtomcrypt，檔案格式相同，要量），**同時刪掉允許清單裡的 RUSTSEC-2026-0459**。升級後公告不再命中時，稽核腳本會因為條目過期而失敗，不會漏刪。
+  - 另一條路：轉換器改用 Turso 的 `PageCodec`（`turso_core` 0.8.3 公開）自己解 SQLCipher 4，app 就不再需要 SQLCipher，`rusqlite` 改回一般的 `bundled`，升 0.41 就是修好的 SQLite 3.54.1，vendored OpenSSL 也拿掉（只有 SQLCipher 用它）。要先驗證 Turso 打得開每個 v0.4.0 檔案的 schema、WAL 裡已提交的頁面讀得到、能唯讀打開；會推翻 ADR 012 的 SQLite library note，需要取捨文件與用戶同意。2026-11-09 用戶決定先不做。
 
 - [ ] **WORK-SEARCH-QUOTED-LITERALS** — 引號裡看起來像運算子的字照字面找，補 E2E（2026-10-29 審查 PR 16 時找到；解析在 2026-11-02 第六輪做掉，當時記在 `WORK-SEARCH-QUOTED-OPERATORS`）
   - 現況：從引號開始的整個 token 是字面片語，SQL 篩選與索引查詢兩個 parser 一起改了；進階搜尋的表單會替看起來像運算子的字加引號。有 Rust 的表格測試（`search/query_tests.rs`）與表單的 TS 測試（`words-query.test.ts`），History 裡還沒有 E2E 走過。

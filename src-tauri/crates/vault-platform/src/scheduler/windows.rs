@@ -38,19 +38,18 @@ use vault_core::{
     },
 };
 
-use super::{
-    ScheduleParameters, SchedulerHost, audit, count_native_call, ensure_parent_dir,
-    interval_minutes_from_hours,
-};
+use super::{ScheduleParameters, SchedulerHost, audit, count_native_call, ensure_parent_dir};
 use crate::sandbox::TASK_SCHEDULER_SUBDIR;
 
+/// Repeats on the shared native interval; the worker chooses the wake nearest the due start.
 pub(super) fn windows_schedule_plan(
     label: &str,
     executable_path: &Path,
     worker_args: &[String],
     params: &ScheduleParameters,
 ) -> Result<SchedulePlan> {
-    let repetition_interval = windows_repetition_interval(params.check_interval_hours);
+    let repetition_interval =
+        windows_repetition_interval(params.wake_interval(Some("windows")).as_secs() / 60);
     let user_id = current_windows_task_user_id()?;
     let escaped_user_id = xml_escape(&user_id);
     // `schtasks /Create /XML` reports "unable to switch the encoding" when its
@@ -99,6 +98,7 @@ pub(super) fn windows_schedule_plan(
     );
     Ok(SchedulePlan {
         platform: "windows".to_string(),
+        wake_interval_seconds: params.wake_interval(Some("windows")).as_secs(),
         label: label.to_string(),
         executable_path: executable_path.display().to_string(),
         generated_files: vec![GeneratedFile {
@@ -167,8 +167,7 @@ pub(super) fn windows_schedule_plan(
     })
 }
 
-fn windows_repetition_interval(hours: f64) -> String {
-    let minutes = interval_minutes_from_hours(hours);
+fn windows_repetition_interval(minutes: u64) -> String {
     let whole_hours = minutes / 60;
     let remaining_minutes = minutes % 60;
     match (whole_hours, remaining_minutes) {

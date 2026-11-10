@@ -44,11 +44,12 @@ use vault_core::{
 
 use super::{
     LEGACY_MACOS_SCHEDULE_LABELS, ScheduleParameters, SchedulerHost, audit, count_native_call,
-    format_interval_label, interval_minutes_from_hours, interval_seconds_from_hours,
+    format_interval_label,
 };
 use crate::sandbox::{LAUNCH_AGENTS_SUBDIR, LAUNCHD_LOADED_SUBDIR};
 use crate::test_support::launch_agents_dir_override;
 
+/// Wakes on the shared native interval; the worker chooses the wake nearest the due start.
 pub(super) fn macos_schedule_plan(
     label: &str,
     executable_path: &Path,
@@ -56,7 +57,8 @@ pub(super) fn macos_schedule_plan(
     log_dir: &Path,
     params: &ScheduleParameters,
 ) -> Result<SchedulePlan> {
-    let check_interval_minutes = interval_minutes_from_hours(params.check_interval_hours);
+    let wake_interval = params.wake_interval(Some("macos"));
+    let check_interval_minutes = wake_interval.as_secs() / 60;
     let check_interval_label = format_interval_label(check_interval_minutes);
     let stdout_log = log_dir.join("worker.stdout.log").display().to_string();
     let stderr_log = log_dir.join("worker.stderr.log").display().to_string();
@@ -67,10 +69,7 @@ pub(super) fn macos_schedule_plan(
             plist::Value::Array(worker_args.iter().cloned().map(plist::Value::String).collect()),
         ),
         ("RunAtLoad".to_string(), plist::Value::Boolean(true)),
-        (
-            "StartInterval".to_string(),
-            plist::Value::Integer(interval_seconds_from_hours(params.check_interval_hours).into()),
-        ),
+        ("StartInterval".to_string(), plist::Value::Integer(wake_interval.as_secs().into())),
         // launchd runs the worker directly and captures its output.
         ("StandardOutPath".to_string(), plist::Value::String(stdout_log.clone())),
         ("StandardErrorPath".to_string(), plist::Value::String(stderr_log.clone())),
@@ -80,6 +79,7 @@ pub(super) fn macos_schedule_plan(
     let contents = String::from_utf8(buffer)?;
     Ok(SchedulePlan {
         platform: "macos".to_string(),
+        wake_interval_seconds: wake_interval.as_secs(),
         label: label.to_string(),
         executable_path: executable_path.display().to_string(),
         generated_files: vec![GeneratedFile {

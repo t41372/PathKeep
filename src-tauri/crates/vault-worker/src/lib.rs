@@ -39,10 +39,16 @@ mod security;
 mod session;
 pub use session::{KeychainAfterInstall, VaultSession};
 
-/// Whether a queue worker (Insights, enrichment, page fetching, AI) is running; a
-/// background launch stays until they finish.
+/// Whether a queue worker (Insights, enrichment, page fetching, AI) or a link-preview pass is
+/// running; a background launch stays until they finish.
 pub fn background_work_running() -> bool {
-    intelligence::running_background_workers() > 0
+    background_workers() > 0
+}
+
+/// How many queue workers and link-preview passes are running: what idle exit waits for, and
+/// what Delete All Data stops and waits for before it deletes.
+pub(crate) fn background_workers() -> usize {
+    intelligence::running_background_workers() + archive_flows::previews::active()
 }
 mod stars;
 

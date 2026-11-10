@@ -38,6 +38,7 @@ mod doctor;
 mod doctor_derived;
 mod doctor_facts;
 mod favicon_metadata;
+pub(crate) mod source_error;
 pub use doctor_derived::derived_health;
 mod history;
 // Re-export the SSRF guard module so the W-ENRICH-1 enrichment plane can reach
@@ -49,6 +50,10 @@ mod read_models;
 pub(crate) mod totals;
 pub(crate) use self::read_models::recent_runs_from;
 mod run_support;
+mod schedule;
+pub use schedule::{backup_due_anchor, next_scheduled_backup_at};
+#[cfg(test)]
+mod schedule_estimate_tests;
 pub(crate) use run_support::write_manifest_artifact;
 pub(crate) mod search_documents;
 pub(crate) mod write_runs;
@@ -105,7 +110,8 @@ pub use self::{
     },
     read_models::{
         McpQueryPage, McpQueryRecord, RunPage, archive_availability, archive_status,
-        load_audit_run_detail, load_dashboard_snapshot, load_mcp_queries, load_recent_runs,
+        last_finished_backup, load_audit_run_detail, load_dashboard_snapshot, load_mcp_queries,
+        load_recent_runs,
     },
 };
 use crate::{

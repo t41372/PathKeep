@@ -133,6 +133,15 @@ the bundled `pathkeep-worker` sidecar directly; a build outside an app bundle ru
 single-instance setup, so it remains a short-lived client. Windows tasks retain
 their current user's interactive token and least-privilege setting.
 
+The owner and the app's `run_backup_now(due_only)` path use the same worker backup
+flow. For due-only runs it passes the native wake interval to core as a duration;
+manual runs pass none. `ScheduleParameters` defines both the generated schedule
+and this duration, including Linux's shorter calendar grid. A run is due when
+time since the last counted backup started reaches the backup interval minus
+half that wake interval. This chooses the wake nearest the due start and absorbs
+startup jitter without adding backup duration to the cadence. Successes and
+partials that read a profile to the end count, including manual runs.
+
 Transport failures live in `vault-owner-ipc/tests/transport.rs`; public lock tests
 in `vault-store/tests/app_owner.rs`; owner business failures in
 `vault-worker/src/owner_requests/`. `vault-worker/tests/owner_client.rs` separately drives the real sidecar and stdio

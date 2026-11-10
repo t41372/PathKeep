@@ -32,14 +32,12 @@ import { Spinner } from '@/components/ui/spinner'
 import { useDebouncedValue } from '@/lib/hooks/use-debounced-value'
 import { describeError } from '@/lib/errors'
 import { useI18n } from '@/lib/i18n'
-import { useSnapshot } from '@/lib/queries/app'
 import type { SchedulePlan, ScheduleStatus } from '@/lib/types'
 import {
   formatInterval,
   hoursToMinutes,
   intervalHours,
   splitInterval,
-  wakeHours,
   type IntervalUnit,
 } from './interval'
 import { PathLine } from './path-actions'
@@ -171,7 +169,6 @@ function InstallForm({
   onClose: () => void
 }) {
   const { t } = useI18n()
-  const snapshot = useSnapshot()
   const initial = splitInterval(hoursToMinutes(intent.hours))
   const [amount, setAmount] = useState(String(initial.amount))
   const [unit, setUnit] = useState<IntervalUnit>(initial.unit)
@@ -246,19 +243,19 @@ function InstallForm({
           />
         )}
 
-        {typedHours !== null && (
+        {/* The check interval comes from the plan; until it arrives the line keeps its place. */}
+        {typedHours === null || plan.isError ? null : ready ? (
           <p className="text-[13px] text-muted-foreground">
             {t('backupSchedule.change.when', {
               interval: formatInterval(typedHours, t),
-              check: formatInterval(
-                wakeHours(
-                  typedHours,
-                  snapshot.config.scheduleCheckIntervalHours,
-                ),
-                t,
-              ),
+              check: formatInterval(plan.data.wakeIntervalSeconds / 3_600, t),
             })}
           </p>
+        ) : (
+          <div className="flex flex-col gap-1.5 py-0.5" aria-hidden>
+            <Skeleton className="h-3.5 w-full" />
+            <Skeleton className="h-3.5 w-3/4" />
+          </div>
         )}
 
         {hours === null ? null : plan.isPending || !settled ? (

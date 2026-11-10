@@ -307,6 +307,9 @@ pub fn convert_owned(
             total: 0,
         });
     }
+    // Openers by archive id, which the copied visits do not have yet.
+    cancel.check()?;
+    vault_core::conversion::adopt_version_one_facts(&vault)?;
     vault_core::conversion::refresh_totals(&vault)?;
     vault_core::conversion::refresh_embedding_totals(&vault)?;
     vault_core::conversion::project_enrichments(&vault, &cancel)?;

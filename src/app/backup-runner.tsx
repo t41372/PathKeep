@@ -19,7 +19,10 @@ import { archiveClient } from '@/lib/backend-client/archive'
 import { countRunWarnings } from '@/features/backup/run-codes'
 import { openRun } from '@/features/backup/run-link'
 import { describeError } from '@/lib/errors'
-import { isFullDiskAccessError } from '@/lib/ipc/command-error'
+import {
+  commandErrorCode,
+  isFullDiskAccessError,
+} from '@/lib/ipc/command-error'
 import { subscribeToBackupProgress } from '@/lib/ipc/backup-progress'
 import { subscribeToBackupFinished } from '@/lib/ipc/desktop-events'
 import { useI18n } from '@/lib/i18n'
@@ -29,7 +32,7 @@ import type { BackupProgressEvent, BackupReport } from '@/lib/types'
 /** What a run ended with, for callers that show the result in place. */
 export type BackupOutcome =
   | { ok: true; report: BackupReport }
-  | { ok: false; error: unknown }
+  | { ok: false; error: unknown; report?: BackupReport }
 
 interface RunOptions {
   /** Onboarding shows the result itself, so it turns the toasts off. */
@@ -64,13 +67,20 @@ export function BackupRunnerProvider({ children }: { children: ReactNode }) {
   const announceDone = useCallback(
     (report: BackupReport) => {
       const added = report.run?.newVisits ?? 0
+      const incomplete = report.run?.status === 'partial'
       const title =
         added > 0
-          ? t('shell.backup.done', { count: added })
-          : t('shell.backup.doneNothingNew')
+          ? t(incomplete ? 'shell.backup.partial' : 'shell.backup.done', {
+              count: added,
+            })
+          : t(
+              incomplete
+                ? 'shell.backup.partialNothingNew'
+                : 'shell.backup.doneNothingNew',
+            )
       const warnings = countRunWarnings(report)
       const runId = report.run?.id
-      if (warnings === 0 || runId === undefined) {
+      if (!incomplete && (warnings === 0 || runId === undefined)) {
         toast.success(title)
         return
       }
@@ -79,10 +89,20 @@ export function BackupRunnerProvider({ children }: { children: ReactNode }) {
         duration: 10_000,
         action: {
           label: t('shell.backup.viewDetails'),
-          onClick: () => openRun(runId),
+          onClick: () => {
+            if (runId !== undefined) openRun(runId)
+          },
         },
       })
     },
+    [t],
+  )
+  /** The translated sentence for a failed run's code, when it has one. */
+  const failureCopy = useCallback(
+    (error: unknown) =>
+      commandErrorCode(error) === 'backup-no-profiles'
+        ? t('shell.backup.errors.backup-no-profiles')
+        : null,
     [t],
   )
   const announceFailed = useCallback(
@@ -90,11 +110,11 @@ export function BackupRunnerProvider({ children }: { children: ReactNode }) {
       toast.error(t('shell.backup.failed'), {
         description: isFullDiskAccessError(error)
           ? t('shell.backup.fullDiskAccess')
-          : describeError(error, 'run_backup_now'),
+          : (failureCopy(error) ?? describeError(error, 'run_backup_now')),
         duration: 10_000,
       })
     },
-    [t],
+    [failureCopy, t],
   )
 
   // A backup started from the menu bar icon: show it like our own runs.
@@ -124,6 +144,7 @@ export function BackupRunnerProvider({ children }: { children: ReactNode }) {
         setLastReport(report)
         if (notify) announceDone(report)
         await refreshAfterArchiveChange()
+        // A partial run still saved what it read; its warnings say what it left out.
         return { ok: true, report } as const
       } catch (error) {
         if (notify) announceFailed(error)

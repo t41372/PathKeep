@@ -52,7 +52,7 @@ memmap2 = "0.9.11"
 plist = "1.8.0"
 regex = "1.12.2"
 rig-core = { version = "0.44", default-features = false, features = ["reqwest", "rustls"] }
-rmcp = { version = "3.5.1", features = ["transport-io"] }
+rmcp = { version = "3.9.0", features = ["transport-io"] }
 rusqlite = { version = "0.39.0", features = ["backup", "bundled-sqlcipher-vendored-openssl", "serde_json"] }
 # Same major as rig-core's `schemars` (1.x) so `LlmProvider`'s structured-output schema
 # unifies with rig's `output_schema` type rather than introducing a second instance.

@@ -30,12 +30,13 @@ use crate::{
     models::{AppConfig, BackupProfileSummary, BackupRunOverview},
 };
 use anyhow::Result;
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Utc};
 use iana_time_zone::get_timezone;
 use serde::Serialize;
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
+use std::time::Duration;
 use vault_store::Session;
 
 pub(super) const EARLIEST_VISIT_SQL: &str = "SELECT visit_time_iso FROM visits INDEXED BY idx_visits_visible_time_id WHERE reverted_at IS NULL AND visit_time_ms>=-9223372036854775808 ORDER BY visit_time_ms,id LIMIT 1";
@@ -135,26 +136,19 @@ pub(crate) fn current_timezone_name() -> String {
     get_timezone().unwrap_or_else(|_| "UTC".to_string())
 }
 
-/// Computes the concrete skip reason for one due-window comparison.
-///
-/// Tests and other helpers can call this with a controlled `now` value to keep
-/// scheduler behavior deterministic.
+/// Chooses the wake nearest the next due start. Half the actual native wake interval
+/// allows for startup jitter; counting from the last start avoids drift from backup duration.
 pub(super) fn backup_due_skip_reason_at(
-    last_backup_at: DateTime<Utc>,
+    last_started_at: DateTime<Utc>,
     config: &AppConfig,
+    wake_interval: Duration,
     now: DateTime<Utc>,
 ) -> Option<String> {
-    let elapsed = now - last_backup_at;
-    let due_after_minutes = due_after_minutes(config.due_after_hours);
-    (elapsed < Duration::minutes(due_after_minutes as i64))
-        .then(|| format!("last successful backup is only {} minutes old", elapsed.num_minutes()))
-}
-
-fn due_after_minutes(due_after_hours: f64) -> u64 {
-    let minutes = (due_after_hours * 60.0).round();
-    if minutes.is_finite() && minutes >= 1.0 && minutes <= u64::MAX as f64 {
-        minutes as u64
-    } else {
-        1
-    }
+    let elapsed = now - last_started_at;
+    let earliest_start = super::schedule::backup_due_delay(config.due_after_hours, wake_interval);
+    elapsed
+        .to_std()
+        .ok()
+        .is_none_or(|elapsed| elapsed < earliest_start)
+        .then(|| format!("last counted backup started only {} minutes ago", elapsed.num_minutes()))
 }

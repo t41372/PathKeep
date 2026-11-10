@@ -65,11 +65,14 @@ fn snapshot(rows: i64) -> ProfileSnapshot {
         history_path,
         favicons_path: None,
         source_hashes: Vec::new(),
+        captured_at_ms: chrono::Utc::now().timestamp_millis(),
     }
 }
 
-/// Safety copies must capture a committed backup prefix, including its evidence
-/// and cursor, while allowing the remaining batches to continue afterwards.
+/// Safety copies must capture a committed backup prefix, including its evidence, while allowing
+/// the remaining batches to continue afterwards. The first backup reads every row, so the copy
+/// holds a read of every row stopped part way, its mark at the last row it saved: a backup from
+/// the restored copy carries it on, reads its visits from the first again and saves each once.
 #[test]
 fn safety_snapshot_during_backup_restores_a_consistent_committed_prefix() {
     for encrypted in [false, true] {
@@ -93,6 +96,7 @@ fn safety_snapshot_during_backup_restores_a_consistent_committed_prefix() {
             Vault::open(paths, config, None).unwrap()
         };
         let source = snapshot(20_003);
+        let profile = source.profile.clone();
         let (sent, ready) = std::sync::mpsc::channel();
         let (resume, wait) = std::sync::mpsc::channel();
         let writer = vault.clone();
@@ -100,9 +104,9 @@ fn safety_snapshot_during_backup_restores_a_consistent_committed_prefix() {
             let mut paused = false;
             super::super::backup::run_backup_profiles(
                 &writer,
-                false,
+                None,
                 &CancelToken::new(),
-                vec![source.profile],
+                vec![profile],
                 |p| {
                     if !paused && p.imported_records == Some(10_000) {
                         paused = true;
@@ -125,8 +129,19 @@ fn safety_snapshot_during_backup_restores_a_consistent_committed_prefix() {
             Default::default(),
         )
         .unwrap();
-        let counts=restored.vault.store().read(Db::Archive,|s|s.query_one("SELECT (SELECT count(*) FROM visits),(SELECT value FROM archive_totals WHERE name='visits'),(SELECT last_visit_id FROM profile_watermarks LIMIT 1)",(),|r|Ok((r.get::<i64>(0)?,r.get::<i64>(1)?,r.get::<i64>(2)?)))).unwrap();
-        assert_eq!(counts, (10_000, 10_000, 10_000));
+        let counts = |vault: &Vault| {
+            vault.store().read(Db::Archive,|s|s.query_one("SELECT (SELECT count(*) FROM visits),(SELECT value FROM archive_totals WHERE name='visits'),(SELECT last_visit_id FROM profile_watermarks LIMIT 1)",(),|r|Ok((r.get::<i64>(0)?,r.get::<i64>(1)?,r.get::<i64>(2)?)))).unwrap()
+        };
+        assert_eq!(counts(&restored.vault), (10_000, 10_000, 10_000));
+        super::super::backup::run_backup_profiles(
+            &restored.vault,
+            None,
+            &CancelToken::new(),
+            vec![source.profile.clone()],
+            |_| {},
+        )
+        .unwrap();
+        assert_eq!(counts(&restored.vault), (20_003, 20_003, 20_003));
     }
 }
 
@@ -235,7 +250,7 @@ fn backup_crash_child() {
     let vault = Vault::open(crate::project_paths_with_root(Path::new(&root)), config, key).unwrap();
     super::super::backup::run_backup_profiles(
         &vault,
-        false,
+        None,
         &CancelToken::new(),
         vec![profile],
         |event| {
@@ -285,7 +300,7 @@ fn process_exit_preserves_committed_batches_and_resume_watermark() {
         assert_eq!(state, "interrupted");
         super::super::backup::run_backup_profiles(
             &vault,
-            false,
+            None,
             &CancelToken::new(),
             vec![source.profile],
             |_| {},
@@ -303,7 +318,7 @@ fn resume_does_not_reupsert_committed_url_batches_or_skip_terms() {
     assert!(
         super::super::backup::run_backup_profiles(
             &vault,
-            false,
+            None,
             &cancel,
             vec![source.profile.clone()],
             |event| {
@@ -328,7 +343,7 @@ fn resume_does_not_reupsert_committed_url_batches_or_skip_terms() {
     assert_eq!(cursors.1, 0, "terms have not been read yet");
     super::super::backup::run_backup_profiles(
         &vault,
-        false,
+        None,
         &CancelToken::new(),
         vec![source.profile],
         |_| {},
@@ -347,7 +362,10 @@ fn resume_does_not_reupsert_committed_url_batches_or_skip_terms() {
                 stats["processedUrls"], 0,
                 "resume must not read/upsert any committed URL batch"
             );
-            assert_eq!(stats["processedRecords"], 10_003);
+            // The visits are read from the first again: the openers the stopped read was
+            // waiting for were only in memory. The 10,000 it saved are matched, not added.
+            assert_eq!(stats["processedRecords"], 20_003);
+            assert_eq!(stats["newVisits"], 10_003);
             for table in ["urls", "visits", "search_terms", "downloads", "favicons"] {
                 assert_eq!(
                     s.query_one(&format!("SELECT COUNT(*) FROM {table}"), (), |r| Ok(

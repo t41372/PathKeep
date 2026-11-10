@@ -44,6 +44,11 @@ export const backupImport = defineMessages({
       range: 'From {start} to {end}',
       sample: 'Latest in the file',
       alreadySaved: 'already saved',
+      syncCopy: 'Sync copy',
+      syncCopies_one:
+        '{count} is a Firefox Sync copy of a visit in your archive: kept, counted once',
+      syncCopies_other:
+        '{count} are Firefox Sync copies of visits in your archive: kept, counted once',
       untitled: 'Untitled',
       historyOnly:
         'Only visits and pages come in. Icons, downloads and searches are not part of this file.',
@@ -138,6 +143,11 @@ export const backupImport = defineMessages({
       range: '从 {start} 到 {end}',
       sample: '文件里最近的记录',
       alreadySaved: '已保存',
+      syncCopy: '同步副本',
+      syncCopies_one:
+        '{count} 条是存档里已有记录的 Firefox 同步副本：一并保存，只算一次',
+      syncCopies_other:
+        '{count} 条是存档里已有记录的 Firefox 同步副本：一并保存，只算一次',
       untitled: '无标题',
       historyOnly: '只会导入浏览记录和页面。图标、下载和搜索不在这个文件里。',
       copyOnly: 'PathKeep 读取的是文件的副本，不会改动浏览器自己的文件。',
@@ -228,6 +238,11 @@ export const backupImport = defineMessages({
       range: '從 {start} 到 {end}',
       sample: '檔案裡最近的記錄',
       alreadySaved: '已儲存',
+      syncCopy: '同步副本',
+      syncCopies_one:
+        '{count} 筆是存檔裡已有記錄的 Firefox 同步副本：一併保存，只算一次',
+      syncCopies_other:
+        '{count} 筆是存檔裡已有記錄的 Firefox 同步副本：一併保存，只算一次',
       untitled: '無標題',
       historyOnly: '只會匯入瀏覽記錄和頁面。圖示、下載和搜尋不在這個檔案裡。',
       copyOnly: 'PathKeep 讀取的是檔案的副本，不會改動瀏覽器自己的檔案。',

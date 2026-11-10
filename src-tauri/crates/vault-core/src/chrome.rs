@@ -60,6 +60,9 @@ pub struct ProfileSnapshot {
     pub history_path: PathBuf,
     pub favicons_path: Option<PathBuf>,
     pub source_hashes: Vec<FileFingerprint>,
+    /// When the browser's files were copied, in Unix milliseconds: what a download's row says is
+    /// its state then, and a copy taken earlier never replaces what a later one saved.
+    pub captured_at_ms: i64,
 }
 
 #[derive(Debug)]

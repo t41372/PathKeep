@@ -18,7 +18,7 @@ pub(super) fn run(vault: &Vault) {
         let started = Instant::now();
         crate::archive::run_backup_profiles(
             vault,
-            false,
+            None,
             &vault_store::CancelToken::new(),
             vec![profile],
             |_| {},
@@ -77,7 +77,7 @@ pub(super) fn run(vault: &Vault) {
     let mut notified = false;
     crate::archive::run_backup_profiles(
         vault,
-        false,
+        None,
         &vault_store::CancelToken::new(),
         vec![profile],
         |event| {

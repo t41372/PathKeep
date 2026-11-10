@@ -36,7 +36,7 @@ export const backupSchedule = defineMessages({
       unit: 'Unit',
       units: { minutes: 'minutes', hours: 'hours', days: 'days' },
       invalid: 'Choose a whole number between 1 minute and 30 days.',
-      when: 'PathKeep backs up when the last backup is more than {interval} old. The system checks every {check} and again when you log in, so a backup missed while the computer was off runs soon after.',
+      when: 'PathKeep backs up about every {interval}, at the check closest to that interval. The system checks every {check} and when you log in, so a backup missed while the computer was off runs soon after.',
       scheduler: 'Scheduler',
       file: 'File',
       contents: 'File contents',
@@ -92,6 +92,7 @@ export const backupSchedule = defineMessages({
       attempts: 'Recent automatic runs',
       noAttempts: 'The scheduler has not started PathKeep yet.',
       attempt: {
+        partial: 'Backup incomplete',
         running: 'Running',
         success: 'Backed up',
         skipped: 'Not due yet',
@@ -144,6 +145,12 @@ export const backupSchedule = defineMessages({
         'macOS still has the job loaded, but its file was deleted.',
       issuePlistMissingLoadedConsequence:
         'PathKeep cannot change a job without its file. Reinstall it or turn it off.',
+      issueScheduleAttemptIncompleteTitle:
+        'The last automatic backup was incomplete',
+      issueScheduleAttemptIncompleteDetail:
+        'Some selected browsers weren’t fully backed up. History already saved is kept.',
+      issueScheduleAttemptIncompleteConsequence:
+        'Open the latest run for details, then try backing up again.',
       issueScheduleAttemptFailedTitle: 'The last automatic backup failed',
       issueScheduleAttemptFailedDetail:
         'The scheduler started PathKeep, but the backup did not finish.',
@@ -267,7 +274,7 @@ export const backupSchedule = defineMessages({
       unit: '单位',
       units: { minutes: '分钟', hours: '小时', days: '天' },
       invalid: '请选一个 1 分钟到 30 天之间的整数。',
-      when: '距离上次备份超过 {interval}，PathKeep 就会备份。系统每 {check} 检查一次，登录时也会检查，所以电脑关机时错过的备份会很快补上。',
+      when: 'PathKeep 大约每 {interval} 备份一次，在最接近这个间隔的检查时执行。系统每 {check} 检查一次，登录时也会检查，所以关机时错过的备份会在登录后尽快补上。',
       scheduler: '调度器',
       file: '文件',
       contents: '文件内容',
@@ -320,6 +327,7 @@ export const backupSchedule = defineMessages({
       attempts: '最近的自动运行',
       noAttempts: '调度器还没有启动过 PathKeep。',
       attempt: {
+        partial: '备份未完成',
         running: '运行中',
         success: '已备份',
         skipped: '还没到时间',
@@ -361,6 +369,11 @@ export const backupSchedule = defineMessages({
         'macOS 仍载入着这个任务，但它的文件被删了。',
       issuePlistMissingLoadedConsequence:
         '没有文件，PathKeep 无法更改这个任务。请重新安装或关闭。',
+      issueScheduleAttemptIncompleteTitle: '上次自动备份未完成',
+      issueScheduleAttemptIncompleteDetail:
+        '部分所选浏览器未能完整备份，已保存的历史仍会保留。',
+      issueScheduleAttemptIncompleteConsequence:
+        '打开最近的运行记录了解原因，然后重试备份。',
       issueScheduleAttemptFailedTitle: '上次自动备份失败',
       issueScheduleAttemptFailedDetail:
         '调度器启动了 PathKeep，但备份没有完成。',
@@ -475,7 +488,7 @@ export const backupSchedule = defineMessages({
       unit: '單位',
       units: { minutes: '分鐘', hours: '小時', days: '天' },
       invalid: '請選一個 1 分鐘到 30 天之間的整數。',
-      when: '距離上次備份超過 {interval}，PathKeep 就會備份。系統每 {check} 檢查一次，登入時也會檢查，所以電腦關機時錯過的備份會很快補上。',
+      when: 'PathKeep 大約每 {interval} 備份一次，在最接近這個間隔的檢查時執行。系統每 {check} 檢查一次，登入時也會檢查，所以關機時錯過的備份會在登入後盡快補上。',
       scheduler: '排程器',
       file: '檔案',
       contents: '檔案內容',
@@ -528,6 +541,7 @@ export const backupSchedule = defineMessages({
       attempts: '最近的自動執行',
       noAttempts: '排程器還沒有啟動過 PathKeep。',
       attempt: {
+        partial: '備份未完成',
         running: '執行中',
         success: '已備份',
         skipped: '還沒到時間',
@@ -569,6 +583,11 @@ export const backupSchedule = defineMessages({
         'macOS 仍載入著這個工作，但它的檔案被刪了。',
       issuePlistMissingLoadedConsequence:
         '沒有檔案，PathKeep 無法變更這個工作。請重新安裝或關閉。',
+      issueScheduleAttemptIncompleteTitle: '上次自動備份未完成',
+      issueScheduleAttemptIncompleteDetail:
+        '部分所選瀏覽器未能完整備份，已儲存的歷史仍會保留。',
+      issueScheduleAttemptIncompleteConsequence:
+        '開啟最近的執行記錄了解原因，然後重試備份。',
       issueScheduleAttemptFailedTitle: '上次自動備份失敗',
       issueScheduleAttemptFailedDetail:
         '排程器啟動了 PathKeep，但備份沒有完成。',

@@ -47,12 +47,3 @@ export function intervalHours(amount: number, unit: IntervalUnit) {
     return null
   return minutes / 60
 }
-
-/**
- * How often the system scheduler wakes PathKeep: the backup interval, capped
- * at the config's check interval (the same rule as the backend's
- * `native_schedule_interval_hours`).
- */
-export function wakeHours(dueAfterHours: number, checkIntervalHours: number) {
-  return Math.min(dueAfterHours, checkIntervalHours)
-}

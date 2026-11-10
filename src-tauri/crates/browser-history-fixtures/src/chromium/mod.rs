@@ -49,7 +49,7 @@ pub struct ChromiumUrlRow {
 
 /// One row destined for the Chromium `visits` table.
 ///
-/// Fields mirror the columns the production parser reads in `INGEST_VISITS_SQL`,
+/// Fields mirror the columns the production parser reads in `ingest_visits_sql`,
 /// including the awkwardly-named `visits.url` column which is the foreign key
 /// to `urls.id` (not a URL string).
 #[derive(Debug, Clone)]

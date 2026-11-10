@@ -63,7 +63,7 @@ fn backed_up_archive() -> Fixture {
         .push(crate::models::AiProviderConfig { id: "llm-1".to_string(), ..Default::default() });
     save_config(&paths, &config).expect("save config");
     let vault = crate::Vault::open(paths.clone(), config.clone(), None).expect("open archive");
-    let visits = run_backup(&vault, false).expect("backup").run.expect("run").new_visits;
+    let visits = run_backup(&vault, None).expect("backup").run.expect("run").new_visits;
     assert!(visits > 0);
     vault.close().expect("close archive");
 
@@ -128,6 +128,7 @@ fn no_schedule(_: &SchedulePlan) -> Result<()> {
 fn installed_plan() -> SchedulePlan {
     SchedulePlan {
         platform: "macos".to_string(),
+        wake_interval_seconds: 3_600,
         label: "test.pathkeep.backup".to_string(),
         executable_path: "/Applications/PathKeep.app/Contents/MacOS/pathkeep-worker".to_string(),
         generated_files: Vec::new(),

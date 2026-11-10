@@ -15,7 +15,7 @@ use crate::{
     },
 };
 use chrono::{TimeZone, Utc};
-use rusqlite::{Connection, OpenFlags, Row, params};
+use rusqlite::{Connection, OpenFlags, Row};
 use serde_json::json;
 use std::convert::Infallible;
 use std::path::Path;
@@ -216,6 +216,24 @@ pub fn stream_history<C>(
 where
     C: HistoryBatchConsumer,
 {
+    let window = crate::VisitWindow { after_id: after_visit_id, recent_since_ms: None };
+    stream_history_window(path, window, after_url_last_visit_ms, url_scan, chunk_size, consumer)
+}
+
+/// [`stream_history`] over a [`crate::VisitWindow`]: the visits after one row, and the recent ones
+/// again.
+pub fn stream_history_window<C>(
+    path: &Path,
+    window: crate::VisitWindow,
+    after_url_last_visit_ms: i64,
+    url_scan: Option<crate::UrlScan>,
+    chunk_size: usize,
+    consumer: &mut C,
+) -> Result<StreamedHistory, StreamHistoryError<C::Error>>
+where
+    C: HistoryBatchConsumer,
+{
+    let after_visit_id = window.after_id;
     let inspection = inspect_history(path)?;
     let schema_observation =
         inspect_schema(&open_readonly(path)?, &["history_items", "history_visits"])?;
@@ -244,11 +262,13 @@ where
     )?;
 
     {
-        let visits_sql = safari_visits_sql(&extra_visit_columns);
+        let visits_sql = safari_visits_sql(&extra_visit_columns, window);
         let mut statement = stream_sql(connection.prepare(&visits_sql))?;
         let column_names =
             statement.column_names().iter().map(|name| name.to_string()).collect::<Vec<_>>();
-        let mut rows = stream_sql(statement.query(params![after_visit_id]))?;
+        let mut rows = stream_sql(statement.query(rusqlite::params_from_iter(
+            crate::visit_query::parameters(crate::native_visits::VisitTable::Safari, window),
+        )))?;
         let mut batch = Vec::with_capacity(chunk_size);
         let mut source_evidence = SourceEvidenceChunk::default();
         while let Some(row) = stream_sql(rows.next())? {
@@ -403,6 +423,7 @@ fn parsed_url_from_row(row: &Row<'_>) -> rusqlite::Result<ParsedUrl> {
 fn parsed_visit_from_row(row: &Row<'_>) -> rusqlite::Result<ParsedVisit> {
     let visit_time = row.get::<_, f64>(4)?;
     Ok(ParsedVisit {
+        source_visit_time: Some(crate::native_visits::safari_key(visit_time)),
         source_visit_id: row.get(0)?,
         source_url_id: row.get(1)?,
         url: row.get(2)?,
@@ -445,7 +466,7 @@ fn safari_visit_extra_columns(
     .collect()
 }
 
-fn safari_visits_sql(extra_columns: &[SafariVisitExtraColumn]) -> String {
+fn safari_visit_columns(extra_columns: &[SafariVisitExtraColumn]) -> String {
     let mut select_list = vec![
         "history_visits.id".to_string(),
         "history_visits.history_item".to_string(),
@@ -456,9 +477,17 @@ fn safari_visits_sql(extra_columns: &[SafariVisitExtraColumn]) -> String {
     select_list.extend(
         extra_columns.iter().map(|column| format!("history_visits.{}", column.column_name())),
     );
-    format!(
-        "SELECT {}\nFROM history_visits\nJOIN history_items\n  ON history_items.id = history_visits.history_item\nWHERE history_visits.id > ?1\nORDER BY history_visits.id ASC",
-        select_list.join(",\n  ")
+    select_list.join(",\n  ")
+}
+
+fn safari_visits_sql(
+    extra_columns: &[SafariVisitExtraColumn],
+    window: crate::VisitWindow,
+) -> String {
+    crate::visit_query::visits(
+        crate::native_visits::VisitTable::Safari,
+        &safari_visit_columns(extra_columns),
+        window,
     )
 }
 
@@ -627,6 +656,46 @@ mod tests {
     use rusqlite::params;
     use std::convert::Infallible;
     use tempfile::tempdir;
+
+    const EXTRA: &[SafariVisitExtraColumn] = &[
+        SafariVisitExtraColumn::LoadSuccessful,
+        SafariVisitExtraColumn::HttpNonGet,
+        SafariVisitExtraColumn::Synthesized,
+        SafariVisitExtraColumn::RedirectSource,
+        SafariVisitExtraColumn::RedirectDestination,
+        SafariVisitExtraColumn::Origin,
+        SafariVisitExtraColumn::Generation,
+        SafariVisitExtraColumn::Attributes,
+        SafariVisitExtraColumn::Score,
+    ];
+
+    #[test]
+    fn visit_query_rows_match_the_original_window() {
+        for extra in [EXTRA, &[]] {
+            crate::visit_query::tests::rows_match(
+                crate::native_visits::VisitTable::Safari,
+                &safari_visit_columns(extra),
+                |window| safari_visits_sql(extra, window),
+            );
+        }
+    }
+
+    #[test]
+    fn recent_visit_query_seeks_rowids_and_scans_the_covering_index() {
+        crate::visit_query::tests::recent_read_work(
+            crate::native_visits::VisitTable::Safari,
+            &safari_visit_columns(EXTRA),
+            |window| safari_visits_sql(EXTRA, window),
+        );
+    }
+
+    #[test]
+    fn full_and_continued_visit_queries_seek_by_rowid() {
+        crate::visit_query::tests::full_read_seeks(
+            crate::native_visits::VisitTable::Safari,
+            |window| safari_visits_sql(EXTRA, window),
+        );
+    }
 
     #[derive(Default)]
     struct NonRetainingEvidenceSink {

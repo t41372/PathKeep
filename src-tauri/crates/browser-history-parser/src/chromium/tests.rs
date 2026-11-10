@@ -8,6 +8,32 @@ use super::*;
 use std::convert::Infallible;
 use tempfile::tempdir;
 
+#[test]
+fn visit_query_rows_match_the_original_window() {
+    crate::visit_query::tests::rows_match(
+        crate::native_visits::VisitTable::Chromium,
+        VISIT_COLUMNS,
+        ingest_visits_sql,
+    );
+}
+
+#[test]
+fn recent_visit_query_seeks_both_ranges() {
+    crate::visit_query::tests::recent_read_work(
+        crate::native_visits::VisitTable::Chromium,
+        VISIT_COLUMNS,
+        ingest_visits_sql,
+    );
+}
+
+#[test]
+fn full_and_continued_visit_queries_seek_by_rowid() {
+    crate::visit_query::tests::full_read_seeks(
+        crate::native_visits::VisitTable::Chromium,
+        ingest_visits_sql,
+    );
+}
+
 #[derive(Default)]
 struct NonRetainingEvidenceSink {
     urls: usize,
@@ -328,6 +354,7 @@ fn parse_history_includes_urls_whose_last_visit_time_is_below_cursor_when_new_vi
             url_scan: None,
             after_url_last_visit_time: 13_000_000_001_000_000_i64,
             after_visit_id: 50_i64,
+            recent_visits_since_ms: None,
             after_download_id: 0,
             after_favicon_last_updated: 0,
         },
