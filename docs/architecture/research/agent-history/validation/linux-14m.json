@@ -1,0 +1,154 @@
+{
+  "schema_version": 1,
+  "mode": "synthetic",
+  "status": "passed",
+  "phase": "complete",
+  "measurements": [
+    {
+      "operation": "plan",
+      "wall_seconds": 0.004196,
+      "max_rss_bytes": 6889472,
+      "exit_code": 0,
+      "stderr_bytes": 0,
+      "rss_method": "time_v_kib"
+    },
+    {
+      "operation": "init",
+      "wall_seconds": 0.439984,
+      "max_rss_bytes": 275132416,
+      "exit_code": 0,
+      "stderr_bytes": 0,
+      "rss_method": "time_v_kib"
+    },
+    {
+      "operation": "backup_initial",
+      "wall_seconds": 473.60506,
+      "max_rss_bytes": 274722816,
+      "exit_code": 0,
+      "stderr_bytes": 0,
+      "rss_method": "time_v_kib"
+    },
+    {
+      "operation": "list",
+      "wall_seconds": 0.393684,
+      "max_rss_bytes": 274837504,
+      "exit_code": 0,
+      "stderr_bytes": 0,
+      "rss_method": "time_v_kib"
+    },
+    {
+      "operation": "search",
+      "wall_seconds": 0.489099,
+      "max_rss_bytes": 274726912,
+      "exit_code": 0,
+      "stderr_bytes": 0,
+      "rss_method": "time_v_kib"
+    },
+    {
+      "operation": "search_unicode",
+      "wall_seconds": 0.840128,
+      "max_rss_bytes": 274739200,
+      "exit_code": 0,
+      "stderr_bytes": 0,
+      "rss_method": "time_v_kib"
+    },
+    {
+      "operation": "revisions",
+      "wall_seconds": 0.397743,
+      "max_rss_bytes": 274661376,
+      "exit_code": 0,
+      "stderr_bytes": 0,
+      "rss_method": "time_v_kib"
+    },
+    {
+      "operation": "raw_export",
+      "wall_seconds": 16.000618,
+      "max_rss_bytes": 274706432,
+      "exit_code": 0,
+      "stderr_bytes": 0,
+      "rss_method": "time_v_kib"
+    },
+    {
+      "operation": "backup_unchanged",
+      "wall_seconds": 4.551295,
+      "max_rss_bytes": 274751488,
+      "exit_code": 0,
+      "stderr_bytes": 0,
+      "rss_method": "time_v_kib"
+    },
+    {
+      "operation": "verify",
+      "wall_seconds": 74.120658,
+      "max_rss_bytes": 274726912,
+      "exit_code": 0,
+      "stderr_bytes": 0,
+      "rss_method": "time_v_kib"
+    }
+  ],
+  "started_at_utc": "2026-11-11T10:53:48.321083+00:00",
+  "platform": {
+    "system": "Linux",
+    "release": "7.2.14",
+    "machine": "x86_64",
+    "python": "3.12.1"
+  },
+  "scope": "streamed Pi fixture",
+  "privacy": {
+    "native_content_in_report": false,
+    "native_paths_in_report": false,
+    "native_identifiers_in_report": false,
+    "network_used": false
+  },
+  "reproduce": "python3 scripts/agent-history-verify.py --synthetic-records 14400000",
+  "build": {
+    "git_head": null,
+    "git_dirty": null,
+    "git_status_sha256": null,
+    "git_provenance": "unavailable",
+    "source_archive": true,
+    "source_tree_sha256": "d0b03b4718b94e03c9e2c8a2630bf39f2f19eb10b1f787c7fe64b3791b966a5d",
+    "binary_sha256": "413aacba7ff59dd693d19cecdc64c02d7de47953f34f7b7494b6316304621b47",
+    "binary_bytes": 29302176,
+    "fingerprint_note": "Records source and binary independently; not proof of build provenance."
+  },
+  "runner_sha256": "be2432e0cca0ffaa7a65e0eff18fc7d9130ab6285df51c4479c31bfbe91ac27a",
+  "records": 14400000,
+  "fixture_version": "pi-v3-scale-1",
+  "plan_issue_codes": {},
+  "backup_status": "complete",
+  "issue_codes": {},
+  "captured_files": 1,
+  "source_bytes": 6185244596,
+  "parsed_sessions_by_harness": {
+    "pi": 1
+  },
+  "search": {
+    "matches": 1,
+    "complete": true,
+    "private_query_used": false
+  },
+  "search_acceptance": {
+    "scope": "native events; session header excluded",
+    "tail": {
+      "expected": 1,
+      "actual": 1,
+      "complete": true
+    },
+    "unicode": {
+      "expected": 14400000,
+      "actual": 14400000,
+      "complete": true
+    }
+  },
+  "raw_integrity": {
+    "checked_files": 1,
+    "all_sha256_equal": true
+  },
+  "reopen_idempotent": true,
+  "archive_integrity": "complete",
+  "archive_bytes": 17964192516,
+  "temporary_storage_cleanup": "completed",
+  "elapsed_seconds": 646.849339,
+  "peak_command_rss_bytes": 275132416,
+  "artifact_written": true
+}

@@ -56,15 +56,15 @@ impl Store {
     pub fn is_open(&self) -> bool {
         !self.closed.load(std::sync::atomic::Ordering::Acquire)
     }
-    /// Acquire ownership, verify every existing database, then migrate on writers.
+    /// Acquire ownership, verify every selected database, then migrate on writers.
     pub fn open(config: Config) -> Result<Self> {
         worker::check_caller()?;
+        config.validate()?;
         let lock = match &config.owner {
             Some(owner) if owner.root == config.root => owner.clone(),
             Some(_) => return Err(Error::InvalidConfig("owner belongs to another root".into())),
             None => Arc::new(owner_lock::OwnerLock::acquire(&config.root)?),
         };
-        config.validate()?;
         let config = std::thread::Builder::new()
             .name("store-preflight".into())
             .spawn(move || {
@@ -82,6 +82,9 @@ impl Store {
         };
         // Keep scratch's database handle alive before any connection attaches it.
         for db in [Db::Scratch, Db::Archive, Db::SourceEvidence, Db::Intelligence, Db::Agent] {
+            if !config.databases.contains(&db) {
+                continue;
+            }
             let scratch = store.workers.get_mut().unwrap().first().map(|(_, w)| w.gate.clone());
             let archive = if db == Db::Intelligence {
                 store

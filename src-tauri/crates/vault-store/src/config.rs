@@ -1,7 +1,8 @@
-//! Responsibilities: name the five stores and their caller-supplied paths/settings.
+//! Responsibilities: select stores and their caller-supplied paths/settings.
 //! Not responsible for: finding application directories or selecting encryption policy.
 //! Failure modes: duplicate paths create multiple writers; zero-sized pools cannot
-//! serve reads; keys appear in Debug output. Tests: config tests and opening.
+//! serve reads; disabled stores are opened; attachments lack their dependency store;
+//! keys appear in Debug output. Tests: config tests, opening and selected_databases.
 use crate::{Error, MigrationRegistry, Result};
 use std::{
     num::NonZeroUsize,
@@ -65,6 +66,11 @@ impl Paths {
 /// ```
 pub struct Config {
     pub root: PathBuf,
+    /// Only these roles are opened, migrated and included in snapshots. Their order
+    /// does not affect startup: Scratch precedes all stores, Archive precedes Intelligence.
+    /// Every selection requires Scratch; Intelligence also requires Archive.
+    /// Defaults to all roles for the desktop application. Unselected paths are ignored.
+    pub databases: Vec<Db>,
     pub paths: Paths,
     pub keys: [Option<[u8; 32]>; 5],
     pub owner: Option<Arc<crate::OwnerLock>>,
@@ -80,6 +86,7 @@ impl Config {
         let paths = Paths::under(&root);
         Self {
             root,
+            databases: Db::ALL.to_vec(),
             paths,
             keys: [None; 5],
             owner: None,
@@ -91,12 +98,24 @@ impl Config {
         }
     }
     pub(crate) fn validate(&self) -> Result<()> {
-        for (i, db) in Db::ALL.iter().enumerate() {
+        if self.databases.is_empty() {
+            return Err(Error::InvalidConfig("at least one database must be selected".into()));
+        }
+        if !self.databases.contains(&Db::Scratch) {
+            return Err(Error::InvalidConfig("selected databases require Scratch".into()));
+        }
+        if self.databases.contains(&Db::Intelligence) && !self.databases.contains(&Db::Archive) {
+            return Err(Error::InvalidConfig("Intelligence requires Archive".into()));
+        }
+        for (i, db) in self.databases.iter().enumerate() {
+            if self.databases[..i].contains(db) {
+                return Err(Error::InvalidConfig("database roles must be distinct".into()));
+            }
             let path = self.paths.get(*db);
             if path.to_str().is_none() {
                 return Err(Error::InvalidConfig("Turso requires UTF-8 paths".into()));
             }
-            if Db::ALL[..i].iter().any(|other| self.paths.get(*other) == path) {
+            if self.databases[..i].iter().any(|other| self.paths.get(*other) == path) {
                 return Err(Error::InvalidConfig("database paths must be distinct".into()));
             }
         }

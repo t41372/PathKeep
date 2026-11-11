@@ -1,0 +1,73 @@
+{
+  "status": "passed",
+  "records": 14400000,
+  "scope": "one large synthetic Pi v3 transcript on Linux release CLI",
+  "hard_cpu_limit": 4,
+  "hard_memory_limit_gib": 8,
+  "hard_timeout_minutes": 90,
+  "source_bytes": 6185244596,
+  "archive_bytes": 17964192516,
+  "peak_command_rss_bytes": 275132416,
+  "initial_backup_seconds": 473.60506,
+  "unchanged_backup_seconds": 4.551295,
+  "unicode_search_seconds": 0.840128,
+  "raw_export_seconds": 16.000618,
+  "integrity_seconds": 74.120658,
+  "search_acceptance": {
+    "scope": "native events; session header excluded",
+    "tail": {
+      "expected": 1,
+      "actual": 1,
+      "complete": true
+    },
+    "unicode": {
+      "expected": 14400000,
+      "actual": 14400000,
+      "complete": true
+    }
+  },
+  "raw_integrity": {
+    "checked_files": 1,
+    "all_sha256_equal": true
+  },
+  "reopen_idempotent": true,
+  "archive_integrity": "complete",
+  "runner_elapsed_seconds": 646.849339,
+  "temporary_storage_cleanup": "completed",
+  "source_tree_sha256": "d0b03b4718b94e03c9e2c8a2630bf39f2f19eb10b1f787c7fe64b3791b966a5d",
+  "binary_sha256": "413aacba7ff59dd693d19cecdc64c02d7de47953f34f7b7494b6316304621b47",
+  "runner_sha256": "be2432e0cca0ffaa7a65e0eff18fc7d9130ab6285df51c4479c31bfbe91ac27a",
+  "linux_core_tests": {
+    "passed": 220,
+    "failed": 0,
+    "ignored": 0,
+    "reported_test_binaries": 23,
+    "complete_cargo_command": true,
+    "platform": "Linux",
+    "hard_cpu_limit": 4,
+    "hard_memory_limit_gib": 8
+  },
+  "sandbox_id": "sb-01M7537DWF4AX66X4ARAW104JW",
+  "run_id": "pathkeep-js-deps-2026-11-10-20261111-034226",
+  "sandbox_exit_code": 0,
+  "prior_attempts": [
+    {
+      "attempt": 1,
+      "exit_code": 78,
+      "condition": "GNU time unavailable; no core tests or scale workload ran"
+    },
+    {
+      "attempt": 2,
+      "exit_code": 137,
+      "condition": "Stopped after Linux tests: scalar CPU/memory requests permitted bursting; no scale workload ran"
+    }
+  ],
+  "limitations": [
+    "not a many-session discovery benchmark",
+    "other harnesses covered by core fixtures and separate macOS real samples",
+    "Windows not executed",
+    "CPU clock frequency was not calibrated to 3 GHz",
+    "CLI wall times include process startup and password unwrap"
+  ],
+  "evidence_recorded_at_utc": "2026-11-11T11:09:00.366577+00:00"
+}

@@ -25,6 +25,8 @@ playwright-report
 artifacts/e2e/*
 # Owner-process test artifacts (result.json, sidecar-mcp.json).
 artifacts/owner-process/
+artifacts/agent-history/*
+!artifacts/agent-history/README.md
 !artifacts/e2e/README.md
 .playwright-mcp
 .playwright-cli

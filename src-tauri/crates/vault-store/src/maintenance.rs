@@ -1,8 +1,9 @@
 //! Responsibilities: drain admitted jobs, checkpoint and hold a stable file-copy boundary.
 //! Not responsible for: application file swaps, envelopes or snapshot retention.
 //! Failure modes: snapshot overlaps a batch; busy checkpoint is ignored; an error
-//! strands admission; closing releases the owner before all file users finish.
-//! Tests: tests/maintenance.rs, with real encrypted files and competing batches.
+//! strands admission; closing releases the owner before all file users finish;
+//! snapshots copy disabled files. Tests: maintenance.rs and selected_databases.rs,
+//! with real encrypted files and competing batches.
 use crate::{
     CancelToken, CopyProgress, Db, Error, Paths, Result, Store, TableDigest, worker::Workers,
 };
@@ -33,8 +34,8 @@ impl Store {
 }
 
 impl Maintenance<'_> {
-    fn worker(&self, db: Db) -> &Workers {
-        &self.workers.iter().find(|(id, _)| *id == db).unwrap().1
+    fn worker(&self, db: Db) -> Result<&Workers> {
+        self.workers.iter().find(|(id, _)| *id == db).map(|(_, worker)| worker).ok_or(Error::Closed)
     }
 
     /// A snapshot must include the WAL's committed rows before copying main files.
@@ -47,15 +48,15 @@ impl Maintenance<'_> {
         Ok(())
     }
 
-    /// Copies every durable database with its current on-disk encryption intact.
+    /// Copies every selected durable database with its on-disk encryption intact.
     /// The caller copies its envelope/config while retaining this same guard.
     pub fn snapshot(&self, root: &Path) -> Result<()> {
         self.checkpoint()?;
         let targets = Paths::under(root);
-        for db in [Db::Archive, Db::SourceEvidence, Db::Intelligence, Db::Agent] {
-            let target = targets.get(db);
+        for (db, _) in self.workers.iter().filter(|(db, _)| *db != Db::Scratch) {
+            let target = targets.get(*db);
             fs::create_dir_all(target.parent().unwrap())?;
-            fs::copy(self.store.paths.get(db), target)?;
+            fs::copy(self.store.paths.get(*db), target)?;
             fs::File::open(target)?.sync_all()?;
         }
         Ok(())
@@ -63,6 +64,7 @@ impl Maintenance<'_> {
 
     /// Clones one complete database through an explicitly keyed ATTACH. The
     /// returned proofs compare source and destination values, not physical bytes.
+    /// An unselected database returns `Error::Closed`, as regular reads/writes do.
     pub fn copy_database(
         &self,
         db: Db,
@@ -72,7 +74,7 @@ impl Maintenance<'_> {
         progress: impl FnMut(CopyProgress) + Send + 'static,
     ) -> Result<Vec<TableDigest>> {
         let key = zeroize::Zeroizing::new(key);
-        self.worker(db).maintenance(move |engine| {
+        self.worker(db)?.maintenance(move |engine| {
             crate::copy::database(engine, &destination, key.as_ref(), &cancel, progress)
         })
     }

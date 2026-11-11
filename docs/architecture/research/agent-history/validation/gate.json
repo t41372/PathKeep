@@ -1,0 +1,40 @@
+{
+  "date": "2026-11-11",
+  "base_head": "89ed2040bbb0cc1a36450f7004a08a51024bf70b",
+  "scope": "Shared working tree; pre-existing uncommitted changes preserved and excluded from this task commit.",
+  "core_tests": {
+    "platform": "macOS arm64",
+    "passed": 220,
+    "failed": 0,
+    "test_binaries": 23,
+    "command": "cargo test --manifest-path src-tauri/Cargo.toml -p agent-history --all-targets --no-fail-fast"
+  },
+  "core_clippy": {
+    "passed": true,
+    "command": "cargo clippy --manifest-path src-tauri/Cargo.toml -p agent-history --all-targets -- -D warnings"
+  },
+  "runner_tests": {
+    "passed": 6,
+    "failed": 0,
+    "command": "PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts/tests"
+  },
+  "full_gate": {
+    "command": "bun run check",
+    "exit_code": 0,
+    "desktop_e2e": {
+      "main": 125,
+      "backup_integrity_healthy": 9,
+      "backup_integrity_damaged": 1,
+      "total_passed": 135
+    }
+  },
+  "limitations": [
+    "Windows runtime not exercised",
+    "No product UI/IPC integration in this change",
+    "14.4M benchmark is one Pi transcript, not a many-session discovery workload",
+    "CPU frequency not calibrated to 3 GHz"
+  ],
+  "artifacts": "artifacts/agent-history/ and artifacts/e2e/ contain local detailed logs and repeatable synthetic scenario reports.",
+  "final_working_tree_source_sha256": "58d910f30595466cd8794fc6f4f463b5324baa80b289142c7894600d10ec2ffa",
+  "post_validation_change": "Removed one trailing blank line from agent-history/Cargo.toml for git diff --check; no Rust logic or dependency change. Benchmark reports retain the exact fingerprint they measured."
+}

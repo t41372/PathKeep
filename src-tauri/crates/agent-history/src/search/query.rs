@@ -1,0 +1,136 @@
+//! Responsibilities: execute literal term queries and fetch bounded canonical excerpts.
+//! Not responsible for: index creation, repairs, conversation flattening or UI rendering.
+//! Both watermark checks are necessary: publication can change while Tantivy is reading.
+
+use super::{SearchHit, SearchPage, SearchQuery, index, schema, tokenizer};
+use crate::{Archive, Error, Result};
+use tantivy::collector::{Count, TopDocs};
+use tantivy::query::{BooleanQuery, Occur, Query, TermQuery};
+use tantivy::schema::{IndexRecordOption, Value};
+use tantivy::{IndexReader, TantivyDocument, Term};
+use vault_store::{Db, params};
+
+impl Archive {
+    /// Searches the whole synchronized corpus. Terms are literal, case-insensitive
+    /// and conjunctive; filters retain exact harness/project identity.
+    pub fn search(&self, query: &SearchQuery) -> Result<SearchPage> {
+        if query.limit == 0 || query.limit > 100 {
+            return Err(Error::InvalidInput("search limit must be between 1 and 100".into()));
+        }
+        if query.text.len() > 4096 {
+            return Err(Error::InvalidInput("search text must be at most 4096 bytes".into()));
+        }
+        let terms = tokenizer::query_terms(&query.text);
+        if terms.is_empty() || terms.len() > 64 {
+            return Err(Error::InvalidInput(
+                "search requires between 1 and 64 distinct terms".into(),
+            ));
+        }
+        let target = self.projection_generation()?;
+        let opened = index::open(self)?;
+        if opened.watermark != target {
+            return Err(Error::IndexBehind);
+        }
+        let mut clauses: Vec<(Occur, Box<dyn Query>)> = terms
+            .iter()
+            .map(|term| {
+                let query = TermQuery::new(
+                    Term::from_field_text(opened.fields.text, term),
+                    IndexRecordOption::WithFreqs,
+                );
+                (Occur::Must, Box::new(query) as Box<dyn Query>)
+            })
+            .collect();
+        if let Some(harness) = query.harness {
+            clauses.push(exact(opened.fields.harness, &harness.to_string()));
+        }
+        if let Some(project) = &query.project_path {
+            clauses.push(exact(opened.fields.project, project));
+        }
+        let reader: IndexReader = index::checked(
+            opened.index.reader_builder().reload_policy(tantivy::ReloadPolicy::Manual).try_into(),
+            &opened.directory,
+        )?;
+        let searcher = reader.searcher();
+        let (top, total) = index::checked(
+            searcher.search(
+                &BooleanQuery::new(clauses),
+                &(TopDocs::with_limit(query.limit).order_by_score(), Count),
+            ),
+            &opened.directory,
+        )?;
+        let mut items = Vec::with_capacity(top.len());
+        for (score, address) in top {
+            let document: TantivyDocument =
+                index::checked(searcher.doc(address), &opened.directory)?;
+            let event = document
+                .get_first(opened.fields.event_id)
+                .and_then(|value| value.as_u64())
+                .and_then(|value| i64::try_from(value).ok())
+                .ok_or(Error::IndexBehind)?;
+            let projection = document
+                .get_first(opened.fields.projection_id)
+                .and_then(|value| value.as_u64())
+                .and_then(|value| i64::try_from(value).ok())
+                .ok_or(Error::IndexBehind)?;
+            items.push(self.search_hit(event, projection, score, &query.text)?);
+        }
+        let complete = self.search_coverage()?;
+        if self.projection_generation()? != target {
+            return Err(Error::IndexBehind);
+        }
+        Ok(SearchPage { items, next_cursor: None, total: total as u64, complete })
+    }
+
+    fn search_hit(
+        &self,
+        event: i64,
+        projection: i64,
+        score: f32,
+        needle: &str,
+    ) -> Result<SearchHit> {
+        let needle = needle.trim().to_owned();
+        let rows = self.store.read(Db::Archive, move |database| {
+            database.query(
+                "SELECT e.session_id,e.ordinal,
+                   substr(e.text,CASE WHEN instr(lower(e.text),lower(?2))>0
+                     THEN max(1,instr(lower(e.text),lower(?2))-120) ELSE 1 END,480)
+                 FROM ah_events e JOIN ah_sessions s
+                   ON s.id=e.session_id AND s.projection_id=e.projection_id
+                 WHERE e.id=?1 AND e.projection_id=?3 LIMIT 1",
+                params![event, needle, projection],
+                |row| {
+                    Ok(SearchHit {
+                        session_id: row.get(0)?,
+                        event_id: event,
+                        ordinal: row.get::<i64>(1)? as u64,
+                        text: row.get(2)?,
+                        score,
+                    })
+                },
+            )
+        })?;
+        rows.into_iter().next().ok_or(Error::IndexBehind)
+    }
+
+    fn search_coverage(&self) -> Result<bool> {
+        Ok(self.store.read(Db::Archive, |database| {
+            database.query_one(
+                "SELECT NOT EXISTS(SELECT 1 FROM ah_meta
+                 WHERE key='normalization_incomplete' AND value='1')",
+                (),
+                |row| Ok(row.get::<i64>(0)? != 0),
+            )
+        })?)
+    }
+}
+
+fn exact(field: tantivy::schema::Field, value: &str) -> (Occur, Box<dyn Query>) {
+    (
+        Occur::Must,
+        Box::new(TermQuery::new(
+            Term::from_field_text(field, &schema::exact_term(value)),
+            IndexRecordOption::Basic,
+        )),
+    )
+}

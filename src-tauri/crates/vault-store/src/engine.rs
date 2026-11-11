@@ -73,11 +73,11 @@ pub(crate) fn runtime() -> Result<Runtime> {
     Ok(RuntimeBuilder::new_current_thread().enable_all().build()?)
 }
 
-// Verify every existing file before any migration, scratch reset, directory
+// Verify every selected existing file before any migration, scratch reset, directory
 // creation or read/write database open. This also refuses newer schemas early.
 pub(crate) fn preflight(config: &Config) -> Result<()> {
     let rt = runtime()?;
-    for db in Db::ALL {
+    for db in config.databases.iter().copied() {
         let settings = Settings::new(config, db);
         match fs::metadata(&settings.path) {
             Ok(meta) if meta.len() > 0 => {}
@@ -131,7 +131,7 @@ fn open_error(path: &Path, error: Error) -> Error {
 }
 pub(crate) fn prepare_paths(config: &Config) -> Result<()> {
     let mut canonical = Vec::new();
-    for db in Db::ALL {
+    for db in config.databases.iter().copied() {
         let path = config.paths.get(db);
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;

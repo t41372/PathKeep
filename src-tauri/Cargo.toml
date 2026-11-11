@@ -26,6 +26,7 @@ members = [
   "crates/vault-worker",
   "crates/browser-history-parser",
   "crates/browser-history-fixtures",
+  "crates/agent-history",
 ]
 resolver = "2"
 

@@ -1,0 +1,33 @@
+[package]
+name = "agent-history"
+version = "0.1.0"
+edition = "2024"
+publish = false
+license.workspace = true
+description = "Read-only native agent history capture and encrypted local archive"
+
+[[bin]]
+name = "pathkeep-agent-history"
+path = "src/bin/pathkeep-agent-history.rs"
+
+[dependencies]
+chrono.workspace = true
+directories.workspace = true
+hex.workspace = true
+libc.workspace = true
+rusqlite = { workspace = true, features = ["hooks", "limits"] }
+serde.workspace = true
+# Native payloads may contain integers/decimals beyond machine precision. Raw bytes
+# still remain the authority for whitespace, key order and numeric notation.
+serde_json = { workspace = true, features = ["arbitrary_precision"] }
+sha2.workspace = true
+tempfile.workspace = true
+thiserror.workspace = true
+url.workspace = true
+walkdir.workspace = true
+tantivy = "0.27.0"
+vault-crypto = { path = "../vault-crypto" }
+vault-store = { path = "../vault-store" }
+zeroize = "1.8.2"
+# Already used at this version by the workspace; needed for native Codex and dsh streams.
+zstd = "0.14.3"

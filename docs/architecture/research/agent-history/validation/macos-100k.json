@@ -1,0 +1,154 @@
+{
+  "schema_version": 1,
+  "mode": "synthetic",
+  "status": "passed",
+  "phase": "complete",
+  "measurements": [
+    {
+      "operation": "plan",
+      "wall_seconds": 0.00813,
+      "max_rss_bytes": 10321920,
+      "exit_code": 0,
+      "stderr_bytes": 0,
+      "rss_method": "time_l_bytes"
+    },
+    {
+      "operation": "init",
+      "wall_seconds": 0.33422,
+      "max_rss_bytes": 292667392,
+      "exit_code": 0,
+      "stderr_bytes": 0,
+      "rss_method": "time_l_bytes"
+    },
+    {
+      "operation": "backup_initial",
+      "wall_seconds": 16.488354,
+      "max_rss_bytes": 347242496,
+      "exit_code": 0,
+      "stderr_bytes": 0,
+      "rss_method": "time_l_bytes"
+    },
+    {
+      "operation": "list",
+      "wall_seconds": 0.302942,
+      "max_rss_bytes": 292700160,
+      "exit_code": 0,
+      "stderr_bytes": 0,
+      "rss_method": "time_l_bytes"
+    },
+    {
+      "operation": "search",
+      "wall_seconds": 0.440507,
+      "max_rss_bytes": 298287104,
+      "exit_code": 0,
+      "stderr_bytes": 0,
+      "rss_method": "time_l_bytes"
+    },
+    {
+      "operation": "search_unicode",
+      "wall_seconds": 0.473096,
+      "max_rss_bytes": 298762240,
+      "exit_code": 0,
+      "stderr_bytes": 0,
+      "rss_method": "time_l_bytes"
+    },
+    {
+      "operation": "revisions",
+      "wall_seconds": 0.298051,
+      "max_rss_bytes": 292126720,
+      "exit_code": 0,
+      "stderr_bytes": 0,
+      "rss_method": "time_l_bytes"
+    },
+    {
+      "operation": "raw_export",
+      "wall_seconds": 2.175648,
+      "max_rss_bytes": 303529984,
+      "exit_code": 0,
+      "stderr_bytes": 0,
+      "rss_method": "time_l_bytes"
+    },
+    {
+      "operation": "backup_unchanged",
+      "wall_seconds": 1.194379,
+      "max_rss_bytes": 295206912,
+      "exit_code": 0,
+      "stderr_bytes": 0,
+      "rss_method": "time_l_bytes"
+    },
+    {
+      "operation": "verify",
+      "wall_seconds": 2.716583,
+      "max_rss_bytes": 316719104,
+      "exit_code": 0,
+      "stderr_bytes": 0,
+      "rss_method": "time_l_bytes"
+    }
+  ],
+  "started_at_utc": "2026-11-11T10:23:09.432113+00:00",
+  "platform": {
+    "system": "Darwin",
+    "release": "27.2.0",
+    "machine": "arm64",
+    "python": "3.15.2"
+  },
+  "scope": "streamed Pi fixture",
+  "privacy": {
+    "native_content_in_report": false,
+    "native_paths_in_report": false,
+    "native_identifiers_in_report": false,
+    "network_used": false
+  },
+  "reproduce": "python3 scripts/agent-history-verify.py --synthetic-records 100000",
+  "build": {
+    "git_head": "89ed2040bbb0cc1a36450f7004a08a51024bf70b",
+    "git_dirty": true,
+    "git_status_sha256": "738609f9bbc1b5d6606933bc7b3c5787889bc0b9ca6f08aa7db92180c02d3577",
+    "git_provenance": "available",
+    "source_archive": false,
+    "source_tree_sha256": "d0b03b4718b94e03c9e2c8a2630bf39f2f19eb10b1f787c7fe64b3791b966a5d",
+    "binary_sha256": "5e478667f1596c2d26aa08131d3c3e9a946b682895176d48ece8a51b13b41d61",
+    "binary_bytes": 56743856,
+    "fingerprint_note": "Records source and binary independently; not proof of build provenance."
+  },
+  "runner_sha256": "be2432e0cca0ffaa7a65e0eff18fc7d9130ab6285df51c4479c31bfbe91ac27a",
+  "records": 100000,
+  "fixture_version": "pi-v3-scale-1",
+  "plan_issue_codes": {},
+  "backup_status": "complete",
+  "issue_codes": {},
+  "captured_files": 1,
+  "source_bytes": 42144599,
+  "parsed_sessions_by_harness": {
+    "pi": 1
+  },
+  "search": {
+    "matches": 1,
+    "complete": true,
+    "private_query_used": false
+  },
+  "search_acceptance": {
+    "scope": "native events; session header excluded",
+    "tail": {
+      "expected": 1,
+      "actual": 1,
+      "complete": true
+    },
+    "unicode": {
+      "expected": 100000,
+      "actual": 100000,
+      "complete": true
+    }
+  },
+  "raw_integrity": {
+    "checked_files": 1,
+    "all_sha256_equal": true
+  },
+  "reopen_idempotent": true,
+  "archive_integrity": "complete",
+  "archive_bytes": 124038305,
+  "temporary_storage_cleanup": "completed",
+  "elapsed_seconds": 24.831296,
+  "peak_command_rss_bytes": 347242496,
+  "artifact_written": true
+}

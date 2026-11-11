@@ -65,6 +65,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "agent-history"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "directories",
+ "hex",
+ "libc",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tantivy",
+ "tempfile",
+ "thiserror 2.0.18",
+ "url",
+ "vault-crypto",
+ "vault-store",
+ "walkdir",
+ "zeroize",
+ "zstd",
+]
+
+[[package]]
 name = "ahash"
 version = "0.8.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"

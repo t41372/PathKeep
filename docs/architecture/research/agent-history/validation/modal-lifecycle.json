@@ -1,0 +1,13 @@
+{
+  "checked_at_utc": "2026-11-11T11:09:28.330977+00:00",
+  "sandbox_exit_codes": {
+    "attempt_1": 78,
+    "attempt_2": 137,
+    "attempt_3": 0
+  },
+  "all_task_sandboxes_stopped": true,
+  "offload_ps_active_rows": 0,
+  "snapshot_saved_by_any_attempt": false,
+  "installed_skill_changed": false,
+  "repo_modal_config_changed": false
+}

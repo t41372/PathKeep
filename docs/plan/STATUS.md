@@ -24,6 +24,13 @@
   - TypeScript 7 編譯器搭配官方 6 API 供 ESLint 使用。同步更新 Tauri dialog／log 的 JS 與 Rust 版本。Onboarding 與主畫面各自掛載 router provider，Insights 測試查詢新版 Radix 的 `radiogroup`。
   - `bun run check` 通過，E2E 134 過、1 個平台略過。修正 Modal 的 `CI=true` 後，Linux desktop debug build 與供應鏈檢查通過。本機前端 107 測試及 build 通過。證據見 [dependency-refresh.json](releases/v0.5.0/dependency-refresh.json)。
 
+- [x] **WORK-AGENT-HISTORY-CORE-2026-11-11** — 使用者指定的新工作：研究 agent harness 原生聊天儲存與既有備份工具，交付獨立 Rust 核心庫、CLI、E2E 與 Claude 接手文件；產品 UI／IPC 留待後續。
+  - 讀先：`docs/architecture/agent-history-core.md`、`docs/architecture/research/agent-history/`、`docs/architecture/decisions/012-turso-storage-engine.md`、`docs/architecture/decisions/011-source-evidence-archive-and-capability-contract.md`、`program/quality-matrix.md`、`program/repo-baseline.md`。
+  - 必做 Claude Code、Codex、pi、DeepSeek Harness；有可靠格式證據的其他來源一併納入。來源唯讀；resume／原始記錄遷移只研究。原始版本、附件、解析與查詢覆蓋分開報告。
+  - 已交付：獨立 `agent-history` crate／CLI，四個必做來源加 Continue、Cline classic、Roo；raw revisions、加密、來源清單、解析版本、搜尋、匯出、offline reparse、reference bindings 與恢復。研究盤點 28 個專案，主要實作與格式證據固定 commit。
+  - 驗證：macOS／Linux 核心各 220 項通過；`bun run check` 通過含 135 個桌面 E2E；7 個本機真實樣本 bytes 一致且未改原始資料；Linux 4 CPU／8 GiB 硬限額完成 14.4M（473.605 s、最高 262.39 MiB）。Windows／多 session 同量級／前端整合未驗。交接與去識別證據：`docs/architecture/research/agent-history/README.md`、`validation/`。
+  - 使用者要求先寫失敗情境與測試，實際測試集中到最後。已確認可用本機真實記錄的隔離副本驗證；私人內容不提交、不送外部研究服務。跨平台實作逐項標示實際驗證與缺口。
+
 - [x] **WORK-BACKUP-INTEGRITY** — 瀏覽器重新編號時備份漏掉新紀錄還說成功（PR #18；2026-11-01 重做）
   - 讀先：`docs/architecture/backup-integrity.md`、`store-schema.md`（Archive versions）、`same-visit-across-sources.md`；`docs/features/archive.md`。
   - 原因：下一次備份只讀 `visits.id > 上次讀到的`、`UNIQUE(profile, source_visit_id)` 加 `INSERT OR IGNORE`、URL 用瀏覽器的列號找。Chrome 清除全部紀錄或重建檔案後從 1 重新編號，Firefox 把刪掉的最新列號給下一筆，Chrome 的下載編號 max+1：新紀錄全掉，run 照樣 `success`。行為對照 Chromium / Firefox 原始碼，並在一份真實 Chrome 歷史的副本上數過（只數筆數）。
