@@ -13,9 +13,7 @@ export interface SyntheticVisit {
 }
 
 export type SyntheticProfileId =
-  | 'chrome:Default'
-  | 'chrome:Profile 1'
-  | 'firefox:k3x9.default-release'
+  'chrome:Default' | 'chrome:Profile 1' | 'firefox:k3x9.default-release'
 
 export interface SyntheticBrowsers {
   chromeUserDataRoot: string

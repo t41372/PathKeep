@@ -218,10 +218,7 @@ export interface SearchQueryListResult {
 }
 
 export type SearchQuerySort =
-  | 'newest'
-  | 'exact-frequency'
-  | 'family-frequency'
-  | 'alphabetical'
+  'newest' | 'exact-frequency' | 'family-frequency' | 'alphabetical'
 
 export interface SearchEngineRule {
   ruleId: string

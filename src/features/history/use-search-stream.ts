@@ -92,12 +92,20 @@ export function useSearchStream(request: SearchRequest | null) {
   const stream = useRef<SearchStream | null>(null)
   const session =
     requestKey === null ? null : `${requestKey}#${revision ?? 0}#${restarts}`
+  const [resetFor, setResetFor] = useState(session)
+  // Adjust only local view state when the request changes. Keep old rows as
+  // placeholders; the effect below owns the external search subscription.
+  if (resetFor !== session) {
+    setResetFor(session)
+    setState((previous) =>
+      session === null
+        ? EMPTY
+        : { ...previous, error: null, loadingNext: false },
+    )
+  }
 
   useEffect(() => {
-    if (!request || session === null) {
-      setState(EMPTY)
-      return
-    }
+    if (!request || session === null) return
     let live = true
     let queued: SearchEvent[] = []
     let frame = 0
@@ -121,7 +129,6 @@ export function useSearchStream(request: SearchRequest | null) {
       queued.push(event)
       if (frame === 0) frame = requestAnimationFrame(flush)
     }
-    setState((previous) => ({ ...previous, error: null, loadingNext: false }))
     void searchClient
       .start(request, onEvent)
       .then((started) => {

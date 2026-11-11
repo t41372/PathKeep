@@ -9,6 +9,11 @@
 
 ## CURRENT FOCUS
 
+- [x] **WORK-JS-DEPS-2026-11-10** — 更新 30 個既有 JS／TS 直接依賴，加入每日 Dependabot 更新與 Bun 鎖檔稽核。
+  - GitHub 安全更新原已啟用，依賴圖當時只列出 43 個 npm manifest 項目。舊鎖檔稽核命中 19 套件／88 項公告，新鎖檔掃描 532 套件後為零。
+  - TypeScript 7 編譯器搭配官方 6 API 供 ESLint 使用。同步更新 Tauri dialog／log 的 JS 與 Rust 版本。Onboarding 與主畫面各自掛載 router provider，Insights 測試查詢新版 Radix 的 `radiogroup`。
+  - `bun run check` 通過，E2E 134 過、1 個平台略過。修正 Modal 的 `CI=true` 後，Linux desktop debug build 與供應鏈檢查通過。本機前端 107 測試及 build 通過。證據見 [dependency-refresh.json](releases/v0.5.0/dependency-refresh.json)。
+
 - [x] **WORK-BACKUP-INTEGRITY** — 瀏覽器重新編號時備份漏掉新紀錄還說成功（PR #18；2026-11-01 重做）
   - 讀先：`docs/architecture/backup-integrity.md`、`store-schema.md`（Archive versions）、`same-visit-across-sources.md`；`docs/features/archive.md`。
   - 原因：下一次備份只讀 `visits.id > 上次讀到的`、`UNIQUE(profile, source_visit_id)` 加 `INSERT OR IGNORE`、URL 用瀏覽器的列號找。Chrome 清除全部紀錄或重建檔案後從 1 重新編號，Firefox 把刪掉的最新列號給下一筆，Chrome 的下載編號 max+1：新紀錄全掉，run 照樣 `success`。行為對照 Chromium / Firefox 原始碼，並在一份真實 Chrome 歷史的副本上數過（只數筆數）。

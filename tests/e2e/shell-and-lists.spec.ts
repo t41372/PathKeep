@@ -29,7 +29,7 @@ const mac = process.platform === 'darwin'
 /** The most recent page the fixture opened several times in a row, as the timeline merges it. */
 function latestRepeat() {
   const visits = [...archivedVisits()].sort((a, b) => b.at - a.at)
-  for (let index = 0; index < visits.length; ) {
+  for (let index = 0; index < visits.length;) {
     let end = index + 1
     while (
       end < visits.length &&

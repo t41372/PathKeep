@@ -22,3 +22,6 @@ src-tauri/crates/vault-core/tests/fixtures/static_parity_potion_multilingual.jso
 # would silently desync the source from the pinned artifact → fail-closed).
 src-tauri/crates/vault-core/src/ai/code_mode_guest/
 docs/design/prototype-2026-10/
+
+# Generated dependency audit and gate output.
+artifacts/dependency-refresh/

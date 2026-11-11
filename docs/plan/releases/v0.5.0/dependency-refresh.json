@@ -1,0 +1,347 @@
+{
+  "date": "2026-11-10",
+  "baseCommit": "89ed2040bbb0cc1a36450f7004a08a51024bf70b",
+  "dependencyGraphBefore": {
+    "dependabotSecurityUpdates": true,
+    "openDependabotAlerts": 0,
+    "gitHubNpmEntries": 43,
+    "bunLockEntries": 688
+  },
+  "dependencyRefresh": {
+    "updatedDirect": 30,
+    "addedDirect": 1,
+    "addedDirectPurpose": "Microsoft TypeScript compiler and compatibility API for typed ESLint",
+    "direct": [
+      {
+        "name": "@eslint/js",
+        "before": "@eslint/js@9.39.4",
+        "after": "@eslint/js@10.0.1",
+        "range": "^10.0.1"
+      },
+      {
+        "name": "@fontsource-variable/geist",
+        "before": "@fontsource-variable/geist@5.3.0",
+        "after": "@fontsource-variable/geist@5.3.0",
+        "range": "^5.3.0"
+      },
+      {
+        "name": "@fontsource-variable/geist-mono",
+        "before": "@fontsource-variable/geist-mono@5.3.0",
+        "after": "@fontsource-variable/geist-mono@5.3.0",
+        "range": "^5.3.0"
+      },
+      {
+        "name": "@playwright/test",
+        "before": "@playwright/test@1.63.0",
+        "after": "@playwright/test@1.65.0",
+        "range": "^1.65.0"
+      },
+      {
+        "name": "@tailwindcss/vite",
+        "before": "@tailwindcss/vite@4.3.0",
+        "after": "@tailwindcss/vite@4.3.5",
+        "range": "^4.3.5"
+      },
+      {
+        "name": "@tanstack/react-query",
+        "before": "@tanstack/react-query@5.104.1",
+        "after": "@tanstack/react-query@5.107.1",
+        "range": "^5.107.1"
+      },
+      {
+        "name": "@tanstack/react-virtual",
+        "before": "@tanstack/react-virtual@3.14.13",
+        "after": "@tanstack/react-virtual@3.14.26",
+        "range": "^3.14.26"
+      },
+      {
+        "name": "@tauri-apps/api",
+        "before": "@tauri-apps/api@2.12.4",
+        "after": "@tauri-apps/api@2.12.4",
+        "range": "^2.12.4"
+      },
+      {
+        "name": "@tauri-apps/cli",
+        "before": "@tauri-apps/cli@2.12.4",
+        "after": "@tauri-apps/cli@2.12.4",
+        "range": "^2.12.4"
+      },
+      {
+        "name": "@tauri-apps/plugin-dialog",
+        "before": "@tauri-apps/plugin-dialog@2.7.0",
+        "after": "@tauri-apps/plugin-dialog@2.8.4",
+        "range": "^2.8.4"
+      },
+      {
+        "name": "@tauri-apps/plugin-log",
+        "before": "@tauri-apps/plugin-log@2.8.0",
+        "after": "@tauri-apps/plugin-log@2.10.2",
+        "range": "^2.10.2"
+      },
+      {
+        "name": "@types/node",
+        "before": "@types/node@24.12.2",
+        "after": "@types/node@26.6.6",
+        "range": "^26.6.6"
+      },
+      {
+        "name": "@types/react",
+        "before": "@types/react@19.2.14",
+        "after": "@types/react@19.3.0",
+        "range": "^19.3.0"
+      },
+      {
+        "name": "@types/react-dom",
+        "before": "@types/react-dom@19.2.3",
+        "after": "@types/react-dom@19.3.0",
+        "range": "^19.3.0"
+      },
+      {
+        "name": "@typescript/native",
+        "before": null,
+        "after": "typescript@7.0.2",
+        "range": "npm:typescript@^7.0.2"
+      },
+      {
+        "name": "@vitejs/plugin-react",
+        "before": "@vitejs/plugin-react@6.0.1",
+        "after": "@vitejs/plugin-react@6.3.0",
+        "range": "^6.3.0"
+      },
+      {
+        "name": "class-variance-authority",
+        "before": "class-variance-authority@0.7.1",
+        "after": "class-variance-authority@0.7.1",
+        "range": "^0.7.1"
+      },
+      {
+        "name": "clsx",
+        "before": "clsx@2.1.1",
+        "after": "clsx@2.1.1",
+        "range": "^2.1.1"
+      },
+      {
+        "name": "cmdk",
+        "before": "cmdk@1.1.1",
+        "after": "cmdk@1.1.1",
+        "range": "^1.1.1"
+      },
+      {
+        "name": "date-fns",
+        "before": "date-fns@4.4.0",
+        "after": "date-fns@4.4.0",
+        "range": "^4.4.0"
+      },
+      {
+        "name": "eslint",
+        "before": "eslint@9.39.4",
+        "after": "eslint@10.14.0",
+        "range": "^10.14.0"
+      },
+      {
+        "name": "eslint-config-prettier",
+        "before": "eslint-config-prettier@10.1.8",
+        "after": "eslint-config-prettier@10.1.8",
+        "range": "^10.1.8"
+      },
+      {
+        "name": "eslint-plugin-react-hooks",
+        "before": "eslint-plugin-react-hooks@7.0.1",
+        "after": "eslint-plugin-react-hooks@7.1.1",
+        "range": "^7.1.1"
+      },
+      {
+        "name": "eslint-plugin-react-refresh",
+        "before": "eslint-plugin-react-refresh@0.5.2",
+        "after": "eslint-plugin-react-refresh@0.5.7",
+        "range": "^0.5.7"
+      },
+      {
+        "name": "globals",
+        "before": "globals@17.4.0",
+        "after": "globals@17.14.0",
+        "range": "^17.14.0"
+      },
+      {
+        "name": "jsdom",
+        "before": "jsdom@29.0.1",
+        "after": "jsdom@31.0.0",
+        "range": "^31.0.0"
+      },
+      {
+        "name": "lucide-react",
+        "before": "lucide-react@0.479.0",
+        "after": "lucide-react@1.71.0",
+        "range": "^1.71.0"
+      },
+      {
+        "name": "motion",
+        "before": "motion@14.0.0",
+        "after": "motion@14.12.0",
+        "range": "^14.12.0"
+      },
+      {
+        "name": "prettier",
+        "before": "prettier@3.8.1",
+        "after": "prettier@3.9.10",
+        "range": "^3.9.10"
+      },
+      {
+        "name": "radix-ui",
+        "before": "radix-ui@1.4.3",
+        "after": "radix-ui@1.8.1",
+        "range": "^1.8.1"
+      },
+      {
+        "name": "react",
+        "before": "react@19.2.4",
+        "after": "react@19.3.1",
+        "range": "^19.3.1"
+      },
+      {
+        "name": "react-day-picker",
+        "before": "react-day-picker@10.0.2",
+        "after": "react-day-picker@10.0.2",
+        "range": "^10.0.2"
+      },
+      {
+        "name": "react-dom",
+        "before": "react-dom@19.2.4",
+        "after": "react-dom@19.3.1",
+        "range": "^19.3.1"
+      },
+      {
+        "name": "react-router-dom",
+        "before": "react-router-dom@7.14.0",
+        "after": "react-router-dom@7.18.5",
+        "range": "^7.18.5"
+      },
+      {
+        "name": "recharts",
+        "before": "recharts@3.10.1",
+        "after": "recharts@3.10.1",
+        "range": "^3.10.1"
+      },
+      {
+        "name": "sonner",
+        "before": "sonner@2.0.8",
+        "after": "sonner@2.0.8",
+        "range": "^2.0.8"
+      },
+      {
+        "name": "streamdown",
+        "before": "streamdown@2.5.0",
+        "after": "streamdown@2.7.1",
+        "range": "^2.7.1"
+      },
+      {
+        "name": "tailwind-merge",
+        "before": "tailwind-merge@3.6.0",
+        "after": "tailwind-merge@3.7.0",
+        "range": "^3.7.0"
+      },
+      {
+        "name": "tailwindcss",
+        "before": "tailwindcss@4.3.0",
+        "after": "tailwindcss@4.3.5",
+        "range": "^4.3.5"
+      },
+      {
+        "name": "tw-animate-css",
+        "before": "tw-animate-css@1.4.0",
+        "after": "tw-animate-css@1.4.0",
+        "range": "^1.4.0"
+      },
+      {
+        "name": "typescript",
+        "before": "typescript@5.9.3",
+        "after": "@typescript/typescript6@6.0.2",
+        "range": "npm:@typescript/typescript6@^6.0.2"
+      },
+      {
+        "name": "typescript-eslint",
+        "before": "typescript-eslint@8.58.0",
+        "after": "typescript-eslint@8.72.2",
+        "range": "^8.72.2"
+      },
+      {
+        "name": "vite",
+        "before": "vite@8.0.3",
+        "after": "vite@8.3.7",
+        "range": "^8.3.7"
+      },
+      {
+        "name": "vitest",
+        "before": "vitest@4.1.2",
+        "after": "vitest@5.1.0",
+        "range": "^5.1.0"
+      }
+    ],
+    "packageJsonSha256": "9d3f4bcee299a94049e426c57cd8b9a1214c0ea60c77ecff91b873e848f8d1bb",
+    "bunLockSha256": "59bb1a24822e28c7b39393130843755d5a3fe1d56a37e20f47ecfd838074654f",
+    "cargoLockSha256": "4ec31e7dcb18db21ab6df9e0155f7aa958a9efbb8e52d0d001e0d6e03409e68b"
+  },
+  "audit": {
+    "tool": "Bun 1.4.4",
+    "beforePackages": 19,
+    "beforeDistinctAdvisories": 88,
+    "after": {},
+    "packagesCheckedAfter": 532,
+    "rustAdvisoryExceptions": 8
+  },
+  "verification": {
+    "check": "passed",
+    "bun": "1.4.4",
+    "node": "22.23.4",
+    "rust": "1.96.0",
+    "modalRun": "pathkeep-js-deps-2026-11-10-20261110-154448",
+    "sourceManifestSha256": "d6b68c384332809e8c1225a748ba2e7fc98ff272568bc9111d97c518b0121540",
+    "e2e": {
+      "main": {
+        "passed": 124,
+        "skipped": 1,
+        "seed": 7,
+        "now": 1794350258996,
+        "resultsSha256": "992dc1886b3b92d7a429690bdcf05ba7e06dc173014f0d48bc2158aa9063945e",
+        "report": "var/js-deps-2026-11-10/artifacts/e2e/report/index.html"
+      },
+      "healthy": {
+        "passed": 9,
+        "skipped": 0,
+        "seed": 0,
+        "now": 1793188800000,
+        "resultsSha256": "48f3fcb057c12673265ce20f132ba68c5bd9d0bbdf6b7638069e5b1b1b628952",
+        "report": "var/js-deps-2026-11-10/artifacts/e2e/backup-integrity-healthy/report/index.html"
+      },
+      "damaged": {
+        "passed": 1,
+        "skipped": 0,
+        "seed": 0,
+        "now": 1793188800000,
+        "resultsSha256": "efb1e464da4eba45af6b30fdeba26c33022e51270a36f2c79f5117bd73f98031",
+        "report": "var/js-deps-2026-11-10/artifacts/e2e/backup-integrity-damaged/report/index.html"
+      }
+    },
+    "verifyExitCode": 2,
+    "verifyExitCause": "The Modal default CI=1 was rejected by the Tauri CLI boolean parser. The preceding check completed successfully.",
+    "desktopBuild": "passed with CI=true in the project Modal configuration",
+    "supplyChain": "passed",
+    "desktopAndSupplyChainLogSha256": "8289b90c9cc1027d81edef7a1e2b06c6603979d57bc7c3481c25ddeb108076fd",
+    "workspaceFrontend": "107 tests, formatting, lint, i18n, typecheck, audit and Vite build passed"
+  },
+  "regressions": [
+    {
+      "failure": "After onboarding, the reused RouterProvider displayed the app frame without its Home route.",
+      "fix": "Mount a separately keyed provider for the archive router.",
+      "reproduction": {
+        "seed": 7,
+        "now": 1794347601100,
+        "resultAfterFix": "first-run passed with the original assertions"
+      }
+    },
+    {
+      "failure": "Three Insights tests queried group for the time range control after Radix switched the single-selection root to radiogroup.",
+      "fix": "Query radiogroup while retaining checked-state and archive-count assertions."
+    }
+  ]
+}

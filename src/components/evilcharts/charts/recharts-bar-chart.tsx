@@ -82,11 +82,7 @@ type BarLayout = 'vertical' | 'horizontal'
  * "reduce motion" preference falls back to automatically.
  */
 type BarAnimationType =
-  | 'none'
-  | 'left-to-right'
-  | 'right-to-left'
-  | 'center-out'
-  | 'edges-in'
+  'none' | 'left-to-right' | 'right-to-left' | 'center-out' | 'edges-in'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Shared context

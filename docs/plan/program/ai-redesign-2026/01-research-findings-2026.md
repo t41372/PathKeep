@@ -47,14 +47,15 @@
 - **Layer 2 — agent/tools**：**MCP（Model Context Protocol）已成跨廠標準**（OpenAI / Google / Ollama / LM Studio 原生支援）。用 official **rmcp** crate 把 PathKeep 的 history/evidence 工具暴露成 in-process MCP server。
 
 **候選 verdict：**
-| 候選 | 角色 | verdict |
-| --- | --- | --- |
-| **rust-genai** (806★) | 多 provider 純 Rust transport，零 native dep，model id 是 runtime string | 最佳「feature-per-line」，但 <6k★、單一維護者 → **需風險評估 + pin + vendor**，藏在自有 trait 後 |
-| **async-openai** (1.9k★) | OpenAI / Responses dialect adapter | 作為 OpenAI-compat adapter 可用；非全棧 |
-| **rig** (7.7k★) | 全功能 Rust agent framework | **唯一憑星數過門檻**，但 churn 大、夾帶我們不要的 vector-store/agent machinery → 當參考，不當 load-bearing dep |
-| **rmcp** (official, ~3.5k★) | MCP SDK | 憑「reputable org」過門檻；**in-app 工具用 plain Rust trait，rmcp 只用在對外 MCP 邊界** |
-| **mistral.rs / llama.cpp** | in-app/local 推理 | 見 §0.3，sidecar-first |
-| **OpenRouter / Responses API** | optional cloud preset | 只作可選 adapter，不作預設 routing 層（雙重 egress 邊界） |
+
+| 候選                           | 角色                                                                     | verdict                                                                                                        |
+| ------------------------------ | ------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------- |
+| **rust-genai** (806★)          | 多 provider 純 Rust transport，零 native dep，model id 是 runtime string | 最佳「feature-per-line」，但 <6k★、單一維護者 → **需風險評估 + pin + vendor**，藏在自有 trait 後               |
+| **async-openai** (1.9k★)       | OpenAI / Responses dialect adapter                                       | 作為 OpenAI-compat adapter 可用；非全棧                                                                        |
+| **rig** (7.7k★)                | 全功能 Rust agent framework                                              | **唯一憑星數過門檻**，但 churn 大、夾帶我們不要的 vector-store/agent machinery → 當參考，不當 load-bearing dep |
+| **rmcp** (official, ~3.5k★)    | MCP SDK                                                                  | 憑「reputable org」過門檻；**in-app 工具用 plain Rust trait，rmcp 只用在對外 MCP 邊界**                        |
+| **mistral.rs / llama.cpp**     | in-app/local 推理                                                        | 見 §0.3，sidecar-first                                                                                         |
+| **OpenRouter / Responses API** | optional cloud preset                                                    | 只作可選 adapter，不作預設 routing 層（雙重 egress 邊界）                                                      |
 
 **取向**：PathKeep 自有 `LlmProvider` trait（chat / stream / tool-call / structured-output / capabilities），底下先接 genai（風評估後）或手寫 3–4 個 provider JSON；API key 用 `secrecy::SecretString`（drop 即清零、log redact、永不序列化進 trace）。structured output 用 provider native schema mode，但**永遠保留 serde validate-and-repair fallback**（constrained = 可解析，不等於語義正確）。
 _來源：appendix `_compact_0`、`_ALL_CRITICS` §llm-integration。_

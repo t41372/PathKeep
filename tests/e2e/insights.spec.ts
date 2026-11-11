@@ -205,7 +205,7 @@ test('Insights opens on all time, and every range shows the archive’s numbers'
 }, testInfo) => {
   test.setTimeout(300_000)
   await page.goto('/#/insights')
-  const toggle = page.getByRole('group', { name: 'Time range' })
+  const toggle = page.getByRole('radiogroup', { name: 'Time range' })
   await expect(toggle.getByRole('radio', { name: 'All time' })).toBeChecked()
 
   // All time: the archive's own total, and nothing to compare it with.
@@ -265,7 +265,7 @@ test('a custom range and one browser profile count only their visits', async ({
   await page.goto(
     `/#/insights?range=custom&start=${dateKey(start)}&end=${dateKey(end)}`,
   )
-  const toggle = page.getByRole('group', { name: 'Time range' })
+  const toggle = page.getByRole('radiogroup', { name: 'Time range' })
   await expect(
     toggle.getByRole('radio', { name: /^Custom range: / }),
   ).toBeChecked()

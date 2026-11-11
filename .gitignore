@@ -68,3 +68,6 @@ src-tauri/binaries/pathkeep-worker-*
 
 # Local agent worktrees and runtime metadata
 .claude/
+
+# Generated dependency audit and gate output.
+artifacts/dependency-refresh/

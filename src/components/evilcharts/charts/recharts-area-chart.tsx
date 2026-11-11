@@ -65,12 +65,7 @@ type CurveType = ComponentProps<typeof RechartsArea>['type']
 type AreaDotProp = ComponentProps<typeof RechartsArea>['dot']
 type AreaActiveDotProp = ComponentProps<typeof RechartsArea>['activeDot']
 type AreaVariant =
-  | 'gradient'
-  | 'gradient-reverse'
-  | 'solid'
-  | 'dotted'
-  | 'lines'
-  | 'hatched'
+  'gradient' | 'gradient-reverse' | 'solid' | 'dotted' | 'lines' | 'hatched'
 type StrokeVariant = 'solid' | 'dashed' | 'animated-dashed'
 type StackType = 'default' | 'expanded' | 'stacked'
 
@@ -84,11 +79,7 @@ type StackType = 'default' | 'expanded' | 'stacked'
  * OS "reduce motion" preference falls back to automatically.
  */
 type AreaAnimationType =
-  | 'none'
-  | 'left-to-right'
-  | 'right-to-left'
-  | 'center-out'
-  | 'edges-in'
+  'none' | 'left-to-right' | 'right-to-left' | 'center-out' | 'edges-in'
 type RevealAnimationType = Exclude<AreaAnimationType, 'none'>
 
 // ─────────────────────────────────────────────────────────────────────────────

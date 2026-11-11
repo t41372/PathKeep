@@ -39,12 +39,13 @@ export class CommandInvokeError extends Error {
   constructor(
     message: string,
     options?: {
+      cause?: unknown
       code?: string | null
       actionHint?: string | null
       retryHint?: string | null
     },
   ) {
-    super(message)
+    super(message, { cause: options?.cause })
     this.name = 'CommandInvokeError'
     this.code = options?.code ?? null
     this.actionHint = options?.actionHint ?? null

@@ -662,7 +662,7 @@ test('a search from Frequent searches shows how often and when', async ({
   await expect(page).toHaveURL(/#\/insights\?range=d30$/)
   await expect(
     page
-      .getByRole('group', { name: 'Time range' })
+      .getByRole('radiogroup', { name: 'Time range' })
       .getByRole('radio', { name: '30d' }),
   ).toBeChecked()
 })

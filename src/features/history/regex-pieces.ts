@@ -113,10 +113,7 @@ export function composePattern(form: PatternForm) {
 }
 
 export type PatternExample =
-  | 'githubThreads'
-  | 'hackerNews'
-  | 'youtube'
-  | 'stackOverflow'
+  'githubThreads' | 'hackerNews' | 'youtube' | 'stackOverflow'
 
 /** Ready-made patterns, each one a place to start editing from. */
 export const patternExamples: Record<PatternExample, Piece[]> = {

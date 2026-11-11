@@ -110,3 +110,16 @@ Update docs in the same branch when you change:
 - release commands or workflow inputs
 - support diagnostics expectations
 - user-visible settings, onboarding, or screens (`docs/design/screens-and-nav.md`)
+
+## Dependency updates
+
+Use the Bun version in `package.json`'s `packageManager` field. Current JS
+checks require a supported Node release: 22.22.2+, 24.15.0+ or 26+.
+`bun run outdated:js` lists available updates; `bun run update:js` updates to
+current stable versions, including new majors. Run `bun run check` and
+`bun run check:supply-chain` after the compatibility changes.
+
+See [dependency maintenance](docs/architecture/dependency-maintenance.md) for
+the TypeScript compiler/API split, the minimatch override and Dependabot's
+coverage. Do not replace the TypeScript API alias with the native compiler
+package: typed ESLint still needs that compatibility API.

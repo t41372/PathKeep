@@ -79,11 +79,7 @@ export interface DeterministicSettings {
  * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
  */
 export type AiRequestFormat =
-  | 'openai'
-  | 'anthropic'
-  | 'google'
-  | 'ollama'
-  | 'lm-studio'
+  'openai' | 'anthropic' | 'google' | 'ollama' | 'lm-studio'
 
 /**
  * Defines the type-level contract for ai provider purpose.
@@ -966,11 +962,7 @@ export interface AiChatCitation {
  * shown raw. Absent when the script finished within every bound.
  */
 export type LimitsHit =
-  | 'time'
-  | 'memory'
-  | 'host-calls'
-  | 'output'
-  | 'cancelled'
+  'time' | 'memory' | 'host-calls' | 'output' | 'cancelled'
 
 /**
  * A summary of one host-API call a code-mode script made (W-AI-8 WU-5), mirroring the Rust

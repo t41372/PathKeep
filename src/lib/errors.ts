@@ -94,8 +94,14 @@ export function describeError(error: unknown, context?: string): string {
   // Primitives (number, boolean, bigint, symbol). Avoid `String(error)` on
   // bare objects because eslint flags the default `[object Object]` stringify
   // path — we already handled the object case above with describeObject.
-  if (typeof error !== 'object' && typeof error !== 'function') {
-    return clip(String(error as number | boolean | bigint | symbol))
+  if (
+    typeof error === 'string' ||
+    typeof error === 'number' ||
+    typeof error === 'boolean' ||
+    typeof error === 'bigint' ||
+    typeof error === 'symbol'
+  ) {
+    return clip(String(error))
   }
 
   // Last resort — describe the shape so the user can quote it back.

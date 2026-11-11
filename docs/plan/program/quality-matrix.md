@@ -17,6 +17,7 @@
 | i18n           | `bun run check:i18n`    | `en` / `zh-CN` / `zh-TW` key 對齊、不得有未翻譯的英文                                                                                                               |
 | Typecheck      | `bun run typecheck`     | `tsc -b`                                                                                                                                                            |
 | Unit           | `bun run test:unit`     | Vitest：少數必須單獨測的（例如網址參數的競爭，`search-params.test.tsx`），寫的理由在檔頭                                                                            |
+| JS audit       | `bun run audit:js`      | Bun lockfile 的直接／間接與 dev dependencies 安全公告；包含於 `check:js`，也可獨立執行                                                                              |
 | Build          | `bun run build`         | TypeScript + Vite bundle                                                                                                                                            |
 | Rust           | `bun run check:rust`    | `cargo fmt --check`、`cargo clippy -D warnings`、`cargo test --workspace`，再加帶 `devtools-bridge` feature 的 bridge dispatcher 測試（`test:desktop-bridge:rust`） |
 | Release config | `bun run release:check` | updater URL、Windows bundle、WebView2、support link 不得漂移                                                                                                        |
@@ -78,7 +79,7 @@ E2E 是證明功能的主要手段。環境是獨立的，但其餘都是真的�
 | Command                                                   | 用途                                                                                                                                                                                                             |
 | --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `bun run check:slow`                                      | `check:supply-chain` + `check:platform`                                                                                                                                                                          |
-| `bun run check:supply-chain`                              | `cargo audit` + `cargo deny`（需要網路與對應 cargo 工具）；CI 另有獨立步驟                                                                                                                                       |
+| `bun run check:supply-chain`                              | `bun audit` + `cargo audit` + `cargo deny`（需要網路與對應工具）；CI 另有獨立步驟                                                                                                                                |
 | `bun run check:platform`                                  | host-matched keyring / scheduler / launcher / updater native 測試，含 debug desktop build；`vault-platform/tests/native_host.rs` 會建真的鑰匙圈項目與 launchd agent，平時 `#[ignore]`，只在這裡用 `--ignored` 跑 |
 | `bun run verify`                                          | `check` + `desktop:build:debug`；release / milestone closeout 的本地預演                                                                                                                                         |
 | GitHub `Platform Native` / `Native Dependencies` workflow | manual / path-triggered，見各 workflow                                                                                                                                                                           |
@@ -106,3 +107,5 @@ E2E 是證明功能的主要手段。環境是獨立的，但其餘都是真的�
 新功能 / 硬化 review 必問：「破壞性 op 有沒有 kill-at-checkpoint 測試、且在舊碼上會 FAIL？成功路徑有沒有斷言 config↔disk 一致？測試走的是 `load_config` 還是手搓 config？真實 I/O 有沒有被編譯掉？」答不出＝不算 ship-ready，無論 coverage 幾趴。
 
 對應實作：原生 archive 在 `vault-core`：`archive::at_rest::check_config_disk_consistency`，斷言在 `maintenance::tests`（模式切換、快照還原、中斷安裝的啟動回滾）；crash window 由 `maintenance::install` 的具名 checkpoint 與 `install_tests` 覆蓋。舊格式 archive 在 `vault-convert-sqlcipher::legacy_recovery`：舊 app 留下的匯入 / 改密碼 / 還原 journal 的啟動恢復，測試直接在磁碟上造出當時的 crash 狀態（舊流程已刪除，無法再「跑到一半殺掉」）。2026-10 之前的舊流程（SQLCipher 的 rekey、import、full restore、reconcile）及其 torture 測試隨區塊 6 刪除。
+
+JavaScript 的定期更新、Bun 鎖檔與 Dependabot 覆蓋範圍見 [dependency-maintenance.md](../../architecture/dependency-maintenance.md)。供應鏈 audit 不替代行為 gate；空的 GitHub alerts 清單也不代表完整 Bun graph 已檢查。

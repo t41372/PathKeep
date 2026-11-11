@@ -122,9 +122,10 @@ export default function HistoryPage() {
     if (!isFetchingNextPage) return base
     return [
       ...base,
-      ...[0, 1, 2].map(
-        (n): TimelineRow => ({ kind: 'loading', key: `loading:${n}` }),
-      ),
+      ...[0, 1, 2].map((n): TimelineRow => ({
+        kind: 'loading',
+        key: `loading:${n}`,
+      })),
     ]
   }, [timeline, items, isFetchingNextPage])
 

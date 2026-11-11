@@ -141,6 +141,23 @@ export function useModelDownloadProgress(
   const [totalBytes, setTotalBytes] = useState(0)
   const [currentFile, setCurrentFile] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [resetFor, setResetFor] = useState({ modelDownloaded, restartNonce })
+  // A snapshot update or retry changes the local view immediately. Subscription
+  // effects manage events and counters, rather than rendering a stale phase first.
+  if (
+    resetFor.modelDownloaded !== modelDownloaded ||
+    resetFor.restartNonce !== restartNonce
+  ) {
+    setResetFor({ modelDownloaded, restartNonce })
+    if (modelDownloaded) setPhase('ready')
+    if (resetFor.restartNonce !== restartNonce && restartNonce !== 0) {
+      setDownloadedBytes(0)
+      setTotalBytes(0)
+      setCurrentFile(null)
+      setError(null)
+      setPhase('downloading')
+    }
+  }
 
   // Per-file byte accumulation — all refs so intermediate writes don't cause extra renders.
   const finishedBytesRef = useRef(0)
@@ -149,10 +166,7 @@ export function useModelDownloadProgress(
   const currentFileBytesRef = useRef(0)
 
   useEffect(() => {
-    if (modelDownloaded) {
-      setPhase('ready')
-      return
-    }
+    if (modelDownloaded) return
 
     let active = true
     let unsub = () => {}
@@ -240,11 +254,6 @@ export function useModelDownloadProgress(
     finishedBytesRef.current = 0
     fileTotalMapRef.current.clear()
     currentFileBytesRef.current = 0
-    setDownloadedBytes(0)
-    setTotalBytes(0)
-    setCurrentFile(null)
-    setError(null)
-    setPhase('downloading')
   }, [restartNonce])
 
   // Authoritative override: if the snapshot says the model is present, always return 'ready'.
