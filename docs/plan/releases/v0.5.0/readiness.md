@@ -2,6 +2,17 @@
 
 首次調查：2026-11-10；本輪更新：2026-11-13（America/Phoenix）。這次授權包括依賴 PR 的審查、驗證、合併與發布準備；公開發布仍須使用者明確批准。
 
+**目前只做發布準備，不是最終發布候選。** 使用者已告知另一個 worktree
+正在修復嚴重的 embedding bug，修復與 gate 尚未完成。本分支不處理該產品
+修復，也不公開 v0.5.0。此處的腳本、筆記與私有安裝包供預演；修復合併後
+須更新 notes、重新凍結來源、跑最終 gate 並重建所有平台產物。不能直接
+公開本輪預演的 bytes，亦不把既有驗收當作該修復的驗證。
+
+該問題現在有 [PR #24](https://github.com/t41372/PathKeep/pull/24)：
+既有索引更新的計數查詢反覆掃整個 lineage，加上 checkpoint 等待與
+閒置寫入，會連帶擋住其他讀取。核對時 PR 仍開著、遠端 CI 仍在跑；
+本輪預演不包含該修復，依前述流程等它整合後建立新的最終來源。
+
 **既有合併 gate 已通過，發布仍等待使用者 approval。** 2026-11-10 使用者指出既有 14.4M 升級／備份與跨平台安裝已驗證，本次審查據此修正：本機受限環境的失敗不否定既有 CI／驗收；預演時的 JavaScript 稽核曾命中 19 個套件，更新後的鎖檔稽核已清零；資料格式升級的降級限制是發布告知與回退考量，不是升級故障。前一版將這些混列成發布阻斷的總結已撤回。 [本輪核對紀錄](assessment-correction.json) 保留 CI 連結、19 套件版本比較與使用者驗收確認；原始失敗日誌和 hash 不修改。簽章路徑與最終產物的例行核對仍按發布計畫確認。
 
 ## 本輪恢復與準備
@@ -28,28 +39,55 @@ unsigned preview 草稿：手動安裝、沒有 app 內自動更新，macOS 未�
 Developer ID 簽章或公證。產物可先供審閱；將它作為公開版本仍須批准
 本次 unsigned preview 政策例外。三語 notes 已按此候選路徑準備。
 
-## 本次 workflow 保護
+## 發布流程修正與批准範圍
 
-v0.4.0 的 release API 顯示 `published_at=2026-10-19T07:36:16Z`；隨後
-[push run 39217061687](https://github.com/t41372/PathKeep/actions/runs/39217061687)
-於 `07:36:18Z` 建立，actor 為使用者。公開 draft 會建立 tag，不能假設不會
-再次啟動 tag workflow。
+第一版 guard 的九個 CLI／HTTP 場景及公開 v0.4.0 的只讀 Actions 預演
+通過，舊 release 與 11 個 assets 不變。不過 PR #22 的審查指出它只在
+開頭讀一次狀態，且不同 ref 沒共用同 tag 的鎖；這不足以阻止後續覆寫。
+該判斷已接受，第一版紀錄保留為歷史，不把它當成完整競態保證。
 
-本候選增加已公開版本的保護：先以 GitHub API 查詢 tag；已公開就跳過
-後續 matrix／版本／簽章檢查、所有 build 與 manifest upload。查詢、認證或
-metadata 失敗必須讓準備失敗。新 tag 與私有 draft 仍走原本流程，不改動
-新 tag 的既有發布入口。
+[提議的 trade-off](../../../architecture/release-publication.md) 將手動 tag
+改為必填，`prepare`／`verify`／`publish` 共用目標 tag 鎖。建置一律是私有
+草稿，綁定 source SHA；公開獨立執行，只核對及發布已批准的 SHA、draft
+ID 與 manifest digest。Source 或 bytes 變動即停止，不重新建置替換。
 
-九個 CLI／HTTP 場景在實作前列出；公開／新建／draft、服務與認證錯誤、
-錯誤 JSON／tag／狀態及缺 token 都有斷言。舊實作八個失敗，新增 guard
-後九個通過；本機前端檢查共 119 個測試通過。正式草稿建置前，先在
-Actions 對已公開的 v0.4.0 做保護預演，核對 build／upload 全部略過且
-舊 assets 不變，將結果附於發布準備 PR。候選版本是 0.5.0，既有版本
-檢查亦會攔下錯誤續跑。遠端紀錄保留於 PR／草稿，以維持候選 commit 不變。
+GitHub immutable releases 的實際查詢回覆為 HTTP 200、`enabled=false`。
+公開前由管理員啟用並重新核對 boolean，才確認
+`immutable_releases_confirmed=true`。伺服器鎖定公開後的資產與 tag；
+workflow token 不增加 administration 權限。這項設定尚未變更。
 
-GitHub 的 job `if` 在 matrix 展開前執行，參見
-[官方 workflow 語法](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#jobsjob_idif)。
-沒有已公開版本時，完整版本同步與 updater key 檢查照常執行。
+新的發布政策與 immutable 設定啟用，以及 macOS unsigned preview 例外，
+均留在最終使用者 approval。此時僅從提案分支準備私有候選。遠端
+Actions／產物核對紀錄附於發布準備 PR 與草稿，候選 commit 不因新增
+操作紀錄而移動。
+
+## 本輪 gate 的測試環境修正
+
+完整驗證兩次停在 worker 的 fallback-isolation 測試，測試 server 等待
+第三個 embedding 請求逾時。對照使用同一個既有測試 binary：在 D-Bus
+session 使用原生 keyring 時失敗（10.29 秒），設定隔離的測試 keyring
+後通過（0.28 秒）。原 fixture 未隔離 provider resolution 的 keyring
+讀取，意外進入 headless secret service。
+
+修正使用既有環境鎖與 temporary keyring，並要求收到 fixture 的 HTTP
+拒絕原因，避免任何提早失敗都被 `is_err()` 接受。沒有放寬 timeout、
+略過測試或修改 embedding 產品程式。兩次失敗和對照日誌均保留；這個
+測試環境問題不代表另一 worktree 的產品 bug 已解決。
+
+其後的完整 E2E 在 Insights 重新載入時未於 15 秒內出現 heading；trace
+停在程式碼分片的 skeleton，沒有 JavaScript exception。原時區情境的
+獨立重現保留原期限及所有功能斷言後通過（5.2 分鐘，該次 reload 為
+4.335 秒），但測試 worker 的 RSS 達約 8GiB。測試為 22,257 筆 fixture
+反覆建立 ICU formatter 及重掃整份資料，是可確認的測試負擔；不能只憑
+一次超時斷言產品的時區功能回歸，也不能忽略那次失敗。
+
+改為重用每個時區的 formatter、每個時區只算一次 fixture 筆數，保留
+原本 15 秒斷言期限。三時區完整筆數對照的 hash 相同；各自獨立 Node
+process 的計算為 15,078ms／1,846,916KiB peak RSS 與
+119ms／91,388KiB。這是測試 reference 計算的量測，不是產品或
+14.4M benchmark。同一合成存檔與真實後端的載入診斷另測得 production
+bundle 三次 735–846ms、開發模式 1,885–2,573ms；它沒有重現原始超時。
+完整 gate 必須在上述測試修正後重新執行，先前失敗與診斷均保留。
 
 ## 初次預演的版本與範圍
 
@@ -143,37 +181,37 @@ v0.4.0 的 Archive／Intelligence 都是 schema 1；本次分別升到 23／2。
 
 遇到問題先停止發布與排程並保存失敗後的完整副本。要回退時，使用 v0.4.0 搭配**升級前整份副本**，在另一個 data root 先驗證；新版之後新增的資料另行保留，不覆蓋或刪除。若沒有可驗證的舊副本，提供修復版，不能指示使用者刪 canonical data。這段說明交代降級時如何保留資料，不代表既有升級驗證未完成。
 
-## 發布 workflow 的實際行為
+## 提議 workflow 的實際行為
 
-| 入口／選項               | 實際作用                                                                                                                                        |
-| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| push 新的 `v*` tag       | 預設全部平台、`draft=false`、`unsigned_preview=false`；要求 updater key；若有 key，第一個 matrix 成功時即可公開，早於其他 build 與 checksum job |
-| 手動 `draft=true`        | 未存在同名 release 時建立 draft；不代表「沒有遠端副作用」                                                                                       |
-| `unsigned_preview=true`  | 所選平台全都帶 `--no-sign`，停用 updater artifacts；不是只對 Windows 生效                                                                       |
-| `unsigned_preview=false` | 要求 `TAURI_SIGNING_PRIVATE_KEY`，但這只提供 updater signature，不代表 Apple Developer ID 已配置                                                |
-| 手動 `release_tag`       | 改 release 名稱／版本檢查，不會自動 checkout 那個 tag；實際 build 的是 dispatch ref 的 `github.sha`                                             |
-| 選擇較少平台             | 只能繼續同 tag 的私有 draft；已公開 tag 整輪略過。Checksum 掃全部現有 assets，不能單獨證明相同來源 SHA                                          |
+| 入口／選項              | 實際作用                                                                     |
+| ----------------------- | ---------------------------------------------------------------------------- |
+| push 新的 `v*` tag      | 準備私有 draft，不自動公開                                                   |
+| `operation=prepare`     | 明確指定 tag，驗版本與簽章模式，草稿綁定當前 SHA，建置與上傳                 |
+| `operation=verify`      | 持有 tag 鎖，核對批准的 source／draft／manifest／所有 assets，不寫入         |
+| `operation=publish`     | 同樣核對後公開；沒有 build，需 user approval 與管理員 immutability preflight |
+| 已公開 tag 的 prepare   | 跳過建置與上傳，不覆寫產物                                                   |
+| `unsigned_preview=true` | 所選平台全部 `--no-sign`，沒有 updater artifacts／`latest.json`              |
+| 較少平台                | 只準備所選平台；本次 v0.5.0 必須四平台完整                                   |
 
-已核對固定版本 [tauri-action v0.6.2 的 release 查找](https://github.com/tauri-apps/tauri-action/blob/v0.6.2/src/create-release.ts) 與 [asset upload](https://github.com/tauri-apps/tauri-action/blob/v0.6.2/src/upload-release-assets.ts)：draft 查找只比 tag，未篩 `draft`；找到同名公開 release 也會沿用，既有同名 asset 會先刪再傳。**該 action 自身會覆寫公開產物，`draft=true` 不是保護。** 本次新增的 workflow guard 在 action 執行前攔下已公開 tag；不得繞過它。
-
-v0.4.0 的 [手動 unsigned run](https://github.com/t41372/PathKeep/actions/runs/39211157788) 四個 matrix 與 checksum job 全成功。公開 tag 後的 [push run](https://github.com/t41372/PathKeep/actions/runs/39217061687) 在 updater key 預檢失敗。公開資產有 9 個平台檔案與 2 個 manifest，沒有 `latest.json`／`.sig`。因此現有下載路徑可用，不代表自動更新可用。
-
-Tauri updater 強制驗簽；沿用 updater 必須找回和現有 `pubkey` 配對的私鑰，不能直接產生新 key 期待舊 app 信任它。見 [Tauri updater signing](https://v2.tauri.app/plugin/updater/#signing-updates)。若本次仍是 unsigned preview，發布筆記只能承諾手動下載安裝。
+tauri-action v0.6.2 本身會找到同 tag 的公開 release 並替換同名 assets，
+不能單靠 `draft=true`。新流程的 tag 鎖、草稿 source 所有權與獨立公開
+處理正常 workflow 競態；GitHub native immutability 阻止公開後的晚到
+寫入。不要從舊 ref 重跑歷史上傳定義。
 
 ## 發布流程與批准邊界
 
 下列流程保留操作次序。本輪準備進度見上節；公開發布始終等使用者 approval。
 
-1. 保留已通過的 CI 與使用者確認的驗收，完成補充 audit 的適用性判讀，確認簽章／unsigned preview 路徑與本次發布內容。
-2. 把四處版本 patch 與批准納入的文檔整理成 release commit；Conventional Commit subject 可用 `chore(release): prepare v0.5.0`，body 說明為何發布與關鍵變化。`release:bump` 目前只改三個宣告，須另更新 Cargo.lock 的 desktop package 版本並用 Prettier 格式化 JSON；本次 patch 沒有依賴更新。
-3. 在最終 commit 跑 `bun run verify`、`bun run check:slow` 與平台驗收，鎖定完整 SHA。HEAD 變動即重新評估證據；不能直接用本次 `0.5.0-dev` main 的綠燈替代新 release commit。
-4. 查遠端 tag、包含 draft 的 release 清單、執行中的 Release jobs；`v0.5.0` 必須尚不存在。已存在時停下查明，不沿用、不刪除或覆寫。確認遠端 release branch 正是批准的 SHA。
-5. **不先推 `v0.5.0` tag。** 從批准的 release ref 手動 dispatch：`release_tag=v0.5.0`、`draft=true`、`prerelease=false`、`platforms=all`，unsigned 值依批准的路徑。這一步會建立遠端 draft 並上傳 assets，屬本次準備授權；公開仍另等 approval。
-6. 四個 matrix、checksum job 全完成後，按下面清單下載所有檔案，逐檔比對 SHA-256、manifest size 與 GitHub digest；檢查沒有多餘舊檔、來源 SHA 與版本一致，沿用使用者已確認的安裝／升級驗收，依本次變更補適用的 smoke。任何一項失敗，release 保持 draft，不開始公開。
-7. 用本目錄三語 notes 取代自動產生的模板文字，填入**這次實際**驗證資訊與必要的 unsigned 安裝說明；不得沿用 v0.4.0 的 checksum。
-8. 對照使用者批准的內容與最終 SHA／assets，才將 draft 公開並設 latest。使用人員憑證公開 draft 會建立 tag 並再觸發 push workflow；本次 guard 應將它判為已公開版本，跳過建置與上傳，保留已審閱的 binaries。公開前先用舊版 tag 預演這條路；不能在發布後繞過 guard、重跑公開 tag 或補傳不同來源 binary。`GITHUB_TOKEN` 建立的 push 通常不再觸發另一個 workflow，見 [GitHub 觸發規則](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow)。
-9. 公開後核對 `/releases/latest` 指到 v0.5.0、所有平台 URL 與 checksums 可下載；signed updater 路徑須從舊安裝驗證查詢／下載／驗簽／重啟，unsigned 路徑只驗手動安裝。若部分平台不可用，不能宣稱全平台已發布。
-10. Append CHANGELOG，回寫 STATUS 與 source docs，然後才把 main 版本改成下一個 `-dev`；不要在 release build 前推進版本。移除本次可重建的編譯產物，保留報告、hash、日誌與 E2E artifact。
+1. 保留既有 CI 與使用者確認的驗收；直接與間接依賴更新重新稽核。
+2. 四處版本對齊 0.5.0，簽名候選 commit，凍結 ref；完整 gate 記錄實際來源。
+3. 新 tag／draft 必須不存在；重試僅使用相同 SHA 的私有 draft，先停掉所有過期建置。
+4. 從該 ref 以 `operation=prepare`、`release_tag=v0.5.0`、`platforms=all`、`unsigned_preview=true` 建置。不得先推 tag。
+5. 四平台與 checksum job 全成功，下載核對 digest、manifest、版本、架構與 worker。沿用使用者已確認的原生／14.4M 驗收，按變更補適用 smoke。
+6. 三語 notes 寫入私有草稿。保存 source SHA、release ID、manifest digest 與全部 assets 核對結果，執行 `operation=verify` 確認不寫入。
+7. 將實際候選、政策 trade-off、unsigned 模式與 immutable 鎖定交給使用者批准；未批准就維持私有草稿。
+8. 批准後才合併提案，管理員啟用並核對 immutable releases，再從凍結 ref 以 `operation=publish` 與批准的 SHA／ID／manifest digest 公開，不重建。
+9. 核對 `immutable=true`、tag commit、latest、下載與 checksum 一致。晚到 tag workflow 只能略過，不補傳不同 bytes。
+10. 公開後更新 STATUS／CHANGELOG，再推進 `-dev`；保留 reports、fixture、hash 與發布 receipts。
 
 GitHub 建議先建立 draft、附齊產物再公開，見 [管理 releases](https://docs.github.com/en/repositories/releasing-projects-on-github/managing-releases-in-a-repository)。本次仍須使用者明確 approval，沒有從時間經過或既有發布歷史推定同意。
 

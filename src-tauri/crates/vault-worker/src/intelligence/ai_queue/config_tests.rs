@@ -1,6 +1,8 @@
 //! Responsibilities: preserve complete fallback isolation after services change while unlocked.
 //! Not responsible for: provider quality. Failure case specified before the fix: the worker uses
 //! fresh settings for provider selection but stale Vault settings for partial publication.
+//! Provider resolution must also use an isolated keyring: a headless native secret service can
+//! stall before the replacement reaches HTTP, hiding the intended failure behind a timeout.
 use super::*;
 use std::io::{BufRead, Read, Write};
 use std::net::TcpListener;
@@ -9,6 +11,12 @@ use vault_store::{Db, Priority};
 
 #[test]
 fn fresh_execution_settings_protect_a_complete_fallback_from_a_failed_new_model() {
+    let _environment = crate::tests::lock_env();
+    let keyring = tempfile::tempdir().unwrap();
+    // The guard serializes this process-wide override and restores it after the test.
+    unsafe {
+        std::env::set_var(crate::tests::TEST_KEYRING_OVERRIDE_ENV, keyring.path());
+    }
     let vault = vault_core::Vault::open_temp().unwrap();
     vault.store().write(Db::Archive,Priority::Batch,|s| {
         s.execute("INSERT INTO source_profiles(id,browser_kind,profile_name,profile_path,profile_key,discovered_at) VALUES(1,'chrome','Default','/fixture','profile','')",())?;
@@ -111,8 +119,11 @@ fn fresh_execution_settings_protect_a_complete_fallback_from_a_failed_new_model(
     let current = vault.with_config(config.clone());
     let job = ai_queue::enqueue_index_job(&current, &request, false).unwrap();
     let claimed = ai_queue::claim_ai_job_by_id(&current, job.id, 300).unwrap().unwrap();
+    let error = execute_claimed_index_job(&vault, vault.paths(), &config, None, claimed, &request)
+        .expect_err("the replacement must fail on the fixture's final response");
     assert!(
-        execute_claimed_index_job(&vault, vault.paths(), &config, None, claimed, &request).is_err()
+        format!("{error:#}").contains("fixture rejected input"),
+        "expected the fixture's HTTP failure, received {error:#}"
     );
     service.join().unwrap();
     // Service failures can pause a resumable job. Explicit cancellation releases that ownership;

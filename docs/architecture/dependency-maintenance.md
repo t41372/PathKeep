@@ -97,3 +97,21 @@ Modal runs `scripts/prepare-modal-env.sh` in a separate Bash process with
 `errexit` inside that conditional subshell. Keeping preparation in its own
 process ensures a failed dependency installation stops setup before browser
 installation or the worker build.
+
+On 2026-11-13 the first daily Dependabot group proposed five further releases:
+Lucide 1.72.0, Motion 14.13.0, jsdom 31.0.1, Prettier 3.10.1 and Vite 8.3.8.
+The v0.5.0 candidate incorporates that group and receives a new complete gate
+and native draft build. The earlier candidate receipt stays as historical
+evidence; the current draft must bind every asset to the updated source.
+
+Before the next source freeze, a fresh registry check found Motion 14.14.0;
+the refresh also selected Microsoft's tslib 2.9.1. Both are included in the
+new candidate's complete gate. Later native builds stay on that frozen source.
+
+RustSec added [RUSTSEC-2026-0538](https://github.com/RustSec/advisory-db/blob/main/crates/quinn-udp/RUSTSEC-2026-0538.md)
+on November 13. The preceding candidate passed `verify`, then failed its
+supply-chain step on locked quinn-udp 0.5.14. It is updated to the patched
+0.5.16 in the existing 0.5 dependency range; the registry checksum and
+requirements were checked. No advisory exception or unrelated Windows binding
+change is added. The separate long-read fix in PR #24 makes the same lockfile
+update, but is not integrated into this rehearsal source.

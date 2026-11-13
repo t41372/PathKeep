@@ -47,8 +47,24 @@ const workflowSources = Object.fromEntries(
 )
 const allWorkflowText = Object.values(workflowSources).join('\n')
 
-// Publishing a draft creates its tag and triggers this workflow again. Every
-// later step must respect the guard so that approved binaries stay unchanged.
+// Every valid operation has an explicit target. Different refs changing the
+// same tag must share one lock, including the verify/publication operation.
+includes(
+  releaseWorkflow,
+  'group: release-${{ inputs.release_tag || github.ref_name }}',
+  'release workflow target-tag concurrency',
+)
+excludes(releaseWorkflow, 'inputs.draft', 'release workflow draft-only builds')
+includes(
+  releaseWorkflow,
+  'releaseDraft: true',
+  'release workflow private builds',
+)
+includes(
+  releaseWorkflow,
+  'run: node scripts/prepare-release-draft.mjs',
+  'release workflow source-owned draft',
+)
 includes(
   releaseWorkflow,
   'run: node scripts/guard-published-release.mjs',
@@ -79,9 +95,54 @@ for (const name of ['build-release', 'release-manifest']) {
     releaseWorkflow.split(`  ${name}:\n`)[1]?.split(/\n {2}\S/)[0] ?? ''
   includes(
     section,
-    "if: needs.prepare-release.outputs.already_published != 'true'",
+    "needs.prepare-release.outputs.already_published != 'true'",
     `${name} must skip published releases`,
   )
+  includes(
+    section,
+    "needs.prepare-release.outputs.operation == 'prepare'",
+    `${name} must never run during publication`,
+  )
+}
+includes(
+  releaseWorkflow,
+  'releaseId: ${{ needs.prepare-release.outputs.release_id }}',
+  'release workflow reserved release ID',
+)
+includes(
+  releaseWorkflow,
+  'run: node scripts/publish-reviewed-release.mjs',
+  'release workflow reviewed-byte publication',
+)
+includes(
+  releaseWorkflow,
+  "EXECUTE_PUBLICATION: ${{ needs.prepare-release.outputs.operation == 'publish' }}",
+  'release workflow explicit publication operation',
+)
+includes(
+  releaseWorkflow,
+  "'sourceCommit': os.environ['SOURCE_COMMIT']",
+  'release manifest source binding',
+)
+const releaseTagInput =
+  releaseWorkflow.split('      release_tag:\n')[1]?.split(/\n {6}\S/)[0] ?? ''
+includes(
+  releaseTagInput,
+  'required: true',
+  'release workflow explicit target tag',
+)
+for (const name of [
+  'Recheck draft before build and upload',
+  'Recheck draft before manifest preparation',
+  'Recheck draft before manifest upload',
+]) {
+  const section =
+    releaseWorkflow
+      .split(`      - name: ${name}\n`)[1]
+      ?.split('\n      - ')[0] ?? ''
+  includes(section, 'SOURCE_COMMIT:', `${name} must check source ownership`)
+  includes(section, 'RELEASE_ID:', `${name} must check the reserved draft`)
+  includes(section, 'guard-published-release.mjs', `${name} must refresh state`)
 }
 const updaterSource = readText('src-tauri/src/updater.rs')
 const frontendUpdaterSource = readText('src/lib/update.ts')

@@ -34,20 +34,40 @@ const REBUILD_TIMEOUT = 120_000
 const TAIPEI = 'Asia/Taipei'
 const LOS_ANGELES = 'America/Los_Angeles'
 const BERLIN = 'Europe/Berlin'
+const dayFormatters = new Map<string, Intl.DateTimeFormat>()
+const visitCounts = new Map<string, Map<string, number>>()
 
 /** The day the instant falls on in `zone`. */
 function dayIn(ms: number, zone: string) {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: zone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(ms)
+  let formatter = dayFormatters.get(zone)
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat('en-CA', {
+      timeZone: zone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    })
+    dayFormatters.set(zone, formatter)
+  }
+  return formatter.format(ms)
 }
 
+/**
+ * This scenario never changes the fixture's visits. Count them once per zone:
+ * repeated scans and one native ICU formatter per visit exhausted gigabytes
+ * in the test worker, competing with the app whose UI we are measuring.
+ */
 function visitsOn(day: string, zone: string) {
-  return archivedVisits().filter((visit) => dayIn(visit.at, zone) === day)
-    .length
+  let counts = visitCounts.get(zone)
+  if (!counts) {
+    counts = new Map()
+    for (const visit of archivedVisits()) {
+      const date = dayIn(visit.at, zone)
+      counts.set(date, (counts.get(date) ?? 0) + 1)
+    }
+    visitCounts.set(zone, counts)
+  }
+  return counts.get(day) ?? 0
 }
 
 /**

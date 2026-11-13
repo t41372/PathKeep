@@ -9,7 +9,23 @@
 
 ## CURRENT FOCUS
 
-- [ ] **WORK-RELEASE-V0.5.0** — 準備與發布 v0.5.0；公開仍等使用者明確 approval。
+- [!] **WORK-RELEASE-EMBEDDING-BLOCKER** — 使用者告知另一 worktree 正在修復嚴重 embedding bug；本輪只完成發布準備，禁止公開 v0.5.0。
+  - 本分支的 gate、私有安裝包與操作紀錄只作預演。修復合併後更新 notes、凍結新 SHA、重跑最終 gate 並重建全部平台，再提交最終發布審閱。
+  - 本分支不改 embedding 產品邏輯。驗證中另重現 worker 測試未隔離 keyring 的環境問題，僅修正 fixture，詳見 `releases/v0.5.0/readiness.md`。
+  - 修復提案已開 [PR #24](https://github.com/t41372/PathKeep/pull/24)，本輪預演尚未整合；其遠端 CI 於核對時仍在執行。
+
+- [ ] **WORK-RELEASE-TAG-TRANSACTION** — 修正 PR #22 審查指出的同 tag／不同 ref 競態；發布設定與政策變更仍等批准。
+  - 讀先：`docs/architecture/release-publication.md`、`RELEASE.md`、`releases/v0.5.0/readiness.md`、`program/quality-matrix.md`；GitHub immutable releases 與 repository API 官方文件。
+  - 初始 published 檢查不是原子操作。改以明確 tag 共用鎖，草稿綁定 source SHA，建置與發布分開，發布只使用已審閱的 SHA／manifest digest。
+  - GitHub immutable releases 目前為 false。啟用與公開均留在最終 approval 步驟；先交付可審閱的程式、trade-off、私有產物與驗證。
+
+- [x] **WORK-JS-FOLLOWUP-2026-11-13** — 納入 Dependabot #21 提出的五個最新版，再凍結 v0.5.0 候選。
+  - 讀先：`docs/architecture/dependency-maintenance.md`、`releases/v0.5.0/readiness.md`、`program/quality-matrix.md`；PR #21 的 manifest 與鎖檔 diff。
+  - Lucide 1.72.0、Motion 14.13.0、jsdom 31.0.1、Prettier 3.10.1、Vite 8.3.8。套用後本機 `check:js` 通過 119 個測試，JS audit 掃描 532 套件為零；`outdated:js` 沒有剩餘更新。
+  - 舊候選的 CI／四平台建置已取消，以新來源重跑完整 gate 與 native draft。公開仍等明確 approval，v0.4.0 舊產物不變。
+  - 新一輪登錄檔核對再納入 Motion 14.14.0／tslib 2.9.1；此前來源的 `verify` 已過，`check:slow` 被當日新增的 RUSTSEC-2026-0538 擋下。quinn-udp 鎖檔更新至修正版 0.5.16 後，完整 `verify`／`check:slow` 已過：141 個前端測試、134 E2E 過／1 平台略過，兩份鎖檔未變，不新增例外。證據：`releases/v0.5.0/release-transaction-rehearsal.json`。
+
+- [ ] **WORK-RELEASE-V0.5.0** — 完成 v0.5.0 發布準備；embedding 修復未完成，這次不公開。
   - 讀先：`RELEASE.md`、`m4-full-polish/release-readiness-runbook.md`、`releases/v0.5.0/readiness.md`。
   - 已從 stash 恢復三語 notes、原始證據與 README banners，原 stash 保留。四處版本對齊 0.5.0，本候選完整 gate 已通過。
   - 推送候選後，以已公開 v0.4.0 預演保護條件，再建置四平台 unsigned draft；來源 SHA、Actions 結果、11 個 assets 與 checksum 核對紀錄以發布準備 PR／Release 草稿為準。候選 commit 在建置與審閱期間凍結，公開前不推 tag。

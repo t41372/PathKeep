@@ -26,12 +26,17 @@
 
 ## Published artifacts
 
-The Release workflow checks the resolved tag before any build or upload. An
-already published release skips the remaining jobs, including a tag push
-created by publishing a draft. API or metadata errors fail preparation; they do
-not authorize a rebuild. Keep approved binaries unchanged and use a new version
-for replacement binaries. A new release still starts as a private draft and is
-published only after its source, platform assets and checksums are reviewed.
+The v0.5.0 preparation PR proposes explicit `prepare`, `verify` and `publish`
+operations sharing a target-tag lock. Preparation creates private, source-owned
+drafts. Publication builds nothing and checks the approved source, draft ID,
+manifest digest and current asset hashes while holding that lock.
+
+An administrator enables and checks GitHub immutable releases before any public
+promotion. The workflow token has no administration access; the operator confirms
+that preflight explicitly. Server immutability protects published files and tags;
+client checks reject stale snapshots and private source mismatches. Changes to
+this contract need user approval; see
+[release-publication.md](../../architecture/release-publication.md).
 
 ## Browser Support Promise
 

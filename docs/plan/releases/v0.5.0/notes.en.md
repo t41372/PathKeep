@@ -1,6 +1,6 @@
 # PathKeep v0.5.0
 
-Draft for review. This version has not been published.
+Rehearsal draft. A separate embedding fix must be integrated and all packages rebuilt before release. This version has not been published.
 
 PathKeep v0.5.0 improves browser backups, adds search sorting and a search builder, and keeps the existing semantic index available while a replacement is built. AI remains optional.
 

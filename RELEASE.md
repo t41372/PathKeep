@@ -74,40 +74,70 @@ Then perform the platform and traceability review from:
 
 ## GitHub Release Workflow
 
-Entry points:
+The proposed v0.5.0 contract is documented in
+[release-publication.md](./docs/architecture/release-publication.md). It requires
+user approval before this preparation PR is merged. The old `draft=false` build
+path and inferred manual tag are retired by that proposal.
 
-1. Push a tag such as `v0.2.0`
-2. Run the `Release` workflow manually from GitHub Actions
+The workflow has three operations sharing one lock per target tag:
 
-For a rehearsal, use a new tag with manual `draft=true`; do not push a `v*` tag first. A new tag push selects the updater-enabled path and can publish before the other platform builds and checksums finish. Confirm the tag and release do not already exist, including drafts. Manual `release_tag` does not change the checked-out ref; verify the dispatch ref resolves to the reviewed commit.
+- `prepare` builds a private draft. A manual run requires `release_tag`; a tag
+  push uses its tag name and also prepares a draft. Matrix builds stay parallel
+  within the run. The draft belongs to the checked-out source SHA.
+- `verify` checks the reviewed source SHA, release ID, manifest digest and every
+  current asset without building or publishing.
+- `publish` performs the same checks and promotes the reviewed draft without
+  rebuilding. It requires explicit user approval and the administrator preflight
+  confirmation. Run it from the frozen source ref.
 
-Before building, `scripts/guard-published-release.mjs` checks whether the resolved tag is already published. A published release makes the workflow skip version/signing preparation, every build and every asset upload. This also handles the tag push emitted when a draft is published, without rebuilding or replacing the reviewed binaries. API or metadata failures stop preparation. A private draft can continue preparation; a published version requires a new tag for new binaries. Use a ref containing this guard; historical workflow revisions are not retroactively protected. `release:check` verifies that downstream steps and jobs keep these conditions.
+For preparation:
 
-The [v0.5.0 readiness review](./docs/plan/releases/v0.5.0/readiness.md) records the release assessment, notes, upgrade boundary and approval sequence. It does not authorize publication.
+```bash
+gh workflow run release.yml --ref release/prep-v0.5.0 \
+  -f operation=prepare -f release_tag=v0.5.0 \
+  -f prerelease=false -f platforms=all -f unsigned_preview=true
+```
 
-Manual workflow inputs:
+`release_tag` names the target; it does not check out that tag. Confirm the
+selected ref is the reviewed source. Before a new candidate, confirm the target
+tag and all matching releases, including drafts, do not exist. A retry can reuse
+only a private draft for the same SHA; a different SHA needs deliberate cleanup
+of the obsolete private candidate after all its jobs stop.
 
-- `draft`
-- `prerelease`
-- `release_tag` (optional explicit tag; defaults to `v<package.json version>`)
-- `platforms` (`all`, `linux-windows`, `linux`, `windows`, or `macos`)
-- `unsigned_preview` (default `true`; required for the unsigned Windows release path)
+Preparation validates versions and signing mode, reserves the draft, builds the
+selected matrix and attaches `SHA256SUMS.txt` and `RELEASE-MANIFEST.json`. The
+latter records source SHA and workflow run. `unsigned_preview=true` uses
+`--no-sign`, disables updater artifacts and skips `latest.json`. Updater-enabled
+preparation requires its signing key.
 
-Workflow behavior:
+Before publication, an administrator must check and enable GitHub immutable
+releases. The setting is currently disabled; activation and the new publication
+contract remain part of final approval. Inspect the JSON boolean, not HTTP 200:
 
-- bump versions locally first with `bun run release:bump -- <semver>`
-- verify the repo with `bun run verify`
-- generate the local size attribution bundle with `bun run release:size-audit`
-- resolves the tag and version up front
-- verifies version sync across the repo
-- builds release bundles on the selected platform matrix
-- when `unsigned_preview=true`, builds unsigned bundles with `--no-sign`, disables updater artifacts, and skips `latest.json`
-- when `unsigned_preview=false`, builds updater artifacts and publishes `latest.json`
-- Windows installers use Tauri's `downloadBootstrapper` WebView2 mode so the common Windows 11 / current Windows 10 path stays small while missing-runtime machines can still install with internet access
-- uploads assets to the GitHub Release
-- downloads the assets again
-- publishes `SHA256SUMS.txt`
-- publishes `RELEASE-MANIFEST.json`
+```bash
+gh api repos/t41372/PathKeep/immutable-releases \
+  -H 'X-GitHub-Api-Version: 2026-03-10' --jq .enabled
+```
+
+After approval, enable it with `gh api --method PUT
+repos/t41372/PathKeep/immutable-releases`, then check `.enabled` again. The
+workflow token deliberately has no administration permission. Set
+`immutable_releases_confirmed=true` only after the administrator preflight.
+
+Verification/publication require `approved_release_id`, `approved_source_sha`
+and `approved_manifest_sha256` from the reviewed candidate. Use
+`operation=verify` first. Only after user approval use `operation=publish` with
+the administrator confirmation. Publication holds the preparation tag lock,
+rechecks all current bytes and confirms an immutable result.
+
+Published assets and tags are locked server-side; client reads alone are not
+atomic protection. Corrected binaries require a new version. Notes and the
+latest/prerelease designation remain editable. Historical workflow definitions
+are not retroactively changed; do not rerun old definitions to upload.
+
+The [v0.5.0 review](./docs/plan/releases/v0.5.0/readiness.md) records the assessment,
+upgrade boundary and notes. Remote receipts stay in the preparation PR/private
+draft so the candidate commit remains frozen. Publication still needs approval.
 
 ## Secrets
 
