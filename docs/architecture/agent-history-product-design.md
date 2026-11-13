@@ -40,26 +40,55 @@ what the file means.
 
 A **conversation** is new and is what everything the user sees hangs on.
 
-- The adapter names it. From native evidence it returns a conversation key that
-  is the same when the file grows, when the tool writes a new generation file,
-  when the tool moves the file (Codex active → archived), and when the same
+- **The adapter names it.** From native evidence it returns a conversation key
+  that is the same when the file grows, when the tool writes another file for
+  the same conversation, when the tool moves the file, and when the same
   conversation is found under a second root. A subagent's key is never its
-  parent's key: for Claude Code it is the parent session plus the agent id.
-- The conversation id is `sha256("pathkeep-agent-conversation-v1", harness, key)`.
-  It needs no lookup and no counter, so a parent link can be written before the
-  parent has been captured, and the id is the same after a reparse, on a rebuilt
-  catalog and on another machine.
-- A conversation has one or more sources. The reader shows the head source: the
-  current one with the highest generation, then the most recent capture. The
-  others are listed as copies. When the adapter finds no native id, the key is
-  derived from the source id and the conversation has exactly that one source.
-- An event is addressed by conversation id and ordinal (the record's position in
-  the head source), plus the native event id where the tool writes one. Links
+  parent's key.
+- **The key is the native id plus an origin mark.** The mark is something every
+  copy of one conversation shares and an unrelated conversation does not: by
+  default a digest of the transcript's first record, or what the adapter knows
+  to be steadier (for Codex the thread id and the creation time in its session
+  record, because a reverted rollout rewrites that record). Two files under
+  different roots with the same native id are one conversation when their marks
+  match, and two conversations when they do not. The core's existing contract,
+  that an id reused under another root must not merge two histories, holds for
+  strangers and no longer splits copies.
+- **The id is derived, not issued.** The conversation id is
+  `sha256("pathkeep-agent-conversation-v1", harness, key)`. It needs no lookup
+  and no counter, so a parent link can be written before the parent has been
+  captured, and the id is the same after a reparse, on a rebuilt read model and
+  on another machine.
+- **A conversation has one or more sources, and the adapter says how they
+  relate.** A source is either a transcript that stands on its own, or one that
+  continues another source from a stated boundary. The reader shows the current
+  line: the source the tool itself would open, with the part it inherits read
+  from the source it continues. Records in the other sources that are not on
+  that line are the conversation's earlier branches. When the adapter finds no
+  native id, the key is derived from the source id and the conversation has
+  exactly that one source.
+- **Copies are told apart by content, never by capture time.** Two roots can hold
+  the same conversation (a second profile, an old copy of the tool's folder added
+  later). A source whose records are a prefix of another's adds nothing and is
+  listed as a copy. When two copies each hold records the other lacks, both are
+  kept as branches and the one with the later last record is the current line.
+- **A record is addressed** by conversation id, source and ordinal (its position
+  in that source), plus the native record id where the tool writes one. Links
   and search hits carry both and resolve by native id first.
 
+What the local files show (counts only, 2026-11-13), and the rule each gives:
+
+| Tool        | Observed                                                                                                                                                                                             | Key                                                                                               |
+| ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| Claude Code | 562 of 564 main transcripts are named after the session id their records carry. The other 2 begin with records copied from another session and are named after their own, later id                   | The file name. A copied beginning is a "continued from" link, and its usage is not counted twice  |
+| Claude Code | 7,112 of 7,284 subagent files carry their **parent's** session id; 132 carry none. All have an agent id; 3,072 sit in nested workflow folders                                                        | The parent's session id (the folder above `subagents/`) plus the file's path below `subagents/`   |
+| Codex       | 2,577 rollouts, 2,107 of them compressed. 92 files are named `<thread>_<rollout>`: after a revert the same thread gets another rollout that inherits a bounded prefix of an earlier one (54 threads) | The stable thread id. Rollouts are sources of one conversation, related by the inherited boundary |
+| Pi          | 39 files, each with its own id; 38 file names contain it                                                                                                                                             | The header id                                                                                     |
+
 Today's rule (session id = source id) makes the user's stars and deletions
-depend on an absolute path, gives DeepSeek a new session whenever a generation
-file appears, and lets a Claude subagent share its parent's native id.
+depend on an absolute path, gives a new session to every extra file of one
+conversation, and takes a subagent's native id from records that carry its
+parent's id.
 
 ## 2. What a capture records besides bytes
 
@@ -94,6 +123,29 @@ location and remotes of project folders, so the rule gains one bounded exception
   (`https://user:token@host/…` keeps only the host and path).
 - The Preview of enabling agent history lists that these files are read, and a
   setting turns it off. With it off, projects are grouped by path only.
+
+### What is kept of each kind of source
+
+Slices of 4 MiB (section 6) make a retained tail sixteen times dearer than
+today's 256 KiB, so what is retained has to be decided with them. The adapter
+declares the kind; the rule follows from it.
+
+| Kind                                                            | Examples                                                                                            | Kept                                                                                                                                                                                                                               |
+| --------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Transcript the tool appends to                                  | Claude Code, Codex, Pi, DeepSeek JSONL                                                              | Every revision. A revision that is a byte prefix of the next keeps its record and shares the next one's slices (section 6). A revision that is not a prefix is kept whole: the tool changed history, which is what PathKeep is for |
+| Transcript the tool rewrites as one document                    | Continue sessions, Cline and Roo conversation arrays                                                | The latest revision, and every earlier one that holds a record the next does not. A revision whose records are all in the next, in order, keeps only its record (digest, length, time)                                             |
+| File written once                                               | Attachments, Claude Code file snapshots, generated images                                           | The one revision. A changed file is a new revision                                                                                                                                                                                 |
+| The tool's own state that says something its transcripts do not | Codex `state_N.sqlite` (thread titles, projects and their folders), prompt history, session indexes | The latest snapshot only. The previous one is removed once the new one is verified                                                                                                                                                 |
+| The tool's own index of its transcripts                         | Codex `thread_history_N.sqlite`                                                                     | Not captured. It is rebuilt by the tool from the rollouts PathKeep already keeps                                                                                                                                                   |
+
+On this machine `thread_history_1.sqlite` is 2.4 GB and changes whenever Codex is
+used. Its tables are a projection of the rollouts (each item row carries a
+rollout ordinal, and a state table records how far each rollout has been read).
+Today every changed dump is stored as a new revision with each cell hex-encoded,
+which doubles it: about 5 GB per backup for data the archive already has.
+
+A SQLite source stays a logical dump read in one transaction, for the reasons the
+core gives. Text cells that are valid UTF-8 are written as text, not hex.
 
 ## 3. What the user writes
 
@@ -169,8 +221,10 @@ time. No title, no folder, no content.
 - **Safety snapshots.** A snapshot is a full copy of the durable databases taken
   before risky maintenance. One taken before a deletion still holds the
   conversation. Its purpose is recovery from failed maintenance, not undoing
-  what the user chose to delete, so a deletion also removes the agent-history
-  database from older snapshots, and the dialog's "what goes" list says so.
+  what the user chose to delete. Taking one database out of a snapshot would
+  leave a snapshot that restores to a state that never existed, so a deletion
+  removes every older snapshot whole and takes a fresh one after the rewrite.
+  The dialog's "what goes" list says so.
 - **What PathKeep cannot reach** is said plainly in the dialog and the feature
   spec: files the user exported, and backups of the PathKeep folder made by the
   system or by the user.
@@ -232,7 +286,10 @@ The numbers behind these choices are under "Measurements" at the end.
   tool already compressed is stored as it is. 256 KiB slices cut through the
   repetition inside a transcript and store 0.39× of the source; 4 MiB stores
   0.26×, close to compressing the whole file as one stream (0.24×), and a
-  reader still reaches any record by decompressing one slice.
+  reader still reaches any record by decompressing one slice. The read timings
+  were taken with slices in memory. Reading and writing blobs of a megabyte or
+  more through encrypted Turso is not measured yet; it is the first step of
+  building this, and if it is slow the slice is 1 MiB (0.31×).
 - **An appended file does not leave a trail of tails.** Most revisions of a live
   transcript are the previous revision plus more lines. Such a revision keeps
   its record (digest, length, time) and its full slices, which the next revision
@@ -290,7 +347,9 @@ research notes: Claude Code repeats `message.usage` on every streamed row of one
 response, so usage counts once per `message.id`; Codex writes cumulative
 `token_count` records, so a turn's usage is a difference; Pi writes usage and
 cost per message. A conversation with no usage record has no totals. It is never
-counted as zero.
+counted as zero. A record that a fork, a resume or a revert copied or inherited
+from another transcript is counted where it was first produced, not again in the
+copy.
 
 **Agent time** is the union of turn intervals, so parallel agents count once per
 clock second; the per-conversation sum is kept beside it. Day buckets split at
@@ -334,6 +393,21 @@ takes a cancel flag: preview, backup, the index sync at the end of a backup
 (today not cancellable), reparse, verify, deletion, rebuild. A backup of one
 harness, or of the agent kind alone, is a first-class request.
 
+## Clauses this amends
+
+`agent-history-core.md` and `docs/features/agent-history.md` are rewritten when
+each part lands. Until then, these sentences of theirs are the ones that change:
+
+| Today's text                                                                             | Becomes                                                                                                                                                                                |
+| ---------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| "all archive/projection/search/spill files stay encrypted"                               | They follow the archive's encryption choice, which may be none (user, 2026-11-13). Spill files are always encrypted                                                                    |
+| "Conversation text cannot authorize arbitrary filesystem reads"                          | Still true. One bounded read is added: git facts of a folder named by a session's structured working-directory field (user, 2026-11-13; section 2)                                     |
+| "Retain previous successful versions when a source is rewritten, truncated, disappears…" | Kept for anything a later revision does not contain. A revision wholly contained in its successor keeps its record, not a second copy of its bytes                                     |
+| "Ordinary native files keep their original bytes"                                        | True of every retained revision, with one exception the user asks for: a shared file captured after a deletion leaves out the deleted conversation's records and is marked as filtered |
+| "Never mirror deletions" / "Raw revisions do not disappear when the source is deleted"   | Still true of the tool's deletions. The user's own deletion in PathKeep removes them (section 4)                                                                                       |
+| "The standalone archive has its own root and data key"                                   | In the app it is part of the PathKeep archive and uses its key (section 5). The CLI keeps a root of its own                                                                            |
+| SQLite sources: every changed dump is a revision                                         | Latest snapshot only; the tool's index of its own transcripts is not captured                                                                                                          |
+
 ## What stays
 
 Raw capture and its guarantees: read-only sources, no harness is launched, every
@@ -368,8 +442,9 @@ numbers for the target machine.
 **What is there.** 8,357 uncompressed transcripts (Claude Code, Codex, Pi),
 13.43 GB, 2.04 million records. 20,653 records are larger than 64 KiB and hold
 49 % of all bytes. The largest transcript is 264 MB with 23,812 records (median
-record 605 bytes, 99th percentile 206 KB). At today's 2.9× these transcripts
-would need about 39 GB of archive.
+record 605 bytes, 99th percentile 206 KB). The core's 2.9× was measured on a
+synthetic Pi transcript; if it held for these files they would need about 39 GB.
+That is an extrapolation, not a measurement.
 
 **Stored size by slice size**, zstd level 3, each slice compressed on its own, on
 every fourth Claude Code transcript (2.94 GB):
@@ -383,7 +458,14 @@ every fourth Claude Code transcript (2.94 GB):
 | Whole file, one stream, 128 MiB window | 0.239           |
 
 Over all 13.43 GB, 256 KiB slices store 0.422× at level 3 and 0.413× at level 9:
-the level buys almost nothing, the slice size buys a third.
+the level buys almost nothing, the slice size buys a third. The slice-size table
+is a Claude Code sample; Codex and Pi compressed less at 256 KiB (0.44× and
+0.42×) and their ratio at 4 MiB is not measured.
+
+**Other sources.** Claude Code file snapshots 235 MB in 11,575 files; Codex
+generated images 258 MB; Codex `state_5.sqlite` 43 MB and
+`thread_history_1.sqlite` 2,448 MB; the Claude desktop app's local agent
+sessions 444 MB.
 
 **Reading from 4 MiB compressed slices**, the largest transcript:
 
