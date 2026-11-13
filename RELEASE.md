@@ -74,10 +74,10 @@ Then perform the platform and traceability review from:
 
 ## GitHub Release Workflow
 
-The proposed v0.5.0 contract is documented in
-[release-publication.md](./docs/architecture/release-publication.md). It requires
-user approval before this preparation PR is merged. The old `draft=false` build
-path and inferred manual tag are retired by that proposal.
+The v0.5.0 contract is documented in
+[release-publication.md](./docs/architecture/release-publication.md). The maintainer
+approved it on 2026-11-13 and PR #22 introduced it. The old `draft=false` build
+path and inferred manual tag are retired.
 
 The workflow has three operations sharing one lock per target tag:
 
@@ -131,9 +131,9 @@ latter records source SHA and workflow run. `unsigned_preview=true` uses
 `--no-sign`, disables updater artifacts and skips `latest.json`. Updater-enabled
 preparation requires its signing key.
 
-Before publication, an administrator must check and enable GitHub immutable
-releases. The setting is currently disabled; activation and the new publication
-contract remain part of final approval. Inspect the JSON boolean, not HTTP 200:
+Before each publication, an administrator must check that GitHub immutable
+releases are enabled. The maintainer approved the contract and enabled the
+setting for v0.5.0 on 2026-11-13. Inspect the current JSON boolean, not HTTP 200:
 
 ```bash
 gh api repos/t41372/PathKeep/immutable-releases \
@@ -166,12 +166,14 @@ are not retroactively changed; do not rerun old definitions to upload.
 
 The [v0.5.0 review](./docs/plan/releases/v0.5.0/readiness.md) records the assessment,
 upgrade boundary and notes. Remote receipts stay in the preparation PR/private
-draft so the candidate commit remains frozen. Publication still needs approval.
+draft so the candidate commit remains frozen. Each publication needs approval.
+[v0.5.0 was published](./docs/plan/releases/v0.5.0/release-publication.json) after
+that approval with its existing 11 assets and server-side immutability.
 
 The current tested v0.5.0 artifacts remain bound to
 `2059cb6e843f240d9440a9c731426e68192cb673`, retained by
-`release/candidate-v0.5.0`. Use that frozen ref for its verification or eventual
-approved publication. The preparation PR can synchronize merged history and
+`release/candidate-v0.5.0`. Use that frozen ref for verification or an approved
+publication retry. The preparation PR can synchronize merged history and
 release documentation without retargeting existing artifacts. A change to code,
 dependencies, build inputs or workflow definitions requires a new candidate and
 fresh packages. The [main-sync receipt](./docs/plan/releases/v0.5.0/release-main-sync.json)

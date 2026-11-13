@@ -1,5 +1,18 @@
 # v0.5.0 發布審查
 
+**v0.5.0 已於 2026-11-13 在使用者明確批准後公開。**
+[Release](https://github.com/t41372/PathKeep/releases/tag/v0.5.0) 的 source 固定為 `2059cb6e843f240d9440a9c731426e68192cb673`；
+原生建置、完整 gate、GitHub CI 與使用者審閱的 11 個檔案原樣發布，
+沒有重建或替換。GitHub 已確認 `immutable=true`、latest 為 v0.5.0，
+公開下載與 checksum／manifest 核對通過，發布後 guard 僅讀 metadata 並
+略過所有 build／upload。PR #22 已合併，發布流程提案已接受。
+
+本次批准沿用 unsigned preview 手動安裝路徑，不提供 app 內自動更新。
+[發布紀錄](release-publication.json) 保存 source、tag、workflow 與產物 digest。
+下方調查與預演保留原始時點和適用範圍，既有 14.4M／跨平台驗收也沿用原範圍。
+
+## 發布前調查與預演紀錄
+
 首次調查：2026-11-10；本輪更新：2026-11-13（America/Phoenix）。這次授權包括依賴 PR 的審查、驗證、合併與發布準備；公開發布仍須使用者明確批准。
 
 **發布準備完成，仍不公開，先等使用者測試。**

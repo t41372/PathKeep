@@ -1,7 +1,5 @@
 # PathKeep v0.5.0
 
-Private test candidate containing the merged fix for reads stalling during semantic-index updates. Maintainer testing and release approval are pending.
-
 PathKeep v0.5.0 improves browser backups, adds search sorting and a search builder, and keeps the existing semantic index available while a replacement is built. AI remains optional.
 
 ## Before upgrading

@@ -20,10 +20,10 @@
   - 修復程式沿用已審閱的 PR #24 head；本輪另修正 worker 的 keyring 隔離與時區測試的重複計算，詳見 `releases/v0.5.0/readiness.md`。
   - [PR #24](https://github.com/t41372/PathKeep/pull/24) 的遠端 CI 全數通過、既有審查 thread 已解決；發布仍禁止自動推進。
 
-- [!] **WORK-RELEASE-TAG-TRANSACTION** — 同 tag／不同 ref 競態的提案與離線驗證已完成；發布設定與政策變更仍等批准。
+- [x] **WORK-RELEASE-TAG-TRANSACTION** — 使用者 2026-11-13 批准發布流程提案；PR #22 已合併，immutable releases 已啟用，v0.5.0 已鎖定。
   - 讀先：`docs/architecture/release-publication.md`、`RELEASE.md`、`releases/v0.5.0/readiness.md`、`program/quality-matrix.md`；GitHub immutable releases 與 repository API 官方文件。
   - 初始 published 檢查不是原子操作。改以明確 tag 共用鎖，草稿綁定 source SHA，建置與發布分開，發布只使用已審閱的 SHA／manifest digest。
-  - GitHub immutable releases 目前為 false。啟用與公開均留在最終 approval 步驟；先交付可審閱的程式、trade-off、私有產物與驗證。
+  - 批准後核對管理員設定 `enabled=true`，以固定來源與 manifest 發布；API 確認 `immutable=true`、tag 指向已驗證來源，產物未替換。紀錄：`releases/v0.5.0/release-publication.json`。
 
 - [x] **WORK-JS-FOLLOWUP-2026-11-13** — 納入 Dependabot #21 提出的五個最新版，再凍結 v0.5.0 候選。
   - 讀先：`docs/architecture/dependency-maintenance.md`、`releases/v0.5.0/readiness.md`、`program/quality-matrix.md`；PR #21 的 manifest 與鎖檔 diff。
@@ -31,13 +31,13 @@
   - 舊候選的 CI／四平台建置已取消，以新來源重跑完整 gate 與 native draft。公開仍等明確 approval，v0.4.0 舊產物不變。
   - 新一輪登錄檔核對再納入 Motion 14.14.0／tslib 2.9.1；此前來源的 `verify` 已過，`check:slow` 被當日新增的 RUSTSEC-2026-0538 擋下。quinn-udp 鎖檔更新至修正版 0.5.16 後，完整 `verify`／`check:slow` 已過：141 個前端測試、134 E2E 過／1 平台略過，兩份鎖檔未變，不新增例外。證據：`releases/v0.5.0/release-transaction-rehearsal.json`。
 
-- [x] **WORK-RELEASE-V0.5.0** — 發布準備完成；使用者先測試，這次不公開。
+- [x] **WORK-RELEASE-V0.5.0** — 使用者批准後已公開 v0.5.0，發布的是原已驗證的 11 個產物。
   - 讀先：`RELEASE.md`、`m4-full-polish/release-readiness-runbook.md`、`releases/v0.5.0/readiness.md`。
   - 已從 stash 恢復三語 notes、原始證據與 README banners，原 stash 保留。四處版本對齊 0.5.0；最終完整 gate 已過：151 個前端測試、134 E2E 過／1 平台略過、兩份鎖檔未變。證據：`releases/v0.5.0/release-review-rehearsal.json`。
   - 候選固定於 `release/candidate-v0.5.0` → `2059cb6e843f240d9440a9c731426e68192cb673`。四平台 11 個私有產物、實際 checksum／manifest 校驗與真實唯讀 verify 已通過；本輪只同步合併歷史與文件，不改標或重建相同程式。同步證據：`releases/v0.5.0/release-main-sync.json`；遠端紀錄見 PR #22／Release 草稿。
   - 14.4M 與跨平台驗收沿用使用者已確認的結果。Unsigned preview 須手動安裝，沒有 app 內自動更新；公開這條路須一併批准 macOS 簽章政策例外。
 
-- [!] **WORK-RELEASE-MANUAL-ACCEPTANCE** — 使用者 2026-11-13 要求先自行測試；不公開、不推版本 tag、不合併發布政策提案，也不啟用 immutable releases。若測試帶來程式變動，重新凍結候選並按影響範圍驗證與重建。
+- [x] **WORK-RELEASE-MANUAL-ACCEPTANCE** — 使用者在要求先測試後，於 2026-11-13 明確批准現有候選發布。原候選 `2059cb6e`、manifest 與全部產物維持一致，已核對公開下載、latest、immutable 與發布後的建置／上傳略過條件。
 
 - [x] **WORK-RELEASE-IMMUTABLE** — 已公開的版本再次觸發 workflow 時，只讀 metadata 並跳過建置與上傳，保護已審閱的 binaries。
   - 讀先：`RELEASE.md`、`m4-full-polish/release-readiness-runbook.md`、`releases/v0.5.0/readiness.md`、`program/quality-matrix.md`。

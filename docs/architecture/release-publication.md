@@ -1,8 +1,8 @@
 # Release preparation and publication
 
-Status: proposed in the v0.5.0 preparation PR. Changing the existing tag-push
-publication contract requires the user's approval before this PR is merged.
-No public release or repository immutability setting has been changed.
+Status: accepted on 2026-11-13 with the maintainer's release approval and PR #22.
+Immutable releases were enabled and v0.5.0 was published from its reviewed frozen
+source. [Publication receipt](../plan/releases/v0.5.0/release-publication.json).
 
 ## Problem
 
@@ -11,7 +11,7 @@ at once. A publication check at the start was only a snapshot: Tauri's combined
 build/upload action could later find a published release and replace its assets.
 The first guard did not close that gap.
 
-## Proposed contract
+## Contract
 
 - A manual run names its release tag explicitly. Tag pushes use their tag name.
   Both enter the same concurrency group for that resolved target. Matrix builds
@@ -54,8 +54,10 @@ GitHub documents the draft → attach all assets → publish sequence and the
 server-side protection in [Immutable releases](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases).
 The administrator can inspect or enable the setting using the
 [repository API](https://docs.github.com/en/rest/repos/repos#check-if-immutable-releases-are-enabled-for-a-repository).
-The observed setting on 2026-11-13 was `enabled=false`; HTTP 200 alone does not
-mean the feature is enabled.
+The initial preparation check on 2026-11-13 returned `enabled=false`; HTTP 200
+alone does not mean the feature is enabled. Before v0.5.0 publication, the
+administrator enabled it and confirmed `enabled=true`; the published release
+then confirmed `immutable=true`.
 
 ## Trade-offs
 
@@ -73,5 +75,6 @@ historical workflow definitions are not retroactively protected; do not rerun
 those definitions to upload assets.
 
 This changes release operations, not archive formats or application behavior.
-The macOS signed-primary policy remains in place; publishing this unsigned
-v0.5.0 preview still needs its separate, explicit policy exception.
+The macOS signed-primary policy remains in place. The maintainer approved the
+unsigned-preview exception for v0.5.0, which uses manual installation without
+in-app automatic updates. The exception does not apply to future versions.
