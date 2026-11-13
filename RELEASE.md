@@ -92,6 +92,27 @@ The workflow has three operations sharing one lock per target tag:
 
 For preparation:
 
+If the source changes `.github/workflows/` relative to the default branch,
+an owner first reserves the private draft using a credential with Contents
+write and Workflows write (`workflow` scope for a classic token). Keep this
+credential on the owner's machine. For this proposal's rehearsal:
+
+Before reserving a new candidate, confirm there is no matching tag or release.
+On a retry, claim the existing draft only when its full SHA and requested
+stable/prerelease channel match; do not create a second draft.
+
+```bash
+candidate_sha="$(git rev-parse HEAD)"
+gh release create v0.5.0 --repo t41372/PathKeep --draft \
+  --target "$candidate_sha" --title 'PathKeep v0.5.0' \
+  --notes-file docs/plan/releases/v0.5.0/notes.en.md
+```
+
+This creates an unpublished draft. Then dispatch preparation, which claims
+that same source-owned draft with its contents-only Actions token. Once the
+reviewed workflow definitions are on the default branch, normal preparation
+can reserve its draft directly. No additional repository secret is required.
+
 ```bash
 gh workflow run release.yml --ref release/prep-v0.5.0 \
   -f operation=prepare -f release_tag=v0.5.0 \
@@ -127,8 +148,16 @@ workflow token deliberately has no administration permission. Set
 Verification/publication require `approved_release_id`, `approved_source_sha`
 and `approved_manifest_sha256` from the reviewed candidate. Use
 `operation=verify` first. Only after user approval use `operation=publish` with
-the administrator confirmation. Publication holds the preparation tag lock,
+the administrator confirmation. The requested `prerelease` channel must match
+the draft during preparation, verification and publication. Before publication,
+the source's complete workflow subtree must match the default branch; merge
+the approved proposal first. Publication holds the preparation tag lock,
 rechecks all current bytes and confirms an immutable result.
+
+Metadata PATCH requests must include the approved `tag_name`, even for a
+notes-only edit: omitting it removes the draft's tag association. Use
+`gh release edit` or explicitly repeat the tag in an API update. Publication
+also checks that its response retains the approved tag, source and channel.
 
 Published assets and tags are locked server-side; client reads alone are not
 atomic protection. Corrected binaries require a new version. Notes and the

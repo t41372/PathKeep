@@ -16,8 +16,10 @@ The first guard did not close that gap.
 - A manual run names its release tag explicitly. Tag pushes use their tag name.
   Both enter the same concurrency group for that resolved target. Matrix builds
   within one preparation run remain parallel.
-- Preparation always creates a private draft. A draft belongs to one source
+- Preparation uses only a private draft. A draft belongs to one source
   commit; another commit cannot reuse it. API failures stop preparation.
+- The requested prerelease channel is checked on creation, reuse, verification
+  and publication. A retry cannot silently change stable/prerelease intent.
 - The Tauri action receives both the reserved release ID and its explicit tag.
   The ID bypasses release lookup/creation; the tag pins updater URLs to this
   version instead of the mutable latest alias. This follows the action’s
@@ -32,6 +34,18 @@ The first guard did not close that gap.
 - Publishing requires explicit user approval. Repository immutable releases must
   be enabled and checked by an administrator before dispatching publication.
   The workflow token does not need administration permissions or a new secret.
+- A source with workflow changes relative to the default branch needs a
+  workflow-authorized credential for release creation/update under the
+  [release API authorization rule](https://docs.github.com/en/rest/releases/releases).
+  During proposal rehearsal, the owner reserves the private draft locally;
+  the contents-only Actions token claims it. Publication requires the complete
+  workflow subtree to match the default branch, so the approved proposal is
+  merged first. Git tree IDs avoid the compare API's file-list limit.
+- Every metadata PATCH explicitly repeats the approved tag; publication also
+  repeats the approved channel. Omitting
+  `tag_name` removes the association; GitHub's
+  [release-edit client preserves it explicitly](https://github.com/cli/cli/blob/v2.103.3/pkg/cmd/release/edit/edit.go).
+  The publication response is checked for the same tag, source and channel.
 - GitHub's server locks published assets and the tag. Client-side checks are not
   atomic and do not replace that protection. Publication checks the immutable
   result and performs no repair upload on failure.

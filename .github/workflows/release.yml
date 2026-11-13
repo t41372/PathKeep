@@ -454,6 +454,7 @@ jobs:
           RELEASE_ID: ${{ inputs.approved_release_id }}
           APPROVED_SOURCE_SHA: ${{ inputs.approved_source_sha }}
           APPROVED_MANIFEST_SHA256: ${{ inputs.approved_manifest_sha256 }}
+          PRERELEASE: ${{ inputs.prerelease }}
           EXECUTE_PUBLICATION: ${{ needs.prepare-release.outputs.operation == 'publish' }}
           IMMUTABLE_RELEASES_CONFIRMED: ${{ inputs.immutable_releases_confirmed }}
         run: node scripts/publish-reviewed-release.mjs

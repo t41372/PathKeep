@@ -9,6 +9,12 @@
 
 ## CURRENT FOCUS
 
+- [x] **WORK-RELEASE-REVIEW-BOUNDARIES** — 處理 PR #22 新審查的 API／channel／授權與測試完成條件。
+  - 讀先：`RELEASE.md`、`docs/architecture/release-publication.md`、`scripts/lib/release-authorization.mjs`、GitHub release API 與官方 CLI 的 release edit 實作。
+  - 真實 API 確認：notes-only PATCH 漏帶 `tag_name` 會移除私有草稿的 tag 關聯；已以明確 tag 修復，始終未公開。發布 PATCH 帶入並核對 tag／source／channel。
+  - 重試與 verify／publish 都驗證 requested prerelease；完整 workflow subtree 未在 default branch 時，Actions 不建立新草稿，也不能公開。Owner 在本機以既有 workflow-authorized credential 預留私有草稿，沒有新增 repo secret。
+  - 新回歸在舊程式得到 8 fail／21 pass；修正後 32 個交易測試通過。Checkpoint 測試保留原截止時間，同時等 WAL 與 counter 完成，實際 Rust 聚焦測試已過。新來源的完整 `verify`／`check:slow` 已過：151 個前端測試、134 E2E 過／1 平台略過，兩份鎖檔未變；證據：`releases/v0.5.0/release-review-rehearsal.json`。以新 SHA 重建私有產物。
+
 - [!] **WORK-RELEASE-EMBEDDING-BLOCKER** — 嚴重 embedding／長讀阻斷修復已以固定 head 整合到隔離預演；公開仍等批准。
   - 本分支採用 PR #24 的 `aec2004de37298c027893ac681e145cff6824753`；這份整合來源的完整 `verify`／`check:slow` 已通過；四平台建置與實際產物核對紀錄以 PR #22 為準。PR #24 的主分支合併由原工作流程處理；任何後續變動都須更新候選與驗證。
   - 修復程式沿用已審閱的 PR #24 head；本輪另修正 worker 的 keyring 隔離與時區測試的重複計算，詳見 `releases/v0.5.0/readiness.md`。

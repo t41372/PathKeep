@@ -30,6 +30,42 @@ head、code hashes、三組 E2E 結果與已下載報告的 SHA-256。
 PR #22 與私有草稿，避免為追加操作紀錄而移動安裝包的 source SHA。
 公開發布與政策變更仍等明確 approval。
 
+## 審查後的 API 邊界修正
+
+`e60a472c` 的離線 gate 與公開版本保護／跨 ref 鎖定預演已通過，
+後續審查另確認需修正幾個控制腳本與測試邊界。該來源的私有建置保留
+為中間預演；控制腳本變動後，最終產物要綁定新的簽名 SHA。
+
+GitHub 的 metadata PATCH 必須重送 `tag_name`。本次更新私有 notes 時
+漏帶它，實際把草稿關聯改成 `untagged-*`；草稿始終 `draft=true`、
+`published_at=null`，確認後已恢復 `v0.5.0` 關聯，before／after 留在
+PR 的遠端證據。新版發布請求同時明確帶入並核對 tag／source／channel，
+HTTP fixture 也按真實 API 的省略行為回應，避免理想化 mock 掩蓋問題。
+
+重試草稿與 verify／publish 都要求 requested prerelease 和儲存值相同。
+公開前還要比對完整 `.github/workflows` subtree 與 default branch，
+以 Git tree IDs 避免 compare API 的檔案清單上限。Workflow-changing
+提案在合併前，由 owner 於本機以既有含 workflow 權限的 credential
+預留私有草稿，Actions 只 claim 同來源／channel 的草稿；不新增 repo
+secret。Private verify 可只讀回報 workflow approval 尚未完成，公開則
+必須等提案合併，符合 API 的授權規則與本次批准邊界。
+
+新增回歸在舊程式重現 8 fail／21 pass；修正後 32 個交易測試通過。
+Checkpoint 測試也改為同時等 WAL 與 counter 完成，保留原截止時間；
+全 workspace 相同 features 的聚焦 Rust 測試已過。整份新來源仍須跑
+完整 gate、簽名後再重建四平台產物。此前 receipt 保留歷史適用範圍，
+不當作修正後新 SHA 的完整驗證。
+
+## 審查修正後的完整驗證
+
+上述 API／channel／授權與 checkpoint 測試修正已通過完整
+`bun run verify`、`bun run check:slow`：151 個前端測試（含 41 個
+發布 CLI／HTTP 場景）、134 E2E 通過／1 平台略過，沒有失敗或 flaky；
+desktop、Rust、平台與供應鏈檢查通過，兩份鎖檔未變。JavaScript audit
+掃描 532 套件為零，Rust 既有例外政策不變。
+[審查修正 receipt](release-review-rehearsal.json) 記錄真實輸入與報告 hash。
+這份新簽名來源重新建立私有產物；e60 的包只是中間預演，不改標成新 SHA。
+
 ## 本輪恢復與準備
 
 原 stash `36b428e21782f30e63a9e3fdbb8955d815caa942` 已恢復到

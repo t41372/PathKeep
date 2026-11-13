@@ -9,10 +9,15 @@ import {
   releaseOutputs,
   requireSourceSha,
 } from './lib/release-api.mjs'
+import { workflowsMatchDefaultBranch } from './lib/release-authorization.mjs'
 
 const tag = process.env.RESOLVED_TAG
 const source = requireSourceSha(process.env.SOURCE_COMMIT)
 if (!tag) throw new Error('Release tag is required.')
+const prerelease = process.env.PRERELEASE ?? 'false'
+if (!['true', 'false'].includes(prerelease))
+  throw new Error('Invalid prerelease flag.')
+const requestedPrerelease = prerelease === 'true'
 const api = releaseApi()
 await checkTagSource(api, tag, source)
 const matches = []
@@ -29,10 +34,20 @@ if (release) {
   if (release.draft !== true || release.target_commitish !== source) {
     throw new Error('The release is published or belongs to another source.')
   }
+  if (release.prerelease !== requestedPrerelease) {
+    throw new Error(
+      'The draft prerelease flag differs from the requested channel.',
+    )
+  }
 } else {
-  const prerelease = process.env.PRERELEASE ?? 'false'
-  if (!['true', 'false'].includes(prerelease))
-    throw new Error('Invalid prerelease flag.')
+  if (
+    process.env.GITHUB_ACTIONS === 'true' &&
+    !(await workflowsMatchDefaultBranch(api, source))
+  ) {
+    throw new Error(
+      'This source changes workflows. Reserve its private draft with a workflow-authorized owner credential before preparation.',
+    )
+  }
   release = await api.json('/releases', {
     method: 'POST',
     body: {
@@ -41,7 +56,7 @@ if (release) {
       name: `PathKeep ${tag}`,
       body: 'Private draft preparation. Publication requires review and approval.',
       draft: true,
-      prerelease: prerelease === 'true',
+      prerelease: requestedPrerelease,
     },
   })
 }
@@ -50,7 +65,8 @@ if (
   release.id < 1 ||
   release.tag_name !== tag ||
   release.draft !== true ||
-  release.target_commitish !== source
+  release.target_commitish !== source ||
+  release.prerelease !== requestedPrerelease
 ) {
   throw new Error('Draft metadata does not match the reserved source.')
 }

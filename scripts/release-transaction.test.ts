@@ -11,6 +11,9 @@
  * - preview writes, or a local invocation bypasses the workflow's tag lock;
  * - retrying a completed immutable publication edits it again;
  * - a prerelease changes the current stable latest release;
+ * - a resumed draft silently changes release channel;
+ * - a metadata PATCH loses its approved tag, or its response goes unchecked;
+ * - an Actions token tries to create/publish a source with unapproved workflow changes;
  * - API failures silently allow mutation.
  */
 import { createHash } from 'node:crypto'
@@ -72,8 +75,37 @@ function draft(overrides: Record<string, unknown> = {}) {
   }
 }
 
-function publicationApi(release = draft(), checksumText = checksums) {
+function workflowApi(request: ReleaseRequest, sameWorkflows: boolean) {
+  if (request.path === '/repos/owner/repo')
+    return { body: { default_branch: 'main' } }
+  const github = 'd'.repeat(40)
+  const defaultGithub = 'f'.repeat(40)
+  const workflows = 'e'.repeat(40)
+  const tree = (path: string, sha: string) => ({
+    body: { truncated: false, tree: [{ path, type: 'tree', sha }] },
+  })
+  if (request.path.endsWith(`/git/trees/${sourceSha}`))
+    return tree('.github', github)
+  if (request.path.endsWith('/git/trees/main'))
+    return tree('.github', defaultGithub)
+  if (request.path.endsWith(`/git/trees/${github}`))
+    return tree('workflows', workflows)
+  if (request.path.endsWith(`/git/trees/${defaultGithub}`))
+    return tree('workflows', sameWorkflows ? workflows : 'b'.repeat(40))
+  return undefined
+}
+
+function publicationApi(
+  release = draft(),
+  checksumText = checksums,
+  options: {
+    sameWorkflows?: boolean
+    published?: Record<string, unknown>
+  } = {},
+) {
   return (request: ReleaseRequest) => {
+    const workflow = workflowApi(request, options.sameWorkflows ?? true)
+    if (workflow) return workflow
     if (request.path.endsWith('/git/ref/tags/v0.5.0')) {
       return { status: 404 }
     }
@@ -85,7 +117,16 @@ function publicationApi(release = draft(), checksumText = checksums) {
       return {
         body:
           request.method === 'PATCH'
-            ? { ...release, draft: false, immutable: true }
+            ? {
+                ...release,
+                // The real API clears tag association when this field is omitted.
+                tag_name:
+                  (request.body as Record<string, unknown>)?.tag_name ??
+                  'untagged-fixture',
+                draft: false,
+                immutable: true,
+                ...options.published,
+              }
             : release,
       }
     }
@@ -111,6 +152,17 @@ it('preview validates the reviewed draft without publishing it', async () => {
   expect(result.requests.every((r) => r.method === 'GET')).toBe(true)
 })
 
+it('preview reports workflow approval still pending without writing', async () => {
+  const result = await runReleaseCli(
+    'publish-reviewed-release.mjs',
+    publicationApi(draft(), checksums, { sameWorkflows: false }),
+    approval,
+  )
+  expect(result.exit).toBe(0)
+  expect(JSON.parse(result.stdout).workflowsOnDefaultBranch).toBe(false)
+  expect(result.requests.every((r) => r.method === 'GET')).toBe(true)
+})
+
 it('publication changes only the validated draft under the workflow lock', async () => {
   const result = await runReleaseCli(
     'publish-reviewed-release.mjs',
@@ -122,7 +174,12 @@ it('publication changes only the validated draft under the workflow lock', async
     {
       method: 'PATCH',
       path: '/repos/owner/repo/releases/41',
-      body: { draft: false, make_latest: 'true' },
+      body: {
+        tag_name: releaseTag,
+        draft: false,
+        prerelease: false,
+        make_latest: 'true',
+      },
       authorization: 'Bearer fixture-token',
     },
   ])
@@ -133,18 +190,61 @@ it('publishing a prerelease preserves the current stable latest release', async 
   const result = await runReleaseCli(
     'publish-reviewed-release.mjs',
     publicationApi(draft({ prerelease: true })),
-    { ...approval, EXECUTE_PUBLICATION: 'true' },
+    { ...approval, EXECUTE_PUBLICATION: 'true', PRERELEASE: 'true' },
   )
   expect(result.exit).toBe(0)
   expect(result.requests.filter((r) => r.method === 'PATCH')).toEqual([
     {
       method: 'PATCH',
       path: '/repos/owner/repo/releases/41',
-      body: { draft: false, make_latest: 'false' },
+      body: {
+        tag_name: releaseTag,
+        draft: false,
+        prerelease: true,
+        make_latest: 'false',
+      },
       authorization: 'Bearer fixture-token',
     },
   ])
 })
+
+it('publication refuses workflow changes not yet on the default branch', async () => {
+  const result = await runReleaseCli(
+    'publish-reviewed-release.mjs',
+    publicationApi(draft(), checksums, { sameWorkflows: false }),
+    { ...approval, EXECUTE_PUBLICATION: 'true' },
+  )
+  expect(result.exit).not.toBe(0)
+  expect(result.requests.every((r) => r.method === 'GET')).toBe(true)
+})
+
+it('publication detects a response that lost the approved tag', async () => {
+  const result = await runReleaseCli(
+    'publish-reviewed-release.mjs',
+    publicationApi(draft(), checksums, {
+      published: { tag_name: 'untagged-unexpected' },
+    }),
+    { ...approval, EXECUTE_PUBLICATION: 'true' },
+  )
+  expect(result.exit).not.toBe(0)
+  expect(result.requests.filter((r) => r.method === 'PATCH')).toHaveLength(1)
+})
+
+it.each([
+  [false, 'true'],
+  [true, 'false'],
+] as const)(
+  'publication refuses stored prerelease %s when requested %s',
+  async (stored, requested) => {
+    const result = await runReleaseCli(
+      'publish-reviewed-release.mjs',
+      publicationApi(draft({ prerelease: stored })),
+      { ...approval, EXECUTE_PUBLICATION: 'true', PRERELEASE: requested },
+    )
+    expect(result.exit).not.toBe(0)
+    expect(result.requests.every((r) => r.method === 'GET')).toBe(true)
+  },
+)
 
 it.each([
   ['a different source', draft({ target_commitish: 'b'.repeat(40) })],
@@ -253,8 +353,10 @@ it('an API failure never publishes', async () => {
   expect(result.requests.every((r) => r.method === 'GET')).toBe(true)
 })
 
-function reservationApi(existing: unknown[] = []) {
+function reservationApi(existing: unknown[] = [], sameWorkflows = true) {
   return (request: ReleaseRequest) => {
+    const workflow = workflowApi(request, sameWorkflows)
+    if (workflow) return workflow
     if (request.path.includes('/git/ref/tags/')) return { status: 404 }
     if (request.method === 'POST') return { body: draft() }
     return { body: existing }
@@ -304,6 +406,53 @@ it('the same source can resume its own draft without recreating it', async () =>
   expect(result.exit).toBe(0)
   expect(result.requests.every((r) => r.method === 'GET')).toBe(true)
   expect(result.contents).toBe('release_id=41\n')
+})
+
+it.each([
+  [false, 'true'],
+  [true, 'false'],
+] as const)(
+  'preparation refuses a stored prerelease flag %s when requested %s',
+  async (stored, requested) => {
+    const result = await runReleaseCli(
+      'prepare-release-draft.mjs',
+      reservationApi([draft({ prerelease: stored })]),
+      { PRERELEASE: requested },
+    )
+    expect(result.exit).not.toBe(0)
+    expect(result.requests.every((r) => r.method === 'GET')).toBe(true)
+    expect(result.contents).toBe('')
+  },
+)
+
+it('an invalid prerelease input is rejected before resuming a draft', async () => {
+  const result = await runReleaseCli(
+    'prepare-release-draft.mjs',
+    reservationApi([draft()]),
+    { PRERELEASE: 'invalid' },
+  )
+  expect(result.exit).not.toBe(0)
+  expect(result.requests).toEqual([])
+})
+
+it('an Actions token leaves workflow-changing draft creation to the owner', async () => {
+  const result = await runReleaseCli(
+    'prepare-release-draft.mjs',
+    reservationApi([], false),
+  )
+  expect(result.exit).not.toBe(0)
+  expect(result.requests.every((r) => r.method === 'GET')).toBe(true)
+  expect(result.contents).toBe('')
+})
+
+it('the owner can reserve a private workflow-changing draft outside Actions', async () => {
+  const result = await runReleaseCli(
+    'prepare-release-draft.mjs',
+    reservationApi([], false),
+    { GITHUB_ACTIONS: undefined },
+  )
+  expect(result.exit).toBe(0)
+  expect(result.requests.filter((r) => r.method === 'POST')).toHaveLength(1)
 })
 
 it.each([

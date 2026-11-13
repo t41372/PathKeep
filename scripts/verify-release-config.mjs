@@ -126,6 +126,11 @@ includes(
 )
 includes(
   releaseWorkflow,
+  'PRERELEASE: ${{ inputs.prerelease }}',
+  'release workflow publication channel',
+)
+includes(
+  releaseWorkflow,
   "'sourceCommit': os.environ['SOURCE_COMMIT']",
   'release manifest source binding',
 )

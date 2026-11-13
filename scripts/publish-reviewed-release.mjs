@@ -11,6 +11,7 @@ import {
   releaseApi,
   requireSourceSha,
 } from './lib/release-api.mjs'
+import { workflowsMatchDefaultBranch } from './lib/release-authorization.mjs'
 
 const source = requireSourceSha(process.env.SOURCE_COMMIT)
 const approved = requireSourceSha(process.env.APPROVED_SOURCE_SHA)
@@ -18,6 +19,10 @@ const digest = process.env.APPROVED_MANIFEST_SHA256
 const tag = process.env.RESOLVED_TAG
 const id = process.env.RELEASE_ID
 const execute = process.env.EXECUTE_PUBLICATION === 'true'
+const prereleaseInput = process.env.PRERELEASE ?? 'false'
+if (!['true', 'false'].includes(prereleaseInput))
+  throw new Error('Invalid prerelease flag.')
+const prerelease = prereleaseInput === 'true'
 if (execute && process.env.IMMUTABLE_RELEASES_CONFIRMED !== 'true') {
   throw new Error(
     'Confirm the administrator checked immutable releases before publication.',
@@ -49,9 +54,12 @@ if (
   release.tag_name !== tag ||
   release.target_commitish !== source ||
   typeof release.draft !== 'boolean' ||
+  release.prerelease !== prerelease ||
   !Array.isArray(release.assets)
 ) {
-  throw new Error('Release metadata does not match the approved source.')
+  throw new Error(
+    'Release metadata does not match the approved source and channel.',
+  )
 }
 await checkTagSource(api, tag, source)
 const assets = new Map(release.assets.map((asset) => [asset.name, asset]))
@@ -111,17 +119,34 @@ if (
 }
 if (!release.draft && release.immutable !== true)
   throw new Error('Published release is not immutable.')
+const workflowsOnDefaultBranch = release.draft
+  ? await workflowsMatchDefaultBranch(api, source)
+  : null
 if (execute && release.draft) {
+  if (!workflowsOnDefaultBranch) {
+    throw new Error(
+      'Merge the reviewed workflow proposal into the default branch before publication.',
+    )
+  }
   const published = await api.json(`/releases/${id}`, {
     method: 'PATCH',
     body: {
+      tag_name: tag,
       draft: false,
-      make_latest: release.prerelease ? 'false' : 'true',
+      prerelease,
+      make_latest: prerelease ? 'false' : 'true',
     },
   })
-  if (published.draft !== false || published.immutable !== true) {
+  if (
+    published.id !== release.id ||
+    published.tag_name !== tag ||
+    published.target_commitish !== source ||
+    published.prerelease !== prerelease ||
+    published.draft !== false ||
+    published.immutable !== true
+  ) {
     throw new Error(
-      'Publication did not confirm server-side immutability. Do not upload replacements.',
+      'Publication did not confirm the approved tag, source, channel and immutability. Do not upload replacements.',
     )
   }
 }
@@ -132,6 +157,7 @@ console.log(
     sourceCommit: source,
     manifestSha256: digest,
     assets: assets.size,
+    workflowsOnDefaultBranch,
     publicationRequested: execute,
     alreadyPublished: !release.draft,
   }),
