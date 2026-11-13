@@ -36,13 +36,13 @@ export function Palette({ open, onOpenChange }: { open: boolean; onOpenChange: (
     void navigate(to)
   }
   const needle = q.trim().toLowerCase()
-  const { archived, deleted } = useChatEdits()
+  const { archived, trashed } = useChatEdits()
   const chats = useMemo(() => {
     if (!agentOn) return []
-    // Deleted conversations are gone; put-away ones only come up when you type their title.
-    const kept = archive.chats.filter((c) => !deleted.has(c.id) && (needle ? c.title.toLowerCase().includes(needle) : !archived.has(c.id)))
+    // Trashed conversations never come up; put-away ones only when you type their title.
+    const kept = archive.chats.filter((c) => !trashed.has(c.id) && (needle ? c.title.toLowerCase().includes(needle) : !archived.has(c.id)))
     return kept.slice(0, 6)
-  }, [needle, agentOn, archived, deleted])
+  }, [needle, agentOn, archived, trashed])
   const projects = useMemo(
     () => (agentOn ? (needle ? projectsByRecent.filter((p) => p.name.toLowerCase().includes(needle)) : projectsByRecent).slice(0, 5) : []),
     [needle, agentOn],

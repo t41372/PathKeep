@@ -114,21 +114,25 @@ export function AiSection() {
 
 export function BackgroundSection() {
   return (
-    <SettingsSection title="背景執行">
-      <SettingRow
-        title="背景任務"
-        description="正在跑、在排隊、今天做完或沒做完的任務。左下角的指示器也能打開。"
-        control={
-          <Button variant="outline" size="sm" asChild>
-            <Link to="/tasks">
-              <ListChecks />
-              打開背景任務
-            </Link>
-          </Button>
-        }
-      />
+    <SettingsSection title="排程與背景工作">
+      {/* Settings only: when PathKeep backs up by itself, then how background work runs.
+          What is running right now is status and lives on the 背景任務 page. */}
       <ScheduleCard />
-      <SettingRow title="低電量模式時暫停" control={<Toggle initial label="低電量模式時暫停" />} />
+      <Group title="背景工作" intro="備份之後更新搜尋索引、洞察這類工作。">
+        <SettingRow title="低電量模式時暫停" control={<Toggle initial label="低電量模式時暫停" />} />
+        <SettingRow
+          title="現在在跑什麼"
+          description="正在跑、在排隊、今天做完或需要你看一下的任務，都在背景任務頁。左下角的指示器也能打開。"
+          control={
+            <Button variant="outline" size="sm" asChild>
+              <Link to="/tasks">
+                <ListChecks />
+                打開背景任務
+              </Link>
+            </Button>
+          }
+        />
+      </Group>
     </SettingsSection>
   )
 }

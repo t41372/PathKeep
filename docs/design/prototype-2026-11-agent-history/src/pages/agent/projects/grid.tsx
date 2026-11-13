@@ -15,6 +15,7 @@ import { archive, harnesses } from '~/data/archive'
 import { num } from '~/data/format'
 import { timeWords } from '~/data/labels'
 import type { HarnessId } from '~/data/types'
+import { useChatEdits } from '../chats/chat-edits'
 import type { Row } from './derive'
 import { locatorText, relTime, type Locator } from './use-rows'
 
@@ -100,8 +101,10 @@ export function LocatorText({ where }: { where: Locator }) {
 }
 
 export function NameCell({ row, name, where, depth = 0 }: { row: Row; name: string; where: Locator; depth?: number }) {
-  // Chat ids follow recency, so the smallest id is the project's latest conversation.
-  const latest = row.project.chatIds.length ? archive.chatById.get(Math.min(...row.project.chatIds))?.title : undefined
+  // Chat ids follow recency, so the smallest id is the project's latest conversation. Trashed ones don't count.
+  const { trashed } = useChatEdits()
+  const shown = row.project.chatIds.filter((id) => !trashed.has(id))
+  const latest = shown.length ? archive.chatById.get(Math.min(...shown))?.title : undefined
   return (
     <span className="flex min-w-0 items-center gap-2" style={{ paddingLeft: depth * INDENT }}>
       {row.project.gone ? (

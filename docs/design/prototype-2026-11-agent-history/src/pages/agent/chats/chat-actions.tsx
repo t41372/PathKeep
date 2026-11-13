@@ -1,34 +1,18 @@
 /**
- * Managing one conversation: put away (封存) and delete from PathKeep.
- * The reader's ⋯ menu and a right-click on a list row offer the same two
- * actions and open the same delete dialog, which says exactly what goes,
- * what stays in the tool's own folder, and that it can't be undone.
+ * Managing one conversation: put away (封存) and move to the trash. The
+ * reader's ⋯ menu and a right-click on a list row offer the same actions.
+ * Neither asks first: both only hide the conversation, and the toast can undo.
+ * A trashed conversation offers only 放回.
  */
-import { Archive, ArchiveRestore, Maximize2, Star, Trash2 } from 'lucide-react'
+import { Archive, ArchiveRestore, Maximize2, Star, Trash2, Undo2 } from 'lucide-react'
 import { ContextMenu } from 'radix-ui'
 import { useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
 import { DropdownMenuItem, DropdownMenuSeparator } from '@/components/ui/dropdown-menu'
-import { cn } from '@/lib/cn'
-import { HarnessIcon } from '~/components/bits'
-import { archive, harnesses, projectOf } from '~/data/archive'
-import { bytes, date, num } from '~/data/format'
+import { archive } from '~/data/archive'
 import type { Chat } from '~/data/types'
-import { askDelete, deleteChat, setArchived, useChatEdits } from './chat-edits'
-
-/** How many versions of this conversation PathKeep has kept (invented here). */
-const versionsOf = (chat: Chat) => 1 + (chat.id % 4)
+import { setArchived, setTrashed, useChatEdits } from './chat-edits'
 
 export function putAway(chat: Chat) {
   setArchived(chat.id, true)
@@ -40,14 +24,39 @@ export function bringBack(chat: Chat) {
   toast('已取消封存')
 }
 
-/** 封存 / 取消封存 and 從 PathKeep 刪除…, for the reader's ⋯ menu. */
-export function ChatManageItems({ chat }: { chat: Chat }) {
-  const { archived } = useChatEdits()
-  const isArchived = archived.has(chat.id)
+/** `onTrashed` lets the page close the reader that shows this conversation. */
+export function moveToTrash(chat: Chat, onTrashed?: (chat: Chat) => void) {
+  setTrashed(chat.id, true)
+  onTrashed?.(chat)
+  toast('已移到垃圾桶', {
+    description: '清單、搜尋和洞察都不再算它。要看垃圾桶，在「篩選」裡選「垃圾桶」。',
+    action: { label: '復原', onClick: () => setTrashed(chat.id, false) },
+  })
+}
+
+/** Out of the trash; its put-away state is whatever it was before. */
+export function putBack(chat: Chat) {
+  setTrashed(chat.id, false)
+  toast('已放回')
+}
+
+/** The end of the reader's ⋯ menu: 封存 / 取消封存 and 移到垃圾桶, or 放回 for a trashed one. */
+export function ChatManageItems({ chat, onTrashed }: { chat: Chat; onTrashed?: (chat: Chat) => void }) {
+  const { archived, trashed } = useChatEdits()
+  if (trashed.has(chat.id))
+    return (
+      <>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onSelect={() => putBack(chat)}>
+          <Undo2 />
+          放回
+        </DropdownMenuItem>
+      </>
+    )
   return (
     <>
       <DropdownMenuSeparator />
-      {isArchived ? (
+      {archived.has(chat.id) ? (
         <DropdownMenuItem onSelect={() => bringBack(chat)}>
           <ArchiveRestore />
           取消封存
@@ -58,9 +67,9 @@ export function ChatManageItems({ chat }: { chat: Chat }) {
           封存
         </DropdownMenuItem>
       )}
-      <DropdownMenuItem variant="destructive" onSelect={() => askDelete(chat.id)}>
+      <DropdownMenuItem onSelect={() => moveToTrash(chat, onTrashed)}>
         <Trash2 />
-        從 PathKeep 刪除…
+        移到垃圾桶
       </DropdownMenuItem>
     </>
   )
@@ -74,10 +83,11 @@ const menuItem =
  * list: rows carry `data-chat-id`, and the row under the pointer decides which
  * conversation the menu is about. A right-click elsewhere in the list does nothing.
  */
-export function ChatRowContextMenu({ children, onOpen }: { children: ReactNode; onOpen: (chat: Chat) => void }) {
+export function ChatRowContextMenu({ children, onOpen, onTrashed }: { children: ReactNode; onOpen: (chat: Chat) => void; onTrashed?: (chat: Chat) => void }) {
   const [chat, setChat] = useState<Chat | null>(null)
-  const { archived } = useChatEdits()
+  const { archived, trashed } = useChatEdits()
   const navigate = useNavigate()
+  const inTrash = !!chat && trashed.has(chat.id)
   return (
     <ContextMenu.Root>
       <ContextMenu.Trigger
@@ -93,7 +103,18 @@ export function ChatRowContextMenu({ children, onOpen }: { children: ReactNode; 
       </ContextMenu.Trigger>
       <ContextMenu.Portal>
         <ContextMenu.Content className="z-50 w-[220px] overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-md data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95">
-          {chat && (
+          {chat && inTrash && (
+            <>
+              <ContextMenu.Item className={menuItem} onSelect={() => onOpen(chat)}>
+                打開
+              </ContextMenu.Item>
+              <ContextMenu.Item className={menuItem} onSelect={() => putBack(chat)}>
+                <Undo2 />
+                放回
+              </ContextMenu.Item>
+            </>
+          )}
+          {chat && !inTrash && (
             <>
               <ContextMenu.Item className={menuItem} onSelect={() => onOpen(chat)}>
                 打開
@@ -118,92 +139,14 @@ export function ChatRowContextMenu({ children, onOpen }: { children: ReactNode; 
                   封存
                 </ContextMenu.Item>
               )}
-              <ContextMenu.Item
-                className={cn(menuItem, 'text-destructive data-[highlighted]:bg-destructive/10 data-[highlighted]:text-destructive [&_svg]:text-destructive')}
-                onSelect={() => askDelete(chat.id)}
-              >
+              <ContextMenu.Item className={menuItem} onSelect={() => moveToTrash(chat, onTrashed)}>
                 <Trash2 />
-                從 PathKeep 刪除…
+                移到垃圾桶
               </ContextMenu.Item>
             </>
           )}
         </ContextMenu.Content>
       </ContextMenu.Portal>
     </ContextMenu.Root>
-  )
-}
-
-/** The delete dialog. Mount once per page; `onDeleted` lets the page close the reader. */
-export function ChatDialogs({ onDeleted }: { onDeleted?: (chat: Chat) => void }) {
-  const { deleting, archived } = useChatEdits()
-  const chat = deleting === null ? undefined : archive.chatById.get(deleting)
-  if (!chat) return null
-  const tool = harnesses[chat.harness].name
-  const project = projectOf(chat)
-  const onlyCopy = chat.source === 'gone'
-  const parts = ['對話內容', chat.subagentCount > 0 ? `${num(chat.subagentCount)} 個 subagent` : null, `PathKeep 存過的 ${versionsOf(chat)} 個版本`, '搜尋索引裡的內容'].filter(Boolean)
-  return (
-    <AlertDialog open onOpenChange={(open) => !open && askDelete(null)}>
-      <AlertDialogContent className="sm:max-w-[480px]">
-        <AlertDialogHeader>
-          <AlertDialogTitle>從 PathKeep 刪除這段對話？</AlertDialogTitle>
-          <AlertDialogDescription asChild>
-            <div className="flex flex-col gap-3 text-left text-[13px] leading-relaxed text-muted-foreground">
-              <div className="flex min-w-0 items-center gap-2 rounded-lg bg-muted px-3 py-2 text-foreground">
-                <HarnessIcon id={chat.harness} className="size-4 [&_img]:size-4" />
-                <span className="min-w-0 flex-1 truncate font-medium">{chat.title}</span>
-                <span className="shrink-0 text-[12px] text-muted-foreground tabular">
-                  {project.name} · {date(chat.started, true)}
-                </span>
-              </div>
-              <p>
-                會刪掉：{parts.join('、')}，<span className="whitespace-nowrap">約 {bytes(chat.sizeBytes)}</span>。
-              </p>
-              {onlyCopy ? (
-                <p className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-foreground">
-                  這是唯一的一份。{tool} 已經刪掉這段對話，從 PathKeep 刪除後就找不回來了。
-                </p>
-              ) : (
-                <p>
-                  {tool} 自己的資料夾裡還有這段對話，PathKeep 不會動它，之後備份也不會再把它存回來。要連那邊一起刪，請到 {tool} 裡刪。
-                </p>
-              )}
-              <p>
-                刪除後無法復原。
-                {!archived.has(chat.id) && (
-                  <>
-                    只是不想在清單裡看到它，可以
-                    <button
-                      type="button"
-                      className="text-foreground underline underline-offset-2 hover:text-brand"
-                      onClick={() => {
-                        askDelete(null)
-                        putAway(chat)
-                      }}
-                    >
-                      改為封存
-                    </button>
-                    。
-                  </>
-                )}
-              </p>
-            </div>
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel>取消</AlertDialogCancel>
-          <AlertDialogAction
-            variant="destructive"
-            onClick={() => {
-              deleteChat(chat.id)
-              onDeleted?.(chat)
-              toast('已從 PathKeep 刪除這段對話')
-            }}
-          >
-            刪除對話
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
   )
 }

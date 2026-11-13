@@ -36,7 +36,7 @@ const shared: { id: string; label: string; icon: LucideIcon; Body: () => ReactNo
   { id: 'general', label: '一般', icon: SlidersHorizontal, Body: GeneralSection },
   { id: 'security', label: '安全', icon: Lock, Body: SecuritySection },
   { id: 'ai', label: 'AI', icon: Sparkles, Body: AiSection },
-  { id: 'background', label: '背景執行', icon: Activity, Body: BackgroundSection },
+  { id: 'background', label: '排程與背景工作', icon: Activity, Body: BackgroundSection },
   { id: 'storage', label: '儲存空間', icon: Database, Body: StorageSection },
   { id: 'about', label: '關於', icon: Info, Body: AboutSection },
 ]

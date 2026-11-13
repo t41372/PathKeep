@@ -71,12 +71,12 @@ export function SearchResults({
   const [state, setState] = useState<SearchState | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   // Time and the 更多 flags narrow the search too, the same way they narrow the list.
-  // Search looks through put-away conversations too; deleted ones are gone.
+  // Search looks through put-away conversations too, never through the trash.
   const edits = useChatEdits()
   const pool = useMemo(
     () => applyFilters({ ...filters, sort: 'recent' }, edits, true),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [filters.project, filters.harnesses.join(), filters.range, filters.flags.join(), edits.archived, edits.deleted],
+    [filters.project, filters.harnesses.join(), filters.range, filters.flags.join(), edits.archived, edits.trashed],
   )
   useEffect(() => {
     setState(null)

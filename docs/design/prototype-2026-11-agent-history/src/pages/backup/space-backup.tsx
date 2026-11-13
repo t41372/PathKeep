@@ -2,7 +2,8 @@
  * A space's own Backup page (`/agent/backup`, `/browsing/backup`): is this
  * type's data safe, and back it up now. "立即備份" here backs up only this
  * type; backing up everything lives in the switcher menu. The schedule is
- * shared by every type, so it is one line pointing to Settings.
+ * shared by every type and set in Settings → 排程與背景工作, so this page
+ * only says what it is and when it runs next, right under the header.
  */
 import { ChevronDown, CircleCheck, CircleMinus, HardDriveDownload, TriangleAlert } from 'lucide-react'
 import { useState } from 'react'
@@ -14,7 +15,7 @@ import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { cn } from '@/lib/cn'
 import { NOW } from '~/data/fixture'
-import { bytes, when } from '~/data/format'
+import { bytes, time, when } from '~/data/format'
 import { useTasks } from '~/data/tasks'
 import { kindById, spaceOfPath, type KindId } from '~/kinds'
 import { Progress } from '@/components/ui/progress'
@@ -70,6 +71,7 @@ export default function SpaceBackupPage() {
   const space = spaceOfPath(pathname) ?? 'browsing'
   const kind = kindById[space]
   const last = NOW - 78 * 60_000
+  const schedule = { label: '每 2 小時', ms: 2 * 3600_000 }
   const running = useTasks().find((t) => t.space === space && t.state === 'running' && t.title.startsWith('備份'))
   const [hideNotice, setHideNotice] = useState(false)
   const size = archiveBytes[space]
@@ -102,6 +104,15 @@ export default function SpaceBackupPage() {
           </>
         }
       />
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border bg-card px-5 py-3 shadow-card">
+        <span className="text-sm font-semibold">自動備份</span>
+        <span className="text-[13px] text-muted-foreground tabular">
+          {schedule.label} · 下次 {time(last + schedule.ms)}
+        </span>
+        <Button variant="outline" size="sm" className="ml-auto" asChild>
+          <Link to="/settings/background">更改排程</Link>
+        </Button>
+      </div>
       {space === 'agent' && !hideNotice && (
         <div className="relative">
           <AutoDeleteNotice />
@@ -113,13 +124,7 @@ export default function SpaceBackupPage() {
       <SpaceSources space={space} />
       <Runs space={space} />
       <div className="flex flex-col gap-1.5 px-1 text-[13px] text-muted-foreground">
-        <span>
-          所有類型共用一個排程：每 2 小時 ·{' '}
-          <Link to="/settings/background" className="text-brand hover:underline">
-            在設定裡改
-          </Link>
-          。要一次備份全部類型，用左下角背景任務選單裡的「全部立即備份」。
-        </span>
+        <span>要一次備份全部類型，用左下角背景任務選單裡的「全部立即備份」。</span>
         {size !== undefined && source !== undefined && (
           <span>
             存檔裡的 {kind.label} 約 {bytes(size)}（來源 {bytes(source)}

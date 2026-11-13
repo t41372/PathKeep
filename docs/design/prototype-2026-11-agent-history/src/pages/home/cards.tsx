@@ -16,6 +16,7 @@ import { big, date, hours, num, pct } from '~/data/format'
 import type { Chat } from '~/data/types'
 import { kindById, type KindId } from '~/kinds'
 import { useProto } from '~/proto-state'
+import { useChatEdits } from '../agent/chats/chat-edits'
 import { YearGrid, YearStepper } from '../agent/insights/parts'
 import { kindStatus, onThisDay, week, yearCounts } from './data'
 
@@ -139,7 +140,8 @@ function copyResume(chat: Chat) {
 
 export function ContinueCard() {
   const navigate = useNavigate()
-  const latest = archive.chats.slice(0, 4)
+  const { trashed } = useChatEdits()
+  const latest = useMemo(() => archive.chats.filter((c) => !trashed.has(c.id)).slice(0, 4), [trashed])
   return (
     <SectionCard
       title="接著做"
@@ -238,11 +240,13 @@ const inventedOnThisDay: Partial<Record<KindId, string>> = {
 
 export function OnThisDayCard() {
   const { enabledKinds } = useProto()
+  const { trashed } = useChatEdits()
   const navigate = useNavigate()
+  const days = useMemo(() => onThisDay.map((day) => ({ ...day, chats: day.chats.filter((c) => !trashed.has(c.id)) })), [trashed])
   return (
     <SectionCard title="往年今日" subtitle="以前的這一天，你在做什麼">
       {onThisDay.length === 0 && <p className="text-[13px] text-muted-foreground">存檔還不到一年。</p>}
-      {onThisDay.map(({ key, chats }) => (
+      {days.map(({ key, chats }) => (
         <div key={key} className="flex flex-col gap-2">
           <span className="text-xs font-medium text-muted-foreground">{date(Date.parse(key) + 4 * 3600_000, true)}</span>
           <ul className="flex flex-col gap-1.5 text-[13px]">

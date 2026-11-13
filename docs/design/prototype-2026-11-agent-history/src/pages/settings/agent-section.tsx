@@ -12,9 +12,8 @@ import { Button } from '@/components/ui/button'
 import { useProto } from '~/proto-state'
 import { Switch } from '@/components/ui/switch'
 import { HarnessBadge } from '~/components/bits'
-import { archive, harnesses, sessionId } from '~/data/archive'
-import { date, num } from '~/data/format'
-import { allowAgain, useChatEdits } from '../agent/chats/chat-edits'
+import { archive } from '~/data/archive'
+import { num } from '~/data/format'
 import { harnessSources } from '../backup/sources-data'
 import { Group, Mono, Note } from './parts'
 
@@ -24,44 +23,6 @@ function Toggle({ initial, disabled, label }: { initial: boolean; disabled?: boo
 }
 
 const scratchRules = ['/tmp', '/private/var/folders', '~（家目錄本身）']
-
-/**
- * Conversations deleted from PathKeep. The list knows which tool and which
- * session, and when; it keeps no title and no content, since those are what
- * the user wanted gone.
- */
-function DeletedChats() {
-  const { deleted } = useChatEdits()
-  const rows = [...deleted].sort((a, b) => b[1] - a[1])
-  return (
-    <Group title="刪除的對話" intro="從 PathKeep 刪除的對話不會再被備份回來。這裡只記得是哪個工具的哪一段、什麼時候刪的，不留標題和內容。">
-      {rows.length === 0 ? (
-        <SettingRow title="沒有刪除過對話" description="在對話的 ⋯ 選單，或在清單裡按右鍵，可以「從 PathKeep 刪除」。" />
-      ) : (
-        rows.map(([id, at]) => {
-          const chat = archive.chatById.get(id)!
-          return (
-            <SettingRow
-              key={id}
-              title={
-                <span className="flex items-center gap-2">
-                  <HarnessBadge id={chat.harness} withName className="text-sm" />
-                  <Mono>{sessionId(chat).slice(0, 8)}…</Mono>
-                </span>
-              }
-              description={`${date(at, true)} 刪除。${chat.source === 'gone' ? `${harnesses[chat.harness].name} 那邊也已經沒有這段對話。` : `${harnesses[chat.harness].name} 自己的資料夾裡可能還有。`}`}
-              control={
-                <Button variant="outline" size="sm" onClick={() => allowAgain(id)}>
-                  允許再次備份
-                </Button>
-              }
-            />
-          )
-        })
-      )}
-    </Group>
-  )
-}
 
 export function AgentSection() {
   const { estimateCost, set } = useProto()
@@ -182,7 +143,6 @@ export function AgentSection() {
         />
       </Group>
 
-      <DeletedChats />
 
       <Group title="繼續對話">
         <SettingRow

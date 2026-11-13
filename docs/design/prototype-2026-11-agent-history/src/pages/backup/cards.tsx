@@ -61,7 +61,7 @@ export function ScheduleCard() {
   const [power, setPower] = useState(true)
   const ms = intervals.find((i) => i.id === interval)!.ms
   return (
-    <SectionCard title="排程" subtitle="所有資料類型共用一個排程，一次備份全部來源。">
+    <SectionCard title="自動備份" subtitle="照這個排程在背景備份所有開著的資料類型，PathKeep 沒開著也會跑。">
       <div role="radiogroup" aria-label="多久備份一次" className="grid w-full grid-cols-4 rounded-lg bg-muted p-[3px]">
         {intervals.map((i) => (
           <button

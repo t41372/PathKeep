@@ -18,6 +18,7 @@ import {
   Search,
   Star,
   TerminalSquare,
+  Undo2,
   X,
 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -47,7 +48,7 @@ import { totalTokens } from '~/data/fixture'
 import { big, date, dateTime, duration, num } from '~/data/format'
 import { transcriptOf, type TEvent } from '~/data/transcript'
 import type { Chat, Subagent } from '~/data/types'
-import { ChatManageItems } from '../chats/chat-actions'
+import { ChatManageItems, putBack } from '../chats/chat-actions'
 import { useChatEdits } from '../chats/chat-edits'
 import { copyText, EventView, SubagentGroup, TurnEnd } from './events'
 import { paintMatches, useClearHighlights, useMatches } from './find'
@@ -174,7 +175,22 @@ function SubagentSheet({ sub, onClose }: { sub: Subagent | null; onClose: () => 
   )
 }
 
-export function Reader({ chat, page, find, at, onClose }: { chat: Chat; page?: boolean; find?: string; at?: number; onClose?: () => void }) {
+export function Reader({
+  chat,
+  page,
+  find,
+  at,
+  onClose,
+  onTrashed,
+}: {
+  chat: Chat
+  page?: boolean
+  find?: string
+  at?: number
+  onClose?: () => void
+  /** The conversation went to the trash from this reader's ⋯ menu. */
+  onTrashed?: () => void
+}) {
   const navigate = useNavigate()
   const project = projectOf(chat)
   const transcript = useMemo(() => transcriptOf(chat), [chat])
@@ -191,7 +207,9 @@ export function Reader({ chat, page, find, at, onClose }: { chat: Chat; page?: b
   const findRef = useRef<HTMLInputElement>(null)
   const location = project.locations.find((l) => l.path === chat.cwd)
   const cwdGone = !!location && !location.exists
-  const archived = useChatEdits().archived.has(chat.id)
+  const edits = useChatEdits()
+  const archived = edits.archived.has(chat.id)
+  const trashed = edits.trashed.has(chat.id)
   useClearHighlights()
 
   const matches = useMatches(events, findOpen ? query : '')
@@ -323,7 +341,7 @@ export function Reader({ chat, page, find, at, onClose }: { chat: Chat; page?: b
                 <DropdownMenuItem onSelect={() => toast('改名只改 PathKeep 裡的標題，不動工具的檔案')}>改名…</DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => toast('已在 Finder 顯示原始檔')}>在 Finder 顯示原始檔</DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => copyText(`pathkeep://agent/chat/${chat.id}`, '連結已複製')}>複製連結</DropdownMenuItem>
-                <ChatManageItems chat={chat} />
+                <ChatManageItems chat={chat} onTrashed={onTrashed} />
               </DropdownMenuContent>
             </DropdownMenu>
             {onClose && (
@@ -344,6 +362,15 @@ export function Reader({ chat, page, find, at, onClose }: { chat: Chat; page?: b
           {chat.source === 'gone' && <OnlyHereFlag />}
           {archived && <ArchivedFlag withText />}
         </div>
+        {trashed && (
+          <p className="flex items-center gap-2 text-[12.5px] text-muted-foreground">
+            這段對話在垃圾桶裡，清單、搜尋和洞察都不算它。
+            <Button variant="outline" size="xs" onClick={() => putBack(chat)}>
+              <Undo2 />
+              放回
+            </Button>
+          </p>
+        )}
         {chat.source === 'gone' && (
           <p className="text-[12.5px] text-amber-800 dark:text-amber-300">
             {harnesses[chat.harness].name} 已經刪掉這段對話；這是 PathKeep 在 {date(chat.ended + 3600_000, true)} 存下的完整版本。

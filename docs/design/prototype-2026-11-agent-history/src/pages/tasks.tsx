@@ -1,7 +1,7 @@
 /**
  * 背景任務: what runs now, what waits and why, what finished or failed today.
  * Shared by every data type; each task says which one it serves. Schedules
- * and limits stay in Settings → 背景執行.
+ * and limits stay in Settings → 排程與背景工作.
  */
 import { CircleAlert, CircleCheck, Clock, HardDriveDownload, Pause, Play } from 'lucide-react'
 import { toast } from 'sonner'
@@ -69,7 +69,7 @@ export default function TasksPage() {
         actions={
           <>
             <Button variant="outline" asChild>
-              <Link to="/settings/background">排程與限制</Link>
+              <Link to="/settings/background">排程與背景工作</Link>
             </Button>
             <Button onClick={() => toast.success('開始備份全部類型')}>
               <HardDriveDownload />

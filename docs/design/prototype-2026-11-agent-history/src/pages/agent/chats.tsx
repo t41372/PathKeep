@@ -9,7 +9,7 @@ import { useMemo, type ReactNode } from 'react'
 import { Kbd } from '@/components/ui/kbd'
 import type { RowMetric } from '~/components/chat-row'
 import { archive } from '~/data/archive'
-import { ChatDialogs, ChatRowContextMenu } from './chats/chat-actions'
+import { ChatRowContextMenu } from './chats/chat-actions'
 import { useChatEdits } from './chats/chat-edits'
 import { applyFilters, useFilters, type Filters, type Sort } from './chats/filters'
 import { ChatList } from './chats/list'
@@ -49,10 +49,14 @@ export function ChatsWorkbench({ projectId, header }: { projectId?: string; head
   const chats = useMemo(
     () => applyFilters(filters, edits),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [filters.project, filters.harnesses.join(), filters.range, filters.flags.join(), filters.sort, edits.archived, edits.deleted],
+    [filters.project, filters.harnesses.join(), filters.range, filters.flags.join(), filters.sort, edits.archived, edits.trashed],
   )
-  const selected = filters.chat && !edits.deleted.has(filters.chat) ? archive.chatById.get(filters.chat) : undefined
+  // A trashed conversation can still be open: the 垃圾桶 filter lists it, and the reader says where it is.
+  const selected = filters.chat ? archive.chatById.get(filters.chat) : undefined
   const open = (chat: { id: number }) => update({ chat: chat.id, find: undefined, at: undefined })
+  const close = () => update({ chat: undefined, find: undefined, at: undefined })
+  const closeIfOpen = (chat: { id: number }) => chat.id === filters.chat && close()
+  const inTrash = filters.flags.includes('trash')
   const scoped = !!projectId
 
   return (
@@ -64,8 +68,9 @@ export function ChatsWorkbench({ projectId, header }: { projectId?: string; head
           {filters.q ? (
             <SearchResults filters={filters} update={update} onOpen={(chat, at) => update({ chat, find: filters.q, at })} />
           ) : (
-            <ChatRowContextMenu onOpen={open}>
+            <ChatRowContextMenu onOpen={open} onTrashed={closeIfOpen}>
               <div className="flex min-h-0 flex-1 flex-col">
+                {inTrash && <p className="border-b px-5 py-2.5 text-[12.5px] leading-relaxed text-muted-foreground">垃圾桶裡的對話還在 PathKeep 的存檔裡，也照常備份，只是不顯示。</p>}
                 <ChatList
                   chats={chats}
                   group={filters.group}
@@ -80,12 +85,11 @@ export function ChatsWorkbench({ projectId, header }: { projectId?: string; head
           )}
         </section>
         {selected ? (
-          <Reader key={selected.id} chat={selected} find={filters.find} at={filters.at} onClose={() => update({ chat: undefined, find: undefined, at: undefined })} />
+          <Reader key={selected.id} chat={selected} find={filters.find} at={filters.at} onClose={close} onTrashed={close} />
         ) : (
           <EmptyReader scoped={scoped} />
         )}
       </div>
-      <ChatDialogs onDeleted={(chat) => chat.id === filters.chat && update({ chat: undefined, find: undefined, at: undefined })} />
     </div>
   )
 }
