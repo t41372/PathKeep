@@ -55,9 +55,14 @@ A **conversation** is new and is what everything the user sees hangs on.
   strangers and no longer splits copies.
 - **The id is derived, not issued.** The conversation id is
   `sha256("pathkeep-agent-conversation-v1", harness, key)`. It needs no lookup
-  and no counter, so a parent link can be written before the parent has been
-  captured, and the id is the same after a reparse, on a rebuilt read model and
-  on another machine.
+  and no counter, and it is the same after a reparse, on a rebuilt read model
+  and on another machine.
+- **A parent link is the parent's native id, resolved when read.** A subagent's
+  file does not contain its parent's origin mark, so it cannot compute the
+  parent's id. It records the parent's native id (and, where the tool's layout
+  gives it, where the parent's transcript sits). The link resolves to the
+  parent's conversation as soon as the parent is in the archive, whichever of
+  the two was captured first.
 - **A conversation has one or more sources, and the adapter says how they
   relate.** A source is either a transcript that stands on its own, or one that
   continues another source from a stated boundary. The reader shows the current
