@@ -15,8 +15,8 @@
   - 重試與 verify／publish 都驗證 requested prerelease；完整 workflow subtree 未在 default branch 時，Actions 不建立新草稿，也不能公開。Owner 在本機以既有 workflow-authorized credential 預留私有草稿，沒有新增 repo secret。
   - 新回歸在舊程式得到 8 fail／21 pass；修正後 32 個交易測試通過。Checkpoint 測試保留原截止時間，同時等 WAL 與 counter 完成，實際 Rust 聚焦測試已過。新來源的完整 `verify`／`check:slow` 已過：151 個前端測試、134 E2E 過／1 平台略過，兩份鎖檔未變；證據：`releases/v0.5.0/release-review-rehearsal.json`。以新 SHA 重建私有產物。
 
-- [!] **WORK-RELEASE-EMBEDDING-BLOCKER** — 嚴重 embedding／長讀阻斷修復已以固定 head 整合到隔離預演；公開仍等批准。
-  - 本分支採用 PR #24 的 `aec2004de37298c027893ac681e145cff6824753`；這份整合來源的完整 `verify`／`check:slow` 已通過；四平台建置與實際產物核對紀錄以 PR #22 為準。PR #24 的主分支合併由原工作流程處理；任何後續變動都須更新候選與驗證。
+- [x] **WORK-RELEASE-EMBEDDING-BLOCKER** — PR #24 已合併 main，修復內容與已驗證候選相同。
+  - PR #24 的 `aec2004de37298c027893ac681e145cff6824753` 已 squash 合併為 `48239b552acab9a29edf80a5cc5ae4bf7f48f093`。本分支同步 main，保留已驗證的 checkpoint 測試完成條件；解衝突後的整棵 tree 與 `2059cb6e` 完全相同，之後只更新發布文件。
   - 修復程式沿用已審閱的 PR #24 head；本輪另修正 worker 的 keyring 隔離與時區測試的重複計算，詳見 `releases/v0.5.0/readiness.md`。
   - [PR #24](https://github.com/t41372/PathKeep/pull/24) 的遠端 CI 全數通過、既有審查 thread 已解決；發布仍禁止自動推進。
 
@@ -31,11 +31,13 @@
   - 舊候選的 CI／四平台建置已取消，以新來源重跑完整 gate 與 native draft。公開仍等明確 approval，v0.4.0 舊產物不變。
   - 新一輪登錄檔核對再納入 Motion 14.14.0／tslib 2.9.1；此前來源的 `verify` 已過，`check:slow` 被當日新增的 RUSTSEC-2026-0538 擋下。quinn-udp 鎖檔更新至修正版 0.5.16 後，完整 `verify`／`check:slow` 已過：141 個前端測試、134 E2E 過／1 平台略過，兩份鎖檔未變，不新增例外。證據：`releases/v0.5.0/release-transaction-rehearsal.json`。
 
-- [ ] **WORK-RELEASE-V0.5.0** — 完成包含 PR #24 head 的 v0.5.0 發布準備；這次不公開。
+- [x] **WORK-RELEASE-V0.5.0** — 發布準備完成；使用者先測試，這次不公開。
   - 讀先：`RELEASE.md`、`m4-full-polish/release-readiness-runbook.md`、`releases/v0.5.0/readiness.md`。
-  - 已從 stash 恢復三語 notes、原始證據與 README banners，原 stash 保留。四處版本對齊 0.5.0；整合來源完整 gate 已過：141 個前端測試、134 E2E 過／1 平台略過、兩份鎖檔未變。證據：`releases/v0.5.0/release-integrated-rehearsal.json`。
-  - 推送候選後，以已公開 v0.4.0 預演保護條件，再建置四平台 unsigned draft；來源 SHA、Actions 結果、11 個 assets 與 checksum 核對紀錄以發布準備 PR／Release 草稿為準。候選 commit 在建置與審閱期間凍結，公開前不推 tag。
+  - 已從 stash 恢復三語 notes、原始證據與 README banners，原 stash 保留。四處版本對齊 0.5.0；最終完整 gate 已過：151 個前端測試、134 E2E 過／1 平台略過、兩份鎖檔未變。證據：`releases/v0.5.0/release-review-rehearsal.json`。
+  - 候選固定於 `release/candidate-v0.5.0` → `2059cb6e843f240d9440a9c731426e68192cb673`。四平台 11 個私有產物、實際 checksum／manifest 校驗與真實唯讀 verify 已通過；本輪只同步合併歷史與文件，不改標或重建相同程式。同步證據：`releases/v0.5.0/release-main-sync.json`；遠端紀錄見 PR #22／Release 草稿。
   - 14.4M 與跨平台驗收沿用使用者已確認的結果。Unsigned preview 須手動安裝，沒有 app 內自動更新；公開這條路須一併批准 macOS 簽章政策例外。
+
+- [!] **WORK-RELEASE-MANUAL-ACCEPTANCE** — 使用者 2026-11-13 要求先自行測試；不公開、不推版本 tag、不合併發布政策提案，也不啟用 immutable releases。若測試帶來程式變動，重新凍結候選並按影響範圍驗證與重建。
 
 - [x] **WORK-RELEASE-IMMUTABLE** — 已公開的版本再次觸發 workflow 時，只讀 metadata 並跳過建置與上傳，保護已審閱的 binaries。
   - 讀先：`RELEASE.md`、`m4-full-polish/release-readiness-runbook.md`、`releases/v0.5.0/readiness.md`、`program/quality-matrix.md`。

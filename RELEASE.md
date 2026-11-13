@@ -168,6 +168,15 @@ The [v0.5.0 review](./docs/plan/releases/v0.5.0/readiness.md) records the assess
 upgrade boundary and notes. Remote receipts stay in the preparation PR/private
 draft so the candidate commit remains frozen. Publication still needs approval.
 
+The current tested v0.5.0 artifacts remain bound to
+`2059cb6e843f240d9440a9c731426e68192cb673`, retained by
+`release/candidate-v0.5.0`. Use that frozen ref for its verification or eventual
+approved publication. The preparation PR can synchronize merged history and
+release documentation without retargeting existing artifacts. A change to code,
+dependencies, build inputs or workflow definitions requires a new candidate and
+fresh packages. The [main-sync receipt](./docs/plan/releases/v0.5.0/release-main-sync.json)
+records why the PR #24 squash merge leaves the tested code unchanged.
+
 ## Secrets
 
 ### Always Used
