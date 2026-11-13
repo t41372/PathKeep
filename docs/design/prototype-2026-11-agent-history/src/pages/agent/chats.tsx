@@ -9,6 +9,8 @@ import { useMemo, type ReactNode } from 'react'
 import { Kbd } from '@/components/ui/kbd'
 import type { RowMetric } from '~/components/chat-row'
 import { archive } from '~/data/archive'
+import { ChatDialogs, ChatRowContextMenu } from './chats/chat-actions'
+import { useChatEdits } from './chats/chat-edits'
 import { applyFilters, useFilters, type Filters, type Sort } from './chats/filters'
 import { ChatList } from './chats/list'
 import { SearchResults } from './chats/results'
@@ -43,12 +45,14 @@ export function ChatsWorkbench({ projectId, header }: { projectId?: string; head
   const { filters: raw, update } = useFilters()
   // Opened from a project: that project is fixed, not a filter you can clear.
   const filters = useMemo<Filters>(() => (projectId ? { ...raw, project: projectId, group: raw.group === 'project' ? 'day' : raw.group } : raw), [raw, projectId])
+  const edits = useChatEdits()
   const chats = useMemo(
-    () => applyFilters(filters),
+    () => applyFilters(filters, edits),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [filters.project, filters.harnesses.join(), filters.range, filters.flags.join(), filters.sort],
+    [filters.project, filters.harnesses.join(), filters.range, filters.flags.join(), filters.sort, edits.archived, edits.deleted],
   )
-  const selected = filters.chat ? archive.chatById.get(filters.chat) : undefined
+  const selected = filters.chat && !edits.deleted.has(filters.chat) ? archive.chatById.get(filters.chat) : undefined
+  const open = (chat: { id: number }) => update({ chat: chat.id, find: undefined, at: undefined })
   const scoped = !!projectId
 
   return (
@@ -60,15 +64,19 @@ export function ChatsWorkbench({ projectId, header }: { projectId?: string; head
           {filters.q ? (
             <SearchResults filters={filters} update={update} onOpen={(chat, at) => update({ chat, find: filters.q, at })} />
           ) : (
-            <ChatList
-              chats={chats}
-              group={filters.group}
-              selected={filters.chat}
-              metric={metricFor[filters.sort]}
-              scoped={scoped}
-              onSelect={(chat) => update({ chat: chat.id, find: undefined, at: undefined })}
-              onPickProject={(project) => update({ project, group: 'day' }, false)}
-            />
+            <ChatRowContextMenu onOpen={open}>
+              <div className="flex min-h-0 flex-1 flex-col">
+                <ChatList
+                  chats={chats}
+                  group={filters.group}
+                  selected={filters.chat}
+                  metric={metricFor[filters.sort]}
+                  scoped={scoped}
+                  onSelect={open}
+                  onPickProject={(project) => update({ project, group: 'day' }, false)}
+                />
+              </div>
+            </ChatRowContextMenu>
           )}
         </section>
         {selected ? (
@@ -77,6 +85,7 @@ export function ChatsWorkbench({ projectId, header }: { projectId?: string; head
           <EmptyReader scoped={scoped} />
         )}
       </div>
+      <ChatDialogs onDeleted={(chat) => chat.id === filters.chat && update({ chat: undefined, find: undefined, at: undefined })} />
     </div>
   )
 }

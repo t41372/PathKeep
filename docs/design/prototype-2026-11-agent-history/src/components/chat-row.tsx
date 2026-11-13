@@ -4,7 +4,7 @@
  * small icon. Numbers (tokens, agent time, turns) appear only when the list
  * is sorted by them; everything else is in the reader.
  */
-import { Archive, Star } from 'lucide-react'
+import { Archive, ShieldCheck, Star } from 'lucide-react'
 import { memo, type CSSProperties } from 'react'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/cn'
@@ -12,18 +12,29 @@ import { projectOf } from '~/data/archive'
 import { totalTokens } from '~/data/fixture'
 import { big, duration, num, time, when } from '~/data/format'
 import type { Chat } from '~/data/types'
+import { useChatEdits } from '~/pages/agent/chats/chat-edits'
 import { HarnessIcon, ProjectIcon } from './bits'
 
 export const CHAT_ROW_HEIGHT = 60
 
 export type RowMetric = 'agent' | 'tokens' | 'turns'
 
+/** Put away by the user: shown where put-away conversations still appear (search, the 已封存 filter, the reader). */
+export function ArchivedFlag({ withText }: { withText?: boolean }) {
+  return (
+    <span className="inline-flex shrink-0 items-center gap-1 rounded-md bg-muted px-1 py-px text-[11px] font-medium text-muted-foreground" aria-label="已封存">
+      <Archive className="size-3" />
+      {withText && '已封存'}
+    </span>
+  )
+}
+
 export function OnlyHereFlag({ compact }: { compact?: boolean }) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
         <span className="inline-flex shrink-0 items-center gap-1 rounded-md bg-amber-500/12 px-1 py-px text-[11px] font-medium text-amber-700 dark:text-amber-300">
-          <Archive className="size-3" />
+          <ShieldCheck className="size-3" />
           {!compact && '只剩這裡有'}
         </span>
       </TooltipTrigger>
@@ -58,10 +69,12 @@ export const ChatRow = memo(function ChatRow({
   style?: CSSProperties
 }) {
   const project = projectOf(chat)
+  const archived = useChatEdits().archived.has(chat.id)
   return (
     <div style={style} className="px-2 py-[2px]">
       <button
         type="button"
+        data-chat-id={chat.id}
         onClick={() => onSelect?.(chat)}
         aria-current={selected ? 'true' : undefined}
         className={cn(
@@ -84,6 +97,7 @@ export const ChatRow = memo(function ChatRow({
           <span className="ml-auto flex shrink-0 items-center gap-1.5">
             {chat.starred && <Star className="size-3 fill-brand text-brand" aria-label="已加星" />}
             {chat.source === 'gone' && <OnlyHereFlag compact />}
+            {archived && <ArchivedFlag />}
             {metric && <span className="tabular">{metricText(chat, metric)}</span>}
           </span>
         </span>

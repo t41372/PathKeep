@@ -18,6 +18,7 @@ import {
 import { archive, projectOf, projectsByRecent } from '~/data/archive'
 import { when } from '~/data/format'
 import { kindById } from '~/kinds'
+import { useChatEdits } from '~/pages/agent/chats/chat-edits'
 import { useProto } from '~/proto-state'
 import { HarnessBadge } from '~/components/bits'
 import { spaceKeyLabel } from './space-key'
@@ -35,10 +36,13 @@ export function Palette({ open, onOpenChange }: { open: boolean; onOpenChange: (
     void navigate(to)
   }
   const needle = q.trim().toLowerCase()
-  const chats = useMemo(
-    () => (agentOn ? (needle ? archive.chats.filter((c) => c.title.toLowerCase().includes(needle)) : archive.chats).slice(0, 6) : []),
-    [needle, agentOn],
-  )
+  const { archived, deleted } = useChatEdits()
+  const chats = useMemo(() => {
+    if (!agentOn) return []
+    // Deleted conversations are gone; put-away ones only come up when you type their title.
+    const kept = archive.chats.filter((c) => !deleted.has(c.id) && (needle ? c.title.toLowerCase().includes(needle) : !archived.has(c.id)))
+    return kept.slice(0, 6)
+  }, [needle, agentOn, archived, deleted])
   const projects = useMemo(
     () => (agentOn ? (needle ? projectsByRecent.filter((p) => p.name.toLowerCase().includes(needle)) : projectsByRecent).slice(0, 5) : []),
     [needle, agentOn],

@@ -10,11 +10,12 @@ import { Progress } from '@/components/ui/progress'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/cn'
 import { HarnessBadge, ProjectChip } from '~/components/bits'
-import { OnlyHereFlag } from '~/components/chat-row'
+import { ArchivedFlag, OnlyHereFlag } from '~/components/chat-row'
 import { archive, projectOf } from '~/data/archive'
 import { num, when } from '~/data/format'
 import { roleLabels, runSearch, type ChatHit, type SearchState } from '~/data/search'
 import type { Role } from '~/data/transcript'
+import { useChatEdits } from './chat-edits'
 import { applyFilters, type Filters } from './filters'
 
 const roles: Role[] = ['user', 'agent', 'tool', 'thinking']
@@ -22,6 +23,7 @@ const shortRole: Record<Role, string> = { user: '你', agent: 'Agent', tool: '�
 
 function ResultCard({ hit, selected, onOpen }: { hit: ChatHit; selected: boolean; onOpen: (event?: number) => void }) {
   const { chat } = hit
+  const archived = useChatEdits().archived.has(chat.id)
   return (
     <div className="px-2 py-1">
       <div className={cn('flex flex-col gap-1.5 rounded-lg px-3 py-2.5', selected ? 'bg-card shadow-card' : 'hover:bg-foreground/[0.035]')}>
@@ -34,6 +36,7 @@ function ResultCard({ hit, selected, onOpen }: { hit: ChatHit; selected: boolean
           <ProjectChip project={projectOf(chat)} link={false} className="-mx-1.5" />
           <span className="tabular">{when(chat.ended)}</span>
           {chat.source === 'gone' && <OnlyHereFlag compact />}
+          {archived && <ArchivedFlag withText />}
         </div>
         {hit.snippets.map((s, i) => (
           <button
@@ -68,10 +71,12 @@ export function SearchResults({
   const [state, setState] = useState<SearchState | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   // Time and the 更多 flags narrow the search too, the same way they narrow the list.
+  // Search looks through put-away conversations too; deleted ones are gone.
+  const edits = useChatEdits()
   const pool = useMemo(
-    () => applyFilters({ ...filters, sort: 'recent' }),
+    () => applyFilters({ ...filters, sort: 'recent' }, edits, true),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [filters.project, filters.harnesses.join(), filters.range, filters.flags.join()],
+    [filters.project, filters.harnesses.join(), filters.range, filters.flags.join(), edits.archived, edits.deleted],
   )
   useEffect(() => {
     setState(null)

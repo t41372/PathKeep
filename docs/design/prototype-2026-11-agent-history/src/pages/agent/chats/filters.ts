@@ -5,11 +5,12 @@ import { archive } from '~/data/archive'
 import { DAY, NOW, totalTokens } from '~/data/fixture'
 import type { Role } from '~/data/transcript'
 import type { Chat, HarnessId } from '~/data/types'
+import type { useChatEdits } from './chat-edits'
 
 export type Range = 'all' | 'today' | '7d' | '30d' | '90d' | '1y'
 export type Sort = 'recent' | 'started' | 'agent' | 'tokens' | 'turns'
 export type Group = 'day' | 'project' | 'none'
-export type Flag = 'starred' | 'gone' | 'pr' | 'subagents' | 'edits' | 'nousage'
+export type Flag = 'starred' | 'gone' | 'pr' | 'subagents' | 'edits' | 'nousage' | 'archived'
 
 export const rangeLabels: Record<Range, string> = {
   all: '全部時間',
@@ -34,6 +35,7 @@ export const flagLabels: Record<Flag, string> = {
   subagents: '用了 subagent',
   edits: '有改檔案',
   nousage: '沒有用量紀錄',
+  archived: '已封存',
 }
 
 const rangeMs: Record<Range, number> = { all: Infinity, today: DAY, '7d': 7 * DAY, '30d': 30 * DAY, '90d': 90 * DAY, '1y': 365 * DAY }
@@ -98,10 +100,21 @@ export function useFilters() {
   return { filters, update }
 }
 
-export function applyFilters(f: Filters): Chat[] {
+/** The user's put-away and deleted conversations, as `applyFilters` needs them. */
+export type ChatEdits = Pick<ReturnType<typeof useChatEdits>, 'archived' | 'deleted'>
+
+/**
+ * Deleted conversations are never listed. Put-away ones are listed only when
+ * 已封存 is picked, and then only those; `includeArchived` is for search, which
+ * looks through them too.
+ */
+export function applyFilters(f: Filters, edits: ChatEdits, includeArchived = false): Chat[] {
   const since = NOW - rangeMs[f.range]
+  const onlyArchived = f.flags.includes('archived')
   const list = archive.chats.filter(
     (c) =>
+      !edits.deleted.has(c.id) &&
+      (onlyArchived ? edits.archived.has(c.id) : includeArchived || !edits.archived.has(c.id)) &&
       c.ended >= since &&
       (!f.project || c.projectId === f.project) &&
       (f.harnesses.length === 0 || f.harnesses.includes(c.harness)) &&
@@ -116,7 +129,9 @@ export function applyFilters(f: Filters): Chat[] {
                 ? c.subagentCount > 0
                 : flag === 'edits'
                   ? c.linesAdded + c.linesRemoved > 0
-                  : !c.tokens,
+                  : flag === 'archived'
+                    ? true
+                    : !c.tokens,
       ),
   )
   const key: Record<Sort, (c: Chat) => number> = {

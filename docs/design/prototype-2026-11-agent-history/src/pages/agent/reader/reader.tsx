@@ -41,12 +41,14 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/cn'
 import { HarnessBadge, ProjectChip } from '~/components/bits'
-import { OnlyHereFlag } from '~/components/chat-row'
+import { ArchivedFlag, OnlyHereFlag } from '~/components/chat-row'
 import { harnesses, projectOf, resumeCommand } from '~/data/archive'
 import { totalTokens } from '~/data/fixture'
 import { big, date, dateTime, duration, num } from '~/data/format'
 import { transcriptOf, type TEvent } from '~/data/transcript'
 import type { Chat, Subagent } from '~/data/types'
+import { ChatManageItems } from '../chats/chat-actions'
+import { useChatEdits } from '../chats/chat-edits'
 import { copyText, EventView, SubagentGroup, TurnEnd } from './events'
 import { paintMatches, useClearHighlights, useMatches } from './find'
 import { InfoPanel } from './info'
@@ -189,6 +191,7 @@ export function Reader({ chat, page, find, at, onClose }: { chat: Chat; page?: b
   const findRef = useRef<HTMLInputElement>(null)
   const location = project.locations.find((l) => l.path === chat.cwd)
   const cwdGone = !!location && !location.exists
+  const archived = useChatEdits().archived.has(chat.id)
   useClearHighlights()
 
   const matches = useMatches(events, findOpen ? query : '')
@@ -320,6 +323,7 @@ export function Reader({ chat, page, find, at, onClose }: { chat: Chat; page?: b
                 <DropdownMenuItem onSelect={() => toast('改名只改 PathKeep 裡的標題，不動工具的檔案')}>改名…</DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => toast('已在 Finder 顯示原始檔')}>在 Finder 顯示原始檔</DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => copyText(`pathkeep://agent/chat/${chat.id}`, '連結已複製')}>複製連結</DropdownMenuItem>
+                <ChatManageItems chat={chat} />
               </DropdownMenuContent>
             </DropdownMenu>
             {onClose && (
@@ -338,6 +342,7 @@ export function Reader({ chat, page, find, at, onClose }: { chat: Chat; page?: b
           <span aria-hidden>·</span>
           <span className="shrink-0 tabular">Agent {duration(chat.agentMs)}</span>
           {chat.source === 'gone' && <OnlyHereFlag />}
+          {archived && <ArchivedFlag withText />}
         </div>
         {chat.source === 'gone' && (
           <p className="text-[12.5px] text-amber-800 dark:text-amber-300">
