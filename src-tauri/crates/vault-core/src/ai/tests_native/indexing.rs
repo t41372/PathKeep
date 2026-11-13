@@ -208,6 +208,8 @@ mod rebuild;
 
 mod resume;
 
+mod start;
+
 /// Changing a service's model leaves the old model's index behind. Ways cleaning it up could go
 /// wrong: the index still in use deleted with it; the old rows deleted but its files kept (or the
 /// other way round); a ready ledger survives deleted files; cleanup repeats on every build.

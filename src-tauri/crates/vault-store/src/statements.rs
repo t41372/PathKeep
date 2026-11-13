@@ -1,7 +1,8 @@
 //! Responsibilities: reuse native prepared statements and stream rows on the owning thread.
 //! Not responsible for: transactions, database selection or business SQL.
 //! Failure modes: rebinding overlaps a live cursor, a statement escapes its Session,
-//! policy is bypassed, or optional reads suppress failures. Tests: statements.rs.
+//! policy is bypassed, optional reads suppress failures, or a statement run from here is
+//! not watched while it runs. Tests: statements.rs, long_statement.rs.
 
 use crate::{Error, Result, Row, Session};
 
@@ -43,6 +44,7 @@ impl Statement<'_, '_> {
     /// Executes with fresh parameter bindings in the current transaction.
     pub fn execute(&mut self, params: impl turso::IntoParams) -> Result<u64> {
         let runtime = self.session.runtime;
+        let _running = self.session.watch(&self.sql);
         Ok(runtime.block_on(self.native().execute(params))?)
     }
 
@@ -51,8 +53,9 @@ impl Statement<'_, '_> {
         let params = params.into_params()?;
         self.session.record_plan(&self.sql, &params)?;
         let runtime = self.session.runtime;
+        let running = self.session.watch(&self.sql);
         let native = runtime.block_on(self.native().query(params))?;
-        Ok(Rows { runtime: self.session.runtime, native, _owner: std::marker::PhantomData })
+        Ok(Rows { runtime, native, running, _owner: std::marker::PhantomData })
     }
 
     /// Requires one row without collecting the result set.
@@ -85,13 +88,20 @@ impl Statement<'_, '_> {
 pub struct Rows<'a> {
     runtime: &'a tokio::runtime::Runtime,
     native: turso::Rows,
+    /// The statement counts as running until its last row is read, it fails, or this cursor
+    /// is dropped: not for as long as the `Statement` is kept, which may be a whole batch.
+    running: Option<crate::running::Running<'a>>,
     _owner: std::marker::PhantomData<&'a mut std::rc::Rc<()>>,
 }
 impl Rows<'_> {
     /// Advances without collecting the remaining result into memory.
     #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> Result<Option<Row>> {
-        Ok(self.runtime.block_on(self.native.next())?)
+        let row = self.runtime.block_on(self.native.next());
+        if !matches!(row, Ok(Some(_))) {
+            self.running = None;
+        }
+        Ok(row?)
     }
 }
 

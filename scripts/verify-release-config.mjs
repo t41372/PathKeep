@@ -111,6 +111,11 @@ includes(
 )
 includes(
   releaseWorkflow,
+  'tagName: ${{ needs.prepare-release.outputs.resolved_tag }}',
+  'release workflow updater URLs pinned to the reserved tag',
+)
+includes(
+  releaseWorkflow,
   'run: node scripts/publish-reviewed-release.mjs',
   'release workflow reviewed-byte publication',
 )

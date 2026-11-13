@@ -114,4 +114,5 @@ supply-chain step on locked quinn-udp 0.5.14. It is updated to the patched
 0.5.16 in the existing 0.5 dependency range; the registry checksum and
 requirements were checked. No advisory exception or unrelated Windows binding
 change is added. The separate long-read fix in PR #24 makes the same lockfile
-update, but is not integrated into this rehearsal source.
+update. Its reviewed head is now integrated into the isolated rehearsal; the
+combined source receives its own complete gate.

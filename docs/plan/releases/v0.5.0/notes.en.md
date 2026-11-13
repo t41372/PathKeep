@@ -1,6 +1,6 @@
 # PathKeep v0.5.0
 
-Rehearsal draft. A separate embedding fix must be integrated and all packages rebuilt before release. This version has not been published.
+Unpublished rehearsal candidate with the fix for reads stalling during semantic-index updates. Final review and release approval are pending.
 
 PathKeep v0.5.0 improves browser backups, adds search sorting and a search builder, and keeps the existing semantic index available while a replacement is built. AI remains optional.
 
@@ -12,6 +12,7 @@ The first backup after upgrading reads the selected browser histories again. Lar
 
 ## Changes
 
+- Semantic-index updates count remaining work in short, cancellable reads. A long read no longer holds up every other read or later write, and the idle search indexer stops writing empty updates.
 - Backups identify native visits by their address and browser timestamp, so a browser reusing its row numbers no longer silently skips those new visits. Navigation links survive the upgrade. Firefox Sync copies retain their own records while counting once.
 - Runs distinguish complete, partially completed and failed backups, with results for each profile. The menu bar and scheduler retain the latest backup warning until a later backup resolves it.
 - Link previews continue in the background after the backup returns.
@@ -22,6 +23,7 @@ The first backup after upgrading reads the selected browser histories again. Lar
 
 ## Known limitations
 
+- Incremental semantic-index updates still scan the archive even when only a few visits changed. Large archives can keep background indexing busy.
 - At 14.4M visits, some first-time Insights reads and searches with no exact match can take a minute or more. Large site-category changes are also slow.
 - Navigation updates when a late opener is found, but previously built Insights paths wait for a full rebuild.
 - There is no separate interface for clearing semantic-index files. A large index can use substantial disk space.

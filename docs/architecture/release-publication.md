@@ -18,6 +18,11 @@ The first guard did not close that gap.
   within one preparation run remain parallel.
 - Preparation always creates a private draft. A draft belongs to one source
   commit; another commit cannot reuse it. API failures stop preparation.
+- The Tauri action receives both the reserved release ID and its explicit tag.
+  The ID bypasses release lookup/creation; the tag pins updater URLs to this
+  version instead of the mutable latest alias. This follows the action’s
+  [release-ID routing](https://github.com/tauri-apps/tauri-action/blob/v0.6.2/src/index.ts)
+  and [updater URL construction](https://github.com/tauri-apps/tauri-action/blob/v0.6.2/src/upload-version-json.ts).
 - `prepare`, `verify` and `publish` are separate operations in the same workflow
   and share its tag lock. Publication performs no build. It requires the reviewed
   source SHA, release ID and manifest digest, then checks the current assets again.

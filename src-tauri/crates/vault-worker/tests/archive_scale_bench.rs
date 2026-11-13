@@ -96,6 +96,11 @@ static ALLOCATOR: CountingAllocator = CountingAllocator;
 
 /// Failure mode (f): use the real export and allocator, comparing two archive sizes in an
 /// otherwise idle integration-test process. This guards against collecting rows/strings again.
+///
+/// The store's readers keep the pages they read, up to their cache size, and that is the store's
+/// memory, not the export's: the export runs until it leaves nothing more behind before it is
+/// measured. (Until 2026-11-13 the search indexer wrote to the archive ten times a second with
+/// nothing to write, and each of those writes emptied the caches, so they never filled.)
 #[test]
 fn export_heap_stays_bounded_as_archive_grows() {
     // The allocator is process-wide; another test opening a Vault must not count as export memory.
@@ -111,7 +116,7 @@ fn export_heap_stays_bounded_as_archive_grows() {
     let mut peaks = Vec::new();
     for visits in [10_000, 100_000] {
         let vault = native_export_fixture(visits);
-        let heap = report_memory("bounded export heap", 1, || {
+        let export = || {
             let result = vault_core::export_history(
                 &vault,
                 vault_core::ExportRequest {
@@ -124,7 +129,19 @@ fn export_heap_stays_bounded_as_archive_grows() {
             .unwrap();
             assert_eq!(result.count as u64, visits);
             std::fs::remove_file(result.path).unwrap();
-        });
+        };
+        let mut runs = 0;
+        loop {
+            let before = HEAP_CURRENT.load(Ordering::Relaxed);
+            export();
+            let kept = HEAP_CURRENT.load(Ordering::Relaxed).saturating_sub(before);
+            if kept < 128 * 1024 {
+                break;
+            }
+            runs += 1;
+            assert!(runs < 16, "every export leaves more behind: {kept} bytes after {runs} runs");
+        }
+        let heap = report_memory("bounded export heap", 1, export);
         assert!(heap < 2 * 1024 * 1024, "export allocated {heap} bytes above baseline");
         peaks.push(heap);
     }

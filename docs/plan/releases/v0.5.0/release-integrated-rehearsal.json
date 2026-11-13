@@ -1,0 +1,88 @@
+{
+  "recordedAt": "2026-11-13T17:52:07.244981+00:00",
+  "purpose": "Complete gate of the isolated release candidate integrating the reviewed long-read fix and explicit updater tag URLs",
+  "baseCommit": "ef92f15f82997578a1cf6cccf8c34b99933c2582",
+  "mergedFixHead": "aec2004de37298c027893ac681e145cff6824753",
+  "fixPullRequest": "https://github.com/t41372/PathKeep/pull/24",
+  "mainBranchMergePerformed": false,
+  "inputSnapshotSha256": "c3cd3996701dcdf35b99bb9b5ac88d6d047b3e0a48f1fcaa2c06d134c264f7e8",
+  "inputFiles": 1713,
+  "codeSha256": {
+    ".github/workflows/release.yml": "30aec13eaa0a82838e258d4c21ff1d742847e57fbe62795cb8f647b3b7458910",
+    "bun.lock": "75284425d12387ff477930ee421a0dc43b27f2b70792de997e88a1f216a1acb4",
+    "package.json": "36874a17a1001db3ac07c1b19b37a4fd9e18e5d85631ee24de13d53ef21193bb",
+    "scripts/verify-release-config.mjs": "69568cadd3ea70145e6e6924e156a448fd1fe567c23b2134216e311ad32d0ee7",
+    "src-tauri/Cargo.lock": "1be1a230a533d8e084e5ae9eabbd263f819fd5176ee0728f7527e729e204f3c9",
+    "src-tauri/crates/vault-core/src/ai/indexing/backfill.rs": "b61c9bc54b02f0382118a1a2c07913a913bee34744235fc48570dc85d249fe50",
+    "src-tauri/crates/vault-core/src/ai/indexing/mod.rs": "d21e21960901dc6f5962ed6d99d73bcc497a9340835904e1580bb3bf65f4a8f2",
+    "src-tauri/crates/vault-core/src/ai/tests_native/indexing.rs": "e251de5efbe12fb6fec1cbcd05fb1384abd57fb8ff29df6157fdf3c467bdec28",
+    "src-tauri/crates/vault-core/src/ai/tests_native/indexing/start.rs": "c574ac5be2946cb6b4717e82c39374f047ca92fa81cf7fa73123c19a485ba42b",
+    "src-tauri/crates/vault-core/src/search/indexer.rs": "74098c8fa99e177e80652360eb45d995008a7751accb606345da222a152d3923",
+    "src-tauri/crates/vault-core/src/search/recovery_tests.rs": "dffa1a2bfe6eeb76fd40da899f35275db44f92f94d53c4014bcd741392139846",
+    "src-tauri/crates/vault-store/src/checkpoint.rs": "aad0d04108b5420e56e19a679c61c07b981290394401a99c6014b01dc9e4100a",
+    "src-tauri/crates/vault-store/src/config.rs": "9f6d4c439a0b37e61e1ca01a7e850693e9c4db745e94196e1f6603f98c953b80",
+    "src-tauri/crates/vault-store/src/engine.rs": "210aeab1a6fc022c0bff1f50bbdb2d2c90b991f67eae07224547951b5c13ad23",
+    "src-tauri/crates/vault-store/src/lib.rs": "f04c6ceb93bae13fc86f1c99f5892bc0a3ee49db8480848a7d8959cdb3d86e46",
+    "src-tauri/crates/vault-store/src/running.rs": "4ca703c10e1cea673cb6d7f31b9aef344b84e83dbaeeb7c5951935e09dd5ae84",
+    "src-tauri/crates/vault-store/src/session.rs": "35bc812fa30b0d1be4a99d35336d28957440e4d34dd9b410154a4aab36ab749d",
+    "src-tauri/crates/vault-store/src/statements.rs": "65c7029474e1143b4d43f5602af5e5acefe843f6cd84de03800e5a09ff188775",
+    "src-tauri/crates/vault-store/src/worker.rs": "d7fe619288c89864132ebccbe17cbeac504a7941ef17574de885005eaffcdbb2",
+    "src-tauri/crates/vault-store/tests/admission.rs": "53cb920456bf856983407d57d67bdba70ea620a0609f33da399ea812fff5ca73",
+    "src-tauri/crates/vault-store/tests/long_statement.rs": "76d72a5903816372720d45f896d6c44664febf58352428e03370b8faaa5b83a9",
+    "src-tauri/crates/vault-worker/tests/archive_scale_bench.rs": "01c0a733f4b0caa97aa79696b26e8aea3ec8df29bd97f6f4fc7e28e461e8fdd0",
+    "src-tauri/src/lib.rs": "447e153f19ea1b6d3e9369aa59fc4d7032c6f941cffed6ac271e34c3f5e163a4"
+  },
+  "commands": {
+    "bun run verify": 0,
+    "bun run check:slow": 0
+  },
+  "frontend": {
+    "passed": 141,
+    "releaseCliCasesIncluded": 31,
+    "javascriptAudit": {
+      "packages": 532,
+      "findings": 0
+    }
+  },
+  "rust": "Workspace, desktop bridge, clippy, platform and supply-chain checks passed; existing exception policy unchanged.",
+  "e2e": {
+    "backup-integrity-damaged/results.json": {
+      "startTime": "2026-11-13T17:42:05.180Z",
+      "duration": 16911.716,
+      "expected": 1,
+      "skipped": 0,
+      "unexpected": 0,
+      "flaky": 0
+    },
+    "backup-integrity-healthy/results.json": {
+      "startTime": "2026-11-13T17:41:05.399Z",
+      "duration": 59220.977,
+      "expected": 9,
+      "skipped": 0,
+      "unexpected": 0,
+      "flaky": 0
+    },
+    "results.json": {
+      "startTime": "2026-11-13T17:13:41.269Z",
+      "duration": 1639783.5,
+      "expected": 124,
+      "skipped": 1,
+      "unexpected": 0,
+      "flaky": 0
+    }
+  },
+  "lockfilesBeforeAndAfter": {
+    "bun.lock": "75284425d12387ff477930ee421a0dc43b27f2b70792de997e88a1f216a1acb4",
+    "src-tauri/Cargo.lock": "1be1a230a533d8e084e5ae9eabbd263f819fd5176ee0728f7527e729e204f3c9"
+  },
+  "artifact": {
+    "name": "gate-v4-complete.tar.gz",
+    "sha256": "c72d6d5f1c7a571546b7040126ac910804fcacb68765fba2653af41df8693370",
+    "bytes": 695190097
+  },
+  "publication": {
+    "performed": false,
+    "immutableSettingChanged": false
+  },
+  "sourceFreeze": "The signed source and subsequent Actions/native receipts are recorded on PR22; native preparation does not move that source."
+}

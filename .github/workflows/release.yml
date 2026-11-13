@@ -325,6 +325,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           releaseId: ${{ needs.prepare-release.outputs.release_id }}
+          tagName: ${{ needs.prepare-release.outputs.resolved_tag }}
           releaseDraft: true
           assetNamePattern: '[name]_[version]_[platform]_[arch][setup][ext]'
           args: >-

@@ -9,12 +9,12 @@
 
 ## CURRENT FOCUS
 
-- [!] **WORK-RELEASE-EMBEDDING-BLOCKER** — 使用者告知另一 worktree 正在修復嚴重 embedding bug；本輪只完成發布準備，禁止公開 v0.5.0。
-  - 本分支的 gate、私有安裝包與操作紀錄只作預演。修復合併後更新 notes、凍結新 SHA、重跑最終 gate 並重建全部平台，再提交最終發布審閱。
-  - 本分支不改 embedding 產品邏輯。驗證中另重現 worker 測試未隔離 keyring 的環境問題，僅修正 fixture，詳見 `releases/v0.5.0/readiness.md`。
-  - 修復提案已開 [PR #24](https://github.com/t41372/PathKeep/pull/24)，本輪預演尚未整合；其遠端 CI 於核對時仍在執行。
+- [!] **WORK-RELEASE-EMBEDDING-BLOCKER** — 嚴重 embedding／長讀阻斷修復已以固定 head 整合到隔離預演；公開仍等批准。
+  - 本分支採用 PR #24 的 `aec2004de37298c027893ac681e145cff6824753`；這份整合來源的完整 `verify`／`check:slow` 已通過；四平台建置與實際產物核對紀錄以 PR #22 為準。PR #24 的主分支合併由原工作流程處理；任何後續變動都須更新候選與驗證。
+  - 修復程式沿用已審閱的 PR #24 head；本輪另修正 worker 的 keyring 隔離與時區測試的重複計算，詳見 `releases/v0.5.0/readiness.md`。
+  - [PR #24](https://github.com/t41372/PathKeep/pull/24) 的遠端 CI 全數通過、既有審查 thread 已解決；發布仍禁止自動推進。
 
-- [ ] **WORK-RELEASE-TAG-TRANSACTION** — 修正 PR #22 審查指出的同 tag／不同 ref 競態；發布設定與政策變更仍等批准。
+- [!] **WORK-RELEASE-TAG-TRANSACTION** — 同 tag／不同 ref 競態的提案與離線驗證已完成；發布設定與政策變更仍等批准。
   - 讀先：`docs/architecture/release-publication.md`、`RELEASE.md`、`releases/v0.5.0/readiness.md`、`program/quality-matrix.md`；GitHub immutable releases 與 repository API 官方文件。
   - 初始 published 檢查不是原子操作。改以明確 tag 共用鎖，草稿綁定 source SHA，建置與發布分開，發布只使用已審閱的 SHA／manifest digest。
   - GitHub immutable releases 目前為 false。啟用與公開均留在最終 approval 步驟；先交付可審閱的程式、trade-off、私有產物與驗證。
@@ -25,9 +25,9 @@
   - 舊候選的 CI／四平台建置已取消，以新來源重跑完整 gate 與 native draft。公開仍等明確 approval，v0.4.0 舊產物不變。
   - 新一輪登錄檔核對再納入 Motion 14.14.0／tslib 2.9.1；此前來源的 `verify` 已過，`check:slow` 被當日新增的 RUSTSEC-2026-0538 擋下。quinn-udp 鎖檔更新至修正版 0.5.16 後，完整 `verify`／`check:slow` 已過：141 個前端測試、134 E2E 過／1 平台略過，兩份鎖檔未變，不新增例外。證據：`releases/v0.5.0/release-transaction-rehearsal.json`。
 
-- [ ] **WORK-RELEASE-V0.5.0** — 完成 v0.5.0 發布準備；embedding 修復未完成，這次不公開。
+- [ ] **WORK-RELEASE-V0.5.0** — 完成包含 PR #24 head 的 v0.5.0 發布準備；這次不公開。
   - 讀先：`RELEASE.md`、`m4-full-polish/release-readiness-runbook.md`、`releases/v0.5.0/readiness.md`。
-  - 已從 stash 恢復三語 notes、原始證據與 README banners，原 stash 保留。四處版本對齊 0.5.0，本候選完整 gate 已通過。
+  - 已從 stash 恢復三語 notes、原始證據與 README banners，原 stash 保留。四處版本對齊 0.5.0；整合來源完整 gate 已過：141 個前端測試、134 E2E 過／1 平台略過、兩份鎖檔未變。證據：`releases/v0.5.0/release-integrated-rehearsal.json`。
   - 推送候選後，以已公開 v0.4.0 預演保護條件，再建置四平台 unsigned draft；來源 SHA、Actions 結果、11 個 assets 與 checksum 核對紀錄以發布準備 PR／Release 草稿為準。候選 commit 在建置與審閱期間凍結，公開前不推 tag。
   - 14.4M 與跨平台驗收沿用使用者已確認的結果。Unsigned preview 須手動安裝，沒有 app 內自動更新；公開這條路須一併批准 macOS 簽章政策例外。
 
@@ -35,6 +35,27 @@
   - 讀先：`RELEASE.md`、`m4-full-polish/release-readiness-runbook.md`、`releases/v0.5.0/readiness.md`、`program/quality-matrix.md`。
   - v0.4.0 公開後兩秒觸發了 tag push workflow；未設定 updater key 而失敗。新版保護也攔下手動 `draft=true` 沿用公開 tag 的覆寫風險，API 錯誤必須阻斷。
   - 先列失敗模式與 CLI／HTTP 回歸測試再實作；九個場景通過。含此保護的 `bun run verify`、`check:slow` 退出 0：119 個前端測試、134 個 E2E 通過／1 個平台略過，desktop build 與供應鏈檢查通過，兩份鎖檔 hash 相同。證據：`releases/v0.5.0/release-rehearsal.json`。
+
+- [x] **WORK-LONG-READ-OUTAGE** — 一條跑不完的讀取讓整個 app 讀不到新資料（用戶 2026-11-13 回報：在 AI 設定點「繼續」建立索引之後，歷史只剩已載入的、洞察永遠載入中，後台任務停在舊狀態）。
+  - 讀先：`docs/architecture/turso-migration-design.md` §4（讀取池與 Checkpoint）、`semantic-index-control.md`、`search.md`、`docs/plan/program/quality-matrix.md`（什麼時候才寫 unit test）。
+  - 原因有三層，在卡住的進程（採樣、反組譯）、合成資料與真實存檔的本機副本上都確認了：
+    1. `10f05828`（11 月 8 日）給 `ai_embeddings` 加了 `lineage` 欄與索引。建置開跑前數「還有多少造訪沒建索引」的那句 `COUNT`，Turso 從此改用「provider、model、lineage」那個索引：每筆造訪把整個 lineage 讀一遍。合成資料 2,000 筆 0.35 秒、16,000 筆 22.7 秒（平方成長）；同樣 8,000 筆在加欄之前的 schema 上是 6 ms。那次改動替另一句查詢加了索引提示並寫了測試，漏了這一句。升級後第一個真的開跑的建置就是用戶這一個。
+    2. `vault-store` 的 writer 寫完要截 WAL 時先擋住新讀取，再等進行中的讀取離開，沒有上限。一條長讀取加上任何一次寫入，那個資料庫所有新的讀取與後面的寫入就等到它結束；Intelligence 的讀取讀 `archive.*` 時，Archive 也一樣。
+    3. 搜尋索引器每 100 ms 輪詢一次，結尾無條件刪一次 outbox（刪 0 列也是一個寫入工作）。閒置時 archive 每秒九次以上 checkpoint，任何超過 0.1 秒的 archive 讀取都會碰上第 2 點。Intelligence 那邊是任務每 30 秒的心跳。
+  - 修正：`COUNT` 指定 `idx_ai_embeddings_lineage_history`、照造訪 id 每 10,000 一頁、頁與頁之間看有沒有被要求停；writer 等讀取最多 50 ms，等不到就放行，最後一條讀取離開時再截，那條讀取還在的期間不再為它擋；索引器沒有新東西就不寫（開啟後第一次輪詢仍清一次當機留下的列）。
+  - 測試十個，寫在修正之前：`vault-store/tests/admission.rs` 五個、`search/recovery_tests.rs` 兩個、`ai/tests_native/indexing/start.rs` 三個。其中五個在舊實作上失敗：讀取、跨資料庫的讀取、寫入不等還在跑的讀取；閒置的索引器不寫 archive；在既有索引上建置的查詢計劃。其餘守的是這次改動可能弄壞的地方（延後的截斷在長讀取結束後補做、當機留下的 outbox 列下次啟動清掉、計數的值、同一條長讀取不再反覆擋讀取：拿掉那條規則它會失敗），或要新程式碼才編得過（計數到一半可以停）。這些 E2E 重現不了：要幾十萬列才看得出來，或要一條被按住的讀取。
+  - 驗收：真實存檔的本機副本（embedding 指向本機的假服務）上跑完整個增量建置。開跑到第一個 embedding 請求 6 秒，其中計數 0.8 秒；修之前同一句在同一份資料上每筆造訪要 70–150 ms，估計十幾個小時。建置期間另外跑的九千多次 Archive 與 Intelligence 讀取，中位數不到 0.1 ms，最慢 53 ms。`bun run check` 通過：前端 110 個測試，Rust 92 組，E2E 135 過。
+  - 連帶的改變：讀取連線的頁面快取以前被那每秒十次的空寫入一再清空，現在會留著，長到設定的上限為止（每條連線 8 MiB；10 萬筆造訪的匯出跑幾次後兩條共約 14 MB，之後不再長）。`export_heap_stays_bounded_as_archive_grows` 原本靠快取被清空才量得到 2 MiB 以下，改成快取暖了再量：匯出本身在 1 萬與 10 萬筆都是 0.9 MiB。
+  - 畫面上看到的「已暫停＋舊錯誤」是點「繼續」之前的快照（列與標題是兩個查詢，之後的都沒回）；「44 項失敗」是十月中的舊紀錄。
+  - 同一天追加（第二個 commit）：讀取不再互相等之後，一條跑不完的語句就沒有任何症狀了，所以讓它進 log。一條語句跑超過 30 秒，`vault-store` 點名它（連線、多久、語句開頭，引號裡的字換成 `?`），每翻倍再記一次，結束時也記；`html5ever` 的警告不再進 `rust.log`（那天的 log 只剩它）。測試 `vault-store/tests/long_statement.rs` 先寫，在沒有這個功能時失敗。
+  - PR #24 的審查（ChatGPT Pro 與 CodeRabbit，2026-11-13，都說沒有擋合併的）。五條意見逐條對照程式碼，都成立，是三個原因；另一條是驗證時自己發現的。一起改：
+    1. 「已經等過的讀取」記在 writer 的迴圈裡，而且只記一條。迴圈一聽到「最後一條讀取走了」就把它忘掉，但那個通知可能是 writer 忙的時候留下的，之後又有讀取進來，於是同一條長讀取多擋一次 50 ms（ChatGPT；在真的 writer 上重現，30 次都重現）。另外，等的時候裡面有兩條長讀取，只記了待最久的那條，它走了之後又為另一條擋一次（自己發現，同一個原因）。改成記在閘門裡：放棄時記下當時最新的讀取編號，編號不比它大的讀取還有一條在，就不讓 writer 擋。迴圈不再有這個狀態。審查建議只刪掉「忘掉」那一行；沒有照做，因為第二種情況還在，而且測試仍然只能靠計時。
+    2. `later_writes…` 把二十次寫入的磁碟時間算進 500 ms 的上限，磁碟慢就誤判（ChatGPT）。新增 `Metrics::truncates_put_off`（writer 放棄了幾次），`admission.rs` 改成讀它：不量時間，也沒有固定的等待，截止時間只用來不讓壞掉的版本卡住整個 suite。閘門的規則另有兩個不花時間的 unit test（等待上限設成零）。
+    3. 慢語句的記錄只接在 `Session::with_statement`。先 `prepare` 再跑的語句（Insights 的重查詢與索引建置多半這樣寫）和 `integrity_check` 都沒被看（ChatGPT、CodeRabbit）。現在每條路都經過 `Session::watch`，逐列讀的語句讀到最後一列就算結束。成本量過：prepare 好的單列 INSERT 約 620 ns，多約 20 ns，在各次量測的起伏之內。
+    4. log 那一行遮字串的程式不認得 SQL 註解：註解裡一個撇號，就讓後面的字串被當成語句本文印出來（CodeRabbit）。app 的語句裡有帶撇號的註解，但沒有把值寫進語句的地方，所以還沒有東西漏過。改成跟 `sql::tokens` 一樣分辨註解與四種引號，註解不印。
+    - 測試先寫、先失敗：過期通知與兩條長讀取的兩個（各在改之前的版本上得到 2 次放棄，應為 1）、`long_statement.rs` 的 prepare 兩段（拿掉 `execute` 的登記、或讓讀完的游標繼續算，各自失敗）、遮字串的一個。閘門的兩個 unit test 要新程式碼才編得過。`integrity_check` 的登記沒有自己的測試：沒有辦法讓它停在半路。
+  - GitHub 上這個 PR 的主要檢查（lint、建置、Rust、E2E，Ubuntu）通過，之後的供應鏈稽核失敗，跟這裡的改動無關：11 月 13 日發布的 RUSTSEC-2026-0538 影響 `quinn-udp` 0.5.14。它只因為 `reqwest` 的 `http3`（沒開）而列在 lockfile 裡，app 不編它（跑完整個 gate 的 target 裡沒有它的產物）。更新到修正版 0.5.16：lockfile 只改它自己的版本與 checksum，保留既有 Windows bindings（`cargo update` 會順手把另外九個套件的 `windows-sys` 換成舊版），不新增 advisory 例外。
+  - 進 BACKLOG：`WORK-SLOW-READ-ALARM`（剩下的部分：E2E 檢查、畫面、中斷語句）、`WORK-INDEX-UPDATE-WALKS-ARCHIVE`、`WORK-UNBOUNDED-READS`、`WORK-STALE-WHEN-BACKEND-SILENT`、`WORK-EMPTY-WRITE-CHECKPOINT`；`WORK-TURSO-MINMAX-WRAPPER-AUDIT` 補了量測。
 
 - [x] **WORK-RUSTIX-2026-11-13** — 新發布的 RUSTSEC-2026-0486 擋下 PR #20 的供應鏈 gate，更新既有間接依賴後重新驗證。
   - 讀先：`docs/architecture/dependency-maintenance.md`、RustSec 官方公告與 crates.io 的版本／依賴資料。

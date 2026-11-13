@@ -1,7 +1,10 @@
 //! Responsibilities: kill real owner applies and recover missing/corrupt derived indexes.
 //! Not responsible for: mocking storage publication or testing cryptographic primitives.
 //! Failure modes: commit/ack crash loses an event, old locks survive death, missing sidecar
-//! looks complete, or corruption destroys canonical facts. Runs both storage modes.
+//! looks complete, or corruption destroys canonical facts; an indexer with nothing to do writes
+//! to the archive on every poll (2026-11-13: ten empty writes a second, each followed by a
+//! checkpoint that kept readers out); rows a crash left in the outbox are never pruned.
+//! Runs both storage modes.
 use super::{SearchRequest, SearchSession};
 use crate::{SetNotesRequest, Vault};
 use std::{
@@ -193,5 +196,61 @@ fn cancelling_a_rebuild_preserves_search_and_a_later_rebuild_can_finish() {
         assert_eq!(result.count.value, 30);
         vault.search().rebuild().unwrap();
         crate::test_support::assert_search_handoff(&vault);
+    }
+}
+
+#[test]
+fn an_indexer_with_nothing_to_do_does_not_write_to_the_archive() {
+    let vault = Vault::open_temp().unwrap();
+    super::tests::seed(&vault, 25);
+    vault.search().cycle().unwrap();
+    // Let the writer finish the checkpoint that follows the last real write.
+    std::thread::sleep(Duration::from_millis(500));
+    let before = vault.store().metrics(vault_store::Db::Archive);
+    // Ten polls of the indexer.
+    std::thread::sleep(Duration::from_secs(1));
+    let after = vault.store().metrics(vault_store::Db::Archive);
+    assert_eq!(
+        (after.passive_checkpoints, after.truncate_checkpoints),
+        (before.passive_checkpoints, before.truncate_checkpoints),
+        "the idle indexer kept the archive writer checkpointing"
+    );
+    crate::test_support::assert_search_handoff(&vault);
+}
+
+#[test]
+fn outbox_rows_a_crash_left_behind_are_pruned_at_the_next_start() {
+    let outbox = |vault: &Vault| {
+        vault
+            .store()
+            .read(vault_store::Db::Archive, |s| {
+                s.query_one("SELECT COUNT(*) FROM search_outbox", (), |r| Ok(r.get::<i64>(0)?))
+            })
+            .unwrap()
+    };
+    for key in [None, Some([99; 32])] {
+        let vault = Vault::open_temp_with_key(key).unwrap();
+        super::tests::seed(&vault, 25);
+        vault.search().cycle().unwrap();
+        assert_eq!(outbox(&vault), 0);
+        // What a crash between publishing the index and pruning leaves: rows the index has
+        // already applied.
+        vault
+            .store()
+            .write(vault_store::Db::Archive, vault_store::Priority::Batch, |s| {
+                s.execute(
+                    "INSERT INTO search_outbox(seq,page_id,change) VALUES(1,1,'upsert')",
+                    (),
+                )?;
+                Ok(())
+            })
+            .unwrap();
+        let paths = vault.paths().clone();
+        let config = vault.config().clone();
+        vault.close().unwrap();
+        let reopened = Vault::open(paths, config, key).unwrap();
+        reopened.search().cycle().unwrap();
+        assert_eq!(outbox(&reopened), 0);
+        crate::test_support::assert_search_handoff(&reopened);
     }
 }
