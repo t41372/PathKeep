@@ -80,6 +80,22 @@
   - 方向：斷言快取自己回報的用量（child 已經印出 `max_cache_mib`），RSS 只當上限的佐證；或把索引做大到差距遠超雜訊。不要只是放寬門檻。
   - 2026-10-25 16:13 Modal 上閒著的 Linux 跑過了，和「記憶體緊時才失敗」一致；測試本身的弱點還在。
 
+- [ ] **WORK-DOCS-DRIFT-2026-11** — 架構文件與程式不一致的地方（2026-11-13 盤點 v0.6 要接的地方時讀程式發現，都早於這次工作）
+  - `docs/architecture/module-boundary-map.md` 列 5 個 crate，workspace 有 11 個；它列的點號指令名（`archive.backup.preview` 等）不存在。
+  - `docs/architecture/tech-stack.md` 還在講 SQLite / SQLCipher / FTS5 與 `.sqlite` 檔，程式是 Turso 加 Tantivy；它說助理的對話不在搬家包裡，程式有匯出。
+  - `vault-store/README.md` 寫 cipher 是 `aegis256`、Turso 0.8.1；程式是 `aes256gcm`、0.8.3。`store-schema.md` 每個資料庫都寫 version 1，Archive 已到 23、Intelligence 到 2。
+  - `docs/architecture/owner-process.md` 的允許清單少了 `ai-jobs`、`intelligence-jobs`。`vault-worker/src/cli.rs` 預設指令是 `snapshot`，自己的 match 卻不接受。
+  - AGENTS.md 說檔案行數的硬門檻在 `repo-baseline.md`，那裡只有「1000 行以上列冊」一個數字，TS 與 Rust 沒有各自的上限，也沒有工具在檢查。要嘛補上數字和檢查，要嘛改 AGENTS.md 的說法。
+  - `quality-matrix.md` 的 E2E project 清單少了 `empty`。
+
+- [ ] **WORK-COMMAND-CONTRACT-PARITY** — 後端指令要手動寫在七個地方，沒有測試確認它們一致（2026-11-13 盤點時發現）
+  - 一個指令：`vault-worker` 的函式、`worker_bridge` 的 `*_impl`、`commands/` 的 Tauri command、`generate_handler!` 清單、dev bridge 的 dispatch 與 payload、TS client、TS 型別。E2E 走 dev bridge，所以真正的 Tauri invoke 那一段（command 與 handler 清單）沒有任何自動檢查。
+  - 現在兩邊各 192 個、名稱一致（用腳本比過）。先加一個測試比對 handler 清單與 dispatch 表；要不要用程式產生其中幾份另外評估（會是新依賴）。
+
+- [ ] **WORK-PROTOTYPE-2026-10-REMOVE** — 刪掉 `docs/design/prototype-2026-10/`，文件不再指向它（先問用戶）
+  - 用戶 2026-11-13 說原型不留在倉庫裡、文件也不該指向原型。那句話是針對 v0.6 的原型說的；2026-10 的原型已經做進前端，照同一個原則也該刪，但這是我的推論，動手前先確認。
+  - 指向它的地方：`screens-and-nav.md`、`ux-principles.md`、`design-tokens.md`、`ui-review-guardrails.md`（截圖路徑）、`docs/design/handoff/README.md`、`src/index.css` 的註解、`.prettierignore`。
+
 - [ ] **WORK-BACKGROUND-DASHBOARD** — 後台任務做成 dashboard，不是設置頁（用戶 2026-10-15，說之後再做）
   - 現況：Settings → 後台任務是一列列設置卡片加工作清單。它其實是給人看「現在在跑什麼、跑多快、哪裡卡住」的地方：正在跑的工作、進度與速度、排隊的、失敗的與原因、可以暫停 / 繼續 / 取消 / 重試。
   - `WORK-AI-INDEX-CONTROL` 已做完（2026-10-15）：暫停 / 繼續 / 取消、會動的進度與速度、剩餘時間、工作結束的事件都有了，這頁可以直接用（`use-index-pace.ts`、`use-background-work.ts` 的工作動作、分頁的 `JobList`）。先讀 `docs/design/` 核心四份再設計。
