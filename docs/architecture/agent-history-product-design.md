@@ -229,6 +229,13 @@ time. No title, no folder, no content.
   spec: files the user exported, and backups of the PathKeep folder made by the
   system or by the user.
 
+- **Conversations that continue from it go too.** A conversation can begin with
+  records copied from another (a Claude Code session continued from an earlier
+  one), or inherit the first part of another's file (a Codex fork). It holds or
+  needs the content being deleted, so it is deleted in the same action, with a
+  deletion record of its own. The preview names these conversations so the user
+  sees them before confirming. A parent or a sibling is not touched.
+
 Putting a conversation away is only a flag in user state. It hides the
 conversation from lists; search and insights still include it.
 
@@ -355,12 +362,15 @@ copy.
 clock second; the per-conversation sum is kept beside it. Day buckets split at
 local midnight in the insights time zone, so a day never exceeds 24 hours.
 
-**Projects** are grouped from folder observations: the folder a conversation
-worked in maps to its git top-level folder; a worktree maps to the main
-repository through the common git directory; a folder with no observation falls
-back to path rules for the tools' own worktree locations; everything else is a
-project of its own. Folders that share a remote but not a repository are a
-suggestion, not a grouping.
+**Projects** are grouped only by what is certain. The folder a conversation
+worked in maps to its git top-level folder. A worktree maps to its main
+repository through the common git directory. A folder that lies inside a known
+repository's top-level folder belongs to that repository even after the folder
+is gone, because the path shows it. Everything else is a project of its own.
+What is only likely is a suggestion the user confirms: folders that share a
+remote but not a repository, a tool's worktree folder kept somewhere else whose
+repository can no longer be read, a folder that is gone and another of the same
+name. Each suggestion says what it rests on.
 
 ## 8. Queries
 
