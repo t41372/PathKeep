@@ -113,7 +113,7 @@ export function buildTimeline(items: VisitItem[], hasMore: boolean): Timeline {
       })
       // A page visited several times in a row is one row; the session and day
       // still count every visit.
-      for (let index = 0; index < session.items.length; ) {
+      for (let index = 0; index < session.items.length;) {
         const item = session.items[index]
         let end = index + 1
         while (

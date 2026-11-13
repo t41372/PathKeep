@@ -36,6 +36,7 @@ function commandInvokeErrorFromEnvelope(
         : null
   if (message === null) return null
   return new CommandInvokeError(message, {
+    cause: value,
     code: typeof record.code === 'string' ? record.code : null,
     actionHint:
       typeof record.actionHint === 'string' ? record.actionHint : null,
@@ -73,10 +74,12 @@ export async function invokeCommand<TResponse>(
       }
 
       if (typeof error === 'string' && error.trim().length > 0) {
-        throw new Error(error)
+        throw new Error(error, { cause: error })
       }
 
-      throw new Error(`PathKeep desktop command "${command}" failed.`)
+      throw new Error(`PathKeep desktop command "${command}" failed.`, {
+        cause: error,
+      })
     }
   }
 
@@ -103,6 +106,7 @@ export async function invokeCommand<TResponse>(
     const detail = error instanceof Error ? ` ${error.message}` : ''
     throw new Error(
       `PathKeep desktop command "${command}" could not reach the local desktop bridge at ${bridgeUrl}.${detail}`,
+      { cause: error },
     )
   }
 

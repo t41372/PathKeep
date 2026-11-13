@@ -70,9 +70,11 @@ function SessionGate() {
     case 'upgrade':
       return <UpgradeScreen />
     case 'onboarding':
-      return <RouterProvider router={onboardingRouter!} />
+      // A provider owns one router's route state for its lifetime. The archive
+      // router must mount separately so it starts with its own matched routes.
+      return <RouterProvider key="onboarding" router={onboardingRouter!} />
     case 'ready':
-      return <RouterProvider router={appRouter!} />
+      return <RouterProvider key="archive" router={appRouter!} />
   }
 }
 

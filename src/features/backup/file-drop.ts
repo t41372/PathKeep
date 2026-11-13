@@ -4,7 +4,7 @@
  * plugin returns paths too, which is what the backend needs. In a plain
  * browser neither exists, so callers fall back to typing a path.
  */
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { hasTauriGuestApi } from '@/lib/runtime'
 
 export const canUseNativeFiles = hasTauriGuestApi
@@ -53,7 +53,9 @@ export function useWindowFileDrop(
 ) {
   const [hovering, setHovering] = useState(false)
   const handler = useRef(onDrop)
-  handler.current = onDrop
+  useLayoutEffect(() => {
+    handler.current = onDrop
+  }, [onDrop])
 
   useEffect(() => {
     if (!enabled || !canUseNativeFiles()) return

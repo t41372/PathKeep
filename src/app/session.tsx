@@ -17,6 +17,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -108,7 +109,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   // the converted archive.
   const upgradeDue = useRef<'unknown' | 'pending' | 'none'>('unknown')
   const preferenceRef = useRef(preference)
-  preferenceRef.current = preference
+  useLayoutEffect(() => {
+    preferenceRef.current = preference
+  }, [preference])
 
   const enter = useCallback(
     (snapshot: AppSnapshot) => {

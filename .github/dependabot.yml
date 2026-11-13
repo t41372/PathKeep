@@ -1,0 +1,17 @@
+version: 2
+updates:
+  - package-ecosystem: bun
+    directory: /
+    schedule:
+      interval: daily
+    # Review the latest releases without an artificial waiting period.
+    cooldown:
+      default-days: 0
+    # Keep coupled peers, such as React/React DOM and the TypeScript tools,
+    # in the same review instead of proposing incompatible intermediate states.
+    groups:
+      javascript:
+        patterns:
+          - '*'
+    commit-message:
+      prefix: chore(deps)

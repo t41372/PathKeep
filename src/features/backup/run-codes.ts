@@ -8,9 +8,7 @@
 import type { BackupReport, BackupWarning } from '@/lib/types'
 
 export type RunAction =
-  | 'full-disk-access'
-  | 'ai-settings'
-  | 'background-settings'
+  'full-disk-access' | 'ai-settings' | 'background-settings'
 
 export interface Rule {
   action?: RunAction

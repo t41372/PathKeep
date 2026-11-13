@@ -21,13 +21,7 @@ import type {
 
 /** Where the file comes from. "detect" lets the backend read the file's format. */
 export type BrowserSource =
-  | 'detect'
-  | 'chrome'
-  | 'edge'
-  | 'firefox'
-  | 'safari'
-  | 'atlas'
-  | 'comet'
+  'detect' | 'chrome' | 'edge' | 'firefox' | 'safari' | 'atlas' | 'comet'
 
 export const browserSources: BrowserSource[] = [
   'detect',

@@ -63,9 +63,7 @@ export interface AppLockConfig {
  * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
  */
 export type AppLockBiometricState =
-  | 'touch-id-available'
-  | 'touch-id-unavailable'
-  | 'unsupported'
+  'touch-id-available' | 'touch-id-unavailable' | 'unsupported'
 
 /**
  * Represents a read model or status snapshot for app lock.

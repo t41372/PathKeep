@@ -14,11 +14,7 @@ import type {
 } from '@/lib/types'
 
 export type ProviderKind =
-  | 'openai'
-  | 'anthropic'
-  | 'gemini'
-  | 'ollama'
-  | 'lm-studio'
+  'openai' | 'anthropic' | 'gemini' | 'ollama' | 'lm-studio'
 
 export interface ProviderPreset {
   kind: ProviderKind

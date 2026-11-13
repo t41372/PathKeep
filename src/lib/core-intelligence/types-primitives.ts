@@ -199,13 +199,7 @@ export interface KpiMetric {
 // ---------------------------------------------------------------------------
 
 export type TimeRangePreset =
-  | 'day'
-  | 'week'
-  | 'month'
-  | 'quarter'
-  | 'year'
-  | 'all'
-  | 'custom'
+  'day' | 'week' | 'month' | 'quarter' | 'year' | 'all' | 'custom'
 
 /**
  * One page of a list. Pass `nextCursor` back with the same filters to continue;

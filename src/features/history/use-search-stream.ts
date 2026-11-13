@@ -19,7 +19,14 @@
  * results" (coverage is reported separately).
  */
 import { useQuery } from '@tanstack/react-query'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import {
   searchClient,
   type IndexerState,
@@ -92,12 +99,21 @@ export function useSearchStream(request: SearchRequest | null) {
   const stream = useRef<SearchStream | null>(null)
   const session =
     requestKey === null ? null : `${requestKey}#${revision ?? 0}#${restarts}`
+  const [resetFor, setResetFor] = useState(session)
+  // Adjust only local view state when the request changes. Keep old rows as
+  // placeholders; the effect below owns the external search subscription.
+  if (resetFor !== session) {
+    setResetFor(session)
+    setState((previous) =>
+      session === null
+        ? EMPTY
+        : { ...previous, error: null, loadingNext: false },
+    )
+  }
 
-  useEffect(() => {
-    if (!request || session === null) {
-      setState(EMPTY)
-      return
-    }
+  // End the old subscription during commit, before its next animation frame.
+  useLayoutEffect(() => {
+    if (!request || session === null) return
     let live = true
     let queued: SearchEvent[] = []
     let frame = 0
@@ -108,6 +124,7 @@ export function useSearchStream(request: SearchRequest | null) {
       queued = []
       if (!live || events.length === 0) return
       setState((previous) => {
+        if (!live) return previous
         // Rows of the previous session stay (as placeholder) until this one's first step.
         const base =
           previous.session === session
@@ -121,7 +138,6 @@ export function useSearchStream(request: SearchRequest | null) {
       queued.push(event)
       if (frame === 0) frame = requestAnimationFrame(flush)
     }
-    setState((previous) => ({ ...previous, error: null, loadingNext: false }))
     void searchClient
       .start(request, onEvent)
       .then((started) => {
@@ -130,18 +146,20 @@ export function useSearchStream(request: SearchRequest | null) {
           return
         }
         stream.current = started
-        setState((previous) =>
-          previous.session === session
-            ? previous
-            : { ...previous, indexer: started.indexer },
-        )
+        setState((previous) => {
+          if (!live || previous.session === session) return previous
+          return { ...previous, indexer: started.indexer }
+        })
       })
       .catch((error: unknown) => {
         if (!live) return
-        setState({
-          ...EMPTY,
-          session,
-          error: error instanceof Error ? error.message : String(error),
+        setState((previous) => {
+          if (!live) return previous
+          return {
+            ...EMPTY,
+            session,
+            error: error instanceof Error ? error.message : String(error),
+          }
         })
       })
     return () => {

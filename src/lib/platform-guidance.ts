@@ -70,10 +70,7 @@ export function normalizePlatform(platform?: string | null): SupportedPlatform {
  * missing marker plus a zero count means.
  */
 export type BrowserDiscoveryState =
-  | 'ok'
-  | 'full-disk-access'
-  | 'discovery-error'
-  | 'empty'
+  'ok' | 'full-disk-access' | 'discovery-error' | 'empty'
 
 /**
  * Collapses the backend's optional `browserDiscoveryIssue` marker plus the

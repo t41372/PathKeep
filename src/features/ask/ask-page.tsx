@@ -136,6 +136,9 @@ function AskChat({
   const [question] = useState(() => params.get('q') ?? '')
   useEffect(() => {
     if (params.get('new') !== '1' && !params.get('q')) return
+    // This one-shot router command also cancels the active stream. It must run
+    // after commit, never while rendering a navigation that React may abandon.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     startFresh()
     setParams({}, { replace: true })
   }, [params, setParams, startFresh])
