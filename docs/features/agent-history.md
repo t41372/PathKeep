@@ -48,4 +48,4 @@ Session list 可以以 harness、**exact recorded project path** 篩選，按建
 
 後續產品整合需在背景 worker 使用同步 Rust API，保持主線程可響應；自行提供 PME 選取／預覽／執行、取消與進度，明確顯示來源／解析／附件差異。不得因有一個 complete raw revision 就把整個來源標成完全成功。User-visible copy、error／empty／loading／disabled 與 accessibility 都仍須交付三語。
 
-Resume、項目移動與跨 harness 轉移需先按 [Claude](../architecture/research/agent-history/claude.md#resume-and-migration-research-no-execution)、[Codex](../architecture/research/agent-history/codex.md#resume-and-project-migration-research-only)、[Pi／DeepSeek](../architecture/research/agent-history/pi-deepseek.md) 的證據重新定義 per-version 能力；目前 `native_resume_ready` 一律 false。平台、效能、未知格式與限制必須從交接紀錄延續，不因換了一層 UI 就消失。
+Resume、項目移動與跨 harness 轉移需先按 [Claude](../architecture/research/agent-history/claude-code.md#resume-and-migration-research-no-execution)、[Codex](../architecture/research/agent-history/codex.md#resume-and-project-migration-research-only)、[Pi／DeepSeek](../architecture/research/agent-history/pi-deepseek.md) 的證據重新定義 per-version 能力；目前 `native_resume_ready` 一律 false。平台、效能、未知格式與限制必須從交接紀錄延續，不因換了一層 UI 就消失。
