@@ -1,7 +1,8 @@
 //! Responsibilities: name in the log a statement that has been running for a long time, again
 //! each time that time doubles, and once more when it ends.
 //! Not responsible for: stopping it (the SDK has no interrupt), timing statements that end
-//! soon, or work made of many short statements.
+//! soon, work made of many short statements, or what the store runs for itself (BEGIN and
+//! COMMIT, checkpoints, a migration's bookkeeping, a query plan, copying a database).
 //! Failure modes: a statement runs for hours and the log says nothing (2026-11-13); the line
 //! carries a value written into the statement; every statement pays for the watch; one long
 //! statement fills the log; the watcher outlives the store. Tests: tests/long_statement.rs.
@@ -151,36 +152,47 @@ fn seconds(age: Duration) -> String {
     }
 }
 
-/// The statement on one line, with what stands between quotes replaced by `?`: bound values
-/// are never in the text, but a statement put together with a value in it must not put that
-/// value in the log.
+/// The statement on one line, with what stands between quotes replaced by `?` and comments
+/// left out: bound values are never in the text, but a statement put together with a value
+/// in it must not put that value in the log. Quotes and comments are told apart the way
+/// `sql::tokens` does it, since an apostrophe in a comment is not the start of a literal.
+/// Whatever is still open where the text ends is dropped with it.
 fn without_values(sql: &str, cut: bool) -> String {
     let mut shown = String::with_capacity(sql.len());
-    let mut quote = None;
     let mut space = false;
-    for c in sql.chars() {
-        match quote {
-            Some(open) => {
-                if c == open {
-                    quote = None;
-                }
+    let mut rest = sql.chars().peekable();
+    while let Some(c) = rest.next() {
+        let closer = match c {
+            '\'' | '"' | '`' => Some(c),
+            '[' => Some(']'),
+            _ => None,
+        };
+        if let Some(closer) = closer {
+            let _ = rest.by_ref().find(|inside| *inside == closer);
+            if std::mem::take(&mut space) {
+                shown.push(' ');
             }
-            None if c == '\'' || c == '"' => {
-                quote = Some(c);
-                if space {
-                    shown.push(' ');
-                    space = false;
+            shown.push('?');
+        } else if c == '-' && rest.peek() == Some(&'-') {
+            let _ = rest.by_ref().find(|inside| *inside == '\n');
+            space = !shown.is_empty();
+        } else if c == '/' && rest.peek() == Some(&'*') {
+            rest.next();
+            let mut star = false;
+            for inside in rest.by_ref() {
+                if star && inside == '/' {
+                    break;
                 }
-                shown.push('?');
+                star = inside == '*';
             }
-            None if c.is_whitespace() => space = !shown.is_empty(),
-            None => {
-                if space {
-                    shown.push(' ');
-                    space = false;
-                }
-                shown.push(c);
+            space = !shown.is_empty();
+        } else if c.is_whitespace() {
+            space = !shown.is_empty();
+        } else {
+            if std::mem::take(&mut space) {
+                shown.push(' ');
             }
+            shown.push(c);
         }
     }
     if cut {
@@ -201,5 +213,19 @@ mod tests {
             without_values("SELECT 1 WHERE note='half a secr", true),
             "SELECT 1 WHERE note=?…"
         );
+    }
+    #[test]
+    fn a_quote_in_a_comment_does_not_turn_the_literals_after_it_inside_out() {
+        // The validator lets comments through (`sql::tokens`), and the app's statements have
+        // them. An apostrophe in one used to open a literal that the next real quote closed.
+        assert_eq!(
+            without_values(
+                "SELECT /* user's note */ 'private-value' FROM t -- it's\n WHERE a=[it's] AND b=`c's`",
+                false
+            ),
+            "SELECT ? FROM t WHERE a=? AND b=?"
+        );
+        assert_eq!(without_values("SELECT 1 /* user's 'private", true), "SELECT 1…");
+        assert_eq!(without_values("SELECT 2 -- user's 'private", true), "SELECT 2…");
     }
 }

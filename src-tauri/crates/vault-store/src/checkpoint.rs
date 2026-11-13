@@ -2,8 +2,8 @@
 //! Not responsible for: automatic checkpoint tuning or interrupting statements.
 //! Failure modes: TRUNCATE races new readers; reader completion fails to wake an idle
 //! writer; busy checkpoint is reported as success; WAL grows across short reads; a read that
-//! runs long keeps every other reader out for as long as it runs.
-//! Tests: checkpoint tests, wal tests and admission tests.
+//! runs long keeps every other reader out for as long as it runs, or once more each time the
+//! writer thinks of truncating. Tests: checkpoint tests, wal tests and admission tests.
 use crate::{Error, Result, engine::Engine};
 use std::{
     sync::{Arc, Condvar, Mutex},
@@ -17,6 +17,10 @@ pub struct Metrics {
     pub batch_pending: usize,
     pub passive_checkpoints: u64,
     pub truncate_checkpoints: u64,
+    /// Idle truncates the writer put off because a read was still running when it had waited
+    /// long enough. The reads inside at one wait cost one, however many writes come while
+    /// they run.
+    pub truncates_put_off: u64,
     pub checkpoint_busy: u64,
     pub last_checkpoint_frames: Option<i64>,
     pub last_checkpoint_backfilled: Option<i64>,
@@ -27,11 +31,13 @@ pub struct Metrics {
 }
 #[derive(Default)]
 struct Admission {
-    /// The readers inside, by entry number. Numbers only grow, so the lowest is the reader
-    /// that has been inside longest.
+    /// The readers inside, by entry number. Numbers only grow, so a lower one entered earlier.
     inside: Vec<u64>,
     entered: u64,
     truncating: bool,
+    /// The newest reader there was when the writer last gave up waiting. Every reader that
+    /// was inside then has this number or a lower one.
+    given_up: u64,
 }
 pub(crate) struct Gate {
     state: Mutex<Admission>,
@@ -59,17 +65,20 @@ impl Gate {
         s.inside.push(entry);
         ReadGuard(self, entry)
     }
-    /// Whether the reader with this entry number has not left yet.
-    pub fn is_inside(&self, entry: u64) -> bool {
-        self.state.lock().unwrap().inside.contains(&entry)
-    }
     // Reserve admission only while the writer is idle. Existing short readers
     // finish normally; new readers wait for this checkpoint, never for a batch, and
     // never for a reader that is still running (`TruncateGuard::wait_for_readers`).
-    pub fn reserve_truncate(&self) -> TruncateGuard<'_> {
+    /// `None` while a reader the writer has already given up waiting for is still inside.
+    /// Keeping new readers out for it again would gain nothing, whatever made the writer
+    /// ask: a later write, or word that some other reader has left.
+    pub fn reserve_truncate(&self) -> Option<TruncateGuard<'_>> {
         let mut s = self.state.lock().unwrap();
+        let given_up = s.given_up;
+        if s.inside.iter().any(|entry| *entry <= given_up) {
+            return None;
+        }
         s.truncating = true;
-        TruncateGuard(self)
+        Some(TruncateGuard(self))
     }
     pub fn try_truncate(&self) -> Option<TruncateGuard<'_>> {
         let mut s = self.state.lock().unwrap();
@@ -81,21 +90,23 @@ impl Gate {
     }
 }
 impl TruncateGuard<'_> {
-    /// Waits, for at most `limit`, until the readers already inside have left. `Some` means
-    /// one is still running and names the one inside longest: the caller drops this guard, so
-    /// readers are let in again, and truncates later. Waiting without a limit made every new
+    /// Waits, for at most `limit`, until the readers already inside have left, and says
+    /// whether they have. If one is still running, the caller drops this guard, so readers are
+    /// let in again, and truncates later: [`Gate::reserve_truncate`] gives no other guard
+    /// until the readers given up on here are gone. Waiting without a limit made every new
     /// read wait for the slowest one running (2026-11-13: for hours).
-    pub fn wait_for_readers(&self, limit: Duration) -> Option<u64> {
+    pub fn wait_for_readers(&self, limit: Duration) -> bool {
         let deadline = Instant::now() + limit;
         let mut state = self.0.state.lock().unwrap();
-        while let Some(longest) = state.inside.iter().copied().min() {
+        while !state.inside.is_empty() {
             let left = deadline.saturating_duration_since(Instant::now());
             if left.is_zero() {
-                return Some(longest);
+                state.given_up = state.entered;
+                return false;
             }
             state = self.0.changed.wait_timeout(state, left).unwrap().0;
         }
-        None
+        true
     }
 }
 impl Drop for ReadGuard<'_> {
@@ -177,6 +188,39 @@ mod tests {
         assert!(gate.try_truncate().is_none());
         drop(truncate);
         assert!(gate.try_truncate().is_some());
+    }
+
+    /// What the writer does when a reader outlasts its wait. No time passes: the limit is zero.
+    fn give_up(gate: &Gate) {
+        let guard = gate.reserve_truncate().expect("nothing kept the writer from waiting");
+        assert!(!guard.wait_for_readers(Duration::ZERO));
+    }
+    #[test]
+    fn readers_are_kept_out_once_for_a_reader_that_stays() {
+        let gate = Gate::new(|| {});
+        let long = gate.enter();
+        give_up(&gate);
+        // Asked again, whatever the reason: a later write, word of a reader that left before.
+        assert!(gate.reserve_truncate().is_none());
+        let newer = gate.enter();
+        assert!(gate.reserve_truncate().is_none());
+        drop(long);
+        // `newer` came in after that wait, so the writer waits for it once too.
+        give_up(&gate);
+        assert!(gate.reserve_truncate().is_none());
+        drop(newer);
+        assert!(gate.reserve_truncate().unwrap().wait_for_readers(Duration::ZERO));
+    }
+    #[test]
+    fn every_reader_inside_at_the_wait_has_been_given_up_on() {
+        let gate = Gate::new(|| {});
+        let first = gate.enter();
+        let second = gate.enter();
+        give_up(&gate);
+        drop(first);
+        assert!(gate.reserve_truncate().is_none(), "the second reader was waited for as well");
+        drop(second);
+        assert!(gate.reserve_truncate().is_some());
     }
 }
 

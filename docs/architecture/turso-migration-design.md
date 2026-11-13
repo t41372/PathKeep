@@ -80,7 +80,7 @@
 
 - 每個批次之後做 PASSIVE。
 - 寫入佇列空下來，而且讀取都結束時，做 TRUNCATE。
-  - 為了等到「讀取都結束」，writer 先擋住新的讀取，再等進行中的讀取離開。這一等最多 50 ms：短讀取在這之內都會結束。有一條讀取跑得久而等不到時，writer 放行新的讀取，改在最後一條讀取離開時再做；那條讀取還在的期間，之後的寫入不再為它擋一次。
+  - 為了等到「讀取都結束」，writer 先擋住新的讀取，再等進行中的讀取離開。這一等最多 50 ms：短讀取在這之內都會結束。有一條讀取跑得久而等不到時，writer 放行新的讀取，改在最後一條讀取離開時再做。那次等的時候在裡面的讀取，只要還有一條沒走，writer 就不再擋第二次：不管是之後又有寫入，還是它聽說有別的讀取走了（那個通知可能是它忙的時候留下的）。這條規則記在閘門裡（`vault-store/src/checkpoint.rs` 的 `Gate`），writer 的迴圈只問閘門。`Metrics::truncates_put_off` 數 writer 放棄了幾次，測試靠它判斷，不量時間。
   - 所以跑得久的讀取只會延後 TRUNCATE（它的 snapshot 本來就讓 WAL 截不掉），不會讓別的讀取或後面的寫入等它。延後的期間 WAL 會隨寫入長大：Turso 的 PASSIVE 不會讓 WAL 從頭寫起（量過：100 批都沒截時，WAL 就是整個匯入的大小），要等那條讀取結束才截掉。2026-11-13 以前這一等沒有上限：一條跑了幾小時的語句，加上任何一次寫入，讓 Archive 與 Intelligence 的所有讀取跟著等了幾小時（`vault-store/tests/admission.rs`）。
 - 不依賴自動 checkpoint 的設定，0.8.1 會忽略它。
 
@@ -91,7 +91,7 @@
 
 **引擎日誌：** Turso 在 B-tree 和 VDBE 的每一步都開 `tracing` span。行程裡沒有 `tracing` dispatcher 時，`tracing` 會把每個 span 轉給 `log`，app 的 logger 開在 Debug，於是每一步都要問一次 logger 的逐模組過濾。2026-10-07 量到，同一份兩萬多筆訪問的資料，Insights 重建在測試裡 7 秒，在 app 裡超過一分鐘。所以 app 啟動時用 `vault_store::route_engine_diagnostics_to_log()` 設一個只要 warning 和 error 的 dispatcher：span 在呼叫點就被關掉，引擎的警告照樣進 app 的日誌。
 
-**跑得久的語句：** 一條語句跑超過 30 秒，`vault-store` 在 log 裡點名它：哪個資料庫的哪條連線、跑了多久、語句的開頭（引號裡的字換成 `?`；綁定的值本來就不在語句裡）。之後每翻一倍（60 秒、120 秒…）再記一次，結束時也記一行。它停不了那條語句（SDK 沒有中斷介面），只讓它不再無聲：讀取不再互相等之後，一條跑不完的語句唯一的跡象是佔住一條連線與一個核心、WAL 一直長大。2026-11-13 那條跑了幾小時，log 裡一個字也沒有。做法：每條連線記下自己正在跑的語句，`store-watch` 執行緒每 5 秒看一次；每條語句多一次鎖和複製語句開頭的 300 bytes（`vault-store/src/running.rs`）。
+**跑得久的語句：** 一條語句跑超過 30 秒，`vault-store` 在 log 裡點名它：哪個資料庫的哪條連線、跑了多久、語句的開頭（引號裡的字換成 `?`、註解拿掉；綁定的值本來就不在語句裡）。之後每翻一倍（60 秒、120 秒…）再記一次，結束時也記一行。它停不了那條語句（SDK 沒有中斷介面），只讓它不再無聲：讀取不再互相等之後，一條跑不完的語句唯一的跡象是佔住一條連線與一個核心、WAL 一直長大。2026-11-13 那條跑了幾小時，log 裡一個字也沒有。做法：每條連線記下自己正在跑的語句，`store-watch` 執行緒每 5 秒看一次（`vault-store/src/running.rs`）。工作跑語句的每一條路都經過 `Session::watch`：`Session` 的 `execute`、`query`、`for_each`，先 `prepare` 再 `execute` 或逐列讀的，還有 `integrity_check`。逐列讀的語句讀到最後一列就算結束，不等游標被丟掉。`vault-store` 自己跑的不看：BEGIN 與 COMMIT、checkpoint、migration 的版本紀錄、查詢計劃、複製資料庫。成本是每條語句多一次鎖和複製語句開頭的 300 bytes：最便宜的那種語句（prepare 好的單列 INSERT，約 620 ns）多約 20 ns，在各次量測的起伏之內。
 
 **錯誤：** 引擎的錯誤轉成 PathKeep 的分類：鎖定中、忙碌、損毀、金鑰錯誤、取消。前端遇到忙碌會自己恢復。
 

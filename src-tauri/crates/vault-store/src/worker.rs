@@ -94,9 +94,12 @@ impl Workers {
                         || {
                             // No read pool or ready signal exists yet. Truncating between batches
                             // also bounds retained WAL state as the migrated corpus grows.
-                            let admission = migration_gate.reserve_truncate();
-                            let idle = admission.wait_for_readers(READER_DRAIN).is_none();
-                            if !idle || !crate::checkpoint::run(&engine, true, &migration_metrics) {
+                            let admission = migration_gate
+                                .reserve_truncate()
+                                .filter(|admission| admission.wait_for_readers(READER_DRAIN));
+                            if admission.is_none()
+                                || !crate::checkpoint::run(&engine, true, &migration_metrics)
+                            {
                                 let metrics = migration_metrics.lock().unwrap();
                                 return Err(Error::Operation(
                                     std::io::Error::other(format!(
@@ -122,9 +125,6 @@ impl Workers {
                     return;
                 }
                 let mut dirty = true;
-                // The reader that outlasted the wait below. While it is still inside, a later
-                // write does not keep readers out again for it: once per long read is enough.
-                let mut waiting_on: Option<u64> = None;
                 loop {
                     let mut completion = None;
                     match writer.next() {
@@ -137,8 +137,9 @@ impl Workers {
                             }
                             completion = Some(reply);
                         }
-                        // The last reader has left, so nothing is in the way of truncating now.
-                        Next::Maintenance => waiting_on = None,
+                        // Some reader was the last to leave. That may have been a while ago,
+                        // with others inside since: the gate knows, and is asked below.
+                        Next::Maintenance => {}
                         Next::Closed => {
                             if let Some(_guard) = gate.try_truncate() {
                                 crate::checkpoint::run(&engine, true, &metrics);
@@ -146,24 +147,26 @@ impl Workers {
                             break;
                         }
                     }
+                    // No guard while a read the writer already waited for is still running:
+                    // once per long read is enough.
                     if dirty
                         && writer.pending() == (0, 0)
-                        && !waiting_on.is_some_and(|reader| gate.is_inside(reader))
+                        && let Some(guard) = gate.reserve_truncate()
                     {
-                        let guard = gate.reserve_truncate();
                         // Acknowledgement belongs to COMMIT, not to maintenance.
                         // In particular, an active reader may depend on this reply.
                         if let Some(reply) = completion.take() {
                             reply();
                         }
-                        waiting_on = guard.wait_for_readers(READER_DRAIN);
-                        if waiting_on.is_none() {
+                        if guard.wait_for_readers(READER_DRAIN) {
                             dirty = !crate::checkpoint::run(&engine, true, &metrics);
+                        } else {
+                            // A read is running long. Its snapshot pins the WAL whatever this
+                            // thread does, so waiting on gains nothing and would keep every
+                            // other read, and the next write, waiting with it. Dropping the
+                            // guard lets readers in again.
+                            metrics.lock().unwrap().truncates_put_off += 1;
                         }
-                        // Otherwise a read is running long. Its snapshot pins the WAL whatever
-                        // this thread does, so waiting on gains nothing and would keep every
-                        // other read, and the next write, waiting with it. Dropping the guard
-                        // lets readers in again.
                     }
                     if let Some(reply) = completion {
                         reply();

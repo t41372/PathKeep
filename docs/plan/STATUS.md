@@ -21,6 +21,12 @@
   - 連帶的改變：讀取連線的頁面快取以前被那每秒十次的空寫入一再清空，現在會留著，長到設定的上限為止（每條連線 8 MiB；10 萬筆造訪的匯出跑幾次後兩條共約 14 MB，之後不再長）。`export_heap_stays_bounded_as_archive_grows` 原本靠快取被清空才量得到 2 MiB 以下，改成快取暖了再量：匯出本身在 1 萬與 10 萬筆都是 0.9 MiB。
   - 畫面上看到的「已暫停＋舊錯誤」是點「繼續」之前的快照（列與標題是兩個查詢，之後的都沒回）；「44 項失敗」是十月中的舊紀錄。
   - 同一天追加（第二個 commit）：讀取不再互相等之後，一條跑不完的語句就沒有任何症狀了，所以讓它進 log。一條語句跑超過 30 秒，`vault-store` 點名它（連線、多久、語句開頭，引號裡的字換成 `?`），每翻倍再記一次，結束時也記；`html5ever` 的警告不再進 `rust.log`（那天的 log 只剩它）。測試 `vault-store/tests/long_statement.rs` 先寫，在沒有這個功能時失敗。
+  - PR #24 的審查（ChatGPT Pro 與 CodeRabbit，2026-11-13，都說沒有擋合併的）。五條意見逐條對照程式碼，都成立，是三個原因；另一條是驗證時自己發現的。一起改：
+    1. 「已經等過的讀取」記在 writer 的迴圈裡，而且只記一條。迴圈一聽到「最後一條讀取走了」就把它忘掉，但那個通知可能是 writer 忙的時候留下的，之後又有讀取進來，於是同一條長讀取多擋一次 50 ms（ChatGPT；在真的 writer 上重現，30 次都重現）。另外，等的時候裡面有兩條長讀取，只記了待最久的那條，它走了之後又為另一條擋一次（自己發現，同一個原因）。改成記在閘門裡：放棄時記下當時最新的讀取編號，編號不比它大的讀取還有一條在，就不讓 writer 擋。迴圈不再有這個狀態。審查建議只刪掉「忘掉」那一行；沒有照做，因為第二種情況還在，而且測試仍然只能靠計時。
+    2. `later_writes…` 把二十次寫入的磁碟時間算進 500 ms 的上限，磁碟慢就誤判（ChatGPT）。新增 `Metrics::truncates_put_off`（writer 放棄了幾次），`admission.rs` 改成讀它：不量時間，也沒有固定的等待，截止時間只用來不讓壞掉的版本卡住整個 suite。閘門的規則另有兩個不花時間的 unit test（等待上限設成零）。
+    3. 慢語句的記錄只接在 `Session::with_statement`。先 `prepare` 再跑的語句（Insights 的重查詢與索引建置多半這樣寫）和 `integrity_check` 都沒被看（ChatGPT、CodeRabbit）。現在每條路都經過 `Session::watch`，逐列讀的語句讀到最後一列就算結束。成本量過：prepare 好的單列 INSERT 約 620 ns，多約 20 ns，在各次量測的起伏之內。
+    4. log 那一行遮字串的程式不認得 SQL 註解：註解裡一個撇號，就讓後面的字串被當成語句本文印出來（CodeRabbit）。app 的語句裡有帶撇號的註解，但沒有把值寫進語句的地方，所以還沒有東西漏過。改成跟 `sql::tokens` 一樣分辨註解與四種引號，註解不印。
+    - 測試先寫、先失敗：過期通知與兩條長讀取的兩個（各在改之前的版本上得到 2 次放棄，應為 1）、`long_statement.rs` 的 prepare 兩段（拿掉 `execute` 的登記、或讓讀完的游標繼續算，各自失敗）、遮字串的一個。閘門的兩個 unit test 要新程式碼才編得過。`integrity_check` 的登記沒有自己的測試：沒有辦法讓它停在半路。
   - 進 BACKLOG：`WORK-SLOW-READ-ALARM`（剩下的部分：E2E 檢查、畫面、中斷語句）、`WORK-INDEX-UPDATE-WALKS-ARCHIVE`、`WORK-UNBOUNDED-READS`、`WORK-STALE-WHEN-BACKEND-SILENT`、`WORK-EMPTY-WRITE-CHECKPOINT`；`WORK-TURSO-MINMAX-WRAPPER-AUDIT` 補了量測。
 
 - [x] **WORK-RUSTIX-2026-11-13** — 新發布的 RUSTSEC-2026-0486 擋下 PR #20 的供應鏈 gate，更新既有間接依賴後重新驗證。
