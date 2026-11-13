@@ -20,7 +20,8 @@
   - 驗收：真實存檔的本機副本（embedding 指向本機的假服務）上跑完整個增量建置。開跑到第一個 embedding 請求 6 秒，其中計數 0.8 秒；修之前同一句在同一份資料上每筆造訪要 70–150 ms，估計十幾個小時。建置期間另外跑的九千多次 Archive 與 Intelligence 讀取，中位數不到 0.1 ms，最慢 53 ms。`bun run check` 通過：前端 110 個測試，Rust 92 組，E2E 135 過。
   - 連帶的改變：讀取連線的頁面快取以前被那每秒十次的空寫入一再清空，現在會留著，長到設定的上限為止（每條連線 8 MiB；10 萬筆造訪的匯出跑幾次後兩條共約 14 MB，之後不再長）。`export_heap_stays_bounded_as_archive_grows` 原本靠快取被清空才量得到 2 MiB 以下，改成快取暖了再量：匯出本身在 1 萬與 10 萬筆都是 0.9 MiB。
   - 畫面上看到的「已暫停＋舊錯誤」是點「繼續」之前的快照（列與標題是兩個查詢，之後的都沒回）；「44 項失敗」是十月中的舊紀錄。
-  - 進 BACKLOG：`WORK-SLOW-READ-ALARM`、`WORK-INDEX-UPDATE-WALKS-ARCHIVE`、`WORK-UNBOUNDED-READS`、`WORK-STALE-WHEN-BACKEND-SILENT`、`WORK-EMPTY-WRITE-CHECKPOINT`；`WORK-TURSO-MINMAX-WRAPPER-AUDIT` 補了量測。
+  - 同一天追加（第二個 commit）：讀取不再互相等之後，一條跑不完的語句就沒有任何症狀了，所以讓它進 log。一條語句跑超過 30 秒，`vault-store` 點名它（連線、多久、語句開頭，引號裡的字換成 `?`），每翻倍再記一次，結束時也記；`html5ever` 的警告不再進 `rust.log`（那天的 log 只剩它）。測試 `vault-store/tests/long_statement.rs` 先寫，在沒有這個功能時失敗。
+  - 進 BACKLOG：`WORK-SLOW-READ-ALARM`（剩下的部分：E2E 檢查、畫面、中斷語句）、`WORK-INDEX-UPDATE-WALKS-ARCHIVE`、`WORK-UNBOUNDED-READS`、`WORK-STALE-WHEN-BACKEND-SILENT`、`WORK-EMPTY-WRITE-CHECKPOINT`；`WORK-TURSO-MINMAX-WRAPPER-AUDIT` 補了量測。
 
 - [x] **WORK-RUSTIX-2026-11-13** — 新發布的 RUSTSEC-2026-0486 擋下 PR #20 的供應鏈 gate，更新既有間接依賴後重新驗證。
   - 讀先：`docs/architecture/dependency-maintenance.md`、RustSec 官方公告與 crates.io 的版本／依賴資料。

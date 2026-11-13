@@ -186,7 +186,7 @@ impl Workers {
                     move || {
                         IN_OWNER.with(|v| v.set(true));
                         let engine = match crate::session::catch_job(|| {
-                            Engine::reader(database, &settings, compiled)
+                            Engine::reader(database, &settings, compiled, index)
                         }) {
                             Ok(e) => e,
                             Err(error) => {

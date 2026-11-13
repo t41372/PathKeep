@@ -31,6 +31,7 @@ pub struct Session<'a> {
     pub(crate) conn: &'a turso::Connection,
     pub(crate) prepared: Option<&'a crate::statement_cache::StatementCache>,
     pub(crate) read_only: bool,
+    pub(crate) running: Option<&'a crate::running::Slot>,
     pub(crate) _thread: PhantomData<Rc<()>>,
     pub(crate) scratch: Option<&'a crate::checkpoint::Gate>,
     pub(crate) archive: Option<&'a crate::checkpoint::Gate>,
@@ -119,6 +120,7 @@ impl<'a> Session<'a> {
     ) -> Result<T> {
         self.check_sql(sql)?;
         let mut statement = self.take_statement(sql)?;
+        let _running = self.running.map(|slot| slot.begin(sql));
         let result = work(&mut statement);
         self.return_statement(sql, statement);
         result

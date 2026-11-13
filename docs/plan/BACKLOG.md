@@ -9,10 +9,13 @@
 
 > 2026-10-25：清掉已完成或前提已不存在的 block（v0.3 Paper 前端、已移除的 coverage / mutation gate、已修好的 flaky 測試等，清單見 CHANGELOG 同日）。2026-04 到 2026-06 的收尾註記也一併移除，要看去 git 歷史或 CHANGELOG。
 
-- [ ] **WORK-SLOW-READ-ALARM** — 一條語句跑了幾小時，log 裡一個字也沒有（2026-11-13 `WORK-LONG-READ-OUTAGE` 查的時候，是靠採樣與反組譯已安裝的 app 才認出那條語句）
-  - 讀先：`docs/architecture/turso-migration-design.md` §4（讀取只開短交易、引擎日誌）、`vault-store/src/session.rs`（`with_statement`）、`src-tauri/src/lib.rs` 的 log 設定。
-  - 現象：`vault-store` 不量也不記語句跑多久。`WORK-LONG-READ-OUTAGE` 之後，跑得久的讀取不再讓別的讀取等，也就沒有任何症狀：它會安靜地佔一條讀取連線、燒一個核心。另外 `rust.log` 每檔 40 KB 留五檔，抓網頁內容時 `html5ever` 的 `foster parenting not implemented` 警告幾分鐘就把別的行洗掉（那天的 log 裡只有這一句）。
-  - 方向：語句（或一個讀取工作）超過門檻就記一行：哪個資料庫、多久、語句文字（去掉字面值，綁定值本來就不在裡面）；`html5ever` 只留 error。E2E 跑完檢查 app 的 log 沒有這種行：測資只有兩萬多筆造訪，任何一句要跑幾秒都是計劃選錯（這次的 COUNT 在測資大小上就要 40 秒左右，E2E 的 120 秒等待沒擋下來）。
+- [ ] **WORK-SLOW-READ-ALARM** — 跑得久的語句現在會進 log，但 E2E 不會因此失敗、畫面上看不到、也停不了它（2026-11-13 `WORK-LONG-READ-OUTAGE` 做了 log 的部分）
+  - 讀先：`docs/architecture/turso-migration-design.md` §4（跑得久的語句）、`vault-store/src/running.rs`、`scripts/run-playwright.mjs`、`docs/design/ux-principles.md`。
+  - 現況：一條語句跑超過 30 秒，`rust.log` 會點名它，之後每翻倍再記一次。要有人去看 log 才知道。
+  - 要做：
+    - E2E 跑完檢查 app 沒有記這種行。測資只有兩萬多筆造訪，任何一句跑到 30 秒都是計劃選錯：這次的 COUNT 在測資大小上要 40 秒左右，E2E 的 120 秒等待沒擋下來。Rust 的警告會轉到瀏覽器的 console 再印到 runner 的輸出，但 `run-playwright.mjs` 現在是 `stdio: 'inherit'`，沒有在看；做的時候要先證明這條路真的把 `vault_store` 的行帶出來。
+    - 畫面：後台任務頁說出「有一個讀取已經跑了多久」，要先過 `ux-principles`。
+    - 停下它：`turso_core` 0.8.3 有 `Connection::interrupt`，SDK（`turso`）沒有露出來。查清楚能不能用，能的話暫停與取消就可以停掉跑到一半的語句，而不是等它自己結束。
 
 - [ ] **WORK-INDEX-UPDATE-WALKS-ARCHIVE** — 每次備份後的索引更新都把整個存檔走一遍，只有幾十筆新造訪也一樣（2026-11-13 `WORK-LONG-READ-OUTAGE` 驗收時量到）
   - 讀先：`docs/architecture/semantic-index-control.md`、`vault-core/src/ai/indexing/backfill.rs`（`run_embedding_backfill` 從游標 0 開始）、`candidates.rs`、`store_rows.rs` 的 `cleanup_stale_embeddings`。

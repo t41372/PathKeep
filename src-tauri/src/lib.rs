@@ -426,6 +426,10 @@ fn build_logging_plugin<R: tauri::Runtime>(
         // Every segment flush, merge and file delete is an INFO line: a search index build
         // filled rust.log with them and pushed the app's own lines out of the rotation.
         .level_for("tantivy", tauri_plugin_log::log::LevelFilter::Warn)
+        // The HTML parser warns "foster parenting not implemented" for many of the pages whose
+        // text is fetched, dozens of times a second: on 2026-11-13 those were the only lines
+        // left in rust.log, which keeps five files of 40 KB.
+        .level_for("html5ever", tauri_plugin_log::log::LevelFilter::Error)
         .rotation_strategy(RotationStrategy::KeepSome(5))
         .timezone_strategy(TimezoneStrategy::UseLocal)
         .target(

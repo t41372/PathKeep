@@ -14,6 +14,7 @@ mod migration;
 mod owner_lock;
 mod query_plans;
 mod queue;
+mod running;
 mod session;
 mod statement_cache;
 pub use query_plans::QueryPlan;
@@ -46,6 +47,8 @@ pub struct Store {
     ownership: Mutex<Option<Arc<owner_lock::OwnerLock>>>,
     closed: AtomicBool,
     paths: Paths,
+    /// After `workers`, whose connections it watches: it stops when the store is dropped.
+    watch: running::Watch,
 }
 impl Store {
     /// Keep the ownership inode reserved across a verified maintenance replacement.
@@ -79,6 +82,7 @@ impl Store {
             ownership: Mutex::new(Some(lock)),
             closed: AtomicBool::new(false),
             paths: config.paths.clone(),
+            watch: running::Watch::start(config.long_statement_after)?,
         };
         // Keep scratch's database handle alive before any connection attaches it.
         for db in [Db::Scratch, Db::Archive, Db::SourceEvidence, Db::Intelligence, Db::Agent] {
@@ -94,9 +98,15 @@ impl Store {
             } else {
                 None
             };
+            let mut settings = engine::Settings::new(&config, db);
+            settings.watched = Some((store.watch.slot(format!("{db:?} writer")), {
+                (0..config.readers_per_database.get())
+                    .map(|index| store.watch.slot(format!("{db:?} reader {index}")))
+                    .collect()
+            }));
             let workers = worker::Workers::start(
                 db,
-                engine::Settings::new(&config, db),
+                settings,
                 config.migrations.get(db),
                 config.readers_per_database.get(),
                 config.interactive_queue_capacity.get(),

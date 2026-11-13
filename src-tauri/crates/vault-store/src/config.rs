@@ -7,6 +7,7 @@ use std::{
     num::NonZeroUsize,
     path::{Path, PathBuf},
     sync::Arc,
+    time::Duration,
 };
 
 /// Stable database identities keep business callers independent of file layout.
@@ -72,6 +73,8 @@ pub struct Config {
     pub readers_per_database: NonZeroUsize,
     pub page_cache_kib: NonZeroUsize,
     pub interactive_queue_capacity: NonZeroUsize,
+    /// How long one statement may run before the log names it (`running.rs`).
+    pub long_statement_after: Duration,
     pub migrations: MigrationRegistry,
 }
 impl Config {
@@ -87,6 +90,7 @@ impl Config {
             readers_per_database: NonZeroUsize::new(2).unwrap(),
             page_cache_kib: NonZeroUsize::new(8192).unwrap(),
             interactive_queue_capacity: NonZeroUsize::new(64).unwrap(),
+            long_statement_after: Duration::from_secs(30),
             migrations: MigrationRegistry::default(),
         }
     }
