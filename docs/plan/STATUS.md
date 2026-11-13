@@ -27,6 +27,7 @@
     3. 慢語句的記錄只接在 `Session::with_statement`。先 `prepare` 再跑的語句（Insights 的重查詢與索引建置多半這樣寫）和 `integrity_check` 都沒被看（ChatGPT、CodeRabbit）。現在每條路都經過 `Session::watch`，逐列讀的語句讀到最後一列就算結束。成本量過：prepare 好的單列 INSERT 約 620 ns，多約 20 ns，在各次量測的起伏之內。
     4. log 那一行遮字串的程式不認得 SQL 註解：註解裡一個撇號，就讓後面的字串被當成語句本文印出來（CodeRabbit）。app 的語句裡有帶撇號的註解，但沒有把值寫進語句的地方，所以還沒有東西漏過。改成跟 `sql::tokens` 一樣分辨註解與四種引號，註解不印。
     - 測試先寫、先失敗：過期通知與兩條長讀取的兩個（各在改之前的版本上得到 2 次放棄，應為 1）、`long_statement.rs` 的 prepare 兩段（拿掉 `execute` 的登記、或讓讀完的游標繼續算，各自失敗）、遮字串的一個。閘門的兩個 unit test 要新程式碼才編得過。`integrity_check` 的登記沒有自己的測試：沒有辦法讓它停在半路。
+  - GitHub 上這個 PR 的主要檢查（lint、建置、Rust、E2E，Ubuntu）通過，之後的供應鏈稽核失敗，跟這裡的改動無關：11 月 13 日發布的 RUSTSEC-2026-0538 影響 `quinn-udp` 0.5.14。它只因為 `reqwest` 的 `http3`（沒開）而列在 lockfile 裡，app 不編它（跑完整個 gate 的 target 裡沒有它的產物）。更新到修正版 0.5.16：lockfile 只改它自己的版本與 checksum，保留既有 Windows bindings（`cargo update` 會順手把另外九個套件的 `windows-sys` 換成舊版），不新增 advisory 例外。
   - 進 BACKLOG：`WORK-SLOW-READ-ALARM`（剩下的部分：E2E 檢查、畫面、中斷語句）、`WORK-INDEX-UPDATE-WALKS-ARCHIVE`、`WORK-UNBOUNDED-READS`、`WORK-STALE-WHEN-BACKEND-SILENT`、`WORK-EMPTY-WRITE-CHECKPOINT`；`WORK-TURSO-MINMAX-WRAPPER-AUDIT` 補了量測。
 
 - [x] **WORK-RUSTIX-2026-11-13** — 新發布的 RUSTSEC-2026-0486 擋下 PR #20 的供應鏈 gate，更新既有間接依賴後重新驗證。
