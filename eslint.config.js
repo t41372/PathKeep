@@ -25,6 +25,8 @@ export default defineConfig([
     'src-tauri/coverage',
     // Generators that run in a v0.3.0 checkout, not this tree.
     'tests/fixtures',
+    // Design prototype on invented data; type-checked by its own tsconfig.
+    'docs/design/prototype-2026-11-agent-history',
   ]),
   {
     files: ['**/*.{ts,tsx}'],
