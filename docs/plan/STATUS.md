@@ -9,10 +9,21 @@
 
 ## CURRENT FOCUS
 
+- [ ] **WORK-RELEASE-V0.5.0** — 準備與發布 v0.5.0；公開仍等使用者明確 approval。
+  - 讀先：`RELEASE.md`、`m4-full-polish/release-readiness-runbook.md`、`releases/v0.5.0/readiness.md`。
+  - 已從 stash 恢復三語 notes、原始證據與 README banners，原 stash 保留。四處版本對齊 0.5.0，本候選完整 gate 已通過。
+  - 推送候選後，以已公開 v0.4.0 預演保護條件，再建置四平台 unsigned draft；來源 SHA、Actions 結果、11 個 assets 與 checksum 核對紀錄以發布準備 PR／Release 草稿為準。候選 commit 在建置與審閱期間凍結，公開前不推 tag。
+  - 14.4M 與跨平台驗收沿用使用者已確認的結果。Unsigned preview 須手動安裝，沒有 app 內自動更新；公開這條路須一併批准 macOS 簽章政策例外。
+
+- [x] **WORK-RELEASE-IMMUTABLE** — 已公開的版本再次觸發 workflow 時，只讀 metadata 並跳過建置與上傳，保護已審閱的 binaries。
+  - 讀先：`RELEASE.md`、`m4-full-polish/release-readiness-runbook.md`、`releases/v0.5.0/readiness.md`、`program/quality-matrix.md`。
+  - v0.4.0 公開後兩秒觸發了 tag push workflow；未設定 updater key 而失敗。新版保護也攔下手動 `draft=true` 沿用公開 tag 的覆寫風險，API 錯誤必須阻斷。
+  - 先列失敗模式與 CLI／HTTP 回歸測試再實作；九個場景通過。含此保護的 `bun run verify`、`check:slow` 退出 0：119 個前端測試、134 個 E2E 通過／1 個平台略過，desktop build 與供應鏈檢查通過，兩份鎖檔 hash 相同。證據：`releases/v0.5.0/release-rehearsal.json`。
+
 - [x] **WORK-RUSTIX-2026-11-13** — 新發布的 RUSTSEC-2026-0486 擋下 PR #20 的供應鏈 gate，更新既有間接依賴後重新驗證。
   - 讀先：`docs/architecture/dependency-maintenance.md`、RustSec 官方公告與 crates.io 的版本／依賴資料。
   - 11 月 11 日發布的公告影響 rustix 1.1.4；更新至最新修正版 1.1.6。保留既有 Windows bindings，不新增 advisory 例外。GitHub 的完整 `bun run check` 已過，失敗的是隨後的新公告掃描。
-  - 修正後 `bun run verify` 與 `check:supply-chain` 通過；前端 110 個測試，E2E 134 過／1 個平台略過，Rust 91 組通過。兩份鎖檔前後 hash 相同，JS audit 為零，Rust 維持原有八項例外。證據：`releases/v0.5.0/pr20-review.json`。合併另等最新 GitHub CI。
+  - 修正後 `bun run verify` 與 `check:supply-chain` 通過；前端 110 個測試，E2E 134 過／1 個平台略過，Rust 91 組通過。兩份鎖檔前後 hash 相同，JS audit 為零，Rust 維持原有八項例外。證據：`releases/v0.5.0/pr20-review.json`。GitHub CI 43391437053 通過，PR #20 已合併至 `f4e4759e73f3`。
 
 - [x] **WORK-PR20-REVIEW** — PR #20 的兩個審查問題已重現、修正並通過完整 gate。
   - 讀先：`docs/architecture/search.md`、`dependency-maintenance.md`、`docs/plan/program/quality-matrix.md`。
@@ -23,6 +34,13 @@
   - GitHub 安全更新原已啟用，依賴圖當時只列出 43 個 npm manifest 項目。舊鎖檔稽核命中 19 套件／88 項公告，新鎖檔掃描 532 套件後為零。
   - TypeScript 7 編譯器搭配官方 6 API 供 ESLint 使用。同步更新 Tauri dialog／log 的 JS 與 Rust 版本。Onboarding 與主畫面各自掛載 router provider，Insights 測試查詢新版 Radix 的 `radiogroup`。
   - `bun run check` 通過，E2E 134 過、1 個平台略過。修正 Modal 的 `CI=true` 後，Linux desktop debug build 與供應鏈檢查通過。本機前端 107 測試及 build 通過。證據見 [dependency-refresh.json](releases/v0.5.0/dependency-refresh.json)。
+
+- [x] **WORK-RELEASE-READINESS-2026-11-10** — 發布調查與本機預演紀錄；2026-11-10 已修正先前把環境限制／舊待辦誤列為發布阻斷的判斷，發布仍等明確 approval。
+  - 讀先：`RELEASE.md`、`m4-full-polish/release-readiness-runbook.md`、`program/quality-matrix.md`、`BACKLOG.md` 中發布阻斷；依變更補讀 backup-integrity／store-schema／semantic-index-control 與發布 workflow。
+  - 審查與三語發布筆記：`releases/v0.5.0/`。候選從 `89ed2040` 建立在 `var/release-preflight-2026-11-10/`；主工作目錄既有 README／banner 工作未納入。既有 main CI gate 有效；14.4M／跨平台驗收已由使用者確認，BACKLOG 的舊 scale 待辦已對齊；簽章路徑與發布 approval 另行確認。
+  - 證據：`artifacts/release/2026-11-10-v0.5.0-preflight/`。目前 main 的完整 CI 成功；本次受限主機的 verify／E2E／DMG 無法完成，不能用來否定既有 gate／驗收。補充 JavaScript audit 的 19 套件版本都與 v0.4.0 相同，88 項紀錄需判讀適用性，不能整包升格為發布阻斷。已清掉本次編譯 cache，保留證據與本機 app 封存，沒有遠端 release／tag／branch／dispatch。
+
+- [!] **WORK-RELEASE-0.5.0** — 發布等待使用者明確 approval，簽章路徑另待確認。既有 gate 與使用者確認的 14.4M／跨平台驗收保持有效；新版 JS 鎖檔稽核為零，資料格式的降級限制是告知事項。修正後的依據與逐步發布預演見 `releases/v0.5.0/readiness.md`。
 
 - [x] **WORK-BACKUP-INTEGRITY** — 瀏覽器重新編號時備份漏掉新紀錄還說成功（PR #18；2026-11-01 重做）
   - 讀先：`docs/architecture/backup-integrity.md`、`store-schema.md`（Archive versions）、`same-visit-across-sources.md`；`docs/features/archive.md`。
@@ -35,7 +53,7 @@
   - Archive migrations 2–23，一個 DDL 一個版本；15 把 v1 造訪用列號記的開啟者換成 archive id（每批 5 萬筆、可接續、更新畫面有進度），16 記下 v1 最後一次 run，v1 造訪查 evidence 只看它之前的；17–19 記下 visits 表 id 最小的那列；20 標出 Firefox Sync 副本；21 記下下載是哪一份複製讀到的；22、23 給游標記住的兩列加上 Firefox 種類。開啟時不改其他資料，更新後第一次備份整個重讀。SQLCipher converter 複製完 v1 資料後兩個都再跑一次。
   - 備份後的連結預覽在背景做，備份回覆不等網路。
   - 測試：parser 的 `native_visits`、`read_plan` 的 unit test 與實作一起寫（先列失敗模式）；dedup / resume / Takeout 的既有測試照原本的斷言過（兩個 resume 測試改成跟真實流程一樣先標記整個重讀；接著讀時造訪從頭再讀，所以其中一個的 processedRecords 從 10,003 改成 20,003，新增筆數仍是 10,003）；E2E `backup-integrity.spec`（healthy v1 fixture，8 個場景）與 `backup-integrity-damaged.spec` 照 PR 18 寫的斷言過；途中抓到一個真的漏讀：fixture 把造訪全刪了再用顯式列號寫回 1–8，sequence 還停在 100，「那列刪了但 sequence 證明沒重用」就只讀 100 之後。加上「游標以下有比讀過的都新的造訪就是新造訪用了舊列號」（`newest_visit_ms`，走瀏覽器的時間索引），只有「頁面列不見的造訪」改成備註加 `success`，拿掉一個只是在找舊版文案的反向檢查。
-  - 量測（M5 Max、release、加密、合成 100 萬筆，原始輸出在 `docs/architecture/research/2026-11-backup-integrity-1m/`）：新存檔第一次備份 157 s（RSS 1003 MiB）；之後沒有新東西的備份 0.6 s；每週整個重讀 32 s；同一份資料的 v1 存檔更新後開啟 4 s、第一次備份 38 s、沒有多出任何一筆，100 萬筆都有瀏覽器時間、50 萬個開啟者都換成 archive id。量在第二次審查的兩個修正與第五輪之前（一個在每筆讀到的造訪多一次比較，一個給新造訪的檢查加上界，仍是一次時間索引查詢；第五輪在每次直接複製前後多讀三個檔案的大小與時間、Firefox 的配對多比一個欄位，量的是 fixture 檔案，走線上備份），之後沒重量。14.4M 與目標機沒量（`WORK-BACKUP-INTEGRITY-SCALE`）。
+  - 量測（M5 Max、release、加密、合成 100 萬筆，原始輸出在 `docs/architecture/research/2026-11-backup-integrity-1m/`）：新存檔第一次備份 157 s（RSS 1003 MiB）；之後沒有新東西的備份 0.6 s；每週整個重讀 32 s；同一份資料的 v1 存檔更新後開啟 4 s、第一次備份 38 s、沒有多出任何一筆，100 萬筆都有瀏覽器時間、50 萬個開啟者都換成 archive id。量在第二次審查的兩個修正與第五輪之前（一個在每筆讀到的造訪多一次比較，一個給新造訪的檢查加上界，仍是一次時間索引查詢；第五輪在每次直接複製前後多讀三個檔案的大小與時間、Firefox 的配對多比一個欄位，量的是 fixture 檔案，走線上備份），之後沒重量。14.4M 與目標機當時未量；2026-11-10 使用者已確認驗證完成，`WORK-BACKUP-INTEGRITY-SCALE` 舊待辦已對齊。
   - 最後一次審查（Codex，讀碼不跑；十條，逐條對照代碼）全部確認並修：匯入預覽沒有記住已配對的 v1 造訪，兩筆新的都算成已有、匯入按鈕不見（預覽改成跟匯入一樣記住）；v1 的開啟者在其中一筆拿到瀏覽器時間後斷掉（改成更新時就換成 archive id，導覽只看它）；整個重讀停在一半，已讀那段等著的開啟者只在記憶體（接著讀時造訪從頭再讀、URL 照舊接著）；讀完才找到的開啟者一個交易寫完（分批）；重新導向的後一步合併後變成自己的開啟者（擋掉）；Insights 用瀏覽器列號配開啟者（改用 archive id，structural v13，會重建一次）；過期的 v1 造訪拿到後來同列號造訪的停留時間（只看 v1 自己 run 的 evidence）；頁面列不見的列讓每次備份都整個重讀（檢查也 join 頁面）；重播舊 checkpoint 把停留時間改回 0（只增不減）；首次設定把 Safari 以外的部分完成顯示成全綠（加一句說明）。測試：`identity_cases` 四個場景（合併的重新導向不是自己的開啟者、晚到的開啟者、重播不倒退、v1 開啟者、預覽只配一次；合併那個把修法拿掉會失敗），`read_plan` / `native_visits` 各加一個；Insights 的 fixture 照實補上 `parent_visit_id`。
   - 修完後請它只看修改的部分（Codex，讀碼不跑；五條，這裡兩條，逐條對照代碼）都確認並修：預覽配到 v1 造訪後，同一重新導向的第二列（同網址同時間）被算成新的，匯入其實會把第一列的時間蓋上去、第二列併進同一筆（預覽改成記得匯入會給的身分，新的與蓋上的都算）；瀏覽器檔裡時間超過 9999 年的列，parser 存成 9999 年，檢查卻拿瀏覽器的原值比，每次備份都整個重讀（記錄最新時間與檢查都不算這種列）。`identity_cases` 兩個場景與 `native_visits` 一個測試，修法拿掉都會失敗。
   - 最後再請它只看這兩個修正（Codex，讀碼不跑）：這裡一條，確認並修：parser 把 Safari 的秒四捨五入到毫秒，檢查用的界線卻是直接換算，差半毫秒；9999 年前最後半毫秒的 Safari 時間在記錄最新時間時不算、檢查時又算，每次備份都整個重讀（下界也差同樣的半毫秒）。界線改成 parser 換算的反函數；unit test 先失敗再過。
@@ -64,7 +82,7 @@
     - 用戶決定後改（2026-11-02）：Firefox Sync 的整毫秒配對不再把副本併進它多半是的那筆。副本照樣寫成自己的一筆、留著自己的時間，用跨來源同一次造訪的機制（`same_as`、`reverted_at`）藏在已存的那筆後面，只算一次；它打開的造訪指向算進去的那筆，下一次備份讀到同一列時用自己的時間認出它，不會再存一份。兩筆不同造訪剛好撞上時也都保留。場景測試在舊的合併規則下失敗（只剩兩筆）。請 Codex 只看這個改動：三條，都確認並修，每條的場景測試在拿掉它的修法時失敗。(1) 一筆隱藏的副本在同一次讀取裡可以配給兩列：配到的那筆副本沒被占用。(2) 匯入預覽與匯入占用的不同：讀到副本本身時，匯入連算進去的那筆也占用了，同一毫秒的下一列就變成新的造訪，預覽卻說已有；改成只占用副本（算進去的那筆自己的列之後還可能讀到）。(3) 瀏覽器檔案匯入可以寫進同一個設定檔：復原第一個匯入時副本頂上，恢復後兩筆都算。第一版在恢復時重新推一次規則，再審指出兩個反例（同一次讀取裡分開算的兩筆被配成一組；經過已復原的中間那筆才連起來的一組配不回去）：哪幾筆是一組只有寫入的那次讀取知道。之後再四輪讀碼又找到：改成照組裡的指向時可見數被重複增減；指向跟著組換到 Takeout 後恢復的瀏覽器紀錄搶不回代表；Sync 副本經過 Takeout 頂上的組被帶走、之後又被提升；一律指向或恢復時接手的指向，被跨來源「一秒內算同一次」一路帶到同一個瀏覽器的另一次造訪或另一個設定檔的造訪，兩次不同的造訪恢復後只算一次。根源是那條一秒規則會遞移地合併組，任何跟著組走的指向都可能綁錯；每補一個順序就冒出下一個。最後的做法是讓 Sync 副本完全離開跨來源的機制：寫入時藏在它跟的那筆後面，之後 `promote` 與 `FOLLOW_SQL` 都略過它（寫入它的那次讀取在 `visits.sync_copy` 標記，migration 20；先試過從資料推：只看設定檔時同一份 Takeout 的兩筆被當成 Sync 副本，再加「有 Firefox 時間」時匯入到 Takeout 設定檔鍵下的 Firefox 檔案又被當成了；規則 2 也接受 Chromium 的造訪當原本那筆，改成兩邊都要 Firefox 時間。各加場景或測試，在前一版失敗），它永遠跟著那筆；跨來源的復原與恢復照 main 原樣，不加任何指向。代價：Sync 副本跟的那筆的匯入被復原時，這次造訪不算（有別的來源的副本時由它頂上），恢復時一起回來；從不算兩次、不丟任何一筆。main 早就有的一種情形（兩個匯入都復原、代表的那個最後，先恢復另一個時副本仍藏在看不到的代表後面）沒修，修法必須用跟著組走的指向，記 `WORK-SAME-VISIT-UNDONE-STAND-IN`。十九個場景，每一步檢查各匯入的可見數；審查的最後五個順序各在前一版失敗。限制：匯入復原期間才寫進來的副本沒配給它，恢復後兩筆分開算。
     - 看過、不改：預覽的 64 位元雜湊（第五輪理由不變）；只改開啟者的更新不觸發 Insights 重建（`backup-integrity.md` 本來就寫明要等下一次完整建置，`WORK-INSIGHTS-LATE-OPENERS`）。
     - 本機完整 `bun run check`（2026-11-02，這一輪最後的 commit，含 #16 的最後修正）：Rust 91 組、前端 unit 92、E2E 主專案 121、健康的 v0.4.0 存檔 8、損壞的 1，全過。
-    - 看過、記著：14.4M 與目標機的量測（`WORK-BACKUP-INTEGRITY-SCALE`，發布前要做）。
+    - 看過、記著：14.4M 與目標機的量測（`WORK-BACKUP-INTEGRITY-SCALE`，當時待辦；2026-11-10 使用者確認已驗證）。
   - 第七輪（2026-11-03，ChatGPT Pro 對 PR 18 相對 #16 的增量的審查，三條確定問題、Windows、兩條已知的、效能一條；逐條對照代碼，每條先找根因再修）：
     - 確認並修（PR 自己的回歸）：回放舊 checkpoint 會把已完成的下載寫回進行中，`recorded_at` 也改成回放的時間。main 對下載只 insert-or-ignore；這個 PR 改成照 guid 更新，卻沒比新舊。把 ingest 每個依來源更新現有紀錄的地方都查過：網址看 `last_visit_ms`、造訪的欄位只增不減、搜尋詞與 favicon 只新增，只有下載的狀態能往任何方向變、列裡也沒有東西說哪個比較新，根因在這裡。每份來源帶上複製的時間（`ProfileSnapshot.captured_at_ms`：備份與匯入是複製開始時，回放是 checkpoint 的時間），下載存 `observed_at_ms`（migration 21；之前的列用 `recorded_at`），較早的複製不動它，只有它有的下載照樣補進來。兩個場景測試，拿掉判斷時回放那個失敗。
     - 確認並修：Firefox 同一網址、同一時間、不同種類的兩筆被當成一筆。Firefox 本機寫的時間到微秒，實際只會在 Sync 切到毫秒時遇到，但身分規則本身漏了：Firefox 和它的 Sync 都靠種類分這兩筆。根因是身分散在三處各自比：capture 的 `find`、預覽的雜湊、沒讀到的開啟者（`VisitMark` 沒有種類）。收成 `identity::same_event` 一處，Firefox 比時間加種類，`VisitMark` 帶 `kind`；Chrome 不變（redirect 的幾跳同時間、不同種類，是同一次）。

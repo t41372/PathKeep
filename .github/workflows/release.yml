@@ -48,13 +48,19 @@ jobs:
   prepare-release:
     name: Resolve release metadata
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
+      already_published: ${{ steps.published.outputs.already_published }}
       resolved_tag: ${{ steps.resolve.outputs.resolved_tag }}
       resolved_version: ${{ steps.resolve.outputs.resolved_version }}
       build_matrix: ${{ steps.matrix.outputs.build_matrix }}
       unsigned_preview: ${{ steps.matrix.outputs.unsigned_preview }}
     steps:
       - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
 
       - name: Resolve tag and version
         id: resolve
@@ -80,7 +86,15 @@ jobs:
           echo "resolved_tag=$resolved_tag" >> "$GITHUB_OUTPUT"
           echo "resolved_version=${resolved_tag#v}" >> "$GITHUB_OUTPUT"
 
+      - name: Protect published release assets
+        id: published
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RESOLVED_TAG: ${{ steps.resolve.outputs.resolved_tag }}
+        run: node scripts/guard-published-release.mjs
+
       - name: Resolve build matrix
+        if: steps.published.outputs.already_published != 'true'
         id: matrix
         env:
           INPUT_PLATFORMS: ${{ github.event_name == 'workflow_dispatch' && inputs.platforms || 'all' }}
@@ -141,6 +155,7 @@ jobs:
           PY
 
       - name: Verify version alignment
+        if: steps.published.outputs.already_published != 'true'
         env:
           RESOLVED_VERSION: ${{ steps.resolve.outputs.resolved_version }}
         run: |
@@ -157,7 +172,7 @@ jobs:
           test "$package_version" = "$RESOLVED_VERSION"
 
       - name: Verify updater signing secret
-        if: ${{ steps.matrix.outputs.unsigned_preview != 'true' }}
+        if: steps.published.outputs.already_published != 'true' && steps.matrix.outputs.unsigned_preview != 'true'
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         run: |
@@ -170,6 +185,7 @@ jobs:
   build-release:
     name: Build ${{ matrix.label }}
     needs: prepare-release
+    if: needs.prepare-release.outputs.already_published != 'true'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -273,6 +289,7 @@ jobs:
 
   release-manifest:
     name: Publish checksum manifest
+    if: needs.prepare-release.outputs.already_published != 'true'
     runs-on: ubuntu-latest
     needs:
       - prepare-release

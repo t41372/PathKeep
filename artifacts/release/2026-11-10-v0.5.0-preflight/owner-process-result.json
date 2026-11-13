@@ -1,0 +1,7 @@
+{
+  "phase": "cold-start",
+  "status": 1,
+  "stdout": "",
+  "stderr": "PathKeep did not make its owner endpoint ready within 30 seconds; start PathKeep and check its startup log\n",
+  "startupLog": "PathKeep background child pid=5429\nThe application /private/tmp/pk-owner-iGFSWU/PathKeep Test.app cannot be opened for an unexpected reason, error=Error Domain=NSOSStatusErrorDomain Code=-10827 \"kLSNoExecutableErr: The executable is missing\" UserInfo={_LSLine=4357, _LSFunction=_LSOpenStuffCallLocal, _LSFile=LSOpenCore.mm, _LSErrorMessage=kLSNoExecutableErr}\n"
+}

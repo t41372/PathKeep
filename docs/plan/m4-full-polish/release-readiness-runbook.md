@@ -24,6 +24,15 @@
 | `SHA256SUMS.txt`                     | GitHub `Release` workflow | user-visible checksum validation                                   |
 | `RELEASE-MANIFEST.json`              | GitHub `Release` workflow | operator-facing file inventory and traceability                    |
 
+## Published artifacts
+
+The Release workflow checks the resolved tag before any build or upload. An
+already published release skips the remaining jobs, including a tag push
+created by publishing a draft. API or metadata errors fail preparation; they do
+not authorize a rebuild. Keep approved binaries unchanged and use a new version
+for replacement binaries. A new release still starts as a private draft and is
+published only after its source, platform assets and checksums are reviewed.
+
 ## Browser Support Promise
 
 - `Validated now`: Google Chrome; Microsoft Edge / Edge Dev, including Browser Direct local `History` import through the Chromium parser while preserving Edge metadata; Firefox history-only baseline, including Browser Direct local `places.sqlite` import; ChatGPT Atlas on macOS, including Browser Direct local `History` import; Perplexity Comet on macOS, including Browser Direct local `History` import; Safari baseline on macOS after Full Disk Access is granted, including Browser Direct local `History.db` import.

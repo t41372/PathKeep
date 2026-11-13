@@ -37,6 +37,8 @@ Keep these three files aligned before tagging or dispatching a release:
 - `src-tauri/Cargo.toml`
 - `src-tauri/tauri.conf.json`
 
+Also update the `pathkeep-desktop` version in `src-tauri/Cargo.lock` and review that the lockfile diff changes only that version. `release:bump` updates the three declarations, not the lockfile; run Cargo metadata to refresh it and format the changed JSON before the full gate.
+
 The GitHub `Release` workflow now fails fast if those versions drift or if the requested release tag does not match them.
 
 To bump them together locally, run:
@@ -77,6 +79,12 @@ Entry points:
 1. Push a tag such as `v0.2.0`
 2. Run the `Release` workflow manually from GitHub Actions
 
+For a rehearsal, use a new tag with manual `draft=true`; do not push a `v*` tag first. A new tag push selects the updater-enabled path and can publish before the other platform builds and checksums finish. Confirm the tag and release do not already exist, including drafts. Manual `release_tag` does not change the checked-out ref; verify the dispatch ref resolves to the reviewed commit.
+
+Before building, `scripts/guard-published-release.mjs` checks whether the resolved tag is already published. A published release makes the workflow skip version/signing preparation, every build and every asset upload. This also handles the tag push emitted when a draft is published, without rebuilding or replacing the reviewed binaries. API or metadata failures stop preparation. A private draft can continue preparation; a published version requires a new tag for new binaries. Use a ref containing this guard; historical workflow revisions are not retroactively protected. `release:check` verifies that downstream steps and jobs keep these conditions.
+
+The [v0.5.0 readiness review](./docs/plan/releases/v0.5.0/readiness.md) records the release assessment, notes, upgrade boundary and approval sequence. It does not authorize publication.
+
 Manual workflow inputs:
 
 - `draft`
@@ -111,6 +119,7 @@ Workflow behavior:
 
 - `APPLE_CERTIFICATE`
 - `APPLE_CERTIFICATE_PASSWORD`
+- `APPLE_SIGNING_IDENTITY`
 - `APPLE_ID`
 - `APPLE_PASSWORD`
 - `APPLE_TEAM_ID`

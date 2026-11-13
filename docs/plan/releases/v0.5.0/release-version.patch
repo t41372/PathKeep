@@ -1,0 +1,51 @@
+diff --git a/package.json b/package.json
+index 09d37122..e19fbb4c 100644
+--- a/package.json
++++ b/package.json
+@@ -1,7 +1,7 @@
+ {
+   "name": "pathkeep",
+   "private": true,
+-  "version": "0.5.0-dev",
++  "version": "0.5.0",
+   "type": "module",
+   "scripts": {
+     "dev": "vite --host 127.0.0.1",
+diff --git a/src-tauri/Cargo.lock b/src-tauri/Cargo.lock
+index 008bde7f..eab0866e 100644
+--- a/src-tauri/Cargo.lock
++++ b/src-tauri/Cargo.lock
+@@ -4801,7 +4801,7 @@ checksum = "c5a797f0e07bdf071d15742978fc3128ec6c22891c31a3a931513263904c982a"
+ 
+ [[package]]
+ name = "pathkeep-desktop"
+-version = "0.5.0-dev"
++version = "0.5.0"
+ dependencies = [
+  "anyhow",
+  "axum",
+diff --git a/src-tauri/Cargo.toml b/src-tauri/Cargo.toml
+index 2b208037..d20cabca 100644
+--- a/src-tauri/Cargo.toml
++++ b/src-tauri/Cargo.toml
+@@ -1,6 +1,6 @@
+ [package]
+ name = "pathkeep-desktop"
+-version = "0.5.0-dev"
++version = "0.5.0"
+ edition = "2024"
+ publish = false
+ description = "Audit-first desktop archive for browser history"
+diff --git a/src-tauri/tauri.conf.json b/src-tauri/tauri.conf.json
+index 6dde1c38..6bc22c1c 100644
+--- a/src-tauri/tauri.conf.json
++++ b/src-tauri/tauri.conf.json
+@@ -1,7 +1,7 @@
+ {
+   "$schema": "https://schema.tauri.app/config/2",
+   "productName": "PathKeep",
+-  "version": "0.5.0-dev",
++  "version": "0.5.0",
+   "identifier": "com.yi-ting.pathkeep",
+   "build": {
+     "beforeDevCommand": "bun run prepare:worker-sidecar && bun run dev",

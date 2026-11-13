@@ -9,10 +9,11 @@
 
 > 2026-10-25：清掉已完成或前提已不存在的 block（v0.3 Paper 前端、已移除的 coverage / mutation gate、已修好的 flaky 測試等，清單見 CHANGELOG 同日）。2026-04 到 2026-06 的收尾註記也一併移除，要看去 git 歷史或 CHANGELOG。
 
-- [ ] **WORK-BACKUP-INTEGRITY-SCALE** — 原生備份的新身分與讀法在 14.4M 和目標機上的量測（2026-11-01 PR #18 只量了 100 萬筆、M5 Max）
-  - 要量：14.4M 的 v1 存檔更新（migration 2–21，含開啟者 backfill 與重建列號索引）的時間與峰值記憶體；更新後第一次備份（整個重讀、給每筆時間）；之後每小時與每週的備份。目標機 4 核 / 8 GB，冷快取。
-  - 另外量一份 Sync 從新到舊寫的大檔（開啟者大多在子造訪之後）：讀完才找到的開啟者分批寫，量它的時間。
-  - 工具：`archive::ingest::scale_measure`（`docs/architecture/research/2026-11-backup-integrity-1m/README.md`）。
+- [x] **WORK-BACKUP-INTEGRITY-SCALE** — 2026-11-10 使用者確認 14.4M 升級／備份與跨平台安裝已驗證。
+  - 本條先前仍記「待量」，發布調查又據此推導成「尚未驗證」，使用者已明確糾正；不再當成本次發布阻斷或要求整套重跑。
+  - 既有規模量測見 `docs/architecture/ipc-performance.md`；本次確認是驗收狀態的更新，沒有新跑量測，也不補造時間／RSS。之後有實作變更才按影響範圍判斷補驗證。
+
+- [x] **WORK-RELEASE-JS-SUPPLY-CHAIN** — 更新依賴後，Bun 鎖檔稽核由 19 套件／88 項公告降至零。已納入 CI gate，並以 Dependabot 每日追蹤 Bun 版本更新。初次稽核留在發布預演產物，更新後證據見 [dependency-refresh.json](releases/v0.5.0/dependency-refresh.json)。
 
 - [ ] **WORK-INSIGHTS-LATE-OPENERS** — Insights 已經建過的造訪後來才有開啟者，站點流向與路徑要等下一次完整重建才看到（2026-11-01 PR #18 第五輪審查）
   - 讀先：`docs/architecture/backup-integrity.md` §Openers、`vault-core/src/intelligence/build_pipeline.rs`（`count == 0` 與 append 的判斷）、`build_append.rs`（只讀 `visit_id > old max`）、`build_rows.rs` 讀 `parent_visit_id` 的地方。

@@ -46,6 +46,43 @@ const workflowSources = Object.fromEntries(
     .map((file) => [file, readText(`.github/workflows/${file}`)]),
 )
 const allWorkflowText = Object.values(workflowSources).join('\n')
+
+// Publishing a draft creates its tag and triggers this workflow again. Every
+// later step must respect the guard so that approved binaries stay unchanged.
+includes(
+  releaseWorkflow,
+  'run: node scripts/guard-published-release.mjs',
+  'release workflow published-asset guard',
+)
+includes(
+  releaseWorkflow,
+  'already_published: ${{ steps.published.outputs.already_published }}',
+  'release workflow guard output',
+)
+for (const name of [
+  'Resolve build matrix',
+  'Verify version alignment',
+  'Verify updater signing secret',
+]) {
+  const section =
+    releaseWorkflow
+      .split(`      - name: ${name}\n`)[1]
+      ?.split('\n      - ')[0] ?? ''
+  includes(
+    section,
+    "steps.published.outputs.already_published != 'true'",
+    `${name} must skip published releases`,
+  )
+}
+for (const name of ['build-release', 'release-manifest']) {
+  const section =
+    releaseWorkflow.split(`  ${name}:\n`)[1]?.split(/\n {2}\S/)[0] ?? ''
+  includes(
+    section,
+    "if: needs.prepare-release.outputs.already_published != 'true'",
+    `${name} must skip published releases`,
+  )
+}
 const updaterSource = readText('src-tauri/src/updater.rs')
 const frontendUpdaterSource = readText('src/lib/update.ts')
 const issueTemplate = readText('.github/ISSUE_TEMPLATE/config.yml')
