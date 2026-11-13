@@ -19,7 +19,14 @@
  * results" (coverage is reported separately).
  */
 import { useQuery } from '@tanstack/react-query'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import {
   searchClient,
   type IndexerState,
@@ -104,7 +111,8 @@ export function useSearchStream(request: SearchRequest | null) {
     )
   }
 
-  useEffect(() => {
+  // End the old subscription during commit, before its next animation frame.
+  useLayoutEffect(() => {
     if (!request || session === null) return
     let live = true
     let queued: SearchEvent[] = []
@@ -116,6 +124,7 @@ export function useSearchStream(request: SearchRequest | null) {
       queued = []
       if (!live || events.length === 0) return
       setState((previous) => {
+        if (!live) return previous
         // Rows of the previous session stay (as placeholder) until this one's first step.
         const base =
           previous.session === session
@@ -137,18 +146,20 @@ export function useSearchStream(request: SearchRequest | null) {
           return
         }
         stream.current = started
-        setState((previous) =>
-          previous.session === session
-            ? previous
-            : { ...previous, indexer: started.indexer },
-        )
+        setState((previous) => {
+          if (!live || previous.session === session) return previous
+          return { ...previous, indexer: started.indexer }
+        })
       })
       .catch((error: unknown) => {
         if (!live) return
-        setState({
-          ...EMPTY,
-          session,
-          error: error instanceof Error ? error.message : String(error),
+        setState((previous) => {
+          if (!live) return previous
+          return {
+            ...EMPTY,
+            session,
+            error: error instanceof Error ? error.message : String(error),
+          }
         })
       })
     return () => {

@@ -9,6 +9,16 @@
 
 ## CURRENT FOCUS
 
+- [x] **WORK-RUSTIX-2026-11-13** — 新發布的 RUSTSEC-2026-0486 擋下 PR #20 的供應鏈 gate，更新既有間接依賴後重新驗證。
+  - 讀先：`docs/architecture/dependency-maintenance.md`、RustSec 官方公告與 crates.io 的版本／依賴資料。
+  - 11 月 11 日發布的公告影響 rustix 1.1.4；更新至最新修正版 1.1.6。保留既有 Windows bindings，不新增 advisory 例外。GitHub 的完整 `bun run check` 已過，失敗的是隨後的新公告掃描。
+  - 修正後 `bun run verify` 與 `check:supply-chain` 通過；前端 110 個測試，E2E 134 過／1 個平台略過，Rust 91 組通過。兩份鎖檔前後 hash 相同，JS audit 為零，Rust 維持原有八項例外。證據：`releases/v0.5.0/pr20-review.json`。合併另等最新 GitHub CI。
+
+- [x] **WORK-PR20-REVIEW** — PR #20 的兩個審查問題已重現、修正並通過完整 gate。
+  - 讀先：`docs/architecture/search.md`、`dependency-maintenance.md`、`docs/plan/program/quality-matrix.md`。
+  - 搜尋清除時，舊動畫幀能在 passive cleanup 前寫回資料；先寫的 React 回歸測試在舊實作失敗。改在 commit 清理訂閱，queued updater 也檢查存活狀態。
+  - Modal 的條件 subshell 會忽略 `errexit`，安裝失敗仍繼續準備；改以獨立 Bash process 執行 setup，失敗注入現在保留 exit 17 並停止後續命令。
+
 - [x] **WORK-JS-DEPS-2026-11-10** — 更新 30 個既有 JS／TS 直接依賴，加入每日 Dependabot 更新與 Bun 鎖檔稽核。
   - GitHub 安全更新原已啟用，依賴圖當時只列出 43 個 npm manifest 項目。舊鎖檔稽核命中 19 套件／88 項公告，新鎖檔掃描 532 套件後為零。
   - TypeScript 7 編譯器搭配官方 6 API 供 ESLint 使用。同步更新 Tauri dialog／log 的 JS 與 Rust 版本。Onboarding 與主畫面各自掛載 router provider，Insights 測試查詢新版 Radix 的 `radiogroup`。

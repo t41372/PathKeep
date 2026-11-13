@@ -1,0 +1,127 @@
+{
+  "date": "2026-11-13",
+  "pullRequest": "https://github.com/t41372/PathKeep/pull/20",
+  "findings": [
+    {
+      "path": ".modal-offload.toml",
+      "comment": "https://github.com/t41372/PathKeep/pull/20#discussion_r4560138223",
+      "reproduction": {
+        "before": {
+          "protocol": "offload setup conditional wrapper",
+          "dependencyInstallExit": 17,
+          "setupExit": 0,
+          "subsequentCommands": ["browser ran", "worker ran"]
+        },
+        "after": [
+          {
+            "dependencyInstallExit": 17,
+            "setupExit": 17,
+            "subsequentCommands": []
+          },
+          {
+            "dependencyInstallExit": 0,
+            "setupExit": 0,
+            "subsequentCommands": ["browser", "worker"]
+          }
+        ]
+      },
+      "fix": "Run setup in a separate Bash process with set -euo pipefail; the runner conditional subshell suppresses errexit in an inline setup."
+    },
+    {
+      "path": "src/features/history/use-search-stream.ts",
+      "comment": "https://github.com/t41372/PathKeep/pull/20#discussion_r4560138232",
+      "reproduction": {
+        "before": {
+          "failed": 1,
+          "passed": 2
+        },
+        "after": {
+          "failed": 0,
+          "passed": 3
+        }
+      },
+      "testFile": "src/features/history/use-search-stream.test.tsx",
+      "fix": "Own the subscription in a layout effect and check liveness inside queued state updaters. Preserve settled placeholders during direct replacement and accept early live results."
+    },
+    {
+      "path": "src-tauri/Cargo.lock",
+      "advisory": "RUSTSEC-2026-0486",
+      "source": "https://rustsec.org/advisories/RUSTSEC-2026-0486.html",
+      "issued": "2026-11-11",
+      "before": "rustix 1.1.4",
+      "after": "rustix 1.1.6",
+      "latestStableVerified": "2026-11-13",
+      "windowsBindings": "Retained compatible existing lockfile bindings after confirming upstream version ranges.",
+      "earlyRustAuditExit": 0,
+      "allowedRustAdvisories": 8,
+      "newExceptions": 0
+    }
+  ],
+  "fullGate": {
+    "run": "pathkeep-pr20-rustix-refresh-20261113-000308",
+    "commands": ["bun run verify", "bun run check:supply-chain"],
+    "exit": 0,
+    "platform": "Linux x86_64, Modal VM, 8 CPU / 32 GiB",
+    "baseCommit": "6a88f2aa01284b3d63b355a67fec76a1a5068727",
+    "frontendTests": 110,
+    "rustTestGroups": 91,
+    "e2e": [
+      {
+        "path": "artifacts/e2e/results.json",
+        "sha256": "3eaf0e93eaaa301f61ec088484d619323df4f4b18588dd6e3e374c298cb1435d",
+        "stats": {
+          "startTime": "2026-11-13T07:23:32.699Z",
+          "duration": 1755815.497,
+          "expected": 124,
+          "skipped": 1,
+          "unexpected": 0,
+          "flaky": 0
+        }
+      },
+      {
+        "path": "artifacts/e2e/backup-integrity-healthy/results.json",
+        "sha256": "2b7d3ad47e5a35e8d1159083cda1c50acb6a8f46117eb4574114c37152889ff7",
+        "stats": {
+          "startTime": "2026-11-13T07:52:50.366Z",
+          "duration": 34332.998,
+          "expected": 9,
+          "skipped": 0,
+          "unexpected": 0,
+          "flaky": 0
+        }
+      },
+      {
+        "path": "artifacts/e2e/backup-integrity-damaged/results.json",
+        "sha256": "912e66583fc78319e17eb07d12945795921aa321f053157ade1d91a55093188d",
+        "stats": {
+          "startTime": "2026-11-13T07:53:25.257Z",
+          "duration": 13333.786,
+          "expected": 1,
+          "skipped": 0,
+          "unexpected": 0,
+          "flaky": 0
+        }
+      }
+    ],
+    "sourceManifestSha256": "3f0b90cb76f623c4fd18c48d41badf62262e9e4ba97a85ae1b56d18369e60b66",
+    "logSha256": "f76d75a6a3bb87d5a77f6b883a4433a415f4855d9157553812d537113a27647b",
+    "lockfilesUnchanged": true,
+    "jsAudit": {
+      "checkedPackages": 532,
+      "advisories": 0
+    },
+    "rustAudit": {
+      "allowedAdvisories": 8,
+      "newExceptions": 0
+    },
+    "changedCodeHashes": {
+      ".modal-offload.toml": "3f49d585d16f9b7bde1fb9f22ddbf92ae5c39e32655b54f5d6ee2e5fefdacd7a",
+      "scripts/prepare-modal-env.sh": "8034cafa20b5ba3bb612c4480f8a9367daeca69e415391879ccda8c1cd9948e7",
+      "src/features/history/use-search-stream.ts": "ff1c7c5935fc9c24be6b8f8eae7f162f1b8173ee500ceb750054a25817b9e32c",
+      "src/features/history/use-search-stream.test.tsx": "2670d0efec32ca6b2649281fc8f5282449e377204cd42f5059292840781be1e6",
+      "src-tauri/Cargo.lock": "6ca2d470258b2e00718038a166cac0ebe1fc39494168b8de0e5555a984e34d4e",
+      "bun.lock": "59bb1a24822e28c7b39393130843755d5a3fe1d56a37e20f47ecfd838074654f",
+      "package.json": "9d3f4bcee299a94049e426c57cd8b9a1214c0ea60c77ecff91b873e848f8d1bb"
+    }
+  }
+}

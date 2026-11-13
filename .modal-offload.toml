@@ -48,15 +48,5 @@ user = "ubuntu"
 # Tauri CLI parses CI as a boolean. Match the GitHub Actions value.
 env = { CI = "true", PATH = "/state/home/bun/bin:/opt/cargo/bin:/opt/bun/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", DISPLAY = ":99", DBUS_SESSION_BUS_ADDRESS = "unix:path=/tmp/offload-dbus", CARGO_HOME = "/state/home/cargo", RUSTUP_HOME = "/state/home/rustup", BUN_INSTALL_CACHE_DIR = "/state/home/bun-cache", PLAYWRIGHT_BROWSERS_PATH = "/state/home/ms-playwright" }
 # The desktop crate's build script needs the worker sidecar in src-tauri/binaries.
-setup = """
-pathkeep_bun_version="$(node -p 'require("./package.json").packageManager.slice(4)')"
-if [ "$(bun --version)" != "$pathkeep_bun_version" ]; then
-  curl -fsSL https://bun.sh/install | BUN_INSTALL=/state/home/bun bash -s -- "bun-v$pathkeep_bun_version"
-fi
-(pgrep -x Xvfb >/dev/null || (setsid Xvfb :99 -screen 0 1280x800x24 >/dev/null 2>&1 &))
-(test -S /tmp/offload-dbus || dbus-daemon --session --fork --address=unix:path=/tmp/offload-dbus >/dev/null)
-bun install --frozen-lockfile >/dev/null
-bunx playwright install chromium >/dev/null
-bun run prepare:worker-sidecar --profile debug
-"""
+setup = "bash scripts/prepare-modal-env.sh"
 artifacts = ["artifacts/e2e", "artifacts/dependency-refresh"]

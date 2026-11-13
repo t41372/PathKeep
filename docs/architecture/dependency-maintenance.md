@@ -77,9 +77,23 @@ References: [Dependabot Bun support](https://docs.github.com/en/code-security/re
 
 ## Validation scope
 
+Advisory results describe the database at the time of the run. PR #20's check
+passed on 2026-11-13, but the following supply-chain step detected
+[RUSTSEC-2026-0486](https://rustsec.org/advisories/RUSTSEC-2026-0486.html),
+issued on November 11 after the earlier validation. Update the existing rustix
+1.x dependency to the current patched 1.1.6, preserve compatible locked Windows
+bindings, and rerun the gates. The rustix 0.38 series is unaffected. This adds
+no advisory exception.
+
 The authority remains `bun run check`, including the real Rust backend and
 all E2E configurations. A dependency audit is additional evidence about known
 advisories, not a substitute for behavior tests. Keep each run's fixture,
 results, report and logs. When a full local gate cannot fit on disk, use the
 project's authorized Modal workflow with a hard timeout and terminate the
 sandbox when the run ends.
+
+Modal runs `scripts/prepare-modal-env.sh` in a separate Bash process with
+`set -euo pipefail`. The offload runner tests setup with `|| exit`; Bash ignores
+`errexit` inside that conditional subshell. Keeping preparation in its own
+process ensures a failed dependency installation stops setup before browser
+installation or the worker build.

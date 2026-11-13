@@ -29,6 +29,13 @@ slashes and operator-looking text remain literal parts of the Rust regex pattern
 
 ## Desktop, worker and dev IPC
 
+History owns its streamed search subscription in a React layout effect. Changing
+or clearing the request closes the previous subscription during commit, before
+its next animation frame. Queued state updaters also check that ownership when
+React applies them. A cleared search cannot return as the next search's dimmed
+placeholder; replacing a search directly retains settled rows until the new
+search delivers a step. Transport startup stays asynchronous.
+
 Tauri commands:
 
 ```ts
