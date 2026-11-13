@@ -294,6 +294,17 @@ lose the job's counts. Unchanged chunks still advance through the normal ledger 
 rebuild retains its captured archive boundary; an incremental resume against another lineage
 starts at the beginning of that lineage's needs, including changed low-id visits.
 
+A fresh build counts what is left to index before its first request, for the progress
+denominator. The count reads visit ids 10,000 at a time, one short read each with a stop check in
+between, and names `idx_ai_embeddings_lineage_history`. Left to itself Turso searches
+`ai_embeddings` by provider, model and lineage, which every row of a lineage shares, so it reads
+the whole lineage once per visit. The count was one unhinted statement, and from the lineage
+column (2026-11-08) until 2026-11-13 it ran that way: 0.35 s for 2,000 synthetic visits already
+indexed, 22.7 s for 16,000, hours for a real archive, and nothing could stop it. The same
+8,000 visits took 6 ms on the schema before the lineage column. Any statement that joins
+`ai_embeddings` on `history_id` needs the hint; `ai/tests_native/indexing/start.rs` checks the
+plans of a build over an existing index.
+
 The lease/closure audit covers status, query/staleness reads, related pages, topics, similar
 searches, grouping `Prepared._generation`, grouping event/opened-page reads, snapshot signatures
 and snapshot publication. `Prepared` stays on its caller, including the equal-digest warm branch;

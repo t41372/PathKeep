@@ -1,7 +1,9 @@
 //! Responsibilities: start, service and join connection-owning reader/writer threads.
 //! Not responsible for: application work or async APIs outside this crate.
 //! Failure modes: connections cross threads; panic kills an owner; startup failure
-//! leaks threads; interactive jobs wait behind queued batches. Tests: concurrency, opening.
+//! leaks threads; interactive jobs wait behind queued batches; a writer waiting to
+//! checkpoint keeps readers and later writes waiting behind a read that is still running.
+//! Tests: concurrency, opening, admission.
 use crate::{
     Db, Error, Metrics, Migration, Priority, Result, Session,
     checkpoint::Gate,
@@ -16,7 +18,14 @@ use std::{
         mpsc,
     },
     thread::{self, JoinHandle},
+    time::Duration,
 };
+
+/// How long a writer that wants to truncate the WAL keeps new readers out while the readers
+/// already inside finish. Reads are short (`Store::read`), so they normally leave within it.
+/// One that does not must not hold up every other read: the writer lets readers in again and
+/// truncates later.
+const READER_DRAIN: Duration = Duration::from_millis(50);
 
 type Reply = Box<dyn FnOnce() + Send>;
 type Job = Box<dyn FnOnce(&Engine, Option<&Gate>, Option<&Gate>) -> Reply + Send>;
@@ -85,9 +94,12 @@ impl Workers {
                         || {
                             // No read pool or ready signal exists yet. Truncating between batches
                             // also bounds retained WAL state as the migrated corpus grows.
-                            let _admission = migration_gate.reserve_truncate();
-                            _admission.wait_for_readers();
-                            if !crate::checkpoint::run(&engine, true, &migration_metrics) {
+                            let admission = migration_gate
+                                .reserve_truncate()
+                                .filter(|admission| admission.wait_for_readers(READER_DRAIN));
+                            if admission.is_none()
+                                || !crate::checkpoint::run(&engine, true, &migration_metrics)
+                            {
                                 let metrics = migration_metrics.lock().unwrap();
                                 return Err(Error::Operation(
                                     std::io::Error::other(format!(
@@ -125,6 +137,8 @@ impl Workers {
                             }
                             completion = Some(reply);
                         }
+                        // Some reader was the last to leave. That may have been a while ago,
+                        // with others inside since: the gate knows, and is asked below.
                         Next::Maintenance => {}
                         Next::Closed => {
                             if let Some(_guard) = gate.try_truncate() {
@@ -133,15 +147,26 @@ impl Workers {
                             break;
                         }
                     }
-                    if dirty && writer.pending() == (0, 0) {
-                        let guard = gate.reserve_truncate();
+                    // No guard while a read the writer already waited for is still running:
+                    // once per long read is enough.
+                    if dirty
+                        && writer.pending() == (0, 0)
+                        && let Some(guard) = gate.reserve_truncate()
+                    {
                         // Acknowledgement belongs to COMMIT, not to maintenance.
                         // In particular, an active reader may depend on this reply.
                         if let Some(reply) = completion.take() {
                             reply();
                         }
-                        guard.wait_for_readers();
-                        dirty = !crate::checkpoint::run(&engine, true, &metrics);
+                        if guard.wait_for_readers(READER_DRAIN) {
+                            dirty = !crate::checkpoint::run(&engine, true, &metrics);
+                        } else {
+                            // A read is running long. Its snapshot pins the WAL whatever this
+                            // thread does, so waiting on gains nothing and would keep every
+                            // other read, and the next write, waiting with it. Dropping the
+                            // guard lets readers in again.
+                            metrics.lock().unwrap().truncates_put_off += 1;
+                        }
                     }
                     if let Some(reply) = completion {
                         reply();
@@ -164,7 +189,7 @@ impl Workers {
                     move || {
                         IN_OWNER.with(|v| v.set(true));
                         let engine = match crate::session::catch_job(|| {
-                            Engine::reader(database, &settings, compiled)
+                            Engine::reader(database, &settings, compiled, index)
                         }) {
                             Ok(e) => e,
                             Err(error) => {

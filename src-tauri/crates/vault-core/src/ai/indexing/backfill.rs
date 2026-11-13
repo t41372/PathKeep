@@ -434,48 +434,80 @@ fn scan_target_for(connection: &Session<'_>, start_history_id: i64) -> Result<i6
     max_candidate_history_id(connection)
 }
 
-/// Counts visible visits missing metadata for this exact pair. An empty index counts every
-/// visit; a partial index counts only its missing visits; a rebuild, which reads every visit into
-/// its lineage, counts them all. This runs once in the background, never during status polling.
-/// Durable cursor progress preserves the target across resumes.
+/// Visit ids one read of the count covers. A read is a short transaction (`Store::read`): at
+/// 3 µs a visit this is about 30 ms, and the count of a 14.4M-visit archive is 1,440 of them
+/// with a stop check between each, not one statement nothing can interrupt.
+pub(in crate::ai) const COUNT_PAGE_IDS: i64 = 10_000;
+
+/// What a build stopped during the count reports.
+pub(in crate::ai) const COUNT_STOPPED: &str =
+    "Index build was stopped while counting what is left to index.";
+
+/// Counts the visits shown with an id in `(after, through]` that have no row for this exact pair
+/// and lineage; a rebuild, which reads every visit into its lineage, counts them all.
+///
+/// The index is named because Turso otherwise searches `ai_embeddings` by the three values every
+/// row of a lineage shares and reads the whole lineage for each visit (2026-11-13: hours on an
+/// archive of a few hundred thousand visits, seconds with the index named).
 fn candidate_visit_count(
     connection: &Session<'_>,
     provider_id: &str,
     model: &str,
     rebuild: bool,
     lineage: &str,
+    after: i64,
+    through: i64,
 ) -> Result<u64> {
     let count: i64 = connection
         .query_one(
             "SELECT COUNT(*)
              FROM archive.visits AS visits
-             WHERE visits.reverted_at IS NULL
+             WHERE visits.id > ?5 AND visits.id <= ?6
+               AND visits.reverted_at IS NULL
                AND (?3 = 1 OR NOT EXISTS (
-                 SELECT 1 FROM ai_embeddings AS e
-                 WHERE e.provider_id = ?1 AND e.model = ?2 AND e.lineage=?4 AND e.history_id = visits.id
+                 SELECT 1 FROM ai_embeddings AS e INDEXED BY idx_ai_embeddings_lineage_history
+                 WHERE e.history_id = visits.id
+                   AND e.provider_id = ?1 AND e.model = ?2 AND e.lineage = ?4
                ))",
-            params![provider_id, model, i64::from(rebuild), lineage],
+            params![provider_id, model, i64::from(rebuild), lineage, after, through],
             |row| Ok(row.get(0)?),
         )
         .context("counting candidate pages needing embedding for the index embed target")?;
     Ok(count.max(0) as u64)
 }
 
-/// Resolves the embed-progress denominator to REPORT this run: the captured candidate count on a
-/// fresh build, else 0 ("unknown — preserve the stored target"). Mirrors [`scan_target_for`] so a
-/// resume never recounts a corpus that grew (or got partially embedded) under the build.
+/// Resolves the embed-progress denominator to REPORT this run: the visits still missing from this
+/// pair on a fresh build, else 0 ("unknown — preserve the stored target"). Mirrors
+/// [`scan_target_for`] so a resume never recounts a corpus that grew (or got partially embedded)
+/// under the build. Runs once, in the background, before the first request; `scan_target` is the
+/// highest id to count through.
+#[allow(clippy::too_many_arguments)]
 fn embed_target_for(
-    connection: &Session<'_>,
+    vault: &crate::Vault,
     provider_id: &str,
     model: &str,
     start_history_id: i64,
     rebuild: bool,
     lineage: &str,
+    scan_target: i64,
+    run_control: Option<&Arc<dyn AiRunControl>>,
 ) -> Result<u64> {
     if start_history_id > 0 {
         return Ok(0);
     }
-    candidate_visit_count(connection, provider_id, model, rebuild, lineage)
+    let mut total = 0;
+    let mut after = 0;
+    while after < scan_target {
+        checkpoint_ai_run(run_control, COUNT_STOPPED)?;
+        let through = after.saturating_add(COUNT_PAGE_IDS).min(scan_target);
+        let (provider_id, model, lineage) =
+            (provider_id.to_owned(), model.to_owned(), lineage.to_owned());
+        total += vault.read(Db::Intelligence, move |s| {
+            candidate_visit_count(s, &provider_id, &model, rebuild, &lineage, after, through)
+        })?;
+        after = through;
+    }
+    Ok(total)
 }
 
 /// Embeds candidate rows in resumable, cancellable chunks and persists them to the vector plane.
@@ -550,12 +582,16 @@ async fn run_embedding_backfill(
     let scan_target =
         vault.read(Db::Intelligence, move |s| scan_target_for(s, start_history_id))?;
     // Count visits still missing from this pair before the first request. Resume keeps its target.
-    let provider_id = provider.config.id.clone();
-    let model = provider.config.default_model.clone();
-    let build_lineage = lineage.to_owned();
-    let embed_target = vault.read(Db::Intelligence, move |s| {
-        embed_target_for(s, &provider_id, &model, start_history_id, rebuild, &build_lineage)
-    })?;
+    let embed_target = embed_target_for(
+        vault,
+        &provider.config.id,
+        &provider.config.default_model,
+        start_history_id,
+        rebuild,
+        lineage,
+        scan_target,
+        run_control,
+    )?;
     // The cursor reflecting the last chunk whose vectors+map+Turso are ALL durably persisted (F2.1).
     // It NEVER advances past a chunk that has not been fully persisted, so persisting it on the failure
     // path resumes from REAL progress instead of the origin — and never SKIPS an un-persisted chunk

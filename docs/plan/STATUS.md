@@ -9,6 +9,27 @@
 
 ## CURRENT FOCUS
 
+- [x] **WORK-LONG-READ-OUTAGE** — 一條跑不完的讀取讓整個 app 讀不到新資料（用戶 2026-11-13 回報：在 AI 設定點「繼續」建立索引之後，歷史只剩已載入的、洞察永遠載入中，後台任務停在舊狀態）。
+  - 讀先：`docs/architecture/turso-migration-design.md` §4（讀取池與 Checkpoint）、`semantic-index-control.md`、`search.md`、`docs/plan/program/quality-matrix.md`（什麼時候才寫 unit test）。
+  - 原因有三層，在卡住的進程（採樣、反組譯）、合成資料與真實存檔的本機副本上都確認了：
+    1. `10f05828`（11 月 8 日）給 `ai_embeddings` 加了 `lineage` 欄與索引。建置開跑前數「還有多少造訪沒建索引」的那句 `COUNT`，Turso 從此改用「provider、model、lineage」那個索引：每筆造訪把整個 lineage 讀一遍。合成資料 2,000 筆 0.35 秒、16,000 筆 22.7 秒（平方成長）；同樣 8,000 筆在加欄之前的 schema 上是 6 ms。那次改動替另一句查詢加了索引提示並寫了測試，漏了這一句。升級後第一個真的開跑的建置就是用戶這一個。
+    2. `vault-store` 的 writer 寫完要截 WAL 時先擋住新讀取，再等進行中的讀取離開，沒有上限。一條長讀取加上任何一次寫入，那個資料庫所有新的讀取與後面的寫入就等到它結束；Intelligence 的讀取讀 `archive.*` 時，Archive 也一樣。
+    3. 搜尋索引器每 100 ms 輪詢一次，結尾無條件刪一次 outbox（刪 0 列也是一個寫入工作）。閒置時 archive 每秒九次以上 checkpoint，任何超過 0.1 秒的 archive 讀取都會碰上第 2 點。Intelligence 那邊是任務每 30 秒的心跳。
+  - 修正：`COUNT` 指定 `idx_ai_embeddings_lineage_history`、照造訪 id 每 10,000 一頁、頁與頁之間看有沒有被要求停；writer 等讀取最多 50 ms，等不到就放行，最後一條讀取離開時再截，那條讀取還在的期間不再為它擋；索引器沒有新東西就不寫（開啟後第一次輪詢仍清一次當機留下的列）。
+  - 測試十個，寫在修正之前：`vault-store/tests/admission.rs` 五個、`search/recovery_tests.rs` 兩個、`ai/tests_native/indexing/start.rs` 三個。其中五個在舊實作上失敗：讀取、跨資料庫的讀取、寫入不等還在跑的讀取；閒置的索引器不寫 archive；在既有索引上建置的查詢計劃。其餘守的是這次改動可能弄壞的地方（延後的截斷在長讀取結束後補做、當機留下的 outbox 列下次啟動清掉、計數的值、同一條長讀取不再反覆擋讀取：拿掉那條規則它會失敗），或要新程式碼才編得過（計數到一半可以停）。這些 E2E 重現不了：要幾十萬列才看得出來，或要一條被按住的讀取。
+  - 驗收：真實存檔的本機副本（embedding 指向本機的假服務）上跑完整個增量建置。開跑到第一個 embedding 請求 6 秒，其中計數 0.8 秒；修之前同一句在同一份資料上每筆造訪要 70–150 ms，估計十幾個小時。建置期間另外跑的九千多次 Archive 與 Intelligence 讀取，中位數不到 0.1 ms，最慢 53 ms。`bun run check` 通過：前端 110 個測試，Rust 92 組，E2E 135 過。
+  - 連帶的改變：讀取連線的頁面快取以前被那每秒十次的空寫入一再清空，現在會留著，長到設定的上限為止（每條連線 8 MiB；10 萬筆造訪的匯出跑幾次後兩條共約 14 MB，之後不再長）。`export_heap_stays_bounded_as_archive_grows` 原本靠快取被清空才量得到 2 MiB 以下，改成快取暖了再量：匯出本身在 1 萬與 10 萬筆都是 0.9 MiB。
+  - 畫面上看到的「已暫停＋舊錯誤」是點「繼續」之前的快照（列與標題是兩個查詢，之後的都沒回）；「44 項失敗」是十月中的舊紀錄。
+  - 同一天追加（第二個 commit）：讀取不再互相等之後，一條跑不完的語句就沒有任何症狀了，所以讓它進 log。一條語句跑超過 30 秒，`vault-store` 點名它（連線、多久、語句開頭，引號裡的字換成 `?`），每翻倍再記一次，結束時也記；`html5ever` 的警告不再進 `rust.log`（那天的 log 只剩它）。測試 `vault-store/tests/long_statement.rs` 先寫，在沒有這個功能時失敗。
+  - PR #24 的審查（ChatGPT Pro 與 CodeRabbit，2026-11-13，都說沒有擋合併的）。五條意見逐條對照程式碼，都成立，是三個原因；另一條是驗證時自己發現的。一起改：
+    1. 「已經等過的讀取」記在 writer 的迴圈裡，而且只記一條。迴圈一聽到「最後一條讀取走了」就把它忘掉，但那個通知可能是 writer 忙的時候留下的，之後又有讀取進來，於是同一條長讀取多擋一次 50 ms（ChatGPT；在真的 writer 上重現，30 次都重現）。另外，等的時候裡面有兩條長讀取，只記了待最久的那條，它走了之後又為另一條擋一次（自己發現，同一個原因）。改成記在閘門裡：放棄時記下當時最新的讀取編號，編號不比它大的讀取還有一條在，就不讓 writer 擋。迴圈不再有這個狀態。審查建議只刪掉「忘掉」那一行；沒有照做，因為第二種情況還在，而且測試仍然只能靠計時。
+    2. `later_writes…` 把二十次寫入的磁碟時間算進 500 ms 的上限，磁碟慢就誤判（ChatGPT）。新增 `Metrics::truncates_put_off`（writer 放棄了幾次），`admission.rs` 改成讀它：不量時間，也沒有固定的等待，截止時間只用來不讓壞掉的版本卡住整個 suite。閘門的規則另有兩個不花時間的 unit test（等待上限設成零）。
+    3. 慢語句的記錄只接在 `Session::with_statement`。先 `prepare` 再跑的語句（Insights 的重查詢與索引建置多半這樣寫）和 `integrity_check` 都沒被看（ChatGPT、CodeRabbit）。現在每條路都經過 `Session::watch`，逐列讀的語句讀到最後一列就算結束。成本量過：prepare 好的單列 INSERT 約 620 ns，多約 20 ns，在各次量測的起伏之內。
+    4. log 那一行遮字串的程式不認得 SQL 註解：註解裡一個撇號，就讓後面的字串被當成語句本文印出來（CodeRabbit）。app 的語句裡有帶撇號的註解，但沒有把值寫進語句的地方，所以還沒有東西漏過。改成跟 `sql::tokens` 一樣分辨註解與四種引號，註解不印。
+    - 測試先寫、先失敗：過期通知與兩條長讀取的兩個（各在改之前的版本上得到 2 次放棄，應為 1）、`long_statement.rs` 的 prepare 兩段（拿掉 `execute` 的登記、或讓讀完的游標繼續算，各自失敗）、遮字串的一個。閘門的兩個 unit test 要新程式碼才編得過。`integrity_check` 的登記沒有自己的測試：沒有辦法讓它停在半路。
+  - GitHub 上這個 PR 的主要檢查（lint、建置、Rust、E2E，Ubuntu）通過，之後的供應鏈稽核失敗，跟這裡的改動無關：11 月 13 日發布的 RUSTSEC-2026-0538 影響 `quinn-udp` 0.5.14。它只因為 `reqwest` 的 `http3`（沒開）而列在 lockfile 裡，app 不編它（跑完整個 gate 的 target 裡沒有它的產物）。更新到修正版 0.5.16：lockfile 只改它自己的版本與 checksum，保留既有 Windows bindings（`cargo update` 會順手把另外九個套件的 `windows-sys` 換成舊版），不新增 advisory 例外。
+  - 進 BACKLOG：`WORK-SLOW-READ-ALARM`（剩下的部分：E2E 檢查、畫面、中斷語句）、`WORK-INDEX-UPDATE-WALKS-ARCHIVE`、`WORK-UNBOUNDED-READS`、`WORK-STALE-WHEN-BACKEND-SILENT`、`WORK-EMPTY-WRITE-CHECKPOINT`；`WORK-TURSO-MINMAX-WRAPPER-AUDIT` 補了量測。
+
 - [x] **WORK-RUSTIX-2026-11-13** — 新發布的 RUSTSEC-2026-0486 擋下 PR #20 的供應鏈 gate，更新既有間接依賴後重新驗證。
   - 讀先：`docs/architecture/dependency-maintenance.md`、RustSec 官方公告與 crates.io 的版本／依賴資料。
   - 11 月 11 日發布的公告影響 rustix 1.1.4；更新至最新修正版 1.1.6。保留既有 Windows bindings，不新增 advisory 例外。GitHub 的完整 `bun run check` 已過，失敗的是隨後的新公告掃描。

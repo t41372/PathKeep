@@ -9,6 +9,39 @@
 
 > 2026-10-25：清掉已完成或前提已不存在的 block（v0.3 Paper 前端、已移除的 coverage / mutation gate、已修好的 flaky 測試等，清單見 CHANGELOG 同日）。2026-04 到 2026-06 的收尾註記也一併移除，要看去 git 歷史或 CHANGELOG。
 
+- [ ] **WORK-SLOW-READ-ALARM** — 跑得久的語句現在會進 log，但 E2E 不會因此失敗、畫面上看不到、也停不了它（2026-11-13 `WORK-LONG-READ-OUTAGE` 做了 log 的部分）
+  - 讀先：`docs/architecture/turso-migration-design.md` §4（跑得久的語句）、`vault-store/src/running.rs`、`scripts/run-playwright.mjs`、`docs/design/ux-principles.md`。
+  - 現況：一條語句跑超過 30 秒，`rust.log` 會點名它，之後每翻倍再記一次。要有人去看 log 才知道。
+  - 要做：
+    - E2E 跑完檢查 app 沒有記這種行。測資只有兩萬多筆造訪，任何一句跑到 30 秒都是計劃選錯：這次的 COUNT 在測資大小上要 40 秒左右，E2E 的 120 秒等待沒擋下來。Rust 的警告會轉到瀏覽器的 console 再印到 runner 的輸出，但 `run-playwright.mjs` 現在是 `stdio: 'inherit'`，沒有在看；做的時候要先證明這條路真的把 `vault_store` 的行帶出來。
+    - 畫面：後台任務頁說出「有一個讀取已經跑了多久」，要先過 `ux-principles`。
+    - 停下它：`turso_core` 0.8.3 有 `Connection::interrupt`，SDK（`turso`）沒有露出來。查清楚能不能用，能的話暫停與取消就可以停掉跑到一半的語句，而不是等它自己結束。
+
+- [ ] **WORK-INDEX-UPDATE-WALKS-ARCHIVE** — 每次備份後的索引更新都把整個存檔走一遍，只有幾十筆新造訪也一樣（2026-11-13 `WORK-LONG-READ-OUTAGE` 驗收時量到）
+  - 讀先：`docs/architecture/semantic-index-control.md`、`vault-core/src/ai/indexing/backfill.rs`（`run_embedding_backfill` 從游標 0 開始）、`candidates.rs`、`store_rows.rs` 的 `cleanup_stale_embeddings`。
+  - 現象：增量建置每次從第一筆造訪讀到最後一筆（每 64 筆一塊：讀造訪、比內容雜湊、讀 enrichment），再把整個 lineage 的列走一遍找已撤銷的造訪，開跑前還要數一次剩多少。幾十萬筆造訪的存檔上，一次更新光是走完就要幾十秒到一兩分鐘，每小時一次；14.4M 是它的三十倍。都是分頁的短讀取，不會擋別人，只是白做。
+  - 方向（先設計、先量）：備份知道自己寫了哪些造訪、改了哪些頁面；讓更新只讀那些，整個走一遍留給「重新檢查」這種明確的操作。要處理：enrichment 之後才抓到內容的頁面、撤銷與還原、進度的分母。
+
+- [ ] **WORK-UNBOUNDED-READS** — 還有一批「一句讀完整張表」的語句（2026-11-13 `WORK-LONG-READ-OUTAGE` 掃程式碼列出，多數沒跑 `EXPLAIN`）
+  - 讀先：`docs/architecture/turso-migration-design.md` §4、`vault-core/tests/intelligence_read_plans.rs`（計劃測試怎麼寫）、下面的 `WORK-TURSO-MINMAX-WRAPPER-AUDIT` 與 `WORK-SEMANTIC-VISIT-SIDECAR`（已經各自列管的不重複）。
+  - 現象：這些各佔一條讀取連線（每個資料庫只有兩條）直到跑完，中途不能取消；`WORK-LONG-READ-OUTAGE` 之後不再讓別的讀取等。照「多常跑」排：
+    - Insights 建置開頭（每次有變動的備份之後）：`intelligence/build_pipeline.rs:22-34` 一個讀取裡每個 profile 一句 `COUNT(*) FROM search_terms`。
+    - 後台任務頁開著時每 2 秒：`intelligence_runtime/snapshot.rs:94-100`（`page_content_enrichments` 上沒有索引的 `COUNT`）、`enrichment/content_fetch_api.rs:172-178`。
+    - 清單與卡片：`intelligence/search_queries.rs:70-85`（視窗函數掃範圍內所有關鍵字搜尋）、`ai/similar_searches.rs:216-238`、`archive/history/og_images.rs:84-90`（幾乎整張 `urls` 的 `COUNT(DISTINCT)`）、`ai/working_set.rs:190-194`。
+    - Doctor 與修復：`archive/doctor.rs:76-115` 一個讀取跑二十幾句整表語句（其中 `DAMAGED_PAGES` 每頁一個沒有提示的相關子查詢，計劃沒驗過）、`doctor_derived.rs:59-110`、`intelligence_schema.rs:52-108`；`doctor.rs:176-184` 與 `:282-287` 是整表的寫入工作，會佔住唯一的 writer。
+    - 沒有前端呼叫、計劃沒驗過的 IPC 命令：`intelligence_navigation.rs:84-95`、`phase_four.rs:284-303`、`intelligence_explain.rs:138-146`。
+  - 方向：每一條先 `EXPLAIN QUERY PLAN`（在 14.4M 的種子資料上量），再決定分頁、加索引提示或加索引；常跑的先做。凡是拿 join 的鍵去查、表上又有「以常數欄開頭」的索引的語句都要看：Turso 沒有統計資料時會挑常數那個索引（這次的 COUNT 就是）。
+
+- [ ] **WORK-STALE-WHEN-BACKEND-SILENT** — 後端不回的時候，畫面照樣顯示舊資料，按鈕沒有反應也沒有說明；IPC 與排程都沒有逾時（2026-11-13 `WORK-LONG-READ-OUTAGE` 查的時候確認）
+  - 讀先：`docs/design/ux-principles.md`、`docs/architecture/owner-process.md`（§請求不設期限的理由）、`src/features/settings/background/`、`src/lib/ipc/bridge.ts`、`vault-owner-ipc/src/client.rs`。
+  - 現象：那天所有讀取都不回。後台任務頁停在點「繼續」之前的那一列（已暫停、舊的錯誤訊息，還給 ▶ 與 ✕），標題卻是「1 項運行中」：列與標題是兩個查詢，一個先回了；之後的輪詢都掛在同一個沒回的請求上，沒有轉圈也沒有錯誤。暫停、取消、開關按下去就一直停在 pending。排程備份的 worker 送出請求後無限等，launchd 的工作也沒有 `TimeOut`，於是之後每小時的備份都不會啟動。
+  - 方向：先分清楚「慢」和「不回」。畫面：資料超過一段時間沒更新要看得出來（不是把舊資料當新的）；一個動作送出後沒回，要說明並讓人能重試。排程：worker 等 owner 要有上限，逾時記成一次失敗的嘗試再退出，下一個小時才會再跑。設計要先過 `ux-principles`；`owner-process.md` 寫了請求不設期限的理由，要改先寫 trade-off。
+
+- [ ] **WORK-EMPTY-WRITE-CHECKPOINT** — 什麼都沒改的寫入工作也讓 writer 做一次 checkpoint（2026-11-13 `WORK-LONG-READ-OUTAGE` 看到；搜尋索引器那個每 100 ms 一次的已經拿掉）
+  - 讀先：`vault-store/src/worker.rs`（writer 迴圈的 `dirty`）、`checkpoint.rs`。
+  - 現象：writer 做完任何一個工作就當自己有東西要截，於是擋住新讀取（最多 50 ms）再做 TRUNCATE。改了 0 列的工作也一樣：`og_images.rs:255-257`、`enrichment/search_text.rs:15`、`stars`／`annotations` 沒變動的儲存。
+  - 方向：WAL 裡沒有 frame 就不用截。先確認 Turso 的 `wal_checkpoint(PASSIVE)` 在空的 WAL 上回報的 frame 數可以拿來判斷，再改。
+
 - [ ] **WORK-BACKUP-INTEGRITY-SCALE** — 原生備份的新身分與讀法在 14.4M 和目標機上的量測（2026-11-01 PR #18 只量了 100 萬筆、M5 Max）
   - 要量：14.4M 的 v1 存檔更新（migration 2–21，含開啟者 backfill 與重建列號索引）的時間與峰值記憶體；更新後第一次備份（整個重讀、給每筆時間）；之後每小時與每週的備份。目標機 4 核 / 8 GB，冷快取。
   - 另外量一份 Sync 從新到舊寫的大檔（開啟者大多在子造訪之後）：讀完才找到的開啟者分批寫，量它的時間。
@@ -107,10 +140,11 @@
   - 根因：Turso 0.8.1 `translate/optimizer/mod.rs` 的 `detect_simple_aggregate` 只在結果欄「正好是」聚合式時走 MIN/MAX 捷徑（沿索引或 rowid 直接走到極值）；外面包 `COALESCE`、`+1` 都不算，就退回掃描。Intelligence v2 遷移因此每批掃一次越長越大的新表，1M / 4M 量到 26.5 s / 129 s；改成不包、在 Rust 裡處理 NULL 之後 16.4 s / 66.9 s（`semantic-index-control.md`）。
   - 要查（14.4M 時每次都掃一遍的優先）：`intelligence/build_pipeline.rs:24`（每次 intelligence 建置掃 `visits`）、`ai/indexing/backfill.rs:413` 與 `:539`、`ai/generations/build.rs:145`、`ai/similar_searches.rs:198`、`ai/indexing/store_rows.rs:91`、`archive/doctor_derived.rs:76`，以及 `intelligence_runtime/enqueue.rs`、`job_control.rs` 的 `MAX(list_order)+1`（小表，可能不用改）。
   - 做法：先用 `EXPLAIN` 確認每一條真的掃表，再改成不包的 `MAX(...)` 並在 Rust 裡處理 NULL；有 WHERE 的要確認存取路徑能直接走到極值。結果記進 `turso-review-ledger.md`。
+  - 2026-11-13（`WORK-LONG-READ-OUTAGE`）：增量建置開頭的三條在真實存檔的本機副本上確認是掃描（`SCAN ai_embeddings`、`SCAN visits`、`SCAN visits USING INDEX idx_visits_visible_time_id`），幾十萬筆造訪時合計約 2.5 秒，其中 `store_rows.rs` 那條掃整張 `ai_embeddings` 就佔 2 秒。`backfill.rs` 的 `max_candidate_history_id` 的註解說它「cheap」，不對。
 
 - [ ] **WORK-SEMANTIC-VISIT-SIDECAR** — 語意搜尋每次都讀一遍範圍內的所有造訪：100 萬次 385 ms，14.4M 估 5.5 秒（M5 Max），目標機更慢（2026-10-17 做完 `WORK-SEMANTIC-PIPELINE` 量到）
   - 現況：一次語意搜尋 100 萬次造訪 500 ms，其中 385 ms 是一條 SQL 串流範圍內每次造訪（算頁面成員、最新時間與每頁最高分）。向量掃描只要 6 ms。
-  - 串流是一次讀取，整段佔住 archive 兩條讀取連線中的一條；writer 做 WAL truncate checkpoint 前要等進行中的讀取結束（`vault-store/src/checkpoint.rs` 的 `wait_for_readers`，`worker.rs` 呼叫），這段時間進來的寫入也跟著等。14.4M 時一次語意搜尋可能讓匯入、備份的寫入延後數秒。以前的逐批回查是很多次短讀取，不會這樣；日期篩選的全文搜尋（`eligibility::load`）本來就是同一種長讀取。
+  - 串流是一次讀取，整段佔住 archive 兩條讀取連線中的一條；writer 做 WAL truncate checkpoint 前要等進行中的讀取結束（`vault-store/src/checkpoint.rs` 的 `wait_for_readers`，`worker.rs` 呼叫）。2026-11-13 以前這一等沒有上限，這段時間進來的讀取與寫入都跟著等；現在最多等 50 ms（`WORK-LONG-READ-OUTAGE`），長讀取只佔一條讀取連線、延後 WAL 的截斷。以前的逐批回查是很多次短讀取，不會這樣；日期篩選的全文搜尋（`eligibility::load`）本來就是同一種長讀取。
   - 方向（先設計、先量）：建索引時把每次造訪的頁面與時間投影到索引旁（跟 `.pkpos` 同一份或並排），加上撤銷造訪的集合；沒有篩選或只有日期篩選時，頁面成員與每頁分數在記憶體裡算完，用到網站、標籤、筆記、星號、profile 等篩選才走 SQL 串流。要處理：索引之後才進來的造訪（成員與最新時間仍要算到它們）、撤銷與還原、App Lock 時放掉記憶體、`semantic_stage_bench` 量 1M / 4M。
 
 - [!] **WORK-VECTOR-MEMORY-AT-SCALE** — 大語料時完整 int8 排序放不進 8 GB（等用戶在研究文件「What this means」的 A / B / C 中選）

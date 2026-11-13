@@ -31,6 +31,7 @@ pub struct Session<'a> {
     pub(crate) conn: &'a turso::Connection,
     pub(crate) prepared: Option<&'a crate::statement_cache::StatementCache>,
     pub(crate) read_only: bool,
+    pub(crate) running: Option<&'a crate::running::Slot>,
     pub(crate) _thread: PhantomData<Rc<()>>,
     pub(crate) scratch: Option<&'a crate::checkpoint::Gate>,
     pub(crate) archive: Option<&'a crate::checkpoint::Gate>,
@@ -100,6 +101,7 @@ impl<'a> Session<'a> {
     /// Runs Turso's structural and row/index consistency checks on this snapshot.
     /// This fixed read-only pragma does not expose arbitrary connection settings.
     pub fn integrity_check(&self) -> Result<Vec<String>> {
+        let _running = self.watch("PRAGMA integrity_check");
         self.runtime.block_on(async {
             let mut rows = self.conn.query("PRAGMA integrity_check", ()).await?;
             let mut messages = Vec::new();
@@ -119,9 +121,16 @@ impl<'a> Session<'a> {
     ) -> Result<T> {
         self.check_sql(sql)?;
         let mut statement = self.take_statement(sql)?;
+        let _running = self.watch(sql);
         let result = work(&mut statement);
         self.return_statement(sql, statement);
         result
+    }
+    /// Says this connection is running `sql` until the guard is dropped. Every way a job can
+    /// run a statement goes through here, or a long one runs unnamed (`running`): the calls
+    /// below, `integrity_check`, and a prepared statement's `execute` and `query`.
+    pub(crate) fn watch(&self, sql: &str) -> Option<crate::running::Running<'a>> {
+        self.running.map(|slot| slot.begin(sql))
     }
     /// A compiled statement for `sql`: from this connection's cache, or newly compiled.
     pub(crate) fn take_statement(&self, sql: &str) -> Result<turso::Statement> {
