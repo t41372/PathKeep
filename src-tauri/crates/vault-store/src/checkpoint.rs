@@ -1,10 +1,14 @@
 //! Responsibilities: coordinate reader admission with idle WAL truncation and record results.
 //! Not responsible for: automatic checkpoint tuning or interrupting statements.
 //! Failure modes: TRUNCATE races new readers; reader completion fails to wake an idle
-//! writer; busy checkpoint is reported as success; WAL grows across short reads.
-//! Tests: checkpoint tests and wal tests.
+//! writer; busy checkpoint is reported as success; WAL grows across short reads; a read that
+//! runs long keeps every other reader out for as long as it runs.
+//! Tests: checkpoint tests, wal tests and admission tests.
 use crate::{Error, Result, engine::Engine};
-use std::sync::{Arc, Condvar, Mutex};
+use std::{
+    sync::{Arc, Condvar, Mutex},
+    time::{Duration, Instant},
+};
 
 /// Operational measurements distinguish a completed commit from later maintenance.
 #[derive(Clone, Debug, Default)]
@@ -23,7 +27,10 @@ pub struct Metrics {
 }
 #[derive(Default)]
 struct Admission {
-    active: usize,
+    /// The readers inside, by entry number. Numbers only grow, so the lowest is the reader
+    /// that has been inside longest.
+    inside: Vec<u64>,
+    entered: u64,
     truncating: bool,
 }
 pub(crate) struct Gate {
@@ -31,7 +38,7 @@ pub(crate) struct Gate {
     changed: Condvar,
     wake: Box<dyn Fn() + Send + Sync>,
 }
-pub(crate) struct ReadGuard<'a>(&'a Gate);
+pub(crate) struct ReadGuard<'a>(&'a Gate, u64);
 pub(crate) struct TruncateGuard<'a>(&'a Gate);
 
 impl Gate {
@@ -47,11 +54,18 @@ impl Gate {
         while s.truncating {
             s = self.changed.wait(s).unwrap()
         }
-        s.active += 1;
-        ReadGuard(self)
+        s.entered += 1;
+        let entry = s.entered;
+        s.inside.push(entry);
+        ReadGuard(self, entry)
+    }
+    /// Whether the reader with this entry number has not left yet.
+    pub fn is_inside(&self, entry: u64) -> bool {
+        self.state.lock().unwrap().inside.contains(&entry)
     }
     // Reserve admission only while the writer is idle. Existing short readers
-    // finish normally; new readers wait for this checkpoint, never for a batch.
+    // finish normally; new readers wait for this checkpoint, never for a batch, and
+    // never for a reader that is still running (`TruncateGuard::wait_for_readers`).
     pub fn reserve_truncate(&self) -> TruncateGuard<'_> {
         let mut s = self.state.lock().unwrap();
         s.truncating = true;
@@ -59,7 +73,7 @@ impl Gate {
     }
     pub fn try_truncate(&self) -> Option<TruncateGuard<'_>> {
         let mut s = self.state.lock().unwrap();
-        if s.active != 0 || s.truncating {
+        if !s.inside.is_empty() || s.truncating {
             return None;
         }
         s.truncating = true;
@@ -67,18 +81,28 @@ impl Gate {
     }
 }
 impl TruncateGuard<'_> {
-    pub fn wait_for_readers(&self) {
+    /// Waits, for at most `limit`, until the readers already inside have left. `Some` means
+    /// one is still running and names the one inside longest: the caller drops this guard, so
+    /// readers are let in again, and truncates later. Waiting without a limit made every new
+    /// read wait for the slowest one running (2026-11-13: for hours).
+    pub fn wait_for_readers(&self, limit: Duration) -> Option<u64> {
+        let deadline = Instant::now() + limit;
         let mut state = self.0.state.lock().unwrap();
-        while state.active != 0 {
-            state = self.0.changed.wait(state).unwrap();
+        while let Some(longest) = state.inside.iter().copied().min() {
+            let left = deadline.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                return Some(longest);
+            }
+            state = self.0.changed.wait_timeout(state, left).unwrap().0;
         }
+        None
     }
 }
 impl Drop for ReadGuard<'_> {
     fn drop(&mut self) {
         let mut s = self.0.state.lock().unwrap();
-        s.active -= 1;
-        let last = s.active == 0;
+        s.inside.retain(|entry| *entry != self.1);
+        let last = s.inside.is_empty();
         self.0.changed.notify_all();
         drop(s);
         if last {
