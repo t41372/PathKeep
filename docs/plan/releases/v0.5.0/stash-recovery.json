@@ -1,0 +1,239 @@
+{
+  "stash": "36b428e21782f30e63a9e3fdbb8955d815caa942",
+  "base": "89ed2040bbb0cc1a36450f7004a08a51024bf70b",
+  "originalStashRetained": true,
+  "files": [
+    {
+      "path": ".prettierignore",
+      "size": 998,
+      "sha256": "172a2d8f3a95547b3f6d028f86516e366c4e132153acab38de916284ca468b4d"
+    },
+    {
+      "path": "README.CN.md",
+      "size": 24647,
+      "sha256": "b64aec7e37904d0e0fb1f2b9e654a3ec9b78c83828f75a8426ed076e6f0c9d1a"
+    },
+    {
+      "path": "README.md",
+      "size": 25109,
+      "sha256": "d96312377eba613856d07507c1efc9ce19089843f99584a7e57c359cdb782eac"
+    },
+    {
+      "path": "RELEASE.md",
+      "size": 13355,
+      "sha256": "e73275816b4d642590d12184331af1b1bb71b96b5b3ba50bcf64f6c877f536c9"
+    },
+    {
+      "path": "artifacts/release/2026-11-10-v0.5.0-preflight/EVIDENCE-MANIFEST.json",
+      "size": 4564,
+      "sha256": "93e8dad2b36de36ffdd285837d4c5f469c5cbc4e79387e13bf828745062f9e81"
+    },
+    {
+      "path": "artifacts/release/2026-11-10-v0.5.0-preflight/README.md",
+      "size": 1394,
+      "sha256": "b51bb5a3e9d15188aa47cca3b4b4d2fca6c06d8f04445f59d26a566c2e2dfb3c"
+    },
+    {
+      "path": "artifacts/release/2026-11-10-v0.5.0-preflight/cargo-clean.txt",
+      "size": 40,
+      "sha256": "b5f922db878fdd914a44ab191b554cfab5786dad5cac1ec5b6a06aa2eb3bdd24"
+    },
+    {
+      "path": "artifacts/release/2026-11-10-v0.5.0-preflight/checks.json",
+      "size": 4322,
+      "sha256": "7d0df98052d910ac7f348afc3cd47e55335f0ee4826b61a07f849861851b1d90"
+    },
+    {
+      "path": "artifacts/release/2026-11-10-v0.5.0-preflight/cleanup.json",
+      "size": 1174,
+      "sha256": "ba12abf6c866bf93639a38fbf952d13c84dcede0818f1c9319bbe7dcee41a889"
+    },
+    {
+      "path": "artifacts/release/2026-11-10-v0.5.0-preflight/desktop-bridge-tests.txt",
+      "size": 4853,
+      "sha256": "abec48a0c96d9ab8269468348117897782f8e079bc6f256871240da5c73ba87a"
+    },
+    {
+      "path": "artifacts/release/2026-11-10-v0.5.0-preflight/desktop-debug.txt",
+      "size": 16209,
+      "sha256": "c6af6ba7c5392820ba33becd2e1413aec362322438c4c6fcf87106651698d536"
+    },
+    {
+      "path": "artifacts/release/2026-11-10-v0.5.0-preflight/e2e.txt",
+      "size": 11557,
+      "sha256": "c55c5cd9dc72cef8948657f11fbcb254226de164de48401da329f8ca9d9347ca"
+    },
+    {
+      "path": "artifacts/release/2026-11-10-v0.5.0-preflight/e2e/README.md",
+      "size": 1498,
+      "sha256": "b34e19262c184b99dc2ee2413ccbe7241dec040b3ed161569c774741ec417bdb"
+    },
+    {
+      "path": "artifacts/release/2026-11-10-v0.5.0-preflight/e2e/fixture.json",
+      "size": 3281688,
+      "sha256": "61938e0d5b6ea6c2c51652e692316e4c07b19de61b89a001937434bf3640c429"
+    },
+    {
+      "path": "artifacts/release/2026-11-10-v0.5.0-preflight/e2e/report/index.html",
+      "size": 517239,
+      "sha256": "2ed953f9836de78e6fb95c6e4ba5504db323f3e3d1701d041a26e63740d80613"
+    },
+    {
+      "path": "artifacts/release/2026-11-10-v0.5.0-preflight/e2e/results.json",
+      "size": 8337,
+      "sha256": "8530719bc10b7dd31d1ad2ef5b0cd0bcd23657dea0899b169cdc6c95321c3ff4"
+    },
+    {
+      "path": "artifacts/release/2026-11-10-v0.5.0-preflight/e2e/test-results/.last-run.json",
+      "size": 45,
+      "sha256": "e22df5d0991eb28c09093b1e678b3fa8cd1fab48185d38e67cf79fb6e63ad5ea"
+    },
+    {
+      "path": "artifacts/release/2026-11-10-v0.5.0-preflight/hdiutil-probe.txt",
+      "size": 194,
+      "sha256": "f4caaf17b81e0c7967c419fc42fc8d284abed776028ae2b4a01749bce244246a"
+    },
+    {
+      "path": "artifacts/release/2026-11-10-v0.5.0-preflight/javascript-audit.json",
+      "size": 30604,
+      "sha256": "6c659f1cc904d985d12fc3486791599890f4e2b98d0e2ebff66ba881cb801617"
+    },
+    {
+      "path": "artifacts/release/2026-11-10-v0.5.0-preflight/launch-services-probe.json",
+      "size": 1017,
+      "sha256": "d297ef618be255b7afdf40092398a540ee1e24655cc0d9db1f0552c21ebfd7a2"
+    },
+    {
+      "path": "artifacts/release/2026-11-10-v0.5.0-preflight/macos-app-inspection.json",
+      "size": 7227,
+      "sha256": "a35da6f38053b4d00bde9d3d19a8169ca9bebef0d98d318f63ecb93741b371fb"
+    },
+    {
+      "path": "artifacts/release/2026-11-10-v0.5.0-preflight/macos-release.txt",
+      "size": 43097,
+      "sha256": "473f8e618d6ae1b17e1fd8883dbad320dcfadcea4d7d8aade7df39544a6ad389"
+    },
+    {
+      "path": "artifacts/release/2026-11-10-v0.5.0-preflight/main-ci.txt",
+      "size": 418012,
+      "sha256": "1b5dd7b24b539e20a1b755064d7ffec11e9a27d71db21ef87a46c826e93f3687"
+    },
+    {
+      "path": "artifacts/release/2026-11-10-v0.5.0-preflight/native-host-visible.txt",
+      "size": 988,
+      "sha256": "4c047ab660d0e8bf70609f3826da71506ba151abdec74ccd251e9ff2a144884d"
+    },
+    {
+      "path": "artifacts/release/2026-11-10-v0.5.0-preflight/owner-process-result.json",
+      "size": 566,
+      "sha256": "6b4f87b0aea278cb7b4daa41d03d3e6f06619a70d6b5766f38d425c32d32a039"
+    },
+    {
+      "path": "artifacts/release/2026-11-10-v0.5.0-preflight/rust-remaining-packages.txt",
+      "size": 22144,
+      "sha256": "a325dd009a737edca3db382927f83e55159a3e12fa3512bb3031b77060fcd748"
+    },
+    {
+      "path": "artifacts/release/2026-11-10-v0.5.0-preflight/rust-workspace-without-desktop.txt",
+      "size": 86134,
+      "sha256": "c391b771476b70714b2467de32fffcb28b1ab466fcb7d89fc546263062fd5eae"
+    },
+    {
+      "path": "artifacts/release/2026-11-10-v0.5.0-preflight/slow.txt",
+      "size": 28486,
+      "sha256": "6ae3e4949f3147446a879a10f1db8972f96b19dcde7a3665a3a674adb86a45fe"
+    },
+    {
+      "path": "artifacts/release/2026-11-10-v0.5.0-preflight/supply-chain.txt",
+      "size": 3947,
+      "sha256": "cdfa6a01ca26b35c8104d7f8ecfabf4d211306b620ba3e457a0017eca4a7e32b"
+    },
+    {
+      "path": "artifacts/release/2026-11-10-v0.5.0-preflight/verify.txt",
+      "size": 78932,
+      "sha256": "97f3c63179f06b81c5d8b87b5594f05fe3f8508a18bb3928c4ca9b8cd91efe85"
+    },
+    {
+      "path": "artifacts/release/2026-11-10-v0.5.0-preflight/web-size-audit/size-attribution.json",
+      "size": 167472,
+      "sha256": "805bdacee8eef9a1f853b13c2753ebfba7d59dd84c33039b1d3c69a4faa0179a"
+    },
+    {
+      "path": "artifacts/release/2026-11-10-v0.5.0-preflight/web-size-audit/summary.md",
+      "size": 58701,
+      "sha256": "1606c6f0596c8aa4491b487e1dd644edd7da7eff5da8f43b3ae6f17bfd325f8b"
+    },
+    {
+      "path": "artifacts/release/2026-11-10-v0.5.0-preflight/workflow-preflight.json",
+      "size": 2749,
+      "sha256": "57e8779e80552c90dc33393422bd1bc894f93a32918343e71bf282148bbe7a7b"
+    },
+    {
+      "path": "docs/plan/BACKLOG.md",
+      "size": 65071,
+      "sha256": "66d49cf1dee5e5bde852b2d1fd7b50d4a60ac20c855ca4617fba54948a3977c0"
+    },
+    {
+      "path": "docs/plan/CHANGELOG.md",
+      "size": 642992,
+      "sha256": "70b4686939bde82a1fdd6211176bf080c05083bac1872ec652a24dde3365db47"
+    },
+    {
+      "path": "docs/plan/STATUS.md",
+      "size": 281532,
+      "sha256": "a3293677d9fb8817087730ad228517e8d50c6e40cd85aa09b090454b43d55a77"
+    },
+    {
+      "path": "docs/plan/releases/v0.5.0/assessment-correction.json",
+      "size": 4260,
+      "sha256": "ae1b5c0474608cdc110ddfcdb3b963c57ed66d2f7988d366c6e6b40c79d8219d"
+    },
+    {
+      "path": "docs/plan/releases/v0.5.0/notes.en.md",
+      "size": 3958,
+      "sha256": "57d8461b906c0ce3037ac06c222fe5d63afc49867f430e31f7d383607f54829b"
+    },
+    {
+      "path": "docs/plan/releases/v0.5.0/notes.zh-CN.md",
+      "size": 3557,
+      "sha256": "04b8f6e1dc5168dc456ab5655709de9b526b6058fb55ee2a902cbe02b04083ce"
+    },
+    {
+      "path": "docs/plan/releases/v0.5.0/notes.zh-TW.md",
+      "size": 3530,
+      "sha256": "f23dabea62fe5df961b1b5465a6b4c92811f32f43f8e6dbf9cc6a0bd32b8dc0a"
+    },
+    {
+      "path": "docs/plan/releases/v0.5.0/readiness.md",
+      "size": 27784,
+      "sha256": "718a0511f7ac5a671d04bfd2ed825fc5669bf8a8db6b5cf365cfbdc92571f89e"
+    },
+    {
+      "path": "docs/plan/releases/v0.5.0/release-commit.txt",
+      "size": 373,
+      "sha256": "8b73fff719516ce87dcb4233dfa991bdfb6945204aa2eaeae8dc65e8be63011b"
+    },
+    {
+      "path": "docs/plan/releases/v0.5.0/release-version.patch",
+      "size": 1445,
+      "sha256": "7d88a71f847b08d4f7a647036a3ae9e22c5a5628df546a989061688480051c9d"
+    },
+    {
+      "path": "docs/screenshots/en/banner.jpg",
+      "size": 249454,
+      "sha256": "1b6ba29642ae13d7b45aede3e2ef6e5cff0e8d346eeeb2bf2436c66a9ea21afb"
+    },
+    {
+      "path": "docs/screenshots/zh-CN/banner.jpg",
+      "size": 255493,
+      "sha256": "d6994365b3d90be66dea70ded7bfdd4ab8a48fd14f1eda4dd33c654ca68f1dc5"
+    },
+    {
+      "path": "scripts/readme-banner.mjs",
+      "size": 3558,
+      "sha256": "d367b0fc1238b76e1fa1f5eb82016bc7c68b5a18d840235196c9fd8d2be94832"
+    }
+  ],
+  "scope": "Byte-for-byte recovery snapshot, captured before release preparation edits; the original stash and frozen evidence are retained.",
+  "recoveredOn": "2026-11-12 (America/Phoenix)"
+}

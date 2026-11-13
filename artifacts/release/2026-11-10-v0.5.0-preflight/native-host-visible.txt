@@ -1,0 +1,11 @@
+
+running 2 tests
+test macos_keychain_roundtrip_uses_a_unique_service_namespace ... Skipping native keyring smoke because the host denied secure-store access: Platform failure: UNIX[Operation not permitted]: UNIX[Operation not permitted]
+ok
+test macos_scheduler_apply_bootstrap_status_and_cleanup_work ... /var/folders/c0/rqrky3x1285fkhlrbh0lw46c0000gn/T/.tmp9Sm37u/LaunchAgents/com.yi-ting.pathkeep.tests.89323-1794308546373875000.plist: OK
+Skipping launchctl bootstrap verification because the host denied LaunchAgent install: LaunchAgent files were written, but launchctl bootstrap did not report success: bootstrap /var/folders/c0/rqrky3x1285fkhlrbh0lw46c0000gn/T/.tmp9Sm37u/LaunchAgents/com.yi-ting.pathkeep.tests.89323-1794308546373875000.plist: ExitStatus(unix_wait_status(1280)); stderr: Bootstrap failed: 5: Input/output error
+Try re-running the command as root for richer errors.
+ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+

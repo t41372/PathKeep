@@ -1,0 +1,91 @@
+$ TZ=Pacific/Kiritimati cargo test --manifest-path src-tauri/Cargo.toml -p pathkeep-desktop --features devtools-bridge dev_ipc_bridge
+   Compiling objc2-exception-helper v0.1.1
+   Compiling rustls v0.23.46
+   Compiling objc2 v0.6.4
+   Compiling turso_core v0.8.3
+   Compiling wasmtime v48.0.8
+   Compiling tantivy-sstable v0.27.0
+   Compiling rusqlite v0.39.0
+   Compiling pathkeep-desktop v0.5.0 (/Users/tim/LocalData/coding/2026/Lab/8_chrome_history_backup/var/release-preflight-2026-11-10/src-tauri)
+   Compiling tantivy-columnar v0.27.0
+   Compiling objc2-foundation v0.3.2
+   Compiling browser-history-parser v0.1.0 (/Users/tim/LocalData/coding/2026/Lab/8_chrome_history_backup/var/release-preflight-2026-11-10/src-tauri/crates/browser-history-parser)
+   Compiling browser-history-fixtures v0.1.0 (/Users/tim/LocalData/coding/2026/Lab/8_chrome_history_backup/var/release-preflight-2026-11-10/src-tauri/crates/browser-history-fixtures)
+   Compiling wry v0.57.1
+   Compiling objc2-core-foundation v0.3.2
+   Compiling block2 v0.6.2
+   Compiling dispatch2 v0.3.1
+   Compiling tantivy v0.27.0
+   Compiling objc2-core-graphics v0.3.2
+   Compiling objc2-security v0.3.2
+   Compiling tokio-rustls v0.26.4
+   Compiling rustls-platform-verifier v0.7.0
+   Compiling ureq v3.3.0
+   Compiling hyper-rustls v0.27.9
+   Compiling reqwest v0.13.3
+   Compiling reqwest v0.12.28
+   Compiling rig-reqwest v0.44.0
+   Compiling rig-core v0.44.0
+   Compiling wasmtime-wasi-io v48.0.8
+   Compiling wiggle v48.0.8
+   Compiling wasmtime-wasi v48.0.8
+   Compiling objc2-quartz-core v0.3.2
+   Compiling objc2-local-authentication v0.3.2
+   Compiling objc2-app-kit v0.3.2
+   Compiling objc2-web-kit v0.3.2
+   Compiling muda v0.20.0
+   Compiling tao v0.37.2
+   Compiling window-vibrancy v0.8.1
+   Compiling objc2-osa-kit v0.3.2
+   Compiling rfd v0.16.0
+   Compiling osakit v0.3.1
+   Compiling tauri-runtime v2.12.2
+   Compiling tray-icon v0.25.1
+   Compiling tauri-runtime-wry v2.12.3
+   Compiling tauri v2.12.5
+   Compiling tauri-plugin-fs v2.5.0
+   Compiling tauri-plugin-log v2.8.0
+   Compiling tauri-plugin-updater v2.14.1
+   Compiling tauri-plugin-single-instance v2.4.3
+   Compiling tauri-plugin-autostart v2.5.1
+   Compiling tauri-plugin-dialog v2.7.0
+   Compiling turso_sync_engine v0.8.3
+   Compiling vault-crypto v0.1.0 (/Users/tim/LocalData/coding/2026/Lab/8_chrome_history_backup/var/release-preflight-2026-11-10/src-tauri/crates/vault-crypto)
+   Compiling vault-search v0.1.0 (/Users/tim/LocalData/coding/2026/Lab/8_chrome_history_backup/var/release-preflight-2026-11-10/src-tauri/crates/vault-search)
+   Compiling turso_sdk_kit v0.8.3
+   Compiling turso_sync_sdk_kit v0.8.3
+   Compiling turso v0.8.3
+   Compiling vault-store v0.1.0 (/Users/tim/LocalData/coding/2026/Lab/8_chrome_history_backup/var/release-preflight-2026-11-10/src-tauri/crates/vault-store)
+   Compiling vault-core v0.1.0 (/Users/tim/LocalData/coding/2026/Lab/8_chrome_history_backup/var/release-preflight-2026-11-10/src-tauri/crates/vault-core)
+   Compiling vault-convert-sqlcipher v0.1.0 (/Users/tim/LocalData/coding/2026/Lab/8_chrome_history_backup/var/release-preflight-2026-11-10/src-tauri/crates/vault-convert-sqlcipher)
+   Compiling vault-platform v0.1.0 (/Users/tim/LocalData/coding/2026/Lab/8_chrome_history_backup/var/release-preflight-2026-11-10/src-tauri/crates/vault-platform)
+   Compiling vault-worker v0.1.0 (/Users/tim/LocalData/coding/2026/Lab/8_chrome_history_backup/var/release-preflight-2026-11-10/src-tauri/crates/vault-worker)
+    Finished `test` profile [unoptimized] target(s) in 53.00s
+     Running unittests src/lib.rs (src-tauri/target/debug/deps/pathkeep_desktop-12a43fec5daa47f5)
+
+running 4 tests
+test dev_ipc_bridge::router::tests::build_router_rejects_invalid_cors_origins ... ok
+test dev_ipc_bridge::dispatch::tests::dispatch_rekey_requires_the_current_password_and_keeps_keychain_unlock ... ok
+test dev_ipc_bridge::dispatch::tests::locked_snapshots_do_not_read_keychain_and_explicit_unlock_reads_once ... ok
+test dev_ipc_bridge::dispatch::tests::native_reads::keychain_only_session_reads_imported_ties_and_exports_every_visit ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 7 filtered out; finished in 4.71s
+
+     Running unittests src/main.rs (src-tauri/target/debug/deps/pathkeep_desktop-81155d6a662f02cf)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/owner_lock_wipe.rs (src-tauri/target/debug/deps/owner_lock_wipe-9475fa73dc62eaf3)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/owner_process.rs (src-tauri/target/debug/deps/owner_process-ba58f5487d876c98)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+

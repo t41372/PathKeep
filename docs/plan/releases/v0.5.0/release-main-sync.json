@@ -1,0 +1,43 @@
+{
+  "recordedAt": "2026-11-13T21:22:38.255913+00:00",
+  "purpose": "Synchronize PR24 squash-merge history and test status without retargeting tested artifacts",
+  "pr24": {
+    "head": "aec2004de37298c027893ac681e145cff6824753",
+    "mergedCommit": "48239b552acab9a29edf80a5cc5ae4bf7f48f093",
+    "mergedAt": "2026-11-13T21:12:56Z",
+    "state": "MERGED"
+  },
+  "candidate": {
+    "sourceCommit": "2059cb6e843f240d9440a9c731426e68192cb673",
+    "frozenRef": "release/candidate-v0.5.0",
+    "releaseId": 444656998,
+    "draft": true,
+    "nativeRun": "https://github.com/t41372/PathKeep/actions/runs/43494115641",
+    "ciRun": "https://github.com/t41372/PathKeep/actions/runs/43493533180",
+    "readonlyVerifyRun": "https://github.com/t41372/PathKeep/actions/runs/43501999911",
+    "manifestSha256": "f6a121845c203c73a41fd3501a82d6c2e2770600746dc1b3745adc17f46eecd4",
+    "assets": 11,
+    "totalBytes": 424705769
+  },
+  "comparison": {
+    "pr24MergedRustCodeMatchesReviewedHead": true,
+    "mergeResolutionTree": "b0190e867ae4dfe580195e425840af995830192a",
+    "candidateTree": "b0190e867ae4dfe580195e425840af995830192a",
+    "treesEqualBeforeDocumentationUpdates": true,
+    "resolvedConflicts": [
+      "docs/plan/BACKLOG.md",
+      "docs/plan/CHANGELOG.md",
+      "docs/plan/STATUS.md",
+      "src-tauri/crates/vault-store/tests/admission.rs"
+    ],
+    "checkpointTest": "Retain the already validated condition waiting for both WAL completion and the checkpoint counter.",
+    "subsequentChanges": "Release documentation and status only; code, tests, lockfiles, workflows and build inputs remain identical to the candidate."
+  },
+  "validationScope": "Existing complete gate, CI, four-platform packages and byte checks apply to the unchanged frozen candidate; this record does not claim a new application build or gate at the preparation-branch merge commit.",
+  "publication": {
+    "performed": false,
+    "tagPushed": false,
+    "immutableSettingChanged": false,
+    "hold": "User will test first. No publication or policy merge without later approval."
+  }
+}

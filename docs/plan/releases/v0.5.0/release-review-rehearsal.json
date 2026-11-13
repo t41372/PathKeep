@@ -1,0 +1,89 @@
+{
+  "recordedAt": "2026-11-13T19:34:04.237284+00:00",
+  "purpose": "Complete gate after release API/channel/authorization review fixes",
+  "baseCommit": "e60a472c2aaf2b6df0e84e7a5699269f45d990cd",
+  "includedFixHead": "aec2004de37298c027893ac681e145cff6824753",
+  "inputFiles": 1715,
+  "inputSnapshotSha256": "5cd61dd4bb8dcfb8fad6a1d19af11c992cc7296ade6941241d218269d7171a86",
+  "codeSha256": {
+    ".github/workflows/release.yml": "63c6244e4f71e9c6a32db65edd1a76a7fd30bd70d42d4d0bc0f79c12b6b5deb7",
+    "bun.lock": "75284425d12387ff477930ee421a0dc43b27f2b70792de997e88a1f216a1acb4",
+    "package.json": "36874a17a1001db3ac07c1b19b37a4fd9e18e5d85631ee24de13d53ef21193bb",
+    "scripts/lib/release-authorization.mjs": "506c7c04ba9dc200f077b47c3654319bbfc3e26d45ad6a459b89d0988e1e1ec1",
+    "scripts/prepare-release-draft.mjs": "90c12117379b31cf2446501e20d451c8e1c94659e6848a418d0421a38f5d9eb6",
+    "scripts/publish-reviewed-release.mjs": "4f99b493c0f071480ba5caeb1daa10f26dc77a56ec6c41534cdaf36cfe24f83e",
+    "scripts/release-transaction.test.ts": "5bb5004260e03530a9544117675deee32d048e2c2d7af75916d7918c24711cf5",
+    "scripts/verify-release-config.mjs": "d0994fdd150723a9f648605f45c6d4a2f4442b3469610d0d919334829caa63f1",
+    "src-tauri/Cargo.lock": "1be1a230a533d8e084e5ae9eabbd263f819fd5176ee0728f7527e729e204f3c9",
+    "src-tauri/crates/vault-store/tests/admission.rs": "d1adab353f3b35a4df9535f5a073a38929f3385ea1dcdfc39a91eab58a9dbc84"
+  },
+  "commands": {
+    "bun run verify": 0,
+    "bun run check:slow": 0
+  },
+  "frontend": {
+    "passed": 151,
+    "releaseCliCasesIncluded": 41,
+    "javascriptAudit": {
+      "packages": 532,
+      "findings": 0
+    }
+  },
+  "rust": "Workspace, desktop bridge, clippy, platform and supply-chain checks passed; original deadlines and exception policy retained.",
+  "e2e": {
+    "backup-integrity-damaged/results.json": {
+      "startTime": "2026-11-13T19:29:19.673Z",
+      "duration": 18774.385,
+      "expected": 1,
+      "skipped": 0,
+      "unexpected": 0,
+      "flaky": 0
+    },
+    "backup-integrity-healthy/results.json": {
+      "startTime": "2026-11-13T19:28:30.099Z",
+      "duration": 48337.687,
+      "expected": 9,
+      "skipped": 0,
+      "unexpected": 0,
+      "flaky": 0
+    },
+    "results.json": {
+      "startTime": "2026-11-13T19:04:16.682Z",
+      "duration": 1451373.4910000002,
+      "expected": 124,
+      "skipped": 1,
+      "unexpected": 0,
+      "flaky": 0
+    }
+  },
+  "lockfilesBeforeAndAfter": {
+    "bun.lock": "75284425d12387ff477930ee421a0dc43b27f2b70792de997e88a1f216a1acb4",
+    "src-tauri/Cargo.lock": "1be1a230a533d8e084e5ae9eabbd263f819fd5176ee0728f7527e729e204f3c9"
+  },
+  "focusedRegressions": {
+    "oldControlCode": {
+      "failed": 8,
+      "passed": 21
+    },
+    "revisedTransactionTestsPassed": 32,
+    "checkpointRustTargetExit": 0
+  },
+  "realApiEvidence": {
+    "notesPatchTagAssociationCleared": true,
+    "privateTagAssociationRestored": true,
+    "everPublished": false,
+    "workflowTreePreview": false,
+    "accountCredentialRetainedOnHost": true
+  },
+  "artifact": {
+    "name": "gate-v5-complete.tar.gz",
+    "sha256": "92c1e7c8139ec6d88930f563384871b778a952b7dae6f7939991a30a6fbdd328",
+    "bytes": 695574032
+  },
+  "publication": {
+    "performed": false,
+    "immutableSettingChanged": false,
+    "newRepositorySecretAdded": false
+  },
+  "sourceFreeze": "New signed source requires new private artifacts; e60a472c packages are an interim rehearsal. Subsequent remote receipts stay on PR22/private draft."
+}

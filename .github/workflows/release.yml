@@ -1,4 +1,5 @@
 name: Release
+run-name: ${{ inputs.operation || 'prepare' }} ${{ inputs.release_tag || github.ref_name }}
 
 on:
   push:
@@ -6,20 +7,41 @@ on:
       - 'v*'
   workflow_dispatch:
     inputs:
-      draft:
-        description: Create or update a draft release
+      operation:
+        description: Prepare a private draft, verify reviewed bytes, or publish them
         required: true
-        default: true
-        type: boolean
+        default: prepare
+        type: choice
+        options:
+          - prepare
+          - verify
+          - publish
       prerelease:
         description: Mark the release as a prerelease
         required: true
         default: false
         type: boolean
       release_tag:
-        description: Optional explicit release tag like v0.2.0
+        description: Exact target tag, such as v0.5.0
+        required: true
+        type: string
+      approved_release_id:
+        description: Reviewed draft ID, required for verify or publish
         required: false
         type: string
+      approved_source_sha:
+        description: Reviewed full source SHA, required for verify or publish
+        required: false
+        type: string
+      approved_manifest_sha256:
+        description: Reviewed RELEASE-MANIFEST.json digest, required for verify or publish
+        required: false
+        type: string
+      immutable_releases_confirmed:
+        description: An administrator checked immutable releases are enabled (publish only)
+        required: false
+        default: false
+        type: boolean
       platforms:
         description: Platform matrix to build
         required: true
@@ -41,14 +63,19 @@ permissions:
   contents: write
 
 concurrency:
-  group: release-${{ github.ref_name || github.sha }}
+  group: release-${{ inputs.release_tag || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
   prepare-release:
     name: Resolve release metadata
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
+      operation: ${{ steps.resolve.outputs.operation }}
+      source_sha: ${{ steps.resolve.outputs.source_sha }}
+      release_id: ${{ steps.draft.outputs.release_id }}
+      already_published: ${{ steps.published.outputs.already_published }}
       resolved_tag: ${{ steps.resolve.outputs.resolved_tag }}
       resolved_version: ${{ steps.resolve.outputs.resolved_version }}
       build_matrix: ${{ steps.matrix.outputs.build_matrix }}
@@ -56,31 +83,50 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
       - name: Resolve tag and version
         id: resolve
         env:
+          INPUT_OPERATION: ${{ inputs.operation || 'prepare' }}
           INPUT_RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || '' }}
           GITHUB_REF_TYPE: ${{ github.ref_type }}
           GITHUB_REF_NAME: ${{ github.ref_name }}
         run: |
+          case "$INPUT_OPERATION" in
+            prepare|verify|publish) ;;
+            *) echo "Unknown release operation." >&2; exit 1 ;;
+          esac
           resolved_tag="$INPUT_RELEASE_TAG"
           if [ -z "$resolved_tag" ] && [ "$GITHUB_REF_TYPE" = "tag" ]; then
             resolved_tag="$GITHUB_REF_NAME"
           fi
           if [ -z "$resolved_tag" ]; then
-            resolved_tag="v$(python -c "import json, pathlib; print(json.loads(pathlib.Path('package.json').read_text())['version'])")"
+            echo "An explicit release_tag is required for manual runs." >&2
+            exit 1
           fi
-          case "$resolved_tag" in
-            v*) ;;
-            *)
-              echo "Release tag must start with v, got: $resolved_tag" >&2
-              exit 1
-              ;;
-          esac
-          echo "resolved_tag=$resolved_tag" >> "$GITHUB_OUTPUT"
-          echo "resolved_version=${resolved_tag#v}" >> "$GITHUB_OUTPUT"
+          if [[ ! "$resolved_tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
+            echo "Release tag must be a v-prefixed semantic version." >&2
+            exit 1
+          fi
+          {
+            echo "operation=$INPUT_OPERATION"
+            echo "source_sha=$(git rev-parse HEAD)"
+            echo "resolved_tag=$resolved_tag"
+            echo "resolved_version=${resolved_tag#v}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Protect published release assets
+        id: published
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RESOLVED_TAG: ${{ steps.resolve.outputs.resolved_tag }}
+        run: node scripts/guard-published-release.mjs
 
       - name: Resolve build matrix
+        if: steps.resolve.outputs.operation == 'prepare' && steps.published.outputs.already_published != 'true'
         id: matrix
         env:
           INPUT_PLATFORMS: ${{ github.event_name == 'workflow_dispatch' && inputs.platforms || 'all' }}
@@ -141,6 +187,7 @@ jobs:
           PY
 
       - name: Verify version alignment
+        if: steps.resolve.outputs.operation == 'prepare' && steps.published.outputs.already_published != 'true'
         env:
           RESOLVED_VERSION: ${{ steps.resolve.outputs.resolved_version }}
         run: |
@@ -157,7 +204,7 @@ jobs:
           test "$package_version" = "$RESOLVED_VERSION"
 
       - name: Verify updater signing secret
-        if: ${{ steps.matrix.outputs.unsigned_preview != 'true' }}
+        if: steps.resolve.outputs.operation == 'prepare' && steps.published.outputs.already_published != 'true' && steps.matrix.outputs.unsigned_preview != 'true'
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         run: |
@@ -167,9 +214,20 @@ jobs:
             exit 1
           fi
 
+      - name: Reserve private draft for this source
+        if: steps.resolve.outputs.operation == 'prepare' && steps.published.outputs.already_published != 'true'
+        id: draft
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RESOLVED_TAG: ${{ steps.resolve.outputs.resolved_tag }}
+          SOURCE_COMMIT: ${{ steps.resolve.outputs.source_sha }}
+          PRERELEASE: ${{ github.event_name == 'workflow_dispatch' && inputs.prerelease || github.event_name != 'workflow_dispatch' && contains(github.ref_name, '-') }}
+        run: node scripts/prepare-release-draft.mjs
+
   build-release:
     name: Build ${{ matrix.label }}
     needs: prepare-release
+    if: needs.prepare-release.outputs.operation == 'prepare' && needs.prepare-release.outputs.already_published != 'true'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -241,7 +299,19 @@ jobs:
           )
           PY
 
+      # This read is not an atomic lock. The workflow tag lock serializes normal
+      # operations; repository immutable releases protect late writes after publish.
+      - name: Recheck draft before build and upload
+        id: upload_guard
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RESOLVED_TAG: ${{ needs.prepare-release.outputs.resolved_tag }}
+          SOURCE_COMMIT: ${{ needs.prepare-release.outputs.source_sha }}
+          RELEASE_ID: ${{ needs.prepare-release.outputs.release_id }}
+        run: node scripts/guard-published-release.mjs
+
       - name: Build and upload release assets
+        if: steps.upload_guard.outputs.already_published != 'true'
         uses: tauri-apps/tauri-action@v0.6.2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -254,18 +324,9 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
+          releaseId: ${{ needs.prepare-release.outputs.release_id }}
           tagName: ${{ needs.prepare-release.outputs.resolved_tag }}
-          releaseName: PathKeep ${{ needs.prepare-release.outputs.resolved_tag }}
-          releaseBody: |
-            Automated desktop release for PathKeep.
-
-            Download the installer or package for your platform from the assets below.
-            `latest.json`, `SHA256SUMS.txt`, and `RELEASE-MANIFEST.json` are attached after all matrix builds complete.
-            See `RELEASE.md` and `TROUBLESHOOTING.md` in the repository for platform support boundaries and operator guidance.
-          releaseCommitish: ${{ github.sha }}
-          releaseDraft: ${{ github.event_name == 'workflow_dispatch' && inputs.draft || false }}
-          prerelease: ${{ github.event_name == 'workflow_dispatch' && inputs.prerelease || github.event_name != 'workflow_dispatch' && contains(github.ref_name, '-') }}
-          generateReleaseNotes: true
+          releaseDraft: true
           assetNamePattern: '[name]_[version]_[platform]_[arch][setup][ext]'
           args: >-
             ${{ matrix.args }}
@@ -273,6 +334,7 @@ jobs:
 
   release-manifest:
     name: Publish checksum manifest
+    if: needs.prepare-release.outputs.operation == 'prepare' && needs.prepare-release.outputs.already_published != 'true'
     runs-on: ubuntu-latest
     needs:
       - prepare-release
@@ -280,7 +342,21 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - name: Recheck draft before manifest preparation
+        id: manifest_guard
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RESOLVED_TAG: ${{ needs.prepare-release.outputs.resolved_tag }}
+          SOURCE_COMMIT: ${{ needs.prepare-release.outputs.source_sha }}
+          RELEASE_ID: ${{ needs.prepare-release.outputs.release_id }}
+        run: node scripts/guard-published-release.mjs
+
       - name: Download release assets
+        if: steps.manifest_guard.outputs.already_published != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RESOLVED_TAG: ${{ needs.prepare-release.outputs.resolved_tag }}
@@ -292,10 +368,11 @@ jobs:
           printf '%s' "$RESOLVED_TAG" > dist/release/.resolved-tag
 
       - name: Verify updater manifest exists
-        if: ${{ needs.prepare-release.outputs.unsigned_preview != 'true' }}
+        if: steps.manifest_guard.outputs.already_published != 'true' && needs.prepare-release.outputs.unsigned_preview != 'true'
         run: test -f dist/release/latest.json
 
       - name: Generate SHA256SUMS.txt
+        if: steps.manifest_guard.outputs.already_published != 'true'
         run: |
           cd dist/release
           find . -type f ! -name 'SHA256SUMS.txt' ! -name '.resolved-tag' ! -name 'RELEASE-MANIFEST.json' -print0 \
@@ -303,10 +380,42 @@ jobs:
             | xargs -0 shasum -a 256 > SHA256SUMS.txt
 
       - name: Generate RELEASE-MANIFEST.json
+        if: steps.manifest_guard.outputs.already_published != 'true'
+        env:
+          SOURCE_COMMIT: ${{ needs.prepare-release.outputs.source_sha }}
         run: |
-          python -c "import datetime, hashlib, json, pathlib; root = pathlib.Path('dist/release'); resolved_tag = (root / '.resolved-tag').read_text().strip(); files = [path for path in sorted(root.iterdir()) if path.is_file() and path.name not in {'SHA256SUMS.txt', '.resolved-tag', 'RELEASE-MANIFEST.json'}]; manifest = {'releaseTag': resolved_tag, 'generatedAt': datetime.datetime.now(datetime.timezone.utc).isoformat(), 'files': [{'name': path.name, 'sizeBytes': path.stat().st_size, 'sha256': hashlib.sha256(path.read_bytes()).hexdigest()} for path in files]}; (root / 'RELEASE-MANIFEST.json').write_text(json.dumps(manifest, indent=2) + '\n')"
+          python - <<'PY'
+          import datetime, hashlib, json, os, pathlib
+          root = pathlib.Path('dist/release')
+          excluded = {'SHA256SUMS.txt', '.resolved-tag', 'RELEASE-MANIFEST.json'}
+          files = [path for path in sorted(root.iterdir()) if path.is_file() and path.name not in excluded]
+          if not files:
+              raise SystemExit('No release assets were downloaded.')
+          manifest = {
+              'releaseTag': (root / '.resolved-tag').read_text().strip(),
+              'sourceCommit': os.environ['SOURCE_COMMIT'],
+              'workflowRun': os.environ['GITHUB_RUN_ID'],
+              'generatedAt': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+              'files': [
+                  {'name': path.name, 'sizeBytes': path.stat().st_size, 'sha256': hashlib.sha256(path.read_bytes()).hexdigest()}
+                  for path in files
+              ],
+          }
+          (root / 'RELEASE-MANIFEST.json').write_text(json.dumps(manifest, indent=2) + '\n')
+          PY
+
+      - name: Recheck draft before manifest upload
+        if: steps.manifest_guard.outputs.already_published != 'true'
+        id: final_guard
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RESOLVED_TAG: ${{ needs.prepare-release.outputs.resolved_tag }}
+          SOURCE_COMMIT: ${{ needs.prepare-release.outputs.source_sha }}
+          RELEASE_ID: ${{ needs.prepare-release.outputs.release_id }}
+        run: node scripts/guard-published-release.mjs
 
       - name: Upload checksum manifest to the GitHub release
+        if: steps.manifest_guard.outputs.already_published != 'true' && steps.final_guard.outputs.already_published != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -318,9 +427,34 @@ jobs:
             --clobber
 
       - name: Upload checksum workflow artifact
+        if: steps.manifest_guard.outputs.already_published != 'true'
         uses: actions/upload-artifact@v7
         with:
           name: release-manifests
           path: |
             dist/release/SHA256SUMS.txt
             dist/release/RELEASE-MANIFEST.json
+
+  publish-release:
+    name: Verify or publish reviewed release
+    needs: prepare-release
+    if: needs.prepare-release.outputs.operation != 'prepare'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - name: Check reviewed bytes and promote only on explicit publication
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RESOLVED_TAG: ${{ needs.prepare-release.outputs.resolved_tag }}
+          SOURCE_COMMIT: ${{ needs.prepare-release.outputs.source_sha }}
+          RELEASE_ID: ${{ inputs.approved_release_id }}
+          APPROVED_SOURCE_SHA: ${{ inputs.approved_source_sha }}
+          APPROVED_MANIFEST_SHA256: ${{ inputs.approved_manifest_sha256 }}
+          PRERELEASE: ${{ inputs.prerelease }}
+          EXECUTE_PUBLICATION: ${{ needs.prepare-release.outputs.operation == 'publish' }}
+          IMMUTABLE_RELEASES_CONFIRMED: ${{ inputs.immutable_releases_confirmed }}
+        run: node scripts/publish-reviewed-release.mjs

@@ -1,12 +1,6 @@
 <div align="center">
 
-<img alt="PathKeep" src="docs/design/brand-icon/source/icon-1024.png" width="112" />
-
-# PathKeep
-
-**留住你走过的路。**
-
-浏览器会悄悄删掉你的历史记录。PathKeep 把它们全部留在你自己的电脑上，也帮你找回走过的路。
+<h1><a href="docs/screenshots/zh-CN/home.jpg"><img alt="浏览器会悄悄删除旧记录。PathKeep 在记录被清理前备份到你的电脑，让你多年以后还能在同一份存档里找回用不同浏览器看过的网页。点击查看完整的首页演示截图。" src="docs/screenshots/zh-CN/banner.jpg" /></a></h1>
 
 <a href="https://github.com/t41372/PathKeep/releases"><img alt="Latest release" src="https://img.shields.io/github/v/release/t41372/PathKeep?display_name=tag&label=release" /></a>
 <a href="https://github.com/t41372/PathKeep/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/t41372/PathKeep/actions/workflows/ci.yml/badge.svg?branch=main&event=push" /></a>
@@ -17,11 +11,6 @@
 中文 | [English](./README.md)
 
 </div>
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/zh-CN/home-dark.jpg" />
-  <img alt="PathKeep 首页：已保存的访问、最近 30 天、往年今日，以及按天排开的一整年" src="docs/screenshots/zh-CN/home.jpg" />
-</picture>
 
 PathKeep 是一个 macOS 和 Windows 上的桌面应用。它把你用的每个浏览器的历史，一点一点备份进你自己硬盘上的一份存档，想留多久就留多久。然后你可以在里面搜索全部记录，看看你的浏览习惯说明了什么；愿意的话，也可以直接用自然语言问它。
 
@@ -184,7 +173,7 @@ bun run desktop:build     # 正式版本构建
 bun run check             # 完整检查：lint、构建、Rust 检查和全部 E2E 测试
 ```
 
-README 里的图由 `node scripts/readme-screenshots.mjs` 生成（同时开着 `bun run dev:demo -- --fresh`），示意图由 `node scripts/readme-diagram.mjs` 生成。
+README 里的截图由 `node scripts/readme-screenshots.mjs` 生成（同时开着 `bun run dev:demo -- --fresh`）。更新首页截图后，运行 `node scripts/readme-banner.mjs` 更新中英文横幅。示意图由 `node scripts/readme-diagram.mjs` 生成。
 
 ## 文档
 

@@ -129,7 +129,9 @@ fn the_checkpoint_put_off_for_a_long_read_runs_once_that_read_ends() {
     release.send(()).unwrap();
     held.join().unwrap();
     let deadline = Instant::now() + Duration::from_secs(10);
-    while std::fs::metadata(&wal).unwrap().len() > 32 {
+    while std::fs::metadata(&wal).unwrap().len() > 32
+        || store.metrics(Db::Archive).truncate_checkpoints <= before
+    {
         assert!(Instant::now() < deadline, "the WAL was not truncated after the long read ended");
         thread::sleep(Duration::from_millis(5));
     }
