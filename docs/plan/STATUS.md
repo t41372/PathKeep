@@ -3,11 +3,31 @@
 > Agent 每次開工讀這個檔案。一次只做第一個 `[ ]` work block。
 > 2026-10 之前已完成的 blocks 見 `CHANGELOG.md`，或 git 歷史裡舊版的本檔（`main` 上的 `docs/plan/STATUS.md`）。
 
-**當前 Milestone：M18 — Frontend redesign（2026-10 prototype → shadcn）**
+**當前 Milestone：M19 — 多種資料類型與 Agent 對話（v0.6.0）**（M18 Frontend redesign 已隨 v0.5.0 完成）
 
 ---
 
 ## CURRENT FOCUS
+
+- [ ] **WORK-AH-EVIDENCE-FORMAT** — Agent 對話核心庫在第一次發布前要定下來的存檔格式：對話與來源分開、備份時多記的事實、保留規則與 4 MiB 壓縮分塊、使用者自己的資料、刪除、不加密模式。
+  - 讀先：`docs/architecture/agent-history-product-design.md` 的 §1–§4、§6（分塊那兩條）與「Clauses this amends」；`docs/architecture/agent-history-core.md`；`docs/architecture/research/agent-history/` 裡對應工具的那一份；`program/quality-matrix.md`。
+  - 範圍只在 `src-tauri/crates/agent-history`。`vault-store`、`vault-core`、前端都不動；併進 PathKeep 存檔是 `WORK-VAULT-STORE-ROLES`。既有的逐事件投影（`ah_sessions`／`ah_events`）這一塊只做到能跟新格式一起運作，換掉它是 `WORK-AH-READ-MODEL`。
+  - 第一步先量：經過加密的 Turso 讀寫 1 MiB 與 4 MiB 的 blob 要多久，量完才定分塊大小（設計文件 §6 寫了退路）。
+  - 驗收情境先寫成 CLI E2E（先紅後綠），由定設計的人寫，不由實作的人寫：
+    - 不加密的存檔裡，刪除一段對話、重寫資料庫、合併索引之後，那段對話裡的一個獨特字串不出現在存檔資料夾的任何檔案裡（含 WAL 與索引分段）。
+    - 刪掉的對話和它的 subagent 在工具還留著檔案時，下一次備份不會存回來；「允許再次備份」之後會。
+    - 工具把檔案搬到別處、或同一段對話出現在第二個根目錄，星號和封存還在同一段對話上。
+    - 讀不到的根目錄不算「檔案不見了」；檔案真的不見才算「只剩 PathKeep 有」。
+    - 被下一版完整包含的舊版本仍然能逐位元組匯出。
+    - Claude Code 的 subagent 檔不再和父對話共用同一個身分，也不再因為父對話的連結而被標成不完整。
+    - Codex 還原（revert）後的第二份 rollout 和原本那份是同一段對話；`thread_history_N.sqlite` 不備份；狀態資料庫只留最新一份。
+    - 讀 `.git` 只讀設計文件列的那幾個檔、不跟隨符號連結、遠端網址去掉帳密；關掉設定就完全不讀。
+
+- [ ] **WORK-SPACES-SHELL** — 把外框改成「每種資料類型一個空間」，瀏覽紀錄的頁面搬到 `#/browsing/…`。這一塊做完，app 仍然只有瀏覽紀錄一種資料，但外框已經能放第二種。
+  - 讀先：`docs/design/data-spaces-tradeoff.md`、`docs/features/data-spaces.md`；`docs/design/` 核心四份；`program/quality-matrix.md`、`project-e2e` 相關的 `tests/e2e/` 與 `playwright.config.ts`。
+  - 做：資料類型的登記表（導航列、路由、⌘K、備份頁、色相都從它來）；切換鈕與選單；`#/<空間>/<頁面>` 路由與舊路徑全面改掉；每個空間的色相 token 與固定的分類色（用對比檢查定值）；⌘1…9／Ctrl+1…9；切換動畫；語言鈕移出導航列；背景任務指示器的位置（內容在 `WORK-AH-APP-SURFACE` 接上之前先顯示既有的工作）。
+  - 三語文案一起交付；既有 E2E 全部跟著新路徑改，另加一個切換空間的情境（含減少動態效果）。
+  - 收工時照 trade-off 文件 §5 逐條改寫 `ux-principles.md`、`screens-and-nav.md`、`ui-review-guardrails.md`、`design-tokens.md`，並在 trade-off 文件 §6 記下落地情況。
 
 - [x] **WORK-RUSTIX-2026-11-13** — 新發布的 RUSTSEC-2026-0486 擋下 PR #20 的供應鏈 gate，更新既有間接依賴後重新驗證。
   - 讀先：`docs/architecture/dependency-maintenance.md`、RustSec 官方公告與 crates.io 的版本／依賴資料。

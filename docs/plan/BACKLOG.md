@@ -9,6 +9,33 @@
 
 > 2026-10-25：清掉已完成或前提已不存在的 block（v0.3 Paper 前端、已移除的 coverage / mutation gate、已修好的 flaky 測試等，清單見 CHANGELOG 同日）。2026-04 到 2026-06 的收尾註記也一併移除，要看去 git 歷史或 CHANGELOG。
 
+- [ ] **WORK-VAULT-STORE-ROLES** — Agent 對話的資料庫併進 PathKeep 的存檔，並把「存檔裡有哪些資料庫和資料夾」集中到一張表（v0.6.0；接在 `WORK-AH-EVIDENCE-FORMAT` 之後）
+  - 讀先：`docs/architecture/agent-history-product-design.md` §5；`docs/architecture/owner-process.md`、`store-schema.md`、`backup-integrity.md`；`program/quality-matrix.md` 的存檔變更規則。
+  - 現在快照、搬家包、at-rest 檢查、改密碼與開關加密、儲存空間用量、刪除所有資料各有一份寫死的清單。先換成一張表（每個資料庫與資料夾：是原始還是可重建、要不要進快照、要不要搬、刪除所有資料時刪不刪），再加 Agent 對話的角色與自己的金鑰標籤。瀏覽紀錄既有資料庫的路徑、金鑰、遷移一個位元組都不能變。
+  - 兩個守門測試：刪除所有資料後，資料根目錄裡沒有這張表不認得的東西；at-rest 檢查遇到不認得的檔案就失敗。漏刪某一種資料是這次工作最不能出的錯。
+  - 名稱避開 `agent.db`／`Db::Agent`，那是助理自己的對話。
+
+- [ ] **WORK-AH-READ-MODEL** — Agent 對話的讀取模型與查詢：對話摘要、大綱、每一輪的事實、專案歸類；清單、閱讀器、搜尋、洞察要的查詢（v0.6.0；接在 `WORK-AH-EVIDENCE-FORMAT` 之後）
+  - 讀先：`docs/architecture/agent-history-product-design.md` §3（專案與區塊）、§6–§9；`docs/features/agent-history.md` 第一部分每個數字的定義；`docs/architecture/research/agent-history/` 各工具的用量與時間紀錄方式。
+  - 換掉逐事件的表：內容不再存第二、第三份，閱讀器、搜尋摘要、對話內搜尋都從原始分塊讀。先在 4 核 8 GB 的機器上量視窗讀取與全文 regex，達不到 100 ms 回饋就用設計文件寫的退路。
+  - 每個工具的用量與時間規則各自有測試（Claude Code 同一個回應的用量只算一次、Codex 的累計值取差、複製或繼承來的紀錄不重算）。沒有用量紀錄的對話不算成 0。
+  - 清單用排序鍵翻頁，備份進行中不失效；搜尋串流、不設上限、備份進行中照樣回答；專案歸類只在確定時自動，其餘是建議。專案、資料夾歸屬與釘選區塊是使用者的資料，跟對話的星號放在一起。
+
+- [ ] **WORK-AH-APP-SURFACE** — 把 Agent 對話接進 app：指令、每種資料各自的備份、進度與取消、背景任務、設定、排程與選單列（v0.6.0；接在 `WORK-VAULT-STORE-ROLES` 與 `WORK-AH-READ-MODEL` 之後）
+  - 讀先：`docs/features/data-spaces.md`、`docs/features/agent-history.md`；`docs/architecture/desktop-command-surface.md`、`ipc-performance.md`、`owner-process.md`。
+  - 啟用流程的預覽（PME）、每個空間的「立即備份」與「全部立即備份」、排程與選單列的備份涵蓋所有開著的資料類型、結束前詢問認得新的工作種類。
+  - 背景任務要一個共用的讀法：現在備份、匯入、維護、匯出、佇列、索引是五套各自的機制。這一塊同時解掉 `WORK-BACKGROUND-DASHBOARD`。
+  - 每個新指令照現有的七個地方接好，dev bridge 一起；`WORK-COMMAND-CONTRACT-PARITY` 的比對測試先做，免得漏接。
+
+- [ ] **WORK-AH-SCREENS** — Agent 空間的畫面：洞察、紀錄與閱讀器、專案、備份、設定、啟用流程、背景任務頁（v0.6.0；接在 `WORK-SPACES-SHELL` 與 `WORK-AH-APP-SURFACE` 之後）
+  - 讀先：`docs/features/agent-history.md` 第一部分、`docs/features/data-spaces.md`、`docs/design/data-spaces-tradeoff.md`；`docs/design/` 核心四份。
+  - 版面與文案從設計原型搬進 `src/`，資料改成透過 typed client 向後端要：清單虛擬化、頁面先出骨架、重的計算不在主執行緒。每個畫面的空、載入、錯誤狀態照規格補齊，三語一起交付。
+  - 示範資料與 E2E 用的假資料改成各工具原生格式的合成檔，走真的備份流程（`dev:demo` 與 E2E 都用它）。每個畫面至少一個中等以上難度的 E2E。
+  - 收工條件：`docs/design/prototype-2026-11-agent-history/` 連同 `.prettierignore`、`eslint.config.js` 裡的排除項刪掉，這個分支才進 `main`。
+
+- [ ] **WORK-AH-BULK-ACTIONS** — 一次封存或刪除多段對話（例如整個專案、某一天之前的全部）（2026-11-13 做封存與刪除時留下，v0.6.0 之後）
+  - v0.6.0 只有一次一段。多選、整個專案、依條件的刪除都要各自的預覽（會刪掉幾段、多少版本、多大）。
+
 - [ ] **WORK-BACKUP-INTEGRITY-SCALE** — 原生備份的新身分與讀法在 14.4M 和目標機上的量測（2026-11-01 PR #18 只量了 100 萬筆、M5 Max）
   - 要量：14.4M 的 v1 存檔更新（migration 2–21，含開啟者 backfill 與重建列號索引）的時間與峰值記憶體；更新後第一次備份（整個重讀、給每筆時間）；之後每小時與每週的備份。目標機 4 核 / 8 GB，冷快取。
   - 另外量一份 Sync 從新到舊寫的大檔（開啟者大多在子造訪之後）：讀完才找到的開啟者分批寫，量它的時間。
