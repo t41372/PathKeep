@@ -24,7 +24,7 @@
 - [ ] **WORK-AH-APP-SURFACE** — 把 Agent 對話接進 app：指令、每種資料各自的備份、進度與取消、背景任務、設定、排程與選單列（v0.6.0；接在 `WORK-VAULT-STORE-ROLES` 與 `WORK-AH-READ-MODEL` 之後）
   - 讀先：`docs/features/data-spaces.md`、`docs/features/agent-history.md`；`docs/architecture/desktop-command-surface.md`、`ipc-performance.md`、`owner-process.md`。
   - 啟用流程的預覽（PME）、每個空間的「立即備份」與「全部立即備份」、排程與選單列的備份涵蓋所有開著的資料類型、結束前詢問認得新的工作種類。
-  - 背景任務要一個共用的讀法：現在備份、匯入、維護、匯出、佇列、索引是五套各自的機制。這一塊同時解掉 `WORK-BACKGROUND-DASHBOARD`。
+  - 背景任務要一個共用的讀法：現在備份、匯入、維護、匯出、佇列、索引是五套各自的機制。這一塊同時解掉 `WORK-BACKGROUND-DASHBOARD`：設定裡的工作清單搬到背景任務頁，設定只留排程與限制（「設定 › 排程與背景工作」），每個空間的備份頁留一列「自動備份」連過去。
   - 每個新指令照現有的七個地方接好，dev bridge 一起；`WORK-COMMAND-CONTRACT-PARITY` 的比對測試先做，免得漏接。
 
 - [ ] **WORK-AH-SCREENS** — Agent 空間的畫面：洞察、紀錄與閱讀器、專案、備份、設定、啟用流程、背景任務頁（v0.6.0；接在 `WORK-SPACES-SHELL` 與 `WORK-AH-APP-SURFACE` 之後）
@@ -32,6 +32,15 @@
   - 版面與文案從設計原型搬進 `src/`，資料改成透過 typed client 向後端要：清單虛擬化、頁面先出骨架、重的計算不在主執行緒。每個畫面的空、載入、錯誤狀態照規格補齊，三語一起交付。
   - 示範資料與 E2E 用的假資料改成各工具原生格式的合成檔，走真的備份流程（`dev:demo` 與 E2E 都用它）。每個畫面至少一個中等以上難度的 E2E。
   - 收工條件：`docs/design/prototype-2026-11-agent-history/` 連同 `.prettierignore`、`eslint.config.js` 裡的排除項刪掉，這個分支才進 `main`。
+
+- [ ] **WORK-AH-PERMANENT-DELETE** — 從存檔永久刪除單段 Agent 對話（用戶 2026-11-13 決定 v0.6.0 先不做，用封存和垃圾桶）
+  - 現在垃圾桶裡的對話還在存檔裡；存檔不加密時是明文。要真的刪掉只能刪掉整個「Agent 對話」的存檔。
+  - 為什麼不是刪幾列就好，寫在 `docs/architecture/agent-history-product-design.md` §4：資料庫要整個複製重寫、索引分段要合併、舊的安全副本要整份重做、工具還留著檔案時下次備份不能存回來、工具的共用檔（輸入歷史、索引、狀態資料庫）裡的片段、從它接續出去的對話。
+  - 開工前先量：這台機器大小的存檔重寫一次要多久、寫多少；再決定是每次刪除都重寫，還是累積到清空垃圾桶時重寫一次。
+
+- [ ] **WORK-AH-MORE-TOOLS** — Continue、Cline、Roo Code 開給產品（用戶 2026-11-13 決定 v0.6.0 先不做）
+  - 核心庫讀得懂 Continue 的 session 檔，和 Cline、Roo 的「經典」存法（每個任務一個資料夾）。Cline 新版改用另一套儲存，現在的支援不涵蓋；三個工具在開發機上都沒有真實檔案可以對過。
+  - 要做的：各自的預設位置（要有工具自己的原始碼或文件當證據，不能猜）、新版儲存的研究、拿真實檔案驗過、整份改寫的 JSON 檔的保留規則（被下一版完整包含的版本只留紀錄）。
 
 - [ ] **WORK-AH-BULK-ACTIONS** — 一次封存或刪除多段對話（例如整個專案、某一天之前的全部）（2026-11-13 做封存與刪除時留下，v0.6.0 之後）
   - v0.6.0 只有一次一段。多選、整個專案、依條件的刪除都要各自的預覽（會刪掉幾段、多少版本、多大）。

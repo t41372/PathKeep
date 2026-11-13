@@ -9,16 +9,16 @@
 
 ## CURRENT FOCUS
 
-- [ ] **WORK-AH-EVIDENCE-FORMAT** — Agent 對話核心庫在第一次發布前要定下來的存檔格式：對話與來源分開、備份時多記的事實、保留規則與 4 MiB 壓縮分塊、使用者自己的資料、刪除、不加密模式。
+- [ ] **WORK-AH-EVIDENCE-FORMAT** — Agent 對話核心庫在第一次發布前要定下來的存檔格式：對話與來源分開、備份時多記的事實、保留規則與 4 MiB 壓縮分塊、使用者自己的資料（星號、封存、垃圾桶、標題）、不加密模式。
   - 讀先：`docs/architecture/agent-history-product-design.md` 的 §1–§4、§6（分塊那兩條）與「Clauses this amends」；`docs/architecture/agent-history-core.md`；`docs/architecture/research/agent-history/` 裡對應工具的那一份；`program/quality-matrix.md`。
+  - 這一塊不做單段對話的永久刪除（用戶 2026-11-13：先用封存和垃圾桶），也不把 Continue、Cline、Roo Code 開給產品（同日）；它們的 adapter 留在核心庫，只做到能在新格式下通過既有測試。
   - 範圍只在 `src-tauri/crates/agent-history`。`vault-store`、`vault-core`、前端都不動；併進 PathKeep 存檔是 `WORK-VAULT-STORE-ROLES`。既有的逐事件投影（`ah_sessions`／`ah_events`）這一塊只做到能跟新格式一起運作，換掉它是 `WORK-AH-READ-MODEL`。
   - 第一步先量：經過加密的 Turso 讀寫 1 MiB 與 4 MiB 的 blob 要多久，量完才定分塊大小（設計文件 §6 寫了退路）。
   - 驗收情境先寫成 CLI E2E（先紅後綠），由定設計的人寫，不由實作的人寫：
-    - 不加密的存檔裡，刪除一段對話、重寫資料庫、合併索引之後，那段對話裡的一個獨特字串不出現在存檔資料夾的任何檔案裡（含 WAL 與索引分段）。
-    - 刪掉的對話和它的 subagent 在工具還留著檔案時，下一次備份不會存回來；「允許再次備份」之後會。
+    - 移到垃圾桶的對話和它的 subagent 不出現在清單和搜尋裡，備份照常；放回之後跟原來一樣（星號、標題、封存都在）。
     - 工具把檔案搬到別處、或同一段對話出現在第二個根目錄，星號和封存還在同一段對話上。
     - 讀不到的根目錄不算「檔案不見了」；檔案真的不見才算「只剩 PathKeep 有」。
-    - 被下一版完整包含的舊版本仍然能逐位元組匯出。
+    - 被下一版完整包含的舊版本仍然能逐位元組匯出；同一個檔案追加十次、每次都備份，存檔裡的分塊數跟只備份最後那一版一樣。
     - Claude Code 的 subagent 檔不再和父對話共用同一個身分，也不再因為父對話的連結而被標成不完整。
     - Codex 還原（revert）後的第二份 rollout 和原本那份是同一段對話；`thread_history_N.sqlite` 不備份；狀態資料庫只留最新一份。
     - 讀 `.git` 只讀設計文件列的那幾個檔、不跟隨符號連結、遠端網址去掉帳密；關掉設定就完全不讀。

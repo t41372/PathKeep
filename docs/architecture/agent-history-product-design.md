@@ -25,7 +25,6 @@ first, what can be rebuilt from stored bytes comes last.
 | "Only PathKeep has this"                                       | Nothing records whether a source file is still on disk                                                             |
 | Projects: a git repository with its worktrees, deleted folders | The exact working-directory string of each session. Nothing about the folder                                       |
 | Stars, put-away, renamed titles, pinned projects, sections     | No user-written state                                                                                              |
-| Delete a conversation from PathKeep                            | No delete                                                                                                          |
 | Tokens, cost and agent time per turn, day, project             | Present only inside each event's JSON payload                                                                      |
 | Search everything, streamed, phrase and regex, by role         | Top 100 events, AND of terms; refuses to answer from the first publish of a backup until the end-of-run index sync |
 | A list of thousands that pages while a backup runs             | List cursors are invalid after any publish anywhere                                                                |
@@ -133,7 +132,7 @@ declares the kind; the rule follows from it.
 | Kind                                                            | Examples                                                                                            | Kept                                                                                                                                                                                                                               |
 | --------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Transcript the tool appends to                                  | Claude Code, Codex, Pi, DeepSeek JSONL                                                              | Every revision. A revision that is a byte prefix of the next keeps its record and shares the next one's slices (section 6). A revision that is not a prefix is kept whole: the tool changed history, which is what PathKeep is for |
-| Transcript the tool rewrites as one document                    | Continue sessions, Cline and Roo conversation arrays                                                | The latest revision, and every earlier one that holds a record the next does not. A revision whose records are all in the next, in order, keeps only its record (digest, length, time)                                             |
+| Transcript the tool rewrites as one document                    | Continue sessions, Cline and Roo conversation arrays                                                | Every revision, whole, as today. These three tools are not offered in v0.6 (user, 2026-11-13), so nothing more is built for them. When they are, a revision whose records are all in the next one should keep only its record      |
 | File written once                                               | Attachments, Claude Code file snapshots, generated images                                           | The one revision. A changed file is a new revision                                                                                                                                                                                 |
 | The tool's own state that says something its transcripts do not | Codex `state_N.sqlite` (thread titles, projects and their folders), prompt history, session indexes | The latest snapshot only. The previous one is removed once the new one is verified                                                                                                                                                 |
 | The tool's own index of its transcripts                         | Codex `thread_history_N.sqlite`                                                                     | Not captured. It is rebuilt by the tool from the rollouts PathKeep already keeps                                                                                                                                                   |
@@ -151,18 +150,18 @@ core gives. Text cells that are valid UTF-8 are written as text, not hex.
 
 Three kinds of data now exist, and each has one rule:
 
-| Kind       | Examples                                                                        | Rule                                                         |
-| ---------- | ------------------------------------------------------------------------------- | ------------------------------------------------------------ |
-| Evidence   | Raw revisions, observations                                                     | Append only. Removed only by the user's deletion (section 4) |
-| User state | Star, put-away, title override, projects and their folders, sections, deletions | Written only by the user's action. Never rebuilt, never lost |
-| Read model | Conversation summaries, turns, outlines, search index                           | Disposable. Rebuilt from evidence and user state at any time |
+| Kind       | Examples                                                                    | Rule                                                                  |
+| ---------- | --------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| Evidence   | Raw revisions, observations                                                 | Append only. Removed only when the user deletes the whole kind's data |
+| User state | Star, put-away, title override, projects and their folders, sections, trash | Written only by the user's action. Never rebuilt, never lost          |
+| Read model | Conversation summaries, turns, outlines, search index                       | Disposable. Rebuilt from evidence and user state at any time          |
 
 User state is stored with the evidence, not with the read model, so dropping and
 rebuilding the catalog cannot touch it. It is keyed by identifiers that outlive a
 publication: conversation ids for conversations, PathKeep's own project ids for
 projects, folder paths for folder membership.
 
-- **Conversation state**: starred, put away, a title the user typed.
+- **Conversation state**: starred, put away, in the trash, a title the user typed.
 - **Projects**: a project is a row with an id PathKeep generates the first time a
   folder is seen, and an optional name. Which folders belong to it is a list of
   rules over folder paths, each marked as PathKeep's own grouping or the user's.
@@ -176,68 +175,43 @@ projects, folder paths for folder membership.
 This follows what browsing history does with notes, tags and stars: user-written
 rows in the canonical store, keyed by a natural key, untouched by index rebuilds.
 
-## 4. Deleting a conversation
+## 4. Trash now, permanent deletion later
 
-PathKeep keeps a conversation after the tool deletes it. That is the point of the
-product, and it is also why the user needs a way out: conversations hold pasted
-keys and passwords, and with an unencrypted archive they sit on disk in the clear.
+v0.6 does not delete single conversations from the archive. The user decided on
+2026-11-13 that putting a conversation away or moving it to the trash is enough
+for now.
 
-Deleting removes, for the conversation and its subagents:
+- **Put away** hides a conversation from lists. Search and insights still
+  include it.
+- **Trash** is a soft delete. The conversation and its subagents are in no list,
+  no search result and no number. Nothing is removed: its sources keep being
+  backed up and it comes back exactly as it was. Both are flags in user state.
 
-1. every revision of every source of the conversation, and each raw chunk no
-   other revision refers to;
-2. attachments only this conversation refers to;
-3. its read-model rows and its documents in the search index;
-4. its user state.
+The interface says what the trash is. A conversation in the trash is still
+stored in the archive, in the clear if the archive is not encrypted. Until
+permanent deletion exists, the only ways to remove agent conversations from disk
+are deleting the whole kind's saved data or all data, and both are whole files
+being removed.
 
-It leaves a deletion record: harness, conversation key, conversation id and the
-time. No title, no folder, no content.
+**Why not yet.** Removing one conversation for good is more than deleting rows:
 
-- **It must not come back.** Capture checks the deletion records before it stores
-  bytes. A file whose conversation key, or whose parent's key, is in the list is
-  skipped and counted in the run report as skipped by the user's deletion. This
-  needs the key before the bytes are stored, so adapters gain a cheap way to name
-  a conversation from the path and the first records. Removing the deletion
-  record ("allow backup again") makes the next run store the file if the tool
-  still has it.
-- **It must be gone from the files.** Deleted rows leave their pages inside the
-  database file, and deleted documents leave their terms inside index segments
-  until a merge. After a deletion PathKeep rewrites the affected database by
-  copying it (the storage layer already copies and verifies a database table by
-  table for a password change) and merges the affected index segments. The
-  delete dialog reports done only after both. A run that is interrupted finishes
-  the rewrite the next time the archive opens.
-- **Files the tool shares between conversations.** Some captured files hold
-  pieces of many conversations: Claude Code's prompt history, Codex's session
-  index and state databases. A raw revision of such a file cannot lose one
-  conversation and stay byte-exact. Rule: when a conversation is deleted, stored
-  revisions of shared files that mention it are deleted too, and later captures
-  of those files leave out records of deleted conversations and are marked as
-  filtered rather than native. Where a shared file's records cannot be tied to a
-  conversation, the delete dialog says so and offers to stop keeping that file.
-  Which files this covers is settled per adapter from the research notes, with a
-  test for each.
+- Deleted rows leave their pages in the database file and deleted documents
+  leave their terms in index segments, so the database has to be rewritten by
+  copying it and the segments merged. On an archive of several gigabytes that is
+  gigabytes written per deletion.
+- A safety snapshot taken earlier still holds the conversation and would have to
+  be dropped whole and taken again.
+- It must not come back at the next backup while the tool still has the file,
+  which needs a record of deletions that capture checks before storing bytes.
+- Files the tool shares between conversations (prompt history, session indexes,
+  state databases) hold pieces of it and cannot lose them and stay byte-exact.
+- Conversations that continue from it (a copied beginning, an inherited prefix)
+  hold or need its content.
 
-- **Safety snapshots.** A snapshot is a full copy of the durable databases taken
-  before risky maintenance. One taken before a deletion still holds the
-  conversation. Its purpose is recovery from failed maintenance, not undoing
-  what the user chose to delete. Taking one database out of a snapshot would
-  leave a snapshot that restores to a state that never existed, so a deletion
-  removes every older snapshot whole and takes a fresh one after the rewrite.
-  The dialog's "what goes" list says so.
-- **What PathKeep cannot reach** is said plainly in the dialog and the feature
-  spec: files the user exported, and backups of the PathKeep folder made by the
-  system or by the user.
-
-- **Conversations that continue from it go too.** A conversation can begin with
-  records copied from another (a Claude Code session continued from an earlier
-  one), or inherit the first part of another's file (a Codex fork). It holds or
-  needs the content being deleted, so it is deleted in the same action, with a
-  deletion record of its own. The preview names these conversations so the user
-  sees them before confirming. A parent or a sibling is not touched.
-
-Putting a conversation away is only a flag in user state. It hides the
-conversation from lists; search and insights still include it.
+**What the format keeps so it can be added.** Every revision lists its slices,
+so slices no surviving revision refers to can be found. Sources map to
+conversations through the adapter's key, so a conversation's files can be named
+before their bytes are stored. Neither needs a format change later.
 
 ## 5. One archive, one key, or none
 
@@ -400,7 +374,7 @@ name. Each suggestion says what it rests on.
 Every operation that can take more than a moment reports progress with totals
 where they are knowable (discovery count first, then bytes and files done) and
 takes a cancel flag: preview, backup, the index sync at the end of a backup
-(today not cancellable), reparse, verify, deletion, rebuild. A backup of one
+(today not cancellable), reparse, verify, rebuild. A backup of one
 harness, or of the agent kind alone, is a first-class request.
 
 ## Clauses this amends
@@ -408,15 +382,13 @@ harness, or of the agent kind alone, is a first-class request.
 `agent-history-core.md` and `docs/features/agent-history.md` are rewritten when
 each part lands. Until then, these sentences of theirs are the ones that change:
 
-| Today's text                                                                             | Becomes                                                                                                                                                                                |
-| ---------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| "all archive/projection/search/spill files stay encrypted"                               | They follow the archive's encryption choice, which may be none (user, 2026-11-13). Spill files are always encrypted                                                                    |
-| "Conversation text cannot authorize arbitrary filesystem reads"                          | Still true. One bounded read is added: git facts of a folder named by a session's structured working-directory field (user, 2026-11-13; section 2)                                     |
-| "Retain previous successful versions when a source is rewritten, truncated, disappears…" | Kept for anything a later revision does not contain. A revision wholly contained in its successor keeps its record, not a second copy of its bytes                                     |
-| "Ordinary native files keep their original bytes"                                        | True of every retained revision, with one exception the user asks for: a shared file captured after a deletion leaves out the deleted conversation's records and is marked as filtered |
-| "Never mirror deletions" / "Raw revisions do not disappear when the source is deleted"   | Still true of the tool's deletions. The user's own deletion in PathKeep removes them (section 4)                                                                                       |
-| "The standalone archive has its own root and data key"                                   | In the app it is part of the PathKeep archive and uses its key (section 5). The CLI keeps a root of its own                                                                            |
-| SQLite sources: every changed dump is a revision                                         | Latest snapshot only; the tool's index of its own transcripts is not captured                                                                                                          |
+| Today's text                                                                             | Becomes                                                                                                                                            |
+| ---------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| "all archive/projection/search/spill files stay encrypted"                               | They follow the archive's encryption choice, which may be none (user, 2026-11-13). Spill files are always encrypted                                |
+| "Conversation text cannot authorize arbitrary filesystem reads"                          | Still true. One bounded read is added: git facts of a folder named by a session's structured working-directory field (user, 2026-11-13; section 2) |
+| "Retain previous successful versions when a source is rewritten, truncated, disappears…" | Kept for anything a later revision does not contain. A revision wholly contained in its successor keeps its record, not a second copy of its bytes |
+| "The standalone archive has its own root and data key"                                   | In the app it is part of the PathKeep archive and uses its key (section 5). The CLI keeps a root of its own                                        |
+| SQLite sources: every changed dump is a revision                                         | Latest snapshot only; the tool's index of its own transcripts is not captured                                                                      |
 
 ## What stays
 
@@ -438,8 +410,6 @@ for text, per ADR-012.
 - **Keeping session id = source id and mapping user state through a lookup
   table.** The mapping would itself be user state that breaks when a path
   changes.
-- **Deleting by hiding.** A hidden conversation still holds the secret the user
-  wanted gone.
 
 ## Measurements
 
@@ -487,5 +457,4 @@ sessions 444 MB.
 
 **Still to measure**, in the block that builds each part: window reads and a
 full regex scan on the 4-core / 8 GB target; the size of the search index and of
-the read model on real data; how long the copy that follows a deletion takes on
-an archive of this size.
+the read model on real data.
