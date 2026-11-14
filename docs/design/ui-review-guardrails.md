@@ -99,7 +99,7 @@ PathKeep 的圖表不是裝飾。任何 chart / heatmap / score / badge 都必�
 
 ### 明確紅線
 
-- 「你的一年」熱力圖的每一格必須對應**真實日期**，點擊進那天的 drill-in `/insights/day/YYYY-MM-DD`。
+- 「你的一年」熱力圖的每一格必須對應**真實日期**，點擊進那天的 drill-in `/browsing/insights/day/YYYY-MM-DD`。
 - 熱力圖與圖表的顏色只用 `--heat-*` / `--chart-*`，兩種主題下都不能接近背景色。
 - `On This Day` 只回看過去幾年的同一天；不得混入今年今天的資料。
 - 統計若跟所選範圍口徑不同，要明講（目前已知：Insights「常搜尋」的次數是整個 query family 的歷史總數，不受範圍限制，見 STATUS 待辦）。

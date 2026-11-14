@@ -64,7 +64,7 @@ export function SearchTuningRow() {
       title="搜尋排序"
       description={
         <span className="flex flex-col">
-          <span>在「歷史」中依意思搜尋時，結果如何排序。它會合併兩份清單：文字相符的網頁和意思相近的網頁，再把加星的網頁稍微往前排。</span>
+          <span>在「紀錄」中依意思搜尋時，結果如何排序。它會合併兩份清單：文字相符的網頁和意思相近的網頁，再把加星的網頁稍微往前排。</span>
           {!ai.enabled && <span>只在開啟本機語意搜尋時使用。現在也可以先設定。</span>}
         </span>
       }

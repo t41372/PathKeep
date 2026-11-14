@@ -524,9 +524,9 @@ cancel 也不是假裝立即中止，而是 cooperative stop：
 
 舊的 Dashboard / Explorer / Assistant / Intelligence / Jobs / Maintenance / Integrations 與 sidebar 工作條都已刪除。現在用到 intelligence 的畫面（逐卡的內容見 [screens-and-nav.md](../design/screens-and-nav.md)）：
 
-- **Home**：最近 30 天趨勢（`get_discovery_trend`）、On this day、「你的一年」日曆熱力圖（某年的 `get_discovery_trend`，點某天進 Insights 的 day，`/insights/day/D`）、「常回來的主題」（90 天 reopened investigations，點進 search 或 page drill-in，範圍 90 天）。
+- **Home**：最近 30 天趨勢（`get_discovery_trend`）、On this day、「你的一年」日曆熱力圖（某年的 `get_discovery_trend`，點某天進 Insights 的 day，`/browsing/insights/day/D`）、「常回來的主題」（90 天 reopened investigations，點進 search 或 page drill-in，範圍 90 天）。
 - **History**：「語意」搜尋方式（`search_ai_history`，需開啟本機語意搜尋且索引就緒）；網站視圖用 top sites。
-- **Insights**：唯一的分析頁。範圍 全部時間（預設）/ 1 年 / 90 天 / 30 天 / 7 天 / 自訂，可只看一個瀏覽器設定檔（`?profile=`）。進頁讀 primary 與 secondary overview 兩批；全部時間與到今天為止的最近範圍由快照回答。drill-in：day、site、search、page（`/insights/day|site|search|page/…`）。每張卡的 ⓘ 說明計算時間、範圍、狀態與算法；背景重算中卡片顯示「正在更新」並每 5 秒重拉。
+- **Insights**：唯一的分析頁。範圍 全部時間（預設）/ 1 年 / 90 天 / 30 天 / 7 天 / 自訂，可只看一個瀏覽器設定檔（`?profile=`）。進頁讀 primary 與 secondary overview 兩批；全部時間與到今天為止的最近範圍由快照回答。drill-in：day、site、search、page（`/browsing/insights/day|site|search|page/…`）。每張卡的 ⓘ 說明計算時間、範圍、狀態與算法；背景重算中卡片顯示「正在更新」並每 5 秒重拉。
 - **Ask**：串流對話（`ai_chat_send` + 串流事件 + `ai_chat_cancel`），對話存在 `derived/agent.sqlite`，清單可改名、刪除。不經過 AI queue。
 - **Settings → AI**：本機語意搜尋（模型下載、建索引進度）、AI 服務、MCP 伺服器、重建搜尋索引。**Settings → Background work**：洞察與搜尋索引 / 助理兩個背景佇列的工作（重試、取消）、暫停 / 繼續、同時跑幾個工作、重建洞察（`queue_core_intelligence_rebuild`，full rebuild）。
 
@@ -669,7 +669,7 @@ UI 只有：
 
 ### 9.4 還沒完全收尾的前端 truth
 
-- `/intelligence` / `/intelligence/day/:date` / `/intelligence/domain/:domain` 的 route、scope、time-range、runtime digest 與 `/insights` 命名漂移，現在已經收斂回一致的 shipping truth
+- `/intelligence` / `/intelligence/day/:date` / `/intelligence/domain/:domain` 的 route、scope、time-range、runtime digest 與 `/browsing/insights` 命名漂移，現在已經收斂回一致的 shipping truth
 - grouped Explorer 目前仍以 deterministic date window + profile scope 為主，不會把 keyword query / regex 再硬套進 session / trail API 假裝有 backend 支援
 - habit / path-flow explainability 目前只有在明確 profile-scoped view 下才會出現，因為 backend explain contract 需要 `<profile_id>::...` entity id
 - external output payload 現在已有 Integrations manual review / copy-export consumer，且第一個 `browser-snippet-v1` trusted local host 已交付；剩下 deferred 的是 OS widget、localhost/public host API、以及其他 alternate hosts，這不再算 `WORK-CI-F` 的未完成漂移

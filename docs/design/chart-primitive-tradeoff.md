@@ -19,7 +19,7 @@
 > - **Heatmaps**: EvilCharts has no heatmap and the amicro mono-chart one is a fixed-data demo,
 >   so `src/components/app/heatmap.tsx` is our own small grid in the same orange scale
 >   (`--heat-0` … `--heat-4`). Home's year calendar uses it with real dates (click a day →
->   `/history?date=YYYY-MM-DD`); Insights' rhythm uses it as weekday × hour. One shared
+>   `/browsing/history?date=YYYY-MM-DD`); Insights' rhythm uses it as weekday × hour. One shared
 >   tooltip, portalled with fixed coordinates so the card edge can't clip it.
 > - Recharts is lazy-loaded with the screens that use it; Vite emits it as one ~546 kB chunk
 >   (named `heatmap` after the first module in it) shared by Home and Insights.

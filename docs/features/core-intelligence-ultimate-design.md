@@ -5,7 +5,7 @@
 > [intelligence-current-state.md](intelligence-current-state.md) §8「2026-10 起」。跟本文不同的主要幾處：
 >
 > - 沒有 Dashboard、Explorer 與側欄；History 只有時間線 / 網站 / 已加星三個視圖，沒有按 session 或 trail 看。
-> - 路由是 `/insights`、`/insights/day|site|search|page/…`，沒有 `/intelligence/domain` 與 compare set 的頁；比較過的頁面是 Insights 與 day 裡的一張卡。
+> - 路由是 `/browsing/insights`、`/browsing/insights/day|site|search|page/…`，沒有 `/intelligence/domain` 與 compare set 的頁；比較過的頁面是 Insights 與 day 裡的一張卡。
 > - 只有 Insights 有時間範圍：全部時間（預設）/ 1 年 / 90 天 / 30 天 / 7 天 / 自訂，不是全 app 共用的日 / 週 / 月 / 季 / 年選擇器。
 > - 節奏是星期 × 小時的熱力圖；日曆熱力圖在 Home（「你的一年」）。
 > - 搜尋相關是幾張分開的卡（常搜尋、在哪裡搜尋、搜尋什麼、搜尋得怎麼樣、試了好幾次的搜尋、搜尋最後到了哪裡），沒有四個分頁的 Search Activity。

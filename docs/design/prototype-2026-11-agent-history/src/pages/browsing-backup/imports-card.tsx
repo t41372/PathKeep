@@ -47,7 +47,7 @@ function actionLabel({ action, finishing }: { action: BatchAction; finishing: bo
 
 function statusLine(batch: Batch) {
   if (batch.status === 'running') return '正在匯入…'
-  if (batch.status === 'reverted') return '已復原，不再顯示在歷史中。'
+  if (batch.status === 'reverted') return '已復原，不再顯示在紀錄中。'
   if (batch.status === 'reverting') return '復原中途停止，部分記錄仍然顯示。'
   if (batch.status === 'restoring') return '還原中途停止，部分記錄仍然隱藏。'
   if (endedPartway(batch.status)) return `中途停止 · 已新增 ${number(batch.importedItems)} 筆`
@@ -152,7 +152,7 @@ function BatchReview({ batch, onClose, onDone }: { batch: Batch; onClose: () => 
               ? '還原沒有完成就停止了。完成後，這次匯入新增的其餘記錄也會重新顯示。'
               : '復原沒有完成就停止了。完成後，這次匯入新增的其餘記錄也會隱藏。'
             : undone
-              ? `還原會讓這次匯入新增的 ${number(batch.importedItems)} 筆瀏覽記錄重新顯示在歷史中。`
+              ? `還原會讓這次匯入新增的 ${number(batch.importedItems)} 筆瀏覽記錄重新顯示在紀錄中。`
               : `復原會隱藏這次匯入新增的 ${number(batch.visibleItems)} 筆瀏覽記錄。不會刪除任何內容，之後可以還原。`}
           {endedPartway(batch.status) && ' 這次匯入沒有完成就停止了。再次匯入同一個檔案會補上剩下的記錄，已新增的會略過。'}
         </DialogDescription>
@@ -166,7 +166,7 @@ function BatchReview({ batch, onClose, onDone }: { batch: Batch; onClose: () => 
         <div className="grid grid-cols-3 gap-2">
           <Fact label="新增" value={number(batch.importedItems)} />
           <Fact label="已有" value={number(batch.duplicateItems)} />
-          <Fact label="顯示在歷史中" value={number(batch.visibleItems)} />
+          <Fact label="顯示在紀錄中" value={number(batch.visibleItems)} />
         </div>
         {!loaded ? (
           <div className="flex flex-col gap-2">
