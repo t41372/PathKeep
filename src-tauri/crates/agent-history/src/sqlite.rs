@@ -20,7 +20,7 @@ use serde_json::{Value, json};
 use crate::{Error, Result, model::Diagnostic};
 
 /// Identifies the logical codec so callers cannot mislabel its output as native database bytes.
-pub const SQLITE_EVIDENCE_FORMAT: &str = "pathkeep-sqlite-evidence-v1";
+pub const SQLITE_EVIDENCE_FORMAT: &str = "pathkeep-sqlite-evidence-v2";
 
 /// Explicit limits make a pathological source fail honestly instead of allocating without bound.
 #[derive(Clone, Debug)]
@@ -166,7 +166,8 @@ fn write_header(connection: &Connection, output: &mut dyn Write) -> Result<()> {
     write_record(
         output,
         &json!({"type":"header", "format":SQLITE_EVIDENCE_FORMAT,
-            "native_bytes":false, "text_encoding":"sqlite-utf8-api", "sqlite_version":rusqlite::version(),
+            "native_bytes":false, "text_encoding":"sqlite-utf8-api",
+            "sqlite_version":rusqlite::version(),
             "user_version":integer("user_version").map_err(source_error)?,
             "application_id":integer("application_id").map_err(source_error)?,
             "page_size":integer("page_size").map_err(source_error)?, "encoding":encoding}),
@@ -181,7 +182,8 @@ fn write_schema(
 ) -> Result<()> {
     let mut statement = connection
         .prepare(
-            "SELECT rowid,type,name,tbl_name,rootpage,sql FROM main.sqlite_schema ORDER BY rowid",
+            "SELECT rowid, type, name, tbl_name, rootpage, sql FROM main.sqlite_schema ORDER BY
+                rowid",
         )
         .map_err(source_error)?;
     let mut rows = statement.query([]).map_err(source_error)?;
@@ -211,7 +213,7 @@ struct Column {
 
 fn columns(connection: &Connection, name: &str) -> Result<Vec<Column>> {
     let mut statement = connection
-        .prepare("SELECT name,type,pk,hidden FROM pragma_table_xinfo(?1,'main') ORDER BY cid")
+        .prepare("SELECT name, type, pk, hidden FROM pragma_table_xinfo(?1, 'main' ) ORDER BY cid")
         .map_err(source_error)?;
     let mapped = statement
         .query_map([name], |row| {
@@ -246,7 +248,7 @@ fn rowid_column(
         // this is not an alias for rowid. Table-level PRIMARY KEY(id DESC) still aliases rowid.
         let has_index: bool = connection
             .query_row(
-                "SELECT EXISTS(SELECT 1 FROM pragma_index_list(?1,'main') WHERE origin='pk')",
+                "SELECT EXISTS(SELECT 1 FROM pragma_index_list(?1, 'main' ) WHERE origin='pk')",
                 [name],
                 |row| row.get(0),
             )
@@ -268,7 +270,7 @@ fn capture_table(
 ) -> Result<()> {
     let (kind, without_rowid): (String, bool) = connection
         .query_row(
-            "SELECT type,wr FROM pragma_table_list WHERE schema='main' AND name=?1",
+            "SELECT type, wr FROM pragma_table_list WHERE schema='main' AND name=?1",
             [name],
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
@@ -325,7 +327,10 @@ fn cell(row: &Row<'_>, index: usize) -> Result<Value> {
         ValueRef::Null => json!({"type":"null"}),
         ValueRef::Integer(value) => json!({"type":"integer", "value":value}),
         ValueRef::Real(value) => json!({"type":"real", "bits":format!("{:016x}",value.to_bits())}),
-        ValueRef::Text(value) => json!({"type":"text", "hex":hex::encode(value)}),
+        ValueRef::Text(value) => match std::str::from_utf8(value) {
+            Ok(text) => json!(text),
+            Err(_) => json!({"type":"text", "hex":hex::encode(value)}),
+        },
         ValueRef::Blob(value) => json!({"type":"blob", "hex":hex::encode(value)}),
     })
 }

@@ -4,11 +4,25 @@
 //! Capture can succeed while interpretation is partial. Destination failures abort
 //! the operation; source limitations retain earlier evidence and produce diagnostics.
 mod defaults;
+mod raw;
+use raw::capture_raw;
+#[cfg(test)]
+mod git_io_tests;
+mod roots;
+use roots::normalize_sources;
 pub mod files;
+pub(crate) mod git;
+mod observations;
 mod plan;
 mod projection;
+mod readiness;
+#[cfg(test)]
+mod readiness_tests;
+mod reference_capture;
 mod references;
 mod reparse;
+mod retained_input;
+mod unreadable;
 mod writer;
 
 pub use defaults::default_sources;
@@ -19,12 +33,13 @@ use crate::{
     adapters::{adapter, common},
 };
 use serde::Serialize;
-use std::{fs, sync::Arc};
+use std::sync::Arc;
 use vault_store::CancelToken;
 
 /// Explicit budgets and cancellation keep a single enormous transcript bounded.
 pub struct BackupOptions {
     pub max_record_bytes: usize,
+    pub read_git: bool,
     pub max_decoded_bytes: u64,
     pub cancel: CancelToken,
     pub progress: Option<Arc<dyn Fn(BackupProgress) + Send + Sync>>,
@@ -33,6 +48,7 @@ pub struct BackupOptions {
 impl Default for BackupOptions {
     fn default() -> Self {
         Self {
+            read_git: true,
             max_record_bytes: 16 * 1024 * 1024,
             max_decoded_bytes: 8 * 1024 * 1024 * 1024,
             cancel: CancelToken::new(),
@@ -125,6 +141,12 @@ fn execute(
     for source in sources {
         check_cancel(options)?;
         let root_key = plan::root_identity(source)?;
+        let readable = files::root_readable(&source.root);
+        if !readable {
+            issue(&mut report.issues, "root_unreadable", source.root.to_str());
+            archive.set_coverage(&root_key, false)?;
+            continue;
+        }
         let mut discovery_issues = Vec::new();
         let mut callback_error = None;
         let discovered = adapter(source.harness).discover(
@@ -154,12 +176,15 @@ fn execute(
         if discovered.is_err() {
             issue(&mut discovery_issues, "source_discovery_failed", source.root.to_str());
         }
+        archive.observe_missing(report.run_id, source)?;
         archive.set_coverage(&root_key, discovery_issues.is_empty())?;
         for diagnostic in discovery_issues {
             common::push_diagnostic(&mut report.issues, diagnostic);
         }
     }
     check_cancel(options)?;
+    observations::folders(archive, options, report)?;
+    archive.append_lineage_issues(&mut report.issues)?;
     archive.synchronize_search()?;
     maintenance(archive, options)?;
     Ok(())
@@ -181,11 +206,13 @@ fn process_artifact(
             return Ok(());
         }
     };
-    let Some(captured) = capture_raw(archive, &source_id, source, artifact, options, report)?
+    let Some(captured) = capture_raw(archive, &source_id, source, artifact, options, report, None)?
     else {
         return Ok(());
     };
-    if artifact.kind != ArtifactKind::Transcript || !artifact.current {
+    if artifact.kind != ArtifactKind::Transcript
+        || (!artifact.current && !adapter(source.harness).current_source_only())
+    {
         // Discovery may replace a fallback (for example Cowork audit) with a
         // primary transcript. Its bytes remain evidence, but its old view must
         // no longer duplicate the primary conversation in search.
@@ -193,7 +220,7 @@ fn process_artifact(
         archive.set_coverage(&source_id, captured.complete)?;
         return Ok(());
     }
-    let Some(prepared) = projection::prepare(
+    let prepared = match projection::prepare(
         archive,
         source,
         artifact,
@@ -202,21 +229,48 @@ fn process_artifact(
         options,
         &mut report.issues,
         false,
-    )?
-    else {
+    )? {
+        projection::Preparation::Ready(prepared) => prepared,
+        projection::Preparation::Writing => return Ok(()),
+        projection::Preparation::Unreadable => {
+            unreadable::publish(
+                archive,
+                source,
+                artifact,
+                &source_id,
+                captured.revision_id,
+                options,
+            )?;
+            archive.set_coverage(&source_id, false)?;
+            return Ok(());
+        }
+    };
+    if prepared.report.session.as_ref().is_some_and(|session| session.native_id.is_empty())
+        && unreadable::publish(
+            archive,
+            source,
+            artifact,
+            &source_id,
+            captured.revision_id,
+            options,
+        )?
+    {
         archive.set_coverage(&source_id, false)?;
         return Ok(());
-    };
-    let mut complete = prepared.report.complete;
+    }
+    let complete = prepared.report.complete;
+    let mut reference_changes = false;
     if !complete && prepared.report.diagnostics.is_empty() {
         issue(&mut report.issues, "source_interpretation_partial", Some(&artifact.relative_path));
     }
     for diagnostic in &prepared.report.diagnostics {
-        common::push_diagnostic(&mut report.issues, diagnostic.clone());
+        if diagnostic.detail.as_deref() != Some("remote") {
+            common::push_diagnostic(&mut report.issues, diagnostic.clone());
+        }
     }
     for reference in &prepared.report.references {
         check_cancel(options)?;
-        complete &= capture_reference(
+        reference_changes |= reference_capture::capture_reference(
             archive,
             source,
             roots,
@@ -226,7 +280,8 @@ fn process_artifact(
             report,
         )?;
     }
-    if let Some(metadata) = &prepared.report.session {
+    {
+        let metadata = prepared.report.session.as_ref().expect("prepared metadata");
         if let Some(attempt) = &prepared.attempt {
             progress(options, "projection_staged", &source_id, &captured);
             check_cancel(options)?;
@@ -249,130 +304,12 @@ fn process_artifact(
                 prepared.report.complete,
                 complete,
             )?;
+            if reference_changes {
+                archive.refresh_attachment_counter(&source_id, projection_id)?;
+            }
         }
-    } else {
-        archive.save_versioned_parse_report(
-            captured.revision_id,
-            &prepared.parser_version,
-            &prepared.report,
-        )?;
-        archive.set_coverage(&source_id, false)?;
     }
     Ok(())
-}
-
-fn capture_raw(
-    archive: &Archive,
-    source_id: &str,
-    source: &SourceRoot,
-    artifact: &Artifact,
-    options: &BackupOptions,
-    report: &mut BackupReport,
-) -> Result<Option<writer::Captured>> {
-    match writer::capture(archive, source_id, source, artifact, options) {
-        Ok(captured) => {
-            if captured.unchanged {
-                report.unchanged = report.unchanged.saturating_add(1);
-            } else {
-                report.captured = report.captured.saturating_add(1);
-                report.bytes = report.bytes.saturating_add(captured.byte_len);
-                progress(options, "raw_committed", source_id, &captured);
-            }
-            for diagnostic in &captured.diagnostics {
-                common::push_diagnostic(&mut report.issues, diagnostic.clone());
-            }
-            Ok(Some(captured))
-        }
-        Err(writer::CaptureFailure::Destination(error)) => Err(error),
-        Err(writer::CaptureFailure::Source(error)) => {
-            check_cancel(options)?;
-            if matches!(error, Error::Cancelled) {
-                return Err(error);
-            }
-            archive.set_coverage(source_id, false)?;
-            let code = if matches!(error, Error::SourceChanged(_)) {
-                "source_changed_during_capture"
-            } else {
-                "source_capture_unavailable"
-            };
-            issue(&mut report.issues, code, Some(&artifact.relative_path));
-            Ok(None)
-        }
-    }
-}
-
-fn capture_reference(
-    archive: &Archive,
-    source: &SourceRoot,
-    roots: &[SourceRoot],
-    parent_revision: i64,
-    reference: &crate::Reference,
-    options: &BackupOptions,
-    report: &mut BackupReport,
-) -> Result<bool> {
-    match references::resolve(source, roots, reference)? {
-        references::Resolution::Inline => Ok(true),
-        references::Resolution::Unresolved(mut diagnostic) => {
-            let provenance_only =
-                source.harness == crate::Harness::Pi && reference.kind == "lineage";
-            if provenance_only {
-                // Pi copies the selected prefix into a fork. The old path is
-                // provenance, not bytes the child's transcript depends on.
-                diagnostic.detail = Some("provenance_only".into());
-            }
-            common::push_diagnostic(&mut report.issues, diagnostic);
-            Ok(provenance_only)
-        }
-        references::Resolution::Local { source, mut artifact } => {
-            let identity = source_identity(&source, &artifact)?;
-            if reference.kind == "lineage" {
-                // Native lineage points at another transcript. Registering it as
-                // metadata before discovery reaches it would create a kind conflict.
-                artifact.kind = ArtifactKind::Transcript;
-            }
-            if archive.latest_revision(&identity)?.is_some() {
-                // A parent transcript remains a transcript when a child's lineage
-                // points at it; a reference cannot relabel an established source.
-                artifact.kind = match archive.source(&identity)?.kind.as_str() {
-                    "transcript" => ArtifactKind::Transcript,
-                    "metadata" => ArtifactKind::Metadata,
-                    "sqlite" => ArtifactKind::Sqlite,
-                    _ => ArtifactKind::Attachment,
-                };
-            }
-            let captured = capture_raw(archive, &identity, &source, &artifact, options, report)?;
-            if let Some(captured) = captured {
-                archive.bind_reference(parent_revision, reference, captured.revision_id)?;
-                if artifact.kind != ArtifactKind::Transcript {
-                    archive.set_coverage(&identity, captured.complete)?;
-                }
-                Ok(captured.complete)
-            } else {
-                Ok(false)
-            }
-        }
-    }
-}
-
-fn normalize_sources(archive: &Archive, sources: &[SourceRoot]) -> Result<Vec<SourceRoot>> {
-    let mut selected = Vec::with_capacity(sources.len());
-    for source in sources {
-        let original_link = fs::symlink_metadata(&source.root)
-            .is_ok_and(|metadata| metadata.file_type().is_symlink());
-        let resolved =
-            fs::canonicalize(&source.root).or_else(|_| std::path::absolute(&source.root))?;
-        if resolved.starts_with(&archive.root) || archive.root.starts_with(&resolved) {
-            return Err(Error::InvalidInput("archive and source roots must be disjoint".into()));
-        }
-        let root = if original_link { source.root.clone() } else { resolved };
-        if !selected
-            .iter()
-            .any(|prior: &SourceRoot| prior.harness == source.harness && prior.root == root)
-        {
-            selected.push(SourceRoot { harness: source.harness, root });
-        }
-    }
-    Ok(selected)
 }
 
 pub(super) fn check_cancel(options: &BackupOptions) -> Result<()> {
@@ -387,7 +324,8 @@ pub(super) fn maintenance(archive: &Archive, options: &BackupOptions) -> Result<
         check_cancel(options)?;
         let projections = archive.prune_obsolete_projection_batch(256)?;
         let captures = archive.prune_abandoned_capture_batch(256)?;
-        if projections == 0 && captures == 0 {
+        let counters = archive.prune_attachment_counts()?;
+        if projections == 0 && captures == 0 && counters == 0 {
             break;
         }
     }

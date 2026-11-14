@@ -865,7 +865,16 @@ PathKeep 只在確定時自動歸類；只是「可能」的，做成建議讓�
 
 ## 第二部分：核心庫現在做到的事
 
-[agent-history-product-design.md](../architecture/agent-history-product-design.md) 的設計在第一次發布前會改掉下面好幾條（加密、刪除、保存哪些版本、讀 `.git`、搜尋），改的是哪幾句見那份文件的「Clauses this amends」。
+[agent-history-product-design.md](../architecture/agent-history-product-design.md) 的設計在第一次發布前會改掉下面好幾條，改的是哪幾句見那份文件的「Clauses this amends」。其中第一塊已經做進核心庫（2026-11-13）：
+
+- 對話與來源分開：一段對話可以有好幾個來源檔，id 從工具自己的資料算出來；subagent 連回派出它的對話，fork 另外記；Codex 還原過的 thread 連同它繼承的內容讀成一條。
+- 星號、封存、垃圾桶、自訂標題跟著原始資料存，重新解析、重建索引、檔案搬家都還在。
+- 每次備份記下每個來源這次有沒有看到，以及對話工作資料夾的 git 資訊。
+- 保存規則依來源種類分；原始位元組壓縮後存，前綴版本共用內容。
+- 存檔可以不加密。
+- 附件沒存到另外計數，不算對話不完整。
+
+還沒做的：跟 PathKeep 的存檔合一、讀取模型（現在每筆紀錄仍多存兩份）、永久刪除。
 
 狀態：獨立核心庫與 CLI；產品 UI 整合尚未開始。使用者要求先交付研究、可靠備份與可維護的底層，之後由 Claude 接手 UI／UX 和產品呈現。這一部分只講核心庫，不談介面；介面見第一部分。
 
@@ -876,7 +885,7 @@ PathKeep 只在確定時自動歸類；只是「可能」的，做成建議讓�
 | Adapter          | 本次來源與正規化範圍                                                                                         | 保留但不應誤稱為完成的能力                                                                                                                                        |
 | ---------------- | ------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Claude Code      | 原生 JSONL、subagents、已知工具／附件資料；本機 Desktop cards、Cowork transcript／audit 等 evidence          | Desktop cards 仍是 raw metadata，不完成 card-to-transcript enrichment；Cowork 有 native transcript 時 audit 不重複索引。一般 Claude chat／cloud Cowork 不自動抓取 |
-| Codex            | Active／archived、plain／Zstd rollout，legacy 與 paginated native events；相關 state/history SQLite evidence | 不 replay inherited prefix，不去重鏡像 UI／model events；metadata DB 不轉成完整 Desktop UI 狀態。Remote media 只報告不可用                                        |
+| Codex            | Active／archived、plain／Zstd rollout，legacy 與 paginated native events；相關 state/history SQLite evidence | 還原後的 rollout 連同它繼承的前段讀成一條；不去重鏡像 UI／model events；metadata DB 不轉成完整 Desktop UI 狀態。Remote media 只報告不可用                         |
 | Pi               | v1–v3 JSONL、原始樹、compaction、context edit、extension records；inline image 與已知 full-output reference  | 不選 active branch／replay model context；v1 衍生 ID 有診斷。Desktop／TUI／RPC 來源無足夠證據就 unknown                                                           |
 | DeepSeek Harness | 目前 v4 JSONL／多 frame Zstd、數字 generations、附件 object；已知 native event 欄位                          | 舊 v0–v3 與未知新版本明確限制解析；舊 authoritative SQLite provider 不支援。Spill 文字 footer 不授權讀檔；desktop／CLI 共用來源不能推斷 origin                    |
 | Continue         | Session JSON 的 `history` entries，保留 envelope metadata 與原始檔；index 獨立保存                           | 不以 index 代替資料發現；不補回來源 CLI 未保存的 system context，不從 filesystem 時間杜撰原生建立時間                                                             |

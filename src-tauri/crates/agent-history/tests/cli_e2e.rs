@@ -107,8 +107,10 @@ fn four_native_harnesses_remain_separate_and_export_their_exact_evidence() {
                 events.iter().any(|event| event["payload"].to_string().contains(FUTURE_SENTINEL)),
             );
         }
-        let revisions =
-            case.call("revisions", args(&["--source-id", string(session, "source_id")]));
+        let revisions = case.call(
+            "revisions",
+            args(&["--source-id", string(support_current_source(session), "source_id")]),
+        );
         let latest = &items(&revisions)[0];
         let output = case.root.join(format!("{harness}.raw"));
         case.call(
@@ -229,7 +231,10 @@ fn rewrite_truncation_partial_tail_and_deletion_keep_every_raw_revision() {
     fs::remove_file(&file).unwrap();
     case.call("backup", execute(source_args));
 
-    let revisions = case.call("revisions", args(&["--source-id", string(&session, "source_id")]));
+    let revisions = case.call(
+        "revisions",
+        args(&["--source-id", string(support_current_source(&session), "source_id")]),
+    );
     case.equal(
         "all four distinct versions survive deletion",
         json!(items(&revisions).len()),
@@ -361,4 +366,8 @@ fn search_reaches_past_eight_mebibytes_and_newly_appended_content() {
         verify["status"].clone(),
         json!("complete"),
     );
+}
+
+fn support_current_source(item: &serde_json::Value) -> &serde_json::Value {
+    item["sources"].as_array().unwrap().iter().find(|source| source["current"] == true).unwrap()
 }

@@ -65,10 +65,12 @@ fn publish_with_empty_prefix(
     }
     let digest = hex::encode(Sha256::digest(&bytes));
     let revision = archive.finish_revision(revision, &digest, bytes.len() as u64).unwrap();
-    archive.begin_projection(id, revision.revision_id).unwrap();
+    let attempt_revision_revision_id =
+        archive.prepare_projection(id, revision.revision_id, "fixture-v1", false).unwrap().unwrap();
     for start in (0..empty_prefix).step_by(128) {
         let events = (start..(start + 128).min(empty_prefix))
             .map(|ordinal| NativeEvent {
+                references: Vec::new(),
                 ordinal: ordinal as u64,
                 native_id: None,
                 parent_id: None,
@@ -79,13 +81,13 @@ fn publish_with_empty_prefix(
                 payload: serde_json::json!({"type":"metadata"}),
             })
             .collect();
-        archive.append_events(id, revision.revision_id, events).unwrap();
+        archive.append_projection_events(&attempt_revision_revision_id, events).unwrap();
     }
     archive
-        .append_events(
-            id,
-            revision.revision_id,
+        .append_projection_events(
+            &attempt_revision_revision_id,
             vec![NativeEvent {
+                references: Vec::new(),
                 ordinal: empty_prefix as u64,
                 native_id: Some("same-native-event-id".into()),
                 parent_id: None,
@@ -98,9 +100,8 @@ fn publish_with_empty_prefix(
         )
         .unwrap();
     archive
-        .publish_projection(
-            id,
-            revision.revision_id,
+        .publish_projection_attempt(
+            &attempt_revision_revision_id,
             &SessionMetadata {
                 native_id: "same-native-session-id".into(),
                 project_path: Some(project.into()),
@@ -110,6 +111,7 @@ fn publish_with_empty_prefix(
                 origin: "unknown".into(),
                 harness_version: None,
                 parent_session_id: None,
+                forked_from_session_id: None,
                 model: None,
             },
             complete,
@@ -137,7 +139,7 @@ fn publication_ahead_of_search_is_explicit_and_replacement_removes_old_text() {
     assert_eq!(archive.search(&query("obsoleteword")).unwrap().total, 0);
     let replacement = archive.search(&query("replacementword")).unwrap();
     assert_eq!(replacement.total, 1);
-    assert_eq!(replacement.items[0].session_id, "codex-a");
+    assert_eq!(replacement.items[0].session_id, conversation(&archive, "codex-a"));
     archive.synchronize_search().unwrap();
     assert_eq!(archive.search(&query("replacementword")).unwrap().total, 1);
 }
@@ -157,7 +159,7 @@ fn native_ids_do_not_merge_harnesses_and_unicode_filters_are_exact() {
     filtered.project_path = Some("/work/shared".into());
     let page = archive.search(&filtered).unwrap();
     assert_eq!(page.total, 1);
-    assert_eq!(page.items[0].session_id, "pi-a");
+    assert_eq!(page.items[0].session_id, conversation(&archive, "pi-a"));
 }
 
 #[test]
@@ -233,7 +235,7 @@ fn a_large_message_keeps_terms_after_eight_mebibytes_and_index_stays_encrypted()
     archive.synchronize_search().unwrap();
     let result = archive.search(&query("tailneedle")).unwrap();
     assert_eq!(result.total, 1, "the entire message is indexed, not an 8 MiB prefix");
-    assert_eq!(result.items[0].session_id, "deepseek-a");
+    assert_eq!(result.items[0].session_id, conversation(&archive, "deepseek-a"));
     assert!(result.items[0].text.contains("tailneedle"));
 
     for entry in std::fs::read_dir(root.join("derived/history-search")).unwrap() {
@@ -309,4 +311,15 @@ fn rebuilding_rejects_a_search_parent_redirected_outside_the_archive() {
 
     assert!(matches!(archive.synchronize_search(), Err(Error::InvalidInput(_))));
     assert_eq!(std::fs::read(&sentinel).unwrap(), b"must survive");
+}
+
+fn conversation(archive: &Archive, source: &str) -> String {
+    archive
+        .list_sessions(&agent_history::query::SessionQuery::default())
+        .unwrap()
+        .items
+        .into_iter()
+        .find(|item| item.sources.iter().any(|member| member.source_id == source))
+        .unwrap()
+        .id
 }

@@ -22,6 +22,9 @@ use sha2::{Digest, Sha256};
 
 use crate::{Error, Result};
 
+mod git;
+pub(crate) use git::read_git_file;
+
 const BUFFER_BYTES: usize = 64 * 1024;
 
 /// Evidence from a full bounded read, tied to the file which supplied those bytes.
@@ -64,6 +67,30 @@ struct AuthorizedPath {
     path: PathBuf,
     root: PathBuf,
     mark: FileMark,
+}
+
+/// Checks root access without enumerating it or following a selected symlink.
+pub(crate) fn root_readable(path: &Path) -> bool {
+    if !fs::symlink_metadata(path).is_ok_and(|metadata| {
+        reject_link(&metadata).is_ok() && (metadata.is_dir() || metadata.is_file())
+    }) {
+        return false;
+    }
+    let mut options = OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        // Directory handles require BACKUP_SEMANTICS; OPEN_REPARSE_POINT keeps
+        // the selected root from becoming a followed junction during this open.
+        options.custom_flags(0x0200_0000 | 0x0020_0000);
+    }
+    options.open(path).is_ok()
 }
 
 /// Hashes a regular file without trusting a timestamp/length freshness shortcut.

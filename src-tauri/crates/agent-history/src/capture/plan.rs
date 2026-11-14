@@ -30,10 +30,20 @@ pub struct PlannedArtifact {
     pub current: bool,
 }
 
+/// Preview names the bounded exception to transcript-only filesystem access.
+#[derive(Clone, Debug, Serialize)]
+pub struct GitReadPolicy {
+    pub files: [&'static str; 5],
+    pub max_file_bytes: usize,
+    pub structured_working_directory_only: bool,
+    pub follow_symlinks: bool,
+}
+
 /// Counts cover the inventory; `sources` is a bounded preview, never an execution manifest.
 #[derive(Clone, Debug, Serialize)]
 pub struct BackupPlan {
     pub roots: Vec<SourceRoot>,
+    pub git_reads: GitReadPolicy,
     pub sources: Vec<PlannedArtifact>,
     pub total_files: u64,
     pub total_bytes: u64,
@@ -46,6 +56,12 @@ pub struct BackupPlan {
 pub fn preview(sources: &[SourceRoot]) -> Result<BackupPlan> {
     let mut plan = BackupPlan {
         roots: Vec::with_capacity(sources.len()),
+        git_reads: GitReadPolicy {
+            files: [".git", "HEAD", "commondir", "gitdir", "config"],
+            max_file_bytes: 1024 * 1024,
+            structured_working_directory_only: true,
+            follow_symlinks: false,
+        },
         sources: Vec::new(),
         total_files: 0,
         total_bytes: 0,
@@ -152,6 +168,7 @@ pub(crate) fn root_identity(source: &SourceRoot) -> Result<String> {
 
 fn identity(domain: &[u8], parts: &[&[u8]]) -> String {
     let mut hash = Sha256::new();
+    hash.update((domain.len() as u64).to_be_bytes());
     hash.update(domain);
     for part in parts {
         hash.update((part.len() as u64).to_be_bytes());

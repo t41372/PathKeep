@@ -65,12 +65,12 @@ fn committed_wal_rows_and_metadata_belong_to_one_snapshot() {
     let evidence = records(&output.bytes);
     assert!(output.changed);
     assert!(report.complete);
-    assert_eq!(evidence[0]["format"], "pathkeep-sqlite-evidence-v1");
+    assert_eq!(evidence[0]["format"], "pathkeep-sqlite-evidence-v2");
     assert_eq!(evidence[0]["native_bytes"], false);
     assert_eq!(evidence[0]["user_version"], 17);
     let messages = rows(&evidence, "messages");
     assert_eq!(messages.len(), 2);
-    assert!(messages.iter().all(|row| row["values"][1]["hex"] == hex::encode(b"before")));
+    assert!(messages.iter().all(|row| row["values"][1] == "before"));
     assert_eq!(
         source.query_row("SELECT count(*) FROM messages", [], |r| r.get::<_, i64>(0)).unwrap(),
         3
@@ -137,7 +137,7 @@ fn unaddressable_hidden_rowid_is_reported_instead_of_invented() {
     let evidence = records(&output);
     assert!(!report.complete);
     assert!(report.diagnostics.iter().any(|issue| issue.code == "sqlite_hidden_rowid_unavailable"));
-    assert_eq!(rows(&evidence, "hidden")[0]["values"][3]["hex"], hex::encode(b"retained"));
+    assert_eq!(rows(&evidence, "hidden")[0]["values"][3], "retained");
     assert_eq!(rows(&evidence, "aliased")[0]["rowid"], 89);
     assert_eq!(evidence.last().unwrap()["complete"], false);
 }

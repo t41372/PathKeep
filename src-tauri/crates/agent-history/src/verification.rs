@@ -8,11 +8,19 @@ use vault_store::{Db, params};
 #[derive(Debug, Serialize)]
 pub struct VerifyReport {
     pub status: String,
+    pub slices: SliceUsage,
     pub revisions: u64,
     pub bytes: u64,
     pub databases: usize,
     pub search_current: bool,
     pub normalization_complete: bool,
+}
+
+/// Stored compressed size is separate from exported logical revision lengths.
+#[derive(Debug, Serialize)]
+pub struct SliceUsage {
+    pub count: u64,
+    pub bytes: u64,
 }
 
 impl Archive {
@@ -27,35 +35,54 @@ impl Archive {
         }
         let mut report = VerifyReport {
             status: "complete".into(),
+            slices: self.store.read(Db::SourceEvidence, |tx| {
+                tx.query_one(
+                    "SELECT count(*), coalesce(sum(length(data)), 0) FROM ah_chunks",
+                    (),
+                    |r| {
+                        Ok(SliceUsage {
+                            count: r.get::<i64>(0)? as u64,
+                            bytes: r.get::<i64>(1)? as u64,
+                        })
+                    },
+                )
+            })?,
             revisions: 0,
             bytes: 0,
             databases: 2,
             search_current: true,
-            normalization_complete: self.store.read(Db::Archive, |tx| {
-                tx.query_one(
-                    "SELECT NOT EXISTS(SELECT 1 FROM ah_coverage WHERE complete=0)",
-                    (),
-                    |row| Ok(row.get::<i64>(0)?),
-                )
-                .map(|value| value != 0)
-            })?,
+            normalization_complete: self.normalization_complete()?,
         };
         let mut after = 0i64;
         loop {
             let page = self.store.read(Db::SourceEvidence, move |tx| {
                 let mut statement = tx.prepare(
-                    "SELECT id FROM ah_revisions WHERE state='complete' AND id>?1 ORDER BY id LIMIT 128",
+                    "SELECT id FROM ah_revisions WHERE state='complete' AND bytes_retained=1
+                        AND id>?1 ORDER BY id LIMIT 128",
                 )?;
-                statement.query_map(params![after], |row| Ok(row.get::<i64>(0)?))?
+                statement
+                    .query_map(params![after], |row| Ok(row.get::<i64>(0)?))?
                     .collect::<vault_store::Result<Vec<_>>>()
             })?;
             if page.is_empty() {
                 break;
             }
             for id in &page {
-                report.bytes += std::io::copy(&mut self.raw_reader(*id)?, &mut std::io::sink())?;
-                report.revisions += 1;
                 after = *id;
+                let input = self.raw_reader(*id);
+                let mut reader = match input {
+                    Ok(reader) => reader,
+                    Err(Error::NotFound(_)) if !self.revision(*id)?.bytes_retained => continue,
+                    Err(error) => return Err(error),
+                };
+                match std::io::copy(&mut reader, &mut std::io::sink()) {
+                    Ok(bytes) => {
+                        report.bytes += bytes;
+                        report.revisions += 1;
+                    }
+                    Err(error) if crate::archive::expired_read(&error) => {}
+                    Err(error) => return Err(error.into()),
+                }
             }
         }
         if self.projection_generation()? > 0 {

@@ -10,7 +10,7 @@ use crate::{
     model::{NativeEvent, SessionMetadata},
 };
 use std::io::{self, Write};
-use vault_store::{Db, Priority, params};
+use vault_store::{Db, OptionalRow, Priority, params};
 
 const MAX_BATCH_EVENTS: usize = 128;
 const MAX_BATCH_BYTES: usize = 8 * 1024 * 1024;
@@ -56,14 +56,38 @@ impl Archive {
         self.store.write(Db::Archive, Priority::Batch, move |tx| {
             require_work(tx, &attempt)?;
             let mut insert = tx.prepare(
-                "INSERT INTO ah_events(session_id,revision_id,projection_id,ordinal,native_id,parent_id,
-                 kind,role,timestamp,text,payload) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",
+                "INSERT INTO ah_events(session_id, revision_id, projection_id, ordinal,
+                    native_id, parent_id, kind, role, timestamp, text, payload) VALUES(?1, ?2, ?3,
+                    ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
             )?;
             for (ordinal, event, payload) in encoded {
+                let mut references = std::collections::BTreeMap::new();
+                for reference in &event.references {
+                    if reference.kind == "lineage" {
+                        continue;
+                    }
+                    if let Ok(key) = super::super::references::reference_key(reference) {
+                        *references.entry(key).or_insert(0_i64) += 1;
+                    }
+                }
+                for (key, count) in references {
+                    tx.execute(
+                        "INSERT INTO ah_event_references VALUES(?1,?2,?3,?4)",
+                        params![attempt.id, ordinal, key, count],
+                    )?;
+                }
                 insert.execute(params![
-                    attempt.source_id.clone(), attempt.revision_id, attempt.id, ordinal,
-                    event.native_id, event.parent_id, event.kind, event.role,
-                    event.timestamp, event.text, payload,
+                    attempt.source_id.clone(),
+                    attempt.revision_id,
+                    attempt.id,
+                    ordinal,
+                    event.native_id,
+                    event.parent_id,
+                    event.kind,
+                    event.role,
+                    event.timestamp,
+                    event.text,
+                    payload,
                 ])?;
             }
             Ok(())
@@ -93,10 +117,8 @@ impl Archive {
     ) -> Result<()> {
         validate_coverage(parser_complete, combined_complete)?;
         validate_metadata(metadata)?;
-        let _publication = self
-            .publication_gate
-            .lock()
-            .map_err(|_| Error::Integrity("publication gate was poisoned".into()))?;
+        let counter = self.build_attachment_counter(attempt.id, attempt.revision_id)?;
+        let snapshot = self.projection_generation()?;
         self.require_revision_source(&attempt.source_id, attempt.revision_id)?;
         let source = self.source(&attempt.source_id)?;
         if source.latest_revision_id != Some(attempt.revision_id) {
@@ -104,31 +126,138 @@ impl Archive {
                 "raw revision was superseded before projection publication".into(),
             ));
         }
-        let metadata = metadata.clone();
+        let key = self.conversation_key(&attempt.source_id, attempt.revision_id, metadata)?;
+        let conversation_id = key.id(source.harness.parse()?, &attempt.source_id);
+        let native = crate::adapters::adapter(source.harness.parse()?);
+        let rollout = native.physical_source_id(&source.relative_path);
+        let source_time = native.source_time(&source.relative_path);
+        let current_only = native.current_source_only();
+        let generation_group = native.generation_group(&source.relative_path);
+        self.prepare_lineage_boundaries(attempt, &key.relation, rollout.as_deref())?;
+        let base_native = key.relation.base_native_id.clone();
+        let relation = serde_json::to_string(&key.relation)?;
+        let selection =
+            super::super::selection::choose(self, &conversation_id, attempt, &key, metadata)?;
+        let prior_source = attempt.source_id.clone();
+        let prior = self
+            .store
+            .read(Db::Archive, move |tx| {
+                tx.query(
+                    "SELECT conversation_id FROM ah_sessions WHERE id=?1",
+                    [prior_source],
+                    |r| Ok(r.get::<String>(0)?),
+                )
+            })?
+            .pop();
+        let prior_selection = match &prior {
+            Some(id) if id != &conversation_id => {
+                super::super::selection::remaining(self, id, &attempt.source_id)?
+            }
+            _ => None,
+        };
+        let fork = key.relation.forked_from_native_id.clone();
+        let fork_path = key.relation.fork_path.clone();
+        let parent_path = key.relation.parent_path;
+        let mut metadata = metadata.clone();
+        metadata.native_id = key.native_id;
+        metadata.parent_session_id = key.relation.parent_native_id.or(metadata.parent_session_id);
+        let title_source = if metadata.title.is_some() { "tool" } else { "first-message" };
         let attempt = attempt.clone();
+        let _publication = self
+            .publication_gate
+            .lock()
+            .map_err(|_| Error::Integrity("publication gate was poisoned".into()))?;
+        if self.projection_generation()? != snapshot
+            || self.source(&attempt.source_id)?.latest_revision_id != Some(attempt.revision_id)
+        {
+            return Err(Error::SourceChanged(
+                "publication changed while source relations were being validated".into(),
+            ));
+        }
         self.store.write(Db::Archive, Priority::Batch, move |tx| {
             require_work(tx, &attempt)?;
             if let Some(previous) = current_projection_id(tx, &attempt.source_id)? {
                 retire(tx, &attempt.source_id, previous)?;
             }
+            let previous_counter = tx
+                .query_one(
+                    "SELECT attachment_generation FROM ah_sessions WHERE id=?1",
+                    [attempt.source_id.as_str()],
+                    |row| Ok(row.get::<i64>(0)?),
+                )
+                .optional()?
+                .unwrap_or(0);
             tx.execute(
-                "INSERT INTO ah_sessions(id,source_id,native_id,harness,project_path,title,
-                 created_at,updated_at,origin,harness_version,parent_session_id,model,
-                 revision_id,projection_id,parser_version,complete)
-                 VALUES(?1,?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)
-                 ON CONFLICT(id) DO UPDATE SET native_id=excluded.native_id,harness=excluded.harness,
-                 project_path=excluded.project_path,title=excluded.title,created_at=excluded.created_at,
-                 updated_at=excluded.updated_at,origin=excluded.origin,harness_version=excluded.harness_version,
-                 parent_session_id=excluded.parent_session_id,model=excluded.model,
-                 revision_id=excluded.revision_id,projection_id=excluded.projection_id,
-                 parser_version=excluded.parser_version,complete=excluded.complete",
+                "INSERT INTO ah_sessions(id, source_id, native_id, harness, project_path,
+                    title, created_at, updated_at, origin, harness_version, parent_session_id,
+                    model, revision_id, projection_id, parser_version, complete, conversation_id,
+                    origin_mark, source_root, relative_path, relation_json, generation,
+                    title_source, parent_path, rollout_native_id, lineage_base_native_id,
+                    forked_from_native_id, fork_path, current_only, source_time, generation_group,
+                    first_record_digest,attachment_generation,attachments_not_kept)
+                 VALUES(?1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11,
+                    ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26,
+                    ?27, ?28, ?29, ?30, ?31, ?32, ?33) ON CONFLICT(id) DO UPDATE SET
+                    native_id=excluded.native_id, harness=excluded.harness,
+                    project_path=excluded.project_path, title=excluded.title,
+                    created_at=excluded.created_at, updated_at=excluded.updated_at,
+                    origin=excluded.origin, harness_version=excluded.harness_version,
+                    parent_session_id=excluded.parent_session_id, model=excluded.model,
+                    revision_id=excluded.revision_id, projection_id=excluded.projection_id,
+                    parser_version=excluded.parser_version, complete=excluded.complete,
+                    conversation_id=excluded.conversation_id, origin_mark=excluded.origin_mark,
+                    source_root=excluded.source_root, relative_path=excluded.relative_path,
+                    relation_json=excluded.relation_json, generation=excluded.generation,
+                    title_source=excluded.title_source, parent_path=excluded.parent_path,
+                    rollout_native_id=excluded.rollout_native_id,
+                    lineage_base_native_id=excluded.lineage_base_native_id,
+                    forked_from_native_id=excluded.forked_from_native_id,
+                    fork_path=excluded.fork_path, current_only=excluded.current_only,
+                    source_time=excluded.source_time, generation_group=excluded.generation_group,
+                    first_record_digest=excluded.first_record_digest,
+                 raw_head_current=1,attachment_generation=excluded.attachment_generation,
+                 attachments_not_kept=excluded.attachments_not_kept",
                 params![
-                    attempt.source_id.clone(), metadata.native_id, source.harness, metadata.project_path,
-                    metadata.title, metadata.created_at, metadata.updated_at, metadata.origin,
-                    metadata.harness_version, metadata.parent_session_id, metadata.model,
-                    attempt.revision_id, attempt.id, attempt.parser_version, i64::from(parser_complete),
+                    attempt.source_id.clone(),
+                    metadata.native_id,
+                    source.harness,
+                    metadata.project_path,
+                    metadata.title,
+                    metadata.created_at,
+                    metadata.updated_at,
+                    metadata.origin,
+                    metadata.harness_version,
+                    metadata.parent_session_id,
+                    metadata.model,
+                    attempt.revision_id,
+                    attempt.id,
+                    attempt.parser_version,
+                    i64::from(parser_complete),
+                    conversation_id.clone(),
+                    key.origin_mark,
+                    source.root,
+                    source.relative_path,
+                    relation,
+                    key.generation as i64,
+                    title_source,
+                    parent_path,
+                    rollout,
+                    base_native,
+                    fork,
+                    fork_path,
+                    i64::from(current_only),
+                    source_time,
+                    generation_group,
+                    key.first_record_digest,
+                    counter.id,
+                    counter.total as i64,
                 ],
             )?;
+            counter.publish(tx, previous_counter)?;
+            selection.publish(tx, &conversation_id, Some(&attempt.source_id))?;
+            if let (Some(selection), Some(id)) = (prior_selection, prior) {
+                selection.publish(tx, &id, None)?;
+            }
             publish_outbox(tx, &attempt.source_id, attempt.revision_id, attempt.id)?;
             set_coverage(tx, &attempt.source_id, combined_complete)?;
             tx.execute("DELETE FROM ah_projection_work WHERE session_id=?1", [attempt.source_id])?;
@@ -146,6 +275,7 @@ fn validate_metadata(metadata: &SessionMetadata) -> Result<()> {
         Some(metadata.origin.as_str()),
         metadata.harness_version.as_deref(),
         metadata.parent_session_id.as_deref(),
+        metadata.forked_from_session_id.as_deref(),
         metadata.model.as_deref(),
     ]
     .into_iter()

@@ -92,7 +92,10 @@ fn attachment_references_do_not_grant_access_outside_the_source_root() {
         json!(0),
     );
     let session = items(&case.call("list", vec![]))[0].clone();
-    let revisions = case.call("revisions", args(&["--source-id", string(&session, "source_id")]));
+    let revisions = case.call(
+        "revisions",
+        args(&["--source-id", string(support_current_source(&session), "source_id")]),
+    );
     let exported = case.root.join("attachment-transcript.raw");
     case.call(
         "raw-export",
@@ -190,8 +193,10 @@ fn missing_inherited_rollout_is_reported_without_discarding_the_child() {
     );
     let sessions = case.call("list", vec![]);
     case.equal("available child remains accessible", json!(items(&sessions).len()), json!(1));
-    let revision =
-        case.call("revisions", args(&["--source-id", string(&items(&sessions)[0], "source_id")]));
+    let revision = case.call(
+        "revisions",
+        args(&["--source-id", string(support_current_source(&items(&sessions)[0]), "source_id")]),
+    );
     let output = case.root.join("child.raw");
     case.call(
         "raw-export",
@@ -203,4 +208,8 @@ fn missing_inherited_rollout_is_reported_without_discarding_the_child() {
         ])),
     );
     case.truth("native byte offsets survive export unchanged", fs::read(output).unwrap() == bytes);
+}
+
+fn support_current_source(item: &serde_json::Value) -> &serde_json::Value {
+    item["sources"].as_array().unwrap().iter().find(|source| source["current"] == true).unwrap()
 }

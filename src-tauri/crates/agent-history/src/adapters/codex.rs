@@ -3,10 +3,16 @@
 //! attachment reads, transcript deduplication, or invoking Codex.
 
 use super::common;
+mod events;
+mod identity;
+mod metadata;
+mod references;
 use super::{
     Adapter, Artifact, ArtifactKind, Diagnostic, Harness, NativeEvent, ParseContext, ParseReport,
     Reference, SessionMetadata, SourceRoot,
 };
+use events::{event_time, native_event};
+use metadata::origin;
 use serde_json::Value;
 use std::collections::HashSet;
 use std::fs;
@@ -19,6 +25,25 @@ pub struct CodexAdapter;
 impl Adapter for CodexAdapter {
     fn harness(&self) -> Harness {
         Harness::Codex
+    }
+
+    fn conversation_key(
+        &self,
+        session: &SessionMetadata,
+        _source_id: &str,
+        _path: &str,
+        _first_digest: &str,
+        first: &Value,
+    ) -> super::identity::ConversationKey {
+        identity::key(session, first)
+    }
+
+    fn physical_source_id(&self, path: &str) -> Option<String> {
+        identity::rollout_id(path).map(str::to_owned)
+    }
+
+    fn source_time(&self, path: &str) -> Option<String> {
+        identity::filename_time(path).map(str::to_owned)
     }
 
     fn discover(
@@ -111,7 +136,9 @@ impl Adapter for CodexAdapter {
             context,
             &mut |record, ordinal| {
                 state.observe(&record, ordinal);
-                emit(native_event(record, ordinal))
+                let mut event = native_event(record, ordinal);
+                event.references = std::mem::take(&mut state.event_references);
+                emit(event)
             },
             &mut line_issues,
         )?;
@@ -135,12 +162,9 @@ impl Adapter for CodexAdapter {
 }
 
 fn is_database_name(name: &str) -> bool {
-    name.strip_prefix("state_")
-        .or_else(|| name.strip_prefix("thread_history_"))
-        .and_then(|suffix| suffix.strip_suffix(".sqlite"))
-        .is_some_and(|version| {
-            !version.is_empty() && version.bytes().all(|byte| byte.is_ascii_digit())
-        })
+    name.strip_prefix("state_").and_then(|suffix| suffix.strip_suffix(".sqlite")).is_some_and(
+        |version| !version.is_empty() && version.bytes().all(|byte| byte.is_ascii_digit()),
+    )
 }
 
 fn is_rollout(path: &Path) -> bool {
@@ -162,6 +186,7 @@ struct ParseState<'a> {
     latest_timestamp: Option<i64>,
     issues: Vec<Diagnostic>,
     references: Vec<Reference>,
+    event_references: Vec<Reference>,
     seen_references: HashSet<(String, String)>,
     complete: bool,
 }
@@ -174,6 +199,7 @@ impl<'a> ParseState<'a> {
             latest_timestamp: None,
             issues: Vec::new(),
             references: Vec::new(),
+            event_references: Vec::new(),
             seen_references: HashSet::new(),
             complete: true,
         }
@@ -231,8 +257,11 @@ impl<'a> ParseState<'a> {
                         }
                     }
                 }
-                if payload["file_ids"].as_array().is_some_and(|values| !values.is_empty()) {
-                    self.issue("codex-remote-attachment-unavailable", Some(ordinal));
+                if let Some(ids) = payload["file_ids"].as_array() {
+                    for id in ids.iter().filter_map(Value::as_str) {
+                        self.reference("remote", id, None, None);
+                        self.remote_notice(ordinal);
+                    }
                 }
                 for key in ["images", "audio"] {
                     if let Some(urls) = payload[key].as_array() {
@@ -260,8 +289,7 @@ impl<'a> ParseState<'a> {
             return;
         };
         let parent_session_id = string(payload, "parent_thread_id")
-            .or_else(|| string(&payload["source"]["subagent"]["thread_spawn"], "parent_thread_id"))
-            .or_else(|| string(payload, "forked_from_id"));
+            .or_else(|| string(&payload["source"]["subagent"]["thread_spawn"], "parent_thread_id"));
         self.session = Some(SessionMetadata {
             native_id,
             project_path: string(payload, "cwd").or_else(|| self.context.project_hint.clone()),
@@ -270,6 +298,11 @@ impl<'a> ParseState<'a> {
             updated_at: None,
             origin: origin(payload).into(),
             harness_version: string(payload, "cli_version"),
+            forked_from_session_id: if parent_session_id.is_none() {
+                string(payload, "forked_from_id")
+            } else {
+                None
+            },
             parent_session_id,
             model: string(payload, "model"),
         });
@@ -288,175 +321,11 @@ impl<'a> ParseState<'a> {
                     base["end_ordinal_exclusive"].as_u64(),
                 );
             }
-            // Preserving an edge is not materializing the inherited transcript.
-            self.issue("codex-lineage-unresolved", Some(ordinal));
-        }
-    }
-
-    fn media(&mut self, value: &Value, ordinal: u64) {
-        let Some(parts) = value.as_array() else { return };
-        for part in parts {
-            match part["type"].as_str() {
-                Some("local_image" | "local_audio") => self.local_reference(part, "path"),
-                Some("input_image" | "image" | "input_audio" | "audio") => {
-                    self.remote_media(part, ordinal);
-                }
-                _ => {}
-            }
-        }
-    }
-
-    fn remote_media(&mut self, part: &Value, ordinal: u64) {
-        if part["file_id"].is_string() {
-            self.issue("codex-remote-attachment-unavailable", Some(ordinal));
-        }
-        for key in ["image_url", "audio_url"] {
-            if let Some(url) = part[key].as_str() {
-                self.remote_url(url, ordinal);
-            }
-        }
-    }
-
-    fn remote_url(&mut self, url: &str, ordinal: u64) {
-        if !url.starts_with("data:") {
-            self.issue("codex-remote-attachment-unavailable", Some(ordinal));
-        }
-    }
-
-    fn local_reference(&mut self, value: &Value, key: &str) {
-        if let Some(path) = value[key].as_str() {
-            self.reference("attachment", path, None, None);
-        }
-    }
-
-    fn reference(
-        &mut self,
-        kind: &str,
-        target: &str,
-        end_byte_offset: Option<u64>,
-        end_ordinal_exclusive: Option<u64>,
-    ) {
-        if target.len() > common::REFERENCE_TARGET_BYTES {
-            self.issue("codex-reference-budget", None);
-            return;
-        }
-        let identity = (kind.to_owned(), target.to_owned());
-        if self.seen_references.contains(&identity) {
-            return;
-        }
-        if common::push_reference(
-            &mut self.references,
-            Reference {
-                kind: kind.into(),
-                target: target.into(),
-                end_byte_offset,
-                end_ordinal_exclusive,
-            },
-            &mut self.issues,
-        ) {
-            self.seen_references.insert(identity);
-        } else {
-            self.complete = false;
+            // Whether the retained chain resolves is decided by the read snapshot.
         }
     }
 }
 
 fn string(value: &Value, key: &str) -> Option<String> {
     value[key].as_str().map(str::to_owned)
-}
-
-fn origin(payload: &Value) -> &'static str {
-    if payload["originator"]
-        .as_str()
-        .is_some_and(|origin| origin.eq_ignore_ascii_case("Codex Desktop"))
-    {
-        "desktop"
-    } else if matches!(payload["source"].as_str(), Some("cli" | "exec")) {
-        "cli"
-    } else {
-        "unknown"
-    }
-}
-
-fn event_time(record: &Value) -> Option<i64> {
-    common::timestamp(&record["timestamp"])
-        .or_else(|| common::timestamp(&record["payload"]["timestamp"]))
-        .or_else(|| common::timestamp(&record["payload"]["completed_at_ms"]))
-}
-
-fn native_event(record: Value, ordinal: u64) -> NativeEvent {
-    let outer = record["type"].as_str().unwrap_or("unknown");
-    let payload = &record["payload"];
-    let inner = payload["type"].as_str();
-    let completed = outer == "event_msg" && inner == Some("item_completed");
-    let content = if completed { &payload["item"] } else { payload };
-    let native_type = content["type"].as_str().unwrap_or(outer);
-    let kind = match (inner, completed) {
-        (Some(inner), true) => format!("{outer}.{inner}.{native_type}"),
-        (Some(inner), false) => format!("{outer}.{inner}"),
-        (None, _) => outer.to_owned(),
-    };
-    let role = match native_type {
-        "message" => string(content, "role"),
-        "UserMessage" | "user_message" => Some("user".into()),
-        "AgentMessage"
-        | "agent_message"
-        | "Reasoning"
-        | "reasoning"
-        | "agent_reasoning"
-        | "agent_reasoning_raw_content"
-        | "function_call"
-        | "custom_tool_call" => Some("assistant".into()),
-        "FunctionCallOutput"
-        | "CommandExecution"
-        | "McpToolCall"
-        | "function_call_output"
-        | "custom_tool_call_output"
-        | "mcp_tool_call_end" => Some("tool".into()),
-        _ => None,
-    };
-    let text = readable_text(native_type, content);
-    NativeEvent {
-        ordinal,
-        native_id: string(content, "id"),
-        parent_id: string(content, "call_id"),
-        kind,
-        role,
-        timestamp: event_time(&record),
-        text,
-        payload: record,
-    }
-}
-
-fn readable_text(kind: &str, value: &Value) -> String {
-    match kind {
-        "message" | "agent_message" | "UserMessage" | "AgentMessage" => {
-            if value["content"].is_null() {
-                common::text(&value["message"])
-            } else {
-                common::text(&value["content"])
-            }
-        }
-        "user_message" => common::text(&value["message"]),
-        "function_call" | "custom_tool_call" => {
-            common::text(&value["arguments"]) + &common::text(&value["input"])
-        }
-        "function_call_output" | "custom_tool_call_output" | "FunctionCallOutput" => {
-            common::text(&value["output"])
-        }
-        "CommandExecution" => common::text(&value["aggregated_output"]),
-        "McpToolCall" => common::text(&value["result"]["content"]),
-        "mcp_tool_call_end" => {
-            if value["result"]["Err"].is_null() {
-                common::text(&value["result"]["Ok"]["content"])
-            } else {
-                common::text(&value["result"]["Err"])
-            }
-        }
-        "agent_reasoning" | "agent_reasoning_raw_content" => common::text(&value["text"]),
-        "reasoning" => common::text(&value["summary"]),
-        "Reasoning" => common::text(&value["summary_text"]),
-        "Plan" => common::text(&value["text"]),
-        _ => String::new(),
-    }
 }

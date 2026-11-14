@@ -3,8 +3,12 @@
 //! Pagination binds a cursor to its filter and publication version; it never
 //! silently mixes generations after a source is rewritten.
 
+mod conversation_sources;
+mod coverage;
 mod cursor;
 mod events;
+mod line;
+pub(crate) mod parents;
 mod revisions;
 mod sessions;
 mod sources;
@@ -54,6 +58,9 @@ pub struct SessionQuery {
     pub harness: Option<Harness>,
     pub project_path: Option<String>,
     pub sort: SessionSort,
+    pub put_away: String,
+    pub trash: String,
+    pub starred: bool,
     pub limit: usize,
     pub after: Option<String>,
 }
@@ -64,6 +71,9 @@ impl Default for SessionQuery {
             harness: None,
             project_path: None,
             sort: SessionSort::Updated,
+            put_away: "exclude".into(),
+            trash: "exclude".into(),
+            starred: false,
             limit: 100,
             after: None,
         }
@@ -75,7 +85,20 @@ impl Default for SessionQuery {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SessionView {
     pub id: String,
+    #[serde(skip)]
     pub source_id: String,
+    pub sources: Vec<ConversationSource>,
+    pub parent_native_id: Option<String>,
+    pub forked_from_native_id: Option<String>,
+    pub forked_from_id: Option<String>,
+    pub parent_id: Option<String>,
+    pub only_in_archive: bool,
+    pub attachments_not_kept: u64,
+    pub starred: bool,
+    pub put_away: bool,
+    pub trashed: bool,
+    pub trashed_at: Option<i64>,
+    pub title_source: String,
     pub native_id: String,
     pub harness: Harness,
     pub project_path: Option<String>,
@@ -93,6 +116,34 @@ pub struct SessionView {
     pub projection_id: i64,
     pub parser_version: String,
     pub complete: bool,
+}
+
+/// A physical source keeps its provenance even when it adds no new conversation records.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ConversationSource {
+    pub source_id: String,
+    pub relation: String,
+    pub current: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub base_source_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub base_end_ordinal: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub of_source_id: Option<String>,
+}
+
+/// Each record retains its physical ordinal when a current line crosses source boundaries.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct EventView {
+    pub source_id: String,
+    #[serde(flatten)]
+    pub event: crate::NativeEvent,
+}
+impl std::ops::Deref for EventView {
+    type Target = crate::NativeEvent;
+    fn deref(&self) -> &Self::Target {
+        &self.event
+    }
 }
 
 /// Event continuations are valid only for the projection that produced them.
@@ -125,7 +176,8 @@ pub(crate) fn operation(
 
 pub(crate) fn generation(session: &vault_store::Session<'_>) -> vault_store::Result<i64> {
     session.query_one(
-        "SELECT coalesce((SELECT CAST(value AS INTEGER) FROM ah_meta WHERE key='generation'),0)",
+        "SELECT coalesce((SELECT CAST(value AS INTEGER) FROM ah_meta WHERE key='generation'),
+            0)",
         (),
         |row| Ok(row.get(0)?),
     )

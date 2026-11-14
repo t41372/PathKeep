@@ -29,8 +29,9 @@ impl Archive {
         let source = source_id.to_owned();
         let mut items = self.store.read(Db::SourceEvidence, move |session| {
             session.query(
-                "SELECT id,source_id,digest,byte_len,captured_at,capture_format FROM ah_revisions \
-                 WHERE source_id=?1 AND state='complete' AND id<?2 ORDER BY id DESC LIMIT ?3",
+                "SELECT id, source_id, digest, byte_len, captured_at, capture_format,
+                    bytes_retained FROM ah_revisions  WHERE source_id=?1 AND state='complete' AND
+                    id<?2 ORDER BY id DESC LIMIT ?3",
                 vault_store::params![source, before, count + 1],
                 |row| {
                     Ok(RevisionInfo {
@@ -40,6 +41,7 @@ impl Archive {
                         byte_len: u64::try_from(row.get::<i64>(3)?).map_err(operation)?,
                         captured_at: row.get(4)?,
                         capture_format: row.get(5)?,
+                        bytes_retained: row.get::<i64>(6)? != 0,
                     })
                 },
             )

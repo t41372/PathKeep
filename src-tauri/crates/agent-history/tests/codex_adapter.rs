@@ -90,15 +90,17 @@ fn referenced_history_is_preserved_without_claiming_a_complete_linear_thread() {
     });
     meta["payload"]["subagent_history_start_ordinal"] = json!(52);
     let (report, events) = parse(&lines(&[meta.clone()]));
-    assert!(!report.complete);
-    assert_eq!(report.session.unwrap().parent_session_id.as_deref(), Some("logical-parent"));
+    assert!(report.complete);
+    let session = report.session.unwrap();
+    assert_eq!(session.parent_session_id, None);
+    assert_eq!(session.forked_from_session_id.as_deref(), Some("logical-parent"));
     assert!(report.references.iter().any(|reference| {
         reference.kind == "lineage"
             && reference.target == "immutable-rollout-parent"
             && reference.end_byte_offset == Some(8192)
             && reference.end_ordinal_exclusive == Some(48)
     }));
-    assert!(report.diagnostics.iter().any(|issue| issue.code == "codex-lineage-unresolved"));
+    assert!(!report.diagnostics.iter().any(|issue| issue.code == "codex-lineage-unresolved"));
     assert_eq!(events[0].payload, meta);
 }
 
@@ -169,9 +171,10 @@ fn remote_only_media_is_a_reported_source_limit_and_inline_bytes_remain_native()
         {"type":"input_image","image_url":"data:image/png;base64,aW1hZ2U="}
     ]}});
     let (report, events) = parse(&lines(&[metadata(), remote.clone()]));
-    assert!(!report.complete);
+    assert!(report.complete);
     assert!(
-        report.diagnostics.iter().any(|issue| issue.code == "codex-remote-attachment-unavailable")
+        report.diagnostics.iter().any(|issue| issue.code == "codex-remote-attachment-unavailable"
+            && issue.detail.as_deref() == Some("remote"))
     );
     assert_eq!(events[1].payload, remote);
     assert!(report.references.iter().all(|reference| !reference.target.starts_with("data:")));
@@ -186,12 +189,13 @@ fn remote_media_in_tool_outputs_and_legacy_audio_is_not_silently_complete() {
         json!({"type":"event_msg","payload":{"type":"user_message","message":"look","images":["https://example.invalid/image.png"]}}),
     ] {
         let (report, events) = parse(&lines(&[metadata(), record.clone()]));
-        assert!(!report.complete);
+        assert!(report.complete);
         assert!(
             report
                 .diagnostics
                 .iter()
-                .any(|issue| issue.code == "codex-remote-attachment-unavailable")
+                .any(|issue| issue.code == "codex-remote-attachment-unavailable"
+                    && issue.detail.as_deref() == Some("remote"))
         );
         assert_eq!(events[1].payload, record);
     }
@@ -310,12 +314,12 @@ fn discovery_captures_compressed_archives_metadata_and_assets_without_credential
         )
         .unwrap();
     assert!(issues.is_empty());
-    assert_eq!(captured.len(), 9);
+    assert_eq!(captured.len(), 8);
     assert_eq!(
         captured.iter().filter(|artifact| artifact.kind == ArtifactKind::Transcript).count(),
         3
     );
-    assert_eq!(captured.iter().filter(|artifact| artifact.kind == ArtifactKind::Sqlite).count(), 2);
+    assert_eq!(captured.iter().filter(|artifact| artifact.kind == ArtifactKind::Sqlite).count(), 1);
     assert_eq!(
         captured.iter().filter(|artifact| artifact.kind == ArtifactKind::Attachment).count(),
         2

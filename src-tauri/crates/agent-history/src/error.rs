@@ -12,6 +12,12 @@ pub enum Error {
     Store(#[from] vault_store::Error),
     #[error(transparent)]
     Envelope(#[from] vault_crypto::EnvelopeError),
+    #[error("this archive requires a password")]
+    PasswordRequired,
+    #[error("this archive is not encrypted")]
+    ArchiveNotEncrypted,
+    #[error("conversation not found")]
+    ConversationNotFound,
     #[error("invalid input: {0}")]
     InvalidInput(String),
     #[error("archive integrity check failed: {0}")]
@@ -40,6 +46,9 @@ impl Error {
     /// Stable codes let callers translate failures without parsing engine text.
     pub fn code(&self) -> &'static str {
         match self {
+            Self::PasswordRequired => "password_required",
+            Self::ArchiveNotEncrypted => "archive_not_encrypted",
+            Self::ConversationNotFound => "conversation_not_found",
             Self::Io(_) => "io_error",
             Self::Json(_) => "invalid_json",
             Self::Store(_) => "storage_error",

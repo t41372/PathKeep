@@ -86,7 +86,11 @@ fn run(arguments: Arguments, locale: Locale) -> Result<Value> {
     let root = arguments.path("--archive")?;
     let password = password(&arguments, &mut std::io::stdin().lock())?;
     if arguments.command == Command::Init {
-        let archive = Archive::create(&root, &password)?;
+        let archive = if arguments.flag("--no-encryption") {
+            Archive::create_unencrypted(&root)?
+        } else {
+            Archive::create(&root, &password)?
+        };
         drop(archive);
         return Ok(json!({"status":"complete"}));
     }
@@ -96,8 +100,40 @@ fn run(arguments: Arguments, locale: Locale) -> Result<Value> {
     drop(password);
     match arguments.command {
         Command::Backup => {
-            encode(archive.backup(&arguments.sources(), &capture::BackupOptions::default())?)
+            let options = capture::BackupOptions {
+                read_git: !arguments.flag("--no-git"),
+                ..Default::default()
+            };
+            encode(archive.backup(&arguments.sources(), &options)?)
         }
+        Command::Mark => {
+            let boolean =
+                |name| -> Result<Option<bool>> { Ok(arguments.text(name)?.map(|s| s == "true")) };
+            encode(archive.mark_conversation(
+                arguments.required("--conversation")?,
+                &agent_history::archive::ConversationMark {
+                    starred: boolean("--star")?,
+                    put_away: boolean("--put-away")?,
+                    trash: boolean("--trash")?,
+                    title: if arguments.flag("--clear-title") {
+                        Some(None)
+                    } else {
+                        arguments.text("--title")?.map(|s| Some(s.into()))
+                    },
+                },
+                arguments.flag("--execute"),
+            )?)
+        }
+        Command::Folders => encode(
+            archive.folders(
+                arguments.text("--path")?,
+                arguments
+                    .text("--after")?
+                    .map(|s| s.parse::<i64>().map_err(|_| Failure::invalid()))
+                    .transpose()?,
+                arguments.limit()?,
+            )?,
+        ),
         Command::Reparse => encode(archive.reparse_source(
             arguments.required("--source-id")?,
             &capture::BackupOptions::default(),
@@ -105,6 +141,9 @@ fn run(arguments: Arguments, locale: Locale) -> Result<Value> {
         Command::List => encode(archive.list_sessions(&query::SessionQuery {
             harness: arguments.harness()?,
             project_path: owned(&arguments, "--project")?,
+            put_away: arguments.text("--put-away")?.unwrap_or("exclude").into(),
+            trash: arguments.text("--trash")?.unwrap_or("exclude").into(),
+            starred: arguments.flag("--starred"),
             sort: match arguments.text("--sort")? {
                 Some("created") => query::SessionSort::Created,
                 _ => query::SessionSort::Updated,
@@ -169,6 +208,9 @@ fn export(archive: &Archive, arguments: &Arguments, root: &Path) -> Result<Value
 
 fn validate_required(arguments: &Arguments) -> Result<()> {
     match arguments.command {
+        Command::Mark => {
+            arguments.required("--conversation")?;
+        }
         Command::Events | Command::Export => {
             arguments.required("--session")?;
         }
@@ -195,7 +237,7 @@ fn owned(arguments: &Arguments, name: &str) -> Result<Option<String>> {
 
 fn password(arguments: &Arguments, input: &mut dyn Read) -> Result<Zeroizing<Vec<u8>>> {
     if !arguments.flag("--password-stdin") {
-        return Err(Failure::invalid());
+        return Ok(Zeroizing::new(Vec::new()));
     }
     const MAX_PASSWORD_BYTES: usize = 64 * 1024;
     let mut bytes = Zeroizing::new(Vec::new());

@@ -6,12 +6,8 @@ use crate::{
     model::{Artifact, SourceRoot},
 };
 use serde::Serialize;
-use sha2::{Digest, Sha256};
 use std::io;
 use vault_store::{Db, OptionalRow, Priority, params};
-
-/// Raw chunks are bounded independently of source file and event size.
-pub const CHUNK_BYTES: usize = 256 * 1024;
 
 /// A complete retained revision. IDs are serialized as strings for JavaScript safety.
 #[derive(Clone, Debug, Serialize)]
@@ -23,6 +19,7 @@ pub struct RevisionInfo {
     pub byte_len: u64,
     pub captured_at: i64,
     pub capture_format: String,
+    pub bytes_retained: bool,
 }
 
 fn serialize_id<S: serde::Serializer>(
@@ -50,6 +47,9 @@ pub struct SourceInfo {
     pub root: String,
     pub relative_path: String,
     pub kind: String,
+    pub retention: String,
+    pub last_seen_at: Option<i64>,
+    pub missing_since: Option<i64>,
     #[serde(serialize_with = "serialize_optional_id")]
     pub latest_revision_id: Option<i64>,
     pub observed_at: i64,
@@ -84,41 +84,31 @@ impl Archive {
     ) -> Result<i64> {
         if source_id.is_empty()
             || source_id.len() > 256
-            || !["native", "pathkeep-sqlite-evidence-v1"].contains(&capture_format)
+            || !["native", "pathkeep-sqlite-evidence-v2"].contains(&capture_format)
         {
             return Err(Error::InvalidInput("invalid source identity or capture format".into()));
         }
         self.register_source(source_id, source, artifact)?;
         let id = source_id.to_owned();
         let format = capture_format.to_owned();
+        let codec = if capture_format == "native"
+            && (artifact.relative_path.ends_with(".zst")
+                || artifact.relative_path.ends_with(".zstd"))
+        {
+            "native"
+        } else {
+            "zstd"
+        };
         let now = chrono::Utc::now().timestamp_millis();
         Ok(self.store.write(Db::SourceEvidence, Priority::Batch, move |tx| {
-            tx.insert("INSERT INTO ah_revisions(source_id,captured_at,state,capture_format) VALUES(?1,?2,'staged',?3)",
-                params![id,now,format])?.ok_or_else(|| integrity("revision insertion did not produce an identity"))
+            tx.insert(
+                "
+                INSERT INTO ah_revisions(source_id, captured_at, state, capture_format, codec)
+                VALUES(?1, ?2, 'staged' , ?3, ?4)",
+                params![id, now, format, codec],
+            )?
+            .ok_or_else(|| integrity("revision insertion did not produce an identity"))
         })?)
-    }
-
-    /// Appends one bounded chunk. Published/sealing revisions and duplicate ordinals are immutable.
-    pub fn append_chunk(&self, revision: i64, ordinal: u64, bytes: Vec<u8>) -> Result<()> {
-        if bytes.is_empty() || bytes.len() > CHUNK_BYTES || ordinal > i64::MAX as u64 {
-            return Err(Error::InvalidInput("chunk size or ordinal is outside its bounds".into()));
-        }
-        let hash = hex::encode(Sha256::digest(&bytes));
-        let length = bytes.len() as i64;
-        self.store.write(Db::SourceEvidence, Priority::Batch, move |tx| {
-            let state = tx.query_one("SELECT state,next_ordinal FROM ah_revisions WHERE id=?1", [revision],
-                |row| Ok((row.get::<String>(0)?,row.get::<i64>(1)?))).optional()?;
-            if state != Some(("staged".into(),ordinal as i64)) {
-                return Err(integrity("chunk does not continue an unpublished revision"));
-            }
-            tx.execute("INSERT OR IGNORE INTO ah_chunks(hash,data) VALUES(?1,?2)", params![hash.clone(),bytes])?;
-            tx.execute("INSERT INTO ah_revision_chunks(revision_id,ordinal,chunk_hash,byte_len) VALUES(?1,?2,?3,?4)",
-                params![revision,ordinal as i64,hash,length])?;
-            tx.execute("UPDATE ah_revisions SET next_ordinal=next_ordinal+1,staged_byte_len=staged_byte_len+?1 WHERE id=?2",
-                params![length,revision])?;
-            Ok(())
-        })?;
-        Ok(())
     }
 
     /// Freezes and verifies the complete manifest before publishing it. A caller-supplied
@@ -138,56 +128,139 @@ impl Archive {
         let digest = digest.to_ascii_lowercase();
         let expected = digest.clone();
         let info = self.store.write(Db::SourceEvidence, Priority::Batch, move |tx| {
-            let values = tx.query_one("SELECT source_id,staged_byte_len,captured_at,capture_format,state,next_ordinal FROM ah_revisions WHERE id=?1", [revision],
-                |row| Ok((row.get::<String>(0)?,row.get::<i64>(1)?,row.get::<i64>(2)?,row.get::<String>(3)?,row.get::<String>(4)?,row.get::<i64>(5)?)))?;
+            let values = tx.query_one(
+                "
+                SELECT source_id, staged_byte_len, captured_at, capture_format, state,
+                next_ordinal FROM ah_revisions WHERE id=?1",
+                [revision],
+                |row| {
+                    Ok((
+                        row.get::<String>(0)?,
+                        row.get::<i64>(1)?,
+                        row.get::<i64>(2)?,
+                        row.get::<String>(3)?,
+                        row.get::<String>(4)?,
+                        row.get::<i64>(5)?,
+                    ))
+                },
+            )?;
             if values.4 != "staged" || values.1 != byte_len as i64 {
                 return Err(integrity("revision size or state does not match its staged bytes"));
             }
             tx.execute("UPDATE ah_revisions SET state='sealing' WHERE id=?1", [revision])?;
-            Ok((RevisionInfo {id:revision,source_id:values.0,digest:expected,byte_len,captured_at:values.2,capture_format:values.3},values.5))
+            Ok((
+                RevisionInfo {
+                    id: revision,
+                    source_id: values.0,
+                    digest: expected,
+                    byte_len,
+                    captured_at: values.2,
+                    capture_format: values.3,
+                    bytes_retained: true,
+                },
+                values.5,
+            ))
         })?;
-        let mut reader = RawReader::new(self.store.clone(), info.0.clone(), info.1 as u64);
+        let mut reader = RawReader::new(self.store.clone(), info.0.clone());
         io::copy(&mut reader, &mut io::sink())?;
         let source_id = info.0.source_id;
         let format = info.0.capture_format;
-        let _publication = self
-            .publication_gate
-            .lock()
-            .map_err(|_| Error::Integrity("archive publication lock was poisoned".into()))?;
         let source = self.source(&source_id)?;
         let previous = self.latest_revision(&source_id)?;
         let unchanged = previous
             .as_ref()
             .is_some_and(|previous| previous.digest == digest && previous.capture_format == format);
+        let prefix = if source.retention == "appended" {
+            match &previous {
+                Some(old) if old.byte_len < byte_len => {
+                    super::retention::is_prefix(self, old, revision, byte_len)?
+                }
+                _ => false,
+            }
+        } else {
+            false
+        };
+        let _publication = self
+            .publication_gate
+            .lock()
+            .map_err(|_| Error::Integrity("archive publication lock was poisoned".into()))?;
+        if self.latest_revision(&source_id)?.as_ref().map(|r| r.id)
+            != previous.as_ref().map(|r| r.id)
+        {
+            return Err(Error::SourceChanged(
+                "source head changed while its prefix was being verified".into(),
+            ));
+        }
         if source.kind == "transcript" && !unchanged {
             // Hot coverage commits first. A crash before the cold head changes is
             // conservative; the reverse order could falsely claim complete search
             // for bytes no parser has seen. Projection publication shares this lock.
             self.set_coverage(&source_id, false)?;
         }
+        let retention = source.retention;
         let now = chrono::Utc::now().timestamp_millis();
-        Ok(self.store.write(Db::SourceEvidence, Priority::Batch, move |tx| {
-            let state: String = tx.query_one("SELECT state FROM ah_revisions WHERE id=?1",[revision],|row| Ok(row.get(0)?))?;
-            if state != "sealing" { return Err(integrity("revision changed while its manifest was being verified")); }
-            let previous: Option<i64> = tx.query_one("SELECT latest_revision_id FROM ah_sources WHERE id=?1",[source_id.as_str()],|row| Ok(row.get(0)?))?;
-            let existing: Option<i64> = tx.query_one("SELECT id FROM ah_revisions WHERE source_id=?1 AND digest=?2 AND capture_format=?3 AND state='complete' ORDER BY id LIMIT 1",
-                params![source_id.clone(),digest.clone(),format],|row| Ok(row.get(0)?)).optional()?;
+        let outcome = self.store.write(Db::SourceEvidence, Priority::Batch, move |tx| {
+            let state: String =
+                tx.query_one("SELECT state FROM ah_revisions WHERE id=?1", [revision], |row| {
+                    Ok(row.get(0)?)
+                })?;
+            if state != "sealing" {
+                return Err(integrity("revision changed while its manifest was being verified"));
+            }
+            let previous: Option<i64> = tx.query_one(
+                "
+                SELECT latest_revision_id FROM ah_sources WHERE id=?1",
+                [source_id.as_str()],
+                |row| Ok(row.get(0)?),
+            )?;
+            let existing: Option<i64> = tx
+                .query_one(
+                    "
+                SELECT id FROM ah_revisions WHERE source_id=?1 AND digest=?2 AND capture_format=?3
+                AND state='complete' AND bytes_retained=1 ORDER BY id LIMIT 1",
+                    params![source_id.clone(), digest.clone(), format],
+                    |row| Ok(row.get(0)?),
+                )
+                .optional()?;
             let selected = existing.unwrap_or(revision);
             if existing.is_some() {
-                tx.execute("UPDATE ah_revisions SET state='duplicate' WHERE id=?1",[revision])?;
+                tx.execute("UPDATE ah_revisions SET state='duplicate' WHERE id=?1", [revision])?;
             } else {
-                tx.execute("UPDATE ah_revisions SET state='complete',digest=?1,byte_len=?2 WHERE id=?3",
-                    params![digest,byte_len as i64,revision])?;
+                tx.execute(
+                    "
+                    UPDATE ah_revisions SET state='complete', digest=?1, byte_len=?2 WHERE id=?3",
+                    params![digest, byte_len as i64, revision],
+                )?;
             }
-            tx.execute("UPDATE ah_sources SET latest_revision_id=?1,observed_at=?2 WHERE id=?3",params![selected,now,source_id])?;
-            Ok(RevisionOutcome {revision_id:selected,unchanged:previous == Some(selected)})
-        })?)
+            tx.execute(
+                "UPDATE ah_sources SET latest_revision_id=?1, observed_at=?2 WHERE id=?3",
+                params![selected, now, source_id.clone()],
+            )?;
+            if prefix
+                && let Some(previous) = previous
+                && previous != selected
+            {
+                super::retention::share_prefix(tx, previous, selected)?;
+            }
+            if retention == "state" {
+                super::retention::retain_latest_state(tx, &source_id, selected)?;
+            }
+            Ok(RevisionOutcome { revision_id: selected, unchanged: previous == Some(selected) })
+        })?;
+        drop(_publication);
+        self.reclaim_slices()?;
+        Ok(outcome)
     }
 
     /// Discards only an unfinished attempt; successful evidence cannot be erased by this call.
     pub fn abandon_revision(&self, revision: i64) -> Result<()> {
         self.store.write(Db::SourceEvidence, Priority::Batch, move |tx| {
-            tx.execute("UPDATE ah_revisions SET state='abandoned' WHERE id=?1 AND state IN ('staged','sealing')",[revision])?;
+            tx.execute(
+                "
+                UPDATE ah_revisions SET state='abandoned' WHERE id=?1 AND state IN ('staged',
+                'sealing' )",
+                [revision],
+            )?;
             Ok(())
         })?;
         Ok(())
@@ -195,23 +268,43 @@ impl Archive {
 
     /// Retrieves a complete revision without exposing unfinished staging state.
     pub fn revision(&self, revision: i64) -> Result<RevisionInfo> {
-        self.store.read(Db::SourceEvidence, move |tx| {
-            tx.query_one("SELECT id,source_id,digest,byte_len,captured_at,capture_format FROM ah_revisions WHERE id=?1 AND state='complete'",[revision],map_revision).optional()
-        })?.ok_or_else(|| Error::NotFound("complete revision".into()))
+        self.store
+            .read(Db::SourceEvidence, move |tx| {
+                tx.query_one(
+                    "SELECT id, source_id, digest, byte_len, captured_at, capture_format,
+                bytes_retained FROM ah_revisions WHERE id=?1 AND state='complete'",
+                    [revision],
+                    map_revision,
+                )
+                .optional()
+            })?
+            .ok_or_else(|| Error::NotFound("complete revision".into()))
     }
 
     /// Returns the last observed content, including a deliberate return to an older revision.
     pub fn latest_revision(&self, source_id: &str) -> Result<Option<RevisionInfo>> {
         let source_id = source_id.to_owned();
         Ok(self.store.read(Db::SourceEvidence, move |tx| {
-            tx.query_one("SELECT r.id,r.source_id,r.digest,r.byte_len,r.captured_at,r.capture_format FROM ah_sources s JOIN ah_revisions r ON r.id=s.latest_revision_id WHERE s.id=?1 AND r.state='complete'",[source_id],map_revision).optional()
+            tx.query_one(
+                "
+                SELECT r.id, r.source_id, r.digest, r.byte_len, r.captured_at, r.capture_format,
+                r.bytes_retained FROM ah_sources s JOIN ah_revisions r ON
+                r.id=s.latest_revision_id WHERE s.id=?1 AND r.state='complete'",
+                [source_id],
+                map_revision,
+            )
+            .optional()
         })?)
     }
 
     pub(super) fn recover_unfinished_revisions(&self) -> Result<()> {
         loop {
             let changed = self.store.write(Db::SourceEvidence, Priority::Batch, |tx| {
-                tx.execute("UPDATE ah_revisions SET state='abandoned' WHERE id IN (SELECT id FROM ah_revisions WHERE state IN ('staged','sealing') LIMIT 128)",())
+                tx.execute(
+                    "UPDATE ah_revisions SET state='abandoned' WHERE id IN (SELECT id FROM
+                    ah_revisions WHERE state IN ('staged', 'sealing' ) LIMIT 128)",
+                    (),
+                )
             })?;
             if changed == 0 {
                 return Ok(());
@@ -232,6 +325,7 @@ fn map_revision(row: &vault_store::Row) -> vault_store::Result<RevisionInfo> {
         byte_len: length as u64,
         captured_at: row.get(4)?,
         capture_format: row.get(5)?,
+        bytes_retained: row.get::<i64>(6)? != 0,
     })
 }
 

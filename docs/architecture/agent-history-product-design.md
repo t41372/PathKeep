@@ -85,7 +85,14 @@ A **conversation** is new and is what everything the user sees hangs on.
   generation can be read. The older generation does not stand in for it.
 - **A conversation has one or more sources, and the adapter says how they
   relate.** A source is either a transcript that stands on its own, or one that
-  continues another source from a stated boundary. The reader shows the current
+  continues another source from a stated boundary. For Codex the boundary is two
+  numbers that count differently: the byte offset is a position in the named
+  rollout's own file, the ordinal counts along that rollout's whole history
+  (all 70 local rollouts that name a base agree; the 27 whose base itself
+  inherits show the difference). A continuation is complete when every base
+  down its chain is in the archive with a valid boundary, which is decided when
+  read. An attachment that was not kept is counted on the conversation and does
+  not make it incomplete (user, 2026-11-13). The reader shows the current
   line: the source the tool itself would open, with the part it inherits read
   from the source it continues. Records in the other sources that are not on
   that line are the conversation's earlier branches. When the adapter finds no
@@ -405,7 +412,10 @@ harness, or of the agent kind alone, is a first-class request.
 ## Clauses this amends
 
 `agent-history-core.md` and `docs/features/agent-history.md` are rewritten when
-each part lands. Until then, these sentences of theirs are the ones that change:
+each part lands. The first part has (the evidence format: sections 1 to 4 and
+the slices of section 6), and the core document now says so; the row about the
+archive's own root and key waits for section 5. These are the sentences that
+change:
 
 | Today's text                                                                             | Becomes                                                                                                                                            |
 | ---------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |

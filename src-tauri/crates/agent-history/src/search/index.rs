@@ -19,7 +19,7 @@ pub(super) struct Commit {
 
 pub(super) struct Opened {
     pub index: Index,
-    pub directory: EncryptedDirectory,
+    pub directory: Option<EncryptedDirectory>,
     pub fields: Fields,
     pub watermark: i64,
 }
@@ -28,7 +28,9 @@ pub(super) fn path(archive: &Archive) -> PathBuf {
     archive.root.join("derived/history-search")
 }
 
-fn directory(archive: &Archive) -> Result<EncryptedDirectory> {
+fn directory(
+    archive: &Archive,
+) -> Result<(Box<dyn tantivy::Directory>, Option<EncryptedDirectory>)> {
     validate_parent(archive)?;
     let path = path(archive);
     let metadata = std::fs::symlink_metadata(&path).map_err(|error| {
@@ -41,15 +43,25 @@ fn directory(archive: &Archive) -> Result<EncryptedDirectory> {
     if metadata.file_type().is_symlink() || !metadata.is_dir() {
         return Err(Error::InvalidInput("search directory must be an owned directory".into()));
     }
-    Ok(EncryptedDirectory::open(&path, &archive.key, CACHE_BYTES)?)
+    if archive.encrypted {
+        let directory = EncryptedDirectory::open(&path, &archive.key, CACHE_BYTES)?;
+        Ok((Box::new(directory.clone()), Some(directory)))
+    } else {
+        Ok((
+            Box::new(
+                tantivy::directory::MmapDirectory::open(&path).map_err(std::io::Error::other)?,
+            ),
+            None,
+        ))
+    }
 }
 
 pub(super) fn open(archive: &Archive) -> Result<Opened> {
-    let directory = directory(archive)?;
-    if !checked(Index::exists(&directory).map_err(Into::into), &directory)? {
+    let (storage, directory) = directory(archive)?;
+    if !checked(Index::exists(&*storage).map_err(Into::into), &directory)? {
         return Err(Error::IndexBehind);
     }
-    let index = checked(Index::open(directory.clone()), &directory)?;
+    let index = checked(Index::open(storage), &directory)?;
     let (schema, fields) = schema::schema();
     if index.schema() != schema {
         return Err(Error::IndexBehind);
@@ -77,10 +89,9 @@ pub(super) fn recreate(archive: &Archive) -> Result<Opened> {
         std::fs::remove_dir_all(&path)?;
     }
     std::fs::create_dir_all(&path)?;
-    let directory = directory(archive)?;
+    let (storage, directory) = directory(archive)?;
     let (schema, fields) = schema::schema();
-    let index =
-        checked(Index::create(directory.clone(), schema, IndexSettings::default()), &directory)?;
+    let index = checked(Index::create(storage, schema, IndexSettings::default()), &directory)?;
     schema::register(&index);
     Ok(Opened { index, directory, fields, watermark: 0 })
 }
@@ -96,10 +107,13 @@ fn validate_parent(archive: &Archive) -> Result<()> {
     }
 }
 
-pub(super) fn checked<T>(result: tantivy::Result<T>, directory: &EncryptedDirectory) -> Result<T> {
+pub(super) fn checked<T>(
+    result: tantivy::Result<T>,
+    directory: &Option<EncryptedDirectory>,
+) -> Result<T> {
     // Tantivy can swallow a positions-file read error. Its apparent success must
     // not override the authenticated directory's recorded failure.
-    if directory.integrity_error().is_some() {
+    if directory.as_ref().is_some_and(|directory| directory.integrity_error().is_some()) {
         return Err(Error::IndexBehind);
     }
     result.map_err(|error| match &error {

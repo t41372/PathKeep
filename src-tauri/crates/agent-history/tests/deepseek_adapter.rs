@@ -199,7 +199,8 @@ fn preserves_fork_cut_and_latest_title_without_mistaking_parent_for_launch_origi
     let (report, events) = parse(&rows);
     assert!(report.complete);
     let session = report.session.unwrap();
-    assert_eq!(session.parent_session_id.as_deref(), Some("parent-session"));
+    assert_eq!(session.parent_session_id, None);
+    assert_eq!(session.forked_from_session_id.as_deref(), Some("parent-session"));
     assert_eq!(session.origin, "unknown");
     assert_eq!(session.title.as_deref(), Some("A retained fork"));
     assert_eq!(events[10].payload["data"]["inherited"], true);

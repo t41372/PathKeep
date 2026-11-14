@@ -5,7 +5,7 @@ use crate::{Archive, Artifact, ArtifactKind, Diagnostic, Error, Result, SourceRo
 use sha2::{Digest, Sha256};
 use std::io::{self, Write};
 
-const CHUNK_BYTES: usize = 256 * 1024;
+use crate::archive::SLICE_BYTES as CHUNK_BYTES;
 const SOURCE_ATTEMPTS: usize = 3;
 
 /// Source failure preserves earlier versions; destination failure aborts the run.

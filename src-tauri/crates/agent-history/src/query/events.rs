@@ -1,19 +1,16 @@
-//! Responsibilities: bounded event pages from one published interpretation.
-//! Not responsible for: flattening branches, following native lineage or reparsing.
+//! Responsibilities: page one native line without depending on unrelated publications.
+//! Not responsible for: changing evidence, source discovery or holding publication locks.
+use super::{EventQuery, EventView, Page, cursor, line, operation, page_limit};
+use crate::{Archive, Error, NativeEvent, Result};
+use vault_store::{Db, Row, Session, params};
 
-use super::{EventQuery, Page, cursor, operation, page_limit};
-use crate::{Error, Result, archive::Archive, model::NativeEvent};
-use vault_store::{Db, Row};
-
-// A single native record may exceed this budget; returning it alone makes forward
-// progress without retaining a page full of large tool outputs in memory.
 const PAGE_BYTES: usize = 4 * 1024 * 1024;
 
 impl Archive {
-    /// Walks physical event order without converting a branch graph into an
-    /// invented linear conversation. Native parent IDs and payloads remain intact.
-    pub fn events(&self, query: &EventQuery) -> Result<Page<NativeEvent>> {
-        let limit = page_limit(query.limit)?;
+    /// Line resolution and rows share one read snapshot. First pages need no
+    /// retry or global staleness check; cursors bind only their own publications.
+    pub fn events(&self, query: &EventQuery) -> Result<Page<EventView>> {
+        let limit = page_limit(query.limit)? as usize;
         let after =
             query.after.as_deref().map(cursor::decode::<cursor::EventCursor>).transpose()?;
         if let Some(after) = &after {
@@ -22,62 +19,88 @@ impl Archive {
                 return Err(cursor::invalid());
             }
         }
-        let session_id = query.session_id.clone();
-        let (projection_id, items, has_more) = self.store.read(Db::Archive, move |session| {
-            let projection = session
-                .query("SELECT projection_id FROM ah_sessions WHERE id=?1", [session_id.clone()], |row| {
-                    Ok(row.get::<i64>(0)?)
-                })?
-                .pop();
-            let Some(projection) = projection else {
-                return Ok(Err(Error::NotFound(session_id)));
-            };
-            if after.as_ref().is_some_and(|cursor| cursor.projection_id != projection) {
-                return Ok(Err(cursor::stale()));
-            }
-            let after_ordinal = after.as_ref().map_or(-1, |cursor| cursor.ordinal as i64);
-            let mut statement = session.prepare(
-                "SELECT ordinal,native_id,parent_id,kind,role,timestamp,text,payload FROM ah_events \
-                 WHERE session_id=?1 AND projection_id=?2 AND ordinal>?3 ORDER BY ordinal LIMIT ?4",
-            )?;
-            let mut rows = statement.query(vault_store::params![session_id, projection, after_ordinal, limit + 1])?;
-            let mut items = Vec::new();
-            let mut bytes = 0usize;
-            let mut has_more = false;
-            while let Some(row) = rows.next()? {
-                if items.len() == limit as usize {
-                    has_more = true;
-                    break;
-                }
-                let payload = row.get::<String>(7)?;
-                let text = row.get::<String>(6)?;
-                let size = payload.len().saturating_add(text.len());
-                if !items.is_empty() && bytes.saturating_add(size) > PAGE_BYTES {
-                    has_more = true;
-                    break;
-                }
-                bytes = bytes.saturating_add(size);
-                items.push(event(&row, text, payload)?);
-            }
-            Ok(Ok((projection, items, has_more)))
-        })??;
-        let next_cursor = if has_more {
-            let last = items.last().expect("an event page always admits its first record");
-            Some(cursor::encode(&cursor::EventCursor {
-                version: cursor::version(),
-                session_id: query.session_id.clone(),
-                projection_id,
-                ordinal: last.ordinal,
-            })?)
-        } else {
-            None
-        };
-        Ok(Page { items, next_cursor })
+        let id = query.session_id.clone();
+        self.store.read(Db::Archive, move |tx| Ok(page(tx, &id, limit, after)))?
     }
+}
+
+fn page(
+    tx: &Session<'_>,
+    id: &str,
+    limit: usize,
+    after: Option<cursor::EventCursor>,
+) -> Result<Page<EventView>> {
+    let Some(segments) = line::snapshot(tx, id)? else {
+        return Err(if after.is_some() { Error::StaleCursor } else { Error::NotFound(id.into()) });
+    };
+    let stamp = cursor::scope(&segments)?;
+    if let Some(after) = &after {
+        if after.line != stamp {
+            return Err(cursor::stale());
+        }
+        if after.segment >= segments.len() {
+            return Err(cursor::invalid());
+        }
+    }
+    let mut items = Vec::new();
+    let mut bytes = 0;
+    let mut more = false;
+    let mut last_segment = 0;
+    for (index, segment) in
+        segments.iter().enumerate().skip(after.as_ref().map_or(0, |cursor| cursor.segment))
+    {
+        let ordinal = after
+            .as_ref()
+            .filter(|cursor| cursor.segment == index)
+            .map_or(-1, |cursor| cursor.ordinal as i64);
+        let mut statement = tx.prepare(
+            "SELECT ordinal, native_id, parent_id, kind, role, timestamp, text, payload FROM
+                ah_events WHERE session_id=?1 AND projection_id=?2 AND ordinal>?3 AND ordinal<?4
+                ORDER BY ordinal LIMIT ?5",
+        )?;
+        let mut rows = statement.query(params![
+            segment.source.clone(),
+            segment.projection,
+            ordinal,
+            segment.end.map_or(i64::MAX, |value| value as i64),
+            (limit + 1 - items.len()) as i64,
+        ])?;
+        while let Some(row) = rows.next()? {
+            let text = row.get::<String>(6).map_err(vault_store::Error::from)?;
+            let payload = row.get::<String>(7).map_err(vault_store::Error::from)?;
+            let cost = text.len().saturating_add(payload.len());
+            if items.len() == limit || (!items.is_empty() && bytes + cost > PAGE_BYTES) {
+                more = true;
+                break;
+            }
+            bytes += cost;
+            items.push(EventView {
+                source_id: segment.source.clone(),
+                event: event(&row, text, payload)?,
+            });
+            last_segment = index;
+        }
+        if more {
+            break;
+        }
+    }
+    let next_cursor = if more {
+        Some(cursor::encode(&cursor::EventCursor {
+            version: cursor::version(),
+            session_id: id.into(),
+            line: stamp,
+            ordinal: items.last().unwrap().ordinal,
+            segment: last_segment,
+        })?)
+    } else {
+        None
+    };
+    Ok(Page { items, next_cursor })
 }
 
 fn event(row: &Row, text: String, payload: String) -> vault_store::Result<NativeEvent> {
     Ok(NativeEvent {
+        references: Vec::new(),
         ordinal: u64::try_from(row.get::<i64>(0)?).map_err(operation)?,
         native_id: row.get(1)?,
         parent_id: row.get(2)?,

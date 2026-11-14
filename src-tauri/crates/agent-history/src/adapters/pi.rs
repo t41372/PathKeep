@@ -12,6 +12,7 @@ use std::path::Path;
 use serde_json::Value;
 
 use super::{Adapter, common};
+mod references;
 use crate::Result;
 use crate::model::{
     Artifact, ArtifactKind, Diagnostic, Harness, NativeEvent, ParseContext, ParseReport, Reference,
@@ -26,6 +27,28 @@ pub struct PiAdapter;
 impl Adapter for PiAdapter {
     fn harness(&self) -> Harness {
         Harness::Pi
+    }
+
+    fn lineage_is_path(&self) -> bool {
+        // SessionManager records parentSession as a path; forks already copy their own history.
+        true
+    }
+
+    fn conversation_key(
+        &self,
+        session: &SessionMetadata,
+        _source_id: &str,
+        _path: &str,
+        first_digest: &str,
+        first: &Value,
+    ) -> super::identity::ConversationKey {
+        // SessionManager writes the header once; appends and root copies keep it.
+        let native = if session.native_id.is_empty() && first["type"] == "session" {
+            first["id"].as_str().unwrap_or_default().to_owned()
+        } else {
+            session.native_id.clone()
+        };
+        super::identity::ConversationKey::new(native, first_digest.into())
     }
 
     fn discover(
@@ -92,7 +115,8 @@ impl Adapter for PiAdapter {
             input,
             context,
             &mut |value, ordinal| {
-                let event = state.event(value, ordinal);
+                let mut event = state.event(value, ordinal);
+                event.references = std::mem::take(&mut state.event_references);
                 emit(event)
             },
             &mut read_issues,
@@ -122,6 +146,7 @@ struct ParseState<'a> {
     previous_legacy_id: Option<String>,
     diagnostics: Vec<Diagnostic>,
     references: Vec<Reference>,
+    event_references: Vec<Reference>,
     reference_keys: HashSet<(String, String)>,
     reference_bytes: usize,
     reference_limit_reported: bool,
@@ -138,6 +163,7 @@ impl<'a> ParseState<'a> {
             previous_legacy_id: None,
             diagnostics: Vec::new(),
             references: Vec::new(),
+            event_references: Vec::new(),
             reference_keys: HashSet::new(),
             reference_bytes: 0,
             reference_limit_reported: false,
@@ -155,42 +181,6 @@ impl<'a> ParseState<'a> {
                 detail: None,
             },
         );
-    }
-
-    fn reference(&mut self, kind: &str, target: Option<&str>, ordinal: u64) {
-        let Some(target) = target.filter(|target| !target.is_empty()) else {
-            return;
-        };
-        if target.len() > common::REFERENCE_TARGET_BYTES {
-            self.reference_limit(ordinal);
-            return;
-        }
-        let key = (kind.to_owned(), target.to_owned());
-        if self.reference_keys.contains(&key) {
-            return;
-        }
-        if self.reference_bytes.saturating_add(target.len()) > common::REFERENCE_TOTAL_BYTES
-            || self.references.len() >= common::REFERENCE_LIMIT
-        {
-            self.reference_limit(ordinal);
-            return;
-        }
-        self.reference_keys.insert(key);
-        self.reference_bytes += target.len();
-        self.references.push(Reference {
-            kind: kind.into(),
-            target: target.into(),
-            end_byte_offset: None,
-            end_ordinal_exclusive: None,
-        });
-    }
-
-    fn reference_limit(&mut self, ordinal: u64) {
-        if !self.reference_limit_reported {
-            self.issue("pi-reference-limit", Some(ordinal));
-            self.reference_limit_reported = true;
-        }
-        self.complete = false;
     }
 
     fn header(&mut self, value: &Value, ordinal: u64) {
@@ -226,6 +216,7 @@ impl<'a> ParseState<'a> {
             harness_version: None,
             // Pi's parentSession is a path, not a native session ID.
             parent_session_id: None,
+            forked_from_session_id: None,
             model: None,
         });
         self.reference("lineage", string(value, "parentSession"), ordinal);
@@ -307,7 +298,17 @@ impl<'a> ParseState<'a> {
                 }
             }
         }
-        NativeEvent { ordinal, native_id, parent_id, kind, role, timestamp, text, payload }
+        NativeEvent {
+            references: Vec::new(),
+            ordinal,
+            native_id,
+            parent_id,
+            kind,
+            role,
+            timestamp,
+            text,
+            payload,
+        }
     }
 }
 

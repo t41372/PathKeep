@@ -12,10 +12,25 @@ impl Archive {
     /// and a search tombstone is committed with the visibility change.
     /// Returns whether a published view existed; retiring only staging work is false.
     pub fn retire_projection(&self, source_id: &str) -> Result<bool> {
+        let snapshot = self.projection_generation()?;
+        let source = source_id.to_owned();
+        let conversation = self.store.read(Db::Archive, move |tx| {
+            tx.query_one("SELECT conversation_id FROM ah_sessions WHERE id=?1", [source], |row| {
+                Ok(row.get::<String>(0)?)
+            })
+            .optional()
+        })?;
+        let selection = match &conversation {
+            Some(id) => super::super::selection::remaining(self, id, source_id)?,
+            None => None,
+        };
         let _publication = self
             .publication_gate
             .lock()
             .map_err(|_| Error::Integrity("publication gate was poisoned".into()))?;
+        if self.projection_generation()? != snapshot {
+            return Err(Error::SourceChanged("views changed during retirement".into()));
+        }
         let source_id = source_id.to_owned();
         self.store
             .write(Db::Archive, Priority::Batch, move |tx| {
@@ -30,7 +45,22 @@ impl Archive {
                     "DELETE FROM ah_projection_work WHERE session_id=?1",
                     [source_id.as_str()],
                 )?;
+                let counter = tx
+                    .query_one(
+                        "SELECT attachment_generation FROM ah_sessions WHERE id=?1",
+                        [source_id.as_str()],
+                        |row| Ok(row.get::<i64>(0)?),
+                    )
+                    .optional()?
+                    .unwrap_or(0);
+                tx.execute(
+                    "UPDATE ah_attachment_generations SET state='retired' WHERE id=?1",
+                    [counter],
+                )?;
                 tx.execute("DELETE FROM ah_sessions WHERE id=?1", [source_id.as_str()])?;
+                if let (Some(selection), Some(id)) = (selection, conversation) {
+                    selection.publish(tx, &id, None)?;
+                }
                 if published.is_some() {
                     publish_outbox(tx, &source_id, 0, 0)?;
                 }
@@ -52,7 +82,7 @@ impl Archive {
             .write(Db::Archive, Priority::Batch, move |tx| {
                 let pair = tx
                     .query_one(
-                        "SELECT session_id,projection_id FROM ah_projection_retired LIMIT 1",
+                        "SELECT session_id, projection_id FROM ah_projection_retired LIMIT 1",
                         (),
                         |row| Ok((row.get::<String>(0)?, row.get::<i64>(1)?)),
                     )
@@ -65,24 +95,35 @@ impl Archive {
                     .is_some_and(|attempt| attempt.id == projection_id);
                 if is_published || is_staging {
                     return tx.execute(
-                        "DELETE FROM ah_projection_retired WHERE session_id=?1 AND projection_id=?2",
+                        "DELETE FROM ah_projection_retired WHERE session_id=?1 AND
+                            projection_id=?2",
                         params![source_id, projection_id],
                     );
                 }
                 let removed = tx.execute(
-                    "DELETE FROM ah_events WHERE id IN (SELECT id FROM ah_events
-                     WHERE session_id=?1 AND projection_id=?2 LIMIT ?3)",
+                    "DELETE FROM ah_events WHERE id IN (SELECT id FROM ah_events WHERE
+                        session_id=?1 AND projection_id=?2 LIMIT ?3)",
                     params![source_id.clone(), projection_id, limit as i64],
                 )?;
-                let marker = if removed < limit as u64 {
+                let references = tx.execute(
+                    "DELETE FROM ah_event_references WHERE rowid IN (
+                       SELECT rowid FROM ah_event_references WHERE projection_id=?1 LIMIT ?2)",
+                    params![projection_id, limit as i64],
+                )?;
+                let marker = if removed < limit as u64 && references < limit as u64 {
                     tx.execute(
-                        "DELETE FROM ah_projection_retired WHERE session_id=?1 AND projection_id=?2",
+                        "DELETE FROM ah_projection_gaps WHERE projection_id=?1",
+                        [projection_id],
+                    )?;
+                    tx.execute(
+                        "DELETE FROM ah_projection_retired WHERE session_id=?1 AND
+                            projection_id=?2",
                         params![source_id, projection_id],
                     )?
                 } else {
                     0
                 };
-                Ok(removed + marker)
+                Ok(removed + references + marker)
             })
             .map_err(Into::into)
     }
@@ -93,7 +134,7 @@ impl Archive {
         loop {
             let count = self.store.write(Db::Archive, Priority::Batch, |tx| {
                 let work = tx.query(
-                    "SELECT session_id,projection_id FROM ah_projection_work LIMIT 128",
+                    "SELECT session_id, projection_id FROM ah_projection_work LIMIT 128",
                     (),
                     |row| Ok((row.get::<String>(0)?, row.get::<i64>(1)?)),
                 )?;

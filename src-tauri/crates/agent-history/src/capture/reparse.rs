@@ -5,7 +5,8 @@
 use super::{BackupOptions, BackupProgress, BackupReport, check_cancel, projection};
 use crate::{
     Archive, Artifact, ArtifactKind, Diagnostic, Error, Harness, Reference, Result, SourceRoot,
-    adapters::common, archive::RevisionInfo,
+    adapters::{adapter, common},
+    archive::RevisionInfo,
 };
 use std::{io::Read, path::PathBuf};
 
@@ -78,7 +79,7 @@ fn reparse(
     report: &mut BackupReport,
 ) -> Result<()> {
     archive.set_coverage(&raw.source_id, false)?;
-    let Some(prepared) = projection::prepare(
+    let prepared = match projection::prepare(
         archive,
         source,
         artifact,
@@ -87,18 +88,24 @@ fn reparse(
         options,
         &mut report.issues,
         true,
-    )?
-    else {
-        archive.synchronize_search()?;
-        return Ok(());
+    )? {
+        projection::Preparation::Ready(prepared) => prepared,
+        projection::Preparation::Writing => return Ok(()),
+        projection::Preparation::Unreadable => {
+            super::unreadable::publish(archive, source, artifact, &raw.source_id, raw.id, options)?;
+            archive.synchronize_search()?;
+            return Ok(());
+        }
     };
     for diagnostic in &prepared.report.diagnostics {
-        common::push_diagnostic(&mut report.issues, diagnostic.clone());
+        if diagnostic.detail.as_deref() != Some("remote") {
+            common::push_diagnostic(&mut report.issues, diagnostic.clone());
+        }
     }
-    let mut complete = prepared.report.complete;
+    let complete = prepared.report.complete;
     for reference in &prepared.report.references {
         check_cancel(options)?;
-        complete &= retained_reference(
+        retained_reference(
             archive,
             source.harness,
             raw.id,
@@ -123,6 +130,7 @@ fn reparse(
         progress(options, "projection_published", raw);
     }
     check_cancel(options)?;
+    archive.append_lineage_issues(&mut report.issues)?;
     archive.synchronize_search()?;
     super::maintenance(archive, options)?;
     Ok(())
@@ -136,40 +144,49 @@ fn retained_reference(
     options: &BackupOptions,
     issues: &mut Vec<Diagnostic>,
 ) -> Result<bool> {
+    if reference.kind == "lineage" && !adapter(harness).lineage_is_path() {
+        return Ok(true);
+    }
     if reference.kind == "attachment" && reference.target.starts_with("data:") {
         return Ok(true);
     }
     if let Some(retained) = archive.bound_reference(parent_revision, reference)? {
-        // A binding proves which authorized capture supplied the attachment.
-        // Authenticate those retained bytes without consulting its former path.
-        let mut reader = archive.raw_reader(retained.id)?;
-        let mut buffer = vec![0u8; 64 * 1024];
-        loop {
-            check_cancel(options)?;
-            if reader.read(&mut buffer)? == 0 {
-                break;
+        if retained.bytes_retained {
+            let mut reader = archive.raw_reader(retained.id)?;
+            let mut buffer = vec![0u8; 64 * 1024];
+            loop {
+                check_cancel(options)?;
+                if reader.read(&mut buffer)? == 0 {
+                    break;
+                }
             }
+            archive.record_reference_outcome(parent_revision, reference, None)?;
+            return Ok(true);
         }
+    }
+    if reference.kind == "lineage" {
+        common::push_diagnostic(
+            issues,
+            Diagnostic {
+                code: "lineage_not_retained".into(),
+                path: None,
+                ordinal: None,
+                detail: Some("provenance_only".into()),
+            },
+        );
         return Ok(true);
     }
-    let provenance_only = harness == Harness::Pi && reference.kind == "lineage";
-    common::push_diagnostic(
-        issues,
-        Diagnostic {
-            code: if reference.kind == "lineage" {
-                "lineage_not_retained"
-            } else {
-                "attachment_not_retained"
-            }
-            .into(),
-            // The encrypted native payload already keeps the target. A failed remote
-            // reference can contain a signed URL or credentials, so diagnostics omit it.
-            path: None,
-            ordinal: None,
-            detail: provenance_only.then(|| "provenance_only".into()),
-        },
-    );
-    Ok(provenance_only)
+    let reason = if reference.kind == "remote" {
+        "remote".to_owned()
+    } else {
+        archive
+            .reference_reason(parent_revision, reference)?
+            .flatten()
+            .unwrap_or_else(|| "authority_unavailable".into())
+    };
+    super::reference_capture::attachment_issue(issues, &reason);
+    archive.record_reference_outcome(parent_revision, reference, Some(&reason))?;
+    Ok(false)
 }
 
 fn progress(options: &BackupOptions, phase: &str, raw: &RevisionInfo) {

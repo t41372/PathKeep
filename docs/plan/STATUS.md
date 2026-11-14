@@ -9,7 +9,7 @@
 
 ## CURRENT FOCUS
 
-- [ ] **WORK-AH-EVIDENCE-FORMAT** — Agent 對話核心庫在第一次發布前要定下來的存檔格式：對話與來源分開、備份時多記的事實、保留規則與 4 MiB 壓縮分塊、使用者自己的資料（星號、封存、垃圾桶、標題）、不加密模式。
+- [x] **WORK-AH-EVIDENCE-FORMAT** — Agent 對話核心庫在第一次發布前要定下來的存檔格式：對話與來源分開、備份時多記的事實、保留規則與 4 MiB 壓縮分塊、使用者自己的資料（星號、封存、垃圾桶、標題）、不加密模式。
   - 讀先：`docs/architecture/agent-history-product-design.md` 的 §1–§4、§6（分塊那兩條）與「Clauses this amends」；`docs/architecture/agent-history-core.md`；`docs/architecture/research/agent-history/` 裡對應工具的那一份；`program/quality-matrix.md`。
   - 這一塊不做單段對話的永久刪除（用戶 2026-11-13：先用封存和垃圾桶），也不把 Continue、Cline、Roo Code 開給產品（同日）；它們的 adapter 留在核心庫，只做到能在新格式下通過既有測試。
   - 範圍只在 `src-tauri/crates/agent-history`。`vault-store`、`vault-core`、前端都不動；併進 PathKeep 存檔是 `WORK-VAULT-STORE-ROLES`。既有的逐事件投影（`ah_sessions`／`ah_events`）這一塊只做到能跟新格式一起運作，換掉它是 `WORK-AH-READ-MODEL`。

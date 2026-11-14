@@ -30,6 +30,7 @@ pub struct SearchHit {
     pub ordinal: u64,
     pub text: String,
     pub score: f32,
+    pub put_away: bool,
 }
 
 /// `total` counts matching events across the entire index. `complete` describes

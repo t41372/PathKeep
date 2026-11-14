@@ -66,12 +66,15 @@ fn report() -> ParseReport {
 fn parse_coverage_and_native_references_survive_reopen() {
     let (temp, archive) = archive();
     let revision = revision(&archive);
-    assert_eq!(archive.load_parse_report(revision).unwrap(), None);
-    archive.save_parse_report(revision, &report()).unwrap();
+    assert_eq!(archive.load_versioned_parse_report(revision, "fixture-v1").unwrap(), None);
+    archive.save_versioned_parse_report(revision, "fixture-v1", &report()).unwrap();
     drop(archive);
     let reopened = Archive::open(&temp.path().join("archive"), PASSWORD).unwrap();
-    assert_eq!(reopened.load_parse_report(revision).unwrap(), Some(report()));
-    assert!(reopened.save_parse_report(i64::MAX, &report()).is_err());
+    assert_eq!(
+        reopened.load_versioned_parse_report(revision, "fixture-v1").unwrap(),
+        Some(report())
+    );
+    assert!(reopened.save_versioned_parse_report(i64::MAX, "fixture-v1", &report()).is_err());
 }
 
 #[test]
@@ -194,11 +197,14 @@ fn reopen_marks_abandoned_runs_interrupted_in_multiple_bounded_batches() {
 fn invalid_or_oversized_reports_leave_existing_state_untouched() {
     let (_temp, archive) = archive();
     let revision = revision(&archive);
-    archive.save_parse_report(revision, &report()).unwrap();
+    archive.save_versioned_parse_report(revision, "fixture-v1", &report()).unwrap();
     let mut oversized = report();
     oversized.diagnostics[0].detail = Some("x".repeat(16 * 1024 * 1024));
-    assert!(archive.save_parse_report(revision, &oversized).is_err());
-    assert_eq!(archive.load_parse_report(revision).unwrap(), Some(report()));
+    assert!(archive.save_versioned_parse_report(revision, "fixture-v1", &oversized).is_err());
+    assert_eq!(
+        archive.load_versioned_parse_report(revision, "fixture-v1").unwrap(),
+        Some(report())
+    );
     let run = archive.start_backup_run().unwrap();
     assert!(archive.end_backup_run(run, "running", &serde_json::json!({})).is_err());
     let huge = serde_json::json!({"detail":"x".repeat(16 * 1024 * 1024)});

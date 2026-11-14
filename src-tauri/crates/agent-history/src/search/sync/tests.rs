@@ -33,10 +33,12 @@ fn event_index_pages_seek_the_published_projection_without_a_sorter() {
         .finish_revision(revision, &hex::encode(Sha256::digest(&raw)), raw.len() as u64)
         .unwrap()
         .revision_id;
-    archive.begin_projection("source-a", revision).unwrap();
+    let attempt_revision =
+        archive.prepare_projection("source-a", revision, "fixture-v1", false).unwrap().unwrap();
     for start in (0..512).step_by(128) {
         let events = (start..start + 128)
             .map(|ordinal| NativeEvent {
+                references: Vec::new(),
                 ordinal,
                 native_id: None,
                 parent_id: None,
@@ -47,12 +49,11 @@ fn event_index_pages_seek_the_published_projection_without_a_sorter() {
                 payload: serde_json::json!({"type":"message","text":"plan fixture"}),
             })
             .collect();
-        archive.append_events("source-a", revision, events).unwrap();
+        archive.append_projection_events(&attempt_revision, events).unwrap();
     }
     archive
-        .publish_projection(
-            "source-a",
-            revision,
+        .publish_projection_attempt(
+            &attempt_revision,
             &SessionMetadata { native_id: "session-a".into(), ..Default::default() },
             true,
         )

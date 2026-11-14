@@ -1,5 +1,5 @@
 //! Responsibilities: enumerate only native Continue sessions and classic Cline/Roo task bundles.
-//! Not responsible for opening records, following tool paths, SDK formats, or mutating native indexes.
+//! Not responsible for: opening records, following tool paths or mutating native indexes.
 //! Discovery failures are specified first in `tests/additional_adapters.rs`.
 
 use std::{

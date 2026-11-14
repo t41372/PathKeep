@@ -9,6 +9,8 @@ use std::path::PathBuf;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Command {
     Help,
+    Mark,
+    Folders,
     Init,
     Plan,
     Backup,
@@ -27,6 +29,8 @@ pub(super) enum Command {
 impl Command {
     fn parse(value: &str) -> Result<Self> {
         Ok(match value {
+            "mark" => Self::Mark,
+            "folders" => Self::Folders,
             "help" | "--help" | "-h" => Self::Help,
             "init" => Self::Init,
             "plan" => Self::Plan,
@@ -55,13 +59,35 @@ impl Command {
             return true;
         }
         match self {
-            Self::Help | Self::Init | Self::Verify => false,
+            Self::Help | Self::Verify => false,
+            Self::Init => name == "--no-encryption",
+            Self::Mark => matches!(
+                name,
+                "--conversation"
+                    | "--star"
+                    | "--put-away"
+                    | "--trash"
+                    | "--title"
+                    | "--clear-title"
+                    | "--execute"
+            ),
+            Self::Folders => matches!(name, "--path" | "--after" | "--limit"),
             Self::SyncSearch => name == "--rebuild",
             Self::Plan => name == "--source",
-            Self::Backup => matches!(name, "--source" | "--execute"),
+            Self::Backup => matches!(name, "--source" | "--execute" | "--no-git"),
             Self::Reparse => matches!(name, "--source-id" | "--execute"),
             Self::List => {
-                matches!(name, "--harness" | "--project" | "--limit" | "--after" | "--sort")
+                matches!(
+                    name,
+                    "--harness"
+                        | "--project"
+                        | "--limit"
+                        | "--after"
+                        | "--sort"
+                        | "--put-away"
+                        | "--trash"
+                        | "--starred"
+                )
             }
             Self::Sources => matches!(name, "--harness" | "--kind" | "--limit" | "--after"),
             Self::Events => matches!(name, "--session" | "--limit" | "--after"),
@@ -94,7 +120,16 @@ impl Arguments {
             if !command.accepts(name) {
                 return Err(Failure::invalid());
             }
-            if matches!(name, "--password-stdin" | "--execute" | "--rebuild") {
+            if matches!(
+                name,
+                "--password-stdin"
+                    | "--execute"
+                    | "--rebuild"
+                    | "--no-encryption"
+                    | "--no-git"
+                    | "--starred"
+                    | "--clear-title"
+            ) {
                 if !result.flags.insert(name.to_owned()) {
                     return Err(Failure::invalid());
                 }
@@ -143,6 +178,30 @@ impl Arguments {
             if !matches!(locale, "en" | "zh-CN" | "zh-TW") {
                 return Err(Failure::invalid());
             }
+        }
+        match self.command {
+            Command::Init if self.flag("--no-encryption") && self.flag("--password-stdin") => {
+                return Err(Failure::invalid());
+            }
+            Command::Mark => {
+                for flag in ["--star", "--put-away", "--trash"] {
+                    if self.text(flag)?.is_some_and(|value| !matches!(value, "true" | "false")) {
+                        return Err(Failure::invalid());
+                    }
+                }
+                if self.flag("--clear-title") && self.text("--title")?.is_some() {
+                    return Err(Failure::invalid());
+                }
+            }
+            Command::List
+                if self
+                    .text("--put-away")?
+                    .is_some_and(|v| !matches!(v, "exclude" | "only" | "include"))
+                    || self.text("--trash")?.is_some_and(|v| !matches!(v, "exclude" | "only")) =>
+            {
+                return Err(Failure::invalid());
+            }
+            _ => {}
         }
         Ok(())
     }

@@ -1,4 +1,4 @@
-//! Responsibilities: replay canonical publication into bounded encrypted index batches.
+//! Responsibilities: replay canonical publication into bounded index batches.
 //! Not responsible for: publishing source revisions, background scheduling or user queries.
 //! A commit acknowledges only a checked canonical generation; interruption leaves the
 //! prior commit or an explicitly incomplete new index, never a false current watermark.
@@ -115,9 +115,8 @@ impl Archive {
                     )
                 } else {
                     database.query(
-                        "SELECT DISTINCT session_id FROM ah_outbox
-                         WHERE seq > ?1 AND seq <= ?2 AND session_id > ?3
-                         ORDER BY session_id LIMIT 64",
+                        "SELECT DISTINCT session_id FROM ah_outbox WHERE seq > ?1 AND seq <= ?2
+                            AND session_id > ?3 ORDER BY session_id LIMIT 64",
                         params![watermark, target, after],
                         |row| Ok(row.get(0)?),
                     )
@@ -189,8 +188,8 @@ impl Archive {
         let session = session.to_owned();
         let rows = self.store.read(Db::Archive, move |database| {
             database.query(
-                "SELECT id,projection_id,harness,coalesce(project_path,'')
-                 FROM ah_sessions WHERE id=?1 LIMIT 1",
+                "SELECT id, projection_id, harness, coalesce(project_path, '' ) FROM
+                    ah_sessions WHERE id=?1 AND (current_only=0 OR conversation_current=1) LIMIT 1",
                 [session],
                 |row| {
                     Ok(schema::EventSource {
@@ -218,9 +217,8 @@ impl Archive {
             // sorting the remaining conversation on every page. The publication
             // watermark is checked before the final search commit.
             let mut statement = database.prepare(
-                "SELECT id,ordinal,text FROM ah_events
-                 WHERE session_id=?1 AND projection_id=?2 AND ordinal>?3
-                 ORDER BY ordinal LIMIT ?4",
+                "SELECT id, ordinal, text FROM ah_events WHERE session_id=?1 AND
+                    projection_id=?2 AND ordinal>?3 ORDER BY ordinal LIMIT ?4",
             )?;
             let mut rows = statement.query(params![
                 source.session_id.clone(),
@@ -253,7 +251,7 @@ impl Archive {
 
 fn commit(
     writer: &mut IndexWriter<TantivyDocument>,
-    directory: &EncryptedDirectory,
+    directory: &Option<EncryptedDirectory>,
     watermark: i64,
 ) -> Result<()> {
     let payload = serde_json::to_string(&index::Commit { version: schema::VERSION, watermark })?;

@@ -86,6 +86,7 @@ impl Archive {
         output: &mut dyn Write,
     ) -> Result<ExportReport> {
         let session = self.session(session_id)?;
+        let line = self.line_stamp(session_id)?;
         let revision = self.revision(session.revision_id)?;
         let mut output = CountedWriter::new(output);
         let header = Header {
@@ -108,13 +109,13 @@ impl Archive {
         let mut after = None;
         let mut event_count = 0;
         loop {
-            self.ensure_export_projection(session_id, session.projection_id)?;
+            self.ensure_export_projection(session_id, session.projection_id, &line)?;
             let page = self.events(&EventQuery {
                 session_id: session_id.to_owned(),
                 limit: EXPORT_PAGE_SIZE,
                 after,
             })?;
-            self.ensure_export_projection(session_id, session.projection_id)?;
+            self.ensure_export_projection(session_id, session.projection_id, &line)?;
             if page.items.is_empty() && page.next_cursor.is_some() {
                 return Err(Error::Integrity("event page did not advance".into()));
             }
@@ -130,7 +131,7 @@ impl Archive {
                 break;
             }
         }
-        self.ensure_export_projection(session_id, session.projection_id)?;
+        self.ensure_export_projection(session_id, session.projection_id, &line)?;
         output.flush()?;
         Ok(ExportReport {
             format: format.to_string(),
@@ -152,7 +153,13 @@ impl Archive {
         let info = self.revision(revision)?;
         let mut input = self.raw_reader(revision)?;
         let mut output = CountedWriter::new(output);
-        let bytes = std::io::copy(&mut input, &mut output)?;
+        let bytes = match std::io::copy(&mut input, &mut output) {
+            Ok(bytes) => bytes,
+            Err(error) if crate::archive::expired_read(&error) => {
+                return Err(Error::NotFound("revision bytes expired by retention".into()));
+            }
+            Err(error) => return Err(error.into()),
+        };
         if bytes != info.byte_len {
             return Err(Error::Integrity("raw export length does not match its revision".into()));
         }
@@ -170,8 +177,25 @@ impl Archive {
         })
     }
 
-    fn ensure_export_projection(&self, session_id: &str, projection_id: i64) -> Result<()> {
-        if self.current_projection_id(session_id)? != Some(projection_id) {
+    fn ensure_export_projection(
+        &self,
+        session_id: &str,
+        projection_id: i64,
+        line: &str,
+    ) -> Result<()> {
+        if self
+            .session(session_id)
+            .map_err(
+                |error| {
+                    if matches!(error, Error::NotFound(_)) { Error::StaleCursor } else { error }
+                },
+            )?
+            .projection_id
+            != projection_id
+        {
+            return Err(Error::StaleCursor);
+        }
+        if self.line_stamp(session_id)? != line {
             return Err(Error::StaleCursor);
         }
         Ok(())

@@ -5,7 +5,7 @@ use crate::{Error, Result};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use sha2::{Digest, Sha256};
 
-const CURSOR_VERSION: u8 = 2;
+const CURSOR_VERSION: u8 = 4;
 const MAX_CURSOR_LENGTH: usize = 16 * 1024;
 
 #[derive(Serialize, Deserialize)]
@@ -21,8 +21,9 @@ pub(super) struct SessionCursor {
 pub(super) struct EventCursor {
     pub version: u8,
     pub session_id: String,
-    pub projection_id: i64,
+    pub line: String,
     pub ordinal: u64,
+    pub segment: usize,
 }
 
 #[derive(Serialize, Deserialize)]

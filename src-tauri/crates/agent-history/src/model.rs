@@ -116,6 +116,7 @@ pub struct SessionMetadata {
     pub origin: String,
     pub harness_version: Option<String>,
     pub parent_session_id: Option<String>,
+    pub forked_from_session_id: Option<String>,
     pub model: Option<String>,
 }
 
@@ -130,6 +131,7 @@ impl Default for SessionMetadata {
             origin: "unknown".into(),
             harness_version: None,
             parent_session_id: None,
+            forked_from_session_id: None,
             model: None,
         }
     }
@@ -138,6 +140,9 @@ impl Default for SessionMetadata {
 /// One native object plus searchable facts; payload retains unknown fields/types.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct NativeEvent {
+    /// Transient occurrence evidence streams to the projection without growing ParseReport.
+    #[serde(skip)]
+    pub references: Vec<Reference>,
     pub ordinal: u64,
     pub native_id: Option<String>,
     pub parent_id: Option<String>,

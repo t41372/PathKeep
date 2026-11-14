@@ -52,12 +52,14 @@ fn metadata() -> SessionMetadata {
         origin: "unknown".into(),
         harness_version: None,
         parent_session_id: None,
+        forked_from_session_id: None,
         model: None,
     }
 }
 
 fn event(ordinal: u64) -> NativeEvent {
     NativeEvent {
+        references: Vec::new(),
         ordinal,
         native_id: None,
         parent_id: None,
@@ -74,8 +76,11 @@ fn a_source_cannot_project_another_sources_revision() {
     let (_temp, archive) = archive();
     let left = revision(&archive, "left", b"left evidence");
     revision(&archive, "right", b"right evidence");
-    assert!(archive.begin_projection("right", left).is_err());
-    assert!(archive.publish_projection("right", left, &metadata(), true).is_err());
+    assert!(archive.prepare_projection("right", left, "fixture-v1", false).is_err());
+    let mut attempt_left =
+        archive.prepare_projection("left", left, "fixture-v1", false).unwrap().unwrap();
+    attempt_left.source_id = "right".into();
+    assert!(archive.publish_projection_attempt(&attempt_left, &metadata(), true).is_err());
     assert_eq!(archive.current_projection("right").unwrap(), None);
 }
 
@@ -91,12 +96,13 @@ fn parser_identity_fits_the_same_bounded_contract_as_saved_reports() {
 fn a_published_projection_cannot_be_appended_or_published_twice() {
     let (_temp, archive) = archive();
     let revision = revision(&archive, "chat", b"source evidence");
-    archive.begin_projection("chat", revision).unwrap();
-    archive.append_events("chat", revision, vec![event(0)]).unwrap();
-    archive.publish_projection("chat", revision, &metadata(), true).unwrap();
+    let attempt_revision =
+        archive.prepare_projection("chat", revision, "fixture-v1", false).unwrap().unwrap();
+    archive.append_projection_events(&attempt_revision, vec![event(0)]).unwrap();
+    archive.publish_projection_attempt(&attempt_revision, &metadata(), true).unwrap();
     let generation = archive.projection_generation().unwrap();
-    assert!(archive.append_events("chat", revision, vec![event(1)]).is_err());
-    assert!(archive.publish_projection("chat", revision, &metadata(), true).is_err());
+    assert!(archive.append_projection_events(&attempt_revision, vec![event(1)]).is_err());
+    assert!(archive.publish_projection_attempt(&attempt_revision, &metadata(), true).is_err());
     assert_eq!(archive.projection_generation().unwrap(), generation);
 }
 
@@ -104,12 +110,13 @@ fn a_published_projection_cannot_be_appended_or_published_twice() {
 fn duplicate_ordinals_roll_back_the_entire_batch() {
     let (_temp, archive) = archive();
     let revision = revision(&archive, "chat", b"source evidence");
-    archive.begin_projection("chat", revision).unwrap();
-    assert!(archive.append_events("chat", revision, vec![event(0), event(0)]).is_err());
+    let attempt_revision =
+        archive.prepare_projection("chat", revision, "fixture-v1", false).unwrap().unwrap();
+    assert!(archive.append_projection_events(&attempt_revision, vec![event(0), event(0)]).is_err());
     // If the first record in the failed batch leaked, its unique ordinal prevents
     // this correct retry. The real transaction must discard both attempted rows.
-    archive.append_events("chat", revision, vec![event(0), event(1)]).unwrap();
-    archive.publish_projection("chat", revision, &metadata(), true).unwrap();
+    archive.append_projection_events(&attempt_revision, vec![event(0), event(1)]).unwrap();
+    archive.publish_projection_attempt(&attempt_revision, &metadata(), true).unwrap();
     assert_eq!(archive.current_projection("chat").unwrap(), Some(revision));
 }
 
@@ -118,12 +125,14 @@ fn superseded_projection_work_cannot_publish() {
     let (_temp, archive) = archive();
     let old = revision(&archive, "chat", b"old evidence");
     let newer = revision(&archive, "chat", b"newer evidence");
-    archive.begin_projection("chat", old).unwrap();
-    archive.append_events("chat", old, vec![event(0)]).unwrap();
-    archive.begin_projection("chat", newer).unwrap();
-    assert!(archive.publish_projection("chat", old, &metadata(), true).is_err());
-    archive.append_events("chat", newer, vec![event(0)]).unwrap();
-    archive.publish_projection("chat", newer, &metadata(), true).unwrap();
+    let attempt_old =
+        archive.prepare_projection("chat", old, "fixture-v1", false).unwrap().unwrap();
+    archive.append_projection_events(&attempt_old, vec![event(0)]).unwrap();
+    let attempt_newer =
+        archive.prepare_projection("chat", newer, "fixture-v1", false).unwrap().unwrap();
+    assert!(archive.publish_projection_attempt(&attempt_old, &metadata(), true).is_err());
+    archive.append_projection_events(&attempt_newer, vec![event(0)]).unwrap();
+    archive.publish_projection_attempt(&attempt_newer, &metadata(), true).unwrap();
     assert_eq!(archive.current_projection("chat").unwrap(), Some(newer));
 }
 
@@ -131,13 +140,15 @@ fn superseded_projection_work_cannot_publish() {
 fn bounded_cleanup_preserves_current_projection_and_all_raw_revisions() {
     let (_temp, archive) = archive();
     let old = revision(&archive, "chat", b"old evidence");
-    archive.begin_projection("chat", old).unwrap();
-    archive.append_events("chat", old, vec![event(0)]).unwrap();
-    archive.publish_projection("chat", old, &metadata(), true).unwrap();
+    let attempt_old =
+        archive.prepare_projection("chat", old, "fixture-v1", false).unwrap().unwrap();
+    archive.append_projection_events(&attempt_old, vec![event(0)]).unwrap();
+    archive.publish_projection_attempt(&attempt_old, &metadata(), true).unwrap();
     let newer = revision(&archive, "chat", b"newer evidence");
-    archive.begin_projection("chat", newer).unwrap();
-    archive.append_events("chat", newer, vec![event(0)]).unwrap();
-    archive.publish_projection("chat", newer, &metadata(), true).unwrap();
+    let attempt_newer =
+        archive.prepare_projection("chat", newer, "fixture-v1", false).unwrap().unwrap();
+    archive.append_projection_events(&attempt_newer, vec![event(0)]).unwrap();
+    archive.publish_projection_attempt(&attempt_newer, &metadata(), true).unwrap();
     let mut reclaimed = 0;
     loop {
         let progress = archive.prune_obsolete_projection_batch(1).unwrap();
@@ -156,9 +167,10 @@ fn bounded_cleanup_preserves_current_projection_and_all_raw_revisions() {
 fn a_failed_newer_parse_keeps_prior_results_but_marks_their_coverage_incomplete() {
     let (_temp, archive) = archive();
     let old = revision(&archive, "chat", b"old evidence");
-    archive.begin_projection("chat", old).unwrap();
-    archive.append_events("chat", old, vec![event(0)]).unwrap();
-    archive.publish_projection("chat", old, &metadata(), true).unwrap();
+    let attempt_old =
+        archive.prepare_projection("chat", old, "fixture-v1", false).unwrap().unwrap();
+    archive.append_projection_events(&attempt_old, vec![event(0)]).unwrap();
+    archive.publish_projection_attempt(&attempt_old, &metadata(), true).unwrap();
     archive.synchronize_search().unwrap();
     let query = agent_history::search::SearchQuery {
         text: "preserve".into(),
@@ -175,9 +187,10 @@ fn a_failed_newer_parse_keeps_prior_results_but_marks_their_coverage_incomplete(
     assert_eq!(archive.current_projection("chat").unwrap(), Some(old));
     assert!(archive.set_coverage("chat", true).is_err());
     assert!(!archive.search(&query).unwrap().complete);
-    archive.begin_projection("chat", newer).unwrap();
-    archive.append_events("chat", newer, vec![event(0)]).unwrap();
-    archive.publish_projection("chat", newer, &metadata(), true).unwrap();
+    let attempt_newer =
+        archive.prepare_projection("chat", newer, "fixture-v1", false).unwrap().unwrap();
+    archive.append_projection_events(&attempt_newer, vec![event(0)]).unwrap();
+    archive.publish_projection_attempt(&attempt_newer, &metadata(), true).unwrap();
     archive.synchronize_search().unwrap();
     assert!(archive.search(&query).unwrap().complete);
 }
@@ -203,7 +216,7 @@ fn same_byte_reparse_keeps_old_rows_visible_and_invalidates_old_event_cursor_on_
     let (_temp, archive) = archive();
     let revision = revision(&archive, "chat", b"unchanged source bytes");
     let original = publish_attempt(&archive, revision, "fixture-v1", "original interpretation");
-    let mut page_query = agent_history::query::EventQuery::new("chat");
+    let mut page_query = agent_history::query::EventQuery::new(conversation(&archive, "chat"));
     page_query.limit = 1;
     let page = archive.events(&page_query).unwrap();
     let cursor = page.next_cursor.clone().expect("two events need continuation");
@@ -370,4 +383,18 @@ fn combined_coverage_cannot_claim_complete_when_parser_coverage_is_incomplete() 
     archive.publish_projection_attempt_with_coverage(&attempt, &metadata(), false, false).unwrap();
     assert!(archive.set_coverage("chat", true).is_err());
     assert!(archive.update_projection_coverage("chat", attempt.id, false, true).is_err());
+}
+
+fn conversation(archive: &Archive, source: &str) -> String {
+    archive
+        .list_sessions(&agent_history::query::SessionQuery {
+            put_away: "include".into(),
+            ..Default::default()
+        })
+        .unwrap()
+        .items
+        .into_iter()
+        .find(|item| item.sources.iter().any(|member| member.source_id == source))
+        .unwrap()
+        .id
 }

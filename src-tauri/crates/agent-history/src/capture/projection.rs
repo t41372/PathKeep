@@ -1,6 +1,6 @@
 //! Responsibilities: interpret retained bytes through bounded parser and write batches.
 //! Not responsible for: discovering sources, reading attachments or publishing search.
-use super::{BackupOptions, check_cancel};
+use super::{BackupOptions, check_cancel, retained_input::RetainedInput as ArchiveInput};
 use crate::{
     Archive, Artifact, Diagnostic, Error, NativeEvent, ParseContext, ParseReport, Result,
     SourceRoot,
@@ -15,6 +15,12 @@ use std::{
 
 const BATCH_RECORDS: usize = 128;
 const BATCH_BYTES: usize = 4 * 1024 * 1024;
+
+pub(super) enum Preparation {
+    Ready(Box<Prepared>),
+    Writing,
+    Unreadable,
+}
 
 pub(super) struct Prepared {
     pub report: ParseReport,
@@ -31,16 +37,33 @@ pub(super) fn prepare(
     options: &BackupOptions,
     issues: &mut Vec<Diagnostic>,
     force: bool,
-) -> Result<Option<Prepared>> {
+) -> Result<Preparation> {
     check_cancel(options)?;
+    if adapter(source.harness).needs_first_line_end() {
+        match super::readiness::first_record(archive, artifact, revision, options)? {
+            super::readiness::Readiness::Whole => {}
+            super::readiness::Readiness::Writing => {
+                failure(issues, artifact, "first_record_in_progress");
+                return Ok(Preparation::Writing);
+            }
+            super::readiness::Readiness::Unreadable => {
+                failure(issues, artifact, "source_decompression_failed");
+                return Ok(Preparation::Unreadable);
+            }
+        }
+    }
     let parser_version = format!(
-        "agent-history-parser/1:record={}:decoded={}",
+        "agent-history-parser/4:record={}:decoded={}",
         options.max_record_bytes, options.max_decoded_bytes,
     );
     let mut attempt = archive.prepare_projection(source_id, revision, &parser_version, force)?;
     if attempt.is_none() {
         if let Some(report) = archive.load_versioned_parse_report(revision, &parser_version)? {
-            return Ok(Some(Prepared { report, attempt: None, parser_version }));
+            return Ok(Preparation::Ready(Box::new(Prepared {
+                report,
+                attempt: None,
+                parser_version,
+            })));
         }
         // Publication may have survived a crash before its interpretation report
         // was saved. Rebuild under a fresh generation without exposing staged rows.
@@ -56,7 +79,7 @@ pub(super) fn prepare(
                 return Err(error.into());
             }
             failure(issues, artifact, "source_decompression_failed");
-            return Ok(None);
+            return Ok(Preparation::Unreadable);
         }
     };
     let limited = Rc::new(Cell::new(false));
@@ -98,19 +121,23 @@ pub(super) fn prepare(
             let code =
                 if limited.get() { "decoded_byte_limit" } else { "source_interpretation_failed" };
             failure(issues, artifact, code);
-            return Ok(None);
+            return Ok(Preparation::Unreadable);
         }
     };
     if let Err(error) = batch.flush() {
         return Err(batch.destination_error.take().unwrap_or(error));
     }
     if report.session.is_none() {
+        report.session = Some(crate::SessionMetadata::default());
         report.complete = false;
         failure(&mut report.diagnostics, artifact, "session_metadata_unavailable");
     }
+    if let Some(attempt) = &attempt {
+        archive.save_projection_gaps(attempt, &report)?;
+    }
     // The caller saves this versioned report only after publication. A failed
     // attempt must not overwrite the report attached to an older interpretation.
-    Ok(Some(Prepared { report, attempt, parser_version }))
+    Ok(Preparation::Ready(Box::new(Prepared { report, attempt, parser_version })))
 }
 
 fn failure(issues: &mut Vec<Diagnostic>, artifact: &Artifact, code: &str) {
@@ -188,22 +215,6 @@ impl Write for JsonSize {
     }
     fn flush(&mut self) -> io::Result<()> {
         Ok(())
-    }
-}
-
-struct ArchiveInput {
-    reader: crate::archive::RawReader,
-    error: Rc<RefCell<Option<io::Error>>>,
-}
-impl Read for ArchiveInput {
-    fn read(&mut self, output: &mut [u8]) -> io::Result<usize> {
-        match self.reader.read(output) {
-            Ok(size) => Ok(size),
-            Err(error) => {
-                *self.error.borrow_mut() = Some(error);
-                Err(io::Error::other("archive evidence read failed"))
-            }
-        }
     }
 }
 

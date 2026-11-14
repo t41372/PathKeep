@@ -50,6 +50,7 @@ fn raw_revision(archive: &Archive, id: &str, harness: Harness, bytes: &[u8]) -> 
 
 fn event(ordinal: u64, text: &str) -> NativeEvent {
     NativeEvent {
+        references: Vec::new(),
         ordinal,
         native_id: Some(format!("native-{ordinal}")),
         parent_id: ordinal.checked_sub(1).map(|value| format!("native-{value}")),
@@ -61,6 +62,13 @@ fn event(ordinal: u64, text: &str) -> NativeEvent {
     }
 }
 
+/// The fixture's raw bytes: one whole first record, so later bytes can follow it.
+fn record_line(texts: &[&str]) -> Vec<u8> {
+    let mut bytes = serde_json::to_vec(texts).unwrap();
+    bytes.push(b'\n');
+    bytes
+}
+
 fn publish(
     archive: &Archive,
     id: &str,
@@ -69,20 +77,19 @@ fn publish(
     updated: Option<i64>,
     texts: &[&str],
 ) -> i64 {
-    let bytes = serde_json::to_vec(texts).unwrap();
+    let bytes = record_line(texts);
     let revision = raw_revision(archive, id, harness, &bytes);
-    assert!(archive.begin_projection(id, revision).unwrap());
+    let attempt_revision =
+        archive.prepare_projection(id, revision, "fixture-v1", false).unwrap().unwrap();
     archive
-        .append_events(
-            id,
-            revision,
+        .append_projection_events(
+            &attempt_revision,
             texts.iter().enumerate().map(|(index, text)| event(index as u64, text)).collect(),
         )
         .unwrap();
     archive
-        .publish_projection(
-            id,
-            revision,
+        .publish_projection_attempt(
+            &attempt_revision,
             &SessionMetadata {
                 native_id: "same-native-id".into(),
                 project_path: Some("/projects/shared".into()),
@@ -92,6 +99,7 @@ fn publish(
                 origin: "unknown".into(),
                 harness_version: None,
                 parent_session_id: None,
+                forked_from_session_id: None,
                 model: None,
             },
             true,
@@ -119,7 +127,11 @@ fn keyset_pages_keep_timestamp_ties_nulls_and_distinct_source_identities() {
             break;
         }
     }
-    assert_eq!(identities, ["b", "a", "d", "c"]);
+    let mut timed = vec![conversation(&archive, "a"), conversation(&archive, "b")];
+    timed.sort_by(|a, b| b.cmp(a));
+    let unknown = vec![conversation(&archive, "d")];
+    timed.extend(unknown);
+    assert_eq!(identities, timed);
 
     let page = archive
         .list_sessions(&SessionQuery {
@@ -129,7 +141,13 @@ fn keyset_pages_keep_timestamp_ties_nulls_and_distinct_source_identities() {
             ..SessionQuery::default()
         })
         .unwrap();
-    assert_eq!(page.items.iter().map(|item| item.id.as_str()).collect::<Vec<_>>(), ["a", "c"]);
+    assert_eq!(page.items.iter().map(|item| item.source_id.as_str()).collect::<Vec<_>>(), ["a"]);
+    let members = page.items[0]
+        .sources
+        .iter()
+        .map(|source| source.source_id.as_str())
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(members, std::collections::BTreeSet::from(["a", "c"]));
     assert!(
         archive
             .list_sessions(&SessionQuery {
@@ -171,23 +189,27 @@ fn events_never_mix_published_and_staged_revisions() {
         Some(2),
         &["old one", "old two", "old three"],
     );
-    let query = EventQuery { session_id: "source".into(), limit: 1, after: None };
+    let query = EventQuery { session_id: conversation(&archive, "source"), limit: 1, after: None };
     let page = archive.events(&query).unwrap();
     assert_eq!(page.items[0].text, "old one");
     let cursor = page.next_cursor.unwrap();
 
-    let staged = raw_revision(&archive, "source", Harness::ClaudeCode, b"replacement bytes");
-    archive.begin_projection("source", staged).unwrap();
-    archive.append_events("source", staged, vec![event(0, "replacement")]).unwrap();
+    // The file keeps its first record, so this is the same conversation with new bytes:
+    // what refuses the old cursor below is the changed view, not a changed id.
+    let mut replacement = record_line(&["old one", "old two", "old three"]);
+    replacement.extend_from_slice(b"replacement bytes");
+    let staged = raw_revision(&archive, "source", Harness::ClaudeCode, &replacement);
+    let attempt_staged =
+        archive.prepare_projection("source", staged, "fixture-v1", false).unwrap().unwrap();
+    archive.append_projection_events(&attempt_staged, vec![event(0, "replacement")]).unwrap();
     let page =
         archive.events(&EventQuery { after: Some(cursor.clone()), ..query.clone() }).unwrap();
     assert_eq!(page.items[0].text, "old two");
 
-    let session = archive.session("source").unwrap();
+    let session = archive.session(&conversation(&archive, "source")).unwrap();
     archive
-        .publish_projection(
-            "source",
-            staged,
+        .publish_projection_attempt(
+            &attempt_staged,
             &SessionMetadata {
                 native_id: session.native_id,
                 project_path: session.project_path,
@@ -197,6 +219,7 @@ fn events_never_mix_published_and_staged_revisions() {
                 origin: "unknown".into(),
                 harness_version: None,
                 parent_session_id: None,
+                forked_from_session_id: None,
                 model: None,
             },
             false,
@@ -206,10 +229,11 @@ fn events_never_mix_published_and_staged_revisions() {
         archive.events(&EventQuery { after: Some(cursor), ..query.clone() }),
         Err(Error::StaleCursor)
     ));
+    assert_eq!(conversation(&archive, "source"), query.session_id);
     let fresh = archive.events(&query).unwrap();
     assert_eq!(fresh.items[0].text, "replacement");
     assert_eq!(fresh.items[0].payload["future_field"]["keep"], true);
-    assert!(!archive.session("source").unwrap().complete);
+    assert!(!archive.session(&conversation(&archive, "source")).unwrap().complete);
     let revisions = archive.revisions("source", 10, None).unwrap();
     assert_eq!(
         revisions.items.iter().map(|revision| revision.id).collect::<Vec<_>>(),
@@ -260,7 +284,7 @@ fn large_native_events_page_by_bytes_without_dropping_a_record() {
     let (_directory, archive) = archive();
     let text = "x".repeat(3 * 1024 * 1024);
     publish(&archive, "large", Harness::Pi, Some(1), Some(2), &[&text, "tail"]);
-    let query = EventQuery { session_id: "large".into(), limit: 500, after: None };
+    let query = EventQuery { session_id: conversation(&archive, "large"), limit: 500, after: None };
     let first = archive.events(&query).unwrap();
     assert_eq!(first.items.len(), 1);
     assert_eq!(first.items[0].text.len(), text.len());
@@ -276,12 +300,15 @@ fn failed_new_normalization_does_not_claim_the_old_projection_covers_latest_byte
     let original = publish(&archive, "source", Harness::Codex, Some(1), Some(2), &["retained"]);
     raw_revision(&archive, "source", Harness::Codex, b"new unsupported native format");
     archive.set_coverage("source", false).unwrap();
-    let session = archive.session("source").unwrap();
+    let session = archive.session(&conversation(&archive, "source")).unwrap();
     assert_eq!(session.revision_id, original);
     assert!(!session.complete);
     let page = archive.list_sessions(&SessionQuery::default()).unwrap();
     assert!(!page.items[0].complete);
-    assert_eq!(archive.events(&EventQuery::new("source")).unwrap().items[0].text, "retained");
+    assert_eq!(
+        archive.events(&EventQuery::new(conversation(&archive, "source"))).unwrap().items[0].text,
+        "retained"
+    );
 }
 
 #[test]
@@ -290,12 +317,12 @@ fn metadata_pages_bound_bytes_without_truncating_or_skipping_native_titles() {
     let title = "t".repeat(3 * 1024 * 1024);
     for (id, updated) in [("a", Some(2)), ("b", Some(1)), ("c", None)] {
         let revision = raw_revision(&archive, id, Harness::Pi, id.as_bytes());
-        archive.begin_projection(id, revision).unwrap();
-        archive.append_events(id, revision, vec![event(0, "small event")]).unwrap();
+        let attempt_revision =
+            archive.prepare_projection(id, revision, "fixture-v1", false).unwrap().unwrap();
+        archive.append_projection_events(&attempt_revision, vec![event(0, "small event")]).unwrap();
         archive
-            .publish_projection(
-                id,
-                revision,
+            .publish_projection_attempt(
+                &attempt_revision,
                 &SessionMetadata {
                     native_id: id.into(),
                     project_path: None,
@@ -305,6 +332,7 @@ fn metadata_pages_bound_bytes_without_truncating_or_skipping_native_titles() {
                     origin: "cli".into(),
                     harness_version: None,
                     parent_session_id: None,
+                    forked_from_session_id: None,
                     model: None,
                 },
                 true,
@@ -317,7 +345,7 @@ fn metadata_pages_bound_bytes_without_truncating_or_skipping_native_titles() {
         let page = archive.list_sessions(&query).unwrap();
         assert_eq!(page.items.len(), 1);
         assert_eq!(page.items[0].title.as_deref(), Some(title.as_str()));
-        ids.push(page.items[0].id.clone());
+        ids.push(page.items[0].source_id.clone());
         query.after = page.next_cursor;
         if query.after.is_none() {
             break;
@@ -337,8 +365,8 @@ fn reparsing_identical_bytes_publishes_a_distinct_projection_and_expires_event_c
         Some(2),
         &["previous interpretation", "old second event"],
     );
-    let original = archive.session("source").unwrap();
-    let query = EventQuery { session_id: "source".into(), limit: 1, after: None };
+    let original = archive.session(&conversation(&archive, "source")).unwrap();
+    let query = EventQuery { session_id: conversation(&archive, "source"), limit: 1, after: None };
     let first = archive.events(&query).unwrap();
     let cursor = first.next_cursor.unwrap();
     let replacement =
@@ -347,7 +375,10 @@ fn reparsing_identical_bytes_publishes_a_distinct_projection_and_expires_event_c
         .append_projection_events(&replacement, vec![event(0, "corrected interpretation")])
         .unwrap();
 
-    assert_eq!(archive.session("source").unwrap().projection_id, original.projection_id);
+    assert_eq!(
+        archive.session(&conversation(&archive, "source")).unwrap().projection_id,
+        original.projection_id
+    );
     let old_page =
         archive.events(&EventQuery { after: Some(cursor.clone()), ..query.clone() }).unwrap();
     assert_eq!(old_page.items[0].text, "old second event");
@@ -363,13 +394,14 @@ fn reparsing_identical_bytes_publishes_a_distinct_projection_and_expires_event_c
                 origin: original.origin,
                 harness_version: original.harness_version,
                 parent_session_id: original.parent_session_id,
+                forked_from_session_id: None,
                 model: original.model,
             },
             true,
         )
         .unwrap();
 
-    let current = archive.session("source").unwrap();
+    let current = archive.session(&conversation(&archive, "source")).unwrap();
     assert_eq!(current.revision_id, revision);
     assert_ne!(current.projection_id, original.projection_id);
     assert_eq!(current.parser_version, "parser-v2");
@@ -382,4 +414,18 @@ fn reparsing_identical_bytes_publishes_a_distinct_projection_and_expires_event_c
     let encoded = serde_json::to_value(current).unwrap();
     assert!(encoded["revision_id"].is_string());
     assert!(encoded["projection_id"].is_string());
+}
+
+fn conversation(archive: &Archive, source: &str) -> String {
+    archive
+        .list_sessions(&agent_history::query::SessionQuery {
+            put_away: "include".into(),
+            ..Default::default()
+        })
+        .unwrap()
+        .items
+        .into_iter()
+        .find(|item| item.sources.iter().any(|member| member.source_id == source))
+        .unwrap()
+        .id
 }

@@ -102,7 +102,7 @@ fn larger_parser_budget_recovers_deleted_source_without_new_raw_revision() {
         "partial"
     );
     let source_id = fixture.source_id();
-    let before = fixture.archive.session(&source_id).unwrap();
+    let before = fixture.archive.session(&conversation(&fixture.archive, &source_id)).unwrap();
     assert!(!before.complete);
     assert_eq!(fixture.archive.search(&search("recoverabletailneedle")).unwrap().total, 0);
     fs::remove_dir_all(&fixture.root.root).unwrap();
@@ -110,7 +110,7 @@ fn larger_parser_budget_recovers_deleted_source_without_new_raw_revision() {
     let observed = Arc::new(Mutex::new(Vec::new()));
     let observer_state = observed.clone();
     let observer_archive = fixture.archive.clone();
-    let observer_source = source_id.clone();
+    let observer_source = before.id.clone();
     let old_projection = before.projection_id;
     let options = BackupOptions {
         max_record_bytes: 64 * 1024,
@@ -131,7 +131,7 @@ fn larger_parser_budget_recovers_deleted_source_without_new_raw_revision() {
     assert_eq!(result.captured, 0);
     assert_eq!(result.unchanged, 1);
     assert_eq!(fixture.archive.revisions(&source_id, 100, None).unwrap().items.len(), 1);
-    let after = fixture.archive.session(&source_id).unwrap();
+    let after = fixture.archive.session(&conversation(&fixture.archive, &source_id)).unwrap();
     assert_eq!(after.revision_id, before.revision_id);
     assert_ne!(after.projection_id, before.projection_id);
     assert!(after.complete);
@@ -166,7 +166,7 @@ fn retained_attachment_coverage_survives_deleted_source_roots() {
     let result = fixture.archive.reparse_source(&source_id, &BackupOptions::default()).unwrap();
     assert_eq!(result.status, "complete", "retained reparse report: {result:?}");
     assert_eq!(result.captured, 0);
-    assert!(fixture.archive.session(&source_id).unwrap().complete);
+    assert!(fixture.archive.session(&conversation(&fixture.archive, &source_id)).unwrap().complete);
     assert!(!fixture.root.root.exists());
 }
 
@@ -188,7 +188,25 @@ fn missing_retained_attachment_is_partial_and_does_not_read_new_live_file() {
     assert_eq!(result.status, "partial");
     assert_eq!(result.captured, 0);
     assert!(result.issues.iter().any(|issue| issue.code.contains("attachment")));
-    assert!(!fixture.archive.session(&source_id).unwrap().complete);
+    let view = fixture.archive.session(&conversation(&fixture.archive, &source_id)).unwrap();
+    assert!(view.complete);
+    assert_eq!(view.attachments_not_kept, 1);
+    assert!(result.issues.iter().any(|issue| issue.code == "attachment_not_retained"
+        && issue.detail.as_deref() == Some("missing")));
     assert_eq!(fixture.archive.search(&search("newlivefileneedlemustnotberead")).unwrap().total, 0);
     assert_eq!(fixture.archive.revisions(&source_id, 100, None).unwrap().items.len(), 1);
+}
+
+fn conversation(archive: &Archive, source: &str) -> String {
+    archive
+        .list_sessions(&agent_history::query::SessionQuery {
+            put_away: "include".into(),
+            ..Default::default()
+        })
+        .unwrap()
+        .items
+        .into_iter()
+        .find(|item| item.sources.iter().any(|member| member.source_id == source))
+        .unwrap()
+        .id
 }

@@ -42,11 +42,11 @@ fn verification_checks_complete_raw_revisions_without_requiring_parseable_messag
     assert!(!archive.verify().unwrap().normalization_complete);
 
     // An unavailable index cannot erase the independently known normalization gap.
-    archive.begin_projection("source", revision).unwrap();
+    let attempt_revision =
+        archive.prepare_projection("source", revision, "fixture-v1", false).unwrap().unwrap();
     archive
-        .publish_projection(
-            "source",
-            revision,
+        .publish_projection_attempt(
+            &attempt_revision,
             &SessionMetadata { native_id: "native-source".into(), ..SessionMetadata::default() },
             false,
         )

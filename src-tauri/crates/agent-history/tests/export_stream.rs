@@ -57,6 +57,7 @@ fn retain_format(archive: &Archive, bytes: &[u8], format: &str) -> i64 {
 
 fn event(ordinal: u64, text: String) -> NativeEvent {
     NativeEvent {
+        references: Vec::new(),
         ordinal,
         native_id: Some(format!("event-{ordinal}")),
         parent_id: ordinal.checked_sub(1).map(|previous| format!("event-{previous}")),
@@ -69,11 +70,12 @@ fn event(ordinal: u64, text: String) -> NativeEvent {
 }
 
 fn publish(archive: &Archive, revision: i64, events: Vec<NativeEvent>, complete: bool) {
-    archive.begin_projection(SESSION, revision).unwrap();
+    let attempt_revision =
+        archive.prepare_projection(SESSION, revision, "fixture-v1", false).unwrap().unwrap();
     for page in events.chunks(64) {
-        archive.append_events(SESSION, revision, page.to_vec()).unwrap();
+        archive.append_projection_events(&attempt_revision, page.to_vec()).unwrap();
     }
-    archive.publish_projection(SESSION, revision, &metadata(), complete).unwrap();
+    archive.publish_projection_attempt(&attempt_revision, &metadata(), complete).unwrap();
 }
 
 fn metadata() -> SessionMetadata {
@@ -86,6 +88,7 @@ fn metadata() -> SessionMetadata {
         origin: "cli".into(),
         harness_version: None,
         parent_session_id: None,
+        forked_from_session_id: None,
         model: None,
     }
 }
@@ -111,7 +114,9 @@ fn raw_export_is_byte_exact_while_normalized_export_preserves_all_paged_evidence
     assert!(raw_report_json["projection_id"].is_null());
 
     let mut normalized = Vec::new();
-    let report = archive.write_normalized(SESSION, ExportFormat::Jsonl, &mut normalized).unwrap();
+    let report = archive
+        .write_normalized(&conversation(&archive, SESSION), ExportFormat::Jsonl, &mut normalized)
+        .unwrap();
     assert_eq!(report.event_count, 137);
     assert_eq!(report.byte_len, normalized.len() as u64);
     assert!(!report.complete);
@@ -133,7 +138,9 @@ fn raw_export_is_byte_exact_while_normalized_export_preserves_all_paged_evidence
     assert_eq!(rows[0]["complete"], false);
     assert_eq!(rows[0]["source_capture_format"], "native");
     for (actual, expected) in rows[1..].iter().zip(events) {
-        assert_eq!(actual, &serde_json::to_value(expected).unwrap());
+        let mut expected = serde_json::to_value(expected).unwrap();
+        expected["source_id"] = json!(SESSION);
+        assert_eq!(actual, &expected);
     }
 }
 
@@ -141,21 +148,23 @@ fn raw_export_is_byte_exact_while_normalized_export_preserves_all_paged_evidence
 fn logical_database_exports_identify_the_retained_format_without_claiming_native_bytes() {
     let (_directory, archive) = archive();
     let bytes = b"{\"type\":\"sqlite_row\",\"table\":\"threads\",\"values\":[\"fixture\"]}\n";
-    let revision = retain_format(&archive, bytes, "pathkeep-sqlite-evidence-v1");
+    let revision = retain_format(&archive, bytes, "pathkeep-sqlite-evidence-v2");
     publish(&archive, revision, vec![event(0, "snapshot projection".into())], true);
 
     let mut raw = Vec::new();
     let raw_report = archive.write_raw(revision, &mut raw).unwrap();
     assert_eq!(raw, bytes);
-    assert_eq!(raw_report.source_capture_format, "pathkeep-sqlite-evidence-v1");
+    assert_eq!(raw_report.source_capture_format, "pathkeep-sqlite-evidence-v2");
     assert!(!raw_report.native_resume_ready);
 
     let mut output = Vec::new();
-    let report = archive.write_normalized(SESSION, ExportFormat::Jsonl, &mut output).unwrap();
-    assert_eq!(report.source_capture_format, "pathkeep-sqlite-evidence-v1");
+    let report = archive
+        .write_normalized(&conversation(&archive, SESSION), ExportFormat::Jsonl, &mut output)
+        .unwrap();
+    assert_eq!(report.source_capture_format, "pathkeep-sqlite-evidence-v2");
     let header: Value =
         serde_json::from_slice(output.split(|byte| *byte == b'\n').next().unwrap()).unwrap();
-    assert_eq!(header["source_capture_format"], "pathkeep-sqlite-evidence-v1");
+    assert_eq!(header["source_capture_format"], "pathkeep-sqlite-evidence-v2");
     assert_eq!(header["native_resume_ready"], false);
 }
 
@@ -166,7 +175,9 @@ fn markdown_cannot_promote_native_content_to_active_markup() {
     let hostile = "before\n```\n````````\n<script>alert(1)</script>\n# forged title\nafter";
     publish(&archive, revision, vec![event(0, hostile.into())], true);
     let mut output = Vec::new();
-    let report = archive.write_normalized(SESSION, ExportFormat::Markdown, &mut output).unwrap();
+    let report = archive
+        .write_normalized(&conversation(&archive, SESSION), ExportFormat::Markdown, &mut output)
+        .unwrap();
     let output = String::from_utf8(output).unwrap();
     assert_eq!(report.event_count, 1);
     assert!(output.contains(hostile));
@@ -198,8 +209,16 @@ fn output_failure_never_returns_a_successful_export_report() {
     publish(&archive, revision, vec![event(0, "keep this".into())], true);
     for result in [
         archive.write_raw(revision, &mut BrokenOutput),
-        archive.write_normalized(SESSION, ExportFormat::Jsonl, &mut BrokenOutput),
-        archive.write_normalized(SESSION, ExportFormat::Markdown, &mut BrokenOutput),
+        archive.write_normalized(
+            &conversation(&archive, SESSION),
+            ExportFormat::Jsonl,
+            &mut BrokenOutput,
+        ),
+        archive.write_normalized(
+            &conversation(&archive, SESSION),
+            ExportFormat::Markdown,
+            &mut BrokenOutput,
+        ),
     ] {
         assert!(
             matches!(result, Err(Error::Io(error)) if error.kind() == io::ErrorKind::StorageFull)
@@ -228,11 +247,18 @@ impl Write for ReplaceOnWrite<'_> {
 #[test]
 fn replacing_a_projection_during_export_cannot_mix_two_revisions() {
     let (_directory, archive) = archive();
-    let old = retain(&archive, b"old source version");
+    // Both versions keep the first record, so the conversation is the same one and the
+    // export is refused because its view changed, not because its id went away.
+    let old = retain(&archive, b"first record\nold source version");
     publish(&archive, old, vec![event(0, "original".into())], true);
-    let replacement = retain(&archive, b"new source version");
+    let exported = conversation(&archive, SESSION);
+    let replacement = retain(&archive, b"first record\nnew source version");
     let mut output = ReplaceOnWrite { archive: &archive, replacement: Some(replacement) };
-    assert!(archive.write_normalized(SESSION, ExportFormat::Jsonl, &mut output).is_err());
+    assert!(matches!(
+        archive.write_normalized(&exported, ExportFormat::Jsonl, &mut output),
+        Err(Error::StaleCursor)
+    ));
+    assert_eq!(conversation(&archive, SESSION), exported);
 }
 
 struct ReparseOnWrite<'a> {
@@ -269,7 +295,11 @@ fn republishing_identical_raw_bytes_during_export_rejects_the_changed_projection
     let original_projection = archive.current_projection_id(SESSION).unwrap();
     let mut output = ReparseOnWrite { archive: &archive, revision: Some(revision) };
     assert!(matches!(
-        archive.write_normalized(SESSION, ExportFormat::Jsonl, &mut output),
+        archive.write_normalized(
+            &conversation(&archive, SESSION),
+            ExportFormat::Jsonl,
+            &mut output
+        ),
         Err(Error::StaleCursor)
     ));
     assert_eq!(archive.current_projection(SESSION).unwrap(), Some(revision));
@@ -288,7 +318,9 @@ fn staged_reparse_keeps_the_published_export_available_until_publication() {
         .append_projection_events(&attempt, vec![event(0, "unpublished interpretation".into())])
         .unwrap();
     let mut output = Vec::new();
-    let report = archive.write_normalized(SESSION, ExportFormat::Jsonl, &mut output).unwrap();
+    let report = archive
+        .write_normalized(&conversation(&archive, SESSION), ExportFormat::Jsonl, &mut output)
+        .unwrap();
     assert_eq!(report.projection_id, old_projection);
     let rows: Vec<Value> = output
         .split(|byte| *byte == b'\n')
@@ -299,8 +331,23 @@ fn staged_reparse_keeps_the_published_export_available_until_publication() {
     assert_eq!(rows[0]["session"]["projection_id"], old_projection.unwrap().to_string());
     archive.publish_projection_attempt(&attempt, &metadata(), true).unwrap();
     let mut replacement = Vec::new();
-    let replacement_report =
-        archive.write_normalized(SESSION, ExportFormat::Jsonl, &mut replacement).unwrap();
+    let replacement_report = archive
+        .write_normalized(&conversation(&archive, SESSION), ExportFormat::Jsonl, &mut replacement)
+        .unwrap();
     assert_eq!(replacement_report.revision_id, report.revision_id);
     assert_ne!(replacement_report.projection_id, report.projection_id);
+}
+
+fn conversation(archive: &Archive, source: &str) -> String {
+    archive
+        .list_sessions(&agent_history::query::SessionQuery {
+            put_away: "include".into(),
+            ..Default::default()
+        })
+        .unwrap()
+        .items
+        .into_iter()
+        .find(|item| item.sources.iter().any(|member| member.source_id == source))
+        .unwrap()
+        .id
 }

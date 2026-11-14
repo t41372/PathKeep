@@ -31,6 +31,9 @@ impl Archive {
             root,
             relative_path: artifact.relative_path.clone(),
             kind: kind_name(artifact.kind).into(),
+            retention: crate::adapters::adapter(source.harness).retention(artifact).into(),
+            last_seen_at: None,
+            missing_since: None,
             latest_revision_id: None,
             observed_at: chrono::Utc::now().timestamp_millis(),
         };
@@ -58,22 +61,29 @@ impl Archive {
                 self.set_coverage(source_id, false)?;
             }
         }
+        let selected_retention = match &known {
+            Some(known) if known.latest_revision_id.is_some() && known.retention != "state" => {
+                known.retention.clone()
+            }
+            _ => desired.retention,
+        };
         let selected_kind = match &known {
             Some(known) if kind_rank(&known.kind) >= kind_rank(&desired.kind) => known.kind.clone(),
             _ => desired.kind,
         };
         self.store.write(Db::SourceEvidence, Priority::Batch, move |tx| {
             tx.execute(
-                "INSERT INTO ah_sources(id,harness,root,relative_path,kind,observed_at)
-                 VALUES(?1,?2,?3,?4,?5,?6)
-                 ON CONFLICT(id) DO UPDATE SET kind=excluded.kind",
+                "INSERT INTO ah_sources(id, harness, root, relative_path, kind, observed_at,
+                    retention) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7) ON CONFLICT(id) DO UPDATE SET
+                    kind=excluded.kind, retention=excluded.retention",
                 params![
                     desired.id,
                     desired.harness,
                     desired.root,
                     desired.relative_path,
                     selected_kind,
-                    desired.observed_at
+                    desired.observed_at,
+                    selected_retention
                 ],
             )?;
             Ok(())
@@ -101,12 +111,25 @@ impl Archive {
 
 fn read_source(tx: &vault_store::Session<'_>, id: &str) -> vault_store::Result<Option<SourceInfo>> {
     tx.query_one(
-        "SELECT id,harness,root,relative_path,kind,latest_revision_id,observed_at FROM ah_sources WHERE id=?1",
-        [id],|row| Ok(SourceInfo {
-            id:row.get(0)?,harness:row.get(1)?,root:row.get(2)?,relative_path:row.get(3)?,
-            kind:row.get(4)?,latest_revision_id:row.get(5)?,observed_at:row.get(6)?,
-        }),
-    ).optional()
+        "SELECT id, harness, root, relative_path, kind, latest_revision_id, observed_at,
+            retention, last_seen_at, missing_since FROM ah_sources WHERE id=?1",
+        [id],
+        |row| {
+            Ok(SourceInfo {
+                id: row.get(0)?,
+                harness: row.get(1)?,
+                root: row.get(2)?,
+                relative_path: row.get(3)?,
+                kind: row.get(4)?,
+                latest_revision_id: row.get(5)?,
+                observed_at: row.get(6)?,
+                retention: row.get(7)?,
+                last_seen_at: row.get(8)?,
+                missing_since: row.get(9)?,
+            })
+        },
+    )
+    .optional()
 }
 
 fn kind_name(kind: ArtifactKind) -> &'static str {

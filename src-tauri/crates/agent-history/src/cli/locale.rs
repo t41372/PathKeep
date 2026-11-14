@@ -38,13 +38,27 @@ impl Locale {
     pub fn guidance(self) -> &'static str {
         match self {
             Self::English => {
-                "Use plan to preview sources. Backup, reparse and export require --execute. Read the archive password from standard input with --password-stdin; do not put it in arguments. Exports never replace existing files. Use sync-search --rebuild to recreate a damaged search index. Reparse reads retained evidence without accessing the original source. Use sources to find retained artifacts, including those that could not be parsed."
+                "Use plan to preview sources and the bounded git-file allowlist. Use backup \
+                    --no-git to skip git reads. Mark previews a change unless --execute is \
+                    given. Use init --no-encryption for an archive that needs no password. \
+                    Backup, reparse and export require --execute. Read the archive password \
+                    from standard input with --password-stdin; do not put it in arguments. \
+                    Exports never replace existing files. Use sync-search --rebuild to recreate \
+                    a damaged search index. Reparse reads retained evidence without accessing \
+                    the original source. Use sources to find retained artifacts, including \
+                    those that could not be parsed."
             }
             Self::SimplifiedChinese => {
-                "使用 plan 预览来源。备份、重新解析和导出需要 --execute。使用 --password-stdin 从标准输入读取存档密码，不要把密码放在命令参数中。导出不会覆盖现有文件。使用 sync-search --rebuild 重建损坏的搜索索引。重新解析只读取已备份的数据，不会访问原始来源。使用 sources 查找保留的原始文件，包括无法解析的文件。"
+                "使用 plan 预览来源和允许读取的 git 文件列表。使用 backup --no-git 跳过 git 读取。mark 在提供 --execute \
+                    后才写入。使用 init --no-encryption 创建不需要密码的存档。备份、重新解析和导出需要 --execute。使用 \
+                    --password-stdin 从标准输入读取存档密码，不要把密码放在命令参数中。导出不会覆盖现有文件。使用 sync-search \
+                    --rebuild 重建损坏的搜索索引。重新解析只读取已备份的数据，不会访问原始来源。使用 sources 查找保留的原始文件，包括无法解析的文件。"
             }
             Self::TraditionalChinese => {
-                "使用 plan 預覽來源。備份、重新解析與匯出需要 --execute。使用 --password-stdin 從標準輸入讀取封存密碼，不要把密碼放在命令參數中。匯出不會覆寫現有檔案。使用 sync-search --rebuild 重建損壞的搜尋索引。重新解析只讀取已備份的資料，不會存取原始來源。使用 sources 尋找保留的原始檔案，包括無法解析的檔案。"
+                "使用 plan 預覽來源與允許讀取的 git 檔案清單。使用 backup --no-git 跳過 git 讀取。mark 在提供 --execute \
+                    後才寫入。使用 init --no-encryption 建立不需要密碼的存檔。備份、重新解析與匯出需要 --execute。使用 \
+                    --password-stdin 從標準輸入讀取封存密碼，不要把密碼放在命令參數中。匯出不會覆寫現有檔案。使用 sync-search \
+                    --rebuild 重建損壞的搜尋索引。重新解析只讀取已備份的資料，不會存取原始來源。使用 sources 尋找保留的原始檔案，包括無法解析的檔案。"
             }
         }
     }
@@ -92,7 +106,19 @@ impl Locale {
             ],
         };
         format!(
-            "pathkeep-agent-history <command> [options]\n{}: init, plan, backup, reparse, list, sources, events, revisions, search, export, raw-export, verify, sync-search\n{}: --archive PATH --password-stdin --locale en|zh-CN|zh-TW\n{}: --source HARNESS=ROOT\n{}: --harness NAME --project PATH --limit 1..500 --after CURSOR --sort updated|created\n{}: --session ID\n{}: --query TEXT --limit 1..100\n{}: --source-id ID\n{}: --session ID --format jsonl|markdown --output PATH --execute\n{}: --revision ID --output PATH --execute\n{}: reparse --source-id ID --execute\n{}: sources --harness NAME --kind transcript|attachment|metadata|sqlite --limit 1..500 --after CURSOR",
+            "pathkeep-agent-history <command> [options]\n{}: init, plan, backup, reparse, \
+                list, sources, events, revisions, search, export, raw-export, verify, \
+                sync-search, mark, folders\n{}: --archive PATH --password-stdin --locale \
+                en|zh-CN|zh-TW\n{}: --source HARNESS=ROOT\n{}: --harness NAME --project PATH \
+                --limit 1..500 --after CURSOR --sort updated|created --put-away \
+                exclude|only|include --trash exclude|only --starred\n{}: --session ID\n{}: \
+                --query TEXT --limit 1..100\n{}: --source-id ID\n{}: --session ID --format \
+                jsonl|markdown --output PATH --execute\n{}: --revision ID --output PATH \
+                --execute\n{}: reparse --source-id ID --execute\n{}: sources --harness NAME \
+                --kind transcript|attachment|metadata|sqlite --limit 1..500 --after \
+                CURSOR\ninit --no-encryption\nbackup --no-git --execute\nmark --conversation ID \
+                [--star true|false] [--put-away true|false] [--trash true|false] [--title TEXT \
+                | --clear-title] --execute\nfolders --path PATH --limit 1..500 --after CURSOR",
             labels[0],
             labels[1],
             labels[2],
@@ -109,6 +135,17 @@ impl Locale {
 
     pub fn error(self, code: &str) -> &'static str {
         let messages = match code {
+            "password_required" => {
+                ["This archive requires a password.", "此存档需要密码。", "此存檔需要密碼。"]
+            }
+            "archive_not_encrypted" => [
+                "This archive is not encrypted; omit the password.",
+                "此存档未加密，请勿提供密码。",
+                "此存檔未加密，請勿提供密碼。",
+            ],
+            "conversation_not_found" => {
+                ["The conversation was not found.", "找不到此对话。", "找不到此對話。"]
+            }
             "invalid_input" => [
                 "Check the command and its required arguments.",
                 "请检查命令及其必需参数。",

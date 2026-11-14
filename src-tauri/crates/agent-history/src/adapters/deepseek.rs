@@ -7,6 +7,8 @@
 //! older formats are retained with explicitly limited interpretation.
 
 mod discovery;
+mod records;
+use records::*;
 
 use super::common;
 use super::{
@@ -25,6 +27,46 @@ pub struct DeepseekAdapter;
 impl Adapter for DeepseekAdapter {
     fn harness(&self) -> Harness {
         Harness::Deepseek
+    }
+
+    fn conversation_key(
+        &self,
+        session: &SessionMetadata,
+        _source_id: &str,
+        path: &str,
+        _first_digest: &str,
+        first: &Value,
+    ) -> super::identity::ConversationKey {
+        // Generation headers are rewritten; no evidence establishes a stable createdAt.
+        let native = if session.native_id.is_empty() && first["type"] == "session" {
+            first["id"].as_str().unwrap_or_default().to_owned()
+        } else {
+            session.native_id.clone()
+        };
+        let mut key = super::identity::ConversationKey::new(native, String::new());
+        let file = path.rsplit('/').next().unwrap_or(path);
+        key.generation = discovery::generation_number(file).unwrap_or(0);
+        key.relation.parent_native_id = session.parent_session_id.clone();
+        if first["type"] == "session" && first["origin"] == "subagent" {
+            key.relation.parent_native_id = first["parentSession"].as_str().map(str::to_owned);
+        }
+        if key.relation.parent_native_id.is_none() {
+            key.relation.forked_from_native_id = session
+                .forked_from_session_id
+                .clone()
+                .or_else(|| first["parentSession"].as_str().map(str::to_owned));
+        }
+        key
+    }
+
+    fn current_source_only(&self) -> bool {
+        true
+    }
+
+    fn generation_group(&self, path: &str) -> Option<String> {
+        let (folder, file) = path.rsplit_once('/')?;
+        discovery::generation_number(file)?;
+        Some(folder.into())
     }
 
     fn discover(
@@ -77,6 +119,7 @@ struct Projection<'a> {
     complete: bool,
     issues: Vec<Diagnostic>,
     references: Vec<Reference>,
+    event_references: Vec<Reference>,
     seen_references: HashSet<String>,
 }
 
@@ -90,6 +133,7 @@ impl<'a> Projection<'a> {
             complete: true,
             issues: Vec::new(),
             references: Vec::new(),
+            event_references: Vec::new(),
             seen_references: HashSet::new(),
         }
     }
@@ -155,6 +199,7 @@ impl<'a> Projection<'a> {
             }
         }
         emit(NativeEvent {
+            references: std::mem::take(&mut self.event_references),
             ordinal,
             native_id,
             parent_id: None,
@@ -198,7 +243,8 @@ impl<'a> Projection<'a> {
             updated_at: Some(created_at),
             origin: "unknown".into(),
             harness_version: None,
-            parent_session_id: parent,
+            parent_session_id: if payload["origin"] == "subagent" { parent.clone() } else { None },
+            forked_from_session_id: if payload["origin"] == "subagent" { None } else { parent },
             model: None,
         });
     }
@@ -222,15 +268,16 @@ impl<'a> Projection<'a> {
 
     fn reference(&mut self, kind: &str, target: String, ordinal: u64) {
         let key = format!("{kind}:{target}");
-        if self.seen_references.contains(&key) {
-            return;
-        }
         let reference = Reference {
             kind: kind.into(),
             target,
             end_byte_offset: None,
             end_ordinal_exclusive: None,
         };
+        self.event_references.push(reference.clone());
+        if self.seen_references.contains(&key) {
+            return;
+        }
         if common::push_reference(&mut self.references, reference, &mut self.issues) {
             self.seen_references.insert(key);
         } else {
@@ -310,224 +357,3 @@ impl<'a> Projection<'a> {
         );
     }
 }
-
-fn message<'a>(payload: &'a Value, kind: &str) -> Option<&'a Value> {
-    match kind {
-        "user/message" => payload.get("data"),
-        "system/message" | "developer/message" | "assistant/message" | "tool/result" => {
-            payload.pointer("/data/message")
-        }
-        _ => None,
-    }
-}
-
-fn role_for_event(kind: &str) -> Option<&'static str> {
-    match kind {
-        "user/message" => Some("user"),
-        "system/message" => Some("system"),
-        "developer/message" => Some("developer"),
-        "assistant/message" => Some("assistant"),
-        "tool/result" => Some("tool"),
-        _ => None,
-    }
-}
-
-fn nonempty_string(value: &Value) -> bool {
-    value.as_str().is_some_and(|text| !text.is_empty())
-}
-
-/// Validate only fields this projection consumes. Native lifecycle and surface
-/// replay validation remains the harness's responsibility, not this query reader's.
-fn valid_record(payload: &Value, kind: &str) -> bool {
-    if !nonempty_string(&payload["type"])
-        || !payload["data"].is_object()
-        || payload["time"].as_i64().is_none()
-    {
-        return false;
-    }
-    let data = &payload["data"];
-    if let Some(role) = role_for_event(kind) {
-        let Some(message) = message(payload, kind) else { return false };
-        if !nonempty_string(&message["id"])
-            || message["role"] != role
-            || !nonempty_string(&message["source"]["kind"])
-        {
-            return false;
-        }
-        let Some(content) = message["content"].as_array() else { return false };
-        if !content.iter().all(valid_content_block) {
-            return false;
-        }
-        let surface = &payload["surfaceOp"];
-        if surface != "append"
-            && !(surface["op"] == "replace"
-                && surface["startSeq"].as_u64().is_some()
-                && surface["endSeq"].as_u64().is_some())
-        {
-            return false;
-        }
-        if kind == "assistant/message"
-            && (!data["stream"].is_array()
-                || !nonempty_string(&message["source"]["provider"])
-                || !nonempty_string(&message["source"]["model"]))
-        {
-            return false;
-        }
-        if kind == "tool/result"
-            && (!nonempty_string(&message["toolCallId"])
-                || message["source"]["callId"] != message["toolCallId"])
-        {
-            return false;
-        }
-    }
-    match kind {
-        "tool/call" => {
-            nonempty_string(&data["callId"])
-                && nonempty_string(&data["name"])
-                && data["arguments"].is_string()
-        }
-        "assistant/attempt" => data["stream"].is_array(),
-        "session/title" => data["title"].is_string(),
-        _ => true,
-    }
-}
-
-fn valid_content_block(block: &Value) -> bool {
-    match block["type"].as_str() {
-        Some("text" | "reasoning") => block["text"].is_string(),
-        Some("tool-call") => {
-            nonempty_string(&block["id"])
-                && nonempty_string(&block["name"])
-                && block["arguments"].is_string()
-        }
-        Some("image" | "file") => block["attachment"].is_object(),
-        Some("tool-addition" | "tool-removal") => nonempty_string(&block["toolName"]),
-        Some(kind) => !kind.is_empty(),
-        None => false,
-    }
-}
-
-fn native_text(payload: &Value, kind: &str, message: Option<&Value>) -> String {
-    let mut pieces = Vec::new();
-    let content = message
-        .map(|message| &message["content"])
-        .or_else(|| (kind == "tool/ptc-dispatch").then_some(&payload["data"]["content"]));
-    if let Some(content) = content.and_then(Value::as_array) {
-        for block in content {
-            if block["type"] == "tool-call" {
-                if let Some(name) = block["name"].as_str() {
-                    pieces.push(name.to_owned());
-                }
-                if let Some(arguments) = block["arguments"].as_str() {
-                    pieces.push(arguments.to_owned());
-                }
-            } else {
-                let text = common::text(block);
-                if !text.is_empty() {
-                    pieces.push(text);
-                }
-            }
-        }
-    }
-    if matches!(kind, "tool/call" | "tool/ptc-dispatch") {
-        if let Some(name) = payload["data"]["name"].as_str() {
-            pieces.push(name.to_owned());
-        }
-        if let Some(arguments) = payload["data"].get("arguments") {
-            pieces.push(
-                arguments.as_str().map(str::to_owned).unwrap_or_else(|| arguments.to_string()),
-            );
-        }
-    }
-    pieces.join("\n")
-}
-
-/// Recognize the upstream footer convention conservatively, without extracting
-/// its path. Tool output can imitate this spelling; it never proves authority.
-fn content_has_spill_notice(content: &Value) -> bool {
-    content.as_array().is_some_and(|blocks| {
-        blocks.iter().any(|block| match block["type"].as_str() {
-            Some("text") => block["text"].as_str().is_some_and(has_spill_notice),
-            Some("tool-result") => content_has_spill_notice(&block["content"]),
-            _ => false,
-        })
-    })
-}
-
-fn has_spill_notice(text: &str) -> bool {
-    let footer = text.rsplit("\n\n").next().unwrap_or(text);
-    footer.ends_with(')')
-        && footer.contains(" Full formatted result stored at: ")
-        && (footer.starts_with("(Omitted ")
-            || footer.starts_with("(More bytes were omitted.")
-            || footer.starts_with("( Full formatted")
-            || footer.starts_with("( Omitted "))
-}
-
-// The pinned upstream generated vocabulary. Recognition here permits evidence
-// projection; it does not claim to implement the harness's native replay engine.
-const KNOWN_EVENTS: &[&str] = &[
-    "agent-preset/selected",
-    "agent/inbox/spliced",
-    "approval/asked",
-    "approval/decided",
-    "approval/policy",
-    "assistant/attempt",
-    "assistant/message",
-    "command/done",
-    "command/run",
-    "compaction/end",
-    "compaction/prune",
-    "compaction/start",
-    "compaction/summary",
-    "deliverables/presented",
-    "developer/message",
-    "feedback/message-delete",
-    "feedback/message-put",
-    "feedback/record",
-    "goal/change",
-    "hook/invoked",
-    "hook/result",
-    "image/offload",
-    "job/registered",
-    "job/settled",
-    "llm/retry",
-    "llm/retry-started",
-    "model/selection",
-    "permission/preset",
-    "plan/mode",
-    "request/context",
-    "request/header",
-    "sandbox/mode",
-    "schedule/change",
-    "session-log-deepseek/delivery-accepted",
-    "session/end-seed",
-    "session/title",
-    "session/title-llm-request",
-    "step/end",
-    "step/start",
-    "subagent/catalog",
-    "subagent/descriptor",
-    "subagent/model-selection-policy",
-    "system/message",
-    "team/member",
-    "team/message/delivered",
-    "team/message/queued",
-    "team/mode",
-    "team/task",
-    "todo/write",
-    "tool-workflow/agent-end",
-    "tool-workflow/agent-start",
-    "tool-workflow/run-end",
-    "tool-workflow/run-start",
-    "tool/call",
-    "tool/ptc-dispatch",
-    "tool/ptc-dispatch-start",
-    "tool/result",
-    "turn/end",
-    "turn/start",
-    "user/message",
-    "web/deepseek-search-llm-request",
-    "working-directory/change",
-    "workspace/changes",
-];

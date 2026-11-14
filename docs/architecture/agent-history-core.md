@@ -1,8 +1,10 @@
 # Agent history core
 
-Status: implementation contract, 2026-11-11. This document records the independently
-usable library requested by the user; product UI, onboarding, scheduling and IPC
-integration remain outside this work.
+Status: implementation contract, 2026-11-11; identity, what a run observes,
+retention, user state and optional encryption were added 2026-11-13, for the
+reasons in [agent-history-product-design.md](agent-history-product-design.md).
+This document records the independently usable library requested by the user;
+product UI, onboarding, scheduling and IPC integration remain outside this work.
 
 ## Scope and evidence
 
@@ -31,13 +33,26 @@ The archive handles bounded transactions and publication. Queries use stable
 identifiers and bounded pages. Source-specific data remains available alongside
 the common model instead of being forced through a lossy message-only schema.
 
+A **source** is one file. A **conversation** is what a person would call one: it
+has one or more sources, an id derived from native evidence (never from a path, a
+counter or capture order), links to a parent or to the conversation it was forked
+from that are resolved when read, and user state (star, put away, trash, title)
+that is stored with the evidence and survives reparsing, rebuilding the index, a
+moved file and a second root. Each adapter states its own identity rule beside
+the reason for it.
+
 ## Preservation contract
 
 - Preserve every captured byte, including unknown event types, malformed records,
   incomplete tails, older source generations and compressed streams. A parser
   limitation must not turn a successful raw capture into discarded evidence.
 - Do not identify a file solely by a session ID. Codex lineage can reference a
-  physical rollout ID; DeepSeek generations belong to one logical session.
+  physical rollout ID; DeepSeek generations belong to one logical session. A
+  Codex rollout that continues another names it with two numbers that count
+  differently: the byte offset is a position in the named rollout's own file,
+  the ordinal counts along that rollout's whole history (what it inherits plus
+  its own records before the offset). The line of a conversation is read through
+  the whole chain.
 - Preserve native event identity, parent relationships, source locator, record
   ordinal, timestamps, origin hints and native payload. Unknown origin stays
   unknown. Folder slugs are not reliable project paths.
@@ -45,24 +60,39 @@ the common model instead of being forced through a lossy message-only schema.
   unknown versions and normalization limits explicitly. Raw coverage and query
   coverage are separate facts. A partial run cannot report complete coverage.
 - Retain previous successful versions when a source is rewritten, truncated,
-  disappears, becomes inaccessible, or parsing fails. Never mirror deletions.
+  disappears, becomes inaccessible, or parsing fails. Never mirror deletions. A
+  revision that is a byte prefix of its successor keeps its record and shares
+  the successor's bytes; a snapshot of a tool's state database keeps only its
+  latest verified copy. A source's retention never moves to a kind that keeps
+  less once it has revisions.
+- Every run records which known sources it saw and which it did not, for the
+  roots it could read. A root that cannot be read says nothing about its files.
 - Attachments are captured only through known adapter locations or explicit
   references within approved roots. Conversation text cannot authorize arbitrary
-  filesystem reads. No network fetching of referenced URLs.
+  filesystem reads. No network fetching of referenced URLs. An attachment that
+  was not kept is counted on its conversation and reported with its class, never
+  its target; it does not make the conversation incomplete.
+- One bounded read beyond the tools' folders: the git facts (top level, common
+  directory, branch, remote URLs without credentials) of a folder that a session
+  record names in its structured working-directory field. Only `.git`, `HEAD`,
+  `commondir`, `gitdir` and `config` are read, each capped, no link below `.git`
+  is followed, `git` is never run, and `backup --no-git` reads nothing.
 - A capture is a validated file snapshot, not a claim that all harness processes
   stopped at the same instant. SQLite needs an actual consistent read/snapshot;
   copying its database/WAL files independently is not a consistency proof.
 
 ## Storage decisions
 
-Follow ADR-012: new relational storage uses Turso, full-text search uses Tantivy,
-all archive/projection/search/spill files stay encrypted. Reuse `vault-store` and
-`vault-crypto`, including the password envelope; do not introduce another crypto
-format or plaintext staging directory. The standalone archive has its own root
+Follow ADR-012: new relational storage uses Turso, full-text search uses Tantivy.
+Archive, projection and search files follow the archive's encryption choice,
+which may be none (`init --no-encryption`); temporary spill files are encrypted
+either way. Reuse `vault-store` and `vault-crypto`, including the password
+envelope; do not introduce another crypto format or plaintext staging directory. The standalone archive has its own root
 and data key. Future product integration must explicitly own its lifecycle.
 
-Raw bytes are split into bounded content-addressed chunks inside the encrypted
-canonical database. This gives atomic deduplication and avoids a second durability
+Raw bytes are split into 4 MiB slices, compressed with zstd and addressed by the
+SHA-256 of their uncompressed bytes, inside the canonical database. Files the
+tool already compressed are stored as they are. This gives atomic deduplication and avoids a second durability
 protocol for object files. A revision publishes only after its complete chunk
 manifest and source validation are committed. Incomplete attempts cannot replace
 the current revision. Old raw revisions remain available for byte-exact export.

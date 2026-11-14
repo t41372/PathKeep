@@ -34,15 +34,15 @@ impl Archive {
                 let snapshot = match &after {
                     Some(cursor) => cursor.snapshot_rowid,
                     None => session.query_one(
-                        "SELECT coalesce(max(rowid),0) FROM ah_sources",
+                        "SELECT coalesce(max(rowid), 0) FROM ah_sources",
                         (),
                         |row| Ok(row.get::<i64>(0)?),
                     )?,
                 };
-                let mut sql =
-                    "SELECT id,harness,root,relative_path,kind,latest_revision_id,observed_at \
-                FROM ah_sources WHERE rowid<=? AND id>?"
-                        .to_owned();
+                let mut sql = "SELECT id, harness, root, relative_path, kind, latest_revision_id,
+                        observed_at, retention, last_seen_at, missing_since  FROM ah_sources
+                        WHERE rowid<=? AND id>?"
+                    .to_owned();
                 let mut values = vec![
                     Value::Integer(snapshot),
                     Value::Text(after.map_or_else(String::new, |cursor| cursor.after_id)),
@@ -108,6 +108,9 @@ fn source(row: &Row) -> vault_store::Result<SourceInfo> {
         kind: row.get(4)?,
         latest_revision_id: row.get(5)?,
         observed_at: row.get(6)?,
+        retention: row.get(7)?,
+        last_seen_at: row.get(8)?,
+        missing_since: row.get(9)?,
     })
 }
 

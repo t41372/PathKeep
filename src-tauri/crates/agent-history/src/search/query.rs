@@ -2,6 +2,10 @@
 //! Not responsible for: index creation, repairs, conversation flattening or UI rendering.
 //! Both watermark checks are necessary: publication can change while Tantivy is reading.
 
+#[cfg(test)]
+#[path = "state_tests.rs"]
+mod state_tests;
+
 use super::{SearchHit, SearchPage, SearchQuery, index, schema, tokenizer};
 use crate::{Archive, Error, Result};
 use tantivy::collector::{Count, TopDocs};
@@ -14,6 +18,16 @@ impl Archive {
     /// Searches the whole synchronized corpus. Terms are literal, case-insensitive
     /// and conjunctive; filters retain exact harness/project identity.
     pub fn search(&self, query: &SearchQuery) -> Result<SearchPage> {
+        loop {
+            let state = self.state_visibility()?;
+            let page = self.search_current(query)?;
+            if self.state_visibility()? == state {
+                return Ok(page);
+            }
+        }
+    }
+
+    fn search_current(&self, query: &SearchQuery) -> Result<SearchPage> {
         if query.limit == 0 || query.limit > 100 {
             return Err(Error::InvalidInput("search limit must be between 1 and 100".into()));
         }
@@ -47,6 +61,22 @@ impl Archive {
         if let Some(project) = &query.project_path {
             clauses.push(exact(opened.fields.project, project));
         }
+        let hidden_query = crate::query::parents::hidden_query();
+        let hidden = self.store.read(Db::Archive, move |tx| {
+            tx.query(
+                &format!("SELECT id FROM ah_sessions WHERE conversation_id IN ({hidden_query})"),
+                (),
+                |row| Ok(row.get::<String>(0)?),
+            )
+        })?;
+        if !hidden.is_empty() {
+            let terms = hidden.into_iter().map(|id| {
+                Term::from_field_text(opened.fields.session_id, &schema::exact_term(&id))
+            });
+            clauses.push((Occur::MustNot, Box::new(tantivy::query::TermSetQuery::new(terms))));
+        }
+        #[cfg(test)]
+        state_tests::after_filter();
         let reader: IndexReader = index::checked(
             opened.index.reader_builder().reload_policy(tantivy::ReloadPolicy::Manual).try_into(),
             &opened.directory,
@@ -92,12 +122,12 @@ impl Archive {
         let needle = needle.trim().to_owned();
         let rows = self.store.read(Db::Archive, move |database| {
             database.query(
-                "SELECT e.session_id,e.ordinal,
-                   substr(e.text,CASE WHEN instr(lower(e.text),lower(?2))>0
-                     THEN max(1,instr(lower(e.text),lower(?2))-120) ELSE 1 END,480)
-                 FROM ah_events e JOIN ah_sessions s
-                   ON s.id=e.session_id AND s.projection_id=e.projection_id
-                 WHERE e.id=?1 AND e.projection_id=?3 LIMIT 1",
+                "SELECT s.conversation_id, e.ordinal, substr(e.text, CASE WHEN
+                    instr(lower(e.text), lower(?2))>0 THEN max(1, instr(lower(e.text),
+                    lower(?2))-120) ELSE 1 END, 480), coalesce(u.put_away, 0) FROM ah_events e
+                    JOIN ah_sessions s ON s.id=e.session_id AND s.projection_id=e.projection_id
+                    LEFT JOIN ah_user_state u ON u.conversation_id=s.conversation_id WHERE e.id=?1
+                    AND e.projection_id=?3 LIMIT 1",
                 params![event, needle, projection],
                 |row| {
                     Ok(SearchHit {
@@ -106,6 +136,7 @@ impl Archive {
                         ordinal: row.get::<i64>(1)? as u64,
                         text: row.get(2)?,
                         score,
+                        put_away: row.get::<i64>(3)? != 0,
                     })
                 },
             )
@@ -114,14 +145,7 @@ impl Archive {
     }
 
     fn search_coverage(&self) -> Result<bool> {
-        Ok(self.store.read(Db::Archive, |database| {
-            database.query_one(
-                "SELECT NOT EXISTS(SELECT 1 FROM ah_meta
-                 WHERE key='normalization_incomplete' AND value='1')",
-                (),
-                |row| Ok(row.get::<i64>(0)? != 0),
-            )
-        })?)
+        self.normalization_complete()
     }
 }
 

@@ -3,7 +3,7 @@
 
 mod discovery;
 
-use std::io::BufRead;
+use std::{collections::HashSet, io::BufRead};
 
 use serde_json::Value;
 
@@ -16,6 +16,37 @@ pub struct ClaudeAdapter;
 impl Adapter for ClaudeAdapter {
     fn harness(&self) -> Harness {
         Harness::ClaudeCode
+    }
+
+    fn conversation_key(
+        &self,
+        session: &SessionMetadata,
+        _source_id: &str,
+        path: &str,
+        first_digest: &str,
+        first: &Value,
+    ) -> super::identity::ConversationKey {
+        // Claude copies a parent's sessionId into subagents and fork prefixes.
+        // The owned filename/layout names this conversation, never that record field.
+        let mut key =
+            super::identity::ConversationKey::new(session.native_id.clone(), first_digest.into());
+        if let Some((folder, below)) = path.split_once("/subagents/") {
+            let parent = folder.rsplit('/').next().unwrap_or(folder);
+            key.native_id = format!("{parent}/{below}");
+            key.relation.parent_path = Some(format!("{folder}.jsonl"));
+            key.relation.parent_native_id = Some(parent.into());
+        } else if let Some(name) =
+            path.rsplit('/').next().and_then(|name| name.split_once(".jsonl").map(|(stem, _)| stem))
+        {
+            key.native_id = name.into();
+            if let Some(id) = first["sessionId"].as_str().filter(|id| *id != name) {
+                key.relation.forked_from_native_id = Some(id.into());
+                if let Some((folder, _)) = path.rsplit_once('/') {
+                    key.relation.fork_path = Some(format!("{folder}/{id}.jsonl"));
+                }
+            }
+        }
+        key
     }
 
     fn discover(
@@ -37,12 +68,14 @@ impl Adapter for ClaudeAdapter {
         let mut diagnostics = Vec::new();
         let mut semantic_issues = Vec::new();
         let mut references = Vec::new();
+        let mut reference_keys = HashSet::new();
         let mut references_complete = true;
         let stats = common::records(
             input,
             context,
             &mut |payload, ordinal| {
                 facts.observe(&payload);
+                let mut event_references = Vec::new();
                 if let Some(attachment) = payload.get("attachment") {
                     let reference = match string(attachment, "type") {
                         Some("file" | "compact_file_reference") => {
@@ -54,22 +87,32 @@ impl Adapter for ClaudeAdapter {
                         _ => None,
                     };
                     if let Some((kind, target)) = reference {
-                        references_complete &= common::push_reference(
-                            &mut references,
-                            Reference {
-                                kind: kind.into(),
-                                target: target.into(),
-                                end_byte_offset: None,
-                                end_ordinal_exclusive: None,
-                            },
-                            &mut semantic_issues,
-                        );
+                        let reference = Reference {
+                            kind: kind.into(),
+                            target: target.into(),
+                            end_byte_offset: None,
+                            end_ordinal_exclusive: None,
+                        };
+                        event_references.push(reference.clone());
+                        let key = (reference.kind.clone(), reference.target.clone());
+                        if !reference_keys.contains(&key) {
+                            let accepted = common::push_reference(
+                                &mut references,
+                                reference,
+                                &mut semantic_issues,
+                            );
+                            if accepted {
+                                reference_keys.insert(key);
+                            }
+                            references_complete &= accepted;
+                        }
                     }
                 }
                 let kind = string(&payload, "type").unwrap_or("unknown");
                 let message = payload.get("message");
                 let timestamp = event_timestamp(&payload);
                 let event = NativeEvent {
+                    references: event_references,
                     ordinal,
                     native_id: string(&payload, "uuid").map(str::to_owned),
                     parent_id: string(&payload, "parentUuid").map(str::to_owned),
@@ -121,7 +164,9 @@ impl Adapter for ClaudeAdapter {
             );
         }
         let session = (stats.emitted_records > 0).then(|| facts.finish(context));
-        if let Some(parent) = session.as_ref().and_then(|value| value.parent_session_id.as_ref()) {
+        if let Some(parent) =
+            session.as_ref().and_then(|session| session.parent_session_id.as_ref())
+        {
             references_complete &= common::push_reference(
                 &mut references,
                 Reference {
@@ -274,6 +319,7 @@ impl SessionFacts {
             .into(),
             harness_version: self.version,
             parent_session_id,
+            forked_from_session_id: None,
             model: self.model,
         }
     }

@@ -1,4 +1,4 @@
-//! Responsibilities: preserve native agent history and expose an encrypted local archive.
+//! Responsibilities: preserve native agent history and expose a local evidence archive.
 //! Not responsible for: product UI, scheduling, model calls, source edits or native resume.
 //!
 //! Sources remain read-only. Raw revisions are authoritative; normalized records and

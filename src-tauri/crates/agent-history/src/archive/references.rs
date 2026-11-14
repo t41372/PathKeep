@@ -18,17 +18,20 @@ impl Archive {
         self.revision(target_revision)?;
         let key = reference_key(reference)?;
         let now = chrono::Utc::now().timestamp_millis();
-        self.store.write(Db::SourceEvidence,Priority::Batch,move |tx| {
-            let previous = tx.query_one(
-                "SELECT target_revision FROM ah_reference_bindings
-                 WHERE parent_revision=?1 AND reference_key=?2 ORDER BY id DESC LIMIT 1",
-                params![parent_revision,key.clone()],|row| Ok(row.get::<i64>(0)?),
-            ).optional()?;
+        self.store.write(Db::SourceEvidence, Priority::Batch, move |tx| {
+            let previous = tx
+                .query_one(
+                    "SELECT target_revision FROM ah_reference_bindings WHERE parent_revision=?1 AND
+                    reference_key=?2 ORDER BY id DESC LIMIT 1",
+                    params![parent_revision, key.clone()],
+                    |row| Ok(row.get::<i64>(0)?),
+                )
+                .optional()?;
             if previous != Some(target_revision) {
                 tx.execute(
-                    "INSERT INTO ah_reference_bindings(parent_revision,reference_key,target_revision,observed_at)
-                     VALUES(?1,?2,?3,?4)",
-                    params![parent_revision,key,target_revision,now],
+                    "INSERT INTO ah_reference_bindings(parent_revision, reference_key,
+                        target_revision, observed_at) VALUES(?1, ?2, ?3, ?4)",
+                    params![parent_revision, key, target_revision, now],
                 )?;
             }
             Ok(())
@@ -47,8 +50,8 @@ impl Archive {
         let key = reference_key(reference)?;
         let target = self.store.read(Db::SourceEvidence, move |tx| {
             tx.query_one(
-                "SELECT target_revision FROM ah_reference_bindings
-                 WHERE parent_revision=?1 AND reference_key=?2 ORDER BY id DESC LIMIT 1",
+                "SELECT target_revision FROM ah_reference_bindings WHERE parent_revision=?1 AND
+                    reference_key=?2 ORDER BY id DESC LIMIT 1",
                 params![parent_revision, key],
                 |row| Ok(row.get::<i64>(0)?),
             )
@@ -58,7 +61,7 @@ impl Archive {
     }
 }
 
-fn reference_key(reference: &Reference) -> Result<String> {
+pub(crate) fn reference_key(reference: &Reference) -> Result<String> {
     if reference.kind.len() > 256 || reference.target.len() > 64 * 1024 {
         return Err(Error::LimitExceeded(
             "native reference exceeds its 256-byte kind or 64 KiB target limit".into(),

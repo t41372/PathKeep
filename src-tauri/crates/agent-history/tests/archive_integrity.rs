@@ -202,12 +202,14 @@ fn metadata() -> SessionMetadata {
         origin: "cli".into(),
         harness_version: None,
         parent_session_id: None,
+        forked_from_session_id: None,
         model: None,
     }
 }
 
 fn event(text: &str) -> NativeEvent {
     NativeEvent {
+        references: Vec::new(),
         ordinal: 0,
         native_id: Some("native-event".into()),
         parent_id: None,
@@ -224,19 +226,21 @@ fn new_projection_is_visible_only_after_publication_and_advances_search_generati
     let temp = tempfile::tempdir().unwrap();
     let archive = create(&temp.path().join("archive"));
     let old = retain(&archive, b"old source");
-    assert!(archive.begin_projection(SOURCE, old).unwrap());
-    archive.append_events(SOURCE, old, vec![event("old event")]).unwrap();
-    archive.publish_projection(SOURCE, old, &metadata(), true).unwrap();
+    let attempt_old =
+        archive.prepare_projection(SOURCE, old, "fixture-v1", false).unwrap().unwrap();
+    archive.append_projection_events(&attempt_old, vec![event("old event")]).unwrap();
+    archive.publish_projection_attempt(&attempt_old, &metadata(), true).unwrap();
     let generation = archive.projection_generation().unwrap();
     let new = retain(&archive, b"new source");
-    assert!(archive.begin_projection(SOURCE, new).unwrap());
-    archive.append_events(SOURCE, new, vec![event("new event")]).unwrap();
+    let attempt_new =
+        archive.prepare_projection(SOURCE, new, "fixture-v1", false).unwrap().unwrap();
+    archive.append_projection_events(&attempt_new, vec![event("new event")]).unwrap();
     assert_eq!(archive.current_projection(SOURCE).unwrap(), Some(old));
     assert_eq!(archive.projection_generation().unwrap(), generation);
-    archive.publish_projection(SOURCE, new, &metadata(), false).unwrap();
+    archive.publish_projection_attempt(&attempt_new, &metadata(), false).unwrap();
     assert_eq!(archive.current_projection(SOURCE).unwrap(), Some(new));
     assert!(archive.projection_generation().unwrap() > generation);
-    assert!(!archive.begin_projection(SOURCE, new).unwrap());
+    assert!(archive.prepare_projection(SOURCE, new, "fixture-v1", false).unwrap().is_none());
     assert_eq!(read(&archive, old), b"old source");
 }
 
@@ -246,9 +250,12 @@ fn publishing_new_raw_bytes_invalidates_old_search_coverage_before_any_parser_ru
     let root = temp.path().join("archive");
     let archive = create(&root);
     let original = retain(&archive, b"original native evidence");
-    archive.begin_projection(SOURCE, original).unwrap();
-    archive.append_events(SOURCE, original, vec![event("retained searchable text")]).unwrap();
-    archive.publish_projection(SOURCE, original, &metadata(), true).unwrap();
+    let attempt_original =
+        archive.prepare_projection(SOURCE, original, "fixture-v1", false).unwrap().unwrap();
+    archive
+        .append_projection_events(&attempt_original, vec![event("retained searchable text")])
+        .unwrap();
+    archive.publish_projection_attempt(&attempt_original, &metadata(), true).unwrap();
     archive.synchronize_search().unwrap();
     let query = agent_history::search::SearchQuery {
         text: "searchable".into(),

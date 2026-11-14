@@ -1,7 +1,5 @@
-//! Responsibilities: project Continue session envelopes and classic Cline/Roo
-//! message arrays into bounded native events. Keep raw history items intact.
-//! Not responsible for Cline SDK stores, native restore, index reconciliation,
-//! attachment downloads, or applying Roo's context-condensation rules.
+//! Responsibilities: preserve Continue envelopes and classic Cline/Roo message arrays.
+//! Not responsible for: SDK stores, native restore, attachment reads or native replay.
 //! Evidence and version boundaries: research/agent-history/ecosystem.md.
 
 use std::io::BufRead;
@@ -32,6 +30,30 @@ pub struct RooCodeAdapter;
 impl Adapter for ContinueAdapter {
     fn harness(&self) -> Harness {
         Harness::Continue
+    }
+
+    fn retention(&self, artifact: &Artifact) -> &'static str {
+        if artifact.kind == crate::ArtifactKind::Transcript {
+            "document"
+        } else {
+            super::default_retention(artifact)
+        }
+    }
+
+    fn needs_first_line_end(&self) -> bool {
+        false
+    }
+
+    fn conversation_key(
+        &self,
+        session: &SessionMetadata,
+        source_id: &str,
+        _path: &str,
+        _first_digest: &str,
+        _first: &Value,
+    ) -> super::identity::ConversationKey {
+        // A rewritten document has no content prefix that survives a normal save.
+        super::identity::ConversationKey::new(session.native_id.clone(), source_id.into())
     }
 
     fn discover(
@@ -116,6 +138,30 @@ impl Adapter for ClineAdapter {
         Harness::Cline
     }
 
+    fn retention(&self, artifact: &Artifact) -> &'static str {
+        if artifact.kind == crate::ArtifactKind::Transcript {
+            "document"
+        } else {
+            super::default_retention(artifact)
+        }
+    }
+
+    fn needs_first_line_end(&self) -> bool {
+        false
+    }
+
+    fn conversation_key(
+        &self,
+        session: &SessionMetadata,
+        source_id: &str,
+        _path: &str,
+        _first_digest: &str,
+        _first: &Value,
+    ) -> super::identity::ConversationKey {
+        // A rewritten document has no content prefix that survives a normal save.
+        super::identity::ConversationKey::new(session.native_id.clone(), source_id.into())
+    }
+
     fn discover(
         &self,
         source: &SourceRoot,
@@ -138,6 +184,30 @@ impl Adapter for ClineAdapter {
 impl Adapter for RooCodeAdapter {
     fn harness(&self) -> Harness {
         Harness::RooCode
+    }
+
+    fn retention(&self, artifact: &Artifact) -> &'static str {
+        if artifact.kind == crate::ArtifactKind::Transcript {
+            "document"
+        } else {
+            super::default_retention(artifact)
+        }
+    }
+
+    fn needs_first_line_end(&self) -> bool {
+        false
+    }
+
+    fn conversation_key(
+        &self,
+        session: &SessionMetadata,
+        source_id: &str,
+        _path: &str,
+        _first_digest: &str,
+        _first: &Value,
+    ) -> super::identity::ConversationKey {
+        // A rewritten document has no content prefix that survives a normal save.
+        super::identity::ConversationKey::new(session.native_id.clone(), source_id.into())
     }
 
     fn discover(
@@ -221,6 +291,7 @@ fn message_event(payload: Value, ordinal: u64, wrapped: bool) -> (NativeEvent, b
     let native_id = message.get("id").and_then(nonempty_string);
     let timestamp = if wrapped { None } else { message.get("ts").and_then(common::timestamp) };
     let event = NativeEvent {
+        references: Vec::new(),
         ordinal,
         native_id,
         parent_id: None,

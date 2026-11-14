@@ -29,12 +29,6 @@ fn serialize_id<S: Serializer>(value: &i64, serializer: S) -> std::result::Resul
 }
 
 impl Archive {
-    /// Retains the parser's interpretation and unresolved native references beside
-    /// the captured bytes, so a later backup can revisit coverage without guessing.
-    pub fn save_parse_report(&self, revision: i64, report: &ParseReport) -> Result<()> {
-        self.save_versioned_parse_report(revision, super::DEFAULT_PARSER_VERSION, report)
-    }
-
     /// Keeps parser upgrades independent even when they interpret identical raw bytes.
     pub fn save_versioned_parse_report(
         &self,
@@ -48,19 +42,14 @@ impl Archive {
         let json = encode(report)?;
         self.store.write(Db::SourceEvidence, Priority::Batch, move |tx| {
             tx.execute(
-                "INSERT INTO ah_parse_reports(revision_id,parser_version,report_json) VALUES(?1,?2,?3)
-                 ON CONFLICT(revision_id,parser_version) DO UPDATE SET report_json=excluded.report_json",
+                "INSERT INTO ah_parse_reports(revision_id, parser_version, report_json)
+                    VALUES(?1, ?2, ?3) ON CONFLICT(revision_id, parser_version) DO UPDATE SET
+                    report_json=excluded.report_json",
                 params![revision, parser_version, json],
             )?;
             Ok(())
         })?;
         Ok(())
-    }
-
-    /// Absence means this revision has not been interpreted, rather than complete
-    /// coverage. Callers decide whether to parse or explicitly expose that gap.
-    pub fn load_parse_report(&self, revision: i64) -> Result<Option<ParseReport>> {
-        self.load_versioned_parse_report(revision, super::DEFAULT_PARSER_VERSION)
     }
 
     /// Absence requests a new parse for this interpretation version, independently
@@ -74,7 +63,8 @@ impl Archive {
         let parser_version = parser_version.to_owned();
         let json = self.store.read(Db::SourceEvidence, move |tx| {
             tx.query_one(
-                "SELECT report_json FROM ah_parse_reports WHERE revision_id=?1 AND parser_version=?2",
+                "SELECT report_json FROM ah_parse_reports WHERE revision_id=?1 AND
+                    parser_version=?2",
                 params![revision, parser_version],
                 |row| Ok(row.get::<String>(0)?),
             )
@@ -90,7 +80,7 @@ impl Archive {
         self.store
             .write(Db::SourceEvidence, Priority::Batch, move |tx| {
                 tx.insert(
-                    "INSERT INTO ah_backup_runs(status,started_at) VALUES('running',?1)",
+                    "INSERT INTO ah_backup_runs(status, started_at) VALUES('running', ?1)",
                     [now],
                 )?
                 .ok_or_else(|| operation("backup run insertion did not produce an identity"))
@@ -109,8 +99,8 @@ impl Archive {
         let now = chrono::Utc::now().timestamp_millis();
         self.store.write(Db::SourceEvidence, Priority::Batch, move |tx| {
             let changed = tx.execute(
-                "UPDATE ah_backup_runs SET status=?1,finished_at=?2,report_json=?3
-                 WHERE id=?4 AND status='running'",
+                "UPDATE ah_backup_runs SET status=?1, finished_at=?2, report_json=?3 WHERE
+                    id=?4 AND status='running'",
                 params![status, now, report, id],
             )?;
             if changed != 1 {
@@ -124,16 +114,20 @@ impl Archive {
     /// Reads durable run evidence for audit and recovery interfaces without
     /// inferring success from the latest available transcript.
     pub fn backup_run(&self, id: i64) -> Result<BackupRun> {
-        let stored = self.store.read(Db::SourceEvidence, move |tx| {
-            tx.query_one(
-                "SELECT id,status,started_at,finished_at,report_json FROM ah_backup_runs WHERE id=?1",
+        let stored =
+            self.store
+                .read(Db::SourceEvidence, move |tx| {
+                    tx.query_one(
+                "SELECT id, status, started_at, finished_at, report_json FROM ah_backup_runs
+                    WHERE id=?1",
                 [id],
                 |row| Ok((
                     row.get::<i64>(0)?, row.get::<String>(1)?, row.get::<i64>(2)?,
                     row.get::<Option<i64>>(3)?, row.get::<Option<String>>(4)?,
                 )),
             ).optional()
-        })?.ok_or_else(|| Error::NotFound("backup run".into()))?;
+                })?
+                .ok_or_else(|| Error::NotFound("backup run".into()))?;
         Ok(BackupRun {
             id: stored.0,
             status: stored.1,
@@ -150,10 +144,9 @@ impl Archive {
             let now = chrono::Utc::now().timestamp_millis();
             let changed = self.store.write(Db::SourceEvidence, Priority::Batch, move |tx| {
                 tx.execute(
-                    "UPDATE ah_backup_runs SET status='interrupted',finished_at=?1,
-                     report_json=coalesce(report_json,?2)
-                     WHERE id IN (SELECT id FROM ah_backup_runs WHERE status='running'
-                     ORDER BY id LIMIT ?3)",
+                    "UPDATE ah_backup_runs SET status='interrupted', finished_at=?1,
+                        report_json=coalesce(report_json, ?2) WHERE id IN (SELECT id FROM
+                        ah_backup_runs WHERE status='running' ORDER BY id LIMIT ?3)",
                     params![
                         now,
                         r#"{"status":"interrupted","reason":"owner_restarted"}"#,

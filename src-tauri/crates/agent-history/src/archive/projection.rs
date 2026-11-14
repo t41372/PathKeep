@@ -7,15 +7,8 @@ mod coverage;
 mod write;
 
 use super::Archive;
-use crate::{
-    Error, Result,
-    model::{NativeEvent, SessionMetadata},
-};
+use crate::{Error, Result};
 use vault_store::{Db, OptionalRow, Priority, Session, params};
-
-/// Compatibility identity for serialized begin/append/publish callers. New ingest
-/// code supplies its actual parser identity through `prepare_projection` instead.
-pub const DEFAULT_PARSER_VERSION: &str = "agent-history/legacy-v1";
 
 /// An attempt's identity prevents a superseded parser from writing into a newer
 /// interpretation of the same bytes. Every mutation checks all fields atomically.
@@ -48,7 +41,7 @@ impl Archive {
             .write(Db::Archive, Priority::Batch, move |tx| {
                 let current = tx
                     .query_one(
-                        "SELECT revision_id,parser_version FROM ah_sessions WHERE id=?1",
+                        "SELECT revision_id, parser_version FROM ah_sessions WHERE id=?1",
                         [source_id.as_str()],
                         |row| Ok((row.get::<i64>(0)?, row.get::<String>(1)?)),
                     )
@@ -77,44 +70,15 @@ impl Archive {
                     [id.to_string()],
                 )?;
                 tx.execute(
-                "INSERT INTO ah_projection_work(session_id,revision_id,projection_id,parser_version)
-                 VALUES(?1,?2,?3,?4) ON CONFLICT(session_id) DO UPDATE SET
-                 revision_id=excluded.revision_id,projection_id=excluded.projection_id,
-                 parser_version=excluded.parser_version",
-                params![source_id.clone(), revision, id, parser_version.clone()],
-            )?;
+                    "INSERT INTO ah_projection_work(session_id, revision_id, projection_id,
+                    parser_version) VALUES(?1, ?2, ?3, ?4) ON CONFLICT(session_id) DO UPDATE SET
+                    revision_id=excluded.revision_id, projection_id=excluded.projection_id,
+                    parser_version=excluded.parser_version",
+                    params![source_id.clone(), revision, id, parser_version.clone()],
+                )?;
                 Ok(Some(ProjectionAttempt { id, source_id, revision_id: revision, parser_version }))
             })
             .map_err(Into::into)
-    }
-
-    /// Compatibility entry point for a caller that serializes each source's parse.
-    /// Use attempt tokens when reparses or overlapping producers are possible.
-    pub fn begin_projection(&self, source_id: &str, revision: i64) -> Result<bool> {
-        Ok(self.prepare_projection(source_id, revision, DEFAULT_PARSER_VERSION, false)?.is_some())
-    }
-
-    /// Appends to the serialized compatibility workflow's current attempt.
-    pub fn append_events(
-        &self,
-        source_id: &str,
-        revision: i64,
-        events: Vec<NativeEvent>,
-    ) -> Result<()> {
-        let attempt = self.legacy_attempt(source_id, revision)?;
-        self.append_projection_events(&attempt, events)
-    }
-
-    /// Publishes the serialized compatibility workflow's current attempt.
-    pub fn publish_projection(
-        &self,
-        source_id: &str,
-        revision: i64,
-        metadata: &SessionMetadata,
-        complete: bool,
-    ) -> Result<()> {
-        let attempt = self.legacy_attempt(source_id, revision)?;
-        self.publish_projection_attempt(&attempt, metadata, complete)
     }
 
     /// The raw revision represented by the published interpretation. This does
@@ -145,27 +109,11 @@ impl Archive {
     pub fn projection_generation(&self) -> Result<i64> {
         self.store
             .read(Db::Archive, |tx| {
-                tx.query_one(
-                    "SELECT coalesce(max(seq),0) FROM ah_outbox",
-                    (),
-                    |row| Ok(row.get(0)?),
-                )
+                tx.query_one("SELECT coalesce(max(seq), 0) FROM ah_outbox", (), |row| {
+                    Ok(row.get(0)?)
+                })
             })
             .map_err(Into::into)
-    }
-
-    fn legacy_attempt(&self, source_id: &str, revision: i64) -> Result<ProjectionAttempt> {
-        let source_id = source_id.to_owned();
-        let attempt = self.store.read(Db::Archive, move |tx| work_attempt(tx, &source_id))?;
-        attempt
-            .filter(|attempt| {
-                attempt.revision_id == revision && attempt.parser_version == DEFAULT_PARSER_VERSION
-            })
-            .ok_or_else(|| {
-                Error::InvalidInput(
-                    "serialized projection has not started or was superseded".into(),
-                )
-            })
     }
 
     fn require_revision_source(&self, source_id: &str, revision: i64) -> Result<()> {
@@ -191,12 +139,19 @@ pub(super) fn work_attempt(
     source_id: &str,
 ) -> vault_store::Result<Option<ProjectionAttempt>> {
     tx.query_one(
-        "SELECT projection_id,revision_id,parser_version FROM ah_projection_work WHERE session_id=?1",
+        "SELECT projection_id, revision_id, parser_version FROM ah_projection_work WHERE
+            session_id=?1",
         [source_id],
-        |row| Ok(ProjectionAttempt {
-            id: row.get(0)?, source_id: source_id.to_owned(), revision_id: row.get(1)?, parser_version: row.get(2)?,
-        }),
-    ).optional()
+        |row| {
+            Ok(ProjectionAttempt {
+                id: row.get(0)?,
+                source_id: source_id.to_owned(),
+                revision_id: row.get(1)?,
+                parser_version: row.get(2)?,
+            })
+        },
+    )
+    .optional()
 }
 
 pub(super) fn require_work(
@@ -218,7 +173,7 @@ pub(super) fn retire(
     projection_id: i64,
 ) -> vault_store::Result<()> {
     tx.execute(
-        "INSERT OR IGNORE INTO ah_projection_retired(session_id,projection_id) VALUES(?1,?2)",
+        "INSERT OR IGNORE INTO ah_projection_retired(session_id, projection_id) VALUES(?1, ?2)",
         params![source_id, projection_id],
     )?;
     Ok(())
@@ -232,13 +187,13 @@ pub(super) fn publish_outbox(
 ) -> vault_store::Result<()> {
     let sequence = tx
         .insert(
-            "INSERT INTO ah_outbox(session_id,revision_id,projection_id) VALUES(?1,?2,?3)",
+            "INSERT INTO ah_outbox(session_id, revision_id, projection_id) VALUES(?1, ?2, ?3)",
             params![source_id, revision, projection],
         )?
         .ok_or_else(|| operation("publication did not create its search record"))?;
     tx.execute(
-        "INSERT INTO ah_meta(key,value) VALUES('generation',?1)
-         ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        "INSERT INTO ah_meta(key, value) VALUES('generation', ?1) ON CONFLICT(key) DO UPDATE
+            SET value=excluded.value",
         [sequence.to_string()],
     )?;
     Ok(())
@@ -250,15 +205,9 @@ pub(super) fn set_coverage(
     complete: bool,
 ) -> vault_store::Result<()> {
     tx.execute(
-        "INSERT INTO ah_coverage(source_id,complete) VALUES(?1,?2)
-         ON CONFLICT(source_id) DO UPDATE SET complete=excluded.complete",
+        "INSERT INTO ah_coverage(source_id, complete) VALUES(?1, ?2) ON CONFLICT(source_id) DO
+            UPDATE SET complete=excluded.complete,affects_conversations=1",
         params![source_id, i64::from(complete)],
-    )?;
-    tx.execute(
-        "INSERT INTO ah_meta(key,value) VALUES('normalization_incomplete',
-         CASE WHEN EXISTS(SELECT 1 FROM ah_coverage WHERE complete=0) THEN '1' ELSE '0' END)
-         ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-        (),
     )?;
     Ok(())
 }
