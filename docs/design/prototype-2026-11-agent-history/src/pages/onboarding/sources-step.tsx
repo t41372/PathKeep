@@ -197,6 +197,16 @@ export function SourcesStep({ list, selection, onSelection }: { list: StepKind[]
                 className="h-8 w-[150px] text-[13px]"
               />
             )}
+            {active.id === 'browsing' && (
+              <label className="flex items-center gap-1.5 rounded-md border border-dashed px-2 py-1 text-[11px] text-muted-foreground">
+                原型：掃描
+                <select value={scan} onChange={(event) => setScan(event.target.value as typeof scan)} className="rounded bg-transparent text-[11px]">
+                  <option value="found">找到了</option>
+                  <option value="empty">一個都沒找到</option>
+                  <option value="error">掃描失敗</option>
+                </select>
+              </label>
+            )}
             <Button size="sm" variant="ghost" disabled={chosen.size === shown.sources.length} onClick={() => set(shown.sources.map((s) => s.id), true)}>
               全選
             </Button>
@@ -272,16 +282,6 @@ export function SourcesStep({ list, selection, onSelection }: { list: StepKind[]
           )}
         </section>
       </div>
-      {list.some((kind) => kind.id === 'browsing') && (
-        <label className="flex w-fit items-center gap-2 rounded-lg border border-dashed px-3 py-1.5 text-xs text-muted-foreground">
-          原型：找瀏覽器的結果
-          <select value={scan} onChange={(event) => setScan(event.target.value as typeof scan)} className="rounded border bg-transparent px-1 py-0.5 text-xs">
-            <option value="found">找到了</option>
-            <option value="empty">一個都沒找到</option>
-            <option value="error">掃描失敗</option>
-          </select>
-        </label>
-      )}
       {emptyKinds.length > 0 && (
         <p className="text-[13px] text-brand">
           「{emptyKinds.map((kind) => kind.label).join('」「')}」一個來源都沒選。至少選一個，或回上一步取消這個類型。
