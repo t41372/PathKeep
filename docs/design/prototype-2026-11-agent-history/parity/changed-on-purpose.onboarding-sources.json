@@ -1,0 +1,6 @@
+[
+  {
+    "key": "onboarding.browsers.needOne",
+    "reason": "the 來源 step covers every chosen type, so the hint names the type that has no source selected: 「「{類型}」一個來源都沒選。至少選一個，或回上一步取消這個類型。」"
+  }
+]

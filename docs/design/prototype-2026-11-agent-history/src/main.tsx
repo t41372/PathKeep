@@ -14,6 +14,7 @@ import BackupPage from './pages/backup'
 import BrowsingHistoryPage from './pages/browsing'
 import BrowsingInsightsPage from './pages/browsing-insights'
 import SpaceBackupPage from './pages/backup/space-backup'
+import BrowsingBackupPage from './pages/browsing-backup/page'
 import BrowsingHomePage from './pages/browsing-home'
 import RootPage from './pages/root'
 import TasksPage from './pages/tasks'
@@ -31,7 +32,7 @@ const router = createHashRouter([
     children: [
       { index: true, element: <RootPage /> },
       { path: 'browsing/home', element: <BrowsingHomePage /> },
-      { path: 'browsing/backup', element: <SpaceBackupPage /> },
+      { path: 'browsing/backup', element: <BrowsingBackupPage /> },
       { path: 'agent/backup', element: <SpaceBackupPage /> },
       { path: 'agent/projects/:projectId/insights', element: <ProjectInsightsPage /> },
       { path: 'agent/chats', element: <ChatsPage /> },

@@ -1,7 +1,9 @@
 /**
  * 背景任務: what runs now, what waits and why, what finished or failed today.
- * Shared by every data type; each task says which one it serves. Schedules
- * and limits stay in Settings → 排程與背景工作.
+ * Shared by every data type; each task says which one it serves. Below the
+ * four groups, per data type, the queues and derived data that today's
+ * Settings › Background work shows (`pages/tasks/`). Schedules and limits
+ * stay in Settings → 排程與背景工作.
  */
 import { CircleAlert, CircleCheck, Clock, HardDriveDownload, Pause, Play } from 'lucide-react'
 import { toast } from 'sonner'
@@ -14,6 +16,7 @@ import { time } from '~/data/format'
 import { pauseTask, useTasks, type Task } from '~/data/tasks'
 import { kindById } from '~/kinds'
 import { SpaceTile } from '~/shell/space-rail'
+import { BrowsingWork } from './tasks/browsing-work'
 
 function Owner({ task }: { task: Task }) {
   if (task.space === 'app') return <span className="text-[12px] text-muted-foreground">整個存檔</span>
@@ -132,6 +135,8 @@ export default function TasksPage() {
           ))}
         </div>
       </SectionCard>
+      {/* The queues, their recent jobs and the data they produce, moved here from Settings › 背景工作. */}
+      <BrowsingWork />
     </PageScroll>
   )
 }

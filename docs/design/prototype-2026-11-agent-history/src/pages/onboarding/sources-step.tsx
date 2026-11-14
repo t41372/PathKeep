@@ -77,7 +77,9 @@ function SourceRow({ source, checked, onChange }: { source: StepSource; checked:
         </span>
         {!source.blocked && (
           <span className="flex shrink-0 flex-col items-end text-right">
-            <span className="font-mono text-xs text-muted-foreground tabular">{source.amount}</span>
+            <span className="font-mono text-xs text-muted-foreground tabular" title={source.amountTitle}>
+              {source.amount}
+            </span>
             {source.extra && <span className="text-xs text-muted-foreground">{source.extra}</span>}
           </span>
         )}

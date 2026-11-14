@@ -1,0 +1,20 @@
+[
+  { "key": "onboarding.steps.welcome.title", "reason": "§3.3 歡迎: the title becomes 「留住會被自動刪掉的東西」" },
+  { "key": "onboarding.steps.welcome.body", "reason": "§3.3 歡迎: the body becomes the line about tools deleting their own records" },
+  { "key": "onboarding.welcome.retentionTitle", "reason": "§3.3 歡迎: the figure is 「各家自己會留多久」 over tools as well as browsers" },
+  { "key": "onboarding.welcome.days90", "reason": "§3.3 歡迎: the figure's rows are Claude Code / Chrome / Safari / Codex with §3.3's wording (Chrome 「90 天」)" },
+  { "key": "onboarding.welcome.year", "reason": "§3.3 歡迎: Safari reads 「預設 1 年」" },
+  { "key": "onboarding.welcome.bySize", "reason": "§3.3 歡迎: the figure's rows are Claude Code / Chrome / Safari / Codex; Firefox and Arc are not in it" },
+  { "key": "onboarding.welcome.local", "reason": "§3.3 歡迎: the three points are §3.3's one-liners" },
+  { "key": "onboarding.welcome.originals", "reason": "§3.3 歡迎: the three points are §3.3's one-liners" },
+  { "key": "onboarding.welcome.search", "reason": "§3.3 歡迎: the three points are §3.3's one-liners" },
+  { "key": "onboarding.steps.browsers", "reason": "Task item 2 / §3.3: today's 瀏覽器 step is replaced by 要保存什麼 and 來源" },
+  { "key": "onboarding.steps.storage.label", "reason": "§3.3 step names: 存放位置 becomes 存在哪裡 in the step list" },
+  { "key": "onboarding.steps.schedule.label", "reason": "§3.3 step names: 自動備份 becomes 排程 in the step list" },
+  { "key": "onboarding.steps.done.title", "reason": "§3.3 完成: 「都設好了」" },
+  { "key": "onboarding.steps.done.body", "reason": "§3.3 完成: 「按下開始，PathKeep 會做第一次備份。之後照排程在背景跑。」" },
+  { "key": "onboarding.done.browsers", "reason": "§3.3 完成: the summary row is 瀏覽器設定檔 (and one row per chosen type)" },
+  { "key": "onboarding.done.location", "reason": "§3.3 完成: the summary row is 存檔" },
+  { "key": "onboarding.done.schedule", "reason": "§3.3 完成: the summary row is 排程" },
+  { "key": "onboarding.nav.next", "reason": "§3.3 and the task call the button 下一步 (today 繼續); needs the user's confirmation" }
+]

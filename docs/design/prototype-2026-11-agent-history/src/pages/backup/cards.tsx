@@ -1,11 +1,9 @@
-/** Backup's smaller cards: auto-delete notice, the shared schedule, size by type, recent runs. */
+/** Backup's smaller cards: auto-delete notice, size by type, recent runs. */
 import { CircleCheck, CircleMinus, ExternalLink, TriangleAlert } from 'lucide-react'
-import { useState } from 'react'
 import { SectionCard } from '@/components/app/section-card'
-import { Switch } from '@/components/ui/switch'
 import { cn } from '@/lib/cn'
 import { NOW } from '~/data/fixture'
-import { bytes, num, time, when } from '~/data/format'
+import { bytes, num, when } from '~/data/format'
 import { kinds, type KindId } from '~/kinds'
 import { useProto } from '~/proto-state'
 import { AGENT_ARCHIVE_RATIO, archiveBytes, harnessSources, sourceBytesOfKind } from './sources-data'
@@ -40,56 +38,8 @@ export function AutoDeleteNotice() {
   )
 }
 
-const intervals = [
-  { id: '1h', label: '每小時', ms: 3600_000 },
-  { id: '2h', label: '每 2 小時', ms: 2 * 3600_000 },
-  { id: '6h', label: '每 6 小時', ms: 6 * 3600_000 },
-  { id: '1d', label: '每天', ms: 24 * 3600_000 },
-] as const
-
-function Fact({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="flex items-center justify-between gap-4 text-[13px]">
-      <span className="text-muted-foreground">{label}</span>
-      <span className="text-right font-mono text-[13px]">{children}</span>
-    </div>
-  )
-}
-
-export function ScheduleCard() {
-  const [interval, setInterval] = useState<(typeof intervals)[number]['id']>('2h')
-  const [power, setPower] = useState(true)
-  const ms = intervals.find((i) => i.id === interval)!.ms
-  return (
-    <SectionCard title="自動備份" subtitle="照這個排程在背景備份所有開著的資料類型，PathKeep 沒開著也會跑。">
-      <div role="radiogroup" aria-label="多久備份一次" className="grid w-full grid-cols-4 rounded-lg bg-muted p-[3px]">
-        {intervals.map((i) => (
-          <button
-            key={i.id}
-            type="button"
-            role="radio"
-            aria-checked={interval === i.id}
-            onClick={() => setInterval(i.id)}
-            className={cn(
-              'h-8 rounded-md text-[13px] font-medium text-muted-foreground transition-[background-color,color,box-shadow]',
-              interval === i.id && 'bg-card text-foreground shadow-card',
-            )}
-          >
-            {i.label}
-          </button>
-        ))}
-      </div>
-      <div className="flex flex-col gap-2">
-        <Fact label="上次">{when(NOW - 2 * 3600_000 + 20 * 60_000)}</Fact>
-        <Fact label="下次">今天 {time(NOW - 2 * 3600_000 + 20 * 60_000 + ms)}</Fact>
-      </div>
-      <label className="flex items-center justify-between gap-3 text-[13px]">
-        只在接上電源時備份
-        <Switch checked={power} onCheckedChange={setPower} />
-      </label>
-    </SectionCard>
-  )
-}
+/** The 自動備份 card moved to Settings › 排程與背景工作; re-exported for pages that still import it from here. */
+export { ScheduleCard } from '../schedule/schedule-card'
 
 export function StorageCard() {
   const { enabledKinds } = useProto()
@@ -139,7 +89,7 @@ export const runs: Run[] = [
   { at: NOW - 78 * 60_000, ms: 161_000, result: 'ok', parts: { browsing: '+1,203 筆造訪', agent: '+14 段對話，9 段有新內容，+212 個 subagent' } },
   { at: NOW - 4 * 3600_000 + 20 * 60_000, ms: 118_000, result: 'warn', parts: { browsing: '+862 筆造訪', agent: '+6 段對話，4 段有新內容' }, warning: 'Codex：2 個檔案正在寫入，下次再讀' },
   { at: NOW - 6 * 3600_000 + 20 * 60_000, ms: 97_000, result: 'ok', parts: { browsing: '+410 筆造訪', agent: '+3 段對話' } },
-  { at: NOW - 8 * 3600_000 + 20 * 60_000, ms: 0, result: 'skipped', parts: {}, warning: '沒有接上電源，跳過' },
+  { at: NOW - 8 * 3600_000 + 20 * 60_000, ms: 74_000, result: 'warn', parts: { browsing: '+318 筆造訪' }, warning: 'Chrome 個人 正在使用中，因此 PathKeep 讀取的是歷史檔案的副本，而不是正在使用的檔案。' },
   { at: NOW - 22 * 3600_000, ms: 204_000, result: 'ok', parts: { browsing: '+2,118 筆造訪', agent: '+21 段對話，12 段有新內容，+340 個 subagent' } },
   { at: NOW - 24 * 3600_000, ms: 88_000, result: 'ok', parts: { browsing: '+77 筆造訪', agent: '沒有新內容' } },
 ]

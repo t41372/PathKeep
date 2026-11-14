@@ -24,20 +24,18 @@ import { AiSection } from './ai-section'
 import { BackgroundSection } from './background-section'
 import { BrowsingSection } from './browsing-section'
 import { KindsSection } from './kinds-section'
-import {
-  AboutSection,
-  GeneralSection,
-  PlannedKindSection,
-  SecuritySection,
-  StorageSection,
-} from './pathkeep-sections'
+import { AboutSection } from './about-section'
+import { GeneralSection } from './general-section'
+import { PlannedKindSection } from './pathkeep-sections'
+import { SecuritySection } from './security-section'
+import { StorageSection } from './storage-section'
 
 const shared: { id: string; label: string; icon: LucideIcon; Body: () => ReactNode }[] = [
   { id: 'general', label: '一般', icon: SlidersHorizontal, Body: GeneralSection },
   { id: 'security', label: '安全', icon: Lock, Body: SecuritySection },
   { id: 'ai', label: 'AI', icon: Sparkles, Body: AiSection },
   { id: 'background', label: '排程與背景工作', icon: Activity, Body: BackgroundSection },
-  { id: 'storage', label: '儲存空間', icon: Database, Body: StorageSection },
+  { id: 'storage', label: '儲存', icon: Database, Body: StorageSection },
   { id: 'about', label: '關於', icon: Info, Body: AboutSection },
 ]
 
@@ -81,7 +79,7 @@ export default function SettingsPage() {
 
   return (
     <div className="flex min-w-0 flex-1">
-      <nav aria-label="設定分類" className="thin-scroll flex w-[220px] shrink-0 flex-col gap-0.5 overflow-y-auto border-r px-3.5 py-7">
+      <nav aria-label="設定分區" className="thin-scroll flex w-[220px] shrink-0 flex-col gap-0.5 overflow-y-auto border-r px-3.5 py-7">
         <h1 className="px-2.5 pb-3.5 text-[22px] font-semibold tracking-[-0.01em]">設定</h1>
         <GroupLabel>PathKeep</GroupLabel>
         {shared.map((s) => (

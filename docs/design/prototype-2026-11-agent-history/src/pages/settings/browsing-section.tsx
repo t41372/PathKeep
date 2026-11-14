@@ -25,6 +25,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch'
 import { num } from '~/data/format'
 import { browserSources } from '../backup/sources-data'
+import { LinkPreviewSelects } from '../schedule/background-controls'
+import { setBackground, useBackground } from '../tasks/background-store'
 import { Group, MovedFrom, Note } from './parts'
 
 const formats = [
@@ -42,7 +44,7 @@ function PreviewImagesRow() {
     <SettingRow
       title={
         <>
-          連結預覽圖 <MovedFrom>儲存空間</MovedFrom>
+          連結預覽圖 <MovedFrom>儲存</MovedFrom>
         </>
       }
       description={`${num(images)} 張圖片，${size}`}
@@ -96,7 +98,7 @@ function ExportRow() {
     <SettingRow
       title={
         <>
-          匯出歷史 <MovedFrom>儲存空間</MovedFrom>
+          匯出歷史 <MovedFrom>儲存</MovedFrom>
         </>
       }
       description="把你的全部歷史存成一個檔案"
@@ -147,8 +149,8 @@ function ExportRow() {
 }
 
 export function BrowsingSection() {
-  const [previews, setPreviews] = useState(true)
-  const [summaries, setSummaries] = useState(false)
+  // Shared with the 背景任務 page, which shows what these switches mean for its queues.
+  const { previewsOn, summariesOn, keep } = useBackground()
   return (
     <SettingsSection title="瀏覽紀錄">
       <Note>
@@ -169,13 +171,26 @@ export function BrowsingSection() {
         <SettingRow
           title="連結預覽"
           description="下載每個頁面提供的預覽圖。網站會看到來自你電腦的請求。"
-          control={<Switch checked={previews} onCheckedChange={setPreviews} aria-label="連結預覽" />}
-        />
+          control={<Switch checked={previewsOn} onCheckedChange={(on) => setBackground({ previewsOn: on })} aria-label="連結預覽" />}
+        >
+          {previewsOn && (
+            <>
+              <LinkPreviewSelects />
+              <span>
+                <MovedFrom>背景工作 › 連結預覽</MovedFrom>
+              </span>
+            </>
+          )}
+        </SettingRow>
+        <label className="flex w-fit items-center gap-2 rounded-lg border border-dashed px-3 py-2 text-xs text-muted-foreground">
+          原型：保留圖片是不在選項裡的規則
+          <Switch checked={keep === 'custom'} onCheckedChange={(on) => setBackground({ keep: on ? 'custom' : 'days90' })} aria-label="原型：保留圖片是不在選項裡的規則" />
+        </label>
         <PreviewImagesRow />
         <SettingRow
           title="頁面摘要"
           description="抓取你看過的頁面的簡短摘要，讓搜尋能依內容找到它們。網站不會拿到你的 Cookie 或帳號。"
-          control={<Switch checked={summaries} onCheckedChange={setSummaries} aria-label="頁面摘要" />}
+          control={<Switch checked={summariesOn} onCheckedChange={(on) => setBackground({ summariesOn: on })} aria-label="頁面摘要" />}
         />
       </Group>
       <Group title="匯出">

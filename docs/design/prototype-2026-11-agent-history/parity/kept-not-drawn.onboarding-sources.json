@@ -1,0 +1,10 @@
+[
+  {
+    "key": "onboarding.browsers.fullDiskAccess.openFailed",
+    "reason": "shown when System Settings cannot be opened"
+  },
+  {
+    "key": "onboarding.browsers.fullDiskAccess.recheckFailed",
+    "reason": "shown when rechecking the browsers fails"
+  }
+]

@@ -27,7 +27,7 @@ const initial = (): Task[] => [
   { id: 't1', space: 'agent', title: '備份 Agent 對話', detail: 'Claude Code · 412 / 1,160 段', progress: 0.36, state: 'running', at: NOW - 4 * 60_000 },
   { id: 't2', space: 'agent', title: '更新搜尋索引', detail: '新進的對話', progress: null, state: 'running', at: NOW - 60_000 },
   { id: 't3', space: 'agent', title: '重算洞察', detail: '等備份完成', progress: 0, state: 'queued', at: NOW },
-  { id: 't4', space: 'browsing', title: '語意索引', detail: '2,140 頁', progress: 0.62, state: 'paused', at: NOW - 3600_000, note: '沒接電源，接上後繼續' },
+  { id: 't4', space: 'browsing', title: '語意索引', detail: '2,140 頁', progress: 0.62, state: 'paused', at: NOW - 3600_000, note: '你暫停了' },
   { id: 't5', space: 'browsing', title: '備份瀏覽紀錄', detail: '5 個瀏覽器 · 新增 1,204 筆', progress: 1, state: 'done', at: NOW - 100 * 60_000 },
   { id: 't6', space: 'agent', title: '備份 Agent 對話', detail: 'Codex · 有 1 個檔案讀不到', progress: 1, state: 'failed', at: NOW - 160 * 60_000, note: '檔案在備份時正被寫入，下次會再試' },
 ]

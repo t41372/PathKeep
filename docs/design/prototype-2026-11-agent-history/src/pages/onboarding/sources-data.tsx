@@ -30,6 +30,8 @@ export interface StepSource {
   mono?: boolean
   /** Right side, first line and second line. */
   amount: string
+  /** What the first line measures, shown on hover (a profile's is its history file). */
+  amountTitle?: string
   extra?: string
   /** The system will not let PathKeep read it until the user grants access. */
   blocked?: boolean
@@ -66,6 +68,7 @@ function profile(browser: string, name: string, megabytes: number, blocked = fal
     name: browser,
     detail: name,
     amount: bytes(megabytes * 1_000_000),
+    amountTitle: `歷史檔案：${bytes(megabytes * 1_000_000)}`,
     blocked,
   }
 }
