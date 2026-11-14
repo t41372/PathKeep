@@ -12,6 +12,7 @@ description = "Encryption at rest for PathKeep: key envelope, Turso spill files,
 crash-points = []
 
 [dependencies]
+vault-layout = { path = "../vault-layout" }
 aes = { version = "0.8.4", features = ["zeroize"] }
 aes-gcm = { version = "0.10.3", default-features = false, features = ["aes", "zeroize"] }
 argon2 = { version = "0.5.3", default-features = false, features = ["alloc", "zeroize"] }

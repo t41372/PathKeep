@@ -369,7 +369,7 @@ fn timestamp_is_older_than(timestamp: &str, now: DateTime<Utc>, age: Duration) -
 }
 
 fn attempt_directory(paths: &ProjectPaths) -> PathBuf {
-    paths.schedule_dir.join("attempts")
+    paths.artifact_path(vault_layout::ArtifactId::ScheduleAttempts)
 }
 
 fn is_attempt_path(path: &Path) -> bool {

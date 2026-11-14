@@ -306,7 +306,7 @@ impl VaultSession {
             key = Some(Arc::new(data));
             vault
         } else {
-            if !paths.app_root.join("archive/keys.envelope").is_file() {
+            if !paths.artifact_path(vault_layout::ArtifactId::Envelope).is_file() {
                 return Err(
                     "envelope-missing: the encrypted archive's key envelope is missing".into()
                 );
@@ -372,7 +372,7 @@ impl VaultSession {
         let text = crate::read_database_key_from_keyring()
             .map_err(|e| format!("keychain-unavailable: {e}"))?
             .ok_or("keychain-key-missing: no archive key is stored")?;
-        if paths.app_root.join("archive/keys.envelope").exists()
+        if paths.artifact_path(vault_layout::ArtifactId::Envelope).exists()
             && let Ok(key) = decode_data_key(&text)
         {
             match self.open_store_with_policy(
@@ -434,7 +434,7 @@ impl VaultSession {
 }
 
 fn require_native_archive(paths: &ProjectPaths) -> Result<(), String> {
-    if paths.app_root.join("archive/history-vault.sqlite").exists() && !paths.archive_db.exists() {
+    if paths.legacy_archive_path().exists() && !paths.native_archive_path().exists() {
         return Err("archive-conversion-required: preview and convert the SQLCipher archive before opening it".into());
     }
     Ok(())

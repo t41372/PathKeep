@@ -37,15 +37,16 @@ impl Settings {
     pub fn new(config: &Config, db: Db) -> Self {
         Self {
             path: config.paths.get(db).into(),
-            scratch: (db != Db::Scratch).then(|| config.paths.scratch.clone()),
-            archive: (db == Db::Intelligence).then(|| config.paths.archive.clone()),
-            archive_key: if db == Db::Intelligence {
-                config.keys[Db::Archive as usize]
+            scratch: (db != vault_layout::scratch_database()).then(|| config.paths.scratch.clone()),
+            archive: (vault_layout::database_spec(db).dependencies.contains(&Db::Archive))
+                .then(|| config.paths.archive.clone()),
+            archive_key: if vault_layout::database_spec(db).dependencies.contains(&Db::Archive) {
+                config.key(Db::Archive)
             } else {
                 None
             },
-            key: config.keys[db as usize],
-            scratch_key: config.keys[Db::Scratch as usize],
+            key: config.key(db),
+            scratch_key: config.key(vault_layout::scratch_database()),
             io: config.io.clone(),
             cache_kib: config.page_cache_kib.get(),
         }
@@ -147,7 +148,10 @@ pub(crate) fn prepare_paths(config: &Config) -> Result<()> {
         canonical.push(identity);
     }
     // Scratch is disposable, but reset only after all persistent stores verify.
-    for suffix in ["", "-wal", "-shm"] {
+    for suffix in vault_layout::database_spec(vault_layout::scratch_database())
+        .companions
+        .suffixes(vault_layout::CompanionUse::Reset)
+    {
         let mut path = config.paths.scratch.as_os_str().to_owned();
         path.push(suffix);
         match fs::remove_file(path) {

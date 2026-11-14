@@ -10,20 +10,7 @@ use std::{
     sync::Arc,
 };
 
-/// Stable database identities keep business callers independent of file layout.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-#[repr(usize)]
-pub enum Db {
-    Archive,
-    SourceEvidence,
-    Intelligence,
-    Agent,
-    Scratch,
-}
-impl Db {
-    pub const ALL: [Self; 5] =
-        [Self::Archive, Self::SourceEvidence, Self::Intelligence, Self::Agent, Self::Scratch];
-}
+pub use vault_layout::Db;
 
 /// Caller-owned temp-file policy; vault-store does not implement a cipher.
 pub type IoLayer = Arc<dyn turso::core::IO>;
@@ -40,11 +27,11 @@ pub struct Paths {
 impl Paths {
     pub fn under(root: &Path) -> Self {
         Self {
-            archive: root.join("archive/history-vault.db"),
-            source_evidence: root.join("archive/source-evidence.db"),
-            intelligence: root.join("derived/intelligence.db"),
-            agent: root.join("derived/agent.db"),
-            scratch: root.join("derived/scratch.db"),
+            archive: root.join(vault_layout::database_path(Db::Archive)),
+            source_evidence: root.join(vault_layout::database_path(Db::SourceEvidence)),
+            intelligence: root.join(vault_layout::database_path(Db::Intelligence)),
+            agent: root.join(vault_layout::database_path(Db::Agent)),
+            scratch: root.join(vault_layout::database_path(Db::Scratch)),
         }
     }
     pub fn get(&self, db: Db) -> &Path {
@@ -72,7 +59,7 @@ pub struct Config {
     /// Defaults to all roles for the desktop application. Unselected paths are ignored.
     pub databases: Vec<Db>,
     pub paths: Paths,
-    pub keys: [Option<[u8; 32]>; 5],
+    pub keys: [Option<[u8; 32]>; Db::COUNT],
     pub owner: Option<Arc<crate::OwnerLock>>,
     pub io: Option<IoLayer>,
     pub readers_per_database: NonZeroUsize,
@@ -88,7 +75,7 @@ impl Config {
             root,
             databases: Db::ALL.to_vec(),
             paths,
-            keys: [None; 5],
+            keys: [None; Db::COUNT],
             owner: None,
             io: None,
             readers_per_database: NonZeroUsize::new(2).unwrap(),
@@ -97,15 +84,24 @@ impl Config {
             migrations: MigrationRegistry::default(),
         }
     }
+    /// Keeps the public key-slot representation tied to the declared database identities.
+    pub(crate) fn key(&self, db: Db) -> Option<[u8; 32]> {
+        self.keys[db as usize]
+    }
+
     pub(crate) fn validate(&self) -> Result<()> {
         if self.databases.is_empty() {
             return Err(Error::InvalidConfig("at least one database must be selected".into()));
         }
-        if !self.databases.contains(&Db::Scratch) {
+        if !self.databases.contains(&vault_layout::scratch_database()) {
             return Err(Error::InvalidConfig("selected databases require Scratch".into()));
         }
-        if self.databases.contains(&Db::Intelligence) && !self.databases.contains(&Db::Archive) {
-            return Err(Error::InvalidConfig("Intelligence requires Archive".into()));
+        for db in &self.databases {
+            for dependency in vault_layout::database_spec(*db).dependencies {
+                if !self.databases.contains(dependency) {
+                    return Err(Error::InvalidConfig(format!("{db:?} requires {dependency:?}")));
+                }
+            }
         }
         for (i, db) in self.databases.iter().enumerate() {
             if self.databases[..i].contains(db) {

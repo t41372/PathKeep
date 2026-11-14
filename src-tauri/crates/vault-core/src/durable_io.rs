@@ -196,7 +196,7 @@ pub fn atomic_durable_write_with(
     let parent =
         path.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or_else(|| Path::new("."));
     let tmp = tempfile::Builder::new()
-        .prefix(".pk-durable-")
+        .prefix(vault_layout::family_prefix(vault_layout::ArtifactId::AtomicTemps))
         .tempfile_in(parent)
         .with_context(|| format!("create temp beside {}", path.display()))?;
     {
@@ -293,7 +293,10 @@ fn sweep_temps_matching(dir: &Path, stale: impl Fn(&fs::DirEntry) -> bool) -> Re
     let mut removed = 0usize;
     for entry in entries {
         let entry = entry.with_context(|| format!("read entry in {}", dir.display()))?;
-        if entry.file_name().to_string_lossy().starts_with(".pk-durable-") && stale(&entry) {
+        if vault_layout::family_pattern(vault_layout::ArtifactId::AtomicTemps)
+            .matches(&entry.file_name().to_string_lossy())
+            && stale(&entry)
+        {
             let temp = entry.path();
             fs::remove_file(&temp)
                 .with_context(|| format!("remove stale temp {}", temp.display()))?;

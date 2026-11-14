@@ -20,7 +20,8 @@ use vault_core::{
 /// database. The `.pk-` prefix keeps retention / cleanup from sweeping it — the same
 /// dotfile-skip contract the interrupted-import journal and the write-lock sentinel rely
 /// on — so a crash-mid-rekey signal can never be deleted before recovery acts on it.
-const REKEY_JOURNAL_FILE: &str = ".pk-rekey-journal.json";
+const REKEY_JOURNAL_FILE: &str =
+    vault_layout::file_name(vault_layout::ArtifactId::LegacyRekeyJournal);
 
 /// The durable record of an in-flight rekey's swap+commit phase.
 ///
@@ -219,7 +220,10 @@ fn base_config_for_recovery(paths: &ProjectPaths, journal: &RekeyJournal) -> App
 /// replaced it), so drop the orphaned export temp + its sidecars and restore config to the
 /// captured pre-rekey bytes (`None` = none existed pre-rekey).
 fn rollback_rekey(paths: &ProjectPaths, journal: &RekeyJournal) -> Result<()> {
-    let temp_path = paths.legacy.archive.with_extension("rekey.sqlite");
+    let temp_path = paths
+        .legacy
+        .archive
+        .with_extension(vault_layout::family_extension(vault_layout::ArtifactId::LegacyRekeyTemps));
     let _ = fs::remove_file(&temp_path);
     super::remove_stale_sidecars(&temp_path);
     match &journal.previous_config {

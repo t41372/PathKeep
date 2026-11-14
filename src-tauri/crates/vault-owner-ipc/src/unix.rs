@@ -15,7 +15,7 @@ pub struct Listener {
 }
 impl Listener {
     pub async fn bind(root: &Path) -> io::Result<Self> {
-        let directory = root.join("ipc");
+        let directory = vault_layout::path(root, vault_layout::ArtifactId::Ipc);
         match std::fs::DirBuilder::new().mode(0o700).create(&directory) {
             Ok(()) => {}
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
@@ -29,7 +29,7 @@ impl Listener {
             ));
         }
         std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o700))?;
-        let path = directory.join("owner.sock");
+        let path = vault_layout::path(root, vault_layout::ArtifactId::OwnerEndpoint);
         match UnixStream::connect(&path).await {
             Ok(_) => {
                 return Err(io::Error::new(
@@ -65,7 +65,9 @@ fn uid() -> u32 {
     unsafe { libc::geteuid() }
 }
 pub async fn connect(root: &Path) -> io::Result<UnixStream> {
-    let stream = UnixStream::connect(root.join("ipc/owner.sock")).await?;
+    let stream =
+        UnixStream::connect(vault_layout::path(root, vault_layout::ArtifactId::OwnerEndpoint))
+            .await?;
     if stream.peer_cred()?.uid() != uid() {
         return Err(io::Error::new(
             io::ErrorKind::PermissionDenied,

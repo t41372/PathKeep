@@ -8,6 +8,7 @@ license.workspace = true
 description = "Thread-owned, synchronous Turso storage for PathKeep"
 
 [dependencies]
+vault-layout = { path = "../vault-layout" }
 turso = { version = "=0.8.3", default-features = false }
 tokio = { workspace = true, features = ["rt", "time"] }
 thiserror.workspace = true

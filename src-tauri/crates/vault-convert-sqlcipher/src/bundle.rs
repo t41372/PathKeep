@@ -30,10 +30,12 @@ pub fn preview(paths: &ProjectPaths, bundle: &Path) -> Result<ImportPreview> {
         "unsupported bundle format {}",
         manifest.format_version
     );
-    anyhow::ensure!(
-        manifest.files.iter().any(|f| f.path == "archive/history-vault.sqlite"),
-        "bundle is missing required entry archive/history-vault.sqlite"
-    );
+    for required in vault_layout::legacy_bundle_required() {
+        anyhow::ensure!(
+            manifest.files.iter().any(|f| f.path == required),
+            "bundle is missing required entry {required}"
+        );
+    }
     for file in &manifest.files {
         migration::validate_bundle_relative_path(&file.path)?;
     }
@@ -49,8 +51,10 @@ pub fn preview(paths: &ProjectPaths, bundle: &Path) -> Result<ImportPreview> {
             "This file was exported by PathKeep 0.3, which didn't include Ask chats; they are still on the other computer."
         }
     };
-    exclusion_notes
-        .push(ImportExclusionNote { path: "derived/agent.sqlite".into(), reason: chats.into() });
+    exclusion_notes.push(ImportExclusionNote {
+        path: vault_layout::spec(vault_layout::ArtifactId::LegacyAssistant).path.relative().into(),
+        reason: chats.into(),
+    });
     Ok(ImportPreview {
         schema_up_to_date: false,
         migrations_to_apply: Vec::new(),
@@ -95,8 +99,8 @@ pub fn import(
     migration::extract_bundle_into_cancel(bundle, &old_root, &preview.manifest, &cancel)?;
     let old_paths = vault_core::project_paths_with_root(&old_root);
     vault_core::config::ensure_paths(&old_paths)?;
-    if old_root.join("config/config.json").is_file() {
-        fs::rename(old_root.join("config/config.json"), &old_paths.config_path)?;
+    if old_root.join(vault_layout::legacy_config_entry()).is_file() {
+        fs::rename(old_root.join(vault_layout::legacy_config_entry()), &old_paths.config_path)?;
     }
     let mut config = vault_core::load_config(&old_paths).unwrap_or_default();
     config.initialized = true;
@@ -139,9 +143,9 @@ pub fn import(
 /// unlike a native bundle, didn't record that folder. Any one such path gives it back.
 fn exporting_root(vault: &Vault) -> Result<Option<String>> {
     for (table, column, folder) in [
-        ("snapshots", "file_path", "raw-snapshots"),
-        ("import_batches", "audit_path", "audit"),
-        ("manifests", "file_path", "audit"),
+        ("snapshots", "file_path", vault_layout::ArtifactId::RawSnapshots),
+        ("import_batches", "audit_path", vault_layout::ArtifactId::Audit),
+        ("manifests", "file_path", vault_layout::ArtifactId::Audit),
     ] {
         let paths = vault.store().read(Db::Archive, move |s| {
             s.query(
@@ -152,7 +156,9 @@ fn exporting_root(vault: &Vault) -> Result<Option<String>> {
         })?;
         for path in paths {
             let normalized = path.replace('\\', "/");
-            if let Some(at) = normalized.find(&format!("/{folder}/")) {
+            if let Some(at) =
+                normalized.find(&format!("/{}/", vault_layout::spec(folder).path.relative()))
+            {
                 return Ok(Some(path[..at].to_owned()));
             }
         }
@@ -162,15 +168,14 @@ fn exporting_root(vault: &Vault) -> Result<Option<String>> {
 
 /// The old databases were converted; only native files and the moved folders are installed.
 fn remove_old_files(old_root: &Path) -> Result<()> {
-    for folder in ["archive", "derived"] {
+    for folder in vault_layout::legacy_database_directories() {
         let Ok(entries) = fs::read_dir(old_root.join(folder)) else { continue };
         for entry in entries {
             let entry = entry?;
             let name = entry.file_name();
             let name = name.to_string_lossy();
-            if [".sqlite", ".sqlite-wal", ".sqlite-shm", ".sqlite-journal"]
-                .iter()
-                .any(|suffix| name.ends_with(suffix))
+            if vault_layout::CompanionFamily::LegacySqlite
+                .matches_database_name(&name, vault_layout::CompanionUse::Recovery)
             {
                 fs::remove_file(entry.path())
                     .with_context(|| format!("removing staged {}", entry.path().display()))?;

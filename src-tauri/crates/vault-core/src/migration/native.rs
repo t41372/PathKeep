@@ -19,18 +19,11 @@ use std::{
     path::Path,
     sync::Arc,
 };
-use vault_store::{CancelToken, Db};
+use vault_layout::{ArtifactId as A, PortablePolicy};
+use vault_store::CancelToken;
 use zip::{CompressionMethod, ZipWriter, write::SimpleFileOptions};
 
 const VERSION: u32 = 2;
-const FILES: [(&str, &str); 5] = [
-    ("archive/history-vault.db", "archive/history-vault.db"),
-    ("archive/source-evidence.db", "archive/source-evidence.db"),
-    ("derived/agent.db", "archive/agent.db"),
-    ("archive/keys.envelope", "archive/keys.envelope"),
-    ("config.json", "config/config.json"),
-];
-
 /// Settings that belong to this computer, not to the archive, so a moved archive takes them from
 /// the computer it lands on: App Lock (its secret never leaves the source machine; a fresh
 /// machine starts without one) and whether the password is remembered in this keychain (export
@@ -64,7 +57,7 @@ pub fn export(
         Some(&key),
         &cancel,
         progress,
-        &[Db::Archive, Db::SourceEvidence, Db::Agent],
+        &vault_layout::portable_databases().collect::<Vec<_>>(),
     )?;
     drop(pause);
     crate::save_config(&crate::project_paths_with_root(stage.path()), &config)?;
@@ -76,20 +69,25 @@ pub fn export(
     let options =
         SimpleFileOptions::default().compression_method(CompressionMethod::Stored).large_file(true);
     let sealed = stage.path().join("sealed");
-    fs::create_dir_all(sealed.join("config"))?;
+    fs::create_dir_all(
+        sealed.join(Path::new(vault_layout::portable_entry(A::Config)).parent().unwrap()),
+    )?;
     vault_crypto::encrypt_artifact(
         &sealed,
-        "config/config.json",
+        vault_layout::portable_entry(A::Config),
         &key,
-        &mut fs::File::open(stage.path().join("config.json"))?,
+        &mut fs::File::open(vault_layout::path(stage.path(), A::Config))?,
         || cancel.check().is_err(),
     )?;
-    for (source, name) in FILES {
+    for (id, name) in vault_layout::portable_files() {
         cancel.check()?;
-        let source = if name == "config/config.json" {
+        let source = if matches!(
+            vault_layout::spec(id).lifecycle.portable,
+            PortablePolicy::SealedConfig { .. }
+        ) {
             sealed.join(name)
         } else {
-            stage.path().join(source)
+            stage.path().join(vault_layout::spec(id).path.relative())
         };
         super::add_file_to_zip_cancel(&mut zip, &source, name, options, &mut files, &cancel)?;
     }
@@ -139,26 +137,8 @@ fn validate_target(paths: &ProjectPaths, target: &Path) -> Result<()> {
             .context("export-target-is-managed: choose a file outside the archive root")?
             .as_os_str()
             .to_string_lossy();
-        let managed = [
-            ".git",
-            "archive",
-            "derived",
-            "audit",
-            "raw-snapshots",
-            "sidecars",
-            "staging",
-            "quarantine",
-            "models",
-            "schedule",
-            "integrations",
-            "config.json",
-            "vault.hold",
-            "stronghold-salt.txt",
-            "app-lock-state.json",
-            "app-lock-passcode.json",
-        ];
         anyhow::ensure!(
-            !managed.contains(&first.as_ref()) && !first.starts_with(".pk-"),
+            !vault_layout::export_target_is_managed(&first),
             "export-target-is-managed: choose an export file outside the archive's managed data"
         );
     }
@@ -179,7 +159,9 @@ pub fn preview(paths: &ProjectPaths, bundle: &Path) -> Result<ImportPreview> {
         "unsupported Turso archive schema {}",
         manifest.archive_schema_version
     );
-    for required in FILES.iter().map(|(_, name)| *name).chain([portable_artifacts::NAME]) {
+    for required in
+        vault_layout::portable_files().map(|(_, name)| name).chain([portable_artifacts::NAME])
+    {
         anyhow::ensure!(
             manifest.files.iter().any(|f| f.path == required),
             "bundle is missing required entry {required}"
@@ -202,8 +184,8 @@ pub fn preview(paths: &ProjectPaths, bundle: &Path) -> Result<ImportPreview> {
 
 /// Whether installing a bundle replaces an archive (native or still in the old format).
 pub fn will_overwrite(paths: &ProjectPaths) -> bool {
-    paths.archive_db.exists()
-        || paths.app_root.join("archive/history-vault.sqlite").exists()
+    paths.native_archive_path().exists()
+        || vault_layout::path(&paths.app_root, vault_layout::legacy_primary()).exists()
         || maintenance::install::pending(paths)
 }
 
@@ -226,10 +208,28 @@ pub fn exclusion_notes(paths: &ProjectPaths) -> Vec<ImportExclusionNote> {
             "Install the automatic backup schedule again on this machine.",
         ],
     };
-    ["derived/", "vault.hold", "schedule/"]
+    vault_layout::import_exclusions()
         .into_iter()
-        .zip(copy)
-        .map(|(path, reason)| ImportExclusionNote { path: path.into(), reason: reason.into() })
+        .map(|(id, reason)| {
+            let descriptor = vault_layout::spec(id);
+            let path = if matches!(
+                descriptor.lifecycle.open,
+                vault_layout::OpenPolicy::EnsureContainer(_)
+            ) {
+                format!("{}/", descriptor.path.relative())
+            } else {
+                descriptor.path.relative().to_owned()
+            };
+            ImportExclusionNote {
+                path,
+                reason: copy[match reason {
+                    vault_layout::ImportExclusion::Rebuilt => 0,
+                    vault_layout::ImportExclusion::MachineSecrets => 1,
+                    vault_layout::ImportExclusion::Schedule => 2,
+                }]
+                .into(),
+            }
+        })
         .collect()
 }
 
@@ -264,24 +264,32 @@ pub fn import(
     let staged_paths = crate::project_paths_with_root(stage.path());
     let origin = portable_artifacts::unpack(stage.path(), &key, &cancel)?;
     portable_artifacts::remember_origin(stage.path(), &origin.source_root)?;
-    let mut config_file = fs::File::create(stage.path().join("config.json"))?;
+    let mut config_file = fs::File::create(vault_layout::path(stage.path(), A::Config))?;
     vault_crypto::decrypt_artifact(
         stage.path(),
-        "config/config.json",
+        vault_layout::portable_entry(A::Config),
         &key,
         &mut config_file,
         || cancel.check().is_err(),
     )?;
     config_file.sync_all()?;
     drop(config_file);
-    fs::create_dir_all(stage.path().join("derived"))?;
-    fs::rename(stage.path().join("archive/agent.db"), stage.path().join("derived/agent.db"))?;
+    for (id, entry) in vault_layout::portable_files() {
+        let descriptor = vault_layout::spec(id);
+        if matches!(descriptor.lifecycle.portable, PortablePolicy::Database { .. })
+            && entry != descriptor.path.relative()
+        {
+            let destination = stage.path().join(descriptor.path.relative());
+            fs::create_dir_all(destination.parent().unwrap())?;
+            fs::rename(stage.path().join(entry), destination)?;
+        }
+    }
     let mut config = crate::load_config(&staged_paths)?;
     config.archive_mode = ArchiveMode::Encrypted;
     keep_machine_settings(&mut config, &crate::load_config(paths)?);
     crate::save_config(&staged_paths, &config)?;
     let staged = Vault::open_staged(staged_paths, config.clone(), Some(&key))?;
-    for db in [Db::Archive, Db::SourceEvidence, Db::Agent] {
+    for db in vault_layout::portable_databases() {
         cancel.check()?;
         anyhow::ensure!(
             staged.store().read(db, |s| s.integrity_check())? == ["ok"],
@@ -318,12 +326,7 @@ pub fn install_staged(
         vault.store().pause()?.close()?;
         vault.close()?;
     }
-    let mut files = maintenance::database_files(true)
-        .into_iter()
-        .filter(|path| !path.starts_with("derived"))
-        .collect::<Vec<_>>();
-    files.push("derived".into());
-    files.extend(portable_artifacts::roots());
+    let files = vault_layout::portable_installation_files();
     let previous = maintenance::install::install(paths, stage, files, true)?;
     let vault = Vault::open_owned(paths.clone(), config, key.as_ref(), Some(owner))?;
     Ok(InstalledArchive { vault, data_key: key, previous_files: previous })
@@ -346,7 +349,7 @@ pub fn adopt_moved_paths(
 fn bundle_key(bundle: &Path, password: &str) -> Result<vault_crypto::DataKey> {
     use std::io::Read;
     let mut zip = zip::ZipArchive::new(fs::File::open(bundle)?)?;
-    let entry = zip.by_name("archive/keys.envelope")?;
+    let entry = zip.by_name(vault_layout::portable_entry(A::Envelope))?;
     let mut bytes = Vec::new();
     entry.take((vault_crypto::ENVELOPE_LEN + 1) as u64).read_to_end(&mut bytes)?;
     crate::vault::password::unwrap(&bytes, password)

@@ -40,11 +40,11 @@ struct AppLockSecretRecord {
 }
 
 fn app_lock_state_path(paths: &ProjectPaths) -> PathBuf {
-    paths.app_root.join("app-lock-state.json")
+    paths.artifact_path(vault_layout::ArtifactId::AppLockState)
 }
 
 fn app_lock_secret_path(paths: &ProjectPaths) -> PathBuf {
-    paths.app_root.join("app-lock-passcode.json")
+    paths.artifact_path(vault_layout::ArtifactId::AppLockPasscode)
 }
 
 fn load_app_lock_state(paths: &ProjectPaths, config: &AppConfig) -> Result<AppLockStateRecord> {

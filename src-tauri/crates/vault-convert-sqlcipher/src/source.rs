@@ -14,13 +14,19 @@ use vault_store::{Db, Value};
 
 pub(crate) const PAGE: i64 = 4096;
 
-pub(crate) fn files(paths: &ProjectPaths) -> [(Db, PathBuf); 4] {
-    [
-        (Db::Archive, paths.app_root.join("archive/history-vault.sqlite")),
-        (Db::SourceEvidence, paths.app_root.join("archive/source-evidence.sqlite")),
-        (Db::Intelligence, paths.derived_dir.join("history-intelligence.sqlite")),
-        (Db::Agent, paths.derived_dir.join("agent.sqlite")),
-    ]
+pub(crate) fn files(paths: &ProjectPaths) -> Vec<(Db, PathBuf)> {
+    vault_layout::conversion_sources()
+        .map(|(db, id)| {
+            let relative = Path::new(vault_layout::spec(id).path.relative());
+            let path = match relative.strip_prefix(
+                vault_layout::spec(vault_layout::ArtifactId::DerivedRoot).path.relative(),
+            ) {
+                Ok(child) => paths.derived_dir.join(child),
+                Err(_) => paths.app_root.join(relative),
+            };
+            (db, path)
+        })
+        .collect()
 }
 
 pub(crate) fn open(path: &Path, password: Option<&str>) -> Result<Connection> {
@@ -61,7 +67,14 @@ pub(crate) fn open_unless_locked(
 ) -> Result<Option<Connection>> {
     match open(path, password) {
         Ok(conn) => Ok(Some(conn)),
-        Err(error) if db != Db::Archive && error.is::<vault_core::ArchivePasswordWrong>() => {
+        Err(error)
+            if db
+                != match vault_layout::spec(vault_layout::legacy_primary()).lifecycle.conversion {
+                    vault_layout::ConversionPolicy::Source { db, .. } => db,
+                    _ => unreachable!("legacy primary source"),
+                }
+                && error.is::<vault_core::ArchivePasswordWrong>() =>
+        {
             Ok(None)
         }
         Err(error) => Err(error),

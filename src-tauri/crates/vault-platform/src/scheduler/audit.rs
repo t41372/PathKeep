@@ -125,7 +125,7 @@ pub(super) fn write_windows_schedule_audit(
 }
 
 pub(super) fn latest_schedule_audit_path(paths: &ProjectPaths) -> Option<String> {
-    let scheduler_dir = paths.audit_repo_path.join("scheduler");
+    let scheduler_dir = paths.artifact_path(vault_layout::ArtifactId::SchedulerAudit);
     let mut newest = fs::read_dir(&scheduler_dir)
         .ok()?
         .filter_map(|entry| entry.ok())
@@ -191,8 +191,7 @@ fn write_schedule_audit(
         fields.insert("at".to_string(), Value::String(now.clone()));
     }
     let audit_path = paths
-        .audit_repo_path
-        .join("scheduler")
+        .artifact_path(vault_layout::ArtifactId::SchedulerAudit)
         .join(format!("{action}-{}.json", now.replace(':', "-")));
     ensure_parent_dir(&audit_path)?;
     fs::write(&audit_path, serde_json::to_string_pretty(&payload)?)?;

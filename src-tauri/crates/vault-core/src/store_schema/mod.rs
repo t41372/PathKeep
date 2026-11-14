@@ -31,17 +31,25 @@ pub fn schema_version(db: Db) -> i64 {
 /// Gives the owner one complete schema contract before it opens any database.
 pub fn migration_registry() -> MigrationRegistry {
     let mut registry = MigrationRegistry::default();
-    let mut archive_steps = vec![archive::migration()];
-    archive_steps.extend(backup_identity::archive());
-    registry.register(Db::Archive, archive_steps);
-    registry.register(Db::SourceEvidence, vec![source_evidence::migration()]);
-    registry.register(
-        Db::Intelligence,
-        vec![intelligence::migration(), intelligence_lineage::migration()],
-    );
-    registry.register(Db::Agent, vec![agent::migration()]);
-    registry.register(Db::Scratch, scratch::migrations());
+    for database in vault_layout::databases() {
+        registry.register(database.db, migrations(database.db));
+    }
     registry
+}
+
+// Schema ownership stays here; a new storage identity must explicitly select its provider.
+fn migrations(db: Db) -> Vec<Migration> {
+    match db {
+        Db::Archive => {
+            let mut steps = vec![archive::migration()];
+            steps.extend(backup_identity::archive());
+            steps
+        }
+        Db::SourceEvidence => vec![source_evidence::migration()],
+        Db::Intelligence => vec![intelligence::migration(), intelligence_lineage::migration()],
+        Db::Agent => vec![agent::migration()],
+        Db::Scratch => scratch::migrations(),
+    }
 }
 
 fn v1(statements: &'static [&'static str]) -> Migration {

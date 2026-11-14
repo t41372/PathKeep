@@ -181,7 +181,12 @@ fn archive_mode(mode: DiskEncryptionMode) -> Option<ArchiveMode> {
 /// Removes `-wal`/`-shm`/`-journal` next to `path`. A file put in place by a swap is
 /// self-contained, so a sidecar there belongs to the file it replaced and must not replay.
 fn remove_stale_sidecars(path: &Path) {
-    for suffix in ["-wal", "-shm", "-journal"] {
+    for suffix in vault_layout::CompanionFamily::LegacySqlite
+        .suffixes(vault_layout::CompanionUse::Recovery)
+        .iter()
+        .copied()
+        .filter(|suffix| !suffix.is_empty())
+    {
         let _ = fs::remove_file(format!("{}{}", path.display(), suffix));
     }
 }

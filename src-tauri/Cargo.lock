@@ -81,6 +81,7 @@ dependencies = [
  "thiserror 2.0.18",
  "url",
  "vault-crypto",
+ "vault-layout",
  "vault-store",
  "walkdir",
  "zeroize",
@@ -8509,6 +8510,7 @@ dependencies = [
  "tempfile",
  "vault-core",
  "vault-crypto",
+ "vault-layout",
  "vault-store",
 ]
 
@@ -8555,6 +8557,7 @@ dependencies = [
  "turbovec",
  "ureq",
  "vault-crypto",
+ "vault-layout",
  "vault-search",
  "vault-store",
  "walkdir",
@@ -8584,8 +8587,13 @@ dependencies = [
  "turso",
  "turso_core",
  "vault-crypto",
+ "vault-layout",
  "zeroize",
 ]
+
+[[package]]
+name = "vault-layout"
+version = "0.1.0"
 
 [[package]]
 name = "vault-owner-ipc"
@@ -8598,6 +8606,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
+ "vault-layout",
  "windows-sys 0.61.2",
 ]
 
@@ -8622,6 +8631,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "vault-core",
+ "vault-layout",
  "windows-native-keyring-store",
  "windows-sys 0.61.2",
 ]
@@ -8652,6 +8662,7 @@ dependencies = [
  "tokio",
  "tracing",
  "turso",
+ "vault-layout",
  "zeroize",
 ]
 
@@ -8672,6 +8683,7 @@ dependencies = [
  "vault-convert-sqlcipher",
  "vault-core",
  "vault-crypto",
+ "vault-layout",
  "vault-owner-ipc",
  "vault-platform",
  "vault-store",

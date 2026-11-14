@@ -12,6 +12,7 @@ description = "Verified, resumable SQLCipher to Turso conversion for PathKeep"
 test-fixtures = []
 
 [dependencies]
+vault-layout = { path = "../vault-layout" }
 anyhow.workspace = true
 chrono.workspace = true
 rusqlite.workspace = true

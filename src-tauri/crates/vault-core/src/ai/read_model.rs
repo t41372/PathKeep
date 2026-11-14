@@ -622,10 +622,9 @@ pub fn preview_ai_integrations(
         ],
         generated_files: vec![
             crate::models::GeneratedFile {
-                relative_path: "integrations/pathkeep-mcp.json".to_string(),
+                relative_path: vault_layout::spec(vault_layout::ArtifactId::McpIntegration).path.relative().to_string(),
                 absolute_path: Some(
-                    paths.app_root
-                        .join("integrations/pathkeep-mcp.json")
+                    paths.artifact_path(vault_layout::ArtifactId::McpIntegration)
                         .display()
                         .to_string(),
                 ),
@@ -633,10 +632,9 @@ pub fn preview_ai_integrations(
                 contents: serde_json::to_string_pretty(&mcp_config)?,
             },
             crate::models::GeneratedFile {
-                relative_path: "integrations/codex-pathkeep-skill/SKILL.md".to_string(),
+                relative_path: vault_layout::spec(vault_layout::ArtifactId::SkillIntegration).path.relative().to_string(),
                 absolute_path: Some(
-                    paths.app_root
-                        .join("integrations/codex-pathkeep-skill/SKILL.md")
+                    paths.artifact_path(vault_layout::ArtifactId::SkillIntegration)
                         .display()
                         .to_string(),
                 ),

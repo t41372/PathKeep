@@ -22,7 +22,7 @@ use vault_core::{
 /// archive database. The `.pk-` prefix keeps retention / cleanup from deleting it
 /// (the same dotfile-skip contract the archive write-lock sentinel relies on), so a
 /// crash-mid-commit signal can never be swept away before recovery acts on it.
-const IMPORT_JOURNAL_FILE: &str = ".pk-import-journal.json";
+const IMPORT_JOURNAL_FILE: &str = vault_layout::file_name(vault_layout::ArtifactId::InstallJournal);
 
 /// One canonical-DB or subtree path the import is about to replace, plus whether a
 /// previous version existed there before the swap — so rollback knows whether to
@@ -117,7 +117,12 @@ fn remove_path_if_exists(path: &Path) -> Result<()> {
 /// `<target>` ones in place. Used by [`rollback_import`] to restore the OLD database's
 /// hot WAL and to FINISH an interrupted restore.
 fn restore_bak_sidecars(bak: &Path, target: &Path) -> Result<()> {
-    for suffix in ["-wal", "-shm", "-journal"] {
+    for suffix in vault_layout::CompanionFamily::LegacySqlite
+        .suffixes(vault_layout::CompanionUse::Recovery)
+        .iter()
+        .copied()
+        .filter(|suffix| !suffix.is_empty())
+    {
         let bak_sidecar = PathBuf::from(format!("{}{}", bak.display(), suffix));
         if bak_sidecar.exists() {
             let target_sidecar = PathBuf::from(format!("{}{}", target.display(), suffix));
@@ -147,8 +152,11 @@ fn rollback_import(paths: &ProjectPaths, journal: &ImportJournal) -> Result<()> 
     for entry in journal.canonical.iter().chain(journal.subtrees.iter()) {
         let target = entry.target.as_path();
         let bak = backup_sidecar_path(target, &journal.timestamp);
-        let bak_sidecar_present = ["-wal", "-shm", "-journal"]
+        let bak_sidecar_present = vault_layout::CompanionFamily::LegacySqlite
+            .suffixes(vault_layout::CompanionUse::Recovery)
             .iter()
+            .copied()
+            .filter(|suffix| !suffix.is_empty())
             .any(|suffix| PathBuf::from(format!("{}{}", bak.display(), suffix)).exists());
         if bak.exists() {
             // The swap had started: scrub any half-installed NEW sidecars first (so a
@@ -232,8 +240,11 @@ fn ensure_recovered_modes_are_consistent(
     paths: &ProjectPaths,
     journal: &ImportJournal,
 ) -> Result<()> {
-    let history = detect_disk_encryption_mode(&paths.legacy.archive);
-    let evidence = detect_disk_encryption_mode(&paths.legacy.source_evidence);
+    let modes: Vec<_> = vault_layout::legacy_canonical_files()
+        .map(|id| {
+            (vault_layout::file_name(id), detect_disk_encryption_mode(&paths.artifact_path(id)))
+        })
+        .collect();
     // The single at-rest mode the recovered archive must converge to.
     let required = journal
         .previous_config
@@ -241,13 +252,13 @@ fn ensure_recovered_modes_are_consistent(
         .and_then(|bytes| serde_json::from_str::<AppConfig>(bytes).ok())
         .map(|config| disk_mode_for(&config.archive_mode))
         .or_else(|| {
-            [history, evidence].into_iter().find(|mode| *mode != DiskEncryptionMode::Absent)
+            modes.iter().map(|(_, mode)| *mode).find(|mode| *mode != DiskEncryptionMode::Absent)
         });
     let Some(required) = required else {
         // Nothing installed and no config to honour — a clean empty state, nothing to drift.
         return Ok(());
     };
-    for (label, mode) in [("history-vault.sqlite", history), ("source-evidence.sqlite", evidence)] {
+    for (label, mode) in modes {
         if mode != DiskEncryptionMode::Absent && mode != required {
             anyhow::bail!(
                 concat!(

@@ -14,10 +14,10 @@ use std::{
 use vault_crypto::DataKey;
 use vault_store::{CancelToken, Db, Priority};
 
-pub(super) const NAME: &str = "archive/portable-artifacts.pkf";
-const ROOTS: [&str; 3] = ["audit", "raw-snapshots", "sidecars"];
+pub(super) const NAME: &str =
+    vault_layout::portable_entry(vault_layout::ArtifactId::PortableArtifacts);
 const ORIGIN: &str = "pathkeep-origin.json";
-const ALIASES: &str = "audit/pathkeep-import-roots.json";
+const ALIASES: &str = vault_layout::spec(vault_layout::ArtifactId::ImportRoots).path.relative();
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -33,7 +33,7 @@ pub(super) fn pack(
     key: &DataKey,
     cancel: &CancelToken,
 ) -> Result<PathBuf> {
-    fs::create_dir_all(sealed.join("archive"))?;
+    fs::create_dir_all(sealed.join(Path::new(NAME).parent().unwrap()))?;
     vault_crypto::write_artifact(sealed, NAME, key, |output| {
         let result = (|| -> Result<()> {
             let mut tar = tar::Builder::new(CheckedWriter { output, cancel });
@@ -46,7 +46,8 @@ pub(super) fn pack(
             header.set_mode(0o600);
             header.set_cksum();
             tar.append_data(&mut header, ORIGIN, origin.as_slice())?;
-            for root in ROOTS {
+            for id in vault_layout::portable_roots() {
+                let root = vault_layout::spec(id).path.relative();
                 let source = paths.app_root.join(root);
                 if !source.exists() {
                     continue;
@@ -97,7 +98,10 @@ pub(super) fn unpack(stage: &Path, key: &DataKey, cancel: &CancelToken) -> Resul
                 }
                 let relative = super::validate_bundle_relative_path(&name)?;
                 anyhow::ensure!(
-                    ROOTS.iter().any(|root| name == *root || name.starts_with(&format!("{root}/"))),
+                    vault_layout::portable_roots().into_iter().any(|id| {
+                        let root = vault_layout::spec(id).path.relative();
+                        name == root || name.starts_with(&format!("{root}/"))
+                    }),
                     "unsupported artifact root: {name}"
                 );
                 let path = stage.join(relative);
@@ -121,10 +125,6 @@ pub(super) fn unpack(stage: &Path, key: &DataKey, cancel: &CancelToken) -> Resul
         })();
         result.map_err(|error| io::Error::other(error.into_boxed_dyn_error()))
     })?)
-}
-
-pub(super) fn roots() -> Vec<PathBuf> {
-    ROOTS.into_iter().map(PathBuf::from).collect()
 }
 
 pub(super) fn remember_origin(stage: &Path, source: &str) -> Result<()> {

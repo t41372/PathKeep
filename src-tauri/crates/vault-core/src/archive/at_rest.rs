@@ -127,7 +127,9 @@ pub fn recover_archive_on_launch(
     config: &AppConfig,
 ) -> Result<LaunchRecovery> {
     crate::maintenance::recover_native_maintenance(paths)?;
-    let mode = detect_disk_encryption_mode(&paths.archive_db);
+    let mode = detect_disk_encryption_mode(
+        &paths.artifact_path(vault_layout::db_artifact(vault_layout::primary_database())),
+    );
     if let Some(mode) = disk_mode_to_archive_mode(mode) {
         let mut current = load_config(paths).unwrap_or_else(|_| config.clone());
         if current.archive_mode != mode {
@@ -148,7 +150,7 @@ pub fn recover_archive_on_launch(
 pub(crate) fn check_config_disk_consistency(paths: &ProjectPaths) -> Result<()> {
     let expected = load_config(paths)?.archive_mode;
     let files = vault_store::Paths::under(&paths.app_root);
-    for db in vault_store::Db::ALL.into_iter().filter(|db| *db != vault_store::Db::Scratch) {
+    for db in vault_layout::at_rest_databases() {
         let path = files.get(db);
         let Some(on_disk) = disk_mode_to_archive_mode(detect_disk_encryption_mode(path)) else {
             continue;

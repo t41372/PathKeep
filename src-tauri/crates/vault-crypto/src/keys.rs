@@ -34,54 +34,7 @@ use zeroize::{Zeroize, Zeroizing};
 /// Size in bytes of the data key and of every sub-key.
 pub const KEY_LEN: usize = 32;
 
-/// What a sub-key is for. Each purpose gets key material no other purpose sees.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum KeyPurpose {
-    /// `archive/history-vault.db`, opened with Turso's native encryption.
-    ArchiveDatabase,
-    /// `archive/source-evidence.db`.
-    SourceEvidenceDatabase,
-    /// `derived/intelligence.db`.
-    IntelligenceDatabase,
-    /// `derived/agent.db`.
-    AgentDatabase,
-    /// `derived/scratch.db`, the ATTACHed database used instead of TEMP tables.
-    ScratchDatabase,
-    /// The Tantivy search index, through [`crate::EncryptedDirectory`].
-    SearchIndex,
-    /// Turso's sort and hash spill files, through [`crate::TempCryptIo`].
-    TempFiles,
-    /// Immutable audit and source-checkpoint files inside a portable bundle.
-    BundleArtifacts,
-}
-
-impl KeyPurpose {
-    /// Every purpose, for tests and for code that has to open all databases.
-    pub const ALL: [KeyPurpose; 8] = [
-        KeyPurpose::ArchiveDatabase,
-        KeyPurpose::SourceEvidenceDatabase,
-        KeyPurpose::IntelligenceDatabase,
-        KeyPurpose::AgentDatabase,
-        KeyPurpose::ScratchDatabase,
-        KeyPurpose::SearchIndex,
-        KeyPurpose::TempFiles,
-        KeyPurpose::BundleArtifacts,
-    ];
-
-    /// The HKDF info label. Changing one makes existing data unreadable.
-    fn label(self) -> &'static [u8] {
-        match self {
-            KeyPurpose::ArchiveDatabase => b"pathkeep/v1/archive-database",
-            KeyPurpose::SourceEvidenceDatabase => b"pathkeep/v1/source-evidence-database",
-            KeyPurpose::IntelligenceDatabase => b"pathkeep/v1/intelligence-database",
-            KeyPurpose::AgentDatabase => b"pathkeep/v1/agent-database",
-            KeyPurpose::ScratchDatabase => b"pathkeep/v1/scratch-database",
-            KeyPurpose::SearchIndex => b"pathkeep/v1/search-index",
-            KeyPurpose::TempFiles => b"pathkeep/v1/temp-files",
-            KeyPurpose::BundleArtifacts => b"pathkeep/v1/bundle-artifacts",
-        }
-    }
-}
+pub use vault_layout::KeyPurpose;
 
 /// The random key that every database and the search index are encrypted under, directly or
 /// through a sub-key. A password change rewraps it; it never changes for the life of a vault.

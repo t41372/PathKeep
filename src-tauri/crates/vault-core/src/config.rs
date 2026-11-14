@@ -1,8 +1,5 @@
-//! Project-path and config persistence helpers.
-//!
-//! The rest of the backend assumes a stable directory layout. This module is
-//! the source of truth for that layout and for reading/writing the serialized
-//! app config under the project root.
+//! Responsibilities: expose typed catalog-backed paths and persist the existing app config.
+//! Not responsible for: declaring lifecycle membership, opening stores or changing disk formats.
 
 use crate::models::{AppConfig, normalize_app_config};
 use anyhow::{Context, Result};
@@ -12,6 +9,7 @@ use std::{
     fs,
     path::{Path, PathBuf},
 };
+use vault_layout::ArtifactId as A;
 
 const CURRENT_APP_QUALIFIER: &str = "com";
 const CURRENT_APP_ORGANIZATION: &str = "yi-ting";
@@ -72,6 +70,74 @@ pub struct LegacyPaths {
     pub agent: PathBuf,
 }
 
+impl ProjectPaths {
+    /// Startup identification intentionally probes only the catalog's native primary.
+    pub fn native_archive_path(&self) -> PathBuf {
+        self.artifact_path(vault_layout::db_artifact(vault_layout::primary_database()))
+    }
+
+    /// Old-format recovery keeps its own primary instead of borrowing the native role set.
+    pub fn legacy_archive_path(&self) -> PathBuf {
+        self.artifact_path(vault_layout::legacy_primary())
+    }
+
+    /// Operation projections honor the existing caller-configurable typed paths. Artifacts
+    /// without an exposed override use their catalog location under the supplied root.
+    pub fn artifact_path(&self, id: A) -> PathBuf {
+        match id {
+            A::Root => self.app_root.clone(),
+            A::History => self.archive_db.clone(),
+            A::SourceEvidence => self.source_evidence_db.clone(),
+            A::Intelligence => self.intelligence_db.clone(),
+            A::Assistant => self.agent_db.clone(),
+            A::Config => self.config_path.clone(),
+            A::DerivedRoot => self.derived_dir.clone(),
+            A::Search => self.search_index_dir.clone(),
+            A::Audit => self.audit_repo_path.clone(),
+            A::Manifests => self.manifests_dir.clone(),
+            A::Exports => self.exports_dir.clone(),
+            A::RawSnapshots => self.raw_snapshots_dir.clone(),
+            A::Staging => self.staging_dir.clone(),
+            A::Quarantine => self.quarantine_dir.clone(),
+            A::Schedule => self.schedule_dir.clone(),
+            A::Sidecars => self.sidecars_dir.clone(),
+            A::LegacySemantic => self.semantic_index_dir.clone(),
+            A::TextBlobs => self.intelligence_blobs_dir.clone(),
+            A::Vectors => self.vectors_dir.clone(),
+            A::Models => self.models_dir.clone(),
+            A::Logs => self.logs_dir.clone(),
+            A::CrashReports => self.crash_reports_dir.clone(),
+            A::RustLog => self.rust_log_path.clone(),
+            A::FrontendLog => self.frontend_log_path.clone(),
+            A::RustPanic => self.rust_panic_report_path.clone(),
+            A::FrontendError => self.frontend_error_report_path.clone(),
+            A::LegacyHistory => self.legacy.archive.clone(),
+            A::LegacyEvidence => self.legacy.source_evidence.clone(),
+            A::LegacyIntelligence => self.legacy.intelligence.clone(),
+            A::LegacySearch => self.legacy.search.clone(),
+            A::LegacyAssistant => self.legacy.agent.clone(),
+            A::ArchiveRoot => self.archive_db.parent().expect("archive parent").to_owned(),
+            A::NativeSnapshots | A::LegacySnapshots => self.raw_snapshots_dir.join(
+                Path::new(vault_layout::spec(id).path.relative())
+                    .strip_prefix(vault_layout::spec(A::RawSnapshots).path.relative())
+                    .unwrap(),
+            ),
+            A::MaintenanceStages => self.staging_dir.clone(),
+            A::ScheduleLogs | A::ScheduleAttempts => self.schedule_dir.join(
+                Path::new(vault_layout::spec(id).path.relative())
+                    .strip_prefix(vault_layout::spec(A::Schedule).path.relative())
+                    .unwrap(),
+            ),
+            A::SchedulerAudit => self.audit_repo_path.join(
+                Path::new(vault_layout::spec(id).path.relative())
+                    .strip_prefix(vault_layout::spec(A::Audit).path.relative())
+                    .unwrap(),
+            ),
+            _ => vault_layout::path(&self.app_root, id),
+        }
+    }
+}
+
 /// Resolves the current project paths using the active project root.
 pub fn project_paths() -> Result<ProjectPaths> {
     let root = project_root()?;
@@ -81,44 +147,45 @@ pub fn project_paths() -> Result<ProjectPaths> {
 /// Builds the full project path layout for a specific root directory.
 pub fn project_paths_with_root(root: &Path) -> ProjectPaths {
     let root = root.to_path_buf();
-    let logs_dir = root.join("logs");
-    let crash_reports_dir = root.join("diagnostics").join("crash-reports");
-    let derived_dir = root.join("derived");
-    let sidecars_dir = root.join("sidecars");
+    let at = |id| vault_layout::path(&root, id);
+    let logs_dir = at(A::Logs);
+    let crash_reports_dir = at(A::CrashReports);
+    let derived_dir = at(A::DerivedRoot);
+    let sidecars_dir = at(A::Sidecars);
     let store = vault_store::Paths::under(&root);
     ProjectPaths {
-        config_path: root.join("config.json"),
+        config_path: at(A::Config),
         archive_db: store.archive,
         source_evidence_db: store.source_evidence,
         derived_dir: derived_dir.clone(),
-        search_index_dir: derived_dir.join("search-index"),
+        search_index_dir: at(A::Search),
         intelligence_db: store.intelligence,
-        audit_repo_path: root.join("audit"),
-        manifests_dir: root.join("audit").join("manifests"),
-        exports_dir: root.join("exports"),
-        raw_snapshots_dir: root.join("raw-snapshots"),
-        staging_dir: root.join("staging"),
-        quarantine_dir: root.join("quarantine"),
-        schedule_dir: root.join("schedule"),
+        audit_repo_path: at(A::Audit),
+        manifests_dir: at(A::Manifests),
+        exports_dir: at(A::Exports),
+        raw_snapshots_dir: at(A::RawSnapshots),
+        staging_dir: at(A::Staging),
+        quarantine_dir: at(A::Quarantine),
+        schedule_dir: at(A::Schedule),
         sidecars_dir: sidecars_dir.clone(),
-        semantic_index_dir: sidecars_dir.join("semantic-index"),
-        intelligence_blobs_dir: sidecars_dir.join("intelligence-blobs"),
-        vectors_dir: derived_dir.join("vectors"),
+        semantic_index_dir: at(A::LegacySemantic),
+        intelligence_blobs_dir: at(A::TextBlobs),
+        vectors_dir: at(A::Vectors),
         agent_db: store.agent,
         legacy: LegacyPaths {
-            archive: root.join("archive").join("history-vault.sqlite"),
-            source_evidence: root.join("archive").join("source-evidence.sqlite"),
-            search: derived_dir.join("history-search.sqlite"),
-            intelligence: derived_dir.join("history-intelligence.sqlite"),
-            agent: derived_dir.join("agent.sqlite"),
+            archive: at(A::LegacyHistory),
+            source_evidence: at(A::LegacyEvidence),
+            search: at(A::LegacySearch),
+            intelligence: at(A::LegacyIntelligence),
+            agent: at(A::LegacyAssistant),
         },
-        models_dir: root.join("models"),
+        models_dir: at(A::Models),
         logs_dir: logs_dir.clone(),
-        rust_log_path: logs_dir.join("rust.log"),
-        frontend_log_path: logs_dir.join("frontend.log"),
+        rust_log_path: at(A::RustLog),
+        frontend_log_path: at(A::FrontendLog),
         crash_reports_dir: crash_reports_dir.clone(),
-        rust_panic_report_path: crash_reports_dir.join("rust-panic-latest.json"),
-        frontend_error_report_path: crash_reports_dir.join("frontend-error-latest.json"),
+        rust_panic_report_path: at(A::RustPanic),
+        frontend_error_report_path: at(A::FrontendError),
         app_root: root,
     }
 }
@@ -136,27 +203,16 @@ fn project_root() -> Result<PathBuf> {
 
 /// Ensures the expected project directory layout exists on disk.
 pub fn ensure_paths(paths: &ProjectPaths) -> Result<()> {
-    for dir in [
-        &paths.app_root,
-        paths.archive_db.parent().expect("archive db parent"),
-        paths.source_evidence_db.parent().expect("source evidence db parent"),
-        &paths.derived_dir,
-        &paths.audit_repo_path,
-        &paths.manifests_dir,
-        &paths.exports_dir,
-        &paths.raw_snapshots_dir,
-        &paths.staging_dir,
-        &paths.quarantine_dir,
-        &paths.schedule_dir,
-        &paths.sidecars_dir,
-        &paths.semantic_index_dir,
-        &paths.intelligence_blobs_dir,
-        &paths.vectors_dir,
-        &paths.models_dir,
-        &paths.logs_dir,
-        &paths.crash_reports_dir,
-    ] {
-        fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
+    let directories: Vec<_> = vault_layout::scaffolding()
+        .into_iter()
+        .map(|(id, parent)| {
+            let path = paths.artifact_path(id);
+            if parent { path.parent().expect("database parent").to_owned() } else { path }
+        })
+        .collect();
+    for directory in directories {
+        fs::create_dir_all(&directory)
+            .with_context(|| format!("creating {}", directory.display()))?;
     }
     Ok(())
 }

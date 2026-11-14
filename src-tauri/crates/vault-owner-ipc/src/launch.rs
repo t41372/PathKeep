@@ -86,7 +86,9 @@ fn launch_command(
             name.push(value);
             command.arg("--env").arg(name);
         }
-        command.arg("--stderr").arg(root.join("logs/owner-startup.log"));
+        command
+            .arg("--stderr")
+            .arg(vault_layout::path(root, vault_layout::ArtifactId::OwnerStartupLog));
         command.arg("--stdout").arg("/dev/null");
         command.args(app_args);
         return command;
@@ -113,9 +115,9 @@ pub fn launch_background(root: &Path) -> Result<(), RpcError> {
     .into_iter()
     .filter_map(|name| std::env::var_os(name).map(|value| (name.into(), value)));
     let mut command = launch_command(&spec, root, overrides);
-    let logs = root.join("logs");
+    let logs = vault_layout::path(root, vault_layout::ArtifactId::Logs);
     std::fs::create_dir_all(&logs)?;
-    let log = logs.join("owner-startup.log");
+    let log = vault_layout::path(root, vault_layout::ArtifactId::OwnerStartupLog);
     // Bounded before each start; a log that cannot be trimmed is no reason not to start.
     let _ = crate::logs::cap_log(&log);
     let mut stderr = std::fs::OpenOptions::new().create(true).append(true).open(&log)?;

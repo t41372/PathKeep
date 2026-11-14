@@ -308,15 +308,8 @@ fn storage_config(
     let mut storage = vault_store::Config::new(&paths.app_root);
     storage.owner = owner;
     if let Some(data_key) = key {
-        use vault_crypto::KeyPurpose;
-        storage.keys = [
-            KeyPurpose::ArchiveDatabase,
-            KeyPurpose::SourceEvidenceDatabase,
-            KeyPurpose::IntelligenceDatabase,
-            KeyPurpose::AgentDatabase,
-            KeyPurpose::ScratchDatabase,
-        ]
-        .map(|purpose| Some(*data_key.derive(purpose).expose_bytes()));
+        storage.keys = vault_store::Db::ALL
+            .map(|db| Some(*data_key.derive(vault_layout::database_spec(db).key).expose_bytes()));
         storage.io = Some(
             vault_crypto::TempCryptIo::new(data_key)
                 .map_err(|e| vault_store::Error::Operation(Box::new(e)))?,

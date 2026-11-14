@@ -433,7 +433,7 @@ pub fn assess_archive_upgrade(database_key: Option<&str>) -> Result<ArchiveUpgra
     };
     Ok(ArchiveUpgradeAssessment {
         pending: conversion.required,
-        current_schema_version: i64::from(paths.archive_db.exists()),
+        current_schema_version: i64::from(paths.native_archive_path().exists()),
         target_schema_version: 1,
         phases,
         conversion: Some(conversion),
@@ -542,11 +542,11 @@ where
     }
     if next_config.archive_mode == ArchiveMode::Encrypted
         && database_key.is_none()
-        && (paths.legacy.archive.exists() || paths.archive_db.exists())
+        && (paths.legacy_archive_path().exists() || paths.native_archive_path().exists())
     {
         return app_snapshot(None);
     }
-    if paths.legacy.archive.exists() && !paths.archive_db.exists() {
+    if paths.legacy_archive_path().exists() && !paths.native_archive_path().exists() {
         // Through storing the key the converted archive opens with, not only the conversion.
         let _running = crate::foreground_work::begin(crate::ForegroundWork::ArchiveUpgrade);
         let archive = crate::maintenance_jobs::run(
@@ -589,7 +589,7 @@ where
 
 /// The native archive exists, or a native install is waiting to be finished.
 fn is_native(paths: &vault_core::ProjectPaths) -> bool {
-    paths.archive_db.exists() || vault_core::maintenance::install::pending(paths)
+    paths.native_archive_path().exists() || vault_core::maintenance::install::pending(paths)
 }
 
 /// Brings an archive of the old format to a consistent state before anything reads it: an

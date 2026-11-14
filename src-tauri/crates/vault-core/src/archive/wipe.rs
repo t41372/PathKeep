@@ -1,29 +1,32 @@
-//! "Delete all data": the fixed list of what PathKeep removes, a preview of it, and the removal.
+//! "Delete all data": a preview of what PathKeep removes, and the removal.
 //!
 //! ## Responsibilities
-//! - Name every file and folder under the app root that holds the user's history or something
-//!   derived from it.
-//! - Preview them with their sizes and the archive's visit count.
-//! - Remove them under the archive write lock, with an on-disk marker so a wipe cut short by a
+//! - Preview everything under the app root that holds the user's history or something derived
+//!   from it, with sizes and the archive's visit count.
+//! - Remove it under the archive write lock, with an on-disk marker so a wipe cut short by a
 //!   crash or power loss finishes on the next launch instead of leaving half an archive behind.
 //!
 //! ## Not responsible for
+//! - Deciding what is removed. Each artifact's row in `vault_layout` says what a wipe does with
+//!   it (`WipePolicy`); this module reads those answers and keeps no list of its own.
 //! - The confirmation word, keychain entries, the OS backup task, stopping background workers and
 //!   the in-memory session key. `vault-worker` owns those and passes the platform steps in as
 //!   closures.
-//! - The user's browser profiles. Nothing here reads a browser path: every target is a fixed path
-//!   under [`ProjectPaths::app_root`].
+//! - The user's browser profiles. Nothing here reads a browser path: every target is a path under
+//!   [`ProjectPaths::app_root`].
 //!
 //! ## What is removed
-//! - Everything in `archive/` except the write-lock and owner-lock sentinels: the archive
-//!   and source-evidence databases with their WAL/SHM files, import backstops (`*.bak-*`) and rekey/restore/import
-//!   markers.
-//! - `derived/` (search, intelligence, AI vectors, agent conversations), `sidecars/`,
+//! - Everything in `archive/` except the write-lock and owner-lock sentinels, whether or not the
+//!   table knows the file: the archive and source-evidence databases with their WAL/SHM files,
+//!   import backstops (`*.bak-*`) and rekey/restore/import markers.
+//! - The folders whose row says so, whole, including anything inside the table does not list:
+//!   `derived/` (search, intelligence, AI vectors, agent conversations), `sidecars/`,
 //!   `raw-snapshots/`, `staging/`, `quarantine/`, `audit/` (run ledger and manifests), `exports/`,
 //!   `models/` (downloaded embedding models), `integrations/` and `schedule/` (scheduled-run logs
 //!   and attempt history).
-//! - Import backstops in the app root, the App Lock state and passcode files, the Stronghold files
-//!   versions before 0.5 left (`vault.hold`, `stronghold-salt.txt`), and `config.json`.
+//! - Import backstops in the app root (any name containing `.bak-`), the App Lock state and
+//!   passcode files, the Stronghold files versions before 0.5 left (`vault.hold`,
+//!   `stronghold-salt.txt`), and `config.json`.
 //! - Outside the app root, through the caller's closures: the archive key and AI provider keys in
 //!   the keychain, and an installed automatic backup (LaunchAgent or Task Scheduler task).
 //!
@@ -34,6 +37,9 @@
 //!   writes this record of the removal after `audit/` is gone; it names the task, nothing else.
 //! - `archive/.pk-archive-write.lock` and `archive/.pk-owner.lock`. Deleting either inode
 //!   would let a second process lock a new file while the first still holds the old one.
+//! - A file directly in the app root that no row selects and whose name has no `.bak-` in it.
+//!   PathKeep writes none itself, but a bundle the user exported straight into this folder is
+//!   one, and it survives. That is a known gap, not a decision.
 //!
 //! ## Order
 //! Gate and write lock, marker, `config.json`, `quiesce`, the files, the keychain, the automatic
@@ -73,7 +79,9 @@
 //! - The preview takes the visit count from the last backup's cached totals; it only counts rows
 //!   when no successful run has cached them. Folder sizes are a metadata walk.
 
-use super::write_lock::{ARCHIVE_WRITE_LOCK_FILE, ArchiveOpGate, ArchiveWriteLock};
+#[cfg(test)]
+use super::write_lock::ARCHIVE_WRITE_LOCK_FILE;
+use super::write_lock::{ArchiveOpGate, ArchiveWriteLock};
 use crate::{
     config::ProjectPaths,
     durable_io::{atomic_durable_write, remove_file_durably},
@@ -87,7 +95,8 @@ use std::{
 };
 
 /// Marker file in the app root that exists exactly while a wipe is unfinished.
-const WIPE_MARKER_FILE: &str = ".pk-wipe-in-progress.json";
+const WIPE_MARKER_FILE: &str =
+    vault_layout::spec(vault_layout::ArtifactId::WipeIntent).path.relative();
 
 /// What a wipe clears outside the app root, saved in the marker because `config.json` (where the
 /// provider list and the schedule settings live) is the first thing the wipe deletes.
@@ -254,35 +263,34 @@ fn run_wipe(
 fn wipe_targets(paths: &ProjectPaths) -> Result<Vec<PathBuf>> {
     let mut targets = Vec::new();
 
-    let archive_dir = paths.archive_db.parent().context("archive database path has no parent")?;
-    targets.extend(entries_of(archive_dir)?.into_iter().filter(|path| {
-        path.file_name()
-            .is_none_or(|name| name != ARCHIVE_WRITE_LOCK_FILE && name != ".pk-owner.lock")
-    }));
-
-    targets.extend([
-        paths.derived_dir.clone(),
-        paths.sidecars_dir.clone(),
-        paths.raw_snapshots_dir.clone(),
-        paths.staging_dir.clone(),
-        paths.quarantine_dir.clone(),
-        paths.audit_repo_path.clone(),
-        paths.exports_dir.clone(),
-        paths.models_dir.clone(),
-        paths.app_root.join("integrations"),
-        paths.schedule_dir.clone(),
-        paths.app_root.join("app-lock-state.json"),
-        paths.app_root.join("app-lock-passcode.json"),
-        // Versions before 0.5 registered the Stronghold plugin and wrote its salt; nothing uses them.
-        paths.app_root.join("vault.hold"),
-        paths.app_root.join("stronghold-salt.txt"),
-        paths.config_path.clone(),
-    ]);
-
-    // Whole-app imports keep the replaced folders beside the originals as `<name>.bak-<time>`.
-    targets.extend(entries_of(&paths.app_root)?.into_iter().filter(|path| {
-        path.file_name().is_some_and(|name| name.to_string_lossy().contains(".bak-"))
-    }));
+    use vault_layout::{WipePolicy, artifacts, spec};
+    // Preserve the existing error for a malformed caller-supplied canonical path.
+    paths.archive_db.parent().context("archive database path has no parent")?;
+    for container in
+        artifacts().filter(|s| s.lifecycle.wipe == WipePolicy::ArchiveChildrenExceptLocks)
+    {
+        let kept: Vec<_> = artifacts()
+            .filter(|s| s.lifecycle.wipe == WipePolicy::PreserveRuntime)
+            .filter(|s| {
+                Path::new(s.path.relative()).parent() == Some(Path::new(container.path.relative()))
+            })
+            .map(|s| vault_layout::file_name(s.id))
+            .collect();
+        targets.extend(entries_of(&paths.artifact_path(container.id))?.into_iter().filter(
+            |path| path.file_name().is_none_or(|name| !kept.iter().any(|keep| name == *keep)),
+        ));
+    }
+    targets.extend(vault_layout::wipe_targets().into_iter().map(|id| paths.artifact_path(id)));
+    for family in artifacts().filter(|s| s.lifecycle.wipe == WipePolicy::RootBackups) {
+        let pattern = vault_layout::family_pattern(family.id);
+        targets.extend(
+            entries_of(&paths.app_root.join(spec(family.id).path.relative()))?.into_iter().filter(
+                |path| {
+                    path.file_name().is_some_and(|name| pattern.matches(&name.to_string_lossy()))
+                },
+            ),
+        );
+    }
 
     targets.retain(|path| fs::symlink_metadata(path).is_ok());
     Ok(targets)

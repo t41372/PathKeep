@@ -41,7 +41,9 @@ impl Maintenance<'_> {
     /// A snapshot must include the WAL's committed rows before copying main files.
     pub fn checkpoint(&self) -> Result<()> {
         for (db, worker) in self.workers.iter() {
-            if *db != Db::Scratch {
+            if vault_layout::spec(vault_layout::db_artifact(*db)).lifecycle.snapshot
+                == vault_layout::SnapshotPolicy::CopyDatabase
+            {
                 worker.maintenance(|engine| crate::copy::checkpoint(engine, "main"))?;
             }
         }
@@ -53,7 +55,10 @@ impl Maintenance<'_> {
     pub fn snapshot(&self, root: &Path) -> Result<()> {
         self.checkpoint()?;
         let targets = Paths::under(root);
-        for (db, _) in self.workers.iter().filter(|(db, _)| *db != Db::Scratch) {
+        for (db, _) in self.workers.iter().filter(|(db, _)| {
+            vault_layout::spec(vault_layout::db_artifact(*db)).lifecycle.snapshot
+                == vault_layout::SnapshotPolicy::CopyDatabase
+        }) {
             let target = targets.get(*db);
             fs::create_dir_all(target.parent().unwrap())?;
             fs::copy(self.store.paths.get(*db), target)?;

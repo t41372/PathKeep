@@ -62,7 +62,7 @@ use self::writer::EncryptedWriter;
 use zeroize::Zeroizing;
 
 use crate::atomic_file;
-use crate::keys::{DataKey, KeyPurpose, SubKey};
+use crate::keys::{DataKey, SubKey};
 
 /// The default plaintext block cache size.
 pub const DEFAULT_CACHE_BYTES: usize = 64 * 1024 * 1024;
@@ -91,11 +91,27 @@ impl EncryptedDirectory {
         data_key: &DataKey,
         cache_bytes: usize,
     ) -> io::Result<EncryptedDirectory> {
-        Self::open_key(root, data_key.derive(KeyPurpose::SearchIndex), cache_bytes)
+        Self::open_key(
+            root,
+            data_key.derive(
+                vault_layout::spec(vault_layout::ArtifactId::Search)
+                    .file_key
+                    .expect("search purpose"),
+            ),
+            cache_bytes,
+        )
     }
 
     pub(crate) fn open_artifacts(root: &Path, key: &DataKey) -> io::Result<Self> {
-        Self::open_key(root, key.derive(KeyPurpose::BundleArtifacts), 0)
+        Self::open_key(
+            root,
+            key.derive(
+                vault_layout::spec(vault_layout::ArtifactId::PortableArtifacts)
+                    .file_key
+                    .expect("artifact purpose"),
+            ),
+            0,
+        )
     }
 
     fn open_key(root: &Path, key: SubKey, cache_bytes: usize) -> io::Result<Self> {

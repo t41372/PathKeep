@@ -31,10 +31,11 @@ pub fn assess(
     password: Option<&str>,
 ) -> Result<Assessment> {
     let mut tables = Vec::new();
-    let required =
-        !paths.archive_db.exists() && paths.app_root.join("archive/history-vault.sqlite").exists();
-    let source_encrypted = paths.app_root.join("archive/history-vault.sqlite").is_file()
-        && source::encrypted(&paths.app_root.join("archive/history-vault.sqlite"))?;
+    let required = !paths.archive_db.exists()
+        && vault_layout::path(&paths.app_root, vault_layout::legacy_primary()).exists();
+    let source_encrypted = vault_layout::path(&paths.app_root, vault_layout::legacy_primary())
+        .is_file()
+        && source::encrypted(&vault_layout::path(&paths.app_root, vault_layout::legacy_primary()))?;
     // Without the password an encrypted source can't be counted; the screen still
     // needs to know a conversion is due, how big it is, and to ask for the password.
     let countable = required && (password.is_some() || !source_encrypted);
@@ -45,7 +46,9 @@ pub fn assess(
         if !path.is_file() {
             continue;
         }
-        for suffix in ["", "-wal", "-shm"] {
+        for suffix in
+            vault_layout::CompanionFamily::LegacySqlite.suffixes(vault_layout::CompanionUse::Assess)
+        {
             let mut name = path.as_os_str().to_owned();
             name.push(suffix);
             let file = PathBuf::from(name);
@@ -98,7 +101,7 @@ struct State {
     evidence_verified: bool,
 }
 fn stage_root(paths: &ProjectPaths) -> PathBuf {
-    paths.staging_dir.join("sqlcipher-conversion")
+    paths.staging_dir.join(vault_layout::file_name(vault_layout::ArtifactId::SqlcipherStage))
 }
 fn save_state(stage: &std::path::Path, state: &State) -> Result<()> {
     vault_core::durable_io::atomic_durable_write(
@@ -147,7 +150,7 @@ pub fn convert_owned(
     vault_core::save_config(&target_paths, config)?;
     let (vault, key) = if config.archive_mode == ArchiveMode::Encrypted {
         let password = password.context("archive-password-required: enter the archive password")?;
-        if stage.join("archive/keys.envelope").exists() {
+        if vault_layout::path(&stage, vault_layout::ArtifactId::Envelope).exists() {
             let key = Vault::unlock_data_key(&target_paths, password)?;
             (Vault::open_staged(target_paths, config.clone(), Some(&key))?, Some(key))
         } else {
@@ -155,7 +158,10 @@ pub fn convert_owned(
                 password.as_bytes(),
                 vault_crypto::KdfParams::RECOMMENDED,
             )?;
-            vault_crypto::write_envelope_file(&stage.join("archive/keys.envelope"), &envelope)?;
+            vault_crypto::write_envelope_file(
+                &vault_layout::path(&stage, vault_layout::ArtifactId::Envelope),
+                &envelope,
+            )?;
             (Vault::open_staged(target_paths, config.clone(), Some(&key))?, Some(key))
         }
     } else {

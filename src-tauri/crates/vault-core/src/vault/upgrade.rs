@@ -25,7 +25,7 @@ pub(crate) fn event(progress: vault_store::BackfillProgress) -> ArchiveUpgradePr
         progress.processed,
         progress.total,
     );
-    event.database = Some("Intelligence".into());
+    event.database = Some(format!("{:?}", vault_store::Db::Intelligence));
     event.table = progress.table;
     event
 }
@@ -33,7 +33,7 @@ pub(crate) fn event(progress: vault_store::BackfillProgress) -> ArchiveUpgradePr
 /// [`event`] for a backfill of the Archive database.
 pub(crate) fn archive_event(progress: vault_store::BackfillProgress) -> ArchiveUpgradeProgress {
     let mut event = event(progress);
-    event.database = Some("Archive".into());
+    event.database = Some(format!("{:?}", vault_store::Db::Archive));
     event
 }
 

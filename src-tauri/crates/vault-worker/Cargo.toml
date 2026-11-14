@@ -6,6 +6,7 @@ publish = false
 license.workspace = true
 
 [dependencies]
+vault-layout = { path = "../vault-layout" }
 vault-convert-sqlcipher = { path = "../vault-convert-sqlcipher" }
 zeroize = "1"
 vault-crypto = { path = "../vault-crypto" }

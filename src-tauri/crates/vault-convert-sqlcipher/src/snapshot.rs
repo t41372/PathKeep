@@ -32,8 +32,12 @@ pub fn restore_snapshot(
     anyhow::ensure!(integrity == "ok", "snapshot integrity: {integrity}");
     drop(input);
     fs::create_dir_all(&paths.staging_dir)?;
-    let stage =
-        tempfile::Builder::new().prefix("maintenance-legacy-").tempdir_in(&paths.staging_dir)?;
+    let stage = tempfile::Builder::new()
+        .prefix(&format!(
+            "{}legacy-",
+            vault_layout::family_prefix(vault_layout::ArtifactId::MaintenanceStages)
+        ))
+        .tempdir_in(&paths.staging_dir)?;
     let staged_paths = vault_core::project_paths_with_root(stage.path());
     vault_core::config::ensure_paths(&staged_paths)?;
     let mut config = vault_core::load_config(paths).unwrap_or_default();

@@ -25,7 +25,8 @@ use vault_core::{
 /// database. The `.pk-` prefix keeps retention / cleanup from sweeping it — the same dotfile-skip
 /// contract the rekey/import journals and the write-lock sentinel rely on — so a crash-mid-restore
 /// signal can never be deleted before recovery acts on it.
-const RESTORE_JOURNAL_FILE: &str = ".pk-restore-journal.json";
+const RESTORE_JOURNAL_FILE: &str =
+    vault_layout::file_name(vault_layout::ArtifactId::LegacyRestoreJournal);
 
 /// The durable record of an in-flight full-archive restore's quarantine→install→commit phase.
 /// Written (durably) just BEFORE the quarantine move and removed (durably) AFTER the final
@@ -161,7 +162,9 @@ fn resolve_interrupted_restore(paths: &ProjectPaths, journal: &RestoreJournal) -
         // COMPLETE: the canonical history-vault is absent/unverifiable but the chosen snapshot is
         // still restorable, so finish the half-done install from it. Scrub any half-staged
         // `restore.sqlite` temp + its sidecars first so no phantom file blocks the durable install.
-        let restore_temp = paths.legacy.archive.with_extension("restore.sqlite");
+        let restore_temp = paths.legacy.archive.with_extension(vault_layout::family_extension(
+            vault_layout::ArtifactId::LegacyRestoreTemps,
+        ));
         let _ = fs::remove_file(&restore_temp);
         super::remove_stale_sidecars(&restore_temp);
         install_restored_archive(&snapshot_ref, &restore_temp, paths)?;
@@ -237,8 +240,8 @@ fn reconcile_restore_config(paths: &ProjectPaths, journal: &RestoreJournal) -> R
 /// snapshot is gone AND the originals cannot be recovered from quarantine — never boot empty.
 fn rollback_restore(paths: &ProjectPaths, journal: &RestoreJournal) -> Result<()> {
     let quarantine_dir = PathBuf::from(&journal.quarantine_dir);
-    for canonical in [&paths.legacy.archive, &paths.legacy.source_evidence] {
-        restore_quarantined_original(&quarantine_dir, canonical);
+    for id in vault_layout::legacy_canonical_files() {
+        restore_quarantined_original(&quarantine_dir, &paths.artifact_path(id));
     }
     if detect_disk_encryption_mode(&paths.legacy.archive) == DiskEncryptionMode::Absent {
         // FAIL-CLOSED Unrecoverable: the chosen snapshot is missing/unverifiable AND the pre-restore
@@ -273,7 +276,12 @@ fn restore_quarantined_original(quarantine_dir: &Path, canonical: &Path) {
     let quarantined = quarantine_dir.join(name);
     if quarantined.exists() {
         let _ = fs::rename(&quarantined, canonical);
-        for suffix in ["-wal", "-shm", "-journal"] {
+        for suffix in vault_layout::CompanionFamily::LegacySqlite
+            .suffixes(vault_layout::CompanionUse::Recovery)
+            .iter()
+            .copied()
+            .filter(|suffix| !suffix.is_empty())
+        {
             let from = PathBuf::from(format!("{}{}", quarantined.display(), suffix));
             if from.exists() {
                 let to = PathBuf::from(format!("{}{}", canonical.display(), suffix));

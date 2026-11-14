@@ -38,9 +38,10 @@ pub async fn clear_provider_embeddings(
 /// The bytes the semantic index takes on disk, for Settings → Storage: its vectors and visit
 /// maps, and anything earlier versions left in the old sidecar folder.
 pub fn sidecar_storage_bytes(paths: &ProjectPaths) -> u64 {
-    // The index is in `derived/vectors`; the old sidecar folder only holds what earlier
-    // versions left there.
-    directory_size(&paths.vectors_dir) + directory_size(&sidecar_root(paths))
+    vault_layout::usage_members()
+        .filter(|s| s.lifecycle.usage.bucket == Some(vault_layout::UsageBucket::Semantic))
+        .map(|s| artifact_size(&paths.artifact_path(s.id)))
+        .sum()
 }
 
 /// Returns the root directory reserved for optional vector sidecar tables.
@@ -48,7 +49,7 @@ pub fn sidecar_storage_bytes(paths: &ProjectPaths) -> u64 {
 /// The path stays stable even while the default build does not create or open a
 /// vector database there.
 pub fn sidecar_root(paths: &ProjectPaths) -> PathBuf {
-    paths.semantic_index_dir.clone()
+    paths.artifact_path(vault_layout::ArtifactId::LegacySemantic)
 }
 
 /// Derives the stable file name for one provider/model pair.
@@ -64,7 +65,8 @@ pub fn provider_table_name(provider_id: &str, model: &str) -> String {
     format!("pathkeep_{provider}_{}", &digest[..12])
 }
 
-fn directory_size(path: &Path) -> u64 {
+/// Preserves the semantic reader's treatment of a root that is itself a regular file.
+pub(crate) fn artifact_size(path: &Path) -> u64 {
     let Ok(metadata) = fs::metadata(path) else {
         return 0;
     };
@@ -77,5 +79,5 @@ fn directory_size(path: &Path) -> u64 {
         return 0;
     };
 
-    entries.flatten().map(|entry| directory_size(&entry.path())).sum()
+    entries.flatten().map(|entry| artifact_size(&entry.path())).sum()
 }

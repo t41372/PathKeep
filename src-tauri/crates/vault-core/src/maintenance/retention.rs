@@ -15,19 +15,20 @@ use vault_store::{CancelToken, Db, Priority, params};
 
 /// Filesystem sizing remains available before opening an archive.
 pub fn preview_retention(paths: &ProjectPaths, vault: Option<&Vault>) -> Result<RetentionPreview> {
-    let mut snapshot = retention_directory_bucket("snapshots", &paths.raw_snapshots_dir);
-    if let Some(vault) = vault {
-        snapshot.item_count = vault.store().read(Db::Archive, |s| {
-            s.query_one("SELECT count(*) FROM snapshots", (), |r| Ok(r.get::<i64>(0)?))
-        })? as usize;
+    let mut buckets = Vec::new();
+    for (id, kind) in vault_layout::retention_members() {
+        let mut bucket = retention_directory_bucket(kind.name(), &paths.artifact_path(id));
+        if kind == vault_layout::RetentionBucket::Snapshots {
+            if let Some(vault) = vault {
+                bucket.item_count = vault.store().read(Db::Archive, |s| {
+                    s.query_one("SELECT count(*) FROM snapshots", (), |r| Ok(r.get::<i64>(0)?))
+                })? as usize;
+            }
+        }
+        buckets.push(bucket);
     }
     Ok(RetentionPreview {
-        buckets: vec![
-            snapshot,
-            retention_directory_bucket("exports", &paths.exports_dir),
-            retention_directory_bucket("staging", &paths.staging_dir),
-            retention_directory_bucket("quarantine", &paths.quarantine_dir),
-        ],
+        buckets,
         warnings: vec![
             "Pruning snapshots removes saved restore checkpoints from future Audit review. Manifest and run summaries stay in place.".into(),
             "Export pruning removes only local files under the PathKeep data directory.".into(),
@@ -61,7 +62,9 @@ pub fn prune(
     if selected.is_empty() {
         return Ok(RetentionPruneResult::default());
     }
-    let protected = keep.filter(|_| selected.iter().any(|b| b.id == "snapshots"));
+    let protected = keep.filter(|_| {
+        selected.iter().any(|b| b.id == vault_layout::RetentionBucket::Snapshots.name())
+    });
     cancel.check()?;
     let run = write_runs::start(vault, "retention_prune", "manual", &[])?;
     let result = (|| {
@@ -69,10 +72,14 @@ pub fn prune(
         let mut files = 0;
         for bucket in &selected {
             cancel.check()?;
-            let (removed_bytes, removed_files) = match bucket.id.as_str() {
-                "snapshots" => {
-                    let removed =
-                        remove_directory_contents_except(&paths.raw_snapshots_dir, protected)?;
+            let (id, kind) = vault_layout::retention_members()
+                .into_iter()
+                .find(|(_, kind)| kind.name() == bucket.id)
+                .expect("selected preview bucket");
+            let directory = paths.artifact_path(id);
+            let (removed_bytes, removed_files) = match kind {
+                vault_layout::RetentionBucket::Snapshots => {
+                    let removed = remove_directory_contents_except(&directory, protected)?;
                     let kept = protected.map(|p| p.display().to_string());
                     vault.store().write(Db::Archive, Priority::Batch, move |s| {
                         let deleted = match kept {
@@ -86,10 +93,11 @@ pub fn prune(
                     })?;
                     removed
                 }
-                "exports" => remove_directory_contents(&paths.exports_dir)?,
-                "staging" => remove_directory_contents(&paths.staging_dir)?,
-                "quarantine" => remove_directory_contents(&paths.quarantine_dir)?,
-                _ => unreachable!("selected buckets come from the fixed preview"),
+                vault_layout::RetentionBucket::Exports
+                | vault_layout::RetentionBucket::Staging
+                | vault_layout::RetentionBucket::Quarantine => {
+                    remove_directory_contents(&directory)?
+                }
             };
             bytes += removed_bytes;
             files += removed_files;

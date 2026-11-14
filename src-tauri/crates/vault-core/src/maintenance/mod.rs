@@ -30,9 +30,6 @@ use std::{
 use vault_crypto::{DataKey, Envelope, KdfParams, write_envelope_file};
 use vault_store::{CancelToken, Db};
 
-pub const DURABLE_DATABASES: [Db; 4] =
-    [Db::Archive, Db::SourceEvidence, Db::Intelligence, Db::Agent];
-
 /// Polling and channel transports share these phase/counter values.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -59,7 +56,7 @@ pub fn rewrap_password(vault: &Vault, current: &str, new: &str) -> Result<()> {
     let _guard = crate::vault::ENVELOPE_ACCESS.lock().unwrap_or_else(|e| e.into_inner());
     // Keep the established typed wrong-password error at the authentication boundary.
     let _key = Vault::unlock_data_key(vault.paths(), current)?;
-    let path = vault.paths().app_root.join("archive/keys.envelope");
+    let path = vault_layout::path(&vault.paths().app_root, vault_layout::password_envelope());
     let envelope = Envelope::parse(&vault_crypto::read_envelope_file(&path)?)?;
     let wrapped = envelope.rewrap(current.as_bytes(), new.as_bytes(), KdfParams::RECOMMENDED)?;
     write_envelope_file(&path, &wrapped)?;
@@ -70,7 +67,10 @@ pub fn rewrap_password(vault: &Vault, current: &str, new: &str) -> Result<()> {
 pub fn reconcile(vault: &Vault) -> Result<crate::ReconcileReport> {
     use std::io::Read;
     let mut header = [0u8; 16];
-    fs::File::open(&vault.paths().archive_db)?.read_exact(&mut header)?;
+    fs::File::open(
+        vault.paths().artifact_path(vault_layout::db_artifact(vault_layout::primary_database())),
+    )?
+    .read_exact(&mut header)?;
     let mode = if &header == b"SQLite format 3\0" {
         ArchiveMode::Plaintext
     } else {
@@ -122,7 +122,7 @@ pub fn switch_mode(
         key.as_ref(),
         &cancel,
         move |p| (copy_progress.lock().unwrap())(p),
-        DURABLE_DATABASES.as_slice(),
+        &vault_layout::mode_change_databases().collect::<Vec<_>>(),
     )?;
     crate::save_config(&crate::project_paths_with_root(stage.path()), &config)?;
     let staged = Vault::open_staged(
@@ -149,8 +149,10 @@ pub fn switch_mode(
         processed: 0,
         total: 0,
     });
-    let snapshot_relative = PathBuf::from("raw-snapshots/maintenance")
-        .join(format!("rekey-{}", stage.path().file_name().unwrap().to_string_lossy()));
+    let snapshot_relative = PathBuf::from(
+        vault_layout::spec(vault_layout::ArtifactId::NativeSnapshots).path.relative(),
+    )
+    .join(format!("rekey-{}", stage.path().file_name().unwrap().to_string_lossy()));
     snapshot(&staged, &stage.path().join(&snapshot_relative))?;
     staged.close()?;
     cancel.check()?;
@@ -167,7 +169,9 @@ pub fn switch_mode(
 /// A private folder for one operation on the archive's file system, removed when dropped.
 pub fn staging_root(paths: &ProjectPaths) -> Result<tempfile::TempDir> {
     fs::create_dir_all(&paths.staging_dir)?;
-    Ok(tempfile::Builder::new().prefix("maintenance-").tempdir_in(&paths.staging_dir)?)
+    Ok(tempfile::Builder::new()
+        .prefix(vault_layout::family_prefix(vault_layout::ArtifactId::MaintenanceStages))
+        .tempdir_in(&paths.staging_dir)?)
 }
 
 pub(crate) fn create_envelope(
@@ -182,8 +186,8 @@ pub(crate) fn create_envelope(
         password.context("new archive password is required")?.as_bytes(),
         KdfParams::RECOMMENDED,
     )?;
-    fs::create_dir_all(root.join("archive"))?;
-    write_envelope_file(&root.join("archive/keys.envelope"), &envelope)?;
+    fs::create_dir_all(vault_layout::path(root, vault_layout::ArtifactId::ArchiveRoot))?;
+    write_envelope_file(&vault_layout::path(root, vault_layout::ArtifactId::Envelope), &envelope)?;
     Ok(Some(key))
 }
 
@@ -201,15 +205,7 @@ pub(crate) fn copy_databases(
     let progress = Arc::new(Mutex::new(progress));
     for &db in databases {
         let sink = progress.clone();
-        let subkey = key.map(|key| {
-            key.derive(match db {
-                Db::Archive => vault_crypto::KeyPurpose::ArchiveDatabase,
-                Db::SourceEvidence => vault_crypto::KeyPurpose::SourceEvidenceDatabase,
-                Db::Intelligence => vault_crypto::KeyPurpose::IntelligenceDatabase,
-                Db::Agent => vault_crypto::KeyPurpose::AgentDatabase,
-                Db::Scratch => vault_crypto::KeyPurpose::ScratchDatabase,
-            })
-        });
+        let subkey = key.map(|key| key.derive(vault_layout::database_spec(db).key));
         pause.copy_database(
             db,
             targets.get(db).into(),
@@ -236,25 +232,5 @@ pub(crate) fn copy_databases(
 
 /// The complete installation set also removes WALs and a superseded envelope.
 pub fn database_files(search: bool) -> Vec<PathBuf> {
-    let mut files = Vec::new();
-    for base in [
-        "archive/history-vault.db",
-        "archive/source-evidence.db",
-        "derived/intelligence.db",
-        "derived/agent.db",
-        "derived/scratch.db",
-    ] {
-        for suffix in ["", "-wal", "-shm", "-tshm"] {
-            files.push(format!("{base}{suffix}").into());
-        }
-    }
-    files.extend(
-        ["archive/keys.envelope", "archive/keys.envelope.pending", "config.json"]
-            .into_iter()
-            .map(PathBuf::from),
-    );
-    if search {
-        files.push("derived/search-index".into());
-    }
-    files
+    vault_layout::installation_files(search)
 }

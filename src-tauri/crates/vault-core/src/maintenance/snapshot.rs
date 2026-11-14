@@ -3,7 +3,7 @@
 //! Failure modes: inconsistent multi-file copy, missing envelope, corrupted snapshot,
 //! restoring only archive, incomplete inventory silently creates empty databases,
 //! replacing originals before verification. Tests: maintenance::tests.
-use super::{DURABLE_DATABASES, InstalledArchive, database_files, install, staging_root};
+use super::{InstalledArchive, database_files, install, staging_root};
 use crate::{ArchiveMode, ProjectPaths, Vault};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -28,9 +28,9 @@ pub fn snapshot(vault: &Vault, target: &Path) -> Result<()> {
     pause.snapshot(target)?;
     let paths = crate::project_paths_with_root(target);
     crate::save_config(&paths, vault.config())?;
-    let envelope = vault.paths().app_root.join("archive/keys.envelope");
+    let envelope = vault_layout::path(&vault.paths().app_root, vault_layout::ArtifactId::Envelope);
     if envelope.exists() {
-        fs::copy(envelope, target.join("archive/keys.envelope"))?;
+        fs::copy(envelope, vault_layout::path(target, vault_layout::ArtifactId::Envelope))?;
     }
     seal(target)
 }
@@ -44,12 +44,11 @@ pub(crate) fn seal(root: &Path) -> Result<()> {
             Ok(FileProof { sha256: hash_file(&root.join(&path))?, path })
         })
         .collect::<Result<Vec<_>>>()?;
-    for directory in [
-        root.join("archive"),
-        root.join("derived"),
-        root.to_owned(),
-        root.parent().unwrap().to_owned(),
-    ] {
+    for directory in vault_layout::snapshot_directories()
+        .into_iter()
+        .map(|relative| root.join(relative))
+        .chain([root.parent().unwrap().to_owned()])
+    {
         crate::durable_io::fsync_dir(&directory)?;
     }
     crate::durable_io::atomic_durable_write(
@@ -60,12 +59,7 @@ pub(crate) fn seal(root: &Path) -> Result<()> {
 
 pub(crate) fn verify(root: &Path) -> Result<()> {
     let proof: Vec<FileProof> = serde_json::from_slice(&fs::read(root.join("snapshot.json"))?)?;
-    let databases = vault_store::Paths::under(root);
-    for required in DURABLE_DATABASES
-        .into_iter()
-        .map(|db| databases.get(db).strip_prefix(root).unwrap().to_owned())
-        .chain([PathBuf::from("config.json")])
-    {
+    for required in vault_layout::required_snapshot_files(false).map(PathBuf::from) {
         anyhow::ensure!(
             proof.iter().any(|file| file.path == required),
             "snapshot is missing {}",
@@ -75,7 +69,10 @@ pub(crate) fn verify(root: &Path) -> Result<()> {
     let config = crate::load_config(&crate::project_paths_with_root(root))?;
     if config.archive_mode == ArchiveMode::Encrypted {
         anyhow::ensure!(
-            proof.iter().any(|file| file.path == Path::new("archive/keys.envelope")),
+            proof.iter().any(|file| file.path
+                == Path::new(
+                    vault_layout::spec(vault_layout::ArtifactId::Envelope).path.relative()
+                )),
             "snapshot is missing keys.envelope"
         );
     }
@@ -140,7 +137,7 @@ pub fn restore_snapshot_to(
         None
     };
     let staged = Vault::open_staged(staged_paths, config.clone(), key.as_ref())?;
-    for db in DURABLE_DATABASES {
+    for db in vault_layout::snapshot_databases() {
         let result = staged.store().read(db, |s| s.integrity_check())?;
         anyhow::ensure!(result == ["ok"], "snapshot integrity: {db:?}: {result:?}");
     }
@@ -182,7 +179,8 @@ pub fn recover_native_maintenance(paths: &ProjectPaths) -> Result<bool> {
         for entry in fs::read_dir(&paths.staging_dir)? {
             let entry = entry?;
             if entry.file_type()?.is_dir()
-                && entry.file_name().to_string_lossy().starts_with("maintenance-")
+                && vault_layout::family_pattern(vault_layout::ArtifactId::MaintenanceStages)
+                    .matches(&entry.file_name().to_string_lossy())
             {
                 fs::remove_dir_all(entry.path())?;
             }
@@ -193,7 +191,7 @@ pub fn recover_native_maintenance(paths: &ProjectPaths) -> Result<bool> {
 
 /// Directory snapshots keep all databases together; discovery stays keyless.
 pub fn list_snapshots(paths: &ProjectPaths) -> Result<Vec<crate::RecoverySnapshot>> {
-    let root = paths.raw_snapshots_dir.join("maintenance");
+    let root = paths.artifact_path(vault_layout::ArtifactId::NativeSnapshots);
     if !root.exists() {
         return Ok(Vec::new());
     }
@@ -208,7 +206,7 @@ pub fn list_snapshots(paths: &ProjectPaths) -> Result<Vec<crate::RecoverySnapsho
         if !path.join("snapshot.json").is_file() {
             continue;
         }
-        let archive = path.join("archive/history-vault.db");
+        let archive = path.join(vault_layout::database_path(vault_layout::primary_database()));
         let size = fs::metadata(&archive)?.len();
         let mut header = [0u8; 16];
         fs::File::open(&archive)?.read_exact(&mut header)?;

@@ -81,12 +81,12 @@ impl Store {
             paths: config.paths.clone(),
         };
         // Keep scratch's database handle alive before any connection attaches it.
-        for db in [Db::Scratch, Db::Archive, Db::SourceEvidence, Db::Intelligence, Db::Agent] {
+        for db in vault_layout::startup_databases() {
             if !config.databases.contains(&db) {
                 continue;
             }
             let scratch = store.workers.get_mut().unwrap().first().map(|(_, w)| w.gate.clone());
-            let archive = if db == Db::Intelligence {
+            let archive = if vault_layout::database_spec(db).dependencies.contains(&Db::Archive) {
                 store
                     .workers
                     .get_mut()

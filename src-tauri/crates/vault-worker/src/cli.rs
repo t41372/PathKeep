@@ -10,7 +10,7 @@ use vault_owner_ipc::{Client, Request};
 /// (`vault-platform`'s macOS plan), kept bounded. Trimming is best effort: the backup runs anyway.
 fn cap_schedule_logs() {
     let Ok(paths) = vault_core::project_paths() else { return };
-    let logs = paths.schedule_dir.join("logs");
+    let logs = paths.artifact_path(vault_layout::ArtifactId::ScheduleLogs);
     for name in ["worker.stdout.log", "worker.stderr.log"] {
         let _ = vault_owner_ipc::cap_log(&logs.join(name));
     }

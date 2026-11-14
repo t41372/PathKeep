@@ -13,9 +13,10 @@ use std::{
     path::{Path, PathBuf},
 };
 
-const JOURNAL: &str = "archive/.pk-import-journal.json";
+const JOURNAL: &str = vault_layout::spec(vault_layout::ArtifactId::InstallJournal).path.relative();
 /// Where an old-format import journal found next to a native archive is set aside.
-const STALE_LEGACY_JOURNAL: &str = "archive/.pk-import-journal.legacy-stale.json";
+const STALE_LEGACY_JOURNAL: &str =
+    vault_layout::spec(vault_layout::ArtifactId::StaleImportJournal).path.relative();
 
 /// Startup checks for recovery before it decides whether a native archive exists.
 pub fn pending(paths: &ProjectPaths) -> bool {
@@ -57,8 +58,10 @@ pub(super) fn prepare(
     keep_previous: bool,
 ) -> Result<Journal> {
     sync_tree(stage)?;
-    let backup =
-        tempfile::Builder::new().prefix("maintenance.bak-").tempdir_in(&paths.app_root)?.keep();
+    let backup = tempfile::Builder::new()
+        .prefix(vault_layout::family_prefix(vault_layout::ArtifactId::PreviousArchives))
+        .tempdir_in(&paths.app_root)?
+        .keep();
     let entries = files
         .into_iter()
         .map(|relative| Entry {

@@ -373,26 +373,47 @@ pub(super) fn run_new_downloads(stats: &Value) -> usize {
 /// write-ahead logs, which can hold as much as the file itself between checkpoints; the
 /// `.sqlite` paths in `ProjectPaths` are the layout before v0.4.
 pub(super) fn storage_summary(paths: &ProjectPaths) -> StorageSummary {
-    let db = vault_store::Paths::under(&paths.app_root);
-    let database = |path: &Path| {
-        let mut wal = path.as_os_str().to_owned();
-        wal.push("-wal");
-        file_size(path) + file_size(Path::new(&wal))
-    };
-    StorageSummary {
-        archive_database_bytes: database(&db.archive),
-        source_evidence_database_bytes: database(&db.source_evidence),
-        search_database_bytes: directory_size(&paths.search_index_dir),
-        intelligence_database_bytes: database(&db.intelligence) + database(&db.scratch),
-        manifest_bytes: directory_size(&paths.manifests_dir),
-        snapshot_bytes: directory_size(&paths.raw_snapshots_dir),
-        export_bytes: directory_size(&paths.exports_dir),
-        staging_bytes: directory_size(&paths.staging_dir),
-        quarantine_bytes: directory_size(&paths.quarantine_dir),
-        semantic_sidecar_bytes: crate::ai_sidecar::sidecar_storage_bytes(paths),
-        intelligence_blob_bytes: directory_size(&paths.intelligence_blobs_dir),
-        agent_database_bytes: database(&db.agent),
+    use vault_layout::{CompanionFamily, CompanionUse, Measure, UsageBucket};
+    let mut summary = StorageSummary::default();
+    for member in vault_layout::usage_members() {
+        // Native database accounting has always used default store paths. Other buckets
+        // honor the typed ProjectPaths overrides, including the semantic sidecar roots.
+        let path = if member.database.is_some() {
+            vault_layout::path(&paths.app_root, member.id)
+        } else {
+            paths.artifact_path(member.id)
+        };
+        let bytes = match member.lifecycle.usage.measure {
+            Measure::MainAndWal => CompanionFamily::Native
+                .suffixes(CompanionUse::Usage)
+                .iter()
+                .map(|suffix| {
+                    let mut file = path.as_os_str().to_owned();
+                    file.push(suffix);
+                    file_size(Path::new(&file))
+                })
+                .sum(),
+            Measure::Tree => directory_size(&path),
+            Measure::TreeOrFile => crate::ai_sidecar::artifact_size(&path),
+            Measure::None => 0,
+        };
+        let field = match member.lifecycle.usage.bucket.expect("measured member") {
+            UsageBucket::Archive => &mut summary.archive_database_bytes,
+            UsageBucket::SourceEvidence => &mut summary.source_evidence_database_bytes,
+            UsageBucket::Intelligence => &mut summary.intelligence_database_bytes,
+            UsageBucket::Agent => &mut summary.agent_database_bytes,
+            UsageBucket::Search => &mut summary.search_database_bytes,
+            UsageBucket::Manifests => &mut summary.manifest_bytes,
+            UsageBucket::Snapshots => &mut summary.snapshot_bytes,
+            UsageBucket::Exports => &mut summary.export_bytes,
+            UsageBucket::Staging => &mut summary.staging_bytes,
+            UsageBucket::Quarantine => &mut summary.quarantine_bytes,
+            UsageBucket::Semantic => &mut summary.semantic_sidecar_bytes,
+            UsageBucket::TextBlobs => &mut summary.intelligence_blob_bytes,
+        };
+        *field += bytes;
     }
+    summary
 }
 
 /// Returns the size of one file, treating missing files as zero bytes.

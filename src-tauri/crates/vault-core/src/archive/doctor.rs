@@ -21,7 +21,7 @@ mod tests;
 fn check(code: &str, name: &str, ok: bool, detail: impl ToString) -> HealthCheck {
     HealthCheck { code: code.into(), name: name.into(), ok, detail: detail.to_string() }
 }
-/// Checks all four durable Turso files and canonical metadata without opening another owner.
+/// Checks the catalog-selected durable stores and canonical metadata through the existing owner.
 pub fn doctor(vault: &Vault) -> Result<HealthReport> {
     let profiles = crate::chrome::discover_profiles().unwrap_or_default();
     let mut checks = vec![
@@ -46,12 +46,9 @@ pub fn doctor(vault: &Vault) -> Result<HealthReport> {
         check("archive-unlock", "Archive Unlock", true, "The session owns an open archive"),
     ];
     let mut versions = Vec::new();
-    for (db, name, label) in [
-        (Db::Archive, "archive", "Archive integrity"),
-        (Db::SourceEvidence, "source-evidence", "Source evidence integrity"),
-        (Db::Intelligence, "intelligence", "Intelligence data integrity"),
-        (Db::Agent, "agent", "Conversation data integrity"),
-    ] {
+    let databases = vault_layout::health_databases().collect::<Vec<_>>();
+    let expected_databases = databases.len();
+    for (db, name, label) in databases {
         match vault.read(db, |s| Ok((s.schema_version()?, s.integrity_check()?))) {
             Ok((version, messages)) => {
                 versions.push((name, version, crate::store_schema::schema_version(db)));
@@ -70,7 +67,8 @@ pub fn doctor(vault: &Vault) -> Result<HealthReport> {
     checks.push(check(
         "schema-version",
         "Schema version",
-        versions.len() == 4 && versions.iter().all(|(_, actual, expected)| actual == expected),
+        versions.len() == expected_databases
+            && versions.iter().all(|(_, actual, expected)| actual == expected),
         format!("{versions:?}"),
     ));
     checks.extend(vault.read(Db::Archive, |s| {

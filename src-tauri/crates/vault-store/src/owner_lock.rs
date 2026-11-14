@@ -18,9 +18,9 @@ impl OwnerLock {
     /// The app holds this guard until all database work has stopped.
     #[cfg(any(unix, windows))]
     pub fn acquire(root: &Path) -> Result<Self> {
-        let directory = root.join("archive");
+        let directory = vault_layout::path(root, vault_layout::ArtifactId::ArchiveRoot);
         std::fs::create_dir_all(&directory)?;
-        let path = directory.join(".pk-owner.lock");
+        let path = vault_layout::path(root, vault_layout::ArtifactId::OwnerLock);
         let mut file =
             OpenOptions::new().read(true).write(true).create(true).truncate(false).open(&path)?;
         // Rust's File::try_lock uses flock(LOCK_EX|LOCK_NB) on Unix and

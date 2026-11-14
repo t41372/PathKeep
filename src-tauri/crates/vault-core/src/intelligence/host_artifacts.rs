@@ -224,7 +224,7 @@ fn load_installed_host(
 }
 
 fn local_host_root(paths: &ProjectPaths) -> PathBuf {
-    paths.app_root.join("integrations").join("core-intelligence").join(BROWSER_SNIPPET_HOST_ID)
+    paths.artifact_path(vault_layout::ArtifactId::BrowserSnippetHost)
 }
 
 fn host_relative_path(file_name: &str) -> String {

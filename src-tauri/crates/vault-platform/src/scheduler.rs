@@ -130,7 +130,7 @@ pub fn preview_schedule(
         worker_args.push("--worker".to_string());
     }
     worker_args.extend(["backup".to_string(), "--due-only".to_string()]);
-    let log_dir = paths.schedule_dir.join("logs");
+    let log_dir = paths.artifact_path(vault_layout::ArtifactId::ScheduleLogs);
     let _ = fs::create_dir_all(&log_dir);
 
     match platform.as_str() {

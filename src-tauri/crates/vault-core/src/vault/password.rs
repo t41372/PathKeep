@@ -27,8 +27,8 @@ pub(crate) fn unwrap(bytes: &[u8], password: &str) -> anyhow::Result<DataKey> {
     })
 }
 pub(super) fn unlock(paths: &ProjectPaths, password: &str) -> anyhow::Result<DataKey> {
-    let bytes =
-        read_envelope_file(&paths.app_root.join("archive/keys.envelope")).map_err(|error| {
+    let bytes = read_envelope_file(&paths.artifact_path(vault_layout::ArtifactId::Envelope))
+        .map_err(|error| {
             if error.kind() == std::io::ErrorKind::NotFound {
                 anyhow::Error::new(EnvelopeMissing)
             } else {
@@ -66,8 +66,8 @@ pub(super) fn open_using(
     ) -> anyhow::Result<Vault>,
 ) -> anyhow::Result<(Vault, DataKey)> {
     let _guard = ENVELOPE_ACCESS.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-    let final_path = paths.app_root.join("archive/keys.envelope");
-    let pending = final_path.with_file_name("keys.envelope.pending");
+    let final_path = paths.artifact_path(vault_layout::ArtifactId::Envelope);
+    let pending = paths.artifact_path(vault_layout::ArtifactId::PendingEnvelope);
     let (key, promote) = match read_envelope_file(&final_path) {
         Ok(bytes) => (unwrap(&bytes, password)?, false),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
@@ -75,12 +75,20 @@ pub(super) fn open_using(
                 Ok(bytes) => unwrap(&bytes, password)?,
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                     let files = vault_store::Paths::under(&paths.app_root);
-                    if vault_store::Db::ALL.iter().any(|db| files.get(*db).exists()) {
+                    if vault_layout::artifacts()
+                        .filter(|s| s.lifecycle.prevents_new_envelope)
+                        .filter_map(|s| s.database)
+                        .any(|database| files.get(database.db).exists())
+                    {
                         return Err(EnvelopeMissing.into());
                     }
                     // A new envelope next to an archive of the old format would start an
                     // empty native archive beside it. That archive has to be converted first.
-                    if paths.legacy.archive.exists() {
+                    if vault_layout::artifacts().any(|s| {
+                        s.lifecycle.prevents_new_envelope
+                            && s.database.is_none()
+                            && paths.artifact_path(s.id).exists()
+                    }) {
                         anyhow::bail!(
                             "archive-conversion-required: preview and convert the SQLCipher archive before opening it"
                         );

@@ -15,7 +15,7 @@ const BUSY_TIMEOUT: StdDuration = StdDuration::from_secs(5);
 /// restore could offer. Cheap: a directory listing, never a DB open. Sorted for a stable,
 /// newest-last presentation. Missing is empty; an incomplete listing is an error.
 pub(super) fn available_verified_snapshots(paths: &ProjectPaths) -> Result<Vec<String>> {
-    let rekey_dir = paths.raw_snapshots_dir.join("rekey");
+    let rekey_dir = paths.artifact_path(vault_layout::ArtifactId::LegacySnapshots);
     let entries = fs::read_dir(&rekey_dir);
     let entries = match entries {
         Ok(entries) => entries,
@@ -31,7 +31,9 @@ pub(super) fn available_verified_snapshots(paths: &ProjectPaths) -> Result<Vec<S
         let entry =
             entry.with_context(|| format!("reading an entry in {}", rekey_dir.display()))?;
         let path = entry.path();
-        if path.extension().and_then(|ext| ext.to_str()) == Some("sqlite") {
+        if path.extension().and_then(|ext| ext.to_str())
+            == Some(vault_layout::family_extension(vault_layout::ArtifactId::OtherLegacySnapshots))
+        {
             snapshots.push(path.display().to_string());
         }
     }
@@ -114,7 +116,11 @@ pub fn list_legacy_snapshots(paths: &ProjectPaths) -> Result<Vec<RecoverySnapsho
                 format!("reading an entry in recovery snapshot bucket {}", bucket_path.display())
             })?;
             let path = entry.path();
-            if path.extension().and_then(|ext| ext.to_str()) != Some("sqlite") {
+            if path.extension().and_then(|ext| ext.to_str())
+                != Some(vault_layout::family_extension(
+                    vault_layout::ArtifactId::OtherLegacySnapshots,
+                ))
+            {
                 continue;
             }
             // `fs::metadata` follows symlinks, so a dangling snapshot symlink errors here and is

@@ -48,7 +48,7 @@ use std::{
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
-use vault_crypto::{DataKey, Envelope, KdfParams, KeyPurpose, TempCryptIo};
+use vault_crypto::{DataKey, Envelope, KdfParams, TempCryptIo};
 use vault_store::{Config, Db, OwnerLock, Store};
 
 const FORMAT_NAME: &str = "agent-history-format";
@@ -147,21 +147,18 @@ impl Archive {
         owner: Option<Arc<OwnerLock>>,
         encrypted: bool,
     ) -> Result<Self> {
-        reject_symlink(&root.join("archive"))?;
-        reject_symlink(&root.join("derived"))?;
+        reject_symlink(&vault_layout::path(&root, vault_layout::ArtifactId::ArchiveRoot))?;
+        reject_symlink(&vault_layout::path(&root, vault_layout::ArtifactId::DerivedRoot))?;
         let mut config = Config::new(&root);
         config.databases = vec![Db::Archive, Db::SourceEvidence, Db::Scratch];
         config.paths.archive = root.join("archive/catalog.db");
         config.paths.source_evidence = root.join("archive/evidence.db");
-        config.paths.scratch = root.join("derived/scratch.db");
-        for (db, purpose) in [
-            (Db::Archive, KeyPurpose::ArchiveDatabase),
-            (Db::SourceEvidence, KeyPurpose::SourceEvidenceDatabase),
-            (Db::Scratch, KeyPurpose::ScratchDatabase),
-        ] {
+        config.paths.scratch = vault_layout::path(&root, vault_layout::ArtifactId::Scratch);
+        for db in config.databases.iter().copied() {
             reject_symlink(config.paths.get(db))?;
             if encrypted {
-                config.keys[db as usize] = Some(*key.derive(purpose).expose_bytes());
+                config.keys[db as usize] =
+                    Some(*key.derive(vault_layout::database_spec(db).key).expose_bytes());
             }
         }
         config.io = Some(TempCryptIo::new(&key).map_err(std::io::Error::other)?);
@@ -205,7 +202,7 @@ fn reserve_destination(root: &Path) -> Result<(PathBuf, Arc<OwnerLock>)> {
     fs::create_dir_all(root)?;
     private_directory(root)?;
     let root = fs::canonicalize(root)?;
-    reject_symlink(&root.join("archive"))?;
+    reject_symlink(&vault_layout::path(&root, vault_layout::ArtifactId::ArchiveRoot))?;
     let owner = Arc::new(OwnerLock::acquire(&root)?);
     // The preflight observation may be stale. Under the ownership lock the only
     // allowed entries are the lock's own scaffolding, never an existing envelope.
@@ -217,7 +214,7 @@ fn reserve_destination(root: &Path) -> Result<(PathBuf, Arc<OwnerLock>)> {
             ));
         }
     }
-    for entry in fs::read_dir(root.join("archive"))? {
+    for entry in fs::read_dir(vault_layout::path(&root, vault_layout::ArtifactId::ArchiveRoot))? {
         if entry?.file_name() != ".pk-owner.lock" {
             return Err(Error::AlreadyExists(
                 "archive destination changed before reservation".into(),
