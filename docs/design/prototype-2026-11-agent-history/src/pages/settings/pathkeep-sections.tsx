@@ -3,7 +3,7 @@
  * two-group nav reads true, and to say where per-type choices live now
  * (AI access, storage by type).
  */
-import { FolderOpen, ListChecks } from 'lucide-react'
+import { FolderOpen } from 'lucide-react'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { SettingRow, SettingsSection } from '@/components/app/setting-row'
@@ -14,7 +14,6 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { bytes } from '~/data/format'
 import { kinds, type Kind } from '~/kinds'
 import { useProto } from '~/proto-state'
-import { ScheduleCard } from '../backup/cards'
 import { archiveBytes } from '../backup/sources-data'
 import { Group, Note } from './parts'
 
@@ -61,7 +60,7 @@ export function GeneralSection() {
       {enabledKinds.includes('browsing') && (
         <SettingRow
           title="連網"
-          description="PathKeep 自己會連到網站的只有瀏覽紀錄的連結預覽和網頁摘要，開關在「瀏覽紀錄」的設定裡。AI 服務另外在「AI」。"
+          description="會連線到網站的只有瀏覽紀錄的連結預覽和頁面摘要，開關搬到「瀏覽紀錄」的設定裡了。"
           control={
             <Button variant="outline" size="sm" asChild>
               <Link to="/settings/browsing">瀏覽紀錄的設定</Link>
@@ -118,31 +117,6 @@ export function AiSection() {
               </Link>
             ))}
         </div>
-      </Group>
-    </SettingsSection>
-  )
-}
-
-export function BackgroundSection() {
-  return (
-    <SettingsSection title="排程與背景工作">
-      {/* Settings only: when PathKeep backs up by itself, then how background work runs.
-          What is running right now is status and lives on the 背景任務 page. */}
-      <ScheduleCard />
-      <Group title="背景工作" intro="備份之後更新搜尋索引、洞察這類工作。">
-        <SettingRow title="低電量模式時暫停" control={<Toggle initial label="低電量模式時暫停" />} />
-        <SettingRow
-          title="現在在跑什麼"
-          description="正在跑、在排隊、今天做完或需要你看一下的任務，都在背景任務頁。左下角的指示器也能打開。"
-          control={
-            <Button variant="outline" size="sm" asChild>
-              <Link to="/tasks">
-                <ListChecks />
-                打開背景任務
-              </Link>
-            </Button>
-          }
-        />
       </Group>
     </SettingsSection>
   )

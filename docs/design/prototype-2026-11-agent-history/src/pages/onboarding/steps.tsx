@@ -1,22 +1,18 @@
 /**
- * Onboarding step bodies. The new part is "要保存什麼": the data types come
- * from the registry, each with why it needs saving; planned ones are shown
- * but can't be picked. The sources step then lists what was found for each
- * chosen type.
+ * Onboarding step bodies, except "來源" (sources-step.tsx). The new part here
+ * is "要保存什麼": the data types come from the registry, each with why it
+ * needs saving; planned ones are shown but can't be picked.
  */
-import { Check, FolderGit2, HardDrive, ShieldCheck, TriangleAlert } from 'lucide-react'
+import { Check, HardDrive, ShieldCheck } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { ChoiceCard, ChoiceGroup, RadioMark } from './choice'
 import { cn } from '@/lib/cn'
-import { HarnessBadge } from '~/components/bits'
-import { bytes, num } from '~/data/format'
-import type { HarnessId } from '~/data/types'
+import { bytes } from '~/data/format'
 import { kinds, type KindId } from '~/kinds'
-import { AGENT_ARCHIVE_RATIO, archiveBytes, browserSources, harnessSources, sourceBytesOfKind } from '../backup/sources-data'
+import { AGENT_ARCHIVE_RATIO, archiveBytes, sourceBytesOfKind } from '../backup/sources-data'
 
 export function StepHeading({ title, body }: { title: string; body?: ReactNode }) {
   return (
@@ -74,12 +70,14 @@ export function WelcomeStep() {
   )
 }
 
-export function KindsStep({ selected, onToggle }: { selected: Set<KindId>; onToggle: (id: KindId) => void }) {
+export function KindsStep({ selected, onToggle, pickAll }: { selected: Set<KindId>; onToggle: (id: KindId) => void; pickAll?: boolean }) {
   return (
     <>
       <StepHeading title="要保存什麼？" body="每一種之後都能在設定裡加減。關掉不會刪掉已經存下的資料。" />
       <div className="grid grid-cols-2 gap-3 max-[760px]:grid-cols-1">
-        {kinds.map((kind) => {
+        {kinds.map((registered) => {
+          // The stress set treats the planned types as ready, to see many chosen at once.
+          const kind = pickAll ? { ...registered, real: true } : registered
           const on = selected.has(kind.id)
           const Icon = kind.icon
           return (
@@ -118,87 +116,6 @@ export function KindsStep({ selected, onToggle }: { selected: Set<KindId>; onTog
         })}
       </div>
       {selected.size === 0 && <p className="text-[13px] text-destructive">至少選一種。</p>}
-    </>
-  )
-}
-
-export function SourcesStep({
-  kindsOn,
-  harnessOn,
-  onHarness,
-  browserOn,
-  onBrowser,
-}: {
-  kindsOn: Set<KindId>
-  harnessOn: Set<HarnessId>
-  onHarness: (id: HarnessId) => void
-  browserOn: Set<string>
-  onBrowser: (key: string) => void
-}) {
-  const claude = harnessSources.find((h) => h.autoDelete)
-  return (
-    <>
-      <StepHeading title="找到這些來源" body="PathKeep 只讀這些資料夾，不改、不刪任何檔案。不想備份的可以取消勾選。" />
-      {kindsOn.has('browsing') && (
-        <section className="overflow-hidden rounded-xl border bg-card shadow-card">
-          <h2 className="px-5 py-3 text-sm font-semibold">瀏覽紀錄</h2>
-          <ul>
-            {browserSources.map((b) => {
-              const key = `${b.name}-${b.profile}`
-              return (
-                <li key={key} className="border-t">
-                  <label className="flex cursor-pointer items-center gap-3.5 px-5 py-2.5 hover:bg-muted/40">
-                    <Checkbox checked={browserOn.has(key)} onCheckedChange={() => onBrowser(key)} />
-                    <img src={b.icon} alt="" className="size-6" />
-                    <span className="flex min-w-0 flex-1 flex-col">
-                      <span className="text-sm font-medium">{b.name}</span>
-                      <span className="text-xs text-muted-foreground">{b.profile}</span>
-                    </span>
-                    <span className="font-mono text-[13px] text-muted-foreground tabular">{num(b.visits)} 筆</span>
-                  </label>
-                </li>
-              )
-            })}
-          </ul>
-        </section>
-      )}
-      {kindsOn.has('agent') && (
-        <section className="overflow-hidden rounded-xl border bg-card shadow-card">
-          <h2 className="px-5 py-3 text-sm font-semibold">Agent 對話</h2>
-          <ul>
-            {harnessSources.map((h) => (
-              <li key={h.id} className="border-t">
-                <label className="flex cursor-pointer items-center gap-3.5 px-5 py-2.5 hover:bg-muted/40">
-                  <Checkbox checked={harnessOn.has(h.id)} onCheckedChange={() => onHarness(h.id)} />
-                  <HarnessBadge id={h.id} className="w-6 justify-center" />
-                  <span className="flex min-w-0 flex-1 flex-col">
-                    <span className="text-sm font-medium">{h.name}</span>
-                    <span className="truncate font-mono text-[11.5px] text-muted-foreground">{h.root}</span>
-                  </span>
-                  <span className="flex flex-col items-end text-right">
-                    <span className="font-mono text-[13px] text-muted-foreground tabular">{num(h.chats)} 段對話</span>
-                    <span className="text-xs text-muted-foreground">{h.subagents ? `另有 ${num(h.subagents)} 個 subagent · ` : ''}{bytes(h.sourceBytes)}</span>
-                  </span>
-                </label>
-              </li>
-            ))}
-          </ul>
-          <div className="flex items-start gap-3 border-t bg-muted/30 px-5 py-3.5 text-[13px]">
-            <FolderGit2 className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-            <span className="leading-relaxed text-muted-foreground">
-              備份時也會讀每個專案資料夾的 <code className="font-mono text-[12px]">.git</code>，只看 repo 根目錄、worktree 屬於哪個 repo、遠端網址，用來把同一個專案的資料夾併在一起。不讀程式碼。之後可以在 Agent 對話的備份頁關掉。
-            </span>
-          </div>
-          {claude && harnessOn.has(claude.id) && (
-            <div className="flex items-start gap-3 border-t px-5 py-3.5 text-[13px]">
-              <TriangleAlert className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-300" />
-              <span className="leading-relaxed text-muted-foreground">
-                {claude.name} 設定成 {claude.autoDelete!.days} 天後刪掉舊對話。第一次備份會把現在還在的 {num(claude.chats - claude.gone)} 段先存下來。
-              </span>
-            </div>
-          )}
-        </section>
-      )}
     </>
   )
 }
