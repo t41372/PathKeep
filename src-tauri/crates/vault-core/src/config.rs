@@ -11,11 +11,6 @@ use std::{
 };
 use vault_layout::ArtifactId as A;
 
-const CURRENT_APP_QUALIFIER: &str = "com";
-const CURRENT_APP_ORGANIZATION: &str = "yi-ting";
-const CURRENT_APP_NAME: &str = "pathkeep";
-const PROJECT_ROOT_OVERRIDE_ENV: &str = "CHB_PROJECT_ROOT";
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 /// Canonical absolute paths for all backend-managed project artifacts.
 pub struct ProjectPaths {
@@ -192,13 +187,14 @@ pub fn project_paths_with_root(root: &Path) -> ProjectPaths {
 
 /// Resolves the active project root, honoring test and development overrides.
 fn project_root() -> Result<PathBuf> {
-    if let Some(path) = std::env::var_os(PROJECT_ROOT_OVERRIDE_ENV) {
-        return Ok(PathBuf::from(path));
-    }
-
-    let dirs = ProjectDirs::from(CURRENT_APP_QUALIFIER, CURRENT_APP_ORGANIZATION, CURRENT_APP_NAME)
-        .context("resolving current project directories")?;
-    Ok(dirs.data_local_dir().to_path_buf())
+    Ok(vault_build::resolve_root(
+        vault_build::CURRENT,
+        std::env::var_os(vault_build::ROOT_OVERRIDE_ENV),
+        |identity| {
+            ProjectDirs::from(identity.qualifier, identity.organization, identity.application)
+                .map(|dirs| dirs.data_local_dir().to_path_buf())
+        },
+    )?)
 }
 
 /// Ensures the expected project directory layout exists on disk.

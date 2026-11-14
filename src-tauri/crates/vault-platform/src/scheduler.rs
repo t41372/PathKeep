@@ -64,7 +64,7 @@ impl ScheduleParameters {
 }
 
 const LEGACY_MACOS_SCHEDULE_LABELS: &[&str] =
-    &["dev.codex.pathkeep.backup", "dev.codex.browser-history-backup.backup"];
+    vault_build::CURRENT.identity().legacy_schedule_labels;
 
 /// Where one scheduler operation sends its OS side effects.
 ///
@@ -123,6 +123,7 @@ pub fn preview_schedule(
 ) -> Result<SchedulePlan> {
     let platform = platform.map(ToOwned::to_owned).unwrap_or_else(current_platform_name);
     let label = schedule_label();
+    validate_schedule_label(&label)?;
     let worker_executable = scheduled_worker_executable(executable_path)?;
     let dedicated_worker = is_dedicated_worker(&worker_executable);
     let mut worker_args = vec![worker_executable.display().to_string()];
@@ -199,8 +200,58 @@ pub(crate) fn enclosing_app_bundle(path: &Path) -> Option<&Path> {
         .find(|ancestor| ancestor.extension().and_then(|value| value.to_str()) == Some("app"))
 }
 
+fn validate_schedule_label(label: &str) -> Result<()> {
+    let production = vault_build::BuildClass::Distribution.identity();
+    let reserved =
+        label.trim_start_matches(['\\', '/']).eq_ignore_ascii_case(production.schedule_label)
+            || production.legacy_schedule_labels.iter().any(|old| label.eq_ignore_ascii_case(old));
+    if !vault_build::CURRENT.is_distribution()
+        && crate::sandbox::sandbox_dir().is_none()
+        && reserved
+    {
+        return schedule_identity_error();
+    }
+    Ok(())
+}
+
+/// A saved production plan must not become authority to change another installation.
+fn validate_schedule_identity(plan: &SchedulePlan) -> Result<()> {
+    if vault_build::CURRENT.is_distribution() {
+        return Ok(());
+    }
+    let label = schedule_label();
+    validate_schedule_label(&label)?;
+    let expected_leaf = format!("{label}.plist");
+    let valid_label = plan.label == label;
+    let valid_files = plan.platform != "macos"
+        || (plan.generated_files.len() == 1
+            && Path::new(&plan.generated_files[0].relative_path).file_name()
+                == Path::new(&expected_leaf).file_name()
+            && plist::Value::from_reader_xml(plan.generated_files[0].contents.as_bytes())
+                .ok()
+                .and_then(|value| {
+                    value
+                        .as_dictionary()
+                        .and_then(|dict| dict.get("Label"))
+                        .and_then(plist::Value::as_string)
+                        .map(str::to_owned)
+                })
+                == Some(label));
+    if valid_label && valid_files {
+        return Ok(());
+    }
+    schedule_identity_error()
+}
+
+fn schedule_identity_error() -> Result<()> {
+    anyhow::bail!(
+        "schedule-identity-mismatch: This development build cannot change another PathKeep installation's backup schedule. Preview the schedule again."
+    )
+}
+
 /// Applies a previously previewed native schedule plan when the platform supports it.
 pub fn apply_schedule(plan: &SchedulePlan, paths: &ProjectPaths) -> Result<ApplyResult> {
+    validate_schedule_identity(plan)?;
     if plan.platform == "windows" {
         return windows::apply_windows_schedule(&SchedulerHost::resolve("windows")?, plan, paths);
     }
@@ -212,6 +263,7 @@ pub fn apply_schedule(plan: &SchedulePlan, paths: &ProjectPaths) -> Result<Apply
 
 /// Removes a previously applied native schedule plan when the platform supports it.
 pub fn remove_schedule(plan: &SchedulePlan, paths: &ProjectPaths) -> Result<ApplyResult> {
+    validate_schedule_identity(plan)?;
     if plan.platform == "windows" {
         return windows::remove_windows_schedule(&SchedulerHost::resolve("windows")?, plan, paths);
     }
@@ -223,6 +275,7 @@ pub fn remove_schedule(plan: &SchedulePlan, paths: &ProjectPaths) -> Result<Appl
 
 /// Repairs user-confirmed scheduler problems that PathKeep knows how to fix.
 pub fn repair_schedule(plan: &SchedulePlan, paths: &ProjectPaths) -> Result<ApplyResult> {
+    validate_schedule_identity(plan)?;
     if plan.platform != "macos" {
         return Ok(unsupported_action(plan, "Repair"));
     }

@@ -97,23 +97,35 @@ fn launch_command(
     command
 }
 
-/// Spawns the app with detached standard streams; readiness is checked by Client.
-pub fn launch_background(root: &Path) -> Result<(), RpcError> {
-    let spec = launch_spec(&std::env::current_exe()?)?;
-    // Launch Services does not inherit the client's environment. Carry only the
-    // established fixture/platform overrides, as well as the explicit data root.
-    let overrides = [
+fn launch_overrides(mut get: impl FnMut(&str) -> Option<OsString>) -> Vec<(OsString, OsString)> {
+    [
         "CHB_CHROME_USER_DATA_DIR",
         "CHB_FIREFOX_PROFILES_DIR",
         "CHB_SAFARI_ROOT",
         "CHB_TEST_KEYRING_DIR",
         "PATHKEEP_PLATFORM_TEST_KEYRING_DIR",
+        "PATHKEEP_PLATFORM_TEST_KEYRING_SERVICE",
+        "PATHKEEP_PLATFORM_TEST_SCHEDULE_LABEL",
+        "PATHKEEP_PLATFORM_TEST_LAUNCH_AGENTS_DIR",
+        "CHB_TEST_LAUNCH_AGENTS_DIR",
+        "PATHKEEP_PLATFORM_TEST_WINDOWS_USER_ID",
         "PATHKEEP_PLATFORM_TEST_SANDBOX_DIR",
+        "PATHKEEP_TEST_BLOCK_NETWORK",
+        "PATHKEEP_TEST_SAVE_DIR",
         // Debug builds only read it: owner tests shorten the background idle exit.
         "PATHKEEP_DEBUG_IDLE_EXIT_SECS",
     ]
     .into_iter()
-    .filter_map(|name| std::env::var_os(name).map(|value| (name.into(), value)));
+    .filter_map(|name| get(name).map(|value| (name.into(), value)))
+    .collect()
+}
+
+/// Spawns the app with detached standard streams; readiness is checked by Client.
+pub fn launch_background(root: &Path) -> Result<(), RpcError> {
+    let spec = launch_spec(&std::env::current_exe()?)?;
+    // Launch Services does not inherit the client's environment. Carry only the
+    // established fixture/platform overrides, as well as the explicit data root.
+    let overrides = launch_overrides(|name| std::env::var_os(name));
     let mut command = launch_command(&spec, root, overrides);
     let logs = vault_layout::path(root, vault_layout::ArtifactId::Logs);
     std::fs::create_dir_all(&logs)?;
@@ -140,4 +152,36 @@ pub fn launch_background(root: &Path) -> Result<(), RpcError> {
         let _ = child.wait();
     });
     Ok(())
+}
+
+#[cfg(test)]
+mod root_handoff_tests {
+    use super::*;
+    #[test]
+    fn launch_services_carries_fixture_namespaces_as_well_as_the_root() {
+        let overrides = launch_overrides(|_| Some("synthetic".into()));
+        for required in [
+            "PATHKEEP_PLATFORM_TEST_KEYRING_SERVICE",
+            "PATHKEEP_PLATFORM_TEST_SCHEDULE_LABEL",
+            "PATHKEEP_PLATFORM_TEST_LAUNCH_AGENTS_DIR",
+        ] {
+            assert!(overrides.iter().any(|(name, value)| name == required && value == "synthetic"));
+        }
+        assert!(!overrides.iter().any(|(name, _)| name == "PATHKEEP_DISTRIBUTION"));
+    }
+
+    #[test]
+    fn direct_launch_forwards_the_chosen_root_without_re_resolving_defaults() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("synthetic root with spaces");
+        let spec =
+            LaunchSpec { program: "fixture-desktop".into(), args: vec!["--background".into()] };
+        let command = launch_command(&spec, &root, []);
+        assert!(
+            command
+                .get_envs()
+                .any(|(key, value)| key == "CHB_PROJECT_ROOT" && value == Some(root.as_os_str()))
+        );
+        assert_eq!(command.get_args().collect::<Vec<_>>(), [std::ffi::OsStr::new("--background")]);
+    }
 }

@@ -1,17 +1,17 @@
-//! Debug-only sandbox for OS integrations that outlive the process.
+//! Non-distribution sandbox for OS integrations that outlive the process.
 //!
-//! `tauri dev`, `bun run dev:demo` and the desktop-bridge E2E run debug builds
+//! `tauri dev`, `bun run dev:demo` and the desktop-bridge E2E run non-distribution builds
 //! under the developer's own account. Without a sandbox, installing the
 //! backup schedule there bootstraps a real launchd agent or Task Scheduler
-//! task under the real label, schedule status reads the real
-//! `~/Library/LaunchAgents/com.yi-ting.pathkeep.backup.plist`, and "Open at
+//! task under the development label, schedule status reads the real
+//! `~/Library/LaunchAgents/com.yi-ting.pathkeep.dev.backup.plist`, and "Open at
 //! login" registers a real login item that points at `target/debug`.
 //!
-//! When [`SANDBOX_DIR_ENV`] names a directory in a debug build, those
+//! When [`SANDBOX_DIR_ENV`] names a directory in a non-distribution build, those
 //! integrations keep their state in files under it and never call
 //! `launchctl`, `schtasks` or the login-item API. Everything around the OS
 //! call still runs: plan generation, plist / XML contents, audit files and
-//! status parsing. Release builds ignore the variable, the same way they
+//! status parsing. Distribution builds ignore the variable, the same way they
 //! ignore the keyring redirect in `test_support`.
 //!
 //! ## Responsibilities
@@ -27,11 +27,11 @@
 //!   separately.
 //!
 //! ## How this could fail, and what guards it
-//! 1. Honored in a release build: an inherited environment variable would
-//!    silently turn off real scheduling and login items. Guard: the debug
-//!    check lives in [`sandbox_dir_with_policy`], tested with `debug_build:
-//!    false`, and `sandbox_dir_matches_the_build_profile` checks the real
-//!    entry point under `cargo test --release` too.
+//! 1. Honored in a distribution build: an inherited environment variable would
+//!    silently turn off real scheduling and login items. Guard: the classification
+//!    check lives in [`sandbox_dir_with_policy`], tested with `allow_test_overrides:
+//!    false` by `distribution_build_ignores_the_os_sandbox`. The scheduler
+//!    sandbox round-trip tests exercise the real entry point.
 //! 2. Partially honored, so one call in an operation still reaches the OS.
 //!    Guard: each scheduler operation resolves its host once and passes it
 //!    down; tests count native calls and require zero under the sandbox.
@@ -52,19 +52,19 @@
 //!    (`CHB_PROJECT_ROOT`) but forgets the sandbox variable. It then reads,
 //!    and could install over or remove, the developer's real LaunchAgent or
 //!    Task Scheduler task and login item. Guard: [`ensure_native_os_allowed`]
-//!    refuses in a debug build when the project root is overridden and no
+//!    refuses in a non-distribution build when the project root is overridden and no
 //!    sandbox is set; the scheduler and `login_item_store()` call it before
-//!    any native call. Release builds are not affected: an installed app
+//!    any native call. Distribution builds are not affected: an installed app
 //!    with an overridden root still manages the real scheduler.
 
 use std::{ffi::OsString, path::PathBuf};
 
-/// Directory that receives scheduler and login-item state in debug builds.
+/// Directory that receives scheduler and login-item state in development builds.
 pub const SANDBOX_DIR_ENV: &str = "PATHKEEP_PLATFORM_TEST_SANDBOX_DIR";
 
 /// Moves PathKeep's whole project root; set by tests, `dev:demo` and the E2E run.
 ///
-/// Mirrors the private constant in `vault_core::config`.
+/// Shares the root override name used by `vault_build` and `vault_core::config`.
 pub const PROJECT_ROOT_OVERRIDE_ENV: &str = "CHB_PROJECT_ROOT";
 
 /// Sub-directory standing in for `~/Library/LaunchAgents`.
@@ -76,22 +76,25 @@ pub(crate) const TASK_SCHEDULER_SUBDIR: &str = "TaskScheduler";
 /// Sub-directory holding the login item plist (`crate::login_item`).
 pub(crate) const LOGIN_ITEMS_SUBDIR: &str = "login-items";
 
-/// Returns the sandbox directory when this is a debug build and the variable is set.
+/// Returns the sandbox directory when this is a non-distribution build and the variable is set.
 ///
 /// Everything that honours the sandbox goes through this, so there is one
-/// debug gate to audit.
+/// classification gate to audit.
 pub fn sandbox_dir() -> Option<PathBuf> {
-    sandbox_dir_with_policy(cfg!(debug_assertions), std::env::var_os(SANDBOX_DIR_ENV))
+    sandbox_dir_with_policy(
+        !vault_build::CURRENT.is_distribution(),
+        std::env::var_os(SANDBOX_DIR_ENV),
+    )
 }
 
 /// Applies the sandbox rules to an explicit build profile and variable value.
 ///
-/// Split out so tests can check the release behaviour from a debug test binary.
+/// Split out so tests can check the release behaviour from a development test binary.
 pub(crate) fn sandbox_dir_with_policy(
-    debug_build: bool,
+    allow_test_overrides: bool,
     value: Option<OsString>,
 ) -> Option<PathBuf> {
-    if !debug_build {
+    if !allow_test_overrides {
         return None;
     }
     let value = value?;
@@ -101,7 +104,7 @@ pub(crate) fn sandbox_dir_with_policy(
     Some(PathBuf::from(value))
 }
 
-/// Fails when a debug build is about to reach the real OS scheduler or login
+/// Fails when a development build is about to reach the real OS scheduler or login
 /// items from a run that moved its project root but has no sandbox.
 ///
 /// Such a run is a test or a dev session working on a throwaway archive; its
@@ -110,7 +113,7 @@ pub(crate) fn sandbox_dir_with_policy(
 /// touched, for the error message.
 pub fn ensure_native_os_allowed(service: &str) -> anyhow::Result<()> {
     native_os_guard_with_policy(
-        cfg!(debug_assertions),
+        !vault_build::CURRENT.is_distribution(),
         std::env::var_os(PROJECT_ROOT_OVERRIDE_ENV),
         std::env::var_os(SANDBOX_DIR_ENV),
         service,
@@ -119,21 +122,21 @@ pub fn ensure_native_os_allowed(service: &str) -> anyhow::Result<()> {
 
 /// Applies the guard rules to an explicit build profile and variable values.
 ///
-/// Split out so tests can check the release behaviour from a debug test binary.
+/// Split out so tests can check the release behaviour from a development test binary.
 pub(crate) fn native_os_guard_with_policy(
-    debug_build: bool,
+    allow_test_overrides: bool,
     project_root: Option<OsString>,
     sandbox: Option<OsString>,
     service: &str,
 ) -> anyhow::Result<()> {
-    if !debug_build || sandbox_dir_with_policy(debug_build, sandbox).is_some() {
+    if !allow_test_overrides || sandbox_dir_with_policy(allow_test_overrides, sandbox).is_some() {
         return Ok(());
     }
     let Some(root) = project_root.filter(|value| !value.to_string_lossy().trim().is_empty()) else {
         return Ok(());
     };
     anyhow::bail!(
-        "Refusing to touch the real {service}: this debug build uses the project root {} \
+        "Refusing to touch the real {service}: this development build uses the project root {} \
          ({PROJECT_ROOT_OVERRIDE_ENV}) but {SANDBOX_DIR_ENV} is not set, so it would read or \
          change your own installed PathKeep. Set {SANDBOX_DIR_ENV} to a scratch folder.",
         PathBuf::from(root).display()
@@ -145,14 +148,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn guard_refuses_an_overridden_root_without_a_sandbox_in_debug_builds() {
+    fn development_override_requires_an_os_sandbox() {
         let error = native_os_guard_with_policy(
             true,
             Some(OsString::from("/tmp/pk-root")),
             None,
             "launchd scheduler",
         )
-        .expect_err("debug build with a moved root and no sandbox must refuse");
+        .expect_err("development build with a moved root and no sandbox must refuse");
         let message = error.to_string();
         assert!(message.contains("launchd scheduler"), "{message}");
         assert!(message.contains(PROJECT_ROOT_OVERRIDE_ENV), "{message}");
@@ -172,7 +175,7 @@ mod tests {
     }
 
     #[test]
-    fn sandbox_dir_is_ignored_when_not_a_debug_build() {
+    fn distribution_build_ignores_the_os_sandbox() {
         assert_eq!(sandbox_dir_with_policy(false, Some(OsString::from("/tmp/pk-sandbox"))), None);
     }
 }

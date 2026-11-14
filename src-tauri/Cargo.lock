@@ -4847,6 +4847,7 @@ dependencies = [
  "tokio",
  "tower-http",
  "url",
+ "vault-build",
  "vault-convert-sqlcipher",
  "vault-core",
  "vault-owner-ipc",
@@ -8496,6 +8497,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ba73ea9cf16a25df0c8caa16c51acb937d5712a8429db78a3ee29d5dcacd3a65"
 
 [[package]]
+name = "vault-build"
+version = "0.1.0"
+
+[[package]]
 name = "vault-convert-sqlcipher"
 version = "0.1.0"
 dependencies = [
@@ -8556,6 +8561,7 @@ dependencies = [
  "tokio",
  "turbovec",
  "ureq",
+ "vault-build",
  "vault-crypto",
  "vault-layout",
  "vault-search",
@@ -8630,6 +8636,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "vault-build",
  "vault-core",
  "vault-layout",
  "windows-native-keyring-store",
@@ -8680,6 +8687,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tokio",
+ "vault-build",
  "vault-convert-sqlcipher",
  "vault-core",
  "vault-crypto",

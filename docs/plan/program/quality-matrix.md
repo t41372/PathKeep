@@ -10,24 +10,24 @@
 
 `bun run check` 是唯一的 per-commit gate，本地與 GitHub `CI` workflow 跑同一條。依序執行：
 
-| 步驟           | Command                 | 保護什麼                                                                                                                                                            |
-| -------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Format         | `bun run format:check`  | Prettier                                                                                                                                                            |
-| Lint           | `bun run lint`          | ESLint（`--max-warnings 0`）                                                                                                                                        |
-| i18n           | `bun run check:i18n`    | `en` / `zh-CN` / `zh-TW` key 對齊、不得有未翻譯的英文                                                                                                               |
-| Typecheck      | `bun run typecheck`     | `tsc -b`                                                                                                                                                            |
-| Unit           | `bun run test:unit`     | Vitest：少數必須單獨測的（例如網址參數的競爭，`search-params.test.tsx`），寫的理由在檔頭                                                                            |
-| JS audit       | `bun run audit:js`      | Bun lockfile 的直接／間接與 dev dependencies 安全公告；包含於 `check:js`，也可獨立執行                                                                              |
-| Build          | `bun run build`         | TypeScript + Vite bundle                                                                                                                                            |
-| Rust           | `bun run check:rust`    | `cargo fmt --check`、`cargo clippy -D warnings`、`cargo test --workspace`，再加帶 `devtools-bridge` feature 的 bridge dispatcher 測試（`test:desktop-bridge:rust`） |
-| Release config | `bun run release:check` | updater URL、Windows bundle、WebView2、support link 不得漂移                                                                                                        |
-| E2E            | `bun run test:e2e`      | 真實 Rust 後端 + Vite 前端 + Playwright，見下                                                                                                                       |
+| 步驟           | Command                        | 保護什麼                                                                                                                                                            |
+| -------------- | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Format         | `bun run format:check`         | Prettier                                                                                                                                                            |
+| Lint           | `bun run lint`                 | ESLint（`--max-warnings 0`）                                                                                                                                        |
+| i18n           | `bun run check:i18n`           | `en` / `zh-CN` / `zh-TW` key 對齊、不得有未翻譯的英文                                                                                                               |
+| Typecheck      | `bun run typecheck`            | `tsc -b`                                                                                                                                                            |
+| Unit           | `bun run test:unit`            | Vitest：少數必須單獨測的（例如網址參數的競爭，`search-params.test.tsx`），寫的理由在檔頭                                                                            |
+| JS audit       | `bun run audit:js`             | Bun lockfile 的直接／間接與 dev dependencies 安全公告；包含於 `check:js`，也可獨立執行                                                                              |
+| Build          | `bun run build`                | TypeScript + Vite bundle                                                                                                                                            |
+| Rust           | `bun run check:rust`           | `cargo fmt --check`、`cargo clippy -D warnings`、`cargo test --workspace`，再加帶 `devtools-bridge` feature 的 bridge dispatcher 測試（`test:desktop-bridge:rust`） |
+| Release config | `bun run release:check:config` | updater URL、Windows bundle、WebView2、support link 不得漂移；發布流程必須經過 `release:build`                                                                      |
+| E2E            | `bun run test:e2e`             | 真實 Rust 後端 + Vite 前端 + Playwright，見下                                                                                                                       |
 
 `bun run check:base` 是不含 build 與 E2E 的快速 triage（`check:js` + `check:rust`），不能代替 `check`。
 
 時區（2026-10-11）：gate 在每台電腦上都一樣，不看電腦在哪個時區。Rust 測試固定在 `Pacific/Kiritimati`（UTC+14、沒有夏令時間）跑：日界跟 UTC 差最多，假設電腦在 UTC 的測試會在這裡露出來；E2E 的 app 與瀏覽器固定在 UTC（`scripts/run-playwright.mjs`），spec 照 UTC 數日子。測試要嘛釘住自己用的時區（例如設 `insights_time_zone`），要嘛照電腦時區算期望值，不能假設電腦在哪裡。之前 CI 與 Modal 都剛好是 UTC，有 4 個測試在別的時區會錯（`WORK-TESTS-ANY-TIME-ZONE`）。
 
-鑰匙圈（2026-11-02）：Rust 測試用的鑰匙圈服務名稱預設是已安裝 app 的 `com.yi-ting.pathkeep`，測試沒設 `CHB_TEST_KEYRING_DIR`（檔案模擬的鑰匙圈）就存或清封存鑰匙，會改到使用者真正的那一項。repo 的 `.cargo/config.toml` 用 `[env]` 把 `PATHKEEP_PLATFORM_TEST_KEYRING_SERVICE` 設成 `com.yi-ting.pathkeep.dev`，cargo 啟動的每個程序（測試、`cargo run`、`tauri dev`）都用自己那一項；打包好的 app 自己開不會帶這個變數。會碰鑰匙圈的測試仍要設 `CHB_TEST_KEYRING_DIR`；碰真正 OS 鑰匙圈的只有 `vault-platform/tests/native_host.rs`（`#[ignore]`，用獨立的服務名稱）。E2E 與 `dev:demo` 用檔案模擬的鑰匙圈。
+鑰匙圈與資料夾（2026-11-14）：自己編出來的版本都是開發版，預設用自己的資料夾、鑰匙圈服務（`com.yi-ting.pathkeep.dev`）、排程標籤與登入項目，碰不到已安裝 app 的那一份；規則寫在編進執行檔的 `vault-build` 裡，不靠環境變數，所以直接執行編好的執行檔也一樣（之前靠 `.cargo/config.toml` 的 `[env]`，只保護得到 cargo 啟動的程序）。見 `docs/architecture/build-identity.md`。會碰鑰匙圈的測試仍要設 `CHB_TEST_KEYRING_DIR`；碰真正 OS 鑰匙圈的只有 `vault-platform/tests/native_host.rs`（`#[ignore]`，用獨立的服務名稱）。E2E 與 `dev:demo` 用檔案模擬的鑰匙圈。
 
 ## E2E
 
@@ -88,7 +88,7 @@ E2E 是證明功能的主要手段。環境是獨立的，但其餘都是真的�
 
 - E2E 證明前端能透過 dev-only localhost bridge 打到真實 Rust command façade。它不安裝真的排程（onboarding 選 Manual），也不寫真的系統 keychain。它不是 Tauri WebView / plugin guest API（Stronghold、updater progress events）的最終驗收；那些要在真實 Tauri 視窗驗證。
 - 原生 scheduler、keyring、簽名、公證與檔案系統副作用要靠 `check:platform`、Rust 測試與真實主機驗收。Windows Task Scheduler apply / status / remove 仍需要真實 Windows 主機。
-- `release:check` 只證明 release config 還允許 unsigned Windows installer 與 WebView2 download bootstrapper，不證明特定主機能裝起來。
+- `release:check:config` 只證明 release config 還允許 unsigned Windows installer 與 WebView2 download bootstrapper，不證明特定主機能裝起來，也不看打包好的檔案。打包好的檔案由 `release:build`（發布流程）與 `release:check --package <檔案>` 檢查：解開安裝包，問裡面的桌面程式與 worker 是不是正式發布版。這項檢查目前只對合成的安裝包跑過，真的 MSI／NSIS／DEB／RPM／AppImage／DMG 要等發布流程實跑（`WORK-RELEASE-REHEARSAL-V06`）。
 - 沒有 coverage 數字。看到綠燈不代表功能被測過：review 時問「使用者實際操作有沒有一條 E2E 從真實入口斷言預期結果？」答不出就不算 ship-ready。
 
 ---

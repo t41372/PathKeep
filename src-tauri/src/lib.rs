@@ -111,7 +111,7 @@ fn run_app() -> Result<()> {
     #[cfg(not(target_os = "macos"))]
     let builder = builder.plugin(
         tauri_plugin_autostart::Builder::new()
-            .app_name(PRODUCT_DISPLAY_NAME)
+            .app_name(vault_build::CURRENT.identity().autostart_name)
             .arg(desktop_integration::LAUNCHED_AT_LOGIN_ARG)
             .build(),
     );
@@ -155,7 +155,9 @@ fn run_app() -> Result<()> {
                 .map_err(tauri::Error::Anyhow)?;
             vault_core::initialize_app_lock_session(&paths, &config)
                 .map_err(tauri::Error::Anyhow)?;
-            app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
+            if vault_build::CURRENT.is_distribution() {
+                app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
+            }
             if config.initialized { opening_session.begin_startup(); }
             use tauri::Manager;
             // Bind before opening databases. Connected clients wait on the session,

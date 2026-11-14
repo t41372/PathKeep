@@ -8,6 +8,9 @@
 
 #[cfg(not(test))]
 fn main() {
+    if vault_build::print_if_requested(vault_build::BinaryKind::Worker) {
+        return;
+    }
     use std::io::Write;
 
     let arguments = std::env::args().skip(1).collect::<Vec<_>>();

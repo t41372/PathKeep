@@ -241,6 +241,35 @@ jobs:
           )
           PY
 
+      - name: Verify package inspection tools
+        shell: bash
+        run: |
+          case "$RUNNER_OS" in
+            Windows)
+              command -v 7z
+              ;;
+            Linux)
+              command -v tar
+              command -v unzip
+              command -v dpkg-deb
+              command -v rpm2cpio
+              command -v cpio
+              ;;
+            macOS)
+              command -v tar
+              command -v hdiutil
+              command -v plutil
+              ;;
+          esac
+
+      - name: Enable Intel artifact probes on Apple Silicon
+        if: runner.os == 'macOS' && matrix.rust_targets == 'x86_64-apple-darwin'
+        shell: bash
+        run: |
+          if [ "$(uname -m)" = arm64 ]; then
+            sudo softwareupdate --install-rosetta --agree-to-license
+          fi
+
       - name: Build and upload release assets
         uses: tauri-apps/tauri-action@v0.6.2
         env:
@@ -254,6 +283,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
+          tauriScript: bun run release:build
           tagName: ${{ needs.prepare-release.outputs.resolved_tag }}
           releaseName: PathKeep ${{ needs.prepare-release.outputs.resolved_tag }}
           releaseBody: |
@@ -270,6 +300,7 @@ jobs:
           args: >-
             ${{ matrix.args }}
             ${{ needs.prepare-release.outputs.unsigned_preview == 'true' && '--no-sign --config src-tauri/ci.unsigned.conf.json' || '' }}
+            --config src-tauri/tauri.distribution.conf.json
 
   release-manifest:
     name: Publish checksum manifest

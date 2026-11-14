@@ -6,6 +6,9 @@
 #[cfg(not(test))]
 /// Runs the desktop entrypoint and exits non-zero on startup failure.
 fn main() {
+    if vault_build::print_if_requested(vault_build::BinaryKind::Desktop) {
+        return;
+    }
     if let Err(error) = pathkeep_desktop::entrypoint() {
         eprintln!("{error:?}");
         std::process::exit(1);

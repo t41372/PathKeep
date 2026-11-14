@@ -18,6 +18,9 @@ fn cap_schedule_logs() {
 
 /// Preserves CLI JSON output and 0/1 exit semantics while the app owns all work.
 pub fn run_worker_cli(arguments: &[String]) -> Result<String> {
+    if arguments == ["--build-identity"] {
+        return Ok(vault_build::identity_report(vault_build::BinaryKind::Worker));
+    }
     let command = arguments.first().map(String::as_str).unwrap_or("snapshot");
     if command == "mcp-server" {
         crate::mcp::run_mcp_stdio_server()?;

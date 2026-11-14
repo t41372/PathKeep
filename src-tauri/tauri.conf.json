@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "PathKeep",
+  "productName": "PathKeep Dev",
   "version": "0.5.0-dev",
-  "identifier": "com.yi-ting.pathkeep",
+  "identifier": "com.yi-ting.pathkeep.dev",
   "build": {
     "beforeDevCommand": "bun run prepare:worker-sidecar && bun run dev",
     "devUrl": "http://127.0.0.1:1420",
@@ -47,7 +47,7 @@
         "silent": true
       },
       "wix": {
-        "upgradeCode": "818daeb2-ee49-5696-a1db-bee51050939c"
+        "upgradeCode": "37e94b55-0506-58ec-9137-e48b4c732ae8"
       }
     }
   },

@@ -35,7 +35,7 @@
     "native-deps:bootstrap": "node scripts/native-deps.mjs bootstrap",
     "native-deps:install:opencc": "node scripts/native-deps.mjs install --feature=opencc",
     "native-deps:env": "node scripts/native-deps.mjs env",
-    "release:check": "node scripts/verify-release-config.mjs",
+    "release:check": "node scripts/verify-distribution-artifacts.mjs",
     "update:public-suffix-list": "node scripts/update-public-suffix-list.mjs",
     "check:supply-chain": "bun run audit:js && bun run audit:rust && bun run deny:rust",
     "check:platform": "node scripts/run-platform-checks.mjs",
@@ -43,7 +43,7 @@
     "check:js": "bun run format:check && bun run lint && bun run check:i18n && bun run typecheck && bun run test:unit && bun run audit:js",
     "check:rust": "bun run fmt:rust && bun run prepare:worker-sidecar --profile debug && bun run lint:rust && bun run test:rust && bun run test:desktop-bridge:rust",
     "check:base": "bun run check:js && bun run check:rust",
-    "check": "bun run check:js && bun run build && bun run check:rust && bun run release:check && bun run test:e2e",
+    "check": "bun run check:js && bun run build && bun run check:rust && bun run release:check:config && bun run test:e2e",
     "docs:llm": "bun scripts/build-llm-txt.mjs",
     "perf:artifact:shell": "bun scripts/build-perf-artifact-bundle.mjs",
     "release:bump": "node scripts/bump-version.mjs",
@@ -53,7 +53,9 @@
     "verify": "bun run check && bun run desktop:build:debug",
     "audit:js": "bun audit",
     "update:js": "bun update --latest",
-    "outdated:js": "bun outdated"
+    "outdated:js": "bun outdated",
+    "release:check:config": "node scripts/verify-release-config.mjs",
+    "release:build": "node scripts/build-distribution.mjs"
   },
   "dependencies": {
     "@fontsource-variable/geist": "^5.3.0",

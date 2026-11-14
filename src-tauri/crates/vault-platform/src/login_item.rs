@@ -1,4 +1,4 @@
-//! "Open at login" as a LaunchAgent plist, for macOS and for the debug sandbox.
+//! "Open at login" as a LaunchAgent plist, for macOS and for the development sandbox.
 //!
 //! On macOS PathKeep does not use `tauri-plugin-autostart` for this. The
 //! plugin's LaunchAgent has launchd exec `PathKeep.app/Contents/MacOS/...`
@@ -8,7 +8,7 @@
 //! --launched-at-login` instead, so Launch Services starts the app. It is not
 //! loaded with `launchctl`; launchd picks it up at the next login.
 //!
-//! In a debug build with the sandbox on (`crate::sandbox`), the same plist is
+//! In a development build with the sandbox on (`crate::sandbox`), the same plist is
 //! written under `<sandbox>/login-items` on every OS, so dev runs and tests
 //! never register a real login item. Windows and Linux outside the sandbox
 //! use the autostart plugin in the desktop crate.
@@ -34,7 +34,7 @@ use crate::sandbox::{LOGIN_ITEMS_SUBDIR, ensure_native_os_allowed, sandbox_dir};
 pub const LAUNCHED_AT_LOGIN_ARG: &str = "--launched-at-login";
 
 /// launchd label of the login item (separate from the backup schedule's label).
-pub const LOGIN_ITEM_LABEL: &str = "com.yi-ting.pathkeep.login";
+pub const LOGIN_ITEM_LABEL: &str = vault_build::CURRENT.identity().login_item_label;
 
 /// A directory holding PathKeep's login LaunchAgent.
 #[derive(Debug, Clone)]
@@ -45,7 +45,7 @@ pub struct LoginItemStore {
 /// Returns where the login item lives, or `None` when the caller should use
 /// the platform's own mechanism (Windows / Linux outside the sandbox).
 ///
-/// Errors in a debug build whose project root is moved but has no sandbox,
+/// Errors in a development build whose project root is moved but has no sandbox,
 /// before either the real LaunchAgents folder or the autostart plugin is
 /// reached (see `crate::sandbox::ensure_native_os_allowed`).
 pub fn login_item_store() -> Result<Option<LoginItemStore>> {

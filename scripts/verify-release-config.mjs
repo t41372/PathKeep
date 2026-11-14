@@ -38,6 +38,7 @@ function excludes(text, needle, label) {
 }
 
 const tauriConfig = readJson('src-tauri/tauri.conf.json')
+const distributionConfig = readJson('src-tauri/tauri.distribution.conf.json')
 const packageConfig = readJson('package.json')
 const releaseWorkflow = readText('.github/workflows/release.yml')
 const workflowSources = Object.fromEntries(
@@ -66,9 +67,41 @@ assert(
   'Windows WebView2 bootstrapper must run silently',
 )
 assert(
-  tauriConfig.bundle?.windows?.wix?.upgradeCode ===
+  distributionConfig.bundle?.windows?.wix?.upgradeCode ===
     '818daeb2-ee49-5696-a1db-bee51050939c',
   'Windows WiX upgrade code must stay pinned',
+)
+assert(
+  tauriConfig.identifier === 'com.yi-ting.pathkeep.dev',
+  'Default bundles must use the development identifier',
+)
+assert(
+  tauriConfig.productName === 'PathKeep Dev',
+  'Default bundles must use a distinct development product name',
+)
+assert(
+  distributionConfig.identifier === 'com.yi-ting.pathkeep',
+  'Distribution identifier must remain unchanged',
+)
+assert(
+  distributionConfig.productName === 'PathKeep',
+  'Distribution product name must remain unchanged',
+)
+assert(
+  tauriConfig.mainBinaryName === undefined &&
+    distributionConfig.mainBinaryName === undefined,
+  'The Cargo desktop executable name must not be overridden',
+)
+assert(
+  JSON.stringify(tauriConfig.bundle?.externalBin) ===
+    JSON.stringify(['binaries/pathkeep-worker']) &&
+    distributionConfig.bundle?.externalBin === undefined,
+  'The base worker filename must remain unchanged without an overlay override',
+)
+assert(
+  tauriConfig.bundle?.windows?.wix?.upgradeCode ===
+    '37e94b55-0506-58ec-9137-e48b4c732ae8',
+  'Development MSI upgrade code must not replace production',
 )
 assert(
   tauriConfig.bundle?.externalBin?.includes('binaries/pathkeep-worker'),
@@ -102,6 +135,21 @@ includes(
 )
 includes(issueTemplate, 'https://github.com/t41372/PathKeep', 'issue template')
 
+includes(
+  releaseWorkflow,
+  'tauriScript: bun run release:build',
+  'release workflow packaged-artifact gate',
+)
+includes(
+  releaseWorkflow,
+  '--config src-tauri/tauri.distribution.conf.json',
+  'release workflow artifact discovery',
+)
+includes(
+  workflowSources['windows-test-binary.yml'],
+  'run: bun run release:check:config',
+  'Windows test binary source configuration check',
+)
 includes(releaseWorkflow, 'unsigned_preview:', 'release workflow')
 includes(releaseWorkflow, 'default: true', 'release workflow unsigned_preview')
 includes(releaseWorkflow, '- windows', 'release workflow platforms')

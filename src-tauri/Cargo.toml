@@ -16,6 +16,7 @@ path = "src/lib.rs"
 
 [workspace]
 members = [
+  "crates/vault-build",
   "crates/vault-layout",
   "crates/vault-store",
   "crates/vault-convert-sqlcipher",
@@ -95,6 +96,7 @@ bytes = "1.10.1"
 zip = { version = "9.0.5", default-features = false, features = ["deflate"] }
 
 [dependencies]
+vault-build = { path = "crates/vault-build" }
 futures-core.workspace = true
 anyhow.workspace = true
 axum = { version = "0.8.6", optional = true }

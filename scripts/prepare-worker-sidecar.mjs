@@ -103,10 +103,24 @@ function commandOutput(command, commandArguments) {
   return result.stdout.trim()
 }
 
+/** The existing Release workflow must not fall back to an ordinary local build. */
+export function requireDistributionPackaging(environment) {
+  if (
+    environment.GITHUB_ACTIONS === 'true' &&
+    environment.GITHUB_WORKFLOW === 'Release' &&
+    environment.PATHKEEP_DISTRIBUTION !== '1'
+  ) {
+    throw new Error(
+      'Release packaging is missing PATHKEEP_DISTRIBUTION=1. Use release:build so the final artifacts are checked before upload.',
+    )
+  }
+}
+
 export function prepareWorkerSidecar({
   cliArguments = process.argv.slice(2),
   environment = process.env,
 } = {}) {
+  requireDistributionPackaging(environment)
   const parsed = parsePrepareArguments(cliArguments)
   const hostTarget =
     parsed.target || environment.TAURI_ENV_TARGET_TRIPLE

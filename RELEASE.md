@@ -56,7 +56,7 @@ Run:
 bun run verify
 ```
 
-`bun run verify` runs `bun run check` first (lint, browser build, Rust checks, release-config check, and the desktop-bridge E2E suite), then adds the debug desktop build rehearsal.
+`bun run verify` runs `bun run check` first (lint, browser build, Rust checks, release-config check, and the desktop-bridge E2E suite), then adds the debug desktop build rehearsal. Everything it builds is a development build: it uses its own data folder and never opens the installed app's archive (see [docs/architecture/build-identity.md](./docs/architecture/build-identity.md)).
 
 Before a release candidate, also run the slower checks (supply-chain audit and host-matched platform tests):
 
@@ -92,7 +92,7 @@ Workflow behavior:
 - generate the local size attribution bundle with `bun run release:size-audit`
 - resolves the tag and version up front
 - verifies version sync across the repo
-- builds release bundles on the selected platform matrix
+- builds release bundles on the selected platform matrix through `bun run release:build`, which compiles the desktop and the worker as a distribution build, then opens every package it produced and fails unless both executables inside report the released data folder and names. A package that fails this is never uploaded: shipping a development build would make every user open an empty folder after updating
 - when `unsigned_preview=true`, builds unsigned bundles with `--no-sign`, disables updater artifacts, and skips `latest.json`
 - when `unsigned_preview=false`, builds updater artifacts and publishes `latest.json`
 - Windows installers use Tauri's `downloadBootstrapper` WebView2 mode so the common Windows 11 / current Windows 10 path stays small while missing-runtime machines can still install with internet access
@@ -149,6 +149,8 @@ For ad-hoc Windows QA without touching public release assets, run the `Windows T
 - generated Windows installer bundles such as MSI / NSIS setup outputs
 - `SHA256SUMS.txt`
 - `WINDOWS-TEST-MANIFEST.json`
+
+The test binary is a development build: it installs as `PathKeep Dev` with its own data folder, so it neither opens nor replaces a PathKeep already installed on the test machine. It cannot be used to test upgrading an existing installation.
 
 This workflow is for test-machine handoff only. Promote a build through the `Release` workflow after versioning, release notes, and the full release checklist are complete.
 

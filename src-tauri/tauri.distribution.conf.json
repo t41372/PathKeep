@@ -1,0 +1,11 @@
+{
+  "productName": "PathKeep",
+  "identifier": "com.yi-ting.pathkeep",
+  "bundle": {
+    "windows": {
+      "wix": {
+        "upgradeCode": "818daeb2-ee49-5696-a1db-bee51050939c"
+      }
+    }
+  }
+}

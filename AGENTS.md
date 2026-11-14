@@ -98,7 +98,7 @@ Tech: Tauri 2 + Rust + React 19 + TypeScript + Vite + Bun。
 bun run check                             # 權威 per-commit gate
 bun run check:base                        # 快速 triage（無 build / E2E）
 bun run check:slow                        # supply-chain audit + platform tests
-bun run desktop:dev                       # Tauri 桌面 app
+bun run desktop:dev                       # Tauri 桌面 app（開發版，用自己的資料夾，不開已安裝 app 的存檔）
 bun run build                             # TS + Vite bundle
 bun run verify                            # check + desktop release rehearsal
 bun run test:e2e                          # E2E（真實 Rust 後端）；產物在 artifacts/e2e/

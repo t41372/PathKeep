@@ -22,7 +22,6 @@ use vault_core::{
 pub(crate) const RELEASES_PAGE_URL: &str = "https://github.com/t41372/PathKeep/releases";
 /// Frontend event name used for updater progress snapshots.
 pub(crate) const UPDATER_PROGRESS_EVENT: &str = "pathkeep://updater-progress";
-const TEST_UPDATER_ENDPOINTS_ENV: &str = "PATHKEEP_TEST_UPDATER_ENDPOINTS";
 
 /// Checks for an available application update and normalizes the result for the UI.
 pub(crate) async fn check_for_app_update<R: Runtime>(app: AppHandle<R>) -> AppUpdateCheckResult {
@@ -35,6 +34,23 @@ pub(crate) async fn check_for_app_update<R: Runtime>(app: AppHandle<R>) -> AppUp
             Some(current_version),
             std::io::Error::from(std::io::ErrorKind::NetworkUnreachable).to_string(),
         );
+    }
+
+    if !vault_build::CURRENT.is_distribution() {
+        return AppUpdateCheckResult {
+            availability: AppUpdateAvailability {
+                supported: false,
+                checked_at,
+                available: false,
+                current_version: Some(current_version),
+                version: None,
+                notes: None,
+                published_at: None,
+                error: None,
+                download_url: Some(RELEASES_PAGE_URL.into()),
+            },
+            pending_update: None,
+        };
     }
 
     let updater = match updater_for_handle(&app) {
@@ -68,6 +84,15 @@ pub(crate) async fn download_and_install_app_update<R: Runtime>(
     app: AppHandle<R>,
     request: Option<AppUpdateInstallRequest>,
 ) -> AppUpdateInstallState {
+    if !vault_build::CURRENT.is_distribution() {
+        return AppUpdateInstallState {
+            phase: "error".into(),
+            version: None,
+            downloaded_bytes: None,
+            content_length: None,
+            message: None,
+        };
+    }
     let expected_version = request.and_then(|request| request.expected_version);
     let updater = match updater_for_handle(&app) {
         Ok(updater) => updater,
@@ -144,40 +169,18 @@ pub(crate) async fn download_and_install_app_update<R: Runtime>(
 
 /// Requests an app restart after a successful update install.
 pub(crate) fn relaunch_after_update<R: Runtime>(app: AppHandle<R>) -> bool {
+    if !vault_build::CURRENT.is_distribution() {
+        return false;
+    }
     app.request_restart();
     true
 }
 
-/// Builds the updater instance, including any debug-only endpoint overrides.
+/// Builds the distribution updater from the bundled endpoint configuration.
 fn updater_for_handle<R: Runtime>(
     app: &AppHandle<R>,
 ) -> Result<tauri_plugin_updater::Updater, String> {
-    let mut builder = app.updater_builder();
-    if let Some(endpoints) = runtime_updater_endpoints()? {
-        builder = builder.endpoints(endpoints).map_err(|error| error.to_string())?;
-    }
-    builder.build().map_err(|error| error.to_string())
-}
-
-/// Reads optional debug-only updater endpoint overrides from the environment.
-fn runtime_updater_endpoints() -> Result<Option<Vec<Url>>, String> {
-    #[cfg(debug_assertions)]
-    {
-        if let Some(raw) = std::env::var_os(TEST_UPDATER_ENDPOINTS_ENV) {
-            let value = raw.to_string_lossy();
-            let endpoints = value
-                .split(',')
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .map(|value| Url::parse(value).map_err(|error| error.to_string()))
-                .collect::<Result<Vec<_>, _>>()?;
-            if !endpoints.is_empty() {
-                return Ok(Some(endpoints));
-            }
-        }
-    }
-
-    Ok(None)
+    app.updater_builder().build().map_err(|error| error.to_string())
 }
 
 #[derive(Debug, Clone)]
@@ -343,6 +346,38 @@ mod tests {
     use super::*;
 
     #[tokio::test]
+    async fn development_check_never_accesses_the_production_updater_plugin() {
+        if std::env::var_os("PATHKEEP_IDENTITY_UPDATER_CHILD").is_none() {
+            let status=std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact","updater::tests::development_check_never_accesses_the_production_updater_plugin"])
+                .env("PATHKEEP_IDENTITY_UPDATER_CHILD","1")
+                .env_remove("PATHKEEP_TEST_BLOCK_NETWORK")
+                .status().unwrap();
+            assert!(status.success());
+            return;
+        }
+        let app = tauri::test::mock_builder()
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+        let result = check_for_app_update(app.handle().clone()).await;
+        assert!(!result.availability.supported);
+        assert!(!result.availability.available);
+        assert!(result.pending_update.is_none());
+    }
+
+    #[tokio::test]
+    async fn development_cannot_construct_an_installer_or_restart_through_updates() {
+        let app = tauri::test::mock_builder()
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+        // No updater plugin exists: reaching it would fail instead of touching a real installer.
+        let result = download_and_install_app_update(app.handle().clone(), None).await;
+        assert_eq!(result.phase, "error");
+        assert_eq!(result.version, None);
+        assert!(!relaunch_after_update(app.handle().clone()));
+    }
+
+    #[tokio::test]
     async fn network_switch_blocks_update_check_without_connecting() {
         if !cfg!(debug_assertions) {
             return;
@@ -357,7 +392,6 @@ mod tests {
                 ])
                 .env("PATHKEEP_NETWORK_TEST_CHILD", "1")
                 .env("PATHKEEP_TEST_BLOCK_NETWORK", "1")
-                .env_remove(TEST_UPDATER_ENDPOINTS_ENV)
                 .status()
                 .expect("isolated updater test");
             assert!(status.success());

@@ -35,10 +35,10 @@ sudo apt-get install -y \
 ## Daily Commands
 
 ```bash
-bun run desktop:dev                    # the Tauri desktop app
+bun run desktop:dev                    # the Tauri desktop app, on the development data folder
 bun run dev:demo                       # real backend + synthetic browser data, in a browser
 bun run dev:demo -- --first-run --fresh # same, starting on onboarding
-bun run desktop:dev:bridge             # real backend on your own data, in a browser
+bun run desktop:dev:bridge             # real backend on the development data folder, in a browser
 bun run check
 bun run build
 ```
@@ -51,7 +51,7 @@ There is no browser-preview backend. The frontend reaches Rust either through Ta
 
 - `bun run desktop:dev` is the real Tauri desktop surface. Use it for anything native: the overlay title bar, the menu bar / tray icon and its `pathkeep://` events, open at login, keychain prompts, Finder reveal, the updater, window sizing.
 - `bun run dev:demo` (`scripts/dev-demo.mjs`) writes synthetic Chrome ×2 and Firefox profiles under `var/demo/`, starts the debug backend with the dev bridge, initializes the archive and runs a first backup, then serves the frontend at http://127.0.0.1:1420. It keeps the archive, keychain and scheduler inside `var/demo/` (`CHB_PROJECT_ROOT`, `CHB_TEST_KEYRING_DIR`, `PATHKEEP_PLATFORM_TEST_SANDBOX_DIR`, its own schedule label), so it never touches your real history, keychain or LaunchAgents. `--fresh` wipes `var/demo/`; `--first-run` stops before initialization so the app opens on onboarding. This is the default way to look at UI changes.
-- `bun run desktop:dev:bridge` starts the same bridge against your normal app data folder. Use it only when you need your own archive in a browser.
+- `bun run desktop:dev:bridge` starts the same bridge against the development data folder (see below). It no longer opens the installed app's archive.
 - `bun run desktop:build:debug` is the fast local debug build used for release rehearsal and packaging smoke.
 
 ## Chrome And Agent Loop
@@ -90,6 +90,39 @@ Honest boundary:
 - `src-tauri/crates/vault-worker/`: orchestration shared by GUI, CLI, and MCP mode.
 
 Boundaries and import direction: [docs/architecture/module-boundary-map.md](./docs/architecture/module-boundary-map.md).
+
+## Development Data Folder
+
+A build you make yourself never opens the installed app's data. Only the release packaging (`bun run release:build`) produces a build that uses the released data folder, keychain entries, schedule and installer identity. `bun run desktop:dev`, `desktop:dev:bridge`, `desktop:build`, `desktop:build:debug`, `cargo build --release` and the test binaries are development builds. The full rule and the list of what is separated are in [docs/architecture/build-identity.md](./docs/architecture/build-identity.md).
+
+Without `CHB_PROJECT_ROOT`, a development build keeps its archive here:
+
+| OS      | Development data folder                                         |
+| ------- | --------------------------------------------------------------- |
+| macOS   | `~/Library/Application Support/com.yi-ting.pathkeep-dev`        |
+| Windows | `%LOCALAPPDATA%\yi-ting\pathkeep-dev\data`                      |
+| Linux   | `$XDG_DATA_HOME/pathkeep-dev`, or `~/.local/share/pathkeep-dev` |
+
+It starts empty. Nothing is copied from the installed app.
+
+To use another folder, set `CHB_PROJECT_ROOT` to a non-empty path (an empty value is an error). A development build whose folder is moved this way refuses to touch the OS scheduler and login items unless `PATHKEEP_PLATFORM_TEST_SANDBOX_DIR` is set too:
+
+```bash
+CHB_PROJECT_ROOT="$PWD/var/manual-archive" \
+PATHKEEP_PLATFORM_TEST_SANDBOX_DIR="$PWD/var/manual-os" \
+PATHKEEP_PLATFORM_TEST_KEYRING_DIR="$PWD/var/manual-keyring" \
+bun run desktop:dev
+```
+
+Pointing a development build at the installed app's folder is possible only by setting `CHB_PROJECT_ROOT` to it yourself. Do that on a copy, not on the archive you use: development code that writes a newer archive format leaves the installed, older app unable to open it. Even then the keychain service, schedule label and login item stay the development ones.
+
+Other things that differ in a development build: it has its own keychain service (`com.yi-ting.pathkeep.dev`), schedule label and login item; packages are named `PathKeep Dev` with their own bundle identifier and Windows upgrade code; the updater is off. The name shown inside the app is still `PathKeep`.
+
+Both executables answer `--build-identity` with what they were compiled as, without opening anything:
+
+```bash
+src-tauri/target/debug/pathkeep-desktop --build-identity
+```
 
 ## Local Data And Diagnostics
 

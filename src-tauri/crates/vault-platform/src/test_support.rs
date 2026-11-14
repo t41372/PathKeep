@@ -5,10 +5,12 @@
 
 use std::path::PathBuf;
 
-/// Default keyring service name used by PathKeep tests and local backends.
-pub const DEFAULT_KEYRING_SERVICE: &str = "com.yi-ting.pathkeep";
-/// Default scheduler label used by PathKeep tests and preview plans.
-pub const DEFAULT_SCHEDULE_LABEL: &str = "com.yi-ting.pathkeep.backup";
+/// Released keyring service name retained for compatibility assertions; runtime defaults use CURRENT.
+pub const DEFAULT_KEYRING_SERVICE: &str =
+    vault_build::BuildClass::Distribution.identity().keyring_service;
+/// Released scheduler label retained for compatibility assertions; preview defaults use CURRENT.
+pub const DEFAULT_SCHEDULE_LABEL: &str =
+    vault_build::BuildClass::Distribution.identity().schedule_label;
 
 /// Env var override for the file-backed test keyring directory.
 pub const TEST_KEYRING_DIR_ENV: &str = "PATHKEEP_PLATFORM_TEST_KEYRING_DIR";
@@ -35,7 +37,7 @@ pub fn keyring_service() -> String {
     std::env::var(TEST_KEYRING_SERVICE_ENV)
         .ok()
         .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| DEFAULT_KEYRING_SERVICE.to_string())
+        .unwrap_or_else(|| vault_build::CURRENT.identity().keyring_service.to_string())
 }
 
 /// Returns the scheduler label tests should use for deterministic assertions.
@@ -43,15 +45,15 @@ pub fn schedule_label() -> String {
     std::env::var(TEST_SCHEDULE_LABEL_ENV)
         .ok()
         .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| DEFAULT_SCHEDULE_LABEL.to_string())
+        .unwrap_or_else(|| vault_build::CURRENT.identity().schedule_label.to_string())
 }
 
 /// Returns an override for the macOS LaunchAgents directory when tests provide one.
 ///
-/// Debug builds only, like the keyring redirect: a release build must always
+/// Non-distribution builds only, like the keyring redirect: a distribution must always
 /// install into the real `~/Library/LaunchAgents`.
 pub(crate) fn launch_agents_dir_override() -> Option<PathBuf> {
-    if !cfg!(debug_assertions) {
+    if vault_build::CURRENT.is_distribution() {
         return None;
     }
     std::env::var_os(TEST_LAUNCH_AGENTS_DIR_ENV)
@@ -61,14 +63,14 @@ pub(crate) fn launch_agents_dir_override() -> Option<PathBuf> {
 
 /// Returns the file-backed keyring directory when tests opt into one.
 ///
-/// Release builds must NEVER honor the redirect env vars: doing so would let an
-/// attacker-controlled launch environment force PathKeep to persist the
-/// SQLCipher master key and provider API keys as plaintext files instead of the
-/// OS keychain. `debug_assertions` is on for `cargo test` and `tauri dev` (the
-/// e2e/desktop-bridge harness) and off for `--release`, so the test redirect
-/// stays available where it is needed and is inert in shipped binaries.
+/// Distribution builds must NEVER honor the redirect env vars: doing so would let an
+/// attacker-controlled launch environment force PathKeep to persist the archive master key
+/// and provider API keys as plaintext files instead of the OS keychain. Non-distribution
+/// builds include `cargo test`, `tauri dev` (the e2e/desktop-bridge harness) and ordinary local
+/// `--release` builds, so the test redirect stays available where it is needed and is inert
+/// in shipped distribution binaries.
 pub(crate) fn test_keyring_dir() -> Option<PathBuf> {
-    if !cfg!(debug_assertions) {
+    if vault_build::CURRENT.is_distribution() {
         return None;
     }
     std::env::var_os(TEST_KEYRING_DIR_ENV)

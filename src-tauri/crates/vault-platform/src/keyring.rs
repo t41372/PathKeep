@@ -24,11 +24,26 @@ use vault_core::KeyringStatusReport;
 #[cfg(target_os = "windows")]
 use windows_native_keyring_store::Store as NativeKeyringStore;
 
-const KEYRING_DATABASE_USER: &str = "database-key";
+const KEYRING_DATABASE_USER: &str = vault_build::ARCHIVE_KEY_ACCOUNT;
 
 /// How long a native keychain "is a key stored?" answer is reused. Settings and every config load
 /// ask once per AI provider, and an OS keychain round trip can take tens of milliseconds.
 const PROVIDER_KEY_SAVED_TTL: Duration = Duration::from_secs(60);
+
+fn native_service_allowed(service: &str) -> bool {
+    native_service_allowed_with_policy(vault_build::CURRENT, service)
+}
+
+// Keep the namespace decision pure so tests never need to query a real keychain.
+fn native_service_allowed_with_policy(class: vault_build::BuildClass, service: &str) -> bool {
+    class.is_distribution()
+        || !service
+            .eq_ignore_ascii_case(vault_build::BuildClass::Distribution.identity().keyring_service)
+}
+
+fn provider_cache_key(user: &str) -> String {
+    format!("{}\0{user}", keyring_service())
+}
 
 fn provider_key_saved_cache() -> &'static Mutex<HashMap<String, (bool, Instant)>> {
     static CACHE: OnceLock<Mutex<HashMap<String, (bool, Instant)>>> = OnceLock::new();
@@ -36,16 +51,21 @@ fn provider_key_saved_cache() -> &'static Mutex<HashMap<String, (bool, Instant)>
 }
 
 fn forget_provider_key_saved(user: &str) {
-    provider_key_saved_cache().lock().expect("provider key cache lock").remove(user);
+    provider_key_saved_cache()
+        .lock()
+        .expect("provider key cache lock")
+        .remove(&provider_cache_key(user));
 }
 
 fn provider_keyring_user(provider_id: &str) -> String {
-    format!("ai-provider::{provider_id}")
+    format!("{}{provider_id}", vault_build::PROVIDER_KEY_ACCOUNT_PREFIX)
 }
 
 fn keyring_entry(user: &str) -> Result<Entry> {
+    let service = keyring_service();
+    anyhow::ensure!(native_service_allowed(&service), "development-keyring-service-is-production");
     ensure_native_keyring_store()?;
-    Ok(Entry::new(&keyring_service(), user)?)
+    Ok(Entry::new(&service, user)?)
 }
 
 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux", target_os = "freebsd",))]
@@ -70,6 +90,9 @@ fn ensure_native_keyring_store() -> Result<()> {
 
 #[cfg(target_os = "macos")]
 fn keyring_entry_exists_for_service(service: &str, user: &str) -> bool {
+    if !native_service_allowed(service) {
+        return false;
+    }
     ensure_native_keyring_store().ok();
     Entry::search(&HashMap::from([("service", service), ("user", user)]))
         .map(|entries| !entries.is_empty())
@@ -78,6 +101,9 @@ fn keyring_entry_exists_for_service(service: &str, user: &str) -> bool {
 
 #[cfg(not(target_os = "macos"))]
 fn keyring_entry_exists_for_service(service: &str, user: &str) -> bool {
+    if !native_service_allowed(service) {
+        return false;
+    }
     ensure_native_keyring_store().ok();
     Entry::new(service, user).ok().and_then(|entry| entry.get_password().ok()).is_some()
 }
@@ -115,6 +141,14 @@ pub fn keyring_status() -> KeyringStatusReport {
         };
     }
 
+    if !native_service_allowed(&keyring_service()) {
+        return KeyringStatusReport {
+            available: false,
+            stored_secret: false,
+            backend: keyring_backend_name().into(),
+            message: Some("development-keyring-service-is-production".into()),
+        };
+    }
     let backend = keyring_backend_name();
     let available = ensure_native_keyring_store().is_ok();
     let stored_secret = available && keyring_entry_exists(KEYRING_DATABASE_USER);
@@ -137,7 +171,6 @@ pub fn keyring_get_database_key() -> Result<Option<String>> {
         return test_keyring_get(&path, KEYRING_DATABASE_USER);
     }
 
-    ensure_native_keyring_store().ok();
     let entry = keyring_entry(KEYRING_DATABASE_USER)?;
     match entry.get_password() {
         Ok(value) => Ok(Some(value)),
@@ -151,7 +184,6 @@ pub fn keyring_set_database_key(key: &str) -> Result<()> {
         return test_keyring_set(&path, KEYRING_DATABASE_USER, key);
     }
 
-    ensure_native_keyring_store()?;
     let entry = keyring_entry(KEYRING_DATABASE_USER)?;
     entry.set_password(key)?;
     Ok(())
@@ -163,7 +195,6 @@ pub fn keyring_clear_database_key() -> Result<()> {
         return test_keyring_clear(&path, KEYRING_DATABASE_USER);
     }
 
-    ensure_native_keyring_store().ok();
     let entry = keyring_entry(KEYRING_DATABASE_USER)?;
     // No key there is what was asked for; a keychain that refuses the delete is not, and the
     // caller says so instead of reporting the key gone.
@@ -180,7 +211,6 @@ pub fn keyring_get_provider_api_key(provider_id: &str) -> Result<Option<String>>
         return test_keyring_get(&path, &user);
     }
 
-    ensure_native_keyring_store().ok();
     let entry = keyring_entry(&user)?;
     match entry.get_password() {
         Ok(value) => Ok(Some(value)),
@@ -195,7 +225,6 @@ pub fn keyring_set_provider_api_key(provider_id: &str, api_key: &str) -> Result<
         return test_keyring_set(&path, &user, api_key);
     }
 
-    ensure_native_keyring_store()?;
     let entry = keyring_entry(&user)?;
     let result = entry.set_password(api_key);
     forget_provider_key_saved(&user);
@@ -210,7 +239,6 @@ pub fn keyring_clear_provider_api_key(provider_id: &str) -> Result<()> {
         return test_keyring_clear(&path, &user);
     }
 
-    ensure_native_keyring_store().ok();
     let entry = keyring_entry(&user)?;
     let _ = entry.delete_credential();
     forget_provider_key_saved(&user);
@@ -225,13 +253,17 @@ pub fn provider_api_key_saved(provider_id: &str) -> bool {
     }
 
     let cache = provider_key_saved_cache();
-    if let Some((saved, at)) = cache.lock().expect("provider key cache lock").get(&user)
+    if let Some((saved, at)) =
+        cache.lock().expect("provider key cache lock").get(&provider_cache_key(&user))
         && at.elapsed() < PROVIDER_KEY_SAVED_TTL
     {
         return *saved;
     }
     let saved = keyring_entry_exists_for_service(&keyring_service(), &user);
-    cache.lock().expect("provider key cache lock").insert(user, (saved, Instant::now()));
+    cache
+        .lock()
+        .expect("provider key cache lock")
+        .insert(provider_cache_key(&user), (saved, Instant::now()));
     saved
 }
 
@@ -288,8 +320,55 @@ mod tests {
     };
     use tempfile::tempdir;
 
-    /// Run by cargo, tests keep their keys in an item of their own (the repo's
-    /// `.cargo/config.toml`), never the installed app's: one that saves or clears the archive
+    #[test]
+    fn native_service_policy_refuses_production_names_in_development() {
+        for name in ["com.yi-ting.pathkeep", "COM.Yi-Ting.PathKeep"] {
+            assert!(!native_service_allowed_with_policy(
+                vault_build::BuildClass::Development,
+                name
+            ));
+        }
+    }
+
+    #[test]
+    fn native_service_policy_allows_development_and_fixture_names_in_development() {
+        for name in ["com.yi-ting.pathkeep.dev", "fixture-service"] {
+            assert!(native_service_allowed_with_policy(vault_build::BuildClass::Development, name));
+        }
+    }
+
+    #[test]
+    fn native_service_policy_preserves_production_names_in_distribution() {
+        for name in ["com.yi-ting.pathkeep", "COM.Yi-Ting.PathKeep"] {
+            assert!(native_service_allowed_with_policy(
+                vault_build::BuildClass::Distribution,
+                name
+            ));
+        }
+    }
+
+    #[test]
+    fn native_service_policy_preserves_other_names_in_distribution() {
+        for name in ["com.yi-ting.pathkeep.dev", "fixture-service"] {
+            assert!(native_service_allowed_with_policy(
+                vault_build::BuildClass::Distribution,
+                name
+            ));
+        }
+    }
+
+    #[test]
+    fn native_service_guard_applies_the_compiled_classification() {
+        // Exercise the caller as well: bypassing the pure policy must also fail a test.
+        for name in ["com.yi-ting.pathkeep", "COM.Yi-Ting.PathKeep"] {
+            assert_eq!(native_service_allowed(name), vault_build::CURRENT.is_distribution());
+        }
+        assert!(native_service_allowed("com.yi-ting.pathkeep.dev"));
+        assert!(native_service_allowed("fixture-service"));
+    }
+
+    /// The compiled development identity keeps tests in an item of their own,
+    /// never the installed app's: one that saves or clears the archive
     /// key without its file-backed keychain would change the real one.
     #[test]
     fn tests_never_use_the_installed_apps_keychain_item() {
