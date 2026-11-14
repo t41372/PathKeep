@@ -23,3 +23,15 @@ export function Note({ children, className }: { children: ReactNode; className?:
 export function Mono({ children }: { children: ReactNode }) {
   return <code className="rounded bg-muted px-1 py-0.5 font-mono text-[12px]">{children}</code>
 }
+
+/**
+ * Prototype-only label on a row this proposal moves: where the row is in today's
+ * app (or in the earlier prototype). It is not part of the design.
+ */
+export function MovedFrom({ label = '現在在', children }: { label?: string; children: ReactNode }) {
+  return (
+    <span className="ml-1.5 rounded border border-dashed px-1.5 py-px align-middle text-[11px] font-normal whitespace-nowrap text-muted-foreground">
+      {label}：{children}
+    </span>
+  )
+}

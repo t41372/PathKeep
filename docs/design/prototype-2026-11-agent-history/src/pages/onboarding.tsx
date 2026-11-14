@@ -1,7 +1,7 @@
 /**
  * First run, full window: step list on the left, one step at a time on the
- * right. Same steps as today's onboarding with "要保存什麼" added after the
- * welcome, and the sources step listing every chosen type's sources.
+ * right. Same steps as today's onboarding, except that today's "瀏覽器" step
+ * becomes two: "要保存什麼" (which types) and "來源" (each chosen type's sources).
  */
 import { ArrowLeft, ArrowRight, Check } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
@@ -17,6 +17,7 @@ import { kindById, type KindId } from '~/kinds'
 import { useProto } from '~/proto-state'
 import { browserSources } from './backup/sources-data'
 import {
+  AiStep,
   DoneStep,
   EncryptionStep,
   KindsStep,
@@ -24,6 +25,7 @@ import {
   SourcesStep,
   StorageStep,
   WelcomeStep,
+  type AiChoice,
   type Encryption,
   type Schedule,
 } from './onboarding/steps'
@@ -35,24 +37,32 @@ const steps = [
   { id: 'storage', label: '存在哪裡' },
   { id: 'encryption', label: '加密' },
   { id: 'schedule', label: '排程' },
+  { id: 'ai', label: 'AI' },
   { id: 'done', label: '完成' },
 ] as const
 
-const scheduleLabel: Record<Schedule, string> = { '1h': '每小時', '2h': '每 2 小時', '1d': '每天一次', manual: '只在我按的時候' }
+const scheduleLabel: Record<Schedule, string> = { '1h': '每小時', '6h': '每 6 小時', '1d': '每天', manual: '手動' }
 
 export default function OnboardingPage() {
   const navigate = useNavigate()
   const { theme, set } = useProto()
   const [params] = useSearchParams()
-  // `?step=sources` opens a later step directly, for screenshots.
-  const initial = Math.max(0, steps.findIndex((s) => s.id === params.get('step')))
+  // `?step=sources` opens a step directly, also when only the address changes.
+  const requested = steps.findIndex((s) => s.id === params.get('step'))
+  const initial = Math.max(0, requested)
   const [index, setIndex] = useState(initial)
   const [reached, setReached] = useState(initial)
+  useEffect(() => {
+    if (requested < 0) return
+    setIndex(requested)
+    setReached((r) => Math.max(r, requested))
+  }, [requested])
   const [kindsOn, setKindsOn] = useState<Set<KindId>>(new Set(['browsing', 'agent']))
   const [harnessOn, setHarnessOn] = useState<Set<HarnessId>>(new Set(harnessOrder))
   const [browserOn, setBrowserOn] = useState<Set<string>>(new Set(browserSources.map((b) => `${b.name}-${b.profile}`)))
   const [encryption, setEncryption] = useState<Encryption>('password')
-  const [schedule, setSchedule] = useState<Schedule>('2h')
+  const [schedule, setSchedule] = useState<Schedule>('1h')
+  const [ai, setAi] = useState<AiChoice>('none')
   const scroller = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -158,6 +168,7 @@ export default function OnboardingPage() {
             {step === 'storage' && <StorageStep kindsOn={kindsOn} />}
             {step === 'encryption' && <EncryptionStep value={encryption} onChange={setEncryption} />}
             {step === 'schedule' && <ScheduleStep value={schedule} onChange={setSchedule} />}
+            {step === 'ai' && <AiStep value={ai} onChange={setAi} />}
             {step === 'done' && <DoneStep summary={summary} />}
           </div>
         </div>

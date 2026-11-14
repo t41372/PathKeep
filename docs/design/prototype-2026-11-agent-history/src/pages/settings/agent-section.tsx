@@ -1,20 +1,18 @@
 /**
- * Agent conversations: sources, how folders become projects, the reader,
- * usage and cost, AI access (three separate opt-ins, all off by default),
- * and what "continue" does. Writing back into the tools' folders is not
- * offered and the page says so.
+ * Agent conversations: how folders become projects, the reader, usage and
+ * cost, AI access (three separate opt-ins, all off by default), and what
+ * "continue" does. What gets backed up (tools, folders, reading .git) is on
+ * the Agent Backup page, not here. Writing back into the tools' folders is
+ * not offered and the page says so.
  */
-import { FolderPlus, Plus, X } from 'lucide-react'
+import { Plus, X } from 'lucide-react'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { SettingRow, SettingsSection } from '@/components/app/setting-row'
 import { Button } from '@/components/ui/button'
 import { useProto } from '~/proto-state'
 import { Switch } from '@/components/ui/switch'
-import { HarnessBadge } from '~/components/bits'
 import { archive } from '~/data/archive'
-import { num } from '~/data/format'
-import { harnessSources } from '../backup/sources-data'
 import { Group, Mono, Note } from './parts'
 
 function Toggle({ initial, disabled, label }: { initial: boolean; disabled?: boolean; label: string }) {
@@ -30,51 +28,18 @@ export function AgentSection() {
   const suggestions = archive.suggestions.length
   return (
     <SettingsSection title="Agent 對話">
-      <Group title="來源" intro="PathKeep 只讀這些資料夾，不改、不刪任何檔案。工具沒裝的會自動略過。">
-        {harnessSources.map((h) => (
-          <SettingRow
-            key={h.id}
-            title={<HarnessBadge id={h.id} withName className="text-sm" />}
-            description={
-              <>
-                <span className="font-mono text-[12px]">{h.root}</span>
-                {h.alsoReads && (
-                  <>
-                    {' '}和 <span className="font-mono text-[12px]">{h.alsoReads}</span>
-                  </>
-                )}
-                <br />
-                找到 {num(h.chats)} 段對話{h.subagents > 0 && `，另有 ${num(h.subagents)} 個 subagent`}
-              </>
-            }
-            control={<Toggle initial label={`備份 ${h.name}`} />}
-          />
-        ))}
-        <SettingRow
-          title="加入其他資料夾"
-          description="例如用 CLAUDE_CONFIG_DIR 把 Claude Code 的資料放在別處，或從另一台電腦拷過來的資料夾。"
-          control={
-            <Button variant="outline" size="sm">
-              <FolderPlus />
-              選擇資料夾…
-            </Button>
-          }
-        />
-      </Group>
+      <Note>
+        要備份哪些工具、加入其他資料夾、備份時要不要讀 <Mono>.git</Mono>，都在 Agent 對話的
+        <Link to="/agent/backup" className="mx-1 text-brand hover:underline">
+          備份頁
+        </Link>
+        ，不在這裡。
+      </Note>
 
       <Group
         title="專案歸類"
         intro="Agent 把每個資料夾都當成一個專案。PathKeep 會把同一個 repo 的主資料夾、worktree、子資料夾和搬家前的位置併成一個專案，只改 PathKeep 這邊的顯示。"
       >
-        <SettingRow
-          title="讀取專案資料夾的 git 資訊"
-          description={
-            <>
-              備份時讀每個專案資料夾的 <Mono>.git</Mono>：repo 的根目錄在哪、worktree 屬於哪個 repo、遠端網址。資料夾刪掉之後就查不到了，所以要在備份當下記下來。只讀這三項，不讀程式碼，也不改任何檔案。
-            </>
-          }
-          control={<Toggle initial label="讀取 git 資訊" />}
-        />
         <SettingRow
           title="暫存資料夾歸到「零散資料夾」"
           description="在這些位置裡的對話不各自算一個專案，全部放進「零散資料夾」。"

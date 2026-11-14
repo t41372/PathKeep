@@ -40,7 +40,7 @@ const retention = [
 export function WelcomeStep() {
   return (
     <>
-      <StepHeading title="留住會被自動刪掉的東西" body="瀏覽紀錄、跟 Agent 的對話，很多工具過一陣子就自己清掉了。PathKeep 定時把它們複製進你電腦上的加密存檔，之後隨時能找、能看。" />
+      <StepHeading title="留住會被自動刪掉的東西" body="瀏覽紀錄、跟 Agent 的對話，很多工具過一陣子就自己清掉了。PathKeep 定時把它們複製進你電腦上的存檔，之後隨時能找、能看。" />
       <section className="flex flex-col gap-3.5 rounded-xl border bg-card p-5 shadow-card">
         <h2 className="text-[13px] font-normal text-muted-foreground">各家自己會留多久</h2>
         <ul className="flex flex-col gap-3">
@@ -186,7 +186,7 @@ export function SourcesStep({
           <div className="flex items-start gap-3 border-t bg-muted/30 px-5 py-3.5 text-[13px]">
             <FolderGit2 className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
             <span className="leading-relaxed text-muted-foreground">
-              備份時也會讀每個專案資料夾的 <code className="font-mono text-[12px]">.git</code>，只看 repo 根目錄、worktree 屬於哪個 repo、遠端網址，用來把同一個專案的資料夾併在一起。不讀程式碼。可以在設定裡關掉。
+              備份時也會讀每個專案資料夾的 <code className="font-mono text-[12px]">.git</code>，只看 repo 根目錄、worktree 屬於哪個 repo、遠端網址，用來把同一個專案的資料夾併在一起。不讀程式碼。之後可以在 Agent 對話的備份頁關掉。
             </span>
           </div>
           {claude && harnessOn.has(claude.id) && (
@@ -208,7 +208,7 @@ export function StorageStep({ kindsOn }: { kindsOn: Set<KindId> }) {
   const total = chosen.reduce((s, k) => s + (archiveBytes[k.id] ?? 0), 0)
   return (
     <>
-      <StepHeading title="存在哪裡" body="預設放在 PathKeep 自己的資料夾。之後可以搬到別顆磁碟。" />
+      <StepHeading title="存在哪裡" body="存檔放在 PathKeep 自己的資料夾，所有資料類型都在這一個存檔裡。" />
       <div className="flex items-center gap-3 rounded-xl border bg-card px-5 py-4 shadow-card">
         <HardDrive className="size-5 text-muted-foreground" />
         <span className="flex min-w-0 flex-1 flex-col">
@@ -216,7 +216,7 @@ export function StorageStep({ kindsOn }: { kindsOn: Set<KindId> }) {
           <span className="text-xs text-muted-foreground">Macintosh HD · 還有 312 GB 可用</span>
         </span>
         <Button variant="outline" size="sm">
-          改位置…
+          在 Finder 顯示
         </Button>
       </div>
       <section className="flex flex-col gap-3 rounded-xl border bg-card p-5 shadow-card">
@@ -275,19 +275,40 @@ export function EncryptionStep({ value, onChange }: { value: Encryption; onChang
   )
 }
 
-export type Schedule = '1h' | '2h' | '1d' | 'manual'
+export type Schedule = '1h' | '6h' | '1d' | 'manual'
 
 export function ScheduleStep({ value, onChange }: { value: Schedule; onChange: (v: Schedule) => void }) {
   const options: { id: Schedule; title: string; body: string }[] = [
-    { id: '1h', title: '每小時', body: '最不容易漏，Agent 用得很兇的時候適合。' },
-    { id: '2h', title: '每 2 小時（建議）', body: '一般用法夠了。只在接上電源時跑。' },
-    { id: '1d', title: '每天一次', body: '在你通常開著電腦的時間跑。' },
-    { id: 'manual', title: '只在我按的時候', body: '工具自己刪掉的東西，PathKeep 就來不及存。' },
+    { id: '1h', title: '每小時（建議）', body: '最不容易漏掉工具自己刪掉的東西。' },
+    { id: '6h', title: '每 6 小時', body: '一天備份四次。' },
+    { id: '1d', title: '每天', body: '一天備份一次。' },
+    { id: 'manual', title: '手動', body: '只在你按「立即備份」時備份。工具自己刪掉的東西，PathKeep 可能來不及存。' },
   ]
   return (
     <>
       <StepHeading title="多久備份一次？" body="一個排程，所有資料類型一起備份。" />
       <ChoiceGroup value={value} onValueChange={onChange} label="備份排程">
+        {options.map((o) => (
+          <ChoiceCard key={o.id} value={o.id} title={o.title} body={o.body} leading={<RadioMark />} />
+        ))}
+      </ChoiceGroup>
+    </>
+  )
+}
+
+export type AiChoice = 'none' | 'local' | 'service'
+
+/** Unchanged from today's onboarding; shown so the step list is the real one. */
+export function AiStep({ value, onChange }: { value: AiChoice; onChange: (v: AiChoice) => void }) {
+  const options: { id: AiChoice; title: string; body: string }[] = [
+    { id: 'none', title: '先不要', body: '備份、瀏覽、搜尋、洞察都不需要 AI。之後可以在設定裡開。' },
+    { id: 'local', title: '本機語意搜尋', body: '下載一個小模型，讓搜尋也能找意思相近的內容。全部在這台電腦上跑。' },
+    { id: 'service', title: '連接 AI 服務', body: '用你自己的服務（Ollama、LM Studio、OpenAI 或相容的位址）來問問題。' },
+  ]
+  return (
+    <>
+      <StepHeading title="要不要用 AI？" body="這些都是可選的。這一步跟現在的一樣，沒有改。" />
+      <ChoiceGroup value={value} onValueChange={onChange} label="AI">
         {options.map((o) => (
           <ChoiceCard key={o.id} value={o.id} title={o.title} body={o.body} leading={<RadioMark />} />
         ))}

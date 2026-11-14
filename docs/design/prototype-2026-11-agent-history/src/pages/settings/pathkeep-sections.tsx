@@ -24,7 +24,7 @@ function Toggle({ initial, label }: { initial: boolean; label: string }) {
 }
 
 export function GeneralSection() {
-  const { theme, set } = useProto()
+  const { theme, set, enabledKinds } = useProto()
   return (
     <SettingsSection title="一般">
       <SettingRow
@@ -58,6 +58,17 @@ export function GeneralSection() {
       />
       <SettingRow title="登入時開啟 PathKeep" description="在背景待命，照排程備份。" control={<Toggle initial label="登入時開啟" />} />
       <SettingRow title="選單列圖示" description="從選單列看備份狀態、立即備份、搜尋。" control={<Toggle initial label="選單列圖示" />} />
+      {enabledKinds.includes('browsing') && (
+        <SettingRow
+          title="連網"
+          description="PathKeep 自己會連到網站的只有瀏覽紀錄的連結預覽和網頁摘要，開關在「瀏覽紀錄」的設定裡。AI 服務另外在「AI」。"
+          control={
+            <Button variant="outline" size="sm" asChild>
+              <Link to="/settings/browsing">瀏覽紀錄的設定</Link>
+            </Button>
+          }
+        />
+      )}
     </SettingsSection>
   )
 }
@@ -149,7 +160,7 @@ export function StorageSection() {
         control={
           <Button variant="outline" size="sm">
             <FolderOpen />
-            搬移…
+            在 Finder 顯示
           </Button>
         }
       />
