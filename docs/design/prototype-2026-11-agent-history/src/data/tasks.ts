@@ -80,3 +80,21 @@ export function pauseTask(id: string) {
   tasks = tasks.map((t) => (t.id === id ? { ...t, state: t.state === 'paused' ? 'running' : 'paused', note: t.state === 'paused' ? undefined : '你暫停了' } : t))
   emit()
 }
+
+/** Cancel: a backup keeps what it already saved and the next one does the rest. */
+export function cancelTask(id: string) {
+  tasks = tasks.filter((t) => t.id !== id)
+  emit()
+}
+
+/** 收起 on a failed task: it leaves 「需要你看一下」. */
+export function dismissTask(id: string) {
+  tasks = tasks.filter((t) => t.id !== id)
+  emit()
+}
+
+/** 再試一次: the same task again, with the same scope. */
+export function retryTask(id: string) {
+  tasks = tasks.map((t) => (t.id === id ? { ...t, state: 'running', progress: null, note: undefined, at: Date.now() } : t))
+  emit()
+}

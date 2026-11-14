@@ -12,8 +12,9 @@ import { Link } from 'react-router-dom'
 import { PageHeader, PageScroll, SectionCard } from '@/components/app/section-card'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
+import { NOW } from '~/data/fixture'
 import { time } from '~/data/format'
-import { pauseTask, useTasks, type Task } from '~/data/tasks'
+import { cancelTask, dismissTask, pauseTask, retryTask, useTasks, type Task } from '~/data/tasks'
 import { kindById } from '~/kinds'
 import { SpaceTile } from '~/shell/space-rail'
 import { BrowsingWork } from './tasks/browsing-work'
@@ -85,14 +86,27 @@ export default function TasksPage() {
         <SectionCard title={<span className="flex items-center gap-1.5"><CircleAlert className="size-4 text-amber-600" />需要你看一下</span>}>
           <div className="flex flex-col divide-y">
             {failed.map((t) => (
-              <TaskRow key={t.id} task={t} action={<Button size="sm" variant="outline">再試一次</Button>} />
+              <TaskRow
+                key={t.id}
+                task={t}
+                action={
+                  <span className="flex shrink-0 items-center gap-1.5">
+                    <Button size="sm" variant="outline" onClick={() => retryTask(t.id)}>
+                      再試一次
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => dismissTask(t.id)}>
+                      收起
+                    </Button>
+                  </span>
+                }
+              />
             ))}
           </div>
         </SectionCard>
       )}
       <SectionCard title="正在跑">
         {running.length === 0 ? (
-          <p className="text-[13px] text-muted-foreground">沒有。下次排程備份在 16:00。</p>
+          <p className="text-[13px] text-muted-foreground">沒有。下次排程備份在 {time(NOW + 44 * 60_000)}。</p>
         ) : (
           <div className="flex flex-col divide-y">
             {running.map((t) => (
@@ -100,9 +114,18 @@ export default function TasksPage() {
                 key={t.id}
                 task={t}
                 action={
-                  <Button size="icon" variant="ghost" aria-label="暫停" onClick={() => pauseTask(t.id)}>
-                    <Pause />
-                  </Button>
+                  // A backup can be cancelled, not paused: what it saved stays and the next one does the rest.
+                  <span className="flex shrink-0 items-center gap-1.5">
+                    {!t.title.startsWith('備份') && (
+                      <Button size="sm" variant="ghost" onClick={() => pauseTask(t.id)}>
+                        <Pause />
+                        暫停
+                      </Button>
+                    )}
+                    <Button size="sm" variant="ghost" onClick={() => cancelTask(t.id)}>
+                      取消
+                    </Button>
+                  </span>
                 }
               />
             ))}
@@ -117,11 +140,17 @@ export default function TasksPage() {
                 key={t.id}
                 task={t}
                 action={
-                  t.state === 'paused' ? (
-                    <Button size="icon" variant="ghost" aria-label="繼續" onClick={() => pauseTask(t.id)}>
-                      <Play />
+                  <span className="flex shrink-0 items-center gap-1.5">
+                    {t.state === 'paused' && (
+                      <Button size="sm" variant="ghost" onClick={() => pauseTask(t.id)}>
+                        <Play />
+                        繼續
+                      </Button>
+                    )}
+                    <Button size="sm" variant="ghost" onClick={() => cancelTask(t.id)}>
+                      取消
                     </Button>
-                  ) : undefined
+                  </span>
                 }
               />
             ))}
@@ -129,11 +158,15 @@ export default function TasksPage() {
         </SectionCard>
       )}
       <SectionCard title={<span className="flex items-center gap-1.5"><CircleCheck className="size-4 text-green" />今天完成</span>}>
-        <div className="flex flex-col divide-y">
-          {done.map((t) => (
-            <TaskRow key={t.id} task={t} />
-          ))}
-        </div>
+        {done.length === 0 ? (
+          <p className="text-[13px] text-muted-foreground">今天還沒有做完的任務。</p>
+        ) : (
+          <div className="flex flex-col divide-y">
+            {done.map((t) => (
+              <TaskRow key={t.id} task={t} />
+            ))}
+          </div>
+        )}
       </SectionCard>
       {/* The queues, their recent jobs and the data they produce, moved here from Settings › 背景工作. */}
       <BrowsingWork />
