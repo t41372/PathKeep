@@ -1,13 +1,5 @@
 [
   {
-    "key": "onboarding.browsers.fullDiskAccess.openFailed",
-    "reason": "shown when System Settings cannot be opened"
-  },
-  {
-    "key": "onboarding.browsers.fullDiskAccess.recheckFailed",
-    "reason": "shown when rechecking the browsers fails"
-  },
-  {
     "key": "backup.sources.notice.fullDiskAccess",
     "reason": "not shown by today's onboarding step either: it only takes the empty and error notices from this group (the Backup page shows this one, and the browsing Backup page of the prototype draws it)"
   }

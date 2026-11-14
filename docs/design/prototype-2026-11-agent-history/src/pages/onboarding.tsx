@@ -24,7 +24,7 @@ import { EncryptionStep } from './onboarding/encryption-step'
 import { defaultCases, OnboardingSwitches, type OnboardingCases } from './onboarding/proto-switches'
 import { frequencyTitles, ScheduleStep } from './onboarding/schedule-step'
 import { initialSelection, stepKinds } from './onboarding/sources-data'
-import { SourcesStep, sourcesComplete } from './onboarding/sources-step'
+import { type Scan, SourcesStep, scanned, sourcesComplete } from './onboarding/sources-step'
 import { KindsStep, StepPosition, WelcomeStep } from './onboarding/steps'
 import { APP_ROOT, StorageStep } from './onboarding/storage-step'
 import { stagesFor, useFinishSetup } from './onboarding/use-finish'
@@ -56,10 +56,14 @@ export default function OnboardingPage() {
   // Prototype-only: many types and sources at once, to judge how the steps hold up.
   const [many, setMany] = useState(params.get('many') === '1')
   const [kindsOn, setKindsOn] = useState<Set<KindId>>(new Set(many ? allKinds : twoKinds))
-  const list = useMemo(() => stepKinds(kindsOn, many), [kindsOn, many])
+  const found = useMemo(() => stepKinds(kindsOn, many), [kindsOn, many])
+  // Prototype-only: what looking for browsers came back with, and whether Safari's access was granted since.
+  const [scan, setScan] = useState<Scan>('found')
+  const [granted, setGranted] = useState(false)
+  const list = useMemo(() => scanned(found, scan, granted), [found, scan, granted])
   const [picked, setPicked] = useState<Record<string, Set<string>>>({})
-  // A type's sources start out all selected; a choice already made is kept.
-  const selection = useMemo(() => ({ ...initialSelection(list), ...picked }), [list, picked])
+  // Every source that was readable when the step first looked starts out selected; a choice already made is kept.
+  const selection = useMemo(() => ({ ...initialSelection(found), ...picked }), [found, picked])
   // Prototype-only: states a reviewer cannot reach by clicking.
   const [cases, setCases] = useState<OnboardingCases>(defaultCases)
   const [draft, setDraft] = useState<Draft>(() => initialDraft(defaultCases.keychainAvailable))
@@ -103,7 +107,7 @@ export default function OnboardingPage() {
     ...list.map((kind) => ({
       icon: kind.id === 'browsing' ? summaryIcons.browsing : kind.id === 'agent' ? summaryIcons.agent : kind.icon,
       label: kind.id === 'browsing' ? '瀏覽器' : kind.id === 'agent' ? 'Agent 工具' : kind.label,
-      value: `${selection[kind.id]?.size ?? 0} 個${kind.alsoReads ? `，${kind.alsoReads}` : ''}`,
+      value: `${kind.sources.filter((source) => selection[kind.id]?.has(source.id) && !source.blocked).length} 個${kind.alsoReads ? `，${kind.alsoReads}` : ''}`,
     })),
     { icon: summaryIcons.location, label: '存放位置', value: APP_ROOT },
     { icon: summaryIcons.encryption, label: '加密', value: draft.encrypt ? ['已開啟 · AES-256', keychainStage && '密碼在鑰匙圈中'].filter(Boolean).join(' · ') : '不加密' },
@@ -185,7 +189,15 @@ export default function OnboardingPage() {
           <StepScroller index={index} wide={step === 'sources'}>
             {step === 'welcome' && <WelcomeStep />}
             {step === 'kinds' && <KindsStep selected={kindsOn} onToggle={(id) => toggle(setKindsOn, id)} pickAll={many} />}
-            {step === 'sources' && <SourcesStep key={many ? 'many' : 'few'} list={list} selection={selection} onSelection={(id, next) => setPicked((all) => ({ ...all, [id]: next }))} />}
+            {step === 'sources' && <SourcesStep
+                key={many ? 'many' : 'few'}
+                list={list}
+                selection={selection}
+                onSelection={(id, next) => setPicked((all) => ({ ...all, [id]: next }))}
+                scan={scan}
+                onScan={setScan}
+                onGranted={() => setGranted(true)}
+              />}
             {step === 'storage' && <StorageStep list={list} selection={selection} mac={cases.mac} />}
             {step === 'encryption' && <EncryptionStep draft={draft} onChange={update} keychainAvailable={cases.keychainAvailable} mac={cases.mac} />}
             {step === 'schedule' && (

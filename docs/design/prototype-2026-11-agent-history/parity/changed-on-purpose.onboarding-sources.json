@@ -1,6 +1,6 @@
 [
   {
     "key": "onboarding.browsers.needOne",
-    "reason": "the 來源 step covers every chosen type, so the hint names the type that has no source selected: 「「{類型}」一個來源都沒選。至少選一個，或回上一步取消這個類型。」"
+    "reason": "same rule (a selected source PathKeep can read), applied to every chosen type, so the hint names the type: 「「{類型}」沒有選到 PathKeep 能讀取的來源。選一個，或回上一步取消這個類型。」"
   }
 ]
