@@ -21,6 +21,7 @@ import { chatsOf } from './projects/derive'
 import { BranchesCard, ModelsCard } from './projects/side-cards'
 import { displayName, joinedInto, useProjectEdits } from './projects/store'
 import { timeWords } from '~/data/labels'
+import { Equivalents } from './insights/equivalents'
 
 export default function ProjectInsightsPage() {
   const { projectId = '' } = useParams()
@@ -84,6 +85,7 @@ export default function ProjectInsightsPage() {
           value={hours(time.busy)}
           sub={
             <span className="flex flex-col gap-0.5">
+              <Equivalents ms={time.busy} />
               <span>
                 {timeWords.summed} {hours(time.summed)}
                 {time.concurrency >= 1.05 && ` · ${timeWords.concurrency(time.concurrency)}`}

@@ -25,6 +25,7 @@ import {
   type Insights,
   type Scope,
 } from './data'
+import { Equivalents, equivalents } from './equivalents'
 import { harnessColor, Legend, ShareList, YearGrid, YearStepper } from './parts'
 
 // ------------------------------------------------------------------ KPIs
@@ -41,14 +42,20 @@ export function KpiRow({ ins }: { ins: Insights }) {
         value={hours(ins.busy)}
         sub={
           <>
-            同時開幾個都只算一次
-            <br />
+            <Equivalents ms={ins.busy} />
+            {equivalents(ins.busy) && <br />}
             {timeWords.summed} {hours(ins.agentMs)} · {timeWords.concurrency(ins.concurrency)}
           </>
         }
         hint={
           <>
             {timeWords.agentHow}
+            {equivalents(ins.busy) && (
+              <>
+                <br />
+                {equivalents(ins.busy)!.detail}
+              </>
+            )}
             <br />
             {timeWords.summed}：{timeWords.summedHow}
             <br />
@@ -56,7 +63,28 @@ export function KpiRow({ ins }: { ins: Insights }) {
           </>
         }
       />
-      <Stat label={timeWords.present} value={hours(ins.present)} sub="估算：你在跟 Agent 來回的時段" hint={timeWords.presentHow} />
+      <Stat
+        label={timeWords.present}
+        value={hours(ins.present)}
+        sub={
+          <>
+            <Equivalents ms={ins.present} />
+            {equivalents(ins.present) && <br />}
+            估算：你在跟 Agent 來回的時段
+          </>
+        }
+        hint={
+          <>
+            {timeWords.presentHow}
+            {equivalents(ins.present) && (
+              <>
+                <br />
+                {equivalents(ins.present)!.detail}
+              </>
+            )}
+          </>
+        }
+      />
       <Stat
         label="Token"
         value={big(totalTokens(ins.tokens))}
