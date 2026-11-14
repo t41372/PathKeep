@@ -1,0 +1,53 @@
+{
+  "collectedAtUtc": "2026-11-14T05:10:16.305210+00:00",
+  "readOnlyMethod": "ai-jobs",
+  "ownerResult": {
+    "items": [
+      {
+        "id": 467,
+        "jobType": "index-build",
+        "state": "succeeded",
+        "priority": 70,
+        "attempt": 0,
+        "maxAttempts": 3,
+        "runId": 1797,
+        "summary": "Indexed 856 new / 3255 updated row(s).",
+        "queuedAt": "2026-11-13T22:55:33.426360+00:00",
+        "availableAt": "2026-11-13T22:55:33.426360+00:00",
+        "startedAt": "2026-11-13T22:55:33.429938+00:00",
+        "finishedAt": "2026-11-14T05:01:42.121563+00:00",
+        "heartbeatAt": "2026-11-14T05:01:42.121563+00:00",
+        "errorCode": null,
+        "errorMessage": null,
+        "pausedBy": null,
+        "progressEmbedded": 4111,
+        "progressScanned": 674515,
+        "progressScanTarget": 673752,
+        "progressEmbedTarget": 94
+      },
+      {
+        "id": 466,
+        "jobType": "index-build",
+        "state": "succeeded",
+        "priority": 70,
+        "attempt": 0,
+        "maxAttempts": 3,
+        "runId": 1788,
+        "summary": "Indexed 86882 new / 15486 updated row(s).",
+        "queuedAt": "2026-10-30T01:02:35.921533+00:00",
+        "availableAt": "2026-11-13T09:41:32.572749+00:00",
+        "startedAt": "2026-11-13T09:41:32.580186+00:00",
+        "finishedAt": "2026-11-13T22:14:40.520913+00:00",
+        "heartbeatAt": "2026-11-13T22:14:40.520913+00:00",
+        "errorCode": null,
+        "errorMessage": null,
+        "pausedBy": null,
+        "progressEmbedded": 102368,
+        "progressScanned": 673659,
+        "progressScanTarget": 673658,
+        "progressEmbedTarget": 86882
+      }
+    ],
+    "nextCursor": 466
+  }
+}

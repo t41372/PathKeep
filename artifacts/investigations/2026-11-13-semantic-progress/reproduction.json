@@ -1,0 +1,25 @@
+{
+  "sourceSha": "e999ca832c58fa633930395ce938b14b460af428",
+  "sourceFileSha256": "b61c9bc54b02f0382118a1a2c07913a913bee34744235fc48570dc85d249fe50",
+  "countPredicate": {
+    "engine": "Python sqlite3; SQL copied verbatim from current source",
+    "missingRows": 1,
+    "changedExistingRows": 1,
+    "missingMappingExistingRows": 1,
+    "selectedWorkVisits": 3,
+    "mismatchDemonstrated": true
+  },
+  "existingVisitRemap": {
+    "method": "current DedupTracker::take_unmapped, body unchanged; standalone rustc",
+    "appendedRecords": 0,
+    "expectedKey": 22,
+    "actualKey": 11,
+    "bugDemonstrated": true,
+    "newVisitAndSameKeyReplayChecks": "passed"
+  },
+  "limits": [
+    "not a full app integration test",
+    "SQL predicate semantics only; not a Turso query-plan/performance test",
+    "does not classify the actual 3255 updated rows by title/enrichment/repair"
+  ]
+}

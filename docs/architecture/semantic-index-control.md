@@ -2,6 +2,14 @@
 
 `WORK-AI-INDEX-CONTROL` backend contract. Intelligence schema v2 adds lineage-scoped embedding provenance; archive schema is unchanged.
 
+Known defects confirmed 2026-11-13: the progress denominator counts missing provenance while
+the numerator includes updated/repaired visits; incremental retries can extend the scan beyond
+that denominator's boundary. Existing-visit content changes also update provenance without
+remapping the visit to its new content key. These are implementation defects, not a complete
+update contract. The [investigation and repair proposal](research/2026-11-semantic-progress.md)
+records live metadata, reproductions and required acceptance. Its manifest, source-change handoff
+and phase-progress design is proposed, not yet implemented or accepted.
+
 The chosen index is the configured embedding provider ID and its default model.
 `semantic_index` reads readiness from the ledger primary key, completion rows through
 provider-ID prefixes, and active jobs through the existing state index. It never

@@ -9,6 +9,12 @@
 
 ## CURRENT FOCUS
 
+- [x] **WORK-SEMANTIC-PROGRESS-DIAGNOSIS** — 調查使用者截圖的「644 / 94」，交付原因、證據與長期修復提案（2026-11-13；未改產品程式）。
+  - 讀先：`docs/architecture/semantic-index-control.md`、`embedding-text.md`、`docs/features/intelligence.md` §1、`docs/design/` 核心四份、`program/quality-matrix.md`；candidate／backfill／cursor／generation 與兩個進度畫面的實作及測試。
+  - 已安裝 app 的唯讀 owner IPC：任務 467 最後為 4,111／94（856 新增、3,255 更新）；任務 466 為 102,368／86,882（15,486 更新）。分母只數缺列，分子也數更新與修補；增量續跑重新讀上限卻保留舊分母，真實映射中有 762 筆超出任務 467 原上限。
+  - 原方法最小重現也確認：id-only 映射去重略過既有造訪的新 key，provenance 已更新但搜尋仍指向舊向量，普通增量重跑也不會修好。既有 E2E 同時新增造訪，遮住了舊造訪未改映射的問題。Radix 重現接到 685 而改成不確定狀態，CSS 字串成為 `translateX(--585%)`。
+  - 提案：[調查與修復設計](../architecture/research/2026-11-semantic-progress.md)。固定 manifest、分階段同單位進度、來源變更交接、正確映射冪等條件與舊資料核對；沒有先改 accepted contract。原始 metadata 與重現結果在 `artifacts/investigations/2026-11-13-semantic-progress/`。本輪沒有 E2E／完整 gate 或新增效能結論；實作列入 BACKLOG `WORK-SEMANTIC-UPDATE-CONSISTENCY`。
+
 - [x] **WORK-RELEASE-REVIEW-BOUNDARIES** — 處理 PR #22 新審查的 API／channel／授權與測試完成條件。
   - 讀先：`RELEASE.md`、`docs/architecture/release-publication.md`、`scripts/lib/release-authorization.mjs`、GitHub release API 與官方 CLI 的 release edit 實作。
   - 真實 API 確認：notes-only PATCH 漏帶 `tag_name` 會移除私有草稿的 tag 關聯；已以明確 tag 修復，始終未公開。發布 PATCH 帶入並核對 tag／source／channel。

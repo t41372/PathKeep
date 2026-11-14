@@ -1,0 +1,8 @@
+{
+  "collectedAtUtc": "2026-11-14T05:18:30.621171+00:00",
+  "readOnlyMethod": "ping",
+  "pid": 3674,
+  "process": "3674 Fri Nov 13 16:55:42 2026     /Applications/PathKeep.app/Contents/MacOS/pathkeep-desktop --background",
+  "bundleVersion": "0.5.0-dev",
+  "binarySha256": "71d5d2528924f647bf381ead7e535cb93677f5d070cb317cce14486673096416"
+}
