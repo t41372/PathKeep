@@ -146,7 +146,11 @@ export default defineConfig({
     stdout: 'pipe',
   },
   projects: [
-    project('first-run', ['first-run.spec.ts']),
+    project('first-run', [
+      'first-run-native-window.spec.ts',
+      'first-run-window.spec.ts',
+      'first-run.spec.ts',
+    ]),
     project(
       'read',
       [
@@ -189,6 +193,7 @@ export default defineConfig({
         'mcp-log.spec.ts',
         'security.spec.ts',
         'site-category.spec.ts',
+        'window-frame.spec.ts',
       ],
       'zone',
     ),

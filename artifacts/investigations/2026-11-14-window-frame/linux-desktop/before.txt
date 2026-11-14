@@ -1,0 +1,32 @@
+== onboarding
+window onboarding: 4194319
+RESULT onboarding start: x=100 y=80 w=1480 h=960 state=[FOCUSED]
+RESULT onboarding after maximize button: x=100 y=80 w=1480 h=960 state=[FOCUSED]
+RESULT onboarding after maximize button again: x=100 y=80 w=1480 h=960 state=[FOCUSED]
+RESULT onboarding after minimize button: x=100 y=80 w=1480 h=960 state=[FOCUSED]
+RESULT onboarding after drag from strip (expect +120,+80 if it drags): x=100 y=80 w=1480 h=960 state=[FOCUSED]
+RESULT onboarding after double click on strip: x=100 y=80 w=1480 h=960 state=[FOCUSED]
+RESULT onboarding after drag from top of step list: x=100 y=80 w=1480 h=960 state=[FOCUSED]
+RESULT onboarding after drag from step list spacer: x=220 y=160 w=1480 h=960 state=[FOCUSED]
+== set up the archive (dev:demo initializes it and backs up), then open it
+window init: 4194319
+window ready: 4194319
+RESULT ready start: x=100 y=80 w=1480 h=960 state=[FOCUSED]
+RESULT ready after maximize button: x=0 y=0 w=1920 h=1200 state=[MAXIMIZED_HORZ, MAXIMIZED_VERT, FOCUSED]
+RESULT ready after maximize button again: x=100 y=80 w=1480 h=960 state=[FOCUSED]
+RESULT ready after minimize button: x=100 y=80 w=1480 h=960 state=[HIDDEN]
+RESULT ready after drag from strip (expect +120,+80 if it drags): x=100 y=80 w=1480 h=960 state=[FOCUSED]
+RESULT ready after double click on strip: x=100 y=80 w=1480 h=960 state=[FOCUSED]
+RESULT ready after drag from nav rail top: x=220 y=160 w=1480 h=960 state=[FOCUSED]
+RESULT ready after drag from right edge (resize?): x=100 y=80 w=1600 h=960 state=[FOCUSED]
+== command palette over the main window
+RESULT palette after minimize button: x=100 y=80 w=1480 h=960 state=[FOCUSED]
+== App Lock
+RESULT lock start: x=100 y=80 w=1480 h=960 state=[FOCUSED]
+RESULT lock after maximize button: x=0 y=0 w=1920 h=1200 state=[MAXIMIZED_HORZ, MAXIMIZED_VERT, FOCUSED]
+RESULT lock after maximize button again: x=100 y=80 w=1480 h=960 state=[FOCUSED]
+RESULT lock after minimize button: x=100 y=80 w=1480 h=960 state=[HIDDEN]
+RESULT lock after drag from strip (expect +120,+80 if it drags): x=100 y=80 w=1480 h=960 state=[FOCUSED]
+RESULT lock after double click on strip: x=100 y=80 w=1480 h=960 state=[FOCUSED]
+== close button
+RESULT close: app exited

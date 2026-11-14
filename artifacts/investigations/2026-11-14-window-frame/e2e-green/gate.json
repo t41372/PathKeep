@@ -1,0 +1,60 @@
+{
+  "stats": {
+    "startTime": "2026-11-14T11:01:04.979Z",
+    "duration": 2108385.594,
+    "expected": 131,
+    "skipped": 1,
+    "unexpected": 0,
+    "flaky": 0
+  },
+  "tests": [
+    {
+      "file": "first-run-native-window.spec.ts",
+      "title": "linux: the real window: buttons, drag, double click, and Close quits",
+      "project": "first-run",
+      "status": "skipped",
+      "annotations": [
+        {
+          "type": "skip",
+          "description": "The real window needs Linux."
+        }
+      ]
+    },
+    {
+      "file": "first-run-window.spec.ts",
+      "title": "linux: onboarding has the window buttons and drags from the top",
+      "project": "first-run",
+      "status": "passed"
+    },
+    {
+      "file": "first-run-window.spec.ts",
+      "title": "windows: onboarding has the window buttons and drags from the top",
+      "project": "first-run",
+      "status": "passed"
+    },
+    {
+      "file": "first-run-window.spec.ts",
+      "title": "linux: starting and failing to start keep the window buttons",
+      "project": "first-run",
+      "status": "passed"
+    },
+    {
+      "file": "first-run-window.spec.ts",
+      "title": "macos: onboarding drags from the window background around its panel",
+      "project": "first-run",
+      "status": "passed"
+    },
+    {
+      "file": "window-frame.spec.ts",
+      "title": "linux: the main window, a dialog over it and App Lock keep one set of window buttons",
+      "project": "change",
+      "status": "passed"
+    },
+    {
+      "file": "window-frame.spec.ts",
+      "title": "macos: the main window and App Lock drag from the window background",
+      "project": "change",
+      "status": "passed"
+    }
+  ]
+}

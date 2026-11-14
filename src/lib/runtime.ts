@@ -12,7 +12,9 @@
  * - `resolveAppRuntime`
  * - `hasDesktopCommandTransport`
  * - `hasTauriGuestApi`
+ * - `windowFrame`
  * - `hasMacOverlayTitlebar`
+ * - `drawsWindowControls`
  *
  * Source-of-truth notes:
  * - Keep helper behavior aligned with the shipping design, feature, and architecture docs rather than local route assumptions.
@@ -150,30 +152,57 @@ export function isMacOsHost() {
 }
 
 /**
- * Returns whether the macOS overlay title bar is in effect for this window.
+ * What stands where a system title bar would be. A desktop window never has
+ * one (`back-forward-window-frame-tradeoff.md` D):
+ * - `mac-overlay`: macOS. `titleBarStyle: "Overlay"` floats the traffic
+ *   lights over the content, which runs up under the ~28px title strip.
+ * - `drawn`: Windows and Linux. The system title bar is turned off
+ *   (`desktop_integration/window.rs`) and the app draws the window buttons.
+ * - `browser`: a page in a browser, which has its own frame.
  *
- * Why this helper exists:
- * - `tauri.conf.json` sets `titleBarStyle: "Overlay"`, which is a macOS-only
- *   flag: the native traffic lights float over the webview and the content
- *   extends under the ~28px title strip so the app background shows through
- *   instead of an opaque black bar. The shell must then reserve clearance for
- *   the traffic lights and the title strip — but ONLY when that overlay is
- *   actually present (real desktop window on macOS). In a plain browser,
- *   on Windows, and on Linux there is no overlay, so no offset is applied.
- *
- * Windows/Linux: `titleBarStyle` is ignored off macOS; there the window has
- * no system title bar at all and the app draws its own window buttons
- * (`drawsWindowControls`).
+ * Every screen the window can show takes its title-bar duties from this one
+ * answer: where the buttons go, which room they need, what drags the window.
  */
-export function hasMacOverlayTitlebar() {
-  return hasTauriIpcBridge() && isMacOsHost()
+export type WindowFrame = 'mac-overlay' | 'drawn' | 'browser'
+
+/**
+ * `pathkeep-dev-desktop-window` set to `1` in the dev bridge's page makes it
+ * stand in for the desktop window of the platform the browser reports, so an
+ * E2E spec sees the frame people get (`tests/e2e/support/window-frame.ts`).
+ * Only the dev bridge reads it; the desktop app and a plain browser do not.
+ * The page still has no window to minimize or move.
+ */
+function standsInForDesktopWindow() {
+  if (resolveAppRuntime() !== 'browser-desktop-bridge') return false
+  try {
+    return localStorage.getItem('pathkeep-dev-desktop-window') === '1'
+  } catch {
+    return false
+  }
+}
+
+let frame: WindowFrame | undefined
+
+/** This window's frame; it cannot change while the page lives. */
+export function windowFrame(): WindowFrame {
+  frame ??=
+    hasTauriIpcBridge() || standsInForDesktopWindow()
+      ? isMacOsHost()
+        ? 'mac-overlay'
+        : 'drawn'
+      : 'browser'
+  return frame
 }
 
 /**
- * Whether the app draws the window's minimize, maximize and close buttons:
- * a desktop window off macOS, where the system title bar is turned off so the
- * window is the same two layers as on macOS (`back-forward-window-frame-tradeoff.md` D).
+ * Whether the traffic lights float over the top left, so the shell keeps
+ * clear of them and of the title strip they sit in.
  */
+export function hasMacOverlayTitlebar() {
+  return windowFrame() === 'mac-overlay'
+}
+
+/** Whether the app draws the window's minimize, maximize and close buttons. */
 export function drawsWindowControls() {
-  return hasTauriIpcBridge() && !isMacOsHost()
+  return windowFrame() === 'drawn'
 }

@@ -9,6 +9,46 @@
 
 ## CURRENT FOCUS
 
+- [x] **WORK-WINDOW-FRAME-EVERY-SCREEN** — Windows、Linux 上，主畫面以外沒有視窗按鈕，也拖不動（2026-11-13 交接報告，讀程式碼得出；v0.4.0 起就是這樣）
+  - 讀先：`docs/design/back-forward-window-frame-tradeoff.md`、`screens-and-nav.md` §導航、`ui-review-guardrails.md`、`program/quality-matrix.md` Honest Boundaries；Tauri 2.12.5 `drag.js`、tao 0.37.2 的無標題列視窗。
+  - 根因（與 Codex astra 各自調查，結論一致）：「視窗沒有系統標題列」在程式碼裡只對 macOS 成立。2026-10-13 關掉 Windows、Linux 的標題列時，只把按鈕放進存檔打開後才掛上的 `AppFrame`；拖動標記（`drag-region.ts`）仍以為那兩個平台有標題列。同一個原因造成四件事：
+    - 主畫面以外的畫面沒有按鈕，也拖不動；
+    - 主畫面按鈕旁那條拖不動，雙擊不會最大化；
+    - 對話框開著時按鈕被蓋住；
+    - macOS 的新手引導，面板外圍的邊拖不動。
+  - 2026-07-02 為了同一件事把 macOS 的拖動條移到 app 的根，2026-10-04 改用 shadcn 重做前端時又拿掉了。
+  - 為什麼沒測到：E2E 在 dev bridge 的瀏覽器頁面裡跑，那裡不是桌面視窗，沒有一個平台的外框出現過。
+  - 修正：
+    - 外框由一個答案決定（`runtime.ts` 的 `windowFrame`）。
+    - 按鈕在 app 的根畫一次，在所有錯誤邊界之外（`src/app/window-chrome/`）。session 的 providers 外面多一層錯誤邊界，照結構，它們渲染失敗時按鈕也還在；沒有實際跑出錯誤畫面看過。
+    - 按鈕疊在遮罩之上，對話框開著時照樣能按，不關對話框，也不搶焦點。
+    - 主畫面與新手引導共用面板上方的邊距規則。
+    - 視窗底層在三個平台都標拖動；面板內的拖動標記維持只在 macOS（設計文件寫明理由）。
+  - E2E 先寫，在只加了 `windowFrame` 的程式碼上跑紅：
+    - `first-run-window.spec.ts`：新手引導（Linux、Windows）、啟動中、啟動失敗、macOS 新手引導的拖動。
+    - `window-frame.spec.ts`：主畫面、指令面板開著、App Lock、macOS 的拖動。
+    - 兩個 spec 都在最小視窗下跑，dev bridge 的頁面代表某個平台的桌面視窗。
+    - 舊碼上，檢查缺失的那些都紅，原因都對；防既有行為的（主畫面有按鈕、macOS 主畫面與 App Lock 能拖）本來就綠。修好後全綠。
+    - 最後一次 `bun run check` 通過，結果如下：
+      - 前端 151 個測試、Rust 全部；
+      - E2E 主設定 131 過、1 略過。略過的是真視窗那個 spec，這台 Mac 跑不了，所以本機的 gate 沒有跑到它；
+      - backup-integrity 9 + 1，沒有 flaky。
+    - 前一次 gate 失敗在 `vault-crypto` 的 `the_block_cache_bounds_memory`，當時機器負載 27–32。這個測試量的是常駐記憶體，就是 BACKLOG 的 `WORK-FLAKY-BLOCK-CACHE-RSS`。單獨重跑過了，整套重跑也過了。
+  - 真視窗的 E2E：`first-run-native-window.spec.ts`。
+    - 它用 xdotool 操作 E2E 本來就開著的真 WebKitGTK 視窗，在新手引導上點三顆按鈕、拖動、雙擊，最後按關閉，看 app 結束並重啟。視窗管理員用 mutter，沒有就由它啟動。
+    - 只在 Linux 跑。CI 裝了 mutter、xdotool、wmctrl，並設 `PATHKEEP_E2E_NATIVE_WINDOW=required`，缺工具就失敗；其他地方缺工具就略過，這台 Mac 上也是略過。
+    - 它排在最前面的 first-run 專案。真視窗的檢查最可能出事，排在前面，壞了就最先看到，可以馬上重跑。
+    - 按壓都按住 60 ms，每一步先把視窗重設到已知狀態，結果用輪詢等，不靠固定的等待。
+    - 在 boxd 上照 CI 的方式跑過：舊排法到 restart 專案 125 過、1 個本來就略過；新排法的 first-run 專案 6 個全過；對修前的前端跑，它等了 90 秒最大化都沒發生，失敗。
+    - 穩定度：另開一台照 CI 裝好的機器，4 顆 CPU 全被 `stress-ng` 佔滿，連跑 20 次（每次都含關閉與重啟），20 次全過，每次 7.0–7.9 秒。GitHub Actions 還沒跑過它，推上去的第一次才算數。
+  - Linux 實機（boxd，Ubuntu 24.04；xdotool 送真的輸入；X11 的 xfwm4、GNOME 46 的 X11 與 Wayland 三種環境）：
+    - 修之前，新手引導與 App Lock 沒有按鈕、拖不動；主畫面那條拖不動，雙擊沒反應；對話框開著時按最小化沒反應。
+    - 修好之後，三種環境下，新手引導、主畫面、App Lock 的三顆按鈕都有效，拖動、雙擊最大化與還原、邊緣縮放也有效；對話框開著時也能最小化；按關閉，app 結束。
+    - GNOME Wayland 上沒有多出系統或 GTK 的標題列。
+    - xfwm4 上，在拖動區輕點一下，視窗會黏著指標走。這是 Tauri 拖動方式的老問題，修之前導航列就這樣，GNOME 不會；記 BACKLOG `WORK-DRAG-ON-MOVE`。
+    - 證據：`artifacts/investigations/2026-11-14-window-frame/`。
+    - KDE、Windows 沒有看過。macOS 只在瀏覽器代身上看過：這台 Mac 沒給 Claude 螢幕錄製與輔助使用的權限。
+  - 調查中看到、與這次無關的，記在 BACKLOG：`WORK-WAYLAND-UNDECORATED`（剩 KDE）、`WORK-DRAG-ON-MOVE`、`WORK-SCHEMA-UPDATE-QUIT`、`WORK-STATUS-SCREEN-OVERFLOW`、`WORK-E2E-WINDOW-FRAME-DEFAULT`、`WORK-NATIVE-WINDOW-CHECK`（剩 macOS、Windows）、`WORK-WINDOW-INACTIVE-LOOK`、`WORK-UI-SMALL-FINDINGS-2026-11-14`。
 - [x] **WORK-RELEASE-REVIEW-BOUNDARIES** — 處理 PR #22 新審查的 API／channel／授權與測試完成條件。
   - 讀先：`RELEASE.md`、`docs/architecture/release-publication.md`、`scripts/lib/release-authorization.mjs`、GitHub release API 與官方 CLI 的 release edit 實作。
   - 真實 API 確認：notes-only PATCH 漏帶 `tag_name` 會移除私有草稿的 tag 關聯；已以明確 tag 修復，始終未公開。發布 PATCH 帶入並核對 tag／source／channel。

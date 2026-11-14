@@ -16,8 +16,8 @@
  * - A list that scrolls inside its card fades by a mask on the list itself,
  *   not a layer painted over it.
  *
- * The window buttons drawn on Windows and Linux are not here: the browser
- * this runs in is no desktop window (`drawsWindowControls`).
+ * The window buttons drawn on Windows and Linux, and where the window drags
+ * from, are in `first-run-window.spec.ts` and `window-frame.spec.ts`.
  */
 import { expect, test, type Page } from '@playwright/test'
 import { unlockIfLocked } from './support/app'

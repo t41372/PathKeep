@@ -16,9 +16,10 @@
 //!   unless work someone is waiting on is running: then the window stays and
 //!   asks first (`quit.rs`).
 //! - On Windows and Linux the window has no system title bar: the app draws
-//!   its window buttons (`src/app/shell/window-controls.tsx`), so the window
-//!   is the same two layers as on macOS (`back-forward-window-frame-tradeoff.md`
-//!   D). It is turned off before the window first shows.
+//!   its window buttons on every screen (`src/app/window-chrome/`), so the
+//!   window is the same two layers as on macOS
+//!   (`back-forward-window-frame-tradeoff.md` D). It is turned off before the
+//!   window first shows.
 //!
 //! ## Responsibilities
 //! - Startup visibility, the close-button policy, and bringing the window back.

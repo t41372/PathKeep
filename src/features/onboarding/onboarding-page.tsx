@@ -12,7 +12,9 @@ import { useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, ArrowRight, Check, Moon, Sun } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSession } from '@/app/session'
+import { panelTopMargin } from '@/app/window-chrome/frame'
 import { BrandMark } from '@/components/app/brand-mark'
+import { backdropDragRegion } from '@/components/app/drag-region'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -112,14 +114,25 @@ export default function OnboardingPage() {
   }
 
   return (
-    <div className="flex h-full bg-window backdrop-blur-[40px] backdrop-saturate-[1.4]">
+    // As in the archive's frame: the margin around the panel is window
+    // background and drags the window; on Windows and Linux the top of it is
+    // the strip the window buttons sit in.
+    <div
+      {...backdropDragRegion()}
+      className="flex h-full bg-window backdrop-blur-[40px] backdrop-saturate-[1.4]"
+    >
       <StepList
         index={index}
         locked={locked}
         onSelect={go}
         overlayTitlebar={hasMacOverlayTitlebar()}
       />
-      <main className="my-2.5 mr-2.5 flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl border bg-panel">
+      <main
+        className={cn(
+          'mr-2.5 mb-2.5 flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl border bg-panel',
+          panelTopMargin(),
+        )}
+      >
         <div
           className="h-[3px] shrink-0 bg-muted"
           role="progressbar"
@@ -321,11 +334,11 @@ function StepList({
   const { t } = useI18n()
   return (
     <aside className="flex w-[260px] shrink-0 flex-col gap-1 px-5 pb-5">
-      {overlayTitlebar ? (
-        <div data-tauri-drag-region className="h-[52px] shrink-0" />
-      ) : (
-        <div className="h-7 shrink-0" />
-      )}
+      {/* Room for the traffic lights on macOS; on every desktop it drags the window. */}
+      <div
+        data-tauri-drag-region
+        className={cn('shrink-0', overlayTitlebar ? 'h-[52px]' : 'h-7')}
+      />
       <div className="flex items-center gap-2.5 px-2 pb-6">
         <BrandMark className="size-7" />
         <span className="text-base font-semibold tracking-[-0.01em]">

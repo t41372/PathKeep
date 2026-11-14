@@ -1,0 +1,35 @@
+shell: false
+== onboarding
+RESULT onboarding start: {"x":200,"y":120,"w":1480,"h":960,"max":0,"min":false,"decorated":false,"client":1}
+RESULT onboarding after maximize button: {"x":0,"y":32,"w":1920,"h":1168,"max":3,"min":false,"decorated":false,"client":1}
+RESULT onboarding after maximize button again: {"x":200,"y":120,"w":1480,"h":960,"max":0,"min":false,"decorated":false,"client":1}
+RESULT onboarding after minimize button: {"x":200,"y":120,"w":1480,"h":960,"max":0,"min":true,"decorated":false,"client":1}
+RESULT onboarding after drag from strip (start 200,120; +120,+80 if it drags): {"x":320,"y":200,"w":1480,"h":960,"max":0,"min":false,"decorated":false,"client":1}
+RESULT onboarding after double click on strip: {"x":0,"y":32,"w":1920,"h":1168,"max":3,"min":false,"decorated":false,"client":1}
+RESULT onboarding after drag from top of step list: {"x":320,"y":200,"w":1480,"h":960,"max":0,"min":false,"decorated":false,"client":1}
+RESULT onboarding after drag from step list spacer: {"x":320,"y":200,"w":1480,"h":960,"max":0,"min":false,"decorated":false,"client":1}
+RESULT onboarding-margin after a tap and a move with no button held (start 200,120): {"x":200,"y":120,"w":1480,"h":960,"max":0,"min":false,"decorated":false,"client":1}
+RESULT onboarding close: app exited
+== set up the archive, then open it
+RESULT ready start: {"x":200,"y":120,"w":1480,"h":960,"max":0,"min":false,"decorated":false,"client":1}
+RESULT ready after maximize button: {"x":0,"y":32,"w":1920,"h":1168,"max":3,"min":false,"decorated":false,"client":1}
+RESULT ready after maximize button again: {"x":200,"y":120,"w":1480,"h":960,"max":0,"min":false,"decorated":false,"client":1}
+RESULT ready after minimize button: {"x":200,"y":120,"w":1480,"h":960,"max":0,"min":true,"decorated":false,"client":1}
+RESULT ready after drag from strip (start 200,120; +120,+80 if it drags): {"x":320,"y":200,"w":1480,"h":960,"max":0,"min":false,"decorated":false,"client":1}
+RESULT ready after double click on strip: {"x":0,"y":32,"w":1920,"h":1168,"max":3,"min":false,"decorated":false,"client":1}
+RESULT ready after drag from nav rail top: {"x":320,"y":200,"w":1480,"h":960,"max":0,"min":false,"decorated":false,"client":1}
+RESULT navrail-spacer after a tap and a move with no button held (start 200,120): {"x":200,"y":120,"w":1480,"h":960,"max":0,"min":false,"decorated":false,"client":1}
+RESULT ready-strip after a tap and a move with no button held (start 200,120): {"x":200,"y":120,"w":1480,"h":960,"max":0,"min":false,"decorated":false,"client":1}
+RESULT ready after drag from right edge (resize?): {"x":200,"y":120,"w":1600,"h":960,"max":0,"min":false,"decorated":false,"client":1}
+== command palette over the main window
+RESULT palette after minimize button: {"x":200,"y":120,"w":1480,"h":960,"max":0,"min":true,"decorated":false,"client":1}
+== App Lock
+RESULT lock start: {"x":200,"y":120,"w":1480,"h":960,"max":0,"min":false,"decorated":false,"client":1}
+RESULT lock after maximize button: {"x":0,"y":32,"w":1920,"h":1168,"max":3,"min":false,"decorated":false,"client":1}
+RESULT lock after maximize button again: {"x":200,"y":120,"w":1480,"h":960,"max":0,"min":false,"decorated":false,"client":1}
+RESULT lock after minimize button: {"x":200,"y":120,"w":1480,"h":960,"max":0,"min":true,"decorated":false,"client":1}
+RESULT lock after drag from strip (start 200,120; +120,+80 if it drags): {"x":320,"y":200,"w":1480,"h":960,"max":0,"min":false,"decorated":false,"client":1}
+RESULT lock after double click on strip: {"x":0,"y":32,"w":1920,"h":1168,"max":3,"min":false,"decorated":false,"client":1}
+RESULT lock-backdrop after a tap and a move with no button held (start 200,120): {"x":200,"y":120,"w":1480,"h":960,"max":0,"min":false,"decorated":false,"client":1}
+== close button
+RESULT close: app exited

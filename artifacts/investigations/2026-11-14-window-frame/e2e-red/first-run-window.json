@@ -1,0 +1,60 @@
+{
+  "stats": {
+    "startTime": "2026-11-14T07:38:43.391Z",
+    "duration": 305668.27900000004,
+    "expected": 1,
+    "skipped": 107,
+    "unexpected": 4,
+    "flaky": 0
+  },
+  "tests": [
+    {
+      "file": "first-run-window.spec.ts",
+      "title": "linux: onboarding has the window buttons and drags from the top",
+      "project": "first-run",
+      "status": "failed",
+      "errors": [
+        "Error: expect(locator).toHaveCount(expected) failed\n\nLocator:  getByRole('group', { name: 'Window', includeHidden: true })\nExpected: 1\nReceived: 0\nTimeout:  15000ms\n\nCall log:\n  - Expect \"toHaveCount\" getByRole('group', { name: 'Window', includeHidden: true }) with timeout 15000ms\n  - waiting for getByRole('group', { name: 'Window', includeHidden: true })\n    34 × locator resolved to 0 elements\n       - unexpected value \"0\"\n\n\n   at support/window-frame.ts:94\n\n  92 |  */\n  93 | export async function expectWindowButtons(page: Page) {\n> 94 |   await expect(windowButtons(page)).toHaveCount(1)\n    "
+      ]
+    },
+    {
+      "file": "first-run-window.spec.ts",
+      "title": "windows: onboarding has the window buttons and drags from the top",
+      "project": "first-run",
+      "status": "failed",
+      "errors": [
+        "Error: expect(locator).toHaveCount(expected) failed\n\nLocator:  getByRole('group', { name: 'Window', includeHidden: true })\nExpected: 1\nReceived: 0\nTimeout:  15000ms\n\nCall log:\n  - Expect \"toHaveCount\" getByRole('group', { name: 'Window', includeHidden: true }) with timeout 15000ms\n  - waiting for getByRole('group', { name: 'Window', includeHidden: true })\n    34 × locator resolved to 0 elements\n       - unexpected value \"0\"\n\n\n   at support/window-frame.ts:94\n\n  92 |  */\n  93 | export async function expectWindowButtons(page: Page) {\n> 94 |   await expect(windowButtons(page)).toHaveCount(1)\n    "
+      ]
+    },
+    {
+      "file": "first-run-window.spec.ts",
+      "title": "linux: starting and failing to start keep the window buttons",
+      "project": "first-run",
+      "status": "failed",
+      "errors": [
+        "Error: expect(locator).toHaveCount(expected) failed\n\nLocator:  getByRole('group', { name: 'Window', includeHidden: true })\nExpected: 1\nReceived: 0\nTimeout:  15000ms\n\nCall log:\n  - Expect \"toHaveCount\" getByRole('group', { name: 'Window', includeHidden: true }) with timeout 15000ms\n  - waiting for getByRole('group', { name: 'Window', includeHidden: true })\n    34 × locator resolved to 0 elements\n       - unexpected value \"0\"\n\n\n   at support/window-frame.ts:94\n\n  92 |  */\n  93 | export async function expectWindowButtons(page: Page) {\n> 94 |   await expect(windowButtons(page)).toHaveCount(1)\n    "
+      ]
+    },
+    {
+      "file": "first-run-window.spec.ts",
+      "title": "macos: onboarding drags from the window background around its panel",
+      "project": "first-run",
+      "status": "failed",
+      "errors": [
+        "Error: places that should drag the window\n\nexpect(received).toEqual(expected) // deep equality\n\n- Expected  - 1\n+ Received  + 4\n\n- Array []\n+ Array [\n+   \"margin above the panel (540, 4)\",\n+   \"margin right of the panel (1076, 400)\",\n+ ]\n\n   at support/window-frame.ts:204\n\n  202 |   for (const { x, y, where } of points)\n  203 |     if (!(await dragsAt(page, x, y))) missing.push(`${where} (${x}, ${y})`)\n> 204 |   expect(missing, 'places that should drag the window').toEqual([])\n      |                                                         ^\n  205 | }\n  206 |\n  207 | /**\n    at expectDragsAt ("
+      ]
+    },
+    {
+      "file": "window-frame.spec.ts",
+      "title": "linux: the main window, a dialog over it and App Lock keep one set of window buttons",
+      "project": "change",
+      "status": "skipped"
+    },
+    {
+      "file": "window-frame.spec.ts",
+      "title": "macos: the main window and App Lock drag from the window background",
+      "project": "change",
+      "status": "skipped"
+    }
+  ]
+}
