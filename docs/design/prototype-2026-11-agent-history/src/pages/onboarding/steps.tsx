@@ -95,7 +95,7 @@ export function WelcomeStep() {
   )
 }
 
-export function KindsStep({ selected, onToggle, pickAll }: { selected: Set<KindId>; onToggle: (id: KindId) => void; pickAll?: boolean }) {
+export function KindsStep({ selected, onToggle, pickAll, notFound }: { selected: Set<KindId>; onToggle: (id: KindId) => void; pickAll?: boolean; /** Types with no source on this computer: not ticked to begin with. */ notFound: Set<KindId> }) {
   return (
     <>
       <StepHeading title="要保存什麼？" body="每一種之後都能在設定裡加減。關掉不會刪掉已經存下的資料。" />
@@ -136,6 +136,7 @@ export function KindsStep({ selected, onToggle, pickAll }: { selected: Set<KindI
               </span>
               <span className="text-xs leading-relaxed text-muted-foreground">{kind.why}</span>
               <span className="text-[11.5px] text-muted-foreground/80">{kind.sources.join('、')}</span>
+              {notFound.has(kind.id) && <span className="text-[11.5px] text-brand">這台電腦上沒有找到，所以先不選。之後找到了，首頁會問你要不要保存。</span>}
             </button>
           )
         })}

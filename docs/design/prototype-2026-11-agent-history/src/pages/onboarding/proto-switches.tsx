@@ -20,9 +20,11 @@ export interface OnboardingCases {
   failAt: Stage | null
   result: ResultCase
   listCase: ModelListCase
+  /** Whether this computer has any agent tool's folder. */
+  agentTools: boolean
 }
 
-export const defaultCases: OnboardingCases = { keychainAvailable: true, mac: true, preview: 'ready', failAt: null, result: 'all', listCase: 'found' }
+export const defaultCases: OnboardingCases = { keychainAvailable: true, mac: true, preview: 'ready', failAt: null, result: 'all', listCase: 'found', agentTools: true }
 
 export function OnboardingSwitches({ cases, onChange, locked }: { cases: OnboardingCases; onChange: (patch: Partial<OnboardingCases>) => void; locked: boolean }) {
   return (
@@ -33,6 +35,9 @@ export function OnboardingSwitches({ cases, onChange, locked }: { cases: Onboard
         </button>
       </PopoverTrigger>
       <PopoverContent side="right" align="end" className="flex w-[340px] flex-col gap-3 text-xs text-muted-foreground">
+        <Row label="原型：這台電腦有 Agent 工具">
+          <Switch checked={cases.agentTools} onCheckedChange={(agentTools) => onChange({ agentTools })} aria-label="原型：這台電腦有 Agent 工具" />
+        </Row>
         <Row label="原型：系統鑰匙圈可用">
           <Switch checked={cases.keychainAvailable} onCheckedChange={(keychainAvailable) => onChange({ keychainAvailable })} aria-label="原型：系統鑰匙圈可用" />
         </Row>

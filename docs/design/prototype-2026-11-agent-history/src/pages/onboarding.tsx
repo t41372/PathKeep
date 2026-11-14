@@ -56,7 +56,13 @@ export default function OnboardingPage() {
   // Prototype-only: many types and sources at once, to judge how the steps hold up.
   const [many, setMany] = useState(params.get('many') === '1')
   const [kindsOn, setKindsOn] = useState<Set<KindId>>(new Set(many ? allKinds : twoKinds))
-  const found = useMemo(() => stepKinds(kindsOn, many), [kindsOn, many])
+  const [cases, setCases] = useState<OnboardingCases>(defaultCases)
+  // What looking at this computer found for each chosen type.
+  const found = useMemo(
+    () => stepKinds(kindsOn, many).map((kind) => (kind.id === 'agent' && !cases.agentTools ? { ...kind, sources: [] } : kind)),
+    [kindsOn, many, cases.agentTools],
+  )
+  const notFound = useMemo(() => new Set<KindId>(cases.agentTools ? [] : ['agent']), [cases.agentTools])
   // Prototype-only: what looking for browsers came back with, and whether Safari's access was granted since.
   const [scan, setScan] = useState<Scan>('found')
   const [granted, setGranted] = useState(false)
@@ -64,8 +70,6 @@ export default function OnboardingPage() {
   const [picked, setPicked] = useState<Record<string, Set<string>>>({})
   // Every source that was readable when the step first looked starts out selected; a choice already made is kept.
   const selection = useMemo(() => ({ ...initialSelection(found), ...picked }), [found, picked])
-  // Prototype-only: states a reviewer cannot reach by clicking.
-  const [cases, setCases] = useState<OnboardingCases>(defaultCases)
   const [draft, setDraft] = useState<Draft>(() => initialDraft(defaultCases.keychainAvailable))
   const update = (patch: Partial<Draft>) => setDraft((current) => ({ ...current, ...patch }))
   const where = cases.mac ? '在這台 Mac 上' : '在這台電腦上'
@@ -175,7 +179,15 @@ export default function OnboardingPage() {
             aria-label="原型：很多類型和來源"
           />
         </label>
-        <OnboardingSwitches cases={cases} onChange={(patch) => setCases((c) => ({ ...c, ...patch }))} locked={locked} />
+        <OnboardingSwitches
+          cases={cases}
+          onChange={(patch) => {
+            setCases((c) => ({ ...c, ...patch }))
+            // A type with nothing found starts out unticked; one that is found starts out ticked.
+            if (patch.agentTools !== undefined) setKindsOn((on) => new Set(patch.agentTools ? [...on, 'agent'] : [...on].filter((id) => id !== 'agent')))
+          }}
+          locked={locked}
+        />
         <button type="button" className="mb-3 rounded-lg border border-dashed px-2.5 py-2 text-left text-xs text-muted-foreground hover:bg-muted" onClick={() => void navigate('/')}>
           原型：離開新手引導
         </button>
@@ -188,7 +200,7 @@ export default function OnboardingPage() {
         <StepPosition.Provider value={{ index, total: steps.length }}>
           <StepScroller index={index} wide={step === 'sources'}>
             {step === 'welcome' && <WelcomeStep />}
-            {step === 'kinds' && <KindsStep selected={kindsOn} onToggle={(id) => toggle(setKindsOn, id)} pickAll={many} />}
+            {step === 'kinds' && <KindsStep selected={kindsOn} onToggle={(id) => toggle(setKindsOn, id)} pickAll={many} notFound={notFound} />}
             {step === 'sources' && <SourcesStep
                 key={many ? 'many' : 'few'}
                 list={list}
@@ -197,6 +209,7 @@ export default function OnboardingPage() {
                 scan={scan}
                 onScan={setScan}
                 onGranted={() => setGranted(true)}
+                onFound={(id) => id === 'agent' && setCases((c) => ({ ...c, agentTools: true }))}
               />}
             {step === 'storage' && <StorageStep list={list} selection={selection} mac={cases.mac} />}
             {step === 'encryption' && <EncryptionStep draft={draft} onChange={update} keychainAvailable={cases.keychainAvailable} mac={cases.mac} />}

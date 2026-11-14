@@ -136,6 +136,7 @@ export function SourcesStep({
   scan,
   onScan,
   onGranted,
+  onFound,
 }: {
   /** Already passed through `scanned`. */
   list: StepKind[]
@@ -144,6 +145,8 @@ export function SourcesStep({
   scan: Scan
   onScan: (scan: Scan) => void
   onGranted: () => void
+  /** Looking again found sources for a type that had none. */
+  onFound: (kindId: string) => void
 }) {
   const [activeId, setActiveId] = useState(list[0]?.id)
   const [filter, setFilter] = useState('')
@@ -192,7 +195,8 @@ export function SourcesStep({
     setTimeout(() => {
       setChecking(false)
       if (fails === 'recheck') return setRecheckFailed(true)
-      onScan('found')
+      if (browsing) onScan('found')
+      else onFound(active.id)
       if (needsAccess) onGranted()
     }, 700)
   }
@@ -261,13 +265,15 @@ export function SourcesStep({
               <span className="flex-1" />
             ) : (
               <div className="m-5 flex items-start gap-3 rounded-xl border px-4 py-3.5">
-                {scan === 'error' ? <TriangleAlert className="mt-0.5 size-4 shrink-0 text-brand" /> : <ScanSearch className="mt-0.5 size-4 shrink-0 text-muted-foreground" />}
+                {browsing && scan === 'error' ? <TriangleAlert className="mt-0.5 size-4 shrink-0 text-brand" /> : <ScanSearch className="mt-0.5 size-4 shrink-0 text-muted-foreground" />}
                 <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                  <span className="font-medium">{scan === 'error' ? 'PathKeep 無法掃描瀏覽器' : '找不到瀏覽器'}</span>
+                  <span className="font-medium">{!browsing ? `找不到${active.label}的來源` : scan === 'error' ? 'PathKeep 無法掃描瀏覽器' : '找不到瀏覽器'}</span>
                   <span className="text-[13px] text-muted-foreground">
-                    {scan === 'error'
-                      ? '請再掃描一次。如果一直失敗，可以在「設定 → 關於」開啟記錄檔查看原因。'
-                      : 'PathKeep 會尋找目前使用者安裝的 Chrome、Edge、Firefox、Safari 等瀏覽器。裝好並使用過之後，再掃描一次。'}
+                    {!browsing
+                      ? `PathKeep 會尋找 ${harnessSources.map((h) => h.name).join('、')} 的資料夾。裝好並使用過之後，再檢查一次；或回上一步先不選這個類型，之後找到了，首頁會問你。`
+                      : scan === 'error'
+                        ? '請再掃描一次。如果一直失敗，可以在「設定 → 關於」開啟記錄檔查看原因。'
+                        : 'PathKeep 會尋找目前使用者安裝的 Chrome、Edge、Firefox、Safari 等瀏覽器。裝好並使用過之後，再掃描一次。'}
                   </span>
                 </div>
                 {recheckButton}
