@@ -33,9 +33,9 @@ const steps = [
   { id: 'welcome', label: '歡迎' },
   { id: 'kinds', label: '要保存什麼' },
   { id: 'sources', label: '來源' },
-  { id: 'storage', label: '存在哪裡' },
+  { id: 'storage', label: '存放位置' },
   { id: 'encryption', label: '加密' },
-  { id: 'schedule', label: '排程' },
+  { id: 'schedule', label: '自動備份' },
   { id: 'ai', label: 'AI' },
   { id: 'done', label: '完成' },
 ] as const
@@ -102,14 +102,14 @@ export default function OnboardingPage() {
     { icon: summaryIcons.kinds, label: '保存', value: [...kindsOn].map((id) => kindById[id].label).join('、') },
     ...list.map((kind) => ({
       icon: kind.id === 'browsing' ? summaryIcons.browsing : kind.id === 'agent' ? summaryIcons.agent : kind.icon,
-      label: kind.id === 'browsing' ? '瀏覽器設定檔' : kind.id === 'agent' ? 'Agent 工具' : kind.label,
+      label: kind.id === 'browsing' ? '瀏覽器' : kind.id === 'agent' ? 'Agent 工具' : kind.label,
       value: `${selection[kind.id]?.size ?? 0} 個${kind.alsoReads ? `，${kind.alsoReads}` : ''}`,
     })),
-    { icon: summaryIcons.location, label: '存檔', value: APP_ROOT },
+    { icon: summaryIcons.location, label: '存放位置', value: APP_ROOT },
     { icon: summaryIcons.encryption, label: '加密', value: draft.encrypt ? ['已開啟 · AES-256', keychainStage && '密碼在鑰匙圈中'].filter(Boolean).join(' · ') : '不加密' },
-    { icon: summaryIcons.schedule, label: '排程', value: frequencyTitles[draft.frequency] },
+    { icon: summaryIcons.schedule, label: '自動備份', value: frequencyTitles[draft.frequency] },
     { icon: summaryIcons.ai, label: 'AI', value: aiTitles[draft.ai] },
-    { icon: summaryIcons.online, label: '連網', value: '會下載每個頁面的預覽圖 · 可在「設定 → 一般」關閉' },
+    { icon: summaryIcons.online, label: '連網', value: '會下載每個頁面的預覽圖 · 可在「設定 → 瀏覽紀錄」關閉' },
   ]
 
   return (
@@ -217,7 +217,7 @@ export default function OnboardingPage() {
                   <Button className="h-[38px] px-[18px]" disabled={!ready || finish.state.status === 'running'} onClick={next}>
                     {step !== 'done' ? (
                       <>
-                        {index === 0 ? '開始設定' : '下一步'}
+                        {index === 0 ? '開始設定' : '繼續'}
                         <ArrowRight />
                       </>
                     ) : finish.state.status === 'running' ? (

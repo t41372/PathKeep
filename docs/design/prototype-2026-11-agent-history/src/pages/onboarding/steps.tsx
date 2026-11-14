@@ -8,7 +8,9 @@ import { Check, Copy, HardDrive, Search, type LucideIcon } from 'lucide-react'
 import { createContext, useContext, type ReactNode } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/cn'
+import arcIcon from '@/assets/browser-icons/arc.png'
 import chromeIcon from '@/assets/browser-icons/chrome.png'
+import firefoxIcon from '@/assets/browser-icons/firefox.svg'
 import safariIcon from '@/assets/browser-icons/safari.png'
 import darkMark from '@/assets/pathkeep-mark-dark.svg'
 import lightMark from '@/assets/pathkeep-mark.svg'
@@ -40,15 +42,17 @@ export function StepHeading({ title, body }: { title: string; body?: ReactNode }
 
 const retention: { name: string; icon: ReactNode; keep: string; width: string }[] = [
   { name: 'Claude Code', icon: <HarnessIcon id="claude" className="size-5" />, keep: '預設 30 天', width: '3%' },
-  { name: 'Chrome', icon: <img src={chromeIcon} alt="" className="size-5" />, keep: '90 天', width: '8%' },
-  { name: 'Safari', icon: <img src={safariIcon} alt="" className="size-5" />, keep: '預設 1 年', width: '32%' },
+  { name: 'Chrome', icon: <img src={chromeIcon} alt="" className="size-5" />, keep: '約 90 天', width: '8%' },
+  { name: 'Arc', icon: <img src={arcIcon} alt="" className="size-5" />, keep: '約 90 天', width: '8%' },
+  { name: 'Safari', icon: <img src={safariIcon} alt="" className="size-5" />, keep: '1 年', width: '32%' },
+  { name: 'Firefox', icon: <img src={firefoxIcon} alt="" className="size-5" />, keep: '看容量', width: '55%' },
   { name: 'Codex', icon: <HarnessIcon id="codex" className="size-5" />, keep: '不自動刪，但常被手動清掉', width: '64%' },
 ]
 
-const promises: { icon: LucideIcon; text: string }[] = [
-  { icon: HardDrive, text: '全部存在這台電腦，不上傳到任何地方' },
-  { icon: Copy, text: '只讀來源，不改、不刪任何檔案' },
-  { icon: Search, text: '存下的東西都能搜尋，沒有筆數上限' },
+const promises: { icon: LucideIcon; title: string; body: string }[] = [
+  { icon: HardDrive, title: '只在本機', body: '不上傳，不需要帳號' },
+  { icon: Copy, title: '不碰原檔', body: '先複製，再增量追加' },
+  { icon: Search, title: '可以搜尋', body: '全文、正則、時間線' },
 ]
 
 /** Today's welcome step with §3.3's copy and rows; the PathKeep "永久" row is today's. */
@@ -79,10 +83,11 @@ export function WelcomeStep() {
         </ul>
       </section>
       <ul className="grid grid-cols-3 gap-2.5">
-        {promises.map(({ icon: Icon, text }) => (
-          <li key={text} className="flex flex-col gap-1.5 rounded-[10px] bg-muted p-3.5">
+        {promises.map(({ icon: Icon, title, body }) => (
+          <li key={title} className="flex flex-col gap-1.5 rounded-[10px] bg-muted p-3.5">
             <Icon className="size-[18px]" strokeWidth={1.75} aria-hidden />
-            <span className="text-[13px] leading-snug font-medium">{text}</span>
+            <span className="text-[13px] font-medium">{title}</span>
+            <span className="text-xs text-muted-foreground">{body}</span>
           </li>
         ))}
       </ul>

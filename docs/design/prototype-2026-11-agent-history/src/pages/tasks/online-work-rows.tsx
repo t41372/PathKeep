@@ -32,7 +32,7 @@ import { keepLabels, useBackground } from './background-store'
 function OpenSwitch() {
   return (
     <Button size="sm" variant="outline" asChild>
-      <Link to="/settings/browsing">一般設定</Link>
+      <Link to="/settings/browsing">瀏覽紀錄的設定</Link>
     </Button>
   )
 }
@@ -64,7 +64,7 @@ export function PageSummariesRow() {
         protoLoading ? (
           <Skeleton className="mt-0.5 h-3.5 w-40" />
         ) : !summariesOn ? (
-          '已關閉。在「一般」中開啟「網頁摘要」，即可抓取你造訪過網頁的簡短摘要。'
+          '已關閉。在「設定 › 瀏覽紀錄」開啟「頁面摘要」，即可抓取你造訪過網頁的簡短摘要。'
         ) : (
           <span className="flex flex-col" aria-live="polite">
             <span>
@@ -114,7 +114,7 @@ export function LinkPreviewsRow() {
       title="連結預覽"
       description={
         !previewsOn
-          ? '已關閉。在「一般」中開啟「連結預覽」，即可顯示網頁提供的分享圖片。'
+          ? '已關閉。在「設定 › 瀏覽紀錄」開啟「連結預覽」，即可顯示網頁提供的分享圖片。'
           : counting
             ? '正在統計網頁…'
             : `${number(318_204)} 個網頁中有 ${number(146_930)} 個有預覽圖。目前已檢查 ${number(201_442)} 個。`

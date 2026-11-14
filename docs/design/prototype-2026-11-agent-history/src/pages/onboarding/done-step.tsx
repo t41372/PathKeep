@@ -54,7 +54,7 @@ export function DoneStep({
 }) {
   return (
     <>
-      <StepHeading title="都設好了" body="按下開始，PathKeep 會做第一次備份。之後照排程在背景跑。" />
+      <StepHeading title="都設定好了" body="接下來會做第一次完整備份，之後每次只追加新的記錄。" />
       <dl className="overflow-hidden rounded-xl border bg-card shadow-card">
         {summary.map(({ icon: Icon, label, value }) => (
           <div key={label} className="flex items-center gap-3 border-b px-4 py-3 text-[13px] last:border-b-0">
