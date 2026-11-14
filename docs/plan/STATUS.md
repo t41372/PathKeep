@@ -27,7 +27,11 @@
   - 讀先：`docs/design/data-spaces-tradeoff.md`、`docs/features/data-spaces.md`；`docs/design/` 核心四份；`program/quality-matrix.md`、`project-e2e` 相關的 `tests/e2e/` 與 `playwright.config.ts`。
   - 做：資料類型的登記表（導航列、路由、⌘K、備份頁、色相都從它來）；切換鈕與選單；`#/<空間>/<頁面>` 路由與舊路徑全面改掉；每個空間的色相 token 與固定的分類色（用對比檢查定值）；⌘1…9／Ctrl+1…9；切換動畫；語言鈕移出導航列；背景任務指示器的位置（內容在 `WORK-AH-APP-SURFACE` 接上之前先顯示既有的工作）。
   - 三語文案一起交付；既有 E2E 全部跟著新路徑改，並且在新路徑下全數通過。切換空間要有第二個真的空間才驗得了（不做假的空間來測）：切換鈕、快捷鍵、動畫的 E2E 情境（含減少動態效果）在 Agent 空間有第一個真的頁面時補上，那之前這幾樣不算驗過。
-  - 設定側欄的「資料類型」分組和新手引導的步驟不在這一塊：那兩處還等用戶確認（`data-spaces-tradeoff.md` §5 後面的表）。
+  - 設定側欄的「資料類型」分組、設定項目的搬移和新手引導的新步驟不在這一塊。用戶 2026-11-13 都同意了（`data-spaces-tradeoff.md` §5 後面的表），它們跟第二種類型一起才有意義，在 `WORK-AH-SCREENS` 做。
+  - 這一塊結束時 app 只有瀏覽紀錄一個空間，下面幾樣照規格做、但要等有第二個空間或後面的 block 才完整：
+    - 切換選單的「保存其他類型的資料」只在還有沒開的類型時出現，所以這一塊結束時看不到它。
+    - 背景任務指示器的「打開背景任務」先到現在放工作清單的「設定 › 背景工作」；`#/tasks` 頁在 `WORK-AH-SCREENS` 做，做好時改過去。
+    - 導航列和 ⌘K 上瀏覽紀錄的清單頁改叫「紀錄」（中文；英文仍是 History），頁面自己的標題一起改。
   - 收工時照 trade-off 文件 §5 逐條改寫 `ux-principles.md`、`screens-and-nav.md`、`ui-review-guardrails.md`、`design-tokens.md`，並在 trade-off 文件 §6 記下落地情況。
 
 - [x] **WORK-RUSTIX-2026-11-13** — 新發布的 RUSTSEC-2026-0486 擋下 PR #20 的供應鏈 gate，更新既有間接依賴後重新驗證。

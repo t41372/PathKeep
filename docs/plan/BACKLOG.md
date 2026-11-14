@@ -29,6 +29,7 @@
   - 每個新指令照現有的七個地方接好，dev bridge 一起；`WORK-COMMAND-CONTRACT-PARITY` 的比對測試先做，免得漏接。
 
 - [ ] **WORK-AH-SCREENS** — Agent 空間的畫面：洞察、紀錄與閱讀器、專案、備份、設定、啟用流程、背景任務頁（v0.6.0；接在 `WORK-SPACES-SHELL` 與 `WORK-AH-APP-SURFACE` 之後）
+  - 也在這一塊：設定側欄的「資料類型」分組與設定項目的搬移（`data-spaces.md` §8）、新手引導的「要保存什麼」與「來源」兩步（§3.3）、切換選單的「保存其他類型的資料」、導航列指示器的「打開背景任務」改到 `#/tasks`。這些是 `WORK-SPACES-SHELL` 留下的，用戶 2026-11-13 都同意了。
   - 讀先：`docs/features/agent-history.md` 第一部分、`docs/features/data-spaces.md`、`docs/design/data-spaces-tradeoff.md`；`docs/design/` 核心四份。
   - 版面與文案從設計原型搬進 `src/`，資料改成透過 typed client 向後端要：清單虛擬化、頁面先出骨架、重的計算不在主執行緒。每個畫面的空、載入、錯誤狀態照規格補齊，三語一起交付。
   - 示範資料與 E2E 用的假資料改成各工具原生格式的合成檔，走真的備份流程（`dev:demo` 與 E2E 都用它）。每個畫面至少一個中等以上難度的 E2E。
