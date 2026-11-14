@@ -327,6 +327,7 @@
   - 驗收：構造「context 逼近 budget 時最後一輪回超大結果」的測試，synthesis turn 不再 overflow（或誠實降級且有測試證明）；小 window provider 走 graceful 路徑；no-usage provider 用真 tokenizer 估算；空答有 fallback 摘要；更新 `docs/architecture/`。
 
 - [ ] **WORK-ENCRYPT-AT-REST-ALL** — 評估並（評估後）實作「全量加密」衍生資料庫（需先做設計/性能評估階段）
+  - 2026-11-14 更正：加密模式下仍是明文的不只語意向量。讀程式確認：存下的網頁文字（`sidecars/intelligence-blobs/`，`intelligence_blobs.rs` 直接 `fs::write`）、每次備份留的瀏覽器檔案副本（`raw-snapshots/<設定檔>/…/History`、`Favicons`，`archive/ingest/checkpoint.rs` 直接 `fs::copy`，是瀏覽器歷史檔的完整複本）。盤點另外列了 `audit/`、`integrations/`、`schedule/`，還沒逐一讀過。瀏覽器自己刪掉舊歷史之後，這些副本裡還有。
   - 2026-10 狀態：Turso 版每個原生資料庫（archive、source evidence、intelligence、agent、scratch）都用同一把資料金鑰加密，搜尋索引用加密的 Tantivy Directory。下面提到的 SQLCipher 原語（`at_rest.rs` reconcile、`open_archive_connection`、`search_projection.rs`、`intelligence_projection.rs`）已刪除。剩下要評估的只有語意搜尋的平面檔（`.pkvec` / `.pkmap` / `.pkbin` / `.pki8`）是否加密。
   - 來源：2026-06-28 使用者指示。修 backup OOM 時確認：開啟加密只加密 canonical encrypted-tier（`history-vault.sqlite` + `source-evidence.sqlite`）；衍生 sidecar（`derived/history-search.sqlite` FTS、`derived/history-intelligence.sqlite`、`derived/agent.sqlite` 對話）目前**明文**落盤，內含 URL / 標題 / enrichment 摘要 / 聊天內容。使用者選擇當時先只修 source-evidence，並要求把「encrypt EVERYTHING 的性能與實現設計評估」記成待辦，評估後再決定是否實作。
   - 讀先：`docs/architecture/`（at-rest posture）；`src-tauri/crates/vault-core/src/archive/at_rest.rs`（既有的 reconcile/rewrite 原語，可推廣到 sidecar）；`schema.rs`（`open_archive_connection` 的 `ATTACH … KEY ''` 慣例）、`search_projection.rs`（`open_search_connection` 明文開啟）、`intelligence_projection.rs`（明文 + attach archive）；W-AI-3 `agent.sqlite` migration；`scripts/verify-rust-coverage.mjs`。
@@ -366,3 +367,11 @@
   - 「自動備份」卡讀排程狀態失敗時，一直停在骨架。
   - 毛玻璃視窗下，視窗那一層沒有變淡：`src/index.css` 裡毛玻璃的 `--window`／`--panel` 寫在 `@layer base` 裡，而 `:root` 的值不在任何 layer，沒有 layer 的規則贏過有 layer 的。做外框時在瀏覽器裡量到毛玻璃下 `--window` 仍是不透明時的值（`rgb(250 250 252 / 0.62)`）；用戶 2026-11-14 說 macOS 上選了毛玻璃確實有變透明，但「非常，非常不明顯」，跟量到的一致：桌布那一層有拿掉，視窗那一層沒有照設計降到 14%。修的時候把那兩條規則移出 layer，並在桌面視窗上看過深淺兩種主題。
   - 新手引導的排程預覽只在每個間隔第一次被選時寫入設定；選過別的再選回來、然後關掉，下次可能從錯的間隔開始。
+
+- [ ] **WORK-VAULT-FOLLOWUPS-2026-11** — 規劃 `WORK-VAULT-STORE-ROLES` 時讀程式找到、跟 Agent 對話無關的現有行為（2026-11-14；兩份獨立的盤點都指出，但都只讀了程式，動手前先重現）
+  - 搬到另一台電腦會丟掉使用者改過的網站分類與搜尋引擎規則：它們存在 `derived/intelligence.db`（`site_dictionary_overrides`、`search_engine_rules`），而搬移檔把這個資料庫當成可以重算、不帶走，匯入預覽還寫「洞察會重建」。修法要改 `data-model.md` 已接受的那一句，需要用戶同意。
+  - 還原快照會把當時的密碼、設定與助理對話一起還原回來；改密碼只重包目前的信封，舊快照仍是舊密碼。
+  - `maintenance.bak-*` 資料夾（還原、搬移匯入、舊格式轉換各留一個）只有「刪除所有資料」會清，儲存空間用量也不算它們。
+  - 儲存空間用量少算 `models/`、`audit/` 的其餘部分、`schedule/`、`integrations/`。
+  - 安裝步驟與刪除所有資料在當機時的幾個邊界、存檔打不開時原生格式到不了復原畫面、`SchemaTooNew` 沒有錯誤碼也沒有畫面。
+  - 快照格式要能記錄「這份快照含哪幾種資料」，之後只刪一種類型、只還原一種類型時要用。

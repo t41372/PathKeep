@@ -10,6 +10,12 @@
 ## CURRENT FOCUS
 
 - [ ] **WORK-VAULT-STORE-ROLES** — Agent 對話的資料庫併進 PathKeep 的存檔，並把「存檔裡有哪些資料庫和資料夾」集中到一張表（v0.6.0；2026-11-14 從 BACKLOG 搬上）
+  - 進度（2026-11-14）：方案階段。GPT astra 讀完程式寫了方案，另有一份獨立寫的方案對比過，審過一輪後修訂。兩份的主要決定一致：Agent 對話用同一個 Store 的新角色（不是第二個 Store）、一張有型別而且編譯期就完整的表、自己的金鑰標籤、先把現在的行為釘住再重構。修訂後定下的：
+    - 新資料庫在 v0.6 第一次打開存檔時就建空的（不是等使用者開啟 Agent 對話），所以每個 v0.6 存檔的檔案都一樣，少了就是壞了。
+    - 已發布的 v0.5 打開 v0.6 寫過的存檔會出事（開關加密時只重新加密它認得的檔案，Agent 對話留在一把不存在的金鑰底下）。v0.5 唯一會擋的是資料庫版本號，而它的還原與搬移匯入連這個都不檢查。方案建議把 `config.json` 裡 `archiveMode` 的寫法換成 v0.5 解析不了的新格式：v0.5 在啟動任何服務之前讀設定，讀不了就起不來（讀 v0.5.0 的 `src-tauri/src/lib.rs` 與 `vault-core/src/config.rs` 確認過，不會退回預設值）。瀏覽紀錄的資料庫、金鑰、遷移都不動。**這一條等用戶同意**，同意前不做依賴它的步驟。
+    - 這一塊只做後端到指令與事件為止；復原與更新畫面由前端那邊照方案寫的資料格式做。
+    - 方案把「不做 Agent 對話就進不來」和「改善現有行為」分開了，後者另成後面的 block（見 BACKLOG `WORK-VAULT-FOLLOWUPS-2026-11`）。
+  - 方案與盤點放在 repo 外的交接資料夾（`PLAN-vault-store-roles.rev1.md`、`vault-roles-inventory.md`、`my-plan-vault-store-roles.md`）；落地時寫進 `docs/architecture/`。
   - 做法（用戶 2026-11-13）：先由 GPT 讀完所有相關的程式與文件、寫出技術方案與實作路線，審過才寫程式；驗收情境由定設計的人先寫成測試。會影響備份成不成功、資料完不完整的部分用 astra xhigh，其餘用 6.1 sol xhigh。
   - 一併定下：只有 Agent 對話的資料庫壞掉或要更新格式時，復原畫面和存檔更新畫面各說什麼（現在的文字講的是整個存檔打不開、和某一次特定的更新）。
   - 讀先：`docs/architecture/agent-history-product-design.md` §5；`docs/architecture/owner-process.md`、`store-schema.md`、`backup-integrity.md`；`program/quality-matrix.md` 的存檔變更規則。
