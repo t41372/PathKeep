@@ -9,6 +9,22 @@
 
 ## CURRENT FOCUS
 
+- [ ] **WORK-VAULT-STORE-ROLES** — Agent 對話的資料庫併進 PathKeep 的存檔，並把「存檔裡有哪些資料庫和資料夾」集中到一張表（v0.6.0；2026-11-14 從 BACKLOG 搬上）
+  - 做法（用戶 2026-11-13）：先由 GPT 讀完所有相關的程式與文件、寫出技術方案與實作路線，審過才寫程式；驗收情境由定設計的人先寫成測試。會影響備份成不成功、資料完不完整的部分用 astra xhigh，其餘用 6.1 sol xhigh。
+  - 一併定下：只有 Agent 對話的資料庫壞掉或要更新格式時，復原畫面和存檔更新畫面各說什麼（現在的文字講的是整個存檔打不開、和某一次特定的更新）。
+  - 讀先：`docs/architecture/agent-history-product-design.md` §5；`docs/architecture/owner-process.md`、`store-schema.md`、`backup-integrity.md`；`program/quality-matrix.md` 的存檔變更規則。
+  - 現在快照、搬家包、at-rest 檢查、改密碼與開關加密、儲存空間用量、刪除所有資料各有一份寫死的清單。先換成一張表（每個資料庫與資料夾：是原始還是可重建、要不要進快照、要不要搬、刪除所有資料時刪不刪），再加 Agent 對話的角色與自己的金鑰標籤。瀏覽紀錄既有資料庫的路徑、金鑰、遷移一個位元組都不能變。
+  - 兩個守門測試：刪除所有資料後，資料根目錄裡沒有這張表不認得的東西；at-rest 檢查遇到不認得的檔案就失敗。漏刪某一種資料是這次工作最不能出的錯。
+  - 名稱避開 `agent.db`／`Db::Agent`，那是助理自己的對話。
+
+- [ ] **WORK-AH-READ-MODEL** — Agent 對話的讀取模型與查詢：對話摘要、大綱、每一輪的事實、專案歸類；清單、閱讀器、搜尋、洞察要的查詢（v0.6.0；2026-11-14 從 BACKLOG 搬上）
+  - 做法（用戶 2026-11-13）：先由 GPT 讀完所有相關的程式與文件、寫出技術方案與實作路線，審過才寫程式；驗收情境由定設計的人先寫成測試。會影響備份成不成功、資料完不完整的部分用 astra xhigh，其餘用 6.1 sol xhigh。
+  - 開工時一併做 `WORK-AH-REVIEW-FOLLOWUPS` 的項目（用戶 2026-11-13）。
+  - 讀先：`docs/architecture/agent-history-product-design.md` §3（專案與區塊）、§6–§9；`docs/features/agent-history.md` 第一部分每個數字的定義；`docs/architecture/research/agent-history/` 各工具的用量與時間紀錄方式。
+  - 換掉逐事件的表：內容不再存第二、第三份，閱讀器、搜尋摘要、對話內搜尋都從原始分塊讀。先在 4 核 8 GB 的機器上量視窗讀取與全文 regex，達不到 100 ms 回饋就用設計文件寫的退路。
+  - 每個工具的用量與時間規則各自有測試（Claude Code 同一個回應的用量只算一次、Codex 的累計值取差、複製或繼承來的紀錄不重算）。沒有用量紀錄的對話不算成 0。
+  - 清單用排序鍵翻頁，備份進行中不失效；搜尋串流、不設上限、備份進行中照樣回答；專案歸類只在確定時自動，其餘是建議。專案、資料夾歸屬與釘選區塊是使用者的資料，跟對話的星號放在一起。
+
 - [x] **WORK-AH-EVIDENCE-FORMAT** — Agent 對話核心庫在第一次發布前要定下來的存檔格式：對話與來源分開、備份時多記的事實、保留規則與 4 MiB 壓縮分塊、使用者自己的資料（星號、封存、垃圾桶、標題）、不加密模式。
   - 讀先：`docs/architecture/agent-history-product-design.md` 的 §1–§4、§6（分塊那兩條）與「Clauses this amends」；`docs/architecture/agent-history-core.md`；`docs/architecture/research/agent-history/` 裡對應工具的那一份；`program/quality-matrix.md`。
   - 這一塊不做單段對話的永久刪除（用戶 2026-11-13：先用封存和垃圾桶），也不把 Continue、Cline、Roo Code 開給產品（同日）；它們的 adapter 留在核心庫，只做到能在新格式下通過既有測試。
