@@ -987,6 +987,7 @@ pub struct AiQueueJob {
     /// Index jobs only; `None` otherwise.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub progress_embed_target: Option<u64>,
+    pub index_progress: Option<crate::IndexBuildProgress>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

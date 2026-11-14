@@ -339,10 +339,13 @@ pub(crate) fn persist_index_cursor(
     let AiJobPayload::Index { cursor: stored, .. } = &mut payload else {
         return Ok(CursorPersistOutcome::NotIndexJob);
     };
-    // PRESERVE the determinate scan denominator across resumes: the backfill captures `scan_target`
-    // ONCE at the build's true start and reports `0` ("unknown") on every resume, so a fresh build
-    // sets it here while a resume keeps the value already stored. Without this, a resumed cursor would
-    // clobber the original target with 0 and the Activity bar would lose its denominator mid-build.
+    // Only durable measurement advances renew retries, including preparation before embedding.
+    let advanced_scan = cursor.scan.is_some_and(|next| {
+        stored.scan.map_or(next.planning_after > 0 || next.examined > 0, |old| {
+            next.upper_history_id == old.upper_history_id
+                && (next.planning_after > old.planning_after || next.examined > old.examined)
+        })
+    });
     let previous_history_id = stored.next_history_id;
     let scan_target = if cursor.scan_target > 0 { cursor.scan_target } else { stored.scan_target };
     // Same preserve-on-resume contract for the embed denominator: a resume reports 0, so keep the
@@ -350,7 +353,11 @@ pub(crate) fn persist_index_cursor(
     let embed_target =
         if cursor.embed_target > 0 { cursor.embed_target } else { stored.embed_target };
     let lineage = cursor.lineage.clone().or_else(|| stored.lineage.clone());
-    *stored = IndexBackfillCursor { lineage, scan_target, embed_target, ..cursor.clone() };
+    let scan = cursor.scan.or(stored.scan);
+    if let Some(scan) = scan {
+        anyhow::ensure!(scan.examined <= scan.total, "index-scan-count-invalid");
+    }
+    *stored = IndexBackfillCursor { lineage, scan_target, embed_target, scan, ..cursor.clone() };
     // Keep the original rebuild intent. The persisted cursor gates the one-time wipe and the
     // worker still needs that intent when a resumed full rebuild completes and retires old indexes.
     let payload_json = serde_json::to_string(&payload)?;
@@ -376,7 +383,7 @@ pub(crate) fn persist_index_cursor(
             now,
             lease_expires_at(AI_JOB_LEASE_SECONDS),
             job_id,
-            cursor.next_history_id > previous_history_id
+            cursor.next_history_id > previous_history_id || advanced_scan
         ],
     )?;
     Ok(if updated == 1 {
@@ -824,6 +831,7 @@ fn decode_ai_job_row(row: &Row) -> vault_store::Result<AiQueueJob> {
         progress_scanned: None,
         progress_scan_target: None,
         progress_embed_target: None,
+        index_progress: None,
     })
 }
 
@@ -841,6 +849,7 @@ pub(super) fn decode_ai_job_row_with_progress(row: &Row) -> vault_store::Result<
         serde_json::from_str::<AiJobPayload>(&payload_json)
     {
         job.progress_embedded = Some(cursor.embedded_so_far);
+        job.index_progress = Some(cursor.progress());
         job.progress_scanned = Some(cursor.next_history_id);
         job.progress_scan_target = Some(cursor.scan_target);
         job.progress_embed_target = Some(cursor.embed_target);

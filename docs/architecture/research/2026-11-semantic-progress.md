@@ -2,11 +2,11 @@
 
 2026-11-13。調查來源：`e999ca83`、已安裝 app 的唯讀 owner IPC、現有索引 sidecar，以及使用者截圖。owner PID 3674 執行 `/Applications/PathKeep.app/Contents/MacOS/pathkeep-desktop --background`，該 bundle 標記為 `0.5.0-dev`；不將它誤記為已安裝公開版 0.5.0。進程與 binary hash 見 [owner-process.json](../../../artifacts/investigations/2026-11-13-semantic-progress/owner-process.json)。
 
-**狀態：原因已重現；下文是修復提案，尚未實作或變更已接受的索引契約。**
+**狀態：原始進度根因已複核，第一輪實作及完整 `bun run check` 已通過。其他線索另輪複核，不宣稱本輪已修復。**
 
 ## 結論與證據邊界
 
-這次超量進度有兩個獨立原因：分母只數沒有 provenance 的造訪，分子也數更新與修補；增量續跑重新取得掃描上限，卻保留舊分母。前端再把這組不相容的數字當成百分比。調查另確認既有造訪的內容映射不會隨內容更新，影響搜尋結果，不能只改進度顯示。
+這次超量進度有兩個獨立原因：分母只數沒有 provenance 的造訪，分子也數更新與修補；增量續跑重新取得掃描上限，卻保留舊分母。前端再把這組不相容的數字當成百分比。另有內容映射的機制反例，但正常使用流程的觸發條件尚待複核，不能將它列為這次超量進度的根因或本輪必要修復。
 
 從已安裝 app 的 `ai-jobs` 唯讀方法取得：
 
@@ -52,7 +52,9 @@
 
 更一般地說，固定最高 id 只能界定新增造訪，不能界定既有低 id 的標題或 enrichment 變化。單一 id 游標無法代表所有內容變更；它前面的內容後來改了，要由下一次可追蹤的更新補上，不能只靠「此次成功」就認定最新。
 
-## 原因三：完成的批次沒有等於新的搜尋內容
+## 獨立線索：完成的批次可能沒有等於新的搜尋內容
+
+本節保留原方法與 sidecar 的調查結果。它不構成「644 / 94」的原因；正常瀏覽器操作的端到端因果鏈尚未確認，依證據稽核另輪處理。
 
 `DedupTracker` 將已映射狀態存在 `HashSet<history_id>`。`take_unmapped` 只在 id 首次插入集合時 append `(history_id, content_key)`，沒有比較該造訪目前指向的 key。
 
@@ -72,7 +74,7 @@
 
 `take_unmapped` 的 id-only 條件可追到 2026-06-21，不是 generation publication 新引入的。immutable generation 能保證讀者拿到同一代檔案，但無法修正那一代從錯誤來源映射投影出的內容。
 
-## 原因四：read model 沒有階段與有效性，UI 直接當百分比
+## 同源表現：read model 沒有階段與有效性，UI 直接當百分比
 
 `semantic_index.rs` 將兩個 cursor 數字直接回成 `done/total`。Settings 與 Background work 都拿它們算百分比；`useIndexPace` 在 `done >= total` 時停止提供速度／剩餘時間，沒有說明數字已矛盾。
 
@@ -93,84 +95,12 @@
 - enrichment 的 Rust 測試只證明 candidate 變成 `needs_embedding`，沒有繼續驗證 published forward/reverse/position map 與語意搜尋。
 - 多數 resume 斷言守的是不重送與 id 完整，沒有在續跑前加入超出原上限的新資料，再核對整個 manifest 與分母。
 
-## 建議的最終設計
+## 本輪範圍及修復設計
 
-### 1. 每個工作持有持久化的範圍與進度契約
+本輪方案以 [第一輪：索引進度與續跑範圍](2026-11-semantic-progress-round1.md) 為準。原始證據保留；映射與其他發現依 [證據稽核](2026-11-semantic-progress-audit.md) 另輪處理。
 
-新增有版本的 `IndexWorkManifest`：provider/model、lineage、scope、來源變更邊界、掃描上限、各階段的工作單位與游標。首次建立後與工作綁定，claim/retry/resume 不重新延伸它。後來的新造訪與內容變更留在下一個工作；相同來源 lineage 的身份仍需驗證。
+先前未提交的大範圍草案已封存並撤回。新增快取、來源變更日誌、快照保護、generation 命名及 snapshot race 不在本輪實作內。不得將草案的測試結果作為本輪驗證。
 
-完整建置／明確重新檢查以固定 id 範圍分頁，不為 14.4M 筆造訪複製一份逐筆任務表。掃描進度數真正檢查過的造訪，不能把稀疏 id 當筆數。若總量尚未精確得到，提供已檢查筆數與未知總量；精確總量也必須依相同 scope、邊界與可見性規則取得。來源改動可能讓工作項目不再適用，將其記為已核對後略過，不當成索引遺失。
+## 既有大型測試檔的改動審查
 
-任何可變資料都不能假稱完整資料庫快照。manifest 固定的是工作集合與覆蓋邊界；讀到比邊界更新的內容時可以使用它，但較新的變更仍須保留待處理。發布只能確認已捕捉並核對的範圍，不能順手確認當下的全域 watermark。
-
-### 2. 備份後更新由來源變更驅動
-
-整合 BACKLOG 的 `WORK-INDEX-UPDATE-WALKS-ARCHIVE`。新增造訪、頁面標題變更、enrichment 發布、撤銷與還原，都在來源交易內留下持久化變更。按造訪範圍／頁面表示，避免一個熱門頁面一次展開百萬筆記憶體物件。
-
-各來源維持自己的遞增邊界；跨 Archive／Intelligence 的交接使用 durable outbox，加上可重播的來源事件 id。寫完來源後才臨時呼叫 enqueue 不是可靠交接。不能拿會被全文索引器刪掉的現有 outbox 當作另一個消費者的永久紀錄。
-
-增量 planner 捕捉各來源的邊界，分批合併變更為封存的工作描述，只展開受影響頁面的造訪；規劃完成才宣稱精確處理總數。之後的變更進下一份描述。每個 configured index 有自己的已發布確認位置，只有 generation 與成功狀態提交後才確認；中斷不會丟掉待處理變更。來源事件可在不再有工作／消費者引用時收斂與清理，AI 關閉時也必須有容量界限；沒有連續變更證據的模型重新啟用時，由明確的完整核對補基線。
-
-這使候選發現與 stale-row 檢查隨變更量工作，不再每次備份全庫比雜湊。現行 immutable generation 的投影仍有全量成本，這項設計不把整個更新宣稱為 O(變更量)。投影先依下方驗收量測，保留既有 publication／lease 契約；分段投影若有必要，另立架構取捨，不能偷偷在這次修復中更換。
-
-### 3. 將向量去重與映射更新分開
-
-向量依既有 content identity 去重；映射則比較 `current_key(history_id)` 與 `desired_key`，不同就 append。以 `.pkmap` 最後一筆為準，利用既有 last-writer-wins 格式，不修改已發布 generation。讀取狀態必須包含實際 key，不能再降成 `HashSet<history_id>`。
-
-14.4M 時避免把整張 Rust HashMap 再加進常駐記憶體：將現有 `.pkfwd` 作為唯讀基線，當次變動使用磁碟上的有序 overlay／批次查找；續跑從持久化 checkpoint 與 append tail 恢復。以查詢計畫與 RSS 驗收具體實作，不能用全量集合掩蓋查找設計。
-
-保存順序延續現有耐久契約：向量與映射 append → fsync → 同一個 Intelligence 交易提交 provenance、各種計數與 cursor。重播相同 desired key 不重寫；不同 key 是合法更新。發布前核對「有效 provenance 的 key = 最後來源映射的 key = generation 投影的 key，且向量存在」。可邊流式投影邊核對，不另外載入全庫。
-
-### 4. 修正已留下的資料，避免修完後繼續錯
-
-新程式不能只改未來的 `take_unmapped`。現有 provenance 可能已是 K2，而 `.pkmap` 還是 K1；必須有一次可續跑的本機核對與修復工作，按來源 id 分頁比對，從 provenance 的完整 hash 推得預期 key，再核對來源向量。需要核對的原因與數量先預覽，再由正常操作入口執行。
-
-有正確 K2 向量時只補映射，不再呼叫模型；缺向量或來源身份無法信任時，分列需要重新建立的內容，走既有模型與網路授權流程，不暗中全量重送。核對期間保留舊 serving generation，修復完才發布新 generation，留下修復數量與驗證結果。
-
-此處不改既有 dedup hash／頁面文字規則。`embeddedText = null` 是這台存檔另有的舊文字格式標記；它已由既有 stale／重建契約處理，不是 644 / 94 的成因，修映射也不能把它標成已換新文字。
-
-舊 cursor 沒有足夠資訊還原原工作集合。遷移不得用 `max(done,total)` 補造分母，也不應清掉已完成的來源。保留 durable cursor、舊摘要與累計處理量，將舊進度明確標為總量未知；完成 manifest 綁定與必要核對後，才使用新階段的計數。
-
-### 5. 對外進度是帶單位的階段，不是一個通用分數
-
-read model 改用明確型別：`phase`、`unit`、`completed`、`total: null | number`、獨立的新增／更新造訪及新向量數、checkpoint revision。`null` 是未知；`0` 是已知沒有工作；不再靠 0 表示「保持舊值」。
-
-階段對應規劃／檢查、頁面索引、搜尋詞索引、建立投影、發布。沒有可靠總量的階段顯示已完成量及階段文字，進度條為不確定；有總量時只在該階段內算比例。100% 是該階段完成，工作成功仍只來自原子的 generation 發布。不得發明各階段權重拼成總百分比。
-
-Settings 與 Background work 使用同一個進度 DTO 與 formatter。速度按同一工作、同一階段的 durable checkpoint 計算，階段／manifest 改變時重置；完成量不能代表向量速度或跨階段 ETA。平滑動畫沿用 reduced-motion 行為，不越過真實 checkpoint。
-
-後端驗證 `0 <= completed <= total`；若壞掉的舊資料越界，保留原始診斷值、記結構化錯誤，UI 顯示總量未知與階段，停止錯誤 ETA。傳入 Radix 的值仍需合法範圍驗證，不能以視覺 clamp 代替資料修復。en／zh-CN／zh-TW 的文字、aria 與空／錯／暫停狀態同時交付。
-
-## 取捨
-
-| 做法                                              | 判斷                                                                                                                 |
-| ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| 分子 clamp 到分母、或分母提升成 `max(done,total)` | 拒絕：會隱藏錯誤，不能說還剩多少，也不修復搜尋內容。                                                                 |
-| 只在 COUNT 加上更多條件                           | 拒絕作為最終方案：要把內容建構、來源檔案狀態及 WorkingSet 再算一次，仍有並行變動與續跑邊界問題；每次備份仍走完整庫。 |
-| 所有工作只顯示 spinner                            | 拒絕：已有可靠階段進度時應呈現；未知總量才是不確定進度。                                                             |
-| 每次更新全部重新嵌入                              | 拒絕：模型成本、隱私與磁碟寫入不必要，也沒有解決錯誤的重播身份。                                                     |
-| 固定 manifest、分階段計數、來源變更交接、映射核對 | 建議：工作邊界、耐久進度與搜尋內容由同一份可驗證工作描述約束。                                                       |
-
-其中穩定工作契約、phase DTO 與變更交接是本提案，須在落地時同步修訂 `semantic-index-control.md` 與 schema／功能文件；本調查沒有先將它們寫成已接受或已交付。既有「使用者要真實百分比」的要求仍成立：顯示有證據的階段百分比，不保留不成立的分數。
-
-## 實作前寫定的驗收失敗模式
-
-主驗收是一條真後端 E2E：先建完 → 只改既有頁面的標題／enrichment，不加新造訪 → 再加少量新頁 → 更新一半暫停 → 備份加入更多頁及改動游標前的舊頁 → 重啟續跑 → 發布 → 下一個更新處理較晚事件。
-
-全程保存每個 durable checkpoint、manifest／phase、provider 收到的文件、generation pointer，以及語意查詢結果。以人可核對的 JSON、Playwright trace 與畫面作結，不能只留 pass 計數。
-
-必須證明：
-
-1. 每個階段的單位與工作集合一致，`done <= total`；全是既有內容更新、全是重複造訪、只有來源修補、WorkingSet、零工作、未知總量都成立。
-2. 續跑不伸長舊 manifest；較晚新增／更新／撤銷事件不丟失，下一次確實處理。稀疏 id 和 exclusive cursor 不被誤當筆數。
-3. 把搜尋日期限在修改前的舊造訪，只有新內容的語意才能找到它，且 `matchReason` 包含 semantic。檢查 forward/reverse/position 三份投影，不靠新造訪或全文搜尋替舊映射遮錯。
-4. 對已經 provenance=K2、map=K1 的舊狀態，核對工作能補 map，已有向量不重送；修復再次執行是冪等。缺向量不得假裝修好。
-5. 在來源提交／outbox 交接／向量 append／map append／fsync／provenance+cursor 交易／pointer 發布之間逐點 crash，重啟後不漏內容、不重算已耐久的相同工作、不混代、不越過停止請求。
-6. 頁面完成後刻意阻住搜尋詞或 projection，UI 正確顯示所在階段，沒有「已完成」或假的剩餘時間。Settings、Background work、aria 都一致；超量舊資料不產生非法 Radix 值。
-7. AI 關閉、模型切換、來源缺失、事件保留／清理、舊 cursor、舊文字格式與 legacy lineage 都保留既有 consent、partial serving 與 generation lease 契約。
-
-必要的 isolated Rust 測試先驗上述 crash 與冪等失敗模式；E2E 負責整體功能，不再只驗 candidate 或首次填滿。這份調查的 predicate／純方法重現不替代它們。
-
-14.4M／4 核／8GB 驗收分開量候選發現、受影響造訪展開、key 查找、投影、fsync 與發布：記錄掃描列數、峰值 RSS、讀寫量及各階段延遲。新資料很少時不得走完整候選庫，投影的現有全量成本單獨揭露；UI 以真後端更新期間的長任務／互動 profile 驗證。這一輪沒有新增效能數據，也沒有重跑整個大型存檔 gate。
-
-實作完成後須通過 `bun run check`，並保存中等以上難度的上述 E2E artifact；不能以本次唯讀調查或舊版本 gate 宣稱修復完成。
+`semantic-index.spec.ts` 涵蓋初次建立、暫停、取消、重啟、備份更新與換模型。本輪不重構其流程或檔案格式 helper，只修正一項測量契約：核對進度的總數包含隱藏記錄，不能再當成最後已索引造訪數。終態改由正常完成後的實際來源映射不同 id 數核對。新增的正常備份／更新／暫停／繼續驗收放在獨立 spec，沿用既有順序與隔離環境。

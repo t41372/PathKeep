@@ -9,6 +9,11 @@
 
 ## CURRENT FOCUS
 
+- [x] **WORK-SEMANTIC-UPDATE-CONSISTENCY** — 第一輪完成原始進度計量、固定續跑範圍與階段呈現（2026-11-14）。
+  - 讀先：[第一輪方案](../architecture/research/2026-11-semantic-progress-round1.md)、[證據複核](../architecture/research/2026-11-semantic-progress-audit.md)、`semantic-index-control.md`、`embedding-text.md`、`docs/features/intelligence.md` §1、`docs/design/` 核心四份、`program/quality-matrix.md`。
+  - 使用者要求：整輪修復完成前不運行測試；新問題先記錄、下一輪依正常流程確認根因和方案。禁止改依賴。舊大範圍草案已封存，不能引用其通過結果當成本輪驗證。
+  - 完整 `bun run check` 通過：151 個前端測試、Rust workspace／bridge／release checks、136 個 E2E 全過，無略過或 flaky；兩份鎖檔未變。新增案例證明 4 新增／160 更新、雙畫面進度，以及暫停期間備份的造訪留下一次處理。證據：[verification.json](../../artifacts/investigations/2026-11-14-semantic-progress-round1/verification.json)。其他線索留 `WORK-SEMANTIC-FOLLOWUP-AUDIT`，未在本輪修復。
+
 - [x] **WORK-SEMANTIC-PROGRESS-DIAGNOSIS** — 調查使用者截圖的「644 / 94」，交付原因、證據與長期修復提案（2026-11-13；未改產品程式）。
   - 讀先：`docs/architecture/semantic-index-control.md`、`embedding-text.md`、`docs/features/intelligence.md` §1、`docs/design/` 核心四份、`program/quality-matrix.md`；candidate／backfill／cursor／generation 與兩個進度畫面的實作及測試。
   - 已安裝 app 的唯讀 owner IPC：任務 467 最後為 4,111／94（856 新增、3,255 更新）；任務 466 為 102,368／86,882（15,486 更新）。分母只數缺列，分子也數更新與修補；增量續跑重新讀上限卻保留舊分母，真實映射中有 762 筆超出任務 467 原上限。

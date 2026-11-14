@@ -499,10 +499,28 @@ test('a search index build killed half way finishes after a restart, without sta
     await record('queue after cancelling')
     service.release()
     await page.getByRole('button', { name: 'Continue' }).click()
+    // The scan includes hidden rows. Indexed coverage is independently checked against source mappings.
+    await expect
+      .poll(async () => (await queueStatus()).semanticIndex.chosenComplete, {
+        timeout: 240_000,
+      })
+      .toBe(true)
+    const pair = (await queueStatus()).semanticIndex.chosen!
+    const completeSource = servingOf(pair.providerId, pair.model)
+    expect(completeSource).not.toBeNull()
+    const sourceMap = readFileSync(
+      completeSource!.store.replace(/\.pkvec$/, '.pkmap'),
+    )
+    const mappedVisits = new Set<string>()
+    for (let at = 8; at + 16 <= sourceMap.length; at += 16)
+      mappedVisits.add(sourceMap.readBigInt64LE(at).toString())
     await expect(
-      page.getByText(`${total.toLocaleString('en-US')} visits indexed`, {
-        exact: false,
-      }),
+      page.getByText(
+        `${mappedVisits.size.toLocaleString('en-US')} visits indexed`,
+        {
+          exact: false,
+        },
+      ),
     ).toBeVisible({ timeout: 240_000 })
     const sentTwice = Object.entries(
       pagesOf(service.inputs).reduce<Record<string, number>>((seen, page) => {

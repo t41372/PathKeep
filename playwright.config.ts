@@ -200,6 +200,7 @@ export default defineConfig({
         'insights-reopen.spec.ts',
         'quit-during-work.spec.ts',
         'semantic-index.spec.ts',
+        'semantic-progress.spec.ts',
         'takeout-continue.spec.ts',
       ],
       'change',

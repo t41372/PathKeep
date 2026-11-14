@@ -70,7 +70,9 @@ continuation fields are listed in the [area-4 contract report](../architecture/r
 
 ## 1. 語義搜尋（Semantic Search）
 
-已確認缺陷（2026-11-13，尚未修復）：增量索引的分母只數缺少紀錄的造訪，處理量卻也計入更新；續跑可能擴大原工作範圍，造成「644 / 94」。既有造訪內容變更時，來源映射也可能仍指向舊向量，任務成功不能證明這部分內容已更新。證據、修復提案與驗收條件見 [調查報告](../architecture/research/2026-11-semantic-progress.md)，追蹤於 `WORK-SEMANTIC-UPDATE-CONSISTENCY`；下述需求仍是應交付的契約，不能將本提案視為已完成。
+2026-11-14 已修復「644 / 94」的進度與續跑範圍，設計及驗證見 [第一輪方案](../architecture/research/2026-11-semantic-progress-round1.md)。畫面區分準備、讀取來源、核對造訪、搜尋詞、建立搜尋資料與發布；比例與速度只表示當前固定範圍的核對進度。新增／更新數量獨立計算，暫停繼續不加入較晚的造訪。這不是完整資料庫的內容快照。
+
+來源映射等獨立發現列 [後續複核](../architecture/research/2026-11-semantic-progress-audit.md)，不將它們寫成本輪已解決事項。
 
 **作為**用戶，**我想要**用自然語言搜尋我的歷史紀錄，**以便**能找到「我記得看過某個講 local-first 的文章但記不得具體名字」這類模糊記憶。
 

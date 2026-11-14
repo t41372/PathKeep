@@ -7,11 +7,14 @@
 
 ## 工作塊佇列（按順序）
 
-- [ ] **WORK-SEMANTIC-UPDATE-CONSISTENCY** — 索引進度與內容更新的一致性（2026-11-13 使用者要求調查並設計；方案已交付，尚未實作）。
-  - 讀先：[調查、證據與修復提案](../architecture/research/2026-11-semantic-progress.md)、`docs/architecture/semantic-index-control.md`、`embedding-text.md`、`docs/features/intelligence.md` §1、`docs/design/` 核心四份、`program/quality-matrix.md`。
-  - 必須一起解決：缺列計數與 changed 口徑不同、增量續跑伸長工作範圍、0 混用未知／空／保留、各階段共用頁面進度，以及 id-only 去重導致既有造訪不改指向新內容。既有錯誤映射也需核對修復，不能只改未來 append。
-  - 建議設計：有版本的固定工作 manifest、來源交易內的變更交接、依實際 key 比對的映射更新、phase／unit／nullable total DTO、發布後才確認覆蓋邊界。整合下方 `WORK-INDEX-UPDATE-WALKS-ARCHIVE`；保持既有 immutable generation／lease／consent 契約，改已接受的進度契約前先確立提案。
-  - 驗收失敗模式與 14.4M 量測要求已寫在提案。主 E2E 必須只改舊內容、不添該頁新造訪，暫停後加入較晚變更，再以舊日期的 semantic 結果證明舊映射正確；逐 checkpoint 檢查進度、crash 恢復與舊資料修復。完整 `bun run check` 通過才交付。
+- [x] **WORK-SEMANTIC-UPDATE-CONSISTENCY** — 第一輪修復原始索引進度與續跑範圍（2026-11-14）。
+  - 讀先：[第一輪方案](../architecture/research/2026-11-semantic-progress-round1.md)、[原始證據](../architecture/research/2026-11-semantic-progress.md)、`docs/architecture/semantic-index-control.md`、`embedding-text.md`、`docs/features/intelligence.md` §1、`docs/design/` 核心四份、`program/quality-matrix.md`。
+  - 本輪：固定實際造訪集合、核對量與結果量分離、階段及未知總量、暫停／續跑的持久化範圍。完整 `bun run check` 已通過，136 個 E2E 全過；[驗證證據](../../artifacts/investigations/2026-11-14-semantic-progress-round1/verification.json)。
+  - 使用者要求逐輪處理。先前將內容映射、變更日誌、快照與效能一起實作的草案已撤回；相關線索移至下一條及既有專項，不宣稱本輪解決。
+
+- [ ] **WORK-SEMANTIC-FOLLOWUP-AUDIT** — 第一輪完成後，依正常流程複核映射、snapshot 時序、還原／命名、更新效率及量測容量邊界等記錄。未確認不得直接修碼或擴大範圍。
+  - 讀先：[證據複核](../architecture/research/2026-11-semantic-progress-audit.md)、Claude 報告 §7、相關功能及架構契約。
+  - 禁止修改依賴。特殊注入、自訂量測或低階 API 反例只能當調查線索，不能替代正常環境重現。
 
 > 2026-10-25：清掉已完成或前提已不存在的 block（v0.3 Paper 前端、已移除的 coverage / mutation gate、已修好的 flaky 測試等，清單見 CHANGELOG 同日）。2026-04 到 2026-06 的收尾註記也一併移除，要看去 git 歷史或 CHANGELOG。
 
@@ -30,7 +33,7 @@
     - 停下它：`turso_core` 0.8.3 有 `Connection::interrupt`，SDK（`turso`）沒有露出來。查清楚能不能用，能的話暫停與取消就可以停掉跑到一半的語句，而不是等它自己結束。
 
 - [ ] **WORK-INDEX-UPDATE-WALKS-ARCHIVE** — 每次備份後的索引更新都把整個存檔走一遍，只有幾十筆新造訪也一樣（2026-11-13 `WORK-LONG-READ-OUTAGE` 驗收時量到）
-  - 同日進度調查確認它與工作集合／分母一致性有共同邊界，納入 `WORK-SEMANTIC-UPDATE-CONSISTENCY` 一起設計，避免各自做一份候選判斷；此條保留原量測與來源。
+  - 第一輪只修固定核對範圍與進度契約。變更驅動更新留本條另行調查、量測與設計，不是原始超量計數修復的前置條件。
   - 讀先：`docs/architecture/semantic-index-control.md`、`vault-core/src/ai/indexing/backfill.rs`（`run_embedding_backfill` 從游標 0 開始）、`candidates.rs`、`store_rows.rs` 的 `cleanup_stale_embeddings`。
   - 現象：增量建置每次從第一筆造訪讀到最後一筆（每 64 筆一塊：讀造訪、比內容雜湊、讀 enrichment），再把整個 lineage 的列走一遍找已撤銷的造訪，開跑前還要數一次剩多少。幾十萬筆造訪的存檔上，一次更新光是走完就要幾十秒到一兩分鐘，每小時一次；14.4M 是它的三十倍。都是分頁的短讀取，不會擋別人，只是白做。
   - 方向（先設計、先量）：備份知道自己寫了哪些造訪、改了哪些頁面；讓更新只讀那些，整個走一遍留給「重新檢查」這種明確的操作。要處理：enrichment 之後才抓到內容的頁面、撤銷與還原、進度的分母。

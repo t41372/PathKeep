@@ -27,8 +27,9 @@ pub struct IndexBuildJob {
     pub state: String,
     pub paused_by: Option<IndexBuildPause>,
     pub pause_message: Option<String>,
+    pub progress: crate::IndexBuildProgress,
     pub done: u64,
-    pub total: u64,
+    pub total: Option<u64>,
 }
 
 /// Shows which model the user chose and which index can currently serve searches.

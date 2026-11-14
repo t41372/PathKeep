@@ -58,3 +58,6 @@ mod tests {
 
 mod intelligence_pages;
 pub use intelligence_pages::*;
+
+mod index_progress;
+pub use index_progress::*;

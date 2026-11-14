@@ -220,22 +220,17 @@ pub trait AiRunControl: Send + Sync {
 /// instead of re-embedding 14.4M rows from scratch.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct IndexBackfillProgress {
+    /// The exact scoped measurement, separate from write outcomes.
+    pub scan: Option<crate::ai_queue::IndexScan>,
     /// Lowest canonical `history_id` not yet embedded; the next chunk starts here.
     pub next_history_id: i64,
-    /// Vectors durably persisted so far across all chunks of this backfill.
+    /// Visits durably written across attempts; includes updates and source repairs.
     pub embedded_so_far: u64,
     /// Changed existing rows, retained with the cursor for an honest final queue summary.
     pub updated_so_far: u64,
-    /// The determinate scan denominator: the max candidate `history_id` captured at the build's TRUE
-    /// start, so `next_history_id / scan_target` is honest scan progress that reaches ~100%. Reported
-    /// as the captured value on a fresh build and as `0` ("unknown — keep the stored target") on a
-    /// resume, so [`crate::ai_queue::persist_index_cursor`] preserves the original denominator rather
-    /// than chasing a corpus that grew under the build.
+    /// Legacy diagnostic highest id, never a row-count denominator.
     pub scan_target: i64,
-    /// The total candidate pages this build set out to embed, captured at the build's TRUE start
-    /// (`COUNT(visits WHERE reverted_at IS NULL)`). Drives the user-facing `embedded_so_far /
-    /// embed_target` progress. Same fresh-capture / resume-preserve contract as `scan_target` (0 on a
-    /// resume so the stored value is kept).
+    /// Legacy missing-row target. New clients measure `scan` instead of write outcomes.
     pub embed_target: u64,
 }
 

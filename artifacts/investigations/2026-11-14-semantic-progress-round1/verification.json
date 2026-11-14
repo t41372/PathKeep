@@ -1,0 +1,109 @@
+{
+  "verifiedAt": "2026-11-14T17:11:35.188097+00:00",
+  "baseCommit": "e710e75b35a721220e2cd91789aa4dd65f15d54e",
+  "scope": "Round 1: original progress units, frozen visit scope and phase presentation; independent findings remain in the evidence audit.",
+  "command": "RUST_TEST_THREADS=4 CARGO_TARGET_DIR=var/playwright/desktop-bridge/cargo-target bun run check",
+  "execution": "Local macOS; permission to start local test services.",
+  "exitCode": 0,
+  "frontendTestsPassed": 151,
+  "vaultCore": {
+    "passed": 500,
+    "failed": 0,
+    "ignored": 12
+  },
+  "e2e": [
+    {
+      "configuration": "main",
+      "path": "artifacts/e2e/results.json",
+      "sha256": "da61255368b076b375e184ec48548bd775a5fdc69782832a9983b1df39ae581a",
+      "stats": {
+        "startTime": "2026-11-14T16:54:58.631Z",
+        "duration": 878983.607,
+        "expected": 126,
+        "skipped": 0,
+        "unexpected": 0,
+        "flaky": 0
+      }
+    },
+    {
+      "configuration": "backup-integrity-healthy",
+      "path": "artifacts/e2e/backup-integrity-healthy/results.json",
+      "sha256": "9c5737839214829d96838166cf970fdb67360b4b7906c35ebe997926c5a1fe1d",
+      "stats": {
+        "startTime": "2026-11-14T17:09:38.667Z",
+        "duration": 26895.969,
+        "expected": 9,
+        "skipped": 0,
+        "unexpected": 0,
+        "flaky": 0
+      }
+    },
+    {
+      "configuration": "backup-integrity-damaged",
+      "path": "artifacts/e2e/backup-integrity-damaged/results.json",
+      "sha256": "933cbc93bba8d9a39c46b3d0d774e435d6a18292df615ae924b5d3f7500b0d33",
+      "stats": {
+        "startTime": "2026-11-14T17:10:05.869Z",
+        "duration": 9744.864,
+        "expected": 1,
+        "skipped": 0,
+        "unexpected": 0,
+        "flaky": 0
+      }
+    }
+  ],
+  "e2eTotals": {
+    "passed": 136,
+    "failed": 0,
+    "skipped": 0,
+    "flaky": 0
+  },
+  "mainFixture": {
+    "now": 1794675298562,
+    "seed": 7
+  },
+  "repeat": "PATHKEEP_E2E_NOW=<mainFixture.now> RUST_TEST_THREADS=4 CARGO_TARGET_DIR=var/playwright/desktop-bridge/cargo-target bun run check",
+  "log": {
+    "path": "artifacts/e2e/round1-check.log",
+    "sha256": "7f0497d242fbc8f1e2e0637cffccf7800615524cae6d01956f3623aff6a42b78"
+  },
+  "dependencyLocksUnchanged": {
+    "bun.lock": "75284425d12387ff477930ee421a0dc43b27f2b70792de997e88a1f216a1acb4",
+    "src-tauri/Cargo.lock": "1be1a230a533d8e084e5ae9eabbd263f819fd5176ee0728f7527e729e204f3c9"
+  },
+  "sourceFiles": {
+    "playwright.config.ts": "53c6d0e7475d9032c3c46c748090cf1650091cf662075bf362720659beb81e14",
+    "src-tauri/crates/vault-core/src/ai.rs": "5527519c4f0b37c7c7e9aab347a778f0ebd50d0da59343e6e73b4c629e355571",
+    "src-tauri/crates/vault-core/src/ai/indexing/backfill.rs": "0dc4ec95ff0b5ede8cb7a04f66e9c1c5dc14aaeb39577742aba16465b8c3abef",
+    "src-tauri/crates/vault-core/src/ai/indexing/candidates.rs": "014ec5a390f5cdf3569893ede619c5295ce0a10dce2b1f96c793b903cc2dcec9",
+    "src-tauri/crates/vault-core/src/ai/indexing/mod.rs": "0a1897fd328f15f39dbf579f978689f04c12a10382ec86b0e589d48521bcb6ea",
+    "src-tauri/crates/vault-core/src/ai/indexing/scan_progress.rs": "0beb478c25562cfc831517fe15395d0423493c4fe9342c29d77432672d24c6f5",
+    "src-tauri/crates/vault-core/src/ai/tests_native/indexing/start.rs": "ebb7048f9966a0e3a68050e2d9cec56f06bafd070725c75a9bf165cf84d2869d",
+    "src-tauri/crates/vault-core/src/ai_queue/index_control_tests.rs": "055bfdea12b836e9c4eabde13062f83bc16b0b9075cf0a68b034da04108660db",
+    "src-tauri/crates/vault-core/src/ai_queue/store.rs": "f0a0eed1cf69ac23d610611dd49e2652fb69c3afe577fbe596bfb9e84f52fb68",
+    "src-tauri/crates/vault-core/src/ai_queue/types.rs": "c1521e2bd87d978c00797ca34186e7f6f0eef930bb5dca968f920d497f25e7c5",
+    "src-tauri/crates/vault-core/src/models/index_progress.rs": "fe52bcdeebae0afc580d8ee7f41f0906e622eb7e6dfdafa2bb4f374f2c2434e7",
+    "src-tauri/crates/vault-core/src/models/intelligence.rs": "a1f1be61782f93327ac7115802e6dcde0801c0f4c7cacd1f8f13e1c519b39c06",
+    "src-tauri/crates/vault-core/src/models/mod.rs": "2c14342675c29eb01f23ff0aed2715ddbc7ba256f4271313ae2ce7a5d65ab68c",
+    "src-tauri/crates/vault-core/src/models/semantic_index.rs": "dfade41b357cd744b17ea64450a3294477d563e3c3b2af51bbc018d380f61db7",
+    "src-tauri/crates/vault-core/src/semantic_index.rs": "dbe7c6ed10be273564204e6b7169b9d6ab099ab78c7201da94f4d258bff5400c",
+    "src-tauri/crates/vault-core/tests/ai_queue_turso.rs": "fec78661f34a4a26bb5c2b19261ddf57c5562f54d1c9eb816a67b3abaf89feac",
+    "src-tauri/crates/vault-worker/src/intelligence/ai_queue.rs": "f2941c6d8bc69dc3955a71e5e26080e6314a279dfe968e1d91569ce5a95c4471",
+    "src/features/ai-setup/index-progress.ts": "6139e60bf5142eb9ddb402025b61c9899df5b7cc3c8d2a55ca9af724ad2e8585",
+    "src/features/ai-setup/use-semantic-index.ts": "8a7ce15bd6c02e14adb780e666a08cb5979259ad465bb4451d00bbda2bee5be6",
+    "src/features/settings/background/job-list.tsx": "1f4e7f11dfa8e94de4d24a2a6215b451261cd758f9acd77689602b2a5f15bde1",
+    "src/features/settings/background/job-view.ts": "ffa7e967850185ea25b247c80de336285b4a63d2edfd3640aa76c1b234002290",
+    "src/features/settings/semantic-index-state.tsx": "27ffb4cb2f8c950bedf5fb081707e7be58bb6770bedeb43e6849e2a733daaf00",
+    "src/lib/i18n/messages/settings-ai.ts": "f8c5e3cf2d6d1fdbb10a9907652d9042926d052505a7907537674e834b0e3926",
+    "src/lib/types/intelligence.ts": "f6f94c75a461a7edecbe5c41ff4676e86ca0ba91941b101e0b5748c909cdb5ed",
+    "tests/e2e/semantic-index.spec.ts": "301a98a70caa1e6ed9a2289afc75e79bbe348b680b2e127a63f667d2beec0634",
+    "tests/e2e/semantic-progress.spec.ts": "50e9ac200fe05d6d1a5d56f97341af1a7d298e124d430e414d9fcdf3ea7729c5",
+    "tests/e2e/support/progress-scope.ts": "4efc4c9821275bbf02a4902dbbfa3d60c87b89edf1c635641777aea950c0c408",
+    "tests/e2e/wipe.spec.ts": "54f236d185b91e763dcfd6cbc965c1b60f7ec549d481f7a9dcd0929084887bc4"
+  },
+  "limits": [
+    "No new 14.4M benchmark or whole-pipeline speed claim.",
+    "Synthetic browser fixtures exercise the real product entry points; installed-app task records establish the original root cause.",
+    "Mapping, snapshot, generation naming and capacity findings were not repaired in this round."
+  ]
+}

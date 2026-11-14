@@ -15,18 +15,19 @@
 
 use super::super::generations::{self, BuildGeneration};
 use super::super::native_ledger::{
-    begin_ai_run, current_source_watermark, end_failed_ai_run, finalize_ai_run_success,
-    record_index_ledger_failure, record_index_ledger_start, record_index_ledger_success,
+    begin_ai_run, end_failed_ai_run, finalize_ai_run_success, record_index_ledger_failure,
+    record_index_ledger_start, record_index_ledger_success,
 };
 use super::super::*;
-use super::candidates::{collect_visit_chunk, select_embed_targets};
+use super::candidates::{collect_visit_ids, select_embed_targets};
+use super::scan_progress::{self, ScanPlan};
 use super::store_rows::{
     chunk_size, cleanup_stale_embeddings, upsert_embedding, validate_embedding_batch_for_keys,
 };
 use super::{BackfillOutcome, IndexedVisit};
 use crate::models::ReembedScope;
 use std::collections::HashSet;
-use vault_store::{Db, Priority, Session, params_owned as params};
+use vault_store::{Db, Priority, params_owned as params};
 
 /// Resolves the WorkingSet scope filter: the canonical URLs of the bounded heavy-tier working set.
 ///
@@ -110,7 +111,7 @@ pub async fn build_ai_index_with_control(
 ) -> Result<AiIndexReport> {
     validate_provider(provider, AiProviderPurpose::Embedding)?;
     let started_at = now_rfc3339();
-    let source_watermark = current_source_watermark(vault)?;
+    let (source_upper, source_watermark) = scan_progress::capture_input(vault)?;
     let run_id = begin_ai_run(
         vault,
         "ai_index",
@@ -138,7 +139,7 @@ pub async fn build_ai_index_with_control(
                 job_id,
                 run_id,
                 full_rebuild,
-                start_history_id > 0,
+                start_history_id > 0 || scan_progress::has_scope(vault, job_id)?,
             )?)
         };
         let build = &build_owner;
@@ -147,8 +148,6 @@ pub async fn build_ai_index_with_control(
                 bind_cursor_lineage(vault, job_id, build.lineage(), build.fresh)?;
             let (cursor, embedded) =
                 if resume { (start_history_id, start_embedded_so_far) } else { (0, 0) };
-            let removed =
-                cleanup_stale_embeddings(vault, provider, build.lineage(), run_control.as_ref())?;
             let outcome = run_embedding_backfill(
                 build.source(),
                 provider,
@@ -161,25 +160,28 @@ pub async fn build_ai_index_with_control(
                 build.fresh,
                 full_rebuild,
                 build.lineage(),
-                build.upper_history_id(full_rebuild),
+                build.upper_history_id(full_rebuild).unwrap_or(source_upper),
+                build.watermark(source_watermark, full_rebuild),
             )
             .await?;
+            scan_progress::phase(vault, job_id, crate::IndexBuildPhase::Searches)?;
             let searches = super::super::search_vectors::backfill(
                 build.source(),
                 provider,
                 run_control.as_ref(),
             )
             .await?;
+            scan_progress::phase(vault, job_id, crate::IndexBuildPhase::Projection)?;
             checkpoint_ai_run(run_control.as_ref(), "Index build stopped before projection.")?;
             build.prepare(provider)?;
+            scan_progress::phase(vault, job_id, crate::IndexBuildPhase::Publishing)?;
+            let removed = outcome.removed_items;
             (outcome, removed, searches)
         } else {
             (BackfillOutcome::default(), 0, 0)
         };
         let pointer = build.as_ref().map_or("", |build| build.relative());
-        let watermark = build
-            .as_ref()
-            .map_or(source_watermark, |build| build.watermark(source_watermark, full_rebuild));
+        let watermark = outcome.scan.map_or(source_watermark, |scan| scan.source_watermark);
         let finished_at = now_rfc3339();
         if !record_index_ledger_success(
             vault,
@@ -400,115 +402,12 @@ impl DedupTracker {
     }
 }
 
-/// The max candidate `history_id` in the archive right now — the determinate scan denominator.
-///
-/// One cheap `MAX` over the indexed `archive.visits` PK (the same `reverted_at IS NULL` predicate
-/// [`collect_visit_chunk`](super::candidates::collect_visit_chunk) scans), so `next_history_id /
-/// scan_target` is honest determinate progress. Captured ONCE at a build's true start; rows that
-/// arrive afterward are a later incremental pass's work, not this build's. Returns 0 for an empty
-/// archive (nothing to scan).
-fn max_candidate_history_id(connection: &Session<'_>) -> Result<i64> {
-    connection
-        .query_one(
-            "SELECT COALESCE(MAX(visits.id), 0)
-             FROM archive.visits AS visits
-             WHERE visits.reverted_at IS NULL",
-            (),
-            |row| Ok(row.get(0)?),
-        )
-        .context("reading the max candidate history id for the index scan target")
-}
-
-/// Resolves the scan denominator to REPORT this run: the captured max on a fresh build, else 0.
-///
-/// On the TRUE start of a build (`start_history_id == 0`) it captures
-/// [`max_candidate_history_id`] so the cursor records the determinate denominator. On a RESUME
-/// (`start_history_id > 0`) it returns 0 ("unknown — preserve the stored target"), so
-/// [`crate::ai_queue::persist_index_cursor`] keeps the original `scan_target` rather than recomputing
-/// against a corpus that may have grown under the build. Pure decision over `start_history_id`; the
-/// fresh branch is the only one that touches the DB.
-fn scan_target_for(connection: &Session<'_>, start_history_id: i64) -> Result<i64> {
-    if start_history_id > 0 {
-        return Ok(0);
-    }
-    max_candidate_history_id(connection)
-}
-
-/// Visit ids one read of the count covers. A read is a short transaction (`Store::read`): at
-/// 3 µs a visit this is about 30 ms, and the count of a 14.4M-visit archive is 1,440 of them
-/// with a stop check between each, not one statement nothing can interrupt.
-pub(in crate::ai) const COUNT_PAGE_IDS: i64 = 10_000;
-
-/// What a build stopped during the count reports.
+/// Maximum ids per short planning read; tests use the same bound for cancellation coverage.
+#[cfg(test)]
+pub(in crate::ai) const COUNT_PAGE_IDS: i64 = super::scan_progress::PAGE_SIZE as i64;
+/// Diagnostic retained for cooperative cancellation while measuring the captured range.
 pub(in crate::ai) const COUNT_STOPPED: &str =
     "Index build was stopped while counting what is left to index.";
-
-/// Counts the visits shown with an id in `(after, through]` that have no row for this exact pair
-/// and lineage; a rebuild, which reads every visit into its lineage, counts them all.
-///
-/// The index is named because Turso otherwise searches `ai_embeddings` by the three values every
-/// row of a lineage shares and reads the whole lineage for each visit (2026-11-13: hours on an
-/// archive of a few hundred thousand visits, seconds with the index named).
-fn candidate_visit_count(
-    connection: &Session<'_>,
-    provider_id: &str,
-    model: &str,
-    rebuild: bool,
-    lineage: &str,
-    after: i64,
-    through: i64,
-) -> Result<u64> {
-    let count: i64 = connection
-        .query_one(
-            "SELECT COUNT(*)
-             FROM archive.visits AS visits
-             WHERE visits.id > ?5 AND visits.id <= ?6
-               AND visits.reverted_at IS NULL
-               AND (?3 = 1 OR NOT EXISTS (
-                 SELECT 1 FROM ai_embeddings AS e INDEXED BY idx_ai_embeddings_lineage_history
-                 WHERE e.history_id = visits.id
-                   AND e.provider_id = ?1 AND e.model = ?2 AND e.lineage = ?4
-               ))",
-            params![provider_id, model, i64::from(rebuild), lineage, after, through],
-            |row| Ok(row.get(0)?),
-        )
-        .context("counting candidate pages needing embedding for the index embed target")?;
-    Ok(count.max(0) as u64)
-}
-
-/// Resolves the embed-progress denominator to REPORT this run: the visits still missing from this
-/// pair on a fresh build, else 0 ("unknown — preserve the stored target"). Mirrors
-/// [`scan_target_for`] so a resume never recounts a corpus that grew (or got partially embedded)
-/// under the build. Runs once, in the background, before the first request; `scan_target` is the
-/// highest id to count through.
-#[allow(clippy::too_many_arguments)]
-fn embed_target_for(
-    vault: &crate::Vault,
-    provider_id: &str,
-    model: &str,
-    start_history_id: i64,
-    rebuild: bool,
-    lineage: &str,
-    scan_target: i64,
-    run_control: Option<&Arc<dyn AiRunControl>>,
-) -> Result<u64> {
-    if start_history_id > 0 {
-        return Ok(0);
-    }
-    let mut total = 0;
-    let mut after = 0;
-    while after < scan_target {
-        checkpoint_ai_run(run_control, COUNT_STOPPED)?;
-        let through = after.saturating_add(COUNT_PAGE_IDS).min(scan_target);
-        let (provider_id, model, lineage) =
-            (provider_id.to_owned(), model.to_owned(), lineage.to_owned());
-        total += vault.read(Db::Intelligence, move |s| {
-            candidate_visit_count(s, &provider_id, &model, rebuild, &lineage, after, through)
-        })?;
-        after = through;
-    }
-    Ok(total)
-}
 
 /// Embeds candidate rows in resumable, cancellable chunks and persists them to the vector plane.
 ///
@@ -538,7 +437,8 @@ async fn run_embedding_backfill(
     new_source: bool,
     rebuild: bool,
     lineage: &str,
-    captured_upper: Option<i64>,
+    captured_upper: i64,
+    captured_watermark: i64,
 ) -> Result<BackfillOutcome> {
     let paths = vault.paths();
 
@@ -564,50 +464,28 @@ async fn run_embedding_backfill(
     // A full rebuild's new lineage has none yet, so this writes a fresh map; on a resume it leaves the
     // existing map (and its prior visit rows) intact.
     visit_map.ensure_created(paths)?;
-    let upper_history_id = if let Some(upper) = captured_upper {
-        upper
-    } else {
-        vault.read(Db::Archive, |s| {
-            Ok(s.query_one("SELECT COALESCE(MAX(id),0) FROM visits", (), |r| Ok(r.get::<i64>(0)?))?)
-        })?
-    };
-    let mut cursor = start_history_id;
-    // CUMULATIVE across resumes: seed from the cursor's stored `embedded_so_far` so the persisted
-    // count (and the `embedded / embed_target` progress bar) keeps climbing after a reclaim instead of
-    // collapsing to this session's partial count. A fresh build passes 0.
-    let mut embedded_total: u64 = start_embedded_so_far;
-    // The determinate scan denominator the Activity page divides by (Change 1). Captured ONCE here, at
-    // the TRUE start of a build, and reported on every chunk's progress; a resume reports 0 so the
-    // stored target is preserved (see `scan_target_for` / `persist_index_cursor`).
-    let scan_target =
-        vault.read(Db::Intelligence, move |s| scan_target_for(s, start_history_id))?;
-    // Count visits still missing from this pair before the first request. Resume keeps its target.
-    let embed_target = embed_target_for(
+    let mut plan = ScanPlan::open(
         vault,
-        &provider.config.id,
-        &provider.config.default_model,
-        start_history_id,
-        rebuild,
-        lineage,
-        scan_target,
+        ledger.and_then(|ledger| ledger.job_id()),
+        captured_upper,
+        captured_watermark,
+        IndexBackfillProgress {
+            next_history_id: start_history_id,
+            embedded_so_far: start_embedded_so_far,
+            updated_so_far: start_updated_so_far,
+            ..Default::default()
+        },
         run_control,
     )?;
-    // The cursor reflecting the last chunk whose vectors+map+Turso are ALL durably persisted (F2.1).
-    // It NEVER advances past a chunk that has not been fully persisted, so persisting it on the failure
-    // path resumes from REAL progress instead of the origin — and never SKIPS an un-persisted chunk
-    // (which advancing the scan `cursor` before the embed would do). Starts at the resume watermark.
-    let mut last_durable = crate::ai::IndexBackfillProgress {
-        next_history_id: start_history_id,
-        embedded_so_far: start_embedded_so_far,
-        updated_so_far: start_updated_so_far,
-        scan_target,
-        embed_target,
-    };
-
+    let mut cursor = plan.cursor.next_history_id;
+    let mut embedded_total = start_embedded_so_far;
+    let scan_target = plan.cursor.scan_target;
+    let embed_target = plan.cursor.embed_target;
+    plan.cursor.scan.as_mut().unwrap().phase = crate::IndexBuildPhase::Sources;
     if let Some(ledger) = ledger {
-        ledger.record(last_durable)?;
+        ledger.record(plan.progress())?;
     }
-
+    outcome.removed_items = cleanup_stale_embeddings(vault, provider, lineage, run_control)?;
     // The crash-window dedup state is encapsulated in
     // `DedupTracker`. `load_existing` populates the on-disk sets whenever a store/map already exists
     // and is NOT about to be wiped — so a PLAIN incremental pass (cursor 0) maps a re-visit of an
@@ -623,6 +501,11 @@ async fn run_embedding_backfill(
         visit_map.trim_torn_tail()?;
     }
     tracker.load_existing(&existing_store, &visit_map, new_source)?;
+    plan.cursor.scan.as_mut().unwrap().phase = crate::IndexBuildPhase::Visits;
+    let mut last_durable = plan.progress();
+    if let Some(ledger) = ledger {
+        ledger.record(last_durable)?;
+    }
 
     // Run the chunked embed loop inside a Result-returning scope so an error anywhere inside it first
     // gets a chance to checkpoint the LAST-DURABLE cursor (F2.1) before propagating — a reclaim then
@@ -631,30 +514,25 @@ async fn run_embedding_backfill(
         loop {
             checkpoint_ai_run(run_control, "Index build was cancelled before the next chunk.")?;
             let remaining = limit;
-            let mut chunk = collect_visit_chunk(
-                vault,
-                provider,
-                cursor,
-                upper_history_id,
-                chunk_size(remaining),
-                lineage,
-            )?;
+            let ids = plan.next_ids(vault, chunk_size(remaining))?;
+            let Some(last_history_id) = ids.last().copied() else { break };
+            let mut chunk = collect_visit_ids(vault, provider, &ids, lineage)?;
             // Older rebuild copies shared provenance with live files. A migrated row is not
             // evidence of source bytes: repair missing mappings/vectors before trusting its hash.
             for visit in &mut chunk {
                 visit.needs_embedding |= !tracker.mapped_ids.contains(&visit.history_id)
                     || !tracker.persisted_keys.contains(&visit.content_key);
             }
-            let Some(last_history_id) = chunk.last().map(|visit| visit.history_id) else {
-                break; // No more candidate rows.
-            };
-            // Advance the scan cursor past this chunk regardless of how many rows were changed, so the
-            // next pass never re-scans this id range.
             cursor = last_history_id + 1;
+            plan.cursor.next_history_id = cursor;
+            plan.cursor.scan.as_mut().unwrap().examined += ids.len() as u64;
 
             let changed: Vec<&IndexedVisit> = chunk
                 .iter()
-                .filter(|visit| rebuild || visit.needs_embedding)
+                .filter(|visit| {
+                    (rebuild && visit.history_id >= plan.scan().rebuild_from_history_id)
+                        || visit.needs_embedding
+                })
                 // WorkingSet scope: keep only candidates whose page is in the bounded working set. A
                 // `None` filter (Incremental/Full) keeps everything. Pages outside the set are counted as
                 // skipped below, exactly like an unchanged page — the loop body is otherwise unchanged.
@@ -743,6 +621,7 @@ async fn run_embedding_backfill(
                 let job_id = ledger.and_then(|ledger| ledger.job_id());
                 let embedded_so_far = embedded_total + changed.len() as u64;
                 let updated_so_far = outcome.updated_items as u64;
+                let scan = plan.cursor.scan;
                 let updated = vault.write(Db::Intelligence, Priority::Batch, move |s| {
                     let mut updated = 0;
                     for visit in &visits {
@@ -758,6 +637,7 @@ async fn run_embedding_backfill(
                         // Sources are already durable. Provenance, cursor and job counters share
                         // this commit, so a crash before the worker callback cannot lose counts.
                         let cursor = crate::ai_queue::IndexBackfillCursor {
+                            scan,
                             lineage: Some(lineage),
                             next_history_id: cursor,
                             embedded_so_far,
@@ -783,6 +663,7 @@ async fn run_embedding_backfill(
             // Record it as the resume watermark AND as the last-durable checkpoint so a later failure
             // re-persists this position (never the origin, never the un-persisted next chunk).
             last_durable = crate::ai::IndexBackfillProgress {
+                scan: plan.cursor.scan,
                 next_history_id: cursor,
                 embedded_so_far: embedded_total,
                 updated_so_far: outcome.updated_items as u64,
@@ -793,7 +674,7 @@ async fn run_embedding_backfill(
                 ledger.record(last_durable)?;
             }
 
-            if chunk.len() < chunk_size(remaining) {
+            if ids.len() < chunk_size(remaining) {
                 break; // Final (short) chunk: no more rows beyond this id range.
             }
         }
@@ -811,6 +692,8 @@ async fn run_embedding_backfill(
         }
         return Err(error);
     }
+    anyhow::ensure!(plan.scan().examined == plan.scan().total, "index-scan-incomplete");
+    outcome.scan = plan.cursor.scan;
     Ok(outcome)
 }
 

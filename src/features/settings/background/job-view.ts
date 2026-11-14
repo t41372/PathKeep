@@ -11,8 +11,9 @@
  * Not responsible for rendering or for running the actions.
  */
 import { useCallback } from 'react'
-import { useI18n } from '@/lib/i18n'
+import { useFormat, useI18n } from '@/lib/i18n'
 import { useSnapshot } from '@/lib/queries/app'
+import { presentIndexProgress } from '@/features/ai-setup/index-progress'
 import type { AiQueueJob, IntelligenceJobOverview } from '@/lib/types'
 
 export const jobStates = [
@@ -56,7 +57,13 @@ export interface JobView {
   rawState: string
   /** The time that matches the state: when it was added, started or ended. */
   at: string | null
-  progress: { percent: number | null; current?: number; total?: number } | null
+  progress: {
+    percent: number | null
+    current?: number
+    total?: number
+    label?: string
+    detail?: string
+  } | null
   error: string | null
   /** Who paused it and why, for a paused index build. */
   note: { text: string; problem: boolean } | null
@@ -82,6 +89,7 @@ function percentOf(current?: number | null, total?: number | null) {
 
 export function useJobViews() {
   const { t } = useI18n()
+  const format = useFormat()
   const profiles = useSnapshot().browserProfiles
 
   const typeName = useCallback(
@@ -143,8 +151,10 @@ export function useJobViews() {
   const fromAiQueue = useCallback(
     (job: AiQueueJob): JobView => {
       const running = job.state === 'running'
-      const target = job.progressEmbedTarget ?? 0
       const build = job.jobType === 'index-build'
+      const progress = build
+        ? presentIndexProgress(job.indexProgress, t, format)
+        : { percent: null }
       const pausedBy = job.state === 'paused' ? job.pausedBy : null
       return {
         key: `ai-${job.id}`,
@@ -158,15 +168,7 @@ export function useJobViews() {
             ? job.queuedAt
             : (job.finishedAt ?? job.heartbeatAt ?? job.queuedAt),
         progress:
-          running || (build && job.state === 'paused')
-            ? target > 0
-              ? {
-                  percent: percentOf(job.progressEmbedded, target),
-                  current: job.progressEmbedded,
-                  total: target,
-                }
-              : { percent: null }
-            : null,
+          running || (build && job.state === 'paused') ? progress : null,
         error:
           job.errorCode === ASSISTANT_RETIRED
             ? t('settingsBackground.assistantRetired')
@@ -193,7 +195,7 @@ export function useJobViews() {
         canPause: build && ['queued', 'stale', 'running'].includes(job.state),
       }
     },
-    [t, typeName],
+    [t, typeName, format],
   )
 
   return { fromRuntime, fromAiQueue }

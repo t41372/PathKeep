@@ -15,13 +15,16 @@
 use super::super::*;
 use super::IndexedVisit;
 use super::content::enrichment_summary_for;
-use vault_store::{Db, Session, params_owned as params};
+#[cfg(test)]
+use vault_store::params_owned as params;
+use vault_store::{Db, Session};
 
 /// Collects up to `limit` candidate visits with `history_id >= start_history_id`, ascending.
 ///
 /// Ascending-id order makes the scan resumable from a single watermark. Each visit carries its
 /// freshly built embedding content + hash and a `needs_embedding` flag (false when the stored
 /// content hash already matches, so the chunk can skip it without re-embedding).
+#[cfg(test)]
 pub(in crate::ai) fn collect_visit_chunk(
     vault: &crate::Vault,
     provider: &AiProviderRuntime,
@@ -65,6 +68,49 @@ pub(in crate::ai) fn collect_visit_chunk(
 
         Ok(raw_visits)
     })?;
+    hydrate(vault, provider, raw_visits, lineage)
+}
+
+/// Missing or hidden members remain resolved work items, but never reach the embedding provider.
+pub(super) fn collect_visit_ids(
+    vault: &crate::Vault,
+    provider: &AiProviderRuntime,
+    ids: &[i64],
+    lineage: &str,
+) -> Result<Vec<IndexedVisit>> {
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let slots = (1..=ids.len()).map(|i| format!("?{i}")).collect::<Vec<_>>().join(",");
+    let sql = format!("SELECT v.id,p.profile_key,u.url,u.title,v.visit_time_ms*1000+11644473600000000
+        FROM visits v JOIN urls u ON u.id=v.url_id JOIN source_profiles p ON p.id=v.source_profile_id
+        WHERE v.reverted_at IS NULL AND v.id IN ({slots}) ORDER BY v.id");
+    let ids = ids.to_vec();
+    let raw = vault.read(Db::Archive, move |s| {
+        Ok(s.query(&sql, vault_store::params_from_iter(ids), |r| {
+            Ok(IndexedVisit {
+                history_id: r.get(0)?,
+                profile_id: r.get(1)?,
+                url: r.get(2)?,
+                title: r.get(3)?,
+                domain: String::new(),
+                visited_at: crate::utils::chrome_time_to_rfc3339(r.get::<i64>(4)?),
+                content: String::new(),
+                content_hash: String::new(),
+                content_key: 0,
+                needs_embedding: false,
+            })
+        })?)
+    })?;
+    hydrate(vault, provider, raw, lineage)
+}
+
+fn hydrate(
+    vault: &crate::Vault,
+    provider: &AiProviderRuntime,
+    raw_visits: Vec<IndexedVisit>,
+    lineage: &str,
+) -> Result<Vec<IndexedVisit>> {
     let history_ids = raw_visits.iter().map(|visit| visit.history_id).collect::<Vec<_>>();
     let prompt =
         super::super::embedding_prompt::PromptProfile::for_model(&provider.config.default_model);

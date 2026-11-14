@@ -1,0 +1,174 @@
+{
+  "test": "updated visits and a later backup keep one truthful progress scope",
+  "status": "passed",
+  "durationMs": 20170,
+  "observations": [
+    {
+      "checkpoint": "original visits backed up",
+      "backupRun": {
+        "id": 72,
+        "startedAt": "2026-11-14T17:07:19.047134+00:00",
+        "finishedAt": "2026-11-14T17:07:19.186169+00:00",
+        "status": "success",
+        "runType": "backup",
+        "trigger": "manual",
+        "profileScope": [
+          "chrome:Default",
+          "chrome:Profile 1",
+          "firefox:k3x9.default-release"
+        ],
+        "manifestHash": "933583085da8d95306bb7a6627c4d9749bc172bcf2766922961d5415e9cbab58",
+        "profilesProcessed": 3,
+        "newVisits": 160,
+        "newUrls": 4,
+        "newDownloads": 0,
+        "errorMessage": null
+      }
+    },
+    {
+      "checkpoint": "new observations backed up",
+      "backupRun": {
+        "id": 74,
+        "startedAt": "2026-11-14T17:07:27.482688+00:00",
+        "finishedAt": "2026-11-14T17:07:27.602682+00:00",
+        "status": "success",
+        "runType": "backup",
+        "trigger": "manual",
+        "profileScope": [
+          "chrome:Default",
+          "chrome:Profile 1",
+          "firefox:k3x9.default-release"
+        ],
+        "manifestHash": "bab9e320e3bc68a93e43cd9e87baac5e9cefa675a521508032d79f37251b528a",
+        "profilesProcessed": 3,
+        "newVisits": 4,
+        "newUrls": 0,
+        "newDownloads": 0,
+        "errorMessage": null
+      }
+    },
+    {
+      "checkpoint": "updated batch",
+      "label": "Checking saved visits…",
+      "value": 0,
+      "semanticIndex": {
+        "chosen": {
+          "providerId": "embed-openai-099eee36",
+          "model": "e2e-embed"
+        },
+        "serving": {
+          "providerId": "embed-openai-099eee36",
+          "model": "e2e-embed"
+        },
+        "chosenComplete": true,
+        "build": {
+          "jobId": 22,
+          "state": "running",
+          "pausedBy": null,
+          "pauseMessage": null,
+          "progress": {
+            "phase": "visits",
+            "done": 23552,
+            "total": 23673,
+            "newVisits": 0,
+            "updatedVisits": 43
+          },
+          "done": 23552,
+          "total": 23673
+        }
+      },
+      "recentJobs": [
+        {
+          "id": 22,
+          "state": "running",
+          "summary": "Embedded 43 row(s) so far.",
+          "progressScanned": 23571,
+          "progressScanTarget": 23691,
+          "indexProgress": {
+            "phase": "visits",
+            "done": 23552,
+            "total": 23673,
+            "newVisits": 0,
+            "updatedVisits": 43
+          }
+        }
+      ]
+    },
+    {
+      "checkpoint": "same scope completed",
+      "semanticIndex": {
+        "chosen": {
+          "providerId": "embed-openai-099eee36",
+          "model": "e2e-embed"
+        },
+        "serving": {
+          "providerId": "embed-openai-099eee36",
+          "model": "e2e-embed"
+        },
+        "chosenComplete": true,
+        "build": null
+      },
+      "recentJobs": [
+        {
+          "id": 22,
+          "state": "succeeded",
+          "summary": "Indexed 4 new / 160 updated row(s).",
+          "progressScanned": 23692,
+          "progressScanTarget": 23691,
+          "indexProgress": {
+            "phase": "publishing",
+            "done": 0,
+            "total": null,
+            "newVisits": 4,
+            "updatedVisits": 160
+          }
+        }
+      ]
+    },
+    {
+      "checkpoint": "next scope includes later visit",
+      "semanticIndex": {
+        "chosen": {
+          "providerId": "embed-openai-099eee36",
+          "model": "e2e-embed"
+        },
+        "serving": {
+          "providerId": "embed-openai-099eee36",
+          "model": "e2e-embed"
+        },
+        "chosenComplete": true,
+        "build": null
+      },
+      "recentJobs": [
+        {
+          "id": 23,
+          "state": "succeeded",
+          "summary": "Indexed 1 new / 0 updated row(s).",
+          "progressScanned": 23693,
+          "progressScanTarget": 23692,
+          "indexProgress": {
+            "phase": "publishing",
+            "done": 0,
+            "total": null,
+            "newVisits": 1,
+            "updatedVisits": 0
+          }
+        },
+        {
+          "id": 22,
+          "state": "succeeded",
+          "summary": "Indexed 4 new / 160 updated row(s).",
+          "progressScanned": 23692,
+          "progressScanTarget": 23691,
+          "indexProgress": {
+            "phase": "publishing",
+            "done": 0,
+            "total": null,
+            "newVisits": 4,
+            "updatedVisits": 160
+          }
+        }
+      ]
+    }
+  ]
+}

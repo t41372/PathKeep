@@ -35,6 +35,7 @@
 mod backfill;
 mod candidates;
 mod content;
+mod scan_progress;
 pub(in crate::ai) mod store_rows;
 
 // Re-export the surface `super` (ai.rs) consumes so `ai::indexing::{...}` keeps working verbatim
@@ -88,6 +89,8 @@ pub(super) struct IndexedVisit {
 /// Aggregate outcome of one embedding-backfill pass, fed into the final `AiIndexReport`.
 #[derive(Debug, Default)]
 pub(super) struct BackfillOutcome {
+    pub removed_items: usize,
+    pub scan: Option<crate::ai_queue::IndexScan>,
     /// Vectors freshly embedded + persisted this pass.
     pub indexed_items: usize,
     /// Rows re-embedded because their content hash changed (subset of `indexed_items`).

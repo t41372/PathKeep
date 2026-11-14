@@ -40,6 +40,7 @@ fn reopening_recovers_only_abandoned_claims_and_keeps_finished_work() {
                 embedded_so_far: 316,
                 scan_target: 700,
                 embed_target: 700,
+                ..Default::default()
             },
             None,
         )
@@ -110,6 +111,7 @@ fn process_exit_requeues_inflight_claim_and_preserves_completed_job() {
                 embedded_so_far: 6000,
                 scan_target: 70_000,
                 embed_target: 70_000,
+                ..Default::default()
             },
             None,
         )
