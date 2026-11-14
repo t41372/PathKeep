@@ -10,6 +10,7 @@
 > 2026-10-25：清掉已完成或前提已不存在的 block（v0.3 Paper 前端、已移除的 coverage / mutation gate、已修好的 flaky 測試等，清單見 CHANGELOG 同日）。2026-04 到 2026-06 的收尾註記也一併移除，要看去 git 歷史或 CHANGELOG。
 
 - [ ] **WORK-VAULT-STORE-ROLES** — Agent 對話的資料庫併進 PathKeep 的存檔，並把「存檔裡有哪些資料庫和資料夾」集中到一張表（v0.6.0；接在 `WORK-AH-EVIDENCE-FORMAT` 之後）
+  - 一併定下：只有 Agent 對話的資料庫壞掉或要更新格式時，復原畫面和存檔更新畫面各說什麼（現在的文字講的是整個存檔打不開、和某一次特定的更新）。
   - 讀先：`docs/architecture/agent-history-product-design.md` §5；`docs/architecture/owner-process.md`、`store-schema.md`、`backup-integrity.md`；`program/quality-matrix.md` 的存檔變更規則。
   - 現在快照、搬家包、at-rest 檢查、改密碼與開關加密、儲存空間用量、刪除所有資料各有一份寫死的清單。先換成一張表（每個資料庫與資料夾：是原始還是可重建、要不要進快照、要不要搬、刪除所有資料時刪不刪），再加 Agent 對話的角色與自己的金鑰標籤。瀏覽紀錄既有資料庫的路徑、金鑰、遷移一個位元組都不能變。
   - 兩個守門測試：刪除所有資料後，資料根目錄裡沒有這張表不認得的東西；at-rest 檢查遇到不認得的檔案就失敗。漏刪某一種資料是這次工作最不能出的錯。
@@ -29,6 +30,7 @@
   - 每個新指令照現有的七個地方接好，dev bridge 一起；`WORK-COMMAND-CONTRACT-PARITY` 的比對測試先做，免得漏接。
 
 - [ ] **WORK-AH-SCREENS** — Agent 空間的畫面：洞察、紀錄與閱讀器、專案、備份、設定、啟用流程、背景任務頁（v0.6.0；接在 `WORK-SPACES-SHELL` 與 `WORK-AH-APP-SURFACE` 之後）
+  - 動工前先讀 `data-spaces.md` §0。搬位置的畫面搬現有的元件，不照設計稿重畫；每搬一個畫面，先從現在的元件和它的 E2E 列出所有控制項、狀態、規則，做完逐項對過。
   - 也在這一塊：設定側欄的「資料類型」分組與設定項目的搬移（`data-spaces.md` §8）、新手引導的「要保存什麼」與「來源」兩步（§3.3）、切換選單的「保存其他類型的資料」、導航列指示器的「打開背景任務」改到 `#/tasks`。這些是 `WORK-SPACES-SHELL` 留下的，用戶 2026-11-13 都同意了。
   - 讀先：`docs/features/agent-history.md` 第一部分、`docs/features/data-spaces.md`、`docs/design/data-spaces-tradeoff.md`；`docs/design/` 核心四份。
   - 版面與文案從設計原型搬進 `src/`，資料改成透過 typed client 向後端要：清單虛擬化、頁面先出骨架、重的計算不在主執行緒。每個畫面的空、載入、錯誤狀態照規格補齊，三語一起交付。
@@ -370,3 +372,9 @@
 2. 新工作一律先放進這裡，除非使用者明確要求立刻調整 `STATUS.md`
 3. 如果某個 block 需要再拆，只在 milestone 文檔的 WBS 裡拆，不把 `STATUS.md` / `BACKLOG.md` 再退回原子 task
 4. 依賴解除後，直接更新行尾的 `[!blocked: ...]`
+
+- [ ] **WORK-V05-SIDE-FINDINGS-2026-11** — 盤點 v0.6 設計時讀現在的程式看到的（2026-11-13；都還沒重現）
+  - Windows、Linux 的新手引導可能沒有最小化、最大化、關閉按鈕：系統標題列關掉了，視窗按鈕只有主畫面的外框在畫。
+  - 「找不到瀏覽器」或掃描失敗的說明上按 `重新檢查` 失敗時，什麼都不顯示；「自動備份」卡的 `再檢查一次` 失敗時也一樣。
+  - 「自動備份」卡讀排程狀態失敗時，一直停在骨架。
+  - 新手引導的排程預覽只在每個間隔第一次被選時寫入設定；選過別的再選回來、然後關掉，下次可能從錯的間隔開始。
