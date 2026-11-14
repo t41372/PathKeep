@@ -27,6 +27,8 @@ artifacts/e2e/*
 artifacts/owner-process/
 # What each archive-lifecycle test saw on disk (file lists, marker locations, hashes).
 artifacts/vault-lifecycle/
+# Compiler messages from the layout table's compile-fail tests.
+artifacts/vault-layout/
 artifacts/agent-history/*
 !artifacts/agent-history/README.md
 !artifacts/e2e/README.md
