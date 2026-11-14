@@ -5,6 +5,7 @@ import { Stat } from '~/components/bits'
 import { DAY, NOW } from '~/data/fixture'
 import { localDayKey, num } from '~/data/format'
 import { mulberry32 } from '~/data/rng'
+import { NotRedrawn } from '~/components/not-redrawn'
 
 const rng = mulberry32(7)
 const daily = Array.from({ length: 30 }, (_, i) => {
@@ -35,6 +36,7 @@ export default function BrowsingInsightsPage() {
   const max = topSites[0][1]
   return (
     <PageScroll wide>
+      <NotRedrawn page="洞察" />
       <PageHeader title="洞察" subtitle="瀏覽紀錄 · 最近 30 天" />
       <div className="grid grid-cols-[repeat(auto-fit,minmax(180px,1fr))] gap-3">
         <Stat label="造訪的頁面" value={num(total)} sub={`每天平均 ${num(total / 30)} 頁`} />

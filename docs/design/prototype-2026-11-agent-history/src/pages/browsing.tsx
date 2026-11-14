@@ -11,6 +11,7 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { dayLabel, localDayKey, time } from '~/data/format'
 import { browserSources } from './backup/sources-data'
 import { visits, type Visit } from './browsing/visits'
+import { NotRedrawn } from '~/components/not-redrawn'
 
 function Favicon({ domain }: { domain: string }) {
   let h = 0
@@ -63,6 +64,9 @@ export default function BrowsingHistoryPage() {
 
   return (
     <div className="flex min-w-0 flex-1 flex-col">
+      <div className="shrink-0 px-5 pt-3">
+        <NotRedrawn page="紀錄" />
+      </div>
       <div className="flex shrink-0 items-center gap-2.5 border-b px-5 py-3">
         <div className="relative flex-1">
           <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />

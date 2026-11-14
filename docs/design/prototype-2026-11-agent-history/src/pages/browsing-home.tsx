@@ -11,11 +11,13 @@ import { Button } from '@/components/ui/button'
 import { useProto } from '~/proto-state'
 import { OnThisDayCard, TrendCard, YearCard } from './browsing/home-cards'
 import { AgentIntroCard } from './home/cards'
+import { NotRedrawn } from '~/components/not-redrawn'
 
 export default function BrowsingHomePage() {
   const { agentEnabled } = useProto()
   return (
     <PageScroll>
+      <NotRedrawn page="首頁" />
       <PageHeader
         eyebrow="2026 年 11 月 13 日 星期五"
         title="午安"

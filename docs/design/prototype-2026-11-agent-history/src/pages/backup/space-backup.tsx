@@ -71,7 +71,7 @@ export default function SpaceBackupPage() {
   const space = spaceOfPath(pathname) ?? 'browsing'
   const kind = kindById[space]
   const last = NOW - 78 * 60_000
-  const schedule = { label: '每 2 小時', ms: 2 * 3600_000 }
+  const schedule = { label: '每小時', ms: 3600_000 }
   const running = useTasks().find((t) => t.space === space && t.state === 'running' && t.title.startsWith('備份'))
   const [hideNotice, setHideNotice] = useState(false)
   const size = archiveBytes[space]
