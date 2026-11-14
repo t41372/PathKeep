@@ -1,0 +1,71 @@
+{
+  "files": [
+    "archive/.pk-owner.lock",
+    "archive/history-vault.db",
+    "archive/history-vault.db-wal",
+    "archive/source-evidence.db",
+    "archive/source-evidence.db-wal",
+    "audit/.gitignore",
+    "audit/README.md",
+    "audit/manifests/<date-1>/run-1-<hash-1>.json",
+    "config.json",
+    "derived/agent.db",
+    "derived/agent.db-wal",
+    "derived/intelligence.db",
+    "derived/intelligence.db-wal",
+    "derived/scratch.db",
+    "derived/scratch.db-wal",
+    "derived/search-index/<generation-1>/.managed.json",
+    "derived/search-index/<generation-1>/.tantivy-meta.lock",
+    "derived/search-index/<generation-1>/.tantivy-writer.lock",
+    "derived/search-index/<generation-1>/<segment-1>.fast",
+    "derived/search-index/<generation-1>/<segment-1>.fieldnorm",
+    "derived/search-index/<generation-1>/<segment-1>.idx",
+    "derived/search-index/<generation-1>/<segment-1>.pos",
+    "derived/search-index/<generation-1>/<segment-1>.store",
+    "derived/search-index/<generation-1>/<segment-1>.term",
+    "derived/search-index/<generation-1>/meta.json",
+    "derived/search-index/current",
+    "raw-snapshots/chrome%3ADefault/<checkpoint-1>/History"
+  ],
+  "markers": {
+    "discardedgeneration": [],
+    "pkagentdenim": [],
+    "pkarchiveamber": [],
+    "pkaskhazel": [],
+    "pkcheckpointgold": [
+      "raw-snapshots/chrome%3ADefault/<checkpoint-1>/History"
+    ],
+    "pkevidencebirch": [],
+    "pkintelligencecoral": [],
+    "pksearchelm": [
+      "archive/history-vault.db",
+      "archive/source-evidence.db",
+      "raw-snapshots/chrome%3ADefault/<checkpoint-1>/History"
+    ],
+    "pktextfuchsia": [],
+    "targetagent": ["derived/agent.db"],
+    "targetarchive": ["archive/history-vault.db"],
+    "targetevidence": ["archive/source-evidence.db"],
+    "targetintelligence": ["derived/intelligence.db"]
+  },
+  "logical": {
+    "archive/history-vault.db": "targetarchive",
+    "archive/source-evidence.db": "targetevidence",
+    "derived/intelligence.db": "targetintelligence",
+    "derived/agent.db": "targetagent",
+    "searchTitles": ["pksearchelm"],
+    "askMessages": null,
+    "savedTextLocators": []
+  },
+  "databaseHeaders": {
+    "archive/history-vault.db": "sqlite",
+    "archive/source-evidence.db": "sqlite",
+    "derived/agent.db": "sqlite",
+    "derived/intelligence.db": "sqlite",
+    "derived/scratch.db": "empty"
+  },
+  "configMode": "Plaintext",
+  "plaintextGapFamilies": ["raw-snapshots/**"],
+  "unknown": []
+}

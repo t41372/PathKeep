@@ -1,0 +1,55 @@
+{
+  "files": [
+    "archive/.pk-owner.lock",
+    "archive/history-vault.db",
+    "archive/history-vault.db-wal",
+    "archive/source-evidence.db",
+    "archive/source-evidence.db-wal",
+    "config.json",
+    "derived/agent.db",
+    "derived/agent.db-wal",
+    "derived/intelligence.db",
+    "derived/intelligence.db-wal",
+    "derived/scratch.db",
+    "derived/scratch.db-wal",
+    "derived/search-index/<generation-1>/.managed.json",
+    "derived/search-index/<generation-1>/.tantivy-meta.lock",
+    "derived/search-index/<generation-1>/.tantivy-writer.lock",
+    "derived/search-index/<generation-1>/meta.json",
+    "derived/search-index/current"
+  ],
+  "markers": {
+    "discardedgeneration": [],
+    "pkagentdenim": [],
+    "pkarchiveamber": [],
+    "pkaskhazel": [],
+    "pkcheckpointgold": [],
+    "pkevidencebirch": [],
+    "pkintelligencecoral": [],
+    "pksearchelm": [],
+    "pktextfuchsia": [],
+    "targetagent": [],
+    "targetarchive": [],
+    "targetevidence": [],
+    "targetintelligence": []
+  },
+  "logical": {
+    "archive/history-vault.db": null,
+    "archive/source-evidence.db": null,
+    "derived/intelligence.db": null,
+    "derived/agent.db": null,
+    "searchTitles": [],
+    "askMessages": null,
+    "savedTextLocators": []
+  },
+  "databaseHeaders": {
+    "archive/history-vault.db": "sqlite",
+    "archive/source-evidence.db": "sqlite",
+    "derived/agent.db": "sqlite",
+    "derived/intelligence.db": "sqlite",
+    "derived/scratch.db": "empty"
+  },
+  "configMode": "Plaintext",
+  "plaintextGapFamilies": [],
+  "unknown": []
+}

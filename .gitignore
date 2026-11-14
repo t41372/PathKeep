@@ -25,6 +25,8 @@ playwright-report
 artifacts/e2e/*
 # Owner-process test artifacts (result.json, sidecar-mcp.json).
 artifacts/owner-process/
+# What each archive-lifecycle test saw on disk (file lists, marker locations, hashes).
+artifacts/vault-lifecycle/
 artifacts/agent-history/*
 !artifacts/agent-history/README.md
 !artifacts/e2e/README.md

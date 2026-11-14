@@ -1,0 +1,23 @@
+{
+  "files": ["archive/.pk-archive-write.lock", "archive/.pk-owner.lock"],
+  "markers": {
+    "discardedgeneration": [],
+    "pkagentdenim": [],
+    "pkarchiveamber": [],
+    "pkaskhazel": [],
+    "pkcheckpointgold": [],
+    "pkevidencebirch": [],
+    "pkintelligencecoral": [],
+    "pksearchelm": [],
+    "pktextfuchsia": [],
+    "targetagent": [],
+    "targetarchive": [],
+    "targetevidence": [],
+    "targetintelligence": []
+  },
+  "logical": null,
+  "databaseHeaders": {},
+  "configMode": null,
+  "plaintextGapFamilies": [],
+  "unknown": []
+}
