@@ -20,12 +20,12 @@ import { cn } from '@/lib/cn'
 import { kindById, kinds, type KindId } from '~/kinds'
 import { useProto } from '~/proto-state'
 import { AgentSection } from './agent-section'
+import { AiSection } from './ai-section'
 import { BackgroundSection } from './background-section'
 import { BrowsingSection } from './browsing-section'
 import { KindsSection } from './kinds-section'
 import {
   AboutSection,
-  AiSection,
   GeneralSection,
   PlannedKindSection,
   SecuritySection,

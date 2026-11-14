@@ -50,9 +50,11 @@ const proto = sources(protoSrc)
 // opposite: the app keeps it exactly as it is and the prototype does not draw
 // that state (a failure message, an in-between state). Controls and features
 // never belong on the second list.
-const listed = ['changed-on-purpose.json', 'kept-not-drawn.json'].flatMap(
-  (name) => JSON.parse(readFileSync(join(here, name), 'utf8')) as { key: string; reason: string }[],
-)
+// Each part of the prototype keeps its own pair of files (`changed-on-purpose.<part>.json`,
+// `kept-not-drawn.<part>.json`) so they can be edited side by side.
+const listed = readdirSync(here)
+  .filter((name) => /^(changed-on-purpose|kept-not-drawn)(\.[a-z-]+)?\.json$/.test(name))
+  .flatMap((name) => JSON.parse(readFileSync(join(here, name), 'utf8')) as { key: string; reason: string }[])
 const isAllowed = (key: string) => listed.some((entry) => key === entry.key || key.startsWith(`${entry.key}.`))
 
 /** Keys a file names: literals, and every leaf under a template's literal prefix. */
