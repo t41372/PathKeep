@@ -11,7 +11,10 @@
  *   bun docs/design/prototype-2026-11-agent-history/parity/check.ts <real file>...
  *   bun …/check.ts --strings <real file>...   (print key → zh-TW, no check)
  *
- * It only sees keys written as literals or as a template with a literal
+ * What it proves: no sentence of the real screen is absent from the part of
+ * the prototype that stands for it. What it does not: that the control or
+ * state the sentence belongs to is drawn, wired or on the right page. It sees
+ * keys written as literals anywhere in the file and templates with a literal
  * prefix; a key assembled another way has to be checked by reading.
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs'
@@ -40,10 +43,25 @@ function sources(dir: string): string[] {
     return /\.(tsx?|json)$/.test(name) ? [path] : []
   })
 }
-const proto = sources(protoSrc)
-  .map((path) => readFileSync(path, 'utf8'))
-  .join('\n')
-  .replace(/\s+/g, '')
+const protoFiles = sources(protoSrc).map((path) => ({ path: relative(protoSrc, path), text: readFileSync(path, 'utf8').replace(/\s+/g, '') }))
+
+// A real file is looked for only in the part of the prototype that stands for it, so
+// a text that sits on some other page does not count.
+const scopes: [RegExp, string[]][] = [
+  [/features\/backup\/(schedule-|interval|path-actions)/, ['pages/schedule/', 'pages/settings/background-section.tsx', 'pages/browsing-backup/']],
+  [/features\/backup\//, ['pages/browsing-backup/']],
+  [/features\/settings\/background\//, ['pages/tasks', 'pages/schedule/', 'pages/settings/background-section.tsx', 'pages/settings/browsing-section.tsx']],
+  [/features\/settings\/(online-rows|export-row)/, ['pages/settings/browsing-section.tsx']],
+  [/features\/settings\/(ai-section|semantic-|provider-|mcp-log-row|rebuild-dialog|use-rebuild|search-tuning-row)/, ['pages/settings/ai-section.tsx', 'pages/settings/ai/']],
+  [/features\/settings\/settings-page/, ['pages/settings/settings.tsx']],
+  [/features\/settings\//, ['pages/settings/general', 'pages/settings/security', 'pages/settings/storage', 'pages/settings/about', 'pages/settings/pathkeep-kit/']],
+  [/features\/onboarding\//, ['pages/onboarding', 'pages/settings/ai/', 'pages/browsing-backup/progress']],
+]
+function protoFor(file: string) {
+  const scope = scopes.find(([pattern]) => pattern.test(file))
+  const parts = scope ? protoFiles.filter((f) => scope[1].some((prefix) => f.path.startsWith(prefix))) : protoFiles
+  return parts.map((f) => f.text).join('\n')
+}
 
 // Two lists excuse a text from appearing in the prototype. `changed-on-purpose`
 // is the design: this text goes away or is reworded. `kept-not-drawn` is the
@@ -73,6 +91,12 @@ function keysOf(file: string): string[] {
       if (forms.length === 0) found.add(`?? ${key}`)
     }
   }
+  // Keys that are not written inside t(…): picked by a condition or kept in a table.
+  for (const match of text.matchAll(/['"`]([A-Za-z][A-Za-z0-9]*(?:\.[A-Za-z0-9_]+)+)['"`]/g)) {
+    const key = match[1]
+    if (flat.has(key)) found.add(key)
+    for (const form of [`${key}_one`, `${key}_other`]) if (flat.has(form)) found.add(form)
+  }
   return [...found].sort()
 }
 
@@ -88,8 +112,11 @@ const args = process.argv.slice(2)
 const stringsOnly = args[0] === '--strings'
 const files = (stringsOnly ? args.slice(1) : args).map((file) => resolve(file))
 let missing = 0
+// Texts of three characters or fewer: finding them proves little, a longer text can hide them.
+let weak = 0
 for (const file of files) {
   const keys = keysOf(file)
+  const proto = protoFor(relative(repo, file))
   const lines: string[] = []
   for (const key of keys) {
     const message = flat.get(key)
@@ -106,12 +133,13 @@ for (const file of files) {
     if (absent.length > 0) {
       missing += 1
       lines.push(`  MISSING ${key} = ${message}`)
-    }
+    } else if (parts(message).join('').length <= 3) weak += 1
   }
   console.log(`${relative(repo, file)}: ${keys.length} keys${stringsOnly ? '' : `, ${lines.filter((line) => line.includes('MISSING')).length} missing`}`)
   if (lines.length > 0) console.log(lines.join('\n'))
 }
 if (!stringsOnly) {
-  console.log(missing === 0 ? '\nEvery text is in the prototype or on one of the two lists.' : `\n${missing} texts are neither in the prototype nor on a list.`)
+  console.log(`\n${weak} texts are three characters or fewer; finding those proves little.`)
+  console.log(missing === 0 ? 'Every text is in its part of the prototype or on one of the two lists.' : `\n${missing} texts are neither in the prototype nor on a list.`)
   process.exit(missing === 0 ? 0 : 1)
 }
