@@ -16,6 +16,7 @@
   - 名稱避開 `agent.db`／`Db::Agent`，那是助理自己的對話。
 
 - [ ] **WORK-AH-READ-MODEL** — Agent 對話的讀取模型與查詢：對話摘要、大綱、每一輪的事實、專案歸類；清單、閱讀器、搜尋、洞察要的查詢（v0.6.0；接在 `WORK-AH-EVIDENCE-FORMAT` 之後）
+  - 開工時一併做 `WORK-AH-REVIEW-FOLLOWUPS` 的項目（用戶 2026-11-13）。
   - 讀先：`docs/architecture/agent-history-product-design.md` §3（專案與區塊）、§6–§9；`docs/features/agent-history.md` 第一部分每個數字的定義；`docs/architecture/research/agent-history/` 各工具的用量與時間紀錄方式。
   - 換掉逐事件的表：內容不再存第二、第三份，閱讀器、搜尋摘要、對話內搜尋都從原始分塊讀。先在 4 核 8 GB 的機器上量視窗讀取與全文 regex，達不到 100 ms 回饋就用設計文件寫的退路。
   - 每個工具的用量與時間規則各自有測試（Claude Code 同一個回應的用量只算一次、Codex 的累計值取差、複製或繼承來的紀錄不重算）。沒有用量紀錄的對話不算成 0。
@@ -34,6 +35,7 @@
   - 收工條件：`docs/design/prototype-2026-11-agent-history/` 連同 `.prettierignore`、`eslint.config.js` 裡的排除項刪掉，這個分支才進 `main`。
 
 - [ ] **WORK-AH-REVIEW-FOLLOWUPS** — Agent 對話核心庫修正之後那一次審查留下的事（2026-11-13；審查沒找到會丟失或毀損已存資料的路徑）
+  - 用戶 2026-11-13：跟 `WORK-AH-READ-MODEL` 一起做，不另外開一塊。那一塊開工時把這裡的項目併進去；「一個壞檔停掉整個存檔」那一項在讀取模型接上清單和搜尋之前修好。
   - 讀過程式碼確認的兩項：
     - 一條接續鏈繞成圈時（`query/line.rs` 回 `native lineage cycle`），錯誤一路傳到 `append_lineage_issues` 和 `normalization_complete`，整個存檔的備份、搜尋、`verify` 都會失敗。一個壞檔不該停掉整個存檔：那段對話標成不完整並回報，其他照常。先寫出能造出圈的合成檔（兩個 rollout 互指、邊界都是 0）。
     - `archive/comparison.rs` 用索引直接取切片清單，清單比版本短時會 panic，應該回報存檔損毀。
