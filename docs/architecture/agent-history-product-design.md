@@ -45,12 +45,18 @@ A **conversation** is new and is what everything the user sees hangs on.
   conversation is found under a second root. A subagent's key is never its
   parent's key.
 - **The key is the native id plus an origin mark.** The mark is something every
-  copy of one conversation shares and an unrelated conversation does not: by
-  default a digest of the transcript's first record, or what the adapter knows
-  to be steadier (for Codex the thread id and the creation time in its session
-  record, because a reverted rollout rewrites that record). Two files under
-  different roots with the same native id are one conversation when their marks
-  match, and two conversations when they do not. The core's existing contract,
+  file of one conversation shares and an unrelated conversation with the same
+  native id would not. Each adapter says what it is. For Claude Code and Pi it
+  is a digest of the transcript's first record, which is written once. Codex and
+  DeepSeek have none, so the id alone is the key: every rollout of a Codex
+  thread carries its own time in its session record, and DeepSeek's generations
+  are separate files whose headers could not be compared on real data. A tool
+  that rewrites one JSON document each time has no steady content, so its mark
+  is the source. Two files under different roots with the same native id are one
+  conversation when their marks match, and two conversations when they do not.
+  A transcript whose first record is still being written has no conversation
+  yet; it gets one, with the id the finished file gives, when the record is
+  whole. The core's existing contract,
   that an id reused under another root must not merge two histories, holds for
   strangers and no longer splits copies.
 - **The id is derived, not issued.** The conversation id is
@@ -63,6 +69,20 @@ A **conversation** is new and is what everything the user sees hangs on.
   gives it, where the parent's transcript sits). The link resolves to the
   parent's conversation as soon as the parent is in the archive, whichever of
   the two was captured first.
+- **A fork is not a child.** A parent is the conversation that spawned this one
+  as a subagent. A conversation the user forked from another (Codex
+  `forked_from_id`, a Claude Code transcript that begins with another session's
+  records, a DeepSeek `parentSession` without `origin: "subagent"`) carries a
+  separate "forked from" link, resolved the same way. It is a top-level
+  conversation: it is not nested under the one it came from, and putting that
+  one in the trash leaves it where it is.
+- **A conversation with a published source is always reachable.** It is listed,
+  its user state can be read and changed, and exactly one of its sources is
+  current, whatever happens to its other files. A DeepSeek generation that has
+  been captured and cannot be read still supersedes the older ones (the tool
+  itself never falls back): the conversation stays listed under the same id with
+  its user state, marked as not fully read, and its line is empty until the
+  generation can be read. The older generation does not stand in for it.
 - **A conversation has one or more sources, and the adapter says how they
   relate.** A source is either a transcript that stands on its own, or one that
   continues another source from a stated boundary. The reader shows the current
@@ -82,12 +102,12 @@ A **conversation** is new and is what everything the user sees hangs on.
 
 What the local files show (counts only, 2026-11-13), and the rule each gives:
 
-| Tool        | Observed                                                                                                                                                                                                                                                                                                                                                   | Key                                                                                                                                                                                                                    |
-| ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Claude Code | 562 of 564 main transcripts are named after the session id their records carry. The other 2 begin with records copied from another session and are named after their own, later id                                                                                                                                                                         | The file name. A copied beginning is a "continued from" link, and its usage is not counted twice                                                                                                                       |
-| Claude Code | 7,112 of 7,284 subagent files carry their **parent's** session id; 132 carry none. All have an agent id; 3,072 sit in nested workflow folders                                                                                                                                                                                                              | The parent's session id (the folder above `subagents/`) plus the file's path below `subagents/`                                                                                                                        |
-| Codex       | 2,577 rollouts, 2,107 of them compressed. 92 files in 54 threads are named `<thread>_<rollout>`: after a revert the same thread gets another rollout. 68 of them name the rollout they inherit from and where it ends (31 the thread's first rollout, 37 a later one, so there are chains); 24 inherit nothing. None repeats the earlier rollout's records | The stable thread id. Rollouts are sources of one conversation. One that inherits reads its beginning from the rollout it names, which may itself inherit. The current line is the rollout with the latest last record |
-| Pi          | 39 files, each with its own id; 38 file names contain it                                                                                                                                                                                                                                                                                                   | The header id                                                                                                                                                                                                          |
+| Tool        | Observed                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | Key                                                                                                                                                                                                                    |
+| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Claude Code | 562 of 564 main transcripts are named after the session id their records carry. The other 2 begin with records copied from another session and are named after their own, later id                                                                                                                                                                                                                                                                                                                                                                                                                                      | The file name. A copied beginning is a "continued from" link, and its usage is not counted twice                                                                                                                       |
+| Claude Code | 7,112 of 7,284 subagent files carry their **parent's** session id; 132 carry none. All have an agent id; 3,072 sit in nested workflow folders                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | The parent's session id (the folder above `subagents/`) plus the file's path below `subagents/`                                                                                                                        |
+| Codex       | 2,577 rollouts, 2,107 of them compressed. 92 files in 54 threads are named `<thread>_<rollout>`: after a revert the same thread gets another rollout. 68 of them name the rollout they inherit from and where it ends (31 the thread's first rollout, 37 a later one, so there are chains); 24 inherit nothing. None repeats the earlier rollout's records. All 92 carry the thread id; every file of a thread has its own time in its session record, and none repeats the first rollout's. Within a thread the file-name times all differ, and the rollout with the latest last record is always the latest-named one | The stable thread id. Rollouts are sources of one conversation. One that inherits reads its beginning from the rollout it names, which may itself inherit. The current line is the rollout with the latest last record |
+| Pi          | 39 files, each with its own id; 38 file names contain it                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | The header id                                                                                                                                                                                                          |
 
 Today's rule (session id = source id) makes the user's stars and deletions
 depend on an absolute path, gives a new session to every extra file of one
