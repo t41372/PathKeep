@@ -110,7 +110,6 @@ export function Switcher({
         <Toggle label="沒有原生檔案選擇器（瀏覽器裡：輸入路徑）" checked={!scene.nativeFiles} onChange={(off) => onScene({ nativeFiles: !off })} />
         <Toggle label="最近的匯入：一筆都沒有" checked={scene.importsEmpty} onChange={(importsEmpty) => onScene({ importsEmpty })} />
         <Toggle label="最近記錄：一筆都沒有" checked={scene.runsEmpty} onChange={(runsEmpty) => onScene({ runsEmpty })} />
-        <Toggle label="自動備份開著" checked={scene.scheduleOn} onChange={(scheduleOn) => onScene({ scheduleOn })} />
         <div className="flex items-center justify-between gap-2">
           <span>把檔案拖進視窗</span>
           <span className="flex gap-1.5">

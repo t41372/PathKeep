@@ -1,13 +1,13 @@
 /**
  * 存在哪裡: today's step (src/features/onboarding/storage-step.tsx): where the
  * archive will be created, a button to show the folder, and the size tiles.
- * The §3.3 addition is the list 「第一次備份後大約會用掉」, one line per chosen
- * type and a 合計.
+ * With only browsing chosen it is today's three tiles. With more types the
+ * same three numbers become one row per type and a 合計.
  */
 import { FolderOpen } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { bytes as formatBytes, num } from '~/data/format'
-import { archiveBytes } from '../backup/sources-data'
+import { archiveBytes, sourceBytesOfKind } from '../backup/sources-data'
 import type { StepKind } from './sources-data'
 import { StepHeading } from './steps'
 
@@ -32,18 +32,23 @@ export function StorageStep({ list, selection, mac }: { list: StepKind[]; select
   const profiles = browsing ? chosen(browsing) : []
   const sourceBytes = profiles.reduce((sum, s) => sum + parseAmount(s.amount), 0)
   const estimate = browsingEstimate(sourceBytes, profiles.length)
+  // Today's three numbers, one row per chosen type: what the sources hold now, about what the
+  // first backup will take, and how many sources. Browsing from the app's estimate, Agent from its
+  // sources, made-up types filler.
+  const rows = list.map((kind) => {
+    const n = chosen(kind).length
+    const share = n / Math.max(1, kind.sources.length)
+    const source = kind.id === 'browsing' ? sourceBytes : kind.id === 'agent' ? Math.round((sourceBytesOfKind.agent ?? 0) * share) : n * 52_000_000
+    const after = kind.id === 'browsing' ? estimate : kind.id === 'agent' ? Math.round((archiveBytes.agent ?? 0) * share) : n * 41_000_000
+    return { kind, source, after, count: n }
+  })
+  const total = { source: rows.reduce((sum, row) => sum + row.source, 0), after: rows.reduce((sum, row) => sum + row.after, 0), count: rows.reduce((sum, row) => sum + row.count, 0) }
+  const onlyBrowsing = rows.length === 1 && rows[0].kind.id === 'browsing'
   const tiles = [
     { label: '瀏覽器歷史', value: formatBytes(sourceBytes) },
     { label: '預計大小', value: `≈ ${formatBytes(estimate)}` },
     { label: '瀏覽器', value: num(profiles.length) },
   ]
-  // One line per chosen type: browsing from the estimate above, Agent from its sources, made-up types filler.
-  const rows = list.map((kind) => {
-    const n = chosen(kind).length
-    const value = kind.id === 'browsing' ? estimate : kind.id === 'agent' ? Math.round(((archiveBytes.agent ?? 0) * n) / Math.max(1, kind.sources.length)) : n * 41_000_000
-    return { kind, bytes: value }
-  })
-  const total = rows.reduce((sum, row) => sum + row.bytes, 0)
 
   return (
     <>
@@ -60,33 +65,55 @@ export function StorageStep({ list, selection, mac }: { list: StepKind[]; select
           </Button>
         </div>
       </section>
-      <dl className="grid grid-cols-3 gap-2.5">
-        {tiles.map((tile) => (
-          <div key={tile.label} className="flex flex-col gap-1 rounded-[10px] border bg-card p-3.5 shadow-card">
-            <dt className="text-xs text-muted-foreground">{tile.label}</dt>
-            <dd className="text-xl font-semibold tabular">{tile.value}</dd>
-          </div>
-        ))}
-      </dl>
-      <p className="text-[13px] leading-normal text-muted-foreground">依你選的瀏覽器估算。之後每次備份，存檔會再大一點。</p>
-      <section className="flex flex-col gap-2.5 rounded-xl border bg-card p-[18px] shadow-card">
-        <h2 className="text-[13px] font-medium">第一次備份後大約會用掉</h2>
-        <dl className="flex flex-col gap-2 text-[13px]">
-          {rows.map(({ kind, bytes }) => (
-            <div key={kind.id} className="flex items-center justify-between gap-3">
-              <dt className="flex items-center gap-2">
-                <kind.icon className="size-3.5 text-muted-foreground" aria-hidden />
-                {kind.label}
-              </dt>
-              <dd className="font-mono tabular">≈ {formatBytes(bytes)}</dd>
+      {onlyBrowsing ? (
+        <dl className="grid grid-cols-3 gap-2.5">
+          {tiles.map((tile) => (
+            <div key={tile.label} className="flex flex-col gap-1 rounded-[10px] border bg-card p-3.5 shadow-card">
+              <dt className="text-xs text-muted-foreground">{tile.label}</dt>
+              <dd className="text-xl font-semibold tabular">{tile.value}</dd>
             </div>
           ))}
-          <div className="flex items-center justify-between gap-3 border-t pt-2.5 font-medium">
-            <dt>合計</dt>
-            <dd className="font-mono tabular">≈ {formatBytes(total)}</dd>
-          </div>
         </dl>
-      </section>
+      ) : (
+        <section className="rounded-xl border bg-card p-[18px] shadow-card">
+          <table className="w-full text-[13px]">
+            <thead>
+              <tr className="text-left text-xs text-muted-foreground">
+                <th className="pb-2 font-normal">資料類型</th>
+                <th className="pb-2 text-right font-normal">來源現在的大小</th>
+                <th className="pb-2 text-right font-normal">第一次備份後大約</th>
+                <th className="pb-2 text-right font-normal">來源</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(({ kind, source, after, count }) => (
+                <tr key={kind.id} className="border-t">
+                  <th scope="row" className="py-2 text-left font-normal">
+                    <span className="flex items-center gap-2">
+                      <kind.icon className="size-3.5 text-muted-foreground" aria-hidden />
+                      {kind.label}
+                    </span>
+                  </th>
+                  <td className="py-2 text-right font-mono tabular">{formatBytes(source)}</td>
+                  <td className="py-2 text-right font-mono tabular">≈ {formatBytes(after)}</td>
+                  <td className="py-2 text-right font-mono tabular">{num(count)}</td>
+                </tr>
+              ))}
+              {rows.length > 1 && (
+                <tr className="border-t font-medium">
+                  <th scope="row" className="pt-2.5 text-left font-medium">
+                    合計
+                  </th>
+                  <td className="pt-2.5 text-right font-mono tabular">{formatBytes(total.source)}</td>
+                  <td className="pt-2.5 text-right font-mono tabular">≈ {formatBytes(total.after)}</td>
+                  <td className="pt-2.5 text-right font-mono tabular">{num(total.count)}</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </section>
+      )}
+      <p className="text-[13px] leading-normal text-muted-foreground">{onlyBrowsing ? '依你選的瀏覽器估算。之後每次備份，存檔會再大一點。' : '依你選的來源估算。之後每次備份，存檔會再大一點。'}</p>
     </>
   )
 }

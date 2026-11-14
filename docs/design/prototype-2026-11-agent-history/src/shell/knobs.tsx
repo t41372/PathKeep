@@ -38,12 +38,6 @@ export function Knobs() {
       </PopoverTrigger>
       <PopoverContent side="top" align="end" className="flex w-[320px] flex-col gap-4">
         <p className="text-xs leading-relaxed text-muted-foreground">只屬於原型的切換，用來看不同設定下的樣子。資料全是假的。</p>
-        <Row label="導航">
-          <ToggleGroup type="single" variant="outline" size="sm" value={p.nav} onValueChange={(v) => v && p.set({ nav: v as 'spaces' | 'types' })}>
-            <ToggleGroupItem value="spaces">切換空間（這一輪）</ToggleGroupItem>
-            <ToggleGroupItem value="types">依類型（上一輪）</ToggleGroupItem>
-          </ToggleGroup>
-        </Row>
         <Row label="開啟的資料類型">
           <ToggleGroup type="single" variant="outline" size="sm" value={p.preset} onValueChange={(v) => v && p.set({ preset: v as KindPreset })}>
             <ToggleGroupItem value="agent">只有 Agent</ToggleGroupItem>
@@ -52,12 +46,6 @@ export function Knobs() {
             <ToggleGroupItem value="six">六種</ToggleGroupItem>
           </ToggleGroup>
         </Row>
-        {p.nav === 'types' && (
-          <label className="flex items-center justify-between gap-3 text-[13px]">
-            只開一種時，頁面直接放進導航列
-            <Switch checked={p.flatten} onCheckedChange={(v) => p.set({ flatten: v })} />
-          </label>
-        )}
         <label className="flex items-center justify-between gap-3 text-[13px]">
           升級後還沒開啟 Agent 對話
           <Switch checked={!p.agentEnabled} onCheckedChange={(v) => p.set({ agentEnabled: !v })} />

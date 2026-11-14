@@ -7,11 +7,12 @@
  */
 import { CircleAlert, CircleCheck, Clock, HardDriveDownload, Pause, Play } from 'lucide-react'
 import { toast } from 'sonner'
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { PageHeader, PageScroll, SectionCard } from '@/components/app/section-card'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
+import { Switch } from '@/components/ui/switch'
 import { NOW } from '~/data/fixture'
 import { time } from '~/data/format'
 import { cancelTask, dismissTask, pauseTask, retryTask, useTasks, type Task } from '~/data/tasks'
@@ -59,17 +60,26 @@ function TaskRow({ task, action }: { task: Task; action?: ReactNode }) {
   )
 }
 
+/** As today, the only work that can be paused and resumed is building a search index. */
+const pausable = (task: Task) => task.title.includes('索引')
+
 export default function TasksPage() {
   const tasks = useTasks()
+  // Prototype-only: with the menu bar icon off, closing the window quits PathKeep.
+  const [menuBarIcon, setMenuBarIcon] = useState(true)
   const running = tasks.filter((t) => t.state === 'running')
   const waiting = tasks.filter((t) => t.state === 'queued' || t.state === 'paused')
   const done = tasks.filter((t) => t.state === 'done')
   const failed = tasks.filter((t) => t.state === 'failed')
   return (
     <PageScroll>
+      <label className="flex w-fit items-center gap-2 rounded-lg border border-dashed px-3 py-1.5 text-xs text-muted-foreground">
+        原型：選單列圖示開著
+        <Switch checked={menuBarIcon} onCheckedChange={setMenuBarIcon} aria-label="原型：選單列圖示開著" />
+      </label>
       <PageHeader
         title="背景任務"
-        subtitle={running.length ? `${running.length} 項在跑，關掉視窗也會繼續。` : '現在沒有在跑的任務。'}
+        subtitle={running.length ? (menuBarIcon ? `${running.length} 項在跑，關掉視窗也會繼續。` : `${running.length} 項在跑。`) : '現在沒有在跑的任務。'}
         actions={
           <>
             <Button variant="outline" asChild>
@@ -114,9 +124,9 @@ export default function TasksPage() {
                 key={t.id}
                 task={t}
                 action={
-                  // A backup can be cancelled, not paused: what it saved stays and the next one does the rest.
+                  // As today: only building the search index can be paused. A backup can be cancelled; what it saved stays and the next one does the rest.
                   <span className="flex shrink-0 items-center gap-1.5">
-                    {!t.title.startsWith('備份') && (
+                    {pausable(t) && (
                       <Button size="sm" variant="ghost" onClick={() => pauseTask(t.id)}>
                         <Pause />
                         暫停

@@ -100,8 +100,10 @@ export function KindsStep({ selected, onToggle, pickAll, notFound }: { selected:
     <>
       <StepHeading title="要保存什麼？" body="每一種之後都能在設定裡加減。關掉不會刪掉已經存下的資料。" />
       <div className="grid grid-cols-2 gap-3 max-[760px]:grid-cols-1">
-        {kinds.map((registered) => {
-          // The stress set treats the planned types as ready, to see many chosen at once.
+        {/* A type that is not built yet appears nowhere; the stress set treats the planned ones as ready, to see many chosen at once. */}
+        {kinds
+          .filter((registered) => pickAll || registered.real)
+          .map((registered) => {
           const kind = pickAll ? { ...registered, real: true } : registered
           const on = selected.has(kind.id)
           const Icon = kind.icon

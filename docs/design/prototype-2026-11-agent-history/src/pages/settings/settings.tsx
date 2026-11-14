@@ -100,7 +100,7 @@ export default function SettingsPage() {
         <span className="px-2.5 pt-4 font-mono text-[11px] text-muted-foreground">PathKeep 0.6.0-dev</span>
       </nav>
       <div className="min-w-0 flex-1 overflow-y-auto">
-        <div key={shownId} className="flex max-w-[720px] animate-rise flex-col px-10 pt-8 pb-12">
+        <div key={shownId} className="flex max-w-[680px] animate-rise flex-col px-10 pt-8 pb-12">
           <Body />
         </div>
       </div>

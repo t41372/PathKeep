@@ -6,7 +6,7 @@
  */
 import { Check, CircleCheck, FolderSearch, GitBranch, Lock, ShieldCheck, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -243,8 +243,7 @@ function Run({ picked, progress, done }: { picked: HarnessId[]; progress: Record
 
 export function EnableAgentDialog() {
   const [params, setParams] = useSearchParams()
-  const navigate = useNavigate()
-  const { set, enabledKinds, flatten, nav } = useProto()
+  const { set, enabledKinds } = useProto()
   const switchTo = useSwitchSpace()
   const open = params.get('enable') === 'agent'
   const [step, setStep] = useState(0)
@@ -256,12 +255,7 @@ export function EnableAgentDialog() {
   const done = step === 2 && pickedList.every((h) => (progress[h] ?? 0) >= 1)
 
   const others = enabledKinds.filter((k) => k !== 'agent')
-  const navNote =
-    nav === 'spaces'
-      ? `開啟後，左上角的切換選單會多一個「Agent 對話」${others.length ? `（${spaceKeyLabel(others.length + 1)} 也能切過去）` : ''}，切過去有對話、專案、洞察和它自己的備份頁。`
-      : others.length === 0 && flatten
-        ? '開啟後，導航列會直接換成「對話、專案、洞察」。'
-        : '開啟後，導航列會多一個「Agent」，點進去有對話、專案、洞察三頁。'
+  const navNote = `開啟後，左上角的切換選單會多一個「Agent 對話」${others.length ? `（${spaceKeyLabel(others.length + 1)} 也能切過去）` : ''}，切過去有洞察、紀錄、專案和它自己的備份頁。`
 
   useEffect(() => {
     if (!open) {
@@ -353,8 +347,7 @@ export function EnableAgentDialog() {
                     close()
                     set({ agentEnabled: true })
                     // Switch to the Agent space so the rail and tint change with the page.
-                    if (nav === 'spaces') switchTo('agent', '/agent/chats')
-                    else void navigate('/agent/chats')
+                    switchTo('agent', '/agent/insights')
                   }}
                 >
                   看對話

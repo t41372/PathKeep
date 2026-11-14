@@ -25,7 +25,7 @@ type StatsState = 'loading' | 'ready' | 'failed'
 const statusLabel: Record<SourceStatus, string> = {
   ok: '正常',
   needsPermission: '需要授權',
-  paused: '已暫停',
+  paused: '不備份',
   notFound: '找不到',
 }
 

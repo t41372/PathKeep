@@ -1,5 +1,5 @@
 /**
- * Prototype-only switches (theme, which data types are on, flattening,
+ * Prototype-only switches (theme, which data types are on,
  * upgrade state). Kept in localStorage so a reload stays where you were;
  * `?kinds=agent` style URL parameters override for screenshots.
  */
@@ -11,12 +11,8 @@ export type KindPreset = 'agent' | 'two' | 'six' | 'browsing'
 export interface ProtoState {
   theme: 'light' | 'dark'
   preset: KindPreset
-  /** With a single type on, its pages go straight into the rail. */
-  flatten: boolean
   /** Upgrade case: Agent history exists in this version but the user hasn't turned it on. */
   agentEnabled: boolean
-  /** Round 3 "spaces" (switch like profiles) or round 2 "types" (rail by type, tabs on top). */
-  nav: 'spaces' | 'types'
   /** The space last visited; shared pages (Ask, Settings) keep its tint and rail. */
   space: KindId
   /** Simulate the glass window material (the desktop shows through). */
@@ -32,7 +28,7 @@ const presetKinds: Record<KindPreset, KindId[]> = {
   six: ['browsing', 'agent', 'terminal', 'messages', 'webchat', 'notifications'],
 }
 
-const defaults: ProtoState = { theme: 'light', preset: 'two', flatten: true, agentEnabled: true, nav: 'spaces', space: 'agent', glass: false, estimateCost: true }
+const defaults: ProtoState = { theme: 'light', preset: 'two', agentEnabled: true, space: 'agent', glass: false, estimateCost: true }
 
 function load(): ProtoState {
   let saved: Partial<ProtoState> = {}
@@ -46,9 +42,7 @@ function load(): ProtoState {
   if (url.get('theme') === 'dark' || url.get('theme') === 'light') fromUrl.theme = url.get('theme') as 'dark'
   const k = url.get('kinds')
   if (k && k in presetKinds) fromUrl.preset = k as KindPreset
-  if (url.get('flatten')) fromUrl.flatten = url.get('flatten') !== '0'
   if (url.get('agent') === 'off') fromUrl.agentEnabled = false
-  if (url.get('nav') === 'types' || url.get('nav') === 'spaces') fromUrl.nav = url.get('nav') as 'types'
   if (url.get('glass')) fromUrl.glass = url.get('glass') !== '0'
   return { ...defaults, ...saved, ...fromUrl }
 }
@@ -56,8 +50,6 @@ function load(): ProtoState {
 interface Ctx extends ProtoState {
   set: (patch: Partial<ProtoState>) => void
   enabledKinds: KindId[]
-  /** Rail shows the single type's pages instead of one item per type. */
-  flat: boolean
 }
 
 const ProtoContext = createContext<Ctx | null>(null)
@@ -90,7 +82,6 @@ export function ProtoProvider({ children }: { children: ReactNode }) {
           return next
         }),
       enabledKinds,
-      flat: state.flatten && enabledKinds.length === 1 && state.nav === 'types',
     }
   }, [state])
   return <ProtoContext.Provider value={value}>{children}</ProtoContext.Provider>

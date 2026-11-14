@@ -10,7 +10,6 @@ import ProjectPage from './pages/agent/project'
 import ProjectInsightsPage from './pages/agent/project-insights'
 import ProjectsPage from './pages/agent/projects'
 import AskPage from './pages/ask'
-import BackupPage from './pages/backup'
 import BrowsingHistoryPage from './pages/browsing'
 import BrowsingInsightsPage from './pages/browsing-insights'
 import SpaceBackupPage from './pages/backup/space-backup'
@@ -45,7 +44,6 @@ const router = createHashRouter([
       { path: 'k/:kind', element: <PlaceholderKindPage /> },
       { path: 'ask', element: <AskPage /> },
       { path: 'tasks', element: <TasksPage /> },
-      { path: 'backup', element: <BackupPage /> },
       { path: 'settings', element: <SettingsPage /> },
       { path: 'settings/:section', element: <SettingsPage /> },
     ],

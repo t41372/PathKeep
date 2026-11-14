@@ -15,7 +15,6 @@ import { PageHeader, PageScroll } from '@/components/app/section-card'
 import { Button } from '@/components/ui/button'
 import { useSearchParams } from 'react-router-dom'
 import { cn } from '@/lib/cn'
-import { NOW } from '~/data/fixture'
 import { BrowserImportCard } from './browser-import-card'
 import { dropTarget } from './file-drop'
 import { number } from './format'
@@ -27,7 +26,7 @@ import { ProgressCard } from './progress-card'
 import { RunsCard } from './runs-card'
 import { finishedRun } from './runs-data'
 import { initialScene, SceneContext, type BackupProgress, type Scene } from './scene'
-import { ScheduleRow } from './schedule-row'
+import { ScheduleRow } from '../schedule/schedule-row'
 import { SourcesCard } from './sources-card'
 import { Switcher } from './switcher'
 
@@ -126,7 +125,6 @@ export default function BrowsingBackupPage() {
         ? runningBatch('browser-file', browser.state.path)
         : null
   // Hourly, on the hour: the next run is at the top of the coming hour.
-  const nextRun = NOW + 60 * 60_000 - ((NOW / 60_000) % 60) * 60_000
   // `useWindowFileDrop`: a dropped file goes to exactly one card, by its name,
   // and only while that card is idle and no backup runs.
   const drop = (path: string) => {
@@ -160,7 +158,7 @@ export default function BrowsingBackupPage() {
             browser.show(preset)
           }}
         />
-        <ScheduleRow on={scene.scheduleOn} next={nextRun} />
+        <ScheduleRow />
         <ProgressCard />
         <SourcesCard />
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">

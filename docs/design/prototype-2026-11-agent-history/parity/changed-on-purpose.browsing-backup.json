@@ -1,1 +1,6 @@
-[]
+[
+  {
+    "key": "backup.sources.status.paused",
+    "reason": "「暫停」 becomes a state of a whole data type, so a source whose switch is off reads 「不備份」 (data-spaces.md §4, §3.4). The same change applies to Home's source card (home sourcesPaused, paused)."
+  }
+]

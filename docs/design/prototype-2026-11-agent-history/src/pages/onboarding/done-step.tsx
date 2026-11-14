@@ -52,6 +52,7 @@ export function DoneStep({
   localAi: boolean
   result: ResultCase
 }) {
+  const results = finish.progress
   return (
     <>
       <StepHeading title="都設定好了" body="接下來會做第一次完整備份，之後每次只追加新的記錄。" />
@@ -96,8 +97,16 @@ export function DoneStep({
         <div role="status" className="flex animate-rise flex-col gap-1.5 rounded-xl bg-green/10 px-4 py-3.5 text-[13px]">
           <span className="flex items-center gap-2 font-medium">
             <Check className="size-4 text-green" strokeWidth={2.5} aria-hidden />
-            {finish.saved !== null ? `完成，共保存 ${num(finish.saved)} 條記錄。` : '設定已完成。準備好了就點「立即備份」。'}
+            {finish.saved === null ? '設定已完成。準備好了就點「立即備份」。' : results.length === 1 && results[0].id === 'browsing' ? `完成，共保存 ${num(results[0].records)} 條記錄。` : '完成。'}
           </span>
+          {/* Each type counts in its own unit; the numbers are never added together. */}
+          {finish.saved !== null &&
+            !(results.length === 1 && results[0].id === 'browsing') &&
+            results.map((t) => (
+              <span key={t.id} className="text-muted-foreground">
+                {t.label}：{t.id === 'browsing' ? `新增 ${num(t.records)} 條記錄` : t.id === 'agent' ? `存了 ${num(t.records)} 段對話` : `存了 ${num(t.records)} 筆`}
+              </span>
+            ))}
           {finish.saved !== null && result === 'safari' && <span className="text-muted-foreground">Safari 已略過：PathKeep 還沒有「完整磁碟取用權限」。</span>}
           {finish.saved !== null && result === 'partial' && <span className="text-muted-foreground">部分所選瀏覽器讀取失敗。讀得到的都已儲存，是哪些、為什麼，請看「備份」。</span>}
           {localAi && finish.completed.includes('ai') && !finish.skipped.includes('ai') && <span className="text-muted-foreground">語意搜尋模型正在背景下載，可以在「設定 → AI」查看進度。</span>}

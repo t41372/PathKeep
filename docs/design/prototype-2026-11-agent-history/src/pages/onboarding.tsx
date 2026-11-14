@@ -117,7 +117,8 @@ export default function OnboardingPage() {
     { icon: summaryIcons.encryption, label: '加密', value: draft.encrypt ? ['已開啟 · AES-256', keychainStage && '密碼在鑰匙圈中'].filter(Boolean).join(' · ') : '不加密' },
     { icon: summaryIcons.schedule, label: '自動備份', value: frequencyTitles[draft.frequency] },
     { icon: summaryIcons.ai, label: 'AI', value: aiTitles[draft.ai] },
-    { icon: summaryIcons.online, label: '連網', value: '會下載每個頁面的預覽圖 · 可在「設定 → 瀏覽紀錄」關閉' },
+    // Only browsing history goes online, so the row is there only when it is chosen.
+    ...(kindsOn.has('browsing') ? [{ icon: summaryIcons.online, label: '連網', value: '會下載每個頁面的預覽圖 · 可在「設定 → 瀏覽紀錄」關閉' }] : []),
   ]
 
   return (

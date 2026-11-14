@@ -22,7 +22,6 @@ export interface Scene {
   /** Null between the start and the first progress event. */
   progress: BackupProgress | null
   sources: SourcesScene
-  scheduleOn: boolean
   /** The desktop app has native pickers; a plain browser types a path instead. */
   nativeFiles: boolean
   /** A file is being dragged over the window. */
@@ -37,7 +36,6 @@ export const initialScene: Scene = {
   running: false,
   progress: null,
   sources: 'normal',
-  scheduleOn: true,
   nativeFiles: true,
   hovering: false,
   finished: false,

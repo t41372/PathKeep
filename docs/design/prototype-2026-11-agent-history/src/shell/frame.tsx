@@ -7,49 +7,19 @@
  */
 import { motion } from 'motion/react'
 import { useEffect, useState } from 'react'
-import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
+import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { Toaster } from 'sonner'
 import { Button } from '@/components/ui/button'
-import { cn } from '@/lib/cn'
-import { kindById, kinds, pageActive, spaceOfPath, type Kind } from '~/kinds'
+import { kindById, kinds, spaceOfPath, type Kind } from '~/kinds'
 import { useProto } from '~/proto-state'
 import { EnableAgentDialog } from '~/components/enable-agent'
 import { Knobs } from './knobs'
 import { Palette } from './palette'
-import { Rail } from './rail'
 import { spaceKeyIndex } from './space-key'
 import { SpaceRail, useSwitchSpace } from './space-rail'
 
 function kindForPath(pathname: string): Kind | undefined {
   return kinds.find((k) => k.pages.some((p) => pathname === p.path || pathname.startsWith(p.path + '/') || (k.real && pathname.startsWith('/' + p.path.split('/')[1] + '/'))))
-}
-
-function KindTabs({ kind }: { kind: Kind }) {
-  const { pathname } = useLocation()
-  const Icon = kind.icon
-  if (kind.pages.length < 2) return null
-  return (
-    <div className="flex h-[50px] shrink-0 items-center gap-4 border-b px-5">
-      <span className="flex items-center gap-2 text-[14px] font-semibold">
-        <Icon className="size-4 text-muted-foreground" strokeWidth={1.75} />
-        {kind.label}
-      </span>
-      <nav aria-label={`${kind.label}的頁面`} className="flex items-center gap-1">
-        {kind.pages.map((page) => (
-          <NavLink
-            key={page.path}
-            to={page.path}
-            className={cn(
-              'flex h-8 items-center gap-1.5 rounded-lg px-3 text-[13px] font-medium text-muted-foreground transition-[background-color,color,box-shadow] hover:text-foreground',
-              pageActive(page.path, pathname) && 'bg-card text-foreground shadow-card',
-            )}
-          >
-            {page.label}
-          </NavLink>
-        ))}
-      </nav>
-    </div>
-  )
 }
 
 /** A type that is off: its archive is kept, the pages just aren't in the rail. */
@@ -76,13 +46,12 @@ function KindOff({ kind }: { kind: Kind }) {
 
 export function Frame() {
   const { pathname } = useLocation()
-  const { enabledKinds, flat, theme, nav, space, set } = useProto()
+  const { enabledKinds, theme, space, set } = useProto()
   const [paletteOpen, setPaletteOpen] = useState(false)
   const kind = kindForPath(pathname) ?? (spaceOfPath(pathname) ? kindById[spaceOfPath(pathname)!] : undefined)
   const off = kind && !enabledKinds.includes(kind.id)
-  const spaces = nav === 'spaces'
   const pathSpace = spaceOfPath(pathname)
-  const leaving = spaces && !!pathSpace && pathSpace !== space
+  const leaving = !!pathSpace && pathSpace !== space
   const switchTo = useSwitchSpace()
 
   // Arriving at a page of another space (a link, ⌘K, back/forward) makes it the current
@@ -93,21 +62,15 @@ export function Frame() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathSpace])
 
-  // The tint follows the current space; the round-2 shell has none.
+  // The tint follows the current space.
   useEffect(() => {
     const html = document.documentElement
-    if (spaces) {
-      html.dataset.space = space
-      html.style.setProperty('--space-h', String(kindById[space].hue))
-    } else {
-      delete html.dataset.space
-      html.style.removeProperty('--space-h')
-    }
-  }, [spaces, space])
+    html.dataset.space = space
+    html.style.setProperty('--space-h', String(kindById[space].hue))
+  }, [space])
 
   // ⌘1…⌘9 (Ctrl+1…9 on Windows and Linux) switch spaces, in the order of the switcher.
   useEffect(() => {
-    if (!spaces) return
     const onKey = (event: KeyboardEvent) => {
       const i = spaceKeyIndex(event)
       if (i === null || i >= enabledKinds.length) return
@@ -116,7 +79,7 @@ export function Frame() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [spaces, enabledKinds, switchTo])
+  }, [enabledKinds, switchTo])
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -137,16 +100,15 @@ export function Frame() {
         <span className="size-3 rounded-full bg-[#febc2e]" />
         <span className="size-3 rounded-full bg-[#28c840]" />
       </div>
-      {spaces ? <SpaceRail onOpenPalette={() => setPaletteOpen(true)} /> : <Rail onOpenPalette={() => setPaletteOpen(true)} />}
+      <SpaceRail onOpenPalette={() => setPaletteOpen(true)} />
       <main className="mt-2.5 mr-2.5 mb-2.5 flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl border bg-panel">
         {off ? (
           <KindOff kind={kind} />
         ) : (
           <>
-            {kind && !flat && !spaces && <KindTabs kind={kind} />}
             {/* A new space's page fades in after the rail has started to slide. */}
             <motion.div
-              key={spaces ? (pathSpace ?? 'shared') : 'types'}
+              key={pathSpace ?? 'shared'}
               initial={{ opacity: 0 }}
               // Leaving: the space already changed but its page hasn't arrived yet.
               animate={{ opacity: leaving ? 0 : 1 }}

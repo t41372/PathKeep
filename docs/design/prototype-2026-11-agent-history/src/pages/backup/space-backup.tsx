@@ -7,7 +7,7 @@
  */
 import { ChevronDown, CircleCheck, CircleMinus, HardDriveDownload, TriangleAlert } from 'lucide-react'
 import { useState } from 'react'
-import { Link, useLocation } from 'react-router-dom'
+import { useLocation } from 'react-router-dom'
 import { toast } from 'sonner'
 import { PageHeader, PageScroll } from '@/components/app/section-card'
 import { FluidPage } from '~/components/fluid-page'
@@ -15,12 +15,13 @@ import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { cn } from '@/lib/cn'
 import { NOW } from '~/data/fixture'
-import { bytes, time, when } from '~/data/format'
+import { bytes, when } from '~/data/format'
 import { useTasks } from '~/data/tasks'
 import { kindById, spaceOfPath, type KindId } from '~/kinds'
 import { Progress } from '@/components/ui/progress'
 import { AutoDeleteNotice, runs, seconds } from './cards'
 import { AGENT_ARCHIVE_RATIO, archiveBytes, kindCounts, sourceBytesOfKind } from './sources-data'
+import { ScheduleRow } from '../schedule/schedule-row'
 import { SpaceSources } from './space-sources'
 
 function Runs({ space }: { space: KindId }) {
@@ -71,7 +72,6 @@ export default function SpaceBackupPage() {
   const space = spaceOfPath(pathname) ?? 'browsing'
   const kind = kindById[space]
   const last = NOW - 78 * 60_000
-  const schedule = { label: '每小時', ms: 3600_000 }
   const running = useTasks().find((t) => t.space === space && t.state === 'running' && t.title.startsWith('備份'))
   const [hideNotice, setHideNotice] = useState(false)
   const size = archiveBytes[space]
@@ -104,15 +104,7 @@ export default function SpaceBackupPage() {
           </>
         }
       />
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border bg-card px-5 py-3 shadow-card">
-        <span className="text-sm font-semibold">自動備份</span>
-        <span className="text-[13px] text-muted-foreground tabular">
-          {schedule.label} · 下次 {time(last + schedule.ms)}
-        </span>
-        <Button variant="outline" size="sm" className="ml-auto" asChild>
-          <Link to="/settings/background">更改排程</Link>
-        </Button>
-      </div>
+      <ScheduleRow />
       {space === 'agent' && !hideNotice && (
         <div className="relative">
           <AutoDeleteNotice />
