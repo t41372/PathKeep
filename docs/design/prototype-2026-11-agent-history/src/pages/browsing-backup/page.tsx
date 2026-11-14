@@ -166,8 +166,9 @@ export default function BrowsingBackupPage() {
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
           <ImportCard takeout={takeout} />
           <BrowserImportCard browser={browser} />
-          <ImportsCard running={importing} />
         </div>
+        {/* Without the 自動備份 card the grid would leave a hole, so this list takes the full row. */}
+        <ImportsCard running={importing} />
         <RunsCard />
       </PageScroll>
     </SceneContext.Provider>
