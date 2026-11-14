@@ -204,7 +204,7 @@ test('Insights opens on all time, and every range shows the archive’s numbers'
   page,
 }, testInfo) => {
   test.setTimeout(300_000)
-  await page.goto('/#/insights')
+  await page.goto('/#/browsing/insights')
   const toggle = page.getByRole('radiogroup', { name: 'Time range' })
   await expect(toggle.getByRole('radio', { name: 'All time' })).toBeChecked()
 
@@ -239,7 +239,7 @@ test('Insights opens on all time, and every range shows the archive’s numbers'
     .getByRole('link', { name: new RegExp(topSite) })
     .first()
     .click()
-  await expect(page).toHaveURL(/#\/insights\/site\/.+\?range=d7$/)
+  await expect(page).toHaveURL(/#\/browsing\/insights\/site\/.+\?range=d7$/)
   const siteFirstVisit = Math.min(
     ...archivedVisits()
       .filter((visit) => !visit.term && site(visit.url) === topSite)
@@ -263,7 +263,7 @@ test('a custom range and one browser profile count only their visits', async ({
   const end = startOfDayDaysAgo(191)
   const until = startOfDayDaysAgo(190).getTime()
   await page.goto(
-    `/#/insights?range=custom&start=${dateKey(start)}&end=${dateKey(end)}`,
+    `/#/browsing/insights?range=custom&start=${dateKey(start)}&end=${dateKey(end)}`,
   )
   const toggle = page.getByRole('radiogroup', { name: 'Time range' })
   await expect(
@@ -317,7 +317,7 @@ test('a custom range and one browser profile count only their visits', async ({
     .getByRole('link', { name: new RegExp(workTop) })
     .first()
     .click()
-  await expect(page).toHaveURL(/#\/insights\/site\/.+profile=chrome/)
+  await expect(page).toHaveURL(/#\/browsing\/insights\/site\/.+profile=chrome/)
   await expect(
     page.getByRole('combobox', { name: 'Browser profile' }),
   ).toHaveText('Google Chrome · Work')
@@ -355,7 +355,7 @@ test('the cards brought back from 0.3 count what the archive holds, read in two 
     const name = new URL(sent.url()).pathname.match(/^\/commands\/(\w+)$/)?.[1]
     if (name) commands.push(name)
   })
-  await page.goto('/#/insights')
+  await page.goto('/#/browsing/insights')
   const searches = archivedVisits().filter((visit) => visit.term)
 
   // Where you search: every fixture search is on Google.
@@ -422,7 +422,7 @@ test('the cards brought back from 0.3 count what the archive holds, read in two 
   // Any other range reads the same two batches, computed for it.
   await page.goto('about:blank')
   commands.length = 0
-  await page.goto('/#/insights?range=d30')
+  await page.goto('/#/browsing/insights?range=d30')
   await expect
     .poll(
       () =>
@@ -440,7 +440,7 @@ test('the cards brought back from 0.3 count what the archive holds, read in two 
     commands.filter((name) => name === 'get_intelligence_primary_overview'),
   ).toHaveLength(1)
   expect(commands.filter((name) => batched.includes(name))).toEqual([])
-  await page.goto('/#/insights')
+  await page.goto('/#/browsing/insights')
 
   // All time: every site is new, so there is no "New sites" tile.
   await expect(page.getByRole('group', { name: 'New sites' })).toHaveCount(0)
@@ -462,7 +462,7 @@ test('the cards brought back from 0.3 count what the archive holds, read in two 
     (at) => at >= first.getTime() && at < until.getTime(),
   ).length
   await page.goto(
-    `/#/insights?range=custom&start=${dateKey(first)}&end=${dateKey(last)}`,
+    `/#/browsing/insights?range=custom&start=${dateKey(first)}&end=${dateKey(last)}`,
   )
   await expect(page.getByRole('group', { name: 'New sites' })).toContainText(
     String(newInWindow),
@@ -486,7 +486,7 @@ test('the cards brought back from 0.3 count what the archive holds, read in two 
   )
 
   // Last 30 days, ordered by days visited.
-  await page.goto('/#/insights?range=d30')
+  await page.goto('/#/browsing/insights?range=d30')
   const since = startOfDayDaysAgo(29)
   const daysPerSite = new Map<string, Set<string>>()
   for (const visit of archivedVisits()) {
@@ -602,7 +602,7 @@ test('reworded searches are counted, and listed as searches that took several tr
   })
   expect(reworded.length).toBeGreaterThan(10)
 
-  await page.goto('/#/insights')
+  await page.goto('/#/browsing/insights')
   const outcomes = card(page, 'How your searches go')
   await expect(outcomes).toContainText(
     `${new Intl.NumberFormat('en').format(trails.length)} searches`,
@@ -729,7 +729,7 @@ test('a search made in several browsers is one row among the searches you came b
     await expect(rows).toContainText(expected.map(meta), { timeout: 60_000 })
   }
 
-  await page.goto('/#/insights')
+  await page.goto('/#/browsing/insights')
   await unlockIfLocked(page)
   await expectRows(everywhere)
 
@@ -800,8 +800,8 @@ test('the most frequent path between three sites is counted like the archive', a
   ).getTime()
 
   for (const [url, from] of [
-    ['/#/insights', -Infinity],
-    ['/#/insights?range=d90', ninetyDays],
+    ['/#/browsing/insights', -Infinity],
+    ['/#/browsing/insights?range=d90', ninetyDays],
   ] as const) {
     const { top, leaders } = countPaths(from)
     await testInfo.attach(`most frequent paths by hand, ${url}`, {
@@ -843,7 +843,7 @@ test('where searches end up is counted like the archive', async ({
     contentType: 'application/json',
   })
 
-  await page.goto('/#/insights')
+  await page.goto('/#/browsing/insights')
   const first = card(page, 'Where your searches end up')
     .getByRole('listitem')
     .first()
@@ -898,7 +898,7 @@ test('browsers compared name the sites they share and what each mostly visits', 
     // Ties by name in byte order, as the backend sorts them.
     .sort((a, b) => b.visits - a.visits || (a.key < b.key ? -1 : 1))
 
-  await page.goto('/#/insights')
+  await page.goto('/#/browsing/insights')
   const browsers = card(page, 'Browsers compared')
   for (const line of kindLines)
     await expect(browsers.getByText(line).first()).toBeVisible({
@@ -924,7 +924,7 @@ test('how searches go averages rewordings and pages per search engine', async ({
           10,
       ) / 10,
     )
-  await page.goto('/#/insights')
+  await page.goto('/#/browsing/insights')
   const google = card(page, 'How your searches go')
     .getByRole('listitem')
     .filter({ hasText: 'Google' })
@@ -961,7 +961,7 @@ test('where searches end up counts each search on the site it led to', async ({
       ([host, entry]) =>
         `${host} ${entry.searches} search${entry.searches === 1 ? '' : 'es'} · ${entry.queries.size} different`,
     )
-  await page.goto('/#/insights')
+  await page.goto('/#/browsing/insights')
   const rows = card(page, 'Where your searches end up').getByRole('listitem')
   await expect(rows.first()).toBeVisible({ timeout: 60_000 })
   const shown = (await rows.allInnerTexts())
@@ -1062,7 +1062,7 @@ test('things you came back to list searches and pages by when you last came back
         : `${thread.label} Opened on ${thread.count} day${thread.count === 1 ? '' : 's'}`,
     )
 
-  await page.goto('/#/insights')
+  await page.goto('/#/browsing/insights')
   const rows = card(page, 'Things you came back to').getByRole('listitem')
   await expect(rows).toHaveCount(expected.length, { timeout: 60_000 })
   const shown = (await rows.allInnerTexts()).map((text) =>
@@ -1138,7 +1138,7 @@ test('habits are sites visited on steady days, stopped ones first', async ({
     .slice(0, 6)
     .map((habit) => habit.text)
 
-  await page.goto('/#/insights')
+  await page.goto('/#/browsing/insights')
   const rows = card(page, 'Habits').getByRole('listitem')
   await expect(rows).toHaveCount(expected.length, { timeout: 60_000 })
   // A row: the site's letter badge (when it has no icon), its name, its
@@ -1171,7 +1171,7 @@ test('explore or focus counts the sites that took half the visits', async ({
   const total = counts.reduce((sum, count) => sum + count, 0)
   let running = 0
   const half = counts.findIndex((count) => (running += count) * 2 >= total) + 1
-  await page.goto('/#/insights?range=d30')
+  await page.goto('/#/browsing/insights?range=d30')
   await expect(card(page, 'Explore or focus')).toContainText(
     `Half of your visits went to ${half} site${half === 1 ? '' : 's'}.`,
     { timeout: 60_000 },
@@ -1193,7 +1193,7 @@ test('kinds of sites count every visit by the kind of site it went to', async ({
     ([kind, visits]) => `${kind} ${percent.format(visits / total)}`,
   )
 
-  await page.goto('/#/insights')
+  await page.goto('/#/browsing/insights')
   const rows = card(page, 'Kinds of sites').getByRole('listitem')
   await expect(rows).toHaveCount(expected.length, { timeout: 60_000 })
   const shown = (await rows.allInnerTexts()).map((text) =>
@@ -1215,7 +1215,7 @@ test('a site shows the icon its browser stored, and its letter when there is non
   // History shows a page's own icon: the issue page has GitHub's status icon,
   // stored after GitHub's own.
   const issue = 'https://github.com/tokio-rs/tokio/issues/5124'
-  await page.goto('/#/history')
+  await page.goto('/#/browsing/history')
   await page
     .getByRole('searchbox', { name: 'Search history' })
     .fill('spawn_blocking pool exhaustion')
@@ -1233,7 +1233,7 @@ test('a site shows the icon its browser stored, and its letter when there is non
     },
   )
   // Insights, opened next in the same window, still shows each site's own.
-  await page.goto('/#/insights')
+  await page.goto('/#/browsing/insights')
   const rows = card(page, 'Top sites').getByRole('listitem')
   await expect(rows.first()).toBeVisible({ timeout: 60_000 })
   // The fixture's Chrome stored a different icon for github.com,

@@ -35,7 +35,7 @@ const htmlPage = (title: string, image: string) => (origin: string) => ({
 
 /** Finds the page in History, opens its details and returns the link preview. */
 async function openDetails(page: Page, title: string) {
-  await page.goto('/#/history')
+  await page.goto('/#/browsing/history')
   await page.getByRole('searchbox', { name: 'Search history' }).fill(title)
   const row = page
     .getByRole('listbox', { name: 'History results' })
@@ -72,7 +72,7 @@ test('a page’s preview image is downloaded once; a redirect to a private addre
     ]
     expect(visits).toHaveLength(PREVIEW_VISIT_COUNT)
     appendChromeVisits(fixture().files['chrome:Default'], visits)
-    await page.goto('/#/backup')
+    await page.goto('/#/browsing/backup')
     await page.getByRole('button', { name: 'Back up now' }).first().click()
     await expect(
       page

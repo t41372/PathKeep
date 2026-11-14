@@ -1,6 +1,6 @@
 # 資料類型與空間
 
-> 狀態：v0.6 的設計，尚未實作。
+> 狀態：v0.6 的設計。外框（切換鈕、路由、色相、指示器、⌘K）已經做進 app，目前只有瀏覽紀錄一個空間；其餘尚未實作，落地情況見 [data-spaces-tradeoff.md](../design/data-spaces-tradeoff.md) §6。
 > 外框本身（切換鈕、導航列、路由、每個空間的顏色、頁面寬度、快捷鍵、切換動畫）見 [data-spaces-tradeoff.md](../design/data-spaces-tradeoff.md)，這裡不重複。Agent 對話自己的畫面見 [agent-history.md](agent-history.md)。
 >
 > 文案：這份文件只寫繁體中文。English 與簡體中文在每個畫面做進 app 時一起寫，三種語言同時交付。「封存」到時候要選一個不是 "archive" 的英文字，因為 PathKeep 的存檔已經叫 archive。

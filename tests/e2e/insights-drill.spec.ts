@@ -133,7 +133,7 @@ test('a day from the Home heatmap matches the fixture, then opens History', asyn
   )
 
   // A day before the fixture began has nothing, and says so.
-  await page.goto('/#/insights/day/2020-01-15')
+  await page.goto('/#/browsing/insights/day/2020-01-15')
   await drillIn(page, 'Wednesday, January 15')
   // Each card that lists the day's visits says so; Top sites stands for them.
   await expect(
@@ -159,7 +159,7 @@ test('a day from the Home heatmap matches the fixture, then opens History', asyn
   while (visited.has(localDateKey(quiet.getTime()))) {
     quiet.setDate(quiet.getDate() - 1)
   }
-  await page.goto(`/#/insights/day/${localDateKey(quiet.getTime())}`)
+  await page.goto(`/#/browsing/insights/day/${localDateKey(quiet.getTime())}`)
   await drillIn(
     page,
     quiet.toLocaleDateString('en-US', {
@@ -177,7 +177,7 @@ test('a day from the Home heatmap matches the fixture, then opens History', asyn
 
   await page.goto('/#/')
   await page.locator(`[data-cell="${day}"]`).click()
-  await expect(page).toHaveURL(new RegExp(`#/insights/day/${day}$`))
+  await expect(page).toHaveURL(new RegExp(`#/browsing/insights/day/${day}$`))
   await drillIn(
     page,
     new Date(dayMs).toLocaleDateString('en-US', {
@@ -246,7 +246,7 @@ test('a day from the Home heatmap matches the fixture, then opens History', asyn
   await firstSite.getByRole('link').click()
   await expect(page).toHaveURL(
     new RegExp(
-      `#/history\\?date=${day}&domain=${topSite!.replace('.', '\\.')}$`,
+      `#/browsing/history\\?date=${day}&domain=${topSite!.replace('.', '\\.')}$`,
     ),
   )
   // History's day header counts that site's visits that day.
@@ -266,7 +266,7 @@ test('a site from Top sites shows its 30-day visits', async ({
   )
   const top = leaders(countBy(recent, (visit) => siteOf(visit.url)))
 
-  await page.goto('/#/insights?range=d30')
+  await page.goto('/#/browsing/insights?range=d30')
   const firstRow = card(page, 'Top sites').getByRole('listitem').first()
   await expect(firstRow).toBeVisible({ timeout: JOB_TIMEOUT })
   const rowText = (await firstRow.innerText()).replace(/\s+/g, ' ').trim()
@@ -278,7 +278,9 @@ test('a site from Top sites shows its 30-day visits', async ({
 
   await firstRow.getByRole('link').click()
   await expect(page).toHaveURL(
-    new RegExp(`#/insights/site/${site!.replace('.', '\\.')}\\?range=d30$`),
+    new RegExp(
+      `#/browsing/insights/site/${site!.replace('.', '\\.')}\\?range=d30$`,
+    ),
   )
   await drillIn(page, site!)
 
@@ -385,7 +387,7 @@ test('a site says how its visits began and where its links led', async ({
       ([, a], [, b]) =>
         b.direct + b.search + b.link - (a.direct + a.search + a.link),
     )[0]
-  await page.goto(`/#/insights/site/${site}`)
+  await page.goto(`/#/browsing/insights/site/${site}`)
   await drillIn(page, site)
 
   const arrivals = card(page, 'How you got here')
@@ -437,14 +439,14 @@ test('the site of a search engine lists what was searched on it', async ({
     const text = (await link.innerText()).replace(/\s+/g, ' ').trim()
     return { query, count: parseCount(text.match(/(\d[\d,]*)\D*$/)?.[1] ?? '') }
   }
-  await page.goto('/#/insights')
+  await page.goto('/#/browsing/insights')
   const frequent = card(page, 'Frequent searches')
     .locator('a[href*="/insights/search/"]')
     .first()
   await expect(frequent).toBeVisible({ timeout: JOB_TIMEOUT })
   const expected = await read(frequent)
 
-  await page.goto('/#/insights/site/google.com')
+  await page.goto('/#/browsing/insights/site/google.com')
   await drillIn(page, 'google.com')
   const first = card(page, 'Searched on this site')
     .locator('a[href*="/insights/search/"]')
@@ -462,7 +464,7 @@ test('two sites on github.io are two sites, as in a browser', async ({
       (visit) => !visit.term && siteOf(visit.url) === site,
     )
     expect(visits.length, `the fixture visited ${site}`).toBeGreaterThan(0)
-    await page.goto(`/#/insights/site/${site}`)
+    await page.goto(`/#/browsing/insights/site/${site}`)
     await drillIn(page, site)
     await expectCount(
       testInfo,
@@ -485,7 +487,9 @@ test('a Chinese search and a longer wording of it are one search', async ({
   // 台北天氣 and 台北天氣預報 share 台北, 北天 and 天氣 compared by pairs of
   // characters; split only at spaces, each was one word and they had nothing
   // in common.
-  await page.goto(`/#/insights/search/${encodeURIComponent('台北天氣')}`)
+  await page.goto(
+    `/#/browsing/insights/search/${encodeURIComponent('台北天氣')}`,
+  )
   await drillIn(page, '“台北天氣”')
   await expect(card(page, 'Other ways you searched it')).toContainText(
     '台北天氣預報',
@@ -519,7 +523,7 @@ test('a search that went back and forth between two shops is a set of compared p
     contentType: 'application/json',
   })
 
-  await page.goto(`/#/insights/day/${localDateKey(search!.at)}`)
+  await page.goto(`/#/browsing/insights/day/${localDateKey(search!.at)}`)
   const sets = card(page, 'Pages you compared').getByRole('listitem')
   await expect(sets).toHaveCount(1, { timeout: JOB_TIMEOUT })
   const set = sets.first()
@@ -582,7 +586,7 @@ test('a session is named after its main site and its most-used search', async ({
     contentType: 'application/json',
   })
 
-  await page.goto(`/#/insights/day/${day}`)
+  await page.goto(`/#/browsing/insights/day/${day}`)
   const sessions = card(page, 'Sessions').getByRole('listitem')
   await expect(sessions).toHaveCount(1, { timeout: JOB_TIMEOUT })
   await expect(sessions.first()).toContainText(title)
@@ -598,13 +602,15 @@ test('a session is named after its main site and its most-used search', async ({
 test('a search from Frequent searches shows how often and when', async ({
   page,
 }, testInfo) => {
-  await page.goto('/#/insights?range=d30')
+  await page.goto('/#/browsing/insights?range=d30')
   const chip = card(page, 'Frequent searches')
     .locator('a[href*="/insights/search/"]')
     .first()
   await expect(chip).toBeVisible({ timeout: JOB_TIMEOUT })
   await chip.click()
-  await expect(page).toHaveURL(/#\/insights\/search\/[^?]+\?range=d30$/)
+  await expect(page).toHaveURL(
+    /#\/browsing\/insights\/search\/[^?]+\?range=d30$/,
+  )
   const query = decodeURIComponent(
     new URL(page.url()).hash.match(/search\/([^?]+)/)?.[1] ?? '',
   )
@@ -637,11 +643,11 @@ test('a search from Frequent searches shows how often and when', async ({
   const dayLink = times.first().getByRole('link').first()
   await expect(dayLink).toHaveAttribute(
     'href',
-    `#/insights/day/${localDateKey(latest)}?range=d30`,
+    `#/browsing/insights/day/${localDateKey(latest)}?range=d30`,
   )
   await dayLink.click()
   await expect(page).toHaveURL(
-    new RegExp(`#/insights/day/${localDateKey(latest)}\\?range=d30$`),
+    new RegExp(`#/browsing/insights/day/${localDateKey(latest)}\\?range=d30$`),
   )
   await drillIn(
     page,
@@ -659,7 +665,7 @@ test('a search from Frequent searches shows how often and when', async ({
   ).toHaveCount(1, { timeout: JOB_TIMEOUT })
 
   await page.getByRole('main').getByRole('link', { name: 'Insights' }).click()
-  await expect(page).toHaveURL(/#\/insights\?range=d30$/)
+  await expect(page).toHaveURL(/#\/browsing\/insights\?range=d30$/)
   await expect(
     page
       .getByRole('radiogroup', { name: 'Time range' })
@@ -670,7 +676,7 @@ test('a search from Frequent searches shows how often and when', async ({
 test('a page you keep reopening shows its visits across browsers', async ({
   page,
 }, testInfo) => {
-  await page.goto('/#/insights?range=d30')
+  await page.goto('/#/browsing/insights?range=d30')
   // "Pages you keep reopening" is the second list in the searches card.
   const pageRow = page
     .getByRole('heading', { name: 'Pages you keep reopening' })
@@ -680,7 +686,9 @@ test('a page you keep reopening shows its visits across browsers', async ({
   await expect(pageRow).toBeVisible({ timeout: JOB_TIMEOUT })
   const title = (await pageRow.locator('.truncate').first().innerText()).trim()
   await pageRow.getByRole('link').click()
-  await expect(page).toHaveURL(/#\/insights\/page\/[^?]+\?.*range=d30/)
+  await expect(page).toHaveURL(
+    /#\/browsing\/insights\/page\/[^?]+\?.*range=d30/,
+  )
   await drillIn(page, title)
   const canonical = decodeURIComponent(
     new URL(page.url()).hash.match(/page\/([^?]+)/)?.[1] ?? '',

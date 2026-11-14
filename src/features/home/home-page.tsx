@@ -12,6 +12,7 @@ import { PageHeader, PageScroll } from '@/components/app/section-card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useFormat, useI18n, type Translator } from '@/lib/i18n'
 import { useDashboard, useSnapshot } from '@/lib/queries/app'
+import { spacePath } from '@/lib/spaces'
 import { HomeAlerts } from './alerts-list'
 import {
   OnThisDayCard,
@@ -27,6 +28,7 @@ import {
   useBrowserSummaries,
 } from './home-data'
 import { useThirtyDayTrend } from './queries'
+import { historyPath, insightsPath } from '@/features/insights/links'
 import { useInsightsZone } from '@/features/insights/zone'
 import { todayIn } from '@/lib/time-zone'
 
@@ -120,7 +122,7 @@ function StatCards() {
   return (
     <div className="grid grid-cols-[repeat(auto-fit,minmax(180px,1fr))] gap-3">
       <StatCard
-        to="/history"
+        to={historyPath({})}
         label={t('home.stats.saved')}
         // A failed read is unknown, not an empty archive.
         value={data ? format.number(data.totalVisits) : '—'}
@@ -133,7 +135,7 @@ function StatCards() {
         }
       />
       <StatCard
-        to="/insights"
+        to={insightsPath()}
         label={t('home.stats.span')}
         value={data?.earliestVisitAt ? timeSpan(t, data.earliestVisitAt) : '—'}
         sub={
@@ -160,7 +162,7 @@ function StatCards() {
         loading={dashboard.isPending}
       />
       <StatCard
-        to="/backup"
+        to={spacePath('browsing', 'backup')}
         label={t('home.stats.sources')}
         value={t('home.stats.sourcesValue', { count: active })}
         sub={

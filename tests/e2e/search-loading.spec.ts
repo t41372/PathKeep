@@ -14,7 +14,7 @@ import { expect, test } from '@playwright/test'
 test('a loading search never shows the timeline as its results', async ({
   page,
 }) => {
-  await page.goto('/#/history')
+  await page.goto('/#/browsing/history')
   const timeline = page
     .getByRole('listbox', { name: 'History timeline' })
     .getByRole('option')

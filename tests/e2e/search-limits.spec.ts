@@ -28,7 +28,7 @@ test('a word on every page lists every page with an exact count', async ({
   ).toBe(true)
   const pages = new Set(visits.map((visit) => visit.url)).size
 
-  await page.goto('/#/history')
+  await page.goto('/#/browsing/history')
   await page.getByRole('searchbox', { name: 'Search history' }).fill('https')
 
   await expect(
@@ -47,7 +47,7 @@ test('a regex finds every visit of a page, the oldest included', async ({
   const visits = archivedVisits().filter((visit) => visit.url === url)
   expect(visits.length, 'the page has several visits').toBeGreaterThan(1)
 
-  await page.goto('/#/history')
+  await page.goto('/#/browsing/history')
   const search = page.getByRole('searchbox', { name: 'Search history' })
   // The mode switch shows once there is text to search.
   await search.fill('tokio')
@@ -81,7 +81,7 @@ test('results and the palette say so while the search index is catching up', asy
   try {
     await backend('set_url_notes', { request: { url, notes: word } })
 
-    await page.goto('/#/history')
+    await page.goto('/#/browsing/history')
     await page.getByRole('searchbox', { name: 'Search history' }).fill(word)
 
     await expect(

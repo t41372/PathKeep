@@ -22,10 +22,12 @@ import { settingsAi } from './settings-ai'
 import { settingsBackground } from './settings-background'
 import { settingsStorage } from './settings-storage'
 import { shell } from './shell'
+import { spaces } from './spaces'
 
 const namespaces = {
   common,
   shell,
+  spaces,
   home,
   history,
   historyPage,

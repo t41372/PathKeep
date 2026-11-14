@@ -71,7 +71,7 @@ test('an export can be followed, left, stopped, and finished', async ({
   const before = await percentDone(page)
 
   // Leaving Settings does not lose the export or offer a second one.
-  await page.goto('/#/history')
+  await page.goto('/#/browsing/history')
   await expect(
     page.getByRole('searchbox', { name: 'Search history' }),
   ).toBeVisible()

@@ -54,20 +54,21 @@ test('back and forward step through the screens visited', async ({ page }) => {
   await unlockIfLocked(page)
   const nav = page.getByRole('navigation', { name: 'Main navigation' })
   await nav.getByRole('link', { name: 'History' }).click()
-  await expect(page).toHaveURL(/#\/history/)
+  await expect(page).toHaveURL(/#\/browsing\/history/)
   await nav.getByRole('link', { name: 'Insights' }).click()
-  await expect(page).toHaveURL(/#\/insights/)
+  await expect(page).toHaveURL(/#\/browsing\/insights/)
   await expect(step(page, 'Forward')).toHaveAttribute('aria-disabled', 'true')
 
   await step(page, 'Back').click()
-  await expect(page).toHaveURL(/#\/history/)
+  await expect(page).toHaveURL(/#\/browsing\/history/)
   await page.keyboard.press(mac ? 'Meta+BracketLeft' : 'Alt+ArrowLeft')
-  await expect(page).toHaveURL(/#\/$/)
+  // `#/` opened the space's first page in its place.
+  await expect(page).toHaveURL(/#\/browsing\/home$/)
 
   await step(page, 'Forward').click()
-  await expect(page).toHaveURL(/#\/history/)
+  await expect(page).toHaveURL(/#\/browsing\/history/)
   await page.keyboard.press(mac ? 'Meta+BracketRight' : 'Alt+ArrowRight')
-  await expect(page).toHaveURL(/#\/insights/)
+  await expect(page).toHaveURL(/#\/browsing\/insights/)
   await expect(step(page, 'Forward')).toHaveAttribute('aria-disabled', 'true')
   await expect(step(page, 'Back')).toHaveAttribute('aria-disabled', 'false')
 })
@@ -80,7 +81,7 @@ test('a page opened several times in a row is one timeline row, each time still 
     body: JSON.stringify(run, null, 2),
     contentType: 'application/json',
   })
-  await page.goto(`/#/history?date=${localDay(run[0].at)}`)
+  await page.goto(`/#/browsing/history?date=${localDay(run[0].at)}`)
   await unlockIfLocked(page)
   const rows = page
     .getByRole('listbox', { name: /timeline/i })
@@ -138,7 +139,7 @@ test('a page opened several times in a row is one timeline row, each time still 
 test('Backup groups a browser’s profiles under one row that folds away', async ({
   page,
 }) => {
-  await page.goto('/#/backup')
+  await page.goto('/#/browsing/backup')
   await unlockIfLocked(page)
   const sources = page
     .getByRole('heading', { name: 'Sources' })
@@ -179,7 +180,7 @@ test('Backup groups a browser’s profiles under one row that folds away', async
 test('a list that scrolls in its card fades by a mask on the list, not a layer over it', async ({
   page,
 }) => {
-  await page.goto('/#/insights')
+  await page.goto('/#/browsing/insights')
   await unlockIfLocked(page)
   const lists = page.locator('[style*="mask-image"]')
   await expect(lists.first()).toBeVisible({ timeout: 60_000 })

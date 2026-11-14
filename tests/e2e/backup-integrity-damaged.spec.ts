@@ -53,14 +53,14 @@ test('the next backup fills a v1 false-success gap and an unchanged rerun stays 
     ).items
       .map((row) => [row.url, row.visitTime])
       .sort()
-  await page.goto('/#/history')
+  await page.goto('/#/browsing/history')
   await expect(
     page.getByRole('searchbox', { name: 'Search history' }),
   ).toBeVisible()
   expect(await current()).toEqual([])
   let previous = old.report.run.id as number
   for (const added of [expected.length, 0]) {
-    await page.goto('/#/backup')
+    await page.goto('/#/browsing/backup')
     await page
       .getByRole('button', { name: 'Back up now', exact: true })
       .first()
@@ -94,7 +94,7 @@ test('the next backup fills a v1 false-success gap and an unchanged rerun stays 
     { runId: old.report.run.id },
   )
   expect(historic.run.status).toBe(old.report.run.status)
-  await page.goto('/#/history')
+  await page.goto('/#/browsing/history')
   await page
     .getByRole('searchbox', { name: 'Search history' })
     .fill(`Rescue precise after:${localDay(fixture().now)}`)

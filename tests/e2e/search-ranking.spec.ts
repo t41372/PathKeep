@@ -24,7 +24,7 @@ import {
 
 /** Searches History and waits for exactly these pages, in this order. */
 async function expectOrder(page: Page, query: string, titles: string[]) {
-  await page.goto('/#/history')
+  await page.goto('/#/browsing/history')
   await page.getByRole('searchbox', { name: 'Search history' }).fill(query)
   await expect(
     page.getByRole('listbox', { name: 'History results' }).getByRole('option'),
@@ -48,7 +48,7 @@ test('a title match ranks above an address match; the same title, newest first',
     })),
   ).sort((a, b) => a.at - b.at)
   appendChromeVisits(fixture().files['chrome:Default'], visits)
-  await page.goto('/#/backup')
+  await page.goto('/#/browsing/backup')
   await page.getByRole('button', { name: 'Back up now' }).first().click()
   await expect(
     page
@@ -78,7 +78,7 @@ test('a misspelled search still needs every word, in any order', async ({
     OLDER_TWIN.title,
   ])
   // Too short to be a typo and on no page, so the word has no way to answer.
-  await page.goto('/#/history')
+  await page.goto('/#/browsing/history')
   await page
     .getByRole('searchbox', { name: 'Search history' })
     .fill('lighthhouse zq')

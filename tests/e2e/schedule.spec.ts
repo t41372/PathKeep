@@ -55,7 +55,7 @@ test('a custom interval is previewed, installed exactly as shown, verified and r
   expect(await installState()).toBe('not-installed')
   expect(sandboxedSchedulerFiles()).toEqual([])
 
-  await page.goto('/#/backup')
+  await page.goto('/#/browsing/backup')
   await unlockIfLocked(page)
   const card = page
     .getByRole('heading', { name: 'Automatic backup' })

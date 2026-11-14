@@ -79,7 +79,7 @@ export async function importRelatedFile(
   file: string,
   count: number,
 ) {
-  await page.goto('/#/backup')
+  await page.goto('/#/browsing/backup')
   await unlockIfLocked(page)
   const card = page
     .getByRole('heading', { name: 'Import a browser’s history' })
@@ -107,7 +107,7 @@ export async function importRelatedFile(
 
 /** Undo leaves the indexed evidence in place, so related-page hydration must recheck visibility. */
 export async function undoRelatedFile(page: Page, filename: string) {
-  await page.goto('/#/backup')
+  await page.goto('/#/browsing/backup')
   await unlockIfLocked(page)
   const batch = page
     .getByRole('heading', { name: 'Recent imports' })

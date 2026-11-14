@@ -64,7 +64,7 @@ import {
  * ("4 pages · 14 visits · Full text").
  */
 async function expectSearchHits(page: Page, expected: number) {
-  await page.goto('/#/history')
+  await page.goto('/#/browsing/history')
   await page
     .getByRole('searchbox', { name: 'Search history' })
     .fill(BROWSER_FILE_TITLE)
@@ -86,7 +86,7 @@ async function expectSearchHits(page: Page, expected: number) {
 
 /** Types the file's path into the Browser Direct card and waits for the preview. */
 async function inspectFile(page: Page, file = browserFilePath()) {
-  await page.goto('/#/backup')
+  await page.goto('/#/browsing/backup')
   // The card keeps the last import's result until the user starts another.
   const card = page
     .getByRole('heading', { name: 'Import a browser’s history' })
@@ -165,7 +165,7 @@ test('a browser file previews new vs archived visits, imports, undoes and restor
 
   // Undo the second import: the preview shows what it added, then exactly
   // those visits disappear.
-  await page.goto('/#/backup')
+  await page.goto('/#/browsing/backup')
   const imports = page
     .getByRole('heading', { name: 'Recent imports' })
     .locator('xpath=ancestor::section[1]')
@@ -184,7 +184,7 @@ test('a browser file previews new vs archived visits, imports, undoes and restor
   await expectSearchHits(page, first.length)
 
   // Restore it: back to every visit, still no duplicates.
-  await page.goto('/#/backup')
+  await page.goto('/#/browsing/backup')
   const undone = imports
     .getByRole('listitem')
     .filter({ hasText: 'Undone. Hidden from your history.' })
@@ -209,7 +209,7 @@ async function expectPagesAndVisits(
   query: string,
   expected: { pages: number; visits: number },
 ) {
-  await page.goto('/#/history')
+  await page.goto('/#/browsing/history')
   await page.getByRole('searchbox', { name: 'Search history' }).fill(query)
   const header = page.getByText(/visits? · Full text$|^Nothing found$/).first()
   await expect
@@ -278,7 +278,7 @@ test('a Safari History.db puts each visit on its day, named as Safari last saw i
   }
 
   // Safari keeps no opener, so Insights can't say how the visits began.
-  await page.goto('/#/insights/site/almanac.example')
+  await page.goto('/#/browsing/insights/site/almanac.example')
   await expect(
     page.getByText(
       "Your visits here came from a browser that doesn't record which page opened a page (Safari, or history imported from Google Takeout), so PathKeep can't tell how you got here.",
@@ -353,7 +353,7 @@ test('an undone import leaves Insights, and its starred page stays in Starred', 
   ).toBeVisible({ timeout: 60_000 })
 
   // Imported: its own profile, the day and Top sites count its visits.
-  const dayRange = `/#/insights?range=custom&start=${day}&end=${day}`
+  const dayRange = `/#/browsing/insights?range=custom&start=${day}&end=${day}`
   await page.goto(dayRange)
   await page.getByRole('combobox', { name: 'Browser profile' }).click()
   await page
@@ -365,7 +365,11 @@ test('an undone import leaves Insights, and its starred page stays in Starred', 
   await expect(page).toHaveURL(/profile=browser-direct/)
   const profileRange = page.url().replace(/^.*?#/, '/#')
   await expectPageVisits(page, profileRange, visits.length)
-  await expectPageVisits(page, `/#/insights/day/${day}`, before + visits.length)
+  await expectPageVisits(
+    page,
+    `/#/browsing/insights/day/${day}`,
+    before + visits.length,
+  )
   await page.goto(dayRange)
   await expect(topSiteRow(page, UNDONE_FILE_SITE)).toContainText(
     String(visits.length),
@@ -373,7 +377,7 @@ test('an undone import leaves Insights, and its starred page stays in Starred', 
   )
 
   // A page only the import brought, starred.
-  await page.goto('/#/history')
+  await page.goto('/#/browsing/history')
   await page
     .getByRole('searchbox', { name: 'Search history' })
     .fill(`"${starredTitle}"`)
@@ -389,7 +393,7 @@ test('an undone import leaves Insights, and its starred page stays in Starred', 
   ).toBeVisible()
 
   // Undone.
-  await page.goto('/#/backup')
+  await page.goto('/#/browsing/backup')
   await page
     .getByRole('heading', { name: 'Recent imports' })
     .locator('xpath=ancestor::section[1]')
@@ -406,7 +410,7 @@ test('an undone import leaves Insights, and its starred page stays in Starred', 
   await expectCount(
     testInfo,
     `visits on ${day}, every profile, after the undo`,
-    await expectPageVisits(page, `/#/insights/day/${day}`, before),
+    await expectPageVisits(page, `/#/browsing/insights/day/${day}`, before),
     before,
   )
   await expectCount(
@@ -424,7 +428,7 @@ test('an undone import leaves Insights, and its starred page stays in Starred', 
   await expect(topSiteRow(page, UNDONE_FILE_SITE)).toHaveCount(0)
 
   // Still starred, under its site.
-  await page.goto('/#/history')
+  await page.goto('/#/browsing/history')
   await page.getByRole('tab', { name: /^Starred/ }).click()
   const entry = page
     .getByRole('listbox', { name: 'Starred' })

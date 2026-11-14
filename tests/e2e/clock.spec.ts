@@ -29,15 +29,15 @@ const twentyFourHour = /\b\d{2}:\d{2}(?!\s?[AP]M)/
 
 test('times follow the clock chosen in Settings', async ({ page }) => {
   await chooseClock(page, /^12-hour/)
-  await page.goto('/#/backup')
+  await page.goto('/#/browsing/backup')
   await expect(latestRunTime(page)).toContainText(twelveHour)
-  await page.goto('/#/insights?range=d30')
+  await page.goto('/#/browsing/insights?range=d30')
   await expect(page.getByText('12 AM', { exact: true }).first()).toBeVisible({
     timeout: 60_000,
   })
 
   await chooseClock(page, /^24-hour/)
-  await page.goto('/#/backup')
+  await page.goto('/#/browsing/backup')
   await expect(latestRunTime(page)).toContainText(twentyFourHour)
   await expect(latestRunTime(page)).not.toContainText(twelveHour)
   await page.reload()
@@ -45,6 +45,6 @@ test('times follow the clock chosen in Settings', async ({ page }) => {
 
   // The Linux OS has no clock setting to read; English then uses 12 hours.
   await chooseClock(page, /^Match system/)
-  await page.goto('/#/backup')
+  await page.goto('/#/browsing/backup')
   await expect(latestRunTime(page)).toContainText(twelveHour)
 })

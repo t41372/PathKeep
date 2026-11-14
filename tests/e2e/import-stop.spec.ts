@@ -73,7 +73,7 @@ test('a Takeout import stops from its card and carries on when imported again', 
   test.setTimeout(600_000)
   const folder = writeStoppedFolder()
   const total = stoppedVisitCount()
-  await page.goto('/#/backup')
+  await page.goto('/#/browsing/backup')
   await unlockIfLocked(page)
   const takeout = card(page, 'Import')
 
@@ -90,7 +90,7 @@ test('a Takeout import stops from its card and carries on when imported again', 
 
   // Away from Backup and back: the import is still on its card.
   await page.goto('/#/')
-  await page.goto('/#/backup')
+  await page.goto('/#/browsing/backup')
   await expect(takeout.getByText('Importing…')).toBeVisible()
 
   const saved = await stop(takeout)
@@ -128,7 +128,7 @@ test('a browser history file stops from its card, and imported again adds the re
   const visits = largeBrowserFileVisits()
   mkdirSync(path.dirname(file), { recursive: true })
   writeFirefoxPlaces(file, visits)
-  await page.goto('/#/backup')
+  await page.goto('/#/browsing/backup')
   await unlockIfLocked(page)
   const browser = card(page, 'Import a browser’s history')
 

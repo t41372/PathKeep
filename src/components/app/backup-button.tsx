@@ -9,6 +9,7 @@ import { cn } from '@/lib/cn'
 import { useNow } from '@/lib/hooks/use-now'
 import { useFormat, useI18n } from '@/lib/i18n'
 import { useSnapshot } from '@/lib/queries/app'
+import { spacePath } from '@/lib/spaces'
 import {
   nextScheduledBackup,
   scheduleInstalled,
@@ -59,7 +60,7 @@ export function BackupStatusPill() {
 
   return (
     <Link
-      to="/backup"
+      to={spacePath('browsing', 'backup')}
       className="flex h-9 items-center gap-2 rounded-lg border bg-card px-3 text-[13px] text-muted-foreground transition-colors hover:text-foreground"
     >
       <span className={cn('size-[7px] rounded-full', dot)} />

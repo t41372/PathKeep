@@ -135,7 +135,7 @@ test('semantic search turned on before the first visit says nothing is indexed y
     appendChromeVisits(history, [
       { ...FIRST_PAGE, at: Date.now() - 60_000, typed: true, duration: 30_000 },
     ])
-    await page.goto('/#/backup')
+    await page.goto('/#/browsing/backup')
     await page.getByRole('button', { name: 'Back up now' }).first().click()
     await expect(
       page
@@ -155,7 +155,7 @@ test('semantic search turned on before the first visit says nothing is indexed y
       page.getByText('1 visit indexed', { exact: false }),
     ).toBeVisible({ timeout: 60_000 })
 
-    await page.goto('/#/history')
+    await page.goto('/#/browsing/history')
     await page
       .getByRole('searchbox', { name: 'Search history' })
       .fill('fog signal lighthouse')

@@ -72,7 +72,7 @@ test('Ask answers from a search of the archive, with the pages it found', async 
 
     // From an Insights card: its question waits in a new chat.
     const sentBefore = model.requests.length
-    await page.goto('/#/insights?range=d30')
+    await page.goto('/#/browsing/insights?range=d30')
     await page
       .getByRole('heading', { name: 'Top sites', exact: true })
       .locator('xpath=ancestor::section[1]')

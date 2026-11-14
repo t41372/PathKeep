@@ -135,7 +135,7 @@ test('a data folder made by PathKeep 0.3.0 is updated with all its data', async 
   // the time straight into it, so match the element, not the row's text.
   const visits = (url: string) =>
     page.getByText(new RegExp(`^${expected.pages[url]} visits?$`))
-  await page.goto('/#/history')
+  await page.goto('/#/browsing/history')
   const search = page.getByRole('searchbox', { name: 'Search history' })
   await search.fill('quokka')
   const quokka = results(page).filter({ hasText: 'Quokka field notes' })

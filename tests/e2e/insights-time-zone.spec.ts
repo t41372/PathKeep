@@ -118,7 +118,7 @@ async function waitForRebuild(page: Page, place: string, zone: string) {
 }
 
 async function dayVisits(page: Page, day: string) {
-  await page.goto(`/#/insights/day/${day}`)
+  await page.goto(`/#/browsing/insights/day/${day}`)
   const tile = page.getByRole('group', { name: 'Page visits', exact: true })
   await expect(tile).toHaveAttribute('aria-busy', 'false', {
     timeout: REBUILD_TIMEOUT,
@@ -150,14 +150,14 @@ test('Insights keep their own time zone until the user switches', async ({
   )
   // The browser is in UTC, so Insights' times carry their zone.
   await expect(page.getByText(/GMT\+8/).first()).toBeVisible()
-  await page.goto('/#/insights')
+  await page.goto('/#/browsing/insights')
   await expect(page.getByRole('heading', { name: 'Insights' })).toBeVisible()
   await expect(notice(page)).toHaveCount(0)
 
   // A computer in Los Angeles: the notice, and keeping Taipei hides it.
   const losAngeles = await openIn(browser, testInfo, LOS_ANGELES)
   try {
-    await losAngeles.page.goto('/#/insights')
+    await losAngeles.page.goto('/#/browsing/insights')
     await expect(notice(losAngeles.page)).toHaveText(
       /^Insights use .*GMT\+8.*; this computer is now on Pacific Time/,
       { timeout: REBUILD_TIMEOUT },
@@ -176,7 +176,7 @@ test('Insights keep their own time zone until the user switches', async ({
   // Then Berlin: the notice is back; switching builds Insights there.
   const berlin = await openIn(browser, testInfo, BERLIN)
   try {
-    await berlin.page.goto('/#/insights')
+    await berlin.page.goto('/#/browsing/insights')
     await expect(notice(berlin.page)).toHaveText(
       /this computer is now on Central European Time/,
       { timeout: REBUILD_TIMEOUT },

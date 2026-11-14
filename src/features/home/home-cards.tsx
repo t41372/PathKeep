@@ -11,8 +11,15 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { BrowserIcon } from '@/lib/browser-icons'
 import { cn } from '@/lib/cn'
+import { spacePath } from '@/lib/spaces'
 import { useFormat, useI18n } from '@/lib/i18n'
-import { dayPath, pagePath, searchPath } from '@/features/insights/links'
+import {
+  dayPath,
+  historyPath,
+  insightsPath,
+  pagePath,
+  searchPath,
+} from '@/features/insights/links'
 import { presetScope } from '@/features/insights/range'
 import { TopicIcon } from '@/features/insights/topic-icon'
 import { BuildingNote } from './building'
@@ -162,7 +169,7 @@ export function OnThisDayCard() {
           {entries.map((entry) => (
             <li key={entry.year}>
               <Link
-                to={`/history?date=${entry.date}`}
+                to={historyPath({ date: entry.date })}
                 className="flex items-start gap-3 rounded-lg p-2 transition-colors hover:bg-muted"
               >
                 <span className="min-w-[38px] pt-0.5 font-mono text-xs font-medium text-brand">
@@ -350,7 +357,7 @@ export function ThreadsCard() {
       title={t('home.threads.title')}
       action={
         <Link
-          to="/insights"
+          to={insightsPath()}
           className="text-[13px] text-muted-foreground hover:text-foreground"
         >
           {t('home.threads.all')} →
@@ -424,7 +431,7 @@ export function SourcesCard() {
       title={t('home.sources.title')}
       action={
         <Link
-          to="/backup"
+          to={spacePath('browsing', 'backup')}
           className="text-[13px] text-muted-foreground hover:text-foreground"
         >
           {t('home.sources.manage')} →

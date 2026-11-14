@@ -463,7 +463,7 @@ test('a search index build killed half way finishes after a restart, without sta
     await expect(
       page.getByText(/^Paused at [\d,]+ of [\d,]+ visits\.$/),
     ).toBeVisible({ timeout: 60_000 })
-    await page.goto('/#/backup')
+    await page.goto('/#/browsing/backup')
     await page.getByRole('button', { name: 'Back up now' }).first().click()
     await expect(
       page
@@ -518,7 +518,7 @@ test('a search index build killed half way finishes after a restart, without sta
     ).toBe(true)
 
     // The search modes show once there is something to search for.
-    await page.goto('/#/history')
+    await page.goto('/#/browsing/history')
     await page
       .getByRole('searchbox', { name: 'Search history' })
       .fill('afternoon run strava')
@@ -553,7 +553,7 @@ test('a search index build killed half way finishes after a restart, without sta
     const atBackup = service.inputs.length
     retitleChromePage(chromeFile, retitled.url, RETITLED_TITLE)
     appendChromeVisits(chromeFile, indexRevisitVisits(same, retitled))
-    await page.goto('/#/backup')
+    await page.goto('/#/browsing/backup')
     await page.getByRole('button', { name: 'Back up now' }).first().click()
     const titleOf = (page: string) => page.split('\n')[0]
     await expect
@@ -594,7 +594,7 @@ test('a search index build killed half way finishes after a restart, without sta
     expect(sent[0].split('\n')[1].split(' · ')[0], 'its site').toBe(
       new URL(retitled.url).hostname.replace(/^www\./, ''),
     )
-    await page.goto('/#/history')
+    await page.goto('/#/browsing/history')
     await page
       .getByRole('searchbox', { name: 'Search history' })
       .fill('quokka harbour regatta')
@@ -643,7 +643,7 @@ test('a search index build killed half way finishes after a restart, without sta
       serving: { model: 'e2e-embed' },
       build: null,
     })
-    await page.goto('/#/history')
+    await page.goto('/#/browsing/history')
     await page
       .getByRole('searchbox', { name: 'Search history' })
       .fill('afternoon run strava')
@@ -814,7 +814,7 @@ test('the model gets each page’s own text and searches in its own form; an ind
   // These words find the same page by full text too: wait for the line that
   // says the results on screen came from semantic search.
   const searchByMeaning = async (words: string) => {
-    await page.goto('/#/history')
+    await page.goto('/#/browsing/history')
     await unlockIfLocked(page)
     await page.getByRole('searchbox', { name: 'Search history' }).fill(words)
     await page.getByRole('radio', { name: 'Semantic' }).click()
@@ -861,7 +861,7 @@ test('the model gets each page’s own text and searches in its own form; an ind
 
     // The build ends while History is open: semantic search becomes
     // available there without a reload.
-    await page.goto('/#/history')
+    await page.goto('/#/browsing/history')
     // The search modes show once there is something to search for.
     await page
       .getByRole('searchbox', { name: 'Search history' })
@@ -927,7 +927,7 @@ test('the model gets each page’s own text and searches in its own form; an ind
     // A backup's new page is still added to it.
     const atBackup = service.inputs.length
     appendChromeVisits(fixture().files['chrome:Default'], [newPageVisit()])
-    await page.goto('/#/backup')
+    await page.goto('/#/browsing/backup')
     await page.getByRole('button', { name: 'Back up now' }).first().click()
     await expect
       .poll(
@@ -1127,7 +1127,7 @@ test('a browser-filtered semantic search pages through to its least similar page
       service.inputs.some((text) => text.startsWith(`${outsideTitle}\n`)),
     ).toBe(true)
 
-    await page.goto('/#/history')
+    await page.goto('/#/browsing/history')
     await page.getByRole('searchbox', { name: 'Search history' }).fill(words)
     await page.getByRole('radio', { name: 'Semantic' }).click()
     await expect(page.getByText(/Semantic search with /)).toBeVisible({
@@ -1642,7 +1642,7 @@ test('History finds related pages across sites, folds titles and keeps the list 
     const read = (url: string) =>
       backend<RelatedPages>('get_related_pages', { url })
 
-    await page.goto('/#/history')
+    await page.goto('/#/browsing/history')
     await unlockIfLocked(page)
     const search = page.getByRole('searchbox', { name: 'Search history' })
     await search.fill(RELATED_SOURCE.title)
@@ -1745,7 +1745,7 @@ test('History finds related pages across sites, folds titles and keeps the list 
     })
     await remove.getByRole('button', { name: 'Remove', exact: true }).click()
     await expect(remove).toBeHidden()
-    await page.goto('/#/history')
+    await page.goto('/#/browsing/history')
     await unlockIfLocked(page)
     await page
       .getByRole('searchbox', { name: 'Search history' })
@@ -1819,7 +1819,7 @@ test('a rebuild leaves the complete index answering searches until it replaces i
     .getByRole('listbox', { name: 'History results' })
     .getByRole('option')
   const findsByMeaning = async (words: string, title: string) => {
-    await page.goto('/#/history')
+    await page.goto('/#/browsing/history')
     await unlockIfLocked(page)
     await page.getByRole('searchbox', { name: 'Search history' }).fill(words)
     await page.getByRole('radio', { name: 'Semantic' }).click()
@@ -1970,7 +1970,7 @@ test('a cancelled rebuild leaves the index it would have replaced, and the next 
     (await backend<{ aiStatus: { indexedItems: number } }>('app_snapshot'))
       .aiStatus.indexedItems
   const backUp = async () => {
-    await page.goto('/#/backup')
+    await page.goto('/#/browsing/backup')
     await unlockIfLocked(page)
     await page.getByRole('button', { name: 'Back up now' }).first().click()
   }

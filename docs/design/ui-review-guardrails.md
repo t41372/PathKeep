@@ -26,6 +26,8 @@
 
 ## 3. 全寬卡片白名單
 
+這份白名單只管瀏覽紀錄空間與共用畫面。之後的空間（Agent 對話）頁面隨視窗變寬，規則在 [data-spaces-tradeoff.md](data-spaces-tradeoff.md) §4.5。
+
 預設 **不允許** 任意把卡片做成 full-width。  
 目前可以佔滿內容欄寬的只有：
 

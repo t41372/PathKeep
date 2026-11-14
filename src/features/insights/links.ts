@@ -3,6 +3,7 @@
  * the routes in `src/app/router.tsx`, the History URL contract and these
  * links cannot drift apart.
  */
+import { spacePath } from '@/lib/spaces'
 import { scopeParams, type Scope } from './range'
 
 /** A path that keeps the scope the user was looking at. */
@@ -14,21 +15,23 @@ function withScope(path: string, scope?: Scope, extra?: URLSearchParams) {
   return query ? `${path}?${query}` : path
 }
 
-export const insightsPath = (scope?: Scope) => withScope('/insights', scope)
+const insights = (rest = '') => spacePath('browsing', 'insights', rest)
+
+export const insightsPath = (scope?: Scope) => withScope(insights(), scope)
 
 /**
  * A local calendar day, `YYYY-MM-DD`. The day covers every profile; `scope`
  * is only where "← Insights" goes back to.
  */
 export const dayPath = (date: string, scope?: Scope) =>
-  withScope(`/insights/day/${date}`, scope)
+  withScope(insights(`/day/${date}`), scope)
 
 export const sitePath = (domain: string, scope?: Scope) =>
-  withScope(`/insights/site/${encodeURIComponent(domain)}`, scope)
+  withScope(insights(`/site/${encodeURIComponent(domain)}`), scope)
 
 /** A search, by the text the user typed. */
 export const searchPath = (query: string, scope?: Scope) =>
-  withScope(`/insights/search/${encodeURIComponent(query)}`, scope)
+  withScope(insights(`/search/${encodeURIComponent(query)}`), scope)
 
 /**
  * A page the user keeps reopening, by canonical URL. Re-find scores are per
@@ -40,7 +43,7 @@ export const pagePath = (
   scores?: string | null,
 ) =>
   withScope(
-    `/insights/page/${encodeURIComponent(canonicalUrl)}`,
+    insights(`/page/${encodeURIComponent(canonicalUrl)}`),
     scope,
     scores ? new URLSearchParams({ scores }) : undefined,
   )
@@ -65,5 +68,5 @@ export function historyPath(filters: {
   if (filters.domain) params.set('domain', filters.domain)
   if (filters.visit) params.set('visit', String(filters.visit))
   const query = params.toString()
-  return query ? `/history?${query}` : '/history'
+  return spacePath('browsing', 'history', query ? `?${query}` : '')
 }

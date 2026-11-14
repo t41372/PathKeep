@@ -93,7 +93,7 @@ test('search lists each matching page once with its visits', async ({
     'the fixture must revisit the page',
   ).toBeGreaterThan(1)
 
-  await page.goto('/#/history')
+  await page.goto('/#/browsing/history')
   const search = page.getByRole('searchbox', { name: 'Search history' })
 
   // Every word of the title has to match; "tokio" alone matches many pages.
@@ -132,7 +132,7 @@ test('a word on several pages lists every page once', async ({
   )
   expect(want.pages, 'the fixture has several tokio pages').toBeGreaterThan(2)
 
-  await page.goto('/#/history')
+  await page.goto('/#/browsing/history')
   await page.getByRole('searchbox', { name: 'Search history' }).fill('tokio')
   await expectResults(page, testInfo, 'tokio', 'Full text', want)
   // As many rows as pages, and each page's title on exactly one of them.
@@ -149,7 +149,7 @@ test('a starred page keeps its note after a reload', async ({
     (visit) => visit.url === PAGE_URL,
   ).length
 
-  await page.goto('/#/history')
+  await page.goto('/#/browsing/history')
   await page
     .getByRole('searchbox', { name: 'Search history' })
     .fill('why I left tokio')

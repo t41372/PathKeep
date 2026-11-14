@@ -1,7 +1,12 @@
-/** Routes. Each screen is code-split so the first paint only loads the shell. */
+/**
+ * Routes. Each screen is code-split so the first paint only loads the shell.
+ * A space's pages live under `#/<space>/<page>` and come from the registry
+ * (`src/lib/spaces`); Ask and Settings are shared and carry no space.
+ */
 import { lazy, Suspense, type ComponentType } from 'react'
-import { createHashRouter, Navigate } from 'react-router-dom'
+import { createHashRouter, Navigate, type RouteObject } from 'react-router-dom'
 import { Skeleton } from '@/components/ui/skeleton'
+import { readLastSpace, spaces, spaceStartPath } from '@/lib/spaces'
 import { AppFrame } from './shell/app-frame'
 import { RouteError } from './shell/route-error'
 
@@ -28,6 +33,26 @@ function screen(load: () => Promise<{ default: ComponentType }>) {
   )
 }
 
+function spaceRoutes(): RouteObject[] {
+  return spaces.flatMap((space) =>
+    space.pages.flatMap((page) => {
+      const base = `${space.id}/${page.id}`
+      const children = 'children' in page ? page.children : []
+      return [
+        { path: base, element: screen(page.screen) },
+        ...children.map((child) => ({
+          path: `${base}/${child.path}`,
+          element: screen(child.screen),
+        })),
+      ]
+    }),
+  )
+}
+
+function OpenLastSpace() {
+  return <Navigate to={spaceStartPath(readLastSpace())} replace />
+}
+
 export function createAppRouter() {
   return createHashRouter([
     {
@@ -40,43 +65,12 @@ export function createAppRouter() {
           // navigation stays, and going to another screen clears it.
           errorElement: <RouteError />,
           children: [
-            {
-              index: true,
-              element: screen(() => import('@/features/home/home-page')),
-            },
-            {
-              path: 'history',
-              element: screen(() => import('@/features/history/history-page')),
-            },
-            {
-              path: 'insights',
-              element: screen(
-                () => import('@/features/insights/insights-page'),
-              ),
-            },
-            {
-              path: 'insights/day/:date',
-              element: screen(() => import('@/features/insights/day-page')),
-            },
-            {
-              path: 'insights/site/:domain',
-              element: screen(() => import('@/features/insights/site-page')),
-            },
-            {
-              path: 'insights/search/:query',
-              element: screen(() => import('@/features/insights/search-page')),
-            },
-            {
-              path: 'insights/page/:url',
-              element: screen(() => import('@/features/insights/page-page')),
-            },
+            // `#/` opens the space the user was last in.
+            { index: true, element: <OpenLastSpace /> },
+            ...spaceRoutes(),
             {
               path: 'ask',
               element: screen(() => import('@/features/ask/ask-page')),
-            },
-            {
-              path: 'backup',
-              element: screen(() => import('@/features/backup/backup-page')),
             },
             {
               path: 'settings/:section?',

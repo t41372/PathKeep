@@ -23,7 +23,7 @@
     - Codex 還原（revert）後的第二份 rollout 和原本那份是同一段對話；`thread_history_N.sqlite` 不備份；狀態資料庫只留最新一份。
     - 讀 `.git` 只讀設計文件列的那幾個檔、不跟隨符號連結、遠端網址去掉帳密；關掉設定就完全不讀。
 
-- [ ] **WORK-SPACES-SHELL** — 把外框改成「每種資料類型一個空間」，瀏覽紀錄的頁面搬到 `#/browsing/…`。這一塊做完，app 仍然只有瀏覽紀錄一種資料，但外框已經能放第二種。
+- [x] **WORK-SPACES-SHELL** — 把外框改成「每種資料類型一個空間」，瀏覽紀錄的頁面搬到 `#/browsing/…`。這一塊做完，app 仍然只有瀏覽紀錄一種資料，但外框已經能放第二種。
   - 讀先：`docs/design/data-spaces-tradeoff.md`、`docs/features/data-spaces.md`；`docs/design/` 核心四份；`program/quality-matrix.md`、`project-e2e` 相關的 `tests/e2e/` 與 `playwright.config.ts`。
   - 做：資料類型的登記表（導航列、路由、⌘K、備份頁、色相都從它來）；切換鈕與選單；`#/<空間>/<頁面>` 路由與舊路徑全面改掉；每個空間的色相 token 與固定的分類色（用對比檢查定值）；⌘1…9／Ctrl+1…9；切換動畫；語言鈕移出導航列；背景任務指示器的位置（內容在 `WORK-AH-APP-SURFACE` 接上之前先顯示既有的工作）。
   - 三語文案一起交付；既有 E2E 全部跟著新路徑改，並且在新路徑下全數通過。切換空間要有第二個真的空間才驗得了（不做假的空間來測）：切換鈕、快捷鍵、動畫的 E2E 情境（含減少動態效果）在 Agent 空間有第一個真的頁面時補上，那之前這幾樣不算驗過。
@@ -34,6 +34,7 @@
     - 導航列和 ⌘K 上瀏覽紀錄的清單頁改叫「紀錄」（中文；英文仍是 History），頁面自己的標題一起改。
   - 收工時照 trade-off 文件 §5 逐條改寫 `ux-principles.md`、`screens-and-nav.md`、`ui-review-guardrails.md`、`design-tokens.md`，並在 trade-off 文件 §6 記下落地情況。
 
+  - 完成（2026-11-14）。落地情況、跟設計不完全一樣和還不完整的地方記在 `data-spaces-tradeoff.md` §6；四份設計文件已照 §5 改寫。切換空間的 E2E 等 Agent 空間有第一個真的頁面時補。
 - [x] **WORK-RUSTIX-2026-11-13** — 新發布的 RUSTSEC-2026-0486 擋下 PR #20 的供應鏈 gate，更新既有間接依賴後重新驗證。
   - 讀先：`docs/architecture/dependency-maintenance.md`、RustSec 官方公告與 crates.io 的版本／依賴資料。
   - 11 月 11 日發布的公告影響 rustix 1.1.4；更新至最新修正版 1.1.6。保留既有 Windows bindings，不新增 advisory 例外。GitHub 的完整 `bun run check` 已過，失敗的是隨後的新公告掃描。

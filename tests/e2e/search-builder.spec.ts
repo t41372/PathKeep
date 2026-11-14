@@ -258,7 +258,7 @@ test('the sort menu orders results by first or latest visit and keeps the order'
   expect(top(byFirst)).not.toEqual(top([...byLatest].reverse()))
   expect(top(byVisits)).not.toEqual(top(byLatest))
 
-  await visit(page, '/#/history?q=tokio')
+  await visit(page, '/#/browsing/history?q=tokio')
   await expectTotals(page, testInfo, 'tokio', 'Full text', found)
 
   await pickSort(page, 'Best match', 'Oldest first')
@@ -329,7 +329,7 @@ test('a regex search lists every page it matches once, in order, through its las
       100,
     )
 
-    await visit(page, '/#/history')
+    await visit(page, '/#/browsing/history')
     await searchBox(page).fill('tokio')
     await page.getByRole('radio', { name: 'Regex' }).click()
     await searchBox(page).fill(pattern)
@@ -375,7 +375,7 @@ test('Advanced search writes all, any and none of these words as one query', asy
     (page) => !want.some((other) => other.title === page.title),
   )!
 
-  await visit(page, '/#/history')
+  await visit(page, '/#/browsing/history')
   await page.getByRole('button', { name: 'Advanced search' }).click()
   const form = builder(page)
   await form.getByLabel('All of these words', { exact: true }).fill('tokio')
@@ -420,7 +420,7 @@ test('Advanced search turns pieces into a regex that finds exactly the matching 
     expect(found.length).toBeGreaterThan(0)
   expect(rustWord.length).toBeLessThan(matching(/rust/i).length)
 
-  await visit(page, '/#/history')
+  await visit(page, '/#/browsing/history')
   await page.getByRole('button', { name: 'Advanced search' }).click()
   await builder(page).getByRole('tab', { name: 'Pattern' }).click()
   await builder(page)

@@ -139,7 +139,7 @@ const SHOTS = [
     theme: 'light',
     backdrop: 'path-dawn',
     show: async (page) => {
-      await rail(page, 'history')
+      await rail(page, 'browsing/history')
       // A page from today's first session, with its detail panel open.
       await page.getByRole('option').nth(3).click()
     },
@@ -148,7 +148,7 @@ const SHOTS = [
     name: 'insights',
     theme: 'light',
     backdrop: 'path-dawn',
-    show: (page) => rail(page, 'insights'),
+    show: (page) => rail(page, 'browsing/insights'),
   },
   {
     name: 'page',
@@ -157,14 +157,14 @@ const SHOTS = [
     // A page the demo keeps reopening, and why Insights lists it.
     show: (page) =>
       page.goto(
-        `${devServerUrl}/#/insights/page/${encodeURIComponent('https://jlptsensei.com/n3-listening/14')}`,
+        `${devServerUrl}/#/browsing/insights/page/${encodeURIComponent('https://jlptsensei.com/n3-listening/14')}`,
       ),
   },
   {
     name: 'backup',
     theme: 'light',
     backdrop: 'path-dawn',
-    show: (page) => rail(page, 'backup'),
+    show: (page) => rail(page, 'browsing/backup'),
   },
   { name: 'home-dark', theme: 'dark', backdrop: 'path-dusk', show: () => {} },
   {
@@ -172,7 +172,7 @@ const SHOTS = [
     theme: 'dark',
     backdrop: 'path-dusk',
     show: async (page, words) => {
-      await rail(page, 'insights')
+      await rail(page, 'browsing/insights')
       await page
         .getByRole('heading', { name: words.time, exact: true })
         .evaluate((heading) => {

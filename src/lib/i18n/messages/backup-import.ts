@@ -170,7 +170,7 @@ export const backupImport = defineMessages({
       source: '来源',
       added: '新增',
       already: '已有',
-      visible: '显示在历史中',
+      visible: '显示在记录中',
       sample: '它新增的部分记录',
       noSample: '它的记录目前是隐藏的。',
       record: '记录',
@@ -180,9 +180,9 @@ export const backupImport = defineMessages({
       undoNote_other:
         '撤销会隐藏这次导入新增的 {count} 条浏览记录。不会删除任何内容，之后可以恢复。',
       restoreNote_one:
-        '恢复会让这次导入新增的 {count} 条浏览记录重新显示在历史中。',
+        '恢复会让这次导入新增的 {count} 条浏览记录重新显示在记录中。',
       restoreNote_other:
-        '恢复会让这次导入新增的 {count} 条浏览记录重新显示在历史中。',
+        '恢复会让这次导入新增的 {count} 条浏览记录重新显示在记录中。',
       restoreConfirm: '恢复导入',
       working: '正在处理…',
       importing: '正在导入…',
@@ -265,7 +265,7 @@ export const backupImport = defineMessages({
       source: '來源',
       added: '新增',
       already: '已有',
-      visible: '顯示在歷史中',
+      visible: '顯示在紀錄中',
       sample: '它新增的部分記錄',
       noSample: '它的記錄目前是隱藏的。',
       record: '記錄',
@@ -275,9 +275,9 @@ export const backupImport = defineMessages({
       undoNote_other:
         '復原會隱藏這次匯入新增的 {count} 筆瀏覽記錄。不會刪除任何內容，之後可以還原。',
       restoreNote_one:
-        '還原會讓這次匯入新增的 {count} 筆瀏覽記錄重新顯示在歷史中。',
+        '還原會讓這次匯入新增的 {count} 筆瀏覽記錄重新顯示在紀錄中。',
       restoreNote_other:
-        '還原會讓這次匯入新增的 {count} 筆瀏覽記錄重新顯示在歷史中。',
+        '還原會讓這次匯入新增的 {count} 筆瀏覽記錄重新顯示在紀錄中。',
       restoreConfirm: '還原匯入',
       working: '正在處理…',
       importing: '正在匯入…',

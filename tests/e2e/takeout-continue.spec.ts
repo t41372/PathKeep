@@ -33,7 +33,7 @@ async function batchesOf(folder: string) {
 }
 
 async function startImport(page: Page, folder: string) {
-  await page.goto('/#/backup')
+  await page.goto('/#/browsing/backup')
   const field = page.getByRole('textbox', {
     name: 'Path to a Takeout .zip or folder',
   })

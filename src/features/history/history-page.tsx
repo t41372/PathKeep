@@ -14,6 +14,7 @@ import { SearchCoverageNotice } from '@/components/app/search-coverage'
 import { cn } from '@/lib/cn'
 import { useI18n } from '@/lib/i18n'
 import { SEARCH_CONNECTION_LOST } from '@/lib/ipc/search-stream'
+import { spacePath } from '@/lib/spaces'
 import { DetailPanel } from './detail-panel'
 import { HistoryToolbar } from './history-toolbar'
 import { useOpenPage } from './open-link'
@@ -323,7 +324,9 @@ export default function HistoryPage() {
           body={t('history.state.noHistoryBody')}
         >
           <Button asChild size="sm">
-            <Link to="/backup">{t('history.state.goBackup')}</Link>
+            <Link to={spacePath('browsing', 'backup')}>
+              {t('history.state.goBackup')}
+            </Link>
           </Button>
         </StateMessage>
       )

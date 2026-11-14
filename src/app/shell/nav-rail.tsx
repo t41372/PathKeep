@@ -1,17 +1,22 @@
 /**
- * The left navigation rail: back and forward at the top, the five sections,
- * then tools. On macOS the traffic lights sit above back and forward; on
- * Windows and Linux the rail starts with them (no brand mark: the three
- * platforms have the same rail, `back-forward-window-frame-tradeoff.md` D).
+ * The left navigation rail, top to bottom: back and forward; the space
+ * switcher; the current space's own pages; a line; then what every space
+ * shares, which stays put when the space changes: background tasks, Ask,
+ * ⌘K, lock, light/dark and Settings (`data-spaces-tradeoff.md` §4.1). The
+ * language is chosen in Settings › General, not here.
+ *
+ * On macOS the traffic lights sit above back and forward; on Windows and
+ * Linux the rail starts with them (no brand mark: the three platforms have
+ * the same rail, `back-forward-window-frame-tradeoff.md` D).
+ *
+ * Not responsible for: which pages a space has (the registry,
+ * `src/lib/spaces`), switching (`current-space.ts`) or the slide
+ * (`space-slide.tsx`).
  */
 import {
-  ChartColumn,
   ChevronLeft,
   ChevronRight,
   Command,
-  HardDriveDownload,
-  History,
-  House,
   Lock,
   MessageCircle,
   Moon,
@@ -21,44 +26,20 @@ import {
 } from 'lucide-react'
 import { NavLink } from 'react-router-dom'
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
-import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { cn } from '@/lib/cn'
-import {
-  languageNames,
-  supportedLanguages,
-  useI18n,
-  type MessageKey,
-} from '@/lib/i18n'
-import { useChooseLanguage } from '@/lib/queries/language'
+import { useI18n } from '@/lib/i18n'
 import { hasMacOverlayTitlebar, isMacOsHost } from '@/lib/runtime'
+import { spacePagePath } from '@/lib/spaces'
 import { useTheme } from '@/lib/theme'
-import type { LanguagePreference } from '@/lib/types'
+import { useCurrentSpace, useSlideDirection } from './current-space'
+import { SpaceSlide } from './space-slide'
+import { SpaceSwitcher } from './space-switcher'
+import { TaskIndicator } from './task-indicator'
 import { useHistorySteps } from './use-history-steps'
-
-const sections: { to: string; icon: LucideIcon; label: MessageKey }[] = [
-  { to: '/', icon: House, label: 'shell.nav.home' },
-  { to: '/history', icon: History, label: 'shell.nav.history' },
-  { to: '/insights', icon: ChartColumn, label: 'shell.nav.insights' },
-  { to: '/ask', icon: MessageCircle, label: 'shell.nav.ask' },
-  { to: '/backup', icon: HardDriveDownload, label: 'shell.nav.backup' },
-]
-
-const languageShort: Record<LanguagePreference, string> = {
-  system: 'A',
-  en: 'EN',
-  'zh-CN': '简',
-  'zh-TW': '繁',
-}
 
 function RailLink({
   to,
@@ -72,16 +53,17 @@ function RailLink({
   return (
     <NavLink
       to={to}
-      end={to === '/'}
       className={({ isActive }) =>
         cn(
-          'flex h-[58px] w-[60px] flex-col items-center justify-center gap-1 rounded-xl text-muted-foreground transition-[background-color,color,box-shadow] duration-150 hover:text-foreground',
+          'flex h-[54px] w-[60px] shrink-0 flex-col items-center justify-center gap-1 rounded-xl text-muted-foreground transition-[background-color,color,box-shadow] duration-150 hover:text-foreground',
           isActive && 'bg-card text-foreground shadow-card',
         )
       }
     >
       <Icon className="size-5" strokeWidth={1.75} aria-hidden />
-      <span className="text-[11px] font-medium">{label}</span>
+      <span className="text-[11px] leading-none font-medium whitespace-nowrap">
+        {label}
+      </span>
     </NavLink>
   )
 }
@@ -102,7 +84,7 @@ function RailButton({
           type="button"
           aria-label={label}
           onClick={onClick}
-          className="flex h-9 w-10 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          className="flex h-8 w-10 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
         >
           {children}
         </button>
@@ -146,6 +128,13 @@ function StepButton({
   )
 }
 
+const Divider = ({ className }: { className?: string }) => (
+  <span
+    aria-hidden
+    className={cn('h-px w-8 shrink-0 bg-foreground/10', className)}
+  />
+)
+
 export function NavRail({
   onOpenPalette,
   onLock,
@@ -153,23 +142,24 @@ export function NavRail({
   onOpenPalette: () => void
   onLock: () => void
 }) {
-  const { t, preference, language } = useI18n()
-  const chooseLanguage = useChooseLanguage()
+  const { t } = useI18n()
   const { resolved, setPreference: setTheme } = useTheme()
   const overlayTitlebar = hasMacOverlayTitlebar()
   const steps = useHistorySteps()
   const mac = isMacOsHost()
+  const space = useCurrentSpace()
+  const dir = useSlideDirection(space)
 
   return (
     <nav
       aria-label={t('shell.nav.label')}
-      className="flex w-[76px] shrink-0 flex-col items-center gap-1 pb-4"
+      className="flex w-[76px] shrink-0 flex-col items-center gap-1 pb-3"
     >
       <div
         data-tauri-drag-region
         className={cn('w-full shrink-0', overlayTitlebar ? 'h-[46px]' : 'h-3')}
       />
-      <div className="mb-3 flex shrink-0 gap-0.5">
+      <div className="mb-1.5 flex shrink-0 gap-0.5">
         <StepButton
           label={t(mac ? 'shell.nav.backMac' : 'shell.nav.back')}
           disabled={!steps.canBack}
@@ -185,48 +175,29 @@ export function NavRail({
           <ChevronRight className="size-[17px]" />
         </StepButton>
       </div>
-      {sections.map((section) => (
-        <RailLink key={section.to} {...section} label={t(section.label)} />
-      ))}
-      <div className="flex-1" data-tauri-drag-region />
+      <SpaceSwitcher dir={dir} />
+      <Divider className="my-1.5" />
+      <SpaceSlide id={space.id} dir={dir} className="gap-1">
+        {space.pages.map((page) => (
+          <RailLink
+            key={page.id}
+            to={spacePagePath(space, page)}
+            icon={page.icon}
+            label={t(page.label)}
+          />
+        ))}
+      </SpaceSlide>
+      <div className="min-h-2 flex-1" data-tauri-drag-region />
+      {/* Below the line: shared by every space, and still when it changes. */}
+      <Divider className="mb-1" />
+      <TaskIndicator />
+      <RailLink to="/ask" icon={MessageCircle} label={t('shell.nav.ask')} />
       <RailButton label={t('shell.nav.palette')} onClick={onOpenPalette}>
         <Command className="size-[17px]" />
       </RailButton>
       <RailButton label={t('shell.nav.lock')} onClick={onLock}>
         <Lock className="size-[17px]" />
       </RailButton>
-      <DropdownMenu>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <DropdownMenuTrigger
-              aria-label={t('shell.nav.language')}
-              className="flex h-8 w-10 items-center justify-center rounded-lg text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-            >
-              {languageShort[preference === 'system' ? language : preference]}
-            </DropdownMenuTrigger>
-          </TooltipTrigger>
-          <TooltipContent side="right">
-            {t('shell.nav.language')}
-          </TooltipContent>
-        </Tooltip>
-        <DropdownMenuContent side="right" align="end">
-          <DropdownMenuRadioGroup
-            value={preference}
-            onValueChange={(value) =>
-              chooseLanguage(value as LanguagePreference)
-            }
-          >
-            <DropdownMenuRadioItem value="system">
-              {t('shell.theme.system')}
-            </DropdownMenuRadioItem>
-            {supportedLanguages.map((lang) => (
-              <DropdownMenuRadioItem key={lang} value={lang}>
-                {languageNames[lang]}
-              </DropdownMenuRadioItem>
-            ))}
-          </DropdownMenuRadioGroup>
-        </DropdownMenuContent>
-      </DropdownMenu>
       <RailButton
         label={t(
           resolved === 'dark'

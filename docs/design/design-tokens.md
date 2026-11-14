@@ -51,16 +51,34 @@ There is no automated contrast check any more. The old `tokens.contrast.test.ts`
 
 ## Brand and status colors
 
-| Token                     | Light                  | Dark                   | Meaning                                                             |
-| ------------------------- | ---------------------- | ---------------------- | ------------------------------------------------------------------- |
-| `--brand`                 | `oklch(0.7 0.17 48)`   | `oklch(0.74 0.16 50)`  | PathKeep orange: running state, chart series 1, heatmap, focus ring |
-| `--brand-soft`            | brand at 12 %          | brand at 16 %          | text selection, soft highlights                                     |
-| `--blue`                  | `oklch(0.62 0.15 252)` | `oklch(0.72 0.13 252)` | second series (e.g. searches), search-index segment in disk usage   |
-| `--green`                 | `oklch(0.62 0.15 150)` | `oklch(0.72 0.13 150)` | "backed up recently" dot, success                                   |
-| `--violet`                | `oklch(0.62 0.15 300)` | `oklch(0.72 0.13 300)` | snapshots segment in disk usage                                     |
-| `--red` / `--destructive` | `oklch(0.6 0.2 25)`    | `oklch(0.68 0.18 25)`  | failures, destructive buttons, invalid input                        |
+| Token                     | Light                  | Dark                   | Meaning                                                                                                                         |
+| ------------------------- | ---------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `--brand`                 | `oklch(0.7 0.17 48)`   | `oklch(0.74 0.16 50)`  | The current space's accent; these values are browsing's, PathKeep orange: running state, main chart series, heatmap, focus ring |
+| `--brand-soft`            | brand at 12 %          | brand at 16 %          | text selection, soft highlights                                                                                                 |
+| `--blue`                  | `oklch(0.62 0.15 252)` | `oklch(0.72 0.13 252)` | second series (e.g. searches), search-index segment in disk usage                                                               |
+| `--green`                 | `oklch(0.62 0.15 150)` | `oklch(0.72 0.13 150)` | "backed up recently" dot, success                                                                                               |
+| `--violet`                | `oklch(0.62 0.15 300)` | `oklch(0.72 0.13 300)` | snapshots segment in disk usage                                                                                                 |
+| `--red` / `--destructive` | `oklch(0.6 0.2 25)`    | `oklch(0.68 0.18 25)`  | failures, destructive buttons, invalid input                                                                                    |
 
-`--chart-1` … `--chart-5` alias brand, blue, green, violet and red, in that order. EvilCharts reads them through its `ChartConfig`.
+### Tokens that follow the space
+
+The current space is on `<html data-space="…">` (`src/app/shell/current-space.ts`, from the registry in `src/lib/spaces/`). Browsing keeps the tokens in this file as they are. A space that brings its own colours also sets `data-space-hue` and `--space-h` (its oklch hue), and `src/index.css` derives `--brand`, `--brand-soft`, `--ring`, `--heat-1` … `--heat-4`, `--window` and `--wall` from that hue, in light, dark and under the glass material. Panels, cards, text, primary buttons and the status colours never change with the space.
+
+Rules for a new space's hue ([data-spaces-tradeoff.md](data-spaces-tradeoff.md) §4.3): at least 20° from `--red`, so the accent never reads as an error (orange, the closest so far, is 23° away); and before the accent is used as text or a thin icon on a card, measure it in both themes. Below 4.5:1 it stays on fills, borders and selection, and text links use the foreground colour with an underline. Browsing's orange is 2.8:1 on a light card, so it is not a text colour there.
+
+### Fixed chart colours
+
+| Token           | Light                  | Dark                   |                   |
+| --------------- | ---------------------- | ---------------------- | ----------------- |
+| `--chart-1`     | `oklch(0.56 0.2 265)`  | `oklch(0.66 0.18 275)` | indigo            |
+| `--chart-2`     | `oklch(0.64 0.14 38)`  | `oklch(0.75 0.1 32)`   | clay              |
+| `--chart-3`     | `oklch(0.45 0.09 140)` | `oklch(0.88 0.17 149)` | green             |
+| `--chart-4`     | `oklch(0.45 0.2 331)`  | `oklch(0.64 0.2 337)`  | magenta           |
+| `--chart-5`     | `oklch(0.66 0.14 240)` | `oklch(0.76 0.12 240)` | sky               |
+| `--chart-6`     | `oklch(0.3 0.01 260)`  | `oklch(0.95 0.02 260)` | ink               |
+| `--chart-other` | `oklch(0.65 0.01 260)` | `oklch(0.54 0 260)`    | grey, for "other" |
+
+They colour series that are parts of one thing (by tool, by browser, by category) and never follow the space, so a chart looks the same wherever it is read. A chart whose lead series is the page's main quantity with a comparison beside it (Insights' daily pages and searches) keeps `--brand` for the lead. Each is 3:1 or better against a card and at least 0.1 apart from every other in OKLab, with normal vision and with protanopia, deuteranopia and tritanopia simulated; `src/lib/chart-palette.test.ts` fails if a value breaks that. Which tool or browser takes which slot is decided where the chart is built; the legend always carries the icon and the name.
 
 ## Heatmap scale
 

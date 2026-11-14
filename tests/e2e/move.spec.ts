@@ -123,7 +123,7 @@ test('a moved archive opens only with the password chosen at export', async ({
   // key gone, the window opens the archive from the keychain alone.
   expect(await backend<boolean>('keyring_get_database_key')).toBe(true)
   await backend('clear_session_database_key')
-  await page.goto('/#/history')
+  await page.goto('/#/browsing/history')
   const appLock = page.getByRole('heading', { name: 'PathKeep is locked' })
   if (await appLock.isVisible().catch(() => false)) {
     await page.getByPlaceholder('Passcode').fill('4826')

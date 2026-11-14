@@ -55,7 +55,7 @@ function latestRun(page: Page, heading = 'Recent runs') {
 }
 
 async function backUp(page: Page, expected: RegExp) {
-  await page.goto('/#/backup')
+  await page.goto('/#/browsing/backup')
   await page.getByRole('button', { name: 'Back up now' }).first().click()
   await expect(latestRun(page)).toContainText(expected, { timeout: 60_000 })
 }
@@ -82,7 +82,7 @@ async function loadConfig() {
  * ("1 page · 5 visits · Full text").
  */
 async function expectSearchHits(page: Page, expected: number) {
-  await page.goto('/#/history')
+  await page.goto('/#/browsing/history')
   await page.getByRole('searchbox', { name: 'Search history' }).fill(NEW_TITLE)
   // With no match both the header and the empty state show; the header comes first.
   const header = page.getByText(/visits? · Full text$|^Nothing found$/).first()
@@ -110,7 +110,7 @@ test('new visits arrive with the next backup; a paused source waits', async ({
   await expectSearchHits(page, 5)
 
   // Pause Firefox, browse some more in it, back up: nothing new.
-  await page.goto('/#/backup')
+  await page.goto('/#/browsing/backup')
   const firefox = page.getByRole('switch', {
     name: 'Back up Firefox default-release',
   })
@@ -124,7 +124,7 @@ test('new visits arrive with the next backup; a paused source waits', async ({
   await expectSearchHits(page, 5)
 
   // Turn it back on: exactly the four waiting visits come in.
-  await page.goto('/#/backup')
+  await page.goto('/#/browsing/backup')
   await firefox.click()
   await expect(firefox).toBeChecked()
   await backUp(page, /\b4 new visits/)
@@ -210,7 +210,7 @@ test('a run that left things out says why, in your language, beside the fix', as
       .filter({ hasText: 'Backup incomplete · 1 new visit saved' })
     await expect(toast).toContainText(/\d+ warnings?: /, { timeout: 60_000 })
     await toast.getByRole('button', { name: 'Details' }).click()
-    await expect(page).toHaveURL(/#\/backup\?run=\d+$/)
+    await expect(page).toHaveURL(/#\/browsing\/backup\?run=\d+$/)
     const sheet = page.getByRole('dialog')
     await expect(
       sheet.getByText('Saved 1 search typed in Google Chrome Personal.'),
@@ -244,7 +244,7 @@ test('a run that left things out says why, in your language, beside the fix', as
     await page.goto('/#/settings/general')
     await page.getByRole('combobox', { name: 'Language' }).click()
     await page.getByRole('option', { name: '繁體中文' }).click()
-    await page.goto('/#/backup')
+    await page.goto('/#/browsing/backup')
     await latestRun(page, '最近記錄').getByRole('button').click()
     await sheet.getByRole('tab', { name: `警告（${listed}）` }).click()
     await expect(
@@ -281,7 +281,7 @@ test('Insights left open on a range read it again when a backup adds visits to i
   test.setTimeout(240_000)
   // The specs before may leave Insights work queued for other profiles: a
   // range must not count as up to date while any of it is still to run.
-  await page.goto('/#/insights?range=d7')
+  await page.goto('/#/browsing/insights?range=d7')
   const topSites = page
     .getByRole('heading', { name: 'Top sites', exact: true })
     .locator('xpath=ancestor::section[1]')
@@ -355,5 +355,5 @@ test('Insights left open on a range read it again when a backup adds visits to i
   await expect
     .poll(() => countOf(siteRow(site)), { timeout: 60_000 })
     .toBe(before + LIVE_RANGE_TOP_SITE_VISITS)
-  await expect(page).toHaveURL(/#\/insights\?range=d7$/)
+  await expect(page).toHaveURL(/#\/browsing\/insights\?range=d7$/)
 })

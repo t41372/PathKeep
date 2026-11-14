@@ -119,7 +119,7 @@ test('a site on no list gets a kind from its page, and gives it back', async ({
   expect(before.has('news'), 'no fixture site is news').toBe(false)
 
   // "Not classified" opens the sites on no list; the site is there.
-  await page.goto('/#/insights')
+  await page.goto('/#/browsing/insights')
   const kinds = card(page, 'Kinds of sites')
   await kinds
     .getByRole('button', { name: 'Show the sites that are not classified' })
@@ -128,7 +128,7 @@ test('a site on no list gets a kind from its page, and gives it back', async ({
   const entry = list.getByRole('link', { name: new RegExp(`^${site}`) })
   await expect(entry).toBeVisible()
   await entry.click()
-  await expect(page).toHaveURL(new RegExp(`#/insights/site/${site}`))
+  await expect(page).toHaveURL(new RegExp(`#/browsing/insights/site/${site}`))
 
   // Its kind, chosen on its page.
   await page.getByRole('combobox', { name: 'Kind of site' }).click()
@@ -146,7 +146,7 @@ test('a site on no list gets a kind from its page, and gives it back', async ({
   })
 
   // The card says so.
-  await page.goto('/#/insights')
+  await page.goto('/#/browsing/insights')
   await expect(
     kinds.getByRole('listitem').filter({ hasText: 'News' }),
   ).toHaveText(new RegExp(`News\\s*${percent.format(count / total)}`), {
@@ -162,7 +162,7 @@ test('a site on no list gets a kind from its page, and gives it back', async ({
   await page.keyboard.press('Escape')
 
   // Back to PathKeep's list: as it was.
-  await page.goto(`/#/insights/site/${site}`)
+  await page.goto(`/#/browsing/insights/site/${site}`)
   await page.getByRole('combobox', { name: 'Kind of site' }).click()
   await page
     .getByRole('option', { name: "PathKeep's list: Not classified" })
@@ -182,13 +182,13 @@ test('the parts of a site the lists sort on their own keep their kinds', async (
   const before = await settledMix()
 
   // A site no one changed, whose pages a path rule sorts: nothing to update.
-  await page.goto('/#/insights/site/mio-rs.github.io')
+  await page.goto('/#/browsing/insights/site/mio-rs.github.io')
   await expect(
     page.getByRole('combobox', { name: 'Kind of site' }),
   ).toBeVisible({ timeout: 60_000 })
   await expect(page.getByText('Updating Insights…')).toBeHidden()
 
-  await page.goto('/#/insights/site/ycombinator.com')
+  await page.goto('/#/browsing/insights/site/ycombinator.com')
   await page.getByRole('button', { name: '1 part sorted on its own' }).click()
   const part = page
     .getByRole('dialog')

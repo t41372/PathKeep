@@ -3,7 +3,9 @@
  * for a finished backup's toast, which is shown outside the router.
  */
 
+import { spaceBackupPath } from '@/lib/spaces'
+
 /** The hash router follows a change to the hash like any navigation. */
 export function openRun(runId: number) {
-  window.location.hash = `/backup?run=${runId}`
+  window.location.hash = spaceBackupPath('browsing', `?run=${runId}`)
 }

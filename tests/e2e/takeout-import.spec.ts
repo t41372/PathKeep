@@ -49,7 +49,7 @@ async function expectSearchHits(
   expected: { pages: number; visits: number },
   query = TAKEOUT_TITLE,
 ) {
-  await page.goto('/#/history')
+  await page.goto('/#/browsing/history')
   await page.getByRole('searchbox', { name: 'Search history' }).fill(query)
   const header = page.getByText(/visits? · Full text$|^Nothing found$/).first()
   await expect
@@ -77,7 +77,7 @@ const SKIPPED_UNTIMED =
   'Skipped 1 entry in the import file because it has no time.'
 
 async function inspect(page: Page, folder: string) {
-  await page.goto('/#/backup')
+  await page.goto('/#/browsing/backup')
   // The card keeps the last import's result until the user starts another.
   const card = page
     .getByRole('heading', { name: 'Import', exact: true })
@@ -111,7 +111,7 @@ test('a Takeout folder imports its Chrome history and nothing else, once', async
   })
 
   // The import's review says it too, from what the import recorded.
-  await page.goto('/#/backup')
+  await page.goto('/#/browsing/backup')
   await page
     .getByRole('heading', { name: 'Recent imports' })
     .locator('xpath=ancestor::section[1]')
@@ -127,7 +127,7 @@ test('a Takeout folder imports its Chrome history and nothing else, once', async
   await expectSearchHits(page, { pages: takeoutPageCount(), visits })
 
   // Only Takeout visited the folder's site, and Takeout keeps no opener.
-  await page.goto('/#/insights/site/takeout.example')
+  await page.goto('/#/browsing/insights/site/takeout.example')
   await expect(
     page.getByText(
       "Your visits here came from a browser that doesn't record which page opened a page (Safari, or history imported from Google Takeout), so PathKeep can't tell how you got here.",
@@ -152,7 +152,7 @@ test('a Takeout folder imports its Chrome history and nothing else, once', async
 test('My Activity in HTML finds nothing and says to export JSON', async ({
   page,
 }) => {
-  await page.goto('/#/backup')
+  await page.goto('/#/browsing/backup')
   // The steps are folded away until asked for.
   const steps = page.getByRole('button', {
     name: 'How to get it from Google Takeout',
@@ -277,7 +277,7 @@ test('visits the browsers already recorded are kept and counted once', async ({
   })
   await expect(page.getByText(SAME_VISITS(copies))).toBeVisible()
 
-  await page.goto('/#/history')
+  await page.goto('/#/browsing/history')
   await page
     .getByRole('searchbox', { name: 'Search history' })
     .fill('why I left tokio')

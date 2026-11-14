@@ -13,6 +13,7 @@ import { scheduleCopy } from '@/features/backup/schedule-copy'
 import { useI18n } from '@/lib/i18n'
 import { browserDiscoveryState } from '@/lib/platform-guidance'
 import { useSaveConfig, useSnapshot } from '@/lib/queries/app'
+import { spacePath } from '@/lib/spaces'
 import { useScheduleStatus } from '@/lib/queries/schedule'
 
 export interface HomeAlert {
@@ -27,7 +28,7 @@ export interface HomeAlert {
   dismiss?: { label: string; run: () => void }
 }
 
-const BACKUP = '/backup'
+const BACKUP = spacePath('browsing', 'backup')
 const SECURITY = '/settings/security'
 
 export function useHomeAlerts(): HomeAlert[] {

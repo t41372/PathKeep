@@ -18,7 +18,7 @@ SessionGate（src/app/index.tsx）
 ├─ recovery       → RecoveryScreen（archive 打不開，從已驗證快照還原）
 ├─ upgrade        → UpgradeScreen（一次性 archive 升級，含進度）
 ├─ onboarding     → Onboarding 路由（七步設定）
-└─ ready          → AppFrame：導航列 + 當前畫面 + ⌘K
+└─ ready          → AppFrame：導航列（切換鈕、目前空間的頁面、共用項目）+ 當前畫面 + ⌘K
 ```
 
 - 狀態由 `src/app/session.tsx` 決定，順序是：App Lock 鎖著 → `app-locked`；舊版 app 留下沒做完的工作（crash journal）收不了尾 → `recovery`；archive 還是舊的 SQLCipher 格式 → `upgrade`（升級畫面自己問加密 archive 的密碼，所以排在解鎖之前）；加密 archive 沒有金鑰 → 先試鑰匙圈（只試一次），失敗就 `archive-locked`；明文 archive 打不開 → 先試著復原，復原不了 → `recovery`；`config.initialized` 為 false → `onboarding`；其餘 → `ready`。
@@ -27,38 +27,46 @@ SessionGate（src/app/index.tsx）
 
 ## 導航
 
-- **左側導航列**（76 px，`src/app/shell/nav-rail.tsx`）：頂端是上一頁 / 下一頁兩個小箭頭（沒有可去的時變灰），再來是 Home、History、Insights、Ask、Backup 五個主畫面（圖示加文字，當前項目是白色卡片底）；下方依序是 ⌘K、鎖定（⌘L）、語言（A / EN / 简 / 繁）、深淺色切換、Settings。macOS 的紅綠燈在箭頭上面（導航列頂端 46 px 是可拖動區）；三個平台的導航列一樣，沒有品牌標誌（2026-10-13，`back-forward-window-frame-tradeoff.md` D）。
+- **空間**：每種資料類型一個空間，有自己的一組頁面、自己的網址前綴和自己的色相（[data-spaces-tradeoff.md](data-spaces-tradeoff.md)）。登記表在 `src/lib/spaces/registry.ts`：導航列的頁面、路由、⌘K 的「前往」與搜尋結果、切換選單的狀態行、快捷鍵的順序都從它來，外框別的地方不寫死任何一個空間；連結一律用 `src/lib/spaces/paths.ts` 組出來。現在只登記了瀏覽紀錄。
+- **目前的空間**（`src/app/shell/current-space.ts`）：在空間自己的頁面上由網址決定，所以從連結、搜尋結果或 ⌘K 跳過去，導航列跟著換；在共用的畫面（Ask、Settings）上沿用上一個。它記在本機（跟深淺色一樣），並寫在 `<html data-space>` 上讓色相的 token 跟著換。
+- **左側導航列**（76 px，`src/app/shell/nav-rail.tsx`），由上到下：
+  - 上一頁 / 下一頁兩個小箭頭（沒有可去的時變灰）。macOS 的紅綠燈在箭頭上面（導航列頂端 46 px 是可拖動區）；三個平台的導航列一樣，沒有品牌標誌（2026-10-13，`back-forward-window-frame-tradeoff.md` D）。
+  - **切換鈕**（`space-switcher.tsx`）：目前空間的圖示和短名稱；開著兩種以上時下面有一排小圓點表示這是第幾個。點開是空間清單，每個空間一行（圖示、名稱、一句狀態、快捷鍵、目前的那個打勾）；瀏覽紀錄的狀態是「{n} 筆 · {m} 個瀏覽器」，選單打開時才讀，讀的是首頁本來就讀的資料。選單裡只有空間。「保存其他類型的資料」只在登記表裡有沒開的類型時出現，現在沒有。
+  - **這個空間的頁面**：瀏覽紀錄是首頁、紀錄、洞察、備份（圖示加文字，當前項目是白色卡片底；洞察的 drill-in 也算洞察）。清單頁在中文叫「紀錄」，英文仍是 History。
+  - 一條分隔線，下面是**共用項目**，切換空間時不動：背景任務指示器、助理、⌘K、鎖定（⌘L）、深淺色切換、Settings。
+- **背景任務指示器**（`task-indicator.tsx`、`use-background-tasks.ts`）：沒有工作時是一個安靜的圖示；有工作在跑且都知道總量時是填到平均進度的圓環，有不知道總量的就轉圈（「減少動態效果」時不轉）；兩項以上另外顯示數字；上一次備份失敗時多一個小點。滑過或聚焦約 180 ms 後打開小視窗（指標或焦點在裡面時不關；鍵盤按 ↓ 或 → 進去，Esc 回來）：每個在跑的工作一列（名稱、百分比或「準備中」、進度條、一行說明）、還有幾項在排隊、需要看一下的那一次備份、「全部立即備份」與「打開背景任務」。它只用 app 在每個畫面本來就追蹤的資料，不多讀也不輪詢：備份、兩種匯入、快照裡搜尋索引佇列的數量與在跑的工作。所以洞察佇列的工作不在裡面，索引工作沒有即時的百分比。點指示器或「打開背景任務」到 Settings → Background work；背景任務自己的頁面（`#/tasks`）還沒做。
+- **切換空間**：選單、⌘K 的「切換到」（開著兩種以上才有）或 ⌘1 … ⌘9（Windows、Linux 是 Ctrl+1 … Ctrl+9），到那個空間的第一頁。導航列先動：屬於空間的項目照方向滑出、滑入（`space-slide.tsx`），170 ms 後才去要新空間的頁面，面板淡入（`space-panel.tsx`），重的頁面拖不慢動畫。只有一個空間時這些都還看不到，也還沒有 E2E；第二個空間有第一個真的頁面時補上。
 - **上一頁 / 下一頁**走 router 的歷史；篩選與選取用 `replace`，不進歷史，所以只在畫面與 drill-in 之間跳（`use-history-steps.ts`）。快捷鍵 ⌘[ / ⌘]（Windows、Linux 用 Alt+← / Alt+→）與滑鼠側鍵，在文字框裡不攔。
 - **Windows、Linux 的視窗**沒有系統標題列（`desktop_integration/window.rs` 在視窗第一次顯示前關掉）：主面板上面留一條視窗底層，最小化 / 最大化（還原）/ 關閉畫在這條的右上角（`window-controls.tsx`），跟 macOS 紅綠燈在左上角是同一個位置關係；這條空白處可以拖動。Windows 11 的貼齊版面（滑鼠停在最大化上出現）還沒做：要在 Windows 上建置並實測，見 BACKLOG `WORK-WINDOWS-SNAP-LAYOUTS`。視窗在 macOS 上沒有自己的標題列，所以像一般視窗一樣從頂部拖動靠 app 自己標的區域（`drag-region.ts`、`title-bar.tsx`）：每個會捲動的畫面頂端 28 px（內容在下面捲過）、頁首與工具列（History 的搜尋列、Settings 與 Ask 的側欄）的空白處、主面板外圍的邊、鎖定與啟動畫面的背景；按鈕、輸入框、連結照常可點，卡片內文字照常可選。
-- 語言從導航列或 Settings 改，兩者都寫進 config（`useChooseLanguage`），重啟後保留，排程與選單列圖示也用它。
-- 沒有 topbar、沒有麵包屑、沒有通知中心、沒有共享 profile scope。
-- 全域快捷鍵（`app-frame.tsx`）：⌘K / Ctrl+K 開關命令面板；⌘L / Ctrl+L 鎖定；⌘[ / ⌘]（Alt+← / Alt+→）上一頁 / 下一頁。沒設 passcode 時鎖定不會發生，改為提示「先設定 passcode」並打開 Settings → Security。
+- 語言在 Settings → General 改（新手引導裡也能改），寫進 config（`useChooseLanguage`），重啟後保留，排程與選單列圖示也用它。導航列上沒有語言鈕。
+- 沒有 topbar、沒有麵包屑、沒有通知中心、沒有共享 profile scope。「目前的空間」不是 scope：它換的是整組頁面，不是在同一個頁面上篩選資料。
+- 全域快捷鍵（`app-frame.tsx`）：⌘K / Ctrl+K 開關命令面板；⌘L / Ctrl+L 鎖定；⌘1 … ⌘9（Ctrl+1 … Ctrl+9）切換空間；⌘[ / ⌘]（Alt+← / Alt+→）上一頁 / 下一頁。沒設 passcode 時鎖定不會發生，改為提示「先設定 passcode」並打開 Settings → Security。
 
 ### URL 契約
 
-| 路徑                       | 參數                                                                                                                                                                                                                                                                                                                                                                                          |
-| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `#/`                       | —                                                                                                                                                                                                                                                                                                                                                                                             |
-| `#/history`                | `q`（搜尋字串）、`mode=full\|regex\|semantic`（預設 full）、`sort=relevance\|newest\|oldest\|visits`（搜尋結果的排序，沒寫就是該方式的預設：全文最相關、regex 最新的在前）、`view=timeline\|sites\|starred`（預設 timeline）、`date=today\|yesterday\|7d\|30d\|YYYY-MM-DD\|YYYY-MM-DD..YYYY-MM-DD`、`browser=<browser kind>`（如 `chrome`）、`domain`、`visit=<visit id>`。預設值不寫進 URL。 |
-| `#/insights`               | `range=all\|y1\|d90\|d30\|d7\|custom`（預設 all，不寫進 URL）；`custom` 帶 `start=YYYY-MM-DD&end=YYYY-MM-DD`（不合法或晚於今天時退回全部時間）；`profile=<profile id>` 只看一個瀏覽器設定檔                                                                                                                                                                                                   |
-| `#/insights/day/:date`     | `date` 是本地日曆日 `YYYY-MM-DD`；未來的日子與不合法的日期顯示「無法顯示這一天」                                                                                                                                                                                                                                                                                                              |
-| `#/insights/site/:domain`  | `domain` 是 registrable domain；`range` / `start` / `end` / `profile` 同 Insights                                                                                                                                                                                                                                                                                                             |
-| `#/insights/search/:query` | `query` 是搜尋字（encode 過）；`range` / `start` / `end` / `profile` 同 Insights                                                                                                                                                                                                                                                                                                              |
-| `#/insights/page/:url`     | `url` 是 canonical URL（encode 過）；`range` / `start` / `end` / `profile` 同 Insights；`scores=<profile id>` 指定用哪個瀏覽器設定檔的重開分數（沒有時用 `profile`）                                                                                                                                                                                                                          |
-| `#/ask`                    | `new=1` 開新對話                                                                                                                                                                                                                                                                                                                                                                              |
-| `#/backup`                 | —                                                                                                                                                                                                                                                                                                                                                                                             |
-| `#/settings/:section?`     | `general`（預設）、`security`、`ai`、`storage`、`background`、`about`                                                                                                                                                                                                                                                                                                                         |
+| 路徑                                | 參數                                                                                                                                                                                                                                                                                                                                                                                          |
+| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `#/`                                | 導到上次所在空間的第一頁（瀏覽紀錄是 `#/browsing/home`）                                                                                                                                                                                                                                                                                                                                      |
+| `#/browsing/history`                | `q`（搜尋字串）、`mode=full\|regex\|semantic`（預設 full）、`sort=relevance\|newest\|oldest\|visits`（搜尋結果的排序，沒寫就是該方式的預設：全文最相關、regex 最新的在前）、`view=timeline\|sites\|starred`（預設 timeline）、`date=today\|yesterday\|7d\|30d\|YYYY-MM-DD\|YYYY-MM-DD..YYYY-MM-DD`、`browser=<browser kind>`（如 `chrome`）、`domain`、`visit=<visit id>`。預設值不寫進 URL。 |
+| `#/browsing/insights`               | `range=all\|y1\|d90\|d30\|d7\|custom`（預設 all，不寫進 URL）；`custom` 帶 `start=YYYY-MM-DD&end=YYYY-MM-DD`（不合法或晚於今天時退回全部時間）；`profile=<profile id>` 只看一個瀏覽器設定檔                                                                                                                                                                                                   |
+| `#/browsing/insights/day/:date`     | `date` 是本地日曆日 `YYYY-MM-DD`；未來的日子與不合法的日期顯示「無法顯示這一天」                                                                                                                                                                                                                                                                                                              |
+| `#/browsing/insights/site/:domain`  | `domain` 是 registrable domain；`range` / `start` / `end` / `profile` 同 Insights                                                                                                                                                                                                                                                                                                             |
+| `#/browsing/insights/search/:query` | `query` 是搜尋字（encode 過）；`range` / `start` / `end` / `profile` 同 Insights                                                                                                                                                                                                                                                                                                              |
+| `#/browsing/insights/page/:url`     | `url` 是 canonical URL（encode 過）；`range` / `start` / `end` / `profile` 同 Insights；`scores=<profile id>` 指定用哪個瀏覽器設定檔的重開分數（沒有時用 `profile`）                                                                                                                                                                                                                          |
+| `#/ask`                             | `new=1` 開新對話                                                                                                                                                                                                                                                                                                                                                                              |
+| `#/browsing/backup`                 | —                                                                                                                                                                                                                                                                                                                                                                                             |
+| `#/settings/:section?`              | `general`（預設）、`security`、`ai`、`storage`、`background`、`about`                                                                                                                                                                                                                                                                                                                         |
 
-未知路徑導回 `#/`。History 的狀態全部在 URL 裡，所以重新整理、從別處連過來都會還原同一個畫面。
+空間的頁面都在 `#/<空間>/<頁面>` 底下；共用的畫面（`#/ask`、`#/settings/…`）不帶空間。未知路徑導回 `#/`，v0.5 以前不帶空間的路徑也是（沒有任何存下來的資料裡有這種網址）。History 的狀態全部在 URL 裡，所以重新整理、從別處連過來都會還原同一個畫面。
 
 ### 畫面之間的連結
 
-- Home：統計卡分別連到 History、Insights、Settings → Storage、Backup；年度熱力圖點某天 → `/insights/day/YYYY-MM-DD`；On this day 的日期 → `/history?date=YYYY-MM-DD`；「常回來的主題」→ 搜尋或頁面的 drill-in（範圍 90 天），「全部」→ Insights；來源卡「管理」→ Backup；備份狀態膠囊 → Backup。
+- Home：統計卡分別連到 History、Insights、Settings → Storage、Backup；年度熱力圖點某天 → `/browsing/insights/day/YYYY-MM-DD`；On this day 的日期 → `/browsing/history?date=YYYY-MM-DD`；「常回來的主題」→ 搜尋或頁面的 drill-in（範圍 90 天），「全部」→ Insights；來源卡「管理」→ Backup；備份狀態膠囊 → Backup。
 - Insights：每日活動點某天 → day；熱門網站 → site；查過的事、常搜尋 → search；常重開的頁面 → page（帶該列的設定檔，`scores=`）；「你回頭再看的事」→ search 或 page；習慣、各瀏覽器對比的網站 → site。drill-in 都帶目前的範圍與設定檔；day 本身涵蓋所有設定檔，帶著範圍只為了「← 洞察」回得去。
-- Insights drill-in 往外：day 的熱門網站 → `/history?date=D&domain=…`，時段裡的頁面 → `/history?date=D&visit=<id>`，時段與搜尋卡裡的搜尋 → search；site 的每日長條 → day，頁面 → `/history?q=<標題>&domain=…`，「帶你來到這裡的搜尋」→ search，「在歷史中打開」→ `/history?domain=…&date=<range>`；search 的每一次 → day，打開的網站 → site，「在歷史中搜尋」→ `/history?q=…`；page 的最近日子 → day，網站 → site，搜尋 → search，「在歷史中打開」→ `/history?q=<標題>&domain=…`；day 的「在歷史中打開」→ `/history?date=D`，前一天 / 後一天，回來再看的頁面 → page。每個 drill-in 左上角「← 洞察」回到 Insights，保留打開它時的範圍與設定檔。
-- Ask：回答引用的頁面 → `/history?q=<標題>&visit=<id>`；未設定 AI → Settings → AI。
-- ⌘K：頁面結果 → `/history?q=…&visit=<id>`；「搜尋歷史『…』」→ `/history?q=…`。
-- History：無資料時「前往 Backup」；semantic 未開時提示去 Settings → AI；連結預覽關閉時「去開啟」→ Settings → General；點標籤 → `/history?q=tag:…`。
+- Insights drill-in 往外：day 的熱門網站 → `/browsing/history?date=D&domain=…`，時段裡的頁面 → `/browsing/history?date=D&visit=<id>`，時段與搜尋卡裡的搜尋 → search；site 的每日長條 → day，頁面 → `/browsing/history?q=<標題>&domain=…`，「帶你來到這裡的搜尋」→ search，「在歷史中打開」→ `/browsing/history?domain=…&date=<range>`；search 的每一次 → day，打開的網站 → site，「在歷史中搜尋」→ `/browsing/history?q=…`；page 的最近日子 → day，網站 → site，搜尋 → search，「在歷史中打開」→ `/browsing/history?q=<標題>&domain=…`；day 的「在歷史中打開」→ `/browsing/history?date=D`，前一天 / 後一天，回來再看的頁面 → page。每個 drill-in 左上角「← 洞察」回到 Insights，保留打開它時的範圍與設定檔。
+- Ask：回答引用的頁面 → `/browsing/history?q=<標題>&visit=<id>`；未設定 AI → Settings → AI。
+- ⌘K：頁面結果 → `/browsing/history?q=…&visit=<id>`；「在「瀏覽紀錄」搜尋「…」」→ `/browsing/history?q=…`。
+- History：無資料時「前往 Backup」；semantic 未開時提示去 Settings → AI；連結預覽關閉時「去開啟」→ Settings → General；點標籤 → `/browsing/history?q=tag:…`。
 
 ---
 
@@ -108,9 +116,10 @@ SessionGate（src/app/index.tsx）
 
 ### ⌘K 命令面板（`src/app/shell/command-palette.tsx`）
 
-- **前往**：Home、History、Insights、Ask、Backup、Settings。
+- **前往**：每個開著的空間的每一頁，寫成「{空間的短名稱} · {頁面}」（瀏覽紀錄 · 首頁、紀錄、洞察、備份），接著 Ask、Settings。從登記表來。
 - **動作**：立即備份、切換深淺色、鎖定 PathKeep（⌘L）、新對話。
-- 頁面與動作依輸入文字過濾。輸入兩個字以上時多一組 **頁面**：用全文搜尋（`groupByUrl`，一頁一行）取前 6 筆（favicon、標題、時間），最後一項是「搜尋歷史『…』」打開 History。
+- **切換到**：開著兩種以上類型時，目前以外的每個空間，帶快捷鍵。
+- 頁面與動作依輸入文字過濾。輸入兩個字以上時，每個空間多一組自己的結果（登記表的 `palette.Results`）。瀏覽紀錄的那組叫 **頁面**（`src/features/history/palette-results.tsx`）：用全文搜尋（`groupByUrl`，一頁一行）取前 6 筆（favicon、標題、時間）；每組最後一項是「在「{空間}」搜尋「…」」，打開那個空間的清單頁並帶著這串字。
 - 底部提示 ↑↓ 移動、↵ 打開。
 
 ### 選單列圖示

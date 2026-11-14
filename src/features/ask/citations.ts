@@ -1,4 +1,5 @@
 /** Helpers for the pages an answer cites. */
+import { spacePath } from '@/lib/spaces'
 import type { AiChatCitation } from '@/lib/types'
 
 export function hostOf(url: string) {
@@ -11,7 +12,11 @@ export function hostOf(url: string) {
 
 export function historyLink(citation: AiChatCitation) {
   const query = citation.title?.trim() || hostOf(citation.url)
-  return `/history?q=${encodeURIComponent(query)}&visit=${citation.historyId}`
+  return spacePath(
+    'browsing',
+    'history',
+    `?q=${encodeURIComponent(query)}&visit=${citation.historyId}`,
+  )
 }
 
 /** One chip per page: the same URL cited twice is shown once. */

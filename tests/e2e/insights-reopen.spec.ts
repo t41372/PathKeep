@@ -67,7 +67,7 @@ test('Insights cleared in Background work are built again when the app opens nex
   const { totalVisits } = await backend<{ totalVisits: number }>(
     'load_dashboard_snapshot',
   )
-  await page.goto('/#/insights')
+  await page.goto('/#/browsing/insights')
   await expect(
     page.getByRole('group', { name: 'Page visits', exact: true }),
   ).toContainText(compact.format(totalVisits), { timeout: 120_000 })

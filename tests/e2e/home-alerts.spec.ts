@@ -116,7 +116,7 @@ test('Home shows what needs fixing and where, and nothing once it is fixed', asy
     'New history is not saved until this is fixed.',
   )
   await failed.getByRole('link', { name: 'Open Backup' }).click()
-  await expect(page).toHaveURL(/#\/backup$/)
+  await expect(page).toHaveURL(/#\/browsing\/backup$/)
 
   // The next run went through.
   recordScheduledRun('e2e-2', new Date(Date.now() - 60_000), 'success')

@@ -138,7 +138,7 @@ test('a note is found by its words, in either script, until it changes', async (
   expect(run.pages * log.pages, 'the fixture visited both pages').toBe(1)
 
   // No fixture page has these words; after the notes, only the noted pages do.
-  await page.goto('/#/history')
+  await page.goto('/#/browsing/history')
   await searchBox(page).fill('site:strava.com')
   await expectResults(page, testInfo, 'site:strava.com', onStrava)
   await select(page, RUN_TITLE)
@@ -216,7 +216,7 @@ function pageOf(profile: ProfileId, taken: string[]): FixtureVisit {
 
 /** Finds `visit`'s page in History and opens its details. */
 async function openDetails(page: Page, visit: FixtureVisit) {
-  await page.goto('/#/history')
+  await page.goto('/#/browsing/history')
   await searchBox(page).fill(`"${visit.title}"`)
   const row = results(page).filter({ hasText: visit.title })
   await expect(row).toHaveCount(1)
@@ -331,7 +331,7 @@ test('a tag filters History to exactly the tagged page', async ({
   expect(want.pages, 'the fixture visits the page to tag').toBe(1)
 
   // Before tagging, the filter finds nothing.
-  await page.goto(`/#/history?q=${encodeURIComponent(`tag:"${TAG}"`)}`)
+  await page.goto(`/#/browsing/history?q=${encodeURIComponent(`tag:"${TAG}"`)}`)
   await expect(page.getByText('Nothing found')).toBeVisible()
 
   await searchBox(page).fill('fts5 extension')
@@ -388,7 +388,7 @@ test('site: with -word returns the pages the fixture predicts', async ({
   expect(want.pages, 'some docs.rs pages remain').toBeGreaterThan(0)
   expect(excluded.pages, 'the exclusion removes something').toBeGreaterThan(0)
 
-  await page.goto('/#/history')
+  await page.goto('/#/browsing/history')
   await searchBox(page).fill('site:docs.rs -smol')
   await expectResults(page, testInfo, 'site:docs.rs -smol', want)
   await expect(results(page)).toHaveCount(want.pages)
@@ -463,7 +463,7 @@ test('a tag matches in any letter case, and -tag: leaves out only its page', asy
   expect(tagged.pages, 'the fixture visits the page to tag').toBe(1)
   expect(untagged.pages, 'docs.rs has other pages').toBeGreaterThan(0)
 
-  await page.goto('/#/history?q=tag%3Arust')
+  await page.goto('/#/browsing/history?q=tag%3Arust')
   await expectNothingFound(page)
 
   const row = await openDetails(page, visitTo(RUST_TAG_URL))
@@ -551,7 +551,7 @@ test('each search operator lists exactly the pages the fixture predicts', async 
   for (const [query, { pages }] of want)
     expect(pages, `${query} finds something`).toBeGreaterThan(0)
 
-  await page.goto('/#/history')
+  await page.goto('/#/browsing/history')
   for (const [query, expectedPages] of want) {
     await searchBox(page).fill(query)
     await expectResults(page, testInfo, query, expectedPages)
@@ -639,7 +639,7 @@ test('the browser and date filters set the visits a row counts and the time it s
   ])
   const page1 = (count: number) => ({ pages: 1, visits: count, titles: [] })
 
-  await page.goto('/#/history')
+  await page.goto('/#/browsing/history')
   await searchBox(page).fill(`"${title}"`)
   await expectResults(page, testInfo, 'every browser', page1(visits.length))
   await expectRow(page, title, visits.length, newest(visits).at)
@@ -686,7 +686,7 @@ test('a star made on an address with tracking parameters is the star of every sp
       })
   }
   const listSpellings = async () => {
-    await page.goto('/#/history')
+    await page.goto('/#/browsing/history')
     await searchBox(page).fill(`"${title}"`)
     await expect(results(page).filter({ hasText: title })).toHaveCount(3)
   }
@@ -750,7 +750,7 @@ test('Chinese search finds Traditional and Simplified alike, and full-width lett
   expect(inTitle('搜索说明').titles).toEqual([simplified])
   expect(inTitle('台北天氣').pages).toBeGreaterThan(1)
 
-  await page.goto('/#/history')
+  await page.goto('/#/browsing/history')
   for (const [query, want] of cases) {
     await searchBox(page).fill(query)
     await expectResults(page, testInfo, query, want)
@@ -772,7 +772,7 @@ test('a regex Rust cannot run is explained and never sent', async ({
       sent.push(request.postData() ?? '')
   })
 
-  await page.goto('/#/history?mode=regex')
+  await page.goto('/#/browsing/history?mode=regex')
   await searchBox(page).fill('tokio')
   // The header counts once the regex rows have replaced the timeline.
   const header = page.getByText(/^[\d,]+ pages? · [\d,]+ visits? · Regex$/)
@@ -836,7 +836,7 @@ test('the link preview keeps its size and shows what the archive holds', async (
     await route.continue()
   })
 
-  await page.goto('/#/history')
+  await page.goto('/#/browsing/history')
   await searchBox(page).fill('why I left tokio')
   await results(page).filter({ hasText: PREVIEW_TITLE }).click()
   const figure = detail(page).getByRole('figure', { name: 'Link preview' })
@@ -899,7 +899,7 @@ test('a stored preview image is drawn and reported as shown', async ({
       (request.postData() ?? '').includes(PREVIEW_URL),
   )
 
-  await page.goto('/#/history')
+  await page.goto('/#/browsing/history')
   await searchBox(page).fill('why I left tokio')
   await results(page).filter({ hasText: PREVIEW_TITLE }).click()
   const figure = detail(page).getByRole('figure', { name: 'Link preview' })
@@ -919,7 +919,7 @@ test('a stored preview image is drawn and reported as shown', async ({
 test('search tips, semantic status and the palette', async ({
   page,
 }, testInfo) => {
-  await page.goto('/#/history')
+  await page.goto('/#/browsing/history')
   await page.getByRole('button', { name: 'Search tips' }).click()
   await page
     .getByRole('dialog')
@@ -936,7 +936,7 @@ test('search tips, semantic status and the palette', async ({
   await expectResults(page, testInfo, 'tip: site:docs.rs tokio', want)
 
   // Semantic search is off in this archive: the page says so and why.
-  await page.goto('/#/history?q=tokio&mode=semantic')
+  await page.goto('/#/browsing/history?q=tokio&mode=semantic')
   await expect(
     page.getByText(
       'Semantic search is off. These are full-text results instead.',

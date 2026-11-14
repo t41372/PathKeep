@@ -49,7 +49,7 @@ async function monthInCard(page: Page, key: string) {
 const january = { start: '2001-01-01', end: '2001-01-30' }
 const year = { start: '2001-01-01', end: '2001-12-31' }
 const url = (range: typeof january) =>
-  `/#/insights?range=custom&start=${range.start}&end=${range.end}`
+  `/#/browsing/insights?range=custom&start=${range.start}&end=${range.end}`
 
 export async function insightsSearchGroupsScenario(
   page: Page,

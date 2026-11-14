@@ -160,6 +160,7 @@ export default defineConfig({
         'search-limits.spec.ts',
         'search-builder.spec.ts',
         'shell-and-lists.spec.ts',
+        'spaces-shell.spec.ts',
         'links.spec.ts',
         'home.spec.ts',
         'clock.spec.ts',
@@ -189,6 +190,9 @@ export default defineConfig({
         'mcp-log.spec.ts',
         'security.spec.ts',
         'site-category.spec.ts',
+        // Runs a backup; its name sorts it last here, so the specs before it
+        // see the archive they expect.
+        'spaces-shell-tasks.spec.ts',
       ],
       'zone',
     ),

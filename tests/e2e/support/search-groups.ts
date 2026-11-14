@@ -523,7 +523,7 @@ export async function searchGroupsScenario(page: Page, testInfo: TestInfo) {
     ).toBe('notIndexed')
     await visit(
       page,
-      `/#/insights/search/${encodeURIComponent(NOT_INDEXED)}?range=all`,
+      `/#/browsing/insights/search/${encodeURIComponent(NOT_INDEXED)}?range=all`,
     )
     await expect(
       page.getByText('This search hasn’t been indexed yet.', { exact: true }),
@@ -531,7 +531,7 @@ export async function searchGroupsScenario(page: Page, testInfo: TestInfo) {
 
     await visit(
       page,
-      `/#/insights/search/${encodeURIComponent(SUBJECT_A[0])}?range=all`,
+      `/#/browsing/insights/search/${encodeURIComponent(SUBJECT_A[0])}?range=all`,
     )
     const similar = page
       .getByRole('heading', { name: 'Similar searches', exact: true })
@@ -583,7 +583,7 @@ export async function searchGroupsScenario(page: Page, testInfo: TestInfo) {
     await expect(remove).toBeHidden()
     await visit(
       page,
-      `/#/insights/search/${encodeURIComponent(SUBJECT_A[0])}?range=all`,
+      `/#/browsing/insights/search/${encodeURIComponent(SUBJECT_A[0])}?range=all`,
     )
     await expect(
       page.getByRole('heading', { name: 'Similar searches', exact: true }),

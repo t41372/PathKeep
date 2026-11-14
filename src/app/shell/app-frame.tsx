@@ -1,21 +1,27 @@
 /**
  * The window: nav rail on the left, the active screen in a rounded panel on
- * the right, plus the global shortcuts (⌘K palette, ⌘L lock, ⌘[ / ⌘] or
- * Alt+← / Alt+→ and the mouse's side buttons for back and forward). On
- * Windows and Linux it also draws the window buttons at the top right, over
- * a strip of window background above the panel.
+ * the right, plus the global shortcuts (⌘K palette, ⌘L lock, ⌘1…⌘9 or
+ * Ctrl+1…9 for the spaces, ⌘[ / ⌘] or Alt+← / Alt+→ and the mouse's side
+ * buttons for back and forward). On Windows and Linux it also draws the
+ * window buttons at the top right, over a strip of window background above
+ * the panel.
+ * The rail follows the space of the page shown (`current-space.ts`), and
+ * the panel fades when the space changes (`space-panel.tsx`).
  */
 import { useCallback, useEffect, useState } from 'react'
-import { Outlet, useNavigate } from 'react-router-dom'
+import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import { backdropDragRegion } from '@/components/app/drag-region'
 import { cn } from '@/lib/cn'
 import { useI18n } from '@/lib/i18n'
 import { subscribeToOpenCommandPalette } from '@/lib/ipc/desktop-events'
 import { drawsWindowControls, isMacOsHost } from '@/lib/runtime'
+import { spaceKeyIndex, spacesOn } from '@/lib/spaces'
 import { useSession } from '../session'
 import { CommandPalette } from './command-palette'
+import { useSpaceFromUrl, useSwitchSpace } from './current-space'
 import { NavRail } from './nav-rail'
+import { SpacePanel } from './space-panel'
 import { useHistorySteps } from './use-history-steps'
 import { WindowControls } from './window-controls'
 
@@ -43,6 +49,9 @@ export function AppFrame() {
       void navigate('/settings/security')
     })
   }, [session, navigate, t])
+
+  useSpaceFromUrl(useLocation().pathname)
+  const switchTo = useSwitchSpace()
 
   const steps = useHistorySteps()
   const { back, forward } = steps
@@ -93,6 +102,19 @@ export function AppFrame() {
     return () => window.removeEventListener('keydown', onKey)
   }, [lock])
 
+  // ⌘1…⌘9 (Ctrl+1…9 on Windows and Linux): the nth space in the switcher.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      const index = spaceKeyIndex(event)
+      const target = index === null ? undefined : spacesOn()[index]
+      if (!target) return
+      event.preventDefault()
+      switchTo(target)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [switchTo])
+
   // "Search history…" in the menu bar icon's menu.
   useEffect(() => {
     const unsubscribe = subscribeToOpenCommandPalette(() =>
@@ -105,7 +127,7 @@ export function AppFrame() {
     // The margin around the main panel is window background, and drags it like a title bar.
     <div
       {...backdropDragRegion()}
-      className="relative flex h-full bg-window backdrop-blur-[40px] backdrop-saturate-[1.4]"
+      className="relative flex h-full bg-window backdrop-blur-[40px] backdrop-saturate-[1.4] transition-[background-color] duration-300"
     >
       {controls && <WindowControls />}
       <NavRail onOpenPalette={() => setPaletteOpen(true)} onLock={lock} />
@@ -116,7 +138,9 @@ export function AppFrame() {
           controls ? 'mt-8' : 'mt-2.5',
         )}
       >
-        <Outlet />
+        <SpacePanel>
+          <Outlet />
+        </SpacePanel>
       </main>
       <CommandPalette
         open={paletteOpen}

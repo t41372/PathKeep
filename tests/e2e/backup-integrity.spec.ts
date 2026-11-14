@@ -142,7 +142,7 @@ async function snapshot() {
 }
 async function backup(page: Page) {
   const previous = (await snapshot()).recentRuns[0]?.id ?? 0
-  await page.goto('/#/backup')
+  await page.goto('/#/browsing/backup')
   await page
     .getByRole('button', { name: 'Back up now', exact: true })
     .first()
@@ -180,7 +180,7 @@ let checkpoint: string | undefined
 test('opening a healthy v1 archive preserves its 50-step path and historic success', async ({
   page,
 }, info) => {
-  await page.goto('/#/backup')
+  await page.goto('/#/browsing/backup')
   await expect(
     page.getByRole('heading', { name: 'Backup', exact: true }),
   ).toBeVisible()
@@ -357,7 +357,7 @@ test('rebuilding IDs while Chrome stays open saves new browsing once with exact 
       await backend('get_navigation_path', { visitId: legacyTarget }),
       before().navigation,
     )
-    await page.goto('/#/history')
+    await page.goto('/#/browsing/history')
     await page
       .getByRole('searchbox', { name: 'Search history' })
       .fill('Rescue precise')
@@ -402,7 +402,7 @@ test('higher reused IDs cannot duplicate an event or move old URL and term assoc
     ['rescue first term', `${prefix}start`],
     ['rescue second term', `${prefix}newer`],
   ]) {
-    await page.goto('/#/history')
+    await page.goto('/#/browsing/history')
     await page
       .getByRole('searchbox', { name: 'Search history' })
       .fill(`"${term}"`)
@@ -461,7 +461,7 @@ test('a visit whose page row is gone is counted in a note and the backup still s
       (await entries()).filter((entry) => entry.url.startsWith(prefix)).length,
       7,
     )
-    await page.goto(`/#/backup?run=${detail.run.id}`)
+    await page.goto(`/#/browsing/backup?run=${detail.run.id}`)
     await expect(
       page.getByText(
         /^1 entry in .+’s history has no page in the browser’s file, so it has no address to save\.$/,
@@ -592,7 +592,7 @@ test('replaying the captured source with sync copies uses the same event identit
       .update(readFileSync(path.join(checkpoint!, 'History')))
       .digest('hex'),
   ).toBe(sourceHash)
-  await page.goto('/#/history')
+  await page.goto('/#/browsing/history')
   await page
     .getByRole('searchbox', { name: 'Search history' })
     .fill('Rescue precise')
@@ -603,7 +603,7 @@ test('Safari retains two events whose exact timestamps differ within one microse
   page,
 }, info) => {
   const file = preciseSafariFile()
-  await page.goto('/#/backup')
+  await page.goto('/#/browsing/backup')
   const field = page.getByRole('textbox', {
     name: 'Path to a history file or profile folder',
   })
@@ -630,7 +630,7 @@ test('Safari retains two events whose exact timestamps differ within one microse
   await expect(page.getByTestId('browser-import-preview')).toContainText(
     '0 new visits',
   )
-  await page.goto('/#/history')
+  await page.goto('/#/browsing/history')
   await page
     .getByRole('searchbox', { name: 'Search history' })
     .fill('Safari precise visits')

@@ -55,7 +55,7 @@ const sceneDay = (days: number) => localDay(fixture().now - days * DAY)
 /** Insights for a range of days, all profiles or one. */
 function insightsUrl(first: string, last: string, profile?: ProfileId) {
   const scope = profile ? `&profile=${encodeURIComponent(profile)}` : ''
-  return `/#/insights?range=custom&start=${first}&end=${last}${scope}`
+  return `/#/browsing/insights?range=custom&start=${first}&end=${last}${scope}`
 }
 
 /** A KPI tile's number, once it has loaded. */
@@ -113,7 +113,7 @@ test('Frequent searches count a search however it was typed, and leave out typed
   expect(spellings.at(-1)).not.toBe(normalized(spellings.at(-1)!))
   expect(addresses).toBeGreaterThan(expected.at(-1)!.count)
 
-  await page.goto('/#/insights?range=d30')
+  await page.goto('/#/browsing/insights?range=d30')
   const chips = card(page, 'Frequent searches').locator(
     'a[href*="/insights/search/"]',
   )
@@ -274,12 +274,12 @@ test('the rhythm heatmap holds each weekday-hour’s visits, for all profiles, o
   page,
 }, testInfo) => {
   test.setTimeout(180_000)
-  await page.goto('/#/insights')
+  await page.goto('/#/browsing/insights')
   await expectRhythm(page, testInfo, 'all profiles, all time', archivedVisits())
 
   const work: ProfileId = 'chrome:Profile 1'
   await page.goto('about:blank')
-  await page.goto(`/#/insights?profile=${encodeURIComponent(work)}`)
+  await page.goto(`/#/browsing/insights?profile=${encodeURIComponent(work)}`)
   await expectRhythm(
     page,
     testInfo,
