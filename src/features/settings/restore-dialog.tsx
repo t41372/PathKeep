@@ -1,7 +1,8 @@
 /**
- * Restore the whole archive from a safety copy PathKeep took before a risky
- * change (`list_recovery_snapshots`, then `run_full_archive_restore`). The
- * current archive is moved aside, not deleted.
+ * Restore the archive from a safety copy PathKeep took before a risky change
+ * (`list_recovery_snapshots`, then `run_full_archive_restore`). The archive it
+ * replaces becomes a safety copy too ("before a restore"), so a restore can be
+ * undone from this same list.
  */
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
@@ -27,7 +28,13 @@ import { useFormat, useI18n } from '@/lib/i18n'
 import type { RecoverySnapshot } from '@/lib/types'
 import { Notice } from './notice'
 
-const knownOps = ['rekey', 'reconcile', 'import', 'periodic'] as const
+const knownOps = [
+  'rekey',
+  'reconcile',
+  'import',
+  'restore',
+  'periodic',
+] as const
 
 function opKey(op: string) {
   return (knownOps as readonly string[]).includes(op)

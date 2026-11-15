@@ -75,7 +75,8 @@ export interface ImportResult {
   manifest: ExportManifest
   migrationsApplied: number[]
   finalSchemaVersion: number
-  preservedPreviousAsBak: boolean
+  /** The archive the import replaced was kept as a safety copy ("before an import"). */
+  keptPreviousAsCopy: boolean
 }
 
 export const migrationClient = {

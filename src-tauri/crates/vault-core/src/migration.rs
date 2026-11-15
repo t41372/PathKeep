@@ -132,10 +132,9 @@ pub struct ImportResult {
     pub migrations_applied: Vec<i64>,
     /// Final archive schema version after migrations.
     pub final_schema_version: i64,
-    /// True when the previous project tree was preserved as a sibling
-    /// `.bak-<timestamp>` directory next to each restored subtree so the
-    /// user can recover if they imported the wrong bundle.
-    pub preserved_previous_as_bak: bool,
+    /// Whether the archive the import replaced was kept as a safety copy ("before an import"), so
+    /// the import can be undone by restoring it. False when there was none to replace.
+    pub kept_previous_as_copy: bool,
 }
 
 fn ensure_parent_dir(path: &Path) -> Result<()> {

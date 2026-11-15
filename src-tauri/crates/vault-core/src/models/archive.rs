@@ -617,8 +617,10 @@ pub struct RecoverySnapshot {
     /// salt, not the SQLite plaintext magic). When true the recovery UI must ask for the archive key
     /// before it can verify + restore — `verified_openable` is only a size heuristic for these.
     pub encrypted: bool,
-    /// Which whole-archive rewrite produced it: `"rekey"`, `"reconcile"`, `"import"`, `"periodic"`,
-    /// or `"unknown"` for an unexpected bucket.
+    /// Which whole-archive rewrite produced it. A native copy of the archive a restore or an
+    /// import replaced says `"restore"` or `"import"`, any other native copy `"maintenance"`; an
+    /// old-format one `"rekey"`, `"reconcile"`, `"import"`, `"periodic"`, or `"unknown"` for an
+    /// unexpected bucket.
     pub source_op: String,
     /// Short English fallback descriptor; the FE localizes it.
     pub label: String,

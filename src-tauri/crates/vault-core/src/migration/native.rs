@@ -342,7 +342,7 @@ pub fn import(
         manifest: preview.manifest,
         migrations_applied: Vec::new(),
         final_schema_version: crate::store_schema::schema_version(vault_store::Db::Archive),
-        preserved_previous_as_bak: preview.will_overwrite_existing,
+        kept_previous_as_copy: installed.previous_files.is_dir(),
     };
     Ok((report, installed))
 }
@@ -390,7 +390,13 @@ pub fn install_staged(
     }
     // What the stage holds, by its own control, not by this build's newest layout.
     let files = vault_layout::portable_installation_files(crate::admission::root_layout(stage)?);
-    let previous = maintenance::install::install(&control, stage, files, true)?;
+    // The archive it replaces becomes a safety copy, so the import can be undone.
+    let previous = maintenance::install::install(
+        &control,
+        stage,
+        files,
+        maintenance::install::Keep::SafetyCopy(maintenance::install::Before::Import),
+    )?;
     drop(control);
     let vault = Vault::open_owned(paths.clone(), config, key.as_ref(), Some(owner))?;
     Ok(InstalledArchive { vault, data_key: key, previous_files: previous })

@@ -45,7 +45,7 @@ The table was introduced without changing behaviour, so some rows hold answers t
 
 - `derived/intelligence.db` is original data (site categories the user edited, the records that locate saved page text) but the move bundle omits it. See `WORK-VAULT-FOLLOWUPS-2026-11`.
 - Saved page text and the copies of browser history files stay readable in an encrypted archive. See `WORK-ENCRYPT-AT-REST-ALL`.
-- Previous generations kept after a restore or an import (`maintenance.bak-*`) are counted by neither storage usage nor retention.
+- After a conversion from the old format, the control it replaced stays in a `maintenance.bak-*` folder that neither storage usage nor retention counts. (What a restore or an import replaces is a safety copy under `raw-snapshots/maintenance/`, counted and freed with the others.)
 - Each operation treats a database's companion files (`-wal`, `-shm`, `-tshm`) differently.
 
 Changing one of these is a behaviour change with its own decision and test. It is made by changing the row, not by adding a special case at a call site.

@@ -15,6 +15,9 @@ use std::{
 };
 use vault_store::CancelToken;
 
+/// The file that seals a snapshot: what it holds and each file's digest.
+pub(super) const SEAL: &str = "snapshot.json";
+
 #[derive(Serialize, Deserialize, schemars::JsonSchema)]
 pub(crate) struct FileProof {
     path: PathBuf,
@@ -49,21 +52,40 @@ pub(crate) fn seal(root: &Path) -> Result<()> {
     for directory in vault_layout::snapshot_directories(layout)
         .into_iter()
         .map(|relative| root.join(relative))
+        // A copy of what a restore replaced has no folder for the stores the restore left alone.
+        .filter(|directory| directory.is_dir())
         .chain([root.parent().unwrap().to_owned()])
     {
         crate::durable_io::fsync_dir(&directory)?;
     }
-    crate::durable_io::atomic_durable_write(
-        &root.join("snapshot.json"),
-        &serde_json::to_vec(&files)?,
-    )
+    crate::durable_io::atomic_durable_write(&root.join(SEAL), &serde_json::to_vec(&files)?)
+}
+
+/// Makes the archive an install replaced (`install::Keep::SafetyCopy`) a copy a restore can use.
+/// Its search index goes, as a snapshot has none: a restore builds its own. The rest is sealed as
+/// it is.
+pub(super) fn seal_replaced(copy: &Path) -> Result<()> {
+    let layout = crate::admission::root_layout(copy)?;
+    let sealed = database_files(layout, false);
+    for rebuilt in database_files(layout, true).into_iter().filter(|file| !sealed.contains(file)) {
+        install::remove(&copy.join(rebuilt))?;
+    }
+    seal(copy)
 }
 
 pub(crate) fn verify(root: &Path) -> Result<()> {
-    let proof: Vec<FileProof> = serde_json::from_slice(&fs::read(root.join("snapshot.json"))?)?;
-    // What this snapshot must hold depends on the archive it was taken of, not on this build.
+    let proof: Vec<FileProof> = serde_json::from_slice(&fs::read(root.join(SEAL))?)?;
+    // What this snapshot must hold depends on the archive it was taken of, not on this build. Not
+    // the agent conversations: a restore keeps the archive's own and never takes a copy's, so a
+    // copy without them, like the one of what a restore replaced, restores all the same.
     let layout = crate::admission::root_layout(root)?;
-    for required in vault_layout::required_snapshot_files(layout, false).map(PathBuf::from) {
+    for required in vault_layout::required_snapshot_files(
+        layout,
+        false,
+        &[vault_layout::DataScope::AgentHistory],
+    )
+    .map(PathBuf::from)
+    {
         anyhow::ensure!(
             proof.iter().any(|file| file.path == required),
             "snapshot is missing {}",
@@ -224,9 +246,14 @@ pub fn restore_snapshot_to(
         Carry::Convert | Carry::Fresh => database_files(layout, true),
     };
     // The snapshot's settings are what a restore brings back; the swap is one hold of the
-    // control's gate.
+    // control's gate. The archive it replaces becomes a safety copy, so the restore can be undone.
     let control = crate::ControlGate::acquire(paths);
-    let previous = install::install(&control, stage.path(), files, true)?;
+    let previous = install::install(
+        &control,
+        stage.path(),
+        files,
+        install::Keep::SafetyCopy(install::Before::Restore),
+    )?;
     drop(control);
     let opened = Vault::open_owned(paths.clone(), config, key.as_ref(), Some(owner))?;
     Ok(InstalledArchive { vault: opened, data_key: key, previous_files: previous })
@@ -344,7 +371,8 @@ pub fn recover_native_maintenance(paths: &ProjectPaths) -> Result<bool> {
     Ok(recovered)
 }
 
-/// Directory snapshots keep all databases together; discovery stays keyless.
+/// Directory snapshots keep all databases together; discovery stays keyless. One that cannot be
+/// read is listed as not openable rather than hiding the others.
 pub fn list_snapshots(paths: &ProjectPaths) -> Result<Vec<crate::RecoverySnapshot>> {
     let root = paths.artifact_path(vault_layout::ArtifactId::NativeSnapshots);
     if !root.exists() {
@@ -358,17 +386,25 @@ pub fn list_snapshots(paths: &ProjectPaths) -> Result<Vec<crate::RecoverySnapsho
     for entry in fs::read_dir(root)? {
         let entry = entry?;
         let path = entry.path();
-        if !path.join("snapshot.json").is_file() {
+        if !path.join(SEAL).is_file() {
             continue;
         }
         let archive = path.join(vault_layout::database_path(vault_layout::primary_database()));
-        let size = fs::metadata(&archive)?.len();
-        let mut header = [0u8; 16];
-        fs::File::open(&archive)?.read_exact(&mut header)?;
+        let header = |archive: &Path| -> std::io::Result<(u64, [u8; 16])> {
+            let mut header = [0u8; 16];
+            fs::File::open(archive)?.read_exact(&mut header)?;
+            Ok((fs::metadata(archive)?.len(), header))
+        };
+        let (size, encrypted) = match header(&archive) {
+            Ok((size, header)) => (size, &header != b"SQLite format 3\0"),
+            Err(_) => (0, false),
+        };
         let created = fs::metadata(&path)?
             .modified()
             .ok()
             .map(|time| chrono::DateTime::<chrono::Utc>::from(time).to_rfc3339());
+        let source_op = install::Before::of_copy(&entry.file_name().to_string_lossy())
+            .map_or("maintenance", install::Before::op);
         let name = path.display().to_string();
         result.push(crate::RecoverySnapshot {
             id: name.clone(),
@@ -376,8 +412,8 @@ pub fn list_snapshots(paths: &ProjectPaths) -> Result<Vec<crate::RecoverySnapsho
             created_at: created,
             size_bytes: size,
             verified_openable: size >= 4096,
-            encrypted: &header != b"SQLite format 3\0",
-            source_op: "maintenance".into(),
+            encrypted,
+            source_op: source_op.into(),
             label: label.into(),
         });
     }

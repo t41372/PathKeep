@@ -55,7 +55,7 @@ PathKeep 看起來是一個安靜的 macOS 原生工具：半透明的視窗浮�
 | 加密 / 改密碼 / 解密   | Settings → Security → 對話框 | `preview_rekey_archive`：會先存一份安全副本、寫新檔、成功才替換          | `rekey_archive`                                                                         |
 | 釋放空間               | Settings → Storage → 對話框  | `preview_retention_prune` 列出可刪的類別與大小，自己勾選                 | `run_retention_prune`                                                                   |
 | 搬到另一台電腦（匯入） | Settings → Storage → 對話框  | `preview_app_data_import` 檢查檔案                                       | 確認覆蓋後 `apply_app_data_import`，重新開機流程                                        |
-| 從安全副本還原         | Settings → Storage → 對話框  | 列出 `list_recovery_snapshots`                                           | `run_full_archive_restore`；目前 archive 移到一旁，不刪                                 |
+| 從安全副本還原         | Settings → Storage → 對話框  | 列出 `list_recovery_snapshots`                                           | `run_full_archive_restore`；目前的存檔變成一份「還原之前」的安全副本，可再還原回去      |
 | 刪除所有資料           | Settings → Storage → 對話框  | `preview_wipe_all_data` 列出每個路徑與大小                               | 輸入 `DELETE` 才執行 `wipe_all_data`                                                    |
 | Takeout 匯入           | Backup → 匯入卡              | `inspect_takeout`：筆數、時間範圍、會被略過的檔案                        | `import_takeout`；之後可在「近期匯入」卡「復原」                                        |
 | 瀏覽器檔案匯入         | Backup → 匯入卡              | `inspect_browser_history`：新的與已在 archive 的造訪                     | `import_browser_history`；之後可在「近期匯入」卡「復原」                                |

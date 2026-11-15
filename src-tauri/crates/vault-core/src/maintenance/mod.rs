@@ -20,6 +20,8 @@ mod restore_tests;
 #[cfg(all(test, unix))]
 mod rewrap_crash_tests;
 #[cfg(test)]
+mod safety_copy_tests;
+#[cfg(test)]
 pub(crate) mod tests;
 
 use crate::{AppConfig, ArchiveMode, ProjectPaths, Vault};
@@ -178,7 +180,7 @@ pub fn switch_mode(
     crate::config::save_copy_config(vault.paths(), stage.path(), &config)?;
     let mut files = database_files(vault.layout(), true);
     files.push(snapshot_relative.clone());
-    install::install(&control, stage.path(), files, false)?;
+    install::install(&control, stage.path(), files, install::Keep::Nothing)?;
     drop(control);
     let previous = vault.paths().app_root.join(snapshot_relative);
     let opened = Vault::open_owned(vault.paths().clone(), config, key.as_ref(), Some(owner))?;

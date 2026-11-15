@@ -356,11 +356,13 @@ pub fn convert_owned(
     // The converted archive's control is the settings the conversion was given: setup's choices,
     // or the upgrade screen's. The swap is one hold of the control's gate.
     let control = vault_core::ControlGate::acquire(paths);
+    // What it replaces is the control from before the conversion (the old archive's files are
+    // not native ones and stay where they are); it stays in the backup folder.
     let previous = vault_core::maintenance::install::install(
         &control,
         &stage,
         vault_core::maintenance::database_files(vault_core::admission::root_layout(&stage)?, true),
-        true,
+        vault_core::maintenance::install::Keep::Backup,
     )?;
     drop(control);
     let opened = Vault::open_owned(paths.clone(), config.clone(), key.as_ref(), Some(owner))?;

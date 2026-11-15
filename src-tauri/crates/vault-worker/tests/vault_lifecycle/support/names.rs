@@ -20,6 +20,14 @@ impl Names {
                 && part.starts_with("rekey-maintenance-")
             {
                 self.alias(&parent, "rekey-maintenance", part)
+            } else if parent.ends_with("raw-snapshots/maintenance")
+                && part.starts_with("before-restore-")
+            {
+                self.alias(&parent, "before-restore", part)
+            } else if parent.ends_with("raw-snapshots/maintenance")
+                && part.starts_with("before-import-")
+            {
+                self.alias(&parent, "before-import", part)
             } else if parent.ends_with("raw-snapshots/chrome%3ADefault")
                 && part.contains('T')
                 && part.ends_with("-1")

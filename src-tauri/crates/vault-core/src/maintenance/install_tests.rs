@@ -6,7 +6,9 @@ use crate::project_paths_with_root;
 
 #[test]
 fn every_interrupted_swap_rolls_back() {
-    for interrupted_after in 0..=4 {
+    for (interrupted_after, keep) in (0..=4)
+        .flat_map(|steps| [(steps, Keep::Backup), (steps, Keep::SafetyCopy(Before::Restore))])
+    {
         let root = tempfile::tempdir().unwrap();
         let paths = project_paths_with_root(root.path());
         let stage = root.path().join("staging/maintenance-test");
@@ -18,7 +20,7 @@ fn every_interrupted_swap_rolls_back() {
         }
         std::fs::write(root.path().join("archive/.pk-owner.lock"), b"owner").unwrap();
         let files = vec!["archive/history-vault.db".into(), "archive/source-evidence.db".into()];
-        let mut journal = prepare(&paths, &stage, files, true).unwrap();
+        let mut journal = prepare(&paths, &stage, files, keep).unwrap();
         for step in 0..interrupted_after {
             install_step(&paths, &mut journal, step).unwrap();
         }
@@ -28,6 +30,15 @@ fn every_interrupted_swap_rolls_back() {
             assert_eq!(std::fs::read(root.path().join(name)).unwrap(), b"old");
         }
         assert_eq!(std::fs::read(root.path().join("archive/.pk-owner.lock")).unwrap(), b"owner");
+        // Nothing was replaced, so nothing is kept: no copy, no backup folder.
+        assert!(!root.path().join("raw-snapshots").exists(), "{keep:?}");
+        let backups = std::fs::read_dir(root.path())
+            .unwrap()
+            .filter(|e| {
+                e.as_ref().unwrap().file_name().to_string_lossy().starts_with("maintenance.bak-")
+            })
+            .count();
+        assert_eq!(backups, 0, "{keep:?}");
     }
 }
 
@@ -40,7 +51,7 @@ fn a_published_generation_finishes_cleanup_without_restoring_old_files() {
     std::fs::create_dir_all(&stage).unwrap();
     std::fs::write(root.path().join("config.json"), b"old").unwrap();
     std::fs::write(stage.join("config.json"), b"new").unwrap();
-    let mut journal = prepare(&paths, &stage, vec!["config.json".into()], true).unwrap();
+    let mut journal = prepare(&paths, &stage, vec!["config.json".into()], Keep::Backup).unwrap();
     install_step(&paths, &mut journal, 0).unwrap();
     install_step(&paths, &mut journal, 1).unwrap();
     publish(&paths, &mut journal).unwrap();
@@ -94,7 +105,7 @@ fn the_control_is_whole_at_every_step_of_an_install_and_its_recovery() {
         let paths = project_paths_with_root(root.path());
         let stage = root.path().join("staging/maintenance-test");
         let files = old_and_new(root.path(), &stage);
-        let mut journal = prepare(&paths, &stage, files, false).unwrap();
+        let mut journal = prepare(&paths, &stage, files, Keep::Nothing).unwrap();
         let control = root.path().join("config.json");
         for step in 0..steps {
             install_step(&paths, &mut journal, step).unwrap();
@@ -175,7 +186,7 @@ fn an_install_that_would_remove_the_control_is_refused() {
     std::fs::create_dir_all(root.path().join("archive")).unwrap();
     std::fs::create_dir_all(&stage).unwrap();
     std::fs::write(root.path().join("config.json"), b"old").unwrap();
-    assert!(prepare(&paths, &stage, vec!["config.json".into()], false).is_err());
+    assert!(prepare(&paths, &stage, vec!["config.json".into()], Keep::Nothing).is_err());
     assert!(!pending(&paths));
     assert_eq!(std::fs::read(root.path().join("config.json")).unwrap(), b"old");
 }
@@ -193,7 +204,7 @@ fn the_journal_records_its_folders_relative_to_the_archive() {
     let paths = project_paths_with_root(root.path());
     let stage = root.path().join("staging/maintenance-test");
     let files = old_and_new(root.path(), &stage);
-    prepare(&paths, &stage, files, false).unwrap();
+    prepare(&paths, &stage, files, Keep::Nothing).unwrap();
     let journal = journal_file(root.path());
     assert_eq!(journal["stage"], "staging/maintenance-test");
     let backup = journal["backup"].as_str().unwrap();
@@ -209,7 +220,8 @@ fn a_folder_moved_during_an_install_is_recovered_where_it_is() {
     std::fs::create_dir(&before).unwrap();
     let stage = before.join("staging/maintenance-test");
     let files = old_and_new(&before, &stage);
-    let mut journal = prepare(&project_paths_with_root(&before), &stage, files, false).unwrap();
+    let mut journal =
+        prepare(&project_paths_with_root(&before), &stage, files, Keep::Nothing).unwrap();
     for step in 0..4 {
         install_step(&project_paths_with_root(&before), &mut journal, step).unwrap();
     }
@@ -256,7 +268,8 @@ fn a_journal_carried_into_another_folder_changes_nothing() {
     std::fs::create_dir(&first).unwrap();
     let stage = first.join("staging/maintenance-test");
     let files = old_and_new(&first, &stage);
-    let mut journal = prepare(&project_paths_with_root(&first), &stage, files, false).unwrap();
+    let mut journal =
+        prepare(&project_paths_with_root(&first), &stage, files, Keep::Nothing).unwrap();
     for step in 0..3 {
         install_step(&project_paths_with_root(&first), &mut journal, step).unwrap();
     }
@@ -287,11 +300,54 @@ fn an_original_in_neither_place_keeps_the_journal() {
     let paths = project_paths_with_root(root.path());
     let stage = root.path().join("staging/maintenance-test");
     let files = old_and_new(root.path(), &stage);
-    let mut journal = prepare(&paths, &stage, files, false).unwrap();
+    let mut journal = prepare(&paths, &stage, files, Keep::Nothing).unwrap();
     install_step(&paths, &mut journal, 0).unwrap();
     let backup = journal_file(root.path())["backup"].as_str().unwrap().to_owned();
     std::fs::remove_file(root.path().join(&backup).join("archive/history-vault.db")).unwrap();
     let error = recover(&paths).expect_err("refused");
     assert!(format!("{error:#}").contains("neither in place nor in the backup"), "{error:#}");
     assert!(root.path().join("archive/.pk-install-v2.json").exists());
+}
+
+// The journal names the safety copy the replaced files become. Recovery moves them only where this
+// folder's installs put them: beside the other copies, under the journal's own backup name. A
+// journal naming any other place, by mistake or carried from elsewhere, moves nothing.
+#[test]
+fn a_journal_naming_a_copy_anywhere_else_moves_nothing() {
+    for elsewhere in [
+        "archive",
+        "../outside",
+        "raw-snapshots/maintenance/rekey-x",
+        "raw-snapshots/maintenance/before-restore-another",
+        "raw-snapshots/before-restore-x",
+    ] {
+        let root = tempfile::tempdir().unwrap();
+        let paths = project_paths_with_root(root.path());
+        let stage = root.path().join("staging/maintenance-test");
+        let files = old_and_new(root.path(), &stage);
+        let mut journal =
+            prepare(&paths, &stage, files, Keep::SafetyCopy(Before::Restore)).unwrap();
+        for step in 0..6 {
+            install_step(&paths, &mut journal, step).unwrap();
+        }
+        publish(&paths, &mut journal).unwrap();
+        let mut record = journal_file(root.path());
+        let backup = record["backup"].as_str().unwrap().to_owned();
+        assert!(record["kept_as"].as_str().unwrap().starts_with("raw-snapshots/maintenance/"));
+        record["kept_as"] = elsewhere.into();
+        std::fs::write(
+            root.path().join("archive/.pk-install-v2.json"),
+            serde_json::to_vec(&record).unwrap(),
+        )
+        .unwrap();
+
+        let error = recover(&paths).expect_err("refused");
+        assert!(format!("{error:#}").contains("archive-control-invalid"), "{elsewhere}: {error:#}");
+        assert!(
+            root.path().join(&backup).join("archive/history-vault.db").is_file(),
+            "{elsewhere}"
+        );
+        assert!(!root.path().join("raw-snapshots").exists(), "{elsewhere}");
+        assert!(pending(&paths), "{elsewhere}");
+    }
 }

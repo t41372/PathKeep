@@ -1,4 +1,5 @@
-//! Responsibilities: journal a verified multi-file installation and recover interrupted renames.
+//! Responsibilities: journal a verified multi-file installation, recover interrupted renames, and
+//! keep what an install replaced: removed, left in its backup folder, or made a safety copy.
 //! Not responsible for: SQL, keys, verification or choosing application files.
 //! Failure modes: mixed generations, lost originals, stale WAL, crash during rollback,
 //! configuration committed ahead of data, deleting the owner lock, a crash that leaves no
@@ -13,9 +14,16 @@
 //! backup relative to the folder; a rollback runs only when the backup folder it names (randomly
 //! named when the install began) is in this folder. A journal carried into another folder, by a
 //! copy or a backup restore, finds no such folder and is refused before anything moves; one in a
-//! folder that was moved whole is recovered where it now is. The journal is written under a name PathKeep 0.5 and earlier do not know, with an
-//! identity and a version that are checked before anything is replayed; the name those releases
-//! wrote is still read, as a record they may have left.
+//! folder that was moved whole is recovered where it now is. The journal is written under a name
+//! PathKeep 0.5 and earlier do not know, with an identity and a version that are checked before
+//! anything is replayed; the name those releases wrote is still read, as a record they may have
+//! left.
+//!
+//! What a restore or an import replaces becomes a safety copy (the user's decision, 2026-11-15):
+//! listed with the others, counted in storage usage and removed by freeing space, never deleted on
+//! its own. Before that, PathKeep left it in the backup folder, which no screen shows and nothing
+//! but "delete all data" removes, so every restore or import silently doubled the archive's size.
+//! The journal names the copy, so a crash after the new archive is published still ends with it.
 use crate::{
     ProjectPaths,
     durable_io::{atomic_durable_write, fsync_dir, remove_file_durably},
@@ -56,6 +64,57 @@ pub fn recover_before_open(paths: &ProjectPaths) -> Result<bool> {
     recover(paths)
 }
 
+/// What becomes of the files an install replaces once the new ones are published.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Keep {
+    /// Removed: the caller made its own copy before installing (a mode change seals one).
+    Nothing,
+    /// Left in the backup folder: the old-format conversion, whose backup holds only the control
+    /// it replaced.
+    Backup,
+    /// Made a safety copy, offered for a restore like the others.
+    SafetyCopy(Before),
+}
+
+/// The operations whose replaced archive is kept as a safety copy, by the name the restore list
+/// shows it under (`RecoverySnapshot::source_op`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Before {
+    Restore,
+    Import,
+}
+
+impl Before {
+    const ALL: [Before; 2] = [Before::Restore, Before::Import];
+
+    pub fn op(self) -> &'static str {
+        match self {
+            Before::Restore => "restore",
+            Before::Import => "import",
+        }
+    }
+
+    fn prefix(self) -> String {
+        format!("before-{}-", self.op())
+    }
+
+    /// The operation a copy's folder name says it was made before.
+    pub(crate) fn of_copy(name: &str) -> Option<Before> {
+        Self::ALL.into_iter().find(|before| name.starts_with(&before.prefix()))
+    }
+
+    /// Where the files an install replaced become a copy: beside the other copies, under the random
+    /// part of the backup folder's name, so a recovery from the journal finds the same place.
+    fn copy_of(self, backup: &Path) -> Option<PathBuf> {
+        let name = backup.to_str()?;
+        let random = name.strip_prefix(vault_layout::family_prefix(
+            vault_layout::ArtifactId::PreviousArchives,
+        ))?;
+        let copies = vault_layout::spec(vault_layout::ArtifactId::NativeSnapshots).path.relative();
+        Some(Path::new(copies).join(format!("{}{random}", self.prefix())))
+    }
+}
+
 #[derive(Serialize, Deserialize, schemars::JsonSchema)]
 pub(crate) struct Entry {
     relative: PathBuf,
@@ -80,19 +139,25 @@ pub(crate) struct Journal {
     backup: PathBuf,
     entries: Vec<Entry>,
     keep_previous: bool,
+    /// The safety copy the replaced files become once the new ones are published, relative to the
+    /// archive folder (`Keep::SafetyCopy`). Absent when they are left in the backup or removed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    kept_as: Option<PathBuf>,
     committed: bool,
 }
 
-/// A journal's stage and backup in this folder, once it is clear they are this folder's.
+/// A journal's stage, backup and copy in this folder, once it is clear they are this folder's.
 struct Located {
     stage: PathBuf,
     backup: PathBuf,
+    kept_as: Option<PathBuf>,
 }
 
 /// Places a journal's stage and backup in this folder. Every path in it must be one this folder's
 /// installs produce: a backup named like `maintenance.bak-*` directly in the folder, a stage
-/// under `staging/`, entries that stay inside the folder. A 0.5 journal's absolute paths are
-/// taken relative to where its backup was, so a folder moved since is still recovered.
+/// under `staging/`, entries that stay inside the folder, and a copy named after the backup among
+/// the other copies. A 0.5 journal's absolute paths are taken relative to where its backup was, so
+/// a folder moved since is still recovered.
 fn locate(paths: &ProjectPaths, journal: &Journal) -> Result<Located> {
     use std::path::Component;
     let foreign = |what: &str| {
@@ -131,14 +196,23 @@ fn locate(paths: &ProjectPaths, journal: &Journal) -> Result<Located> {
     if !journal.entries.iter().all(|entry| plain(&entry.relative)) {
         return Err(foreign("list of files"));
     }
-    Ok(Located { stage: paths.app_root.join(stage), backup: paths.app_root.join(backup) })
+    let kept_as = match &journal.kept_as {
+        None => None,
+        Some(copy)
+            if Before::ALL.iter().any(|before| before.copy_of(&backup).as_ref() == Some(copy)) =>
+        {
+            Some(paths.app_root.join(copy))
+        }
+        Some(_) => return Err(foreign("safety copy")),
+    };
+    Ok(Located { stage: paths.app_root.join(stage), backup: paths.app_root.join(backup), kept_as })
 }
 
 pub(super) fn prepare(
     paths: &ProjectPaths,
     stage: &Path,
     files: Vec<PathBuf>,
-    keep_previous: bool,
+    keep: Keep,
 ) -> Result<Journal> {
     sync_tree(stage)?;
     // Compared as absolute paths: the folder may have been given relative to the working
@@ -168,13 +242,20 @@ pub(super) fn prepare(
         let _ = fs::remove_dir(&backup);
         anyhow::bail!("an installation without a config.json would remove the archive's control");
     }
+    let kept_as = match keep {
+        Keep::SafetyCopy(before) => {
+            Some(before.copy_of(&backup_relative).context("a backup folder name")?)
+        }
+        Keep::Nothing | Keep::Backup => None,
+    };
     let journal = Journal {
         identity: IDENTITY.into(),
         version: VERSION,
         stage: stage_relative,
         backup: backup_relative,
         entries,
-        keep_previous,
+        keep_previous: keep != Keep::Nothing,
+        kept_as,
         committed: false,
     };
     save(paths, &journal)?;
@@ -231,14 +312,17 @@ pub(super) fn install_step(paths: &ProjectPaths, journal: &mut Journal, step: us
 /// Caller has verified staged files and closed all live handles before entering, and holds the
 /// control's gate: the install replaces the control, and the caller wrote the stage's from the
 /// live one under the same hold.
+///
+/// Returns where the replaced files are kept: the safety copy, or the backup folder. Neither exists
+/// when nothing was replaced, or when `keep` is `Keep::Nothing`.
 pub fn install(
     gate: &crate::ControlGate,
     stage: &Path,
     files: Vec<PathBuf>,
-    keep_previous: bool,
+    keep: Keep,
 ) -> Result<PathBuf> {
     let paths = gate.paths();
-    let mut journal = prepare(paths, stage, files, keep_previous)?;
+    let mut journal = prepare(paths, stage, files, keep)?;
     let outcome = (|| {
         for step in 0..journal.entries.len() * 2 {
             install_step(paths, &mut journal, step)?;
@@ -252,7 +336,7 @@ pub fn install(
     }
     crate::fault_inject::checkpoint("native-install-published")?;
     finish(paths, &journal)?;
-    Ok(paths.app_root.join(&journal.backup))
+    Ok(paths.app_root.join(journal.kept_as.as_ref().unwrap_or(&journal.backup)))
 }
 
 /// Run under the owner's lock before opening any database. A pending generation
@@ -378,14 +462,54 @@ fn finish(paths: &ProjectPaths, journal: &Journal) -> Result<()> {
 }
 
 fn finish_at(paths: &ProjectPaths, journal: &Journal, record: &Path) -> Result<()> {
-    // Finishing only removes the stage, the backup and the record, each at a name this folder's
-    // installs produce.
+    // Finishing only removes the stage, the backup and the record, and moves the backup to its
+    // copy, each at a name this folder's installs produce.
     let located = locate(paths, journal)?;
-    if !journal.keep_previous {
-        remove(&located.backup)?;
+    match &located.kept_as {
+        Some(copy) => keep_as_copy(&located.backup, copy)?,
+        None if !journal.keep_previous => remove(&located.backup)?,
+        None => {}
     }
     remove_file_durably(record)?;
     remove(&located.stage)
+}
+
+/// Makes the backup of a published install a safety copy. Run again after a crash, it finishes
+/// what is left: the move is one rename, and the seal is written whole or not at all.
+fn keep_as_copy(backup: &Path, copy: &Path) -> Result<()> {
+    if backup.is_dir() {
+        let replaced = walkdir::WalkDir::new(backup)
+            .into_iter()
+            .any(|entry| entry.map_or(true, |entry| !entry.file_type().is_dir()));
+        if !replaced {
+            // Nothing was there to replace (an import into an empty folder): no copy of nothing.
+            return remove(backup);
+        }
+        if copy.exists() {
+            // The copy is named after the backup folder, whose name was new when the install began,
+            // so this does not happen. If it does, the replaced files stay where they are rather
+            // than go over another copy.
+            eprintln!(
+                "PathKeep install: {} is already there; the replaced files stay in {}",
+                copy.display(),
+                backup.display()
+            );
+            return Ok(());
+        }
+        rename(backup, copy)?;
+    }
+    if copy.is_dir() && !copy.join(super::snapshot::SEAL).exists() {
+        // A replaced archive that cannot be sealed, usually because its control is what was
+        // damaged, cannot be restored either. It stays, counted and freed with the other copies,
+        // and the restore list does not offer it.
+        if let Err(error) = super::snapshot::seal_replaced(copy) {
+            eprintln!(
+                "PathKeep install: the replaced archive kept in {} could not be sealed: {error:#}",
+                copy.display()
+            );
+        }
+    }
+    Ok(())
 }
 
 /// Moves a file or folder and makes the move durable. The destination's directory is flushed
@@ -414,7 +538,7 @@ fn create_dirs_durably(dir: &Path) -> Result<()> {
     fsync_dir(parent)
 }
 
-fn remove(path: &Path) -> Result<()> {
+pub(super) fn remove(path: &Path) -> Result<()> {
     match fs::symlink_metadata(path) {
         Ok(meta) => {
             if meta.is_dir() {

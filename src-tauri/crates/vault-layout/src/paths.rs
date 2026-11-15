@@ -169,12 +169,16 @@ pub fn installation_files_except(
     }
     files
 }
-/// Snapshot verification has stricter required membership than sealing existing files.
+/// Snapshot verification has stricter required membership than sealing existing files. The kinds
+/// of data in `kept` are not required: those a restore keeps as they are and never takes from a
+/// snapshot.
 pub fn required_snapshot_files(
     layout: ArchiveLayout,
     encrypted: bool,
+    kept: &[DataScope],
 ) -> impl Iterator<Item = &'static str> {
     artifacts_in(layout)
+        .filter(|s| !kept.contains(&s.scope))
         .filter(move |s| match s.lifecycle.snapshot {
             SnapshotPolicy::CopyDatabase | SnapshotPolicy::SaveConfig => true,
             SnapshotPolicy::CopyEnvelope => encrypted,

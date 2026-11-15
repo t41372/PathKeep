@@ -586,7 +586,9 @@ Export copies and verifies database rows before writing the ZIP, and atomically
 publishes the completed bundle at the requested path. Import validates manifest
 and entry digests in staging, authenticates the export password, checks database
 integrity, builds search, then closes the old owner and performs the journaled
-installation. Existing native files are retained in `maintenance.bak-*`. Import
+installation. The archive it replaces is kept as a safety copy
+(`raw-snapshots/maintenance/before-import-*`): listed for a restore, counted in
+disk usage and removed by freeing space like the other copies. Import
 works with an empty project root and requires `confirmOverwrite` when replacing
 an existing native archive. App Lock policy stays with the destination's local
 secret; an empty destination starts without App Lock rather than asking for an

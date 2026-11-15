@@ -85,11 +85,11 @@ pub const KNOWN: &[Known] = &[
     k("sidecars/intelligence-blobs/**", "saved page text", PlainKnownGap, false),
     k("sidecars/semantic-index/**", "leftover of an older vector layout", PlainKnownGap, false),
     // Copies.
-    k("raw-snapshots/maintenance/**", "whole-archive safety snapshots", AsCopied, false),
+    k("raw-snapshots/maintenance/**", "whole-archive safety snapshots, also of what a restore or import replaced", AsCopied, false),
     k("raw-snapshots/rekey/**", "v0.3 safety snapshots", AsCopied, false),
     k("raw-snapshots/*/*.sqlite", "v0.3 safety snapshots", AsCopied, false),
     k("raw-snapshots/**", "copies of the browsers' own history files", PlainKnownGap, false),
-    k("maintenance.bak-*/**", "previous generation kept after a restore, import or conversion", AsCopied, false),
+    k("maintenance.bak-*/**", "files an install is replacing; after a conversion, the control it replaced", AsCopied, false),
     k("*.bak-*", "v0.3 import backstop", AsCopied, false),
     k("archive/*.bak-*", "v0.3 import backstop", AsCopied, false),
     k("archive/*.sqlite", "v0.3 database kept after conversion", AsCopied, false),

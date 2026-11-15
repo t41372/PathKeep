@@ -800,6 +800,12 @@
         "keep_previous": {
           "type": "boolean"
         },
+        "kept_as": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "committed": {
           "type": "boolean"
         }
