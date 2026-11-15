@@ -14,9 +14,9 @@
 use schemars::{JsonSchema, SchemaGenerator};
 use serde_json::{Map, Value};
 
-/// The archive format revision these shapes belong to: the one the next release writes. It runs
-/// one ahead of `admission::PRODUCT_ROOT_LEVEL` until the build creates everything that revision
-/// requires, and equals it from then on.
+/// The archive format revision these shapes belong to. During a format change it runs one ahead
+/// of `admission::PRODUCT_ROOT_LEVEL`, until the build creates everything that revision requires;
+/// otherwise the two are equal, as they are now.
 pub const REVISION: u64 = 1;
 
 /// One record: the file it is stored in, under the data folder or inside a bundle or snapshot.
@@ -65,6 +65,11 @@ pub fn document() -> Value {
     // that bare value or the stamped object `admission` parses.
     record::<crate::AppConfig>(&mut records, "config.json");
     record::<crate::maintenance::install::Journal>(&mut records, "archive/.pk-install-v2.json");
+    // The same file, while an archive is brought up to this build's layout.
+    record::<crate::maintenance::creation::CreationRecord>(
+        &mut records,
+        "archive/.pk-install-v2.json (stores being created)",
+    );
     record::<crate::archive::wipe::WipeIntent>(&mut records, ".pk-wipe-v2.json");
     record::<crate::app_lock::AppLockStateRecord>(&mut records, "app-lock-state.json");
     record::<crate::app_lock::AppLockSecretRecord>(&mut records, "app-lock-passcode.json");

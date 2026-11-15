@@ -1,6 +1,8 @@
 {
   "files": [
     "archive/.pk-owner.lock",
+    "archive/agent-history.db",
+    "archive/agent-history.db-wal",
     "archive/history-vault.db",
     "archive/history-vault.db-wal",
     "archive/source-evidence.db",
@@ -9,6 +11,8 @@
     "audit/README.md",
     "audit/manifests/<date-1>/run-1-<hash-1>.json",
     "config.json",
+    "derived/agent-history-read-model.db",
+    "derived/agent-history-read-model.db-wal",
     "derived/agent.db",
     "derived/agent.db-wal",
     "derived/intelligence.db",
@@ -31,6 +35,7 @@
   "markers": {
     "discardedgeneration": [],
     "pkagentdenim": [],
+    "pkagenthistoryivory": [],
     "pkarchiveamber": [],
     "pkaskhazel": [],
     "pkcheckpointgold": [
@@ -38,29 +43,36 @@
     ],
     "pkevidencebirch": [],
     "pkintelligencecoral": [],
+    "pkreadmodeljade": [],
     "pksearchelm": [
       "archive/history-vault.db",
       "archive/source-evidence.db",
       "raw-snapshots/chrome%3ADefault/<checkpoint-1>/History"
     ],
     "pktextfuchsia": [],
-    "targetagent": ["derived/agent.db"],
+    "targetagent": ["archive/agent-history.db", "derived/agent.db"],
+    "targetagenthistory": ["archive/agent-history.db"],
     "targetarchive": ["archive/history-vault.db"],
     "targetevidence": ["archive/source-evidence.db"],
-    "targetintelligence": ["derived/intelligence.db"]
+    "targetintelligence": ["derived/intelligence.db"],
+    "targetreadmodel": ["derived/agent-history-read-model.db"]
   },
   "logical": {
     "archive/history-vault.db": "targetarchive",
     "archive/source-evidence.db": "targetevidence",
     "derived/intelligence.db": "targetintelligence",
     "derived/agent.db": "targetagent",
+    "archive/agent-history.db": "targetagenthistory",
+    "derived/agent-history-read-model.db": "targetreadmodel",
     "searchTitles": ["pksearchelm"],
     "askMessages": null,
     "savedTextLocators": []
   },
   "databaseHeaders": {
+    "archive/agent-history.db": "sqlite",
     "archive/history-vault.db": "sqlite",
     "archive/source-evidence.db": "sqlite",
+    "derived/agent-history-read-model.db": "sqlite",
     "derived/agent.db": "sqlite",
     "derived/intelligence.db": "sqlite",
     "derived/scratch.db": "empty"

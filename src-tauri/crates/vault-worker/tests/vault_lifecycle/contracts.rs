@@ -29,6 +29,8 @@ fn encrypted_files_use_the_literal_historical_key_purpose_at_each_path() {
         "archive/source-evidence.db",
         "derived/intelligence.db",
         "derived/agent.db",
+        "archive/agent-history.db",
+        "derived/agent-history-read-model.db",
     ] {
         let target = decoded.join(path);
         std::fs::create_dir_all(target.parent().unwrap()).unwrap();
@@ -41,20 +43,26 @@ fn encrypted_files_use_the_literal_historical_key_purpose_at_each_path() {
         intelligence: decoded.join("derived/intelligence.db"),
         agent: decoded.join("derived/agent.db"),
         scratch: decoded.join("derived/scratch.db"),
-        // Not opened below: the released layout has no agent-history stores.
         agent_history_evidence: decoded.join("archive/agent-history.db"),
         agent_history_read_model: decoded.join("derived/agent-history-read-model.db"),
     };
-    config.databases =
-        vec![Db::Archive, Db::SourceEvidence, Db::Intelligence, Db::Agent, Db::Scratch];
+    config.databases = vec![
+        Db::Archive,
+        Db::SourceEvidence,
+        Db::Intelligence,
+        Db::Agent,
+        Db::Scratch,
+        Db::AgentHistoryEvidence,
+        Db::AgentHistoryReadModel,
+    ];
     config.keys = [
         Some(*key.derive(KeyPurpose::ArchiveDatabase).expose_bytes()),
         Some(*key.derive(KeyPurpose::SourceEvidenceDatabase).expose_bytes()),
         Some(*key.derive(KeyPurpose::IntelligenceDatabase).expose_bytes()),
         Some(*key.derive(KeyPurpose::AgentDatabase).expose_bytes()),
         Some(*key.derive(KeyPurpose::ScratchDatabase).expose_bytes()),
-        None,
-        None,
+        Some(*key.derive(KeyPurpose::AgentHistoryEvidenceDatabase).expose_bytes()),
+        Some(*key.derive(KeyPurpose::AgentHistoryReadModelDatabase).expose_bytes()),
     ];
     // Existing copies must already have these versions. These literal reader ceilings run
     // no schema implementation and cannot manufacture a missing fixture marker/table.
@@ -63,6 +71,11 @@ fn encrypted_files_use_the_literal_historical_key_purpose_at_each_path() {
     migrations.register(Db::SourceEvidence, vec![Migration::rust(1, |_| Ok(()))]);
     migrations.register(Db::Intelligence, vec![Migration::rust(2, |_| Ok(()))]);
     migrations.register(Db::Agent, vec![Migration::rust(1, |_| Ok(()))]);
+    // Not released yet, so not literals: the ceilings follow the schema while it can change.
+    for db in [Db::AgentHistoryEvidence, Db::AgentHistoryReadModel] {
+        let ceiling = vault_core::store_schema::schema_version(db);
+        migrations.register(db, vec![Migration::rust(ceiling, |_| Ok(()))]);
+    }
     config.migrations = migrations;
     let reader = Store::open(config).unwrap();
     let read = |db| {
@@ -76,6 +89,8 @@ fn encrypted_files_use_the_literal_historical_key_purpose_at_each_path() {
     assert_eq!(read(Db::SourceEvidence), "pkevidencebirch");
     assert_eq!(read(Db::Intelligence), "pkintelligencecoral");
     assert_eq!(read(Db::Agent), "pkagentdenim");
+    assert_eq!(read(Db::AgentHistoryEvidence), "pkagenthistoryivory");
+    assert_eq!(read(Db::AgentHistoryReadModel), "pkreadmodeljade");
     reader.close().unwrap();
 }
 
@@ -101,10 +116,14 @@ fn current_tree_migration_ledgers_and_data_survive_owner_reopen() {
         let fixture = Fixture::new(encrypted);
         fixture.seed();
         let before = ledgers(&fixture.vault(), &fixture.sandbox.path().join("ledger-before"));
+        // The agent-history schemas are not released yet: their ledgers follow the schema.
+        let steps = |db| (1..=vault_core::store_schema::schema_version(db)).collect::<Vec<_>>();
         let expected_ledger = serde_json::json!({
             "archive/history-vault.db":[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23],
             "archive/source-evidence.db":[1], "derived/intelligence.db":[1,2],
-            "derived/agent.db":[1], "derived/scratch.db":[]
+            "derived/agent.db":[1], "derived/scratch.db":[],
+            "archive/agent-history.db": steps(Db::AgentHistoryEvidence),
+            "derived/agent-history-read-model.db": steps(Db::AgentHistoryReadModel),
         });
         assert_eq!(before, expected_ledger);
         let before_disk =
@@ -124,6 +143,14 @@ fn current_tree_migration_ledgers_and_data_survive_owner_reopen() {
             Some("pkintelligencecoral")
         );
         assert_eq!(store_marker(&reopened, Db::Agent).as_deref(), Some("pkagentdenim"));
+        assert_eq!(
+            store_marker(&reopened, Db::AgentHistoryEvidence).as_deref(),
+            Some("pkagenthistoryivory")
+        );
+        assert_eq!(
+            store_marker(&reopened, Db::AgentHistoryReadModel).as_deref(),
+            Some("pkreadmodeljade")
+        );
         let after = observe(&fixture.root, Some(&reopened), &format!("reopen-after-{encrypted}"));
         assert_eq!(after["unknown"], serde_json::json!([]));
         assert_eq!(after, expected(&format!("backup-{encrypted}")));
@@ -143,6 +170,8 @@ fn ledgers(vault: &vault_core::Vault, decoded: &std::path::Path) -> serde_json::
         (Db::SourceEvidence, "archive/source-evidence.db"),
         (Db::Intelligence, "derived/intelligence.db"),
         (Db::Agent, "derived/agent.db"),
+        (Db::AgentHistoryEvidence, "archive/agent-history.db"),
+        (Db::AgentHistoryReadModel, "derived/agent-history-read-model.db"),
     ] {
         let destination = decoded.join(path);
         std::fs::create_dir_all(destination.parent().unwrap()).unwrap();

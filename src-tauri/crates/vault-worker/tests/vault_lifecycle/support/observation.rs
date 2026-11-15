@@ -16,6 +16,8 @@ pub fn observe(root: &Path, vault: Option<&vault_core::Vault>, name: &str) -> Va
         "archive/source-evidence.db": super::store_marker(vault, vault_store::Db::SourceEvidence),
         "derived/intelligence.db": super::store_marker(vault, vault_store::Db::Intelligence),
         "derived/agent.db": super::store_marker(vault, vault_store::Db::Agent),
+        "archive/agent-history.db": super::store_marker(vault, vault_store::Db::AgentHistoryEvidence),
+        "derived/agent-history-read-model.db": super::store_marker(vault, vault_store::Db::AgentHistoryReadModel),
         "searchTitles": super::search_titles(vault),
         "askMessages": vault_worker::load_ai_conversation(vault, "lifecycle-chat").unwrap()
             .map(|chat| chat.messages.into_iter().map(|message| message.content).collect::<Vec<_>>()),

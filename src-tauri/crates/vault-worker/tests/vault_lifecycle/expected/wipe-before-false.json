@@ -1,10 +1,14 @@
 {
   "files": [
+    "<maintenance.bak-1>/archive/agent-history.db",
+    "<maintenance.bak-1>/archive/agent-history.db-wal",
     "<maintenance.bak-1>/archive/history-vault.db",
     "<maintenance.bak-1>/archive/history-vault.db-wal",
     "<maintenance.bak-1>/archive/source-evidence.db",
     "<maintenance.bak-1>/archive/source-evidence.db-wal",
     "<maintenance.bak-1>/config.json",
+    "<maintenance.bak-1>/derived/agent-history-read-model.db",
+    "<maintenance.bak-1>/derived/agent-history-read-model.db-wal",
     "<maintenance.bak-1>/derived/agent.db",
     "<maintenance.bak-1>/derived/agent.db-wal",
     "<maintenance.bak-1>/derived/intelligence.db",
@@ -23,6 +27,8 @@
     "<maintenance.bak-1>/derived/search-index/<generation-1>/meta.json",
     "<maintenance.bak-1>/derived/search-index/current",
     "archive/.pk-owner.lock",
+    "archive/agent-history.db",
+    "archive/agent-history.db-wal",
     "archive/history-vault.db",
     "archive/history-vault.db-wal",
     "archive/source-evidence.db",
@@ -33,6 +39,8 @@
     "audit/manifests/<date-1>/run-2-<hash-2>.json",
     "audit/manifests/<date-1>/run-2-<hash-3>.json",
     "config.json",
+    "derived/agent-history-read-model.db",
+    "derived/agent-history-read-model.db-wal",
     "derived/agent.db",
     "derived/agent.db-wal",
     "derived/intelligence.db",
@@ -52,9 +60,11 @@
     "derived/search-index/current",
     "exports/lifecycle.pathkeep",
     "raw-snapshots/chrome%3ADefault/<checkpoint-1>/History",
+    "raw-snapshots/maintenance/<rekey-maintenance-1>/archive/agent-history.db",
     "raw-snapshots/maintenance/<rekey-maintenance-1>/archive/history-vault.db",
     "raw-snapshots/maintenance/<rekey-maintenance-1>/archive/source-evidence.db",
     "raw-snapshots/maintenance/<rekey-maintenance-1>/config.json",
+    "raw-snapshots/maintenance/<rekey-maintenance-1>/derived/agent-history-read-model.db",
     "raw-snapshots/maintenance/<rekey-maintenance-1>/derived/agent.db",
     "raw-snapshots/maintenance/<rekey-maintenance-1>/derived/intelligence.db",
     "raw-snapshots/maintenance/<rekey-maintenance-1>/snapshot.json",
@@ -66,6 +76,11 @@
       "<maintenance.bak-1>/derived/agent.db",
       "derived/agent.db",
       "raw-snapshots/maintenance/<rekey-maintenance-1>/derived/agent.db"
+    ],
+    "pkagenthistoryivory": [
+      "<maintenance.bak-1>/archive/agent-history.db",
+      "archive/agent-history.db",
+      "raw-snapshots/maintenance/<rekey-maintenance-1>/archive/agent-history.db"
     ],
     "pkarchiveamber": [
       "<maintenance.bak-1>/archive/history-vault.db",
@@ -90,6 +105,11 @@
       "derived/intelligence.db",
       "raw-snapshots/maintenance/<rekey-maintenance-1>/derived/intelligence.db"
     ],
+    "pkreadmodeljade": [
+      "<maintenance.bak-1>/derived/agent-history-read-model.db",
+      "derived/agent-history-read-model.db",
+      "raw-snapshots/maintenance/<rekey-maintenance-1>/derived/agent-history-read-model.db"
+    ],
     "pksearchelm": [
       "<maintenance.bak-1>/archive/history-vault.db",
       "<maintenance.bak-1>/archive/source-evidence.db",
@@ -103,15 +123,19 @@
       "sidecars/intelligence-blobs/89/ad/89add169a6847800eba8346ee2fe0a64abcd0f6aff31fd91d347c8136c5d873f.txt"
     ],
     "targetagent": [],
+    "targetagenthistory": [],
     "targetarchive": [],
     "targetevidence": [],
-    "targetintelligence": []
+    "targetintelligence": [],
+    "targetreadmodel": []
   },
   "logical": {
     "archive/history-vault.db": "pkarchiveamber",
     "archive/source-evidence.db": "pkevidencebirch",
     "derived/intelligence.db": "pkintelligencecoral",
     "derived/agent.db": "pkagentdenim",
+    "archive/agent-history.db": "pkagenthistoryivory",
+    "derived/agent-history-read-model.db": "pkreadmodeljade",
     "searchTitles": ["pksearchelm"],
     "askMessages": ["pkaskhazel"],
     "savedTextLocators": [
@@ -119,18 +143,24 @@
     ]
   },
   "databaseHeaders": {
+    "<maintenance.bak-1>/archive/agent-history.db": "sqlite",
     "<maintenance.bak-1>/archive/history-vault.db": "sqlite",
     "<maintenance.bak-1>/archive/source-evidence.db": "sqlite",
+    "<maintenance.bak-1>/derived/agent-history-read-model.db": "sqlite",
     "<maintenance.bak-1>/derived/agent.db": "sqlite",
     "<maintenance.bak-1>/derived/intelligence.db": "sqlite",
     "<maintenance.bak-1>/derived/scratch.db": "empty",
+    "archive/agent-history.db": "sqlite",
     "archive/history-vault.db": "sqlite",
     "archive/source-evidence.db": "sqlite",
+    "derived/agent-history-read-model.db": "sqlite",
     "derived/agent.db": "sqlite",
     "derived/intelligence.db": "sqlite",
     "derived/scratch.db": "empty",
+    "raw-snapshots/maintenance/<rekey-maintenance-1>/archive/agent-history.db": "sqlite",
     "raw-snapshots/maintenance/<rekey-maintenance-1>/archive/history-vault.db": "sqlite",
     "raw-snapshots/maintenance/<rekey-maintenance-1>/archive/source-evidence.db": "sqlite",
+    "raw-snapshots/maintenance/<rekey-maintenance-1>/derived/agent-history-read-model.db": "sqlite",
     "raw-snapshots/maintenance/<rekey-maintenance-1>/derived/agent.db": "sqlite",
     "raw-snapshots/maintenance/<rekey-maintenance-1>/derived/intelligence.db": "sqlite"
   },

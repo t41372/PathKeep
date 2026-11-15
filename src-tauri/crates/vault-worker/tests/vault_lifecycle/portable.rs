@@ -1,11 +1,12 @@
-//! Responsibilities: pin format-2 ZIP entries and real import into empty/populated owners.
+//! Responsibilities: pin the ZIP entries of a move file this build writes (format 3: the
+//! released format 2 plus the agent-history stores) and real import into empty/populated owners.
 //! Not responsible for: repairing today's Intelligence omission or authenticating v0.5 output.
 
 use super::support::*;
 use vault_store::Db;
 
 #[test]
-fn move_export_contains_three_databases_and_encrypted_portable_artifacts() {
+fn move_export_contains_five_databases_and_encrypted_portable_artifacts() {
     for encrypted in [false, true] {
         let fixture = Fixture::new(encrypted);
         fixture.seed();
@@ -23,6 +24,8 @@ fn move_export_contains_three_databases_and_encrypted_portable_artifacts() {
         assert_eq!(
             entries,
             vec![
+                "archive/agent-history-read-model.db",
+                "archive/agent-history.db",
                 "archive/agent.db",
                 "archive/history-vault.db",
                 "archive/keys.envelope",
@@ -86,6 +89,14 @@ fn empty_root_import_preserves_evidence_and_ask_but_loses_intelligence_metadata(
         assert_eq!(store_marker(&vault, Db::Archive).as_deref(), Some("pkarchiveamber"));
         assert_eq!(store_marker(&vault, Db::SourceEvidence).as_deref(), Some("pkevidencebirch"));
         assert_eq!(store_marker(&vault, Db::Agent).as_deref(), Some("pkagentdenim"));
+        assert_eq!(
+            store_marker(&vault, Db::AgentHistoryEvidence).as_deref(),
+            Some("pkagenthistoryivory")
+        );
+        assert_eq!(
+            store_marker(&vault, Db::AgentHistoryReadModel).as_deref(),
+            Some("pkreadmodeljade")
+        );
         // Discrepancy I1 / Q1: format 2 drops original Intelligence choices and the saved
         // text locator even though the blob bytes themselves travel in the artifact TAR.
         assert_eq!(store_marker(&vault, Db::Intelligence), None);
@@ -165,6 +176,8 @@ fn populated_root_import_replaces_derived_and_keeps_the_previous_archive() {
                 (Db::SourceEvidence, "targetevidence"),
                 (Db::Intelligence, "targetintelligence"),
                 (Db::Agent, "targetagent"),
+                (Db::AgentHistoryEvidence, "targetagenthistory"),
+                (Db::AgentHistoryReadModel, "targetreadmodel"),
             ] {
                 vault
                     .store()
@@ -220,6 +233,14 @@ fn populated_root_import_replaces_derived_and_keeps_the_previous_archive() {
         assert_eq!(store_marker(&vault, Db::Archive).as_deref(), Some("pkarchiveamber"));
         assert_eq!(store_marker(&vault, Db::SourceEvidence).as_deref(), Some("pkevidencebirch"));
         assert_eq!(store_marker(&vault, Db::Agent).as_deref(), Some("pkagentdenim"));
+        assert_eq!(
+            store_marker(&vault, Db::AgentHistoryEvidence).as_deref(),
+            Some("pkagenthistoryivory")
+        );
+        assert_eq!(
+            store_marker(&vault, Db::AgentHistoryReadModel).as_deref(),
+            Some("pkreadmodeljade")
+        );
         // Discrepancy I1 / Q1: format 2 drops original Intelligence choices and the saved
         // text locator even though the blob bytes themselves travel in the artifact TAR.
         assert_eq!(store_marker(&vault, Db::Intelligence), None);

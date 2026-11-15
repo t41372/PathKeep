@@ -3,17 +3,21 @@
   "markers": {
     "discardedgeneration": [],
     "pkagentdenim": [],
+    "pkagenthistoryivory": [],
     "pkarchiveamber": [],
     "pkaskhazel": [],
     "pkcheckpointgold": [],
     "pkevidencebirch": [],
     "pkintelligencecoral": [],
+    "pkreadmodeljade": [],
     "pksearchelm": [],
     "pktextfuchsia": [],
     "targetagent": [],
+    "targetagenthistory": [],
     "targetarchive": [],
     "targetevidence": [],
-    "targetintelligence": []
+    "targetintelligence": [],
+    "targetreadmodel": []
   },
   "logical": null,
   "databaseHeaders": {},

@@ -25,8 +25,11 @@ use zip::{CompressionMethod, ZipWriter, write::SimpleFileOptions};
 
 /// The bundle format that carries an archive of each layout. A bundle's format says which stores
 /// it holds, so an import knows what to require before it decrypts anything.
-const FORMATS: [(u32, vault_layout::ArchiveLayout); 1] =
-    [(2, vault_layout::ArchiveLayout::BrowsingV1)];
+const FORMATS: [(u32, vault_layout::ArchiveLayout); 2] = [
+    (2, vault_layout::ArchiveLayout::BrowsingV1),
+    // Adds the agent-history evidence and read model.
+    (3, vault_layout::ArchiveLayout::AgentHistoryV2),
+];
 
 fn format_of(layout: vault_layout::ArchiveLayout) -> Result<u32> {
     FORMATS
@@ -328,7 +331,10 @@ pub fn import(
         },
     };
     keep_machine_settings(&mut config, &here);
-    crate::save_config(&staged_paths, &config)?;
+    // The stamp of the archive it replaces, or a newer compatible one the bundle carries; a
+    // bundle of the released layout then gets the stores it lacks, empty, when the stage opens.
+    let stamp = crate::config::replacement_compatibility(paths, stage.path())?;
+    crate::config::write_staged_control(&staged_paths, &config, Some(&stamp))?;
     let staged = Vault::open_staged(staged_paths, config.clone(), Some(&key))?;
     let layout = staged.layout();
     for db in vault_layout::portable_databases(layout) {
@@ -364,6 +370,11 @@ pub fn install_staged(
     cancel: &CancelToken,
 ) -> Result<InstalledArchive> {
     cancel.check()?;
+    // Whoever built the stage, it replaces this archive: it keeps this archive's stamp unless its
+    // own is newer and lowers neither floor.
+    let stamp = crate::config::replacement_compatibility(paths, stage)?;
+    let staged_paths = crate::project_paths_with_root(stage);
+    crate::config::write_staged_control(&staged_paths, &config, Some(&stamp))?;
     if let Some(vault) = current {
         vault.store().pause()?.close()?;
         vault.close()?;

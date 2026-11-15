@@ -369,6 +369,32 @@ fn a_wipe_pathkeep_0_5_left_is_still_finished() {
     assert!(!paths.config_path.exists());
 }
 
+// PathKeep 0.5 cannot read a stamped archive, so it cannot have started deleting one: its marker
+// beside a stamped control is left over from an archive that is gone, and deletes nothing.
+#[test]
+fn a_pathkeep_0_5_marker_beside_a_stamped_control_deletes_nothing() {
+    let fixture = backed_up_archive();
+    let paths = &fixture.paths;
+    assert_eq!(
+        crate::admission::root_layout(&paths.app_root).unwrap(),
+        vault_layout::ArchiveLayout::AgentHistoryV2,
+        "the fixture's first open stamped it"
+    );
+    let marker = serde_json::to_vec(&WipeOutsideState::from_config(&fixture.config, None)).unwrap();
+    fs::write(paths.app_root.join(".pk-wipe-in-progress.json"), marker).unwrap();
+    let mut before = file_contents_under(&paths.app_root);
+    let finished =
+        finish_interrupted_data_wipe(paths, no_quiesce, no_secrets, no_schedule).unwrap();
+    assert!(finished.is_none());
+    assert!(!data_wipe_interrupted(paths), "the stale marker is discarded");
+    before.remove(&paths.app_root.join(".pk-wipe-in-progress.json"));
+    // Taking the write lock creates its lock file; every file that was there is there unchanged.
+    let after = file_contents_under(&paths.app_root);
+    for (path, bytes) in &before {
+        assert_eq!(after.get(path), Some(bytes), "{} changed", path.display());
+    }
+}
+
 // A wipe the user confirmed for one archive, cut short, and another archive in the folder by the
 // next start (restored from a backup, imported, carried in): the record does not describe it.
 // Nothing of it is deleted, and the record is discarded.

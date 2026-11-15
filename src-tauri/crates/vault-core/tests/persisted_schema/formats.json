@@ -12,9 +12,9 @@
       "minReader": 1,
       "minWriter": 1,
       "status": "in development",
-      "writtenBy": "No build yet. PathKeep 0.6.0 will be the first.",
-      "summary": "archiveMode becomes the stamped object. The snapshot beside this file is the shape of every listed record as the code stands; until a release writes revision 1 it may be edited in place.",
-      "olderBuilds": "PathKeep 0.4.0 and 0.5.0 cannot parse the stamped archiveMode and stop at start, before any service runs. Before reading the config they still act on an interrupted wipe marker and an install journal under today's file names."
+      "writtenBy": "PathKeep 0.6.0, in development: every archive it creates, every archive of 0.4 or 0.5 it opens, and every archive a restore, an import or a conversion installs.",
+      "summary": "archiveMode becomes the stamped object, and the archive holds two more stores: the agent-history evidence (archive/agent-history.db) and its read model (derived/agent-history-read-model.db). A move file of this revision is format 3. The snapshot beside this file is the shape of every listed record as the code stands; until a release writes revision 1 it may be edited in place.",
+      "olderBuilds": "PathKeep 0.4.0 and 0.5.0 cannot parse the stamped archiveMode and stop at start, before any service runs. Before reading the config they act only on records under their own names (.pk-wipe-in-progress.json, archive/.pk-import-journal.json), which revision 1 does not write. They refuse a format-3 move file before asking for its password."
     }
   ],
   "released": []

@@ -31,7 +31,7 @@ v0.4.0 and v0.5.0 write `"archiveMode": "Plaintext"` or `"Encrypted"`. That bare
 
 Every build has one compiled level, `PRODUCT_ROOT_LEVEL` in `vault-core/src/admission.rs`. Nothing at run time changes it.
 
-**The level today is 0, and this build writes no stamp.** It reads both forms, refuses every stamped archive (any valid stamp has `minReader >= 1`), and still writes the bare value, so v0.5.0 can open what it writes. The level becomes 1 in the same change that makes the build create everything revision 1 requires. A build that claimed level 1 earlier would admit an archive it cannot serve.
+**This build is level 1 and writes revision 1.** Every archive it creates is stamped from the start, an archive of PathKeep 0.4 or 0.5 is brought up to revision 1 the first time this build opens it (below), and every archive a restore, an import or a conversion installs gets a stamp. From then on 0.4 and 0.5 stop at its config. The level went from 0 to 1 in the same change that made the build create everything revision 1 requires, the two agent-history stores: a build that claimed level 1 before that would have admitted archives it could not serve.
 
 ## The decision
 
@@ -49,18 +49,45 @@ There are two outcomes, open or refuse. A read-only mode was considered and left
 
 Reasons, as stable strings in errors and on the worker's stderr:
 
-| Code                            | Meaning                                                                            |
-| ------------------------------- | ---------------------------------------------------------------------------------- |
-| `archive-reader-too-old`        | A newer PathKeep can read this archive; this one cannot.                           |
-| `archive-writer-too-old`        | A newer PathKeep can change this archive safely; this one cannot.                  |
-| `archive-config-format-too-new` | `archiveMode` has a `formatVersion` above 2.                                       |
-| `archive-control-missing`       | There is an archive here and no `config.json`.                                     |
-| `archive-control-unreadable`    | `config.json` exists and cannot be read.                                           |
-| `archive-control-invalid`       | `config.json` is not something any PathKeep wrote.                                 |
-| `archive-compatibility-invalid` | The stamp's numbers are not positive integers in order.                            |
-| `archive-uninitialized`         | Not a refusal: a worker command was asked to use an archive that was never set up. |
+| Code                            | Meaning                                                                                            |
+| ------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `archive-reader-too-old`        | A newer PathKeep can read this archive; this one cannot.                                           |
+| `archive-writer-too-old`        | A newer PathKeep can change this archive safely; this one cannot.                                  |
+| `archive-config-format-too-new` | `archiveMode` has a `formatVersion` above 2.                                                       |
+| `archive-control-missing`       | There is an archive here and no `config.json`.                                                     |
+| `archive-control-unreadable`    | `config.json` exists and cannot be read.                                                           |
+| `archive-control-invalid`       | `config.json` is not something any PathKeep wrote.                                                 |
+| `archive-compatibility-invalid` | The stamp's numbers are not positive integers in order.                                            |
+| `archive-store-missing`         | The archive is stamped, a store its format requires is gone, and nothing says it is being created. |
+| `archive-uninitialized`         | Not a refusal: a worker command was asked to use an archive that was never set up.                 |
 
-The first three mean the archive is intact and needs a newer build. The next four mean its control is damaged or gone. These are different messages to the user and are never reported as a wrong password, a corrupt database or an empty archive.
+The first three mean the archive is intact and needs a newer build. The next five mean its control is damaged or gone, or a store is. These are different messages to the user and are never reported as a wrong password, a corrupt database or an empty archive.
+
+## Bringing a released archive up to revision 1
+
+An archive PathKeep 0.4 or 0.5 wrote has no stamp and five stores. Revision 1 adds two: the agent-history evidence (`archive/agent-history.db`) and its read model (`derived/agent-history-read-model.db`); their search index is a folder made when it is first needed. The first time this build opens such an archive it brings it up (`vault-core/src/maintenance/creation.rs`), in this order:
+
+1. A record names the stores the layout requires that are not there. It is written where the install journal goes and under the journal's name (`archive/.pk-install-v2.json`, identity `pathkeep-create`), which 0.5 does not know.
+2. `config.json` gets the stamp. From here 0.4 and 0.5 stop at the config.
+3. The store opens and creates the stores the record names, empty.
+4. The record is removed.
+
+A crash at any of these points is finished by the next open:
+
+- **Before the stamp, the record is only discarded.** Nothing stopped 0.5 from opening the folder since, and 0.5 creates a store it lacks and saves into it. A record from before the stamp may name such a store, so nothing it names is touched; the next open records what is missing then.
+- **After the stamp, the files the record names are deleted and created again**, with their companions. Nothing older can have written to the folder since the stamp, and this also removes a file the crash left half-written.
+- **A stamped archive missing a store that no record names is refused** (`archive-store-missing`) and left as it is. The store layer would otherwise create the store empty, and the archive would open as if its data had never been there.
+- **A record that names anything other than a store this build knows is refused** (`archive-control-invalid`), and it deletes nothing.
+
+Once the archive is up, an open writes nothing: no record, the same control bytes.
+
+### What an installed archive is stamped with
+
+A restore, an import or a conversion replaces the archive with another one. The archive it installs keeps the stamp of the one it replaces, or takes the incoming archive's stamp when that is at least as high on all three numbers; an older snapshot or file never lowers it (`admission::compose`). When neither stamp is at least as high as the other on all three numbers, the operation is refused (`archive-compatibility-conflict`) before anything is installed. A folder without a stamp counts as this build's own, revision 1.
+
+The installed archive's layout follows from that stamp. A snapshot or move file from 0.5, which has five stores, is installed with the two agent-history stores created empty: the archive it restores had no agent conversations. Those of the archive it replaced stay in the previous generation the restore keeps.
+
+A move file this build writes is format 3: format 2 plus the two agent-history stores. 0.4 and 0.5 read only format 2 and refuse a format-3 file ("unsupported bundle format 3") before asking for its password. This build reads both.
 
 ## A folder without `config.json`
 
@@ -115,7 +142,7 @@ A crash of one of those releases in such a window leaves an archive with no cont
 
 This build never leaves a folder like that:
 
-- **Its records have names those releases do not know** (`archive/.pk-install-v2.json`, `.pk-wipe-v2.json`) and carry an identity and a version that are checked before anything is replayed. A record this build did not write in that shape deletes and replaces nothing. A 0.5 that starts on the folder halfway through an operation of this build does not find a record to act on; once the stamp is written it stops at the config anyway.
+- **Its records have names those releases do not know** (`archive/.pk-install-v2.json`, `.pk-wipe-v2.json`) and carry an identity and a version that are checked before anything is replayed. A record this build did not write in that shape deletes and replaces nothing. A 0.5 that starts on the folder halfway through an operation of this build does not find a record to act on, and since this build stamps every archive it opens, 0.5 stops at the config of any archive this build has used.
 - **An install never takes the control away.** The control is copied into the backup, not moved, and replaced by one rename on install; a rollback writes it back from that copy. An install that would leave no control is refused before it starts.
 - **A journal acts only on the folder it was written in.** It records its stage and backup relative to the folder. A rollback runs only when the backup folder it names, randomly named when the install began, is in this folder: a journal carried into another archive's folder (by a copy, a merge, a backup restore) finds none and is refused before anything moves, while one in a folder that was moved whole is recovered where it is. A 0.5 journal's absolute paths are taken relative to where its backup was, by the same rule. A file that was there before the install and is now neither in place nor in the backup stops the rollback with the journal kept; it is not reported as rolled back.
 - **Moves are made durable destination first.** New folders' entries are flushed before anything is moved into them, and a move flushes the destination's directory before the source's, so a power cut can leave an entry in both places, never in neither.
@@ -171,11 +198,12 @@ One exception is outside the app's control: on macOS a schedule installed by an 
 - `vault-core/tests/root_admission_states.rs` is the table in "A folder without `config.json`" as literal rows crossing control, record and contents. Its expectations are not computed from the layout table.
 - `src-tauri/tests/root_admission_startup.rs` starts the real desktop binary: a background start and a cold worker start on a newer archive leave the folder unchanged, an interrupted-wipe marker in a newer archive deletes nothing, and whatever a first start creates still reads as a first run.
 - `vault-core/tests/root_stamp_codec.rs` holds the byte-for-byte rule for the stamp across a setting change and a mode change, the version rule against every ordering of level and floors, and that a bare `archiveMode` is written back as v0.5.0 expects.
+- `vault-core/src/maintenance/creation/tests.rs` cuts the bring-up at each of its three durable points and opens again; has a 0.5 store open the folder after a crash before the stamp and save into a store the record names; refuses a stamped archive missing a store, and a record naming a file that is not a store, comparing every file before and after; restores a snapshot and imports a move file that 0.5 would have written (five stores, no stamp, format 2); and keeps a later build's revision-2 stamp byte for byte through an open, a settings save, a mode change and a restore. Each property was also checked by breaking the code and watching its test fail.
+- `vault-worker/tests/root_admission/operations.rs` refuses both a reader floor and a writer floor above this build's level at every entry point, with their own reasons.
+- `vault-worker/tests/vault_lifecycle/` follows a marker in each of the seven stores through first open, backup, mode change, password change, safety snapshot and restore, move export and import into an empty and a populated folder, reopen, and "delete all data", and pins the file list of each.
 
 Not proven yet:
 
-- An archive with a higher revision that this build may write, opened and saved through the real owner. At level 0 no stamp is admitted, so today only the codec holds the byte-for-byte rule. The owner-level test comes with level 1.
-- The writer-too-old refusal through the real owner. At level 0 the reader check always comes first; the pure rule covers it.
 - The foreground dialog. The tests cover the background start; nothing drives the dialog.
 - A v0.5.0-written archive. The fixtures are hand-written controls over archives this build created.
 
@@ -185,7 +213,7 @@ A format change that nobody noticed is the usual way two versions come to disagr
 
 - `src-tauri/crates/vault-core/tests/persisted_schema/revision-N.json` is the snapshot for revision N. Any change to a listed type fails `tests/persisted_schema.rs` until the snapshot is rewritten, so the change shows up as an edit to that file in the same commit and in review.
 - `formats.json` beside it has one entry per revision: what changed and what older builds do with it. Its `released` list ties a revision to the hash of its snapshot. Once a revision is listed there its snapshot cannot change at all; a shape change then needs a new revision. The check needs no git history.
-- The snapshot is for the revision the next release writes. That is one ahead of the build's level until the build creates everything the revision requires.
+- The snapshot is for the revision this build writes. Until a release writes it, it may be edited in place.
 
 Records in the snapshot today: `config.json`, the install journal, the "delete all data" marker, the two App Lock records, a snapshot's file list, a move bundle's manifest, a scheduled run's attempt record.
 
@@ -193,8 +221,9 @@ Not in it yet: JSON stored in database columns, the search index's and vector in
 
 ## Changing the format later
 
-Not built yet; recorded so the next format change does not rediscover it:
+Revision 1 is the first stamp, so the bring-up starts only from an archive without one. The next format change keeps the same order and extends it:
 
 - Publish the higher stamp first, then write the first byte of the new format. Never lower it again.
-- A new required database is recorded in the install journal ("being created, did not exist") before it is created, so a crash in between can be finished.
+- Bring an archive up from a lower stamp as well as from none: record the stores the new layout requires, stamp, create, remove the record (`maintenance/creation.rs`).
+- A new move-file format number for a layout with new stores (`FORMATS` in `migration/native.rs`).
 - When a release is cut, its revision and the hash of that revision's snapshot go into `formats.json` under `released`.

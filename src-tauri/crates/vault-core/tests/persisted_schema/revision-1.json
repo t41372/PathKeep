@@ -833,6 +833,32 @@
         }
       }
     },
+    "archive/.pk-install-v2.json (stores being created)": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "title": "CreationRecord",
+      "type": "object",
+      "properties": {
+        "identity": {
+          "type": "string"
+        },
+        "version": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "creating": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "identity",
+        "version",
+        "creating"
+      ]
+    },
     ".pk-wipe-v2.json": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "title": "WipeIntent",

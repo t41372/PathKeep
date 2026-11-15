@@ -356,7 +356,7 @@ pub fn convert_owned(
     let previous = vault_core::maintenance::install::install(
         paths,
         &stage,
-        vault_core::maintenance::database_files(vault_core::admission::WRITTEN_LAYOUT, true),
+        vault_core::maintenance::database_files(vault_core::admission::root_layout(&stage)?, true),
         true,
     )?;
     let opened = Vault::open_owned(paths.clone(), config.clone(), key.as_ref(), Some(owner))?;

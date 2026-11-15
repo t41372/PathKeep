@@ -29,10 +29,56 @@ use std::{
 };
 use vault_layout::{ArtifactId, CensusPolicy, PathRule};
 
-/// The root revision this build was written for. It stays 0 until the build creates everything
-/// revision 1 requires: a build that claimed 1 earlier would admit a root it cannot serve.
-/// Nothing at run time can change it.
-pub const PRODUCT_ROOT_LEVEL: u64 = 0;
+/// The root revision this build was written for: revision 1 adds the agent-history stores, and this
+/// build creates them (`maintenance::creation`). A build may claim a revision only once it creates
+/// everything that revision requires; one that claimed it earlier would admit a root it cannot
+/// serve. Nothing at run time can change it.
+pub const PRODUCT_ROOT_LEVEL: u64 = 1;
+
+/// The stamp this build writes into an archive it brings up to its layout: its own revision, and
+/// floors that keep every older build out (none of them knows the stores this revision adds).
+pub(crate) fn written_compatibility() -> Compatibility {
+    let raw = format!(
+        r#"{{"revision":{PRODUCT_ROOT_LEVEL},"minReader":{PRODUCT_ROOT_LEVEL},"minWriter":{PRODUCT_ROOT_LEVEL}}}"#
+    );
+    Compatibility {
+        stamp: Stamp {
+            revision: PRODUCT_ROOT_LEVEL,
+            min_reader: PRODUCT_ROOT_LEVEL,
+            min_writer: PRODUCT_ROOT_LEVEL,
+        },
+        raw: RawValue::from_string(raw).expect("a JSON object"),
+    }
+}
+
+/// The stamp an archive gets when it is replaced by a restore or an import: the stamp of the
+/// archive it replaces (or this build's, when that one has none it can read), unless the incoming
+/// archive's stamp is newer without lowering either floor. An older stamp never lowers the
+/// archive's; two stamps that each raise something the other does not are refused rather than
+/// merged into one nobody wrote.
+pub(crate) fn compose(
+    target: Option<&Compatibility>,
+    source: Option<&Compatibility>,
+) -> Result<Compatibility, String> {
+    let written = written_compatibility();
+    let base = target.unwrap_or(&written);
+    let Some(source) = source else { return Ok(base.clone()) };
+    let (b, s) = (base.stamp(), source.stamp());
+    let at_least =
+        s.revision >= b.revision && s.min_reader >= b.min_reader && s.min_writer >= b.min_writer;
+    let at_most =
+        s.revision <= b.revision && s.min_reader <= b.min_reader && s.min_writer <= b.min_writer;
+    if at_least {
+        Ok(source.clone())
+    } else if at_most {
+        Ok(base.clone())
+    } else {
+        Err(format!(
+            "archive-compatibility-conflict: the archive being replaced has revision {} with floors {}/{}, the incoming one revision {} with floors {}/{}",
+            b.revision, b.min_reader, b.min_writer, s.revision, s.min_reader, s.min_writer
+        ))
+    }
+}
 
 /// The layout of the archives this build creates: a new archive, a converted one, an archive
 /// brought up to date when it is opened.

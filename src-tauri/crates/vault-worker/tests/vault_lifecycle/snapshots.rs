@@ -7,7 +7,7 @@ use vault_core::ArchiveMode;
 use vault_store::{Db, Priority};
 
 #[test]
-fn safety_snapshot_copies_four_durable_databases_but_no_search_or_loose_artifacts() {
+fn safety_snapshot_copies_six_durable_databases_but_no_search_or_loose_artifacts() {
     for encrypted in [false, true] {
         let fixture = Fixture::new(!encrypted);
         fixture.seed();
@@ -24,9 +24,11 @@ fn safety_snapshot_copies_four_durable_databases_but_no_search_or_loose_artifact
         let mut members = expected_root::files_under(&snapshot).unwrap();
         members.sort();
         let mut expected = vec![
+            "archive/agent-history.db",
             "archive/history-vault.db",
             "archive/source-evidence.db",
             "config.json",
+            "derived/agent-history-read-model.db",
             "derived/agent.db",
             "derived/intelligence.db",
             "snapshot.json",
@@ -59,7 +61,14 @@ fn restore_recovers_evidence_intelligence_and_ask_and_keeps_the_replaced_generat
         );
         let snapshot = safety_snapshot();
         let vault = fixture.vault();
-        for db in [Db::Archive, Db::SourceEvidence, Db::Intelligence, Db::Agent] {
+        for db in [
+            Db::Archive,
+            Db::SourceEvidence,
+            Db::Intelligence,
+            Db::Agent,
+            Db::AgentHistoryEvidence,
+            Db::AgentHistoryReadModel,
+        ] {
             vault
                 .store()
                 .write(db, Priority::Interactive, |s| {
@@ -92,6 +101,14 @@ fn restore_recovers_evidence_intelligence_and_ask_and_keeps_the_replaced_generat
             Some("pkintelligencecoral")
         );
         assert_eq!(store_marker(&restored, Db::Agent).as_deref(), Some("pkagentdenim"));
+        assert_eq!(
+            store_marker(&restored, Db::AgentHistoryEvidence).as_deref(),
+            Some("pkagenthistoryivory")
+        );
+        assert_eq!(
+            store_marker(&restored, Db::AgentHistoryReadModel).as_deref(),
+            Some("pkreadmodeljade")
+        );
         assert_eq!(search_titles(&restored), ["pksearchelm"]);
         assert_eq!(
             vault_worker::load_ai_conversation(&restored, "lifecycle-chat")

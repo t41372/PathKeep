@@ -267,6 +267,7 @@ fn decode_settings(bytes: &[u8], control: &Control) -> Result<ConfigDocument, (R
     let invalid = |error: serde_json::Error| {
         (Reason::ControlInvalid, format!("parsing config json: {error}"))
     };
+    reject_duplicate_keys(bytes).map_err(invalid)?;
     let mut config = match &control.stamped_mode {
         None => serde_json::from_slice::<AppConfig>(bytes).map_err(invalid)?,
         Some(mode) => {
@@ -277,6 +278,61 @@ fn decode_settings(bytes: &[u8], control: &Control) -> Result<ConfigDocument, (R
     };
     normalize_app_config(&mut config);
     Ok(ConfigDocument { config, compatibility: control.compatibility.clone() })
+}
+
+/// No PathKeep writes a key twice, and two readers can take different copies of one, so a control
+/// with a key twice in any object is damaged. The derived decoders refuse a field they see twice,
+/// but a stamped control passes through a generic JSON value first, which keeps the last copy.
+fn reject_duplicate_keys(bytes: &[u8]) -> Result<(), serde_json::Error> {
+    use serde::de::{DeserializeSeed, Error, MapAccess, SeqAccess, Visitor};
+    struct Unique;
+    impl<'de> DeserializeSeed<'de> for Unique {
+        type Value = ();
+        fn deserialize<D: serde::Deserializer<'de>>(self, deserializer: D) -> Result<(), D::Error> {
+            deserializer.deserialize_any(self)
+        }
+    }
+    impl<'de> Visitor<'de> for Unique {
+        type Value = ();
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("a JSON value")
+        }
+        fn visit_bool<E>(self, _: bool) -> Result<(), E> {
+            Ok(())
+        }
+        fn visit_i64<E>(self, _: i64) -> Result<(), E> {
+            Ok(())
+        }
+        fn visit_u64<E>(self, _: u64) -> Result<(), E> {
+            Ok(())
+        }
+        fn visit_f64<E>(self, _: f64) -> Result<(), E> {
+            Ok(())
+        }
+        fn visit_str<E>(self, _: &str) -> Result<(), E> {
+            Ok(())
+        }
+        fn visit_unit<E>(self) -> Result<(), E> {
+            Ok(())
+        }
+        fn visit_seq<A: SeqAccess<'de>>(self, mut items: A) -> Result<(), A::Error> {
+            while items.next_element_seed(Unique)?.is_some() {}
+            Ok(())
+        }
+        fn visit_map<A: MapAccess<'de>>(self, mut entries: A) -> Result<(), A::Error> {
+            let mut seen = std::collections::HashSet::new();
+            while let Some(key) = entries.next_key::<String>()? {
+                if !seen.insert(key.clone()) {
+                    return Err(A::Error::custom(format!("the key `{key}` appears twice")));
+                }
+                entries.next_value_seed(Unique)?;
+            }
+            Ok(())
+        }
+    }
+    let mut deserializer = serde_json::Deserializer::from_slice(bytes);
+    Unique.deserialize(&mut deserializer)?;
+    deserializer.end()
 }
 
 /// Encodes settings for disk. Without a stamp this is byte for byte what v0.5.0 writes and
@@ -370,6 +426,35 @@ pub fn save_config(paths: &ProjectPaths, config: &AppConfig) -> Result<()> {
     crate::durable_io::atomic_durable_write(&paths.config_path, content.as_bytes())
         .with_context(|| format!("writing {}", paths.config_path.display()))?;
     Ok(())
+}
+
+/// Writes `config` with `compatibility` into a stage: an archive being built that is not the live
+/// one yet. Its own control is not consulted; the operation building it decides the stamp.
+pub(crate) fn write_staged_control(
+    paths: &ProjectPaths,
+    config: &AppConfig,
+    compatibility: Option<&Compatibility>,
+) -> Result<()> {
+    create_layout(paths)?;
+    let content = encode_config(config, compatibility)?;
+    crate::durable_io::atomic_durable_write(&paths.config_path, content.as_bytes())
+        .with_context(|| format!("writing {}", paths.config_path.display()))?;
+    Ok(())
+}
+
+/// The stamp a stage that replaces the live archive gets: see `admission::compose`. The live
+/// archive's stamp counts only when its control can be read; a damaged one is what the operation
+/// repairs.
+pub(crate) fn replacement_compatibility(
+    live: &ProjectPaths,
+    stage: &Path,
+) -> Result<Compatibility> {
+    let target = crate::admission::guard(&live.app_root)
+        .ok()
+        .flatten()
+        .and_then(|control| control.compatibility);
+    let source = crate::admission::guard(stage)?.and_then(|control| control.compatibility);
+    crate::admission::compose(target.as_ref(), source.as_ref()).map_err(anyhow::Error::msg)
 }
 
 /// Writes `config` into a staged or snapshot copy of `live`'s archive, with the compatibility

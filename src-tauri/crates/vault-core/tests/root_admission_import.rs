@@ -101,8 +101,9 @@ fn future_move_source_refuses_before_any_target_root_effect_even_when_target_has
         Err(error) => format!("{error:#}"),
     };
     let after = tree::census(&target, vault_core::utils::sha256_hex);
+    // The source declares floors 1/2: a build of level 1 can read it but not write it.
     assert!(
-        detail.contains("archive-reader-too-old")
+        detail.contains("archive-writer-too-old")
             && before == after
             && source_before == vault_core::utils::sha256_hex(&fs::read(&bundle).unwrap()),
         "result={detail}; before={before:?}; after={after:?}"

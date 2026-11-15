@@ -1,12 +1,16 @@
 {
   "files": [
     "archive/.pk-owner.lock",
+    "archive/agent-history.db",
+    "archive/agent-history.db-wal",
     "archive/history-vault.db",
     "archive/history-vault.db-wal",
     "archive/keys.envelope",
     "archive/source-evidence.db",
     "archive/source-evidence.db-wal",
     "config.json",
+    "derived/agent-history-read-model.db",
+    "derived/agent-history-read-model.db-wal",
     "derived/agent.db",
     "derived/agent.db-wal",
     "derived/intelligence.db",
@@ -22,30 +26,38 @@
   "markers": {
     "discardedgeneration": [],
     "pkagentdenim": [],
+    "pkagenthistoryivory": [],
     "pkarchiveamber": [],
     "pkaskhazel": [],
     "pkcheckpointgold": [],
     "pkevidencebirch": [],
     "pkintelligencecoral": [],
+    "pkreadmodeljade": [],
     "pksearchelm": [],
     "pktextfuchsia": [],
     "targetagent": [],
+    "targetagenthistory": [],
     "targetarchive": [],
     "targetevidence": [],
-    "targetintelligence": []
+    "targetintelligence": [],
+    "targetreadmodel": []
   },
   "logical": {
     "archive/history-vault.db": null,
     "archive/source-evidence.db": null,
     "derived/intelligence.db": null,
     "derived/agent.db": null,
+    "archive/agent-history.db": null,
+    "derived/agent-history-read-model.db": null,
     "searchTitles": [],
     "askMessages": null,
     "savedTextLocators": []
   },
   "databaseHeaders": {
+    "archive/agent-history.db": "non-sqlite",
     "archive/history-vault.db": "non-sqlite",
     "archive/source-evidence.db": "non-sqlite",
+    "derived/agent-history-read-model.db": "non-sqlite",
     "derived/agent.db": "non-sqlite",
     "derived/intelligence.db": "non-sqlite",
     "derived/scratch.db": "empty"

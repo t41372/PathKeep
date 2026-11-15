@@ -6,6 +6,7 @@
 mod audit;
 mod retention;
 pub use retention::{preview_retention, prune};
+pub(crate) mod creation;
 pub mod install;
 pub use audit::{record_mode_change, record_restore};
 pub(crate) mod snapshot;

@@ -20,7 +20,9 @@ fn malformed_control_is_recovery_required_through_the_real_owner_without_changes
         ("wrong-type.json", "archive-compatibility-invalid"),
         ("unknown-envelope.json", "archive-config-format-too-new"),
         ("invalid-json.json", "archive-control-invalid"),
-        ("compatible-higher.json", "archive-reader-too-old"),
+        // Revision 2 with floors 1/1 is admitted at level 1. With no stores in it, the stamped
+        // archive is missing what its layout requires: damage, not a first run.
+        ("compatible-higher.json", "archive-store-missing"),
     ]
     .into_iter()
     .map(|(file, code)| (file.into(), support::fixture(file), code))
@@ -393,7 +395,7 @@ fn empty_scaffolding_and_wipe_surviving_runtime_files_do_not_imply_an_archive() 
 }
 
 #[test]
-fn a_genuinely_empty_root_is_read_only_until_explicit_legacy_initialization() {
+fn a_genuinely_empty_root_is_read_only_until_explicit_initialization() {
     let f = Fixture::new(false);
     let before = f.observe();
     let config = vault_core::load_config(&f.paths()).unwrap();
@@ -403,9 +405,21 @@ fn a_genuinely_empty_root_is_read_only_until_explicit_legacy_initialization() {
         .unwrap();
     let persisted: serde_json::Value =
         serde_json::from_slice(&fs::read(f.root.join("config.json")).unwrap()).unwrap();
-    assert_eq!(persisted["archiveMode"], "Plaintext");
-    assert!(f.root.join("archive/history-vault.db").is_file());
-    assert!(!persisted["archiveMode"].is_object(), "this build must not publish a stamp");
+    // A new archive is this build's format from the start: stamped, every store of the layout.
+    assert_eq!(persisted["archiveMode"]["mode"], "Plaintext");
+    assert_eq!(
+        persisted["archiveMode"]["compatibility"],
+        serde_json::json!({"revision": 1, "minReader": 1, "minWriter": 1})
+    );
+    for store in [
+        "archive/history-vault.db",
+        "archive/source-evidence.db",
+        "archive/agent-history.db",
+        "derived/agent-history-read-model.db",
+    ] {
+        assert!(f.root.join(store).is_file(), "{store}");
+    }
+    assert!(!f.root.join("archive/.pk-install-v2.json").exists(), "the creation record is gone");
 }
 
 #[test]

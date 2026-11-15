@@ -144,6 +144,12 @@ pub fn restore_snapshot_to(
     copy_snapshot(source, stage.path())?;
     let staged_paths = crate::project_paths_with_root(stage.path());
     let config = crate::load_config(&staged_paths)?;
+    // The restored archive keeps the stamp of the one it replaces, or a newer compatible one the
+    // snapshot carries; an older snapshot never lowers it. A snapshot of the released layout then
+    // gets the stores it lacks, empty, when the stage opens below: the archive it restores had no
+    // agent conversations.
+    let stamp = crate::config::replacement_compatibility(paths, stage.path())?;
+    crate::config::write_staged_control(&staged_paths, &config, Some(&stamp))?;
     let key = if config.archive_mode == ArchiveMode::Encrypted {
         Some(Vault::unlock_data_key(
             &staged_paths,

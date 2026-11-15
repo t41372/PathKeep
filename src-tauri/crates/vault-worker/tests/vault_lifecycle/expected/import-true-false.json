@@ -1,5 +1,7 @@
 {
   "files": [
+    "<maintenance.bak-1>/archive/agent-history.db",
+    "<maintenance.bak-1>/archive/agent-history.db-wal",
     "<maintenance.bak-1>/archive/history-vault.db",
     "<maintenance.bak-1>/archive/history-vault.db-wal",
     "<maintenance.bak-1>/archive/source-evidence.db",
@@ -8,6 +10,8 @@
     "<maintenance.bak-1>/audit/README.md",
     "<maintenance.bak-1>/audit/manifests/<date-1>/run-1-<hash-1>.json",
     "<maintenance.bak-1>/config.json",
+    "<maintenance.bak-1>/derived/agent-history-read-model.db",
+    "<maintenance.bak-1>/derived/agent-history-read-model.db-wal",
     "<maintenance.bak-1>/derived/agent.db",
     "<maintenance.bak-1>/derived/agent.db-wal",
     "<maintenance.bak-1>/derived/intelligence.db",
@@ -27,6 +31,8 @@
     "<maintenance.bak-1>/derived/search-index/current",
     "<maintenance.bak-1>/raw-snapshots/chrome%3ADefault/<checkpoint-1>/History",
     "archive/.pk-owner.lock",
+    "archive/agent-history.db",
+    "archive/agent-history.db-wal",
     "archive/history-vault.db",
     "archive/history-vault.db-wal",
     "archive/keys.envelope",
@@ -37,6 +43,8 @@
     "audit/manifests/<date-1>/run-1-<hash-1>.json",
     "audit/pathkeep-import-roots.json",
     "config.json",
+    "derived/agent-history-read-model.db",
+    "derived/agent-history-read-model.db-wal",
     "derived/agent.db",
     "derived/agent.db-wal",
     "derived/intelligence.db",
@@ -60,6 +68,7 @@
   "markers": {
     "discardedgeneration": [],
     "pkagentdenim": [],
+    "pkagenthistoryivory": [],
     "pkarchiveamber": [],
     "pkaskhazel": [],
     "pkcheckpointgold": [
@@ -68,6 +77,7 @@
     ],
     "pkevidencebirch": [],
     "pkintelligencecoral": [],
+    "pkreadmodeljade": [],
     "pksearchelm": [
       "<maintenance.bak-1>/archive/history-vault.db",
       "<maintenance.bak-1>/archive/source-evidence.db",
@@ -77,28 +87,41 @@
     "pktextfuchsia": [
       "sidecars/intelligence-blobs/89/ad/89add169a6847800eba8346ee2fe0a64abcd0f6aff31fd91d347c8136c5d873f.txt"
     ],
-    "targetagent": ["<maintenance.bak-1>/derived/agent.db"],
+    "targetagent": [
+      "<maintenance.bak-1>/archive/agent-history.db",
+      "<maintenance.bak-1>/derived/agent.db"
+    ],
+    "targetagenthistory": ["<maintenance.bak-1>/archive/agent-history.db"],
     "targetarchive": ["<maintenance.bak-1>/archive/history-vault.db"],
     "targetevidence": ["<maintenance.bak-1>/archive/source-evidence.db"],
-    "targetintelligence": ["<maintenance.bak-1>/derived/intelligence.db"]
+    "targetintelligence": ["<maintenance.bak-1>/derived/intelligence.db"],
+    "targetreadmodel": [
+      "<maintenance.bak-1>/derived/agent-history-read-model.db"
+    ]
   },
   "logical": {
     "archive/history-vault.db": "pkarchiveamber",
     "archive/source-evidence.db": "pkevidencebirch",
     "derived/intelligence.db": null,
     "derived/agent.db": "pkagentdenim",
+    "archive/agent-history.db": "pkagenthistoryivory",
+    "derived/agent-history-read-model.db": "pkreadmodeljade",
     "searchTitles": ["pksearchelm"],
     "askMessages": ["pkaskhazel"],
     "savedTextLocators": []
   },
   "databaseHeaders": {
+    "<maintenance.bak-1>/archive/agent-history.db": "sqlite",
     "<maintenance.bak-1>/archive/history-vault.db": "sqlite",
     "<maintenance.bak-1>/archive/source-evidence.db": "sqlite",
+    "<maintenance.bak-1>/derived/agent-history-read-model.db": "sqlite",
     "<maintenance.bak-1>/derived/agent.db": "sqlite",
     "<maintenance.bak-1>/derived/intelligence.db": "sqlite",
     "<maintenance.bak-1>/derived/scratch.db": "empty",
+    "archive/agent-history.db": "non-sqlite",
     "archive/history-vault.db": "non-sqlite",
     "archive/source-evidence.db": "non-sqlite",
+    "derived/agent-history-read-model.db": "non-sqlite",
     "derived/agent.db": "non-sqlite",
     "derived/intelligence.db": "non-sqlite",
     "derived/scratch.db": "empty"

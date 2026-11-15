@@ -14,11 +14,13 @@ static ENVIRONMENT: Mutex<()> = Mutex::new(());
 pub const PASSWORD: &str = "step-one archive password";
 pub const NEW_PASSWORD: &str = "step-one changed password";
 pub const EXPORT_PASSWORD: &str = "step-one independent export password";
-pub const MARKERS: [&str; 13] = [
+pub const MARKERS: [&str; 17] = [
     "pkarchiveamber",
     "pkevidencebirch",
     "pkintelligencecoral",
     "pkagentdenim",
+    "pkagenthistoryivory",
+    "pkreadmodeljade",
     "pksearchelm",
     "pktextfuchsia",
     "pkcheckpointgold",
@@ -28,6 +30,8 @@ pub const MARKERS: [&str; 13] = [
     "targetevidence",
     "targetintelligence",
     "targetagent",
+    "targetagenthistory",
+    "targetreadmodel",
 ];
 
 /// Holds the owner and its isolation guard until every archive handle has closed.
@@ -145,6 +149,8 @@ impl Fixture {
             (vault_store::Db::SourceEvidence, "pkevidencebirch"),
             (vault_store::Db::Intelligence, "pkintelligencecoral"),
             (vault_store::Db::Agent, "pkagentdenim"),
+            (vault_store::Db::AgentHistoryEvidence, "pkagenthistoryivory"),
+            (vault_store::Db::AgentHistoryReadModel, "pkreadmodeljade"),
         ] {
             vault
                 .store()

@@ -325,6 +325,13 @@ fn a_setting_this_build_cannot_decode_is_a_damaged_control_not_a_default() {
         r#"{"initialized":true,"archiveMode":{"formatVersion":2,"mode":"Banana","compatibility":{"revision":1,"minReader":1,"minWriter":1}}}"#,
         r#"{"initialized":true,"archiveMode":{"formatVersion":1,"mode":"Plaintext","compatibility":{"revision":1,"minReader":1,"minWriter":1}}}"#,
         r#"{"initialized":true,"archiveMode":{"formatVersion":2,"mode":"Plaintext","extra":1,"compatibility":{"revision":1,"minReader":1,"minWriter":1}}}"#,
+        // A key twice: no PathKeep writes that, and two readers may each take a different one.
+        r#"{"initialized":true,"archiveMode":{"formatVersion":2,"mode":"Plaintext","compatibility":{"revision":1,"minReader":1,"minWriter":1}},"archiveMode":"Plaintext"}"#,
+        r#"{"initialized":true,"archiveMode":"Plaintext","archiveMode":{"formatVersion":2,"mode":"Plaintext","compatibility":{"revision":1,"minReader":1,"minWriter":1}}}"#,
+        r#"{"initialized":true,"archiveMode":{"formatVersion":2,"mode":"Plaintext","mode":"Encrypted","compatibility":{"revision":1,"minReader":1,"minWriter":1}}}"#,
+        r#"{"initialized":true,"archiveMode":{"formatVersion":2,"mode":"Plaintext","compatibility":{"revision":1,"minReader":1,"minWriter":1},"compatibility":{"revision":3,"minReader":3,"minWriter":3}}}"#,
+        r#"{"initialized":true,"archiveMode":{"formatVersion":2,"mode":"Plaintext","compatibility":{"revision":1,"minReader":1,"minReader":5,"minWriter":1}}}"#,
+        r#"{"initialized":true,"initialized":false,"archiveMode":{"formatVersion":2,"mode":"Plaintext","compatibility":{"revision":1,"minReader":1,"minWriter":1}}}"#,
     ] {
         let temp = tempfile::tempdir().unwrap();
         fs::write(temp.path().join("config.json"), control).unwrap();
@@ -332,11 +339,11 @@ fn a_setting_this_build_cannot_decode_is_a_damaged_control_not_a_default() {
             .map(|config| format!("loaded, initialized={}", config.initialized))
             .unwrap_err();
         let message = format!("{error:#}");
-        // The stamped rows are refused for their floors before the mode is looked at: level 0
-        // admits no stamp. Either way nothing is defaulted.
+        // This build meets the floors of the stamped rows, so it is the mode, the envelope or the
+        // stamp itself that is refused, and nothing is defaulted.
         assert!(
             message.starts_with("archive-control-invalid")
-                || message.starts_with("archive-reader-too-old"),
+                || message.starts_with("archive-compatibility-invalid"),
             "{control}: {message}"
         );
     }

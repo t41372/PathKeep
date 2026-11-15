@@ -321,13 +321,15 @@ macro_rules! refuses {
     ($name:ident, $operation:ident) => {
         #[test]
         fn $name() {
+            // The build is level 1: a reader floor of 2 is too new to read, a writer floor of 2
+            // too new to write. Each has its own reason, and neither may change anything.
             let observations =
-                [FUTURE, WRITER].map(|control| observe(Operation::$operation, control));
-            // Positive floors at shipped level zero always hit the reader refusal first.
+                [(FUTURE, "archive-reader-too-old"), (WRITER, "archive-writer-too-old")]
+                    .map(|(control, code)| (code, observe(Operation::$operation, control)));
             let failures: Vec<_> = observations
                 .iter()
-                .filter(|observed| {
-                    !observed.result.contains("archive-reader-too-old")
+                .filter(|(code, observed)| {
+                    !observed.result.contains(code)
                         || observed.before != observed.after
                         || observed.outside_before != observed.outside_after
                         || observed.secret_reads_before != observed.secret_reads_after

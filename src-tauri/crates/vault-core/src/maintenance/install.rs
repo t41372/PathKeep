@@ -262,6 +262,12 @@ pub fn recover(paths: &ProjectPaths) -> Result<bool> {
     // does not stop it: rolling the install back is what puts the previous one back.
     crate::admission::refuse_newer(&paths.app_root)?;
     let mut recovered = recover_legacy(paths)?;
+    // The same file holds the record of stores being created when an archive is brought up to
+    // this build's layout (`creation`), under its own identity.
+    if let Some(record) = super::creation::read(paths)? {
+        super::creation::recover(paths, record)?;
+        return Ok(true);
+    }
     let path = paths.app_root.join(JOURNAL);
     let bytes = match fs::read(&path) {
         Ok(bytes) => bytes,

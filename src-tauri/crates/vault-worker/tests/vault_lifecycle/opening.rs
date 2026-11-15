@@ -4,7 +4,7 @@
 use super::support::*;
 
 #[test]
-fn first_open_creates_the_current_five_databases() {
+fn first_open_creates_the_current_seven_databases() {
     for encrypted in [false, true] {
         let fixture = Fixture::new(encrypted);
         let actual =

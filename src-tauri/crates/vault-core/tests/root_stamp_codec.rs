@@ -1,5 +1,6 @@
 //! Responsibilities: specify scalar compatibility and byte-preserving stamped control round trips.
-//! Not responsible for: admitting a stamped root at level zero or publishing a new stamp.
+//! Not responsible for: whether a root with a stamp is admitted (`parse_control`) or when this
+//! build writes one (`maintenance::creation`).
 //! `round_trip` goes through the codec that reads and writes `config.json`. It decodes a stamp
 //! at any level; whether a root with that stamp is admitted is `parse_control`'s decision.
 use vault_core::{AppConfig, ArchiveMode};

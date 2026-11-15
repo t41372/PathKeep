@@ -86,8 +86,15 @@ impl Vault {
             Some(owner) => owner,
             None => Arc::new(vault_store::OwnerLock::acquire(&paths.app_root)?),
         };
-        let recovered = crate::maintenance::recover_native_maintenance(&paths)
+        let mut recovered = crate::maintenance::recover_native_maintenance(&paths)
             .map_err(|e| vault_store::Error::Operation(e.into_boxed_dyn_error()))?;
+        // The live archive is brought up to this build's layout before its store opens: stamp
+        // first, the stores it then lacks recorded as being created (`maintenance::creation`).
+        // A staged copy is not: its operation sets its control.
+        if recover {
+            recovered |= crate::maintenance::creation::promote_if_needed(&paths)
+                .map_err(|e| vault_store::Error::Operation(e.into_boxed_dyn_error()))?;
+        }
         let config = if recovered {
             crate::load_config(&paths)
                 .map_err(|e| vault_store::Error::Operation(e.into_boxed_dyn_error()))?
@@ -97,6 +104,12 @@ impl Vault {
         // After recovery: a replayed install can have replaced the control.
         let layout = crate::admission::root_layout(&paths.app_root)
             .map_err(|refusal| vault_store::Error::Operation(Box::new(refusal)))?;
+        if recover {
+            // The store would create a missing database file. In a stamped archive that is only
+            // right for a store the creation record names; anything else missing is damage.
+            crate::maintenance::creation::check_required_stores(&paths, layout)
+                .map_err(|e| vault_store::Error::Operation(e.into_boxed_dyn_error()))?;
+        }
         let storage = storage_config(&paths, layout, key, Some(owner))?;
         let store = match Store::open(storage) {
             Ok(store) => Arc::new(store),
@@ -109,6 +122,11 @@ impl Vault {
                 return Err(error);
             }
         };
+        if recover {
+            // Before anything else is written: the stores the record named exist now.
+            crate::maintenance::creation::finish(&paths)
+                .map_err(|e| vault_store::Error::Operation(e.into_boxed_dyn_error()))?;
+        }
         if recover {
             store.write(Db::Archive, Priority::Interactive, |s| {
             s.execute(

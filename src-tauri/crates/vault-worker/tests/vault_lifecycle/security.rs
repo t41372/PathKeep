@@ -6,7 +6,7 @@ use vault_core::ArchiveMode;
 use vault_store::Db;
 
 #[test]
-fn changing_mode_preserves_all_four_stores_and_rebuilds_search() {
+fn changing_mode_preserves_all_six_stores_and_rebuilds_search() {
     for encrypted in [false, true] {
         let fixture = Fixture::new(encrypted);
         fixture.seed();
@@ -27,6 +27,14 @@ fn changing_mode_preserves_all_four_stores_and_rebuilds_search() {
         assert_eq!(store_marker(&vault, Db::SourceEvidence).as_deref(), Some("pkevidencebirch"));
         assert_eq!(store_marker(&vault, Db::Intelligence).as_deref(), Some("pkintelligencecoral"));
         assert_eq!(store_marker(&vault, Db::Agent).as_deref(), Some("pkagentdenim"));
+        assert_eq!(
+            store_marker(&vault, Db::AgentHistoryEvidence).as_deref(),
+            Some("pkagenthistoryivory")
+        );
+        assert_eq!(
+            store_marker(&vault, Db::AgentHistoryReadModel).as_deref(),
+            Some("pkreadmodeljade")
+        );
         assert_eq!(search_titles(&vault), ["pksearchelm"]);
         assert_eq!(
             vault_worker::load_ai_conversation(&vault, "lifecycle-chat").unwrap().unwrap().messages
