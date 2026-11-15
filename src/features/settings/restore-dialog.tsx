@@ -28,21 +28,8 @@ import { describeError } from '@/lib/errors'
 import { useFormat, useI18n } from '@/lib/i18n'
 import { useSnapshot } from '@/lib/queries/app'
 import type { RecoverySnapshot } from '@/lib/types'
+import { copyLabelKey } from './copy-label'
 import { Notice } from './notice'
-
-const knownOps = [
-  'rekey',
-  'reconcile',
-  'import',
-  'restore',
-  'periodic',
-] as const
-
-function opKey(op: string) {
-  return (knownOps as readonly string[]).includes(op)
-    ? (op as (typeof knownOps)[number])
-    : 'unknown'
-}
 
 export function RestoreDialog({
   open,
@@ -141,7 +128,9 @@ function RestoreForm({ onClose }: { onClose: () => void }) {
               <RadioGroupItem id={`restore-${item.id}`} value={item.id} />
               <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                 <span className="font-medium">
-                  {t(`settingsStorage.restore.op.${opKey(item.sourceOp)}`)}
+                  {t(
+                    `settingsStorage.restore.op.${copyLabelKey(item.sourceOp)}`,
+                  )}
                 </span>
                 <span className="text-xs text-muted-foreground">
                   {item.createdAt

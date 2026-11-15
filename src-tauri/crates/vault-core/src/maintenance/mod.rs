@@ -17,6 +17,8 @@ pub use snapshot::{
 mod install_tests;
 #[cfg(test)]
 mod restore_tests;
+#[cfg(test)]
+mod retention_tests;
 #[cfg(all(test, unix))]
 mod rewrap_crash_tests;
 #[cfg(test)]

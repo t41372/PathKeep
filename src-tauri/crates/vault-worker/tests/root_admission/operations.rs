@@ -258,10 +258,13 @@ fn observe(operation: Operation, control: &str) -> Observation {
         ScheduleRepair => error(vault_worker::repair_schedule_plan(plan.as_ref().unwrap())),
         AppLock => error(vault_worker::lock_app_ui_session(None)),
         SnapshotList => error(vault_worker::list_recovery_snapshots()),
-        RetentionPreview => error(vault_worker::preview_retention_plan(None)),
+        RetentionPreview => error(vault_worker::preview_retention_plan()),
         RetentionPrune => error(vault_worker::run_retention_plan(
             f.vault(),
-            &vault_core::RetentionPruneRequest { bucket_ids: vec!["staging".into()] },
+            &vault_core::RetentionPruneRequest {
+                bucket_ids: vec!["staging".into()],
+                ..Default::default()
+            },
         )),
         NativeLaunchRecovery => {
             let mut stale = f.config.clone();

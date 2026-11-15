@@ -152,14 +152,10 @@ pub(crate) async fn run_full_archive_restore(
 #[cfg(not(test))]
 #[tauri::command]
 /// Shows what retention pruning would delete or preserve, off the UI thread.
-pub(crate) async fn preview_retention_prune(
-    state: State<'_, SessionState>,
-) -> Result<vault_core::RetentionPreview, CommandError> {
-    let session = state.inner().clone();
-    run_blocking_command("preview_retention_prune", move || {
-        worker_bridge::preview_retention_prune_impl(&session)
-    })
-    .await
+pub(crate) async fn preview_retention_prune() -> Result<vault_core::RetentionPreview, CommandError>
+{
+    run_blocking_command("preview_retention_prune", worker_bridge::preview_retention_prune_impl)
+        .await
 }
 
 #[cfg(not(test))]

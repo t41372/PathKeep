@@ -476,7 +476,8 @@ pub fn list_snapshots(paths: &ProjectPaths) -> Result<Vec<crate::RecoverySnapsho
             id: name.clone(),
             path: name,
             created_at: created,
-            size_bytes: size,
+            // The whole copy, as Free up space shows and deletes it.
+            size_bytes: super::retention::measure(&path).map_or(size, |(bytes, _)| bytes),
             verified_openable: size >= 4096,
             encrypted,
             source_op: source_op.into(),

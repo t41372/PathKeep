@@ -215,48 +215,6 @@ fn startup_rolls_back_interrupted_bundle_import_and_snapshot_restore() {
 }
 
 #[test]
-fn retention_keeps_a_native_safety_snapshot_and_updates_its_native_ledger() {
-    let (_root, vault, _) = encrypted();
-    for name in ["a", "b"] {
-        let path = vault.paths().raw_snapshots_dir.join("maintenance").join(name);
-        snapshot(&vault, &path).unwrap();
-        record_restore(&vault, &path.display().to_string()).unwrap();
-    }
-    let keep = super::list_snapshots(vault.paths())
-        .unwrap()
-        .into_iter()
-        .find(|s| s.verified_openable)
-        .map(|s| std::path::PathBuf::from(s.path));
-    let result = prune(
-        &vault,
-        &crate::RetentionPruneRequest { bucket_ids: vec!["snapshots".into()] },
-        keep.as_deref(),
-        &Default::default(),
-    )
-    .unwrap();
-    assert!(result.deleted_files > 0);
-    let rows = vault
-        .store()
-        .read(Db::Archive, |s| {
-            s.query("SELECT file_path FROM snapshots", (), |r| Ok(r.get::<String>(0)?))
-        })
-        .unwrap();
-    assert_eq!(rows.len(), 1);
-    assert!(std::path::Path::new(&rows[0]).join("snapshot.json").exists());
-    assert_eq!(
-        vault
-            .store()
-            .read(Db::Archive, |s| s.query_one(
-                "SELECT value FROM archive_totals WHERE name='snapshots'",
-                (),
-                |r| Ok(r.get::<i64>(0)?)
-            ))
-            .unwrap(),
-        1
-    );
-}
-
-#[test]
 fn incomplete_snapshot_manifest_cannot_create_empty_replacement_databases() {
     let vault = Vault::open_temp().unwrap();
     let root = tempfile::tempdir().unwrap();

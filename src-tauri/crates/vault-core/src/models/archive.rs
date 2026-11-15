@@ -608,7 +608,7 @@ pub struct RecoverySnapshot {
     pub path: String,
     /// RFC 3339 creation time from the file mtime (`None` when the mtime is unreadable).
     pub created_at: Option<String>,
-    /// On-disk size in bytes.
+    /// On-disk size in bytes: every file of a native copy, the database file of an old-format one.
     pub size_bytes: u64,
     /// KEYLESS header-only openability signal (never a b-tree walk). For an encrypted snapshot
     /// this is structural-only (size); the authoritative keyed `quick_check` runs at restore.
@@ -654,11 +654,33 @@ pub struct RetentionBucket {
     pub paths: Vec<String>,
 }
 
+/// One safety copy "Free up space" lists on its own, so the user picks which copies go. The newest
+/// is no different: right after a restore or an import it is the archive that was replaced, as
+/// big as the archive, and the user may want that space back.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct RetentionCopy {
+    /// The path the restore list shows it under; a prune request names it by this.
+    pub path: String,
+    /// The operation it was made before ([`RecoverySnapshot::source_op`]).
+    pub source_op: String,
+    /// When it was made, RFC 3339.
+    pub created_at: Option<String>,
+    /// Every file of the copy: what deleting it frees.
+    pub bytes: u64,
+    /// Whether a restore offers it ([`RecoverySnapshot::verified_openable`]).
+    pub restorable: bool,
+}
+
 /// Preview payload for retention pruning.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct RetentionPreview {
+    /// The `snapshots` bucket is what the snapshots folder holds besides the listed copies.
     pub buckets: Vec<RetentionBucket>,
+    /// The safety copies, as the restore list orders them.
+    #[serde(default)]
+    pub copies: Vec<RetentionCopy>,
     /// Diagnostic English prose kept only as the last-resort fallback when a
     /// warning has no matching catalog entry on the shell side.
     pub warnings: Vec<String>,
@@ -683,6 +705,9 @@ pub const RETENTION_WARNING_EXPORT_PRUNE_LOCAL_ONLY: &str = "export-prune-local-
 #[serde(rename_all = "camelCase")]
 pub struct RetentionPruneRequest {
     pub bucket_ids: Vec<String>,
+    /// Safety copies to delete, by their listed paths.
+    #[serde(default)]
+    pub copies: Vec<String>,
 }
 
 /// Result payload for a retention-prune execution.

@@ -82,7 +82,7 @@ pub use self::at_rest::{
 pub(crate) use self::backup::run_backup_profiles;
 pub use self::backup::{run_backup, run_backup_with_control, run_backup_with_progress};
 pub(crate) use self::history::cap_enrichment_excerpt;
-use self::read_models::{decode_profile_scope, directory_size, file_size};
+use self::read_models::{decode_profile_scope, file_size};
 pub(crate) use self::run_support::current_timezone_name;
 pub(crate) use self::search_documents::enrichment_text_for_index;
 pub(crate) use self::source_evidence::{
@@ -121,7 +121,7 @@ use crate::{
     models::{
         AppConfig, ArchiveMode, ArchiveStatus, AuditArtifact, AuditRunDetail, BackupProfileSummary,
         BackupReport, BackupRunOverview, DashboardSnapshot, HealthCheck, HealthRepairReport,
-        HealthReport, HistoryQuery, HistoryQueryResponse, RetentionBucket, SnapshotRestorePreview,
+        HealthReport, HistoryQuery, HistoryQueryResponse, SnapshotRestorePreview,
         SnapshotRestoreRequest, StorageSummary, backup_warning_messages,
     },
     utils::{
@@ -171,132 +171,6 @@ WHERE NOT (runs.id = 0 AND runs.run_type = 'system' AND runs.trigger = 'compat')
 ORDER BY runs.id DESC
 LIMIT 12
 "#;
-
-/// Builds one retention bucket backed directly by a local directory.
-///
-/// These buckets are rebuildable local artifacts, so the preview only needs
-/// bytes, item counts, and the filesystem paths that will be pruned.
-pub(crate) fn retention_directory_bucket(id: &str, path: &Path) -> RetentionBucket {
-    RetentionBucket {
-        id: id.to_string(),
-        bytes: directory_size(path),
-        item_count: count_path_entries(path),
-        paths: vec![path.display().to_string()],
-    }
-}
-
-/// Counts files under one retention path using the same recursive semantics as prune.
-///
-/// The retention preview uses this to stay honest about how many artifacts a
-/// prune operation would actually remove from nested directories.
-fn count_path_entries(path: &Path) -> usize {
-    if !path.exists() {
-        return 0;
-    }
-    let Ok(entries) = fs::read_dir(path) else {
-        return 0;
-    };
-    entries
-        .flatten()
-        .map(|entry| {
-            let child_path = entry.path();
-            if child_path.is_dir() { 1 + count_path_entries(&child_path) } else { 1 }
-        })
-        .sum()
-}
-
-/// Deletes all children of a retention directory while leaving the root in place.
-///
-/// The prune flow keeps bucket roots intact so later exports or staging work do
-/// not have to recreate the whole directory layout from scratch.
-pub(crate) fn remove_directory_contents(path: &Path) -> Result<(u64, usize)> {
-    if !path.exists() {
-        return Ok((0, 0));
-    }
-    let mut deleted_bytes = 0u64;
-    let mut deleted_files = 0usize;
-    for entry in fs::read_dir(path)?.flatten() {
-        let (bytes, files) = remove_path(&entry.path())?;
-        deleted_bytes += bytes;
-        deleted_files += files;
-    }
-    fs::create_dir_all(path)?;
-    Ok((deleted_bytes, deleted_files))
-}
-
-/// Removes one file-or-directory path and returns the deleted byte/file totals.
-///
-/// This recursive helper is shared by retention buckets so all prune results
-/// count nested files the same way.
-fn remove_path(path: &Path) -> Result<(u64, usize)> {
-    if !path.exists() {
-        return Ok((0, 0));
-    }
-    if path.is_file() {
-        let bytes = file_size(path);
-        fs::remove_file(path)?;
-        return Ok((bytes, 1));
-    }
-
-    let mut deleted_bytes = 0u64;
-    let mut deleted_files = 0usize;
-    for entry in fs::read_dir(path)?.flatten() {
-        let (bytes, files) = remove_path(&entry.path())?;
-        deleted_bytes += bytes;
-        deleted_files += files;
-    }
-    fs::remove_dir_all(path)?;
-    Ok((deleted_bytes, deleted_files))
-}
-
-/// Deletes every child under `root` EXCEPT the `keep` file (and the directories on its path), then
-/// recreates `root`, returning the deleted byte/file totals.
-///
-/// Backs the D3 retention last-good guard: the kept path comes from [`list_recovery_snapshots`],
-/// which builds paths from `read_dir` of the SAME `root`, so an `==` comparison matches the entries
-/// here without canonicalize. `keep == None` reproduces the original delete-everything behaviour.
-pub(crate) fn remove_directory_contents_except(
-    root: &Path,
-    keep: Option<&Path>,
-) -> Result<(u64, usize)> {
-    if !root.exists() {
-        return Ok((0, 0));
-    }
-    let mut deleted_bytes = 0u64;
-    let mut deleted_files = 0usize;
-    for entry in fs::read_dir(root)?.flatten() {
-        let (bytes, files) = remove_path_except(&entry.path(), keep)?;
-        deleted_bytes += bytes;
-        deleted_files += files;
-    }
-    fs::create_dir_all(root)?;
-    Ok((deleted_bytes, deleted_files))
-}
-
-/// Recursive helper for [`remove_directory_contents_except`]: removes `path` (counting it) unless it
-/// IS the kept file or a directory on the kept file's path (which is recursed into and preserved).
-fn remove_path_except(path: &Path, keep: Option<&Path>) -> Result<(u64, usize)> {
-    if !path.exists() {
-        return Ok((0, 0));
-    }
-    // The protected file itself — never delete it.
-    if keep == Some(path) {
-        return Ok((0, 0));
-    }
-    // A directory that CONTAINS the kept file is recursed into and left in place; everything else
-    // (plain files, and subtrees with nothing protected) is removed wholesale via `remove_path`.
-    if path.is_dir() && keep.is_some_and(|kept| kept.starts_with(path)) {
-        let mut deleted_bytes = 0u64;
-        let mut deleted_files = 0usize;
-        for entry in fs::read_dir(path)?.flatten() {
-            let (bytes, files) = remove_path_except(&entry.path(), keep)?;
-            deleted_bytes += bytes;
-            deleted_files += files;
-        }
-        return Ok((deleted_bytes, deleted_files));
-    }
-    remove_path(path)
-}
 
 /// Computes the stable fingerprint used to deduplicate canonical visit events.
 pub(crate) fn visit_event_fingerprint(

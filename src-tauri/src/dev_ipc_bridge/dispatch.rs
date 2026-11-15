@@ -194,7 +194,7 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
             )?)
         }
         "preview_retention_prune" => {
-            json_value!(worker_bridge::preview_retention_prune_impl(&state.session)?)
+            json_value!(worker_bridge::preview_retention_prune_impl()?)
         }
         "run_retention_prune" => {
             let payload = parse_payload::<WrappedRequest<RetentionPruneRequest>>(payload)?;

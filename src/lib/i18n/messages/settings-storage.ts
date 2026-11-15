@@ -29,9 +29,9 @@ export const settingsStorage = defineMessages({
       nothing: 'Nothing to clean up right now.',
       bucket: {
         snapshots: {
-          title: 'Snapshots',
+          title: 'Browser history copies',
           description:
-            'Copies of browser history and safety copies made before big changes.',
+            'Copies of your browsers’ history files saved during backups, and copies that can’t be restored from.',
         },
         exports: {
           title: 'Exports',
@@ -46,8 +46,12 @@ export const settingsStorage = defineMessages({
           description: 'Files PathKeep moved aside during a restore or repair.',
         },
       },
-      snapshotWarning:
-        'Deleting snapshots also deletes the safety copies you could restore from.',
+      copies: 'Safety copies',
+      copyMade: 'Made {date}',
+      notRestorable: 'Can’t be restored from',
+      copyWarning: 'You can’t restore from a safety copy once it’s deleted.',
+      noCopyLeft:
+        'No safety copy will be left to restore from. Your history itself stays.',
       delete: 'Delete {size}',
       done: 'Freed {size}.',
       failed: 'Nothing was deleted. {message}',
@@ -122,7 +126,7 @@ export const settingsStorage = defineMessages({
         'This file was made by PathKeep 0.3: its password is the archive password you used on that computer.',
       wrongPassword: 'That password doesn’t open this file.',
       replaces:
-        'This replaces the archive on this computer. The current one is kept as a safety copy you can go back to. It takes about as much disk space as the archive.',
+        'This replaces the archive on this computer. The current one is kept as a safety copy you can go back to. It takes about as much disk space as the archive; Free up space can delete it.',
       replace: 'Replace my archive',
       import: 'Import',
       imported: 'Import finished.',
@@ -166,7 +170,7 @@ export const settingsStorage = defineMessages({
       staysUnencrypted:
         'Your archive isn’t encrypted, so this copy is restored unencrypted, like the rest of your archive.',
       warning:
-        'Anything added since then is not in the copy. Your current archive is kept as a safety copy you can go back to. It takes about as much disk space as the archive.',
+        'Anything added since then is not in the copy. Your current archive is kept as a safety copy you can go back to. It takes about as much disk space as the archive; Free up space can delete it.',
       confirm: 'Restore',
       done: 'Archive restored.',
       failed: 'The restore did not finish. {message}',
@@ -221,8 +225,8 @@ export const settingsStorage = defineMessages({
       nothing: '现在没有需要清理的内容。',
       bucket: {
         snapshots: {
-          title: '快照',
-          description: '浏览器历史的副本，以及重大更改前保存的安全副本。',
+          title: '浏览器历史文件的副本',
+          description: '备份时保存的浏览器历史文件，以及无法用来恢复的副本。',
         },
         exports: {
           title: '导出文件',
@@ -237,7 +241,11 @@ export const settingsStorage = defineMessages({
           description: 'PathKeep 在恢复或修复时移到一边的文件。',
         },
       },
-      snapshotWarning: '删除快照也会删除可以用来恢复的安全副本。',
+      copies: '安全副本',
+      copyMade: '{date} 创建',
+      notRestorable: '无法用来恢复',
+      copyWarning: '安全副本删除后就不能再用来恢复。',
+      noCopyLeft: '删完就没有可以用来恢复的安全副本了。你的历史本身不受影响。',
       delete: '删除 {size}',
       done: '已释放 {size}。',
       failed: '没有删除任何内容。{message}',
@@ -311,7 +319,7 @@ export const settingsStorage = defineMessages({
         '这个文件由 PathKeep 0.3 导出：它的密码就是你在那台电脑上用的存档密码。',
       wrongPassword: '这个密码打不开这个文件。',
       replaces:
-        '这会替换这台电脑上的存档。当前的存档会保留为一份安全副本，之后还能恢复回来；它占用的空间和存档差不多。',
+        '这会替换这台电脑上的存档。当前的存档会保留为一份安全副本，之后还能恢复回来；它占用的空间和存档差不多，可以在“释放空间”删除。',
       replace: '替换我的存档',
       import: '导入',
       imported: '导入完成。',
@@ -351,7 +359,7 @@ export const settingsStorage = defineMessages({
       staysUnencrypted:
         '当前的存档没有加密，这份副本恢复后也不加密，和存档的其他部分一样。',
       warning:
-        '之后新增的内容不在副本里。当前的存档会保留为一份安全副本，之后还能恢复回来；它占用的空间和存档差不多。',
+        '之后新增的内容不在副本里。当前的存档会保留为一份安全副本，之后还能恢复回来；它占用的空间和存档差不多，可以在“释放空间”删除。',
       confirm: '恢复',
       done: '存档已恢复。',
       failed: '恢复没有完成。{message}',
@@ -404,8 +412,8 @@ export const settingsStorage = defineMessages({
       nothing: '目前沒有需要清理的內容。',
       bucket: {
         snapshots: {
-          title: '快照',
-          description: '瀏覽器歷史的副本，以及重大變更前保存的安全副本。',
+          title: '瀏覽器歷史檔的複本',
+          description: '備份時存下的瀏覽器歷史檔，以及無法用來還原的副本。',
         },
         exports: {
           title: '匯出檔案',
@@ -420,7 +428,11 @@ export const settingsStorage = defineMessages({
           description: 'PathKeep 在還原或修復時移到一旁的檔案。',
         },
       },
-      snapshotWarning: '刪除快照也會刪除可以用來還原的安全副本。',
+      copies: '安全副本',
+      copyMade: '{date} 建立',
+      notRestorable: '無法用來還原',
+      copyWarning: '安全副本刪除後就不能再拿來還原。',
+      noCopyLeft: '刪完就沒有可以用來還原的安全副本了。你的歷史本身不受影響。',
       delete: '刪除 {size}',
       done: '已釋放 {size}。',
       failed: '沒有刪除任何內容。{message}',
@@ -494,7 +506,7 @@ export const settingsStorage = defineMessages({
         '這個檔案由 PathKeep 0.3 匯出：它的密碼就是你在那台電腦上用的存檔密碼。',
       wrongPassword: '這組密碼打不開這個檔案。',
       replaces:
-        '這會取代這台電腦上的存檔。目前的存檔會保留為一份安全副本，之後還能還原回來；它佔用的空間和存檔差不多。',
+        '這會取代這台電腦上的存檔。目前的存檔會保留為一份安全副本，之後還能還原回來；它佔用的空間和存檔差不多，可以在「釋放空間」刪除。',
       replace: '取代我的存檔',
       import: '匯入',
       imported: '匯入完成。',
@@ -534,7 +546,7 @@ export const settingsStorage = defineMessages({
       staysUnencrypted:
         '目前的存檔沒有加密，這份副本還原後也不加密，和存檔的其他部分一樣。',
       warning:
-        '之後新增的內容不在副本裡。目前的存檔會保留為一份安全副本，之後還能還原回來；它佔用的空間和存檔差不多。',
+        '之後新增的內容不在副本裡。目前的存檔會保留為一份安全副本，之後還能還原回來；它佔用的空間和存檔差不多，可以在「釋放空間」刪除。',
       confirm: '還原',
       done: '存檔已還原。',
       failed: '還原沒有完成。{message}',

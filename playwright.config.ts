@@ -216,7 +216,9 @@ export default defineConfig({
     project('move', ['move.spec.ts'], 'stop'),
     // Restores the archive the move replaced, so it runs right after it.
     project('restore', ['restore.spec.ts'], 'move'),
-    project('wipe', ['wipe.spec.ts'], 'restore'),
+    // Frees the copy the restore made, so it runs right after it.
+    project('free-space', ['free-space.spec.ts'], 'restore'),
+    project('wipe', ['wipe.spec.ts'], 'free-space'),
     // Sets up a new archive in the empty data folder wipe leaves behind, and
     // deletes it again.
     project('empty', ['semantic-empty-archive.spec.ts'], 'wipe'),

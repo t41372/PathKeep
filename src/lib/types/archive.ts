@@ -298,7 +298,10 @@ export interface RetentionBucket {
  * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
  */
 export interface RetentionPreview {
+  /** `snapshots` is what the snapshots folder holds besides `copies`. */
   buckets: RetentionBucket[]
+  /** Each safety copy the restore list offers, newest first. */
+  copies: RetentionCopy[]
   /** Diagnostic English prose; only rendered when a code has no catalog entry. */
   warnings: string[]
   /** Stable warning codes aligned index-for-index with `warnings`. */
@@ -312,6 +315,24 @@ export interface RetentionPreview {
  */
 export interface RetentionPruneRequest {
   bucketIds: string[]
+  /** Safety copies to delete, by `RetentionCopy.path`. */
+  copies: string[]
+}
+
+/**
+ * One safety copy Free up space lists on its own, so the user picks which
+ * copies go: the newest too, which right after a restore or an import is the
+ * replaced archive, as big as the archive.
+ */
+export interface RetentionCopy {
+  path: string
+  /** The operation it was made before, as in `RecoverySnapshot.sourceOp`. */
+  sourceOp: string
+  createdAt?: string | null
+  /** Every file of the copy. */
+  bytes: number
+  /** Whether the restore list offers it. */
+  restorable: boolean
 }
 
 /**

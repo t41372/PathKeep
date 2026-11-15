@@ -147,10 +147,8 @@ pub(crate) fn run_full_archive_restore_impl(
 
 #[cfg_attr(test, allow(dead_code))]
 /// Previews the current retention-prune plan.
-pub(crate) fn preview_retention_prune_impl(
-    state: &SessionState,
-) -> Result<vault_core::RetentionPreview, CommandError> {
-    worker_result(vault_worker::preview_retention_plan(state.current_vault().as_ref()))
+pub(crate) fn preview_retention_prune_impl() -> Result<vault_core::RetentionPreview, CommandError> {
+    worker_result(vault_worker::preview_retention_plan())
 }
 
 #[cfg_attr(test, allow(dead_code))]

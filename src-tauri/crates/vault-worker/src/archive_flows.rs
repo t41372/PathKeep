@@ -181,27 +181,27 @@ pub fn run_full_archive_restore(
     Ok(report)
 }
 
-/// Builds the manual-first retention preview for local rebuildable artifacts.
-pub fn preview_retention_plan(vault: Option<&Vault>) -> Result<vault_core::RetentionPreview> {
+/// Builds the manual-first retention preview: local rebuildable artifacts, and each safety copy
+/// the restore list offers as a row of its own.
+pub fn preview_retention_plan() -> Result<vault_core::RetentionPreview> {
     let paths = vault_core::project_paths()?;
     load_unlocked_config(&paths)?;
-    vault_core::maintenance::preview_retention(&paths, vault)
+    vault_core::maintenance::preview_retention(&paths, &list_recovery_snapshots()?)
 }
 
-/// Prunes artifacts through the same native owner used by backups.
+/// Prunes artifacts through the same native owner used by backups, and the safety copies the
+/// request names, each only while the restore list offers it.
 pub fn run_retention_plan(
     vault: &Vault,
     request: &vault_core::RetentionPruneRequest,
 ) -> Result<vault_core::RetentionPruneResult> {
-    let keep = list_recovery_snapshots()?
-        .into_iter()
-        .find(|snapshot| snapshot.verified_openable)
-        .map(|snapshot| std::path::PathBuf::from(snapshot.path));
     crate::maintenance_jobs::run(
         &vault.paths().app_root,
         "pruning",
         crate::ForegroundWork::FreeUpSpace,
-        |cancel, _| vault_core::maintenance::prune(vault, request, keep.as_deref(), &cancel),
+        |cancel, _| {
+            vault_core::maintenance::prune(vault, request, list_recovery_snapshots, &cancel)
+        },
     )
 }
 
