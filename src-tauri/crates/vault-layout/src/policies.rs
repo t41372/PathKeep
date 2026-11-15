@@ -110,6 +110,9 @@ pub enum WipePolicy {
     PreserveRuntime,
     PreserveDiagnostics,
     PreserveUnselectedControl,
+    /// Removed once everything else is gone: the wipe's own record, then the control. The control
+    /// stays until the very end so that a release which cannot read this archive never finds a
+    /// folder without one while data is still in it.
     RemoveAfterCompletion,
 }
 /// Existing storage DTO categories; original data can live in a category called derived.

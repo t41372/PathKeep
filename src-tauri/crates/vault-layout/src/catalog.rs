@@ -173,7 +173,7 @@ pub const fn spec(id: ArtifactId) -> ArtifactSpec {
             open: OpenPolicy::NotOpened, snapshot: SnapshotPolicy::SaveConfig,
             restore: RestorePolicy::Metadata, portable: PortablePolicy::SealedConfig { entry: "config/config.json" },
             mode_change: ModeChangePolicy::ReplaceMetadata, at_rest: AtRestPolicy::Metadata,
-            wipe: WipePolicy::Remove(14), usage: UsagePolicy { bucket: None, measure: Measure::None },
+            wipe: WipePolicy::RemoveAfterCompletion, usage: UsagePolicy { bucket: None, measure: Measure::None },
             retention: None, health: HealthPolicy::NotChecked,
             export_target: ExportTargetPolicy::Deny, conversion: ConversionPolicy::Settings { entry: "config/config.json" },
             prevents_new_envelope: false, password_change: PasswordChangePolicy::Preserve,
@@ -445,6 +445,8 @@ pub const fn spec(id: ArtifactId) -> ArtifactSpec {
             move_import: ImportPolicy::Preserve,
             census: CensusPolicy::NotArchive,
         ),
+        // The install journal under the name PathKeep 0.5 and earlier wrote. Read, never written:
+        // a release that does not know the current name must not find a journal it would replay.
         ArtifactId::InstallJournal => row!(id, PathRule::Exact("archive/.pk-import-journal.json"), ContentClass::Control, DataScope::Shared, None, None;
             open: OpenPolicy::NotOpened, snapshot: SnapshotPolicy::Omit,
             restore: RestorePolicy::Preserve, portable: PortablePolicy::Omit(None),
@@ -500,6 +502,8 @@ pub const fn spec(id: ArtifactId) -> ArtifactSpec {
             move_import: ImportPolicy::Preserve,
             census: CensusPolicy::Inherit,
         ),
+        // The "delete all data" marker under the name PathKeep 0.5 and earlier wrote. Read, never
+        // written: those releases act on it before they read the config.
         ArtifactId::WipeIntent => row!(id, PathRule::Exact(".pk-wipe-in-progress.json"), ContentClass::Control, DataScope::Shared, None, None;
             open: OpenPolicy::NotOpened, snapshot: SnapshotPolicy::Omit,
             restore: RestorePolicy::Preserve, portable: PortablePolicy::Omit(None),
@@ -510,6 +514,32 @@ pub const fn spec(id: ArtifactId) -> ArtifactSpec {
             prevents_new_envelope: false, password_change: PasswordChangePolicy::Preserve,
             move_import: ImportPolicy::Preserve,
             census: CensusPolicy::WipeRecord,
+        ),
+        // The install journal this build writes. The control is never absent while it exists, so
+        // without one it is not an interrupted install but damage.
+        ArtifactId::InstallJournalV2 => row!(id, PathRule::Exact("archive/.pk-install-v2.json"), ContentClass::Control, DataScope::Shared, None, None;
+            open: OpenPolicy::NotOpened, snapshot: SnapshotPolicy::Omit,
+            restore: RestorePolicy::Preserve, portable: PortablePolicy::Omit(None),
+            mode_change: ModeChangePolicy::Preserve, at_rest: AtRestPolicy::Metadata,
+            wipe: WipePolicy::CoveredByParent, usage: UsagePolicy { bucket: None, measure: Measure::None },
+            retention: None, health: HealthPolicy::NotChecked,
+            export_target: ExportTargetPolicy::Allow, conversion: ConversionPolicy::Omit,
+            prevents_new_envelope: false, password_change: PasswordChangePolicy::Preserve,
+            move_import: ImportPolicy::Preserve,
+            census: CensusPolicy::Archive,
+        ),
+        // The "delete all data" intent this build writes. Like the journal above, it never exists
+        // without the control: the control is removed after it.
+        ArtifactId::WipeIntentV2 => row!(id, PathRule::Exact(".pk-wipe-v2.json"), ContentClass::Control, DataScope::Shared, None, None;
+            open: OpenPolicy::NotOpened, snapshot: SnapshotPolicy::Omit,
+            restore: RestorePolicy::Preserve, portable: PortablePolicy::Omit(None),
+            mode_change: ModeChangePolicy::Preserve, at_rest: AtRestPolicy::Metadata,
+            wipe: WipePolicy::RemoveAfterCompletion, usage: UsagePolicy { bucket: None, measure: Measure::None },
+            retention: None, health: HealthPolicy::NotChecked,
+            export_target: ExportTargetPolicy::Deny, conversion: ConversionPolicy::Omit,
+            prevents_new_envelope: false, password_change: PasswordChangePolicy::Preserve,
+            move_import: ImportPolicy::Preserve,
+            census: CensusPolicy::Archive,
         ),
         ArtifactId::AppLockState => row!(id, PathRule::Exact("app-lock-state.json"), ContentClass::Control, DataScope::Shared, None, None;
             open: OpenPolicy::NotOpened, snapshot: SnapshotPolicy::Omit,

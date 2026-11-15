@@ -64,8 +64,8 @@ pub fn document() -> Value {
     // The settings. `archiveMode` is described as the settings hold it; on disk it is either
     // that bare value or the stamped object `admission` parses.
     record::<crate::AppConfig>(&mut records, "config.json");
-    record::<crate::maintenance::install::Journal>(&mut records, "archive/.pk-import-journal.json");
-    record::<crate::archive::wipe::WipeOutsideState>(&mut records, ".pk-wipe-in-progress.json");
+    record::<crate::maintenance::install::Journal>(&mut records, "archive/.pk-install-v2.json");
+    record::<crate::archive::wipe::WipeIntent>(&mut records, ".pk-wipe-v2.json");
     record::<crate::app_lock::AppLockStateRecord>(&mut records, "app-lock-state.json");
     record::<crate::app_lock::AppLockSecretRecord>(&mut records, "app-lock-passcode.json");
     record::<Vec<crate::maintenance::snapshot::FileProof>>(

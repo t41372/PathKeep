@@ -66,20 +66,21 @@ The first three mean the archive is intact and needs a newer build. The next fou
 
 Without a control, only what is in the folder can say whether an archive was ever there. `admission::census` decides, and it reads; it creates nothing.
 
-| What is in the folder                                                                                                                                                                         | It is                                       |
-| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------- |
-| Nothing, or the folder does not exist                                                                                                                                                         | A first run                                 |
-| Only empty folders                                                                                                                                                                            | A first run                                 |
-| Locks, the owner socket, logs, crash reports                                                                                                                                                  | A first run                                 |
-| What the scheduler keeps under `schedule/`, and the records under `audit/`                                                                                                                    | A first run                                 |
-| A staging folder an operation never finished (`staging/maintenance-*`), a leftover `.pk-durable-*` file                                                                                       | A first run; the next open deletes them     |
-| Downloaded models, integration files, files under `exports/`                                                                                                                                  | A first run                                 |
-| Files at the top of the folder that the layout table has no name for (`.DS_Store`, an export the user saved there)                                                                            | A first run; the files are left alone       |
-| A valid "delete all data" marker                                                                                                                                                              | An interrupted wipe (below)                 |
-| A native install journal                                                                                                                                                                      | An interrupted install (below)              |
-| A PathKeep 0.3 import, rekey or restore journal, in a folder with no archive in the current format                                                                                            | An interrupted old-format operation (below) |
-| Files the file manager writes into any folder a person opens (`.DS_Store`, `._*`, `desktop.ini`, `Thumbs.db`), at any depth                                                                   | A first run                                 |
-| Anything else under `archive/`, `derived/`, `raw-snapshots/`, `quarantine/` or `sidecars/`; a previous archive kept by a restore; an App Lock passcode; a half-finished old-format conversion | `archive-control-missing`                   |
+| What is in the folder                                                                                                                                                                         | It is                                                                     |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| Nothing, or the folder does not exist                                                                                                                                                         | A first run                                                               |
+| Only empty folders                                                                                                                                                                            | A first run                                                               |
+| Locks, the owner socket, logs, crash reports                                                                                                                                                  | A first run                                                               |
+| What the scheduler keeps under `schedule/`, and the records under `audit/`                                                                                                                    | A first run                                                               |
+| A staging folder an operation never finished (`staging/maintenance-*`), a leftover `.pk-durable-*` file                                                                                       | A first run; the next open deletes them                                   |
+| Downloaded models, integration files, files under `exports/`                                                                                                                                  | A first run                                                               |
+| Files at the top of the folder that the layout table has no name for (`.DS_Store`, an export the user saved there)                                                                            | A first run; the files are left alone                                     |
+| A valid "delete all data" marker under the name PathKeep 0.5 wrote (`.pk-wipe-in-progress.json`)                                                                                              | An interrupted wipe (below)                                               |
+| An install journal under the name PathKeep 0.5 wrote (`archive/.pk-import-journal.json`)                                                                                                      | An interrupted install (below)                                            |
+| A "delete all data" intent or an install journal under the names this build writes (`.pk-wipe-v2.json`, `archive/.pk-install-v2.json`)                                                        | `archive-control-missing`: this build removes its control only after them |
+| A PathKeep 0.3 import, rekey or restore journal, in a folder with no archive in the current format                                                                                            | An interrupted old-format operation (below)                               |
+| Files the file manager writes into any folder a person opens (`.DS_Store`, `._*`, `desktop.ini`, `Thumbs.db`), at any depth                                                                   | A first run                                                               |
+| Anything else under `archive/`, `derived/`, `raw-snapshots/`, `quarantine/` or `sidecars/`; a previous archive kept by a restore; an App Lock passcode; a half-finished old-format conversion | `archive-control-missing`                                                 |
 
 Each row of the layout table (`vault-layout`) answers this question for its own file or folder, as it answers for every other operation (`CensusPolicy`): part of an archive, not part of one, or "whatever my folder says". A file the table has no row for takes the answer of the folder it lies in, and the data folder's own answer is "not part of an archive". Adding a row without answering does not compile.
 
@@ -98,19 +99,27 @@ Three things here differ from the first design, which said any unknown leftover 
 
 ## Interrupted wipes and installs
 
-Some operations take `config.json` away for a moment by design:
+PathKeep 0.5 and earlier take `config.json` away for a moment by design:
 
 - "Delete all data" writes its marker, then removes the control first, then everything else.
 - A restore, import or encryption change moves the control into a backup folder before the new one lands. Its journal records how to finish or undo that.
 - PathKeep 0.3 did the same with its own import, rekey and restore journals.
 
-A crash in one of these windows leaves an archive with no control and a record that explains why. Every release recovers from all of them automatically. A rule that refused every archive without a control would turn each of these crashes into a dead end, so the records are recognized, and such a folder behaves as it always has:
+A crash of one of those releases in such a window leaves an archive with no control and a record that explains why. Every release recovers from all of them automatically. A rule that refused every archive without a control would turn each of these crashes into a dead end, so the records are recognized, and such a folder behaves as it always has:
 
 - Reading the config gives "not initialized", not an error. The recoveries are built on that: the wipe is finished at start and before initialization, a native install when the session opens, an old-format one when the shell asks for the upgrade assessment. A reader does not act on the record itself; the operation that wrote it may be running in this very process.
 - The worker's command line lets such a folder through to the app, because the app it starts is what finishes the job. A scheduled backup would otherwise fail until someone opened the window.
-- A wipe marker that does not decode is not acted on when there is no control. The marker is written whole or not at all, so an undecodable one was not left by a wipe, and nothing else says the user asked for a deletion. The same goes for an install journal that is not JSON.
+- A wipe marker that does not decode is not acted on. The marker is written whole or not at all, so an undecodable one was not left by a wipe, and nothing else says the user asked for a deletion. The same goes for an install journal that is not JSON.
 - When the control is present and needs a newer build, no record is replayed, whatever it says. Before this rule, a "delete all data" marker lying in a newer archive made an older build delete the archive at start; a test starts the real app on that folder and compares every file.
 - A journal is still replayed next to a control that is merely damaged: rolling the install back is what puts the old control back.
+
+This build never leaves a folder like that:
+
+- **Its records have names those releases do not know** (`archive/.pk-install-v2.json`, `.pk-wipe-v2.json`) and carry an identity and a version that are checked before anything is replayed. A record this build did not write in that shape deletes and replaces nothing. A 0.5 that starts on the folder halfway through an operation of this build does not find a record to act on; once the stamp is written it stops at the config anyway.
+- **An install never takes the control away.** The control is copied into the backup, not moved, and replaced by one rename on install and on rollback. An install that would leave no control is refused before it starts.
+- **"Delete all data" keeps the control until the very end.** Order: the intent; `config.json` replaced by an empty, not-initialized one that keeps the stamp (every background worker stops when it sees that); the workers stopped; the files; the keychain; the automatic backup; a scan for anything that still means an archive, by the same rule as a folder without a control, which refuses to finish while anything is left; the intent; `config.json`. A crash before the intent is removed is finished at the next start. A crash after it leaves an empty, not-initialized control in an empty folder.
+
+`maintenance/install_tests.rs` checks the control after every step of an install and of its recovery; `archive/wipe/tests.rs` cuts the wipe at each durable step and finishes it.
 
 ## Where the decision is made
 
@@ -183,7 +192,5 @@ Not in it yet: JSON stored in database columns, the search index's and vector in
 Not built yet; recorded so the next format change does not rediscover it:
 
 - Publish the higher stamp first, then write the first byte of the new format. Never lower it again.
-- The install journal and the wipe marker get new file names with a version when the format first changes: v0.5.0 acts on the current names before it reads the config.
-- "Delete all data" will remove the control last, not first, and leave no marker behind.
 - A new required database is recorded in the install journal ("being created, did not exist") before it is created, so a crash in between can be finished.
 - When a release is cut, its revision and the hash of that revision's snapshot go into `formats.json` under `released`.

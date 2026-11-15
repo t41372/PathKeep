@@ -37,6 +37,9 @@ enum Record {
     OldRestore,
     /// An install journal that is not JSON.
     InstallGarbage,
+    /// The records this build writes. The control outlives both, so without one they are damage.
+    WipeV2,
+    InstallV2,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -102,6 +105,16 @@ fn build(root: &Path, control: Control, record: Record, contents: Contents) {
         }
         Record::OldRestore => write(root, "archive/.pk-restore-journal.json", "{}"),
         Record::InstallGarbage => write(root, "archive/.pk-import-journal.json", "not json"),
+        Record::WipeV2 => write(
+            root,
+            ".pk-wipe-v2.json",
+            r#"{"identity":"pathkeep-wipe","version":1,"providerIds":[],"schedule":null}"#,
+        ),
+        Record::InstallV2 => write(
+            root,
+            "archive/.pk-install-v2.json",
+            r#"{"identity":"pathkeep-install","version":1,"stage":"staging/maintenance-x","backup":"maintenance.bak-x","entries":[],"keep_previous":false,"committed":false}"#,
+        ),
     }
     match contents {
         Contents::Empty => {}
@@ -230,6 +243,13 @@ fn every_combination_is_classified_as_written_and_nothing_is_touched() {
         (Absent, R::WipeGarbage, C::Store, MISSING),
         (Absent, R::InstallGarbage, C::Empty, MISSING),
         (Absent, R::InstallGarbage, C::Store, MISSING),
+        // This build's own records never outlive the control.
+        (Absent, R::WipeV2, C::Empty, MISSING),
+        (Absent, R::WipeV2, C::Store, MISSING),
+        (Absent, R::InstallV2, C::Empty, MISSING),
+        (Absent, R::InstallV2, C::Store, MISSING),
+        (Legacy, R::WipeV2, C::Store, Is::Admitted),
+        (Legacy, R::InstallV2, C::Store, Is::Admitted),
         // A control this build may use: records are the start sequence's business, not a class.
         (Legacy, R::None, C::Empty, Is::Admitted),
         (Legacy, R::None, C::Store, Is::Admitted),

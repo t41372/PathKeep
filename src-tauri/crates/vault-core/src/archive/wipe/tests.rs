@@ -154,11 +154,13 @@ fn wipe_removes_everything_listed_and_nothing_else() {
         paths,
         &secrets,
         || {
-            // Workers stop on a missing config, so it must be gone before they are waited on,
-            // and the archive must still be there for them to finish against.
-            assert!(!paths.config_path.exists());
+            // Workers stop on a not-initialized config, so it must be emptied before they are
+            // waited on; it is not removed, so a release that cannot read the archive never
+            // finds the folder without one. The archive must still be there for them to finish
+            // against.
+            assert!(!load_config(paths).expect("emptied config").initialized);
             assert!(archive_file(paths).exists());
-            assert!(data_wipe_interrupted(paths), "the marker is written before deleting");
+            assert!(data_wipe_interrupted(paths), "the intent is written before deleting");
             quiesced.set(true);
             Ok(())
         },
@@ -188,7 +190,12 @@ fn wipe_removes_everything_listed_and_nothing_else() {
 
     let config = load_config(paths).expect("config after wipe");
     assert!(!config.initialized);
+    assert!(!paths.config_path.exists(), "the control is removed, last");
     assert!(!paths.app_root.join("archive/history-vault.db").exists());
+    assert!(matches!(
+        crate::admission::inspect(&paths.app_root),
+        Ok(crate::admission::RootState::Uninitialized)
+    ));
 }
 
 #[test]
@@ -205,7 +212,8 @@ fn an_interrupted_wipe_finishes_with_the_saved_provider_list() {
     assert!(error.to_string().contains("power cut"));
     assert!(data_wipe_interrupted(paths));
     assert!(archive_file(paths).exists());
-    assert!(!paths.config_path.exists(), "the app now reads as not initialized");
+    assert!(paths.config_path.exists(), "the control stays while data is there");
+    assert!(!load_config(paths).expect("config").initialized, "the app reads as not initialized");
 
     let cleared = Mutex::new(None);
     let removed = Mutex::new(None);
@@ -280,4 +288,83 @@ fn the_wipe_waits_for_a_process_holding_the_archive_write_lock() {
     drop(foreign);
     wipe.join().expect("wipe thread").expect("wipe after the lock frees");
     assert!(!archive_file(&paths).exists());
+}
+
+// A crash can land between any two durable steps. Until the intent is gone the control is there
+// (emptied, so nothing reads the old settings), and the next start finishes the wipe. After the
+// intent is gone only an empty control can be left, in a folder with nothing else of the user's.
+#[test]
+fn the_control_is_there_at_every_cut_and_the_next_start_finishes() {
+    for cut in
+        ["wipe-intent-written", "wipe-control-emptied", "wipe-files-removed", "wipe-intent-removed"]
+    {
+        let fixture = backed_up_archive();
+        let paths = &fixture.paths;
+        let secrets = WipeOutsideState::from_config(&fixture.config, None);
+        let crashed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _fault = crate::fault_inject::FaultGuard::panic_at(cut);
+            let _ = wipe_all_data(paths, &secrets, no_quiesce, no_secrets, no_schedule);
+        }));
+        assert!(crashed.is_err(), "{cut}: the cut was not reached");
+        assert!(paths.config_path.exists(), "{cut}: the control went missing");
+        if cut == "wipe-intent-removed" {
+            assert!(!data_wipe_interrupted(paths), "{cut}");
+            assert!(!load_config(paths).expect("config").initialized, "{cut}");
+            assert!(crate::admission::archive_files(&paths.app_root).unwrap().is_empty(), "{cut}");
+            continue;
+        }
+        assert!(data_wipe_interrupted(paths), "{cut}: the intent went missing");
+        finish_interrupted_data_wipe(paths, no_quiesce, no_secrets, no_schedule)
+            .unwrap_or_else(|error| panic!("{cut}: {error:#}"))
+            .unwrap_or_else(|| panic!("{cut}: nothing was finished"));
+        assert!(!data_wipe_interrupted(paths), "{cut}");
+        assert!(!paths.config_path.exists(), "{cut}");
+        assert!(!archive_file(paths).exists(), "{cut}");
+        assert!(
+            matches!(
+                crate::admission::inspect(&paths.app_root),
+                Ok(crate::admission::RootState::Uninitialized)
+            ),
+            "{cut}"
+        );
+    }
+}
+
+// The intent is written whole or not at all. One that is not this build's shape was not left by
+// a wipe, so nothing is deleted on its say-so, whatever the control says.
+#[test]
+fn an_intent_this_build_did_not_write_deletes_nothing() {
+    for intent in [
+        "{\"providerIds\":",
+        r#"{"identity":"pathkeep-wipe","version":2,"providerIds":[]}"#,
+        r#"{"identity":"something-else","version":1,"providerIds":[]}"#,
+        r#"{"providerIds":[]}"#,
+    ] {
+        let fixture = backed_up_archive();
+        let paths = &fixture.paths;
+        fs::write(paths.app_root.join(".pk-wipe-v2.json"), intent).unwrap();
+        let before = file_contents_under(&paths.app_root);
+        let error = finish_interrupted_data_wipe(paths, no_quiesce, no_secrets, no_schedule)
+            .expect_err("refused");
+        assert!(format!("{error:#}").contains("archive-control-invalid"), "{intent}: {error:#}");
+        assert_eq!(file_contents_under(&paths.app_root), before, "{intent}");
+    }
+}
+
+// A wipe PathKeep 0.5 started and a crash cut short: its own marker, its control already gone.
+// That release would finish it at its next start, and so does this one.
+#[test]
+fn a_wipe_pathkeep_0_5_left_is_still_finished() {
+    let fixture = backed_up_archive();
+    let paths = &fixture.paths;
+    let marker = serde_json::to_vec(&WipeOutsideState::from_config(&fixture.config, None)).unwrap();
+    fs::write(paths.app_root.join(".pk-wipe-in-progress.json"), marker).unwrap();
+    fs::remove_file(&paths.config_path).unwrap();
+    assert!(data_wipe_interrupted(paths));
+    finish_interrupted_data_wipe(paths, no_quiesce, no_secrets, no_schedule)
+        .expect("finish")
+        .expect("there was one");
+    assert!(!data_wipe_interrupted(paths));
+    assert!(!archive_file(paths).exists());
+    assert!(!paths.config_path.exists());
 }

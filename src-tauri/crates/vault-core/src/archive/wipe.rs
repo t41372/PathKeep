@@ -26,7 +26,7 @@
 //!   and attempt history).
 //! - Import backstops in the app root (any name containing `.bak-`), the App Lock state and
 //!   passcode files, the Stronghold files versions before 0.5 left (`vault.hold`,
-//!   `stronghold-salt.txt`), and `config.json`.
+//!   `stronghold-salt.txt`), and, last of all, `config.json`.
 //! - Outside the app root, through the caller's closures: the archive key and AI provider keys in
 //!   the keychain, and an installed automatic backup (LaunchAgent or Task Scheduler task).
 //!
@@ -42,12 +42,24 @@
 //!   one, and it survives. That is a known gap, not a decision.
 //!
 //! ## Order
-//! Gate and write lock, marker, `config.json`, `quiesce`, the files, the keychain, the automatic
-//! backup, the marker. The task goes after the files so that a removal that fails cannot keep any
-//! history on disk. A failed removal does not fail the wipe: the data is gone, the app is not
-//! initialized, and the [`WipeReport`] says what is still installed so the UI can tell the user.
-//! The marker is removed anyway; keeping it would rerun the whole wipe at every launch and before
-//! every onboarding, and a task the OS will not let PathKeep remove would block setup for good.
+//! Gate and write lock, the intent, `config.json` replaced by an empty one, `quiesce`, the files,
+//! the keychain, the automatic backup, a scan for anything left, the intent, `config.json`.
+//!
+//! `config.json` is never missing while data is still there. A release that cannot read this
+//! archive stops at its config; without one it would take the folder for a first run. So the
+//! control is emptied first (every worker stops at its next look at it) and removed last, after
+//! the intent. A crash between those two leaves an empty, not-initialized control in an empty
+//! folder.
+//!
+//! The intent is written under a name PathKeep 0.5 and earlier do not know: they act on their own
+//! marker before reading the config. That marker is still read and finished, as the record a wipe
+//! of theirs may have left.
+//!
+//! The task goes after the files so that a removal that fails cannot keep any history on disk. A
+//! failed removal does not fail the wipe: the data is gone, the app is not initialized, and the
+//! [`WipeReport`] says what is still installed so the UI can tell the user. The intent is removed
+//! anyway; keeping it would rerun the whole wipe at every launch and before every onboarding, and
+//! a task the OS will not let PathKeep remove would block setup for good.
 //!
 //! ## Ways this can go wrong, and what guards each
 //! 1. A browser profile gets touched. Targets come only from `ProjectPaths`; the test runs a real
@@ -55,12 +67,14 @@
 //! 2. A backup, import or rekey writes while files are being deleted. The wipe holds the
 //!    in-process gate and the cross-process write lock for its whole run, so a scheduled backup
 //!    that starts meanwhile defers and an in-flight one finishes first.
-//! 3. Background workers keep writing and recreate an empty archive. `config.json` goes first, so
-//!    every worker loop stops at its next check, and `quiesce` waits for running workers before
-//!    anything else is deleted.
-//! 4. A crash midway leaves part of the archive, and onboarding reopens it. The marker is written
-//!    before anything is deleted and removed last; launch and archive initialization finish an
-//!    interrupted wipe first.
+//! 3. Background workers keep writing and recreate an empty archive. `config.json` is replaced by
+//!    a not-initialized one first, so every worker loop stops at its next check, and `quiesce`
+//!    waits for running workers before anything else is deleted. A scan after the deletion, which
+//!    does not use the list of targets, refuses to finish while anything that means an archive is
+//!    left.
+//! 4. A crash midway leaves part of the archive, and onboarding reopens it. The intent is written
+//!    before anything is deleted and removed after everything but the control; launch and archive
+//!    initialization finish an interrupted wipe first.
 //! 5. A symlinked folder (say `models/` on another disk) is followed and its target emptied.
 //!    Symlinks are unlinked, never followed.
 //! 6. A second wipe fails because everything is already gone. Missing targets are skipped.
@@ -74,6 +88,9 @@
 //!
 //! 9. Deleting the owner lock lets a second app acquire a different inode. The deletion
 //!    list retains it; desktop `owner_lock_wipe` proves the file and OS lock survive.
+//! 10. An intent this build did not write, or one it cannot read, deletes something the user
+//!     never confirmed. Its identity and version are checked, and an unreadable one stops the
+//!     wipe.
 //!
 //! ## Performance notes
 //! - The preview takes the visit count from the last backup's cached totals; it only counts rows
@@ -94,12 +111,26 @@ use std::{
     path::{Path, PathBuf},
 };
 
-/// Marker file in the app root that exists exactly while a wipe is unfinished.
-const WIPE_MARKER_FILE: &str =
+/// The intent this build writes. It exists exactly while a wipe is unfinished.
+const WIPE_INTENT_FILE: &str =
+    vault_layout::spec(vault_layout::ArtifactId::WipeIntentV2).path.relative();
+/// The marker PathKeep 0.5 and earlier wrote instead. Read and finished, never written.
+const LEGACY_MARKER_FILE: &str =
     vault_layout::spec(vault_layout::ArtifactId::WipeIntent).path.relative();
+const IDENTITY: &str = "pathkeep-wipe";
+const VERSION: u32 = 1;
 
-/// What a wipe clears outside the app root, saved in the marker because `config.json` (where the
-/// provider list and the schedule settings live) is the first thing the wipe deletes.
+/// The intent as it is stored: what the user confirmed, with what checks it is ours.
+#[derive(Debug, Serialize, Deserialize, schemars::JsonSchema)]
+pub(crate) struct WipeIntent {
+    identity: String,
+    version: u32,
+    #[serde(flatten)]
+    outside: WipeOutsideState,
+}
+
+/// What a wipe clears outside the app root, saved in the intent because `config.json` (where the
+/// provider list and the schedule settings live) is emptied before anything is deleted.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct WipeOutsideState {
@@ -141,7 +172,15 @@ pub fn preview_data_wipe(paths: &ProjectPaths) -> Result<WipePreview> {
     } else {
         0
     };
-    let items: Vec<WipeItem> = wipe_targets(paths)?
+    // Everything the wipe removes, including what goes after the rest (`config.json`).
+    let mut targets = wipe_targets(paths)?;
+    targets.extend(
+        vault_layout::artifacts()
+            .filter(|s| s.lifecycle.wipe == vault_layout::WipePolicy::RemoveAfterCompletion)
+            .map(|s| paths.artifact_path(s.id))
+            .filter(|path| fs::symlink_metadata(path).is_ok()),
+    );
+    let items: Vec<WipeItem> = targets
         .into_iter()
         .map(|path| WipeItem { bytes: path_size(&path), path: path.display().to_string() })
         .collect();
@@ -172,8 +211,11 @@ pub fn wipe_all_data(
         ArchiveWriteLock::acquire(paths).context("waiting for other archive work to finish")?;
     fs::create_dir_all(&paths.app_root)
         .with_context(|| format!("creating {}", paths.app_root.display()))?;
-    let marker = serde_json::to_vec(outside).context("serializing the wipe marker")?;
-    atomic_durable_write(&wipe_marker_path(paths), &marker).context("writing the wipe marker")?;
+    let intent =
+        WipeIntent { identity: IDENTITY.into(), version: VERSION, outside: outside.clone() };
+    let bytes = serde_json::to_vec(&intent).context("serializing the wipe intent")?;
+    atomic_durable_write(&intent_path(paths), &bytes).context("writing the wipe intent")?;
+    crate::fault_inject::checkpoint("wipe-intent-written")?;
     run_wipe(paths, outside, quiesce, clear_secrets, remove_schedule)
 }
 
@@ -195,45 +237,91 @@ pub fn request_running_jobs_stop(paths: &ProjectPaths) -> Result<()> {
 
 /// True while a wipe has started but not finished.
 pub fn data_wipe_interrupted(paths: &ProjectPaths) -> bool {
-    wipe_marker_path(paths).exists()
-}
-
-/// Whether the wipe marker is there and decodes. It is written whole or not at all, so one that
-/// does not decode was not left by a wipe.
-pub(crate) fn marker_is_readable(paths: &ProjectPaths) -> bool {
-    fs::read(wipe_marker_path(paths))
-        .ok()
-        .is_some_and(|bytes| serde_json::from_slice::<WipeOutsideState>(&bytes).is_ok())
+    intent_path(paths).exists() || legacy_marker_path(paths).exists()
 }
 
 /// Finishes a wipe that a crash or failure cut short. `None` when there was none.
 ///
-/// The user already confirmed it, so this runs without asking again. An unreadable marker still
-/// finishes the file deletion; only the provider keys and the task it would have named are left.
+/// The user already confirmed it, so this runs without asking again, but only on a record that
+/// says so: an intent whose identity or version is wrong, or that does not decode, deletes
+/// nothing. Intents are written whole or not at all, so such a file was not left by a wipe.
 pub fn finish_interrupted_data_wipe(
     paths: &ProjectPaths,
     quiesce: impl FnOnce() -> Result<()>,
     clear_secrets: impl FnOnce(&WipeOutsideState) -> Result<()>,
     remove_schedule: impl FnOnce(&SchedulePlan) -> Result<()>,
 ) -> Result<Option<WipeReport>> {
-    let marker_path = wipe_marker_path(paths);
-    if !marker_path.exists() {
+    if !data_wipe_interrupted(paths) {
         return Ok(None);
     }
     // The marker is acted on only in a root this build may use. With the control already gone
     // (the wipe removes it first) the marker itself has to decode: see `admission::census`.
     crate::admission::inspect(&paths.app_root)?;
+    // Checked before the locks: a record this build will not act on leaves the folder exactly as
+    // it is, lock files included.
+    recorded_outside_state(paths)?;
     let _gate = ArchiveOpGate::acquire(paths);
     let _write_lock =
         ArchiveWriteLock::acquire(paths).context("waiting for other archive work to finish")?;
-    let outside = fs::read(&marker_path)
-        .ok()
-        .and_then(|bytes| serde_json::from_slice::<WipeOutsideState>(&bytes).ok())
-        .unwrap_or_default();
+    // Read again under the locks. Another process may have finished this wipe while this one
+    // waited, and the folder may hold a new archive since: a record that is gone is not acted on.
+    if !data_wipe_interrupted(paths) {
+        return Ok(None);
+    }
+    let outside = recorded_outside_state(paths)?;
     run_wipe(paths, &outside, quiesce, clear_secrets, remove_schedule).map(Some)
 }
 
-/// The deletion itself. Callers hold the gate and the write lock and have written the marker.
+/// What the interrupted wipe's record says to clear outside the folder.
+fn recorded_outside_state(paths: &ProjectPaths) -> Result<WipeOutsideState> {
+    let unreadable = |path: &Path| {
+        anyhow::anyhow!(
+            "{}: the delete-all-data record {} is not one this build wrote; nothing was deleted",
+            crate::admission::Reason::ControlInvalid.code(),
+            path.display()
+        )
+    };
+    let intent = intent_path(paths);
+    if intent.exists() {
+        return fs::read(&intent)
+            .ok()
+            .and_then(|bytes| serde_json::from_slice::<WipeIntent>(&bytes).ok())
+            .filter(|record| record.identity == IDENTITY && record.version == VERSION)
+            .map(|record| record.outside)
+            .ok_or_else(|| unreadable(&intent));
+    }
+    let legacy = legacy_marker_path(paths);
+    fs::read(&legacy)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<WipeOutsideState>(&bytes).ok())
+        .ok_or_else(|| unreadable(&legacy))
+}
+
+/// Whether the marker PathKeep 0.5 left decodes. A folder without a control is finished only on
+/// a marker that does.
+pub(crate) fn legacy_marker_is_readable(paths: &ProjectPaths) -> bool {
+    fs::read(legacy_marker_path(paths))
+        .ok()
+        .is_some_and(|bytes| serde_json::from_slice::<WipeOutsideState>(&bytes).is_ok())
+}
+
+/// Replaces the control with an empty, not-initialized one, keeping the archive's compatibility
+/// stamp. Nothing if there is no control (a marker of PathKeep 0.5 is finished after that release
+/// had already removed it).
+fn empty_control(paths: &ProjectPaths) -> Result<()> {
+    if !paths.config_path.exists() {
+        return Ok(());
+    }
+    let compatibility =
+        crate::admission::guard(&paths.app_root)?.and_then(|control| control.compatibility);
+    let mut config = AppConfig::default();
+    crate::models::normalize_app_config(&mut config);
+    let content = crate::config::encode_config(&config, compatibility.as_ref())?;
+    atomic_durable_write(&paths.config_path, content.as_bytes())
+        .context("replacing the configuration with an empty one")
+}
+
+/// The deletion itself. Callers hold the gate and the write lock and have written the intent.
 fn run_wipe(
     paths: &ProjectPaths,
     outside: &WipeOutsideState,
@@ -241,7 +329,8 @@ fn run_wipe(
     clear_secrets: impl FnOnce(&WipeOutsideState) -> Result<()>,
     remove_schedule: impl FnOnce(&SchedulePlan) -> Result<()>,
 ) -> Result<WipeReport> {
-    remove_file_durably(&paths.config_path).context("removing the configuration")?;
+    empty_control(paths)?;
+    crate::fault_inject::checkpoint("wipe-control-emptied")?;
     quiesce()?;
 
     // Keep going past a failure so one locked file does not leave everything else behind; the
@@ -255,6 +344,7 @@ fn run_wipe(
     if !failures.is_empty() {
         anyhow::bail!("could not remove {}", failures.join("; "));
     }
+    crate::fault_inject::checkpoint("wipe-files-removed")?;
 
     clear_secrets(outside)?;
 
@@ -267,7 +357,25 @@ fn run_wipe(
             }
         },
     };
-    remove_file_durably(&wipe_marker_path(paths)).context("removing the wipe marker")?;
+    // Not the list of targets above: the same rule that decides whether a folder without a
+    // control holds an archive. Whatever it finds, a worker that did not stop or a file the
+    // table does not name, is still the user's data.
+    let records = [intent_path(paths), legacy_marker_path(paths)];
+    let left: Vec<String> = crate::admission::archive_files(&paths.app_root)?
+        .into_iter()
+        .filter(|relative| !records.iter().any(|record| paths.app_root.join(relative) == *record))
+        .collect();
+    if let Some(first) = left.first() {
+        anyhow::bail!(
+            "could not remove {first} and {} more; the wipe will run again",
+            left.len() - 1
+        );
+    }
+    for record in &records {
+        remove_file_durably(record).context("removing the wipe intent")?;
+    }
+    crate::fault_inject::checkpoint("wipe-intent-removed")?;
+    remove_file_durably(&paths.config_path).context("removing the configuration")?;
     Ok(report)
 }
 
@@ -349,8 +457,12 @@ fn path_size(path: &Path) -> u64 {
         .unwrap_or(0)
 }
 
-fn wipe_marker_path(paths: &ProjectPaths) -> PathBuf {
-    paths.app_root.join(WIPE_MARKER_FILE)
+fn intent_path(paths: &ProjectPaths) -> PathBuf {
+    paths.app_root.join(WIPE_INTENT_FILE)
+}
+
+fn legacy_marker_path(paths: &ProjectPaths) -> PathBuf {
+    paths.app_root.join(LEGACY_MARKER_FILE)
 }
 
 #[cfg(test)]

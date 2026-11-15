@@ -770,11 +770,21 @@
         }
       }
     },
-    "archive/.pk-import-journal.json": {
+    "archive/.pk-install-v2.json": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "title": "Journal",
       "type": "object",
       "properties": {
+        "identity": {
+          "type": "string",
+          "default": ""
+        },
+        "version": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0,
+          "default": 0
+        },
         "stage": {
           "type": "string"
         },
@@ -823,11 +833,19 @@
         }
       }
     },
-    ".pk-wipe-in-progress.json": {
+    ".pk-wipe-v2.json": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "title": "WipeOutsideState",
+      "title": "WipeIntent",
       "type": "object",
       "properties": {
+        "identity": {
+          "type": "string"
+        },
+        "version": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
         "providerIds": {
           "type": "array",
           "items": {
@@ -847,6 +865,8 @@
         }
       },
       "required": [
+        "identity",
+        "version",
         "providerIds"
       ],
       "$defs": {

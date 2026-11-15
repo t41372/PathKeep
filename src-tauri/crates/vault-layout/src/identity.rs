@@ -102,6 +102,8 @@ identities! {
         ScheduleLogs = 70,
         ScheduleAttempts = 71,
         SchedulerAudit = 72,
+        InstallJournalV2 = 73,
+        WipeIntentV2 = 74,
 
 
     }

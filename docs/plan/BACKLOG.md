@@ -400,6 +400,11 @@
   - 要看的：Windows 上 7-Zip 解得開 NSIS 與 MSI、讀得到 MSI 的檔名表；Linux runner 上有 `rpm2cpio`、`dpkg-deb`，AppImage 解得開；macOS 上 DMG 掛得起來、Intel 版在 Apple Silicon runner 上靠 Rosetta 跑得起來；上傳的檔案名稱和 v0.5.0 的一致（產品名稱現在由 `tauri.distribution.conf.json` 蓋回去）；故意拿掉標記跑一次，確認會停在上傳之前。
   - 順便做：這次產出的 Windows 與 Linux 安裝包是正式發布版身分，拿來測「裝在 v0.5.0 上面升級」。Windows 測試包（`Windows Test Binary`）現在是開發版，測不了升級。
 
+- [ ] **WORK-FLAKY-CACHE-RSS-TEST** — `vault-crypto/tests/search_index.rs` 的 `the_block_cache_bounds_memory` 在機器記憶體吃緊時會失敗（2026-11-15）
+  - 現象：完整檢查同時跑很多測試時失敗一次，上限 2 MiB 的快取確實守住（`max_cache_mib=2.00`），但「無上限」那一輪的常駐記憶體只多 7.8 MiB（單獨跑是 18.7 MiB），斷言 `small + 4 < unbounded` 不成立。單獨重跑兩次都通過。
+  - 原因：它用行程的常駐記憶體當量尺；系統在壓力下回收或壓縮分頁時，無上限那一輪看起來就沒有變大。測的東西沒有錯，量尺會被別的行程影響。
+  - 要做的：讓這條測試不受系統記憶體壓力影響（例如在獨立、閒置的行程裡量，或改比較快取本身記錄的位元組加上一個與分頁回收無關的指標），不能只是放寬門檻。
+
 - [ ] **WORK-ARCHIVE-REFUSAL-SCREEN** — PathKeep 拒絕打開一份存檔時，使用者要有下一步可走（v0.6.0 發布前必須完成；2026-11-14）
   - 現況：啟動時先判定存檔能不能用（`docs/architecture/archive-compatibility.md`）。不能用時不開視窗、不碰資料夾，只跳一個系統對話框說明原因（三語），按掉就結束。
   - 缺的兩件事：

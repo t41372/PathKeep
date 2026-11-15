@@ -354,8 +354,6 @@ pub fn require_control(root: &Path) -> Result<Option<Control>, Refusal> {
 /// Decides what a root without a control is. Every file is judged by the layout table's own
 /// answer for it (`CensusPolicy`); nothing here keeps a list.
 fn census(root: &Path) -> Result<RootState, Refusal> {
-    let unreadable =
-        |error: io::Error| Refusal::new(root, Reason::ControlUnreadable, error.to_string());
     let paths = crate::project_paths_with_root(root);
     let present = |policy: CensusPolicy| {
         vault_layout::artifacts()
@@ -365,7 +363,7 @@ fn census(root: &Path) -> Result<RootState, Refusal> {
     if present(CensusPolicy::WipeRecord) {
         // The marker is written whole or not at all, so one that does not decode was not left by
         // a wipe. Without a control there is nothing else to say what the user asked for.
-        return if crate::archive::wipe::marker_is_readable(&paths) {
+        return if crate::archive::wipe::legacy_marker_is_readable(&paths) {
             Ok(RootState::Interrupted(Interrupted::Wipe))
         } else {
             Err(Refusal::new(
@@ -403,11 +401,30 @@ fn census(root: &Path) -> Result<RootState, Refusal> {
     if present(CensusPolicy::OldFormatRecord) && !native {
         return Ok(RootState::Interrupted(Interrupted::OldFormat));
     }
+    match archive_files_until(root, true)?.into_iter().next() {
+        None => Ok(RootState::Uninitialized),
+        Some(path) => Err(Refusal::new(
+            root,
+            Reason::ControlMissing,
+            format!("config.json is missing but {path} exists"),
+        )),
+    }
+}
+
+/// Every file under `root` that means an archive is there, by the rule a folder without
+/// `config.json` is judged by. "Delete all data" uses it as a check that does not depend on its
+/// own list of targets.
+pub(crate) fn archive_files(root: &Path) -> Result<Vec<String>, Refusal> {
+    archive_files_until(root, false)
+}
+
+fn archive_files_until(root: &Path, first: bool) -> Result<Vec<String>, Refusal> {
+    let unreadable =
+        |error: io::Error| Refusal::new(root, Reason::ControlUnreadable, error.to_string());
+    let mut found = Vec::new();
     let mut pending = match fs::read_dir(root) {
         Ok(entries) => vec![(entries, String::new())],
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {
-            return Ok(RootState::Uninitialized);
-        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(found),
         Err(error) => return Err(unreadable(error)),
     };
     while let Some((entries, parent)) = pending.pop() {
@@ -419,15 +436,14 @@ fn census(root: &Path) -> Result<RootState, Refusal> {
             if entry.file_type().map_err(unreadable)?.is_dir() {
                 pending.push((fs::read_dir(entry.path()).map_err(unreadable)?, relative));
             } else if is_archive(&relative) {
-                return Err(Refusal::new(
-                    root,
-                    Reason::ControlMissing,
-                    format!("config.json is missing but {relative} exists"),
-                ));
+                found.push(relative);
+                if first {
+                    return Ok(found);
+                }
             }
         }
     }
-    Ok(RootState::Uninitialized)
+    Ok(found)
 }
 
 /// Whether one file means an archive is here: the table's answer for the file itself, else for
