@@ -30,3 +30,18 @@ The failed run's `fixture.json` gives the same 台北天氣:38, seventh. No code
 branch, main included, fails this spec with a fixture made in that window. Under a local time zone
 instead of UTC the windows move, which is why a first attempt without `TZ=UTC` disagreed with the
 run. BACKLOG `WORK-E2E-SEARCH-TOPIC-BY-NOW`.
+
+## 2026-11-15: finer samples
+
+A clean E2E run started at 10:35 UTC on 2026-11-15 failed the same way (台北天氣:38, not in the five).
+The same scripts with `now` every ten minutes from 10:30 to 12:30 UTC that day, then every minute
+from 11:25 to 12:00:
+
+    10:30–11:00  FAIL  台北天氣:38        5th: n3 listening practice:39
+    11:10        pass  台北天氣:42        5th: shadcn sidebar:35
+    11:20        FAIL  台北天氣:38        5th: sqlite fts5 chinese tokenizer:38
+    11:25–12:00  pass  (every minute)
+    12:10–12:30  pass  台北天氣預報:42    5th: jlpt n3 grammar:37
+
+So the times that fail are not one stretch: the result can turn within ten minutes. A run cannot
+be timed around them reliably; the spec has to stop depending on `now`.

@@ -237,7 +237,7 @@
 
 - [ ] **WORK-E2E-SEARCH-TOPIC-BY-NOW** — `insights.spec.ts`「a search made in several browsers is one row among the searches you came back to most」在某些時間必然失敗（2026-11-14 `WORK-SCHEMA-UPDATE-KILL-TEST` 的 gate 碰到）
   - 失敗在第 716 行，還沒打開 app：spec 假設「台北天氣」那一族在 Chrome · Work 的「最常回頭的搜尋」前五名裡。E2E 的合成資料以 `Date.now()`、`TZ=UTC` 產生，哪些造訪落在哪個設定檔、哪一天，隨 `now` 而變，前五名也跟著變。
-  - 證明：用真的 `writeSyntheticBrowsers` 在兩個 UTC 日裡每兩小時產生一次，11-15 00:30–10:30 的每一份都失敗（台北天氣 38 次，第 7 名），其他時間都通過；和失敗那次留下的 `fixture.json` 算出來一樣。跟程式碼無關，main 在這段時間跑也會失敗，CI 碰上就紅。腳本與結果：`artifacts/investigations/2026-11-14-e2e-search-topic-by-now/`。
+  - 證明：用真的 `writeSyntheticBrowsers` 在兩個 UTC 日裡每兩小時產生一次，11-15 00:30–10:30 的每一份都失敗（台北天氣 38 次，第 7 名），其他時間都通過；2026-11-15 再細掃：10:30–11:00 失敗、11:10 通過、11:20 失敗、11:25 以後每分鐘都通過，十分鐘內就會翻轉，避開時間跑不可靠；和失敗那次留下的 `fixture.json` 算出來一樣。跟程式碼無關，main 在這段時間跑也會失敗，CI 碰上就紅。腳本與結果：`artifacts/investigations/2026-11-14-e2e-search-topic-by-now/`。
   - 要做：讓這個 spec 不靠時間碰運氣。例如在 fixture 的 scenes 裡，固定給 Work 設定檔一段「台北天氣 → 台北天氣預報」的搜尋，保證它進前五名；或讓 spec 改從算出來的前五名裡挑一個由兩種寫法組成的中文族。同時用同一個腳本掃一遍，看其他 spec 有沒有同樣「取前 N 名，假設某一項在裡面」的寫法。
 
 - [ ] **WORK-STATUS-SCREEN-OVERFLOW** — 置中的全螢幕畫面不能捲動，內容比視窗高時上下被切掉（2026-11-14 `WORK-WINDOW-FRAME-EVERY-SCREEN` 時看到，沒有重現）

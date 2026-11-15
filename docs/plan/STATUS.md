@@ -74,13 +74,13 @@
     - E2E `schema-update-quit.spec.ts`，在 backup-integrity 設定的 v1 存檔上跑，排在 backup-integrity.spec 前面。fixture 的更新不到一秒，所以 debug build 的 `PATHKEEP_TEST_HOLD_SCHEMA_UPDATE` 在更新改第一個資料庫之前停住（`vault-core/src/test_support.rs`），並寫下哪個程序停著。關視窗會問、寫對字；「現在結束」讓 app 在更新途中結束，下次啟動重新開始更新；⌘Q 也會問；「不結束」同一個 app 繼續；「做完再結束」更新停著時不結束，放行後更新做完才結束；再開，存檔照常打開。後面 backup-integrity 的 9 條檢查這個被中途結束過的存檔，都過。
     - 證明抓得到：把 vault-worker 那一行暫時關掉（沒有提交），spec 等到了更新停住，但關視窗沒問，app 直接結束，紅在第 70 行。
   - 順帶看到：建索引那幾版沒有進度事件，畫面只寫「載入中」，記 BACKLOG `WORK-SCHEMA-UPDATE-SCREEN-EARLY`。新手引導完成設定時幾個步驟之間結束會留下什麼，另記 `WORK-ONBOARDING-QUIT-MIDWAY`。
-  - `bun run check`（2026-11-15 08:31 UTC 跑完）：前端 151 個測試、Rust 全部；E2E 主設定 130 過、2 略過（真視窗 spec 本機不跑；`insights.spec.ts:628` 在那段時間不管什麼程式碼都會失敗，本機暫標 fixme、沒有提交，見 `WORK-E2E-SEARCH-TOPIC-BY-NOW`）；backup-integrity healthy 10 過（含 `schema-update-quit.spec.ts`）、damaged 1 過。
+  - `bun run check`（2026-11-15 08:31 UTC 跑完）：前端 151 個測試、Rust 全部；E2E 主設定 130 過、2 略過（真視窗 spec 本機不跑；`insights.spec.ts:628` 在那段時間不管什麼程式碼都會失敗，本機暫標 fixme、沒有提交，見 `WORK-E2E-SEARCH-TOPIC-BY-NOW`）；backup-integrity healthy 10 過（含 `schema-update-quit.spec.ts`）、damaged 1 過。之後在提交上、11:30 UTC 不改任何 spec 再跑一次 E2E：主設定 131 過、1 略過（真視窗 spec），backup-integrity 10 + 1 過。10:35 那次仍失敗在 `insights.spec.ts:628`：細掃後它在那天 10:30–11:20 之間通過、失敗交錯，見 `WORK-E2E-SEARCH-TOPIC-BY-NOW`。
 - [x] **WORK-DRAG-ON-MOVE** — Xfce（xfwm4）上輕點拖動區，視窗黏著指標走（用戶 2026-11-15：「修」）
   - 原因：Tauri 2.12.5 的 `drag.js` 在按下時就請視窗管理員開始拖；輕點時請求到的時候鍵已經放開，xfwm4 仍開始移動，等下一次點擊才停。GNOME 不會。
   - 做法：Windows、Linux 的拖動標記改成 PathKeep 自己的 `data-window-drag`（`drag-region.ts`），由 `window-chrome/drag.ts` 處理：按下只記位置，按著移動超過 4 px 才 `startDragging`；雙擊照舊在第二次按下時最大化／還原。導航列與新手引導側欄原本直接寫 `data-tauri-drag-region` 的四塊空白也改走 `backdropDragRegion()`。macOS 照用 Tauri 的標記（輕點的問題只在 Xfce 見過，macOS 真視窗這裡看不了）。代價：開始拖時視窗比指標少走約 4 px，`startDragging` 不能指定起點。
   - 測試：真視窗的 E2E（`first-run-native-window.spec.ts`）先在 mutter 下檢查按鈕、拖動、雙擊，再換 xfwm4（只在這次 run 自己啟動視窗管理員時換，不動別人的桌面）檢查同樣的事，並在三個位置各輕點兩次，輕點後移動指標，視窗不能跟著走。拖動的檢查改成先小移一步再拖，容許 10 px。CI 加裝 xfwm4。瀏覽器代身的拖動判斷（`support/window-frame.ts` 的 `dragsAt`）認得新標記。
   - boxd（Ubuntu 24.04，4 vCPU，照 CI 的方式跑）：修之前的拖動程式碼，mutter 與 xfwm4 下的按鈕、拖動、雙擊都過，輕點 6 下有 3 下視窗跟著指標從 (40, 40) 走到 (200, 130)，紅；修之後 1 過（36.8 秒）。4 顆 CPU 被 stress-ng 佔滿時連跑 10 次，10 次全過，每次 28.7–29.5 秒。第一次壓力測試抓到 spec 自己的錯：連跑時第二次起顯示器上還留著上一次的 xfwm4，spec 只肯換「自己啟動的」視窗管理員，9 次失敗；改成 CI 的 `required` 就表示顯示器歸它，每次都先換成 mutter、再換 xfwm4。證據：`artifacts/investigations/2026-11-15-drag-on-move/`。本機 first-run 專案 5 過、1 略過（真視窗 spec）。
-  - `bun run check`（2026-11-15 08:31 UTC 跑完）：前端 151 個測試、Rust 全部；E2E 主設定 130 過、2 略過（真視窗 spec 本機不跑；`insights.spec.ts:628` 在那段時間不管什麼程式碼都會失敗，本機暫標 fixme、沒有提交，見 `WORK-E2E-SEARCH-TOPIC-BY-NOW`）；backup-integrity healthy 10 過、damaged 1 過。
+  - `bun run check`（2026-11-15 08:31 UTC 跑完）：前端 151 個測試、Rust 全部；E2E 主設定 130 過、2 略過（真視窗 spec 本機不跑；`insights.spec.ts:628` 在那段時間不管什麼程式碼都會失敗，本機暫標 fixme、沒有提交，見 `WORK-E2E-SEARCH-TOPIC-BY-NOW`）；backup-integrity healthy 10 過、damaged 1 過。11:30 UTC 不改任何 spec 重跑 E2E 也全過（見上一條）。
 - **決定（2026-11-15，用戶同意）**：Codex 提議的「載入前與渲染程序崩潰時改用系統標題列」不做，理由寫在 `back-forward-window-frame-tradeoff.md`。
 
 - [x] **WORK-RELEASE-REVIEW-BOUNDARIES** — 處理 PR #22 新審查的 API／channel／授權與測試完成條件。
