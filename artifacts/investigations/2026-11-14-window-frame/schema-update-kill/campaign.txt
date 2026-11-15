@@ -1,0 +1,55 @@
+killed_at_moments_nobody_chose (#[ignore], run by hand), 2026-11-14, debug builds.
+Each kill: a fresh copy of a 1,000,000-visit version 1 archive, SIGKILL at (k + 0.5)/K of the time the update takes to commit its first linking batch, the Archive version it had reached read with a version-1-only registry (SchemaTooNew.found), then the update finished and every table compared with an update nobody stopped, integrity_check ok.
+Version 4 found = version 5 running: CREATE UNIQUE INDEX over every visit. Version 3 found = version 4 running: DROP INDEX. Version 15 found = version 15's first 50,000-visit batch running.
+
+== macOS (Apple silicon), plain, 10 kills ==
+kill 0: 369.97ms into 7.40s, Archive at version 3, []
+kill 1: 1.11s into 7.40s, Archive at version 4, []
+kill 2: 1.85s into 7.40s, Archive at version 4, []
+kill 3: 2.59s into 7.40s, Archive at version 4, []
+kill 4: 3.33s into 7.40s, Archive at version 4, []
+kill 5: 4.07s into 7.40s, Archive at version 4, []
+kill 6: 4.81s into 7.40s, Archive at version 4, []
+kill 7: 5.55s into 7.40s, Archive at version 4, []
+kill 8: 6.29s into 7.40s, Archive at version 4, []
+kill 9: 7.03s into 7.40s, Archive at version 4, []
+1000000 visits, 10 kills by the Archive version they found: {3: 1, 4: 9}
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 515 filtered out; finished in 446.38s
+
+== Linux (boxd, Ubuntu, x86_64, 4 vCPU), plain then encrypted ==
+=== key=0 kills=20
+kill 0: 212.79ms into 8.51s, Archive at version 4, []
+kill 1: 638.38ms into 8.51s, Archive at version 4, []
+kill 2: 1.06s into 8.51s, Archive at version 4, []
+kill 3: 1.49s into 8.51s, Archive at version 4, []
+kill 4: 1.92s into 8.51s, Archive at version 4, []
+kill 5: 2.34s into 8.51s, Archive at version 4, []
+kill 6: 2.77s into 8.51s, Archive at version 4, []
+kill 7: 3.19s into 8.51s, Archive at version 4, []
+kill 8: 3.62s into 8.51s, Archive at version 4, []
+kill 9: 4.04s into 8.51s, Archive at version 4, []
+kill 10: 4.47s into 8.51s, Archive at version 4, []
+kill 11: 4.89s into 8.51s, Archive at version 4, []
+kill 12: 5.32s into 8.51s, Archive at version 4, []
+kill 13: 5.75s into 8.51s, Archive at version 4, []
+kill 14: 6.17s into 8.51s, Archive at version 4, []
+kill 15: 6.60s into 8.51s, Archive at version 4, []
+kill 16: 7.02s into 8.51s, Archive at version 4, []
+kill 17: 7.45s into 8.51s, Archive at version 4, []
+kill 18: 7.87s into 8.51s, Archive at version 4, []
+kill 19: 8.30s into 8.51s, Archive at version 15, []
+1000000 visits, 20 kills by the Archive version they found: {4: 19, 15: 1}
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 515 filtered out; finished in 842.48s
+=== key=1 kills=10
+kill 0: 459.21ms into 9.18s, Archive at version 4, []
+kill 1: 1.38s into 9.18s, Archive at version 4, []
+kill 2: 2.30s into 9.18s, Archive at version 4, []
+kill 3: 3.21s into 9.18s, Archive at version 4, []
+kill 4: 4.13s into 9.18s, Archive at version 4, []
+kill 5: 5.05s into 9.18s, Archive at version 4, []
+kill 6: 5.97s into 9.18s, Archive at version 4, []
+kill 7: 6.89s into 9.18s, Archive at version 4, []
+kill 8: 7.81s into 9.18s, Archive at version 4, []
+kill 9: 8.72s into 9.18s, Archive at version 15, []
+1000000 visits, 10 kills by the Archive version they found: {4: 9, 15: 1}
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 515 filtered out; finished in 563.96s

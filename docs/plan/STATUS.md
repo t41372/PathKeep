@@ -49,6 +49,19 @@
     - 證據：`artifacts/investigations/2026-11-14-window-frame/`。
     - KDE、Windows 沒有看過。macOS 只在瀏覽器代身上看過：這台 Mac 沒給 Claude 螢幕錄製與輔助使用的權限。
   - 調查中看到、與這次無關的，記在 BACKLOG：`WORK-WAYLAND-UNDECORATED`（剩 KDE）、`WORK-DRAG-ON-MOVE`、`WORK-SCHEMA-UPDATE-QUIT`、`WORK-STATUS-SCREEN-OVERFLOW`、`WORK-E2E-WINDOW-FRAME-DEFAULT`、`WORK-NATIVE-WINDOW-CHECK`（剩 macOS、Windows）、`WORK-WINDOW-INACTIVE-LOOK`、`WORK-UI-SMALL-FINDINGS-2026-11-14`。
+- [x] **WORK-SCHEMA-UPDATE-KILL-TEST** — 存檔更新途中被結束，存檔會不會壞（`WORK-SCHEMA-UPDATE-QUIT` 的資料安全部分；外框修好後，Windows、Linux 的更新畫面也有了關閉鈕）
+  - 讀先：`vault-store/src/migration.rs`、`store_schema/backup_identity.rs`（第 15 版）、`store_schema/intelligence_lineage.rs`、ADR-012 的 kill -9 條件、`vault-search/tests/crash.rs`（子程序 + SIGKILL 的寫法）。
+  - 更新在 app 程序裡跑；按關閉時程序直接結束，對資料庫來說與 kill -9 相同。
+  - `store_schema/tests/killed_upgrade.rs`：用只有第 1 版的 registry 建出 v0.4.0 的存檔（10 萬筆造訪、10 萬筆 embedding），子程序跑真的 migration，停在指定位置宣告後被 SIGKILL。不靠猜時間，每次都在同一個位置：
+    - Archive 第 15 版第 2 批寫到一半、第 2 批剛提交；
+    - Intelligence 第 2 版設定做到一半（表已改名，版本未記）、第 1 批剛提交、第 2 批寫到一半（未提交的資料已大量寫進磁碟上的 WAL，未加密時約 33 MB；測試在 kill 前確認 WAL 不是空的）。
+    - 同一個存檔連續經過這五次，每次重開檢查從哪一批接著做；最後一次打開後，每個資料庫的每張表與 schema 都與沒被打斷的更新逐列相同，`integrity_check` 為 ok，再開一次什麼都不做。未加密、加密各一個測試，各約 16 秒。
+  - 證明抓得到錯（暫時改壞、跑紅、改回，沒有提交）：版本標記與結構變更分開提交 → 下次打開時 `no such table: ai_embedding_upgrade`，存檔打不開；第 15 版的進度只放在記憶體 → 重開後從第 1 批重做，回報的進度變成 150000 等。
+  - 單一長語句執行到一半被殺（大存檔上建到一半的索引）沒有可以停住的點，gate 裡由交易寫到一半的那幾刀代表；另加手動跑的 `killed_at_moments_nobody_chose`（`#[ignore]`）：100 萬筆造訪的 v1 存檔，在更新提交第一批連結之前的時間裡平均分布地 kill，每刀先讀出存檔走到第幾版（只認得第 1 版的 registry 會回報 `SchemaTooNew.found`），再做完更新逐表比對。macOS 未加密 10 刀：9 刀在第 5 版建唯一索引途中、1 刀在第 4 版刪索引；Linux（boxd，x86_64）未加密 20 刀：19 刀在建索引途中、1 刀在第 15 版第一批；加密 10 刀：9 刀在建索引途中、1 刀在第 15 版。全部重開後逐列相同、完整性檢查 ok。
+  - Linux 上 gate 的兩個測試連跑三次都過（各約 33 秒，含 WAL 不是空的檢查）。Windows 沒有跑過；斷電（寫到磁碟的順序）不在範圍內。
+  - 要不要在更新途中先問，留給用戶（`WORK-SCHEMA-UPDATE-QUIT`）。
+  - `bun run check`：E2E 之前的每一步都過（前端、build、全部 Rust 測試含這兩個、release check）。E2E 卡在 `insights.spec.ts:628`，還沒打開 app 就失敗：它的 fixture 用 `Date.now()` 產生，那個時段（UTC 11-15 00:30–10:30）不管什麼程式碼都會失敗（`WORK-E2E-SEARCH-TOPIC-BY-NOW`）。`--grep-invert` 排除不了，因為依賴它的 project 會把它整個跑一遍。本機暫時把那一個標成 `fixme`（沒有提交）重跑：130 過、2 略過（它，和只在 Linux 跑的真視窗 spec），backup-integrity 9 + 1 過。
+
 - [x] **WORK-RELEASE-REVIEW-BOUNDARIES** — 處理 PR #22 新審查的 API／channel／授權與測試完成條件。
   - 讀先：`RELEASE.md`、`docs/architecture/release-publication.md`、`scripts/lib/release-authorization.mjs`、GitHub release API 與官方 CLI 的 release edit 實作。
   - 真實 API 確認：notes-only PATCH 漏帶 `tag_name` 會移除私有草稿的 tag 關聯；已以明確 tag 修復，始終未公開。發布 PATCH 帶入並核對 tag／source／channel。

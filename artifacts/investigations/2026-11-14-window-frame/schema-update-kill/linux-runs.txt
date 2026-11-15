@@ -1,0 +1,16 @@
+killed_upgrade gate tests on Linux (boxd, Ubuntu, x86_64, 4 vCPU, rustc 1.96.0), three runs in a row:
+=== run 1
+test store_schema::tests::killed_upgrade::killed_upgrade_child ... ignored, child process the killed_upgrade tests start and kill
+test store_schema::tests::killed_upgrade::a_killed_upgrade_of_a_plain_archive_finishes_at_the_next_launch ... ok
+test store_schema::tests::killed_upgrade::a_killed_upgrade_of_an_encrypted_archive_finishes_at_the_next_launch ... ok
+test result: ok. 2 passed; 0 failed; 1 ignored; 0 measured; 512 filtered out; finished in 33.35s
+=== run 2
+test store_schema::tests::killed_upgrade::killed_upgrade_child ... ignored, child process the killed_upgrade tests start and kill
+test store_schema::tests::killed_upgrade::a_killed_upgrade_of_a_plain_archive_finishes_at_the_next_launch ... ok
+test store_schema::tests::killed_upgrade::a_killed_upgrade_of_an_encrypted_archive_finishes_at_the_next_launch ... ok
+test result: ok. 2 passed; 0 failed; 1 ignored; 0 measured; 512 filtered out; finished in 33.02s
+=== run 3
+test store_schema::tests::killed_upgrade::killed_upgrade_child ... ignored, child process the killed_upgrade tests start and kill
+test store_schema::tests::killed_upgrade::a_killed_upgrade_of_a_plain_archive_finishes_at_the_next_launch ... ok
+test store_schema::tests::killed_upgrade::a_killed_upgrade_of_an_encrypted_archive_finishes_at_the_next_launch ... ok
+test result: ok. 2 passed; 0 failed; 1 ignored; 0 measured; 512 filtered out; finished in 34.63s

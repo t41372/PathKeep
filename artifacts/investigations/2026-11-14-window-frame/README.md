@@ -59,6 +59,10 @@ xdotool 自己的點擊是按下立刻放開。
 
 穩定度：另開一台照 CI 裝好的機器（`linux-desktop/stress-setup.sh`），4 顆 CPU 全被 `stress-ng` 佔滿，把原生 spec 連跑 20 次（`linux-desktop/stress-run.sh`）：20 次全過，每次 7.0–7.9 秒（`e2e-green/linux-native-stress.txt`）。
 
+### 存檔更新途中被結束
+
+外框修好後，Windows、Linux 的存檔更新畫面也有了關閉鈕，按下去 app 直接結束。`store_schema/tests/killed_upgrade.rs` 在更新中途 kill -9 五次，證明下次啟動會接著做完，內容與沒被打斷的更新逐列相同。綠的結果、kill 時 WAL 的大小、兩次故意改壞跑紅的輸出在 `schema-update-kill/runs.txt`；Linux 上連跑三次的結果在 `linux-runs.txt`。建索引建到一半被殺沒有可以停住的點，另用手動跑的 `killed_at_moments_nobody_chose` 在 100 萬筆造訪的存檔上隨機時間點 kill：macOS 10 次、Linux 未加密 20 次與加密 10 次，大多落在第 5 版建唯一索引的途中，全部重開後與沒被打斷的更新逐列相同（`campaign.txt`）。
+
 ### 沒看過的
 
 - KDE。

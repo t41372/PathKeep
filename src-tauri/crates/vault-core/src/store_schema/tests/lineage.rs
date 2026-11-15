@@ -9,7 +9,7 @@ fn v1_config(root: &Path) -> Config {
     cfg.migrations.register(Db::Intelligence, vec![super::super::intelligence::migration()]);
     cfg
 }
-fn seed_v1(store: &Store, count: i64) {
+pub(super) fn seed_v1(store: &Store, count: i64) {
     for start in (1..=count).step_by(4096) {
         store.write(Db::Intelligence, Priority::Batch, move |s| {
             let mut insert = s.prepare("INSERT INTO ai_embeddings(history_id,profile_id,url,title,domain,visited_at,content_hash,content_bytes,metadata_bytes,provider_id,model,indexed_at) VALUES(?1,'chrome:Default','https://example.com/page','A page','example.com','2026-10-29T00:00:00Z','0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',128,256,'service','model','2026-10-29T00:00:00Z')")?;

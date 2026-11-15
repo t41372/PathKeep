@@ -225,9 +225,15 @@
   - GNOME 46 的 Wayland（mutter 不替視窗畫標題列）上看過：視窗是 Wayland client，沒有任何標題列，只有我們的三顆按鈕（`artifacts/investigations/2026-11-14-window-frame/linux-desktop/`）。
   - 要做：在 KDE 的 Wayland session 開一次（KWin 會替要求的視窗畫標題列）。真有兩套，就改成建立視窗時就沒有標題列（Rust 在 setup 裡建立主視窗，或用平台設定檔），不在顯示前才改。
 
-- [ ] **WORK-SCHEMA-UPDATE-QUIT** — 存檔更新到新 schema 的途中關閉視窗，不會先問就結束（2026-11-14 `WORK-WINDOW-FRAME-EVERY-SCREEN` 時 Codex 指出，讀程式碼確認；macOS 的紅燈、Alt+F4 早就是這樣，與外框無關）
-  - 舊格式轉換、還原這些登記了前台工作（`foreground_work::begin`），關閉時會問；打開既有存檔時跑的 schema 更新（`worker_bridge/archive.rs` 的 `with_archive_upgrade_progress`）沒有登記。新手引導完成設定時的幾個步驟之間也要看。
-  - 要做：先查中途結束會留下什麼（每個 migration 是不是在一個交易裡、能不能重跑）。會壞，就登記成前台工作；不會壞，在 `docs/features/` 寫明為什麼可以直接結束。
+- [ ] **WORK-SCHEMA-UPDATE-QUIT** — 存檔更新途中按關閉，要不要先問（2026-11-14 `WORK-WINDOW-FRAME-EVERY-SCREEN` 時 Codex 指出；macOS 的紅燈、Alt+F4 早就能在這時結束。外框修好後，Windows、Linux 的更新畫面也有了關閉鈕，比以前容易按到）
+  - 舊格式轉換、還原這些登記了前台工作（`foreground_work::begin`），關閉時會問；打開既有存檔時跑的 schema 更新（`worker_bridge/archive.rs` 的 `with_archive_upgrade_progress`）沒有登記，按關閉直接結束。
+  - 存檔不會壞，2026-11-14 已證明：`store_schema/tests/killed_upgrade.rs` 在更新中途 kill -9 五次，每次重開都從停下的那一批接著做，最後的內容與沒被打斷的更新逐列相同，完整性檢查通過，未加密與加密都測，macOS 與 Linux 都跑過；建索引到一半被殺另由手動的 `killed_at_moments_nobody_chose` 在 100 萬筆造訪上隨機 kill 40 次驗過。Windows 沒有跑過。說明在 `docs/features/archive.md`「結束時還有工作在跑」。
+  - 剩下的是體驗：大存檔的更新要跑一陣子，中途結束，下次啟動要再等剩下的部分。要不要把它登記成前台工作（按關閉時先問）由用戶決定。新手引導完成設定時的幾個步驟之間，中途結束會留下什麼，還沒看。
+
+- [ ] **WORK-E2E-SEARCH-TOPIC-BY-NOW** — `insights.spec.ts`「a search made in several browsers is one row among the searches you came back to most」在某些時間必然失敗（2026-11-14 `WORK-SCHEMA-UPDATE-KILL-TEST` 的 gate 碰到）
+  - 失敗在第 716 行，還沒打開 app：spec 假設「台北天氣」那一族在 Chrome · Work 的「最常回頭的搜尋」前五名裡。E2E 的合成資料以 `Date.now()`、`TZ=UTC` 產生，哪些造訪落在哪個設定檔、哪一天，隨 `now` 而變，前五名也跟著變。
+  - 證明：用真的 `writeSyntheticBrowsers` 在兩個 UTC 日裡每兩小時產生一次，11-15 00:30–10:30 的每一份都失敗（台北天氣 38 次，第 7 名），其他時間都通過；和失敗那次留下的 `fixture.json` 算出來一樣。跟程式碼無關，main 在這段時間跑也會失敗，CI 碰上就紅。腳本與結果：`artifacts/investigations/2026-11-14-e2e-search-topic-by-now/`。
+  - 要做：讓這個 spec 不靠時間碰運氣。例如在 fixture 的 scenes 裡，固定給 Work 設定檔一段「台北天氣 → 台北天氣預報」的搜尋，保證它進前五名；或讓 spec 改從算出來的前五名裡挑一個由兩種寫法組成的中文族。同時用同一個腳本掃一遍，看其他 spec 有沒有同樣「取前 N 名，假設某一項在裡面」的寫法。
 
 - [ ] **WORK-STATUS-SCREEN-OVERFLOW** — 置中的全螢幕畫面不能捲動，內容比視窗高時上下被切掉（2026-11-14 `WORK-WINDOW-FRAME-EVERY-SCREEN` 時看到，沒有重現）
   - 啟動、啟動失敗、升級、復原畫面（`status-screens.tsx` 的 `Centered`）與鎖定畫面是 `fixed inset-0 flex items-center`，沒有捲動。最可能碰到的是復原畫面：快照多時，在 760 px 高的視窗大約放不下十個以上。
