@@ -40,6 +40,10 @@ enum Record {
     /// The records this build writes. The control outlives both, so without one they are damage.
     WipeV2,
     InstallV2,
+    /// This build's install record of an install that brings the control: an import into a new
+    /// folder has none until it lands, and a power cut on exFAT during the rename over it can
+    /// leave none. Recovery decides from what is there.
+    InstallV2BringsControl,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -116,6 +120,11 @@ fn build(root: &Path, control: Control, record: Record, contents: Contents) {
             root,
             "archive/.pk-install-v2.json",
             r#"{"identity":"pathkeep-install","version":1,"stage":"staging/maintenance-x","backup":"maintenance.bak-x","entries":[],"keep_previous":false,"committed":false}"#,
+        ),
+        Record::InstallV2BringsControl => write(
+            root,
+            "archive/.pk-install-v2.json",
+            r#"{"identity":"pathkeep-install","version":1,"stage":"staging/maintenance-x","backup":"maintenance.bak-x","entries":[{"relative":"config.json","previous":false,"staged":true,"installed":"file:00"}],"keep_previous":false,"committed":false}"#,
         ),
     }
     match contents {
@@ -253,6 +262,10 @@ fn every_combination_is_classified_as_written_and_nothing_is_touched() {
         (Absent, R::WipeV2, C::Store, MISSING),
         (Absent, R::InstallV2, C::Empty, MISSING),
         (Absent, R::InstallV2, C::Store, MISSING),
+        (Absent, R::InstallV2BringsControl, C::Empty, Is::InterruptedInstall),
+        (Absent, R::InstallV2BringsControl, C::Store, Is::InterruptedInstall),
+        (Legacy, R::InstallV2BringsControl, C::Store, Is::Admitted),
+        (Garbage, R::InstallV2BringsControl, C::Store, Is::Refused("archive-control-invalid")),
         (Legacy, R::WipeV2, C::Store, Is::Admitted),
         (Legacy, R::InstallV2, C::Store, Is::Admitted),
         // A control this build may use: records are the start sequence's business, not a class.

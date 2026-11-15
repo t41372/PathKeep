@@ -4,8 +4,10 @@
  * which lands on onboarding because nothing is set up any more. If the
  * automatic backup could not be removed, or deleting failed after everything
  * was moved out (`archive-wipe-unfinished`, which PathKeep finishes before the
- * next setup), the dialog says so first and restarts when the user continues.
- * Any other failure deleted nothing: the backend put everything back.
+ * next setup), or stopped where it could not tell whether it had finished
+ * moving (`archive-wipe-stopped`, which the next start finishes or undoes),
+ * the dialog says so first and restarts when the user continues. Any other
+ * failure deleted nothing: the backend put everything back.
  */
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
@@ -34,6 +36,8 @@ const CONFIRMATION_WORD = 'DELETE'
 
 /** Backend code: the data was moved out, and a later step failed (`command_error.rs`). */
 const WIPE_UNFINISHED = 'archive-wipe-unfinished'
+/** Backend code: the data was moved out, and recording that failed (`command_error.rs`). */
+const WIPE_STOPPED = 'archive-wipe-stopped'
 
 export function WipeDialog({
   open,
@@ -70,10 +74,11 @@ function WipeForm({ onClose }: { onClose: () => void }) {
 
   const ready = preview.isSuccess && typed === CONFIRMATION_WORD
   const scheduleError = wipe.data?.scheduleError
-  const unfinished =
-    wipe.isError && commandErrorCode(wipe.error) === WIPE_UNFINISHED
+  const failure = wipe.isError ? commandErrorCode(wipe.error) : undefined
+  const unfinished = failure === WIPE_UNFINISHED
+  const stopped = failure === WIPE_STOPPED
 
-  if (scheduleError || unfinished) {
+  if (scheduleError || unfinished || stopped) {
     // The archive is gone, or will be before the next setup. Say what is
     // left, then start over.
     return (
@@ -90,9 +95,12 @@ function WipeForm({ onClose }: { onClose: () => void }) {
               ? t('settingsStorage.wipe.scheduleFailed', {
                   message: scheduleError,
                 })
-              : t('settingsStorage.wipe.unfinished', {
-                  message: describeError(wipe.error, 'wipe_all_data'),
-                })}
+              : t(
+                  stopped
+                    ? 'settingsStorage.wipe.stopped'
+                    : 'settingsStorage.wipe.unfinished',
+                  { message: describeError(wipe.error, 'wipe_all_data') },
+                )}
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>

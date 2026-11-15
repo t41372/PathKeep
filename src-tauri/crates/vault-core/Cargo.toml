@@ -80,6 +80,11 @@ turbovec = "1.1.2"
 # Already in the lockfile through tantivy and turbovec; thread pools of a chosen size for the benchmark.
 rayon = "1.12.0"
 
+[target.'cfg(windows)'.dependencies]
+# A direct dependency of vault-platform and vault-owner-ipc at this version already. MoveFileExW
+# without MOVEFILE_REPLACE_EXISTING is Windows' rename that never replaces (`durable_io`).
+windows-sys = { version = "0.61.2", features = ["Win32_Storage_FileSystem"] }
+
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(coverage)'] }
 

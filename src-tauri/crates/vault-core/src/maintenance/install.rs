@@ -12,24 +12,35 @@
 //! one rename on install, and from that copy by an atomic write on rollback, so `config.json`
 //! exists at every point of the transaction.
 //!
-//! Where a file is says what the install did with it. The backup folder is made, under a new random
-//! name, when the install begins, and only the install moves anything into it: an entry the backup
-//! holds is an original the install moved out of its place, and the original of an entry the backup
-//! does not hold was never moved, or has been put back. That alone decides every step of a
-//! rollback. Before a rollback takes a file out of its place (the staged file the install put
-//! there, so that the original can come back, or a file that was not there before), it checks that
-//! the file holds what the journal recorded of the staged one, every byte (`content_identity`);
-//! anything else there stops the rollback before anything moves, and the journal stays. The
-//! control binds the journal to its folder: its bytes before and after the install are recorded,
-//! and a rollback starts only where the control is one of the two. Every install moves
-//! `config.json`, so a journal carried into another archive's folder, even with the backup folder
-//! it names (two folders merged, or the journal's files restored over another archive), meets that
-//! archive's control and changes nothing. A faithful copy of the whole folder, made by any tool,
-//! with or without the files' times, recovers like the original.
+//! Where a file is says what the install did with it, and what it holds confirms it. The backup
+//! folder is made, under a new random name, when the install begins, and only the install moves
+//! anything into it: an entry the backup holds is an original the install moved out of its place,
+//! and the original of an entry the backup does not hold was never moved, or has been put back.
+//! The journal records what every file held before the install and what every staged file holds,
+//! every byte (`content_identity`), before anything moves. A rollback puts back only an original
+//! that still holds what it held (a copy of the folder cut short leaves a shorter file under the
+//! same name), leaves in place only a file that holds the original, and takes out of its place
+//! only the staged file; anything else stops the rollback before anything moves, and the journal
+//! stays. The control binds the journal to its folder: a rollback starts only where the control is
+//! one of the two it recorded, or where a cut rename left none and the backup holds its copy. Every
+//! install moves `config.json`, so a journal carried into another archive's folder, even with the
+//! backup folder it names (two folders merged, or the journal's files restored over another
+//! archive), meets that archive's control and changes nothing. A faithful copy of the whole
+//! folder, made by any tool, with or without the files' times, recovers like the original.
 //!
-//! Every step of a rollback is one rename or one atomic write. A file taken out of its place is
-//! renamed into the stage, which goes with the journal at the end, so a rollback cut short never
-//! leaves a half-deleted folder that a later run could not recognise.
+//! Every step of a rollback is one rename or one atomic write, and no rename replaces anything. A
+//! file taken out of its place is renamed into the stage under a name nothing has, and the stage
+//! goes with the journal at the end, so a rollback cut short never leaves a half-deleted folder
+//! that a later run could not recognise.
+//!
+//! On a file system without a journal (exFAT, FAT32), a power cut during a rename can leave the
+//! file under both names, each pointing at the same data. Deleting one name then frees data the
+//! other still uses, and the next file written there overwrites the archive. Where a rename between
+//! a file left in place and another name of it may have been cut (the entry is in place and in the
+//! backup while its staged or discarded name is still there, or the file in place is the original),
+//! that other name goes into the quarantine (`quarantine/<backup folder name>/`), where the storage
+//! screen counts it and the user frees it, rather than with the stage or the backup. Two names of a
+//! file that leaves its place go together with the stage.
 //!
 //! A publish that reports an error may still have put the published record on disk (the flush
 //! after its rename failed). The install then stops where it is, and the next recovery goes the way
@@ -157,8 +168,9 @@ pub(crate) struct Entry {
     /// and in the journals of PathKeep 0.5.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     installed: Option<String>,
-    /// What the control held before the install, for the control only. With `installed`, what
-    /// binds the journal to its folder.
+    /// What the file in place held before the install, for every file that was there: a rollback
+    /// puts back only a file that holds this, and leaves in place only a file that holds this. For
+    /// the control, with `installed`, what binds the journal to its folder.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     original: Option<String>,
 }
@@ -310,23 +322,36 @@ pub(super) fn prepare(
     Ok(journal)
 }
 
-/// One file of an install, with what its staged file holds, read once the stage is on disk.
+/// One file of an install, with what its staged file and the file it replaces hold, read once the
+/// stage is on disk and before anything moves.
 fn entry(paths: &ProjectPaths, stage: &Path, relative: PathBuf) -> Result<Entry> {
     let live = paths.app_root.join(&relative);
     let installed = content_identity::of(&stage.join(&relative))
         .with_context(|| format!("reading the staged {}", relative.display()))?;
-    let original = if relative == Path::new(CONTROL) {
-        content_identity::of(&live).context("reading the control")?
-    } else {
-        None
-    };
+    let original = content_identity::of(&live)
+        .with_context(|| format!("reading the {} it replaces", relative.display()))?;
     Ok(Entry {
-        previous: exists(&live)?,
+        previous: original.is_some(),
         staged: installed.is_some(),
         relative,
         installed,
         original,
     })
+}
+
+/// Whether the folder holds a record of this build of an install that brings a control. Such a
+/// folder without a control is an interrupted install, not an archive that lost its control
+/// (`admission::census`): an import into a new folder and a restore repairing a folder without a
+/// control have none until the staged one lands, and on a file system without a journal a power
+/// cut during the rename over the control can leave none. Recovery decides from what is there.
+pub(crate) fn brings_control(root: &Path) -> bool {
+    fs::read(root.join(JOURNAL))
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<Journal>(&bytes).ok())
+        .filter(|journal| journal.current() && journal.version == VERSION)
+        .is_some_and(|journal| {
+            journal.entries.iter().any(|entry| is_control(entry) && entry.staged)
+        })
 }
 
 /// Whether anything is at `path`, a symlink included. Only "not found" is absence: a file that
@@ -383,6 +408,10 @@ pub(super) fn install_step(paths: &ProjectPaths, journal: &mut Journal, step: us
             rename(&target, &located.backup.join(&entry.relative))?;
         }
         crate::fault_inject::checkpoint("native-install-preserved")?;
+    } else if entry.staged && is_control(entry) && entry.previous {
+        // Over the live control, in one rename: `config.json` is there at every step.
+        rename_over(&located.stage.join(&entry.relative), &target)?;
+        crate::fault_inject::checkpoint("native-install-installed")?;
     } else if entry.staged {
         rename(&located.stage.join(&entry.relative), &target)?;
         crate::fault_inject::checkpoint("native-install-installed")?;
@@ -479,14 +508,14 @@ fn recover_legacy(paths: &ProjectPaths) -> Result<bool> {
         // native files; rolling it back would put the old config.json over them, so keep it
         // aside instead of acting on it.
         if paths.archive_db.exists() {
-            rename(&path, &paths.app_root.join(STALE_LEGACY_JOURNAL))?;
+            rename_over(&path, &paths.app_root.join(STALE_LEGACY_JOURNAL))?;
         }
         return Ok(false);
     }
     if stamped(paths) {
         // PathKeep 0.5 does not open an archive with a stamp, and this build replays a 0.5
         // journal before it stamps one: this one was carried in. Nothing it names is touched.
-        rename(&path, &paths.app_root.join(STALE_LEGACY_JOURNAL))?;
+        rename_over(&path, &paths.app_root.join(STALE_LEGACY_JOURNAL))?;
         return Ok(false);
     }
     let journal: Journal = serde_json::from_slice(&bytes)?;
@@ -532,6 +561,12 @@ enum Undo {
     PutBack,
     /// The control's copy in the backup is written over the control.
     WriteControl,
+    /// The control in place may be a second name of the staged one (see the module docs): it is
+    /// taken out of its place by a rename, and the copy in the backup is written where it was.
+    ReplaceControl,
+    /// The original is in place, and other names of the entry may be second names of it: they go
+    /// into the quarantine, the backup last.
+    KeepAside,
 }
 
 fn rollback_at(paths: &ProjectPaths, journal: &Journal, record: &Path) -> Result<()> {
@@ -551,6 +586,11 @@ fn rollback_at(paths: &ProjectPaths, journal: &Journal, record: &Path) -> Result
             // of PathKeep 0.5 moved the control into the backup, so the live one may be missing;
             // the write covers both.
             Undo::WriteControl => atomic_durable_write(&target, &fs::read(&backup)?)?,
+            Undo::ReplaceControl => {
+                discard(&located, entry, &target)?;
+                atomic_durable_write(&target, &fs::read(&backup)?)?;
+            }
+            Undo::KeepAside => keep_aside(paths, &located, entry, &backup)?,
         }
         crate::fault_inject::checkpoint("native-install-undone")?;
     }
@@ -559,17 +599,80 @@ fn rollback_at(paths: &ProjectPaths, journal: &Journal, record: &Path) -> Result
     remove(&located.backup)
 }
 
-/// Takes what is at `target` out of its place in one rename, into the stage. A rollback cut short
-/// before the rename finds it still there, one cut short after finds the place empty: never half
-/// of a folder.
+/// Takes what is at `target` out of its place in one rename, into the stage, under a name nothing
+/// has: a name already there may be a second name of this file (see the module docs), and is never
+/// deleted while the file is in place. A rollback cut short before the rename finds it still there,
+/// one cut short after finds the place empty: never half of a folder.
 fn discard(located: &Located, entry: &Entry, target: &Path) -> Result<()> {
     if !exists(target)? {
         return Ok(());
     }
-    let away = located.stage.join(DISCARDED).join(&entry.relative);
-    remove(&away)?;
-    rename(target, &away)?;
+    rename(target, &unused(&located.stage.join(DISCARDED), &entry.relative)?)?;
     crate::fault_inject::checkpoint("native-install-discarded")
+}
+
+/// Moves into the quarantine every other name of an entry whose original is in place and that may
+/// share its data: the staged and discarded names holding the same bytes, then the backup's. The
+/// backup's goes last, so a rollback cut short still finds the entry in two places, or finds the
+/// quarantine holding some of it.
+fn keep_aside(paths: &ProjectPaths, located: &Located, entry: &Entry, backup: &Path) -> Result<()> {
+    let quarantine = quarantine(paths, located);
+    let mut names = Vec::new();
+    for name in std::iter::once(located.stage.join(&entry.relative))
+        .chain(names_in(&located.stage.join(DISCARDED), &entry.relative)?)
+    {
+        if exists(&name)? && content_identity::of(&name)? == entry.original {
+            names.push(name);
+        }
+    }
+    names.push(backup.to_path_buf());
+    for name in names {
+        if exists(&name)? {
+            rename(&name, &unused(&quarantine, &entry.relative)?)?;
+            crate::fault_inject::checkpoint("native-install-kept")?;
+        }
+    }
+    eprintln!(
+        "PathKeep install: {} may have two names after a power cut on a file system without a \
+         journal; its other names are kept in {} until the disk is checked",
+        entry.relative.display(),
+        quarantine.display()
+    );
+    Ok(())
+}
+
+/// Where a rollback keeps names it must not delete, under the backup folder's random name: a
+/// rollback cut short finds them again, and they are this install's.
+fn quarantine(paths: &ProjectPaths, located: &Located) -> PathBuf {
+    paths.quarantine_dir.join(located.backup.file_name().unwrap_or_default())
+}
+
+/// The names of `relative` under `folder`, one per numbered subfolder (see `unused`).
+fn names_in(folder: &Path, relative: &Path) -> Result<Vec<PathBuf>> {
+    let numbered = match fs::read_dir(folder) {
+        Ok(numbered) => numbered,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(error.into()),
+    };
+    let mut names = Vec::new();
+    for subfolder in numbered {
+        let name = subfolder?.path().join(relative);
+        if exists(&name)? {
+            names.push(name);
+        }
+    }
+    Ok(names)
+}
+
+/// `folder/<n>/<relative>` for the first `n` that has no such name.
+pub(super) fn unused(folder: &Path, relative: &Path) -> Result<PathBuf> {
+    for n in 0u32.. {
+        let name = folder.join(n.to_string()).join(relative);
+        if !exists(&name)? {
+            return Ok(name);
+        }
+    }
+    unreachable!("a folder with four billion names of one file")
 }
 
 /// Every entry's undo, the last installed first; or why none can be done, with nothing moved.
@@ -595,63 +698,107 @@ fn undo_plan(paths: &ProjectPaths, journal: &Journal, located: &Located) -> Resu
             if !journal.current() {
                 undo_legacy(entry, &target, &backup)
             } else if is_control(entry) {
-                undo_control(entry, &target, &backup)
+                undo_control(entry, &target, &backup, &located.stage.join(&entry.relative))
             } else {
-                undo_current(entry, &target, &backup)
+                undo_current(paths, entry, located, &target, &backup)
             }
         })
         .collect()
 }
 
-/// A file of a current journal, decided by where it is. In the backup: the install moved the
-/// original out, and it comes back over the staged file or an empty place. Not in the backup: the
-/// original was never moved, or is back; a file that was not there before goes only if it is the
-/// staged one.
-fn undo_current(entry: &Entry, target: &Path, backup: &Path) -> Result<Undo> {
-    if exists(backup)? {
-        return if entry.previous && (!exists(target)? || holds_installed(entry, target)?) {
-            Ok(Undo::PutBack)
-        } else {
-            Err(not_moved(entry))
+/// A file of a current journal. Where it is says how far the install got, and what it holds
+/// confirms it. A file that was not there before goes only if it is the staged one. An original in
+/// the backup must hold what it held: it comes back over the staged file or an empty place. Not in
+/// the backup, it was never moved or is back, and must be in place. In place and in the backup at
+/// once is a rename cut short (see the module docs): with the staged file in place, the original
+/// comes back over it; with the original in place, its other names are kept aside. Anything else
+/// stops the rollback before anything moves: a backup cut short by a copy, a backup entry a copy
+/// left out, someone else's file.
+fn undo_current(
+    paths: &ProjectPaths,
+    entry: &Entry,
+    located: &Located,
+    target: &Path,
+    backup: &Path,
+) -> Result<Undo> {
+    let here = content_identity::of(target)?;
+    if !entry.previous {
+        return match here {
+            _ if exists(backup)? => Err(not_moved(entry)),
+            None => Ok(Undo::Leave),
+            Some(_) if here == entry.installed => Ok(Undo::Discard),
+            Some(_) => Err(not_moved(entry)),
         };
     }
-    match (entry.previous, exists(target)?) {
-        (true, true) | (false, false) => Ok(Undo::Leave),
-        (true, false) => Err(lost(entry)),
-        (false, true) if holds_installed(entry, target)? => Ok(Undo::Discard),
-        (false, true) => Err(not_moved(entry)),
+    let kept = content_identity::of(backup)?;
+    if kept.is_some() && kept != entry.original {
+        return Err(not_moved(entry));
+    }
+    match (&here, &kept) {
+        (None, Some(_)) => Ok(Undo::PutBack),
+        (None, None) => Err(lost(entry)),
+        (Some(_), None) if here == entry.original => Ok(Undo::Leave),
+        (Some(_), None) if here == entry.installed => Err(lost(entry)),
+        (Some(_), None) => Err(not_moved(entry)),
+        (Some(_), Some(_)) if here == entry.original && maybe_two_names(paths, entry, located)? => {
+            Ok(Undo::KeepAside)
+        }
+        (Some(_), Some(_)) if here == entry.installed => Ok(Undo::PutBack),
+        (Some(_), Some(_)) => Err(not_moved(entry)),
     }
 }
 
-/// The control of a current journal: never absent while a current journal exists (copied into the
-/// backup, replaced by one rename, written back atomically), so it must be the one from before the
-/// install or the one the install brought. Anything else, or nothing, means this is not the
-/// journal's folder.
-fn undo_control(entry: &Entry, target: &Path, backup: &Path) -> Result<Undo> {
+/// Whether the original in place may share its data with its name in the backup, or with a staged
+/// or discarded name holding the same bytes: a rename between them may have been cut. Outside a
+/// cut, an entry is in place and in the backup only with the staged file in place, renamed in whole
+/// from the stage: its staged name is gone, it was not discarded, and nothing of it is in the
+/// quarantine. When the staged file holds what the original held, that is the only case that looks
+/// like this one without being it. (An entry with nothing staged has no `installed`, so it always
+/// differs from the original here.)
+fn maybe_two_names(paths: &ProjectPaths, entry: &Entry, located: &Located) -> Result<bool> {
+    Ok(entry.installed != entry.original
+        || exists(&located.stage.join(&entry.relative))?
+        || !names_in(&located.stage.join(DISCARDED), &entry.relative)?.is_empty()
+        || !names_in(&quarantine(paths, located), &entry.relative)?.is_empty())
+}
+
+/// The control of a current journal. It is copied into the backup, not moved, and replaced by one
+/// rename, so it is the one from before the install or the one the install brought; the backup's
+/// copy must hold what the control held. Only a rename over it cut on a file system without a
+/// journal leaves none in place, with the copy in the backup. Anything else, or nothing, means this
+/// is not the journal's folder.
+fn undo_control(entry: &Entry, target: &Path, backup: &Path, staged: &Path) -> Result<Undo> {
     let here = content_identity::of(target)?;
     if !entry.previous {
-        // The folder had no control (a restore repairing it): the install brought the only one.
+        // The folder had no control (an import into a new folder, a restore repairing one): the
+        // install brought the only one.
         return match here {
             None => Ok(Undo::Leave),
             Some(_) if here == entry.installed => Ok(Undo::Discard),
             Some(_) => Err(not_moved(entry)),
         };
     }
-    if here.is_none() || (here != entry.original && here != entry.installed) {
+    let kept = content_identity::of(backup)?;
+    if kept.is_some() && kept != entry.original {
         return Err(not_moved(entry));
     }
-    match content_identity::of(backup)? {
-        None if here == entry.original => Ok(Undo::Leave),
-        Some(kept) if Some(&kept) == entry.original.as_ref() => Ok(Undo::WriteControl),
-        _ => Err(not_moved(entry)),
+    match (&here, &kept) {
+        (None, Some(_)) => Ok(Undo::WriteControl),
+        (None, None) => Err(lost(entry)),
+        // Its copy was not made yet: the install has not touched it.
+        (Some(_), None) if here == entry.original => Ok(Undo::Leave),
+        (Some(_), None) => Err(not_moved(entry)),
+        // The staged control still in the stage while the installed one is in place: the rename
+        // between them may have been cut, and writing over the control would free data its
+        // staged name still uses.
+        (Some(_), Some(_)) if here == entry.installed && exists(staged)? => {
+            Ok(Undo::ReplaceControl)
+        }
+        (Some(_), Some(_)) if here == entry.original || here == entry.installed => {
+            Ok(Undo::WriteControl)
+        }
+        (Some(_), Some(_)) => Err(not_moved(entry)),
     }
-}
-
-/// Whether the file at `target` holds what the journal recorded of its staged file. A current
-/// journal records it for every staged file; without it nothing tells this install's file from
-/// another one.
-fn holds_installed(entry: &Entry, target: &Path) -> Result<bool> {
-    Ok(entry.installed.is_some() && content_identity::of(target)? == entry.installed)
 }
 
 /// A journal of PathKeep 0.5 puts back whatever its backup holds and takes out what was not there
@@ -679,8 +826,8 @@ fn not_moved(entry: &Entry) -> anyhow::Error {
     )
 }
 
-/// It was there before the install, and it is neither in place nor in the backup. Saying the
-/// rollback succeeded would lose track of it for good.
+/// It was there before the install, and the original is neither in place nor in the backup.
+/// Saying the rollback succeeded would lose track of it for good.
 fn lost(entry: &Entry) -> anyhow::Error {
     anyhow::anyhow!(
         "{} is neither in place nor in the backup; the install record is kept",
@@ -743,11 +890,22 @@ fn keep_as_copy(backup: &Path, copy: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Moves a file or folder and makes the move durable. The destination's directory is flushed
-/// first: if power fails between the two flushes the entry may show in both places, never in
-/// neither (`durable_io::fsync_dir`). New parent folders are made durable before anything is
-/// moved into them.
+/// Moves a file or folder to where nothing is, and makes the move durable. What appeared at `to`
+/// since it was looked at stays, and the move fails (`durable_io::rename_no_replace`). The
+/// destination's directory is flushed first: if power fails between the two flushes the entry may
+/// show in both places, never in neither (`durable_io::fsync_dir`). New parent folders are made
+/// durable before anything is moved into them.
 pub(crate) fn rename(from: &Path, to: &Path) -> Result<()> {
+    create_dirs_durably(to.parent().unwrap())?;
+    crate::durable_io::rename_no_replace(from, to)
+        .with_context(|| format!("moving {} to {}", from.display(), to.display()))?;
+    fsync_dir(to.parent().unwrap())?;
+    fsync_dir(from.parent().unwrap())
+}
+
+/// `rename` over what is at `to`: the control's own rename on install, and a record set aside over
+/// an older one.
+fn rename_over(from: &Path, to: &Path) -> Result<()> {
     create_dirs_durably(to.parent().unwrap())?;
     fs::rename(from, to)?;
     fsync_dir(to.parent().unwrap())?;

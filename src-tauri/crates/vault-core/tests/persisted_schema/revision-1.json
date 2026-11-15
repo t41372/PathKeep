@@ -906,6 +906,15 @@
         "trash": {
           "type": "string"
         },
+        "targets": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
         "committed": {
           "type": "boolean"
         },

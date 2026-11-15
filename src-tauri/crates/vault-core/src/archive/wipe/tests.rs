@@ -21,10 +21,15 @@ use tempfile::TempDir;
 const CHROME_OVERRIDE_ENV: &str = "CHB_CHROME_USER_DATA_DIR";
 
 /// The points a crash can end a wipe at before its commit. The next start undoes the wipe.
-const BEFORE_COMMIT: [&str; 4] =
-    ["wipe-intent-written", "wipe-control-emptied", "wipe-target-moved", "wipe-moved"];
+const BEFORE_COMMIT: [&str; 5] = [
+    "wipe-intent-written",
+    "wipe-control-emptied",
+    "wipe-targets-recorded",
+    "wipe-target-moved",
+    "wipe-moved",
+];
 /// And after it. The next start finishes the wipe.
-const AFTER_COMMIT: [&str; 2] = ["wipe-committed", "wipe-files-removed"];
+const AFTER_COMMIT: [&str; 3] = ["wipe-commit-saved", "wipe-committed", "wipe-files-removed"];
 
 /// The archive database a wipe must remove.
 fn archive_file(paths: &ProjectPaths) -> PathBuf {
@@ -268,11 +273,17 @@ fn wipe_removes_everything_listed_and_nothing_else() {
 }
 
 // A wipe that fails before everything is in the trash (a worker that would not stop, a file that
-// would not move, the commit that could not be written) has deleted nothing: it puts everything
-// back, byte for byte, the control the user had too, before it reports the failure.
+// would not move) has deleted nothing: it puts everything back, byte for byte, the control the
+// user had too, before it reports the failure.
 #[test]
 fn a_wipe_that_fails_before_its_commit_puts_everything_back() {
-    for failure in ["quiesce", "wipe-control-emptied", "wipe-target-moved", "wipe-moved"] {
+    for failure in [
+        "quiesce",
+        "wipe-control-emptied",
+        "wipe-targets-recorded",
+        "wipe-target-moved",
+        "wipe-moved",
+    ] {
         let fixture = backed_up_archive();
         let paths = &fixture.paths;
         let before = file_contents_under(&paths.app_root);
@@ -316,6 +327,14 @@ fn the_control_is_there_at_every_cut_and_the_next_start_settles_the_wipe() {
             assert!(!data_wipe_interrupted(paths), "{cut}");
             assert!(!load_config(paths).expect("config").initialized, "{cut}");
             assert!(crate::admission::archive_files(&paths.app_root).unwrap().is_empty(), "{cut}");
+            // Setup over the empty control left behind makes a new archive that opens: the
+            // stamp of the deleted one, which says its stores are there, is not carried over.
+            let mut fresh = AppConfig { initialized: true, ..AppConfig::default() };
+            crate::models::normalize_app_config(&mut fresh);
+            save_config(&crate::ControlGate::acquire(paths), &fresh).expect("setup");
+            let opened = crate::Vault::open(paths.clone(), fresh, None)
+                .unwrap_or_else(|error| panic!("{cut}: the new archive did not open: {error:#}"));
+            opened.close().unwrap();
             continue;
         }
         assert!(data_wipe_interrupted(paths), "{cut}: the intent went missing");
@@ -501,23 +520,33 @@ fn the_wipe_waits_for_a_process_holding_the_archive_write_lock() {
     assert!(!archive_file(&paths).exists());
 }
 
-// Something now stands where an entry of the trash goes back: a file of the archive the user
-// made since, say. It stays as it is, and the entry stays in the trash, which is kept, listed
-// with the next "Delete all data" and removed by it.
+// Something now stands where an entry of the trash goes back, and beside it: a store and its log
+// from somewhere else. Undoing gives back the archive the user confirmed deleting, whole: a store
+// is never left beside another store's log, which SQLite would read with it. What stood there is
+// moved into the trash, which is kept, listed with the next "Delete all data" and removed by it.
 #[test]
-fn what_stands_where_an_entry_goes_back_stays_and_so_does_the_entry() {
+fn undoing_gives_the_archive_back_whole_and_keeps_what_stood_in_its_place() {
     let fixture = backed_up_archive();
     let paths = &fixture.paths;
-    let original = fs::read(archive_file(paths)).unwrap();
+    let before = file_contents_under(&paths.app_root);
     crash_at(paths, &WipeOutsideState::default(), "wipe-moved");
-    fs::write(archive_file(paths), b"written since").unwrap();
+    for suffix in ["", "-wal", "-shm"] {
+        let path = PathBuf::from(format!("{}{suffix}", archive_file(paths).display()));
+        fs::write(path, b"another store's").unwrap();
+    }
 
     assert_eq!(next_start(paths), Some(SettledWipe::RolledBack));
-    assert_eq!(fs::read(archive_file(paths)).unwrap(), b"written since");
     let [trash] = <[PathBuf; 1]>::try_from(trashes(paths)).expect("the trash is kept");
-    assert_eq!(fs::read(trash.join("archive/history-vault.db")).unwrap(), original);
-    assert!(paths.models_dir.join("bge/model.safetensors").exists(), "the rest is back");
-    assert!(load_config(paths).unwrap().initialized, "the control the user had is back");
+    let trash_name = PathBuf::from(trash.file_name().unwrap());
+    let (kept, after): (BTreeMap<_, _>, BTreeMap<_, _>) = file_contents_under(&paths.app_root)
+        .into_iter()
+        .partition(|(path, _)| path.starts_with(&trash_name));
+    assert_same_files(&after, &before, "the archive the user confirmed deleting");
+    assert_eq!(kept.len(), 3, "{:#?}", kept.keys());
+    for (path, bytes) in &kept {
+        assert!(path.strip_prefix(&trash_name).unwrap().starts_with(DISPLACED), "{path:?}");
+        assert_eq!(bytes, b"another store's", "{path:?}");
+    }
 
     let preview = preview_data_wipe(paths).unwrap();
     assert!(preview.items.iter().any(|item| Path::new(&item.path) == trash), "{preview:?}");
@@ -725,6 +754,7 @@ fn a_wipe_record_does_not_touch_another_archive() {
     for cut in ["wipe-target-moved", "wipe-committed"] {
         let fixture = backed_up_archive();
         let paths = &fixture.paths;
+        let confirmed = fs::read(&paths.config_path).unwrap();
         crash_at(paths, &WipeOutsideState::default(), cut);
         let mut other = fixture.config.clone();
         other.preferred_language = crate::LanguagePreference::ZhTw;
@@ -734,8 +764,12 @@ fn a_wipe_record_does_not_touch_another_archive() {
         assert_eq!(next_start(paths), Some(SettledWipe::Discarded), "{cut}");
         assert!(!data_wipe_interrupted(paths), "{cut}: the stale record is discarded");
         before.remove(Path::new(".pk-wipe-v2.json"));
+        let [trash] = <[PathBuf; 1]>::try_from(trashes(paths)).expect("the trash is kept");
+        // The record was the only copy of the control the user confirmed: it stays with the trash.
+        let control = trash.join("config.json");
+        assert_eq!(fs::read(&control).unwrap(), confirmed, "{cut}");
+        before.insert(control.strip_prefix(&paths.app_root).unwrap().to_path_buf(), confirmed);
         assert_same_files(&file_contents_under(&paths.app_root), &before, cut);
-        assert_eq!(trashes(paths).len(), 1, "{cut}: the trash is kept");
     }
 }
 
@@ -779,7 +813,9 @@ fn a_wipe_where_there_was_no_control_never_leaves_its_intent_alone() {
     for cut in ["wipe-intent-written", "wipe-target-moved", "wipe-moved"] {
         crash_at(&paths, &WipeOutsideState::default(), cut);
         assert!(paths.config_path.exists(), "{cut}: the intent lies alone");
-        assert!(crate::admission::inspect(&paths.app_root).is_ok(), "{cut}");
+        // Stamped: PathKeep 0.5 would take a not-initialized control without one for a first run.
+        let control = crate::admission::guard(&paths.app_root).unwrap().expect("a control");
+        assert!(control.compatibility.is_some(), "{cut}: the emptied control has no stamp");
         assert_eq!(next_start(&paths), Some(SettledWipe::RolledBack), "{cut}");
         assert_same_files(&file_contents_under(&paths.app_root), &before, cut);
     }
@@ -834,4 +870,71 @@ fn nothing_is_installed_while_a_wipe_is_pending() {
         let error = result.expect_err("refused");
         assert!(format!("{error:#}").contains("archive-wipe-pending"), "{error:#}");
     }
+}
+
+// A copy of the folder made during a wipe, cut short while it copied the trash: an entry the wipe
+// moved is in neither place. Undoing it would report the archive back while a part is gone.
+// Nothing moves, and the record stays.
+#[test]
+fn a_target_in_neither_place_stops_the_undo() {
+    let fixture = backed_up_archive();
+    let paths = &fixture.paths;
+    crash_at(paths, &WipeOutsideState::default(), "wipe-moved");
+    let [trash] = <[PathBuf; 1]>::try_from(trashes(paths)).expect("one trash");
+    fs::remove_file(trash.join("archive/history-vault.db")).unwrap();
+    let before = file_contents_under(&paths.app_root);
+
+    let error = finish_interrupted_data_wipe(paths, no_quiesce, no_secrets, no_schedule)
+        .expect_err("refused");
+    assert!(format!("{error:#}").contains("neither in the archive nor in"), "{error:#}");
+    assert!(data_wipe_interrupted(paths));
+    assert_same_files(&file_contents_under(&paths.app_root), &before, "");
+}
+
+// The commit is written, and the flush after its rename fails: the record on disk may say
+// committed. Putting everything back now would meet that record at the next start, which would
+// delete what was put back. The wipe stops where it is, says so, and the next start goes the way
+// the record on disk says.
+#[test]
+fn a_commit_that_reports_an_error_is_left_to_the_next_start() {
+    let fixture = backed_up_archive();
+    let paths = &fixture.paths;
+    let error = {
+        let _flush = FaultGuard::error_at("wipe-commit-saved");
+        wipe_all_data(
+            paths,
+            |_| Ok(WipeOutsideState::default()),
+            no_quiesce,
+            no_secrets,
+            no_schedule,
+        )
+        .expect_err("the failure is reported")
+    };
+    assert!(format!("{error:#}").contains("archive-wipe-stopped"), "{error:#}");
+    assert!(data_wipe_interrupted(paths));
+    assert!(!archive_file(paths).exists(), "nothing was put back in the same call");
+    assert!(matches!(next_start(paths), Some(SettledWipe::Finished(_))));
+    assert!(!paths.config_path.exists());
+    assert!(trashes(paths).is_empty());
+}
+
+// A power cut on exFAT while an entry was put back can leave it under both names, in its place
+// and in the trash. Deleting the one in the trash would free data the archive still uses: undoing
+// deletes nothing that stood in an entry's place, and the trash that holds the other name is kept.
+// A hard link stands in for the two names.
+#[cfg(unix)]
+#[test]
+fn an_entry_under_two_names_after_a_cut_move_keeps_both() {
+    use std::os::unix::fs::MetadataExt;
+    let fixture = backed_up_archive();
+    let paths = &fixture.paths;
+    let original = fs::read(archive_file(paths)).unwrap();
+    crash_at(paths, &WipeOutsideState::default(), "wipe-moved");
+    let [trash] = <[PathBuf; 1]>::try_from(trashes(paths)).expect("one trash");
+    fs::hard_link(trash.join("archive/history-vault.db"), archive_file(paths)).unwrap();
+
+    assert_eq!(next_start(paths), Some(SettledWipe::RolledBack));
+    assert_eq!(fs::read(archive_file(paths)).unwrap(), original);
+    assert_eq!(fs::metadata(archive_file(paths)).unwrap().nlink(), 2, "a name was deleted");
+    assert_eq!(trashes(paths).len(), 1, "the trash holding the other name is kept");
 }

@@ -159,6 +159,7 @@ fn classify_message(message: &str) -> (Option<&'static str>, Option<&'static str
         "not-in-history",
         "backup-no-profiles",
         "archive-wipe-unfinished",
+        "archive-wipe-stopped",
     ] {
         if message.contains(&format!("{code}:")) {
             return (Some(code), None);

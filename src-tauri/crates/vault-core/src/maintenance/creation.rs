@@ -5,9 +5,10 @@
 //! deciding whether a build may use the archive (`admission`).
 //!
 //! The sequence (design amendment A1, revised 2026-11-15), run when the live archive is opened:
-//! 1. The stores the layout requires that do not exist yet are made in a new folder under
-//!    `staging/`, with the archive's keys, then closed with everything in their main files and
-//!    flushed. Nothing in the archive has changed yet.
+//! 1. The stores this layout adds to the released one that do not exist yet are made in a new
+//!    folder under `staging/`, with the archive's keys, then closed with everything in their main
+//!    files and flushed. Nothing in the archive has changed yet. A folder with none of the released
+//!    stores is a new archive, and gets all of them.
 //! 2. A record names those stores and that folder. It is written where the install journal is
 //!    written, under the journal's current name, which PathKeep 0.5 and earlier do not know.
 //! 3. `config.json` gets the stamp. From here an older release stops at the config.
@@ -33,6 +34,13 @@
 //!   made again over it. Only "not found" is missing; any other error stops before the record.
 //! - A store's `-wal` or `-shm` left in place without its main file: a new main file beside it
 //!   would be read with another file's log. Nothing is moved in there, and the open is refused.
+//! - A released archive missing one of its own stores (Ask conversations, Insights) has it made
+//!   empty and stamped as if the upgrade had added it, and the loss goes unnoticed. Only the
+//!   stores this layout introduces are made; the open of such an archive is refused instead.
+//! - On a file system without a journal (exFAT, FAT32), a power cut during the move of a store
+//!   into its place can leave it under both names. Removing the folder would then free data the
+//!   store in place still uses. A store the record moves in whose place holds the same bytes goes
+//!   into the quarantine (`quarantine/<folder name>/`) rather than with the folder.
 //!
 //! Tests: creation/tests.rs.
 
@@ -139,7 +147,7 @@ pub(crate) fn promote_if_needed(
     if layout == ArchiveLayout::BrowsingV1 {
         return Ok(false);
     }
-    let creating = missing(paths, layout)?;
+    let creating = adding(paths, layout)?;
     if !creating.is_empty() {
         // A crash while stores were being made left their folder without a record: nothing names
         // it, and nothing else makes folders of this name.
@@ -170,6 +178,7 @@ fn remove_unrecorded_folders(paths: &ProjectPaths) -> Result<()> {
     };
     for entry in entries {
         let entry = entry?;
+        // Nothing is moved out of a folder before its record exists.
         if entry.file_name().to_str().is_some_and(|name| name.starts_with(FOLDER_PREFIX)) {
             remove(&entry.path())?;
         }
@@ -184,16 +193,34 @@ fn stamp(paths: &ProjectPaths, config: &crate::AppConfig) -> Result<()> {
         .context("writing the archive's format stamp")
 }
 
-/// The stores `layout` requires that are not there. The scratch store is not one: the store makes
-/// it at every open, and nothing in it outlives a session.
-fn missing(paths: &ProjectPaths, layout: ArchiveLayout) -> Result<Vec<PathBuf>> {
+/// The stores the bring-up makes: those `layout` adds to the released one that are not there, or
+/// every store where none of the released ones is (a new archive). A released store missing beside
+/// the others is a loss, not something the upgrade adds: it stops the bring-up. The scratch store
+/// is not one: the store makes it at every open, and nothing in it outlives a session.
+fn adding(paths: &ProjectPaths, layout: ArchiveLayout) -> Result<Vec<PathBuf>> {
     let scratch = vault_layout::scratch_database();
-    let mut missing = Vec::new();
+    let released = vault_layout::databases_in(ArchiveLayout::BrowsingV1);
+    let (mut missing, mut lost, mut kept) = (Vec::new(), Vec::new(), 0);
     for db in vault_layout::databases_in(layout).into_iter().filter(|db| *db != scratch) {
         let relative = PathBuf::from(vault_layout::database_path(db));
-        if !exists(&paths.app_root.join(&relative))? {
-            missing.push(relative);
+        let there = exists(&paths.app_root.join(&relative))?;
+        match (released.contains(&db), there) {
+            (true, true) => kept += 1,
+            (true, false) => lost.push(relative),
+            (false, true) => {}
+            (false, false) => missing.push(relative),
         }
+    }
+    if kept == 0 {
+        missing.extend(lost);
+        return Ok(missing);
+    }
+    if let Some(first) = lost.first() {
+        anyhow::bail!(
+            "archive-store-missing: {} is missing from an archive that has its other stores; \
+             nothing was made or stamped",
+            first.display()
+        );
     }
     Ok(missing)
 }
@@ -247,22 +274,49 @@ fn complete(
     let lost = move_in(paths, &record)?;
     if !lost.is_empty() {
         let layout = crate::admission::root_layout(&paths.app_root)?;
-        let again = make(paths, layout, &lost, key)?;
-        let still = move_in(
-            paths,
-            &CreationRecord {
-                identity: IDENTITY.into(),
-                version: VERSION,
-                creating: lost,
-                made_in: again.clone(),
-            },
-        )?;
+        let again = CreationRecord {
+            identity: IDENTITY.into(),
+            version: VERSION,
+            made_in: make(paths, layout, &lost, key)?,
+            creating: lost,
+        };
+        let still = move_in(paths, &again)?;
         anyhow::ensure!(still.is_empty(), "the stores made again were not where they were made");
-        remove(&paths.app_root.join(again))?;
+        remove_made_folder(paths, &again)?;
     }
     crate::fault_inject::checkpoint("promotion-moved")?;
     remove_file_durably(&record_path(paths)).context("removing the store creation record")?;
-    remove(&paths.app_root.join(&record.made_in))
+    remove_made_folder(paths, &record)
+}
+
+/// Removes the folder a record's stores were made in, after setting aside, in the quarantine, each
+/// of those stores whose place in the archive holds the same bytes: a move cut by a power cut on a
+/// file system without a journal leaves one file under both names, and removing one name frees
+/// data the other uses. Only the stores the record moves in can have a second name; the rest of
+/// the folder (the stores made beside them, the lock) never left it.
+fn remove_made_folder(paths: &ProjectPaths, record: &CreationRecord) -> Result<()> {
+    let folder = paths.app_root.join(&record.made_in);
+    let quarantine = paths.quarantine_dir.join(record.made_in.file_name().unwrap_or_default());
+    let mut twins = Vec::new();
+    for relative in &record.creating {
+        let (made, place) = (folder.join(relative), paths.app_root.join(relative));
+        if exists(&made)?
+            && exists(&place)?
+            && crate::content_identity::of(&made)? == crate::content_identity::of(&place)?
+        {
+            twins.push(relative);
+        }
+    }
+    for relative in twins {
+        rename(&folder.join(relative), &super::install::unused(&quarantine, relative)?)?;
+        eprintln!(
+            "PathKeep bring-up: {} may have two names after a power cut on a file system without \
+             a journal; the other is kept in {} until the disk is checked",
+            relative.display(),
+            quarantine.display()
+        );
+    }
+    remove(&folder)
 }
 
 /// The stores of `record` moved into their places; returns the ones its folder no longer holds
@@ -344,7 +398,7 @@ pub(crate) fn recover(paths: &ProjectPaths, record: CreationRecord) -> Result<()
     if move_in(paths, &record)?.is_empty() {
         crate::fault_inject::checkpoint("promotion-moved")?;
         remove_file_durably(&record_path(paths)).context("removing the store creation record")?;
-        remove(&paths.app_root.join(&record.made_in))?;
+        remove_made_folder(paths, &record)?;
     }
     // Otherwise the record stays: the next open has the key to make what the folder lost.
     Ok(())

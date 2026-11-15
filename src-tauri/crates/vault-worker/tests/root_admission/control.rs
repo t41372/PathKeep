@@ -320,11 +320,34 @@ fn an_import_settles_a_pending_wipe_before_it_installs() {
     f.session.close_vault().unwrap();
     f.vault.take().unwrap().close().unwrap();
     let confirmed = fs::read_to_string(f.root.join("config.json")).unwrap();
+    // What the wipe records before its first move: everything the user confirmed deleting, as
+    // the preview listed it, but the control, which goes last. Then its first move.
+    let mut targets: Vec<String> = vault_core::preview_data_wipe(&f.paths())
+        .unwrap()
+        .items
+        .iter()
+        .map(|item| {
+            std::path::Path::new(&item.path)
+                .strip_prefix(&f.root)
+                .unwrap()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .filter(|relative| relative != "config.json")
+        .collect();
+    let exports = f.root.join("exports");
+    if exports.exists() {
+        fs::create_dir_all(f.root.join("wipe-trash-fixture")).unwrap();
+        fs::rename(&exports, f.root.join("wipe-trash-fixture/exports")).unwrap();
+    } else {
+        targets.push("exports".into());
+    }
     f.write(
         ".pk-wipe-v2.json",
         serde_json::json!({
             "identity": "pathkeep-wipe", "version": 1, "control": confirmed, "emptied": "{}",
-            "trash": "wipe-trash-fixture", "committed": false, "providerIds": [], "schedule": null,
+            "trash": "wipe-trash-fixture", "targets": targets, "committed": false,
+            "providerIds": [], "schedule": null,
         })
         .to_string(),
     );

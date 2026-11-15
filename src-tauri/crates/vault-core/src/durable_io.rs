@@ -264,6 +264,121 @@ pub fn remove_file_durably(path: &Path) -> Result<()> {
     fsync_parent_dir(path)
 }
 
+/// Renames `from` to `to` only if nothing is at `to`. Recovery puts a file back, or moves one in,
+/// only where nothing is; a plain rename replaces what is there, so a file that appeared after
+/// recovery looked (a sync client, a file browser, a person) would be deleted.
+///
+/// In one step where the system offers it: `renamex_np` with `RENAME_EXCL` on macOS,
+/// `renameat2` with `RENAME_NOREPLACE` on Linux, `MoveFileExW` without
+/// `MOVEFILE_REPLACE_EXISTING` on Windows. A file system that rejects the flag (some network and
+/// FUSE ones, Linux before 3.15) gets a look first and then the rename: only a program writing into
+/// the data folder in that instant is not caught there.
+pub(crate) fn rename_no_replace(from: &Path, to: &Path) -> io::Result<()> {
+    if let Some(result) = exclusive_rename(from, to) {
+        return result;
+    }
+    match fs::symlink_metadata(to) {
+        Ok(_) => Err(io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            format!("{} is already there", to.display()),
+        )),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => fs::rename(from, to),
+        Err(error) => Err(error),
+    }
+}
+
+#[cfg(unix)]
+fn c_path(path: &Path) -> io::Result<std::ffi::CString> {
+    use std::os::unix::ffi::OsStrExt;
+    std::ffi::CString::new(path.as_os_str().as_bytes())
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "a path with a NUL byte"))
+}
+
+/// The system's own no-replace rename; `None` when the file system or kernel does not offer it.
+#[cfg(target_os = "macos")]
+fn exclusive_rename(from: &Path, to: &Path) -> Option<io::Result<()>> {
+    let (from, to) = match (c_path(from), c_path(to)) {
+        (Ok(from), Ok(to)) => (from, to),
+        (Err(error), _) | (_, Err(error)) => return Some(Err(error)),
+    };
+    // SAFETY: two NUL-terminated paths that outlive the call.
+    if unsafe { libc::renamex_np(from.as_ptr(), to.as_ptr(), libc::RENAME_EXCL) } == 0 {
+        return Some(Ok(()));
+    }
+    let error = io::Error::last_os_error();
+    match error.raw_os_error() {
+        Some(libc::ENOTSUP) => None,
+        _ => Some(Err(error)),
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn exclusive_rename(from: &Path, to: &Path) -> Option<io::Result<()>> {
+    let (from, to) = match (c_path(from), c_path(to)) {
+        (Ok(from), Ok(to)) => (from, to),
+        (Err(error), _) | (_, Err(error)) => return Some(Err(error)),
+    };
+    // The system call itself: glibc wraps it only from 2.28, the kernel has it from 3.15.
+    // SAFETY: two NUL-terminated paths that outlive the call; the flag is the documented one.
+    let renamed = unsafe {
+        libc::syscall(
+            libc::SYS_renameat2,
+            libc::AT_FDCWD,
+            from.as_ptr(),
+            libc::AT_FDCWD,
+            to.as_ptr(),
+            libc::RENAME_NOREPLACE,
+        )
+    };
+    if renamed == 0 {
+        return Some(Ok(()));
+    }
+    let error = io::Error::last_os_error();
+    match error.raw_os_error() {
+        Some(libc::EINVAL | libc::ENOSYS) => None,
+        _ => Some(Err(error)),
+    }
+}
+
+#[cfg(windows)]
+fn exclusive_rename(from: &Path, to: &Path) -> Option<io::Result<()>> {
+    use windows_sys::Win32::Storage::FileSystem::MoveFileExW;
+    let (from, to) = match (verbatim(from), verbatim(to)) {
+        (Ok(from), Ok(to)) => (from, to),
+        (Err(error), _) | (_, Err(error)) => return Some(Err(error)),
+    };
+    // No flags: without MOVEFILE_REPLACE_EXISTING it fails when `to` exists, file or folder.
+    // SAFETY: two NUL-terminated wide paths that outlive the call.
+    Some(if unsafe { MoveFileExW(from.as_ptr(), to.as_ptr(), 0) } != 0 {
+        Ok(())
+    } else {
+        Err(io::Error::last_os_error())
+    })
+}
+
+/// A path in the `\\?\` form, NUL-terminated, as the standard library passes its own: a data
+/// folder deep enough to pass 260 characters is not refused.
+#[cfg(windows)]
+fn verbatim(path: &Path) -> io::Result<Vec<u16>> {
+    use std::os::windows::ffi::OsStrExt;
+    let wide: Vec<u16> = std::path::absolute(path)?.as_os_str().encode_wide().collect();
+    let utf16 = |text: &str| text.encode_utf16().collect::<Vec<u16>>();
+    let mut verbatim = if wide.starts_with(&utf16(r"\\?\")) || wide.starts_with(&utf16(r"\\.\")) {
+        wide
+    } else if let Some(share) = wide.strip_prefix(&utf16(r"\\")[..]) {
+        [utf16(r"\\?\UNC\"), share.to_vec()].concat()
+    } else {
+        [utf16(r"\\?\"), wide].concat()
+    };
+    verbatim.push(0);
+    Ok(verbatim)
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
+fn exclusive_rename(_from: &Path, _to: &Path) -> Option<io::Result<()>> {
+    None
+}
+
 /// Removes orphaned `.pk-durable-*` temp files left in `dir` when the process was killed between
 /// temp-create and persist (a `SIGKILL` skips `NamedTempFile`'s Drop, so the temp leaks), but only
 /// those not written to for `min_age`: another write may be in progress in the same directory (two
@@ -309,6 +424,33 @@ fn sweep_temps_matching(dir: &Path, stale: impl Fn(&fs::DirEntry) -> bool) -> Re
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// What a plain rename would do, and this one must not: replace a file, or an empty folder (a
+    /// rename onto an empty folder replaces it on Unix). Onto nothing it moves, folders included.
+    #[test]
+    fn a_rename_that_never_replaces_leaves_what_is_there() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let (from, to) = (dir.path().join("from"), dir.path().join("to"));
+        fs::write(&from, b"moving").expect("seed");
+        fs::write(&to, b"there").expect("seed");
+        let error = rename_no_replace(&from, &to).expect_err("a file was replaced");
+        assert_eq!(error.kind(), io::ErrorKind::AlreadyExists);
+        assert_eq!(fs::read(&from).expect("read"), b"moving");
+        assert_eq!(fs::read(&to).expect("read"), b"there");
+
+        let (folder, empty) = (dir.path().join("folder"), dir.path().join("empty"));
+        fs::create_dir(&folder).expect("seed");
+        fs::write(folder.join("inside"), b"inside").expect("seed");
+        fs::create_dir(&empty).expect("seed");
+        let error = rename_no_replace(&folder, &empty).expect_err("an empty folder was replaced");
+        assert_eq!(error.kind(), io::ErrorKind::AlreadyExists);
+        assert!(folder.join("inside").exists() && empty.is_dir());
+
+        let moved = dir.path().join("moved");
+        rename_no_replace(&folder, &moved).expect("moved");
+        assert_eq!(fs::read(moved.join("inside")).expect("read"), b"inside");
+        assert!(!folder.exists());
+    }
 
     /// An export that fails halfway (archive locked, disk full) must not leave a truncated file
     /// where the old one was, nor a partial temp.

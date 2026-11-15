@@ -45,22 +45,35 @@
 //!
 //! ## Order
 //! Gate, write lock and control gate; the record an earlier wipe left, settled; the trash and the
-//! intent; `config.json` replaced by an empty one; `quiesce`; every target moved into the trash and
-//! a scan for anything left outside it; the commit (the intent says everything is in the trash);
-//! the trash deleted; the keychain; the automatic backup; the intent; `config.json`.
+//! intent; `config.json` replaced by an empty one; `quiesce`; the targets recorded in the intent;
+//! every target moved into the trash and a scan for anything left outside it; the commit (the
+//! intent says everything is in the trash); the trash deleted; the keychain; the automatic backup;
+//! the intent; `config.json`.
 //!
 //! Before the commit nothing is deleted. A failure puts everything back in the same call, and a
 //! crash leaves the intent from which the next launch does. After the commit nothing is put back:
 //! the next launch deletes what is left. The moves are renames within one folder, so the window
-//! in which a crash leaves a wipe to be finished rather than undone is the deletion itself.
+//! in which a crash leaves a wipe to be finished rather than undone is the deletion itself. A
+//! commit whose write reports an error may still be on disk (the flush after its rename failed):
+//! the wipe then stops where it is, and the next launch goes the way the intent on disk says.
+//!
+//! Undoing gives back the archive the user confirmed deleting, whole: every target the intent
+//! recorded comes back from the trash, and what stands in its place now goes into the trash
+//! (`displaced/`), as does anything at a target the wipe did not record. Nothing is deleted, and
+//! no store is left beside another's log or index (`-wal`, `-shm`), which SQLite would read with
+//! it. A recorded target in neither place stops the undo before anything moves: an empty trash is
+//! not proof that everything is back.
 //!
 //! `config.json` is never missing while data is still there. A release that cannot read this
 //! archive stops at its config; without one it would take the folder for a first run. So the
 //! control is emptied first (every worker stops at its next look at it) and removed last, after
-//! the intent. A crash between those two leaves an empty, not-initialized control in an empty
-//! folder. Nor is the intent ever without a control beside it: such a folder reads as an archive
-//! whose control is missing (`admission::census`), which no launch settles. Where there was no
-//! control, the empty one is written before the intent, and a wipe undone removes it after.
+//! the intent. The emptied control carries a stamp, this build's where the archive had none, so
+//! PathKeep 0.5 does not take a folder in the middle of a wipe for a first run. A crash between
+//! the intent and the control leaves an empty, not-initialized control in an empty folder; setup
+//! writes its control without that stamp (`config::save_config`). Nor is the intent ever without
+//! a control beside it: such a folder reads as an archive whose control is missing
+//! (`admission::census`), which no launch settles. Where there was no control, the empty one is
+//! written before the intent, and a wipe undone removes it after.
 //!
 //! The intent is written under a name PathKeep 0.5 and earlier do not know: they act on their own
 //! marker before reading the config. That marker is still read and finished, as the record a wipe
@@ -107,8 +120,9 @@
 //!     from a backup or imported into after a wipe could not finish, or the intent was carried in
 //!     from another folder. The intent holds the control the user confirmed deleting and the
 //!     emptied control the wipe writes, and acts only while the folder holds one of the two;
-//!     anywhere else the intent goes and nothing else is touched. Undone, it puts an entry back
-//!     only where nothing is, so it never overwrites what is there now. Finished, it deletes its
+//!     anywhere else the intent goes and nothing else is touched, except that its trash, if it is
+//!     here, gets that control back: the record was its only copy. Undone, it never overwrites
+//!     what is there now: that goes into the trash. Finished, it deletes its
 //!     own trash and, only while the control is the emptied one, what lies at a target. A copy of
 //!     the folder made during a wipe is the same folder to it: undone before the commit, which
 //!     gives the copy its archive back, and finished after it, which deletes the copy's copy of
@@ -122,9 +136,14 @@
 //! 13. A second "Delete all data" overwrites the intent of one that did not end, and with it the
 //!     control to put back and the provider keys to clear. It settles that intent first, as a
 //!     launch would.
-//! 14. Undoing puts back a file the user's next archive now holds, or the reverse. Whatever stands
-//!     where an entry goes stays; the entry stays in the trash, which is kept, and is listed with
-//!     the next "Delete all data".
+//! 14. Undoing mixes the archive with files that came into the folder since, or loses a file the
+//!     user's next archive holds. Whatever stands where an entry goes is moved into the trash's
+//!     `displaced/` folder, never deleted. The trash is then kept, and is listed with the next
+//!     "Delete all data".
+//! 15. A power cut during a rename on a file system without a journal (exFAT, FAT32) leaves one
+//!     file under two names; deleting one name frees data the other still uses. Undoing deletes
+//!     nothing that stood in an entry's place, the entry's own second name included: it goes into
+//!     the trash, which is then kept.
 //!
 //! ## Performance notes
 //! - The preview takes the visit count from the last backup's cached totals; it only counts rows
@@ -160,6 +179,12 @@ const VERSION: u32 = 1;
 /// rather than that nothing was deleted. The desktop shell reads the code (`command_error.rs`).
 const UNFINISHED: &str = "archive-wipe-unfinished: everything was moved out of the archive, and \
                           the next start finishes deleting it";
+/// The error of a wipe whose commit could not be written: it may be on disk or not, so nothing is
+/// put back now, and the next start goes the way the intent on disk says.
+const STOPPED: &str = "archive-wipe-stopped: the wipe stopped after moving everything out of the \
+                       archive; the next start finishes it or puts everything back";
+/// Where an undone wipe moves what stood in the place of an entry it puts back, inside its trash.
+const DISPLACED: &str = "displaced";
 
 /// The intent as it is stored: what the user confirmed, where the wipe moves it, and how far it
 /// got.
@@ -175,6 +200,10 @@ pub(crate) struct WipeIntent {
     /// The folder, directly in the data folder, that everything is moved into before anything is
     /// deleted (`wipe-trash-*`).
     trash: PathBuf,
+    /// Every target the wipe moves into the trash, relative to the data folder, recorded once
+    /// workers have stopped and before the first move. Absent before that: nothing has moved.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    targets: Option<Vec<PathBuf>>,
     /// Everything is in the trash. From here the wipe is finished, never undone.
     committed: bool,
     #[serde(flatten)]
@@ -312,6 +341,7 @@ pub fn wipe_all_data(
         control,
         emptied,
         trash: PathBuf::from(trash.file_name().context("a trash folder name")?),
+        targets: None,
         committed: false,
         outside,
     };
@@ -385,7 +415,15 @@ fn settle(
     Ok(Some(match pending(paths)? {
         Pending::Intent(intent) if !intent.left_here(paths)? => {
             // Not the folder this wipe was in. The trash the intent names stays as it is, if it is
-            // here at all, and is listed with the next "Delete all data".
+            // here at all, and is listed with the next "Delete all data". The control it was moved
+            // with goes into it: the record is that control's only copy.
+            let trash = intent.trash(paths)?;
+            if let Some(control) = &intent.control
+                && trash.is_dir()
+            {
+                atomic_durable_write(&trash.join(CONTROL), control.as_bytes())
+                    .context("keeping the confirmed control with its trash")?;
+            }
             eprintln!(
                 "pathkeep: discarding a delete-all-data record that does not match this archive; \
                  {} is left as it is",
@@ -492,14 +530,16 @@ pub(crate) fn legacy_marker_is_readable(paths: &ProjectPaths) -> bool {
         .is_some_and(|bytes| serde_json::from_slice::<WipeOutsideState>(&bytes).is_ok())
 }
 
-/// The empty, not-initialized control that replaces the archive's: default settings, the
-/// archive's compatibility stamp kept.
+/// The empty, not-initialized control that replaces the archive's: default settings and a stamp,
+/// the archive's, or this build's where it had none. PathKeep 0.5 opens a folder whose control
+/// has no stamp, and takes a not-initialized one for a first run.
 fn emptied_control(paths: &ProjectPaths) -> Result<String> {
-    let compatibility =
-        crate::admission::guard(&paths.app_root)?.and_then(|control| control.compatibility);
+    let compatibility = crate::admission::guard(&paths.app_root)?
+        .and_then(|control| control.compatibility)
+        .unwrap_or_else(crate::admission::written_compatibility);
     let mut config = AppConfig::default();
     crate::models::normalize_app_config(&mut config);
-    crate::config::encode_config(&config, compatibility.as_ref())
+    crate::config::encode_config(&config, Some(&compatibility))
 }
 
 fn save(paths: &ProjectPaths, intent: &WipeIntent) -> Result<()> {
@@ -517,17 +557,24 @@ fn run_wipe(
     clear_secrets: &impl Fn(&WipeOutsideState) -> Result<()>,
     remove_schedule: &impl Fn(&SchedulePlan) -> Result<()>,
 ) -> Result<WipeReport> {
-    let committed = (|| {
+    let moved = (|| {
         atomic_durable_write(&paths.config_path, intent.emptied.as_bytes())
             .context("replacing the configuration with an empty one")?;
         crate::fault_inject::checkpoint("wipe-control-emptied")?;
         quiesce()?;
+        let targets = wipe_targets(paths)?
+            .into_iter()
+            .filter(|target| *target != paths.app_root.join(&intent.trash))
+            .map(|target| target.strip_prefix(&paths.app_root).map(Path::to_path_buf))
+            .collect::<Result<Vec<_>, _>>()
+            .context("a target outside the data folder")?;
+        intent.targets = Some(targets);
+        save(paths, &intent)?;
+        crate::fault_inject::checkpoint("wipe-targets-recorded")?;
         move_into_trash(paths, &intent)?;
-        crate::fault_inject::checkpoint("wipe-moved")?;
-        intent.committed = true;
-        save(paths, &intent)
+        crate::fault_inject::checkpoint("wipe-moved")
     })();
-    if let Err(error) = committed {
+    if let Err(error) = moved {
         // Nothing was deleted. What cannot be put back now, the next start puts back.
         roll_back(paths, &intent).with_context(|| {
             format!(
@@ -537,6 +584,14 @@ fn run_wipe(
         })?;
         return Err(error);
     }
+    intent.committed = true;
+    if let Err(error) =
+        save(paths, &intent).and_then(|()| crate::fault_inject::checkpoint("wipe-commit-saved"))
+    {
+        // The commit may be on disk. Putting everything back now could meet it at the next start,
+        // which would then delete what was put back.
+        return Err(error.context(STOPPED));
+    }
     // From the commit the wipe goes forward, and what fails now the next start finishes.
     (|| {
         crate::fault_inject::checkpoint("wipe-committed")?;
@@ -545,15 +600,14 @@ fn run_wipe(
     .context(UNFINISHED)
 }
 
-/// Moves every target into the trash, each by one rename. Then checks, with a scan that does not
-/// use the list of targets (the same rule that decides whether a folder without a control holds
-/// an archive), that nothing meaning an archive is left outside the trash: a worker that did not
-/// stop, or a file the table does not name, is still the user's data.
+/// Moves every recorded target into the trash, each by one rename. Then checks, with a scan that
+/// does not use the list of targets (the same rule that decides whether a folder without a control
+/// holds an archive), that nothing meaning an archive is left outside the trash: a worker that did
+/// not stop, or a file the table does not name, is still the user's data.
 fn move_into_trash(paths: &ProjectPaths, intent: &WipeIntent) -> Result<()> {
     let trash = intent.trash(paths)?;
-    for target in wipe_targets(paths)?.into_iter().filter(|target| *target != trash) {
-        let relative =
-            target.strip_prefix(&paths.app_root).context("a target outside the data folder")?;
+    for relative in intent.targets.iter().flatten() {
+        let target = paths.app_root.join(relative);
         rename(&target, &trash.join(relative))
             .with_context(|| format!("moving {} out of the archive", target.display()))?;
         crate::fault_inject::checkpoint("wipe-target-moved")?;
@@ -575,30 +629,54 @@ fn left_outside(paths: &ProjectPaths, trash: Option<&Path>) -> Result<Vec<String
         .collect())
 }
 
-/// Undoes a wipe that had not committed: puts back everything its trash holds, each where nothing
-/// is now, then the control the user had over the emptied one, and drops the records. Whatever
-/// stands where an entry goes stays, and so does the entry, in the trash. Nothing is deleted but
-/// the emptied folders of the trash, and the emptied control where there was none.
+/// Undoes a wipe that had not committed: the archive the user confirmed deleting comes back whole
+/// (see the module docs), then the control the user had over the emptied one, and the records go.
+/// The trash goes too when nothing but emptied folders and what a file browser drops is left in
+/// it. Before the targets were recorded nothing had moved, and only the control comes back.
 fn roll_back(paths: &ProjectPaths, intent: &WipeIntent) -> Result<()> {
     let trash = intent.trash(paths)?;
-    let kept = put_back(&trash, &paths.app_root, Path::new(""))?;
+    if let Some(targets) = &intent.targets {
+        // Decided for every target before anything moves.
+        let plan = targets
+            .iter()
+            .map(|relative| Ok((relative, back(paths, &trash, relative)?)))
+            .collect::<Result<Vec<_>>>()?;
+        for (relative, back) in plan {
+            let (from, to) = (trash.join(relative), paths.app_root.join(relative));
+            match back {
+                Back::Stays => {}
+                Back::Comes => {
+                    rename(&from, &to).with_context(|| format!("putting {} back", to.display()))?
+                }
+                Back::ComesOver => {
+                    displace(&trash, &paths.app_root, relative)?;
+                    rename(&from, &to).with_context(|| format!("putting {} back", to.display()))?;
+                }
+            }
+            crate::fault_inject::checkpoint("wipe-entry-put-back")?;
+        }
+        // What came to a target the wipe did not record is not the archive's.
+        for target in wipe_targets(paths)? {
+            let relative = target.strip_prefix(&paths.app_root).context("a target outside")?;
+            if target != trash && !targets.iter().any(|recorded| recorded == relative) {
+                displace(&trash, &paths.app_root, relative)?;
+            }
+        }
+    }
     crate::fault_inject::checkpoint("wipe-put-back")?;
     let emptied = intent.emptied_here(paths)?;
     if emptied && let Some(control) = &intent.control {
         atomic_durable_write(&paths.config_path, control.as_bytes())
             .context("putting the configuration back")?;
     }
-    if kept.is_empty() {
-        // Only folders it put back into are left in it, and what a file browser dropped there.
-        remove_path(&trash).with_context(|| format!("removing {}", trash.display()))?;
-    } else {
+    if holds_files(&trash)? {
         eprintln!(
-            "pathkeep: an undone delete-all-data could not put back {} entries, such as {}; they \
-             stay in {}",
-            kept.len(),
-            kept[0].display(),
+            "pathkeep: an undone delete-all-data kept files that stood in the archive's places, or \
+             copies of its own, in {}",
             trash.display()
         );
+    } else {
+        remove_path(&trash).with_context(|| format!("removing {}", trash.display()))?;
     }
     remove_records(paths)?;
     if emptied && intent.control.is_none() {
@@ -607,27 +685,60 @@ fn roll_back(paths: &ProjectPaths, intent: &WipeIntent) -> Result<()> {
     Ok(())
 }
 
-/// Moves each entry under `trash/relative` back to `root/relative` where nothing is, and goes
-/// into a folder that is in both places. Returns what stayed. What a file browser drops into a
-/// folder it shows (`.DS_Store`) is not put back; it goes with the trash.
-fn put_back(trash: &Path, root: &Path, relative: &Path) -> Result<Vec<PathBuf>> {
-    let mut kept = Vec::new();
-    for from in entries_of(&trash.join(relative))? {
-        let name = from.file_name().context("an entry without a name")?;
-        if name.to_str().is_some_and(vault_layout::is_os_metadata) {
-            continue;
-        }
-        let inner = relative.join(name);
-        let to = root.join(&inner);
-        if !exists(&to)? {
-            rename(&from, &to).with_context(|| format!("putting {} back", to.display()))?;
-        } else if fs::symlink_metadata(&to)?.is_dir() && fs::symlink_metadata(&from)?.is_dir() {
-            kept.extend(put_back(trash, root, &inner)?);
-        } else {
-            kept.push(inner);
+/// What undoing does with one recorded target.
+enum Back {
+    /// Never moved, or back already.
+    Stays,
+    /// Back from the trash into an empty place.
+    Comes,
+    /// Back from the trash, after what stands in its place is moved into the trash.
+    ComesOver,
+}
+
+fn back(paths: &ProjectPaths, trash: &Path, relative: &Path) -> Result<Back> {
+    let (kept, here) = (trash.join(relative), paths.app_root.join(relative));
+    Ok(match (exists(&kept)?, exists(&here)?) {
+        (false, true) => Back::Stays,
+        (false, false) => anyhow::bail!(
+            "{} is neither in the archive nor in {}; nothing was put back, and the next start \
+             tries again",
+            relative.display(),
+            trash.display()
+        ),
+        (true, false) => Back::Comes,
+        (true, true) => Back::ComesOver,
+    })
+}
+
+/// Moves what stands at `root/relative` into the trash's `displaced/` folder, under a name
+/// nothing has there.
+fn displace(trash: &Path, root: &Path, relative: &Path) -> Result<()> {
+    let away = (0u32..)
+        .map(|n| trash.join(DISPLACED).join(n.to_string()).join(relative))
+        .find(|away| !matches!(exists(away), Ok(true)))
+        .context("a free name in the trash")?;
+    rename(&root.join(relative), &away)
+        .with_context(|| format!("moving {} out of the archive's way", relative.display()))?;
+    crate::fault_inject::checkpoint("wipe-displaced")
+}
+
+/// Whether anything but folders and what a file browser drops is in `folder`.
+fn holds_files(folder: &Path) -> Result<bool> {
+    for entry in walkdir::WalkDir::new(folder) {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(error) if error.io_error().is_some_and(|e| e.kind() == io::ErrorKind::NotFound) => {
+                return Ok(false);
+            }
+            Err(error) => return Err(error.into()),
+        };
+        if !entry.file_type().is_dir()
+            && !entry.file_name().to_str().is_some_and(vault_layout::is_os_metadata)
+        {
+            return Ok(true);
         }
     }
-    Ok(kept)
+    Ok(false)
 }
 
 /// The end of a committed wipe: the trash goes, and then, while the control is the emptied one
@@ -801,6 +912,9 @@ fn path_size(path: &Path) -> u64 {
         .map(|entries| entries.flatten().map(|entry| path_size(&entry.path())).sum())
         .unwrap_or(0)
 }
+
+/// The control's name in the data folder, and in a trash that keeps one.
+const CONTROL: &str = vault_layout::spec(vault_layout::ArtifactId::Config).path.relative();
 
 fn intent_path(paths: &ProjectPaths) -> PathBuf {
     paths.app_root.join(WIPE_INTENT_FILE)

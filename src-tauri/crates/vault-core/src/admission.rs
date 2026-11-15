@@ -13,8 +13,11 @@
 //!   of a fresh start. Each row of the layout table says whether its file means an archive is
 //!   here (`CensusPolicy`); what a finished wipe leaves, what a first start creates, what the
 //!   scheduler writes, and files that are not PathKeep's must all answer no.
-//! - A wipe or an install that a crash cut short loses its automatic recovery, because both remove
-//!   `config.json` for a moment. Their records are recognized as [`Interrupted`].
+//! - A wipe or an install that a crash cut short loses its automatic recovery, because the folder
+//!   has no `config.json` for a moment: a wipe removes it, PathKeep 0.5's install moved it aside,
+//!   and this build's install has none before the staged one lands where there was none (an import
+//!   into a new folder), or after a power cut during the rename over it on a file system without a
+//!   journal. Their records are recognized as [`Interrupted`].
 //! - An import into a new data folder fails, or a crash during one locks the user out, because
 //!   its staging folder or a half-written journal is taken for an archive.
 //! - The stamp a newer build wrote is rewritten by a save. `Compatibility` keeps its exact bytes.
@@ -206,7 +209,7 @@ pub const fn decide(level: u64, min_reader: u64, min_writer: u64) -> VersionDeci
 pub enum Interrupted {
     /// "Delete all data" removes the control first. The user confirmed the deletion.
     Wipe,
-    /// A restore, import or encryption change moves the control aside before the new one lands.
+    /// A restore, import or encryption change that brings a control, before the new one lands.
     Install,
     /// The same, left by PathKeep 0.3 in its own journals. The conversion's launch recovery
     /// finishes or reports these.
@@ -466,6 +469,12 @@ fn census(root: &Path) -> Result<RootState, Refusal> {
     }
     if present(CensusPolicy::OldFormatRecord) && !native {
         return Ok(RootState::Interrupted(Interrupted::OldFormat));
+    }
+    // This build's install record is archive data like the stores: it keeps the control in place,
+    // so without one the control was lost. Unless the install brings the control: then recovery
+    // decides from what is there, and stops before anything moves where it is not the record's.
+    if crate::maintenance::install::brings_control(root) {
+        return Ok(RootState::Interrupted(Interrupted::Install));
     }
     match archive_files_until(root, true)?.into_iter().next() {
         None => Ok(RootState::Uninitialized),

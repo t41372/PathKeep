@@ -424,10 +424,18 @@ pub fn load_config(paths: &ProjectPaths) -> Result<AppConfig> {
 ///
 /// The control on disk is read before anything is created. One this build may not use stops the
 /// save; a compatibility stamp in it is written back exactly as it was, whatever `config` says.
+/// Except where setup writes the first control of an archive over one that was not initialized
+/// (what "Delete all data" leaves if it stops just before its end): that stamp described no
+/// archive, and a new one is stamped once its stores exist (`maintenance::creation`). Kept, it
+/// would say the stores of its revision are there, and the new archive would not open.
 pub fn save_config(gate: &ControlGate, config: &AppConfig) -> Result<()> {
     let paths = gate.paths();
     let compatibility =
         crate::admission::guard(&paths.app_root)?.and_then(|control| control.compatibility);
+    let compatibility = match compatibility {
+        Some(_) if config.initialized && !load_document(paths)?.config.initialized => None,
+        stamp => stamp,
+    };
     create_layout(paths)?;
     let content = encode_config(config, compatibility.as_ref())?;
     crate::durable_io::atomic_durable_write(&paths.config_path, content.as_bytes())

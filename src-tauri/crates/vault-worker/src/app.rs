@@ -529,6 +529,9 @@ where
     // the half-deleted archive.
     crate::data_wipe::finish_interrupted_data_wipe()?;
     let paths = vault_core::project_paths()?;
+    // A wipe undone puts back what it had moved, the record of an install it interrupted included.
+    // That install is recovered now, under the owner lock, before anything reads the control.
+    session.recover_pending_archive(&paths).map_err(anyhow::Error::msg)?;
     // Initialization writes a control. It never does that over one this build may not use, or
     // next to an archive whose control is missing.
     load_config(&paths)?;

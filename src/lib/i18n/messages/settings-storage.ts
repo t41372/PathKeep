@@ -188,6 +188,8 @@ export const settingsStorage = defineMessages({
         'Your data is deleted, but automatic backup could not be removed. {message} Turn it off in Backup after setup.',
       unfinished:
         'Deleting did not finish. {message} PathKeep finishes it before you set up again.',
+      stopped:
+        'Deleting stopped partway. {message} When PathKeep starts again, it either finishes deleting or puts everything back.',
       typeWord: 'Type {word} to confirm',
       confirm: 'Delete forever',
       failed: 'Nothing was deleted. {message}',
@@ -369,6 +371,8 @@ export const settingsStorage = defineMessages({
         '数据已删除，但自动备份没能移除。{message} 设置完成后，请到「备份」关闭它。',
       unfinished:
         '删除没有完成。{message} 重新设置之前，PathKeep 会先把它完成。',
+      stopped:
+        '删除中途停止了。{message} PathKeep 下次启动时，会把删除做完，或把所有内容放回原处。',
       typeWord: '输入 {word} 以确认',
       confirm: '永久删除',
       failed: '没有删除任何内容。{message}',
@@ -550,6 +554,8 @@ export const settingsStorage = defineMessages({
         '資料已刪除，但自動備份沒能移除。{message} 設定完成後，請到「備份」關閉它。',
       unfinished:
         '刪除沒有做完。{message} 重新設定之前，PathKeep 會先把它做完。',
+      stopped:
+        '刪除中途停止了。{message} PathKeep 下次啟動時，會把刪除做完，或把所有內容放回原處。',
       typeWord: '輸入 {word} 以確認',
       confirm: '永久刪除',
       failed: '沒有刪除任何內容。{message}',

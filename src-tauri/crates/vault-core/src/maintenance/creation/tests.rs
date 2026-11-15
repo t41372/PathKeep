@@ -234,13 +234,15 @@ fn a_store_that_cannot_be_looked_at_is_not_taken_for_a_missing_one() {
     assert_eq!(vault.layout(), ArchiveLayout::AgentHistoryV2);
 }
 
-// Before the stamp, PathKeep 0.5 can open the folder, and it creates a store it lacks. A record
-// from a crash before the stamp may name that store; deleting what it names would delete what 0.5
-// saved since.
+// A new archive: setup wrote its control, and the first open makes every store. Before the stamp,
+// PathKeep 0.5 can open the folder, and it creates the stores it lacks, which the record also
+// names. Deleting what the record names would delete what 0.5 saved since.
 #[test]
 fn a_crash_before_the_stamp_never_deletes_what_an_older_release_saved_since() {
-    let (_root, paths) = released_archive();
-    remove_store(&paths, "derived/agent.db");
+    let root = tempfile::tempdir().unwrap();
+    let paths = project_paths_with_root(root.path());
+    crate::config::ensure_paths(&paths).unwrap();
+    crate::save_config(&crate::ControlGate::acquire(&paths), &released_config()).unwrap();
     crash_at(&paths, "promotion-recorded");
     let record = read(&paths).unwrap().expect("the crash left a record");
     assert!(record.creating.contains(&PathBuf::from("derived/agent.db")));
@@ -256,6 +258,29 @@ fn a_crash_before_the_stamp_never_deletes_what_an_older_release_saved_since() {
     assert_eq!(marker(&vault, Db::Agent).as_deref(), Some("saved-by-0.5"));
     assert_eq!(vault.layout(), ArchiveLayout::AgentHistoryV2);
     assert!(read(&paths).unwrap().is_none());
+}
+
+// An archive of PathKeep 0.5 that lost one of its own stores, its Ask conversations say. The
+// bring-up makes only the stores this layout adds: making the lost one empty and stamping the
+// archive would pass the loss off as part of the upgrade. The open is refused, and nothing is
+// made or stamped.
+#[test]
+fn a_released_archive_missing_one_of_its_stores_is_refused_not_refilled() {
+    for lost in ["derived/agent.db", "derived/intelligence.db", "archive/source-evidence.db"] {
+        let (_root, paths) = released_archive();
+        remove_store(&paths, lost);
+        let before = files(&paths.app_root);
+        let Err(error) = open(&paths) else { panic!("{lost}: opened") };
+        assert!(format!("{error:#}").contains("archive-store-missing"), "{lost}: {error:#}");
+        assert_eq!(layout(&paths), ArchiveLayout::BrowsingV1, "{lost}");
+        assert!(!paths.app_root.join(lost).exists(), "{lost}");
+        let after = files(&paths.app_root);
+        assert!(
+            after.keys().all(|path| before.contains_key(path)),
+            "{lost}: {:?}",
+            after.keys().filter(|path| !before.contains_key(*path)).collect::<Vec<_>>()
+        );
+    }
 }
 
 // A crash before the stamp, then PathKeep 0.5 changes the archive's password or turns encryption
@@ -524,4 +549,31 @@ fn a_later_builds_compatible_stamp_survives_saves_mode_changes_and_restores() {
     .unwrap();
     kept("a restore of a snapshot with this build's stamp");
     assert_eq!(marker(&restored.vault, Db::Archive).as_deref(), Some("released-archive"));
+}
+
+// A power cut during the move of a made store into its place, on exFAT, can leave it under both
+// names. Removing the folder it was made in would free data the store in place still uses: the
+// made name goes into the quarantine instead. A hard link stands in for the two names.
+#[cfg(unix)]
+#[test]
+fn a_store_under_two_names_after_a_cut_move_keeps_both() {
+    use std::os::unix::fs::MetadataExt;
+    let (_root, paths) = released_archive();
+    crash_at(&paths, "promotion-stamped");
+    let record = read(&paths).unwrap().expect("the crash left a record");
+    let made = paths.app_root.join(&record.made_in).join(ADDED[0]);
+    let place = paths.app_root.join(ADDED[0]);
+    fs::hard_link(&made, &place).unwrap();
+
+    let vault = open(&paths).unwrap();
+    assert_eq!(vault.layout(), ArchiveLayout::AgentHistoryV2);
+    vault.close().unwrap();
+    assert!(made_folders(&paths).is_empty());
+    assert_eq!(fs::metadata(&place).unwrap().nlink(), 2, "the other name was deleted");
+    // Only the store's other name: nothing else of the folder was moved in, whatever it holds
+    // (its own lock file has the same bytes as the archive's).
+    let kept = paths.quarantine_dir.join(record.made_in.file_name().unwrap());
+    let kept: Vec<_> =
+        files(&kept).into_keys().map(|path| path.strip_prefix(&kept).unwrap().to_owned()).collect();
+    assert_eq!(kept, [Path::new("0").join(ADDED[0])]);
 }
