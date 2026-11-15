@@ -7,7 +7,8 @@
 //! files are, and only checks with this before it takes one out of its place), or reading a
 //! database.
 //!
-//! Failure modes: two different contents taken for the same (every byte goes through SHA-256: no);
+//! Failure modes: two different contents taken for the same (every byte goes through SHA-256, and
+//! so does every byte of every name, in fields that carry their length: no);
 //! a faithful copy taken for another (times, owners, modes and file numbers are not part of it, and
 //! neither are the files a file browser drops into a folder, nor empty folders a copy tool skips);
 //! a large archive read too slowly (once, in chunks hashed in parallel).
@@ -16,6 +17,7 @@
 
 use sha2::{Digest, Sha256};
 use std::{
+    ffi::OsStr,
     fs,
     io::{self, Read, Seek},
     path::Path,
@@ -33,10 +35,12 @@ const CHUNK: u64 = 4 << 10;
 /// nothing is there.
 ///
 /// - A file: `file:` and the hash of its length and of its chunks' hashes.
-/// - A folder: `tree:` and the hash of the sorted lines `path<TAB>what` of every file and symlink in
-///   it. Folders themselves are not lines: an empty one holds nothing. Finder's `.DS_Store` and the
-///   like are skipped (`vault_layout::is_os_metadata`).
-/// - A symlink: `link:` and its target.
+/// - A folder: `tree:` and the hash of an entry for every file and symlink in it: the names on its
+///   path and what it holds, each a field that carries its length, the entries sorted. A name may
+///   hold a tab or a newline, so only lengths keep one entry from reading like two. Folders
+///   themselves are not entries: an empty one holds nothing. Finder's `.DS_Store` and the like are
+///   skipped (`vault_layout::is_os_metadata`).
+/// - A symlink: `link:` and the hash of its target.
 pub(crate) fn of(path: &Path) -> io::Result<Option<String>> {
     let metadata = match fs::symlink_metadata(path) {
         Ok(metadata) => metadata,
@@ -53,11 +57,12 @@ pub(crate) fn of(path: &Path) -> io::Result<Option<String>> {
 }
 
 fn link(path: &Path) -> io::Result<String> {
-    Ok(format!("link:{}", fs::read_link(path)?.display()))
+    let target = fs::read_link(path)?;
+    Ok(format!("link:{}", hex(&Sha256::digest(exact(target.as_os_str())))))
 }
 
 fn tree(root: &Path) -> io::Result<String> {
-    let mut lines = Vec::new();
+    let mut entries = Vec::new();
     for entry in walkdir::WalkDir::new(root).min_depth(1).follow_links(false) {
         let entry = entry.map_err(io::Error::other)?;
         if entry.file_name().to_str().is_some_and(vault_layout::is_os_metadata) {
@@ -71,10 +76,45 @@ fn tree(root: &Path) -> io::Result<String> {
             file(entry.path(), entry.metadata().map_err(io::Error::other)?.len())?
         };
         let relative = entry.path().strip_prefix(root).map_err(io::Error::other)?;
-        lines.push(format!("{}\t{what}", relative.display()));
+        let mut names = Vec::new();
+        for name in relative {
+            field(&mut names, &exact(name));
+        }
+        let mut one = Vec::new();
+        field(&mut one, &names);
+        field(&mut one, what.as_bytes());
+        entries.push(one);
     }
-    lines.sort();
-    Ok(format!("tree:{}", hex(&Sha256::digest(lines.join("\n")))))
+    // Sorted, so the order a walk happens to find them in does not count.
+    entries.sort();
+    let mut whole = Sha256::new();
+    for one in entries {
+        whole.update(one);
+    }
+    Ok(format!("tree:{}", hex(&whole.finalize())))
+}
+
+/// `bytes` behind their length, so that fields one after another read only one way, whatever bytes
+/// they hold.
+fn field(out: &mut Vec<u8>, bytes: &[u8]) {
+    out.extend_from_slice(&(bytes.len() as u64).to_le_bytes());
+    out.extend_from_slice(bytes);
+}
+
+/// Every byte of a name or a symlink's target: its UTF-8 where it is Unicode, which every system
+/// writes the same way, and otherwise the system's own bytes behind a different first byte.
+/// `display()` would turn every byte that is not UTF-8 into the same `�`, so two names would read
+/// as one.
+fn exact(name: &OsStr) -> Vec<u8> {
+    if let Some(text) = name.to_str() {
+        return [&[0u8][..], text.as_bytes()].concat();
+    }
+    let mut bytes = vec![1u8];
+    #[cfg(unix)]
+    bytes.extend_from_slice(std::os::unix::ffi::OsStrExt::as_bytes(name));
+    #[cfg(windows)]
+    bytes.extend(std::os::windows::ffi::OsStrExt::encode_wide(name).flat_map(u16::to_le_bytes));
+    bytes
 }
 
 fn file(path: &Path, len: u64) -> io::Result<String> {
@@ -191,5 +231,45 @@ mod tests {
         std::fs::rename(index.join("meta"), index.join("segments/meta")).unwrap();
         assert_ne!(of(&index).unwrap().unwrap(), first, "a file moved");
         assert_eq!(of(&folder.path().join("nothing")).unwrap(), None);
+    }
+
+    // A name may hold any byte but `/` and NUL, and a symlink's target any byte but NUL. Folders
+    // whose files have other names, and links with other targets, never read the same, however the
+    // bytes line up: a name that reads like the next entry, a name that runs on into the next one, a
+    // target that is not UTF-8.
+    #[cfg(unix)]
+    #[test]
+    fn names_and_targets_count_byte_for_byte() {
+        use std::os::unix::{ffi::OsStrExt, fs::symlink};
+        let folder = tempfile::tempdir().unwrap();
+        let make = |name: &str| {
+            let path = folder.path().join(name);
+            std::fs::create_dir(&path).unwrap();
+            path
+        };
+        let two = make("two");
+        std::fs::write(two.join("a"), b"x").unwrap();
+        std::fs::write(two.join("b"), b"y").unwrap();
+        let (x, y) = (of(&two.join("a")).unwrap().unwrap(), of(&two.join("b")).unwrap().unwrap());
+
+        let reads_like_two = make("reads like two");
+        std::fs::write(reads_like_two.join(format!("a\t{x}\nb")), b"y").unwrap();
+        assert_ne!(of(&reads_like_two).unwrap(), of(&two).unwrap(), "a name like two entries");
+        let runs_on = make("runs on");
+        std::fs::create_dir(runs_on.join(format!("a{x}"))).unwrap();
+        std::fs::write(runs_on.join(format!("a{x}/b")), b"y").unwrap();
+        assert_ne!(of(&runs_on).unwrap(), of(&two).unwrap(), "a name that runs on");
+
+        let linked = make("linked");
+        symlink("t", linked.join("a")).unwrap();
+        std::fs::write(linked.join("b"), b"y").unwrap();
+        let one_link = make("one link");
+        symlink(format!("t\nb\t{y}"), one_link.join("a")).unwrap();
+        assert_ne!(of(&one_link).unwrap(), of(&linked).unwrap(), "a target like two entries");
+        for (name, target) in [("ff", b"t\xff"), ("fe", b"t\xfe")] {
+            symlink(std::ffi::OsStr::from_bytes(target), folder.path().join(name)).unwrap();
+        }
+        let [ff, fe] = ["ff", "fe"].map(|name| of(&folder.path().join(name)).unwrap());
+        assert_ne!(ff, fe, "targets that are not UTF-8");
     }
 }
