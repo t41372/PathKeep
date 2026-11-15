@@ -150,7 +150,7 @@ pub fn recover_archive_on_launch(
 pub(crate) fn check_config_disk_consistency(paths: &ProjectPaths) -> Result<()> {
     let expected = load_config(paths)?.archive_mode;
     let files = vault_store::Paths::under(&paths.app_root);
-    for db in vault_layout::at_rest_databases() {
+    for db in vault_layout::at_rest_databases(crate::admission::root_layout(&paths.app_root)?) {
         let path = files.get(db);
         let Some(on_disk) = disk_mode_to_archive_mode(detect_disk_encryption_mode(path)) else {
             continue;

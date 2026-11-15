@@ -17,7 +17,7 @@ impl Archive {
         let id = conversation.to_owned();
         let segments = self
             .store
-            .read(Db::Archive, move |tx| Ok(snapshot(tx, &id)))??
+            .read(Db::AgentHistoryReadModel, move |tx| Ok(snapshot(tx, &id)))??
             .ok_or_else(|| Error::NotFound(conversation.into()))?;
         super::cursor::scope(&segments)
     }

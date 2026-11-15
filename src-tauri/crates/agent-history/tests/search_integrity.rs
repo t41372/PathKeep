@@ -217,9 +217,9 @@ fn reopening_preserves_coverage_and_missing_index_requires_explicit_rebuild() {
 
     let reopened = Archive::open(&root, PASSWORD).unwrap();
     assert_eq!(reopened.search(&query("knownword")).unwrap().total, 1);
-    std::fs::remove_dir_all(root.join("derived/history-search")).unwrap();
+    std::fs::remove_dir_all(root.join("derived/agent-history-search")).unwrap();
     assert!(matches!(reopened.search(&query("knownword")), Err(Error::IndexBehind)));
-    assert!(!root.join("derived/history-search").exists(), "search must stay read-only");
+    assert!(!root.join("derived/agent-history-search").exists(), "search must stay read-only");
     reopened.synchronize_search().unwrap();
     assert_eq!(reopened.search(&query("knownword")).unwrap().total, 1);
 }
@@ -238,7 +238,7 @@ fn a_large_message_keeps_terms_after_eight_mebibytes_and_index_stays_encrypted()
     assert_eq!(result.items[0].session_id, conversation(&archive, "deepseek-a"));
     assert!(result.items[0].text.contains("tailneedle"));
 
-    for entry in std::fs::read_dir(root.join("derived/history-search")).unwrap() {
+    for entry in std::fs::read_dir(root.join("derived/agent-history-search")).unwrap() {
         let path = entry.unwrap().path();
         if path.is_file() {
             let bytes = std::fs::read(path).unwrap();
@@ -282,7 +282,7 @@ fn explicit_rebuild_repairs_a_corrupt_segment_even_when_commit_metadata_survives
     let archive = archive(&root);
     publish(&archive, "pi-a", Harness::Pi, "/work/a", "repairneedle", true);
     archive.synchronize_search().unwrap();
-    let postings = std::fs::read_dir(root.join("derived/history-search"))
+    let postings = std::fs::read_dir(root.join("derived/agent-history-search"))
         .unwrap()
         .map(|entry| entry.unwrap().path())
         .find(|path| path.extension().is_some_and(|extension| extension == "idx"))
@@ -303,8 +303,8 @@ fn rebuilding_rejects_a_search_parent_redirected_outside_the_archive() {
     let archive = archive(&root);
     publish(&archive, "pi-a", Harness::Pi, "/work/a", "knownword", true);
     let external = temporary.path().join("unrelated");
-    std::fs::create_dir_all(external.join("history-search")).unwrap();
-    let sentinel = external.join("history-search/user-file");
+    std::fs::create_dir_all(external.join("agent-history-search")).unwrap();
+    let sentinel = external.join("agent-history-search/user-file");
     std::fs::write(&sentinel, b"must survive").unwrap();
     std::fs::rename(root.join("derived"), root.join("original-derived")).unwrap();
     std::os::unix::fs::symlink(&external, root.join("derived")).unwrap();

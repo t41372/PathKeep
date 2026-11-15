@@ -30,7 +30,7 @@ const KEYS: [Option<[u8; 32]>; 2] = [None, Some([0x5a; 32])];
 
 fn config(root: &Path, key: Option<[u8; 32]>) -> Config {
     let mut config = Config::new(root);
-    config.keys = [key; 5];
+    config.keys = [key; Db::COUNT];
     config.readers_per_database = NonZeroUsize::new(1).unwrap();
     config.migrations = super::migration_registry();
     config

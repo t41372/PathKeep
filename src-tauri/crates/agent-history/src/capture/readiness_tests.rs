@@ -28,7 +28,7 @@ fn first_record_gating_propagates_retained_integrity_failure() {
         .revision_id;
     archive
         .store
-        .write(Db::SourceEvidence, Priority::Interactive, |tx| {
+        .write(Db::AgentHistoryEvidence, Priority::Interactive, |tx| {
             tx.execute("UPDATE ah_chunks SET codec='invalid'", ())?;
             Ok(())
         })

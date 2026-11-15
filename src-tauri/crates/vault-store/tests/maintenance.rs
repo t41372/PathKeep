@@ -7,7 +7,7 @@ use vault_store::{CancelToken, Config, Db, Migration, Priority, Store};
 
 fn config(root: &std::path::Path, key: Option<[u8; 32]>) -> Config {
     let mut config = Config::new(root);
-    config.keys = [key; 5];
+    config.keys = [key; vault_store::Db::COUNT];
     config.migrations.register(Db::Archive, vec![Migration::rust(1, |s| {
         s.execute("CREATE TABLE facts(id INTEGER PRIMARY KEY AUTOINCREMENT, body TEXT, bytes BLOB, number REAL)", ())?;
         s.execute("CREATE VIEW named_facts AS SELECT id,body FROM facts WHERE body IS NOT NULL", ())?;

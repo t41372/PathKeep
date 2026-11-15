@@ -67,7 +67,7 @@ impl Archive {
     fn manifest(&self, revision: &RevisionInfo) -> Result<Vec<Slice>> {
         let id = revision.id;
         let length = revision.byte_len as i64;
-        Ok(self.store.read(Db::SourceEvidence, move |tx| {
+        Ok(self.store.read(Db::AgentHistoryEvidence, move |tx| {
             tx.query(
                 "SELECT m.byte_offset, m.byte_len, m.chunk_hash FROM ah_revisions r JOIN
                     ah_revision_chunks m ON m.revision_id=coalesce(r.manifest_revision_id, r.id)

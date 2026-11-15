@@ -38,7 +38,7 @@ impl Archive {
         let source_id = source_id.to_owned();
         let parser_version = parser_version.to_owned();
         self.store
-            .write(Db::Archive, Priority::Batch, move |tx| {
+            .write(Db::AgentHistoryReadModel, Priority::Batch, move |tx| {
                 let current = tx
                     .query_one(
                         "SELECT revision_id, parser_version FROM ah_sessions WHERE id=?1",
@@ -86,7 +86,7 @@ impl Archive {
     pub fn current_projection(&self, source_id: &str) -> Result<Option<i64>> {
         let source_id = source_id.to_owned();
         self.store
-            .read(Db::Archive, move |tx| {
+            .read(Db::AgentHistoryReadModel, move |tx| {
                 tx.query_one(
                     "SELECT revision_id FROM ah_sessions WHERE id=?1",
                     [source_id],
@@ -101,14 +101,14 @@ impl Archive {
     pub fn current_projection_id(&self, source_id: &str) -> Result<Option<i64>> {
         let source_id = source_id.to_owned();
         self.store
-            .read(Db::Archive, move |tx| current_projection_id(tx, &source_id))
+            .read(Db::AgentHistoryReadModel, move |tx| current_projection_id(tx, &source_id))
             .map_err(Into::into)
     }
 
     /// A stable publication clock lets search and paginated readers reject stale state.
     pub fn projection_generation(&self) -> Result<i64> {
         self.store
-            .read(Db::Archive, |tx| {
+            .read(Db::AgentHistoryReadModel, |tx| {
                 tx.query_one("SELECT coalesce(max(seq), 0) FROM ah_outbox", (), |row| {
                     Ok(row.get(0)?)
                 })

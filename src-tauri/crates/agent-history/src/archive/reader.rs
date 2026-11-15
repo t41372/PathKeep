@@ -87,7 +87,7 @@ impl RawReader {
             let revision = self.info.id;
             let retained = self
                 .store
-                .read(Db::SourceEvidence, move |tx| {
+                .read(Db::AgentHistoryEvidence, move |tx| {
                     tx.query_one(
                         "SELECT bytes_retained FROM ah_revisions WHERE id=?1",
                         [revision],
@@ -111,7 +111,7 @@ impl RawReader {
         let position = self.read_bytes as i64;
         let loaded = self
             .store
-            .read(Db::SourceEvidence, move |tx| {
+            .read(Db::AgentHistoryEvidence, move |tx| {
                 let retained: i64 = tx.query_one(
                     "SELECT bytes_retained FROM ah_revisions WHERE id=?1",
                     [revision],

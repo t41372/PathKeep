@@ -106,22 +106,23 @@ impl Archive {
             }
             let after = last_session.clone();
             let watermark = opened.watermark;
-            let sessions: Vec<String> = self.store.read(Db::Archive, move |database| {
-                if rebuilt {
-                    database.query(
-                        "SELECT id FROM ah_sessions WHERE id > ?1 ORDER BY id LIMIT 64",
-                        [after],
-                        |row| Ok(row.get(0)?),
-                    )
-                } else {
-                    database.query(
-                        "SELECT DISTINCT session_id FROM ah_outbox WHERE seq > ?1 AND seq <= ?2
+            let sessions: Vec<String> =
+                self.store.read(Db::AgentHistoryReadModel, move |database| {
+                    if rebuilt {
+                        database.query(
+                            "SELECT id FROM ah_sessions WHERE id > ?1 ORDER BY id LIMIT 64",
+                            [after],
+                            |row| Ok(row.get(0)?),
+                        )
+                    } else {
+                        database.query(
+                            "SELECT DISTINCT session_id FROM ah_outbox WHERE seq > ?1 AND seq <= ?2
                             AND session_id > ?3 ORDER BY session_id LIMIT 64",
-                        params![watermark, target, after],
-                        |row| Ok(row.get(0)?),
-                    )
-                }
-            })?;
+                            params![watermark, target, after],
+                            |row| Ok(row.get(0)?),
+                        )
+                    }
+                })?;
             if sessions.is_empty() {
                 break;
             }
@@ -186,7 +187,7 @@ impl Archive {
 
     fn index_source(&self, session: &str) -> Result<Option<schema::EventSource>> {
         let session = session.to_owned();
-        let rows = self.store.read(Db::Archive, move |database| {
+        let rows = self.store.read(Db::AgentHistoryReadModel, move |database| {
             database.query(
                 "SELECT id, projection_id, harness, coalesce(project_path, '' ) FROM
                     ah_sessions WHERE id=?1 AND (current_only=0 OR conversation_current=1) LIMIT 1",
@@ -210,7 +211,7 @@ impl Archive {
         after_ordinal: i64,
     ) -> Result<Vec<schema::EventDocument>> {
         let source = source.clone();
-        Ok(self.store.read(Db::Archive, move |database| {
+        Ok(self.store.read(Db::AgentHistoryReadModel, move |database| {
             // Bind the publication once per source. Turso 0.8.3 adds an ORDER BY
             // sorter when these equalities come through the sessions JOIN, even
             // while selecting the right event index. A direct bounded seek avoids

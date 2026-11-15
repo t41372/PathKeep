@@ -54,7 +54,7 @@ fn one_conversations_sources_cannot_grow_sql_parameters_past_the_page_bound() {
     // revision and publication handles, sharing the authenticated slice manifest.
     archive
         .store
-        .write(Db::SourceEvidence, Priority::Batch, move |tx| {
+        .write(Db::AgentHistoryEvidence, Priority::Batch, move |tx| {
             let sources = clone_sql(
                 tx,
                 "ah_sources",
@@ -80,7 +80,7 @@ fn one_conversations_sources_cannot_grow_sql_parameters_past_the_page_bound() {
         .unwrap();
     archive
         .store
-        .write(Db::Archive, Priority::Batch, move |tx| {
+        .write(Db::AgentHistoryReadModel, Priority::Batch, move |tx| {
             let sql = clone_sql(
                 tx,
                 "ah_sessions",
@@ -101,10 +101,10 @@ fn one_conversations_sources_cannot_grow_sql_parameters_past_the_page_bound() {
             Ok(())
         })
         .unwrap();
-    archive.store.capture_query_plans(Db::SourceEvidence, true).unwrap();
+    archive.store.capture_query_plans(Db::AgentHistoryEvidence, true).unwrap();
     let view = archive.session(&id).unwrap();
     assert_eq!(view.sources.len(), 601);
-    let plans = archive.store.take_query_plans(Db::SourceEvidence).unwrap();
+    let plans = archive.store.take_query_plans(Db::AgentHistoryEvidence).unwrap();
     assert!(
         plans.iter().all(|plan| plan.sql.matches('?').count() <= 500),
         "membership reads must stay within the fixed page parameter bound"

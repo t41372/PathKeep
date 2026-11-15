@@ -320,7 +320,7 @@ fn a_missing_canonical_database_is_not_replaced_with_an_empty_archive() {
     let archive = create(&root);
     retain(&archive, b"previous canonical evidence");
     drop(archive);
-    fs::rename(root.join("archive/evidence.db"), root.join("retained-evidence.db")).unwrap();
+    fs::rename(root.join("archive/agent-history.db"), root.join("retained-evidence.db")).unwrap();
     let before = disk_snapshot(&root);
     assert!(Archive::open(&root, PASSWORD).is_err());
     assert_eq!(disk_snapshot(&root), before);

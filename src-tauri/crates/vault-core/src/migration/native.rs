@@ -23,7 +23,26 @@ use vault_layout::{ArtifactId as A, PortablePolicy};
 use vault_store::CancelToken;
 use zip::{CompressionMethod, ZipWriter, write::SimpleFileOptions};
 
-const VERSION: u32 = 2;
+/// The bundle format that carries an archive of each layout. A bundle's format says which stores
+/// it holds, so an import knows what to require before it decrypts anything.
+const FORMATS: [(u32, vault_layout::ArchiveLayout); 1] =
+    [(2, vault_layout::ArchiveLayout::BrowsingV1)];
+
+fn format_of(layout: vault_layout::ArchiveLayout) -> Result<u32> {
+    FORMATS
+        .iter()
+        .find(|(_, of)| *of == layout)
+        .map(|(format, _)| *format)
+        .with_context(|| format!("no move bundle format carries a {layout:?} archive"))
+}
+
+fn layout_of(format: u32) -> Result<vault_layout::ArchiveLayout> {
+    FORMATS
+        .iter()
+        .find(|(of, _)| *of == format)
+        .map(|(_, layout)| *layout)
+        .with_context(|| format!("unsupported bundle format {format}"))
+}
 /// Settings that belong to this computer, not to the archive, so a moved archive takes them from
 /// the computer it lands on: App Lock (its secret never leaves the source machine; a fresh
 /// machine starts without one) and whether the password is remembered in this keychain (export
@@ -58,7 +77,7 @@ pub fn export(
         Some(&key),
         &cancel,
         progress,
-        &vault_layout::portable_databases().collect::<Vec<_>>(),
+        &vault_layout::portable_databases(vault.layout()).collect::<Vec<_>>(),
     )?;
     drop(pause);
     crate::config::save_copy_config(vault.paths(), stage.path(), &config)?;
@@ -80,7 +99,7 @@ pub fn export(
         &mut fs::File::open(vault_layout::path(stage.path(), A::Config))?,
         || cancel.check().is_err(),
     )?;
-    for (id, name) in vault_layout::portable_files() {
+    for (id, name) in vault_layout::portable_files(vault.layout()) {
         cancel.check()?;
         let source = if matches!(
             vault_layout::spec(id).lifecycle.portable,
@@ -102,7 +121,7 @@ pub fn export(
         &cancel,
     )?;
     let manifest = ExportManifest {
-        format_version: VERSION,
+        format_version: format_of(vault.layout())?,
         app_version: env!("CARGO_PKG_VERSION").into(),
         archive_schema_version: crate::store_schema::schema_version(vault_store::Db::Archive),
         archive_mode: "encrypted".into(),
@@ -150,11 +169,7 @@ fn validate_target(paths: &ProjectPaths, target: &Path) -> Result<()> {
 pub fn preview(paths: &ProjectPaths, bundle: &Path) -> Result<ImportPreview> {
     crate::admission::refuse_newer(&paths.app_root)?;
     let manifest = super::read_and_validate_manifest(bundle)?;
-    anyhow::ensure!(
-        manifest.format_version == VERSION,
-        "unsupported bundle format {}",
-        manifest.format_version
-    );
+    let layout = layout_of(manifest.format_version)?;
     anyhow::ensure!(
         (1..=crate::store_schema::schema_version(vault_store::Db::Archive))
             .contains(&manifest.archive_schema_version),
@@ -162,7 +177,7 @@ pub fn preview(paths: &ProjectPaths, bundle: &Path) -> Result<ImportPreview> {
         manifest.archive_schema_version
     );
     for required in
-        vault_layout::portable_files().map(|(_, name)| name).chain([portable_artifacts::NAME])
+        vault_layout::portable_files(layout).map(|(_, name)| name).chain([portable_artifacts::NAME])
     {
         anyhow::ensure!(
             manifest.files.iter().any(|f| f.path == required),
@@ -281,7 +296,7 @@ pub fn import(
     )?;
     config_file.sync_all()?;
     drop(config_file);
-    for (id, entry) in vault_layout::portable_files() {
+    for (id, entry) in vault_layout::portable_files(layout_of(preview.manifest.format_version)?) {
         let descriptor = vault_layout::spec(id);
         if matches!(descriptor.lifecycle.portable, PortablePolicy::Database { .. })
             && entry != descriptor.path.relative()
@@ -308,7 +323,8 @@ pub fn import(
     keep_machine_settings(&mut config, &here);
     crate::save_config(&staged_paths, &config)?;
     let staged = Vault::open_staged(staged_paths, config.clone(), Some(&key))?;
-    for db in vault_layout::portable_databases() {
+    let layout = staged.layout();
+    for db in vault_layout::portable_databases(layout) {
         cancel.check()?;
         anyhow::ensure!(
             staged.store().read(db, |s| s.integrity_check())? == ["ok"],
@@ -345,7 +361,8 @@ pub fn install_staged(
         vault.store().pause()?.close()?;
         vault.close()?;
     }
-    let files = vault_layout::portable_installation_files();
+    // What the stage holds, by its own control, not by this build's newest layout.
+    let files = vault_layout::portable_installation_files(crate::admission::root_layout(stage)?);
     let previous = maintenance::install::install(paths, stage, files, true)?;
     let vault = Vault::open_owned(paths.clone(), config, key.as_ref(), Some(owner))?;
     Ok(InstalledArchive { vault, data_key: key, previous_files: previous })

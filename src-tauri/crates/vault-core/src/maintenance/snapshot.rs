@@ -36,7 +36,9 @@ pub fn snapshot(vault: &Vault, target: &Path) -> Result<()> {
 }
 
 pub(crate) fn seal(root: &Path) -> Result<()> {
-    let files = database_files(false)
+    // The snapshot's own control, written just before, says which stores it holds.
+    let layout = crate::admission::root_layout(root)?;
+    let files = database_files(layout, false)
         .into_iter()
         .filter(|p| root.join(p).is_file())
         .map(|path| {
@@ -44,7 +46,7 @@ pub(crate) fn seal(root: &Path) -> Result<()> {
             Ok(FileProof { sha256: hash_file(&root.join(&path))?, path })
         })
         .collect::<Result<Vec<_>>>()?;
-    for directory in vault_layout::snapshot_directories()
+    for directory in vault_layout::snapshot_directories(layout)
         .into_iter()
         .map(|relative| root.join(relative))
         .chain([root.parent().unwrap().to_owned()])
@@ -59,7 +61,9 @@ pub(crate) fn seal(root: &Path) -> Result<()> {
 
 pub(crate) fn verify(root: &Path) -> Result<()> {
     let proof: Vec<FileProof> = serde_json::from_slice(&fs::read(root.join("snapshot.json"))?)?;
-    for required in vault_layout::required_snapshot_files(false).map(PathBuf::from) {
+    // What this snapshot must hold depends on the archive it was taken of, not on this build.
+    let layout = crate::admission::root_layout(root)?;
+    for required in vault_layout::required_snapshot_files(layout, false).map(PathBuf::from) {
         anyhow::ensure!(
             proof.iter().any(|file| file.path == required),
             "snapshot is missing {}",
@@ -144,7 +148,8 @@ pub fn restore_snapshot_to(
         None
     };
     let staged = Vault::open_staged(staged_paths, config.clone(), key.as_ref())?;
-    for db in vault_layout::snapshot_databases() {
+    let layout = staged.layout();
+    for db in vault_layout::snapshot_databases(layout) {
         let result = staged.store().read(db, |s| s.integrity_check())?;
         anyhow::ensure!(result == ["ok"], "snapshot integrity: {db:?}: {result:?}");
     }
@@ -160,13 +165,13 @@ pub fn restore_snapshot_to(
         vault.store().pause()?.close()?;
         vault.close()?;
     }
-    let previous = install::install(paths, stage.path(), database_files(true), true)?;
+    let previous = install::install(paths, stage.path(), database_files(layout, true), true)?;
     let opened = Vault::open_owned(paths.clone(), config, key.as_ref(), Some(owner))?;
     Ok(InstalledArchive { vault: opened, data_key: key, previous_files: previous })
 }
 
 fn copy_snapshot(source: &Path, target: &Path) -> Result<()> {
-    for relative in database_files(false) {
+    for relative in database_files(crate::admission::root_layout(source)?, false) {
         if source.join(&relative).is_file() {
             let file = target.join(relative);
             fs::create_dir_all(file.parent().unwrap())?;

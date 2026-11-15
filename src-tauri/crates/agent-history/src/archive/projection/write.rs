@@ -53,7 +53,7 @@ impl Archive {
             encoded.push((ordinal, event, payload));
         }
         let attempt = attempt.clone();
-        self.store.write(Db::Archive, Priority::Batch, move |tx| {
+        self.store.write(Db::AgentHistoryReadModel, Priority::Batch, move |tx| {
             require_work(tx, &attempt)?;
             let mut insert = tx.prepare(
                 "INSERT INTO ah_events(session_id, revision_id, projection_id, ordinal,
@@ -141,7 +141,7 @@ impl Archive {
         let prior_source = attempt.source_id.clone();
         let prior = self
             .store
-            .read(Db::Archive, move |tx| {
+            .read(Db::AgentHistoryReadModel, move |tx| {
                 tx.query(
                     "SELECT conversation_id FROM ah_sessions WHERE id=?1",
                     [prior_source],
@@ -174,7 +174,7 @@ impl Archive {
                 "publication changed while source relations were being validated".into(),
             ));
         }
-        self.store.write(Db::Archive, Priority::Batch, move |tx| {
+        self.store.write(Db::AgentHistoryReadModel, Priority::Batch, move |tx| {
             require_work(tx, &attempt)?;
             if let Some(previous) = current_projection_id(tx, &attempt.source_id)? {
                 retire(tx, &attempt.source_id, previous)?;

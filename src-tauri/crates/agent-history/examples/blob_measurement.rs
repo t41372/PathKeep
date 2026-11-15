@@ -7,10 +7,10 @@ use vault_store::{Config, Db, Priority, Store, params};
 
 fn open(root: &Path, key: &DataKey) -> Store {
     let mut config = Config::new(root);
-    config.databases = vec![Db::Scratch, Db::SourceEvidence];
+    config.databases = vec![Db::Scratch, Db::AgentHistoryEvidence];
     config.keys[Db::Scratch as usize] =
         Some(*key.derive(KeyPurpose::ScratchDatabase).expose_bytes());
-    config.keys[Db::SourceEvidence as usize] =
+    config.keys[Db::AgentHistoryEvidence as usize] =
         Some(*key.derive(KeyPurpose::SourceEvidenceDatabase).expose_bytes());
     config.io = Some(TempCryptIo::new(key).unwrap());
     config.readers_per_database = std::num::NonZeroUsize::new(1).unwrap();
@@ -36,7 +36,7 @@ fn synthetic(size: usize) -> Vec<u8> {
 fn read(store: &Store, id: i64) -> f64 {
     let start = Instant::now();
     let bytes: Vec<u8> = store
-        .read(Db::SourceEvidence, move |tx| {
+        .read(Db::AgentHistoryEvidence, move |tx| {
             tx.query_one("SELECT data FROM blobs WHERE id=?1", [id], |r| Ok(r.get(0)?))
         })
         .unwrap();
@@ -70,7 +70,7 @@ fn main() {
         let blob = zstd::stream::encode_all(raw.as_slice(), 3).unwrap();
         let store = open(temp.path(), &key);
         store
-            .write(Db::SourceEvidence, Priority::Batch, |tx| {
+            .write(Db::AgentHistoryEvidence, Priority::Batch, |tx| {
                 tx.execute("CREATE TABLE blobs(id INTEGER PRIMARY KEY,data BLOB NOT NULL)", ())?;
                 Ok(())
             })
@@ -80,7 +80,7 @@ fn main() {
             let data = blob.clone();
             let start = Instant::now();
             store
-                .write(Db::SourceEvidence, Priority::Batch, move |tx| {
+                .write(Db::AgentHistoryEvidence, Priority::Batch, move |tx| {
                     tx.execute("INSERT INTO blobs VALUES(?1,?2)", params![id, data])?;
                     Ok(())
                 })

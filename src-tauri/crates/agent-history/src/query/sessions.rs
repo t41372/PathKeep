@@ -36,7 +36,7 @@ impl Archive {
         let id = id.to_owned();
         let requested = id.clone();
         let columns = columns();
-        let found = self.store.read(Db::Archive, move |session| {
+        let found = self.store.read(Db::AgentHistoryReadModel, move |session| {
             let mut items = session.query(
                 &format!(
                     "SELECT {columns} FROM ah_sessions s
@@ -86,7 +86,7 @@ impl Archive {
         let sort = query.sort;
         let hidden = super::parents::hidden_query();
         let columns = columns();
-        let (generation, page) = self.store.read(Db::Archive, move |session| {
+        let (generation, page) = self.store.read(Db::AgentHistoryReadModel, move |session| {
             let current = generation(session)?;
             if after.as_ref().is_some_and(|cursor| cursor.generation != current) {
                 return Ok(Err(cursor::stale()));

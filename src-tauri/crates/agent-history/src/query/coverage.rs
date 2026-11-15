@@ -5,7 +5,7 @@ use vault_store::Db;
 
 impl Archive {
     pub(crate) fn normalization_complete(&self) -> Result<bool> {
-        self.store.read(Db::Archive, |tx| {
+        self.store.read(Db::AgentHistoryReadModel, |tx| {
             let failed = tx.query_one(
                 "SELECT EXISTS(SELECT 1 FROM ah_coverage c
                  WHERE c.complete=0 AND c.affects_conversations=1
@@ -53,7 +53,7 @@ impl Archive {
     }
 
     pub(crate) fn append_lineage_issues(&self, issues: &mut Vec<Diagnostic>) -> Result<()> {
-        let unresolved = self.store.read(Db::Archive, |tx| {
+        let unresolved = self.store.read(Db::AgentHistoryReadModel, |tx| {
             let mut after = String::new();
             let mut issues = Vec::new();
             loop {

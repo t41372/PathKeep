@@ -4,9 +4,23 @@ use vault_store::{Db, Migration, MigrationRegistry};
 
 pub(super) fn migrations() -> MigrationRegistry {
     let mut registry = MigrationRegistry::default();
-    registry.register(Db::SourceEvidence, steps(EVIDENCE));
-    registry.register(Db::Archive, steps(PROJECTION));
+    for db in [Db::AgentHistoryEvidence, Db::AgentHistoryReadModel] {
+        registry.register(db, schema_steps(db));
+    }
     registry
+}
+
+/// The migrations of one of this crate's two stores, for an owner that composes them with its
+/// own: PathKeep's archive opens these stores in the same `Store` as the browsing ones.
+///
+/// # Panics
+/// For a role this crate does not own; asking for one is a bug in the caller's composition.
+pub fn schema_steps(db: Db) -> Vec<Migration> {
+    match db {
+        Db::AgentHistoryEvidence => steps(EVIDENCE),
+        Db::AgentHistoryReadModel => steps(PROJECTION),
+        other => panic!("agent history does not own the {other:?} store"),
+    }
 }
 
 fn steps(statements: &[&str]) -> Vec<Migration> {

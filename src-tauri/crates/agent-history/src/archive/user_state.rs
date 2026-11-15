@@ -37,7 +37,7 @@ impl Archive {
         let id = id.to_owned();
         let mark = mark.clone();
         let now = chrono::Utc::now().timestamp_millis();
-        self.store.write(Db::SourceEvidence, Priority::Interactive, move |tx| {
+        self.store.write(Db::AgentHistoryEvidence, Priority::Interactive, move |tx| {
             tx.execute(
                 "INSERT OR IGNORE INTO ah_user_state(conversation_id) VALUES(?1)",
                 [id.as_str()],
@@ -82,7 +82,7 @@ impl Archive {
     }
 
     pub(crate) fn state_visibility(&self) -> Result<i64> {
-        Ok(self.store.read(Db::Archive, |tx| {
+        Ok(self.store.read(Db::AgentHistoryReadModel, |tx| {
             tx.query_one("SELECT visibility FROM ah_state_generation WHERE id=1", (), |row| {
                 Ok(row.get(0)?)
             })
@@ -98,12 +98,12 @@ impl Archive {
     }
 
     fn replay_pending_state(&self) -> Result<()> {
-        let target = self.store.read(Db::SourceEvidence, |tx| {
+        let target = self.store.read(Db::AgentHistoryEvidence, |tx| {
             tx.query_one("SELECT generation FROM ah_state_generation WHERE id=1", (), |row| {
                 Ok(row.get::<i64>(0)?)
             })
         })?;
-        let applied = self.store.read(Db::Archive, |tx| {
+        let applied = self.store.read(Db::AgentHistoryReadModel, |tx| {
             tx.query_one("SELECT generation FROM ah_state_generation WHERE id=1", (), |row| {
                 Ok(row.get::<i64>(0)?)
             })
@@ -112,7 +112,7 @@ impl Archive {
             let mut after = String::new();
             loop {
                 let cursor = after.clone();
-                let rows = self.store.read(Db::SourceEvidence, move |tx| {
+                let rows = self.store.read(Db::AgentHistoryEvidence, move |tx| {
                     tx.query(
                         "SELECT u.conversation_id, u.starred, u.put_away, u.trashed_at, u.title
                             FROM ah_user_state_pending p JOIN ah_user_state u ON
@@ -134,7 +134,7 @@ impl Archive {
                     break;
                 }
                 after = rows.last().unwrap().0.clone();
-                self.store.write(Db::Archive, Priority::Interactive, move |tx| {
+                self.store.write(Db::AgentHistoryReadModel, Priority::Interactive, move |tx| {
                     for (id, star, away, trash, title) in rows {
                         tx.execute(
                             "INSERT INTO ah_user_state VALUES(?1, ?2, ?3, ?4, ?5) ON
@@ -151,14 +151,14 @@ impl Archive {
                     Ok(())
                 })?;
             }
-            self.store.write(Db::Archive, Priority::Interactive, move |tx| {
+            self.store.write(Db::AgentHistoryReadModel, Priority::Interactive, move |tx| {
                 tx.execute("UPDATE ah_state_generation SET generation=?1 WHERE id=1", [target])?;
                 Ok(())
             })?;
         }
         // A crash before cleanup replays harmlessly. Never acknowledge changes
         // before their hot rows are committed, or skip a previously failed mirror.
-        self.store.write(Db::SourceEvidence, Priority::Interactive, move |tx| {
+        self.store.write(Db::AgentHistoryEvidence, Priority::Interactive, move |tx| {
             tx.execute("DELETE FROM ah_user_state_pending WHERE generation<=?1", [target])?;
             Ok(())
         })?;

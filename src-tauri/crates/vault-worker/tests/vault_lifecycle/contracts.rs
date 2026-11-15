@@ -41,6 +41,9 @@ fn encrypted_files_use_the_literal_historical_key_purpose_at_each_path() {
         intelligence: decoded.join("derived/intelligence.db"),
         agent: decoded.join("derived/agent.db"),
         scratch: decoded.join("derived/scratch.db"),
+        // Not opened below: the released layout has no agent-history stores.
+        agent_history_evidence: decoded.join("archive/agent-history.db"),
+        agent_history_read_model: decoded.join("derived/agent-history-read-model.db"),
     };
     config.databases =
         vec![Db::Archive, Db::SourceEvidence, Db::Intelligence, Db::Agent, Db::Scratch];
@@ -50,6 +53,8 @@ fn encrypted_files_use_the_literal_historical_key_purpose_at_each_path() {
         Some(*key.derive(KeyPurpose::IntelligenceDatabase).expose_bytes()),
         Some(*key.derive(KeyPurpose::AgentDatabase).expose_bytes()),
         Some(*key.derive(KeyPurpose::ScratchDatabase).expose_bytes()),
+        None,
+        None,
     ];
     // Existing copies must already have these versions. These literal reader ceilings run
     // no schema implementation and cannot manufacture a missing fixture marker/table.

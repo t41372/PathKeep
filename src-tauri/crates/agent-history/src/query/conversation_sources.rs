@@ -81,7 +81,7 @@ impl Archive {
         for batch in ids.chunks(128) {
             let ids = batch.iter().cloned().map(Value::Text).collect::<Vec<_>>();
             let placeholders = vec!["?"; ids.len()].join(",");
-            let rows = self.store.read(Db::SourceEvidence, move |tx| {
+            let rows = self.store.read(Db::AgentHistoryEvidence, move |tx| {
                 tx.query(
                     &format!(
                         "SELECT id,missing_since FROM ah_sources WHERE id IN ({placeholders})"

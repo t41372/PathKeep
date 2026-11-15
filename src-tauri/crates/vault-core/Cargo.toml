@@ -11,6 +11,7 @@ default = []
 test-fixtures = []
 
 [dependencies]
+agent-history = { path = "../agent-history" }
 vault-build = { path = "../vault-build" }
 vault-layout = { path = "../vault-layout" }
 vault-crypto = { path = "../vault-crypto" }

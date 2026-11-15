@@ -31,6 +31,9 @@ pub struct Vault {
     pub(crate) vector_generations: Arc<crate::ai::generations::GenerationState>,
     paths: ProjectPaths,
     config: AppConfig,
+    /// Which stores this archive holds, read from its control when it was opened. Every
+    /// operation that picks stores from the layout table uses this, not the newest layout.
+    layout: vault_layout::ArchiveLayout,
     backup: Arc<std::sync::Mutex<()>>,
     intelligence: Arc<std::sync::Mutex<()>>,
     site_days: Arc<crate::intelligence::SiteDayCache>,
@@ -91,7 +94,10 @@ impl Vault {
         } else {
             config
         };
-        let storage = storage_config(&paths, key, Some(owner))?;
+        // After recovery: a replayed install can have replaced the control.
+        let layout = crate::admission::root_layout(&paths.app_root)
+            .map_err(|refusal| vault_store::Error::Operation(Box::new(refusal)))?;
+        let storage = storage_config(&paths, layout, key, Some(owner))?;
         let store = match Store::open(storage) {
             Ok(store) => Arc::new(store),
             Err(error) => {
@@ -136,6 +142,7 @@ impl Vault {
             store,
             paths,
             config,
+            layout,
             generation_lease: None,
             vector_generations: Arc::default(),
             backup: Arc::default(),
@@ -244,6 +251,11 @@ impl Vault {
         &self.paths
     }
 
+    /// Which stores this archive holds.
+    pub fn layout(&self) -> vault_layout::ArchiveLayout {
+        self.layout
+    }
+
     /// Reads the control on disk again before an operation that rewrites or copies the whole
     /// root. This vault was admitted when it opened; a restore or import since then, or anything
     /// else that replaced `config.json`, may have changed what this build is allowed to do.
@@ -319,10 +331,13 @@ impl std::error::Error for BackupAlreadyRunning {}
 
 fn storage_config(
     paths: &ProjectPaths,
+    layout: vault_layout::ArchiveLayout,
     key: Option<&vault_crypto::DataKey>,
     owner: Option<Arc<vault_store::OwnerLock>>,
 ) -> Result<vault_store::Config> {
     let mut storage = vault_store::Config::new(&paths.app_root);
+    // Only the stores this archive's layout holds. Opening one it does not would create it.
+    storage.databases = vault_layout::databases_in(layout);
     storage.owner = owner;
     if let Some(data_key) = key {
         storage.keys = vault_store::Db::ALL

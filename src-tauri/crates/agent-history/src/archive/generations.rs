@@ -21,7 +21,7 @@ impl Archive {
         };
         let root = source.root.clone();
         let harness = source.harness;
-        let previous = self.store.read(Db::Archive, move |tx| {
+        let previous = self.store.read(Db::AgentHistoryReadModel, move |tx| {
             tx.query_one(
                 "SELECT native_id, project_path, title, created_at, updated_at, origin,
                     harness_version, parent_session_id, model, forked_from_native_id, generation,

@@ -20,7 +20,7 @@ impl Archive {
         if let Some(base) = &relation.base_native_id {
             let base = base.clone();
             let harness = provenance.harness.clone();
-            let sources = self.store.read(Db::Archive, move |tx| {
+            let sources = self.store.read(Db::AgentHistoryReadModel, move |tx| {
                 tx.query(
                     "
                 SELECT revision_id, relative_path, relation_json FROM ah_sessions
@@ -37,7 +37,7 @@ impl Archive {
         if let Some(rollout) = rollout {
             let rollout = rollout.to_owned();
             let harness = provenance.harness;
-            let pending = self.store.read(Db::Archive, move |tx| {
+            let pending = self.store.read(Db::AgentHistoryReadModel, move |tx| {
                 tx.query(
                     "
                 SELECT relation_json FROM ah_sessions WHERE harness=?1 AND
@@ -72,7 +72,7 @@ impl Archive {
         let (Ok(end), Ok(length)) = (i64::try_from(end), i64::try_from(length)) else {
             return Ok(());
         };
-        let present = self.store.read(Db::Archive, move |tx| {
+        let present = self.store.read(Db::AgentHistoryReadModel, move |tx| {
             tx.query_one(
                 "
             SELECT EXISTS(SELECT 1 FROM ah_lineage_validation WHERE revision_id=?1 AND
@@ -89,7 +89,7 @@ impl Archive {
             Some(own) => self.check_boundary(revision, path, own, length as u64)?,
             None => None,
         };
-        self.store.write(Db::Archive, Priority::Batch, move |tx| {
+        self.store.write(Db::AgentHistoryReadModel, Priority::Batch, move |tx| {
             tx.execute(
                 "INSERT OR IGNORE INTO ah_lineage_validation
                  VALUES(?1,?2,?3,?4,?5,?6)",

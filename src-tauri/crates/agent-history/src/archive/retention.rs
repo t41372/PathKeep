@@ -85,7 +85,7 @@ pub(super) fn retain_latest_state(
 impl Archive {
     pub(super) fn reclaim_slices(&self) -> Result<()> {
         loop {
-            let count = self.store.write(Db::SourceEvidence, Priority::Batch, |tx| {
+            let count = self.store.write(Db::AgentHistoryEvidence, Priority::Batch, |tx| {
                 let hashes = tx.query(
                     "SELECT hash FROM ah_chunk_garbage ORDER BY hash LIMIT 128",
                     (),

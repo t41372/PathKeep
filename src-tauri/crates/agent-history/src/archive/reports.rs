@@ -40,7 +40,7 @@ impl Archive {
         validate_parser_version(parser_version)?;
         let parser_version = parser_version.to_owned();
         let json = encode(report)?;
-        self.store.write(Db::SourceEvidence, Priority::Batch, move |tx| {
+        self.store.write(Db::AgentHistoryEvidence, Priority::Batch, move |tx| {
             tx.execute(
                 "INSERT INTO ah_parse_reports(revision_id, parser_version, report_json)
                     VALUES(?1, ?2, ?3) ON CONFLICT(revision_id, parser_version) DO UPDATE SET
@@ -61,7 +61,7 @@ impl Archive {
     ) -> Result<Option<ParseReport>> {
         validate_parser_version(parser_version)?;
         let parser_version = parser_version.to_owned();
-        let json = self.store.read(Db::SourceEvidence, move |tx| {
+        let json = self.store.read(Db::AgentHistoryEvidence, move |tx| {
             tx.query_one(
                 "SELECT report_json FROM ah_parse_reports WHERE revision_id=?1 AND
                     parser_version=?2",
@@ -78,7 +78,7 @@ impl Archive {
     pub fn start_backup_run(&self) -> Result<i64> {
         let now = chrono::Utc::now().timestamp_millis();
         self.store
-            .write(Db::SourceEvidence, Priority::Batch, move |tx| {
+            .write(Db::AgentHistoryEvidence, Priority::Batch, move |tx| {
                 tx.insert(
                     "INSERT INTO ah_backup_runs(status, started_at) VALUES('running', ?1)",
                     [now],
@@ -97,7 +97,7 @@ impl Archive {
         let report = encode(report)?;
         let status = status.to_owned();
         let now = chrono::Utc::now().timestamp_millis();
-        self.store.write(Db::SourceEvidence, Priority::Batch, move |tx| {
+        self.store.write(Db::AgentHistoryEvidence, Priority::Batch, move |tx| {
             let changed = tx.execute(
                 "UPDATE ah_backup_runs SET status=?1, finished_at=?2, report_json=?3 WHERE
                     id=?4 AND status='running'",
@@ -116,7 +116,7 @@ impl Archive {
     pub fn backup_run(&self, id: i64) -> Result<BackupRun> {
         let stored =
             self.store
-                .read(Db::SourceEvidence, move |tx| {
+                .read(Db::AgentHistoryEvidence, move |tx| {
                     tx.query_one(
                 "SELECT id, status, started_at, finished_at, report_json FROM ah_backup_runs
                     WHERE id=?1",
@@ -142,18 +142,19 @@ impl Archive {
     pub(super) fn recover_backup_runs(&self) -> Result<()> {
         loop {
             let now = chrono::Utc::now().timestamp_millis();
-            let changed = self.store.write(Db::SourceEvidence, Priority::Batch, move |tx| {
-                tx.execute(
-                    "UPDATE ah_backup_runs SET status='interrupted', finished_at=?1,
+            let changed =
+                self.store.write(Db::AgentHistoryEvidence, Priority::Batch, move |tx| {
+                    tx.execute(
+                        "UPDATE ah_backup_runs SET status='interrupted', finished_at=?1,
                         report_json=coalesce(report_json, ?2) WHERE id IN (SELECT id FROM
                         ah_backup_runs WHERE status='running' ORDER BY id LIMIT ?3)",
-                    params![
-                        now,
-                        r#"{"status":"interrupted","reason":"owner_restarted"}"#,
-                        RECOVERY_BATCH
-                    ],
-                )
-            })?;
+                        params![
+                            now,
+                            r#"{"status":"interrupted","reason":"owner_restarted"}"#,
+                            RECOVERY_BATCH
+                        ],
+                    )
+                })?;
             if changed == 0 {
                 return Ok(());
             }

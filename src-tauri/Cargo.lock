@@ -8523,6 +8523,7 @@ dependencies = [
 name = "vault-core"
 version = "0.1.0"
 dependencies = [
+ "agent-history",
  "anyhow",
  "browser-history-fixtures",
  "browser-history-parser",

@@ -57,7 +57,7 @@ pub(super) fn choose(
     };
     let id = attempt.source_id.clone();
     let group = conversation.to_owned();
-    let old = archive.store.read(Db::Archive, move |tx| {
+    let old = archive.store.read(Db::AgentHistoryReadModel, move |tx| {
         tx.query_one(
             &format!("SELECT {COLUMNS} FROM ah_sessions WHERE id=?1 AND conversation_id=?2"),
             params![id, group],
@@ -72,7 +72,7 @@ pub(super) fn choose(
         // remain prefixes too, so appending does not revisit the conversation.
         let extends = before.id == after.id
             || (before.byte_len <= after.byte_len
-                && archive.store.read(Db::SourceEvidence, move |tx| {
+                && archive.store.read(Db::AgentHistoryEvidence, move |tx| {
                     tx.query_one(
                         "SELECT coalesce(a.manifest_revision_id, a.id)=
                             coalesce(b.manifest_revision_id, b.id) FROM ah_revisions a JOIN
@@ -83,7 +83,7 @@ pub(super) fn choose(
                 })?);
         if extends {
             if let Some(copy) = old.copy {
-                let other = archive.store.read(Db::Archive, move |tx| {
+                let other = archive.store.read(Db::AgentHistoryReadModel, move |tx| {
                     tx.query_one(
                         &format!("SELECT {COLUMNS} FROM ah_sessions WHERE id=?1"),
                         [copy],
@@ -117,7 +117,7 @@ pub(super) fn remaining(
 
 fn load(archive: &Archive, id: &str) -> Result<Vec<Candidate>> {
     let id = id.to_owned();
-    Ok(archive.store.read(Db::Archive, move |tx| {
+    Ok(archive.store.read(Db::AgentHistoryReadModel, move |tx| {
         tx.query(
             &format!("SELECT {COLUMNS} FROM ah_sessions WHERE conversation_id=?1 ORDER BY id"),
             [id],
@@ -140,7 +140,7 @@ fn select(archive: &Archive, mut candidates: Vec<Candidate>) -> Result<Selection
             .map(|candidate| vault_store::Value::Integer(candidate.revision))
             .collect::<Vec<_>>();
         let placeholders = vec!["?"; ids.len()].join(",");
-        let rows = archive.store.read(Db::SourceEvidence, move |tx| {
+        let rows = archive.store.read(Db::AgentHistoryEvidence, move |tx| {
             tx.query(
                 &format!(
                     "SELECT id,digest,byte_len FROM ah_revisions

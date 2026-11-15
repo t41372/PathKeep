@@ -17,6 +17,7 @@ pub enum DataScope {
     Assistant,
     Shared,
     NestedArchive,
+    AgentHistory,
 }
 /// Startup work and its established ordering, without executing it here.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -43,10 +44,32 @@ pub enum RestorePolicy {
     RebuildSearch,
     Preserve,
 }
-/// Layout identity is metadata for existing stores, not an on-disk config encoding.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// Which artifacts an archive holds, in the order PathKeep introduced them. An archive of one
+/// layout holds every row introduced in it or before; a store a layout requires is never
+/// legitimately absent from an archive of that layout.
+///
+/// The layout is not written anywhere of its own. It follows from the archive's format revision
+/// (`config.json`'s stamp), through [`ArchiveLayout::of_revision`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ArchiveLayout {
+    /// What PathKeep 0.4 and 0.5 write: browsing history, its evidence, Insights, Ask, scratch.
     BrowsingV1,
+    /// Adds the agent conversation stores. Format revision 1.
+    AgentHistoryV2,
+}
+impl ArchiveLayout {
+    /// The newest layout this build knows.
+    pub const NEWEST: Self = Self::AgentHistoryV2;
+
+    /// The layout of an archive with this format revision. A revision newer than this build
+    /// knows maps to the newest layout it knows: such an archive is opened only when its writer
+    /// declared this build still safe for it, which means it holds nothing this layout lacks.
+    pub const fn of_revision(revision: u64) -> Self {
+        match revision {
+            0 => Self::BrowsingV1,
+            _ => Self::AgentHistoryV2,
+        }
+    }
 }
 /// Existing preview reasons have fixed meanings and presentation order.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -13,7 +13,7 @@ use vault_store::{CancelToken, Config, Db, Error, Migration, Priority, Store};
 fn selected_config(root: &Path) -> Config {
     let mut config = Config::new(root);
     config.databases = vec![Db::SourceEvidence, Db::Archive, Db::Scratch];
-    config.keys = [Some([61; 32]); 5];
+    config.keys = [Some([61; 32]); vault_store::Db::COUNT];
     config.migrations.register(
         Db::Archive,
         vec![Migration::sql(1, "CREATE TABLE sessions(id INTEGER PRIMARY KEY, title TEXT)")],

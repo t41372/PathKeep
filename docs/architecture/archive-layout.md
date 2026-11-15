@@ -12,10 +12,18 @@ The table turns that into a compile error. A new artifact needs a row, and a row
 
 `vault-layout` depends on nothing but `std` and does no file I/O.
 
-- `identity.rs`: the identities. `Db` (the five databases the store opens), `ArtifactId` (every database, file, folder and family of files under the data folder) and `KeyPurpose` with its key-derivation label. `vault-store::Db` and `vault-crypto::KeyPurpose` are re-exports of these.
+- `identity.rs`: the identities. `Db` (the seven databases the store can open: the five of PathKeep 0.4 and 0.5, and the agent-history evidence and read model), `ArtifactId` (every database, file, folder and family of files under the data folder) and `KeyPurpose` with its key-derivation label. `vault-store::Db` and `vault-crypto::KeyPurpose` are re-exports of these.
 - `policies.rs`: one small enum per operation, listing the answers that operation can get, and `LifecyclePolicies`, the struct that holds one answer per operation.
-- `catalog.rs`: `spec(ArtifactId) -> ArtifactSpec`, one `match` with one arm per artifact. Each row gives the path or path family, whether the content is original, rebuildable or control data, whose data it is, the database wiring and key purpose if it is a database, and its `LifecyclePolicies`.
-- `paths.rs`: the views the operations use, for example `snapshot_databases()`, `portable_files()`, `wipe_targets()`, `installation_files()`. Each is a filter over the table. Callers do not keep their own lists.
+- `catalog.rs`: `spec(ArtifactId) -> ArtifactSpec`, one `match` with one arm per artifact. Each row gives the path or path family, whether the content is original, rebuildable or control data, whose data it is, the database wiring and key purpose if it is a database, its `LifecyclePolicies`, and the layout that introduced it.
+- `paths.rs`: the views the operations use, for example `snapshot_databases(layout)`, `portable_files(layout)`, `wipe_targets()`, `installation_files(layout, search)`. Each is a filter over the table. Callers do not keep their own lists.
+
+## Layouts
+
+Not every archive holds every row. `ArchiveLayout` names what an archive holds: `BrowsingV1` is what PathKeep 0.4 and 0.5 write (five stores), `AgentHistoryV2` adds the agent-history evidence, its read model and its search index. Every row says which layout introduced it, and a layout holds every row of the layouts before it (`each_layout_holds_everything_the_one_before_held`).
+
+The layout is not stored on its own. It follows from the archive's format revision in `config.json` (`ArchiveLayout::of_revision`; no stamp is revision 0, `BrowsingV1`), and `vault_core::admission::root_layout` reads it.
+
+The views that list stores or files take a layout, and every caller passes the layout of the archive it is working on: the open archive's (`Vault::layout`, read when it was opened), a snapshot's or a stage's from its own `config.json`, a move bundle's from its format number. Never the newest layout by default: a restore of a snapshot taken before the agent-history stores existed must not require them, and opening an archive must not create stores its layout does not have. The views that only order (`startup_databases`), delete (`wipe_targets`) or measure what exists (`usage_members` for storage) are not tied to a layout in that way.
 
 `ProjectPaths` in `vault-core` is still the typed set of paths the rest of the backend passes around. Its values now come from the table, and `ProjectPaths::artifact_path` resolves any artifact, honouring a caller's overridden paths where the old code did.
 
@@ -23,6 +31,7 @@ The table turns that into a compile error. A new artifact needs a row, and a row
 
 - A new `ArtifactId` without an arm in `spec` does not compile.
 - A new `Db` without an artifact does not compile.
+- A row without the layout that introduced it does not compile.
 - A new operation adds a field to `LifecyclePolicies`, and every row fails to compile until it answers.
 - A row cannot leave an answer out: there is no default and no base row.
 

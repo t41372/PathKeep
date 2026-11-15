@@ -58,14 +58,14 @@ fn event_index_pages_seek_the_published_projection_without_a_sorter() {
             true,
         )
         .unwrap();
-    archive.store.capture_query_plans(Db::Archive, true).unwrap();
+    archive.store.capture_query_plans(Db::AgentHistoryReadModel, true).unwrap();
     let source = archive.index_source("source-a").unwrap().unwrap();
     let page = archive.index_event_page(&source, 127).unwrap();
     assert_eq!(page.len(), 128);
     assert_eq!(page[0].ordinal, 128);
     assert_eq!(page[127].ordinal, 255);
-    let plans = archive.store.take_query_plans(Db::Archive).unwrap();
-    let ephemeral = archive.store.take_ephemeral_tables(Db::Archive).unwrap();
+    let plans = archive.store.take_query_plans(Db::AgentHistoryReadModel).unwrap();
+    let ephemeral = archive.store.take_ephemeral_tables(Db::AgentHistoryReadModel).unwrap();
     eprintln!("event indexing plans: {plans:#?}\nephemeral tables: {ephemeral:#?}");
     assert!(ephemeral.is_empty(), "an ordinal page must not materialize temporary tables");
     let events = plans

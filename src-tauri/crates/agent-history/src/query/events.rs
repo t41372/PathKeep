@@ -20,7 +20,7 @@ impl Archive {
             }
         }
         let id = query.session_id.clone();
-        self.store.read(Db::Archive, move |tx| Ok(page(tx, &id, limit, after)))?
+        self.store.read(Db::AgentHistoryReadModel, move |tx| Ok(page(tx, &id, limit, after)))?
     }
 }
 

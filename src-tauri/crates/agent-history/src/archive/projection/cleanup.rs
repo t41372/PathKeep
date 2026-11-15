@@ -14,7 +14,7 @@ impl Archive {
     pub fn retire_projection(&self, source_id: &str) -> Result<bool> {
         let snapshot = self.projection_generation()?;
         let source = source_id.to_owned();
-        let conversation = self.store.read(Db::Archive, move |tx| {
+        let conversation = self.store.read(Db::AgentHistoryReadModel, move |tx| {
             tx.query_one("SELECT conversation_id FROM ah_sessions WHERE id=?1", [source], |row| {
                 Ok(row.get::<String>(0)?)
             })
@@ -33,7 +33,7 @@ impl Archive {
         }
         let source_id = source_id.to_owned();
         self.store
-            .write(Db::Archive, Priority::Batch, move |tx| {
+            .write(Db::AgentHistoryReadModel, Priority::Batch, move |tx| {
                 let published = current_projection_id(tx, &source_id)?;
                 if let Some(projection_id) = published {
                     retire(tx, &source_id, projection_id)?;
@@ -79,7 +79,7 @@ impl Archive {
             return Err(Error::InvalidInput("projection cleanup limit must be 1..=256".into()));
         }
         self.store
-            .write(Db::Archive, Priority::Batch, move |tx| {
+            .write(Db::AgentHistoryReadModel, Priority::Batch, move |tx| {
                 let pair = tx
                     .query_one(
                         "SELECT session_id, projection_id FROM ah_projection_retired LIMIT 1",
@@ -132,7 +132,7 @@ impl Archive {
     /// generation survives; its replacement's rows enter the cleanup queue.
     pub(crate) fn recover_projection_work(&self) -> Result<()> {
         loop {
-            let count = self.store.write(Db::Archive, Priority::Batch, |tx| {
+            let count = self.store.write(Db::AgentHistoryReadModel, Priority::Batch, |tx| {
                 let work = tx.query(
                     "SELECT session_id, projection_id FROM ah_projection_work LIMIT 128",
                     (),

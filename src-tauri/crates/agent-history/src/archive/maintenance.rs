@@ -12,7 +12,7 @@ impl Archive {
         if !(1..=256).contains(&limit) {
             return Err(Error::InvalidInput("capture cleanup limit must be 1..=256".into()));
         }
-        Ok(self.store.write(Db::SourceEvidence, Priority::Batch, move |tx| {
+        Ok(self.store.write(Db::AgentHistoryEvidence, Priority::Batch, move |tx| {
             let mut revision = None;
             for state in ["abandoned", "duplicate"] {
                 revision = tx

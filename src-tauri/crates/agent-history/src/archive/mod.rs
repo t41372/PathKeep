@@ -1,8 +1,10 @@
 //! Responsibilities: own an isolated history archive and its persistence boundary.
 //! Not responsible for: source discovery, native parsing, UI policy or harness mutation.
 //!
-//! Raw evidence and normalized queries use separate stores. The archive's own data key
-//! keeps it independent from PathKeep's browser vault and assistant runtime.
+//! Raw evidence and normalized queries use separate stores, under the two roles PathKeep's own
+//! archive gives them (`Db::AgentHistoryEvidence`, `Db::AgentHistoryReadModel`) and at the same
+//! paths. A standalone archive has its own data key, which keeps it independent from PathKeep's
+//! browser vault and assistant runtime.
 mod attachment_counts;
 mod attachment_outcomes;
 mod chunks;
@@ -38,6 +40,7 @@ pub(crate) use reader::expired_read;
 pub use reports::BackupRun;
 pub use retention::SLICE_BYTES;
 pub use revisions::{RevisionInfo, RevisionOutcome, SourceInfo};
+pub use schema::schema_steps;
 pub use user_state::ConversationMark;
 
 use crate::{Error, Result};
@@ -145,8 +148,8 @@ impl Archive {
         } else {
             temporary_key()?
         };
-        for relative in ["archive/catalog.db", "archive/evidence.db"] {
-            let path = root.join(relative);
+        for db in [Db::AgentHistoryReadModel, Db::AgentHistoryEvidence] {
+            let path = root.join(vault_layout::database_path(db));
             reject_symlink(&path)?;
             if !path.is_file() {
                 return Err(Error::InvalidArchive("a canonical database is missing".into()));
@@ -164,10 +167,7 @@ impl Archive {
         reject_symlink(&vault_layout::path(&root, vault_layout::ArtifactId::ArchiveRoot))?;
         reject_symlink(&vault_layout::path(&root, vault_layout::ArtifactId::DerivedRoot))?;
         let mut config = Config::new(&root);
-        config.databases = vec![Db::Archive, Db::SourceEvidence, Db::Scratch];
-        config.paths.archive = root.join("archive/catalog.db");
-        config.paths.source_evidence = root.join("archive/evidence.db");
-        config.paths.scratch = vault_layout::path(&root, vault_layout::ArtifactId::Scratch);
+        config.databases = vec![Db::AgentHistoryReadModel, Db::AgentHistoryEvidence, Db::Scratch];
         for db in config.databases.iter().copied() {
             reject_symlink(config.paths.get(db))?;
             if encrypted {

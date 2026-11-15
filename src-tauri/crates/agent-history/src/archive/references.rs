@@ -18,7 +18,7 @@ impl Archive {
         self.revision(target_revision)?;
         let key = reference_key(reference)?;
         let now = chrono::Utc::now().timestamp_millis();
-        self.store.write(Db::SourceEvidence, Priority::Batch, move |tx| {
+        self.store.write(Db::AgentHistoryEvidence, Priority::Batch, move |tx| {
             let previous = tx
                 .query_one(
                     "SELECT target_revision FROM ah_reference_bindings WHERE parent_revision=?1 AND
@@ -48,7 +48,7 @@ impl Archive {
     ) -> Result<Option<RevisionInfo>> {
         self.revision(parent_revision)?;
         let key = reference_key(reference)?;
-        let target = self.store.read(Db::SourceEvidence, move |tx| {
+        let target = self.store.read(Db::AgentHistoryEvidence, move |tx| {
             tx.query_one(
                 "SELECT target_revision FROM ah_reference_bindings WHERE parent_revision=?1 AND
                     reference_key=?2 ORDER BY id DESC LIMIT 1",

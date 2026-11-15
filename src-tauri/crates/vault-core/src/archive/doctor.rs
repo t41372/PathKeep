@@ -46,7 +46,7 @@ pub fn doctor(vault: &Vault) -> Result<HealthReport> {
         check("archive-unlock", "Archive Unlock", true, "The session owns an open archive"),
     ];
     let mut versions = Vec::new();
-    let databases = vault_layout::health_databases().collect::<Vec<_>>();
+    let databases = vault_layout::health_databases(vault.layout()).collect::<Vec<_>>();
     let expected_databases = databases.len();
     for (db, name, label) in databases {
         match vault.read(db, |s| Ok((s.schema_version()?, s.integrity_check()?))) {

@@ -15,7 +15,7 @@ impl Archive {
         projection: i64,
         revision: i64,
     ) -> Result<AttachmentCounter> {
-        let present = self.store.read(Db::Archive, move |tx| {
+        let present = self.store.read(Db::AgentHistoryReadModel, move |tx| {
             tx.query_one(
                 "SELECT EXISTS(SELECT 1 FROM ah_event_references WHERE projection_id=?1)",
                 [projection],
@@ -25,14 +25,14 @@ impl Archive {
         if !present {
             return Ok(AttachmentCounter { id: 0, total: 0 });
         }
-        let id = self.store.write(Db::Archive, Priority::Batch, |tx| {
+        let id = self.store.write(Db::AgentHistoryReadModel, Priority::Batch, |tx| {
             tx.insert("INSERT INTO ah_attachment_generations(state) VALUES('staged')", ())?
                 .ok_or_else(|| integrity("reference counter has no generation"))
         })?;
         let mut after = -1;
         let mut total = 0_u64;
         loop {
-            let rows = self.store.read(Db::Archive, move |tx| {
+            let rows = self.store.read(Db::AgentHistoryReadModel, move |tx| {
                 tx.query(
                     "SELECT e.ordinal,sum(e.occurrences) FROM ah_event_references e
                      LEFT JOIN ah_reference_outcomes o
@@ -53,7 +53,7 @@ impl Archive {
                 counts.push((ordinal, total));
                 after = ordinal;
             }
-            self.store.write(Db::Archive, Priority::Batch, move |tx| {
+            self.store.write(Db::AgentHistoryReadModel, Priority::Batch, move |tx| {
                 for (ordinal, count) in counts {
                     tx.execute(
                         "INSERT INTO ah_attachment_counts VALUES(?1,?2,?3)",
@@ -70,7 +70,7 @@ impl Archive {
         let revision = self.current_projection(source)?.expect("published source");
         let counter = self.build_attachment_counter(projection, revision)?;
         let source = source.to_owned();
-        self.store.write(Db::Archive, Priority::Batch, move |tx| {
+        self.store.write(Db::AgentHistoryReadModel, Priority::Batch, move |tx| {
             let previous = tx.query_one(
                 "SELECT attachment_generation FROM ah_sessions WHERE id=?1 AND projection_id=?2",
                 params![source.clone(), projection],
@@ -87,7 +87,7 @@ impl Archive {
     }
 
     pub(crate) fn prune_attachment_counts(&self) -> Result<u64> {
-        Ok(self.store.write(Db::Archive, Priority::Batch, |tx| {
+        Ok(self.store.write(Db::AgentHistoryReadModel, Priority::Batch, |tx| {
             let id = tx
                 .query_one(
                     "SELECT id FROM ah_attachment_generations WHERE state='retired' LIMIT 1",
@@ -112,7 +112,7 @@ impl Archive {
     }
 
     pub(super) fn recover_attachment_counts(&self) -> Result<()> {
-        self.store.write(Db::Archive, Priority::Batch, |tx| {
+        self.store.write(Db::AgentHistoryReadModel, Priority::Batch, |tx| {
             tx.execute(
                 "UPDATE ah_attachment_generations SET state='retired' WHERE state='staged'",
                 (),

@@ -88,6 +88,17 @@ pub fn artifacts() -> impl Iterator<Item = ArtifactSpec> {
 pub fn databases() -> impl Iterator<Item = DatabaseSpec> {
     artifacts().filter_map(|s| s.database)
 }
+/// The artifacts an archive of `layout` holds.
+pub fn artifacts_in(layout: ArchiveLayout) -> impl Iterator<Item = ArtifactSpec> {
+    artifacts().filter(move |s| s.introduced_in <= layout)
+}
+/// The stores an archive of `layout` opens, in no particular order (`startup_databases` orders).
+pub fn databases_in(layout: ArchiveLayout) -> Vec<Db> {
+    artifacts_in(layout)
+        .filter(|s| matches!(s.lifecycle.open, OpenPolicy::Database(_)))
+        .map(|s| s.database.expect("database open policy").db)
+        .collect()
+}
 /// Resolves a default archive path without accessing the filesystem.
 pub fn path(root: &Path, id: ArtifactId) -> PathBuf {
     root.join(spec(id).path.relative())
@@ -110,27 +121,27 @@ pub fn startup_databases() -> Vec<Db> {
     ordered.into_iter().map(|(_, db)| db).collect()
 }
 /// Only checkpoint-copy members participate in a Store snapshot.
-pub fn snapshot_databases() -> impl Iterator<Item = Db> {
-    artifacts()
+pub fn snapshot_databases(layout: ArchiveLayout) -> impl Iterator<Item = Db> {
+    artifacts_in(layout)
         .filter(|s| s.lifecycle.snapshot == SnapshotPolicy::CopyDatabase)
         .map(|s| s.database.unwrap().db)
 }
 /// Keyed mode copies exclude the disposable database and separately rebuilt index.
-pub fn mode_change_databases() -> impl Iterator<Item = Db> {
-    artifacts()
+pub fn mode_change_databases(layout: ArchiveLayout) -> impl Iterator<Item = Db> {
+    artifacts_in(layout)
         .filter(|s| s.lifecycle.mode_change == ModeChangePolicy::CopyDatabase)
         .map(|s| s.database.unwrap().db)
 }
 /// Preserves the header checker's limited coverage, including its scratch omission.
-pub fn at_rest_databases() -> impl Iterator<Item = Db> {
-    artifacts()
+pub fn at_rest_databases(layout: ArchiveLayout) -> impl Iterator<Item = Db> {
+    artifacts_in(layout)
         .filter(|s| s.lifecycle.at_rest == AtRestPolicy::NativeDatabase)
         .map(|s| s.database.unwrap().db)
 }
 /// Native installation includes every companion, while search is caller-selected.
-pub fn installation_files(search: bool) -> Vec<PathBuf> {
+pub fn installation_files(layout: ArchiveLayout, search: bool) -> Vec<PathBuf> {
     let mut files = Vec::new();
-    for s in artifacts() {
+    for s in artifacts_in(layout) {
         match s.lifecycle.restore {
             RestorePolicy::RequiredDatabase | RestorePolicy::RecreateDatabase => {
                 files.extend(
@@ -150,8 +161,11 @@ pub fn installation_files(search: bool) -> Vec<PathBuf> {
     files
 }
 /// Snapshot verification has stricter required membership than sealing existing files.
-pub fn required_snapshot_files(encrypted: bool) -> impl Iterator<Item = &'static str> {
-    artifacts()
+pub fn required_snapshot_files(
+    layout: ArchiveLayout,
+    encrypted: bool,
+) -> impl Iterator<Item = &'static str> {
+    artifacts_in(layout)
         .filter(move |s| match s.lifecycle.snapshot {
             SnapshotPolicy::CopyDatabase | SnapshotPolicy::SaveConfig => true,
             SnapshotPolicy::CopyEnvelope => encrypted,
@@ -160,14 +174,14 @@ pub fn required_snapshot_files(encrypted: bool) -> impl Iterator<Item = &'static
         .map(|s| s.path.relative())
 }
 /// Format-2 database membership also drives copy and integrity verification.
-pub fn portable_databases() -> impl Iterator<Item = Db> {
-    artifacts()
+pub fn portable_databases(layout: ArchiveLayout) -> impl Iterator<Item = Db> {
+    artifacts_in(layout)
         .filter(|s| matches!(s.lifecycle.portable, PortablePolicy::Database { .. }))
         .map(|s| s.database.unwrap().db)
 }
 /// Transport names can differ from live paths, especially for Ask's database.
-pub fn portable_files() -> impl Iterator<Item = (ArtifactId, &'static str)> {
-    artifacts().filter_map(|s| match s.lifecycle.portable {
+pub fn portable_files(layout: ArchiveLayout) -> impl Iterator<Item = (ArtifactId, &'static str)> {
+    artifacts_in(layout).filter_map(|s| match s.lifecycle.portable {
         PortablePolicy::Database { entry }
         | PortablePolicy::Envelope { entry }
         | PortablePolicy::SealedConfig { entry } => Some((s.id, entry)),
@@ -222,8 +236,8 @@ pub fn wipe_targets() -> Vec<ArtifactId> {
     targets.into_iter().map(|(_, id)| id).collect()
 }
 /// Returns measured contributions without counting containers and their children twice.
-pub fn usage_members() -> impl Iterator<Item = ArtifactSpec> {
-    artifacts().filter(|s| s.lifecycle.usage.bucket.is_some())
+pub fn usage_members(layout: ArchiveLayout) -> impl Iterator<Item = ArtifactSpec> {
+    artifacts_in(layout).filter(|s| s.lifecycle.usage.bucket.is_some())
 }
 /// Retention's public order is independent of the broader layout order.
 pub fn retention_members() -> Vec<(ArtifactId, RetentionBucket)> {
@@ -233,8 +247,10 @@ pub fn retention_members() -> Vec<(ArtifactId, RetentionBucket)> {
     members
 }
 /// Doctor compares registered schemas only for the roles it actually checks.
-pub fn health_databases() -> impl Iterator<Item = (Db, &'static str, &'static str)> {
-    artifacts().filter_map(|s| match s.lifecycle.health {
+pub fn health_databases(
+    layout: ArchiveLayout,
+) -> impl Iterator<Item = (Db, &'static str, &'static str)> {
+    artifacts_in(layout).filter_map(|s| match s.lifecycle.health {
         HealthPolicy::Database { name, label } => Some((s.database.unwrap().db, name, label)),
         HealthPolicy::NotChecked => None,
     })
@@ -281,9 +297,9 @@ pub fn password_envelope() -> ArtifactId {
     artifacts().find(|s| s.lifecycle.password_change == PasswordChangePolicy::Rewrap).unwrap().id
 }
 /// Sealing syncs the distinct installation parents in their established order.
-pub fn snapshot_directories() -> Vec<PathBuf> {
+pub fn snapshot_directories(layout: ArchiveLayout) -> Vec<PathBuf> {
     let mut directories = Vec::new();
-    for file in installation_files(false) {
+    for file in installation_files(layout, false) {
         let parent = file.parent().unwrap().to_owned();
         if !directories.contains(&parent) {
             directories.push(parent);
@@ -334,9 +350,9 @@ pub fn import_exclusions() -> Vec<(ArtifactId, ImportExclusion)> {
     entries
 }
 /// Format-2 import intentionally replaces the complete derived tree and artifact roots.
-pub fn portable_installation_files() -> Vec<PathBuf> {
+pub fn portable_installation_files(layout: ArchiveLayout) -> Vec<PathBuf> {
     let mut files = Vec::new();
-    for s in artifacts() {
+    for s in artifacts_in(layout) {
         match s.lifecycle.move_import {
             ImportPolicy::NativeEntry => {
                 if let Some(database) = s.database {

@@ -25,7 +25,7 @@ pub(super) struct Opened {
 }
 
 pub(super) fn path(archive: &Archive) -> PathBuf {
-    archive.root.join("derived/history-search")
+    vault_layout::path(&archive.root, vault_layout::ArtifactId::AgentHistorySearch)
 }
 
 fn directory(
@@ -44,7 +44,10 @@ fn directory(
         return Err(Error::InvalidInput("search directory must be an owned directory".into()));
     }
     if archive.encrypted {
-        let directory = EncryptedDirectory::open(&path, &archive.key, CACHE_BYTES)?;
+        let purpose = vault_layout::spec(vault_layout::ArtifactId::AgentHistorySearch)
+            .file_key
+            .expect("the agent-history search index has its own key purpose");
+        let directory = EncryptedDirectory::open_for(&path, &archive.key, purpose, CACHE_BYTES)?;
         Ok((Box::new(directory.clone()), Some(directory)))
     } else {
         Ok((

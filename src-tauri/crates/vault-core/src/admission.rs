@@ -34,6 +34,11 @@ use vault_layout::{ArtifactId, CensusPolicy, PathRule};
 /// Nothing at run time can change it.
 pub const PRODUCT_ROOT_LEVEL: u64 = 0;
 
+/// The layout of the archives this build creates: a new archive, a converted one, an archive
+/// brought up to date when it is opened.
+pub const WRITTEN_LAYOUT: vault_layout::ArchiveLayout =
+    vault_layout::ArchiveLayout::of_revision(PRODUCT_ROOT_LEVEL);
+
 /// The only shape of a stamped `archiveMode` this build can read.
 const ENVELOPE_FORMAT: u64 = 2;
 
@@ -317,6 +322,21 @@ pub fn guard(root: &Path) -> Result<Option<Control>, Refusal> {
             Ok(control)
         })
         .transpose()
+}
+
+/// Which stores the archive at `root` holds, from its control. The bare `archiveMode` of 0.4 and
+/// 0.5, or no control at all, is the released layout; a stamp's revision says which one else.
+pub fn root_layout(root: &Path) -> Result<vault_layout::ArchiveLayout, Refusal> {
+    Ok(layout_of(guard(root)?.as_ref()))
+}
+
+/// The layout a control declares. See [`root_layout`].
+pub fn layout_of(control: Option<&Control>) -> vault_layout::ArchiveLayout {
+    control
+        .and_then(|control| control.compatibility.as_ref())
+        .map_or(vault_layout::ArchiveLayout::BrowsingV1, |compatibility| {
+            vault_layout::ArchiveLayout::of_revision(compatibility.stamp().revision)
+        })
 }
 
 /// The check before a restore or an import replaces a root's archive. A damaged or missing

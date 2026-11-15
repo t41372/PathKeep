@@ -100,7 +100,7 @@ impl Archive {
             "zstd"
         };
         let now = chrono::Utc::now().timestamp_millis();
-        Ok(self.store.write(Db::SourceEvidence, Priority::Batch, move |tx| {
+        Ok(self.store.write(Db::AgentHistoryEvidence, Priority::Batch, move |tx| {
             tx.insert(
                 "
                 INSERT INTO ah_revisions(source_id, captured_at, state, capture_format, codec)
@@ -127,7 +127,7 @@ impl Archive {
         }
         let digest = digest.to_ascii_lowercase();
         let expected = digest.clone();
-        let info = self.store.write(Db::SourceEvidence, Priority::Batch, move |tx| {
+        let info = self.store.write(Db::AgentHistoryEvidence, Priority::Batch, move |tx| {
             let values = tx.query_one(
                 "
                 SELECT source_id, staged_byte_len, captured_at, capture_format, state,
@@ -199,7 +199,7 @@ impl Archive {
         }
         let retention = source.retention;
         let now = chrono::Utc::now().timestamp_millis();
-        let outcome = self.store.write(Db::SourceEvidence, Priority::Batch, move |tx| {
+        let outcome = self.store.write(Db::AgentHistoryEvidence, Priority::Batch, move |tx| {
             let state: String =
                 tx.query_one("SELECT state FROM ah_revisions WHERE id=?1", [revision], |row| {
                     Ok(row.get(0)?)
@@ -254,7 +254,7 @@ impl Archive {
 
     /// Discards only an unfinished attempt; successful evidence cannot be erased by this call.
     pub fn abandon_revision(&self, revision: i64) -> Result<()> {
-        self.store.write(Db::SourceEvidence, Priority::Batch, move |tx| {
+        self.store.write(Db::AgentHistoryEvidence, Priority::Batch, move |tx| {
             tx.execute(
                 "
                 UPDATE ah_revisions SET state='abandoned' WHERE id=?1 AND state IN ('staged',
@@ -269,7 +269,7 @@ impl Archive {
     /// Retrieves a complete revision without exposing unfinished staging state.
     pub fn revision(&self, revision: i64) -> Result<RevisionInfo> {
         self.store
-            .read(Db::SourceEvidence, move |tx| {
+            .read(Db::AgentHistoryEvidence, move |tx| {
                 tx.query_one(
                     "SELECT id, source_id, digest, byte_len, captured_at, capture_format,
                 bytes_retained FROM ah_revisions WHERE id=?1 AND state='complete'",
@@ -284,7 +284,7 @@ impl Archive {
     /// Returns the last observed content, including a deliberate return to an older revision.
     pub fn latest_revision(&self, source_id: &str) -> Result<Option<RevisionInfo>> {
         let source_id = source_id.to_owned();
-        Ok(self.store.read(Db::SourceEvidence, move |tx| {
+        Ok(self.store.read(Db::AgentHistoryEvidence, move |tx| {
             tx.query_one(
                 "
                 SELECT r.id, r.source_id, r.digest, r.byte_len, r.captured_at, r.capture_format,
@@ -299,7 +299,7 @@ impl Archive {
 
     pub(super) fn recover_unfinished_revisions(&self) -> Result<()> {
         loop {
-            let changed = self.store.write(Db::SourceEvidence, Priority::Batch, |tx| {
+            let changed = self.store.write(Db::AgentHistoryEvidence, Priority::Batch, |tx| {
                 tx.execute(
                     "UPDATE ah_revisions SET state='abandoned' WHERE id IN (SELECT id FROM
                     ah_revisions WHERE state IN ('staged', 'sealing' ) LIMIT 128)",

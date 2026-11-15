@@ -79,10 +79,13 @@ pub fn assess(
         target_format: "turso".into(),
         source_bytes: bytes,
         required_free_bytes: bytes.saturating_mul(3),
-        files_touched: vault_core::maintenance::database_files(true)
-            .into_iter()
-            .map(|p| paths.app_root.join(p))
-            .collect(),
+        files_touched: vault_core::maintenance::database_files(
+            vault_core::admission::WRITTEN_LAYOUT,
+            true,
+        )
+        .into_iter()
+        .map(|p| paths.app_root.join(p))
+        .collect(),
         files_retained: retained,
         files_locked: locked,
         tables,
@@ -347,7 +350,7 @@ pub fn convert_owned(
     let previous = vault_core::maintenance::install::install(
         paths,
         &stage,
-        vault_core::maintenance::database_files(true),
+        vault_core::maintenance::database_files(vault_core::admission::WRITTEN_LAYOUT, true),
         true,
     )?;
     let opened = Vault::open_owned(paths.clone(), config.clone(), key.as_ref(), Some(owner))?;

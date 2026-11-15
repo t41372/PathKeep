@@ -11,7 +11,7 @@ impl Archive {
         reference: &Reference,
     ) -> Result<Option<Option<String>>> {
         let key = reference_key(reference)?;
-        Ok(self.store.read(Db::SourceEvidence, move |tx| {
+        Ok(self.store.read(Db::AgentHistoryEvidence, move |tx| {
             tx.query_one(
                 "SELECT reason FROM ah_reference_observations
                  WHERE parent_revision=?1 AND reference_key=?2 ORDER BY id DESC LIMIT 1",
@@ -32,7 +32,7 @@ impl Archive {
         let reason = reason.map(str::to_owned);
         let saved_key = key.clone();
         let saved_reason = reason.clone();
-        self.store.write(Db::SourceEvidence, Priority::Batch, move |tx| {
+        self.store.write(Db::AgentHistoryEvidence, Priority::Batch, move |tx| {
             let previous = tx
                 .query_one(
                     "SELECT reason FROM ah_reference_observations
@@ -55,7 +55,7 @@ impl Archive {
             }
             Ok(())
         })?;
-        Ok(self.store.write(Db::Archive, Priority::Batch, move |tx| {
+        Ok(self.store.write(Db::AgentHistoryReadModel, Priority::Batch, move |tx| {
             let previous = tx
                 .query_one(
                     "SELECT reason FROM ah_reference_outcomes

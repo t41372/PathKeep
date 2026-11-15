@@ -27,7 +27,7 @@ impl Archive {
         }
         let before = after.map_or(i64::MAX, |cursor| cursor.before_id);
         let source = source_id.to_owned();
-        let mut items = self.store.read(Db::SourceEvidence, move |session| {
+        let mut items = self.store.read(Db::AgentHistoryEvidence, move |session| {
             session.query(
                 "SELECT id, source_id, digest, byte_len, captured_at, capture_format,
                     bytes_retained FROM ah_revisions  WHERE source_id=?1 AND state='complete' AND

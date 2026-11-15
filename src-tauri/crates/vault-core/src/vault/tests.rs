@@ -21,19 +21,26 @@ fn database_files_require_their_purpose_specific_keys() {
     vault.store().close().unwrap();
     let data = vault_crypto::DataKey::from_bytes(zeroize::Zeroizing::new([13; 32]));
     let purposes = [
-        vault_crypto::KeyPurpose::ArchiveDatabase,
-        vault_crypto::KeyPurpose::SourceEvidenceDatabase,
-        vault_crypto::KeyPurpose::IntelligenceDatabase,
-        vault_crypto::KeyPurpose::AgentDatabase,
-        vault_crypto::KeyPurpose::ScratchDatabase,
+        (vault_store::Db::Archive, vault_crypto::KeyPurpose::ArchiveDatabase),
+        (vault_store::Db::SourceEvidence, vault_crypto::KeyPurpose::SourceEvidenceDatabase),
+        (vault_store::Db::Intelligence, vault_crypto::KeyPurpose::IntelligenceDatabase),
+        (vault_store::Db::Agent, vault_crypto::KeyPurpose::AgentDatabase),
+        (vault_store::Db::Scratch, vault_crypto::KeyPurpose::ScratchDatabase),
     ];
-    let keys = purposes.map(|purpose| Some(*data.derive(purpose).expose_bytes()));
+    let mut keys = [None; vault_store::Db::COUNT];
+    for (db, purpose) in purposes {
+        keys[db as usize] = Some(*data.derive(purpose).expose_bytes());
+    }
+    // The archive above has the released layout: its five stores, nothing newer.
+    let stores = purposes.map(|(db, _)| db).to_vec();
     let mut wrong = vault_store::Config::new(&vault.paths().app_root);
+    wrong.databases = stores.clone();
     wrong.migrations = crate::store_schema::migration_registry();
     wrong.keys = keys;
     wrong.keys.swap(0, 1);
     assert!(Store::open(wrong).is_err(), "database purpose keys must not be interchangeable");
     let mut correct = vault_store::Config::new(&vault.paths().app_root);
+    correct.databases = stores;
     correct.migrations = crate::store_schema::migration_registry();
     correct.keys = keys;
     drop(Store::open(correct).unwrap());
@@ -101,7 +108,8 @@ fn pending_envelope_recovers_after_a_failure_with_database_files() {
         "right",
         None,
         |paths, _, key, owner| {
-            let mut storage = storage_config(&paths, Some(key), owner)?;
+            let mut storage =
+                storage_config(&paths, vault_layout::ArchiveLayout::BrowsingV1, Some(key), owner)?;
             storage.migrations.register(
                 Db::SourceEvidence,
                 vec![vault_store::Migration::rust(1, |_| {

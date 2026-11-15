@@ -20,7 +20,7 @@ impl Archive {
             .map(|diagnostic| (diagnostic.ordinal, diagnostic.code.clone()))
             .collect::<Vec<_>>();
         let attempt = attempt.clone();
-        self.store.write(Db::Archive, Priority::Batch, move |tx| {
+        self.store.write(Db::AgentHistoryReadModel, Priority::Batch, move |tx| {
             require_work(tx, &attempt)?;
             if gaps.is_empty() {
                 tx.execute(

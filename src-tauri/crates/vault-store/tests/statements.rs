@@ -12,7 +12,7 @@ fn prepared_statements_stream_and_rebind_in_both_key_modes() {
     for key in [None, Some([61; 32])] {
         let root = tempfile::tempdir().unwrap();
         let mut config = support::config(root.path());
-        config.keys = [key; 5];
+        config.keys = [key; vault_store::Db::COUNT];
         let store = vault_store::Store::open(config).unwrap();
         store
             .write(Db::Archive, Priority::Batch, |s| {
@@ -62,7 +62,7 @@ fn insert_returns_the_new_rowid_and_nothing_for_an_ignored_row() {
     for key in [None, Some([62; 32])] {
         let root = tempfile::tempdir().unwrap();
         let mut config = support::config(root.path());
-        config.keys = [key; 5];
+        config.keys = [key; vault_store::Db::COUNT];
         let store = vault_store::Store::open(config).unwrap();
         store
             .write(Db::Archive, Priority::Batch, |s| {

@@ -18,7 +18,7 @@ impl Archive {
     pub(crate) fn observe_source(&self, run: i64, id: &str, seen: bool) -> Result<()> {
         let id = id.to_owned();
         let now = chrono::Utc::now().timestamp_millis();
-        self.store.write(Db::SourceEvidence, Priority::Batch, move |tx| {
+        self.store.write(Db::AgentHistoryEvidence, Priority::Batch, move |tx| {
             tx.execute(
                 "
                 INSERT OR IGNORE INTO ah_source_observations(run_id, source_id, seen, observed_at)
@@ -49,7 +49,7 @@ impl Archive {
             let key = after.clone();
             let path = root.root.to_string_lossy().into_owned();
             let harness = root.harness.to_string();
-            let page = self.store.read(Db::SourceEvidence, move |tx| {
+            let page = self.store.read(Db::AgentHistoryEvidence, move |tx| {
                 tx.query(
                     "
                 SELECT id, relative_path FROM ah_sources WHERE root=?1 AND harness=?2 AND id>?3
@@ -62,7 +62,7 @@ impl Archive {
                 break;
             }
             for (id, relative) in page {
-                let seen = self.store.read(Db::SourceEvidence, {
+                let seen = self.store.read(Db::AgentHistoryEvidence, {
                     let id = id.clone();
                     move |tx| {
                         tx.query_one(
@@ -103,7 +103,7 @@ impl Archive {
         let path = path.to_owned();
         let git = git.map(|g| serde_json::to_string(&g)).transpose()?;
         let now = chrono::Utc::now().timestamp_millis();
-        self.store.write(Db::SourceEvidence, Priority::Batch, move |tx| {
+        self.store.write(Db::AgentHistoryEvidence, Priority::Batch, move |tx| {
             let previous = tx
                 .query_one(
                     "
@@ -135,7 +135,7 @@ impl Archive {
     ) -> Result<crate::query::Page<FolderObservation>> {
         let count = crate::query::page_limit(limit)?;
         let path = path.map(str::to_owned);
-        let mut rows = self.store.read(Db::SourceEvidence, move |tx| {
+        let mut rows = self.store.read(Db::AgentHistoryEvidence, move |tx| {
             tx.query(
                 "
             SELECT id, path, exists_on_disk, observed_at, git_json FROM ah_folder_observations

@@ -13,7 +13,7 @@ pub(super) fn folders(
     loop {
         check_cancel(options)?;
         let key = after.clone();
-        let paths = archive.store.read(Db::Archive, move |tx| {
+        let paths = archive.store.read(Db::AgentHistoryReadModel, move |tx| {
             tx.query(
                 "
             SELECT DISTINCT project_path FROM ah_sessions WHERE project_path>?1 AND harness IN

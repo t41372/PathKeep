@@ -202,6 +202,18 @@ fn sub_keys_match_independently_computed_values() {
             KeyPurpose::BundleArtifacts,
             "6723c9e136480680202b7c00c6844160cf6cd362e73f40c63bb6c987ed130d7a",
         ),
+        (
+            KeyPurpose::AgentHistoryEvidenceDatabase,
+            "8c822dd633d8ce3f48134cf534bfd9b8fca5eaad43ab8ba752818cfe55cb9a7d",
+        ),
+        (
+            KeyPurpose::AgentHistoryReadModelDatabase,
+            "933138e6b5057469a90ed0b4a78202657c309ff1a59e0404c351edea26e3ffc6",
+        ),
+        (
+            KeyPurpose::AgentHistorySearchIndex,
+            "4b2c9ec9782c8a6b91c3b6614d2182507afa414e6c3f68218e99b2a72ac9be34",
+        ),
     ];
     assert_eq!(expected.len(), KeyPurpose::ALL.len());
     for (purpose, hex_key) in expected {

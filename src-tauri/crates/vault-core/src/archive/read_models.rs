@@ -375,7 +375,8 @@ pub(super) fn run_new_downloads(stats: &Value) -> usize {
 pub(super) fn storage_summary(paths: &ProjectPaths) -> StorageSummary {
     use vault_layout::{CompanionFamily, CompanionUse, Measure, UsageBucket};
     let mut summary = StorageSummary::default();
-    for member in vault_layout::usage_members() {
+    // Every layout's members: one this archive does not hold measures nothing.
+    for member in vault_layout::usage_members(vault_layout::ArchiveLayout::NEWEST) {
         // Native database accounting has always used default store paths. Other buckets
         // honor the typed ProjectPaths overrides, including the semantic sidecar roots.
         let path = if member.database.is_some() {

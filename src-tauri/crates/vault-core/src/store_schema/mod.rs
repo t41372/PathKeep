@@ -49,6 +49,8 @@ fn migrations(db: Db) -> Vec<Migration> {
         Db::Intelligence => vec![intelligence::migration(), intelligence_lineage::migration()],
         Db::Agent => vec![agent::migration()],
         Db::Scratch => scratch::migrations(),
+        // The agent-history crate owns its stores' schemas; this archive opens them in its Store.
+        Db::AgentHistoryEvidence | Db::AgentHistoryReadModel => agent_history::schema_steps(db),
     }
 }
 

@@ -17,43 +17,46 @@ impl Archive {
         loop {
             let id = hash.clone();
             let payload = encoded.clone();
-            let attached = self.store.write(Db::SourceEvidence, Priority::Batch, move |tx| {
-                let (state, next, codec) = tx.query_one(
-                    "SELECT state, next_ordinal, codec FROM ah_revisions WHERE id=?1",
-                    [revision],
-                    |row| Ok((row.get::<String>(0)?, row.get::<i64>(1)?, row.get::<String>(2)?)),
-                )?;
-                if state != "staged" || next != ordinal as i64 {
-                    return Err(integrity("slice does not continue an unpublished revision"));
-                }
-                let present = tx
-                    .query_one("SELECT 1 FROM ah_chunks WHERE hash=?1", [id.as_str()], |row| {
-                        Ok(row.get::<i64>(0)?)
-                    })
-                    .optional()?
-                    .is_some();
-                if !present {
-                    let Some(payload) = payload else {
-                        return Ok(Some(codec));
-                    };
-                    tx.execute(
-                        "INSERT INTO ah_chunks(hash, data, codec) VALUES(?1, ?2, ?3)",
-                        params![id.clone(), payload, codec],
+            let attached =
+                self.store.write(Db::AgentHistoryEvidence, Priority::Batch, move |tx| {
+                    let (state, next, codec) = tx.query_one(
+                        "SELECT state, next_ordinal, codec FROM ah_revisions WHERE id=?1",
+                        [revision],
+                        |row| {
+                            Ok((row.get::<String>(0)?, row.get::<i64>(1)?, row.get::<String>(2)?))
+                        },
                     )?;
-                }
-                tx.execute(
-                    "INSERT INTO ah_revision_chunks( revision_id, ordinal, chunk_hash,
+                    if state != "staged" || next != ordinal as i64 {
+                        return Err(integrity("slice does not continue an unpublished revision"));
+                    }
+                    let present = tx
+                        .query_one("SELECT 1 FROM ah_chunks WHERE hash=?1", [id.as_str()], |row| {
+                            Ok(row.get::<i64>(0)?)
+                        })
+                        .optional()?
+                        .is_some();
+                    if !present {
+                        let Some(payload) = payload else {
+                            return Ok(Some(codec));
+                        };
+                        tx.execute(
+                            "INSERT INTO ah_chunks(hash, data, codec) VALUES(?1, ?2, ?3)",
+                            params![id.clone(), payload, codec],
+                        )?;
+                    }
+                    tx.execute(
+                        "INSERT INTO ah_revision_chunks( revision_id, ordinal, chunk_hash,
                         byte_len, byte_offset) SELECT ?1, ?2, ?3, ?4, staged_byte_len FROM
                         ah_revisions WHERE id=?1",
-                    params![revision, ordinal as i64, id, length],
-                )?;
-                tx.execute(
-                    "UPDATE ah_revisions SET next_ordinal=next_ordinal+1,
+                        params![revision, ordinal as i64, id, length],
+                    )?;
+                    tx.execute(
+                        "UPDATE ah_revisions SET next_ordinal=next_ordinal+1,
                         staged_byte_len=staged_byte_len+?1 WHERE id=?2",
-                    params![length, revision],
-                )?;
-                Ok(None)
-            })?;
+                        params![length, revision],
+                    )?;
+                    Ok(None)
+                })?;
             let Some(codec) = attached else {
                 return Ok(());
             };

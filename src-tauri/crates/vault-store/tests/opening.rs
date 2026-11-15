@@ -28,19 +28,19 @@ fn snapshot(root: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
 fn wrong_and_missing_keys_leave_every_file_unchanged() {
     let dir = tempfile::tempdir().unwrap();
     let mut config = support::config(dir.path());
-    config.keys = [Some([23; 32]); 5];
+    config.keys = [Some([23; 32]); vault_store::Db::COUNT];
     let store = Store::open(config).unwrap();
     support::insert(&store, 1).unwrap();
     drop(store);
     let before = snapshot(dir.path());
     for key in [Some([24; 32]), None] {
         let mut config = support::config(dir.path());
-        config.keys = [key; 5];
+        config.keys = [key; vault_store::Db::COUNT];
         assert!(matches!(Store::open(config), Err(Error::WrongKey { .. })));
         assert_eq!(before, snapshot(dir.path()));
     }
     let mut config = support::config(dir.path());
-    config.keys = [Some([23; 32]); 5];
+    config.keys = [Some([23; 32]); vault_store::Db::COUNT];
     let store = Store::open(config).unwrap();
     assert_eq!(support::count(&store), 1);
 }
@@ -73,7 +73,7 @@ fn accepts_caller_io_and_non_ascii_uri_paths() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("資料 ' ? #");
     let mut config = Config::new(&root);
-    config.keys = [Some([9; 32]); 5];
+    config.keys = [Some([9; 32]); vault_store::Db::COUNT];
     let io = Arc::new(observed_io::ObservedIo::new());
     config.io = Some(io.clone());
     let paths = config.paths.clone();

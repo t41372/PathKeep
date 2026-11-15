@@ -102,6 +102,17 @@ impl EncryptedDirectory {
         )
     }
 
+    /// Opens an index whose key is derived for `purpose`. Two indexes under one data key need
+    /// different purposes: the folder they live in plays no part in their key.
+    pub fn open_for(
+        root: &Path,
+        data_key: &DataKey,
+        purpose: vault_layout::KeyPurpose,
+        cache_bytes: usize,
+    ) -> io::Result<EncryptedDirectory> {
+        Self::open_key(root, data_key.derive(purpose), cache_bytes)
+    }
+
     pub(crate) fn open_artifacts(root: &Path, key: &DataKey) -> io::Result<Self> {
         Self::open_key(
             root,

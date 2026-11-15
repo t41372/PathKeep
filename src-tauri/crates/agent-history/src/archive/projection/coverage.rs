@@ -35,7 +35,7 @@ impl Archive {
                     ));
                 }
             }
-            self.store.write(Db::Archive, Priority::Batch, move |tx| {
+            self.store.write(Db::AgentHistoryReadModel, Priority::Batch, move |tx| {
                 set_coverage(tx, &source_id, true)?;
                 tx.execute(
                     "UPDATE ah_coverage SET affects_conversations=?1 WHERE source_id=?2",
@@ -46,7 +46,7 @@ impl Archive {
         } else {
             // Capture already holds publication_gate while invalidating coverage
             // before a changed raw head commits. This path must not lock it again.
-            self.store.write(Db::Archive, Priority::Batch, move |tx| {
+            self.store.write(Db::AgentHistoryReadModel, Priority::Batch, move |tx| {
                 tx.execute(
                     "UPDATE ah_sessions SET raw_head_current=0 WHERE id=?1",
                     [source_id.as_str()],
@@ -81,7 +81,7 @@ impl Archive {
             .latest_revision_id
             .ok_or_else(|| Error::InvalidInput("source has no published raw revision".into()))?;
         let source_id = source_id.to_owned();
-        self.store.write(Db::Archive, Priority::Batch, move |tx| {
+        self.store.write(Db::AgentHistoryReadModel, Priority::Batch, move |tx| {
             let changed = tx.execute(
                 "UPDATE ah_sessions SET complete=?1,raw_head_current=1
                  WHERE id=?2 AND projection_id=?3 AND
@@ -100,7 +100,7 @@ impl Archive {
 
     pub(crate) fn reference_coverage_scope(&self, source: &str) -> Result<()> {
         let source = source.to_owned();
-        self.store.write(Db::Archive, Priority::Batch, move |tx| {
+        self.store.write(Db::AgentHistoryReadModel, Priority::Batch, move |tx| {
             tx.execute(
                 "UPDATE ah_coverage SET affects_conversations=0 WHERE source_id=?1
                  AND NOT EXISTS(SELECT 1 FROM ah_sessions WHERE id=?1)",
@@ -114,7 +114,7 @@ impl Archive {
     fn current_coverage_target(&self, source_id: &str) -> Result<Option<(i64, bool)>> {
         let source_id = source_id.to_owned();
         self.store
-            .read(Db::Archive, move |tx| {
+            .read(Db::AgentHistoryReadModel, move |tx| {
                 tx.query_one(
                     "SELECT revision_id, complete FROM ah_sessions WHERE id=?1",
                     [source_id],

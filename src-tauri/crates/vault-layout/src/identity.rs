@@ -17,7 +17,15 @@ macro_rules! identities {
 }
 identities! {
     /// Stable database identities shared by storage consumers and lifecycle policies.
-    Db { Archive = 0, SourceEvidence = 1, Intelligence = 2, Agent = 3, Scratch = 4 }
+    Db {
+        Archive = 0,
+        SourceEvidence = 1,
+        Intelligence = 2,
+        Agent = 3,
+        Scratch = 4,
+        AgentHistoryEvidence = 5,
+        AgentHistoryReadModel = 6,
+    }
 }
 const _: () = {
     let mut index = 0;
@@ -104,6 +112,9 @@ identities! {
         SchedulerAudit = 72,
         InstallJournalV2 = 73,
         WipeIntentV2 = 74,
+        AgentHistoryEvidence = 75,
+        AgentHistoryReadModel = 76,
+        AgentHistorySearch = 77,
 
 
     }
@@ -138,4 +149,11 @@ key_purposes! {
     TempFiles => b"pathkeep/v1/temp-files",
     /// Immutable audit and source-checkpoint files inside a portable bundle.
     BundleArtifacts => b"pathkeep/v1/bundle-artifacts",
+    /// `archive/agent-history.db`: what was captured from the agent tools, and the user's marks.
+    AgentHistoryEvidenceDatabase => b"pathkeep/v1/agent-history-evidence-database",
+    /// `derived/agent-history-read-model.db`: conversations as they were parsed from the evidence.
+    AgentHistoryReadModelDatabase => b"pathkeep/v1/agent-history-read-model-database",
+    /// The agent-history search index. Its own key, not the browsing index's: a different folder
+    /// alone would not keep the two indexes' key material apart.
+    AgentHistorySearchIndex => b"pathkeep/v1/agent-history-search-index",
 }

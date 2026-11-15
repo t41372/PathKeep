@@ -23,6 +23,8 @@ pub struct Paths {
     pub intelligence: PathBuf,
     pub agent: PathBuf,
     pub scratch: PathBuf,
+    pub agent_history_evidence: PathBuf,
+    pub agent_history_read_model: PathBuf,
 }
 impl Paths {
     pub fn under(root: &Path) -> Self {
@@ -32,6 +34,10 @@ impl Paths {
             intelligence: root.join(vault_layout::database_path(Db::Intelligence)),
             agent: root.join(vault_layout::database_path(Db::Agent)),
             scratch: root.join(vault_layout::database_path(Db::Scratch)),
+            agent_history_evidence: root
+                .join(vault_layout::database_path(Db::AgentHistoryEvidence)),
+            agent_history_read_model: root
+                .join(vault_layout::database_path(Db::AgentHistoryReadModel)),
         }
     }
     pub fn get(&self, db: Db) -> &Path {
@@ -41,6 +47,8 @@ impl Paths {
             Db::Intelligence => &self.intelligence,
             Db::Agent => &self.agent,
             Db::Scratch => &self.scratch,
+            Db::AgentHistoryEvidence => &self.agent_history_evidence,
+            Db::AgentHistoryReadModel => &self.agent_history_read_model,
         }
     }
 }

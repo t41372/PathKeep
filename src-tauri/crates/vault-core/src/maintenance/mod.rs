@@ -125,7 +125,7 @@ pub fn switch_mode(
         key.as_ref(),
         &cancel,
         move |p| (copy_progress.lock().unwrap())(p),
-        &vault_layout::mode_change_databases().collect::<Vec<_>>(),
+        &vault_layout::mode_change_databases(vault.layout()).collect::<Vec<_>>(),
     )?;
     crate::config::save_copy_config(vault.paths(), stage.path(), &config)?;
     let staged = Vault::open_staged(
@@ -161,7 +161,7 @@ pub fn switch_mode(
     cancel.check()?;
     pause.close()?;
     vault.close()?;
-    let mut files = database_files(true);
+    let mut files = database_files(vault.layout(), true);
     files.push(snapshot_relative.clone());
     install::install(vault.paths(), stage.path(), files, false)?;
     let previous = vault.paths().app_root.join(snapshot_relative);
@@ -233,7 +233,8 @@ pub(crate) fn copy_databases(
     Ok(())
 }
 
-/// The complete installation set also removes WALs and a superseded envelope.
-pub fn database_files(search: bool) -> Vec<PathBuf> {
-    vault_layout::installation_files(search)
+/// The complete installation set of an archive of `layout`, which also removes WALs and a
+/// superseded envelope.
+pub fn database_files(layout: vault_layout::ArchiveLayout, search: bool) -> Vec<PathBuf> {
+    vault_layout::installation_files(layout, search)
 }

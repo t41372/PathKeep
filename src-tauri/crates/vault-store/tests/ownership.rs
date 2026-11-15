@@ -70,7 +70,8 @@ fn second_process_is_refused_and_drop_joins_before_releasing_lock() {
         }
     });
     drop(store);
-    assert_eq!(dropped.load(Ordering::SeqCst), 15);
+    // One writer and two readers per store, every one of them gone before the lock is released.
+    assert_eq!(dropped.load(Ordering::SeqCst), Db::COUNT * 3);
     let store = Store::open(support::config(dir.path())).unwrap();
     assert_eq!(support::count(&store), 0);
 }

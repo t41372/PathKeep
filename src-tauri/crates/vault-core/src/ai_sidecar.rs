@@ -38,7 +38,8 @@ pub async fn clear_provider_embeddings(
 /// The bytes the semantic index takes on disk, for Settings → Storage: its vectors and visit
 /// maps, and anything earlier versions left in the old sidecar folder.
 pub fn sidecar_storage_bytes(paths: &ProjectPaths) -> u64 {
-    vault_layout::usage_members()
+    // Every layout's members: one this archive does not hold measures nothing.
+    vault_layout::usage_members(vault_layout::ArchiveLayout::NEWEST)
         .filter(|s| s.lifecycle.usage.bucket == Some(vault_layout::UsageBucket::Semantic))
         .map(|s| artifact_size(&paths.artifact_path(s.id)))
         .sum()

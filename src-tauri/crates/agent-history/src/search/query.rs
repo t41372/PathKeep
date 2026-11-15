@@ -62,7 +62,7 @@ impl Archive {
             clauses.push(exact(opened.fields.project, project));
         }
         let hidden_query = crate::query::parents::hidden_query();
-        let hidden = self.store.read(Db::Archive, move |tx| {
+        let hidden = self.store.read(Db::AgentHistoryReadModel, move |tx| {
             tx.query(
                 &format!("SELECT id FROM ah_sessions WHERE conversation_id IN ({hidden_query})"),
                 (),
@@ -120,7 +120,7 @@ impl Archive {
         needle: &str,
     ) -> Result<SearchHit> {
         let needle = needle.trim().to_owned();
-        let rows = self.store.read(Db::Archive, move |database| {
+        let rows = self.store.read(Db::AgentHistoryReadModel, move |database| {
             database.query(
                 "SELECT s.conversation_id, e.ordinal, substr(e.text, CASE WHEN
                     instr(lower(e.text), lower(?2))>0 THEN max(1, instr(lower(e.text),

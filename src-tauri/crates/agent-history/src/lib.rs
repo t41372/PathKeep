@@ -15,7 +15,7 @@ pub mod search;
 pub mod sqlite;
 pub mod verification;
 
-pub use archive::Archive;
+pub use archive::{Archive, schema_steps};
 pub use error::Error;
 pub use model::*;
 pub use search::{SearchHit, SearchPage, SearchQuery, SearchSyncReport};

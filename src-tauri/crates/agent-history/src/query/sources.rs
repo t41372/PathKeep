@@ -30,7 +30,7 @@ impl Archive {
         let harness = query.harness.map(|value| value.to_string());
         let kind = query.kind.map(kind_name);
         let (snapshot_rowid, items, has_more) =
-            self.store.read(Db::SourceEvidence, move |session| {
+            self.store.read(Db::AgentHistoryEvidence, move |session| {
                 let snapshot = match &after {
                     Some(cursor) => cursor.snapshot_rowid,
                     None => session.query_one(

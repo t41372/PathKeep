@@ -1,11 +1,12 @@
-//! Responsibilities: pin eight label byte strings and independent HKDF known answers.
+//! Responsibilities: pin every label byte string and independent HKDF known answers. The first
+//! eight shipped in PathKeep 0.4 and 0.5; the agent-history three are written by 0.6.
 //! Not responsible for: role enumeration or proving a released v0.5 archive opens.
 //! Vectors use input bytes 00..1f, no salt; computed independently with Python hmac/SHA256.
 
 use vault_crypto::{DataKey, KeyPurpose};
 
 #[test]
-fn historical_labels_derive_the_same_eight_keys() {
+fn historical_labels_derive_the_same_keys() {
     let input = [
         0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
         25, 26, 27, 28, 29, 30, 31,
@@ -52,6 +53,21 @@ fn historical_labels_derive_the_same_eight_keys() {
             b"pathkeep/v1/bundle-artifacts",
             "6723c9e136480680202b7c00c6844160cf6cd362e73f40c63bb6c987ed130d7a",
         ),
+        (
+            KeyPurpose::AgentHistoryEvidenceDatabase,
+            b"pathkeep/v1/agent-history-evidence-database",
+            "8c822dd633d8ce3f48134cf534bfd9b8fca5eaad43ab8ba752818cfe55cb9a7d",
+        ),
+        (
+            KeyPurpose::AgentHistoryReadModelDatabase,
+            b"pathkeep/v1/agent-history-read-model-database",
+            "933138e6b5057469a90ed0b4a78202657c309ff1a59e0404c351edea26e3ffc6",
+        ),
+        (
+            KeyPurpose::AgentHistorySearchIndex,
+            b"pathkeep/v1/agent-history-search-index",
+            "4b2c9ec9782c8a6b91c3b6614d2182507afa414e6c3f68218e99b2a72ac9be34",
+        ),
     ] {
         let mut expected_from_literal_label = [0; 32];
         hkdf::Hkdf::<sha2::Sha256>::new(None, &input)
@@ -60,5 +76,14 @@ fn historical_labels_derive_the_same_eight_keys() {
         let derived = key.derive(purpose);
         assert_eq!(derived.to_hex().as_str(), hex, "{purpose:?}");
         assert_eq!(derived.expose_bytes(), &expected_from_literal_label, "{purpose:?} label bytes");
+    }
+}
+
+// A purpose added later must get a test row here, or its key could change without a failure.
+#[test]
+fn every_purpose_is_pinned_above() {
+    let source = include_str!("historical_labels.rs");
+    for purpose in KeyPurpose::ALL {
+        assert!(source.contains(&format!("KeyPurpose::{purpose:?},")), "{purpose:?} is not pinned");
     }
 }

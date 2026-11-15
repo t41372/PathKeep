@@ -42,7 +42,7 @@ impl Archive {
             .lock()
             .map_err(|_| Error::Integrity("archive publication lock was poisoned".into()))?;
         let id = source_id.to_owned();
-        let known = self.store.read(Db::SourceEvidence, move |tx| read_source(tx, &id))?;
+        let known = self.store.read(Db::AgentHistoryEvidence, move |tx| read_source(tx, &id))?;
         if let Some(known) = &known {
             if known.harness != desired.harness
                 || known.root != desired.root
@@ -71,7 +71,7 @@ impl Archive {
             Some(known) if kind_rank(&known.kind) >= kind_rank(&desired.kind) => known.kind.clone(),
             _ => desired.kind,
         };
-        self.store.write(Db::SourceEvidence, Priority::Batch, move |tx| {
+        self.store.write(Db::AgentHistoryEvidence, Priority::Batch, move |tx| {
             tx.execute(
                 "INSERT INTO ah_sources(id, harness, root, relative_path, kind, observed_at,
                     retention) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7) ON CONFLICT(id) DO UPDATE SET
@@ -95,13 +95,13 @@ impl Archive {
     pub fn source(&self, source_id: &str) -> Result<SourceInfo> {
         let id = source_id.to_owned();
         self.store
-            .read(Db::SourceEvidence, move |tx| read_source(tx, &id))?
+            .read(Db::AgentHistoryEvidence, move |tx| read_source(tx, &id))?
             .ok_or_else(|| Error::NotFound("source".into()))
     }
 
     /// Allows export policy to reject destinations inside source roots.
     pub fn source_roots(&self) -> Result<Vec<std::path::PathBuf>> {
-        Ok(self.store.read(Db::SourceEvidence, |tx| {
+        Ok(self.store.read(Db::AgentHistoryEvidence, |tx| {
             tx.query("SELECT DISTINCT root FROM ah_sources ORDER BY root", (), |r| {
                 Ok(std::path::PathBuf::from(r.get::<String>(0)?))
             })

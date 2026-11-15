@@ -27,7 +27,7 @@ impl Archive {
     /// Re-reads every published raw revision in bounded chunks, including old and
     /// unparseable sources. No source files or derived state are changed.
     pub fn verify(&self) -> Result<VerifyReport> {
-        for db in [Db::Archive, Db::SourceEvidence] {
+        for db in [Db::AgentHistoryReadModel, Db::AgentHistoryEvidence] {
             let messages = self.store.read(db, |tx| tx.integrity_check())?;
             if messages.len() != 1 || messages[0] != "ok" {
                 return Err(Error::Integrity("database consistency check failed".into()));
@@ -35,7 +35,7 @@ impl Archive {
         }
         let mut report = VerifyReport {
             status: "complete".into(),
-            slices: self.store.read(Db::SourceEvidence, |tx| {
+            slices: self.store.read(Db::AgentHistoryEvidence, |tx| {
                 tx.query_one(
                     "SELECT count(*), coalesce(sum(length(data)), 0) FROM ah_chunks",
                     (),
@@ -55,7 +55,7 @@ impl Archive {
         };
         let mut after = 0i64;
         loop {
-            let page = self.store.read(Db::SourceEvidence, move |tx| {
+            let page = self.store.read(Db::AgentHistoryEvidence, move |tx| {
                 let mut statement = tx.prepare(
                     "SELECT id FROM ah_revisions WHERE state='complete' AND bytes_retained=1
                         AND id>?1 ORDER BY id LIMIT 128",
