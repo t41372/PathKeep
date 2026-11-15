@@ -34,6 +34,9 @@ thread_local! {
     /// `#[cfg(test)]` [`FaultGuard`], so production never arms anything and two test threads can
     /// never see each other's faults.
     static PANIC_AT: RefCell<HashSet<String>> = RefCell::new(HashSet::new());
+    /// The same for checkpoints armed to return an error once: a step that reports a failure after
+    /// its effect landed (a flush that fails after the rename it follows).
+    static ERROR_AT: RefCell<HashSet<String>> = RefCell::new(HashSet::new());
 }
 
 /// Takes the armed fault for `name`, if any, so it fires once.
@@ -42,6 +45,10 @@ thread_local! {
 /// always empty and this is a single thread-local borrow plus a lookup miss.
 fn take_armed(name: &str) -> bool {
     PANIC_AT.with(|cell| cell.borrow_mut().remove(name))
+}
+
+fn take_armed_error(name: &str) -> bool {
+    ERROR_AT.with(|cell| cell.borrow_mut().remove(name))
 }
 
 /// A named abort point a destructive op can hand control to.
@@ -59,6 +66,9 @@ pub fn checkpoint(name: &str) -> Result<()> {
     });
     if take_armed(name) {
         panic!("fault_inject: simulated panic at checkpoint {name:?}");
+    }
+    if take_armed_error(name) {
+        anyhow::bail!("fault_inject: simulated error at checkpoint {name:?}");
     }
     Ok(())
 }
@@ -82,6 +92,7 @@ pub fn exit_process_at_next_checkpoint(name: &str) {
 #[cfg(test)]
 pub(crate) struct FaultGuard {
     name: String,
+    error: bool,
 }
 
 #[cfg(test)]
@@ -91,13 +102,26 @@ impl FaultGuard {
         PANIC_AT.with(|cell| {
             cell.borrow_mut().insert(name.to_string());
         });
-        Self { name: name.to_string() }
+        Self { name: name.to_string(), error: false }
+    }
+
+    /// Arms a fire-once error at `name`: the checkpoint returns `Err` and the step goes on as if
+    /// what came before it had reported a failure.
+    pub(crate) fn error_at(name: &str) -> Self {
+        ERROR_AT.with(|cell| {
+            cell.borrow_mut().insert(name.to_string());
+        });
+        Self { name: name.to_string(), error: true }
     }
 }
 
 #[cfg(test)]
 impl Drop for FaultGuard {
     fn drop(&mut self) {
-        take_armed(&self.name);
+        if self.error {
+            take_armed_error(&self.name);
+        } else {
+            take_armed(&self.name);
+        }
     }
 }

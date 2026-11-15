@@ -309,21 +309,26 @@ fn an_import_replaces_an_archive_whose_control_is_damaged_or_lost() {
     }
 }
 
-// An import over a folder whose confirmed wipe was cut short finishes that wipe first, as
-// initialization does: the archive it then installs is not deleted at the next start.
+// An import over a folder whose confirmed wipe was cut short settles that wipe first, as
+// initialization does: nothing acts on the archive it then installs at the next start. Cut
+// short before it had moved everything out, the wipe is undone, and the import replaces the
+// archive as it would any other.
 #[test]
-fn an_import_finishes_a_pending_wipe_before_it_installs() {
+fn an_import_settles_a_pending_wipe_before_it_installs() {
     let mut f = Fixture::new(true);
     let bundle = f.bundle_source();
     f.session.close_vault().unwrap();
     f.vault.take().unwrap().close().unwrap();
-    let confirmed = vault_core::utils::sha256_hex(&fs::read(f.root.join("config.json")).unwrap());
+    let confirmed = fs::read_to_string(f.root.join("config.json")).unwrap();
     f.write(
         ".pk-wipe-v2.json",
-        format!(
-            r#"{{"identity":"pathkeep-wipe","version":1,"control":"{confirmed}","emptied":null,"providerIds":[],"schedule":null}}"#
-        ),
+        serde_json::json!({
+            "identity": "pathkeep-wipe", "version": 1, "control": confirmed, "emptied": "{}",
+            "trash": "wipe-trash-fixture", "committed": false, "providerIds": [], "schedule": null,
+        })
+        .to_string(),
     );
+    f.write("wipe-trash-fixture/exports/moved.csv", "moved by the wipe");
     let (_, installed) = vault_worker::apply_import(
         &f.paths(),
         None,
@@ -337,8 +342,10 @@ fn an_import_finishes_a_pending_wipe_before_it_installs() {
     .unwrap();
     installed.vault.close().unwrap();
     assert!(!f.root.join(".pk-wipe-v2.json").exists());
+    assert!(!f.root.join("wipe-trash-fixture").exists(), "what the wipe moved is back");
+    assert_eq!(fs::read_to_string(f.root.join("exports/moved.csv")).unwrap(), "moved by the wipe");
     assert!(vault_core::load_config(&f.paths()).unwrap().initialized);
-    assert!(!vault_worker::finish_interrupted_data_wipe().unwrap(), "nothing left to finish");
+    assert!(!vault_worker::finish_interrupted_data_wipe().unwrap(), "nothing left to settle");
     assert!(f.root.join("archive/history-vault.db").is_file());
 }
 

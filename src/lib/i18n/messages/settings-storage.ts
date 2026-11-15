@@ -186,6 +186,8 @@ export const settingsStorage = defineMessages({
         'This cannot be undone. Export or move your data first if you might want it.',
       scheduleFailed:
         'Your data is deleted, but automatic backup could not be removed. {message} Turn it off in Backup after setup.',
+      unfinished:
+        'Deleting did not finish. {message} PathKeep finishes it before you set up again.',
       typeWord: 'Type {word} to confirm',
       confirm: 'Delete forever',
       failed: 'Nothing was deleted. {message}',
@@ -365,6 +367,8 @@ export const settingsStorage = defineMessages({
       final: '此操作无法撤销。如果以后可能还需要，请先导出或迁移你的数据。',
       scheduleFailed:
         '数据已删除，但自动备份没能移除。{message} 设置完成后，请到「备份」关闭它。',
+      unfinished:
+        '删除没有完成。{message} 重新设置之前，PathKeep 会先把它完成。',
       typeWord: '输入 {word} 以确认',
       confirm: '永久删除',
       failed: '没有删除任何内容。{message}',
@@ -544,6 +548,8 @@ export const settingsStorage = defineMessages({
       final: '此操作無法復原。如果之後可能還需要，請先匯出或搬移你的資料。',
       scheduleFailed:
         '資料已刪除，但自動備份沒能移除。{message} 設定完成後，請到「備份」關閉它。',
+      unfinished:
+        '刪除沒有做完。{message} 重新設定之前，PathKeep 會先把它做完。',
       typeWord: '輸入 {word} 以確認',
       confirm: '永久刪除',
       failed: '沒有刪除任何內容。{message}',

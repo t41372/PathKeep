@@ -93,8 +93,8 @@ pub(crate) use browser_schema::collect_schema_payload;
 pub use self::source_stats::load_source_stats;
 pub use self::url_detail::{get_url_detail, is_visited_url};
 pub use self::wipe::{
-    WipeOutsideState, data_wipe_interrupted, finish_interrupted_data_wipe, preview_data_wipe,
-    request_running_jobs_stop, wipe_all_data,
+    SettledWipe, WipeOutsideState, data_wipe_interrupted, finish_interrupted_data_wipe,
+    preview_data_wipe, request_running_jobs_stop, wipe_all_data,
 };
 // The cross-process archive write lock and the in-process gate that serializes top-level
 // destructive operations in one process (the flock is reentrant, so it can't). Public so the

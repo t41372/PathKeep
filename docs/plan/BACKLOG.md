@@ -413,6 +413,8 @@
   - `vault-core/src/archive/write_lock.rs` 的 `try_lock_exclusive` 在非 unix 平台直接回傳「this platform is unsupported」。「刪除所有資料」、中斷刪除的接續、v0.3 的啟動修復與還原都會取這把鎖，所以在 Windows 上這些操作應該都會失敗。大部分刪除測試沒有標成只在 unix 跑，CI 也沒有在 Windows 上跑 `vault-core` 的測試，所以一直沒被看見。
   - 先在 Windows 上實際跑一次「刪除所有資料」確認；成立的話，用 Windows 的檔案鎖（`LockFileEx`）實作同樣的語意，並讓這些測試在 Windows CI 跑。
   - 同一份檔案的開頭說明還在講「排程備份是另一個行程」的舊架構。現在只有一個 owner 行程能打開存檔（owner lock），排程備份在 owner 裡跑，改名前 Store 已暫停並關閉；說明要跟著改成現況，並寫清楚這把鎖現在擋的是什麼。
+  - 0.5 的「刪除所有資料」標記（`.pk-wipe-in-progress.json`）只在沒有設定檔時照 0.5 的方式就地刪完。GPT-6 Pro 指出（2026-11-15，屬實）：沒有設定檔本身不能證明標記屬於這個資料夾；被帶進來的標記會讓一個本來該拒絕打開（有存檔資料、沒有設定檔）的資料夾被刪掉。0.5 的標記什麼都沒記，分不出來。拒絕畫面（`WORK-ARCHIVE-REFUSAL-SCREEN`）有了之後，改成在畫面上問使用者「上次的刪除沒有做完，要做完嗎」，不再自動刪。
+  - 存檔升級時，已發布格式的五個資料庫裡少了一個（例如主資料庫被刪掉）：現在照 0.5 的做法建一個空的，再蓋版本宣告；蓋了版本宣告的存檔少一個資料庫則拒絕打開（`archive-store-missing`）。升級時要不要也拒絕、讓使用者知道資料不見了，待決定。
 
 - [ ] **WORK-FLAKY-CACHE-RSS-TEST** — `vault-crypto/tests/search_index.rs` 的 `the_block_cache_bounds_memory` 在機器記憶體吃緊時會失敗（2026-11-15）
   - 現象：完整檢查同時跑很多測試時失敗一次，上限 2 MiB 的快取確實守住（`max_cache_mib=2.00`），但「無上限」那一輪的常駐記憶體只多 7.8 MiB（單獨跑是 18.7 MiB），斷言 `small + 4 < unbounded` 不成立。單獨重跑兩次都通過。
@@ -426,7 +428,23 @@
     - **存檔需要較新版本**：畫面要能直接更新，而不只是請使用者自己去下載。
   - 需要一個「不碰資料夾也能開視窗」的啟動模式：不取鎖、不寫日誌、不啟動背景服務，只有這個畫面用得到的指令可以用；還原由使用者按下之後才動資料夾。
   - 後端要給的資料（原因、這一版的格式等級、存檔宣告的版本、資料夾位置）在 `WORK-VAULT-STORE-ROLES` 第六步；畫面與三語文案在這一塊。
+  - 安裝紀錄認不出原位的檔案（`archive-control-invalid: … is not a file this install moved`）：紀錄被帶進別的存檔，或安裝中斷後原位的檔案被換過。這不是存檔損壞，資料都在；畫面要說明，並提供從安全副本還原。不提供「丟掉紀錄直接打開」：安裝中途的資料夾是新舊兩份混在一起的。
+  - 「刪除所有資料」的紀錄或升級的「建立中」紀錄解不開、或指向它自己的資料夾以外的地方（`archive-control-invalid`）：同樣不是損壞，什麼都沒動；畫面說明，讓使用者把那個紀錄檔移走再打開。
   - 從安全副本還原時遇到 `archive-current-password-required`（存檔打不開、而且是加密的；還原保留存檔自己的加密與密碼，所以要它的金鑰）：畫面要問目前的存檔密碼，用它解出金鑰交給還原（後端的 `restore_snapshot_to` 已經收 `live_key`），不能就此卡住。金鑰檔本身壞了、怎樣都解不出金鑰時，這份存檔的資料（含 Agent 對話）本來就讀不回來；畫面要提供「照副本的加密還原」的明確選項，並講清楚對話救不回來，後端到時再加這個選項。
+
+- [ ] **WORK-WIPE-UNDONE-NOTICE** — 「刪除所有資料」沒做完、被撤銷或紀錄被丟掉時，要告訴使用者（2026-11-15，A2/A3 第三版留下）
+  - 現況：還沒把東西全部搬進 trash 就當機時，下次啟動把東西搬回原位、放回原本的設定檔；紀錄對不上資料夾的設定檔時只丟掉紀錄。兩者都只寫 log（`SettledWipe::RolledBack` / `Discarded`）。使用者看到存檔還在，會以為刪除壞了。
+  - 要做的：啟動後說一次「上次的刪除沒有做完，存檔維持原樣；要刪除可以再做一次」（三語）；紀錄被丟掉時也說，並提到留下的 `wipe-trash-*` 會在下一次刪除時一起刪掉。
+  - 同一次呼叫裡失敗並撤銷時，存檔已經被關上、工作階段的密碼被清掉（`close_store`），使用者要重新解鎖。可以改成撤銷後用原本的密碼直接重新打開。
+
+- [ ] **WORK-TURSO-COMPOSITE-KEY-PLANS** — Turso 0.8.3 不走複合主鍵的索引：從磁碟打開的存檔裡，用 (kind, key) 查收藏會掃過同一類的所有收藏（2026-11-15，A2/A3 第三版的完整檢查失敗時查到）
+  - 重現（`star` 表：`PRIMARY KEY (entity_kind, entity_key)`，另有 `idx_star_kind_starred_at ON star(entity_kind, starred_at DESC)`）：
+    - 同一個行程剛建好的 schema：`WHERE entity_kind=?1 AND entity_key>?2 ORDER BY entity_kind,entity_key` 走 `sqlite_autoindex_star_1 (entity_kind=? AND entity_key>?)`。
+    - 把 store 關掉再打開（每次啟動都是這樣）：同一句變成 `idx_star_kind_starred_at (entity_kind=?)` 加 `USE SORTER FOR ORDER BY`。
+    - `WHERE entity_kind=?1 AND entity_key=?2` 的單筆查詢，剛建好或重開都走 `idx_star_kind_starred_at (entity_kind=?)`。
+    - 加 `INDEXED BY sqlite_autoindex_star_1` 兩種情況都走主鍵。
+  - 已繞過：舊格式轉換驗證收藏時的分頁（`vault-convert-sqlcipher/src/transfer/stars.rs`）。之前的測試是在剛建好的 schema 上看計畫，所以一直通過；存檔升級改成先在 `staging/` 建好再搬進來之後，新存檔的 store 也是從磁碟打開的，測試才看到真實情況。
+  - 要做的：在從磁碟打開的 store 上檢查所有熱查詢的計畫（剛建好的 schema 上看到的計畫不準），特別是其他「複合主鍵 + 以第一欄開頭的另一個索引」的表；需要的地方加 `INDEXED BY` 或改寫。查 turso_core 選索引的邏輯，弄清楚為什麼載入 schema 後選擇會變；穩定版出了新版（目前只有 0.9 的預覽版）就重測。
 
 - [ ] **WORK-UPGRADE-ROLLBACK** — 某一版出了嚴重問題時，使用者要有路可退（v0.6.0 發布前；用戶 2026-11-14 同意要做，並否決「升級前整份複製」：「我們備份數據不可避免毫無疑問 20 gb 起跳，之後可能會更大，悄悄漲一倍的容量，不太行」，要的是記錄改動、允許回滾的做法）
   - 為什麼需要：跨版本相容的做法定為「改了儲存格式之後，舊版拒絕打開那個存檔」。儲存格式包含設定欄位、資料庫欄位、資料庫裡存的 JSON，所以有新功能的版本大多會改到，等於多數升級之後都裝不回上一版。這在資料庫這一層本來就是現況（v0.4.0 打不開 v0.5.0 更新過的存檔），新做法只是把它講明、並把舊版繞過檢查弄壞存檔的路堵上。但「出事只能等修正版」對一個備份工具不夠。

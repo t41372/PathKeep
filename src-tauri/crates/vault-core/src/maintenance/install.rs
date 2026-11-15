@@ -4,28 +4,56 @@
 //! Failure modes: mixed generations, lost originals, stale WAL, crash during rollback,
 //! configuration committed ahead of data, deleting the owner lock, a crash that leaves no
 //! `config.json` (an older release then takes the folder for a first run), a release that does
-//! not know this journal replaying it. Tests: install_tests.
+//! not know this journal replaying it, a journal carried into another archive's folder removing or
+//! replacing that archive's files, a rollback cut short that cannot be finished (a lockout), a
+//! failed publish rolled back while the record on disk says published. Tests: install_tests.
 //!
 //! The control is not moved like the other entries. It is copied into the backup and replaced in
 //! one rename on install, and from that copy by an atomic write on rollback, so `config.json`
 //! exists at every point of the transaction.
 //!
-//! A journal acts only on the folder it was written in. The current one records its stage and
-//! backup relative to the folder; a rollback runs only when the backup folder it names (randomly
-//! named when the install began) is in this folder. A journal carried into another folder, by a
-//! copy or a backup restore, finds no such folder and is refused before anything moves; one in a
-//! folder that was moved whole is recovered where it now is. The journal is written under a name
-//! PathKeep 0.5 and earlier do not know, with an identity and a version that are checked before
-//! anything is replayed; the name those releases wrote is still read, as a record they may have
-//! left.
+//! Where a file is says what the install did with it. The backup folder is made, under a new random
+//! name, when the install begins, and only the install moves anything into it: an entry the backup
+//! holds is an original the install moved out of its place, and the original of an entry the backup
+//! does not hold was never moved, or has been put back. That alone decides every step of a
+//! rollback. Before a rollback takes a file out of its place (the staged file the install put
+//! there, so that the original can come back, or a file that was not there before), it checks that
+//! the file holds what the journal recorded of the staged one, every byte (`content_identity`);
+//! anything else there stops the rollback before anything moves, and the journal stays. The
+//! control binds the journal to its folder: its bytes before and after the install are recorded,
+//! and a rollback starts only where the control is one of the two. Every install moves
+//! `config.json`, so a journal carried into another archive's folder, even with the backup folder
+//! it names (two folders merged, or the journal's files restored over another archive), meets that
+//! archive's control and changes nothing. A faithful copy of the whole folder, made by any tool,
+//! with or without the files' times, recovers like the original.
+//!
+//! Every step of a rollback is one rename or one atomic write. A file taken out of its place is
+//! renamed into the stage, which goes with the journal at the end, so a rollback cut short never
+//! leaves a half-deleted folder that a later run could not recognise.
+//!
+//! A publish that reports an error may still have put the published record on disk (the flush
+//! after its rename failed). The install then stops where it is, and the next recovery goes the way
+//! the record on disk says, as after a crash; rolling back in memory could meet a record that says
+//! published, and be finished the other way.
+//!
+//! The journals of PathKeep 0.5 record no identities. One of them is rolled back only where the
+//! backup folder it names, randomly named when the install began, is in this folder, and never
+//! beside a control with a stamp: that release cannot open such an archive, and this build replays
+//! a 0.5 journal before it stamps one, so beside a stamp it was carried in. It is set aside.
+//!
+//! The journal is written under a name PathKeep 0.5 and earlier do not know, with an identity and
+//! a version that are checked before anything is replayed; the name those releases wrote is still
+//! read, as a record they may have left. Its stage and backup are recorded relative to the
+//! folder.
 //!
 //! What a restore or an import replaces becomes a safety copy (the user's decision, 2026-11-15):
-//! listed with the others, counted in storage usage and removed by freeing space, never deleted on
-//! its own. Before that, PathKeep left it in the backup folder, which no screen shows and nothing
-//! but "delete all data" removes, so every restore or import silently doubled the archive's size.
-//! The journal names the copy, so a crash after the new archive is published still ends with it.
+//! listed with the others, counted in storage usage, freed one by one in "Free up space", never
+//! deleted on its own. Before that, PathKeep left it in the backup folder, which no screen shows
+//! and nothing but "delete all data" removes, so every restore or import silently doubled the
+//! archive's size. The journal names the copy, so a crash after the new archive is published still
+//! ends with it.
 use crate::{
-    ProjectPaths,
+    ProjectPaths, content_identity,
     durable_io::{atomic_durable_write, fsync_dir, remove_file_durably},
 };
 use anyhow::{Context, Result};
@@ -43,9 +71,13 @@ const LEGACY_JOURNAL: &str =
 const CONTROL: &str = vault_layout::spec(vault_layout::ArtifactId::Config).path.relative();
 const IDENTITY: &str = "pathkeep-install";
 const VERSION: u32 = 1;
-/// Where an old-format import journal found next to a native archive is set aside.
+/// Where a journal of PathKeep 0.5 or earlier is set aside when it cannot be this folder's: an
+/// old-format import journal next to a native archive, or any of them beside a stamp.
 const STALE_LEGACY_JOURNAL: &str =
     vault_layout::spec(vault_layout::ArtifactId::StaleImportJournal).path.relative();
+/// The folder in the stage that a rollback renames files into when it takes them out of their
+/// place. It goes with the stage.
+const DISCARDED: &str = ".discarded";
 
 /// Startup checks for recovery before it decides whether a native archive exists. A current
 /// journal that cannot be read still counts: recovery reports it rather than ignoring it.
@@ -120,6 +152,15 @@ pub(crate) struct Entry {
     relative: PathBuf,
     previous: bool,
     staged: bool,
+    /// What the staged file holds (`content_identity`), recorded before it moves into place: a
+    /// rollback takes out of the place only a file that holds this. Absent when nothing is staged,
+    /// and in the journals of PathKeep 0.5.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    installed: Option<String>,
+    /// What the control held before the install, for the control only. With `installed`, what
+    /// binds the journal to its folder.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    original: Option<String>,
 }
 
 /// A durable prepare record is the rollback decision; `committed` publishes the
@@ -146,6 +187,13 @@ pub(crate) struct Journal {
     committed: bool,
 }
 
+impl Journal {
+    /// Written by this build's line: every entry says what its staged file holds.
+    fn current(&self) -> bool {
+        self.identity == IDENTITY
+    }
+}
+
 /// A journal's stage, backup and copy in this folder, once it is clear they are this folder's.
 struct Located {
     stage: PathBuf,
@@ -155,9 +203,9 @@ struct Located {
 
 /// Places a journal's stage and backup in this folder. Every path in it must be one this folder's
 /// installs produce: a backup named like `maintenance.bak-*` directly in the folder, a stage
-/// under `staging/`, entries that stay inside the folder, and a copy named after the backup among
-/// the other copies. A 0.5 journal's absolute paths are taken relative to where its backup was, so
-/// a folder moved since is still recovered.
+/// under `staging/`, entries that stay inside the folder and outside the stage, and a copy named
+/// after the backup among the other copies. A 0.5 journal's absolute paths are taken relative to
+/// where its backup was, so a folder moved since is still recovered.
 fn locate(paths: &ProjectPaths, journal: &Journal) -> Result<Located> {
     use std::path::Component;
     let foreign = |what: &str| {
@@ -170,7 +218,7 @@ fn locate(paths: &ProjectPaths, journal: &Journal) -> Result<Located> {
         !path.as_os_str().is_empty()
             && path.components().all(|part| matches!(part, Component::Normal(_)))
     };
-    let current = journal.identity == IDENTITY;
+    let current = journal.current();
     if current == journal.backup.is_absolute() || current == journal.stage.is_absolute() {
         return Err(foreign("form"));
     }
@@ -193,7 +241,12 @@ fn locate(paths: &ProjectPaths, journal: &Journal) -> Result<Located> {
     if !plain(&stage) || stage.components().count() < 2 || !stage.starts_with(staging) {
         return Err(foreign("stage"));
     }
-    if !journal.entries.iter().all(|entry| plain(&entry.relative)) {
+    // The stage is where a rollback renames what it takes out of place; no entry lives there.
+    if !journal
+        .entries
+        .iter()
+        .all(|entry| plain(&entry.relative) && !entry.relative.starts_with(&stage))
+    {
         return Err(foreign("list of files"));
     }
     let kept_as = match &journal.kept_as {
@@ -221,6 +274,14 @@ pub(super) fn prepare(
         .strip_prefix(std::path::absolute(&paths.app_root)?)
         .context("an install stage outside the archive folder")?
         .to_path_buf();
+    let entries = files
+        .into_iter()
+        .map(|relative| entry(paths, stage, relative))
+        .collect::<Result<Vec<_>>>()?;
+    // Removing the control is not something an install does: a replacement brings its own.
+    if entries.iter().any(|entry| is_control(entry) && entry.previous && !entry.staged) {
+        anyhow::bail!("an installation without a config.json would remove the archive's control");
+    }
     let backup = tempfile::Builder::new()
         .prefix(vault_layout::family_prefix(vault_layout::ArtifactId::PreviousArchives))
         .tempdir_in(&paths.app_root)?
@@ -229,19 +290,6 @@ pub(super) fn prepare(
     // copy of anything is moved into it.
     fsync_dir(&paths.app_root)?;
     let backup_relative = PathBuf::from(backup.file_name().context("a backup folder name")?);
-    let entries: Vec<Entry> = files
-        .into_iter()
-        .map(|relative| Entry {
-            previous: paths.app_root.join(&relative).exists(),
-            staged: stage.join(&relative).exists(),
-            relative,
-        })
-        .collect();
-    // Removing the control is not something an install does: a replacement brings its own.
-    if entries.iter().any(|entry| is_control(entry) && entry.previous && !entry.staged) {
-        let _ = fs::remove_dir(&backup);
-        anyhow::bail!("an installation without a config.json would remove the archive's control");
-    }
     let kept_as = match keep {
         Keep::SafetyCopy(before) => {
             Some(before.copy_of(&backup_relative).context("a backup folder name")?)
@@ -262,7 +310,38 @@ pub(super) fn prepare(
     Ok(journal)
 }
 
-fn sync_tree(root: &Path) -> Result<()> {
+/// One file of an install, with what its staged file holds, read once the stage is on disk.
+fn entry(paths: &ProjectPaths, stage: &Path, relative: PathBuf) -> Result<Entry> {
+    let live = paths.app_root.join(&relative);
+    let installed = content_identity::of(&stage.join(&relative))
+        .with_context(|| format!("reading the staged {}", relative.display()))?;
+    let original = if relative == Path::new(CONTROL) {
+        content_identity::of(&live).context("reading the control")?
+    } else {
+        None
+    };
+    Ok(Entry {
+        previous: exists(&live)?,
+        staged: installed.is_some(),
+        relative,
+        installed,
+        original,
+    })
+}
+
+/// Whether anything is at `path`, a symlink included. Only "not found" is absence: a file that
+/// cannot be looked at is not taken for one that is not there.
+pub(crate) fn exists(path: &Path) -> Result<bool> {
+    match fs::symlink_metadata(path) {
+        Ok(_) => Ok(true),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => {
+            Err(anyhow::Error::new(error).context(format!("looking at {}", path.display())))
+        }
+    }
+}
+
+pub(super) fn sync_tree(root: &Path) -> Result<()> {
     let mut directories = Vec::new();
     for entry in walkdir::WalkDir::new(root) {
         let entry = entry?;
@@ -284,7 +363,9 @@ fn save(paths: &ProjectPaths, journal: &Journal) -> Result<()> {
 
 pub(super) fn publish(paths: &ProjectPaths, journal: &mut Journal) -> Result<()> {
     journal.committed = true;
-    save(paths, journal)
+    save(paths, journal)?;
+    // Where a flush that fails after the rename reports: the published record is on disk.
+    crate::fault_inject::checkpoint("native-install-publish-saved")
 }
 
 pub(super) fn install_step(paths: &ProjectPaths, journal: &mut Journal, step: usize) -> Result<()> {
@@ -315,6 +396,10 @@ pub(super) fn install_step(paths: &ProjectPaths, journal: &mut Journal, step: us
 ///
 /// Returns where the replaced files are kept: the safety copy, or the backup folder. Neither exists
 /// when nothing was replaced, or when `keep` is `Keep::Nothing`.
+///
+/// After an error the live files are as the record on disk says: rolled back when a step failed;
+/// as they are when the publish failed, for the next recovery to finish or roll back. A caller
+/// does not touch them either way.
 pub fn install(
     gate: &crate::ControlGate,
     stage: &Path,
@@ -323,17 +408,18 @@ pub fn install(
 ) -> Result<PathBuf> {
     let paths = gate.paths();
     let mut journal = prepare(paths, stage, files, keep)?;
-    let outcome = (|| {
+    let moved = (|| {
         for step in 0..journal.entries.len() * 2 {
             install_step(paths, &mut journal, step)?;
         }
-        publish(paths, &mut journal)
+        Ok::<_, anyhow::Error>(())
     })();
-    if let Err(error) = outcome {
-        journal.committed = false;
+    if let Err(error) = moved {
+        // The record on disk says not published: a recovery would roll back too.
         rollback(paths, &journal)?;
         return Err(error);
     }
+    publish(paths, &mut journal)?;
     crate::fault_inject::checkpoint("native-install-published")?;
     finish(paths, &journal)?;
     Ok(paths.app_root.join(journal.kept_as.as_ref().unwrap_or(&journal.backup)))
@@ -366,7 +452,7 @@ pub fn recover(paths: &ProjectPaths) -> Result<bool> {
     // Nothing is replayed from a record this build did not write in this shape.
     let journal = serde_json::from_slice::<Journal>(&bytes)
         .ok()
-        .filter(|journal| journal.identity == IDENTITY && journal.version == VERSION)
+        .filter(|journal| journal.current() && journal.version == VERSION)
         .ok_or_else(|| {
             anyhow::anyhow!(
                 "{}: the install record {} is not one this build can replay",
@@ -397,9 +483,25 @@ fn recover_legacy(paths: &ProjectPaths) -> Result<bool> {
         }
         return Ok(false);
     }
+    if stamped(paths) {
+        // PathKeep 0.5 does not open an archive with a stamp, and this build replays a 0.5
+        // journal before it stamps one: this one was carried in. Nothing it names is touched.
+        rename(&path, &paths.app_root.join(STALE_LEGACY_JOURNAL))?;
+        return Ok(false);
+    }
     let journal: Journal = serde_json::from_slice(&bytes)?;
     replay(paths, &journal, &path)?;
     Ok(true)
+}
+
+/// Whether the folder's control carries a stamp. One that cannot be read or parsed says nothing
+/// either way, and a 0.5 journal beside it is replayed as before.
+fn stamped(paths: &ProjectPaths) -> bool {
+    crate::admission::read_control(&paths.app_root)
+        .ok()
+        .flatten()
+        .and_then(|bytes| crate::admission::parse_control(&paths.app_root, &bytes).ok())
+        .is_some_and(|control| control.compatibility.is_some())
 }
 
 fn replay(paths: &ProjectPaths, journal: &Journal, record: &Path) -> Result<()> {
@@ -418,43 +520,172 @@ fn rollback(paths: &ProjectPaths, journal: &Journal) -> Result<()> {
     rollback_at(paths, journal, &paths.app_root.join(JOURNAL))
 }
 
+/// What a rollback does with one entry. Every entry's is decided before anything moves, so a
+/// journal that does not describe this folder changes nothing in it.
+enum Undo {
+    /// The original is in place, or nothing was there and nothing is.
+    Leave,
+    /// Nothing was there before: the installed file is taken out of its place.
+    Discard,
+    /// The original comes back from the backup, after what is in its place, the installed file,
+    /// is taken out.
+    PutBack,
+    /// The control's copy in the backup is written over the control.
+    WriteControl,
+}
+
 fn rollback_at(paths: &ProjectPaths, journal: &Journal, record: &Path) -> Result<()> {
     let located = locate(paths, journal)?;
-    // The backup folder exists from the moment the journal does until the journal is gone, and
-    // its name is random. Without it here, this is another folder's journal: it would delete files
-    // of this one that it takes for its own new ones.
-    if !located.backup.is_dir() {
+    let plan = undo_plan(paths, journal, &located)?;
+    for (entry, undo) in journal.entries.iter().rev().zip(plan) {
+        let backup = located.backup.join(&entry.relative);
+        let target = paths.app_root.join(&entry.relative);
+        match undo {
+            Undo::Leave => {}
+            Undo::Discard => discard(&located, entry, &target)?,
+            Undo::PutBack => {
+                discard(&located, entry, &target)?;
+                rename(&backup, &target)?;
+            }
+            // Written over the live control from the copy, in the control's own folder. A journal
+            // of PathKeep 0.5 moved the control into the backup, so the live one may be missing;
+            // the write covers both.
+            Undo::WriteControl => atomic_durable_write(&target, &fs::read(&backup)?)?,
+        }
+        crate::fault_inject::checkpoint("native-install-undone")?;
+    }
+    remove_file_durably(record)?;
+    remove(&located.stage)?;
+    remove(&located.backup)
+}
+
+/// Takes what is at `target` out of its place in one rename, into the stage. A rollback cut short
+/// before the rename finds it still there, one cut short after finds the place empty: never half
+/// of a folder.
+fn discard(located: &Located, entry: &Entry, target: &Path) -> Result<()> {
+    if !exists(target)? {
+        return Ok(());
+    }
+    let away = located.stage.join(DISCARDED).join(&entry.relative);
+    remove(&away)?;
+    rename(target, &away)?;
+    crate::fault_inject::checkpoint("native-install-discarded")
+}
+
+/// Every entry's undo, the last installed first; or why none can be done, with nothing moved.
+fn undo_plan(paths: &ProjectPaths, journal: &Journal, located: &Located) -> Result<Vec<Undo>> {
+    // Without identities (a journal of PathKeep 0.5) the backup folder binds the journal to its
+    // folder: it exists from the moment the journal does until the journal is gone, and its name is
+    // random. Without it here, this is another folder's journal: it would delete files of this one
+    // that it takes for its own new ones.
+    if !journal.current() && !located.backup.is_dir() {
         anyhow::bail!(
             "{}: the install record names a backup folder that is not in this folder; nothing was \
              changed",
             crate::admission::Reason::ControlInvalid.code()
         );
     }
-    for entry in journal.entries.iter().rev() {
-        let backup = located.backup.join(&entry.relative);
-        let target = paths.app_root.join(&entry.relative);
-        if backup.exists() && is_control(entry) {
-            // Written over the live control from the copy, in the control's own folder. A journal
-            // of PathKeep 0.5 moved the control into the backup, so the live one may be missing;
-            // the write covers both.
-            atomic_durable_write(&target, &fs::read(&backup)?)?;
-        } else if backup.exists() {
-            remove(&target)?;
-            rename(&backup, &target)?;
-        } else if !entry.previous {
-            remove(&target)?;
-        } else if fs::symlink_metadata(&target).is_err() {
-            // It was there before the install, and it is neither in its place nor in the backup.
-            // Saying the rollback succeeded would lose track of it for good.
-            anyhow::bail!(
-                "{} is neither in place nor in the backup; the install record is kept",
-                entry.relative.display()
-            );
-        }
+    journal
+        .entries
+        .iter()
+        .rev()
+        .map(|entry| {
+            let target = paths.app_root.join(&entry.relative);
+            let backup = located.backup.join(&entry.relative);
+            if !journal.current() {
+                undo_legacy(entry, &target, &backup)
+            } else if is_control(entry) {
+                undo_control(entry, &target, &backup)
+            } else {
+                undo_current(entry, &target, &backup)
+            }
+        })
+        .collect()
+}
+
+/// A file of a current journal, decided by where it is. In the backup: the install moved the
+/// original out, and it comes back over the staged file or an empty place. Not in the backup: the
+/// original was never moved, or is back; a file that was not there before goes only if it is the
+/// staged one.
+fn undo_current(entry: &Entry, target: &Path, backup: &Path) -> Result<Undo> {
+    if exists(backup)? {
+        return if entry.previous && (!exists(target)? || holds_installed(entry, target)?) {
+            Ok(Undo::PutBack)
+        } else {
+            Err(not_moved(entry))
+        };
     }
-    remove_file_durably(record)?;
-    remove(&located.stage)?;
-    remove(&located.backup)
+    match (entry.previous, exists(target)?) {
+        (true, true) | (false, false) => Ok(Undo::Leave),
+        (true, false) => Err(lost(entry)),
+        (false, true) if holds_installed(entry, target)? => Ok(Undo::Discard),
+        (false, true) => Err(not_moved(entry)),
+    }
+}
+
+/// The control of a current journal: never absent while a current journal exists (copied into the
+/// backup, replaced by one rename, written back atomically), so it must be the one from before the
+/// install or the one the install brought. Anything else, or nothing, means this is not the
+/// journal's folder.
+fn undo_control(entry: &Entry, target: &Path, backup: &Path) -> Result<Undo> {
+    let here = content_identity::of(target)?;
+    if !entry.previous {
+        // The folder had no control (a restore repairing it): the install brought the only one.
+        return match here {
+            None => Ok(Undo::Leave),
+            Some(_) if here == entry.installed => Ok(Undo::Discard),
+            Some(_) => Err(not_moved(entry)),
+        };
+    }
+    if here.is_none() || (here != entry.original && here != entry.installed) {
+        return Err(not_moved(entry));
+    }
+    match content_identity::of(backup)? {
+        None if here == entry.original => Ok(Undo::Leave),
+        Some(kept) if Some(&kept) == entry.original.as_ref() => Ok(Undo::WriteControl),
+        _ => Err(not_moved(entry)),
+    }
+}
+
+/// Whether the file at `target` holds what the journal recorded of its staged file. A current
+/// journal records it for every staged file; without it nothing tells this install's file from
+/// another one.
+fn holds_installed(entry: &Entry, target: &Path) -> Result<bool> {
+    Ok(entry.installed.is_some() && content_identity::of(target)? == entry.installed)
+}
+
+/// A journal of PathKeep 0.5 puts back whatever its backup holds and takes out what was not there
+/// before, as that release did.
+fn undo_legacy(entry: &Entry, target: &Path, backup: &Path) -> Result<Undo> {
+    Ok(if exists(backup)? && is_control(entry) {
+        Undo::WriteControl
+    } else if exists(backup)? {
+        Undo::PutBack
+    } else if !entry.previous {
+        Undo::Discard
+    } else if !exists(target)? {
+        return Err(lost(entry));
+    } else {
+        Undo::Leave
+    })
+}
+
+fn not_moved(entry: &Entry) -> anyhow::Error {
+    anyhow::anyhow!(
+        "{}: {} is not a file this install moved; the install record is kept and nothing was \
+         changed",
+        crate::admission::Reason::ControlInvalid.code(),
+        entry.relative.display()
+    )
+}
+
+/// It was there before the install, and it is neither in place nor in the backup. Saying the
+/// rollback succeeded would lose track of it for good.
+fn lost(entry: &Entry) -> anyhow::Error {
+    anyhow::anyhow!(
+        "{} is neither in place nor in the backup; the install record is kept",
+        entry.relative.display()
+    )
 }
 
 fn finish(paths: &ProjectPaths, journal: &Journal) -> Result<()> {
@@ -516,7 +747,7 @@ fn keep_as_copy(backup: &Path, copy: &Path) -> Result<()> {
 /// first: if power fails between the two flushes the entry may show in both places, never in
 /// neither (`durable_io::fsync_dir`). New parent folders are made durable before anything is
 /// moved into them.
-fn rename(from: &Path, to: &Path) -> Result<()> {
+pub(crate) fn rename(from: &Path, to: &Path) -> Result<()> {
     create_dirs_durably(to.parent().unwrap())?;
     fs::rename(from, to)?;
     fsync_dir(to.parent().unwrap())?;

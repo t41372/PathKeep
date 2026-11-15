@@ -829,6 +829,18 @@
             },
             "staged": {
               "type": "boolean"
+            },
+            "installed": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "original": {
+              "type": [
+                "string",
+                "null"
+              ]
             }
           },
           "required": [
@@ -857,12 +869,16 @@
           "items": {
             "type": "string"
           }
+        },
+        "made_in": {
+          "type": "string"
         }
       },
       "required": [
         "identity",
         "version",
-        "creating"
+        "creating",
+        "made_in"
       ]
     },
     ".pk-wipe-v2.json": {
@@ -885,10 +901,13 @@
           ]
         },
         "emptied": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": "string"
+        },
+        "trash": {
+          "type": "string"
+        },
+        "committed": {
+          "type": "boolean"
         },
         "providerIds": {
           "type": "array",
@@ -911,6 +930,9 @@
       "required": [
         "identity",
         "version",
+        "emptied",
+        "trash",
+        "committed",
         "providerIds"
       ],
       "$defs": {

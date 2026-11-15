@@ -5,13 +5,15 @@
 //! Not responsible for: what the agent-history stores hold (the agent-history crate) or the
 //! install journal (`install_tests`).
 //! Failure modes: a crash leaves a stamped archive whose next open creates an empty store where
-//! data was; a record deletes a store an older release created after the crash; a record names a
-//! file that is not a store; the record outlives a finished promotion; a later build's compatible
-//! stamp is lowered by a save, a mode change or a restore; a 0.5 snapshot or file installs
-//! without the new stores, or keeps the conversations of the archive it replaced.
+//! data was; a record deletes or writes over a store, an older release's since the crash or another
+//! archive's it was carried into; a store that cannot be looked at is taken for a missing one; a
+//! record names a file that is not a store, or a folder it did not make; the record or its folder
+//! outlives a finished promotion; a later build's compatible stamp is lowered by a save, a mode
+//! change or a restore; a 0.5 snapshot or file installs without the new stores, or keeps the
+//! conversations of the archive it replaced.
 use super::*;
 use crate::{AppConfig, ArchiveMode, Vault, project_paths_with_root};
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, fs};
 use vault_store::{Db, Priority};
 
 /// The stores PathKeep 0.5 opens.
@@ -123,24 +125,33 @@ pub(in crate::maintenance) fn files(root: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
     found
 }
 
+/// The folders stores were made in that are still under `staging/`.
+fn made_folders(paths: &ProjectPaths) -> Vec<PathBuf> {
+    match fs::read_dir(&paths.staging_dir) {
+        Ok(entries) => entries
+            .map(|entry| entry.unwrap().path())
+            .filter(|path| path.file_name().unwrap().to_string_lossy().starts_with("creating-"))
+            .collect(),
+        Err(_) => Vec::new(),
+    }
+}
+
 #[test]
 fn every_cut_of_the_promotion_is_finished_by_the_next_open() {
-    for (point, stamped, created) in [
-        ("promotion-recorded", false, false),
-        ("promotion-stamped", true, false),
-        ("promotion-created", true, true),
+    for (point, recorded, stamped, moved) in [
+        ("promotion-made", false, false, false),
+        ("promotion-recorded", true, false, false),
+        ("promotion-stamped", true, true, false),
+        ("promotion-moved", true, true, true),
     ] {
         let (_root, paths) = released_archive();
         crash_at(&paths, point);
-        assert!(read(&paths).unwrap().is_some(), "{point}: the record is there");
+        assert_eq!(read(&paths).unwrap().is_some(), recorded, "{point}: the record");
         assert_eq!(layout(&paths) == ArchiveLayout::AgentHistoryV2, stamped, "{point}");
         for added in ADDED {
-            assert_eq!(paths.app_root.join(added).is_file(), created, "{point}: {added}");
+            assert_eq!(paths.app_root.join(added).is_file(), moved, "{point}: {added}");
         }
-        if created {
-            // As if the crash had stopped the store halfway through writing the file.
-            fs::write(paths.app_root.join(ADDED[0]), b"SQLite format 3\0cut short").unwrap();
-        }
+        assert_eq!(made_folders(&paths).len(), 1, "{point}: the folder they were made in");
 
         let vault = open(&paths).unwrap();
         assert_eq!(vault.layout(), ArchiveLayout::AgentHistoryV2, "{point}");
@@ -154,12 +165,73 @@ fn every_cut_of_the_promotion_is_finished_by_the_next_open() {
         vault.close().unwrap();
         drop(vault);
 
+        assert!(made_folders(&paths).is_empty(), "{point}: no folder is left");
         // Brought up once: the next open rewrites nothing and records nothing.
         let control = fs::read(&paths.config_path).unwrap();
         drop(open(&paths).unwrap());
         assert_eq!(fs::read(&paths.config_path).unwrap(), control, "{point}");
         assert!(read(&paths).unwrap().is_none(), "{point}");
     }
+}
+
+// The folder the stores were made in is gone after the stamp (cleaned by hand, or not copied with
+// the rest of the folder). The record still says they are being made: the next open makes them
+// again rather than refusing the archive or creating them in place.
+#[test]
+fn stores_the_folder_lost_after_the_stamp_are_made_again() {
+    let (_root, paths) = released_archive();
+    crash_at(&paths, "promotion-stamped");
+    for folder in made_folders(&paths) {
+        fs::remove_dir_all(folder).unwrap();
+    }
+    let vault = open(&paths).unwrap();
+    assert_eq!(marker(&vault, Db::Archive).as_deref(), Some("released-archive"));
+    for db in [Db::AgentHistoryEvidence, Db::AgentHistoryReadModel] {
+        write_marker(vault.store(), db, "usable");
+        assert_eq!(marker(&vault, db).as_deref(), Some("usable"), "{db:?}");
+    }
+    assert!(read(&paths).unwrap().is_none());
+    assert!(made_folders(&paths).is_empty());
+}
+
+// A store's log left in its place without the store (a file put there by hand, or left by another
+// tool): a new store beside it would be read with another file's log. Nothing is moved in, and the
+// archive is refused rather than opened that way.
+#[test]
+fn a_log_without_its_store_keeps_the_new_store_out() {
+    let (_root, paths) = released_archive();
+    crash_at(&paths, "promotion-stamped");
+    let log = paths.app_root.join("archive/agent-history.db-wal");
+    fs::write(&log, b"another store's log").unwrap();
+    let before = files(&paths.app_root);
+    let Err(error) = open(&paths) else { panic!("opened") };
+    assert!(format!("{error:#}").contains("archive-store-missing"), "{error:#}");
+    assert_eq!(files(&paths.app_root), before, "nothing was moved in");
+}
+
+// A store that cannot be looked at (its folder lost its permissions) is not one that is missing.
+// Taken for one, it was recorded as being made, and the next open after the stamp made it again
+// over the conversations in it. The bring-up stops instead, before it records or stamps anything.
+#[cfg(unix)]
+#[test]
+fn a_store_that_cannot_be_looked_at_is_not_taken_for_a_missing_one() {
+    use std::os::unix::fs::PermissionsExt;
+    let (_root, paths) = released_archive();
+    let store = released_store(&paths);
+    write_marker(&store, Db::Agent, "an ask conversation");
+    store.close().unwrap();
+    drop(store);
+    let derived = paths.app_root.join("derived");
+    fs::set_permissions(&derived, fs::Permissions::from_mode(0o000)).unwrap();
+    let refused = open(&paths);
+    fs::set_permissions(&derived, fs::Permissions::from_mode(0o755)).unwrap();
+    assert!(refused.is_err(), "the open stops while the folder cannot be read");
+    assert!(read(&paths).unwrap().is_none(), "nothing was recorded");
+    assert_eq!(layout(&paths), ArchiveLayout::BrowsingV1, "nothing was stamped");
+
+    let vault = open(&paths).unwrap();
+    assert_eq!(marker(&vault, Db::Agent).as_deref(), Some("an ask conversation"));
+    assert_eq!(vault.layout(), ArchiveLayout::AgentHistoryV2);
 }
 
 // Before the stamp, PathKeep 0.5 can open the folder, and it creates a store it lacks. A record
@@ -186,6 +258,74 @@ fn a_crash_before_the_stamp_never_deletes_what_an_older_release_saved_since() {
     assert!(read(&paths).unwrap().is_none());
 }
 
+// A crash before the stamp, then PathKeep 0.5 changes the archive's password or turns encryption
+// on or off (it can: there is no stamp). A store made before the crash, with the key the archive
+// had, would not open with the archive any more. So nothing made before the stamp is ever moved
+// in: the next open makes the stores again, for the archive as it is then. The bytes written below
+// stand for a store made under the old key.
+#[test]
+fn nothing_made_before_the_stamp_enters_the_archive() {
+    let (_root, paths) = released_archive();
+    crash_at(&paths, "promotion-recorded");
+    let record = read(&paths).unwrap().expect("the crash left a record");
+    let made = paths.app_root.join(&record.made_in).join(ADDED[0]);
+    assert!(made.is_file(), "the store was made before the record");
+    fs::write(&made, b"made under the key the archive had").unwrap();
+
+    let vault = open(&paths).unwrap();
+    assert_eq!(vault.layout(), ArchiveLayout::AgentHistoryV2);
+    assert_eq!(marker(&vault, Db::Archive).as_deref(), Some("released-archive"));
+    assert_ne!(
+        fs::read(paths.app_root.join(ADDED[0])).unwrap(),
+        b"made under the key the archive had"
+    );
+    assert!(made_folders(&paths).is_empty());
+    assert!(read(&paths).unwrap().is_none());
+}
+
+// A crash during the bring-up, then its record carried into another archive's folder (the two
+// folders merged, or the record restored over the other one), with or without the folder it names.
+// That archive is stamped and keeps conversations in the stores the record names. Nothing is moved
+// over them, nothing of them is deleted, and the record goes.
+#[test]
+fn a_creation_record_carried_into_another_archive_changes_none_of_its_stores() {
+    for with_folder in [false, true] {
+        let (_first_root, first) = released_archive();
+        crash_at(&first, "promotion-stamped");
+        let (_second_root, second) = released_archive();
+        {
+            let vault = open(&second).unwrap();
+            write_marker(vault.store(), Db::AgentHistoryEvidence, "the other archive's");
+            write_marker(vault.store(), Db::AgentHistoryReadModel, "the other archive's");
+            vault.close().unwrap();
+        }
+        fs::copy(record_path(&first), record_path(&second)).unwrap();
+        if with_folder {
+            let made = read(&first).unwrap().unwrap().made_in;
+            for file in files(&first.app_root.join(&made)).into_keys() {
+                let to = second
+                    .app_root
+                    .join(&made)
+                    .join(file.strip_prefix(first.app_root.join(&made)).unwrap());
+                fs::create_dir_all(to.parent().unwrap()).unwrap();
+                fs::copy(&file, &to).unwrap();
+            }
+        }
+
+        let vault = open(&second).unwrap();
+        for db in [Db::AgentHistoryEvidence, Db::AgentHistoryReadModel] {
+            assert_eq!(marker(&vault, db).as_deref(), Some("the other archive's"), "{db:?}");
+        }
+        assert!(read(&second).unwrap().is_none(), "the record is gone");
+        assert!(made_folders(&second).is_empty(), "with its folder");
+        vault.close().unwrap();
+        // The folder it came from is still brought up from it.
+        let vault = open(&first).unwrap();
+        assert_eq!(vault.layout(), ArchiveLayout::AgentHistoryV2);
+        assert!(read(&first).unwrap().is_none());
+    }
+}
+
 #[test]
 fn a_stamped_archive_missing_a_store_is_refused_and_left_as_it_is() {
     for missing in ["archive/agent-history.db", "archive/history-vault.db"] {
@@ -210,13 +350,41 @@ fn a_record_naming_anything_but_a_store_is_refused_and_deletes_nothing() {
     ] {
         let (_root, paths) = released_archive();
         drop(open(&paths).unwrap());
-        let record =
-            serde_json::json!({"identity": "pathkeep-create", "version": 1, "creating": [named]});
+        let record = serde_json::json!({
+            "identity": "pathkeep-create", "version": 1, "creating": [named],
+            "made_in": "staging/creating-x",
+        });
         fs::write(record_path(&paths), serde_json::to_vec(&record).unwrap()).unwrap();
         let before = files(&paths.app_root);
         let Err(error) = open(&paths) else { panic!("opened") };
         assert!(format!("{error:#}").contains("archive-control-invalid"), "{named}: {error:#}");
         assert_eq!(files(&paths.app_root), before, "{named}: nothing was deleted");
+    }
+}
+
+// A record naming a folder this build does not make stores in is refused, and nothing in that
+// folder, or anywhere, is moved or deleted.
+#[test]
+fn a_record_naming_another_folder_is_refused_and_moves_nothing() {
+    for folder in [
+        "staging",
+        "archive",
+        "staging/maintenance-x",
+        "staging/creating-x/inner",
+        "../creating-x",
+        "creating-x",
+    ] {
+        let (_root, paths) = released_archive();
+        drop(open(&paths).unwrap());
+        let record = serde_json::json!({
+            "identity": "pathkeep-create", "version": 1,
+            "creating": ["archive/agent-history.db"], "made_in": folder,
+        });
+        fs::write(record_path(&paths), serde_json::to_vec(&record).unwrap()).unwrap();
+        let before = files(&paths.app_root);
+        let Err(error) = open(&paths) else { panic!("opened") };
+        assert!(format!("{error:#}").contains("archive-control-invalid"), "{folder}: {error:#}");
+        assert_eq!(files(&paths.app_root), before, "{folder}: nothing changed");
     }
 }
 

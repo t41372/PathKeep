@@ -91,11 +91,11 @@ impl Vault {
         };
         let mut recovered = crate::maintenance::recover_native_maintenance(&paths)
             .map_err(|e| vault_store::Error::Operation(e.into_boxed_dyn_error()))?;
-        // The live archive is brought up to this build's layout before its store opens: stamp
-        // first, the stores it then lacks recorded as being created (`maintenance::creation`).
+        // The live archive is brought up to this build's layout before its store opens: the
+        // stores it lacks made aside, recorded, the stamp, then moved in (`maintenance::creation`).
         // A staged copy is not: its operation sets its control.
         if recover {
-            recovered |= crate::maintenance::creation::promote_if_needed(&paths)
+            recovered |= crate::maintenance::creation::promote_if_needed(&paths, key)
                 .map_err(|e| vault_store::Error::Operation(e.into_boxed_dyn_error()))?;
         }
         let config = if recovered {
@@ -125,11 +125,6 @@ impl Vault {
                 return Err(error);
             }
         };
-        if recover {
-            // Before anything else is written: the stores the record named exist now.
-            crate::maintenance::creation::finish(&paths)
-                .map_err(|e| vault_store::Error::Operation(e.into_boxed_dyn_error()))?;
-        }
         if recover {
             store.write(Db::Archive, Priority::Interactive, |s| {
             s.execute(

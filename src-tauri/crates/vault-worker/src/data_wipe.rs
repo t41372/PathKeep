@@ -7,7 +7,8 @@
 //! - Clear the archive key and AI provider keys from the system keychain.
 //! - Find an installed automatic backup (preview) and remove it through the scheduler's own remove
 //!   path (execute). The plan is taken while the config still exists; the removal runs last.
-//! - Finish a wipe that a crash cut short, before anything else touches the app root.
+//! - Settle a wipe that a crash or a failure cut short, before anything else touches the app root:
+//!   undone if it had not moved everything out yet, finished if it had.
 //!
 //! ## Not responsible for
 //! - Which files are removed, the preview, locking and the crash marker:
@@ -21,7 +22,7 @@ use crate::{
 use anyhow::{Context, Result};
 use std::time::{Duration, Instant};
 use vault_core::{
-    AppConfig, ProjectPaths, SchedulePlan, WipeOutsideState, WipePreview, WipeReport,
+    AppConfig, ProjectPaths, SchedulePlan, SettledWipe, WipeOutsideState, WipePreview, WipeReport,
 };
 use vault_platform::{
     ScheduleParameters, keyring_clear_database_key, keyring_clear_provider_api_key, keyring_status,
@@ -52,10 +53,11 @@ pub fn preview_data_wipe() -> Result<WipePreview> {
 ///
 /// Afterwards the app reports itself not initialized, so the shell routes to onboarding. An
 /// installed automatic backup is removed last; if that fails the files are still gone and the
-/// report carries the error.
+/// report carries the error. An error before everything is moved out leaves the archive where it
+/// was, closed: `close_store` has run, and the session opens it again as after a lock.
 pub fn wipe_all_data(
     confirmation: &str,
-    close_store: impl FnOnce() -> Result<()>,
+    close_store: impl Fn() -> Result<()>,
 ) -> Result<WipeReport> {
     if confirmation != WIPE_CONFIRMATION_WORD {
         anyhow::bail!(
@@ -84,26 +86,39 @@ pub fn wipe_all_data(
     Ok(report)
 }
 
-/// Finishes a wipe that was cut short. Returns whether there was one to finish.
+/// Settles a wipe that was cut short. Returns whether there was one to settle.
 ///
-/// Runs at launch and before archive initialization, so onboarding can never reopen a
-/// half-deleted archive. The user confirmed the wipe when it started.
+/// Runs at launch, before archive initialization and before every install, so onboarding never
+/// opens a half-deleted archive and nothing is installed into a folder a pending wipe would act
+/// on. The user confirmed the wipe when it started.
 pub fn finish_interrupted_data_wipe() -> Result<bool> {
     let paths = vault_core::project_paths()?;
     if !vault_core::data_wipe_interrupted(&paths) {
         return Ok(false);
     }
-    log::warn!(target: "pathkeep::data_wipe", "finishing a data wipe that was interrupted");
-    let report = vault_core::finish_interrupted_data_wipe(
+    log::warn!(target: "pathkeep::data_wipe", "settling a data wipe that was cut short");
+    let settled = vault_core::finish_interrupted_data_wipe(
         &paths,
         || stop_background_work(&paths, false),
         clear_keychain,
         |plan| remove_schedule(&paths, plan),
     )?;
-    if let Some(report) = &report {
-        log_schedule_outcome(report);
+    match &settled {
+        Some(SettledWipe::Finished(report)) => {
+            log::info!(target: "pathkeep::data_wipe", "finished the data wipe");
+            log_schedule_outcome(report);
+        }
+        Some(SettledWipe::RolledBack) => log::warn!(
+            target: "pathkeep::data_wipe",
+            "undid the data wipe: it had not moved everything out yet, and nothing was deleted"
+        ),
+        Some(SettledWipe::Discarded) => log::warn!(
+            target: "pathkeep::data_wipe",
+            "dropped a data wipe record that does not match this archive; nothing was deleted"
+        ),
+        None => {}
     }
-    Ok(report.is_some())
+    Ok(settled.is_some())
 }
 
 /// The installed automatic backup, as the scheduler sees it.

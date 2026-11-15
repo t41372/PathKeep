@@ -814,6 +814,22 @@ pub const fn spec(id: ArtifactId) -> ArtifactSpec {
             census: CensusPolicy::Archive,
             introduced_in: ArchiveLayout::BrowsingV1,
         ),
+        // Where "Delete all data" moves everything before it deletes anything (`archive::wipe`).
+        // Until the wipe commits, a recovery moves it all back; after, it deletes this folder. Left
+        // behind only when something stood where an entry had to go back, and removed by the next
+        // wipe.
+        ArtifactId::WipeTrash => row!(id, PathRule::Family { parent: "", family: FileFamily::WipeTrash, pattern: FamilyPattern::Prefix("wipe-trash-") }, ContentClass::Original, DataScope::NestedArchive, None, None;
+            open: OpenPolicy::NotOpened, snapshot: SnapshotPolicy::Omit,
+            restore: RestorePolicy::Preserve, portable: PortablePolicy::Omit(None),
+            mode_change: ModeChangePolicy::Preserve, at_rest: AtRestPolicy::AsCopied,
+            wipe: WipePolicy::RootFamily, usage: UsagePolicy { bucket: None, measure: Measure::None },
+            retention: None, health: HealthPolicy::NotChecked,
+            export_target: ExportTargetPolicy::Allow, conversion: ConversionPolicy::Omit,
+            prevents_new_envelope: false, password_change: PasswordChangePolicy::Preserve,
+            move_import: ImportPolicy::Preserve,
+            census: CensusPolicy::Archive,
+            introduced_in: ArchiveLayout::BrowsingV1,
+        ),
         ArtifactId::AtomicTemps => row!(id, PathRule::Family { parent: "", family: FileFamily::AtomicTemps, pattern: FamilyPattern::Prefix(".pk-durable-") }, ContentClass::Control, DataScope::Shared, None, None;
             open: OpenPolicy::NotOpened, snapshot: SnapshotPolicy::Omit,
             restore: RestorePolicy::Preserve, portable: PortablePolicy::Omit(None),

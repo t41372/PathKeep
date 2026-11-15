@@ -16,6 +16,7 @@ pub enum FileFamily {
     RootBackups,
     AtomicTemps,
     ReservedControls,
+    WipeTrash,
 }
 /// Existing name-selection rules; broad backup matching is intentionally retained.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -115,6 +115,7 @@ identities! {
         AgentHistoryEvidence = 75,
         AgentHistoryReadModel = 76,
         AgentHistorySearch = 77,
+        WipeTrash = 78,
 
 
     }

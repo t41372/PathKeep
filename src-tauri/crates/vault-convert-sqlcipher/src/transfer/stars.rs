@@ -134,9 +134,13 @@ fn star_digest(
     Ok((count, hash.finalize().to_vec()))
 }
 
+/// One page in key order. The primary key's index is named: Turso 0.8.3 plans this query through
+/// it only for a schema it created in the same process; once the store is opened from disk (at
+/// every start) it takes `idx_star_kind_starred_at` and sorts every favorite of the kind for each
+/// page. BACKLOG `WORK-TURSO-COMPOSITE-KEY-PLANS` has the repro.
 fn page_sql(table: &str, predicate: &str) -> String {
     format!(
-        "SELECT entity_kind,entity_key,starred_at,source_profile FROM {table} WHERE {predicate} ORDER BY entity_kind,entity_key LIMIT 1024"
+        "SELECT entity_kind,entity_key,starred_at,source_profile FROM {table} INDEXED BY sqlite_autoindex_{table}_1 WHERE {predicate} ORDER BY entity_kind,entity_key LIMIT 1024"
     )
 }
 
@@ -144,6 +148,8 @@ fn page_sql(table: &str, predicate: &str) -> String {
 mod tests {
     use super::*;
 
+    // The stores of a new archive are made, closed and opened again from disk, as at every start,
+    // which is where Turso stopped choosing the key's index on its own.
     #[test]
     fn proof_pages_seek_both_parts_of_the_favorite_key() {
         let vault = Vault::open_temp().unwrap();

@@ -61,6 +61,8 @@ enum Contents {
     ConversionStage,
     /// The staging folder of an operation that never finished.
     AbandonedStage,
+    /// What a delete-all-data moved aside and could not put back or delete.
+    WipeTrash,
 }
 
 #[derive(Debug, PartialEq)]
@@ -108,7 +110,7 @@ fn build(root: &Path, control: Control, record: Record, contents: Contents) {
         Record::WipeV2 => write(
             root,
             ".pk-wipe-v2.json",
-            r#"{"identity":"pathkeep-wipe","version":1,"providerIds":[],"schedule":null}"#,
+            r#"{"identity":"pathkeep-wipe","version":1,"control":null,"emptied":"{}","trash":"wipe-trash-x","committed":false,"providerIds":[],"schedule":null}"#,
         ),
         Record::InstallV2 => write(
             root,
@@ -182,6 +184,7 @@ fn build(root: &Path, control: Control, record: Record, contents: Contents) {
         Contents::ConversionStage => {
             write(root, "staging/sqlcipher-conversion/conversion.json", "{}")
         }
+        Contents::WipeTrash => write(root, "wipe-trash-1a2b/archive/history-vault.db", "moved"),
         Contents::AbandonedStage => {
             write(root, "staging/maintenance-1a2b/archive/history-vault.db", "half an import");
             write(root, "staging/maintenance-1a2b/sidecars/intelligence-blobs/a/b.txt", "text");
@@ -220,6 +223,8 @@ fn every_combination_is_classified_as_written_and_nothing_is_touched() {
         (Absent, R::None, C::Quarantined, MISSING),
         (Absent, R::None, C::SavedText, MISSING),
         (Absent, R::None, C::ConversionStage, MISSING),
+        // The user's data, moved aside by a wipe that was neither finished nor undone.
+        (Absent, R::None, C::WipeTrash, MISSING),
         // An import into a new data folder that a crash cut short. The next open deletes it.
         (Absent, R::None, C::AbandonedStage, Is::Uninitialized),
         // A wipe removes the control first; an install moves it aside. Both are finished.
@@ -254,6 +259,7 @@ fn every_combination_is_classified_as_written_and_nothing_is_touched() {
         (Legacy, R::None, C::Empty, Is::Admitted),
         (Legacy, R::None, C::Store, Is::Admitted),
         (Legacy, R::None, C::UnknownInArchive, Is::Admitted),
+        (Legacy, R::None, C::WipeTrash, Is::Admitted),
         (Legacy, R::Wipe, C::Store, Is::Admitted),
         (Legacy, R::WipeGarbage, C::Store, Is::Admitted),
         (Legacy, R::Install, C::Store, Is::Admitted),

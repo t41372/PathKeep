@@ -2,8 +2,10 @@
  * Delete all data: shows exactly what goes (`preview_wipe_all_data`), asks
  * for the word DELETE, deletes (`wipe_all_data`), then restarts the session,
  * which lands on onboarding because nothing is set up any more. If the
- * automatic backup could not be removed, the dialog says so first and
- * restarts when the user continues.
+ * automatic backup could not be removed, or deleting failed after everything
+ * was moved out (`archive-wipe-unfinished`, which PathKeep finishes before the
+ * next setup), the dialog says so first and restarts when the user continues.
+ * Any other failure deleted nothing: the backend put everything back.
  */
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
@@ -24,10 +26,14 @@ import { Spinner } from '@/components/ui/spinner'
 import { dataWipeClient } from '@/lib/backend-client/data-wipe'
 import { describeError } from '@/lib/errors'
 import { useFormat, useI18n } from '@/lib/i18n'
+import { commandErrorCode } from '@/lib/ipc/command-error'
 import { Notice } from './notice'
 
 /** The backend checks for this exact word, in every language. */
 const CONFIRMATION_WORD = 'DELETE'
+
+/** Backend code: the data was moved out, and a later step failed (`command_error.rs`). */
+const WIPE_UNFINISHED = 'archive-wipe-unfinished'
 
 export function WipeDialog({
   open,
@@ -64,9 +70,12 @@ function WipeForm({ onClose }: { onClose: () => void }) {
 
   const ready = preview.isSuccess && typed === CONFIRMATION_WORD
   const scheduleError = wipe.data?.scheduleError
+  const unfinished =
+    wipe.isError && commandErrorCode(wipe.error) === WIPE_UNFINISHED
 
-  if (scheduleError) {
-    // The data is gone; only the OS task is left. Say so, then start over.
+  if (scheduleError || unfinished) {
+    // The archive is gone, or will be before the next setup. Say what is
+    // left, then start over.
     return (
       <DialogContent
         className="sm:max-w-md"
@@ -77,9 +86,13 @@ function WipeForm({ onClose }: { onClose: () => void }) {
         <DialogHeader>
           <DialogTitle>{t('settingsStorage.wipe.title')}</DialogTitle>
           <DialogDescription className="[overflow-wrap:anywhere]">
-            {t('settingsStorage.wipe.scheduleFailed', {
-              message: scheduleError,
-            })}
+            {scheduleError
+              ? t('settingsStorage.wipe.scheduleFailed', {
+                  message: scheduleError,
+                })
+              : t('settingsStorage.wipe.unfinished', {
+                  message: describeError(wipe.error, 'wipe_all_data'),
+                })}
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>
