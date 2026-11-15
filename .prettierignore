@@ -30,3 +30,6 @@ artifacts/dependency-refresh/
 # Hand-written `config.json` controls for the admission tests. Their bytes are the test: one
 # is deliberately not JSON, and one carries spacing that has to survive a save unchanged.
 tests/root_admission/fixtures/
+
+# Generated from the persisted types by `cargo test -p vault-core --test persisted_schema`.
+src-tauri/crates/vault-core/tests/persisted_schema/revision-*.json

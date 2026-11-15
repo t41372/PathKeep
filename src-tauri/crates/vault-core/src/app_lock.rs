@@ -22,18 +22,18 @@ use std::{fs, path::PathBuf};
 const PASSCODE_MIN_LENGTH: usize = 4;
 const PASSCODE_ROUNDS: usize = 120_000;
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
-struct AppLockStateRecord {
+pub(crate) struct AppLockStateRecord {
     locked: bool,
     lock_reason: Option<String>,
     locked_at: Option<String>,
     last_unlocked_at: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
-struct AppLockSecretRecord {
+pub(crate) struct AppLockSecretRecord {
     salt_hex: String,
     hash_hex: String,
     recovery_hint: Option<String>,

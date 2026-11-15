@@ -506,3 +506,47 @@ fn every_mcp_tool_rechecks_the_owner_root_after_connection() {
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
+
+// The worker command line refuses in its own process, before it connects. This asks the owner
+// directly, as anything that speaks its protocol can, for each route that uses the archive.
+// `ping` is left out on purpose: it answers with the owner's process id and touches nothing.
+#[test]
+fn every_owner_route_that_uses_the_archive_refuses_at_the_owner() {
+    let mut failures = Vec::new();
+    for (method, params) in [
+        ("backup", serde_json::json!({"dueOnly": true})),
+        ("backup", serde_json::json!({"dueOnly": false})),
+        ("doctor", serde_json::json!({})),
+        ("ai-index", serde_json::json!({})),
+        ("ai-queue", serde_json::json!({})),
+        ("ai-jobs", serde_json::json!({})),
+        ("intelligence-jobs", serde_json::json!({})),
+    ] {
+        let f = Fixture::new(false);
+        f.session.reserve_owner(Arc::new(vault_store::OwnerLock::acquire(&f.root).unwrap()));
+        let session = f.session.clone();
+        let server = vault_owner_ipc::Server::start(&f.root, move |request, progress| {
+            vault_worker::owner_requests::dispatch(request, progress, session.get_key(), || {
+                session.background_vault().map_err(anyhow::Error::msg)
+            })
+        })
+        .unwrap();
+        f.write("config.json", FUTURE);
+        let before = f.observe();
+        let outside = f.outside();
+        let result = error(
+            tokio::runtime::Runtime::new().unwrap().block_on(
+                vault_owner_ipc::Client::new(&f.root)
+                    .request(vault_owner_ipc::Request::new(method, params.clone()), |_| {}),
+            ),
+        );
+        let after = f.observe();
+        if !result.contains("archive-reader-too-old") || before != after || outside != f.outside() {
+            failures.push(format!(
+                "{method} {params}: result={result}; before={before:?}; after={after:?}"
+            ));
+        }
+        drop(server);
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}

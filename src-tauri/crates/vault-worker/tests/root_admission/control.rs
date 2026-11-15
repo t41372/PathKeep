@@ -245,6 +245,68 @@ fn after_delete_all_data_the_root_is_a_first_run_again() {
     assert!(vault_core::load_config(&f.paths()).unwrap().initialized);
 }
 
+// A damaged or lost `config.json` is what a restore repairs: the snapshot carries its own. The
+// app refuses to open such a folder, so the recovery screen depends on these two calls working.
+#[test]
+fn a_restore_repairs_an_archive_whose_control_is_damaged_or_lost() {
+    for damage in ["damaged", "lost"] {
+        let mut f = Fixture::new(true);
+        let source = f.root.join("raw-snapshots/maintenance/before-the-damage");
+        vault_core::maintenance::snapshot(f.vault(), &source).unwrap();
+        f.session.close_vault().unwrap();
+        f.vault.take().unwrap().close().unwrap();
+        let expected = if damage == "damaged" {
+            f.write("config.json", "{ not json");
+            "archive-control-invalid"
+        } else {
+            fs::remove_file(f.root.join("config.json")).unwrap();
+            "archive-control-missing"
+        };
+        assert!(error(vault_core::load_config(&f.paths())).contains(expected), "{damage}");
+        let listed = vault_worker::list_recovery_snapshots().unwrap();
+        assert_eq!(listed.len(), 1, "{damage}: {listed:?}");
+        vault_worker::run_full_archive_restore(
+            &f.session,
+            None,
+            &vault_core::SnapshotRestoreRequest { snapshot_path: listed[0].path.clone() },
+        )
+        .unwrap_or_else(|error| panic!("{damage}: {error:#}"));
+        assert!(vault_core::load_config(&f.paths()).unwrap().initialized, "{damage}");
+        assert!(f.root.join("archive/history-vault.db").is_file(), "{damage}");
+    }
+}
+
+// The same for a move-import at the level that replaces the archive. The worker's import
+// command reads the target's settings first, as it always has, so it is not a way in here.
+#[test]
+fn an_import_replaces_an_archive_whose_control_is_damaged_or_lost() {
+    for damage in ["damaged", "lost"] {
+        let mut f = Fixture::new(true);
+        let bundle = f.bundle_source();
+        f.session.close_vault().unwrap();
+        f.vault.take().unwrap().close().unwrap();
+        if damage == "damaged" {
+            f.write("config.json", "{ not json");
+        } else {
+            fs::remove_file(f.root.join("config.json")).unwrap();
+        }
+        let (_, installed) = vault_core::migration::native::import(
+            &f.paths(),
+            None,
+            None,
+            &bundle,
+            &vault_core::ApplyImportOptions {
+                source_archive_key: Some(support::PASSWORD.into()),
+                confirm_overwrite: true,
+            },
+            Default::default(),
+        )
+        .unwrap_or_else(|error| panic!("{damage}: {error:#}"));
+        installed.vault.close().unwrap();
+        assert!(vault_core::load_config(&f.paths()).unwrap().initialized, "{damage}");
+    }
+}
+
 // Files PathKeep has no name for at the top of the data folder do not make it an archive.
 #[test]
 fn files_that_are_not_pathkeeps_do_not_block_a_first_run() {

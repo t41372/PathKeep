@@ -39,7 +39,7 @@ pub fn normalize_app_config(config: &mut AppConfig) {
 }
 
 /// User language selection persisted in config.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, schemars::JsonSchema)]
 pub enum LanguagePreference {
     #[serde(rename = "system")]
     #[default]
@@ -53,7 +53,7 @@ pub enum LanguagePreference {
 }
 
 /// Persisted App Lock settings that shape future UI sessions.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", default)]
 pub struct AppLockConfig {
     pub enabled: bool,
@@ -149,7 +149,7 @@ pub struct SetAppLockPasscodeRequest {
 }
 
 /// Persisted application configuration owned by Settings.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", default)]
 pub struct AppConfig {
     pub initialized: bool,
@@ -195,7 +195,9 @@ pub struct AppConfig {
 ///                `og_images` row, and the daily negative-cache retry.
 ///                This is the default: it keeps social cards warm
 ///                without pinning UI activity.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum OgImageFetchMode {
     Off,
@@ -224,7 +226,7 @@ pub enum OgImageFetchMode {
 ///   prefetch pass enqueues per tick when running in `Background` mode.
 ///   Default 100. Zero disables the sweep without leaving `Background`
 ///   mode entirely (e.g. you still want daily refetch but no prefetch).
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", default)]
 pub struct OgImageSettings {
     pub fetch_enabled: bool,

@@ -15,8 +15,8 @@ use std::{
 };
 use vault_store::CancelToken;
 
-#[derive(Serialize, Deserialize)]
-struct FileProof {
+#[derive(Serialize, Deserialize, schemars::JsonSchema)]
+pub(crate) struct FileProof {
     path: PathBuf,
     sha256: String,
 }

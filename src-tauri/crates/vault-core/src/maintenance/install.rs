@@ -33,8 +33,8 @@ pub fn recover_before_open(paths: &ProjectPaths) -> Result<bool> {
     recover(paths)
 }
 
-#[derive(Serialize, Deserialize)]
-pub(super) struct Entry {
+#[derive(Serialize, Deserialize, schemars::JsonSchema)]
+pub(crate) struct Entry {
     relative: PathBuf,
     previous: bool,
     staged: bool,
@@ -42,8 +42,8 @@ pub(super) struct Entry {
 
 /// A durable prepare record is the rollback decision; `committed` publishes the
 /// entire generation. Recovery uses the same entries as in-band installation.
-#[derive(Serialize, Deserialize)]
-pub(super) struct Journal {
+#[derive(Serialize, Deserialize, schemars::JsonSchema)]
+pub(crate) struct Journal {
     stage: PathBuf,
     backup: PathBuf,
     entries: Vec<Entry>,

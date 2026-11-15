@@ -1,0 +1,21 @@
+{
+  "formats": [
+    {
+      "revision": 0,
+      "status": "released",
+      "writtenBy": "PathKeep 0.4.0 and 0.5.0",
+      "summary": "No stamp: archiveMode is the bare value \"Plaintext\" or \"Encrypted\". The shapes these two releases persist were never snapshotted, and they differ from each other.",
+      "olderBuilds": "Nothing older reads this format."
+    },
+    {
+      "revision": 1,
+      "minReader": 1,
+      "minWriter": 1,
+      "status": "in development",
+      "writtenBy": "No build yet. PathKeep 0.6.0 will be the first.",
+      "summary": "archiveMode becomes the stamped object. The snapshot beside this file is the shape of every listed record as the code stands; until a release writes revision 1 it may be edited in place.",
+      "olderBuilds": "PathKeep 0.4.0 and 0.5.0 cannot parse the stamped archiveMode and stop at start, before any service runs. Before reading the config they still act on an interrupted wipe marker and an install journal under today's file names."
+    }
+  ],
+  "released": []
+}

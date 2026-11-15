@@ -15,7 +15,9 @@ pub(super) fn run_scheduled_backup_cli(
     vault: &impl Fn() -> Result<vault_core::Vault>,
     session_key: Option<&str>,
 ) -> Result<String> {
-    let paths = vault_core::project_paths()?;
+    // The attempt ledger is written before the config is read, so that a failure to read it is
+    // on record. An archive this build may not use gets no record: nothing is written into it.
+    let paths = crate::context::usable_root()?;
     let mut attempt = AttemptRecorder::begin(&paths)?;
 
     attempt.advance(ScheduledBackupAttemptPhase::Keyring)?;

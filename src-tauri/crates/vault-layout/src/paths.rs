@@ -427,3 +427,12 @@ pub const fn legacy_config_entry() -> &'static str {
         _ => panic!("configuration requires a legacy settings contract"),
     }
 }
+
+/// Files the operating system's file manager drops into any folder a person opens or copies:
+/// Finder's `.DS_Store` and `._name` companions, Explorer's `desktop.ini` and `Thumbs.db`, KDE's
+/// `.directory`. They can appear at every level of the data folder, belong to no artifact, and
+/// never mean that an archive is there.
+pub fn is_os_metadata(name: &str) -> bool {
+    matches!(name, ".DS_Store" | ".localized" | "desktop.ini" | "Thumbs.db" | ".directory")
+        || name.starts_with("._")
+}

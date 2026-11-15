@@ -1,0 +1,1230 @@
+{
+  "rootRevision": 1,
+  "schema": {
+    "config.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "title": "AppConfig",
+      "type": "object",
+      "properties": {
+        "initialized": {
+          "type": "boolean",
+          "default": false
+        },
+        "archiveMode": {
+          "$ref": "#/$defs/ArchiveMode",
+          "default": "Plaintext"
+        },
+        "preferredLanguage": {
+          "$ref": "#/$defs/LanguagePreference",
+          "default": "system"
+        },
+        "dueAfterHours": {
+          "type": "number",
+          "format": "double",
+          "default": 1.0
+        },
+        "scheduleCheckIntervalHours": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0,
+          "default": 6
+        },
+        "checkpointDays": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0,
+          "default": 90
+        },
+        "captureFavicons": {
+          "type": "boolean",
+          "default": true
+        },
+        "selectedProfileIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "gitEnabled": {
+          "type": "boolean",
+          "default": true
+        },
+        "rememberDatabaseKeyInKeyring": {
+          "type": "boolean",
+          "default": false
+        },
+        "menuBarIcon": {
+          "type": "boolean",
+          "default": false
+        },
+        "explorerBackgroundPrefetchPages": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0,
+          "default": 5
+        },
+        "appLock": {
+          "$ref": "#/$defs/AppLockConfig",
+          "default": {
+            "enabled": false,
+            "idleTimeoutMinutes": 5,
+            "biometricEnabled": false,
+            "passcodeEnabled": true,
+            "passcodeConfigured": false,
+            "recoveryHint": null
+          }
+        },
+        "enrichment": {
+          "$ref": "#/$defs/EnrichmentSettings",
+          "default": {
+            "plugins": [
+              {
+                "id": "title-normalization",
+                "enabled": true,
+                "version": "m5-v1"
+              },
+              {
+                "id": "readable-content-refetch",
+                "enabled": false,
+                "version": "m4-v1"
+              }
+            ]
+          }
+        },
+        "deterministic": {
+          "$ref": "#/$defs/DeterministicSettings",
+          "default": {
+            "modules": [
+              {
+                "id": "visit-derived-facts",
+                "enabled": true,
+                "version": "ci-v1"
+              },
+              {
+                "id": "daily-rollups",
+                "enabled": true,
+                "version": "ci-v1"
+              },
+              {
+                "id": "sessions",
+                "enabled": true,
+                "version": "ci-v1"
+              },
+              {
+                "id": "search-trails",
+                "enabled": true,
+                "version": "ci-v1"
+              },
+              {
+                "id": "refind-pages",
+                "enabled": true,
+                "version": "ci-v1"
+              },
+              {
+                "id": "activity-mix",
+                "enabled": true,
+                "version": "ci-v1"
+              },
+              {
+                "id": "search-effectiveness",
+                "enabled": true,
+                "version": "ci-v1"
+              },
+              {
+                "id": "domain-deep-dive",
+                "enabled": true,
+                "version": "ci-v1"
+              }
+            ]
+          }
+        },
+        "ai": {
+          "$ref": "#/$defs/AiSettings",
+          "default": {
+            "enabled": false,
+            "assistantEnabled": false,
+            "semanticIndexEnabled": false,
+            "mcpEnabled": false,
+            "skillEnabled": false,
+            "autoIndexAfterBackup": false,
+            "jobQueuePaused": false,
+            "jobQueueConcurrency": 1,
+            "enrichmentEnabled": true,
+            "enrichmentPlugins": [
+              {
+                "pluginId": "title-normalization",
+                "enabled": true
+              },
+              {
+                "pluginId": "readable-content-refetch",
+                "enabled": false
+              }
+            ],
+            "contentFetchEnabled": false,
+            "contentFetchExtractors": [
+              {
+                "extractorId": "github-repo",
+                "enabled": true
+              },
+              {
+                "extractorId": "generic-readable",
+                "enabled": true
+              }
+            ],
+            "contentFetchDomains": [],
+            "llmProviderId": null,
+            "embeddingProviderId": null,
+            "retrievalTopK": 8,
+            "assistantSystemPrompt": "You are an audit-first history research assistant. Use the available browser history evidence before answering. Be explicit about uncertainty and cite the history rows you relied on.",
+            "llmProviders": [],
+            "embeddingProviders": [],
+            "hybridRrfK": 60,
+            "lexicalWeight": 1.0,
+            "semanticWeight": 1.0,
+            "starredBoost": 0.15
+          }
+        },
+        "ogImage": {
+          "$ref": "#/$defs/OgImageSettings",
+          "default": {
+            "fetchEnabled": true,
+            "fetchMode": "background",
+            "dailyRefetchBudget": 50,
+            "newVisitPrefetchBudget": 100,
+            "blockedHosts": [],
+            "cleanup": {
+              "mode": "off"
+            }
+          }
+        },
+        "insightsTimeZone": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "insightsZoneKeptFor": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "passwordKeptElsewhere": {
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "$defs": {
+        "ArchiveMode": {
+          "type": "string",
+          "enum": [
+            "Plaintext",
+            "Encrypted"
+          ]
+        },
+        "LanguagePreference": {
+          "type": "string",
+          "enum": [
+            "system",
+            "en",
+            "zh-CN",
+            "zh-TW"
+          ]
+        },
+        "AppLockConfig": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false
+            },
+            "idleTimeoutMinutes": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0,
+              "default": 5
+            },
+            "biometricEnabled": {
+              "type": "boolean",
+              "default": false
+            },
+            "passcodeEnabled": {
+              "type": "boolean",
+              "default": true
+            },
+            "passcodeConfigured": {
+              "type": "boolean",
+              "default": false
+            },
+            "recoveryHint": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "default": null
+            }
+          }
+        },
+        "EnrichmentSettings": {
+          "type": "object",
+          "properties": {
+            "plugins": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/EnrichmentPluginState"
+              },
+              "default": [
+                {
+                  "id": "title-normalization",
+                  "enabled": true,
+                  "version": "m5-v1"
+                },
+                {
+                  "id": "readable-content-refetch",
+                  "enabled": false,
+                  "version": "m4-v1"
+                }
+              ]
+            }
+          }
+        },
+        "EnrichmentPluginState": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "enabled": {
+              "type": "boolean"
+            },
+            "version": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "enabled",
+            "version"
+          ]
+        },
+        "DeterministicSettings": {
+          "type": "object",
+          "properties": {
+            "modules": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/DeterministicModuleState"
+              },
+              "default": [
+                {
+                  "id": "visit-derived-facts",
+                  "enabled": true,
+                  "version": "ci-v1"
+                },
+                {
+                  "id": "daily-rollups",
+                  "enabled": true,
+                  "version": "ci-v1"
+                },
+                {
+                  "id": "sessions",
+                  "enabled": true,
+                  "version": "ci-v1"
+                },
+                {
+                  "id": "search-trails",
+                  "enabled": true,
+                  "version": "ci-v1"
+                },
+                {
+                  "id": "refind-pages",
+                  "enabled": true,
+                  "version": "ci-v1"
+                },
+                {
+                  "id": "activity-mix",
+                  "enabled": true,
+                  "version": "ci-v1"
+                },
+                {
+                  "id": "search-effectiveness",
+                  "enabled": true,
+                  "version": "ci-v1"
+                },
+                {
+                  "id": "domain-deep-dive",
+                  "enabled": true,
+                  "version": "ci-v1"
+                }
+              ]
+            }
+          }
+        },
+        "DeterministicModuleState": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "enabled": {
+              "type": "boolean"
+            },
+            "version": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "enabled",
+            "version"
+          ]
+        },
+        "AiSettings": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false
+            },
+            "assistantEnabled": {
+              "type": "boolean",
+              "default": false
+            },
+            "semanticIndexEnabled": {
+              "type": "boolean",
+              "default": false
+            },
+            "mcpEnabled": {
+              "type": "boolean",
+              "default": false
+            },
+            "skillEnabled": {
+              "type": "boolean",
+              "default": false
+            },
+            "autoIndexAfterBackup": {
+              "type": "boolean",
+              "default": false
+            },
+            "jobQueuePaused": {
+              "type": "boolean",
+              "default": false
+            },
+            "jobQueueConcurrency": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0,
+              "default": 1
+            },
+            "enrichmentEnabled": {
+              "type": "boolean",
+              "default": true
+            },
+            "enrichmentPlugins": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/EnrichmentPluginPreference"
+              },
+              "default": [
+                {
+                  "pluginId": "title-normalization",
+                  "enabled": true
+                },
+                {
+                  "pluginId": "readable-content-refetch",
+                  "enabled": false
+                }
+              ]
+            },
+            "contentFetchEnabled": {
+              "type": "boolean",
+              "default": false
+            },
+            "contentFetchExtractors": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/ContentFetchExtractorPreference"
+              },
+              "default": [
+                {
+                  "extractorId": "github-repo",
+                  "enabled": true
+                },
+                {
+                  "extractorId": "generic-readable",
+                  "enabled": true
+                }
+              ]
+            },
+            "contentFetchDomains": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/ContentFetchDomainRule"
+              },
+              "default": []
+            },
+            "llmProviderId": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "default": null
+            },
+            "embeddingProviderId": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "default": null
+            },
+            "retrievalTopK": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0,
+              "default": 8
+            },
+            "assistantSystemPrompt": {
+              "type": "string",
+              "default": "You are an audit-first history research assistant. Use the available browser history evidence before answering. Be explicit about uncertainty and cite the history rows you relied on."
+            },
+            "llmProviders": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/AiProviderConfig"
+              },
+              "default": []
+            },
+            "embeddingProviders": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/AiProviderConfig"
+              },
+              "default": []
+            },
+            "hybridRrfK": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0,
+              "default": 60
+            },
+            "lexicalWeight": {
+              "type": "number",
+              "format": "float",
+              "default": 1.0
+            },
+            "semanticWeight": {
+              "type": "number",
+              "format": "float",
+              "default": 1.0
+            },
+            "starredBoost": {
+              "type": "number",
+              "format": "float",
+              "default": 0.15
+            }
+          }
+        },
+        "EnrichmentPluginPreference": {
+          "type": "object",
+          "properties": {
+            "pluginId": {
+              "type": "string"
+            },
+            "enabled": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "pluginId",
+            "enabled"
+          ]
+        },
+        "ContentFetchExtractorPreference": {
+          "type": "object",
+          "properties": {
+            "extractorId": {
+              "type": "string"
+            },
+            "enabled": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "extractorId",
+            "enabled"
+          ]
+        },
+        "ContentFetchDomainRule": {
+          "type": "object",
+          "properties": {
+            "domain": {
+              "type": "string"
+            },
+            "allowed": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "domain",
+            "allowed"
+          ]
+        },
+        "AiProviderConfig": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "default": ""
+            },
+            "name": {
+              "type": "string",
+              "default": ""
+            },
+            "purpose": {
+              "$ref": "#/$defs/AiProviderPurpose",
+              "default": "llm"
+            },
+            "requestFormat": {
+              "$ref": "#/$defs/AiRequestFormat",
+              "default": "openai"
+            },
+            "enabled": {
+              "type": "boolean",
+              "default": false
+            },
+            "baseUrl": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "default": null
+            },
+            "apiKeySaved": {
+              "type": "boolean",
+              "default": false
+            },
+            "defaultModel": {
+              "type": "string",
+              "default": ""
+            },
+            "modelCatalog": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "default": []
+            },
+            "dimensions": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint32",
+              "minimum": 0,
+              "default": null
+            },
+            "notes": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "default": null
+            }
+          }
+        },
+        "AiProviderPurpose": {
+          "type": "string",
+          "enum": [
+            "llm",
+            "embedding"
+          ]
+        },
+        "AiRequestFormat": {
+          "type": "string",
+          "enum": [
+            "openai",
+            "anthropic",
+            "google",
+            "ollama",
+            "lm-studio"
+          ]
+        },
+        "OgImageSettings": {
+          "type": "object",
+          "properties": {
+            "fetchEnabled": {
+              "type": "boolean",
+              "default": true
+            },
+            "fetchMode": {
+              "$ref": "#/$defs/OgImageFetchMode",
+              "default": "background"
+            },
+            "dailyRefetchBudget": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0,
+              "default": 50
+            },
+            "newVisitPrefetchBudget": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0,
+              "default": 100
+            },
+            "blockedHosts": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "default": []
+            },
+            "cleanup": {
+              "$ref": "#/$defs/OgImageCleanupMode",
+              "default": {
+                "mode": "off"
+              }
+            }
+          }
+        },
+        "OgImageFetchMode": {
+          "type": "string",
+          "enum": [
+            "off",
+            "on_demand",
+            "background"
+          ]
+        },
+        "OgImageCleanupMode": {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "mode": {
+                  "type": "string",
+                  "const": "off"
+                }
+              },
+              "required": [
+                "mode"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "max_age_days": {
+                  "type": "integer",
+                  "format": "uint32",
+                  "minimum": 0
+                },
+                "mode": {
+                  "type": "string",
+                  "const": "timeTtl"
+                }
+              },
+              "required": [
+                "mode",
+                "max_age_days"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "max_bytes": {
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0
+                },
+                "mode": {
+                  "type": "string",
+                  "const": "sizeCap"
+                }
+              },
+              "required": [
+                "mode",
+                "max_bytes"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "max_bytes": {
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0
+                },
+                "mode": {
+                  "type": "string",
+                  "const": "lru"
+                }
+              },
+              "required": [
+                "mode",
+                "max_bytes"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    "archive/.pk-import-journal.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "title": "Journal",
+      "type": "object",
+      "properties": {
+        "stage": {
+          "type": "string"
+        },
+        "backup": {
+          "type": "string"
+        },
+        "entries": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Entry"
+          }
+        },
+        "keep_previous": {
+          "type": "boolean"
+        },
+        "committed": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "stage",
+        "backup",
+        "entries",
+        "keep_previous",
+        "committed"
+      ],
+      "$defs": {
+        "Entry": {
+          "type": "object",
+          "properties": {
+            "relative": {
+              "type": "string"
+            },
+            "previous": {
+              "type": "boolean"
+            },
+            "staged": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "relative",
+            "previous",
+            "staged"
+          ]
+        }
+      }
+    },
+    ".pk-wipe-in-progress.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "title": "WipeOutsideState",
+      "type": "object",
+      "properties": {
+        "providerIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "schedule": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SchedulePlan"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "providerIds"
+      ],
+      "$defs": {
+        "SchedulePlan": {
+          "type": "object",
+          "properties": {
+            "platform": {
+              "type": "string"
+            },
+            "label": {
+              "type": "string"
+            },
+            "executablePath": {
+              "type": "string"
+            },
+            "wakeIntervalSeconds": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0,
+              "default": 0
+            },
+            "generatedFiles": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/GeneratedFile"
+              }
+            },
+            "manualSteps": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "manualStepDetails": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/ScheduleManualStep"
+              },
+              "default": []
+            },
+            "applyCommands": {
+              "type": "array",
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "rollbackCommands": {
+              "type": "array",
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "applySupported": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "platform",
+            "label",
+            "executablePath",
+            "generatedFiles",
+            "manualSteps",
+            "applyCommands",
+            "rollbackCommands",
+            "applySupported"
+          ]
+        },
+        "GeneratedFile": {
+          "type": "object",
+          "properties": {
+            "relativePath": {
+              "type": "string"
+            },
+            "absolutePath": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "purpose": {
+              "type": "string"
+            },
+            "contents": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "relativePath",
+            "purpose",
+            "contents"
+          ]
+        },
+        "ScheduleManualStep": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "titleKey": {
+              "type": "string"
+            },
+            "summaryKey": {
+              "type": "string"
+            },
+            "whyKey": {
+              "type": "string"
+            },
+            "command": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "type": "string"
+              }
+            },
+            "filePath": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "fileContents": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "directoryPath": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "canAutoRun": {
+              "type": "boolean"
+            },
+            "canVerify": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "id",
+            "titleKey",
+            "summaryKey",
+            "whyKey",
+            "canAutoRun",
+            "canVerify"
+          ]
+        }
+      }
+    },
+    "app-lock-state.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "title": "AppLockStateRecord",
+      "type": "object",
+      "properties": {
+        "locked": {
+          "type": "boolean"
+        },
+        "lockReason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "lockedAt": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "lastUnlockedAt": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "locked"
+      ]
+    },
+    "app-lock-passcode.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "title": "AppLockSecretRecord",
+      "type": "object",
+      "properties": {
+        "saltHex": {
+          "type": "string"
+        },
+        "hashHex": {
+          "type": "string"
+        },
+        "recoveryHint": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "saltHex",
+        "hashHex"
+      ]
+    },
+    "<snapshot>/snapshot.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "title": "Array_of_FileProof",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/FileProof"
+      },
+      "$defs": {
+        "FileProof": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "sha256": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "path",
+            "sha256"
+          ]
+        }
+      }
+    },
+    "<bundle>/pathkeep-export-manifest.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "title": "ExportManifest",
+      "type": "object",
+      "properties": {
+        "formatVersion": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "appVersion": {
+          "type": "string"
+        },
+        "archiveSchemaVersion": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "archiveMode": {
+          "type": "string"
+        },
+        "exportedAt": {
+          "type": "string"
+        },
+        "exporterHostname": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ExportManifestFile"
+          }
+        }
+      },
+      "required": [
+        "formatVersion",
+        "appVersion",
+        "archiveSchemaVersion",
+        "archiveMode",
+        "exportedAt",
+        "files"
+      ],
+      "$defs": {
+        "ExportManifestFile": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "sha256": {
+              "type": "string"
+            },
+            "sizeBytes": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "path",
+            "sha256",
+            "sizeBytes"
+          ]
+        }
+      }
+    },
+    "schedule/attempts/attempt-*.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "title": "ScheduledBackupAttempt",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "startedAt": {
+          "type": "string"
+        },
+        "finishedAt": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "outcome": {
+          "$ref": "#/$defs/ScheduledBackupAttemptOutcome"
+        },
+        "phase": {
+          "$ref": "#/$defs/ScheduledBackupAttemptPhase"
+        },
+        "reasonCode": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "detail": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "runId": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64"
+        }
+      },
+      "required": [
+        "id",
+        "startedAt",
+        "outcome",
+        "phase"
+      ],
+      "$defs": {
+        "ScheduledBackupAttemptOutcome": {
+          "type": "string",
+          "enum": [
+            "running",
+            "success",
+            "partial",
+            "skipped",
+            "deferred",
+            "failed",
+            "interrupted"
+          ]
+        },
+        "ScheduledBackupAttemptPhase": {
+          "type": "string",
+          "enum": [
+            "worker-entry",
+            "keyring",
+            "config",
+            "backup",
+            "finished"
+          ]
+        }
+      }
+    }
+  }
+}

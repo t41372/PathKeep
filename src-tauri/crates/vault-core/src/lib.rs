@@ -44,6 +44,7 @@ pub mod maintenance;
 pub mod migration;
 pub mod models;
 pub(crate) mod pages;
+pub mod persisted_schema;
 pub mod schedule_attempts;
 pub mod semantic_index;
 mod snapshot_reads;

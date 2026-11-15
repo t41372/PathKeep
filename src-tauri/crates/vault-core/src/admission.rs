@@ -375,6 +375,11 @@ fn census(root: &Path) -> Result<RootState, Refusal> {
             ))
         };
     }
+    // PathKeep 0.3's journals describe an archive in the old format. Next to a native archive
+    // they are stale, and its missing control is a missing control.
+    let native =
+        vault_layout::path(root, vault_layout::db_artifact(vault_layout::primary_database()))
+            .exists();
     if present(CensusPolicy::InstallRecord) {
         // With a `stage` it is this format's journal. Without one, PathKeep 0.3's import wrote
         // it. Anything that is not a JSON object was written by neither.
@@ -385,15 +390,17 @@ fn census(root: &Path) -> Result<RootState, Refusal> {
             Some(journal) if journal.get("stage").is_some() => {
                 Ok(RootState::Interrupted(Interrupted::Install))
             }
-            Some(journal) if journal.is_object() => {
+            Some(journal) if journal.is_object() && !native => {
                 Ok(RootState::Interrupted(Interrupted::OldFormat))
             }
-            _ => {
-                Err(Refusal::new(root, Reason::ControlMissing, "the install record is unreadable"))
-            }
+            _ => Err(Refusal::new(
+                root,
+                Reason::ControlMissing,
+                "the install record is unreadable or belongs to an older format",
+            )),
         };
     }
-    if present(CensusPolicy::OldFormatRecord) {
+    if present(CensusPolicy::OldFormatRecord) && !native {
         return Ok(RootState::Interrupted(Interrupted::OldFormat));
     }
     let mut pending = match fs::read_dir(root) {
@@ -430,6 +437,11 @@ fn is_archive(relative: &str) -> bool {
     // The temporary file of an interrupted durable write lies next to whatever was being written.
     // The table names that family only at the top of the folder; its answer holds everywhere.
     let name = path.rsplit('/').next().unwrap_or(path);
+    // Finder and Explorer write their own files into any folder a person opens, `archive/`
+    // included. Onboarding has a button that opens the data folder.
+    if vault_layout::is_os_metadata(name) {
+        return false;
+    }
     if vault_layout::family_pattern(ArtifactId::AtomicTemps).matches(name) {
         match vault_layout::spec(ArtifactId::AtomicTemps).lifecycle.census {
             CensusPolicy::NotArchive => return false,
@@ -457,5 +469,50 @@ fn is_archive(relative: &str) -> bool {
             return false;
         }
         path = parent;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use vault_layout::{FamilyPattern, WipePolicy};
+
+    // "Delete all data" leaves these rows in place on purpose. If one of them, or anything
+    // inside it, counted as an archive, every completed wipe would end in a folder that can
+    // never be set up again. The two answers sit in different columns of the table, so nothing
+    // but this test keeps them from contradicting each other when a row is added.
+    #[test]
+    fn nothing_a_wipe_keeps_counts_as_an_archive() {
+        for spec in vault_layout::artifacts() {
+            if !matches!(
+                spec.lifecycle.wipe,
+                WipePolicy::PreserveRuntime
+                    | WipePolicy::PreserveDiagnostics
+                    | WipePolicy::PreserveUnselectedControl
+            ) {
+                continue;
+            }
+            let path = match spec.path {
+                PathRule::Exact(path) => path.to_owned(),
+                PathRule::Family { parent, pattern, .. } => {
+                    let name = match pattern {
+                        FamilyPattern::Children => "x".to_owned(),
+                        FamilyPattern::Prefix(prefix) => format!("{prefix}x"),
+                        FamilyPattern::Contains(part) => format!("a{part}x"),
+                        FamilyPattern::Extension(extension) => format!("x.{extension}"),
+                    };
+                    if parent.is_empty() { name } else { format!("{parent}/{name}") }
+                }
+            };
+            // The row itself when it is a file, and a file inside it when it is a folder.
+            for candidate in [path.clone(), format!("{path}/x").trim_start_matches('/').to_owned()]
+            {
+                assert!(
+                    candidate.is_empty() || !is_archive(&candidate),
+                    "{:?} is kept by a wipe, yet {candidate} would count as an archive",
+                    spec.id
+                );
+            }
+        }
     }
 }

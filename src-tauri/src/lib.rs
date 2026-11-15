@@ -109,10 +109,15 @@ fn run_app() -> Result<()> {
         }
     }
     context.config_mut().identifier = vault_owner_ipc::instance_identifier(&paths.app_root);
-    let builder = tauri::Builder::default()
-        .manage(launches.clone())
-        .plugin(tauri_plugin_single_instance::init(owner::handoff))
-        .plugin(tauri_plugin_dialog::init());
+    let builder = tauri::Builder::default().manage(launches.clone());
+    // A refused start is not "the running PathKeep" for this data folder. If it were, a newer
+    // build started while the dialog is still open would hand over to it and show nothing.
+    let builder = if refusal.is_none() {
+        builder.plugin(tauri_plugin_single_instance::init(owner::handoff))
+    } else {
+        builder
+    };
+    let builder = builder.plugin(tauri_plugin_dialog::init());
     // ⌘Q asks before quitting while work runs; AppKit's own Quit cannot. `desktop_integration`
     // installs the menus at setup, in the app's language (`app_menu.rs`).
     #[cfg(target_os = "macos")]

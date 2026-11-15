@@ -50,6 +50,8 @@ enum Contents {
     PreviousArchive,
     AppLock,
     Assistant,
+    /// An archive still in PathKeep 0.3's format.
+    OldStore,
     Snapshot,
     Quarantined,
     SavedText,
@@ -128,6 +130,11 @@ fn build(root: &Path, control: Control, record: Record, contents: Contents) {
             write(root, ".pk-durable-1a2b", "{");
             // Not PathKeep's, or the user's own to keep.
             write(root, ".DS_Store", "finder");
+            // The file manager writes these into whichever folder a person opens.
+            write(root, "archive/.DS_Store", "finder");
+            write(root, "derived/._agent.db", "an AppleDouble companion");
+            write(root, "sidecars/Thumbs.db", "explorer");
+            write(root, "raw-snapshots/desktop.ini", "explorer");
             write(root, "my-export.pkexport", "an export saved into the data folder");
             write(root, "notes/readme.txt", "another program's folder");
             for folder in [
@@ -153,6 +160,7 @@ fn build(root: &Path, control: Control, record: Record, contents: Contents) {
         ),
         Contents::AppLock => write(root, "app-lock-passcode.json", "{}"),
         Contents::Assistant => write(root, "derived/agent.db-wal", "ask conversations"),
+        Contents::OldStore => write(root, "archive/history-vault.sqlite", "an old archive"),
         Contents::Snapshot => {
             write(root, "raw-snapshots/maintenance/2026-11-14/archive/history-vault.db", "a copy")
         }
@@ -211,8 +219,12 @@ fn every_combination_is_classified_as_written_and_nothing_is_touched() {
         (Absent, R::Install, C::PreviousArchive, Is::InterruptedInstall),
         // PathKeep 0.3's own journals; the conversion's launch recovery finishes these.
         (Absent, R::OldImport, C::Empty, Is::InterruptedOldFormat),
-        (Absent, R::OldImport, C::Store, Is::InterruptedOldFormat),
-        (Absent, R::OldRestore, C::Store, Is::InterruptedOldFormat),
+        (Absent, R::OldImport, C::OldStore, Is::InterruptedOldFormat),
+        (Absent, R::OldRestore, C::OldStore, Is::InterruptedOldFormat),
+        // Next to a native archive those journals are stale and explain nothing.
+        (Absent, R::OldImport, C::Store, MISSING),
+        (Absent, R::OldRestore, C::Store, MISSING),
+        (Absent, R::None, C::OldStore, MISSING),
         // A record nothing can vouch for is not acted on.
         (Absent, R::WipeGarbage, C::Empty, MISSING),
         (Absent, R::WipeGarbage, C::Store, MISSING),
@@ -325,4 +337,36 @@ fn an_array_where_an_object_belongs_is_not_read_as_one() {
         assert_eq!(observed(temp.path()), Is::Refused(code), "{control}");
         assert!(vault_core::config::decode_document(control.as_bytes()).is_err(), "{control}");
     }
+}
+
+// The lifecycle tests keep, for every operation, a listing of what the data folder held
+// afterwards. They were written down from disk before this rule existed and by someone else, so
+// they judge it from outside: without its `config.json`, the folder a wipe leaves is a first
+// run, and every folder that holds an archive is one whose control is missing.
+#[test]
+fn the_folders_the_lifecycle_tests_recorded_are_classified_as_what_they_are() {
+    let expected = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../vault-worker/tests/vault_lifecycle/expected");
+    let mut seen = 0;
+    for entry in fs::read_dir(expected).unwrap() {
+        let path = entry.unwrap().path();
+        let listing: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        let temp = tempfile::tempdir().unwrap();
+        for file in listing["files"].as_array().unwrap() {
+            // `<maintenance.bak-1>` stands for a name that differs from run to run.
+            let relative = file.as_str().unwrap().replace(['<', '>'], "");
+            if relative != "config.json" {
+                write(temp.path(), &relative, "");
+            }
+        }
+        let wiped = path.file_name().unwrap() == "wiped.json";
+        assert_eq!(
+            observed(temp.path()),
+            if wiped { Is::Uninitialized } else { Is::Refused("archive-control-missing") },
+            "{}",
+            path.display()
+        );
+        seen += 1;
+    }
+    assert!(seen >= 20, "the recorded listings were not found");
 }

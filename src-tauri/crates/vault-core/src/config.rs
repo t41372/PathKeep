@@ -331,17 +331,16 @@ pub fn encode_config(config: &AppConfig, compatibility: Option<&Compatibility>) 
 /// control and no archive in it yields the defaults, not initialized.
 pub fn load_document(paths: &ProjectPaths) -> Result<ConfigDocument> {
     let root = &paths.app_root;
-    match crate::admission::read_control(root)? {
-        Some(bytes) => Ok(decode_config(root, &bytes)?),
-        None => {
-            if crate::admission::require_control(root)?.is_some() {
-                // A control landed between the two looks (an install finishing). Read that one.
-                let bytes = crate::admission::read_control(root)?.unwrap_or_default();
-                return Ok(decode_config(root, &bytes)?);
-            }
+    loop {
+        if let Some(bytes) = crate::admission::read_control(root)? {
+            return Ok(decode_config(root, &bytes)?);
+        }
+        // No control. If one lands between that look and this one (an install finishing), the
+        // answer is that control, so look again.
+        if crate::admission::require_control(root)?.is_none() {
             let mut config = AppConfig::default();
             normalize_app_config(&mut config);
-            Ok(ConfigDocument { config, compatibility: None })
+            return Ok(ConfigDocument { config, compatibility: None });
         }
     }
 }

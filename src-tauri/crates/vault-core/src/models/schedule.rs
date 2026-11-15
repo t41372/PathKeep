@@ -22,7 +22,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// This record intentionally lives outside the encrypted archive so failures
 /// that happen before the archive can open remain observable.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ScheduledBackupAttempt {
     pub id: String,
@@ -36,7 +36,7 @@ pub struct ScheduledBackupAttempt {
 }
 
 /// Stable outcome taxonomy for scheduled-backup attempts.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, schemars::JsonSchema)]
 #[serde(rename_all = "kebab-case")]
 pub enum ScheduledBackupAttemptOutcome {
     Running,
@@ -49,7 +49,7 @@ pub enum ScheduledBackupAttemptOutcome {
 }
 
 /// Furthest lifecycle boundary reached by a scheduled-backup attempt.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, schemars::JsonSchema)]
 #[serde(rename_all = "kebab-case")]
 pub enum ScheduledBackupAttemptPhase {
     WorkerEntry,
@@ -71,7 +71,7 @@ pub struct ScheduledBackupHealthIssue {
 }
 
 /// One generated file that a schedule plan asks the user or platform to create.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct GeneratedFile {
     pub relative_path: String,
@@ -81,7 +81,7 @@ pub struct GeneratedFile {
 }
 
 /// Preview of the native schedule plan for one platform.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct SchedulePlan {
     pub platform: String,
@@ -100,7 +100,7 @@ pub struct SchedulePlan {
 }
 
 /// One typed manual step shown by state-driven schedule setup and repair UI.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ScheduleManualStep {
     pub id: String,

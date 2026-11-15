@@ -77,7 +77,8 @@ Without a control, only what is in the folder can say whether an archive was eve
 | Files at the top of the folder that the layout table has no name for (`.DS_Store`, an export the user saved there)                                                                            | A first run; the files are left alone       |
 | A valid "delete all data" marker                                                                                                                                                              | An interrupted wipe (below)                 |
 | A native install journal                                                                                                                                                                      | An interrupted install (below)              |
-| A PathKeep 0.3 import, rekey or restore journal                                                                                                                                               | An interrupted old-format operation (below) |
+| A PathKeep 0.3 import, rekey or restore journal, in a folder with no archive in the current format                                                                                            | An interrupted old-format operation (below) |
+| Files the file manager writes into any folder a person opens (`.DS_Store`, `._*`, `desktop.ini`, `Thumbs.db`), at any depth                                                                   | A first run                                 |
 | Anything else under `archive/`, `derived/`, `raw-snapshots/`, `quarantine/` or `sidecars/`; a previous archive kept by a restore; an App Lock passcode; a half-finished old-format conversion | `archive-control-missing`                   |
 
 Each row of the layout table (`vault-layout`) answers this question for its own file or folder, as it answers for every other operation (`CensusPolicy`): part of an archive, not part of one, or "whatever my folder says". A file the table has no row for takes the answer of the folder it lies in, and the data folder's own answer is "not part of an archive". Adding a row without answering does not compile.
@@ -121,21 +122,21 @@ Three functions in `vault-core/src/admission.rs`, all read-only:
 
 There is no token passed from the check to the operation. Every boundary reads the disk again, which is the stronger guarantee: a token says what the folder was, and a restore or import may have replaced the control since.
 
-| Entry point                                                                          | Check                                                                                                                                  |
-| ------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
-| Desktop start                                                                        | `inspect`, before the window, the owner lock, folders, logs, recovery, keychain, App Lock. Again after recovery, under the lock.       |
-| Worker command line (backup, doctor, MCP server, …)                                  | `inspect`, before the schedule's logs are trimmed or the app is started                                                                |
-| Requests the owner serves                                                            | No check of their own: every route that uses the archive reads the config first                                                        |
-| `load_config`                                                                        | `require_control`. Never a default for a file that is there.                                                                           |
-| `save_config`, creating the folder layout                                            | `guard`; a save writes the stamp on disk back unchanged                                                                                |
-| Opening the archive (any variant), password open                                     | `guard`, before the owner lock or a key envelope                                                                                       |
-| Finishing a wipe                                                                     | `inspect`                                                                                                                              |
-| Replaying an install journal, old-format launch recovery                             | Refused only when the control needs a newer build                                                                                      |
-| Old-format conversion                                                                | `guard`                                                                                                                                |
-| Mode change, password change, snapshot, export, retention, checkpoint replay, backup | `guard` again when the operation starts (`Vault::recheck_root`)                                                                        |
-| Restore and move-import                                                              | Target: refused only when its control needs a newer build. Source: its own control is decided before anything is staged in the target. |
-| Keychain reads and writes, provider keys, installing or removing the schedule        | `guard`, before the machine is touched                                                                                                 |
-| Standalone agent-history command line                                                | Refuses any folder that has a PathKeep `config.json`                                                                                   |
+| Entry point                                                                          | Check                                                                                                                                                                                  |
+| ------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Desktop start                                                                        | `inspect`, before the window, the owner lock, folders, logs, recovery, keychain, App Lock. Again after recovery, under the lock.                                                       |
+| Worker command line (backup, doctor, MCP server, …)                                  | `inspect`, before the schedule's logs are trimmed or the app is started                                                                                                                |
+| Requests the owner serves                                                            | No check of their own: every route that uses the archive reads the config first. The scheduled backup, which records its attempt before reading the config, checks before that record. |
+| `load_config`                                                                        | `require_control`. Never a default for a file that is there.                                                                                                                           |
+| `save_config`, creating the folder layout                                            | `guard`; a save writes the stamp on disk back unchanged                                                                                                                                |
+| Opening the archive (any variant), password open                                     | `guard`, before the owner lock or a key envelope                                                                                                                                       |
+| Finishing a wipe                                                                     | `inspect`                                                                                                                                                                              |
+| Replaying an install journal, old-format launch recovery                             | Refused only when the control needs a newer build                                                                                                                                      |
+| Old-format conversion                                                                | `guard`                                                                                                                                                                                |
+| Mode change, password change, snapshot, export, retention, checkpoint replay, backup | `guard` again when the operation starts (`Vault::recheck_root`)                                                                                                                        |
+| Restore and move-import                                                              | Target: refused only when its control needs a newer build. Source: its own control is decided before anything is staged in the target.                                                 |
+| Keychain reads and writes, provider keys, installing or removing the schedule        | `guard`, before the machine is touched                                                                                                                                                 |
+| Standalone agent-history command line                                                | Refuses any folder that has a PathKeep `config.json`                                                                                                                                   |
 
 A restore over a damaged or missing control is allowed, because that is what a restore repairs. A restore over a control that needs a newer build is not: that archive is intact, and replacing it would put an older one on top.
 
@@ -145,6 +146,7 @@ A copy of an archive (a snapshot, a staging folder for a mode change, an export)
 
 - Started in the background or by the scheduler: the process exits with status 1 and the reason on stderr.
 - Started by a person: no window is created. A native dialog gives the reason in English, Simplified or Traditional Chinese (picked from the OS languages, since the config is the thing that could not be used), with the folder and the code, and the app quits when it is dismissed.
+- A refused start does not register as "the running PathKeep" for the data folder. Otherwise a newer build started while the dialog is still open would hand over to the refused one and show nothing.
 - **Gap, to close before v0.6.0 ships:** the dialog is all there is. For an archive that needs a newer build the screen that replaces it should offer the update. For a control that is damaged or missing it must lead to restoring a safety snapshot: the backend still lists snapshots and restores over a damaged control, but with no window nothing can ask it to. Until then that user is safe and stuck. Tracked in `WORK-ARCHIVE-REFUSAL-SCREEN`.
 - Guaranteed untouched: every file and folder under the data root, including the lock files and logs; the keychain; the schedule; App Lock state.
 
@@ -164,6 +166,18 @@ Not proven yet:
 - The foreground dialog. The tests cover the background start; nothing drives the dialog.
 - A v0.5.0-written archive. The fixtures are hand-written controls over archives this build created.
 
+## The shape of what is persisted
+
+A format change that nobody noticed is the usual way two versions come to disagree: a field is added to a record, the build that added it writes it, and an older build drops it on its next save or reads a default where a value was. So the shape of every JSON control record is generated from the types that are actually serialized (`vault-core/src/persisted_schema.rs`, with `schemars`) and compared to a snapshot in the repository:
+
+- `src-tauri/crates/vault-core/tests/persisted_schema/revision-N.json` is the snapshot for revision N. Any change to a listed type fails `tests/persisted_schema.rs` until the snapshot is rewritten, so the change shows up as an edit to that file in the same commit and in review.
+- `formats.json` beside it has one entry per revision: what changed and what older builds do with it. Its `released` list ties a revision to the hash of its snapshot. Once a revision is listed there its snapshot cannot change at all; a shape change then needs a new revision. The check needs no git history.
+- The snapshot is for the revision the next release writes. That is one ahead of the build's level until the build creates everything the revision requires.
+
+Records in the snapshot today: `config.json`, the install journal, the "delete all data" marker, the two App Lock records, a snapshot's file list, a move bundle's manifest, a scheduled run's attempt record.
+
+Not in it yet: JSON stored in database columns, the search index's and vector index's own manifests, the portable-artifacts origin record, the old-format conversion state, the import-roots record, crash reports, and the standalone agent-history marker. Binary formats (the key envelope, the encrypted bundle entries) have their own golden bytes. A snapshot cannot see a change of meaning that keeps the shape, such as a default or a unit; that still takes a person.
+
 ## Changing the format later
 
 Not built yet; recorded so the next format change does not rediscover it:
@@ -172,4 +186,4 @@ Not built yet; recorded so the next format change does not rediscover it:
 - The install journal and the wipe marker get new file names with a version when the format first changes: v0.5.0 acts on the current names before it reads the config.
 - "Delete all data" will remove the control last, not first, and leave no marker behind.
 - A new required database is recorded in the install journal ("being created, did not exist") before it is created, so a crash in between can be finished.
-- The serialized shape of every persisted file is snapshotted in the repository and tied to a revision; changing a released shape means raising the revision and writing down what an older build does with it.
+- When a release is cut, its revision and the hash of that revision's snapshot go into `formats.json` under `released`.

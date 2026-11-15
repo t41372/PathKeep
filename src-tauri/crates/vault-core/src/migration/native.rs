@@ -294,8 +294,18 @@ pub fn import(
     let mut config = crate::load_config(&staged_paths)?;
     config.archive_mode = ArchiveMode::Encrypted;
     // An import replaces the archive, also one whose control is damaged or lost (a newer one was
-    // refused above). Then there are no settings of this machine to keep.
-    keep_machine_settings(&mut config, &crate::load_config(paths).unwrap_or_default());
+    // refused above). Then there are no settings of this machine to keep. A control that is
+    // there and could not be read is a different matter and stops the import.
+    let here = match crate::load_config(paths) {
+        Ok(here) => here,
+        Err(error) => match error.downcast_ref::<crate::admission::Refusal>() {
+            Some(refusal) if refusal.reason != crate::admission::Reason::ControlUnreadable => {
+                AppConfig::default()
+            }
+            _ => return Err(error),
+        },
+    };
+    keep_machine_settings(&mut config, &here);
     crate::save_config(&staged_paths, &config)?;
     let staged = Vault::open_staged(staged_paths, config.clone(), Some(&key))?;
     for db in vault_layout::portable_databases() {

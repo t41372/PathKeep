@@ -100,7 +100,7 @@ const WIPE_MARKER_FILE: &str =
 
 /// What a wipe clears outside the app root, saved in the marker because `config.json` (where the
 /// provider list and the schedule settings live) is the first thing the wipe deletes.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct WipeOutsideState {
     /// Every configured AI provider id, LLM and embedding, whose API key may be in the keychain.

@@ -7,7 +7,7 @@ use super::ProgressLogEvent;
 use serde::{Deserialize, Serialize};
 
 /// Storage mode for the canonical archive database.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default, schemars::JsonSchema)]
 pub enum ArchiveMode {
     #[serde(rename = "Plaintext", alias = "plaintext")]
     #[default]
@@ -834,7 +834,9 @@ pub struct OgImageCoverageStats {
 
 /// Cleanup mode chosen by the user. Default is `Off` — cache grows unbounded
 /// and only manual "Clear cache" clears it.
-#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(
+    Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq, schemars::JsonSchema,
+)]
 #[serde(tag = "mode", rename_all = "camelCase")]
 pub enum OgImageCleanupMode {
     #[default]

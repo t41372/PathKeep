@@ -31,7 +31,7 @@ const MANIFEST_ZIP_PATH: &str = "pathkeep-export-manifest.json";
 const MANIFEST_SHA_ZIP_PATH: &str = "pathkeep-export-manifest.sha256";
 const ZIP_COPY_BUFFER_BYTES: usize = 64 * 1024;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ExportManifestFile {
     pub path: String,
@@ -39,7 +39,7 @@ pub struct ExportManifestFile {
     pub size_bytes: u64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ExportManifest {
     /// Bumped whenever the manifest schema or zip layout changes.

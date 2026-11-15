@@ -8,7 +8,7 @@ mod retention;
 pub use retention::{preview_retention, prune};
 pub mod install;
 pub use audit::{record_mode_change, record_restore};
-mod snapshot;
+pub(crate) mod snapshot;
 pub use snapshot::{
     list_snapshots, recover_native_maintenance, restore_snapshot, restore_snapshot_to, snapshot,
 };

@@ -135,7 +135,7 @@ pub fn merge_enrichment_plugin_states(
     merged
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 /// Runtime state for one enrichment plugin.
 pub struct EnrichmentPluginState {
@@ -144,7 +144,7 @@ pub struct EnrichmentPluginState {
     pub version: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", default)]
 /// Enrichment settings stored in app config.
 pub struct EnrichmentSettings {
@@ -158,7 +158,7 @@ impl Default for EnrichmentSettings {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 /// Runtime state for one deterministic module.
 pub struct DeterministicModuleState {
@@ -206,7 +206,7 @@ pub fn merge_deterministic_module_states(
     merged
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", default)]
 /// Deterministic-intelligence settings stored in app config.
 pub struct DeterministicSettings {
@@ -220,7 +220,7 @@ impl Default for DeterministicSettings {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default, schemars::JsonSchema)]
 /// Wire format used to talk to an AI provider.
 pub enum AiRequestFormat {
     #[serde(rename = "openai")]
@@ -236,7 +236,7 @@ pub enum AiRequestFormat {
     LmStudio,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default, schemars::JsonSchema)]
 /// Role an AI provider plays inside PathKeep.
 pub enum AiProviderPurpose {
     #[serde(rename = "llm")]
@@ -246,7 +246,7 @@ pub enum AiProviderPurpose {
     Embedding,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", default)]
 /// Stored configuration for one LLM or embedding provider.
 pub struct AiProviderConfig {
@@ -355,7 +355,7 @@ pub fn ensure_embedding_provider_default(ai: &mut AiSettings) {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 /// User-facing on/off preference for one enrichment plugin.
 pub struct EnrichmentPluginPreference {
@@ -368,7 +368,7 @@ pub const GITHUB_REPO_EXTRACTOR_ID: &str = "github-repo";
 /// Built-in content-fetch extractor id for the deterministic generic readable fallback (W-ENRICH-1).
 pub const GENERIC_READABLE_EXTRACTOR_ID: &str = "generic-readable";
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 /// User-facing on/off preference for one content-fetch extractor (06 §2a per-extractor toggle).
 pub struct ContentFetchExtractorPreference {
@@ -376,7 +376,7 @@ pub struct ContentFetchExtractorPreference {
     pub enabled: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 /// Per-domain allow/block rule for content fetching (06 §2a per-domain toggle).
 ///
@@ -462,7 +462,7 @@ pub fn content_fetch_domain_blocked(config: &AppConfig, domain: &str) -> bool {
         .any(|rule| !rule.allowed && rule.domain.trim().to_ascii_lowercase() == domain)
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", default)]
 /// Full optional-AI settings stored in app config.
 pub struct AiSettings {
