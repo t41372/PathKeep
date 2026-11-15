@@ -155,7 +155,9 @@ fn observe(operation: Operation, control: &str) -> Observation {
         vault_platform::test_support::keyring_secret_read_count(&f.temp.path().join("keyring"));
     let result = match operation {
         LoadConfig => error(vault_core::load_config(&f.paths())),
-        SaveConfig => error(vault_core::save_config(&f.paths(), &f.config)),
+        SaveConfig => {
+            error(vault_core::save_config(&vault_core::ControlGate::acquire(&f.paths()), &f.config))
+        }
         Open => error(Vault::open(f.paths(), f.config.clone(), None).map(|v| v.close())),
         OpenStaged => {
             error(Vault::open_staged(f.paths(), f.config.clone(), None).map(|v| v.close()))

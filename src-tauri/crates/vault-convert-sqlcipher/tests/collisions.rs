@@ -19,7 +19,7 @@ fn old_variants_merge_content_counters_sets_and_triggers_even_after_resume() {
         };
         let password = (mode == ArchiveMode::Encrypted).then_some(PASSWORD);
         vault_core::config::ensure_paths(&paths).unwrap();
-        vault_core::save_config(&paths, &config).unwrap();
+        vault_core::save_config(&vault_core::ControlGate::acquire(&paths), &config).unwrap();
         vault_convert_sqlcipher::test_support::seed_reader_pages(
             &paths,
             &config,

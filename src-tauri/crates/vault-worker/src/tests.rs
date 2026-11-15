@@ -222,7 +222,11 @@ fn scheduled_worker_records_keyring_config_and_archive_open_failures_before_arch
 
     let encrypted_config =
         AppConfig { initialized: true, archive_mode: ArchiveMode::Encrypted, ..Default::default() };
-    vault_core::save_config(&project_paths().unwrap(), &encrypted_config).unwrap();
+    vault_core::save_config(
+        &vault_core::ControlGate::acquire(&project_paths().unwrap()),
+        &encrypted_config,
+    )
+    .unwrap();
     fs::create_dir_all(&keyring_root).expect("keyring root");
     let secret_path = keyring_root
         .join(format!("{}-database-key.secret", vault_platform::test_support::keyring_service()));
@@ -255,7 +259,8 @@ fn scheduled_worker_records_keyring_config_and_archive_open_failures_before_arch
         ..AppConfig::default()
     };
     fs::remove_file(&paths.config_path).expect("remove the corrupt config");
-    vault_core::save_config(&paths, &config).expect("valid config");
+    vault_core::save_config(&vault_core::ControlGate::acquire(&paths), &config)
+        .expect("valid config");
     fs::create_dir_all(paths.legacy.archive.parent().expect("archive parent"))
         .expect("archive parent");
     fs::write(paths.app_root.join("archive/history-vault.db"), b"not turso")
@@ -308,7 +313,8 @@ fn mcp_surface_respects_native_visibility_and_locked_app_sessions() {
 
     let mut config = configured_ai_config();
     config.ai.job_queue_paused = true;
-    vault_core::save_config(vault.paths(), &config).expect("save native config");
+    vault_core::save_config(&vault_core::ControlGate::acquire(vault.paths()), &config)
+        .expect("save native config");
     Connection::open(chrome_root.join("Default/History"))
         .unwrap()
         .execute("UPDATE urls SET title='Imported',url='https://example.com/import'", [])
@@ -524,7 +530,8 @@ fn mcp_per_call_gate_refuses_search_and_status_when_mcp_consent_is_revoked_mid_s
     let mut config = configured_ai_config();
     config.ai.job_queue_paused = true;
     assert!(config.ai.mcp_enabled);
-    vault_core::save_config(vault.paths(), &config).expect("save native config");
+    vault_core::save_config(&vault_core::ControlGate::acquire(vault.paths()), &config)
+        .expect("save native config");
     save_user_config(&config, None).expect("save mcp-on config");
 
     let served = mcp_search_result(
@@ -657,7 +664,7 @@ fn rekey_requires_the_current_password_and_rewraps_the_native_envelope() {
         remember_database_key_in_keyring: false,
         ..initialized_config()
     };
-    vault_core::save_config(&paths, &config).unwrap();
+    vault_core::save_config(&vault_core::ControlGate::acquire(&paths), &config).unwrap();
     let session = crate::VaultSession::default();
     session.open_password(paths.clone(), config, "old password".into()).unwrap();
     for current in [None, Some("wrong password")] {
@@ -750,7 +757,7 @@ fn a_keychain_that_refuses_the_key_does_not_stop_the_password_opening_the_archiv
         remember_database_key_in_keyring: true,
         ..initialized_config()
     };
-    vault_core::save_config(&paths, &config).unwrap();
+    vault_core::save_config(&vault_core::ControlGate::acquire(&paths), &config).unwrap();
     let session = crate::VaultSession::default();
     session.open_password(paths.clone(), config.clone(), "password".into()).unwrap();
     session.close_vault().unwrap();
@@ -795,7 +802,8 @@ fn launch_recovery_heals_a_stale_plaintext_config_so_the_archive_is_not_bricked(
     // the interrupted-rekey end state that bricked the open.
     let paths = project_paths().expect("project paths");
     let stale = initialized_config(); // Plaintext
-    vault_core::save_config(&paths, &stale).expect("overwrite config to plaintext");
+    vault_core::save_config(&vault_core::ControlGate::acquire(&paths), &stale)
+        .expect("overwrite config to plaintext");
 
     // Re-launch with NO key: launch recovery heals config and surfaces the unlock prompt.
     let snapshot =
@@ -936,7 +944,8 @@ fn full_restore_takes_only_a_snapshot_pathkeep_listed() {
         std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, root.path().join("app"));
     }
     let paths = project_paths().unwrap();
-    vault_core::save_config(&paths, &initialized_config()).unwrap();
+    vault_core::save_config(&vault_core::ControlGate::acquire(&paths), &initialized_config())
+        .unwrap();
     let session = crate::VaultSession::default();
     let vault = session.vault().unwrap();
     let elsewhere = root.path().join("elsewhere/snapshot");
@@ -973,7 +982,8 @@ fn a_restore_with_nothing_to_remember_finishes_while_the_keychain_cannot_be_reac
         std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, &keyring_root);
     }
     let paths = project_paths().unwrap();
-    vault_core::save_config(&paths, &initialized_config()).unwrap();
+    vault_core::save_config(&vault_core::ControlGate::acquire(&paths), &initialized_config())
+        .unwrap();
     let session = crate::VaultSession::default();
     let saved = paths.raw_snapshots_dir.join("maintenance/before-restore");
     vault_core::maintenance::snapshot(&session.vault().unwrap(), &saved).unwrap();
@@ -1007,7 +1017,7 @@ fn a_restore_whose_key_the_keychain_refuses_still_reports_the_restore() {
         remember_database_key_in_keyring: true,
         ..initialized_config()
     };
-    vault_core::save_config(&paths, &config).unwrap();
+    vault_core::save_config(&vault_core::ControlGate::acquire(&paths), &config).unwrap();
     let session = crate::VaultSession::default();
     session.open_password(paths.clone(), config, "password".into()).unwrap();
     let saved = paths.raw_snapshots_dir.join("maintenance/before-restore");
@@ -1046,7 +1056,7 @@ fn a_key_the_keychain_refuses_leaves_no_other_key_there() {
         remember_database_key_in_keyring: true,
         ..initialized_config()
     };
-    vault_core::save_config(&paths, &config).unwrap();
+    vault_core::save_config(&vault_core::ControlGate::acquire(&paths), &config).unwrap();
     let session = crate::VaultSession::default();
     session.open_password(paths.clone(), config, "password".into()).unwrap();
     let saved = paths.raw_snapshots_dir.join("maintenance/before-restore");
@@ -1167,7 +1177,7 @@ fn mode_changes_require_the_rekey_command_instead_of_a_config_edit() {
     }
     let paths = project_paths().unwrap();
     let config = initialized_config();
-    vault_core::save_config(&paths, &config).unwrap();
+    vault_core::save_config(&vault_core::ControlGate::acquire(&paths), &config).unwrap();
     let mut changed = config.clone();
     changed.archive_mode = ArchiveMode::Encrypted;
     let error = crate::save_user_config(&changed, None).unwrap_err();

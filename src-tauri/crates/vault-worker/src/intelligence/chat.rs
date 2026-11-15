@@ -586,7 +586,8 @@ mod tests {
         let mut config = crate::tests::configured_ai_config();
         config.ai.enabled = false;
         let paths = vault_core::project_paths().expect("project paths");
-        vault_core::save_config(&paths, &config).expect("save config");
+        vault_core::save_config(&vault_core::ControlGate::acquire(&paths), &config)
+            .expect("save config");
         vault_platform::keyring_set_provider_api_key("llm-primary", "llm-secret")
             .expect("store llm key");
 
@@ -610,7 +611,8 @@ mod tests {
         // Master ON but the assistant sub-flag OFF also refuses (sub-flag is the second half).
         config.ai.enabled = true;
         config.ai.assistant_enabled = false;
-        vault_core::save_config(&paths, &config).expect("save config");
+        vault_core::save_config(&vault_core::ControlGate::acquire(&paths), &config)
+            .expect("save config");
         let error = ai_chat_send(&vault, None, &request, |_| panic!("sink must never be reached"))
             .expect_err("assistant sub-flag off must refuse");
         assert!(error.to_string().contains("assistant"), "names the assistant capability");

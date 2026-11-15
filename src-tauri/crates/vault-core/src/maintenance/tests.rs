@@ -16,7 +16,7 @@ pub(crate) fn encrypted() -> (tempfile::TempDir, Vault, vault_crypto::DataKey) {
         archive_mode: ArchiveMode::Encrypted,
         ..Default::default()
     };
-    crate::save_config(&paths, &config).unwrap();
+    crate::save_config(&crate::ControlGate::acquire(&paths), &config).unwrap();
     let (vault, key) = Vault::open_password(paths, config, "old password", None).unwrap();
     (root, vault, key)
 }
@@ -26,7 +26,7 @@ fn mode_switch_round_trips_all_databases_and_cancel_keeps_original() {
     let vault = Vault::open_temp().unwrap();
     crate::test_support::search::seed_pages(&vault, 2);
     crate::config::ensure_paths(vault.paths()).unwrap();
-    crate::save_config(vault.paths(), vault.config()).unwrap();
+    crate::save_config(&crate::ControlGate::acquire(vault.paths()), vault.config()).unwrap();
     for db in [Db::Archive, Db::SourceEvidence, Db::Intelligence, Db::Agent] {
         vault
             .store()
@@ -269,4 +269,78 @@ fn incomplete_snapshot_manifest_cannot_create_empty_replacement_databases() {
     fs::remove_file(root.path().join("archive/source-evidence.db")).unwrap();
     assert!(restore_snapshot(&vault, root.path(), None, Default::default()).is_err());
     assert!(vault.store().is_open());
+}
+
+fn plaintext_archive() -> (tempfile::TempDir, crate::ProjectPaths, Vault) {
+    let root = tempfile::tempdir().unwrap();
+    let paths = project_paths_with_root(root.path());
+    crate::config::ensure_paths(&paths).unwrap();
+    let config = AppConfig {
+        initialized: true,
+        git_enabled: false,
+        archive_mode: ArchiveMode::Plaintext,
+        ..Default::default()
+    };
+    crate::save_config(&crate::ControlGate::acquire(&paths), &config).unwrap();
+    let vault = Vault::open(paths.clone(), config, None).unwrap();
+    (root, paths, vault)
+}
+
+fn in_chinese(config: &mut AppConfig) {
+    config.preferred_language = crate::LanguagePreference::ZhTw;
+}
+
+fn is_chinese(config: &AppConfig) -> bool {
+    matches!(config.preferred_language, crate::LanguagePreference::ZhTw)
+}
+
+// The repair compares the files with the control on disk, and changes only the mode on it: the
+// settings the archive was opened with are older than a save made since.
+#[test]
+fn the_at_rest_repair_keeps_a_setting_saved_after_the_archive_opened() {
+    let (_root, paths, vault) = plaintext_archive();
+    {
+        let gate = crate::ControlGate::acquire(&paths);
+        let mut later = crate::load_config(&paths).unwrap();
+        in_chinese(&mut later);
+        later.archive_mode = ArchiveMode::Encrypted; // stale: the files are plaintext
+        crate::save_config(&gate, &later).unwrap();
+    }
+    let report = reconcile(&vault).unwrap();
+    assert!(report.repaired);
+    let on_disk = crate::load_config(&paths).unwrap();
+    assert_eq!(on_disk.archive_mode, ArchiveMode::Plaintext);
+    assert!(is_chinese(&on_disk), "the setting saved after the open is kept");
+}
+
+// The copy takes minutes on a real archive and settings stay usable meanwhile: the replacement's
+// control is the live one at install time with only the mode changed.
+#[test]
+fn a_setting_saved_while_a_mode_change_copies_is_kept() {
+    let (_root, paths, vault) = plaintext_archive();
+    let (paused, copying) = std::sync::mpsc::channel();
+    let (resume, resumed) = std::sync::mpsc::channel::<()>();
+    let mut first = true;
+    let switching = std::thread::spawn(move || {
+        let progress = move |_: Progress| {
+            if std::mem::take(&mut first) {
+                paused.send(()).unwrap();
+                resumed.recv().unwrap();
+            }
+        };
+        switch_mode(&vault, None, ArchiveMode::Encrypted, Some("new"), Default::default(), progress)
+            .map(|installed| installed.vault.close())
+    });
+    copying.recv_timeout(std::time::Duration::from_secs(60)).expect("the copy reports progress");
+    {
+        let gate = crate::ControlGate::acquire(&paths);
+        let mut current = crate::load_config(&paths).unwrap();
+        in_chinese(&mut current);
+        crate::save_config(&gate, &current).unwrap();
+    }
+    resume.send(()).unwrap();
+    switching.join().unwrap().unwrap().unwrap();
+    let on_disk = crate::load_config(&paths).unwrap();
+    assert_eq!(on_disk.archive_mode, ArchiveMode::Encrypted);
+    assert!(is_chinese(&on_disk), "the setting saved during the copy is kept");
 }

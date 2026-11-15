@@ -55,7 +55,20 @@ fn validated_due_after_hours(hours: f64) -> Result<f64> {
 /// Applies a native schedule plan.
 pub fn apply_schedule_plan(plan: &SchedulePlan) -> Result<vault_core::ApplyResult> {
     let paths = crate::context::usable_root()?;
+    let _control = installable(&paths)?;
     apply_schedule(plan, &paths)
+}
+
+/// "Delete all data" removes the schedule it finds while it holds the control's gate. A schedule
+/// is installed under the same gate and only for an archive that is set up, so none is left
+/// behind by a wipe.
+fn installable(paths: &vault_core::ProjectPaths) -> Result<vault_core::ControlGate> {
+    let control = vault_core::ControlGate::acquire(paths);
+    anyhow::ensure!(
+        vault_core::load_config(paths)?.initialized,
+        "archive-uninitialized: set up the archive before automatic backup; nothing was installed"
+    );
+    Ok(control)
 }
 
 /// Removes a previously applied native schedule plan.
@@ -67,6 +80,7 @@ pub fn remove_schedule_plan(plan: &SchedulePlan) -> Result<vault_core::ApplyResu
 /// Repairs known scheduler conflicts after explicit user confirmation.
 pub fn repair_schedule_plan(plan: &SchedulePlan) -> Result<vault_core::ApplyResult> {
     let paths = crate::context::usable_root()?;
+    let _control = installable(&paths)?;
     repair_schedule(plan, &paths)
 }
 

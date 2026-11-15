@@ -208,13 +208,15 @@ pub fn preview_data_wipe(paths: &ProjectPaths) -> Result<WipePreview> {
 
 /// Deletes everything [`preview_data_wipe`] lists, leaving PathKeep not initialized.
 ///
-/// `quiesce` runs after `config.json` is gone and before anything else is deleted; it should stop
-/// background work. `clear_secrets` runs after the files are gone, then `remove_schedule` when
-/// `outside` names an installed task. All run under the write lock; see the module docs for the
-/// order and for why a failed schedule removal is reported instead of failing the wipe.
+/// `outside` says what to clear outside the folder (provider keys, the installed schedule) from
+/// the control as it is once the wipe holds every lock. `quiesce` runs after `config.json` is
+/// emptied and before anything else is deleted; it should stop background work.
+/// `clear_secrets` runs after the files are gone, then `remove_schedule` when the outside state
+/// names an installed task. See the module docs for the order and for why a failed schedule
+/// removal is reported instead of failing the wipe.
 pub fn wipe_all_data(
     paths: &ProjectPaths,
-    outside: &WipeOutsideState,
+    outside: impl FnOnce(&AppConfig) -> Result<WipeOutsideState>,
     quiesce: impl FnOnce() -> Result<()>,
     clear_secrets: impl FnOnce(&WipeOutsideState) -> Result<()>,
     remove_schedule: impl FnOnce(&SchedulePlan) -> Result<()>,
@@ -223,17 +225,22 @@ pub fn wipe_all_data(
     let _gate = ArchiveOpGate::acquire(paths);
     let _write_lock =
         ArchiveWriteLock::acquire(paths).context("waiting for other archive work to finish")?;
+    // From reading what to delete to the last removal, nothing else writes the control: a save
+    // waiting for it then finds the folder emptied, and a provider key or a schedule waiting for
+    // it is not added behind the wipe's back.
+    let _control_gate = crate::ControlGate::acquire(paths);
     fs::create_dir_all(&paths.app_root)
         .with_context(|| format!("creating {}", paths.app_root.display()))?;
     // Under the locks: the control the user confirmed deleting is the one on disk now.
     let control = crate::admission::read_control(&paths.app_root)?;
+    let outside = outside(&crate::load_config(paths)?)?;
     let emptied = control.as_ref().map(|_| emptied_control(paths)).transpose()?;
     let intent = WipeIntent {
         identity: IDENTITY.into(),
         version: VERSION,
         control: control.as_deref().map(crate::utils::sha256_hex),
         emptied,
-        outside: outside.clone(),
+        outside,
     };
     let bytes = serde_json::to_vec(&intent).context("serializing the wipe intent")?;
     atomic_durable_write(&intent_path(paths), &bytes).context("writing the wipe intent")?;
@@ -285,6 +292,7 @@ pub fn finish_interrupted_data_wipe(
     let _gate = ArchiveOpGate::acquire(paths);
     let _write_lock =
         ArchiveWriteLock::acquire(paths).context("waiting for other archive work to finish")?;
+    let _control_gate = crate::ControlGate::acquire(paths);
     // Read again under the locks. Another process may have finished this wipe while this one
     // waited, and the folder may hold a new archive since: a record that is gone is not acted on.
     if !data_wipe_interrupted(paths) {

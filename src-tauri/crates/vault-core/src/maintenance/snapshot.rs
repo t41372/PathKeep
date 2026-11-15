@@ -178,7 +178,11 @@ pub fn restore_snapshot_to(
         vault.store().pause()?.close()?;
         vault.close()?;
     }
-    let previous = install::install(paths, stage.path(), database_files(layout, true), true)?;
+    // The snapshot's settings are what a restore brings back; the swap is one hold of the
+    // control's gate.
+    let control = crate::ControlGate::acquire(paths);
+    let previous = install::install(&control, stage.path(), database_files(layout, true), true)?;
+    drop(control);
     let opened = Vault::open_owned(paths.clone(), config, key.as_ref(), Some(owner))?;
     Ok(InstalledArchive { vault: opened, data_key: key, previous_files: previous })
 }

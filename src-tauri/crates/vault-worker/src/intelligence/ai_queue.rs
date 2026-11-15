@@ -856,7 +856,7 @@ mod tests {
         vault_core::config::ensure_paths(&paths).expect("paths");
         let vault = vault_core::Vault::open_temp().unwrap().with_config(config.clone());
         let paths = vault.paths().clone();
-        vault_core::save_config(&paths, &config).unwrap();
+        vault_core::save_config(&vault_core::ControlGate::acquire(&paths), &config).unwrap();
         let connection = TestDatabase::new(&vault, Db::Intelligence);
 
         let job_id = claimed_index_job(&connection);

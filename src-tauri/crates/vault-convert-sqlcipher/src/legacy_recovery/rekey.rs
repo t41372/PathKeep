@@ -199,10 +199,11 @@ fn resolve_interrupted_rekey(paths: &ProjectPaths, journal: &RekeyJournal) -> Re
 /// Commits a landed rekey's config: bases on the journal's captured pre-rekey config, forces
 /// `archive_mode = to_mode` + `initialized = true`, and persists it durably.
 fn complete_rekey_config(paths: &ProjectPaths, journal: &RekeyJournal) -> Result<()> {
+    let control = vault_core::ControlGate::acquire(paths);
     let mut config = base_config_for_recovery(paths, journal);
     config.archive_mode = journal.to_mode.clone();
     config.initialized = true;
-    save_config(paths, &config)
+    save_config(&control, &config)
 }
 
 /// Reconstructs the config a rekey recovery should base on: the journal's captured pre-rekey
@@ -226,6 +227,7 @@ fn rollback_rekey(paths: &ProjectPaths, journal: &RekeyJournal) -> Result<()> {
         .with_extension(vault_layout::family_extension(vault_layout::ArtifactId::LegacyRekeyTemps));
     let _ = fs::remove_file(&temp_path);
     super::remove_stale_sidecars(&temp_path);
+    let _control = vault_core::ControlGate::acquire(paths);
     match &journal.previous_config {
         Some(bytes) => atomic_durable_write(&paths.config_path, bytes.as_bytes())
             .context("restoring the pre-rekey config")?,
@@ -345,7 +347,8 @@ mod tests {
         // The captured pre-rekey config rollback must restore, with config drifted to the NEW
         // mode on disk so the restore is observable.
         let prev = serde_json::to_string(&plaintext_archive_config()).expect("config json");
-        save_config(&paths, &encrypted_archive_config()).expect("seed drifted config");
+        save_config(&vault_core::ControlGate::acquire(&paths), &encrypted_archive_config())
+            .expect("seed drifted config");
         write_rekey_journal(
             &paths,
             &sample_journal(ArchiveMode::Plaintext, ArchiveMode::Encrypted, Some(prev.clone())),

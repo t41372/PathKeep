@@ -90,6 +90,8 @@ fn is_store(relative: &Path) -> bool {
 /// Stamps the live archive and records the stores it now lacks, when it is a released-format
 /// archive that is set up. The caller holds the owner lock and has run install recovery.
 pub(crate) fn promote_if_needed(paths: &ProjectPaths) -> Result<bool> {
+    // The stamp is a write of the control, read and written under its gate.
+    let _control = crate::ControlGate::acquire(paths);
     // A folder without a control has nothing to bring up: setting up an archive writes its
     // control before the first open.
     let Some(bytes) = crate::admission::read_control(&paths.app_root)? else { return Ok(false) };

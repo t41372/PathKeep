@@ -68,12 +68,13 @@ pub fn set_content_fetch_settings(
     vault: &vault_core::Vault,
     settings: &ContentFetchSettings,
 ) -> Result<AppSnapshot> {
-    let _paths = vault.paths();
-    let mut config = load_unlocked_config(vault.paths())?;
+    let read = load_unlocked_config(vault.paths())?;
+    let mut config = read.clone();
     config.ai.content_fetch_enabled = settings.enabled;
     config.ai.content_fetch_extractors = settings.extractors.clone();
     config.ai.content_fetch_domains = settings.domains.clone();
-    crate::app::save_user_config_with_vault(Some(vault), &config, None, None)?;
+    // Only these three, onto the control as it is when the save holds its gate.
+    crate::app::save_user_config_with_vault(Some(vault), &config, Some(&read), None)?;
 
     // On enabling, prime the queue from the prioritized working set + start the drain so the user sees
     // enrichment appear without a manual trigger. Best-effort: a priming failure must not fail the
@@ -247,7 +248,11 @@ mod tests {
         fn new(config: AppConfig) -> Self {
             let guard = lock_env();
             let vault = Vault::open_temp().unwrap().with_config(config);
-            vault_core::save_config(vault.paths(), vault.config()).unwrap();
+            vault_core::save_config(
+                &vault_core::ControlGate::acquire(vault.paths()),
+                vault.config(),
+            )
+            .unwrap();
             let previous = std::env::var_os(PROJECT_ROOT_OVERRIDE_ENV);
             unsafe {
                 std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, &vault.paths().app_root);

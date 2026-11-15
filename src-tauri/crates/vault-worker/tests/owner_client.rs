@@ -36,7 +36,7 @@ fn sidecar_and_mcp_forward_to_owner_and_recheck_consent() {
         git_enabled: false,
         ..Default::default()
     };
-    vault_core::save_config(&paths, &config).unwrap();
+    vault_core::save_config(&vault_core::ControlGate::acquire(&paths), &config).unwrap();
     vault_core::config::ensure_paths(&paths).unwrap();
     let vault =
         vault_core::Vault::open_owned(paths.clone(), config.clone(), None, Some(lock)).unwrap();
@@ -67,7 +67,7 @@ fn sidecar_and_mcp_forward_to_owner_and_recheck_consent() {
     config.ai.enabled = true;
     config.ai.mcp_enabled = true;
     config.ai.skill_enabled = true;
-    vault_core::save_config(&paths, &config).unwrap();
+    vault_core::save_config(&vault_core::ControlGate::acquire(&paths), &config).unwrap();
     let mut child = command()
         .arg("mcp-server")
         .stdin(Stdio::piped())
@@ -100,7 +100,7 @@ fn sidecar_and_mcp_forward_to_owner_and_recheck_consent() {
     assert!(tool["error"].is_null(), "{tool}");
     assert_ne!(tool["result"]["isError"], true, "{tool}");
     config.ai.mcp_enabled = false;
-    vault_core::save_config(&paths, &config).unwrap();
+    vault_core::save_config(&vault_core::ControlGate::acquire(&paths), &config).unwrap();
     writeln!(input, "{call}").unwrap();
     let refused = read();
     assert!(refused["error"].is_object() || refused["result"]["isError"] == true, "{refused}");

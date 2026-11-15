@@ -74,7 +74,7 @@ fn conversion_matches_native_ingestion_for_the_same_browser_facts() {
         let root = tempfile::tempdir().unwrap();
         let native_paths = project_paths_with_root(root.path());
         vault_core::config::ensure_paths(&native_paths).unwrap();
-        vault_core::save_config(&native_paths, &config).unwrap();
+        vault_core::save_config(&vault_core::ControlGate::acquire(&native_paths), &config).unwrap();
         let native = match password {
             Some(password) => {
                 Vault::open_password(native_paths, config.clone(), password, None).unwrap().0

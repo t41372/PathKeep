@@ -111,7 +111,8 @@ pub fn import(
     let mut config = vault_core::load_config(&old_paths).unwrap_or_default();
     config.initialized = true;
     native::keep_machine_settings(&mut config, &vault_core::load_config(paths)?);
-    vault_core::save_config(&old_paths, &config)?;
+    // A stage of the import, not a live archive.
+    vault_core::config::write_staged_control(&old_paths, &config, None)?;
     let converted =
         crate::convert_owned(&old_paths, &config, password, cancel.clone(), progress, None)?;
     if let Some(source_root) = exporting_root(&converted.vault)? {

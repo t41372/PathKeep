@@ -30,7 +30,7 @@ impl Fixture {
         config.ai.enabled = true;
         config.ai.mcp_enabled = true;
         config.ai.skill_enabled = true;
-        vault_core::save_config(&paths, &config).unwrap();
+        vault_core::save_config(&vault_core::ControlGate::acquire(&paths), &config).unwrap();
         // A native (Turso) archive; an old-format one would ask for conversion first.
         vault_core::Vault::open(paths.clone(), config.clone(), None).unwrap().close().unwrap();
         let browser = root.path().join("chrome/Default");

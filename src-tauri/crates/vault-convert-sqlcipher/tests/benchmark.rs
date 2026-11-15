@@ -124,7 +124,7 @@ fn generate(root: &Path, visits: i64, pages: i64) {
         ..Default::default()
     };
     vault_core::config::ensure_paths(&paths).unwrap();
-    vault_core::save_config(&paths, &config).unwrap();
+    vault_core::save_config(&vault_core::ControlGate::acquire(&paths), &config).unwrap();
     vault_convert_sqlcipher::test_support::seed_reader_pages(
         &paths,
         &config,

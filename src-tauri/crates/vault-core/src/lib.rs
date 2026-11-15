@@ -129,7 +129,9 @@ pub use browser_access::{
     is_permission_denied,
 };
 pub use chrome::discover_profiles;
-pub use config::{ProjectPaths, load_config, project_paths, project_paths_with_root, save_config};
+pub use config::{
+    ControlGate, ProjectPaths, load_config, project_paths, project_paths_with_root, save_config,
+};
 pub use diagnostics::{load_runtime_diagnostics, record_frontend_error, record_rust_panic};
 pub use enrichment::content_fetch_api::{
     content_fetch_schedule_eta_secs, content_fetch_settings, drain_one_content_fetch_job,

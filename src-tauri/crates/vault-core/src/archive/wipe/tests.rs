@@ -61,7 +61,7 @@ fn backed_up_archive() -> Fixture {
         .ai
         .llm_providers
         .push(crate::models::AiProviderConfig { id: "llm-1".to_string(), ..Default::default() });
-    save_config(&paths, &config).expect("save config");
+    save_config(&crate::ControlGate::acquire(&paths), &config).expect("save config");
     let vault = crate::Vault::open(paths.clone(), config.clone(), None).expect("open archive");
     let visits = run_backup(&vault, None).expect("backup").run.expect("run").new_visits;
     assert!(visits > 0);
@@ -152,7 +152,7 @@ fn wipe_removes_everything_listed_and_nothing_else() {
 
     wipe_all_data(
         paths,
-        &secrets,
+        |_| Ok(secrets.clone()),
         || {
             // Workers stop on a not-initialized config, so it must be emptied before they are
             // waited on; it is not removed, so a release that cannot read the archive never
@@ -206,9 +206,14 @@ fn an_interrupted_wipe_finishes_with_the_saved_provider_list() {
     assert_eq!(secrets.provider_ids, vec!["llm-1".to_string()]);
 
     // Stands in for a crash after the config is gone but before any archive file is.
-    let error =
-        wipe_all_data(paths, &secrets, || anyhow::bail!("power cut"), no_secrets, no_schedule)
-            .expect_err("the cut wipe reports failure");
+    let error = wipe_all_data(
+        paths,
+        |_| Ok(secrets.clone()),
+        || anyhow::bail!("power cut"),
+        no_secrets,
+        no_schedule,
+    )
+    .expect_err("the cut wipe reports failure");
     assert!(error.to_string().contains("power cut"));
     assert!(data_wipe_interrupted(paths));
     assert!(archive_file(paths).exists());
@@ -252,7 +257,7 @@ fn a_failed_keychain_step_keeps_the_marker_for_a_retry() {
     let paths = &fixture.paths;
     wipe_all_data(
         paths,
-        &WipeOutsideState::default(),
+        |_| Ok(WipeOutsideState::default()),
         no_quiesce,
         |_| anyhow::bail!("keychain locked"),
         no_schedule,
@@ -278,7 +283,13 @@ fn the_wipe_waits_for_a_process_holding_the_archive_write_lock() {
     let wipe = std::thread::spawn({
         let paths = paths.clone();
         move || {
-            wipe_all_data(&paths, &WipeOutsideState::default(), no_quiesce, no_secrets, no_schedule)
+            wipe_all_data(
+                &paths,
+                |_| Ok(WipeOutsideState::default()),
+                no_quiesce,
+                no_secrets,
+                no_schedule,
+            )
         }
     });
     std::thread::sleep(std::time::Duration::from_millis(300));
@@ -303,7 +314,8 @@ fn the_control_is_there_at_every_cut_and_the_next_start_finishes() {
         let secrets = WipeOutsideState::from_config(&fixture.config, None);
         let crashed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let _fault = crate::fault_inject::FaultGuard::panic_at(cut);
-            let _ = wipe_all_data(paths, &secrets, no_quiesce, no_secrets, no_schedule);
+            let _ =
+                wipe_all_data(paths, |_| Ok(secrets.clone()), no_quiesce, no_secrets, no_schedule);
         }));
         assert!(crashed.is_err(), "{cut}: the cut was not reached");
         assert!(paths.config_path.exists(), "{cut}: the control went missing");
@@ -405,12 +417,12 @@ fn a_wipe_record_does_not_delete_another_archive() {
     let secrets = WipeOutsideState::from_config(&fixture.config, None);
     let crashed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let _fault = crate::fault_inject::FaultGuard::panic_at("wipe-intent-written");
-        let _ = wipe_all_data(paths, &secrets, no_quiesce, no_secrets, no_schedule);
+        let _ = wipe_all_data(paths, |_| Ok(secrets.clone()), no_quiesce, no_secrets, no_schedule);
     }));
     assert!(crashed.is_err());
     let mut other = fixture.config.clone();
     other.preferred_language = crate::LanguagePreference::ZhTw;
-    save_config(paths, &other).unwrap();
+    save_config(&crate::ControlGate::acquire(paths), &other).unwrap();
     let before = file_contents_under(&paths.app_root);
     let finished =
         finish_interrupted_data_wipe(paths, no_quiesce, no_secrets, no_schedule).unwrap();
@@ -433,7 +445,7 @@ fn the_record_holds_the_emptied_control_it_writes() {
     let confirmed = crate::utils::sha256_hex(&fs::read(&paths.config_path).unwrap());
     let crashed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let _fault = crate::fault_inject::FaultGuard::panic_at("wipe-control-emptied");
-        let _ = wipe_all_data(paths, &secrets, no_quiesce, no_secrets, no_schedule);
+        let _ = wipe_all_data(paths, |_| Ok(secrets.clone()), no_quiesce, no_secrets, no_schedule);
     }));
     assert!(crashed.is_err());
     let record: serde_json::Value =
@@ -456,7 +468,7 @@ fn a_leftover_temporary_settings_file_does_not_survive_the_wipe() {
     let paths = &fixture.paths;
     let leftover = paths.app_root.join(".pk-durable-1a2b3c");
     fs::write(&leftover, fs::read(&paths.config_path).unwrap()).unwrap();
-    wipe_all_data(paths, &WipeOutsideState::default(), no_quiesce, no_secrets, no_schedule)
+    wipe_all_data(paths, |_| Ok(WipeOutsideState::default()), no_quiesce, no_secrets, no_schedule)
         .expect("wipe");
     assert!(!leftover.exists());
 }
@@ -469,8 +481,13 @@ fn nothing_is_installed_while_a_wipe_is_pending() {
     let paths = &fixture.paths;
     let crashed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let _fault = crate::fault_inject::FaultGuard::panic_at("wipe-intent-written");
-        let _ =
-            wipe_all_data(paths, &WipeOutsideState::default(), no_quiesce, no_secrets, no_schedule);
+        let _ = wipe_all_data(
+            paths,
+            |_| Ok(WipeOutsideState::default()),
+            no_quiesce,
+            no_secrets,
+            no_schedule,
+        );
     }));
     assert!(crashed.is_err());
     let restore = crate::maintenance::restore_snapshot_to(

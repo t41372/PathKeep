@@ -8,8 +8,14 @@ fn wipe_keeps_owner_lock_file_and_exclusive_ownership() {
     let paths = vault_core::project_paths_with_root(root.path());
     let guard = OwnerLock::acquire(root.path()).unwrap();
     let file = root.path().join("archive/.pk-owner.lock");
-    vault_core::wipe_all_data(&paths, &Default::default(), || Ok(()), |_| Ok(()), |_| Ok(()))
-        .unwrap();
+    vault_core::wipe_all_data(
+        &paths,
+        |_| Ok(Default::default()),
+        || Ok(()),
+        |_| Ok(()),
+        |_| Ok(()),
+    )
+    .unwrap();
     assert!(file.is_file(), "wipe must retain the ownership inode");
     assert!(matches!(OwnerLock::acquire(root.path()), Err(Error::OwnedElsewhere { .. })));
     drop(guard);

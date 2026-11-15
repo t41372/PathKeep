@@ -228,13 +228,16 @@ pub(super) fn install_step(paths: &ProjectPaths, journal: &mut Journal, step: us
     Ok(())
 }
 
-/// Caller has verified staged files and closed all live handles before entering.
+/// Caller has verified staged files and closed all live handles before entering, and holds the
+/// control's gate: the install replaces the control, and the caller wrote the stage's from the
+/// live one under the same hold.
 pub fn install(
-    paths: &ProjectPaths,
+    gate: &crate::ControlGate,
     stage: &Path,
     files: Vec<PathBuf>,
     keep_previous: bool,
 ) -> Result<PathBuf> {
+    let paths = gate.paths();
     let mut journal = prepare(paths, stage, files, keep_previous)?;
     let outcome = (|| {
         for step in 0..journal.entries.len() * 2 {
@@ -261,6 +264,8 @@ pub fn recover(paths: &ProjectPaths) -> Result<bool> {
     // A journal is not replayed in an archive that needs a newer PathKeep. A damaged control
     // does not stop it: rolling the install back is what puts the previous one back.
     crate::admission::refuse_newer(&paths.app_root)?;
+    // A rollback writes the control back, and the bring-up's record is about the control too.
+    let _control = crate::ControlGate::acquire(paths);
     let mut recovered = recover_legacy(paths)?;
     // The same file holds the record of stores being created when an archive is brought up to
     // this build's layout (`creation`), under its own identity.

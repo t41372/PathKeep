@@ -64,12 +64,15 @@ pub fn wipe_all_data(
     }
     let _running = crate::foreground_work::begin(crate::ForegroundWork::DataWipe);
     let paths = vault_core::project_paths()?;
-    let config = load_unlocked_config(&paths)?;
-    let schedule = installed_schedule(&paths, &config).map(|installed| installed.plan);
-    let outside = WipeOutsideState::from_config(&config, schedule);
+    load_unlocked_config(&paths)?;
     let report = vault_core::wipe_all_data(
         &paths,
-        &outside,
+        // Read by the wipe once it holds the control's gate, so a provider or a schedule added
+        // just before is on the list.
+        |config| {
+            let schedule = installed_schedule(&paths, config).map(|installed| installed.plan);
+            Ok(WipeOutsideState::from_config(config, schedule))
+        },
         || {
             stop_background_work(&paths, true)?;
             close_store()

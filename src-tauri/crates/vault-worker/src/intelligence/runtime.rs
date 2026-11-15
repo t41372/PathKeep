@@ -449,7 +449,8 @@ mod tests {
             archive_mode: ArchiveMode::Plaintext,
             ..Default::default()
         });
-        vault_core::save_config(vault.paths(), vault.config()).unwrap();
+        vault_core::save_config(&vault_core::ControlGate::acquire(vault.paths()), vault.config())
+            .unwrap();
         let db = TestDatabase::new(&vault, Db::Intelligence);
         (vault, db)
     }

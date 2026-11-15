@@ -282,7 +282,7 @@ mod tests {
         unsafe { std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, root.path()) };
         let paths = vault_core::project_paths().unwrap();
         let config = vault_core::AppConfig { initialized: true, ..Default::default() };
-        vault_core::save_config(&paths, &config).unwrap();
+        vault_core::save_config(&vault_core::ControlGate::acquire(&paths), &config).unwrap();
         let vault = vault_core::Vault::open(paths.clone(), config, None).unwrap();
         vault
             .store()

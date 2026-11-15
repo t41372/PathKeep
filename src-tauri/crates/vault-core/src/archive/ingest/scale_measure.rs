@@ -64,7 +64,7 @@ fn config() -> AppConfig {
 fn backup(root: &Path) {
     let paths = project_paths_with_root(&root.join("project"));
     crate::config::ensure_paths(&paths).unwrap();
-    save_config(&paths, &config()).unwrap();
+    save_config(&crate::ControlGate::acquire(&paths), &config()).unwrap();
     let started = Instant::now();
     let vault = Vault::open(paths, config(), Some(KEY)).unwrap();
     let opened = started.elapsed().as_secs_f64();

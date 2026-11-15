@@ -461,12 +461,14 @@ fn default_biometric_unlock_unavailable() -> Result<()> {
     bail!("Biometric unlock is not available in the current desktop build.")
 }
 
-/// Stores a new App Lock passcode and returns the updated status.
+/// Stores a new App Lock passcode and returns the updated status. `config` is the control the
+/// caller read after taking `gate`.
 pub fn set_app_lock_passcode(
-    paths: &ProjectPaths,
+    gate: &crate::ControlGate,
     config: &mut AppConfig,
     request: &SetAppLockPasscodeRequest,
 ) -> Result<AppLockStatus> {
+    let paths = gate.paths();
     let passcode = request.passcode.trim();
     if passcode.len() < PASSCODE_MIN_LENGTH {
         bail!("App lock passcodes must be at least 4 characters long.");
@@ -482,19 +484,21 @@ pub fn set_app_lock_passcode(
 
     config.app_lock.passcode_configured = true;
     config.app_lock.recovery_hint = secret.recovery_hint.clone();
-    save_config(paths, config)?;
+    save_config(gate, config)?;
     app_lock_status_with_biometric(paths, config, default_biometric_state())
 }
 
-/// Clears the App Lock passcode, disables App Lock, and returns the updated status.
+/// Clears the App Lock passcode, disables App Lock, and returns the updated status. `config` is
+/// the control the caller read after taking `gate`.
 pub fn clear_app_lock_passcode(
-    paths: &ProjectPaths,
+    gate: &crate::ControlGate,
     config: &mut AppConfig,
 ) -> Result<AppLockStatus> {
+    let paths = gate.paths();
     config.app_lock.enabled = false;
     config.app_lock.passcode_configured = false;
     config.app_lock.recovery_hint = None;
-    save_config(paths, config)?;
+    save_config(gate, config)?;
     clear_app_lock_state(paths)?;
     clear_app_lock_secret(paths)?;
     app_lock_status_with_biometric(paths, config, default_biometric_state())
@@ -532,7 +536,7 @@ mod tests {
         };
 
         set_app_lock_passcode(
-            &paths,
+            &crate::ControlGate::acquire(&paths),
             &mut config,
             &SetAppLockPasscodeRequest { passcode: "2468".to_string(), recovery_hint: None },
         )
@@ -609,7 +613,7 @@ mod tests {
             ..AppConfig::default()
         };
         set_app_lock_passcode(
-            &paths,
+            &crate::ControlGate::acquire(&paths),
             &mut off,
             &SetAppLockPasscodeRequest { passcode: "2468".to_string(), recovery_hint: None },
         )
@@ -700,7 +704,7 @@ mod tests {
             ..AppConfig::default()
         };
         set_app_lock_passcode(
-            &paths,
+            &crate::ControlGate::acquire(&paths),
             &mut config,
             &SetAppLockPasscodeRequest {
                 passcode: "2468".to_string(),
@@ -728,8 +732,8 @@ mod tests {
             hydrate_app_lock_config(&paths, &mut config).expect_err("malformed secret fails");
         assert!(hydrate_error.to_string().contains("parsing app lock secret"));
 
-        let cleared =
-            clear_app_lock_passcode(&paths, &mut config).expect("clear recovers corrupt files");
+        let cleared = clear_app_lock_passcode(&crate::ControlGate::acquire(&paths), &mut config)
+            .expect("clear recovers corrupt files");
         assert!(!cleared.enabled);
         assert!(!cleared.passcode_configured);
         assert!(!app_lock_state_path(&paths).exists());
@@ -790,7 +794,7 @@ mod tests {
             ..AppConfig::default()
         };
         set_app_lock_passcode(
-            &paths,
+            &crate::ControlGate::acquire(&paths),
             &mut config,
             &SetAppLockPasscodeRequest {
                 passcode: "secret-passcode".to_string(),

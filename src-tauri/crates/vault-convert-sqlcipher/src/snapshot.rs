@@ -47,7 +47,7 @@ pub fn restore_snapshot(
     } else {
         ArchiveMode::Plaintext
     };
-    vault_core::save_config(&staged_paths, &config)?;
+    vault_core::config::write_staged_control(&staged_paths, &config, None)?;
     let mut input = fs::File::open(source)?;
     let total = input.metadata()?.len();
     let mut output = fs::File::create(&staged_paths.legacy.archive)?;

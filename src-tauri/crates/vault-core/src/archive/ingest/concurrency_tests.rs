@@ -89,7 +89,7 @@ fn safety_snapshot_during_backup_restores_a_consistent_committed_prefix() {
             },
             ..Default::default()
         };
-        crate::save_config(&paths, &config).unwrap();
+        crate::save_config(&crate::ControlGate::acquire(&paths), &config).unwrap();
         let vault = if encrypted {
             Vault::open_password(paths, config, "snapshot password", None).unwrap().0
         } else {

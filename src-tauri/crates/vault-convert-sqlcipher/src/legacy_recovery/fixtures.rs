@@ -77,7 +77,7 @@ pub(super) fn marker(paths: &ProjectPaths, name: &str) -> PathBuf {
 /// `to`, config still at `from`, and the rekey journal.
 pub(super) fn crash_mid_rekey(paths: &ProjectPaths, from: ArchiveMode, to: ArchiveMode) {
     let from_config = AppConfig { archive_mode: from.clone(), ..plaintext_config() };
-    save_config(paths, &from_config).expect("save config");
+    save_config(&vault_core::ControlGate::acquire(paths), &from_config).expect("save config");
     match to {
         ArchiveMode::Plaintext => legacy_db(&paths.legacy.archive, None),
         ArchiveMode::Encrypted => legacy_db(&paths.legacy.archive, Some(KEY)),
@@ -102,7 +102,7 @@ pub(super) fn crash_mid_restore(
     config: &AppConfig,
     key: Option<&str>,
 ) -> PathBuf {
-    save_config(paths, config).expect("save config");
+    save_config(&vault_core::ControlGate::acquire(paths), config).expect("save config");
     legacy_db(&paths.legacy.archive, key);
     let snapshot = paths.raw_snapshots_dir.join("rekey").join("snap.sqlite");
     fs::create_dir_all(snapshot.parent().unwrap()).expect("snapshot dir");

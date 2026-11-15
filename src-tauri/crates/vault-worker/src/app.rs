@@ -276,9 +276,9 @@ pub fn save_user_config_with_vault(
     session_database_key: Option<&str>,
 ) -> Result<AppSnapshot> {
     let paths = vault_core::project_paths()?;
-    // Serialized with "delete all data", which holds this gate from its intent to its last
-    // removal: a save that read the settings before a wipe must not write them back after it.
-    let operation = vault_core::archive::ArchiveOpGate::acquire(&paths);
+    // The control's gate, not the archive's operation gate: a save waits for another write of
+    // the control and for "delete all data", never for an export or a mode change.
+    let control = vault_core::ControlGate::acquire(&paths);
     let previous_config = load_hydrated_config(&paths)
         .context("loading the current configuration before saving user changes")?;
     // Settings (including App Lock's own enabled/biometric fields) must not be
@@ -286,10 +286,22 @@ pub fn save_user_config_with_vault(
     // out from under itself without the passcode. Enabling the lock from an
     // unlocked session, and all initial setup, still pass this no-op check.
     ensure_app_lock_unlocked(&paths, &previous_config)?;
+    // Whether there is an archive is not a setting: setup creates one and "delete all data"
+    // removes it. Settings read before a wipe are not written into the folder it emptied.
+    if base_config.is_some_and(|base| base.initialized) && !previous_config.initialized {
+        anyhow::bail!(
+            "archive-reset: the archive these settings belong to was deleted; nothing was saved"
+        );
+    }
     let mut next_config = match base_config {
         Some(base_config) => merge_config_change(&previous_config, base_config, config)?,
         None => config.clone(),
     };
+    if next_config.initialized && !previous_config.initialized {
+        anyhow::bail!(
+            "archive-uninitialized: settings cannot set up an archive; nothing was saved"
+        );
+    }
     if previous_config.initialized && previous_config.archive_mode != next_config.archive_mode {
         anyhow::bail!(
             "encryption-mode-change-requires-rekey: use rekey_archive to change encryption"
@@ -308,9 +320,19 @@ pub fn save_user_config_with_vault(
         &next_config,
         current_app_lock_biometric_state(),
     )?;
-    save_config(&paths, &next_config)?;
-    reconcile_ai_queue_controls_or_restore_config(vault, &paths, &previous_config, &next_config)?;
-    drop(operation);
+    save_config(&control, &next_config)?;
+    drop(control);
+    // The queue is in a database, which no one waits on while holding the control's gate. If it
+    // cannot follow the new setting, this save's own changes are undone.
+    if let Some(vault) = vault
+        && let Err(error) =
+            vault_core::reconcile_ai_queue_controls(vault, &previous_config, &next_config)
+    {
+        undo_config_change(&paths, &next_config, &previous_config).with_context(
+            || "restoring the previous config after AI queue control reconciliation failed",
+        )?;
+        return Err(error.context("syncing AI queue controls with the updated Settings"));
+    }
     // A new Insights time zone rebuilds Insights in it now, not at the next backup. A build
     // running meanwhile is followed by one in the new zone when it ends (the intelligence drain).
     if previous_config.insights_time_zone != next_config.insights_time_zone
@@ -366,29 +388,16 @@ pub(crate) fn apply_config_delta(current: &mut Value, base: &Value, proposed: &V
     }
 }
 
-fn reconcile_ai_queue_controls_or_restore_config(
-    vault: Option<&vault_core::Vault>,
+/// Puts back what one save changed, on the control as it is now: a save that landed since keeps
+/// its own changes.
+fn undo_config_change(
     paths: &vault_core::ProjectPaths,
-    previous_config: &AppConfig,
-    next_config: &AppConfig,
+    saved: &AppConfig,
+    before: &AppConfig,
 ) -> Result<()> {
-    if let Some(vault) = vault {
-        vault_core::reconcile_ai_queue_controls(vault, previous_config, next_config).or_else(
-            |error| restore_config_after_ai_reconcile_failure(paths, previous_config, error),
-        )?;
-    }
-    Ok(())
-}
-
-fn restore_config_after_ai_reconcile_failure(
-    paths: &vault_core::ProjectPaths,
-    previous_config: &AppConfig,
-    error: anyhow::Error,
-) -> Result<()> {
-    save_config(paths, previous_config).with_context(
-        || "restoring the previous config after AI queue control reconciliation failed",
-    )?;
-    Err(error.context("syncing AI queue controls with the updated Settings"))
+    let control = vault_core::ControlGate::acquire(paths);
+    let current = load_hydrated_config(paths)?;
+    save_config(&control, &merge_config_change(&current, saved, before)?)
 }
 
 /// Initializes the archive with the provided config and returns the hydrated snapshot.
@@ -588,7 +597,8 @@ where
     }
     vault_core::config::ensure_paths(&paths)?;
     next_config.initialized = true;
-    save_config(&paths, &next_config)?;
+    // Setup writes every setting it was given.
+    save_config(&vault_core::ControlGate::acquire(&paths), &next_config)?;
     // Opening the session's store creates the archive in the native format, with
     // its key envelope when encrypted. Nothing here may create the old SQLCipher
     // files: they would be taken for an archive to convert.
@@ -749,10 +759,12 @@ pub fn rekey_archive_database(
     if keychain_failure.is_none() && saved_config.remember_database_key_in_keyring != remember {
         // Only this field, written as the rest of the change was: the request carried it, and
         // the settings path would refuse it while App Lock is on.
+        let control = vault_core::ControlGate::acquire(&paths);
         let saved = vault_core::load_config(&paths).and_then(|mut next| {
             next.remember_database_key_in_keyring = remember;
-            vault_core::save_config(&paths, &next)
+            vault_core::save_config(&control, &next)
         });
+        drop(control);
         if let Err(error) = saved {
             eprintln!("PathKeep archive change: the keychain setting was not saved: {error:#}");
             audit_warning.get_or_insert_with(|| {

@@ -225,6 +225,7 @@ fn snapshot_still_restorable(snapshot_ref: &Path, restored_mode: &ArchiveMode) -
 /// forces `archive_mode = restored_mode` + `initialized = true`; and persists it durably. Mirrors
 /// `complete_rekey_config` / `base_config_for_recovery`.
 fn reconcile_restore_config(paths: &ProjectPaths, journal: &RestoreJournal) -> Result<()> {
+    let control = vault_core::ControlGate::acquire(paths);
     let mut config = match journal.previous_config.as_deref().map(serde_json::from_str::<AppConfig>)
     {
         Some(Ok(config)) => config,
@@ -232,7 +233,7 @@ fn reconcile_restore_config(paths: &ProjectPaths, journal: &RestoreJournal) -> R
     };
     config.archive_mode = journal.restored_mode.clone();
     config.initialized = true;
-    save_config(paths, &config)
+    save_config(&control, &config)
 }
 
 /// Rolls back an interrupted restore whose snapshot is no longer usable: move the quarantined
@@ -256,6 +257,7 @@ fn rollback_restore(paths: &ProjectPaths, journal: &RestoreJournal) -> Result<()
             quarantine_dir.display(),
         );
     }
+    let _control = vault_core::ControlGate::acquire(paths);
     match &journal.previous_config {
         Some(bytes) => atomic_durable_write(&paths.config_path, bytes.as_bytes())
             .context("restoring the pre-restore config")?,
@@ -460,7 +462,7 @@ mod tests {
         legacy_db(&quarantine.join("history-vault.sqlite"), None);
         fs::write(quarantine.join("history-vault.sqlite-wal"), b"hot wal").unwrap();
         legacy_db(&quarantine.join("source-evidence.sqlite"), None);
-        save_config(&paths, &plaintext_config()).unwrap();
+        save_config(&vault_core::ControlGate::acquire(&paths), &plaintext_config()).unwrap();
 
         rollback_restore(&paths, &journal(&paths, "gone.sqlite", &quarantine)).unwrap();
         assert!(paths.legacy.archive.exists());

@@ -39,7 +39,7 @@ fn published_mode_scenario() {
         archive_mode: ArchiveMode::Encrypted,
         ..Default::default()
     };
-    vault_core::save_config(&paths, &config).unwrap();
+    vault_core::save_config(&vault_core::ControlGate::acquire(&paths), &config).unwrap();
     vault_convert_sqlcipher::test_support::seed_reader_pages(
         &paths,
         &config,

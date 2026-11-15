@@ -53,10 +53,11 @@ pub fn configure_app_lock_passcode(
     request: &vault_core::SetAppLockPasscodeRequest,
 ) -> Result<AppLockStatus> {
     let paths = vault_core::project_paths()?;
-    // Serialized with "delete all data": the passcode write also saves the settings.
-    let _operation = vault_core::archive::ArchiveOpGate::acquire(&paths);
+    // The passcode is recorded in the control as well: read and written under its gate.
+    let control = vault_core::ControlGate::acquire(&paths);
     let mut config = load_unlocked_config(&paths)?;
-    set_app_lock_passcode(&paths, &mut config, request)?;
+    set_app_lock_passcode(&control, &mut config, request)?;
+    drop(control);
     resolved_app_lock_status(&paths, &config)
 }
 
@@ -68,10 +69,11 @@ pub fn configure_app_lock_passcode(
 /// not this normal-path mutation.
 pub fn remove_app_lock_passcode() -> Result<AppLockStatus> {
     let paths = vault_core::project_paths()?;
-    // Serialized with "delete all data": clearing the passcode also saves the settings.
-    let _operation = vault_core::archive::ArchiveOpGate::acquire(&paths);
+    // Clearing the passcode is recorded in the control as well: read and written under its gate.
+    let control = vault_core::ControlGate::acquire(&paths);
     let mut config = load_unlocked_config(&paths)?;
-    clear_app_lock_passcode(&paths, &mut config)?;
+    clear_app_lock_passcode(&control, &mut config)?;
+    drop(control);
     resolved_app_lock_status(&paths, &config)
 }
 
@@ -246,8 +248,19 @@ pub fn store_ai_provider_api_key(
     vault: Option<&vault_core::Vault>,
     session_database_key: Option<&str>,
 ) -> Result<vault_core::AppSnapshot> {
-    crate::context::usable_root()?;
+    let paths = crate::context::usable_root()?;
+    // "Delete all data" clears the keys of the providers the control lists, and holds the
+    // control's gate from reading that list to its last removal. A key is stored under the same
+    // gate and only for a provider the control lists now, so none outlives a wipe.
+    let control = vault_core::ControlGate::acquire(&paths);
+    let config = vault_core::load_config(&paths)?;
+    let listed = vault_core::WipeOutsideState::from_config(&config, None).provider_ids;
+    anyhow::ensure!(
+        listed.contains(&input.provider_id),
+        "ai-provider-unknown: save the provider before its key; nothing was stored"
+    );
     keyring_set_provider_api_key(&input.provider_id, &input.api_key)?;
+    drop(control);
     crate::app_snapshot_with_vault(vault, session_database_key)
 }
 

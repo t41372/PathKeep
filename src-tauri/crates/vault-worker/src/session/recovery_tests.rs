@@ -25,7 +25,7 @@ fn restart_recovers_before_conversion_and_keychain_decisions() {
             remember_database_key_in_keyring: true,
             ..Default::default()
         };
-        vault_core::save_config(&paths, &config).unwrap();
+        vault_core::save_config(&vault_core::ControlGate::acquire(&paths), &config).unwrap();
         vault_convert_sqlcipher::test_support::seed_reader_pages(
             &paths,
             &config,

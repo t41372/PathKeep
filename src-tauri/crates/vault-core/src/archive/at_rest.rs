@@ -131,11 +131,12 @@ pub fn recover_archive_on_launch(
         &paths.artifact_path(vault_layout::db_artifact(vault_layout::primary_database())),
     );
     if let Some(mode) = disk_mode_to_archive_mode(mode) {
+        let gate = crate::ControlGate::acquire(paths);
         let mut current = load_config(paths).unwrap_or_else(|_| config.clone());
         if current.archive_mode != mode {
             let from_mode = current.archive_mode;
             current.archive_mode = mode.clone();
-            save_config(paths, &current)?;
+            save_config(&gate, &current)?;
             return Ok(LaunchRecovery::Healed { from_mode, to_mode: mode });
         }
     }

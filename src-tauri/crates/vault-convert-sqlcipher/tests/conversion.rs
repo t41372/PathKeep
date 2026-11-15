@@ -19,7 +19,7 @@ fn fixture() -> (tempfile::TempDir, vault_core::ProjectPaths, AppConfig) {
         ..Default::default()
     };
     vault_core::config::ensure_paths(&paths).unwrap();
-    vault_core::save_config(&paths, &config).unwrap();
+    vault_core::save_config(&vault_core::ControlGate::acquire(&paths), &config).unwrap();
     vault_convert_sqlcipher::test_support::seed_reader_pages(
         &paths,
         &config,

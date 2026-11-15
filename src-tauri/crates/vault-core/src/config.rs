@@ -12,6 +12,9 @@ use std::{
 };
 use vault_layout::ArtifactId as A;
 
+mod control_gate;
+pub use control_gate::ControlGate;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 /// Canonical absolute paths for all backend-managed project artifacts.
 pub struct ProjectPaths {
@@ -407,7 +410,10 @@ pub fn load_config(paths: &ProjectPaths) -> Result<AppConfig> {
     Ok(load_document(paths)?.config)
 }
 
-/// Saves the app config to disk after normalizing runtime defaults.
+/// Saves a live archive's settings. The gate is the proof that this is the second half of a
+/// read-modify-write: the writer took it, read the control, changed its own fields and writes the
+/// result here (see `control_gate`). A stage or a copy that is not live yet is written with
+/// [`write_staged_control`] instead.
 ///
 /// Persists through [`crate::durable_io::atomic_durable_write`] (temp -> F_FULLFSYNC
 /// -> rename -> dir fsync) rather than a bare `fs::write`, so a crash mid-save leaves
@@ -418,7 +424,8 @@ pub fn load_config(paths: &ProjectPaths) -> Result<AppConfig> {
 ///
 /// The control on disk is read before anything is created. One this build may not use stops the
 /// save; a compatibility stamp in it is written back exactly as it was, whatever `config` says.
-pub fn save_config(paths: &ProjectPaths, config: &AppConfig) -> Result<()> {
+pub fn save_config(gate: &ControlGate, config: &AppConfig) -> Result<()> {
+    let paths = gate.paths();
     let compatibility =
         crate::admission::guard(&paths.app_root)?.and_then(|control| control.compatibility);
     create_layout(paths)?;
@@ -430,7 +437,7 @@ pub fn save_config(paths: &ProjectPaths, config: &AppConfig) -> Result<()> {
 
 /// Writes `config` with `compatibility` into a stage: an archive being built that is not the live
 /// one yet. Its own control is not consulted; the operation building it decides the stamp.
-pub(crate) fn write_staged_control(
+pub fn write_staged_control(
     paths: &ProjectPaths,
     config: &AppConfig,
     compatibility: Option<&Compatibility>,

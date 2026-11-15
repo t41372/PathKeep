@@ -13,7 +13,9 @@ fn mcp_cursor_enumerates_beyond_the_old_candidate_and_date_limits() {
     let mut config = configured_ai_config();
     config.ai.embedding_provider_id = None;
     config.ai.job_queue_paused = true;
-    save_user_config(&config, None).unwrap();
+    // The fixture's control, written as setup writes one: a settings save never creates an archive.
+    let paths = vault_core::project_paths().unwrap();
+    vault_core::save_config(&vault_core::ControlGate::acquire(&paths), &config).unwrap();
     for key in [None, Some([95; 32])] {
         let vault = vault_core::Vault::open_temp_with_key(key).unwrap();
         vault_core::test_support::search::seed_pages(&vault, 1107);

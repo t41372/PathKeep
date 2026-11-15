@@ -345,12 +345,11 @@ pub(crate) fn set_menu_bar_icon<R: Runtime>(
 
 fn save_menu_bar_icon(enabled: bool) -> anyhow::Result<()> {
     let paths = vault_core::project_paths()?;
-    // Serialized with "delete all data": a settings write must not land after a wipe.
-    let _operation = vault_core::archive::ArchiveOpGate::acquire(&paths);
+    let control = vault_core::ControlGate::acquire(&paths);
     let mut config = vault_core::load_config(&paths)?;
     if config.menu_bar_icon != enabled {
         config.menu_bar_icon = enabled;
-        vault_core::save_config(&paths, &config)?;
+        vault_core::save_config(&control, &config)?;
     }
     Ok(())
 }

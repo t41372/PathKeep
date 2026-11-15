@@ -157,7 +157,7 @@ pub fn convert_owned(
     fs::create_dir_all(&stage)?;
     let target_paths = vault_core::project_paths_with_root(&stage);
     vault_core::config::ensure_paths(&target_paths)?;
-    vault_core::save_config(&target_paths, config)?;
+    vault_core::config::write_staged_control(&target_paths, config, None)?;
     let (vault, key) = if config.archive_mode == ArchiveMode::Encrypted {
         let password = password.context("archive-password-required: enter the archive password")?;
         if vault_layout::path(&stage, vault_layout::ArtifactId::Envelope).exists() {
@@ -353,12 +353,16 @@ pub fn convert_owned(
     });
     vault.close()?;
     cancel.check()?;
+    // The converted archive's control is the settings the conversion was given: setup's choices,
+    // or the upgrade screen's. The swap is one hold of the control's gate.
+    let control = vault_core::ControlGate::acquire(paths);
     let previous = vault_core::maintenance::install::install(
-        paths,
+        &control,
         &stage,
         vault_core::maintenance::database_files(vault_core::admission::root_layout(&stage)?, true),
         true,
     )?;
+    drop(control);
     let opened = Vault::open_owned(paths.clone(), config.clone(), key.as_ref(), Some(owner))?;
     Ok(InstalledArchive { vault: opened, data_key: key, previous_files: previous })
 }

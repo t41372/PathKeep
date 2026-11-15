@@ -35,7 +35,7 @@ fn released_archive() -> (tempfile::TempDir, ProjectPaths) {
     let root = tempfile::tempdir().unwrap();
     let paths = project_paths_with_root(root.path());
     crate::config::ensure_paths(&paths).unwrap();
-    crate::save_config(&paths, &released_config()).unwrap();
+    crate::save_config(&crate::ControlGate::acquire(&paths), &released_config()).unwrap();
     let store = released_store(&paths);
     write_marker(&store, Db::Archive, "released-archive");
     store.close().unwrap();
@@ -282,7 +282,7 @@ fn a_file_pathkeep_0_5_exported_imports_without_conversations() {
         let target = project_paths_with_root(target_root.path());
         let current = populated.then(|| {
             crate::config::ensure_paths(&target).unwrap();
-            crate::save_config(&target, &released_config()).unwrap();
+            crate::save_config(&crate::ControlGate::acquire(&target), &released_config()).unwrap();
             let vault = open(&target).unwrap();
             write_marker(vault.store(), Db::AgentHistoryEvidence, "the-replaced-archive");
             vault
@@ -335,7 +335,7 @@ fn a_later_builds_compatible_stamp_survives_saves_mode_changes_and_restores() {
     kept("an open");
     let mut changed = vault.config().clone();
     changed.preferred_language = crate::LanguagePreference::ZhTw;
-    crate::save_config(&paths, &changed).unwrap();
+    crate::save_config(&crate::ControlGate::acquire(&paths), &changed).unwrap();
     kept("a settings save");
     let switched = crate::maintenance::switch_mode(
         &vault,

@@ -318,19 +318,8 @@ pub fn import(
     }
     let mut config = crate::load_config(&staged_paths)?;
     config.archive_mode = ArchiveMode::Encrypted;
-    // An import replaces the archive, also one whose control is damaged or lost (a newer one was
-    // refused above). Then there are no settings of this machine to keep. A control that is
-    // there and could not be read is a different matter and stops the import.
-    let here = match crate::load_config(paths) {
-        Ok(here) => here,
-        Err(error) => match error.downcast_ref::<crate::admission::Refusal>() {
-            Some(refusal) if refusal.reason != crate::admission::Reason::ControlUnreadable => {
-                AppConfig::default()
-            }
-            _ => return Err(error),
-        },
-    };
-    keep_machine_settings(&mut config, &here);
+    // Taken again when the archive is installed; here for the stage, which opens below.
+    keep_machine_settings(&mut config, &settings_here(paths)?);
     // The stamp of the archive it replaces, or a newer compatible one the bundle carries; a
     // bundle of the released layout then gets the stores it lacks, empty, when the stage opens.
     let stamp = crate::config::replacement_compatibility(paths, stage.path())?;
@@ -358,6 +347,22 @@ pub fn import(
     Ok((report, installed))
 }
 
+/// The settings of this machine an import keeps (`keep_machine_settings`). An import replaces the
+/// archive, also one whose control is damaged or lost (a newer one is refused before this). Then
+/// there are no settings of this machine to keep. A control that is there and could not be read
+/// is a different matter and stops the import.
+fn settings_here(paths: &ProjectPaths) -> Result<AppConfig> {
+    match crate::load_config(paths) {
+        Ok(here) => Ok(here),
+        Err(error) => match error.downcast_ref::<crate::admission::Refusal>() {
+            Some(refusal) if refusal.reason != crate::admission::Reason::ControlUnreadable => {
+                Ok(AppConfig::default())
+            }
+            _ => Err(error),
+        },
+    }
+}
+
 /// Puts a verified, closed staging root in place of this machine's archive and opens it.
 /// Shared with the converter's import of v0.3 bundles; the caller holds the operation gate.
 pub fn install_staged(
@@ -365,11 +370,15 @@ pub fn install_staged(
     current: Option<&Vault>,
     owner: Arc<vault_store::OwnerLock>,
     stage: &Path,
-    config: crate::AppConfig,
+    mut config: crate::AppConfig,
     key: Option<vault_crypto::DataKey>,
     cancel: &CancelToken,
 ) -> Result<InstalledArchive> {
     cancel.check()?;
+    // The replacement's control is written and installed under one hold of the control's gate,
+    // with this machine's settings as they are now: one changed while the import ran is kept.
+    let control = crate::ControlGate::acquire(paths);
+    keep_machine_settings(&mut config, &settings_here(paths)?);
     // Whoever built the stage, it replaces this archive: it keeps this archive's stamp unless its
     // own is newer and lowers neither floor.
     let stamp = crate::config::replacement_compatibility(paths, stage)?;
@@ -381,7 +390,8 @@ pub fn install_staged(
     }
     // What the stage holds, by its own control, not by this build's newest layout.
     let files = vault_layout::portable_installation_files(crate::admission::root_layout(stage)?);
-    let previous = maintenance::install::install(paths, stage, files, true)?;
+    let previous = maintenance::install::install(&control, stage, files, true)?;
+    drop(control);
     let vault = Vault::open_owned(paths.clone(), config, key.as_ref(), Some(owner))?;
     Ok(InstalledArchive { vault, data_key: key, previous_files: previous })
 }

@@ -68,6 +68,8 @@ pub fn rewrap_password(vault: &Vault, current: &str, new: &str) -> Result<()> {
 /// Store preflight authenticates all files; this repairs only a stale mode setting.
 pub fn reconcile(vault: &Vault) -> Result<crate::ReconcileReport> {
     use std::io::Read;
+    // A mode change replaces the files whose header this reads.
+    let _operation = crate::archive::ArchiveOpGate::acquire(vault.paths());
     vault.recheck_root()?;
     let mut header = [0u8; 16];
     fs::File::open(
@@ -79,12 +81,15 @@ pub fn reconcile(vault: &Vault) -> Result<crate::ReconcileReport> {
     } else {
         ArchiveMode::Encrypted
     };
-    let previous = vault.config().archive_mode.clone();
+    // The control as it is now, not the vault's copy from when it was opened: a setting saved
+    // since would otherwise be written back over.
+    let gate = crate::ControlGate::acquire(vault.paths());
+    let mut config = crate::load_config(vault.paths())?;
+    let previous = config.archive_mode.clone();
     let repaired = previous != mode;
     if repaired {
-        let mut config = vault.config().clone();
         config.archive_mode = mode.clone();
-        crate::save_config(vault.paths(), &config)?;
+        crate::save_config(&gate, &config)?;
     }
     Ok(crate::ReconcileReport { repaired, from_mode: repaired.then_some(previous), to_mode: mode })
 }
@@ -113,6 +118,7 @@ pub fn switch_mode(
         "use password rewrap for the existing mode"
     );
     let stage = staging_root(vault.paths())?;
+    let mode_after = mode.clone();
     let mut config = vault.config().clone();
     config.archive_mode = mode;
     let key = create_envelope(stage.path(), &config, new_password)?;
@@ -162,9 +168,16 @@ pub fn switch_mode(
     cancel.check()?;
     pause.close()?;
     vault.close()?;
+    // The replacement's control is the live one as it is now, with the new mode: a setting saved
+    // while the copy ran is kept. Built and installed under one hold of the control's gate.
+    let control = crate::ControlGate::acquire(vault.paths());
+    let mut config = crate::load_config(vault.paths())?;
+    config.archive_mode = mode_after;
+    crate::config::save_copy_config(vault.paths(), stage.path(), &config)?;
     let mut files = database_files(vault.layout(), true);
     files.push(snapshot_relative.clone());
-    install::install(vault.paths(), stage.path(), files, false)?;
+    install::install(&control, stage.path(), files, false)?;
+    drop(control);
     let previous = vault.paths().app_root.join(snapshot_relative);
     let opened = Vault::open_owned(vault.paths().clone(), config, key.as_ref(), Some(owner))?;
     Ok(InstalledArchive { vault: opened, data_key: key, previous_files: previous })

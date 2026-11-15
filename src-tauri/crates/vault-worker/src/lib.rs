@@ -128,6 +128,8 @@ pub use self::{
 };
 
 #[cfg(test)]
+mod control_gate_tests;
+#[cfg(test)]
 pub(crate) mod tests;
 
 mod search;

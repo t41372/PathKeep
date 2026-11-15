@@ -118,12 +118,14 @@ fn recover_locked(paths: &ProjectPaths, config: &AppConfig) -> Result<LaunchReco
         DiskEncryptionMode::Plaintext => ArchiveMode::Plaintext,
         DiskEncryptionMode::Encrypted => ArchiveMode::Encrypted,
     };
+    let control = vault_core::ControlGate::acquire(paths);
     let on_disk = load_config(paths).unwrap_or_else(|_| config.clone());
     if on_disk.archive_mode != target {
         let mut healed = on_disk;
         healed.archive_mode = target.clone();
-        save_config(paths, &healed)?;
+        save_config(&control, &healed)?;
     }
+    drop(control);
     // Report a heal whenever the final mode differs from what the caller passed in, so it never
     // goes on with a stale-mode config.
     if config.archive_mode == target {
@@ -239,7 +241,7 @@ mod tests {
         let (_dir, paths) = paths();
         legacy_db(&paths.legacy.archive, Some(KEY));
         legacy_db(&paths.legacy.source_evidence, Some(KEY));
-        save_config(&paths, &plaintext_config()).unwrap();
+        save_config(&vault_core::ControlGate::acquire(&paths), &plaintext_config()).unwrap();
 
         let outcome = recover_on_launch(&paths, &plaintext_config()).unwrap();
         assert!(
@@ -288,7 +290,7 @@ mod tests {
         let (_dir, paths) = paths();
         legacy_db(&paths.legacy.archive, None);
         legacy_db(&paths.legacy.source_evidence, Some(KEY));
-        save_config(&paths, &plaintext_config()).unwrap();
+        save_config(&vault_core::ControlGate::acquire(&paths), &plaintext_config()).unwrap();
         let previous = serde_json::to_string(&plaintext_config()).unwrap();
         import_journal(
             &paths,
@@ -313,7 +315,7 @@ mod tests {
     fn a_corrupt_config_json_is_reported_and_not_replaced_by_the_passed_config() {
         let (_dir, paths) = paths();
         legacy_db(&paths.legacy.archive, Some(KEY));
-        save_config(&paths, &plaintext_config()).unwrap();
+        save_config(&vault_core::ControlGate::acquire(&paths), &plaintext_config()).unwrap();
         fs::write(&paths.config_path, b"{ not valid json").unwrap();
 
         let error = recover_on_launch(&paths, &plaintext_config()).unwrap_err();
@@ -344,7 +346,7 @@ mod tests {
     fn a_healthy_launch_does_not_wait_for_a_lock_held_elsewhere() {
         let (_dir, paths) = paths();
         legacy_db(&paths.legacy.archive, Some(KEY));
-        save_config(&paths, &encrypted_config()).unwrap();
+        save_config(&vault_core::ControlGate::acquire(&paths), &encrypted_config()).unwrap();
         let _elsewhere = hold_write_lock_elsewhere(&paths);
 
         let worker_paths = paths.clone();
@@ -365,7 +367,7 @@ mod tests {
     fn a_launch_with_drift_waits_for_the_lock_then_heals() {
         let (_dir, paths) = paths();
         legacy_db(&paths.legacy.archive, Some(KEY));
-        save_config(&paths, &plaintext_config()).unwrap();
+        save_config(&vault_core::ControlGate::acquire(&paths), &plaintext_config()).unwrap();
         let elsewhere = hold_write_lock_elsewhere(&paths);
 
         let worker_paths = paths.clone();
@@ -407,7 +409,7 @@ mod tests {
     fn a_restore_marker_is_never_provably_healthy() {
         let (_dir, paths) = paths();
         plaintext_header(&paths.legacy.archive);
-        save_config(&paths, &plaintext_config()).unwrap();
+        save_config(&vault_core::ControlGate::acquire(&paths), &plaintext_config()).unwrap();
         assert!(launch_is_provably_healthy(&paths, &plaintext_config()));
         fs::write(marker(&paths, ".pk-restore-journal.json"), b"{}").unwrap();
         assert!(!launch_is_provably_healthy(&paths, &plaintext_config()));
