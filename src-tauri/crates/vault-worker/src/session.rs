@@ -126,6 +126,12 @@ impl VaultSession {
         Ok(state.password.as_ref().map(|value| value.to_string()))
     }
 
+    /// The archive's data key while it is unlocked, for a restore that carries the agent
+    /// conversations over when no archive is open.
+    pub(crate) fn data_key(&self) -> Option<Arc<DataKey>> {
+        self.inner.0.lock().expect("session state").data_key.clone()
+    }
+
     /// Status reads inspect an existing handle without opening storage or the keychain.
     pub fn current_vault(&self) -> Option<Vault> {
         self.inner.0.lock().expect("session state").vault.clone().filter(|v| v.store().is_open())

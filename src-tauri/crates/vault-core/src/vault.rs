@@ -34,6 +34,9 @@ pub struct Vault {
     /// Which stores this archive holds, read from its control when it was opened. Every
     /// operation that picks stores from the layout table uses this, not the newest layout.
     layout: vault_layout::ArchiveLayout,
+    /// The data key the archive was opened with, for maintenance that must carry stores over to
+    /// another key (a restore). Not for reading data: the store holds its own sub-keys.
+    data_key: Option<Arc<vault_crypto::DataKey>>,
     backup: Arc<std::sync::Mutex<()>>,
     intelligence: Arc<std::sync::Mutex<()>>,
     site_days: Arc<crate::intelligence::SiteDayCache>,
@@ -161,6 +164,11 @@ impl Vault {
             paths,
             config,
             layout,
+            data_key: key.map(|key| {
+                Arc::new(vault_crypto::DataKey::from_bytes(zeroize::Zeroizing::new(
+                    *key.expose_bytes(),
+                )))
+            }),
             generation_lease: None,
             vector_generations: Arc::default(),
             backup: Arc::default(),
@@ -274,6 +282,11 @@ impl Vault {
         self.layout
     }
 
+    /// See the field: maintenance inside this crate only.
+    pub(crate) fn data_key(&self) -> Option<&vault_crypto::DataKey> {
+        self.data_key.as_deref()
+    }
+
     /// Reads the control on disk again before an operation that rewrites or copies the whole
     /// root. This vault was admitted when it opened; a restore or import since then, or anything
     /// else that replaced `config.json`, may have changed what this build is allowed to do.
@@ -347,7 +360,7 @@ impl std::fmt::Display for BackupAlreadyRunning {
 }
 impl std::error::Error for BackupAlreadyRunning {}
 
-fn storage_config(
+pub(crate) fn storage_config(
     paths: &ProjectPaths,
     layout: vault_layout::ArchiveLayout,
     key: Option<&vault_crypto::DataKey>,

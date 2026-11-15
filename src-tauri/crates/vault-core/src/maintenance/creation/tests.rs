@@ -18,9 +18,10 @@ use vault_store::{Db, Priority};
 const RELEASED: [Db; 5] =
     [Db::Archive, Db::SourceEvidence, Db::Intelligence, Db::Agent, Db::Scratch];
 /// The stores this build adds, as files.
-const ADDED: [&str; 2] = ["archive/agent-history.db", "derived/agent-history-read-model.db"];
+pub(in crate::maintenance) const ADDED: [&str; 2] =
+    ["archive/agent-history.db", "derived/agent-history-read-model.db"];
 
-fn released_config() -> AppConfig {
+pub(in crate::maintenance) fn released_config() -> AppConfig {
     AppConfig {
         initialized: true,
         git_enabled: false,
@@ -31,7 +32,7 @@ fn released_config() -> AppConfig {
 
 /// A folder as PathKeep 0.5 leaves it: an initialized control without a stamp, its five stores,
 /// and a marker in the browsing archive.
-fn released_archive() -> (tempfile::TempDir, ProjectPaths) {
+pub(in crate::maintenance) fn released_archive() -> (tempfile::TempDir, ProjectPaths) {
     let root = tempfile::tempdir().unwrap();
     let paths = project_paths_with_root(root.path());
     crate::config::ensure_paths(&paths).unwrap();
@@ -50,7 +51,7 @@ fn released_store(paths: &ProjectPaths) -> vault_store::Store {
     vault_store::Store::open(config).unwrap()
 }
 
-fn write_marker(store: &vault_store::Store, db: Db, body: &'static str) {
+pub(in crate::maintenance) fn write_marker(store: &vault_store::Store, db: Db, body: &'static str) {
     store
         .write(db, Priority::Interactive, move |s| {
             s.execute("CREATE TABLE IF NOT EXISTS creation_marker(body TEXT NOT NULL)", ())?;
@@ -62,7 +63,7 @@ fn write_marker(store: &vault_store::Store, db: Db, body: &'static str) {
 }
 
 /// The marker a store holds; `None` for a store nothing was written to.
-fn marker(vault: &Vault, db: Db) -> Option<String> {
+pub(in crate::maintenance) fn marker(vault: &Vault, db: Db) -> Option<String> {
     vault
         .store()
         .read(db, |s| {
@@ -83,7 +84,7 @@ fn layout(paths: &ProjectPaths) -> ArchiveLayout {
     crate::admission::root_layout(&paths.app_root).unwrap()
 }
 
-fn open(paths: &ProjectPaths) -> anyhow::Result<Vault> {
+pub(in crate::maintenance) fn open(paths: &ProjectPaths) -> anyhow::Result<Vault> {
     Ok(Vault::open(paths.clone(), released_config(), None)?)
 }
 
@@ -106,7 +107,7 @@ fn remove_store(paths: &ProjectPaths, relative: &str) {
     }
 }
 
-fn files(root: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
+pub(in crate::maintenance) fn files(root: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
     let mut found = BTreeMap::new();
     let mut pending = vec![root.to_path_buf()];
     while let Some(dir) = pending.pop() {
@@ -220,7 +221,7 @@ fn a_record_naming_anything_but_a_store_is_refused_and_deletes_nothing() {
 }
 
 #[test]
-fn a_snapshot_pathkeep_0_5_took_restores_without_the_conversations_saved_since() {
+fn a_snapshot_pathkeep_0_5_took_restores_browsing_and_keeps_the_conversations() {
     let (_root, paths) = released_archive();
     let snapshots = tempfile::tempdir().unwrap();
     let taken = snapshots.path().join("taken-by-0.5");
@@ -247,12 +248,11 @@ fn a_snapshot_pathkeep_0_5_took_restores_without_the_conversations_saved_since()
     assert_eq!(restored.layout(), ArchiveLayout::AgentHistoryV2);
     assert_eq!(layout(&paths), ArchiveLayout::AgentHistoryV2);
     assert_eq!(marker(restored, Db::Archive).as_deref(), Some("released-archive"));
-    // The archive it restores had no conversations.
-    assert_eq!(marker(restored, Db::AgentHistoryEvidence), None);
-    assert_eq!(marker(restored, Db::AgentHistoryReadModel), None);
-    // What was saved since is in the replaced generation, not deleted.
+    // A restore does not roll agent conversations back: the copy has none, and they stay.
+    assert_eq!(marker(restored, Db::AgentHistoryEvidence).as_deref(), Some("saved-since"));
+    assert_eq!(marker(restored, Db::AgentHistoryReadModel).as_deref(), Some("read-since"));
     for added in ADDED {
-        assert!(installed.previous_files.join(added).is_file(), "{added}");
+        assert!(!installed.previous_files.join(added).exists(), "{added} stayed where it was");
     }
 }
 

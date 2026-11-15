@@ -101,13 +101,14 @@ fn restore_recovers_evidence_intelligence_and_ask_and_keeps_the_replaced_generat
             Some("pkintelligencecoral")
         );
         assert_eq!(store_marker(&restored, Db::Agent).as_deref(), Some("pkagentdenim"));
+        // A restore does not roll agent conversations back: they are as they were before it.
         assert_eq!(
             store_marker(&restored, Db::AgentHistoryEvidence).as_deref(),
-            Some("pkagenthistoryivory")
+            Some("discardedgeneration")
         );
         assert_eq!(
             store_marker(&restored, Db::AgentHistoryReadModel).as_deref(),
-            Some("pkreadmodeljade")
+            Some("discardedgeneration")
         );
         assert_eq!(search_titles(&restored), ["pksearchelm"]);
         assert_eq!(

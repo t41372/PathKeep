@@ -112,6 +112,7 @@ pub fn run_full_archive_restore(
         "snapshot-not-listed: restore only from a safety snapshot PathKeep lists"
     );
     let current = session.current_vault();
+    let live_key = session.data_key();
     let legacy = source.is_file();
     let installed = crate::maintenance_jobs::run(
         &paths.app_root,
@@ -125,6 +126,7 @@ pub fn run_full_archive_restore(
                     session.owner(),
                     source,
                     password,
+                    live_key.as_deref(),
                     cancel,
                     progress,
                 );
@@ -135,6 +137,7 @@ pub fn run_full_archive_restore(
                 session.owner(),
                 source,
                 password,
+                live_key.as_deref(),
                 cancel,
             )
         },

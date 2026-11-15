@@ -203,6 +203,7 @@ fn observe(operation: Operation, control: &str) -> Observation {
             None,
             source.as_deref().unwrap(),
             None,
+            None,
             Default::default(),
         )),
         FullRestore => error(vault_worker::run_full_archive_restore(

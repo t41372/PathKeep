@@ -1,15 +1,11 @@
 {
   "files": [
-    "<maintenance.bak-1>/archive/agent-history.db",
-    "<maintenance.bak-1>/archive/agent-history.db-wal",
     "<maintenance.bak-1>/archive/history-vault.db",
     "<maintenance.bak-1>/archive/history-vault.db-wal",
     "<maintenance.bak-1>/archive/keys.envelope",
     "<maintenance.bak-1>/archive/source-evidence.db",
     "<maintenance.bak-1>/archive/source-evidence.db-wal",
     "<maintenance.bak-1>/config.json",
-    "<maintenance.bak-1>/derived/agent-history-read-model.db",
-    "<maintenance.bak-1>/derived/agent-history-read-model.db-wal",
     "<maintenance.bak-1>/derived/agent.db",
     "<maintenance.bak-1>/derived/agent.db-wal",
     "<maintenance.bak-1>/derived/intelligence.db",
@@ -110,10 +106,8 @@
     ]
   },
   "databaseHeaders": {
-    "<maintenance.bak-1>/archive/agent-history.db": "non-sqlite",
     "<maintenance.bak-1>/archive/history-vault.db": "non-sqlite",
     "<maintenance.bak-1>/archive/source-evidence.db": "non-sqlite",
-    "<maintenance.bak-1>/derived/agent-history-read-model.db": "non-sqlite",
     "<maintenance.bak-1>/derived/agent.db": "non-sqlite",
     "<maintenance.bak-1>/derived/intelligence.db": "non-sqlite",
     "<maintenance.bak-1>/derived/scratch.db": "empty",

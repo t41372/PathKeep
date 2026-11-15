@@ -85,7 +85,17 @@ Once the archive is up, an open writes nothing: no record, the same control byte
 
 A restore, an import or a conversion replaces the archive with another one. The archive it installs keeps the stamp of the one it replaces, or takes the incoming archive's stamp when that is at least as high on all three numbers; an older snapshot or file never lowers it (`admission::compose`). When neither stamp is at least as high as the other on all three numbers, the operation is refused (`archive-compatibility-conflict`) before anything is installed. A folder without a stamp counts as this build's own, revision 1.
 
-The installed archive's layout follows from that stamp. A snapshot or move file from 0.5, which has five stores, is installed with the two agent-history stores created empty: the archive it restores had no agent conversations. Those of the archive it replaced stay in the previous generation the restore keeps.
+The installed archive's layout follows from that stamp.
+
+**A restore brings back browsing data only** (the user's decision, 2026-11-15). This archive's agent conversations are carried over to the restored one and never rolled back: they are only ever added to, and the tools delete their own transcripts (Claude Code after 30 days by default), so a rollback could only lose them and put back what was archived or thrown away since. How they are carried depends on keys, not key files, because a password change rewraps the same key:
+
+- The copy has the same key as the conversations, or neither is encrypted: the files stay where they are and are not part of the installation.
+- The copy has another key (a mode change since): they are copied under the copy's key and installed with it; the old files go into the previous generation with the rest of what the restore replaced.
+- This archive has none: the restored one starts with empty stores.
+
+When no archive is open, the conversations are read from their own stores, so a restore still works when another store is what is damaged. If they are encrypted and the key is not at hand, the restore stops before anything changes and asks for the archive's current password (`agent-history-key-required`). The conversations in a copy are for a separate repair of damaged agent-history stores (BACKLOG `WORK-AH-REPAIR-FROM-COPY`), never for a restore.
+
+A move file from 0.5, which has five stores, is imported with the two agent-history stores empty. An import replaces the whole archive, conversations included; whether it should keep them instead is not decided yet.
 
 A move file this build writes is format 3: format 2 plus the two agent-history stores. 0.4 and 0.5 read only format 2 and refuse a format-3 file ("unsupported bundle format 3") before asking for its password. This build reads both.
 
@@ -221,6 +231,7 @@ One exception is outside the app's control: on macOS a schedule installed by an 
 - `src-tauri/tests/root_admission_startup.rs` starts the real desktop binary: a background start and a cold worker start on a newer archive leave the folder unchanged, an interrupted-wipe marker in a newer archive deletes nothing, and whatever a first start creates still reads as a first run.
 - `vault-core/tests/root_stamp_codec.rs` holds the byte-for-byte rule for the stamp across a setting change and a mode change, the version rule against every ordering of level and floors, and that a bare `archiveMode` is written back as v0.5.0 expects.
 - `vault-core/src/maintenance/creation/tests.rs` cuts the bring-up at each of its three durable points and opens again; has a 0.5 store open the folder after a crash before the stamp and save into a store the record names; refuses a stamped archive missing a store, and a record naming a file that is not a store, comparing every file before and after; restores a snapshot and imports a move file that 0.5 would have written (five stores, no stamp, format 2); and keeps a later build's revision-2 stamp byte for byte through an open, a settings save, a mode change and a restore. Each property was also checked by breaking the code and watching its test fail.
+- `vault-core/src/maintenance/restore_tests.rs` restores a copy and checks that browsing comes back while the agent conversations stay: the same files when the key is the same (also after a password change since the copy), converted after a mode change, read from their own stores when no archive is open, and refused with every file unchanged when their key is needed and missing.
 - `vault-worker/tests/root_admission/operations.rs` refuses both a reader floor and a writer floor above this build's level at every entry point, with their own reasons.
 - `vault-worker/tests/vault_lifecycle/` follows a marker in each of the seven stores through first open, backup, mode change, password change, safety snapshot and restore, move export and import into an empty and a populated folder, reopen, and "delete all data", and pins the file list of each.
 

@@ -34,6 +34,7 @@ fn legacy_full_snapshot_restores_to_turso_in_both_modes() {
                     None,
                     &source,
                     Some("wrong"),
+                    None,
                     Default::default(),
                     |_| {},
                 )
@@ -47,6 +48,7 @@ fn legacy_full_snapshot_restores_to_turso_in_both_modes() {
             None,
             &source,
             password,
+            None,
             Default::default(),
             |_| {},
         )

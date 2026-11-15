@@ -16,13 +16,15 @@ use vault_core::{
 use vault_store::{CancelToken, OwnerLock};
 
 /// Old full snapshots contain only the archive. Conversion supplies empty evidence
-/// and agent databases, and native restore retains the replaced generation.
+/// and agent databases, and native restore retains the replaced generation and carries this
+/// archive's agent conversations over (`live_key` as there).
 pub fn restore_snapshot(
     paths: &ProjectPaths,
     current: Option<&Vault>,
     owner: Option<Arc<OwnerLock>>,
     source: &Path,
     password: Option<&str>,
+    live_key: Option<&vault_crypto::DataKey>,
     cancel: CancelToken,
     mut progress: impl FnMut(Progress),
 ) -> Result<InstalledArchive> {
@@ -75,5 +77,7 @@ pub fn restore_snapshot(
     let snapshot = stage.path().join("converted-snapshot");
     vault_core::maintenance::snapshot(&converted.vault, &snapshot)?;
     converted.vault.close()?;
-    vault_core::maintenance::restore_snapshot_to(paths, current, owner, &snapshot, password, cancel)
+    vault_core::maintenance::restore_snapshot_to(
+        paths, current, owner, &snapshot, password, live_key, cancel,
+    )
 }

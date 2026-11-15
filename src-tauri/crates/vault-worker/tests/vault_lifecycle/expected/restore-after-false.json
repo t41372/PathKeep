@@ -1,14 +1,10 @@
 {
   "files": [
-    "<maintenance.bak-1>/archive/agent-history.db",
-    "<maintenance.bak-1>/archive/agent-history.db-wal",
     "<maintenance.bak-1>/archive/history-vault.db",
     "<maintenance.bak-1>/archive/history-vault.db-wal",
     "<maintenance.bak-1>/archive/source-evidence.db",
     "<maintenance.bak-1>/archive/source-evidence.db-wal",
     "<maintenance.bak-1>/config.json",
-    "<maintenance.bak-1>/derived/agent-history-read-model.db",
-    "<maintenance.bak-1>/derived/agent-history-read-model.db-wal",
     "<maintenance.bak-1>/derived/agent.db",
     "<maintenance.bak-1>/derived/agent.db-wal",
     "<maintenance.bak-1>/derived/intelligence.db",
@@ -71,19 +67,18 @@
   ],
   "markers": {
     "discardedgeneration": [
-      "<maintenance.bak-1>/archive/agent-history.db",
       "<maintenance.bak-1>/archive/history-vault.db",
       "<maintenance.bak-1>/archive/source-evidence.db",
-      "<maintenance.bak-1>/derived/agent-history-read-model.db",
       "<maintenance.bak-1>/derived/agent.db",
-      "<maintenance.bak-1>/derived/intelligence.db"
+      "<maintenance.bak-1>/derived/intelligence.db",
+      "archive/agent-history.db",
+      "derived/agent-history-read-model.db"
     ],
     "pkagentdenim": [
       "derived/agent.db",
       "raw-snapshots/maintenance/<rekey-maintenance-1>/derived/agent.db"
     ],
     "pkagenthistoryivory": [
-      "<maintenance.bak-1>/archive/agent-history.db",
       "archive/agent-history.db",
       "raw-snapshots/maintenance/<rekey-maintenance-1>/archive/agent-history.db"
     ],
@@ -109,7 +104,6 @@
       "raw-snapshots/maintenance/<rekey-maintenance-1>/derived/intelligence.db"
     ],
     "pkreadmodeljade": [
-      "<maintenance.bak-1>/derived/agent-history-read-model.db",
       "derived/agent-history-read-model.db",
       "raw-snapshots/maintenance/<rekey-maintenance-1>/derived/agent-history-read-model.db"
     ],
@@ -137,8 +131,8 @@
     "archive/source-evidence.db": "pkevidencebirch",
     "derived/intelligence.db": "pkintelligencecoral",
     "derived/agent.db": "pkagentdenim",
-    "archive/agent-history.db": "pkagenthistoryivory",
-    "derived/agent-history-read-model.db": "pkreadmodeljade",
+    "archive/agent-history.db": "discardedgeneration",
+    "derived/agent-history-read-model.db": "discardedgeneration",
     "searchTitles": ["pksearchelm"],
     "askMessages": ["pkaskhazel"],
     "savedTextLocators": [
@@ -146,10 +140,8 @@
     ]
   },
   "databaseHeaders": {
-    "<maintenance.bak-1>/archive/agent-history.db": "sqlite",
     "<maintenance.bak-1>/archive/history-vault.db": "sqlite",
     "<maintenance.bak-1>/archive/source-evidence.db": "sqlite",
-    "<maintenance.bak-1>/derived/agent-history-read-model.db": "sqlite",
     "<maintenance.bak-1>/derived/agent.db": "sqlite",
     "<maintenance.bak-1>/derived/intelligence.db": "sqlite",
     "<maintenance.bak-1>/derived/scratch.db": "empty",

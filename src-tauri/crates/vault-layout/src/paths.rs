@@ -140,8 +140,17 @@ pub fn at_rest_databases(layout: ArchiveLayout) -> impl Iterator<Item = Db> {
 }
 /// Native installation includes every companion, while search is caller-selected.
 pub fn installation_files(layout: ArchiveLayout, search: bool) -> Vec<PathBuf> {
+    installation_files_except(layout, search, &[])
+}
+/// The same without the files of the kinds of data in `kept`: what a restore installs while it
+/// keeps those kinds as they are.
+pub fn installation_files_except(
+    layout: ArchiveLayout,
+    search: bool,
+    kept: &[DataScope],
+) -> Vec<PathBuf> {
     let mut files = Vec::new();
-    for s in artifacts_in(layout) {
+    for s in artifacts_in(layout).filter(|s| !kept.contains(&s.scope)) {
         match s.lifecycle.restore {
             RestorePolicy::RequiredDatabase | RestorePolicy::RecreateDatabase => {
                 files.extend(

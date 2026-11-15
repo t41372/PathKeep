@@ -496,6 +496,7 @@ fn nothing_is_installed_while_a_wipe_is_pending() {
         None,
         &paths.app_root.join("raw-snapshots/none"),
         None,
+        None,
         Default::default(),
     );
     let import = crate::migration::native::import(
