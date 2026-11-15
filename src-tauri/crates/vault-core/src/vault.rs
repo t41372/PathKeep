@@ -87,8 +87,12 @@ impl Vault {
         } else {
             config
         };
-        let storage = storage_config(&paths, key, Some(owner))?;
-        let store = match Store::open(storage) {
+        let mut storage = storage_config(&paths, key, Some(owner))?;
+        let update = crate::vault::upgrade::UpdateScope::new();
+        storage.migrations.on_update(update.observer());
+        let opened = Store::open(storage);
+        drop(update);
+        let store = match opened {
             Ok(store) => Arc::new(store),
             Err(error) => {
                 // A migration that stopped partway reported its progress; the window shows it

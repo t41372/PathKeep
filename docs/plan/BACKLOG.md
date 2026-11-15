@@ -225,10 +225,15 @@
   - GNOME 46 的 Wayland（mutter 不替視窗畫標題列）上看過：視窗是 Wayland client，沒有任何標題列，只有我們的三顆按鈕（`artifacts/investigations/2026-11-14-window-frame/linux-desktop/`）。
   - 要做：在 KDE 的 Wayland session 開一次（KWin 會替要求的視窗畫標題列）。真有兩套，就改成建立視窗時就沒有標題列（Rust 在 setup 裡建立主視窗，或用平台設定檔），不在顯示前才改。
 
-- [ ] **WORK-SCHEMA-UPDATE-QUIT** — 存檔更新途中按關閉，要不要先問（2026-11-14 `WORK-WINDOW-FRAME-EVERY-SCREEN` 時 Codex 指出；macOS 的紅燈、Alt+F4 早就能在這時結束。外框修好後，Windows、Linux 的更新畫面也有了關閉鈕，比以前容易按到）
-  - 舊格式轉換、還原這些登記了前台工作（`foreground_work::begin`），關閉時會問；打開既有存檔時跑的 schema 更新（`worker_bridge/archive.rs` 的 `with_archive_upgrade_progress`）沒有登記，按關閉直接結束。
-  - 存檔不會壞，2026-11-14 已證明：`store_schema/tests/killed_upgrade.rs` 在更新中途 kill -9 五次，每次重開都從停下的那一批接著做，最後的內容與沒被打斷的更新逐列相同，完整性檢查通過，未加密與加密都測，macOS 與 Linux 都跑過；建索引到一半被殺另由手動的 `killed_at_moments_nobody_chose` 在 100 萬筆造訪上隨機 kill 40 次驗過。Windows 沒有跑過。說明在 `docs/features/archive.md`「結束時還有工作在跑」。
-  - 剩下的是體驗：大存檔的更新要跑一陣子，中途結束，下次啟動要再等剩下的部分。要不要把它登記成前台工作（按關閉時先問）由用戶決定。新手引導完成設定時的幾個步驟之間，中途結束會留下什麼，還沒看。
+- [ ] **WORK-ONBOARDING-QUIT-MIDWAY** — 新手引導按「完成設定」後，幾個步驟之間結束 PathKeep，會留下什麼（2026-11-14 `WORK-SCHEMA-UPDATE-QUIT` 時留下，還沒看）
+  - 存檔更新途中結束已經會先問（2026-11-15 `WORK-SCHEMA-UPDATE-QUIT`）。完成設定的步驟（建存檔、存設定、裝排程、第一次備份；`use-finish-setup.ts`）有沒有登記成前台工作、中途結束後下次打開是什麼樣子，還沒看。
+  - 要做：列出每一步之間結束後留下的狀態（設定、存檔、鑰匙圈、排程），確認下次打開能接著完成或重來，不會卡在半套；需要時登記成前台工作。
+
+- [ ] **WORK-SCHEMA-UPDATE-SCREEN-EARLY** — 存檔更新在建索引的那幾版時，畫面只寫「載入中」（2026-11-15 `WORK-SCHEMA-UPDATE-QUIT` 時看到）
+  - 更新畫面（`SchemaUpdateScreen`）只在資料回填送出進度時出現（`schema-update.ts`：`total > 0`）。之前只改結構的版本沒有進度事件，最久的是 Archive 第 5 版：在全部造訪上建唯一索引。這段時間畫面是啟動畫面的「載入中」。
+  - 量到的：100 萬筆造訪的 v1 存檔，第 15 版第一批提交前約 7.4 秒（macOS debug）／8.5 秒（Linux debug），幾乎都花在這裡（`artifacts/investigations/2026-11-14-window-frame/schema-update-kill/campaign.txt`）。1440 萬筆照比例會超過一分鐘，沒有量過。
+  - 結束時先問已經涵蓋這段（這時按關閉會說「正在為這個版本更新存檔」），但畫面本身沒說在更新。
+  - 要做：vault-store 已在開始更新一個已有的資料庫前通知（`MigrationRegistry::on_update`），可以照它送一個「更新開始」的事件，讓更新畫面從那一刻起出現（不確定進度時進度條不定長）。新建的存檔不會收到，不會在新手引導時閃一下。先在 1440 萬筆上量這段要多久。
 
 - [ ] **WORK-E2E-SEARCH-TOPIC-BY-NOW** — `insights.spec.ts`「a search made in several browsers is one row among the searches you came back to most」在某些時間必然失敗（2026-11-14 `WORK-SCHEMA-UPDATE-KILL-TEST` 的 gate 碰到）
   - 失敗在第 716 行，還沒打開 app：spec 假設「台北天氣」那一族在 Chrome · Work 的「最常回頭的搜尋」前五名裡。E2E 的合成資料以 `Date.now()`、`TZ=UTC` 產生，哪些造訪落在哪個設定檔、哪一天，隨 `now` 而變，前五名也跟著變。

@@ -121,7 +121,7 @@ fn legacy_openers() -> Migration {
         )?;
         restart_legacy_openers(s)
     })
-    .with_backfill(link_legacy_openers)
+    .with_backfill(legacy_openers_pending, link_legacy_openers)
     .on_backfill_progress(move |progress| {
         if let Some(observer) = &observer {
             observer(crate::vault::upgrade::archive_event(progress));
@@ -139,6 +139,14 @@ pub(crate) fn restart_legacy_openers(s: &Session<'_>) -> vault_store::Result<()>
         (),
     )?;
     Ok(())
+}
+
+/// Whether the backfill has visits left to link; reads its marker and changes nothing.
+pub(crate) fn legacy_openers_pending(s: &Session<'_>) -> vault_store::Result<bool> {
+    let done = s.query_one("SELECT done FROM legacy_opener_backfill WHERE id=1", (), |r| {
+        r.get::<i64>(0).map_err(Into::into)
+    })?;
+    Ok(done == 0)
 }
 
 /// One bounded transaction of the backfill; `None` once it is done. The cursor commits with the

@@ -254,19 +254,25 @@ fn killed_upgrade_child() {
             let mut steps = vec![super::super::archive::migration()];
             steps.extend(super::super::backup_identity::archive());
             // Versions only ever go on the end: version 15 stays the fifteenth step.
-            steps[14] = steps[14].clone().with_backfill(move |s| {
-                let progress = super::super::backup_identity::link_legacy_openers(s)?;
-                hold_inside(progress.as_ref(), n);
-                Ok(progress)
-            });
+            steps[14] = steps[14].clone().with_backfill(
+                super::super::backup_identity::legacy_openers_pending,
+                move |s| {
+                    let progress = super::super::backup_identity::link_legacy_openers(s)?;
+                    hold_inside(progress.as_ref(), n);
+                    Ok(progress)
+                },
+            );
             cfg.migrations.register(Db::Archive, steps);
         }
         Stop::Inside(_, n) => {
-            let setup = super::super::intelligence_lineage::migration().with_backfill(move |s| {
-                let progress = super::super::intelligence_lineage::backfill(s)?;
-                hold_inside(progress.as_ref(), n);
-                Ok(progress)
-            });
+            let setup = super::super::intelligence_lineage::migration().with_backfill(
+                super::super::intelligence_lineage::pending,
+                move |s| {
+                    let progress = super::super::intelligence_lineage::backfill(s)?;
+                    hold_inside(progress.as_ref(), n);
+                    Ok(progress)
+                },
+            );
             cfg.migrations
                 .register(Db::Intelligence, vec![super::super::intelligence::migration(), setup]);
         }

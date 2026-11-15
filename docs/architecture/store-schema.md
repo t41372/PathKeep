@@ -566,6 +566,13 @@ carries on from the last batch that committed (`store_schema/tests/killed_upgrad
 there). Source Evidence, Agent stay
 at version 1.
 
+A backfill also says, without changing anything, whether batches remain (`legacy_openers_pending`,
+`intelligence_lineage::pending`). An open asks it when the database's versions are all applied,
+so that vault-store can tell the owner before the open updates a database that already had a
+schema (`MigrationRegistry::on_update`), and only then: not for a database the open creates, not
+for one already up to date. vault-core counts the update from that moment until the open returns
+(`schema_update_running`), and the desktop app asks before quitting during it.
+
 ## Archive read indexes and source totals
 
 The consolidated v1 includes the batch-review, outbox-page, manifest-run and

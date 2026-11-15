@@ -61,6 +61,20 @@
   - Linux 上 gate 的兩個測試連跑三次都過（各約 33 秒，含 WAL 不是空的檢查）。Windows 沒有跑過；斷電（寫到磁碟的順序）不在範圍內。
   - 要不要在更新途中先問，留給用戶（`WORK-SCHEMA-UPDATE-QUIT`）。
   - `bun run check`：E2E 之前的每一步都過（前端、build、全部 Rust 測試含這兩個、release check）。E2E 卡在 `insights.spec.ts:628`，還沒打開 app 就失敗：它的 fixture 用 `Date.now()` 產生，那個時段（UTC 11-15 00:30–10:30）不管什麼程式碼都會失敗（`WORK-E2E-SEARCH-TOPIC-BY-NOW`）。`--grep-invert` 排除不了，因為依賴它的 project 會把它整個跑一遍。本機暫時把那一個標成 `fixme`（沒有提交）重跑：130 過、2 略過（它，和只在 Linux 跑的真視窗 spec），backup-integrity 9 + 1 過。
+- [x] **WORK-SCHEMA-UPDATE-QUIT** — 存檔更新途中結束 PathKeep，先問（用戶 2026-11-15：「要」）
+  - 讀先：`desktop_integration/quit.rs`、`vault-worker/src/foreground_work.rs`、`vault-store/src/migration.rs`、`vault-core/src/vault/upgrade.rs`、`quit-during-work.spec.ts`。
+  - 以前：開存檔時跑的 schema 更新沒登記成前台工作，按關閉直接結束（資料安全已由 `WORK-SCHEMA-UPDATE-KILL-TEST` 證明）。
+  - 做法：
+    - vault-store：開檔時真的要改一個已有的資料庫，就在改之前通知一次（`MigrationRegistry::on_update`）。新建的資料庫（版本 0）不通知，已經是最新的也不通知。資料回填多一個不改資料的「還有沒有要做」判斷（`with_backfill(pending, batch)`），上次中途停下、版本都已記上的回填也在第一批之前通知。
+    - vault-core：從那一刻算到這次開檔結束，成功、失敗或 panic 都一樣（`UpdateScope`，`schema_update_running`）。
+    - vault-worker：`foreground_work()` 把它列在最後（`ForegroundWork::SchemaUpdate`）。vault-core 在 vault-worker 下面一層，登記表碰不到開檔，所以由 vault-core 記。
+    - 提問加一項「正在為這個版本更新存檔」，下面寫「會停在中途，但存檔不會損壞，下次打開 PathKeep 會接著做。」（三種語言）。
+  - 測試：
+    - `vault-store/tests/migrations.rs` 新增一條：建新庫不通知；上次停在中途的回填在第一批前通知；已是最新不通知；加新版本時在套用前通知一次。拿掉「版本 0 不算」時它紅（已改回）。
+    - E2E `schema-update-quit.spec.ts`，在 backup-integrity 設定的 v1 存檔上跑，排在 backup-integrity.spec 前面。fixture 的更新不到一秒，所以 debug build 的 `PATHKEEP_TEST_HOLD_SCHEMA_UPDATE` 在更新改第一個資料庫之前停住（`vault-core/src/test_support.rs`），並寫下哪個程序停著。關視窗會問、寫對字；「現在結束」讓 app 在更新途中結束，下次啟動重新開始更新；⌘Q 也會問；「不結束」同一個 app 繼續；「做完再結束」更新停著時不結束，放行後更新做完才結束；再開，存檔照常打開。後面 backup-integrity 的 9 條檢查這個被中途結束過的存檔，都過。
+    - 證明抓得到：把 vault-worker 那一行暫時關掉（沒有提交），spec 等到了更新停住，但關視窗沒問，app 直接結束，紅在第 70 行。
+  - 順帶看到：建索引那幾版沒有進度事件，畫面只寫「載入中」，記 BACKLOG `WORK-SCHEMA-UPDATE-SCREEN-EARLY`。新手引導完成設定時幾個步驟之間結束會留下什麼，另記 `WORK-ONBOARDING-QUIT-MIDWAY`。
+  - `bun run check`（2026-11-15 08:31 UTC 跑完）：前端 151 個測試、Rust 全部；E2E 主設定 130 過、2 略過（真視窗 spec 本機不跑；`insights.spec.ts:628` 在那段時間不管什麼程式碼都會失敗，本機暫標 fixme、沒有提交，見 `WORK-E2E-SEARCH-TOPIC-BY-NOW`）；backup-integrity healthy 10 過（含 `schema-update-quit.spec.ts`）、damaged 1 過。
 
 - [x] **WORK-RELEASE-REVIEW-BOUNDARIES** — 處理 PR #22 新審查的 API／channel／授權與測試完成條件。
   - 讀先：`RELEASE.md`、`docs/architecture/release-publication.md`、`scripts/lib/release-authorization.mjs`、GitHub release API 與官方 CLI 的 release edit 實作。

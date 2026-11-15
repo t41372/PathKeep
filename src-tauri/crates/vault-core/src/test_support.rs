@@ -34,6 +34,39 @@ fn export_row_delay() -> Option<std::time::Duration> {
     })
 }
 
+// Failure modes of the schema update hold (`PATHKEEP_TEST_HOLD_SCHEMA_UPDATE`):
+// (a) a release build honors it;
+// (b) it holds an open that updates nothing (only the update observer calls it);
+// (c) the test cannot tell that the update has started, and quits before it does: the hold
+//     writes this process's id beside the file before it waits;
+// (d) it never lets go: it waits only while the file is there.
+/// Holds a schema update just before its first change while the file
+/// `PATHKEEP_TEST_HOLD_SCHEMA_UPDATE` names exists, so an end-to-end test can quit during one;
+/// the fixture's update otherwise finishes in well under a second. First writes this process's
+/// id to that path plus `.held`. Debug builds only, like `network_is_blocked`.
+pub(crate) fn hold_schema_update() {
+    if !cfg!(debug_assertions) {
+        return;
+    }
+    let Some(hold) = std::env::var_os("PATHKEEP_TEST_HOLD_SCHEMA_UPDATE")
+        .filter(|value| !value.is_empty())
+        .map(std::path::PathBuf::from)
+    else {
+        return;
+    };
+    if !hold.exists() {
+        return;
+    }
+    let mut held = hold.clone().into_os_string();
+    held.push(".held");
+    if let Err(error) = std::fs::write(&held, std::process::id().to_string()) {
+        eprintln!("pathkeep: could not say the schema update is held: {error}");
+    }
+    while hold.exists() {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+}
+
 /// Where a save dialog "saves" in an end-to-end test: Playwright cannot answer the system's
 /// dialog, so a debug build with `PATHKEEP_TEST_SAVE_DIR` set skips it and saves under that
 /// folder with the suggested name. Debug builds only, like `network_is_blocked`.

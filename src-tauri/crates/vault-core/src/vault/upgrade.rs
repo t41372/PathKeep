@@ -1,9 +1,17 @@
-//! Responsibilities: route committed startup migration batches through archive-upgrade progress.
-//! Not responsible for: migration SQL, credentials or frontend navigation.
+//! Responsibilities: route committed startup migration batches through archive-upgrade progress,
+//! and know whether an open in this process is updating the archive's databases right now.
+//! Not responsible for: migration SQL, credentials, frontend navigation, or what quitting does
+//! during an update (the desktop app asks first, through `vault_worker::foreground_work`).
+//! Failure modes: an update that never stops counting (every later quit asks about it); an
+//! update counted before it changes anything, or not counted until after its first change.
 use crate::{ArchiveUpgradePhase, ArchiveUpgradeProgress};
 use std::{
     cell::RefCell,
-    sync::{Arc, OnceLock, mpsc},
+    sync::{
+        Arc, OnceLock,
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+        mpsc,
+    },
 };
 
 pub(crate) type Reporter = Arc<dyn Fn(ArchiveUpgradeProgress) + Send + Sync>;
@@ -79,4 +87,45 @@ pub fn with_archive_upgrade_progress<T: Send + 'static>(
         report(ArchiveUpgradeProgress::finished());
         result
     })
+}
+
+/// Opens in this process that are updating a database right now.
+static UPDATING: AtomicUsize = AtomicUsize::new(0);
+
+/// Whether an open in this process is updating the archive's databases to this version's schema:
+/// from just before it changes the first one until it returns. Quitting then is safe, since the
+/// next launch carries on where the update stopped, but that launch has to finish it before the
+/// archive opens, so the desktop app asks first. Reads memory only.
+pub fn schema_update_running() -> bool {
+    UPDATING.load(Ordering::SeqCst) > 0
+}
+
+/// One open's share of [`UPDATING`]: counted from the moment its migrations start to update a
+/// database (`MigrationRegistry::on_update`) until this is dropped, when the open returns,
+/// whether it succeeded, failed or panicked.
+pub(crate) struct UpdateScope(Arc<AtomicBool>);
+
+impl UpdateScope {
+    pub(crate) fn new() -> Self {
+        Self(Arc::default())
+    }
+
+    /// The registry's update observer for this open. Runs on a writer thread, before the change.
+    pub(crate) fn observer(&self) -> impl Fn(vault_store::Db) + Send + Sync + 'static {
+        let counted = self.0.clone();
+        move |_| {
+            if !counted.swap(true, Ordering::SeqCst) {
+                UPDATING.fetch_add(1, Ordering::SeqCst);
+            }
+            crate::test_support::hold_schema_update();
+        }
+    }
+}
+
+impl Drop for UpdateScope {
+    fn drop(&mut self) {
+        if self.0.swap(false, Ordering::SeqCst) {
+            UPDATING.fetch_sub(1, Ordering::SeqCst);
+        }
+    }
 }

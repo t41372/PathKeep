@@ -107,7 +107,7 @@ impl Store {
             let workers = worker::Workers::start(
                 db,
                 settings,
-                config.migrations.get(db),
+                config.migrations.plan(db),
                 config.readers_per_database.get(),
                 config.interactive_queue_capacity.get(),
                 scratch,

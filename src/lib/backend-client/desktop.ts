@@ -38,6 +38,7 @@ export type ForegroundWork =
   | 'encryption-change'
   | 'data-wipe'
   | 'import-undo'
+  | 'schema-update'
 
 /** A quit the backend holds while work runs, waiting for an answer. */
 export interface QuitRequest {

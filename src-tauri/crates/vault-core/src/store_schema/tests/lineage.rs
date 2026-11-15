@@ -131,6 +131,7 @@ fn intelligence_backfill_resumes_committed_move_batches_before_open() {
             vec![
                 super::super::intelligence::migration(),
                 Migration::rust(2, super::super::intelligence_lineage::apply).with_backfill(
+                    super::super::intelligence_lineage::pending,
                     move |s| {
                         let result = super::super::intelligence_lineage::backfill(s)?;
                         if calls.fetch_add(1, Ordering::SeqCst) == stop {
