@@ -170,21 +170,23 @@ This build never leaves a folder like that:
 
 The control holds settings and the archive's own state (whether it is set up, its mode, its stamp). Several things write it, some of them operations that take minutes. They follow one rule: every write is a read-modify-write under the control's gate (`vault-core/src/config/control_gate.rs`), and each writer changes only the fields it owns, on the control as it is when it holds the gate. `save_config` takes the gate as an argument, so a write without it does not compile.
 
-| Writer                                       | Owns                                                                                                                                       |
-| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| Settings save                                | The settings it was given, as changes against the settings the window showed. Never whether there is an archive, never the mode            |
-| Menu bar icon, App Lock passcode             | Their own fields                                                                                                                           |
-| Setup                                        | Every setting it was given, and `initialized`                                                                                              |
-| Bring-up to this build's layout              | The stamp                                                                                                                                  |
-| At-rest repair (at launch, and the command)  | The mode, from the files' headers                                                                                                          |
-| Mode change                                  | The mode, on the control as it is at install time; then whether the key is remembered                                                      |
-| Restore                                      | Everything: a restore brings back the snapshot's settings                                                                                  |
-| Import                                       | Everything but this machine's settings (App Lock, whether the key is remembered), which it takes from the control as it is at install time |
-| Conversion from the old format               | The settings it was given (setup's, or the upgrade screen's)                                                                               |
-| Install recovery, old-format launch recovery | What the interrupted operation recorded                                                                                                    |
-| "Delete all data"                            | Everything, from start to end                                                                                                              |
+| Writer                                       | Owns                                                                                                                                             |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Settings save                                | The settings it was given, as changes against the settings the window showed. Never whether there is an archive, never the mode                  |
+| Menu bar icon, App Lock passcode             | Their own fields                                                                                                                                 |
+| Setup                                        | Every setting it was given, and `initialized`                                                                                                    |
+| Bring-up to this build's layout              | The stamp                                                                                                                                        |
+| At-rest repair (at launch, and the command)  | The mode, from the files' headers                                                                                                                |
+| Mode change                                  | The mode, on the control as it is at install time; then whether the key is remembered                                                            |
+| Restore                                      | Everything but this machine's settings (App Lock, whether the key is remembered) and the encryption mode, which stay as they are at install time |
+| Import                                       | Everything but this machine's settings (App Lock, whether the key is remembered), which it takes from the control as it is at install time       |
+| Conversion from the old format               | The settings it was given (setup's, or the upgrade screen's)                                                                                     |
+| Install recovery, old-format launch recovery | What the interrupted operation recorded                                                                                                          |
+| "Delete all data"                            | Everything, from start to end                                                                                                                    |
 
 The gate is held for the file only: never across database work or a wait on another lock, and taken after the archive's operation gate by those that hold both. That is why a settings save never waits for an export, a snapshot, a retention prune or the copy of a mode change, restore or import, which hold the operation gate for minutes: those take the control's gate only for their own write at the end. An operation that rewrites the archive builds the replacement's control at that moment from the live one, so a setting saved while it ran is kept. A conversion is the exception: it installs the settings it was given, because setup's choices are what it writes, and nothing else changes settings while the upgrade screen is up.
+
+An operation that closes the archive to put another generation in its place (a mode change, a restore, an import, a conversion) holds the session's maintenance lease from before it closes the archive until the replacement is published (`VaultSession::begin_maintenance`). An open in the same process meanwhile waits and gets the replacement, or what is on disk when the operation ends without one; a close waits and closes the replacement. Without the lease, an open between the close and the publish took the files being moved, or replayed the operation's install record while it was being written: the owner lock does not stop it, because the operation and the open are in the same process.
 
 The settings page saves each change against the settings it showed (`baseConfig`), so a save carries only its own changes. A save whose settings came from a set-up archive, into a folder that has none any more, writes nothing (`archive-reset`); a save never sets an archive up (`archive-uninitialized`).
 

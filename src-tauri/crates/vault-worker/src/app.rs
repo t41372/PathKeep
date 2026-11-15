@@ -471,6 +471,8 @@ pub fn convert_archive_with_progress(
     let mut config = config.clone();
     recover_unconverted(&paths, &mut config)?;
     let config = &config;
+    // Nothing opens the archive while it is replaced, until the converted one is published.
+    let lease = session.begin_maintenance().map_err(anyhow::Error::msg)?;
     let installed = crate::maintenance_jobs::run(
         &paths.app_root,
         "converting",
@@ -503,6 +505,7 @@ pub fn convert_archive_with_progress(
         password.map(str::to_owned),
         crate::session::KeychainAfterInstall::AsSaved,
     )?;
+    drop(lease);
     report(ArchiveUpgradeProgress::finished());
     app_snapshot_with_vault(session.current_vault().as_ref(), None)
 }
@@ -715,6 +718,8 @@ pub fn rekey_archive_database(
             }
         }
     } else {
+        // Nothing opens the archive while it is replaced, until the new one is published.
+        let lease = session.begin_maintenance().map_err(anyhow::Error::msg)?;
         let installed = crate::maintenance_jobs::run(
             &vault.paths().app_root,
             "copying",
@@ -742,6 +747,7 @@ pub fn rekey_archive_database(
                 Err(error) => return Err(error),
             }
         }
+        drop(lease);
         // The installed handle, not `session.vault()`: App Lock may have locked the window
         // during a long rewrite, and that must not turn a finished change into an error.
         if let Some(installed) = session.current_vault()

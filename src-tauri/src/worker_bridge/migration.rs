@@ -49,6 +49,8 @@ pub(crate) fn apply_app_data_import_impl(
     // Through installing the imported archive and its key, not only the import, so a quit
     // that waits for it doesn't leave the keychain behind.
     let _running = vault_worker::begin_foreground_work(vault_worker::ForegroundWork::MoveImport);
+    // Nothing opens the archive while it is replaced, until the imported one is published.
+    let lease = worker_result(state.begin_maintenance())?;
     let (report, archive) = worker_result(vault_worker::apply_import(
         &paths,
         current.as_ref(),
@@ -61,5 +63,6 @@ pub(crate) fn apply_app_data_import_impl(
         password,
         vault_worker::KeychainAfterInstall::AsSaved,
     ))?;
+    drop(lease);
     Ok(report)
 }

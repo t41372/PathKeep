@@ -4,7 +4,8 @@
 //! Failure modes: raw keys escape to readers, opens race or fail fast, an unchecked
 //! password replaces an envelope, App Lock drops secrets, store I/O holds the mutex,
 //! startup loses a typed password, panic strands waiters, status reads prompt the keychain,
-//! or recovery republishes a closed handle.
+//! recovery republishes a closed handle, or an open or a close lands while an operation is
+//! replacing the archive.
 //! Tests: session::tests and owner_requests tests.
 mod open_result;
 use open_result::OpenResult;
@@ -19,6 +20,8 @@ enum Transition {
     Idle,
     Opening,
     Closing,
+    /// An operation is putting another generation of the archive in place (`MaintenanceLease`).
+    Maintaining,
 }
 #[derive(Default)]
 struct Session {
@@ -29,6 +32,8 @@ struct Session {
     transition: Transition,
     result: Arc<OpenResult>,
     last_error: Option<String>,
+    /// Opens and closes waiting for a maintenance lease to end.
+    parked: usize,
 }
 
 /// One session is shared by desktop commands and the owner's IPC service.
@@ -36,7 +41,60 @@ struct Session {
 pub struct VaultSession {
     inner: Arc<(Mutex<Session>, Condvar)>,
 }
+
+/// Held by an operation that closes the archive to put another generation in its place: a mode
+/// change, a restore, an import, a conversion. While it is held nothing opens the archive. An
+/// open would take the files the operation is about to move aside, or replay its install record
+/// while the operation is still writing it; and the owner lock does not stop it, because the
+/// operation and the open are in the same process. Opens wait, and get the replacement the
+/// operation publishes ([`VaultSession::install_archive`]), or open what is on disk when it ends
+/// without one.
+#[must_use = "the archive may be opened again as soon as the lease is dropped"]
+pub struct MaintenanceLease {
+    session: VaultSession,
+}
+
+impl Drop for MaintenanceLease {
+    fn drop(&mut self) {
+        let (lock, ready) = &*self.session.inner;
+        lock.lock().unwrap_or_else(|e| e.into_inner()).transition = Transition::Idle;
+        ready.notify_all();
+    }
+}
+
 impl VaultSession {
+    /// Waits until `opens` opens or closes are waiting for a maintenance lease to end; panics
+    /// after ten seconds, so a test of one that should wait fails instead of hanging.
+    #[cfg(test)]
+    pub(crate) fn wait_until_parked(&self, opens: usize) {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while self.inner.0.lock().expect("session state").parked < opens {
+            assert!(std::time::Instant::now() < deadline, "no open waited for the lease");
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+    }
+
+    /// Waits for an open or a close in progress, then keeps every other open out until the lease
+    /// is dropped. One operation at a time: a second is refused, as the archive operation gate
+    /// would make it wait anyway.
+    pub fn begin_maintenance(&self) -> Result<MaintenanceLease, String> {
+        let (lock, ready) = &*self.inner;
+        let mut state = lock.lock().expect("session state");
+        loop {
+            match state.transition {
+                Transition::Idle => break,
+                Transition::Opening | Transition::Closing => {
+                    state = ready.wait(state).expect("session state");
+                }
+                Transition::Maintaining => {
+                    return Err("archive-busy: the archive is being replaced".into());
+                }
+            }
+        }
+        state.transition = Transition::Maintaining;
+        Ok(MaintenanceLease { session: self.clone() })
+    }
+
     /// Restore a complete file generation before inspecting mode, credentials or
     /// legacy-file presence. The reservation remains held through the later open.
     pub fn recover_pending_archive(&self, paths: &ProjectPaths) -> Result<bool, String> {
@@ -226,6 +284,14 @@ impl VaultSession {
     ) -> Result<Vault, String> {
         loop {
             let mut state = self.inner.0.lock().expect("session state");
+            if state.transition == Transition::Maintaining {
+                // The replacement is published before the lease ends; then this looks again.
+                state.parked += 1;
+                let mut state = self.inner.1.wait(state).expect("session state");
+                state.parked -= 1;
+                drop(state);
+                continue;
+            }
             if state.transition == Transition::Closing {
                 return Err("archive-busy: archive is closing".into());
             }
@@ -421,8 +487,13 @@ impl VaultSession {
     pub fn close_vault(&self) -> Result<(), String> {
         let (lock, ready) = &*self.inner;
         let mut state = lock.lock().expect("session state");
-        while state.transition == Transition::Opening {
+        // A close during maintenance would end the lease's hold on opens early: it waits, and
+        // closes what the operation published.
+        while matches!(state.transition, Transition::Opening | Transition::Maintaining) {
+            let maintaining = state.transition == Transition::Maintaining;
+            state.parked += usize::from(maintaining);
             state = ready.wait(state).expect("session state");
+            state.parked -= usize::from(maintaining);
         }
         if state.transition == Transition::Closing {
             return Err("archive-busy: archive is closing".into());

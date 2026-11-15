@@ -117,6 +117,8 @@ pub fn run_full_archive_restore(
     // The archive keeps its password (`restore_snapshot_to`); `password` opens only the copy.
     let archive_password = session.get_key().map_err(anyhow::Error::msg)?;
     let legacy = source.is_file();
+    // Nothing opens the archive while it is replaced, until the restored one is published.
+    let lease = session.begin_maintenance().map_err(anyhow::Error::msg)?;
     let installed = crate::maintenance_jobs::run(
         &paths.app_root,
         "restoring",
@@ -175,6 +177,7 @@ pub fn run_full_archive_restore(
         password_after,
         crate::session::KeychainAfterInstall::AsSaved,
     )?;
+    drop(lease);
     Ok(report)
 }
 
