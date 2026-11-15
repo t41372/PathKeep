@@ -1,0 +1,16 @@
+[
+ {"formatVersion":2,"mode":"Plaintext","compatibility":{"revision":0,"minReader":1,"minWriter":1}},
+ {"formatVersion":2,"mode":"Plaintext","compatibility":{"revision":1,"minReader":0,"minWriter":1}},
+ {"formatVersion":2,"mode":"Plaintext","compatibility":{"revision":1,"minReader":1,"minWriter":0}},
+ {"formatVersion":2,"mode":"Plaintext","compatibility":{"revision":-1,"minReader":1,"minWriter":1}},
+ {"formatVersion":2,"mode":"Plaintext","compatibility":{"revision":1,"minReader":-1,"minWriter":1}},
+ {"formatVersion":2,"mode":"Plaintext","compatibility":{"revision":1,"minReader":1,"minWriter":-1}},
+ {"formatVersion":2,"mode":"Plaintext","compatibility":{"revision":2,"minReader":2,"minWriter":1}},
+ {"formatVersion":2,"mode":"Plaintext","compatibility":{"revision":1,"minReader":1,"minWriter":2}},
+ {"formatVersion":2,"mode":"Plaintext","compatibility":{"revision":1.5,"minReader":1,"minWriter":1}},
+ {"formatVersion":2,"mode":"Plaintext","compatibility":{"revision":1,"minReader":"1","minWriter":1}},
+ {"formatVersion":2,"mode":"Plaintext","compatibility":{"revision":1,"minReader":true,"minWriter":1}},
+ {"formatVersion":2,"mode":"Plaintext","compatibility":{"revision":1,"minReader":1,"minWriter":null}},
+ {"formatVersion":2,"mode":"Plaintext","compatibility":{"revision":1,"minReader":1}},
+ {"formatVersion":2,"mode":"Plaintext","compatibility":[]}
+]

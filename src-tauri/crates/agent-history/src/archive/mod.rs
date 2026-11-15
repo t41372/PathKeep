@@ -69,6 +69,19 @@ pub struct Archive {
     pub(crate) publication_gate: Mutex<()>,
 }
 
+/// A PathKeep data folder is not a standalone archive, even when a standalone marker lies next
+/// to its `config.json`. The app decides who may open that folder, by rules this crate does not
+/// know, so nothing here opens a database in it.
+fn reject_product_root(root: &Path) -> Result<()> {
+    let control = vault_layout::path(root, vault_layout::ArtifactId::Config);
+    if fs::symlink_metadata(control).is_ok() {
+        return Err(Error::InvalidArchive(
+            "this folder is a PathKeep data folder, not a standalone agent-history archive".into(),
+        ));
+    }
+    Ok(())
+}
+
 impl Archive {
     /// Initializes an empty destination using the product's accepted password KDF.
     /// An existing archive or unrelated directory is never overwritten.
@@ -107,6 +120,7 @@ impl Archive {
     /// password cannot start migrations, create files or recover staging state.
     pub fn open(root: &Path, password: &[u8]) -> Result<Self> {
         reject_symlink(root)?;
+        reject_product_root(root)?;
         let marker = root.join(FORMAT_NAME);
         reject_symlink(&marker)?;
         let mut bytes = Vec::new();

@@ -241,15 +241,20 @@ fn scheduled_worker_records_keyring_config_and_archive_open_failures_before_arch
     let config_error = run_worker_cli(&["backup".to_string(), "--due-only".to_string()])
         .expect_err("config parse must fail");
     assert!(config_error.to_string().contains("parsing config json"));
+    // Until 2026-11 this run was recorded in the attempt ledger as a "config" failure. A data
+    // folder whose control cannot be used is now left exactly as it is, ledger included: the
+    // reason goes to stderr, and the app says the same when it is opened.
     let config_ledger =
         vault_core::load_schedule_attempt_ledger(&paths, 1.0, None).expect("config ledger");
-    assert_eq!(config_ledger.attempts[0].reason_code.as_deref(), Some("config"));
+    assert_eq!(config_ledger.attempts.len(), 1);
+    assert_eq!(config_ledger.attempts[0].reason_code.as_deref(), Some("keyring"));
 
     let config = AppConfig {
         initialized: true,
         selected_profile_ids: vec!["chrome:Default".to_string()],
         ..AppConfig::default()
     };
+    fs::remove_file(&paths.config_path).expect("remove the corrupt config");
     vault_core::save_config(&paths, &config).expect("valid config");
     fs::create_dir_all(paths.legacy.archive.parent().expect("archive parent"))
         .expect("archive parent");

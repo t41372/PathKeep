@@ -1,6 +1,7 @@
 //! Responsibilities: expose typed catalog-backed paths and persist the existing app config.
 //! Not responsible for: declaring lifecycle membership, opening stores or changing disk formats.
 
+use crate::admission::{Compatibility, Control, Reason, Refusal};
 use crate::models::{AppConfig, normalize_app_config};
 use anyhow::{Context, Result};
 use directories::ProjectDirs;
@@ -198,7 +199,15 @@ fn project_root() -> Result<PathBuf> {
 }
 
 /// Ensures the expected project directory layout exists on disk.
+///
+/// This is the first thing most operations do to a root, so it is also where a root this build
+/// must not change is turned away: see [`crate::admission::guard`].
 pub fn ensure_paths(paths: &ProjectPaths) -> Result<()> {
+    crate::admission::guard(&paths.app_root)?;
+    create_layout(paths)
+}
+
+fn create_layout(paths: &ProjectPaths) -> Result<()> {
     let directories: Vec<_> = vault_layout::scaffolding()
         .into_iter()
         .map(|(id, parent)| {
@@ -213,19 +222,134 @@ pub fn ensure_paths(paths: &ProjectPaths) -> Result<()> {
     Ok(())
 }
 
-/// Loads the persisted app config, normalizing newly added runtime defaults.
-pub fn load_config(paths: &ProjectPaths) -> Result<AppConfig> {
-    if !paths.config_path.exists() {
-        let mut config = AppConfig::default();
-        normalize_app_config(&mut config);
-        return Ok(config);
-    }
+/// What `config.json` holds: the settings, and the compatibility stamp a newer build may have
+/// put around `archiveMode`. The settings never carry the stamp, so a caller that edits and
+/// saves them cannot drop or alter it.
+#[derive(Debug, Clone)]
+pub struct ConfigDocument {
+    pub config: AppConfig,
+    pub compatibility: Option<Compatibility>,
+}
 
-    let content = fs::read_to_string(&paths.config_path)
-        .with_context(|| format!("reading {}", paths.config_path.display()))?;
-    let mut config = serde_json::from_str::<AppConfig>(&content).context("parsing config json")?;
+/// Decodes a control file of a root this build may use. `archiveMode` is either the bare value
+/// v0.4.0 and v0.5.0 write or the stamped object; everything else is the settings' own serde,
+/// unchanged.
+pub fn decode_config(root: &Path, bytes: &[u8]) -> Result<ConfigDocument, Refusal> {
+    let control = crate::admission::parse_control(root, bytes)?;
+    decode_settings(bytes, &control).map_err(|(reason, detail)| Refusal {
+        reason,
+        root: root.to_owned(),
+        stamp: None,
+        detail,
+    })
+}
+
+/// Whether the settings around an already parsed `archiveMode` decode. See `admission::guard`.
+pub(crate) fn check_settings(root: &Path, bytes: &[u8], control: &Control) -> Result<(), Refusal> {
+    decode_settings(bytes, control).map(|_| ()).map_err(|(reason, detail)| Refusal {
+        reason,
+        root: root.to_owned(),
+        stamp: None,
+        detail,
+    })
+}
+
+/// The codec alone: reads a control whatever its stamp says. This is how a stamp is carried from
+/// one file to another. It is not a decision that the root it came from may be used.
+pub fn decode_document(bytes: &[u8]) -> Result<ConfigDocument> {
+    let failed =
+        |(reason, detail): (Reason, String)| anyhow::anyhow!("{}: {detail}", reason.code());
+    let control = crate::admission::parse_envelope(bytes).map_err(failed)?;
+    decode_settings(bytes, &control).map_err(failed)
+}
+
+fn decode_settings(bytes: &[u8], control: &Control) -> Result<ConfigDocument, (Reason, String)> {
+    let invalid = |error: serde_json::Error| {
+        (Reason::ControlInvalid, format!("parsing config json: {error}"))
+    };
+    let mut config = match &control.stamped_mode {
+        None => serde_json::from_slice::<AppConfig>(bytes).map_err(invalid)?,
+        Some(mode) => {
+            let mut value: serde_json::Value = serde_json::from_slice(bytes).map_err(invalid)?;
+            value["archiveMode"] = serde_json::from_str(mode.get()).map_err(invalid)?;
+            serde_json::from_value(value).map_err(invalid)?
+        }
+    };
     normalize_app_config(&mut config);
-    Ok(config)
+    Ok(ConfigDocument { config, compatibility: control.compatibility.clone() })
+}
+
+/// Encodes settings for disk. Without a stamp this is byte for byte what v0.5.0 writes and
+/// reads. With one, the stamp's bytes are written exactly as they were read.
+pub fn encode_config(config: &AppConfig, compatibility: Option<&Compatibility>) -> Result<String> {
+    let Some(compatibility) = compatibility else {
+        return Ok(serde_json::to_string_pretty(config)?);
+    };
+    #[derive(Serialize)]
+    struct StampedMode<'a> {
+        #[serde(rename = "formatVersion")]
+        format_version: u64,
+        mode: &'a crate::ArchiveMode,
+        compatibility: &'a serde_json::value::RawValue,
+    }
+    struct Stamped<'a> {
+        fields: serde_json::Map<String, serde_json::Value>,
+        mode: StampedMode<'a>,
+    }
+    impl Serialize for Stamped<'_> {
+        fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+            use serde::ser::SerializeMap;
+            let mut map = serializer.serialize_map(Some(self.fields.len()))?;
+            for (key, value) in &self.fields {
+                if key == "archiveMode" {
+                    map.serialize_entry(key, &self.mode)?;
+                } else {
+                    map.serialize_entry(key, value)?;
+                }
+            }
+            map.end()
+        }
+    }
+    let serde_json::Value::Object(fields) = serde_json::to_value(config)? else {
+        anyhow::bail!("the configuration did not serialize as an object");
+    };
+    anyhow::ensure!(fields.contains_key("archiveMode"), "the configuration has no archiveMode");
+    Ok(serde_json::to_string_pretty(&Stamped {
+        fields,
+        mode: StampedMode {
+            format_version: 2,
+            mode: &config.archive_mode,
+            compatibility: compatibility.raw(),
+        },
+    })?)
+}
+
+/// Reads the control file of a root this build may use.
+///
+/// Fails with a [`Refusal`] when it may not: the archive needs a newer PathKeep, the control is
+/// damaged, or it is missing next to data (which is never read as a first run). A root with no
+/// control and no archive in it yields the defaults, not initialized.
+pub fn load_document(paths: &ProjectPaths) -> Result<ConfigDocument> {
+    let root = &paths.app_root;
+    match crate::admission::read_control(root)? {
+        Some(bytes) => Ok(decode_config(root, &bytes)?),
+        None => {
+            if crate::admission::require_control(root)?.is_some() {
+                // A control landed between the two looks (an install finishing). Read that one.
+                let bytes = crate::admission::read_control(root)?.unwrap_or_default();
+                return Ok(decode_config(root, &bytes)?);
+            }
+            let mut config = AppConfig::default();
+            normalize_app_config(&mut config);
+            Ok(ConfigDocument { config, compatibility: None })
+        }
+    }
+}
+
+/// Loads the persisted app config, normalizing newly added runtime defaults. See
+/// [`load_document`] for when it refuses.
+pub fn load_config(paths: &ProjectPaths) -> Result<AppConfig> {
+    Ok(load_document(paths)?.config)
 }
 
 /// Saves the app config to disk after normalizing runtime defaults.
@@ -234,11 +358,29 @@ pub fn load_config(paths: &ProjectPaths) -> Result<AppConfig> {
 /// -> rename -> dir fsync) rather than a bare `fs::write`, so a crash mid-save leaves
 /// `config.json` as EITHER the complete old config OR the complete new one — never the
 /// truncated/empty file that silently dropped a mode change in the 2026-06-30 incident.
-/// `ensure_paths` first guarantees the parent directory exists (the durable write
-/// renames a sibling temp onto the destination and does not create parents).
+/// The layout is created first: the durable write renames a sibling temp onto the destination
+/// and does not create parents.
+///
+/// The control on disk is read before anything is created. One this build may not use stops the
+/// save; a compatibility stamp in it is written back exactly as it was, whatever `config` says.
 pub fn save_config(paths: &ProjectPaths, config: &AppConfig) -> Result<()> {
-    ensure_paths(paths)?;
-    let content = serde_json::to_string_pretty(config)?;
+    let compatibility =
+        crate::admission::guard(&paths.app_root)?.and_then(|control| control.compatibility);
+    create_layout(paths)?;
+    let content = encode_config(config, compatibility.as_ref())?;
+    crate::durable_io::atomic_durable_write(&paths.config_path, content.as_bytes())
+        .with_context(|| format!("writing {}", paths.config_path.display()))?;
+    Ok(())
+}
+
+/// Writes `config` into a staged or snapshot copy of `live`'s archive, with the compatibility
+/// stamp of `live`: a copy of a root is the same format as the root, whatever settings change.
+pub(crate) fn save_copy_config(live: &ProjectPaths, copy: &Path, config: &AppConfig) -> Result<()> {
+    let compatibility =
+        crate::admission::guard(&live.app_root)?.and_then(|control| control.compatibility);
+    let paths = project_paths_with_root(copy);
+    create_layout(&paths)?;
+    let content = encode_config(config, compatibility.as_ref())?;
     crate::durable_io::atomic_durable_write(&paths.config_path, content.as_bytes())
         .with_context(|| format!("writing {}", paths.config_path.display()))?;
     Ok(())

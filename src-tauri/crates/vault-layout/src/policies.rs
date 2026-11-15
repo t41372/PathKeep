@@ -183,6 +183,29 @@ pub enum ConversionPolicy {
     Omit,
 }
 
+/// What finding this artifact means in a data folder that has no `config.json`.
+///
+/// A folder without a control is a first run, a damaged archive, or an operation a crash cut
+/// short. Only what lies in it can tell which, and guessing wrong either initializes next to an
+/// archive whose control was lost or locks the user out of a fresh start. Every artifact answers
+/// for itself, so that a file some operation leaves behind cannot be forgotten here.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CensusPolicy {
+    /// Part of an archive, or a copy of one. A control was lost.
+    Archive,
+    /// May lie in a folder that holds no archive: locks, logs, scheduler records, scratch
+    /// space, things that are not PathKeep's.
+    NotArchive,
+    /// The answer of the artifact that contains it.
+    Inherit,
+    /// "Delete all data" was cut short after it removed the control.
+    WipeRecord,
+    /// An install was cut short while the control was moved aside.
+    InstallRecord,
+    /// The same, in a journal of PathKeep 0.3.
+    OldFormatRecord,
+}
+
 macro_rules! lifecycle_operations {
     ($($variant:ident => $field:ident: $ty:ty),+ $(,)?) => {
         /// A closed list of operations whose policy answers cannot be omitted.
@@ -209,4 +232,5 @@ lifecycle_operations! {
     InitializeEnvelope => prevents_new_envelope: bool,
     PasswordChange => password_change: PasswordChangePolicy,
     MoveImport => move_import: ImportPolicy,
+    Census => census: CensusPolicy,
 }

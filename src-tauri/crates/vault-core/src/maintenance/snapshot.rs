@@ -24,10 +24,10 @@ struct FileProof {
 /// A safety snapshot lands at a committed batch boundary across all databases.
 pub fn snapshot(vault: &Vault, target: &Path) -> Result<()> {
     let _operation = crate::archive::ArchiveOpGate::acquire(vault.paths());
+    vault.recheck_root()?;
     let pause = vault.store().pause()?;
     pause.snapshot(target)?;
-    let paths = crate::project_paths_with_root(target);
-    crate::save_config(&paths, vault.config())?;
+    crate::config::save_copy_config(vault.paths(), target, vault.config())?;
     let envelope = vault_layout::path(&vault.paths().app_root, vault_layout::ArtifactId::Envelope);
     if envelope.exists() {
         fs::copy(envelope, vault_layout::path(target, vault_layout::ArtifactId::Envelope))?;
@@ -120,7 +120,14 @@ pub fn restore_snapshot_to(
     cancel: CancelToken,
 ) -> Result<InstalledArchive> {
     let _operation = crate::archive::ArchiveOpGate::acquire(paths);
+    // A damaged or missing control is what a restore repairs. One that needs a newer PathKeep
+    // is not damage: replacing it would put an older archive over a newer one.
+    crate::admission::refuse_newer(&paths.app_root)?;
     verify(source)?;
+    // The snapshot's own control, read where it lies, before anything is staged in the target.
+    if let Some(control) = crate::admission::read_control(source)? {
+        crate::config::decode_config(source, &control)?;
+    }
     cancel.check()?;
     let stage = staging_root(paths)?;
     copy_snapshot(source, stage.path())?;

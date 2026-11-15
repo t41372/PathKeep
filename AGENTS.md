@@ -45,6 +45,8 @@ Tech: Tauri 2 + Rust + React 19 + TypeScript + Vite + Bun。
 
 **文檔跟著代碼走**：改功能更新 `docs/features/`，新技術決策更新 `docs/architecture/`。新模塊交付時附 doc comments——檔頭標明職責邊界（Responsibilities / Not responsible for），exported 符號說「為什麼存在」而非「做了什麼」。
 
+**存檔會被別的版本打開**：任何會落到磁碟上的新檔案、新欄位或格式改動，動手前先答三題：已發布的舊版讀到它會怎樣；每個生命週期操作（打開、快照、還原、搬移、開關加密、刪除所有資料）會怎麼處理它；有人漏掉時哪個測試會紅。會動資料夾的新入口先過 `vault_core::admission`，並在 `root_admission` 測試加一列。規則在 `docs/architecture/archive-compatibility.md` 與 `archive-layout.md`。
+
 **不對外**：不在任何第三方倉庫開 issue / PR / 留言，不以用戶名義聯絡任何外部服務，也不起草要送去上游的東西。依賴的 bug 記在本 repo（根本原因 + 最小重現），在自己的代碼裡繞過；唯一修法是改依賴本身時，先問用戶。
 
 **Commit 說 Why**：Conventional Commits，subject ≤ 72 字。Body 必含動機與關鍵變化。

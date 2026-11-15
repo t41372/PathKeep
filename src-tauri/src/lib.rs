@@ -96,6 +96,18 @@ fn run_app() -> Result<()> {
     // Isolate single-instance routing by user/data root, including test archives.
     // The persisted product paths still come exclusively from vault_core.
     let paths = vault_core::project_paths()?;
+    // Decided before anything is created, locked, logged, recovered or unlocked in the data
+    // folder. An archive this build may not use is left exactly as it was found: started in the
+    // background the process exits with the reason, started by a person it says why and quits.
+    let refusal = vault_core::admission::inspect(&paths.app_root).err();
+    if let Some(refusal) = &refusal {
+        if background {
+            return Err(refusal.clone().into());
+        }
+        for window in &mut context.config_mut().app.windows {
+            window.create = false;
+        }
+    }
     context.config_mut().identifier = vault_owner_ipc::instance_identifier(&paths.app_root);
     let builder = tauri::Builder::default()
         .manage(launches.clone())
@@ -117,6 +129,10 @@ fn run_app() -> Result<()> {
     );
     builder
         .setup(move |app| {
+            if let Some(refusal) = &refusal {
+                desktop_integration::refused_start(app.handle(), refusal, false);
+                return Ok(());
+            }
             let paths = vault_core::project_paths().map_err(tauri::Error::Anyhow)?;
             let owner_lock = std::sync::Arc::new(vault_store::OwnerLock::acquire(&paths.app_root)
                 .map_err(anyhow::Error::from).map_err(tauri::Error::Anyhow)?);
@@ -150,7 +166,18 @@ fn run_app() -> Result<()> {
             if let Err(error) = vault_worker::finish_interrupted_data_wipe() {
                 log::error!(target: "pathkeep::data_wipe", "could not finish an interrupted data wipe: {error:#}");
             }
-            let mut config = vault_core::load_config(&paths).map_err(tauri::Error::Anyhow)?;
+            // The control is read again, now under the owner lock. An archive that became
+            // unusable since the first look is still not opened.
+            let mut config = match vault_core::load_config(&paths) {
+                Ok(config) => config,
+                Err(error) => match error.downcast::<vault_core::admission::Refusal>() {
+                    Ok(refusal) => {
+                        desktop_integration::refused_start(app.handle(), &refusal, background);
+                        return Ok(());
+                    }
+                    Err(error) => return Err(tauri::Error::Anyhow(error).into()),
+                },
+            };
             vault_core::hydrate_app_lock_config(&paths, &mut config)
                 .map_err(tauri::Error::Anyhow)?;
             vault_core::initialize_app_lock_session(&paths, &config)

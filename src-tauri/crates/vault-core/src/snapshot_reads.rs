@@ -17,7 +17,7 @@
 
 use crate::{
     archive::recent_runs_from,
-    config::{ProjectPaths, ensure_paths},
+    config::ProjectPaths,
     models::{
         AiIndexStatus, AppConfig, ArchiveStatus, BackupRunOverview, ImportBatchOverview,
         IntelligenceStatus,
@@ -49,7 +49,8 @@ pub fn load_snapshot_reads(
     _key: Option<&str>,
     vault: Option<&crate::Vault>,
 ) -> Result<SnapshotReads> {
-    ensure_paths(paths)?;
+    // A read: nothing is created for it, in a first-run root least of all.
+    crate::admission::guard(&paths.app_root)?;
     let archive_status = match vault {
         Some(vault) => crate::archive_status(vault)?,
         None => crate::archive_availability(paths, config),

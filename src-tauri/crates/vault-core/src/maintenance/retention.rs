@@ -50,6 +50,7 @@ pub fn prune(
     keep: Option<&std::path::Path>,
     cancel: &CancelToken,
 ) -> Result<RetentionPruneResult> {
+    vault.recheck_root()?;
     let _operation = crate::archive::ArchiveOpGate::acquire(vault.paths());
     let _producer = vault.begin_backup()?;
     let paths = vault.paths();

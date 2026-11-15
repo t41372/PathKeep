@@ -1,0 +1,22 @@
+[
+  {"level":0,"minReader":1,"minWriter":1,"revision":1,"decision":"archive-reader-too-old"},
+  {"level":1,"minReader":1,"minWriter":1,"revision":1,"decision":"admitted"},
+  {"level":2,"minReader":1,"minWriter":1,"revision":1,"decision":"admitted"},
+  {"level":0,"minReader":1,"minWriter":1,"revision":3,"decision":"archive-reader-too-old"},
+  {"level":1,"minReader":1,"minWriter":1,"revision":3,"decision":"admitted"},
+  {"level":2,"minReader":1,"minWriter":1,"revision":3,"decision":"admitted"},
+  {"level":3,"minReader":1,"minWriter":1,"revision":3,"decision":"admitted"},
+  {"level":4,"minReader":1,"minWriter":1,"revision":3,"decision":"admitted"},
+  {"level":0,"minReader":1,"minWriter":3,"revision":3,"decision":"archive-reader-too-old"},
+  {"level":1,"minReader":1,"minWriter":3,"revision":3,"decision":"archive-writer-too-old"},
+  {"level":2,"minReader":1,"minWriter":3,"revision":3,"decision":"archive-writer-too-old"},
+  {"level":3,"minReader":1,"minWriter":3,"revision":3,"decision":"admitted"},
+  {"level":4,"minReader":1,"minWriter":3,"revision":3,"decision":"admitted"},
+  {"level":0,"minReader":1,"minWriter":3,"revision":5,"decision":"archive-reader-too-old"},
+  {"level":1,"minReader":1,"minWriter":3,"revision":5,"decision":"archive-writer-too-old"},
+  {"level":2,"minReader":1,"minWriter":3,"revision":5,"decision":"archive-writer-too-old"},
+  {"level":3,"minReader":1,"minWriter":3,"revision":5,"decision":"admitted"},
+  {"level":4,"minReader":1,"minWriter":3,"revision":5,"decision":"admitted"},
+  {"level":5,"minReader":1,"minWriter":3,"revision":5,"decision":"admitted"},
+  {"level":6,"minReader":1,"minWriter":3,"revision":5,"decision":"admitted"}
+]

@@ -7,6 +7,7 @@
 //! ## Responsibilities
 //! - Pick the menu language from the config preference and the OS languages.
 //! - Produce the menu labels and the backup status line, and the macOS menu bar's labels.
+//! - Say why PathKeep will not open an archive, for the dialog shown when no window can be.
 //!
 //! ## Not responsible for
 //! - Deciding the backup status (`status.rs`) or building the menus (`tray.rs`,
@@ -256,4 +257,43 @@ enum Unit {
     Minute,
     Hour,
     Day,
+}
+
+/// Why PathKeep will not open the archive in its data folder. Shown in a native dialog: the
+/// window is not created for an archive this build must not touch, and the config that holds
+/// the language preference is the thing that could not be used.
+pub(crate) fn refused_start_message(
+    language: MenuLanguage,
+    reason: vault_core::admission::Reason,
+) -> &'static str {
+    use vault_core::admission::Reason;
+    match (reason, language) {
+        (Reason::ReaderTooOld | Reason::EnvelopeTooNew, MenuLanguage::En) => {
+            "This version of PathKeep cannot read this archive's format. Open it with a newer PathKeep."
+        }
+        (Reason::ReaderTooOld | Reason::EnvelopeTooNew, MenuLanguage::ZhCn) => {
+            "这个版本的 PathKeep 读不了这份存档的格式。请用较新版的 PathKeep 打开。"
+        }
+        (Reason::ReaderTooOld | Reason::EnvelopeTooNew, MenuLanguage::ZhTw) => {
+            "這個版本的 PathKeep 讀不了這份存檔的格式。請用較新版的 PathKeep 打開。"
+        }
+        (Reason::WriterTooOld, MenuLanguage::En) => {
+            "This version of PathKeep cannot safely change this archive. Open it with a newer PathKeep. This version cannot open it read-only."
+        }
+        (Reason::WriterTooOld, MenuLanguage::ZhCn) => {
+            "这个版本的 PathKeep 无法安全地修改这份存档。请用较新版的 PathKeep 打开。这个版本不能以只读方式打开它。"
+        }
+        (Reason::WriterTooOld, MenuLanguage::ZhTw) => {
+            "這個版本的 PathKeep 無法安全地修改這份存檔。請用較新版的 PathKeep 打開。這個版本不能以唯讀方式打開它。"
+        }
+        (_, MenuLanguage::En) => {
+            "PathKeep cannot safely open this archive. Its files have been left exactly as they were."
+        }
+        (_, MenuLanguage::ZhCn) => {
+            "PathKeep 无法安全地打开这份存档。里面的文件都保持原样，没有被改动。"
+        }
+        (_, MenuLanguage::ZhTw) => {
+            "PathKeep 無法安全地打開這份存檔。裡面的檔案都保持原樣，沒有被更動。"
+        }
+    }
 }

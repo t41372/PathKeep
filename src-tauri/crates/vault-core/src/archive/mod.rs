@@ -67,7 +67,7 @@ pub mod sites;
 pub(crate) mod source_evidence;
 mod source_stats;
 mod url_detail;
-mod wipe;
+pub(crate) mod wipe;
 mod write_lock;
 
 pub(crate) use self::artifacts::SnapshotArtifact;

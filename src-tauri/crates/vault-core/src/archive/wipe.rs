@@ -166,6 +166,7 @@ pub fn wipe_all_data(
     clear_secrets: impl FnOnce(&WipeOutsideState) -> Result<()>,
     remove_schedule: impl FnOnce(&SchedulePlan) -> Result<()>,
 ) -> Result<WipeReport> {
+    crate::admission::guard(&paths.app_root)?;
     let _gate = ArchiveOpGate::acquire(paths);
     let _write_lock =
         ArchiveWriteLock::acquire(paths).context("waiting for other archive work to finish")?;
@@ -197,6 +198,14 @@ pub fn data_wipe_interrupted(paths: &ProjectPaths) -> bool {
     wipe_marker_path(paths).exists()
 }
 
+/// Whether the wipe marker is there and decodes. It is written whole or not at all, so one that
+/// does not decode was not left by a wipe.
+pub(crate) fn marker_is_readable(paths: &ProjectPaths) -> bool {
+    fs::read(wipe_marker_path(paths))
+        .ok()
+        .is_some_and(|bytes| serde_json::from_slice::<WipeOutsideState>(&bytes).is_ok())
+}
+
 /// Finishes a wipe that a crash or failure cut short. `None` when there was none.
 ///
 /// The user already confirmed it, so this runs without asking again. An unreadable marker still
@@ -211,6 +220,9 @@ pub fn finish_interrupted_data_wipe(
     if !marker_path.exists() {
         return Ok(None);
     }
+    // The marker is acted on only in a root this build may use. With the control already gone
+    // (the wipe removes it first) the marker itself has to decode: see `admission::census`.
+    crate::admission::inspect(&paths.app_root)?;
     let _gate = ArchiveOpGate::acquire(paths);
     let _write_lock =
         ArchiveWriteLock::acquire(paths).context("waiting for other archive work to finish")?;

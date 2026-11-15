@@ -32,7 +32,8 @@ struct StoredCrashReport {
 
 /// Loads runtime diagnostics paths plus the latest persisted crash report.
 pub fn load_runtime_diagnostics(paths: &ProjectPaths) -> Result<RuntimeDiagnostics> {
-    ensure_paths(paths)?;
+    // A read: it reports where the logs would be and creates nothing.
+    crate::admission::guard(&paths.app_root)?;
     Ok(RuntimeDiagnostics {
         log_directory: paths.logs_dir.display().to_string(),
         rust_log_path: paths.rust_log_path.display().to_string(),

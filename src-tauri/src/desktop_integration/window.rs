@@ -76,6 +76,11 @@ pub(crate) fn apply_startup_window<R: Runtime>(app: &AppHandle<R>, startup: Star
 
 /// Shows, un-minimizes and focuses the main window.
 pub(crate) fn show_main_window<R: Runtime>(app: &AppHandle<R>) {
+    // The Dock icon and a second launch both land here. After a refused start there is nothing
+    // to show: a window would run the frontend against a data folder this build must not touch.
+    if super::start_was_refused() {
+        return;
+    }
     // Background owners create their first webview only when explicitly opened.
     let window = app.get_webview_window(MAIN_WINDOW).or_else(|| {
         let config = app.config().app.windows.iter().find(|window| window.label == MAIN_WINDOW)?;

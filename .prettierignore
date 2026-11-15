@@ -26,3 +26,7 @@ docs/design/prototype-2026-11-agent-history/
 
 # Generated dependency audit and gate output.
 artifacts/dependency-refresh/
+
+# Hand-written `config.json` controls for the admission tests. Their bytes are the test: one
+# is deliberately not JSON, and one carries spacing that has to survive a save unchanged.
+tests/root_admission/fixtures/

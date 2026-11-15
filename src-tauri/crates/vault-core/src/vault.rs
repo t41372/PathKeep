@@ -75,6 +75,10 @@ impl Vault {
         owner: Option<Arc<vault_store::OwnerLock>>,
         recover: bool,
     ) -> Result<Self> {
+        // Whatever config the caller holds, the control on disk decides whether this build may
+        // open the root. Before the owner lock: a refused root is left exactly as it was.
+        crate::admission::guard(&paths.app_root)
+            .map_err(|refusal| vault_store::Error::Operation(Box::new(refusal)))?;
         let owner = match owner {
             Some(owner) => owner,
             None => Arc::new(vault_store::OwnerLock::acquire(&paths.app_root)?),
@@ -203,6 +207,11 @@ impl Vault {
             },
             ..AppConfig::default()
         };
+        // A real archive has its control before it has stores; one without is taken for an
+        // archive whose `config.json` was lost (`admission::census`).
+        let control = crate::config::encode_config(&config, None)
+            .map_err(|e| vault_store::Error::Operation(e.into_boxed_dyn_error()))?;
+        std::fs::write(&paths.config_path, control)?;
         use zeroize::Zeroize;
         let opened = Self::open(paths, config, key);
         key.zeroize();
@@ -233,6 +242,14 @@ impl Vault {
     /// Artifact paths accompany the database owner through backup and import jobs.
     pub fn paths(&self) -> &ProjectPaths {
         &self.paths
+    }
+
+    /// Reads the control on disk again before an operation that rewrites or copies the whole
+    /// root. This vault was admitted when it opened; a restore or import since then, or anything
+    /// else that replaced `config.json`, may have changed what this build is allowed to do.
+    pub fn recheck_root(&self) -> anyhow::Result<()> {
+        crate::admission::guard(&self.paths.app_root)?;
+        Ok(())
     }
 
     /// The configuration snapshot used to open this vault.

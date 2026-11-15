@@ -58,6 +58,15 @@ pub(crate) fn hydrate_derived_config_state(config: &mut AppConfig) {
     hydrate_provider_collection(&mut config.ai.embedding_providers);
 }
 
+/// The data root, for work that reaches the keychain or the OS scheduler on its behalf without
+/// reading the config first. A root whose control this build may not use is refused before
+/// anything on the machine is read or changed for it.
+pub(crate) fn usable_root() -> Result<vault_core::ProjectPaths> {
+    let paths = vault_core::project_paths()?;
+    vault_core::admission::guard(&paths.app_root)?;
+    Ok(paths)
+}
+
 /// Loads config and enriches it with native/keyring-backed state.
 pub(crate) fn load_hydrated_config(paths: &vault_core::ProjectPaths) -> Result<AppConfig> {
     let mut config = load_config(paths)?;

@@ -43,6 +43,8 @@ pub(super) fn open(
     password: &str,
     owner: Option<Arc<vault_store::OwnerLock>>,
 ) -> anyhow::Result<(Vault, DataKey)> {
+    // Before the owner lock and before an envelope can be created.
+    crate::admission::guard(&paths.app_root)?;
     let owner = match owner {
         Some(owner) => owner,
         None => Arc::new(vault_store::OwnerLock::acquire(&paths.app_root)?),

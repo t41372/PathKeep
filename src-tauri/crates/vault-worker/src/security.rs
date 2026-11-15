@@ -174,12 +174,13 @@ fn rekey_copy(language: &vault_core::LanguagePreference) -> [&'static str; 5] {
 
 /// Reads the stored archive key from the native keyring, if present.
 pub fn read_database_key_from_keyring() -> Result<Option<zeroize::Zeroizing<String>>> {
+    crate::context::usable_root()?;
     Ok(keyring_get_database_key()?.map(zeroize::Zeroizing::new))
 }
 
 /// Stores the archive key in the native keyring and returns the updated keyring status.
 pub fn write_database_key_to_keyring(key: &str) -> Result<KeyringStatusReport> {
-    let paths = vault_core::project_paths()?;
+    let paths = crate::context::usable_root()?;
     let data_key = vault_core::Vault::unlock_data_key(&paths, key)?;
     store_data_key_in_keyring(&data_key)
 }
@@ -214,13 +215,23 @@ fn opens_with(held: &str, encoded: &str) -> bool {
 
 /// Clears the stored archive key from the native keyring.
 pub fn clear_database_key_from_keyring() -> Result<KeyringStatusReport> {
+    crate::context::usable_root()?;
     keyring_clear_database_key()?;
     Ok(keyring_status())
 }
 
 /// Returns the current native keyring status snapshot.
 pub fn keyring_report() -> KeyringStatusReport {
-    keyring_status()
+    match crate::context::usable_root() {
+        Ok(_) => keyring_status(),
+        // The keychain is not asked about an archive this build may not use.
+        Err(error) => KeyringStatusReport {
+            available: false,
+            backend: String::new(),
+            stored_secret: false,
+            message: Some(format!("{error:#}")),
+        },
+    }
 }
 
 /// Stores an AI provider secret and returns a refreshed app snapshot. The snapshot is read
@@ -231,6 +242,7 @@ pub fn store_ai_provider_api_key(
     vault: Option<&vault_core::Vault>,
     session_database_key: Option<&str>,
 ) -> Result<vault_core::AppSnapshot> {
+    crate::context::usable_root()?;
     keyring_set_provider_api_key(&input.provider_id, &input.api_key)?;
     crate::app_snapshot_with_vault(vault, session_database_key)
 }
@@ -242,6 +254,7 @@ pub fn clear_ai_provider_api_key(
     vault: Option<&vault_core::Vault>,
     session_database_key: Option<&str>,
 ) -> Result<vault_core::AppSnapshot> {
+    crate::context::usable_root()?;
     keyring_clear_provider_api_key(provider_id)?;
     crate::app_snapshot_with_vault(vault, session_database_key)
 }

@@ -39,6 +39,10 @@ use vault_core::{
 ///
 /// Source evidence is not reconciled here: conversion recreates it.
 pub fn recover_on_launch(paths: &ProjectPaths, config: &AppConfig) -> Result<LaunchRecovery> {
+    // The caller's config may be a default. An archive whose control needs a newer PathKeep is
+    // not this build's to repair. A control that is merely damaged still is: bringing the config
+    // back in line with the old-format file is what this recovery does.
+    vault_core::admission::refuse_newer(&paths.app_root)?;
     if launch_is_provably_healthy(paths, config) {
         return Ok(LaunchRecovery::Healthy);
     }
@@ -301,17 +305,20 @@ mod tests {
         assert_eq!(fs::read(&paths.config_path).unwrap(), config_before, "config untouched");
     }
 
+    // Until 2026-11 this recovery replaced a corrupt `config.json` with the caller's config and
+    // the mode read from the file. A caller's config is a guess (often a default), and a control
+    // nothing can parse may be one a newer PathKeep wrote, so it is no longer overwritten: the
+    // archive is reported as needing recovery and left as it is (`archive-compatibility.md`).
     #[test]
-    fn falls_back_to_the_passed_config_when_config_json_is_corrupt() {
+    fn a_corrupt_config_json_is_reported_and_not_replaced_by_the_passed_config() {
         let (_dir, paths) = paths();
         legacy_db(&paths.legacy.archive, Some(KEY));
         save_config(&paths, &plaintext_config()).unwrap();
         fs::write(&paths.config_path, b"{ not valid json").unwrap();
 
-        let outcome = recover_on_launch(&paths, &plaintext_config()).unwrap();
-        assert!(matches!(outcome, LaunchRecovery::Healed { to_mode: ArchiveMode::Encrypted, .. }));
-        assert!(matches!(load_config(&paths).unwrap().archive_mode, ArchiveMode::Encrypted));
-        assert_config_matches_disk(&paths);
+        let error = recover_on_launch(&paths, &plaintext_config()).unwrap_err();
+        assert!(format!("{error:#}").contains("archive-control-invalid"), "{error:#}");
+        assert_eq!(fs::read(&paths.config_path).unwrap(), b"{ not valid json");
     }
 
     #[test]

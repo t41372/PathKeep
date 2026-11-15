@@ -119,6 +119,7 @@ pub fn convert(
     cancel: CancelToken,
     progress: impl FnMut(Progress),
 ) -> Result<InstalledArchive> {
+    vault_core::admission::guard(&paths.app_root)?;
     convert_owned(paths, config, password, cancel, progress, None)
 }
 

@@ -22,6 +22,11 @@ pub fn run_worker_cli(arguments: &[String]) -> Result<String> {
         return Ok(vault_build::identity_report(vault_build::BinaryKind::Worker));
     }
     let command = arguments.first().map(String::as_str).unwrap_or("snapshot");
+    let root = vault_core::project_paths()?.app_root;
+    // Before the schedule's logs are trimmed, the app is started, or its startup log is written:
+    // an archive this build may not use gets none of that. A wipe or install waiting to finish
+    // goes through, because the app that this starts is what finishes it.
+    vault_core::admission::inspect(&root)?;
     if command == "mcp-server" {
         crate::mcp::run_mcp_stdio_server()?;
         return Ok(String::new());
@@ -45,7 +50,6 @@ pub fn run_worker_cli(arguments: &[String]) -> Result<String> {
         }
         other => anyhow::bail!("unknown worker command: {other}"),
     };
-    let root = vault_core::project_paths()?.app_root;
     let client = Client::new(&root);
     let value = crate::context::tokio_runtime()?
         .block_on(client.request_or_start(request, |progress| eprintln!("{progress}")))?;

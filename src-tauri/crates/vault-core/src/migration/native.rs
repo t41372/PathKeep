@@ -42,6 +42,7 @@ pub fn export(
     progress: impl FnMut(Progress) + Send + 'static,
 ) -> Result<ExportedBundle> {
     let _operation = crate::archive::ArchiveOpGate::acquire(vault.paths());
+    vault.recheck_root()?;
     validate_target(vault.paths(), target)?;
     cancel.check()?;
     let stage = maintenance::staging_root(vault.paths())?;
@@ -60,7 +61,7 @@ pub fn export(
         &vault_layout::portable_databases().collect::<Vec<_>>(),
     )?;
     drop(pause);
-    crate::save_config(&crate::project_paths_with_root(stage.path()), &config)?;
+    crate::config::save_copy_config(vault.paths(), stage.path(), &config)?;
     let parent = target.parent().context("bundle target needs a parent directory")?;
     fs::create_dir_all(parent)?;
     let temporary = tempfile::NamedTempFile::new_in(parent)?;
@@ -147,6 +148,7 @@ fn validate_target(paths: &ProjectPaths, target: &Path) -> Result<()> {
 
 /// Preview authenticates the file inventory before asking for the export password.
 pub fn preview(paths: &ProjectPaths, bundle: &Path) -> Result<ImportPreview> {
+    crate::admission::refuse_newer(&paths.app_root)?;
     let manifest = super::read_and_validate_manifest(bundle)?;
     anyhow::ensure!(
         manifest.format_version == VERSION,
@@ -245,6 +247,11 @@ pub fn import(
     let _operation = crate::archive::ArchiveOpGate::acquire(paths);
     let password =
         options.source_archive_key.as_deref().context(super::IMPORT_SOURCE_KEY_REQUIRED_PREFIX)?;
+    crate::admission::refuse_newer(&paths.app_root)?;
+    // The bundle's own control is decided before the target gets a lock or a staging folder.
+    if let Ok(key) = bundle_key(bundle, password) {
+        crate::config::decode_config(bundle, &source_control(bundle, &key)?)?;
+    }
     let owner = match current {
         Some(vault) => vault.store().owner()?,
         None => match reservation {
@@ -286,7 +293,9 @@ pub fn import(
     }
     let mut config = crate::load_config(&staged_paths)?;
     config.archive_mode = ArchiveMode::Encrypted;
-    keep_machine_settings(&mut config, &crate::load_config(paths)?);
+    // An import replaces the archive, also one whose control is damaged or lost (a newer one was
+    // refused above). Then there are no settings of this machine to keep.
+    keep_machine_settings(&mut config, &crate::load_config(paths).unwrap_or_default());
     crate::save_config(&staged_paths, &config)?;
     let staged = Vault::open_staged(staged_paths, config.clone(), Some(&key))?;
     for db in vault_layout::portable_databases() {
@@ -344,6 +353,19 @@ pub fn adopt_moved_paths(
 ) -> Result<()> {
     portable_artifacts::remember_origin(stage, source_root)?;
     portable_artifacts::relocate(staged, source_root, to, cancel)
+}
+
+/// The bundle's `config.json`, decrypted in the system temporary folder and returned in memory.
+fn source_control(bundle: &Path, key: &vault_crypto::DataKey) -> Result<Vec<u8>> {
+    let entry = vault_layout::portable_entry(A::Config);
+    let scratch = tempfile::tempdir()?;
+    let sealed = scratch.path().join(entry);
+    fs::create_dir_all(sealed.parent().context("bundle config entry has no parent")?)?;
+    let mut zip = zip::ZipArchive::new(fs::File::open(bundle)?)?;
+    std::io::copy(&mut zip.by_name(entry)?, &mut fs::File::create(&sealed)?)?;
+    let mut control = Vec::new();
+    vault_crypto::decrypt_artifact(scratch.path(), entry, key, &mut control, || false)?;
+    Ok(control)
 }
 
 fn bundle_key(bundle: &Path, password: &str) -> Result<vault_crypto::DataKey> {

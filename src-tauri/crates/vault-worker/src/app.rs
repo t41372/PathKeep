@@ -406,7 +406,9 @@ pub fn initialize_archive_database(
 /// this is the first thing the shell asks at launch.
 pub fn assess_archive_upgrade(database_key: Option<&str>) -> Result<ArchiveUpgradeAssessment> {
     let paths = vault_core::project_paths()?;
-    let mut config = load_config(&paths).unwrap_or_default();
+    // Not a default on failure: a control this build may not use must not be assessed as an
+    // archive that needs no upgrade.
+    let mut config = load_config(&paths)?;
     if !is_native(&paths) {
         recover_unconverted(&paths, &mut config)?;
     }
@@ -508,6 +510,9 @@ where
     // the half-deleted archive.
     crate::data_wipe::finish_interrupted_data_wipe()?;
     let paths = vault_core::project_paths()?;
+    // Initialization writes a control. It never does that over one this build may not use, or
+    // next to an archive whose control is missing.
+    load_config(&paths)?;
     // Only to tell whether Touch ID is being turned on; a first run has no config yet.
     let previous_config = load_hydrated_config(&paths).unwrap_or_default();
     let mut next_config = config.clone();

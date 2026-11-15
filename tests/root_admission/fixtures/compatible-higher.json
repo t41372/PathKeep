@@ -1,0 +1,7 @@
+{
+  "initialized": true,
+  "archiveMode": { "formatVersion": 2, "mode": "Plaintext", "compatibility": { "minWriter" : 1,
+    "futureNote": {"spelling":"\u0061", "number":1e2}, "revision": 2,  "minReader": 1
+  } },
+  "gitEnabled": false
+}

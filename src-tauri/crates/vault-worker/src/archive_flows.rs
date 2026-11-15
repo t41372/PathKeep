@@ -71,6 +71,9 @@ pub fn run_snapshot_restore_plan(
 /// A keyless filesystem scan: no archive open, no key.
 pub fn list_recovery_snapshots() -> Result<Vec<vault_core::RecoverySnapshot>> {
     let paths = vault_core::project_paths()?;
+    // The recovery screen lists these for an archive whose control is damaged. An archive that
+    // needs a newer PathKeep is not damaged, and nothing here may be offered to replace it.
+    vault_core::admission::refuse_newer(&paths.app_root)?;
     let mut snapshots = vault_core::maintenance::list_snapshots(&paths)?;
     snapshots.extend(vault_convert_sqlcipher::list_legacy_snapshots(&paths)?);
     snapshots.sort_by(|a, b| b.created_at.cmp(&a.created_at).then_with(|| b.path.cmp(&a.path)));
@@ -91,6 +94,7 @@ pub fn run_full_archive_restore(
     // runs: a quit that waited for the copy alone would leave the keychain behind.
     let _running = crate::foreground_work::begin(crate::ForegroundWork::Restore);
     let paths = vault_core::project_paths()?;
+    vault_core::admission::refuse_newer(&paths.app_root)?;
     if let Ok(config) = vault_core::load_config(&paths) {
         vault_core::ensure_app_lock_unlocked(&paths, &config)?;
     }

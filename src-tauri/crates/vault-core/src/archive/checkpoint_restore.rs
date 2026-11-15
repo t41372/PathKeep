@@ -13,6 +13,7 @@ pub fn run_snapshot_restore(
     request: &SnapshotRestoreRequest,
 ) -> Result<BackupReport> {
     let _backup = vault.begin_backup()?;
+    vault.recheck_root()?;
     anyhow::ensure!(vault.config().initialized, "archive has not been initialized");
     let path = PathBuf::from(&request.snapshot_path);
     anyhow::ensure!(path.is_dir(), "automatic restore requires a saved browser source checkpoint");
@@ -137,6 +138,7 @@ pub fn preview_snapshot_restore(
     vault: &Vault,
     request: &SnapshotRestoreRequest,
 ) -> Result<SnapshotRestorePreview> {
+    vault.recheck_root()?;
     let record = record(vault, &request.snapshot_path)?;
     if Path::new(&record.file_path).is_file() {
         return Ok(SnapshotRestorePreview {

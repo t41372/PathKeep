@@ -53,6 +53,7 @@ pub struct InstalledArchive {
 /// Changes only the envelope. Existing database, index and keychain keys stay valid.
 pub fn rewrap_password(vault: &Vault, current: &str, new: &str) -> Result<()> {
     let _operation = crate::archive::ArchiveOpGate::acquire(vault.paths());
+    vault.recheck_root()?;
     let _guard = crate::vault::ENVELOPE_ACCESS.lock().unwrap_or_else(|e| e.into_inner());
     // Keep the established typed wrong-password error at the authentication boundary.
     let _key = Vault::unlock_data_key(vault.paths(), current)?;
@@ -66,6 +67,7 @@ pub fn rewrap_password(vault: &Vault, current: &str, new: &str) -> Result<()> {
 /// Store preflight authenticates all files; this repairs only a stale mode setting.
 pub fn reconcile(vault: &Vault) -> Result<crate::ReconcileReport> {
     use std::io::Read;
+    vault.recheck_root()?;
     let mut header = [0u8; 16];
     fs::File::open(
         vault.paths().artifact_path(vault_layout::db_artifact(vault_layout::primary_database())),
@@ -97,6 +99,7 @@ pub fn switch_mode(
     progress: impl FnMut(Progress) + Send + 'static,
 ) -> Result<InstalledArchive> {
     let _operation = crate::archive::ArchiveOpGate::acquire(vault.paths());
+    vault.recheck_root()?;
     cancel.check()?;
     if vault.config().archive_mode == ArchiveMode::Encrypted {
         Vault::unlock_data_key(
@@ -124,7 +127,7 @@ pub fn switch_mode(
         move |p| (copy_progress.lock().unwrap())(p),
         &vault_layout::mode_change_databases().collect::<Vec<_>>(),
     )?;
-    crate::save_config(&crate::project_paths_with_root(stage.path()), &config)?;
+    crate::config::save_copy_config(vault.paths(), stage.path(), &config)?;
     let staged = Vault::open_staged(
         crate::project_paths_with_root(stage.path()),
         config.clone(),

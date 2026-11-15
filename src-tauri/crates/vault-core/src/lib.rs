@@ -17,6 +17,7 @@
 //! - worker orchestration glue that combines multiple subsystems for one UI
 //!   action
 
+pub mod admission;
 pub mod agent_store;
 pub mod ai;
 pub mod ai_queue;

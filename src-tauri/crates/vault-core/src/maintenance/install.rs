@@ -142,6 +142,10 @@ pub fn install(
 /// Run under the owner's lock before opening any database. A pending generation
 /// rolls back; a published generation finishes cleanup. Both paths are idempotent.
 pub fn recover(paths: &ProjectPaths) -> Result<bool> {
+    // A journal is not replayed in an archive that needs a newer PathKeep. The install it
+    // describes moves `config.json` aside for a moment, so a root without one passes. A replay
+    // only moves whole files back or forward, so nothing else about the control stops it.
+    crate::admission::refuse_newer(&paths.app_root)?;
     let bytes = match fs::read(paths.app_root.join(JOURNAL)) {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),

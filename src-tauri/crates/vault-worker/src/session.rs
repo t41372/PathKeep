@@ -40,6 +40,9 @@ impl VaultSession {
     /// Restore a complete file generation before inspecting mode, credentials or
     /// legacy-file presence. The reservation remains held through the later open.
     pub fn recover_pending_archive(&self, paths: &ProjectPaths) -> Result<bool, String> {
+        // Before the owner lock: an archive that needs a newer PathKeep is left without one, and
+        // its journal is not replayed.
+        vault_core::admission::refuse_newer(&paths.app_root).map_err(|e| e.to_string())?;
         if !vault_core::maintenance::install::pending(paths) {
             return Ok(false);
         }
@@ -189,7 +192,7 @@ impl VaultSession {
         };
         require_native_archive(&paths)?;
         if !config.initialized {
-            return Err("archive has not been initialized".into());
+            return Err("archive-uninitialized: archive has not been initialized".into());
         }
         if config.archive_mode == ArchiveMode::Plaintext || password.is_some() || key.is_some() {
             return self.open_store(paths, config, password, key);

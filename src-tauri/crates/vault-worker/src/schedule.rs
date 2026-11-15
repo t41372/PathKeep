@@ -54,19 +54,19 @@ fn validated_due_after_hours(hours: f64) -> Result<f64> {
 
 /// Applies a native schedule plan.
 pub fn apply_schedule_plan(plan: &SchedulePlan) -> Result<vault_core::ApplyResult> {
-    let paths = vault_core::project_paths()?;
+    let paths = crate::context::usable_root()?;
     apply_schedule(plan, &paths)
 }
 
 /// Removes a previously applied native schedule plan.
 pub fn remove_schedule_plan(plan: &SchedulePlan) -> Result<vault_core::ApplyResult> {
-    let paths = vault_core::project_paths()?;
+    let paths = crate::context::usable_root()?;
     remove_schedule(plan, &paths)
 }
 
 /// Repairs known scheduler conflicts after explicit user confirmation.
 pub fn repair_schedule_plan(plan: &SchedulePlan) -> Result<vault_core::ApplyResult> {
-    let paths = vault_core::project_paths()?;
+    let paths = crate::context::usable_root()?;
     repair_schedule(plan, &paths)
 }
 

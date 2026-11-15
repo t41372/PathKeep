@@ -45,6 +45,7 @@ macro_rules! row {
         prevents_new_envelope: $prevents_new_envelope:expr,
         password_change: $password_change:expr,
         move_import: $move_import:expr,
+        census: $census:expr,
 ) => {
         ArtifactSpec {
             id: $id,
@@ -69,6 +70,7 @@ macro_rules! row {
                 prevents_new_envelope: $prevents_new_envelope,
                 password_change: $password_change,
                 move_import: $move_import,
+                census: $census,
             },
         }
     };
@@ -89,6 +91,7 @@ pub const fn spec(id: ArtifactId) -> ArtifactSpec {
             export_target: ExportTargetPolicy::Allow, conversion: ConversionPolicy::Omit,
             prevents_new_envelope: true, password_change: PasswordChangePolicy::Preserve,
             move_import: ImportPolicy::NativeEntry,
+            census: CensusPolicy::Inherit,
         ),
         ArtifactId::SourceEvidence => row!(id, PathRule::Exact("archive/source-evidence.db"), ContentClass::Original, DataScope::Browsing,
             Some(DatabaseSpec { db: Db::SourceEvidence, key: KeyPurpose::SourceEvidenceDatabase, dependencies: &[Db::Scratch],
@@ -101,6 +104,7 @@ pub const fn spec(id: ArtifactId) -> ArtifactSpec {
             export_target: ExportTargetPolicy::Allow, conversion: ConversionPolicy::Omit,
             prevents_new_envelope: true, password_change: PasswordChangePolicy::Preserve,
             move_import: ImportPolicy::NativeEntry,
+            census: CensusPolicy::Inherit,
         ),
         // User edits are original data, but the existing native move format omits this store.
         ArtifactId::Intelligence => row!(id, PathRule::Exact("derived/intelligence.db"), ContentClass::Original, DataScope::Browsing,
@@ -114,6 +118,7 @@ pub const fn spec(id: ArtifactId) -> ArtifactSpec {
             export_target: ExportTargetPolicy::Allow, conversion: ConversionPolicy::Omit,
             prevents_new_envelope: true, password_change: PasswordChangePolicy::Preserve,
             move_import: ImportPolicy::CoveredByContainer,
+            census: CensusPolicy::Inherit,
         ),
         ArtifactId::Assistant => row!(id, PathRule::Exact("derived/agent.db"), ContentClass::Original, DataScope::Assistant,
             Some(DatabaseSpec { db: Db::Agent, key: KeyPurpose::AgentDatabase, dependencies: &[Db::Scratch],
@@ -126,6 +131,7 @@ pub const fn spec(id: ArtifactId) -> ArtifactSpec {
             export_target: ExportTargetPolicy::Allow, conversion: ConversionPolicy::Omit,
             prevents_new_envelope: true, password_change: PasswordChangePolicy::Preserve,
             move_import: ImportPolicy::CoveredByContainer,
+            census: CensusPolicy::Inherit,
         ),
         // Snapshot creation omits scratch; sealing still includes one already present at the target.
         ArtifactId::Scratch => row!(id, PathRule::Exact("derived/scratch.db"), ContentClass::Rebuildable, DataScope::Shared,
@@ -139,6 +145,7 @@ pub const fn spec(id: ArtifactId) -> ArtifactSpec {
             export_target: ExportTargetPolicy::Allow, conversion: ConversionPolicy::Omit,
             prevents_new_envelope: true, password_change: PasswordChangePolicy::Preserve,
             move_import: ImportPolicy::CoveredByContainer,
+            census: CensusPolicy::Inherit,
         ),
         ArtifactId::Envelope => row!(id, PathRule::Exact("archive/keys.envelope"), ContentClass::Control, DataScope::Shared, None, None;
             open: OpenPolicy::NotOpened, snapshot: SnapshotPolicy::CopyEnvelope,
@@ -149,6 +156,7 @@ pub const fn spec(id: ArtifactId) -> ArtifactSpec {
             export_target: ExportTargetPolicy::Allow, conversion: ConversionPolicy::Omit,
             prevents_new_envelope: false, password_change: PasswordChangePolicy::Rewrap,
             move_import: ImportPolicy::NativeEntry,
+            census: CensusPolicy::Inherit,
         ),
         ArtifactId::PendingEnvelope => row!(id, PathRule::Exact("archive/keys.envelope.pending"), ContentClass::Control, DataScope::Shared, None, None;
             open: OpenPolicy::NotOpened, snapshot: SnapshotPolicy::SealIfPresent,
@@ -159,6 +167,7 @@ pub const fn spec(id: ArtifactId) -> ArtifactSpec {
             export_target: ExportTargetPolicy::Allow, conversion: ConversionPolicy::Omit,
             prevents_new_envelope: false, password_change: PasswordChangePolicy::Preserve,
             move_import: ImportPolicy::NativeEntry,
+            census: CensusPolicy::Inherit,
         ),
         ArtifactId::Config => row!(id, PathRule::Exact("config.json"), ContentClass::Control, DataScope::Shared, None, None;
             open: OpenPolicy::NotOpened, snapshot: SnapshotPolicy::SaveConfig,
@@ -169,6 +178,7 @@ pub const fn spec(id: ArtifactId) -> ArtifactSpec {
             export_target: ExportTargetPolicy::Deny, conversion: ConversionPolicy::Settings { entry: "config/config.json" },
             prevents_new_envelope: false, password_change: PasswordChangePolicy::Preserve,
             move_import: ImportPolicy::NativeEntry,
+            census: CensusPolicy::NotArchive,
         ),
         ArtifactId::Search => row!(id, PathRule::Family { parent: "derived/search-index", family: FileFamily::SearchGenerations, pattern: FamilyPattern::Children }, ContentClass::Rebuildable, DataScope::Browsing, None, Some(KeyPurpose::SearchIndex);
             open: OpenPolicy::NotOpened, snapshot: SnapshotPolicy::Omit,
@@ -179,6 +189,7 @@ pub const fn spec(id: ArtifactId) -> ArtifactSpec {
             export_target: ExportTargetPolicy::Allow, conversion: ConversionPolicy::Omit,
             prevents_new_envelope: false, password_change: PasswordChangePolicy::Preserve,
             move_import: ImportPolicy::CoveredByContainer,
+            census: CensusPolicy::Inherit,
         ),
         ArtifactId::Root => row!(id, PathRule::Exact(""), ContentClass::Control, DataScope::Shared, None, None;
             open: OpenPolicy::EnsureContainer(0), snapshot: SnapshotPolicy::Omit,
@@ -189,6 +200,7 @@ pub const fn spec(id: ArtifactId) -> ArtifactSpec {
             export_target: ExportTargetPolicy::Allow, conversion: ConversionPolicy::Omit,
             prevents_new_envelope: false, password_change: PasswordChangePolicy::Preserve,
             move_import: ImportPolicy::Preserve,
+            census: CensusPolicy::NotArchive,
         ),
         ArtifactId::ArchiveRoot => row!(id, PathRule::Exact("archive"), ContentClass::Original, DataScope::Shared, None, None;
             open: OpenPolicy::NotOpened, snapshot: SnapshotPolicy::Omit,
@@ -199,6 +211,7 @@ pub const fn spec(id: ArtifactId) -> ArtifactSpec {
             export_target: ExportTargetPolicy::Deny, conversion: ConversionPolicy::Omit,
             prevents_new_envelope: false, password_change: PasswordChangePolicy::Preserve,
             move_import: ImportPolicy::Preserve,
+            census: CensusPolicy::Archive,
         ),
         ArtifactId::DerivedRoot => row!(id, PathRule::Exact("derived"), ContentClass::Original, DataScope::Shared, None, None;
             open: OpenPolicy::EnsureContainer(3), snapshot: SnapshotPolicy::Omit,
@@ -209,6 +222,7 @@ pub const fn spec(id: ArtifactId) -> ArtifactSpec {
             export_target: ExportTargetPolicy::Deny, conversion: ConversionPolicy::Omit,
             prevents_new_envelope: false, password_change: PasswordChangePolicy::Preserve,
             move_import: ImportPolicy::ReplaceContainer,
+            census: CensusPolicy::Archive,
         ),
         ArtifactId::Audit => row!(id, PathRule::Exact("audit"), ContentClass::Original, DataScope::Shared, None, None;
             open: OpenPolicy::EnsureContainer(4), snapshot: SnapshotPolicy::Omit,
@@ -219,6 +233,7 @@ pub const fn spec(id: ArtifactId) -> ArtifactSpec {
             export_target: ExportTargetPolicy::Deny, conversion: ConversionPolicy::Omit,
             prevents_new_envelope: false, password_change: PasswordChangePolicy::Preserve,
             move_import: ImportPolicy::ReplaceContainer,
+            census: CensusPolicy::NotArchive,
         ),
         ArtifactId::Manifests => row!(id, PathRule::Exact("audit/manifests"), ContentClass::Original, DataScope::Shared, None, None;
             open: OpenPolicy::EnsureContainer(5), snapshot: SnapshotPolicy::Omit,
@@ -229,6 +244,7 @@ pub const fn spec(id: ArtifactId) -> ArtifactSpec {
             export_target: ExportTargetPolicy::Allow, conversion: ConversionPolicy::Omit,
             prevents_new_envelope: false, password_change: PasswordChangePolicy::Preserve,
             move_import: ImportPolicy::CoveredByContainer,
+            census: CensusPolicy::Inherit,
         ),
         ArtifactId::Exports => row!(id, PathRule::Exact("exports"), ContentClass::Original, DataScope::Shared, None, None;
             open: OpenPolicy::EnsureContainer(6), snapshot: SnapshotPolicy::Omit,
@@ -239,6 +255,7 @@ pub const fn spec(id: ArtifactId) -> ArtifactSpec {
             export_target: ExportTargetPolicy::Allow, conversion: ConversionPolicy::Omit,
             prevents_new_envelope: false, password_change: PasswordChangePolicy::Preserve,
             move_import: ImportPolicy::Preserve,
+            census: CensusPolicy::NotArchive,
         ),
         ArtifactId::RawSnapshots => row!(id, PathRule::Exact("raw-snapshots"), ContentClass::Original, DataScope::Browsing, None, None;
             open: OpenPolicy::EnsureContainer(7), snapshot: SnapshotPolicy::Omit,
@@ -249,6 +266,7 @@ pub const fn spec(id: ArtifactId) -> ArtifactSpec {
             export_target: ExportTargetPolicy::Deny, conversion: ConversionPolicy::Omit,
             prevents_new_envelope: false, password_change: PasswordChangePolicy::Preserve,
             move_import: ImportPolicy::ReplaceContainer,
+            census: CensusPolicy::Archive,
         ),
         ArtifactId::Staging => row!(id, PathRule::Exact("staging"), ContentClass::Control, DataScope::NestedArchive, None, None;
             open: OpenPolicy::EnsureContainer(8), snapshot: SnapshotPolicy::Omit,
@@ -259,6 +277,7 @@ pub const fn spec(id: ArtifactId) -> ArtifactSpec {
             export_target: ExportTargetPolicy::Deny, conversion: ConversionPolicy::Omit,
             prevents_new_envelope: false, password_change: PasswordChangePolicy::Preserve,
             move_import: ImportPolicy::Preserve,
+            census: CensusPolicy::NotArchive,
         ),
         ArtifactId::Quarantine => row!(id, PathRule::Exact("quarantine"), ContentClass::Original, DataScope::NestedArchive, None, None;
             open: OpenPolicy::EnsureContainer(9), snapshot: SnapshotPolicy::Omit,
@@ -269,6 +288,7 @@ pub const fn spec(id: ArtifactId) -> ArtifactSpec {
             export_target: ExportTargetPolicy::Deny, conversion: ConversionPolicy::Omit,
             prevents_new_envelope: false, password_change: PasswordChangePolicy::Preserve,
             move_import: ImportPolicy::Preserve,
+            census: CensusPolicy::Archive,
         ),
         ArtifactId::Schedule => row!(id, PathRule::Exact("schedule"), ContentClass::Control, DataScope::Shared, None, None;
             open: OpenPolicy::EnsureContainer(10), snapshot: SnapshotPolicy::Omit,
@@ -279,6 +299,7 @@ pub const fn spec(id: ArtifactId) -> ArtifactSpec {
             export_target: ExportTargetPolicy::Deny, conversion: ConversionPolicy::Omit,
             prevents_new_envelope: false, password_change: PasswordChangePolicy::Preserve,
             move_import: ImportPolicy::Preserve,
+            census: CensusPolicy::NotArchive,
         ),
         ArtifactId::Sidecars => row!(id, PathRule::Exact("sidecars"), ContentClass::Original, DataScope::Browsing, None, None;
             open: OpenPolicy::EnsureContainer(11), snapshot: SnapshotPolicy::Omit,
@@ -289,6 +310,7 @@ pub const fn spec(id: ArtifactId) -> ArtifactSpec {
             export_target: ExportTargetPolicy::Deny, conversion: ConversionPolicy::Omit,
             prevents_new_envelope: false, password_change: PasswordChangePolicy::Preserve,
             move_import: ImportPolicy::ReplaceContainer,
+            census: CensusPolicy::Archive,
         ),
         ArtifactId::LegacySemantic => row!(id, PathRule::Exact("sidecars/semantic-index"), ContentClass::Rebuildable, DataScope::Browsing, None, None;
             open: OpenPolicy::EnsureContainer(12), snapshot: SnapshotPolicy::Omit,
@@ -299,6 +321,7 @@ pub const fn spec(id: ArtifactId) -> ArtifactSpec {
             export_target: ExportTargetPolicy::Allow, conversion: ConversionPolicy::Omit,
             prevents_new_envelope: false, password_change: PasswordChangePolicy::Preserve,
             move_import: ImportPolicy::CoveredByContainer,
+            census: CensusPolicy::Inherit,
         ),
         // Saved text moves with sidecars, but safety snapshots omit it and mode changes preserve it.
         ArtifactId::TextBlobs => row!(id, PathRule::Exact("sidecars/intelligence-blobs"), ContentClass::Original, DataScope::Browsing, None, None;
@@ -310,6 +333,7 @@ pub const fn spec(id: ArtifactId) -> ArtifactSpec {
             export_target: ExportTargetPolicy::Allow, conversion: ConversionPolicy::Omit,
             prevents_new_envelope: false, password_change: PasswordChangePolicy::Preserve,
             move_import: ImportPolicy::CoveredByContainer,
+            census: CensusPolicy::Inherit,
         ),
         ArtifactId::Vectors => row!(id, PathRule::Exact("derived/vectors"), ContentClass::Rebuildable, DataScope::Browsing, None, None;
             open: OpenPolicy::EnsureContainer(14), snapshot: SnapshotPolicy::Omit,
@@ -320,6 +344,7 @@ pub const fn spec(id: ArtifactId) -> ArtifactSpec {
             export_target: ExportTargetPolicy::Allow, conversion: ConversionPolicy::Omit,
             prevents_new_envelope: false, password_change: PasswordChangePolicy::Preserve,
             move_import: ImportPolicy::CoveredByContainer,
+            census: CensusPolicy::Inherit,
         ),
         ArtifactId::Models => row!(id, PathRule::Exact("models"), ContentClass::Rebuildable, DataScope::Shared, None, None;
             open: OpenPolicy::EnsureContainer(15), snapshot: SnapshotPolicy::Omit,
@@ -330,6 +355,7 @@ pub const fn spec(id: ArtifactId) -> ArtifactSpec {
             export_target: ExportTargetPolicy::Deny, conversion: ConversionPolicy::Omit,
             prevents_new_envelope: false, password_change: PasswordChangePolicy::Preserve,
             move_import: ImportPolicy::Preserve,
+            census: CensusPolicy::NotArchive,
         ),
         ArtifactId::Logs => row!(id, PathRule::Exact("logs"), ContentClass::Control, DataScope::Shared, None, None;
             open: OpenPolicy::EnsureContainer(16), snapshot: SnapshotPolicy::Omit,
@@ -340,6 +366,7 @@ pub const fn spec(id: ArtifactId) -> ArtifactSpec {
             export_target: ExportTargetPolicy::Allow, conversion: ConversionPolicy::Omit,
             prevents_new_envelope: false, password_change: PasswordChangePolicy::Preserve,
             move_import: ImportPolicy::Preserve,
+            census: CensusPolicy::NotArchive,
         ),
         ArtifactId::CrashReports => row!(id, PathRule::Exact("diagnostics/crash-reports"), ContentClass::Control, DataScope::Shared, None, None;
             open: OpenPolicy::EnsureContainer(17), snapshot: SnapshotPolicy::Omit,
@@ -350,6 +377,7 @@ pub const fn spec(id: ArtifactId) -> ArtifactSpec {
             export_target: ExportTargetPolicy::Allow, conversion: ConversionPolicy::Omit,
             prevents_new_envelope: false, password_change: PasswordChangePolicy::Preserve,
             move_import: ImportPolicy::Preserve,
+            census: CensusPolicy::Inherit,
         ),
         ArtifactId::Integrations => row!(id, PathRule::Exact("integrations"), ContentClass::Rebuildable, DataScope::Browsing, None, None;
             open: OpenPolicy::NotOpened, snapshot: SnapshotPolicy::Omit,
@@ -360,6 +388,7 @@ pub const fn spec(id: ArtifactId) -> ArtifactSpec {
             export_target: ExportTargetPolicy::Deny, conversion: ConversionPolicy::Omit,
             prevents_new_envelope: false, password_change: PasswordChangePolicy::Preserve,
             move_import: ImportPolicy::Preserve,
+            census: CensusPolicy::NotArchive,
         ),
         ArtifactId::Diagnostics => row!(id, PathRule::Exact("diagnostics"), ContentClass::Control, DataScope::Shared, None, None;
             open: OpenPolicy::NotOpened, snapshot: SnapshotPolicy::Omit,
@@ -370,6 +399,7 @@ pub const fn spec(id: ArtifactId) -> ArtifactSpec {
             export_target: ExportTargetPolicy::Allow, conversion: ConversionPolicy::Omit,
             prevents_new_envelope: false, password_change: PasswordChangePolicy::Preserve,
             move_import: ImportPolicy::Preserve,
+            census: CensusPolicy::NotArchive,
         ),
         ArtifactId::Ipc => row!(id, PathRule::Exact("ipc"), ContentClass::Control, DataScope::Shared, None, None;
             open: OpenPolicy::NotOpened, snapshot: SnapshotPolicy::Omit,
@@ -380,6 +410,7 @@ pub const fn spec(id: ArtifactId) -> ArtifactSpec {
             export_target: ExportTargetPolicy::Allow, conversion: ConversionPolicy::Omit,
             prevents_new_envelope: false, password_change: PasswordChangePolicy::Preserve,
             move_import: ImportPolicy::Preserve,
+            census: CensusPolicy::NotArchive,
         ),
         ArtifactId::OwnerEndpoint => row!(id, PathRule::Exact("ipc/owner.sock"), ContentClass::Control, DataScope::Shared, None, None;
             open: OpenPolicy::NotOpened, snapshot: SnapshotPolicy::Omit,
@@ -390,6 +421,7 @@ pub const fn spec(id: ArtifactId) -> ArtifactSpec {
             export_target: ExportTargetPolicy::Allow, conversion: ConversionPolicy::Omit,
             prevents_new_envelope: false, password_change: PasswordChangePolicy::Preserve,
             move_import: ImportPolicy::Preserve,
+            census: CensusPolicy::Inherit,
         ),
         ArtifactId::OwnerLock => row!(id, PathRule::Exact("archive/.pk-owner.lock"), ContentClass::Control, DataScope::Shared, None, None;
             open: OpenPolicy::NotOpened, snapshot: SnapshotPolicy::Omit,
@@ -400,6 +432,7 @@ pub const fn spec(id: ArtifactId) -> ArtifactSpec {
             export_target: ExportTargetPolicy::Allow, conversion: ConversionPolicy::Omit,
             prevents_new_envelope: false, password_change: PasswordChangePolicy::Preserve,
             move_import: ImportPolicy::Preserve,
+            census: CensusPolicy::NotArchive,
         ),
         ArtifactId::WriteLock => row!(id, PathRule::Exact("archive/.pk-archive-write.lock"), ContentClass::Control, DataScope::Shared, None, None;
             open: OpenPolicy::NotOpened, snapshot: SnapshotPolicy::Omit,
@@ -410,6 +443,7 @@ pub const fn spec(id: ArtifactId) -> ArtifactSpec {
             export_target: ExportTargetPolicy::Allow, conversion: ConversionPolicy::Omit,
             prevents_new_envelope: false, password_change: PasswordChangePolicy::Preserve,
             move_import: ImportPolicy::Preserve,
+            census: CensusPolicy::NotArchive,
         ),
         ArtifactId::InstallJournal => row!(id, PathRule::Exact("archive/.pk-import-journal.json"), ContentClass::Control, DataScope::Shared, None, None;
             open: OpenPolicy::NotOpened, snapshot: SnapshotPolicy::Omit,
@@ -420,6 +454,7 @@ pub const fn spec(id: ArtifactId) -> ArtifactSpec {
             export_target: ExportTargetPolicy::Allow, conversion: ConversionPolicy::Omit,
             prevents_new_envelope: false, password_change: PasswordChangePolicy::Preserve,
             move_import: ImportPolicy::Preserve,
+            census: CensusPolicy::InstallRecord,
         ),
         ArtifactId::StaleImportJournal => row!(id, PathRule::Exact("archive/.pk-import-journal.legacy-stale.json"), ContentClass::Control, DataScope::Shared, None, None;
             open: OpenPolicy::NotOpened, snapshot: SnapshotPolicy::Omit,
@@ -430,6 +465,7 @@ pub const fn spec(id: ArtifactId) -> ArtifactSpec {
             export_target: ExportTargetPolicy::Allow, conversion: ConversionPolicy::Omit,
             prevents_new_envelope: false, password_change: PasswordChangePolicy::Preserve,
             move_import: ImportPolicy::Preserve,
+            census: CensusPolicy::Inherit,
         ),
         ArtifactId::LegacyRekeyJournal => row!(id, PathRule::Exact("archive/.pk-rekey-journal.json"), ContentClass::Control, DataScope::Shared, None, None;
             open: OpenPolicy::NotOpened, snapshot: SnapshotPolicy::Omit,
@@ -440,6 +476,7 @@ pub const fn spec(id: ArtifactId) -> ArtifactSpec {
             export_target: ExportTargetPolicy::Allow, conversion: ConversionPolicy::Omit,
             prevents_new_envelope: false, password_change: PasswordChangePolicy::Preserve,
             move_import: ImportPolicy::Preserve,
+            census: CensusPolicy::OldFormatRecord,
         ),
         ArtifactId::LegacyRestoreJournal => row!(id, PathRule::Exact("archive/.pk-restore-journal.json"), ContentClass::Control, DataScope::Shared, None, None;
             open: OpenPolicy::NotOpened, snapshot: SnapshotPolicy::Omit,
@@ -450,6 +487,7 @@ pub const fn spec(id: ArtifactId) -> ArtifactSpec {
             export_target: ExportTargetPolicy::Allow, conversion: ConversionPolicy::Omit,
             prevents_new_envelope: false, password_change: PasswordChangePolicy::Preserve,
             move_import: ImportPolicy::Preserve,
+            census: CensusPolicy::OldFormatRecord,
         ),
         ArtifactId::EnvelopeTemp => row!(id, PathRule::Exact("archive/.keys.envelope.pk-tmp"), ContentClass::Control, DataScope::Shared, None, None;
             open: OpenPolicy::NotOpened, snapshot: SnapshotPolicy::Omit,
@@ -460,6 +498,7 @@ pub const fn spec(id: ArtifactId) -> ArtifactSpec {
             export_target: ExportTargetPolicy::Allow, conversion: ConversionPolicy::Omit,
             prevents_new_envelope: false, password_change: PasswordChangePolicy::Preserve,
             move_import: ImportPolicy::Preserve,
+            census: CensusPolicy::Inherit,
         ),
         ArtifactId::WipeIntent => row!(id, PathRule::Exact(".pk-wipe-in-progress.json"), ContentClass::Control, DataScope::Shared, None, None;
             open: OpenPolicy::NotOpened, snapshot: SnapshotPolicy::Omit,
@@ -470,6 +509,7 @@ pub const fn spec(id: ArtifactId) -> ArtifactSpec {
             export_target: ExportTargetPolicy::Deny, conversion: ConversionPolicy::Omit,
             prevents_new_envelope: false, password_change: PasswordChangePolicy::Preserve,
             move_import: ImportPolicy::Preserve,
+            census: CensusPolicy::WipeRecord,
         ),
         ArtifactId::AppLockState => row!(id, PathRule::Exact("app-lock-state.json"), ContentClass::Control, DataScope::Shared, None, None;
             open: OpenPolicy::NotOpened, snapshot: SnapshotPolicy::Omit,
@@ -480,6 +520,7 @@ pub const fn spec(id: ArtifactId) -> ArtifactSpec {
             export_target: ExportTargetPolicy::Deny, conversion: ConversionPolicy::Omit,
             prevents_new_envelope: false, password_change: PasswordChangePolicy::Preserve,
             move_import: ImportPolicy::Preserve,
+            census: CensusPolicy::NotArchive,
         ),
         ArtifactId::AppLockPasscode => row!(id, PathRule::Exact("app-lock-passcode.json"), ContentClass::Control, DataScope::Shared, None, None;
             open: OpenPolicy::NotOpened, snapshot: SnapshotPolicy::Omit,
@@ -490,6 +531,7 @@ pub const fn spec(id: ArtifactId) -> ArtifactSpec {
             export_target: ExportTargetPolicy::Deny, conversion: ConversionPolicy::Omit,
             prevents_new_envelope: false, password_change: PasswordChangePolicy::Preserve,
             move_import: ImportPolicy::Preserve,
+            census: CensusPolicy::Archive,
         ),
         ArtifactId::Stronghold => row!(id, PathRule::Exact("vault.hold"), ContentClass::Control, DataScope::Shared, None, None;
             open: OpenPolicy::NotOpened, snapshot: SnapshotPolicy::Omit,
@@ -500,6 +542,7 @@ pub const fn spec(id: ArtifactId) -> ArtifactSpec {
             export_target: ExportTargetPolicy::Deny, conversion: ConversionPolicy::Omit,
             prevents_new_envelope: false, password_change: PasswordChangePolicy::Preserve,
             move_import: ImportPolicy::Preserve,
+            census: CensusPolicy::Archive,
         ),
         ArtifactId::StrongholdSalt => row!(id, PathRule::Exact("stronghold-salt.txt"), ContentClass::Control, DataScope::Shared, None, None;
             open: OpenPolicy::NotOpened, snapshot: SnapshotPolicy::Omit,
@@ -510,6 +553,7 @@ pub const fn spec(id: ArtifactId) -> ArtifactSpec {
             export_target: ExportTargetPolicy::Deny, conversion: ConversionPolicy::Omit,
             prevents_new_envelope: false, password_change: PasswordChangePolicy::Preserve,
             move_import: ImportPolicy::Preserve,
+            census: CensusPolicy::Archive,
         ),
         ArtifactId::RustLog => row!(id, PathRule::Exact("logs/rust.log"), ContentClass::Control, DataScope::Shared, None, None;
             open: OpenPolicy::NotOpened, snapshot: SnapshotPolicy::Omit,
@@ -520,6 +564,7 @@ pub const fn spec(id: ArtifactId) -> ArtifactSpec {
             export_target: ExportTargetPolicy::Allow, conversion: ConversionPolicy::Omit,
             prevents_new_envelope: false, password_change: PasswordChangePolicy::Preserve,
             move_import: ImportPolicy::Preserve,
+            census: CensusPolicy::Inherit,
         ),
         ArtifactId::FrontendLog => row!(id, PathRule::Exact("logs/frontend.log"), ContentClass::Control, DataScope::Shared, None, None;
             open: OpenPolicy::NotOpened, snapshot: SnapshotPolicy::Omit,
@@ -530,6 +575,7 @@ pub const fn spec(id: ArtifactId) -> ArtifactSpec {
             export_target: ExportTargetPolicy::Allow, conversion: ConversionPolicy::Omit,
             prevents_new_envelope: false, password_change: PasswordChangePolicy::Preserve,
             move_import: ImportPolicy::Preserve,
+            census: CensusPolicy::Inherit,
         ),
         ArtifactId::OwnerStartupLog => row!(id, PathRule::Exact("logs/owner-startup.log"), ContentClass::Control, DataScope::Shared, None, None;
             open: OpenPolicy::NotOpened, snapshot: SnapshotPolicy::Omit,
@@ -540,6 +586,7 @@ pub const fn spec(id: ArtifactId) -> ArtifactSpec {
             export_target: ExportTargetPolicy::Allow, conversion: ConversionPolicy::Omit,
             prevents_new_envelope: false, password_change: PasswordChangePolicy::Preserve,
             move_import: ImportPolicy::Preserve,
+            census: CensusPolicy::Inherit,
         ),
         ArtifactId::RustPanic => row!(id, PathRule::Exact("diagnostics/crash-reports/rust-panic-latest.json"), ContentClass::Control, DataScope::Shared, None, None;
             open: OpenPolicy::NotOpened, snapshot: SnapshotPolicy::Omit,
@@ -550,6 +597,7 @@ pub const fn spec(id: ArtifactId) -> ArtifactSpec {
             export_target: ExportTargetPolicy::Allow, conversion: ConversionPolicy::Omit,
             prevents_new_envelope: false, password_change: PasswordChangePolicy::Preserve,
             move_import: ImportPolicy::Preserve,
+            census: CensusPolicy::Inherit,
         ),
         ArtifactId::FrontendError => row!(id, PathRule::Exact("diagnostics/crash-reports/frontend-error-latest.json"), ContentClass::Control, DataScope::Shared, None, None;
             open: OpenPolicy::NotOpened, snapshot: SnapshotPolicy::Omit,
@@ -560,6 +608,7 @@ pub const fn spec(id: ArtifactId) -> ArtifactSpec {
             export_target: ExportTargetPolicy::Allow, conversion: ConversionPolicy::Omit,
             prevents_new_envelope: false, password_change: PasswordChangePolicy::Preserve,
             move_import: ImportPolicy::Preserve,
+            census: CensusPolicy::Inherit,
         ),
         ArtifactId::LegacyHistory => row!(id, PathRule::Exact("archive/history-vault.sqlite"), ContentClass::Original, DataScope::Browsing, None, None;
             open: OpenPolicy::NotOpened, snapshot: SnapshotPolicy::Omit,
@@ -570,6 +619,7 @@ pub const fn spec(id: ArtifactId) -> ArtifactSpec {
             export_target: ExportTargetPolicy::Allow, conversion: ConversionPolicy::Source { db: Db::Archive, canonical: true, primary: true, required_in_bundle: true },
             prevents_new_envelope: true, password_change: PasswordChangePolicy::Preserve,
             move_import: ImportPolicy::Preserve,
+            census: CensusPolicy::Inherit,
         ),
         ArtifactId::LegacyEvidence => row!(id, PathRule::Exact("archive/source-evidence.sqlite"), ContentClass::Original, DataScope::Browsing, None, None;
             open: OpenPolicy::NotOpened, snapshot: SnapshotPolicy::Omit,
@@ -580,6 +630,7 @@ pub const fn spec(id: ArtifactId) -> ArtifactSpec {
             export_target: ExportTargetPolicy::Allow, conversion: ConversionPolicy::Source { db: Db::SourceEvidence, canonical: true, primary: false, required_in_bundle: false },
             prevents_new_envelope: false, password_change: PasswordChangePolicy::Preserve,
             move_import: ImportPolicy::Preserve,
+            census: CensusPolicy::Inherit,
         ),
         ArtifactId::LegacyIntelligence => row!(id, PathRule::Exact("derived/history-intelligence.sqlite"), ContentClass::Original, DataScope::Browsing, None, None;
             open: OpenPolicy::NotOpened, snapshot: SnapshotPolicy::Omit,
@@ -590,6 +641,7 @@ pub const fn spec(id: ArtifactId) -> ArtifactSpec {
             export_target: ExportTargetPolicy::Allow, conversion: ConversionPolicy::Source { db: Db::Intelligence, canonical: false, primary: false, required_in_bundle: false },
             prevents_new_envelope: false, password_change: PasswordChangePolicy::Preserve,
             move_import: ImportPolicy::CoveredByContainer,
+            census: CensusPolicy::Inherit,
         ),
         ArtifactId::LegacyAssistant => row!(id, PathRule::Exact("derived/agent.sqlite"), ContentClass::Original, DataScope::Assistant, None, None;
             open: OpenPolicy::NotOpened, snapshot: SnapshotPolicy::Omit,
@@ -600,6 +652,7 @@ pub const fn spec(id: ArtifactId) -> ArtifactSpec {
             export_target: ExportTargetPolicy::Allow, conversion: ConversionPolicy::Source { db: Db::Agent, canonical: false, primary: false, required_in_bundle: false },
             prevents_new_envelope: false, password_change: PasswordChangePolicy::Preserve,
             move_import: ImportPolicy::CoveredByContainer,
+            census: CensusPolicy::Inherit,
         ),
         ArtifactId::LegacySearch => row!(id, PathRule::Exact("derived/history-search.sqlite"), ContentClass::Rebuildable, DataScope::Browsing, None, None;
             open: OpenPolicy::NotOpened, snapshot: SnapshotPolicy::Omit,
@@ -610,6 +663,7 @@ pub const fn spec(id: ArtifactId) -> ArtifactSpec {
             export_target: ExportTargetPolicy::Allow, conversion: ConversionPolicy::Rebuild,
             prevents_new_envelope: false, password_change: PasswordChangePolicy::Preserve,
             move_import: ImportPolicy::CoveredByContainer,
+            census: CensusPolicy::Inherit,
         ),
         ArtifactId::NativeSnapshots => row!(id, PathRule::Family { parent: "raw-snapshots/maintenance", family: FileFamily::NativeSnapshots, pattern: FamilyPattern::Children }, ContentClass::Original, DataScope::NestedArchive, None, None;
             open: OpenPolicy::NotOpened, snapshot: SnapshotPolicy::Omit,
@@ -620,6 +674,7 @@ pub const fn spec(id: ArtifactId) -> ArtifactSpec {
             export_target: ExportTargetPolicy::Allow, conversion: ConversionPolicy::Omit,
             prevents_new_envelope: false, password_change: PasswordChangePolicy::Preserve,
             move_import: ImportPolicy::CoveredByContainer,
+            census: CensusPolicy::Inherit,
         ),
         ArtifactId::LegacySnapshots => row!(id, PathRule::Family { parent: "raw-snapshots/rekey", family: FileFamily::LegacySnapshots, pattern: FamilyPattern::Children }, ContentClass::Original, DataScope::NestedArchive, None, None;
             open: OpenPolicy::NotOpened, snapshot: SnapshotPolicy::Omit,
@@ -630,6 +685,7 @@ pub const fn spec(id: ArtifactId) -> ArtifactSpec {
             export_target: ExportTargetPolicy::Allow, conversion: ConversionPolicy::Omit,
             prevents_new_envelope: false, password_change: PasswordChangePolicy::Preserve,
             move_import: ImportPolicy::CoveredByContainer,
+            census: CensusPolicy::Inherit,
         ),
         ArtifactId::MaintenanceStages => row!(id, PathRule::Family { parent: "staging", family: FileFamily::MaintenanceStages, pattern: FamilyPattern::Prefix("maintenance-") }, ContentClass::Control, DataScope::NestedArchive, None, None;
             open: OpenPolicy::NotOpened, snapshot: SnapshotPolicy::Omit,
@@ -640,6 +696,7 @@ pub const fn spec(id: ArtifactId) -> ArtifactSpec {
             export_target: ExportTargetPolicy::Allow, conversion: ConversionPolicy::Omit,
             prevents_new_envelope: false, password_change: PasswordChangePolicy::Preserve,
             move_import: ImportPolicy::Preserve,
+            census: CensusPolicy::Inherit,
         ),
         ArtifactId::PreviousArchives => row!(id, PathRule::Family { parent: "", family: FileFamily::PreviousArchives, pattern: FamilyPattern::Prefix("maintenance.bak-") }, ContentClass::Original, DataScope::NestedArchive, None, None;
             open: OpenPolicy::NotOpened, snapshot: SnapshotPolicy::Omit,
@@ -650,6 +707,7 @@ pub const fn spec(id: ArtifactId) -> ArtifactSpec {
             export_target: ExportTargetPolicy::Allow, conversion: ConversionPolicy::Omit,
             prevents_new_envelope: false, password_change: PasswordChangePolicy::Preserve,
             move_import: ImportPolicy::Preserve,
+            census: CensusPolicy::Archive,
         ),
         // Wipe matches the substring anywhere, more broadly than the maintenance producer prefix.
         ArtifactId::RootBackups => row!(id, PathRule::Family { parent: "", family: FileFamily::RootBackups, pattern: FamilyPattern::Contains(".bak-") }, ContentClass::Original, DataScope::NestedArchive, None, None;
@@ -661,6 +719,7 @@ pub const fn spec(id: ArtifactId) -> ArtifactSpec {
             export_target: ExportTargetPolicy::Allow, conversion: ConversionPolicy::Omit,
             prevents_new_envelope: false, password_change: PasswordChangePolicy::Preserve,
             move_import: ImportPolicy::Preserve,
+            census: CensusPolicy::Archive,
         ),
         ArtifactId::AtomicTemps => row!(id, PathRule::Family { parent: "", family: FileFamily::AtomicTemps, pattern: FamilyPattern::Prefix(".pk-durable-") }, ContentClass::Control, DataScope::Shared, None, None;
             open: OpenPolicy::NotOpened, snapshot: SnapshotPolicy::Omit,
@@ -671,6 +730,7 @@ pub const fn spec(id: ArtifactId) -> ArtifactSpec {
             export_target: ExportTargetPolicy::Allow, conversion: ConversionPolicy::Omit,
             prevents_new_envelope: false, password_change: PasswordChangePolicy::Preserve,
             move_import: ImportPolicy::Preserve,
+            census: CensusPolicy::NotArchive,
         ),
         ArtifactId::ReservedControls => row!(id, PathRule::Family { parent: "", family: FileFamily::ReservedControls, pattern: FamilyPattern::Prefix(".pk-") }, ContentClass::Control, DataScope::Shared, None, None;
             open: OpenPolicy::NotOpened, snapshot: SnapshotPolicy::Omit,
@@ -681,6 +741,7 @@ pub const fn spec(id: ArtifactId) -> ArtifactSpec {
             export_target: ExportTargetPolicy::DenyRootPrefix, conversion: ConversionPolicy::Omit,
             prevents_new_envelope: false, password_change: PasswordChangePolicy::Preserve,
             move_import: ImportPolicy::Preserve,
+            census: CensusPolicy::NotArchive,
         ),
         ArtifactId::SqlcipherStage => row!(id, PathRule::Exact("staging/sqlcipher-conversion"), ContentClass::Control, DataScope::NestedArchive, None, None;
             open: OpenPolicy::NotOpened, snapshot: SnapshotPolicy::Omit,
@@ -691,6 +752,7 @@ pub const fn spec(id: ArtifactId) -> ArtifactSpec {
             export_target: ExportTargetPolicy::Allow, conversion: ConversionPolicy::Omit,
             prevents_new_envelope: false, password_change: PasswordChangePolicy::Preserve,
             move_import: ImportPolicy::Preserve,
+            census: CensusPolicy::Archive,
         ),
         ArtifactId::ReservedGit => row!(id, PathRule::Exact(".git"), ContentClass::Control, DataScope::Shared, None, None;
             open: OpenPolicy::NotOpened, snapshot: SnapshotPolicy::Omit,
@@ -701,6 +763,7 @@ pub const fn spec(id: ArtifactId) -> ArtifactSpec {
             export_target: ExportTargetPolicy::Deny, conversion: ConversionPolicy::Omit,
             prevents_new_envelope: false, password_change: PasswordChangePolicy::Preserve,
             move_import: ImportPolicy::Preserve,
+            census: CensusPolicy::NotArchive,
         ),
         ArtifactId::ImportRoots => row!(id, PathRule::Exact("audit/pathkeep-import-roots.json"), ContentClass::Original, DataScope::Shared, None, None;
             open: OpenPolicy::NotOpened, snapshot: SnapshotPolicy::Omit,
@@ -711,6 +774,7 @@ pub const fn spec(id: ArtifactId) -> ArtifactSpec {
             export_target: ExportTargetPolicy::Allow, conversion: ConversionPolicy::Omit,
             prevents_new_envelope: false, password_change: PasswordChangePolicy::Preserve,
             move_import: ImportPolicy::CoveredByContainer,
+            census: CensusPolicy::Inherit,
         ),
         ArtifactId::PortableArtifacts => row!(id, PathRule::Exact("archive/portable-artifacts.pkf"), ContentClass::Original, DataScope::Shared, None, Some(KeyPurpose::BundleArtifacts);
             open: OpenPolicy::NotOpened, snapshot: SnapshotPolicy::Omit,
@@ -721,6 +785,7 @@ pub const fn spec(id: ArtifactId) -> ArtifactSpec {
             export_target: ExportTargetPolicy::Allow, conversion: ConversionPolicy::Omit,
             prevents_new_envelope: false, password_change: PasswordChangePolicy::Preserve,
             move_import: ImportPolicy::Preserve,
+            census: CensusPolicy::Inherit,
         ),
         ArtifactId::LegacyRekeyTemps => row!(id, PathRule::Family { parent: "archive", family: FileFamily::LegacyDatabaseTemps, pattern: FamilyPattern::Extension("rekey.sqlite") }, ContentClass::Original, DataScope::NestedArchive, None, None;
             open: OpenPolicy::NotOpened, snapshot: SnapshotPolicy::Omit,
@@ -731,6 +796,7 @@ pub const fn spec(id: ArtifactId) -> ArtifactSpec {
             export_target: ExportTargetPolicy::Allow, conversion: ConversionPolicy::Omit,
             prevents_new_envelope: false, password_change: PasswordChangePolicy::Preserve,
             move_import: ImportPolicy::Preserve,
+            census: CensusPolicy::Inherit,
         ),
         ArtifactId::LegacyRestoreTemps => row!(id, PathRule::Family { parent: "archive", family: FileFamily::LegacyDatabaseTemps, pattern: FamilyPattern::Extension("restore.sqlite") }, ContentClass::Original, DataScope::NestedArchive, None, None;
             open: OpenPolicy::NotOpened, snapshot: SnapshotPolicy::Omit,
@@ -741,6 +807,7 @@ pub const fn spec(id: ArtifactId) -> ArtifactSpec {
             export_target: ExportTargetPolicy::Allow, conversion: ConversionPolicy::Omit,
             prevents_new_envelope: false, password_change: PasswordChangePolicy::Preserve,
             move_import: ImportPolicy::Preserve,
+            census: CensusPolicy::Inherit,
         ),
         ArtifactId::OtherLegacySnapshots => row!(id, PathRule::Family { parent: "raw-snapshots", family: FileFamily::LegacySnapshots, pattern: FamilyPattern::Extension("sqlite") }, ContentClass::Original, DataScope::NestedArchive, None, None;
             open: OpenPolicy::NotOpened, snapshot: SnapshotPolicy::Omit,
@@ -751,6 +818,7 @@ pub const fn spec(id: ArtifactId) -> ArtifactSpec {
             export_target: ExportTargetPolicy::Allow, conversion: ConversionPolicy::Omit,
             prevents_new_envelope: false, password_change: PasswordChangePolicy::Preserve,
             move_import: ImportPolicy::CoveredByContainer,
+            census: CensusPolicy::Inherit,
         ),
         ArtifactId::ArchiveBackups => row!(id, PathRule::Family { parent: "archive", family: FileFamily::PreviousArchives, pattern: FamilyPattern::Contains(".bak-") }, ContentClass::Original, DataScope::NestedArchive, None, None;
             open: OpenPolicy::NotOpened, snapshot: SnapshotPolicy::Omit,
@@ -761,6 +829,7 @@ pub const fn spec(id: ArtifactId) -> ArtifactSpec {
             export_target: ExportTargetPolicy::Allow, conversion: ConversionPolicy::Omit,
             prevents_new_envelope: false, password_change: PasswordChangePolicy::Preserve,
             move_import: ImportPolicy::Preserve,
+            census: CensusPolicy::Inherit,
         ),
         ArtifactId::McpIntegration => row!(id, PathRule::Exact("integrations/pathkeep-mcp.json"), ContentClass::Control, DataScope::Shared, None, None;
             open: OpenPolicy::NotOpened, snapshot: SnapshotPolicy::Omit,
@@ -771,6 +840,7 @@ pub const fn spec(id: ArtifactId) -> ArtifactSpec {
             export_target: ExportTargetPolicy::Allow, conversion: ConversionPolicy::Omit,
             prevents_new_envelope: false, password_change: PasswordChangePolicy::Preserve,
             move_import: ImportPolicy::Preserve,
+            census: CensusPolicy::Inherit,
         ),
         ArtifactId::SkillIntegration => row!(id, PathRule::Exact("integrations/codex-pathkeep-skill/SKILL.md"), ContentClass::Control, DataScope::Shared, None, None;
             open: OpenPolicy::NotOpened, snapshot: SnapshotPolicy::Omit,
@@ -781,6 +851,7 @@ pub const fn spec(id: ArtifactId) -> ArtifactSpec {
             export_target: ExportTargetPolicy::Allow, conversion: ConversionPolicy::Omit,
             prevents_new_envelope: false, password_change: PasswordChangePolicy::Preserve,
             move_import: ImportPolicy::Preserve,
+            census: CensusPolicy::Inherit,
         ),
         ArtifactId::BrowserSnippetHost => row!(id, PathRule::Exact("integrations/core-intelligence/browser-snippet-v1"), ContentClass::Rebuildable, DataScope::Browsing, None, None;
             open: OpenPolicy::NotOpened, snapshot: SnapshotPolicy::Omit,
@@ -791,6 +862,7 @@ pub const fn spec(id: ArtifactId) -> ArtifactSpec {
             export_target: ExportTargetPolicy::Allow, conversion: ConversionPolicy::Omit,
             prevents_new_envelope: false, password_change: PasswordChangePolicy::Preserve,
             move_import: ImportPolicy::Preserve,
+            census: CensusPolicy::Inherit,
         ),
         ArtifactId::ScheduleLogs => row!(id, PathRule::Exact("schedule/logs"), ContentClass::Control, DataScope::Shared, None, None;
             open: OpenPolicy::NotOpened, snapshot: SnapshotPolicy::Omit,
@@ -801,6 +873,7 @@ pub const fn spec(id: ArtifactId) -> ArtifactSpec {
             export_target: ExportTargetPolicy::Allow, conversion: ConversionPolicy::Omit,
             prevents_new_envelope: false, password_change: PasswordChangePolicy::Preserve,
             move_import: ImportPolicy::Preserve,
+            census: CensusPolicy::Inherit,
         ),
         ArtifactId::ScheduleAttempts => row!(id, PathRule::Exact("schedule/attempts"), ContentClass::Control, DataScope::Shared, None, None;
             open: OpenPolicy::NotOpened, snapshot: SnapshotPolicy::Omit,
@@ -811,6 +884,7 @@ pub const fn spec(id: ArtifactId) -> ArtifactSpec {
             export_target: ExportTargetPolicy::Allow, conversion: ConversionPolicy::Omit,
             prevents_new_envelope: false, password_change: PasswordChangePolicy::Preserve,
             move_import: ImportPolicy::Preserve,
+            census: CensusPolicy::Inherit,
         ),
         ArtifactId::SchedulerAudit => row!(id, PathRule::Exact("audit/scheduler"), ContentClass::Control, DataScope::Shared, None, None;
             open: OpenPolicy::NotOpened, snapshot: SnapshotPolicy::Omit,
@@ -821,6 +895,7 @@ pub const fn spec(id: ArtifactId) -> ArtifactSpec {
             export_target: ExportTargetPolicy::Allow, conversion: ConversionPolicy::Omit,
             prevents_new_envelope: false, password_change: PasswordChangePolicy::Preserve,
             move_import: ImportPolicy::CoveredByContainer,
+            census: CensusPolicy::Inherit,
         ),
     }
 }
