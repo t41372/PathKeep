@@ -135,6 +135,12 @@ pub fn convert_owned(
     mut progress: impl FnMut(Progress),
     owner: Option<Arc<OwnerLock>>,
 ) -> Result<InstalledArchive> {
+    // A delete-all-data the user confirmed has not finished; see `vault_core::maintenance`.
+    anyhow::ensure!(
+        !vault_core::data_wipe_interrupted(paths),
+        "archive-wipe-pending: a delete-all-data has not finished; it finishes before anything is \
+         converted or imported"
+    );
     let owner = match owner {
         Some(owner) => owner,
         None => Arc::new(OwnerLock::acquire(&paths.app_root)?),

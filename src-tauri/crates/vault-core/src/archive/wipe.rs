@@ -91,6 +91,16 @@
 //! 10. An intent this build did not write, or one it cannot read, deletes something the user
 //!     never confirmed. Its identity and version are checked, and an unreadable one stops the
 //!     wipe.
+//! 11. An intent finishes a wipe of another archive than the one the user confirmed: the folder
+//!     was restored from a backup or imported into after a wipe could not finish, or the intent
+//!     was carried in from another folder. The intent records the control the user confirmed
+//!     deleting and the emptied control the wipe writes; it is finished only while the folder
+//!     holds one of the two, and is discarded otherwise. Restore, import and conversion finish a
+//!     pending wipe before they install anything (`vault-worker`), and refuse while one is
+//!     pending. A marker of PathKeep 0.5 is not acted on beside a stamped control: that release
+//!     cannot have started a wipe of an archive it cannot read.
+//! 12. A temporary file of an interrupted atomic write keeps the old settings past the wipe. The
+//!     `.pk-durable-*` files directly in the folder are removed with the rest.
 //!
 //! ## Performance notes
 //! - The preview takes the visit count from the last backup's cached totals; it only counts rows
@@ -125,6 +135,10 @@ const VERSION: u32 = 1;
 pub(crate) struct WipeIntent {
     identity: String,
     version: u32,
+    /// SHA-256 of `config.json` as it was when the user confirmed; `None` if there was none.
+    control: Option<String>,
+    /// The emptied `config.json` the wipe writes first, exactly. `None` if there was no control.
+    emptied: Option<String>,
     #[serde(flatten)]
     outside: WipeOutsideState,
 }
@@ -211,12 +225,20 @@ pub fn wipe_all_data(
         ArchiveWriteLock::acquire(paths).context("waiting for other archive work to finish")?;
     fs::create_dir_all(&paths.app_root)
         .with_context(|| format!("creating {}", paths.app_root.display()))?;
-    let intent =
-        WipeIntent { identity: IDENTITY.into(), version: VERSION, outside: outside.clone() };
+    // Under the locks: the control the user confirmed deleting is the one on disk now.
+    let control = crate::admission::read_control(&paths.app_root)?;
+    let emptied = control.as_ref().map(|_| emptied_control(paths)).transpose()?;
+    let intent = WipeIntent {
+        identity: IDENTITY.into(),
+        version: VERSION,
+        control: control.as_deref().map(crate::utils::sha256_hex),
+        emptied,
+        outside: outside.clone(),
+    };
     let bytes = serde_json::to_vec(&intent).context("serializing the wipe intent")?;
     atomic_durable_write(&intent_path(paths), &bytes).context("writing the wipe intent")?;
     crate::fault_inject::checkpoint("wipe-intent-written")?;
-    run_wipe(paths, outside, quiesce, clear_secrets, remove_schedule)
+    run_wipe(paths, &intent.into_recorded(), quiesce, clear_secrets, remove_schedule)
 }
 
 /// Asks running AI and intelligence queue jobs to stop at their next checkpoint.
@@ -268,12 +290,65 @@ pub fn finish_interrupted_data_wipe(
     if !data_wipe_interrupted(paths) {
         return Ok(None);
     }
-    let outside = recorded_outside_state(paths)?;
-    run_wipe(paths, &outside, quiesce, clear_secrets, remove_schedule).map(Some)
+    let recorded = recorded_outside_state(paths)?;
+    if !recorded.describes(paths)? {
+        // Not the archive the user confirmed deleting. Nothing of it is touched; the record,
+        // which can no longer be acted on, is removed so that no later start acts on it either.
+        eprintln!(
+            "pathkeep: discarding a delete-all-data record that does not match this archive: {}",
+            recorded.path.display()
+        );
+        remove_file_durably(&recorded.path).context("removing a stale wipe record")?;
+        return Ok(None);
+    }
+    run_wipe(paths, &recorded, quiesce, clear_secrets, remove_schedule).map(Some)
 }
 
-/// What the interrupted wipe's record says to clear outside the folder.
-fn recorded_outside_state(paths: &ProjectPaths) -> Result<WipeOutsideState> {
+/// An interrupted wipe's record, whichever release wrote it.
+struct Recorded {
+    path: PathBuf,
+    outside: WipeOutsideState,
+    /// What this build's intent recorded; for a 0.5 marker, nothing.
+    binding: Option<(Option<String>, Option<String>)>,
+}
+
+impl WipeIntent {
+    fn into_recorded(self) -> Recorded {
+        Recorded {
+            path: PathBuf::new(),
+            outside: self.outside,
+            binding: Some((self.control, self.emptied)),
+        }
+    }
+}
+
+impl Recorded {
+    /// Whether the folder still holds the archive the user confirmed deleting: the control they
+    /// confirmed, or the emptied one this wipe wrote. A marker of PathKeep 0.5 binds to nothing,
+    /// so it is honoured as that release would, except beside a stamped control: 0.5 cannot have
+    /// started a wipe of an archive it cannot read.
+    fn describes(&self, paths: &ProjectPaths) -> Result<bool> {
+        let current = crate::admission::read_control(&paths.app_root)?;
+        Ok(match &self.binding {
+            Some((confirmed, emptied)) => match current {
+                None => confirmed.is_none(),
+                Some(bytes) => {
+                    confirmed.as_deref() == Some(crate::utils::sha256_hex(&bytes).as_str())
+                        || emptied.as_deref().map(str::as_bytes) == Some(bytes.as_slice())
+                }
+            },
+            None => match current {
+                None => true,
+                Some(bytes) => crate::admission::parse_control(&paths.app_root, &bytes)
+                    .map(|control| control.compatibility.is_none())
+                    .unwrap_or(false),
+            },
+        })
+    }
+}
+
+/// What the interrupted wipe's record says, and which record it is.
+fn recorded_outside_state(paths: &ProjectPaths) -> Result<Recorded> {
     let unreadable = |path: &Path| {
         anyhow::anyhow!(
             "{}: the delete-all-data record {} is not one this build wrote; nothing was deleted",
@@ -283,18 +358,19 @@ fn recorded_outside_state(paths: &ProjectPaths) -> Result<WipeOutsideState> {
     };
     let intent = intent_path(paths);
     if intent.exists() {
-        return fs::read(&intent)
+        let record = fs::read(&intent)
             .ok()
             .and_then(|bytes| serde_json::from_slice::<WipeIntent>(&bytes).ok())
             .filter(|record| record.identity == IDENTITY && record.version == VERSION)
-            .map(|record| record.outside)
-            .ok_or_else(|| unreadable(&intent));
+            .ok_or_else(|| unreadable(&intent))?;
+        return Ok(Recorded { path: intent, ..record.into_recorded() });
     }
     let legacy = legacy_marker_path(paths);
-    fs::read(&legacy)
+    let outside = fs::read(&legacy)
         .ok()
         .and_then(|bytes| serde_json::from_slice::<WipeOutsideState>(&bytes).ok())
-        .ok_or_else(|| unreadable(&legacy))
+        .ok_or_else(|| unreadable(&legacy))?;
+    Ok(Recorded { path: legacy, outside, binding: None })
 }
 
 /// Whether the marker PathKeep 0.5 left decodes. A folder without a control is finished only on
@@ -305,18 +381,27 @@ pub(crate) fn legacy_marker_is_readable(paths: &ProjectPaths) -> bool {
         .is_some_and(|bytes| serde_json::from_slice::<WipeOutsideState>(&bytes).is_ok())
 }
 
-/// Replaces the control with an empty, not-initialized one, keeping the archive's compatibility
-/// stamp. Nothing if there is no control (a marker of PathKeep 0.5 is finished after that release
-/// had already removed it).
-fn empty_control(paths: &ProjectPaths) -> Result<()> {
-    if !paths.config_path.exists() {
-        return Ok(());
-    }
+/// The empty, not-initialized control that replaces the archive's: default settings, the
+/// archive's compatibility stamp kept.
+fn emptied_control(paths: &ProjectPaths) -> Result<String> {
     let compatibility =
         crate::admission::guard(&paths.app_root)?.and_then(|control| control.compatibility);
     let mut config = AppConfig::default();
     crate::models::normalize_app_config(&mut config);
-    let content = crate::config::encode_config(&config, compatibility.as_ref())?;
+    crate::config::encode_config(&config, compatibility.as_ref())
+}
+
+/// Replaces the control with the empty one. The intent's own copy when it has one, so a wipe
+/// finished by another build writes the same bytes the intent recorded. Nothing if there is no
+/// control (a marker of PathKeep 0.5 is finished after that release had already removed it).
+fn empty_control(paths: &ProjectPaths, recorded: &Recorded) -> Result<()> {
+    if !paths.config_path.exists() {
+        return Ok(());
+    }
+    let content = match &recorded.binding {
+        Some((_, Some(emptied))) => emptied.clone(),
+        _ => emptied_control(paths)?,
+    };
     atomic_durable_write(&paths.config_path, content.as_bytes())
         .context("replacing the configuration with an empty one")
 }
@@ -324,12 +409,13 @@ fn empty_control(paths: &ProjectPaths) -> Result<()> {
 /// The deletion itself. Callers hold the gate and the write lock and have written the intent.
 fn run_wipe(
     paths: &ProjectPaths,
-    outside: &WipeOutsideState,
+    recorded: &Recorded,
     quiesce: impl FnOnce() -> Result<()>,
     clear_secrets: impl FnOnce(&WipeOutsideState) -> Result<()>,
     remove_schedule: impl FnOnce(&SchedulePlan) -> Result<()>,
 ) -> Result<WipeReport> {
-    empty_control(paths)?;
+    let outside = &recorded.outside;
+    empty_control(paths, recorded)?;
     crate::fault_inject::checkpoint("wipe-control-emptied")?;
     quiesce()?;
 
@@ -401,7 +487,7 @@ fn wipe_targets(paths: &ProjectPaths) -> Result<Vec<PathBuf>> {
         ));
     }
     targets.extend(vault_layout::wipe_targets().into_iter().map(|id| paths.artifact_path(id)));
-    for family in artifacts().filter(|s| s.lifecycle.wipe == WipePolicy::RootBackups) {
+    for family in artifacts().filter(|s| s.lifecycle.wipe == WipePolicy::RootFamily) {
         let pattern = vault_layout::family_pattern(family.id);
         targets.extend(
             entries_of(&paths.app_root.join(spec(family.id).path.relative()))?.into_iter().filter(

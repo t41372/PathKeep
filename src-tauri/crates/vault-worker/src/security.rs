@@ -53,6 +53,8 @@ pub fn configure_app_lock_passcode(
     request: &vault_core::SetAppLockPasscodeRequest,
 ) -> Result<AppLockStatus> {
     let paths = vault_core::project_paths()?;
+    // Serialized with "delete all data": the passcode write also saves the settings.
+    let _operation = vault_core::archive::ArchiveOpGate::acquire(&paths);
     let mut config = load_unlocked_config(&paths)?;
     set_app_lock_passcode(&paths, &mut config, request)?;
     resolved_app_lock_status(&paths, &config)
@@ -66,6 +68,8 @@ pub fn configure_app_lock_passcode(
 /// not this normal-path mutation.
 pub fn remove_app_lock_passcode() -> Result<AppLockStatus> {
     let paths = vault_core::project_paths()?;
+    // Serialized with "delete all data": clearing the passcode also saves the settings.
+    let _operation = vault_core::archive::ArchiveOpGate::acquire(&paths);
     let mut config = load_unlocked_config(&paths)?;
     clear_app_lock_passcode(&paths, &mut config)?;
     resolved_app_lock_status(&paths, &config)

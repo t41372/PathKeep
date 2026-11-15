@@ -307,6 +307,39 @@ fn an_import_replaces_an_archive_whose_control_is_damaged_or_lost() {
     }
 }
 
+// An import over a folder whose confirmed wipe was cut short finishes that wipe first, as
+// initialization does: the archive it then installs is not deleted at the next start.
+#[test]
+fn an_import_finishes_a_pending_wipe_before_it_installs() {
+    let mut f = Fixture::new(true);
+    let bundle = f.bundle_source();
+    f.session.close_vault().unwrap();
+    f.vault.take().unwrap().close().unwrap();
+    let confirmed = vault_core::utils::sha256_hex(&fs::read(f.root.join("config.json")).unwrap());
+    f.write(
+        ".pk-wipe-v2.json",
+        format!(
+            r#"{{"identity":"pathkeep-wipe","version":1,"control":"{confirmed}","emptied":null,"providerIds":[],"schedule":null}}"#
+        ),
+    );
+    let (_, installed) = vault_worker::apply_import(
+        &f.paths(),
+        None,
+        None,
+        bundle,
+        vault_core::ApplyImportOptions {
+            source_archive_key: Some(support::PASSWORD.into()),
+            confirm_overwrite: true,
+        },
+    )
+    .unwrap();
+    installed.vault.close().unwrap();
+    assert!(!f.root.join(".pk-wipe-v2.json").exists());
+    assert!(vault_core::load_config(&f.paths()).unwrap().initialized);
+    assert!(!vault_worker::finish_interrupted_data_wipe().unwrap(), "nothing left to finish");
+    assert!(f.root.join("archive/history-vault.db").is_file());
+}
+
 // Files PathKeep has no name for at the top of the data folder do not make it an archive.
 #[test]
 fn files_that_are_not_pathkeeps_do_not_block_a_first_run() {

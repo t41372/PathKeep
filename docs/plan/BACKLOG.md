@@ -400,6 +400,11 @@
   - 要看的：Windows 上 7-Zip 解得開 NSIS 與 MSI、讀得到 MSI 的檔名表；Linux runner 上有 `rpm2cpio`、`dpkg-deb`，AppImage 解得開；macOS 上 DMG 掛得起來、Intel 版在 Apple Silicon runner 上靠 Rosetta 跑得起來；上傳的檔案名稱和 v0.5.0 的一致（產品名稱現在由 `tauri.distribution.conf.json` 蓋回去）；故意拿掉標記跑一次，確認會停在上傳之前。
   - 順便做：這次產出的 Windows 與 Linux 安裝包是正式發布版身分，拿來測「裝在 v0.5.0 上面升級」。Windows 測試包（`Windows Test Binary`）現在是開發版，測不了升級。
 
+- [ ] **WORK-WRITE-LOCK-WINDOWS** — 跨行程寫入鎖在 Windows 上是會直接報錯的空殼，「刪除所有資料」在 Windows 上很可能一律失敗（2026-11-15，ChatGPT 審查 5a 時順帶指出，未在 Windows 上驗證）
+  - `vault-core/src/archive/write_lock.rs` 的 `try_lock_exclusive` 在非 unix 平台直接回傳「this platform is unsupported」。「刪除所有資料」、中斷刪除的接續、v0.3 的啟動修復與還原都會取這把鎖，所以在 Windows 上這些操作應該都會失敗。大部分刪除測試沒有標成只在 unix 跑，CI 也沒有在 Windows 上跑 `vault-core` 的測試，所以一直沒被看見。
+  - 先在 Windows 上實際跑一次「刪除所有資料」確認；成立的話，用 Windows 的檔案鎖（`LockFileEx`）實作同樣的語意，並讓這些測試在 Windows CI 跑。
+  - 同一份檔案的開頭說明還在講「排程備份是另一個行程」的舊架構。現在只有一個 owner 行程能打開存檔（owner lock），排程備份在 owner 裡跑，改名前 Store 已暫停並關閉；說明要跟著改成現況，並寫清楚這把鎖現在擋的是什麼。
+
 - [ ] **WORK-FLAKY-CACHE-RSS-TEST** — `vault-crypto/tests/search_index.rs` 的 `the_block_cache_bounds_memory` 在機器記憶體吃緊時會失敗（2026-11-15）
   - 現象：完整檢查同時跑很多測試時失敗一次，上限 2 MiB 的快取確實守住（`max_cache_mib=2.00`），但「無上限」那一輪的常駐記憶體只多 7.8 MiB（單獨跑是 18.7 MiB），斷言 `small + 4 < unbounded` 不成立。單獨重跑兩次都通過。
   - 原因：它用行程的常駐記憶體當量尺；系統在壓力下回收或壓縮分頁時，無上限那一輪看起來就沒有變大。測的東西沒有錯，量尺會被別的行程影響。

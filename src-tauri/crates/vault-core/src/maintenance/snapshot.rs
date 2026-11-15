@@ -127,6 +127,13 @@ pub fn restore_snapshot_to(
     // A damaged or missing control is what a restore repairs. One that needs a newer PathKeep
     // is not damage: replacing it would put an older archive over a newer one.
     crate::admission::refuse_newer(&paths.app_root)?;
+    // A delete-all-data the user confirmed has not finished. Installing an archive now would put
+    // it where that wipe, once finished, deletes it.
+    anyhow::ensure!(
+        !crate::data_wipe_interrupted(paths),
+        "archive-wipe-pending: a delete-all-data has not finished; it finishes before anything is \
+         restored or imported"
+    );
     verify(source)?;
     // The snapshot's own control, read where it lies, before anything is staged in the target.
     if let Some(control) = crate::admission::read_control(source)? {

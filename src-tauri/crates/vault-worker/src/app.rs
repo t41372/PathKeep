@@ -276,6 +276,9 @@ pub fn save_user_config_with_vault(
     session_database_key: Option<&str>,
 ) -> Result<AppSnapshot> {
     let paths = vault_core::project_paths()?;
+    // Serialized with "delete all data", which holds this gate from its intent to its last
+    // removal: a save that read the settings before a wipe must not write them back after it.
+    let operation = vault_core::archive::ArchiveOpGate::acquire(&paths);
     let previous_config = load_hydrated_config(&paths)
         .context("loading the current configuration before saving user changes")?;
     // Settings (including App Lock's own enabled/biometric fields) must not be
@@ -307,6 +310,7 @@ pub fn save_user_config_with_vault(
     )?;
     save_config(&paths, &next_config)?;
     reconcile_ai_queue_controls_or_restore_config(vault, &paths, &previous_config, &next_config)?;
+    drop(operation);
     // A new Insights time zone rebuilds Insights in it now, not at the next backup. A build
     // running meanwhile is followed by one in the new zone when it ends (the intelligence drain).
     if previous_config.insights_time_zone != next_config.insights_time_zone
@@ -451,6 +455,9 @@ pub fn convert_archive_with_progress(
 ) -> Result<AppSnapshot> {
     // Through installing the converted archive and its key, not only the conversion.
     let _running = crate::foreground_work::begin(crate::ForegroundWork::ArchiveUpgrade);
+    // A wipe cut short finishes first, as before initialization: the user confirmed it, and an
+    // archive installed under its record would be deleted by it at the next start.
+    crate::data_wipe::finish_interrupted_data_wipe()?;
     let paths = vault_core::project_paths()?;
     let mut config = config.clone();
     recover_unconverted(&paths, &mut config)?;

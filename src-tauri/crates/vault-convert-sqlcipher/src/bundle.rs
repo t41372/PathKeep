@@ -77,6 +77,12 @@ pub fn import(
     progress: impl FnMut(Progress),
 ) -> Result<(ImportResult, InstalledArchive)> {
     let _operation = vault_core::archive::ArchiveOpGate::acquire(paths);
+    // A delete-all-data the user confirmed has not finished; see `vault_core::maintenance`.
+    anyhow::ensure!(
+        !vault_core::data_wipe_interrupted(paths),
+        "archive-wipe-pending: a delete-all-data has not finished; it finishes before anything is \
+         converted or imported"
+    );
     let owner = match current {
         Some(vault) => vault.store().owner()?,
         None => match reservation {

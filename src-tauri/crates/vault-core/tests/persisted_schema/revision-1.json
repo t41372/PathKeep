@@ -846,6 +846,18 @@
           "format": "uint32",
           "minimum": 0
         },
+        "control": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "emptied": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "providerIds": {
           "type": "array",
           "items": {

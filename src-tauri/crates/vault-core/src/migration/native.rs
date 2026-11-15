@@ -263,6 +263,13 @@ pub fn import(
     let password =
         options.source_archive_key.as_deref().context(super::IMPORT_SOURCE_KEY_REQUIRED_PREFIX)?;
     crate::admission::refuse_newer(&paths.app_root)?;
+    // A delete-all-data the user confirmed has not finished. Installing an archive now would put
+    // it where that wipe, once finished, deletes it.
+    anyhow::ensure!(
+        !crate::data_wipe_interrupted(paths),
+        "archive-wipe-pending: a delete-all-data has not finished; it finishes before anything is \
+         restored or imported"
+    );
     // The bundle's own control is decided before the target gets a lock or a staging folder.
     if let Ok(key) = bundle_key(bundle, password) {
         crate::config::decode_config(bundle, &source_control(bundle, &key)?)?;

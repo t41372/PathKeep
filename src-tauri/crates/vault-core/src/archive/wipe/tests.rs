@@ -368,3 +368,106 @@ fn a_wipe_pathkeep_0_5_left_is_still_finished() {
     assert!(!archive_file(paths).exists());
     assert!(!paths.config_path.exists());
 }
+
+// A wipe the user confirmed for one archive, cut short, and another archive in the folder by the
+// next start (restored from a backup, imported, carried in): the record does not describe it.
+// Nothing of it is deleted, and the record is discarded.
+#[test]
+fn a_wipe_record_does_not_delete_another_archive() {
+    let fixture = backed_up_archive();
+    let paths = &fixture.paths;
+    let secrets = WipeOutsideState::from_config(&fixture.config, None);
+    let crashed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _fault = crate::fault_inject::FaultGuard::panic_at("wipe-intent-written");
+        let _ = wipe_all_data(paths, &secrets, no_quiesce, no_secrets, no_schedule);
+    }));
+    assert!(crashed.is_err());
+    let mut other = fixture.config.clone();
+    other.preferred_language = crate::LanguagePreference::ZhTw;
+    save_config(paths, &other).unwrap();
+    let before = file_contents_under(&paths.app_root);
+    let finished =
+        finish_interrupted_data_wipe(paths, no_quiesce, no_secrets, no_schedule).unwrap();
+    assert!(finished.is_none());
+    assert!(!data_wipe_interrupted(paths), "the stale record is discarded");
+    let mut after = file_contents_under(&paths.app_root);
+    after.remove(&paths.app_root.join(".pk-wipe-v2.json"));
+    let mut before = before;
+    before.remove(&paths.app_root.join(".pk-wipe-v2.json"));
+    assert_eq!(after, before, "nothing of the other archive changed");
+}
+
+// The record carries the emptied control it writes, exactly, so the check after a crash compares
+// bytes on disk with bytes in the record, whichever build finishes the wipe.
+#[test]
+fn the_record_holds_the_emptied_control_it_writes() {
+    let fixture = backed_up_archive();
+    let paths = &fixture.paths;
+    let secrets = WipeOutsideState::from_config(&fixture.config, None);
+    let confirmed = crate::utils::sha256_hex(&fs::read(&paths.config_path).unwrap());
+    let crashed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _fault = crate::fault_inject::FaultGuard::panic_at("wipe-control-emptied");
+        let _ = wipe_all_data(paths, &secrets, no_quiesce, no_secrets, no_schedule);
+    }));
+    assert!(crashed.is_err());
+    let record: serde_json::Value =
+        serde_json::from_slice(&fs::read(paths.app_root.join(".pk-wipe-v2.json")).unwrap())
+            .unwrap();
+    assert_eq!(record["control"], confirmed);
+    assert_eq!(
+        record["emptied"].as_str().unwrap().as_bytes(),
+        fs::read(&paths.config_path).unwrap()
+    );
+    finish_interrupted_data_wipe(paths, no_quiesce, no_secrets, no_schedule).unwrap().unwrap();
+    assert!(!archive_file(paths).exists());
+}
+
+// A crash during an atomic write leaves its temporary file beside the target, a full copy of the
+// settings if the target was config.json. The wipe removes it with the rest.
+#[test]
+fn a_leftover_temporary_settings_file_does_not_survive_the_wipe() {
+    let fixture = backed_up_archive();
+    let paths = &fixture.paths;
+    let leftover = paths.app_root.join(".pk-durable-1a2b3c");
+    fs::write(&leftover, fs::read(&paths.config_path).unwrap()).unwrap();
+    wipe_all_data(paths, &WipeOutsideState::default(), no_quiesce, no_secrets, no_schedule)
+        .expect("wipe");
+    assert!(!leftover.exists());
+}
+
+// Nothing is restored or imported over a folder whose confirmed wipe has not finished: the next
+// start would finish it and delete what was installed.
+#[test]
+fn nothing_is_installed_while_a_wipe_is_pending() {
+    let fixture = backed_up_archive();
+    let paths = &fixture.paths;
+    let crashed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _fault = crate::fault_inject::FaultGuard::panic_at("wipe-intent-written");
+        let _ =
+            wipe_all_data(paths, &WipeOutsideState::default(), no_quiesce, no_secrets, no_schedule);
+    }));
+    assert!(crashed.is_err());
+    let restore = crate::maintenance::restore_snapshot_to(
+        paths,
+        None,
+        None,
+        &paths.app_root.join("raw-snapshots/none"),
+        None,
+        Default::default(),
+    );
+    let import = crate::migration::native::import(
+        paths,
+        None,
+        None,
+        &paths.app_root.join("none.pkexport"),
+        &crate::ApplyImportOptions {
+            source_archive_key: Some("x".into()),
+            confirm_overwrite: true,
+        },
+        Default::default(),
+    );
+    for result in [restore.map(|_| ()), import.map(|_| ())] {
+        let error = result.expect_err("refused");
+        assert!(format!("{error:#}").contains("archive-wipe-pending"), "{error:#}");
+    }
+}

@@ -128,7 +128,8 @@ pub enum WipePolicy {
     ArchiveChildrenExceptLocks,
     Remove(u8),
     CoveredByParent,
-    RootBackups,
+    /// Entries directly in the data folder whose names match this row's family.
+    RootFamily,
     CoveredByRootBackups,
     PreserveRuntime,
     PreserveDiagnostics,

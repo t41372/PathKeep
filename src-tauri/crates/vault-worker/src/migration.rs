@@ -45,6 +45,9 @@ pub fn apply_import(
     bundle: PathBuf,
     options: ApplyImportOptions,
 ) -> Result<(ImportResult, InstalledArchive)> {
+    // A wipe cut short finishes first, as before initialization: the user confirmed it, and an
+    // archive installed under its record would be deleted by it at the next start.
+    crate::data_wipe::finish_interrupted_data_wipe()?;
     crate::context::load_unlocked_config(paths)?;
     let v0_3 = made_by_v0_3(&bundle)?;
     crate::maintenance_jobs::run(

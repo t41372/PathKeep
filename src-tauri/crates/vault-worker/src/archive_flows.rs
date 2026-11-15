@@ -93,6 +93,9 @@ pub fn run_full_archive_restore(
     // Until the restored archive is installed and its key stored, not only while the copy
     // runs: a quit that waited for the copy alone would leave the keychain behind.
     let _running = crate::foreground_work::begin(crate::ForegroundWork::Restore);
+    // A wipe cut short finishes first, as before initialization: the user confirmed it, and an
+    // archive installed under its record would be deleted by it at the next start.
+    crate::data_wipe::finish_interrupted_data_wipe()?;
     let paths = vault_core::project_paths()?;
     vault_core::admission::refuse_newer(&paths.app_root)?;
     if let Ok(config) = vault_core::load_config(&paths) {
