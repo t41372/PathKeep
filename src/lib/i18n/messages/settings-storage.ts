@@ -146,7 +146,8 @@ export const settingsStorage = defineMessages({
         'PathKeep keeps a copy before risky changes like a new password',
       action: 'Choose…',
       title: 'Restore from a safety copy',
-      intro: 'Your archive goes back to how it was when the copy was made.',
+      intro:
+        'Your archive goes back to how it was when the copy was made. Its password and encryption stay as they are now.',
       loadFailed: 'Could not list the safety copies. {message}',
       empty: 'There are no safety copies yet.',
       op: {
@@ -158,6 +159,12 @@ export const settingsStorage = defineMessages({
         unknown: 'Safety copy',
       },
       password: 'Password of this copy',
+      passwordHint:
+        'The password the archive had when this copy was made. Your current password stays.',
+      encryptsCopy:
+        'This copy was made before encryption was turned on. It is encrypted with your current password as it is restored, which takes longer.',
+      staysUnencrypted:
+        'Your archive isn’t encrypted, so this copy is restored unencrypted, like the rest of your archive.',
       warning:
         'Anything added since then is not in the copy. Your current archive is kept as a safety copy you can go back to. It takes about as much disk space as the archive.',
       confirm: 'Restore',
@@ -322,7 +329,7 @@ export const settingsStorage = defineMessages({
       rowDescription: '在更改密码等有风险的操作之前，PathKeep 会先保存一份副本',
       action: '选择…',
       title: '从安全副本恢复',
-      intro: '你的存档会回到副本保存时的状态。',
+      intro: '你的存档会回到副本保存时的状态；密码和加密方式保持现在的样子。',
       loadFailed: '无法列出安全副本。{message}',
       empty: '还没有任何安全副本。',
       op: {
@@ -334,6 +341,11 @@ export const settingsStorage = defineMessages({
         unknown: '安全副本',
       },
       password: '这份副本的密码',
+      passwordHint: '保存这份副本时存档使用的密码。恢复后仍然使用当前的密码。',
+      encryptsCopy:
+        '这份副本是开启加密之前保存的，恢复时会用当前的密码加密，需要多花一些时间。',
+      staysUnencrypted:
+        '当前的存档没有加密，这份副本恢复后也不加密，和存档的其他部分一样。',
       warning:
         '之后新增的内容不在副本里。当前的存档会保留为一份安全副本，之后还能恢复回来；它占用的空间和存档差不多。',
       confirm: '恢复',
@@ -496,7 +508,7 @@ export const settingsStorage = defineMessages({
       rowDescription: '在更改密碼等有風險的操作之前，PathKeep 會先保存一份副本',
       action: '選擇…',
       title: '從安全副本還原',
-      intro: '你的存檔會回到副本保存時的狀態。',
+      intro: '你的存檔會回到副本保存時的狀態；密碼和加密方式維持現在的樣子。',
       loadFailed: '無法列出安全副本。{message}',
       empty: '還沒有任何安全副本。',
       op: {
@@ -508,6 +520,11 @@ export const settingsStorage = defineMessages({
         unknown: '安全副本',
       },
       password: '這份副本的密碼',
+      passwordHint: '保存這份副本時存檔使用的密碼。還原後仍然使用目前的密碼。',
+      encryptsCopy:
+        '這份副本是開啟加密之前保存的，還原時會用目前的密碼加密，需要多花一些時間。',
+      staysUnencrypted:
+        '目前的存檔沒有加密，這份副本還原後也不加密，和存檔的其他部分一樣。',
       warning:
         '之後新增的內容不在副本裡。目前的存檔會保留為一份安全副本，之後還能還原回來；它佔用的空間和存檔差不多。',
       confirm: '還原',

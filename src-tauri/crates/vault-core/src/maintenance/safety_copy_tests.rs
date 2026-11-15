@@ -163,3 +163,24 @@ fn an_import_keeps_the_archive_it_replaced_and_into_an_empty_folder_keeps_nothin
         restore_snapshot(&imported.vault, Path::new(&copy), None, Default::default()).unwrap();
     assert_eq!(marker(&back.vault, Db::Archive).as_deref(), Some("replaced-by-the-import"));
 }
+
+// The copy of an encrypted archive holds its key file, the archive's own, so it restores with the
+// password the archive had: the one it still has, since a restore keeps it.
+#[test]
+fn the_copy_of_an_encrypted_archive_restores_with_its_password() {
+    let (_root, vault, _) = super::tests::encrypted();
+    let paths = vault.paths().clone();
+    let copies = tempfile::tempdir().unwrap();
+    let older = copies.path().join("older");
+    write_marker(vault.store(), Db::Archive, "in-the-older-copy");
+    snapshot(&vault, &older).unwrap();
+    write_marker(vault.store(), Db::Archive, "replaced-by-the-restore");
+
+    let restored =
+        restore_snapshot(&vault, &older, Some("old password"), Default::default()).unwrap();
+    let copy = the_copy_before(&paths, "restore");
+    assert!(copies_before(&paths, "restore")[0].encrypted);
+    let back =
+        restore_snapshot(&restored.vault, &copy, Some("old password"), Default::default()).unwrap();
+    assert_eq!(marker(&back.vault, Db::Archive).as_deref(), Some("replaced-by-the-restore"));
+}

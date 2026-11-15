@@ -80,11 +80,12 @@ pub fn list_recovery_snapshots() -> Result<Vec<vault_core::RecoverySnapshot>> {
     Ok(snapshots)
 }
 
-/// Runs the one-click full-archive restore (D1): quarantine the broken canonical files, install +
-/// verify the chosen snapshot, reconcile config, rebuild an empty source-evidence.
+/// Restores the archive from a safety copy PathKeep lists. Its browsing data comes back under the
+/// archive's own encryption and password, the agent conversations stay, and the archive it
+/// replaces becomes a safety copy (`vault_core::maintenance::restore_snapshot_to`).
 ///
-/// The canonical archive may be un-openable (that is the whole point of this recovery), so the
-/// config falls back to default rather than failing the restore on a `load_unlocked_config` error.
+/// The archive may not open (that is when a restore is needed most), so its config falls back to
+/// default rather than failing the restore on a `load_unlocked_config` error.
 pub fn run_full_archive_restore(
     session: &crate::VaultSession,
     password: Option<&str>,
@@ -113,6 +114,8 @@ pub fn run_full_archive_restore(
     );
     let current = session.current_vault();
     let live_key = session.data_key();
+    // The archive keeps its password (`restore_snapshot_to`); `password` opens only the copy.
+    let archive_password = session.get_key().map_err(anyhow::Error::msg)?;
     let legacy = source.is_file();
     let installed = crate::maintenance_jobs::run(
         &paths.app_root,
@@ -160,9 +163,16 @@ pub fn run_full_archive_restore(
         source_evidence_rebuilt: legacy,
         warnings,
     };
+    // An archive kept under its own key keeps its password. One that had none takes the copy's
+    // encryption, and the copy's password is then the archive's.
+    let password_after = match (&installed.data_key, &live_key) {
+        (None, _) => None,
+        (Some(_), Some(_)) => archive_password,
+        (Some(_), None) => password.map(str::to_owned),
+    };
     session.install_archive(
         installed,
-        password.map(str::to_owned),
+        password_after,
         crate::session::KeychainAfterInstall::AsSaved,
     )?;
     Ok(report)

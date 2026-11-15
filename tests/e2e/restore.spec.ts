@@ -1,0 +1,119 @@
+/**
+ * Restoring from a safety copy: history comes back, the archive keeps its own
+ * password and encryption, and the archive it replaces becomes a copy too.
+ *
+ * Proves: the archive the move replaced is listed as "Before an import"; it is
+ * restored with the password it had then, yet afterwards only the current
+ * password opens the archive, and the key this computer's keychain remembers
+ * still opens it on its own; the archive the restore replaced is listed as
+ * "Before a restore", so the restore can be undone the same way.
+ *
+ * Runs after move.spec (app lock is on, passcode 4826): the archive's password
+ * is the moved file's, and the archive the move replaced, with security.spec's
+ * password, is the "Before an import" copy.
+ */
+import { expect, test, type Page } from '@playwright/test'
+import { backend, openArchiveVisitTotal } from './support/fixture'
+
+/** move.spec's file password, the archive's password since. */
+const CURRENT = 'moving day, 2026'
+/** security.spec's, the password of the archive the move replaced. */
+const BEFORE_THE_MOVE = 'a longer passphrase, 2026'
+
+interface Copy {
+  sourceOp: string
+  verifiedOpenable: boolean
+}
+
+/** Whether `password` opens the archive, asked without changing anything. */
+async function opensArchive(password: string) {
+  try {
+    await backend('preview_rekey_archive', {
+      request: {
+        newMode: 'Encrypted',
+        newKey: 'unused new password',
+        currentKey: password,
+      },
+    })
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function unlockAppLock(page: Page) {
+  const appLock = page.getByRole('heading', { name: 'PathKeep is locked' })
+  if (await appLock.isVisible().catch(() => false)) {
+    await page.getByPlaceholder('Passcode').fill('4826')
+    await page.getByPlaceholder('Passcode').press('Enter')
+    await expect(appLock).toBeHidden()
+  }
+}
+
+async function unlockIfAsked(page: Page) {
+  await unlockAppLock(page)
+  const archive = page.getByRole('heading', {
+    name: 'Your archive is encrypted',
+  })
+  if (await archive.isVisible().catch(() => false)) {
+    await page.getByPlaceholder('Password').fill(CURRENT)
+    await page.getByPlaceholder('Password').press('Enter')
+    await expect(archive).toBeHidden()
+  }
+}
+
+async function openRestoreDialog(page: Page, unlock = unlockIfAsked) {
+  await page.goto('/#/settings/storage')
+  await unlock(page)
+  await page
+    .getByText('Restore from a safety copy', { exact: true })
+    .locator('xpath=../..')
+    .getByRole('button', { name: 'Choose…' })
+    .click()
+  return page.getByRole('dialog')
+}
+
+test('a restore keeps the archive password and can itself be undone', async ({
+  page,
+}) => {
+  // The restore copies, checks and indexes the whole archive in a debug build.
+  test.setTimeout(600_000)
+  const dialog = await openRestoreDialog(page)
+  const before = await openArchiveVisitTotal()
+  expect(before).toBeGreaterThan(0)
+  expect(await opensArchive(BEFORE_THE_MOVE)).toBe(false)
+
+  await dialog.getByRole('radio', { name: /^Before an import/ }).click()
+  await expect(dialog.getByText(/Your current password stays/)).toBeVisible()
+  await dialog.getByLabel('Password of this copy').fill(BEFORE_THE_MOVE)
+  await dialog.getByRole('button', { name: 'Restore', exact: true }).click()
+  await expect(page.getByText('Archive restored.')).toBeVisible({
+    timeout: 300_000,
+  })
+  await unlockIfAsked(page)
+  await expect.poll(openArchiveVisitTotal, { timeout: 60_000 }).toBe(before)
+
+  // The copy's password opened the copy; the archive keeps its own.
+  expect(await opensArchive(CURRENT)).toBe(true)
+  expect(await opensArchive(BEFORE_THE_MOVE)).toBe(false)
+  const copies = await backend<Copy[]>('list_recovery_snapshots')
+  const listed = (op: string) =>
+    copies.filter((copy) => copy.sourceOp === op && copy.verifiedOpenable)
+  expect(listed('restore')).toHaveLength(1)
+  expect(listed('import')).toHaveLength(1)
+
+  // The same key, too: with the session key gone, the window opens the archive
+  // from the keychain alone when it loads a page of history.
+  expect(await backend<boolean>('keyring_get_database_key')).toBe(true)
+  await backend('clear_session_database_key')
+  await page.goto('/#/browsing/history')
+  await unlockAppLock(page)
+  expect(await openArchiveVisitTotal()).toBe(before)
+  await expect(
+    page.getByRole('heading', { name: 'Your archive is encrypted' }),
+  ).toBeHidden()
+  const undo = await openRestoreDialog(page, unlockAppLock)
+  await expect(
+    undo.getByRole('radio', { name: /^Before a restore/ }),
+  ).toBeVisible()
+})

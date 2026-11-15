@@ -347,11 +347,11 @@ pub fn import(
     Ok((report, installed))
 }
 
-/// The settings of this machine an import keeps (`keep_machine_settings`). An import replaces the
-/// archive, also one whose control is damaged or lost (a newer one is refused before this). Then
-/// there are no settings of this machine to keep. A control that is there and could not be read
-/// is a different matter and stops the import.
-fn settings_here(paths: &ProjectPaths) -> Result<AppConfig> {
+/// The settings of this machine an import or a restore keeps (`keep_machine_settings`). Both
+/// replace the archive, also one whose control is damaged or lost (a newer one is refused before
+/// this). Then there are no settings of this machine to keep. A control that is there and could
+/// not be read is a different matter and stops the operation.
+pub(crate) fn settings_here(paths: &ProjectPaths) -> Result<AppConfig> {
     match crate::load_config(paths) {
         Ok(here) => Ok(here),
         Err(error) => match error.downcast_ref::<crate::admission::Refusal>() {

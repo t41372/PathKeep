@@ -126,8 +126,7 @@ impl VaultSession {
         Ok(state.password.as_ref().map(|value| value.to_string()))
     }
 
-    /// The archive's data key while it is unlocked, for a restore that carries the agent
-    /// conversations over when no archive is open.
+    /// The archive's data key while it is unlocked: a restore keeps the archive under it.
     pub(crate) fn data_key(&self) -> Option<Arc<DataKey>> {
         self.inner.0.lock().expect("session state").data_key.clone()
     }

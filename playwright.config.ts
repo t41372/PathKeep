@@ -214,7 +214,9 @@ export default defineConfig({
     // Opening the moved file replaces the archive and its password, so it runs
     // after every test that relies on the archive first-run created.
     project('move', ['move.spec.ts'], 'stop'),
-    project('wipe', ['wipe.spec.ts'], 'move'),
+    // Restores the archive the move replaced, so it runs right after it.
+    project('restore', ['restore.spec.ts'], 'move'),
+    project('wipe', ['wipe.spec.ts'], 'restore'),
     // Sets up a new archive in the empty data folder wipe leaves behind, and
     // deletes it again.
     project('empty', ['semantic-empty-archive.spec.ts'], 'wipe'),

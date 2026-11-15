@@ -1,13 +1,18 @@
 //! Responsibilities: preserve recovery from pre-Turso full-archive snapshots.
 //! Not responsible for: browser checkpoint replay or native snapshot format tests.
 //! Failure modes: corrupt/wrong-password snapshot replaces live data, old snapshot
-//! is modified, missing legacy evidence is presented as recovered evidence.
+//! is modified, missing legacy evidence is presented as recovered evidence, the restored
+//! archive takes the snapshot's encryption instead of keeping its own.
 use vault_core::{AppConfig, ArchiveMode, Vault, project_paths_with_root};
 use vault_store::Db;
 
 #[test]
 fn legacy_full_snapshot_restores_to_turso_in_both_modes() {
-    for mode in [ArchiveMode::Plaintext, ArchiveMode::Encrypted] {
+    let live_keys = [None, Some([0x5a; 32])];
+    let cases = [ArchiveMode::Plaintext, ArchiveMode::Encrypted]
+        .into_iter()
+        .flat_map(|mode| live_keys.map(|key| (mode.clone(), key)));
+    for (mode, live_key) in cases {
         let legacy = tempfile::tempdir().unwrap();
         let paths = project_paths_with_root(legacy.path());
         let config = AppConfig {
@@ -25,7 +30,7 @@ fn legacy_full_snapshot_restores_to_turso_in_both_modes() {
         );
         let source = paths.legacy.archive;
         let before = std::fs::read(&source).unwrap();
-        let live = Vault::open_temp().unwrap();
+        let live = Vault::open_temp_with_key(live_key).unwrap();
         if password.is_some() {
             assert!(
                 vault_convert_sqlcipher::restore_snapshot(
@@ -53,7 +58,9 @@ fn legacy_full_snapshot_restores_to_turso_in_both_modes() {
             |_| {},
         )
         .unwrap();
-        assert_eq!(restored.vault.config().archive_mode, mode);
+        // The archive keeps its own encryption, whatever the snapshot's.
+        let kept = if live_key.is_some() { ArchiveMode::Encrypted } else { ArchiveMode::Plaintext };
+        assert_eq!(restored.vault.config().archive_mode, kept, "a {mode:?} snapshot");
         let count = restored
             .vault
             .store()

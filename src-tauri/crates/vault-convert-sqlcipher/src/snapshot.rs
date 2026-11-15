@@ -16,8 +16,9 @@ use vault_core::{
 use vault_store::{CancelToken, OwnerLock};
 
 /// Old full snapshots contain only the archive. Conversion supplies empty evidence
-/// and agent databases, and native restore retains the replaced generation and carries this
-/// archive's agent conversations over (`live_key` as there).
+/// and agent databases, and the native restore does the rest as for any copy: the archive keeps
+/// its encryption and password, its agent conversations stay, and what it replaces becomes a
+/// safety copy (`live_key` as there).
 pub fn restore_snapshot(
     paths: &ProjectPaths,
     current: Option<&Vault>,

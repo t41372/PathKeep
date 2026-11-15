@@ -1,8 +1,9 @@
 /**
  * Restore the archive from a safety copy PathKeep took before a risky change
- * (`list_recovery_snapshots`, then `run_full_archive_restore`). The archive it
- * replaces becomes a safety copy too ("before a restore"), so a restore can be
- * undone from this same list.
+ * (`list_recovery_snapshots`, then `run_full_archive_restore`). The archive
+ * keeps its password and encryption: an encrypted copy needs the password it
+ * was made with only to be read. The archive it replaces becomes a safety copy
+ * too ("before a restore"), so a restore can be undone from this same list.
  */
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
@@ -25,6 +26,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { archiveClient } from '@/lib/backend-client/archive'
 import { describeError } from '@/lib/errors'
 import { useFormat, useI18n } from '@/lib/i18n'
+import { useSnapshot } from '@/lib/queries/app'
 import type { RecoverySnapshot } from '@/lib/types'
 import { Notice } from './notice'
 
@@ -60,6 +62,7 @@ function RestoreForm({ onClose }: { onClose: () => void }) {
   const { t } = useI18n()
   const format = useFormat()
   const session = useSession()
+  const archiveEncrypted = useSnapshot().config.archiveMode === 'Encrypted'
   const list = useQuery({
     queryKey: ['recovery-snapshots'],
     queryFn: archiveClient.listRecoverySnapshots,
@@ -165,11 +168,28 @@ function RestoreForm({ onClose }: { onClose: () => void }) {
             id="restore-password"
             type="password"
             autoComplete="current-password"
+            aria-describedby="restore-password-hint"
             value={password}
             disabled={restore.isPending}
             onChange={(event) => setPassword(event.target.value)}
           />
+          <p
+            id="restore-password-hint"
+            className="text-xs text-muted-foreground"
+          >
+            {t('settingsStorage.restore.passwordHint')}
+          </p>
         </div>
+      )}
+
+      {chosen && chosen.encrypted !== archiveEncrypted && (
+        <p className="text-[13px] text-muted-foreground">
+          {t(
+            archiveEncrypted
+              ? 'settingsStorage.restore.encryptsCopy'
+              : 'settingsStorage.restore.staysUnencrypted',
+          )}
+        </p>
       )}
 
       {chosen && (

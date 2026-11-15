@@ -138,13 +138,19 @@ pub fn restore_snapshot(
 
 /// Recovery may replace an unopenable archive; a live Vault is optional.
 ///
-/// A restore brings back browsing data only. This archive's agent conversations are carried over
-/// to the restored one, never rolled back: they are only ever added to, and the tools delete their
-/// own transcripts, so a rollback could only lose them (the user's decision, 2026-11-15). They
-/// stay where they are when the copy has the same key, and are copied under the copy's key when
-/// it has another (a mode change since). `password` opens the copy. `live_key` is this archive's
-/// key, wanted only when no archive is open and the conversations are encrypted; an open
-/// archive's own key is used otherwise.
+/// A restore brings back browsing data, never the archive's encryption or its agent
+/// conversations (the user's decisions, 2026-11-15):
+///
+/// - The archive keeps its encryption mode, key and password. The copy's data is written under
+///   them, converted when the copy was taken under another mode or key (a mode change since).
+///   Restoring a copy from before encryption was turned on must not turn it off and write
+///   everything, conversations included, unencrypted; nor put back a password changed since.
+/// - The agent conversations stay where they are: they are only ever added to, and the tools
+///   delete their own transcripts, so a rollback could only lose them.
+///
+/// `password` opens the copy when it is encrypted. `live_key` is this archive's key, wanted when
+/// no archive is open and its files are encrypted; an open archive's own key is used otherwise. A
+/// folder with no archive in it takes the copy's encryption, having none of its own to keep.
 pub fn restore_snapshot_to(
     paths: &ProjectPaths,
     current: Option<&Vault>,
@@ -170,33 +176,48 @@ pub fn restore_snapshot_to(
     if let Some(control) = crate::admission::read_control(source)? {
         crate::config::decode_config(source, &control)?;
     }
-    // The copy's key, from its own envelope: the restored archive is under it.
     let source_paths = crate::project_paths_with_root(source);
-    let key = if crate::load_config(&source_paths)?.archive_mode == ArchiveMode::Encrypted {
+    let copy_mode = crate::load_config(&source_paths)?.archive_mode;
+    let copy_key = if copy_mode == ArchiveMode::Encrypted {
         Some(Vault::unlock_data_key(
             &source_paths,
             password.ok_or_else(|| {
-                anyhow::anyhow!("archive-password-required: enter the archive password")
+                anyhow::anyhow!("archive-password-required: enter the password of this copy")
             })?,
         )?)
     } else {
         None
     };
-    // Decided before anything is staged: one that needs this archive's key and has none stops
-    // the restore here, with nothing changed.
-    let live_key = current.and_then(Vault::data_key).or(live_key);
-    let carry = agent_history_carry(paths, key.as_ref(), live_key)?;
+    // What the restored archive is under, decided before anything is staged: one that needs this
+    // archive's key and has none stops here, with nothing changed.
+    let target = Encryption::of_archive(paths, current.and_then(Vault::data_key).or(live_key))?
+        .unwrap_or_else(|| Encryption::of_copy(source, copy_key.as_ref().map(owned)));
+    let conversations_here = agent_history_databases()
+        .into_iter()
+        .any(|db| vault_layout::path(&paths.app_root, vault_layout::db_artifact(db)).exists());
     cancel.check()?;
     let stage = staging_root(paths)?;
     copy_snapshot(source, stage.path())?;
     let staged_paths = crate::project_paths_with_root(stage.path());
-    let config = crate::load_config(&staged_paths)?;
+    let mut config = crate::load_config(&staged_paths)?;
     // The restored archive keeps the stamp of the one it replaces, or a newer compatible one the
     // snapshot carries; an older snapshot never lowers it. The stage opens below with every store
-    // that stamp requires; its agent-history ones are empty, and replaced or left out below.
+    // that stamp requires; its agent-history ones are empty, and left out below unless this
+    // folder has none.
     let stamp = crate::config::replacement_compatibility(paths, stage.path())?;
+    if !target.opens(copy_key.as_ref()) {
+        crate::config::write_staged_control(&staged_paths, &config, Some(&stamp))?;
+        convert_stage(stage.path(), &config, copy_key.as_ref(), target.key.as_ref(), &cancel)?;
+    }
+    config.archive_mode = target.mode();
     crate::config::write_staged_control(&staged_paths, &config, Some(&stamp))?;
-    let staged = Vault::open_staged(staged_paths, config.clone(), key.as_ref())?;
+    if let Some(envelope) = &target.envelope {
+        let staged_envelope = vault_layout::path(stage.path(), vault_layout::password_envelope());
+        fs::create_dir_all(staged_envelope.parent().unwrap())?;
+        fs::copy(envelope, &staged_envelope)?;
+        crate::durable_io::fsync_file_durably(&staged_envelope)?;
+    }
+    let staged = Vault::open_staged(staged_paths.clone(), config.clone(), target.key.as_ref())?;
     let layout = staged.layout();
     for db in vault_layout::snapshot_databases(layout) {
         let result = staged.store().read(db, |s| s.integrity_check())?;
@@ -210,44 +231,32 @@ pub fn restore_snapshot_to(
         (_, Some(owner)) => owner,
         _ => std::sync::Arc::new(vault_store::OwnerLock::acquire(&paths.app_root)?),
     };
-    if let Some(vault) = current {
-        let pause = vault.store().pause()?;
-        if carry == Carry::Convert {
-            carry_over(&pause, stage.path(), key.as_ref(), &cancel)?;
-        }
-        pause.close()?;
-        vault.close()?;
-    } else if carry == Carry::Convert {
-        // No archive is open, maybe because some other store is damaged: the conversations' own
-        // stores are opened by themselves under this archive's key.
-        let mut storage = crate::vault::storage_config(
-            paths,
-            vault_layout::ArchiveLayout::NEWEST,
-            live_key,
-            Some(owner.clone()),
-        )?;
-        storage.databases = agent_history_databases();
-        storage.databases.push(vault_layout::scratch_database());
-        let store = vault_store::Store::open(storage)?;
-        let pause = store.pause()?;
-        carry_over(&pause, stage.path(), key.as_ref(), &cancel)?;
-        pause.close()?;
-        store.close()?;
-    }
-    let files = match carry {
+    let files = if conversations_here {
         // Left where they are, out of the installation and its journal.
-        Carry::InPlace => vault_layout::installation_files_except(
+        vault_layout::installation_files_except(
             layout,
             true,
             &[vault_layout::DataScope::AgentHistory],
-        ),
-        // Converted ones from the stage, or the stage's empty ones; the search index of the
-        // conversations is built again.
-        Carry::Convert | Carry::Fresh => database_files(layout, true),
+        )
+    } else {
+        // This folder has none: the stage's empty stores, under the restored archive's key.
+        database_files(layout, true)
     };
-    // The snapshot's settings are what a restore brings back; the swap is one hold of the
-    // control's gate. The archive it replaces becomes a safety copy, so the restore can be undone.
+    // The copy's settings come back, but not what belongs to this computer (App Lock, whether
+    // the keychain remembers the key), as with an import: a restore must not turn App Lock off or
+    // put the key in a keychain the user stopped using. Read as they are now, before the archive
+    // closes, and installed in the same hold of the control's gate. The archive it replaces
+    // becomes a safety copy, so the restore can be undone.
     let control = crate::ControlGate::acquire(paths);
+    crate::migration::native::keep_machine_settings(
+        &mut config,
+        &crate::migration::native::settings_here(paths)?,
+    );
+    crate::config::write_staged_control(&staged_paths, &config, Some(&stamp))?;
+    if let Some(vault) = current {
+        vault.store().pause()?.close()?;
+        vault.close()?;
+    }
     let previous = install::install(
         &control,
         stage.path(),
@@ -255,19 +264,78 @@ pub fn restore_snapshot_to(
         install::Keep::SafetyCopy(install::Before::Restore),
     )?;
     drop(control);
-    let opened = Vault::open_owned(paths.clone(), config, key.as_ref(), Some(owner))?;
-    Ok(InstalledArchive { vault: opened, data_key: key, previous_files: previous })
+    let opened = Vault::open_owned(paths.clone(), config, target.key.as_ref(), Some(owner))?;
+    Ok(InstalledArchive { vault: opened, data_key: target.key, previous_files: previous })
 }
 
-/// What a restore does with this archive's agent conversations.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Carry {
-    /// The copy has the same key, or neither is encrypted: the files stay where they are.
-    InPlace,
-    /// The copy has another key: they are copied under it and installed with the copy.
-    Convert,
-    /// This archive has none: the restored one starts with empty stores.
-    Fresh,
+/// The encryption a restored archive is under: the archive's own, or the copy's when the folder
+/// has no archive to keep it from.
+struct Encryption {
+    key: Option<vault_crypto::DataKey>,
+    /// The envelope installed with it: the archive's own, or the copy's.
+    envelope: Option<PathBuf>,
+}
+
+impl Encryption {
+    /// The encryption of the archive in `paths`: encrypted when it has a key file (one written
+    /// on its first open counts) or its key is given, unencrypted otherwise. Not by its control,
+    /// which can be what is damaged, nor by its stores' headers, which a damaged store garbles.
+    /// `None` when the folder holds no archive at all.
+    fn of_archive(
+        paths: &ProjectPaths,
+        key: Option<&vault_crypto::DataKey>,
+    ) -> Result<Option<Encryption>> {
+        let envelope =
+            [vault_layout::password_envelope(), vault_layout::ArtifactId::PendingEnvelope]
+                .into_iter()
+                .map(|id| vault_layout::path(&paths.app_root, id))
+                .find(|file| file.is_file());
+        let stores = [vault_layout::primary_database(), vault_store::Db::AgentHistoryEvidence];
+        let archive_here = envelope.is_some()
+            || stores.into_iter().any(|db| {
+                vault_layout::path(&paths.app_root, vault_layout::db_artifact(db)).is_file()
+            });
+        if !archive_here {
+            return Ok(None);
+        }
+        Ok(Some(match (envelope, key) {
+            (None, None) => Encryption { key: None, envelope: None },
+            (Some(_), None) => anyhow::bail!(
+                "archive-current-password-required: enter the archive's current password; a \
+                 restore keeps its encryption and password; nothing was changed"
+            ),
+            (envelope, Some(key)) => Encryption { key: Some(owned(key)), envelope },
+        }))
+    }
+
+    /// The copy's own encryption, envelope included, for a folder with no archive to keep.
+    fn of_copy(copy: &Path, key: Option<vault_crypto::DataKey>) -> Encryption {
+        let envelope =
+            key.is_some().then(|| vault_layout::path(copy, vault_layout::password_envelope()));
+        Encryption { key, envelope }
+    }
+
+    fn mode(&self) -> ArchiveMode {
+        if self.key.is_some() { ArchiveMode::Encrypted } else { ArchiveMode::Plaintext }
+    }
+
+    /// Whether files under `key` (`None`: unencrypted) are already under this encryption.
+    /// Compares keys, not key files: a password change rewraps the same key.
+    fn opens(&self, key: Option<&vault_crypto::DataKey>) -> bool {
+        let subkey = |key: &vault_crypto::DataKey| {
+            *key.derive(vault_crypto::KeyPurpose::ArchiveDatabase).expose_bytes()
+        };
+        match (&self.key, key) {
+            (None, None) => true,
+            (Some(ours), Some(theirs)) => subkey(ours) == subkey(theirs),
+            _ => false,
+        }
+    }
+}
+
+/// A copy of a key the caller holds, for the restored archive to keep.
+fn owned(key: &vault_crypto::DataKey) -> vault_crypto::DataKey {
+    vault_crypto::DataKey::from_bytes(zeroize::Zeroizing::new(*key.expose_bytes()))
 }
 
 fn agent_history_databases() -> Vec<vault_store::Db> {
@@ -280,69 +348,67 @@ fn agent_history_databases() -> Vec<vault_store::Db> {
         .collect()
 }
 
-/// Compares keys, not key files: a password change rewraps the same key, so a copy taken before
-/// one is under the same key and nothing is converted. Only a mode change makes a new key.
-fn agent_history_carry(
-    paths: &ProjectPaths,
-    copy_key: Option<&vault_crypto::DataKey>,
-    live_key: Option<&vault_crypto::DataKey>,
-) -> Result<Carry> {
-    let file = |db| vault_layout::path(&paths.app_root, vault_layout::db_artifact(db));
-    if !agent_history_databases().into_iter().any(|db| file(db).exists()) {
-        return Ok(Carry::Fresh);
-    }
-    let plaintext =
-        crate::detect_disk_encryption_mode(&file(vault_store::Db::AgentHistoryEvidence))
-            == crate::DiskEncryptionMode::Plaintext;
-    // The sub-key that opens the conversations' evidence: equal exactly when the data keys are.
-    let opens = |key: &vault_crypto::DataKey| {
-        *key.derive(vault_crypto::KeyPurpose::AgentHistoryEvidenceDatabase).expose_bytes()
-    };
-    Ok(match (plaintext, copy_key, live_key) {
-        (true, None, _) => Carry::InPlace,
-        (true, Some(_), _) => Carry::Convert,
-        (false, _, None) => anyhow::bail!(
-            "agent-history-key-required: enter the archive's current password, so its agent \
-             conversations can be kept; nothing was changed"
-        ),
-        (false, Some(copy), Some(live)) if opens(copy) == opens(live) => Carry::InPlace,
-        (false, _, Some(_)) => Carry::Convert,
-    })
-}
-
-/// Copies this archive's conversations into the stage under the copy's key, in place of the
-/// empty stores the stage opened with.
-fn carry_over(
-    pause: &vault_store::Maintenance<'_>,
+/// Rewrites the staged copy's databases from its key (`from`) to the restored archive's (`to`),
+/// as a mode change does: copied table by table and verified, then put in place of the originals.
+/// The stores the stage creates for itself (the empty agent-history ones, the scratch store) are
+/// removed, to be created again under `to`.
+fn convert_stage(
     stage: &Path,
-    key: Option<&vault_crypto::DataKey>,
+    config: &crate::AppConfig,
+    from: Option<&vault_crypto::DataKey>,
+    to: Option<&vault_crypto::DataKey>,
     cancel: &CancelToken,
 ) -> Result<()> {
-    let databases = agent_history_databases();
-    for &db in &databases {
-        let main = vault_layout::path(stage, vault_layout::db_artifact(db));
-        for suffix in
-            vault_layout::CompanionFamily::Native.suffixes(vault_layout::CompanionUse::Install)
-        {
-            match fs::remove_file(PathBuf::from(format!("{}{suffix}", main.display()))) {
-                Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
-                    return Err(error.into());
-                }
-                _ => {}
-            }
+    let converted = stage.join("converted");
+    let staged = Vault::open_staged(crate::project_paths_with_root(stage), config.clone(), from)?;
+    let layout = staged.layout();
+    let databases: Vec<_> = vault_layout::mode_change_databases(layout)
+        .filter(|db| !agent_history_databases().contains(db))
+        .collect();
+    let pause = staged.store().pause()?;
+    super::copy_databases(&pause, &converted, to, cancel, |_| {}, &databases)?;
+    pause.close()?;
+    staged.close()?;
+    let recreated = agent_history_databases().into_iter().chain([vault_layout::scratch_database()]);
+    for db in databases.iter().copied().chain(recreated) {
+        let relative = vault_layout::database_path(db);
+        remove_with_companions(&stage.join(relative))?;
+        if databases.contains(&db) {
+            fs::rename(converted.join(relative), stage.join(relative))?;
         }
     }
-    super::copy_databases(pause, stage, key, cancel, |_| {}, &databases)
+    // Search indexes the stage may have made under the copy's key; they are built again.
+    let kept = database_files(layout, false);
+    for rebuilt in database_files(layout, true).into_iter().filter(|file| !kept.contains(file)) {
+        install::remove(&stage.join(rebuilt))?;
+    }
+    fs::remove_dir_all(&converted)?;
+    Ok(())
 }
 
-/// Stages the copy's files, all but its agent conversations: a restore does not bring them back.
+fn remove_with_companions(main: &Path) -> Result<()> {
+    for suffix in
+        vault_layout::CompanionFamily::Native.suffixes(vault_layout::CompanionUse::Install)
+    {
+        match fs::remove_file(PathBuf::from(format!("{}{suffix}", main.display()))) {
+            Err(error) if error.kind() != std::io::ErrorKind::NotFound => return Err(error.into()),
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+/// Stages the copy's files, all but its agent conversations, which a restore does not bring back,
+/// and its envelope: the restored archive keeps its own password.
 fn copy_snapshot(source: &Path, target: &Path) -> Result<()> {
+    let envelope =
+        PathBuf::from(vault_layout::spec(vault_layout::password_envelope()).path.relative());
     for relative in vault_layout::installation_files_except(
         crate::admission::root_layout(source)?,
         false,
         &[vault_layout::DataScope::AgentHistory],
     ) {
-        if source.join(&relative).is_file() {
+        if relative != envelope && source.join(&relative).is_file() {
             let file = target.join(relative);
             fs::create_dir_all(file.parent().unwrap())?;
             fs::copy(source.join(file.strip_prefix(target)?), &file)?;
