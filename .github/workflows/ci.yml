@@ -40,6 +40,7 @@ jobs:
             xvfb \
             mutter \
             wmctrl \
+            xfwm4 \
             x11-utils \
             xdotool
       - uses: oven-sh/setup-bun@v2
@@ -62,9 +63,10 @@ jobs:
       - name: Check (lint, build, Rust, desktop-bridge E2E)
         # owner_process starts the real app: it needs a display, and its
         # single-instance handoff needs a session bus. The native-window specs
-        # work that real window with xdotool and start mutter as its window
-        # manager (tests/e2e/support/native-window.ts); this job installs them,
-        # so it requires that check rather than letting it skip.
+        # work that real window with xdotool under mutter (GNOME's window
+        # manager), then xfwm4 (Xfce's) (tests/e2e/support/native-window.ts);
+        # this job installs them, so it requires that check rather than
+        # letting it skip.
         env:
           PATHKEEP_E2E_NATIVE_WINDOW: required
         run: dbus-run-session -- xvfb-run -a bun run check

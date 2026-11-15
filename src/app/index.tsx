@@ -35,6 +35,7 @@ import {
   UpgradeScreen,
 } from './shell/status-screens'
 import { useSchemaUpdate } from './schema-update'
+import { WindowDrag } from './window-chrome/drag'
 import { WindowControls } from './window-chrome/window-controls'
 
 function SessionGate() {
@@ -91,6 +92,7 @@ export default function App() {
       <ThemeProvider>
         <I18nProvider>
           <WindowControls />
+          <WindowDrag />
           <TooltipProvider delayDuration={400}>
             <RenderErrorBoundary source="app-render">
               <SessionProvider>

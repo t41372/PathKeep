@@ -32,6 +32,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import { backdropDragRegion } from '@/components/app/drag-region'
 import { cn } from '@/lib/cn'
 import {
   languageNames,
@@ -166,7 +167,7 @@ export function NavRail({
       className="flex w-[76px] shrink-0 flex-col items-center gap-1 pb-4"
     >
       <div
-        data-tauri-drag-region
+        {...backdropDragRegion()}
         className={cn('w-full shrink-0', overlayTitlebar ? 'h-[46px]' : 'h-3')}
       />
       <div className="mb-3 flex shrink-0 gap-0.5">
@@ -188,7 +189,7 @@ export function NavRail({
       {sections.map((section) => (
         <RailLink key={section.to} {...section} label={t(section.label)} />
       ))}
-      <div className="flex-1" data-tauri-drag-region />
+      <div className="flex-1" {...backdropDragRegion()} />
       <RailButton label={t('shell.nav.palette')} onClick={onOpenPalette}>
         <Command className="size-[17px]" />
       </RailButton>

@@ -1,0 +1,3 @@
+::notice title=🎭 Playwright Run Summary::  1 passed (36.8s)
+exit=0
+

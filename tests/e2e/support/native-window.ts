@@ -8,15 +8,14 @@
  *
  * Needs Linux, an X display (CI runs the gate under `xvfb-run`), xdotool,
  * xprop and wmctrl, and a window manager: without one nothing maximizes,
- * minimizes or moves, so if none is running this starts mutter, GNOME's.
- * Anywhere else the specs that use it are skipped; where the environment
- * says it provides them (`PATHKEEP_E2E_NATIVE_WINDOW=required`, CI's gate) a
- * missing piece fails them instead, so the check cannot quietly stop running.
+ * minimizes or moves. On a display it may change (CI's, or one with none)
+ * it runs mutter, GNOME's, then xfwm4, Xfce's. Anywhere else the specs that
+ * use it are skipped; where the environment says it provides them
+ * (`PATHKEEP_E2E_NATIVE_WINDOW=required`, CI's gate) a missing piece fails
+ * them instead, so the check cannot quietly stop running.
  *
- * Presses are held for 60 ms, as a person's are. A press released at once
- * (xdotool's own click) can reach the window manager after the release, and
- * some window managers then move the window until the next click
- * (BACKLOG `WORK-DRAG-ON-MOVE`).
+ * Presses are held for 60 ms, as a person's are, except a tap's: released at
+ * once, as a trackpad tap is (`expectTapsDoNotDrag`).
  */
 import { execFileSync, spawn } from 'node:child_process'
 import { expect } from '@playwright/test'
@@ -43,29 +42,64 @@ export function nativeWindowMissing(): string | null {
   return missing.length ? `needs ${missing.join(', ')}` : null
 }
 
-function windowManagerRunning() {
+/** The running window manager's name, or `''` while none runs. */
+function windowManager() {
   try {
-    run('wmctrl', ['-m'])
-    return true
+    return /^Name: (.*)$/m.exec(run('wmctrl', ['-m']))?.[1] ?? ''
   } catch {
-    return false
+    return ''
   }
 }
 
-/** Starts mutter unless a window manager already runs on the display. */
-export async function ensureWindowManager() {
-  if (windowManagerRunning()) return
-  if (!has('mutter'))
-    throw new Error(
-      'No window manager runs on the display, and mutter is not installed.',
-    )
-  spawn('mutter', ['--x11', '--replace'], {
-    detached: true,
-    stdio: 'ignore',
-  }).unref()
+/**
+ * Whether this run may replace the display's window manager. CI's gate says
+ * the display is its own (`PATHKEEP_E2E_NATIVE_WINDOW=required`, under
+ * xvfb-run), however many runs came before on it; elsewhere only a display
+ * with no window manager when the spec starts is, so a person's own desktop
+ * keeps theirs.
+ */
+let mayReplace = process.env.PATHKEEP_E2E_NATIVE_WINDOW === 'required'
+
+/** Runs `command` as the window manager, unless one called `name` already runs. */
+async function replaceWindowManager(
+  command: string,
+  args: string[],
+  name: RegExp,
+) {
+  if (name.test(windowManager())) return
+  if (!has(command)) throw new Error(`${command} is not installed.`)
+  spawn(command, args, { detached: true, stdio: 'ignore' }).unref()
   await expect
-    .poll(windowManagerRunning, { timeout: 30_000, intervals: [500] })
-    .toBe(true)
+    .poll(windowManager, { timeout: 30_000, intervals: [500] })
+    .toMatch(name)
+}
+
+/**
+ * Puts mutter, GNOME's window manager, on a display this run may change;
+ * a display with a window manager of its own keeps it.
+ */
+export async function useMutter() {
+  if (!mayReplace) {
+    if (windowManager()) return
+    mayReplace = true
+  }
+  await replaceWindowManager('mutter', ['--x11', '--replace'], /mutter/i)
+}
+
+/**
+ * Swaps in xfwm4, Xfce's window manager. Returns why it did not, with
+ * nothing changed: on a display with a window manager of its own (a person's
+ * desktop), or without xfwm4.
+ */
+export async function switchToXfwm4(): Promise<string | null> {
+  if (!mayReplace) return 'the display has a window manager of its own'
+  if (!has('xfwm4')) return 'xfwm4 is not installed'
+  await replaceWindowManager(
+    'xfwm4',
+    ['--replace', '--compositor=off'],
+    /xfwm4/i,
+  )
+  return null
 }
 
 /** The id of PathKeep's main window once it is on screen. */
@@ -175,11 +209,25 @@ export async function nativeDoubleClick(x: number, y: number) {
   await press()
 }
 
+/** A press released at once, as a trackpad tap is: xdotool's own click. */
+async function nativeTap(x: number, y: number) {
+  run('xdotool', ['mousemove', String(x), String(y)])
+  await pause(200)
+  run('xdotool', ['click', '1'])
+}
+
+/**
+ * Drags by (dx, dy), as a hand does: a small first move, then the rest. The
+ * window follows from the first move on (`window-chrome/drag.ts` waits for
+ * it), so it moves by up to that first move less than the pointer.
+ */
 export async function nativeDrag(x: number, y: number, dx: number, dy: number) {
   run('xdotool', ['mousemove', String(x), String(y)])
   await pause(200)
   run('xdotool', ['mousedown', '1'])
   await pause(250)
+  run('xdotool', ['mousemove', String(x + 6), String(y + 4)])
+  await pause(150)
   for (let step = 1; step <= 4; step++) {
     run('xdotool', [
       'mousemove',
@@ -234,7 +282,8 @@ export async function expectWorkingWindowFrame(id: string) {
   await nativeDrag(strip(s), top(s), 120, 80)
   await expectNativeState(
     id,
-    (n) => Math.abs(n.x - (s.x + 120)) <= 4 && Math.abs(n.y - (s.y + 80)) <= 4,
+    (n) =>
+      Math.abs(n.x - (s.x + 120)) <= 10 && Math.abs(n.y - (s.y + 80)) <= 10,
     'after dragging the strip by (120, 80)',
   )
 
@@ -252,6 +301,43 @@ export async function expectWorkingWindowFrame(id: string) {
     id,
     (n) => !n.maximized,
     'after a second double click',
+  )
+  await resetWindow(id)
+}
+
+/**
+ * A tap on the window background does not leave the window following the
+ * pointer (BACKLOG `WORK-DRAG-ON-MOVE`): after each tap the pointer moves with
+ * no button down, and the window stays where it was. A drag asked for on the
+ * press reaches xfwm4 after a tap's release only some of the time, so this
+ * taps three spots twice each. Leaves the window reset.
+ */
+export async function expectTapsDoNotDrag(id: string) {
+  const spots = (s: NativeState) => [
+    { where: 'strip beside the window buttons', x: s.x + s.width - 200 },
+    { where: 'middle of the top strip', x: s.x + Math.round(s.width / 2) },
+    { where: 'left of the top strip', x: s.x + 120 },
+  ]
+  const followed: string[] = []
+  for (const { where } of spots(nativeState(id)))
+    for (let tap = 1; tap <= 2; tap++) {
+      await resetWindow(id)
+      const before = nativeState(id)
+      const spot = spots(before).find((each) => each.where === where)!
+      await nativeTap(spot.x, before.y + 16)
+      await pause(800)
+      run('xdotool', ['mousemove_relative', '--', '150', '90'])
+      await pause(1_200)
+      const after = nativeState(id)
+      // Ends a move the window manager may be in; nothing else takes Escape.
+      run('xdotool', ['key', 'Escape'])
+      if (after.x !== before.x || after.y !== before.y)
+        followed.push(
+          `${where}, tap ${tap}: (${before.x}, ${before.y}) → (${after.x}, ${after.y})`,
+        )
+    }
+  expect(followed, 'taps after which the window followed the pointer').toEqual(
+    [],
   )
   await resetWindow(id)
 }

@@ -62,7 +62,7 @@ macOS                                    Windows / Linux
 
 E2E 以前在瀏覽器頁面裡跑，那裡不是桌面視窗，沒有一個平台的外框出現過：沒有按鈕，沒有紅綠燈讓位，也沒有拖動標記。現在 dev bridge 的頁面可以代表某個平台的桌面視窗（`windowFrame`），`first-run-window.spec.ts` 與 `window-frame.spec.ts` 在最小視窗尺寸下逐一檢查新手引導、啟動中、啟動失敗、主畫面、指令面板與 App Lock。按鈕與拖動對真視窗做了什麼，在 Linux 的真視窗上用真的滑鼠點過，有三種環境：X11 的 xfwm4、GNOME 46 的 X11、GNOME 46 的 Wayland。新手引導、主畫面、App Lock 的三顆按鈕，從那條拖動，雙擊最大化與還原，指令面板開著時按最小化，關閉讓 app 結束，都有效（`artifacts/investigations/2026-11-14-window-frame/`）。
 
-Linux 的這部分現在每次 CI 都跑：`first-run-native-window.spec.ts` 用 xdotool 操作 E2E 本來就開著的真視窗，視窗管理員是 mutter。它排在最前面，壞了會最先看到。
+Linux 的這部分現在每次 CI 都跑：`first-run-native-window.spec.ts` 用 xdotool 操作 E2E 本來就開著的真視窗，視窗管理員先是 mutter，再換成 xfwm4（2026-11-15 起）。它排在最前面，壞了會最先看到。
 
 還沒看過的：
 
@@ -70,4 +70,6 @@ Linux 的這部分現在每次 CI 都跑：`first-run-native-window.spec.ts` 用
 - Windows。
 - macOS：這次只在瀏覽器代身上看過。新手引導面板外圍現在可以拖，是這次 macOS 上唯一的行為變化。
 
-已知問題：Xfce 的 xfwm4 上，在拖動區按下立刻放開（觸控板輕點），視窗會跟著指標走，直到再點一下。這是 Tauri 拖動方式的老問題，修之前導航列的拖動區就這樣；GNOME 不會。拖動區變多以後更容易碰到，見 BACKLOG `WORK-DRAG-ON-MOVE`。
+**2026-11-15（`WORK-DRAG-ON-MOVE`）。** Xfce 的 xfwm4 上，在拖動區按下立刻放開（觸控板輕點），視窗會跟著指標走，直到再點一下。Tauri 的 `drag.js` 在按下時就請視窗管理員開始拖，請求到的時候鍵已經放開；GNOME 不會這樣。Windows、Linux 的拖動標記改成 PathKeep 自己的（`data-window-drag`，`window-chrome/drag.ts`）：按下只記住位置，按著移動超過 4 px 才請視窗管理員開始拖，雙擊照舊在第二次按下時最大化／還原。輕點不會移動，就不會開始拖。代價是視窗比指標少走那幾個像素，因為 `startDragging` 不能指定從哪裡開始算。macOS 照用 Tauri 的標記：輕點的問題只在 Xfce 上見過，這台 Mac 也看不了真視窗（`WORK-NATIVE-WINDOW-CHECK`）。真視窗的 E2E 先在 mutter 下檢查一次，再換成 xfwm4，檢查同樣的事，並在三個地方各輕點兩次。
+
+**載入前與渲染程序崩潰時改用系統標題列：不做（2026-11-15，用戶同意）。** Codex 在 `WORK-WINDOW-FRAME-EVERY-SCREEN` 提議：頁面還沒畫出來，或渲染程序崩潰時，先顯示系統標題列，外框畫好了再交給 app。這等於推翻上面的 D。不做的理由：用網頁畫外框的 app 都有這段空窗；Alt+F4、工作列等系統的方式那時仍然可以關閉、最小化視窗。

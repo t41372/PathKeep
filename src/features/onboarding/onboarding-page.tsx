@@ -336,7 +336,7 @@ function StepList({
     <aside className="flex w-[260px] shrink-0 flex-col gap-1 px-5 pb-5">
       {/* Room for the traffic lights on macOS; on every desktop it drags the window. */}
       <div
-        data-tauri-drag-region
+        {...backdropDragRegion()}
         className={cn('shrink-0', overlayTitlebar ? 'h-[52px]' : 'h-7')}
       />
       <div className="flex items-center gap-2.5 px-2 pb-6">
@@ -396,7 +396,7 @@ function StepList({
           })}
         </ol>
       </nav>
-      <div className="flex-1" data-tauri-drag-region />
+      <div className="flex-1" {...backdropDragRegion()} />
       <AppearanceControls />
     </aside>
   )

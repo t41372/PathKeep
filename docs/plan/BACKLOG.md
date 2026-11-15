@@ -249,14 +249,9 @@
   - 要做：考慮讓頁面預設代表主機平台的視窗，整個套件就都看使用者的版面。先看 macOS 頂端 28 px 的拖動條擋掉多少既有 spec 的點擊；那些點擊在真機上也會被擋，要逐一判斷是 spec 的問題還是畫面的問題。
 
 - [ ] **WORK-NATIVE-WINDOW-CHECK** — macOS 與 Windows 的真視窗也每次檢查（2026-11-14 `WORK-WINDOW-FRAME-EVERY-SCREEN` 做了 Linux 那份）
-  - Linux 已經在 CI 的 gate 裡：`first-run-native-window.spec.ts` 用 xdotool 點真的 WebKitGTK 視窗，視窗管理員是 mutter，讀 `_NET_WM_STATE`。這台 Mac 上它略過。
+  - Linux 已經在 CI 的 gate 裡：`first-run-native-window.spec.ts` 用 xdotool 點真的 WebKitGTK 視窗，視窗管理員先是 mutter、再換 xfwm4，讀 `_NET_WM_STATE`。這台 Mac 上它略過。
   - macOS：紅綠燈是系統的，要驗的是拖動區與讓位；需要能送輸入、讀視窗位置的工具（例如輔助使用 API），在本機與 CI 的 macOS runner 上都要有權限。
   - Windows：WebView2 支援 CDP，Playwright 可以接上真視窗；輸入與視窗狀態要另找工具。沒有 Windows 機器之前先不做。
-
-- [ ] **WORK-DRAG-ON-MOVE** — Xfce（xfwm4）上，在拖動區輕點一下，視窗會黏著指標走，直到再點一下（2026-11-14 `WORK-WINDOW-FRAME-EVERY-SCREEN` 在 boxd 上量到）
-  - Tauri 的 `drag.js` 在 mousedown 就叫 `start_dragging`。按下立刻放開時（觸控板輕點就是這樣），這個請求傳到視窗管理員時鍵已經放開，xfwm4 仍開始移動，等下一次點擊才結束。GNOME 46 的 X11 與 Wayland 都不會。修這次之前，導航列中段那塊拖動區就是這樣；這次把視窗底層也標成拖動區，碰到的地方變多了。
-  - 量到的：按下立刻放開，視窗跟著指標走；按住 60 ms 再放開，不會。上面那段機制是推論，頁面裡的事件沒有記到。
-  - 要做：拖動改成指標真的移動了才開始（mousedown 記下位置，按著移動超過幾個像素才 `startDragging`），雙擊由 `dblclick` 處理最大化。這要換掉 `data-tauri-drag-region`，改用我們自己的標記與監聽；macOS 的拖動也走這條路的話，要在 macOS 真視窗上確認。證據：`artifacts/investigations/2026-11-14-window-frame/linux-desktop/xfwm4-tap.txt`。
 
 - [ ] **WORK-WINDOW-INACTIVE-LOOK** — 視窗失焦時，畫的視窗按鈕不會變淡（Windows 系統按鈕會；2026-11-14 Codex 指出）
 

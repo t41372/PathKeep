@@ -1,0 +1,30 @@
+::error file=tests/e2e/support/native-window.ts,title=[first-run] › tests/e2e/first-run-native-window.spec.ts%3A47%3A1 › linux%3A the real window%3A buttons%2C drag%2C double click%2C a tap%2C and Close quits,line=326,col=72::  1) [first-run] › tests/e2e/first-run-native-window.spec.ts:47:1 › linux: the real window: buttons, drag, double click, a tap, and Close quits 
+    Error: taps after which the window followed the pointer
+
+    expect(received).toEqual(expected) // deep equality
+
+    - Expected  - 1
+    + Received  + 5
+
+    - Array []
+    + Array [
+    +   "strip beside the window buttons, tap 1: (40, 40) → (200, 130)",
+    +   "middle of the top strip, tap 1: (40, 40) → (200, 130)",
+    +   "left of the top strip, tap 1: (40, 40) → (200, 130)",
+    + ]
+
+       at support/native-window.ts:326
+
+      324 |         )
+      325 |     }
+    > 326 |   expect(followed, 'taps after which the window followed the pointer').toEqual(
+          |                                                                        ^
+      327 |     [],
+      328 |   )
+      329 |   await resetWindow(id)
+        at expectTapsDoNotDrag (/home/boxd/pk/tests/e2e/support/native-window.ts:326:72)
+        at /home/boxd/pk/tests/e2e/first-run-native-window.spec.ts:65:5
+::notice title=🎭 Playwright Run Summary::  1 failed
+    [first-run] › tests/e2e/first-run-native-window.spec.ts:47:1 › linux: the real window: buttons, drag, double click, a tap, and Close quits 
+exit=1
+

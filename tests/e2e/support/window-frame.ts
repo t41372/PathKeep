@@ -7,8 +7,9 @@
  *
  * What this proves: every screen has the window buttons where the title bar
  * would be, nothing covers them or sits under them, and the window
- * background marks where the window drags from, by the rules of Tauri's
- * `drag.js` (tauri 2.12, `src/window/scripts/drag.js`).
+ * background marks where the window drags from: on macOS by the rules of
+ * Tauri's `drag.js` (tauri 2.12, `src/window/scripts/drag.js`), on Windows and
+ * Linux by PathKeep's own mark (`src/app/window-chrome/drag.ts`).
  *
  * What it cannot prove: what the buttons and the drag do to a real window
  * (the page has none). That is checked on a Linux desktop by hand
@@ -157,13 +158,17 @@ export async function expectNoWindowButtons(page: Page) {
 }
 
 /**
- * Whether a press at (x, y) drags the window, by Tauri's rule: walk up from
- * what is under the pointer; a control without the mark stops it; `deep`
- * drags from anywhere inside; a bare mark only from the marked element itself.
+ * Whether a press at (x, y) drags the window. PathKeep's own mark (Windows,
+ * Linux) drags only from the marked element itself. Otherwise Tauri's rule:
+ * walk up from what is under the pointer; a control without the mark stops
+ * it; `deep` drags from anywhere inside; a bare mark only from the marked
+ * element itself.
  */
 export async function dragsAt(page: Page, x: number, y: number) {
   return page.evaluate(
     ([px, py]) => {
+      const own = document.elementFromPoint(px, py)
+      if (own?.hasAttribute('data-window-drag')) return true
       const clickable = new Set([
         'A',
         'BUTTON',
