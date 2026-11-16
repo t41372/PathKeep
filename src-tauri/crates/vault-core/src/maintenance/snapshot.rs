@@ -184,7 +184,7 @@ pub fn recover_native_maintenance(paths: &ProjectPaths) -> Result<bool> {
             if entry.file_type()?.is_dir()
                 && entry.file_name().to_string_lossy().starts_with("maintenance-")
             {
-                fs::remove_dir_all(entry.path())?;
+                crate::durable_io::retry_while_held(|| fs::remove_dir_all(entry.path()))?;
             }
         }
     }

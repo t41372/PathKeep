@@ -275,7 +275,8 @@ pub fn import(
     config_file.sync_all()?;
     drop(config_file);
     fs::create_dir_all(stage.path().join("derived"))?;
-    fs::rename(stage.path().join("archive/agent.db"), stage.path().join("derived/agent.db"))?;
+    let (from, to) = (stage.path().join("archive/agent.db"), stage.path().join("derived/agent.db"));
+    crate::durable_io::retry_while_held(|| fs::rename(&from, &to))?;
     let mut config = crate::load_config(&staged_paths)?;
     config.archive_mode = ArchiveMode::Encrypted;
     keep_machine_settings(&mut config, &crate::load_config(paths)?);

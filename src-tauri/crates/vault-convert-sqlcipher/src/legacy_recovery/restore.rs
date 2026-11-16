@@ -17,7 +17,9 @@ use vault_core::{
     AppConfig, ArchiveMode, DiskEncryptionMode, ProjectPaths,
     archive::ArchiveWriteLock,
     detect_disk_encryption_mode,
-    durable_io::{atomic_durable_write, install_file_durably, remove_file_durably},
+    durable_io::{
+        atomic_durable_write, install_file_durably, remove_file_durably, retry_while_held,
+    },
     save_config,
 };
 
@@ -162,7 +164,7 @@ fn resolve_interrupted_restore(paths: &ProjectPaths, journal: &RestoreJournal) -
         // still restorable, so finish the half-done install from it. Scrub any half-staged
         // `restore.sqlite` temp + its sidecars first so no phantom file blocks the durable install.
         let restore_temp = paths.legacy.archive.with_extension("restore.sqlite");
-        let _ = fs::remove_file(&restore_temp);
+        let _ = retry_while_held(|| fs::remove_file(&restore_temp));
         super::remove_stale_sidecars(&restore_temp);
         install_restored_archive(&snapshot_ref, &restore_temp, paths)?;
         reconcile_restore_config(paths, journal)?;
@@ -272,12 +274,12 @@ fn restore_quarantined_original(quarantine_dir: &Path, canonical: &Path) {
     };
     let quarantined = quarantine_dir.join(name);
     if quarantined.exists() {
-        let _ = fs::rename(&quarantined, canonical);
+        let _ = retry_while_held(|| fs::rename(&quarantined, canonical));
         for suffix in ["-wal", "-shm", "-journal"] {
             let from = PathBuf::from(format!("{}{}", quarantined.display(), suffix));
             if from.exists() {
                 let to = PathBuf::from(format!("{}{}", canonical.display(), suffix));
-                let _ = fs::rename(&from, &to);
+                let _ = retry_while_held(|| fs::rename(&from, &to));
             }
         }
     }

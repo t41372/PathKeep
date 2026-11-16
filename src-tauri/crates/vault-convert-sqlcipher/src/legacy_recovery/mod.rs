@@ -182,7 +182,8 @@ fn archive_mode(mode: DiskEncryptionMode) -> Option<ArchiveMode> {
 /// self-contained, so a sidecar there belongs to the file it replaced and must not replay.
 fn remove_stale_sidecars(path: &Path) {
     for suffix in ["-wal", "-shm", "-journal"] {
-        let _ = fs::remove_file(format!("{}{}", path.display(), suffix));
+        let sidecar = format!("{}{}", path.display(), suffix);
+        let _ = vault_core::durable_io::retry_while_held(|| fs::remove_file(&sidecar));
     }
 }
 
