@@ -140,7 +140,25 @@ describe('compiled artifact classification', () => {
         path.join(appRoot, 'Contents/Info.plist'),
         '<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>CFBundleIdentifier</key><string>com.yi-ting.pathkeep</string></dict></plist>',
       )
-      expect(verifyBuildOutput(path.dirname(appRoot))).toEqual([appRoot])
+      const bundleRoot = path.dirname(path.dirname(appRoot))
+      // What the deb bundler leaves beside the .deb: the package's own members, which are not
+      // packages and hold no executables.
+      const debStage = path.join(bundleRoot, 'deb/PathKeep_0.6.0_amd64')
+      mkdirSync(path.join(debStage, 'control'), { recursive: true })
+      writeFileSync(
+        path.join(debStage, 'control/control'),
+        'Package: pathkeep\n',
+      )
+      expect(
+        spawnSync('tar', [
+          '-czf',
+          path.join(debStage, 'control.tar.gz'),
+          '-C',
+          path.join(debStage, 'control'),
+          '.',
+        ]).status,
+      ).toBe(0)
+      expect(verifyBuildOutput(bundleRoot)).toEqual([appRoot])
       expect(existsSync(appRoot + '.tar.gz')).toBe(false)
       // A bundler-produced updater archive is checked as well as the app directory.
       expect(
@@ -152,13 +170,13 @@ describe('compiled artifact classification', () => {
           path.basename(appRoot),
         ]).status,
       ).toBe(0)
-      expect(verifyBuildOutput(path.dirname(appRoot))).toEqual(
+      expect(verifyBuildOutput(bundleRoot)).toEqual(
         expect.arrayContaining([appRoot, appRoot + '.tar.gz']),
       )
 
       copyFileSync(local, path.join(appRoot, 'Contents/MacOS/pathkeep-desktop'))
       expect(() => {
-        verifyBuildOutput(path.dirname(appRoot))
+        verifyBuildOutput(bundleRoot)
       }).toThrow(/development/)
 
       copyFileSync(local, path.join(payload, 'usr/bin/pathkeep-desktop'))

@@ -64,20 +64,27 @@ export function buildDistribution(input = process.argv.slice(2)) {
   return verifyBuildOutput(bundleRoot)
 }
 
-/** Check existing bundle output, including app directories, without creating upload artifacts. */
+/**
+ * Check existing bundle output, including app directories, without creating upload artifacts.
+ * A final package is a direct child of its type's folder (`deb/PathKeep_….deb`,
+ * `macos/PathKeep.app`, `macos/PathKeep.app.tar.gz`). What a bundler leaves beside it, such as
+ * the deb's own members in `deb/PathKeep_…/`, is neither a package nor looked into: its
+ * `control.tar.gz` holds no executable and would fail the check.
+ */
 export function verifyBuildOutput(bundleRoot) {
   const packages = []
-  function walk(folder) {
+  const kinds = existsSync(bundleRoot)
+    ? readdirSync(bundleRoot, { withFileTypes: true })
+    : []
+  for (const kind of kinds.filter((entry) => entry.isDirectory())) {
+    const folder = path.join(bundleRoot, kind.name)
     for (const entry of readdirSync(folder, { withFileTypes: true })) {
-      const file = path.join(folder, entry.name)
-      if (entry.isDirectory()) {
-        if (entry.name.endsWith('.app')) packages.push(file)
-        else walk(file)
-      } else if (/\.(dmg|deb|rpm|AppImage|msi|exe|zip|tar\.gz)$/.test(file))
-        packages.push(file)
+      const final = entry.isDirectory()
+        ? entry.name.endsWith('.app')
+        : /\.(dmg|deb|rpm|AppImage|msi|exe|zip|tar\.gz)$/.test(entry.name)
+      if (final) packages.push(path.join(folder, entry.name))
     }
   }
-  if (existsSync(bundleRoot)) walk(bundleRoot)
   if (!packages.length)
     throw new Error(`No final packages found in ${bundleRoot}; do not publish.`)
   for (const file of packages) {
