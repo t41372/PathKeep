@@ -116,7 +116,14 @@ fn seed() {
     println!("BENCH step=seed visits_seconds={:.1}", started.elapsed().as_secs_f64());
     let started = Instant::now();
     vault.search().rebuild().unwrap();
-    println!("BENCH step=seed search_index_seconds={:.1}", started.elapsed().as_secs_f64());
+    let documents = vault.search().state().documents_total;
+    println!(
+        "BENCH step=seed search_index_seconds={:.1} documents={documents}",
+        started.elapsed().as_secs_f64()
+    );
+    // Restoring, importing and changing the encryption each rebuild this index; over an empty one
+    // they would leave out the longest wait they make.
+    assert!(documents > 0, "the seeded archive gave the search index no documents");
     let started = Instant::now();
     vault_core::run_core_intelligence_with_progress(
         &vault,

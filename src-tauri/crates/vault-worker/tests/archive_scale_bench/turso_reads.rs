@@ -166,8 +166,7 @@ fn seed_searches(vault: &Vault) -> i64 {
                 let title = format!("{query} - Google Search");
                 s.execute("INSERT INTO pages(id,url,canonical_url,registrable_domain) VALUES(?1,?2,?2,'google.com')",params![*page,url.as_str()])?;
                 s.execute("INSERT INTO urls(id,page_id,url,title,visit_count,first_visit_ms,first_visit_iso,last_visit_ms,last_visit_iso,source_profile_id,created_by_run_id,source_url_id) VALUES(?1,?1,?2,?3,1,?4,'2020-09-13T12:26:40Z',?4,'2025-09-13T12:26:40Z',1,0,?1)",params![*page,url.as_str(),title.as_str(),START])?;
-                s.execute("INSERT INTO search_documents(page_id,url,title,search_terms,normalized_url,normalized_title,normalized_search_terms,cjk_grams,compact_text,updated_at) VALUES(?1,?2,?3,?4,?2,?3,?4,'','','')",params![*page,url.as_str(),title.as_str(),query.as_str()])?;
-                s.execute("INSERT INTO search_document_profiles(page_id,source_profile_id,visible_visit_count,newest_visit_ms) VALUES(?1,1,1,?2)",params![*page,START])?;
+                s.execute("INSERT INTO search_terms(url_id,term,normalized_term,source_profile_id,created_by_run_id,profile_id) VALUES(?1,?2,?3,1,0,'chrome:Default')",params![*page,query.as_str(),query.to_lowercase()])?;
             }
             Ok(())
         }).unwrap();
@@ -220,8 +219,6 @@ pub(super) fn seed(vault: &Vault) {
         vault.store().write(Db::Archive,Priority::Batch,move |s| {
             s.execute("WITH RECURSIVE ids(id) AS(VALUES(?1) UNION ALL SELECT id+1 FROM ids WHERE id<?2) INSERT INTO pages(id,url,canonical_url,registrable_domain) SELECT id,'https://site'||(id%20000)||'.test/page/'||id,'https://site'||(id%20000)||'.test/page/'||id,'site'||(id%20000)||'.test' FROM ids",params![first,end])?;
             s.execute("INSERT INTO urls(id,page_id,url,title,visit_count,first_visit_ms,first_visit_iso,last_visit_ms,last_visit_iso,source_profile_id,created_by_run_id,source_url_id) SELECT id,id,url,'Archive page '||id,5,?3+id,'2020-09-13T12:26:40Z',?3+id,'2025-09-13T12:26:40Z',1,0,id FROM pages WHERE id>=?1 AND id<=?2",params![first,end,START])?;
-            s.execute("INSERT INTO search_documents(page_id,url,title,search_terms,normalized_url,normalized_title,normalized_search_terms,cjk_grams,compact_text,updated_at) SELECT id,url,'Archive page '||id,'',url,'Archive page '||id,'','','','' FROM pages WHERE id>=?1 AND id<=?2",params![first,end])?;
-            s.execute("INSERT INTO search_document_profiles(page_id,source_profile_id,visible_visit_count,newest_visit_ms) SELECT id,1,CASE WHEN id=1 THEN 100005 ELSE 5 END,?3+(id+11520000)*10000 FROM pages WHERE id>=?1 AND id<=?2 AND id%144!=0",params![first,end,START])?;
             Ok(())
         }).unwrap();
         if first % 1_000_000 == 1 {
@@ -281,6 +278,25 @@ pub(super) fn seed(vault: &Vault) {
             Ok(())
         })
         .unwrap();
+    seed_documents(vault);
+}
+
+/// What a backup leaves for each page beside its facts: the searchable text, the profiles that
+/// visited it and its newest visit, built by the app's own code from the pages, URLs, search terms
+/// and visits seeded above. Written by hand they drift from the app's: a document without its
+/// newest visit is one the search index leaves out, and with every one left out the index was
+/// empty and each rebuild of it measured nothing. Runs over every page, so a data root seeded
+/// before gets the documents the app would write now.
+fn seed_documents(vault: &Vault) {
+    let started = Instant::now();
+    let mut after = 0;
+    while let Some(last) = vault_core::conversion::project_pages(vault, after, STEP).unwrap() {
+        if last / 1_000_000 != after / 1_000_000 {
+            println!("BENCH seed_documents={last}");
+        }
+        after = last;
+    }
+    println!("BENCH seed_documents_seconds={:.1}", started.elapsed().as_secs_f64());
 }
 fn measure(vault: &Vault, pass: &str, operation: &str) {
     let load = std::process::Command::new("uptime").output().unwrap();
