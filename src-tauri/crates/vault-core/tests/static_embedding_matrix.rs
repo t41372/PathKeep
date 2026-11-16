@@ -140,8 +140,11 @@ async fn static_matrix_replacement_preserves_active_mapping_and_invalidates_cach
     let replacement_dir =
         model_dir_for_repo(&project_paths_with_root(replacement_root.path()), REPO);
     let replacement_path = replacement_dir.join("model.safetensors");
-    // Force a distinct revision even on filesystems whose timestamp resolution is coarse.
-    std::fs::File::open(&replacement_path)
+    // Force a distinct revision even on filesystems whose timestamp resolution is coarse. Windows
+    // changes a file's times only through a handle that may write.
+    std::fs::OpenOptions::new()
+        .write(true)
+        .open(&replacement_path)
         .expect("replacement file")
         .set_modified(std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1))
         .expect("distinct mtime");

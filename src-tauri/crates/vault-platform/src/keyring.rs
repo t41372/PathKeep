@@ -268,7 +268,7 @@ pub fn provider_api_key_saved(provider_id: &str) -> bool {
 }
 
 fn test_keyring_path(root: &Path, user: &str) -> PathBuf {
-    root.join(format!("{}-{user}.secret", keyring_service()))
+    root.join(crate::test_support::keyring_secret_file_name(&keyring_service(), user))
 }
 
 /// Fails as the native store does where there is none, once a test made it unavailable

@@ -61,8 +61,10 @@ fn development_key_operations_do_not_read_or_clear_the_production_service() {
     let s = Sandbox::new();
     let keys = s.root.path().join("keyring");
     fs::create_dir_all(&keys).unwrap();
-    let prod = keys.join("com.yi-ting.pathkeep-database-key.secret");
-    let provider = keys.join("com.yi-ting.pathkeep-ai-provider::fixture.secret");
+    let file =
+        |user| vault_platform::test_support::keyring_secret_file_name("com.yi-ting.pathkeep", user);
+    let prod = keys.join(file("database-key"));
+    let provider = keys.join(file("ai-provider::fixture"));
     fs::write(&prod, "production archive key").unwrap();
     fs::write(&provider, "production provider key").unwrap();
     assert_eq!(vault_platform::keyring_get_database_key().unwrap(), None);

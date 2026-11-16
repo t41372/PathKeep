@@ -22,7 +22,15 @@ pub fn census(root: &Path, hash: impl Fn(&[u8]) -> String) -> Census {
         } else if metadata.is_dir() {
             "directory".into()
         } else if metadata.is_file() {
-            format!("file:{}:{}", metadata.len(), hash(&fs::read(path).unwrap()))
+            match fs::read(path) {
+                Ok(bytes) => format!("file:{}:{}", metadata.len(), hash(&bytes)),
+                // Windows file locks are mandatory: nobody else can read a file a process holds
+                // locked, such as the owner's lock file. Its size is all there is to see.
+                Err(error) if cfg!(windows) && error.raw_os_error() == Some(33) => {
+                    format!("file:{}:locked", metadata.len())
+                }
+                Err(error) => panic!("reading {}: {error}", path.display()),
+            }
         } else {
             "special".into()
         };

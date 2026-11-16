@@ -29,6 +29,24 @@ pub const TEST_KEYRING_UNAVAILABLE_FILE: &str = "unavailable";
 /// as a macOS keychain does when the user denies an update to an item they can read.
 pub const TEST_KEYRING_REFUSES_WRITES_FILE: &str = "refuses-writes";
 
+/// The name of the file that holds one secret in the test keyring.
+///
+/// A provider's account name holds a colon (`ai-provider::fixture`), which Windows does not allow
+/// in a file name. Every character of the account other than a letter, a digit, `.`, `_` or `-`
+/// is written as `%` and its hex code, so each account still has a file of its own.
+pub fn keyring_secret_file_name(service: &str, user: &str) -> String {
+    use std::fmt::Write;
+    let mut name = format!("{service}-");
+    for byte in user.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-') {
+            name.push(char::from(byte));
+        } else {
+            let _ = write!(name, "%{byte:02X}");
+        }
+    }
+    name + ".secret"
+}
+
 const LEGACY_TEST_KEYRING_DIR_ENV: &str = "CHB_TEST_KEYRING_DIR";
 const LEGACY_TEST_LAUNCH_AGENTS_DIR_ENV: &str = "CHB_TEST_LAUNCH_AGENTS_DIR";
 
