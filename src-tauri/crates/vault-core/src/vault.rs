@@ -307,6 +307,9 @@ fn storage_config(
 ) -> Result<vault_store::Config> {
     let mut storage = vault_store::Config::new(&paths.app_root);
     storage.owner = owner;
+    if let Some(readers) = crate::test_support::store_readers() {
+        storage.readers_per_database = readers;
+    }
     if let Some(data_key) = key {
         use vault_crypto::KeyPurpose;
         storage.keys = [

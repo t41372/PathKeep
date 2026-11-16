@@ -100,7 +100,12 @@ static ALLOCATOR: CountingAllocator = CountingAllocator;
 /// The store's readers keep the pages they read, up to their cache size, and that is the store's
 /// memory, not the export's: the export runs until it leaves nothing more behind before it is
 /// measured. (Until 2026-11-13 the search indexer wrote to the archive ten times a second with
-/// nothing to write, and each of those writes emptied the caches, so they never filled.)
+/// nothing to write, and each of those writes emptied the caches, so they never filled.) It runs
+/// with one reader per database (`PATHKEEP_TEST_STORE_READERS`): a read goes to whichever reader
+/// wakes first, so with two the measured export could read pages into the cache the runs before
+/// had not filled, and the 100,000-visit run counted up to 0.6 MiB of the store's cache as the
+/// export's (2026-11-16: about 17 pages of 4 KiB on each of a few fetches; with one reader, none
+/// in twenty runs under load).
 #[test]
 fn export_heap_stays_bounded_as_archive_grows() {
     // The allocator is process-wide; another test opening a Vault must not count as export memory.
@@ -108,6 +113,7 @@ fn export_heap_stays_bounded_as_archive_grows() {
         let status = std::process::Command::new(std::env::current_exe().unwrap())
             .args(["--exact", "export_heap_stays_bounded_as_archive_grows", "--nocapture"])
             .env("PATHKEEP_EXPORT_HEAP_CHILD", "1")
+            .env("PATHKEEP_TEST_STORE_READERS", "1")
             .status()
             .unwrap();
         assert!(status.success(), "isolated export heap measurement failed");
