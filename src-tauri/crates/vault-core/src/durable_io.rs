@@ -10,6 +10,8 @@
 //!   happens when a rename is persisted while the data write behind it is not.
 //! - Sweep orphaned `.pk-durable-*` temps left when the process is `SIGKILL`ed
 //!   between temp-create and persist (Drop can't run on SIGKILL).
+//! - Flush a file written earlier through a handle Windows flushes: one that may write
+//!   (`open_to_flush`).
 //!
 //! ## Not responsible for
 //! - SQLite-internal durability (PRAGMA synchronous / WAL checkpointing).
@@ -228,7 +230,7 @@ pub fn atomic_durable_write_with(
 pub fn install_file_durably(built: &Path, dest: &Path) -> Result<()> {
     {
         let file =
-            File::open(built).with_context(|| format!("open built file {}", built.display()))?;
+            open_to_flush(built).with_context(|| format!("open built file {}", built.display()))?;
         full_fsync(&file)?;
     }
     fs::rename(built, dest)
@@ -244,8 +246,15 @@ pub fn install_file_durably(built: &Path, dest: &Path) -> Result<()> {
 /// renames themselves issue with that barrier already paid — shrinking the window
 /// in which a crash leaves one canonical DB swapped and the other not.
 pub(crate) fn fsync_file_durably(path: &Path) -> Result<()> {
-    let file = File::open(path).with_context(|| format!("open {} for fsync", path.display()))?;
+    let file = open_to_flush(path).with_context(|| format!("open {} for fsync", path.display()))?;
     full_fsync(&file)
+}
+
+/// Opens a file written earlier so it can be flushed. Windows flushes only through a handle that
+/// may write: `FlushFileBuffers` requires `GENERIC_WRITE` and refuses a read-only handle ("access
+/// denied"). Elsewhere a read-only handle flushes the same, and the file is opened as before.
+fn open_to_flush(path: &Path) -> io::Result<File> {
+    fs::OpenOptions::new().read(true).write(cfg!(windows)).open(path)
 }
 
 /// Durably removes the file at `path`: a no-op when already absent (idempotent),
