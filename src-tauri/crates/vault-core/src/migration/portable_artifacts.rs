@@ -234,7 +234,14 @@ fn relocated(value: &str, from: &str, to: &Path) -> Option<String> {
     let normalized = value.replace('\\', "/");
     let from = from.replace('\\', "/");
     let relative = normalized.strip_prefix(&format!("{}/", from.trim_end_matches('/')))?;
-    Some(to.join(relative).display().to_string())
+    // Joined a part at a time, so the path has this system's separators, as the paths this
+    // computer records itself do: the ledger is looked up by the text of a path. Joined whole, a
+    // path moved to Windows read `C:\…\raw-snapshots/chrome-safe/checkpoint`.
+    let moved = relative
+        .split('/')
+        .filter(|part| !part.is_empty())
+        .fold(to.to_path_buf(), |path, part| path.join(part));
+    Some(moved.display().to_string())
 }
 fn relocate_json(value: &mut serde_json::Value, from: &str, to: &Path) -> bool {
     let mut changed = false;

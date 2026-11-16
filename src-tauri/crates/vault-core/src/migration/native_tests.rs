@@ -146,7 +146,7 @@ fn portable_provenance_is_encrypted_relocated_and_replayable_on_an_empty_root() 
     use browser_history_fixtures::{ChromiumHistoryFixture, ChromiumUrlRow, ChromiumVisitRow};
     for key in [None, Some([31; 32])] {
         let source = crate::Vault::open_temp_with_key(key).unwrap();
-        let checkpoint = source.paths().raw_snapshots_dir.join("chrome-safe/checkpoint");
+        let checkpoint = source.paths().raw_snapshots_dir.join("chrome-safe").join("checkpoint");
         std::fs::create_dir_all(&checkpoint).unwrap();
         ChromiumHistoryFixture::new()
             .add_url(ChromiumUrlRow {
@@ -206,7 +206,8 @@ fn portable_provenance_is_encrypted_relocated_and_replayable_on_an_empty_root() 
             Default::default(),
         )
         .unwrap();
-        let imported = paths.raw_snapshots_dir.join("chrome-safe/checkpoint");
+        // Looked up by the text of the path this computer writes: its own separators throughout.
+        let imported = paths.raw_snapshots_dir.join("chrome-safe").join("checkpoint");
         assert_eq!(
             std::fs::read(imported.join("History")).unwrap(),
             std::fs::read(checkpoint.join("History")).unwrap()
