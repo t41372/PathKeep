@@ -1144,6 +1144,87 @@ fn a_wipe_whose_control_a_power_cut_took_is_still_settled() {
     }
 }
 
+// Without a control, the trash is what binds the record to the folder, and finishing the wipe
+// deletes it first. A second cut there, or a keychain that fails after it, must not leave a folder
+// every later start refuses as one that lost its control: the emptied control the record holds
+// goes back before anything is deleted, and the next start finishes the wipe.
+#[test]
+fn a_wipe_whose_control_a_power_cut_took_finishes_after_a_second_interruption() {
+    for second in ["wipe-control-rewritten", "wipe-files-removed", "a keychain error"] {
+        let fixture = backed_up_archive();
+        let paths = &fixture.paths;
+        crash_at(paths, &WipeOutsideState::from_config(&fixture.config, None), "wipe-committed");
+        fs::remove_file(&paths.config_path).unwrap();
+        if second == "a keychain error" {
+            finish_interrupted_data_wipe(
+                paths,
+                no_quiesce,
+                |_| anyhow::bail!("the keychain is locked"),
+                no_schedule,
+            )
+            .expect_err("the keychain failed");
+            assert!(trashes(paths).is_empty(), "{second}: the trash went first");
+        } else {
+            let crashed = catch_unwind(AssertUnwindSafe(|| {
+                let _cut = FaultGuard::panic_at(second);
+                let _ = finish_interrupted_data_wipe(paths, no_quiesce, no_secrets, no_schedule);
+            }));
+            assert!(crashed.is_err(), "{second}: the cut was not reached");
+        }
+        assert!(paths.config_path.exists(), "{second}: a control stands in the folder meanwhile");
+        let cleared = Cell::new(false);
+        let settled = finish_interrupted_data_wipe(
+            paths,
+            no_quiesce,
+            |_| {
+                cleared.set(true);
+                Ok(())
+            },
+            no_schedule,
+        )
+        .unwrap_or_else(|error| panic!("{second}: {error:#}"));
+        assert!(matches!(settled, Some(SettledWipe::Finished(_))), "{second}");
+        assert!(cleared.get(), "{second}: the keys are cleared");
+        assert!(!data_wipe_interrupted(paths), "{second}");
+        assert!(
+            matches!(
+                crate::admission::inspect(&paths.app_root),
+                Ok(crate::admission::RootState::Uninitialized)
+            ),
+            "{second}"
+        );
+    }
+}
+
+// Undoing a wipe whose control a power cut took puts the archive back one entry at a time. Cut
+// midway, the folder holds the archive's files again, and without a control PathKeep 0.5 would take
+// them for a first run: the stamped emptied control goes back before anything moves, and the next
+// start completes the undo with the control the user had.
+#[test]
+fn an_undo_without_a_control_puts_the_stamped_one_back_before_anything_moves() {
+    let fixture = backed_up_archive();
+    let paths = &fixture.paths;
+    let confirmed = fs::read(&paths.config_path).unwrap();
+    let before = file_contents_under(&paths.app_root);
+    crash_at(paths, &WipeOutsideState::from_config(&fixture.config, None), "wipe-moved");
+    fs::remove_file(&paths.config_path).unwrap();
+    let crashed = catch_unwind(AssertUnwindSafe(|| {
+        let _cut = FaultGuard::panic_at("wipe-entry-put-back");
+        let _ = finish_interrupted_data_wipe(paths, no_quiesce, no_secrets, no_schedule);
+    }));
+    assert!(crashed.is_err(), "the cut was not reached");
+    let control = fs::read(&paths.config_path).expect("a control while the archive comes back");
+    let parsed = crate::admission::parse_control(&paths.app_root, &control).unwrap();
+    assert!(parsed.compatibility.is_some(), "the control keeps PathKeep 0.5 out");
+    assert!(
+        !crate::load_config(paths).unwrap().initialized,
+        "the empty control, not the archive's, while the archive is only partly back"
+    );
+    assert_eq!(next_start(paths), Some(SettledWipe::RolledBack));
+    assert_eq!(fs::read(&paths.config_path).unwrap(), confirmed);
+    assert_same_files(&file_contents_under(&paths.app_root), &before, "undone");
+}
+
 // The record names every target, and a name it cannot hold the same way on every system (here a
 // backslash, a separator on Windows) would be read back as another path after a crash. The wipe
 // stops before it records or moves anything, and everything is as it was.

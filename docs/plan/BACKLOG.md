@@ -420,7 +420,7 @@
   - 先在 Windows 上實際跑一次「刪除所有資料」確認；成立的話，用 Windows 的檔案鎖（`LockFileEx`）實作同樣的語意，並讓這些測試在 Windows CI 跑。
   - 同一份檔案的開頭說明還在講「排程備份是另一個行程」的舊架構。現在只有一個 owner 行程能打開存檔（owner lock），排程備份在 owner 裡跑，改名前 Store 已暫停並關閉；說明要跟著改成現況，並寫清楚這把鎖現在擋的是什麼。
   - 0.5 的「刪除所有資料」標記（`.pk-wipe-in-progress.json`）只在沒有設定檔時照 0.5 的方式就地刪完。GPT-6 Pro 指出（2026-11-15，屬實）：沒有設定檔本身不能證明標記屬於這個資料夾；被帶進來的標記會讓一個本來該拒絕打開（有存檔資料、沒有設定檔）的資料夾被刪掉。0.5 的標記什麼都沒記，分不出來。拒絕畫面（`WORK-ARCHIVE-REFUSAL-SCREEN`）有了之後，改成在畫面上問使用者「上次的刪除沒有做完，要做完嗎」，不再自動刪。
-  - 存檔升級時，已發布格式的五個資料庫裡少了一個（例如主資料庫被刪掉）：現在照 0.5 的做法建一個空的，再蓋版本宣告；蓋了版本宣告的存檔少一個資料庫則拒絕打開（`archive-store-missing`）。升級時要不要也拒絕、讓使用者知道資料不見了，待決定。
+  - 存檔升級時，已發布格式的五個資料庫裡少了一個（例如主資料庫被刪掉）：第二輪起拒絕打開（`archive-store-missing`），什麼都不建、不蓋版本宣告（`archive-compatibility.md`「A released archive missing one of its own stores is refused」）。畫面、以及使用者明確同意後建一個空的再升級，在 `WORK-ARCHIVE-REFUSAL-SCREEN`。
 
 - [ ] **WORK-FAT-DATA-FOLDER-NOTICE** — 資料資料夾放在 FAT32／exFAT 的磁碟上時，讓使用者知道斷電可能丟檔（2026-11-15，GPT-6 Pro 第三輪程式審查 M8）
   - 原因：有日誌的檔案系統（APFS、ext4、NTFS）上，改名是一步完成的，斷電後檔案不是在原處就是在新處。FAT32／exFAT 上不是：系統可能先寫來源資料夾，寫到一半的配置表可能讓任何檔案消失，呼叫的順序怎麼排都保證不了。PathKeep 在這種磁碟上會留下所有可能共用資料的名字、認不出來就停下（`archive-compatibility.md`「Moves are made durable destination first…」），但斷電弄丟的檔案救不回來。

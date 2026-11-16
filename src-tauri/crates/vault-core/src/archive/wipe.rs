@@ -437,31 +437,43 @@ fn settle(
         return Ok(None);
     }
     Ok(Some(match pending(paths)? {
-        Pending::Intent(intent) if intent.control_here(paths)? == Here::Other => {
-            // Not the folder this wipe was in. The trash the intent names stays as it is, if it is
-            // here at all, and is listed with the next "Delete all data". The record is the only
-            // copy of the control the user confirmed deleting, so it is not deleted: it goes,
-            // whole and under a name nothing has, into the quarantine.
-            let record = intent_path(paths);
-            let kept =
-                unused(&paths.quarantine_dir.join(&intent.trash), Path::new(WIPE_INTENT_FILE))?;
-            rename(&record, &kept).context("setting a stale wipe record aside")?;
-            eprintln!(
-                "pathkeep: a delete-all-data record does not match this archive; it is kept in {} \
-                 and {} is left as it is",
-                kept.display(),
-                intent.trash.display()
-            );
-            SettledWipe::Discarded
-        }
-        Pending::Intent(intent) if intent.committed => {
-            quiesce()?;
-            SettledWipe::Finished(finish(paths, &intent, clear_secrets, remove_schedule)?)
-        }
-        Pending::Intent(intent) => {
-            roll_back(paths, &intent)?;
-            SettledWipe::RolledBack
-        }
+        Pending::Intent(intent) => match intent.control_here(paths)? {
+            Here::Other => {
+                // Not the folder this wipe was in. The trash the intent names stays as it is, if it
+                // is here at all, and is listed with the next "Delete all data". The record is the
+                // only copy of the control the user confirmed deleting, so it is not deleted: it
+                // goes, whole and under a name nothing has, into the quarantine.
+                let record = intent_path(paths);
+                let kept =
+                    unused(&paths.quarantine_dir.join(&intent.trash), Path::new(WIPE_INTENT_FILE))?;
+                rename(&record, &kept).context("setting a stale wipe record aside")?;
+                eprintln!(
+                    "pathkeep: a delete-all-data record does not match this archive; it is kept \
+                     in {} and {} is left as it is",
+                    kept.display(),
+                    intent.trash.display()
+                );
+                SettledWipe::Discarded
+            }
+            here => {
+                if here == Here::Missing {
+                    // Without a control the trash is all that binds the record to this folder, and
+                    // finishing deletes it, undoing may too. With the emptied control back first,
+                    // a cut or a failure from here on leaves an ordinary interrupted wipe, and
+                    // PathKeep 0.5 stays out while an undo puts the archive back.
+                    atomic_durable_write(&paths.config_path, intent.emptied.as_bytes())
+                        .context("writing the emptied configuration back")?;
+                    crate::fault_inject::checkpoint("wipe-control-rewritten")?;
+                }
+                if intent.committed {
+                    quiesce()?;
+                    SettledWipe::Finished(finish(paths, &intent, clear_secrets, remove_schedule)?)
+                } else {
+                    roll_back(paths, &intent)?;
+                    SettledWipe::RolledBack
+                }
+            }
+        },
         // That release removed the control right after writing its marker, before deleting
         // anything: beside a control its wipe had deleted nothing, and the marker goes.
         Pending::Legacy(_) if crate::admission::read_control(&paths.app_root)?.is_some() => {
@@ -528,6 +540,8 @@ enum Here {
     /// leave none. The trash, made before the intent under a random name and removed only once the
     /// confirmed control is back or everything in it is deleted, says the intent is this folder's,
     /// and the intent holds both controls. Without the trash nothing does: that is `Other`.
+    /// Settling writes the emptied control back before it moves or deletes anything, so the trash
+    /// has to bind the record only until then.
     Missing,
     /// Another archive's: the folder was restored, imported into or set up again since, or the
     /// record was carried in from elsewhere.
