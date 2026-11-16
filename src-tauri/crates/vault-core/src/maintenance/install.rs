@@ -1065,7 +1065,7 @@ pub(crate) fn rename(from: &Path, to: &Path) -> Result<()> {
 /// an older one.
 fn rename_over(from: &Path, to: &Path) -> Result<()> {
     create_dirs_durably(to.parent().unwrap())?;
-    fs::rename(from, to)?;
+    crate::durable_io::retry_while_held(|| fs::rename(from, to))?;
     fsync_dir(to.parent().unwrap())?;
     fsync_dir(from.parent().unwrap())
 }
@@ -1086,17 +1086,17 @@ fn create_dirs_durably(dir: &Path) -> Result<()> {
 }
 
 pub(super) fn remove(path: &Path) -> Result<()> {
-    match fs::symlink_metadata(path) {
+    let mut found = false;
+    crate::durable_io::retry_while_held(|| match fs::symlink_metadata(path) {
         Ok(meta) => {
-            if meta.is_dir() {
-                fs::remove_dir_all(path)?;
-            } else {
-                fs::remove_file(path)?;
-            }
-            fsync_dir(path.parent().unwrap())?;
+            found = true;
+            if meta.is_dir() { fs::remove_dir_all(path) } else { fs::remove_file(path) }
         }
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-        Err(e) => return Err(e.into()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(e),
+    })?;
+    if found {
+        fsync_dir(path.parent().unwrap())?;
     }
     Ok(())
 }

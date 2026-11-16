@@ -10,6 +10,8 @@
 //!   happens when a rename is persisted while the data write behind it is not.
 //! - Sweep orphaned `.pk-durable-*` temps left when the process is `SIGKILL`ed
 //!   between temp-create and persist (Drop can't run on SIGKILL).
+//! - Wait, briefly, for a file another program holds open on Windows before a move or a
+//!   delete gives up (`retry_while_held`).
 //!
 //! ## Not responsible for
 //! - SQLite-internal durability (PRAGMA synchronous / WAL checkpointing).
@@ -205,10 +207,17 @@ pub fn atomic_durable_write_with(
         writer.flush().context("flush temp")?;
     }
     full_fsync(tmp.as_file())?;
-    // persist() = rename onto the destination (atomic on the same filesystem).
-    tmp.persist(path)
-        .map_err(|error| error.error)
-        .with_context(|| format!("rename temp onto {}", path.display()))?;
+    // persist() = rename onto the destination (atomic on the same filesystem). One that fails
+    // hands the temp back: for the next try, or for its guard to delete.
+    let mut temp = Some(tmp);
+    retry_while_held(|| {
+        let file = temp.take().expect("a failed persist hands the temp back");
+        file.persist(path).map(drop).map_err(|error| {
+            temp = Some(error.file);
+            error.error
+        })
+    })
+    .with_context(|| format!("rename temp onto {}", path.display()))?;
     fsync_parent_dir(path)
 }
 
@@ -231,7 +240,7 @@ pub fn install_file_durably(built: &Path, dest: &Path) -> Result<()> {
             File::open(built).with_context(|| format!("open built file {}", built.display()))?;
         full_fsync(&file)?;
     }
-    fs::rename(built, dest)
+    retry_while_held(|| fs::rename(built, dest))
         .with_context(|| format!("rename {} -> {}", built.display(), dest.display()))?;
     fsync_parent_dir(dest)
 }
@@ -260,8 +269,53 @@ pub fn remove_file_durably(path: &Path) -> Result<()> {
     if !path.exists() {
         return Ok(());
     }
-    fs::remove_file(path).with_context(|| format!("remove {}", path.display()))?;
+    retry_while_held(|| match fs::remove_file(path) {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        removed => removed,
+    })
+    .with_context(|| format!("remove {}", path.display()))?;
     fsync_parent_dir(path)
+}
+
+/// How many more times a move or a delete is tried while another program holds the file.
+///
+/// Windows refuses to rename or delete a file that another program has open without delete
+/// sharing. An antivirus scan, the search indexer or a sync client opens a file for a moment right
+/// after it is written or moved, which is when an operation moves or deletes it next. SQLite retries
+/// the same errors on the same budget (`winRetryIoerr` in its `os_win.c`: ten more tries, each
+/// 25 ms longer apart, about 1.4 s in all). A program that holds the file longer still makes the
+/// operation fail, as before: before its commit it is undone, after it the next start finishes it.
+const HELD_RETRIES: u64 = 10;
+
+/// Runs `op`, and again while it fails only because another program holds the file, within
+/// [`HELD_RETRIES`]. Every move and delete of an archive operation goes through it, here and in
+/// the conversion from the old format. Elsewhere than on Windows nothing holds a file against a
+/// rename or a delete, and `op` runs once.
+pub fn retry_while_held<T>(op: impl FnMut() -> io::Result<T>) -> io::Result<T> {
+    retry(op, held_by_another_program, |attempt| {
+        std::thread::sleep(Duration::from_millis(25 * attempt))
+    })
+}
+
+fn retry<T>(
+    mut op: impl FnMut() -> io::Result<T>,
+    held: impl Fn(&io::Error) -> bool,
+    mut wait: impl FnMut(u64),
+) -> io::Result<T> {
+    for attempt in 1..=HELD_RETRIES {
+        match op() {
+            Err(error) if held(&error) => wait(attempt),
+            done => return done,
+        }
+    }
+    op()
+}
+
+/// `ERROR_ACCESS_DENIED`, `ERROR_SHARING_VIOLATION` and `ERROR_LOCK_VIOLATION`: what Windows
+/// returns for a file another program has open. The first is also what a file nobody may change
+/// gives, which then fails after the retries.
+fn held_by_another_program(error: &io::Error) -> bool {
+    cfg!(windows) && matches!(error.raw_os_error(), Some(5 | 32 | 33))
 }
 
 /// Renames `from` to `to` only if nothing is at `to`. Recovery puts a file back, or moves one in,
@@ -274,6 +328,10 @@ pub fn remove_file_durably(path: &Path) -> Result<()> {
 /// FUSE ones, Linux before 3.15) gets a look first and then the rename: only a program writing into
 /// the data folder in that instant is not caught there.
 pub(crate) fn rename_no_replace(from: &Path, to: &Path) -> io::Result<()> {
+    retry_while_held(|| rename_no_replace_once(from, to))
+}
+
+fn rename_no_replace_once(from: &Path, to: &Path) -> io::Result<()> {
     if let Some(result) = exclusive_rename(from, to) {
         return result;
     }
@@ -424,6 +482,97 @@ fn sweep_temps_matching(dir: &Path, stale: impl Fn(&fs::DirEntry) -> bool) -> Re
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The retry itself, on every system, with a stand-in for "another program holds the file":
+    /// tried again within the budget, each wait longer; given up after it with the last error; any
+    /// other failure, and a success, returned at once. Only Windows's codes count as held.
+    #[test]
+    fn a_move_or_delete_is_tried_again_only_while_the_file_is_held() {
+        let held = || io::Error::from_raw_os_error(32);
+        let is_held = |error: &io::Error| error.raw_os_error() == Some(32);
+        let (mut calls, mut waits) = (0, Vec::new());
+        let result = retry(
+            || {
+                calls += 1;
+                if calls <= 3 { Err(held()) } else { Ok(calls) }
+            },
+            is_held,
+            |attempt| waits.push(attempt),
+        );
+        assert_eq!(result.expect("let go"), 4);
+        assert_eq!(waits, [1, 2, 3]);
+
+        let mut calls = 0;
+        let error = retry(
+            || -> io::Result<()> {
+                calls += 1;
+                Err(held())
+            },
+            is_held,
+            |_| {},
+        )
+        .expect_err("held throughout");
+        assert_eq!(error.raw_os_error(), Some(32));
+        assert_eq!(calls, HELD_RETRIES + 1);
+
+        let mut calls = 0;
+        let error = retry(
+            || -> io::Result<()> {
+                calls += 1;
+                Err(io::Error::from(io::ErrorKind::AlreadyExists))
+            },
+            is_held,
+            |_| panic!("another failure is not waited on"),
+        )
+        .expect_err("not held");
+        assert_eq!(error.kind(), io::ErrorKind::AlreadyExists);
+        assert_eq!(calls, 1);
+
+        assert_eq!(held_by_another_program(&held()), cfg!(windows));
+    }
+
+    /// Windows refuses to move, replace or delete a file another program has open without delete
+    /// sharing, as an antivirus scan holds a file it reads right after it was written. Each waits
+    /// for the program to let go; one that never does makes it fail, not hang.
+    #[cfg(windows)]
+    #[test]
+    fn a_file_another_program_holds_for_a_moment_is_still_moved_replaced_and_deleted() {
+        use std::os::windows::fs::OpenOptionsExt;
+        const FILE_SHARE_READ: u32 = 1;
+        let dir = tempfile::tempdir().expect("tempdir");
+        let open = |path: &Path| {
+            fs::OpenOptions::new().read(true).share_mode(FILE_SHARE_READ).open(path).expect("held")
+        };
+        let hold = |path: &Path| {
+            let file = open(path);
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_millis(300));
+                drop(file);
+            })
+        };
+        let (a, b) = (dir.path().join("a"), dir.path().join("b"));
+        fs::write(&a, b"a").expect("seed");
+        let held = hold(&a);
+        rename_no_replace(&a, &b).expect("moved once let go");
+        held.join().expect("let go");
+        let held = hold(&b);
+        atomic_durable_write(&b, b"replaced").expect("replaced once let go");
+        held.join().expect("let go");
+        assert_eq!(fs::read(&b).expect("read"), b"replaced");
+        let held = hold(&b);
+        remove_file_durably(&b).expect("deleted once let go");
+        held.join().expect("let go");
+        assert!(!a.exists() && !b.exists());
+
+        let c = dir.path().join("c");
+        fs::write(&c, b"c").expect("seed");
+        let kept = open(&c);
+        let started = std::time::Instant::now();
+        remove_file_durably(&c).expect_err("held throughout");
+        assert!(started.elapsed() < Duration::from_secs(5), "{:?}", started.elapsed());
+        drop(kept);
+        assert!(c.exists());
+    }
 
     /// What a plain rename would do, and this one must not: replace a file, or an empty folder (a
     /// rename onto an empty folder replaces it on Unix). Onto nothing it moves, folders included.

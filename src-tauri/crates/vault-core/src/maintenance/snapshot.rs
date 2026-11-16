@@ -374,7 +374,8 @@ fn convert_stage(
         let relative = vault_layout::database_path(db);
         remove_with_companions(&stage.join(relative))?;
         if databases.contains(&db) {
-            fs::rename(converted.join(relative), stage.join(relative))?;
+            let (from, to) = (converted.join(relative), stage.join(relative));
+            crate::durable_io::retry_while_held(|| fs::rename(&from, &to))?;
         }
     }
     // Search indexes the stage may have made under the copy's key; they are built again.
@@ -382,7 +383,7 @@ fn convert_stage(
     for rebuilt in database_files(layout, true).into_iter().filter(|file| !kept.contains(file)) {
         install::remove(&stage.join(rebuilt))?;
     }
-    fs::remove_dir_all(&converted)?;
+    crate::durable_io::retry_while_held(|| fs::remove_dir_all(&converted))?;
     Ok(())
 }
 
@@ -390,7 +391,8 @@ fn remove_with_companions(main: &Path) -> Result<()> {
     for suffix in
         vault_layout::CompanionFamily::Native.suffixes(vault_layout::CompanionUse::Install)
     {
-        match fs::remove_file(PathBuf::from(format!("{}{suffix}", main.display()))) {
+        let file = PathBuf::from(format!("{}{suffix}", main.display()));
+        match crate::durable_io::retry_while_held(|| fs::remove_file(&file)) {
             Err(error) if error.kind() != std::io::ErrorKind::NotFound => return Err(error.into()),
             _ => {}
         }
@@ -430,7 +432,7 @@ pub fn recover_native_maintenance(paths: &ProjectPaths) -> Result<bool> {
                 && vault_layout::family_pattern(vault_layout::ArtifactId::MaintenanceStages)
                     .matches(&entry.file_name().to_string_lossy())
             {
-                fs::remove_dir_all(entry.path())?;
+                crate::durable_io::retry_while_held(|| fs::remove_dir_all(entry.path()))?;
             }
         }
     }

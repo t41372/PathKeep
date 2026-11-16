@@ -17,7 +17,9 @@ use vault_core::{
     AppConfig, ArchiveMode, DiskEncryptionMode, ProjectPaths,
     archive::ArchiveWriteLock,
     detect_disk_encryption_mode,
-    durable_io::{atomic_durable_write, install_file_durably, remove_file_durably},
+    durable_io::{
+        atomic_durable_write, install_file_durably, remove_file_durably, retry_while_held,
+    },
     save_config,
 };
 
@@ -277,7 +279,7 @@ fn restore_quarantined_original(quarantine_dir: &Path, canonical: &Path) {
     };
     let quarantined = quarantine_dir.join(name);
     if quarantined.exists() {
-        let _ = fs::rename(&quarantined, canonical);
+        let _ = retry_while_held(|| fs::rename(&quarantined, canonical));
         for suffix in vault_layout::CompanionFamily::LegacySqlite
             .suffixes(vault_layout::CompanionUse::Recovery)
             .iter()
@@ -287,7 +289,7 @@ fn restore_quarantined_original(quarantine_dir: &Path, canonical: &Path) {
             let from = PathBuf::from(format!("{}{}", quarantined.display(), suffix));
             if from.exists() {
                 let to = PathBuf::from(format!("{}{}", canonical.display(), suffix));
-                let _ = fs::rename(&from, &to);
+                let _ = retry_while_held(|| fs::rename(&from, &to));
             }
         }
     }

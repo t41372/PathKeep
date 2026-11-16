@@ -193,7 +193,8 @@ fn remove_stale_sidecars(path: &Path) {
         .copied()
         .filter(|suffix| !suffix.is_empty())
     {
-        let _ = fs::remove_file(format!("{}{}", path.display(), suffix));
+        let sidecar = format!("{}{}", path.display(), suffix);
+        let _ = vault_core::durable_io::retry_while_held(|| fs::remove_file(&sidecar));
     }
 }
 
