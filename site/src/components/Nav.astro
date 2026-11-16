@@ -1,0 +1,42 @@
+---
+/**
+ * The bar at the top of the hero, set in ink on the painting: the mark,
+ * the page's sections, the other two languages, Download.
+ */
+import { copy as all, langs, type Copy, type Lang } from '../content/copy'
+
+interface Props {
+  copy: Copy
+  lang: Lang
+}
+
+const { copy, lang } = Astro.props
+const n = copy.nav
+const others = langs.filter((l) => l.lang !== lang)
+---
+
+<nav class="nav" aria-label={n.label}>
+  <a class="nav__brand" href="#top">
+    <img src="/brand/mark.svg" alt="" width="26" height="26" />
+    <span>PathKeep</span>
+  </a>
+  <div class="nav__end">
+    <div class="nav__sections">
+      <a href="#why">{n.why}</a>
+      <a href="#keeps">{n.keeps}</a>
+      <a href="#privacy">{n.privacy}</a>
+      <a href="#faq">{n.faq}</a>
+      <a href="https://github.com/t41372/PathKeep">{n.github}</a>
+    </div>
+    <div class="nav__langs">
+      {
+        others.map((l) => (
+          <a href={l.path} hreflang={all[l.lang].htmlLang} lang={all[l.lang].htmlLang}>
+            {l.label}
+          </a>
+        ))
+      }
+    </div>
+    <a class="nav__cta" href="#download">{n.download}</a>
+  </div>
+</nav>

@@ -1,0 +1,13 @@
+# Response headers on Cloudflare Pages:
+# https://developers.cloudflare.com/pages/configuration/headers/
+
+# Built files whose names carry a hash of their content never change.
+/_astro/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/app/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin

@@ -1,0 +1,40 @@
+---
+/**
+ * What PathKeep keeps: one painted panel per space, in that space's
+ * colour, with its name and what it covers set on the dark foot of the
+ * paint.
+ */
+import type { Copy } from '../content/copy'
+import { halfPanelSizes, paintings } from '../content/paintings'
+import Marked from './Marked.astro'
+import Painting from './Painting.astro'
+import Phrases from './Phrases.astro'
+
+interface Props {
+  copy: Copy
+}
+
+const k = Astro.props.copy.keeps
+---
+
+<section class="keeps wrap" id="keeps">
+  <div class="keeps__head" data-reveal="group">
+    <h2 class="title"><Phrases text={k.title} /></h2>
+    <p class="body">{k.body}</p>
+  </div>
+  <div class="spaces" data-reveal="group">
+    {
+      k.spaces.map((s) => (
+        <article class:list={['space', `space--${s.id}`]}>
+          <Painting painting={paintings[s.id]} sizes={halfPanelSizes} />
+          <div class="space__text">
+            <h3 class="space__name">{s.name}</h3>
+            <p class="space__covers"><Marked text={s.covers} /></p>
+            <p class="space__pages">{s.pages}</p>
+          </div>
+        </article>
+      ))
+    }
+  </div>
+  <p class="caption">{k.more}</p>
+</section>

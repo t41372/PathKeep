@@ -1,0 +1,31 @@
+---
+/**
+ * Whose data it is: the promise on the night painting, its horizon at the
+ * panel's foot; the specifics on the wall below, including the two
+ * features that do contact websites.
+ */
+import type { Copy } from '../content/copy'
+import { paintings, panelSizes } from '../content/paintings'
+import Painting from './Painting.astro'
+import Phrases from './Phrases.astro'
+
+interface Props {
+  copy: Copy
+}
+
+const p = Astro.props.copy.privacy
+---
+
+<section class="privacy wrap" id="privacy">
+  <div class="privacy__panel" data-reveal>
+    <Painting painting={paintings.privacy} sizes={panelSizes} />
+    <div class="privacy__text">
+      <h2 class="panel-title"><Phrases text={p.title} /></h2>
+      <p>{p.body}</p>
+    </div>
+  </div>
+  <ul class="privacy__points">
+    {p.points.map((point) => <li>{point}</li>)}
+  </ul>
+  <p class="caption">{p.network}</p>
+</section>

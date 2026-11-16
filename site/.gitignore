@@ -1,0 +1,5 @@
+node_modules/
+dist/
+# A recording before it is built into public/app/ (see README, The demo).
+demo/public/
+.astro/

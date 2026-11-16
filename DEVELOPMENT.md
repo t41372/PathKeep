@@ -47,7 +47,7 @@ bun run build
 
 ## Surface Boundaries
 
-There is no browser-preview backend. The frontend reaches Rust either through Tauri or through the dev IPC bridge; with neither, every command fails with "PathKeep cannot reach its backend". `bun run dev` on its own only serves the Vite bundle.
+There is no browser-preview backend. The frontend reaches Rust either through Tauri or through the dev IPC bridge; with neither, every command fails with "PathKeep cannot reach its backend". `bun run dev` on its own only serves the Vite bundle. The landing page's demo (`site/demo/`) is a separate build that swaps the transport for answers recorded from the real backend; it is there for visitors to try, never for testing (see `site/README.md`).
 
 - `bun run desktop:dev` is the real Tauri desktop surface. Use it for anything native: the overlay title bar, the menu bar / tray icon and its `pathkeep://` events, open at login, keychain prompts, Finder reveal, the updater, window sizing.
 - `bun run dev:demo` (`scripts/dev-demo.mjs`) writes synthetic Chrome ×2 and Firefox profiles under `var/demo/`, starts the debug backend with the dev bridge, initializes the archive and runs a first backup, then serves the frontend at http://127.0.0.1:1420. It keeps the archive, keychain and scheduler inside `var/demo/` (`CHB_PROJECT_ROOT`, `CHB_TEST_KEYRING_DIR`, `PATHKEEP_PLATFORM_TEST_SANDBOX_DIR`, its own schedule label), so it never touches your real history, keychain or LaunchAgents. `--fresh` wipes `var/demo/`; `--first-run` stops before initialization so the app opens on onboarding. This is the default way to look at UI changes.

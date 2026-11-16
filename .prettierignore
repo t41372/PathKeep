@@ -33,3 +33,11 @@ tests/root_admission/fixtures/
 
 # Generated from the persisted types by `cargo test -p vault-core --test persisted_schema`.
 src-tauri/crates/vault-core/tests/persisted_schema/revision-*.json
+
+# The landing site's generated types and the painting lab's renders.
+site/.astro/
+site/hero-lab/out/
+site/hero-lab/screens-in/
+# The demo's build and its recording (site/demo/record.ts writes it).
+site/public/app/
+site/demo/public/

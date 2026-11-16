@@ -1,0 +1,23 @@
+{
+  // The demo runs the app's own code, so it is checked with the app's
+  // settings: its browser half against the DOM, and the scripts that make
+  // and check the recording against Node.
+  //   ../node_modules/.bin/tsc -p demo
+  "extends": "../../tsconfig.app.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": "../../node_modules/.tmp/tsconfig.demo.tsbuildinfo",
+    "types": ["vite/client", "node"],
+    // Built with the app's Vite, not the copy Astro brings into site/.
+    "paths": {
+      "@/*": ["../../src/*"],
+      "vite": ["../../node_modules/vite/dist/node/index.d.ts"]
+    }
+  },
+  "include": [
+    "*.ts",
+    "transport/*.ts",
+    "record/*.ts",
+    "../../src/vite-env.d.ts"
+  ],
+  "exclude": []
+}

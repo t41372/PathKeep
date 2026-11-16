@@ -1,0 +1,33 @@
+---
+/**
+ * Common questions, each a native disclosure so it works without script.
+ */
+import type { Copy } from '../content/copy'
+
+interface Props {
+  copy: Copy
+}
+
+const q = Astro.props.copy.faq
+---
+
+<section class="faq wrap" id="faq">
+  <div class="aside-layout">
+    <h2 class="title" data-reveal>{q.title}</h2>
+    <div class="faq__list">
+      {
+        q.items.map((item, i) => (
+          <details class="faq__item" open={i === 0}>
+            <summary>
+              <span>{item.title}</span>
+              <span class="faq__x" aria-hidden="true">
+                +
+              </span>
+            </summary>
+            <p>{item.text}</p>
+          </details>
+        ))
+      }
+    </div>
+  </div>
+</section>

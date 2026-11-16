@@ -1,0 +1,67 @@
+---
+/**
+ * Finding things again. The four things with a screen of their own are
+ * shown on it, each on the painting of the space it belongs to (browsing's
+ * orange, agents' teal), the screen cut from the app in the page's
+ * language; asking and notes stay in words below them.
+ */
+import type { Copy, Feature, Lang } from '../content/copy'
+import { paintings } from '../content/paintings'
+import { featureShots, screenSrc } from '../content/screens'
+import Painting from './Painting.astro'
+import Phrases from './Phrases.astro'
+
+interface Props {
+  copy: Copy
+  lang: Lang
+}
+
+const { copy, lang } = Astro.props
+const f = copy.find
+
+/** Which features get a tile, in order, the space each belongs to, and which run two columns wide. */
+const tiles: { id: Feature['id']; space: 'browsing' | 'agent'; wide: boolean }[] = [
+  { id: 'search', space: 'browsing', wide: true },
+  { id: 'history', space: 'browsing', wide: false },
+  { id: 'insights', space: 'browsing', wide: false },
+  { id: 'agent', space: 'agent', wide: true },
+]
+const item = (id: Feature['id']) => f.items.find((i) => i.id === id)!
+const words = f.items.filter((i) => !tiles.some((t) => t.id === i.id))
+const sizes = (wide: boolean) => (wide ? '(min-width: 1100px) 62vw, 100vw' : '(min-width: 1100px) 31vw, 100vw')
+---
+
+<section class="find wrap" id="find">
+  <div class="split" data-reveal="group">
+    <h2 class="title"><Phrases text={f.title} /></h2>
+    <p class="body">{f.body}</p>
+  </div>
+  <div class="wall">
+    {
+      tiles.map((t) => {
+        const it = item(t.id)
+        const shot = featureShots[t.id]!
+        return (
+          <figure class:list={['tile', `tile--${t.space}`, `tile--${t.id}`, { 'tile--wide': t.wide }]} data-reveal>
+            <Painting painting={paintings[t.space]} sizes={sizes(t.wide)} />
+            <figcaption class="tile__text">
+              <h3 class="tile__name">{it.title}</h3>
+              <p class="tile__says">{it.text}</p>
+            </figcaption>
+            <img class="tile__screen" src={screenSrc(shot, lang)} alt={shot.alt[lang]} width={shot.width} height={shot.height} loading="lazy" decoding="async" />
+          </figure>
+        )
+      })
+    }
+  </div>
+  <dl class="features">
+    {
+      words.map((w) => (
+        <div class="feature">
+          <dt>{w.title}</dt>
+          <dd>{w.text}</dd>
+        </div>
+      ))
+    }
+  </dl>
+</section>

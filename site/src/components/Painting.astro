@@ -1,0 +1,38 @@
+---
+/**
+ * A painting filling the panel it sits in, behind the panel's content.
+ * Uncaptioned and decorative: it carries no alt text. A phone can get its
+ * own cut where the panel's shape there needs a different part of the
+ * painting behind the words.
+ */
+import type { Painting } from '../content/paintings'
+
+interface Props {
+  painting: Painting
+  sizes: string
+  phone?: Painting
+  /** The hero's painting is the first thing on screen; the rest wait. */
+  eager?: boolean
+  class?: string
+}
+
+const { painting, sizes, phone, eager = false, class: className } = Astro.props
+const url = (p: Painting, w: number) => `/paintings/${p.name}-${w}.webp`
+const srcset = (p: Painting) => p.widths.map((w) => `${url(p, w)} ${w}w`).join(', ')
+const widest = painting.widths[painting.widths.length - 1]
+---
+
+<picture class:list={['painting', className]}>
+  {phone && <source media="(max-width: 700px)" srcset={srcset(phone)} sizes="100vw" />}
+  <img
+    src={url(painting, painting.widths[0])}
+    srcset={srcset(painting)}
+    sizes={sizes}
+    alt=""
+    width={widest}
+    height={painting.height}
+    loading={eager ? 'eager' : 'lazy'}
+    fetchpriority={eager ? 'high' : undefined}
+    decoding="async"
+  />
+</picture>

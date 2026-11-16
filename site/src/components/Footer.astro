@@ -1,0 +1,37 @@
+---
+/**
+ * The foot of the page: licence, links and the other languages.
+ */
+import { copy as all, langs, type Copy, type Lang } from '../content/copy'
+
+interface Props {
+  copy: Copy
+  lang: Lang
+}
+
+const { copy, lang } = Astro.props
+const f = copy.footer
+const others = langs.filter((l) => l.lang !== lang)
+---
+
+<footer class="footer wrap">
+  <div class="footer__row">
+    <span class="footer__brand">
+      <img src="/brand/mark-dark.svg" alt="" width="26" height="26" />
+      <span>PathKeep</span>
+    </span>
+    <span class="footer__license">{f.license}</span>
+    <nav class="footer__links" aria-label={f.links.label}>
+      <a href="https://github.com/t41372/PathKeep">{f.links.github}</a>
+      <a href="https://github.com/t41372/PathKeep/releases">{f.links.releases}</a>
+      <a href="https://github.com/t41372/PathKeep#readme">{f.links.readme}</a>
+      {
+        others.map((l) => (
+          <a href={l.path} hreflang={all[l.lang].htmlLang} lang={all[l.lang].htmlLang}>
+            {l.label}
+          </a>
+        ))
+      }
+    </nav>
+  </div>
+</footer>

@@ -1,0 +1,28 @@
+{
+  "name": "pathkeep-site",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev --host 127.0.0.1 --port 4391",
+    "build": "astro build",
+    "build:demo": "../node_modules/.bin/vite build --config demo/vite.config.ts --logLevel warn",
+    "check:demo": "node demo/check.ts && node demo/check.ts --lang zh-TW && node demo/check.ts --lang zh-CN",
+    "record:demo": "node demo/record.ts",
+    "preview": "astro preview --host 127.0.0.1 --port 4391",
+    "check": "astro check && ../node_modules/.bin/tsc -p demo"
+  },
+  "dependencies": {
+    "@fontsource-variable/geist": "^5.3.0",
+    "@fontsource-variable/geist-mono": "^5.3.0",
+    "@fontsource-variable/noto-serif-sc": "^5.3.1",
+    "@fontsource-variable/noto-serif-tc": "^5.3.1",
+    "@fontsource/instrument-serif": "^5.3.0",
+    "astro": "^7.4.12",
+    "motion": "^14.14.0",
+    "simple-icons": "^16.37.0"
+  },
+  "devDependencies": {
+    "@astrojs/check": "^0.9.12",
+    "typescript": "^6.0.3"
+  }
+}

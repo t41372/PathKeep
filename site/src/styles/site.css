@@ -1,0 +1,1453 @@
+/*
+ * The landing page's look: a warm near-black wall, and paintings framed on
+ * it as panels the content sits on. Titles in Instrument Serif (Noto Serif
+ * TC / SC for Chinese), body in Geist, small captions in Geist Mono,
+ * hairlines between rows. Text on paint is ink on light bands and paper on
+ * dark ones; each painting is cut so its calm band sits under the words
+ * (see hero-lab/export-panels.ts).
+ */
+
+:root {
+  --wall: #131211;
+  --on-wall: #ece6dc;
+  --on-wall-2: #c9c1b5;
+  --muted: #9a9288;
+  --line: rgb(236 230 220 / 0.12);
+  --ink: #1b1714;
+  --paper: #f4efe6;
+  --orange: #e8743a;
+  --teal: #4fa9a3;
+  --gutter: clamp(12px, 2.2vw, 32px);
+  /*
+   * The page's column and the wall beside it. The wall is the gutter on
+   * phones and tablets, widens to 64px on a 1440 laptop, and grows with the
+   * window beyond the column. On very wide screens the column grows too,
+   * from 1376px to 1680px, so it keeps about two thirds of the screen.
+   */
+  --content: clamp(1376px, 66vw, 1680px);
+  --wall-width: clamp(var(--gutter), 9vw - 66px, 64px);
+  --serif: 'Instrument Serif', 'Noto Serif TC Variable', 'Songti TC', serif;
+  --sans:
+    'Geist Variable', 'PingFang TC', 'Microsoft JhengHei', system-ui, sans-serif;
+  --mono: 'Geist Mono Variable', ui-monospace, 'SF Mono', monospace;
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  /* Latin display type sits tight; Chinese needs air. */
+  --track: -0.012em;
+  --lh-body: 1.65;
+  --lh-hero: 0.98;
+  --lh-title: 1.06;
+  --lh-panel: 1.02;
+  --lh-quote: 1.3;
+  --lh-item: 1.25;
+  color-scheme: dark;
+}
+
+/* The 404 page sets each language's words in a section of its own. */
+:root:lang(zh),
+.lost__lang:lang(zh) {
+  --track: 0.03em;
+  --lh-body: 1.8;
+  --lh-hero: 1.1;
+  --lh-title: 1.28;
+  --lh-panel: 1.2;
+  --lh-quote: 1.6;
+  --lh-item: 1.45;
+}
+
+:root:lang(zh-Hans),
+.lost__lang:lang(zh-Hans) {
+  --serif: 'Instrument Serif', 'Noto Serif SC Variable', 'Songti SC', serif;
+  --sans:
+    'Geist Variable', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  background: var(--wall);
+  color: var(--on-wall);
+  font: 16px / var(--lh-body) var(--sans);
+  -webkit-font-smoothing: antialiased;
+  font-synthesis: none;
+}
+
+img,
+picture {
+  display: block;
+}
+
+a {
+  color: inherit;
+}
+
+h1,
+h2,
+h3,
+summary {
+  text-wrap: balance;
+}
+
+p,
+dd,
+li {
+  text-wrap: pretty;
+}
+
+:focus-visible {
+  outline: 2px solid var(--orange);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+.phrase {
+  display: inline-block;
+}
+
+/* A product's mark beside its name, in the text's colour; the two never part. */
+.brand {
+  white-space: nowrap;
+}
+
+.brand__mark {
+  display: inline-block;
+  width: 0.9em;
+  height: 0.9em;
+  margin-right: 0.3em;
+  vertical-align: -0.1em;
+  fill: currentColor;
+}
+
+.wrap {
+  max-width: calc(var(--content) + 2 * var(--wall-width));
+  margin-inline: auto;
+  padding-inline: var(--wall-width);
+}
+
+.skip {
+  position: absolute;
+  left: var(--gutter);
+  top: -60px;
+  z-index: 10;
+  padding: 10px 16px;
+  border-radius: 999px;
+  background: var(--paper);
+  color: var(--ink);
+  font-size: 14px;
+  text-decoration: none;
+}
+
+.skip:focus {
+  top: 12px;
+}
+
+/* Shared pieces */
+.title,
+.panel-title {
+  margin: 0;
+  font-family: var(--serif);
+  font-weight: 300;
+  letter-spacing: var(--track);
+}
+
+.title {
+  font-size: clamp(32px, 3.7vw, 54px);
+  line-height: var(--lh-title);
+}
+
+.panel-title {
+  margin-bottom: 22px;
+  font-size: clamp(30px, 4.6vw, 66px);
+  line-height: var(--lh-panel);
+}
+
+.body {
+  margin: 0;
+  color: var(--on-wall-2);
+}
+
+/* Block margins only: a caption set in the column keeps .wrap's centring. */
+.caption {
+  margin-block: 12px 0;
+  font: 12px / 1.6 var(--mono);
+  color: var(--muted);
+}
+
+.split {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px 64px;
+}
+
+.split > :first-child {
+  flex: 1 1 520px;
+}
+
+.split > :last-child {
+  flex: 0 1 460px;
+}
+
+.aside-layout {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 40px clamp(40px, 7vw, 120px);
+}
+
+.aside-layout > :first-child {
+  flex: 1 1 320px;
+  max-width: 440px;
+}
+
+.aside-layout > :last-child {
+  flex: 999 1 560px;
+  min-width: 0;
+}
+
+.aside-layout .title {
+  margin-bottom: 20px;
+}
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  min-height: 48px;
+  padding: 0 22px;
+  border-radius: 999px;
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1;
+  text-decoration: none;
+  transition:
+    transform 160ms var(--ease),
+    background-color 160ms;
+}
+
+.button:active {
+  transform: scale(0.97);
+}
+
+.button--ink {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.button--line {
+  box-shadow: inset 0 0 0 1px currentColor;
+}
+
+.text-link {
+  font-size: 15px;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 6px;
+}
+
+/* Hover only where there is a pointer to hover with; a tap would leave it stuck on. */
+@media (hover: hover) {
+  .button--ink:hover {
+    background: #2e2620;
+  }
+
+  .button--line:hover,
+  .nav__cta:hover {
+    background: rgb(27 23 20 / 0.07);
+  }
+
+  .text-link:hover {
+    text-decoration-thickness: 2px;
+  }
+
+  .nav__sections a:hover,
+  .nav__langs a:hover {
+    text-decoration: underline;
+    text-underline-offset: 5px;
+  }
+
+  .footer__links a:hover {
+    color: var(--on-wall);
+  }
+}
+
+/* A painting behind a panel's content */
+.painting {
+  position: absolute;
+  inset: 0;
+}
+
+.painting img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/*
+ * The opening card. Its painting fills the screen; its words and the
+ * window already sit in the page's column. The painting stays full-screen
+ * until the window has risen to the middle of the screen; scrolling on,
+ * the wall closes in to the column's edges, where every panel below hangs.
+ * --p is how far the wall has come, 0 to 1; the script in Page.astro
+ * scrubs it with the scroll. Without script, or with reduced motion, the
+ * card rests framed.
+ */
+@property --p {
+  syntax: '<number>';
+  inherits: false;
+  initial-value: 1;
+}
+
+.intro {
+  --peek: 88px;
+}
+
+.intro__card {
+  --p: 1;
+  position: relative;
+  overflow: hidden;
+  color: var(--ink);
+  clip-path: inset(
+    calc(var(--p) * var(--gutter))
+      calc(var(--p) * max(var(--wall-width), (100% - var(--content)) / 2)) 0
+      round calc(var(--p) * 4px)
+  );
+}
+
+.intro__card .painting img {
+  object-position: 50% 0;
+}
+
+/* The window grows from its top edge, so it peeks in at the same place. */
+.intro__shot {
+  transform-origin: 50% 0;
+}
+
+/* Where the scroll starts them, so nothing shifts when the script arrives. */
+@media (prefers-reduced-motion: no-preference) {
+  .js .intro__card {
+    --p: 0;
+  }
+
+  .js .intro__shot {
+    transform: scale(0.94);
+  }
+}
+
+/* The first screen, less the top of the window peeking in at its foot. */
+.intro__hero {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100svh - var(--peek));
+}
+
+.intro__caption {
+  margin-top: 14px;
+}
+
+@media (min-width: 701px) {
+  /* Taller than the card and top-anchored: the light band stays under the words. */
+  .intro__card .painting img {
+    height: max(100%, 2200px);
+  }
+}
+
+.nav {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 28px;
+  /* The wall stops a gutter short of the top; the nav sits below it. */
+  padding: calc(var(--gutter) + clamp(16px, 1.6vw, 22px))
+    clamp(14px, 2.4vw, 36px) clamp(16px, 1.6vw, 22px);
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.nav a {
+  text-decoration: none;
+}
+
+.nav__brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.nav__end,
+.nav__sections,
+.nav__langs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 26px;
+}
+
+.nav__end {
+  margin-left: auto;
+}
+
+.nav__langs {
+  gap: 8px 16px;
+}
+
+.nav__cta {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 0 16px;
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 1px var(--ink);
+  transition:
+    transform 160ms var(--ease),
+    background-color 160ms;
+}
+
+.nav__cta:active {
+  transform: scale(0.97);
+}
+
+.hero__copy {
+  position: relative;
+  max-width: 780px;
+  padding: clamp(28px, 9svh, 110px) clamp(14px, 6.2vw, 92px) 48px;
+}
+
+.hero__title {
+  margin: 0 0 26px;
+  font: 300 clamp(46px, 6.4vw, 94px) / var(--lh-hero) var(--serif);
+  letter-spacing: var(--track);
+}
+
+:root:lang(zh) .hero__title {
+  letter-spacing: 0.02em;
+}
+
+.hero__lede {
+  max-width: 30em;
+  margin: 0 0 30px;
+  font-size: clamp(16px, 1.3vw, 19px);
+  line-height: 1.75;
+}
+
+.hero__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 20px;
+}
+
+.hero__note {
+  margin: 22px 0 0;
+  font: 12px / 1.6 var(--mono);
+}
+
+/* The app's window: over a painting of its own, or bare in the opening card */
+.shot {
+  margin: 0;
+}
+
+.shot__stage {
+  position: relative;
+  aspect-ratio: 3840 / 2176;
+  overflow: hidden;
+  border-radius: 4px;
+}
+
+.intro__shot {
+  position: relative;
+  width: min(1100px, calc(100% - 2 * clamp(14px, 6vw, 120px)));
+  margin: 0 auto;
+  padding-bottom: clamp(56px, 7vw, 104px);
+}
+
+.shot--bare .shot__stage {
+  aspect-ratio: auto;
+  overflow: visible;
+  border-radius: 0;
+}
+
+.shot--bare .shot__window {
+  position: relative;
+  inset: auto;
+  aspect-ratio: 2720 / 1720;
+}
+
+.shot--bare .shot__tabs {
+  position: relative;
+  left: auto;
+  bottom: auto;
+  width: fit-content;
+  margin: 22px auto 0;
+  transform: none;
+}
+
+.shot__window {
+  position: absolute;
+  inset: 5.1% 10.15% 12.2% 10.25%;
+  overflow: hidden;
+  border-radius: 12px;
+  background: rgb(250 250 252 / 0.42);
+  -webkit-backdrop-filter: blur(32px) saturate(1.1);
+  backdrop-filter: blur(32px) saturate(1.1);
+  box-shadow:
+    0 24px 70px rgb(0 0 0 / 0.3),
+    inset 0 0 0 1px rgb(255 255 255 / 0.25);
+}
+
+.shot__screen {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 0 0;
+  opacity: 0;
+  transition: opacity 420ms var(--ease);
+}
+
+.shot__screen.is-active {
+  opacity: 1;
+}
+
+/* The demo's app, drawn at a size it fits and scaled to the window (Page.astro). */
+.shot__app {
+  position: absolute;
+  top: 0;
+  left: 0;
+  border: 0;
+  transform-origin: 0 0;
+  opacity: 0;
+  transition: opacity 420ms var(--ease);
+}
+
+.shot__window.is-live .shot__app {
+  opacity: 1;
+}
+
+/* WebKit still scrolls an inert frame under the wheel; this lets it through. */
+.shot__app[inert] {
+  pointer-events: none;
+}
+
+/* While the app loads, the window is glass over the painting. */
+.shot__window.is-loading .shot__screen {
+  opacity: 0;
+}
+
+/*
+ * Until it is clicked, the loaded app lets the page scroll past it: a click
+ * anywhere on the window starts it, and the label says so.
+ */
+.shot__start {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  width: 100%;
+  padding: 0 0 4.5%;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 240ms var(--ease);
+}
+
+.shot__start span {
+  padding: 10px 18px;
+  border-radius: 999px;
+  background: var(--ink);
+  color: var(--paper);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1;
+  box-shadow: 0 8px 24px rgb(19 18 17 / 0.28);
+  transition: transform 160ms var(--ease);
+}
+
+.shot__window.is-live .shot__start {
+  opacity: 1;
+}
+
+/* `display: flex` above would otherwise keep a hidden button over the app. */
+.shot__start[hidden] {
+  display: none;
+}
+
+.shot__start:active span {
+  transform: scale(0.97);
+}
+
+.shot__start:focus-visible span {
+  outline: 2px solid var(--paper);
+  outline-offset: 3px;
+}
+
+.shot__tabs {
+  position: absolute;
+  left: 50%;
+  bottom: 2.6%;
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 999px;
+  background: rgb(27 23 20 / 0.45);
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+  transform: translateX(-50%);
+}
+
+.shot__tabs button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #fff;
+  font: 500 13px / 1 var(--sans);
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color 240ms,
+    color 240ms,
+    transform 160ms var(--ease);
+}
+
+.shot__tabs button:active {
+  transform: scale(0.97);
+}
+
+.shot__tabs button[aria-selected='true'] {
+  background: #f6f4f0;
+  color: var(--ink);
+}
+
+.shot__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.shot__dot--browsing {
+  background: var(--orange);
+}
+
+.shot__dot--agent {
+  background: var(--teal);
+}
+
+/* Why: the retention chart */
+.why {
+  padding-block: clamp(88px, 10vw, 152px) clamp(72px, 8vw, 120px);
+}
+
+.retention {
+  margin: clamp(48px, 6vw, 80px) 0 0;
+}
+
+.retention__axis,
+.retention__row {
+  display: grid;
+  grid-template-columns: minmax(110px, 230px) minmax(0, 1fr) minmax(96px, 250px);
+  column-gap: clamp(14px, 2vw, 28px);
+}
+
+.retention__axis {
+  font: 11px / 1 var(--mono);
+  color: var(--muted);
+}
+
+.retention__ticks {
+  position: relative;
+  height: 22px;
+}
+
+.retention__tick {
+  position: absolute;
+  top: 0;
+  white-space: nowrap;
+}
+
+.retention__tick--center {
+  transform: translateX(-50%);
+}
+
+.retention__tick--end {
+  transform: translateX(-100%);
+}
+
+.retention__rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-bottom: 1px solid var(--line);
+}
+
+.retention__row {
+  align-items: center;
+  min-height: 58px;
+  border-top: 1px solid var(--line);
+}
+
+.retention__source {
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.retention__track {
+  position: relative;
+  height: 2px;
+  /* Dotted as far as the axis is to scale: a year. */
+  background: repeating-linear-gradient(
+      to right,
+      rgb(236 230 220 / 0.24) 0 3px,
+      transparent 3px 8px
+    )
+    0 0 / var(--year) 100% no-repeat;
+}
+
+.retention__kept {
+  position: absolute;
+  left: 0;
+  top: -1px;
+  width: calc(var(--days) / 365 * var(--year));
+  height: 4px;
+  border-radius: 2px;
+  background: var(--on-wall);
+  transform-origin: left center;
+}
+
+/* PathKeep's strip runs on past the break and fades out at "forever". */
+.retention__paint {
+  position: absolute;
+  left: 0;
+  top: -5px;
+  width: 100%;
+  height: 12px;
+  border-radius: 1px;
+  object-fit: cover;
+  -webkit-mask-image: linear-gradient(to right, #000 84%, transparent);
+  mask-image: linear-gradient(to right, #000 84%, transparent);
+}
+
+/* Where the axis breaks after a year: a slanted cut across the strip. */
+.retention__gap {
+  position: absolute;
+  left: var(--gap);
+  top: -9px;
+  width: 6px;
+  height: 20px;
+  background: var(--wall);
+  transform: translateX(-50%) skewX(-22deg);
+}
+
+.retention__keeps {
+  font: 300 18px / 1.4 var(--serif);
+  color: var(--on-wall-2);
+}
+
+.retention__row--forever {
+  min-height: 64px;
+}
+
+.retention__row--forever .retention__source {
+  font-weight: 600;
+}
+
+.retention__row--forever .retention__keeps {
+  color: var(--on-wall);
+}
+
+/* Each bar grows from the left once the chart is on screen. */
+.js .retention__kept {
+  transform: scaleX(0);
+  transition: transform 1100ms var(--ease) calc(var(--i, 0) * 90ms + 150ms);
+}
+
+.js .retention__paint {
+  clip-path: inset(0 100% 0 0);
+  transition: clip-path 1700ms var(--ease) 560ms;
+}
+
+.js .retention.is-in .retention__kept {
+  transform: none;
+}
+
+.js .retention.is-in .retention__paint {
+  clip-path: inset(0);
+}
+
+.why__closing {
+  max-width: 23em;
+  margin: clamp(56px, 7vw, 96px) 0 0 auto;
+  font: 300 clamp(22px, 2.2vw, 30px) / var(--lh-quote) var(--serif);
+  letter-spacing: var(--track);
+}
+
+/* What it keeps: a painted panel per space */
+.keeps {
+  padding-bottom: clamp(88px, 10vw, 152px);
+}
+
+.keeps__head {
+  max-width: 760px;
+  margin-bottom: clamp(36px, 4.5vw, 56px);
+}
+
+.keeps__head .title {
+  margin-bottom: 20px;
+}
+
+.spaces {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(520px, 100%), 1fr));
+  gap: 18px;
+}
+
+.space {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  min-height: 580px;
+  overflow: hidden;
+  border-radius: 4px;
+  color: var(--paper);
+}
+
+.space .painting img {
+  object-position: 50% 100%;
+}
+
+.space--browsing {
+  text-shadow: 0 1px 14px rgb(60 20 6 / 0.35);
+}
+
+.space--agent {
+  text-shadow: 0 1px 14px rgb(4 20 20 / 0.35);
+}
+
+.space__text {
+  position: relative;
+  padding: clamp(24px, 3.2vw, 44px);
+}
+
+.space__name {
+  margin: 0 0 12px;
+  font: 300 clamp(32px, 3.2vw, 46px) / 1.2 var(--serif);
+  letter-spacing: var(--track);
+}
+
+.space__covers {
+  max-width: 30em;
+  margin: 0 0 16px;
+}
+
+.space__pages {
+  margin: 0;
+  font: 12px / 1.6 var(--mono);
+}
+
+.keeps .caption {
+  margin-top: 18px;
+}
+
+/* Finding things again */
+.find {
+  padding-bottom: clamp(88px, 10vw, 152px);
+}
+
+/*
+ * Four features on their own screens, each on the painting of its space;
+ * the screen sits low in the tile and runs off its edges, a window seen in
+ * part.
+ */
+.wall {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: clamp(12px, 1.4vw, 20px);
+  margin: clamp(36px, 4.5vw, 56px) 0 clamp(28px, 3vw, 40px);
+}
+
+.tile {
+  --pad: clamp(22px, 2.6vw, 34px);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: clamp(420px, 36vw, 520px);
+  margin: 0;
+  overflow: hidden;
+  border-radius: 4px;
+  color: var(--paper);
+}
+
+.tile--wide {
+  grid-column: span 2;
+}
+
+.tile--browsing {
+  text-shadow: 0 1px 14px rgb(60 20 6 / 0.35);
+}
+
+.tile--agent {
+  text-shadow: 0 1px 14px rgb(4 20 20 / 0.35);
+}
+
+/* The painting's darker lower band behind the words. */
+.tile .painting img {
+  object-position: 50% 100%;
+}
+
+.tile__text {
+  position: relative;
+  max-width: 28em;
+  padding: var(--pad) var(--pad) 0;
+}
+
+.tile__name {
+  margin: 0 0 8px;
+  font: 300 clamp(26px, 2.4vw, 34px) / 1.2 var(--serif);
+  letter-spacing: var(--track);
+}
+
+.tile__says {
+  margin: 0;
+  font-size: 15px;
+}
+
+.tile__screen {
+  position: relative;
+  flex: none;
+  width: calc(100% - var(--pad));
+  height: auto;
+  margin: clamp(20px, 2.4vw, 32px) 0 0 var(--pad);
+  border-radius: 10px 0 0;
+  box-shadow:
+    0 24px 70px rgb(0 0 0 / 0.3),
+    0 0 0 1px rgb(255 255 255 / 0.25);
+}
+
+/* A narrow tile shows the left of its screen, larger. */
+.tile:not(.tile--wide) .tile__screen {
+  width: 150%;
+}
+
+.features {
+  margin: 0;
+  border-bottom: 1px solid var(--line);
+}
+
+/* What has no screen of its own: two rows of words under the wall. */
+.find .features {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: clamp(28px, 4vw, 64px);
+  border-bottom: 0;
+}
+
+.find .feature {
+  border-bottom: 1px solid var(--line);
+}
+
+.feature {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 32px;
+  padding: 24px 0;
+  border-top: 1px solid var(--line);
+}
+
+.feature dt {
+  flex: 0 0 180px;
+  font: 300 23px / 1.35 var(--serif);
+  letter-spacing: var(--track);
+}
+
+.feature dd {
+  flex: 1 1 280px;
+  margin: 0;
+  color: var(--on-wall-2);
+}
+
+/* Privacy: the promise on the night painting */
+.privacy__panel {
+  position: relative;
+  min-height: 800px;
+  overflow: hidden;
+  padding: clamp(28px, 4vw, 56px) clamp(28px, 4.6vw, 66px);
+  border-radius: 4px;
+  color: var(--paper);
+  text-shadow: 0 1px 14px rgb(14 10 22 / 0.45);
+}
+
+.privacy__panel .painting img {
+  object-position: 50% 0;
+}
+
+.privacy__text {
+  position: relative;
+  max-width: 1120px;
+}
+
+.privacy__text p {
+  max-width: 32em;
+  margin: 0;
+}
+
+.privacy__points {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(480px, 100%), 1fr));
+  column-gap: 48px;
+  margin: 0;
+  padding: clamp(20px, 2.6vw, 32px) 0 0;
+  list-style: none;
+}
+
+.privacy__points li {
+  padding: 18px 0;
+  border-top: 1px solid var(--line);
+}
+
+/* Try it */
+.demo {
+  padding-top: clamp(88px, 10vw, 152px);
+}
+
+.demo__shot {
+  margin-top: clamp(36px, 4.5vw, 56px);
+}
+
+.demo__narrow {
+  display: none;
+}
+
+/* Too small for the app: the picture stays, and the caption says why. */
+@media (max-width: 759px) {
+  .demo__open {
+    display: none;
+  }
+
+  .demo__narrow {
+    display: inline;
+  }
+}
+
+/* Questions */
+.faq {
+  padding-block: clamp(88px, 10vw, 152px);
+}
+
+.faq__list {
+  border-bottom: 1px solid var(--line);
+}
+
+.faq__item {
+  border-top: 1px solid var(--line);
+}
+
+.faq__item summary {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 24px;
+  min-height: 44px;
+  padding: 20px 0;
+  cursor: pointer;
+  list-style: none;
+  font: 300 21px / var(--lh-item) var(--serif);
+  letter-spacing: var(--track);
+}
+
+.faq__item summary::-webkit-details-marker {
+  display: none;
+}
+
+.faq__x {
+  flex: none;
+  font: 18px / 1 var(--mono);
+  color: var(--muted);
+  transition: transform 200ms var(--ease);
+}
+
+.faq__item[open] .faq__x {
+  transform: rotate(45deg);
+}
+
+/*
+ * Answers slide open and shut where the browser can animate to an automatic
+ * height; elsewhere they open at once, as a plain disclosure does.
+ */
+@media (prefers-reduced-motion: no-preference) {
+  @supports (interpolate-size: allow-keywords) {
+    .faq__list {
+      interpolate-size: allow-keywords;
+    }
+
+    /* flow-root keeps the answer's margins inside, so they open with it. */
+    .faq__item::details-content {
+      display: flow-root;
+      height: 0;
+      overflow: clip;
+      opacity: 0;
+      transition:
+        height 260ms var(--ease),
+        opacity 260ms var(--ease),
+        content-visibility 260ms allow-discrete;
+    }
+
+    .faq__item[open]::details-content {
+      height: auto;
+      opacity: 1;
+    }
+  }
+}
+
+.faq__item p {
+  max-width: 40em;
+  margin: -4px 0 24px;
+  color: var(--on-wall-2);
+}
+
+/* Download: ink on the paper painting */
+.download__panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 64px;
+  min-height: 640px;
+  overflow: hidden;
+  padding: clamp(28px, 4.6vw, 66px);
+  border-radius: 4px;
+  color: var(--ink);
+}
+
+.download__panel .painting img {
+  object-position: 50% 100%;
+}
+
+.download__text,
+.download__foot {
+  position: relative;
+}
+
+.download__text {
+  max-width: 820px;
+}
+
+.download__text p {
+  max-width: 32em;
+  margin: 0;
+}
+
+.platforms {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(250px, 100%), 1fr));
+  column-gap: 40px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.platform {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 22px 0 6px;
+  border-top: 1px solid rgb(27 23 20 / 0.28);
+}
+
+.platform__name {
+  font:
+    400 42px / 1 'Instrument Serif',
+    serif;
+}
+
+.platform__detail {
+  font: 12px / 1.6 var(--mono);
+}
+
+.platform__action {
+  margin-top: 16px;
+}
+
+.platform .text-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 46px;
+}
+
+.platform--soon .platform__name {
+  color: #4a4038;
+}
+
+.download__note {
+  margin: 18px 0 0;
+  font: 12px / 1.6 var(--mono);
+}
+
+.download__note a {
+  text-underline-offset: 4px;
+}
+
+/* Footer */
+.footer {
+  padding-block: 44px 56px;
+}
+
+.footer__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px 36px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.footer__brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 600;
+}
+
+.footer__license {
+  color: var(--on-wall-2);
+}
+
+.footer__links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 22px;
+  margin-left: auto;
+  font: 12px / 1.6 var(--mono);
+  color: var(--muted);
+}
+
+.footer__links a {
+  text-decoration: none;
+}
+
+/* Not found: the strip of paint runs out beside the three languages. */
+.lost {
+  padding-block: clamp(72px, 14vh, 168px);
+}
+
+.lost__brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  text-decoration: none;
+}
+
+.lost__path {
+  display: block;
+  width: min(560px, 100%);
+  height: 12px;
+  margin: clamp(40px, 7vh, 72px) 0 18px;
+  border-radius: 1px;
+  object-fit: cover;
+  -webkit-mask-image: linear-gradient(to right, #000 35%, transparent);
+  mask-image: linear-gradient(to right, #000 35%, transparent);
+}
+
+.lost__code {
+  margin: 0 0 clamp(32px, 5vh, 56px);
+  font: 12px / 1.6 var(--mono);
+  color: var(--muted);
+}
+
+.lost__lang + .lost__lang {
+  margin-top: 28px;
+}
+
+.lost__title {
+  margin: 0 0 6px;
+  font: 300 clamp(28px, 3.4vw, 44px) / var(--lh-title) var(--serif);
+  letter-spacing: var(--track);
+}
+
+.lost__body {
+  margin: 0;
+  color: var(--on-wall-2);
+}
+
+.lost__body a {
+  color: var(--on-wall);
+  text-underline-offset: 5px;
+}
+
+/* The hero's words arrive once, on load; the window moves with the scroll. */
+@media (prefers-reduced-motion: no-preference) {
+  .hero__copy > * {
+    animation: rise 900ms var(--ease) both;
+    animation-delay: calc(var(--i, 0) * 80ms + 80ms);
+  }
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  .js .retention__kept,
+  .js .retention__paint {
+    clip-path: none;
+    transform: none;
+    transition: none;
+  }
+
+  .shot__screen,
+  .shot__app,
+  .shot__start {
+    transition: none;
+  }
+}
+
+/* The feature wall: two columns, the wide tiles on rows of their own. */
+@media (max-width: 1100px) {
+  .wall {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 700px) {
+  .wall {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .tile--wide {
+    grid-column: auto;
+  }
+
+  .tile {
+    height: 440px;
+  }
+
+  .tile .tile__screen {
+    width: 170%;
+  }
+
+  .find .features {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Too narrow for the section links beside the rest of the nav. */
+@media (max-width: 900px) {
+  .nav__sections {
+    display: none;
+  }
+}
+
+/* Phones */
+@media (max-width: 760px) {
+  .retention__axis {
+    display: none;
+  }
+
+  .retention__row {
+    grid-template-columns: 1fr auto;
+    grid-template-areas:
+      'source keeps'
+      'track track';
+    row-gap: 12px;
+    padding: 14px 0 16px;
+  }
+
+  .retention__source {
+    grid-area: source;
+  }
+
+  .retention__keeps {
+    grid-area: keeps;
+    font-size: 16px;
+    text-align: right;
+  }
+
+  .retention__track {
+    grid-area: track;
+  }
+
+  .intro {
+    --peek: 64px;
+  }
+
+  .nav,
+  .nav__end {
+    column-gap: 14px;
+  }
+
+  /* A squarer stage keeps the tabs clear of the window. */
+  .shot__stage {
+    aspect-ratio: 4 / 3;
+  }
+
+  .shot__window {
+    inset: 6% 5% 20% 5%;
+    border-radius: 8px;
+  }
+
+  .shot__tabs button {
+    min-height: 34px;
+    padding: 0 12px;
+    font-size: 12px;
+  }
+
+  .space {
+    min-height: 520px;
+  }
+
+  .privacy__panel {
+    min-height: 860px;
+  }
+
+  .download__panel {
+    gap: 40px;
+  }
+
+  /*
+   * Stacked, the platforms would sit on the painting's grey and orange
+   * bands (about 25–62% of the way down the download cut). Show only its
+   * lower part instead: the orange stroke runs under the heading and the
+   * platforms sit on the calm bone below it.
+   */
+  .download__panel .painting {
+    top: auto;
+    height: 180%;
+  }
+
+  .footer__links {
+    margin-left: 0;
+  }
+}
