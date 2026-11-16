@@ -489,8 +489,7 @@ pub(super) fn install_step(paths: &ProjectPaths, journal: &mut Journal, step: us
 /// control's gate: the install replaces the control, and the caller wrote the stage's from the
 /// live one under the same hold.
 ///
-/// Returns where the replaced files are kept: the safety copy, or the backup folder. Neither exists
-/// when nothing was replaced, or when `keep` is `Keep::Nothing`.
+/// Returns what became of the replaced files ([`Replaced`]).
 ///
 /// After an error the live files are as the record on disk says: rolled back when a step failed;
 /// as they are when the publish failed, for the next recovery to finish or roll back. A caller
@@ -500,7 +499,7 @@ pub fn install(
     stage: &Path,
     files: Vec<PathBuf>,
     keep: Keep,
-) -> Result<PathBuf> {
+) -> Result<Replaced> {
     let paths = gate.paths();
     let mut journal = prepare(paths, stage, files, keep)?;
     let moved = (|| {
@@ -516,8 +515,21 @@ pub fn install(
     }
     publish(paths, &mut journal)?;
     crate::fault_inject::checkpoint("native-install-published")?;
-    finish(paths, &journal)?;
-    Ok(paths.app_root.join(journal.kept_as.as_ref().unwrap_or(&journal.backup)))
+    let unsealed = finish(paths, &journal)?;
+    let kept = paths.app_root.join(journal.kept_as.as_ref().unwrap_or(&journal.backup));
+    Ok(Replaced { kept, unsealed })
+}
+
+/// What an install did with the files it replaced.
+#[derive(Debug)]
+pub struct Replaced {
+    /// Where they are kept: the safety copy, or the backup folder. Neither exists when nothing was
+    /// replaced, or when `keep` is `Keep::Nothing`.
+    pub kept: PathBuf,
+    /// Why the safety copy could not be sealed, when it could not. It is kept and listed all the
+    /// same, and a restore from it seals it first; the operation tells the user now, so a copy that
+    /// cannot be read is not first found out about when it is needed.
+    pub unsealed: Option<String>,
 }
 
 /// Run under the owner's lock before opening any database. A pending generation
@@ -604,7 +616,8 @@ fn replay(paths: &ProjectPaths, journal: &Journal, record: &Path) -> Result<()> 
         if journal.current() {
             complete_published(paths, journal)?;
         }
-        finish_at(paths, journal, record)
+        // A start that finishes an install has no one to tell: the copy is listed as not checked.
+        finish_at(paths, journal, record).map(drop)
     } else {
         rollback_at(paths, journal, record)
     }
@@ -993,26 +1006,31 @@ fn lost(entry: &Entry) -> anyhow::Error {
     )
 }
 
-fn finish(paths: &ProjectPaths, journal: &Journal) -> Result<()> {
+/// Returns why the safety copy could not be sealed, when it could not ([`Replaced::unsealed`]).
+fn finish(paths: &ProjectPaths, journal: &Journal) -> Result<Option<String>> {
     finish_at(paths, journal, &paths.app_root.join(JOURNAL))
 }
 
-fn finish_at(paths: &ProjectPaths, journal: &Journal, record: &Path) -> Result<()> {
+fn finish_at(paths: &ProjectPaths, journal: &Journal, record: &Path) -> Result<Option<String>> {
     // Finishing only removes the stage, the backup and the record, and moves the backup to its
     // copy, each at a name this folder's installs produce.
     let located = locate(paths, journal)?;
-    match &located.kept_as {
+    let unsealed = match &located.kept_as {
         Some(copy) => keep_as_copy(paths, &located, copy)?,
-        None if !journal.keep_previous => remove(&located.backup)?,
-        None => {}
-    }
+        None if !journal.keep_previous => {
+            remove(&located.backup)?;
+            None
+        }
+        None => None,
+    };
     remove_file_durably(record)?;
-    remove(&located.stage)
+    remove(&located.stage)?;
+    Ok(unsealed)
 }
 
 /// Makes the backup of a published install a safety copy. Run again after a crash, it finishes
 /// what is left: the move is one rename, and the seal is written whole or not at all.
-fn keep_as_copy(paths: &ProjectPaths, located: &Located, copy: &Path) -> Result<()> {
+fn keep_as_copy(paths: &ProjectPaths, located: &Located, copy: &Path) -> Result<Option<String>> {
     let backup = &located.backup;
     if backup.is_dir() {
         let replaced = walkdir::WalkDir::new(backup)
@@ -1020,7 +1038,7 @@ fn keep_as_copy(paths: &ProjectPaths, located: &Located, copy: &Path) -> Result<
             .any(|entry| entry.map_or(true, |entry| !entry.file_type().is_dir()));
         if !replaced {
             // Nothing was there to replace (an import into an empty folder): no copy of nothing.
-            return remove(backup);
+            return remove(backup).map(|()| None);
         }
         if !exists(copy)? {
             rename(backup, copy)?;
@@ -1038,7 +1056,7 @@ fn keep_as_copy(paths: &ProjectPaths, located: &Located, copy: &Path) -> Result<
                 copy.display(),
                 backup.display()
             );
-            return Ok(());
+            return Ok(None);
         }
     }
     if copy.is_dir() && !copy.join(super::snapshot::SEAL).exists() {
@@ -1048,15 +1066,16 @@ fn keep_as_copy(paths: &ProjectPaths, located: &Located, copy: &Path) -> Result<
         // it seals it first; one whose control is damaged cannot be sealed or restored from
         // (`snapshot::list_snapshots`). The error stops neither this install, published already,
         // nor the start that finishes one: the archive in place is the new one, and a copy that
-        // can never be sealed must not keep it from opening.
+        // can never be sealed must not keep it from opening. The restore or import says why.
         if let Err(error) = super::snapshot::seal_replaced(copy) {
             eprintln!(
                 "PathKeep install: the replaced archive kept in {} could not be sealed: {error:#}",
                 copy.display()
             );
+            return Ok(Some(format!("{error:#}")));
         }
     }
-    Ok(())
+    Ok(None)
 }
 
 /// Moves a file or folder to where nothing is, and makes the move durable. What appeared at `to`

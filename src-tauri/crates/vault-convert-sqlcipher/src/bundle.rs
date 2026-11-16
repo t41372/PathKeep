@@ -145,6 +145,7 @@ pub fn import(
         migrations_applied: Vec::new(),
         final_schema_version: vault_core::store_schema::schema_version(vault_store::Db::Archive),
         kept_previous_as_copy: installed.previous_files.is_dir(),
+        previous_copy_unchecked: installed.previous_unsealed.clone(),
     };
     Ok((report, installed))
 }

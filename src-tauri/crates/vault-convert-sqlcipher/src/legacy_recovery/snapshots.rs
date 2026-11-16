@@ -144,6 +144,8 @@ pub fn list_legacy_snapshots(paths: &ProjectPaths) -> Result<Vec<RecoverySnapsho
             snapshots.push(RecoverySnapshot {
                 id: path_string.clone(),
                 verified_openable: snapshot_is_openable_keyless(disk_mode, &path, size_bytes),
+                // An old-format snapshot is one database file and has no seal to write.
+                unchecked: false,
                 encrypted: matches!(disk_mode, DiskEncryptionMode::Encrypted),
                 // Short, stable English fallback. The FE localizes from `source_op` + `created_at`.
                 label: format!("Safety snapshot ({source_op})"),

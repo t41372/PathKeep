@@ -7,7 +7,8 @@
  * not show (and for nothing else: user actions go through the UI).
  */
 import { createHash } from 'node:crypto'
-import { readFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { expect, type TestInfo } from '@playwright/test'
 import type {
   SyntheticProfileId,
@@ -44,6 +45,18 @@ export function fixture(): Fixture {
     throw new Error('PATHKEEP_E2E_FIXTURE is not set; run via the E2E config.')
   cached = JSON.parse(readFileSync(file, 'utf8')) as Fixture
   return cached
+}
+
+/**
+ * Makes the app fail at its checkpoint `name` (`fault_inject::checkpoint` in
+ * vault-core) every time it gets there, until the returned function is called:
+ * a file of that name in `PATHKEEP_TEST_FAULTS_DIR`, which debug builds read.
+ */
+export function injectFault(name: string) {
+  const folder = join(fixture().root, 'faults')
+  mkdirSync(folder, { recursive: true })
+  writeFileSync(join(folder, name), '')
+  return () => rmSync(join(folder, name), { force: true })
 }
 
 /** `YYYY-MM-DD` of `at` in this computer's time zone: History's days, and `after:`'s. */

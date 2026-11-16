@@ -4,6 +4,8 @@ import { defineMessages } from '../define'
 export const settingsStorage = defineMessages({
   en: {
     moveGroup: 'Move and restore',
+    copyUnchecked:
+      'Your previous archive is kept as a safety copy, but PathKeep couldn’t check it: {reason}. It will be checked before you restore from it.',
     location: {
       title: 'Archive location',
       showFinder: 'Show in Finder',
@@ -179,6 +181,9 @@ export const settingsStorage = defineMessages({
       confirm: 'Restore',
       done: 'Archive restored.',
       failed: 'The restore did not finish. {message}',
+      unchecked: 'Not checked yet',
+      checkedFirst:
+        'This copy hasn’t been checked yet. It’s checked before the restore; if it can’t be read, your archive stays as it is.',
     },
     wipe: {
       rowTitle: 'Delete all data',
@@ -206,6 +211,8 @@ export const settingsStorage = defineMessages({
   },
   'zh-CN': {
     moveGroup: '迁移与恢复',
+    copyUnchecked:
+      '之前的存档已保留为安全副本，但 PathKeep 没能检查它：{reason}。从它恢复之前会先检查。',
     location: {
       title: '存档位置',
       showFinder: '在访达中显示',
@@ -372,6 +379,9 @@ export const settingsStorage = defineMessages({
       confirm: '恢复',
       done: '存档已恢复。',
       failed: '恢复没有完成。{message}',
+      unchecked: '尚未检查',
+      checkedFirst:
+        '这份副本还没检查过。恢复之前会先检查；读不出来的话，你的存档保持原样。',
     },
     wipe: {
       rowTitle: '删除所有数据',
@@ -397,6 +407,8 @@ export const settingsStorage = defineMessages({
   },
   'zh-TW': {
     moveGroup: '搬移與還原',
+    copyUnchecked:
+      '先前的存檔已保留為安全副本，但 PathKeep 沒能檢查它：{reason}。從它還原之前會先檢查。',
     location: {
       title: '存檔位置',
       showFinder: '在 Finder 中顯示',
@@ -563,6 +575,9 @@ export const settingsStorage = defineMessages({
       confirm: '還原',
       done: '存檔已還原。',
       failed: '還原沒有完成。{message}',
+      unchecked: '尚未檢查',
+      checkedFirst:
+        '這份副本還沒檢查過。還原之前會先檢查；讀不出來的話，你的存檔保持原樣。',
     },
     wipe: {
       rowTitle: '刪除所有資料',

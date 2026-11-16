@@ -248,10 +248,12 @@ function copyDescription(
         }),
       })
     : null
-  const unusable = copy.restorable
-    ? null
-    : t('settingsStorage.freeSpace.notRestorable')
-  return [made, unusable].filter(Boolean).join(' · ')
+  const state = !copy.restorable
+    ? t('settingsStorage.freeSpace.notRestorable')
+    : copy.unchecked
+      ? t('settingsStorage.restore.unchecked')
+      : null
+  return [made, state].filter(Boolean).join(' · ')
 }
 
 function Row({

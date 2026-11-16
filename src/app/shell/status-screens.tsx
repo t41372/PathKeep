@@ -22,6 +22,7 @@ import type {
   ArchiveConversionAssessment,
   ArchiveUpgradeProgress,
 } from '@/lib/types'
+import { announceReplaced } from '@/features/settings/replaced-notice'
 import { parseRecoveryReport } from '../recovery-report'
 import { useSession } from '../session'
 
@@ -316,7 +317,15 @@ export function RecoveryScreen() {
     setRestoring(snapshotPath)
     setError(null)
     try {
-      await archiveClient.runFullArchiveRestore({ snapshotPath }, key || null)
+      const report = await archiveClient.runFullArchiveRestore(
+        { snapshotPath },
+        key || null,
+      )
+      announceReplaced(
+        t,
+        t('settingsStorage.restore.done'),
+        report.previousCopyUnchecked,
+      )
       await session.refresh()
     } catch (restoreError) {
       setError(describeError(restoreError, 'run_full_archive_restore'))
@@ -362,6 +371,8 @@ export function RecoveryScreen() {
                 })}
                 <span className="block text-xs text-muted-foreground">
                   {format.bytes(snapshot.sizeBytes)}
+                  {snapshot.unchecked &&
+                    ` · ${t('settingsStorage.restore.unchecked')}`}
                 </span>
               </span>
               <Button

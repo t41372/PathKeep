@@ -5,11 +5,13 @@ import {
   OctagonXIcon,
   TriangleAlertIcon,
 } from 'lucide-react'
+import { useI18n } from '@/lib/i18n'
 import { useTheme } from '@/lib/theme'
 import { Toaster as Sonner, type ToasterProps } from 'sonner'
 
-const Toaster = ({ ...props }: ToasterProps) => {
+const Toaster = ({ toastOptions, ...props }: ToasterProps) => {
   const { resolved } = useTheme()
+  const { t } = useI18n()
 
   return (
     <Sonner
@@ -30,6 +32,12 @@ const Toaster = ({ ...props }: ToasterProps) => {
           '--border-radius': 'var(--radius)',
         } as React.CSSProperties
       }
+      // Names, in the user's language, the close button a toast that stays
+      // until it is closed shows.
+      toastOptions={{
+        closeButtonAriaLabel: t('common.close'),
+        ...toastOptions,
+      }}
       {...props}
     />
   )

@@ -5,7 +5,7 @@
 //! replacing originals before verification. Tests: maintenance::tests.
 use super::{InstalledArchive, database_files, install, staging_root};
 use crate::{ArchiveMode, ProjectPaths, Vault};
-use anyhow::Result;
+use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
@@ -70,6 +70,12 @@ pub(crate) fn seal(root: &Path) -> Result<()> {
 /// ([`unsealed_replaced_archive`]): its files are the archive as it was replaced, moved whole by
 /// one rename, and nothing writes to them since.
 pub(super) fn seal_replaced(copy: &Path) -> Result<()> {
+    let before =
+        copy.file_name().and_then(|name| install::Before::of_copy(&name.to_string_lossy()));
+    crate::fault_inject::checkpoint(&format!(
+        "native-seal-before-{}",
+        before.map_or("maintenance", install::Before::op)
+    ))?;
     let layout = crate::admission::root_layout(copy)?;
     let sealed = database_files(layout, false);
     for rebuilt in database_files(layout, true).into_iter().filter(|file| !sealed.contains(file)) {
@@ -193,7 +199,7 @@ pub fn restore_snapshot_to(
          restored or imported"
     );
     if unsealed_replaced_archive(paths, source) {
-        seal_replaced(source)?;
+        seal_replaced(source).context("this safety copy could not be checked")?;
     }
     verify(source)?;
     // The snapshot's own control, read where it lies, before anything is staged in the target.
@@ -281,7 +287,7 @@ pub fn restore_snapshot_to(
         vault.store().pause()?.close()?;
         vault.close()?;
     }
-    let previous = install::install(
+    let replaced = install::install(
         &control,
         stage.path(),
         files,
@@ -289,7 +295,12 @@ pub fn restore_snapshot_to(
     )?;
     drop(control);
     let opened = Vault::open_owned(paths.clone(), config, target.key.as_ref(), Some(owner))?;
-    Ok(InstalledArchive { vault: opened, data_key: target.key, previous_files: previous })
+    Ok(InstalledArchive {
+        vault: opened,
+        data_key: target.key,
+        previous_files: replaced.kept,
+        previous_unsealed: replaced.unsealed,
+    })
 }
 
 /// The encryption a restored archive is under: the archive's own, or the copy's when the folder
@@ -513,6 +524,7 @@ pub fn list_snapshots(paths: &ProjectPaths) -> Result<Vec<crate::RecoverySnapsho
             // The whole copy, as Free up space shows and deletes it.
             size_bytes: super::retention::measure(&path).map_or(size, |(bytes, _)| bytes),
             verified_openable: restorable && size >= 4096,
+            unchecked: !sealed,
             encrypted,
             source_op: source_op.into(),
             label: label.into(),

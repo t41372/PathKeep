@@ -164,6 +164,7 @@ pub fn run_full_archive_restore(
         quarantine_dir: installed.previous_files.display().to_string(),
         source_evidence_rebuilt: legacy,
         warnings,
+        previous_copy_unchecked: installed.previous_unsealed.clone(),
     };
     // An archive kept under its own key keeps its password. One that had none takes the copy's
     // encryption, and the copy's password is then the archive's.

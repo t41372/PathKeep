@@ -136,6 +136,9 @@ pub struct ImportResult {
     /// Whether the archive the import replaced was kept as a safety copy ("before an import"), so
     /// the import can be undone by restoring it. False when there was none to replace.
     pub kept_previous_as_copy: bool,
+    /// Why that copy could not be checked (sealed), when it could not. It is kept and listed all
+    /// the same, and a restore from it checks it first.
+    pub previous_copy_unchecked: Option<String>,
 }
 
 fn ensure_parent_dir(path: &Path) -> Result<()> {

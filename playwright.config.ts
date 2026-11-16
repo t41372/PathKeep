@@ -81,6 +81,8 @@ function prepareFixture() {
     PATHKEEP_TEST_SAVE_DIR: path.join(root, 'saved'),
     // Lets export.spec.ts watch and stop an export of the small fixture. Debug only.
     PATHKEEP_TEST_EXPORT_ROW_DELAY_US: '500',
+    // A file here fails the app's checkpoint of that name (`injectFault`). Debug only.
+    PATHKEEP_TEST_FAULTS_DIR: path.join(root, 'faults'),
     // The launcher runs the app itself and starts it again when it exits
     // after a spec created this file (the 'restart' project).
     PATHKEEP_E2E_RESTART_FILE: path.join(root, 'restart-app'),

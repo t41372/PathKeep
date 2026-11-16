@@ -57,6 +57,9 @@ pub struct InstalledArchive {
     pub vault: Vault,
     pub data_key: Option<DataKey>,
     pub previous_files: PathBuf,
+    /// Why the archive this replaced, kept as a safety copy, could not be sealed, when it could not
+    /// ([`install::Replaced::unsealed`]): the restore or import that made it says so.
+    pub previous_unsealed: Option<String>,
 }
 
 /// Changes only the envelope. Existing database, index and keychain keys stay valid.
@@ -188,7 +191,13 @@ pub fn switch_mode(
     drop(control);
     let previous = vault.paths().app_root.join(snapshot_relative);
     let opened = Vault::open_owned(vault.paths().clone(), config, key.as_ref(), Some(owner))?;
-    Ok(InstalledArchive { vault: opened, data_key: key, previous_files: previous })
+    // The safety snapshot taken before the change is sealed when it is taken.
+    Ok(InstalledArchive {
+        vault: opened,
+        data_key: key,
+        previous_files: previous,
+        previous_unsealed: None,
+    })
 }
 
 /// A private folder for one operation on the archive's file system, removed when dropped.

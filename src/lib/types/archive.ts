@@ -333,6 +333,8 @@ export interface RetentionCopy {
   bytes: number
   /** Whether the restore list offers it. */
   restorable: boolean
+  /** Nothing has checked it yet, as in `RecoverySnapshot.unchecked`. */
+  unchecked: boolean
 }
 
 /**
@@ -622,6 +624,11 @@ export interface RecoverySnapshot {
   sizeBytes: number
   verifiedOpenable: boolean
   /**
+   * An archive a restore or an import replaced, kept without its seal (an error while
+   * sealing it): nothing has checked it yet. A restore from it checks it first.
+   */
+  unchecked: boolean
+  /**
    * At-rest signal (keyless): the snapshot is SQLCipher-encrypted on disk. When true the recovery UI
    * must collect the archive key before it can verify/restore — `verifiedOpenable` is size-only here.
    */
@@ -642,6 +649,11 @@ export interface FullArchiveRestoreReport {
   quarantineDir: string
   sourceEvidenceRebuilt: boolean
   warnings: string[]
+  /**
+   * Why the archive this restore replaced, kept as a safety copy, could not be
+   * checked, when it could not. It is listed as not checked yet.
+   */
+  previousCopyUnchecked: string | null
 }
 
 /**

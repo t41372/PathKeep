@@ -16,6 +16,10 @@
 //!   side is `#[cfg(test)]` ([`FaultGuard`]); process-exit integration fixtures require the explicit
 //!   `test-fixtures` feature ([`exit_process_at_next_checkpoint`]). Normal production builds cannot
 //!   arm anything.
+//! - Let the desktop E2E runs fail a checkpoint in the real app, whose threads the registry cannot
+//!   reach: a debug build also returns an error at a checkpoint while a file of its name is in the
+//!   folder `PATHKEEP_TEST_FAULTS_DIR` names ([`requested_by_the_e2e_run`]). Release builds never
+//!   look.
 //!
 //! Not responsible for:
 //! - Cross-thread fault delivery. The registry is THREAD-LOCAL (mirroring `durable_io`), so a
@@ -77,10 +81,18 @@ pub fn checkpoint(name: &str) -> Result<()> {
     if take_armed(name) {
         panic!("fault_inject: simulated panic at checkpoint {name:?}");
     }
-    if take_armed_error(name) {
+    if take_armed_error(name) || requested_by_the_e2e_run(name) {
         anyhow::bail!("fault_inject: simulated error at checkpoint {name:?}");
     }
     Ok(())
+}
+
+/// Whether the E2E run asks this debug build to fail at `name`: a file of that name is in the folder
+/// `PATHKEEP_TEST_FAULTS_DIR` names. It fails every time until the run removes the file.
+fn requested_by_the_e2e_run(name: &str) -> bool {
+    cfg!(debug_assertions)
+        && std::env::var_os("PATHKEEP_TEST_FAULTS_DIR")
+            .is_some_and(|folder| std::path::Path::new(&folder).join(name).exists())
 }
 
 #[cfg(feature = "test-fixtures")]

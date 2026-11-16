@@ -51,6 +51,7 @@ pub fn preview_retention(
                 created_at: copy.created_at.clone(),
                 bytes,
                 restorable: copy.verified_openable,
+                unchecked: copy.unchecked,
             })
         })
         .collect::<Result<Vec<_>>>()?;

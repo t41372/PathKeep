@@ -77,6 +77,11 @@ export interface ImportResult {
   finalSchemaVersion: number
   /** The archive the import replaced was kept as a safety copy ("before an import"). */
   keptPreviousAsCopy: boolean
+  /**
+   * Why that copy could not be checked, when it could not. It is listed as not
+   * checked yet, and a restore from it checks it first.
+   */
+  previousCopyUnchecked: string | null
 }
 
 export const migrationClient = {

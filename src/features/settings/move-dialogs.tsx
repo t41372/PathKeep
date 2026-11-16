@@ -34,6 +34,7 @@ import { useSnapshot } from '@/lib/queries/app'
 import { hasTauriGuestApi } from '@/lib/runtime'
 import { Notice } from './notice'
 import { BUNDLE_EXTENSION, PathField } from './path-field'
+import { announceReplaced } from './replaced-notice'
 import { reveal, revealLabelKey } from './reveal'
 
 type Mode = 'export' | 'import'
@@ -250,8 +251,12 @@ function ImportForm({ onClose }: { onClose: () => void }) {
         sourceArchiveKey: encrypted ? password : undefined,
       })
     },
-    onSuccess: async () => {
-      toast.success(t('settingsStorage.move.imported'))
+    onSuccess: async (result) => {
+      announceReplaced(
+        t,
+        t('settingsStorage.move.imported'),
+        result.previousCopyUnchecked,
+      )
       onClose()
       await session.restart()
     },

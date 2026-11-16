@@ -358,7 +358,7 @@ pub fn convert_owned(
     let control = vault_core::ControlGate::acquire(paths);
     // What it replaces is the control from before the conversion (the old archive's files are
     // not native ones and stay where they are); it stays in the backup folder.
-    let previous = vault_core::maintenance::install::install(
+    let replaced = vault_core::maintenance::install::install(
         &control,
         &stage,
         vault_core::maintenance::database_files(vault_core::admission::root_layout(&stage)?, true),
@@ -366,7 +366,12 @@ pub fn convert_owned(
     )?;
     drop(control);
     let opened = Vault::open_owned(paths.clone(), config.clone(), key.as_ref(), Some(owner))?;
-    Ok(InstalledArchive { vault: opened, data_key: key, previous_files: previous })
+    Ok(InstalledArchive {
+        vault: opened,
+        data_key: key,
+        previous_files: replaced.kept,
+        previous_unsealed: replaced.unsealed,
+    })
 }
 
 fn rebuild_index(

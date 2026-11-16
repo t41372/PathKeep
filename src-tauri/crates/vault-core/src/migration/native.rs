@@ -361,6 +361,7 @@ pub fn import(
         migrations_applied: Vec::new(),
         final_schema_version: crate::store_schema::schema_version(vault_store::Db::Archive),
         kept_previous_as_copy: installed.previous_files.is_dir(),
+        previous_copy_unchecked: installed.previous_unsealed.clone(),
     };
     Ok((report, installed))
 }
@@ -419,7 +420,7 @@ pub fn install_staged(
         }
     }
     // The archive it replaces becomes a safety copy, so the import can be undone.
-    let previous = maintenance::install::install(
+    let replaced = maintenance::install::install(
         &control,
         stage,
         files,
@@ -427,7 +428,12 @@ pub fn install_staged(
     )?;
     drop(control);
     let vault = Vault::open_owned(paths.clone(), config, key.as_ref(), Some(owner))?;
-    Ok(InstalledArchive { vault, data_key: key, previous_files: previous })
+    Ok(InstalledArchive {
+        vault,
+        data_key: key,
+        previous_files: replaced.kept,
+        previous_unsealed: replaced.unsealed,
+    })
 }
 
 /// Paths the exporting machine stored (snapshots, audit files, provenance) point into its

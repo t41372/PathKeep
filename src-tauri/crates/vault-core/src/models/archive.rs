@@ -591,6 +591,10 @@ pub struct FullArchiveRestoreReport {
     pub source_evidence_rebuilt: bool,
     /// Non-fatal notes for the recovery screen (the FE localizes around them).
     pub warnings: Vec<String>,
+    /// Why the archive this restore replaced, kept as a safety copy, could not be checked (sealed),
+    /// when it could not. It is listed all the same ([`RecoverySnapshot::unchecked`]), and a restore
+    /// from it checks it first; the user is told now rather than when the copy is needed.
+    pub previous_copy_unchecked: Option<String>,
 }
 
 /// One verified full-archive safety snapshot the Phase-D recovery GUI can offer as a restore source.
@@ -616,6 +620,10 @@ pub struct RecoverySnapshot {
     /// it): the restore seals it first. False when its control cannot be read, so it cannot be
     /// sealed.
     pub verified_openable: bool,
+    /// An archive a restore or an import replaced, kept without its seal (an error while sealing
+    /// it): nothing has checked it yet. A restore from it checks it first and refuses it when that
+    /// fails, so the screens say so instead of offering it as checked.
+    pub unchecked: bool,
     /// KEYLESS at-rest signal: the snapshot file is SQLCipher-encrypted on disk (header is a random
     /// salt, not the SQLite plaintext magic). When true the recovery UI must ask for the archive key
     /// before it can verify + restore — `verified_openable` is only a size heuristic for these.
@@ -673,6 +681,8 @@ pub struct RetentionCopy {
     pub bytes: u64,
     /// Whether a restore offers it ([`RecoverySnapshot::verified_openable`]).
     pub restorable: bool,
+    /// Whether nothing has checked it yet ([`RecoverySnapshot::unchecked`]).
+    pub unchecked: bool,
 }
 
 /// Preview payload for retention pruning.

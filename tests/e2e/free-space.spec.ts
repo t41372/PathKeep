@@ -4,13 +4,14 @@
  *
  * Proves: right after a restore, the copy it made ("Before a restore", the
  * newest, as big as the archive) can be freed on its own; the size on the
- * button is the size of what is ticked; the older copy ("Before an import")
- * stays and can still be restored from; the archive's history is untouched.
- * Before 2026-11-15 the newest copy was always kept and every other one went.
+ * button is the size of what is ticked; the older copies, another "Before a
+ * restore" among them, stay and can still be restored from; the archive's
+ * history is untouched. Before 2026-11-15 the newest copy was always kept and
+ * every other one went.
  *
  * Runs after restore.spec (app lock is on, passcode 4826): the "Before an
- * import" copy (the archive the move replaced) and the "Before a restore" copy
- * are both there.
+ * import" copy (the archive the move replaced) is there, and two "Before a
+ * restore" copies, one from the restore and a newer one from its undo.
  */
 import { expect, test, type Page } from '@playwright/test'
 import { backend, openArchiveVisitTotal } from './support/fixture'
@@ -19,6 +20,8 @@ import { backend, openArchiveVisitTotal } from './support/fixture'
 const CURRENT = 'moving day, 2026'
 
 interface Copy {
+  path: string
+  createdAt: string
   sourceOp: string
   verifiedOpenable: boolean
 }
@@ -47,8 +50,12 @@ test('the copy a restore made is freed on its own', async ({ page }) => {
   const listed = (copies: Copy[], op: string) =>
     copies.filter((copy) => copy.sourceOp === op && copy.verifiedOpenable)
   const copiesBefore = await backend<Copy[]>('list_recovery_snapshots')
-  expect(listed(copiesBefore, 'restore')).toHaveLength(1)
+  const restoreCopies = listed(copiesBefore, 'restore')
+  expect(restoreCopies).toHaveLength(2)
   expect(listed(copiesBefore, 'import')).toHaveLength(1)
+  const [newest, older] = restoreCopies.sort(
+    (a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt),
+  )
 
   await page
     .getByText('Free up space', { exact: true })
@@ -56,12 +63,18 @@ test('the copy a restore made is freed on its own', async ({ page }) => {
     .getByRole('button', { name: 'Review…' })
     .click()
   const dialog = page.getByRole('dialog')
-  const restoreCopy = dialog.getByRole('checkbox', {
-    name: /^Before a restore/,
+  // Listed newest first, as the restore list orders them: the first "Before a
+  // restore" is the undo's.
+  const restoreRows = dialog.getByRole('listitem').filter({
+    has: page.getByRole('checkbox', { name: /^Before a restore/ }),
   })
+  await expect(restoreRows).toHaveCount(2)
+  const newestCopy = restoreRows.first().getByRole('checkbox')
+  const olderCopy = restoreRows.nth(1).getByRole('checkbox')
   const importCopy = dialog.getByRole('checkbox', { name: /^Before an import/ })
-  await expect(restoreCopy).not.toBeChecked()
-  await expect(importCopy).not.toBeChecked()
+  for (const copy of [newestCopy, olderCopy, importCopy]) {
+    await expect(copy).not.toBeChecked()
+  }
 
   // Only the copy: leftovers are ticked by default, so untick them.
   for (const leftover of await dialog
@@ -71,18 +84,13 @@ test('the copy a restore made is freed on its own', async ({ page }) => {
   }
   const deleteButton = dialog.getByRole('button', { name: /^Delete / })
   await expect(deleteButton).toBeDisabled()
-  await restoreCopy.click()
+  await newestCopy.click()
+  await expect(olderCopy).not.toBeChecked()
   await expect(
     dialog.getByText('You can’t restore from a safety copy once it’s deleted.'),
   ).toBeVisible()
   // The button says what the ticked row says.
-  const rowSize = await dialog
-    .getByRole('listitem')
-    .filter({
-      has: page.getByRole('checkbox', { name: /^Before a restore/ }),
-    })
-    .locator('.font-mono')
-    .innerText()
+  const rowSize = await restoreRows.first().locator('.font-mono').innerText()
   await expect(deleteButton).toHaveText(`Delete ${rowSize}`)
 
   await deleteButton.click()
@@ -90,10 +98,14 @@ test('the copy a restore made is freed on its own', async ({ page }) => {
     timeout: 60_000,
   })
 
+  // Only the newest went: the older "Before a restore" and the import's stay.
   const copiesAfter = await backend<Copy[]>('list_recovery_snapshots')
   expect(
-    copiesAfter.filter((copy) => copy.sourceOp === 'restore'),
-  ).toHaveLength(0)
+    copiesAfter
+      .filter((copy) => copy.sourceOp === 'restore')
+      .map((copy) => copy.path),
+  ).toEqual([older.path])
+  expect(newest.path).not.toBe(older.path)
   expect(listed(copiesAfter, 'import')).toHaveLength(1)
   expect(await openArchiveVisitTotal()).toBe(before)
 })

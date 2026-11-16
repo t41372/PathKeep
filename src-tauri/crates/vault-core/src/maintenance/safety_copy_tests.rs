@@ -131,6 +131,77 @@ fn a_replaced_archive_left_unsealed_is_sealed_by_the_restore_that_needs_it() {
     assert!(copy.join("snapshot.json").is_file(), "sealed as the restore found it");
 }
 
+// When the seal cannot be written (here a failure made at that step), the restore still finishes,
+// with the new archive in place, and says why, so the user hears of a copy that may not be readable
+// now rather than when they need it. The copy is offered as not checked yet; the restore from it
+// checks it first, and from then on it is checked.
+#[test]
+fn a_copy_the_restore_could_not_seal_is_reported_and_offered_as_not_checked() {
+    let (_root, paths) = released_archive();
+    let (_copies, older) = older_copy(&paths);
+    let live = open(&paths).unwrap();
+    write_marker(live.store(), Db::Archive, "replaced-by-the-restore");
+    let fault = crate::fault_inject::FaultGuard::error_at("native-seal-before-restore");
+    let restored = restore_snapshot(&live, &older, None, Default::default()).unwrap();
+    drop(fault);
+    let reason = restored.previous_unsealed.clone().expect("the restore says why");
+    assert!(reason.contains("simulated error"), "{reason}");
+    let listed = copies_before(&paths, "restore");
+    assert_eq!(listed.len(), 1, "{listed:?}");
+    assert!(listed[0].verified_openable && listed[0].unchecked, "{listed:?}");
+
+    let copy = PathBuf::from(&listed[0].path);
+    let back = restore_snapshot(&restored.vault, &copy, None, Default::default()).unwrap();
+    assert_eq!(marker(&back.vault, Db::Archive).as_deref(), Some("replaced-by-the-restore"));
+    assert_eq!(back.previous_unsealed, None);
+    let listed = copies_before(&paths, "restore");
+    assert!(listed.iter().all(|copy| !copy.unchecked), "{listed:?}");
+}
+
+// The same for an import: it finishes and says why, and the copy of what it replaced is offered
+// as not checked yet.
+#[test]
+fn a_copy_the_import_could_not_seal_is_reported_and_offered_as_not_checked() {
+    let (_source_root, source) = released_archive();
+    let bundles = tempfile::tempdir().unwrap();
+    let bundle = bundles.path().join("moved.pathkeep");
+    {
+        let vault = open(&source).unwrap();
+        crate::migration::native::export(
+            &vault,
+            &bundle,
+            "export password",
+            Default::default(),
+            |_| {},
+        )
+        .unwrap();
+        vault.close().unwrap();
+    }
+    let (_root, paths) = released_archive();
+    let live = open(&paths).unwrap();
+    let options = ApplyImportOptions {
+        confirm_overwrite: true,
+        source_archive_key: Some("export password".into()),
+    };
+    let fault = crate::fault_inject::FaultGuard::error_at("native-seal-before-import");
+    let (report, _imported) = crate::migration::native::import(
+        &paths,
+        Some(&live),
+        None,
+        &bundle,
+        &options,
+        Default::default(),
+    )
+    .unwrap();
+    drop(fault);
+    assert!(report.kept_previous_as_copy);
+    let reason = report.previous_copy_unchecked.expect("the import says why");
+    assert!(reason.contains("simulated error"), "{reason}");
+    let listed = copies_before(&paths, "import");
+    assert_eq!(listed.len(), 1, "{listed:?}");
+    assert!(listed[0].verified_openable && listed[0].unchecked, "{listed:?}");
+}
+
 // Only a replaced archive in the archive's own folder of copies is sealed by a restore. A safety
 // snapshot without a seal was cut short while it was written and may lack files; a folder named like
 // a copy elsewhere is not PathKeep's to write in. Both are refused with nothing written.

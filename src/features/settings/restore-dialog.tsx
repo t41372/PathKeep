@@ -7,7 +7,6 @@
  */
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
-import { toast } from 'sonner'
 import { useSession } from '@/app/session'
 import { MaintenanceProgress } from '@/components/app/maintenance-progress'
 import { Button } from '@/components/ui/button'
@@ -30,6 +29,7 @@ import { useSnapshot } from '@/lib/queries/app'
 import type { RecoverySnapshot } from '@/lib/types'
 import { copyLabelKey } from './copy-label'
 import { Notice } from './notice'
+import { announceReplaced } from './replaced-notice'
 
 export function RestoreDialog({
   open,
@@ -70,8 +70,12 @@ function RestoreForm({ onClose }: { onClose: () => void }) {
         snapshot.encrypted ? password : null,
       )
     },
-    onSuccess: async () => {
-      toast.success(t('settingsStorage.restore.done'))
+    onSuccess: async (report) => {
+      announceReplaced(
+        t,
+        t('settingsStorage.restore.done'),
+        report.previousCopyUnchecked,
+      )
       onClose()
       // Every cached read described the archive that was just replaced.
       await session.restart()
@@ -141,6 +145,8 @@ function RestoreForm({ onClose }: { onClose: () => void }) {
                     : item.label}
                   {' · '}
                   {format.bytes(item.sizeBytes)}
+                  {item.unchecked &&
+                    ` · ${t('settingsStorage.restore.unchecked')}`}
                 </span>
               </span>
             </Label>
@@ -169,6 +175,12 @@ function RestoreForm({ onClose }: { onClose: () => void }) {
             {t('settingsStorage.restore.passwordHint')}
           </p>
         </div>
+      )}
+
+      {chosen?.unchecked && (
+        <p className="text-[13px] text-muted-foreground">
+          {t('settingsStorage.restore.checkedFirst')}
+        </p>
       )}
 
       {chosen && chosen.encrypted !== archiveEncrypted && (

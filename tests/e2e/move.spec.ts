@@ -8,7 +8,9 @@
  * password (a wrong one is refused in plain words and the archive here is
  * untouched); opening it replaces the archive with the
  * same visits, and from then on that password is the archive's password and
- * the one this computer's keychain remembers.
+ * the one this computer's keychain remembers. When the archive it replaced,
+ * kept as a safety copy, can't be checked, the import still finishes and says
+ * why, and the copy is listed as not checked yet (restore.spec restores it).
  *
  * Runs in its own project after `change` (app lock is on, passcode 4826):
  * opening the file replaces the archive and its password.
@@ -17,7 +19,12 @@ import { createHash } from 'node:crypto'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
-import { backend, fixture, openArchiveVisitTotal } from './support/fixture'
+import {
+  backend,
+  fixture,
+  injectFault,
+  openArchiveVisitTotal,
+} from './support/fixture'
 import { zipBytes, zipEntries } from './support/zip-file'
 
 const FILE_PASSWORD = 'moving day, 2026'
@@ -153,11 +160,32 @@ test('a moved archive opens only with the password chosen at export', async ({
   ).toBeVisible({ timeout: 60_000 })
   expect(await visitTotal()).toBe(before)
 
-  await importing.getByLabel('Password of this file').fill(FILE_PASSWORD)
-  await replace.click()
-  await expect(page.getByText('Import finished.')).toBeVisible({
-    timeout: 300_000,
-  })
+  const healSeal = injectFault('native-seal-before-import')
+  try {
+    await importing.getByLabel('Password of this file').fill(FILE_PASSWORD)
+    await replace.click()
+    await expect(page.getByText('Import finished.')).toBeVisible({
+      timeout: 300_000,
+    })
+    const warning = page
+      .locator('[data-sonner-toast]')
+      .filter({ hasText: 'Import finished.' })
+    await expect(
+      warning.getByText(
+        /^Your previous archive is kept as a safety copy, but PathKeep couldn’t check it: .*simulated error/,
+      ),
+    ).toBeVisible()
+    await warning.getByRole('button', { name: 'Close' }).click()
+    await expect(warning).toHaveCount(0)
+  } finally {
+    healSeal()
+  }
+  const copies = await backend<
+    { sourceOp: string; verifiedOpenable: boolean; unchecked: boolean }[]
+  >('list_recovery_snapshots')
+  expect(copies.filter((copy) => copy.sourceOp === 'import')).toEqual([
+    expect.objectContaining({ verifiedOpenable: true, unchecked: true }),
+  ])
   await unlockIfAsked(page, FILE_PASSWORD)
   await expect.poll(visitTotal, { timeout: 60_000 }).toBe(before)
   expect(await opensArchive(FILE_PASSWORD)).toBe(true)
