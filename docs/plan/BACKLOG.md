@@ -428,10 +428,11 @@
   - 現況（2026-11-16 讀程式查的，沒有實測）：PathKeep 自己不做這種連結，「釋放空間」照顧到了（連結本身跟著走，只刪連結）。把東西放進 `raw-snapshots/` 的操作都用改名，跨磁碟改名會失敗：切換加密（安全快照放進 `maintenance/`）與匯入（逐項換瀏覽器歷史檔的資料夾）在發布前失敗、整個退回，存檔不變；還原與匯入在新存檔發布之後，才把換下的存檔改名成「還原之前／匯入之前」副本，這一步失敗會留下安裝紀錄，之後每次啟動都重試、都失敗，打不開存檔。同一顆磁碟上的連結都能用。
   - 做法方向：換下的存檔放不進 `raw-snapshots/` 時留在存檔旁邊、照樣列出算進用量，或在動手前就說明不支援；要寫測試先紅（跨裝置的改名錯誤可以用 fault injection 做）。
 
-- [ ] **WORK-WINDOWS-FLUSH-V05** — 已發布的 v0.5.0 在 Windows 上，還原、安全快照、匯入匯出搬家檔很可能一律失敗（等用戶決定要不要出 v0.5.x 修正版）
-  - 現況（2026-11-16 讀程式查的，沒有在 Windows 上跑過）：v0.5.0 有幾處先用唯讀打開檔案，再要系統把它寫進磁碟（`durable_io::fsync_file_durably`、`install_file_durably`、vault-store 快照的 `File::open(target)?.sync_all()`）。Windows 的 `FlushFileBuffers` 規定要有寫入權限，沒有就「拒絕存取」（微軟文件；ReactOS 的 `NtFlushBuffersFile` 照這樣檢查）。走到這一步的：每次安裝的暫存（從安全副本還原、匯入搬家檔、切換加密、從 v0.3 舊格式轉換）、還原的暫存、安全快照、匯出搬家檔、語意索引的建置。日常備份、瀏覽、搜尋不經過這裡。失敗時什麼都沒改，但這些操作在 Windows 上做不成；從 v0.3 舊格式升上來的存檔轉換不了。
+- [ ] **WORK-WINDOWS-FLUSH-V05** — 已發布的 v0.5.0 在 Windows 上，還原、安全快照、匯入匯出搬家檔一律失敗（2026-11-16 在 Windows runner 上證實；用戶決定出 v0.5.1）
+  - 現況（2026-11-16 讀程式查的，同一天在 Windows runner 上證實）：v0.5.0 有幾處先用唯讀打開檔案，再要系統把它寫進磁碟（`durable_io::fsync_file_durably`、`install_file_durably`、vault-store 快照的 `File::open(target)?.sync_all()`）。Windows 的 `FlushFileBuffers` 規定要有寫入權限，沒有就「拒絕存取」（微軟文件；ReactOS 的 `NtFlushBuffersFile` 照這樣檢查）。走到這一步的：每次安裝的暫存（從安全副本還原、匯入搬家檔、切換加密、從 v0.3 舊格式轉換）、還原的暫存、安全快照、匯出搬家檔、語意索引的建置。日常備份、瀏覽、搜尋不經過這裡。失敗時什麼都沒改，但這些操作在 Windows 上做不成；從 v0.3 舊格式升上來的存檔轉換不了。
   - 這條分支已修（同一則 STATUS 記錄；Windows 上改用可寫入的方式打開，其他系統照舊）。v0.5.x 的修法相同，只有三處（v0.5 沒有 `agent-history` 那一處）。
-  - 要用戶決定：出不出 v0.5.x 修正版；要出就從 `main` 開分支帶過去，先推上 GitHub 讓 `platform-native` 的 Windows 工作在修正前、修正後各跑一次（先紅再綠），再照發布流程走。
+  - 用戶 2026-11-16 決定出 v0.5.1，帶三個修正：寫進磁碟、等別的程式放開檔案、跨行程寫入鎖，每個都先在 Windows 上紅再綠。分支 `fix/windows-flush-v05`，從 `main` 開。Windows runner 上 `vault-core` 與 `vault-worker` 的測試：修正前 81 個失敗（69 個停在寫進磁碟），只修寫進磁碟剩 10 個，三個都在剩 1 個（模型換檔，`WORK-WINDOWS-MODEL-REPLACE`，v0.5.0 也一樣）。等待之後改成每一處搬動與刪除都經過 `vault-fs`（和這條分支同一天的改法）。
+  - 發布前還要：`vault-fs` 版本的本機完整檢查與 Windows 再跑一次；建置（`release.yml` 的 `prepare`，私有草稿）與公開都要用戶明確同意。side agent 提醒「說清楚 `vault_lifecycle` 當機出在哪之前別批准」：2026-11-16 查清楚了，是 v0.6 測試輔助程式的兩次 panic，與 v0.5.1 無關（STATUS「Windows 上第一次把…全部跑完」）。
 
 - [ ] **WORK-RELEASE-REHEARSAL-V06** — 第一次用新的發布把關之前，把發布流程實跑一次（v0.6.0 發布前）
   - 為什麼需要：`release:build` 會解開每個安裝包、執行裡面的桌面程式與 worker 來確認是正式發布版（`docs/architecture/build-identity.md`）。這段只對合成的安裝包跑過。解不開或跑不起來時它會擋下發布而不是放行，所以不會發出錯的版本，但第一次真的發布時才發現解不開 NSIS 就太晚了。
@@ -441,12 +442,14 @@
   - Linux 已經碰到一次（2026-11-16，C10 在 boxd 上照發布流程建 unsigned preview）：deb 打包工具在 `.deb` 旁邊留下 `deb/PathKeep_…/`（套件自己的 `control.tar.gz`、`data.tar.gz`），檢查把它們當成安裝包、在裡面找不到執行檔，擋下發布。已修（只把每種套件資料夾直接底下的檔案當安裝包，測試先紅），並在真的 deb 上驗過。其他平台的真實產物還沒看過。
   - C10（用真的 v0.4.0、v0.5.0 對 v0.6 寫過的存檔）要在最後要發布的那個建置上再跑一次。腳本現在在 repo 外（boxd 上用 `dbus-run-session`、`Xvfb`，等擁有者程序結束要用完整路徑比對，Linux 的程序名只留 15 個字元）；跑之前搬進 repo，讓它可以重跑。
 
-- [ ] **WORK-WRITE-LOCK-WINDOWS** — 跨行程寫入鎖在 Windows 上是會直接報錯的空殼，「刪除所有資料」在 Windows 上很可能一律失敗（2026-11-15，ChatGPT 審查 5a 時順帶指出，未在 Windows 上驗證）
-  - `vault-core/src/archive/write_lock.rs` 的 `try_lock_exclusive` 在非 unix 平台直接回傳「this platform is unsupported」。「刪除所有資料」、中斷刪除的接續、v0.3 的啟動修復與還原都會取這把鎖，所以在 Windows 上這些操作應該都會失敗。大部分刪除測試沒有標成只在 unix 跑，CI 也沒有在 Windows 上跑 `vault-core` 的測試，所以一直沒被看見。
-  - 先在 Windows 上實際跑一次「刪除所有資料」確認；成立的話，用 Windows 的檔案鎖（`LockFileEx`）實作同樣的語意，並讓這些測試在 Windows CI 跑。
+- [ ] **WORK-WRITE-LOCK-WINDOWS** — 跨行程寫入鎖的開頭說明還在講舊架構（Windows 上的空殼 2026-11-16 已修，改用標準庫的 `File::try_lock`，見 STATUS；2026-11-15 ChatGPT 審查 5a 時順帶指出）
   - 同一份檔案的開頭說明還在講「排程備份是另一個行程」的舊架構。現在只有一個 owner 行程能打開存檔（owner lock），排程備份在 owner 裡跑，改名前 Store 已暫停並關閉；說明要跟著改成現況，並寫清楚這把鎖現在擋的是什麼。
-  - 0.5 的「刪除所有資料」標記（`.pk-wipe-in-progress.json`）只在沒有設定檔時照 0.5 的方式就地刪完。GPT-6 Pro 指出（2026-11-15，屬實）：沒有設定檔本身不能證明標記屬於這個資料夾；被帶進來的標記會讓一個本來該拒絕打開（有存檔資料、沒有設定檔）的資料夾被刪掉。0.5 的標記什麼都沒記，分不出來。拒絕畫面（`WORK-ARCHIVE-REFUSAL-SCREEN`）有了之後，改成在畫面上問使用者「上次的刪除沒有做完，要做完嗎」，不再自動刪。
-  - 存檔升級時，已發布格式的五個資料庫裡少了一個（例如主資料庫被刪掉）：第二輪起拒絕打開（`archive-store-missing`），什麼都不建、不蓋版本宣告（`archive-compatibility.md`「A released archive missing one of its own stores is refused」）。畫面、以及使用者明確同意後建一個空的再升級，在 `WORK-ARCHIVE-REFUSAL-SCREEN`。
+
+- [ ] **WORK-WINDOWS-MODEL-REPLACE** — Windows 上，內建語意模型的檔案正被打開或映射時，重新下載換不掉它（2026-11-16，Windows runner 上看到，v0.5.0 也一樣）
+  - 現象：`ai::model_files::tests::ensure_download_replaces_files_without_changing_open_readers` 在 Windows 上失敗：「installing verified model file …: failed to persist temporary file: Access is denied」。測試開著舊檔，再要下載換掉它。
+  - 原因（讀程式）：驗證完的暫存檔用 `tempfile` 的 `persist` 換上去；tempfile 3.27 在 Windows 上呼叫 `MoveFileExW(MOVEFILE_REPLACE_EXISTING)`，目標被別的 handle 開著時 Windows 拒絕。註解說換檔是為了不動正在被映射的舊檔（內建模型用 `memmap2` 映射，`embedding_static.rs`），這個前提在 Windows 不成立。
+  - 什麼時候會遇到：已經有模型檔、但驗不過（例如新版換了模型版本），而舊檔正被使用時。第一次下載不受影響。失敗時舊檔不動、回報錯誤。
+  - 要查：`std::fs::rename` 在 Windows 上用的是哪一種改名、換不換得掉開著或映射著的檔；換不掉就改成像語意索引那樣，每次下載放進新的一代資料夾，驗過後切換，舊的一代等沒人映射時再刪。
 
 - [ ] **WORK-FAT-DATA-FOLDER-NOTICE** — 資料資料夾放在 FAT32／exFAT 的磁碟上時，讓使用者知道斷電可能丟檔（2026-11-15，GPT-6 Pro 第三輪程式審查 M8）
   - 原因：有日誌的檔案系統（APFS、ext4、NTFS）上，改名是一步完成的，斷電後檔案不是在原處就是在新處。FAT32／exFAT 上不是：系統可能先寫來源資料夾，寫到一半的配置表可能讓任何檔案消失，呼叫的順序怎麼排都保證不了。PathKeep 在這種磁碟上會留下所有可能共用資料的名字、認不出來就停下（`archive-compatibility.md`「Moves are made durable destination first…」），但斷電弄丟的檔案救不回來。
@@ -470,6 +473,7 @@
   - 「刪除所有資料」的紀錄或升級的「建立中」紀錄解不開、或指向它自己的資料夾以外的地方（`archive-control-invalid`）：同樣不是損壞，什麼都沒動；畫面說明，讓使用者把那個紀錄檔移走再打開。
   - 第二輪新增的拒絕（2026-11-15）：安裝回滾發現備份裡的原檔內容不對或不見（拷貝到一半的副本），撤銷刪除發現紀錄裡的項目兩邊都不在；兩者都是這份資料夾不完整，畫面要指向原本那份資料夾或安全副本。v0.5 的存檔少了自己的一個資料庫（`archive-store-missing`，升級時）：要說少了哪一個（Ask 對話、洞察），提供從安全副本還原，以及使用者明確同意後建一個空的再升級。
   - 第三輪新增的拒絕（2026-11-15）：發布後的安裝在原位找到不是它放的檔案（`archive-control-invalid: … is not what the install published`），是發布前後各拷一半、又缺了東西的資料夾副本，畫面指向原本那份資料夾或安全副本。刪除所有資料做完後、trash 外面還有像存檔的東西（中斷期間使用者放回來的），資料夾讀成設定檔不見的存檔：畫面要說明這些是刪除之後才出現的，提供從安全副本還原或重新建立設定。沒有設定檔的資料夾裡有被帶進來的刪除紀錄（沒有它記的 trash）或升級紀錄（沒有它建資料庫的資料夾）：資料夾讀成設定檔不見，紀錄原地不動，畫面要能讓使用者把紀錄移走。
+  - 0.5 的「刪除所有資料」標記（`.pk-wipe-in-progress.json`；2026-11-16 從 `WORK-WRITE-LOCK-WINDOWS` 移來）只在沒有設定檔時照 0.5 的方式就地刪完。GPT-6 Pro 指出（2026-11-15，屬實）：沒有設定檔本身不能證明標記屬於這個資料夾；被帶進來的標記會讓一個本來該拒絕打開（有存檔資料、沒有設定檔）的資料夾被刪掉。0.5 的標記什麼都沒記，分不出來。拒絕畫面（`WORK-ARCHIVE-REFUSAL-SCREEN`）有了之後，改成在畫面上問使用者「上次的刪除沒有做完，要做完嗎」，不再自動刪。
   - 從安全副本還原時遇到 `archive-current-password-required`（存檔打不開、而且是加密的；還原保留存檔自己的加密與密碼，所以要它的金鑰）：畫面要問目前的存檔密碼，用它解出金鑰交給還原（後端的 `restore_snapshot_to` 已經收 `live_key`），不能就此卡住。金鑰檔本身壞了、怎樣都解不出金鑰時，這份存檔的資料（含 Agent 對話）本來就讀不回來；畫面要提供「照副本的加密還原」的明確選項，並講清楚對話救不回來，後端到時再加這個選項。
 
 - [ ] **WORK-WIPE-UNDONE-NOTICE** — 「刪除所有資料」沒做完、被撤銷或紀錄被丟掉時，要告訴使用者（2026-11-15，A2/A3 第三版留下）
