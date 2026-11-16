@@ -776,20 +776,18 @@
       "type": "object",
       "properties": {
         "identity": {
-          "type": "string",
-          "default": ""
+          "type": "string"
         },
         "version": {
           "type": "integer",
           "format": "uint32",
-          "minimum": 0,
-          "default": 0
+          "minimum": 0
         },
         "stage": {
-          "type": "string"
+          "$ref": "#/$defs/RecordedPath"
         },
         "backup": {
-          "type": "string"
+          "$ref": "#/$defs/RecordedPath"
         },
         "entries": {
           "type": "array",
@@ -801,9 +799,13 @@
           "type": "boolean"
         },
         "kept_as": {
-          "type": [
-            "string",
-            "null"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RecordedPath"
+            },
+            {
+              "type": "null"
+            }
           ]
         },
         "committed": {
@@ -811,6 +813,8 @@
         }
       },
       "required": [
+        "identity",
+        "version",
         "stage",
         "backup",
         "entries",
@@ -818,11 +822,15 @@
         "committed"
       ],
       "$defs": {
+        "RecordedPath": {
+          "type": "string",
+          "pattern": "^[^/\\\\:\\u0000]+(/[^/\\\\:\\u0000]+)*$"
+        },
         "Entry": {
           "type": "object",
           "properties": {
             "relative": {
-              "type": "string"
+              "$ref": "#/$defs/RecordedPath"
             },
             "previous": {
               "type": "boolean"
@@ -867,10 +875,13 @@
         "creating": {
           "type": "array",
           "items": {
-            "type": "string"
+            "$ref": "#/$defs/Made"
           }
         },
         "made_in": {
+          "$ref": "#/$defs/RecordedPath"
+        },
+        "control": {
           "type": "string"
         }
       },
@@ -878,8 +889,30 @@
         "identity",
         "version",
         "creating",
-        "made_in"
-      ]
+        "made_in",
+        "control"
+      ],
+      "$defs": {
+        "Made": {
+          "type": "object",
+          "properties": {
+            "relative": {
+              "$ref": "#/$defs/RecordedPath"
+            },
+            "holds": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "relative",
+            "holds"
+          ]
+        },
+        "RecordedPath": {
+          "type": "string",
+          "pattern": "^[^/\\\\:\\u0000]+(/[^/\\\\:\\u0000]+)*$"
+        }
+      }
     },
     ".pk-wipe-v2.json": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -904,7 +937,7 @@
           "type": "string"
         },
         "trash": {
-          "type": "string"
+          "$ref": "#/$defs/RecordedPath"
         },
         "targets": {
           "type": [
@@ -912,7 +945,7 @@
             "null"
           ],
           "items": {
-            "type": "string"
+            "$ref": "#/$defs/RecordedPath"
           }
         },
         "committed": {
@@ -945,6 +978,10 @@
         "providerIds"
       ],
       "$defs": {
+        "RecordedPath": {
+          "type": "string",
+          "pattern": "^[^/\\\\:\\u0000]+(/[^/\\\\:\\u0000]+)*$"
+        },
         "SchedulePlan": {
           "type": "object",
           "properties": {

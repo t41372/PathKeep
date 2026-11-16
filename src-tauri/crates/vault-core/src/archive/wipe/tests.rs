@@ -555,21 +555,24 @@ fn undoing_gives_the_archive_back_whole_and_keeps_what_stood_in_its_place() {
     assert!(trashes(paths).is_empty());
 }
 
-// After the commit, whatever appears at a target before the wipe ends (a worker that did not
-// stop, a scheduled run) is part of the folder the user confirmed deleting: it goes too.
+// After the commit and a crash, something is at a target: the user may have put it there from a
+// backup while PathKeep was not running. The committed intent says the user confirmed deleting
+// what is in its trash, not what stands in the folder now. The wipe deletes its trash and leaves
+// that where it is; the folder then reads as an archive whose control is missing, which the next
+// start reports instead of deleting it.
 #[test]
-fn what_appears_at_a_target_after_the_commit_goes_too() {
+fn what_appears_at_a_target_after_the_commit_is_left_where_it_is() {
     let fixture = backed_up_archive();
     let paths = &fixture.paths;
     crash_at(paths, &WipeOutsideState::default(), "wipe-committed");
     fs::create_dir_all(paths.app_root.join("derived")).unwrap();
-    fs::write(paths.app_root.join("derived/agent.db"), b"written since").unwrap();
+    fs::write(paths.app_root.join("derived/agent.db"), b"put back since").unwrap();
     assert!(matches!(next_start(paths), Some(SettledWipe::Finished(_))));
-    assert!(!paths.app_root.join("derived").exists());
-    assert!(matches!(
-        crate::admission::inspect(&paths.app_root),
-        Ok(crate::admission::RootState::Uninitialized)
-    ));
+    assert_eq!(fs::read(paths.app_root.join("derived/agent.db")).unwrap(), b"put back since");
+    assert!(trashes(paths).is_empty(), "the trash is what the user confirmed deleting");
+    assert!(!data_wipe_interrupted(paths));
+    let refusal = crate::admission::inspect(&paths.app_root).expect_err("not a first run");
+    assert_eq!(refusal.reason, crate::admission::Reason::ControlMissing);
 }
 
 // After the commit someone put back the control the user confirmed deleting. The wipe still
@@ -754,22 +757,64 @@ fn a_wipe_record_does_not_touch_another_archive() {
     for cut in ["wipe-target-moved", "wipe-committed"] {
         let fixture = backed_up_archive();
         let paths = &fixture.paths;
-        let confirmed = fs::read(&paths.config_path).unwrap();
         crash_at(paths, &WipeOutsideState::default(), cut);
         let mut other = fixture.config.clone();
         other.preferred_language = crate::LanguagePreference::ZhTw;
         save_config(&crate::ControlGate::acquire(paths), &other).unwrap();
+        let intent = paths.app_root.join(".pk-wipe-v2.json");
+        let record = fs::read(&intent).unwrap();
         let mut before = file_contents_under(&paths.app_root);
 
         assert_eq!(next_start(paths), Some(SettledWipe::Discarded), "{cut}");
-        assert!(!data_wipe_interrupted(paths), "{cut}: the stale record is discarded");
+        assert!(!data_wipe_interrupted(paths), "{cut}: the stale record is no longer acted on");
+        assert_eq!(trashes(paths).len(), 1, "{cut}: the trash is kept");
+        // The record is the only copy of the control the user confirmed: it is kept whole.
         before.remove(Path::new(".pk-wipe-v2.json"));
-        let [trash] = <[PathBuf; 1]>::try_from(trashes(paths)).expect("the trash is kept");
-        // The record was the only copy of the control the user confirmed: it stays with the trash.
-        let control = trash.join("config.json");
-        assert_eq!(fs::read(&control).unwrap(), confirmed, "{cut}");
-        before.insert(control.strip_prefix(&paths.app_root).unwrap().to_path_buf(), confirmed);
+        let kept = kept_records(paths);
+        assert_eq!(kept.len(), 1, "{cut}: {kept:?}");
+        assert_eq!(fs::read(&kept[0]).unwrap(), record, "{cut}");
+        before.insert(kept[0].strip_prefix(&paths.app_root).unwrap().to_path_buf(), record);
         assert_same_files(&file_contents_under(&paths.app_root), &before, cut);
+    }
+}
+
+/// The wipe records kept in the quarantine.
+fn kept_records(paths: &ProjectPaths) -> Vec<PathBuf> {
+    walkdir::WalkDir::new(&paths.quarantine_dir)
+        .into_iter()
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| entry.file_name() == ".pk-wipe-v2.json")
+        .map(|entry| entry.into_path())
+        .collect()
+}
+
+// A record set aside keeps the control whether or not its trash is here (a copy may not have
+// carried it), and never writes over anything: the trash may be in use as a rescue folder by now,
+// its own `config.json` edited since.
+#[test]
+fn a_record_set_aside_keeps_its_control_without_its_trash_and_writes_over_nothing() {
+    for trash_here in [false, true] {
+        let fixture = backed_up_archive();
+        let paths = &fixture.paths;
+        crash_at(paths, &WipeOutsideState::default(), "wipe-target-moved");
+        let [trash] = <[PathBuf; 1]>::try_from(trashes(paths)).expect("one trash");
+        if trash_here {
+            fs::write(trash.join("config.json"), b"edited since").unwrap();
+        } else {
+            fs::remove_dir_all(&trash).unwrap();
+        }
+        let mut other = fixture.config.clone();
+        other.preferred_language = crate::LanguagePreference::ZhTw;
+        save_config(&crate::ControlGate::acquire(paths), &other).unwrap();
+        let record = fs::read(paths.app_root.join(".pk-wipe-v2.json")).unwrap();
+
+        assert_eq!(next_start(paths), Some(SettledWipe::Discarded), "trash here: {trash_here}");
+        let kept = kept_records(paths);
+        assert_eq!(kept.len(), 1, "trash here: {trash_here}");
+        assert_eq!(fs::read(&kept[0]).unwrap(), record);
+        if trash_here {
+            assert_eq!(fs::read(trash.join("config.json")).unwrap(), b"edited since");
+        }
     }
 }
 
@@ -937,4 +982,279 @@ fn an_entry_under_two_names_after_a_cut_move_keeps_both() {
     assert_eq!(fs::read(archive_file(paths)).unwrap(), original);
     assert_eq!(fs::metadata(archive_file(paths)).unwrap().nlink(), 2, "a name was deleted");
     assert_eq!(trashes(paths).len(), 1, "the trash holding the other name is kept");
+}
+
+// A target that cannot be looked at (a disk error, a permission) is not one that is not there.
+// Taken for absent, it would be left out of the record, stay in place while the rest moved, and be
+// moved out as something the wipe did not record when the wipe is undone: the archive would come
+// back without it, and nothing would say where it went.
+#[cfg(unix)]
+#[test]
+fn a_target_that_cannot_be_looked_at_is_not_taken_for_one_that_is_not_there() {
+    use std::os::unix::fs::PermissionsExt;
+    let fixture = backed_up_archive();
+    let paths = &fixture.paths;
+    let folder = paths.app_root.join("archive");
+    let mode = fs::metadata(&folder).unwrap().permissions().mode();
+    // Readable, so its entries are listed, but not searchable, so none of them can be looked at.
+    fs::set_permissions(&folder, fs::Permissions::from_mode(0o600)).unwrap();
+    let listed = wipe_targets(paths);
+    fs::set_permissions(&folder, fs::Permissions::from_mode(mode)).unwrap();
+    assert!(listed.is_err(), "{listed:?}");
+}
+
+// A store's main file and its companions (`-wal`, `-shm`) are one database: SQLite reads a main
+// with whatever log lies beside it. The wipe moves the main first and the undo puts it back last,
+// so at every cut a main in its place has its own companions beside it, never a mix of the
+// archive's and something put there since.
+#[test]
+fn at_every_cut_a_store_in_place_has_its_own_companions() {
+    let fixture = backed_up_archive();
+    let paths = &fixture.paths;
+    for suffix in ["-wal", "-shm"] {
+        fs::write(format!("{}{suffix}", archive_file(paths).display()), suffix.as_bytes()).unwrap();
+    }
+    let before = file_contents_under(&paths.app_root);
+    let family = |paths: &ProjectPaths| -> Vec<bool> {
+        ["", "-wal", "-shm"]
+            .iter()
+            .map(|suffix| Path::new(&format!("{}{suffix}", archive_file(paths).display())).exists())
+            .collect()
+    };
+    let whole_or_gone = |paths: &ProjectPaths, when: &str| {
+        let here = family(paths);
+        assert!(!here[0] || here.iter().all(|in_place| *in_place), "{when}: {here:?}");
+    };
+    let moves = intent_targets_after_moving(paths);
+    for hit in 1..=moves {
+        let crashed = catch_unwind(AssertUnwindSafe(|| {
+            let _cut = FaultGuard::panic_at_hit("wipe-target-moved", hit);
+            let _ = wipe_all_data(
+                paths,
+                |_| Ok(WipeOutsideState::default()),
+                no_quiesce,
+                no_secrets,
+                no_schedule,
+            );
+        }));
+        assert!(crashed.is_err());
+        whole_or_gone(paths, &format!("move {hit}"));
+        assert_eq!(next_start(paths), Some(SettledWipe::RolledBack));
+        assert_same_files(&file_contents_under(&paths.app_root), &before, "after the undo");
+    }
+    for hit in 1..=moves {
+        crash_at(paths, &WipeOutsideState::default(), "wipe-moved");
+        let crashed = catch_unwind(AssertUnwindSafe(|| {
+            let _cut = FaultGuard::panic_at_hit("wipe-entry-put-back", hit);
+            let _ = next_start(paths);
+        }));
+        assert!(crashed.is_err(), "put-back {hit}");
+        whole_or_gone(paths, &format!("put-back {hit}"));
+        assert_eq!(next_start(paths), Some(SettledWipe::RolledBack));
+        assert_same_files(&file_contents_under(&paths.app_root), &before, "after the undo");
+    }
+}
+
+/// How many targets a wipe of `paths` moves, from the record of one cut after the moves.
+fn intent_targets_after_moving(paths: &ProjectPaths) -> u32 {
+    crash_at(paths, &WipeOutsideState::default(), "wipe-moved");
+    let record: serde_json::Value =
+        serde_json::from_slice(&fs::read(paths.app_root.join(".pk-wipe-v2.json")).unwrap())
+            .unwrap();
+    let count = record["targets"].as_array().unwrap().len() as u32;
+    assert_eq!(next_start(paths), Some(SettledWipe::RolledBack));
+    count
+}
+
+// A main in its place while one of its companions is still in the trash is a state no cut of a
+// wipe or of its undo leaves: something was put there since. Putting the companion back would lay
+// the archive's log beside a store it may not belong to. The undo stops before anything moves.
+#[test]
+fn a_store_in_place_whose_companion_is_in_the_trash_stops_the_undo() {
+    let fixture = backed_up_archive();
+    let paths = &fixture.paths;
+    fs::write(format!("{}-wal", archive_file(paths).display()), b"log").unwrap();
+    crash_at(paths, &WipeOutsideState::default(), "wipe-moved");
+    let [trash] = <[PathBuf; 1]>::try_from(trashes(paths)).expect("one trash");
+    fs::rename(trash.join("archive/history-vault.db"), archive_file(paths)).unwrap();
+    let before = file_contents_under(&paths.app_root);
+
+    let error = finish_interrupted_data_wipe(paths, no_quiesce, no_secrets, no_schedule)
+        .expect_err("refused");
+    assert!(format!("{error:#}").contains("history-vault.db-wal"), "{error:#}");
+    assert!(data_wipe_interrupted(paths));
+    assert_same_files(&file_contents_under(&paths.app_root), &before, "");
+}
+
+// An empty folder has its own place on disk too, and on exFAT a cut move can leave it under two
+// names. A name the undo moved out of an entry's way is kept with the trash, files or not.
+#[test]
+fn a_folder_moved_out_of_the_way_keeps_the_trash_even_when_it_is_empty() {
+    let fixture = backed_up_archive();
+    let paths = &fixture.paths;
+    fs::create_dir(paths.app_root.join("archive/empty")).unwrap();
+    crash_at(paths, &WipeOutsideState::default(), "wipe-moved");
+    fs::create_dir(paths.app_root.join("archive/empty")).unwrap();
+
+    assert_eq!(next_start(paths), Some(SettledWipe::RolledBack));
+    let [trash] = <[PathBuf; 1]>::try_from(trashes(paths)).expect("the trash is kept");
+    assert!(trash.join(DISPLACED).join("0/archive/empty").is_dir());
+    assert!(paths.app_root.join("archive/empty").is_dir());
+}
+
+// On a file system without a journal a power cut during the rename over `config.json` can leave
+// none (the old name gone, the new one not yet there). The intent holds both controls, so a
+// folder with no control and this build's intent is a wipe cut short, not an archive that lost
+// its control: undone, the control the user had comes back; finished, the wipe ends as it would.
+#[test]
+fn a_wipe_whose_control_a_power_cut_took_is_still_settled() {
+    for cut in ["wipe-control-emptied", "wipe-target-moved", "wipe-committed"] {
+        let fixture = backed_up_archive();
+        let paths = &fixture.paths;
+        let confirmed = fs::read(&paths.config_path).unwrap();
+        let before = file_contents_under(&paths.app_root);
+        let outside = WipeOutsideState::from_config(&fixture.config, None);
+        crash_at(paths, &outside, cut);
+        fs::remove_file(&paths.config_path).unwrap();
+        let cleared = Cell::new(false);
+
+        let settled = finish_interrupted_data_wipe(
+            paths,
+            no_quiesce,
+            |_| {
+                cleared.set(true);
+                Ok(())
+            },
+            no_schedule,
+        )
+        .unwrap_or_else(|error| panic!("{cut}: {error:#}"));
+        if cut == "wipe-committed" {
+            assert!(matches!(settled, Some(SettledWipe::Finished(_))), "{cut}");
+            assert!(cleared.get(), "{cut}: the wipe the user confirmed clears its keys");
+            assert!(!archive_file(paths).exists());
+            assert!(matches!(
+                crate::admission::inspect(&paths.app_root),
+                Ok(crate::admission::RootState::Uninitialized)
+            ));
+        } else {
+            assert_eq!(settled, Some(SettledWipe::RolledBack), "{cut}");
+            assert_eq!(fs::read(&paths.config_path).unwrap(), confirmed, "{cut}");
+            assert_same_files(&file_contents_under(&paths.app_root), &before, cut);
+        }
+    }
+}
+
+// The record names every target, and a name it cannot hold the same way on every system (here a
+// backslash, a separator on Windows) would be read back as another path after a crash. The wipe
+// stops before it records or moves anything, and everything is as it was.
+#[cfg(unix)]
+#[test]
+fn a_name_the_record_cannot_hold_stops_the_wipe_before_anything_moves() {
+    let fixture = backed_up_archive();
+    let paths = &fixture.paths;
+    fs::write(paths.app_root.join("archive/notes\\2026.txt"), b"a file of the user's").unwrap();
+    let before = file_contents_under(&paths.app_root);
+    let secrets = WipeOutsideState::from_config(&fixture.config, None);
+    let error = wipe_all_data(
+        paths,
+        |_| Ok(secrets.clone()),
+        no_quiesce,
+        |_| panic!("nothing is cleared while nothing is deleted"),
+        no_schedule,
+    )
+    .expect_err("refused");
+    assert!(format!("{error:#}").contains("notes\\2026.txt"), "{error:#}");
+    assert!(!data_wipe_interrupted(paths));
+    assert!(trashes(paths).is_empty());
+    assert_same_files(&file_contents_under(&paths.app_root), &before, "refused");
+}
+
+// An intent naming its targets with Windows's separator is not read as one file with a backslash
+// in its name: it does not decode, and nothing moves.
+#[test]
+fn an_intent_naming_a_path_another_system_reads_otherwise_moves_nothing() {
+    let fixture = backed_up_archive();
+    let paths = &fixture.paths;
+    crash_at(paths, &WipeOutsideState::from_config(&fixture.config, None), "wipe-targets-recorded");
+    let intent = paths.app_root.join(WIPE_INTENT_FILE);
+    let text = fs::read_to_string(&intent).unwrap();
+    assert!(text.contains("archive/"), "{text}");
+    fs::write(&intent, text.replace("archive/", "archive\\\\")).unwrap();
+    let before = file_contents_under(&paths.app_root);
+    let error = finish_interrupted_data_wipe(paths, no_quiesce, no_secrets, no_schedule)
+        .expect_err("refused");
+    assert!(format!("{error:#}").contains("archive-control-invalid"), "{error:#}");
+    assert_same_files(&file_contents_under(&paths.app_root), &before, "refused");
+}
+
+// The wipe records and moves a store's main file before its companions, whatever order the folder
+// lists them in (the order they were made in on exFAT, a hash on APFS and ext4): the undo, going
+// the other way, relies on it. Many stores, each written companions first, so that no listing order
+// passes by chance.
+#[test]
+fn a_store_is_recorded_before_its_companions_whatever_the_listing_order() {
+    let fixture = backed_up_archive();
+    let paths = &fixture.paths;
+    for store in 0..24 {
+        for suffix in ["-wal", "-shm", ""] {
+            fs::write(paths.app_root.join(format!("archive/store-{store}.db{suffix}")), suffix)
+                .unwrap();
+        }
+    }
+    crash_at(paths, &WipeOutsideState::from_config(&fixture.config, None), "wipe-targets-recorded");
+    let intent: serde_json::Value =
+        serde_json::from_slice(&fs::read(paths.app_root.join(WIPE_INTENT_FILE)).unwrap()).unwrap();
+    let targets: Vec<&str> =
+        intent["targets"].as_array().unwrap().iter().map(|t| t.as_str().unwrap()).collect();
+    let at = |name: &str| {
+        targets.iter().position(|target| *target == name).unwrap_or_else(|| panic!("{name}"))
+    };
+    for store in 0..24 {
+        let main = at(&format!("archive/store-{store}.db"));
+        for suffix in ["-wal", "-shm"] {
+            assert!(main < at(&format!("archive/store-{store}.db{suffix}")), "{targets:?}");
+        }
+    }
+}
+
+// Without a control, the trash the intent names is what says the intent is this folder's: it is
+// made before the intent, under a random name, and stays until the confirmed control is back or
+// everything in it is deleted. An intent carried into another data folder that lost its control,
+// without that trash, writes no control there, clears no keys and moves nothing: the folder is
+// refused as one whose control is missing, and every file, the intent included, stays as it is.
+#[test]
+fn an_intent_carried_into_a_folder_without_a_control_writes_and_moves_nothing() {
+    for cut in ["wipe-control-emptied", "wipe-target-moved", "wipe-committed"] {
+        // One fixture at a time: each holds the test lock until it is dropped.
+        let intent = {
+            let first = backed_up_archive();
+            crash_at(&first.paths, &WipeOutsideState::from_config(&first.config, None), cut);
+            fs::read(first.paths.app_root.join(WIPE_INTENT_FILE)).unwrap()
+        };
+        let second = backed_up_archive();
+        let paths = &second.paths;
+        fs::remove_file(&paths.config_path).unwrap();
+        fs::write(paths.app_root.join("archive/only-here.txt"), b"never seen by the other wipe")
+            .unwrap();
+        fs::write(paths.app_root.join(WIPE_INTENT_FILE), &intent).unwrap();
+        let before = file_contents_under(&paths.app_root);
+        assert!(
+            !matches!(
+                crate::admission::inspect(&paths.app_root),
+                Ok(crate::admission::RootState::Interrupted(_))
+            ),
+            "{cut}"
+        );
+
+        let error = finish_interrupted_data_wipe(
+            paths,
+            no_quiesce,
+            |_| panic!("{cut}: the keys of another archive's wipe are not cleared"),
+            no_schedule,
+        )
+        .expect_err("refused");
+        assert!(format!("{error:#}").contains("archive-control-missing"), "{cut}: {error:#}");
+        assert!(!paths.config_path.exists(), "{cut}: no control was written");
+        assert_same_files(&file_contents_under(&paths.app_root), &before, cut);
+    }
 }

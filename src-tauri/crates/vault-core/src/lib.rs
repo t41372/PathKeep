@@ -46,6 +46,7 @@ pub mod migration;
 pub mod models;
 pub(crate) mod pages;
 pub mod persisted_schema;
+mod recorded_path;
 pub mod schedule_attempts;
 pub mod semantic_index;
 mod snapshot_reads;

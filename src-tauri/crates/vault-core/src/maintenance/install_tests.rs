@@ -193,6 +193,13 @@ fn an_install_that_would_remove_the_control_is_refused() {
     assert_eq!(std::fs::read(root.path().join("config.json")).unwrap(), b"old");
 }
 
+/// The step that takes `name` out of its place (the control is copied instead), by the journal's
+/// own order of entries; the next step puts its staged file in place.
+fn step_of(root: &std::path::Path, name: &str) -> usize {
+    let entries = journal_file(root)["entries"].as_array().unwrap().clone();
+    2 * entries.iter().position(|entry| entry["relative"] == name).unwrap()
+}
+
 fn journal_file(root: &std::path::Path) -> serde_json::Value {
     serde_json::from_slice(&std::fs::read(root.join("archive/.pk-install-v2.json")).unwrap())
         .unwrap()
@@ -303,7 +310,9 @@ fn an_original_in_neither_place_keeps_the_journal() {
     let stage = root.path().join("staging/maintenance-test");
     let files = old_and_new(root.path(), &stage);
     let mut journal = prepare(&paths, &stage, files, Keep::Nothing).unwrap();
-    install_step(&paths, &mut journal, 0).unwrap();
+    for step in 0..=step_of(root.path(), "archive/history-vault.db") {
+        install_step(&paths, &mut journal, step).unwrap();
+    }
     let backup = journal_file(root.path())["backup"].as_str().unwrap().to_owned();
     std::fs::remove_file(root.path().join(&backup).join("archive/history-vault.db")).unwrap();
     let error = recover(&paths).expect_err("refused");
@@ -481,6 +490,7 @@ fn a_rollback_cut_short_is_finished_by_the_next_start() {
         let stage = root.path().join("staging/maintenance-test");
         let files = with_folder(root.path(), &stage);
         let mut journal = prepare(&paths, &stage, files, Keep::Nothing).unwrap();
+        let first_in_place = step_of(root.path(), "archive/history-vault.db") + 1;
         for step in 0..steps {
             install_step(&paths, &mut journal, step).unwrap();
         }
@@ -513,8 +523,12 @@ fn a_rollback_cut_short_is_finished_by_the_next_start() {
         names.sort();
         assert_eq!(names, ["a", "b"], "{cut} {steps}");
         assert!(!pending(&paths), "{cut} {steps}");
-        // Every staged file put in place is taken out by a rename, so each cut is reached.
-        assert!(reached || (cut == "native-install-discarded" && steps == 1), "{cut} {steps}");
+        // Every staged file put in place is taken out by a rename, so each cut is reached once one
+        // is in place (the control is written back, not taken out).
+        assert!(
+            reached || (cut == "native-install-discarded" && steps <= first_in_place),
+            "{cut} {steps}"
+        );
     }
 }
 
@@ -700,7 +714,7 @@ fn a_control_lost_after_its_copy_was_made_comes_back_from_the_copy() {
             ),
             "{steps}"
         );
-        if steps < 5 {
+        if steps <= step_of(root.path(), "config.json") {
             let before = super::creation::tests::files(root.path());
             let error = recover(&paths).expect_err("refused");
             assert!(
@@ -855,7 +869,7 @@ fn a_backup_cut_short_by_a_copy_is_not_put_back() {
     let stage = root.path().join("staging/maintenance-test");
     let files = old_and_new(root.path(), &stage);
     let mut journal = prepare(&paths, &stage, files, Keep::Nothing).unwrap();
-    for step in 0..2 {
+    for step in 0..=step_of(root.path(), "archive/history-vault.db") + 1 {
         install_step(&paths, &mut journal, step).unwrap();
     }
     let backup = journal_file(root.path())["backup"].as_str().unwrap().to_owned();
@@ -897,18 +911,26 @@ fn an_import_into_a_new_folder_cut_short_is_rolled_back_at_the_next_start() {
         let paths = project_paths_with_root(root.path());
         let stage = root.path().join("staging/maintenance-test");
         let files = new_only(root.path(), &stage);
+        std::fs::write(stage.join("config.json"), stamped_control("en")).unwrap();
         let mut journal = prepare(&paths, &stage, files, Keep::Nothing).unwrap();
         for step in 0..steps {
             install_step(&paths, &mut journal, step).unwrap();
         }
+        // Without the control it brings, the folder is an install cut short; with it, an archive
+        // whose install is recovered when it opens.
+        let state = crate::admission::inspect(root.path());
         assert!(
-            matches!(
-                crate::admission::inspect(root.path()),
-                Ok(crate::admission::RootState::Interrupted(
-                    crate::admission::Interrupted::Install
-                ))
-            ),
-            "{steps}"
+            if root.path().join("config.json").exists() {
+                matches!(state, Ok(crate::admission::RootState::Admitted(_)))
+            } else {
+                matches!(
+                    state,
+                    Ok(crate::admission::RootState::Interrupted(
+                        crate::admission::Interrupted::Install
+                    ))
+                )
+            },
+            "{steps}: {state:?}"
         );
         recover(&paths).unwrap_or_else(|error| panic!("{steps}: {error:#}"));
         assert!(
@@ -988,31 +1010,36 @@ fn a_file_under_two_names_after_a_cut_rename_keeps_both() {
             std::fs::create_dir_all(to.parent().unwrap()).unwrap();
             std::fs::hard_link(from, to).unwrap();
         };
+        // The steps before the store's own: the control is copied and put in place first.
+        let (before_db, db_step) = (step_of(root.path(), db), step_of(root.path(), db));
+        let mut steps_to = |end: usize| {
+            for step in 0..end {
+                install_step(&paths, &mut journal, step).unwrap();
+            }
+        };
         let pair = match cut {
             Cut::IntoBackup => {
+                steps_to(before_db);
                 link(&place, &backup.join(db));
                 &place
             }
             Cut::IntoPlace => {
-                install_step(&paths, &mut journal, 0).unwrap();
+                steps_to(db_step + 1);
                 link(&staged, &place);
                 &place
             }
             Cut::Discarding => {
-                install_step(&paths, &mut journal, 0).unwrap();
-                install_step(&paths, &mut journal, 1).unwrap();
+                steps_to(db_step + 2);
                 link(&place, &stage.join(".discarded/0").join(db));
                 &place
             }
             Cut::PuttingBack => {
-                install_step(&paths, &mut journal, 0).unwrap();
+                steps_to(db_step + 1);
                 link(&backup.join(db), &place);
                 &place
             }
             Cut::OverControl => {
-                for step in 0..3 {
-                    install_step(&paths, &mut journal, step).unwrap();
-                }
+                steps_to(step_of(root.path(), "config.json") + 1);
                 std::fs::remove_file(root.path().join("config.json")).unwrap();
                 link(&stage.join("config.json"), &root.path().join("config.json"));
                 &root.path().join("config.json").clone()
@@ -1101,4 +1128,247 @@ fn a_file_the_install_removes_keeps_both_names_after_a_cut_move() {
     assert_eq!(std::fs::metadata(root.path().join(log)).unwrap().nlink(), 2, "a name was deleted");
     assert!(root.path().join("quarantine").is_dir());
     assert!(!pending(&paths));
+}
+
+/// A control a build of this line writes: what the census and PathKeep 0.5 read.
+fn stamped_control(language: &str) -> Vec<u8> {
+    let config = crate::AppConfig {
+        initialized: true,
+        preferred_language: if language == "zh-TW" {
+            crate::LanguagePreference::ZhTw
+        } else {
+            crate::LanguagePreference::En
+        },
+        ..Default::default()
+    };
+    crate::config::encode_config(&config, Some(&crate::admission::written_compatibility()))
+        .unwrap()
+        .into_bytes()
+}
+
+// PathKeep 0.5 opens a folder whose control is missing or has no stamp, and a first run there
+// writes its own: the next start of this build then meets a control the journal does not know.
+// So the control an install brings is the first thing it puts in place, and the last thing a
+// rollback takes away: at no cut of either is a file of the new archive in place without it.
+#[test]
+fn no_file_of_an_install_is_in_place_without_its_control() {
+    let data = ["archive/history-vault.db", "archive/keys.envelope"];
+    let barrier = |root: &std::path::Path, when: &str| {
+        if data.iter().any(|name| root.join(name).exists()) {
+            assert!(root.join("config.json").exists(), "{when}: data in place without a control");
+        }
+    };
+    for steps in 0..=6 {
+        for undone in 1..=4 {
+            let root = tempfile::tempdir().unwrap();
+            let paths = project_paths_with_root(root.path());
+            let stage = root.path().join("staging/maintenance-test");
+            let files = new_only(root.path(), &stage);
+            std::fs::write(stage.join("config.json"), stamped_control("en")).unwrap();
+            let mut journal = prepare(&paths, &stage, files, Keep::Nothing).unwrap();
+            for step in 0..steps {
+                install_step(&paths, &mut journal, step).unwrap();
+                barrier(root.path(), &format!("install step {step}"));
+            }
+            let cut = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let _cut =
+                    crate::fault_inject::FaultGuard::panic_at_hit("native-install-undone", undone);
+                let _ = recover(&paths);
+            }));
+            barrier(root.path(), &format!("{steps} steps, undo cut {undone} ({})", cut.is_err()));
+            recover(&paths).unwrap_or_else(|error| panic!("{steps}/{undone}: {error:#}"));
+            assert!(crate::admission::archive_files(root.path()).unwrap().is_empty());
+        }
+    }
+}
+
+/// An install of a new history store and control over an archive whose store has a log beside it
+/// that the install removes. Returns the entries and keeps everything else as `old_and_new` does.
+fn with_log(root: &std::path::Path, stage: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let (db, log) = ("archive/history-vault.db", "archive/history-vault.db-wal");
+    for folder in [root, stage] {
+        std::fs::create_dir_all(folder.join("archive")).unwrap();
+    }
+    std::fs::write(root.join(db), b"old").unwrap();
+    std::fs::write(root.join(log), b"old log").unwrap();
+    std::fs::write(stage.join(db), b"new").unwrap();
+    std::fs::write(root.join("config.json"), stamped_control("en")).unwrap();
+    std::fs::write(stage.join("config.json"), stamped_control("zh-TW")).unwrap();
+    vec![db.into(), log.into(), "config.json".into()]
+}
+
+/// Prepares and publishes an install of `with_log`, as the install itself does.
+fn published(root: &std::path::Path, keep: Keep) -> crate::ProjectPaths {
+    let paths = project_paths_with_root(root);
+    let stage = root.join("staging/maintenance-test");
+    let files = with_log(root, &stage);
+    let mut journal = prepare(&paths, &stage, files, keep).unwrap();
+    for step in 0..journal_entries(root) * 2 {
+        install_step(&paths, &mut journal, step).unwrap();
+    }
+    publish(&paths, &mut journal).unwrap();
+    paths
+}
+
+fn journal_entries(root: &std::path::Path) -> usize {
+    journal_file(root)["entries"].as_array().unwrap().len()
+}
+
+// A copy of the folder made by a tool that copied the stage before the install published and the
+// rest after, cut short before it reached the new store in place. The published journal says the
+// install finished, but this folder holds the new store only in the stage. Finishing would remove
+// the stage, and with it the only whole copy: it is moved in instead, then the install finishes.
+#[test]
+fn a_copy_cut_short_after_the_publish_is_completed_from_the_stage() {
+    let root = tempfile::tempdir().unwrap();
+    let paths = published(root.path(), Keep::Nothing);
+    let db = root.path().join("archive/history-vault.db");
+    std::fs::rename(&db, root.path().join("staging/maintenance-test/archive/history-vault.db"))
+        .unwrap();
+
+    recover(&paths).unwrap_or_else(|error| panic!("{error:#}"));
+    assert_eq!(std::fs::read(&db).unwrap(), b"new");
+    assert!(!pending(&paths));
+    assert!(!root.path().join("staging/maintenance-test").exists());
+}
+
+// After the publish something else is where the new store goes (a copy cut short brought the old
+// one, or another file was put there). The journal does not describe this folder any more: it
+// stays, with the stage and the backup, and nothing is removed.
+#[test]
+fn a_published_install_that_finds_another_file_in_place_keeps_its_records() {
+    let root = tempfile::tempdir().unwrap();
+    let paths = published(root.path(), Keep::Nothing);
+    std::fs::write(root.path().join("archive/history-vault.db"), b"old").unwrap();
+    let before = files_under(root.path());
+
+    let error = recover(&paths).expect_err("refused");
+    assert!(format!("{error:#}").contains("history-vault.db"), "{error:#}");
+    assert!(pending(&paths));
+    assert_eq!(files_under(root.path()), before);
+}
+
+// The log the install removed is in its place again (a copy carried it there and not into the
+// backup). SQLite would read it with the new store. It holds what it held before the install, so
+// it is the replaced archive's: it goes to the safety copy with the store it belongs to.
+#[test]
+fn a_log_a_copy_left_in_place_goes_with_the_archive_it_belongs_to() {
+    let root = tempfile::tempdir().unwrap();
+    let paths = published(root.path(), Keep::SafetyCopy(Before::Restore));
+    let backup = root.path().join(journal_file(root.path())["backup"].as_str().unwrap());
+    let log = "archive/history-vault.db-wal";
+    std::fs::rename(backup.join(log), root.path().join(log)).unwrap();
+
+    recover(&paths).unwrap_or_else(|error| panic!("{error:#}"));
+    assert!(!root.path().join(log).exists(), "a log beside the new store");
+    let copies = root.path().join("raw-snapshots/maintenance");
+    let [copy] = <[std::path::PathBuf; 1]>::try_from(
+        std::fs::read_dir(&copies).unwrap().map(|entry| entry.unwrap().path()).collect::<Vec<_>>(),
+    )
+    .unwrap();
+    assert_eq!(std::fs::read(copy.join(log)).unwrap(), b"old log");
+}
+
+// `config.json` as a link: the journal would compare it as a link and copy it as bytes, and the
+// install would put a file where the link was. The install refuses it before it records anything.
+#[cfg(unix)]
+#[test]
+fn an_install_over_a_linked_control_is_refused_before_anything_changes() {
+    let root = tempfile::tempdir().unwrap();
+    let paths = project_paths_with_root(root.path());
+    let stage = root.path().join("staging/maintenance-test");
+    let files = old_and_new(root.path(), &stage);
+    let elsewhere = root.path().join("control-elsewhere.json");
+    std::fs::rename(root.path().join("config.json"), &elsewhere).unwrap();
+    std::os::unix::fs::symlink(&elsewhere, root.path().join("config.json")).unwrap();
+    let before = files_under(root.path());
+
+    let error = prepare(&paths, &stage, files, Keep::Nothing).err().expect("refused");
+    assert!(format!("{error:#}").contains("config.json"), "{error:#}");
+    assert!(!pending(&paths));
+    assert_eq!(files_under(root.path()), before);
+}
+
+/// Every file and link under `root` by its path from `root`: a file's bytes, a link's target.
+fn files_under(root: &std::path::Path) -> std::collections::BTreeMap<std::path::PathBuf, Vec<u8>> {
+    walkdir::WalkDir::new(root)
+        .into_iter()
+        .map(|entry| entry.unwrap())
+        .filter(|entry| !entry.file_type().is_dir())
+        .map(|entry| {
+            let held = if entry.file_type().is_symlink() {
+                std::fs::read_link(entry.path()).unwrap().into_os_string().into_encoded_bytes()
+            } else {
+                std::fs::read(entry.path()).unwrap()
+            };
+            (entry.path().strip_prefix(root).unwrap().to_path_buf(), held)
+        })
+        .collect()
+}
+
+// A journal naming its files with Windows's separator is not read as naming one file with a
+// backslash in its name: on Windows that is two names. It does not decode, and nothing moves.
+#[test]
+fn a_journal_naming_a_path_another_system_reads_otherwise_moves_nothing() {
+    let root = tempfile::tempdir().unwrap();
+    let paths = project_paths_with_root(root.path());
+    let stage = root.path().join("staging/maintenance-test");
+    let files = old_and_new(root.path(), &stage);
+    let mut journal = prepare(&paths, &stage, files, Keep::Nothing).unwrap();
+    for step in 0..=step_of(root.path(), "archive/history-vault.db") + 1 {
+        install_step(&paths, &mut journal, step).unwrap();
+    }
+    let record = root.path().join("archive/.pk-install-v2.json");
+    let text = std::fs::read_to_string(&record).unwrap();
+    std::fs::write(
+        &record,
+        text.replace("archive/history-vault.db", "archive\\\\history-vault.db"),
+    )
+    .unwrap();
+    let before = files_under(root.path());
+    let error = recover(&paths).expect_err("refused");
+    assert!(format!("{error:#}").contains("archive-control-invalid"), "{error:#}");
+    assert_eq!(files_under(root.path()), before);
+}
+
+// After the publish, a rename cut by a power cut on exFAT can leave a staged file both in place and
+// in the stage, or a file the install removed both in place and in the backup. Removing the stage
+// would free the data the file in place still uses; the removed file left in place would be read
+// with the new store. The stage's name goes into the quarantine, and so does the removed file in
+// place. A hard link stands in for the two names.
+#[cfg(unix)]
+#[test]
+fn a_published_file_under_two_names_loses_neither() {
+    use std::os::unix::fs::MetadataExt;
+    for twin in ["staged", "removed"] {
+        let root = tempfile::tempdir().unwrap();
+        let paths = published(root.path(), Keep::Nothing);
+        let backup = root.path().join(journal_file(root.path())["backup"].as_str().unwrap());
+        let (db, log) = ("archive/history-vault.db", "archive/history-vault.db-wal");
+        let in_place = root.path().join(if twin == "staged" { db } else { log });
+        if twin == "staged" {
+            std::fs::hard_link(&in_place, root.path().join("staging/maintenance-test").join(db))
+                .unwrap();
+        } else {
+            std::fs::hard_link(backup.join(log), &in_place).unwrap();
+        }
+        let shared = std::fs::metadata(&in_place).unwrap().ino();
+
+        recover(&paths).unwrap_or_else(|error| panic!("{twin}: {error:#}"));
+        assert!(!pending(&paths), "{twin}");
+        let quarantined: Vec<_> = walkdir::WalkDir::new(root.path().join("quarantine"))
+            .into_iter()
+            .map(|entry| entry.unwrap())
+            .filter(|entry| {
+                entry.file_type().is_file() && entry.metadata().unwrap().ino() == shared
+            })
+            .collect();
+        assert_eq!(quarantined.len(), 1, "{twin}: the other name is kept");
+        if twin == "staged" {
+            assert_eq!(std::fs::read(&in_place).unwrap(), b"new");
+            assert_eq!(std::fs::metadata(&in_place).unwrap().ino(), shared);
+        } else {
+            assert!(!in_place.exists(), "the log the install removed is not beside the new store");
+        }
+    }
 }

@@ -109,6 +109,13 @@ fn remove_store(paths: &ProjectPaths, relative: &str) {
     }
 }
 
+/// The archive's control with this build's stamp, as a bring-up writes it: a record that names
+/// anything wrong is refused for that, not for its control.
+fn stamped_control(paths: &ProjectPaths) -> String {
+    let config = crate::load_config(paths).unwrap();
+    crate::config::encode_config(&config, Some(&crate::admission::written_compatibility())).unwrap()
+}
+
 pub(in crate::maintenance) fn files(root: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
     let mut found = BTreeMap::new();
     let mut pending = vec![root.to_path_buf()];
@@ -138,11 +145,13 @@ fn made_folders(paths: &ProjectPaths) -> Vec<PathBuf> {
 
 #[test]
 fn every_cut_of_the_promotion_is_finished_by_the_next_open() {
-    for (point, recorded, stamped, moved) in [
-        ("promotion-made", false, false, false),
-        ("promotion-recorded", true, false, false),
-        ("promotion-stamped", true, true, false),
-        ("promotion-moved", true, true, true),
+    // The folder goes while the record still names it, before the record: none is ever left
+    // that no record names.
+    for (point, recorded, stamped, moved, folders) in [
+        ("promotion-made", false, false, false, 1),
+        ("promotion-recorded", true, false, false, 1),
+        ("promotion-stamped", true, true, false, 1),
+        ("promotion-moved", true, true, true, 0),
     ] {
         let (_root, paths) = released_archive();
         crash_at(&paths, point);
@@ -151,7 +160,7 @@ fn every_cut_of_the_promotion_is_finished_by_the_next_open() {
         for added in ADDED {
             assert_eq!(paths.app_root.join(added).is_file(), moved, "{point}: {added}");
         }
-        assert_eq!(made_folders(&paths).len(), 1, "{point}: the folder they were made in");
+        assert_eq!(made_folders(&paths).len(), folders, "{point}: the folder they were made in");
 
         let vault = open(&paths).unwrap();
         assert_eq!(vault.layout(), ArchiveLayout::AgentHistoryV2, "{point}");
@@ -245,7 +254,7 @@ fn a_crash_before_the_stamp_never_deletes_what_an_older_release_saved_since() {
     crate::save_config(&crate::ControlGate::acquire(&paths), &released_config()).unwrap();
     crash_at(&paths, "promotion-recorded");
     let record = read(&paths).unwrap().expect("the crash left a record");
-    assert!(record.creating.contains(&PathBuf::from("derived/agent.db")));
+    assert!(record.creating.iter().any(|made| *made.relative == *Path::new("derived/agent.db")));
     assert_eq!(layout(&paths), ArchiveLayout::BrowsingV1);
 
     // PathKeep 0.5 does not know the record and opens the folder.
@@ -376,8 +385,9 @@ fn a_record_naming_anything_but_a_store_is_refused_and_deletes_nothing() {
         let (_root, paths) = released_archive();
         drop(open(&paths).unwrap());
         let record = serde_json::json!({
-            "identity": "pathkeep-create", "version": 1, "creating": [named],
-            "made_in": "staging/creating-x",
+            "identity": "pathkeep-create", "version": 1,
+            "creating": [{"relative": named, "holds": "file:0"}],
+            "made_in": "staging/creating-x", "control": stamped_control(&paths),
         });
         fs::write(record_path(&paths), serde_json::to_vec(&record).unwrap()).unwrap();
         let before = files(&paths.app_root);
@@ -403,7 +413,8 @@ fn a_record_naming_another_folder_is_refused_and_moves_nothing() {
         drop(open(&paths).unwrap());
         let record = serde_json::json!({
             "identity": "pathkeep-create", "version": 1,
-            "creating": ["archive/agent-history.db"], "made_in": folder,
+            "creating": [{"relative": "archive/agent-history.db", "holds": "file:0"}],
+            "made_in": folder, "control": stamped_control(&paths),
         });
         fs::write(record_path(&paths), serde_json::to_vec(&record).unwrap()).unwrap();
         let before = files(&paths.app_root);
@@ -576,4 +587,132 @@ fn a_store_under_two_names_after_a_cut_move_keeps_both() {
     let kept: Vec<_> =
         files(&kept).into_keys().map(|path| path.strip_prefix(&kept).unwrap().to_owned()).collect();
     assert_eq!(kept, [Path::new("0").join(ADDED[0])]);
+}
+
+// On a file system without a journal a power cut during the rename that writes the stamp over the
+// control can leave no control at all. The record keeps the control it writes: the next start
+// writes it and finishes the bring-up, instead of refusing an archive that only lost its control.
+#[test]
+fn a_bring_up_whose_stamp_a_power_cut_took_is_finished() {
+    for point in ["promotion-recorded", "promotion-stamped"] {
+        let (_root, paths) = released_archive();
+        crash_at(&paths, point);
+        fs::remove_file(&paths.config_path).unwrap();
+        assert!(
+            matches!(
+                crate::admission::inspect(&paths.app_root),
+                Ok(crate::admission::RootState::Interrupted(_))
+            ),
+            "{point}: {:?}",
+            crate::admission::inspect(&paths.app_root)
+        );
+        crate::maintenance::install::recover_before_open(&paths)
+            .unwrap_or_else(|error| panic!("{point}: {error:#}"));
+        let vault = open(&paths).unwrap_or_else(|error| panic!("{point}: {error:#}"));
+        assert_eq!(vault.layout(), ArchiveLayout::AgentHistoryV2, "{point}");
+        assert!(crate::load_config(&paths).unwrap().initialized, "{point}: the archive's own");
+        assert_eq!(marker(&vault, Db::Archive).as_deref(), Some("released-archive"), "{point}");
+        assert!(read(&paths).unwrap().is_none(), "{point}");
+    }
+}
+
+// A copy of the folder cut short after the stamp leaves a made store shorter than it was made.
+// Moved in, it would be the store the archive opens, and the record that could make it again
+// would be gone. It is not moved in: the next open makes it again.
+#[test]
+fn a_made_store_a_copy_cut_short_is_made_again() {
+    let (_root, paths) = released_archive();
+    crash_at(&paths, "promotion-stamped");
+    let [folder] = <[PathBuf; 1]>::try_from(made_folders(&paths)).unwrap();
+    let made = folder.join(ADDED[0]);
+    let bytes = fs::read(&made).unwrap();
+    fs::write(&made, &bytes[..bytes.len() / 2]).unwrap();
+
+    let vault = open(&paths).unwrap_or_else(|error| panic!("{error:#}"));
+    write_marker(vault.store(), Db::AgentHistoryEvidence, "usable");
+    assert_eq!(marker(&vault, Db::AgentHistoryEvidence).as_deref(), Some("usable"));
+    assert!(read(&paths).unwrap().is_none());
+    assert!(made_folders(&paths).is_empty());
+}
+
+// The stores the first folder lost are made again in a second folder. That folder is recorded
+// before anything leaves it, and no folder is left behind once the record goes: an unrecorded one
+// may hold a second name of a store in place (a cut move on exFAT), and whatever removes it later
+// (the next bring-up, Free up space) would free data the archive uses.
+#[test]
+fn every_folder_stores_leave_is_recorded_and_none_outlives_the_record() {
+    let cuts = [("promotion-store-moved", 1), ("promotion-record-removed", 1)];
+    for (point, hit) in cuts {
+        let (_root, paths) = released_archive();
+        crash_at(&paths, "promotion-stamped");
+        for folder in made_folders(&paths) {
+            fs::remove_dir_all(folder).unwrap();
+        }
+        let fault = crate::fault_inject::FaultGuard::panic_at_hit(point, hit);
+        let crashed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| open(&paths)));
+        drop(fault);
+        assert!(crashed.is_err(), "{point}: not reached");
+        if let Some(record) = read(&paths).unwrap() {
+            for folder in made_folders(&paths) {
+                let name = folder.strip_prefix(&paths.app_root).unwrap();
+                assert_eq!(&*record.made_in, name, "{point}: an unrecorded folder");
+            }
+        } else {
+            assert!(made_folders(&paths).is_empty(), "{point}: a folder outlived its record");
+        }
+        drop(open(&paths).unwrap_or_else(|error| panic!("{point}: {error:#}")));
+        assert!(made_folders(&paths).is_empty(), "{point}");
+        assert!(read(&paths).unwrap().is_none(), "{point}");
+    }
+}
+
+// The control a record writes back must be one this build stamps: a record holding anything else
+// (cut short, edited, or not this build's) is not acted on, and nothing is written in the folder.
+#[test]
+fn a_record_whose_control_is_not_this_builds_stamp_writes_nothing() {
+    let unstamped = crate::config::encode_config(&released_config(), None).unwrap();
+    for control in ["not json", unstamped.as_str()] {
+        let (_root, paths) = released_archive();
+        crash_at(&paths, "promotion-stamped");
+        let mut record: serde_json::Value =
+            serde_json::from_slice(&fs::read(record_path(&paths)).unwrap()).unwrap();
+        record["control"] = control.into();
+        fs::write(record_path(&paths), serde_json::to_vec(&record).unwrap()).unwrap();
+        fs::remove_file(&paths.config_path).unwrap();
+        let before = files(&paths.app_root);
+
+        assert!(
+            !matches!(
+                crate::admission::inspect(&paths.app_root),
+                Ok(crate::admission::RootState::Interrupted(_))
+            ),
+            "{control}"
+        );
+        let error = crate::maintenance::install::recover_before_open(&paths).expect_err("refused");
+        assert!(format!("{error:#}").contains("archive-control-invalid"), "{control}: {error:#}");
+        assert_eq!(files(&paths.app_root), before, "{control}: nothing was written");
+    }
+}
+
+// Without a control, the folder the record names, still holding every store it names as made, is
+// what says the record is this folder's. A record carried into another data folder that lost its
+// control writes no control there and changes nothing.
+#[test]
+fn a_record_carried_into_a_folder_without_a_control_writes_nothing_there() {
+    let (_first_root, first) = released_archive();
+    crash_at(&first, "promotion-stamped");
+    let (_root, paths) = released_archive();
+    drop(open(&paths).unwrap());
+    fs::remove_file(&paths.config_path).unwrap();
+    fs::copy(record_path(&first), record_path(&paths)).unwrap();
+    let before = files(&paths.app_root);
+
+    assert!(!matches!(
+        crate::admission::inspect(&paths.app_root),
+        Ok(crate::admission::RootState::Interrupted(_))
+    ));
+    let error = crate::maintenance::install::recover_before_open(&paths).expect_err("refused");
+    assert!(format!("{error:#}").contains("archive-control-missing"), "{error:#}");
+    assert_eq!(files(&paths.app_root), before);
+    assert!(!paths.config_path.exists());
 }

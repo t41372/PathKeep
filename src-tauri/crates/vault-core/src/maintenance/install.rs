@@ -6,11 +6,19 @@
 //! `config.json` (an older release then takes the folder for a first run), a release that does
 //! not know this journal replaying it, a journal carried into another archive's folder removing or
 //! replacing that archive's files, a rollback cut short that cannot be finished (a lockout), a
-//! failed publish rolled back while the record on disk says published. Tests: install_tests.
+//! failed publish rolled back while the record on disk says published, files of the new archive in
+//! place without its control, a published journal finished over a copy of the folder that holds
+//! something else, a control that is a link, a journal another system reads otherwise. Tests:
+//! install_tests.
 //!
 //! The control is not moved like the other entries. It is copied into the backup and replaced in
 //! one rename on install, and from that copy by an atomic write on rollback, so `config.json`
-//! exists at every point of the transaction.
+//! exists at every point of the transaction. It is also the first entry of every journal: an
+//! install puts it in place before any other file, and a rollback, going the other way, takes it
+//! away last. PathKeep 0.5 opens a folder whose control is missing or has no stamp, and between two
+//! steps it would otherwise find files of the new archive with nothing keeping it out. A control
+//! that is a link is refused before the journal is written: the journal would compare the link and
+//! copy the file it points to, and the install would put a file where the link was.
 //!
 //! Where a file is says what the install did with it, and what it holds confirms it. The backup
 //! folder is made, under a new random name, when the install begins, and only the install moves
@@ -47,6 +55,17 @@
 //! the record on disk says, as after a crash; rolling back in memory could meet a record that says
 //! published, and be finished the other way.
 //!
+//! A published journal says the install finished in the folder it was written in, not that this
+//! folder holds the result: it may be a copy made by a tool that copied some files before the
+//! publish and some after. Before the stage and the backup go, recovery checks every entry
+//! (`complete_published`): a staged file is in place holding what was staged, or, with nothing in
+//! its place, the stage still holds it, and it is moved in; a file the install removed is gone from
+//! its place, or holds what it held and goes back to the backup (to the quarantine where the backup
+//! has a name of it already). A staged file in place whose stage still holds it may be one file
+//! under two names: the stage's name goes into the quarantine. Anything else stops with every
+//! record kept. An install finishing in the same call does not read the files again: there was no
+//! gap in which anything could change.
+//!
 //! The journals of PathKeep 0.5 record no identities. One of them is rolled back only where the
 //! backup folder it names, randomly named when the install began, is in this folder, and never
 //! beside a control with a stamp: that release cannot open such an archive, and this build replays
@@ -54,8 +73,9 @@
 //!
 //! The journal is written under a name PathKeep 0.5 and earlier do not know, with an identity and
 //! a version that are checked before anything is replayed; the name those releases wrote is still
-//! read, as a record they may have left. Its stage and backup are recorded relative to the
-//! folder.
+//! read, as a record they may have left. Every path in it is relative to the folder: plain names
+//! joined by `/` (`recorded_path`), read the same on every system. A 0.5 journal keeps the native
+//! absolute paths it was written with (`LegacyJournal`).
 //!
 //! What a restore or an import replaces becomes a safety copy (the user's decision, 2026-11-15):
 //! listed with the others, counted in storage usage, freed one by one in "Free up space", never
@@ -66,6 +86,7 @@
 use crate::{
     ProjectPaths, content_identity,
     durable_io::{atomic_durable_write, fsync_dir, remove_file_durably},
+    recorded_path::RecordedPath,
 };
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -148,19 +169,19 @@ impl Before {
 
     /// Where the files an install replaced become a copy: beside the other copies, under the random
     /// part of the backup folder's name, so a recovery from the journal finds the same place.
-    fn copy_of(self, backup: &Path) -> Option<PathBuf> {
+    fn copy_of(self, backup: &Path) -> Option<RecordedPath> {
         let name = backup.to_str()?;
         let random = name.strip_prefix(vault_layout::family_prefix(
             vault_layout::ArtifactId::PreviousArchives,
         ))?;
         let copies = vault_layout::spec(vault_layout::ArtifactId::NativeSnapshots).path.relative();
-        Some(Path::new(copies).join(format!("{}{random}", self.prefix())))
+        RecordedPath::new(&Path::new(copies).join(format!("{}{random}", self.prefix()))).ok()
     }
 }
 
 #[derive(Serialize, Deserialize, schemars::JsonSchema)]
 pub(crate) struct Entry {
-    relative: PathBuf,
+    relative: RecordedPath,
     previous: bool,
     staged: bool,
     /// What the staged file holds (`content_identity`), recorded before it moves into place: a
@@ -176,27 +197,86 @@ pub(crate) struct Entry {
 }
 
 /// A durable prepare record is the rollback decision; `committed` publishes the
-/// entire generation. Recovery uses the same entries as in-band installation.
+/// entire generation. Recovery uses the same entries as in-band installation. Every path is
+/// relative to the archive folder, in the form every system reads the same (`RecordedPath`).
 #[derive(Serialize, Deserialize, schemars::JsonSchema)]
 pub(crate) struct Journal {
-    /// `pathkeep-install`. Absent in the journals PathKeep 0.5 and earlier wrote.
-    #[serde(default)]
+    /// `pathkeep-install`. Empty for a journal PathKeep 0.5 wrote (`LegacyJournal`).
     identity: String,
-    /// The version of this record's meaning. Absent (0) in the journals of 0.5 and earlier.
-    #[serde(default)]
+    /// The version of this record's meaning. 0 for a journal of 0.5.
     version: u32,
-    /// The stage, relative to the archive folder. PathKeep 0.5 and earlier wrote absolute paths.
-    stage: PathBuf,
-    /// The folder the replaced files are moved into, relative to the archive folder. Absolute in
-    /// the journals of 0.5 and earlier.
-    backup: PathBuf,
+    stage: RecordedPath,
+    /// The folder the replaced files are moved into.
+    backup: RecordedPath,
     entries: Vec<Entry>,
     keep_previous: bool,
-    /// The safety copy the replaced files become once the new ones are published, relative to the
-    /// archive folder (`Keep::SafetyCopy`). Absent when they are left in the backup or removed.
+    /// The safety copy the replaced files become once the new ones are published
+    /// (`Keep::SafetyCopy`). Absent when they are left in the backup or removed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    kept_as: Option<PathBuf>,
+    kept_as: Option<RecordedPath>,
     committed: bool,
+}
+
+/// The journal as PathKeep 0.5 and earlier wrote it, under its own name: the stage and the backup
+/// as absolute paths, the files in the system's own form, and no identities.
+#[derive(Deserialize)]
+struct LegacyJournal {
+    stage: PathBuf,
+    backup: PathBuf,
+    entries: Vec<LegacyEntry>,
+    keep_previous: bool,
+    committed: bool,
+}
+
+#[derive(Deserialize)]
+struct LegacyEntry {
+    relative: PathBuf,
+    previous: bool,
+    staged: bool,
+}
+
+impl LegacyJournal {
+    /// Its paths taken relative to where its backup was, so a folder moved since is still
+    /// recovered. A journal whose paths do not have that form is not one 0.5 wrote.
+    fn into_journal(self) -> Result<Journal> {
+        if !self.backup.is_absolute() || !self.stage.is_absolute() {
+            return Err(foreign("form"));
+        }
+        let old_root = self.backup.parent().ok_or_else(|| foreign("backup"))?;
+        let name = self.backup.file_name().ok_or_else(|| foreign("backup"))?;
+        let stage = self.stage.strip_prefix(old_root).map_err(|_| foreign("stage"))?;
+        let recorded = |path: &Path, what: &str| RecordedPath::new(path).map_err(|_| foreign(what));
+        let entries = self
+            .entries
+            .into_iter()
+            .map(|entry| {
+                Ok(Entry {
+                    relative: recorded(&entry.relative, "list of files")?,
+                    previous: entry.previous,
+                    staged: entry.staged,
+                    installed: None,
+                    original: None,
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        Ok(Journal {
+            identity: String::new(),
+            version: 0,
+            stage: recorded(stage, "stage")?,
+            backup: recorded(Path::new(name), "backup")?,
+            entries,
+            keep_previous: self.keep_previous,
+            kept_as: None,
+            committed: self.committed,
+        })
+    }
+}
+
+fn foreign(what: &str) -> anyhow::Error {
+    anyhow::anyhow!(
+        "{}: the install record's {what} is not one of this folder's; nothing was changed",
+        crate::admission::Reason::ControlInvalid.code()
+    )
 }
 
 impl Journal {
@@ -215,56 +295,26 @@ struct Located {
 
 /// Places a journal's stage and backup in this folder. Every path in it must be one this folder's
 /// installs produce: a backup named like `maintenance.bak-*` directly in the folder, a stage
-/// under `staging/`, entries that stay inside the folder and outside the stage, and a copy named
-/// after the backup among the other copies. A 0.5 journal's absolute paths are taken relative to
-/// where its backup was, so a folder moved since is still recovered.
+/// under `staging/`, entries outside the stage, and a copy named after the backup among the other
+/// copies. Each is already a relative path of plain names, so it stays inside the folder.
 fn locate(paths: &ProjectPaths, journal: &Journal) -> Result<Located> {
-    use std::path::Component;
-    let foreign = |what: &str| {
-        anyhow::anyhow!(
-            "{}: the install record's {what} is not one of this folder's; nothing was changed",
-            crate::admission::Reason::ControlInvalid.code()
-        )
-    };
-    let plain = |path: &Path| {
-        !path.as_os_str().is_empty()
-            && path.components().all(|part| matches!(part, Component::Normal(_)))
-    };
-    let current = journal.current();
-    if current == journal.backup.is_absolute() || current == journal.stage.is_absolute() {
-        return Err(foreign("form"));
-    }
-    let (backup, stage) = if current {
-        (journal.backup.clone(), journal.stage.clone())
-    } else {
-        let old_root = journal.backup.parent().ok_or_else(|| foreign("backup"))?;
-        let name = journal.backup.file_name().ok_or_else(|| foreign("backup"))?;
-        let stage = journal.stage.strip_prefix(old_root).map_err(|_| foreign("stage"))?;
-        (PathBuf::from(name), stage.to_path_buf())
-    };
+    let (backup, stage) = (&journal.backup, &journal.stage);
     let backup_family = vault_layout::family_pattern(vault_layout::ArtifactId::PreviousArchives);
     let staging = vault_layout::spec(vault_layout::ArtifactId::Staging).path.relative();
-    if !plain(&backup)
-        || backup.components().count() != 1
-        || !backup_family.matches(&backup.to_string_lossy())
-    {
+    if backup.components().count() != 1 || !backup_family.matches(&backup.to_string_lossy()) {
         return Err(foreign("backup"));
     }
-    if !plain(&stage) || stage.components().count() < 2 || !stage.starts_with(staging) {
+    if stage.components().count() < 2 || !stage.starts_with(staging) {
         return Err(foreign("stage"));
     }
     // The stage is where a rollback renames what it takes out of place; no entry lives there.
-    if !journal
-        .entries
-        .iter()
-        .all(|entry| plain(&entry.relative) && !entry.relative.starts_with(&stage))
-    {
+    if journal.entries.iter().any(|entry| entry.relative.starts_with(&**stage)) {
         return Err(foreign("list of files"));
     }
     let kept_as = match &journal.kept_as {
         None => None,
         Some(copy)
-            if Before::ALL.iter().any(|before| before.copy_of(&backup).as_ref() == Some(copy)) =>
+            if Before::ALL.iter().any(|before| before.copy_of(backup).as_ref() == Some(copy)) =>
         {
             Some(paths.app_root.join(copy))
         }
@@ -279,17 +329,29 @@ pub(super) fn prepare(
     files: Vec<PathBuf>,
     keep: Keep,
 ) -> Result<Journal> {
+    // The journal compares the control by what is at its name and copies it as bytes; a link would
+    // be compared as a link, and the install would put a file where it was.
+    if fs::symlink_metadata(paths.app_root.join(CONTROL)).is_ok_and(|meta| meta.is_symlink()) {
+        anyhow::bail!(
+            "{}: config.json is a link to another file; nothing was installed",
+            crate::admission::Reason::ControlInvalid.code()
+        );
+    }
     sync_tree(stage)?;
     // Compared as absolute paths: the folder may have been given relative to the working
     // directory, and a stage made by `tempfile` is always absolute.
-    let stage_relative = std::path::absolute(stage)?
-        .strip_prefix(std::path::absolute(&paths.app_root)?)
-        .context("an install stage outside the archive folder")?
-        .to_path_buf();
-    let entries = files
+    let stage_relative = RecordedPath::new(
+        std::path::absolute(stage)?
+            .strip_prefix(std::path::absolute(&paths.app_root)?)
+            .context("an install stage outside the archive folder")?,
+    )?;
+    let mut entries = files
         .into_iter()
         .map(|relative| entry(paths, stage, relative))
         .collect::<Result<Vec<_>>>()?;
+    // The control goes first, so the rollback, which goes the other way, undoes it last: no file
+    // of the new archive is ever in place without the control that keeps PathKeep 0.5 out.
+    entries.sort_by_key(|entry| !is_control(entry));
     // Removing the control is not something an install does: a replacement brings its own.
     if entries.iter().any(|entry| is_control(entry) && entry.previous && !entry.staged) {
         anyhow::bail!("an installation without a config.json would remove the archive's control");
@@ -301,7 +363,8 @@ pub(super) fn prepare(
     // The backup folder's own entry is durable before the journal names it, and before the only
     // copy of anything is moved into it.
     fsync_dir(&paths.app_root)?;
-    let backup_relative = PathBuf::from(backup.file_name().context("a backup folder name")?);
+    let backup_relative =
+        RecordedPath::new(Path::new(backup.file_name().context("a backup folder name")?))?;
     let kept_as = match keep {
         Keep::SafetyCopy(before) => {
             Some(before.copy_of(&backup_relative).context("a backup folder name")?)
@@ -325,6 +388,7 @@ pub(super) fn prepare(
 /// One file of an install, with what its staged file and the file it replaces hold, read once the
 /// stage is on disk and before anything moves.
 fn entry(paths: &ProjectPaths, stage: &Path, relative: PathBuf) -> Result<Entry> {
+    let relative = RecordedPath::new(&relative)?;
     let live = paths.app_root.join(&relative);
     let installed = content_identity::of(&stage.join(&relative))
         .with_context(|| format!("reading the staged {}", relative.display()))?;
@@ -518,7 +582,7 @@ fn recover_legacy(paths: &ProjectPaths) -> Result<bool> {
         rename_over(&path, &paths.app_root.join(STALE_LEGACY_JOURNAL))?;
         return Ok(false);
     }
-    let journal: Journal = serde_json::from_slice(&bytes)?;
+    let journal = serde_json::from_slice::<LegacyJournal>(&bytes)?.into_journal()?;
     replay(paths, &journal, &path)?;
     Ok(true)
 }
@@ -535,14 +599,97 @@ fn stamped(paths: &ProjectPaths) -> bool {
 
 fn replay(paths: &ProjectPaths, journal: &Journal, record: &Path) -> Result<()> {
     if journal.committed {
+        if journal.current() {
+            complete_published(paths, journal)?;
+        }
         finish_at(paths, journal, record)
     } else {
         rollback_at(paths, journal, record)
     }
 }
 
+/// What finishing a published install after a crash does with one entry. The journal says the
+/// install was published in the folder it was written in; this folder may be a copy of it made by
+/// a tool that copied some files before the publish and some after, cut short. So before the
+/// stage and the backup go, every entry must be as the install left it, or one step from it.
+enum Done {
+    /// As the install left it.
+    Stays,
+    /// The staged file is still in the stage, and nothing is in its place: it is moved in.
+    MoveIn,
+    /// The staged file is in place, and the stage holds it too: a cut rename may have left it under
+    /// both names (see the module docs), so the stage's goes into the quarantine, not with the
+    /// stage.
+    StageNameAside,
+    /// An original the install moved out is in its place again, holding what it held: the
+    /// replaced archive's (a log a copy carried there), it goes to the backup, with the rest of
+    /// that archive.
+    BackToBackup,
+    /// The same, with a name of it in the backup already: into the quarantine.
+    Aside,
+}
+
+/// Brings a folder whose published journal finds it one step short of the install up to it, and
+/// stops, with every record kept and nothing moved, where it finds anything else.
+fn complete_published(paths: &ProjectPaths, journal: &Journal) -> Result<()> {
+    let located = locate(paths, journal)?;
+    let plan = journal
+        .entries
+        .iter()
+        .map(|entry| {
+            let here = content_identity::of(&paths.app_root.join(&entry.relative))?;
+            let staged = located.stage.join(&entry.relative);
+            if entry.staged {
+                let in_stage = content_identity::of(&staged)?;
+                return match here {
+                    Some(_) if here == entry.installed && in_stage == entry.installed => {
+                        Ok(Done::StageNameAside)
+                    }
+                    Some(_) if here == entry.installed => Ok(Done::Stays),
+                    None if in_stage == entry.installed => Ok(Done::MoveIn),
+                    _ => Err(not_published(entry)),
+                };
+            }
+            match here {
+                None => Ok(Done::Stays),
+                Some(_) if entry.previous && here == entry.original => {
+                    if exists(&located.backup.join(&entry.relative))? {
+                        Ok(Done::Aside)
+                    } else {
+                        Ok(Done::BackToBackup)
+                    }
+                }
+                Some(_) => Err(not_published(entry)),
+            }
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let quarantine = quarantine(paths, &located);
+    for (entry, done) in journal.entries.iter().zip(plan) {
+        let target = paths.app_root.join(&entry.relative);
+        let staged = located.stage.join(&entry.relative);
+        match done {
+            Done::Stays => continue,
+            Done::MoveIn => rename(&staged, &target)?,
+            Done::StageNameAside => rename(&staged, &unused(&quarantine, &entry.relative)?)?,
+            Done::BackToBackup => rename(&target, &located.backup.join(&entry.relative))?,
+            Done::Aside => rename(&target, &unused(&quarantine, &entry.relative)?)?,
+        }
+        crate::fault_inject::checkpoint("native-install-completed")?;
+    }
+    Ok(())
+}
+
+fn not_published(entry: &Entry) -> anyhow::Error {
+    anyhow::anyhow!(
+        "{}: {} is not what the install published, nor one step from it; the install record is \
+         kept and nothing was changed",
+        crate::admission::Reason::ControlInvalid.code(),
+        entry.relative.display()
+    )
+}
+
 fn is_control(entry: &Entry) -> bool {
-    entry.relative == Path::new(CONTROL)
+    *entry.relative == *Path::new(CONTROL)
 }
 
 fn rollback(paths: &ProjectPaths, journal: &Journal) -> Result<()> {
@@ -665,7 +812,7 @@ fn names_in(folder: &Path, relative: &Path) -> Result<Vec<PathBuf>> {
 }
 
 /// `folder/<n>/<relative>` for the first `n` that has no such name.
-pub(super) fn unused(folder: &Path, relative: &Path) -> Result<PathBuf> {
+pub(crate) fn unused(folder: &Path, relative: &Path) -> Result<PathBuf> {
     for n in 0u32.. {
         let name = folder.join(n.to_string()).join(relative);
         if !exists(&name)? {
@@ -688,22 +835,31 @@ fn undo_plan(paths: &ProjectPaths, journal: &Journal, located: &Located) -> Resu
             crate::admission::Reason::ControlInvalid.code()
         );
     }
-    journal
+    let mut undos: Vec<(bool, Result<Undo>)> = journal
         .entries
         .iter()
         .rev()
         .map(|entry| {
             let target = paths.app_root.join(&entry.relative);
             let backup = located.backup.join(&entry.relative);
-            if !journal.current() {
+            let undo = if !journal.current() {
                 undo_legacy(entry, &target, &backup)
             } else if is_control(entry) {
                 undo_control(entry, &target, &backup, &located.stage.join(&entry.relative))
             } else {
                 undo_current(paths, entry, located, &target, &backup)
-            }
+            };
+            (is_control(entry), undo)
         })
-        .collect()
+        .collect();
+    // The control binds the journal to its folder: where it says the journal is not this
+    // folder's, that is what is reported, not a file of the other folder taken for a lost one.
+    if let Some(index) = undos.iter().position(|(control, undo)| *control && undo.is_err())
+        && let (_, Err(error)) = undos.swap_remove(index)
+    {
+        return Err(error);
+    }
+    undos.into_iter().map(|(_, undo)| undo).collect()
 }
 
 /// A file of a current journal. Where it is says how far the install got, and what it holds
@@ -892,9 +1048,11 @@ fn keep_as_copy(backup: &Path, copy: &Path) -> Result<()> {
 
 /// Moves a file or folder to where nothing is, and makes the move durable. What appeared at `to`
 /// since it was looked at stays, and the move fails (`durable_io::rename_no_replace`). The
-/// destination's directory is flushed first: if power fails between the two flushes the entry may
-/// show in both places, never in neither (`durable_io::fsync_dir`). New parent folders are made
-/// durable before anything is moved into them.
+/// destination's directory is flushed first (`durable_io::fsync_dir`), and new parent folders are
+/// made durable before anything is moved into them. On a file system with a journal the rename is
+/// one step. On FAT32 or exFAT a power cut can leave the entry in both places, which recovery
+/// allows for (the module docs), or, since the system may write the source's folder first, in
+/// neither, which no order of calls prevents there.
 pub(crate) fn rename(from: &Path, to: &Path) -> Result<()> {
     create_dirs_durably(to.parent().unwrap())?;
     crate::durable_io::rename_no_replace(from, to)

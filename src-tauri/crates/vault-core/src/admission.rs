@@ -207,9 +207,11 @@ pub const fn decide(level: u64, min_reader: u64, min_writer: u64) -> VersionDeci
 /// A record a crash left behind while `config.json` was, by design of the operation, not there.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Interrupted {
-    /// "Delete all data" removes the control first. The user confirmed the deletion.
+    /// "Delete all data": PathKeep 0.5 removed the control first; this build's wipe only loses it
+    /// to a power cut during the rename over it. The user confirmed the deletion.
     Wipe,
-    /// A restore, import or encryption change that brings a control, before the new one lands.
+    /// A restore, import or encryption change that brings a control, before the new one lands; or
+    /// the bring-up of a released archive whose stamped control a power cut took.
     Install,
     /// The same, left by PathKeep 0.3 in its own journals. The conversion's launch recovery
     /// finishes or reports these.
@@ -429,6 +431,13 @@ fn census(root: &Path) -> Result<RootState, Refusal> {
             .filter(move |spec| spec.lifecycle.census == policy)
             .any(|spec| fs::symlink_metadata(vault_layout::path(root, spec.id)).is_ok())
     };
+    // This build's intent holds the control the user confirmed and the emptied one it writes. A
+    // wipe never removes the control before it, but a power cut during a write in the folder can,
+    // on a file system without a journal: beside the trash it names, which binds it to this
+    // folder, the wipe then settles as it would with either.
+    if crate::archive::wipe::intent_belongs_here(&paths) {
+        return Ok(RootState::Interrupted(Interrupted::Wipe));
+    }
     if present(CensusPolicy::WipeRecord) {
         // The marker is written whole or not at all, so one that does not decode was not left by
         // a wipe. Without a control there is nothing else to say what the user asked for.
@@ -474,6 +483,12 @@ fn census(root: &Path) -> Result<RootState, Refusal> {
     // so without one the control was lost. Unless the install brings the control: then recovery
     // decides from what is there, and stops before anything moves where it is not the record's.
     if crate::maintenance::install::brings_control(root) {
+        return Ok(RootState::Interrupted(Interrupted::Install));
+    }
+    // The record of a bring-up holds the stamped control it writes: without a control, a power
+    // cut took it during that write, and recovery writes it, where the folder the record names
+    // still holds the stores it made there, which binds the record to this folder.
+    if crate::maintenance::creation::puts_control_back(&paths) {
         return Ok(RootState::Interrupted(Interrupted::Install));
     }
     match archive_files_until(root, true)?.into_iter().next() {

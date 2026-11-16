@@ -11,6 +11,8 @@ mod tree;
 
 const LEGACY: &str = include_str!("../../../../tests/root_admission/fixtures/legacy.json");
 const FUTURE: &str = include_str!("../../../../tests/root_admission/fixtures/reader-floor.json");
+/// The control as this build stamps it.
+const STAMPED: &str = r#"{"initialized":true,"archiveMode":{"formatVersion":2,"mode":"Plaintext","compatibility":{"revision":1,"minReader":1,"minWriter":1}},"gitEnabled":false}"#;
 
 #[derive(Clone, Copy, Debug)]
 enum Control {
@@ -37,13 +39,25 @@ enum Record {
     OldRestore,
     /// An install journal that is not JSON.
     InstallGarbage,
-    /// The records this build writes. The control outlives both, so without one they are damage.
+    /// The record of a delete-all-data this build writes, beside the trash it names. It holds the
+    /// control the user confirmed deleting and the emptied one the wipe writes: a folder with
+    /// neither is that wipe, cut by a power cut during a write in the folder (exFAT, FAT32), and its
+    /// recovery puts one back. The trash, made before the record under a random name, binds the
+    /// record to this folder.
     WipeV2,
+    /// The same record without its trash: carried in from another folder, nothing binds it here.
+    WipeV2Elsewhere,
+    /// This build's install record of an install that does not bring a control. The control
+    /// outlives it, so without one it is damage.
     InstallV2,
     /// This build's install record of an install that brings the control: an import into a new
     /// folder has none until it lands, and a power cut on exFAT during the rename over it can
     /// leave none. Recovery decides from what is there.
     InstallV2BringsControl,
+    /// The record of an archive being brought up to this build's layout, without the folder its
+    /// stores were made in: carried in from elsewhere, nothing binds it here. With that folder
+    /// (`maintenance/creation/tests.rs`) it is a bring-up whose stamped control a power cut took.
+    CreationV2Elsewhere,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -111,15 +125,30 @@ fn build(root: &Path, control: Control, record: Record, contents: Contents) {
         }
         Record::OldRestore => write(root, "archive/.pk-restore-journal.json", "{}"),
         Record::InstallGarbage => write(root, "archive/.pk-import-journal.json", "not json"),
-        Record::WipeV2 => write(
-            root,
-            ".pk-wipe-v2.json",
-            r#"{"identity":"pathkeep-wipe","version":1,"control":null,"emptied":"{}","trash":"wipe-trash-x","committed":false,"providerIds":[],"schedule":null}"#,
-        ),
+        Record::WipeV2 | Record::WipeV2Elsewhere => {
+            write(
+                root,
+                ".pk-wipe-v2.json",
+                r#"{"identity":"pathkeep-wipe","version":1,"control":null,"emptied":"{}","trash":"wipe-trash-x","committed":false,"providerIds":[],"schedule":null}"#,
+            );
+            if matches!(record, Record::WipeV2) {
+                fs::create_dir(root.join("wipe-trash-x")).unwrap();
+            }
+        }
         Record::InstallV2 => write(
             root,
             "archive/.pk-install-v2.json",
             r#"{"identity":"pathkeep-install","version":1,"stage":"staging/maintenance-x","backup":"maintenance.bak-x","entries":[],"keep_previous":false,"committed":false}"#,
+        ),
+        Record::CreationV2Elsewhere => write(
+            root,
+            "archive/.pk-install-v2.json",
+            &serde_json::json!({
+                "identity": "pathkeep-create", "version": 1,
+                "creating": [{"relative": "archive/agent-history.db", "holds": "file:00"}],
+                "made_in": "staging/creating-x", "control": STAMPED,
+            })
+            .to_string(),
         ),
         Record::InstallV2BringsControl => write(
             root,
@@ -257,9 +286,17 @@ fn every_combination_is_classified_as_written_and_nothing_is_touched() {
         (Absent, R::WipeGarbage, C::Store, MISSING),
         (Absent, R::InstallGarbage, C::Empty, MISSING),
         (Absent, R::InstallGarbage, C::Store, MISSING),
-        // This build's own records never outlive the control.
-        (Absent, R::WipeV2, C::Empty, MISSING),
-        (Absent, R::WipeV2, C::Store, MISSING),
+        // This build's records that hold a control put one back, where what binds them to the
+        // folder is in it.
+        (Absent, R::WipeV2, C::Empty, Is::InterruptedWipe),
+        (Absent, R::WipeV2, C::Store, Is::InterruptedWipe),
+        (Absent, R::WipeV2Elsewhere, C::Empty, MISSING),
+        (Absent, R::WipeV2Elsewhere, C::Store, MISSING),
+        (Absent, R::CreationV2Elsewhere, C::Empty, MISSING),
+        (Absent, R::CreationV2Elsewhere, C::Store, MISSING),
+        (Legacy, R::CreationV2Elsewhere, C::Store, Is::Admitted),
+        (Garbage, R::CreationV2Elsewhere, C::Store, Is::Refused("archive-control-invalid")),
+        // One that holds none never outlives the control.
         (Absent, R::InstallV2, C::Empty, MISSING),
         (Absent, R::InstallV2, C::Store, MISSING),
         (Absent, R::InstallV2BringsControl, C::Empty, Is::InterruptedInstall),

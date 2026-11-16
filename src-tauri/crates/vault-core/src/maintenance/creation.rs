@@ -9,11 +9,13 @@
 //!    folder under `staging/`, with the archive's keys, then closed with everything in their main
 //!    files and flushed. Nothing in the archive has changed yet. A folder with none of the released
 //!    stores is a new archive, and gets all of them.
-//! 2. A record names those stores and that folder. It is written where the install journal is
-//!    written, under the journal's current name, which PathKeep 0.5 and earlier do not know.
+//! 2. A record names those stores, what each holds once made, and that folder, and keeps the
+//!    stamped `config.json` step 3 writes. It is written where the install journal is written,
+//!    under the journal's current name, which PathKeep 0.5 and earlier do not know.
 //! 3. `config.json` gets the stamp. From here an older release stops at the config.
-//! 4. Each store is moved into its place, only where nothing is.
-//! 5. The record and the folder are removed, and the store opens.
+//! 4. Each store is moved into its place, only where nothing is, and only if it still holds what
+//!    it held when made.
+//! 5. The folder is removed, then the record, and the store opens.
 //!
 //! How this could fail, and what guards it:
 //! - A crash after the stamp leaves a required store missing, and the next open would create it
@@ -41,13 +43,30 @@
 //!   into its place can leave it under both names. Removing the folder would then free data the
 //!   store in place still uses. A store the record moves in whose place holds the same bytes goes
 //!   into the quarantine (`quarantine/<folder name>/`) rather than with the folder.
+//! - A copy of the data folder cut short leaves a made store shorter than it was made. Moved in,
+//!   it would be the store the archive opens, with no record left to make it again. The record
+//!   keeps what each made store holds; one that does not hold it is not moved in, and the next open
+//!   makes it again.
+//! - A folder stores were moved out of is left without a record, and whatever removes it later
+//!   (the next bring-up, "Free up space" clearing `staging/`) deletes a second name of a store in
+//!   place (above). A folder made again for lost stores is recorded before anything leaves it, and
+//!   every folder is removed while the record still names it.
+//! - On a file system without a journal a power cut during the rename that writes the stamp can
+//!   leave no `config.json`, and the folder would read as an archive that lost its control. The
+//!   record keeps the stamped control. A folder without one, holding a record whose folder still
+//!   holds every store it names as made (which binds the record to this folder), is that bring-up
+//!   cut short (`admission::census`), and recovery writes the control from the record. A record
+//!   carried in without its folder, or whose control is not one this build stamps, writes nothing.
+//! - Paths in the record are plain names joined by `/` (`recorded_path`), read the same on every
+//!   system.
 //!
 //! Tests: creation/tests.rs.
 
 use super::install::{exists, remove, rename, sync_tree};
 use crate::{
-    ProjectPaths,
+    ProjectPaths, content_identity,
     durable_io::{atomic_durable_write, fsync_dir, remove_file_durably},
+    recorded_path::RecordedPath,
 };
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -59,14 +78,51 @@ const VERSION: u32 = 1;
 /// The folders stores are made in, under `staging/`.
 const FOLDER_PREFIX: &str = "creating-";
 
-/// The stores being made, by their paths relative to the archive folder, and where they were made.
+/// The stores being made, where they were made, and the control the bring-up writes.
 #[derive(Debug, Serialize, Deserialize, schemars::JsonSchema)]
 pub(crate) struct CreationRecord {
     identity: String,
     version: u32,
-    creating: Vec<PathBuf>,
-    /// The folder they were made in, relative to the archive folder: `staging/creating-*`.
-    made_in: PathBuf,
+    /// Each store being made, with what it holds once made. A store in the folder that does not
+    /// hold it (a copy of the folder cut short) is not moved in: it is made again.
+    creating: Vec<Made>,
+    /// The folder they were made in, relative to the archive folder: `staging/creating-*`. Recorded
+    /// before anything is moved out of it.
+    made_in: RecordedPath,
+    /// `config.json` as the stamp writes it. Where a power cut during that write left no control
+    /// (a file system without a journal), recovery writes this.
+    control: String,
+}
+
+impl CreationRecord {
+    /// Whether the folder the record names holds every store it names, as made. Before any store
+    /// leaves it, that is what binds the record to this data folder: a record carried in without
+    /// its folder says nothing about this one.
+    fn made_here(&self, paths: &ProjectPaths) -> Result<bool> {
+        let folder = paths.app_root.join(&self.made_in);
+        for Made { relative, holds } in &self.creating {
+            if content_identity::of(&folder.join(relative))?.as_ref() != Some(holds) {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
+}
+
+/// Whether the folder holds a record of a bring-up this build wrote whose stores are still where
+/// they were made. A folder without a control and with such a record is that bring-up, cut by a
+/// power cut that took the stamped control (`admission::census`): the record puts it back.
+pub(crate) fn puts_control_back(paths: &ProjectPaths) -> bool {
+    matches!(read(paths), Ok(Some(record)) if record.made_here(paths).unwrap_or(false))
+}
+
+/// One store being made.
+#[derive(Debug, Serialize, Deserialize, schemars::JsonSchema)]
+pub(crate) struct Made {
+    /// Its place, relative to the archive folder.
+    relative: RecordedPath,
+    /// What it holds once made and closed (`content_identity`).
+    holds: String,
 }
 
 fn record_path(paths: &ProjectPaths) -> PathBuf {
@@ -90,8 +146,12 @@ pub(crate) fn read(paths: &ProjectPaths) -> Result<Option<CreationRecord>> {
     let record = serde_json::from_slice::<CreationRecord>(&bytes)
         .ok()
         .filter(|record| record.version == VERSION)
-        .filter(|record| record.creating.iter().all(|path| store_of(path).is_some()))
+        .filter(|record| record.creating.iter().all(|made| store_of(&made.relative).is_some()))
         .filter(|record| is_made_in(&record.made_in))
+        .filter(|record| {
+            crate::admission::parse_control(&paths.app_root, record.control.as_bytes())
+                .is_ok_and(|control| control.compatibility.is_some())
+        })
         .with_context(|| {
             format!(
                 "{}: the store creation record is not one this build can act on",
@@ -148,26 +208,40 @@ pub(crate) fn promote_if_needed(
         return Ok(false);
     }
     let creating = adding(paths, layout)?;
+    // The archive's settings with this build's stamp.
+    let control = crate::config::encode_config(
+        &document.config,
+        Some(&crate::admission::written_compatibility()),
+    )?;
     if !creating.is_empty() {
         // A crash while stores were being made left their folder without a record: nothing names
         // it, and nothing else makes folders of this name.
         remove_unrecorded_folders(paths)?;
-        let made_in = make(paths, layout, &creating, key)?;
+        let (made_in, creating) = make(paths, layout, &creating, key)?;
         crate::fault_inject::checkpoint("promotion-made")?;
-        let record =
-            CreationRecord { identity: IDENTITY.into(), version: VERSION, creating, made_in };
-        let path = record_path(paths);
-        std::fs::create_dir_all(path.parent().context("a record without a folder")?)?;
-        atomic_durable_write(&path, &serde_json::to_vec(&record)?)
-            .context("recording the stores being made")?;
+        let record = CreationRecord {
+            identity: IDENTITY.into(),
+            version: VERSION,
+            creating,
+            made_in,
+            control,
+        };
+        save(paths, &record)?;
         crate::fault_inject::checkpoint("promotion-recorded")?;
-        stamp(paths, &document.config)?;
+        stamp(paths, &record.control)?;
         crate::fault_inject::checkpoint("promotion-stamped")?;
         complete(paths, record, key)?;
     } else {
-        stamp(paths, &document.config)?;
+        stamp(paths, &control)?;
     }
     Ok(true)
+}
+
+fn save(paths: &ProjectPaths, record: &CreationRecord) -> Result<()> {
+    let path = record_path(paths);
+    std::fs::create_dir_all(path.parent().context("a record without a folder")?)?;
+    atomic_durable_write(&path, &serde_json::to_vec(record)?)
+        .context("recording the stores being made")
 }
 
 fn remove_unrecorded_folders(paths: &ProjectPaths) -> Result<()> {
@@ -178,7 +252,7 @@ fn remove_unrecorded_folders(paths: &ProjectPaths) -> Result<()> {
     };
     for entry in entries {
         let entry = entry?;
-        // Nothing is moved out of a folder before its record exists.
+        // Nothing is moved out of a folder before a record names it.
         if entry.file_name().to_str().is_some_and(|name| name.starts_with(FOLDER_PREFIX)) {
             remove(&entry.path())?;
         }
@@ -186,10 +260,8 @@ fn remove_unrecorded_folders(paths: &ProjectPaths) -> Result<()> {
     Ok(())
 }
 
-fn stamp(paths: &ProjectPaths, config: &crate::AppConfig) -> Result<()> {
-    let stamped =
-        crate::config::encode_config(config, Some(&crate::admission::written_compatibility()))?;
-    atomic_durable_write(&paths.config_path, stamped.as_bytes())
+fn stamp(paths: &ProjectPaths, control: &str) -> Result<()> {
+    atomic_durable_write(&paths.config_path, control.as_bytes())
         .context("writing the archive's format stamp")
 }
 
@@ -234,7 +306,7 @@ fn make(
     layout: ArchiveLayout,
     creating: &[PathBuf],
     key: Option<&vault_crypto::DataKey>,
-) -> Result<PathBuf> {
+) -> Result<(RecordedPath, Vec<Made>)> {
     std::fs::create_dir_all(&paths.staging_dir)?;
     let folder =
         tempfile::Builder::new().prefix(FOLDER_PREFIX).tempdir_in(&paths.staging_dir)?.keep();
@@ -258,35 +330,44 @@ fn make(
     drop(store);
     sync_tree(&folder)?;
     fsync_dir(&paths.staging_dir)?;
+    let made = creating
+        .iter()
+        .map(|relative| {
+            let holds = content_identity::of(&folder.join(relative))?
+                .with_context(|| format!("{} was not made", relative.display()))?;
+            Ok(Made { relative: RecordedPath::new(relative)?, holds })
+        })
+        .collect::<Result<Vec<_>>>()?;
     // By name: the folder is absolute, and the archive's own path may be relative.
     let name = folder.file_name().context("a folder without a name")?;
-    Ok(Path::new(vault_layout::spec(ArtifactId::Staging).path.relative()).join(name))
+    let made_in = Path::new(vault_layout::spec(ArtifactId::Staging).path.relative()).join(name);
+    Ok((RecordedPath::new(&made_in)?, made))
 }
 
 /// Moves each store the record names from where it was made into its place, only where nothing is
-/// there; makes again, in a new folder, any the first folder lost; then removes the record and the
-/// folders. A store already in place stays and the one made for it goes with the folder.
+/// there, and removes the folder; makes again, in a new folder recorded before anything leaves it,
+/// any the folder lost; then removes the record. A store already in place stays and the one made
+/// for it goes with the folder. A folder goes while the record still names it, so none is ever
+/// left that no record names.
 fn complete(
     paths: &ProjectPaths,
-    record: CreationRecord,
+    mut record: CreationRecord,
     key: Option<&vault_crypto::DataKey>,
 ) -> Result<()> {
     let lost = move_in(paths, &record)?;
+    remove_made_folder(paths, &record)?;
     if !lost.is_empty() {
         let layout = crate::admission::root_layout(&paths.app_root)?;
-        let again = CreationRecord {
-            identity: IDENTITY.into(),
-            version: VERSION,
-            made_in: make(paths, layout, &lost, key)?,
-            creating: lost,
-        };
-        let still = move_in(paths, &again)?;
+        (record.made_in, record.creating) = make(paths, layout, &lost, key)?;
+        save(paths, &record)?;
+        crate::fault_inject::checkpoint("promotion-remade")?;
+        let still = move_in(paths, &record)?;
         anyhow::ensure!(still.is_empty(), "the stores made again were not where they were made");
-        remove_made_folder(paths, &again)?;
+        remove_made_folder(paths, &record)?;
     }
     crate::fault_inject::checkpoint("promotion-moved")?;
     remove_file_durably(&record_path(paths)).context("removing the store creation record")?;
-    remove_made_folder(paths, &record)
+    crate::fault_inject::checkpoint("promotion-record-removed")
 }
 
 /// Removes the folder a record's stores were made in, after setting aside, in the quarantine, each
@@ -298,7 +379,7 @@ fn remove_made_folder(paths: &ProjectPaths, record: &CreationRecord) -> Result<(
     let folder = paths.app_root.join(&record.made_in);
     let quarantine = paths.quarantine_dir.join(record.made_in.file_name().unwrap_or_default());
     let mut twins = Vec::new();
-    for relative in &record.creating {
+    for Made { relative, .. } in &record.creating {
         let (made, place) = (folder.join(relative), paths.app_root.join(relative));
         if exists(&made)?
             && exists(&place)?
@@ -320,11 +401,11 @@ fn remove_made_folder(paths: &ProjectPaths, record: &CreationRecord) -> Result<(
 }
 
 /// The stores of `record` moved into their places; returns the ones its folder no longer holds
-/// that are still missing from the archive.
+/// whole that are still missing from the archive.
 fn move_in(paths: &ProjectPaths, record: &CreationRecord) -> Result<Vec<PathBuf>> {
     let folder = paths.app_root.join(&record.made_in);
     let mut lost = Vec::new();
-    for relative in &record.creating {
+    for Made { relative, holds } in &record.creating {
         let place = paths.app_root.join(relative);
         if exists(&place)? {
             continue;
@@ -339,10 +420,11 @@ fn move_in(paths: &ProjectPaths, record: &CreationRecord) -> Result<Vec<PathBuf>
             );
         }
         let made = folder.join(relative);
-        if exists(&made)? {
+        if content_identity::of(&made)?.as_ref() == Some(holds) {
             rename(&made, &place)?;
+            crate::fault_inject::checkpoint("promotion-store-moved")?;
         } else {
-            lost.push(relative.clone());
+            lost.push(relative.to_path_buf());
         }
     }
     Ok(lost)
@@ -373,8 +455,9 @@ pub(crate) fn check_required_stores(paths: &ProjectPaths, layout: ArchiveLayout)
     let scratch = vault_layout::scratch_database();
     for db in vault_layout::databases_in(layout).into_iter().filter(|db| *db != scratch) {
         let relative = Path::new(vault_layout::database_path(db));
-        let listed =
-            record.as_ref().is_some_and(|record| record.creating.iter().any(|p| p == relative));
+        let listed = record
+            .as_ref()
+            .is_some_and(|record| record.creating.iter().any(|made| *made.relative == *relative));
         if !listed && !exists(&paths.app_root.join(relative))? {
             anyhow::bail!(
                 "archive-store-missing: {} is missing and nothing says it is being created",
@@ -387,18 +470,30 @@ pub(crate) fn check_required_stores(paths: &ProjectPaths, layout: ArchiveLayout)
 
 /// Install recovery hands a creation record here, before the store opens and without the key.
 pub(crate) fn recover(paths: &ProjectPaths, record: CreationRecord) -> Result<()> {
+    // A power cut during the rename that wrote the stamp can leave no control, on a file system
+    // without a journal: the record holds the one it wrote, and the bring-up goes on from there.
+    if crate::admission::read_control(&paths.app_root)?.is_none() {
+        anyhow::ensure!(
+            record.made_here(paths)?,
+            "{}: there is no config.json, and the record of the stores being made is not this \
+             folder's (the folder it names does not hold them); nothing was changed",
+            crate::admission::Reason::ControlMissing.code()
+        );
+        stamp(paths, &record.control)?;
+    }
     let stamped = crate::admission::root_layout(&paths.app_root)? != ArchiveLayout::BrowsingV1;
     if !stamped {
         // Nothing was moved in under it, and an older release may have created and filled any of
-        // these stores since: discard the record and the folder it names, touch nothing in the
+        // these stores since: discard the folder it names and the record, touch nothing in the
         // archive. The next open records what is missing then.
-        remove_file_durably(&record_path(paths)).context("discarding a creation record")?;
-        return remove(&paths.app_root.join(&record.made_in));
+        remove(&paths.app_root.join(&record.made_in))?;
+        return remove_file_durably(&record_path(paths)).context("discarding a creation record");
     }
     if move_in(paths, &record)?.is_empty() {
+        remove_made_folder(paths, &record)?;
         crate::fault_inject::checkpoint("promotion-moved")?;
         remove_file_durably(&record_path(paths)).context("removing the store creation record")?;
-        remove_made_folder(paths, &record)?;
+        crate::fault_inject::checkpoint("promotion-record-removed")?;
     }
     // Otherwise the record stays: the next open has the key to make what the folder lost.
     Ok(())

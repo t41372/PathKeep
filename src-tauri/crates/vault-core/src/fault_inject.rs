@@ -26,14 +26,14 @@
 
 use anyhow::Result;
 use std::cell::RefCell;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 thread_local! {
-    /// Per-thread set of checkpoint names armed to panic on their next hit. Read on EVERY
-    /// [`checkpoint`] call (production default: empty => no fault). Written ONLY by the
-    /// `#[cfg(test)]` [`FaultGuard`], so production never arms anything and two test threads can
-    /// never see each other's faults.
-    static PANIC_AT: RefCell<HashSet<String>> = RefCell::new(HashSet::new());
+    /// Per-thread checkpoint names armed to panic, each with the number of hits to let pass first.
+    /// Read on EVERY [`checkpoint`] call (production default: empty => no fault). Written ONLY by
+    /// the `#[cfg(test)]` [`FaultGuard`], so production never arms anything and two test threads
+    /// can never see each other's faults.
+    static PANIC_AT: RefCell<HashMap<String, u32>> = RefCell::new(HashMap::new());
     /// The same for checkpoints armed to return an error once: a step that reports a failure after
     /// its effect landed (a flush that fails after the rename it follows).
     static ERROR_AT: RefCell<HashSet<String>> = RefCell::new(HashSet::new());
@@ -44,7 +44,17 @@ thread_local! {
 /// This is the PRODUCTION read path: in a non-test build the set is never written, so it is
 /// always empty and this is a single thread-local borrow plus a lookup miss.
 fn take_armed(name: &str) -> bool {
-    PANIC_AT.with(|cell| cell.borrow_mut().remove(name))
+    PANIC_AT.with(|cell| {
+        let mut armed = cell.borrow_mut();
+        match armed.get_mut(name) {
+            None => false,
+            Some(0) => armed.remove(name).is_some(),
+            Some(left) => {
+                *left -= 1;
+                false
+            }
+        }
+    })
 }
 
 fn take_armed_error(name: &str) -> bool {
@@ -99,8 +109,15 @@ pub(crate) struct FaultGuard {
 impl FaultGuard {
     /// Arms a fire-once `panic!` at `name` and returns a guard that disarms on drop.
     pub(crate) fn panic_at(name: &str) -> Self {
+        Self::panic_at_hit(name, 1)
+    }
+
+    /// Arms a fire-once `panic!` at the `hit`-th time `name` is reached from now (1 is the next):
+    /// a cut between two steps of a loop that passes the same checkpoint at every step.
+    pub(crate) fn panic_at_hit(name: &str, hit: u32) -> Self {
+        assert!(hit >= 1, "the first hit is 1");
         PANIC_AT.with(|cell| {
-            cell.borrow_mut().insert(name.to_string());
+            cell.borrow_mut().insert(name.to_string(), hit - 1);
         });
         Self { name: name.to_string(), error: false }
     }
@@ -121,7 +138,7 @@ impl Drop for FaultGuard {
         if self.error {
             take_armed_error(&self.name);
         } else {
-            take_armed(&self.name);
+            PANIC_AT.with(|cell| cell.borrow_mut().remove(&self.name));
         }
     }
 }
