@@ -603,8 +603,10 @@ test('a search index build killed half way finishes after a restart, without sta
       timeout: 60_000,
     })
 
-    // Another model: nothing is built, and search keeps the old index.
-    const atSwitch = service.requests()
+    // Another model: nothing is built, and search keeps the old index. The
+    // new model is sent nothing until Build index. The old one still answers
+    // reads, and one may land after the switch (similar searches for the
+    // search just made, search groups after the backup's Insights).
     await page.goto('/#/settings/ai')
     // The semantic search row's service, not the assistant's below it.
     await page.getByRole('button', { name: 'Edit' }).first().click()
@@ -635,9 +637,10 @@ test('a search index build killed half way finishes after a restart, without sta
       ),
     ).toBeVisible()
     await page.waitForTimeout(3_000)
-    expect(service.requests(), 'changing the model builds nothing').toBe(
-      atSwitch,
-    )
+    expect(
+      service.requestsFor('e2e-embed-next'),
+      'changing the model sends the new one nothing',
+    ).toBe(0)
     expect((await queueStatus()).semanticIndex).toMatchObject({
       chosenComplete: false,
       serving: { model: 'e2e-embed' },
@@ -667,6 +670,18 @@ test('a search index build killed half way finishes after a restart, without sta
       `Semantic search with E2E embeddings · e2e-embed · ${aiStatus.serving.indexedItems.toLocaleString('en-US')} visits indexed · updated`,
     )
     await expect(answered).toBeVisible()
+    // Answered by the old model's index, not by its words alone: asking the
+    // unbuilt model finds an empty index and falls back to words, which find
+    // this page too, so only the search's notes tell the two apart.
+    const unbuilt = await backend<{
+      noteCodes: { code: string; model?: string }[]
+    }>('search_ai_history', {
+      request: { query: 'afternoon run strava', limit: 20 },
+    })
+    expect(unbuilt.noteCodes).toContainEqual({
+      code: 'previousModel',
+      model: 'e2e-embed',
+    })
     await testInfo.attach('History while the chosen model is unbuilt', {
       body: await answered.locator('..').screenshot(),
       contentType: 'image/png',
@@ -708,6 +723,10 @@ test('a search index build killed half way finishes after a restart, without sta
     expect((await queueStatus()).semanticIndex.serving).toMatchObject({
       model: 'e2e-embed-next',
     })
+    expect(
+      service.requestsFor('e2e-embed-next'),
+      'the build asks the new model',
+    ).toBeGreaterThan(0)
 
     // Back to the in-app model from the picker: nothing changes until the
     // user has read what the switch does and accepted it.

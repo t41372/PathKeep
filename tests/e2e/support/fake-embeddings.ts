@@ -11,7 +11,8 @@
  * no timing involved; `holdAfter(n)` does it again later. Every text it
  * answered for is kept, in order; a held request whose app went away before
  * the release is never answered and not kept. `requests()` counts every
- * embeddings request that arrived, answered or not.
+ * embeddings request that arrived, answered or not, and `requestsFor(model)`
+ * those that named one model.
  *
  * It answers the rest the way LM Studio does: its models at `/api/v0/models`
  * (with their kind, whether loaded, and their context lengths) and at
@@ -48,6 +49,8 @@ export interface FakeEmbeddings {
   held(): number
   /** Every embeddings request that arrived, answered, held or dropped. */
   requests(): number
+  /** Those requests that named `model`. */
+  requestsFor(model: string): number
   /** Answers the held requests and every later one. */
   release(): void
   /** Answers `count` more requests from now on, then holds the rest. */
@@ -88,6 +91,7 @@ export async function startFakeEmbeddings({
   const inputs: string[] = []
   let answered = 0
   let arrived = 0
+  const arrivedFor = new Map<string, number>()
   let holdAt = holdAfter
   let waiting: (() => void)[] | null = []
   const server = http.createServer((request, response) => {
@@ -119,6 +123,8 @@ export async function startFakeEmbeddings({
         model?: string
         input?: string | string[]
       }
+      const model = body.model ?? ''
+      arrivedFor.set(model, (arrivedFor.get(model) ?? 0) + 1)
       const texts =
         typeof body.input === 'string' ? [body.input] : (body.input ?? [])
       const answer = () => {
@@ -151,6 +157,7 @@ export async function startFakeEmbeddings({
     inputs,
     held: () => waiting?.length ?? 0,
     requests: () => arrived,
+    requestsFor: (model) => arrivedFor.get(model) ?? 0,
     release: () => {
       const held = waiting ?? []
       waiting = null
