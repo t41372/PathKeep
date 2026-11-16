@@ -420,6 +420,10 @@
   - 另外每次發布前做一次今天這種盤點：兩個不同的模型各自從程式碼列出存檔的組成和每個操作涵蓋什麼，互相比對、再跟文件比對。列進發布檢查。
   - 先做前三條和跨版本那一條；會紅的那幾條連同它們揭露的問題一起排（`WORK-ENCRYPT-AT-REST-ALL`、`WORK-VAULT-FOLLOWUPS-2026-11`）。
 
+- [ ] **WORK-MOVE-FILE-APP-VERSION** — 搬家檔記的「PathKeep 版本」一直是 0.1.0
+  - 現況（2026-11-16，`upgrade-v05.spec` 在 v0.5.0 真正做的搬家檔上看到）：匯出把 vault-core 套件自己的版本（`migration/native.rs` 的 `env!("CARGO_PKG_VERSION")`，0.1.0）寫進 `appVersion`，不是 app 的版本；匯入的預覽照著顯示「PathKeep 版本 0.1.0」。v0.4.0、v0.5.0 做的檔案都這樣，這條分支做的也是。只影響顯示，判斷檔案新舊用的是格式與資料庫結構版本。
+  - 做法方向：匯出寫發布流程定下的 app 版本（`docs/architecture/build-identity.md`）；格式 2 以下的檔案記的都是 0.1.0，預覽改說「PathKeep 0.5 或更早」，不顯示那個數字。三種語言。
+
 - [ ] **WORK-LINKED-SNAPSHOTS-FOLDER** — `raw-snapshots/` 被換成指到另一顆磁碟的連結時（v0.6.0 發布前）
   - 現況（2026-11-16 讀程式查的，沒有實測）：PathKeep 自己不做這種連結，「釋放空間」照顧到了（連結本身跟著走，只刪連結）。把東西放進 `raw-snapshots/` 的操作都用改名，跨磁碟改名會失敗：切換加密（安全快照放進 `maintenance/`）與匯入（逐項換瀏覽器歷史檔的資料夾）在發布前失敗、整個退回，存檔不變；還原與匯入在新存檔發布之後，才把換下的存檔改名成「還原之前／匯入之前」副本，這一步失敗會留下安裝紀錄，之後每次啟動都重試、都失敗，打不開存檔。同一顆磁碟上的連結都能用。
   - 做法方向：換下的存檔放不進 `raw-snapshots/` 時留在存檔旁邊、照樣列出算進用量，或在動手前就說明不支援；要寫測試先紅（跨裝置的改名錯誤可以用 fault injection 做）。
@@ -429,6 +433,8 @@
   - 做法：從這條分支用 `unsigned_preview` 手動跑 `Release` workflow（三個平台），產物留在草稿、不公開。要動到 GitHub 上的東西，開跑前問用戶。
   - 要看的：Windows 上 7-Zip 解得開 NSIS 與 MSI、讀得到 MSI 的檔名表；Linux runner 上有 `rpm2cpio`、`dpkg-deb`，AppImage 解得開；macOS 上 DMG 掛得起來、Intel 版在 Apple Silicon runner 上靠 Rosetta 跑得起來；上傳的檔案名稱和 v0.5.0 的一致（產品名稱現在由 `tauri.distribution.conf.json` 蓋回去）；故意拿掉標記跑一次，確認會停在上傳之前。
   - 順便做：這次產出的 Windows 與 Linux 安裝包是正式發布版身分，拿來測「裝在 v0.5.0 上面升級」。Windows 測試包（`Windows Test Binary`）現在是開發版，測不了升級。
+  - Linux 已經碰到一次（2026-11-16，C10 在 boxd 上照發布流程建 unsigned preview）：deb 打包工具在 `.deb` 旁邊留下 `deb/PathKeep_…/`（套件自己的 `control.tar.gz`、`data.tar.gz`），檢查把它們當成安裝包、在裡面找不到執行檔，擋下發布。已修（只把每種套件資料夾直接底下的檔案當安裝包，測試先紅），並在真的 deb 上驗過。其他平台的真實產物還沒看過。
+  - C10（用真的 v0.4.0、v0.5.0 對 v0.6 寫過的存檔）要在最後要發布的那個建置上再跑一次。腳本現在在 repo 外（boxd 上用 `dbus-run-session`、`Xvfb`，等擁有者程序結束要用完整路徑比對，Linux 的程序名只留 15 個字元）；跑之前搬進 repo，讓它可以重跑。
 
 - [ ] **WORK-WRITE-LOCK-WINDOWS** — 跨行程寫入鎖在 Windows 上是會直接報錯的空殼，「刪除所有資料」在 Windows 上很可能一律失敗（2026-11-15，ChatGPT 審查 5a 時順帶指出，未在 Windows 上驗證）
   - `vault-core/src/archive/write_lock.rs` 的 `try_lock_exclusive` 在非 unix 平台直接回傳「this platform is unsupported」。「刪除所有資料」、中斷刪除的接續、v0.3 的啟動修復與還原都會取這把鎖，所以在 Windows 上這些操作應該都會失敗。大部分刪除測試沒有標成只在 unix 跑，CI 也沒有在 Windows 上跑 `vault-core` 的測試，所以一直沒被看見。

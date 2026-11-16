@@ -1,0 +1,97 @@
+{
+  "madeBy": {
+    "version": "0.5.0",
+    "date": "2026-11-16",
+    "how": "tests/fixtures/v0.5-archive/README.md"
+  },
+  "password": "harbour almanac 2026",
+  "exportPassword": "a second almanac for the move",
+  "appLockPasscode": "4826",
+  "totalVisits": 1952,
+  "totalProfiles": 4,
+  "pages": {
+    "https://example.org/~quokka": 1,
+    "https://example.org/%7Equokka?utm_source=old": 2,
+    "https://zh.example.net/文章/潮汐": 2,
+    "https://tides.example.net/coast": 1,
+    "https://almanac.example.net/harbour/5": 4,
+    "https://almanac.example.net/harbour/4": 4,
+    "https://almanac.example.net/harbour/3": 4,
+    "https://almanac.example.net/harbour/2": 4,
+    "https://almanac.example.net/harbour/1": 4,
+    "https://almanac.example.net/harbour/0": 4
+  },
+  "stars": [
+    {
+      "entityKind": "domain",
+      "entityKey": "example.net",
+      "title": ""
+    },
+    {
+      "entityKind": "url",
+      "entityKey": "https://example.org/~quokka",
+      "title": "Quokka field notes"
+    }
+  ],
+  "annotations": [
+    {
+      "url": "https://tides.example.net/coast",
+      "notes": "",
+      "tags": ["coast", "trip"]
+    },
+    {
+      "url": "https://example.org/%7Equokka?utm_source=old",
+      "notes": "Bring the red notebook",
+      "tags": []
+    }
+  ],
+  "savedPageText": {
+    "url": "https://example.com/",
+    "record": {
+      "contentSource": "generic-readable",
+      "fetchStatus": "success",
+      "fetchedAt": "2026-11-16T05:22:50.448838457+00:00",
+      "readableTitle": "Example Domain",
+      "summary": "Example Domain",
+      "metadataJson": "{\"contentType\":\"text/html\",\"snippetCount\":1,\"textLength\":156}",
+      "finalUrl": "https://example.com/"
+    },
+    "blob": "sidecars/intelligence-blobs/0a/08/0a080719be9fbb82a86a45b80dc8c2a430fbe17dc93d23758debac092864d00f.txt",
+    "textStartsWith": "This domain is for use in documentation examples"
+  },
+  "savedPageTextOther": {
+    "url": "https://www.iana.org/help/example-domains",
+    "record": {
+      "contentSource": "generic-readable",
+      "fetchStatus": "success",
+      "fetchedAt": "2026-11-16T05:22:52.590075687+00:00",
+      "readableTitle": "Example Domains",
+      "summary": "Example Domains",
+      "metadataJson": "{\"contentType\":\"text/html\",\"snippetCount\":3,\"textLength\":23}",
+      "finalUrl": "https://www.iana.org/help/example-domains"
+    },
+    "blob": "sidecars/intelligence-blobs/6e/1c/6e1cce3a28ef35dd5d813fc84ac4c5a3f3a4b8221d5e33060293da285392c5de.txt"
+  },
+  "importBatches": [
+    {
+      "sourceKind": "takeout",
+      "importedItems": 24,
+      "status": "imported"
+    },
+    {
+      "sourceKind": "browser-history",
+      "importedItems": 120,
+      "status": "imported"
+    }
+  ],
+  "chat": {
+    "id": "v05-harbour-trip",
+    "title": "Harbour trip questions",
+    "answer": "You opened the Tide tables page on your Work profile a week ago."
+  },
+  "safetyCopy": {
+    "name": "rekey-maintenance-NT14nw",
+    "sourceOp": "maintenance",
+    "encrypted": true
+  }
+}

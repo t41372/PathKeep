@@ -224,5 +224,7 @@ export default defineConfig({
     project('empty', ['semantic-empty-archive.spec.ts'], 'wipe'),
     // Needs an empty data folder.
     project('upgrade', ['upgrade.spec.ts'], 'empty'),
+    // Deletes the archive upgrade.spec's file left, then opens v0.5.0's data.
+    project('upgrade-v05', ['upgrade-v05.spec.ts'], 'upgrade'),
   ],
 })
