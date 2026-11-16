@@ -38,6 +38,21 @@ function runHostRustTests(currentPlatform) {
         '--ignored',
         '--test-threads=1',
       ])
+      // The archive's crash recovery (restore, import, encryption change, "Delete all data",
+      // the first bring-up of an older archive) rests on how the file system renames and
+      // removes. Windows does both differently (a file another program holds open cannot be
+      // renamed or deleted), and no other gate runs these tests on Windows.
+      run([
+        'cargo',
+        'test',
+        '--manifest-path',
+        'src-tauri/Cargo.toml',
+        '-p',
+        'vault-core',
+        '-p',
+        'vault-worker',
+        '--no-fail-fast',
+      ])
       return
     default:
       console.log(
