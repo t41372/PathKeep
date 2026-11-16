@@ -28,7 +28,9 @@ pub use stream::{SearchEvent, SearchSessions, SearchStarted};
 mod history;
 pub use history::{history, page};
 pub(crate) use history::{history_for_root, page_prepared, walk_history_for_export};
-#[cfg(test)]
+// Measures memory and processor time through Unix interfaces; run on the Linux and macOS
+// benchmark machines.
+#[cfg(all(test, unix))]
 mod benchmark;
 #[cfg(test)]
 mod fixture;

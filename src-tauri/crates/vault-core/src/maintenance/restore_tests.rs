@@ -23,9 +23,29 @@ const BROWSING: [&str; 4] = [
     "derived/agent.db",
 ];
 
-fn inode(paths: &ProjectPaths, relative: &str) -> u64 {
-    use std::os::unix::fs::MetadataExt;
-    std::fs::metadata(paths.app_root.join(relative)).unwrap().ino()
+/// The number the file system gives the file at `relative`: the same before and after means the
+/// same file, not a copy put in its place. The inode on Unix; on Windows the file index, not the
+/// creation time, which NTFS gives a file made under a name another left moments before.
+fn file_number(paths: &ProjectPaths, relative: &str) -> u64 {
+    let path = paths.app_root.join(relative);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        std::fs::metadata(path).unwrap().ino()
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::io::AsRawHandle;
+        use windows_sys::Win32::Storage::FileSystem::{
+            BY_HANDLE_FILE_INFORMATION, GetFileInformationByHandle,
+        };
+        let file = std::fs::File::open(path).unwrap();
+        let mut info = BY_HANDLE_FILE_INFORMATION::default();
+        // SAFETY: the handle stays open for the call, which fills the structure it is given.
+        let found = unsafe { GetFileInformationByHandle(file.as_raw_handle(), &mut info) };
+        assert_ne!(found, 0, "{}", std::io::Error::last_os_error());
+        (u64::from(info.nFileIndexHigh) << 32) | u64::from(info.nFileIndexLow)
+    }
 }
 
 fn plaintext_on_disk(paths: &ProjectPaths, relative: &str) -> bool {
@@ -78,12 +98,12 @@ fn a_restore_brings_browsing_back_and_leaves_the_conversations_where_they_are() 
     let live = open(&paths).unwrap();
     write_marker(live.store(), Db::Archive, "changed-since");
     save_conversations(&live, "saved-since", "read-since");
-    let before = ADDED.map(|added| inode(&paths, added));
+    let before = ADDED.map(|added| file_number(&paths, added));
 
     let installed = restore_snapshot(&live, &copy, None, Default::default()).unwrap();
     assert_eq!(marker(&installed.vault, Db::Archive).as_deref(), Some("released-archive"));
     assert_eq!(conversations(&installed.vault), saved("saved-since", "read-since"));
-    assert_eq!(ADDED.map(|added| inode(&paths, added)), before, "the same files, not copies");
+    assert_eq!(ADDED.map(|added| file_number(&paths, added)), before, "the same files, not copies");
     for added in ADDED {
         assert!(!installed.previous_files.join(added).exists(), "{added} was not moved aside");
     }
@@ -103,13 +123,13 @@ fn a_password_changed_since_the_copy_stays() {
     write_marker(vault.store(), Db::Archive, "changed-since");
     save_conversations(&vault, "saved-since", "read-since");
     let envelope = std::fs::read(paths.app_root.join("archive/keys.envelope")).unwrap();
-    let before = ADDED.map(|added| inode(&paths, added));
+    let before = ADDED.map(|added| file_number(&paths, added));
 
     let installed =
         restore_snapshot(&vault, &copy, Some("old password"), Default::default()).unwrap();
     assert_eq!(marker(&installed.vault, Db::Archive).as_deref(), Some("in-the-copy"));
     assert_eq!(conversations(&installed.vault), saved("saved-since", "read-since"));
-    assert_eq!(ADDED.map(|added| inode(&paths, added)), before, "not converted");
+    assert_eq!(ADDED.map(|added| file_number(&paths, added)), before, "not converted");
     installed.vault.close().unwrap();
     assert_eq!(std::fs::read(paths.app_root.join("archive/keys.envelope")).unwrap(), envelope);
     assert!(Vault::unlock_data_key(&paths, "old password").is_err(), "the old password is back");
@@ -132,12 +152,12 @@ fn a_copy_from_before_encryption_is_restored_under_the_current_key_and_password(
     let encrypted = switch(&vault, None, ArchiveMode::Encrypted, Some("new password"));
     write_marker(encrypted.store(), Db::Archive, "changed-since");
     save_conversations(&encrypted, "saved-encrypted", "read-encrypted");
-    let before = ADDED.map(|added| inode(&paths, added));
+    let before = ADDED.map(|added| file_number(&paths, added));
 
     let installed = restore_snapshot(&encrypted, &copy, None, Default::default()).unwrap();
     assert_eq!(marker(&installed.vault, Db::Archive).as_deref(), Some("released-archive"));
     assert_eq!(conversations(&installed.vault), saved("saved-encrypted", "read-encrypted"));
-    assert_eq!(ADDED.map(|added| inode(&paths, added)), before, "the conversations stay put");
+    assert_eq!(ADDED.map(|added| file_number(&paths, added)), before, "the conversations stay put");
     installed.vault.close().unwrap();
     for file in BROWSING.into_iter().chain(ADDED) {
         assert!(!plaintext_on_disk(&paths, file), "{file} is unencrypted");
@@ -221,13 +241,13 @@ fn without_an_open_archive_an_encrypted_one_needs_its_key_or_nothing_changes() {
     assert!(format!("{error:#}").contains("archive-current-password-required"), "{error:#}");
     assert_eq!(files(root.path()), before, "nothing was changed");
 
-    let inodes = ADDED.map(|added| inode(&paths, added));
+    let numbers = ADDED.map(|added| file_number(&paths, added));
     let key = Vault::unlock_data_key(&paths, "new password").unwrap();
     let installed =
         restore_snapshot_to(&paths, None, None, &copy, None, Some(&key), Default::default())
             .unwrap();
     assert_eq!(conversations(&installed.vault), saved("saved-encrypted", "read-encrypted"));
-    assert_eq!(ADDED.map(|added| inode(&paths, added)), inodes);
+    assert_eq!(ADDED.map(|added| file_number(&paths, added)), numbers);
     installed.vault.close().unwrap();
     opens_with(&paths, "new password");
 }

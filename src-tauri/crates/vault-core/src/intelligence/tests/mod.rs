@@ -23,6 +23,8 @@ mod append_aggregates;
 mod append_plans;
 mod batch_equivalence;
 mod build_needed;
+// Measures peak memory through `getrusage`; run on the Linux and macOS benchmark machines.
+#[cfg(unix)]
 mod family_scale;
 mod fixtures;
 mod frequent_searches;
