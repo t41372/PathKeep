@@ -38,6 +38,21 @@ function runHostRustTests(currentPlatform) {
         '--ignored',
         '--test-threads=1',
       ])
+      // The archive's restore, import, encryption change, safety snapshots and "Delete all
+      // data" rest on how the file system flushes, renames and removes. Windows does all three
+      // differently (a file opened read-only cannot be flushed; one another program holds open
+      // cannot be renamed or deleted), and no other gate runs these tests on Windows.
+      run([
+        'cargo',
+        'test',
+        '--manifest-path',
+        'src-tauri/Cargo.toml',
+        '-p',
+        'vault-core',
+        '-p',
+        'vault-worker',
+        '--no-fail-fast',
+      ])
       return
     default:
       console.log(
