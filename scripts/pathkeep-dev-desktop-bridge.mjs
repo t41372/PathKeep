@@ -166,6 +166,10 @@ async function superviseForE2E(env, tauriConfigOverride, restartFile) {
         start()
         return
       }
+      // Every spec after this one fails with a refused connection; say how the app ended.
+      console.error(
+        `PathKeep E2E: the app exited (${signal ? `signal ${signal}` : `code ${code}`}) and was not asked to restart; ending the run.`,
+      )
       vite.kill()
       process.exit(code ?? (signal ? 1 : 0))
     })
