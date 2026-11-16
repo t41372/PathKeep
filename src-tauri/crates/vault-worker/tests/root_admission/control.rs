@@ -229,15 +229,20 @@ fn after_delete_all_data_the_root_is_a_first_run_again() {
     f.write("my-export.pkexport", "an export saved into the data folder");
     f.write("schedule/logs/worker.stderr.log", "written by launchd");
     // With automatic backup installed, removing it during the wipe writes a record of the
-    // removal after `audit/` is already gone.
-    let plan = vault_worker::preview_schedule_plan(Some("macos"), None, None).unwrap();
-    vault_worker::apply_schedule_plan(&plan).unwrap();
+    // removal after `audit/` is already gone. The wipe removes this computer's entry (launchd on
+    // macOS, Task Scheduler on Windows, both in the test sandbox), so that is the one installed.
+    // Linux has no automatic install: nothing to remove, and no record.
+    let plan = vault_worker::preview_schedule_plan(None, None, None).unwrap();
+    if plan.apply_supported {
+        vault_worker::apply_schedule_plan(&plan).unwrap();
+    }
     f.session.close_vault().unwrap();
     f.vault.take().unwrap().close().unwrap();
     let report = vault_worker::wipe_all_data("DELETE", || Ok(())).unwrap();
-    assert!(report.schedule_removed, "{report:?}");
+    assert_eq!(report.schedule_removed, plan.apply_supported, "{report:?}");
     let left: Vec<_> = f.observe().entries.into_keys().collect();
-    assert!(left.iter().any(|path| path.starts_with("audit/scheduler/")), "{left:?}");
+    let recorded = left.iter().any(|path| path.starts_with("audit/scheduler/"));
+    assert_eq!(recorded, plan.apply_supported, "{left:?}");
     // launchd keeps writing here for a schedule the wipe could not remove.
     f.write("schedule/logs/worker.stderr.log", "archive has not been initialized");
     assert!(f.root.join("my-export.pkexport").exists());

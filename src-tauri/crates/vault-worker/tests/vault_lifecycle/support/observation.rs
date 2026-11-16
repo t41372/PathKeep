@@ -38,7 +38,10 @@ pub fn observe(root: &Path, vault: Option<&vault_core::Vault>, name: &str) -> Va
     let mut headers = BTreeMap::new();
     let mut gap_families = std::collections::BTreeSet::new();
     for path in &files {
-        let bytes = fs::read(root.join(path)).unwrap();
+        let Some(bytes) = read_unless_locked(root, path) else {
+            hashes.insert(path.clone(), "locked".into());
+            continue;
+        };
         hashes.insert(path.clone(), vault_core::utils::sha256_hex(&bytes));
         if path.ends_with(".pathkeep") {
             bundles.insert(path.clone(), super::zip_entries(&root.join(path)));
@@ -106,6 +109,28 @@ pub fn observe(root: &Path, vault: Option<&vault_core::Vault>, name: &str) -> Va
     )
     .unwrap();
     observed
+}
+
+/// Lock files that hold nothing: the owner's and the write lock's sentinels, and tantivy's.
+const LOCK_FILES: [&str; 4] =
+    [".pk-owner.lock", ".pk-archive-write.lock", ".tantivy-writer.lock", ".tantivy-meta.lock"];
+
+/// A file's bytes, or `None` for a lock file that is held. Windows locks are mandatory: while the
+/// open archive holds its owner lock, or the search index its writer lock, nobody else can read
+/// the file. Any other file that cannot be read fails the test, so a store that started locking
+/// its data could not slip past the at-rest checks on Windows.
+fn read_unless_locked(root: &Path, path: &str) -> Option<Vec<u8>> {
+    match fs::read(root.join(path)) {
+        Ok(bytes) => Some(bytes),
+        Err(error)
+            if cfg!(windows)
+                && error.raw_os_error() == Some(33)
+                && path.rsplit('/').next().is_some_and(|name| LOCK_FILES.contains(&name)) =>
+        {
+            None
+        }
+        Err(error) => panic!("reading {path}: {error}"),
+    }
 }
 
 /// Reads the reviewed step-1 literal; there is deliberately no update/generation mode.

@@ -95,7 +95,19 @@ impl Fixture {
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         fs::write(path, bytes).unwrap();
     }
+    /// The data root's files, byte for byte. With the archive open, the store first finishes what
+    /// it does after a write on its own: it answers a write before it empties the WAL, so a census
+    /// taken just after one could see the WAL emptied while the operation under test runs, and
+    /// count that as the operation's change.
     pub fn observe(&self) -> tree::Census {
+        if let Some(vault) = &self.vault {
+            match vault.store().pause() {
+                Ok(pause) => pause.checkpoint().unwrap(),
+                // A closed store writes nothing more.
+                Err(vault_store::Error::Closed) => {}
+                Err(error) => panic!("pausing the store: {error}"),
+            }
+        }
         tree::census(&self.root, vault_core::utils::sha256_hex)
     }
     pub fn outside(&self) -> tree::Census {
