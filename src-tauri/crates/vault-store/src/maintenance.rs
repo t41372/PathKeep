@@ -62,7 +62,9 @@ impl Maintenance<'_> {
             let target = targets.get(*db);
             fs::create_dir_all(target.parent().unwrap())?;
             fs::copy(self.store.paths.get(*db), target)?;
-            fs::File::open(target)?.sync_all()?;
+            // Windows flushes only through a handle that may write: `FlushFileBuffers` requires
+            // `GENERIC_WRITE` and refuses a read-only handle.
+            fs::OpenOptions::new().read(true).write(cfg!(windows)).open(target)?.sync_all()?;
         }
         Ok(())
     }

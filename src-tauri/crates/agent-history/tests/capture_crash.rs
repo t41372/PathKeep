@@ -197,7 +197,14 @@ fn child_exits_at_a_durable_capture_boundary() {
                 "revision_id":progress.revision_id,"bytes":progress.bytes,
             });
             fs::write(&checkpoint, serde_json::to_vec(&evidence).unwrap()).unwrap();
-            fs::File::open(&checkpoint).unwrap().sync_all().unwrap();
+            // Windows flushes only through a handle that may write.
+            fs::OpenOptions::new()
+                .read(true)
+                .write(cfg!(windows))
+                .open(&checkpoint)
+                .unwrap()
+                .sync_all()
+                .unwrap();
             // No destructor runs: this exercises the same durability boundary as
             // an abruptly lost owner process, without a timing-dependent kill.
             std::process::exit(EXIT_AT_BOUNDARY);

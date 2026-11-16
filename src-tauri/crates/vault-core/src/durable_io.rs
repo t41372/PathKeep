@@ -12,6 +12,8 @@
 //!   between temp-create and persist (Drop can't run on SIGKILL).
 //! - Wait, briefly, for a file another program holds open on Windows before a move or a
 //!   delete gives up (`retry_while_held`).
+//! - Flush a file written earlier through a handle Windows flushes: one that may write
+//!   (`open_to_flush`).
 //!
 //! ## Not responsible for
 //! - SQLite-internal durability (PRAGMA synchronous / WAL checkpointing).
@@ -237,7 +239,7 @@ pub fn atomic_durable_write_with(
 pub fn install_file_durably(built: &Path, dest: &Path) -> Result<()> {
     {
         let file =
-            File::open(built).with_context(|| format!("open built file {}", built.display()))?;
+            open_to_flush(built).with_context(|| format!("open built file {}", built.display()))?;
         full_fsync(&file)?;
     }
     retry_while_held(|| fs::rename(built, dest))
@@ -253,8 +255,17 @@ pub fn install_file_durably(built: &Path, dest: &Path) -> Result<()> {
 /// renames themselves issue with that barrier already paid — shrinking the window
 /// in which a crash leaves one canonical DB swapped and the other not.
 pub(crate) fn fsync_file_durably(path: &Path) -> Result<()> {
-    let file = File::open(path).with_context(|| format!("open {} for fsync", path.display()))?;
+    let file = open_to_flush(path).with_context(|| format!("open {} for fsync", path.display()))?;
     full_fsync(&file)
+}
+
+/// Opens a file written earlier so it can be flushed. Windows flushes only through a handle that
+/// may write: `FlushFileBuffers` requires `GENERIC_WRITE` and refuses a read-only handle ("access
+/// denied"). Elsewhere a read-only handle flushes the same, and the file is opened as before. A
+/// program that holds the file for a moment, as one does right after it is written, is waited for
+/// ([`retry_while_held`]).
+fn open_to_flush(path: &Path) -> io::Result<File> {
+    retry_while_held(|| fs::OpenOptions::new().read(true).write(cfg!(windows)).open(path))
 }
 
 /// Durably removes the file at `path`: a no-op when already absent (idempotent),
@@ -289,8 +300,8 @@ const HELD_RETRIES: u64 = 10;
 
 /// Runs `op`, and again while it fails only because another program holds the file, within
 /// [`HELD_RETRIES`]. Every move and delete of an archive operation goes through it, here and in
-/// the conversion from the old format. Elsewhere than on Windows nothing holds a file against a
-/// rename or a delete, and `op` runs once.
+/// the conversion from the old format, and so does opening a file to flush it. Elsewhere than on
+/// Windows nothing holds a file against a rename or a delete, and `op` runs once.
 pub fn retry_while_held<T>(op: impl FnMut() -> io::Result<T>) -> io::Result<T> {
     retry(op, held_by_another_program, |attempt| {
         std::thread::sleep(Duration::from_millis(25 * attempt))

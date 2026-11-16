@@ -1,9 +1,15 @@
 //! Responsibilities: make the standalone format marker and key envelope durable.
 //! Not responsible for: database WAL durability, encryption or general-purpose file replacement.
-use std::{fs::File, io, path::Path};
+use std::{
+    fs::{File, OpenOptions},
+    io,
+    path::Path,
+};
 
 pub(super) fn sync_file(path: &Path) -> io::Result<()> {
-    full_sync(&File::open(path)?)
+    // Windows flushes only through a handle that may write: `FlushFileBuffers` requires
+    // `GENERIC_WRITE` and refuses a read-only handle.
+    full_sync(&OpenOptions::new().read(true).write(cfg!(windows)).open(path)?)
 }
 
 #[cfg(unix)]
