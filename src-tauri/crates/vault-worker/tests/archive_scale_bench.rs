@@ -98,6 +98,10 @@ static ALLOCATOR: CountingAllocator = CountingAllocator;
 
 /// Failure mode (f): use the real export and allocator, comparing two archive sizes in an
 /// otherwise idle integration-test process. This guards against collecting rows/strings again.
+///
+/// It runs with one reader per database (`PATHKEEP_TEST_STORE_READERS`). Each reader keeps its own
+/// page cache and a read goes to whichever reader wakes first, so with two the measured export
+/// could count pages it read into a cache as its own memory: the store's, not the export's.
 #[test]
 fn export_heap_stays_bounded_as_archive_grows() {
     // The allocator is process-wide; another test opening a Vault must not count as export memory.
@@ -105,6 +109,7 @@ fn export_heap_stays_bounded_as_archive_grows() {
         let status = std::process::Command::new(std::env::current_exe().unwrap())
             .args(["--exact", "export_heap_stays_bounded_as_archive_grows", "--nocapture"])
             .env("PATHKEEP_EXPORT_HEAP_CHILD", "1")
+            .env("PATHKEEP_TEST_STORE_READERS", "1")
             .status()
             .unwrap();
         assert!(status.success(), "isolated export heap measurement failed");

@@ -365,6 +365,9 @@ pub(crate) fn storage_config(
     // Only the stores this archive's layout holds. Opening one it does not would create it.
     storage.databases = vault_layout::databases_in(layout);
     storage.owner = owner;
+    if let Some(readers) = crate::test_support::store_readers() {
+        storage.readers_per_database = readers;
+    }
     if let Some(data_key) = key {
         storage.keys = vault_store::Db::ALL
             .map(|db| Some(*data_key.derive(vault_layout::database_spec(db).key).expose_bytes()));

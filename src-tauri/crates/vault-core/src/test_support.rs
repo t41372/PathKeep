@@ -99,6 +99,24 @@ pub fn is_preview_test_server(url: &str) -> bool {
             .is_ok_and(|url| url.scheme() == "https" && url.host_str() == Some("127.0.0.1"))
 }
 
+// Failure modes of the store readers switch (`PATHKEEP_TEST_STORE_READERS`):
+// (a) a release build honors it;
+// (b) a value that is not a positive whole number changes the reader count instead of being
+//     ignored;
+// (c) it changes anything but how many readers each database gets.
+
+/// How many readers each database gets, named by `PATHKEEP_TEST_STORE_READERS`, for a test that
+/// measures memory. Each reader keeps its own page cache, and a read goes to whichever reader
+/// wakes first, so with two a measured run can read pages into a cache that the runs before it
+/// filled on the other reader: the store's memory, counted as the measured work's. One reader
+/// serves every read the same way. Debug builds only, like `network_is_blocked`.
+pub fn store_readers() -> Option<std::num::NonZeroUsize> {
+    if !cfg!(debug_assertions) {
+        return None;
+    }
+    std::env::var("PATHKEEP_TEST_STORE_READERS").ok()?.parse().ok()
+}
+
 #[cfg(test)]
 pub(crate) fn network_test_child() -> bool {
     std::env::var_os("PATHKEEP_NETWORK_TEST_CHILD").is_some()
