@@ -5,6 +5,8 @@
 
 **當前 Milestone：M19 — 多種資料類型與 Agent 對話（v0.6.0）**（M18 Frontend redesign 已隨 v0.5.0 完成）
 
+> 用戶 2026-11-16：不發 v0.5.1、v0.5.2，下一個發布就是 v0.6.0，landing page 跟它一起上線。v0.5.x 準備好的 Windows 修正都已在這條分支（BACKLOG `WORK-WINDOWS-FLUSH-V05`）。
+
 ---
 
 ## CURRENT FOCUS
