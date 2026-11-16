@@ -110,7 +110,7 @@ pub(super) fn open_using(
     };
     let vault = open(paths, config, &key, owner)?;
     if promote {
-        crate::durable_io::retry_while_held(|| std::fs::rename(&pending, &final_path))?;
+        vault_fs::rename(&pending, &final_path)?;
         sync_parent(&final_path)?;
     }
     Ok((vault, key))

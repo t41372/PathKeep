@@ -35,11 +35,11 @@ pub(super) fn write_export<T>(
         result
     };
     full_sync(temporary.as_file())?;
-    temporary.persist_noclobber(&destination).map_err(|error| {
-        if error.error.kind() == io::ErrorKind::AlreadyExists {
+    vault_fs::persist_noclobber(temporary, &destination).map_err(|error| {
+        if error.kind() == io::ErrorKind::AlreadyExists {
             Error::AlreadyExists("export destination".into())
         } else {
-            Error::Io(error.error)
+            Error::Io(error)
         }
     })?;
     sync_directory(parent)?;

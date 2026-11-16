@@ -64,7 +64,7 @@ use crate::ai_sidecar::provider_table_name;
 use crate::config::{ProjectPaths, ensure_paths};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use std::fs::{self, File, OpenOptions};
+use std::fs::{File, OpenOptions};
 use std::io::{BufReader, BufWriter, Read, Seek, Write};
 use std::path::PathBuf;
 
@@ -478,7 +478,7 @@ impl VectorStore {
         if !self.exists() {
             return Ok(false);
         }
-        fs::remove_file(&self.path)
+        vault_fs::remove_file(&self.path)
             .with_context(|| format!("removing vector store {}", self.path.display()))?;
         Ok(true)
     }

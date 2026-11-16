@@ -290,7 +290,7 @@ fn copy_with_sidecars(source: &Path, destination: &Path) -> Result<()> {
     copy_with_context(source, destination)?;
     for suffix in ["-wal", "-shm", "-journal"] {
         let target = with_suffix(destination, suffix);
-        match fs::remove_file(&target) {
+        match vault_fs::remove_file(&target) {
             Err(error) if error.kind() != ErrorKind::NotFound => {
                 return Err(error)
                     .with_context(|| format!("removing staged sidecar {}", target.display()));

@@ -210,10 +210,7 @@ impl Unit {
     fn rename(&self, staged: &Path, n: u32) -> Result<()> {
         for suffix in &self.present {
             let (from, to) = (self.member(1, suffix), self.member(n, suffix));
-            crate::durable_io::retry_while_held(|| {
-                fs::rename(staged.join(&from), staged.join(&to))
-            })
-            .with_context(|| {
+            vault_fs::rename(staged.join(&from), staged.join(&to)).with_context(|| {
                 format!("renaming the copy {} in the stage", Path::new(&from).display())
             })?;
         }

@@ -73,7 +73,7 @@ fn save_app_lock_state(paths: &ProjectPaths, state: &AppLockStateRecord) -> Resu
 fn clear_app_lock_state(paths: &ProjectPaths) -> Result<()> {
     let path = app_lock_state_path(paths);
     if path.exists() {
-        fs::remove_file(&path).with_context(|| format!("removing {}", path.display()))?;
+        vault_fs::remove_file(&path).with_context(|| format!("removing {}", path.display()))?;
     }
     Ok(())
 }
@@ -100,7 +100,7 @@ fn save_app_lock_secret(paths: &ProjectPaths, secret: &AppLockSecretRecord) -> R
 fn clear_app_lock_secret(paths: &ProjectPaths) -> Result<()> {
     let path = app_lock_secret_path(paths);
     if path.exists() {
-        fs::remove_file(&path).with_context(|| format!("removing {}", path.display()))?;
+        vault_fs::remove_file(&path).with_context(|| format!("removing {}", path.display()))?;
     }
     Ok(())
 }

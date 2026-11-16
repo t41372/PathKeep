@@ -1028,7 +1028,7 @@ fn entries_of(dir: &Path) -> Result<Vec<PathBuf>> {
 
 /// Removes a file, folder or symlink. A symlink is unlinked; its target is never touched.
 fn remove_path(path: &Path) -> io::Result<()> {
-    crate::durable_io::retry_while_held(|| {
+    vault_fs::retry_while_held(|| {
         let result = match fs::symlink_metadata(path) {
             Ok(meta) if meta.is_dir() => fs::remove_dir_all(path),
             // Windows keeps directory symlinks as directories, which `remove_file` refuses.

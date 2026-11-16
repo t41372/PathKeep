@@ -26,7 +26,7 @@
 //! temporary file synced, renamed, directory synced) and checks that the envelope opens.
 
 use std::ffi::OsString;
-use std::fs::{self, File, OpenOptions};
+use std::fs::{File, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
@@ -41,7 +41,7 @@ pub(crate) fn replace(path: &Path, contents: &[u8]) -> io::Result<()> {
     file.sync_all()?;
     drop(file);
     crash_point("atomic-replace/temp-synced", path);
-    fs::rename(&temp, path)?;
+    vault_fs::rename(&temp, path)?;
     crash_point("atomic-replace/renamed", path);
     sync_parent_directory(path)?;
     crash_point("atomic-replace/directory-synced", path);

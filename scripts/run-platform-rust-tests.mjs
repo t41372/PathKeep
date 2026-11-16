@@ -44,6 +44,8 @@ async function runHostRustTests(currentPlatform) {
       // renamed or deleted), and no other gate runs these tests on Windows.
       await runShowingCrashedTests([
         '-p',
+        'vault-fs',
+        '-p',
         'vault-core',
         '-p',
         'vault-worker',

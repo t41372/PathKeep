@@ -265,7 +265,7 @@ fn write_marker(root: &Path, bytes: &[u8]) -> Result<()> {
     drop(file);
     private_file(&temporary)?;
     durability::sync_file(&temporary)?;
-    fs::rename(&temporary, &path)?;
+    vault_fs::rename(&temporary, &path)?;
     durability::sync_directory(root)?;
     if let Some(parent) = root.parent() {
         durability::sync_directory(parent)?;

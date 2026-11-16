@@ -20,7 +20,7 @@ mod snapshots;
 pub use snapshots::list_legacy_snapshots;
 
 use anyhow::{Context, Result};
-use std::{fs, path::Path};
+use std::path::Path;
 use vault_core::{
     AppConfig, ArchiveMode, ArchiveRecoveryKind, ArchiveRecoveryReport, DiskEncryptionMode,
     LaunchRecovery, ProjectPaths,
@@ -194,7 +194,7 @@ fn remove_stale_sidecars(path: &Path) {
         .filter(|suffix| !suffix.is_empty())
     {
         let sidecar = format!("{}{}", path.display(), suffix);
-        let _ = vault_core::durable_io::retry_while_held(|| fs::remove_file(&sidecar));
+        let _ = vault_fs::remove_file(&sidecar);
     }
 }
 
@@ -202,7 +202,7 @@ fn remove_stale_sidecars(path: &Path) {
 mod tests {
     use super::fixtures::*;
     use super::*;
-    use std::{sync::mpsc, time::Duration};
+    use std::{fs, sync::mpsc, time::Duration};
     use tempfile::tempdir;
     use vault_core::{config::ensure_paths, project_paths_with_root};
 

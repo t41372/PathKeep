@@ -15,7 +15,7 @@ use vault_core::{
     AppConfig, ArchiveMode, DiskEncryptionMode, ProjectPaths,
     archive::ArchiveWriteLock,
     detect_disk_encryption_mode,
-    durable_io::{atomic_durable_write, remove_file_durably, retry_while_held},
+    durable_io::{atomic_durable_write, remove_file_durably},
 };
 
 /// Filename of the durable interrupted-import marker, placed beside the canonical
@@ -105,11 +105,10 @@ fn remove_path_if_exists(path: &Path) -> Result<()> {
         return Ok(());
     }
     if path.is_dir() {
-        retry_while_held(|| fs::remove_dir_all(path))
+        vault_fs::remove_dir_all(path)
             .with_context(|| format!("removing directory {}", path.display()))
     } else {
-        retry_while_held(|| fs::remove_file(path))
-            .with_context(|| format!("removing {}", path.display()))
+        vault_fs::remove_file(path).with_context(|| format!("removing {}", path.display()))
     }
 }
 
@@ -128,7 +127,7 @@ fn restore_bak_sidecars(bak: &Path, target: &Path) -> Result<()> {
         let bak_sidecar = PathBuf::from(format!("{}{}", bak.display(), suffix));
         if bak_sidecar.exists() {
             let target_sidecar = PathBuf::from(format!("{}{}", target.display(), suffix));
-            retry_while_held(|| fs::rename(&bak_sidecar, &target_sidecar)).with_context(|| {
+            vault_fs::rename(&bak_sidecar, &target_sidecar).with_context(|| {
                 format!(
                     "restoring sidecar {} from {}",
                     target_sidecar.display(),
@@ -167,7 +166,7 @@ fn rollback_import(paths: &ProjectPaths, journal: &ImportJournal) -> Result<()> 
             // sidecars across. The main rename is the commit point of the restore.
             super::remove_stale_sidecars(target);
             remove_path_if_exists(target)?;
-            retry_while_held(|| fs::rename(&bak, target)).with_context(|| {
+            vault_fs::rename(&bak, target).with_context(|| {
                 format!("restoring {} from {}", target.display(), bak.display())
             })?;
             restore_bak_sidecars(&bak, target)?;

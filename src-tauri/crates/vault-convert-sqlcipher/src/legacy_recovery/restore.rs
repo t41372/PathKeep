@@ -17,9 +17,7 @@ use vault_core::{
     AppConfig, ArchiveMode, DiskEncryptionMode, ProjectPaths,
     archive::ArchiveWriteLock,
     detect_disk_encryption_mode,
-    durable_io::{
-        atomic_durable_write, install_file_durably, remove_file_durably, retry_while_held,
-    },
+    durable_io::{atomic_durable_write, install_file_durably, remove_file_durably},
     save_config,
 };
 
@@ -167,7 +165,7 @@ fn resolve_interrupted_restore(paths: &ProjectPaths, journal: &RestoreJournal) -
         let restore_temp = paths.legacy.archive.with_extension(vault_layout::family_extension(
             vault_layout::ArtifactId::LegacyRestoreTemps,
         ));
-        let _ = fs::remove_file(&restore_temp);
+        let _ = vault_fs::remove_file(&restore_temp);
         super::remove_stale_sidecars(&restore_temp);
         install_restored_archive(&snapshot_ref, &restore_temp, paths)?;
         reconcile_restore_config(paths, journal)?;
@@ -279,7 +277,7 @@ fn restore_quarantined_original(quarantine_dir: &Path, canonical: &Path) {
     };
     let quarantined = quarantine_dir.join(name);
     if quarantined.exists() {
-        let _ = retry_while_held(|| fs::rename(&quarantined, canonical));
+        let _ = vault_fs::rename(&quarantined, canonical);
         for suffix in vault_layout::CompanionFamily::LegacySqlite
             .suffixes(vault_layout::CompanionUse::Recovery)
             .iter()
@@ -289,7 +287,7 @@ fn restore_quarantined_original(quarantine_dir: &Path, canonical: &Path) {
             let from = PathBuf::from(format!("{}{}", quarantined.display(), suffix));
             if from.exists() {
                 let to = PathBuf::from(format!("{}{}", canonical.display(), suffix));
-                let _ = retry_while_held(|| fs::rename(&from, &to));
+                let _ = vault_fs::rename(&from, &to);
             }
         }
     }

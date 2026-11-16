@@ -13,6 +13,7 @@ test-fixtures = []
 [dependencies]
 agent-history = { path = "../agent-history" }
 vault-build = { path = "../vault-build" }
+vault-fs = { path = "../vault-fs" }
 vault-layout = { path = "../vault-layout" }
 vault-crypto = { path = "../vault-crypto" }
 zeroize = "1"

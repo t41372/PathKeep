@@ -234,16 +234,16 @@ fn remove_path(path: &Path) -> Result<(u64, usize)> {
             let (bytes, files) = remove_path(&entry?.path())?;
             totals = (totals.0 + bytes, totals.1 + files);
         }
-        crate::durable_io::retry_while_held(|| fs::remove_dir(path))?;
+        vault_fs::remove_dir(path)?;
         return Ok(totals);
     }
     #[cfg(windows)]
     if std::os::windows::fs::FileTypeExt::is_symlink_dir(&metadata.file_type()) {
         // Windows keeps a link to a folder as a folder entry, which `remove_file` refuses.
-        crate::durable_io::retry_while_held(|| fs::remove_dir(path))?;
+        vault_fs::remove_dir(path)?;
         return Ok((0, 1));
     }
-    crate::durable_io::retry_while_held(|| fs::remove_file(path))?;
+    vault_fs::remove_file(path)?;
     Ok((if metadata.is_file() { metadata.len() } else { 0 }, 1))
 }
 

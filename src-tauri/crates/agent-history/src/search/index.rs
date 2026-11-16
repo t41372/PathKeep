@@ -89,7 +89,7 @@ pub(super) fn recreate(archive: &Archive) -> Result<Opened> {
         }
         // Only derived state under this archive's fixed search directory is reset.
         // The source and canonical records are outside this operation's ownership.
-        std::fs::remove_dir_all(&path)?;
+        vault_fs::remove_dir_all(&path)?;
     }
     std::fs::create_dir_all(&path)?;
     let (storage, directory) = directory(archive)?;

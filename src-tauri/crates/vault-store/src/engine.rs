@@ -154,7 +154,7 @@ pub(crate) fn prepare_paths(config: &Config) -> Result<()> {
     {
         let mut path = config.paths.scratch.as_os_str().to_owned();
         path.push(suffix);
-        match fs::remove_file(path) {
+        match vault_fs::remove_file(path) {
             Ok(()) => {}
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
             Err(e) => return Err(e.into()),

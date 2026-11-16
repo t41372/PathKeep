@@ -81,6 +81,7 @@ dependencies = [
  "thiserror 2.0.18",
  "url",
  "vault-crypto",
+ "vault-fs",
  "vault-layout",
  "vault-store",
  "walkdir",
@@ -8515,6 +8516,7 @@ dependencies = [
  "tempfile",
  "vault-core",
  "vault-crypto",
+ "vault-fs",
  "vault-layout",
  "vault-store",
 ]
@@ -8564,6 +8566,7 @@ dependencies = [
  "ureq",
  "vault-build",
  "vault-crypto",
+ "vault-fs",
  "vault-layout",
  "vault-search",
  "vault-store",
@@ -8595,8 +8598,16 @@ dependencies = [
  "turso",
  "turso_core",
  "vault-crypto",
+ "vault-fs",
  "vault-layout",
  "zeroize",
+]
+
+[[package]]
+name = "vault-fs"
+version = "0.1.0"
+dependencies = [
+ "tempfile",
 ]
 
 [[package]]
@@ -8671,6 +8682,7 @@ dependencies = [
  "tokio",
  "tracing",
  "turso",
+ "vault-fs",
  "vault-layout",
  "zeroize",
 ]

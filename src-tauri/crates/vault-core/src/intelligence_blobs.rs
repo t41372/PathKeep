@@ -38,7 +38,7 @@ pub(crate) fn store_readable_text_blob(
         }
         let temp_path = absolute_path.with_extension("tmp");
         fs::write(&temp_path, text).with_context(|| format!("writing {}", temp_path.display()))?;
-        fs::rename(&temp_path, &absolute_path)
+        vault_fs::rename(&temp_path, &absolute_path)
             .with_context(|| format!("persisting {}", absolute_path.display()))?;
     }
     Ok(Some(StoredBlob {

@@ -331,7 +331,7 @@ pub fn import(
             let destination = stage.path().join(descriptor.path.relative());
             fs::create_dir_all(destination.parent().unwrap())?;
             let source = stage.path().join(entry);
-            crate::durable_io::retry_while_held(|| fs::rename(&source, &destination))?;
+            vault_fs::rename(&source, &destination)?;
         }
     }
     let mut config = crate::load_config(&staged_paths)?;

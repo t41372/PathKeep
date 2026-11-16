@@ -279,8 +279,7 @@ pub fn ensure_model_downloaded(
         fetch_one_file(file, downloaded.path(), progress)?;
         // A failed download or hash check removes only the temporary file, never an active model.
         verify_file_sha256(downloaded.path(), file.sha256)?;
-        downloaded
-            .persist(&dest)
+        vault_fs::persist(downloaded, &dest)
             .with_context(|| format!("installing verified model file {}", dest.display()))?;
         progress.file_finished(file.name);
     }
@@ -369,7 +368,7 @@ struct PartialFileGuard<'a> {
 impl Drop for PartialFileGuard<'_> {
     fn drop(&mut self) {
         if self.armed {
-            let _ = std::fs::remove_file(self.dest);
+            let _ = vault_fs::remove_file(self.dest);
         }
     }
 }

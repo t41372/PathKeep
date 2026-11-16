@@ -225,7 +225,7 @@ fn rollback_rekey(paths: &ProjectPaths, journal: &RekeyJournal) -> Result<()> {
         .legacy
         .archive
         .with_extension(vault_layout::family_extension(vault_layout::ArtifactId::LegacyRekeyTemps));
-    let _ = fs::remove_file(&temp_path);
+    let _ = vault_fs::remove_file(&temp_path);
     super::remove_stale_sidecars(&temp_path);
     let _control = vault_core::ControlGate::acquire(paths);
     match &journal.previous_config {

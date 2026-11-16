@@ -331,7 +331,7 @@ impl ReverseVisitMap {
         let positions = self.forward_path.with_extension("pkpos");
         for path in [&self.reverse_path, &self.forward_path, &positions] {
             if path.exists() {
-                fs::remove_file(path)
+                vault_fs::remove_file(path)
                     .with_context(|| format!("removing reverse sidecar {}", path.display()))?;
                 removed = true;
             }
@@ -381,7 +381,7 @@ fn write_sidecar_atomic(
         }
         writer.flush().context("flushing reverse sidecar")?;
     }
-    fs::rename(&tmp, path)
+    vault_fs::rename(&tmp, path)
         .with_context(|| format!("finalizing reverse sidecar {}", path.display()))?;
     Ok(())
 }
