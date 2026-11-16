@@ -8,6 +8,8 @@
 //! read in its own new process, then repeats it warm, including a complete 14.4M-row
 //! export and process peak RSS. Its fixture is encrypted and removed when the test ends.
 //! `turso_intelligence::encrypted_intelligence_at_scale` does the same for an Insights rebuild.
+//! `turso_maintenance::maintenance_at_scale` measures the operations a user waits through (an
+//! encryption change, a restore, a move file's export and import), one step per run.
 //! Set CARGO_TARGET_DIR to the shared build directory before running cargo.
 
 use std::{
@@ -159,3 +161,6 @@ mod turso_intelligence;
 
 #[path = "archive_scale_bench/turso_same_visit.rs"]
 mod turso_same_visit;
+
+#[path = "archive_scale_bench/turso_maintenance.rs"]
+mod turso_maintenance;
