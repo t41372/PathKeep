@@ -64,6 +64,11 @@ pub(crate) fn seal(root: &Path) -> Result<()> {
 /// Makes the archive an install replaced (`install::Keep::SafetyCopy`) a copy a restore can use.
 /// Its search index goes, as a snapshot has none: a restore builds its own. The rest is sealed as
 /// it is.
+///
+/// The install seals it once the new archive is in place. When that fails (a file another program
+/// held, a read that failed once), the restore that needs the copy seals it then
+/// ([`unsealed_replaced_archive`]): its files are the archive as it was replaced, moved whole by
+/// one rename, and nothing writes to them since.
 pub(super) fn seal_replaced(copy: &Path) -> Result<()> {
     let layout = crate::admission::root_layout(copy)?;
     let sealed = database_files(layout, false);
@@ -71,6 +76,22 @@ pub(super) fn seal_replaced(copy: &Path) -> Result<()> {
         install::remove(&copy.join(rebuilt))?;
     }
     seal(copy)
+}
+
+/// Whether `source` is an archive a restore or an import replaced that has no seal yet, in this
+/// archive's own folder of copies. Only such a copy is sealed by a restore: a safety snapshot
+/// without a seal was cut short while it was written and may lack files, and a folder elsewhere is
+/// not PathKeep's to write in.
+fn unsealed_replaced_archive(paths: &ProjectPaths, source: &Path) -> bool {
+    let copies = paths.artifact_path(vault_layout::ArtifactId::NativeSnapshots);
+    let here = |path: &Path| fs::canonicalize(path).ok();
+    source.is_dir()
+        && !source.join(SEAL).exists()
+        && source
+            .file_name()
+            .is_some_and(|name| install::Before::of_copy(&name.to_string_lossy()).is_some())
+        && here(copies.as_path()).is_some()
+        && source.parent().and_then(here) == here(copies.as_path())
 }
 
 pub(crate) fn verify(root: &Path) -> Result<()> {
@@ -171,6 +192,9 @@ pub fn restore_snapshot_to(
         "archive-wipe-pending: a delete-all-data has not finished; it finishes before anything is \
          restored or imported"
     );
+    if unsealed_replaced_archive(paths, source) {
+        seal_replaced(source)?;
+    }
     verify(source)?;
     // The snapshot's own control, read where it lies, before anything is staged in the target.
     if let Some(control) = crate::admission::read_control(source)? {
@@ -442,8 +466,10 @@ pub fn recover_native_maintenance(paths: &ProjectPaths) -> Result<bool> {
 /// Directory snapshots keep all databases together; discovery stays keyless. One that cannot be
 /// read is listed as not openable rather than hiding the others. A folder without a seal is a
 /// safety snapshot cut short, freed with the other snapshots, unless it is the archive a restore or
-/// an import replaced: that is a copy from the moment it has its name, sealed or not (an error while
-/// sealing it), listed as one that cannot be restored from so it is never freed unpicked.
+/// an import replaced: that is a copy from the moment it has its name, sealed or not, so it is never
+/// freed unpicked. Without a seal it is offered for a restore, which seals it first, when its
+/// control can be read; one that cannot (a restore replaced a damaged archive) cannot be sealed or
+/// restored from.
 pub fn list_snapshots(paths: &ProjectPaths) -> Result<Vec<crate::RecoverySnapshot>> {
     let root = paths.artifact_path(vault_layout::ArtifactId::NativeSnapshots);
     if !root.exists() {
@@ -478,6 +504,7 @@ pub fn list_snapshots(paths: &ProjectPaths) -> Result<Vec<crate::RecoverySnapsho
             .ok()
             .map(|time| chrono::DateTime::<chrono::Utc>::from(time).to_rfc3339());
         let source_op = before.map_or("maintenance", install::Before::op);
+        let restorable = sealed || crate::admission::root_layout(&path).is_ok();
         let name = path.display().to_string();
         result.push(crate::RecoverySnapshot {
             id: name.clone(),
@@ -485,7 +512,7 @@ pub fn list_snapshots(paths: &ProjectPaths) -> Result<Vec<crate::RecoverySnapsho
             created_at: created,
             // The whole copy, as Free up space shows and deletes it.
             size_bytes: super::retention::measure(&path).map_or(size, |(bytes, _)| bytes),
-            verified_openable: sealed && size >= 4096,
+            verified_openable: restorable && size >= 4096,
             encrypted,
             source_op: source_op.into(),
             label: label.into(),

@@ -611,9 +611,10 @@ pub struct RecoverySnapshot {
     /// On-disk size in bytes: every file of a native copy, the database file of an old-format one.
     pub size_bytes: u64,
     /// KEYLESS header-only openability signal (never a b-tree walk). For an encrypted snapshot
-    /// this is structural-only (size); the authoritative keyed `quick_check` runs at restore. False
-    /// for a native copy without its seal (the archive a restore or an import replaced, when
-    /// sealing it failed): a restore checks the seal first, and refuses it.
+    /// this is structural-only (size); the authoritative keyed `quick_check` runs at restore. The
+    /// archive a restore or an import replaced counts when it has no seal (an error while sealing
+    /// it): the restore seals it first. False when its control cannot be read, so it cannot be
+    /// sealed.
     pub verified_openable: bool,
     /// KEYLESS at-rest signal: the snapshot file is SQLCipher-encrypted on disk (header is a random
     /// salt, not the SQLite plaintext magic). When true the recovery UI must ask for the archive key

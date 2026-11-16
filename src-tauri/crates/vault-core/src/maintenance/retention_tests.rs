@@ -118,8 +118,9 @@ fn the_newest_copy_goes_when_picked_and_no_other_copy_does() {
 
 // The row for the other snapshots (browser checkpoints, safety snapshots cut short before their
 // seal) never takes a listed copy with it, the newest included, and shows only its own size. The
-// archive a restore or an import replaced is a listed copy even when its seal could not be written
-// (an error while sealing it): a row of its own that cannot be restored from, freed only when picked.
+// archive a restore or an import replaced is a listed copy even when it has no seal: a row of its
+// own, freed only when picked. This one has a control that cannot be read (a restore replaced a
+// damaged archive), so nothing can seal it and it cannot be restored from.
 #[test]
 fn the_other_snapshots_go_without_any_copy() {
     let (_root, vault, copies, checkpoint) = archive_with_copies();
@@ -130,6 +131,7 @@ fn the_other_snapshots_go_without_any_copy() {
     let unsealed = maintenance.join("before-restore-unsealed");
     std::fs::create_dir_all(unsealed.join("archive")).unwrap();
     std::fs::write(unsealed.join("archive/history-vault.db"), vec![2u8; 6_000]).unwrap();
+    std::fs::write(unsealed.join("config.json"), b"{ damaged").unwrap();
     let preview = preview_retention(vault.paths(), &listed(&vault)).unwrap();
     let bucket = preview.buckets.iter().find(|bucket| bucket.id == "snapshots").unwrap();
     assert_eq!(bucket.bytes, tree_bytes(&checkpoint) + tree_bytes(&cut_short));

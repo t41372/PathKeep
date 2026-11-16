@@ -1042,9 +1042,13 @@ fn keep_as_copy(paths: &ProjectPaths, located: &Located, copy: &Path) -> Result<
         }
     }
     if copy.is_dir() && !copy.join(super::snapshot::SEAL).exists() {
-        // A replaced archive that cannot be sealed (its control damaged, or an error while reading
-        // it) cannot be restored either. It is still a copy: listed under the operation it was made
-        // before, counted, and freed only when the user picks it (`snapshot::list_snapshots`).
+        // A replaced archive the install cannot seal is still a copy: listed under the operation it
+        // was made before, counted, and freed only when the user picks it. After an error while
+        // reading it (a file another program held, a read that failed once) the restore that needs
+        // it seals it first; one whose control is damaged cannot be sealed or restored from
+        // (`snapshot::list_snapshots`). The error stops neither this install, published already,
+        // nor the start that finishes one: the archive in place is the new one, and a copy that
+        // can never be sealed must not keep it from opening.
         if let Err(error) = super::snapshot::seal_replaced(copy) {
             eprintln!(
                 "PathKeep install: the replaced archive kept in {} could not be sealed: {error:#}",

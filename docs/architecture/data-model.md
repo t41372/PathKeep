@@ -593,7 +593,11 @@ and entry digests in staging, authenticates the export password, checks database
 integrity, builds search, then closes the old owner and performs the journaled
 installation. The archive it replaces is kept as a safety copy
 (`raw-snapshots/maintenance/before-import-*`): listed for a restore, counted in
-disk usage and removed by freeing space like the other copies. `raw-snapshots/`
+disk usage and removed by freeing space like the other copies. Its `snapshot.json`
+is written once the new archive is in place, by reading the copy again; when that
+read fails, the restore that later needs the copy writes it first, as it does for a
+restore's own `before-restore-*` copy. Its files were moved whole and nothing writes
+to them since. Only a copy whose control cannot be read is never offered. `raw-snapshots/`
 is replaced entry by entry (`migration::safety_copies`): the browsers' history
 files a backup copied are the file's afterwards, and this computer's go into the
 copy with the archive they belong to; this computer's safety copies stay where

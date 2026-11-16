@@ -11,7 +11,10 @@
 //! crash after the publish leaves the replaced files hidden; a rename cut on a file system without
 //! a journal, which leaves the replaced archive under both names, is taken for another copy already
 //! there, and the archive stays hidden and unsealed; an import into an empty folder leaves an empty
-//! copy behind; the copy keeps a search index nothing reads.
+//! copy behind; the copy keeps a search index nothing reads; a copy whose seal could not be written
+//! (an error while reading it) can never be restored, though its files are whole; a restore seals a
+//! safety snapshot cut short before its seal, which may lack files, or writes a seal into a folder
+//! outside the archive's own copies.
 use super::creation::tests::{ADDED, marker, open, released_archive, write_marker};
 use super::snapshot::{list_snapshots, restore_snapshot, snapshot};
 use crate::{ApplyImportOptions, ProjectPaths, RecoverySnapshot, Vault, project_paths_with_root};
@@ -105,6 +108,56 @@ fn a_crash_after_the_restore_is_published_still_makes_the_copy() {
     assert_eq!(marker(&reopened, Db::Archive).as_deref(), Some("released-archive"));
     let back = restore_snapshot(&reopened, &copy, None, Default::default()).unwrap();
     assert_eq!(marker(&back.vault, Db::Archive).as_deref(), Some("replaced-by-the-restore"));
+}
+
+// The seal of a replaced archive is written after the new archive is in place, by reading every
+// file again. An error then (a file another program held, a read that failed once) leaves the copy
+// without one. Its files are the archive as it was replaced, moved whole, so the copy is still
+// offered, and the restore that needs it seals it first.
+#[test]
+fn a_replaced_archive_left_unsealed_is_sealed_by_the_restore_that_needs_it() {
+    let (_root, paths) = released_archive();
+    let (_copies, older) = older_copy(&paths);
+    let live = open(&paths).unwrap();
+    write_marker(live.store(), Db::Archive, "replaced-by-the-restore");
+    let restored = restore_snapshot(&live, &older, None, Default::default()).unwrap();
+    let copy = PathBuf::from(&copies_before(&paths, "restore")[0].path);
+    // What an error while sealing leaves.
+    std::fs::remove_file(copy.join("snapshot.json")).unwrap();
+
+    assert_eq!(the_copy_before(&paths, "restore"), copy);
+    let back = restore_snapshot(&restored.vault, &copy, None, Default::default()).unwrap();
+    assert_eq!(marker(&back.vault, Db::Archive).as_deref(), Some("replaced-by-the-restore"));
+    assert!(copy.join("snapshot.json").is_file(), "sealed as the restore found it");
+}
+
+// Only a replaced archive in the archive's own folder of copies is sealed by a restore. A safety
+// snapshot without a seal was cut short while it was written and may lack files; a folder named like
+// a copy elsewhere is not PathKeep's to write in. Both are refused with nothing written.
+#[test]
+fn a_restore_seals_no_snapshot_cut_short_and_no_folder_elsewhere() {
+    let (_root, paths) = released_archive();
+    let (_copies, older) = older_copy(&paths);
+    let live = open(&paths).unwrap();
+    let restored = restore_snapshot(&live, &older, None, Default::default()).unwrap();
+    let copy = PathBuf::from(&copies_before(&paths, "restore")[0].path);
+    std::fs::remove_file(copy.join("snapshot.json")).unwrap();
+    let folder = copy.parent().unwrap();
+    let cut_short = folder.join("rekey-cut-short");
+    super::move_copies_tests::copy_tree(&copy, &cut_short);
+    let elsewhere = tempfile::tempdir().unwrap();
+    let outside = elsewhere.path().join(copy.file_name().unwrap());
+    super::move_copies_tests::copy_tree(&copy, &outside);
+
+    for refused in [&cut_short, &outside] {
+        assert!(
+            restore_snapshot(&restored.vault, refused, None, Default::default()).is_err(),
+            "{} restored",
+            refused.display()
+        );
+        assert!(!refused.join("snapshot.json").exists(), "{} was sealed", refused.display());
+    }
+    assert_eq!(marker(&restored.vault, Db::Archive).as_deref(), Some("released-archive"));
 }
 
 // On FAT32 or exFAT a power cut during the rename that makes the replaced archive a copy can leave
