@@ -1,0 +1,134 @@
+{
+  "recordedAt": "2026-11-10T20:50:05.435832+00:00",
+  "purpose": "Correct interpretation of the release rehearsal without changing its frozen raw logs",
+  "frozenEvidenceManifestSha256": "93e8dad2b36de36ffdd285837d4c5f469c5cbc4e79387e13bf828745062f9e81",
+  "supersedes": "The blanket NO-GO assessment in the first report and frozen checks.json; command exit codes remain historical facts",
+  "existingGate": {
+    "sha": "89ed2040bbb0cc1a36450f7004a08a51024bf70b",
+    "conclusion": "success",
+    "url": "https://github.com/t41372/PathKeep/actions/runs/42782511470"
+  },
+  "pr18PreMergeGate": {
+    "sha": "8e73d4bc7239ca1b3b835a6c76c5fd2b098d1f9f",
+    "conclusion": "success",
+    "url": "https://github.com/t41372/PathKeep/actions/runs/42780460289"
+  },
+  "nativeRehearsal": "This host denied required system operations. These results do not invalidate existing CI or prove a product regression.",
+  "priorAcceptance": {
+    "source": "User confirmation in the 2026-11-10 follow-up",
+    "scope": "14.4M upgrade/backup and cross-platform installation validation",
+    "status": "confirmed complete; withdraw missing-validation assertion",
+    "newMeasurementsProduced": false
+  },
+  "javascriptAudit": {
+    "formalGatePreviouslyIncludedBunAudit": false,
+    "reportedPackages": 19,
+    "allReportedPackageVersionSetsEqualV040": true,
+    "packages": [
+      {
+        "package": "@babel/core",
+        "v040Versions": ["7.29.0"],
+        "headVersions": ["7.29.0"]
+      },
+      {
+        "package": "@humanfs/node",
+        "v040Versions": ["0.16.7"],
+        "headVersions": ["0.16.7"]
+      },
+      {
+        "package": "@vitest/mocker",
+        "v040Versions": ["4.1.2"],
+        "headVersions": ["4.1.2"]
+      },
+      {
+        "package": "baseline-browser-mapping",
+        "v040Versions": ["2.10.14"],
+        "headVersions": ["2.10.14"]
+      },
+      {
+        "package": "brace-expansion",
+        "v040Versions": ["1.1.13", "5.0.5"],
+        "headVersions": ["1.1.13", "5.0.5"]
+      },
+      {
+        "package": "browserslist",
+        "v040Versions": ["4.28.2"],
+        "headVersions": ["4.28.2"]
+      },
+      {
+        "package": "dompurify",
+        "v040Versions": ["3.4.11"],
+        "headVersions": ["3.4.11"]
+      },
+      {
+        "package": "js-yaml",
+        "v040Versions": ["4.1.1"],
+        "headVersions": ["4.1.1"]
+      },
+      {
+        "package": "katex",
+        "v040Versions": ["0.16.47"],
+        "headVersions": ["0.16.47"]
+      },
+      {
+        "package": "mermaid",
+        "v040Versions": ["11.15.0"],
+        "headVersions": ["11.15.0"]
+      },
+      {
+        "package": "minimatch",
+        "v040Versions": ["10.2.5", "3.1.5"],
+        "headVersions": ["10.2.5", "3.1.5"]
+      },
+      {
+        "package": "nanoid",
+        "v040Versions": ["3.3.11"],
+        "headVersions": ["3.3.11"]
+      },
+      {
+        "package": "postcss",
+        "v040Versions": ["8.5.8"],
+        "headVersions": ["8.5.8"]
+      },
+      {
+        "package": "react-router",
+        "v040Versions": ["7.14.0"],
+        "headVersions": ["7.14.0"]
+      },
+      {
+        "package": "source-map-js",
+        "v040Versions": ["1.2.1"],
+        "headVersions": ["1.2.1"]
+      },
+      {
+        "package": "undici",
+        "v040Versions": ["7.24.7"],
+        "headVersions": ["7.24.7"]
+      },
+      {
+        "package": "vite",
+        "v040Versions": ["8.0.3"],
+        "headVersions": ["8.0.3"]
+      },
+      {
+        "package": "vitest",
+        "v040Versions": ["4.1.2"],
+        "headVersions": ["4.1.2"]
+      },
+      {
+        "package": "zod",
+        "v040Versions": ["4.3.6"],
+        "headVersions": ["4.3.6"]
+      }
+    ],
+    "interpretation": "Version matches, not 19 new regressions or proven exploitable product vulnerabilities; applicability assessment remains separate"
+  },
+  "upgradeCompatibility": {
+    "v040ArchiveSchema": 1,
+    "newArchiveSchema": 23,
+    "v040IntelligenceSchema": 1,
+    "newIntelligenceSchema": 2,
+    "meaning": "Forward migration; old binary refuses newer schema. A pre-upgrade copy preserves downgrade ability; this is not an upgrade defect or a release blocker."
+  },
+  "publicationApproval": "Still required; this user follow-up did not authorize publishing"
+}

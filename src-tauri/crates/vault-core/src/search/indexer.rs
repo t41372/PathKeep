@@ -2,7 +2,8 @@
 //! Not responsible for: archive writes, normalization policy or query sessions.
 //! Failure modes: acknowledging before commit loses pages; replay duplicates pages;
 //! failed rebuild replaces good readers; missing index silently looks empty;
-//! close leaves the writer or encryption cache alive; unbounded queues retain the corpus.
+//! close leaves the writer or encryption cache alive; unbounded queues retain the corpus;
+//! an idle poll writes to the archive.
 //! Tests: search::tests, vault-search canonical/crash/recovery contracts.
 
 use super::{documents, generations::Generations};
@@ -101,6 +102,7 @@ impl Indexer {
                     cancel: worker_cancel,
                     generations,
                     published: worker_index.clone(),
+                    pruned: None,
                 };
                 let mut result = if deferred {
                     Ok(())
@@ -325,6 +327,9 @@ struct Worker {
     state: Arc<Mutex<IndexerState>>,
     stop: CancelToken,
     cancel: Arc<Mutex<CancelToken>>,
+    /// The sequence the outbox was last pruned through by this owner. `None` until the first
+    /// prune, which also removes what a crash between publishing and pruning left behind.
+    pruned: Option<u64>,
 }
 impl Worker {
     fn fail(&self, error: &anyhow::Error) {
@@ -374,19 +379,24 @@ impl Worker {
             state.documents_processed += documents;
             state.documents_total = state.documents_total.max(state.documents_processed);
         }
-        // Includes a crash after publication but before pruning.
-        self.acknowledge(after)?;
+        // Includes a crash after publication but before pruning. Once pruned through `after`
+        // there is nothing left to remove, and the poll runs ten times a second: a write that
+        // deletes nothing still makes the archive writer checkpoint and keep readers out.
+        if self.pruned != Some(after) {
+            self.acknowledge(after)?;
+        }
         let mut state = self.state.lock().unwrap();
         state.applied_seq = after;
         state.phase = if after >= target { IndexerPhase::Ready } else { IndexerPhase::Updating };
         state.error = None;
         Ok(())
     }
-    fn acknowledge(&self, seq: u64) -> Result<()> {
+    fn acknowledge(&mut self, seq: u64) -> Result<()> {
         self.store.write(Db::Archive, Priority::Batch, move |s| {
             s.execute("DELETE FROM search_outbox WHERE seq<=?1", [seq as i64])?;
             Ok(())
         })?;
+        self.pruned = Some(seq);
         Ok(())
     }
     fn rebuild(

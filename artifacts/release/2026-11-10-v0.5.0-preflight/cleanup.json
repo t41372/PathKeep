@@ -1,0 +1,24 @@
+{
+  "cargoClean": "Removed 87167 files, 44.0GiB logical build outputs",
+  "removedOwnedGeneratedPaths": [
+    "var/release-preflight-2026-11-10/node_modules",
+    "var/release-preflight-2026-11-10/dist",
+    "var/release-preflight-2026-11-10/var/release-preflight/copied-node-modules",
+    "var/release-preflight-2026-11-10/var/release-preflight/bun-cache",
+    "var/release-preflight-2026-11-10/var/release-preflight/copied-old-bundles",
+    "var/release-preflight-2026-11-10/artifacts/release/2026-11-10T11-15-53-116Z-size-audit",
+    "var/release-preflight-2026-11-10/src-tauri/binaries/pathkeep-worker-aarch64-apple-darwin",
+    "/private/tmp/pk-ls-preflight-xoix03gf",
+    "/private/tmp/pk-ls-preflight-x61xen68",
+    "/var/folders/c0/rqrky3x1285fkhlrbh0lw46c0000gn/T/pathkeep-e2e-gbbG8N"
+  ],
+  "e2eAppPid76931": "no longer exists",
+  "preserved": [
+    "Source snapshot and version diff",
+    "Raw evidence and E2E artifact copies",
+    "Local unsigned rehearsal app archive",
+    "Original workspace and pre-existing build cache"
+  ],
+  "availableGiBAfterCleanup": 29.34,
+  "spaceNote": "Logical cargo-clean size is not a measurement of physical space reclaimed."
+}

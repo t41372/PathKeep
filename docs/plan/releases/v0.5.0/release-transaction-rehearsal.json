@@ -1,0 +1,84 @@
+{
+  "recordedAt": "2026-11-13T16:35:57.223791+00:00",
+  "purpose": "Offline release-transaction and dependency rehearsal before PR24 integration and explicit updater tag wiring",
+  "baseCommit": "184e5b2cb05c52c78d18c7e303dfae02e7f3a87c",
+  "mergeParent": "a6499444f64211f7bf7d2a9165afda1c36534889",
+  "inputSnapshotSha256": "caa5770ff8028a83cf4ce750da7f9a016aeb4a6315b316bea66d009bd23db4ac",
+  "codeSha256": {
+    ".github/workflows/release.yml": "9812ad13cec6b203eaa6e9dafb87b0a289dc30788ab22babad68867584a01a7b",
+    "package.json": "36874a17a1001db3ac07c1b19b37a4fd9e18e5d85631ee24de13d53ef21193bb",
+    "bun.lock": "75284425d12387ff477930ee421a0dc43b27f2b70792de997e88a1f216a1acb4",
+    "src-tauri/Cargo.lock": "1be1a230a533d8e084e5ae9eabbd263f819fd5176ee0728f7527e729e204f3c9",
+    "scripts/lib/release-api.mjs": "2da6cb66676aed56771c30b517a552cae5e6ff880dc0ab01dd576d065df7939e",
+    "scripts/guard-published-release.mjs": "37e1815c281b82744be4796a7226db31604e82ecde24178d821f0109c11c1ef6",
+    "scripts/prepare-release-draft.mjs": "d4c1646a765dde0929834604c9310b58057e0e905f97260c4a1939c86729a88c",
+    "scripts/publish-reviewed-release.mjs": "9bbac4191a6d4aa1dc580fdd4c5a53f8bb7051b12a7008776223c747e93a978c",
+    "scripts/verify-release-config.mjs": "eb734f47dfb0bc85fd0af4a4c2a1492ecd2dc98f0b53c394eda3e5a29ae25942",
+    "scripts/release-transaction.test.ts": "d705d119f4cab124246206ff2a1247da3bff9e0e351e3f167e7dddb95474e193",
+    "scripts/test-support/release-cli.ts": "802e7ec5b16850159e222773b037aac5944187cc8ff55400117a81c9d04c374e",
+    "tests/e2e/insights-time-zone.spec.ts": "53971aa0ddeefc8de05af758d6848e2cefa3c184c6fb06c8b24e3b88478c5c76",
+    "src-tauri/crates/vault-worker/src/intelligence/ai_queue/config_tests.rs": "784d40d14b1d2018b591ed1093a1772f2575b0ef554ef3684a0b0bd1192ac338"
+  },
+  "environment": {
+    "os": "Ubuntu 24.04.5 x86_64",
+    "vcpus": 4,
+    "memoryGiB": 16,
+    "node": "24.22.2",
+    "bun": "1.4.4",
+    "rust": "1.96.0"
+  },
+  "commands": {
+    "bun run verify": 0,
+    "bun run check:slow": 0
+  },
+  "frontend": {
+    "passed": 141,
+    "releaseCliCasesIncluded": 31,
+    "javascriptAudit": {
+      "packages": 532,
+      "findings": 0
+    }
+  },
+  "rust": "Workspace, desktop bridge, clippy, platform and supply-chain checks passed; existing exception policy unchanged.",
+  "e2e": {
+    "backup-integrity-damaged/results.json": {
+      "startTime": "2026-11-13T16:05:29.681Z",
+      "duration": 16711.039999999997,
+      "expected": 1,
+      "skipped": 0,
+      "unexpected": 0,
+      "flaky": 0
+    },
+    "backup-integrity-healthy/results.json": {
+      "startTime": "2026-11-13T16:04:24.308Z",
+      "duration": 64784.183,
+      "expected": 9,
+      "skipped": 0,
+      "unexpected": 0,
+      "flaky": 0
+    },
+    "results.json": {
+      "startTime": "2026-11-13T15:32:36.026Z",
+      "duration": 1905603.7449999999,
+      "expected": 124,
+      "skipped": 1,
+      "unexpected": 0,
+      "flaky": 0
+    }
+  },
+  "lockfilesBeforeAndAfter": {
+    "bun.lock": "75284425d12387ff477930ee421a0dc43b27f2b70792de997e88a1f216a1acb4",
+    "src-tauri/Cargo.lock": "1be1a230a533d8e084e5ae9eabbd263f819fd5176ee0728f7527e729e204f3c9"
+  },
+  "artifact": {
+    "name": "gate-v3-complete.tar.gz",
+    "sha256": "8ea6d2fef6648fa2014c7767ed97353f02b9667a9611ecda44172e04c4a75840",
+    "bytes": 1391037264
+  },
+  "publication": {
+    "performed": false,
+    "immutableSettingChanged": false,
+    "finalReleaseCandidate": false
+  },
+  "next": "The PR24 head and explicit updater tag wiring receive a separate complete gate before native preparation. Remote receipts stay in PR22 to keep the native source frozen."
+}

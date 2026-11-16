@@ -32,6 +32,8 @@ pub(crate) struct Settings {
     pub scratch_key: Option<[u8; 32]>,
     pub io: Option<IoLayer>,
     pub cache_kib: usize,
+    /// Where the writer and each reader say what they are running (`running.rs`).
+    pub watched: Option<(Arc<crate::running::Slot>, Vec<Arc<crate::running::Slot>>)>,
 }
 impl Settings {
     pub fn new(config: &Config, db: Db) -> Self {
@@ -49,6 +51,7 @@ impl Settings {
             scratch_key: config.key(vault_layout::scratch_database()),
             io: config.io.clone(),
             cache_kib: config.page_cache_kib.get(),
+            watched: None,
         }
     }
     fn builder(&self, read_only: bool) -> turso::Builder {
@@ -97,6 +100,7 @@ pub(crate) fn preflight(config: &Config) -> Result<()> {
                     conn: &conn,
                     prepared: None,
                     read_only: true,
+                    running: None,
                     _thread: PhantomData,
                     scratch: None,
                     scratch_read: Default::default(),
@@ -167,13 +171,15 @@ pub(crate) struct Engine {
     pub conn: turso::Connection,
     pub database: turso::Database,
     prepared: StatementCache,
+    pub running: Option<Arc<crate::running::Slot>>,
 }
 impl Engine {
     pub fn open(settings: &Settings, compiled: Arc<AtomicU64>) -> Result<Self> {
         let rt = runtime()?;
         let database = rt.block_on(settings.builder(false).build())?;
         let conn = database.connect()?;
-        let engine = Self { rt, conn, database, prepared: StatementCache::new(compiled) };
+        let running = settings.watched.as_ref().map(|(writer, _)| writer.clone());
+        let engine = Self { rt, conn, database, prepared: StatementCache::new(compiled), running };
         engine.configure(settings, false)?;
         Ok(engine)
     }
@@ -181,10 +187,13 @@ impl Engine {
         database: turso::Database,
         settings: &Settings,
         compiled: Arc<AtomicU64>,
+        index: usize,
     ) -> Result<Self> {
         let rt = runtime()?;
         let conn = database.connect()?;
-        let engine = Self { rt, conn, database, prepared: StatementCache::new(compiled) };
+        let running =
+            settings.watched.as_ref().and_then(|(_, readers)| readers.get(index).cloned());
+        let engine = Self { rt, conn, database, prepared: StatementCache::new(compiled), running };
         engine.configure(settings, true)?;
         Ok(engine)
     }
@@ -196,6 +205,7 @@ impl Engine {
             conn: &self.conn,
             prepared: Some(&self.prepared),
             read_only,
+            running: self.running.as_deref(),
             _thread: PhantomData,
             scratch: None,
             scratch_read: Default::default(),
@@ -280,7 +290,7 @@ mod tests {
         let settings = Settings::new(&config, Db::Archive);
         let writer = Engine::open(&settings, Default::default()).unwrap();
         let reader =
-            Engine::reader(writer.database.clone(), &settings, Default::default()).unwrap();
+            Engine::reader(writer.database.clone(), &settings, Default::default(), 0).unwrap();
         for engine in [&writer, &reader] {
             let main = pragma_number(engine, "PRAGMA main.cache_size");
             let scratch = pragma_number(engine, "PRAGMA scratch.cache_size");

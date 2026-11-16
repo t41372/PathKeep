@@ -1,0 +1,8 @@
+chore(release): prepare v0.5.0
+
+Deliver the browser backup identity repair and search improvements together
+so browser row reuse no longer silently leaves new visits behind.
+
+Align the desktop version declarations and Cargo lockfile. Record the
+upgrade boundary, distribution policy and verified release artifacts so
+operators can review this version before publishing it.

@@ -47,6 +47,8 @@ pub use super::generations::{
 };
 
 #[cfg(test)]
+pub(super) use self::backfill::{COUNT_PAGE_IDS, COUNT_STOPPED};
+#[cfg(test)]
 pub(super) use self::candidates::{collect_visit_chunk, select_embed_targets};
 pub(crate) use self::content::enrichment_summary_for;
 #[cfg(test)]

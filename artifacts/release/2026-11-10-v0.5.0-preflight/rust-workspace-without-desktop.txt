@@ -1,0 +1,1151 @@
+   Compiling serde v1.0.228
+   Compiling time v0.3.47
+   Compiling simsimd v6.5.16
+   Compiling zstd-sys v2.1.2+zstd.1.5.7
+   Compiling ring v0.17.14
+   Compiling aws-lc-sys v0.45.0
+   Compiling openssl-sys v0.9.117
+   Compiling semver v1.0.28
+   Compiling zip v9.0.5
+   Compiling monostate v0.1.18
+   Compiling safe_arch v0.7.4
+   Compiling nalgebra-macros v0.2.2
+   Compiling rmcp-macros v3.9.0
+   Compiling wide v0.7.33
+   Compiling smallvec v1.15.1
+   Compiling chrono v0.4.44
+   Compiling typetag v0.2.23
+   Compiling parking_lot_core v0.9.12
+   Compiling icu_normalizer v2.3.0
+   Compiling tracing-subscriber v0.3.23
+   Compiling tantivy-tokenizer-api v0.7.0
+   Compiling tantivy-query-grammar v0.27.0
+   Compiling sketches-ddsketch v0.4.1
+   Compiling parking_lot v0.12.5
+   Compiling serde-tuple-vec-map v1.0.1
+   Compiling wasmtime-internal-core v48.0.8
+   Compiling postcard v1.1.3
+   Compiling regalloc2 v0.15.2
+   Compiling wasmparser v0.254.2
+   Compiling tokio v1.54.1
+   Compiling icu_collator v2.3.1
+   Compiling idna_adapter v1.2.2
+   Compiling tantivy-common v0.27.0
+   Compiling cranelift-bitset v0.135.8
+   Compiling idna v1.1.0
+   Compiling turso_ext v0.8.3
+   Compiling wasmtime-internal-jit-icache-coherence v48.0.8
+   Compiling cranelift-entity v0.135.8
+   Compiling pulley-interpreter v48.0.8
+   Compiling string_cache v0.8.9
+   Compiling tantivy-stacker v0.27.0
+   Compiling url v2.5.8
+   Compiling web_atoms v0.1.3
+   Compiling tracing-appender v0.2.5
+   Compiling cranelift-bforest v0.135.8
+   Compiling schemars v1.2.1
+   Compiling cssparser v0.35.0
+   Compiling serde_urlencoded v0.7.1
+   Compiling markup5ever v0.35.0
+   Compiling rig-http v0.44.0
+   Compiling unicode-normalization-alignments v0.1.12
+   Compiling html5ever v0.35.0
+   Compiling turso_core v0.8.3
+   Compiling ahash v0.8.12
+   Compiling spm_precompiled v0.1.4
+   Compiling dary_heap v0.3.9
+   Compiling compact_str v0.9.1
+   Compiling selectors v0.31.0
+   Compiling publicsuffix v2.3.0
+   Compiling chrono-tz v0.10.4
+   Compiling plist v1.10.0
+   Compiling icu_segmenter v2.3.0
+   Compiling safetensors v0.7.0
+   Compiling simba v0.8.1
+   Compiling tokenizers v0.22.2
+   Compiling assert-json-diff v2.0.2
+   Compiling scraper v0.24.0
+   Compiling tokio-util v0.7.18
+   Compiling tower v0.5.3
+   Compiling vault-owner-ipc v0.1.0 (/Users/tim/LocalData/coding/2026/Lab/8_chrome_history_backup/var/release-preflight-2026-11-10/src-tauri/crates/vault-owner-ipc)
+   Compiling h2 v0.4.16
+   Compiling tower-http v0.6.8
+   Compiling rmcp v3.9.0
+   Compiling zstd-safe v8.2.0
+   Compiling wasmprinter v0.254.2
+   Compiling nalgebra v0.32.6
+   Compiling zstd v0.14.3
+   Compiling tantivy-sstable v0.27.0
+   Compiling cranelift-codegen v0.135.8
+   Compiling tantivy-columnar v0.27.0
+   Compiling wasmtime-environ v48.0.8
+   Compiling hyper v1.9.0
+   Compiling tantivy v0.27.0
+   Compiling hyper-util v0.1.20
+   Compiling mockito v1.7.2
+   Compiling statrs v0.17.1
+   Compiling turbovec v1.1.2
+   Compiling wasmtime-internal-fiber v48.0.8
+   Compiling cranelift-frontend v0.135.8
+   Compiling wasmtime-internal-unwinder v48.0.8
+   Compiling cranelift-native v0.135.8
+   Compiling wasmtime-internal-cranelift v48.0.8
+   Compiling wasmtime v48.0.8
+   Compiling aws-lc-rs v1.18.1
+   Compiling rustls-webpki v0.103.16
+   Compiling rustls v0.23.46
+   Compiling tokio-rustls v0.26.4
+   Compiling rustls-platform-verifier v0.7.0
+   Compiling ureq v3.3.0
+   Compiling wiggle v48.0.8
+   Compiling wasmtime-wasi-io v48.0.8
+   Compiling hyper-rustls v0.27.9
+   Compiling reqwest v0.13.3
+   Compiling reqwest v0.12.28
+   Compiling wasmtime-wasi v48.0.8
+   Compiling rig-reqwest v0.44.0
+   Compiling rig-core v0.44.0
+   Compiling turso_sync_engine v0.8.3
+   Compiling vault-crypto v0.1.0 (/Users/tim/LocalData/coding/2026/Lab/8_chrome_history_backup/var/release-preflight-2026-11-10/src-tauri/crates/vault-crypto)
+   Compiling vault-search v0.1.0 (/Users/tim/LocalData/coding/2026/Lab/8_chrome_history_backup/var/release-preflight-2026-11-10/src-tauri/crates/vault-search)
+   Compiling libsqlite3-sys v0.37.0
+   Compiling rusqlite v0.39.0
+   Compiling browser-history-parser v0.1.0 (/Users/tim/LocalData/coding/2026/Lab/8_chrome_history_backup/var/release-preflight-2026-11-10/src-tauri/crates/browser-history-parser)
+   Compiling browser-history-fixtures v0.1.0 (/Users/tim/LocalData/coding/2026/Lab/8_chrome_history_backup/var/release-preflight-2026-11-10/src-tauri/crates/browser-history-fixtures)
+   Compiling turso_sdk_kit v0.8.3
+   Compiling turso_sync_sdk_kit v0.8.3
+   Compiling turso v0.8.3
+   Compiling vault-store v0.1.0 (/Users/tim/LocalData/coding/2026/Lab/8_chrome_history_backup/var/release-preflight-2026-11-10/src-tauri/crates/vault-store)
+   Compiling vault-core v0.1.0 (/Users/tim/LocalData/coding/2026/Lab/8_chrome_history_backup/var/release-preflight-2026-11-10/src-tauri/crates/vault-core)
+   Compiling vault-convert-sqlcipher v0.1.0 (/Users/tim/LocalData/coding/2026/Lab/8_chrome_history_backup/var/release-preflight-2026-11-10/src-tauri/crates/vault-convert-sqlcipher)
+   Compiling vault-platform v0.1.0 (/Users/tim/LocalData/coding/2026/Lab/8_chrome_history_backup/var/release-preflight-2026-11-10/src-tauri/crates/vault-platform)
+   Compiling vault-worker v0.1.0 (/Users/tim/LocalData/coding/2026/Lab/8_chrome_history_backup/var/release-preflight-2026-11-10/src-tauri/crates/vault-worker)
+    Finished `test` profile [unoptimized] target(s) in 1m 10s
+     Running unittests src/lib.rs (src-tauri/target/debug/deps/browser_history_fixtures-57bf8bac339a44b5)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/firefox_roundtrip.rs (src-tauri/target/debug/deps/firefox_roundtrip-6b69d6cc0edb240a)
+
+running 2 tests
+test firefox_null_last_visit_date_defaults_to_zero ... ok
+test firefox_null_visit_count_defaults_to_zero ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (src-tauri/target/debug/deps/browser_history_parser-a556541f621d7319)
+
+running 48 tests
+test native_visits::tests::a_floor_is_the_first_browser_time_the_parser_reads_as_that_millisecond ... ok
+test chromium::tests::chrome_time_helpers_clamp_invalid_values_and_keep_iso_stable ... ok
+test chromium::tests::parse_history_requires_urls_and_visits_tables ... ok
+test firefox::tests::parse_history_requires_firefox_required_tables ... ok
+test chromium::tests::parse_history_includes_urls_whose_last_visit_time_is_below_cursor_when_new_visits_arrive ... ok
+test native_visits::tests::safari_times_less_than_a_microsecond_apart_keep_two_keys ... ok
+test firefox::tests::parse_history_respects_visit_and_url_cursors ... ok
+test observation::tests::native_rows_keep_sorted_json_independent_of_sql_column_order ... ok
+test native_visits::tests::a_newer_visit_under_an_old_id_is_found_and_older_ones_are_not ... ok
+test native_visits::tests::marks_name_the_event_a_row_holds_now ... ok
+test native_visits::tests::a_time_past_year_9999_is_not_a_newer_visit ... ok
+test safari::tests::safari_time_helpers_keep_dates_stable ... ok
+test firefox::tests::stream_history_can_move_optional_native_tables_out_of_the_returned_report ... ok
+test native_visits::tests::a_deleted_newest_row_keeps_its_sequence_and_a_new_table_loses_it ... ok
+test safari::tests::parse_history_requires_safari_required_tables ... ok
+test native_visits::tests::orphans_are_counted_only_inside_the_window ... ok
+test takeout::my_activity::tests::keys_do_not_depend_on_where_a_record_is ... ok
+test takeout::my_activity::tests::other_addresses_stay_as_they_are ... ok
+test takeout::my_activity::tests::records_without_a_chrome_page_or_a_time_are_not_visits ... ok
+test takeout::reader_tests::json_reader_emits_batches_before_an_unreadable_tail ... ok
+test takeout::tests::browser_history_payload_skips_duplicates_and_error_paths ... ok
+test takeout::tests::native_payloads_keep_sorted_nested_json_across_serializer_features ... ok
+test takeout::tests::parse_payload_preserves_typed_url_and_session_payloads_as_native_entities ... ok
+test takeout::tests::stream_payload_with_options_can_skip_source_evidence_accumulation ... ok
+test takeout::tests::stream_payload_with_sink_moves_source_evidence_out_of_the_report ... ok
+test types::tests::clamp_unix_millis_floors_negatives_and_caps_far_future ... ok
+test firefox::tests::stream_history_flushes_small_batches_and_captures_optional_native_tables ... ok
+test chromium::tests::parse_history_skips_favicons_when_support_tables_are_missing ... ok
+test chromium::tests::parse_history_returns_incremental_rows_from_provided_paths ... ok
+test chromium::tests::stream_history_can_move_source_evidence_out_of_the_returned_report ... ok
+test safari::tests::parse_history_respects_visit_and_url_cursors ... ok
+test safari::tests::stream_history_can_move_source_evidence_out_of_the_returned_report ... ok
+test safari::tests::stream_history_flushes_residual_optional_native_table_chunks ... ok
+test url_pages::tests::newly_synced_visit_parents_bypass_the_old_scan_position ... ok
+test takeout::browser_history::stable_key_tests::stable_key_i64_separates_near_identical_inputs ... ok
+test url_pages::tests::browser_url_pages_seek_rowids_without_sorting_the_url_table ... ok
+test visit_query::tests::chromium_fixture_has_the_real_visit_time_index ... ok
+test visit_query::tests::safari_fixture_has_its_page_time_index_and_no_time_leading_index ... ok
+test visit_query::tests::firefox_fixture_has_the_real_visit_indexes ... ok
+test firefox::tests::full_and_continued_visit_queries_seek_by_rowid ... ok
+test chromium::tests::full_and_continued_visit_queries_seek_by_rowid ... ok
+test safari::tests::full_and_continued_visit_queries_seek_by_rowid ... ok
+test chromium::tests::recent_visit_query_seeks_both_ranges ... ok
+test firefox::tests::recent_visit_query_seeks_both_ranges ... ok
+test safari::tests::recent_visit_query_seeks_rowids_and_scans_the_covering_index ... ok
+test firefox::tests::visit_query_rows_match_the_original_window ... ok
+test chromium::tests::visit_query_rows_match_the_original_window ... ok
+test safari::tests::visit_query_rows_match_the_original_window ... ok
+
+test result: ok. 48 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.33s
+
+     Running unittests examples/source-diff.rs (src-tauri/target/debug/examples/source_diff-183970a7b61297e4)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests examples/source-report.rs (src-tauri/target/debug/examples/source_report-0b08687ae7ca4e99)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (src-tauri/target/debug/deps/vault_convert_sqlcipher-1d02ca87124cd6d8)
+
+running 27 tests
+test legacy_recovery::snapshots::tests::list_legacy_snapshots_surfaces_a_non_not_found_root_read_error ... ok
+test legacy_recovery::rekey::tests::a_corrupt_rekey_marker_goes_only_when_the_archive_is_consistent ... ok
+test legacy_recovery::import::tests::a_corrupt_import_marker_goes_only_when_the_archive_is_consistent ... ok
+test legacy_recovery::import::tests::recover_interrupted_import_restores_a_preserved_bak_unit_over_the_target ... ok
+test legacy_recovery::import::tests::recover_interrupted_import_finishes_an_interrupted_sidecar_restore ... ok
+test legacy_recovery::restore::tests::restorable_judges_each_on_disk_state ... ok
+test legacy_recovery::restore::tests::keeps_an_unreadable_marker_while_the_canonical_is_absent ... ok
+test legacy_recovery::tests::a_restore_marker_is_never_provably_healthy ... ok
+test legacy_recovery::restore::tests::landed_judges_each_on_disk_state ... ok
+test legacy_recovery::rekey::tests::recover_interrupted_rekey_same_mode_rotation_converges_config ... ok
+test legacy_recovery::rekey::tests::recover_interrupted_rekey_rolls_back_an_unlanded_swap ... ok
+test legacy_recovery::tests::a_healthy_launch_does_not_wait_for_a_lock_held_elsewhere ... ok
+test legacy_recovery::restore::tests::rollback_moves_originals_and_their_wal_back ... ok
+test legacy_recovery::restore::tests::rolls_back_to_the_quarantined_original_when_the_snapshot_is_gone ... ok
+test legacy_recovery::restore::tests::completes_an_absent_canonical_from_the_snapshot ... ok
+test legacy_recovery::tests::a_pending_restore_supersedes_a_stale_rekey_marker ... ok
+test legacy_recovery::tests::falls_back_to_the_passed_config_when_config_json_is_corrupt ... ok
+test legacy_recovery::tests::reports_a_restore_with_nothing_left_to_restore_from ... ok
+test legacy_recovery::tests::rolls_back_a_fresh_import_and_reports_an_uninitialized_archive ... ok
+test legacy_recovery::tests::reports_a_rekey_whose_archive_is_gone_and_offers_its_snapshot ... ok
+test legacy_recovery::tests::reports_a_decrypt_cut_before_source_evidence_was_decrypted ... ok
+test legacy_recovery::tests::heals_a_stale_plaintext_config_over_encrypted_files ... ok
+test legacy_recovery::tests::completes_a_rekey_cut_after_the_swap ... ok
+test legacy_recovery::tests::reports_an_import_that_left_two_modes_and_keeps_its_marker ... ok
+test legacy_recovery::restore::tests::completes_an_encrypted_restore_without_the_key ... ok
+test transfer::stars::tests::proof_pages_seek_both_parts_of_the_favorite_key ... ok
+test legacy_recovery::tests::a_launch_with_drift_waits_for_the_lock_then_heals ... ok
+
+test result: ok. 27 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.60s
+
+     Running tests/benchmark.rs (src-tauri/target/debug/deps/benchmark-508c01a854f3eac1)
+
+running 1 test
+test encrypted_14_4m_conversion_and_mode_switch ... ignored, 14.4M encrypted SQLCipher conversion; run on Modal with --release --nocapture
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/collisions.rs (src-tauri/target/debug/deps/collisions-254ada75e333f493)
+
+running 1 test
+test old_variants_merge_content_counters_sets_and_triggers_even_after_resume ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.70s
+
+     Running tests/conversion.rs (src-tauri/target/debug/deps/conversion-c362cede79a6a22d)
+
+running 6 tests
+test conversion_crash_child ... ignored, child exits without running destructors during conversion
+
+running 1 test
+test a_changed_staged_value_refuses_the_swap ... ok
+test a_file_keyed_with_an_earlier_password_is_named_left_in_place_and_skipped ... ok
+test a_process_exit_between_tables_resumes_committed_rows ... ok
+test evidence_stored_again_by_each_import_is_kept_once_also_after_a_stop ... ok
+test interrupted_conversion_resumes_without_duplicate_visits ... ok
+
+test result: ok. 5 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 3.40s
+
+     Running tests/ingest_parity.rs (src-tauri/target/debug/deps/ingest_parity-0305dc574dbe44f2)
+
+running 1 test
+test conversion_matches_native_ingestion_for_the_same_browser_facts ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.14s
+
+     Running tests/old_versions.rs (src-tauri/target/debug/deps/old_versions-3ea6c7d2ea3d0297)
+
+running 2 tests
+test the_config_of_a_skipped_version_still_loads ... ok
+test a_v020_archive_converts_without_loss ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.51s
+
+     Running tests/snapshot.rs (src-tauri/target/debug/deps/snapshot-84757d1b45f45b9e)
+
+running 1 test
+test legacy_full_snapshot_restores_to_turso_in_both_modes ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.95s
+
+     Running unittests src/lib.rs (src-tauri/target/debug/deps/vault_core-10556d4e3e72cc53)
+
+running 507 tests
+test ai::agent_tools::tests::output_pages_keep_multibyte_characters_and_reject_partial_character_cursors ... ok
+test ai::code_mode::tests::a_guest_that_imports_sockets_is_rejected ... ok
+test ai::code_mode::tests::a_guest_that_imports_fs_is_rejected_before_running ... ok
+test ai::code_mode::tests::a_guest_that_imports_a_non_wasi_module_is_rejected ... ok
+test ai::embedding_external::tests::api_key_for_transport_treats_absent_and_blank_keys_as_no_header ... ok
+test ai::embedding_external::tests::build_embeddings_request_attaches_bearer_header_only_when_key_present ... ok
+test ai::embedding_external::tests::decode_response_rejects_count_mismatch ... ok
+test ai::embedding_external::tests::decode_response_rejects_missing_index ... ok
+test ai::embedding_external::tests::decode_response_rejects_out_of_range_index ... ok
+test ai::embedding_external::tests::decode_response_restores_index_order ... ok
+test ai::embedding_external::tests::unusable_service_vectors_stay_typed_through_context ... ok
+test ai::embedding_prompt::tests::model_aliases_choose_their_prompt_profile ... ok
+test ai::embedding_prompt::tests::profiles_render_exact_model_inputs_and_stable_document_formats ... ok
+test ai::code_mode::tests::a_failed_integrity_pin_yields_an_honest_outcome_via_the_public_mapping ... ok
+test ai::embedding_static::tests::mean_pool_drops_unk_token_from_sum_and_count ... ok
+test ai::code_mode::tests::an_oversized_request_frame_poisons_the_channel ... ok
+test ai::code_mode::tests::an_oversized_raw_write_poisons_the_channel_via_the_buffer_cap ... ok
+test ai::fingerprint::tests::hash_matches_golden_vector ... ok
+test ai::embedding_static::tests::unk_spec_drops_only_bpe_string_unk_matching_model2vec ... ok
+test ai::fingerprint::tests::injected_delimiters_do_not_collide ... ok
+test ai::generations::gc::replaced_tests::a_failed_rebuild_is_replaced_by_a_newer_lineage_or_a_later_reset_of_its_model ... ok
+test ai::code_mode::tests::service_request_refuses_a_host_call_with_malformed_args ... ok
+test ai::embedding_static::tests::real_in_memory_engine_embeds_deterministic_nonzero_correct_dim_vectors ... ok
+test ai::code_mode::tests::fuel_exhaustion_traps_deterministically ... ok
+test agent_store::tests::transcript::resave_with_more_messages_never_truncates_history ... ok
+test ai::code_mode::tests::service_request_refuses_an_unknown_op_and_malformed_json ... ok
+test ai::code_mode::tests::unbounded_allocation_traps_on_the_memory_limiter ... ok
+test ai::embedding_prompt::tests::query_dispatch_renders_once_before_selecting_transport ... ok
+test ai::generations::tests::serving_and_vanished_generations_leave_retired_set ... ok
+test ai::generations::tests::a_gc_reservation_cannot_be_mistaken_for_a_missing_serving_generation ... ok
+test ai::model_files::tests::ensure_download_failed_verification_preserves_existing_file ... ok
+test ai::generations::tests::closing_ends_a_build_waiting_for_a_writer_and_frees_the_index_gate ... ok
+test ai::model_files::tests::ensure_download_refuses_without_consent_when_absent ... ok
+test ai::generations::tests::a_generation_published_after_gc_looked_is_waited_for_not_missing ... ok
+test ai::model_files::tests::ensure_download_rejects_digest_mismatch_and_removes_blob ... ok
+test ai::model_files::tests::ensure_download_is_offline_first_when_already_verified ... ok
+test ai::model_files::tests::model_files_present_requires_every_file_non_empty_and_no_marker ... ok
+test ai::generations::tests::gc_never_hides_the_serving_generation_while_it_retires_old_ones ... ok
+test ai::generations::tests::publication_before_gc_reservation_cannot_delete_new_serving_files ... ok
+test ai::model_files::tests::model_files_verified_does_not_carry_stamps_to_another_pinned_digest ... ok
+test ai::model_files::tests::ensure_download_replaces_files_without_changing_open_readers ... ok
+test ai::generations::tests::trash_deletion_never_holds_registry_and_leftovers_are_collected ... ok
+test ai::generations::tests::close_stops_row_gc_between_batches_and_next_owner_finishes ... ok
+test ai::model_files::tests::model_is_present_and_verified_requires_all_files_and_matching_digests ... ok
+test ai::model_files::tests::model_files_verified_replaces_an_old_or_missing_marker_after_one_hash ... ok
+test ai::model_files::tests::model_files_verified_trusts_unchanged_stamps_and_hashes_changed_files ... ok
+test ai::related_pages_bench::related_pages_measurement ... ignored, opt-in 1M related-page measurement; use --release --ignored --nocapture
+test ai::generations::tests::status_discards_file_leases_before_its_database_callback ... ok
+test ai::reverse_visit_map::tests::staleness_flips_on_fingerprint_change_or_missing_sidecar ... ok
+test ai::reverse_visit_map::tests::staleness_flips_when_sidecar_record_counts_diverge ... ok
+test ai::related_pages::tests::folding_and_selection_keep_distinct_pages_even_at_numeric_edges ... ok
+test ai::search_groups::tests::cap_prefers_trails_and_reports_each_omission ... ok
+test ai::related_pages::tests::point_lookup_refuses_missing_torn_or_replaced_projections ... ok
+test ai::search_groups_bench::search_group_card_measurement ... ignored, opt-in full card measurement; --release --ignored --nocapture
+test ai::search_groups_bench::search_groups_measurement ... ignored, opt-in search-group measurement; --release --ignored --nocapture
+test ai::search_groups::tests::shared_trails_and_visits_count_once_within_each_group ... ok
+test ai::search_groups_cluster::tests::small_and_identical_windows_are_repeatable_partitions ... ok
+test ai::search_ranking::semantic_stage_bench::semantic_stage_benchmark ... ignored, opt-in semantic stage benchmark; use --release --ignored --nocapture
+test ai::projection_sort::tests::projection_sort_crosses_blocks_and_honors_shutdown ... ok
+test ai::report_pages::tests::every_unicode_byte_is_reachable_and_changed_reports_request_a_restart ... ok
+test ai::search_groups_cluster::tests::nearest_neighbour_chain_matches_global_average_linkage ... ok
+test ai::generations::tests::waiting_for_a_database_reader_does_not_hold_registry ... ok
+test ai::code_mode::tests::the_committed_guest_imports_only_scoped_wasi_no_dangerous_authority ... ok
+test agent_store::tests::transcript::bounded_conversation_pages_keep_every_row_reachable ... ok
+test ai::code_mode::tests::unbounded_allocation_in_real_js_is_bounded_not_a_host_panic_or_hang ... ok
+test ai::code_mode::tests::a_huge_output_is_capped_with_a_limit_marker ... ok
+test ai::search_group_snapshots_tests::a_late_month_cannot_replace_a_new_generation_or_another_pass ... ok
+test ai::code_mode::tests::host_call_budget_trips_after_the_cap_in_real_js ... ok
+test ai::code_mode::tests::infinite_loop_in_real_js_traps_on_the_wall_time_deadline ... ok
+test ai::code_mode::tests::an_oversized_fetch_ids_list_is_refused ... ok
+test ai::tests::native::indexing::build_index_incremental_rejects_a_stale_store ... ok
+test ai::tests::legacy_index_without_visit_projections_waits_for_a_normal_pass ... ok
+test ai::code_mode::tests::code_mode_pages_and_id_lookups_reach_beyond_the_old_newest_window ... ok
+test ai::tests::native::indexing::metadata::enrichment_summary_re_embed_blast_radius_is_bounded_to_the_enriched_url ... ok
+test ai::native_ledger::recovery_coverage_tests::recovery_ownership_preserves_coverage_until_publication_even_when_a_clear_fails ... ok
+test ai::tests::native::indexing::cleanup_preserves_the_serving_pair_until_replacement_then_removes_its_ledger ... ok
+test ai::search_group_snapshots_tests::mapping_undo_and_store_recreation_invalidate_inputs_without_regrouping_unrelated_passes ... ok
+test ai::tests::native::indexing::rebuild::a_crash_before_writing_a_lineage_identity_does_not_leak_its_directory ... ok
+test ai::tests::native::indexing::rebuild::a_gc_error_on_one_lineage_does_not_stop_other_items ... ok
+test ai::tests::native::indexing::rebuild::partial::closing_during_partial_recovery_leaves_intent_and_next_owner_finishes ... ok
+test ai::tests::native::indexing::rebuild::a_reader_keeps_one_generation_until_its_lease_is_released ... ok
+test ai::tests::native::indexing::rebuild::damaged_build_identity_cannot_remove_a_serving_generation ... ok
+test ai::tests::native::indexing::rebuild::clear_removes_the_pointer_and_keeps_its_leased_generation_until_release ... ok
+test ai::native_ledger::tests::ai_queue_ledger_preserves_ready_updates_and_marks_wiping_builds ... ok
+test ai::tests::native::indexing::rebuild::partial::losing_the_previous_partial_pointer_does_not_discard_newer_pending_work ... ok
+test ai::tests::native::indexing::rebuild::a_stop_before_the_transaction_keeps_the_old_generation_and_deletes_only_its_own_rows ... ok
+test ai::tests::native::indexing::rebuild::partial::paused_queue_still_recovers_partial_locally_after_archive_reopens ... ok
+test ai::tests::native::indexing::rebuild::legacy_migration_retries_partial_moves_without_copying_sources ... ok
+test ai::tests::native::indexing::rebuild::incremental_publication_also_keeps_existing_readers_on_their_generation ... ok
+test ai::tests::native::indexing::rebuild::partial::retry_of_a_prepared_partial_repeats_barriers_before_publication ... ok
+test ai::code_mode::tests::js_using_fs_or_net_globals_fails_safely ... ok
+test ai::tests::native::indexing::rebuild::recovery::a_build_waits_for_gc_to_release_its_lineage_instead_of_failing ... ok
+test ai::tests::native::indexing::rebuild::late_stop_cannot_change_a_committed_success ... ok
+test ai::tests::native::indexing::rebuild::a_stopped_rebuild_does_not_remove_updates_of_the_serving_lineage ... ok
+test ai::tests::native::indexing::rebuild::recovery::a_legacy_identity_that_cannot_be_read_right_now_starts_no_new_lineage ... ok
+test ai::tests::native::indexing::rebuild::recovery::a_pass_v040_stopped_keeps_serving_the_planes_it_had_projected ... ok
+test ai::tests::native::indexing::rebuild::an_update_not_yet_published_is_not_counted_as_serving ... ok
+test ai::tests::native::indexing::rebuild::recovery::cleared_legacy_sources_are_not_reused_by_the_next_build ... ok
+test ai::tests::native::indexing::rebuild::recovery::interrupted_totals_only_legacy_move_retains_sources_until_retry ... ok
+test ai::tests::native::indexing::rebuild::prepared_files_without_a_success_transaction_never_serve ... ok
+test ai::tests::native::indexing::rebuild::recovery::committed_old_copy_finishes_before_flat_migration_and_uncommitted_rows_are_deferred ... ok
+test ai::tests::native::indexing::rebuild::recovery::a_legacy_folder_without_vectors_is_never_published ... ok
+test ai::tests::native::indexing::rebuild::recovery::legacy_migration_failure_does_not_fail_archive_open_and_retries ... ok
+test ai::tests::native::indexing::rebuild::recovery::a_serving_file_that_cannot_be_looked_at_keeps_the_pointer ... ok
+test ai::tests::native::indexing::rebuild::recovery::an_identity_that_cannot_be_looked_at_is_not_written_over ... ok
+test ai::tests::native::indexing::rebuild::recovery::resumed_legacy_destination_wins_over_a_stale_flat_duplicate ... ok
+test ai::tests::native::indexing::rebuild::recovery::an_identity_that_cannot_be_read_right_now_keeps_a_stopped_jobs_sources ... ok
+test ai::tests::native::indexing::rebuild::recovery::a_serving_file_that_cannot_be_read_right_now_does_not_restart_the_index ... ok
+test ai::tests::native::indexing::rebuild::recovery::a_rebuild_stopped_after_one_chunk_keeps_the_partial_that_covers_more ... ok
+test ai::tests::native::indexing::rebuild::recovery::a_partial_that_cannot_be_read_right_now_does_not_count_as_empty ... ok
+test ai::tests::native::indexing::rebuild::recovery::a_failed_rebuild_keeps_its_lineage_only_until_a_later_rebuild_replaces_it ... ok
+test ai::tests::select_embed_targets_keeps_distinct_pages_that_collide_on_truncated_u64 ... ok
+test ai::tests::native::indexing::rebuild::recovery::a_source_holding_a_key_twice_still_publishes_a_generation_readers_accept ... ok
+test ai::tests::native::indexing::rebuild::recovery::torn_legacy_sources_without_projections_move_without_building_during_open ... ok
+test ai::tests::native::indexing::rebuild::recovery::paused_mixed_job_summarizes_new_and_updated_rows_across_both_attempts ... ok
+test ai::tests::validate_embedding_batch_pairs_keys_and_guards_shape ... ok
+test ai::tool_arguments::tests::refuses_collisions_and_ambiguous_property_names ... ok
+test ai::tool_arguments::tests::refuses_duplicate_json_fields_including_encoded_and_nested_objects ... ok
+test ai::tool_arguments::tests::refuses_rounding_overflow_truncation_and_unrelated_types ... ok
+test ai::tool_arguments::tests::rejects_excessive_nesting_without_recursing_indefinitely ... ok
+test ai::tool_arguments::tests::rejects_non_objects_and_more_than_one_encoded_layer ... ok
+test ai::tool_arguments::tests::repairs_an_unambiguous_nullable_primitive ... ok
+test ai::tool_arguments::tests::repairs_only_lossless_values_and_known_trimmed_names ... ok
+test ai::tool_arguments::tests::typed_integer_overflow_reports_the_argument_path ... ok
+test ai::tool_arguments::tests::validates_nested_required_fields_and_enums_with_paths ... ok
+test ai::topics::tests::empty_single_and_identical_pages_keep_their_membership ... ok
+test ai::topics::tests::month_clustering_measurement ... ignored, release measurement; PATHKEEP_TOPICS_BENCH=1
+test ai::topics::tests::refinement_is_a_repeatable_partition_even_with_empty_centres ... ok
+test ai::tests::native::status::ai_index_status_flags_metadata_rows_with_an_empty_vector_store ... ok
+test ai::vector_index::tests::the_complete_score_stream_has_no_recall_pool_and_observes_cancellation ... ok
+test ai::vector_planes::tests::quantize_dequantize_round_trips_within_error_bound ... ok
+test ai::tests::native::indexing::rebuild::recovery::legacy_ancestor_barrier_failure_never_unlinks_the_flat_source ... ok
+test ai::vector_planes::tests::planes_are_stale_when_missing_or_fingerprint_changes ... ok
+test ai::tests::semantic_matches_rejects_same_dim_fingerprint_drift_with_an_honest_note ... ok
+test ai::vector_planes::tests::streaming_lockstep_projection_keeps_binary_and_int8_positionally_aligned ... ok
+test ai::vector_store::tests::is_stale_against_detects_missing_and_changed_fingerprint ... ok
+test ai::vector_store::tests::existing_ids_rejects_partial_trailing_record ... ok
+test ai::vector_store::tests::read_records_streaming_equals_read_all_including_dedup_set ... ok
+test ai::vector_store::tests::read_records_streaming_rejects_partial_trailing_record ... ok
+test ai::tests::native::indexing::rebuild::recovery::resumed_incremental_scan_restarts_when_serving_lineage_changes ... ok
+test ai::visit_content_map::tests::ensure_created_is_idempotent_and_preserves_prior_records ... ok
+test ai::vector_store::tests::trim_torn_tail_cuts_only_the_half_written_record ... ok
+test ai::work_gate_tests::waiting_work_runs_after_release_and_the_task_holds_no_mutex ... ok
+test ai::visit_content_map::tests::read_all_last_writer_wins_for_remapped_visit ... ok
+test ai::visit_content_map::tests::trim_torn_tail_cuts_only_the_half_written_record ... ok
+test ai::tests::native::indexing::rebuild::recovery::success_transaction_records_the_final_summary ... ok
+test ai::tests::native::indexing::rebuild::releasing_the_last_retired_lease_schedules_collection_without_another_job ... ok
+test ai::tests::semantic_search_rejects_a_position_map_from_another_projection ... ok
+test ai_queue::index_control_tests::ai_queue_an_interrupted_last_service_retry_pauses_with_the_original_error ... ok
+test ai_queue::index_control_tests::a_job_the_archive_closed_under_runs_again_at_the_next_open ... ok
+test ai_queue::index_control_tests::ai_queue_search_uses_the_latest_complete_configured_pair_until_chosen_is_ready ... ok
+test ai_queue::index_control_tests::ai_queue_a_corrupt_payload_cannot_hide_or_block_valid_work ... ok
+test ai::tests::native::indexing::static_tier_index_writes_real_vectors_and_semantic_search_finds_the_seeded_page ... ok
+test ai::tests::native::indexing::resume::resume_after_dropped_cursor_does_not_duplicate_vectors ... ok
+test ai_queue::index_control_tests::ai_queue_backups_and_queue_resume_cannot_restart_work_the_user_stopped ... ok
+test app_lock::tests::constant_time_hex_eq_matches_string_equality_for_correct_and_wrong_hashes ... ok
+test ai::tests::native::indexing::rebuild::replacement_does_not_trust_rows_of_updates_it_never_read ... ok
+test app_lock::tests::biometric_status_and_unlock_follow_the_supplied_capability ... ok
+test app_lock::tests::unlock_rejects_no_auth_branch_when_passcode_and_biometric_are_disabled ... ok
+test ai_queue::index_control_tests::ai_queue_stop_wins_a_concurrent_failure_and_only_new_progress_renews_retries ... ok
+test ai_queue::tests::persist_index_cursor_reports_lease_loss_when_job_left_running_state ... ok
+test archive::at_rest::tests::detect_disk_encryption_mode_classifies_each_state ... ok
+test archive::backup::due_tests::a_next_wake_with_a_thirty_second_faster_startup_is_due ... ok
+test app_lock::tests::touch_id_is_checked_when_turned_on_and_never_prompts_while_unavailable ... ok
+test archive::backup::due_tests::daily_backups_skip_six_twelve_and_eighteen_hours ... ok
+test archive::backup::due_tests::hourly_backups_run_at_each_wake_but_wait_after_a_recent_manual_backup ... ok
+test archive::backup::due_tests::linux_ninety_minute_backups_use_the_thirty_minute_grid ... ok
+test annotations::tests::annotation_cursors_reach_every_record_past_five_thousand ... ok
+test archive::backup::due_tests::linux_seven_minute_backups_keep_the_half_minute_boundary ... ok
+test archive::backup::due_tests::the_skip_reason_names_the_counted_start_without_claiming_success ... ok
+test ai_queue::tests::a_question_left_in_the_queue_by_an_older_ask_ends_cancelled_and_never_runs ... ok
+test archive::history::export::progress::barrier_tests::accepted_cancel_cannot_cross_finishing_and_publication_errors_become_failed ... ok
+test archive::history::export::tests::html_export_escapes_untrusted_fields_and_neutralizes_dangerous_hrefs ... ok
+test app_lock::tests::malformed_app_lock_files_fail_closed_until_passcode_is_cleared ... ok
+test archive::history::net_guard::tests::ipv4_non_public_ranges_are_rejected_and_public_is_allowed ... ok
+test archive::history::net_guard::tests::ipv6_non_public_ranges_are_rejected_and_public_is_allowed ... ok
+test archive::history::net_guard::tests::url_target_is_blocked_refuses_other_schemes_and_private_literal_hosts ... ok
+test ai_queue::index_control_tests::ai_queue_build_requests_reuse_progress_and_wait_for_the_previous_writer ... ok
+test archive::history::og_images_fetch::tests::fetch_og_image_for_blocks_private_page_host_without_network ... ok
+test archive::history::og_images_fetch::tests::og_image_host_guard_blocks_private_image_target ... ok
+test archive::history::og_images_fetch::tests::the_og_image_client_does_not_follow_a_redirect_to_a_private_address ... ok
+test ai_queue::tests::durable_progress_resets_the_attempt_budget_so_interrupted_builds_keep_resuming ... ok
+test archive::history::favicons::tests::lookup_queries_seek_indexes_before_loading_blobs ... ok
+test archive::ingest::concurrency_tests::backup_crash_child ... ok
+test archive::backup::due_tests::a_forty_minute_backup_does_not_delay_the_next_hourly_start ... ok
+test archive::doctor_derived::tests::stale_row_checks_look_visits_up_by_primary_key ... ok
+test archive::history::og_images::tests::prefetch_and_eviction_walk_indexes_without_sorting_the_archive ... ok
+test archive::backup::due_tests::schedule_anchor_counts_manual_success_and_completed_partial_profiles_only ... ok
+test archive::ingest::consumer::statement_benchmark::statements_per_ten_thousand_record_chunk ... ignored, scaled measurement; the same budgets run in the normal test suite
+test app_lock::tests::unlock_rejects_wrong_passcode_with_constant_time_hash_compare ... ok
+test archive::history::timeline::tests::production_timeline_plans_seek_without_sorting_visits ... ok
+test archive::ingest::consumer::statement_benchmark::statements_follow_the_row_and_batch_budget ... ok
+test archive::history::timeline::tests::keysets_reach_each_visible_visit_once_in_both_directions ... ok
+test ai::tests::native::indexing::rebuild::partial::interrupted_initial_projection_recovers_locally_and_a_clear_wins_over_old_intent ... ok
+test ai_queue::index_control_tests::ai_queue_stopping_a_queued_job_keeps_the_complete_index_ready ... ok
+test archive::ingest::dedup_scenarios::download_cases::a_newer_copy_read_after_an_older_one_saves_its_state ... ok
+test archive::doctor::tests::repairs_counters_missing_documents_and_visibility_provenance_without_unhiding ... ok
+test ai_queue::index_control_tests::ai_queue_recovery_preserves_pause_ownership_and_retires_unknown_model_cursors ... ok
+test archive::ingest::dedup_scenarios::cases_1::c3_chromium_incremental_revisit_of_old_url ... ok
+test ai::tests::native::indexing::rebuild::recovery::stopped_initial_fills_serve_partial_and_next_job_embeds_only_missing_visits ... ok
+test archive::ingest::dedup_scenarios::cases_1::c6_chromium_extra_columns_on_source_db_do_not_break_ingest ... ok
+test archive::ingest::dedup_scenarios::download_cases::a_replayed_checkpoint_keeps_the_newer_state_and_adds_what_only_it_has ... ok
+test archive::ingest::dedup_scenarios::identity_cases::a_damaged_time_past_year_9999_does_not_make_every_backup_read_every_row ... ok
+test ai::tests::native::indexing::rebuild::recovery::simultaneous_status_resolve_and_gc_do_not_deadlock_the_two_reader_pool ... ok
+test archive::ingest::dedup_scenarios::identity_cases::a_first_import_preview_counts_a_redirects_hops_as_one_visit ... ok
+test archive::ingest::dedup_scenarios::cases_1::x1_edge_imports_chrome_then_both_diverge ... ok
+test archive::ingest::dedup_scenarios::cases_2::c4_chromium_reimport_of_an_older_snapshot_keeps_newer_counts_title_and_hidden ... ok
+test archive::ingest::dedup_scenarios::identity_cases::a_backup_cut_off_before_it_names_an_opener_leaves_the_next_backup_to_name_it ... ok
+test archive::ingest::dedup_scenarios::identity_cases::a_replayed_older_checkpoint_does_not_take_a_duration_back ... ok
+test archive::ingest::dedup_scenarios::identity_cases::a_named_opener_stays_when_the_browser_points_the_visit_at_another ... ok
+test archive::ingest::dedup_scenarios::identity_cases::a_version_one_opener_survives_either_visit_getting_its_browser_time ... ok
+test archive::ingest::dedup_scenarios::identity_cases::the_import_preview_counts_one_version_one_visit_once ... ok
+test archive::ingest::dedup_scenarios::identity_cases::the_import_preview_counts_a_redirect_into_a_version_one_visit_as_the_import_does ... ok
+test archive::ingest::dedup_scenarios::identity_cases::two_version_one_visits_at_one_millisecond_keep_their_own_times_once_renumbered ... ok
+test archive::ingest::dedup_scenarios::read_plan_cases::a_checkpoint_replay_leaves_the_profiles_cursor_where_the_live_file_left_it ... ok
+test archive::ingest::dedup_scenarios::read_plan_cases::a_read_that_fails_part_way_says_in_its_source_batch_what_it_saved_and_why ... ok
+test archive::ingest::dedup_scenarios::identity_cases::a_merged_redirect_hop_is_not_its_own_opener_and_a_later_opener_is_named ... ok
+test archive::ingest::dedup_scenarios::read_plan_cases::a_full_read_cut_off_in_a_file_made_again_since_starts_over ... ok
+test archive::ingest::dedup_scenarios_baselines::firefox_cursor::a_firefox_link_cursor_reused_by_a_typed_visit_keeps_both ... ok
+test archive::ingest::dedup_scenarios_baselines::firefox_cursor::a_firefox_typed_cursor_reused_by_a_link_keeps_both_with_an_unchanged_lowest_row ... ok
+test archive::ingest::dedup_scenarios_baselines::firefox_legacy::a_firefox_row_of_another_kind_does_not_take_a_version_one_visit ... ok
+test archive::ingest::dedup_scenarios_baselines::firefox_legacy::a_firefox_version_one_import_writes_the_distinct_kind_its_preview_offers ... ok
+test archive::ingest::dedup_scenarios_baselines::firefox_legacy::firefox_kinds_keep_their_own_microseconds_when_a_version_one_visit_is_matched ... ok
+test archive::ingest::dedup_scenarios_baselines::cases_1::chromium_fingerprint_dedup_catches_same_visits_with_different_source_ids ... ok
+test archive::ingest::dedup_scenarios_baselines::cases_1::s2_safari_long_tail_revisit_captured_without_or_fallback ... ok
+test archive::ingest::dedup_scenarios_baselines::cases_1::f2_firefox_incremental_revisit_of_old_url_keeps_the_new_visit ... ok
+test archive::ingest::dedup_scenarios_baselines::firefox_sync::a_copy_imported_while_its_visits_import_is_undone_counts ... ok
+test archive::ingest::dedup_scenarios_baselines::firefox_sync::a_browser_visit_restored_after_takeouts_copy_stands_in_over_it ... ok
+test archive::ingest::dedup_scenarios_baselines::firefox_legacy::a_firefox_opener_outside_the_read_can_only_name_a_version_one_visit_of_its_kind ... ok
+test archive::ingest::dedup_scenarios_baselines::firefox_sync::a_browser_visit_regrouped_through_takeout_comes_back_on_its_own ... ok
+test archive::ingest::dedup_scenarios_baselines::firefox_sync::a_file_of_sync_copies_only_is_previewed_as_copies_to_keep ... ok
+test archive::ingest::dedup_scenarios_baselines::firefox_sync::a_copy_of_a_copy_stays_with_its_visit_when_its_own_import_is_undone_and_restored ... ok
+test archive::ingest::dedup_scenarios_baselines::firefox_sync::a_visit_of_another_kind_at_that_millisecond_is_its_own_visit ... ok
+test archive::ingest::dedup_scenarios_baselines::firefox_sync::a_group_joined_through_a_copy_whose_import_was_undone_stays_one_visit ... ok
+test archive::ingest::dedup_scenarios_baselines::firefox_sync::a_sync_copys_import_restored_before_its_visits_waits_for_it ... ok
+test archive::ingest::dedup_scenarios_baselines::firefox_sync::a_group_promoted_through_takeouts_copy_keeps_its_firefox_copy ... ok
+test archive::ingest::dedup_scenarios_baselines::firefox_sync::a_visit_sync_gives_back_cut_to_the_millisecond_is_kept_and_counted_once ... ok
+test archive::ingest::dedup_scenarios_baselines::firefox_sync::a_restored_browser_visit_stands_in_again_over_takeouts_copy ... ok
+test archive::ingest::dedup_scenarios_baselines::firefox_sync::a_sync_copy_waits_for_its_visit_while_takeouts_copy_comes_and_goes ... ok
+test archive::ingest::dedup_scenarios_baselines::firefox_sync::the_import_preview_takes_the_same_rows_for_copies_as_the_import ... ok
+test archive::ingest::dedup_scenarios_baselines::firefox_sync::one_hidden_copy_is_matched_to_one_row_of_a_read ... ok
+test archive::ingest::concurrency_tests::process_exit_preserves_committed_batches_and_resume_watermark ... ok
+test archive::ingest::identity::tests::a_sync_copy_and_its_visit_both_have_firefox_times ... ok
+test archive::ingest::identity::tests::only_a_firefox_time_on_a_millisecond_reads_as_a_sync_copy ... ok
+test archive::ingest::dedup_scenarios_baselines::firefox_sync::copies_of_one_profile_that_no_read_took_for_sync_copies_still_stand_in ... ok
+test archive::ingest::dedup_scenarios_baselines::firefox_sync::an_undone_import_restored_beside_its_sync_copy_counts_once ... ok
+test archive::ingest::read_plan::tests::a_deleted_newest_row_is_safe_only_with_a_sequence ... ok
+test archive::ingest::read_plan::tests::a_firefox_cursor_row_of_another_kind_reads_everything ... ok
+test archive::ingest::read_plan::tests::a_firefox_cursor_saved_without_either_kind_reads_everything ... ok
+test archive::ingest::read_plan::tests::a_firefox_lowest_row_of_another_kind_reads_everything ... ok
+test archive::ingest::read_plan::tests::a_stopped_full_read_carries_on_unless_its_row_changed ... ok
+test archive::ingest::read_plan::tests::a_new_visit_written_under_an_old_id_reads_everything ... ok
+test archive::ingest::dedup_scenarios_baselines::firefox_sync::two_visits_one_read_kept_apart_stay_apart_through_undo_and_restore ... ok
+test archive::ingest::read_plan::tests::a_stopped_full_read_in_a_table_made_again_starts_over ... ok
+test archive::ingest::read_plan::tests::every_row_is_read_once_a_week_and_on_the_first_backup ... ok
+test archive::ingest::read_plan::tests::a_table_made_again_and_written_past_the_cursor_reads_everything ... ok
+test archive::ingest::dedup_scenarios_baselines::firefox_sync::two_kinds_of_visit_at_one_browser_time_are_two_visits ... ok
+test archive::ingest::read_plan::tests::the_same_row_reads_recent_and_another_visit_in_it_reads_everything ... ok
+test archive::ingest::read_plan::tests::old_visits_the_browser_drops_leave_the_next_backup_reading_after_its_row ... ok
+test archive::ingest::scale_measure::measure_native_backup ... ignored, scaled measurement; run its phases one by one in a release build
+test archive::ingest::dedup_scenarios_baselines::firefox_sync::two_browser_visits_a_takeout_copy_lies_between_both_count_after_undo_and_restore ... ok
+test archive::ingest::dedup_scenarios_baselines::firefox_sync::two_browsers_visits_near_one_takeout_copy_both_count_after_undo_and_restore ... ok
+test archive::schedule_estimate_tests::schedule_estimate_daily_manual_backup_off_the_six_hour_grid ... ok
+test archive::schedule_estimate_tests::schedule_estimate_forty_minute_backup ... ok
+test archive::schedule_estimate_tests::schedule_estimate_hourly_five_second_backup ... ok
+test archive::schedule_estimate_tests::schedule_estimate_linux_ninety_minutes_on_thirty_minute_wakes ... ok
+test archive::schedule_estimate_tests::schedule_estimate_overdue_after_sleep_uses_the_next_future_wake ... ok
+test archive::schedule_estimate_tests::schedule_estimate_without_a_counted_backup_uses_the_next_wake ... ok
+test archive::schedule_estimate_tests::schedule_estimate_without_a_ledger_uses_the_installation_phase ... ok
+test archive::schedule_estimate_tests::schedule_estimate_without_any_phase_uses_anchor_plus_interval ... ok
+test archive::ingest::dedup_scenarios_edge_cases::chromium_contracts::e6_url_strings_stored_verbatim_no_normalization ... ok
+test archive::read_models::tests::overview_bounds_seek_the_visible_time_index ... ok
+test archive::search_lexical::tests::distance_bands_equal_an_exhaustive_reference ... ok
+test archive::search_lexical::tests::fuzzy_validation_has_no_query_length_or_document_prefix_window ... ok
+test archive::ingest::dedup_scenarios_takeout::t2b_takeout_reexport_with_changed_titles_does_not_duplicate_visits ... ok
+test archive::ingest::dedup_scenarios_baselines::firefox_sync::two_takeout_copies_of_one_browser_visit_still_stand_in_for_each_other ... ok
+test ai::tests::native::indexing::rebuild::recovery::unavailable_generation_degrades_status_and_search_and_cannot_authorize_gc ... ok
+test archive::ingest::rowid_resume_tests::a_visit_whose_url_row_is_missing_is_kept_with_its_address ... ok
+test archive::ingest::rowid_resume_tests::chromium_resume_keeps_a_new_visit_to_an_older_synced_url ... ok
+test archive::ingest::dedup_scenarios_takeout::t6_takeout_payload_import_url_upsert_protects_against_older_snapshot_regression ... ok
+test archive::ingest::dedup_scenarios_takeout::t7_takeout_same_url_same_microsecond_records_land_as_distinct_visits ... ok
+test archive::source_evidence::tests::a_changed_value_and_another_profiles_copy_are_evidence_of_their_own ... ok
+test archive::tests::browser_schema_payload_keeps_the_existing_sorted_json_encoding ... ok
+test archive::source_evidence::tests::evidence_read_again_by_a_later_batch_is_not_written_again ... ok
+test archive::tests::visit_event_fingerprint_is_stable ... ok
+test archive::search_documents::tests::affected_page_refresh_seeks_its_urls_visits_and_search_terms ... ok
+test archive::same_visit::tests::linking_statements_seek_indexes ... ok
+test archive::sites::tests::a_whole_site_star_keeps_covering_the_sites_it_covered ... ok
+test archive::tests::a_scheduled_backup_waits_its_interval_only_after_a_run_that_kept_a_profile ... ok
+test archive::source_evidence::tests::an_old_format_archive_keeps_one_row_per_evidence_keyed_like_the_writer ... ok
+test archive::write_lock::tests::distinct_open_file_descriptions_exclude_each_other ... ok
+test archive::write_lock::tests::op_gate_is_mutually_exclusive_in_process ... ok
+test archive::source_stats::tests::stats_use_index_seeks_without_visits_or_urls_scans ... ok
+test chrome::staging::error_origin_tests::staging_classifies_source_but_never_destination_errors ... ok
+test archive::tests::source_evidence_keeps_large_payloads_without_plaintext_spool_files ... ok
+test chrome::staging::raw_copy_tests::a_journal_gone_by_the_next_try_is_not_kept_in_the_copy ... ok
+test chrome::tests::fallback_chromium_profiles_support_direct_history_layouts ... ok
+test chrome::tests::no_two_browsers_share_a_default_profile_root ... ok
+test archive::search_documents::tests::notes_and_tags_commit_with_the_document_and_outbox_or_not_at_all ... ok
+test chrome::staging::raw_copy_tests::a_copy_the_browser_wrote_during_is_taken_again ... ok
+test config::tests::load_config_returns_defaults_when_missing_and_errors_on_invalid_json ... ok
+test durable_io::tests::a_failed_streamed_write_keeps_the_old_file_and_removes_the_temp ... ok
+test durable_io::tests::age_gated_sweep_leaves_temps_that_are_still_being_written ... ok
+test durable_io::tests::fsync_parent_dir_reports_directory_fsync_failure ... ok
+test durable_io::tests::full_fsync_propagates_a_genuinely_fatal_errno ... ok
+test chrome::tests::stage_profile_snapshot_recovers_a_hot_journal_for_the_chromium_parser ... ok
+test enrichment::content_fetch::tests::routing::content_fetch_allowed_honors_master_switch_extractor_and_domain_gates ... ok
+test enrichment::content_fetch::tests::routing::guard_final_url_blocks_a_private_redirect_landing ... ok
+
+running 1 test
+test chrome::tests::staging_backs_up_a_live_wal_source_to_a_complete_journal_free_copy ... ok
+test enrichment::content_fetch::tests::transport::the_production_fetcher_does_not_follow_a_redirect_to_a_private_address ... ok
+test archive::source_evidence::tests::all_evidence_families_survive_bounded_writes_in_both_key_modes ... ok
+test enrichment::embedding_document::tests::document_parts_prefer_browser_title_and_avoid_repeated_labels ... ok
+test archive::url_detail::tests::detail_queries_seek_indexes ... ok
+test enrichment::embedding_document::tests::path_words_keep_page_meaning_without_identifiers ... ok
+test enrichment::html_text_tests::readable_html_excludes_non_content_subtrees_in_blocks_and_fallback ... ok
+test intelligence::insights_zone::tests::a_day_whose_midnight_is_skipped_starts_at_its_first_instant ... ok
+test intelligence::insights_zone::tests::daylight_saving_days_have_their_real_length ... ok
+test intelligence::intelligence_daily_rollup_state::tests::a_site_takes_the_category_most_of_its_visits_had ... ok
+test enrichment::embedding_document::tests::page_text_stays_within_its_budget ... ok
+test enrichment::content_fetch_api::tests::drain_one_content_fetch_job_is_noop_without_consent ... ok
+test enrichment::content_fetch::tests::storage::execute_content_fetch_job_parks_when_consent_disabled ... ok
+test chrome::staging::raw_copy_tests::a_browser_that_writes_through_every_copy_fails_the_read ... ok
+test enrichment::content_fetch::tests::network_switch_blocks_content_fetch_without_connecting ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 506 filtered out; finished in 0.66s
+
+test enrichment::content_fetch::tests::network_switch_blocks_content_fetch_without_connecting ... ok
+test intelligence::intelligence_shared::tests::chinese_and_japanese_searches_split_into_words ... ok
+test intelligence::intelligence_structural_build::tests::a_rewording_in_its_trail_joins_the_family_of_the_search_before_it ... ok
+test intelligence::intelligence_structural_build::tests::a_search_goes_to_the_first_search_it_is_most_like ... ok
+test intelligence::intelligence_structural_build::tests::a_search_like_only_a_wording_its_trail_brought_in_starts_its_own_family ... ok
+test intelligence::intelligence_structural_build::tests::a_short_first_search_does_not_take_every_search_with_its_words ... ok
+test intelligence::intelligence_structural_build::tests::a_wording_already_in_a_family_stays_there_inside_another_trail ... ok
+test intelligence::intelligence_structural_build::tests::an_append_that_continues_an_open_trail_groups_like_a_build_from_scratch ... ok
+test intelligence::intelligence_overview_snapshot::tests::fingerprint_outlives_the_day_but_not_the_timezone ... ok
+test intelligence::intelligence_overview_snapshot::tests::fingerprint_reacts_to_revert_runs_without_new_visits ... ok
+test archive::wipe::tests::a_failed_keychain_step_keeps_the_marker_for_a_retry ... ok
+test intelligence::intelligence_overview_snapshot::tests::publishing_a_build_changes_the_fingerprint_with_the_same_checkpoints ... ok
+test intelligence::intelligence_overview_snapshot::tests::recent_ranges_are_kept_for_today_over_every_profile ... ok
+test intelligence::intelligence_overview_snapshot::tests::resolve_rebuilds_when_archive_gains_un_ingested_visits ... ok
+test intelligence::tests::family_scale::family_scale ... ignored, benchmark: 576,000 synthetic searches; run in release with --nocapture
+test ai::tests::lexical_ai_cursors_reach_beyond_every_former_pool_and_date_window ... ok
+test archive::wipe::tests::an_interrupted_wipe_finishes_with_the_saved_provider_list ... ok
+test archive::ingest::rowid_resume_tests::all_browsers_resume_url_rowids_without_reupserting_committed_prefixes ... ok
+test archive::tests::backup_keeps_readable_profiles_when_safari_staging_loses_access ... ok
+test intelligence::tests::build_needed::insights_built_with_older_rules_are_built_again ... ok
+test intelligence::tests::frequent_searches::the_range_read_walks_the_kind_and_time_index ... ok
+test archive::wipe::tests::the_wipe_waits_for_a_process_holding_the_archive_write_lock ... ok
+test ai::tests::semantic_facets_find_eligible_pages_beyond_every_former_recall_pool ... ok
+test archive::wipe::tests::wipe_removes_everything_listed_and_nothing_else ... ok
+test archive::ingest::concurrency_tests::safety_snapshot_during_backup_restores_a_consistent_committed_prefix ... ok
+test intelligence::tests::schema_overview::all_time_primary_overview_serves_persisted_snapshot ... ok
+test intelligence::tests::schema_overview::all_time_secondary_overview_serves_persisted_snapshot ... ok
+test intelligence::tests::stage_rebuild::daily_rollup_resumes_an_interrupted_fact_batch_without_missing_delta_rows ... ok
+test intelligence::tests::stage_rebuild::daily_rollup_stage_recomputes_only_dirty_days ... ok
+test intelligence::tests::stage_rebuild::visit_derive_stage_processes_only_new_visible_visits ... ok
+test intelligence::tests::top_sites_profiles::several_profiles_are_summed_and_paged_through_every_site_once_without_searches ... ok
+test intelligence::tests::append_plans::an_append_reads_and_writes_the_aggregates_by_key ... ok
+test intelligence_runtime::tests_queue::compare_and_set_claim_skips_jobs_taken_by_another_connection ... ok
+test intelligence::tests::search_families::every_family_of_a_search_is_found_however_old_it_is ... ok
+test intelligence_runtime::tests_queue::next_queued_intelligence_job_recovers_expired_leases ... ok
+test intelligence_runtime::tests_runtime::load_intelligence_runtime_only_recovers_running_jobs_once_per_archive ... ok
+test maintenance::install_tests::a_published_generation_finishes_cleanup_without_restoring_old_files ... ok
+test intelligence_runtime::tests_runtime::load_intelligence_runtime_recovers_interrupted_deterministic_jobs ... ok
+test intelligence::tests::site_flows::site_flows_match_a_count_by_hand_built_at_once_and_appended ... ok
+test maintenance::rewrap_crash_tests::rewrap_child ... ignored, child process for the envelope crash test
+test maintenance::install_tests::every_interrupted_swap_rolls_back ... ok
+test maintenance::install_tests::an_old_format_import_journal_next_to_a_native_archive_is_set_aside_not_rolled_back ... ok
+test intelligence::tests::reclassify::sorting_a_sites_pages_again_reads_each_urls_visits_by_index ... ok
+test maintenance::tests::incomplete_snapshot_manifest_cannot_create_empty_replacement_databases ... ok
+test archive::ingest::concurrency_tests::resume_does_not_reupsert_committed_url_batches_or_skip_terms ... ok
+test intelligence::tests::structural_incremental::late_visits_rebuild_tail_assignments_without_duplicates ... ok
+test maintenance::tests::retention_keeps_a_native_safety_snapshot_and_updates_its_native_ledger ... ok
+test migration::native_tests::export_cannot_replace_the_live_archive_or_its_configuration ... ok
+test maintenance::tests::snapshot_restores_evidence_and_agent_alongside_the_archive ... ok
+test intelligence::intelligence_structural_build::tests::the_indexed_lookup_finds_what_comparing_every_first_search_finds ... ok
+test ai::tests::native::coverage::backfill_reaches_every_distinct_page_beyond_fifty_thousand has been running for over 60 seconds
+test intelligence::tests::reclassify::a_site_category_changed_while_a_build_runs_is_in_what_it_publishes ... ok
+test migration::tests::validate_bundle_relative_path_rejects_every_escaping_shape ... ok
+test models::intelligence::tests::content_fetch_domain_blocked_matches_case_insensitively_and_ignores_blank ... ok
+test models::intelligence::tests::ensure_ai_capability_refuses_when_master_flag_is_off ... ok
+test models::intelligence::tests::ensure_ai_capability_refuses_when_sub_flag_is_off ... ok
+test models::tests::og_image_settings_effective_mode_truth_table ... ok
+test maintenance::tests::startup_rolls_back_a_mode_switch_interrupted_after_the_first_install ... ok
+test schedule_attempts::tests::a_partial_before_a_later_success_does_not_return ... ok
+test schedule_attempts::tests::failed_then_skipped_keeps_the_failure ... ok
+test pages::tests::canonical_variants_use_the_production_indexed_lookup ... ok
+test schedule_attempts::tests::next_invocation_durably_finalizes_an_orphaned_running_attempt ... ok
+test schedule_attempts::tests::orphan_finalization_skips_noise_corrupt_and_unreadable_records ... ok
+test schedule_attempts::tests::interrupted_then_skipped_keeps_the_interruption ... ok
+test schedule_attempts::tests::partial_then_deferred_keeps_the_warning ... ok
+test schedule_attempts::tests::partial_then_running_keeps_the_warning ... ok
+test maintenance::tests::mode_switch_round_trips_all_databases_and_cancel_keeps_original ... ok
+test schedule_attempts::tests::recorder_persists_pre_archive_failure_and_success_transitions ... ok
+test schedule_attempts::tests::right_after_waking_the_scheduler_gets_its_chance ... ok
+test search::benchmark::encrypted_archive_search ... ignored, encrypted 14.4M visits / 2.9M pages; removes its generated data on exit
+test schedule_attempts::tests::partial_then_skipped_keeps_the_warning ... ok
+test schedule_attempts::tests::partial_then_success_clears_the_warning ... ok
+test migration::native_tests::wrong_export_password_and_changed_database_bytes_preserve_the_target ... ok
+test search::eligibility::tests::selective_scopes_seek_canonical_time_indexes_without_sorting ... ok
+test search::eligibility::tests::posting_batches_seek_page_urls_and_visible_visits_without_archive_scans ... ok
+test search::fuzzy_tests::a_misspelled_query_matches_in_any_word_order ... ok
+test search::fuzzy_tests::a_misspelled_word_answers_beside_cjk ... ok
+test search::fuzzy_tests::a_hyphenated_word_is_one_word_to_misspell ... ok
+test archive::ingest::import_equivalence::a_large_import_ends_the_same_however_it_is_written ... ok
+test search::fuzzy_tests::a_page_with_accents_is_found_though_the_index_keeps_them ... ok
+test search::fuzzy_tests::a_quoted_phrase_is_never_matched_by_typo_distance ... ok
+test search::fuzzy_tests::a_word_spelled_right_answers_beside_a_misspelled_one ... ok
+test migration::native_tests::export_then_import_into_an_empty_root_round_trips_native_tables ... ok
+test search::fuzzy_tests::an_or_of_short_words_still_has_to_match ... ok
+test search::fuzzy_tests::operators_still_bind_a_misspelled_query ... ok
+test search::fuzzy_tests::edits_cannot_delete_a_word_the_query_asked_for ... ok
+test migration::native_tests::portable_provenance_is_encrypted_relocated_and_replayable_on_an_empty_root ... ok
+test search::fuzzy_tests::punctuation_between_words_is_not_a_word_to_match ... ok
+test maintenance::tests::startup_rolls_back_interrupted_bundle_import_and_snapshot_restore ... ok
+test search::fuzzy_tests::words_read_as_one_word_still_share_their_edits ... ok
+test search::most_visited_tests::a_regex_walk_ranks_the_page_it_meets_last_by_every_visit ... ok
+test search::most_visited_tests::no_step_hands_out_a_cursor_before_its_page_is_ranked_and_counted ... ok
+test maintenance::rewrap_crash_tests::rewrap_survives_a_process_kill_at_every_envelope_boundary ... ok
+test search::most_visited_tests::the_fuzzy_fallback_keeps_the_order ... ok
+test search::ported_grouped::tag_pages_start_from_tag_postings_not_every_page ... ok
+test search::most_visited_tests::revoked_visits_count_toward_neither_the_order_nor_the_row ... ok
+test search::most_visited_tests::most_visited_goes_by_visits_in_scope_then_newest_visit_then_page_on_every_path ... ok
+test search::ported_grouped::the_cursor_reaches_every_page_once_even_when_pages_tie ... ok
+test search::fuzzy_tests::fuzzy_prefilters_equal_brute_force_even_without_a_shared_trigram ... ok
+test search::query::tests::a_phrase_the_form_writes_with_escaped_quotes_is_one_phrase ... ok
+test search::query::tests::a_quoted_note_heading_is_text_including_its_cjk_words ... ok
+test search::query::tests::an_empty_quote_does_not_leak_into_the_next_token ... ok
+test search::query::tests::an_ordinary_quoted_phrase_still_requires_adjacent_words ... ok
+test search::query::tests::an_unclosed_quote_still_quotes_the_whole_token_or_its_operand ... ok
+test search::query::tests::an_unknown_operator_is_still_plain_text ... ok
+test search::query::tests::curly_and_escaped_quotes_preserve_the_literal_boundary ... ok
+test search::query::tests::every_operator_distinguishes_whole_quotes_from_operand_quotes_in_both_parsers ... ok
+test search::query::tests::or_can_join_a_quoted_operator_looking_word ... ok
+test search::query::tests::quoted_minuses_and_excluded_quoted_text_keep_their_meaning ... ok
+test search::query::tests::quoting_a_title_operand_keeps_the_field_filter ... ok
+test search::ported_grouped::three_copies_of_one_page_stay_one_row_on_every_page_of_the_walk ... ok
+test search::recovery_tests::apply_child ... ignored, child process for owner crash campaign
+test search::projection_tests::a_live_session_drops_revoked_text_when_hydrating ... ok
+test search::projection_tests::rebuild_and_clearing_preserve_the_enrichment_and_annotation_contract ... ok
+test search::recovery_tests::a_rebuild_serves_the_old_generation_without_holding_a_store_reader ... ok
+test search::projection_tests::every_visible_title_is_searchable_and_revoked_text_never_leaks_from_a_shared_page ... ok
+test search::recovery_tests::cancelling_a_rebuild_preserves_search_and_a_later_rebuild_can_finish ... ok
+test search::regex::tests::candidate_pages_seek_their_urls_and_visits_without_scanning_the_archive ... ok
+test intelligence::tests::append_aggregates::aggregates_after_appends_equal_a_full_build ... ok
+test search::regex::tests::each_chunk_seeks_to_the_cursor_instead_of_scanning_from_the_end ... ok
+test search::recovery_tests::missing_and_corrupt_indexes_rebuild_from_documents_even_after_outbox_pruning ... ok
+test search::recovery_tests::owner_replays_a_killed_apply_to_the_same_canonical_result ... ok
+test search::regex_prefilter::tests::optional_or_alternative_text_is_never_a_required_fragment ... ok
+test search::ported_regex::a_count_is_exact_only_once_the_scan_covered_everything ... ok
+test search::tests::canonical_filters_use_the_same_visit_and_revokes_do_not_wait_for_indexing ... ok
+test search::ported_regex::reading_only_the_pages_with_the_fragment_counts_what_reading_every_visit_counts ... ok
+test search::ported_regex::chunk_edges_neither_repeat_nor_skip_a_page ... ok
+test intelligence::tests::reclassify::new_categories_sorted_in_place_equal_a_build_from_scratch ... ok
+test search::tests::paging_keeps_its_visit_snapshot_when_a_backup_adds_a_new_visit_to_an_old_match ... ok
+test search::visits::tests::starred_page_union_seeks_both_page_indexes ... ok
+test stars::list::plan_tests::starred_enrichment_seeks_page_and_url_indexes ... ok
+test stars::pagination_tests::most_revisited_sorts_the_complete_star_set_before_limiting ... ok
+test intelligence::tests::batch_equivalence::daily_rollup_fallback_matches_clean_full_rebuild_across_batches has been running for over 60 seconds
+test intelligence::tests::batch_equivalence::visit_derive_fallback_matches_clean_full_rebuild_across_batches has been running for over 60 seconds
+test stars::tests::canonical_url_and_domain_lookups_use_production_sql ... ok
+test intelligence::tests::reclassify::a_site_category_from_the_user_sorts_only_that_sites_pages_again has been running for over 60 seconds
+test store_schema::tests::lineage::history_prefix_index_keeps_turso_candidate_batches_on_history_seeks ... ok
+test search::tests::regex_steps_scan_past_empty_chunks_and_page_without_duplicates ... ok
+test stars::pagination_tests::every_sort_pages_past_five_thousand_tied_stars_exactly_once ... ok
+test search::tests::paging_does_not_repeat_a_shared_page_when_its_newest_visit_is_revoked ... ok
+test store_schema::tests::lineage::measure_intelligence_v2_migration ... ignored, explicit migration scaling measurement
+test store_schema::tests::lineage::intelligence_v2_failure_rolls_back_ddl_and_version ... ok
+test search::tests::query_forms_and_pages_match_the_generated_corpus ... ok
+test store_schema::tests::lineage::intelligence_v2_keeps_every_row_and_total_and_isolates_lineages ... ok
+test store_schema::tests::lineage::migrated_explicit_ids_advance_turso_sequence_for_later_upserts ... ok
+test store_schema::tests::lineage::native_startup_reports_committed_batches_through_the_archive_upgrade_contract ... ok
+test intelligence::tests::session_paths::a_range_counts_each_path_once_across_segments_batches_and_appends has been running for over 60 seconds
+test takeout::batch_review::tests::import_review_seeks_its_batch_time_index ... ok
+test intelligence::tests::reclassify::a_site_category_from_the_user_sorts_only_that_sites_pages_again ... ok
+test intelligence::tests::structural_incremental::late_visit_chains_keep_assignments_stable_across_batch_boundaries has been running for over 60 seconds
+test intelligence::tests::zone_change::a_backup_keeps_the_zone_and_a_new_zone_rebuilds has been running for over 60 seconds
+test intelligence::tests::session_paths::a_range_counts_each_path_once_across_segments_batches_and_appends ... ok
+test takeout::batches::search_tests::startup_lists_unfinished_visibility_even_outside_the_recent_batch_limit ... ok
+test takeout::batches::search_tests::visibility_crash_child ... ok
+test takeout::batches::search_tests::revert_keeps_shared_urls_and_only_remaining_visits_searchable ... ok
+test takeout::batches::search_tests::undo_and_restore_finish_for_a_batch_written_before_coded_notes ... ok
+test takeout::browser_history::staging::tests::a_history_caught_mid_write_is_staged_with_its_committed_rows ... ok
+test store_schema::tests::newer_versions_are_refused ... ok
+test takeout::batches::search_tests::cancelled_multichunk_revert_resumes_from_committed_cursor ... ok
+test takeout::batches::search_tests::process_exit_mid_revert_resumes_without_repeating_committed_pages ... ok
+test utils::tests::escape_html_escapes_all_significant_characters ... ok
+test utils::tests::path_segment_encoding_is_windows_safe_and_reversible ... ok
+test vault::tests::a_password_open_beside_an_unconverted_archive_creates_nothing ... ok
+test takeout::tests::browser_history::an_import_whose_review_record_fails_is_still_imported_with_a_warning ... ok
+
+running 1 test
+test vault::tests::checkpoint_restore_takes_the_single_backup_guard ... ok
+test takeout::tests::trailing_zip_checksum_failure_keeps_a_failed_import_prefix ... ok
+test takeout::tests::import_takeout_deduplicates_matching_history_from_different_files ... ok
+test vault::tests::database_files_require_their_purpose_specific_keys ... ok
+test vault::tests::pending_envelope_crash_child ... ok
+test vault::tests::crash_before_envelope_promotion_is_recovered_on_unlock ... ok
+test visit_taxonomy::tests::a_site_category_from_the_user_changes_only_the_site_category ... ok
+test vault::tests::encrypted_vault_refuses_another_key ... ok
+test visit_taxonomy::tests::sites_are_split_as_a_browser_splits_them ... ok
+test visit_taxonomy::tests::taxonomy_cn_and_us_packs_cover_regional_sites ... ok
+test visit_taxonomy::tests::taxonomy_exact_domain_and_host_path_rules_cover_core_sites ... ok
+test visit_taxonomy::tests::every_site_rule_can_fire_and_is_listed_once ... ok
+test takeout::tests::browser_history::browser_import_retains_review_and_audit_without_advancing_live_cursors ... ok
+test vault::tests::missing_envelope_never_rekeys_existing_databases ... ok
+test vault::tests::pending_envelope_recovers_after_a_failure_with_database_files ... ok
+test search::coverage_tests::lexical_fuzzy_regex_palette_and_export_reach_past_old_limits has been running for over 60 seconds
+test store_schema::tests::lineage::intelligence_backfill_resumes_committed_move_batches_before_open ... ok
+test takeout::batches::search_tests::visibility_refresh_crosses_chunk_boundaries_without_skipping_urls ... ok
+test search::regex_paging_tests::the_keys_kept_run_out_with_a_page_left_and_the_pages_after_them_stay_whole ... ok
+test search::regex_paging_tests::a_later_page_of_a_regex_search_does_not_read_every_visit_again ... ok
+test intelligence::tests::zone_change::a_backup_keeps_the_zone_and_a_new_zone_rebuilds ... ok
+test search::regex_paging_tests::a_later_walk_page_reads_every_visit_of_its_last_time_before_it_ends has been running for over 60 seconds
+test search::regex_paging_tests::a_walk_ranking_by_visits_keeps_memory_only_for_the_pages_it_keeps has been running for over 60 seconds
+test search::regex_paging_tests::a_later_walk_page_reads_every_visit_of_its_last_time_before_it_ends ... ok
+test search::regex_paging_tests::every_page_of_a_regex_search_continues_its_first_page_in_every_order has been running for over 60 seconds
+test search::regex_paging_tests::a_walk_ranking_by_visits_keeps_memory_only_for_the_pages_it_keeps ... ok
+test search::regex_paging_tests::every_page_of_a_regex_search_continues_its_first_page_in_every_order ... ok
+test intelligence::tests::structural_incremental::late_visit_chains_keep_assignments_stable_across_batch_boundaries ... ok
+test search::coverage_tests::lexical_fuzzy_regex_palette_and_export_reach_past_old_limits ... ok
+test ai::tests::native::coverage::backfill_reaches_every_distinct_page_beyond_fifty_thousand ... ok
+test intelligence::tests::batch_equivalence::visit_derive_fallback_matches_clean_full_rebuild_across_batches ... ok
+test intelligence::tests::batch_equivalence::daily_rollup_fallback_matches_clean_full_rebuild_across_batches ... ok
+
+test result: ok. 495 passed; 0 failed; 12 ignored; 0 measured; 0 filtered out; finished in 204.94s
+
+     Running tests/agent_store_paging.rs (src-tauri/target/debug/deps/agent_store_paging-80989daade7972dd)
+
+running 4 tests
+test journal_crash_child ... ignored, subprocess fixture, killed by committed_agent_journal_survives_process_death
+test a_failed_replacement_preserves_the_saved_transcript ... ok
+test committed_agent_journal_survives_process_death ... ok
+test chats_and_messages_reach_every_row_after_reopen ... ok
+
+test result: ok. 3 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.54s
+
+     Running tests/ai_queue_turso.rs (src-tauri/target/debug/deps/ai_queue_turso-e77f595d1e5da7c1)
+
+running 3 tests
+
+running 1 test
+
+running 1 test
+test reopening_recovers_only_abandoned_claims_and_keeps_finished_work ... ok
+test queue_pages_reach_every_job_and_a_cancel_cannot_become_success ... ok
+test process_exit_requeues_inflight_claim_and_preserves_completed_job ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.52s
+
+     Running tests/enrichment_turso.rs (src-tauri/target/debug/deps/enrichment_turso-57dfbaeff92782d3)
+
+running 2 tests
+test a_page_without_visits_reoffers_a_parked_candidate ... ok
+test native_pages_offer_all_candidates_and_reoffer_a_prearchive_job ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.37s
+
+     Running tests/ephemeral_tables.rs (src-tauri/target/debug/deps/ephemeral_tables-5cc75c1cd9b7335a)
+
+running 1 test
+test no_statement_opens_a_temporary_file_per_row ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.74s
+
+     Running tests/intelligence_agent_pages.rs (src-tauri/target/debug/deps/intelligence_agent_pages-3c348562999ecf1c)
+
+running 2 tests
+test agent_session_detail_forwards_the_independent_trail_cursor ... ok
+test oversized_native_reports_page_through_every_domain ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.64s
+
+     Running tests/intelligence_explanation_pages.rs (src-tauri/target/debug/deps/intelligence_explanation_pages-c999c89d0575e5ef)
+
+running 1 test
+test entity_evidence_pages_preserve_every_visit_and_whole_entity_factors ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.62s
+
+     Running tests/intelligence_generation_plans.rs (src-tauri/target/debug/deps/intelligence_generation_plans-1d51e6ba879d8297)
+
+running 2 tests
+test generation_views_seek_assignment_keys ... ok
+test derived_batch_looks_up_only_requested_visit_ids ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.37s
+
+     Running tests/intelligence_keyset_plans.rs (src-tauri/target/debug/deps/intelligence_keyset_plans-dcbf3be3e87c6bd7)
+
+running 4 tests
+test observed_interaction_pages_seek_the_visit_time_index_to_the_cursor ... ok
+test one_profiles_all_time_flows_page_through_their_rows_in_index_order ... ok
+test session_trail_and_family_pages_seek_to_their_cursor ... ok
+test ranked_summary_pages_seek_to_their_cursor ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s
+
+     Running tests/intelligence_paging.rs (src-tauri/target/debug/deps/intelligence_paging-1cd7a73fd67d5523)
+
+running 17 tests
+test hardest_topics_are_one_row_per_search_across_profiles_and_engines ... ok
+test session_and_trail_details_page_in_navigation_order ... ok
+test sparse_observed_evidence_has_continuation_even_when_a_page_is_empty ... ok
+test query_family_details_page_through_every_related_trail ... ok
+test search_effectiveness_pages_through_every_hard_topic ... ok
+test anniversary_domains_continue_and_deep_sessions_are_counted_once ... ok
+test materialized_all_time_flows_page_past_twenty_results ... ok
+test curated_cards_and_widgets_expose_every_selected_card ... ok
+test frequent_queries_and_concepts_continue_beyond_their_former_limits ... ok
+test sessions_trails_and_families_continue_across_timestamp_ties ... ok
+test summary_lists_keep_every_source_friction_signal_and_reopened_investigation ... ok
+test refind_detail_reaches_all_visits_days_and_related_trails ... ok
+test top_sites_page_through_every_domain_in_each_sort_order ... ok
+test hub_pages_continue_beyond_the_former_ten_page_limit ... ok
+test refind_pages_reach_tied_results_and_choose_the_best_profile ... ok
+test domain_details_page_through_all_pages_and_landing_queries ... ok
+test recent_queries_have_complete_cursors_for_every_sort ... ok
+
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.20s
+
+     Running tests/intelligence_read_plans.rs (src-tauri/target/debug/deps/intelligence_read_plans-c8a687a41541f2eb)
+
+running 3 tests
+test the_kpi_row_seeks_its_tables_for_every_profile_and_one ... ok
+test the_slow_range_reads_seek_their_tables ... ok
+test every_insights_read_seeks_its_tables ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.58s
+
+     Running tests/intelligence_rebuild_bench.rs (src-tauri/target/debug/deps/intelligence_rebuild_bench-191f051def982868)
+
+running 1 test
+test full_rebuild_of_an_e2e_sized_archive ... ignored, timing; run with --ignored --nocapture
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/intelligence_turso.rs (src-tauri/target/debug/deps/intelligence_turso-870adebb92143188)
+
+running 10 tests
+
+running 1 test
+test malformed_job_claim_commits_its_quarantine ... ok
+test work_requested_during_a_claim_is_not_lost_at_completion ... ok
+test sessions_that_started_more_than_a_day_earlier_still_overlap_the_requested_day ... ok
+
+running 1 test
+test a_rebuild_does_not_overwrite_a_newer_invalidation ... ok
+test render_plans::render_reads_use_indexed_archive_and_membership_access ... ok
+test an_interrupted_build_resumes_and_an_interactive_star_commits_before_completion ... ok
+test process_exit_mid_rebuild_resumes_without_duplicate_facts ... ok
+test a_long_session_resumes_from_durable_domain_counts ... ok
+test a_changed_archive_retargets_an_interrupted_generation ... ok
+test many_batches_equal_one_pass_and_incremental_equals_full ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 11.21s
+
+     Running tests/lmstudio_agent_e2e.rs (src-tauri/target/debug/deps/lmstudio_agent_e2e-147bff0473ba7547)
+
+running 2 tests
+test lmstudio_agent_cancel_mid_loop_emits_a_graceful_done ... ignored, requires an explicitly enabled external LM Studio provider
+test lmstudio_agent_runs_the_full_tool_loop_and_journals_a_durable_cited_trace ... ignored, requires an explicitly enabled external LM Studio provider
+
+test result: ok. 0 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/lmstudio_chat_stream_e2e.rs (src-tauri/target/debug/deps/lmstudio_chat_stream_e2e-7fb6b30541df199f)
+
+running 1 test
+test lmstudio_chat_stream_yields_tokens_and_maybe_reasoning ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/lmstudio_embedding_e2e.rs (src-tauri/target/debug/deps/lmstudio_embedding_e2e-b49059e474b8f5a7)
+
+running 1 test
+test lmstudio_embedding_returns_consistent_normalized_distinct_vectors ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/open_file_budget.rs (src-tauri/target/debug/deps/open_file_budget-f94dccbf1e007fa3)
+
+running 1 test
+test open_files_stay_bounded_as_imports_and_searches_accumulate ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 21.48s
+
+     Running tests/static_embedding_e2e.rs (src-tauri/target/debug/deps/static_embedding_e2e-5ecdddc989c4f09d)
+
+running 3 tests
+test static_memory_footprint_benchmark ... ok
+test static_s1_throughput_benchmark ... ok
+test static_vs_reference_cosine_parity ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/static_embedding_matrix.rs (src-tauri/target/debug/deps/static_embedding_matrix-c2877e04dca8e9a8)
+
+running 3 tests
+test static_matrix_replacement_preserves_active_mapping_and_invalidates_cache ... ok
+test static_matrix_mapped_pooling_matches_owned_rows ... ok
+test static_matrix_rejects_unsupported_or_inconsistent_tensors ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/static_tokenizer_parity.rs (src-tauri/target/debug/deps/static_tokenizer_parity-e3caef4c8bb03626)
+
+running 4 tests
+test static_tokenizer_matches_upstream_ids ... ok
+test compact_unigram_rejects_empty_and_duplicate_pieces ... ok
+test compact_unigram_spells_unknown_runs_with_byte_fallback ... ok
+test compact_unigram_preserves_scored_paths_and_fused_unknowns ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/turso_write_path.rs (src-tauri/target/debug/deps/turso_write_path-da96d0581ebf771b)
+
+running 5 tests
+test failed_batch_creation_cannot_leave_a_phantom_import_run ... ok
+test imports_annotations_and_visibility_share_the_search_transaction ... ok
+test an_undone_interrupted_import_is_not_carried_on ... ok
+test a_stopped_browser_file_import_keeps_what_it_saved ... ok
+test cancelled_import_keeps_batch_identity_and_committed_progress ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 11.40s
+
+     Running tests/vector_scan_bench/main.rs (src-tauri/target/debug/deps/vector_scan_bench-51b2eef131de11ca)
+
+running 1 test
+test vector_scan_benchmark ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/working_set_turso.rs (src-tauri/target/debug/deps/working_set_turso-1a21a86b9b21062d)
+
+running 2 tests
+test candidate_page_does_not_group_the_entire_archive_for_each_scalar_signal ... ok
+test every_page_is_reachable_past_both_old_pool_limits ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 13.75s
+
+     Running unittests examples/field-promotion-dry-run.rs (src-tauri/target/debug/examples/field_promotion_dry_run-879081dc1b777483)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (src-tauri/target/debug/deps/vault_crypto-744227222443facc)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/envelope.rs (src-tauri/target/debug/deps/envelope-2168fd5db6df93d2)
+
+running 13 tests
+test kdf_timing ... ignored, timing measurement; run explicitly in release
+test sub_keys_match_independently_computed_values ... ok
+test oversized_parameters_are_rejected_before_the_kdf_runs ... ok
+test truncated_padded_and_foreign_bytes_are_not_envelopes ... ok
+test every_purpose_gets_different_key_material ... ok
+test debug_output_never_contains_key_bytes ... ok
+test opens_an_envelope_built_by_an_independent_implementation ... ok
+test the_right_password_returns_the_same_data_key ... ok
+test a_wrong_password_returns_no_key ... ok
+test the_same_password_twice_gives_different_envelopes ... ok
+test rewrap_keeps_the_data_key_and_retires_the_old_password ... ok
+test envelope_files_round_trip_and_oversized_files_are_refused ... ok
+test every_flipped_bit_is_rejected ... ok
+
+test result: ok. 12 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.23s
+
+     Running tests/envelope_crash.rs (src-tauri/target/debug/deps/envelope_crash-719455ce0c38e14a)
+
+running 4 tests
+test child_rewrap_forever ... ignored, runs only as a child of a crash test
+test child_rewrap_once ... ignored, runs only as a child of a crash test
+test a_kill_at_each_step_of_the_replacement_leaves_old_or_new ... ok
+test kills_at_random_moments_during_repeated_rewraps_leave_a_working_envelope ... ok
+
+test result: ok. 2 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 3.50s
+
+     Running tests/portable.rs (src-tauri/target/debug/deps/portable-05593e4219c024e3)
+
+running 2 tests
+test cancelled_artifact_has_no_readable_complete_payload ... ok
+test artifacts_round_trip_without_plaintext_and_authenticate_their_names ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/search_bench.rs (src-tauri/target/debug/deps/search_bench-7b2bfdcec4007c66)
+
+running 3 tests
+test child_build ... ignored, runs only as a child of the benchmark
+test child_query ... ignored, runs only as a child of the benchmark
+test encrypted_directory_against_mmap_directory ... ignored, benchmark: builds two 1M-document indexes; run explicitly in release
+
+test result: ok. 0 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/search_crash.rs (src-tauri/target/debug/deps/search_crash-a8bab2c05948fdcc)
+
+running 4 tests
+test child_commit_forever ... ignored, runs only as a child of the crash tests
+test child_merge_all ... ignored, runs only as a child of the crash tests
+test kills_during_commits_leave_the_last_commit ... ignored, kills 42 child processes; run explicitly in release
+test kills_during_merges_leave_the_last_commit ... ignored, kills 24 child processes; run explicitly in release
+
+test result: ok. 0 passed; 0 failed; 4 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/search_dir.rs (src-tauri/target/debug/deps/search_dir-17bdbb102ad99c71)
+
+running 9 tests
+test child_hold_writer_lock ... ignored, runs only as a child of a_killed_holder_releases_the_writer_lock
+test a_killed_holder_releases_the_writer_lock ... ok
+test reads_a_file_built_by_an_independent_implementation ... ok
+test unfinished_files_are_reported_as_incomplete ... ok
+test files_from_another_key_or_format_are_named_as_such ... ok
+test nothing_written_is_readable_on_disk ... ok
+test renamed_extended_and_shortened_files_fail_to_open ... ok
+test files_of_awkward_sizes_read_back_exactly ... ok
+test the_cache_stays_within_its_limit_and_clears ... ok
+
+test result: ok. 8 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 1.01s
+
+     Running tests/search_index.rs (src-tauri/target/debug/deps/search_index-6dd58344aa65b3e9)
+
+running 3 tests
+test child_cache_workload ... ignored, runs only as a child of the_block_cache_bounds_memory
+
+thread 'child_cache_workload' (24727060) panicked at crates/vault-crypto/tests/common/mod.rs:260:88:
+called `Result::unwrap()` on an `Err` value: Os { code: 1, kind: PermissionDenied, message: "Operation not permitted" }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test the_block_cache_bounds_memory ... FAILED
+test a_100k_page_index_survives_commit_merge_and_reopen ... ok
+
+failures:
+
+---- the_block_cache_bounds_memory stdout ----
+
+thread 'the_block_cache_bounds_memory' (24726906) panicked at crates/vault-crypto/tests/common/mod.rs:122:17:
+child failed: exit status: 101
+
+running 1 test
+test child_cache_workload ... FAILED
+
+failures:
+
+failures:
+    child_cache_workload
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.03s
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    the_block_cache_bounds_memory
+
+test result: FAILED. 1 passed; 1 failed; 1 ignored; 0 measured; 0 filtered out; finished in 22.53s
+
+error: test failed, to rerun pass `-p vault-crypto --test search_index`

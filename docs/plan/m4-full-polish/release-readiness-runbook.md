@@ -24,6 +24,20 @@
 | `SHA256SUMS.txt`                     | GitHub `Release` workflow | user-visible checksum validation                                   |
 | `RELEASE-MANIFEST.json`              | GitHub `Release` workflow | operator-facing file inventory and traceability                    |
 
+## Published artifacts
+
+The v0.5.0 preparation PR proposes explicit `prepare`, `verify` and `publish`
+operations sharing a target-tag lock. Preparation creates private, source-owned
+drafts. Publication builds nothing and checks the approved source, draft ID,
+manifest digest and current asset hashes while holding that lock.
+
+An administrator enables and checks GitHub immutable releases before any public
+promotion. The workflow token has no administration access; the operator confirms
+that preflight explicitly. Server immutability protects published files and tags;
+client checks reject stale snapshots and private source mismatches. Changes to
+this contract need user approval; see
+[release-publication.md](../../architecture/release-publication.md).
+
 ## Browser Support Promise
 
 - `Validated now`: Google Chrome; Microsoft Edge / Edge Dev, including Browser Direct local `History` import through the Chromium parser while preserving Edge metadata; Firefox history-only baseline, including Browser Direct local `places.sqlite` import; ChatGPT Atlas on macOS, including Browser Direct local `History` import; Perplexity Comet on macOS, including Browser Direct local `History` import; Safari baseline on macOS after Full Disk Access is granted, including Browser Direct local `History.db` import.

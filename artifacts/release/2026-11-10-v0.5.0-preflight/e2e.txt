@@ -1,0 +1,211 @@
+$ node scripts/run-playwright.mjs
+[WebServer] $ node scripts/pathkeep-dev-desktop-bridge.mjs
+[WebServer] PathKeep desktop bridge enabled at http://127.0.0.1:45102. Open http://127.0.0.1:17404 in Chrome or run bun run test:e2e.
+[WebServer] $ node scripts/prepare-worker-sidecar.mjs --profile debug
+[WebServer]     Finished `dev` profile [unoptimized] target(s) in 0.25s
+[WebServer] Prepared src-tauri/binaries/pathkeep-worker-aarch64-apple-darwin (13275200 bytes, debug)
+[WebServer] $ vite --host 127.0.0.1
+[WebServer] (node:35456) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+[WebServer] (Use `node --trace-deprecation ...` to show where the warning was created)
+[WebServer] 
+[WebServer]   VITE v8.0.3  ready in 97 ms
+[WebServer] 
+[WebServer]   ➜  Local:   http://127.0.0.1:17404/
+[WebServer]    Compiling serde_core v1.0.228
+[WebServer]    Compiling objc2-exception-helper v0.1.1
+[WebServer]    Compiling tracing v0.1.44
+[WebServer]    Compiling aws-lc-sys v0.45.0
+[WebServer]    Compiling ring v0.17.14
+[WebServer]    Compiling tauri v2.12.5
+[WebServer]    Compiling zstd-sys v2.1.2+zstd.1.5.7
+[WebServer]    Compiling simsimd v6.5.16
+[WebServer]    Compiling objc2 v0.6.4
+[WebServer]    Compiling openssl-sys v0.9.117
+[WebServer]    Compiling wasmtime v48.0.8
+[WebServer]    Compiling pathkeep-desktop v0.5.0 (/Users/tim/LocalData/coding/2026/Lab/8_chrome_history_backup/var/release-preflight-2026-11-10/src-tauri)
+[WebServer]    Compiling matchit v0.8.4
+[WebServer]    Compiling tower v0.5.3
+[WebServer]    Compiling axum-core v0.5.6
+[WebServer]    Compiling objc2-foundation v0.3.2
+[WebServer]    Compiling wry v0.57.1
+[WebServer]    Compiling tauri-plugin-fs v2.5.0
+[WebServer]    Compiling tauri-plugin-autostart v2.5.1
+[WebServer]    Compiling tauri-plugin-log v2.8.0
+[WebServer]    Compiling tauri-plugin-updater v2.14.1
+[WebServer]    Compiling block2 v0.6.2
+[WebServer]    Compiling tauri-plugin-dialog v2.7.0
+[WebServer]    Compiling serde v1.0.228
+[WebServer]    Compiling bitflags v2.11.1
+[WebServer]    Compiling hashbrown v0.17.0
+[WebServer]    Compiling deranged v0.5.8
+[WebServer]    Compiling uuid v1.23.1
+[WebServer]    Compiling semver v1.0.28
+[WebServer]    Compiling hashbrown v0.16.1
+[WebServer]    Compiling rustix v1.1.4
+[WebServer]    Compiling objc2-core-foundation v0.3.2
+[WebServer]    Compiling erased-serde v0.4.10
+[WebServer]    Compiling smallvec v1.15.1
+[WebServer]    Compiling chrono v0.4.44
+[WebServer]    Compiling postcard v1.1.3
+[WebServer]    Compiling wasmparser v0.254.2
+[WebServer]    Compiling dpi v0.1.2
+[WebServer]    Compiling indexmap v2.14.0
+[WebServer]    Compiling wasmtime-internal-core v48.0.8
+[WebServer]    Compiling icu_normalizer v2.3.0
+[WebServer]    Compiling parking_lot_core v0.9.12
+[WebServer]    Compiling regalloc2 v0.15.2
+[WebServer]    Compiling tracing-subscriber v0.3.23
+[WebServer]    Compiling system-configuration v0.7.0
+[WebServer]    Compiling parking_lot v0.12.5
+[WebServer]    Compiling turso_parser v0.8.3
+[WebServer]    Compiling time v0.3.47
+[WebServer]    Compiling cfb v0.14.0
+[WebServer]    Compiling idna_adapter v1.2.2
+[WebServer]    Compiling serde_json v1.0.154
+[WebServer]    Compiling cranelift-bitset v0.135.8
+[WebServer]    Compiling idna v1.1.0
+[WebServer]    Compiling gimli v0.33.0
+[WebServer]    Compiling cranelift-entity v0.135.8
+[WebServer]    Compiling url v2.5.8
+[WebServer]    Compiling pulley-interpreter v48.0.8
+[WebServer]    Compiling cranelift-bforest v0.135.8
+[WebServer]    Compiling h2 v0.4.16
+[WebServer]    Compiling turso_ext v0.8.3
+[WebServer]    Compiling object v0.39.1
+[WebServer]    Compiling icu_collator v2.3.1
+[WebServer]    Compiling jsonptr v0.7.1
+[WebServer]    Compiling tempfile v3.27.0
+[WebServer]    Compiling plist v1.10.0
+[WebServer]    Compiling polling v3.11.0
+[WebServer]    Compiling zstd-safe v8.2.0
+[WebServer]    Compiling serde_spanned v1.1.1
+[WebServer]    Compiling toml_datetime v1.1.1+spec-1.1.0
+[WebServer]    Compiling json-patch v4.2.0
+[WebServer]    Compiling tantivy-common v0.27.0
+[WebServer]    Compiling cookie v0.18.1
+[WebServer]    Compiling urlpattern v0.6.0
+[WebServer]    Compiling toml v1.1.2+spec-1.1.0
+[WebServer]    Compiling infer v0.22.0
+[WebServer]    Compiling serde-untagged v0.1.9
+[WebServer]    Compiling core-graphics-types v0.2.0
+[WebServer]    Compiling dispatch2 v0.3.1
+[WebServer]    Compiling security-framework v3.7.0
+[WebServer]    Compiling serde_with v3.24.0
+[WebServer]    Compiling core-graphics v0.25.0
+[WebServer]    Compiling zstd v0.14.3
+[WebServer]    Compiling keyboard-types v0.8.3
+[WebServer]    Compiling png v0.18.1
+[WebServer]    Compiling tower-http v0.6.8
+[WebServer]    Compiling tantivy-sstable v0.27.0
+[WebServer]    Compiling tantivy-stacker v0.27.0
+[WebServer]    Compiling tracing-appender v0.2.5
+[WebServer]    Compiling turso_core v0.8.3
+[WebServer]    Compiling objc2-core-graphics v0.3.2
+[WebServer]    Compiling string_cache v0.8.9
+[WebServer]    Compiling wasmtime-internal-jit-icache-coherence v48.0.8
+[WebServer]    Compiling tantivy-columnar v0.27.0
+[WebServer]    Compiling fs4 v0.13.1
+[WebServer]    Compiling web_atoms v0.1.3
+[WebServer]    Compiling serialize-to-javascript v0.1.2
+[WebServer]    Compiling tantivy-query-grammar v0.27.0
+[WebServer]    Compiling typetag v0.2.23
+[WebServer]    Compiling lru v0.18.5
+[WebServer]    Compiling sketches-ddsketch v0.4.1
+[WebServer]    Compiling serde-tuple-vec-map v1.0.1
+[WebServer]    Compiling tantivy-tokenizer-api v0.7.0
+[WebServer]    Compiling tauri-utils v2.10.2
+[WebServer]    Compiling markup5ever v0.35.0
+[WebServer]    Compiling xattr v1.6.1
+[WebServer]    Compiling fs-set-times v0.20.3
+[WebServer]    Compiling schemars v1.2.1
+[WebServer]    Compiling rig-http v0.44.0
+[WebServer]    Compiling hashlink v0.11.0
+[WebServer]    Compiling cssparser v0.35.0
+[WebServer]    Compiling serde_urlencoded v0.7.1
+[WebServer]    Compiling nix v0.31.3
+[WebServer]    Compiling tar v0.4.46
+[WebServer]    Compiling html5ever v0.35.0
+[WebServer]    Compiling hyper v1.9.0
+[WebServer]    Compiling tantivy v0.27.0
+[WebServer]    Compiling wasmprinter v0.254.2
+[WebServer]    Compiling zip v9.0.5
+[WebServer]    Compiling selectors v0.31.0
+[WebServer]    Compiling cap-primitives v4.0.3
+[WebServer]    Compiling rustix-linux-procfs v0.1.1
+[WebServer]    Compiling unicode-normalization-alignments v0.1.12
+[WebServer]    Compiling ahash v0.8.12
+[WebServer]    Compiling dary_heap v0.3.9
+[WebServer]    Compiling spm_precompiled v0.1.4
+[WebServer]    Compiling compact_str v0.9.1
+[WebServer]    Compiling monostate v0.1.18
+[WebServer]    Compiling safetensors v0.7.0
+[WebServer]    Compiling publicsuffix v2.3.0
+[WebServer]    Compiling hyper-util v0.1.20
+[WebServer]    Compiling scraper v0.24.0
+[WebServer]    Compiling chrono-tz v0.10.4
+[WebServer]    Compiling tokenizers v0.22.2
+[WebServer]    Compiling icu_segmenter v2.3.0
+[WebServer]    Compiling objc2-security v0.3.2
+[WebServer]    Compiling cranelift-codegen v0.135.8
+[WebServer]    Compiling wasmtime-environ v48.0.8
+[WebServer]    Compiling apple-native-keyring-store v0.2.3
+[WebServer]    Compiling rmcp v3.9.0
+[WebServer]    Compiling vault-owner-ipc v0.1.0 (/Users/tim/LocalData/coding/2026/Lab/8_chrome_history_backup/var/release-preflight-2026-11-10/src-tauri/crates/vault-owner-ipc)
+[WebServer]    Compiling serde_path_to_error v0.1.20
+[WebServer]    Compiling axum v0.8.9
+[WebServer]    Compiling objc2-quartz-core v0.3.2
+[WebServer]    Compiling objc2-local-authentication v0.3.2
+[WebServer]    Compiling objc2-app-kit v0.3.2
+[WebServer]    Compiling wasmtime-internal-fiber v48.0.8
+[WebServer]    Compiling objc2-web-kit v0.3.2
+[WebServer]    Compiling muda v0.20.0
+[WebServer]    Compiling tao v0.37.2
+[WebServer]    Compiling window-vibrancy v0.8.1
+[WebServer]    Compiling objc2-osa-kit v0.3.2
+[WebServer]    Compiling rfd v0.16.0
+[WebServer]    Compiling tauri-runtime v2.12.2
+[WebServer]    Compiling osakit v0.3.1
+[WebServer]    Compiling tray-icon v0.25.1
+[WebServer]    Compiling tauri-runtime-wry v2.12.3
+[WebServer]    Compiling cranelift-frontend v0.135.8
+[WebServer]    Compiling cranelift-native v0.135.8
+[WebServer]    Compiling wasmtime-internal-unwinder v48.0.8
+[WebServer]    Compiling wasmtime-internal-cranelift v48.0.8
+[WebServer]    Compiling tauri-plugin-single-instance v2.4.3
+[WebServer]    Compiling aws-lc-rs v1.18.1
+[WebServer]    Compiling rustls v0.23.46
+[WebServer]    Compiling wasmtime-wasi-io v48.0.8
+[WebServer]    Compiling wiggle v48.0.8
+[WebServer]    Compiling rustls-webpki v0.103.16
+[WebServer]    Compiling wasmtime-wasi v48.0.8
+[WebServer]    Compiling tokio-rustls v0.26.4
+[WebServer]    Compiling rustls-platform-verifier v0.7.0
+[WebServer]    Compiling ureq v3.3.0
+[WebServer]    Compiling hyper-rustls v0.27.9
+[WebServer]    Compiling reqwest v0.13.3
+[WebServer]    Compiling reqwest v0.12.28
+[WebServer]    Compiling rig-reqwest v0.44.0
+[WebServer]    Compiling rig-core v0.44.0
+[WebServer]    Compiling turso_sync_engine v0.8.3
+[WebServer]    Compiling vault-crypto v0.1.0 (/Users/tim/LocalData/coding/2026/Lab/8_chrome_history_backup/var/release-preflight-2026-11-10/src-tauri/crates/vault-crypto)
+[WebServer]    Compiling vault-search v0.1.0 (/Users/tim/LocalData/coding/2026/Lab/8_chrome_history_backup/var/release-preflight-2026-11-10/src-tauri/crates/vault-search)
+[WebServer]    Compiling libsqlite3-sys v0.37.0
+[WebServer]    Compiling rusqlite v0.39.0
+[WebServer]    Compiling browser-history-parser v0.1.0 (/Users/tim/LocalData/coding/2026/Lab/8_chrome_history_backup/var/release-preflight-2026-11-10/src-tauri/crates/browser-history-parser)
+[WebServer]    Compiling turso_sdk_kit v0.8.3
+[WebServer]    Compiling turso_sync_sdk_kit v0.8.3
+[WebServer]    Compiling turso v0.8.3
+[WebServer]    Compiling vault-store v0.1.0 (/Users/tim/LocalData/coding/2026/Lab/8_chrome_history_backup/var/release-preflight-2026-11-10/src-tauri/crates/vault-store)
+[WebServer]    Compiling vault-core v0.1.0 (/Users/tim/LocalData/coding/2026/Lab/8_chrome_history_backup/var/release-preflight-2026-11-10/src-tauri/crates/vault-core)
+[WebServer]    Compiling vault-convert-sqlcipher v0.1.0 (/Users/tim/LocalData/coding/2026/Lab/8_chrome_history_backup/var/release-preflight-2026-11-10/src-tauri/crates/vault-convert-sqlcipher)
+[WebServer]    Compiling vault-platform v0.1.0 (/Users/tim/LocalData/coding/2026/Lab/8_chrome_history_backup/var/release-preflight-2026-11-10/src-tauri/crates/vault-platform)
+[WebServer]    Compiling vault-worker v0.1.0 (/Users/tim/LocalData/coding/2026/Lab/8_chrome_history_backup/var/release-preflight-2026-11-10/src-tauri/crates/vault-worker)
+[WebServer]     Finished `dev` profile [unoptimized] target(s) in 1m 05s
+[WebServer] 2026-11-10 11:00:31.478 pathkeep-desktop[76931:24398684] _LSModifyNotification(result->notificationID, keyCount, codesToSet, 0, NULL, NULL, NULL) returned error -50 on line 282 in NotificationTracker *createTrackerForMask(KeyMask, id, CFTypeRef)
+[WebServer] 2026-11-10 11:00:31.579 pathkeep-desktop[76931:24400824] Connection Invalid error for service com.apple.hiservices-xpcservice.
+[WebServer] 2026-11-10 11:00:31.579 pathkeep-desktop[76931:24398684] Error received in message reply handler: Connection invalid
+Error: Timed out waiting 900000ms from config.webServer.
+
+E2E artifacts: artifacts/e2e/ (report/index.html, results.json, test-results/)
+E2E fixture kept: /var/folders/c0/rqrky3x1285fkhlrbh0lw46c0000gn/T/pathkeep-e2e-gbbG8N
+error: script "test:e2e" exited with code 1

@@ -1,0 +1,117 @@
+{
+  "recordedAt": "2026-11-13T22:33:50.587271+00:00",
+  "release": {
+    "id": 444656998,
+    "tag": "v0.5.0",
+    "url": "https://github.com/t41372/PathKeep/releases/tag/v0.5.0",
+    "publishedAt": "2026-11-13T22:30:28Z",
+    "sourceCommit": "2059cb6e843f240d9440a9c731426e68192cb673",
+    "immutable": true,
+    "prerelease": false,
+    "latest": true
+  },
+  "approval": "Maintainer explicitly approved this reviewed unsigned-preview manual-install candidate on 2026-11-13, including the release-operation proposal and immutable-release preflight.",
+  "preparationMerge": "20e6519d2929ab823bd74a33e160703cb818203d",
+  "frozenRef": "release/candidate-v0.5.0",
+  "manifestSha256": "f6a121845c203c73a41fd3501a82d6c2e2770600746dc1b3745adc17f46eecd4",
+  "workflows": {
+    "candidateCi": "https://github.com/t41372/PathKeep/actions/runs/43493533180",
+    "preparationCi": "https://github.com/t41372/PathKeep/actions/runs/43510238879",
+    "nativeBuild": "https://github.com/t41372/PathKeep/actions/runs/43494115641",
+    "prepublicationVerify": "https://github.com/t41372/PathKeep/actions/runs/43519536839",
+    "publication": "https://github.com/t41372/PathKeep/actions/runs/43519773454",
+    "publishedGuard": "https://github.com/t41372/PathKeep/actions/runs/43520003574"
+  },
+  "gate": {
+    "verifyExit": 0,
+    "checkSlowExit": 0,
+    "frontendPassed": 151,
+    "releaseCliCasesIncluded": 41,
+    "e2ePassed": 134,
+    "platformSkipped": 1,
+    "flaky": 0,
+    "javascriptAudit": {
+      "packages": 532,
+      "findings": 0
+    },
+    "rustExceptions": "Existing documented exception policy retained."
+  },
+  "assetChecks": {
+    "count": 11,
+    "totalBytes": 424705769,
+    "sameReviewedAssetIdsSizesDigests": true,
+    "publicHeadRequests": 11,
+    "publicControlDownloadsVerified": true,
+    "publishedGuardSkippedBuildUpload": true,
+    "previousV040AssetsUnchanged": true
+  },
+  "assets": [
+    {
+      "id": 745069644,
+      "name": "PathKeep_0.5.0_darwin_aarch64.app.tar.gz",
+      "sizeBytes": 36803668,
+      "digest": "sha256:171ea1364542f32ac0030d1cb943197b1109c64138a7473c7e4a4ab77f5d6b94"
+    },
+    {
+      "id": 745069545,
+      "name": "PathKeep_0.5.0_darwin_aarch64.dmg",
+      "sizeBytes": 37076375,
+      "digest": "sha256:8e25a681445cc5376f609526aec187ffa69523a1bb2acf2d8fafb38b37c4dc8f"
+    },
+    {
+      "id": 744984550,
+      "name": "PathKeep_0.5.0_darwin_x64.app.tar.gz",
+      "sizeBytes": 39625372,
+      "digest": "sha256:c3f0b832949ec09f68df26e0f9a650b7e02fd1310e849e55295f2731b8eb400d"
+    },
+    {
+      "id": 744984436,
+      "name": "PathKeep_0.5.0_darwin_x64.dmg",
+      "sizeBytes": 39767655,
+      "digest": "sha256:b01392549b0adbecf15062383851c73d00425f7a52d5e2322e25fca574e16cea"
+    },
+    {
+      "id": 744973130,
+      "name": "PathKeep_0.5.0_linux_amd64.AppImage",
+      "sizeBytes": 116357624,
+      "digest": "sha256:11c7a2bdc36d1d296849e4c72c435ea6f8cd7e02edc89c8c81dc71aa875ee3e3"
+    },
+    {
+      "id": 744972932,
+      "name": "PathKeep_0.5.0_linux_amd64.deb",
+      "sizeBytes": 42109494,
+      "digest": "sha256:429234a1e42945474d8a1b4aebfd705c6b8078d906223e2e81eca3a7b2a07a2f"
+    },
+    {
+      "id": 744973029,
+      "name": "PathKeep_0.5.0_linux_x86_64.rpm",
+      "sizeBytes": 42107424,
+      "digest": "sha256:4fc161e9648d55d0988c1d796414a30d58691fc8230849b5c36bb0e478f5a091"
+    },
+    {
+      "id": 744995720,
+      "name": "PathKeep_0.5.0_windows_x64-setup.exe",
+      "sizeBytes": 29010719,
+      "digest": "sha256:b05909d1761278d5a4c66ba5fb45901e4774ec940952766cda5ce98c529abde9"
+    },
+    {
+      "id": 744995574,
+      "name": "PathKeep_0.5.0_windows_x64.msi",
+      "sizeBytes": 41844736,
+      "digest": "sha256:11a59ca9804249f98ff661eabb2610d47d028b6ce6024235b8a0bf574d0f808b"
+    },
+    {
+      "id": 745070672,
+      "name": "RELEASE-MANIFEST.json",
+      "sizeBytes": 1781,
+      "digest": "sha256:f6a121845c203c73a41fd3501a82d6c2e2770600746dc1b3745adc17f46eecd4"
+    },
+    {
+      "id": 745070673,
+      "name": "SHA256SUMS.txt",
+      "sizeBytes": 921,
+      "digest": "sha256:24b5efeb70230120c447401799e8fde863454a952dce7789202ce5f1db3846d6"
+    }
+  ],
+  "scope": "Promoted the existing tested packages without rebuilding or replacing assets. Existing native/14.4M acceptance keeps its original scope. Manual installation; no updater artifacts or in-app automatic updates."
+}

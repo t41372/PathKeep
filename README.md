@@ -1,12 +1,6 @@
 <div align="center">
 
-<img alt="PathKeep" src="docs/design/brand-icon/source/icon-1024.png" width="112" />
-
-# PathKeep
-
-**Keep the path you've walked.**
-
-Your browsers quietly delete your history. PathKeep keeps all of it, on your computer, and helps you find your way back.
+<h1><a href="docs/screenshots/en/home.jpg"><img alt="Your browser deletes old history. PathKeep backs it up before it’s gone, so you can search years of history across browsers in one archive on your own computer. Open the full-size Home demo." src="docs/screenshots/en/banner.jpg" /></a></h1>
 
 <a href="https://github.com/t41372/PathKeep/releases"><img alt="Latest release" src="https://img.shields.io/github/v/release/t41372/PathKeep?display_name=tag&label=release" /></a>
 <a href="https://github.com/t41372/PathKeep/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/t41372/PathKeep/actions/workflows/ci.yml/badge.svg?branch=main&event=push" /></a>
@@ -17,11 +11,6 @@ Your browsers quietly delete your history. PathKeep keeps all of it, on your com
 [中文](./README.CN.md) | English
 
 </div>
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/en/home-dark.jpg" />
-  <img alt="PathKeep's Home: visits saved, the last 30 days, what you were reading on this day, and your year as a calendar" src="docs/screenshots/en/home.jpg" />
-</picture>
 
 PathKeep is a desktop app for macOS and Windows. It backs up the history of every browser you use into one archive on your own disk, a little at a time, for as long as you want to keep it. Then it lets you search all of it, see what your browsing says about you, and, if you want, ask about it in plain words.
 
@@ -184,7 +173,7 @@ bun run desktop:build     # a release build
 bun run check             # the full gate: lint, build, Rust checks and every E2E test
 ```
 
-The README's pictures come from `node scripts/readme-screenshots.mjs` with `bun run dev:demo -- --fresh` running, and the diagram from `node scripts/readme-diagram.mjs`.
+The README's screenshots come from `node scripts/readme-screenshots.mjs` with `bun run dev:demo -- --fresh` running. After refreshing the Home screenshots, run `node scripts/readme-banner.mjs` to update both banners. The diagram comes from `node scripts/readme-diagram.mjs`.
 
 ## Documentation
 

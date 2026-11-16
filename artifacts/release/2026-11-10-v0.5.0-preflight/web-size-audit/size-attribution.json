@@ -1,0 +1,6113 @@
+{
+  "generatedAt": "2026-11-10T11:18:23.600Z",
+  "web": {
+    "totalBytes": 3239065,
+    "entries": [
+      {
+        "manifestKey": "index.html",
+        "entryAsset": "assets/index-DvM31caI.js",
+        "assets": [
+          {
+            "asset": "assets/archive-DsSqmZUK.js",
+            "sizeBytes": 783
+          },
+          {
+            "asset": "assets/arrow-left-DfByKuu1.js",
+            "sizeBytes": 155
+          },
+          {
+            "asset": "assets/ask-page-0JOlb-Gx.js",
+            "sizeBytes": 32787
+          },
+          {
+            "asset": "assets/atlas-Cjq-yNEQ.png",
+            "sizeBytes": 49278
+          },
+          {
+            "asset": "assets/audit--8D_m6sj.js",
+            "sizeBytes": 187
+          },
+          {
+            "asset": "assets/backup-button-Cek_LoYn.js",
+            "sizeBytes": 2194
+          },
+          {
+            "asset": "assets/backup-page-4TdiEguE.js",
+            "sizeBytes": 67061
+          },
+          {
+            "asset": "assets/backup-runner-DAD6mAud.js",
+            "sizeBytes": 4824
+          },
+          {
+            "asset": "assets/browser-icons-C5sWgW4o.js",
+            "sizeBytes": 13733
+          },
+          {
+            "asset": "assets/bundle-mjs-Bb231fdC.js",
+            "sizeBytes": 40465
+          },
+          {
+            "asset": "assets/button-hnzNZfUG.js",
+            "sizeBytes": 421439
+          },
+          {
+            "asset": "assets/chevron-down-CipXzzs2.js",
+            "sizeBytes": 118
+          },
+          {
+            "asset": "assets/chrome-CTqC3lDf.png",
+            "sizeBytes": 63769
+          },
+          {
+            "asset": "assets/chromium-Dnf4fmVW.png",
+            "sizeBytes": 9614
+          },
+          {
+            "asset": "assets/chunk-BO2N2NFS-D62uVsDa.js",
+            "sizeBytes": 448638
+          },
+          {
+            "asset": "assets/circle-alert-CLXKWwri.js",
+            "sizeBytes": 240
+          },
+          {
+            "asset": "assets/circle-D_xDC6ye.js",
+            "sizeBytes": 121
+          },
+          {
+            "asset": "assets/comet-WzM1XkGo.png",
+            "sizeBytes": 54821
+          },
+          {
+            "asset": "assets/copy-CSR1LN_t.js",
+            "sizeBytes": 227
+          },
+          {
+            "asset": "assets/core-DvpXjeDW.js",
+            "sizeBytes": 2102
+          },
+          {
+            "asset": "assets/day-page-CUcyvHRg.js",
+            "sizeBytes": 11635
+          },
+          {
+            "asset": "assets/dialog-CSWt39T3.js",
+            "sizeBytes": 7929
+          },
+          {
+            "asset": "assets/dist-BzeSCzN9.js",
+            "sizeBytes": 974
+          },
+          {
+            "asset": "assets/dist-C6cBdLEE.js",
+            "sizeBytes": 52973
+          },
+          {
+            "asset": "assets/dist-DJQoEvsM.js",
+            "sizeBytes": 5115
+          },
+          {
+            "asset": "assets/dist-js-BR_jmFE1.js",
+            "sizeBytes": 1281
+          },
+          {
+            "asset": "assets/edge-dev-BDohVkL2.png",
+            "sizeBytes": 7904
+          },
+          {
+            "asset": "assets/errors-BZoBG4ey.js",
+            "sizeBytes": 928
+          },
+          {
+            "asset": "assets/esm-DzQwIFYJ.js",
+            "sizeBytes": 25206
+          },
+          {
+            "asset": "assets/event-efyJFWlz.js",
+            "sizeBytes": 1441
+          },
+          {
+            "asset": "assets/events-DmqAHO4Z.js",
+            "sizeBytes": 913
+          },
+          {
+            "asset": "assets/firefox-EOqxoGBZ.svg",
+            "sizeBytes": 10572
+          },
+          {
+            "asset": "assets/floorp-BOjICP9Z.png",
+            "sizeBytes": 15410
+          },
+          {
+            "asset": "assets/geist-cyrillic-ext-wght-normal-DjL33-gN.woff2",
+            "sizeBytes": 7420
+          },
+          {
+            "asset": "assets/geist-cyrillic-wght-normal-BEAKL7Jp.woff2",
+            "sizeBytes": 15084
+          },
+          {
+            "asset": "assets/geist-latin-ext-wght-normal-DC-KSUi6.woff2",
+            "sizeBytes": 16512
+          },
+          {
+            "asset": "assets/geist-latin-wght-normal-BgDaEnEv.woff2",
+            "sizeBytes": 29400
+          },
+          {
+            "asset": "assets/geist-mono-cyrillic-ext-wght-normal-X_5orZeX.woff2",
+            "sizeBytes": 6176
+          },
+          {
+            "asset": "assets/geist-mono-cyrillic-wght-normal-DiZS0aHC.woff2",
+            "sizeBytes": 12940
+          },
+          {
+            "asset": "assets/geist-mono-latin-ext-wght-normal-Bwz-egvJ.woff2",
+            "sizeBytes": 14696
+          },
+          {
+            "asset": "assets/geist-mono-latin-wght-normal-XN7g48iV.woff2",
+            "sizeBytes": 23128
+          },
+          {
+            "asset": "assets/geist-mono-symbols2-wght-normal-CO5SzqOn.woff2",
+            "sizeBytes": 5812
+          },
+          {
+            "asset": "assets/geist-mono-vietnamese-wght-normal-DadHysG0.woff2",
+            "sizeBytes": 7696
+          },
+          {
+            "asset": "assets/geist-vietnamese-wght-normal-6IgcOCM7.woff2",
+            "sizeBytes": 8004
+          },
+          {
+            "asset": "assets/globe-CLAA-Y-X.js",
+            "sizeBytes": 233
+          },
+          {
+            "asset": "assets/highlighted-body-OFNGDK62-KOXP-AaA.js",
+            "sizeBytes": 529
+          },
+          {
+            "asset": "assets/history-page-DFpuXvO3.js",
+            "sizeBytes": 75791
+          },
+          {
+            "asset": "assets/home-page-CSud4_n_.js",
+            "sizeBytes": 30596
+          },
+          {
+            "asset": "assets/index-DU4_B9rd.css",
+            "sizeBytes": 113508
+          },
+          {
+            "asset": "assets/index-DvM31caI.js",
+            "sizeBytes": 411036
+          },
+          {
+            "asset": "assets/insights-Di2C9FwD.js",
+            "sizeBytes": 3231
+          },
+          {
+            "asset": "assets/insights-page-B80vlLem.js",
+            "sizeBytes": 33626
+          },
+          {
+            "asset": "assets/librewolf-Cl9rHKex.svg",
+            "sizeBytes": 5916
+          },
+          {
+            "asset": "assets/links-Dct3qU1-.js",
+            "sizeBytes": 2241
+          },
+          {
+            "asset": "assets/mermaid-GHXKKRXX-BrxFYjLF.js",
+            "sizeBytes": 70
+          },
+          {
+            "asset": "assets/mix-card-B-4jp9eX.js",
+            "sizeBytes": 6992
+          },
+          {
+            "asset": "assets/onboarding-page-BPI6RSOF.js",
+            "sizeBytes": 35175
+          },
+          {
+            "asset": "assets/open-link-ChwTvKJV.js",
+            "sizeBytes": 365
+          },
+          {
+            "asset": "assets/opera-gx-cbGB2yjU.png",
+            "sizeBytes": 4703
+          },
+          {
+            "asset": "assets/page-page-BKKL2_B1.js",
+            "sizeBytes": 6577
+          },
+          {
+            "asset": "assets/parts-DEov9w9t.js",
+            "sizeBytes": 12955
+          },
+          {
+            "asset": "assets/path-0Nc2ddhF.js",
+            "sizeBytes": 830
+          },
+          {
+            "asset": "assets/pathkeep-mark-dark-CfJIiSuv.svg",
+            "sizeBytes": 5610
+          },
+          {
+            "asset": "assets/pathkeep-mark-Dxka1z-0.svg",
+            "sizeBytes": 5610
+          },
+          {
+            "asset": "assets/plus-Rz59v6mD.js",
+            "sizeBytes": 144
+          },
+          {
+            "asset": "assets/popover-BlGhtBwI.js",
+            "sizeBytes": 5911
+          },
+          {
+            "asset": "assets/progress-CWnXRmQE.js",
+            "sizeBytes": 2513
+          },
+          {
+            "asset": "assets/providers-C1mSAuoS.js",
+            "sizeBytes": 2854
+          },
+          {
+            "asset": "assets/queries-D7ZBwFAX.js",
+            "sizeBytes": 9018
+          },
+          {
+            "asset": "assets/queries-DWfOB5Ti.js",
+            "sizeBytes": 1042
+          },
+          {
+            "asset": "assets/recharts-bar-chart-zzBXVUhh.js",
+            "sizeBytes": 24257
+          },
+          {
+            "asset": "assets/recharts-legend-Cu21SI7S.js",
+            "sizeBytes": 543607
+          },
+          {
+            "asset": "assets/reveal-CEJYVlb3.js",
+            "sizeBytes": 331
+          },
+          {
+            "asset": "assets/rotate-ccw-D7kg9Svp.js",
+            "sizeBytes": 190
+          },
+          {
+            "asset": "assets/safari-CKP33lKk.png",
+            "sizeBytes": 46440
+          },
+          {
+            "asset": "assets/schedule-actions-B9xJxS2Y.js",
+            "sizeBytes": 3330
+          },
+          {
+            "asset": "assets/schedule-copy-CqJqW4HE.js",
+            "sizeBytes": 1217
+          },
+          {
+            "asset": "assets/scope-controls-B6XTUjei.js",
+            "sizeBytes": 3989
+          },
+          {
+            "asset": "assets/search-page-C9CqK7Qw.js",
+            "sizeBytes": 8663
+          },
+          {
+            "asset": "assets/search-params-CJgRb1Lt.js",
+            "sizeBytes": 313
+          },
+          {
+            "asset": "assets/section-card-Clv_btNP.js",
+            "sizeBytes": 2345
+          },
+          {
+            "asset": "assets/select-Bh6LGY6j.js",
+            "sizeBytes": 21821
+          },
+          {
+            "asset": "assets/semantic-info-DKOn-7VZ.js",
+            "sizeBytes": 1012
+          },
+          {
+            "asset": "assets/separator-PQikFiDp.js",
+            "sizeBytes": 84336
+          },
+          {
+            "asset": "assets/settings-page-Bb0MmMCd.js",
+            "sizeBytes": 119010
+          },
+          {
+            "asset": "assets/share-bar-DWOiE0Ow.js",
+            "sizeBytes": 746
+          },
+          {
+            "asset": "assets/site-icon-D-0_DlPo.js",
+            "sizeBytes": 1539
+          },
+          {
+            "asset": "assets/site-page-Dv3XCEYP.js",
+            "sizeBytes": 11420
+          },
+          {
+            "asset": "assets/sliders-horizontal-DW-Q8mvW.js",
+            "sizeBytes": 575
+          },
+          {
+            "asset": "assets/sources-yoFMfX-_.js",
+            "sizeBytes": 92
+          },
+          {
+            "asset": "assets/sparkles-0fdgzjlD.js",
+            "sizeBytes": 499
+          },
+          {
+            "asset": "assets/spinner-MNoYpW7R.js",
+            "sizeBytes": 2046
+          },
+          {
+            "asset": "assets/switch-BKhF6ESi.js",
+            "sizeBytes": 4434
+          },
+          {
+            "asset": "assets/tabs-C5ZSqeRJ.js",
+            "sizeBytes": 5449
+          },
+          {
+            "asset": "assets/theme-CkaZoB2R.js",
+            "sizeBytes": 1223
+          },
+          {
+            "asset": "assets/title-bar-51vNWspB.js",
+            "sizeBytes": 253
+          },
+          {
+            "asset": "assets/toggle-group-BYQNtV71.js",
+            "sizeBytes": 5275
+          },
+          {
+            "asset": "assets/topic-icon-CwXrQzYk.js",
+            "sizeBytes": 4508
+          },
+          {
+            "asset": "assets/useInfiniteQuery-DA9Cflwr.js",
+            "sizeBytes": 1120
+          },
+          {
+            "asset": "assets/useQueries-DR9KXCEj.js",
+            "sizeBytes": 3447
+          },
+          {
+            "asset": "assets/vivaldi-CVXcaOiL.png",
+            "sizeBytes": 11219
+          },
+          {
+            "asset": "assets/wait-for-next-paint-DitfXX6x.js",
+            "sizeBytes": 11912
+          },
+          {
+            "asset": "assets/waterfox--1W7ATIm.png",
+            "sizeBytes": 28988
+          },
+          {
+            "asset": "assets/webview-DlLp0ors.js",
+            "sizeBytes": 3294
+          },
+          {
+            "asset": "assets/x-BRh9bIxX.js",
+            "sizeBytes": 145
+          },
+          {
+            "asset": "assets/zone-notice-D2suJOK1.js",
+            "sizeBytes": 1239
+          }
+        ],
+        "totalBytes": 3239065
+      },
+      {
+        "manifestKey": "node_modules/@tauri-apps/api/path.js",
+        "entryAsset": "assets/path-0Nc2ddhF.js",
+        "assets": [
+          {
+            "asset": "assets/core-DvpXjeDW.js",
+            "sizeBytes": 2102
+          },
+          {
+            "asset": "assets/path-0Nc2ddhF.js",
+            "sizeBytes": 830
+          }
+        ],
+        "totalBytes": 2932
+      },
+      {
+        "manifestKey": "node_modules/@tauri-apps/api/webview.js",
+        "entryAsset": "assets/webview-DlLp0ors.js",
+        "assets": [
+          {
+            "asset": "assets/archive-DsSqmZUK.js",
+            "sizeBytes": 783
+          },
+          {
+            "asset": "assets/arrow-left-DfByKuu1.js",
+            "sizeBytes": 155
+          },
+          {
+            "asset": "assets/ask-page-0JOlb-Gx.js",
+            "sizeBytes": 32787
+          },
+          {
+            "asset": "assets/atlas-Cjq-yNEQ.png",
+            "sizeBytes": 49278
+          },
+          {
+            "asset": "assets/audit--8D_m6sj.js",
+            "sizeBytes": 187
+          },
+          {
+            "asset": "assets/backup-button-Cek_LoYn.js",
+            "sizeBytes": 2194
+          },
+          {
+            "asset": "assets/backup-page-4TdiEguE.js",
+            "sizeBytes": 67061
+          },
+          {
+            "asset": "assets/backup-runner-DAD6mAud.js",
+            "sizeBytes": 4824
+          },
+          {
+            "asset": "assets/browser-icons-C5sWgW4o.js",
+            "sizeBytes": 13733
+          },
+          {
+            "asset": "assets/bundle-mjs-Bb231fdC.js",
+            "sizeBytes": 40465
+          },
+          {
+            "asset": "assets/button-hnzNZfUG.js",
+            "sizeBytes": 421439
+          },
+          {
+            "asset": "assets/chevron-down-CipXzzs2.js",
+            "sizeBytes": 118
+          },
+          {
+            "asset": "assets/chrome-CTqC3lDf.png",
+            "sizeBytes": 63769
+          },
+          {
+            "asset": "assets/chromium-Dnf4fmVW.png",
+            "sizeBytes": 9614
+          },
+          {
+            "asset": "assets/chunk-BO2N2NFS-D62uVsDa.js",
+            "sizeBytes": 448638
+          },
+          {
+            "asset": "assets/circle-alert-CLXKWwri.js",
+            "sizeBytes": 240
+          },
+          {
+            "asset": "assets/circle-D_xDC6ye.js",
+            "sizeBytes": 121
+          },
+          {
+            "asset": "assets/comet-WzM1XkGo.png",
+            "sizeBytes": 54821
+          },
+          {
+            "asset": "assets/copy-CSR1LN_t.js",
+            "sizeBytes": 227
+          },
+          {
+            "asset": "assets/core-DvpXjeDW.js",
+            "sizeBytes": 2102
+          },
+          {
+            "asset": "assets/day-page-CUcyvHRg.js",
+            "sizeBytes": 11635
+          },
+          {
+            "asset": "assets/dialog-CSWt39T3.js",
+            "sizeBytes": 7929
+          },
+          {
+            "asset": "assets/dist-BzeSCzN9.js",
+            "sizeBytes": 974
+          },
+          {
+            "asset": "assets/dist-C6cBdLEE.js",
+            "sizeBytes": 52973
+          },
+          {
+            "asset": "assets/dist-DJQoEvsM.js",
+            "sizeBytes": 5115
+          },
+          {
+            "asset": "assets/dist-js-BR_jmFE1.js",
+            "sizeBytes": 1281
+          },
+          {
+            "asset": "assets/edge-dev-BDohVkL2.png",
+            "sizeBytes": 7904
+          },
+          {
+            "asset": "assets/errors-BZoBG4ey.js",
+            "sizeBytes": 928
+          },
+          {
+            "asset": "assets/esm-DzQwIFYJ.js",
+            "sizeBytes": 25206
+          },
+          {
+            "asset": "assets/event-efyJFWlz.js",
+            "sizeBytes": 1441
+          },
+          {
+            "asset": "assets/events-DmqAHO4Z.js",
+            "sizeBytes": 913
+          },
+          {
+            "asset": "assets/firefox-EOqxoGBZ.svg",
+            "sizeBytes": 10572
+          },
+          {
+            "asset": "assets/floorp-BOjICP9Z.png",
+            "sizeBytes": 15410
+          },
+          {
+            "asset": "assets/geist-cyrillic-ext-wght-normal-DjL33-gN.woff2",
+            "sizeBytes": 7420
+          },
+          {
+            "asset": "assets/geist-cyrillic-wght-normal-BEAKL7Jp.woff2",
+            "sizeBytes": 15084
+          },
+          {
+            "asset": "assets/geist-latin-ext-wght-normal-DC-KSUi6.woff2",
+            "sizeBytes": 16512
+          },
+          {
+            "asset": "assets/geist-latin-wght-normal-BgDaEnEv.woff2",
+            "sizeBytes": 29400
+          },
+          {
+            "asset": "assets/geist-mono-cyrillic-ext-wght-normal-X_5orZeX.woff2",
+            "sizeBytes": 6176
+          },
+          {
+            "asset": "assets/geist-mono-cyrillic-wght-normal-DiZS0aHC.woff2",
+            "sizeBytes": 12940
+          },
+          {
+            "asset": "assets/geist-mono-latin-ext-wght-normal-Bwz-egvJ.woff2",
+            "sizeBytes": 14696
+          },
+          {
+            "asset": "assets/geist-mono-latin-wght-normal-XN7g48iV.woff2",
+            "sizeBytes": 23128
+          },
+          {
+            "asset": "assets/geist-mono-symbols2-wght-normal-CO5SzqOn.woff2",
+            "sizeBytes": 5812
+          },
+          {
+            "asset": "assets/geist-mono-vietnamese-wght-normal-DadHysG0.woff2",
+            "sizeBytes": 7696
+          },
+          {
+            "asset": "assets/geist-vietnamese-wght-normal-6IgcOCM7.woff2",
+            "sizeBytes": 8004
+          },
+          {
+            "asset": "assets/globe-CLAA-Y-X.js",
+            "sizeBytes": 233
+          },
+          {
+            "asset": "assets/highlighted-body-OFNGDK62-KOXP-AaA.js",
+            "sizeBytes": 529
+          },
+          {
+            "asset": "assets/history-page-DFpuXvO3.js",
+            "sizeBytes": 75791
+          },
+          {
+            "asset": "assets/home-page-CSud4_n_.js",
+            "sizeBytes": 30596
+          },
+          {
+            "asset": "assets/index-DU4_B9rd.css",
+            "sizeBytes": 113508
+          },
+          {
+            "asset": "assets/index-DvM31caI.js",
+            "sizeBytes": 411036
+          },
+          {
+            "asset": "assets/insights-Di2C9FwD.js",
+            "sizeBytes": 3231
+          },
+          {
+            "asset": "assets/insights-page-B80vlLem.js",
+            "sizeBytes": 33626
+          },
+          {
+            "asset": "assets/librewolf-Cl9rHKex.svg",
+            "sizeBytes": 5916
+          },
+          {
+            "asset": "assets/links-Dct3qU1-.js",
+            "sizeBytes": 2241
+          },
+          {
+            "asset": "assets/mermaid-GHXKKRXX-BrxFYjLF.js",
+            "sizeBytes": 70
+          },
+          {
+            "asset": "assets/mix-card-B-4jp9eX.js",
+            "sizeBytes": 6992
+          },
+          {
+            "asset": "assets/onboarding-page-BPI6RSOF.js",
+            "sizeBytes": 35175
+          },
+          {
+            "asset": "assets/open-link-ChwTvKJV.js",
+            "sizeBytes": 365
+          },
+          {
+            "asset": "assets/opera-gx-cbGB2yjU.png",
+            "sizeBytes": 4703
+          },
+          {
+            "asset": "assets/page-page-BKKL2_B1.js",
+            "sizeBytes": 6577
+          },
+          {
+            "asset": "assets/parts-DEov9w9t.js",
+            "sizeBytes": 12955
+          },
+          {
+            "asset": "assets/path-0Nc2ddhF.js",
+            "sizeBytes": 830
+          },
+          {
+            "asset": "assets/pathkeep-mark-dark-CfJIiSuv.svg",
+            "sizeBytes": 5610
+          },
+          {
+            "asset": "assets/pathkeep-mark-Dxka1z-0.svg",
+            "sizeBytes": 5610
+          },
+          {
+            "asset": "assets/plus-Rz59v6mD.js",
+            "sizeBytes": 144
+          },
+          {
+            "asset": "assets/popover-BlGhtBwI.js",
+            "sizeBytes": 5911
+          },
+          {
+            "asset": "assets/progress-CWnXRmQE.js",
+            "sizeBytes": 2513
+          },
+          {
+            "asset": "assets/providers-C1mSAuoS.js",
+            "sizeBytes": 2854
+          },
+          {
+            "asset": "assets/queries-D7ZBwFAX.js",
+            "sizeBytes": 9018
+          },
+          {
+            "asset": "assets/queries-DWfOB5Ti.js",
+            "sizeBytes": 1042
+          },
+          {
+            "asset": "assets/recharts-bar-chart-zzBXVUhh.js",
+            "sizeBytes": 24257
+          },
+          {
+            "asset": "assets/recharts-legend-Cu21SI7S.js",
+            "sizeBytes": 543607
+          },
+          {
+            "asset": "assets/reveal-CEJYVlb3.js",
+            "sizeBytes": 331
+          },
+          {
+            "asset": "assets/rotate-ccw-D7kg9Svp.js",
+            "sizeBytes": 190
+          },
+          {
+            "asset": "assets/safari-CKP33lKk.png",
+            "sizeBytes": 46440
+          },
+          {
+            "asset": "assets/schedule-actions-B9xJxS2Y.js",
+            "sizeBytes": 3330
+          },
+          {
+            "asset": "assets/schedule-copy-CqJqW4HE.js",
+            "sizeBytes": 1217
+          },
+          {
+            "asset": "assets/scope-controls-B6XTUjei.js",
+            "sizeBytes": 3989
+          },
+          {
+            "asset": "assets/search-page-C9CqK7Qw.js",
+            "sizeBytes": 8663
+          },
+          {
+            "asset": "assets/search-params-CJgRb1Lt.js",
+            "sizeBytes": 313
+          },
+          {
+            "asset": "assets/section-card-Clv_btNP.js",
+            "sizeBytes": 2345
+          },
+          {
+            "asset": "assets/select-Bh6LGY6j.js",
+            "sizeBytes": 21821
+          },
+          {
+            "asset": "assets/semantic-info-DKOn-7VZ.js",
+            "sizeBytes": 1012
+          },
+          {
+            "asset": "assets/separator-PQikFiDp.js",
+            "sizeBytes": 84336
+          },
+          {
+            "asset": "assets/settings-page-Bb0MmMCd.js",
+            "sizeBytes": 119010
+          },
+          {
+            "asset": "assets/share-bar-DWOiE0Ow.js",
+            "sizeBytes": 746
+          },
+          {
+            "asset": "assets/site-icon-D-0_DlPo.js",
+            "sizeBytes": 1539
+          },
+          {
+            "asset": "assets/site-page-Dv3XCEYP.js",
+            "sizeBytes": 11420
+          },
+          {
+            "asset": "assets/sliders-horizontal-DW-Q8mvW.js",
+            "sizeBytes": 575
+          },
+          {
+            "asset": "assets/sources-yoFMfX-_.js",
+            "sizeBytes": 92
+          },
+          {
+            "asset": "assets/sparkles-0fdgzjlD.js",
+            "sizeBytes": 499
+          },
+          {
+            "asset": "assets/spinner-MNoYpW7R.js",
+            "sizeBytes": 2046
+          },
+          {
+            "asset": "assets/switch-BKhF6ESi.js",
+            "sizeBytes": 4434
+          },
+          {
+            "asset": "assets/tabs-C5ZSqeRJ.js",
+            "sizeBytes": 5449
+          },
+          {
+            "asset": "assets/theme-CkaZoB2R.js",
+            "sizeBytes": 1223
+          },
+          {
+            "asset": "assets/title-bar-51vNWspB.js",
+            "sizeBytes": 253
+          },
+          {
+            "asset": "assets/toggle-group-BYQNtV71.js",
+            "sizeBytes": 5275
+          },
+          {
+            "asset": "assets/topic-icon-CwXrQzYk.js",
+            "sizeBytes": 4508
+          },
+          {
+            "asset": "assets/useInfiniteQuery-DA9Cflwr.js",
+            "sizeBytes": 1120
+          },
+          {
+            "asset": "assets/useQueries-DR9KXCEj.js",
+            "sizeBytes": 3447
+          },
+          {
+            "asset": "assets/vivaldi-CVXcaOiL.png",
+            "sizeBytes": 11219
+          },
+          {
+            "asset": "assets/wait-for-next-paint-DitfXX6x.js",
+            "sizeBytes": 11912
+          },
+          {
+            "asset": "assets/waterfox--1W7ATIm.png",
+            "sizeBytes": 28988
+          },
+          {
+            "asset": "assets/webview-DlLp0ors.js",
+            "sizeBytes": 3294
+          },
+          {
+            "asset": "assets/x-BRh9bIxX.js",
+            "sizeBytes": 145
+          },
+          {
+            "asset": "assets/zone-notice-D2suJOK1.js",
+            "sizeBytes": 1239
+          }
+        ],
+        "totalBytes": 3239065
+      },
+      {
+        "manifestKey": "node_modules/@tauri-apps/plugin-dialog/dist-js/index.js",
+        "entryAsset": "assets/dist-js-BR_jmFE1.js",
+        "assets": [
+          {
+            "asset": "assets/dist-js-BR_jmFE1.js",
+            "sizeBytes": 1281
+          }
+        ],
+        "totalBytes": 1281
+      },
+      {
+        "manifestKey": "node_modules/streamdown/dist/highlighted-body-OFNGDK62.js",
+        "entryAsset": "assets/highlighted-body-OFNGDK62-KOXP-AaA.js",
+        "assets": [
+          {
+            "asset": "assets/bundle-mjs-Bb231fdC.js",
+            "sizeBytes": 40465
+          },
+          {
+            "asset": "assets/chunk-BO2N2NFS-D62uVsDa.js",
+            "sizeBytes": 448638
+          },
+          {
+            "asset": "assets/highlighted-body-OFNGDK62-KOXP-AaA.js",
+            "sizeBytes": 529
+          },
+          {
+            "asset": "assets/mermaid-GHXKKRXX-BrxFYjLF.js",
+            "sizeBytes": 70
+          }
+        ],
+        "totalBytes": 489702
+      },
+      {
+        "manifestKey": "node_modules/streamdown/dist/mermaid-GHXKKRXX.js",
+        "entryAsset": "assets/mermaid-GHXKKRXX-BrxFYjLF.js",
+        "assets": [
+          {
+            "asset": "assets/bundle-mjs-Bb231fdC.js",
+            "sizeBytes": 40465
+          },
+          {
+            "asset": "assets/chunk-BO2N2NFS-D62uVsDa.js",
+            "sizeBytes": 448638
+          },
+          {
+            "asset": "assets/highlighted-body-OFNGDK62-KOXP-AaA.js",
+            "sizeBytes": 529
+          },
+          {
+            "asset": "assets/mermaid-GHXKKRXX-BrxFYjLF.js",
+            "sizeBytes": 70
+          }
+        ],
+        "totalBytes": 489702
+      },
+      {
+        "manifestKey": "src/features/ask/ask-page.tsx",
+        "entryAsset": "assets/ask-page-0JOlb-Gx.js",
+        "assets": [
+          {
+            "asset": "assets/archive-DsSqmZUK.js",
+            "sizeBytes": 783
+          },
+          {
+            "asset": "assets/arrow-left-DfByKuu1.js",
+            "sizeBytes": 155
+          },
+          {
+            "asset": "assets/ask-page-0JOlb-Gx.js",
+            "sizeBytes": 32787
+          },
+          {
+            "asset": "assets/atlas-Cjq-yNEQ.png",
+            "sizeBytes": 49278
+          },
+          {
+            "asset": "assets/audit--8D_m6sj.js",
+            "sizeBytes": 187
+          },
+          {
+            "asset": "assets/backup-button-Cek_LoYn.js",
+            "sizeBytes": 2194
+          },
+          {
+            "asset": "assets/backup-page-4TdiEguE.js",
+            "sizeBytes": 67061
+          },
+          {
+            "asset": "assets/backup-runner-DAD6mAud.js",
+            "sizeBytes": 4824
+          },
+          {
+            "asset": "assets/browser-icons-C5sWgW4o.js",
+            "sizeBytes": 13733
+          },
+          {
+            "asset": "assets/bundle-mjs-Bb231fdC.js",
+            "sizeBytes": 40465
+          },
+          {
+            "asset": "assets/button-hnzNZfUG.js",
+            "sizeBytes": 421439
+          },
+          {
+            "asset": "assets/chevron-down-CipXzzs2.js",
+            "sizeBytes": 118
+          },
+          {
+            "asset": "assets/chrome-CTqC3lDf.png",
+            "sizeBytes": 63769
+          },
+          {
+            "asset": "assets/chromium-Dnf4fmVW.png",
+            "sizeBytes": 9614
+          },
+          {
+            "asset": "assets/chunk-BO2N2NFS-D62uVsDa.js",
+            "sizeBytes": 448638
+          },
+          {
+            "asset": "assets/circle-alert-CLXKWwri.js",
+            "sizeBytes": 240
+          },
+          {
+            "asset": "assets/circle-D_xDC6ye.js",
+            "sizeBytes": 121
+          },
+          {
+            "asset": "assets/comet-WzM1XkGo.png",
+            "sizeBytes": 54821
+          },
+          {
+            "asset": "assets/copy-CSR1LN_t.js",
+            "sizeBytes": 227
+          },
+          {
+            "asset": "assets/core-DvpXjeDW.js",
+            "sizeBytes": 2102
+          },
+          {
+            "asset": "assets/day-page-CUcyvHRg.js",
+            "sizeBytes": 11635
+          },
+          {
+            "asset": "assets/dialog-CSWt39T3.js",
+            "sizeBytes": 7929
+          },
+          {
+            "asset": "assets/dist-BzeSCzN9.js",
+            "sizeBytes": 974
+          },
+          {
+            "asset": "assets/dist-C6cBdLEE.js",
+            "sizeBytes": 52973
+          },
+          {
+            "asset": "assets/dist-DJQoEvsM.js",
+            "sizeBytes": 5115
+          },
+          {
+            "asset": "assets/dist-js-BR_jmFE1.js",
+            "sizeBytes": 1281
+          },
+          {
+            "asset": "assets/edge-dev-BDohVkL2.png",
+            "sizeBytes": 7904
+          },
+          {
+            "asset": "assets/errors-BZoBG4ey.js",
+            "sizeBytes": 928
+          },
+          {
+            "asset": "assets/esm-DzQwIFYJ.js",
+            "sizeBytes": 25206
+          },
+          {
+            "asset": "assets/event-efyJFWlz.js",
+            "sizeBytes": 1441
+          },
+          {
+            "asset": "assets/events-DmqAHO4Z.js",
+            "sizeBytes": 913
+          },
+          {
+            "asset": "assets/firefox-EOqxoGBZ.svg",
+            "sizeBytes": 10572
+          },
+          {
+            "asset": "assets/floorp-BOjICP9Z.png",
+            "sizeBytes": 15410
+          },
+          {
+            "asset": "assets/geist-cyrillic-ext-wght-normal-DjL33-gN.woff2",
+            "sizeBytes": 7420
+          },
+          {
+            "asset": "assets/geist-cyrillic-wght-normal-BEAKL7Jp.woff2",
+            "sizeBytes": 15084
+          },
+          {
+            "asset": "assets/geist-latin-ext-wght-normal-DC-KSUi6.woff2",
+            "sizeBytes": 16512
+          },
+          {
+            "asset": "assets/geist-latin-wght-normal-BgDaEnEv.woff2",
+            "sizeBytes": 29400
+          },
+          {
+            "asset": "assets/geist-mono-cyrillic-ext-wght-normal-X_5orZeX.woff2",
+            "sizeBytes": 6176
+          },
+          {
+            "asset": "assets/geist-mono-cyrillic-wght-normal-DiZS0aHC.woff2",
+            "sizeBytes": 12940
+          },
+          {
+            "asset": "assets/geist-mono-latin-ext-wght-normal-Bwz-egvJ.woff2",
+            "sizeBytes": 14696
+          },
+          {
+            "asset": "assets/geist-mono-latin-wght-normal-XN7g48iV.woff2",
+            "sizeBytes": 23128
+          },
+          {
+            "asset": "assets/geist-mono-symbols2-wght-normal-CO5SzqOn.woff2",
+            "sizeBytes": 5812
+          },
+          {
+            "asset": "assets/geist-mono-vietnamese-wght-normal-DadHysG0.woff2",
+            "sizeBytes": 7696
+          },
+          {
+            "asset": "assets/geist-vietnamese-wght-normal-6IgcOCM7.woff2",
+            "sizeBytes": 8004
+          },
+          {
+            "asset": "assets/globe-CLAA-Y-X.js",
+            "sizeBytes": 233
+          },
+          {
+            "asset": "assets/highlighted-body-OFNGDK62-KOXP-AaA.js",
+            "sizeBytes": 529
+          },
+          {
+            "asset": "assets/history-page-DFpuXvO3.js",
+            "sizeBytes": 75791
+          },
+          {
+            "asset": "assets/home-page-CSud4_n_.js",
+            "sizeBytes": 30596
+          },
+          {
+            "asset": "assets/index-DU4_B9rd.css",
+            "sizeBytes": 113508
+          },
+          {
+            "asset": "assets/index-DvM31caI.js",
+            "sizeBytes": 411036
+          },
+          {
+            "asset": "assets/insights-Di2C9FwD.js",
+            "sizeBytes": 3231
+          },
+          {
+            "asset": "assets/insights-page-B80vlLem.js",
+            "sizeBytes": 33626
+          },
+          {
+            "asset": "assets/librewolf-Cl9rHKex.svg",
+            "sizeBytes": 5916
+          },
+          {
+            "asset": "assets/links-Dct3qU1-.js",
+            "sizeBytes": 2241
+          },
+          {
+            "asset": "assets/mermaid-GHXKKRXX-BrxFYjLF.js",
+            "sizeBytes": 70
+          },
+          {
+            "asset": "assets/mix-card-B-4jp9eX.js",
+            "sizeBytes": 6992
+          },
+          {
+            "asset": "assets/onboarding-page-BPI6RSOF.js",
+            "sizeBytes": 35175
+          },
+          {
+            "asset": "assets/open-link-ChwTvKJV.js",
+            "sizeBytes": 365
+          },
+          {
+            "asset": "assets/opera-gx-cbGB2yjU.png",
+            "sizeBytes": 4703
+          },
+          {
+            "asset": "assets/page-page-BKKL2_B1.js",
+            "sizeBytes": 6577
+          },
+          {
+            "asset": "assets/parts-DEov9w9t.js",
+            "sizeBytes": 12955
+          },
+          {
+            "asset": "assets/path-0Nc2ddhF.js",
+            "sizeBytes": 830
+          },
+          {
+            "asset": "assets/pathkeep-mark-dark-CfJIiSuv.svg",
+            "sizeBytes": 5610
+          },
+          {
+            "asset": "assets/pathkeep-mark-Dxka1z-0.svg",
+            "sizeBytes": 5610
+          },
+          {
+            "asset": "assets/plus-Rz59v6mD.js",
+            "sizeBytes": 144
+          },
+          {
+            "asset": "assets/popover-BlGhtBwI.js",
+            "sizeBytes": 5911
+          },
+          {
+            "asset": "assets/progress-CWnXRmQE.js",
+            "sizeBytes": 2513
+          },
+          {
+            "asset": "assets/providers-C1mSAuoS.js",
+            "sizeBytes": 2854
+          },
+          {
+            "asset": "assets/queries-D7ZBwFAX.js",
+            "sizeBytes": 9018
+          },
+          {
+            "asset": "assets/queries-DWfOB5Ti.js",
+            "sizeBytes": 1042
+          },
+          {
+            "asset": "assets/recharts-bar-chart-zzBXVUhh.js",
+            "sizeBytes": 24257
+          },
+          {
+            "asset": "assets/recharts-legend-Cu21SI7S.js",
+            "sizeBytes": 543607
+          },
+          {
+            "asset": "assets/reveal-CEJYVlb3.js",
+            "sizeBytes": 331
+          },
+          {
+            "asset": "assets/rotate-ccw-D7kg9Svp.js",
+            "sizeBytes": 190
+          },
+          {
+            "asset": "assets/safari-CKP33lKk.png",
+            "sizeBytes": 46440
+          },
+          {
+            "asset": "assets/schedule-actions-B9xJxS2Y.js",
+            "sizeBytes": 3330
+          },
+          {
+            "asset": "assets/schedule-copy-CqJqW4HE.js",
+            "sizeBytes": 1217
+          },
+          {
+            "asset": "assets/scope-controls-B6XTUjei.js",
+            "sizeBytes": 3989
+          },
+          {
+            "asset": "assets/search-page-C9CqK7Qw.js",
+            "sizeBytes": 8663
+          },
+          {
+            "asset": "assets/search-params-CJgRb1Lt.js",
+            "sizeBytes": 313
+          },
+          {
+            "asset": "assets/section-card-Clv_btNP.js",
+            "sizeBytes": 2345
+          },
+          {
+            "asset": "assets/select-Bh6LGY6j.js",
+            "sizeBytes": 21821
+          },
+          {
+            "asset": "assets/semantic-info-DKOn-7VZ.js",
+            "sizeBytes": 1012
+          },
+          {
+            "asset": "assets/separator-PQikFiDp.js",
+            "sizeBytes": 84336
+          },
+          {
+            "asset": "assets/settings-page-Bb0MmMCd.js",
+            "sizeBytes": 119010
+          },
+          {
+            "asset": "assets/share-bar-DWOiE0Ow.js",
+            "sizeBytes": 746
+          },
+          {
+            "asset": "assets/site-icon-D-0_DlPo.js",
+            "sizeBytes": 1539
+          },
+          {
+            "asset": "assets/site-page-Dv3XCEYP.js",
+            "sizeBytes": 11420
+          },
+          {
+            "asset": "assets/sliders-horizontal-DW-Q8mvW.js",
+            "sizeBytes": 575
+          },
+          {
+            "asset": "assets/sources-yoFMfX-_.js",
+            "sizeBytes": 92
+          },
+          {
+            "asset": "assets/sparkles-0fdgzjlD.js",
+            "sizeBytes": 499
+          },
+          {
+            "asset": "assets/spinner-MNoYpW7R.js",
+            "sizeBytes": 2046
+          },
+          {
+            "asset": "assets/switch-BKhF6ESi.js",
+            "sizeBytes": 4434
+          },
+          {
+            "asset": "assets/tabs-C5ZSqeRJ.js",
+            "sizeBytes": 5449
+          },
+          {
+            "asset": "assets/theme-CkaZoB2R.js",
+            "sizeBytes": 1223
+          },
+          {
+            "asset": "assets/title-bar-51vNWspB.js",
+            "sizeBytes": 253
+          },
+          {
+            "asset": "assets/toggle-group-BYQNtV71.js",
+            "sizeBytes": 5275
+          },
+          {
+            "asset": "assets/topic-icon-CwXrQzYk.js",
+            "sizeBytes": 4508
+          },
+          {
+            "asset": "assets/useInfiniteQuery-DA9Cflwr.js",
+            "sizeBytes": 1120
+          },
+          {
+            "asset": "assets/useQueries-DR9KXCEj.js",
+            "sizeBytes": 3447
+          },
+          {
+            "asset": "assets/vivaldi-CVXcaOiL.png",
+            "sizeBytes": 11219
+          },
+          {
+            "asset": "assets/wait-for-next-paint-DitfXX6x.js",
+            "sizeBytes": 11912
+          },
+          {
+            "asset": "assets/waterfox--1W7ATIm.png",
+            "sizeBytes": 28988
+          },
+          {
+            "asset": "assets/webview-DlLp0ors.js",
+            "sizeBytes": 3294
+          },
+          {
+            "asset": "assets/x-BRh9bIxX.js",
+            "sizeBytes": 145
+          },
+          {
+            "asset": "assets/zone-notice-D2suJOK1.js",
+            "sizeBytes": 1239
+          }
+        ],
+        "totalBytes": 3239065
+      },
+      {
+        "manifestKey": "src/features/backup/backup-page.tsx",
+        "entryAsset": "assets/backup-page-4TdiEguE.js",
+        "assets": [
+          {
+            "asset": "assets/archive-DsSqmZUK.js",
+            "sizeBytes": 783
+          },
+          {
+            "asset": "assets/arrow-left-DfByKuu1.js",
+            "sizeBytes": 155
+          },
+          {
+            "asset": "assets/ask-page-0JOlb-Gx.js",
+            "sizeBytes": 32787
+          },
+          {
+            "asset": "assets/atlas-Cjq-yNEQ.png",
+            "sizeBytes": 49278
+          },
+          {
+            "asset": "assets/audit--8D_m6sj.js",
+            "sizeBytes": 187
+          },
+          {
+            "asset": "assets/backup-button-Cek_LoYn.js",
+            "sizeBytes": 2194
+          },
+          {
+            "asset": "assets/backup-page-4TdiEguE.js",
+            "sizeBytes": 67061
+          },
+          {
+            "asset": "assets/backup-runner-DAD6mAud.js",
+            "sizeBytes": 4824
+          },
+          {
+            "asset": "assets/browser-icons-C5sWgW4o.js",
+            "sizeBytes": 13733
+          },
+          {
+            "asset": "assets/bundle-mjs-Bb231fdC.js",
+            "sizeBytes": 40465
+          },
+          {
+            "asset": "assets/button-hnzNZfUG.js",
+            "sizeBytes": 421439
+          },
+          {
+            "asset": "assets/chevron-down-CipXzzs2.js",
+            "sizeBytes": 118
+          },
+          {
+            "asset": "assets/chrome-CTqC3lDf.png",
+            "sizeBytes": 63769
+          },
+          {
+            "asset": "assets/chromium-Dnf4fmVW.png",
+            "sizeBytes": 9614
+          },
+          {
+            "asset": "assets/chunk-BO2N2NFS-D62uVsDa.js",
+            "sizeBytes": 448638
+          },
+          {
+            "asset": "assets/circle-alert-CLXKWwri.js",
+            "sizeBytes": 240
+          },
+          {
+            "asset": "assets/circle-D_xDC6ye.js",
+            "sizeBytes": 121
+          },
+          {
+            "asset": "assets/comet-WzM1XkGo.png",
+            "sizeBytes": 54821
+          },
+          {
+            "asset": "assets/copy-CSR1LN_t.js",
+            "sizeBytes": 227
+          },
+          {
+            "asset": "assets/core-DvpXjeDW.js",
+            "sizeBytes": 2102
+          },
+          {
+            "asset": "assets/day-page-CUcyvHRg.js",
+            "sizeBytes": 11635
+          },
+          {
+            "asset": "assets/dialog-CSWt39T3.js",
+            "sizeBytes": 7929
+          },
+          {
+            "asset": "assets/dist-BzeSCzN9.js",
+            "sizeBytes": 974
+          },
+          {
+            "asset": "assets/dist-C6cBdLEE.js",
+            "sizeBytes": 52973
+          },
+          {
+            "asset": "assets/dist-DJQoEvsM.js",
+            "sizeBytes": 5115
+          },
+          {
+            "asset": "assets/dist-js-BR_jmFE1.js",
+            "sizeBytes": 1281
+          },
+          {
+            "asset": "assets/edge-dev-BDohVkL2.png",
+            "sizeBytes": 7904
+          },
+          {
+            "asset": "assets/errors-BZoBG4ey.js",
+            "sizeBytes": 928
+          },
+          {
+            "asset": "assets/esm-DzQwIFYJ.js",
+            "sizeBytes": 25206
+          },
+          {
+            "asset": "assets/event-efyJFWlz.js",
+            "sizeBytes": 1441
+          },
+          {
+            "asset": "assets/events-DmqAHO4Z.js",
+            "sizeBytes": 913
+          },
+          {
+            "asset": "assets/firefox-EOqxoGBZ.svg",
+            "sizeBytes": 10572
+          },
+          {
+            "asset": "assets/floorp-BOjICP9Z.png",
+            "sizeBytes": 15410
+          },
+          {
+            "asset": "assets/geist-cyrillic-ext-wght-normal-DjL33-gN.woff2",
+            "sizeBytes": 7420
+          },
+          {
+            "asset": "assets/geist-cyrillic-wght-normal-BEAKL7Jp.woff2",
+            "sizeBytes": 15084
+          },
+          {
+            "asset": "assets/geist-latin-ext-wght-normal-DC-KSUi6.woff2",
+            "sizeBytes": 16512
+          },
+          {
+            "asset": "assets/geist-latin-wght-normal-BgDaEnEv.woff2",
+            "sizeBytes": 29400
+          },
+          {
+            "asset": "assets/geist-mono-cyrillic-ext-wght-normal-X_5orZeX.woff2",
+            "sizeBytes": 6176
+          },
+          {
+            "asset": "assets/geist-mono-cyrillic-wght-normal-DiZS0aHC.woff2",
+            "sizeBytes": 12940
+          },
+          {
+            "asset": "assets/geist-mono-latin-ext-wght-normal-Bwz-egvJ.woff2",
+            "sizeBytes": 14696
+          },
+          {
+            "asset": "assets/geist-mono-latin-wght-normal-XN7g48iV.woff2",
+            "sizeBytes": 23128
+          },
+          {
+            "asset": "assets/geist-mono-symbols2-wght-normal-CO5SzqOn.woff2",
+            "sizeBytes": 5812
+          },
+          {
+            "asset": "assets/geist-mono-vietnamese-wght-normal-DadHysG0.woff2",
+            "sizeBytes": 7696
+          },
+          {
+            "asset": "assets/geist-vietnamese-wght-normal-6IgcOCM7.woff2",
+            "sizeBytes": 8004
+          },
+          {
+            "asset": "assets/globe-CLAA-Y-X.js",
+            "sizeBytes": 233
+          },
+          {
+            "asset": "assets/highlighted-body-OFNGDK62-KOXP-AaA.js",
+            "sizeBytes": 529
+          },
+          {
+            "asset": "assets/history-page-DFpuXvO3.js",
+            "sizeBytes": 75791
+          },
+          {
+            "asset": "assets/home-page-CSud4_n_.js",
+            "sizeBytes": 30596
+          },
+          {
+            "asset": "assets/index-DU4_B9rd.css",
+            "sizeBytes": 113508
+          },
+          {
+            "asset": "assets/index-DvM31caI.js",
+            "sizeBytes": 411036
+          },
+          {
+            "asset": "assets/insights-Di2C9FwD.js",
+            "sizeBytes": 3231
+          },
+          {
+            "asset": "assets/insights-page-B80vlLem.js",
+            "sizeBytes": 33626
+          },
+          {
+            "asset": "assets/librewolf-Cl9rHKex.svg",
+            "sizeBytes": 5916
+          },
+          {
+            "asset": "assets/links-Dct3qU1-.js",
+            "sizeBytes": 2241
+          },
+          {
+            "asset": "assets/mermaid-GHXKKRXX-BrxFYjLF.js",
+            "sizeBytes": 70
+          },
+          {
+            "asset": "assets/mix-card-B-4jp9eX.js",
+            "sizeBytes": 6992
+          },
+          {
+            "asset": "assets/onboarding-page-BPI6RSOF.js",
+            "sizeBytes": 35175
+          },
+          {
+            "asset": "assets/open-link-ChwTvKJV.js",
+            "sizeBytes": 365
+          },
+          {
+            "asset": "assets/opera-gx-cbGB2yjU.png",
+            "sizeBytes": 4703
+          },
+          {
+            "asset": "assets/page-page-BKKL2_B1.js",
+            "sizeBytes": 6577
+          },
+          {
+            "asset": "assets/parts-DEov9w9t.js",
+            "sizeBytes": 12955
+          },
+          {
+            "asset": "assets/path-0Nc2ddhF.js",
+            "sizeBytes": 830
+          },
+          {
+            "asset": "assets/pathkeep-mark-dark-CfJIiSuv.svg",
+            "sizeBytes": 5610
+          },
+          {
+            "asset": "assets/pathkeep-mark-Dxka1z-0.svg",
+            "sizeBytes": 5610
+          },
+          {
+            "asset": "assets/plus-Rz59v6mD.js",
+            "sizeBytes": 144
+          },
+          {
+            "asset": "assets/popover-BlGhtBwI.js",
+            "sizeBytes": 5911
+          },
+          {
+            "asset": "assets/progress-CWnXRmQE.js",
+            "sizeBytes": 2513
+          },
+          {
+            "asset": "assets/providers-C1mSAuoS.js",
+            "sizeBytes": 2854
+          },
+          {
+            "asset": "assets/queries-D7ZBwFAX.js",
+            "sizeBytes": 9018
+          },
+          {
+            "asset": "assets/queries-DWfOB5Ti.js",
+            "sizeBytes": 1042
+          },
+          {
+            "asset": "assets/recharts-bar-chart-zzBXVUhh.js",
+            "sizeBytes": 24257
+          },
+          {
+            "asset": "assets/recharts-legend-Cu21SI7S.js",
+            "sizeBytes": 543607
+          },
+          {
+            "asset": "assets/reveal-CEJYVlb3.js",
+            "sizeBytes": 331
+          },
+          {
+            "asset": "assets/rotate-ccw-D7kg9Svp.js",
+            "sizeBytes": 190
+          },
+          {
+            "asset": "assets/safari-CKP33lKk.png",
+            "sizeBytes": 46440
+          },
+          {
+            "asset": "assets/schedule-actions-B9xJxS2Y.js",
+            "sizeBytes": 3330
+          },
+          {
+            "asset": "assets/schedule-copy-CqJqW4HE.js",
+            "sizeBytes": 1217
+          },
+          {
+            "asset": "assets/scope-controls-B6XTUjei.js",
+            "sizeBytes": 3989
+          },
+          {
+            "asset": "assets/search-page-C9CqK7Qw.js",
+            "sizeBytes": 8663
+          },
+          {
+            "asset": "assets/search-params-CJgRb1Lt.js",
+            "sizeBytes": 313
+          },
+          {
+            "asset": "assets/section-card-Clv_btNP.js",
+            "sizeBytes": 2345
+          },
+          {
+            "asset": "assets/select-Bh6LGY6j.js",
+            "sizeBytes": 21821
+          },
+          {
+            "asset": "assets/semantic-info-DKOn-7VZ.js",
+            "sizeBytes": 1012
+          },
+          {
+            "asset": "assets/separator-PQikFiDp.js",
+            "sizeBytes": 84336
+          },
+          {
+            "asset": "assets/settings-page-Bb0MmMCd.js",
+            "sizeBytes": 119010
+          },
+          {
+            "asset": "assets/share-bar-DWOiE0Ow.js",
+            "sizeBytes": 746
+          },
+          {
+            "asset": "assets/site-icon-D-0_DlPo.js",
+            "sizeBytes": 1539
+          },
+          {
+            "asset": "assets/site-page-Dv3XCEYP.js",
+            "sizeBytes": 11420
+          },
+          {
+            "asset": "assets/sliders-horizontal-DW-Q8mvW.js",
+            "sizeBytes": 575
+          },
+          {
+            "asset": "assets/sources-yoFMfX-_.js",
+            "sizeBytes": 92
+          },
+          {
+            "asset": "assets/sparkles-0fdgzjlD.js",
+            "sizeBytes": 499
+          },
+          {
+            "asset": "assets/spinner-MNoYpW7R.js",
+            "sizeBytes": 2046
+          },
+          {
+            "asset": "assets/switch-BKhF6ESi.js",
+            "sizeBytes": 4434
+          },
+          {
+            "asset": "assets/tabs-C5ZSqeRJ.js",
+            "sizeBytes": 5449
+          },
+          {
+            "asset": "assets/theme-CkaZoB2R.js",
+            "sizeBytes": 1223
+          },
+          {
+            "asset": "assets/title-bar-51vNWspB.js",
+            "sizeBytes": 253
+          },
+          {
+            "asset": "assets/toggle-group-BYQNtV71.js",
+            "sizeBytes": 5275
+          },
+          {
+            "asset": "assets/topic-icon-CwXrQzYk.js",
+            "sizeBytes": 4508
+          },
+          {
+            "asset": "assets/useInfiniteQuery-DA9Cflwr.js",
+            "sizeBytes": 1120
+          },
+          {
+            "asset": "assets/useQueries-DR9KXCEj.js",
+            "sizeBytes": 3447
+          },
+          {
+            "asset": "assets/vivaldi-CVXcaOiL.png",
+            "sizeBytes": 11219
+          },
+          {
+            "asset": "assets/wait-for-next-paint-DitfXX6x.js",
+            "sizeBytes": 11912
+          },
+          {
+            "asset": "assets/waterfox--1W7ATIm.png",
+            "sizeBytes": 28988
+          },
+          {
+            "asset": "assets/webview-DlLp0ors.js",
+            "sizeBytes": 3294
+          },
+          {
+            "asset": "assets/x-BRh9bIxX.js",
+            "sizeBytes": 145
+          },
+          {
+            "asset": "assets/zone-notice-D2suJOK1.js",
+            "sizeBytes": 1239
+          }
+        ],
+        "totalBytes": 3239065
+      },
+      {
+        "manifestKey": "src/features/history/history-page.tsx",
+        "entryAsset": "assets/history-page-DFpuXvO3.js",
+        "assets": [
+          {
+            "asset": "assets/archive-DsSqmZUK.js",
+            "sizeBytes": 783
+          },
+          {
+            "asset": "assets/arrow-left-DfByKuu1.js",
+            "sizeBytes": 155
+          },
+          {
+            "asset": "assets/ask-page-0JOlb-Gx.js",
+            "sizeBytes": 32787
+          },
+          {
+            "asset": "assets/atlas-Cjq-yNEQ.png",
+            "sizeBytes": 49278
+          },
+          {
+            "asset": "assets/audit--8D_m6sj.js",
+            "sizeBytes": 187
+          },
+          {
+            "asset": "assets/backup-button-Cek_LoYn.js",
+            "sizeBytes": 2194
+          },
+          {
+            "asset": "assets/backup-page-4TdiEguE.js",
+            "sizeBytes": 67061
+          },
+          {
+            "asset": "assets/backup-runner-DAD6mAud.js",
+            "sizeBytes": 4824
+          },
+          {
+            "asset": "assets/browser-icons-C5sWgW4o.js",
+            "sizeBytes": 13733
+          },
+          {
+            "asset": "assets/bundle-mjs-Bb231fdC.js",
+            "sizeBytes": 40465
+          },
+          {
+            "asset": "assets/button-hnzNZfUG.js",
+            "sizeBytes": 421439
+          },
+          {
+            "asset": "assets/chevron-down-CipXzzs2.js",
+            "sizeBytes": 118
+          },
+          {
+            "asset": "assets/chrome-CTqC3lDf.png",
+            "sizeBytes": 63769
+          },
+          {
+            "asset": "assets/chromium-Dnf4fmVW.png",
+            "sizeBytes": 9614
+          },
+          {
+            "asset": "assets/chunk-BO2N2NFS-D62uVsDa.js",
+            "sizeBytes": 448638
+          },
+          {
+            "asset": "assets/circle-alert-CLXKWwri.js",
+            "sizeBytes": 240
+          },
+          {
+            "asset": "assets/circle-D_xDC6ye.js",
+            "sizeBytes": 121
+          },
+          {
+            "asset": "assets/comet-WzM1XkGo.png",
+            "sizeBytes": 54821
+          },
+          {
+            "asset": "assets/copy-CSR1LN_t.js",
+            "sizeBytes": 227
+          },
+          {
+            "asset": "assets/core-DvpXjeDW.js",
+            "sizeBytes": 2102
+          },
+          {
+            "asset": "assets/day-page-CUcyvHRg.js",
+            "sizeBytes": 11635
+          },
+          {
+            "asset": "assets/dialog-CSWt39T3.js",
+            "sizeBytes": 7929
+          },
+          {
+            "asset": "assets/dist-BzeSCzN9.js",
+            "sizeBytes": 974
+          },
+          {
+            "asset": "assets/dist-C6cBdLEE.js",
+            "sizeBytes": 52973
+          },
+          {
+            "asset": "assets/dist-DJQoEvsM.js",
+            "sizeBytes": 5115
+          },
+          {
+            "asset": "assets/dist-js-BR_jmFE1.js",
+            "sizeBytes": 1281
+          },
+          {
+            "asset": "assets/edge-dev-BDohVkL2.png",
+            "sizeBytes": 7904
+          },
+          {
+            "asset": "assets/errors-BZoBG4ey.js",
+            "sizeBytes": 928
+          },
+          {
+            "asset": "assets/esm-DzQwIFYJ.js",
+            "sizeBytes": 25206
+          },
+          {
+            "asset": "assets/event-efyJFWlz.js",
+            "sizeBytes": 1441
+          },
+          {
+            "asset": "assets/events-DmqAHO4Z.js",
+            "sizeBytes": 913
+          },
+          {
+            "asset": "assets/firefox-EOqxoGBZ.svg",
+            "sizeBytes": 10572
+          },
+          {
+            "asset": "assets/floorp-BOjICP9Z.png",
+            "sizeBytes": 15410
+          },
+          {
+            "asset": "assets/geist-cyrillic-ext-wght-normal-DjL33-gN.woff2",
+            "sizeBytes": 7420
+          },
+          {
+            "asset": "assets/geist-cyrillic-wght-normal-BEAKL7Jp.woff2",
+            "sizeBytes": 15084
+          },
+          {
+            "asset": "assets/geist-latin-ext-wght-normal-DC-KSUi6.woff2",
+            "sizeBytes": 16512
+          },
+          {
+            "asset": "assets/geist-latin-wght-normal-BgDaEnEv.woff2",
+            "sizeBytes": 29400
+          },
+          {
+            "asset": "assets/geist-mono-cyrillic-ext-wght-normal-X_5orZeX.woff2",
+            "sizeBytes": 6176
+          },
+          {
+            "asset": "assets/geist-mono-cyrillic-wght-normal-DiZS0aHC.woff2",
+            "sizeBytes": 12940
+          },
+          {
+            "asset": "assets/geist-mono-latin-ext-wght-normal-Bwz-egvJ.woff2",
+            "sizeBytes": 14696
+          },
+          {
+            "asset": "assets/geist-mono-latin-wght-normal-XN7g48iV.woff2",
+            "sizeBytes": 23128
+          },
+          {
+            "asset": "assets/geist-mono-symbols2-wght-normal-CO5SzqOn.woff2",
+            "sizeBytes": 5812
+          },
+          {
+            "asset": "assets/geist-mono-vietnamese-wght-normal-DadHysG0.woff2",
+            "sizeBytes": 7696
+          },
+          {
+            "asset": "assets/geist-vietnamese-wght-normal-6IgcOCM7.woff2",
+            "sizeBytes": 8004
+          },
+          {
+            "asset": "assets/globe-CLAA-Y-X.js",
+            "sizeBytes": 233
+          },
+          {
+            "asset": "assets/highlighted-body-OFNGDK62-KOXP-AaA.js",
+            "sizeBytes": 529
+          },
+          {
+            "asset": "assets/history-page-DFpuXvO3.js",
+            "sizeBytes": 75791
+          },
+          {
+            "asset": "assets/home-page-CSud4_n_.js",
+            "sizeBytes": 30596
+          },
+          {
+            "asset": "assets/index-DU4_B9rd.css",
+            "sizeBytes": 113508
+          },
+          {
+            "asset": "assets/index-DvM31caI.js",
+            "sizeBytes": 411036
+          },
+          {
+            "asset": "assets/insights-Di2C9FwD.js",
+            "sizeBytes": 3231
+          },
+          {
+            "asset": "assets/insights-page-B80vlLem.js",
+            "sizeBytes": 33626
+          },
+          {
+            "asset": "assets/librewolf-Cl9rHKex.svg",
+            "sizeBytes": 5916
+          },
+          {
+            "asset": "assets/links-Dct3qU1-.js",
+            "sizeBytes": 2241
+          },
+          {
+            "asset": "assets/mermaid-GHXKKRXX-BrxFYjLF.js",
+            "sizeBytes": 70
+          },
+          {
+            "asset": "assets/mix-card-B-4jp9eX.js",
+            "sizeBytes": 6992
+          },
+          {
+            "asset": "assets/onboarding-page-BPI6RSOF.js",
+            "sizeBytes": 35175
+          },
+          {
+            "asset": "assets/open-link-ChwTvKJV.js",
+            "sizeBytes": 365
+          },
+          {
+            "asset": "assets/opera-gx-cbGB2yjU.png",
+            "sizeBytes": 4703
+          },
+          {
+            "asset": "assets/page-page-BKKL2_B1.js",
+            "sizeBytes": 6577
+          },
+          {
+            "asset": "assets/parts-DEov9w9t.js",
+            "sizeBytes": 12955
+          },
+          {
+            "asset": "assets/path-0Nc2ddhF.js",
+            "sizeBytes": 830
+          },
+          {
+            "asset": "assets/pathkeep-mark-dark-CfJIiSuv.svg",
+            "sizeBytes": 5610
+          },
+          {
+            "asset": "assets/pathkeep-mark-Dxka1z-0.svg",
+            "sizeBytes": 5610
+          },
+          {
+            "asset": "assets/plus-Rz59v6mD.js",
+            "sizeBytes": 144
+          },
+          {
+            "asset": "assets/popover-BlGhtBwI.js",
+            "sizeBytes": 5911
+          },
+          {
+            "asset": "assets/progress-CWnXRmQE.js",
+            "sizeBytes": 2513
+          },
+          {
+            "asset": "assets/providers-C1mSAuoS.js",
+            "sizeBytes": 2854
+          },
+          {
+            "asset": "assets/queries-D7ZBwFAX.js",
+            "sizeBytes": 9018
+          },
+          {
+            "asset": "assets/queries-DWfOB5Ti.js",
+            "sizeBytes": 1042
+          },
+          {
+            "asset": "assets/recharts-bar-chart-zzBXVUhh.js",
+            "sizeBytes": 24257
+          },
+          {
+            "asset": "assets/recharts-legend-Cu21SI7S.js",
+            "sizeBytes": 543607
+          },
+          {
+            "asset": "assets/reveal-CEJYVlb3.js",
+            "sizeBytes": 331
+          },
+          {
+            "asset": "assets/rotate-ccw-D7kg9Svp.js",
+            "sizeBytes": 190
+          },
+          {
+            "asset": "assets/safari-CKP33lKk.png",
+            "sizeBytes": 46440
+          },
+          {
+            "asset": "assets/schedule-actions-B9xJxS2Y.js",
+            "sizeBytes": 3330
+          },
+          {
+            "asset": "assets/schedule-copy-CqJqW4HE.js",
+            "sizeBytes": 1217
+          },
+          {
+            "asset": "assets/scope-controls-B6XTUjei.js",
+            "sizeBytes": 3989
+          },
+          {
+            "asset": "assets/search-page-C9CqK7Qw.js",
+            "sizeBytes": 8663
+          },
+          {
+            "asset": "assets/search-params-CJgRb1Lt.js",
+            "sizeBytes": 313
+          },
+          {
+            "asset": "assets/section-card-Clv_btNP.js",
+            "sizeBytes": 2345
+          },
+          {
+            "asset": "assets/select-Bh6LGY6j.js",
+            "sizeBytes": 21821
+          },
+          {
+            "asset": "assets/semantic-info-DKOn-7VZ.js",
+            "sizeBytes": 1012
+          },
+          {
+            "asset": "assets/separator-PQikFiDp.js",
+            "sizeBytes": 84336
+          },
+          {
+            "asset": "assets/settings-page-Bb0MmMCd.js",
+            "sizeBytes": 119010
+          },
+          {
+            "asset": "assets/share-bar-DWOiE0Ow.js",
+            "sizeBytes": 746
+          },
+          {
+            "asset": "assets/site-icon-D-0_DlPo.js",
+            "sizeBytes": 1539
+          },
+          {
+            "asset": "assets/site-page-Dv3XCEYP.js",
+            "sizeBytes": 11420
+          },
+          {
+            "asset": "assets/sliders-horizontal-DW-Q8mvW.js",
+            "sizeBytes": 575
+          },
+          {
+            "asset": "assets/sources-yoFMfX-_.js",
+            "sizeBytes": 92
+          },
+          {
+            "asset": "assets/sparkles-0fdgzjlD.js",
+            "sizeBytes": 499
+          },
+          {
+            "asset": "assets/spinner-MNoYpW7R.js",
+            "sizeBytes": 2046
+          },
+          {
+            "asset": "assets/switch-BKhF6ESi.js",
+            "sizeBytes": 4434
+          },
+          {
+            "asset": "assets/tabs-C5ZSqeRJ.js",
+            "sizeBytes": 5449
+          },
+          {
+            "asset": "assets/theme-CkaZoB2R.js",
+            "sizeBytes": 1223
+          },
+          {
+            "asset": "assets/title-bar-51vNWspB.js",
+            "sizeBytes": 253
+          },
+          {
+            "asset": "assets/toggle-group-BYQNtV71.js",
+            "sizeBytes": 5275
+          },
+          {
+            "asset": "assets/topic-icon-CwXrQzYk.js",
+            "sizeBytes": 4508
+          },
+          {
+            "asset": "assets/useInfiniteQuery-DA9Cflwr.js",
+            "sizeBytes": 1120
+          },
+          {
+            "asset": "assets/useQueries-DR9KXCEj.js",
+            "sizeBytes": 3447
+          },
+          {
+            "asset": "assets/vivaldi-CVXcaOiL.png",
+            "sizeBytes": 11219
+          },
+          {
+            "asset": "assets/wait-for-next-paint-DitfXX6x.js",
+            "sizeBytes": 11912
+          },
+          {
+            "asset": "assets/waterfox--1W7ATIm.png",
+            "sizeBytes": 28988
+          },
+          {
+            "asset": "assets/webview-DlLp0ors.js",
+            "sizeBytes": 3294
+          },
+          {
+            "asset": "assets/x-BRh9bIxX.js",
+            "sizeBytes": 145
+          },
+          {
+            "asset": "assets/zone-notice-D2suJOK1.js",
+            "sizeBytes": 1239
+          }
+        ],
+        "totalBytes": 3239065
+      },
+      {
+        "manifestKey": "src/features/home/home-page.tsx",
+        "entryAsset": "assets/home-page-CSud4_n_.js",
+        "assets": [
+          {
+            "asset": "assets/archive-DsSqmZUK.js",
+            "sizeBytes": 783
+          },
+          {
+            "asset": "assets/arrow-left-DfByKuu1.js",
+            "sizeBytes": 155
+          },
+          {
+            "asset": "assets/ask-page-0JOlb-Gx.js",
+            "sizeBytes": 32787
+          },
+          {
+            "asset": "assets/atlas-Cjq-yNEQ.png",
+            "sizeBytes": 49278
+          },
+          {
+            "asset": "assets/audit--8D_m6sj.js",
+            "sizeBytes": 187
+          },
+          {
+            "asset": "assets/backup-button-Cek_LoYn.js",
+            "sizeBytes": 2194
+          },
+          {
+            "asset": "assets/backup-page-4TdiEguE.js",
+            "sizeBytes": 67061
+          },
+          {
+            "asset": "assets/backup-runner-DAD6mAud.js",
+            "sizeBytes": 4824
+          },
+          {
+            "asset": "assets/browser-icons-C5sWgW4o.js",
+            "sizeBytes": 13733
+          },
+          {
+            "asset": "assets/bundle-mjs-Bb231fdC.js",
+            "sizeBytes": 40465
+          },
+          {
+            "asset": "assets/button-hnzNZfUG.js",
+            "sizeBytes": 421439
+          },
+          {
+            "asset": "assets/chevron-down-CipXzzs2.js",
+            "sizeBytes": 118
+          },
+          {
+            "asset": "assets/chrome-CTqC3lDf.png",
+            "sizeBytes": 63769
+          },
+          {
+            "asset": "assets/chromium-Dnf4fmVW.png",
+            "sizeBytes": 9614
+          },
+          {
+            "asset": "assets/chunk-BO2N2NFS-D62uVsDa.js",
+            "sizeBytes": 448638
+          },
+          {
+            "asset": "assets/circle-alert-CLXKWwri.js",
+            "sizeBytes": 240
+          },
+          {
+            "asset": "assets/circle-D_xDC6ye.js",
+            "sizeBytes": 121
+          },
+          {
+            "asset": "assets/comet-WzM1XkGo.png",
+            "sizeBytes": 54821
+          },
+          {
+            "asset": "assets/copy-CSR1LN_t.js",
+            "sizeBytes": 227
+          },
+          {
+            "asset": "assets/core-DvpXjeDW.js",
+            "sizeBytes": 2102
+          },
+          {
+            "asset": "assets/day-page-CUcyvHRg.js",
+            "sizeBytes": 11635
+          },
+          {
+            "asset": "assets/dialog-CSWt39T3.js",
+            "sizeBytes": 7929
+          },
+          {
+            "asset": "assets/dist-BzeSCzN9.js",
+            "sizeBytes": 974
+          },
+          {
+            "asset": "assets/dist-C6cBdLEE.js",
+            "sizeBytes": 52973
+          },
+          {
+            "asset": "assets/dist-DJQoEvsM.js",
+            "sizeBytes": 5115
+          },
+          {
+            "asset": "assets/dist-js-BR_jmFE1.js",
+            "sizeBytes": 1281
+          },
+          {
+            "asset": "assets/edge-dev-BDohVkL2.png",
+            "sizeBytes": 7904
+          },
+          {
+            "asset": "assets/errors-BZoBG4ey.js",
+            "sizeBytes": 928
+          },
+          {
+            "asset": "assets/esm-DzQwIFYJ.js",
+            "sizeBytes": 25206
+          },
+          {
+            "asset": "assets/event-efyJFWlz.js",
+            "sizeBytes": 1441
+          },
+          {
+            "asset": "assets/events-DmqAHO4Z.js",
+            "sizeBytes": 913
+          },
+          {
+            "asset": "assets/firefox-EOqxoGBZ.svg",
+            "sizeBytes": 10572
+          },
+          {
+            "asset": "assets/floorp-BOjICP9Z.png",
+            "sizeBytes": 15410
+          },
+          {
+            "asset": "assets/geist-cyrillic-ext-wght-normal-DjL33-gN.woff2",
+            "sizeBytes": 7420
+          },
+          {
+            "asset": "assets/geist-cyrillic-wght-normal-BEAKL7Jp.woff2",
+            "sizeBytes": 15084
+          },
+          {
+            "asset": "assets/geist-latin-ext-wght-normal-DC-KSUi6.woff2",
+            "sizeBytes": 16512
+          },
+          {
+            "asset": "assets/geist-latin-wght-normal-BgDaEnEv.woff2",
+            "sizeBytes": 29400
+          },
+          {
+            "asset": "assets/geist-mono-cyrillic-ext-wght-normal-X_5orZeX.woff2",
+            "sizeBytes": 6176
+          },
+          {
+            "asset": "assets/geist-mono-cyrillic-wght-normal-DiZS0aHC.woff2",
+            "sizeBytes": 12940
+          },
+          {
+            "asset": "assets/geist-mono-latin-ext-wght-normal-Bwz-egvJ.woff2",
+            "sizeBytes": 14696
+          },
+          {
+            "asset": "assets/geist-mono-latin-wght-normal-XN7g48iV.woff2",
+            "sizeBytes": 23128
+          },
+          {
+            "asset": "assets/geist-mono-symbols2-wght-normal-CO5SzqOn.woff2",
+            "sizeBytes": 5812
+          },
+          {
+            "asset": "assets/geist-mono-vietnamese-wght-normal-DadHysG0.woff2",
+            "sizeBytes": 7696
+          },
+          {
+            "asset": "assets/geist-vietnamese-wght-normal-6IgcOCM7.woff2",
+            "sizeBytes": 8004
+          },
+          {
+            "asset": "assets/globe-CLAA-Y-X.js",
+            "sizeBytes": 233
+          },
+          {
+            "asset": "assets/highlighted-body-OFNGDK62-KOXP-AaA.js",
+            "sizeBytes": 529
+          },
+          {
+            "asset": "assets/history-page-DFpuXvO3.js",
+            "sizeBytes": 75791
+          },
+          {
+            "asset": "assets/home-page-CSud4_n_.js",
+            "sizeBytes": 30596
+          },
+          {
+            "asset": "assets/index-DU4_B9rd.css",
+            "sizeBytes": 113508
+          },
+          {
+            "asset": "assets/index-DvM31caI.js",
+            "sizeBytes": 411036
+          },
+          {
+            "asset": "assets/insights-Di2C9FwD.js",
+            "sizeBytes": 3231
+          },
+          {
+            "asset": "assets/insights-page-B80vlLem.js",
+            "sizeBytes": 33626
+          },
+          {
+            "asset": "assets/librewolf-Cl9rHKex.svg",
+            "sizeBytes": 5916
+          },
+          {
+            "asset": "assets/links-Dct3qU1-.js",
+            "sizeBytes": 2241
+          },
+          {
+            "asset": "assets/mermaid-GHXKKRXX-BrxFYjLF.js",
+            "sizeBytes": 70
+          },
+          {
+            "asset": "assets/mix-card-B-4jp9eX.js",
+            "sizeBytes": 6992
+          },
+          {
+            "asset": "assets/onboarding-page-BPI6RSOF.js",
+            "sizeBytes": 35175
+          },
+          {
+            "asset": "assets/open-link-ChwTvKJV.js",
+            "sizeBytes": 365
+          },
+          {
+            "asset": "assets/opera-gx-cbGB2yjU.png",
+            "sizeBytes": 4703
+          },
+          {
+            "asset": "assets/page-page-BKKL2_B1.js",
+            "sizeBytes": 6577
+          },
+          {
+            "asset": "assets/parts-DEov9w9t.js",
+            "sizeBytes": 12955
+          },
+          {
+            "asset": "assets/path-0Nc2ddhF.js",
+            "sizeBytes": 830
+          },
+          {
+            "asset": "assets/pathkeep-mark-dark-CfJIiSuv.svg",
+            "sizeBytes": 5610
+          },
+          {
+            "asset": "assets/pathkeep-mark-Dxka1z-0.svg",
+            "sizeBytes": 5610
+          },
+          {
+            "asset": "assets/plus-Rz59v6mD.js",
+            "sizeBytes": 144
+          },
+          {
+            "asset": "assets/popover-BlGhtBwI.js",
+            "sizeBytes": 5911
+          },
+          {
+            "asset": "assets/progress-CWnXRmQE.js",
+            "sizeBytes": 2513
+          },
+          {
+            "asset": "assets/providers-C1mSAuoS.js",
+            "sizeBytes": 2854
+          },
+          {
+            "asset": "assets/queries-D7ZBwFAX.js",
+            "sizeBytes": 9018
+          },
+          {
+            "asset": "assets/queries-DWfOB5Ti.js",
+            "sizeBytes": 1042
+          },
+          {
+            "asset": "assets/recharts-bar-chart-zzBXVUhh.js",
+            "sizeBytes": 24257
+          },
+          {
+            "asset": "assets/recharts-legend-Cu21SI7S.js",
+            "sizeBytes": 543607
+          },
+          {
+            "asset": "assets/reveal-CEJYVlb3.js",
+            "sizeBytes": 331
+          },
+          {
+            "asset": "assets/rotate-ccw-D7kg9Svp.js",
+            "sizeBytes": 190
+          },
+          {
+            "asset": "assets/safari-CKP33lKk.png",
+            "sizeBytes": 46440
+          },
+          {
+            "asset": "assets/schedule-actions-B9xJxS2Y.js",
+            "sizeBytes": 3330
+          },
+          {
+            "asset": "assets/schedule-copy-CqJqW4HE.js",
+            "sizeBytes": 1217
+          },
+          {
+            "asset": "assets/scope-controls-B6XTUjei.js",
+            "sizeBytes": 3989
+          },
+          {
+            "asset": "assets/search-page-C9CqK7Qw.js",
+            "sizeBytes": 8663
+          },
+          {
+            "asset": "assets/search-params-CJgRb1Lt.js",
+            "sizeBytes": 313
+          },
+          {
+            "asset": "assets/section-card-Clv_btNP.js",
+            "sizeBytes": 2345
+          },
+          {
+            "asset": "assets/select-Bh6LGY6j.js",
+            "sizeBytes": 21821
+          },
+          {
+            "asset": "assets/semantic-info-DKOn-7VZ.js",
+            "sizeBytes": 1012
+          },
+          {
+            "asset": "assets/separator-PQikFiDp.js",
+            "sizeBytes": 84336
+          },
+          {
+            "asset": "assets/settings-page-Bb0MmMCd.js",
+            "sizeBytes": 119010
+          },
+          {
+            "asset": "assets/share-bar-DWOiE0Ow.js",
+            "sizeBytes": 746
+          },
+          {
+            "asset": "assets/site-icon-D-0_DlPo.js",
+            "sizeBytes": 1539
+          },
+          {
+            "asset": "assets/site-page-Dv3XCEYP.js",
+            "sizeBytes": 11420
+          },
+          {
+            "asset": "assets/sliders-horizontal-DW-Q8mvW.js",
+            "sizeBytes": 575
+          },
+          {
+            "asset": "assets/sources-yoFMfX-_.js",
+            "sizeBytes": 92
+          },
+          {
+            "asset": "assets/sparkles-0fdgzjlD.js",
+            "sizeBytes": 499
+          },
+          {
+            "asset": "assets/spinner-MNoYpW7R.js",
+            "sizeBytes": 2046
+          },
+          {
+            "asset": "assets/switch-BKhF6ESi.js",
+            "sizeBytes": 4434
+          },
+          {
+            "asset": "assets/tabs-C5ZSqeRJ.js",
+            "sizeBytes": 5449
+          },
+          {
+            "asset": "assets/theme-CkaZoB2R.js",
+            "sizeBytes": 1223
+          },
+          {
+            "asset": "assets/title-bar-51vNWspB.js",
+            "sizeBytes": 253
+          },
+          {
+            "asset": "assets/toggle-group-BYQNtV71.js",
+            "sizeBytes": 5275
+          },
+          {
+            "asset": "assets/topic-icon-CwXrQzYk.js",
+            "sizeBytes": 4508
+          },
+          {
+            "asset": "assets/useInfiniteQuery-DA9Cflwr.js",
+            "sizeBytes": 1120
+          },
+          {
+            "asset": "assets/useQueries-DR9KXCEj.js",
+            "sizeBytes": 3447
+          },
+          {
+            "asset": "assets/vivaldi-CVXcaOiL.png",
+            "sizeBytes": 11219
+          },
+          {
+            "asset": "assets/wait-for-next-paint-DitfXX6x.js",
+            "sizeBytes": 11912
+          },
+          {
+            "asset": "assets/waterfox--1W7ATIm.png",
+            "sizeBytes": 28988
+          },
+          {
+            "asset": "assets/webview-DlLp0ors.js",
+            "sizeBytes": 3294
+          },
+          {
+            "asset": "assets/x-BRh9bIxX.js",
+            "sizeBytes": 145
+          },
+          {
+            "asset": "assets/zone-notice-D2suJOK1.js",
+            "sizeBytes": 1239
+          }
+        ],
+        "totalBytes": 3239065
+      },
+      {
+        "manifestKey": "src/features/insights/day-page.tsx",
+        "entryAsset": "assets/day-page-CUcyvHRg.js",
+        "assets": [
+          {
+            "asset": "assets/archive-DsSqmZUK.js",
+            "sizeBytes": 783
+          },
+          {
+            "asset": "assets/arrow-left-DfByKuu1.js",
+            "sizeBytes": 155
+          },
+          {
+            "asset": "assets/ask-page-0JOlb-Gx.js",
+            "sizeBytes": 32787
+          },
+          {
+            "asset": "assets/atlas-Cjq-yNEQ.png",
+            "sizeBytes": 49278
+          },
+          {
+            "asset": "assets/audit--8D_m6sj.js",
+            "sizeBytes": 187
+          },
+          {
+            "asset": "assets/backup-button-Cek_LoYn.js",
+            "sizeBytes": 2194
+          },
+          {
+            "asset": "assets/backup-page-4TdiEguE.js",
+            "sizeBytes": 67061
+          },
+          {
+            "asset": "assets/backup-runner-DAD6mAud.js",
+            "sizeBytes": 4824
+          },
+          {
+            "asset": "assets/browser-icons-C5sWgW4o.js",
+            "sizeBytes": 13733
+          },
+          {
+            "asset": "assets/bundle-mjs-Bb231fdC.js",
+            "sizeBytes": 40465
+          },
+          {
+            "asset": "assets/button-hnzNZfUG.js",
+            "sizeBytes": 421439
+          },
+          {
+            "asset": "assets/chevron-down-CipXzzs2.js",
+            "sizeBytes": 118
+          },
+          {
+            "asset": "assets/chrome-CTqC3lDf.png",
+            "sizeBytes": 63769
+          },
+          {
+            "asset": "assets/chromium-Dnf4fmVW.png",
+            "sizeBytes": 9614
+          },
+          {
+            "asset": "assets/chunk-BO2N2NFS-D62uVsDa.js",
+            "sizeBytes": 448638
+          },
+          {
+            "asset": "assets/circle-alert-CLXKWwri.js",
+            "sizeBytes": 240
+          },
+          {
+            "asset": "assets/circle-D_xDC6ye.js",
+            "sizeBytes": 121
+          },
+          {
+            "asset": "assets/comet-WzM1XkGo.png",
+            "sizeBytes": 54821
+          },
+          {
+            "asset": "assets/copy-CSR1LN_t.js",
+            "sizeBytes": 227
+          },
+          {
+            "asset": "assets/core-DvpXjeDW.js",
+            "sizeBytes": 2102
+          },
+          {
+            "asset": "assets/day-page-CUcyvHRg.js",
+            "sizeBytes": 11635
+          },
+          {
+            "asset": "assets/dialog-CSWt39T3.js",
+            "sizeBytes": 7929
+          },
+          {
+            "asset": "assets/dist-BzeSCzN9.js",
+            "sizeBytes": 974
+          },
+          {
+            "asset": "assets/dist-C6cBdLEE.js",
+            "sizeBytes": 52973
+          },
+          {
+            "asset": "assets/dist-DJQoEvsM.js",
+            "sizeBytes": 5115
+          },
+          {
+            "asset": "assets/dist-js-BR_jmFE1.js",
+            "sizeBytes": 1281
+          },
+          {
+            "asset": "assets/edge-dev-BDohVkL2.png",
+            "sizeBytes": 7904
+          },
+          {
+            "asset": "assets/errors-BZoBG4ey.js",
+            "sizeBytes": 928
+          },
+          {
+            "asset": "assets/esm-DzQwIFYJ.js",
+            "sizeBytes": 25206
+          },
+          {
+            "asset": "assets/event-efyJFWlz.js",
+            "sizeBytes": 1441
+          },
+          {
+            "asset": "assets/events-DmqAHO4Z.js",
+            "sizeBytes": 913
+          },
+          {
+            "asset": "assets/firefox-EOqxoGBZ.svg",
+            "sizeBytes": 10572
+          },
+          {
+            "asset": "assets/floorp-BOjICP9Z.png",
+            "sizeBytes": 15410
+          },
+          {
+            "asset": "assets/geist-cyrillic-ext-wght-normal-DjL33-gN.woff2",
+            "sizeBytes": 7420
+          },
+          {
+            "asset": "assets/geist-cyrillic-wght-normal-BEAKL7Jp.woff2",
+            "sizeBytes": 15084
+          },
+          {
+            "asset": "assets/geist-latin-ext-wght-normal-DC-KSUi6.woff2",
+            "sizeBytes": 16512
+          },
+          {
+            "asset": "assets/geist-latin-wght-normal-BgDaEnEv.woff2",
+            "sizeBytes": 29400
+          },
+          {
+            "asset": "assets/geist-mono-cyrillic-ext-wght-normal-X_5orZeX.woff2",
+            "sizeBytes": 6176
+          },
+          {
+            "asset": "assets/geist-mono-cyrillic-wght-normal-DiZS0aHC.woff2",
+            "sizeBytes": 12940
+          },
+          {
+            "asset": "assets/geist-mono-latin-ext-wght-normal-Bwz-egvJ.woff2",
+            "sizeBytes": 14696
+          },
+          {
+            "asset": "assets/geist-mono-latin-wght-normal-XN7g48iV.woff2",
+            "sizeBytes": 23128
+          },
+          {
+            "asset": "assets/geist-mono-symbols2-wght-normal-CO5SzqOn.woff2",
+            "sizeBytes": 5812
+          },
+          {
+            "asset": "assets/geist-mono-vietnamese-wght-normal-DadHysG0.woff2",
+            "sizeBytes": 7696
+          },
+          {
+            "asset": "assets/geist-vietnamese-wght-normal-6IgcOCM7.woff2",
+            "sizeBytes": 8004
+          },
+          {
+            "asset": "assets/globe-CLAA-Y-X.js",
+            "sizeBytes": 233
+          },
+          {
+            "asset": "assets/highlighted-body-OFNGDK62-KOXP-AaA.js",
+            "sizeBytes": 529
+          },
+          {
+            "asset": "assets/history-page-DFpuXvO3.js",
+            "sizeBytes": 75791
+          },
+          {
+            "asset": "assets/home-page-CSud4_n_.js",
+            "sizeBytes": 30596
+          },
+          {
+            "asset": "assets/index-DU4_B9rd.css",
+            "sizeBytes": 113508
+          },
+          {
+            "asset": "assets/index-DvM31caI.js",
+            "sizeBytes": 411036
+          },
+          {
+            "asset": "assets/insights-Di2C9FwD.js",
+            "sizeBytes": 3231
+          },
+          {
+            "asset": "assets/insights-page-B80vlLem.js",
+            "sizeBytes": 33626
+          },
+          {
+            "asset": "assets/librewolf-Cl9rHKex.svg",
+            "sizeBytes": 5916
+          },
+          {
+            "asset": "assets/links-Dct3qU1-.js",
+            "sizeBytes": 2241
+          },
+          {
+            "asset": "assets/mermaid-GHXKKRXX-BrxFYjLF.js",
+            "sizeBytes": 70
+          },
+          {
+            "asset": "assets/mix-card-B-4jp9eX.js",
+            "sizeBytes": 6992
+          },
+          {
+            "asset": "assets/onboarding-page-BPI6RSOF.js",
+            "sizeBytes": 35175
+          },
+          {
+            "asset": "assets/open-link-ChwTvKJV.js",
+            "sizeBytes": 365
+          },
+          {
+            "asset": "assets/opera-gx-cbGB2yjU.png",
+            "sizeBytes": 4703
+          },
+          {
+            "asset": "assets/page-page-BKKL2_B1.js",
+            "sizeBytes": 6577
+          },
+          {
+            "asset": "assets/parts-DEov9w9t.js",
+            "sizeBytes": 12955
+          },
+          {
+            "asset": "assets/path-0Nc2ddhF.js",
+            "sizeBytes": 830
+          },
+          {
+            "asset": "assets/pathkeep-mark-dark-CfJIiSuv.svg",
+            "sizeBytes": 5610
+          },
+          {
+            "asset": "assets/pathkeep-mark-Dxka1z-0.svg",
+            "sizeBytes": 5610
+          },
+          {
+            "asset": "assets/plus-Rz59v6mD.js",
+            "sizeBytes": 144
+          },
+          {
+            "asset": "assets/popover-BlGhtBwI.js",
+            "sizeBytes": 5911
+          },
+          {
+            "asset": "assets/progress-CWnXRmQE.js",
+            "sizeBytes": 2513
+          },
+          {
+            "asset": "assets/providers-C1mSAuoS.js",
+            "sizeBytes": 2854
+          },
+          {
+            "asset": "assets/queries-D7ZBwFAX.js",
+            "sizeBytes": 9018
+          },
+          {
+            "asset": "assets/queries-DWfOB5Ti.js",
+            "sizeBytes": 1042
+          },
+          {
+            "asset": "assets/recharts-bar-chart-zzBXVUhh.js",
+            "sizeBytes": 24257
+          },
+          {
+            "asset": "assets/recharts-legend-Cu21SI7S.js",
+            "sizeBytes": 543607
+          },
+          {
+            "asset": "assets/reveal-CEJYVlb3.js",
+            "sizeBytes": 331
+          },
+          {
+            "asset": "assets/rotate-ccw-D7kg9Svp.js",
+            "sizeBytes": 190
+          },
+          {
+            "asset": "assets/safari-CKP33lKk.png",
+            "sizeBytes": 46440
+          },
+          {
+            "asset": "assets/schedule-actions-B9xJxS2Y.js",
+            "sizeBytes": 3330
+          },
+          {
+            "asset": "assets/schedule-copy-CqJqW4HE.js",
+            "sizeBytes": 1217
+          },
+          {
+            "asset": "assets/scope-controls-B6XTUjei.js",
+            "sizeBytes": 3989
+          },
+          {
+            "asset": "assets/search-page-C9CqK7Qw.js",
+            "sizeBytes": 8663
+          },
+          {
+            "asset": "assets/search-params-CJgRb1Lt.js",
+            "sizeBytes": 313
+          },
+          {
+            "asset": "assets/section-card-Clv_btNP.js",
+            "sizeBytes": 2345
+          },
+          {
+            "asset": "assets/select-Bh6LGY6j.js",
+            "sizeBytes": 21821
+          },
+          {
+            "asset": "assets/semantic-info-DKOn-7VZ.js",
+            "sizeBytes": 1012
+          },
+          {
+            "asset": "assets/separator-PQikFiDp.js",
+            "sizeBytes": 84336
+          },
+          {
+            "asset": "assets/settings-page-Bb0MmMCd.js",
+            "sizeBytes": 119010
+          },
+          {
+            "asset": "assets/share-bar-DWOiE0Ow.js",
+            "sizeBytes": 746
+          },
+          {
+            "asset": "assets/site-icon-D-0_DlPo.js",
+            "sizeBytes": 1539
+          },
+          {
+            "asset": "assets/site-page-Dv3XCEYP.js",
+            "sizeBytes": 11420
+          },
+          {
+            "asset": "assets/sliders-horizontal-DW-Q8mvW.js",
+            "sizeBytes": 575
+          },
+          {
+            "asset": "assets/sources-yoFMfX-_.js",
+            "sizeBytes": 92
+          },
+          {
+            "asset": "assets/sparkles-0fdgzjlD.js",
+            "sizeBytes": 499
+          },
+          {
+            "asset": "assets/spinner-MNoYpW7R.js",
+            "sizeBytes": 2046
+          },
+          {
+            "asset": "assets/switch-BKhF6ESi.js",
+            "sizeBytes": 4434
+          },
+          {
+            "asset": "assets/tabs-C5ZSqeRJ.js",
+            "sizeBytes": 5449
+          },
+          {
+            "asset": "assets/theme-CkaZoB2R.js",
+            "sizeBytes": 1223
+          },
+          {
+            "asset": "assets/title-bar-51vNWspB.js",
+            "sizeBytes": 253
+          },
+          {
+            "asset": "assets/toggle-group-BYQNtV71.js",
+            "sizeBytes": 5275
+          },
+          {
+            "asset": "assets/topic-icon-CwXrQzYk.js",
+            "sizeBytes": 4508
+          },
+          {
+            "asset": "assets/useInfiniteQuery-DA9Cflwr.js",
+            "sizeBytes": 1120
+          },
+          {
+            "asset": "assets/useQueries-DR9KXCEj.js",
+            "sizeBytes": 3447
+          },
+          {
+            "asset": "assets/vivaldi-CVXcaOiL.png",
+            "sizeBytes": 11219
+          },
+          {
+            "asset": "assets/wait-for-next-paint-DitfXX6x.js",
+            "sizeBytes": 11912
+          },
+          {
+            "asset": "assets/waterfox--1W7ATIm.png",
+            "sizeBytes": 28988
+          },
+          {
+            "asset": "assets/webview-DlLp0ors.js",
+            "sizeBytes": 3294
+          },
+          {
+            "asset": "assets/x-BRh9bIxX.js",
+            "sizeBytes": 145
+          },
+          {
+            "asset": "assets/zone-notice-D2suJOK1.js",
+            "sizeBytes": 1239
+          }
+        ],
+        "totalBytes": 3239065
+      },
+      {
+        "manifestKey": "src/features/insights/insights-page.tsx",
+        "entryAsset": "assets/insights-page-B80vlLem.js",
+        "assets": [
+          {
+            "asset": "assets/archive-DsSqmZUK.js",
+            "sizeBytes": 783
+          },
+          {
+            "asset": "assets/arrow-left-DfByKuu1.js",
+            "sizeBytes": 155
+          },
+          {
+            "asset": "assets/ask-page-0JOlb-Gx.js",
+            "sizeBytes": 32787
+          },
+          {
+            "asset": "assets/atlas-Cjq-yNEQ.png",
+            "sizeBytes": 49278
+          },
+          {
+            "asset": "assets/audit--8D_m6sj.js",
+            "sizeBytes": 187
+          },
+          {
+            "asset": "assets/backup-button-Cek_LoYn.js",
+            "sizeBytes": 2194
+          },
+          {
+            "asset": "assets/backup-page-4TdiEguE.js",
+            "sizeBytes": 67061
+          },
+          {
+            "asset": "assets/backup-runner-DAD6mAud.js",
+            "sizeBytes": 4824
+          },
+          {
+            "asset": "assets/browser-icons-C5sWgW4o.js",
+            "sizeBytes": 13733
+          },
+          {
+            "asset": "assets/bundle-mjs-Bb231fdC.js",
+            "sizeBytes": 40465
+          },
+          {
+            "asset": "assets/button-hnzNZfUG.js",
+            "sizeBytes": 421439
+          },
+          {
+            "asset": "assets/chevron-down-CipXzzs2.js",
+            "sizeBytes": 118
+          },
+          {
+            "asset": "assets/chrome-CTqC3lDf.png",
+            "sizeBytes": 63769
+          },
+          {
+            "asset": "assets/chromium-Dnf4fmVW.png",
+            "sizeBytes": 9614
+          },
+          {
+            "asset": "assets/chunk-BO2N2NFS-D62uVsDa.js",
+            "sizeBytes": 448638
+          },
+          {
+            "asset": "assets/circle-alert-CLXKWwri.js",
+            "sizeBytes": 240
+          },
+          {
+            "asset": "assets/circle-D_xDC6ye.js",
+            "sizeBytes": 121
+          },
+          {
+            "asset": "assets/comet-WzM1XkGo.png",
+            "sizeBytes": 54821
+          },
+          {
+            "asset": "assets/copy-CSR1LN_t.js",
+            "sizeBytes": 227
+          },
+          {
+            "asset": "assets/core-DvpXjeDW.js",
+            "sizeBytes": 2102
+          },
+          {
+            "asset": "assets/day-page-CUcyvHRg.js",
+            "sizeBytes": 11635
+          },
+          {
+            "asset": "assets/dialog-CSWt39T3.js",
+            "sizeBytes": 7929
+          },
+          {
+            "asset": "assets/dist-BzeSCzN9.js",
+            "sizeBytes": 974
+          },
+          {
+            "asset": "assets/dist-C6cBdLEE.js",
+            "sizeBytes": 52973
+          },
+          {
+            "asset": "assets/dist-DJQoEvsM.js",
+            "sizeBytes": 5115
+          },
+          {
+            "asset": "assets/dist-js-BR_jmFE1.js",
+            "sizeBytes": 1281
+          },
+          {
+            "asset": "assets/edge-dev-BDohVkL2.png",
+            "sizeBytes": 7904
+          },
+          {
+            "asset": "assets/errors-BZoBG4ey.js",
+            "sizeBytes": 928
+          },
+          {
+            "asset": "assets/esm-DzQwIFYJ.js",
+            "sizeBytes": 25206
+          },
+          {
+            "asset": "assets/event-efyJFWlz.js",
+            "sizeBytes": 1441
+          },
+          {
+            "asset": "assets/events-DmqAHO4Z.js",
+            "sizeBytes": 913
+          },
+          {
+            "asset": "assets/firefox-EOqxoGBZ.svg",
+            "sizeBytes": 10572
+          },
+          {
+            "asset": "assets/floorp-BOjICP9Z.png",
+            "sizeBytes": 15410
+          },
+          {
+            "asset": "assets/geist-cyrillic-ext-wght-normal-DjL33-gN.woff2",
+            "sizeBytes": 7420
+          },
+          {
+            "asset": "assets/geist-cyrillic-wght-normal-BEAKL7Jp.woff2",
+            "sizeBytes": 15084
+          },
+          {
+            "asset": "assets/geist-latin-ext-wght-normal-DC-KSUi6.woff2",
+            "sizeBytes": 16512
+          },
+          {
+            "asset": "assets/geist-latin-wght-normal-BgDaEnEv.woff2",
+            "sizeBytes": 29400
+          },
+          {
+            "asset": "assets/geist-mono-cyrillic-ext-wght-normal-X_5orZeX.woff2",
+            "sizeBytes": 6176
+          },
+          {
+            "asset": "assets/geist-mono-cyrillic-wght-normal-DiZS0aHC.woff2",
+            "sizeBytes": 12940
+          },
+          {
+            "asset": "assets/geist-mono-latin-ext-wght-normal-Bwz-egvJ.woff2",
+            "sizeBytes": 14696
+          },
+          {
+            "asset": "assets/geist-mono-latin-wght-normal-XN7g48iV.woff2",
+            "sizeBytes": 23128
+          },
+          {
+            "asset": "assets/geist-mono-symbols2-wght-normal-CO5SzqOn.woff2",
+            "sizeBytes": 5812
+          },
+          {
+            "asset": "assets/geist-mono-vietnamese-wght-normal-DadHysG0.woff2",
+            "sizeBytes": 7696
+          },
+          {
+            "asset": "assets/geist-vietnamese-wght-normal-6IgcOCM7.woff2",
+            "sizeBytes": 8004
+          },
+          {
+            "asset": "assets/globe-CLAA-Y-X.js",
+            "sizeBytes": 233
+          },
+          {
+            "asset": "assets/highlighted-body-OFNGDK62-KOXP-AaA.js",
+            "sizeBytes": 529
+          },
+          {
+            "asset": "assets/history-page-DFpuXvO3.js",
+            "sizeBytes": 75791
+          },
+          {
+            "asset": "assets/home-page-CSud4_n_.js",
+            "sizeBytes": 30596
+          },
+          {
+            "asset": "assets/index-DU4_B9rd.css",
+            "sizeBytes": 113508
+          },
+          {
+            "asset": "assets/index-DvM31caI.js",
+            "sizeBytes": 411036
+          },
+          {
+            "asset": "assets/insights-Di2C9FwD.js",
+            "sizeBytes": 3231
+          },
+          {
+            "asset": "assets/insights-page-B80vlLem.js",
+            "sizeBytes": 33626
+          },
+          {
+            "asset": "assets/librewolf-Cl9rHKex.svg",
+            "sizeBytes": 5916
+          },
+          {
+            "asset": "assets/links-Dct3qU1-.js",
+            "sizeBytes": 2241
+          },
+          {
+            "asset": "assets/mermaid-GHXKKRXX-BrxFYjLF.js",
+            "sizeBytes": 70
+          },
+          {
+            "asset": "assets/mix-card-B-4jp9eX.js",
+            "sizeBytes": 6992
+          },
+          {
+            "asset": "assets/onboarding-page-BPI6RSOF.js",
+            "sizeBytes": 35175
+          },
+          {
+            "asset": "assets/open-link-ChwTvKJV.js",
+            "sizeBytes": 365
+          },
+          {
+            "asset": "assets/opera-gx-cbGB2yjU.png",
+            "sizeBytes": 4703
+          },
+          {
+            "asset": "assets/page-page-BKKL2_B1.js",
+            "sizeBytes": 6577
+          },
+          {
+            "asset": "assets/parts-DEov9w9t.js",
+            "sizeBytes": 12955
+          },
+          {
+            "asset": "assets/path-0Nc2ddhF.js",
+            "sizeBytes": 830
+          },
+          {
+            "asset": "assets/pathkeep-mark-dark-CfJIiSuv.svg",
+            "sizeBytes": 5610
+          },
+          {
+            "asset": "assets/pathkeep-mark-Dxka1z-0.svg",
+            "sizeBytes": 5610
+          },
+          {
+            "asset": "assets/plus-Rz59v6mD.js",
+            "sizeBytes": 144
+          },
+          {
+            "asset": "assets/popover-BlGhtBwI.js",
+            "sizeBytes": 5911
+          },
+          {
+            "asset": "assets/progress-CWnXRmQE.js",
+            "sizeBytes": 2513
+          },
+          {
+            "asset": "assets/providers-C1mSAuoS.js",
+            "sizeBytes": 2854
+          },
+          {
+            "asset": "assets/queries-D7ZBwFAX.js",
+            "sizeBytes": 9018
+          },
+          {
+            "asset": "assets/queries-DWfOB5Ti.js",
+            "sizeBytes": 1042
+          },
+          {
+            "asset": "assets/recharts-bar-chart-zzBXVUhh.js",
+            "sizeBytes": 24257
+          },
+          {
+            "asset": "assets/recharts-legend-Cu21SI7S.js",
+            "sizeBytes": 543607
+          },
+          {
+            "asset": "assets/reveal-CEJYVlb3.js",
+            "sizeBytes": 331
+          },
+          {
+            "asset": "assets/rotate-ccw-D7kg9Svp.js",
+            "sizeBytes": 190
+          },
+          {
+            "asset": "assets/safari-CKP33lKk.png",
+            "sizeBytes": 46440
+          },
+          {
+            "asset": "assets/schedule-actions-B9xJxS2Y.js",
+            "sizeBytes": 3330
+          },
+          {
+            "asset": "assets/schedule-copy-CqJqW4HE.js",
+            "sizeBytes": 1217
+          },
+          {
+            "asset": "assets/scope-controls-B6XTUjei.js",
+            "sizeBytes": 3989
+          },
+          {
+            "asset": "assets/search-page-C9CqK7Qw.js",
+            "sizeBytes": 8663
+          },
+          {
+            "asset": "assets/search-params-CJgRb1Lt.js",
+            "sizeBytes": 313
+          },
+          {
+            "asset": "assets/section-card-Clv_btNP.js",
+            "sizeBytes": 2345
+          },
+          {
+            "asset": "assets/select-Bh6LGY6j.js",
+            "sizeBytes": 21821
+          },
+          {
+            "asset": "assets/semantic-info-DKOn-7VZ.js",
+            "sizeBytes": 1012
+          },
+          {
+            "asset": "assets/separator-PQikFiDp.js",
+            "sizeBytes": 84336
+          },
+          {
+            "asset": "assets/settings-page-Bb0MmMCd.js",
+            "sizeBytes": 119010
+          },
+          {
+            "asset": "assets/share-bar-DWOiE0Ow.js",
+            "sizeBytes": 746
+          },
+          {
+            "asset": "assets/site-icon-D-0_DlPo.js",
+            "sizeBytes": 1539
+          },
+          {
+            "asset": "assets/site-page-Dv3XCEYP.js",
+            "sizeBytes": 11420
+          },
+          {
+            "asset": "assets/sliders-horizontal-DW-Q8mvW.js",
+            "sizeBytes": 575
+          },
+          {
+            "asset": "assets/sources-yoFMfX-_.js",
+            "sizeBytes": 92
+          },
+          {
+            "asset": "assets/sparkles-0fdgzjlD.js",
+            "sizeBytes": 499
+          },
+          {
+            "asset": "assets/spinner-MNoYpW7R.js",
+            "sizeBytes": 2046
+          },
+          {
+            "asset": "assets/switch-BKhF6ESi.js",
+            "sizeBytes": 4434
+          },
+          {
+            "asset": "assets/tabs-C5ZSqeRJ.js",
+            "sizeBytes": 5449
+          },
+          {
+            "asset": "assets/theme-CkaZoB2R.js",
+            "sizeBytes": 1223
+          },
+          {
+            "asset": "assets/title-bar-51vNWspB.js",
+            "sizeBytes": 253
+          },
+          {
+            "asset": "assets/toggle-group-BYQNtV71.js",
+            "sizeBytes": 5275
+          },
+          {
+            "asset": "assets/topic-icon-CwXrQzYk.js",
+            "sizeBytes": 4508
+          },
+          {
+            "asset": "assets/useInfiniteQuery-DA9Cflwr.js",
+            "sizeBytes": 1120
+          },
+          {
+            "asset": "assets/useQueries-DR9KXCEj.js",
+            "sizeBytes": 3447
+          },
+          {
+            "asset": "assets/vivaldi-CVXcaOiL.png",
+            "sizeBytes": 11219
+          },
+          {
+            "asset": "assets/wait-for-next-paint-DitfXX6x.js",
+            "sizeBytes": 11912
+          },
+          {
+            "asset": "assets/waterfox--1W7ATIm.png",
+            "sizeBytes": 28988
+          },
+          {
+            "asset": "assets/webview-DlLp0ors.js",
+            "sizeBytes": 3294
+          },
+          {
+            "asset": "assets/x-BRh9bIxX.js",
+            "sizeBytes": 145
+          },
+          {
+            "asset": "assets/zone-notice-D2suJOK1.js",
+            "sizeBytes": 1239
+          }
+        ],
+        "totalBytes": 3239065
+      },
+      {
+        "manifestKey": "src/features/insights/page-page.tsx",
+        "entryAsset": "assets/page-page-BKKL2_B1.js",
+        "assets": [
+          {
+            "asset": "assets/archive-DsSqmZUK.js",
+            "sizeBytes": 783
+          },
+          {
+            "asset": "assets/arrow-left-DfByKuu1.js",
+            "sizeBytes": 155
+          },
+          {
+            "asset": "assets/ask-page-0JOlb-Gx.js",
+            "sizeBytes": 32787
+          },
+          {
+            "asset": "assets/atlas-Cjq-yNEQ.png",
+            "sizeBytes": 49278
+          },
+          {
+            "asset": "assets/audit--8D_m6sj.js",
+            "sizeBytes": 187
+          },
+          {
+            "asset": "assets/backup-button-Cek_LoYn.js",
+            "sizeBytes": 2194
+          },
+          {
+            "asset": "assets/backup-page-4TdiEguE.js",
+            "sizeBytes": 67061
+          },
+          {
+            "asset": "assets/backup-runner-DAD6mAud.js",
+            "sizeBytes": 4824
+          },
+          {
+            "asset": "assets/browser-icons-C5sWgW4o.js",
+            "sizeBytes": 13733
+          },
+          {
+            "asset": "assets/bundle-mjs-Bb231fdC.js",
+            "sizeBytes": 40465
+          },
+          {
+            "asset": "assets/button-hnzNZfUG.js",
+            "sizeBytes": 421439
+          },
+          {
+            "asset": "assets/chevron-down-CipXzzs2.js",
+            "sizeBytes": 118
+          },
+          {
+            "asset": "assets/chrome-CTqC3lDf.png",
+            "sizeBytes": 63769
+          },
+          {
+            "asset": "assets/chromium-Dnf4fmVW.png",
+            "sizeBytes": 9614
+          },
+          {
+            "asset": "assets/chunk-BO2N2NFS-D62uVsDa.js",
+            "sizeBytes": 448638
+          },
+          {
+            "asset": "assets/circle-alert-CLXKWwri.js",
+            "sizeBytes": 240
+          },
+          {
+            "asset": "assets/circle-D_xDC6ye.js",
+            "sizeBytes": 121
+          },
+          {
+            "asset": "assets/comet-WzM1XkGo.png",
+            "sizeBytes": 54821
+          },
+          {
+            "asset": "assets/copy-CSR1LN_t.js",
+            "sizeBytes": 227
+          },
+          {
+            "asset": "assets/core-DvpXjeDW.js",
+            "sizeBytes": 2102
+          },
+          {
+            "asset": "assets/day-page-CUcyvHRg.js",
+            "sizeBytes": 11635
+          },
+          {
+            "asset": "assets/dialog-CSWt39T3.js",
+            "sizeBytes": 7929
+          },
+          {
+            "asset": "assets/dist-BzeSCzN9.js",
+            "sizeBytes": 974
+          },
+          {
+            "asset": "assets/dist-C6cBdLEE.js",
+            "sizeBytes": 52973
+          },
+          {
+            "asset": "assets/dist-DJQoEvsM.js",
+            "sizeBytes": 5115
+          },
+          {
+            "asset": "assets/dist-js-BR_jmFE1.js",
+            "sizeBytes": 1281
+          },
+          {
+            "asset": "assets/edge-dev-BDohVkL2.png",
+            "sizeBytes": 7904
+          },
+          {
+            "asset": "assets/errors-BZoBG4ey.js",
+            "sizeBytes": 928
+          },
+          {
+            "asset": "assets/esm-DzQwIFYJ.js",
+            "sizeBytes": 25206
+          },
+          {
+            "asset": "assets/event-efyJFWlz.js",
+            "sizeBytes": 1441
+          },
+          {
+            "asset": "assets/events-DmqAHO4Z.js",
+            "sizeBytes": 913
+          },
+          {
+            "asset": "assets/firefox-EOqxoGBZ.svg",
+            "sizeBytes": 10572
+          },
+          {
+            "asset": "assets/floorp-BOjICP9Z.png",
+            "sizeBytes": 15410
+          },
+          {
+            "asset": "assets/geist-cyrillic-ext-wght-normal-DjL33-gN.woff2",
+            "sizeBytes": 7420
+          },
+          {
+            "asset": "assets/geist-cyrillic-wght-normal-BEAKL7Jp.woff2",
+            "sizeBytes": 15084
+          },
+          {
+            "asset": "assets/geist-latin-ext-wght-normal-DC-KSUi6.woff2",
+            "sizeBytes": 16512
+          },
+          {
+            "asset": "assets/geist-latin-wght-normal-BgDaEnEv.woff2",
+            "sizeBytes": 29400
+          },
+          {
+            "asset": "assets/geist-mono-cyrillic-ext-wght-normal-X_5orZeX.woff2",
+            "sizeBytes": 6176
+          },
+          {
+            "asset": "assets/geist-mono-cyrillic-wght-normal-DiZS0aHC.woff2",
+            "sizeBytes": 12940
+          },
+          {
+            "asset": "assets/geist-mono-latin-ext-wght-normal-Bwz-egvJ.woff2",
+            "sizeBytes": 14696
+          },
+          {
+            "asset": "assets/geist-mono-latin-wght-normal-XN7g48iV.woff2",
+            "sizeBytes": 23128
+          },
+          {
+            "asset": "assets/geist-mono-symbols2-wght-normal-CO5SzqOn.woff2",
+            "sizeBytes": 5812
+          },
+          {
+            "asset": "assets/geist-mono-vietnamese-wght-normal-DadHysG0.woff2",
+            "sizeBytes": 7696
+          },
+          {
+            "asset": "assets/geist-vietnamese-wght-normal-6IgcOCM7.woff2",
+            "sizeBytes": 8004
+          },
+          {
+            "asset": "assets/globe-CLAA-Y-X.js",
+            "sizeBytes": 233
+          },
+          {
+            "asset": "assets/highlighted-body-OFNGDK62-KOXP-AaA.js",
+            "sizeBytes": 529
+          },
+          {
+            "asset": "assets/history-page-DFpuXvO3.js",
+            "sizeBytes": 75791
+          },
+          {
+            "asset": "assets/home-page-CSud4_n_.js",
+            "sizeBytes": 30596
+          },
+          {
+            "asset": "assets/index-DU4_B9rd.css",
+            "sizeBytes": 113508
+          },
+          {
+            "asset": "assets/index-DvM31caI.js",
+            "sizeBytes": 411036
+          },
+          {
+            "asset": "assets/insights-Di2C9FwD.js",
+            "sizeBytes": 3231
+          },
+          {
+            "asset": "assets/insights-page-B80vlLem.js",
+            "sizeBytes": 33626
+          },
+          {
+            "asset": "assets/librewolf-Cl9rHKex.svg",
+            "sizeBytes": 5916
+          },
+          {
+            "asset": "assets/links-Dct3qU1-.js",
+            "sizeBytes": 2241
+          },
+          {
+            "asset": "assets/mermaid-GHXKKRXX-BrxFYjLF.js",
+            "sizeBytes": 70
+          },
+          {
+            "asset": "assets/mix-card-B-4jp9eX.js",
+            "sizeBytes": 6992
+          },
+          {
+            "asset": "assets/onboarding-page-BPI6RSOF.js",
+            "sizeBytes": 35175
+          },
+          {
+            "asset": "assets/open-link-ChwTvKJV.js",
+            "sizeBytes": 365
+          },
+          {
+            "asset": "assets/opera-gx-cbGB2yjU.png",
+            "sizeBytes": 4703
+          },
+          {
+            "asset": "assets/page-page-BKKL2_B1.js",
+            "sizeBytes": 6577
+          },
+          {
+            "asset": "assets/parts-DEov9w9t.js",
+            "sizeBytes": 12955
+          },
+          {
+            "asset": "assets/path-0Nc2ddhF.js",
+            "sizeBytes": 830
+          },
+          {
+            "asset": "assets/pathkeep-mark-dark-CfJIiSuv.svg",
+            "sizeBytes": 5610
+          },
+          {
+            "asset": "assets/pathkeep-mark-Dxka1z-0.svg",
+            "sizeBytes": 5610
+          },
+          {
+            "asset": "assets/plus-Rz59v6mD.js",
+            "sizeBytes": 144
+          },
+          {
+            "asset": "assets/popover-BlGhtBwI.js",
+            "sizeBytes": 5911
+          },
+          {
+            "asset": "assets/progress-CWnXRmQE.js",
+            "sizeBytes": 2513
+          },
+          {
+            "asset": "assets/providers-C1mSAuoS.js",
+            "sizeBytes": 2854
+          },
+          {
+            "asset": "assets/queries-D7ZBwFAX.js",
+            "sizeBytes": 9018
+          },
+          {
+            "asset": "assets/queries-DWfOB5Ti.js",
+            "sizeBytes": 1042
+          },
+          {
+            "asset": "assets/recharts-bar-chart-zzBXVUhh.js",
+            "sizeBytes": 24257
+          },
+          {
+            "asset": "assets/recharts-legend-Cu21SI7S.js",
+            "sizeBytes": 543607
+          },
+          {
+            "asset": "assets/reveal-CEJYVlb3.js",
+            "sizeBytes": 331
+          },
+          {
+            "asset": "assets/rotate-ccw-D7kg9Svp.js",
+            "sizeBytes": 190
+          },
+          {
+            "asset": "assets/safari-CKP33lKk.png",
+            "sizeBytes": 46440
+          },
+          {
+            "asset": "assets/schedule-actions-B9xJxS2Y.js",
+            "sizeBytes": 3330
+          },
+          {
+            "asset": "assets/schedule-copy-CqJqW4HE.js",
+            "sizeBytes": 1217
+          },
+          {
+            "asset": "assets/scope-controls-B6XTUjei.js",
+            "sizeBytes": 3989
+          },
+          {
+            "asset": "assets/search-page-C9CqK7Qw.js",
+            "sizeBytes": 8663
+          },
+          {
+            "asset": "assets/search-params-CJgRb1Lt.js",
+            "sizeBytes": 313
+          },
+          {
+            "asset": "assets/section-card-Clv_btNP.js",
+            "sizeBytes": 2345
+          },
+          {
+            "asset": "assets/select-Bh6LGY6j.js",
+            "sizeBytes": 21821
+          },
+          {
+            "asset": "assets/semantic-info-DKOn-7VZ.js",
+            "sizeBytes": 1012
+          },
+          {
+            "asset": "assets/separator-PQikFiDp.js",
+            "sizeBytes": 84336
+          },
+          {
+            "asset": "assets/settings-page-Bb0MmMCd.js",
+            "sizeBytes": 119010
+          },
+          {
+            "asset": "assets/share-bar-DWOiE0Ow.js",
+            "sizeBytes": 746
+          },
+          {
+            "asset": "assets/site-icon-D-0_DlPo.js",
+            "sizeBytes": 1539
+          },
+          {
+            "asset": "assets/site-page-Dv3XCEYP.js",
+            "sizeBytes": 11420
+          },
+          {
+            "asset": "assets/sliders-horizontal-DW-Q8mvW.js",
+            "sizeBytes": 575
+          },
+          {
+            "asset": "assets/sources-yoFMfX-_.js",
+            "sizeBytes": 92
+          },
+          {
+            "asset": "assets/sparkles-0fdgzjlD.js",
+            "sizeBytes": 499
+          },
+          {
+            "asset": "assets/spinner-MNoYpW7R.js",
+            "sizeBytes": 2046
+          },
+          {
+            "asset": "assets/switch-BKhF6ESi.js",
+            "sizeBytes": 4434
+          },
+          {
+            "asset": "assets/tabs-C5ZSqeRJ.js",
+            "sizeBytes": 5449
+          },
+          {
+            "asset": "assets/theme-CkaZoB2R.js",
+            "sizeBytes": 1223
+          },
+          {
+            "asset": "assets/title-bar-51vNWspB.js",
+            "sizeBytes": 253
+          },
+          {
+            "asset": "assets/toggle-group-BYQNtV71.js",
+            "sizeBytes": 5275
+          },
+          {
+            "asset": "assets/topic-icon-CwXrQzYk.js",
+            "sizeBytes": 4508
+          },
+          {
+            "asset": "assets/useInfiniteQuery-DA9Cflwr.js",
+            "sizeBytes": 1120
+          },
+          {
+            "asset": "assets/useQueries-DR9KXCEj.js",
+            "sizeBytes": 3447
+          },
+          {
+            "asset": "assets/vivaldi-CVXcaOiL.png",
+            "sizeBytes": 11219
+          },
+          {
+            "asset": "assets/wait-for-next-paint-DitfXX6x.js",
+            "sizeBytes": 11912
+          },
+          {
+            "asset": "assets/waterfox--1W7ATIm.png",
+            "sizeBytes": 28988
+          },
+          {
+            "asset": "assets/webview-DlLp0ors.js",
+            "sizeBytes": 3294
+          },
+          {
+            "asset": "assets/x-BRh9bIxX.js",
+            "sizeBytes": 145
+          },
+          {
+            "asset": "assets/zone-notice-D2suJOK1.js",
+            "sizeBytes": 1239
+          }
+        ],
+        "totalBytes": 3239065
+      },
+      {
+        "manifestKey": "src/features/insights/search-page.tsx",
+        "entryAsset": "assets/search-page-C9CqK7Qw.js",
+        "assets": [
+          {
+            "asset": "assets/archive-DsSqmZUK.js",
+            "sizeBytes": 783
+          },
+          {
+            "asset": "assets/arrow-left-DfByKuu1.js",
+            "sizeBytes": 155
+          },
+          {
+            "asset": "assets/ask-page-0JOlb-Gx.js",
+            "sizeBytes": 32787
+          },
+          {
+            "asset": "assets/atlas-Cjq-yNEQ.png",
+            "sizeBytes": 49278
+          },
+          {
+            "asset": "assets/audit--8D_m6sj.js",
+            "sizeBytes": 187
+          },
+          {
+            "asset": "assets/backup-button-Cek_LoYn.js",
+            "sizeBytes": 2194
+          },
+          {
+            "asset": "assets/backup-page-4TdiEguE.js",
+            "sizeBytes": 67061
+          },
+          {
+            "asset": "assets/backup-runner-DAD6mAud.js",
+            "sizeBytes": 4824
+          },
+          {
+            "asset": "assets/browser-icons-C5sWgW4o.js",
+            "sizeBytes": 13733
+          },
+          {
+            "asset": "assets/bundle-mjs-Bb231fdC.js",
+            "sizeBytes": 40465
+          },
+          {
+            "asset": "assets/button-hnzNZfUG.js",
+            "sizeBytes": 421439
+          },
+          {
+            "asset": "assets/chevron-down-CipXzzs2.js",
+            "sizeBytes": 118
+          },
+          {
+            "asset": "assets/chrome-CTqC3lDf.png",
+            "sizeBytes": 63769
+          },
+          {
+            "asset": "assets/chromium-Dnf4fmVW.png",
+            "sizeBytes": 9614
+          },
+          {
+            "asset": "assets/chunk-BO2N2NFS-D62uVsDa.js",
+            "sizeBytes": 448638
+          },
+          {
+            "asset": "assets/circle-alert-CLXKWwri.js",
+            "sizeBytes": 240
+          },
+          {
+            "asset": "assets/circle-D_xDC6ye.js",
+            "sizeBytes": 121
+          },
+          {
+            "asset": "assets/comet-WzM1XkGo.png",
+            "sizeBytes": 54821
+          },
+          {
+            "asset": "assets/copy-CSR1LN_t.js",
+            "sizeBytes": 227
+          },
+          {
+            "asset": "assets/core-DvpXjeDW.js",
+            "sizeBytes": 2102
+          },
+          {
+            "asset": "assets/day-page-CUcyvHRg.js",
+            "sizeBytes": 11635
+          },
+          {
+            "asset": "assets/dialog-CSWt39T3.js",
+            "sizeBytes": 7929
+          },
+          {
+            "asset": "assets/dist-BzeSCzN9.js",
+            "sizeBytes": 974
+          },
+          {
+            "asset": "assets/dist-C6cBdLEE.js",
+            "sizeBytes": 52973
+          },
+          {
+            "asset": "assets/dist-DJQoEvsM.js",
+            "sizeBytes": 5115
+          },
+          {
+            "asset": "assets/dist-js-BR_jmFE1.js",
+            "sizeBytes": 1281
+          },
+          {
+            "asset": "assets/edge-dev-BDohVkL2.png",
+            "sizeBytes": 7904
+          },
+          {
+            "asset": "assets/errors-BZoBG4ey.js",
+            "sizeBytes": 928
+          },
+          {
+            "asset": "assets/esm-DzQwIFYJ.js",
+            "sizeBytes": 25206
+          },
+          {
+            "asset": "assets/event-efyJFWlz.js",
+            "sizeBytes": 1441
+          },
+          {
+            "asset": "assets/events-DmqAHO4Z.js",
+            "sizeBytes": 913
+          },
+          {
+            "asset": "assets/firefox-EOqxoGBZ.svg",
+            "sizeBytes": 10572
+          },
+          {
+            "asset": "assets/floorp-BOjICP9Z.png",
+            "sizeBytes": 15410
+          },
+          {
+            "asset": "assets/geist-cyrillic-ext-wght-normal-DjL33-gN.woff2",
+            "sizeBytes": 7420
+          },
+          {
+            "asset": "assets/geist-cyrillic-wght-normal-BEAKL7Jp.woff2",
+            "sizeBytes": 15084
+          },
+          {
+            "asset": "assets/geist-latin-ext-wght-normal-DC-KSUi6.woff2",
+            "sizeBytes": 16512
+          },
+          {
+            "asset": "assets/geist-latin-wght-normal-BgDaEnEv.woff2",
+            "sizeBytes": 29400
+          },
+          {
+            "asset": "assets/geist-mono-cyrillic-ext-wght-normal-X_5orZeX.woff2",
+            "sizeBytes": 6176
+          },
+          {
+            "asset": "assets/geist-mono-cyrillic-wght-normal-DiZS0aHC.woff2",
+            "sizeBytes": 12940
+          },
+          {
+            "asset": "assets/geist-mono-latin-ext-wght-normal-Bwz-egvJ.woff2",
+            "sizeBytes": 14696
+          },
+          {
+            "asset": "assets/geist-mono-latin-wght-normal-XN7g48iV.woff2",
+            "sizeBytes": 23128
+          },
+          {
+            "asset": "assets/geist-mono-symbols2-wght-normal-CO5SzqOn.woff2",
+            "sizeBytes": 5812
+          },
+          {
+            "asset": "assets/geist-mono-vietnamese-wght-normal-DadHysG0.woff2",
+            "sizeBytes": 7696
+          },
+          {
+            "asset": "assets/geist-vietnamese-wght-normal-6IgcOCM7.woff2",
+            "sizeBytes": 8004
+          },
+          {
+            "asset": "assets/globe-CLAA-Y-X.js",
+            "sizeBytes": 233
+          },
+          {
+            "asset": "assets/highlighted-body-OFNGDK62-KOXP-AaA.js",
+            "sizeBytes": 529
+          },
+          {
+            "asset": "assets/history-page-DFpuXvO3.js",
+            "sizeBytes": 75791
+          },
+          {
+            "asset": "assets/home-page-CSud4_n_.js",
+            "sizeBytes": 30596
+          },
+          {
+            "asset": "assets/index-DU4_B9rd.css",
+            "sizeBytes": 113508
+          },
+          {
+            "asset": "assets/index-DvM31caI.js",
+            "sizeBytes": 411036
+          },
+          {
+            "asset": "assets/insights-Di2C9FwD.js",
+            "sizeBytes": 3231
+          },
+          {
+            "asset": "assets/insights-page-B80vlLem.js",
+            "sizeBytes": 33626
+          },
+          {
+            "asset": "assets/librewolf-Cl9rHKex.svg",
+            "sizeBytes": 5916
+          },
+          {
+            "asset": "assets/links-Dct3qU1-.js",
+            "sizeBytes": 2241
+          },
+          {
+            "asset": "assets/mermaid-GHXKKRXX-BrxFYjLF.js",
+            "sizeBytes": 70
+          },
+          {
+            "asset": "assets/mix-card-B-4jp9eX.js",
+            "sizeBytes": 6992
+          },
+          {
+            "asset": "assets/onboarding-page-BPI6RSOF.js",
+            "sizeBytes": 35175
+          },
+          {
+            "asset": "assets/open-link-ChwTvKJV.js",
+            "sizeBytes": 365
+          },
+          {
+            "asset": "assets/opera-gx-cbGB2yjU.png",
+            "sizeBytes": 4703
+          },
+          {
+            "asset": "assets/page-page-BKKL2_B1.js",
+            "sizeBytes": 6577
+          },
+          {
+            "asset": "assets/parts-DEov9w9t.js",
+            "sizeBytes": 12955
+          },
+          {
+            "asset": "assets/path-0Nc2ddhF.js",
+            "sizeBytes": 830
+          },
+          {
+            "asset": "assets/pathkeep-mark-dark-CfJIiSuv.svg",
+            "sizeBytes": 5610
+          },
+          {
+            "asset": "assets/pathkeep-mark-Dxka1z-0.svg",
+            "sizeBytes": 5610
+          },
+          {
+            "asset": "assets/plus-Rz59v6mD.js",
+            "sizeBytes": 144
+          },
+          {
+            "asset": "assets/popover-BlGhtBwI.js",
+            "sizeBytes": 5911
+          },
+          {
+            "asset": "assets/progress-CWnXRmQE.js",
+            "sizeBytes": 2513
+          },
+          {
+            "asset": "assets/providers-C1mSAuoS.js",
+            "sizeBytes": 2854
+          },
+          {
+            "asset": "assets/queries-D7ZBwFAX.js",
+            "sizeBytes": 9018
+          },
+          {
+            "asset": "assets/queries-DWfOB5Ti.js",
+            "sizeBytes": 1042
+          },
+          {
+            "asset": "assets/recharts-bar-chart-zzBXVUhh.js",
+            "sizeBytes": 24257
+          },
+          {
+            "asset": "assets/recharts-legend-Cu21SI7S.js",
+            "sizeBytes": 543607
+          },
+          {
+            "asset": "assets/reveal-CEJYVlb3.js",
+            "sizeBytes": 331
+          },
+          {
+            "asset": "assets/rotate-ccw-D7kg9Svp.js",
+            "sizeBytes": 190
+          },
+          {
+            "asset": "assets/safari-CKP33lKk.png",
+            "sizeBytes": 46440
+          },
+          {
+            "asset": "assets/schedule-actions-B9xJxS2Y.js",
+            "sizeBytes": 3330
+          },
+          {
+            "asset": "assets/schedule-copy-CqJqW4HE.js",
+            "sizeBytes": 1217
+          },
+          {
+            "asset": "assets/scope-controls-B6XTUjei.js",
+            "sizeBytes": 3989
+          },
+          {
+            "asset": "assets/search-page-C9CqK7Qw.js",
+            "sizeBytes": 8663
+          },
+          {
+            "asset": "assets/search-params-CJgRb1Lt.js",
+            "sizeBytes": 313
+          },
+          {
+            "asset": "assets/section-card-Clv_btNP.js",
+            "sizeBytes": 2345
+          },
+          {
+            "asset": "assets/select-Bh6LGY6j.js",
+            "sizeBytes": 21821
+          },
+          {
+            "asset": "assets/semantic-info-DKOn-7VZ.js",
+            "sizeBytes": 1012
+          },
+          {
+            "asset": "assets/separator-PQikFiDp.js",
+            "sizeBytes": 84336
+          },
+          {
+            "asset": "assets/settings-page-Bb0MmMCd.js",
+            "sizeBytes": 119010
+          },
+          {
+            "asset": "assets/share-bar-DWOiE0Ow.js",
+            "sizeBytes": 746
+          },
+          {
+            "asset": "assets/site-icon-D-0_DlPo.js",
+            "sizeBytes": 1539
+          },
+          {
+            "asset": "assets/site-page-Dv3XCEYP.js",
+            "sizeBytes": 11420
+          },
+          {
+            "asset": "assets/sliders-horizontal-DW-Q8mvW.js",
+            "sizeBytes": 575
+          },
+          {
+            "asset": "assets/sources-yoFMfX-_.js",
+            "sizeBytes": 92
+          },
+          {
+            "asset": "assets/sparkles-0fdgzjlD.js",
+            "sizeBytes": 499
+          },
+          {
+            "asset": "assets/spinner-MNoYpW7R.js",
+            "sizeBytes": 2046
+          },
+          {
+            "asset": "assets/switch-BKhF6ESi.js",
+            "sizeBytes": 4434
+          },
+          {
+            "asset": "assets/tabs-C5ZSqeRJ.js",
+            "sizeBytes": 5449
+          },
+          {
+            "asset": "assets/theme-CkaZoB2R.js",
+            "sizeBytes": 1223
+          },
+          {
+            "asset": "assets/title-bar-51vNWspB.js",
+            "sizeBytes": 253
+          },
+          {
+            "asset": "assets/toggle-group-BYQNtV71.js",
+            "sizeBytes": 5275
+          },
+          {
+            "asset": "assets/topic-icon-CwXrQzYk.js",
+            "sizeBytes": 4508
+          },
+          {
+            "asset": "assets/useInfiniteQuery-DA9Cflwr.js",
+            "sizeBytes": 1120
+          },
+          {
+            "asset": "assets/useQueries-DR9KXCEj.js",
+            "sizeBytes": 3447
+          },
+          {
+            "asset": "assets/vivaldi-CVXcaOiL.png",
+            "sizeBytes": 11219
+          },
+          {
+            "asset": "assets/wait-for-next-paint-DitfXX6x.js",
+            "sizeBytes": 11912
+          },
+          {
+            "asset": "assets/waterfox--1W7ATIm.png",
+            "sizeBytes": 28988
+          },
+          {
+            "asset": "assets/webview-DlLp0ors.js",
+            "sizeBytes": 3294
+          },
+          {
+            "asset": "assets/x-BRh9bIxX.js",
+            "sizeBytes": 145
+          },
+          {
+            "asset": "assets/zone-notice-D2suJOK1.js",
+            "sizeBytes": 1239
+          }
+        ],
+        "totalBytes": 3239065
+      },
+      {
+        "manifestKey": "src/features/insights/site-page.tsx",
+        "entryAsset": "assets/site-page-Dv3XCEYP.js",
+        "assets": [
+          {
+            "asset": "assets/archive-DsSqmZUK.js",
+            "sizeBytes": 783
+          },
+          {
+            "asset": "assets/arrow-left-DfByKuu1.js",
+            "sizeBytes": 155
+          },
+          {
+            "asset": "assets/ask-page-0JOlb-Gx.js",
+            "sizeBytes": 32787
+          },
+          {
+            "asset": "assets/atlas-Cjq-yNEQ.png",
+            "sizeBytes": 49278
+          },
+          {
+            "asset": "assets/audit--8D_m6sj.js",
+            "sizeBytes": 187
+          },
+          {
+            "asset": "assets/backup-button-Cek_LoYn.js",
+            "sizeBytes": 2194
+          },
+          {
+            "asset": "assets/backup-page-4TdiEguE.js",
+            "sizeBytes": 67061
+          },
+          {
+            "asset": "assets/backup-runner-DAD6mAud.js",
+            "sizeBytes": 4824
+          },
+          {
+            "asset": "assets/browser-icons-C5sWgW4o.js",
+            "sizeBytes": 13733
+          },
+          {
+            "asset": "assets/bundle-mjs-Bb231fdC.js",
+            "sizeBytes": 40465
+          },
+          {
+            "asset": "assets/button-hnzNZfUG.js",
+            "sizeBytes": 421439
+          },
+          {
+            "asset": "assets/chevron-down-CipXzzs2.js",
+            "sizeBytes": 118
+          },
+          {
+            "asset": "assets/chrome-CTqC3lDf.png",
+            "sizeBytes": 63769
+          },
+          {
+            "asset": "assets/chromium-Dnf4fmVW.png",
+            "sizeBytes": 9614
+          },
+          {
+            "asset": "assets/chunk-BO2N2NFS-D62uVsDa.js",
+            "sizeBytes": 448638
+          },
+          {
+            "asset": "assets/circle-alert-CLXKWwri.js",
+            "sizeBytes": 240
+          },
+          {
+            "asset": "assets/circle-D_xDC6ye.js",
+            "sizeBytes": 121
+          },
+          {
+            "asset": "assets/comet-WzM1XkGo.png",
+            "sizeBytes": 54821
+          },
+          {
+            "asset": "assets/copy-CSR1LN_t.js",
+            "sizeBytes": 227
+          },
+          {
+            "asset": "assets/core-DvpXjeDW.js",
+            "sizeBytes": 2102
+          },
+          {
+            "asset": "assets/day-page-CUcyvHRg.js",
+            "sizeBytes": 11635
+          },
+          {
+            "asset": "assets/dialog-CSWt39T3.js",
+            "sizeBytes": 7929
+          },
+          {
+            "asset": "assets/dist-BzeSCzN9.js",
+            "sizeBytes": 974
+          },
+          {
+            "asset": "assets/dist-C6cBdLEE.js",
+            "sizeBytes": 52973
+          },
+          {
+            "asset": "assets/dist-DJQoEvsM.js",
+            "sizeBytes": 5115
+          },
+          {
+            "asset": "assets/dist-js-BR_jmFE1.js",
+            "sizeBytes": 1281
+          },
+          {
+            "asset": "assets/edge-dev-BDohVkL2.png",
+            "sizeBytes": 7904
+          },
+          {
+            "asset": "assets/errors-BZoBG4ey.js",
+            "sizeBytes": 928
+          },
+          {
+            "asset": "assets/esm-DzQwIFYJ.js",
+            "sizeBytes": 25206
+          },
+          {
+            "asset": "assets/event-efyJFWlz.js",
+            "sizeBytes": 1441
+          },
+          {
+            "asset": "assets/events-DmqAHO4Z.js",
+            "sizeBytes": 913
+          },
+          {
+            "asset": "assets/firefox-EOqxoGBZ.svg",
+            "sizeBytes": 10572
+          },
+          {
+            "asset": "assets/floorp-BOjICP9Z.png",
+            "sizeBytes": 15410
+          },
+          {
+            "asset": "assets/geist-cyrillic-ext-wght-normal-DjL33-gN.woff2",
+            "sizeBytes": 7420
+          },
+          {
+            "asset": "assets/geist-cyrillic-wght-normal-BEAKL7Jp.woff2",
+            "sizeBytes": 15084
+          },
+          {
+            "asset": "assets/geist-latin-ext-wght-normal-DC-KSUi6.woff2",
+            "sizeBytes": 16512
+          },
+          {
+            "asset": "assets/geist-latin-wght-normal-BgDaEnEv.woff2",
+            "sizeBytes": 29400
+          },
+          {
+            "asset": "assets/geist-mono-cyrillic-ext-wght-normal-X_5orZeX.woff2",
+            "sizeBytes": 6176
+          },
+          {
+            "asset": "assets/geist-mono-cyrillic-wght-normal-DiZS0aHC.woff2",
+            "sizeBytes": 12940
+          },
+          {
+            "asset": "assets/geist-mono-latin-ext-wght-normal-Bwz-egvJ.woff2",
+            "sizeBytes": 14696
+          },
+          {
+            "asset": "assets/geist-mono-latin-wght-normal-XN7g48iV.woff2",
+            "sizeBytes": 23128
+          },
+          {
+            "asset": "assets/geist-mono-symbols2-wght-normal-CO5SzqOn.woff2",
+            "sizeBytes": 5812
+          },
+          {
+            "asset": "assets/geist-mono-vietnamese-wght-normal-DadHysG0.woff2",
+            "sizeBytes": 7696
+          },
+          {
+            "asset": "assets/geist-vietnamese-wght-normal-6IgcOCM7.woff2",
+            "sizeBytes": 8004
+          },
+          {
+            "asset": "assets/globe-CLAA-Y-X.js",
+            "sizeBytes": 233
+          },
+          {
+            "asset": "assets/highlighted-body-OFNGDK62-KOXP-AaA.js",
+            "sizeBytes": 529
+          },
+          {
+            "asset": "assets/history-page-DFpuXvO3.js",
+            "sizeBytes": 75791
+          },
+          {
+            "asset": "assets/home-page-CSud4_n_.js",
+            "sizeBytes": 30596
+          },
+          {
+            "asset": "assets/index-DU4_B9rd.css",
+            "sizeBytes": 113508
+          },
+          {
+            "asset": "assets/index-DvM31caI.js",
+            "sizeBytes": 411036
+          },
+          {
+            "asset": "assets/insights-Di2C9FwD.js",
+            "sizeBytes": 3231
+          },
+          {
+            "asset": "assets/insights-page-B80vlLem.js",
+            "sizeBytes": 33626
+          },
+          {
+            "asset": "assets/librewolf-Cl9rHKex.svg",
+            "sizeBytes": 5916
+          },
+          {
+            "asset": "assets/links-Dct3qU1-.js",
+            "sizeBytes": 2241
+          },
+          {
+            "asset": "assets/mermaid-GHXKKRXX-BrxFYjLF.js",
+            "sizeBytes": 70
+          },
+          {
+            "asset": "assets/mix-card-B-4jp9eX.js",
+            "sizeBytes": 6992
+          },
+          {
+            "asset": "assets/onboarding-page-BPI6RSOF.js",
+            "sizeBytes": 35175
+          },
+          {
+            "asset": "assets/open-link-ChwTvKJV.js",
+            "sizeBytes": 365
+          },
+          {
+            "asset": "assets/opera-gx-cbGB2yjU.png",
+            "sizeBytes": 4703
+          },
+          {
+            "asset": "assets/page-page-BKKL2_B1.js",
+            "sizeBytes": 6577
+          },
+          {
+            "asset": "assets/parts-DEov9w9t.js",
+            "sizeBytes": 12955
+          },
+          {
+            "asset": "assets/path-0Nc2ddhF.js",
+            "sizeBytes": 830
+          },
+          {
+            "asset": "assets/pathkeep-mark-dark-CfJIiSuv.svg",
+            "sizeBytes": 5610
+          },
+          {
+            "asset": "assets/pathkeep-mark-Dxka1z-0.svg",
+            "sizeBytes": 5610
+          },
+          {
+            "asset": "assets/plus-Rz59v6mD.js",
+            "sizeBytes": 144
+          },
+          {
+            "asset": "assets/popover-BlGhtBwI.js",
+            "sizeBytes": 5911
+          },
+          {
+            "asset": "assets/progress-CWnXRmQE.js",
+            "sizeBytes": 2513
+          },
+          {
+            "asset": "assets/providers-C1mSAuoS.js",
+            "sizeBytes": 2854
+          },
+          {
+            "asset": "assets/queries-D7ZBwFAX.js",
+            "sizeBytes": 9018
+          },
+          {
+            "asset": "assets/queries-DWfOB5Ti.js",
+            "sizeBytes": 1042
+          },
+          {
+            "asset": "assets/recharts-bar-chart-zzBXVUhh.js",
+            "sizeBytes": 24257
+          },
+          {
+            "asset": "assets/recharts-legend-Cu21SI7S.js",
+            "sizeBytes": 543607
+          },
+          {
+            "asset": "assets/reveal-CEJYVlb3.js",
+            "sizeBytes": 331
+          },
+          {
+            "asset": "assets/rotate-ccw-D7kg9Svp.js",
+            "sizeBytes": 190
+          },
+          {
+            "asset": "assets/safari-CKP33lKk.png",
+            "sizeBytes": 46440
+          },
+          {
+            "asset": "assets/schedule-actions-B9xJxS2Y.js",
+            "sizeBytes": 3330
+          },
+          {
+            "asset": "assets/schedule-copy-CqJqW4HE.js",
+            "sizeBytes": 1217
+          },
+          {
+            "asset": "assets/scope-controls-B6XTUjei.js",
+            "sizeBytes": 3989
+          },
+          {
+            "asset": "assets/search-page-C9CqK7Qw.js",
+            "sizeBytes": 8663
+          },
+          {
+            "asset": "assets/search-params-CJgRb1Lt.js",
+            "sizeBytes": 313
+          },
+          {
+            "asset": "assets/section-card-Clv_btNP.js",
+            "sizeBytes": 2345
+          },
+          {
+            "asset": "assets/select-Bh6LGY6j.js",
+            "sizeBytes": 21821
+          },
+          {
+            "asset": "assets/semantic-info-DKOn-7VZ.js",
+            "sizeBytes": 1012
+          },
+          {
+            "asset": "assets/separator-PQikFiDp.js",
+            "sizeBytes": 84336
+          },
+          {
+            "asset": "assets/settings-page-Bb0MmMCd.js",
+            "sizeBytes": 119010
+          },
+          {
+            "asset": "assets/share-bar-DWOiE0Ow.js",
+            "sizeBytes": 746
+          },
+          {
+            "asset": "assets/site-icon-D-0_DlPo.js",
+            "sizeBytes": 1539
+          },
+          {
+            "asset": "assets/site-page-Dv3XCEYP.js",
+            "sizeBytes": 11420
+          },
+          {
+            "asset": "assets/sliders-horizontal-DW-Q8mvW.js",
+            "sizeBytes": 575
+          },
+          {
+            "asset": "assets/sources-yoFMfX-_.js",
+            "sizeBytes": 92
+          },
+          {
+            "asset": "assets/sparkles-0fdgzjlD.js",
+            "sizeBytes": 499
+          },
+          {
+            "asset": "assets/spinner-MNoYpW7R.js",
+            "sizeBytes": 2046
+          },
+          {
+            "asset": "assets/switch-BKhF6ESi.js",
+            "sizeBytes": 4434
+          },
+          {
+            "asset": "assets/tabs-C5ZSqeRJ.js",
+            "sizeBytes": 5449
+          },
+          {
+            "asset": "assets/theme-CkaZoB2R.js",
+            "sizeBytes": 1223
+          },
+          {
+            "asset": "assets/title-bar-51vNWspB.js",
+            "sizeBytes": 253
+          },
+          {
+            "asset": "assets/toggle-group-BYQNtV71.js",
+            "sizeBytes": 5275
+          },
+          {
+            "asset": "assets/topic-icon-CwXrQzYk.js",
+            "sizeBytes": 4508
+          },
+          {
+            "asset": "assets/useInfiniteQuery-DA9Cflwr.js",
+            "sizeBytes": 1120
+          },
+          {
+            "asset": "assets/useQueries-DR9KXCEj.js",
+            "sizeBytes": 3447
+          },
+          {
+            "asset": "assets/vivaldi-CVXcaOiL.png",
+            "sizeBytes": 11219
+          },
+          {
+            "asset": "assets/wait-for-next-paint-DitfXX6x.js",
+            "sizeBytes": 11912
+          },
+          {
+            "asset": "assets/waterfox--1W7ATIm.png",
+            "sizeBytes": 28988
+          },
+          {
+            "asset": "assets/webview-DlLp0ors.js",
+            "sizeBytes": 3294
+          },
+          {
+            "asset": "assets/x-BRh9bIxX.js",
+            "sizeBytes": 145
+          },
+          {
+            "asset": "assets/zone-notice-D2suJOK1.js",
+            "sizeBytes": 1239
+          }
+        ],
+        "totalBytes": 3239065
+      },
+      {
+        "manifestKey": "src/features/onboarding/onboarding-page.tsx",
+        "entryAsset": "assets/onboarding-page-BPI6RSOF.js",
+        "assets": [
+          {
+            "asset": "assets/archive-DsSqmZUK.js",
+            "sizeBytes": 783
+          },
+          {
+            "asset": "assets/arrow-left-DfByKuu1.js",
+            "sizeBytes": 155
+          },
+          {
+            "asset": "assets/ask-page-0JOlb-Gx.js",
+            "sizeBytes": 32787
+          },
+          {
+            "asset": "assets/atlas-Cjq-yNEQ.png",
+            "sizeBytes": 49278
+          },
+          {
+            "asset": "assets/audit--8D_m6sj.js",
+            "sizeBytes": 187
+          },
+          {
+            "asset": "assets/backup-button-Cek_LoYn.js",
+            "sizeBytes": 2194
+          },
+          {
+            "asset": "assets/backup-page-4TdiEguE.js",
+            "sizeBytes": 67061
+          },
+          {
+            "asset": "assets/backup-runner-DAD6mAud.js",
+            "sizeBytes": 4824
+          },
+          {
+            "asset": "assets/browser-icons-C5sWgW4o.js",
+            "sizeBytes": 13733
+          },
+          {
+            "asset": "assets/bundle-mjs-Bb231fdC.js",
+            "sizeBytes": 40465
+          },
+          {
+            "asset": "assets/button-hnzNZfUG.js",
+            "sizeBytes": 421439
+          },
+          {
+            "asset": "assets/chevron-down-CipXzzs2.js",
+            "sizeBytes": 118
+          },
+          {
+            "asset": "assets/chrome-CTqC3lDf.png",
+            "sizeBytes": 63769
+          },
+          {
+            "asset": "assets/chromium-Dnf4fmVW.png",
+            "sizeBytes": 9614
+          },
+          {
+            "asset": "assets/chunk-BO2N2NFS-D62uVsDa.js",
+            "sizeBytes": 448638
+          },
+          {
+            "asset": "assets/circle-alert-CLXKWwri.js",
+            "sizeBytes": 240
+          },
+          {
+            "asset": "assets/circle-D_xDC6ye.js",
+            "sizeBytes": 121
+          },
+          {
+            "asset": "assets/comet-WzM1XkGo.png",
+            "sizeBytes": 54821
+          },
+          {
+            "asset": "assets/copy-CSR1LN_t.js",
+            "sizeBytes": 227
+          },
+          {
+            "asset": "assets/core-DvpXjeDW.js",
+            "sizeBytes": 2102
+          },
+          {
+            "asset": "assets/day-page-CUcyvHRg.js",
+            "sizeBytes": 11635
+          },
+          {
+            "asset": "assets/dialog-CSWt39T3.js",
+            "sizeBytes": 7929
+          },
+          {
+            "asset": "assets/dist-BzeSCzN9.js",
+            "sizeBytes": 974
+          },
+          {
+            "asset": "assets/dist-C6cBdLEE.js",
+            "sizeBytes": 52973
+          },
+          {
+            "asset": "assets/dist-DJQoEvsM.js",
+            "sizeBytes": 5115
+          },
+          {
+            "asset": "assets/dist-js-BR_jmFE1.js",
+            "sizeBytes": 1281
+          },
+          {
+            "asset": "assets/edge-dev-BDohVkL2.png",
+            "sizeBytes": 7904
+          },
+          {
+            "asset": "assets/errors-BZoBG4ey.js",
+            "sizeBytes": 928
+          },
+          {
+            "asset": "assets/esm-DzQwIFYJ.js",
+            "sizeBytes": 25206
+          },
+          {
+            "asset": "assets/event-efyJFWlz.js",
+            "sizeBytes": 1441
+          },
+          {
+            "asset": "assets/events-DmqAHO4Z.js",
+            "sizeBytes": 913
+          },
+          {
+            "asset": "assets/firefox-EOqxoGBZ.svg",
+            "sizeBytes": 10572
+          },
+          {
+            "asset": "assets/floorp-BOjICP9Z.png",
+            "sizeBytes": 15410
+          },
+          {
+            "asset": "assets/geist-cyrillic-ext-wght-normal-DjL33-gN.woff2",
+            "sizeBytes": 7420
+          },
+          {
+            "asset": "assets/geist-cyrillic-wght-normal-BEAKL7Jp.woff2",
+            "sizeBytes": 15084
+          },
+          {
+            "asset": "assets/geist-latin-ext-wght-normal-DC-KSUi6.woff2",
+            "sizeBytes": 16512
+          },
+          {
+            "asset": "assets/geist-latin-wght-normal-BgDaEnEv.woff2",
+            "sizeBytes": 29400
+          },
+          {
+            "asset": "assets/geist-mono-cyrillic-ext-wght-normal-X_5orZeX.woff2",
+            "sizeBytes": 6176
+          },
+          {
+            "asset": "assets/geist-mono-cyrillic-wght-normal-DiZS0aHC.woff2",
+            "sizeBytes": 12940
+          },
+          {
+            "asset": "assets/geist-mono-latin-ext-wght-normal-Bwz-egvJ.woff2",
+            "sizeBytes": 14696
+          },
+          {
+            "asset": "assets/geist-mono-latin-wght-normal-XN7g48iV.woff2",
+            "sizeBytes": 23128
+          },
+          {
+            "asset": "assets/geist-mono-symbols2-wght-normal-CO5SzqOn.woff2",
+            "sizeBytes": 5812
+          },
+          {
+            "asset": "assets/geist-mono-vietnamese-wght-normal-DadHysG0.woff2",
+            "sizeBytes": 7696
+          },
+          {
+            "asset": "assets/geist-vietnamese-wght-normal-6IgcOCM7.woff2",
+            "sizeBytes": 8004
+          },
+          {
+            "asset": "assets/globe-CLAA-Y-X.js",
+            "sizeBytes": 233
+          },
+          {
+            "asset": "assets/highlighted-body-OFNGDK62-KOXP-AaA.js",
+            "sizeBytes": 529
+          },
+          {
+            "asset": "assets/history-page-DFpuXvO3.js",
+            "sizeBytes": 75791
+          },
+          {
+            "asset": "assets/home-page-CSud4_n_.js",
+            "sizeBytes": 30596
+          },
+          {
+            "asset": "assets/index-DU4_B9rd.css",
+            "sizeBytes": 113508
+          },
+          {
+            "asset": "assets/index-DvM31caI.js",
+            "sizeBytes": 411036
+          },
+          {
+            "asset": "assets/insights-Di2C9FwD.js",
+            "sizeBytes": 3231
+          },
+          {
+            "asset": "assets/insights-page-B80vlLem.js",
+            "sizeBytes": 33626
+          },
+          {
+            "asset": "assets/librewolf-Cl9rHKex.svg",
+            "sizeBytes": 5916
+          },
+          {
+            "asset": "assets/links-Dct3qU1-.js",
+            "sizeBytes": 2241
+          },
+          {
+            "asset": "assets/mermaid-GHXKKRXX-BrxFYjLF.js",
+            "sizeBytes": 70
+          },
+          {
+            "asset": "assets/mix-card-B-4jp9eX.js",
+            "sizeBytes": 6992
+          },
+          {
+            "asset": "assets/onboarding-page-BPI6RSOF.js",
+            "sizeBytes": 35175
+          },
+          {
+            "asset": "assets/open-link-ChwTvKJV.js",
+            "sizeBytes": 365
+          },
+          {
+            "asset": "assets/opera-gx-cbGB2yjU.png",
+            "sizeBytes": 4703
+          },
+          {
+            "asset": "assets/page-page-BKKL2_B1.js",
+            "sizeBytes": 6577
+          },
+          {
+            "asset": "assets/parts-DEov9w9t.js",
+            "sizeBytes": 12955
+          },
+          {
+            "asset": "assets/path-0Nc2ddhF.js",
+            "sizeBytes": 830
+          },
+          {
+            "asset": "assets/pathkeep-mark-dark-CfJIiSuv.svg",
+            "sizeBytes": 5610
+          },
+          {
+            "asset": "assets/pathkeep-mark-Dxka1z-0.svg",
+            "sizeBytes": 5610
+          },
+          {
+            "asset": "assets/plus-Rz59v6mD.js",
+            "sizeBytes": 144
+          },
+          {
+            "asset": "assets/popover-BlGhtBwI.js",
+            "sizeBytes": 5911
+          },
+          {
+            "asset": "assets/progress-CWnXRmQE.js",
+            "sizeBytes": 2513
+          },
+          {
+            "asset": "assets/providers-C1mSAuoS.js",
+            "sizeBytes": 2854
+          },
+          {
+            "asset": "assets/queries-D7ZBwFAX.js",
+            "sizeBytes": 9018
+          },
+          {
+            "asset": "assets/queries-DWfOB5Ti.js",
+            "sizeBytes": 1042
+          },
+          {
+            "asset": "assets/recharts-bar-chart-zzBXVUhh.js",
+            "sizeBytes": 24257
+          },
+          {
+            "asset": "assets/recharts-legend-Cu21SI7S.js",
+            "sizeBytes": 543607
+          },
+          {
+            "asset": "assets/reveal-CEJYVlb3.js",
+            "sizeBytes": 331
+          },
+          {
+            "asset": "assets/rotate-ccw-D7kg9Svp.js",
+            "sizeBytes": 190
+          },
+          {
+            "asset": "assets/safari-CKP33lKk.png",
+            "sizeBytes": 46440
+          },
+          {
+            "asset": "assets/schedule-actions-B9xJxS2Y.js",
+            "sizeBytes": 3330
+          },
+          {
+            "asset": "assets/schedule-copy-CqJqW4HE.js",
+            "sizeBytes": 1217
+          },
+          {
+            "asset": "assets/scope-controls-B6XTUjei.js",
+            "sizeBytes": 3989
+          },
+          {
+            "asset": "assets/search-page-C9CqK7Qw.js",
+            "sizeBytes": 8663
+          },
+          {
+            "asset": "assets/search-params-CJgRb1Lt.js",
+            "sizeBytes": 313
+          },
+          {
+            "asset": "assets/section-card-Clv_btNP.js",
+            "sizeBytes": 2345
+          },
+          {
+            "asset": "assets/select-Bh6LGY6j.js",
+            "sizeBytes": 21821
+          },
+          {
+            "asset": "assets/semantic-info-DKOn-7VZ.js",
+            "sizeBytes": 1012
+          },
+          {
+            "asset": "assets/separator-PQikFiDp.js",
+            "sizeBytes": 84336
+          },
+          {
+            "asset": "assets/settings-page-Bb0MmMCd.js",
+            "sizeBytes": 119010
+          },
+          {
+            "asset": "assets/share-bar-DWOiE0Ow.js",
+            "sizeBytes": 746
+          },
+          {
+            "asset": "assets/site-icon-D-0_DlPo.js",
+            "sizeBytes": 1539
+          },
+          {
+            "asset": "assets/site-page-Dv3XCEYP.js",
+            "sizeBytes": 11420
+          },
+          {
+            "asset": "assets/sliders-horizontal-DW-Q8mvW.js",
+            "sizeBytes": 575
+          },
+          {
+            "asset": "assets/sources-yoFMfX-_.js",
+            "sizeBytes": 92
+          },
+          {
+            "asset": "assets/sparkles-0fdgzjlD.js",
+            "sizeBytes": 499
+          },
+          {
+            "asset": "assets/spinner-MNoYpW7R.js",
+            "sizeBytes": 2046
+          },
+          {
+            "asset": "assets/switch-BKhF6ESi.js",
+            "sizeBytes": 4434
+          },
+          {
+            "asset": "assets/tabs-C5ZSqeRJ.js",
+            "sizeBytes": 5449
+          },
+          {
+            "asset": "assets/theme-CkaZoB2R.js",
+            "sizeBytes": 1223
+          },
+          {
+            "asset": "assets/title-bar-51vNWspB.js",
+            "sizeBytes": 253
+          },
+          {
+            "asset": "assets/toggle-group-BYQNtV71.js",
+            "sizeBytes": 5275
+          },
+          {
+            "asset": "assets/topic-icon-CwXrQzYk.js",
+            "sizeBytes": 4508
+          },
+          {
+            "asset": "assets/useInfiniteQuery-DA9Cflwr.js",
+            "sizeBytes": 1120
+          },
+          {
+            "asset": "assets/useQueries-DR9KXCEj.js",
+            "sizeBytes": 3447
+          },
+          {
+            "asset": "assets/vivaldi-CVXcaOiL.png",
+            "sizeBytes": 11219
+          },
+          {
+            "asset": "assets/wait-for-next-paint-DitfXX6x.js",
+            "sizeBytes": 11912
+          },
+          {
+            "asset": "assets/waterfox--1W7ATIm.png",
+            "sizeBytes": 28988
+          },
+          {
+            "asset": "assets/webview-DlLp0ors.js",
+            "sizeBytes": 3294
+          },
+          {
+            "asset": "assets/x-BRh9bIxX.js",
+            "sizeBytes": 145
+          },
+          {
+            "asset": "assets/zone-notice-D2suJOK1.js",
+            "sizeBytes": 1239
+          }
+        ],
+        "totalBytes": 3239065
+      },
+      {
+        "manifestKey": "src/features/settings/settings-page.tsx",
+        "entryAsset": "assets/settings-page-Bb0MmMCd.js",
+        "assets": [
+          {
+            "asset": "assets/archive-DsSqmZUK.js",
+            "sizeBytes": 783
+          },
+          {
+            "asset": "assets/arrow-left-DfByKuu1.js",
+            "sizeBytes": 155
+          },
+          {
+            "asset": "assets/ask-page-0JOlb-Gx.js",
+            "sizeBytes": 32787
+          },
+          {
+            "asset": "assets/atlas-Cjq-yNEQ.png",
+            "sizeBytes": 49278
+          },
+          {
+            "asset": "assets/audit--8D_m6sj.js",
+            "sizeBytes": 187
+          },
+          {
+            "asset": "assets/backup-button-Cek_LoYn.js",
+            "sizeBytes": 2194
+          },
+          {
+            "asset": "assets/backup-page-4TdiEguE.js",
+            "sizeBytes": 67061
+          },
+          {
+            "asset": "assets/backup-runner-DAD6mAud.js",
+            "sizeBytes": 4824
+          },
+          {
+            "asset": "assets/browser-icons-C5sWgW4o.js",
+            "sizeBytes": 13733
+          },
+          {
+            "asset": "assets/bundle-mjs-Bb231fdC.js",
+            "sizeBytes": 40465
+          },
+          {
+            "asset": "assets/button-hnzNZfUG.js",
+            "sizeBytes": 421439
+          },
+          {
+            "asset": "assets/chevron-down-CipXzzs2.js",
+            "sizeBytes": 118
+          },
+          {
+            "asset": "assets/chrome-CTqC3lDf.png",
+            "sizeBytes": 63769
+          },
+          {
+            "asset": "assets/chromium-Dnf4fmVW.png",
+            "sizeBytes": 9614
+          },
+          {
+            "asset": "assets/chunk-BO2N2NFS-D62uVsDa.js",
+            "sizeBytes": 448638
+          },
+          {
+            "asset": "assets/circle-alert-CLXKWwri.js",
+            "sizeBytes": 240
+          },
+          {
+            "asset": "assets/circle-D_xDC6ye.js",
+            "sizeBytes": 121
+          },
+          {
+            "asset": "assets/comet-WzM1XkGo.png",
+            "sizeBytes": 54821
+          },
+          {
+            "asset": "assets/copy-CSR1LN_t.js",
+            "sizeBytes": 227
+          },
+          {
+            "asset": "assets/core-DvpXjeDW.js",
+            "sizeBytes": 2102
+          },
+          {
+            "asset": "assets/day-page-CUcyvHRg.js",
+            "sizeBytes": 11635
+          },
+          {
+            "asset": "assets/dialog-CSWt39T3.js",
+            "sizeBytes": 7929
+          },
+          {
+            "asset": "assets/dist-BzeSCzN9.js",
+            "sizeBytes": 974
+          },
+          {
+            "asset": "assets/dist-C6cBdLEE.js",
+            "sizeBytes": 52973
+          },
+          {
+            "asset": "assets/dist-DJQoEvsM.js",
+            "sizeBytes": 5115
+          },
+          {
+            "asset": "assets/dist-js-BR_jmFE1.js",
+            "sizeBytes": 1281
+          },
+          {
+            "asset": "assets/edge-dev-BDohVkL2.png",
+            "sizeBytes": 7904
+          },
+          {
+            "asset": "assets/errors-BZoBG4ey.js",
+            "sizeBytes": 928
+          },
+          {
+            "asset": "assets/esm-DzQwIFYJ.js",
+            "sizeBytes": 25206
+          },
+          {
+            "asset": "assets/event-efyJFWlz.js",
+            "sizeBytes": 1441
+          },
+          {
+            "asset": "assets/events-DmqAHO4Z.js",
+            "sizeBytes": 913
+          },
+          {
+            "asset": "assets/firefox-EOqxoGBZ.svg",
+            "sizeBytes": 10572
+          },
+          {
+            "asset": "assets/floorp-BOjICP9Z.png",
+            "sizeBytes": 15410
+          },
+          {
+            "asset": "assets/geist-cyrillic-ext-wght-normal-DjL33-gN.woff2",
+            "sizeBytes": 7420
+          },
+          {
+            "asset": "assets/geist-cyrillic-wght-normal-BEAKL7Jp.woff2",
+            "sizeBytes": 15084
+          },
+          {
+            "asset": "assets/geist-latin-ext-wght-normal-DC-KSUi6.woff2",
+            "sizeBytes": 16512
+          },
+          {
+            "asset": "assets/geist-latin-wght-normal-BgDaEnEv.woff2",
+            "sizeBytes": 29400
+          },
+          {
+            "asset": "assets/geist-mono-cyrillic-ext-wght-normal-X_5orZeX.woff2",
+            "sizeBytes": 6176
+          },
+          {
+            "asset": "assets/geist-mono-cyrillic-wght-normal-DiZS0aHC.woff2",
+            "sizeBytes": 12940
+          },
+          {
+            "asset": "assets/geist-mono-latin-ext-wght-normal-Bwz-egvJ.woff2",
+            "sizeBytes": 14696
+          },
+          {
+            "asset": "assets/geist-mono-latin-wght-normal-XN7g48iV.woff2",
+            "sizeBytes": 23128
+          },
+          {
+            "asset": "assets/geist-mono-symbols2-wght-normal-CO5SzqOn.woff2",
+            "sizeBytes": 5812
+          },
+          {
+            "asset": "assets/geist-mono-vietnamese-wght-normal-DadHysG0.woff2",
+            "sizeBytes": 7696
+          },
+          {
+            "asset": "assets/geist-vietnamese-wght-normal-6IgcOCM7.woff2",
+            "sizeBytes": 8004
+          },
+          {
+            "asset": "assets/globe-CLAA-Y-X.js",
+            "sizeBytes": 233
+          },
+          {
+            "asset": "assets/highlighted-body-OFNGDK62-KOXP-AaA.js",
+            "sizeBytes": 529
+          },
+          {
+            "asset": "assets/history-page-DFpuXvO3.js",
+            "sizeBytes": 75791
+          },
+          {
+            "asset": "assets/home-page-CSud4_n_.js",
+            "sizeBytes": 30596
+          },
+          {
+            "asset": "assets/index-DU4_B9rd.css",
+            "sizeBytes": 113508
+          },
+          {
+            "asset": "assets/index-DvM31caI.js",
+            "sizeBytes": 411036
+          },
+          {
+            "asset": "assets/insights-Di2C9FwD.js",
+            "sizeBytes": 3231
+          },
+          {
+            "asset": "assets/insights-page-B80vlLem.js",
+            "sizeBytes": 33626
+          },
+          {
+            "asset": "assets/librewolf-Cl9rHKex.svg",
+            "sizeBytes": 5916
+          },
+          {
+            "asset": "assets/links-Dct3qU1-.js",
+            "sizeBytes": 2241
+          },
+          {
+            "asset": "assets/mermaid-GHXKKRXX-BrxFYjLF.js",
+            "sizeBytes": 70
+          },
+          {
+            "asset": "assets/mix-card-B-4jp9eX.js",
+            "sizeBytes": 6992
+          },
+          {
+            "asset": "assets/onboarding-page-BPI6RSOF.js",
+            "sizeBytes": 35175
+          },
+          {
+            "asset": "assets/open-link-ChwTvKJV.js",
+            "sizeBytes": 365
+          },
+          {
+            "asset": "assets/opera-gx-cbGB2yjU.png",
+            "sizeBytes": 4703
+          },
+          {
+            "asset": "assets/page-page-BKKL2_B1.js",
+            "sizeBytes": 6577
+          },
+          {
+            "asset": "assets/parts-DEov9w9t.js",
+            "sizeBytes": 12955
+          },
+          {
+            "asset": "assets/path-0Nc2ddhF.js",
+            "sizeBytes": 830
+          },
+          {
+            "asset": "assets/pathkeep-mark-dark-CfJIiSuv.svg",
+            "sizeBytes": 5610
+          },
+          {
+            "asset": "assets/pathkeep-mark-Dxka1z-0.svg",
+            "sizeBytes": 5610
+          },
+          {
+            "asset": "assets/plus-Rz59v6mD.js",
+            "sizeBytes": 144
+          },
+          {
+            "asset": "assets/popover-BlGhtBwI.js",
+            "sizeBytes": 5911
+          },
+          {
+            "asset": "assets/progress-CWnXRmQE.js",
+            "sizeBytes": 2513
+          },
+          {
+            "asset": "assets/providers-C1mSAuoS.js",
+            "sizeBytes": 2854
+          },
+          {
+            "asset": "assets/queries-D7ZBwFAX.js",
+            "sizeBytes": 9018
+          },
+          {
+            "asset": "assets/queries-DWfOB5Ti.js",
+            "sizeBytes": 1042
+          },
+          {
+            "asset": "assets/recharts-bar-chart-zzBXVUhh.js",
+            "sizeBytes": 24257
+          },
+          {
+            "asset": "assets/recharts-legend-Cu21SI7S.js",
+            "sizeBytes": 543607
+          },
+          {
+            "asset": "assets/reveal-CEJYVlb3.js",
+            "sizeBytes": 331
+          },
+          {
+            "asset": "assets/rotate-ccw-D7kg9Svp.js",
+            "sizeBytes": 190
+          },
+          {
+            "asset": "assets/safari-CKP33lKk.png",
+            "sizeBytes": 46440
+          },
+          {
+            "asset": "assets/schedule-actions-B9xJxS2Y.js",
+            "sizeBytes": 3330
+          },
+          {
+            "asset": "assets/schedule-copy-CqJqW4HE.js",
+            "sizeBytes": 1217
+          },
+          {
+            "asset": "assets/scope-controls-B6XTUjei.js",
+            "sizeBytes": 3989
+          },
+          {
+            "asset": "assets/search-page-C9CqK7Qw.js",
+            "sizeBytes": 8663
+          },
+          {
+            "asset": "assets/search-params-CJgRb1Lt.js",
+            "sizeBytes": 313
+          },
+          {
+            "asset": "assets/section-card-Clv_btNP.js",
+            "sizeBytes": 2345
+          },
+          {
+            "asset": "assets/select-Bh6LGY6j.js",
+            "sizeBytes": 21821
+          },
+          {
+            "asset": "assets/semantic-info-DKOn-7VZ.js",
+            "sizeBytes": 1012
+          },
+          {
+            "asset": "assets/separator-PQikFiDp.js",
+            "sizeBytes": 84336
+          },
+          {
+            "asset": "assets/settings-page-Bb0MmMCd.js",
+            "sizeBytes": 119010
+          },
+          {
+            "asset": "assets/share-bar-DWOiE0Ow.js",
+            "sizeBytes": 746
+          },
+          {
+            "asset": "assets/site-icon-D-0_DlPo.js",
+            "sizeBytes": 1539
+          },
+          {
+            "asset": "assets/site-page-Dv3XCEYP.js",
+            "sizeBytes": 11420
+          },
+          {
+            "asset": "assets/sliders-horizontal-DW-Q8mvW.js",
+            "sizeBytes": 575
+          },
+          {
+            "asset": "assets/sources-yoFMfX-_.js",
+            "sizeBytes": 92
+          },
+          {
+            "asset": "assets/sparkles-0fdgzjlD.js",
+            "sizeBytes": 499
+          },
+          {
+            "asset": "assets/spinner-MNoYpW7R.js",
+            "sizeBytes": 2046
+          },
+          {
+            "asset": "assets/switch-BKhF6ESi.js",
+            "sizeBytes": 4434
+          },
+          {
+            "asset": "assets/tabs-C5ZSqeRJ.js",
+            "sizeBytes": 5449
+          },
+          {
+            "asset": "assets/theme-CkaZoB2R.js",
+            "sizeBytes": 1223
+          },
+          {
+            "asset": "assets/title-bar-51vNWspB.js",
+            "sizeBytes": 253
+          },
+          {
+            "asset": "assets/toggle-group-BYQNtV71.js",
+            "sizeBytes": 5275
+          },
+          {
+            "asset": "assets/topic-icon-CwXrQzYk.js",
+            "sizeBytes": 4508
+          },
+          {
+            "asset": "assets/useInfiniteQuery-DA9Cflwr.js",
+            "sizeBytes": 1120
+          },
+          {
+            "asset": "assets/useQueries-DR9KXCEj.js",
+            "sizeBytes": 3447
+          },
+          {
+            "asset": "assets/vivaldi-CVXcaOiL.png",
+            "sizeBytes": 11219
+          },
+          {
+            "asset": "assets/wait-for-next-paint-DitfXX6x.js",
+            "sizeBytes": 11912
+          },
+          {
+            "asset": "assets/waterfox--1W7ATIm.png",
+            "sizeBytes": 28988
+          },
+          {
+            "asset": "assets/webview-DlLp0ors.js",
+            "sizeBytes": 3294
+          },
+          {
+            "asset": "assets/x-BRh9bIxX.js",
+            "sizeBytes": 145
+          },
+          {
+            "asset": "assets/zone-notice-D2suJOK1.js",
+            "sizeBytes": 1239
+          }
+        ],
+        "totalBytes": 3239065
+      }
+    ],
+    "uniqueAssets": [
+      {
+        "asset": "assets/archive-DsSqmZUK.js",
+        "sizeBytes": 783
+      },
+      {
+        "asset": "assets/arrow-left-DfByKuu1.js",
+        "sizeBytes": 155
+      },
+      {
+        "asset": "assets/ask-page-0JOlb-Gx.js",
+        "sizeBytes": 32787
+      },
+      {
+        "asset": "assets/atlas-Cjq-yNEQ.png",
+        "sizeBytes": 49278
+      },
+      {
+        "asset": "assets/audit--8D_m6sj.js",
+        "sizeBytes": 187
+      },
+      {
+        "asset": "assets/backup-button-Cek_LoYn.js",
+        "sizeBytes": 2194
+      },
+      {
+        "asset": "assets/backup-page-4TdiEguE.js",
+        "sizeBytes": 67061
+      },
+      {
+        "asset": "assets/backup-runner-DAD6mAud.js",
+        "sizeBytes": 4824
+      },
+      {
+        "asset": "assets/browser-icons-C5sWgW4o.js",
+        "sizeBytes": 13733
+      },
+      {
+        "asset": "assets/bundle-mjs-Bb231fdC.js",
+        "sizeBytes": 40465
+      },
+      {
+        "asset": "assets/button-hnzNZfUG.js",
+        "sizeBytes": 421439
+      },
+      {
+        "asset": "assets/chevron-down-CipXzzs2.js",
+        "sizeBytes": 118
+      },
+      {
+        "asset": "assets/chrome-CTqC3lDf.png",
+        "sizeBytes": 63769
+      },
+      {
+        "asset": "assets/chromium-Dnf4fmVW.png",
+        "sizeBytes": 9614
+      },
+      {
+        "asset": "assets/chunk-BO2N2NFS-D62uVsDa.js",
+        "sizeBytes": 448638
+      },
+      {
+        "asset": "assets/circle-alert-CLXKWwri.js",
+        "sizeBytes": 240
+      },
+      {
+        "asset": "assets/circle-D_xDC6ye.js",
+        "sizeBytes": 121
+      },
+      {
+        "asset": "assets/comet-WzM1XkGo.png",
+        "sizeBytes": 54821
+      },
+      {
+        "asset": "assets/copy-CSR1LN_t.js",
+        "sizeBytes": 227
+      },
+      {
+        "asset": "assets/core-DvpXjeDW.js",
+        "sizeBytes": 2102
+      },
+      {
+        "asset": "assets/day-page-CUcyvHRg.js",
+        "sizeBytes": 11635
+      },
+      {
+        "asset": "assets/dialog-CSWt39T3.js",
+        "sizeBytes": 7929
+      },
+      {
+        "asset": "assets/dist-BzeSCzN9.js",
+        "sizeBytes": 974
+      },
+      {
+        "asset": "assets/dist-C6cBdLEE.js",
+        "sizeBytes": 52973
+      },
+      {
+        "asset": "assets/dist-DJQoEvsM.js",
+        "sizeBytes": 5115
+      },
+      {
+        "asset": "assets/dist-js-BR_jmFE1.js",
+        "sizeBytes": 1281
+      },
+      {
+        "asset": "assets/edge-dev-BDohVkL2.png",
+        "sizeBytes": 7904
+      },
+      {
+        "asset": "assets/errors-BZoBG4ey.js",
+        "sizeBytes": 928
+      },
+      {
+        "asset": "assets/esm-DzQwIFYJ.js",
+        "sizeBytes": 25206
+      },
+      {
+        "asset": "assets/event-efyJFWlz.js",
+        "sizeBytes": 1441
+      },
+      {
+        "asset": "assets/events-DmqAHO4Z.js",
+        "sizeBytes": 913
+      },
+      {
+        "asset": "assets/firefox-EOqxoGBZ.svg",
+        "sizeBytes": 10572
+      },
+      {
+        "asset": "assets/floorp-BOjICP9Z.png",
+        "sizeBytes": 15410
+      },
+      {
+        "asset": "assets/geist-cyrillic-ext-wght-normal-DjL33-gN.woff2",
+        "sizeBytes": 7420
+      },
+      {
+        "asset": "assets/geist-cyrillic-wght-normal-BEAKL7Jp.woff2",
+        "sizeBytes": 15084
+      },
+      {
+        "asset": "assets/geist-latin-ext-wght-normal-DC-KSUi6.woff2",
+        "sizeBytes": 16512
+      },
+      {
+        "asset": "assets/geist-latin-wght-normal-BgDaEnEv.woff2",
+        "sizeBytes": 29400
+      },
+      {
+        "asset": "assets/geist-mono-cyrillic-ext-wght-normal-X_5orZeX.woff2",
+        "sizeBytes": 6176
+      },
+      {
+        "asset": "assets/geist-mono-cyrillic-wght-normal-DiZS0aHC.woff2",
+        "sizeBytes": 12940
+      },
+      {
+        "asset": "assets/geist-mono-latin-ext-wght-normal-Bwz-egvJ.woff2",
+        "sizeBytes": 14696
+      },
+      {
+        "asset": "assets/geist-mono-latin-wght-normal-XN7g48iV.woff2",
+        "sizeBytes": 23128
+      },
+      {
+        "asset": "assets/geist-mono-symbols2-wght-normal-CO5SzqOn.woff2",
+        "sizeBytes": 5812
+      },
+      {
+        "asset": "assets/geist-mono-vietnamese-wght-normal-DadHysG0.woff2",
+        "sizeBytes": 7696
+      },
+      {
+        "asset": "assets/geist-vietnamese-wght-normal-6IgcOCM7.woff2",
+        "sizeBytes": 8004
+      },
+      {
+        "asset": "assets/globe-CLAA-Y-X.js",
+        "sizeBytes": 233
+      },
+      {
+        "asset": "assets/highlighted-body-OFNGDK62-KOXP-AaA.js",
+        "sizeBytes": 529
+      },
+      {
+        "asset": "assets/history-page-DFpuXvO3.js",
+        "sizeBytes": 75791
+      },
+      {
+        "asset": "assets/home-page-CSud4_n_.js",
+        "sizeBytes": 30596
+      },
+      {
+        "asset": "assets/index-DU4_B9rd.css",
+        "sizeBytes": 113508
+      },
+      {
+        "asset": "assets/index-DvM31caI.js",
+        "sizeBytes": 411036
+      },
+      {
+        "asset": "assets/insights-Di2C9FwD.js",
+        "sizeBytes": 3231
+      },
+      {
+        "asset": "assets/insights-page-B80vlLem.js",
+        "sizeBytes": 33626
+      },
+      {
+        "asset": "assets/librewolf-Cl9rHKex.svg",
+        "sizeBytes": 5916
+      },
+      {
+        "asset": "assets/links-Dct3qU1-.js",
+        "sizeBytes": 2241
+      },
+      {
+        "asset": "assets/mermaid-GHXKKRXX-BrxFYjLF.js",
+        "sizeBytes": 70
+      },
+      {
+        "asset": "assets/mix-card-B-4jp9eX.js",
+        "sizeBytes": 6992
+      },
+      {
+        "asset": "assets/onboarding-page-BPI6RSOF.js",
+        "sizeBytes": 35175
+      },
+      {
+        "asset": "assets/open-link-ChwTvKJV.js",
+        "sizeBytes": 365
+      },
+      {
+        "asset": "assets/opera-gx-cbGB2yjU.png",
+        "sizeBytes": 4703
+      },
+      {
+        "asset": "assets/page-page-BKKL2_B1.js",
+        "sizeBytes": 6577
+      },
+      {
+        "asset": "assets/parts-DEov9w9t.js",
+        "sizeBytes": 12955
+      },
+      {
+        "asset": "assets/path-0Nc2ddhF.js",
+        "sizeBytes": 830
+      },
+      {
+        "asset": "assets/pathkeep-mark-dark-CfJIiSuv.svg",
+        "sizeBytes": 5610
+      },
+      {
+        "asset": "assets/pathkeep-mark-Dxka1z-0.svg",
+        "sizeBytes": 5610
+      },
+      {
+        "asset": "assets/plus-Rz59v6mD.js",
+        "sizeBytes": 144
+      },
+      {
+        "asset": "assets/popover-BlGhtBwI.js",
+        "sizeBytes": 5911
+      },
+      {
+        "asset": "assets/progress-CWnXRmQE.js",
+        "sizeBytes": 2513
+      },
+      {
+        "asset": "assets/providers-C1mSAuoS.js",
+        "sizeBytes": 2854
+      },
+      {
+        "asset": "assets/queries-D7ZBwFAX.js",
+        "sizeBytes": 9018
+      },
+      {
+        "asset": "assets/queries-DWfOB5Ti.js",
+        "sizeBytes": 1042
+      },
+      {
+        "asset": "assets/recharts-bar-chart-zzBXVUhh.js",
+        "sizeBytes": 24257
+      },
+      {
+        "asset": "assets/recharts-legend-Cu21SI7S.js",
+        "sizeBytes": 543607
+      },
+      {
+        "asset": "assets/reveal-CEJYVlb3.js",
+        "sizeBytes": 331
+      },
+      {
+        "asset": "assets/rotate-ccw-D7kg9Svp.js",
+        "sizeBytes": 190
+      },
+      {
+        "asset": "assets/safari-CKP33lKk.png",
+        "sizeBytes": 46440
+      },
+      {
+        "asset": "assets/schedule-actions-B9xJxS2Y.js",
+        "sizeBytes": 3330
+      },
+      {
+        "asset": "assets/schedule-copy-CqJqW4HE.js",
+        "sizeBytes": 1217
+      },
+      {
+        "asset": "assets/scope-controls-B6XTUjei.js",
+        "sizeBytes": 3989
+      },
+      {
+        "asset": "assets/search-page-C9CqK7Qw.js",
+        "sizeBytes": 8663
+      },
+      {
+        "asset": "assets/search-params-CJgRb1Lt.js",
+        "sizeBytes": 313
+      },
+      {
+        "asset": "assets/section-card-Clv_btNP.js",
+        "sizeBytes": 2345
+      },
+      {
+        "asset": "assets/select-Bh6LGY6j.js",
+        "sizeBytes": 21821
+      },
+      {
+        "asset": "assets/semantic-info-DKOn-7VZ.js",
+        "sizeBytes": 1012
+      },
+      {
+        "asset": "assets/separator-PQikFiDp.js",
+        "sizeBytes": 84336
+      },
+      {
+        "asset": "assets/settings-page-Bb0MmMCd.js",
+        "sizeBytes": 119010
+      },
+      {
+        "asset": "assets/share-bar-DWOiE0Ow.js",
+        "sizeBytes": 746
+      },
+      {
+        "asset": "assets/site-icon-D-0_DlPo.js",
+        "sizeBytes": 1539
+      },
+      {
+        "asset": "assets/site-page-Dv3XCEYP.js",
+        "sizeBytes": 11420
+      },
+      {
+        "asset": "assets/sliders-horizontal-DW-Q8mvW.js",
+        "sizeBytes": 575
+      },
+      {
+        "asset": "assets/sources-yoFMfX-_.js",
+        "sizeBytes": 92
+      },
+      {
+        "asset": "assets/sparkles-0fdgzjlD.js",
+        "sizeBytes": 499
+      },
+      {
+        "asset": "assets/spinner-MNoYpW7R.js",
+        "sizeBytes": 2046
+      },
+      {
+        "asset": "assets/switch-BKhF6ESi.js",
+        "sizeBytes": 4434
+      },
+      {
+        "asset": "assets/tabs-C5ZSqeRJ.js",
+        "sizeBytes": 5449
+      },
+      {
+        "asset": "assets/theme-CkaZoB2R.js",
+        "sizeBytes": 1223
+      },
+      {
+        "asset": "assets/title-bar-51vNWspB.js",
+        "sizeBytes": 253
+      },
+      {
+        "asset": "assets/toggle-group-BYQNtV71.js",
+        "sizeBytes": 5275
+      },
+      {
+        "asset": "assets/topic-icon-CwXrQzYk.js",
+        "sizeBytes": 4508
+      },
+      {
+        "asset": "assets/useInfiniteQuery-DA9Cflwr.js",
+        "sizeBytes": 1120
+      },
+      {
+        "asset": "assets/useQueries-DR9KXCEj.js",
+        "sizeBytes": 3447
+      },
+      {
+        "asset": "assets/vivaldi-CVXcaOiL.png",
+        "sizeBytes": 11219
+      },
+      {
+        "asset": "assets/wait-for-next-paint-DitfXX6x.js",
+        "sizeBytes": 11912
+      },
+      {
+        "asset": "assets/waterfox--1W7ATIm.png",
+        "sizeBytes": 28988
+      },
+      {
+        "asset": "assets/webview-DlLp0ors.js",
+        "sizeBytes": 3294
+      },
+      {
+        "asset": "assets/x-BRh9bIxX.js",
+        "sizeBytes": 145
+      },
+      {
+        "asset": "assets/zone-notice-D2suJOK1.js",
+        "sizeBytes": 1239
+      }
+    ]
+  },
+  "releaseAssets": [],
+  "localBundleArtifacts": [],
+  "releaseAssetCategories": [],
+  "localBundleCategories": []
+}

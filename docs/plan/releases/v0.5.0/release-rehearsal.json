@@ -1,0 +1,96 @@
+{
+  "date": "2026-11-13",
+  "version": "0.5.0",
+  "sourceBaseCommit": "ebd473f54228dd9b22c4d6f6053da8f49234f7aa",
+  "preparedOnMain": "f4e4759e73f34f0a4a3e62ed9e16c0f9f7dfbe38",
+  "dependencyPullRequest": "https://github.com/t41372/PathKeep/pull/20",
+  "dependencyCi": "https://github.com/t41372/PathKeep/actions/runs/43391437053",
+  "gate": {
+    "run": "pathkeep-pr20-rustix-refresh-20261113-011236",
+    "commands": [
+      "cargo tree --locked --target all -i rustix@1.1.6",
+      "bun run verify",
+      "bun run check:slow"
+    ],
+    "exit": 0,
+    "host": "Linux x86_64, Modal VM, 8 CPU / 32 GiB",
+    "frontendTests": 119,
+    "rustTestGroups": 92,
+    "e2e": [
+      {
+        "path": "artifacts/e2e/results.json",
+        "sha256": "64e55cc369ab6ccadec1166af32649cb4e7f663f9cbe714369dcefc9a9b625a3",
+        "stats": {
+          "startTime": "2026-11-13T08:30:44.540Z",
+          "duration": 1718448.3720000002,
+          "expected": 124,
+          "skipped": 1,
+          "unexpected": 0,
+          "flaky": 0
+        }
+      },
+      {
+        "path": "artifacts/e2e/backup-integrity-healthy/results.json",
+        "sha256": "66bce7b1a2dd5e061cfa2ef90a6bd876f20adb8e316292168d38f3adbaa3d951",
+        "stats": {
+          "startTime": "2026-11-13T08:59:24.870Z",
+          "duration": 33922.785,
+          "expected": 9,
+          "skipped": 0,
+          "unexpected": 0,
+          "flaky": 0
+        }
+      },
+      {
+        "path": "artifacts/e2e/backup-integrity-damaged/results.json",
+        "sha256": "cb795bf16d4c1197a3a7e74cad5253dd33e2a15f5fe5d4a1cfb7184f8acc12d8",
+        "stats": {
+          "startTime": "2026-11-13T08:59:59.333Z",
+          "duration": 12871.499000000002,
+          "expected": 1,
+          "skipped": 0,
+          "unexpected": 0,
+          "flaky": 0
+        }
+      }
+    ],
+    "logSha256": "66d9da1902eb0525370cb0e7e719655e8b96bbdf52419f89dc19978b7a5cdd12",
+    "sourceManifestSha256": "4975746943d4f48733151f7f1f68ba23142de887e542dc9466f469959ff2e28b",
+    "allUploadedSourceHashesMatchedBeforeDocumentationCloseout": true,
+    "lockfilesUnchanged": true,
+    "jsAudit": {
+      "checkedPackages": 532,
+      "advisories": 0
+    },
+    "rustAudit": {
+      "allowedAdvisories": 8,
+      "newExceptions": 0
+    }
+  },
+  "publishedReleaseGuard": {
+    "before": {
+      "failed": 8,
+      "passed": 1
+    },
+    "after": {
+      "failed": 0,
+      "passed": 9
+    },
+    "beforeLogSha256": "ecf61d91d67ab3661c2be68d30a29c9fe7c4b9a0c364a95a66cc67958be4c082",
+    "afterLogSha256": "0dbfea76a70b66e3b150e7dfafd78291ff9151b145b40850c5d1c34558b5da1f",
+    "behavior": "Published tag skips remaining preparation, build and upload; API/auth/metadata errors stop preparation. New tags and private drafts continue normal validation.",
+    "actualActionsRunEvidence": "Linked from the release preparation pull request and draft after this immutable candidate is pushed."
+  },
+  "codeHashes": {
+    ".github/workflows/release.yml": "9a6e0496a2c84c04da469fa42ef913784f14c5d25743f59a6c71dbdddb80c6c2",
+    "scripts/guard-published-release.mjs": "a27afd5e0539cd208fce0a54f8cdaca350b08b063298905254b1311271500ed7",
+    "scripts/guard-published-release.test.ts": "004b1bbcb4597f04a6e6f32bb1b8c4b9970c6d4bab170f54aaabda729fd32a0d",
+    "scripts/verify-release-config.mjs": "85463a369310e178fef1a9223e42f6bd1f3e8bc84c208eef49d20026990031b6",
+    "package.json": "4cb329f6080f18b66d9a70fb6a09ddf0be30313cab02851bfe25ffe14d3061a6",
+    "bun.lock": "59bb1a24822e28c7b39393130843755d5a3fe1d56a37e20f47ecfd838074654f",
+    "src-tauri/Cargo.toml": "ec175bac3692032e24fe9363c71d7ffbcffdad2a6452ac50bddff41ee48ea3eb",
+    "src-tauri/Cargo.lock": "7375028dcdf855e8e94b489b719e9c9b7d0db9ef18c239007bf4b69a5df2a968",
+    "src-tauri/tauri.conf.json": "f5a0ca0156f71238700a21e23465d4a0aed2052bffc5c823edf0540c1803fe94"
+  },
+  "existingAcceptance": "User-confirmed 14.4M upgrade/backup and cross-platform installation acceptance remains accepted. This Linux run does not replace macOS/Windows native acceptance."
+}

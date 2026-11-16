@@ -1,0 +1,112 @@
+{
+  "recordedAt": "2026-11-10T11:22:17.369815+00:00",
+  "candidateVersion": "0.5.0",
+  "sourceCommit": "89ed2040bbb0cc1a36450f7004a08a51024bf70b",
+  "sourceChanges": "Four version-only changes, not committed; not an approved production commit",
+  "versionPatchSha256": "7d88a71f847b08d4f7a647036a3ae9e22c5a5628df546a989061688480051c9d",
+  "releaseDecision": "NO-GO; publication requires explicit user approval and unresolved checks",
+  "checks": [
+    {
+      "command": "bun run verify",
+      "exitCode": 101,
+      "result": "Stopped at two macOS owner_process cold-start failures; frontend 107 tests, build, fmt and clippy passed"
+    },
+    {
+      "command": "bun run check:supply-chain",
+      "exitCode": 0,
+      "result": "Eight explicit RustSec allowlist entries; bans/licenses/sources passed"
+    },
+    {
+      "command": "bun run check:slow",
+      "exitCode": 0,
+      "result": "Native host smoke skipped Keychain and launchctl checks due to host denial; debug desktop built"
+    },
+    {
+      "command": "native_host --ignored --test-threads=1 --nocapture",
+      "exitCode": 0,
+      "result": "Two harness passes with explicit native operation skips; not native acceptance"
+    },
+    {
+      "command": "bun run desktop:build:debug",
+      "exitCode": 0
+    },
+    {
+      "command": "CARGO_TARGET_DIR=<candidate>/src-tauri/target bun run test:e2e",
+      "exitCode": 1,
+      "result": "Web server startup timeout at 900000ms; zero tests executed"
+    },
+    {
+      "command": "cargo test --workspace --all-targets --exclude pathkeep-desktop",
+      "exitCode": 101,
+      "result": "vault-core: 495 passed, 12 ignored; later vault-crypto memory guard could not execute ps (EPERM)"
+    },
+    {
+      "command": "cargo test --all-targets -p vault-owner-ipc -p vault-platform -p vault-search -p vault-store -p vault-worker",
+      "exitCode": 0
+    },
+    {
+      "command": "bun run test:desktop-bridge:rust",
+      "exitCode": 0,
+      "result": "Four bridge tests passed; other integration tests filtered by this command"
+    },
+    {
+      "command": "bun run release:check",
+      "exitCode": 0
+    },
+    {
+      "command": "Embedded Release workflow metadata scripts",
+      "exitCode": 0,
+      "result": "16 cases passed; no GitHub dispatch or uploads"
+    },
+    {
+      "command": "bun run desktop:build --target aarch64-apple-darwin --no-sign --config <createUpdaterArtifacts=false>",
+      "exitCode": 1,
+      "result": "ARM64 app built and inspected; DMG creation failed: Device not configured"
+    },
+    {
+      "command": "hdiutil create -size 32m -fs HFS+ -volname PKPreflight <owned temporary image>",
+      "exitCode": 1,
+      "result": "Independent reproduction: Device not configured"
+    },
+    {
+      "command": "bun audit --json",
+      "exitCode": 1,
+      "result": {
+        "packages": 19,
+        "distinctAdvisories": 88,
+        "severity": {
+          "low": 13,
+          "moderate": 39,
+          "high": 35,
+          "critical": 1
+        },
+        "interpretation": "Dependency matches; not a count of proven exploitable desktop vulnerabilities"
+      }
+    },
+    {
+      "command": "bun run release:size-audit",
+      "exitCode": 0,
+      "result": "Web: 3239065 bytes, 106 assets; no current release installers scanned. Architecture-specific app inspected separately; inherited old bundles excluded."
+    }
+  ],
+  "localAppArchive": {
+    "path": "var/release-preflight-2026-11-10/var/release-preflight/PathKeep-0.5.0-local-rehearsal.app.tar.gz",
+    "sizeBytes": 36746562,
+    "sha256": "7b384bd2dfd667661c6c205507f29881e53223d2771d21ba24a8dbd4a517b4d3",
+    "status": "Local unsigned rehearsal only; no install/launch acceptance and no updater signatures"
+  },
+  "notPerformed": [
+    "14.4M backup/migration/import target-machine validation",
+    "Signed/notarized/stapled app validation",
+    "Current Windows/Linux/Intel installer builds and install/upgrade smoke",
+    "Publishing or creating any remote release/tag/branch"
+  ],
+  "nativePolicy": "Existing signed/notarized macOS policy retained; optional route question not answered at this snapshot",
+  "cloudComputeStarted": false,
+  "e2ePortsStillListening": {
+    "1420": false,
+    "43117": false
+  },
+  "cleanupEvidence": "cleanup.json",
+  "completedAt": "2026-11-10T11:30:56.923666+00:00"
+}

@@ -1,0 +1,136 @@
+{
+  "source": ".github/workflows/release.yml",
+  "scope": "Embedded scripts; local python alias only; no GitHub mutations or dispatch",
+  "cases": [
+    {
+      "platforms": "all",
+      "unsigned_preview": "true",
+      "labels": [
+        "macOS Apple Silicon",
+        "macOS Intel",
+        "Windows",
+        "Linux"
+      ],
+      "passed": true
+    },
+    {
+      "platforms": "all",
+      "unsigned_preview": "false",
+      "labels": [
+        "macOS Apple Silicon",
+        "macOS Intel",
+        "Windows",
+        "Linux"
+      ],
+      "passed": true
+    },
+    {
+      "platforms": "linux-windows",
+      "unsigned_preview": "true",
+      "labels": [
+        "Windows",
+        "Linux"
+      ],
+      "passed": true
+    },
+    {
+      "platforms": "linux-windows",
+      "unsigned_preview": "false",
+      "labels": [
+        "Windows",
+        "Linux"
+      ],
+      "passed": true
+    },
+    {
+      "platforms": "linux",
+      "unsigned_preview": "true",
+      "labels": [
+        "Linux"
+      ],
+      "passed": true
+    },
+    {
+      "platforms": "linux",
+      "unsigned_preview": "false",
+      "labels": [
+        "Linux"
+      ],
+      "passed": true
+    },
+    {
+      "platforms": "windows",
+      "unsigned_preview": "true",
+      "labels": [
+        "Windows"
+      ],
+      "passed": true
+    },
+    {
+      "platforms": "windows",
+      "unsigned_preview": "false",
+      "labels": [
+        "Windows"
+      ],
+      "passed": true
+    },
+    {
+      "platforms": "macos",
+      "unsigned_preview": "true",
+      "labels": [
+        "macOS Apple Silicon",
+        "macOS Intel"
+      ],
+      "passed": true
+    },
+    {
+      "platforms": "macos",
+      "unsigned_preview": "false",
+      "labels": [
+        "macOS Apple Silicon",
+        "macOS Intel"
+      ],
+      "passed": true
+    },
+    {
+      "explicit": "v0.5.0",
+      "ref_type": "branch",
+      "expected_tag": "v0.5.0",
+      "exit": 0,
+      "passed": true
+    },
+    {
+      "explicit": "",
+      "ref_type": "tag",
+      "expected_tag": "v0.5.0",
+      "exit": 0,
+      "passed": true
+    },
+    {
+      "explicit": "",
+      "ref_type": "branch",
+      "expected_tag": "v0.5.0",
+      "exit": 0,
+      "passed": true
+    },
+    {
+      "explicit": "0.5.0",
+      "ref_type": "branch",
+      "expected_tag": null,
+      "exit": 1,
+      "passed": true
+    },
+    {
+      "version_alignment": "0.5.0",
+      "expected_exit": 0,
+      "stdout": "package.json=0.5.0\nCargo.toml=0.5.0\ntauri.conf.json=0.5.0\nresolved=0.5.0\n",
+      "passed": true
+    },
+    {
+      "version_alignment": "0.4.0",
+      "expected_exit": 1,
+      "stdout": "package.json=0.5.0\nCargo.toml=0.5.0\ntauri.conf.json=0.5.0\nresolved=0.4.0\n",
+      "passed": true
+    }
+  ]
+}
