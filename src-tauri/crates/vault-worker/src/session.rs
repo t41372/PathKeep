@@ -302,8 +302,8 @@ impl VaultSession {
                 if !credentials {
                     return result;
                 }
-                // The supplied password still needs validation and publication, even
-                // when an unrelated startup/keychain attempt just finished.
+                // A password, or the keychain, still has to be tried after another attempt
+                // ends: one without them can only have answered that a password is needed.
                 continue;
             }
             state.result = Arc::default();
@@ -429,17 +429,23 @@ impl VaultSession {
         }
         Ok(vault)
     }
-    /// Auto-unlock never returns key material, even to the desktop facade.
+    /// Auto-unlock never returns key material, even to the desktop facade. It brings the
+    /// keychain's key, so like a password it does not take the answer of an open already running
+    /// (a command that needs the archive while the window loads): that open had no key, and the
+    /// window, which asks the keychain once, would ask for a password the keychain holds.
     pub fn unlock_from_keychain(&self) -> Result<(), String> {
-        self.open(|| {
-            let paths = vault_core::project_paths().map_err(|e| e.to_string())?;
-            self.recover_pending_archive(&paths)?;
-            let config = vault_core::load_config(&paths).map_err(|e| e.to_string())?;
-            if let Some(vault) = self.current_vault() {
-                return Ok(vault.with_config(config));
-            }
-            self.open_keychain(paths, config)
-        })?;
+        self.open_with(
+            || {
+                let paths = vault_core::project_paths().map_err(|e| e.to_string())?;
+                self.recover_pending_archive(&paths)?;
+                let config = vault_core::load_config(&paths).map_err(|e| e.to_string())?;
+                if let Some(vault) = self.current_vault() {
+                    return Ok(vault.with_config(config));
+                }
+                self.open_keychain(paths, config)
+            },
+            true,
+        )?;
         Ok(())
     }
     fn open_keychain(&self, paths: ProjectPaths, config: AppConfig) -> Result<Vault, String> {

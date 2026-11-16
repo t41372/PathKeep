@@ -2,7 +2,8 @@
 //! Not responsible for: macOS launch services or WebView rendering.
 //! Failure modes: password replaced with data-key hex, failed startup leaks success,
 //! concurrent reads fail instead of waiting, plaintext drops its compatibility key, an open
-//! takes the files a maintenance operation is replacing.
+//! takes the files a maintenance operation is replacing, a keychain unlock takes the answer of an
+//! open that had no key.
 use super::*;
 
 #[test]
@@ -132,4 +133,46 @@ fn a_close_during_maintenance_waits_and_closes_the_replacement() {
     closer.join().unwrap();
     assert!(!replacement.store().is_open(), "the close closed the replacement");
     assert!(state.current_vault().is_none());
+}
+
+// The window asks the keychain once when it loads. An open that was already running without a
+// key (any command that needs the archive, while the window loads) can only answer that a
+// password is needed. If the keychain unlock took that answer as its own, the window would show
+// the password screen with the key in the keychain. It waits for that open to end and tries the
+// keychain itself.
+#[test]
+fn a_keychain_unlock_is_not_answered_by_an_open_that_had_no_key() {
+    let _env = crate::tests::lock_env();
+    let root = tempfile::tempdir().unwrap();
+    unsafe {
+        std::env::set_var(crate::tests::PROJECT_ROOT_OVERRIDE_ENV, root.path());
+        std::env::set_var(crate::tests::TEST_KEYRING_OVERRIDE_ENV, root.path().join("keyring"));
+    }
+    let paths = vault_core::project_paths().unwrap();
+    let config =
+        AppConfig { initialized: true, archive_mode: ArchiveMode::Encrypted, ..Default::default() };
+    vault_core::save_config(&vault_core::ControlGate::acquire(&paths), &config).unwrap();
+    let state = VaultSession::default();
+    state.open_password(paths.clone(), config, "the password".into()).unwrap();
+    crate::store_data_key_in_keyring(&Vault::unlock_data_key(&paths, "the password").unwrap())
+        .unwrap();
+    state.close_vault().unwrap();
+
+    state.begin_startup();
+    let (sent, received) = std::sync::mpsc::channel();
+    let unlock = {
+        let state = state.clone();
+        std::thread::spawn(move || sent.send(state.unlock_from_keychain()).unwrap())
+    };
+    // The unlock holds the running open's result once it waits for it.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while Arc::strong_count(&state.inner.0.lock().unwrap().result) < 2 {
+        assert!(std::time::Instant::now() < deadline, "the unlock never waited for the open");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    state.abort_startup("archive-password-required: unlock the archive first".into());
+    let unlocked = received.recv_timeout(std::time::Duration::from_secs(10)).unwrap();
+    unlock.join().unwrap();
+    assert_eq!(unlocked, Ok(()));
+    assert!(state.current_vault().is_some());
 }
