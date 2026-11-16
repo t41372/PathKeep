@@ -1,0 +1,1 @@
+import{Q as e,Y as t}from"./index-CteWxeiL.js";import{Xt as n}from"./main-CmsrHzbA.js";var r=e(t(),1);function i(){let e=window.location.hash,t=e.indexOf(`?`);return new URLSearchParams(t<0?``:e.slice(t+1))}function a(){let[e,t]=n();return[e,(0,r.useCallback)(e=>t(e(i()),{replace:!0}),[t])]}export{a as t};

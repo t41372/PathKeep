@@ -1,0 +1,1 @@
+import{c as e}from"./app-CVcZz016.js";import{B as t,P as n,c as r}from"./index-CteWxeiL.js";function i(){return t()?`settingsStorage.location.showFinder`:`settingsStorage.location.show`}function a(t,i){return n.openPathInFileManager(t).catch(t=>e.error(i,{description:r(t,`open_path_in_file_manager`)}))}export{i as n,a as t};
