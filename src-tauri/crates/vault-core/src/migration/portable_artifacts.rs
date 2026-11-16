@@ -115,7 +115,7 @@ pub(super) fn unpack(stage: &Path, key: &DataKey, cancel: &CancelToken) -> Resul
                     std::time::UNIX_EPOCH + std::time::Duration::from_secs(entry.header().mtime()?);
                 if kind.is_dir() {
                     fs::create_dir_all(&path)?;
-                    set_directory_time(&path, modified)?;
+                    crate::utils::set_folder_modified(&path, modified)?;
                 } else if kind.is_file() {
                     fs::create_dir_all(path.parent().unwrap())?;
                     let mut file = File::create(&path)?;
@@ -275,19 +275,4 @@ fn relocate_json(value: &mut serde_json::Value, from: &str, to: &Path) -> bool {
         _ => {}
     }
     changed
-}
-
-#[cfg(not(windows))]
-fn set_directory_time(path: &Path, time: std::time::SystemTime) -> io::Result<()> {
-    File::open(path)?.set_times(fs::FileTimes::new().set_modified(time))
-}
-#[cfg(windows)]
-fn set_directory_time(path: &Path, time: std::time::SystemTime) -> io::Result<()> {
-    use std::os::windows::fs::OpenOptionsExt;
-    // A directory-capable handle with FILE_WRITE_ATTRIBUTES preserves its timestamp.
-    fs::OpenOptions::new()
-        .access_mode(0x100)
-        .custom_flags(0x0200_0000)
-        .open(path)?
-        .set_times(fs::FileTimes::new().set_modified(time))
 }

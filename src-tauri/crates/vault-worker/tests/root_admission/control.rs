@@ -321,17 +321,15 @@ fn an_import_settles_a_pending_wipe_before_it_installs() {
     f.vault.take().unwrap().close().unwrap();
     let confirmed = fs::read_to_string(f.root.join("config.json")).unwrap();
     // What the wipe records before its first move: everything the user confirmed deleting, as
-    // the preview listed it, but the control, which goes last. Then its first move.
+    // the preview listed it, but the control, which goes last. Then its first move. A record
+    // joins names with `/` on every system, as the wipe writes it (`RecordedPath`).
     let mut targets: Vec<String> = vault_core::preview_data_wipe(&f.paths())
         .unwrap()
         .items
         .iter()
         .map(|item| {
-            std::path::Path::new(&item.path)
-                .strip_prefix(&f.root)
-                .unwrap()
-                .to_string_lossy()
-                .into_owned()
+            let relative = std::path::Path::new(&item.path).strip_prefix(&f.root).unwrap();
+            relative.iter().map(|name| name.to_str().unwrap()).collect::<Vec<_>>().join("/")
         })
         .filter(|relative| relative != "config.json")
         .collect();

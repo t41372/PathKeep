@@ -827,9 +827,7 @@ fn a_folder_entry_is_known_by_what_is_in_it() {
         ] {
             if folder.is_dir() {
                 std::fs::write(folder.join(".DS_Store"), b"finder").unwrap();
-                std::fs::File::open(&folder)
-                    .unwrap()
-                    .set_modified(std::time::SystemTime::UNIX_EPOCH)
+                crate::utils::set_folder_modified(&folder, std::time::SystemTime::UNIX_EPOCH)
                     .unwrap();
             }
         }

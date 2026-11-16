@@ -220,7 +220,7 @@ mod tests {
         std::fs::create_dir(index.join("empty")).unwrap();
         std::fs::write(index.join(".DS_Store"), b"finder").unwrap();
         std::fs::write(index.join("segments/._a"), b"finder").unwrap();
-        set_folder_time(&index, std::time::SystemTime::UNIX_EPOCH);
+        crate::utils::set_folder_modified(&index, std::time::SystemTime::UNIX_EPOCH).unwrap();
         assert_eq!(of(&index).unwrap().unwrap(), first);
         std::fs::write(index.join("segments/b"), b"b").unwrap();
         assert_ne!(of(&index).unwrap().unwrap(), first, "another file");
@@ -228,23 +228,6 @@ mod tests {
         std::fs::rename(index.join("meta"), index.join("segments/meta")).unwrap();
         assert_ne!(of(&index).unwrap().unwrap(), first, "a file moved");
         assert_eq!(of(&folder.path().join("nothing")).unwrap(), None);
-    }
-
-    // Windows opens a folder only with backup semantics, and changes its times only through a
-    // handle that may change its attributes.
-    fn set_folder_time(folder: &std::path::Path, time: std::time::SystemTime) {
-        let mut options = std::fs::OpenOptions::new();
-        #[cfg(windows)]
-        {
-            use std::os::windows::fs::OpenOptionsExt;
-            use windows_sys::Win32::Storage::FileSystem::{
-                FILE_FLAG_BACKUP_SEMANTICS, FILE_WRITE_ATTRIBUTES,
-            };
-            options.access_mode(FILE_WRITE_ATTRIBUTES).custom_flags(FILE_FLAG_BACKUP_SEMANTICS);
-        }
-        #[cfg(not(windows))]
-        options.read(true);
-        options.open(folder).unwrap().set_modified(time).unwrap();
     }
 
     // A name may hold any byte but `/` and NUL, and a symlink's target any byte but NUL. Folders

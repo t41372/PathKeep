@@ -20,6 +20,27 @@ const WINDOWS_RESERVED_FILE_NAMES: [&str; 25] = [
     "LPT8", "LPT9",
 ];
 
+/// Sets a folder's modified time. Windows opens a folder only with backup semantics and changes
+/// its times only through a handle that may change its attributes; elsewhere a read-only handle
+/// does. A move keeps folder times with it, and tests age a folder with it.
+pub(crate) fn set_folder_modified(
+    folder: &Path,
+    time: std::time::SystemTime,
+) -> std::io::Result<()> {
+    let mut options = std::fs::OpenOptions::new();
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        use windows_sys::Win32::Storage::FileSystem::{
+            FILE_FLAG_BACKUP_SEMANTICS, FILE_WRITE_ATTRIBUTES,
+        };
+        options.access_mode(FILE_WRITE_ATTRIBUTES).custom_flags(FILE_FLAG_BACKUP_SEMANTICS);
+    }
+    #[cfg(not(windows))]
+    options.read(true);
+    options.open(folder)?.set_modified(time)
+}
+
 /// Returns the current UTC timestamp in RFC3339 form.
 pub fn now_rfc3339() -> String {
     Utc::now().to_rfc3339()

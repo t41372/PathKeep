@@ -28,7 +28,7 @@ fn archive_with_copies() -> (tempfile::TempDir, Vault, Vec<PathBuf>, PathBuf) {
         // Folder times order the list, ten seconds apart.
         let when = std::time::SystemTime::now()
             - std::time::Duration::from_secs(60 - copies.len() as u64 * 10);
-        std::fs::File::open(&path).unwrap().set_modified(when).unwrap();
+        crate::utils::set_folder_modified(&path, when).unwrap();
         copies.push(path);
     }
     let checkpoint = vault.paths().raw_snapshots_dir.join("chrome-Default/2026-11-15T00-00-00Z-7");
