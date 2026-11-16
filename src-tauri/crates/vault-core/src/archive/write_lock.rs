@@ -33,8 +33,11 @@
 //!   not cross the `fs::rename` swap and do not coordinate a separate process, so
 //!   they cannot prevent the corruption this lock exists to stop.
 //! - Crash durability of the bytes a held operation writes (see `durable_io`).
-//! - Windows: `flock(2)` is a POSIX advisory lock. Non-unix targets compile a
-//!   stub that fails loudly rather than silently pretending to serialize.
+//! - What the platform's lock does beyond excluding another holder. The lock is the
+//!   standard library's `File::try_lock`: `flock(2)` on Unix, an advisory lock, and
+//!   `LockFileEx` on Windows, a mandatory one: while it is held no other handle can
+//!   read or write the sentinel's bytes. Nothing does: the bytes are irrelevant, and
+//!   snapshots, moves and "Delete all data" leave the file out (`vault-layout`).
 //!
 //! ## Why this exists (the write-serialization contract)
 //! The 2026-06-30 data-integrity work found two critical data-corruption
@@ -79,7 +82,7 @@
 //!
 //! ## How process-reentrancy is achieved
 //! `flock` is associated with the OPEN FILE DESCRIPTION, not the path and not the
-//! PID. Distinct open descriptions conflict EVEN WITHIN ONE PROCESS, so naively
+//! PID (a `LockFileEx` lock on Windows, with the handle, the same way). Distinct open descriptions conflict EVEN WITHIN ONE PROCESS, so naively
 //! opening a fresh fd per acquire would make a second same-process `LOCK_EX`
 //! block forever against the process's own first fd — a self-deadlock. To avoid
 //! that while keeping cross-process exclusion, a process-global manager keyed by
@@ -125,15 +128,12 @@
 use crate::config::ProjectPaths;
 use anyhow::{Context, Result};
 use std::collections::{HashMap, HashSet};
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, File, OpenOptions, TryLockError};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, OnceLock, Weak};
 use std::thread;
 use std::time::{Duration, Instant};
-
-#[cfg(unix)]
-use std::os::unix::io::{AsRawFd, RawFd};
 
 /// Sentinel lock file placed beside `history-vault.sqlite` inside the archive dir
 /// so that every process touching the archive contends on one stable path.
@@ -170,19 +170,15 @@ struct LockInner {
 }
 
 impl Drop for LockInner {
+    // `File::unlock` is stable since Rust 1.89. The workspace builds with the toolchain pinned in
+    // rust-toolchain.toml, above the `msrv` that clippy.toml still names.
+    #[clippy::msrv = "1.89"]
     fn drop(&mut self) {
-        // Release explicitly before the fd closes. Closing the fd (the `File`'s
-        // own `Drop`, which runs immediately after this body) ALSO releases the
-        // `flock`, so this is belt-and-suspenders that documents the contract.
-        // A failing unlock on a dying owner has nowhere meaningful to surface.
-        #[cfg(unix)]
-        {
-            // SAFETY: the fd is owned by `self.file`, which is still open for the
-            // duration of this `Drop` body; `LOCK_UN` is a valid flock operation.
-            unsafe {
-                libc::flock(self.file.as_raw_fd(), libc::LOCK_UN);
-            }
-        }
+        // Release explicitly before the file closes. Closing it (the `File`'s own
+        // `Drop`, which runs immediately after this body) ALSO releases the lock,
+        // so this is belt-and-suspenders that documents the contract. A failing
+        // unlock on a dying owner has nowhere meaningful to surface.
+        let _ = self.file.unlock();
     }
 }
 
@@ -465,41 +461,24 @@ fn open_lock_file(path: &Path) -> Result<File> {
         .with_context(|| format!("opening archive write lock file {}", path.display()))
 }
 
-/// Attempts a single, non-blocking exclusive `flock` on `file`.
+/// Attempts a single, non-blocking exclusive lock on `file`: the standard library's
+/// `File::try_lock`, `flock(LOCK_EX | LOCK_NB)` on Unix and `LockFileEx` on Windows, the same lock
+/// the owner lock and the search index take.
 ///
-/// `Ok(true)` = the lock is now held; `Ok(false)` = a non-blocking attempt found
-/// it already held by another open file description; `Err` = a real failure.
-#[cfg(unix)]
+/// `Ok(true)` = the lock is now held; `Ok(false)` = another open file (another process, or
+/// another handle in this one) holds it; `Err` = a real failure. A signal that interrupts the
+/// call before it resolves is retried: taking the lock is safe to repeat. Neither call parks the
+/// thread.
+// `File::try_lock` is stable since Rust 1.89; see `LockInner`'s `Drop`.
+#[clippy::msrv = "1.89"]
 fn try_lock_exclusive(file: &File) -> Result<bool> {
-    flock_try_exclusive(file.as_raw_fd())
-}
-
-#[cfg(not(unix))]
-fn try_lock_exclusive(_file: &File) -> Result<bool> {
-    anyhow::bail!("archive write lock requires POSIX flock; this platform is unsupported")
-}
-
-/// Runs one non-blocking exclusive `flock(2)` against a raw fd, retrying on a
-/// signal interruption.
-///
-/// `LOCK_NB` maps "already held" `EWOULDBLOCK` to `Ok(false)` so try-acquire can
-/// defer; `EINTR` (a signal interrupted the call before it resolved) is retried
-/// because `flock` is safe to repeat; any other errno is a genuine failure.
-#[cfg(unix)]
-fn flock_try_exclusive(fd: RawFd) -> Result<bool> {
     loop {
-        // SAFETY: `fd` is a live fd owned by the caller. `LOCK_EX | LOCK_NB`
-        // never parks the thread, so this returns promptly.
-        let rc = unsafe { libc::flock(fd, libc::LOCK_EX | libc::LOCK_NB) };
-        if rc == 0 {
-            return Ok(true);
-        }
-        match std::io::Error::last_os_error().raw_os_error().unwrap_or(libc::EIO) {
-            libc::EWOULDBLOCK => return Ok(false),
-            libc::EINTR => continue,
-            other => {
-                return Err(std::io::Error::from_raw_os_error(other))
-                    .context("flock on the archive write lock failed");
+        match file.try_lock() {
+            Ok(()) => return Ok(true),
+            Err(TryLockError::WouldBlock) => return Ok(false),
+            Err(TryLockError::Error(error)) if error.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(TryLockError::Error(error)) => {
+                return Err(error).context("locking the archive write lock failed");
             }
         }
     }
@@ -593,20 +572,20 @@ fn archive_volume_fstype(_path: &Path) -> Option<String> {
 /// process opens a DISTINCT open file description that the kernel refuses (`Ok(None)`) —
 /// exactly the cross-process contention the scheduled backup must defer on (an in-process
 /// `ArchiveWriteLock` guard would instead hand back a reentrant guard and could not
-/// reproduce the defer). Dropping the `File` releases the `flock`. Used by the
+/// reproduce the defer). Dropping the `File` releases the lock. Used by the
 /// backup-defer crash-window regression test in the sibling `backup`/`tests` modules.
-#[cfg(all(unix, test))]
+#[cfg(test)]
 pub(crate) fn hold_write_lock_as_foreign_process_for_test(paths: &ProjectPaths) -> File {
     let lock_path = lock_file_path(paths);
     let file = open_lock_file(&lock_path).expect("open the archive write-lock sentinel");
     assert!(
-        flock_try_exclusive(file.as_raw_fd()).expect("the foreign-holder flock must not error"),
+        try_lock_exclusive(&file).expect("the foreign holder's lock must not error"),
         "the simulated foreign process must win the uncontended write lock"
     );
     file
 }
 
-#[cfg(all(test, unix))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::config::project_paths_with_root;
@@ -626,11 +605,11 @@ mod tests {
         let second = open_lock_file(&lock_path).expect("open second description");
 
         assert!(
-            flock_try_exclusive(first.as_raw_fd()).expect("first flock must not error"),
+            try_lock_exclusive(&first).expect("the first lock must not error"),
             "the first open file description must win the lock"
         );
         assert!(
-            !flock_try_exclusive(second.as_raw_fd()).expect("second flock must not error"),
+            !try_lock_exclusive(&second).expect("the second lock must not error"),
             "a second open file description (the cross-process case) must be refused"
         );
 
@@ -648,7 +627,7 @@ mod tests {
         drop(first);
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
         loop {
-            if flock_try_exclusive(second.as_raw_fd()).expect("re-flock must not error") {
+            if try_lock_exclusive(&second).expect("locking again must not error") {
                 break;
             }
             assert!(
