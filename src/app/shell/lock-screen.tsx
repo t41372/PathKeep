@@ -16,11 +16,27 @@ import { Label } from '@/components/ui/label'
 import { Spinner } from '@/components/ui/spinner'
 import { appClient } from '@/lib/backend-client/app'
 import { cn } from '@/lib/cn'
+import { describeError } from '@/lib/errors'
+import {
+  commandErrorCode,
+  ERROR_CODE_ARCHIVE_PASSWORD_WRONG,
+} from '@/lib/ipc/command-error'
 import { useI18n } from '@/lib/i18n'
 import { queryKeys } from '@/lib/query'
 import { useSession } from '../session'
 import { ForgotPasscode } from './forgot-passcode'
 import { TouchIdUnlock } from './touch-id-unlock'
+
+/**
+ * Why opening the archive failed when the password was not found wrong: a database missing,
+ * a record that does not match the folder, the archive busy. `null` for a wrong password, the
+ * one failure typing again fixes.
+ */
+function notThePassword(error: unknown): string | null {
+  return commandErrorCode(error) === ERROR_CODE_ARCHIVE_PASSWORD_WRONG
+    ? null
+    : describeError(error)
+}
 
 export function LockScreen({ kind }: { kind: 'app' | 'archive' }) {
   const { t } = useI18n()
@@ -29,6 +45,7 @@ export function LockScreen({ kind }: { kind: 'app' | 'archive' }) {
   const [remember, setRemember] = useState(true)
   const [busy, setBusy] = useState(false)
   const [failed, setFailed] = useState(false)
+  const [otherFailure, setOtherFailure] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   // Locking cleared the query cache, so this reads a fresh status.
   const { data: lockStatus } = useQuery({
@@ -44,12 +61,19 @@ export function LockScreen({ kind }: { kind: 'app' | 'archive' }) {
     if (!secret || busy) return
     setBusy(true)
     setFailed(false)
+    setOtherFailure(null)
     try {
       if (kind === 'app') await session.unlockApp(secret)
       else await session.unlockArchive(secret, remember)
-    } catch {
-      setFailed(true)
-      setSecret('')
+    } catch (error) {
+      const other = kind === 'archive' ? notThePassword(error) : null
+      if (other === null) {
+        setFailed(true)
+        setSecret('')
+      } else {
+        // Not the password's fault: telling the person it is wrong sends them guessing.
+        setOtherFailure(other)
+      }
       inputRef.current?.focus()
     } finally {
       setBusy(false)
@@ -111,8 +135,15 @@ export function LockScreen({ kind }: { kind: 'app' | 'archive' }) {
             {t('shell.lock.remember')}
           </Label>
         )}
-        <p role="alert" className="h-5 text-sm text-destructive">
-          {failed ? t('shell.lock.wrong') : ''}
+        <p
+          role="alert"
+          className="min-h-5 text-sm [overflow-wrap:anywhere] text-destructive"
+        >
+          {failed
+            ? t('shell.lock.wrong')
+            : otherFailure !== null
+              ? t('shell.lock.openFailed', { message: otherFailure })
+              : ''}
         </p>
         {kind === 'app' && lockStatus && (
           <>

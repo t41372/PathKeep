@@ -2,18 +2,22 @@
  * Moving to another computer: the file is encrypted with a password chosen at export.
  *
  * Proves: export asks for that password twice and won't run until both match;
- * the file opens only with that password (a wrong one is refused in plain words
- * and the archive here is untouched); opening it replaces the archive with the
+ * a file made by a newer PathKeep is refused at the check, in words that say
+ * what to do, and the archive here is untouched; the file opens only with that
+ * password (a wrong one is refused in plain words and the archive here is
+ * untouched); opening it replaces the archive with the
  * same visits, and from then on that password is the archive's password and
  * the one this computer's keychain remembers.
  *
  * Runs in its own project after `change` (app lock is on, passcode 4826):
  * opening the file replaces the archive and its password.
  */
-import { mkdirSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
 import { backend, fixture, openArchiveVisitTotal } from './support/fixture'
+import { zipBytes, zipEntries } from './support/zip-file'
 
 const FILE_PASSWORD = 'moving day, 2026'
 
@@ -22,6 +26,30 @@ async function visitTotal() {
     'load_dashboard_snapshot',
   )
   return dashboard.totalVisits
+}
+
+/**
+ * `file` as a newer PathKeep would write it: its manifest says a format this
+ * build does not have yet, and the digest the file keeps of its manifest
+ * matches.
+ */
+function madeByNewerVersion(file: string, copy: string) {
+  const entries = zipEntries(readFileSync(file))
+  const at = (name: string) => entries.findIndex(([entry]) => entry === name)
+  const manifestAt = at('pathkeep-export-manifest.json')
+  const manifest = JSON.parse(entries[manifestAt][1].toString('utf8')) as {
+    formatVersion: number
+    appVersion: string
+  }
+  manifest.formatVersion += 1
+  manifest.appVersion = '9.0.0'
+  const bytes = Buffer.from(JSON.stringify(manifest))
+  entries[manifestAt] = ['pathkeep-export-manifest.json', bytes]
+  entries[at('pathkeep-export-manifest.sha256')] = [
+    'pathkeep-export-manifest.sha256',
+    Buffer.from(createHash('sha256').update(bytes).digest('hex')),
+  ]
+  writeFileSync(copy, zipBytes(entries))
 }
 
 /** Whether `password` opens the archive, asked without changing anything. */
@@ -96,8 +124,20 @@ test('a moved archive opens only with the password chosen at export', async ({
   await expect(page.getByText(/^Saved /)).toBeVisible({ timeout: 120_000 })
   await expect(exporting).toHaveCount(0)
 
+  // The same file from a newer PathKeep: refused at the check, saying what to do.
+  const newer = join(dir, 'pathkeep-move-newer.pathkeep')
+  madeByNewerVersion(file, newer)
   await page.getByRole('button', { name: 'Import…' }).click()
   const importing = page.getByRole('dialog')
+  await importing.getByLabel('File').fill(newer)
+  await importing.getByRole('button', { name: 'Check file' }).click()
+  await expect(
+    importing.getByText(
+      'This file was made by a newer version of PathKeep. Update PathKeep in Settings → About, then open the file again. Your archive was not changed.',
+    ),
+  ).toBeVisible({ timeout: 60_000 })
+  expect(await visitTotal()).toBe(before)
+
   await importing.getByLabel('File').fill(file)
   await importing.getByRole('button', { name: 'Check file' }).click()
   const replace = importing.getByRole('button', { name: 'Replace my archive' })

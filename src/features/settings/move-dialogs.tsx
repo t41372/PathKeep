@@ -38,6 +38,18 @@ import { reveal, revealLabelKey } from './reveal'
 
 type Mode = 'export' | 'import'
 
+/**
+ * A file only a newer PathKeep reads: its format, found at the check, or the archive it holds,
+ * found at the import. This computer's archive cannot be the one these name: it was let in when
+ * the app started, and while it is open no other PathKeep can change it.
+ */
+const NEWER_FILE_CODES: (string | null)[] = [
+  'move-file-too-new',
+  'archive-reader-too-old',
+  'archive-writer-too-old',
+  'archive-config-format-too-new',
+]
+
 export function MoveDialog({
   mode,
   onClose,
@@ -249,6 +261,9 @@ function ImportForm({ onClose }: { onClose: () => void }) {
   const wrongPassword =
     apply.error !== null &&
     commandErrorCode(apply.error) === 'archive-password-wrong'
+  const failure = check.error ?? (stopped ? null : apply.error)
+  const newerFile =
+    failure !== null && NEWER_FILE_CODES.includes(commandErrorCode(failure))
 
   return (
     <DialogContent className="sm:max-w-md" {...busyProps(apply.isPending)}>
@@ -327,21 +342,23 @@ function ImportForm({ onClose }: { onClose: () => void }) {
             {t('maintenance.stopped')}
           </p>
         )}
-        {(check.error ?? (stopped ? null : apply.error)) && (
+        {failure && (
           <p
             role="alert"
             className="text-[13px] [overflow-wrap:anywhere] text-destructive"
           >
             {wrongPassword
               ? t('settingsStorage.move.wrongPassword')
-              : t(
-                  check.error
-                    ? 'settingsStorage.move.checkFailed'
-                    : 'settingsStorage.move.importFailed',
-                  {
-                    message: describeError(check.error ?? apply.error),
-                  },
-                )}
+              : newerFile
+                ? t('settingsStorage.move.newerFile')
+                : t(
+                    check.error
+                      ? 'settingsStorage.move.checkFailed'
+                      : 'settingsStorage.move.importFailed',
+                    {
+                      message: describeError(failure),
+                    },
+                  )}
           </p>
         )}
 

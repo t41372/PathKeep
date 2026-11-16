@@ -7,7 +7,9 @@
  * password opens it, and the keychain follows: when the archive closes under
  * the open window, the window unlocks it again from the keychain and shows
  * the archive, not an empty one. Also that the check lives in the backend: the same request sent
- * straight to the dev bridge, which holds an unlocked session, is refused.
+ * straight to the dev bridge, which holds an unlocked session, is refused. And that an archive
+ * the right password cannot open (one of its databases is gone) is not called a wrong password:
+ * the lock screen says why, keeps what was typed, and opens it once the database is back.
  *
  * "Opens the archive" is asked of the backend with a read-only rekey preview,
  * which tries the password against the archive file and changes nothing.
@@ -15,8 +17,10 @@
  * Runs after lock.spec, so app lock is on (passcode 4826). first-run created
  * the archive with OLD and saved it in the keychain.
  */
+import { existsSync, renameSync } from 'node:fs'
+import { join } from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
-import { backend, openArchiveVisitTotal } from './support/fixture'
+import { backend, fixture, openArchiveVisitTotal } from './support/fixture'
 
 const OLD = 'correct horse battery'
 const NEW = 'a longer passphrase, 2026'
@@ -111,4 +115,47 @@ test('changing the archive password needs the current one', async ({
   await expect(
     page.getByRole('heading', { name: 'Your archive is encrypted' }),
   ).toBeHidden()
+})
+
+test('an archive the right password cannot open is not called a wrong password', async ({
+  page,
+}) => {
+  // One of the archive's databases moved away while the archive is closed, as a partial copy
+  // of the folder would leave it, with its log files if it has them.
+  const store = join(fixture().dirs.projectRoot, 'archive', 'agent-history.db')
+  const moved = ['', '-wal', '-shm'].filter((suffix) =>
+    existsSync(store + suffix),
+  )
+  expect(moved).toContain('')
+  // Nothing in memory and nothing in the keychain: the window asks for the password.
+  await backend('keyring_clear_database_key')
+  await backend('clear_session_database_key')
+  for (const suffix of moved)
+    renameSync(store + suffix, `${store}${suffix}.aside`)
+  const asked = page.getByRole('heading', { name: 'Your archive is encrypted' })
+  try {
+    await page.goto('/#/')
+    await unlockAppIfLocked(page)
+    await expect(asked).toBeVisible()
+    await page.getByPlaceholder('Password').fill(NEW)
+    await page.getByPlaceholder('Password').press('Enter')
+    await expect(
+      page.getByText(
+        /^PathKeep couldn’t open the archive\. .*archive-store-missing/,
+      ),
+    ).toBeVisible({ timeout: 60_000 })
+    await expect(
+      page.getByText('That did not work. Check it and try again.'),
+    ).toHaveCount(0)
+    // The password was not the problem, so it is still there to try again.
+    await expect(page.getByPlaceholder('Password')).toHaveValue(NEW)
+  } finally {
+    for (const suffix of moved)
+      renameSync(`${store}${suffix}.aside`, store + suffix)
+  }
+  await page.getByPlaceholder('Password').press('Enter')
+  await expect(asked).toBeHidden({ timeout: 60_000 })
+  expect(await openArchiveVisitTotal()).toBeGreaterThan(0)
+  // As the specs after this one expect: the keychain remembers the password again.
+  expect(await backend<boolean>('keyring_get_database_key')).toBe(true)
 })

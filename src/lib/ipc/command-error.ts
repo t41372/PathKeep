@@ -21,6 +21,9 @@ export const ERROR_CODE_LOCK_REQUIRED = 'lock-required'
 /** Backend classification: the archive is not open in this session. */
 export const ERROR_CODE_ARCHIVE_PASSWORD_REQUIRED = 'archive-password-required'
 
+/** Backend classification: the password given for the archive does not open it. */
+export const ERROR_CODE_ARCHIVE_PASSWORD_WRONG = 'archive-password-wrong'
+
 /** Backend classification: macOS Full Disk Access (TCC) is missing. */
 export const ERROR_CODE_FULL_DISK_ACCESS = 'full-disk-access'
 

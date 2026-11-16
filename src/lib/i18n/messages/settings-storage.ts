@@ -131,6 +131,8 @@ export const settingsStorage = defineMessages({
       import: 'Import',
       imported: 'Import finished.',
       importFailed: 'Import failed. Your archive was not changed. {message}',
+      newerFile:
+        'This file was made by a newer version of PathKeep. Update PathKeep in Settings → About, then open the file again. Your archive was not changed.',
       summary: {
         made: 'Made',
         version: 'PathKeep version',
@@ -324,6 +326,8 @@ export const settingsStorage = defineMessages({
       import: '导入',
       imported: '导入完成。',
       importFailed: '导入失败，你的存档没有改动。{message}',
+      newerFile:
+        '这个文件是较新版本的 PathKeep 做的。请先在「设置 → 关于」更新 PathKeep，再重新打开这个文件。你的存档没有改动。',
       summary: {
         made: '制作时间',
         version: 'PathKeep 版本',
@@ -511,6 +515,8 @@ export const settingsStorage = defineMessages({
       import: '匯入',
       imported: '匯入完成。',
       importFailed: '匯入失敗，你的存檔沒有變動。{message}',
+      newerFile:
+        '這個檔案是較新版本的 PathKeep 做的。請先在「設定 → 關於」更新 PathKeep，再重新開啟這個檔案。你的存檔沒有變動。',
       summary: {
         made: '製作時間',
         version: 'PathKeep 版本',

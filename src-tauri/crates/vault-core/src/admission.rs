@@ -105,6 +105,17 @@ pub enum Reason {
 }
 
 impl Reason {
+    /// Every reason, for what has to handle each: the desktop gives each its own error code.
+    pub const ALL: [Self; 7] = [
+        Self::ReaderTooOld,
+        Self::WriterTooOld,
+        Self::EnvelopeTooNew,
+        Self::ControlMissing,
+        Self::ControlUnreadable,
+        Self::ControlInvalid,
+        Self::CompatibilityInvalid,
+    ];
+
     pub const fn code(self) -> &'static str {
         match self {
             Self::ReaderTooOld => "archive-reader-too-old",
@@ -582,6 +593,24 @@ fn is_archive(relative: &str) -> bool {
 mod tests {
     use super::*;
     use vault_layout::{FamilyPattern, WipePolicy};
+
+    // A reason added to the enum must be added here (or this does not compile) and to `ALL` in
+    // the same place, or the assertion fails: the desktop classifies only the reasons in `ALL`.
+    #[test]
+    fn all_lists_every_reason_once() {
+        let place = |reason: Reason| match reason {
+            Reason::ReaderTooOld => 0,
+            Reason::WriterTooOld => 1,
+            Reason::EnvelopeTooNew => 2,
+            Reason::ControlMissing => 3,
+            Reason::ControlUnreadable => 4,
+            Reason::ControlInvalid => 5,
+            Reason::CompatibilityInvalid => 6,
+        };
+        let places: Vec<usize> = Reason::ALL.iter().map(|reason| place(*reason)).collect();
+        assert_eq!(places, (0..Reason::ALL.len()).collect::<Vec<_>>());
+        assert_eq!(Reason::ALL.len(), place(Reason::CompatibilityInvalid) + 1);
+    }
 
     // "Delete all data" leaves these rows in place on purpose. If one of them, or anything
     // inside it, counted as an archive, every completed wipe would end in a folder that can

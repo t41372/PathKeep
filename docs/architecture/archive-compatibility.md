@@ -60,8 +60,11 @@ Reasons, as stable strings in errors and on the worker's stderr:
 | `archive-compatibility-invalid` | The stamp's numbers are not positive integers in order.                                                                                                                     |
 | `archive-store-missing`         | The archive is stamped, a store its format requires is gone, and nothing says it is being created; or a released archive lacks one of its own stores when it is brought up. |
 | `archive-uninitialized`         | Not a refusal: a worker command was asked to use an archive that was never set up.                                                                                          |
+| `move-file-too-new`             | A move file only a newer PathKeep reads: its format is above the newest this build writes, or its archive's schema is above this build's. Found at the check.               |
 
 The first three mean the archive is intact and needs a newer build. The next five mean its control is damaged or gone, or a store is. These are different messages to the user and are never reported as a wrong password, a corrupt database or an empty archive.
+
+The desktop hands each of these to the window as the error's code (`src-tauri/src/command_error.rs`, which takes the refusal codes from `Reason::ALL`); when a cause chain holds several codes, the first one names the failure, the rest are its causes. The import dialog says the four that mean a newer PathKeep (`move-file-too-new` and the first three) as "made by a newer version of PathKeep, update it", and the archive password screen says "wrong password" only for `archive-password-wrong`, showing any other failure to open as one, with its reason.
 
 ## Bringing a released archive up to revision 1
 
@@ -110,7 +113,7 @@ A move file from 0.5, which has five stores, is imported with the two agent-hist
 
 The install journal names the copy (`kept_as`), and only where this folder's installs put it: beside the other copies, under the random part of the journal's own backup folder name. The files are moved there and sealed after the new archive is published, so a crash after the publish still ends with the copy at the next start. The copy drops the search index, which a restore builds again, and a restore's copy has no agent conversations, which the restore left in place; snapshot verification does not require them (a restore never takes a copy's). A replaced folder that held nothing (an import into an empty folder) leaves no copy. One whose control cannot be read, so it cannot be sealed or restored, is kept all the same, counted and freeable, and not offered for a restore. A conversion from the old format still leaves its backup folder: it holds only the control the conversion replaced.
 
-A move file this build writes is format 3: format 2 plus the two agent-history stores. 0.4 and 0.5 read only format 2 and refuse a format-3 file ("unsupported bundle format 3") before asking for its password. This build reads both.
+A move file this build writes is format 3: format 2 plus the two agent-history stores. 0.4 and 0.5 read only format 2 and refuse a format-3 file ("unsupported bundle format 3") before asking for its password. This build reads both, and refuses a file of a later format, or one whose archive schema is above its own, as `move-file-too-new` at the check, before asking for the password.
 
 ## A folder without `config.json`
 

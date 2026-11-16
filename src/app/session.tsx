@@ -29,6 +29,8 @@ import { securityClient } from '@/lib/backend-client/security'
 import { parseRecoveryReport } from './recovery-report'
 import { describeError } from '@/lib/errors'
 import {
+  CommandInvokeError,
+  ERROR_CODE_ARCHIVE_PASSWORD_WRONG,
   isArchiveClosedError,
   isLockRequiredError,
 } from '@/lib/ipc/command-error'
@@ -309,7 +311,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       const snapshot = await appClient.getSnapshot()
       if (!snapshot.archiveStatus.unlocked) {
         await appClient.clearSessionDatabaseKey()
-        throw new Error('wrong-password')
+        throw new CommandInvokeError('wrong-password', {
+          code: ERROR_CODE_ARCHIVE_PASSWORD_WRONG,
+        })
       }
       if (remember) {
         await securityClient.storeDatabaseKey(password).catch(() => undefined)

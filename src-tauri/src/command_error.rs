@@ -114,6 +114,35 @@ impl CommandError {
     }
 }
 
+/// Codes the backend writes as the first word of a failure (`code: detail`). The archive
+/// refusals (`vault_core::admission::Reason`) are classified the same way, from their own list.
+const CODED_FAILURES: [&str; 24] = [
+    "envelope-missing",
+    "archive-password-wrong",
+    "archive-busy",
+    "keychain-key-missing",
+    "invalid-keychain-key",
+    "keychain-unavailable",
+    "archive-password-required",
+    "archive-open-panicked",
+    "invalid-cursor",
+    "invalid-page-size",
+    "copy-digest-mismatch",
+    "conversion-digest-mismatch",
+    "snapshot-digest-mismatch",
+    "encryption-mode-change-requires-rekey",
+    "archive-installed-keychain-unavailable",
+    "archive-conversion-required",
+    "export-target-is-managed",
+    "snapshot-not-listed",
+    "not-in-history",
+    "backup-no-profiles",
+    "archive-wipe-unfinished",
+    "archive-wipe-stopped",
+    "move-file-too-new",
+    "archive-store-missing",
+];
+
 /// Maps a formatted error chain onto `(code, action_hint)` using the marker
 /// strings the backend itself guarantees:
 ///
@@ -136,34 +165,21 @@ impl CommandError {
 ///   the sentences exported by `vault-worker`'s `current_password` module.
 ///   Neither is lock-required: the archive is open; the person only has to
 ///   show they know its password.
+/// - every other code is the first word of a failure (`code: detail`), listed in
+///   [`CODED_FAILURES`] or an archive refusal's; when a chain holds several, the
+///   first one names the failure.
 fn classify_message(message: &str) -> (Option<&'static str>, Option<&'static str>) {
-    for code in [
-        "envelope-missing",
-        "archive-password-wrong",
-        "archive-busy",
-        "keychain-key-missing",
-        "invalid-keychain-key",
-        "keychain-unavailable",
-        "archive-password-required",
-        "archive-open-panicked",
-        "invalid-cursor",
-        "invalid-page-size",
-        "copy-digest-mismatch",
-        "conversion-digest-mismatch",
-        "snapshot-digest-mismatch",
-        "encryption-mode-change-requires-rekey",
-        "archive-installed-keychain-unavailable",
-        "archive-conversion-required",
-        "export-target-is-managed",
-        "snapshot-not-listed",
-        "not-in-history",
-        "backup-no-profiles",
-        "archive-wipe-unfinished",
-        "archive-wipe-stopped",
-    ] {
-        if message.contains(&format!("{code}:")) {
-            return (Some(code), None);
-        }
+    let refusals = vault_core::admission::Reason::ALL.map(vault_core::admission::Reason::code);
+    // The first code in the chain wins: the outermost context is what the operation concluded and
+    // a code further in only its cause; a code inside a longer one (`keychain-unavailable` in
+    // `archive-installed-keychain-unavailable`) starts after the longer one does.
+    let first = CODED_FAILURES
+        .iter()
+        .chain(&refusals)
+        .filter_map(|code| message.find(&format!("{code}:")).map(|at| (at, *code)))
+        .min_by_key(|(at, _)| *at);
+    if let Some((_, code)) = first {
+        return (Some(code), None);
     }
     if message.contains("backup-already-running:") {
         return (Some("backup-already-running"), None);
@@ -259,5 +275,42 @@ mod tests {
         // the shell renders the diagnostic prose verbatim.
         let opaque = CommandError::classified("Biometry rejected by policy 0x2f.".to_string());
         assert_eq!(opaque.code, None);
+    }
+
+    /// Every reason an archive or a file is refused for reaches the window with its code,
+    /// wherever in the cause chain the refusal sits, so the window can say it in the person's
+    /// language instead of showing the English chain.
+    #[test]
+    fn every_refusal_reaches_the_window_with_its_code() {
+        for reason in vault_core::admission::Reason::ALL {
+            let message = format!("importing the file: {}: needs level 2", reason.code());
+            assert_eq!(
+                CommandError::classified(message).code.as_deref(),
+                Some(reason.code()),
+                "{reason:?}"
+            );
+        }
+        for code in ["move-file-too-new", "archive-store-missing"] {
+            let message = format!("checking the file: {code}: details");
+            assert_eq!(CommandError::classified(message).code.as_deref(), Some(code));
+        }
+        assert_eq!(CommandError::classified("restoring: disk full".to_string()).code, None);
+    }
+
+    /// The first code in the chain is what the operation concluded; a code further in is only
+    /// its cause, and a code inside a longer one is not that code.
+    #[test]
+    fn the_outermost_code_names_the_failure() {
+        let wipe = "archive-wipe-unfinished: everything was moved out of the archive: \
+                    clearing the keychain: keychain-unavailable: the keychain is locked";
+        assert_eq!(
+            CommandError::classified(wipe.to_string()).code.as_deref(),
+            Some("archive-wipe-unfinished")
+        );
+        let installed = "archive-installed-keychain-unavailable: the new archive is in place";
+        assert_eq!(
+            CommandError::classified(installed.to_string()).code.as_deref(),
+            Some("archive-installed-keychain-unavailable")
+        );
     }
 }

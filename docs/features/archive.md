@@ -273,6 +273,7 @@ PathKeep 是 local-first，**不再提供雲端備份/上傳**。如果使用者
 - **Export**：將 archive、source evidence 與 agent 資料庫完整複製，用獨立的匯出密碼加密後打包。每張表的列數與內容摘要須一致；ZIP manifest 記錄每個檔案的 SHA-256 與大小。
 - **Import → Preview → Apply**：先驗證 manifest；Apply 使用 `options.sourceArchiveKey` 提供匯出密碼，在 staging 驗證檔案與資料庫、重建搜尋後才換檔。覆蓋既有 archive 需要 `confirmOverwrite=true`，也可以匯入空白 project root。目的機保留自己的 App Lock 設定與秘密；空白目的機先不啟用 App Lock，避免要求未搬移的來源 passcode。「在鑰匙圈記住密碼」也是目的機自己的選擇（2026-10-07）：開著的話，匯入後鑰匙圈換成搬來的 archive 的金鑰；關著或空白目的機就不存。v0.3 的 bundle 匯入照同一條規則。匯入後的 archive 一律加密，匯出密碼就是它在目的機上的 archive 密碼（之後可在 Security 更改或關閉加密）；介面在匯出時就這樣說明，並要求輸入兩次。長時間的匯出、匯入、加密切換與還原在對話框中顯示 `get_maintenance_progress` 的進度與「停止」。
 - Agent 對話、audit、原始來源快照與保留的 sidecars 會搬到目的地；附件與設定同樣用匯出密碼加密，匯入後修正附件路徑，來源 checkpoint 可繼續重播。抓取保存的網頁正文（`sidecars/intelligence-blobs/`）也一起搬：它是用戶資料，網頁再抓一次可能已改變或消失（用戶 2026-10-07：用戶資料一律跟著備份和遷移）。`derived/`、平台排程、App Lock secret 與模型不進 bundle；目的地的搜尋索引從 archive 重建。
+- **較新版本做的檔案**（2026-11-15）：檔案的格式比這一版寫的最新格式還新，或它的存檔資料庫結構比這一版的新，檢查檔案時就拒絕（`move-file-too-new`），還沒問密碼；格式相同、但檔案裡設定檔的版本宣告這一版讀不了或改不了，匯入在動任何東西之前拒絕（`archive-reader-too-old` 等）。兩種在對話框裡都說「這個檔案是較新版本的 PathKeep 做的，先到「設定 → 關於」更新再開」，存檔不變。`move.spec` 拿真的匯出檔改成下一個格式驗前者。
 - 匯入透過既有 interruption journal 恢復。中斷後的回滾只放回內容和當初一模一樣的原檔、只拿走當初暫存進去的那份；拷貝到一半的副本（原檔變短或少一個）會停下、什麼都不動。匯入到新資料夾在設定檔落地前中斷，下一次啟動照紀錄退回成空資料夾，不會被當成「設定檔不見的存檔」打不開。exFAT / FAT32 上改名到一半斷電可能讓一個檔案同時掛在兩個名字下，回滾不刪其中一個，而是把另一個名字移進 `quarantine/`（算進磁碟用量，可在「釋放空間」刪掉，建議先檢查磁碟）。設定檔是安裝第一個放上、回滾最後拿走的，任何一步中斷，新存檔的檔案旁邊都有它的設定檔（0.5 會打開沒有設定檔或沒有版本宣告的資料夾，以前兩步之間會讀到新舊混在一起的存檔）。發布之後中斷，下一次啟動在刪暫存與備份之前先核對每個檔案：新檔在原位且內容對，或還在暫存而原位空著（搬進去）；被安裝拿掉的檔案不在原位，或是原本的內容（搬回備份）；其他情況停下、紀錄全留。這是為了「發布前後各拷一半」的資料夾副本：以前會把唯一一份新資料庫跟著暫存刪掉。`config.json` 是符號連結時安裝直接拒絕，什麼都不動。被取代的存檔變成一份「匯入之前」的安全副本（`raw-snapshots/maintenance/before-import-*`）：列在「從安全副本還原」的清單裡、算進磁碟用量、在「釋放空間」可以單獨勾選刪掉，不會自己被刪（用戶 2026-11-15）。從安全副本還原時被取代的存檔同樣變成一份「還原之前」的副本。還原只帶回瀏覽紀錄：存檔的加密方式、密碼、App Lock 與「鑰匙圈記住金鑰」維持現在的樣子，副本的資料在還原時改用存檔的金鑰；Agent 對話不動（用戶 2026-11-15）。可用 `get_maintenance_progress` 取得進度，`cancel_maintenance` 取消尚未發布的操作。
 
 ### 刪除所有資料（Delete all data）
@@ -301,6 +302,7 @@ Settings → Storage 的「刪除所有資料」走 PME：`preview_wipe_all_data
   - 使用隨機數據庫金鑰，由用戶主密碼經 Argon2id 導出的金鑰包裝。
   - 包裝後的 data key 存在 `archive/keys.envelope`；App Lock 的 passcode hash 存在 app root 的 `app-lock-passcode.json`（`vault-core/src/app_lock.rs`）。
 - 可選擇把便利解鎖信息存入系統 keyring（macOS Keychain, Windows Credential Manager, Linux Secret Service/KWallet）。
+- 輸入存檔密碼的畫面（2026-11-15）：只有後端說密碼不對（`archive-password-wrong`）時才說密碼不對、清掉欄位。其他打不開的原因（少了一個資料庫、紀錄對不上資料夾、存檔正在忙）說「PathKeep 無法打開存檔」並附上原因，密碼留在欄位裡，排除問題後按 Enter 再試；之前一律說密碼不對，使用者會一直重打密碼。`security.spec` 移走一個資料庫驗這件事。
 - 若使用者選擇記住 database key，PathKeep 只在啟動後的第一個 unlocked app session 讀取一次 keyring，之後把 active session key 保留在記憶體直到使用者手動鎖定 archive 或結束 app；不得在每次 shell refresh / status hydrate 時反覆重讀 keyring 並造成原生授權提示。
 - 不加密模式也可以使用，但 UI 必須明確標示「數據庫為明文」。
 - Linux 沒有可用 keyring 時：仍允許加密模式，但每次啟動都需要輸入主密碼。不做弱保護 fallback。

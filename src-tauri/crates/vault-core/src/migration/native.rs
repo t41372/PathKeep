@@ -39,12 +39,19 @@ fn format_of(layout: vault_layout::ArchiveLayout) -> Result<u32> {
         .with_context(|| format!("no move bundle format carries a {layout:?} archive"))
 }
 
+/// A format above the newest this build writes is a newer PathKeep's (`move-file-too-new`, which
+/// the window turns into "update PathKeep"); any other it does not know is not a file it reads.
 fn layout_of(format: u32) -> Result<vault_layout::ArchiveLayout> {
-    FORMATS
-        .iter()
-        .find(|(of, _)| *of == format)
-        .map(|(_, layout)| *layout)
-        .with_context(|| format!("unsupported bundle format {format}"))
+    if let Some((_, layout)) = FORMATS.iter().find(|(of, _)| *of == format) {
+        return Ok(*layout);
+    }
+    let newest = FORMATS.iter().map(|(of, _)| *of).max().unwrap_or_default();
+    if format > newest {
+        anyhow::bail!(
+            "move-file-too-new: the file has format {format}; this build reads up to {newest}"
+        );
+    }
+    anyhow::bail!("unsupported bundle format {format}")
 }
 /// Settings that belong to this computer, not to the archive, so a moved archive takes them from
 /// the computer it lands on: App Lock (its secret never leaves the source machine; a fresh
@@ -173,9 +180,15 @@ pub fn preview(paths: &ProjectPaths, bundle: &Path) -> Result<ImportPreview> {
     crate::admission::refuse_newer(&paths.app_root)?;
     let manifest = super::read_and_validate_manifest(bundle)?;
     let layout = layout_of(manifest.format_version)?;
+    let newest_schema = crate::store_schema::schema_version(vault_store::Db::Archive);
     anyhow::ensure!(
-        (1..=crate::store_schema::schema_version(vault_store::Db::Archive))
-            .contains(&manifest.archive_schema_version),
+        manifest.archive_schema_version <= newest_schema,
+        "move-file-too-new: the file's archive has schema {}; this build reads up to \
+         {newest_schema}",
+        manifest.archive_schema_version
+    );
+    anyhow::ensure!(
+        manifest.archive_schema_version >= 1,
         "unsupported Turso archive schema {}",
         manifest.archive_schema_version
     );
