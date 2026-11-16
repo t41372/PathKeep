@@ -54,7 +54,7 @@
     "audit:js": "bun audit",
     "update:js": "bun update --latest",
     "outdated:js": "bun outdated",
-    "release:check:config": "node scripts/verify-release-config.mjs",
+    "release:check:config": "node scripts/verify-release-config.mjs && node scripts/verify-archive-formats.mjs",
     "release:build": "node scripts/build-distribution.mjs"
   },
   "dependencies": {

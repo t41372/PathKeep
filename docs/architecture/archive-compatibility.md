@@ -285,6 +285,7 @@ A format change that nobody noticed is the usual way two versions come to disagr
 
 - `src-tauri/crates/vault-core/tests/persisted_schema/revision-N.json` is the snapshot for revision N. Any change to a listed type fails `tests/persisted_schema.rs` until the snapshot is rewritten, so the change shows up as an edit to that file in the same commit and in review.
 - `formats.json` beside it has one entry per revision: what changed and what older builds do with it. Its `released` list ties a revision to the hash of its snapshot. Once a revision is listed there its snapshot cannot change at all; a shape change then needs a new revision. The check needs no git history.
+- Its `releases` list says which revision each published version writes, prereleases included. `scripts/verify-archive-formats.mjs` (part of `release:check:config`, so of every `bun run check`) fails when a newer version writes a lower revision than an older one (users who update would find their archive refused as too new), when a listed version writes a revision that is not frozen under `released`, and when this build writes a lower revision than a version already published. Versions are ordered as semantic versions, not as text.
 - The snapshot is for the revision this build writes. Until a release writes it, it may be edited in place.
 
 Records in the snapshot today: `config.json`, the install journal, the "delete all data" marker, the two App Lock records, a snapshot's file list, a move bundle's manifest, a scheduled run's attempt record.
@@ -298,4 +299,4 @@ Revision 1 is the first stamp, so the bring-up starts only from an archive witho
 - Publish the higher stamp first, then write the first byte of the new format. Never lower it again.
 - Bring an archive up from a lower stamp as well as from none: record the stores the new layout requires, stamp, create, remove the record (`maintenance/creation.rs`).
 - A new move-file format number for a layout with new stores (`FORMATS` in `migration/native.rs`).
-- When a release is cut, its revision and the hash of that revision's snapshot go into `formats.json` under `released`.
+- When a release is cut, its revision and the hash of that revision's snapshot go into `formats.json` under `released`, the revision's entry says `released`, and the version goes under `releases`. The Release workflow runs `verify-archive-formats.mjs --releasing <version>` and stops otherwise, and also when the persisted shapes are a revision ahead of what the build writes (a format change half done).

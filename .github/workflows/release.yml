@@ -156,6 +156,11 @@ jobs:
           test "$package_version" = "$tauri_version"
           test "$package_version" = "$RESOLVED_VERSION"
 
+      - name: Verify the archive format this release writes is recorded
+        env:
+          RESOLVED_VERSION: ${{ steps.resolve.outputs.resolved_version }}
+        run: node scripts/verify-archive-formats.mjs --releasing "$RESOLVED_VERSION"
+
       - name: Verify updater signing secret
         if: ${{ steps.matrix.outputs.unsigned_preview != 'true' }}
         env:

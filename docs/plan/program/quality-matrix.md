@@ -10,18 +10,18 @@
 
 `bun run check` 是唯一的 per-commit gate，本地與 GitHub `CI` workflow 跑同一條。依序執行：
 
-| 步驟           | Command                        | 保護什麼                                                                                                                                                            |
-| -------------- | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Format         | `bun run format:check`         | Prettier                                                                                                                                                            |
-| Lint           | `bun run lint`                 | ESLint（`--max-warnings 0`）                                                                                                                                        |
-| i18n           | `bun run check:i18n`           | `en` / `zh-CN` / `zh-TW` key 對齊、不得有未翻譯的英文                                                                                                               |
-| Typecheck      | `bun run typecheck`            | `tsc -b`                                                                                                                                                            |
-| Unit           | `bun run test:unit`            | Vitest：少數必須單獨測的（例如網址參數的競爭，`search-params.test.tsx`），寫的理由在檔頭                                                                            |
-| JS audit       | `bun run audit:js`             | Bun lockfile 的直接／間接與 dev dependencies 安全公告；包含於 `check:js`，也可獨立執行                                                                              |
-| Build          | `bun run build`                | TypeScript + Vite bundle                                                                                                                                            |
-| Rust           | `bun run check:rust`           | `cargo fmt --check`、`cargo clippy -D warnings`、`cargo test --workspace`，再加帶 `devtools-bridge` feature 的 bridge dispatcher 測試（`test:desktop-bridge:rust`） |
-| Release config | `bun run release:check:config` | updater URL、Windows bundle、WebView2、support link 不得漂移；發布流程必須經過 `release:build`                                                                      |
-| E2E            | `bun run test:e2e`             | 真實 Rust 後端 + Vite 前端 + Playwright，見下                                                                                                                       |
+| 步驟           | Command                        | 保護什麼                                                                                                                                                                   |
+| -------------- | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Format         | `bun run format:check`         | Prettier                                                                                                                                                                   |
+| Lint           | `bun run lint`                 | ESLint（`--max-warnings 0`）                                                                                                                                               |
+| i18n           | `bun run check:i18n`           | `en` / `zh-CN` / `zh-TW` key 對齊、不得有未翻譯的英文                                                                                                                      |
+| Typecheck      | `bun run typecheck`            | `tsc -b`                                                                                                                                                                   |
+| Unit           | `bun run test:unit`            | Vitest：少數必須單獨測的（例如網址參數的競爭，`search-params.test.tsx`），寫的理由在檔頭                                                                                   |
+| JS audit       | `bun run audit:js`             | Bun lockfile 的直接／間接與 dev dependencies 安全公告；包含於 `check:js`，也可獨立執行                                                                                     |
+| Build          | `bun run build`                | TypeScript + Vite bundle                                                                                                                                                   |
+| Rust           | `bun run check:rust`           | `cargo fmt --check`、`cargo clippy -D warnings`、`cargo test --workspace`，再加帶 `devtools-bridge` feature 的 bridge dispatcher 測試（`test:desktop-bridge:rust`）        |
+| Release config | `bun run release:check:config` | updater URL、Windows bundle、WebView2、support link 不得漂移；發布流程必須經過 `release:build`；發布過的版本寫的存檔格式等級不得隨版本變低（`verify-archive-formats.mjs`） |
+| E2E            | `bun run test:e2e`             | 真實 Rust 後端 + Vite 前端 + Playwright，見下                                                                                                                              |
 
 `bun run check:base` 是不含 build 與 E2E 的快速 triage（`check:js` + `check:rust`），不能代替 `check`。
 
