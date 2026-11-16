@@ -1,7 +1,8 @@
 /**
  * Moving to another computer: the file is encrypted with a password chosen at export.
  *
- * Proves: export asks for that password twice and won't run until both match;
+ * Proves: export says the safety copies stay on this computer, asks for that
+ * password twice and won't run until both match;
  * a file made by a newer PathKeep is refused at the check, in words that say
  * what to do, and the archive here is untouched; the file opens only with that
  * password (a wrong one is refused in plain words and the archive here is
@@ -108,6 +109,10 @@ test('a moved archive opens only with the password chosen at export', async ({
     .getByRole('button', { name: 'Export…' })
     .click()
   const exporting = page.getByRole('dialog')
+  // This computer's restore points don't go into the file.
+  await expect(exporting).toContainText(
+    'Your app passcode, the backup schedule and the safety copies stay on this computer.',
+  )
   await exporting.getByLabel('Save to').fill(file)
   await exporting.getByLabel('Password for this file').fill(FILE_PASSWORD)
   await exporting.getByLabel('Type it again').fill('something else')

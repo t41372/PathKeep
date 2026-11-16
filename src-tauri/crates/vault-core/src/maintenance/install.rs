@@ -48,7 +48,9 @@
 //! backup while its staged or discarded name is still there, or the file in place is the original),
 //! that other name goes into the quarantine (`quarantine/<backup folder name>/`), where the storage
 //! screen counts it and the user frees it, rather than with the stage or the backup. Two names of a
-//! file that leaves its place go together with the stage.
+//! file that leaves its place go together with the stage. The rename that makes a published
+//! install's backup a safety copy can leave it under both names too: the copy is made, and the
+//! backup's name goes into the quarantine.
 //!
 //! A publish that reports an error may still have put the published record on disk (the flush
 //! after its rename failed). The install then stops where it is, and the next recovery goes the way
@@ -1000,7 +1002,7 @@ fn finish_at(paths: &ProjectPaths, journal: &Journal, record: &Path) -> Result<(
     // copy, each at a name this folder's installs produce.
     let located = locate(paths, journal)?;
     match &located.kept_as {
-        Some(copy) => keep_as_copy(&located.backup, copy)?,
+        Some(copy) => keep_as_copy(paths, &located, copy)?,
         None if !journal.keep_previous => remove(&located.backup)?,
         None => {}
     }
@@ -1010,7 +1012,8 @@ fn finish_at(paths: &ProjectPaths, journal: &Journal, record: &Path) -> Result<(
 
 /// Makes the backup of a published install a safety copy. Run again after a crash, it finishes
 /// what is left: the move is one rename, and the seal is written whole or not at all.
-fn keep_as_copy(backup: &Path, copy: &Path) -> Result<()> {
+fn keep_as_copy(paths: &ProjectPaths, located: &Located, copy: &Path) -> Result<()> {
+    let backup = &located.backup;
     if backup.is_dir() {
         let replaced = walkdir::WalkDir::new(backup)
             .into_iter()
@@ -1019,10 +1022,17 @@ fn keep_as_copy(backup: &Path, copy: &Path) -> Result<()> {
             // Nothing was there to replace (an import into an empty folder): no copy of nothing.
             return remove(backup);
         }
-        if copy.exists() {
-            // The copy is named after the backup folder, whose name was new when the install began,
-            // so this does not happen. If it does, the replaced files stay where they are rather
-            // than go over another copy.
+        if !exists(copy)? {
+            rename(backup, copy)?;
+        } else if content_identity::of(copy)? == content_identity::of(backup)? {
+            // The rename below was cut on a file system without a journal and left the replaced
+            // archive under both names, each the same data (the module docs). The copy is made, and
+            // the backup's name goes into the quarantine like the other names a cut rename leaves.
+            let name = Path::new(backup.file_name().unwrap_or_default());
+            rename(backup, &unused(&quarantine(paths, located), name)?)?;
+        } else {
+            // Another copy under this name, which the backup folder's random name rules out but for
+            // a coincidence: the replaced files stay where they are rather than go over it.
             eprintln!(
                 "PathKeep install: {} is already there; the replaced files stay in {}",
                 copy.display(),
@@ -1030,12 +1040,11 @@ fn keep_as_copy(backup: &Path, copy: &Path) -> Result<()> {
             );
             return Ok(());
         }
-        rename(backup, copy)?;
     }
     if copy.is_dir() && !copy.join(super::snapshot::SEAL).exists() {
-        // A replaced archive that cannot be sealed, usually because its control is what was
-        // damaged, cannot be restored either. It stays, counted and freed with the other copies,
-        // and the restore list does not offer it.
+        // A replaced archive that cannot be sealed (its control damaged, or an error while reading
+        // it) cannot be restored either. It is still a copy: listed under the operation it was made
+        // before, counted, and freed only when the user picks it (`snapshot::list_snapshots`).
         if let Err(error) = super::snapshot::seal_replaced(copy) {
             eprintln!(
                 "PathKeep install: the replaced archive kept in {} could not be sealed: {error:#}",

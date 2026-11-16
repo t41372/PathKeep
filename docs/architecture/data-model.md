@@ -576,7 +576,12 @@ an explicit export password. The ZIP contains `archive/history-vault.db`,
 `config/config.json`, `archive/portable-artifacts.pkf`, the manifest and its
 SHA-256 sidecar. The config and streaming TAR of audit, raw snapshots and retained
 sidecars use the authenticated bundle-artifacts codec; the six-entry inventory
-stays bounded as the provenance history grows. Source-machine artifact paths in
+stays bounded as the provenance history grows. The TAR leaves out the safety
+copies in `raw-snapshots/` (the user's decision, 2026-11-15): `maintenance/`,
+and every folder holding a copy PathKeep 0.3 made (`*.sqlite`). They are the
+restore points of the computer that made them, each the size of the archive;
+files of 0.5 and earlier carry them, and a 100,000-visit archive of 33 MB made a
+374 MB file. Source-machine artifact paths in
 database rows are relocated after verification; immutable audit JSON keeps its
 original hash and resolves through imported root aliases. Agent conversations
 are included. The `derived/` tree is excluded; search is rebuilt on import and
@@ -588,7 +593,22 @@ and entry digests in staging, authenticates the export password, checks database
 integrity, builds search, then closes the old owner and performs the journaled
 installation. The archive it replaces is kept as a safety copy
 (`raw-snapshots/maintenance/before-import-*`): listed for a restore, counted in
-disk usage and removed by freeing space like the other copies. Import
+disk usage and removed by freeing space like the other copies. `raw-snapshots/`
+is replaced entry by entry (`migration::safety_copies`): the browsers' history
+files a backup copied are the file's afterwards, and this computer's go into the
+copy with the archive they belong to; this computer's safety copies stay where
+they are, so the copy of the replaced archive holds none. The copies a file of
+0.5 or earlier brings are added beside them: one this computer already has, the
+same in every byte, is not added again; one whose name a different copy here has
+is added under the next free name (`name-2`, `old-2.sqlite` with its `-wal`), a
+name none of its database's files has. A copy under the name an earlier import
+gave it counts as one this computer has, so the same file imported again adds
+nothing. An old-format copy is compared as the database it is: its file and its
+`-wal` and `-journal`, an empty one being none, and not its `-shm`, an index
+SQLite rebuilds and every open writes. A folder of `raw-snapshots/` that cannot
+be looked at stops the export or the import rather than being taken for one
+without a copy. Only a copy that has a name here, its own or a numbered one, is
+read to compare it. Import
 works with an empty project root and requires `confirmOverwrite` when replacing
 an existing native archive. App Lock policy stays with the destination's local
 secret; an empty destination starts without App Lock rather than asking for an

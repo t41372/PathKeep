@@ -77,12 +77,20 @@ pub enum ImportExclusion {
     Rebuilt,
     MachineSecrets,
     Schedule,
+    /// Restore points of the computer that made them, each the size of the archive; a move file
+    /// leaves them there, and an import keeps this computer's (the user's decision, 2026-11-15).
+    SafetyCopies,
 }
 /// Import replaces some containers whole, independently of what export includes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ImportPolicy {
     NativeEntry,
     ReplaceContainer,
+    /// Replaced entry by entry: every entry no row below it keeps is replaced, or taken away where
+    /// the stage has none of that name. What rows below it keep (`Preserve`) stays, and what the
+    /// stage brings for them is added beside it. Which entries those are is read from the folder
+    /// (`portable_installation_by_entry`).
+    ReplaceEntries,
     CoveredByContainer,
     Preserve,
 }

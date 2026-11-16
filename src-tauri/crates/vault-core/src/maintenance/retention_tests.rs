@@ -116,21 +116,38 @@ fn the_newest_copy_goes_when_picked_and_no_other_copy_does() {
     assert_eq!(rows.len(), 2, "{rows:?}");
 }
 
-// The row for the other snapshots (browser checkpoints, copies that cannot be restored) never takes
-// a listed copy with it, the newest included, and shows only its own size.
+// The row for the other snapshots (browser checkpoints, safety snapshots cut short before their
+// seal) never takes a listed copy with it, the newest included, and shows only its own size. The
+// archive a restore or an import replaced is a listed copy even when its seal could not be written
+// (an error while sealing it): a row of its own that cannot be restored from, freed only when picked.
 #[test]
 fn the_other_snapshots_go_without_any_copy() {
     let (_root, vault, copies, checkpoint) = archive_with_copies();
-    let unsealed = vault.paths().raw_snapshots_dir.join("maintenance/before-restore-unsealed");
+    let maintenance = vault.paths().raw_snapshots_dir.join("maintenance");
+    let cut_short = maintenance.join("rekey-cut-short");
+    std::fs::create_dir_all(cut_short.join("archive")).unwrap();
+    std::fs::write(cut_short.join("archive/history-vault.db"), vec![1u8; 5_000]).unwrap();
+    let unsealed = maintenance.join("before-restore-unsealed");
     std::fs::create_dir_all(unsealed.join("archive")).unwrap();
-    std::fs::write(unsealed.join("archive/history-vault.db"), vec![1u8; 5_000]).unwrap();
+    std::fs::write(unsealed.join("archive/history-vault.db"), vec![2u8; 6_000]).unwrap();
     let preview = preview_retention(vault.paths(), &listed(&vault)).unwrap();
     let bucket = preview.buckets.iter().find(|bucket| bucket.id == "snapshots").unwrap();
-    assert_eq!(bucket.bytes, tree_bytes(&checkpoint) + tree_bytes(&unsealed));
+    assert_eq!(bucket.bytes, tree_bytes(&checkpoint) + tree_bytes(&cut_short));
+    let row = preview
+        .copies
+        .iter()
+        .find(|copy| Path::new(&copy.path) == unsealed.as_path())
+        .expect("the unsealed replaced archive is a row of its own");
+    assert_eq!((row.source_op.as_str(), row.restorable), ("restore", false));
+    assert_eq!(row.bytes, tree_bytes(&unsealed));
 
     let result = run(&vault, &request(&["snapshots"], &[])).unwrap();
     assert_eq!(result.deleted_bytes, bucket.bytes, "it deleted what it showed");
-    assert!(!checkpoint.exists() && !unsealed.exists());
+    assert!(!checkpoint.exists() && !cut_short.exists());
+    assert!(unsealed.join("archive/history-vault.db").is_file(), "it was not picked");
+    let result = run(&vault, &request(&[], &[&unsealed])).unwrap();
+    assert_eq!(result.deleted_bytes, row.bytes);
+    assert!(!unsealed.exists(), "picked, it goes");
     for copy in &copies {
         assert!(copy.join("snapshot.json").is_file(), "{} was not picked", copy.display());
     }

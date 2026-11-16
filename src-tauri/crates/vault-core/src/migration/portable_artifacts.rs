@@ -54,8 +54,13 @@ pub(super) fn pack(
                 }
                 let mut directories = Vec::new();
                 // Everything under these roots moves, saved page text included: it is
-                // the user's data, and a page fetched again may have changed or gone.
-                for entry in walkdir::WalkDir::new(&source) {
+                // the user's data, and a page fetched again may have changed or gone. The
+                // safety copies stay: they are this computer's restore points.
+                let stays = super::safety_copies::left_behind(id, &source)?;
+                let walk = walkdir::WalkDir::new(&source)
+                    .into_iter()
+                    .filter_entry(|entry| entry.depth() != 1 || !stays.contains(entry.file_name()));
+                for entry in walk {
                     cancel.check()?;
                     let entry = entry?;
                     let name = entry

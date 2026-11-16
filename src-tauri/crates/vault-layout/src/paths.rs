@@ -363,7 +363,8 @@ pub fn import_exclusions() -> Vec<(ArtifactId, ImportExclusion)> {
     entries.sort_by_key(|(_, reason)| *reason as usize);
     entries
 }
-/// Format-2 import intentionally replaces the complete derived tree and artifact roots.
+/// What an import replaces whole: the databases, the control and key files, and the derived, audit
+/// and sidecars trees. `raw-snapshots/` is replaced entry by entry (`portable_installation_by_entry`).
 pub fn portable_installation_files(layout: ArchiveLayout) -> Vec<PathBuf> {
     let mut files = Vec::new();
     for s in artifacts_in(layout) {
@@ -382,10 +383,21 @@ pub fn portable_installation_files(layout: ArchiveLayout) -> Vec<PathBuf> {
                 }
             }
             ImportPolicy::ReplaceContainer => files.push(s.path.relative().into()),
-            ImportPolicy::CoveredByContainer | ImportPolicy::Preserve => {}
+            ImportPolicy::ReplaceEntries
+            | ImportPolicy::CoveredByContainer
+            | ImportPolicy::Preserve => {}
         }
     }
     files
+}
+
+/// The folders an import replaces entry by entry (`ImportPolicy::ReplaceEntries`). Which entries
+/// those are depends on what is in them, here and in the stage, so the caller reads them.
+pub fn portable_installation_by_entry(layout: ArchiveLayout) -> Vec<ArtifactId> {
+    artifacts_in(layout)
+        .filter(|s| s.lifecycle.move_import == ImportPolicy::ReplaceEntries)
+        .map(|s| s.id)
+        .collect()
 }
 
 /// Older readers use fixed historical canonical coverage, not today's native role set.

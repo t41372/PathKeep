@@ -229,16 +229,19 @@ pub fn exclusion_notes(paths: &ProjectPaths) -> Vec<ImportExclusionNote> {
             "搜索索引和智能分析数据将在此设备上重建。",
             "App Lock 的密码和设置保留在各自设备上；新设备需重新设置。",
             "自动备份排程需在此设备上重新安装。",
+            "安全副本留在创建它们的那台电脑上；这台电脑的安全副本保持不变。",
         ],
         crate::LanguagePreference::ZhTw => [
             "搜尋索引和智慧分析資料將在此裝置上重建。",
             "App Lock 的密碼和設定保留在各自裝置上；新裝置需重新設定。",
             "自動備份排程需在此裝置上重新安裝。",
+            "安全副本留在做出它們的那台電腦上；這台電腦的安全副本維持原樣。",
         ],
         _ => [
             "Search and intelligence are rebuilt on this machine.",
             "App Lock secrets and settings stay on each machine; configure it again on a new machine.",
             "Install the automatic backup schedule again on this machine.",
+            "Safety copies stay on the computer that made them; the ones on this computer stay as they are.",
         ],
     };
     vault_layout::import_exclusions()
@@ -259,6 +262,7 @@ pub fn exclusion_notes(paths: &ProjectPaths) -> Vec<ImportExclusionNote> {
                     vault_layout::ImportExclusion::Rebuilt => 0,
                     vault_layout::ImportExclusion::MachineSecrets => 1,
                     vault_layout::ImportExclusion::Schedule => 2,
+                    vault_layout::ImportExclusion::SafetyCopies => 3,
                 }]
                 .into(),
             }
@@ -402,8 +406,18 @@ pub fn install_staged(
         vault.store().pause()?.close()?;
         vault.close()?;
     }
-    // What the stage holds, by its own control, not by this build's newest layout.
-    let files = vault_layout::portable_installation_files(crate::admission::root_layout(stage)?);
+    // What the stage holds, by its own control, not by this build's newest layout. Read with the
+    // archive closed: no backup adds a browser's history file to `raw-snapshots/` from here on.
+    let layout = crate::admission::root_layout(stage)?;
+    let mut files = vault_layout::portable_installation_files(layout);
+    for id in vault_layout::portable_installation_by_entry(layout) {
+        match id {
+            A::RawSnapshots => {
+                files.extend(super::safety_copies::installation(&paths.app_root, stage)?)
+            }
+            other => anyhow::bail!("an import has no rule for replacing {other:?} entry by entry"),
+        }
+    }
     // The archive it replaces becomes a safety copy, so the import can be undone.
     let previous = maintenance::install::install(
         &control,

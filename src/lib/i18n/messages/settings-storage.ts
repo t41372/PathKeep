@@ -111,7 +111,8 @@ export const settingsStorage = defineMessages({
       exportPasswordHint:
         'You’ll need it to open the file on the other computer, where it becomes the archive’s password. It can’t be recovered.',
       passwordsDiffer: 'The two passwords don’t match.',
-      stays: 'Your app passcode and the backup schedule stay on this computer.',
+      stays:
+        'Your app passcode, the backup schedule and the safety copies stay on this computer.',
       export: 'Export',
       exported: 'Saved {size}.',
       exportFailed: 'Could not write the file. {message}',
@@ -126,7 +127,7 @@ export const settingsStorage = defineMessages({
         'This file was made by PathKeep 0.3: its password is the archive password you used on that computer.',
       wrongPassword: 'That password doesn’t open this file.',
       replaces:
-        'This replaces the archive on this computer. The current one is kept as a safety copy you can go back to. It takes about as much disk space as the archive; Free up space can delete it.',
+        'This replaces the archive on this computer. The current one is kept as a safety copy you can go back to. It takes about as much disk space as the archive; Free up space can delete it. The safety copies already on this computer stay as they are.',
       replace: 'Replace my archive',
       import: 'Import',
       imported: 'Import finished.',
@@ -144,6 +145,8 @@ export const settingsStorage = defineMessages({
           'It was made by an older PathKeep and will be updated as it opens.',
         noChats:
           'Files from PathKeep 0.3 don’t include Ask chats; they stay on the other computer.',
+        copies:
+          'Files from PathKeep 0.5 and earlier also hold the safety copies of the computer they were made on. Any in this file are added to the ones here.',
       },
     },
     restore: {
@@ -306,7 +309,7 @@ export const settingsStorage = defineMessages({
       exportPasswordHint:
         '在另一台电脑上打开文件时需要它，之后它就是那边存档的密码。忘记了就无法找回。',
       passwordsDiffer: '两次输入的密码不一致。',
-      stays: '应用密码和备份计划会留在这台电脑上。',
+      stays: '应用密码、备份计划和安全副本会留在这台电脑上。',
       export: '导出',
       exported: '已保存 {size}。',
       exportFailed: '无法写入文件。{message}',
@@ -321,7 +324,7 @@ export const settingsStorage = defineMessages({
         '这个文件由 PathKeep 0.3 导出：它的密码就是你在那台电脑上用的存档密码。',
       wrongPassword: '这个密码打不开这个文件。',
       replaces:
-        '这会替换这台电脑上的存档。当前的存档会保留为一份安全副本，之后还能恢复回来；它占用的空间和存档差不多，可以在“释放空间”删除。',
+        '这会替换这台电脑上的存档。当前的存档会保留为一份安全副本，之后还能恢复回来；它占用的空间和存档差不多，可以在“释放空间”删除。这台电脑原有的安全副本保持不变。',
       replace: '替换我的存档',
       import: '导入',
       imported: '导入完成。',
@@ -338,6 +341,8 @@ export const settingsStorage = defineMessages({
         upgrade: '它由较旧版本的 PathKeep 制作，打开时会自动更新。',
         noChats:
           'PathKeep 0.3 导出的文件不含助理对话；它们仍留在原来的电脑上。',
+        copies:
+          'PathKeep 0.5 及更早版本导出的文件还带着原来那台电脑的安全副本；这个文件里的会加到这台电脑的安全副本中。',
       },
     },
     restore: {
@@ -495,7 +500,7 @@ export const settingsStorage = defineMessages({
       exportPasswordHint:
         '在另一台電腦上開啟檔案時需要它，之後它就是那邊存檔的密碼。忘記了就無法找回。',
       passwordsDiffer: '兩次輸入的密碼不一致。',
-      stays: 'App 密碼和備份排程會留在這台電腦上。',
+      stays: 'App 密碼、備份排程和安全副本會留在這台電腦上。',
       export: '匯出',
       exported: '已儲存 {size}。',
       exportFailed: '無法寫入檔案。{message}',
@@ -510,7 +515,7 @@ export const settingsStorage = defineMessages({
         '這個檔案由 PathKeep 0.3 匯出：它的密碼就是你在那台電腦上用的存檔密碼。',
       wrongPassword: '這組密碼打不開這個檔案。',
       replaces:
-        '這會取代這台電腦上的存檔。目前的存檔會保留為一份安全副本，之後還能還原回來；它佔用的空間和存檔差不多，可以在「釋放空間」刪除。',
+        '這會取代這台電腦上的存檔。目前的存檔會保留為一份安全副本，之後還能還原回來；它佔用的空間和存檔差不多，可以在「釋放空間」刪除。這台電腦原有的安全副本維持原樣。',
       replace: '取代我的存檔',
       import: '匯入',
       imported: '匯入完成。',
@@ -527,6 +532,8 @@ export const settingsStorage = defineMessages({
         upgrade: '它由較舊版本的 PathKeep 製作，開啟時會自動更新。',
         noChats:
           'PathKeep 0.3 匯出的檔案不含助理對話；它們仍留在原來的電腦上。',
+        copies:
+          'PathKeep 0.5 及更早版本匯出的檔案還帶著原來那台電腦的安全副本；這個檔案裡的會加到這台電腦的安全副本裡。',
       },
     },
     restore: {

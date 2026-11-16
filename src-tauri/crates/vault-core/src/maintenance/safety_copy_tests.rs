@@ -8,8 +8,10 @@
 //! Failure modes: the replaced archive is left in a folder no screen shows and nothing frees; the
 //! copy is listed but does not restore (no seal, a wrong one, or one that requires the agent
 //! conversations a restore left in place); restoring it does not bring back what was replaced; a
-//! crash after the publish leaves the replaced files hidden; an import into an empty folder leaves
-//! an empty copy behind; the copy keeps a search index nothing reads.
+//! crash after the publish leaves the replaced files hidden; a rename cut on a file system without
+//! a journal, which leaves the replaced archive under both names, is taken for another copy already
+//! there, and the archive stays hidden and unsealed; an import into an empty folder leaves an empty
+//! copy behind; the copy keeps a search index nothing reads.
 use super::creation::tests::{ADDED, marker, open, released_archive, write_marker};
 use super::snapshot::{list_snapshots, restore_snapshot, snapshot};
 use crate::{ApplyImportOptions, ProjectPaths, RecoverySnapshot, Vault, project_paths_with_root};
@@ -99,6 +101,51 @@ fn a_crash_after_the_restore_is_published_still_makes_the_copy() {
     super::recover_native_maintenance(&paths).unwrap();
     assert!(hidden_backups(&paths).is_empty(), "{:?}", hidden_backups(&paths));
     let copy = the_copy_before(&paths, "restore");
+    let reopened = open(&paths).unwrap();
+    assert_eq!(marker(&reopened, Db::Archive).as_deref(), Some("released-archive"));
+    let back = restore_snapshot(&reopened, &copy, None, Default::default()).unwrap();
+    assert_eq!(marker(&back.vault, Db::Archive).as_deref(), Some("replaced-by-the-restore"));
+}
+
+// On FAT32 or exFAT a power cut during the rename that makes the replaced archive a copy can leave
+// it under both names, each the same data (the install module's docs). Finishing does not take that
+// for another copy already there: the copy is sealed and offered for a restore, and the backup's
+// name goes into the quarantine, which the storage screen counts and the user frees once the disk
+// is checked. Deleting it would free the copy's data; leaving it in the root hides it.
+#[test]
+fn a_replaced_archive_left_under_both_names_by_a_cut_rename_still_becomes_the_copy() {
+    let (_root, paths) = released_archive();
+    let (_copies, older) = older_copy(&paths);
+    let live = open(&paths).unwrap();
+    write_marker(live.store(), Db::Archive, "replaced-by-the-restore");
+    let fault = crate::fault_inject::FaultGuard::panic_at("native-install-published");
+    let crashed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        restore_snapshot(&live, &older, None, Default::default())
+    }));
+    drop(fault);
+    assert!(crashed.is_err(), "the restore was cut after its publish");
+    drop(live);
+    let backup = hidden_backups(&paths);
+    assert_eq!(backup.len(), 1, "{backup:?}");
+    let backup = paths.app_root.join(&backup[0]);
+    let journal = vault_layout::spec(vault_layout::ArtifactId::InstallJournalV2).path.relative();
+    let journal: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(paths.app_root.join(journal)).unwrap()).unwrap();
+    let copy = paths.app_root.join(journal["kept_as"].as_str().expect("the copy's name"));
+    // The rename was cut: the copy's name has the replaced archive too.
+    super::move_copies_tests::copy_tree(&backup, &copy);
+    let replaced = std::fs::read(backup.join("archive/history-vault.db")).unwrap();
+
+    super::recover_native_maintenance(&paths).unwrap();
+    assert!(hidden_backups(&paths).is_empty(), "{:?}", hidden_backups(&paths));
+    assert_eq!(the_copy_before(&paths, "restore"), copy);
+    let quarantined: Vec<PathBuf> = walkdir::WalkDir::new(&paths.quarantine_dir)
+        .into_iter()
+        .map(|entry| entry.unwrap().into_path())
+        .filter(|path| path.ends_with("archive/history-vault.db"))
+        .collect();
+    assert_eq!(quarantined.len(), 1, "{quarantined:?}");
+    assert_eq!(std::fs::read(&quarantined[0]).unwrap(), replaced);
     let reopened = open(&paths).unwrap();
     assert_eq!(marker(&reopened, Db::Archive).as_deref(), Some("released-archive"));
     let back = restore_snapshot(&reopened, &copy, None, Default::default()).unwrap();

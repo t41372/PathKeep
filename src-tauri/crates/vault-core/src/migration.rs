@@ -23,6 +23,7 @@ use zip::{ZipArchive, ZipWriter, write::SimpleFileOptions};
 
 pub mod native;
 mod portable_artifacts;
+mod safety_copies;
 pub use portable_artifacts::resolve_imported_artifact;
 #[cfg(test)]
 mod native_tests;

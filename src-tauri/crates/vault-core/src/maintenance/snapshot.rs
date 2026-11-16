@@ -440,7 +440,10 @@ pub fn recover_native_maintenance(paths: &ProjectPaths) -> Result<bool> {
 }
 
 /// Directory snapshots keep all databases together; discovery stays keyless. One that cannot be
-/// read is listed as not openable rather than hiding the others.
+/// read is listed as not openable rather than hiding the others. A folder without a seal is a
+/// safety snapshot cut short, freed with the other snapshots, unless it is the archive a restore or
+/// an import replaced: that is a copy from the moment it has its name, sealed or not (an error while
+/// sealing it), listed as one that cannot be restored from so it is never freed unpicked.
 pub fn list_snapshots(paths: &ProjectPaths) -> Result<Vec<crate::RecoverySnapshot>> {
     let root = paths.artifact_path(vault_layout::ArtifactId::NativeSnapshots);
     if !root.exists() {
@@ -454,7 +457,10 @@ pub fn list_snapshots(paths: &ProjectPaths) -> Result<Vec<crate::RecoverySnapsho
     for entry in fs::read_dir(root)? {
         let entry = entry?;
         let path = entry.path();
-        if !path.join(SEAL).is_file() {
+        let before = install::Before::of_copy(&entry.file_name().to_string_lossy());
+        let sealed = path.join(SEAL).is_file();
+        let replaced_archive = before.is_some() && path.is_dir();
+        if !sealed && !replaced_archive {
             continue;
         }
         let archive = path.join(vault_layout::database_path(vault_layout::primary_database()));
@@ -471,8 +477,7 @@ pub fn list_snapshots(paths: &ProjectPaths) -> Result<Vec<crate::RecoverySnapsho
             .modified()
             .ok()
             .map(|time| chrono::DateTime::<chrono::Utc>::from(time).to_rfc3339());
-        let source_op = install::Before::of_copy(&entry.file_name().to_string_lossy())
-            .map_or("maintenance", install::Before::op);
+        let source_op = before.map_or("maintenance", install::Before::op);
         let name = path.display().to_string();
         result.push(crate::RecoverySnapshot {
             id: name.clone(),
@@ -480,7 +485,7 @@ pub fn list_snapshots(paths: &ProjectPaths) -> Result<Vec<crate::RecoverySnapsho
             created_at: created,
             // The whole copy, as Free up space shows and deletes it.
             size_bytes: super::retention::measure(&path).map_or(size, |(bytes, _)| bytes),
-            verified_openable: size >= 4096,
+            verified_openable: sealed && size >= 4096,
             encrypted,
             source_op: source_op.into(),
             label: label.into(),

@@ -444,6 +444,11 @@ function BundleSummary({ preview }: { preview: ImportPreview }) {
           {t('settingsStorage.move.summary.noChats')}
         </p>
       )}
+      {manifest.formatVersion <= 2 && (
+        <p className="text-muted-foreground">
+          {t('settingsStorage.move.summary.copies')}
+        </p>
+      )}
     </div>
   )
 }

@@ -16,6 +16,7 @@ The table turns that into a compile error. A new artifact needs a row, and a row
 - `policies.rs`: one small enum per operation, listing the answers that operation can get, and `LifecyclePolicies`, the struct that holds one answer per operation.
 - `catalog.rs`: `spec(ArtifactId) -> ArtifactSpec`, one `match` with one arm per artifact. Each row gives the path or path family, whether the content is original, rebuildable or control data, whose data it is, the database wiring and key purpose if it is a database, its `LifecyclePolicies`, and the layout that introduced it.
 - `paths.rs`: the views the operations use, for example `snapshot_databases(layout)`, `portable_files(layout)`, `wipe_targets()`, `installation_files(layout, search)`. Each is a filter over the table. Callers do not keep their own lists.
+- One answer needs the folder itself. An import replaces `raw-snapshots/` entry by entry (`ImportPolicy::ReplaceEntries`) and keeps the safety copies in it (their rows say `Preserve`, and a move leaves them out: `Omit(Some(ImportExclusion::SafetyCopies))`). The copies PathKeep 0.3 made are known by their names, `*.sqlite` in a folder, not by a fixed path, so `portable_installation_by_entry(layout)` only names the folder, and `vault_core::migration::safety_copies` reads it, for the import and for the export alike.
 
 ## Layouts
 
