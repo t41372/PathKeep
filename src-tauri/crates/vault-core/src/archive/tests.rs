@@ -1,10 +1,9 @@
 //! Failure modes: dependency features reorder visit/schema fingerprint JSON and break deduplication.
 //! Regression tests for the canonical archive domain.
 use super::*;
-use crate::{
-    config::{ProjectPaths, project_paths_with_root},
-    utils::{restore_test_env_var, test_env_lock},
-};
+use crate::config::{ProjectPaths, project_paths_with_root};
+#[cfg(unix)]
+use crate::utils::{restore_test_env_var, test_env_lock};
 use browser_history_parser::{ContextEvidence, NativeEntity, TypedEvidenceBatch};
 use rusqlite::{Connection, params};
 use std::collections::BTreeMap;

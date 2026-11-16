@@ -202,7 +202,10 @@ mod failure_chain_tests {
 
     #[test]
     fn machinery_causes_are_classified_through_run_context() {
-        let error = anyhow::Error::new(std::io::Error::from_raw_os_error(libc::ENOSPC))
+        // What the system reports when the disk is full: ENOSPC, or ERROR_DISK_FULL on Windows,
+        // where 28 means the printer is out of paper.
+        let full = if cfg!(windows) { 112 } else { libc::ENOSPC };
+        let error = anyhow::Error::new(std::io::Error::from_raw_os_error(full))
             .context("backup run 1 failed");
         assert_eq!(super::classify_backup_failure(&error), "disk-full");
         let error = anyhow::Error::new(vault_store::Error::OwnedElsewhere {

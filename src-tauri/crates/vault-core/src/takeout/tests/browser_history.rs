@@ -163,7 +163,9 @@ fn browser_import_retains_review_and_audit_without_advancing_live_cursors() {
 
 /// The records are in the archive when the import's review record is written. That step failing
 /// made the import report a failure, while its run said it succeeded, and marked the file it had
-/// read as unreadable (`WORK-RUN-LIFECYCLE-GUARDS`).
+/// read as unreadable (`WORK-RUN-LIFECYCLE-GUARDS`). Unix only: the step is made to fail by taking
+/// write permission from its folder, which the read-only flag of a Windows folder does not do.
+#[cfg(unix)]
 #[test]
 fn an_import_whose_review_record_fails_is_still_imported_with_a_warning() {
     use std::os::unix::fs::PermissionsExt;

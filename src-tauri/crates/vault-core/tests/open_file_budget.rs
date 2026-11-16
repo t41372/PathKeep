@@ -4,7 +4,10 @@
 //! count grows with the archive's age until "Too many open files"; databases or
 //! index readers are reopened per request and never closed.
 //!
-//! One test per binary: the count covers the whole process.
+//! One test per binary: the count covers the whole process. Unix only: the count is read from
+//! the process's list of open files (`/proc/self/fd`, `/dev/fd`), which Windows does not have, nor
+//! the small per-process limit this guards.
+#![cfg(unix)]
 
 use browser_history_fixtures::{TakeoutBrowserHistoryFixture, TakeoutBrowserRecord};
 use vault_core::search::{SearchRequest, SearchSession};
