@@ -220,7 +220,7 @@ fn base_config_for_recovery(paths: &ProjectPaths, journal: &RekeyJournal) -> App
 /// captured pre-rekey bytes (`None` = none existed pre-rekey).
 fn rollback_rekey(paths: &ProjectPaths, journal: &RekeyJournal) -> Result<()> {
     let temp_path = paths.legacy.archive.with_extension("rekey.sqlite");
-    let _ = vault_core::durable_io::retry_while_held(|| fs::remove_file(&temp_path));
+    let _ = vault_fs::remove_file(&temp_path);
     super::remove_stale_sidecars(&temp_path);
     match &journal.previous_config {
         Some(bytes) => atomic_durable_write(&paths.config_path, bytes.as_bytes())

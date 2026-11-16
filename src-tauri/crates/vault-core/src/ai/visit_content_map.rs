@@ -31,7 +31,7 @@ use crate::ai_sidecar::provider_table_name;
 use crate::config::{ProjectPaths, ensure_paths};
 use anyhow::{Context, Result};
 use std::collections::{HashMap, HashSet};
-use std::fs::{self, File, OpenOptions};
+use std::fs::{File, OpenOptions};
 use std::io::{BufReader, Read, Write};
 use std::path::PathBuf;
 
@@ -185,7 +185,7 @@ impl VisitContentMap {
         if !self.exists() {
             return Ok(false);
         }
-        fs::remove_file(&self.path)
+        vault_fs::remove_file(&self.path)
             .with_context(|| format!("removing visit map {}", self.path.display()))?;
         Ok(true)
     }
@@ -195,7 +195,7 @@ impl VisitContentMap {
         for extension in ["pkrev", "pkfwd", "pkpos"] {
             let path = self.path.with_extension(extension);
             if path.exists() {
-                fs::remove_file(path)?;
+                vault_fs::remove_file(path)?;
             }
         }
         Ok(())

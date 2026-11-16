@@ -17,7 +17,7 @@ use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
-    fs::{self, File},
+    fs::File,
     io::{BufWriter, Read, Seek, SeekFrom, Write},
     path::PathBuf,
 };
@@ -223,7 +223,7 @@ pub(super) fn rebuild_cancellable(
     }
     writer.flush()?;
     drop(writer);
-    fs::rename(temporary, destination)?;
+    vault_fs::rename(temporary, destination)?;
     Ok(())
 }
 
@@ -263,6 +263,6 @@ pub(super) fn delete(paths: &ProjectPaths, provider: &str, model: &str) -> Resul
     if !path.exists() {
         return Ok(false);
     }
-    fs::remove_file(path)?;
+    vault_fs::remove_file(path)?;
     Ok(true)
 }

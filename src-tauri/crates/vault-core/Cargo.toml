@@ -11,6 +11,7 @@ default = []
 test-fixtures = []
 
 [dependencies]
+vault-fs = { path = "../vault-fs" }
 vault-crypto = { path = "../vault-crypto" }
 zeroize = "1"
 anyhow.workspace = true

@@ -234,7 +234,7 @@ fn remove_path(path: &Path) -> Result<(u64, usize)> {
     }
     if path.is_file() {
         let bytes = file_size(path);
-        fs::remove_file(path)?;
+        vault_fs::remove_file(path)?;
         return Ok((bytes, 1));
     }
 
@@ -245,7 +245,7 @@ fn remove_path(path: &Path) -> Result<(u64, usize)> {
         deleted_bytes += bytes;
         deleted_files += files;
     }
-    fs::remove_dir_all(path)?;
+    vault_fs::remove_dir_all(path)?;
     Ok((deleted_bytes, deleted_files))
 }
 

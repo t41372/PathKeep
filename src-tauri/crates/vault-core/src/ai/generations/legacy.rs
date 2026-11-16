@@ -221,7 +221,7 @@ fn trim_sources(
 
 fn move_once(source: &Path, target: &Path) -> Result<()> {
     if !target.try_exists()? {
-        fs::rename(source, target)?;
+        vault_fs::rename(source, target)?;
     }
     // Destination wins if an older migration left both names. Never overwrite the resumed file.
     crate::durable_io::fsync_dir(target.parent().unwrap())?;
@@ -314,7 +314,7 @@ pub(super) fn cleanup_old_copies(vault: &Vault, heal_rows: bool) -> Result<()> {
                 if target.exists() {
                     crate::durable_io::remove_file_durably(&target)?;
                 }
-                fs::rename(file.path(), &target)?;
+                vault_fs::rename(file.path(), &target)?;
                 crate::durable_io::fsync_dir(root)?;
                 crate::durable_io::fsync_dir(&dir)?;
             }
@@ -332,13 +332,13 @@ pub(super) fn cleanup_old_copies(vault: &Vault, heal_rows: bool) -> Result<()> {
             // Repeat barriers on an already emptied marker before removing it.
             crate::durable_io::fsync_dir(root)?;
             crate::durable_io::fsync_dir(&dir)?;
-            fs::remove_dir_all(&dir)?;
+            vault_fs::remove_dir_all(&dir)?;
         } else {
             for file in fs::read_dir(&dir)? {
                 let file = file?;
                 if !file.file_name().to_string_lossy().starts_with("manifest.json") {
                     if file.file_type()?.is_dir() {
-                        fs::remove_dir_all(file.path())?;
+                        vault_fs::remove_dir_all(file.path())?;
                     } else {
                         crate::durable_io::remove_file_durably(&file.path())?;
                     }
@@ -347,15 +347,15 @@ pub(super) fn cleanup_old_copies(vault: &Vault, heal_rows: bool) -> Result<()> {
             match old_manifest(&dir) {
                 Ok(mut manifest) if heal_rows => {
                     cleanup_old_rows(vault, &dir, &mut manifest)?;
-                    fs::remove_dir_all(&dir)?;
+                    vault_fs::remove_dir_all(&dir)?;
                 }
                 Ok(_) => {}
-                Err(_) => fs::remove_dir_all(&dir)?,
+                Err(_) => vault_fs::remove_dir_all(&dir)?,
             }
         }
         crate::durable_io::fsync_dir(&rebuild)?;
     }
-    let _ = fs::remove_dir(&rebuild);
+    let _ = vault_fs::remove_dir(&rebuild);
     crate::durable_io::fsync_dir(root)
 }
 fn cleanup_old_rows(vault: &Vault, dir: &Path, manifest: &mut OldManifest) -> Result<()> {

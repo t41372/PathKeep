@@ -68,7 +68,7 @@ impl Generations {
             .context("publishing the search generation")
     }
     pub fn discard(&self, name: &str) -> Result<()> {
-        std::fs::remove_dir_all(self.root.join(name))?;
+        vault_fs::remove_dir_all(self.root.join(name))?;
         Ok(())
     }
     pub fn collect(&mut self) -> Result<()> {
@@ -81,7 +81,7 @@ impl Generations {
                 && name != self.current
                 && !self.retired.iter().any(|(path, _)| *path == entry.path())
             {
-                std::fs::remove_dir_all(entry.path())?;
+                vault_fs::remove_dir_all(entry.path())?;
             }
         }
         Ok(())

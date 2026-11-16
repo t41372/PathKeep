@@ -97,9 +97,7 @@ pub fn import(
     vault_core::config::ensure_paths(&old_paths)?;
     let legacy_config = old_root.join("config/config.json");
     if legacy_config.is_file() {
-        vault_core::durable_io::retry_while_held(|| {
-            fs::rename(&legacy_config, &old_paths.config_path)
-        })?;
+        vault_fs::rename(&legacy_config, &old_paths.config_path)?;
     }
     let mut config = vault_core::load_config(&old_paths).unwrap_or_default();
     config.initialized = true;
@@ -175,7 +173,7 @@ fn remove_old_files(old_root: &Path) -> Result<()> {
                 .iter()
                 .any(|suffix| name.ends_with(suffix))
             {
-                vault_core::durable_io::retry_while_held(|| fs::remove_file(entry.path()))
+                vault_fs::remove_file(entry.path())
                     .with_context(|| format!("removing staged {}", entry.path().display()))?;
             }
         }

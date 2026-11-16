@@ -8486,6 +8486,7 @@ dependencies = [
  "tempfile",
  "vault-core",
  "vault-crypto",
+ "vault-fs",
  "vault-store",
 ]
 
@@ -8532,6 +8533,7 @@ dependencies = [
  "turbovec",
  "ureq",
  "vault-crypto",
+ "vault-fs",
  "vault-search",
  "vault-store",
  "walkdir",
@@ -8561,7 +8563,15 @@ dependencies = [
  "turso",
  "turso_core",
  "vault-crypto",
+ "vault-fs",
  "zeroize",
+]
+
+[[package]]
+name = "vault-fs"
+version = "0.1.0"
+dependencies = [
+ "tempfile",
 ]
 
 [[package]]
@@ -8629,6 +8639,7 @@ dependencies = [
  "tokio",
  "tracing",
  "turso",
+ "vault-fs",
  "zeroize",
 ]
 

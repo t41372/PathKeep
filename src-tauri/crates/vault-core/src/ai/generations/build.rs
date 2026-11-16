@@ -152,7 +152,7 @@ impl BuildGeneration {
                 lease.lineage(),
             )?;
             if source_dir.exists() {
-                std::fs::remove_dir_all(&source_dir)?;
+                vault_fs::remove_dir_all(&source_dir)?;
             }
         }
         std::fs::create_dir_all(&source_dir)?;

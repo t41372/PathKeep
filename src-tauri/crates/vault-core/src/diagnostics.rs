@@ -135,7 +135,7 @@ fn write_report(path: &Path, report: &StoredCrashReport) -> Result<()> {
     ));
     fs::write(&temp_path, content)
         .with_context(|| format!("writing crash report {}", temp_path.display()))?;
-    if let Err(error) = fs::rename(&temp_path, path) {
+    if let Err(error) = vault_fs::rename(&temp_path, path) {
         recover_report_rename(path, &temp_path, error)?;
     }
     Ok(())
@@ -143,8 +143,8 @@ fn write_report(path: &Path, report: &StoredCrashReport) -> Result<()> {
 
 fn recover_report_rename(path: &Path, temp_path: &Path, error: std::io::Error) -> Result<()> {
     if path.exists() {
-        let _ = fs::remove_file(path);
-        fs::rename(temp_path, path)
+        let _ = vault_fs::remove_file(path);
+        vault_fs::rename(temp_path, path)
             .with_context(|| format!("replacing crash report {}", path.display()))?;
     } else {
         return Err(error).with_context(|| format!("writing crash report {}", path.display()));

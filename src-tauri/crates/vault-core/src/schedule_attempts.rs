@@ -393,7 +393,7 @@ fn prune_attempt_files(directory: &Path, retain: usize) -> Result<()> {
     paths.sort();
     let remove_count = paths.len().saturating_sub(retain);
     for path in paths.into_iter().take(remove_count) {
-        fs::remove_file(&path)
+        vault_fs::remove_file(&path)
             .with_context(|| format!("pruning old schedule attempt {}", path.display()))?;
     }
     Ok(())

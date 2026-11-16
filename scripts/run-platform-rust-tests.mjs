@@ -48,6 +48,8 @@ function runHostRustTests(currentPlatform) {
         '--manifest-path',
         'src-tauri/Cargo.toml',
         '-p',
+        'vault-fs',
+        '-p',
         'vault-core',
         '-p',
         'vault-worker',

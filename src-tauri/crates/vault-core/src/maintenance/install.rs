@@ -189,14 +189,14 @@ fn finish(paths: &ProjectPaths, journal: &Journal) -> Result<()> {
 
 fn rename(from: &Path, to: &Path) -> Result<()> {
     fs::create_dir_all(to.parent().unwrap())?;
-    crate::durable_io::retry_while_held(|| fs::rename(from, to))?;
+    vault_fs::rename(from, to)?;
     fsync_dir(from.parent().unwrap())?;
     fsync_dir(to.parent().unwrap())
 }
 
 fn remove(path: &Path) -> Result<()> {
     let mut found = false;
-    crate::durable_io::retry_while_held(|| match fs::symlink_metadata(path) {
+    vault_fs::retry_while_held(|| match fs::symlink_metadata(path) {
         Ok(meta) => {
             found = true;
             if meta.is_dir() { fs::remove_dir_all(path) } else { fs::remove_file(path) }

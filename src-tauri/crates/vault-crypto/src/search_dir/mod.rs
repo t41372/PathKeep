@@ -172,6 +172,9 @@ impl Directory for EncryptedDirectory {
         Ok(Arc::new(opened))
     }
 
+    // Does not wait for a program holding the file (`vault_fs`): tantivy keeps a file it could
+    // not delete and tries again at its next garbage collection, and a wait here would hold up
+    // the commit that collects while a reader still has the segment open.
     fn delete(&self, path: &Path) -> Result<(), DeleteError> {
         fs::remove_file(self.path(path)).map_err(|error| {
             if error.kind() == io::ErrorKind::NotFound {

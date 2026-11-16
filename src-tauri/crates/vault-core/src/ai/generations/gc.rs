@@ -339,6 +339,8 @@ fn trash_path(vault: &Vault, path: &Path, trash: &Path) -> Result<()> {
             vault.vector_generations.registry.lock().unwrap_or_else(|e| e.into_inner());
         // Only an already-reserved path can reach here. Rename is the sole file operation under
         // registry; recursive deletion, file data and directory barriers always happen outside it.
+        // It does not wait for a program holding a file (`vault_fs`): a wait would hold the
+        // registry, and a generation that cannot move now moves at the next collection.
         fs::rename(path, &target)?;
         registry.retired.remove(path);
     }
@@ -348,7 +350,10 @@ fn trash_path(vault: &Vault, path: &Path, trash: &Path) -> Result<()> {
 }
 static TRASH_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 /// One entry that cannot be deleted yet (a file still open on Windows) must not keep every
-/// later entry in the trash; the failure is reported after the others are gone.
+/// later entry in the trash; the failure is reported after the others are gone, and the next
+/// collection tries it again. It does not wait for a program holding the file (`vault_fs`): a
+/// reader keeps a generation open for as long as it reads, and a wait on each such file would
+/// hold up every collection.
 fn clean_trash(vault: &Vault, dir: &Path) -> Result<()> {
     let mut failure = None;
     for entry in fs::read_dir(dir)? {

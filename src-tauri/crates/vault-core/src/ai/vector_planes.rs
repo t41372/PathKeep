@@ -20,7 +20,7 @@ use crate::ai_sidecar::provider_table_name;
 use crate::config::{ProjectPaths, ensure_paths};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use std::fs::{self, File};
+use std::fs::File;
 use std::io::{BufReader, BufWriter, Read, Seek, Write};
 use std::path::{Path, PathBuf};
 
@@ -403,7 +403,7 @@ pub fn delete_planes(paths: &ProjectPaths, provider_id: &str, model: &str) -> Re
         [binary_plane_path(paths, provider_id, model), int8_plane_path(paths, provider_id, model)]
     {
         if path.exists() {
-            fs::remove_file(&path)
+            vault_fs::remove_file(&path)
                 .with_context(|| format!("removing derived plane {}", path.display()))?;
             removed = true;
         }
@@ -459,9 +459,9 @@ fn write_planes_atomic(
         binary_writer.flush().context("flushing binary plane")?;
         int8_writer.flush().context("flushing int8 plane")?;
     }
-    fs::rename(&binary_tmp, &binary_path)
+    vault_fs::rename(&binary_tmp, &binary_path)
         .with_context(|| format!("finalizing derived plane {}", binary_path.display()))?;
-    fs::rename(&int8_tmp, &int8_path)
+    vault_fs::rename(&int8_tmp, &int8_path)
         .with_context(|| format!("finalizing derived plane {}", int8_path.display()))?;
     Ok(())
 }
