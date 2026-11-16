@@ -25,7 +25,7 @@ impl Store {
     /// Callers must not call Store again while holding the returned guard.
     pub fn pause(&self) -> Result<Maintenance<'_>> {
         crate::worker::check_caller()?;
-        let workers = self.workers.write().unwrap();
+        let workers = self.workers_mut();
         if self.closed.load(Ordering::Acquire) {
             return Err(Error::Closed);
         }

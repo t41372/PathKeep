@@ -34,7 +34,7 @@ pub use queue::Priority;
 pub use session::Session;
 pub use statements::{MappedRows, OptionalRow, Rows, Statement};
 use std::sync::{
-    Arc, Mutex, RwLock,
+    Arc, Mutex, PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard, TryLockError,
     atomic::{AtomicBool, Ordering},
 };
 pub use turso::{IntoParams, Row, Value, params, params_from_iter};
@@ -130,27 +130,28 @@ impl Store {
     }
     /// Inspect admission and maintenance without issuing database work.
     pub fn metrics(&self, db: Db) -> Metrics {
-        self.workers
-            .try_read()
-            .ok()
-            .and_then(|workers| workers.iter().find(|(id, _)| *id == db).map(|(_, w)| w.metrics()))
-            .unwrap_or_default()
+        let workers = match self.workers.try_read() {
+            Ok(workers) => workers,
+            Err(TryLockError::Poisoned(poisoned)) => poisoned.into_inner(),
+            Err(TryLockError::WouldBlock) => return Metrics::default(),
+        };
+        workers.iter().find(|(id, _)| *id == db).map(|(_, w)| w.metrics()).unwrap_or_default()
     }
     /// Enables opt-in plan evidence without changing the application query path.
     pub fn capture_query_plans(&self, db: Db, enabled: bool) -> Result<()> {
-        let workers = self.workers.read().unwrap();
+        let workers = self.workers();
         workers.iter().find(|(id, _)| *id == db).ok_or(Error::Closed)?.1.plans.set_enabled(enabled);
         Ok(())
     }
     /// Drains the statements captured since the last call whose program opens an ephemeral table,
     /// once per run: each such run creates a temporary file (`temp_store=FILE`).
     pub fn take_ephemeral_tables(&self, db: Db) -> Result<Vec<String>> {
-        let workers = self.workers.read().unwrap();
+        let workers = self.workers();
         Ok(workers.iter().find(|(id, _)| *id == db).ok_or(Error::Closed)?.1.plans.take_ephemeral())
     }
     /// Drains captured plans; callers decide which scans and sorts are acceptable.
     pub fn take_query_plans(&self, db: Db) -> Result<Vec<QueryPlan>> {
-        let workers = self.workers.read().unwrap();
+        let workers = self.workers();
         Ok(workers.iter().find(|(id, _)| *id == db).ok_or(Error::Closed)?.1.plans.take())
     }
     fn request<T: Send + 'static>(
@@ -164,7 +165,7 @@ impl Store {
         if self.closed.load(Ordering::Acquire) {
             return Err(Error::Closed);
         }
-        let workers = self.workers.read().unwrap();
+        let workers = self.workers();
         let worker = &workers.iter().find(|(id, _)| *id == db).ok_or(Error::Closed)?.1;
         worker.request(read, priority, work)
     }
@@ -173,12 +174,25 @@ impl Store {
     pub fn close(&self) -> Result<()> {
         worker::check_caller()?;
         self.closed.store(true, Ordering::Release);
-        let mut workers = self.workers.write().unwrap();
+        let mut workers = self.workers_mut();
         while let Some((_, worker)) = workers.pop() {
             drop(worker);
         }
         self.ownership.lock().unwrap().take();
         Ok(())
+    }
+    /// The workers, also after a panic poisoned their lock. The maintenance pause holds them
+    /// locked across its caller's code, so a caller that panics there poisons the lock while the
+    /// list stays as it was: once the store is open only closing it changes the list
+    /// (`Store::close`, `Maintenance::close`), and neither panics halfway. The store goes on
+    /// serving, and closing it, from `Drop` too, never panics a second time, which during the
+    /// caller's unwinding would abort the process and hide the first panic.
+    fn workers(&self) -> RwLockReadGuard<'_, Vec<(Db, worker::Workers)>> {
+        self.workers.read().unwrap_or_else(PoisonError::into_inner)
+    }
+    /// [`Store::workers`], to pause or to close.
+    fn workers_mut(&self) -> RwLockWriteGuard<'_, Vec<(Db, worker::Workers)>> {
+        self.workers.write().unwrap_or_else(PoisonError::into_inner)
     }
 }
 impl Drop for Store {
