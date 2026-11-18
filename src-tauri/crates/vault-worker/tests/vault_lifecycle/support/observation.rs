@@ -119,7 +119,7 @@ const LOCK_FILES: [&str; 4] =
 /// open archive holds its owner lock, or the search index its writer lock, nobody else can read
 /// the file. Any other file that cannot be read fails the test, so a store that started locking
 /// its data could not slip past the at-rest checks on Windows.
-fn read_unless_locked(root: &Path, path: &str) -> Option<Vec<u8>> {
+pub fn read_unless_locked(root: &Path, path: &str) -> Option<Vec<u8>> {
     match fs::read(root.join(path)) {
         Ok(bytes) => Some(bytes),
         Err(error)

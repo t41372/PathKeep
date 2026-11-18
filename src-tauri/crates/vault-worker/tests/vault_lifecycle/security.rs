@@ -64,8 +64,9 @@ fn password_change_rewraps_the_key_without_rewriting_any_database() {
             .unwrap()
             .into_iter()
             .filter(|path| path != "archive/keys.envelope")
+            // The open archive holds its lock files, which Windows will not let anyone read.
             .map(|path| {
-                let bytes = std::fs::read(fixture.root.join(&path)).unwrap();
+                let bytes = read_unless_locked(&fixture.root, &path);
                 (path, bytes)
             })
             .collect();
@@ -81,7 +82,7 @@ fn password_change_rewraps_the_key_without_rewriting_any_database() {
         assert_eq!(after, expected(&format!("backup-{encrypted}")));
         assert_eq!(after, before);
         for (path, bytes) in files_before {
-            assert_eq!(std::fs::read(fixture.root.join(&path)).unwrap(), bytes, "{path}");
+            assert_eq!(read_unless_locked(&fixture.root, &path), bytes, "{path}");
         }
         if let Some(key) = key_before {
             let changed = vault_core::Vault::unlock_data_key(vault.paths(), NEW_PASSWORD).unwrap();
