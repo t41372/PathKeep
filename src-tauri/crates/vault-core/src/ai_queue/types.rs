@@ -41,6 +41,9 @@ pub struct QueueJobCounts {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct IndexBackfillCursor {
+    /// Fixed visit scope and durable measurement; absent on legacy jobs.
+    #[serde(default)]
+    pub scan: Option<IndexScan>,
     /// Source identity that makes this scan position meaningful; older cursors restart safely.
     #[serde(default)]
     pub lineage: Option<String>,
@@ -51,25 +54,42 @@ pub struct IndexBackfillCursor {
     /// Updated rows are a subset of embedded_so_far; both counts survive retry and pause.
     #[serde(default)]
     pub updated_so_far: u64,
-    /// The max canonical `history_id` captured at the TRUE start of the build — the honest determinate
-    /// scan denominator, so `next_history_id / scan_target` reaches ~100% as the scan completes.
-    ///
-    /// `#[serde(default)]` (default 0 = unknown) keeps EXISTING persisted payloads back-compatible: a
-    /// cursor written before this field deserializes with `scan_target = 0`. Set ONCE at the build's
-    /// true start; a resume PRESERVES it (see [`persist_index_cursor`]) rather than recomputing against
-    /// a corpus that may have grown, so the bar measures the build's own original scan range.
+    /// Diagnostic highest id, not a visit-count denominator.
     #[serde(default)]
     pub scan_target: i64,
-    /// The number of candidate pages this build set out to embed, captured ONCE at the build's true
-    /// start (non-reverted visits NOT yet embedded for this provider — so a full rebuild, whose wipe
-    /// already cleared them, counts every candidate, while an incremental pass counts only the new
-    /// pages). `embedded_so_far / embed_target` is the HONEST progress the user reads as "{embedded} of
-    /// {N} pages" — it tracks vectors actually written, not a sparse history-id position. Same
-    /// back-compat + preserve-on-resume contract as [`Self::scan_target`]: `#[serde(default)]`
-    /// (0 = unknown) keeps legacy payloads valid, and a resume keeps the stored value rather than
-    /// recounting a corpus that grew (or got partially embedded) under the build.
+    /// Legacy missing-row target; retained for diagnostics, never used as scan progress.
     #[serde(default)]
     pub embed_target: u64,
+}
+
+/// Physical visit rows are append-only during a job; visibility changes do not change this set.
+/// Archive replacement closes the owner. A lineage switch starts another scope.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct IndexScan {
+    pub version: u8,
+    pub upper_history_id: i64,
+    pub source_watermark: i64,
+    pub rebuild_from_history_id: i64,
+    pub planning_after: i64,
+    pub total: u64,
+    pub examined: u64,
+    pub phase: crate::IndexBuildPhase,
+}
+
+impl IndexBackfillCursor {
+    /// Unknown legacy totals stay unknown; outcomes never become a scan numerator.
+    pub fn progress(&self) -> crate::IndexBuildProgress {
+        let scan = self.scan.unwrap_or_default();
+        let visits = scan.version == 1 && scan.phase == crate::IndexBuildPhase::Visits;
+        crate::IndexBuildProgress {
+            phase: scan.phase,
+            done: if visits { scan.examined } else { 0 },
+            total: (visits && scan.examined <= scan.total).then_some(scan.total),
+            new_visits: self.embedded_so_far.saturating_sub(self.updated_so_far),
+            updated_visits: self.updated_so_far,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

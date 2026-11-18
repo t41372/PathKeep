@@ -26,7 +26,7 @@ fn pages(ids: impl IntoIterator<Item = i64>) -> Vec<SeedVisit> {
 }
 
 #[test]
-fn a_build_over_an_existing_index_reads_neither_it_nor_the_visits_whole() {
+fn preparation_uses_short_keyset_reads_without_per_visit_lineage_scans() {
     let runtime = Runtime::new().expect("runtime");
     let (_paths, config, connection) = prepared_archive();
     let vault = connection.vault.clone().with_config(config);
@@ -36,10 +36,12 @@ fn a_build_over_an_existing_index_reads_neither_it_nor_the_visits_whole() {
     seed_visits(&vault, pages(41..=43));
 
     vault.store().capture_query_plans(Db::Intelligence, true).unwrap();
+    vault.store().capture_query_plans(Db::Archive, true).unwrap();
     let report = runtime
         .block_on(build_ai_index(&vault, &provider, &AiIndexRequest::default()))
         .expect("second build");
     vault.store().capture_query_plans(Db::Intelligence, false).unwrap();
+    vault.store().capture_query_plans(Db::Archive, false).unwrap();
     assert_eq!(report.indexed_items, 3);
 
     let joins: Vec<_> = vault
@@ -47,11 +49,15 @@ fn a_build_over_an_existing_index_reads_neither_it_nor_the_visits_whole() {
         .take_query_plans(Db::Intelligence)
         .unwrap()
         .into_iter()
-        .filter(|plan| plan.sql.contains("archive.visits") && plan.sql.contains("ai_embeddings"))
+        .chain(vault.store().take_query_plans(Db::Archive).unwrap())
+        .filter(|plan| {
+            (plan.sql.contains("archive.visits") && plan.sql.contains("ai_embeddings"))
+                || plan.sql.starts_with("SELECT id FROM visits WHERE id>=")
+        })
         .collect();
     assert!(
-        joins.iter().any(|plan| plan.sql.contains("COUNT(*)")),
-        "the build no longer counts what is left to index here: {joins:#?}"
+        joins.iter().any(|plan| plan.sql.starts_with("SELECT id FROM visits WHERE id>=")),
+        "the build must measure through bounded primary-key reads: {joins:#?}"
     );
     for plan in &joins {
         for step in &plan.steps {
@@ -70,7 +76,7 @@ fn a_build_over_an_existing_index_reads_neither_it_nor_the_visits_whole() {
 }
 
 #[test]
-fn the_count_of_what_is_left_is_the_visits_shown_that_have_no_row_of_this_model() {
+fn checked_visit_counts_include_unchanged_other_model_and_hidden_rows() {
     let runtime = Runtime::new().expect("runtime");
     let (_paths, config, connection) = prepared_archive();
     let vault = connection.vault.clone().with_config(config.clone());
@@ -79,7 +85,7 @@ fn the_count_of_what_is_left_is_the_visits_shown_that_have_no_row_of_this_model(
     seed_visits(&vault, pages(1..=6));
     let (indexed, first) =
         run_backfill_chunk(&runtime, &vault, &config, &provider, &AiIndexRequest::default(), 0);
-    assert_eq!((indexed.len(), first.embed_target), (6, 6));
+    assert_eq!((indexed.len(), first.scan.unwrap().total), (6, 6));
 
     // Left to index: 3 lost its row, 7 has a row of another model only, 8 is new.
     // Not left: 9 was taken back.
@@ -127,7 +133,8 @@ fn the_count_of_what_is_left_is_the_visits_shown_that_have_no_row_of_this_model(
 
     let (_, second) =
         run_backfill_chunk(&runtime, &vault, &config, &provider, &AiIndexRequest::default(), 0);
-    assert_eq!(second.embed_target, 3);
+    let scan = second.scan.unwrap();
+    assert_eq!((scan.examined, scan.total), (9, 9));
 }
 
 /// Lets the count read its first page, then asks the build to stop.
@@ -147,8 +154,8 @@ fn a_stop_asked_for_during_the_count_ends_the_build_before_the_count_does() {
     let (_paths, config, connection) = prepared_archive();
     let vault = connection.vault.clone().with_config(config);
     let provider = embedding_provider();
-    // Three visits whose ids are far enough apart for the count to take three reads.
-    seed_visits(&vault, pages([1, COUNT_PAGE_IDS + 1, 2 * COUNT_PAGE_IDS + 1]));
+    // Three actual pages of ids, independent of gaps in their numeric values.
+    seed_visits(&vault, pages(1..=3 * COUNT_PAGE_IDS));
     let control = Arc::new(StopAfterTheFirstPage(AtomicUsize::new(0)));
     let stop: Arc<dyn AiRunControl> = control.clone();
     let error = runtime

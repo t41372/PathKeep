@@ -20,6 +20,7 @@ import { cn } from '@/lib/cn'
 import { describeError } from '@/lib/errors'
 import { useFormat, useI18n } from '@/lib/i18n'
 import { useSnapshot } from '@/lib/queries/app'
+import { presentIndexProgress } from '../ai-setup/index-progress'
 import { RebuildDialog } from './rebuild-dialog'
 import type { SemanticIndex } from './semantic-row'
 import { useRebuild } from './use-rebuild'
@@ -48,13 +49,8 @@ export function IndexState({ index }: { index: SemanticIndex }) {
         {t('settingsAi.semantic.cancelBuild')}
       </Button>
     )
-    const counts =
-      progress.total > 0
-        ? t('settingsAi.semantic.indexProgress', {
-            done: format.number(progress.done),
-            total: format.number(progress.total),
-          })
-        : undefined
+    const presentation = presentIndexProgress(progress, t, format)
+    const counts = presentation.detail
     // A complete index keeps answering searches while it is updated, and while
     // a rebuild writes its replacement beside it.
     const meanwhile = semantic?.chosenComplete ? (
@@ -69,12 +65,14 @@ export function IndexState({ index }: { index: SemanticIndex }) {
       return (
         <div className="flex flex-col gap-2">
           <ProgressLine
-            label={t('settingsAi.semantic.indexing')}
+            label={presentation.label}
             detail={[counts, pace(t, format, progress)]
               .filter(Boolean)
               .join(' · ')}
             value={
-              progress.total > 0 ? progress.done / progress.total : undefined
+              presentation.percent === null
+                ? undefined
+                : presentation.percent / 100
             }
             action={
               <>
@@ -129,10 +127,14 @@ export function IndexState({ index }: { index: SemanticIndex }) {
               })
             : byQueue
               ? t('settingsAi.semantic.pausedByQueue')
-              : t('settingsAi.semantic.pausedByUser', {
-                  done: format.number(progress.done),
-                  total: format.number(progress.total),
-                })}
+              : progress.total === null
+                ? t('settingsAi.semantic.pausedPhase', {
+                    phase: presentation.label,
+                  })
+                : t('settingsAi.semantic.pausedByUser', {
+                    done: format.number(progress.done),
+                    total: format.number(progress.total),
+                  })}
         </p>
         {meanwhile}
         <div className="flex justify-end gap-2">

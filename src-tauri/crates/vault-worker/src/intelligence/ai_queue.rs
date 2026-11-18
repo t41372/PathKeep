@@ -105,14 +105,12 @@ impl vault_core::IndexBackfillLedger for IndexCursorLedger {
 
     fn record(&self, progress: vault_core::IndexBackfillProgress) -> Result<()> {
         let cursor = ai_queue::IndexBackfillCursor {
+            scan: progress.scan,
             next_history_id: progress.next_history_id,
             embedded_so_far: progress.embedded_so_far,
             updated_so_far: progress.updated_so_far,
-            // The determinate scan denominator (Change 1): the backfill reports the captured max on a
-            // fresh build and 0 on a resume; `persist_index_cursor` preserves the stored value on 0.
+            // Preserve legacy diagnostics independently of the scoped measurement above.
             scan_target: progress.scan_target,
-            // The honest embed-progress denominator (total candidate pages), same capture/preserve
-            // contract as `scan_target`.
             embed_target: progress.embed_target,
             ..Default::default()
         };

@@ -60,6 +60,7 @@ fn ai_queue_build_requests_reuse_progress_and_wait_for_the_previous_writer() {
             embedded_so_far: 64,
             embed_target: 200,
             scan_target: 200,
+            ..Default::default()
         },
         None,
     )

@@ -440,19 +440,14 @@ export interface AiQueueJob {
    * index-build/index-clear jobs; absent (undefined) for assistant jobs and unparseable payloads.
    * Mirrors the Rust `AiQueueJob` (`#[serde(default, skip_serializing_if = "Option::is_none")]`).
    *
-   * - `progressEmbedded` — vectors durably embedded so far (the cursor's `embedded_so_far`).
-   * - `progressScanned` — the scan watermark: lowest `history_id` not yet processed (`next_history_id`).
-   * - `progressScanTarget` — the determinate scan denominator (max candidate `history_id` captured at
-   *   the build's true start; 0 = not yet known). `progressScanned / progressScanTarget` is an honest
-   *   determinate bar that reaches ~100%.
-   * - `progressEmbedTarget` — total candidate pages captured at the build's true start; absent or 0 =
-   *   not yet known. `progressEmbedded / progressEmbedTarget` is the honest fill ratio preferred over
-   *   the scan-cursor fallback.
+   * Legacy diagnostics: write outcomes and id positions. They do not form a common ratio.
+   * New progress uses `indexProgress`, with an exact checked-visit count and phase-specific total.
    */
   progressEmbedded?: number
   progressScanned?: number
   progressScanTarget?: number
   progressEmbedTarget?: number
+  indexProgress?: IndexBuildProgress | null
   /** Who paused it, when its state is `paused`. */
   pausedBy?: IndexBuildPause | null
 }
@@ -473,16 +468,27 @@ export interface EmbeddingIndexRef {
 export type IndexBuildPause = 'user' | 'service' | 'queue'
 
 /** The chosen model's index build, while it is queued, running or paused. */
+/** Visit outcomes remain independent from the phase's exact checked-record count. */
+export interface IndexBuildProgress {
+  phase:
+    'planning' | 'sources' | 'visits' | 'searches' | 'projection' | 'publishing'
+  done: number
+  total: number | null
+  newVisits: number
+  updatedVisits: number
+}
+
 export interface IndexBuildJob {
   jobId: number
   state: 'queued' | 'running' | 'paused'
   pausedBy?: IndexBuildPause | null
   /** The service's own words when `pausedBy` is `service`. */
   pauseMessage?: string | null
-  /** Visits this build has indexed so far. */
+  /** Durable records checked in the current phase. */
+  progress: IndexBuildProgress
   done: number
-  /** Visits this build has to index; 0 until the build has counted them. */
-  total: number
+  /** Null outside the checked-visit phase or before its total is known. */
+  total: number | null
 }
 
 /**

@@ -268,6 +268,8 @@ function JobRow({
           </span>
           <span className="text-xs text-muted-foreground tabular-nums">
             {job.at && t(whenKey[job.state], { when: format.relative(job.at) })}
+            {progress?.label && ` · ${progress.label}`}
+            {progress?.detail && ` · ${progress.detail}`}
             {progress?.current !== undefined &&
               progress.total !== undefined &&
               ` · ${t('settingsBackground.progress', {
@@ -348,7 +350,7 @@ function JobRow({
       {progress && (
         <Progress
           value={progress.percent}
-          aria-label={job.name}
+          aria-label={progress.label ?? job.name}
           className="h-1.5"
         />
       )}

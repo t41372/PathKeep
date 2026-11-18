@@ -2,6 +2,10 @@
 
 `WORK-AI-INDEX-CONTROL` backend contract. Intelligence schema v2 adds lineage-scoped embedding provenance; archive schema is unchanged.
 
+The progress repair is in [round 1](research/2026-11-semantic-progress-round1.md).
+It changes the measured visit scope and UI phases, without schema, engine, generation naming or
+source-lookup changes. Other findings are tracked separately in the [evidence audit](research/2026-11-semantic-progress-audit.md).
+
 The chosen index is the configured embedding provider ID and its default model.
 `semantic_index` reads readiness from the ledger primary key, completion rows through
 provider-ID prefixes, and active jobs through the existing state index. It never
@@ -294,16 +298,30 @@ lose the job's counts. Unchanged chunks still advance through the normal ledger 
 rebuild retains its captured archive boundary; an incremental resume against another lineage
 starts at the beginning of that lineage's needs, including changed low-id visits.
 
-A fresh build counts what is left to index before its first request, for the progress
-denominator. The count reads visit ids 10,000 at a time, one short read each with a stop check in
-between, and names `idx_ai_embeddings_lineage_history`. Left to itself Turso searches
-`ai_embeddings` by provider, model and lineage, which every row of a lineage shares, so it reads
-the whole lineage once per visit. The count was one unhinted statement, and from the lineage
-column (2026-11-08) until 2026-11-13 it ran that way: 0.35 s for 2,000 synthetic visits already
-indexed, 22.7 s for 16,000, hours for a real archive, and nothing could stop it. The same
-8,000 visits took 6 ms on the schema before the lineage column. Any statement that joins
-`ai_embeddings` on `history_id` needs the hint; `ai/tests_native/indexing/start.rs` checks the
-plans of a build over an existing index.
+A fresh job captures an upper physical visit id and source watermark once. Its cursor JSON stores
+`IndexScan`: version, boundary, planning position/count, checked count and phase. Resume keeps this
+scope. Normal canonical writes append visit ids; revert/restore changes visibility in place.
+Archive replacement closes the owner and stops old work. A future physical-delete feature must
+revisit this assumption.
+
+Planning reads at most 4,096 actual ids through primary-key keysets, persisting each count with
+its position. It never uses the numerical id span as a row count. The visit loop reads the same
+bounded physical ids, then hydrates only visible candidates and applies the existing WorkingSet
+filter. Hidden/out-of-scope records are resolved checked members. New/updated outcomes remain
+separate from checked-record progress. Source bytes, provenance, cursor and checked count preserve
+their existing fsync/transaction order. Unchanged chunks also checkpoint their position/count.
+
+Phases are Planning, Sources, Visits, Searches, Projection and Publishing. Visits alone exposes
+an exact checked/total ratio; other totals are null. Both screens share the formatter and phase
+labels; pace/ETA applies only to Visits. Legacy scalar targets stay diagnostic. A legacy cursor
+without this measurement first displays an unknown total, then rechecks a captured range using
+existing vectors. A lineage switch resets its scope. Real planning/checked advances renew retry
+attempts; heartbeats and phase changes do not.
+
+The old missing-provenance count mixed a new-only denominator with all changed writes. This
+repair removes that count rather than performing hash/content construction twice. History id gaps
+are handled through actual ids, and the bounded source watermark cannot acknowledge later visits.
+The previous constant-prefix join regression remains guarded by native query-plan coverage.
 
 The lease/closure audit covers status, query/staleness reads, related pages, topics, similar
 searches, grouping `Prepared._generation`, grouping event/opened-page reads, snapshot signatures

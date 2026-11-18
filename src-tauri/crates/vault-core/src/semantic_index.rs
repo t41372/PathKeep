@@ -58,13 +58,15 @@ pub(crate) fn load_state_from(s: &Session<'_>, config: &AppConfig) -> Result<Sem
         let ai_queue::AiJobPayload::Index { cursor, .. } = payload else {
             return None;
         };
+        let progress = cursor.progress();
         Some(IndexBuildJob {
             job_id: job.id,
             state: if job.state == "stale" { "queued".into() } else { job.state },
             paused_by: job.paused_by,
             pause_message: job.error_message,
-            done: cursor.embedded_so_far,
-            total: cursor.embed_target,
+            progress,
+            done: progress.done,
+            total: progress.total,
         })
     });
     Ok(SemanticIndexState { chosen, serving, chosen_complete, build })

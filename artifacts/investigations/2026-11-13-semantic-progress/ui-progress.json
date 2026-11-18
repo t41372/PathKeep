@@ -1,0 +1,13 @@
+{
+  "done": 644,
+  "total": 94,
+  "value": 685,
+  "transform": "translateX(--585%)",
+  "radixMarkup": "<div aria-valuemax=\"100\" aria-valuemin=\"0\" role=\"progressbar\" data-state=\"indeterminate\" data-max=\"100\"><div data-state=\"indeterminate\" data-max=\"100\"></div></div>",
+  "warnings": [
+    "Invalid prop `value` of value `685` supplied to `Progress`. The `value` prop must be:\n  - a positive number\n  - less than the value passed to `max` (or 100 if no `max` prop is set)\n  - `null` or `undefined` if the progress is indeterminate.\n\nDefaulting to `null`."
+  ],
+  "limits": [
+    "server rendering of the installed dependency; not a desktop screenshot or browser CSS computation"
+  ]
+}

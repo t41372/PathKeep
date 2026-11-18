@@ -27,6 +27,7 @@ import {
   type AiIndexStatus,
   type AiSettings,
   type IndexBuildJob,
+  type IndexBuildProgress,
   type ReembedScope,
 } from '@/lib/types'
 import { aiQueueKey } from '../settings/background/use-background-work'
@@ -47,10 +48,10 @@ function masterStaysOn(ai: AiSettings) {
   return ai.assistantEnabled || ai.mcpEnabled || ai.skillEnabled
 }
 
-export interface IndexProgress {
+export interface IndexProgress extends IndexBuildProgress {
   /** Moves smoothly between the counts the queue reports. */
   done: number
-  total: number
+  total: number | null
   perSecond: number | null
   secondsLeft: number | null
 }
@@ -90,16 +91,19 @@ export function useSemanticIndex() {
   const build: IndexBuildJob | null = semantic?.build ?? null
 
   const done = build?.done ?? 0
-  const total = build?.total ?? 0
+  const total = build?.total ?? null
   const shownDone = useSmoothCount(done)
   const pace = useIndexPace(
-    build?.state === 'running' ? build.jobId : null,
+    build?.state === 'running' && build.progress.phase === 'visits'
+      ? build.jobId
+      : null,
     done,
-    total,
+    total ?? 0,
     queue.dataUpdatedAt,
   )
   const progress: IndexProgress | null = build
     ? {
+        ...build.progress,
         done: Math.min(shownDone, done),
         total,
         perSecond: pace?.perSecond ?? null,

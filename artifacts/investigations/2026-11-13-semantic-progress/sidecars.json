@@ -1,0 +1,39 @@
+{
+  "readOnlySidecars": true,
+  "sourceMapRecords": 464931,
+  "distinctMappedVisits": 464931,
+  "duplicateMapRecords": 0,
+  "actualKeyRemapsInSource": 0,
+  "mapRecordsAboveJob467ScanTarget": 762,
+  "sourceDistinctVectorKeys": 214062,
+  "referencedDistinctKeys": 211292,
+  "vectorKeysNotReferencedByLatestSourceMap": 2770,
+  "mappedKeysMissingSourceVector": 0,
+  "serving": {
+    "version": 1,
+    "provider_id": "embed-lm-studio-cb8569ec",
+    "model": "text-embedding-qwen3-embedding-0.6b",
+    "lineage": "legacy",
+    "generation": "g1797",
+    "pages": {
+      "providerId": "embed-lm-studio-cb8569ec",
+      "modelId": "text-embedding-qwen3-embedding-0.6b",
+      "dim": 1024,
+      "fingerprintHash": "8c06e9ebd5528899586cff44dcfd00776c5e0eb84dbc14d61874234c3c7f839b",
+      "embeddedText": null,
+      "storeId": ""
+    },
+    "searches": {
+      "providerId": "embed-lm-studio-cb8569ec",
+      "modelId": "text-embedding-qwen3-embedding-0.6b",
+      "dim": 1024,
+      "fingerprintHash": "8c06e9ebd5528899586cff44dcfd00776c5e0eb84dbc14d61874234c3c7f839b",
+      "embeddedText": "normalized-query-v1",
+      "storeId": "bc16f732e127c7066bb94951e825b4e8"
+    },
+    "vector_count": 214062,
+    "visits": 464931
+  },
+  "seconds": 1.219,
+  "interpretation": "Unreferenced keys can include historical leftovers; this count alone does not prove that each is an incorrectly updated visit."
+}
