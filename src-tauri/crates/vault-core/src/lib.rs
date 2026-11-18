@@ -195,4 +195,6 @@ pub use utils::{file_sha256_hex, sha256_hex};
 
 pub mod search;
 
-pub use vault::upgrade::{register_archive_upgrade_listener, with_archive_upgrade_progress};
+pub use vault::upgrade::{
+    register_archive_upgrade_listener, schema_update_running, with_archive_upgrade_progress,
+};

@@ -559,8 +559,19 @@ losing older audit statuses.
 Archive version 1 is what v0.4.0 wrote. Versions 2–23 (`store_schema/backup_identity.rs`)
 let it hold visits whose browser row ids were used before: one DDL statement each, so building
 one index never holds another's pages in the same transaction (building several at once went
-past 8 GiB on a 14.4M-visit archive). No data is rewritten at open. Source Evidence, Agent stay
+past 8 GiB on a 14.4M-visit archive). Version 15 is the one that changes data: it gives version 1
+visits `parent_visit_id` from the browser row id they name, 50,000 visits per transaction, with its
+cursor (`legacy_opener_backfill`) committed in the same transaction, so an update stopped part way
+carries on from the last batch that committed (`store_schema/tests/killed_upgrade.rs` kills it
+there). Source Evidence, Agent stay
 at version 1.
+
+A backfill also says, without changing anything, whether batches remain (`legacy_openers_pending`,
+`intelligence_lineage::pending`). An open asks it when the database's versions are all applied,
+so that vault-store can tell the owner before the open updates a database that already had a
+schema (`MigrationRegistry::on_update`), and only then: not for a database the open creates, not
+for one already up to date. vault-core counts the update from that moment until the open returns
+(`schema_update_running`), and the desktop app asks before quitting during it.
 
 ## Archive read indexes and source totals
 

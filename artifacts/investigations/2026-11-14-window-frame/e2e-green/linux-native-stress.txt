@@ -1,0 +1,7 @@
+boxd, Ubuntu 24.04, 4 vCPU / 16 GB, a fresh machine set up as CI is (../linux-desktop/stress-setup.sh, stress-run.sh).
+All four cores kept busy by stress-ng --cpu 4 for the whole run.
+CI=1 PATHKEEP_E2E_NATIVE_WINDOW=required dbus-run-session -- xvfb-run -a node scripts/run-playwright.mjs --project first-run --repeat-each 20 first-run-native-window
+
+{'startTime': '2026-11-14T12:06:16.957Z', 'duration': 185672.493, 'expected': 20, 'skipped': 0, 'unexpected': 0, 'flaky': 0}
+runs: 20 passed: 20
+durations: [7.9, 7.1, 7.3, 7.0, 7.3, 7.3, 7.4, 7.4, 7.3, 7.3, 7.3, 7.4, 7.3, 7.4, 7.5, 7.3, 7.4, 7.7, 7.6, 7.5]

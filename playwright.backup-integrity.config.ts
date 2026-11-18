@@ -65,6 +65,13 @@ if (!process.env.PATHKEEP_BACKUP_INTEGRITY_FIXTURE) {
       before,
     }),
   )
+  // The healthy archive is still at version 1: schema-update-quit.spec quits
+  // during its update, which this file holds until the spec deletes it.
+  if (variant === 'healthy') {
+    const hold = path.join(root, 'hold-schema-update')
+    writeFileSync(hold, '')
+    process.env.PATHKEEP_TEST_HOLD_SCHEMA_UPDATE = hold
+  }
   Object.assign(process.env, {
     PATHKEEP_BACKUP_INTEGRITY_FIXTURE: file,
     PATHKEEP_E2E_FIXTURE: file,
@@ -124,13 +131,24 @@ export default defineConfig({
     ['json', { outputFile: `${artifacts}/results.json` }],
     ['./tests/e2e/support/thread-stacks-reporter.ts'],
   ],
-  projects: [
-    {
-      name: 'backup-integrity',
-      testMatch:
-        variant === 'healthy'
-          ? 'backup-integrity.spec.ts'
-          : 'backup-integrity-damaged.spec.ts',
-    },
-  ],
+  projects:
+    variant === 'healthy'
+      ? [
+          // First, while the archive still needs its update.
+          {
+            name: 'schema-update-quit',
+            testMatch: 'schema-update-quit.spec.ts',
+          },
+          {
+            name: 'backup-integrity',
+            testMatch: 'backup-integrity.spec.ts',
+            dependencies: ['schema-update-quit'],
+          },
+        ]
+      : [
+          {
+            name: 'backup-integrity',
+            testMatch: 'backup-integrity-damaged.spec.ts',
+          },
+        ],
 })

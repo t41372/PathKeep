@@ -4,6 +4,12 @@
  * fails to render, in any state, shows the error view (`route-error.tsx`)
  * instead of leaving the window blank. The quit question sits beside them, so
  * it can show whatever state the session is in.
+ *
+ * The window's own buttons (Windows and Linux) sit at this level too, outside
+ * every error boundary: they belong to the window, which has no system title
+ * bar on any screen, not to one screen's layout. Drawn inside the archive's
+ * frame they were missing from onboarding, the lock screens and the rest
+ * (`back-forward-window-frame-tradeoff.md` §落地).
  */
 import { QueryClientProvider } from '@tanstack/react-query'
 import { useMemo } from 'react'
@@ -20,7 +26,7 @@ import { createAppRouter, createOnboardingRouter } from './router'
 import { SessionProvider, useSession } from './session'
 import { LockScreen } from './shell/lock-screen'
 import { QuitPrompt } from './shell/quit-prompt'
-import { SessionErrorBoundary } from './shell/route-error'
+import { RenderErrorBoundary } from './shell/route-error'
 import {
   BootErrorScreen,
   BootScreen,
@@ -29,6 +35,8 @@ import {
   UpgradeScreen,
 } from './shell/status-screens'
 import { useSchemaUpdate } from './schema-update'
+import { WindowDrag } from './window-chrome/drag'
+import { WindowControls } from './window-chrome/window-controls'
 
 function SessionGate() {
   const { phase, error } = useSession()
@@ -83,18 +91,22 @@ export default function App() {
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
         <I18nProvider>
+          <WindowControls />
+          <WindowDrag />
           <TooltipProvider delayDuration={400}>
-            <SessionProvider>
-              <BackupRunnerProvider>
-                <ImportRunnerProvider>
-                  <SessionErrorBoundary>
-                    <SessionGate />
-                  </SessionErrorBoundary>
-                  <QuitPrompt />
-                  <Toaster position="bottom-right" />
-                </ImportRunnerProvider>
-              </BackupRunnerProvider>
-            </SessionProvider>
+            <RenderErrorBoundary source="app-render">
+              <SessionProvider>
+                <BackupRunnerProvider>
+                  <ImportRunnerProvider>
+                    <RenderErrorBoundary source="session-render">
+                      <SessionGate />
+                    </RenderErrorBoundary>
+                    <QuitPrompt />
+                    <Toaster position="bottom-right" />
+                  </ImportRunnerProvider>
+                </BackupRunnerProvider>
+              </SessionProvider>
+            </RenderErrorBoundary>
           </TooltipProvider>
         </I18nProvider>
       </ThemeProvider>

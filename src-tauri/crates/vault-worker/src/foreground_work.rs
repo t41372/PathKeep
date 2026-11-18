@@ -1,6 +1,6 @@
 //! Responsibilities: know which operations a person started in this process and is waiting on
-//! (an export, an import, a backup, a change to the archive), so the desktop app can ask before
-//! quitting throws one away.
+//! (an export, an import, a backup, a change to the archive, the schema update the archive needs
+//! before it opens), so the desktop app can ask before quitting throws one away.
 //! Not responsible for: what quitting does (`desktop_integration::quit` in the app), stopping or
 //! resuming the work, or queue workers that carry on by themselves after a restart (index builds,
 //! Insights, link previews: `background_work_running`).
@@ -42,6 +42,10 @@ pub enum ForegroundWork {
     DataWipe,
     /// Undoing or restoring an import (Backup → Recent imports).
     ImportUndo,
+    /// Updating the archive's databases to this version as they open. The open runs in
+    /// vault-core, below this crate, so vault-core keeps this one
+    /// (`vault_core::schema_update_running`).
+    SchemaUpdate,
 }
 
 /// The work running in a process, oldest first, one entry per run.
@@ -103,10 +107,15 @@ pub fn begin(work: ForegroundWork) -> Running {
     RUNNING.begin(work)
 }
 
-/// What is running now, each kind once, in the order its oldest run started. Memory only, so the
-/// desktop app may ask from the main thread.
+/// What is running now, each kind once, in the order its oldest run started; a schema update
+/// comes last, as part of whatever opened the archive. Memory only, so the desktop app may ask
+/// from the main thread.
 pub fn foreground_work() -> Vec<ForegroundWork> {
-    RUNNING.kinds()
+    let mut kinds = RUNNING.kinds();
+    if vault_core::schema_update_running() {
+        kinds.push(ForegroundWork::SchemaUpdate);
+    }
+    kinds
 }
 
 #[cfg(test)]

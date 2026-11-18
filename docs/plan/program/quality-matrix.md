@@ -87,6 +87,7 @@ E2E 是證明功能的主要手段。環境是獨立的，但其餘都是真的�
 ## Honest Boundaries
 
 - E2E 證明前端能透過 dev-only localhost bridge 打到真實 Rust command façade。它不安裝真的排程（onboarding 選 Manual），也不寫真的系統 keychain。它不是 Tauri WebView / plugin guest API（Stronghold、updater progress events）的最終驗收；那些要在真實 Tauri 視窗驗證。
+- 視窗外框：E2E 的頁面預設是普通瀏覽器頁，沒有任何平台的外框。需要外框的 spec 讓 dev bridge 的頁面代表某個平台的桌面視窗（`src/lib/runtime.ts` 的 `windowFrame`；`tests/e2e/support/window-frame.ts`），證明的是每個畫面有沒有按鈕、按鈕會不會被蓋住或壓住內容、哪裡標了拖動。按鈕與拖動對真視窗做了什麼：Linux 由 `first-run-native-window.spec.ts` 在 CI 的 gate 裡檢查。它用 xdotool 操作 E2E 本來就開著的那個真 WebKitGTK 視窗，視窗管理員是 mutter。CI 設了 `PATHKEEP_E2E_NATIVE_WINDOW=required`，缺工具就失敗；其他地方缺工具就略過。在別的 Linux 機器上跑 gate 要它，照 `ci.yml` 裝 mutter、xdotool、wmctrl、x11-utils，並在 `xvfb-run` 底下跑。macOS 與 Windows 還要在那個平台的桌面上實際操作（BACKLOG `WORK-NATIVE-WINDOW-CHECK`）。
 - 原生 scheduler、keyring、簽名、公證與檔案系統副作用要靠 `check:platform`、Rust 測試與真實主機驗收。Windows Task Scheduler apply / status / remove 仍需要真實 Windows 主機。
 - `release:check:config` 只證明 release config 還允許 unsigned Windows installer 與 WebView2 download bootstrapper，不證明特定主機能裝起來，也不看打包好的檔案。打包好的檔案由 `release:build`（發布流程）與 `release:check --package <檔案>` 檢查：解開安裝包，問裡面的桌面程式與 worker 是不是正式發布版。這項檢查目前只對合成的安裝包跑過，真的 MSI／NSIS／DEB／RPM／AppImage／DMG 要等發布流程實跑（`WORK-RELEASE-REHEARSAL-V06`）。
 - 沒有 coverage 數字。看到綠燈不代表功能被測過：review 時問「使用者實際操作有沒有一條 E2E 從真實入口斷言預期結果？」答不出就不算 ship-ready。

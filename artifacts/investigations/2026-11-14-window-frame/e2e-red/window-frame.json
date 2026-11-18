@@ -1,0 +1,31 @@
+{
+  "stats": {
+    "startTime": "2026-11-14T08:06:34.253Z",
+    "duration": 528267.3759999999,
+    "expected": 107,
+    "skipped": 0,
+    "unexpected": 1,
+    "flaky": 0
+  },
+  "tests": [
+    {
+      "file": "window-frame.spec.ts",
+      "title": "linux: the main window, a dialog over it and App Lock keep one set of window buttons",
+      "project": "change",
+      "status": "failed",
+      "errors": [
+        "Error: places that should drag the window\n\nexpect(received).toEqual(expected) // deep equality\n\n- Expected  - 1\n+ Received  + 4\n\n- Array []\n+ Array [\n+   \"strip beside the window buttons (924, 16)\",\n+   \"middle of the top strip (540, 16)\",\n+ ]\n\n   at support/window-frame.ts:221\n\n  219 |   for (const { x, y, where } of points)\n  220 |     if (!(await dragsAt(page, x, y))) missing.push(`${where} (${x}, ${y})`)\n> 221 |   expect.soft(missing, 'places that should drag the window').toEqual([])\n      |                                                              ^\n  222 | }\n  223 |\n  224 | /**\n    at",
+        "Error: window buttons covered or covering\n\nexpect(received).toEqual(expected) // deep equality\n\n- Expected  - 1\n+ Received  + 5\n\n- Array []\n+ Array [\n+   \"Minimize is covered by div.fixed inset-0 z-50 bg-black/50 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0\",\n+   \"Maximize is covered by div.fixed inset-0 z-50 bg-black/50 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0\",\n+   \"Close is covered by div.fixed inset-0 z-50 bg-black/50 data-[state=closed]:",
+        "Error: palette field keeps the focus\n\nexpect(locator).toBeFocused() failed\n\nLocator: getByPlaceholder('Search pages, visits or commands…')\nExpected: focused\nTimeout: 15000ms\nError: element(s) not found\n\nCall log:\n  - palette field keeps the focus getByPlaceholder('Search pages, visits or commands…') with timeout 15000ms\n  - waiting for getByPlaceholder('Search pages, visits or commands…')\n    3 × locator resolved to <input value=\"\" type=\"text\" cmdk-input=\"\" role=\"combobox\" id=\"radix-_r_i_\" autocorrect=\"off\" autocomplete=\"off\" spellcheck=\"false\" aria-expanded=\"true\" aria-autocomplete=\"list\" dat",
+        "Error: window buttons\n\nexpect(locator).toHaveCount(expected) failed\n\nLocator:  getByRole('group', { name: 'Window', includeHidden: true })\nExpected: 1\nReceived: 0\nTimeout:  15000ms\n\nCall log:\n  - window buttons getByRole('group', { name: 'Window', includeHidden: true }) with timeout 15000ms\n  - waiting for getByRole('group', { name: 'Window', includeHidden: true })\n    34 × locator resolved to 0 elements\n       - unexpected value \"0\"\n\n\n   at support/window-frame.ts:103\n\n  101 |  */\n  102 | export async function expectWindowButtons(page: Page) {\n> 103 |   await expect.soft(windowButtons(page), ",
+        "Error: places that should drag the window\n\nexpect(received).toEqual(expected) // deep equality\n\n- Expected  - 1\n+ Received  + 5\n\n- Array []\n+ Array [\n+   \"strip beside the window buttons (924, 16)\",\n+   \"middle of the top strip (540, 16)\",\n+   \"lock screen background (40, 400)\",\n+ ]\n\n   at support/window-frame.ts:221\n\n  219 |   for (const { x, y, where } of points)\n  220 |     if (!(await dragsAt(page, x, y))) missing.push(`${where} (${x}, ${y})`)\n> 221 |   expect.soft(missing, 'places that should drag the window').toEqual([])\n      |                                                            "
+      ]
+    },
+    {
+      "file": "window-frame.spec.ts",
+      "title": "macos: the main window and App Lock drag from the window background",
+      "project": "change",
+      "status": "passed"
+    }
+  ]
+}

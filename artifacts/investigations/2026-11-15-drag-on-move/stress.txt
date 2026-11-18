@@ -1,0 +1,14 @@
+4
+::notice title=🎭 Playwright Run Summary::  10 passed (5.2m)
+exit=0
+passed 29.5 s
+passed 28.7 s
+passed 29.1 s
+passed 29.3 s
+passed 29.4 s
+passed 29.5 s
+passed 29.1 s
+passed 29.2 s
+passed 29.0 s
+passed 29.1 s
+

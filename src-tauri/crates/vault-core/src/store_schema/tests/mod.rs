@@ -5,6 +5,7 @@
 mod agent;
 mod archive;
 mod intelligence;
+mod killed_upgrade;
 mod lineage;
 mod source_evidence;
 

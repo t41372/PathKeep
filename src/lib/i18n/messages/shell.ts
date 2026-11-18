@@ -54,6 +54,7 @@ export const shell = defineMessages({
         'encryption-change': 'Changing the archive’s encryption',
         'data-wipe': 'Deleting all data',
         'import-undo': 'Undoing or restoring an import',
+        'schema-update': 'Updating the archive for this version',
       },
       ifQuit: {
         backup: 'The next backup copies what this one didn’t get to.',
@@ -64,6 +65,8 @@ export const shell = defineMessages({
           'It stops partway without damaging the archive. You can run it again later.',
         wipe: 'PathKeep finishes deleting the next time it opens.',
         undo: 'It stops partway. Undo or restore the import again to finish.',
+        schemaUpdate:
+          'It stops partway without damaging the archive, and carries on the next time PathKeep opens.',
       },
     },
     palette: {
@@ -255,6 +258,7 @@ export const shell = defineMessages({
         'encryption-change': '正在更改存档加密',
         'data-wipe': '正在删除所有数据',
         'import-undo': '正在撤销或恢复一次导入',
+        'schema-update': '正在为这个版本更新存档',
       },
       ifQuit: {
         backup: '下次备份会补上这次没做完的部分。',
@@ -263,6 +267,8 @@ export const shell = defineMessages({
         archive: '会停在中途，但存档不会损坏，之后可以再做一次。',
         wipe: '下次打开 PathKeep 时会把删除做完。',
         undo: '会停在中途，之后再撤销或恢复这次导入一次就能做完。',
+        schemaUpdate:
+          '会停在中途，但存档不会损坏，下次打开 PathKeep 会接着做。',
       },
     },
     palette: {
@@ -447,6 +453,7 @@ export const shell = defineMessages({
         'encryption-change': '正在更改存檔加密',
         'data-wipe': '正在刪除所有資料',
         'import-undo': '正在復原或還原一次匯入',
+        'schema-update': '正在為這個版本更新存檔',
       },
       ifQuit: {
         backup: '下次備份會補上這次沒做完的部分。',
@@ -455,6 +462,8 @@ export const shell = defineMessages({
         archive: '會停在中途，但存檔不會損壞，之後可以再做一次。',
         wipe: '下次打開 PathKeep 時會把刪除做完。',
         undo: '會停在中途，之後再復原或還原這次匯入一次就能做完。',
+        schemaUpdate:
+          '會停在中途，但存檔不會損壞，下次打開 PathKeep 會接著做。',
       },
     },
     palette: {

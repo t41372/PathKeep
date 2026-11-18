@@ -1,0 +1,12 @@
+== lock-backdrop hold=0 before: x=100 y=80
+RESULT lock-backdrop hold=0: after moving the pointer with no button held: x=250 y=170 state=[FOCUSED]
+== lock-backdrop hold=60 before: x=100 y=80
+RESULT lock-backdrop hold=60: after moving the pointer with no button held: x=100 y=80 state=[FOCUSED]
+== strip hold=0 before: x=100 y=80
+RESULT strip hold=0: after moving the pointer with no button held: x=100 y=80 state=[FOCUSED]
+== strip hold=60 before: x=100 y=80
+RESULT strip hold=60: after moving the pointer with no button held: x=100 y=80 state=[FOCUSED]
+== navrail-spacer hold=0 before: x=100 y=80
+RESULT navrail-spacer hold=0: after moving the pointer with no button held: x=250 y=170 state=[FOCUSED]
+== navrail-spacer hold=60 before: x=100 y=80
+RESULT navrail-spacer hold=60: after moving the pointer with no button held: x=100 y=80 state=[FOCUSED]

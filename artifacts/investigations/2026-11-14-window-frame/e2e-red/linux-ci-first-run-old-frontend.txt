@@ -1,0 +1,12 @@
+first-run-native-window.spec.ts | linux: the real window: buttons, drag, double click, and Close quits | failed | 90.6 s
+    Error: Maximize never took effect  Maximize never took effect  expect(received).toBe(expected) // Object.is equality  Expected: true Received: false  Call Log: - Timeout 90000ms exceeded while waiting on the predicate     at support/native-window.ts:221    219 |       },   220 |     ) > 221 |     .t
+first-run-window.spec.ts | linux: onboarding has the window buttons and drags from the top | failed | 16.3 s
+    Error: window buttons  expect(locator).toHaveCount(expected) failed  Locator:  getByRole('group', { name: 'Window', includeHidden: true }) Expected: 1 Received: 0 Timeout:  15000ms  Call log:   - window buttons getByRole('group', { name: 'Window', includeHidden: true }) with timeout 15000ms   - wait
+first-run-window.spec.ts | windows: onboarding has the window buttons and drags from the top | failed | 16.3 s
+    Error: window buttons  expect(locator).toHaveCount(expected) failed  Locator:  getByRole('group', { name: 'Window', includeHidden: true }) Expected: 1 Received: 0 Timeout:  15000ms  Call log:   - window buttons getByRole('group', { name: 'Window', includeHidden: true }) with timeout 15000ms   - wait
+first-run-window.spec.ts | linux: starting and failing to start keep the window buttons | failed | 32.9 s
+    Error: window buttons  expect(locator).toHaveCount(expected) failed  Locator:  getByRole('group', { name: 'Window', includeHidden: true }) Expected: 1 Received: 0 Timeout:  15000ms  Call log:   - window buttons getByRole('group', { name: 'Window', includeHidden: true }) with timeout 15000ms   - wait
+first-run-window.spec.ts | macos: onboarding drags from the window background around its panel | failed | 1.1 s
+    Error: places that should drag the window  expect(received).toEqual(expected) // deep equality  - Expected  - 1 + Received  + 5  - Array [] + Array [ +   "margin above the panel (540, 4)", +   "margin right of the panel (1076, 400)", +   "top of the step list, under the traffic lights (130, 30)", + 
+first-run.spec.ts | onboarding sets up an encrypted archive and backs up the chosen browse | passed | 28.4 s
+{'startTime': '2026-11-14T10:24:47.995Z', 'duration': 216412.13100000002, 'expected': 1, 'skipped': 0, 'unexpected': 5, 'flaky': 0}

@@ -1,0 +1,14 @@
+MARK 08:40:39 strip delay=60
+RESULT strip delay=60: state=[FOCUSED] geom=Window 4194319   Position: 100,80 (screen: 0)   Geometry: 1480x960 
+MARK 08:40:44 navrail-spacer delay=60
+RESULT navrail-spacer delay=60: state=[FOCUSED] geom=Window 4194319   Position: 100,80 (screen: 0)   Geometry: 1480x960 
+MARK 08:40:49 strip delay=150
+RESULT strip delay=150: state=[FOCUSED] geom=Window 4194319   Position: 100,80 (screen: 0)   Geometry: 1480x960 
+MARK 08:40:55 navrail-spacer delay=150
+RESULT navrail-spacer delay=150: state=[FOCUSED] geom=Window 4194319   Position: 100,80 (screen: 0)   Geometry: 1480x960 
+MARK 08:41:00 strip delay=300
+RESULT strip delay=300: state=[FOCUSED] geom=Window 4194319   Position: 100,80 (screen: 0)   Geometry: 1480x960 
+MARK 08:41:05 navrail-spacer delay=300
+RESULT navrail-spacer delay=300: state=[FOCUSED] geom=Window 4194319   Position: 100,80 (screen: 0)   Geometry: 1480x960 
+MARK 08:41:11 manual
+RESULT manual: state=[MAXIMIZED_HORZ, MAXIMIZED_VERT, FOCUSED]

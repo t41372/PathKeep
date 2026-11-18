@@ -353,6 +353,80 @@ BACKLOG 原有的，依領域：
   - 原方法最小重現也確認：id-only 映射去重略過既有造訪的新 key，provenance 已更新但搜尋仍指向舊向量，普通增量重跑也不會修好。既有 E2E 同時新增造訪，遮住了舊造訪未改映射的問題。Radix 重現接到 685 而改成不確定狀態，CSS 字串成為 `translateX(--585%)`。
   - 提案：[調查與修復設計](../architecture/research/2026-11-semantic-progress.md)。固定 manifest、分階段同單位進度、來源變更交接、正確映射冪等條件與舊資料核對；沒有先改 accepted contract。原始 metadata 與重現結果在 `artifacts/investigations/2026-11-13-semantic-progress/`。本輪沒有 E2E／完整 gate 或新增效能結論；實作列入 BACKLOG `WORK-SEMANTIC-UPDATE-CONSISTENCY`。
 
+- [x] **WORK-WINDOW-FRAME-EVERY-SCREEN** — Windows、Linux 上，主畫面以外沒有視窗按鈕，也拖不動（2026-11-13 交接報告，讀程式碼得出；v0.4.0 起就是這樣）
+  - 讀先：`docs/design/back-forward-window-frame-tradeoff.md`、`screens-and-nav.md` §導航、`ui-review-guardrails.md`、`program/quality-matrix.md` Honest Boundaries；Tauri 2.12.5 `drag.js`、tao 0.37.2 的無標題列視窗。
+  - 根因（與 Codex astra 各自調查，結論一致）：「視窗沒有系統標題列」在程式碼裡只對 macOS 成立。2026-10-13 關掉 Windows、Linux 的標題列時，只把按鈕放進存檔打開後才掛上的 `AppFrame`；拖動標記（`drag-region.ts`）仍以為那兩個平台有標題列。同一個原因造成四件事：
+    - 主畫面以外的畫面沒有按鈕，也拖不動；
+    - 主畫面按鈕旁那條拖不動，雙擊不會最大化；
+    - 對話框開著時按鈕被蓋住；
+    - macOS 的新手引導，面板外圍的邊拖不動。
+  - 2026-07-02 為了同一件事把 macOS 的拖動條移到 app 的根，2026-10-04 改用 shadcn 重做前端時又拿掉了。
+  - 為什麼沒測到：E2E 在 dev bridge 的瀏覽器頁面裡跑，那裡不是桌面視窗，沒有一個平台的外框出現過。
+  - 修正：
+    - 外框由一個答案決定（`runtime.ts` 的 `windowFrame`）。
+    - 按鈕在 app 的根畫一次，在所有錯誤邊界之外（`src/app/window-chrome/`）。session 的 providers 外面多一層錯誤邊界，照結構，它們渲染失敗時按鈕也還在；沒有實際跑出錯誤畫面看過。
+    - 按鈕疊在遮罩之上，對話框開著時照樣能按，不關對話框，也不搶焦點。
+    - 主畫面與新手引導共用面板上方的邊距規則。
+    - 視窗底層在三個平台都標拖動；面板內的拖動標記維持只在 macOS（設計文件寫明理由）。
+  - E2E 先寫，在只加了 `windowFrame` 的程式碼上跑紅：
+    - `first-run-window.spec.ts`：新手引導（Linux、Windows）、啟動中、啟動失敗、macOS 新手引導的拖動。
+    - `window-frame.spec.ts`：主畫面、指令面板開著、App Lock、macOS 的拖動。
+    - 兩個 spec 都在最小視窗下跑，dev bridge 的頁面代表某個平台的桌面視窗。
+    - 舊碼上，檢查缺失的那些都紅，原因都對；防既有行為的（主畫面有按鈕、macOS 主畫面與 App Lock 能拖）本來就綠。修好後全綠。
+    - 最後一次 `bun run check` 通過，結果如下：
+      - 前端 151 個測試、Rust 全部；
+      - E2E 主設定 131 過、1 略過。略過的是真視窗那個 spec，這台 Mac 跑不了，所以本機的 gate 沒有跑到它；
+      - backup-integrity 9 + 1，沒有 flaky。
+    - 前一次 gate 失敗在 `vault-crypto` 的 `the_block_cache_bounds_memory`，當時機器負載 27–32。這個測試量的是常駐記憶體，就是 BACKLOG 的 `WORK-FLAKY-BLOCK-CACHE-RSS`。單獨重跑過了，整套重跑也過了。
+  - 真視窗的 E2E：`first-run-native-window.spec.ts`。
+    - 它用 xdotool 操作 E2E 本來就開著的真 WebKitGTK 視窗，在新手引導上點三顆按鈕、拖動、雙擊，最後按關閉，看 app 結束並重啟。視窗管理員用 mutter，沒有就由它啟動。
+    - 只在 Linux 跑。CI 裝了 mutter、xdotool、wmctrl，並設 `PATHKEEP_E2E_NATIVE_WINDOW=required`，缺工具就失敗；其他地方缺工具就略過，這台 Mac 上也是略過。
+    - 它排在最前面的 first-run 專案。真視窗的檢查最可能出事，排在前面，壞了就最先看到，可以馬上重跑。
+    - 按壓都按住 60 ms，每一步先把視窗重設到已知狀態，結果用輪詢等，不靠固定的等待。
+    - 在 boxd 上照 CI 的方式跑過：舊排法到 restart 專案 125 過、1 個本來就略過；新排法的 first-run 專案 6 個全過；對修前的前端跑，它等了 90 秒最大化都沒發生，失敗。
+    - 穩定度：另開一台照 CI 裝好的機器，4 顆 CPU 全被 `stress-ng` 佔滿，連跑 20 次（每次都含關閉與重啟），20 次全過，每次 7.0–7.9 秒。GitHub Actions 還沒跑過它，推上去的第一次才算數。
+  - Linux 實機（boxd，Ubuntu 24.04；xdotool 送真的輸入；X11 的 xfwm4、GNOME 46 的 X11 與 Wayland 三種環境）：
+    - 修之前，新手引導與 App Lock 沒有按鈕、拖不動；主畫面那條拖不動，雙擊沒反應；對話框開著時按最小化沒反應。
+    - 修好之後，三種環境下，新手引導、主畫面、App Lock 的三顆按鈕都有效，拖動、雙擊最大化與還原、邊緣縮放也有效；對話框開著時也能最小化；按關閉，app 結束。
+    - GNOME Wayland 上沒有多出系統或 GTK 的標題列。
+    - xfwm4 上，在拖動區輕點一下，視窗會黏著指標走。這是 Tauri 拖動方式的老問題，修之前導航列就這樣，GNOME 不會；記 BACKLOG `WORK-DRAG-ON-MOVE`。
+    - 證據：`artifacts/investigations/2026-11-14-window-frame/`。
+    - KDE、Windows 沒有看過。macOS 只在瀏覽器代身上看過：這台 Mac 沒給 Claude 螢幕錄製與輔助使用的權限。
+  - 調查中看到、與這次無關的，記在 BACKLOG：`WORK-WAYLAND-UNDECORATED`（剩 KDE）、`WORK-DRAG-ON-MOVE`、`WORK-SCHEMA-UPDATE-QUIT`、`WORK-STATUS-SCREEN-OVERFLOW`、`WORK-E2E-WINDOW-FRAME-DEFAULT`、`WORK-NATIVE-WINDOW-CHECK`（剩 macOS、Windows）、`WORK-WINDOW-INACTIVE-LOOK`、`WORK-UI-SMALL-FINDINGS-2026-11-14`。
+- [x] **WORK-SCHEMA-UPDATE-KILL-TEST** — 存檔更新途中被結束，存檔會不會壞（`WORK-SCHEMA-UPDATE-QUIT` 的資料安全部分；外框修好後，Windows、Linux 的更新畫面也有了關閉鈕）
+  - 讀先：`vault-store/src/migration.rs`、`store_schema/backup_identity.rs`（第 15 版）、`store_schema/intelligence_lineage.rs`、ADR-012 的 kill -9 條件、`vault-search/tests/crash.rs`（子程序 + SIGKILL 的寫法）。
+  - 更新在 app 程序裡跑；按關閉時程序直接結束，對資料庫來說與 kill -9 相同。
+  - `store_schema/tests/killed_upgrade.rs`：用只有第 1 版的 registry 建出 v0.4.0 的存檔（10 萬筆造訪、10 萬筆 embedding），子程序跑真的 migration，停在指定位置宣告後被 SIGKILL。不靠猜時間，每次都在同一個位置：
+    - Archive 第 15 版第 2 批寫到一半、第 2 批剛提交；
+    - Intelligence 第 2 版設定做到一半（表已改名，版本未記）、第 1 批剛提交、第 2 批寫到一半（未提交的資料已大量寫進磁碟上的 WAL，未加密時約 33 MB；測試在 kill 前確認 WAL 不是空的）。
+    - 同一個存檔連續經過這五次，每次重開檢查從哪一批接著做；最後一次打開後，每個資料庫的每張表與 schema 都與沒被打斷的更新逐列相同，`integrity_check` 為 ok，再開一次什麼都不做。未加密、加密各一個測試，各約 16 秒。
+  - 證明抓得到錯（暫時改壞、跑紅、改回，沒有提交）：版本標記與結構變更分開提交 → 下次打開時 `no such table: ai_embedding_upgrade`，存檔打不開；第 15 版的進度只放在記憶體 → 重開後從第 1 批重做，回報的進度變成 150000 等。
+  - 單一長語句執行到一半被殺（大存檔上建到一半的索引）沒有可以停住的點，gate 裡由交易寫到一半的那幾刀代表；另加手動跑的 `killed_at_moments_nobody_chose`（`#[ignore]`）：100 萬筆造訪的 v1 存檔，在更新提交第一批連結之前的時間裡平均分布地 kill，每刀先讀出存檔走到第幾版（只認得第 1 版的 registry 會回報 `SchemaTooNew.found`），再做完更新逐表比對。macOS 未加密 10 刀：9 刀在第 5 版建唯一索引途中、1 刀在第 4 版刪索引；Linux（boxd，x86_64）未加密 20 刀：19 刀在建索引途中、1 刀在第 15 版第一批；加密 10 刀：9 刀在建索引途中、1 刀在第 15 版。全部重開後逐列相同、完整性檢查 ok。
+  - Linux 上 gate 的兩個測試連跑三次都過（各約 33 秒，含 WAL 不是空的檢查）。Windows 沒有跑過；斷電（寫到磁碟的順序）不在範圍內。
+  - 要不要在更新途中先問，留給用戶（`WORK-SCHEMA-UPDATE-QUIT`）。
+  - `bun run check`：E2E 之前的每一步都過（前端、build、全部 Rust 測試含這兩個、release check）。E2E 卡在 `insights.spec.ts:628`，還沒打開 app 就失敗：它的 fixture 用 `Date.now()` 產生，那個時段（UTC 11-15 00:30–10:30）不管什麼程式碼都會失敗（`WORK-E2E-SEARCH-TOPIC-BY-NOW`）。`--grep-invert` 排除不了，因為依賴它的 project 會把它整個跑一遍。本機暫時把那一個標成 `fixme`（沒有提交）重跑：130 過、2 略過（它，和只在 Linux 跑的真視窗 spec），backup-integrity 9 + 1 過。
+- [x] **WORK-SCHEMA-UPDATE-QUIT** — 存檔更新途中結束 PathKeep，先問（用戶 2026-11-15：「要」）
+  - 讀先：`desktop_integration/quit.rs`、`vault-worker/src/foreground_work.rs`、`vault-store/src/migration.rs`、`vault-core/src/vault/upgrade.rs`、`quit-during-work.spec.ts`。
+  - 以前：開存檔時跑的 schema 更新沒登記成前台工作，按關閉直接結束（資料安全已由 `WORK-SCHEMA-UPDATE-KILL-TEST` 證明）。
+  - 做法：
+    - vault-store：開檔時真的要改一個已有的資料庫，就在改之前通知一次（`MigrationRegistry::on_update`）。新建的資料庫（版本 0）不通知，已經是最新的也不通知。資料回填多一個不改資料的「還有沒有要做」判斷（`with_backfill(pending, batch)`），上次中途停下、版本都已記上的回填也在第一批之前通知。
+    - vault-core：從那一刻算到這次開檔結束，成功、失敗或 panic 都一樣（`UpdateScope`，`schema_update_running`）。
+    - vault-worker：`foreground_work()` 把它列在最後（`ForegroundWork::SchemaUpdate`）。vault-core 在 vault-worker 下面一層，登記表碰不到開檔，所以由 vault-core 記。
+    - 提問加一項「正在為這個版本更新存檔」，下面寫「會停在中途，但存檔不會損壞，下次打開 PathKeep 會接著做。」（三種語言）。
+  - 測試：
+    - `vault-store/tests/migrations.rs` 新增一條：建新庫不通知；上次停在中途的回填在第一批前通知；已是最新不通知；加新版本時在套用前通知一次。拿掉「版本 0 不算」時它紅（已改回）。
+    - E2E `schema-update-quit.spec.ts`，在 backup-integrity 設定的 v1 存檔上跑，排在 backup-integrity.spec 前面。fixture 的更新不到一秒，所以 debug build 的 `PATHKEEP_TEST_HOLD_SCHEMA_UPDATE` 在更新改第一個資料庫之前停住（`vault-core/src/test_support.rs`），並寫下哪個程序停著。關視窗會問、寫對字；「現在結束」讓 app 在更新途中結束，下次啟動重新開始更新；⌘Q 也會問；「不結束」同一個 app 繼續；「做完再結束」更新停著時不結束，放行後更新做完才結束；再開，存檔照常打開。後面 backup-integrity 的 9 條檢查這個被中途結束過的存檔，都過。
+    - 證明抓得到：把 vault-worker 那一行暫時關掉（沒有提交），spec 等到了更新停住，但關視窗沒問，app 直接結束，紅在第 70 行。
+  - 順帶看到：建索引那幾版沒有進度事件，畫面只寫「載入中」，記 BACKLOG `WORK-SCHEMA-UPDATE-SCREEN-EARLY`。新手引導完成設定時幾個步驟之間結束會留下什麼，另記 `WORK-ONBOARDING-QUIT-MIDWAY`。
+  - `bun run check`（2026-11-15 08:31 UTC 跑完）：前端 151 個測試、Rust 全部；E2E 主設定 130 過、2 略過（真視窗 spec 本機不跑；`insights.spec.ts:628` 在那段時間不管什麼程式碼都會失敗，本機暫標 fixme、沒有提交，見 `WORK-E2E-SEARCH-TOPIC-BY-NOW`）；backup-integrity healthy 10 過（含 `schema-update-quit.spec.ts`）、damaged 1 過。之後在提交上、11:30 UTC 不改任何 spec 再跑一次 E2E：主設定 131 過、1 略過（真視窗 spec），backup-integrity 10 + 1 過。10:35 那次仍失敗在 `insights.spec.ts:628`：細掃後它在那天 10:30–11:20 之間通過、失敗交錯，見 `WORK-E2E-SEARCH-TOPIC-BY-NOW`。
+- [x] **WORK-DRAG-ON-MOVE** — Xfce（xfwm4）上輕點拖動區，視窗黏著指標走（用戶 2026-11-15：「修」）
+  - 原因：Tauri 2.12.5 的 `drag.js` 在按下時就請視窗管理員開始拖；輕點時請求到的時候鍵已經放開，xfwm4 仍開始移動，等下一次點擊才停。GNOME 不會。
+  - 做法：Windows、Linux 的拖動標記改成 PathKeep 自己的 `data-window-drag`（`drag-region.ts`），由 `window-chrome/drag.ts` 處理：按下只記位置，按著移動超過 4 px 才 `startDragging`；雙擊照舊在第二次按下時最大化／還原。導航列與新手引導側欄原本直接寫 `data-tauri-drag-region` 的四塊空白也改走 `backdropDragRegion()`。macOS 照用 Tauri 的標記（輕點的問題只在 Xfce 見過，macOS 真視窗這裡看不了）。代價：開始拖時視窗比指標少走約 4 px，`startDragging` 不能指定起點。
+  - 測試：真視窗的 E2E（`first-run-native-window.spec.ts`）先在 mutter 下檢查按鈕、拖動、雙擊，再換 xfwm4（只在這次 run 自己啟動視窗管理員時換，不動別人的桌面）檢查同樣的事，並在三個位置各輕點兩次，輕點後移動指標，視窗不能跟著走。拖動的檢查改成先小移一步再拖，容許 10 px。CI 加裝 xfwm4。瀏覽器代身的拖動判斷（`support/window-frame.ts` 的 `dragsAt`）認得新標記。
+  - boxd（Ubuntu 24.04，4 vCPU，照 CI 的方式跑）：修之前的拖動程式碼，mutter 與 xfwm4 下的按鈕、拖動、雙擊都過，輕點 6 下有 3 下視窗跟著指標從 (40, 40) 走到 (200, 130)，紅；修之後 1 過（36.8 秒）。4 顆 CPU 被 stress-ng 佔滿時連跑 10 次，10 次全過，每次 28.7–29.5 秒。第一次壓力測試抓到 spec 自己的錯：連跑時第二次起顯示器上還留著上一次的 xfwm4，spec 只肯換「自己啟動的」視窗管理員，9 次失敗；改成 CI 的 `required` 就表示顯示器歸它，每次都先換成 mutter、再換 xfwm4。證據：`artifacts/investigations/2026-11-15-drag-on-move/`。本機 first-run 專案 5 過、1 略過（真視窗 spec）。
+  - `bun run check`（2026-11-15 08:31 UTC 跑完）：前端 151 個測試、Rust 全部；E2E 主設定 130 過、2 略過（真視窗 spec 本機不跑；`insights.spec.ts:628` 在那段時間不管什麼程式碼都會失敗，本機暫標 fixme、沒有提交，見 `WORK-E2E-SEARCH-TOPIC-BY-NOW`）；backup-integrity healthy 10 過、damaged 1 過。11:30 UTC 不改任何 spec 重跑 E2E 也全過（見上一條）。
+- **決定（2026-11-15，用戶同意）**：Codex 提議的「載入前與渲染程序崩潰時改用系統標題列」不做，理由寫在 `back-forward-window-frame-tradeoff.md`。
+
 - [x] **WORK-RELEASE-REVIEW-BOUNDARIES** — 處理 PR #22 新審查的 API／channel／授權與測試完成條件。
   - 讀先：`RELEASE.md`、`docs/architecture/release-publication.md`、`scripts/lib/release-authorization.mjs`、GitHub release API 與官方 CLI 的 release edit 實作。
   - 真實 API 確認：notes-only PATCH 漏帶 `tag_name` 會移除私有草稿的 tag 關聯；已以明確 tag 修復，始終未公開。發布 PATCH 帶入並核對 tag／source／channel。

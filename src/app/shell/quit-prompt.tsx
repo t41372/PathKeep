@@ -48,6 +48,7 @@ const IF_QUIT: Record<ForegroundWork, MessageKey> = {
   'encryption-change': 'shell.quit.ifQuit.archive',
   'data-wipe': 'shell.quit.ifQuit.wipe',
   'import-undo': 'shell.quit.ifQuit.undo',
+  'schema-update': 'shell.quit.ifQuit.schemaUpdate',
 }
 
 export function QuitPrompt() {

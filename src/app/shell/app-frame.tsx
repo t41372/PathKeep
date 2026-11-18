@@ -2,9 +2,9 @@
  * The window: nav rail on the left, the active screen in a rounded panel on
  * the right, plus the global shortcuts (⌘K palette, ⌘L lock, ⌘1…⌘9 or
  * Ctrl+1…9 for the spaces, ⌘[ / ⌘] or Alt+← / Alt+→ and the mouse's side
- * buttons for back and forward). On Windows and Linux it also draws the
- * window buttons at the top right, over a strip of window background above
- * the panel.
+ * buttons for back and forward). On Windows and Linux the panel leaves a
+ * strip of window background at the top for the window buttons, which the
+ * app draws once for every screen (`window-chrome/`).
  * The rail follows the space of the page shown (`current-space.ts`), and
  * the panel fades when the space changes (`space-panel.tsx`).
  */
@@ -15,15 +15,15 @@ import { backdropDragRegion } from '@/components/app/drag-region'
 import { cn } from '@/lib/cn'
 import { useI18n } from '@/lib/i18n'
 import { subscribeToOpenCommandPalette } from '@/lib/ipc/desktop-events'
-import { drawsWindowControls, isMacOsHost } from '@/lib/runtime'
+import { isMacOsHost } from '@/lib/runtime'
 import { spaceKeyIndex, spacesOn } from '@/lib/spaces'
 import { useSession } from '../session'
+import { panelTopMargin } from '../window-chrome/frame'
 import { CommandPalette } from './command-palette'
 import { useSpaceFromUrl, useSwitchSpace } from './current-space'
 import { NavRail } from './nav-rail'
 import { SpacePanel } from './space-panel'
 import { useHistorySteps } from './use-history-steps'
-import { WindowControls } from './window-controls'
 
 /** Typing keeps its own keys: Alt+← moves by word in a text field. */
 function typing(target: EventTarget | null) {
@@ -41,7 +41,6 @@ export function AppFrame() {
   const session = useSession()
   const navigate = useNavigate()
   const [paletteOpen, setPaletteOpen] = useState(false)
-  const controls = drawsWindowControls()
   const lock = useCallback(() => {
     void session.lock().then((locked) => {
       if (locked) return
@@ -129,13 +128,11 @@ export function AppFrame() {
       {...backdropDragRegion()}
       className="relative flex h-full bg-window backdrop-blur-[40px] backdrop-saturate-[1.4] transition-[background-color] duration-300"
     >
-      {controls && <WindowControls />}
       <NavRail onOpenPalette={() => setPaletteOpen(true)} onLock={lock} />
       <main
         className={cn(
           'mr-2.5 mb-2.5 flex min-w-0 flex-1 overflow-hidden rounded-xl border bg-panel',
-          // Windows and Linux: room above the panel for the window buttons.
-          controls ? 'mt-8' : 'mt-2.5',
+          panelTopMargin(),
         )}
       >
         <SpacePanel>

@@ -5,9 +5,10 @@
 //! checkpoint keeps readers and later writes waiting behind a read that is still running.
 //! Tests: concurrency, opening, admission.
 use crate::{
-    Db, Error, Metrics, Migration, Priority, Result, Session,
+    Db, Error, Metrics, Priority, Result, Session,
     checkpoint::Gate,
     engine::{Engine, Settings},
+    migration::Plan,
     queue::{Next, Queue},
 };
 use std::{
@@ -47,7 +48,7 @@ impl Workers {
     pub fn start(
         db: Db,
         settings: Settings,
-        steps: Vec<Migration>,
+        plan: Plan,
         reader_count: usize,
         capacity: usize,
         scratch_gate: Option<Arc<Gate>>,
@@ -90,7 +91,7 @@ impl Workers {
                             .with_scratch(write_scratch.as_deref())
                             .with_archive(write_archive.as_deref()),
                         db,
-                        &steps,
+                        &plan,
                         || {
                             // No read pool or ready signal exists yet. Truncating between batches
                             // also bounds retained WAL state as the migrated corpus grows.

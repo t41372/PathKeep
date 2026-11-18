@@ -1,0 +1,30 @@
+store_schema/tests/killed_upgrade.rs, 2026-11-14, macOS (Apple silicon), debug build.
+Command: TZ=Pacific/Kiritimati cargo test --manifest-path src-tauri/Cargo.toml -p vault-core --lib killed_upgrade
+
+== Green ==
+test store_schema::tests::killed_upgrade::killed_upgrade_child ... ignored, child process the killed_upgrade tests start and kill
+test store_schema::tests::killed_upgrade::a_killed_upgrade_of_a_plain_archive_finishes_at_the_next_launch ... ok
+test store_schema::tests::killed_upgrade::a_killed_upgrade_of_an_encrypted_archive_finishes_at_the_next_launch ... ok
+test result: ok. 2 passed; 0 failed; 1 ignored; 0 measured; 512 filtered out; finished in 16.92s
+
+== File sizes while the child held still (plain run, temporary print, not committed) ==
+At "Archive inside 100000"       archive/history-vault.db-wal 0         (the uncommitted batch was still in memory)
+At "Intelligence setup"          derived/intelligence.db-wal  0
+At "Intelligence after 50000"    derived/intelligence.db-wal  0         (committed and checkpointed)
+At "Intelligence inside 100000"  derived/intelligence.db-wal  33751072  (uncommitted move on disk)
+The test now checks the last of these is not empty before that kill.
+
+== Red 1: version marker committed apart from the step (vault-store/src/migration.rs, reverted) ==
+The marker went into its own transaction, the step's DDL into the next one.
+killed_upgrade_child panicked: called `Result::unwrap()` on an `Err` value:
+  Engine(Error("Parse error: no such table: ai_embedding_upgrade"))
+Both tests FAILED: after the kill inside Intelligence 2's setup, version 2 was recorded but its
+tables were not there, and the archive would not open.
+
+== Red 2: Archive 15's cursor kept in memory only (store_schema/backup_identity.rs, reverted) ==
+a_killed_upgrade_of_a_plain_archive_finishes_at_the_next_launch panicked at killed_upgrade.rs:83:
+  left: ["Archive 150000", "Archive 200000", "Archive 200001", "Archive 200001"]
+ right: ["Archive 100001", "Archive 100001"]
+Each launch redid the visits from the first batch. (The encrypted test failed earlier, at the
+reference's link count, because the in-memory cursor was shared by the two tests running in one
+process: an artifact of the break, not of the test.)

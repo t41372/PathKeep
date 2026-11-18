@@ -308,9 +308,50 @@
   - 2026-10-18 發布 v0.4.0 前為了清 RustSec 先升了 rustls、wasmtime、zip（到 9）、rmcp（到 3）、tar、serde_with、openssl（CHANGELOG）。其餘的還沒掃。
 
 - [!] **WORK-WINDOWS-SNAP-LAYOUTS** — Windows 11 的貼齊版面與自畫視窗按鈕的實機確認（2026-10-13 `WORK-UI-POLISH-2026-10` 留下）[!blocked: 要一台 Windows 11 與 GNOME / KDE 的 Linux 桌面來建置與實看]
-  - 現況：Windows、Linux 已關掉系統標題列，最小化 / 最大化 / 關閉由 app 畫在右上角（`window-controls.tsx`），從沒在兩個平台的實機上看過。滑鼠停在最大化上時 Windows 11 的貼齊版面不會出現。
+  - 現況：Windows、Linux 已關掉系統標題列，最小化 / 最大化 / 關閉由 app 畫在右上角，每個畫面都有（`src/app/window-chrome/`）。2026-11-14 在 Linux 的真視窗上點過，有 X11 的 xfwm4，GNOME 46 的 X11 與 Wayland：按鈕、拖動、雙擊最大化、邊緣縮放都有效（`WORK-WINDOW-FRAME-EVERY-SCREEN`）。Linux 那份現在每次 CI 都跑。Windows 從沒看過，KDE 也還沒有（另見 `WORK-WAYLAND-UNDECORATED`）。滑鼠停在最大化上時 Windows 11 的貼齊版面不會出現。
   - 為什麼還沒做：要讓系統把我們畫的按鈕當成最大化按鈕，得在 Rust 裡回應 `WM_NCHITTEST`（`windows` crate），但 WebView2 的子視窗蓋住整個內容區，訊息可能到不了頂層視窗；這台 Mac 也編不了 Windows 版（`ring`、`aws-lc-sys` 要 mingw），寫了無法建置也無法試。
   - 要做：在 Windows 上建置，先確認縮放邊、拖到螢幕邊緣（Aero Snap）、雙擊最大化、深淺色、按鈕 hover 與鍵盤都對；再試 `WM_NCHITTEST` 子類化或 WebView2 的 non-client region；Linux 在 GNOME 與 KDE 各看一次。
+
+- [ ] **WORK-WAYLAND-UNDECORATED** — KDE 的 Wayland 上，系統標題列可能關不掉，按鈕變兩套（2026-11-14 `WORK-WINDOW-FRAME-EVERY-SCREEN` 讀 tao 原始碼看到；GNOME 上已確認沒有這個問題）
+  - PathKeep 先建立有標題列的視窗，顯示前才關掉（`desktop_integration/window.rs` 的 `frame`）。tao 0.37.2 只在建立時就無標題列的 Wayland 視窗裝一個空的 GTK titlebar，擋住 compositor 自己畫的標題列（`platform_impl/linux/window.rs:192-197`）；之後才關的那條路只呼叫 `set_decorated`（`linux/event_loop.rs:385`）。
+  - GNOME 46 的 Wayland（mutter 不替視窗畫標題列）上看過：視窗是 Wayland client，沒有任何標題列，只有我們的三顆按鈕（`artifacts/investigations/2026-11-14-window-frame/linux-desktop/`）。
+  - 要做：在 KDE 的 Wayland session 開一次（KWin 會替要求的視窗畫標題列）。真有兩套，就改成建立視窗時就沒有標題列（Rust 在 setup 裡建立主視窗，或用平台設定檔），不在顯示前才改。
+
+- [ ] **WORK-ONBOARDING-QUIT-MIDWAY** — 新手引導按「完成設定」後，幾個步驟之間結束 PathKeep，會留下什麼（2026-11-14 `WORK-SCHEMA-UPDATE-QUIT` 時留下，還沒看）
+  - 存檔更新途中結束已經會先問（2026-11-15 `WORK-SCHEMA-UPDATE-QUIT`）。完成設定的步驟（建存檔、存設定、裝排程、第一次備份；`use-finish-setup.ts`）有沒有登記成前台工作、中途結束後下次打開是什麼樣子，還沒看。
+  - 要做：列出每一步之間結束後留下的狀態（設定、存檔、鑰匙圈、排程），確認下次打開能接著完成或重來，不會卡在半套；需要時登記成前台工作。
+
+- [ ] **WORK-SCHEMA-UPDATE-SCREEN-EARLY** — 存檔更新在建索引的那幾版時，畫面只寫「載入中」（2026-11-15 `WORK-SCHEMA-UPDATE-QUIT` 時看到）
+  - 更新畫面（`SchemaUpdateScreen`）只在資料回填送出進度時出現（`schema-update.ts`：`total > 0`）。之前只改結構的版本沒有進度事件，最久的是 Archive 第 5 版：在全部造訪上建唯一索引。這段時間畫面是啟動畫面的「載入中」。
+  - 量到的：100 萬筆造訪的 v1 存檔，第 15 版第一批提交前約 7.4 秒（macOS debug）／8.5 秒（Linux debug），幾乎都花在這裡（`artifacts/investigations/2026-11-14-window-frame/schema-update-kill/campaign.txt`）。1440 萬筆照比例會超過一分鐘，沒有量過。
+  - 結束時先問已經涵蓋這段（這時按關閉會說「正在為這個版本更新存檔」），但畫面本身沒說在更新。
+  - 要做：vault-store 已在開始更新一個已有的資料庫前通知（`MigrationRegistry::on_update`），可以照它送一個「更新開始」的事件，讓更新畫面從那一刻起出現（不確定進度時進度條不定長）。新建的存檔不會收到，不會在新手引導時閃一下。先在 1440 萬筆上量這段要多久。
+
+- [ ] **WORK-E2E-SEARCH-TOPIC-BY-NOW** — `insights.spec.ts`「a search made in several browsers is one row among the searches you came back to most」在某些時間必然失敗（2026-11-14 `WORK-SCHEMA-UPDATE-KILL-TEST` 的 gate 碰到）
+  - 失敗在第 716 行，還沒打開 app：spec 假設「台北天氣」那一族在 Chrome · Work 的「最常回頭的搜尋」前五名裡。E2E 的合成資料以 `Date.now()`、`TZ=UTC` 產生，哪些造訪落在哪個設定檔、哪一天，隨 `now` 而變，前五名也跟著變。
+  - 證明：用真的 `writeSyntheticBrowsers` 在兩個 UTC 日裡每兩小時產生一次，11-15 00:30–10:30 的每一份都失敗（台北天氣 38 次，第 7 名），其他時間都通過；2026-11-15 再細掃：10:30–11:00 失敗、11:10 通過、11:20 失敗、11:25 以後每分鐘都通過，十分鐘內就會翻轉，避開時間跑不可靠；和失敗那次留下的 `fixture.json` 算出來一樣。跟程式碼無關，main 在這段時間跑也會失敗，CI 碰上就紅。腳本與結果：`artifacts/investigations/2026-11-14-e2e-search-topic-by-now/`。
+  - 要做：讓這個 spec 不靠時間碰運氣。例如在 fixture 的 scenes 裡，固定給 Work 設定檔一段「台北天氣 → 台北天氣預報」的搜尋，保證它進前五名；或讓 spec 改從算出來的前五名裡挑一個由兩種寫法組成的中文族。同時用同一個腳本掃一遍，看其他 spec 有沒有同樣「取前 N 名，假設某一項在裡面」的寫法。
+
+- [ ] **WORK-STATUS-SCREEN-OVERFLOW** — 置中的全螢幕畫面不能捲動，內容比視窗高時上下被切掉（2026-11-14 `WORK-WINDOW-FRAME-EVERY-SCREEN` 時看到，沒有重現）
+  - 啟動、啟動失敗、升級、復原畫面（`status-screens.tsx` 的 `Centered`）與鎖定畫面是 `fixed inset-0 flex items-center`，沒有捲動。最可能碰到的是復原畫面：快照多時，在 760 px 高的視窗大約放不下十個以上。
+  - 要做：先在最小視窗下排出那些畫面最長的內容，確認會不會發生；會，就改成可捲動，內容放得下時仍然置中。
+
+- [ ] **WORK-E2E-WINDOW-FRAME-DEFAULT** — E2E 預設在一個沒有任何平台會出現的外框下跑（2026-11-14 `WORK-WINDOW-FRAME-EVERY-SCREEN` 找到「為什麼一直沒被測到」時看到）
+  - dev bridge 的頁面預設沒有紅綠燈讓位、沒有視窗按鈕、沒有拖動標記；只有 `first-run-window.spec.ts`、`window-frame.spec.ts` 讓它代表桌面視窗（`windowFrame`）。
+  - 要做：考慮讓頁面預設代表主機平台的視窗，整個套件就都看使用者的版面。先看 macOS 頂端 28 px 的拖動條擋掉多少既有 spec 的點擊；那些點擊在真機上也會被擋，要逐一判斷是 spec 的問題還是畫面的問題。
+
+- [ ] **WORK-NATIVE-WINDOW-CHECK** — macOS 與 Windows 的真視窗也每次檢查（2026-11-14 `WORK-WINDOW-FRAME-EVERY-SCREEN` 做了 Linux 那份）
+  - Linux 已經在 CI 的 gate 裡：`first-run-native-window.spec.ts` 用 xdotool 點真的 WebKitGTK 視窗，視窗管理員先是 mutter、再換 xfwm4，讀 `_NET_WM_STATE`。這台 Mac 上它略過。
+  - macOS：紅綠燈是系統的，要驗的是拖動區與讓位；需要能送輸入、讀視窗位置的工具（例如輔助使用 API），在本機與 CI 的 macOS runner 上都要有權限。
+  - Windows：WebView2 支援 CDP，Playwright 可以接上真視窗；輸入與視窗狀態要另找工具。沒有 Windows 機器之前先不做。
+
+- [ ] **WORK-WINDOW-INACTIVE-LOOK** — 視窗失焦時，畫的視窗按鈕不會變淡（Windows 系統按鈕會；2026-11-14 Codex 指出）
+
+- [ ] **WORK-UI-SMALL-FINDINGS-2026-11-14** — `WORK-WINDOW-FRAME-EVERY-SCREEN` 時 Codex 指出、讀程式碼確認的小問題，與外框無關
+  - 對話框角落的關閉按鈕，給螢幕閱讀器的文字寫死英文「Close」（`components/ui/dialog.tsx:74`；`DialogFooter` 的 `showCloseButton` 也是，目前沒人用）。違反三語契約。
+  - 舊格式升級畫面在 `try` 之前就訂閱進度（`status-screens.tsx:155-158`）。訂閱失敗時「執行中」不會被清掉，畫面停在進度條上。
+  - Windows、Linux 上也寫 macOS 的快捷鍵：指令面板「Lock PathKeep」旁的 `⌘L`（`command-palette.tsx:125`），導航列提示「Command palette (⌘K)」「Lock PathKeep (⌘L)」（`messages/shell.ts`，三種語言）。那兩個平台是 Ctrl+K、Ctrl+L；上一頁 / 下一頁已經分開寫。2026-11-14 在 Linux 實機的截圖上看到。
+  - 過時的註解：`worker_bridge/archive.rs:18-21` 說 dev bridge 送不了升級進度，`dev_ipc_bridge/dispatch.rs` 其實有送；`desktop_integration/quit.rs:22` 寫 tao 0.35，鎖檔是 0.37.2。
 
 - [ ] **WORK-RECLASSIFY-STALL** — 14.4M 上改一個網站的類別，建置卡在第一頁之前；修好後仍要 16 分鐘（2026-10-13 `WORK-SCALE-BENCH-RERUN` 找到）
   - 現象：`turso_intelligence` 的 `categories` 階段（覆寫 `site1.test` 的類別後做一次增量建置）在 visit-derived-facts 結束後，Intelligence 寫入執行緒單核跑滿 30 分鐘以上，沒有任何 reclassify 進度；之前「全部頁重新分類」的版本是 62 s。使用者在網站頁改類別就是這條路。

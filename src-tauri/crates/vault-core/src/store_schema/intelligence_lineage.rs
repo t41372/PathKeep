@@ -9,11 +9,13 @@ const BATCH_ROWS: i64 = 50_000;
 /// Old index names stay on the renamed v1 table until the move has emptied it.
 pub(super) fn migration() -> Migration {
     let observer = crate::vault::upgrade::observer();
-    Migration::rust(2, apply).with_backfill(backfill).on_backfill_progress(move |progress| {
-        if let Some(observer) = &observer {
-            observer(crate::vault::upgrade::event(progress));
-        }
-    })
+    Migration::rust(2, apply).with_backfill(pending, backfill).on_backfill_progress(
+        move |progress| {
+            if let Some(observer) = &observer {
+                observer(crate::vault::upgrade::event(progress));
+            }
+        },
+    )
 }
 
 pub(super) fn apply(s: &Session<'_>) -> vault_store::Result<()> {
@@ -41,6 +43,14 @@ pub(super) fn apply(s: &Session<'_>) -> vault_store::Result<()> {
         s.execute(statement, ())?;
     }
     Ok(())
+}
+
+/// Whether rows are left to move; reads the resume state and changes nothing.
+pub(super) fn pending(s: &Session<'_>) -> vault_store::Result<bool> {
+    let phase = s.query_one("SELECT phase FROM ai_embedding_upgrade WHERE id=1", (), |r| {
+        r.get::<String>(0).map_err(Into::into)
+    })?;
+    Ok(phase != "done")
 }
 
 /// One fixed-size transaction; the registry repeats it before starting any read pool.

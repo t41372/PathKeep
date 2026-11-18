@@ -148,7 +148,11 @@ export default defineConfig({
     stdout: 'pipe',
   },
   projects: [
-    project('first-run', ['first-run.spec.ts']),
+    project('first-run', [
+      'first-run-native-window.spec.ts',
+      'first-run-window.spec.ts',
+      'first-run.spec.ts',
+    ]),
     project(
       'read',
       [
@@ -192,6 +196,7 @@ export default defineConfig({
         'mcp-log.spec.ts',
         'security.spec.ts',
         'site-category.spec.ts',
+        'window-frame.spec.ts',
         // Runs a backup; its name sorts it last here, so the specs before it
         // see the archive they expect.
         'spaces-shell-tasks.spec.ts',

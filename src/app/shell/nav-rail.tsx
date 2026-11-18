@@ -30,6 +30,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import { backdropDragRegion } from '@/components/app/drag-region'
 import { cn } from '@/lib/cn'
 import { useI18n } from '@/lib/i18n'
 import { hasMacOverlayTitlebar, isMacOsHost } from '@/lib/runtime'
@@ -156,7 +157,7 @@ export function NavRail({
       className="flex w-[76px] shrink-0 flex-col items-center gap-1 pb-3"
     >
       <div
-        data-tauri-drag-region
+        {...backdropDragRegion()}
         className={cn('w-full shrink-0', overlayTitlebar ? 'h-[46px]' : 'h-3')}
       />
       <div className="mb-1.5 flex shrink-0 gap-0.5">
@@ -187,7 +188,7 @@ export function NavRail({
           />
         ))}
       </SpaceSlide>
-      <div className="min-h-2 flex-1" data-tauri-drag-region />
+      <div className="min-h-2 flex-1" {...backdropDragRegion()} />
       {/* Below the line: shared by every space, and still when it changes. */}
       <Divider className="mb-1" />
       <TaskIndicator />

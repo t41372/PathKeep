@@ -1,6 +1,7 @@
 /**
- * The strip a scrolling screen can be dragged by on macOS, where the window has
- * no title bar of its own (see drag-region.ts for the rest of the marks).
+ * The strip a scrolling screen can be dragged by on macOS, where the top of
+ * the panel lies in the title strip the traffic lights float over (see
+ * drag-region.ts for the rest of the marks).
  */
 import { hasMacOverlayTitlebar } from '@/lib/runtime'
 
