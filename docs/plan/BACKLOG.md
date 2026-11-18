@@ -63,16 +63,16 @@
     - 「從副本修復 Agent 對話」這個動作本身（做法見下一點）。
   - 動作本身走 PME：預覽寫出副本是哪一天的、會退回多少段對話、目前的對話放到哪裡（變成一份安全副本，不刪）。副本的金鑰和存檔不同時，跟還原一樣轉成存檔的金鑰。
 
-- [ ] **WORK-AH-PERMANENT-DELETE** — 從存檔永久刪除單段 Agent 對話（用戶 2026-11-13 決定 v0.6.0 先不做，用封存和垃圾桶）
+- [ ] **WORK-AH-PERMANENT-DELETE** — 從存檔永久刪除單段 Agent 對話（用戶 2026-11-13 決定 v0.6.0 先不做，用封存和垃圾桶；2026-11-18 再確認：無限期擱置）
   - 現在垃圾桶裡的對話還在存檔裡；存檔不加密時是明文。要真的刪掉只能刪掉整個「Agent 對話」的存檔。
   - 為什麼不是刪幾列就好，寫在 `docs/architecture/agent-history-product-design.md` §4：資料庫要整個複製重寫、索引分段要合併、舊的安全副本要整份重做、工具還留著檔案時下次備份不能存回來、工具的共用檔（輸入歷史、索引、狀態資料庫）裡的片段、從它接續出去的對話。
   - 開工前先量：這台機器大小的存檔重寫一次要多久、寫多少；再決定是每次刪除都重寫，還是累積到清空垃圾桶時重寫一次。
 
-- [ ] **WORK-AH-MORE-TOOLS** — Continue、Cline、Roo Code 開給產品（用戶 2026-11-13 決定 v0.6.0 先不做）
+- [ ] **WORK-AH-MORE-TOOLS** — Continue、Cline、Roo Code 開給產品（用戶 2026-11-13 決定 v0.6.0 先不做；2026-11-18 再確認：無限期擱置）
   - 核心庫讀得懂 Continue 的 session 檔，和 Cline、Roo 的「經典」存法（每個任務一個資料夾）。Cline 新版改用另一套儲存，現在的支援不涵蓋；三個工具在開發機上都沒有真實檔案可以對過。
   - 要做的：各自的預設位置（要有工具自己的原始碼或文件當證據，不能猜）、新版儲存的研究、拿真實檔案驗過、整份改寫的 JSON 檔的保留規則（被下一版完整包含的版本只留紀錄）。
 
-- [ ] **WORK-AH-BULK-ACTIONS** — 一次封存或刪除多段對話（例如整個專案、某一天之前的全部）（2026-11-13 做封存與刪除時留下，v0.6.0 之後）
+- [ ] **WORK-AH-BULK-ACTIONS** — 一次封存或刪除多段對話（例如整個專案、某一天之前的全部）（2026-11-13 做封存與刪除時留下；用戶 2026-11-18：無限期擱置）
   - v0.6.0 只有一次一段。多選、整個專案、依條件的刪除都要各自的預覽（會刪掉幾段、多少版本、多大）。
 
 - [x] **WORK-BACKUP-INTEGRITY-SCALE** — 2026-11-10 使用者確認 14.4M 升級／備份與跨平台安裝已驗證。
@@ -196,7 +196,7 @@
   - 用戶 2026-11-13 說原型不留在倉庫裡、文件也不該指向原型。那句話是針對 v0.6 的原型說的；2026-10 的原型已經做進前端，照同一個原則也該刪，但這是我的推論，動手前先確認。
   - 指向它的地方：`screens-and-nav.md`、`ux-principles.md`、`design-tokens.md`、`ui-review-guardrails.md`（截圖路徑）、`docs/design/handoff/README.md`、`src/index.css` 的註解、`.prettierignore`。
 
-- [ ] **WORK-BACKGROUND-DASHBOARD** — 後台任務做成 dashboard，不是設置頁（用戶 2026-10-15，說之後再做）
+- [ ] **WORK-BACKGROUND-DASHBOARD** — 後台任務做成 dashboard，不是設置頁（用戶 2026-10-15 提出；v0.6.0 的一部分，由 `WORK-AH-APP-SURFACE` 與 `WORK-AH-SCREENS` 的背景任務頁做掉，用戶 2026-11-18 確認）
   - 現況：Settings → 後台任務是一列列設置卡片加工作清單。它其實是給人看「現在在跑什麼、跑多快、哪裡卡住」的地方：正在跑的工作、進度與速度、排隊的、失敗的與原因、可以暫停 / 繼續 / 取消 / 重試。
   - `WORK-AI-INDEX-CONTROL` 已做完（2026-10-15）：暫停 / 繼續 / 取消、會動的進度與速度、剩餘時間、工作結束的事件都有了，這頁可以直接用（`use-index-pace.ts`、`use-background-work.ts` 的工作動作、分頁的 `JobList`）。先讀 `docs/design/` 核心四份再設計。
 
@@ -388,7 +388,7 @@
   - 契約：誠實態（寧可誠實 provider error 也不靜默吞；部分結果要標示）；前端流暢度不受影響；AI 可選；i18n×3；100% JS/Rust coverage + lethal tests（含 no-usage、小 window、超大最後一筆結果、空答 fallback 的案例）；`bun run check`。
   - 驗收：構造「context 逼近 budget 時最後一輪回超大結果」的測試，synthesis turn 不再 overflow（或誠實降級且有測試證明）；小 window provider 走 graceful 路徑；no-usage provider 用真 tokenizer 估算；空答有 fallback 摘要；更新 `docs/architecture/`。
 
-- [ ] **WORK-ENCRYPT-AT-REST-ALL** — 評估並（評估後）實作「全量加密」衍生資料庫（需先做設計/性能評估階段）
+- [ ] **WORK-ENCRYPT-AT-REST-ALL** — 評估並（評估後）實作「全量加密」衍生資料庫（需先做設計/性能評估階段）（用戶 2026-11-18：繼續擱置，不在 v0.6.0）
   - 2026-11-14 更正：加密模式下仍是明文的不只語意向量。讀程式確認：存下的網頁文字（`sidecars/intelligence-blobs/`，`intelligence_blobs.rs` 直接 `fs::write`）、每次備份留的瀏覽器檔案副本（`raw-snapshots/<設定檔>/…/History`、`Favicons`，`archive/ingest/checkpoint.rs` 直接 `fs::copy`，是瀏覽器歷史檔的完整複本）。盤點另外列了 `audit/`、`integrations/`、`schedule/`，還沒逐一讀過。瀏覽器自己刪掉舊歷史之後，這些副本裡還有。
   - 2026-10 狀態：Turso 版每個原生資料庫（archive、source evidence、intelligence、agent、scratch）都用同一把資料金鑰加密，搜尋索引用加密的 Tantivy Directory。下面提到的 SQLCipher 原語（`at_rest.rs` reconcile、`open_archive_connection`、`search_projection.rs`、`intelligence_projection.rs`）已刪除。剩下要評估的只有語意搜尋的平面檔（`.pkvec` / `.pkmap` / `.pkbin` / `.pki8`）是否加密。
   - 來源：2026-06-28 使用者指示。修 backup OOM 時確認：開啟加密只加密 canonical encrypted-tier（`history-vault.sqlite` + `source-evidence.sqlite`）；衍生 sidecar（`derived/history-search.sqlite` FTS、`derived/history-intelligence.sqlite`、`derived/agent.sqlite` 對話）目前**明文**落盤，內含 URL / 標題 / enrichment 摘要 / 聊天內容。使用者選擇當時先只修 source-evidence，並要求把「encrypt EVERYTHING 的性能與實現設計評估」記成待辦，評估後再決定是否實作。
@@ -415,6 +415,11 @@
   - 驗收：CI 產出 signed + notarized + stapled 的 `.app`/`.dmg`；裝在乾淨機器上 Gatekeeper 不擋；授一次 FDA 後，安裝下一個版本仍保有 FDA（備份不再靜默失效）。
 
 ---
+
+- [ ] **WORK-E2E-WINDOW-OFF-THE-DESKTOP** — E2E 的測試 app 在開發者的螢幕上開真的視窗、搶走焦點，視窗被關掉整輪 gate 就結束（2026-11-18 查明；2026-11-16 那次「app 自己結束」沒查明的也是這個現象）
+  - 現況：`bun run test:e2e` 由 `scripts/pathkeep-dev-desktop-bridge.mjs` 啟動 debug 版的 app。在 macOS 上它是一般的 app：啟動時跳到最前面，視窗顯示出來，每個重啟 app 的 spec 都再來一次。測試本身走 dev bridge 與 Chrome 的頁面，用不到這個視窗（只有 Linux 的真視窗 spec 要它）。
+  - 2026-11-18 的 gate：視窗出現 3 秒後，紅色關閉鈕被滑鼠點了一下（系統日誌：`trackMouse send action on mouseUp` 接著 `windowShouldClose`），選單列圖示關著，app 照規則結束（代碼 0）。supervisor 沒被要求重啟就結束整輪，剩下 136 個 spec 沒跑。不是產品的 bug。
+  - 要做：E2E 啟動的 app 在 macOS、Windows 上不到最前面、不顯示視窗（Linux 的真視窗 spec 除外），又不能變成 `--background` 那種會閒置結束的啟動。`debug_request_quit` 走的關閉路徑照舊。先確認隱藏視窗不改變任何 spec 看到的行為（`owner` 啟動時數的視窗數、選單列圖示的規則）。
 
 ## 維護規則
 
@@ -482,7 +487,7 @@
 - [ ] **WORK-WRITE-LOCK-WINDOWS** — 跨行程寫入鎖的開頭說明還在講舊架構（Windows 上的空殼 2026-11-16 已修，改用標準庫的 `File::try_lock`，見 STATUS；2026-11-15 ChatGPT 審查 5a 時順帶指出）
   - 同一份檔案的開頭說明還在講「排程備份是另一個行程」的舊架構。現在只有一個 owner 行程能打開存檔（owner lock），排程備份在 owner 裡跑，改名前 Store 已暫停並關閉；說明要跟著改成現況，並寫清楚這把鎖現在擋的是什麼。
 
-- [ ] **WORK-WINDOWS-MODEL-REPLACE** — Windows 上，內建語意模型的檔案正被打開或映射時，重新下載換不掉它（2026-11-16，Windows runner 上看到，v0.5.0 也一樣）
+- [ ] **WORK-WINDOWS-MODEL-REPLACE** — Windows 上，內建語意模型的檔案正被打開或映射時，重新下載換不掉它（2026-11-16，Windows runner 上看到，v0.5.0 也一樣；v0.6.0 發布前：下一個發布就是 v0.6.0，Windows 使用者遇到新的模型版本時會碰到）
   - 現象：`ai::model_files::tests::ensure_download_replaces_files_without_changing_open_readers` 在 Windows 上失敗：「installing verified model file …: Access is denied (os error 5)」（`vault-fs` 之前多一層「failed to persist temporary file」）。測試開著舊檔，再要下載換掉它。`vault-fs` 會等別的程式放開檔案，但這裡舊檔在整個呼叫期間都開著，十次重試用完照樣失敗：等待解決不了，要換做法。
   - 原因（讀程式）：驗證完的暫存檔用 `tempfile` 的 `persist` 換上去；tempfile 3.27 在 Windows 上呼叫 `MoveFileExW(MOVEFILE_REPLACE_EXISTING)`，目標被別的 handle 開著時 Windows 拒絕。註解說換檔是為了不動正在被映射的舊檔（內建模型用 `memmap2` 映射，`embedding_static.rs`），這個前提在 Windows 不成立。
   - 什麼時候會遇到：已經有模型檔、但驗不過（例如新版換了模型版本），而舊檔正被使用時。第一次下載不受影響。失敗時舊檔不動、回報錯誤。

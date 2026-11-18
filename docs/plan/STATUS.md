@@ -9,6 +9,105 @@
 
 ---
 
+## v0.6.0 發布前要做完的事（2026-11-18 排定）
+
+> 用戶 2026-11-18：「我們手上沒有任何東西打算拖延到 v0.6.0 之後。所有規劃中的，還沒合併的，打算做的東西，沒有任何一項是允許拖延到 v0.6.0 之後的。」其他分支不單獨發布，全部合併到這條分支，一起發 v0.6.0。
+> 「完成」只用在使用者在 app 裡真的能用、有 E2E 證明的東西。後端或程式庫寫好、前端沒接上，對使用者來說不存在。
+> 現況（2026-11-18）：Agent 對話在 app 裡還完全不能用，不能備份、看不到、搜不到。核心程式庫與存檔格式是 Codex（GPT）寫的，還沒接進 app。存檔底層也還差幾項，列在第 2 組。
+
+分工（用戶 2026-11-18）：後端程式由 Codex `gpt-6.2-astra`（high）寫；UI 由 Claude 寫。每條要合併的分支先讓 Codex astra（xhigh）審查一次，Claude 逐條驗證（是不是真的、是不是根本原因、值不值得修、怎麼修），再交回同一個 Codex session 修。Codex 的回報不當作結果：看 diff、自己跑 gate。
+
+依序做。每一項做完才打勾，沒做的不默默略過。
+
+### 0. 整合分支自己
+
+- [ ] 改密碼測試在 Windows 上讀鎖檔的修正（`read_unless_locked`）：完整 gate、提交、推上去、Platform Native 再跑一次。2026-11-16 那次 gate 跑到 E2E 第 89 個時 session 結束被中斷，沒有跑完。2026-11-18 第一次重跑在 E2E 第一個 spec 結束：測試 app 的視窗在螢幕上被關掉（見下一項），不是程式的問題；再跑一次。
+- [x] 完整 gate 與 E2E 改在 boxd（Linux）上跑，不在用戶的電腦上跑（用戶 2026-11-18）。腳本在交接資料夾的 `boxd-gate/`：同步原始碼、照 CI 的方式跑 `bun run check`、取回紀錄。這台 Mac 只跑不開視窗的輕量檢查與單項 Rust 測試。
+- [ ] E2E 的測試 app 不再到螢幕最前面開視窗（`WORK-E2E-WINDOW-OFF-THE-DESKTOP`）：發布前在 macOS 上跑那一次 E2E 之前做好。
+
+### 1. 把其他分支合併過來
+
+每條：審查 → 驗證 → 修 → 合併並解衝突 → 完整 gate → 刪掉它的 worktree。
+
+- [ ] `feat/semantic-progress-investigation`（2 個 commit，Codex 寫的）：語意索引進度「644 / 94」的第一輪修正。與這條分支只在 STATUS、CHANGELOG 衝突。
+- [ ] `fix/window-controls-every-screen`（5 個 commit）：Windows、Linux 每個畫面都有視窗按鈕、按著移動才拖動、存檔更新途中結束先問、更新途中被結束的測試。衝突在 `vault-core/src/vault.rs`、`app-frame.tsx`、`nav-rail.tsx`、`playwright.config.ts`、`screens-and-nav.md`、STATUS、CHANGELOG。`vault.rs` 與外框正是 Agent 對話要改的地方，所以排在動工之前。
+- [ ] Dependabot PR #28（11 個 JS 套件的小版本）：在這條分支上照做一次，PR 本身之後關掉。
+- [ ] `feat/landing-page`（PR #25）：頁面本身做完了，缺 Agent 空間的介紹、圖片與 demo，要等第 4 組的畫面做出來。排在第 7 組。
+- [x] `fix/windows-flush-v05`：內容已全部在這條分支（2026-11-16 逐項對過），分支不合併。
+
+### 2. 存檔角色收尾（`WORK-VAULT-STORE-ROLES`，細節在下面那一塊）
+
+- [ ] 程式庫接上存檔：`agent_history::Archive::attach` 用 owner 開好的 Store 與存檔的金鑰；`Vault::agent_history()` 每一代存檔一個。方案第五步明列，之前沒做也沒記。現在 app 存檔裡的兩個 Agent 資料庫永遠是空的。
+- [ ] 生命週期測試用真正的對話資料（方案 T06）：用程式庫備份合成的工具檔（多段的大檔、之後消失的來源、星號、標題、垃圾桶），走過快照與還原、開關加密、改密碼、搬家匯出與匯入、重開；每一步之後對話清單、使用者狀態、原始位元組逐一相同、搜尋找得到，加密時資料夾裡沒有明文。現在只在每個資料庫放一個標記字串。
+- [ ] 對話資料庫壞掉時瀏覽紀錄照樣打開（方案 T12）。現在 `Vault::open` 一次開全部資料庫，對話的壞了整份打不開。
+- [ ] 拒絕的狀態交給前端（方案 T21）：能開／拒絕（讀不了、改不了分開）／需要復原／還沒初始化，指令與 dev bridge 一致。現在只有系統對話框。
+- [ ] 升級進度照實回報（方案 T13）：查建立新資料庫那一步的回報，缺的補上。
+- [ ] 真正的 v0.4.0、v0.5.0 程式實測補上加密的存檔（方案 T19；2026-11-16 只做了 Linux 上不加密的）。
+- [ ] 這一塊的 CHANGELOG。
+
+### 3. 程式庫已知的兩個 bug（`WORK-AH-REVIEW-FOLLOWUPS`；用戶 2026-11-13：清單和搜尋接上之前修好）
+
+- [ ] 接續鏈繞成圈時，整份存檔的備份、搜尋、驗證都失敗。
+- [ ] `archive/comparison.rs` 清單比版本短時 panic。
+- [ ] 那一塊其餘待重現的項目。
+
+### 4. Agent 對話做進 app（每一步都要前端接上、E2E 證明）
+
+- [ ] 讀取模型與查詢（`WORK-AH-READ-MODEL`）：對話摘要、大綱、每一輪的事實、專案歸類；清單翻頁、閱讀器、搜尋、洞察。
+- [ ] 接進 app（`WORK-AH-APP-SURFACE`）：啟用的預覽（PME）、每個空間的立即備份、進度與取消、背景任務共用的讀法、設定、排程與選單列。
+- [ ] Agent 空間的畫面（`WORK-AH-SCREENS`）：洞察、紀錄與閱讀器、專案、備份、設定、啟用流程、背景任務頁。
+- [ ] 背景任務做成 dashboard（`WORK-BACKGROUND-DASHBOARD`）：設計原型裡的背景任務頁（`#/tasks`），設定裡的工作清單搬過去，設定只留排程與限制。是上面兩塊的一部分，單獨列出來免得漏。
+- [ ] 刪掉原型資料夾（`WORK-PROTOTYPE-2026-10-REMOVE`）。
+
+### 5. 保護資料與能退回
+
+- [ ] 匯入搬家檔時保留這台的對話，匯錯可以撤回（`WORK-IMPORT-KEEPS-CONVERSATIONS`）。
+- [ ] 從安全副本修復對話（`WORK-AH-REPAIR-FROM-COPY`）。
+- [ ] 存檔打不開時的拒絕畫面（`WORK-ARCHIVE-REFUSAL-SCREEN`）。
+- [ ] 把存檔轉回 v0.5.0 能開的樣子（`WORK-UPGRADE-ROLLBACK`）。
+- [ ] `raw-snapshots/` 連到別的磁碟（`WORK-LINKED-SNAPSHOTS-FOLDER`）。
+- [ ] Windows 上模型換檔（`WORK-WINDOWS-MODEL-REPLACE`）。
+- [ ] 搬家丟掉使用者改過的網站分類與搜尋引擎規則、已存網頁文字搬過去找不到，以及 `WORK-VAULT-FOLLOWUPS-2026-11` 其餘各項。
+- [ ] 存檔的不變量測試（`WORK-ARCHIVE-INVARIANTS`）。
+- [ ] `WORK-WIPE-UNDONE-NOTICE`、`WORK-FAT-DATA-FOLDER-NOTICE`、`WORK-FAT-TWO-NAMES-EXPORT-SWEEP`、`WORK-MOVE-FILE-APP-VERSION`、`WORK-WRITE-LOCK-WINDOWS`、`WORK-WIPE-WAITS-FOR-BACKUP`。
+
+### 6. 其他分支留下、還沒做的，與 BACKLOG 其餘每一項
+
+合併進來的分支自己記下的：
+
+- [ ] `WORK-SEMANTIC-FOLLOWUP-AUDIT`（semantic 分支）：八條可疑項逐條用正常操作重現、定根因、定方案再修：同一造訪換內容後映射不換 key（即 `WORK-SEMANTIC-REMAP-CHANGED-CONTENT`）、外部備份後畫面用舊 snapshot、延遲的 snapshot 蓋掉新設定（即 `WORK-SNAPSHOT-WRITE-ORDER`）、還原後來源與資料庫年代不一致、還原後 generation 撞名、手動更新全量核對（即 `WORK-INDEX-UPDATE-WALKS-ARCHIVE`）、大型查找快取寫入時程序中止。
+- [ ] window-controls 分支：`WORK-SCHEMA-UPDATE-SCREEN-EARLY`、`WORK-ONBOARDING-QUIT-MIDWAY`、`WORK-WAYLAND-UNDECORATED`（KDE）、`WORK-STATUS-SCREEN-OVERFLOW`、`WORK-E2E-WINDOW-FRAME-DEFAULT`、`WORK-NATIVE-WINDOW-CHECK`、`WORK-WINDOW-INACTIVE-LOOK`、`WORK-UI-SMALL-FINDINGS-2026-11-14`、`WORK-E2E-SEARCH-TOPIC-BY-NOW`（那個 spec 在這條分支已改成不靠時間；剩下掃其他 spec 有沒有同樣寫法）。
+
+BACKLOG 原有的，依領域：
+
+- [ ] 讀取與回應：`WORK-INSIGHTS-COLD-READS`、`WORK-UNBOUNDED-READS`、`WORK-SLOW-READ-ALARM`、`WORK-STALE-WHEN-BACKEND-SILENT`、`WORK-EMPTY-WRITE-CHECKPOINT`、`WORK-TURSO-MINMAX-WRAPPER-AUDIT`、`WORK-TURSO-COMPOSITE-KEY-PLANS`、`WORK-RECLASSIFY-STALL`、`WORK-SCALE-BENCH-RERUN`。
+- [ ] 備份與匯入：`WORK-STAGING-BUSY-WAIT`、`WORK-URL-TITLE-REFRESH`、`WORK-WINDOWS-RAW-COPY-CHECK`、`WORK-SAME-VISIT-UNDONE-STAND-IN`、`WORK-INSIGHTS-LATE-OPENERS`。
+- [ ] 語意索引：`WORK-SEMANTIC-INDEX-CLEAR-ENTRY`、`WORK-SEMANTIC-VISIT-SIDECAR`、`WORK-INDEX-SEARCH-WHILE-BUILDING`、`WORK-INDEX-ROW-CLEANUP-OFF-JOB`、`WORK-INDEX-RESOLVE-RETRY-LIMIT`、`WORK-INTELLIGENCE-MIGRATION-OPEN`。
+- [ ] 搜尋：`WORK-SEARCH-OR-OPERATORS`、`WORK-SEARCH-ACCENT-GRAMS`、`WORK-SEARCH-TYPO-WALK`、`WORK-SEARCH-QUOTED-LITERALS`、`WORK-SEARCH-NEAR-DUPLICATES`、`WORK-SEARCH-FAMILY-ACROSS-PROFILES`、`WORK-HISTORY-SEARCH-NOTES-E2E`、`WORK-INSIGHTS-TITLE-QUERY`。
+- [ ] 介面與行為：`WORK-QUIT-FOLLOWUPS`、`WORK-TAG-SAVE-FAILURE-STALE`、`WORK-PERF-OG-QUEUE-A`。
+- [ ] AI：`WORK-AI-MAPREDUCE-A`、`WORK-AI-CTX-BUDGET-A`、`WORK-TEST-REAL-IO-A`。
+- [ ] 依賴與測試：`WORK-DEPS-LATEST`、`WORK-SCRAPER-LATEST`、`WORK-SQLCIPHER-SQLITE-354`、`WORK-FLAKY-BLOCK-CACHE-RSS`（與 `WORK-FLAKY-CACHE-RSS-TEST` 是同一個測試）、`WORK-COMMAND-CONTRACT-PARITY`、`WORK-DOCS-DRIFT-2026-11`、`WORK-REVIEW-0612-FOLLOWUPS-A`、`WORK-V05-SIDE-FINDINGS-2026-11`。
+
+不在 v0.6.0 的（用戶 2026-11-18 逐項確認）：`WORK-AH-PERMANENT-DELETE`（永久刪除單段對話）、`WORK-AH-MORE-TOOLS`（Continue、Cline、Roo Code）、`WORK-AH-BULK-ACTIONS`（一次封存或刪除多段對話）無限期擱置；`WORK-ENCRYPT-AT-REST-ALL`（加密模式下網頁文字與瀏覽器檔案副本也加密）繼續擱置。除了這四項，沒有別的延後。
+
+被擋住的，各缺什麼（輪到時向用戶要）：
+
+- [!] `WORK-RELEASE-SIGNING-A`：要 Apple Developer 帳號與用戶授權。
+- [!] `WORK-WINDOWS-SNAP-LAYOUTS`、真的 Windows 電腦上的實測：要一台 Windows 11。
+- [!] `WORK-VECTOR-MEMORY-AT-SCALE`：等用戶在研究文件的 A / B / C 中選。
+- [!] `WORK-DECISION-MODELS`、`WORK-SEED-TURSO-ASSERT`：要磁碟空間（後者約 40 GB）。
+- [!] `WORK-REKEY-STALL`：等重現。
+
+### 7. 發布
+
+- [ ] 這條分支上還沒被 Codex astra 審過的部分分塊審查、驗證、修。
+- [ ] landing page：補 Agent 空間的介紹、圖片，重錄 demo 加上 Agent 空間（`WORK-SITE-DEMO-V060`），網站的檢查進 CI，合併 PR #25；Cloudflare Pages 與網域要用用戶的帳號。
+- [ ] 在 macOS 上完整跑一次 E2E（用戶 2026-11-18：至少一次，放在最後，開發過程中不在這台電腦上跑）。Linux 的 gate 看不到只在 macOS 才有的行為（鑰匙圈、排程、檔案系統），Platform Native 只跑 Rust 測試。先做完 `WORK-E2E-WINDOW-OFF-THE-DESKTOP`。
+- [ ] 發布流程實跑一次（`WORK-RELEASE-REHEARSAL-V06`，動 GitHub 前問用戶）。
+- [ ] 在真的 Windows 電腦上（Defender、OneDrive）跑一次還原、匯入、刪除所有資料、Agent 對話備份。
+- [ ] 發布說明：改了儲存格式後舊版打不開；從 v0.6.0 裝回 v0.5.0，v0.5.0 啟動時就結束、沒有說明。
+- [ ] 合併回 main、發布（要用戶明確同意）。
+
 ## CURRENT FOCUS
 
 - [ ] **WORK-VAULT-STORE-ROLES** — Agent 對話的資料庫併進 PathKeep 的存檔，並把「存檔裡有哪些資料庫和資料夾」集中到一張表（v0.6.0；2026-11-14 從 BACKLOG 搬上）
@@ -140,7 +239,7 @@
     - 別的程式開著檔案（2026-11-15，用戶轉來的第三則提醒，查證屬實）：Windows 上防毒、搜尋索引、OneDrive、備份軟體剛好開著檔案又沒給刪除共用時，改名與刪除直接失敗，我們沒有重試；這一版的升級每個 Windows 使用者都會跑一次，Defender 掃到剛建好的資料庫就會失敗。現在存檔操作的改名與刪除（安裝、升級、刪除所有資料、還原的暫存、匯入、舊格式轉換、0.5 沒做完的操作的恢復、「釋放空間」，以及所有經 `durable_io` 的寫入），遇到拒絕存取、共用違規、鎖定違規時再試十次、每次多等 25 ms（約 1.4 秒，SQLite 對同樣錯誤的預算，`durable_io::retry_while_held`；2026-11-16 起在 `vault-fs`）；佔得更久的照舊安全失敗，下次啟動再接著做。索引建立、備份的暫存與診斷紀錄還有幾處直接改名、刪除，沒有等（2026-11-16 起也等，見下一項）。重試本身每個平台都測；Windows 另有一個測試用另一個 handle 開著檔案（不給刪除共用），0.3 秒後放開，改名、覆寫、刪除都要成功，一直不放的要在幾秒內失敗、不能卡住（要推上去在 Windows CI 跑）。CI 的機器通常沒有這些程式，所以發布前還要在開著 Defender 與 OneDrive 的真 Windows 電腦上做一次還原與升級，順便跑一次備份與索引建立（2026-11-16 起那幾處也等），這台 Mac 做不到。
     - 每一處搬動與刪除都等（2026-11-16，用戶轉來 side agent 的提醒，查證屬實；推翻上一項「索引建立、備份的暫存與診斷紀錄先不等，真機上失敗才改」）：語意索引、內建模型、搜尋索引的提交與舊版本、備份的暫存、Insights 的檔案、排程紀錄、診斷，都是剛寫好就被搬或刪，和存檔操作是同一個原因；只包一部分，就多一條「哪些會等」要另外記，v0.5.1 的發布說明草稿也寫成了全部都等。改成：等待搬到新的 `vault-fs` crate（`rename`、`remove_file`、`remove_dir`、`remove_dir_all`、`persist`、`persist_noclobber`，以及給組合步驟用的 `retry_while_held`），`vault-crypto`、`vault-store`、`vault-core`、`agent-history`、`vault-convert-sqlcipher` 搬動或刪除自己的檔案一律經過它，`durable_io` 不再有自己的一份。不等的只有兩種下一輪本來就會再試的清理：tantivy 的垃圾回收（刪不掉的檔案留在清單上，下次再刪；它的原始碼也寫明 Windows 上被映射的檔案本來就刪不掉）與語意索引的 trash（讀取者開著的檔案每輪都等會拖住收集，搬進 trash 那一步還在登記表的鎖裡），兩處的註解寫明原因。順便補上這條分支漏掉的兩處：舊格式切換加密與還原之前清掉擋路的暫存檔（`rekey.rs`、`restore.rs`；v0.5.x 移植時已包）。`vault-platform` 的檔案（macOS 的登入項目與排程、測試用的鑰匙圈檔）不在資料夾裡，Windows 上的排程與登入項目也不是檔案，不包。測試：重試本身每個平台都測；Windows 上另有一個測試開著檔案不給刪除共用，0.3 秒後放開，改名、覆寫、刪除、刪整個資料夾都要成功，一直不放的幾秒內失敗；Windows CI 加跑 `-p vault-fs`。
     - 匯出記憶體測試時好時壞的原因（2026-11-16；推翻當時記進 BACKLOG 的推測「背景的搜尋索引在配置」）：v0.5 分支的完整檢查五次失敗兩次，十萬筆那次的高峰多 0.3～0.6 MiB。在測試的計數配置器裡按執行緒記帳，並記下每次創新高的那筆配置：搜尋索引在高峰時手上是 0；把高峰推上去的是讀取連線，每讀一頁多約 68 KB（約 17 個 4 KiB 的資料庫分頁），連續幾頁後停。存放層每個資料庫有兩條讀取連線，各有自己的分頁快取，一次讀取交給先醒來的那條；量測那次把某頁交給暖機時沒讀過它的連線，這條連線的快取增長就被算成匯出的記憶體。只用一條讀取連線時，負載下 20 次都不再偏高（兩條時 30 次有 5 次偏高、1 次失敗）。改法：測試的子行程設 `PATHKEEP_TEST_STORE_READERS=1`（新的、只在 debug 建置有效的開關，`test_support::store_readers`，接在 `vault::storage_config`），量到的只剩匯出自己的記憶體，門檻不變；用執行緒數確認開關有作用（26 → 21，五個資料庫各少一條）。這條分支還沒有 PR #24（它修好閒置的搜尋索引反覆寫入，那些寫入一直清空快取，快取長不滿），這條分支的檢查沒碰過這個失敗；合併 main 之後就可能碰到，所以開關先接好。
-    - 2026-11-16 把 v0.5.0 之後的 main 合併進這條分支（merge，不改寫歷史）：14 個提交，分岔在 2026-11-13 的 `f4e4759e`，包括 PR #24（長讀取不再擋住其他讀取、閒置的搜尋索引不再反覆寫入、跑太久的語句會記名；用戶 11-13 回報的「按繼續建索引之後讀不到新資料」就是它修的）、發布流程的修正、`quinn-udp` 的 RUSTSEC 升級與 JS 依賴更新。版本改成 `0.6.0-dev`（main 發布了 0.5.0，`0.5.0-dev` 排在它前面）；每個衝突怎麼解寫在合併提交。合併後本機完整檢查通過（Rust 160 組、E2E 137 + 9 + 1）。合併前在這條分支上跑的 Windows、macOS 原生測試都是舊程式，合併改到存放層，要再跑一次才算數。
+    - 2026-11-16 把 v0.5.0 之後的 main 合併進這條分支（merge，不改寫歷史）：14 個提交，分岔在 2026-11-13 的 `f4e4759e`，包括 PR #24（長讀取不再擋住其他讀取、閒置的搜尋索引不再反覆寫入、跑太久的語句會記名；用戶 11-13 回報的「按繼續建索引之後讀不到新資料」就是它修的）、發布流程的修正、`quinn-udp` 的 RUSTSEC 升級與 JS 依賴更新。版本改成 `0.6.0-dev`（main 發布了 0.5.0，`0.5.0-dev` 排在它前面）；每個衝突怎麼解寫在合併提交。合併後本機完整檢查通過（Rust 160 組、E2E 137 + 9 + 1）。合併前在這條分支上跑的 Windows、macOS 原生測試都是舊程式，合併改到存放層，要再跑一次才算數。合併後在 GitHub 上跑的原生測試（A5，`94266b67`，run 43938314855）：Linux、macOS 全過；Windows 兩個失敗。一個是模型換檔（`WORK-WINDOWS-MODEL-REPLACE`，v0.5.0 就有）；另一個是 `vault_lifecycle` 的改密碼測試，它在存檔開著時把資料夾裡每個檔案直接讀一遍，Windows 上被鎖著的鎖檔讀不了（錯誤 33），和 A4 的 `observation.rs` 同一類，改成也經過 `read_unless_locked`。A4 時它沒跑到：整支測試程式在更早的 panic 就中止了。
     - Windows 上第一次把 `vault-core` 與 `vault-worker` 全部跑完（2026-11-16，GitHub 的 Windows runner 跑了三次：A2、A3，以及 A4，A4 是這一塊加 `vault-fs` 之前的工作樹）：
       - A2 有 524 個失敗，其中 493 個停在寫進磁碟（`545de72a` 修好）。A3 剩 47 個與一次整個程式中止，逐一查過：
       - 跨行程寫入鎖在 Windows 上是每次都報錯的空殼（38 個：刪除所有資料、接續中斷的刪除、v0.3 的啟動修復）。改用標準庫的 `File::try_lock`／`unlock`：Unix 上照舊是 `flock(LOCK_EX|LOCK_NB)`，Windows 上是 `LockFileEx`，和 owner lock、搜尋索引的鎖一樣。Windows 的鎖是強制的，握著時別人讀不到鎖檔；沒有東西讀它，快照、搬家、刪除都不帶它。
