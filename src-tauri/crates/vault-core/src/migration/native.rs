@@ -59,6 +59,7 @@ fn layout_of(format: u32) -> Result<vault_layout::ArchiveLayout> {
 /// always writes it off, which would otherwise clear the keychain on every move).
 pub fn keep_machine_settings(config: &mut AppConfig, here: &AppConfig) {
     config.capture_policy = here.capture_policy.clone();
+    config.dismissed_agent_hints.clone_from(&here.dismissed_agent_hints);
     config.app_lock = here.app_lock.clone();
     config.remember_database_key_in_keyring = here.remember_database_key_in_keyring;
 }
@@ -81,6 +82,7 @@ pub fn export(
     config.archive_mode = ArchiveMode::Encrypted;
     config.remember_database_key_in_keyring = false;
     config.capture_policy = Default::default();
+    config.dismissed_agent_hints.clear();
     config.app_lock = Default::default();
     let key = maintenance::create_envelope(stage.path(), &config, Some(password))?.unwrap();
     let pause = vault.pause_store()?;
@@ -359,6 +361,13 @@ pub fn import(
     }
     portable_artifacts::relocate(&staged, &origin.source_root, &paths.app_root, &cancel)?;
     staged.search().rebuild_with_control(cancel.clone(), |_| {})?;
+    // Move files omit indexes. Build the incoming visible conversations in the
+    // private stage so an interrupted import cannot publish an unsearchable copy.
+    if config.capture_policy.agent_state_if_present(true) != crate::KindState::Off
+        && staged.has_saved_transcripts()?
+    {
+        staged.agent_history()?.synchronize_search_with_cancel(&|| cancel.check().is_err())?;
+    }
     staged.close()?;
     let installed =
         install_staged(paths, current, owner, stage.path(), config, Some(key), &cancel)?;
@@ -475,4 +484,13 @@ pub(super) fn bundle_key(bundle: &Path, password: &str) -> Result<vault_crypto::
     let mut bytes = Vec::new();
     entry.take((vault_crypto::ENVELOPE_LEN + 1) as u64).read_to_end(&mut bytes)?;
     crate::vault::password::unwrap(&bytes, password)
+}
+
+/// Password-free preview can describe visibility without publishing an encrypted
+/// bundle's conversation inventory. Installation reads the same destination settings.
+pub fn imported_agent_state_if_present(paths: &ProjectPaths) -> Result<crate::KindState> {
+    crate::admission::refuse_newer(&paths.app_root)?;
+    let config = settings_here(paths)?;
+    crate::ensure_app_lock_unlocked(paths, &config)?;
+    Ok(config.capture_policy.agent_state_if_present(true))
 }

@@ -228,3 +228,6 @@ mod ownership;
 
 #[path = "conversations/damage.rs"]
 mod damage;
+
+#[path = "conversations/visibility.rs"]
+mod visibility;

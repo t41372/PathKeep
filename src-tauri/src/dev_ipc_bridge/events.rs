@@ -127,20 +127,21 @@ impl futures_core::Stream for Browser {
             if permit.as_ref().is_some_and(|permit| !permit.valid()) {
                 continue;
             }
-            if name == vault_worker::data_kinds::POLICY_EVENT
-                && vault_worker::data_kinds::settings().is_err()
+            if matches!(
+                name,
+                vault_worker::data_kinds::POLICY_EVENT | "pathkeep://agent-settings-changed"
+            ) && vault_worker::data_kinds::settings().is_err()
             {
                 continue;
             }
             if matches!(
                 name,
-                "pathkeep://agent-settings-changed"
-                    | "pathkeep://kind-backup-progress"
+                "pathkeep://kind-backup-progress"
                     | "pathkeep://kind-backup-finished"
                     | "pathkeep://background-task-changed"
                     | "pathkeep://agent-catalog-changed"
             ) && !vault_worker::data_kinds::settings()
-                .is_ok_and(|s| s.policy.agent_history != vault_core::KindState::Off)
+                .is_ok_and(|s| s.policy.agent_state_if_present(true) != vault_core::KindState::Off)
             {
                 continue;
             }

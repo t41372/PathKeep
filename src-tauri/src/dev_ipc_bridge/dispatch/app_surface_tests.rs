@@ -37,7 +37,6 @@ fn app_surface_policy_contract() {
             ("browsing", "paused", "last-active-kind"),
             ("browsing", "off", "last-active-kind"),
             ("agent-history", "on", "enable-preview-required"),
-            ("agent-history", "paused", "enable-preview-required"),
         ] {
             let error = dispatch_command(
                 &state,
@@ -100,7 +99,9 @@ fn app_surface_policy_contract() {
         dispatch_command(&state, "lock_app_session", json!({"reason":"manual"})).await.unwrap();
         for (command, request) in [
             ("get_agent_settings", json!({"request":{}})),
-            ("list_data_kinds", json!({"request":{}})),
+            ("list_data_kinds", json!({"request":{"includeArchiveBytes":true}})),
+            ("retry_agent_store", json!({"request":{}})),
+            ("dismiss_agent_hint", json!({"request":{"hint":"intro"}})),
             ("detect_data_sources", json!({"request":{"kinds":["browsing","agent-history"]}})),
             ("update_agent_sources", json!({"request":{"expectedToken":token,"readGit":false}})),
             (
@@ -325,5 +326,167 @@ fn damaged_conversation_store_refuses_each_backup_and_tasks_command() {
                 dispatch_command(&state, command, json!({"request":request})).await.unwrap_err();
             assert_eq!(error.code.as_deref(), Some("lock-required"), "{command}");
         }
+    });
+}
+
+#[test]
+fn followup_sizes_are_opt_in() {
+    let _guard = lock_env();
+    let root = tempdir().unwrap();
+    unsafe {
+        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, root.path());
+        std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, root.path().join("keyring"));
+        std::env::set_var(CHROME_USER_DATA_OVERRIDE_ENV, root.path().join("chrome"));
+    }
+    let state =
+        DevIpcBridgeState::without_app(SessionState::default(), DEFAULT_DEV_IPC_BRIDGE_PORT);
+    ready_block_on(async {
+        dispatch_command(&state, "initialize_archive", json!({"config":test_config()}))
+            .await
+            .unwrap();
+        let shell =
+            dispatch_command(&state, "list_data_kinds", json!({"request":{}})).await.unwrap();
+        assert!(shell["kinds"][0].get("archiveBytes").is_none());
+        let mut cards = dispatch_command(
+            &state,
+            "list_data_kinds",
+            wire()["followup"]["sized"]["request"].clone(),
+        )
+        .await
+        .unwrap();
+        for row in cards["kinds"].as_array().unwrap() {
+            assert!(row["archiveBytes"].as_str().unwrap().parse::<u64>().unwrap() > 0);
+        }
+        assert_eq!(
+            cards["kinds"][1]["archiveBytes"],
+            state.session.vault().unwrap().conversation_archive_bytes().unwrap().to_string()
+        );
+        assert_eq!(
+            cards["kinds"][0]["archiveBytes"],
+            vault_core::archive::browsing_archive_bytes(&state.session.vault().unwrap())
+                .unwrap()
+                .to_string()
+        );
+        // Physical sizes depend on native database pages and WAL checkpoints.
+        cards["kinds"][0]["archiveBytes"] = json!("262144");
+        cards["kinds"][1]["archiveBytes"] = json!("131072");
+        assert_eq!(cards, wire()["followup"]["sized"]["response"]);
+    });
+}
+
+#[test]
+fn followup_retry_rechecks_the_same_owner() {
+    let _guard = lock_env();
+    let root = tempdir().unwrap();
+    unsafe {
+        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, root.path());
+        std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, root.path().join("keyring"));
+        std::env::set_var(CHROME_USER_DATA_OVERRIDE_ENV, root.path().join("chrome"));
+    }
+    let state =
+        DevIpcBridgeState::without_app(SessionState::default(), DEFAULT_DEV_IPC_BRIDGE_PORT);
+    ready_block_on(async {
+        dispatch_command(&state, "initialize_archive", json!({"config":test_config()}))
+            .await
+            .unwrap();
+        state.session.close_vault().unwrap();
+        let path = root.path().join("archive/agent-history.db");
+        let copy = path.with_extension("held");
+        std::fs::rename(&path, &copy).unwrap();
+        let read = json!({"request":{}});
+        let bad = dispatch_command(&state, "retry_agent_store", read.clone()).await.unwrap();
+        assert_eq!(bad["kinds"][1]["availability"], "unavailable");
+        let owner = state.session.current_vault().unwrap();
+        std::fs::rename(copy, path).unwrap();
+        let changes = state.events.observe();
+        for _ in 0..2 {
+            let good = dispatch_command(&state, "retry_agent_store", read.clone()).await.unwrap();
+            assert_eq!(good, wire()["followup"]["retry_agent_store"]["response"]);
+            assert!(std::sync::Arc::ptr_eq(
+                owner.store(),
+                state.session.current_vault().unwrap().store()
+            ));
+        }
+        assert_eq!(
+            changes(),
+            vec![(
+                vault_worker::data_kinds::POLICY_EVENT,
+                wire()["followup"]["retry_agent_store"]["event"]["payload"].clone()
+            )]
+        );
+    });
+}
+
+#[test]
+fn followup_preferences_survive_restart_and_hints_preserve_the_preview_token() {
+    let _guard = lock_env();
+    let root = tempdir().unwrap();
+    unsafe {
+        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, root.path());
+        std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, root.path().join("keyring"));
+        std::env::set_var(CHROME_USER_DATA_OVERRIDE_ENV, root.path().join("chrome"));
+    }
+    let state =
+        DevIpcBridgeState::without_app(SessionState::default(), DEFAULT_DEV_IPC_BRIDGE_PORT);
+    ready_block_on(async {
+        dispatch_command(&state, "initialize_archive", json!({"config":test_config()}))
+            .await
+            .unwrap();
+        let read = json!({"request":{}});
+        let initial = dispatch_command(&state, "get_agent_settings", read.clone()).await.unwrap();
+        assert_eq!(initial["toolsChosen"], false);
+        let saved = dispatch_command(
+            &state,
+            "update_agent_sources",
+            json!({"request":{"expectedToken":initial["policyToken"],"toolChanges":{"pi":false}}}),
+        )
+        .await
+        .unwrap();
+        assert_eq!(saved, wire()["followup"]["unticked"]["response"]);
+        assert_eq!(saved["policy"]["enabledTools"], json!([]));
+        let changes = state.events.observe();
+        let tool = tempdir().unwrap();
+        let start = dispatch_command(
+            &state,
+            "preview_agent_sources",
+            json!({"request":{"purpose":"enable","pickedFolder":{"tool":"pi","path":tool.path()}}}),
+        )
+        .await
+        .unwrap();
+        let mut frames = preview::subscribe(&state, start["streamId"].as_str().unwrap()).unwrap();
+        let review = loop {
+            let frame = frames.next_frame().await.unwrap();
+            if frame["type"] == "finished" {
+                break frame["payload"].clone();
+            }
+        };
+        for hint in ["intro", "intro", "auto-delete"] {
+            let result =
+                dispatch_command(&state, "dismiss_agent_hint", json!({"request":{"hint":hint}}))
+                    .await
+                    .unwrap();
+            assert_eq!(result, json!({"hint":hint,"dismissed":true}));
+        }
+        let events = changes();
+        assert_eq!(events.len(), 2);
+        for (name, event) in &events {
+            assert_eq!(*name, "pathkeep://agent-settings-changed");
+            assert_eq!(event["domains"], json!(["hints"]));
+        }
+        assert_ne!(events[0].1["settingsToken"], events[1].1["settingsToken"]);
+        assert_eq!(
+            vault_worker::data_kinds::preview::reviewed_sources(
+                review["previewId"].as_str().unwrap(),
+                &[review["rows"][0]["rootId"].as_str().unwrap().into()]
+            )
+            .unwrap()
+            .len(),
+            1
+        );
+        state.session.close_vault().unwrap();
+        let later = dispatch_command(&state, "get_agent_settings", read).await.unwrap();
+        assert_eq!(later["policyToken"], saved["policyToken"]);
+        assert_eq!(later["toolsChosen"], true);
+        assert_eq!(later["dismissedHints"], json!(["intro", "auto-delete"]));
     });
 }

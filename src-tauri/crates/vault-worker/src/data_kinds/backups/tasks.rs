@@ -149,7 +149,7 @@ pub fn tasks(session: &VaultSession, req: ListTasks) -> Result<Value> {
 /// Serve the rail from active work and unacknowledged terminal receipts.
 pub fn task_summary(session: &VaultSession, _: super::super::Empty) -> Result<Value> {
     let (vault, config) = admitted(session, true)?;
-    if config.capture_policy.agent_history == KindState::Off {
+    if vault.agent_visibility(&config.capture_policy)? == KindState::Off {
         return Ok(json!({"runningCount":0,"queuedCount":0,"attentionCount":"0","running":[]}));
     }
     let count=vault.store().read(Db::AgentHistoryEvidence,|s|s.query_one("SELECT COUNT(*) FROM ah_backup_runs r

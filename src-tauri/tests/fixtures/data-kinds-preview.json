@@ -30,7 +30,8 @@
             "state": "complete",
             "reasons": []
           },
-          "firstBackup": "not-started"
+          "firstBackup": "not-started",
+          "hasBackupSource": false
         }
       ],
       "policyToken": "1a1b45d8280fe7ef58b9136c651bc459ff17db2182287f3c13832de75633501a"
@@ -47,7 +48,9 @@
         "enabledTools": [],
         "readGit": true
       },
-      "policyToken": "1a1b45d8280fe7ef58b9136c651bc459ff17db2182287f3c13832de75633501a"
+      "policyToken": "1a1b45d8280fe7ef58b9136c651bc459ff17db2182287f3c13832de75633501a",
+      "toolsChosen": false,
+      "dismissedHints": []
     }
   },
   "update_agent_sources": {
@@ -67,7 +70,9 @@
         "enabledTools": ["pi"],
         "readGit": false
       },
-      "policyToken": "ae74ff51f05d95799f97494d9e9c87458a0fb3aaffa509be3a842a31b0c46bea"
+      "policyToken": "ae74ff51f05d95799f97494d9e9c87458a0fb3aaffa509be3a842a31b0c46bea",
+      "toolsChosen": true,
+      "dismissedHints": []
     }
   },
   "set_data_kind_state": {
@@ -105,7 +110,8 @@
             "state": "complete",
             "reasons": []
           },
-          "firstBackup": "not-started"
+          "firstBackup": "not-started",
+          "hasBackupSource": false
         }
       ],
       "policyToken": "ae74ff51f05d95799f97494d9e9c87458a0fb3aaffa509be3a842a31b0c46bea",
@@ -349,5 +355,154 @@
       "actionHint": "unlock",
       "retryHint": "retry-after-action"
     }
-  ]
+  ],
+  "followup": {
+    "unticked": {
+      "request": {
+        "request": {
+          "expectedToken": "1a1b45d8280fe7ef58b9136c651bc459ff17db2182287f3c13832de75633501a",
+          "toolChanges": {
+            "pi": false
+          }
+        }
+      },
+      "response": {
+        "policy": {
+          "browsing": "on",
+          "agentHistory": "off",
+          "enabledTools": [],
+          "readGit": true,
+          "emptyToolsChosen": true
+        },
+        "policyToken": "51e5b31ca1807f6eb2bfd667d84abd7cd2543cdc9f5901803220a9c4bc33b776",
+        "toolsChosen": true,
+        "dismissedHints": []
+      }
+    },
+    "dismiss_agent_hint": [
+      {
+        "request": {
+          "request": {
+            "hint": "intro"
+          }
+        },
+        "response": {
+          "hint": "intro",
+          "dismissed": true
+        },
+        "event": {
+          "name": "pathkeep://agent-settings-changed",
+          "payload": {
+            "domains": ["hints"],
+            "settingsToken": "86a5688e8ff78c16017cdeb9c8306140a16d70bf72c0e4ea76d650234845fce7"
+          }
+        }
+      },
+      {
+        "request": {
+          "request": {
+            "hint": "auto-delete"
+          }
+        },
+        "response": {
+          "hint": "auto-delete",
+          "dismissed": true
+        },
+        "event": {
+          "name": "pathkeep://agent-settings-changed",
+          "payload": {
+            "domains": ["hints"],
+            "settingsToken": "433fe8e13dd7d84f5d3e5cf4aecf3e8dadd36d3df3d160433ba216bbbb738453"
+          }
+        }
+      }
+    ],
+    "retry_agent_store": {
+      "request": {
+        "request": {}
+      },
+      "response": {
+        "kinds": [
+          {
+            "kind": "browsing",
+            "order": 0,
+            "state": "on",
+            "availability": "available",
+            "hasSavedData": false,
+            "archiveCount": "0",
+            "countUnit": "visits",
+            "coverage": {
+              "state": "complete",
+              "reasons": []
+            }
+          },
+          {
+            "kind": "agent-history",
+            "order": 1,
+            "state": "off",
+            "availability": "available",
+            "hasSavedData": false,
+            "archiveCount": "0",
+            "countUnit": "source-files",
+            "coverage": {
+              "state": "complete",
+              "reasons": []
+            },
+            "firstBackup": "not-started",
+            "hasBackupSource": false
+          }
+        ],
+        "policyToken": "1a1b45d8280fe7ef58b9136c651bc459ff17db2182287f3c13832de75633501a"
+      },
+      "event": {
+        "name": "pathkeep://data-kinds-changed",
+        "payload": {
+          "policyToken": "1a1b45d8280fe7ef58b9136c651bc459ff17db2182287f3c13832de75633501a",
+          "changedKinds": ["agent-history"]
+        }
+      }
+    },
+    "sized": {
+      "request": {
+        "request": {
+          "includeArchiveBytes": true
+        }
+      },
+      "response": {
+        "kinds": [
+          {
+            "kind": "browsing",
+            "order": 0,
+            "state": "on",
+            "availability": "available",
+            "hasSavedData": false,
+            "archiveCount": "0",
+            "countUnit": "visits",
+            "coverage": {
+              "state": "complete",
+              "reasons": []
+            },
+            "archiveBytes": "262144"
+          },
+          {
+            "kind": "agent-history",
+            "order": 1,
+            "state": "off",
+            "availability": "available",
+            "hasSavedData": false,
+            "archiveCount": "0",
+            "countUnit": "source-files",
+            "coverage": {
+              "state": "complete",
+              "reasons": []
+            },
+            "firstBackup": "not-started",
+            "hasBackupSource": false,
+            "archiveBytes": "131072"
+          }
+        ],
+        "policyToken": "1a1b45d8280fe7ef58b9136c651bc459ff17db2182287f3c13832de75633501a"
+      }
+    }
+  }
 }

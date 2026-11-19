@@ -271,3 +271,144 @@ fn native_home_presence_and_one_complete_four_tool_preview() {
 
 #[path = "app_surface/backup.rs"]
 mod backup;
+
+#[test]
+#[cfg(debug_assertions)]
+fn debug_agent_delays_apply_inside_the_native_loops() {
+    use agent_history::{Harness, SourceRoot, capture::inventory_root};
+    use std::time::{Duration, Instant};
+    let name = "debug_agent_delays_apply_inside_the_native_loops";
+    if std::env::var_os("PATHKEEP_DELAY_TEST_CHILD").is_none() {
+        assert!(
+            std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", name])
+                .env("PATHKEEP_DELAY_TEST_CHILD", "1")
+                .env("PATHKEEP_TEST_AGENT_PREVIEW_ENTRY_DELAY_US", "60000")
+                .env("PATHKEEP_TEST_AGENT_CAPTURE_FILE_DELAY_US", "300000")
+                .status()
+                .unwrap()
+                .success()
+        );
+        return;
+    }
+    let f = Fixture::new(true);
+    let root = f.temp.path().join("claude");
+    for id in ["one", "two", "three"] {
+        native::claude_main(&root, id, &[native::claude_user(id, "u", None, "/synthetic", "body")]);
+    }
+    let source = SourceRoot { root, harness: Harness::ClaudeCode };
+    let start = Instant::now();
+    let row = inventory_root(&source, &Default::default(), |_| {}).unwrap();
+    assert_eq!(row.counts.files, 3);
+    assert!(start.elapsed() >= Duration::from_millis(180), "preview skipped its per-entry delay");
+    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    let request = || {
+        from_value(
+            json!({"purpose":"enable","pickedFolder":{"path":source.root,"tool":"claude-code"}}),
+        )
+        .unwrap()
+    };
+    let mut walk = preview::start(&f.session, request()).unwrap();
+    runtime.block_on(async {
+        loop {
+            let event = walk.next_frame().await.unwrap();
+            if event["type"] == "progress" && event["payload"]["done"] != "0" {
+                break;
+            }
+        }
+        preview::cancel(from_value(json!({"requestIdOrStreamId":walk.started.stream_id})).unwrap())
+            .unwrap();
+        assert_eq!(walk.next_frame().await.unwrap()["type"], "cancelled");
+    });
+    // Observe a real first save. The listener only sends; capture continues
+    // independently while the caller checks the active task and requests cancel.
+    let mut reviewed = preview::start(&f.session, request()).unwrap();
+    let review = runtime.block_on(async {
+        loop {
+            let frame = reviewed.next_frame().await.unwrap();
+            if frame["type"] == "finished" {
+                break frame["payload"].clone();
+            }
+        }
+    });
+    let (send, receive) = std::sync::mpsc::channel();
+    let req=from_value(json!({"previewId":review["previewId"],"selectedRootIds":[review["rows"][0]["rootId"]],
+        "expectedPolicyToken":kinds::settings().unwrap().policy_token,"readGit":false,"requestId":uuid::Uuid::new_v4().to_string()})).unwrap();
+    let first = kinds::backups::enable(
+        &f.session,
+        req,
+        std::sync::Arc::new(move |name, payload| {
+            if matches!(name, "pathkeep://kind-backup-progress" | "pathkeep://kind-backup-finished")
+            {
+                let _ = send.send((name, Instant::now(), payload));
+            }
+        }),
+    )
+    .unwrap();
+    let (_, discovered, p) = receive.recv_timeout(Duration::from_secs(10)).unwrap();
+    assert_eq!(p["phase"], "discovery");
+    let (_, committed, p) = receive.recv_timeout(Duration::from_secs(10)).unwrap();
+    assert_eq!(p["unit"], "bytes");
+    assert!(p["total"].is_null());
+    assert!(committed.duration_since(discovered) >= Duration::from_millis(300));
+    let active = kinds::backups::task_summary(&f.session, from_value(json!({})).unwrap()).unwrap();
+    let row = &active["running"][0];
+    assert_eq!(row["taskId"], first["firstSave"]["taskId"]);
+    let stop=from_value(json!({"taskId":row["taskId"],"action":"cancel","expectedToken":row["snapshotToken"],"requestId":uuid::Uuid::new_v4().to_string()})).unwrap();
+    kinds::backups::control(&f.session, stop, std::sync::Arc::new(|_, _| {})).unwrap();
+    loop {
+        let (name, _, report) = receive.recv_timeout(Duration::from_secs(10)).unwrap();
+        if name == "pathkeep://kind-backup-finished" {
+            assert_eq!(report["result"], "interrupted");
+            let prefix =
+                report["summary"]["filesCaptured"].as_str().unwrap().parse::<usize>().unwrap();
+            assert!((1..3).contains(&prefix));
+            break;
+        }
+    }
+}
+
+#[test]
+fn paused_without_a_grant_can_only_activate_via_a_readable_preview() {
+    let f = Fixture::new(true);
+    let pause = || {
+        kinds::set_state(&f.session,from_value(json!({"kind":"agent-history","state":"paused","expectedPolicyToken":kinds::settings().unwrap().policy_token})).unwrap(),|_|{}).unwrap()
+    };
+    let snapshot = to_value(pause()).unwrap();
+    assert_eq!(snapshot["kinds"][1]["hasBackupSource"], false);
+    let source = f.temp.path().join("pi");
+    fixtures::pi(&source, "/synthetic", "review", "saved");
+    let preview = || {
+        let mut stream = preview::start(
+            &f.session,
+            from_value(json!({"purpose":"enable","pickedFolder":{"path":source,"tool":"pi"}}))
+                .unwrap(),
+        )
+        .unwrap();
+        tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(
+            async {
+                loop {
+                    let frame = stream.next_frame().await.unwrap();
+                    if frame["type"] == "finished" {
+                        break frame["payload"].clone();
+                    }
+                }
+            },
+        )
+    };
+    let review = preview();
+    let root_ids = json!([review["rows"][0]["rootId"]]);
+    let token = snapshot["policyToken"].clone();
+    assert_eq!(kinds::update_sources(&f.session,from_value(json!({"previewId":review["previewId"],"expectedToken":token,"selectedRootIds":root_ids,"toolChanges":{"pi":true}})).unwrap(),|_|{}).unwrap_err().to_string(),"enable-preview-required");
+    let enable = |review: &serde_json::Value| {
+        kinds::backups::enable(&f.session,from_value(json!({"previewId":review["previewId"],"expectedPolicyToken":token,"selectedRootIds":root_ids,"readGit":false,"requestId":uuid::Uuid::new_v4().to_string()})).unwrap(),std::sync::Arc::new(|_,_|{}))
+    };
+    let hidden = source.with_extension("offline");
+    std::fs::rename(&source, &hidden).unwrap();
+    assert_eq!(enable(&review).unwrap_err().to_string(), "root-changed");
+    assert_eq!(to_value(kinds::list(&f.session).unwrap()).unwrap()["kinds"][1]["state"], "paused");
+    std::fs::rename(hidden, &source).unwrap();
+    assert_eq!(enable(&preview()).unwrap()["state"], "on");
+    assert_eq!(to_value(pause()).unwrap()["kinds"][1]["hasBackupSource"], true);
+    f.session.close_vault().unwrap();
+}

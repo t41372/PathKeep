@@ -239,6 +239,8 @@ fn run_app() -> Result<()> {
             control_background_task,
             list_agent_sources,
             get_agent_overview,
+            retry_agent_store,
+            dismiss_agent_hint,
             list_data_kinds,
             set_data_kind_state,
             get_agent_settings,

@@ -15,6 +15,13 @@
             "readGit": true
           }
         },
+        "dismissedAgentHints": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/AgentHint"
+          }
+        },
         "initialized": {
           "type": "boolean",
           "default": false
@@ -246,6 +253,12 @@
             "readGit": {
               "type": "boolean"
             },
+            "explicitlyOff": {
+              "type": "boolean"
+            },
+            "emptyToolsChosen": {
+              "type": "boolean"
+            },
             "selectionRef": {
               "type": [
                 "string",
@@ -282,6 +295,13 @@
             "codex",
             "pi",
             "deepseek"
+          ]
+        },
+        "AgentHint": {
+          "type": "string",
+          "enum": [
+            "intro",
+            "auto-delete"
           ]
         },
         "ArchiveMode": {

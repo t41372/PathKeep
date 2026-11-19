@@ -52,6 +52,12 @@ pub struct CapturePolicy {
     pub agent_history: KindState,
     pub enabled_tools: BTreeSet<AgentTool>,
     pub read_git: bool,
+    /// Off can also be the default on a device that has never managed this kind.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub explicitly_off: bool,
+    /// An empty checklist can be an intentional preference.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub empty_tools_chosen: bool,
     /// Only this device control grants access to the immutable evidence descriptor.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub selection_ref: Option<String>,
@@ -67,6 +73,8 @@ impl Default for CapturePolicy {
             agent_history: KindState::Off,
             enabled_tools: BTreeSet::new(),
             read_git: true,
+            explicitly_off: false,
+            empty_tools_chosen: false,
             selection_ref: None,
             pending_first_save: None,
         }
@@ -101,4 +109,37 @@ impl CapturePolicy {
             DataKind::AgentHistory => self.agent_history,
         }
     }
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
+}
+
+impl CapturePolicy {
+    /// Older off controls with a selection retain the privacy of an earlier disable.
+    pub fn agent_state_if_present(&self, has_transcripts: bool) -> KindState {
+        if self.agent_history == KindState::Off
+            && !self.explicitly_off
+            && self.selection_ref.is_none()
+            && has_transcripts
+        {
+            KindState::Paused
+        } else {
+            self.agent_history
+        }
+    }
+
+    pub fn tools_chosen(&self) -> bool {
+        self.empty_tools_chosen || !self.enabled_tools.is_empty() || self.selection_ref.is_some()
+    }
+}
+
+/// Dismissal belongs to the device that displayed the hint.
+#[derive(
+    Clone, Copy, Debug, Deserialize, Serialize, JsonSchema, PartialEq, Eq, PartialOrd, Ord,
+)]
+#[serde(rename_all = "kebab-case")]
+pub enum AgentHint {
+    Intro,
+    AutoDelete,
 }

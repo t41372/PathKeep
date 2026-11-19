@@ -3,6 +3,7 @@
 //!
 //! Capture can succeed while interpretation is partial. Destination failures abort
 //! the operation; source limitations retain earlier evidence and produce diagnostics.
+mod debug_delay;
 mod defaults;
 pub(crate) mod discovery;
 pub use discovery::Discovery;
@@ -279,11 +280,13 @@ fn capture_root(
     let discovery = Discovery::new(&options.cancel, pin);
     let mut discovery_issues = Vec::new();
     let mut callback_error = None;
+    let delay = debug_delay::configured("PATHKEEP_TEST_AGENT_CAPTURE_FILE_DELAY_US");
     let discovered = adapter(source.harness).discover_cancellable(
         &discovery,
         source,
         &mut |artifact| {
             notify_phase(options, "file_found", Some(source.harness));
+            debug_delay::wait(delay, &options.cancel)?;
             if !discovery.still_selected() {
                 return Err(Error::SourceChanged("reviewed root changed".into()));
             }

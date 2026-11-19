@@ -81,3 +81,17 @@ pub(super) fn load(vault: &Vault, id: &str) -> Result<Vec<Root>> {
         .ok_or(Refusal::EnablePreview)?;
     Ok(serde_json::from_str(&json)?)
 }
+
+/// A move can leave a destination reference without its old descriptor. This
+/// affects capture eligibility only; retained evidence is still readable.
+pub(super) fn device_roots(vault: &Vault, policy: &vault_core::CapturePolicy) -> Result<Vec<Root>> {
+    let Some(id) = &policy.selection_ref else {
+        return Ok(Vec::new());
+    };
+    match load(vault, id) {
+        Err(error) if matches!(error.downcast_ref::<Refusal>(), Some(Refusal::EnablePreview)) => {
+            Ok(Vec::new())
+        }
+        result => result,
+    }
+}

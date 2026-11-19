@@ -15,6 +15,7 @@ struct Slot {
     recovery_failure: Option<Arc<vault_store::StoreOpenFailure>>,
     closed: bool,
     pauses: usize,
+    prepare_visible_search: bool,
 }
 
 /// Holds off first attachment as well as work on an already attached service.
@@ -33,6 +34,22 @@ impl Drop for ConversationPause {
 }
 
 impl Vault {
+    /// Reads use archive evidence for an undecided device. This lookup never
+    /// discovers sources and never changes the durable capture policy.
+    pub fn agent_visibility(
+        &self,
+        policy: &crate::CapturePolicy,
+    ) -> anyhow::Result<crate::KindState> {
+        if policy.agent_state_if_present(true) == policy.agent_history {
+            return Ok(policy.agent_history);
+        }
+        Ok(policy.agent_state_if_present(self.has_saved_transcripts()?))
+    }
+    /// Raw transcripts remain valuable when a newer native format cannot yet be parsed.
+    pub fn has_saved_transcripts(&self) -> vault_store::Result<bool> {
+        self.store.read(vault_store::Db::AgentHistoryEvidence,|tx|tx.query_one(
+            "SELECT EXISTS(SELECT 1 FROM ah_sources WHERE kind='transcript' AND latest_revision_id IS NOT NULL)",(),|r|Ok(r.get::<i64>(0)?!=0)))
+    }
     /// Installed conversation storage for the backup header, including native
     /// WAL files and the owned search index. Never follow links into another tree.
     pub fn conversation_archive_bytes(&self) -> anyhow::Result<u64> {
@@ -143,10 +160,32 @@ impl Vault {
         if slot.pauses > 0 {
             return Err(agent_history::Error::Cancelled);
         }
-        if let Some(archive) = &slot.archive {
-            return Ok(archive.clone());
+        let archive = match &slot.archive {
+            Some(archive) => archive.clone(),
+            None => self.attach_conversations(&mut slot)?,
+        };
+        if slot.prepare_visible_search {
+            archive.prepare_visible_search()?;
+            slot.prepare_visible_search = false;
         }
-        self.attach_conversations(&mut slot)
+        Ok(archive)
+    }
+
+    /// Register preparation on this generation without attaching a service just
+    /// to paint the shell. If already attached, only the search reader waits.
+    pub fn set_view_search_preparation(&self, visible: bool) -> agent_history::Result<()> {
+        let mut slot = self.lifetime.conversations.0.lock().unwrap();
+        if let Some(archive) = &slot.archive {
+            if visible {
+                archive.prepare_visible_search()?;
+            } else {
+                archive.cancel_visible_search();
+            }
+            slot.prepare_visible_search = false;
+        } else {
+            slot.prepare_visible_search = visible;
+        }
+        Ok(())
     }
 
     fn attach_conversations(&self, slot: &mut Slot) -> agent_history::Result<Arc<Archive>> {

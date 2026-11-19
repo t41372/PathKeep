@@ -150,6 +150,15 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
         "get_agent_overview" => {
             worker_bridge::get_agent_overview_impl(&state.session, surface_request(payload)?)
         }
+        "retry_agent_store" => json_value!(worker_bridge::retry_agent_store_impl(
+            &state.session,
+            surface_request(payload)?,
+            changed
+        )?),
+        "dismiss_agent_hint" => json_value!(worker_bridge::dismiss_agent_hint_impl(
+            surface_request(payload)?,
+            backup_events(state)
+        )?),
         "list_data_kinds" => {
             json_value!(worker_bridge::list_data_kinds_impl(
                 &state.session,

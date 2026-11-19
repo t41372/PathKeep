@@ -33,6 +33,7 @@ pub fn snapshot(vault: &Vault, target: &Path) -> Result<()> {
     pause.snapshot(target)?;
     let mut config = vault.config().clone();
     config.capture_policy = Default::default();
+    config.dismissed_agent_hints.clear();
     crate::config::save_copy_config(vault.paths(), target, &config)?;
     let envelope = vault_layout::path(&vault.paths().app_root, vault_layout::ArtifactId::Envelope);
     if envelope.exists() {
@@ -82,7 +83,10 @@ pub(super) fn seal_replaced(copy: &Path) -> Result<()> {
     let layout = crate::admission::root_layout(copy)?;
     let paths = crate::project_paths_with_root(copy);
     let mut document = crate::config::load_document(&paths)?;
-    if document.config.capture_policy != Default::default() {
+    if document.config.capture_policy != Default::default()
+        || !document.config.dismissed_agent_hints.is_empty()
+    {
+        document.config.dismissed_agent_hints.clear();
         document.config.capture_policy = Default::default();
         let bytes =
             crate::config::encode_config(&document.config, document.compatibility.as_ref())?;

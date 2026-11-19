@@ -28,7 +28,7 @@ impl<'de, R: tauri::Runtime, T: serde::Deserialize<'de>> tauri::ipc::CommandArg<
 #[tauri::command]
 pub(crate) async fn list_data_kinds(
     state: State<'_, SessionState>,
-    request: Request<kinds::Empty>,
+    request: Request<kinds::ListKinds>,
 ) -> Result<kinds::KindList, CommandError> {
     let session = state.inner().clone();
     run_blocking_command("list_data_kinds", move || {
@@ -218,6 +218,31 @@ pub(crate) async fn get_agent_overview(
     let session = state.inner().clone();
     run_blocking_command("get_agent_overview", move || {
         worker_bridge::get_agent_overview_impl(&session, request.0)
+    })
+    .await
+}
+
+#[tauri::command]
+pub(crate) async fn retry_agent_store(
+    state: State<'_, SessionState>,
+    app: AppHandle,
+    request: Request<kinds::Empty>,
+) -> Result<kinds::KindList, CommandError> {
+    let session = state.inner().clone();
+    run_blocking_command("retry_agent_store", move || {
+        worker_bridge::retry_agent_store_impl(&session, request.0, |event| {
+            let _ = app.emit(kinds::POLICY_EVENT, event);
+        })
+    })
+    .await
+}
+#[tauri::command]
+pub(crate) async fn dismiss_agent_hint(
+    app: AppHandle,
+    request: Request<kinds::DismissHint>,
+) -> Result<kinds::HintAcknowledgement, CommandError> {
+    run_blocking_command("dismiss_agent_hint", move || {
+        worker_bridge::dismiss_agent_hint_impl(request.0, desktop_events(app))
     })
     .await
 }

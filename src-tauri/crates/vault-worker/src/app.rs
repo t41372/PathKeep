@@ -299,6 +299,7 @@ pub fn save_user_config_with_vault(
         None => config.clone(),
     };
     next_config.capture_policy = previous_config.capture_policy.clone();
+    next_config.dismissed_agent_hints.clone_from(&previous_config.dismissed_agent_hints);
     if next_config.initialized && !previous_config.initialized {
         anyhow::bail!(
             "archive-uninitialized: settings cannot set up an archive; nothing was saved"
@@ -540,6 +541,7 @@ where
     crate::data_kinds::validate_config_input(config)?;
     let mut next_config = config.clone();
     next_config.capture_policy = previous_config.capture_policy.clone();
+    next_config.dismissed_agent_hints.clone_from(&previous_config.dismissed_agent_hints);
     if previous_config.initialized && previous_config.archive_mode != next_config.archive_mode {
         anyhow::bail!(
             "encryption-mode-change-requires-rekey: use rekey_archive to change encryption"
@@ -608,7 +610,9 @@ where
     // Re-read device policy under the gate in case another window just updated it.
     {
         let control = vault_core::ControlGate::acquire(&paths);
-        next_config.capture_policy = load_config(&paths)?.capture_policy;
+        let latest = load_config(&paths)?;
+        next_config.capture_policy = latest.capture_policy;
+        next_config.dismissed_agent_hints = latest.dismissed_agent_hints;
         save_config(&control, &next_config)?;
     }
     // Opening the session's store creates the archive in the native format, with

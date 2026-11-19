@@ -232,7 +232,8 @@ fn device_policy_is_removed_from_a_move_file_and_kept_at_its_destination() {
     config.capture_policy.read_git = false;
     config.capture_policy.selection_ref = Some("source-grant".into());
     config.capture_policy.pending_first_save = Some("source-request".into());
-    config.capture_policy.enabled_tools.insert(crate::AgentTool::Codex);
+    config.capture_policy.empty_tools_chosen = true;
+    config.dismissed_agent_hints.insert(crate::AgentHint::Intro);
     let source = vault.with_config(config);
     let bundle_dir = tempfile::tempdir().unwrap();
     let bundle = bundle_dir.path().join("policy.pathkeep");
@@ -242,12 +243,14 @@ fn device_policy_is_removed_from_a_move_file_and_kept_at_its_destination() {
     config.capture_policy.browsing = crate::KindState::Paused;
     config.capture_policy.agent_history = crate::KindState::On;
     config.capture_policy.selection_ref = Some("destination-grant".into());
+    config.dismissed_agent_hints.insert(crate::AgentHint::AutoDelete);
     crate::save_config(&crate::ControlGate::acquire(target.paths()), &config).unwrap();
     let options =
         ApplyImportOptions { confirm_overwrite: true, source_archive_key: Some("export".into()) };
     let (_, installed) =
         native::import(target.paths(), Some(&target), None, &bundle, &options, Default::default())
             .unwrap();
+    assert_eq!(installed.vault.config().dismissed_agent_hints, config.dismissed_agent_hints);
     assert_eq!(installed.vault.config().capture_policy, config.capture_policy);
     assert_eq!(
         crate::load_config(&crate::project_paths_with_root(&installed.previous_files))
@@ -259,8 +262,7 @@ fn device_policy_is_removed_from_a_move_file_and_kept_at_its_destination() {
     // itself would hide a leak of the source choices in the portable file.
     let key = native::bundle_key(&bundle, "export").unwrap();
     let copied = native::source_control(&bundle, &key).unwrap();
-    assert_eq!(
-        crate::config::decode_config(&bundle, &copied).unwrap().config.capture_policy,
-        Default::default()
-    );
+    let copied = crate::config::decode_config(&bundle, &copied).unwrap().config;
+    assert!(copied.dismissed_agent_hints.is_empty());
+    assert_eq!(copied.capture_policy, Default::default());
 }

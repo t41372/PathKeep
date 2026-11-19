@@ -56,7 +56,9 @@ pub fn read<T>(operation: impl FnOnce() -> Result<T>) -> Result<T> {
     let value = operation()?;
     let config = admitted_config(&paths)?;
     if !permit.valid() {
-        return Err(if config.capture_policy.agent_history == vault_core::KindState::Off {
+        return Err(if config.capture_policy.agent_state_if_present(true)
+            == vault_core::KindState::Off
+        {
             Refusal::Off
         } else {
             Refusal::Replaced

@@ -251,9 +251,9 @@ snapshot read is the reconnect path after a missed event.
 
 | Command                 | Consumer                                             | Request and result                                                                                                                                                                                                                                                                                                                                       |
 | ----------------------- | ---------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `list_data_kinds`       | Shell, Manage Kinds, OFF screen, Settings navigation | Empty request. Returns `kinds` and `policyToken`. Browsing counts visits. Conversations count source files with a committed head. `firstBackup` is the status of the first conversation run, or `not-started`.                                                                                                                                           |
-| `set_data_kind_state`   | Manage Kinds                                         | `kind`, `state`, `expectedPolicyToken`. Returns the fresh list plus `affectedTasks` (empty in step 1). Off to paused or on for conversations requires the enable flow.                                                                                                                                                                                   |
-| `get_agent_settings`    | Enable and Backup                                    | Empty request. Returns `policy` and `policyToken`. `enabledTools` is ordered Claude Code, Codex, Pi, DeepSeek with disabled tools omitted.                                                                                                                                                                                                               |
+| `list_data_kinds`       | Shell, Manage Kinds, OFF screen, Settings navigation | `{}` for the shell, `{includeArchiveBytes:true}` for the cards. Returns `kinds` and `policyToken`. Browsing counts visits. Conversations count source files with a committed head. `firstBackup` is the status of the first conversation run, or `not-started`.                                                                                          |
+| `set_data_kind_state`   | Manage Kinds                                         | `kind`, `state`, `expectedPolicyToken`. Returns the fresh list plus `affectedTasks` (empty in step 1). Paused allows reading retained conversations without a capture grant. On from a view-only or off state requires the enable flow.                                                                                                                  |
+| `get_agent_settings`    | Enable and Backup                                    | Empty request. Returns `policy`, `policyToken`, `toolsChosen` and `dismissedHints`. `enabledTools` is ordered Claude Code, Codex, Pi, DeepSeek with disabled tools omitted.                                                                                                                                                                              |
 | `update_agent_sources`  | Enable and Backup                                    | `expectedToken`, optional `readGit`, optional `toolChanges` mapping public tool IDs to booleans. Returns updated settings. While off, switches express preferences for the enable dialog. An active kind needs a reviewed selection to widen its grants.                                                                                                 |
 | `detect_data_sources`   | Intro and onboarding                                 | `kinds` array. Returns `sources`, eligible browsing `profiles`, and optional `browserDiscoveryIssue`. A tool row has `kind,tool,rootIds,path,found,readable,reason?`. A browser row uses `profileId` in place of tool and path. Blocked Safari counts as found.                                                                                          |
 | `preview_agent_sources` | Onboarding sources, enable dialog and rescan         | `purpose` is `onboarding`, `enable` or `rescan`. Optional `tools` and `rootIds` filter known roots. `pickedFolder:{tool,path}` selects an absolute native picker result. Returns `streamId,viewToken`. Pass `onEvent` alongside `request` on Tauri. On the dev bridge open `GET /previews/{streamId}/events` once and parse each SSE data field as JSON. |
@@ -364,3 +364,35 @@ A retry whose original scope is no longer granted returns `previewRequired:true`
 with the original task. Source problems belong to the run, including native
 parser codes such as `pi-unsupported-version`. The native run, its public
 receipt and the snapshot token for task controls are separate identities.
+
+### Retained conversation visibility and device choices
+
+Use the conversation kind row's `state` for navigation and read admission.
+The device capture policy can still say `agentHistory:"off"` on a new computer
+that displays saved data as `paused`. A committed transcript, including a
+retained transcript in a newer native format, is enough to show the space.
+An explicit off choice takes precedence. `hasBackupSource` checks for an
+enabled tool in the device's approved root descriptor without probing the tool.
+A paused row with `hasBackupSource:false` is view-only. The field is omitted on
+browsing and when the conversation role is unavailable.
+
+The shell sends `{"request":{}}` to `list_data_kinds`. Manage Kinds can make a
+second request, `{"request":{"includeArchiveBytes":true}}`, after painting.
+Only the second request measures physical storage. Available initialized rows
+then include `archiveBytes` as a decimal string. Conversations use the same
+database, WAL and search-index accounting as the backup header. Browsing uses
+Storage's live browsing-scoped databases and derived files. The mixed snapshot
+container, shared manifests, exports, staging and other scopes are excluded.
+
+| Command                                      | Request                                                                | Response and invalidation                                                                                                                                                                                                                                                                                                                                                       |
+| -------------------------------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `retry_agent_store`                          | `{"request":{}}`                                                       | The ordinary kind snapshot. The owner retries its conversation roles in place. If they remain unavailable the row contains the failure. A recovered role emits `pathkeep://data-kinds-changed` with `changedKinds:["agent-history"]`. Refetch even if the policy hash is unchanged.                                                                                             |
+| `dismiss_agent_hint`                         | `{"request":{"hint":"intro"}}` or `{"request":{"hint":"auto-delete"}}` | `{"hint":"intro","dismissed":true}` or the corresponding auto-delete acknowledgement. A first dismissal emits `pathkeep://agent-settings-changed` with `domains:["hints"]` and the settings hash, including while the unlocked kind is off. Replays are idempotent.                                                                                                             |
+| `get_agent_settings`, `update_agent_sources` | Existing requests                                                      | `toolsChosen` distinguishes untouched defaults from a saved empty checklist. `dismissedHints` lists acknowledged hint IDs. Hint changes preserve `policyToken` and an outstanding source preview.                                                                                                                                                                               |
+| `preview_app_data_import`                    | Existing `{"bundlePath":"…"}`                                          | Adds `agentConversations:{"carried":true,"stateIfPresent":"paused"}` on a format-3 bundle for an undecided device. Explicit off gives `"off"`; an existing on choice gives `"on"`. Formats 1 and 2 give `{"carried":false,"stateIfPresent":null}`. Carried refers to the conversation database role. The pre-password preview does not reveal the encrypted conversation count. |
+
+Debug owners read `PATHKEEP_TEST_AGENT_PREVIEW_ENTRY_DELAY_US` per inventory
+walk and `PATHKEEP_TEST_AGENT_CAPTURE_FILE_DELAY_US` per capture root. Positive
+integer values are microseconds per entry or discovered file. Unset, invalid
+and zero values disable pacing. Waits check cancellation in slices of at most
+10 ms. Release builds ignore both variables.

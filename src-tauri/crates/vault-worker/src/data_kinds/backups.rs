@@ -63,6 +63,7 @@ fn check_id(id: &str) -> Result<()> {
     Ok(())
 }
 fn can_deliver(paths: &ProjectPaths) -> bool {
+    // Only capture producers call this. They already own an explicit device grant.
     admitted_config(paths).is_ok_and(|c| c.capture_policy.agent_history != KindState::Off)
 }
 fn admitted(session: &VaultSession, allow_off: bool) -> Result<(Vault, AppConfig)> {
@@ -76,7 +77,7 @@ fn admitted(session: &VaultSession, allow_off: bool) -> Result<(Vault, AppConfig
         recover(session, &vault)?;
         config = admitted_config(vault.paths())?;
     }
-    if !allow_off && config.capture_policy.agent_history == KindState::Off {
+    if !allow_off && vault.agent_visibility(&config.capture_policy)? == KindState::Off {
         return Err(Refusal::Off.into());
     }
     Ok((vault, config))
@@ -86,7 +87,7 @@ fn check_reply(vault: &Vault, session: &VaultSession, allow_off: bool) -> Result
     if session.current_vault().is_none_or(|v| !Arc::ptr_eq(v.store(), vault.store())) {
         return Err(Refusal::Replaced.into());
     }
-    if !allow_off && config.capture_policy.agent_history == KindState::Off {
+    if !allow_off && vault.agent_visibility(&config.capture_policy)? == KindState::Off {
         return Err(Refusal::Off.into());
     }
     Ok(config.capture_policy)
@@ -116,7 +117,10 @@ pub fn enable(session: &VaultSession, req: Enable, events: Events) -> Result<Val
         }
         return Ok(json!({"state":"on","policyToken":policy.token(),"firstSave":existing.start()}));
     }
-    if policy.token() != req.expected_policy_token || policy.agent_history != KindState::Off {
+    if policy.token() != req.expected_policy_token
+        || policy.agent_history == KindState::On
+        || (policy.agent_history == KindState::Paused && has_grant(&vault, &policy)?)
+    {
         return Err(Refusal::PolicyChanged.into());
     }
     let roots = selection::reviewed(&vault, &req.preview_id, &req.selected_root_ids)?;
@@ -143,6 +147,8 @@ pub fn enable(session: &VaultSession, req: Enable, events: Events) -> Result<Val
         }
         let policy = &mut config.capture_policy;
         policy.agent_history = KindState::On;
+        policy.explicitly_off = false;
+        policy.empty_tools_chosen = false;
         policy.read_git = req.read_git;
         policy.enabled_tools = intent.scope.roots.iter().map(|r| r.tool).collect();
         policy.selection_ref = Some(selection_id);
@@ -153,6 +159,7 @@ pub fn enable(session: &VaultSession, req: Enable, events: Events) -> Result<Val
     };
     #[cfg(test)]
     crash_tests::boundary("published");
+    vault.set_view_search_preparation(false)?;
     preview::revoke(&vault.paths().app_root);
     let run = intent.insert(&vault)?;
     #[cfg(test)]
@@ -162,9 +169,10 @@ pub fn enable(session: &VaultSession, req: Enable, events: Events) -> Result<Val
     // A failure clearing control cannot strand an admitted native run.
     clear_pending(&vault, &req.request_id)?;
     check_reply(&vault, session, false)?;
+    let settings = super::settings()?;
     events(
         "pathkeep://agent-settings-changed",
-        json!({"settingsToken":token,"domains":["sources"]}),
+        json!({"settingsToken":settings.settings_token(),"domains":["sources"]}),
     );
     events(super::POLICY_EVENT, json!({"policyToken":token,"changedKinds":["agent-history"]}));
     Ok(json!({"state":"on","policyToken":token,"firstSave":receipt}))
@@ -177,6 +185,9 @@ pub fn start(session: &VaultSession, req: Start, events: Events) -> Result<Value
     let policy = check_reply(&vault, session, false)?;
     check_id(&req.request_id)?;
     let fingerprint = hash(&req)?;
+    if policy.selection_ref.is_none() {
+        return Err(Refusal::EnablePreview.into());
+    }
     if let Some(intent) = ledger::receipt(&vault, &req.request_id, &fingerprint)? {
         return Ok(intent.dispatch("started"));
     }
@@ -300,6 +311,9 @@ pub(super) fn edit_selection(
         return Ok(None);
     };
     let vault = vault.ok_or(Refusal::NotInitialized)?;
+    if ids.is_empty() && policy.selection_ref.is_none() {
+        return Ok(None);
+    }
     let mut roots =
         match policy.selection_ref.as_deref().map(|key| selection::load(vault, key)).transpose() {
             Ok(value) => value.unwrap_or_default(),
@@ -351,4 +365,15 @@ pub(super) fn check_service(vault: &Vault) -> Result<()> {
         agent_history::Error::Cancelled => Refusal::Busy.into(),
         _ => Refusal::Unavailable.into(),
     })
+}
+
+/// A local grant needs an enabled tool and its matching immutable descriptor.
+/// Presence and readability of external folders are checked only during execution.
+pub(super) fn has_grant(vault: &Vault, policy: &CapturePolicy) -> Result<bool> {
+    if policy.agent_history == KindState::Off || policy.enabled_tools.is_empty() {
+        return Ok(false);
+    }
+    Ok(selection::device_roots(vault, policy)?
+        .iter()
+        .any(|root| policy.enabled_tools.contains(&root.tool)))
 }

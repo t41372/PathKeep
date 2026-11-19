@@ -177,14 +177,14 @@ pub fn list_runs(session: &VaultSession, req: ListRuns) -> Result<Value> {
         return Err(Refusal::Off.into());
     }
     let browsing = req.space != Some(DataKind::AgentHistory) && policy.browsing != KindState::Off;
-    let agents = req.space != Some(DataKind::Browsing)
-        && (req.space.is_some() || policy.agent_history != KindState::Off);
     let vault = if req.space == Some(DataKind::Browsing) {
         session.vault().map_err(anyhow::Error::msg)?
     } else {
         // An unfiltered ledger must disclose a locally unavailable conversation role.
         admitted(session, req.space.is_none())?.0
     };
+    let agents =
+        req.space != Some(DataKind::Browsing) && vault.agent_visibility(&policy)? != KindState::Off;
     let n = limit(req.limit)?;
     let mut cursor: Cursor = decode(req.cursor.as_deref())?;
     let filter = hash(&(req.space, req.include_archive_wide, policy.token()))?;

@@ -165,6 +165,11 @@ impl VaultSession {
             }
             Ok(())
         })();
+        if let Err(error) =
+            crate::data_kinds::prepare_view(&archive.vault, &archive.vault.config().capture_policy)
+        {
+            eprintln!("PathKeep could not prepare retained conversations: {error:#}");
+        }
         let old = {
             let mut state = self.inner.0.lock().expect("session state");
             state.password = password.map(Zeroizing::new);
@@ -419,6 +424,10 @@ impl VaultSession {
         }
         state.vault = Some(vault.clone());
         drop(state);
+        if let Err(error) = crate::data_kinds::prepare_view(&vault, &vault.config().capture_policy)
+        {
+            eprintln!("PathKeep could not prepare retained conversations: {error:#}");
+        }
         if let Err(error) = crate::data_kinds::backups::recover(self, &vault) {
             eprintln!("PathKeep could not resume conversation backup: {error:#}");
         }

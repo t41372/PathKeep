@@ -73,9 +73,6 @@ fn counts(vault: &Vault, root: Option<&selection::Root>, tool: Option<AgentTool>
     })?)
 }
 
-fn selected(vault: &Vault, policy: &CapturePolicy) -> Result<Vec<selection::Root>> {
-    if let Some(id) = &policy.selection_ref { selection::load(vault, id) } else { Ok(vec![]) }
-}
 fn source_row(vault: &Vault, policy: &CapturePolicy, r: &selection::Root) -> Result<Value> {
     let key = r.id.clone();
     let last=vault.store().read(Db::AgentHistoryEvidence,move |s|s.query_one(
@@ -111,7 +108,7 @@ pub fn sources(session: &VaultSession, req: ListSources) -> Result<Value> {
     let n = runs::limit(req.limit)? as usize;
     let after: String = runs::decode(req.cursor.as_deref())?;
     let mut rows = Vec::new();
-    let roots = selected(&vault, &c.capture_policy)?;
+    let roots = selection::device_roots(&vault, &c.capture_policy)?;
     for r in &roots {
         if r.id > after {
             rows.push((r.id.clone(), Some(r), r.tool));
@@ -141,7 +138,7 @@ pub fn sources(session: &VaultSession, req: ListSources) -> Result<Value> {
 pub fn overview(session: &VaultSession, req: Overview) -> Result<Value> {
     let (vault, c) = admitted(session, false)?;
     let mut result = counts(&vault, None, None)?;
-    let roots = selected(&vault, &c.capture_policy)?;
+    let roots = selection::device_roots(&vault, &c.capture_policy)?;
     let mut tools = Vec::new();
     for r in &roots {
         tools.push(source_row(&vault, &c.capture_policy, r)?);
@@ -152,7 +149,11 @@ pub fn overview(session: &VaultSession, req: Overview) -> Result<Value> {
     for tool in AgentTool::ALL {
         let mut counts = counts(&vault, None, Some(tool))?;
         counts["tool"] = json!(tool);
-        counts["enabled"] = json!(c.capture_policy.enabled_tools.contains(&tool));
+        counts["enabled"] = json!(
+            tools
+                .iter()
+                .any(|row| row["tool"] == tool.harness().as_str() && row["enabled"] == true)
+        );
         breakdown.push(counts);
     }
     result["perTool"] = json!(breakdown);

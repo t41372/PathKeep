@@ -4,6 +4,8 @@
 //! explicit error so callers cannot mistake an incomplete result for no matches.
 
 mod index;
+mod initial;
+pub(crate) use initial::InitialSearch;
 mod query;
 mod schema;
 mod sync;

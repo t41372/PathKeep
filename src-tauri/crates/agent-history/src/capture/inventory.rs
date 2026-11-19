@@ -143,6 +143,7 @@ pub fn inventory_root_bound(
             return Ok(row);
         }
     };
+    let delay = super::debug_delay::configured("PATHKEEP_TEST_AGENT_PREVIEW_ENTRY_DELAY_US");
     let mut stack = vec![entries];
     let mut visited = 0;
     while let Some(dir) = stack.last_mut() {
@@ -152,6 +153,7 @@ pub fn inventory_root_bound(
         };
         visited += 1;
         progress(visited);
+        super::debug_delay::wait(delay, cancel)?;
         if cancel.check().is_err() {
             return Err(Error::Cancelled);
         }

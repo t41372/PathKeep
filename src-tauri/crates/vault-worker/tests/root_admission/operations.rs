@@ -323,6 +323,8 @@ fn observe(operation: Operation, control: &str) -> Observation {
                 error(backups::control(&f.session,from_value(json!({"taskId":"task","action":"retry","expectedToken":"old","requestId":"id"})).unwrap(),quiet)),
                 error(kinds::list(&f.session)),
                 error(kinds::settings()),
+                error(kinds::retry_agent_store(&f.session,|_|{})),
+                error(kinds::dismiss_hint(from_value(json!({"hint":"intro"})).unwrap(),Arc::new(|_,_|{}))),
                 error(kinds::set_state(
                     &f.session,
                     from_value(json!({"kind":"browsing","state":"on","expectedPolicyToken":"old"}))

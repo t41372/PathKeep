@@ -373,31 +373,11 @@ pub(super) fn run_new_downloads(stats: &Value) -> usize {
 /// write-ahead logs, which can hold as much as the file itself between checkpoints; the
 /// `.sqlite` paths in `ProjectPaths` are the layout before v0.4.
 pub(super) fn storage_summary(paths: &ProjectPaths) -> StorageSummary {
-    use vault_layout::{CompanionFamily, CompanionUse, Measure, UsageBucket};
+    use vault_layout::UsageBucket;
     let mut summary = StorageSummary::default();
     // Every layout's members: one this archive does not hold measures nothing.
     for member in vault_layout::usage_members(vault_layout::ArchiveLayout::NEWEST) {
-        // Native database accounting has always used default store paths. Other buckets
-        // honor the typed ProjectPaths overrides, including the semantic sidecar roots.
-        let path = if member.database.is_some() {
-            vault_layout::path(&paths.app_root, member.id)
-        } else {
-            paths.artifact_path(member.id)
-        };
-        let bytes = match member.lifecycle.usage.measure {
-            Measure::MainAndWal => CompanionFamily::Native
-                .suffixes(CompanionUse::Usage)
-                .iter()
-                .map(|suffix| {
-                    let mut file = path.as_os_str().to_owned();
-                    file.push(suffix);
-                    file_size(Path::new(&file))
-                })
-                .sum(),
-            Measure::Tree => directory_size(&path),
-            Measure::TreeOrFile => crate::ai_sidecar::artifact_size(&path),
-            Measure::None => 0,
-        };
+        let bytes = usage_bytes(paths, member);
         let field = match member.lifecycle.usage.bucket.expect("measured member") {
             UsageBucket::Archive => &mut summary.archive_database_bytes,
             UsageBucket::SourceEvidence => &mut summary.source_evidence_database_bytes,
@@ -415,6 +395,60 @@ pub(super) fn storage_summary(paths: &ProjectPaths) -> StorageSummary {
         *field += bytes;
     }
     summary
+}
+
+/// Live browsing databases and derived artifacts measured by Storage. Safety
+/// copies share a container with raw checkpoints and have their own Storage bucket.
+pub fn browsing_archive_bytes(vault: &Vault) -> Result<u64> {
+    vault.recheck_root()?;
+    Ok(vault_layout::usage_members(vault.layout())
+        .filter(|m| {
+            m.scope == vault_layout::DataScope::Browsing
+                && m.id != vault_layout::ArtifactId::RawSnapshots
+        })
+        .map(|member| usage_bytes(vault.paths(), member))
+        .sum())
+}
+
+fn usage_bytes(paths: &ProjectPaths, member: vault_layout::ArtifactSpec) -> u64 {
+    use vault_layout::{CompanionFamily, CompanionUse, Measure};
+    // Native database accounting has always used default store paths. Other buckets
+    // honor the typed ProjectPaths overrides, including the semantic sidecar roots.
+    let path = if member.database.is_some() {
+        vault_layout::path(&paths.app_root, member.id)
+    } else {
+        paths.artifact_path(member.id)
+    };
+    match member.lifecycle.usage.measure {
+        Measure::Tree | Measure::TreeOrFile
+            if member.scope == vault_layout::DataScope::Browsing
+                && member.id != vault_layout::ArtifactId::RawSnapshots =>
+        {
+            // A linked child is outside the live kind. The cards and Storage
+            // use the same byte accounting without traversing its target.
+            walkdir::WalkDir::new(path)
+                .follow_links(false)
+                .follow_root_links(false)
+                .into_iter()
+                .filter_map(Result::ok)
+                .filter(|entry| entry.file_type().is_file())
+                .filter_map(|entry| entry.metadata().ok())
+                .map(|meta| meta.len())
+                .sum()
+        }
+        Measure::MainAndWal => CompanionFamily::Native
+            .suffixes(CompanionUse::Usage)
+            .iter()
+            .map(|suffix| {
+                let mut file = path.as_os_str().to_owned();
+                file.push(suffix);
+                file_size(Path::new(&file))
+            })
+            .sum(),
+        Measure::Tree => directory_size(&path),
+        Measure::TreeOrFile => crate::ai_sidecar::artifact_size(&path),
+        Measure::None => 0,
+    }
 }
 
 /// Returns the size of one file, treating missing files as zero bytes.

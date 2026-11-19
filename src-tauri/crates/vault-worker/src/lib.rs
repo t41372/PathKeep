@@ -57,7 +57,7 @@ mod stars;
 pub(crate) use self::mcp::{
     McpSearchRequest, mcp_archive_status_result, mcp_search_result, mcp_usage_guide_result,
 };
-pub use self::migration::{apply_import, export_app_data, preview_import};
+pub use self::migration::{DeviceImportPreview, apply_import, export_app_data, preview_import};
 pub use self::{
     annotations::{get_annotation, list_annotations, replace_tags, search_annotations, set_notes},
     app::{

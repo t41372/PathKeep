@@ -116,6 +116,7 @@
           "availability": "available",
           "hasSavedData": true,
           "archiveCount": "1",
+          "hasBackupSource": true,
           "countUnit": "source-files",
           "coverage": {
             "state": "complete",
@@ -132,6 +133,8 @@
       "request": {}
     },
     "response": {
+      "toolsChosen": true,
+      "dismissedHints": [],
       "policy": {
         "browsing": "on",
         "agentHistory": "on",
@@ -559,6 +562,8 @@
       }
     },
     "response": {
+      "toolsChosen": true,
+      "dismissedHints": [],
       "policy": {
         "browsing": "on",
         "agentHistory": "on",
@@ -599,6 +604,7 @@
           "availability": "available",
           "hasSavedData": true,
           "archiveCount": "1",
+          "hasBackupSource": true,
           "countUnit": "source-files",
           "coverage": {
             "state": "complete",

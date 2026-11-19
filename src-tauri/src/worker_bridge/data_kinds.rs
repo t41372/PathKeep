@@ -33,9 +33,9 @@ use vault_worker::data_kinds::{self as kinds, preview};
 
 pub(crate) fn list_data_kinds_impl(
     session: &SessionState,
-    _: kinds::Empty,
+    request: kinds::ListKinds,
 ) -> Result<kinds::KindList, CommandError> {
-    surface_result(kinds::list(session))
+    surface_result(kinds::delivery::read(|| kinds::list_with(session, request)))
 }
 pub(crate) fn get_agent_settings_impl(_: kinds::Empty) -> Result<kinds::Settings, CommandError> {
     surface_result(kinds::settings())
@@ -60,7 +60,7 @@ pub(crate) fn update_agent_sources_impl(
         if settings.policy.agent_history != vault_core::KindState::Off {
             emit(
                 "pathkeep://agent-settings-changed",
-                serde_json::json!({"settingsToken":settings.policy_token,"domains":["sources"]}),
+                serde_json::json!({"settingsToken":settings.settings_token(),"domains":["sources"]}),
             );
         }
     }
@@ -145,4 +145,18 @@ pub(crate) fn get_agent_overview_impl(
     request: kinds::backups::Overview,
 ) -> Result<Value, CommandError> {
     surface_result(kinds::delivery::read(|| kinds::backups::overview(session, request)))
+}
+
+pub(crate) fn retry_agent_store_impl(
+    session: &SessionState,
+    _: kinds::Empty,
+    emit: impl FnOnce(kinds::PolicyChange),
+) -> Result<kinds::KindList, CommandError> {
+    surface_result(kinds::delivery::read(|| kinds::retry_agent_store(session, emit)))
+}
+pub(crate) fn dismiss_agent_hint_impl(
+    req: kinds::DismissHint,
+    events: kinds::backups::Events,
+) -> Result<kinds::HintAcknowledgement, CommandError> {
+    surface_result(kinds::delivery::read(|| kinds::dismiss_hint(req, events)))
 }
