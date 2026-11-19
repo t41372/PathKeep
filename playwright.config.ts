@@ -3,9 +3,11 @@
  * the real Vite frontend, and Playwright driving it like a user.
  *
  * Every run starts from synthetic but real browser profiles (SQLite History
- * files) in a fresh temp folder, with the archive, keyring and project root
- * inside it. The fixture is seeded, and its `now` is written to
- * `fixture.json`, so a run can be repeated exactly:
+ * files) and Agent tool folders (Claude Code, Codex, Pi, DeepSeek Harness,
+ * under a fake home) in a fresh temp folder, with the archive, keyring and
+ * project root inside it. The app is pointed at those and never looks at
+ * this computer's own browsers or Agent tools. The fixture is seeded, and
+ * its `now` is written to `fixture.json`, so a run can be repeated exactly:
  *
  *   PATHKEEP_E2E_NOW=<now from fixture.json> bun run test:e2e
  *
@@ -23,10 +25,12 @@ import {
   e2eCargoTargetDir,
   resolveDesktopBridgeEnv,
 } from './scripts/pathkeep-dev-desktop-bridge.mjs'
+import { writeSyntheticAgents } from './scripts/fixtures/synthetic-agents.mjs'
 import { writeSyntheticBrowsers } from './scripts/fixtures/synthetic-browsers.mjs'
 
 const artifactsDir = 'artifacts/e2e'
 const FIXTURE_SEED = 7
+const AGENT_FIXTURE_SEED = 11
 
 /**
  * Playwright loads this file in the runner and again in each worker. The
@@ -44,6 +48,12 @@ function prepareFixture() {
     now,
     seed: FIXTURE_SEED,
   })
+  // Outside any git checkout (the temp folder), as the generator asks: the
+  // backup reads `.git` in a project folder and every folder above it.
+  const agents = writeSyntheticAgents(path.join(root, 'agent-tools-home'), {
+    now,
+    seed: AGENT_FIXTURE_SEED,
+  })
   const dirs = {
     projectRoot: path.join(root, 'project-root'),
     keyring: path.join(root, 'keyring'),
@@ -55,7 +65,14 @@ function prepareFixture() {
   const fixtureFile = path.join(root, 'fixture.json')
   writeFileSync(
     fixtureFile,
-    JSON.stringify({ root, now, seed: FIXTURE_SEED, ...browsers, dirs }),
+    JSON.stringify({
+      root,
+      now,
+      seed: FIXTURE_SEED,
+      ...browsers,
+      agents,
+      dirs,
+    }),
   )
   mkdirSync(artifactsDir, { recursive: true })
   copyFileSync(fixtureFile, path.join(artifactsDir, 'fixture.json'))
@@ -66,6 +83,9 @@ function prepareFixture() {
     CHB_CHROME_USER_DATA_DIR: browsers.chromeUserDataRoot,
     CHB_FIREFOX_PROFILES_DIR: browsers.firefoxProfilesRoot,
     CHB_SAFARI_ROOT: dirs.noSafari,
+    // Every Agent tool folder resolves under this fake home, whatever else
+    // is in the environment, so no run can reach the real ones.
+    CHB_AGENT_TOOLS_HOME: agents.home,
     CHB_TEST_KEYRING_DIR: dirs.keyring,
     // Schedules and login items go to files here, never to the real
     // launchd / Task Scheduler. Debug builds only; release ignores it.
@@ -196,6 +216,10 @@ export default defineConfig({
         'mcp-log.spec.ts',
         'security.spec.ts',
         'site-category.spec.ts',
+        // After lock.spec, so App Lock is on for the preview that locks.
+        'spaces-agent-intro.spec.ts',
+        'spaces-agent-kinds.spec.ts',
+        'spaces-agent-preview.spec.ts',
         'window-frame.spec.ts',
         // Runs a backup; its name sorts it last here, so the specs before it
         // see the archive they expect.

@@ -39,7 +39,7 @@ import {
   spaceKeyLabel,
   spacePagePath,
   spaceSearchPath,
-  spacesOn,
+  useSpacesOn,
   type Space,
 } from '@/lib/spaces'
 import { useTheme } from '@/lib/theme'
@@ -73,7 +73,7 @@ export function CommandPalette({
   const switchTo = useSwitchSpace()
   const [query, setQuery] = useState('')
   const term = useDebouncedValue(query.trim(), 180)
-  const on = spacesOn()
+  const on = useSpacesOn()
 
   const close = () => {
     onOpenChange(false)
@@ -161,9 +161,9 @@ export function CommandPalette({
       actions: actionItems.filter((item) => matches(item.label)),
       others,
     }
-    // `go` and `close` only close over stable setters; `on` is the registry.
+    // `go` and `close` only close over stable setters.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, t, resolved, backup.run, onLock, current.id])
+  }, [query, t, resolved, backup.run, onLock, current.id, on])
 
   return (
     <CommandDialog

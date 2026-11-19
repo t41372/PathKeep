@@ -5,25 +5,33 @@
  *
  * Responsibilities: the button and the menu. The menu holds spaces only.
  * Its last item offers to keep another kind of data, and only while a
- * registered kind is off (`spacesOff`); every registered kind is on today,
- * so there is no such item. A space's status line is its own component
- * (registry `Status`), mounted only while the menu is open, with a quiet
- * placeholder until it loads.
+ * registered kind is off (`spacesOff`); it opens Settings › Manage data
+ * types. A space's status line is its own component (registry `Status`),
+ * mounted only while the menu is open, with a quiet placeholder until it
+ * loads.
  * Not responsible for: switching (`current-space.ts`) or the slide
  * (`space-slide.tsx`).
  */
-import { Check } from 'lucide-react'
+import { Check, Plus } from 'lucide-react'
 import { DropdownMenu as Menu } from 'radix-ui'
 import { Suspense, type CSSProperties } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/cn'
 import { useI18n } from '@/lib/i18n'
-import { spaceKeyLabel, spacesOn, type Space } from '@/lib/spaces'
+import {
+  spaceKeyLabel,
+  useSpacesOff,
+  useSpacesOn,
+  type DataSpace,
+} from '@/lib/spaces'
 import { useCurrentSpace, useSwitchSpace } from './current-space'
 import { SpaceSlide } from './space-slide'
 
@@ -32,7 +40,7 @@ export function SpaceTile({
   space,
   size = 'md',
 }: {
-  space: Space
+  space: DataSpace
   size?: 'sm' | 'md'
 }) {
   const Icon = space.icon
@@ -57,7 +65,9 @@ export function SpaceSwitcher({ dir }: { dir: number }) {
   const { t } = useI18n()
   const space = useCurrentSpace()
   const switchTo = useSwitchSpace()
-  const on = spacesOn()
+  const navigate = useNavigate()
+  const on = useSpacesOn()
+  const off = useSpacesOff()
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
@@ -139,6 +149,21 @@ export function SpaceSwitcher({ dir }: { dir: number }) {
             </Menu.RadioItem>
           ))}
         </Menu.RadioGroup>
+        {off.length > 0 && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onSelect={() => void navigate('/settings/kinds')}
+              className="gap-2.5 rounded-lg px-2.5 py-2 text-[13px]"
+            >
+              <Plus aria-hidden />
+              {t('spaces.switcher.keepAnother')}
+              <span className="ml-auto text-[12px] text-muted-foreground">
+                {t('spaces.switcher.moreKinds', { count: off.length })}
+              </span>
+            </DropdownMenuItem>
+          </>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   )

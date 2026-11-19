@@ -6,7 +6,9 @@
  * - `#/` opens the space's first page, `#/browsing/home`. The switcher
  *   names the space; its menu lists that one space with the archive's visit
  *   count and the number of browsers with a profile backed up, as the
- *   backend counts them, and offers nothing else. Each page in the rail
+ *   backend counts them. Agent conversations are off, so the menu's one
+ *   other item offers to keep another kind of data, and it opens Settings ›
+ *   Manage data types. Each page in the rail
  *   opens its `#/browsing/…` address, and on Settings and Ask the rail keeps
  *   the space's pages.
  * - The rail has no language control. Choosing a language in Settings ›
@@ -98,17 +100,29 @@ test('#/ opens the space; the switcher names it and its menu counts it', async (
   const visits = dashboard.totalVisits.toLocaleString('en-US')
   const line = `${visits} visit${dashboard.totalVisits === 1 ? '' : 's'} · ${browsers} browser${browsers === 1 ? '' : 's'}`
 
-  // One space, the current one, with its shortcut, and nothing else: every
-  // kind of data PathKeep has is on, so there is no "keep another kind".
+  // One space, the current one, with its shortcut. Agent conversations are
+  // off, so they are not a space here; the menu's one other item offers to
+  // keep another kind of data, and names how many more there are.
   const spaces = menu.getByRole('menuitemradio')
   await expect(spaces).toHaveCount(1)
   await expect(spaces.first()).toHaveAttribute('aria-checked', 'true')
   await expect(spaces.first()).toContainText('Browsing history')
   await expect(spaces.first()).toContainText(line)
   await expect(spaces.first()).toContainText(mac ? '⌘1' : 'Ctrl+1')
-  await expect(menu.getByRole('menuitem')).toHaveCount(0)
+  const keepAnother = menu.getByRole('menuitem')
+  await expect(keepAnother).toHaveCount(1)
+  await expect(keepAnother).toHaveText(/^Keep another kind of data…\s*1 more$/)
   await page.keyboard.press('Escape')
   await expect(menu).toBeHidden()
+
+  // It opens Settings › Manage data types.
+  await switcher.click()
+  await menu.getByRole('menuitem').click()
+  await expect(menu).toBeHidden()
+  await expect(page).toHaveURL(/#\/settings\/kinds$/)
+  await expect(
+    page.getByRole('heading', { name: 'Manage data types', level: 2 }),
+  ).toBeVisible()
 })
 
 test('each page in the rail opens its address, and Settings and Ask keep the space', async ({

@@ -6,15 +6,19 @@
  * strip of window background at the top for the window buttons, which the
  * app draws once for every screen (`window-chrome/`).
  * The rail follows the space of the page shown (`current-space.ts`), and
- * the panel fades when the space changes (`space-panel.tsx`).
+ * the panel fades when the space changes (`space-panel.tsx`). The frame
+ * keeps the kinds of data's states current for the whole shell
+ * (`useDataKindsSync`) and holds the dialog that turns Agent conversations
+ * on, which `?enable=agent` opens over any screen.
  */
-import { useCallback, useEffect, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import { backdropDragRegion } from '@/components/app/drag-region'
 import { cn } from '@/lib/cn'
 import { useI18n } from '@/lib/i18n'
 import { subscribeToOpenCommandPalette } from '@/lib/ipc/desktop-events'
+import { useDataKindsSync } from '@/lib/queries/data-kinds'
 import { isMacOsHost } from '@/lib/runtime'
 import { spaceKeyIndex, spacesOn } from '@/lib/spaces'
 import { useSession } from '../session'
@@ -24,6 +28,24 @@ import { useSpaceFromUrl, useSwitchSpace } from './current-space'
 import { NavRail } from './nav-rail'
 import { SpacePanel } from './space-panel'
 import { useHistorySteps } from './use-history-steps'
+import { useEnableAgentParam } from '@/features/enable-agent/links'
+
+const EnableAgentDialog = lazy(
+  () => import('@/features/enable-agent/enable-agent-dialog'),
+)
+
+/** Loads the enable dialog the first time it is asked for, then keeps it for its closing fade. */
+function EnableAgentHost() {
+  const { open } = useEnableAgentParam()
+  const [wanted, setWanted] = useState(open)
+  if (open && !wanted) setWanted(true)
+  if (!wanted) return null
+  return (
+    <Suspense fallback={null}>
+      <EnableAgentDialog />
+    </Suspense>
+  )
+}
 
 /** Typing keeps its own keys: Alt+← moves by word in a text field. */
 function typing(target: EventTarget | null) {
@@ -49,6 +71,7 @@ export function AppFrame() {
     })
   }, [session, navigate, t])
 
+  useDataKindsSync()
   useSpaceFromUrl(useLocation().pathname)
   const switchTo = useSwitchSpace()
 
@@ -144,6 +167,7 @@ export function AppFrame() {
         onOpenChange={setPaletteOpen}
         onLock={lock}
       />
+      <EnableAgentHost />
     </div>
   )
 }

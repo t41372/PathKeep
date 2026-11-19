@@ -1,7 +1,8 @@
 /**
- * What the tests know about the synthetic browsers: every visit that was
- * written, per profile, and the files they live in. Expected numbers in the
- * specs are computed from this, never typed in by hand.
+ * What the tests know about the synthetic browsers (every visit that was
+ * written, per profile, and the files they live in) and the synthetic Agent
+ * tools (every file under each tool's folder, and what it is). Expected
+ * numbers in the specs are computed from this, never typed in by hand.
  *
  * Also a direct line to the backend, for checking side effects the UI does
  * not show (and for nothing else: user actions go through the UI).
@@ -14,6 +15,7 @@ import type {
   SyntheticProfileId,
   SyntheticVisit,
 } from '../../../scripts/fixtures/synthetic-browsers.mjs'
+import type { SyntheticAgents } from '../../../scripts/fixtures/synthetic-agents.mjs'
 import { resolveDesktopBridgeEnv } from '../../../scripts/pathkeep-dev-desktop-bridge.mjs'
 
 export type { SyntheticVisit as FixtureVisit } from '../../../scripts/fixtures/synthetic-browsers.mjs'
@@ -27,6 +29,8 @@ interface Fixture {
   files: Record<ProfileId, string>
   /** Chrome's user data folder: one folder per profile, named in `Local State`. */
   chromeUserDataRoot: string
+  /** The fake home the app finds every Agent tool folder under (`CHB_AGENT_TOOLS_HOME`). */
+  agents: SyntheticAgents
   /** Folders the backend runs against; `osSandbox` stands in for launchd / Task Scheduler. */
   dirs: {
     projectRoot: string

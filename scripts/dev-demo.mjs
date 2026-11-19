@@ -11,19 +11,24 @@
  *                               # leave the archive uninitialized, so the
  *                               # app opens on onboarding (E2E uses this)
  *
- * Steps: write synthetic Chrome/Firefox profiles, start the Tauri backend
- * with the dev IPC bridge (under xvfb on headless Linux), then initialize
- * the archive and run the first backup through the bridge if needed.
+ * Steps: write synthetic Chrome/Firefox profiles and Agent tool folders,
+ * start the Tauri backend with the dev IPC bridge (under xvfb on headless
+ * Linux), then initialize the archive and run the first backup through the
+ * bridge if needed. The app never looks at this computer's own browsers or
+ * Agent tools (`~/.claude`, `~/.codex`, …).
  * Open http://127.0.0.1:1420 in a browser when it says ready.
  */
 import { spawn, spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, rmSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { existsSync, mkdirSync, realpathSync, rmSync } from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   e2eCargoTargetDir,
   resolveDesktopBridgeEnv,
 } from './pathkeep-dev-desktop-bridge.mjs'
+import { writeSyntheticAgents } from './fixtures/synthetic-agents.mjs'
 import { writeSyntheticBrowsers } from './fixtures/synthetic-browsers.mjs'
 
 const repoRoot = path.resolve(
@@ -37,7 +42,17 @@ const backendFlag = process.argv.indexOf('--backend')
 const prebuiltBackend =
   backendFlag >= 0 ? path.resolve(process.argv[backendFlag + 1] ?? '') : null
 
-if (fresh) rmSync(demoRoot, { recursive: true, force: true })
+// The Agent tools' fake home lives outside this checkout: the backup reads
+// `.git` in a project folder and every folder above it, so inside the
+// checkout each demo project would report this repository. One per checkout.
+const agentsHome = path.join(
+  os.tmpdir(),
+  `pathkeep-demo-agent-tools-${createHash('sha256').update(repoRoot).digest('hex').slice(0, 8)}`,
+)
+if (fresh) {
+  rmSync(demoRoot, { recursive: true, force: true })
+  rmSync(agentsHome, { recursive: true, force: true })
+}
 const browsersRoot = path.join(demoRoot, 'browsers')
 const projectRoot = path.join(demoRoot, 'project-root')
 const keyringRoot = path.join(demoRoot, 'keyring')
@@ -58,6 +73,13 @@ if (!existsSync(path.join(browsersRoot, 'chrome-user-data'))) {
   }
 }
 
+if (!existsSync(path.join(agentsHome, '.claude'))) {
+  const agents = writeSyntheticAgents(agentsHome, {})
+  console.log(
+    `Wrote ${agents.conversations.length} synthetic Agent conversations to ${agents.home}`,
+  )
+}
+
 const bridge = resolveDesktopBridgeEnv()
 const env = {
   ...process.env,
@@ -65,6 +87,9 @@ const env = {
   CHB_CHROME_USER_DATA_DIR: browsers.chromeUserDataRoot,
   CHB_FIREFOX_PROFILES_DIR: browsers.firefoxProfilesRoot,
   CHB_SAFARI_ROOT: emptySafari,
+  // Every Agent tool folder resolves under this fake home, whatever else is
+  // in the environment, so the demo cannot reach the real ones.
+  CHB_AGENT_TOOLS_HOME: realpathSync(agentsHome),
   // Debug builds keep schedule and login-item state here instead of the
   // real launchd / Task Scheduler / login items.
   PATHKEEP_PLATFORM_TEST_SANDBOX_DIR: path.join(demoRoot, 'os-sandbox'),

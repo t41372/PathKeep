@@ -33,4 +33,11 @@ export const queryKeys = {
   insightsZone: ['archive', 'insights-zone'] as const,
   schedule: ['schedule-status'] as const,
   exportProgress: (exportId: string) => ['export-progress', exportId] as const,
+  /** Each kind of data's state and the count the archive holds; a backup changes the count. */
+  dataKinds: ['archive', 'data-kinds'] as const,
+  /** The Agent tools' switches and reading `.git`, stored on this device. */
+  agentSettings: ['agent-settings'] as const,
+  /** Which source folders exist on this computer, per kind of data. */
+  dataSources: (kinds: readonly string[]) =>
+    ['data-sources', ...kinds] as const,
 }

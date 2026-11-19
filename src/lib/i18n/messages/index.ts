@@ -9,6 +9,8 @@ import { backupImport } from './backup-import'
 import { backupRuns } from './backup-runs'
 import { backupSchedule } from './backup-schedule'
 import { common } from './common'
+import { dataKinds } from './data-kinds'
+import { enableAgent } from './enable-agent'
 import { history } from './history'
 import { historyPage } from './history-page'
 import { historySearch } from './history-search'
@@ -28,6 +30,8 @@ const namespaces = {
   common,
   shell,
   spaces,
+  dataKinds,
+  enableAgent,
   home,
   history,
   historyPage,

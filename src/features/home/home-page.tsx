@@ -1,6 +1,7 @@
 /**
  * Home: a summary of the archive. Header with backup status, alerts when
- * something needs fixing, four stat cards, the 30-day trend, on-this-day, the
+ * something needs fixing, the card that offers to keep Agent conversations
+ * while they are off, four stat cards, the 30-day trend, on-this-day, the
  * year heatmap, recurring topics and sources.
  */
 import { Link } from 'react-router-dom'
@@ -13,6 +14,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { useFormat, useI18n, type Translator } from '@/lib/i18n'
 import { useDashboard, useSnapshot } from '@/lib/queries/app'
 import { spacePath } from '@/lib/spaces'
+import { AgentIntroCard } from '@/features/data-kinds/agent-intro-card'
 import { HomeAlerts } from './alerts-list'
 import {
   OnThisDayCard,
@@ -192,6 +194,7 @@ export default function HomePage() {
         }
       />
       <HomeAlerts />
+      <AgentIntroCard />
       <StatCards />
       <div className="grid grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)] gap-4 max-[900px]:grid-cols-1">
         <TrendCard />

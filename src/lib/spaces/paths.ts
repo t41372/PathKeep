@@ -10,19 +10,19 @@
  * link helpers, such as `features/insights/links.ts`).
  */
 import {
-  spaceById,
   spaces,
   type PageOf,
   type Space,
   type SpaceId,
   type SpacePage,
+  type SpaceWithPagesId,
 } from './registry'
 
 /**
  * A page of a space. `rest` follows the page: a deeper path
  * (`/day/2026-01-02`) and/or a query (`?q=…`).
  */
-export function spacePath<S extends SpaceId>(
+export function spacePath<S extends SpaceWithPagesId>(
   space: S,
   page: PageOf<S>,
   rest = '',
@@ -47,11 +47,15 @@ export function spaceSearchPath(space: Space, query?: string) {
 }
 
 /** A space's backup page; `rest` as in `spacePath`. */
-export function spaceBackupPath(id: SpaceId, rest = '') {
-  return `/${id}/${spaceById(id)!.backupPage}${rest}`
+export function spaceBackupPath(id: SpaceWithPagesId, rest = '') {
+  const space = spaces.find((item) => item.id === id) as Space
+  return `/${id}/${space.backupPage}${rest}`
 }
 
-/** The space a path is in, or null for a shared screen (Ask, Settings). */
+/**
+ * The space a path is in, or null for a shared screen (Ask, Settings). A
+ * space whose kind is off still owns its paths; they show that it is off.
+ */
 export function spaceOfPath(pathname: string): SpaceId | null {
   const first = pathname.split('/')[1]
   return spaces.find((space) => space.id === first)?.id ?? null

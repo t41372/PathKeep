@@ -1,6 +1,7 @@
 # 資料類型與空間
 
-> 狀態：v0.6 的設計。外框（切換鈕、路由、色相、指示器、⌘K）已經做進 app，目前只有瀏覽紀錄一個空間；其餘尚未實作，落地情況見 [data-spaces-tradeoff.md](../design/data-spaces-tradeoff.md) §6。
+> 狀態：v0.6 的設計。外框（切換鈕、路由、色相、指示器、⌘K）已經做進 app，目前只有瀏覽紀錄一個空間有頁面。Agent 對話已經做了的：介紹卡（§3.1）、「沒有開啟」的畫面（§2）、啟用流程的前兩步（§3.2，`開始保存` 還不能按）、「設定 › 管理資料類型」的開啟／暫停／關閉（§8，還沒有刪除）；其餘尚未實作，落地情況見 [data-spaces-tradeoff.md](../design/data-spaces-tradeoff.md) §6。
+> 改過的 E2E 檢查（§0）：`spaces-shell.spec` 原本檢查切換選單裡沒有空間以外的項目；Agent 對話登記之後它是關閉的，選單照 §3.1 多一項 `保存其他類型的資料…`，檢查改成「剛好這一項，按下去到管理資料類型」，沒有放寬。
 > 外框本身（切換鈕、導航列、路由、每個空間的顏色、頁面寬度、快捷鍵、切換動畫）見 [data-spaces-tradeoff.md](../design/data-spaces-tradeoff.md)，這裡不重複。Agent 對話自己的畫面見 [agent-history.md](agent-history.md)。
 >
 > 文案：這份文件只寫繁體中文。English 與簡體中文在每個畫面做進 app 時一起寫，三種語言同時交付。「封存」到時候要選一個不是 "archive" 的英文字，因為 PathKeep 的存檔已經叫 archive。

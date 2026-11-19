@@ -1,28 +1,23 @@
 /**
  * Routes. Each screen is code-split so the first paint only loads the shell.
  * A space's pages live under `#/<space>/<page>` and come from the registry
- * (`src/lib/spaces`); Ask and Settings are shared and carry no space.
+ * (`src/lib/spaces`); every address of a space goes through its kind's
+ * state first (`kind-gate.tsx`), so a kind that is off says so at any of
+ * its addresses. Ask and Settings are shared and carry no space.
  */
 import { lazy, Suspense, type ComponentType } from 'react'
 import { createHashRouter, Navigate, type RouteObject } from 'react-router-dom'
-import { Skeleton } from '@/components/ui/skeleton'
-import { readLastSpace, spaces, spaceStartPath } from '@/lib/spaces'
+import {
+  hasPages,
+  readLastSpace,
+  spaces,
+  spaceStartPath,
+  type Space,
+} from '@/lib/spaces'
 import { AppFrame } from './shell/app-frame'
+import { KindGate } from './shell/kind-gate'
 import { RouteError } from './shell/route-error'
-
-function ScreenFallback() {
-  return (
-    <div className="mx-auto flex w-full max-w-[1040px] flex-col gap-5 px-10 py-9">
-      <Skeleton className="h-9 w-64" />
-      <div className="grid grid-cols-4 gap-3">
-        {Array.from({ length: 4 }, (_, index) => (
-          <Skeleton key={index} className="h-24 rounded-xl" />
-        ))}
-      </div>
-      <Skeleton className="h-64 rounded-xl" />
-    </div>
-  )
-}
+import { ScreenFallback } from './shell/screen-fallback'
 
 function screen(load: () => Promise<{ default: ComponentType }>) {
   const Screen = lazy(load)
@@ -33,20 +28,30 @@ function screen(load: () => Promise<{ default: ComponentType }>) {
   )
 }
 
+function pageRoutes(space: Space): RouteObject[] {
+  return space.pages.flatMap((page) => {
+    const children = 'children' in page ? (page.children ?? []) : []
+    return [
+      { path: page.id, element: screen(page.screen) },
+      ...children.map((child) => ({
+        path: `${page.id}/${child.path}`,
+        element: screen(child.screen),
+      })),
+    ]
+  })
+}
+
 function spaceRoutes(): RouteObject[] {
-  return spaces.flatMap((space) =>
-    space.pages.flatMap((page) => {
-      const base = `${space.id}/${page.id}`
-      const children = 'children' in page ? page.children : []
-      return [
-        { path: base, element: screen(page.screen) },
-        ...children.map((child) => ({
-          path: `${base}/${child.path}`,
-          element: screen(child.screen),
-        })),
-      ]
-    }),
-  )
+  return spaces.map((space) => ({
+    path: space.id,
+    element: <KindGate space={space} />,
+    children: [
+      ...(hasPages(space) ? pageRoutes(space) : []),
+      // `#/<space>` alone, or a page it does not have: the last space.
+      { index: true, element: <Navigate to="/" replace /> },
+      { path: '*', element: <Navigate to="/" replace /> },
+    ],
+  }))
 }
 
 function OpenLastSpace() {
