@@ -30,7 +30,7 @@ mod model_files;
 
 /// Fence model writers before a wipe moves or deletes the model directory.
 pub(crate) fn revoke_model_downloads(models: &std::path::Path) -> anyhow::Result<()> {
-    model_files::transfers::active().revoke_under(models)
+    model_files::transfers::revoke_under(models)
 }
 
 pub(crate) mod model_generations;

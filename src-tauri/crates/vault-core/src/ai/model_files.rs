@@ -47,6 +47,8 @@ pub fn model_dir_for_repo(paths: &ProjectPaths, repo: &str) -> std::path::PathBu
 /// This full re-hash is the AUTHORITATIVE check the download runs. Loading the engine and the
 /// status read go through [`model_files_verified`], which runs it only when the files changed.
 pub fn model_is_present_and_verified(model_dir: &std::path::Path, files: &[ModelFile]) -> bool {
+    #[cfg(test)]
+    tests::observe_hash(model_dir);
     files.iter().all(|file| {
         let path = model_dir.join(file.name);
         match crate::utils::file_sha256_hex(&path) {
@@ -138,6 +140,18 @@ pub fn model_files_verified(model_dir: &std::path::Path, files: &[ModelFile]) ->
         let _ = write_verified_marker(model_dir, stamps);
     }
     true
+}
+
+/// Installer verification always reads the bytes, including when a previous stamp still matches.
+pub(super) fn verify_for_install(directory: &std::path::Path, files: &[ModelFile]) -> Result<bool> {
+    let stamps = file_stamps(directory, files);
+    if !model_is_present_and_verified(directory, files) {
+        return Ok(false);
+    }
+    if let Some(stamps) = stamps {
+        write_verified_marker(directory, stamps)?;
+    }
+    Ok(true)
 }
 
 /// Whether every manifest file is present and non-empty, without reading any of them.
@@ -253,55 +267,68 @@ pub fn ensure_model_downloaded(
         );
     }
     let root = model_dir_for_repo(paths, repo);
-    let (previous, source, candidate) = {
-        let _archive = crate::archive::ArchiveOpGate::acquire(paths);
-        let mut active = transfers::active();
-        crate::admission::guard(&paths.app_root)?;
-        let current = generations::recover(&root, files, &active)?;
-        let stamps = file_stamps(&current, files);
-        if model_is_present_and_verified(&current, files) {
-            if let Some(stamps) = stamps {
-                write_verified_marker(&current, stamps)?;
-            }
-            return Ok(current);
+    let (previous, source, candidate) = match generations::resolve(
+        paths,
+        &root,
+        files,
+        generations::Request::Setup { consented, progress },
+    )? {
+        generations::Resolution::Busy => unreachable!("explicit setup waits for the archive gate"),
+        generations::Resolution::Available(path) => return Ok(path),
+        generations::Resolution::Missing => anyhow::bail!(
+            "model {repo} is not present and downloading it requires explicit consent; enable the in-app model download to fetch it"
+        ),
+        generations::Resolution::Download { previous, source, candidate } => {
+            (previous, source, candidate)
         }
-        if !consented {
-            anyhow::bail!(
-                "model {repo} is not present and downloading it requires explicit consent; enable the in-app model download to fetch it"
-            );
-        }
-        let source = generations::pin(&root)?;
-        let candidate = active.register(generations::create(&root)?)?;
-        (current, source, candidate)
     };
 
-    let prepared = prepare_generation(&candidate, source.path(), files, progress);
+    let mut prepared = prepare_generation(&candidate, source.path(), files, progress);
     drop(source);
-    let _archive = crate::archive::ArchiveOpGate::acquire(paths);
-    let mut active = transfers::active();
-    // A wipe revokes the reservation before moving the tree. Even if onboarding has since
-    // created a new model folder, this transfer cannot publish or clean anything inside it.
-    candidate.finish(&mut active)?;
-    crate::admission::guard(&paths.app_root)?;
-    if let Err(error) = prepared {
-        vault_fs::remove_dir_all(&candidate.path).context("removing failed model download")?;
-        return Err(error);
+    let mut checked = previous.clone();
+    loop {
+        let archive = crate::archive::ArchiveOpGate::acquire(paths);
+        let cancelled = progress.cancelled();
+        let mut active = transfers::active();
+        candidate.check(&active)?;
+        crate::admission::guard(&paths.app_root)?;
+        if cancelled {
+            prepared = Err(anyhow::anyhow!("model download was cancelled"));
+        }
+        if let Err(error) = prepared {
+            candidate.finish(&mut active)?;
+            vault_fs::remove_dir_all(&candidate.path).context("removing failed model download")?;
+            return Err(error);
+        }
+        let selected = generations::selected(&root)?;
+        if selected != checked {
+            let winner = generations::pin(&root)?;
+            drop(active);
+            drop(archive);
+            prepared = candidate.with_io(|_| {
+                anyhow::ensure!(
+                    model_files_verified(winner.path(), files),
+                    "model selection changed during download"
+                );
+                Ok(())
+            });
+            checked = selected;
+            continue;
+        }
+        candidate.finish(&mut active)?;
+        if selected != previous {
+            vault_fs::remove_dir_all(&candidate.path)?;
+            return Ok(selected);
+        }
+        crate::fault_inject::checkpoint("model-generation-verified")?;
+        generations::publish(&root, &candidate.path)?;
+        generations::collect_previous(&root, &previous);
+        drop(active);
+        drop(archive);
+        #[cfg(not(test))]
+        super::embedding_static::forget_replaced_model(&root, &candidate.path);
+        return Ok(candidate.path.clone());
     }
-    // Another installer may have published while this one was fetching. Reuse its verified
-    // selection when it satisfies this request. A slower response cannot overwrite a newer model.
-    let selected = generations::selected(&root)?;
-    if selected != previous {
-        vault_fs::remove_dir_all(&candidate.path)?;
-        anyhow::ensure!(
-            model_files_verified(&selected, files),
-            "model selection changed during download"
-        );
-        return Ok(selected);
-    }
-    crate::fault_inject::checkpoint("model-generation-verified")?;
-    generations::publish(&root, &candidate.path)?;
-    generations::collect_previous(&root, &previous);
-    Ok(candidate.path.clone())
 }
 
 fn prepare_generation(

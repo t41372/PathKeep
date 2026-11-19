@@ -395,13 +395,8 @@ impl ArchiveOpGate {
         ArchiveOpGate { path }
     }
 
-    /// Non-blocking variant: `None` when another top-level op already holds the gate for
-    /// this archive (the in-process DEFER signal — the scheduled backup steps aside rather
-    /// than racing a foreground op in THIS process), or a guard when it just took it.
-    ///
-    /// Deterministic with no parking, so a unit test can prove the mutual exclusion
-    /// (held => `None`; free => `Some`) without any sleep-as-synchronization.
-    #[cfg(test)]
+    /// Live archive open can run inside maintenance. Try the gate so model recovery can
+    /// defer its work until the caller releases it instead of parking the owner on itself.
     pub(crate) fn try_acquire(paths: &ProjectPaths) -> Option<ArchiveOpGate> {
         let path = lock_file_path(paths);
         let (mutex, _condvar) = op_gate();

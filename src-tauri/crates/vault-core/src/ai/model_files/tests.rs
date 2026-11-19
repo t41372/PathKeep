@@ -207,7 +207,11 @@ fn ensure_download_rejects_digest_mismatch_and_removes_blob() {
         .expect_err("digest mismatch");
     assert!(error.to_string().contains("failed SHA-256 verification"));
     let model_dir = model_dir_for_repo(&paths, "Stub/Repo");
-    assert!(!model_dir.join("config.json").exists(), "bad blob must be removed");
+    assert_eq!(
+        std::fs::read_dir(model_dir).unwrap().count(),
+        0,
+        "failed candidate must be removed"
+    );
 }
 
 // A repair must not truncate an inode that an active embedding engine still maps. Failed
@@ -360,7 +364,13 @@ fn restart_recovers_each_model_publication_boundary() {
         std::fs::create_dir(&partial).unwrap();
         std::fs::write(partial.join("config.json"), b"partial").unwrap();
         // Run the same recovery as live archive open, before any new install request.
-        super::super::model_generations::recover(&repo, &files, &transfers::active()).unwrap();
+        super::super::model_generations::resolve(
+            &paths,
+            &repo,
+            &files,
+            super::super::model_generations::Request::DeferredRecovery,
+        )
+        .unwrap();
         let selection = crate::ai::open_model_directory(&paths, "Stub/Repo").unwrap();
         let new = selection.path();
         assert!(model_is_present_and_verified(new, &files));
@@ -526,4 +536,155 @@ fn snapshot_and_restore_preserve_an_in_flight_model_transfer() {
     .expect("the transfer publishes after the archive reopens");
     assert!(model_is_present_and_verified(&installed, &stub_manifest()));
     assert_eq!(repo.join(std::fs::read_to_string(repo.join("current")).unwrap()), installed);
+}
+
+#[test]
+fn cancellation_while_waiting_to_publish_discards_candidate() {
+    use std::sync::{
+        atomic::{AtomicBool, Ordering},
+        mpsc,
+    };
+    use std::time::{Duration, Instant};
+    struct CancelBeforePublish<'a> {
+        finished: mpsc::Sender<()>,
+        resume: mpsc::Receiver<()>,
+        cancel: &'a AtomicBool,
+    }
+    impl ModelDownloadProgress for CancelBeforePublish<'_> {
+        fn file_finished(&mut self, _: &str) {
+            self.finished.send(()).unwrap();
+            self.resume.recv_timeout(Duration::from_secs(10)).unwrap();
+        }
+        fn cancelled(&self) -> bool {
+            self.cancel.load(Ordering::SeqCst)
+        }
+    }
+    let root = tempfile::tempdir().unwrap();
+    let paths = crate::project_paths_with_root(root.path());
+    let files = stub_manifest();
+    let repo = model_dir_for_repo(&paths, "Stub/Repo");
+    let previous =
+        ensure_model_downloaded(&paths, "Stub/Repo", &files[..1], true, &mut NoopDownloadProgress)
+            .unwrap();
+    let cancel = AtomicBool::new(false);
+    std::thread::scope(|scope| {
+        let (finished, done) = mpsc::channel();
+        let (resume, wait) = mpsc::channel();
+        let mut progress = CancelBeforePublish { finished, resume: wait, cancel: &cancel };
+        let (paths, files) = (&paths, &files);
+        let install = scope.spawn(move || {
+            ensure_model_downloaded(paths, "Stub/Repo", &files[..2], true, &mut progress)
+        });
+        done.recv_timeout(Duration::from_secs(10)).unwrap();
+        let gate = crate::archive::ArchiveOpGate::acquire(paths);
+        let candidate = std::fs::read_dir(&repo)
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .find(|p| p.is_dir() && p != &previous)
+            .unwrap();
+        resume.send(()).unwrap();
+        // The marker is written after prepare_generation's last cancellation poll.
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !candidate.join(VERIFIED_MARKER_FILE).is_file() {
+            assert!(Instant::now() < deadline, "candidate never completed verification");
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        cancel.store(true, Ordering::SeqCst);
+        drop(gate);
+        let error = install.join().unwrap().expect_err("a successful result emits Done");
+        assert!(error.to_string().contains("cancelled"), "{error:#}");
+        assert!(!candidate.exists());
+        assert_eq!(repo.join(std::fs::read_to_string(repo.join("current")).unwrap()), previous);
+    });
+}
+
+#[test]
+fn recovery_selects_verified_flat_files_when_pointed_bundle_is_damaged() {
+    let root = tempfile::tempdir().unwrap();
+    let paths = crate::project_paths_with_root(root.path());
+    let files = stub_manifest();
+    let repo = model_dir_for_repo(&paths, "Stub/Repo");
+    let broken =
+        ensure_model_downloaded(&paths, "Stub/Repo", &files, true, &mut NoopDownloadProgress)
+            .unwrap();
+    for file in &files {
+        std::fs::copy(broken.join(file.name), repo.join(file.name)).unwrap();
+    }
+    std::fs::remove_file(broken.join(files[0].name)).unwrap();
+    super::super::model_generations::resolve(
+        &paths,
+        &repo,
+        &files,
+        super::super::model_generations::Request::DeferredRecovery,
+    )
+    .unwrap();
+    let current = crate::ai::open_model_directory(&paths, "Stub/Repo").unwrap();
+    assert!(
+        model_is_present_and_verified(current.path(), &files),
+        "recovery must leave a usable selection"
+    );
+    assert!(model_is_present_and_verified(&repo, &files), "verified flat source was deleted");
+}
+
+thread_local! {
+    static HASH_OBSERVER: std::cell::RefCell<Option<HashObserver>> = const { std::cell::RefCell::new(None) };
+}
+type HashObserver = Box<dyn Fn(&std::path::Path)>;
+
+pub(super) fn observe_hash(path: &std::path::Path) {
+    HASH_OBSERVER.with_borrow(|observer| {
+        if let Some(check) = observer {
+            check(path);
+        }
+    });
+}
+
+#[test]
+fn selection_and_recovery_hash_without_the_archive_gate() {
+    use std::{cell::RefCell, rc::Rc};
+    let root = tempfile::tempdir().unwrap();
+    let paths = crate::project_paths_with_root(root.path());
+    let files = stub_manifest();
+    let repo = model_dir_for_repo(&paths, "Stub/Repo");
+    let current =
+        ensure_model_downloaded(&paths, "Stub/Repo", &files, true, &mut NoopDownloadProgress)
+            .unwrap();
+    let hashes = Rc::new(RefCell::new(Vec::new()));
+    HASH_OBSERVER.with_borrow_mut(|slot| {
+        let paths = paths.clone();
+        let hashes = hashes.clone();
+        *slot = Some(Box::new(move |directory| {
+            assert!(
+                crate::archive::ArchiveOpGate::try_acquire(&paths).is_some(),
+                "archive gate held while hashing {}",
+                directory.display()
+            );
+            let (acquired, observed) = std::sync::mpsc::channel();
+            std::thread::spawn(move || {
+                let _registry = transfers::active();
+                let _ = acquired.send(());
+            });
+            observed
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .expect("transfer registry held while hashing");
+            hashes.borrow_mut().push(directory.canonicalize().unwrap());
+        }));
+    });
+    ensure_model_downloaded(&paths, "Stub/Repo", &files, false, &mut NoopDownloadProgress).unwrap();
+    assert!(
+        hashes.borrow().contains(&current.canonicalize().unwrap()),
+        "installer must rehash its selection"
+    );
+    let orphan = repo.join("gen-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+    std::fs::create_dir(&orphan).unwrap();
+    for name in files.iter().map(|f| f.name).chain([VERIFIED_MARKER_FILE]) {
+        std::fs::copy(current.join(name), orphan.join(name)).unwrap();
+    }
+    std::fs::remove_file(current.join(files[0].name)).unwrap();
+    ensure_model_downloaded(&paths, "Stub/Repo", &files, false, &mut NoopDownloadProgress).unwrap();
+    assert!(
+        hashes.borrow().contains(&orphan.canonicalize().unwrap()),
+        "recovery must rehash the candidate"
+    );
+    HASH_OBSERVER.with_borrow_mut(|slot| *slot = None);
 }
