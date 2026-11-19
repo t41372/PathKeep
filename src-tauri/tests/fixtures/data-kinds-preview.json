@@ -64,9 +64,7 @@
       "policy": {
         "browsing": "on",
         "agentHistory": "off",
-        "enabledTools": [
-          "pi"
-        ],
+        "enabledTools": ["pi"],
         "readGit": false
       },
       "policyToken": "ae74ff51f05d95799f97494d9e9c87458a0fb3aaffa509be3a842a31b0c46bea"
@@ -117,9 +115,7 @@
   "detect_data_sources": {
     "request": {
       "request": {
-        "kinds": [
-          "agent-history"
-        ]
+        "kinds": ["agent-history"]
       }
     },
     "response": {
@@ -230,9 +226,7 @@
     "name": "pathkeep://data-kinds-changed",
     "payload": {
       "policyToken": "ae74ff51f05d95799f97494d9e9c87458a0fb3aaffa509be3a842a31b0c46bea",
-      "changedKinds": [
-        "agent-history"
-      ]
+      "changedKinds": ["agent-history"]
     }
   },
   "frames": [
