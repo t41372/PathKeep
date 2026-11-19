@@ -64,7 +64,7 @@
 ### 5. 保護資料與能退回
 
 - [ ] 匯入搬家檔時保留這台的對話，匯錯可以撤回（`WORK-IMPORT-KEEPS-CONVERSATIONS`）。
-- [ ] 從安全副本修復對話（`WORK-AH-REPAIR-FROM-COPY`）。
+- [ ] 從安全副本修復對話（`WORK-AH-REPAIR-FROM-COPY`）。包含 2026-11-18 補上的兩件：對話讀不了的期間安全副本與還原照樣能做（現在會拒絕）；沒有可用副本時把壞掉的對話資料收成副本、從空的重新開始。
 - [ ] 存檔打不開時的拒絕畫面（`WORK-ARCHIVE-REFUSAL-SCREEN`）。
 - [ ] 把存檔轉回 v0.5.0 能開的樣子（`WORK-UPGRADE-ROLLBACK`）。
 - [ ] `raw-snapshots/` 連到別的磁碟（`WORK-LINKED-SNAPSHOTS-FOLDER`）。
