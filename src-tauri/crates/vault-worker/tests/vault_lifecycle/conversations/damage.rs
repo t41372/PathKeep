@@ -80,7 +80,7 @@ fn spoil(fixture: &Fixture, db: Db, damage: Damage) {
         #[cfg(unix)]
         Damage::Unreadable => {
             use std::os::unix::fs::PermissionsExt;
-            fs::set_permissions(&path, fs::Permissions::from_mode(0)).unwrap();
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o000)).unwrap();
             assert_eq!(
                 fs::File::open(path).unwrap_err().kind(),
                 std::io::ErrorKind::PermissionDenied
