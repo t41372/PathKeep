@@ -50,6 +50,17 @@ import {
 export const MODEL_DOWNLOAD_IDLE_TIMEOUT_MS = 120_000
 
 /**
+ * The download ended because the user asked for it to stop (Cancel, turning semantic search or AI
+ * off, choosing another service). Callers never show it as a failure.
+ */
+export class ModelDownloadCancelled extends Error {
+  constructor() {
+    super('model download cancelled')
+    this.name = 'ModelDownloadCancelled'
+  }
+}
+
+/**
  * Enables local semantic search in the background: ensures the on-device static embedding model is
  * downloaded/verified, THEN enqueues an index build that reads every visit not indexed yet. It never
  * wipes an index already there: turning semantic search off and on again continues it.
@@ -62,8 +73,8 @@ export async function runLocalSemanticSetup(
   stillWanted: () => boolean,
 ): Promise<void> {
   const transferId = await ensureStaticModelDownloaded()
-  // Two screens can wait on the same transfer (a start while one runs attaches to it), and turning
-  // semantic search off lets the download finish. Build once per transfer, and only if still wanted.
+  // Two screens can wait on the same transfer (a start while one runs attaches to it). Build once
+  // per transfer, and only if the saved settings still want the built-in model.
   if (buildsStarted.has(transferId) || !stillWanted()) return
   buildsStarted.add(transferId)
   // `incremental`: every visit the index lacks. `full` would wipe it first.
@@ -141,6 +152,11 @@ async function ensureStaticModelDownloaded(): Promise<string> {
       settle(() => {
         markModelDownloadSettled(event.transferId)
         resolveDownload()
+      })
+    } else if (event.kind === 'cancelled') {
+      settle(() => {
+        markModelDownloadSettled(event.transferId)
+        rejectDownload(new ModelDownloadCancelled())
       })
     } else if (event.kind === 'error') {
       const { message } = event

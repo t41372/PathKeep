@@ -346,12 +346,25 @@ pub fn merge_embedding_providers(current: &[AiProviderConfig]) -> Vec<AiProvider
 /// honest default the moment AI is configured. Must be called AFTER [`merge_embedding_providers`] so
 /// the static built-in is present to fall back to.
 pub fn ensure_embedding_provider_default(ai: &mut AiSettings) {
-    let selection_is_valid = ai
-        .embedding_provider_id
-        .as_deref()
-        .is_some_and(|id| ai.embedding_providers.iter().any(|provider| provider.id == id));
-    if !selection_is_valid {
+    if ai.embedding_provider_id.as_deref() != Some(effective_embedding_provider_id(ai)) {
         ai.embedding_provider_id = Some(BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID.to_string());
+    }
+}
+
+/// Resolve an unnormalized save the same way the next config load will, including old
+/// controls without a selection and selections whose service has been removed.
+fn effective_embedding_provider_id(ai: &AiSettings) -> &str {
+    ai.embedding_provider_id
+        .as_deref()
+        .filter(|id| ai.embedding_providers.iter().any(|provider| provider.id == *id))
+        .unwrap_or(BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID)
+}
+
+impl AiSettings {
+    pub(crate) fn wants_builtin_model(&self) -> bool {
+        self.enabled
+            && self.semantic_index_enabled
+            && effective_embedding_provider_id(self) == BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID
     }
 }
 
@@ -1389,6 +1402,8 @@ pub enum ModelDownloadUpdate {
     FileFinished { file: String },
     /// The whole model is present + verified; no more events follow for this run.
     Done,
+    /// An accepted stop request ended this transfer. The client can dismiss its progress.
+    Cancelled,
     /// The download failed; carries a user-facing message. No more events follow.
     Error { message: String },
 }

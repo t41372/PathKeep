@@ -514,6 +514,7 @@ pub fn install(
         return Err(error);
     }
     publish(paths, &mut journal)?;
+    crate::config::reconcile_model_download_after_control_replacement(gate);
     crate::fault_inject::checkpoint("native-install-published")?;
     let unsealed = finish(paths, &journal)?;
     let kept = paths.app_root.join(journal.kept_as.as_ref().unwrap_or(&journal.backup));
@@ -542,12 +543,13 @@ pub fn recover(paths: &ProjectPaths) -> Result<bool> {
     // does not stop it: rolling the install back is what puts the previous one back.
     crate::admission::refuse_newer(&paths.app_root)?;
     // A rollback writes the control back, and the bring-up's record is about the control too.
-    let _control = crate::ControlGate::acquire(paths);
-    let mut recovered = recover_legacy(paths)?;
+    let control = crate::ControlGate::acquire(paths);
+    let mut recovered = recover_legacy(&control)?;
     // The same file holds the record of stores being created when an archive is brought up to
     // this build's layout (`creation`), under its own identity.
     if let Some(record) = super::creation::read(paths)? {
         super::creation::recover(paths, record)?;
+        crate::config::reconcile_model_download_after_control_replacement(&control);
         return Ok(true);
     }
     let path = paths.app_root.join(JOURNAL);
@@ -567,13 +569,14 @@ pub fn recover(paths: &ProjectPaths) -> Result<bool> {
                 path.display()
             )
         })?;
-    replay(paths, &journal, &path)?;
+    replay(&control, &journal, &path)?;
     recovered = true;
     Ok(recovered)
 }
 
 /// The journal under the name PathKeep 0.5 and earlier used.
-fn recover_legacy(paths: &ProjectPaths) -> Result<bool> {
+fn recover_legacy(control: &crate::ControlGate) -> Result<bool> {
+    let paths = control.paths();
     let path = paths.app_root.join(LEGACY_JOURNAL);
     let bytes = match fs::read(&path) {
         Ok(bytes) => bytes,
@@ -597,7 +600,7 @@ fn recover_legacy(paths: &ProjectPaths) -> Result<bool> {
         return Ok(false);
     }
     let journal = serde_json::from_slice::<LegacyJournal>(&bytes)?.into_journal()?;
-    replay(paths, &journal, &path)?;
+    replay(control, &journal, &path)?;
     Ok(true)
 }
 
@@ -611,15 +614,19 @@ fn stamped(paths: &ProjectPaths) -> bool {
         .is_some_and(|control| control.compatibility.is_some())
 }
 
-fn replay(paths: &ProjectPaths, journal: &Journal, record: &Path) -> Result<()> {
+fn replay(control: &crate::ControlGate, journal: &Journal, record: &Path) -> Result<()> {
+    let paths = control.paths();
     if journal.committed {
         if journal.current() {
             complete_published(paths, journal)?;
         }
+        crate::config::reconcile_model_download_after_control_replacement(control);
         // A start that finishes an install has no one to tell: the copy is listed as not checked.
         finish_at(paths, journal, record).map(drop)
     } else {
-        rollback_at(paths, journal, record)
+        rollback_at(paths, journal, record)?;
+        crate::config::reconcile_model_download_after_control_replacement(control);
+        Ok(())
     }
 }
 

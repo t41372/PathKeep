@@ -304,15 +304,26 @@ mod native_reads;
 
 #[test]
 fn model_download_attach_routes_one_terminal_to_the_window_and_bridge() {
-    use axum::{extract::State, response::IntoResponse};
-    use futures_core::Stream;
-    use std::{future::poll_fn, pin::Pin, sync::mpsc, time::Duration};
+    check_model_download_terminal(true);
+}
+
+#[test]
+fn model_download_failure_reaches_the_window_and_bridge_with_its_diagnostic() {
+    check_model_download_terminal(false);
+}
+
+fn check_model_download_terminal(request_cancel: bool) {
+    use std::{sync::mpsc, time::Duration};
     use tauri::{Emitter, Listener};
 
     let _guard = lock_env();
     let root = tempdir().unwrap();
     unsafe { std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, root.path()) };
     let paths = vault_core::project_paths_with_root(root.path());
+    let mut config = test_config();
+    config.ai.enabled = true;
+    config.ai.semantic_index_enabled = true;
+    vault_core::save_config(&vault_core::ControlGate::acquire(&paths), &config).unwrap();
     let repo = vault_core::model_dir_for_repo(&paths, vault_core::DEFAULT_STATIC_MODEL_REPO);
     std::fs::create_dir_all(&repo).unwrap();
     // A deterministic terminal error before any network access.
@@ -325,11 +336,7 @@ fn model_download_attach_routes_one_terminal_to_the_window_and_bridge() {
     app.listen_any(name, move |event| sink.send(event.payload().to_string()).unwrap());
 
     ready_block_on(async {
-        let mut sse = super::super::events::events(State(state.clone()))
-            .await
-            .into_response()
-            .into_body()
-            .into_data_stream();
+        let mut sse = model_download_events(&state).await;
         let gate = vault_core::archive::ArchiveOpGate::acquire(&paths);
         let start =
             dispatch_command(&state, "download_static_embedding_model", json!({})).await.unwrap();
@@ -349,28 +356,120 @@ fn model_download_attach_routes_one_terminal_to_the_window_and_bridge() {
         assert_eq!(attached.transfer_id, id);
         let cancel = "cancel_ai_embedding_model_download";
         assert!(dispatch_command(&state, cancel, json!({})).await.is_err());
-        assert_eq!(dispatch_command(&state, cancel, json!({"transferId":id})).await.unwrap(), true);
+        if request_cancel {
+            assert_eq!(
+                dispatch_command(&state, cancel, json!({"transferId":id})).await.unwrap(),
+                true
+            );
+        }
         drop(gate);
-        let bytes = tokio::time::timeout(
-            Duration::from_secs(10),
-            poll_fn(|cx| Pin::new(&mut sse).poll_next(cx)),
-        )
-        .await
-        .unwrap()
-        .unwrap()
-        .unwrap();
-        let frame = std::str::from_utf8(&bytes).unwrap();
-        assert!(frame.lines().any(|line| line == format!("event: {name}")), "{frame}");
-        let data = frame.lines().find_map(|line| line.strip_prefix("data: ")).unwrap();
-        let terminal: Value = serde_json::from_str(data).unwrap();
+        let terminal = next_model_download_event(&mut sse).await;
         let native: Value =
             serde_json::from_str(&window.recv_timeout(Duration::from_secs(5)).unwrap()).unwrap();
         assert_eq!(native, terminal);
-        assert_eq!(terminal["transferId"], id);
-        assert_eq!(terminal["kind"], "error");
+        if request_cancel {
+            assert_eq!(terminal, json!({"kind":"cancelled","transferId":id}));
+        } else {
+            assert_eq!(
+                terminal,
+                json!({"kind":"error","transferId":id,"message":format!("invalid model pointer in {}", repo.display())})
+            );
+        }
         assert_eq!(
             dispatch_command(&state, cancel, json!({"transferId":id})).await.unwrap(),
             false
         );
     });
+}
+
+#[test]
+fn saving_semantic_off_through_the_bridge_cancels_the_model_download_without_a_cancel_command() {
+    let _guard = lock_env();
+    let root = tempdir().unwrap();
+    unsafe {
+        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, root.path());
+        std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, root.path().join("keyring"));
+        std::env::set_var(CHROME_USER_DATA_OVERRIDE_ENV, root.path().join("chrome"));
+        std::env::set_var(vault_platform::SANDBOX_DIR_ENV, root.path().join("platform"));
+    }
+    let paths = vault_core::project_paths_with_root(root.path());
+    let session = SessionState::default();
+    let mut config = test_config();
+    config.ai.enabled = true;
+    config.ai.semantic_index_enabled = true;
+    crate::worker_bridge::initialize_archive_with_progress_impl(
+        config.clone(),
+        None,
+        &session,
+        |_| {},
+    )
+    .unwrap();
+    let state = DevIpcBridgeState::without_app(session, DEFAULT_DEV_IPC_BRIDGE_PORT);
+    let repo = vault_core::model_dir_for_repo(&paths, vault_core::DEFAULT_STATIC_MODEL_REPO);
+    std::fs::create_dir_all(&repo).unwrap();
+    // If the save fails to cancel, stop the test installer locally before network access.
+    std::fs::write(repo.join("current"), "invalid").unwrap();
+
+    ready_block_on(async {
+        let mut sse = model_download_events(&state).await;
+        let parked = vault_core::archive::ArchiveOpGate::acquire(&paths);
+        let start =
+            dispatch_command(&state, "download_static_embedding_model", json!({})).await.unwrap();
+        let id = start["transferId"].as_str().unwrap();
+        let base = config.clone();
+        config.ai.semantic_index_enabled = false;
+        let saved =
+            dispatch_command(&state, "save_config", json!({"config":config,"baseConfig":base}))
+                .await
+                .unwrap();
+        assert_eq!(saved["config"]["ai"]["semanticIndexEnabled"], false);
+        assert!(
+            dispatch_command(&state, "download_static_embedding_model", json!({})).await.is_err()
+        );
+        drop(parked);
+        assert_eq!(
+            next_model_download_event(&mut sse).await,
+            json!({"kind":"cancelled","transferId":id})
+        );
+    });
+    let jobs: i64 = state
+        .session
+        .current_vault()
+        .unwrap()
+        .store()
+        .read(vault_store::Db::Intelligence, |s| {
+            s.query_one("SELECT count(*) FROM ai_jobs WHERE job_type='index-build'", (), |row| {
+                Ok(row.get(0)?)
+            })
+        })
+        .unwrap();
+    assert_eq!(jobs, 0, "the cancelled setup did not enqueue an index build");
+    state.session.close_vault().unwrap();
+}
+
+async fn model_download_events(state: &DevIpcBridgeState) -> axum::body::BodyDataStream {
+    use axum::{extract::State, response::IntoResponse};
+    super::super::events::events(State(state.clone()))
+        .await
+        .into_response()
+        .into_body()
+        .into_data_stream()
+}
+
+async fn next_model_download_event(stream: &mut axum::body::BodyDataStream) -> Value {
+    use futures_core::Stream;
+    use std::{future::poll_fn, pin::Pin, time::Duration};
+    let bytes = tokio::time::timeout(
+        Duration::from_secs(10),
+        poll_fn(|cx| Pin::new(&mut *stream).poll_next(cx)),
+    )
+    .await
+    .unwrap()
+    .unwrap()
+    .unwrap();
+    let frame = std::str::from_utf8(&bytes).unwrap();
+    let name = vault_core::MODEL_DOWNLOAD_PROGRESS_EVENT;
+    assert!(frame.lines().any(|line| line == format!("event: {name}")), "{frame}");
+    let data = frame.lines().find_map(|line| line.strip_prefix("data: ")).unwrap();
+    serde_json::from_str(data).unwrap()
 }

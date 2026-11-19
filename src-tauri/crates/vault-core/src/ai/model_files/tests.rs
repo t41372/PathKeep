@@ -513,6 +513,12 @@ fn wipe_finishes_while_a_model_transfer_is_paused() {
 #[test]
 fn snapshot_and_restore_preserve_an_in_flight_model_transfer() {
     let vault = crate::Vault::open_temp().unwrap();
+    let mut config = vault.config().clone();
+    config.ai.enabled = true;
+    config.ai.semantic_index_enabled = true;
+    config.ai.embedding_provider_id = Some(crate::BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID.into());
+    crate::save_config(&crate::ControlGate::acquire(vault.paths()), &config).unwrap();
+    let vault = vault.with_config(config);
     let paths = vault.paths();
     let repo = model_dir_for_repo(paths, crate::DEFAULT_STATIC_MODEL_REPO);
     let installed = during_model_transfer(paths, || {

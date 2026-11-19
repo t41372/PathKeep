@@ -26,6 +26,10 @@ mod fingerprint;
 pub(crate) mod generations;
 mod indexing;
 mod llm;
+pub(crate) mod model_download;
+pub use model_download::{
+    cancel_archive_model_downloads, cancel_model_download, download_static_embedding_model,
+};
 mod model_files;
 
 /// Fence model writers before a wipe moves or deletes the model directory.

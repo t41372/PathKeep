@@ -81,7 +81,7 @@ continuation fields are listed in the [area-4 contract report](../architecture/r
 - semantic / hybrid search 已交付（W-AI-4/5/6），但 **off by default + consent-gated**（master `ai.enabled` + `semantic_index_enabled`）；沒開時 History 搜尋維持全文 / regex（lexical recall v2）。
 - 向量相似度走 in-app（model2vec static 模型）或 external（OpenAI-compatible `/v1/embeddings`）embedding（Settings → AI 的「模型」選 in-app，或使用者加的 OpenAI 相容 embeddings 服務：Ollama、LM Studio、OpenAI 或相容的位址，存在 `ai.embeddingProviders`，加了就讀模型清單檢查），寫進 `derived/vectors/` 的 `FlatVectorIndex` sidecar plane（`.pkvec/.pkmap/.pkbin/.pki8`，加上投影出來的 `.pkrev/.pkfwd/.pkpos`），不連結 LanceDB。搜尋時每個向量都計分（int8 plane 整塊 map、連續掃），再用一次串流讀完搜尋範圍內的造訪，取每頁範圍內造訪的最高分；不逐筆、不逐頁回查資料庫。建索引途中搜尋用上一份完整投影，建完那一刻才換。
 - 舊工作沒有記錄模型時，啟動一律取消（包含尚未執行、游標為 0 的工作），保留索引檔案；新的增量請求才可補缺。
-- 內建模型只因為語意搜尋開著、而且用的是內建模型才下載。下載途中關掉語意搜尋，或改用別的 embedding 服務，下載就停止，跟按「取消下載」一樣：使用者沒有再要的東西，不在背景繼續用網路。已經下載並驗證好的模型檔留著，重新開啟時直接使用。取消用該筆 `transferId`；取消後再開始會取得新的 ID。「刪除所有資料」會停止該存檔的下載。
+- 內建模型只在 AI 與語意搜尋都開啟、且選用內建 embedding 模型時下載。後端成功儲存設定後，若其中一個開關已關閉，或已改用其他服務，就取消該存檔正在進行的下載。這與按「取消下載」共用同一筆 `transferId` 與暫存檔清理。收到 `cancelled` 時收起進度；只有 `error` 才顯示失敗訊息。變更備份排程等其他設定不會中斷下載。已驗證的模型保留，重新啟用後可離線使用。「刪除所有資料」也會停止下載並清除模型。
 - 設定頁與 onboarding 共用同一筆下載。先訂閱 `pathkeep://model-download-progress` 再呼叫 `download_static_embedding_model`，保留回覆前收到的事件，取得 `transferId` 後只處理符合的事件。收到 `done` 代表模型可用；啟動索引前須確認語意搜尋仍開啟，同一筆下載只觸發一次建置。
 - 內建 embedding 引擎按模型目錄在程序內共用，搜尋、漂移檢查與建置使用同一份載入的權重；目錄、驗證標記或模型檔案變更才重新驗證／載入。
 - Embedding 增量計算、content-hash dedup（一個 content_key 一條向量，fan-out 到所有共享該內容的 visit）、本地索引、避免重算。

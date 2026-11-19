@@ -257,6 +257,8 @@ export type ModelDownloadProgressEvent = {
     }
   | { kind: 'fileFinished'; file: string }
   | { kind: 'done' }
+  /** Something the user asked for stopped it (Cancel, or a saved setting that no longer wants it). */
+  | { kind: 'cancelled' }
   | { kind: 'error'; message: string }
 )
 

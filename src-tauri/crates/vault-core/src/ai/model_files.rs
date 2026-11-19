@@ -288,6 +288,9 @@ pub fn ensure_model_downloaded(
     let mut checked = previous.clone();
     loop {
         let archive = crate::archive::ArchiveOpGate::acquire(paths);
+        // Order publication against a concurrent control save. Only local metadata and
+        // publication belong in this hold; a competing winner is hashed after releasing it.
+        let control = crate::ControlGate::acquire(paths);
         let cancelled = progress.cancelled();
         let mut active = transfers::active();
         candidate.check(&active)?;
@@ -304,6 +307,7 @@ pub fn ensure_model_downloaded(
         if selected != checked {
             let winner = generations::pin(&root)?;
             drop(active);
+            drop(control);
             drop(archive);
             prepared = candidate.with_io(|_| {
                 anyhow::ensure!(
@@ -324,6 +328,7 @@ pub fn ensure_model_downloaded(
         generations::publish(&root, &candidate.path)?;
         generations::collect_previous(&root, &previous);
         drop(active);
+        drop(control);
         drop(archive);
         #[cfg(not(test))]
         super::embedding_static::forget_replaced_model(&root, &candidate.path);

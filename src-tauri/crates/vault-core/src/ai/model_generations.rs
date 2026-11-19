@@ -291,6 +291,9 @@ pub(super) fn resolve(
     let reservation = {
         let Some(_archive) = request.gate(paths) else { return Ok(Resolution::Busy) };
         crate::admission::guard(&paths.app_root)?;
+        if let Request::Setup { progress, .. } = request {
+            anyhow::ensure!(!progress.cancelled(), "model download was cancelled");
+        }
         selected(repo)?;
         if !repo.try_exists()? {
             if !can_download {
@@ -310,6 +313,8 @@ pub(super) fn resolve(
         let verified = reservation
             .with_io(|_| bundles.verified(repo, files, matches!(request, Request::Setup { .. })))?;
         let Some(archive) = request.gate(paths) else { return Ok(Resolution::Busy) };
+        let control =
+            matches!(request, Request::Setup { .. }).then(|| crate::ControlGate::acquire(paths));
         if let Request::Setup { progress, .. } = request {
             anyhow::ensure!(!progress.cancelled(), "model download was cancelled");
         }
@@ -322,6 +327,7 @@ pub(super) fn resolve(
         bundles.apply(repo, verified.as_deref())?;
         if let Some(current) = verified {
             drop(active);
+            drop(control);
             drop(archive);
             #[cfg(not(test))]
             super::embedding_static::forget_replaced_model(repo, &current);

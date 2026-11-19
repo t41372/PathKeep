@@ -163,9 +163,8 @@ export interface ModelDownloadProgress {
  *   This fixes the bug in the previous per-component handler where `done` kept the spinner
  *   until `staticEmbedding.modelDownloaded` was re-polled from the backend.
  * - `modelDownloaded: true` overrides the phase to 'ready' regardless of subscription events.
- * - `cancelledRef.current = true` (set **before** the cancel IPC fires) maps the subsequent
- *   terminal `error` event to 'idle' instead of 'failed', so a user cancel does not look like
- *   a network failure.
+ * - `cancelled` (Cancel, or a saved setting that no longer wants the model) → 'idle' with no
+ *   error; only `error` is a failure.
  * - Byte accumulation: `downloadedBytes` = Σ finished-file totals + current-file downloaded;
  *   `totalBytes` = Σ known per-file totals (updated from both `fileStarted.totalBytes` and
  *   `fileProgress.totalBytes`). When unknown (all zeros), callers render an indeterminate bar.
@@ -176,15 +175,11 @@ export interface ModelDownloadProgress {
  *
  * @param modelDownloaded - Authoritative "weights are already present" flag from the backend
  *   snapshot. When true, phase is 'ready' regardless of in-progress subscription state.
- * @param cancelledRef - Optional caller-owned mutable ref. Set `.current = true` before calling
- *   the cancel IPC command so the resulting terminal `error` maps to 'idle' rather than 'failed'.
- *   Use `useRef<boolean>(false)` at the call site.
  *
  * @returns Stable `ModelDownloadProgress` object. Block C (jobs page) imports this read-only.
  */
 export function useModelDownloadProgress(
   modelDownloaded: boolean,
-  cancelledRef?: { current: boolean },
   restartNonce = 0,
 ): ModelDownloadProgress {
   const [phase, setPhase] = useState<ModelDownloadProgress['phase']>(() =>
@@ -275,12 +270,18 @@ export function useModelDownloadProgress(
           setError(null)
           break
         }
+        case 'cancelled': {
+          markModelDownloadSettled(event.transferId)
+          setCurrentFile(null)
+          setPhase('idle')
+          setError(null)
+          break
+        }
         case 'error': {
           markModelDownloadSettled(event.transferId)
           setCurrentFile(null)
-          const wasCancelled = cancelledRef?.current === true
-          setPhase(wasCancelled ? 'idle' : 'failed')
-          if (!wasCancelled) setError(event.message)
+          setPhase('failed')
+          setError(event.message)
           break
         }
       }
@@ -293,8 +294,6 @@ export function useModelDownloadProgress(
       active = false
       unsub()
     }
-    // cancelledRef is a stable ref object; its .current is read inside the effect at event time.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [modelDownloaded])
 
   // A user-initiated (re)start clears any prior terminal state IMMEDIATELY so the panel never shows a

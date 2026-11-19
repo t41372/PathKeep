@@ -1280,7 +1280,8 @@ async fn ai_chat_send_off_thread(
     .unwrap_or_else(|error| join_failure("ai_chat_send", error))
 }
 
-/// Start and attach share the same broadcast between the window and browsers on `/events`.
+/// Start and attach share the typed broadcast with browsers on `/events`. Forwarding the
+/// original payload keeps cancellation distinct from an installation error on both transports.
 async fn download_static_embedding_model_off_thread(
     state: &DevIpcBridgeState,
 ) -> Result<vault_core::ModelDownloadTransfer, CommandError> {

@@ -107,6 +107,18 @@ Plan 產生、plist / XML 內容、audit 與 status 解析照常執行。每次 
 - 這是 dev-only、localhost-only 的 automation boundary，不是產品 shipping API，也不應被擴寫成外部 remote control 介面。
 - 2026-04-24 backend follow-up：dev bridge implementation 已拆成 `config` / `router` / `payloads` / `dispatch` focused owners。這只是 desktop-layer ownership cleanup；現有 command strings、payload shape、worker bridge export surface、feature gate、env gate 與 localhost-only safety boundary 不變。
 
+### Built-in model download events
+
+`download_static_embedding_model` starts or joins a transfer and returns its `transferId`. Subscribe to `pathkeep://model-download-progress` before invoking the command and match events to that ID. The window and the dev bridge's `/events` stream deliver the same JSON. Each transfer emits exactly one terminal event.
+
+| Outcome                      | Example payload                                                                          |
+| ---------------------------- | ---------------------------------------------------------------------------------------- |
+| Model verified and available | `{"kind":"done","transferId":"0123456789abcdef0123456789abcdef"}`                        |
+| Transfer failed              | `{"kind":"error","transferId":"0123456789abcdef0123456789abcdef","message":"disk full"}` |
+| Transfer cancelled           | `{"kind":"cancelled","transferId":"0123456789abcdef0123456789abcdef"}`                   |
+
+Only `error` carries a diagnostic to display. Explicit Cancel, a saved withdrawal of consent, and Delete All Data use `cancelled` when they stop a transfer. Clear that transfer's progress without showing an error or starting the index build.
+
 ## Browser Preview Showcase Dataset（2026-05-10）
 
 - browser-preview 現在有兩個 fixture dataset：`setup` 與 `showcase`。本地預設仍是 `setup`，保留 onboarding / first-backup smoke 的舊 contract；Vercel static deployment 透過 `PATHKEEP_BROWSER_PREVIEW_DATASET=showcase bun run build` 啟用 `showcase`。

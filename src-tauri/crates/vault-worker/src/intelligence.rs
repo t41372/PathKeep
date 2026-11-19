@@ -25,7 +25,6 @@ mod agent_store;
 mod ai_queue;
 mod chat;
 mod content_fetch;
-mod model_download;
 mod route_queries;
 mod runtime;
 mod section_queries;
@@ -70,8 +69,6 @@ pub use self::content_fetch::{
     content_fetch_now, content_fetch_settings, enqueue_content_fetch_working_set,
     list_visit_enrichment, set_content_fetch_settings,
 };
-pub(crate) use self::model_download::cancel_model_download_for_wipe;
-pub use self::model_download::{cancel_model_download, download_static_embedding_model};
 pub use self::route_queries::{
     delete_search_engine_rule, explain_entity, explain_refind, get_domain_trend,
     get_frequent_searches, get_hub_pages, get_insights_time_zone,
@@ -99,6 +96,8 @@ pub use self::section_queries::{
     get_reopened_investigations, get_search_effectiveness, get_stable_sources,
     preview_intelligence_local_host,
 };
+pub(crate) use vault_core::ai::cancel_archive_model_downloads as cancel_model_download_for_wipe;
+pub use vault_core::ai::{cancel_model_download, download_static_embedding_model};
 
 static AI_QUEUE_ACTIVE_WORKERS: WorkerPool = WorkerPool::new();
 static INTELLIGENCE_PRIORITY_WORKERS: WorkerPool = WorkerPool::new();

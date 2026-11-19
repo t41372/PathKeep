@@ -14,16 +14,18 @@
  * responsible for any rendering or copy.
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useState } from 'react'
 import { appClient } from '@/lib/backend-client/app'
 import { intelligenceClient } from '@/lib/backend-client/intelligence'
 import { describeError } from '@/lib/errors'
 import {
   cancelModelDownload,
-  isModelDownloadInFlight,
   useModelDownloadProgress,
 } from '@/lib/ipc/model-download'
-import { runLocalSemanticSetup } from '@/lib/ipc/semantic-setup'
+import {
+  ModelDownloadCancelled,
+  runLocalSemanticSetup,
+} from '@/lib/ipc/semantic-setup'
 import { queryKeys } from '@/lib/query'
 import { useSaveConfig, useSnapshot } from '@/lib/queries/app'
 import {
@@ -80,11 +82,10 @@ export function useSemanticIndex() {
     !usesInAppModel || (status.staticEmbedding?.modelDownloaded ?? false)
   const enabled = ai.enabled && ai.semanticIndexEnabled
 
-  const cancelled = useRef(false)
   const [restart, setRestart] = useState(0)
   const [setupRunning, setSetupRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const download = useModelDownloadProgress(modelDownloaded, cancelled, restart)
+  const download = useModelDownloadProgress(modelDownloaded, restart)
 
   const queue = useQuery({
     queryKey: aiQueueKey,
@@ -148,11 +149,10 @@ export function useSemanticIndex() {
           scope: 'incremental',
         })
       } else {
-        cancelled.current = false
         setRestart((count) => count + 1)
         await runLocalSemanticSetup(() => {
-          // Read the cache, not this render: the screen may be gone by the time the download ends,
-          // and turning semantic search off lets the download finish without building.
+          // Read the cache, not this render: the screen may be gone by the time the download ends.
+          // A save that stops wanting the model also stops the download (the backend does it).
           const latest = client.getQueryData<AppSnapshot>(queryKeys.snapshot)
           const ai = latest?.config.ai
           return (
@@ -173,7 +173,6 @@ export function useSemanticIndex() {
   /** Turning semantic search on is the user's go-ahead for the first build. */
   const enable = useCallback(async () => {
     setError(null)
-    cancelled.current = false
     setSetupRunning(true)
     try {
       const saved = await save.mutateAsync((config) => {
@@ -189,31 +188,20 @@ export function useSemanticIndex() {
           BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID,
       )
     } catch (reason) {
-      if (!cancelled.current) setError(describeError(reason))
+      // A cancelled download is something the user asked for, never a failure.
+      if (!(reason instanceof ModelDownloadCancelled))
+        setError(describeError(reason))
     } finally {
       setSetupRunning(false)
     }
   }, [buildWith, save])
-
-  /**
-   * The built-in model is downloaded only because semantic search is on and
-   * uses it. Taking either back stops the download, the same as Cancel: no
-   * network work goes on that the user no longer asked for.
-   */
-  const stopDownload = useCallback(async () => {
-    if (!isModelDownloadInFlight()) return
-    cancelled.current = true
-    await cancelModelDownload().catch(() => false)
-  }, [])
 
   /** Chooses the model; its index is built only when the user says so. */
   const chooseModel = useCallback(
     async (providerId: string) => {
       setError(null)
       try {
-        if (providerId !== BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID) {
-          await stopDownload()
-        }
+        // Choosing another service stops a built-in download once saved (backend rule).
         await save.mutateAsync((config) => {
           config.ai.embeddingProviderId = providerId
           return config
@@ -223,13 +211,13 @@ export function useSemanticIndex() {
         setError(describeError(reason))
       }
     },
-    [refresh, save, stopDownload],
+    [refresh, save],
   )
 
   const disable = useCallback(async () => {
     setError(null)
     try {
-      await stopDownload()
+      // Turning it off stops a built-in download once saved (backend rule).
       await save.mutateAsync((config) => {
         config.ai.semanticIndexEnabled = false
         config.ai.enabled = masterStaysOn(config.ai)
@@ -238,7 +226,7 @@ export function useSemanticIndex() {
     } catch (reason) {
       setError(describeError(reason))
     }
-  }, [save, stopDownload])
+  }, [save])
 
   const setAutoUpdate = useCallback(
     (next: boolean) =>
@@ -250,7 +238,6 @@ export function useSemanticIndex() {
   )
 
   const cancelDownload = useCallback(async () => {
-    cancelled.current = true
     await cancelModelDownload().catch(() => false)
     await disable()
   }, [disable])

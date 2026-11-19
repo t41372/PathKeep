@@ -13,6 +13,7 @@ use std::{
 use vault_layout::ArtifactId as A;
 
 mod control_gate;
+pub use crate::ai::model_download::reconcile_model_download_after_control_replacement;
 pub use control_gate::ControlGate;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -440,6 +441,9 @@ pub fn save_config(gate: &ControlGate, config: &AppConfig) -> Result<()> {
     let content = encode_config(config, compatibility.as_ref())?;
     crate::durable_io::atomic_durable_write(&paths.config_path, content.as_bytes())
         .with_context(|| format!("writing {}", paths.config_path.display()))?;
+    if !config.ai.wants_builtin_model() {
+        crate::ai::cancel_archive_model_downloads(paths);
+    }
     Ok(())
 }
 

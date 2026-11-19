@@ -2,6 +2,11 @@
 //! and cancellation to its ID, and report the installer's terminal outcome off the UI thread.
 //! Not responsible for model verification, archive admission or IPC transport.
 
+use crate::{
+    DEFAULT_STATIC_MODEL_FILES, DEFAULT_STATIC_MODEL_REPO, ModelDownloadProgress,
+    ModelDownloadProgressEvent, ModelDownloadTransfer, ModelDownloadUpdate, ModelFile,
+    ProjectPaths, ensure_model_downloaded, model_dir_for_repo,
+};
 use anyhow::{Context, Result};
 use std::{
     collections::BTreeMap,
@@ -11,15 +16,16 @@ use std::{
         atomic::{AtomicBool, Ordering},
     },
 };
-use vault_core::{
-    DEFAULT_STATIC_MODEL_FILES, DEFAULT_STATIC_MODEL_REPO, ModelDownloadProgress,
-    ModelDownloadProgressEvent, ModelDownloadTransfer, ModelDownloadUpdate, ModelFile,
-    ProjectPaths, ensure_model_downloaded, model_dir_for_repo,
-};
 
 struct Transfer {
     identity: ModelDownloadTransfer,
     cancelled: AtomicBool,
+}
+
+impl Transfer {
+    fn request_cancel(&self) -> bool {
+        !self.cancelled.swap(true, Ordering::SeqCst)
+    }
 }
 
 // The key is the on-disk model repository: two different archives have independent installs.
@@ -34,15 +40,28 @@ pub fn cancel_model_download(id: &str) -> bool {
     running()
         .values()
         .find(|transfer| transfer.identity.transfer_id == id)
-        .is_some_and(|transfer| !transfer.cancelled.swap(true, Ordering::SeqCst))
+        .is_some_and(|transfer| transfer.request_cancel())
 }
 
-/// Wipe owns the whole archive and stops its current transfer without a renderer-supplied ID.
-pub(crate) fn cancel_model_download_for_wipe(paths: &ProjectPaths) {
+/// A durable loss of consent or a wipe revokes the archive's transfers with the same flag
+/// that the ID-based Cancel command uses.
+pub fn cancel_archive_model_downloads(paths: &ProjectPaths) {
     for (repo, transfer) in running().iter() {
         if repo.starts_with(&paths.models_dir) {
-            transfer.cancelled.store(true, Ordering::SeqCst);
+            transfer.request_cancel();
         }
+    }
+}
+
+/// Reconcile a journaled install or rollback that durably replaces the live control by
+/// rename or by restoring its bytes. Copies and staging controls do not change live consent.
+pub fn reconcile_model_download_after_control_replacement(gate: &crate::ControlGate) {
+    let paths = gate.paths();
+    let has_transfer = running().keys().any(|repo| repo.starts_with(&paths.models_dir));
+    if has_transfer
+        && !crate::load_config(paths).is_ok_and(|config| config.ai.wants_builtin_model())
+    {
+        cancel_archive_model_downloads(paths);
     }
 }
 
@@ -89,7 +108,7 @@ where
     E: Fn(ModelDownloadProgressEvent) + Send + 'static,
 {
     start_model_download(
-        vault_core::project_paths()?,
+        crate::project_paths()?,
         DEFAULT_STATIC_MODEL_REPO,
         DEFAULT_STATIC_MODEL_FILES,
         emit,
@@ -105,6 +124,14 @@ fn start_model_download<E>(
 where
     E: Fn(ModelDownloadProgressEvent) + Send + 'static,
 {
+    // Read the committed selection and register in one control-gate hold: a late start
+    // cannot slip between a save and cancellation of the formerly wanted transfer.
+    let _control = crate::ControlGate::acquire(&paths);
+    let config = crate::load_config(&paths)?;
+    anyhow::ensure!(
+        config.ai.wants_builtin_model(),
+        "model download requires AI and semantic search enabled with the built-in model selected"
+    );
     let key = model_dir_for_repo(&paths, repo);
     let mut active = running();
     if let Some(transfer) = active.get(&key)
@@ -128,7 +155,8 @@ where
             .unwrap_or_else(|_| Err(anyhow::anyhow!("model download worker stopped unexpectedly")));
             // Close admission before broadcasting the terminal event. A caller can immediately
             // restart from that event. A cancelled predecessor cannot unregister the replacement.
-            {
+            let terminal = {
+                let _control = crate::ControlGate::acquire(&paths);
                 let mut active = running();
                 if active
                     .get(&worker_key)
@@ -136,11 +164,13 @@ where
                 {
                     active.remove(&worker_key);
                 }
-            }
-            progress.send(match result {
-                Ok(_) => ModelDownloadUpdate::Done,
-                Err(error) => ModelDownloadUpdate::Error { message: error.to_string() },
-            });
+                match result {
+                    _ if progress.cancelled() => ModelDownloadUpdate::Cancelled,
+                    Ok(_) => ModelDownloadUpdate::Done,
+                    Err(error) => ModelDownloadUpdate::Error { message: error.to_string() },
+                }
+            };
+            progress.send(terminal);
         })
         .context("spawning static model download thread")?;
     active.insert(key, transfer);
