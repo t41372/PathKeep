@@ -335,6 +335,8 @@ export interface RetentionCopy {
   restorable: boolean
   /** Nothing has checked it yet, as in `RecoverySnapshot.unchecked`. */
   unchecked: boolean
+  /** Saved Agent conversations could not be read when it was made, as in `RecoverySnapshot.conversationsUnreadable`. */
+  conversationsUnreadable: boolean
 }
 
 /**
@@ -612,6 +614,14 @@ export type ArchiveRecoveryKind =
   | 'interruptedRestoreUnresolved'
   | 'atRestDriftUnresolved'
 
+/** `RecoverySnapshot.conversationRepairSource`; a later backend may add or drop reasons. */
+export type ConversationRepairSource =
+  | 'checkRequired'
+  | 'missingEvidence'
+  | 'missingReadModel'
+  | 'unsealed'
+  | (string & {})
+
 /**
  * Describes one verified full-archive safety snapshot available for restore.
  *
@@ -633,6 +643,28 @@ export interface RecoverySnapshot {
    * must collect the archive key before it can verify/restore — `verifiedOpenable` is size-only here.
    */
   encrypted: boolean
+  /**
+   * Saved Agent conversations could not be read when the copy was made: it holds
+   * their files byte for byte and restores browsing like any copy. It can still
+   * be the source of a conversation repair when the saved conversations it holds
+   * verify; the repair's check says so (`conversation-copy-no-verified-evidence`).
+   */
+  conversationsUnreadable: boolean
+  /**
+   * Whether the copy can be the source of a conversation repair, judged from
+   * the files it holds (no database is opened). `checkRequired`: it can be
+   * chosen; the repair's check still verifies it. Otherwise why not: it holds
+   * no saved conversations (`missingEvidence`), lacks the other conversation
+   * file a check needs (`missingReadModel`), or has no seal (`unsealed`).
+   * `verifiedOpenable` is about restoring browsing and says nothing here.
+   */
+  conversationRepairSource: ConversationRepairSource
+  /**
+   * What the copy was made before (`rekey`, `restore`, `manual`, …).
+   * `heldGeneration`: kept on its own when a conversation file disappeared while
+   * PathKeep still had it open. It holds saved conversations only, no browsing
+   * history, so it is never `verifiedOpenable` and only a repair can use it.
+   */
   sourceOp: string
   label: string
 }

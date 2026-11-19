@@ -61,7 +61,7 @@ closing the Vault releases all sessions. App Lock keeps the Vault open.
 - §1 單條記錄的可選顯示欄位（訪問次數、來源途徑、分類、provenance、metadata versions…）與其設定。
 - §1 詳情面板的 typed count、來源途徑與 referrer、provenance（run id）、標題歷史版本與 diff。
 - §1 從 History 直接匯出目前篩選結果（Settings → Storage 只能匯出整個歷史）。
-- §2 Audit Ledger 的 run timeline 篩選、與上一筆的 summary delta、展開預覽某次 run 寫入的記錄、回滾 / 取消回滾**備份** run（現在只有匯入批次能復原）、archive 快照的手動觸發。Settings → Storage「從安全副本還原」可列出並還原整個 archive 快照。
+- §2 Audit Ledger 的 run timeline 篩選、與上一筆的 summary delta、展開預覽某次 run 寫入的記錄、回滾 / 取消回滾**備份** run（現在只有匯入批次能復原）、archive 快照的手動觸發。Settings → Storage「從安全副本還原」可列出 archive 快照，並還原其中的瀏覽紀錄（Agent 對話不動）。
 
 ---
 

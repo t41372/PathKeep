@@ -56,6 +56,8 @@ export type KindFailureReason =
   | 'integrity-failed'
   | 'schema-too-new'
   | 'archive-busy'
+  /** The system refused access for now (permissions, a lock): not damage; Try again clears it. */
+  | 'access-denied'
   | 'kind-unavailable'
 
 export interface KindFailure {

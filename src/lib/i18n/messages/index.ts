@@ -4,6 +4,7 @@
  */
 import type { MessagePath, ResolvedLanguage } from '../define'
 import { agentBackup } from './agent-backup'
+import { agentRepair } from './agent-repair'
 import { agentTasks } from './agent-tasks'
 import { ask } from './ask'
 import { backup } from './backup'
@@ -35,6 +36,7 @@ const namespaces = {
   dataKinds,
   enableAgent,
   agentBackup,
+  agentRepair,
   agentTasks,
   home,
   history,

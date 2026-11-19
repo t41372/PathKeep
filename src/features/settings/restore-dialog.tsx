@@ -1,9 +1,15 @@
 /**
- * Restore the archive from a safety copy PathKeep took before a risky change
- * (`list_recovery_snapshots`, then `run_full_archive_restore`). The archive
- * keeps its password and encryption: an encrypted copy needs the password it
- * was made with only to be read. The archive it replaces becomes a safety copy
- * too ("before a restore"), so a restore can be undone from this same list.
+ * Restore browsing history from a safety copy PathKeep took before a risky
+ * change (`list_recovery_snapshots`, then `run_full_archive_restore`). A
+ * restore never touches saved Agent conversations (user decision
+ * 2026-11-15): they stay as they are, and only the conversation repair uses
+ * the conversations in a copy. The archive keeps its password and
+ * encryption: an encrypted copy needs the password it was made with only to
+ * be read. The browsing history it replaces becomes a safety copy too
+ * ("before a restore"), so a restore can be undone from this same list. A
+ * copy made while saved Agent conversations couldn't be read is marked; for
+ * a restore that makes no difference. Copies that hold conversations only
+ * (kept when a conversation file disappeared) are not offered here.
  */
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
@@ -27,6 +33,7 @@ import { describeError } from '@/lib/errors'
 import { useFormat, useI18n } from '@/lib/i18n'
 import { useSnapshot } from '@/lib/queries/app'
 import type { RecoverySnapshot } from '@/lib/types'
+import { Refusal } from './affected-file'
 import { copyLabelKey } from './copy-label'
 import { Notice } from './notice'
 import { announceReplaced } from './replaced-notice'
@@ -147,6 +154,8 @@ function RestoreForm({ onClose }: { onClose: () => void }) {
                   {format.bytes(item.sizeBytes)}
                   {item.unchecked &&
                     ` · ${t('settingsStorage.restore.unchecked')}`}
+                  {item.conversationsUnreadable &&
+                    ` · ${t('settingsStorage.restore.conversationsUnreadable')}`}
                 </span>
               </span>
             </Label>
@@ -175,6 +184,12 @@ function RestoreForm({ onClose }: { onClose: () => void }) {
             {t('settingsStorage.restore.passwordHint')}
           </p>
         </div>
+      )}
+
+      {chosen?.conversationsUnreadable && (
+        <p className="text-[13px] text-muted-foreground">
+          {t('settingsStorage.restore.conversationsUnreadableNote')}
+        </p>
       )}
 
       {chosen?.unchecked && (
@@ -207,14 +222,11 @@ function RestoreForm({ onClose }: { onClose: () => void }) {
         </p>
       )}
       {restore.error && !stopped && (
-        <p
-          role="alert"
-          className="text-[13px] [overflow-wrap:anywhere] text-destructive"
-        >
+        <Refusal error={restore.error}>
           {t('settingsStorage.restore.failed', {
             message: describeError(restore.error, 'run_full_archive_restore'),
           })}
-        </p>
+        </Refusal>
       )}
 
       <DialogFooter>

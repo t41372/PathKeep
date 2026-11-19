@@ -6,6 +6,11 @@
  * Changing the password and decrypting first ask for the current password;
  * the backend checks it against the archive file on both steps, so an
  * unlocked window alone cannot take the archive over.
+ *
+ * Turning encryption on or off rewrites every file, so it is refused while
+ * saved Agent conversations can't be read; the dialog says so and leads to
+ * the repair, or, when the system only refuses access for now, to "Try
+ * again".
  */
 import { useMutation } from '@tanstack/react-query'
 import { useState } from 'react'
@@ -30,6 +35,12 @@ import { useI18n } from '@/lib/i18n'
 import { commandErrorCode } from '@/lib/ipc/command-error'
 import { useSnapshot } from '@/lib/queries/app'
 import type { RekeyPreview } from '@/lib/types'
+import {
+  needsConversationAccess,
+  needsConversationRepair,
+} from '@/features/agent-repair/repair-errors'
+import { AccessOffer, RepairOffer } from '@/features/agent-repair/repair-offer'
+import { Refusal } from './affected-file'
 import { emptySecret, secretProblem, type NewSecret } from './new-secret'
 import { NewSecretFields } from './new-secret-fields'
 import { Notice } from './notice'
@@ -118,6 +129,8 @@ function RekeyFlow({
   const busy = load.isPending || run.isPending
   const error = load.error ?? (stopped ? null : run.error)
   const wrongCurrent = error !== null && isCurrentPasswordError(error)
+  const repairFirst = error !== null && needsConversationRepair(error)
+  const accessFirst = error !== null && needsConversationAccess(error)
 
   return (
     <DialogContent
@@ -212,12 +225,12 @@ function RekeyFlow({
           </p>
         )}
 
-        {error && (
-          <p
-            id="rekey-error"
-            role="alert"
-            className="text-[13px] [overflow-wrap:anywhere] text-destructive"
-          >
+        {repairFirst && (
+          <RepairOffer operation="encryption" error={error} onLeave={onClose} />
+        )}
+        {accessFirst && <AccessOffer operation="encryption" error={error} />}
+        {error && !repairFirst && !accessFirst && (
+          <Refusal id="rekey-error" error={error}>
             {wrongCurrent
               ? t('settings.security.rekey.wrongCurrent')
               : t(
@@ -226,7 +239,7 @@ function RekeyFlow({
                     : 'settings.security.rekey.previewFailed',
                   { message: describeError(error) },
                 )}
-          </p>
+          </Refusal>
         )}
 
         <DialogFooter>

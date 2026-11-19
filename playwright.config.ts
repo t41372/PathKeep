@@ -16,7 +16,8 @@
  * change (background work, new visits, schedule, imports, lock, archive
  * password) → agent (Agent conversations backed up; they stay on, with
  * conversations in the archive, for every project after it) → restart …
- * → wipe (delete everything) → empty (a new archive with no visits,
+ * → repair (saved conversations damaged on disk and repaired) → wipe
+ * (delete everything) → empty (a new archive with no visits,
  * deleted again) → upgrade (an archive left by 0.3).
  */
 import { copyFileSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
@@ -296,7 +297,19 @@ export default defineConfig({
     project('restore', ['restore.spec.ts'], 'move'),
     // Frees the copy the restore made, so it runs right after it.
     project('free-space', ['free-space.spec.ts'], 'restore'),
-    project('wipe', ['wipe.spec.ts'], 'free-space'),
+    // Damage saved conversations on disk and repair them, in name order: each
+    // leaves the archive as it found it (password, keychain, conversations).
+    project(
+      'repair',
+      [
+        'repair-1-rebuild.spec.ts',
+        'repair-2-from-copy.spec.ts',
+        'repair-3-start-fresh.spec.ts',
+        'repair-4-access-denied.spec.ts',
+      ],
+      'free-space',
+    ),
+    project('wipe', ['wipe.spec.ts'], 'repair'),
     // Sets up a new archive in the empty data folder wipe leaves behind, and
     // deletes it again.
     project('empty', ['semantic-empty-archive.spec.ts'], 'wipe'),

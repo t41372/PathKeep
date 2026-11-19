@@ -337,7 +337,7 @@ test('the safety copy PathKeep 0.5.0 made takes the archive back to it', async (
   await dialog.getByRole('radio').first().click()
   await dialog.getByLabel('Password of this copy').fill(expected.password)
   await dialog.getByRole('button', { name: 'Restore', exact: true }).click()
-  await expect(page.getByText('Archive restored.')).toBeVisible({
+  await expect(page.getByText('Browsing history restored.')).toBeVisible({
     timeout: 300_000,
   })
   await unlockIfAsked(page, expected.password)

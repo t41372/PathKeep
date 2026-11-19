@@ -3,7 +3,9 @@
  * the user tick what goes, then deletes exactly that (`run_retention_prune`).
  * Each safety copy is a row of its own, so the copy a restore or an import
  * just made (the replaced archive, as big as the archive) can go while older
- * ones stay. Your history itself is never in the list.
+ * ones stay. Your history itself is never in the list. A conversation file
+ * PathKeep kept when it disappeared says what it is, and ticking it warns
+ * that it may hold the only saved version of some conversations.
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
@@ -27,7 +29,7 @@ import { useFormat, useI18n } from '@/lib/i18n'
 import { queryKeys } from '@/lib/query'
 import type { RetentionCopy } from '@/lib/types'
 import { Notice } from './notice'
-import { copyLabelKey } from './copy-label'
+import { copyLabelKey, HELD_COPY } from './copy-label'
 
 const bucketIds = ['snapshots', 'exports', 'staging', 'quarantine'] as const
 type BucketId = (typeof bucketIds)[number]
@@ -78,6 +80,9 @@ function FreeSpaceForm({ onClose }: { onClose: () => void }) {
       .filter((copy) => pickedCopies.has(copy.path))
       .reduce((sum, copy) => sum + copy.bytes, 0)
   const restorable = copies.filter((copy) => copy.restorable)
+  const heldPicked = copies.some(
+    (copy) => copy.sourceOp === HELD_COPY && pickedCopies.has(copy.path),
+  )
   const noCopyLeft =
     restorable.length > 0 &&
     restorable.every((copy) => pickedCopies.has(copy.path))
@@ -204,6 +209,11 @@ function FreeSpaceForm({ onClose }: { onClose: () => void }) {
           )}
         </Notice>
       )}
+      {heldPicked && (
+        <Notice tone="warning">
+          {t('settingsStorage.freeSpace.heldWarning')}
+        </Notice>
+      )}
 
       {prune.error && (
         <p
@@ -248,12 +258,20 @@ function copyDescription(
         }),
       })
     : null
+  // Kept when a conversation file disappeared: it was never meant to restore.
+  if (copy.sourceOp === HELD_COPY)
+    return [made, t('settingsStorage.freeSpace.conversationsOnly')]
+      .filter(Boolean)
+      .join(' · ')
   const state = !copy.restorable
     ? t('settingsStorage.freeSpace.notRestorable')
     : copy.unchecked
       ? t('settingsStorage.restore.unchecked')
       : null
-  return [made, state].filter(Boolean).join(' · ')
+  const conversations = copy.conversationsUnreadable
+    ? t('settingsStorage.restore.conversationsUnreadable')
+    : null
+  return [made, state, conversations].filter(Boolean).join(' · ')
 }
 
 function Row({

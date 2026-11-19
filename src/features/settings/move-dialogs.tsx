@@ -5,6 +5,9 @@
  * password on the computer that opens it. Opening one replaces this
  * computer's archive, so it goes check (`preview_app_data_import`) →
  * confirm → replace (`apply_app_data_import`), then restarts the session.
+ * While saved Agent conversations can't be read, both are refused before
+ * anything changes; the dialog says so and leads to the repair, or, when
+ * the system only refuses access for now, to "Try again".
  */
 import { useMutation } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
@@ -32,6 +35,12 @@ import { commandErrorCode } from '@/lib/ipc/command-error'
 import { useFormat, useI18n } from '@/lib/i18n'
 import { useSnapshot } from '@/lib/queries/app'
 import { hasTauriGuestApi } from '@/lib/runtime'
+import {
+  needsConversationAccess,
+  needsConversationRepair,
+} from '@/features/agent-repair/repair-errors'
+import { AccessOffer, RepairOffer } from '@/features/agent-repair/repair-offer'
+import { Refusal } from './affected-file'
 import { Notice } from './notice'
 import { BUNDLE_EXTENSION, PathField } from './path-field'
 import { announceReplaced } from './replaced-notice'
@@ -202,15 +211,20 @@ function ExportForm({ onClose }: { onClose: () => void }) {
             <p role="status" className="text-[13px] text-muted-foreground">
               {t('maintenance.stopped')}
             </p>
+          ) : needsConversationRepair(run.error) ? (
+            <RepairOffer
+              operation="export"
+              error={run.error}
+              onLeave={onClose}
+            />
+          ) : needsConversationAccess(run.error) ? (
+            <AccessOffer operation="export" error={run.error} />
           ) : (
-            <p
-              role="alert"
-              className="text-[13px] [overflow-wrap:anywhere] text-destructive"
-            >
+            <Refusal error={run.error}>
               {t('settingsStorage.move.exportFailed', {
                 message: describeError(run.error, 'export_app_data'),
               })}
-            </p>
+            </Refusal>
           ))}
         <DialogFooter>
           <Button
@@ -267,6 +281,8 @@ function ImportForm({ onClose }: { onClose: () => void }) {
     apply.error !== null &&
     commandErrorCode(apply.error) === 'archive-password-wrong'
   const failure = check.error ?? (stopped ? null : apply.error)
+  const repairFirst = failure !== null && needsConversationRepair(failure)
+  const accessFirst = failure !== null && needsConversationAccess(failure)
   const newerFile =
     failure !== null && NEWER_FILE_CODES.includes(commandErrorCode(failure))
 
@@ -347,11 +363,12 @@ function ImportForm({ onClose }: { onClose: () => void }) {
             {t('maintenance.stopped')}
           </p>
         )}
-        {failure && (
-          <p
-            role="alert"
-            className="text-[13px] [overflow-wrap:anywhere] text-destructive"
-          >
+        {repairFirst && (
+          <RepairOffer operation="import" error={failure} onLeave={onClose} />
+        )}
+        {accessFirst && <AccessOffer operation="import" error={failure} />}
+        {failure && !repairFirst && !accessFirst && (
+          <Refusal error={failure}>
             {wrongPassword
               ? t('settingsStorage.move.wrongPassword')
               : newerFile
@@ -364,7 +381,7 @@ function ImportForm({ onClose }: { onClose: () => void }) {
                       message: describeError(failure),
                     },
                   )}
-          </p>
+          </Refusal>
         )}
 
         <DialogFooter>

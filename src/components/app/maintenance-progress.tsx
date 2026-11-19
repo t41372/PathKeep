@@ -1,8 +1,9 @@
 /**
  * Progress and a Stop button for a long whole-archive operation (export,
- * import, encryption change, restore) while its command runs. The backend
- * reports progress through its own cheap command, so this polls that instead
- * of waiting on the operation.
+ * import, encryption change, restore, checking and repairing saved
+ * conversations) while its command runs. The backend reports progress through
+ * its own cheap command, so this polls that instead of waiting on the
+ * operation. A step with nothing to count shows a sliding bar and its name.
  */
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
@@ -27,6 +28,8 @@ const phases = [
   'projecting',
   'publishing',
   'merging',
+  'preparingConversationRepair',
+  'repairingConversations',
 ] as const
 type Phase = (typeof phases)[number]
 const isPhase = (phase: string): phase is Phase =>
