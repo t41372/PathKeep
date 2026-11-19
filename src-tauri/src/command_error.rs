@@ -174,12 +174,15 @@ const CODED_FAILURES: [&str; 24] = [
 ///   [`CODED_FAILURES`] or an archive refusal's; when a chain holds several, the
 ///   first one names the failure.
 fn classify_message(message: &str) -> (Option<&'static str>, Option<&'static str>) {
+    if message.starts_with("conversation-access-unavailable:") {
+        return (Some("conversation-access-unavailable"), Some("retry_agent_store"));
+    }
     if message.starts_with("conversation-repair-required:") {
         return (Some("conversation-repair-required"), Some("preview_agent_history_repair"));
     }
     for code in [
         "conversation-preservation-failed",
-        "conversation-copy-unreadable-at-creation",
+        "conversation-copy-no-verified-evidence",
         "conversation-copy-not-listed",
         "conversation-copy-incomplete",
         "conversation-copy-invalid-seal",

@@ -33,8 +33,8 @@ impl Store {
             fs::create_dir_all(&dir)?;
             // Retry may already have closed the SQL workers while retaining their
             // original handles. Release those originals too, after making the anchor.
-            for (_, files) in
-                self.retired_files.lock().unwrap().iter_mut().filter(|(db, _)| *db == role)
+            for (_, _, files) in
+                self.retired_files.lock().unwrap().iter_mut().filter(|(_, db, _)| *db == role)
             {
                 *files = anchor(files, &dir, path)?;
             }
@@ -54,7 +54,7 @@ impl Store {
     ) {
         for (role, files) in close {
             workers.retain(|(db, _)| *db != role);
-            self.retired_files.lock().unwrap().push((role, files));
+            self.retired_files.lock().unwrap().push((self.generation(), role, files));
         }
     }
 }

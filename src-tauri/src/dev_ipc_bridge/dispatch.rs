@@ -1210,7 +1210,7 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
         }
         "relaunch_after_update" => {
             let app = require_app_handle(state)?;
-            json_value!(updater::relaunch_after_update(app))
+            json_value!(updater::relaunch_after_update(app).await)
         }
         "get_desktop_integration" => {
             let app = require_app_handle(state)?;

@@ -11,7 +11,7 @@ pub use identity::{ArtifactId, Db, KeyPurpose};
 pub use paths::*;
 pub use policies::*;
 
-/// A sealed copy carrying opaque conversation files may restore browsing, but cannot repair conversations.
+/// Records unreadability at capture. Repair independently verifies the selected evidence.
 pub const UNREADABLE_CONVERSATIONS: &str = "conversations-unreadable";
 
 /// Bytes of the displaced open file when its live pathname is missing or occupied by another file.

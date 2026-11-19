@@ -20,6 +20,185 @@ pub struct Maintenance<'a> {
     workers: RwLockWriteGuard<'a, Vec<(Db, Workers)>>,
 }
 
+/// An open handle still supplies these bytes even if no pathname does.
+pub struct HeldGeneration<'a> {
+    pub role: Db,
+    pub generation: u64,
+    files: &'a crate::worker::HeldFiles,
+}
+impl HeldGeneration<'_> {
+    pub fn copy_to(&self, root: &Path) -> Result<()> {
+        copy_held(self.role, self.files, root)
+    }
+}
+impl Store {
+    /// Watch identities even while the window is idle. Retry and shutdown also
+    /// check synchronously, so a normal close never depends on this interval.
+    pub fn on_displacement(
+        self: &std::sync::Arc<Self>,
+        publisher: impl Fn(HeldGeneration<'_>) -> Result<()> + Send + Sync + 'static,
+    ) -> Result<()> {
+        let workers = self.workers();
+        self.record_attachment_ids(&workers);
+        if self.held_publisher.set(Box::new(publisher)).is_err() {
+            return Ok(());
+        }
+        let weak = std::sync::Arc::downgrade(self);
+        let (stop, wait) = std::sync::mpsc::channel();
+        std::thread::Builder::new().name("held-conversation-files".into()).spawn(move || {
+            use std::time::Duration;
+            let mut interval = Duration::from_secs(1);
+            while wait.recv_timeout(interval) == Err(std::sync::mpsc::RecvTimeoutError::Timeout) {
+                let Some(store) = weak.upgrade() else { break };
+                if !store.is_open() {
+                    break;
+                }
+                interval = match store.preserve_observed_displacements() {
+                    Ok(()) => Duration::from_secs(1),
+                    Err(error) => {
+                        log::warn!("Could not protect a held conversation file: {error}");
+                        Duration::from_secs(30)
+                    }
+                };
+            }
+        })?;
+        *self.anchor_monitor.lock().unwrap() = Some(stop);
+        Ok(())
+    }
+    pub(crate) fn record_attachment_ids(&self, workers: &[(Db, Workers)]) {
+        *self.pending_anchors.lock().unwrap() = workers
+            .iter()
+            .filter(|(db, _)| crate::opening::conversation_role(*db))
+            .filter_map(|(db, w)| w.file_id.map(|id| (*db, id)))
+            .collect();
+    }
+
+    /// Quit-now can interrupt foreground work. It waits for a safety copy only
+    /// when an unprotected member no longer has its admitted filesystem identity.
+    pub fn preserve_observed_displacements(&self) -> Result<()> {
+        let at_risk = self.pending_anchors.lock().unwrap().iter().any(|(db, id)| {
+            turso::core::io::get_file_id(self.paths.get(*db).to_str().expect("validated role path"))
+                .ok()
+                != Some(*id)
+        });
+        if at_risk {
+            self.preserve_displaced_conversations()?;
+        }
+        Ok(())
+    }
+    pub fn pair_was_rejected(&self) -> bool {
+        self.rejected_pair.load(Ordering::Acquire)
+    }
+    pub(crate) fn generation(&self) -> u64 {
+        self.conversation_generation.load(Ordering::Acquire)
+    }
+    pub fn current_held_role(&self, role: Db) -> bool {
+        self.retired_files
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|(g, db, _)| *g == self.generation() && *db == role)
+    }
+    pub fn preserve_displaced_conversations(&self) -> Result<()> {
+        crate::worker::check_caller()?;
+        let workers = self.workers();
+        if self.held_publisher.get().is_none() {
+            return Ok(());
+        }
+        let mut displaced_role = None;
+        for (db, w) in workers.iter().filter(|(db, _)| crate::opening::conversation_role(*db)) {
+            if !*w.held_saved.lock().unwrap() && displaced(*db, w, self.paths.get(*db))? {
+                displaced_role = Some(*db);
+                break;
+            }
+        }
+        let Some(role) = displaced_role else { return Ok(()) };
+        self.quarantine(
+            &workers,
+            std::sync::Arc::new(crate::StoreOpenFailure {
+                role,
+                stage: crate::OpenStage::Preflight,
+                cause: Error::ReplacedFile(self.paths.get(role).to_owned()),
+            }),
+        );
+        drop(workers);
+        // Drain already admitted SQL. Publication can then stream pinned bytes under a
+        // shared guard while the quarantined group refuses new writes.
+        drop(self.workers_mut());
+        self.protect_held(&self.workers())
+    }
+    pub(crate) fn protect_held(&self, workers: &[(Db, Workers)]) -> Result<()> {
+        let Some(publish) = self.held_publisher.get() else { return Ok(()) };
+        for (db, w) in workers.iter().filter(|(db, _)| crate::opening::conversation_role(*db)) {
+            let path = self.paths.get(*db);
+            if !displaced(*db, w, path)? {
+                continue;
+            }
+            if self.conversation_availability().is_ok() {
+                self.quarantine(
+                    workers,
+                    std::sync::Arc::new(crate::StoreOpenFailure {
+                        role: *db,
+                        stage: crate::OpenStage::Preflight,
+                        cause: Error::ReplacedFile(path.to_owned()),
+                    }),
+                );
+            }
+            let mut saved = w.held_saved.lock().unwrap();
+            if !*saved {
+                w.quarantine.store(true, Ordering::Release);
+                w.maintenance(|_| Ok(()))?;
+                publish(HeldGeneration {
+                    role: *db,
+                    generation: self.generation(),
+                    files: &w.held_files,
+                })?;
+                *saved = true;
+                self.pending_anchors.lock().unwrap().retain(|(role, _)| role != db);
+            }
+        }
+        Ok(())
+    }
+    /// Retry can release an access pause in place when both original workers and files still match.
+    pub fn retry_access(&self) -> Result<bool> {
+        let _adding = self.adding.lock().unwrap();
+        if !self.conversation_availability().is_err_and(|f| f.cause.access_refused()) {
+            return Ok(false);
+        }
+        if [Db::AgentHistoryEvidence, Db::AgentHistoryReadModel]
+            .iter()
+            .any(|role| self.database_encrypted(*role).is_none())
+        {
+            return Ok(false);
+        }
+        match self
+            .check_database_files([Db::AgentHistoryEvidence, Db::AgentHistoryReadModel].into_iter())
+        {
+            Ok(()) => {}
+            Err(Error::Open(reason)) if !reason.cause.access_refused() => return Ok(false),
+            Err(error) => return Err(error),
+        }
+        let workers = self.workers_mut();
+        for (db, w) in workers.iter().filter(|(db, _)| crate::opening::conversation_role(*db)) {
+            check_identity(*db, w, self.paths.get(*db))?;
+            w.maintenance(|engine| {
+                engine
+                    .session(true)
+                    .query_one("SELECT count(*) FROM sqlite_schema", (), |r| Ok(r.get::<i64>(0)?))
+                    .map(drop)
+            })?;
+        }
+        self.conversation_generation.fetch_add(1, Ordering::AcqRel);
+        for (_, w) in workers.iter().filter(|(db, _)| crate::opening::conversation_role(*db)) {
+            *w.held_saved.lock().unwrap() = false;
+            w.quarantine.store(false, Ordering::Release);
+        }
+        self.record_attachment_ids(&workers);
+        self.conversation_failure.write().unwrap().take();
+        self.announce_availability();
+        Ok(true)
+    }
+}
 impl Store {
     /// Before choosing maintenance members, verify that every required live file still
     /// exists under its own path and has the protection its worker opened.
@@ -29,7 +208,18 @@ impl Store {
             let worker = &workers.iter().find(|(role, _)| *role == db).ok_or(Error::Closed)?.1;
             let encrypted = worker.encrypted;
             let path = self.paths.get(db);
-            check_identity(db, worker, path)?;
+            if let Err(error) = check_identity(db, worker, path) {
+                if crate::opening::conversation_role(db)
+                    && matches!(&error,Error::Open(f) if !f.cause.access_refused())
+                {
+                    if let Error::Open(reason) = &error {
+                        self.quarantine(&workers, reason.clone());
+                    }
+                    drop(workers);
+                    self.preserve_displaced_conversations()?;
+                }
+                return Err(error);
+            }
             let on_disk = crate::engine::header_encrypted(path).map_err(|e| {
                 let cause = if e.kind() == std::io::ErrorKind::NotFound {
                     Error::MissingStore(path.into())
@@ -60,6 +250,7 @@ impl Store {
     /// holds a shared worker guard so browsing reads and writes can continue.
     pub fn copy_quarantined_conversations(&self, root: &Path) -> Result<()> {
         let _adding = self.adding.lock().unwrap();
+        self.preserve_displaced_conversations()?;
         drop(self.pause()?);
         #[cfg(windows)]
         {
@@ -72,6 +263,7 @@ impl Store {
         if !self.is_open() {
             return Err(Error::Closed);
         }
+        self.protect_held(&workers)?;
         let stale = self.capture_opaque(&workers, root)?;
         drop(workers);
         if !stale.is_empty() {
@@ -125,13 +317,20 @@ impl Store {
             let current = workers
                 .iter()
                 .find(|(role, _)| *role == db && stale.contains(role))
-                .map(|(_, w)| &w.held_files);
-            let generations = current.into_iter().chain(
-                retired.iter().rev().filter(|(role, _)| *role == db).map(|(_, files)| files),
-            );
-            for (number, files) in generations.enumerate() {
-                let base = root.join(vault_layout::HELD_CONVERSATIONS);
-                let base = if number == 0 { base } else { base.join(format!("older-{number}")) };
+                .map(|(_, w)| (self.generation(), &w.held_files));
+            let mut older = 0;
+            for (generation, files) in current.into_iter().chain(
+                retired
+                    .iter()
+                    .rev()
+                    .filter(|(_, role, _)| *role == db)
+                    .map(|(g, _, files)| (*g, files)),
+            ) {
+                let mut base = root.join(vault_layout::HELD_CONVERSATIONS);
+                if generation != self.generation() {
+                    older += 1;
+                    base = base.join(format!("older-{older}"));
+                }
                 copy_held(db, files, &base)?;
             }
         }
@@ -148,7 +347,7 @@ impl Store {
         for db in stale {
             let index = workers.iter().position(|(id, _)| *id == db).unwrap();
             let (_, mut worker) = workers.remove(index);
-            retired.push((db, std::mem::take(&mut worker.held_files)));
+            retired.push((self.generation(), db, std::mem::take(&mut worker.held_files)));
         }
     }
 }
@@ -191,6 +390,7 @@ impl Maintenance<'_> {
     pub fn snapshot_with<T>(&mut self, root: &Path, bind: impl FnOnce() -> Result<T>) -> Result<T> {
         let damaged = self.store.conversation_availability().is_err();
         if damaged {
+            self.store.protect_held(&self.workers)?;
             #[cfg(windows)]
             {
                 let close = self.store.anchor_pending(&self.workers)?;
@@ -268,10 +468,12 @@ impl Maintenance<'_> {
     /// Retires an already paused service after the final checkpoint succeeds and before
     /// closing connections. The callback must neither submit store work nor wait for it.
     pub fn close_with(mut self, retire: impl FnOnce()) -> Result<()> {
+        self.store.protect_held(&self.workers)?;
         self.store.seal_if_available(&self.workers)?;
         self.checkpoint()?;
         retire();
         self.store.closed.store(true, Ordering::Release);
+        self.store.anchor_monitor.lock().unwrap().take();
         while let Some((_, worker)) = self.workers.pop() {
             drop(worker);
         }
@@ -354,15 +556,26 @@ pub(super) fn copy_bytes(path: &Path, input: &mut fs::File, output: &mut fs::Fil
 }
 
 fn copy_held(db: Db, files: &[(String, fs::File)], root: &Path) -> Result<()> {
-    use std::io::{Seek, SeekFrom};
+    use std::io::Write;
     for (suffix, handle) in files {
         let name = format!("{}{suffix}", vault_layout::database_path(db));
         let path = root.join(&name);
         fs::create_dir_all(path.parent().unwrap())?;
-        let mut input = handle.try_clone()?;
-        input.seek(SeekFrom::Start(0))?;
         let mut output = fs::File::create_new(path)?;
-        copy_bytes(Path::new(&name), &mut input, &mut output)?;
+        let mut offset = 0;
+        let mut buf = [0; 65536];
+        loop {
+            #[cfg(unix)]
+            let read = std::os::unix::fs::FileExt::read_at(handle, &mut buf, offset);
+            #[cfg(windows)]
+            let read = std::os::windows::fs::FileExt::seek_read(handle, &mut buf, offset);
+            let n = read.map_err(|e| preserve_error(Path::new(&name), e))?;
+            if n == 0 {
+                break;
+            }
+            output.write_all(&buf[..n])?;
+            offset += n as u64;
+        }
         output.sync_all()?;
     }
     Ok(())

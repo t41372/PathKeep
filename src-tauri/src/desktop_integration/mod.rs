@@ -69,7 +69,9 @@ pub(crate) use app_menu::on_menu_event as on_app_menu_event;
 #[cfg(feature = "devtools-bridge")]
 pub(crate) use quit::QUIT_REQUEST_EVENT;
 #[cfg_attr(test, allow(unused_imports))]
-pub(crate) use quit::{QuitAnswer, QuitRequest, answer_quit_request, hold_quit, quit_request};
+pub(crate) use quit::{
+    QuitAnswer, QuitRequest, answer_quit_request, hold_quit, preserve_before_exit, quit_request,
+};
 // Only the macOS Dock "reopen" handler in lib.rs needs it from outside.
 #[cfg(not(test))]
 pub(crate) use window::show_main_window;

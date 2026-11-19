@@ -42,16 +42,12 @@ fn conversion_result<T>(result: anyhow::Result<T>) -> Result<T, CommandError> {
     result.map_err(|error| {
         if let Some(reason) =
             error.chain().find_map(|cause| match cause.downcast_ref::<vault_store::Error>()? {
-                reason @ vault_store::Error::RepairRequired(_) => Some(reason),
+                reason @ (vault_store::Error::RepairRequired(_)
+                | vault_store::Error::AccessUnavailable(_)) => Some(reason),
                 _ => None,
             })
         {
-            return CommandError {
-                message: reason.to_string(),
-                code: Some("conversation-repair-required".into()),
-                action_hint: Some("preview_agent_history_repair".into()),
-                retry_hint: Some("retry-after-action".into()),
-            };
+            return CommandError::classified(reason.to_string());
         }
         CommandError::classified(format!("{error:#}"))
     })

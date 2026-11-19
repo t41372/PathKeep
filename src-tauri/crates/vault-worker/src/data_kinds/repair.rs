@@ -19,7 +19,8 @@ pub struct Preview {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Execute {
     copy_path: Option<PathBuf>,
-    copy_password: Option<String>,
+    #[serde(rename = "copyPassword")]
+    _copy_password: Option<String>,
     preview_token: String,
 }
 
@@ -68,6 +69,11 @@ pub fn execute(
     let vault = owner(session)?;
     let _running = crate::foreground_work::begin(ForegroundWork::Restore);
     let password = session.get_key().map_err(anyhow::Error::msg)?;
+    let reviewed = maintenance::verify_conversation_repair(
+        &vault,
+        request.copy_path.as_deref(),
+        &request.preview_token,
+    )?;
     let lease = session.begin_maintenance().map_err(anyhow::Error::msg)?;
     vault_core::fault_inject::checkpoint("conversation-repair-lease-start")?;
     if session.current_vault().is_none_or(|v| !std::sync::Arc::ptr_eq(v.store(), vault.store())) {
@@ -77,15 +83,7 @@ pub fn execute(
         &vault.paths().app_root,
         "repairingConversations",
         ForegroundWork::Restore,
-        |cancel, _| {
-            maintenance::repair_conversations(
-                &vault,
-                request.copy_path.as_deref(),
-                request.copy_password.as_deref(),
-                &request.preview_token,
-                cancel,
-            )
-        },
+        |cancel, _| maintenance::install_conversation_repair(&vault, reviewed, cancel),
     )?;
     let kept_copy_path = installed.previous_files.display().to_string();
     let policy_token = installed.vault.config().capture_policy.token();

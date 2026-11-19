@@ -304,10 +304,17 @@ fn decode(hash: &str, encoded: Vec<u8>, length: i64, codec: &str) -> io::Result<
 
 /// Verify a single immutable manifest without touching any other revision. Salvage
 /// and retry share the codec, chunk bounds and hash checks with ordinary raw export.
-pub(super) fn inspect_bytes(
+pub(super) struct VerifiedSlice {
+    pub hash: String,
+    pub encoded: Vec<u8>,
+    pub codec: String,
+    pub len: i64,
+    pub offset: i64,
+}
+pub(super) fn inspect_slices(
     tx: &vault_store::Session<'_>,
     info: &RevisionInfo,
-    mut slice: impl FnMut(Vec<u8>) -> vault_store::Result<()>,
+    mut slice: impl FnMut(VerifiedSlice) -> vault_store::Result<()>,
 ) -> vault_store::Result<()> {
     let damage = |detail: String| {
         vault_store::Error::RetainedBytes { revision: info.id, detail }
@@ -321,11 +328,26 @@ pub(super) fn inspect_bytes(
         if offset != position as i64 {
             return Err(damage("noncontiguous manifest".into()));
         }
-        let mut bytes = decode(&id, data, len, &codec).map_err(|e| damage(e.to_string()))?;
+        let mut bytes =
+            decode(&id, data.clone(), len, &codec).map_err(|e| damage(e.to_string()))?;
         bytes.truncate((info.byte_len - position).min(bytes.len() as u64) as usize);
         position += bytes.len() as u64;
         hash.update(&bytes);
-        slice(bytes)?;
+        let size = bytes.len() as i64;
+        let verified = if size == len {
+            VerifiedSlice { hash: id, encoded: data, codec, len, offset }
+        } else {
+            // The final slice of an inherited manifest can extend beyond this
+            // revision. Copy only the prefix included in its verified digest.
+            VerifiedSlice {
+                hash: hex::encode(Sha256::digest(&bytes)),
+                encoded: bytes,
+                codec: "native".into(),
+                len: size,
+                offset,
+            }
+        };
+        slice(verified)?;
     }
     if hex::encode(hash.finalize()) != info.digest {
         return Err(damage("revision digest mismatch".into()));
@@ -340,7 +362,7 @@ impl Archive {
     ) -> vault_store::Result<()> {
         Store::inspect_existing(config,Db::AgentHistoryEvidence,|s|{
             let info=s.query_one("SELECT id,source_id,digest,byte_len,captured_at,capture_format,bytes_retained FROM ah_revisions WHERE state='complete' AND bytes_retained=1 AND id=?1",[id],super::revisions::map_revision)?;
-            inspect_bytes(s,&info,|_|Ok(()))
+            inspect_slices(s,&info,|_|Ok(()))
         }).map_err(|e|e.at(Db::AgentHistoryEvidence,vault_store::OpenStage::Read))
     }
 }

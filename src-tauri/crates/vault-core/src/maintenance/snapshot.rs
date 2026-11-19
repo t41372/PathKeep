@@ -63,12 +63,40 @@ pub(super) fn snapshot_paused(
 }
 
 fn finish_snapshot(vault: &Vault, target: &Path) -> Result<()> {
-    let mut config = crate::load_config(vault.paths())?;
+    finish_snapshot_at(vault.paths(), target)
+}
+
+/// A held-only copy has its own control, envelope, file proofs and listed directory.
+/// It can supply verified evidence for repair even when browsing is busy or unavailable.
+pub(crate) fn publish_held(
+    paths: &ProjectPaths,
+    held: vault_store::HeldGeneration<'_>,
+) -> Result<()> {
+    let stage = super::conversation_repair::cache::stage(paths)?;
+    let copy = stage.path().join("snapshot");
+    held.copy_to(&copy.join(vault_layout::HELD_CONVERSATIONS))?;
+    fs::write(copy.join(vault_layout::UNREADABLE_CONVERSATIONS), b"1\n")?;
+    let name = format!(
+        "held-generation-{}-{}",
+        held.generation,
+        stage.path().file_name().unwrap().to_string_lossy()
+    );
+    fs::create_dir_all(copy.join("archive"))?;
+    finish_snapshot_at(paths, &copy)?;
+    install::sync_tree(&copy)?;
+    install::rename(
+        &copy,
+        &paths.artifact_path(vault_layout::ArtifactId::NativeSnapshots).join(name),
+    )
+}
+
+fn finish_snapshot_at(paths: &ProjectPaths, target: &Path) -> Result<()> {
+    let mut config = crate::load_config(paths)?;
     config.capture_policy = Default::default();
     config.dismissed_agent_hints.clear();
-    crate::config::save_copy_config(vault.paths(), target, &config)?;
-    let envelope = vault_layout::path(&vault.paths().app_root, vault_layout::ArtifactId::Envelope);
-    if envelope.exists() {
+    crate::config::save_copy_config(paths, target, &config)?;
+    let envelope = vault_layout::path(&paths.app_root, vault_layout::ArtifactId::Envelope);
+    if config.archive_mode == ArchiveMode::Encrypted || envelope.try_exists()? {
         fs::copy(envelope, vault_layout::path(target, vault_layout::ArtifactId::Envelope))?;
     }
     seal(target)
@@ -599,6 +627,10 @@ pub fn recover_native_maintenance(paths: &ProjectPaths) -> Result<bool> {
     Ok(recovered)
 }
 
+pub(super) fn is_held_copy(path: &Path) -> bool {
+    path.file_name().is_some_and(|name| name.to_string_lossy().starts_with("held-generation-"))
+}
+
 /// Directory snapshots keep all databases together; discovery stays keyless. One that cannot be
 /// read is listed as not openable rather than hiding the others. A folder without a seal is a
 /// safety snapshot cut short, freed with the other snapshots, unless it is the archive a restore or
@@ -620,8 +652,9 @@ pub fn list_snapshots(paths: &ProjectPaths) -> Result<Vec<crate::RecoverySnapsho
         let entry = entry?;
         let path = entry.path();
         let before = install::Before::of_copy(&entry.file_name().to_string_lossy());
+        let held_copy = is_held_copy(&path);
         let sealed = path.join(SEAL).is_file();
-        let replaced_archive = before.is_some() && path.is_dir();
+        let replaced_archive = (before.is_some() || held_copy) && path.is_dir();
         if !sealed && !replaced_archive {
             continue;
         }
@@ -639,7 +672,16 @@ pub fn list_snapshots(paths: &ProjectPaths) -> Result<Vec<crate::RecoverySnapsho
             .modified()
             .ok()
             .map(|time| chrono::DateTime::<chrono::Utc>::from(time).to_rfc3339());
-        let source_op = if entry.file_name().to_string_lossy().starts_with("before-agent-repair-") {
+
+        let encrypted = if held_copy {
+            path.join(vault_layout::spec(vault_layout::ArtifactId::Envelope).path.relative())
+                .is_file()
+        } else {
+            encrypted
+        };
+        let source_op = if held_copy {
+            "heldGeneration"
+        } else if entry.file_name().to_string_lossy().starts_with("before-agent-repair-") {
             "agentRepair"
         } else if entry.file_name().to_string_lossy().starts_with("manual-") {
             "manual"
@@ -654,7 +696,7 @@ pub fn list_snapshots(paths: &ProjectPaths) -> Result<Vec<crate::RecoverySnapsho
             created_at: created,
             // The whole copy, as Free up space shows and deletes it.
             size_bytes: super::retention::measure(&path).map_or(size, |(bytes, _)| bytes),
-            verified_openable: restorable && size >= 4096,
+            verified_openable: !held_copy && restorable && size >= 4096,
             unchecked: !sealed,
             conversations_unreadable: path
                 .join(vault_layout::UNREADABLE_CONVERSATIONS)
