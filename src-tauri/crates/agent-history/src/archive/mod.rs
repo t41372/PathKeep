@@ -79,6 +79,9 @@ pub struct Archive {
     pub(crate) search_gate: Mutex<()>,
     pub(crate) initial_search: crate::search::InitialSearch,
     pub(crate) reader_finalization_pending: AtomicBool,
+    /// The publication gate serializes head switches. Initialize the notification
+    /// count from this generation once, then apply only the switched heads' delta.
+    pub(crate) awaiting_reader_heads: Mutex<Option<i64>>,
     state_mirror_pending: AtomicBool,
     pub(crate) state_gate: Mutex<()>,
     pub(crate) publication_gate: Mutex<()>,
@@ -118,6 +121,9 @@ impl Archive {
                     "UPDATE ah_reader_version SET state='retired' WHERE state='repairing'",
                     (),
                 )?;
+                tx.report_reader_repair(|| {
+                    crate::read_model::publication::reader_repair_required(tx)
+                });
                 Ok(())
             })
             .map_err(|e| {
@@ -170,6 +176,7 @@ impl Archive {
             search_gate: Mutex::new(()),
             initial_search: Default::default(),
             reader_finalization_pending: AtomicBool::new(false),
+            awaiting_reader_heads: Mutex::new(None),
             state_mirror_pending: AtomicBool::new(false),
             state_gate: Mutex::new(()),
             publication_gate: Mutex::new(()),

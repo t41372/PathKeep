@@ -15,6 +15,7 @@ use navigation::Extents;
 mod pages;
 mod read;
 mod repair;
+pub(crate) use repair::reader_repair_required;
 mod runs;
 mod visible;
 mod window;

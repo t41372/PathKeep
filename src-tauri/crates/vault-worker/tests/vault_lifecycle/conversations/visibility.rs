@@ -209,6 +209,47 @@ fn retry_agent_store_during_a_browsing_backup_keeps_its_producer() {
     assert_eq!(worker.join().unwrap().unwrap().run.unwrap().new_visits, 1);
 }
 
+#[test]
+fn retry_announces_reader_work_resolved_during_reattachment() {
+    let f = Fixture::new(false);
+    let v = f.vault();
+    seed(&v, &f.sandbox.path().join("pi"));
+    // A committed publication ticket survived the previous owner.
+    v.store().write(vault_store::Db::AgentHistoryReadModel, vault_store::Priority::Batch, |s| {
+        s.execute("INSERT INTO ah_reader_dirty SELECT conversation_id,'pending' FROM ah_sessions WHERE conversation_current=1", ())
+    }).unwrap();
+    let list = to_value(kinds::list(&f.session).unwrap()).unwrap();
+    assert_eq!(list["kinds"][1]["readerRebuildRequired"], true);
+    f.session.close_vault().unwrap();
+    let evidence = f.root.join("archive/agent-history.db");
+    let saved = evidence.with_extension("held");
+    fs::rename(&evidence, &saved).unwrap();
+    f.reopen(false);
+    let events = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let captured = events.clone();
+    backups::register_recovery_events(
+        &f.session,
+        Arc::new(move |name, payload| {
+            if name == kinds::POLICY_EVENT {
+                captured.lock().unwrap().push(payload);
+            }
+        }),
+    );
+    events.lock().unwrap().clear();
+    fs::rename(saved, evidence).unwrap();
+    let retry = || to_value(kinds::retry_agent_store(&f.session, |_| {}).unwrap()).unwrap();
+    let reopened = retry();
+    assert_eq!(reopened["kinds"][1]["availability"], "available");
+    assert_eq!(reopened["kinds"][1]["readerRebuildRequired"], false);
+    // One availability change, then the recovered worker observes the durable
+    // ticket and commits its resolution. Each invalidation uses the current policy.
+    let expected = json!({"policyToken":reopened["policyToken"], "changedKinds":["agent-history"]});
+    assert_eq!(*events.lock().unwrap(), vec![expected; 3]);
+    events.lock().unwrap().clear();
+    assert_eq!(retry()["kinds"][1]["readerRebuildRequired"], false);
+    assert!(events.lock().unwrap().is_empty());
+}
+
 /// A previously configured destination can keep a selection reference that the
 /// installed evidence no longer contains. That refuses capture, not archive reads.
 #[test]

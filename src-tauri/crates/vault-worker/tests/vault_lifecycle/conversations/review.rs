@@ -881,6 +881,87 @@ fn reader_repair_recovers_a_parked_conversation_and_keeps_healthy_publications()
     }
 }
 
+#[test]
+fn reader_repair_flag_and_events_follow_a_parked_backup_and_repair() {
+    use vault_worker::data_kinds::{self as kinds, backups};
+    let f = Fixture::new(false);
+    let _corpus = Corpus::seed(&f);
+    let v = f.vault();
+    let row = || {
+        let list = serde_json::to_value(kinds::list(&f.session).unwrap()).unwrap();
+        assert!(list["kinds"][0].get("readerRebuildRequired").is_none());
+        let agent = &list["kinds"][1];
+        assert_eq!(agent["availability"], "available");
+        (agent["readerRebuildRequired"].clone(), list["policyToken"].clone())
+    };
+    let (required, policy) = row();
+    assert_eq!(required, false);
+
+    let events = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let captured = events.clone();
+    backups::register_recovery_events(
+        &f.session,
+        Arc::new(move |name, payload| {
+            if name == kinds::POLICY_EVENT {
+                captured.lock().unwrap().push(payload);
+            }
+        }),
+    );
+    let take_events = || std::mem::take(&mut *events.lock().unwrap());
+    let expected = serde_json::json!({"policyToken":policy, "changedKinds":["agent-history"]});
+    let rollback = v.store().write(
+        Db::AgentHistoryReadModel,
+        vault_store::Priority::Batch,
+        |tx| -> vault_store::Result<()> {
+            tx.execute("INSERT INTO ah_reader_dirty VALUES('rolled-back','ticket')", ())?;
+            tx.report_reader_repair(|| Ok(true));
+            Err(vault_store::Error::cancelled())
+        },
+    );
+    assert!(rollback.is_err());
+    assert!(take_events().is_empty());
+    assert_eq!(row().0, false);
+    let (pi, healthy) = damage_pi_reader(&v);
+    let root = f.sandbox.path().join("empty-backup");
+    fs::create_dir_all(&root).unwrap();
+    let backup = v
+        .agent_history()
+        .unwrap()
+        .backup(&[SourceRoot { root, harness: agent_history::Harness::Pi }], &Default::default());
+    assert!(
+        matches!(backup, Ok(_) | Err(agent_history::Error::ReaderRebuildRequired)),
+        "{backup:?}"
+    );
+    assert_eq!(
+        take_events().as_slice(),
+        std::slice::from_ref(&expected),
+        "parking should invalidate once"
+    );
+    let parked = pi.clone();
+    assert!(
+        v.store()
+            .read(Db::AgentHistoryReadModel, move |s| s.query_one(
+                "SELECT EXISTS(SELECT 1 FROM ah_reader_parked WHERE conversation=?1)",
+                [parked],
+                |r| Ok(r.get::<i64>(0)? != 0)
+            ))
+            .unwrap()
+    );
+    assert_reader_isolated(&v, &pi, &healthy);
+    assert_eq!(row().0, true);
+    let plan = preview(&v, None, None).unwrap();
+    assert!(take_events().is_empty(), "listing or private preparation emitted a kinds change");
+    kinds::repair::execute(
+        &f.session,
+        serde_json::from_value(serde_json::json!({"previewToken":plan.token})).unwrap(),
+        |change| events.lock().unwrap().push(serde_json::to_value(change).unwrap()),
+    )
+    .unwrap();
+    assert_eq!(take_events(), [expected], "the installed repair should invalidate once");
+    assert_eq!(row().0, false);
+    assert_reader_repaired(&f.vault(), &pi, &healthy);
+}
+
 #[cfg(unix)]
 #[test]
 fn idle_owner_waits_for_the_unlocked_shell_before_preserving() {

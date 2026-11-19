@@ -88,6 +88,8 @@ export interface DataKindRow {
    * storage cannot be opened, and from a backend that predates it.
    */
   hasBackupSource?: boolean
+  /** Available Agent history only. Other conversations remain readable during reader repair. */
+  readerRebuildRequired?: boolean
   /**
    * On, but nothing it can back up: browsing with no browser chosen, or
    * conversations whose approved folders did not come along with an

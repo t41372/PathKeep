@@ -50,6 +50,22 @@ pub use turso::{IntoParams, Row, Value, params, params_from_iter};
 
 type HeldPublisher = dyn Fn(HeldGeneration<'_>) -> Result<()> + Send + Sync;
 
+/// One invalidation sink for changes to the live conversation kind. The writer
+/// compares reader states in commit order before the caller delivers the event.
+#[derive(Default)]
+struct AvailabilityEvents {
+    observer: std::sync::OnceLock<Box<dyn Fn() + Send + Sync>>,
+    reader_rebuild_required: AtomicBool,
+}
+
+impl AvailabilityEvents {
+    fn emit(&self) {
+        if let Some(observer) = self.observer.get() {
+            observer();
+        }
+    }
+}
+
 /// All handles are joined before the ownership file is released. Share Store via
 /// Arc between blocking command threads; a closure cannot recursively call it.
 pub struct Store {
@@ -64,7 +80,7 @@ pub struct Store {
     rejected_pair: AtomicBool,
     initial_access_refusal: Mutex<Option<[Option<turso::core::io::FileId>; 2]>>,
     pending_anchors: Mutex<Vec<(Db, turso::core::io::FileId)>>,
-    availability_observer: std::sync::OnceLock<Box<dyn Fn() + Send + Sync>>,
+    availability_events: Arc<AvailabilityEvents>,
     conversation_failure: RwLock<Option<Arc<StoreOpenFailure>>>,
     ownership: Mutex<Option<Arc<owner_lock::OwnerLock>>>,
     closed: AtomicBool,
@@ -165,10 +181,14 @@ impl Store {
         let workers = self.workers();
         let worker = &workers.iter().find(|(id, _)| *id == db).ok_or(Error::Closed)?.1;
         if !self.pair_seals || !opening::conversation_role(db) {
-            return worker.request(read, priority, work);
+            return worker.request(read, priority, work, None);
         }
         self.conversation_availability().map_err(Error::Open)?;
-        match worker.request(read, priority, work) {
+        let events = (!read
+            && db == Db::AgentHistoryReadModel
+            && self.availability_events.observer.get().is_some())
+        .then(|| self.availability_events.clone());
+        match worker.request(read, priority, work, events) {
             Err(cause)
                 if matches!(cause, Error::Corrupt { .. } | Error::WrongKey { .. })
                     || (matches!(cause, Error::Engine(_) | Error::Busy { .. })

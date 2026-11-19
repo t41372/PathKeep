@@ -73,8 +73,9 @@ pub(crate) fn refresh(
         }
     }
     // Either index can route an invalidation if one dependency row has been lost.
+    let mut tickets = 0;
     for key in keys {
-        tx.execute(
+        tickets += tx.execute(
             "INSERT OR REPLACE INTO ah_reader_dirty
             SELECT h.conversation,lower(hex(randomblob(16))) FROM (
                 SELECT publication FROM ah_reader_dependency WHERE target=?1
@@ -84,10 +85,13 @@ pub(crate) fn refresh(
         )?;
     }
     for id in affected {
-        tx.execute(
+        tickets += tx.execute(
             "INSERT OR REPLACE INTO ah_reader_dirty VALUES(?1,lower(hex(randomblob(16))))",
             [id],
         )?;
+    }
+    if tickets != 0 {
+        tx.report_reader_repair(|| Ok(true));
     }
     Ok(())
 }
@@ -111,6 +115,16 @@ pub(super) fn dependency(
 use crate::Archive;
 use sha2::{Digest, Sha256};
 use vault_store::Priority;
+
+/// Count the old or new awaiting heads just for the publications being switched.
+fn awaiting_in_batch(tx: &Session<'_>) -> vault_store::Result<i64> {
+    tx.query_one(
+        "SELECT count(*) FROM ah_reader_build b CROSS JOIN ah_reader_head h
+                  WHERE h.conversation=b.conversation AND h.awaiting_rebuild=1",
+        (),
+        |r| Ok(r.get(0)?),
+    )
+}
 
 struct ServingHead {
     owner: String,
@@ -183,6 +197,7 @@ impl Archive {
             )?;
             tx.execute("DELETE FROM ah_reader_build", ())?;
             tx.execute("DELETE FROM ah_reader_verified", ())?;
+            tx.report_reader_repair(|| Ok(true));
             Ok(())
         })?;
         let mut cursor = String::new();
@@ -204,7 +219,8 @@ impl Archive {
         #[cfg(test)]
         super::tests::before_head_switch(self)?;
         parked |= self.revalidate_noops(cancel)?;
-        self.store.write(DB, Priority::Batch, move |tx| {
+        let prior_awaiting = *self.awaiting_reader_heads.lock().expect("awaiting reader heads");
+        let awaiting = self.store.write(DB, Priority::Batch, move |tx| {
             let stale=tx.query_one("SELECT EXISTS(SELECT 1 FROM ah_reader_build b LEFT JOIN
                 ah_reader_dirty d ON d.conversation=b.conversation WHERE d.ticket IS NULL OR d.ticket<>b.ticket OR b.input_digest IS NULL)",
                 (),|r|Ok(r.get::<i64>(0)?!=0))?;
@@ -228,6 +244,10 @@ impl Archive {
             tx.execute("INSERT OR IGNORE INTO ah_reader_retired(publication) SELECT w.publication
                 FROM ah_reader_build b JOIN ah_reader_serving w ON w.conversation=b.conversation",())?;
             tx.execute("DELETE FROM ah_reader_serving WHERE conversation IN (SELECT conversation FROM ah_reader_build)",())?;
+            let unchanged_awaiting = match prior_awaiting {
+                Some(n) if n > 0 => awaiting_in_batch(tx).ok().map(|removed| n - removed).filter(|n| *n >= 0),
+                known => known,
+            };
             tx.execute("DELETE FROM ah_reader_head WHERE conversation IN (SELECT b.conversation FROM
                 ah_reader_build b JOIN ah_reader_head h ON h.conversation=b.conversation
                 WHERE b.conversation=h.conversation)",())?;
@@ -240,9 +260,21 @@ impl Archive {
             tx.execute("INSERT OR IGNORE INTO ah_reader_retired(publication) SELECT b.publication FROM ah_reader_build b
                 WHERE NOT EXISTS(SELECT 1 FROM ah_reader_head h WHERE h.publication=b.publication)",())?;
             tx.execute("DELETE FROM ah_reader_dirty WHERE conversation IN (SELECT conversation FROM ah_reader_build)",())?;
+            let mut awaiting = None;
+            tx.report_reader_repair(|| {
+                let heads = match unchanged_awaiting {
+                    Some(count) => count + awaiting_in_batch(tx)?,
+                    None => tx.query_one("SELECT count(*) FROM ah_reader_head WHERE awaiting_rebuild=1",
+                        (), |r| Ok(r.get::<i64>(0)?))?,
+                };
+                let required = heads > 0 || repair::pending_tickets(tx)?;
+                awaiting = Some(heads);
+                Ok(required)
+            });
             tx.execute("DELETE FROM ah_reader_build",())?;
-            Ok(())
+            Ok(awaiting)
         })?;
+        *self.awaiting_reader_heads.lock().expect("awaiting reader heads") = awaiting;
         self.jobs.request_collection();
         Ok(parked)
     }

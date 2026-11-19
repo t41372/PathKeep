@@ -17,6 +17,8 @@ pub struct KindRow {
     availability: &'static str,
     has_saved_data: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    reader_rebuild_required: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     archive_count: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     archive_bytes: Option<String>,
@@ -174,6 +176,12 @@ pub fn list_with(session: &VaultSession, request: ListKinds) -> Result<KindList>
                     }
                     .to_string(),
                 ),
+                _ => None,
+            },
+            reader_rebuild_required: match &vault {
+                Some(v) if agent && !unavailable => {
+                    Some(agent_history::Archive::has_reader_repair_work(v.store())?)
+                }
                 _ => None,
             },
             source_review_required: (config.initialized

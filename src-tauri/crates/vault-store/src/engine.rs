@@ -185,6 +185,7 @@ fn inspect_readonly<T>(
     let conn = database.connect()?;
     let session = Session {
         plans: None,
+        reader_repair: None,
         statements: std::cell::Cell::new(0),
         runtime: rt,
         conn: &conn,
@@ -365,6 +366,7 @@ impl Engine {
     pub fn session(&self, read_only: bool) -> Session<'_> {
         Session {
             plans: None,
+            reader_repair: None,
             statements: std::cell::Cell::new(0),
             runtime: &self.rt,
             conn: &self.conn,

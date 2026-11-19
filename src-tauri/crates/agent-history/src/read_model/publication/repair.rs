@@ -4,15 +4,27 @@ use super::*;
 use crate::Archive;
 use vault_store::params;
 
+pub(super) fn pending_tickets(tx: &vault_store::Session<'_>) -> vault_store::Result<bool> {
+    tx.query_one(
+        "SELECT EXISTS(SELECT 1 FROM ah_reader_parked) OR EXISTS(SELECT 1 FROM ah_reader_dirty)",
+        (),
+        |r| Ok(r.get::<i64>(0)? != 0),
+    )
+}
+
+pub(crate) fn reader_repair_required(tx: &vault_store::Session<'_>) -> vault_store::Result<bool> {
+    if pending_tickets(tx)? {
+        return Ok(true);
+    }
+    tx.query_one("SELECT EXISTS(SELECT 1 FROM ah_reader_head WHERE awaiting_rebuild=1)", (), |r| {
+        Ok(r.get::<i64>(0)? != 0)
+    })
+}
+
 impl Archive {
     /// Tickets are durable even while the group remains available to other readers.
     pub fn has_reader_repair_work(store: &vault_store::Store) -> vault_store::Result<bool> {
-        store.read(DB, |tx| {
-            tx.query_one(
-            "SELECT EXISTS(SELECT 1 FROM ah_reader_parked) OR EXISTS(SELECT 1 FROM ah_reader_dirty)
-                OR EXISTS(SELECT 1 FROM ah_reader_head WHERE awaiting_rebuild=1)",
-            (), |r| Ok(r.get::<i64>(0)? != 0))
-        })
+        store.read(DB, reader_repair_required)
     }
 
     /// Repair a checkpointed private pair. Freeze the reviewed IDs in its scratch

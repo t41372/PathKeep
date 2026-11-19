@@ -335,7 +335,7 @@ impl Archive {
             let _guard =
                 self.publication_gate.lock().map_err(|_| pages::invalid("publication lock"))?;
             self.store.write(DB, Priority::Batch, |tx| {
-                tx.execute(
+                let inserted = tx.execute(
                     "INSERT OR IGNORE INTO ah_reader_dirty
                 SELECT p.conversation,p.ticket FROM ah_reader_parked p
                 UNION ALL SELECT h.conversation,lower(hex(randomblob(16))) FROM ah_reader_head h
@@ -343,7 +343,9 @@ impl Archive {
                 UNION ALL SELECT w.conversation,lower(hex(randomblob(16))) FROM ah_reader_serving w
                 WHERE NOT EXISTS(SELECT 1 FROM ah_sessions s WHERE s.conversation_id=w.conversation)",
                     (),
-                )
+                )?;
+                if inserted > 0 { tx.report_reader_repair(|| Ok(true)); }
+                Ok(())
             })?;
             self.recover_reader_heads(&job.cancel)?;
             if self.store.read(DB, |tx| {

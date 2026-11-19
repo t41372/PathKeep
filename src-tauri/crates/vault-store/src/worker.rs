@@ -296,7 +296,7 @@ impl Workers {
     /// Turso can panic while stepping a corrupt b-tree. Independently read the
     /// file before attributing an application callback's panic to its database.
     pub(crate) fn integrity_check_failed(&self) -> bool {
-        match self.request(true, Priority::Interactive, |s| s.integrity_check()) {
+        match self.request(true, Priority::Interactive, |s| s.integrity_check(), None) {
             Ok(messages) => messages != ["ok"],
             Err(Error::WrongKey { .. } | Error::Corrupt { .. } | Error::JobPanicked { .. }) => true,
             Err(_) => false,
@@ -308,33 +308,32 @@ impl Workers {
         read: bool,
         priority: Priority,
         work: impl FnOnce(&Session<'_>) -> Result<T> + Send + 'static,
+        events: Option<Arc<crate::AvailabilityEvents>>,
     ) -> Result<T> {
         check_caller()?;
         let (tx, rx) = mpsc::sync_channel(1);
         let plans = self.plans.clone();
         let written = (!read).then(|| self.read_token.clone());
         let inspect_seal = self.inspect_seal.clone();
+        let writer_events = events.clone();
         let job: Job = Box::new(move |engine, scratch, archive| {
             let mut changed = false;
-            let result = crate::session::transaction(
-                &engine
-                    .session(read)
-                    .with_scratch(scratch)
-                    .with_archive(archive)
-                    .with_plans(&plans),
-                |s| {
-                    if read || !inspect_seal.load(Ordering::Acquire) {
-                        return work(s);
-                    }
-                    let before = crate::pair::changes(s)?;
-                    let value = work(s)?;
-                    if before != crate::pair::changes(s)? {
-                        s.execute("DELETE FROM ah_pair_seal", ())?;
-                        changed = true;
-                    }
-                    Ok(value)
-                },
-            );
+            let reader_repair = Cell::new(None);
+            let mut session =
+                engine.session(read).with_scratch(scratch).with_archive(archive).with_plans(&plans);
+            session.reader_repair = writer_events.as_ref().map(|_| &reader_repair);
+            let result = crate::session::transaction(&session, |s| {
+                if read || !inspect_seal.load(Ordering::Acquire) {
+                    return work(s);
+                }
+                let before = crate::pair::changes(s)?;
+                let value = work(s)?;
+                if before != crate::pair::changes(s)? {
+                    s.execute("DELETE FROM ah_pair_seal", ())?;
+                    changed = true;
+                }
+                Ok(value)
+            });
             if result.is_ok()
                 && let Some(token) = written
             {
@@ -343,8 +342,14 @@ impl Workers {
             if changed && result.is_ok() {
                 inspect_seal.store(false, Ordering::Release);
             }
+            let notify = result.is_ok()
+                && writer_events.as_ref().is_some_and(|events| {
+                    reader_repair.get().is_some_and(|next| {
+                        events.reader_rebuild_required.swap(next, Ordering::AcqRel) != next
+                    })
+                });
             Box::new(move || {
-                let _ = tx.send(result);
+                let _ = tx.send((result, notify));
             })
         });
         if read {
@@ -352,7 +357,11 @@ impl Workers {
         } else {
             self.writer.push(priority, job)?
         }
-        rx.recv().map_err(|_| Error::Closed)?
+        let (result, notify) = rx.recv().map_err(|_| Error::Closed)?;
+        if notify && let Some(events) = events {
+            events.emit();
+        }
+        result
     }
     pub fn metrics(&self) -> Metrics {
         let mut m = self.metrics.lock().unwrap().clone();

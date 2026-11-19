@@ -116,7 +116,7 @@ impl Store {
             rejected_pair: Default::default(),
             initial_access_refusal: Default::default(),
             pending_anchors: Default::default(),
-            availability_observer: Default::default(),
+            availability_events: Default::default(),
             conversation_failure: RwLock::default(),
             closed: false.into(),
             paths: config.paths.clone(),
@@ -278,16 +278,14 @@ impl Store {
 
     /// The owner uses this invalidation to tell its window to refetch kind status.
     pub fn on_availability_change(&self, observer: impl Fn() + Send + Sync + 'static) {
-        if self.availability_observer.set(Box::new(observer)).is_ok()
+        if self.availability_events.observer.set(Box::new(observer)).is_ok()
             && self.conversation_availability().is_err()
         {
             self.announce_availability()
         }
     }
     pub(crate) fn announce_availability(&self) {
-        if let Some(observer) = self.availability_observer.get() {
-            observer()
-        }
+        self.availability_events.emit();
     }
     /// The role failure that keeps this owner from supplying its complete layout.
     pub fn conversation_availability(&self) -> std::result::Result<(), Arc<StoreOpenFailure>> {

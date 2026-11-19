@@ -25,6 +25,7 @@ use tokio::runtime::Runtime;
 /// }
 /// ```
 pub struct Session<'a> {
+    pub(crate) reader_repair: Option<&'a Cell<Option<bool>>>,
     pub(crate) plans: Option<&'a crate::query_plans::PlanCapture>,
     pub(crate) statements: Cell<usize>,
     pub(crate) runtime: &'a Runtime,
@@ -39,6 +40,20 @@ pub struct Session<'a> {
     pub(crate) scratch_read: RefCell<Option<crate::checkpoint::ReadGuard<'a>>>,
 }
 impl<'a> Session<'a> {
+    /// Supply the resulting reader status in a transaction that changes its tickets.
+    /// Private stages skip the probe. The live owner delivers only committed changes.
+    pub fn report_reader_repair(&self, probe: impl FnOnce() -> Result<bool>) {
+        if let Some(state) = self.reader_repair {
+            match catch_job(probe) {
+                Ok(required) => state.set(Some(required)),
+                Err(error) => {
+                    state.set(None);
+                    log::warn!("Could not observe reader repair status: {error}");
+                }
+            }
+        }
+    }
+
     pub(crate) fn with_plans(mut self, plans: &'a crate::query_plans::PlanCapture) -> Self {
         self.plans = Some(plans);
         self

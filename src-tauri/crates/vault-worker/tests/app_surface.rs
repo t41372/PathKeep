@@ -128,6 +128,16 @@ fn preview_reads_on_the_target_volume_and_writes_no_capture_rows() {
 }
 
 #[test]
+fn uninitialized_kinds_omit_the_reader_repair_flag() {
+    let fixture = Fixture::new(false);
+    let list = to_value(kinds::list(&fixture.session).unwrap()).unwrap();
+    for row in list["kinds"].as_array().unwrap() {
+        assert_eq!(row["availability"], "not-initialized");
+        assert!(row.get("readerRebuildRequired").is_none());
+    }
+}
+
+#[test]
 fn damaged_role_has_unknown_inventory_while_browsing_stays_readable() {
     use vault_store::Db;
     let mut fixture = Fixture::new(true);
@@ -142,6 +152,7 @@ fn damaged_role_has_unknown_inventory_while_browsing_stays_readable() {
     assert_eq!(agent["availability"], "unavailable");
     assert_eq!(agent["hasSavedData"], serde_json::Value::Null);
     assert!(agent.get("archiveCount").is_none());
+    assert!(agent.get("readerRebuildRequired").is_none());
     assert_eq!(agent["failure"]["role"], "evidence");
     assert_eq!(agent["failure"]["reason"], "archive-store-missing");
 }
