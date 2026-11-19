@@ -5,7 +5,8 @@
 //! snapshots copy disabled files. Tests: maintenance.rs and selected_databases.rs,
 //! with real encrypted files and competing batches.
 use crate::{
-    CancelToken, CopyProgress, Db, Error, Paths, Result, Store, TableDigest, worker::Workers,
+    ArchiveFileRole, CancelToken, CopyProgress, Db, Error, Paths, Result, Store, TableDigest,
+    worker::Workers,
 };
 use std::{
     fs,
@@ -24,11 +25,12 @@ pub struct Maintenance<'a> {
 pub struct HeldGeneration<'a> {
     pub role: Db,
     pub generation: u64,
+    original: &'a Path,
     files: &'a crate::worker::HeldFiles,
 }
 impl HeldGeneration<'_> {
     pub fn copy_to(&self, root: &Path) -> Result<()> {
-        copy_held(self.role, self.files, root)
+        copy_held(self.role, self.original, self.files, root)
     }
 }
 impl Store {
@@ -93,6 +95,7 @@ impl Store {
             &workers,
             std::sync::Arc::new(crate::StoreOpenFailure {
                 role,
+                path: self.paths.get(role).to_owned(),
                 stage: crate::OpenStage::Preflight,
                 cause: Error::ReplacedFile(self.paths.get(role).to_owned()),
             }),
@@ -115,6 +118,7 @@ impl Store {
                     workers,
                     std::sync::Arc::new(crate::StoreOpenFailure {
                         role: *db,
+                        path: path.to_owned(),
                         stage: crate::OpenStage::Preflight,
                         cause: Error::ReplacedFile(path.to_owned()),
                     }),
@@ -127,6 +131,7 @@ impl Store {
                 publish(HeldGeneration {
                     role: *db,
                     generation: self.generation(),
+                    original: path,
                     files: &w.held_files,
                 })?;
                 *saved = true;
@@ -202,11 +207,11 @@ impl Store {
                 } else {
                     Error::Io(e)
                 };
-                cause.at(db, crate::OpenStage::Preflight)
+                cause.at_file(db, crate::OpenStage::Preflight, path)
             })?;
             if on_disk != encrypted {
                 return Err(Error::InvalidConfig("database protection changed since open".into())
-                    .at(db, crate::OpenStage::Preflight));
+                    .at_file(db, crate::OpenStage::Preflight, path));
             }
         }
         Ok(())
@@ -259,10 +264,10 @@ impl Store {
                 source.push(suffix);
                 let source = Path::new(&source);
                 match fs::symlink_metadata(source) {
-                    Ok(_) => copy_member(source, &root.join(relative))?,
+                    Ok(_) => copy_member(db.into(), source, &root.join(relative))?,
                     Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
                     Err(e) => {
-                        return Err(Error::PreserveFile { path: source.to_owned(), source: e });
+                        return Err(Error::preserve(db.into(), source, e));
                     }
                 }
             }
@@ -307,7 +312,7 @@ impl Store {
                     older += 1;
                     base = base.join(format!("older-{older}"));
                 }
-                copy_held(db, files, &base)?;
+                copy_held(db, self.paths.get(db), files, &base)?;
             }
         }
         for (db, worker) in workers
@@ -387,7 +392,7 @@ impl Maintenance<'_> {
             }
             let source = self.store.paths.get(*db);
             check_identity(*db, worker, source)?;
-            copy_member(source, targets.get(*db))?;
+            copy_member((*db).into(), source, targets.get(*db))?;
             check_identity(*db, worker, source)?;
         }
         if damaged {
@@ -425,6 +430,7 @@ impl Maintenance<'_> {
             {
                 let reason = std::sync::Arc::new(crate::StoreOpenFailure {
                     role: db,
+                    path: self.store.paths.get(db).to_owned(),
                     stage: crate::OpenStage::Read,
                     cause,
                 });
@@ -472,7 +478,7 @@ pub(crate) fn displaced(db: Db, worker: &Workers, path: &Path) -> Result<bool> {
             Ok(true)
         }
         Err(Error::Open(f)) if matches!(&f.cause, Error::Io(_)) => {
-            Err(preserve_error(path, std::io::Error::other(f)))
+            Err(Error::preserve(db.into(), path, std::io::Error::other(f)))
         }
         Err(e) => Err(e),
     }
@@ -480,63 +486,107 @@ pub(crate) fn displaced(db: Db, worker: &Workers, path: &Path) -> Result<bool> {
 
 pub(crate) fn check_identity(db: Db, worker: &Workers, path: &Path) -> Result<()> {
     let id = turso::core::io::get_file_id(path.to_str().expect("validated role path"))
-        .map_err(|e| Error::Io(e).at(db, crate::OpenStage::Preflight))?;
+        .map_err(|e| Error::Io(e).at_file(db, crate::OpenStage::Preflight, path))?;
     if worker.file_id != Some(id) {
-        return Err(Error::ReplacedFile(path.into()).at(db, crate::OpenStage::Preflight));
+        return Err(Error::ReplacedFile(path.into()).at_file(
+            db,
+            crate::OpenStage::Preflight,
+            path,
+        ));
     }
     Ok(())
 }
 
 /// Opaque members may be a directory where the main database used to be. Preserve
 /// regular children and empty directories. Links and special files require attention.
-fn copy_member(source: &Path, target: &Path) -> Result<()> {
+fn copy_member(role: ArchiveFileRole, source: &Path, target: &Path) -> Result<()> {
     let mut pending = vec![(source.to_owned(), target.to_owned())];
     while let Some((source, target)) = pending.pop() {
-        let meta = fs::symlink_metadata(&source).map_err(|e| preserve_error(&source, e))?;
+        let meta = fs::symlink_metadata(&source).map_err(|e| Error::preserve(role, &source, e))?;
         if meta.is_file() {
-            fs::create_dir_all(target.parent().expect("snapshot member has a parent"))?;
-            let mut input = fs::File::open(&source).map_err(|e| preserve_error(&source, e))?;
-            let mut output = fs::File::create_new(target)?;
-            copy_bytes(&source, &mut input, &mut output)?;
-            output.sync_all()?;
+            copy_file(role, &source, &target, false)?;
         } else if meta.is_dir() {
-            fs::create_dir_all(&target)?;
-            for entry in fs::read_dir(&source).map_err(|e| preserve_error(&source, e))? {
-                let entry = entry.map_err(|e| preserve_error(&source, e))?;
+            fs::create_dir_all(&target).map_err(|e| Error::writing(role, &target, e))?;
+            for entry in fs::read_dir(&source).map_err(|e| Error::preserve(role, &source, e))? {
+                let entry = entry.map_err(|e| Error::preserve(role, &source, e))?;
                 pending.push((entry.path(), target.join(entry.file_name())));
             }
         } else {
-            return Err(Error::Io(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                "unexpected snapshot member type",
-            )));
+            return Err(Error::preserve(
+                role,
+                &source,
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "unexpected snapshot member type",
+                ),
+            ));
         }
     }
     Ok(())
 }
 
-fn preserve_error(path: &Path, source: std::io::Error) -> Error {
-    Error::PreserveFile { path: path.to_owned(), source }
+/// Copy into a fresh archive member. Classify source reads separately from destination writes.
+pub fn copy_archive_file(role: ArchiveFileRole, source: &Path, target: &Path) -> Result<()> {
+    copy_file(role, source, target, true)
 }
-pub(super) fn copy_bytes(path: &Path, input: &mut fs::File, output: &mut fs::File) -> Result<()> {
+
+fn copy_file(
+    role: ArchiveFileRole,
+    source: &Path,
+    target: &Path,
+    keep_permissions: bool,
+) -> Result<()> {
+    let read_error = |e| Error::preserve(role, source, e);
+    let write_error = |e| Error::writing(role, target, e);
+    let mut input = fs::File::open(source).map_err(read_error)?;
+    let permissions = keep_permissions
+        .then(|| input.metadata().map(|m| m.permissions()))
+        .transpose()
+        .map_err(read_error)?;
+    fs::create_dir_all(target.parent().expect("archive member has a parent"))
+        .map_err(write_error)?;
+    let mut options = fs::OpenOptions::new();
+    options.create_new(true).write(true);
+    #[cfg(unix)]
+    if let Some(mode) = &permissions {
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+        options.mode(mode.mode());
+    }
+    let mut output = options.open(target).map_err(write_error)?;
+    copy_bytes(role, source, &mut input, target, &mut output)?;
+    if let Some(mode) = permissions {
+        output.set_permissions(mode).map_err(write_error)?;
+    }
+    output.sync_all().map_err(|e| Error::writing(role, target, e))
+}
+pub(super) fn copy_bytes(
+    role: ArchiveFileRole,
+    source: &Path,
+    input: &mut fs::File,
+    target: &Path,
+    output: &mut fs::File,
+) -> Result<()> {
     use std::io::{Read, Write};
     let mut buf = [0; 65536];
     loop {
-        let n = input.read(&mut buf).map_err(|e| preserve_error(path, e))?;
+        let n = input.read(&mut buf).map_err(|e| Error::preserve(role, source, e))?;
         if n == 0 {
             return Ok(());
         }
-        output.write_all(&buf[..n])?;
+        output.write_all(&buf[..n]).map_err(|e| Error::writing(role, target, e))?;
     }
 }
 
-fn copy_held(db: Db, files: &[(String, fs::File)], root: &Path) -> Result<()> {
+fn copy_held(db: Db, original: &Path, files: &[(String, fs::File)], root: &Path) -> Result<()> {
     use std::io::Write;
     for (suffix, handle) in files {
         let name = format!("{}{suffix}", vault_layout::database_path(db));
         let path = root.join(&name);
-        fs::create_dir_all(path.parent().unwrap())?;
-        let mut output = fs::File::create_new(path)?;
+        let mut member = original.as_os_str().to_owned();
+        member.push(suffix);
+        let role = ArchiveFileRole::HeldGeneration;
+        fs::create_dir_all(path.parent().unwrap()).map_err(|e| Error::writing(role, &path, e))?;
+        let mut output = fs::File::create_new(&path).map_err(|e| Error::writing(role, &path, e))?;
         let mut offset = 0;
         let mut buf = [0; 65536];
         loop {
@@ -544,14 +594,14 @@ fn copy_held(db: Db, files: &[(String, fs::File)], root: &Path) -> Result<()> {
             let read = std::os::unix::fs::FileExt::read_at(handle, &mut buf, offset);
             #[cfg(windows)]
             let read = std::os::windows::fs::FileExt::seek_read(handle, &mut buf, offset);
-            let n = read.map_err(|e| preserve_error(Path::new(&name), e))?;
+            let n = read.map_err(|e| Error::preserve(role, Path::new(&member), e))?;
             if n == 0 {
                 break;
             }
-            output.write_all(&buf[..n])?;
+            output.write_all(&buf[..n]).map_err(|e| Error::writing(role, &path, e))?;
             offset += n as u64;
         }
-        output.sync_all()?;
+        output.sync_all().map_err(|e| Error::writing(role, &path, e))?;
     }
     Ok(())
 }
@@ -566,9 +616,16 @@ mod tests {
         let mut source = fs::File::open("/proc/self/mem").unwrap();
         let mut stage = tempfile::tempfile().unwrap();
         let member = Path::new("archive/agent-history.db");
-        let failure = copy_bytes(member, &mut source, &mut stage).unwrap_err();
+        let failure = copy_bytes(
+            ArchiveFileRole::Evidence,
+            member,
+            &mut source,
+            Path::new("stage"),
+            &mut stage,
+        )
+        .unwrap_err();
         assert!(
-            matches!(&failure, Error::PreserveFile {path,source} if path==member && source.raw_os_error()==Some(5))
+            matches!(&failure, Error::PreserveFile {path,source,..} if path==member && source.raw_os_error()==Some(5))
         );
         assert!(failure.to_string().contains("nothing was changed"));
         assert_eq!(stage.metadata().unwrap().len(), 0);

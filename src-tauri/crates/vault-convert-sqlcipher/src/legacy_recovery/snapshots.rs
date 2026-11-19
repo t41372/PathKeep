@@ -147,6 +147,7 @@ pub fn list_legacy_snapshots(paths: &ProjectPaths) -> Result<Vec<RecoverySnapsho
                 // An old-format snapshot is one database file and has no seal to write.
                 unchecked: false,
                 conversations_unreadable: false,
+                conversation_repair_source: vault_core::ConversationRepairSource::MissingEvidence,
                 encrypted: matches!(disk_mode, DiskEncryptionMode::Encrypted),
                 // Short, stable English fallback. The FE localizes from `source_op` + `created_at`.
                 label: format!("Safety snapshot ({source_op})"),

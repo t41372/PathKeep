@@ -42,17 +42,30 @@ const CHUNK: u64 = 4 << 10;
 ///   skipped (`vault_layout::is_os_metadata`).
 /// - A symlink: `link:` and the hash of its target.
 pub(crate) fn of(path: &Path) -> io::Result<Option<String>> {
+    of_with(path, &|_, e| e)
+}
+
+/// Name the exact unreadable child when an opaque archive member is a directory.
+pub(crate) fn member(root: &Path, relative: &Path) -> vault_store::Result<Option<String>> {
+    of_with(&root.join(relative), &|path, error| {
+        let role =
+            vault_store::ArchiveFileRole::for_member(path.strip_prefix(root).unwrap_or(relative));
+        vault_store::Error::preserve(role, path, error)
+    })
+}
+
+fn of_with<E>(path: &Path, failure: &impl Fn(&Path, io::Error) -> E) -> Result<Option<String>, E> {
     let metadata = match fs::symlink_metadata(path) {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => return Err(error),
+        Err(error) => return Err(failure(path, error)),
     };
     Ok(Some(if metadata.file_type().is_symlink() {
-        link(path)?
+        link(path).map_err(|e| failure(path, e))?
     } else if metadata.is_dir() {
-        tree(path)?
+        tree(path, failure)?
     } else {
-        file(path, metadata.len())?
+        file(path, metadata.len()).map_err(|e| failure(path, e))?
     }))
 }
 
@@ -61,21 +74,25 @@ fn link(path: &Path) -> io::Result<String> {
     Ok(format!("link:{}", hex(&Sha256::digest(exact(target.as_os_str())))))
 }
 
-fn tree(root: &Path) -> io::Result<String> {
+fn tree<E>(root: &Path, failure: &impl Fn(&Path, io::Error) -> E) -> Result<String, E> {
     let mut entries = Vec::new();
     for entry in walkdir::WalkDir::new(root).min_depth(1).follow_links(false) {
-        let entry = entry.map_err(io::Error::other)?;
+        let entry = entry.map_err(|e| {
+            let path = e.path().unwrap_or(root).to_owned();
+            failure(&path, io::Error::other(e))
+        })?;
         if entry.file_name().to_str().is_some_and(vault_layout::is_os_metadata) {
             continue;
         }
         let what = if entry.file_type().is_symlink() {
-            link(entry.path())?
+            link(entry.path()).map_err(|e| failure(entry.path(), e))?
         } else if entry.file_type().is_dir() {
             continue;
         } else {
-            file(entry.path(), entry.metadata().map_err(io::Error::other)?.len())?
+            let meta = entry.metadata().map_err(|e| failure(entry.path(), io::Error::other(e)))?;
+            file(entry.path(), meta.len()).map_err(|e| failure(entry.path(), e))?
         };
-        let relative = entry.path().strip_prefix(root).map_err(io::Error::other)?;
+        let relative = entry.path().strip_prefix(root).expect("walk entry beneath root");
         let mut names = Vec::new();
         for name in relative {
             field(&mut names, &exact(name));

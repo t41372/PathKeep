@@ -33,8 +33,8 @@ pub use checkpoint::Metrics;
 pub use config::{Config, Db, IoLayer, Paths};
 pub use copy::{CopyPhase, CopyProgress, TableDigest};
 pub use engine_log::route_engine_diagnostics_to_log;
-pub use error::{Error, OpenStage, Result, StoreOpenFailure};
-pub use maintenance::{HeldGeneration, Maintenance};
+pub use error::{ArchiveFileRole, Error, OpenStage, Result, StoreOpenFailure};
+pub use maintenance::{HeldGeneration, Maintenance, copy_archive_file};
 pub use migration::{BackfillProgress, Migration, MigrationRegistry};
 pub use owner_lock::OwnerLock;
 pub use queue::Priority;
@@ -70,6 +70,14 @@ pub struct Store {
     watch: running::Watch,
 }
 impl Store {
+    /// The file admitted for this role, also for owners opened on a private copy.
+    pub fn database_path(&self, db: Db) -> &std::path::Path {
+        self.paths.get(db)
+    }
+    /// Keep the originating role and archive member when recovery adds its stage.
+    pub fn role_error(&self, error: Error, db: Db, stage: OpenStage) -> Error {
+        error.at_file(db, stage, self.database_path(db))
+    }
     /// Keep the ownership inode reserved across a verified maintenance replacement.
     pub fn owner(&self) -> Result<Arc<OwnerLock>> {
         self.ownership.lock().unwrap().clone().ok_or(Error::Closed)
@@ -156,7 +164,12 @@ impl Store {
                         && worker.integrity_check_failed()) =>
             {
                 let stage = if read { OpenStage::Read } else { OpenStage::Write };
-                let failure = Arc::new(StoreOpenFailure { role: db, stage, cause });
+                let failure = Arc::new(StoreOpenFailure {
+                    role: db,
+                    stage,
+                    cause,
+                    path: self.paths.get(db).to_owned(),
+                });
                 self.quarantine(&workers, failure.clone());
                 Err(Error::Open(failure))
             }
@@ -188,7 +201,7 @@ impl Store {
             for (db, w) in workers.iter().filter(|(db, _)| opening::conversation_role(*db)) {
                 maintenance::check_identity(*db, w, self.paths.get(*db))?;
             }
-            pair::seal(workers)?;
+            pair::seal(workers, &self.paths)?;
         }
         Ok(())
     }

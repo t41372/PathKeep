@@ -190,6 +190,7 @@ impl Vault {
                     self.store.remember_conversation_failure(Arc::new(
                         vault_store::StoreOpenFailure {
                             role,
+                            path: self.store.database_path(role).to_owned(),
                             stage: vault_store::OpenStage::Read,
                             cause: vault_store::Error::IntegrityCheck {
                                 detail: messages.join(", "),

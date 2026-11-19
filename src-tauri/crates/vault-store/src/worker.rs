@@ -138,7 +138,7 @@ impl Workers {
                             Ok(())
                         },
                     )
-                    .map_err(|e| e.at(db, crate::OpenStage::Migrate))?;
+                    .map_err(|e| e.at_file(db, crate::OpenStage::Migrate, &write_settings.path))?;
                     let stamped = crate::opening::conversation_role(db)
                         && crate::pair::ticket(&engine.session(true))?.is_some();
                     Ok((engine, id, stamped))

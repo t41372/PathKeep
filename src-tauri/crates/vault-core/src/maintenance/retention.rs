@@ -273,15 +273,24 @@ fn remove_path(path: &Path) -> Result<(u64, usize)> {
 
 /// The bytes and files [`remove_path`] would delete, deleting nothing.
 pub(super) fn measure(path: &Path) -> Result<(u64, usize)> {
+    measure_files(path, &mut |_| {})
+}
+
+/// A copy listing can observe the regular files during the same walk that accounts for its bytes.
+pub(super) fn measure_files(path: &Path, visit: &mut impl FnMut(&Path)) -> Result<(u64, usize)> {
     let Some(metadata) = metadata(path)? else {
         return Ok((0, 0));
     };
+    if metadata.is_file() {
+        visit(path);
+        return Ok((metadata.len(), 1));
+    }
     if !metadata.is_dir() {
-        return Ok((if metadata.is_file() { metadata.len() } else { 0 }, 1));
+        return Ok((0, 1));
     }
     let mut totals = (0, 0);
     for entry in fs::read_dir(path)? {
-        let (bytes, files) = measure(&entry?.path())?;
+        let (bytes, files) = measure_files(&entry?.path(), visit)?;
         totals = (totals.0 + bytes, totals.1 + files);
     }
     Ok(totals)

@@ -189,6 +189,7 @@ impl Read for RawReader {
         {
             let failure = Arc::new(vault_store::StoreOpenFailure {
                 role: Db::AgentHistoryEvidence,
+                path: self.store.database_path(Db::AgentHistoryEvidence).to_owned(),
                 stage: vault_store::OpenStage::Read,
                 cause: vault_store::Error::RetainedBytes {
                     revision: self.info.id,
@@ -316,10 +317,7 @@ pub(super) fn inspect_slices(
     info: &RevisionInfo,
     mut slice: impl FnMut(VerifiedSlice) -> vault_store::Result<()>,
 ) -> vault_store::Result<()> {
-    let damage = |detail: String| {
-        vault_store::Error::RetainedBytes { revision: info.id, detail }
-            .at(Db::AgentHistoryEvidence, vault_store::OpenStage::Read)
-    };
+    let damage = |detail: String| vault_store::Error::RetainedBytes { revision: info.id, detail };
     let mut hash = Sha256::new();
     let mut position = 0u64;
     while position < info.byte_len {
@@ -363,6 +361,6 @@ impl Archive {
         Store::inspect_existing(config,Db::AgentHistoryEvidence,|s|{
             let info=s.query_one("SELECT id,source_id,digest,byte_len,captured_at,capture_format,bytes_retained FROM ah_revisions WHERE state='complete' AND bytes_retained=1 AND id=?1",[id],super::revisions::map_revision)?;
             inspect_slices(s,&info,|_|Ok(()))
-        }).map_err(|e|e.at(Db::AgentHistoryEvidence,vault_store::OpenStage::Read))
+        }).map_err(|e|e.at_file(Db::AgentHistoryEvidence,vault_store::OpenStage::Read,config.paths.get(Db::AgentHistoryEvidence)))
     }
 }

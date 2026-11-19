@@ -515,7 +515,7 @@ impl VaultSession {
 
     pub fn update_password(&self, password: Option<String>) -> Result<(), String> {
         let Some(password) = password else {
-            return self.close_vault();
+            return self.close_vault().map_err(|e| e.to_string());
         };
         let paths = vault_core::project_paths().map_err(|e| e.to_string())?;
         let config = vault_core::load_config(&paths).map_err(|e| e.to_string())?;
@@ -526,7 +526,7 @@ impl VaultSession {
         }
         Ok(())
     }
-    pub fn close_vault(&self) -> Result<(), String> {
+    pub fn close_vault(&self) -> anyhow::Result<()> {
         let (lock, ready) = &*self.inner;
         let mut state = lock.lock().expect("session state");
         // A close during maintenance would end the lease's hold on opens early: it waits, and
@@ -538,12 +538,12 @@ impl VaultSession {
             state.parked -= usize::from(maintaining);
         }
         if state.transition == Transition::Closing {
-            return Err("archive-busy: archive is closing".into());
+            anyhow::bail!("archive-busy: archive is closing");
         }
         state.transition = Transition::Closing;
         let vault = state.vault.clone();
         drop(state);
-        let result = vault.as_ref().map_or(Ok(()), |v| v.close().map_err(|e| e.to_string()));
+        let result = vault.as_ref().map_or(Ok(()), |v| v.close().map_err(anyhow::Error::new));
         let retired = result.is_ok() || vault.as_ref().is_none_or(|v| !v.store().is_open());
         if retired && let Some(v) = &vault {
             crate::data_kinds::delivery::revoke(&v.paths().app_root);

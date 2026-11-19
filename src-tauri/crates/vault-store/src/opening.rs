@@ -125,7 +125,8 @@ impl Store {
     }
 
     fn start_with_scratch(&self, config: &Config, roles: &[Db]) -> Result<()> {
-        engine::reset_scratch(config).map_err(|e| e.at(Db::Scratch, OpenStage::Open))?;
+        engine::reset_scratch(config)
+            .map_err(|e| e.at_file(Db::Scratch, OpenStage::Open, config.paths.get(Db::Scratch)))?;
         let ready = self.start_workers(config, roles, &[])?;
         self.workers_mut().extend(ready);
         Ok(())
@@ -320,7 +321,7 @@ impl Store {
                 scratch,
                 archive,
             )
-            .map_err(|e| e.at(db, OpenStage::Open))?;
+            .map_err(|e| e.at_file(db, OpenStage::Open, config.paths.get(db)))?;
             ready.push((db, worker));
         }
         Ok(ready)

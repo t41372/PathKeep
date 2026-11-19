@@ -31,7 +31,7 @@ pub(crate) fn export_app_data_impl(
     target_path: PathBuf,
     export_password: String,
 ) -> Result<vault_core::ExportedBundle, CommandError> {
-    super::conversion_result(vault_worker::export_app_data(
+    super::worker_result(vault_worker::export_app_data(
         &state.vault()?,
         target_path,
         &export_password,
@@ -57,8 +57,8 @@ pub(crate) fn apply_app_data_import_impl(
     // that waits for it doesn't leave the keychain behind.
     let _running = vault_worker::begin_foreground_work(vault_worker::ForegroundWork::MoveImport);
     // Nothing opens the archive while it is replaced, until the imported one is published.
-    let lease = worker_result(state.begin_maintenance())?;
-    let (report, archive) = super::conversion_result(vault_worker::apply_import(
+    let lease = state.begin_maintenance()?;
+    let (report, archive) = super::worker_result(vault_worker::apply_import(
         &paths,
         current.as_ref(),
         state.owner(),

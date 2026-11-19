@@ -1,19 +1,28 @@
 //! Verify the members selected from a listed copy. Its unreadable marker describes
 //! the original observation; only independently verified evidence can seed a rebuild.
 use super::{
-    ArtifactId, CompanionUse, DataKey, Db, Path, PathBuf, Result, Vault, ensure, fs,
-    member_identity, owned, project_paths_with_root, snapshot,
+    ArchiveFileRole, ArtifactId, CompanionUse, DataKey, Db, Path, PathBuf, Result, Vault, ensure,
+    fs, member_identity, owned, project_paths_with_root, snapshot,
 };
 use anyhow::Context;
+use snapshot::SnapshotMemberFailure;
+
+fn metadata(path: &Path, role: ArchiveFileRole) -> Result<fs::Metadata> {
+    Ok(fs::symlink_metadata(path).map_err(|e| vault_store::Error::preserve(role, path, e))?)
+}
 
 fn header_binding(vault: &Vault, root: &Path) -> Result<String> {
     let parent = vault.paths().artifact_path(ArtifactId::NativeSnapshots);
     ensure!(
-        root.parent() == Some(parent.as_path()) && fs::symlink_metadata(root)?.is_dir(),
+        root.parent() == Some(parent.as_path())
+            && metadata(root, ArchiveFileRole::Browsing)?.is_dir(),
         "conversation-copy-not-listed"
     );
     for dir in [vault.paths().artifact_path(ArtifactId::RawSnapshots), parent] {
-        ensure!(fs::symlink_metadata(dir)?.is_dir(), "conversation-copy-unsafe-path");
+        ensure!(
+            metadata(&dir, ArchiveFileRole::Browsing)?.is_dir(),
+            "conversation-copy-unsafe-path"
+        );
     }
     let mut binding = Vec::new();
     for path in [
@@ -27,7 +36,10 @@ fn header_binding(vault: &Vault, root: &Path) -> Result<String> {
             && parent != root
             && parent.try_exists()?
         {
-            ensure!(fs::symlink_metadata(parent)?.is_dir(), "conversation-copy-unsafe-path");
+            ensure!(
+                metadata(parent, ArchiveFileRole::Browsing)?.is_dir(),
+                "conversation-copy-unsafe-path"
+            );
         }
         if let Ok(meta) = fs::symlink_metadata(&member) {
             ensure!(
@@ -36,7 +48,7 @@ fn header_binding(vault: &Vault, root: &Path) -> Result<String> {
                 "conversation-copy-unsafe-path"
             );
         }
-        binding.push(member_identity(&member)?);
+        binding.push(member_identity(root, Path::new(path))?);
     }
 
     Ok(crate::utils::sha256_hex(&serde_json::to_vec(&binding)?))
@@ -55,12 +67,9 @@ impl Binding {
         for (path, expected) in &self.members {
             let absolute = root.join(path);
             let actual = match member_metadata(root, path)? {
-                Some(m) if m.is_file() => Some(snapshot::hash_file(&absolute).map_err(|e| {
-                    vault_store::Error::PreserveFile {
-                        path: absolute,
-                        source: std::io::Error::other(e),
-                    }
-                })?),
+                Some(m) if m.is_file() => {
+                    Some(snapshot::hash_file(&absolute, ArchiveFileRole::for_member(path))?)
+                }
                 None => None,
                 Some(_) => return Ok(false),
             };
@@ -80,10 +89,22 @@ fn member_metadata(root: &Path, path: &Path) -> Result<Option<fs::Metadata>> {
             Ok(m) => m,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
             Err(source) => {
-                return Err(vault_store::Error::PreserveFile { path: absolute, source }.into());
+                return Err(vault_store::Error::preserve(
+                    ArchiveFileRole::for_member(path),
+                    &absolute,
+                    source,
+                )
+                .into());
             }
         };
-        ensure!(!meta.is_symlink(), "conversation-copy-unsafe-path");
+        if meta.is_symlink() {
+            return Err(SnapshotMemberFailure {
+                code: "conversation-copy-unsafe-path",
+                path: absolute,
+                role: ArchiveFileRole::for_member(path),
+            }
+            .into());
+        }
         if absolute == root.join(path) {
             return Ok(Some(meta));
         }
@@ -105,15 +126,19 @@ impl<'a> CopySource<'a> {
         let header = header_binding(vault, source)?;
         let parent = vault.paths().artifact_path(ArtifactId::NativeSnapshots);
         ensure!(
-            source.parent() == Some(parent.as_path()) && fs::symlink_metadata(source)?.is_dir(),
+            source.parent() == Some(parent.as_path())
+                && metadata(source, ArchiveFileRole::Browsing)?.is_dir(),
             "conversation-copy-not-listed"
         );
         for part in [vault.paths().artifact_path(ArtifactId::RawSnapshots), parent.clone()] {
-            ensure!(fs::symlink_metadata(part)?.is_dir(), "conversation-copy-unsafe-path");
+            ensure!(
+                metadata(&part, ArchiveFileRole::Browsing)?.is_dir(),
+                "conversation-copy-unsafe-path"
+            );
         }
         for file in ["config.json", snapshot::SEAL] {
             ensure!(
-                fs::symlink_metadata(source.join(file))?.is_file(),
+                metadata(&source.join(file), ArchiveFileRole::Browsing)?.is_file(),
                 "conversation-copy-unsafe-path"
             );
         }
@@ -129,9 +154,23 @@ impl<'a> CopySource<'a> {
         }
 
         let seal_path = source.join(snapshot::SEAL);
-        ensure!(fs::metadata(&seal_path)?.len() <= 128 * 1024, "conversation-copy-invalid-seal");
-        let seal = fs::read(seal_path)?;
-        let proof: Vec<snapshot::FileProof> = serde_json::from_slice(&seal)?;
+        if metadata(&seal_path, ArchiveFileRole::Browsing)?.len() > 128 * 1024 {
+            return Err(SnapshotMemberFailure::new(
+                "conversation-copy-invalid-seal",
+                source,
+                Path::new(snapshot::SEAL),
+            )
+            .into());
+        }
+        let seal = fs::read(&seal_path)
+            .map_err(|e| vault_store::Error::preserve(ArchiveFileRole::Browsing, &seal_path, e))?;
+        let proof: Vec<snapshot::FileProof> = serde_json::from_slice(&seal).with_context(|| {
+            SnapshotMemberFailure::new(
+                "conversation-copy-invalid-seal",
+                source,
+                Path::new(snapshot::SEAL),
+            )
+        })?;
         let marked = info.conversations_unreadable
             || proof.iter().any(|p| p.path == Path::new(vault_layout::UNREADABLE_CONVERSATIONS));
         info.conversations_unreadable = marked;
@@ -139,7 +178,10 @@ impl<'a> CopySource<'a> {
         let key = if crate::load_config(&paths)?.archive_mode == crate::ArchiveMode::Encrypted {
             let same = vault.paths().artifact_path(ArtifactId::Envelope);
             let incoming = paths.artifact_path(ArtifactId::Envelope);
-            ensure!(fs::symlink_metadata(&incoming)?.is_file(), "conversation-copy-unsafe-path");
+            ensure!(
+                metadata(&incoming, ArchiveFileRole::Browsing)?.is_file(),
+                "conversation-copy-unsafe-path"
+            );
             if let Some(password) = password {
                 Some(Vault::unlock_data_key(&paths, password)?)
             } else if same.is_file()
@@ -157,61 +199,74 @@ impl<'a> CopySource<'a> {
         Ok(Self { root: source, info, key, digest: crate::utils::sha256_hex(&seal), proof, header })
     }
     pub fn evidence_prefixes(&self) -> Vec<PathBuf> {
-        let held = Path::new(vault_layout::HELD_CONVERSATIONS);
         let main = Path::new(vault_layout::database_path(Db::AgentHistoryEvidence));
-        let mut older = Vec::new();
-        for member in &self.proof {
-            if let Ok(relative) = member.path.strip_prefix(held)
-                && let Some(first) = relative.components().next()
-                && let Some(n) = first
-                    .as_os_str()
-                    .to_str()
-                    .and_then(|s| s.strip_prefix("older-"))
-                    .and_then(|n| n.parse::<u64>().ok())
-                && relative == Path::new(first.as_os_str()).join(main)
-            {
-                older.push((n, held.join(first.as_os_str())));
-            }
-        }
-        older.sort();
-        older.dedup();
-        [PathBuf::new(), held.to_owned()]
+        let mut held: Vec<_> = self
+            .proof
+            .iter()
+            .filter_map(|member| snapshot::held_evidence_prefix(&member.path))
+            .collect();
+        held.sort_unstable();
+        held.dedup();
+        self.proof
+            .iter()
+            .any(|member| member.path == main)
+            .then(PathBuf::new)
             .into_iter()
-            .chain(older.into_iter().map(|(_, p)| p))
-            .filter(|prefix| self.proof.iter().any(|p| p.path == prefix.join(main)))
+            .chain(held.into_iter().map(|(_, prefix)| prefix.to_owned()))
             .collect()
     }
     /// Each candidate has its own directory. A failed proof cannot contribute
     /// any members to the next candidate.
-    pub fn copy(&self, roles: &[Db], prefix: &Path, work: &Path) -> Result<Option<Binding>> {
+    pub fn copy(&self, roles: &[Db], prefix: &Path, work: &Path) -> Result<Binding> {
         let mut members = Vec::new();
         for &db in roles {
             let main = Path::new(vault_layout::database_path(db));
-            fs::create_dir_all(work.join(main.parent().unwrap()))?;
             for suffix in vault_layout::database_spec(db).companions.suffixes(CompanionUse::Install)
             {
                 let name = PathBuf::from(format!("{}{suffix}", main.display()));
                 let relative = prefix.join(&name);
                 let mut proofs = self.proof.iter().filter(|p| p.path == relative);
                 let proof = proofs.next();
-                ensure!(proofs.next().is_none(), "conversation-copy-duplicate-role");
+                if proofs.next().is_some() {
+                    return Err(SnapshotMemberFailure::new(
+                        "conversation-copy-duplicate-role",
+                        self.root,
+                        &relative,
+                    )
+                    .into());
+                }
                 match (member_metadata(self.root, &relative)?, proof) {
                     (None, None) if !suffix.is_empty() => {}
                     (Some(meta), Some(proof)) if meta.is_file() => {
                         let dest = work.join(&name);
-                        fs::copy(self.root.join(&relative), &dest)?;
-                        if snapshot::hash_file(&dest)? != proof.sha256 {
-                            if self.info.conversations_unreadable {
-                                return Ok(None);
-                            }
-                            anyhow::bail!("snapshot-digest-mismatch: {}", relative.display());
+                        vault_store::copy_archive_file(
+                            ArchiveFileRole::for_member(&relative),
+                            &self.root.join(&relative),
+                            &dest,
+                        )?;
+                        if snapshot::hash_file(&dest, ArchiveFileRole::for_member(&relative))?
+                            != proof.sha256
+                        {
+                            return Err(SnapshotMemberFailure::new(
+                                "snapshot-digest-mismatch",
+                                self.root,
+                                &relative,
+                            )
+                            .into());
                         }
                     }
-                    _ => return Ok(None),
+                    _ => {
+                        return Err(SnapshotMemberFailure::new(
+                            "conversation-copy-incomplete",
+                            self.root,
+                            &relative,
+                        )
+                        .into());
+                    }
                 }
                 members.push((relative, proof.map(|p| p.sha256.clone())));
             }
         }
-        Ok(Some(Binding { header: self.header.clone(), members }))
+        Ok(Binding { header: self.header.clone(), members })
     }
 }

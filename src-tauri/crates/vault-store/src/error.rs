@@ -2,7 +2,51 @@
 //! Not responsible for: UI copy, retries or logging secrets.
 //! Failure modes: busy/corrupt/key errors are misclassified; diagnostic causes vanish.
 //! Tests: opening.
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+
+/// Responsibility for a member an archive operation must read or keep.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ArchiveFileRole {
+    Browsing,
+    Evidence,
+    ReadModel,
+    HeldGeneration,
+}
+
+impl From<crate::Db> for ArchiveFileRole {
+    fn from(db: crate::Db) -> Self {
+        match db {
+            crate::Db::AgentHistoryEvidence => Self::Evidence,
+            crate::Db::AgentHistoryReadModel => Self::ReadModel,
+            _ => Self::Browsing,
+        }
+    }
+}
+
+impl ArchiveFileRole {
+    /// Resolve an archive-relative member, including companions and opaque directory children.
+    pub fn for_member(relative: &Path) -> Self {
+        if relative.starts_with(vault_layout::HELD_CONVERSATIONS) {
+            return Self::HeldGeneration;
+        }
+        if relative.starts_with(
+            vault_layout::spec(vault_layout::ArtifactId::AgentHistorySearch).path.relative(),
+        ) {
+            return Self::ReadModel;
+        }
+        for db in [crate::Db::AgentHistoryEvidence, crate::Db::AgentHistoryReadModel] {
+            for suffix in vault_layout::database_spec(db)
+                .companions
+                .suffixes(vault_layout::CompanionUse::Install)
+            {
+                if relative.starts_with(format!("{}{suffix}", vault_layout::database_path(db))) {
+                    return db.into();
+                }
+            }
+        }
+        Self::Browsing
+    }
+}
 
 /// The operation that discovered a role could not join its owner.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -21,6 +65,7 @@ pub enum OpenStage {
 #[error("{role:?} {stage:?}: {cause}")]
 pub struct StoreOpenFailure {
     pub role: crate::Db,
+    pub path: PathBuf,
     pub stage: OpenStage,
     #[source]
     pub cause: Error,
@@ -50,9 +95,17 @@ pub enum Error {
     #[error("retained revision {revision}: {detail}")]
     RetainedBytes { revision: i64, detail: String },
     #[error(
-        "conversation-preservation-failed: could not read {path} ({source}), nothing was changed"
+        "conversation-preservation-failed: could not preserve {path} ({source}), nothing was changed"
     )]
     PreserveFile {
+        role: ArchiveFileRole,
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("archive-file-write-failed: could not keep {path} ({source})")]
+    WriteFile {
+        role: ArchiveFileRole,
         path: PathBuf,
         #[source]
         source: std::io::Error,
@@ -155,12 +208,25 @@ impl Error {
         matches!(self, Self::Engine(turso::Error::ConversionFailure(_)))
     }
 
-    /// Keep the first failing role when an outer startup step adds context.
-    pub fn at(self, role: crate::Db, stage: OpenStage) -> Self {
+    /// File-aware failures keep the actual input path (including a selected copy or stage).
+    pub fn at_file(self, role: crate::Db, stage: OpenStage, path: &Path) -> Self {
         match self {
             Self::Open(_) => self,
-            cause => Self::Open(std::sync::Arc::new(StoreOpenFailure { role, stage, cause })),
+            cause => Self::Open(std::sync::Arc::new(StoreOpenFailure {
+                role,
+                stage,
+                cause,
+                path: path.to_owned(),
+            })),
         }
+    }
+
+    pub fn preserve(role: ArchiveFileRole, path: &Path, source: std::io::Error) -> Self {
+        Self::PreserveFile { role, path: path.to_owned(), source }
+    }
+
+    pub fn writing(role: ArchiveFileRole, path: &Path, source: std::io::Error) -> Self {
+        Self::WriteFile { role, path: path.to_owned(), source }
     }
 
     /// Cooperative cancellation has no engine failure underneath it.

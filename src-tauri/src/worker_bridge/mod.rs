@@ -36,23 +36,6 @@ pub(crate) use self::{
     search::*, security::*, stars::*,
 };
 
-/// Conversions need every role. Preserve their typed remediation even under
-/// added diagnostic context from the copy or install boundary.
-fn conversion_result<T>(result: anyhow::Result<T>) -> Result<T, CommandError> {
-    result.map_err(|error| {
-        if let Some(reason) =
-            error.chain().find_map(|cause| match cause.downcast_ref::<vault_store::Error>()? {
-                reason @ (vault_store::Error::RepairRequired(_)
-                | vault_store::Error::AccessUnavailable(_)) => Some(reason),
-                _ => None,
-            })
-        {
-            return CommandError::classified(reason.to_string());
-        }
-        CommandError::classified(format!("{error:#}"))
-    })
-}
-
 /// Normalizes worker/core errors into the [`CommandError`] envelope used by Tauri commands.
 ///
 /// Uses the `{:#}` alternate Display formatter so `anyhow::Error` chains
@@ -62,13 +45,11 @@ fn conversion_result<T>(result: anyhow::Result<T>) -> Result<T, CommandError> {
 /// (required by `module-boundary-map.md`) are classified here, in the one
 /// layer that owns the backend's canonical error markers, so the frontend
 /// keys remediation and i18n on `code` instead of sniffing message text.
-/// Non-anyhow types fall back to plain Display, which `{:#}` reduces to for
-/// any type that does not honour the alternate flag.
-fn worker_result<T, E: std::fmt::Display>(result: Result<T, E>) -> Result<T, CommandError> {
+fn worker_result<T, E: Into<anyhow::Error>>(result: Result<T, E>) -> Result<T, CommandError> {
     result.map_err(|error| {
-        let message = format!("{error:#}");
-        log::warn!(target: "pathkeep::worker_bridge", "{message}");
-        CommandError::classified(message)
+        let envelope = CommandError::from_backend(&error.into());
+        log::warn!(target: "pathkeep::worker_bridge", "{}", envelope.message);
+        envelope
     })
 }
 
@@ -93,6 +74,48 @@ mod tests {
         CHROME_USER_DATA_OVERRIDE_ENV, PROJECT_ROOT_OVERRIDE_ENV, TEST_KEYRING_OVERRIDE_ENV,
         lock_env,
     };
+
+    #[test]
+    fn archive_file_refusals_keep_the_member_through_command_context() {
+        // Parentheses, whitespace and a colon are legal in a file path. The diagnostic
+        // chain cannot reliably delimit this field for either desktop transport.
+        let root = tempdir().unwrap();
+        for (db, role) in [
+            (vault_store::Db::Archive, "browsing"),
+            (vault_store::Db::AgentHistoryReadModel, "readModel"),
+        ] {
+            let path = root.path().join("a (copy): b").join("member.db");
+            let cause = vault_store::Error::MissingStore(path.clone()).at_file(
+                db,
+                vault_store::OpenStage::Preflight,
+                &path,
+            );
+            let error = anyhow::Error::new(cause).context("reading a selected archive copy");
+            let envelope = worker_result::<(), _>(Err(error)).unwrap_err();
+            assert_eq!(
+                serde_json::json!(envelope)["affectedFile"],
+                serde_json::json!({"role":role,"path":path})
+            );
+        }
+    }
+
+    #[test]
+    fn refusing_a_copy_destination_identifies_the_destination() {
+        let root = tempdir().unwrap();
+        let source = root.path().join("readable");
+        let target = root.path().join("occupied");
+        fs::write(&source, b"input").unwrap();
+        fs::write(&target, b"original").unwrap();
+        let result = vault_store::copy_archive_file(
+            vault_store::ArchiveFileRole::Evidence,
+            &source,
+            &target,
+        );
+        let refusal = serde_json::json!(worker_result(result).unwrap_err());
+        assert_eq!(refusal["code"], "archive-file-write-failed");
+        assert_eq!(refusal["affectedFile"], serde_json::json!({"path":target,"role":"evidence"}));
+        assert_eq!(fs::read(target).unwrap(), b"original");
+    }
 
     fn initialized_config() -> AppConfig {
         let mut config = AppConfig {

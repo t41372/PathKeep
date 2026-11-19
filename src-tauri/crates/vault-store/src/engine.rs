@@ -99,11 +99,15 @@ pub(crate) fn preflight(config: &Config, roles: &[Db]) -> Result<()> {
             } else {
                 OpenStage::Preflight
             };
-            return Err(cause.at(db, stage));
+            return Err(cause.at_file(db, stage, &settings.path));
         }
     }
     if tickets.len() == 2 && tickets.iter().all(Option::is_some) && tickets[0] != tickets[1] {
-        return Err(Error::PairUnverified.at(Db::AgentHistoryReadModel, OpenStage::Preflight));
+        return Err(Error::PairUnverified.at_file(
+            Db::AgentHistoryReadModel,
+            OpenStage::Preflight,
+            config.paths.get(Db::AgentHistoryReadModel),
+        ));
     }
     Ok(())
 }
@@ -212,7 +216,7 @@ pub(crate) fn verify_pair(config: &Config, full: bool, legacy_copy: bool) -> Res
             if !has_table { legacy_roles += 1; }
             tickets.push(if has_table { crate::pair::ticket(s)? } else {None});
             Ok(())
-        })).map_err(|e| e.at(db,OpenStage::Recover))?;
+        })).map_err(|e| e.at_file(db,OpenStage::Recover,&settings.path))?;
     }
     if legacy_copy && legacy_roles == 2 {
         return Ok(false);
@@ -221,7 +225,11 @@ pub(crate) fn verify_pair(config: &Config, full: bool, legacy_copy: bool) -> Res
         || (tickets[0] != tickets[1] && tickets.iter().all(Option::is_some))
         || (full && tickets.iter().any(Option::is_none))
     {
-        return Err(Error::PairUnverified.at(Db::AgentHistoryReadModel, OpenStage::Recover));
+        return Err(Error::PairUnverified.at_file(
+            Db::AgentHistoryReadModel,
+            OpenStage::Recover,
+            config.paths.get(Db::AgentHistoryReadModel),
+        ));
     }
     Ok(true)
 }
@@ -270,7 +278,8 @@ pub(crate) fn check_paths(config: &Config, roles: &[Db]) -> Result<()> {
     let mut linked = Vec::new();
     for &db in roles {
         let path = config.paths.get(db);
-        let identity = resolved_path(path).map_err(|e| e.at(db, OpenStage::Preflight))?;
+        let identity =
+            resolved_path(path).map_err(|e| e.at_file(db, OpenStage::Preflight, path))?;
         let mut alias = canonical.contains(&identity);
         canonical.push(identity);
         match turso::core::io::get_file_id(path.to_str().expect("validated database path")) {
@@ -279,11 +288,11 @@ pub(crate) fn check_paths(config: &Config, roles: &[Db]) -> Result<()> {
                 linked.push(id);
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-            Err(e) => return Err(Error::Io(e).at(db, OpenStage::Preflight)),
+            Err(e) => return Err(Error::Io(e).at_file(db, OpenStage::Preflight, path)),
         }
         if alias {
             return Err(Error::InvalidConfig("database paths resolve to the same file".into())
-                .at(db, OpenStage::Preflight));
+                .at_file(db, OpenStage::Preflight, path));
         }
     }
     Ok(())
@@ -387,7 +396,7 @@ impl Engine {
                 self.conn
                     .execute("ATTACH ?1 AS scratch", [uri.as_str()])
                     .await
-                    .map_err(|e| Error::from(e).at(Db::Scratch, OpenStage::Open))?;
+                    .map_err(|e| Error::from(e).at_file(Db::Scratch, OpenStage::Open, path))?;
                 // In 0.8.1 a schema-qualified cache_size still updates main.
                 // Leave the attachment's native bounded page cache alone.
             }
@@ -396,7 +405,7 @@ impl Engine {
                 self.conn
                     .execute("ATTACH ?1 AS archive", [uri.as_str()])
                     .await
-                    .map_err(|e| Error::from(e).at(Db::Archive, OpenStage::Open))?;
+                    .map_err(|e| Error::from(e).at_file(Db::Archive, OpenStage::Open, path))?;
             }
             if read_only {
                 self.conn.execute("PRAGMA query_only=1", ()).await?;
