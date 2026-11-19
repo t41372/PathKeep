@@ -27,7 +27,7 @@ mod worker;
 pub use cancel::CancelToken;
 pub use checkpoint::Metrics;
 pub use config::{Config, Db, IoLayer, Paths};
-pub use copy::{CopyPhase, CopyProgress, TableDigest};
+pub use copy::{CopyPhase, CopyProgress, TableDigest, hash_value};
 pub use engine_log::route_engine_diagnostics_to_log;
 pub use error::{Error, OpenStage, Result, StoreOpenFailure};
 pub use maintenance::Maintenance;

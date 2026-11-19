@@ -121,6 +121,18 @@ fn seven_harnesses_agree_with_published_events_and_both_normalized_exports() {
             session.harness
         );
         assert_eq!(events, export, "{}", session.harness);
+        if matches!(session.harness, Harness::Cline | Harness::RooCode) {
+            let head = archive.reader_header(&session.id).unwrap();
+            let rows =
+                archive.reader_visible_window(&head, None, 0, 20, &Default::default()).unwrap();
+            let summary = rows
+                .iter()
+                .find(|r| r.parts.iter().any(|p| p.text == "Compacted context"))
+                .unwrap();
+            assert!(
+                matches!(&summary.boundary,Some(b) if b.kind==agent_history::read_model::BoundaryKind::Compaction)
+            );
+        }
         if session.harness == Harness::Pi {
             let header = archive.reader_header(&session.id).unwrap();
             let displayed = archive

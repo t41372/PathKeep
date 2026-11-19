@@ -213,7 +213,7 @@ impl Archive {
             // Hot coverage commits first. A crash before the cold head changes is
             // conservative; the reverse order could falsely claim complete search
             // for bytes no parser has seen. Projection publication shares this lock.
-            self.set_coverage(&source_id, false)?;
+            self.set_coverage_locked(&source_id, false)?;
         }
         let retention = source.retention;
         let expires = retention == "state";

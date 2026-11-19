@@ -88,9 +88,11 @@ pub(super) fn seed(a: &Archive, roots: i64) {
             let mut version=tx.prepare("INSERT INTO ah_reader_version(token,attempt,source,revision,digest,byte_len,codec,renderer,records,selective,state,record_limit,decoded_limit)
                 VALUES(?1,?2,?1,?2,?5,?6,?3,?4,121,0,'published',16777216,1000000000)")?;
             let mut head=tx.prepare("INSERT INTO ah_reader_head(conversation,publication,current_source,input_digest) VALUES(?1,?1,?1,'fixture')")?;
+            let mut receipt=tx.prepare("INSERT INTO ah_reader_serving(conversation,publication) VALUES(?1,?1)")?;
             for (id,root,digest,size) in summaries{
                 session.execute(params![root.clone(),id])?;
                 version.execute(params![root.clone(),id,CODEC,RENDERER,digest,size])?;
+                receipt.execute([root.as_str()])?;
                 head.execute([root])?;
             }
             Ok(())

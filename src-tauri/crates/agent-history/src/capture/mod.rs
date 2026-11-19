@@ -138,16 +138,15 @@ impl Archive {
     }
 
     fn finish_reader_work<T>(&self, outcome: Result<T>, options: &BackupOptions) -> Result<T> {
-        let flushed = {
-            let _gate = self
-                .publication_gate
-                .lock()
-                .map_err(|_| Error::Integrity("publication lock".into()))?;
-            self.flush_reader_heads()
-        };
+        let flushed = self.finalize_reader_work();
+        if matches!(flushed, Err(Error::Cancelled)) {
+            // The owner revoked the finalizer. Dirty tickets survive shutdown. On resume
+            // they are finalized by idle maintenance or before the next reader header.
+            self.reader_finalization_pending.store(true, std::sync::atomic::Ordering::Release);
+        }
         self.jobs.request_collection();
         let collected = self.collect_reader_garbage(&options.cancel);
-        outcome.and_then(|result| flushed.and(collected).map(|()| result))
+        flushed.and(outcome).and_then(|result| collected.map(|()| result))
     }
 
     fn execute_run(
@@ -472,7 +471,7 @@ fn process_artifact(
                 captured.revision_id,
                 options,
             )?;
-            archive.set_coverage(&source_id, false)?;
+            archive.unreadable_coverage(&source_id, captured.revision_id)?;
             return Ok(());
         }
     };
@@ -491,7 +490,7 @@ fn process_artifact(
             options,
         )?
     {
-        archive.set_coverage(&source_id, false)?;
+        archive.unreadable_coverage(&source_id, captured.revision_id)?;
         return Ok(());
     }
     if prepared.report.diagnostics.iter().any(|d| {

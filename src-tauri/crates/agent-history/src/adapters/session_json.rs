@@ -390,3 +390,15 @@ pub(crate) fn parts(event: &NativeEvent, wrapped: bool) -> Vec<RecordPart> {
     }
     result
 }
+
+/// Task-array summaries replace the model context while preserving the physical history.
+pub(crate) fn summary_boundary(
+    event: &NativeEvent,
+) -> Option<crate::read_model::StructuralBoundary> {
+    (event.payload.get("isSummary").and_then(Value::as_bool) == Some(true)).then_some(
+        crate::read_model::StructuralBoundary {
+            kind: crate::read_model::BoundaryKind::Compaction,
+            tokens_before: None,
+        },
+    )
+}

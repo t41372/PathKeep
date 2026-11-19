@@ -84,9 +84,6 @@ pub(super) fn retain_latest_state(
 }
 
 impl Archive {
-    pub(crate) fn reclaim_slices(&self) -> Result<()> {
-        self.reclaim_slices_with_cancel(&vault_store::CancelToken::new())
-    }
     pub(crate) fn reclaim_slices_with_cancel(
         &self,
         cancel: &vault_store::CancelToken,

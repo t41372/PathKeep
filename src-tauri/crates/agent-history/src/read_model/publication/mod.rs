@@ -7,8 +7,11 @@ mod cleanup;
 mod evidence;
 mod leaves;
 mod lookup;
+mod manifest;
 mod membership;
+mod navigation;
 pub use leaves::ReaderLeaves;
+use navigation::Extents;
 mod pages;
 mod read;
 mod repair;
@@ -24,8 +27,8 @@ use serde::{Deserialize, Serialize};
 use vault_store::Db;
 
 const DB: Db = Db::AgentHistoryReadModel;
-pub(crate) const CODEC: i64 = 3;
-pub(crate) const RENDERER: i64 = 3;
+pub(crate) const CODEC: i64 = 4;
+pub(crate) const RENDERER: i64 = 4;
 const REPLAY_LIMIT: u64 = 32 * 1024 * 1024;
 const OUTLINE: i64 = 1;
 const LOOKUP: i64 = 2;
@@ -33,6 +36,9 @@ const FRAMES: i64 = 3;
 const LEAVES: i64 = 4;
 const RANK: i64 = 5;
 const DIRECTORY: i64 = 6;
+const NONEMPTY: i64 = 9;
+const AMBIGUOUS: i64 = 10;
+const EXTENTS: i64 = 11;
 // Renderer version participates in the physical page key.
 const RENDERED: i64 = 1000 + RENDERER;
 
@@ -153,3 +159,17 @@ fn navigation_error(error: Error) -> Error {
 
 #[cfg(test)]
 mod measure;
+
+// Only row-local derived failures can be parked. Owner failures, cancellation and
+// evidence reads (tagged with their role) keep their original error.
+fn local_reader_damage(error: &Error) -> bool {
+    match error {
+        Error::ReaderRebuildRequired | Error::Integrity(_) | Error::Json(_) => true,
+        Error::Store(store) => store.is_row_data_error(),
+        _ => false,
+    }
+}
+fn derived_read_error(error: vault_store::Error) -> Error {
+    let error = Error::from(error);
+    if local_reader_damage(&error) { Error::ReaderRebuildRequired } else { error }
+}

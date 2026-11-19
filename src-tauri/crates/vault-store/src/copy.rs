@@ -272,7 +272,8 @@ fn digest(
     Ok(TableDigest { table: table.into(), rows: count, sha256: format!("{:x}", hash.finalize()) })
 }
 
-fn hash_value(hash: &mut Sha256, value: turso::Value) {
+/// Feed a length-delimited SQL value and its storage class into a canonical digest.
+pub fn hash_value(hash: &mut Sha256, value: turso::Value) {
     match value {
         turso::Value::Null => hash.update([0]),
         turso::Value::Integer(v) => {

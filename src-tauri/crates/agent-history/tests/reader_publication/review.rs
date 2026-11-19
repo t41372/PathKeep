@@ -233,3 +233,60 @@ fn admitted_backup_flushes_a_pending_ticket_on_early_cancel() {
     assert!(matches!(result, Err(Error::Cancelled)));
     assert!(!a.reader_header(&old.conversation_id).unwrap().complete);
 }
+
+#[test]
+fn later_pi_id_cannot_steal_an_earlier_edge() {
+    let (_t, a, h) = pi(
+        &[
+            json!({"type":"session","version":3,"id":"session"}),
+            fixtures::pi_message("p", None, "user", "original"),
+            fixtures::pi_message("a", Some("p"), "assistant", "reply"),
+            fixtures::pi_message("p", None, "user", "alternative"),
+            fixtures::pi_message("z", Some("a"), "assistant", "last"),
+        ],
+        b"",
+    );
+    assert_eq!(
+        texts(a.reader_visible_window(&h, None, 0, 10, &Default::default()).unwrap()),
+        ["original", "reply", "last"]
+    );
+    let mut tips =
+        a.reader_leaves(&h, &h.current_source, 0, 10, &Default::default()).unwrap().ordinals;
+    tips.sort_unstable();
+    assert_eq!(tips, [3, 4]);
+}
+#[test]
+fn idless_pi_tail_has_a_marker_and_proven_content() {
+    let mut tail = fixtures::pi_message("missing", Some("a"), "assistant", "answer");
+    tail.as_object_mut().unwrap().remove("id");
+    let (_t, a, h) = pi(
+        &[
+            json!({"type":"session","version":3,"id":"session"}),
+            fixtures::pi_message("a", None, "user", "prompt"),
+            tail,
+        ],
+        b"",
+    );
+    let rows = a.reader_visible_window(&h, None, 0, 8, &Default::default()).unwrap();
+    assert_eq!(rows.first().map(|r| r.kind.as_str()), Some("unresolved_parent"));
+    assert_eq!(texts(rows), ["prompt", "answer"]);
+    assert!(!h.complete);
+    let (_t, a, h) = pi(&[json!({"type":"session","version":3,"id":"empty"})], b"");
+    assert!(a.reader_visible_window(&h, None, 0, 8, &Default::default()).unwrap().is_empty());
+}
+
+#[test]
+fn pi_cycle_has_a_marked_provable_suffix() {
+    let (_t, a, h) = pi(
+        &[
+            json!({"type":"session","version":3,"id":"session"}),
+            fixtures::pi_message("a", Some("b"), "user", "first"),
+            fixtures::pi_message("b", Some("a"), "assistant", "second"),
+        ],
+        b"",
+    );
+    let rows = a.reader_visible_window(&h, None, 0, 8, &Default::default()).unwrap();
+    assert_eq!(rows[0].kind, "unresolved_parent");
+    assert_eq!(texts(rows), ["first", "second"]);
+    assert!(!h.complete);
+}

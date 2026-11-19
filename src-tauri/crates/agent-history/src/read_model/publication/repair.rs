@@ -6,14 +6,31 @@ use vault_store::params;
 
 impl Archive {
     pub(super) fn same_reader_pages(&self, old: &str, new: &str, job: &JobControl) -> Result<bool> {
+        #[cfg(test)]
+        if super::tests::round_two::CHECK_GATE.replace(false) {
+            assert!(
+                self.publication_gate.try_lock().is_ok(),
+                "immutable comparison holds publication gate"
+            );
+        }
         let (a, b) = (old.to_owned(), new.to_owned());
+        match self
+            .store
+            .read(DB, move |tx| manifest::verify_version(tx, &a))
+            .map_err(derived_read_error)
+        {
+            Err(Error::ReaderRebuildRequired) => return Ok(false),
+            Err(error) => return Err(error),
+            Ok(()) => {}
+        }
+        let a = old.to_owned();
         let metadata = self.store.read(DB, move |tx| {
             tx.query_one(
             "SELECT a.codec=b.codec AND a.renderer=b.renderer AND a.digest=b.digest AND a.byte_len=b.byte_len
              AND a.record_limit=b.record_limit AND a.decoded_limit=b.decoded_limit AND a.records=b.records
              AND a.max_frame=b.max_frame AND a.selective=b.selective AND a.format_version IS b.format_version
              AND a.header_ordinal IS b.header_ordinal AND a.visible_total=b.visible_total AND a.rank_pages=b.rank_pages
-             AND a.postings=b.postings AND a.lookup_pages=b.lookup_pages AND a.directory_pages=b.directory_pages AND a.leaf_count=b.leaf_count AND a.duplicate_ids=b.duplicate_ids
+             AND a.pieces=b.pieces AND a.nonempty_blocks=b.nonempty_blocks AND a.ambiguous_edges=b.ambiguous_edges AND a.source=b.source AND a.revision=b.revision AND a.postings=b.postings AND a.lookup_pages=b.lookup_pages AND a.directory_pages=b.directory_pages AND a.leaf_count=b.leaf_count AND a.duplicate_ids=b.duplicate_ids
              AND (SELECT count(*) FROM ah_reader_page WHERE owner=a.token)=(SELECT count(*) FROM ah_reader_page WHERE owner=b.token)
              FROM ah_reader_version a JOIN ah_reader_version b ON b.token=?2 WHERE a.token=?1",
                 params![a,b],
@@ -51,13 +68,14 @@ impl Archive {
                             .map_err(Error::from);
                         match same {
                             Ok(true) => {}
-                            Ok(false) | Err(Error::ReaderRebuildRequired) => return Ok(false),
+                            Ok(false) => return Ok(false),
+                            Err(e) if local_reader_damage(&e) => return Ok(false),
                             Err(e) => return Err(e),
                         }
                     }
                 }
             }
-            Err(Error::ReaderRebuildRequired) => return Ok(false),
+            Err(e) if local_reader_damage(&e) => return Ok(false),
             Err(e) => return Err(e),
         }
         if !self.walks_intact(old, job)? {

@@ -12,7 +12,7 @@ struct State {
     pauses: usize,
     active: usize,
     decoders: usize,
-    queue: std::collections::VecDeque<Arc<CancelToken>>,
+    queue: std::collections::VecDeque<(Arc<CancelToken>, bool)>,
     gc_requested: bool,
     gc_owner: std::sync::Weak<Archive>,
 
@@ -75,7 +75,9 @@ impl Jobs {
         let Some((archive, lease)) = work else { return };
         let started =
             std::thread::Builder::new().name("conversation-reader-gc".into()).spawn(move || {
-                let result = archive.collect_reader_garbage(&CancelToken::new());
+                let result = archive
+                    .resume_reader_finalization()
+                    .and_then(|()| archive.collect_reader_garbage(&CancelToken::new()));
                 match result {
                     Err(crate::Error::Cancelled) => archive.jobs.request_collection(),
                     Err(error) => eprintln!("Conversation reader cleanup: {error}"),
@@ -113,7 +115,7 @@ impl Jobs {
         let mut state = self.state.lock().unwrap();
         state.check_admission()?;
         let token = Arc::new(cancel.clone());
-        state.queue.push_back(token.clone());
+        state.queue.push_back((token.clone(), scan));
         state.readers.push(token.clone());
         state.active += 1;
         // Lay the job guard below the mutex guard so an error releases the lock before Drop.
@@ -123,11 +125,13 @@ impl Jobs {
         loop {
             state.check_admission()?;
             cancel.check().map_err(|_| crate::Error::Cancelled)?;
-            if state.queue.front().is_some_and(|front| Arc::ptr_eq(front, &token))
+            let eligible =
+                state.queue.iter().position(|(_, wants_scan)| !wants_scan || !state.scanning);
+            if eligible.is_some_and(|index| Arc::ptr_eq(&state.queue[index].0, &token))
                 && state.decoders < DECODER_SLOTS
                 && !(scan && state.scanning)
             {
-                state.queue.pop_front();
+                state.queue.remove(eligible.expect("eligible waiter"));
                 self.idle.notify_all();
                 state.decoders += 1;
                 state.scanning |= scan;
@@ -227,7 +231,7 @@ impl Drop for Job {
         let mut state = self.jobs.state.lock().unwrap();
         state.active -= 1;
         if let Some(reader) = &self.reader {
-            state.queue.retain(|other| !Arc::ptr_eq(other, reader));
+            state.queue.retain(|(other, _)| !Arc::ptr_eq(other, reader));
             self.jobs.idle.notify_all();
             state.readers.retain(|other| !Arc::ptr_eq(other, reader));
         }
@@ -283,7 +287,7 @@ mod admission_tests {
         time::{Duration, Instant},
     };
     #[test]
-    fn queued_scan_is_not_overtaken_by_a_new_window() {
+    fn queued_scan_reserves_scan_slot_while_window_uses_spare_slot() {
         let t = tempfile::tempdir().unwrap();
         let a = Archive::create_unencrypted(t.path()).unwrap();
         let busy = a.jobs.enter_scan(&CancelToken::new()).unwrap();
@@ -305,7 +309,7 @@ mod admission_tests {
             if !early {
                 received.recv_timeout(Duration::from_secs(2)).unwrap();
             }
-            assert!(!early, "window bypassed the queued scan");
+            assert!(early, "eligible window could not use the second slot");
         });
     }
 }

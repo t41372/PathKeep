@@ -42,12 +42,14 @@ impl Archive {
         owner: &str,
         total: u64,
         latest: Option<u64>,
+        last_entry: Option<u64>,
         job: &JobControl,
     ) -> Result<()> {
         let mut reverse_rank = 0i64;
         let mut oldest = None;
-        let mut unresolved = None;
-        if let Some(leaf) = latest {
+        let orphan = last_entry.filter(|n| latest.is_none_or(|tip| *n > tip));
+        let mut unresolved = orphan.map(|n| n as i64);
+        if let Some(leaf) = orphan.or(latest) {
             let walked = self.walk_leaf(owner, leaf, job, |lo, hi| {
                 oldest = Some(lo as i64);
                 let token = owner.to_owned();

@@ -157,14 +157,14 @@ impl Archive {
                  records=?2,selective=?3,state='ready',max_frame=?4,format_version=?5 WHERE
                  token=?1",
                 params![
-                    token,
+                    token.clone(),
                     count as i64,
                     i64::from(max_frame > REPLAY_LIMIT),
                     max_frame as i64,
                     format_version
                 ],
             )?;
-            Ok(())
+            manifest::sign_version(tx, &token)
         })?;
         Ok(())
     }
@@ -183,6 +183,8 @@ impl Archive {
         let mut max_frame = 0;
         let mut format_version = None;
         let mut pi = false;
+        let mut last_entry = None;
+        let mut last_visible_orphan = None;
         let mut header = None;
         let mut first_object = true;
         let mut previous = None;
@@ -212,11 +214,18 @@ impl Archive {
                     pi = matches!(ctx, RecordContext::Pi { .. });
                     let entry =
                         Entry::interpret(locator, ctx, value, &mut previous, &mut run_start)?;
+                    let n = entry.locator.ordinal.0;
+                    if pi && entry.id.is_none() && entry.visible {
+                        last_visible_orphan = Some(n);
+                    }
+                    if pi && value.is_some() && Some(n) != header {
+                        last_entry = Some(n);
+                    }
                     if let Some(id) = &entry.id {
-                        lookup.push(self, token, id, entry.locator.ordinal.0 + 1)?
+                        lookup.push(self, token, id, n * 2 + 1)?
                     }
                     if pi && let Some(parent) = &entry.parent {
-                        lookup.push(self, token, parent, 0)?
+                        lookup.push(self, token, parent, n * 2)?
                     }
                     visibility.add(self, token, &entry)?;
                     outline.push(self, token, &entry)
@@ -242,17 +251,17 @@ impl Archive {
                 Err(error) => return Err(error),
             }
         }
-        visibility.flush(self, token)?;
+        let (blocks, visible, nonempty) = visibility.finish(self, token)?;
         outline.flush(self, token)?;
-        let (blocks, visible) = visibility.extent();
+
         let owner = token.to_owned();
         self.store.write(DB, Priority::Batch, move |tx| {
             tx.execute(
-                "UPDATE ah_reader_version SET rank_pages=?1,visible_total=?2 WHERE token=?3",
-                params![blocks, visible, owner],
+                "UPDATE ah_reader_version SET rank_pages=?1,visible_total=?2,nonempty_blocks=?4,records=?5 WHERE token=?3",
+                params![blocks,visible,owner,nonempty,count as i64],
             )
         })?;
-        lookup.finish(self, token, job, pi, header)?;
+        lookup.finish(self, token, job, pi, header, (last_entry, last_visible_orphan))?;
         if max_frame > REPLAY_LIMIT {
             let mut rendered = Buffer::new(RENDERED, pages::TEXT_BYTES);
             let scan = self.scan_revision_admitted(
@@ -271,6 +280,8 @@ impl Archive {
             }
             rendered.flush(self, token)?;
         }
+        let owner = token.to_owned();
+        self.store.write(DB,Priority::Batch,move|tx|tx.execute("UPDATE ah_reader_version SET pieces=(SELECT count(*) FROM ah_reader_page WHERE owner=?1) WHERE token=?1",[owner]))?;
         Ok((count, max_frame, format_version))
     }
 
@@ -330,7 +341,31 @@ impl Archive {
             }
             let _guard =
                 self.publication_gate.lock().map_err(|_| pages::invalid("publication lock"))?;
-            self.flush_reader_heads_controlled(&job.cancel)?;
+            // A damaged dependency in another group stays parked until its turn.
+            self.recover_reader_heads(&job.cancel)?;
+        }
+        {
+            let _guard =
+                self.publication_gate.lock().map_err(|_| pages::invalid("publication lock"))?;
+            self.store.write(DB, Priority::Batch, |tx| {
+                tx.execute(
+                    "INSERT OR IGNORE INTO ah_reader_dirty
+                SELECT p.conversation,p.ticket FROM ah_reader_parked p
+                UNION ALL SELECT h.conversation,lower(hex(randomblob(16))) FROM ah_reader_head h
+                WHERE NOT EXISTS(SELECT 1 FROM ah_sessions s WHERE s.conversation_id=h.conversation)
+                UNION ALL SELECT w.conversation,lower(hex(randomblob(16))) FROM ah_reader_serving w
+                WHERE NOT EXISTS(SELECT 1 FROM ah_sessions s WHERE s.conversation_id=w.conversation)",
+                    (),
+                )
+            })?;
+            self.recover_reader_heads(&job.cancel)?;
+            if self.store.read(DB, |tx| {
+                tx.query_one("SELECT EXISTS(SELECT 1 FROM ah_reader_parked)", (), |r| {
+                    Ok(r.get::<i64>(0)? != 0)
+                })
+            })? {
+                return Err(Error::ReaderRebuildRequired);
+            }
         }
         self.collect_reader_garbage(&job.cancel)?;
         Ok(count)
@@ -370,6 +405,26 @@ impl Archive {
         })?;
         let (records, max_frame, format_version) =
             self.build_reader_pages(&token, attempt, &context, &job)?;
+        let attempt_id = attempt.id;
+        let staged = token.clone();
+        let prior_source = attempt.source_id.clone();
+        let previous=self.store.write(DB,Priority::Batch,move|tx|{
+            require_staging(tx,&staged)?;
+            tx.execute(
+                "UPDATE ah_reader_version SET records=?2,selective=?3,max_frame=?4,format_version=?5 WHERE token=?1",
+                params![staged,records as i64,i64::from(max_frame>REPLAY_LIMIT),max_frame as i64,format_version]
+            )?;
+            serving_version(tx,&prior_source,attempt_id)
+        })?;
+        let healthy = if let Some((old, _, 1)) = &previous {
+            match self.same_reader_pages(old, &token, &job) {
+                Ok(equal) => equal,
+                Err(error) if local_reader_damage(&error) => false,
+                Err(error) => return Err(error),
+            }
+        } else {
+            false
+        };
         let _lock = self.publication_gate.lock().map_err(|_| pages::invalid("publication lock"))?;
         let info = self.revision(attempt.revision_id)?;
         if !info.bytes_retained
@@ -378,36 +433,38 @@ impl Archive {
         {
             return Err(Error::StaleCursor);
         }
-        let attempt_id = attempt.id;
-        let staged = token.clone();
-        let previous=self.store.write(DB, Priority::Batch, move |tx| {
-            require_staging(tx,&staged)?;
-            tx.execute("UPDATE ah_reader_version SET records=?2,selective=?3,max_frame=?4,format_version=?5 WHERE token=?1",
-                 params![staged,records as i64,i64::from(max_frame>REPLAY_LIMIT),max_frame as i64,format_version])?;
-            tx.query_one(
-                "SELECT token,repair_generation FROM ah_reader_version
-                 WHERE attempt=?1 AND state='published'",
-                [attempt_id],
-                |row| Ok((row.get::<String>(0)?,row.get::<i64>(1)?)),
-            ).optional()
-        })?;
-        let healthy = match &previous {
-            Some((old, _)) => self.same_reader_pages(old, &token, &job)?,
-            None => false,
-        };
         let source = attempt.source_id.clone();
         self.store.write(DB,Priority::Batch,move|tx|{
             require_staging(tx,&token)?;
+            if serving_version(tx,&source,attempt_id)?!=previous{return Err(crate::query::operation(Error::StaleCursor))}
+            // A damaged attempt/source column can strand an extra published row. Retire only
+            // versions no live legacy projection owns; unrelated valid sources keep their owner.
+            tx.execute("UPDATE ah_reader_version SET state='retired' WHERE state='published' AND
+                (attempt=?1 OR source=?2) AND NOT EXISTS(SELECT 1 FROM ah_sessions s
+                WHERE s.projection_id=ah_reader_version.attempt AND s.id=ah_reader_version.source)",
+                params![attempt_id,source.as_str()])?;
             if healthy{
                 tx.execute("UPDATE ah_reader_version SET state='retired' WHERE token=?1",[token])?;
             }else{
-                let generation=if let Some((old,previous_generation))=previous{
-                    tx.execute("UPDATE ah_reader_version SET state='retired' WHERE token=?1",[old])?;previous_generation+1
-                }else{0};
-                tx.execute("UPDATE ah_reader_version SET state='published',repair_generation=?2 WHERE token=?1",params![token,generation])?;
+                tx.execute("UPDATE ah_reader_version SET state='retired' WHERE source=?1 AND attempt=?2 AND state='published'",params![source.as_str(),attempt_id])?;
+                let generation=previous.map_or(0,|(_,old,_)|old.checked_add(1).filter(|n|*n>0).unwrap_or(1));
+                tx.execute("UPDATE ah_reader_version SET state='published',repair_generation=?2 WHERE token=?1",params![token.clone(),generation])?;
+                manifest::sign_version(tx,&token)?;
             }
             refresh(tx,&source,None)
         })?;
         Ok(())
     }
+}
+
+/// Record the owner and multiplicity together. Ambiguous or malformed old metadata
+/// needs replacement; only an unchanged unique serving version can be reused.
+fn serving_version(
+    tx: &Session<'_>,
+    source: &str,
+    attempt: i64,
+) -> vault_store::Result<Option<(String, i64, i64)>> {
+    tx.query_one("SELECT min(CAST(token AS TEXT)),max(CAST(repair_generation AS INTEGER)),count(*)
+        FROM ah_reader_version WHERE attempt=?1 AND source=?2 AND state='published' HAVING count(*)>0",
+        params![attempt,source],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional()
 }

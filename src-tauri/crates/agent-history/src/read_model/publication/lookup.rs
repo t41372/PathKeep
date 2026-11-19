@@ -46,6 +46,7 @@ impl SortedRuns {
         job: &JobControl,
         pi: bool,
         header: Option<u64>,
+        last_entries: (Option<u64>, Option<u64>),
     ) -> Result<()> {
         self.spill(a, token)?;
         let mut level = 0;
@@ -65,38 +66,105 @@ impl SortedRuns {
         let mut directory = Buffer::new(DIRECTORY, pages::META_BYTES);
         let mut leaves = Buffer::new(LEAVES, pages::META_BYTES);
         let mut latest = None;
-        let mut referenced = String::new();
-        let mut previous_id = String::new();
+        // Events with one ID are ordered by physical position. The reference at n sorts
+        // before the definition at n: only a strictly earlier occurrence is eligible.
+        let mut group = String::new();
+        let mut first_id = None;
+        let mut multiple = false;
+        let mut used = false;
         let mut duplicates = false;
+        let mut emit_leaf = |n: u64| -> Result<()> {
+            if pi && Some(n) != header {
+                leaves.push(a, token, &n)?;
+                latest = Some(latest.map_or(n, |old: u64| old.max(n)));
+            }
+            Ok(())
+        };
         merge(a, token, level, 0..self.runs, job, |rows| {
             let mut first = None;
             let rank = writer.len();
+            let mut uncertain = Vec::new();
             for (key, position) in rows {
-                // Zero sorts parent references ahead of every ID with the same digest.
-                // Physical ordinals are stored one-based in the private sort runs.
-                if *position == 0 {
-                    referenced.clone_from(key);
+                if key != &group {
+                    if let Some(n) = first_id
+                        && !multiple
+                        && !used
+                    {
+                        emit_leaf(n)?
+                    }
+                    group.clone_from(key);
+                    first_id = None;
+                    multiple = false;
+                    used = false;
+                }
+                let ordinal = position / 2;
+                if position % 2 == 0 {
+                    if multiple {
+                        uncertain.push(ordinal)
+                    } else if first_id.is_some() {
+                        used = true;
+                    }
                     continue;
                 }
-                let ordinal = position - 1;
-                if pi {
-                    duplicates |= previous_id == *key;
-                    previous_id.clone_from(key);
-                }
-                if pi && Some(ordinal) != header && key != &referenced {
-                    leaves.push(a, token, &ordinal)?;
-                    latest = Some(latest.map_or(ordinal, |prior: u64| prior.max(ordinal)));
+                if let Some(first) = first_id {
+                    if !multiple && !used {
+                        emit_leaf(first)?;
+                    }
+                    multiple = true;
+                    duplicates = true;
+                    // A second or subsequent occurrence can never be the unique earlier match.
+                    emit_leaf(ordinal)?;
+                } else {
+                    first_id = Some(ordinal);
                 }
                 let posting = (key.clone(), ordinal);
                 first.get_or_insert_with(|| posting.clone());
                 writer.push(a, token, &posting)?;
+            }
+            if !uncertain.is_empty() {
+                let owner = token.to_owned();
+                a.store.write(DB, Priority::Batch, move |tx| {
+                    require_staging(tx, &owner)?;
+                    let mut insert =
+                        tx.prepare("INSERT INTO ah_reader_ambiguous_stage VALUES(?1,?2)")?;
+                    for n in uncertain {
+                        insert.execute(params![owner.clone(), n as i64])?;
+                    }
+                    Ok(())
+                })?;
             }
             let Some(first) = first else { return Ok(()) };
             writer.flush(a, token)?;
             directory.push(a, token, &(first.0, first.1, rank))?;
             Ok(())
         })?;
+        if let Some(n) = first_id
+            && !multiple
+            && !used
+        {
+            emit_leaf(n)?
+        }
         directory.flush(a, token)?;
+        let mut ambiguous = Buffer::new(AMBIGUOUS, pages::META_BYTES);
+        let mut after = -1i64;
+        loop {
+            job.cancel.check().map_err(|_| Error::Cancelled)?;
+            let owner = token.to_owned();
+            let rows=a.store.write(DB,Priority::Batch,move|tx|{
+                let rows=tx.query("SELECT ordinal FROM ah_reader_ambiguous_stage WHERE owner=?1 AND ordinal>?2 ORDER BY ordinal LIMIT 256",params![owner.clone(),after],|r|Ok(r.get::<i64>(0)?))?;
+                if let Some(last)=rows.last(){tx.execute("DELETE FROM ah_reader_ambiguous_stage WHERE owner=?1 AND ordinal<=?2",params![owner,*last])?;}
+                Ok(rows)
+            })?;
+            if rows.is_empty() {
+                break;
+            }
+            for n in rows {
+                after = n;
+                ambiguous.push(a, token, &(n as u64))?;
+            }
+        }
+        ambiguous.flush(a, token)?;
+        let ambiguous_count = ambiguous.len() as i64;
         let extent = directory.len() as i64;
         let postings = writer.len() as i64;
         let leaf_count = if pi { leaves.len() as i64 } else { -1 };
@@ -104,7 +172,7 @@ impl SortedRuns {
         a.store.write(DB, Priority::Batch, move |tx| {
             tx.execute(
                 "UPDATE ah_reader_version SET lookup_pages=?1, postings=?2, header_ordinal=?3,
-                 leaf_count=?5, directory_pages=?6, duplicate_ids=?7 WHERE token=?4",
+                 leaf_count=?5, directory_pages=?6, duplicate_ids=?7,ambiguous_edges=?8 WHERE token=?4",
                 params![
                     extent,
                     postings,
@@ -112,13 +180,20 @@ impl SortedRuns {
                     owner,
                     leaf_count,
                     (extent + 255) / 256,
-                    i64::from(duplicates)
+                    i64::from(duplicates),ambiguous_count
                 ],
             )
         })?;
+        Extents::seal(a, token)?;
         if pi {
             leaves.flush(a, token)?;
-            a.stage_selected_leaf(token, leaves.len(), latest, job)?;
+            a.stage_selected_leaf(
+                token,
+                leaves.len(),
+                latest,
+                if latest.is_none() { last_entries.0 } else { last_entries.1 },
+                job,
+            )?;
         }
         Ok(())
     }

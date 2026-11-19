@@ -165,8 +165,8 @@ fn replacement_collects_private_pages_and_keeps_shared_rendered_blobs() {
 fn equal_revision_handles_in_a_foreign_catalog_never_authorize_a_header() {
     let (_temp, a, h) = large_frame();
     a.store
-        .write(DB, Priority::Batch, |tx| {
-            tx.execute("UPDATE ah_reader_version SET digest=?1", params!["0".repeat(64)])?;
+        .write(Db::AgentHistoryEvidence, Priority::Batch, |tx| {
+            tx.execute("UPDATE ah_revisions SET digest=?1", params!["0".repeat(64)])?;
             Ok(())
         })
         .unwrap();
@@ -680,6 +680,11 @@ fn shared_codex_predecessor_is_resolved_once_per_restage() {
     a.flush_reader_heads().unwrap();
     let plans = a.store.take_query_plans(DB).unwrap();
     assert_eq!(plans.iter().filter(|p| p.sql.contains("p.rollout_native_id=?2")).count(), 2);
+    let segments = plans
+        .iter()
+        .filter(|p| p.sql.contains("SELECT v.token,v.records,s.lineage_base_native_id"))
+        .count();
+    assert_eq!(segments, 3, "each source version is loaded once");
 }
 
 #[test]
@@ -728,3 +733,6 @@ fn upgrade_recovers_the_parent_from_the_elected_child_descriptor() {
         .unwrap();
     assert_eq!(relationship, (Some("local".into()), "resolved".into()));
 }
+
+#[path = "round_two_tests.rs"]
+pub(super) mod round_two;

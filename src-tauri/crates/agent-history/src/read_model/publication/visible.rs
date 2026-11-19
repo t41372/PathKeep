@@ -12,6 +12,8 @@ struct RankBlock {
 
 pub(super) struct Builder {
     blocks: pages::Buffer,
+    nonempty: pages::Buffer,
+    counted: u64,
     before: u64,
     mask: [u8; 32],
     used: usize,
@@ -20,6 +22,8 @@ impl Default for Builder {
     fn default() -> Self {
         Self {
             blocks: pages::Buffer::new(RANK, pages::META_BYTES),
+            nonempty: pages::Buffer::new(NONEMPTY, pages::META_BYTES),
+            counted: 0,
             before: 0,
             mask: [0; 32],
             used: 0,
@@ -44,13 +48,19 @@ impl Builder {
         let first = self.blocks.len() * 256;
         let mask = std::mem::take(&mut self.mask);
         self.blocks.push(a, owner, &RankBlock { first, before: self.before, mask })?;
-        self.blocks.flush(a, owner)?;
+        if mask.iter().any(|b| *b != 0) {
+            self.nonempty.push(a, owner, &(self.before, self.counted))?;
+        }
+        self.counted += 1;
         self.before += mask.iter().map(|b| u64::from(b.count_ones())).sum::<u64>();
         self.used = 0;
         Ok(())
     }
-    pub fn extent(&self) -> (i64, i64) {
-        (self.blocks.len() as i64, self.before as i64)
+    pub fn finish(&mut self, a: &Archive, owner: &str) -> Result<(i64, i64, i64)> {
+        self.flush(a, owner)?;
+        self.blocks.flush(a, owner)?;
+        self.nonempty.flush(a, owner)?;
+        Ok((self.counted as i64, self.before as i64, self.nonempty.len() as i64))
     }
 }
 pub(super) fn prefix(tx: &Session<'_>, owner: &str, end: i64) -> vault_store::Result<i64> {
@@ -58,9 +68,9 @@ pub(super) fn prefix(tx: &Session<'_>, owner: &str, end: i64) -> vault_store::Re
         return Ok(0);
     }
     let rank = (end as u64 - 1) / 256;
-    let (_, blocks) = pages::in_snapshot::<RankBlock>(tx, owner, RANK, rank)?;
+    let (page_start, blocks) = pages::in_snapshot::<RankBlock>(tx, owner, RANK, rank)?;
     let block = blocks
-        .first()
+        .get((rank - page_start) as usize)
         .filter(|b| b.first == rank * 256)
         .ok_or_else(|| crate::query::operation(pages::invalid("rank block")))?;
     Ok((block.before
@@ -123,40 +133,40 @@ impl Archive {
         job: &JobControl,
         window: &mut Window,
     ) -> Result<()> {
-        let token = owner.to_owned();
-        let (extent, total, records) = self.store.read(DB, move |tx| {
-            tx.query_one(
-                "SELECT rank_pages,visible_total,records FROM ah_reader_version WHERE token=?1",
-                [token],
-                |r| Ok((r.get::<i64>(0)? as u64, r.get::<i64>(1)? as u64, r.get::<i64>(2)? as u64)),
-            )
-        })?;
-        if hi > total
+        let extent = Extents::load(self, owner, job)?;
+        if hi > extent.visible
             || lo >= hi
-            || extent == 0
-            || extent != records.div_ceil(256)
-            || total > records
+            || extent.nonempty == 0
+            || extent.blocks != extent.records.div_ceil(256)
         {
             return Err(Error::ReaderRebuildRequired);
         }
-        let load = |n: u64| -> Result<RankBlock> {
-            let (_, mut rows) =
-                pages::load::<RankBlock>(self, owner, RANK, n, job).map_err(navigation_error)?;
-            rows.pop().filter(|b| b.first == 256 * n).ok_or(Error::ReaderRebuildRequired)
+        let summary = |n| -> Result<(u64, u64)> {
+            let (start, rows) = pages::load::<(u64, u64)>(self, owner, NONEMPTY, n, job)
+                .map_err(navigation_error)?;
+            Ok(rows[(n - start) as usize])
         };
-        let (mut low, mut high) = (0, extent);
+        let (mut low, mut high) = (0, extent.nonempty);
         while low < high {
             let mid = low + (high - low) / 2;
-            if load(mid)?.before <= lo { low = mid + 1 } else { high = mid }
+            if summary(mid)?.0 <= lo { low = mid + 1 } else { high = mid }
         }
         let start = low.checked_sub(1).ok_or(Error::ReaderRebuildRequired)?;
         let mut ordinals = Vec::with_capacity((hi - lo) as usize);
-        for n in start..extent {
-            let RankBlock { first: base, before: mut visible, mask } = load(n)?;
-            if visible >= hi {
+        for n in start..extent.nonempty {
+            let (before, block) = summary(n)?;
+            if before >= hi {
                 break;
             }
-
+            let (offset, rows) = pages::load::<RankBlock>(self, owner, RANK, block, job)
+                .map_err(navigation_error)?;
+            let rank = &rows[(block - offset) as usize];
+            if block >= extent.blocks || rank.first != block * 256 || rank.before != before {
+                return Err(Error::ReaderRebuildRequired);
+            }
+            let base = rank.first;
+            let mask = rank.mask;
+            let mut visible = before;
             for bit in 0..256 {
                 if mask[bit / 8] & (1 << (bit % 8)) != 0 {
                     if (lo..hi).contains(&visible) {

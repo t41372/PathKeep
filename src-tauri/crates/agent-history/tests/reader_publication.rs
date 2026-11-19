@@ -147,6 +147,7 @@ fn d_unreadable_higher_generation_has_no_inherited_rendering() {
     let h = a.reader_header(&first.conversation_id).unwrap();
     assert_ne!(h.publication, first.publication);
     assert!(!h.complete);
+    assert!(a.reader_sources(&h, None, 1).unwrap()[0].raw_head_current);
     assert_eq!(h.physical_records, 0);
     assert!(a.reader_window(&h, None, 0, 2, &Default::default()).unwrap().is_empty());
 }

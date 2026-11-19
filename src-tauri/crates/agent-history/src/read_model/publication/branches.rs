@@ -14,25 +14,18 @@ impl Archive {
         let source = source.to_owned();
         self.store
             .read(DB, move |tx| {
-                let member=tx.query_one(
-                    "SELECT m.version,v.records FROM ah_reader_member m LEFT JOIN ah_reader_version v ON
-                     v.token=m.version WHERE m.publication=?1 AND m.source=?2",
-                    params![token.clone(), source.clone()],
-                    |r| Ok((r.get::<String>(0)?,r.get::<Option<i64>>(1)?)),
-                ).optional()?;
-                if let Some((owner,records))=member{
-                    let count=records.ok_or_else(||crate::query::operation(Error::ReaderRebuildRequired))?;
-                    return Ok(Some((owner,count as u64)));
+                if let Some(member)=manifest::member(tx,&token,&source)?{
+                    if member.1.is_empty(){return Err(crate::query::operation(Error::ReaderRebuildRequired))}
+                    manifest::verify_version(tx,&member.1)?;
+                    let records=tx.query_one("SELECT records FROM ah_reader_version WHERE token=?1",[member.1.as_str()],|r|Ok(r.get::<i64>(0)?))?;
+                    return Ok(Some((member.1,records as u64)))
                 }
                 // A fork can inherit a prefix from a different conversation. Its address
                 // authorizes expansion only through the largest included cut.
-                tx.query_one(
-                    "SELECT version,max(records) FROM ah_reader_line WHERE publication=?1
-                    AND source=?2 GROUP BY version",
-                    params![token, source],
-                    |r| Ok((r.get::<String>(0)?, r.get::<i64>(1)? as u64)),
-                )
-                .optional()
+                tx.query_one("SELECT branch,first_rank,version,source,records,first_visible,visible,stamp FROM ah_reader_line
+                    WHERE publication=?1 AND source=?2 ORDER BY records DESC LIMIT 1",params![token.clone(),source],|r|{
+                    let line=manifest::decode_line(r,&token)?;Ok((line.2,line.4 as u64))
+                }).optional()
             })?
             .ok_or_else(|| Error::NotFound("reader member".into()))
     }
@@ -66,19 +59,9 @@ impl Archive {
         job: &JobControl,
     ) -> Result<Vec<u64>> {
         let hash = build::key(id);
-        let token = owner.to_owned();
-        let (extent, postings,directory_pages) = self.store.read(DB, move |tx| {
-            tx.query_one(
-                "SELECT lookup_pages,postings,directory_pages FROM ah_reader_version WHERE token=?1",
-                [token],
-                |r| Ok((r.get::<i64>(0)? as u64, r.get::<i64>(1)? as u64,r.get::<i64>(2)? as u64)),
-            )
-        })?;
-        if directory_pages != extent.div_ceil(256)
-            || (extent == 0) != (postings == 0)
-            || extent > postings
-            || postings > extent.saturating_mul(256)
-        {
+        let nav = Extents::load(self, owner, job)?;
+        let (extent, postings) = (nav.lookup, nav.postings);
+        if nav.directories != extent.div_ceil(256) || (extent == 0) != (postings == 0) {
             return Err(Error::ReaderRebuildRequired);
         }
         let directory = |rank: u64| -> Result<(String, u64, u64)> {
@@ -87,6 +70,17 @@ impl Archive {
                     .map_err(navigation_error)?;
             Ok(rows.swap_remove((rank - first) as usize))
         };
+        if extent > 0 {
+            let (last_key, last_ordinal, tail) = directory(extent - 1)?;
+            let (first, rows) = pages::load::<(String, u64)>(self, owner, LOOKUP, tail, job)
+                .map_err(navigation_error)?;
+            if first != tail
+                || rows.first() != Some(&(last_key, last_ordinal))
+                || first.checked_add(rows.len() as u64) != Some(postings)
+            {
+                return Err(Error::ReaderRebuildRequired);
+            }
+        }
         let (mut lo, mut hi) = (0, extent);
         while lo < hi {
             let mid = lo + (hi - lo) / 2;
@@ -187,31 +181,51 @@ impl Archive {
         mut visit: impl FnMut(u64, u64) -> Result<bool>,
     ) -> Result<()> {
         let token = owner.to_owned();
-        let (header, duplicates) = self.store.read(DB, move |tx| {
+        let header = self.store.read(DB, move |tx| {
             tx.query_one(
-                "SELECT header_ordinal,duplicate_ids FROM ah_reader_version WHERE token=?1",
+                "SELECT header_ordinal FROM ah_reader_version WHERE token=?1",
                 [token],
-                |r| Ok((r.get::<Option<i64>>(0)?.map(|n| n as u64), r.get::<i64>(1)? != 0)),
+                |r| Ok(r.get::<Option<i64>>(0)?.map(|n| n as u64)),
             )
         })?;
+        let extent = Extents::load(self, owner, job)?;
         loop {
             job.cancel.check().map_err(|_| Error::Cancelled)?;
             let entry = self.entry(owner, last, job)?;
-            // An adjacent ID match proves an edge only when IDs are unique in this version.
-            let first = if duplicates { last } else { entry.run_start };
+            let (mut lo, mut hi) = (0, extent.ambiguous);
+            let ambiguous = |rank| -> Result<u64> {
+                let (first, rows) = pages::load::<u64>(self, owner, AMBIGUOUS, rank, job)
+                    .map_err(navigation_error)?;
+                Ok(rows[(rank - first) as usize])
+            };
+            while lo < hi {
+                let mid = lo + (hi - lo) / 2;
+                if ambiguous(mid)? <= last { lo = mid + 1 } else { hi = mid }
+            }
+            let boundary = if lo > 0 {
+                Some(ambiguous(lo - 1)?).filter(|n| *n >= entry.run_start)
+            } else {
+                None
+            };
+            let first = boundary.unwrap_or(entry.run_start);
             if first > last {
-                return Err(pages::invalid("backwards branch run"));
+                return Err(Error::ReaderRebuildRequired);
             }
             if !visit(first, last + 1)? || Some(first) == header {
                 break;
             }
+            if boundary.is_some() {
+                return Err(Error::InvalidInput("unresolved branch parent".into()));
+            }
             let head = if first == last { entry } else { self.entry(owner, first, job)? };
             if let Some(parent) = head.parent {
                 let ordinals = self.lookup(owner, &parent, None, 2, job)?;
-                if ordinals.len() != 1 || ordinals[0] >= first {
+                let mut earlier = ordinals.into_iter().take_while(|n| *n < first);
+                let parent = earlier.next();
+                if parent.is_none() || earlier.next().is_some() {
                     return Err(Error::InvalidInput("unresolved branch parent".into()));
                 }
-                last = ordinals[0];
+                last = parent.expect("one eligible parent");
             } else {
                 if !head.declared_root {
                     return Err(Error::InvalidInput("unresolved branch parent".into()));

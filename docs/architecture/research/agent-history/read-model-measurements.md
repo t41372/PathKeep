@@ -47,3 +47,16 @@ The append measurement adds one 700-byte message to the plain source through bac
 The access-plan fixture retains 120,000 distinct Pi headers, each followed by 120 body records. The four-phase body uses distinct global event and call IDs and a tied timestamp range. Only the final record has the unique search marker. The fixture writes complete compressed documents to evidence in bounded batches. Session, version and head indexes are populated at that cardinality with tied timestamps. Two additional live Codex rollouts exercise native lineage and a parent with zero children. The fixture measures the actual bound SQL on Turso. The access-plan fixture omits the unqueried legacy event rows, search index and reader payload pages for the bulk population. It authenticates and scans the retained first, middle and last roots before exercising the production queries.
 
 The [macOS release results](validation/reader-step3-reviewed-macos.jsonl) include both archive protection modes, the append phase timings and all five captured Turso plans.
+
+### Two visible rows separated by 14,399,998 hidden records
+
+From `src-tauri`, run the release fixtures serially in the shared target.
+
+```sh
+cargo test --locked --release -p agent-history --lib -- --ignored --test-threads=1 --nocapture long_hidden_gap_at_scale plans_on_many_roots
+cargo clean -p agent-history --release
+```
+
+The hidden-gap fixture publishes a plain Claude JSONL revision of 14,400,000 physical records. Only the first and last contain visible messages. The public rank window must return physical ordinals 0 and 14,399,999 and their independently known texts. The test counts logical reader-page fetches on a separate traced read, then times 40 first reads after eviction and reopen, each followed by a warm read. The timer covers the public window call. The trace counts page lookups across all reader families, including the outline. It does not measure filesystem page faults.
+
+The many-root fixture also checks the actual Turso plan of the child-list query for a seek by parent on `ah_reader_children`. Removing just that index still produces the correct empty result but fails the plan assertion. The [round-two release output](validation/reader-round2-macos.jsonl) contains the hidden-gap timings and the five bound query plans.

@@ -313,7 +313,12 @@ fn plans_on_many_roots() {
     let plans = plans.into_iter().chain(a.store.take_query_plans(DB).unwrap());
     let mut seen = std::collections::BTreeSet::new();
     for p in plans {
-        let name = if p.sql.contains("WHERE parent=?1 AND conversation>") {
+        let name = if p.sql.contains("FROM ah_reader_head WHERE parent=?1 AND conversation>") {
+            assert!(
+                p.steps.iter().any(|step| step.contains("ah_reader_children (parent=?")),
+                "{:?}",
+                p.steps
+            );
             "parent_zero_children"
         } else if p.sql.contains("SELECT EXISTS(SELECT 1 FROM ah_reader_version WHERE source=") {
             "expiry_probe"
@@ -334,4 +339,91 @@ fn plans_on_many_roots() {
         }
     }
     assert_eq!(seen.len(), 5);
+}
+
+/// Two displayable records bound a real retained revision of bookkeeping rows. Time
+/// only the public window; separately count the actual page fetches with plan capture.
+#[test]
+#[ignore = "release 14.4M-record hidden-gap measurement"]
+fn long_hidden_gap_at_scale() {
+    use crate::{Artifact, ArtifactKind, SessionMetadata, archive::SLICE_BYTES};
+    use sha2::{Digest, Sha256};
+    let n = 14_400_000usize;
+    let t = tempfile::tempdir().unwrap();
+    let path = t.path().join("archive");
+    let a = Archive::create_unencrypted(&path).unwrap();
+    let root = SourceRoot { harness: Harness::ClaudeCode, root: t.path().join("claude") };
+    let file = "projects/p/sparse.jsonl";
+    let artifact = Artifact {
+        path: root.root.join(file),
+        relative_path: file.into(),
+        kind: ArtifactKind::Transcript,
+        current: true,
+        generation: None,
+        project_hint: None,
+    };
+    let row = |id: &str| {
+        format!(
+            "{{\"type\":\"user\",\"uuid\":\"{id}\",\"message\":{{\"role\":\"user\",\"content\":\"{id}\"}}}}\n"
+        )
+    };
+    let mut raw = Vec::with_capacity(3 * n + 150);
+    raw.extend(row("first").bytes());
+    for _ in 0..n - 2 {
+        raw.extend_from_slice(b"{}\n");
+    }
+    raw.extend(row("last").bytes());
+    let bytes = raw.len() as u64;
+    let id = a.begin_revision("sparse", &root, &artifact).unwrap();
+    for (i, chunk) in raw.chunks(SLICE_BYTES).enumerate() {
+        a.append_chunk(id, i as u64, chunk.to_vec()).unwrap();
+    }
+    a.finish_revision(id, &hex::encode(Sha256::digest(raw)), bytes).unwrap();
+    let parse = a.prepare_projection("sparse", id, "sparse-measure", true).unwrap().unwrap();
+    a.publish_projection_attempt(
+        &parse,
+        &SessionMetadata { native_id: "sparse".into(), ..Default::default() },
+        true,
+    )
+    .unwrap();
+    let h = a.reader_header(&a.list_sessions(&Default::default()).unwrap().items[0].id).unwrap();
+    assert_eq!((h.physical_records, h.visible_records), (n as u64, 2));
+    let read = |a: &Archive| {
+        let start = Instant::now();
+        let rows = a.reader_visible_window(&h, None, 0, 2, &Default::default()).unwrap();
+        let elapsed = start.elapsed();
+        assert_eq!(
+            rows.iter().map(|r| (r.ordinal.0, r.parts[0].text.as_str())).collect::<Vec<_>>(),
+            [(0, "first"), (n as u64 - 1, "last")]
+        );
+        elapsed
+    };
+    a.store.capture_query_plans(DB, true).unwrap();
+    read(&a);
+    let loads = a
+        .store
+        .take_query_plans(DB)
+        .unwrap()
+        .iter()
+        .filter(|p| p.sql.contains("SELECT first_rank FROM ah_reader_page"))
+        .count();
+    assert!(loads < 32, "{loads} page fetches");
+    drop(a);
+    let mut cold = Vec::new();
+    let mut warm = Vec::new();
+    for _ in 0..40 {
+        let evicted = measurement::evict(&path);
+        let a = Archive::open(&path, b"").unwrap();
+        let elapsed = read(&a);
+        if evicted {
+            cold.push(elapsed)
+        }
+        warm.push(read(&a));
+    }
+    println!(
+        "{}",
+        json!({"measurement":"hidden_gap","records":n,"source_bytes":bytes,
+        "hidden_records":n-2,"visible_ordinals":[0,n-1],"page_loads":loads,
+        "cold":(!cold.is_empty()).then(||measurement::timings(cold)),"warm":measurement::timings(warm)})
+    );
 }

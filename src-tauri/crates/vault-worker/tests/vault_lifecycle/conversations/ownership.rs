@@ -162,3 +162,43 @@ fn supplied_resources_match_store_mode_and_select_index_location() {
         assert!(!fixture.root.join("derived/agent-history-search").exists());
     }
 }
+
+#[test]
+fn attachment_allows_availability_and_pause_during_recovery() {
+    use std::{sync::mpsc, time::Duration};
+    use vault_store::{Db, Priority};
+    let f = Fixture::new(false);
+    f.session.close_vault().unwrap();
+    let vault = f.reopen(false);
+    std::thread::scope(|s| {
+        let (entered, blocked) = mpsc::channel();
+        let (release, wait) = mpsc::channel();
+        let store = vault.store().clone();
+        s.spawn(move || {
+            store
+                .write(Db::AgentHistoryEvidence, Priority::Batch, move |_| {
+                    entered.send(()).unwrap();
+                    wait.recv_timeout(Duration::from_secs(8)).unwrap();
+                    Ok(())
+                })
+                .unwrap()
+        });
+        blocked.recv().unwrap();
+        let (sent, rx) = mpsc::channel();
+        let v = &vault;
+        s.spawn(move || sent.send(v.agent_history().map(drop)).unwrap());
+        assert!(rx.recv_timeout(Duration::from_millis(150)).is_err());
+        let (seen, answer) = mpsc::channel();
+        s.spawn(move || seen.send(v.conversation_availability()).unwrap());
+        let available = answer.recv_timeout(Duration::from_millis(300)).is_ok();
+        let pause = s.spawn(move || v.pause_conversations());
+        std::thread::sleep(Duration::from_millis(80));
+        release.send(()).unwrap();
+        let guard = pause.join().unwrap();
+        let result = rx.recv_timeout(Duration::from_secs(4)).unwrap();
+        assert!(available, "attachment held slot mutex across recovery");
+        assert!(matches!(result, Err(agent_history::Error::Cancelled)));
+        drop(guard);
+        assert!(vault.agent_history().is_ok());
+    });
+}

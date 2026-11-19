@@ -9,6 +9,13 @@ impl Archive {
     /// previous interpretation. Restoring completeness requires that interpretation
     /// to represent the current raw head. Root-level discovery entries have no session.
     pub fn set_coverage(&self, source_id: &str, complete: bool) -> Result<()> {
+        let _publication = self
+            .publication_gate
+            .lock()
+            .map_err(|_| Error::Integrity("publication gate was poisoned".into()))?;
+        self.set_coverage_locked(source_id, complete)
+    }
+    pub(crate) fn set_coverage_locked(&self, source_id: &str, complete: bool) -> Result<()> {
         let affects = match self.source(source_id) {
             Ok(source) => source.kind == "transcript",
             Err(Error::NotFound(_)) => true,
@@ -16,10 +23,6 @@ impl Archive {
         };
         let source_id = source_id.to_owned();
         if complete {
-            let _publication = self
-                .publication_gate
-                .lock()
-                .map_err(|_| Error::Integrity("publication gate was poisoned".into()))?;
             if let Some((raw_revision, parser_complete)) =
                 self.current_coverage_target(&source_id)?
             {
@@ -43,6 +46,25 @@ impl Archive {
                 write_status(tx, &source_id, Some((false, affects)), Some(false), false)
             })?;
         }
+        Ok(())
+    }
+
+    /// An unreadable current interpretation has incomplete coverage and still names the live revision.
+    pub(crate) fn unreadable_coverage(&self, source: &str, revision: i64) -> Result<()> {
+        let _gate = self
+            .publication_gate
+            .lock()
+            .map_err(|_| Error::Integrity("publication gate was poisoned".into()))?;
+        let source = source.to_owned();
+        self.store.write(Db::AgentHistoryReadModel, Priority::Batch, move |tx| {
+            let published = tx.query_one(
+                "SELECT EXISTS(SELECT 1 FROM ah_sessions WHERE id=?1 AND revision_id=?2
+                AND parser_version LIKE 'agent-history-unreadable/%' AND raw_head_current=1)",
+                params![source.clone(), revision],
+                |r| Ok(r.get::<i64>(0)? != 0),
+            )?;
+            write_status(tx, &source, Some((false, true)), Some(published), false)
+        })?;
         Ok(())
     }
 
@@ -97,6 +119,10 @@ impl Archive {
     }
 
     pub(crate) fn reference_coverage_scope(&self, source: &str) -> Result<()> {
+        let _publication = self
+            .publication_gate
+            .lock()
+            .map_err(|_| Error::Integrity("publication lock".into()))?;
         let source = source.to_owned();
         self.store.write(Db::AgentHistoryReadModel, Priority::Batch, move |tx| {
             let existing=tx.query_one("SELECT complete FROM ah_coverage WHERE source_id=?1 AND NOT EXISTS(SELECT 1 FROM ah_sessions WHERE id=?1)",[source.as_str()],|r|Ok(r.get::<i64>(0)?!=0)).optional()?;

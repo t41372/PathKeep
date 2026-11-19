@@ -27,7 +27,7 @@ impl Archive {
         Ok(self.store.write(DB, Priority::Batch, move |tx| {
             if let Some(token) = tx.query_one("SELECT publication FROM ah_reader_retired WHERE epoch<=?1 ORDER BY epoch LIMIT 1", [cutoff], |r| Ok(r.get::<String>(0)?)).optional()? {
                 let mut changed = 0;
-                for table in ["ah_reader_member", "ah_reader_line", "ah_reader_dependency"] {
+                for table in ["ah_reader_member", "ah_reader_line", "ah_reader_dependency", "ah_reader_route"] {
                     changed += tx.execute(
                         &format!(
                             "DELETE FROM {table} WHERE rowid IN (SELECT rowid FROM {table} WHERE
@@ -61,7 +61,7 @@ impl Archive {
                     params![hash],
                 )?;
             }
-            for table in ["ah_reader_sort","ah_reader_leaf","ah_reader_walk","ah_reader_walk_run"] {
+            for table in ["ah_reader_sort","ah_reader_ambiguous_stage","ah_reader_leaf","ah_reader_walk","ah_reader_walk_run"] {
                 changed += tx.execute(&format!("DELETE FROM {table} WHERE rowid IN (SELECT rowid FROM {table} WHERE owner=?1 LIMIT ?2)"), params![token.clone(), limit as i64])?;
             }
             if changed == 0 {

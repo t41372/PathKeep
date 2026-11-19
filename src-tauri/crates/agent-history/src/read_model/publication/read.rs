@@ -80,11 +80,21 @@ impl Archive {
     /// Names the immutable membership and line that subsequent page requests must see.
     pub fn reader_header(&self, id: &str) -> Result<ReaderPublication> {
         let _guard = self.jobs.enter(None)?;
+        self.resume_reader_finalization()?;
+        self.resume_reader_finalization()?;
         let id = id.to_owned();
         let conversation = id.clone();
         let published = self
             .store
             .read(DB, move |tx| {
+                if tx.query_one("SELECT EXISTS(SELECT 1 FROM ah_reader_parked WHERE conversation=?1)",[id.as_str()],|r|Ok(r.get::<i64>(0)?!=0))?{
+                    return Err(crate::query::operation(Error::ReaderRebuildRequired))
+                }
+                if let Some((owner,source))=tx.query_one("SELECT publication,current_source FROM ah_reader_head WHERE conversation=?1",[id.as_str()],|r|Ok((r.get::<String>(0)?,r.get::<String>(1)?))).optional()?{
+                    if !manifest::valid_head(tx,&id)? {return Err(crate::query::operation(Error::ReaderRebuildRequired))}
+                    let member=manifest::member(tx,&owner,&source)?.ok_or_else(||crate::query::operation(Error::ReaderRebuildRequired))?;
+                    if !member.1.is_empty(){manifest::verify_version(tx,&member.1)?;}
+                }
                 tx.query_one(
                     "SELECT
                  h.conversation,h.publication,h.current_source,m.records,m.complete AND NOT h.awaiting_rebuild,m.attachments,h.input_digest,CASE WHEN h.awaiting_rebuild THEN 'awaiting_rebuild' ELSE m.reason END,
@@ -115,7 +125,7 @@ impl Archive {
                     },
                 )
                 .optional()
-            })?;
+            }).map_err(derived_read_error)?;
         let Some((head, revision, digest, codec)) = published else {
             let old = self.store.read(DB, move |tx| {
                 tx.query_one(
@@ -167,7 +177,10 @@ impl Archive {
         } else {
             self.check_head(h)?;
         }
-        result
+        result.map_err(|error| match error {
+            Error::Store(store) if store.is_row_data_error() => Error::ReaderRebuildRequired,
+            other => other,
+        })
     }
     pub(super) fn check_head(&self, h: &ReaderPublication) -> Result<()> {
         match self.reader_header(&h.conversation_id) {
@@ -189,17 +202,15 @@ impl Archive {
             let token = h.publication.0.clone();
             let after = after.unwrap_or_default().to_owned();
             let members = self.store.read(DB, move |tx| {
-                tx.query(
-                "SELECT descriptor FROM ah_reader_member WHERE publication=?1 AND source>?2 ORDER
-                 BY source LIMIT ?3",
-                params![token, after, limit],
-                |r| Ok(r.get::<String>(0)?),
-            )
+                let valid=tx.query_one("SELECT members=(SELECT count(*) FROM ah_reader_member WHERE publication=?1)
+                    FROM ah_reader_head WHERE publication=?1",[token.as_str()],|r|Ok(r.get::<i64>(0)?!=0))?;
+                if !valid{return Err(crate::query::operation(Error::ReaderRebuildRequired))}
+                tx.query(&format!("SELECT {} FROM ah_reader_member WHERE publication=?1 AND source>?2 ORDER BY source LIMIT ?3",manifest::MEMBER),
+                    params![token.clone(),after,limit],|r|{
+                    let member=manifest::decode_member(r,&token)?;
+                    serde_json::from_str::<SourceMember>(&member.2).map_err(crate::query::operation)
+                })
             })?;
-            let members = members
-                .into_iter()
-                .map(|s| serde_json::from_str(&s))
-                .collect::<std::result::Result<Vec<SourceMember>, _>>()?;
             let evidence = self.facts(members.iter().map(|m| m.revision).collect())?;
             for m in &members {
                 evidence
@@ -245,35 +256,39 @@ impl Archive {
         count: usize,
         visible: bool,
     ) -> Result<Vec<(String, u64, u64)>> {
+        let h_id = h.conversation_id.clone();
         let branch = branch.unwrap_or(&h.current_source).to_owned();
         let token = h.publication.0.clone();
         let (rank, length) =
             if visible { ("first_visible", "visible") } else { ("first_rank", "records") };
         self.store
             .read(DB, move |tx| {
-                let total = tx.query_one(&format!("SELECT {length},version FROM ah_reader_member WHERE publication=?1 AND source=?2"), params![token.clone(), branch.clone()], |r| Ok((r.get::<i64>(0)?,r.get::<String>(1)?))).optional()?;
-                let Some((total,version)) = total else { return Ok(None) };
-                if version.is_empty(){return Err(crate::query::operation(Error::ReaderRebuildRequired))}
-                if first >= total as u64 {
-                    return Ok(Some(Vec::new()));
-                }
-                let start: i64 = tx.query_one(
-                    &format!(
-                        "SELECT {rank} FROM ah_reader_line WHERE publication=?1 AND branch=?2 AND
-                 {rank}<=?3 AND {length}>0 ORDER BY {rank} DESC LIMIT 1"
-                    ),
-                    params![token.clone(), branch.clone(), first as i64],
-                    |r| Ok(r.get(0)?),
-                )?;
-                tx.query(
-                    &format!(
-                        "SELECT version,{rank},{length} FROM ah_reader_line WHERE publication=?1 AND
-                 branch=?2 AND {rank}>=?3 AND {rank}<?4 AND {length}>0 ORDER BY {rank}"
-                    ),
-                    params![token, branch, start, (first + count as u64) as i64],
-                    |r| Ok((r.get::<String>(0)?, r.get::<i64>(1)? as u64, r.get::<i64>(2)? as u64)),
-                )
-                .map(Some)
+                let Some(member)=manifest::member(tx,&token,&branch)? else{
+                    let expected=tx.query_one("SELECT EXISTS(SELECT 1 FROM ah_sessions WHERE conversation_id=?1 AND id=?2)",
+                        params![h_id,branch],|r|Ok(r.get::<i64>(0)?!=0))?;
+                    if expected{return Err(crate::query::operation(Error::ReaderRebuildRequired))}
+                    return Ok(None)
+                };
+                if member.1.is_empty(){return Err(crate::query::operation(Error::ReaderRebuildRequired))}
+                let total=if visible{member.7}else{member.3};
+                if first>=total as u64{return Ok(Some(Vec::new()))}
+                let end=(first+count as u64).min(total as u64);
+                let invalid=||crate::query::operation(Error::ReaderRebuildRequired);
+                let start=tx.query_one(&format!("SELECT {rank} FROM ah_reader_line WHERE publication=?1 AND branch=?2 AND {rank}<=?3 AND {length}>0 ORDER BY {rank} DESC LIMIT 1"),
+                    params![token.clone(),branch.clone(),first as i64],|r|Ok(r.get::<i64>(0)?)).optional()?.ok_or_else(invalid)?;
+                let mut cursor=first;
+                let runs=tx.query(&format!("SELECT branch,first_rank,version,source,records,first_visible,visible,stamp FROM ah_reader_line
+                    WHERE publication=?1 AND branch=?2 AND {rank}>=?3 AND {rank}<?4 AND {length}>0 ORDER BY {rank}"),
+                    params![token.clone(),branch,start,end as i64],|r|{
+                    let line=manifest::decode_line(r,&token)?;
+                    let (base,n)=if visible{(line.5,line.6)}else{(line.1,line.4)};
+                    let base=u64::try_from(base).map_err(|_|invalid())?;let n=u64::try_from(n).map_err(|_|invalid())?;
+                    let next=base.checked_add(n).ok_or_else(invalid)?;
+                    if base.max(first)!=cursor || next<=cursor{return Err(invalid())}
+                    cursor=next.min(end);Ok((line.2,base,n))
+                })?;
+                if cursor!=end{return Err(invalid())}
+                Ok(Some(runs))
             })?
             .ok_or_else(|| Error::NotFound("conversation branch".into()))
     }
@@ -310,18 +325,17 @@ impl Archive {
     ) -> Result<Vec<String>> {
         let _guard = self.jobs.enter(None)?;
         self.at_head(h,||{
-        let limit = page_limit(limit)?;
-        let id = h.conversation_id.clone();
-        let after = after.unwrap_or_default().to_string();
-        let rows = self.store.read(DB, move |tx| {
-            tx.query(
-                "SELECT conversation FROM ah_reader_head WHERE parent=?1 AND conversation>?2 ORDER BY
-                 conversation LIMIT ?3",
-                params![id, after, limit],
-                |r| Ok(r.get::<String>(0)?),
-            )
-        })?;
-        Ok(rows)
+            let limit=page_limit(limit)?;
+            let parent=h.conversation_id.clone();
+            let after=after.unwrap_or_default().to_owned();
+            Ok(self.store.read(DB,move|tx|{
+                let rows=tx.query("SELECT conversation FROM ah_reader_head WHERE parent=?1 AND conversation>?2 ORDER BY conversation LIMIT ?3",
+                    params![parent.clone(),after.clone(),limit],|r|Ok(r.get::<String>(0)?))?;
+                let receipts=tx.query("SELECT conversation FROM ah_reader_serving WHERE parent=?1 AND conversation>?2 ORDER BY conversation LIMIT ?3",
+                    params![parent,after,limit],|r|Ok(r.get::<String>(0)?))?;
+                if rows!=receipts{return Err(crate::query::operation(Error::ReaderRebuildRequired))}
+                Ok(rows)
+            })?)
         })
     }
     pub(super) fn version_info(&self, owner: &str) -> Result<(RevisionInfo, bool)> {
@@ -329,6 +343,7 @@ impl Archive {
         let (source, id, digest, selective, codec) = self
             .store
             .read(DB, move |tx| {
+                manifest::verify_version(tx, &key)?;
                 tx.query_one(
                     "SELECT source,revision,digest,selective AND renderer=?2,codec FROM
                  ah_reader_version WHERE token=?1",
