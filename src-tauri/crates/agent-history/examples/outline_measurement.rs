@@ -26,7 +26,7 @@ const ENTRY_BYTES: usize = 21;
 
 fn measure(entries: usize, reads: usize, evict: bool) {
     let tmp = tempfile::tempdir().unwrap();
-    let store = measurement::open(tmp.path(), true);
+    let store = measurement::open(tmp.path(), true, vault_store::Db::AgentHistoryReadModel);
     pages::init(&store);
     let mut batch = Vec::new();
     let mut position = 0u64;
@@ -61,7 +61,7 @@ fn measure(entries: usize, reads: usize, evict: bool) {
     let mut warm = Vec::new();
     for rank in ranks {
         let evicted = evict && measurement::evict(tmp.path());
-        let store = measurement::open(tmp.path(), true);
+        let store = measurement::open(tmp.path(), true, vault_store::Db::AgentHistoryReadModel);
         for attempt in 0..2 {
             let start = Instant::now();
             let (first, blob) = pages::covering(&store, rank, 1).pop().unwrap();

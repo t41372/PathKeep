@@ -5,6 +5,8 @@ mod background;
 #[path = "measurement/corpus.rs"]
 mod corpus;
 mod measurement;
+#[path = "measurement/rendered.rs"]
+mod rendered;
 use corpus::Corpus;
 
 fn main() {
@@ -30,7 +32,7 @@ mod tests {
 mod pages;
 use agent_history::{Archive, read_model::*};
 use std::{io::Read, time::Instant};
-use vault_store::Store;
+use vault_store::{Db, Store};
 
 const PASSWORD: &[u8] = b"synthetic-window-benchmark";
 type Entry = (RecordLocator, RecordContext);
@@ -61,10 +63,14 @@ fn build_pages(store: &Store, archive: &Archive, revision: i64) {
 fn load_window(store: &Store, first: usize) -> Vec<Entry> {
     let mut result = Vec::new();
     for (_, blob) in pages::covering(store, first, 200) {
-        let page: Vec<Entry> = serde_json::from_reader(
-            zstd::stream::Decoder::new(blob.as_slice()).unwrap().take(65537),
-        )
-        .unwrap();
+        let mut page = Vec::new();
+        zstd::stream::Decoder::new(blob.as_slice())
+            .unwrap()
+            .take(65537)
+            .read_to_end(&mut page)
+            .unwrap();
+        assert!(page.len() <= 65536);
+        let page: Vec<Entry> = serde_json::from_slice(&page).unwrap();
         result.extend(
             page.into_iter()
                 .filter(|(r, _)| (first as u64..first as u64 + 200).contains(&r.ordinal.0)),
@@ -85,9 +91,31 @@ fn measure(corpus: &Corpus) {
         .unwrap();
         let revision = corpus.retain(temp.path(), &archive, form);
         let identity = archive.revision(revision).unwrap();
-        let store = measurement::open(&database, true);
+        let store = measurement::open(&database, true, Db::AgentHistoryReadModel);
         pages::init(&store);
         build_pages(&store, &archive, revision);
+        store.pause().unwrap().checkpoint().unwrap();
+        let db_file = database.join(vault_layout::database_path(Db::AgentHistoryReadModel));
+        let outline_bytes = db_file.metadata().unwrap().len();
+        let building = Instant::now();
+        let mut builder = rendered::Builder::new(&store);
+        archive
+            .scan_revision(
+                revision,
+                &Default::default(),
+                &Default::default(),
+                &mut |record, ctx, value| {
+                    builder.add(record.ordinal.0, ctx, value.unwrap());
+                    Ok(())
+                },
+            )
+            .unwrap();
+        builder.flush();
+        let compressed_bytes = builder.compressed_bytes;
+        println!(
+            "{}",
+            serde_json::json!({"measurement":"rendered_build","form":form,"ms":building.elapsed().as_secs_f64()*1000.})
+        );
         drop(archive);
         drop(store);
         let evicted = measurement::evict(temp.path());
@@ -120,43 +148,64 @@ fn measure(corpus: &Corpus) {
                 Ok(())
             })
             .unwrap();
+        // Include the final interval (last pulse through EOF verification).
+        let (last, gap) = *pulse.lock().unwrap();
+        let gap = gap.max(last.elapsed());
         assert_eq!(count, corpus.records());
         println!(
             "{}",
-            serde_json::json!({"measurement":"physical_framing","form":form,"records":count,"decoded_bytes":corpus.start(count),"evicted":evicted,"longest_progress_gap_ms":pulse.lock().unwrap().1.as_secs_f64()*1000.,"ms":start.elapsed().as_secs_f64()*1000.})
+            serde_json::json!({"measurement":"physical_framing","form":form,"records":count,"decoded_bytes":corpus.start(count),"evicted":evicted,"longest_progress_gap_ms":gap.as_secs_f64()*1000.,"ms":start.elapsed().as_secs_f64()*1000.})
         );
         drop(archive);
         let mut backup_sequence = 0;
         for (label, first) in [("head", 0), ("middle", (count - 200) / 2), ("tail", count - 200)] {
-            let mut cold = Vec::new();
-            let mut warm = Vec::new();
-            let mut during_backup = Vec::new();
-            for _ in 0..measurement::size("AH_SAMPLES", 2) {
-                let evicted = measurement::evict(temp.path());
-                let archive = Archive::open(&root, PASSWORD).unwrap();
-                let store = measurement::open(&database, true);
-                for attempt in 0..2 {
-                    let elapsed = read_checked_window(&archive, &store, &identity, first, corpus);
-                    if attempt == 1 {
-                        warm.push(elapsed)
-                    } else if evicted {
-                        cold.push(elapsed)
+            for path in ["window", "rendered_window"] {
+                let mut cold = Vec::new();
+                let mut warm = Vec::new();
+                let mut during_backup = Vec::new();
+                for sample in 0..measurement::size("AH_SAMPLES", 2) {
+                    let evicted = measurement::evict(temp.path());
+                    let archive = Archive::open(&root, PASSWORD).unwrap();
+                    let store = measurement::open(&database, true, Db::AgentHistoryReadModel);
+                    let read = |profile: bool| {
+                        if path == "window" {
+                            read_checked_window(
+                                &archive,
+                                &store,
+                                &identity,
+                                first,
+                                corpus,
+                                profile.then_some(form),
+                            )
+                        } else {
+                            rendered::checked_window(&store, first, corpus)
+                        }
+                    };
+                    for attempt in 0..2 {
+                        let elapsed = read(sample == 0 && attempt == 0);
+                        if attempt == 1 {
+                            warm.push(elapsed)
+                        } else if evicted {
+                            cold.push(elapsed)
+                        }
                     }
+                    during_backup.push(background::during_backup(
+                        &archive,
+                        &temp.path().join("background"),
+                        backup_sequence,
+                        || read(false),
+                    ));
+                    backup_sequence += 1;
                 }
-                during_backup.push(background::during_backup(
-                    &archive,
-                    &temp.path().join("background"),
-                    backup_sequence,
-                    || read_checked_window(&archive, &store, &identity, first, corpus),
-                ));
-                backup_sequence += 1;
-            }
-            println!(
-                "{}",
-                serde_json::json!({"measurement":"window","form":form,"position":label,"during_backup":measurement::timings(during_backup),"first":first,"last":first+199,
+                println!(
+                    "{}",
+                    serde_json::json!({"measurement":path,"form":form,"position":label,"during_backup":measurement::timings(during_backup),"first":first,"last":first+199,
                 "cold":(!cold.is_empty()).then(||measurement::timings(cold)),"warm":measurement::timings(warm)})
-            );
+                );
+            }
         }
+        let store = measurement::open(&database, true, Db::AgentHistoryReadModel);
+        rendered::append_sample(&store, &database, corpus, compressed_bytes, outline_bytes, form);
     }
 }
 
@@ -166,17 +215,40 @@ fn read_checked_window(
     identity: &agent_history::archive::RevisionInfo,
     first: usize,
     corpus: &Corpus,
+    profile: Option<&str>,
 ) -> std::time::Duration {
     let start = Instant::now();
     let outline = load_window(store, first);
+    let lookup = start.elapsed();
+    let decoded = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let mut job = JobControl::default();
+    if profile.is_some() {
+        let done = decoded.clone();
+        job.progress = Some(std::sync::Arc::new(move |pulse| {
+            done.store(pulse.done, std::sync::atomic::Ordering::Relaxed)
+        }));
+    }
+    let mut first_row = None;
     let mut rows = Vec::new();
     archive
-        .read_window(identity, &outline, 16 * 1024 * 1024, &Default::default(), &mut |row| {
+        .read_window(identity, &outline, 16 * 1024 * 1024, &job, &mut |row| {
+            first_row.get_or_insert_with(|| start.elapsed());
             rows.push(row);
             Ok(())
         })
         .unwrap();
     let elapsed = start.elapsed();
+    if let Some(form) = profile {
+        let record = &outline[0].0;
+        let native_replay = record.frame.map_or(0, |f| record.start.0 - f.decoded.0);
+        println!(
+            "{}",
+            serde_json::json!({"measurement":"raw_window_profile","form":form,"first":first,
+            "lookup_ms":lookup.as_secs_f64()*1000.,"first_row_ms":first_row.unwrap().as_secs_f64()*1000.,
+            "total_ms":elapsed.as_secs_f64()*1000.,"decoded_work":decoded.load(std::sync::atomic::Ordering::Relaxed),
+            "prefix_replay_bytes":native_replay})
+        );
+    }
     assert_eq!(rows.len(), 200);
     for (rank, row) in (first..).zip(rows) {
         assert_eq!(row.record.ordinal.0, rank as u64);

@@ -137,3 +137,39 @@ fn raw_export_keeps_the_existing_expired_revision_error() {
     assert_eq!(error.code(), "not_found");
     assert!(error.to_string().contains("expired by retention"));
 }
+
+#[test]
+fn expired_record_rejects_even_an_empty_final_continuation() {
+    use agent_history::read_model::*;
+    let tmp = tempfile::tempdir().unwrap();
+    let archive = create(tmp.path());
+    let id = retain(&archive, ArtifactKind::Sqlite, b"{}\n");
+    let revision = archive.revision(id).unwrap();
+    let mut locator = None;
+    scan_records(
+        &mut b"{}\n".as_slice(),
+        Harness::Codex,
+        Transport::Plain,
+        &Default::default(),
+        &Default::default(),
+        &mut |row, _, _| {
+            locator = Some(row);
+            Ok(())
+        },
+    )
+    .unwrap();
+    let row = locator.unwrap();
+    assert!(
+        archive
+            .record_bytes(&revision, &row, row.length, 16, &Default::default())
+            .unwrap()
+            .bytes
+            .is_empty()
+    );
+    retain(&archive, ArtifactKind::Sqlite, b"replacement");
+    for offset in [0, row.length] {
+        let error =
+            archive.record_bytes(&revision, &row, offset, 16, &Default::default()).unwrap_err();
+        assert_eq!(error.code(), "not_found");
+    }
+}

@@ -9,10 +9,10 @@ pub fn size(name: &str, default: usize) -> usize {
     assert!(value > 0, "{name} must be positive");
     value
 }
-pub fn open(root: &Path, encrypted: bool) -> Store {
+pub fn open(root: &Path, encrypted: bool, role: Db) -> Store {
     let key = DataKey::from_bytes(zeroize::Zeroizing::new([0x39; 32]));
     let mut config = Config::new(root);
-    config.databases = vec![Db::Scratch, Db::AgentHistoryEvidence];
+    config.databases = vec![Db::Scratch, role];
     for db in config.databases.iter().copied() {
         if encrypted {
             config.keys[db as usize] =

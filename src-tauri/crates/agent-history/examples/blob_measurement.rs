@@ -65,7 +65,7 @@ fn write(store: &Store, id: usize, data: Vec<u8>) {
 
 fn measure(size: usize, rows: usize, samples: usize, encrypted: bool, noise: bool) {
     let temp = tempfile::tempdir().unwrap();
-    let store = measurement::open(temp.path(), encrypted);
+    let store = measurement::open(temp.path(), encrypted, Db::AgentHistoryEvidence);
     store
         .write(Db::AgentHistoryEvidence, Priority::Batch, |tx| {
             tx.execute("CREATE TABLE blobs(id INTEGER PRIMARY KEY,data BLOB NOT NULL)", ())?;
@@ -108,7 +108,7 @@ fn measure(size: usize, rows: usize, samples: usize, encrypted: bool, noise: boo
     for sample in 0..samples {
         let id = (sample.wrapping_mul(2654435761) + 1) % rows;
         let evicted = measurement::evict(temp.path());
-        let store = measurement::open(temp.path(), encrypted);
+        let store = measurement::open(temp.path(), encrypted, Db::AgentHistoryEvidence);
         let first = read(&store, id, &hashes[id], size);
         if evicted {
             cold.push(first)

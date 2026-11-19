@@ -407,3 +407,85 @@ fn progress_reports_phase_units_and_completed_work() {
     assert_eq!(pulses.first(), Some(&(ReadPhase::Framing, ProgressUnit::DecodedBytes, 0, None)));
     assert_eq!(pulses.last().unwrap().2, 3);
 }
+
+fn retained_outline(
+    archive: &Archive,
+    bytes: &[u8],
+) -> (agent_history::archive::RevisionInfo, Vec<(RecordLocator, RecordContext)>) {
+    let revision = archive.revision(retain(archive, bytes)).unwrap();
+    let mut entries = Vec::new();
+    archive
+        .scan_revision(revision.id, &Default::default(), &Default::default(), &mut |row, ctx, _| {
+            entries.push((row, ctx.clone()));
+            Ok(())
+        })
+        .unwrap();
+    (revision, entries)
+}
+
+#[test]
+fn preview_continues_without_interpreting_a_partial_object() {
+    let tmp = tempfile::tempdir().unwrap();
+    let archive = Archive::create_unencrypted(tmp.path()).unwrap();
+    let input = b"{\"text\":\"one complete native record\"}\r\n{}\n";
+    let (revision, entries) = retained_outline(&archive, input);
+    let mut rows = Vec::new();
+    archive
+        .read_window(&revision, &entries, 8, &Default::default(), &mut |row| {
+            rows.push(row);
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(rows.len(), 2);
+    assert!(rows[0].interpretation.is_none());
+    assert_eq!(rows[0].raw.bytes, &input[..8]);
+    let offset = rows[0].raw.next.unwrap();
+    assert_eq!(offset, 8);
+    let tail =
+        archive.record_bytes(&revision, &entries[0].0, offset, 64, &Default::default()).unwrap();
+    assert_eq!(tail.bytes, &input[8..input.len() - 3]);
+    assert!(tail.next.is_none());
+    assert_eq!(rows[1].interpretation.as_ref().unwrap().event.ordinal, 1);
+}
+
+#[test]
+fn first_bom_record_retains_the_prefix_only_in_exact_bytes() {
+    let tmp = tempfile::tempdir().unwrap();
+    let archive = Archive::create_unencrypted(tmp.path()).unwrap();
+    let bytes = b"\xef\xbb\xbf{\"id\":\"first\"}\r\n";
+    let (revision, entries) = retained_outline(&archive, bytes);
+    let mut seen = 0;
+    archive
+        .read_window(&revision, &entries, 64, &Default::default(), &mut |row| {
+            assert_eq!(row.raw.bytes, bytes);
+            assert_eq!(row.interpretation.unwrap().event.native_id.as_deref(), Some("first"));
+            seen += 1;
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(seen, 1);
+}
+
+#[test]
+fn rejects_row_201_before_delivering_any_window_rows() {
+    let tmp = tempfile::tempdir().unwrap();
+    let archive = Archive::create_unencrypted(tmp.path()).unwrap();
+    let bytes = b"{}\n".repeat(201);
+    let (revision, entries) = retained_outline(&archive, &bytes);
+    let mut delivered = 0;
+    archive
+        .read_window(&revision, &entries[..200], 8, &Default::default(), &mut |_| {
+            delivered += 1;
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(delivered, 200);
+    let error = archive
+        .read_window(&revision, &entries, 8, &Default::default(), &mut |_| {
+            delivered += 1;
+            Ok(())
+        })
+        .unwrap_err();
+    assert_eq!(error.code(), "invalid_input");
+    assert_eq!(delivered, 200);
+}

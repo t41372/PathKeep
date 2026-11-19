@@ -114,35 +114,32 @@ impl RawReader {
         let loaded = self
             .store
             .read(Db::AgentHistoryEvidence, move |tx| {
-                let retained: i64 = tx.query_one(
-                    "SELECT bytes_retained FROM ah_revisions WHERE id=?1",
+                let (retained, manifest) = tx.query_one(
+                    "SELECT bytes_retained, coalesce(manifest_revision_id,id) FROM ah_revisions WHERE id=?1",
                     [revision],
-                    |row| Ok(row.get(0)?),
+                    |row| Ok((row.get::<i64>(0)?, row.get::<i64>(1)?)),
                 )?;
                 if retained == 0 {
                     return Ok(None);
                 }
-                let chunk = tx
-                    .query_one(
-                        "SELECT c.hash, c.data, m.byte_len, c.codec, m.byte_offset FROM
-                            ah_revisions r JOIN ah_revision_chunks m ON
-                            m.revision_id=coalesce(r.manifest_revision_id, r.id) JOIN ah_chunks c
-                            ON c.hash=m.chunk_hash WHERE r.id=?1 AND m.byte_offset<=?2 ORDER BY
-                            m.byte_offset DESC LIMIT 1",
-                        params![revision, position],
-                        |row| {
-                            Ok((
-                                row.get::<String>(0)?,
-                                row.get::<Vec<u8>>(1)?,
-                                row.get::<i64>(2)?,
-                                row.get::<String>(3)?,
-                                row.get::<i64>(4)?,
-                            ))
-                        },
-                    )
-                    .optional()?
-                    .ok_or_else(|| integrity("a retained revision chunk is missing"))?;
-                Ok(Some(chunk))
+                // Turso sorts preceding payloads if the blob join participates in ORDER BY.
+                // Pin the existing offset index: the ordinal index also starts with revision_id.
+                let (hash, length, start) = tx.query_one(
+                    "SELECT chunk_hash, byte_len, byte_offset FROM ah_revision_chunks
+                     INDEXED BY ah_revision_chunks_offset WHERE revision_id=?1 AND byte_offset<=?2
+                     ORDER BY byte_offset DESC LIMIT 1",
+                    params![manifest, position],
+                    |row| Ok((row.get::<String>(0)?, row.get::<i64>(1)?, row.get::<i64>(2)?)),
+                )
+                .optional()?
+                .ok_or_else(|| integrity("a retained revision chunk is missing"))?;
+                let (data, codec) = tx.query_one(
+                    "SELECT data, codec FROM ah_chunks WHERE hash=?1", [hash.as_str()],
+                    |row| Ok((row.get::<Vec<u8>>(0)?, row.get::<String>(1)?)),
+                )
+                .optional()?
+                .ok_or_else(|| integrity("a retained revision chunk is missing"))?;
+                Ok(Some((hash, data, length, codec, start)))
             })
             .map_err(io::Error::other)?;
         let chunk = loaded.ok_or_else(expired)?;
@@ -216,5 +213,54 @@ impl Read for RawReader {
         let result = self.read_checked(output);
         self.failed = result.is_err();
         result
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{Artifact, ArtifactKind, Harness, SourceRoot};
+
+    #[test]
+    fn slice_seek_selects_a_manifest_offset_before_fetching_one_blob() {
+        let temp = tempfile::tempdir().unwrap();
+        let archive = Archive::create_unencrypted(temp.path()).unwrap();
+        let root = SourceRoot { harness: Harness::Pi, root: "/fixture".into() };
+        let artifact = Artifact {
+            kind: ArtifactKind::Transcript,
+            path: "/fixture/a.jsonl".into(),
+            relative_path: "a.jsonl".into(),
+            generation: None,
+            current: true,
+            project_hint: None,
+        };
+        let revision = archive.begin_revision("source", &root, &artifact).unwrap();
+        for n in 0..8 {
+            archive.append_chunk(revision, n, vec![n as u8; 256]).unwrap();
+        }
+        let bytes = (0u8..8).flat_map(|n| std::iter::repeat_n(n, 256)).collect::<Vec<_>>();
+        archive.finish_revision(revision, &hex::encode(Sha256::digest(bytes)), 2048).unwrap();
+        let info = archive.revision(revision).unwrap();
+        archive.store.capture_query_plans(Db::AgentHistoryEvidence, true).unwrap();
+        let mut result = Vec::new();
+        archive.raw_window(&info, 2016, 32).read_to_end(&mut result).unwrap();
+        assert_eq!(result, vec![7; 32]);
+        let plans = archive.store.take_query_plans(Db::AgentHistoryEvidence).unwrap();
+        let plan = plans.iter().find(|plan| plan.sql.contains("ah_revision_chunks")).unwrap();
+        eprintln!("manifest lookup: {:?}", plan.steps);
+        assert!(
+            plan.steps
+                .iter()
+                .any(|s| s.contains("ah_revision_chunks_offset") && s.contains("byte_offset<=?")),
+            "{plan:?}"
+        );
+        assert!(
+            plan.steps.iter().all(|s| !s.contains("TEMP B-TREE") && !s.contains("SORT")),
+            "{plan:?}"
+        );
+        assert!(
+            archive.store.take_ephemeral_tables(Db::AgentHistoryEvidence).unwrap().is_empty(),
+            "a slice seek materialized candidate rows"
+        );
     }
 }
