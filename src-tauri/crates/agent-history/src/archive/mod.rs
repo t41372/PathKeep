@@ -7,6 +7,7 @@
 //! browser vault and assistant runtime.
 mod attachment_counts;
 mod attachment_outcomes;
+mod capture_facts;
 mod chunks;
 mod comparison;
 mod conversation;
@@ -14,7 +15,7 @@ mod conversation;
 mod damage_tests;
 mod durability;
 mod generations;
-mod lifetime;
+pub(crate) mod lifetime;
 mod lineage;
 mod maintenance;
 #[cfg(test)]

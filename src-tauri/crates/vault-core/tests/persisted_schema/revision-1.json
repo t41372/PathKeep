@@ -245,6 +245,18 @@
             },
             "readGit": {
               "type": "boolean"
+            },
+            "selectionRef": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "pendingFirstSave": {
+              "type": [
+                "string",
+                "null"
+              ]
             }
           },
           "additionalProperties": false,

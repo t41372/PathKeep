@@ -12,6 +12,7 @@ pub(super) fn is_prefix(
     old: &RevisionInfo,
     new: i64,
     length: u64,
+    cancel: &vault_store::CancelToken,
 ) -> Result<bool> {
     let info = RevisionInfo {
         id: new,
@@ -22,7 +23,7 @@ pub(super) fn is_prefix(
         capture_format: "native".into(),
         bytes_retained: true,
     };
-    Ok(archive.revision_prefix(old, &info)?.0)
+    Ok(archive.revision_prefix_cancellable(old, &info, cancel)?.0)
 }
 
 fn retire_manifest(tx: &Session<'_>, revision: i64) -> vault_store::Result<()> {
@@ -84,7 +85,14 @@ pub(super) fn retain_latest_state(
 
 impl Archive {
     pub(crate) fn reclaim_slices(&self) -> Result<()> {
+        self.reclaim_slices_with_cancel(&vault_store::CancelToken::new())
+    }
+    pub(crate) fn reclaim_slices_with_cancel(
+        &self,
+        cancel: &vault_store::CancelToken,
+    ) -> Result<()> {
         loop {
+            cancel.check().map_err(|_| crate::Error::Cancelled)?;
             let count = self.store.write(Db::AgentHistoryEvidence, Priority::Batch, |tx| {
                 let hashes = tx.query(
                     "SELECT hash FROM ah_chunk_garbage ORDER BY hash LIMIT 128",

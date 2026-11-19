@@ -23,7 +23,10 @@ pub(super) enum Layout {
 }
 
 impl Layout {
-    pub(super) fn for_source(source: &SourceRoot) -> Result<Self> {
+    pub(super) fn for_source(
+        source: &SourceRoot,
+        tree: &crate::capture::Discovery,
+    ) -> Result<Self> {
         let root = &source.root;
         Ok(match source.harness {
             Harness::ClaudeCode => {
@@ -45,20 +48,23 @@ impl Layout {
             Harness::Codex => Self::Codex,
             Harness::Pi => {
                 let prefix: &[&str] =
-                    if root.join("agent").symlink_metadata().is_ok_and(|m| m.is_dir())
-                        && root.join("agent/sessions").is_dir()
+                    if tree.metadata(&root.join("agent")).is_ok_and(|m| m.is_dir())
+                        && tree.metadata(&root.join("agent/sessions")).is_ok_and(|m| m.is_dir())
                     {
                         &["agent", "sessions"]
-                    } else if root.join("sessions").is_dir() || root.ends_with(".pi/agent") {
+                    } else if tree.metadata(&root.join("sessions")).is_ok_and(|m| m.is_dir())
+                        || root.ends_with(".pi/agent")
+                    {
                         &["sessions"]
                     } else {
                         &[]
                     };
                 Self::Pi(prefix)
             }
-            Harness::Deepseek => {
-                Self::Deepseek(root.join("sessions").is_dir() || root.ends_with(".dsh"))
-            }
+            Harness::Deepseek => Self::Deepseek(
+                tree.metadata(&root.join("sessions")).is_ok_and(|m| m.is_dir())
+                    || root.ends_with(".dsh"),
+            ),
             _ => return Err(Error::InvalidInput("unsupported desktop tool".into())),
         })
     }

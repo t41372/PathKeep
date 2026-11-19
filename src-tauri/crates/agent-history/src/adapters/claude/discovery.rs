@@ -11,6 +11,7 @@ use crate::{Result, adapters::common, model::*};
 type ArtifactSink<'a> = &'a mut dyn FnMut(Artifact) -> Result<()>;
 
 pub(super) fn discover(
+    cancel: &crate::capture::Discovery,
     source: &SourceRoot,
     emit: ArtifactSink<'_>,
     issues: &mut Vec<Diagnostic>,
@@ -18,11 +19,13 @@ pub(super) fn discover(
     let root = &source.root;
     let name = root.file_name().and_then(|name| name.to_str()).unwrap_or("");
     match name {
-        "projects" => return projects(root, root, emit, issues).map(|_| ()),
-        "claude-code-sessions" => return collect(root, root, ArtifactKind::Metadata, emit, issues),
-        "local-agent-mode-sessions" => return cowork(root, root, emit, issues),
+        "projects" => return projects(cancel, root, root, emit, issues).map(|_| ()),
+        "claude-code-sessions" => {
+            return collect(cancel, root, root, ArtifactKind::Metadata, emit, issues);
+        }
+        "local-agent-mode-sessions" => return cowork(cancel, root, root, emit, issues),
         "file-history" | "uploads" | "image-cache" | "paste-cache" | "images" => {
-            return collect(root, root, ArtifactKind::Attachment, emit, issues);
+            return collect(cancel, root, root, ArtifactKind::Attachment, emit, issues);
         }
         _ => {}
     }
@@ -30,31 +33,31 @@ pub(super) fn discover(
     let projects_root = root.join("projects");
     if projects_root.exists() {
         recognized = true;
-        projects(root, &projects_root, emit, issues)?;
+        projects(cancel, root, &projects_root, emit, issues)?;
     }
     for directory in ["file-history", "uploads", "image-cache", "paste-cache", "plans"] {
         let path = root.join(directory);
         if path.exists() {
             recognized = true;
-            collect(root, &path, ArtifactKind::Attachment, emit, issues)?;
+            collect(cancel, root, &path, ArtifactKind::Attachment, emit, issues)?;
         }
     }
     for name in ["tasks", "history.jsonl"] {
         let path = root.join(name);
         if path.exists() {
             recognized = true;
-            collect(root, &path, ArtifactKind::Metadata, emit, issues)?;
+            collect(cancel, root, &path, ArtifactKind::Metadata, emit, issues)?;
         }
     }
     let metadata = root.join("claude-code-sessions");
     if metadata.exists() {
         recognized = true;
-        collect(root, &metadata, ArtifactKind::Metadata, emit, issues)?;
+        collect(cancel, root, &metadata, ArtifactKind::Metadata, emit, issues)?;
     }
     let local_agent = root.join("local-agent-mode-sessions");
     if local_agent.exists() {
         recognized = true;
-        cowork(root, &local_agent, emit, issues)?;
+        cowork(cancel, root, &local_agent, emit, issues)?;
     }
     if !recognized {
         issue(issues, "claude-source-layout-unrecognized", root);
@@ -71,6 +74,7 @@ fn historical_transcript(name: &str) -> bool {
 }
 
 fn projects(
+    cancel: &crate::capture::Discovery,
     root: &Path,
     tree: &Path,
     emit: ArtifactSink<'_>,
@@ -82,7 +86,8 @@ fn projects(
     let mut current_main_transcripts = 0;
     // Traversal owns its diagnostics so the callback may also report path conversion failures.
     let mut traversal_issues = Vec::new();
-    common::walk_files(
+    common::walk_files_cancellable(
+        cancel,
         tree,
         &mut |path| {
             let Ok(relative) = path.strip_prefix(tree) else {
@@ -131,6 +136,7 @@ fn projects(
 }
 
 fn collect(
+    cancel: &crate::capture::Discovery,
     root: &Path,
     tree: &Path,
     kind: ArtifactKind,
@@ -141,7 +147,8 @@ fn collect(
         return Ok(());
     }
     let mut traversal_issues = Vec::new();
-    common::walk_files(
+    common::walk_files_cancellable(
+        cancel,
         tree,
         &mut |path| artifact(root, path, kind, emit, issues),
         &mut traversal_issues,
@@ -153,21 +160,22 @@ fn collect(
 }
 
 fn cowork(
+    cancel: &crate::capture::Discovery,
     root: &Path,
     tree: &Path,
     emit: ArtifactSink<'_>,
     issues: &mut Vec<Diagnostic>,
 ) -> Result<()> {
     // Enumerating account/org directories keeps plugin caches outside the session collection.
-    children(tree, issues, &mut |account, issues| {
+    children(cancel, tree, issues, &mut |account, issues| {
         if !account.is_dir() {
             return Ok(());
         }
-        children(&account, issues, &mut |workspace, issues| {
+        children(cancel, &account, issues, &mut |workspace, issues| {
             if !workspace.is_dir() {
                 return Ok(());
             }
-            children(&workspace, issues, &mut |path, issues| {
+            children(cancel, &workspace, issues, &mut |path, issues| {
                 let Some(name) = path.file_name().and_then(|value| value.to_str()) else {
                     issue(issues, "claude-non-utf8-path", &path);
                     return Ok(());
@@ -178,7 +186,7 @@ fn cowork(
                 if path.is_file() && name.ends_with(".json") {
                     artifact(root, path, ArtifactKind::Metadata, emit, issues)
                 } else if path.is_dir() {
-                    cowork_body(root, &path, emit, issues)
+                    cowork_body(cancel, root, &path, emit, issues)
                 } else {
                     Ok(())
                 }
@@ -188,23 +196,27 @@ fn cowork(
 }
 
 fn cowork_body(
+    cancel: &crate::capture::Discovery,
     root: &Path,
     body: &Path,
     emit: ArtifactSink<'_>,
     issues: &mut Vec<Diagnostic>,
 ) -> Result<()> {
     let projects_root = body.join(".claude/projects");
-    let transcript_count =
-        if projects_root.exists() { projects(root, &projects_root, emit, issues)? } else { 0 };
+    let transcript_count = if projects_root.exists() {
+        projects(cancel, root, &projects_root, emit, issues)?
+    } else {
+        0
+    };
     let audit = body.join("audit.jsonl");
     if audit.exists() {
         let kind =
             if transcript_count == 0 { ArtifactKind::Transcript } else { ArtifactKind::Metadata };
-        collect(root, &audit, kind, emit, issues)?;
+        collect(cancel, root, &audit, kind, emit, issues)?;
     }
     let audit_key = body.join(".audit-key");
     if audit_key.exists() {
-        collect(root, &audit_key, ArtifactKind::Metadata, emit, issues)?;
+        collect(cancel, root, &audit_key, ArtifactKind::Metadata, emit, issues)?;
     }
     for directory in [
         "uploads",
@@ -217,17 +229,18 @@ fn cowork_body(
     ] {
         let path = body.join(directory);
         if path.exists() {
-            collect(root, &path, ArtifactKind::Attachment, emit, issues)?;
+            collect(cancel, root, &path, ArtifactKind::Attachment, emit, issues)?;
         }
     }
     let tasks = body.join(".claude/tasks");
     if tasks.exists() {
-        collect(root, &tasks, ArtifactKind::Metadata, emit, issues)?;
+        collect(cancel, root, &tasks, ArtifactKind::Metadata, emit, issues)?;
     }
     Ok(())
 }
 
 fn children(
+    cancel: &crate::capture::Discovery,
     root: &Path,
     issues: &mut Vec<Diagnostic>,
     visit: &mut dyn FnMut(PathBuf, &mut Vec<Diagnostic>) -> Result<()>,
@@ -243,7 +256,7 @@ fn children(
         issue(issues, "source-symlink-skipped", root);
         return Ok(());
     }
-    let entries = match fs::read_dir(root) {
+    let entries = match cancel.read_dir(root) {
         Ok(entries) => entries,
         Err(_) => {
             issue(issues, "source-directory-unreadable", root);
@@ -251,6 +264,7 @@ fn children(
         }
     };
     for entry in entries {
+        cancel.check()?;
         let entry = match entry {
             Ok(entry) => entry,
             Err(_) => {
@@ -258,6 +272,9 @@ fn children(
                 continue;
             }
         };
+        if entry.file_name().eq_ignore_ascii_case(".git") {
+            continue;
+        }
         match entry.file_type() {
             Ok(kind) if kind.is_symlink() => issue(issues, "source-symlink-skipped", &entry.path()),
             Ok(kind) if kind.is_file() || kind.is_dir() => visit(entry.path(), issues)?,

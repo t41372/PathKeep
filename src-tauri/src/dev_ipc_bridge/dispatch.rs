@@ -117,6 +117,39 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
         }
     };
     match command {
+        "enable_agent_history" => worker_bridge::enable_agent_history_impl(
+            &state.session,
+            surface_request(payload)?,
+            backup_events(state),
+        ),
+        "start_backup" => worker_bridge::start_backup_impl(
+            &state.session,
+            surface_request(payload)?,
+            backup_events(state),
+        ),
+        "list_archive_runs" => {
+            worker_bridge::list_archive_runs_impl(&state.session, surface_request(payload)?)
+        }
+        "get_archive_run" => {
+            worker_bridge::get_archive_run_impl(&state.session, surface_request(payload)?)
+        }
+        "list_background_tasks" => {
+            worker_bridge::list_background_tasks_impl(&state.session, surface_request(payload)?)
+        }
+        "get_task_summary" => {
+            worker_bridge::get_task_summary_impl(&state.session, surface_request(payload)?)
+        }
+        "control_background_task" => worker_bridge::control_background_task_impl(
+            &state.session,
+            surface_request(payload)?,
+            backup_events(state),
+        ),
+        "list_agent_sources" => {
+            worker_bridge::list_agent_sources_impl(&state.session, surface_request(payload)?)
+        }
+        "get_agent_overview" => {
+            worker_bridge::get_agent_overview_impl(&state.session, surface_request(payload)?)
+        }
         "list_data_kinds" => {
             json_value!(worker_bridge::list_data_kinds_impl(
                 &state.session,
@@ -135,8 +168,9 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
         }
         "update_agent_sources" => {
             json_value!(worker_bridge::update_agent_sources_impl(
+                &state.session,
                 surface_request(payload)?,
-                changed
+                backup_events(state)
             )?)
         }
         "detect_data_sources" => worker_bridge::detect_data_sources_impl(surface_request(payload)?),
@@ -1342,3 +1376,14 @@ async fn download_static_embedding_model_off_thread(
 
 #[cfg(test)]
 mod tests;
+
+fn backup_events(state: &DevIpcBridgeState) -> vault_worker::data_kinds::backups::Events {
+    let state = state.clone();
+    std::sync::Arc::new(move |name, event| {
+        if let Ok(app) = require_app_handle(&state) {
+            let _ = tauri::Emitter::emit(&app, name, &event);
+        } else {
+            state.events.emit(name, &event);
+        }
+    })
+}

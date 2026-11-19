@@ -14,14 +14,15 @@ pub(super) fn capture_raw(
 ) -> Result<Option<writer::Captured>> {
     archive.register_source(source_id, source, artifact)?;
     archive.observe_source(report.run_id, source_id, true)?;
-    match writer::capture(archive, source_id, source, artifact, options) {
+    archive.visit_file(report.run_id, source_id)?;
+    match writer::capture(archive, source_id, source, artifact, options, report.run_id) {
         Ok(captured) => {
             if captured.unchanged {
                 report.unchanged = report.unchanged.saturating_add(1);
             } else {
                 report.captured = report.captured.saturating_add(1);
                 report.bytes = report.bytes.saturating_add(captured.byte_len);
-                progress(options, "raw_committed", source_id, &captured);
+                progress(options, source.harness, "raw_committed", source_id, &captured);
             }
             for diagnostic in &captured.diagnostics {
                 common::push_diagnostic(&mut report.issues, diagnostic.clone());
@@ -46,6 +47,11 @@ pub(super) fn capture_raw(
             } else {
                 "source_capture_unavailable"
             };
+            archive.file_problem(
+                report.run_id,
+                source_id,
+                if matches!(error, Error::SourceChanged(_)) { "unstable" } else { "unavailable" },
+            )?;
             if let Some(reason) = reference {
                 *reason = Some(
                     match &error {

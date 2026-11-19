@@ -54,8 +54,8 @@ pub(super) fn enumerate(
     for root in roots {
         permit.check()?;
         let mut stopped = None;
-        let directory = directory_handle(&root.root).ok();
-        let row = capture::inventory_root(&root, &permit.cancel, |_| {
+        let directory = directory_handle(&root.root).ok().map(Arc::new);
+        let row = capture::inventory_root_bound(&root, directory.clone(), &permit.cancel, |_| {
             visited += 1u64;
             if elapsed.elapsed() >= Duration::from_millis(100) {
                 if let Err(err) = emit(
@@ -76,13 +76,14 @@ pub(super) fn enumerate(
             other => other.into(),
         })?;
         if row.readable {
-            if let Some(directory) = directory
-                .filter(|d| directory_handle(&root.root).is_ok_and(|current| &current == d))
-            {
+            if let Some(directory) = directory.filter(|d| {
+                directory_handle(&root.root).is_ok_and(|current| &current == d.as_ref())
+            }) {
                 approved.push(Binding {
                     root_id: row.root_id.clone(),
                     source: root.clone(),
-                    directory: Arc::new(directory),
+                    canonical: capture::normalized_root(&root.root)?,
+                    directory,
                 });
             } else {
                 row.readable = false;

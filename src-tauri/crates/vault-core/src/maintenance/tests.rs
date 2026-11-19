@@ -310,6 +310,8 @@ fn device_policy_survives_rewrap_switch_and_restore_only_on_the_live_archive() {
     let mut config = vault.config().clone();
     config.capture_policy.enabled_tools.insert(crate::AgentTool::Codex);
     config.capture_policy.read_git = false;
+    config.capture_policy.selection_ref = Some("device-grant".into());
+    config.capture_policy.pending_first_save = Some("authorized-first-save".into());
     crate::save_config(&crate::ControlGate::acquire(vault.paths()), &config).unwrap();
     let vault = vault.with_config(config.clone());
     let snap = vault.paths().raw_snapshots_dir.join("maintenance/policy");

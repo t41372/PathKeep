@@ -198,3 +198,132 @@ fn app_surface_preview_contract() {
         panic!("preview closed without a final inventory");
     });
 }
+
+/// The window can disappear immediately after enable. Repeating its request
+/// must return the same task and there must be exactly one native backup run.
+#[test]
+fn enable_publishes_one_background_backup_of_the_reviewed_source() {
+    let _guard = lock_env();
+    let archive = tempdir().unwrap();
+    let home = tempdir().unwrap();
+    unsafe { std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, archive.path()) };
+    let folder = home.path().join(".claude");
+    std::fs::create_dir_all(folder.join("projects/example")).unwrap();
+    std::fs::write(folder.join("projects/example/demo.jsonl"),
+        br#"{"type":"user","uuid":"one","sessionId":"demo","message":{"role":"user","content":"hello"}}
+"#).unwrap();
+    let state =
+        DevIpcBridgeState::without_app(SessionState::default(), DEFAULT_DEV_IPC_BRIDGE_PORT);
+    ready_block_on(async {
+        dispatch_command(&state, "initialize_archive", json!({"config":test_config()}))
+            .await
+            .unwrap();
+        let read = json!({"request":{}});
+        let settings = dispatch_command(&state, "get_agent_settings", read.clone()).await.unwrap();
+        let start = dispatch_command(&state,"preview_agent_sources",json!({"request":{"purpose":"enable","pickedFolder":{"tool":"claude-code","path":folder}}})).await.unwrap();
+        let mut frames = preview::subscribe(&state, start["streamId"].as_str().unwrap()).unwrap();
+        let summary = loop {
+            let frame = frames.next_frame().await.unwrap();
+            if frame["type"] == "finished" {
+                break frame["payload"].clone();
+            }
+        };
+        let request = json!({"request":{"previewId":summary["previewId"],"selectedRootIds":[summary["rows"][0]["rootId"]],"readGit":false,"expectedPolicyToken":settings["policyToken"],"requestId":"7f8ed74e-4f62-4146-9bd2-81f460ffcad8"}});
+        let receipt =
+            dispatch_command(&state, "enable_agent_history", request.clone()).await.unwrap();
+        assert_eq!(receipt["state"], "on");
+        assert!(receipt["firstSave"]["taskId"].is_string());
+        assert_eq!(receipt["firstSave"]["requestId"], request["request"]["requestId"]);
+        assert_eq!(
+            dispatch_command(&state, "enable_agent_history", request).await.unwrap(),
+            receipt
+        );
+        let stored = vault_core::load_config(&vault_core::project_paths().unwrap()).unwrap();
+        assert_eq!(stored.capture_policy.agent_history, vault_core::KindState::On);
+        assert!(!stored.capture_policy.read_git);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+        loop {
+            let runs = dispatch_command(
+                &state,
+                "list_archive_runs",
+                json!({"request":{"space":"agent-history","includeArchiveWide":false,"limit":10}}),
+            )
+            .await
+            .unwrap();
+            if let Some(row) = runs["items"].get(0) {
+                assert_eq!(runs["items"].as_array().unwrap().len(), 1);
+                if row["result"] != "running" {
+                    assert_eq!(row["result"], "success", "{row}");
+                    assert_eq!(row["runRef"], receipt["firstSave"]["runRef"]);
+                    break;
+                }
+            }
+            assert!(std::time::Instant::now() < deadline);
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    });
+}
+
+/// Every entry, including an unknown task/run lookup, has to classify the store
+/// before inferring that a run, an approval, or a task does not exist.
+#[test]
+fn damaged_conversation_store_refuses_each_backup_and_tasks_command() {
+    let _guard = lock_env();
+    let root = tempdir().unwrap();
+    unsafe { std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, root.path()) };
+    let state =
+        DevIpcBridgeState::without_app(SessionState::default(), DEFAULT_DEV_IPC_BRIDGE_PORT);
+    ready_block_on(async {
+        dispatch_command(&state, "initialize_archive", json!({"config":test_config()}))
+            .await
+            .unwrap();
+        state.session.close_vault().unwrap();
+        std::fs::remove_file(root.path().join("archive/agent-history.db")).unwrap();
+        let requests = [
+            (
+                "enable_agent_history",
+                json!({"previewId":"p","selectedRootIds":["r"],"readGit":false,"expectedPolicyToken":"p","requestId":"q"}),
+            ),
+            (
+                "start_backup",
+                json!({"scope":{"type":"kind","kind":"agent-history"},"requestId":"q"}),
+            ),
+            (
+                "list_archive_runs",
+                json!({"space":"agent-history","includeArchiveWide":true,"limit":1}),
+            ),
+            ("list_archive_runs", json!({"includeArchiveWide":true,"limit":1})),
+            ("get_archive_run", json!({"runRef":"agent-history:missing"})),
+            ("get_agent_overview", json!({"purpose":"backup"})),
+            ("list_agent_sources", json!({"limit":1})),
+            ("list_background_tasks", json!({"group":"attention","limit":1})),
+            ("get_task_summary", json!({})),
+            (
+                "control_background_task",
+                json!({"taskId":"missing","action":"cancel","expectedToken":"p","requestId":"q"}),
+            ),
+            ("update_agent_sources", json!({"expectedToken":"p","selectedRootIds":[]})),
+        ];
+        for (command, request) in &requests {
+            let error =
+                dispatch_command(&state, command, json!({"request":request})).await.unwrap_err();
+            assert_eq!(error.code.as_deref(), Some("kind-unavailable"), "{command}: {error:?}");
+        }
+        let snapshot =
+            dispatch_command(&state, "list_data_kinds", json!({"request":{}})).await.unwrap();
+        assert_eq!(snapshot["kinds"][0]["availability"], "available");
+        let paths = vault_core::project_paths().unwrap();
+        {
+            let gate = vault_core::ControlGate::acquire(&paths);
+            let mut config = vault_core::load_config(&paths).unwrap();
+            config.app_lock.enabled = true;
+            vault_core::save_config(&gate, &config).unwrap();
+        }
+        dispatch_command(&state, "lock_app_session", json!({"reason":"manual"})).await.unwrap();
+        for (command, request) in requests {
+            let error =
+                dispatch_command(&state, command, json!({"request":request})).await.unwrap_err();
+            assert_eq!(error.code.as_deref(), Some("lock-required"), "{command}");
+        }
+    });
+}

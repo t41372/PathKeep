@@ -133,3 +133,39 @@ fn no_source_file_or_git_directory_is_opened() {
     assert_eq!(read, -1, "preview opened a watched file or .git directory");
     assert_eq!(std::io::Error::last_os_error().kind(), std::io::ErrorKind::WouldBlock);
 }
+
+/// Entry metadata and descendant walks must use the directory selected at the
+/// start, even if the native tool replaces its home before the walk descends.
+#[test]
+fn replacing_a_preview_directory_never_enumerates_the_replacement() {
+    use agent_history::{Harness, SourceRoot, capture::inventory_root};
+    let temp = tempfile::tempdir().unwrap();
+    let source = temp.path().join("claude");
+    let decoy = temp.path().join("unreviewed");
+    for (root, count) in [(&source, 1), (&decoy, 9)] {
+        let directory = root.join("projects/project");
+        std::fs::create_dir_all(&directory).unwrap();
+        for index in 0..count {
+            std::fs::write(directory.join(format!("{index}.jsonl")), b"metadata only").unwrap();
+        }
+    }
+    let mut attempted = false;
+    let inventory = inventory_root(
+        &SourceRoot { harness: Harness::ClaudeCode, root: source.clone() },
+        &vault_store::CancelToken::new(),
+        |_| {
+            if !attempted {
+                attempted = true;
+                match std::fs::rename(&source, source.with_extension("previous")) {
+                    Ok(()) => std::fs::rename(&decoy, &source).unwrap(),
+                    Err(e) if cfg!(windows) && matches!(e.raw_os_error(), Some(5 | 32 | 33)) => {}
+                    Err(e) => panic!("replacing test directory: {e}"),
+                }
+            }
+        },
+    )
+    .unwrap();
+    assert!(attempted);
+    assert_eq!(inventory.counts.files, 1);
+    assert_eq!(inventory.counts.source_bytes, 13);
+}

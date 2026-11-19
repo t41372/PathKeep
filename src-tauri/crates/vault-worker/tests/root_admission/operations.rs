@@ -307,9 +307,20 @@ fn observe(operation: Operation, control: &str) -> Observation {
             },
         )),
         SurfacePolicy => {
+            use kinds::backups;
             use serde_json::{from_value, json};
             use vault_worker::data_kinds::{self as kinds, preview};
+            let quiet: backups::Events = Arc::new(|_, _| {});
             let failures = [
+                error(backups::enable(&f.session,from_value(json!({"previewId":"preview","selectedRootIds":[],"expectedPolicyToken":"old","readGit":false,"requestId":"id"})).unwrap(),quiet.clone())),
+                error(backups::start(&f.session,from_value(json!({"scope":{"type":"kind","kind":"agent-history"},"requestId":"id"})).unwrap(),quiet.clone())),
+                error(backups::list_runs(&f.session,from_value(json!({"includeArchiveWide":true,"limit":1})).unwrap())),
+                error(backups::get_run(&f.session,from_value(json!({"runRef":"agent-history:test"})).unwrap())),
+                error(backups::overview(&f.session,from_value(json!({"purpose":"backup"})).unwrap())),
+                error(backups::sources(&f.session,from_value(json!({"limit":1})).unwrap())),
+                error(backups::tasks(&f.session,from_value(json!({"group":"attention","limit":1})).unwrap())),
+                error(backups::task_summary(&f.session,from_value(json!({})).unwrap())),
+                error(backups::control(&f.session,from_value(json!({"taskId":"task","action":"retry","expectedToken":"old","requestId":"id"})).unwrap(),quiet)),
                 error(kinds::list(&f.session)),
                 error(kinds::settings()),
                 error(kinds::set_state(
@@ -319,6 +330,7 @@ fn observe(operation: Operation, control: &str) -> Observation {
                     |_| {},
                 )),
                 error(kinds::update_sources(
+                    &f.session,
                     from_value(json!({"readGit":false,"expectedToken":"old"})).unwrap(),
                     |_| {},
                 )),

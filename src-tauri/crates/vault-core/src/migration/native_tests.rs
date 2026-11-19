@@ -230,6 +230,8 @@ fn device_policy_is_removed_from_a_move_file_and_kept_at_its_destination() {
     let vault = crate::Vault::open_temp().unwrap();
     let mut config = vault.config().clone();
     config.capture_policy.read_git = false;
+    config.capture_policy.selection_ref = Some("source-grant".into());
+    config.capture_policy.pending_first_save = Some("source-request".into());
     config.capture_policy.enabled_tools.insert(crate::AgentTool::Codex);
     let source = vault.with_config(config);
     let bundle_dir = tempfile::tempdir().unwrap();
@@ -239,6 +241,7 @@ fn device_policy_is_removed_from_a_move_file_and_kept_at_its_destination() {
     let mut config = target.config().clone();
     config.capture_policy.browsing = crate::KindState::Paused;
     config.capture_policy.agent_history = crate::KindState::On;
+    config.capture_policy.selection_ref = Some("destination-grant".into());
     crate::save_config(&crate::ControlGate::acquire(target.paths()), &config).unwrap();
     let options =
         ApplyImportOptions { confirm_overwrite: true, source_archive_key: Some("export".into()) };

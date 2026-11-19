@@ -22,7 +22,7 @@ pub(crate) struct Jobs {
 }
 
 impl Jobs {
-    pub(crate) fn enter(&self, capture: Option<&CancelToken>) -> Result<Job<'_>> {
+    pub(crate) fn enter(self: &Arc<Self>, capture: Option<&CancelToken>) -> Result<Job> {
         let mut state = self.state.lock().unwrap();
         if state.closed {
             return Err(vault_store::Error::Closed.into());
@@ -39,7 +39,7 @@ impl Jobs {
             state.capture = Some(token.clone());
         }
         state.active += 1;
-        Ok(Job { jobs: self, capture: capture.is_some() })
+        Ok(Job { jobs: self.clone(), capture: capture.is_some() })
     }
 
     pub(crate) fn stopping(&self) -> bool {
@@ -61,12 +61,12 @@ impl Jobs {
     }
 }
 
-pub(crate) struct Job<'a> {
-    jobs: &'a Jobs,
+pub(crate) struct Job {
+    jobs: Arc<Jobs>,
     capture: bool,
 }
 
-impl Drop for Job<'_> {
+impl Drop for Job {
     fn drop(&mut self) {
         let mut state = self.jobs.state.lock().unwrap();
         state.active -= 1;

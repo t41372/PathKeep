@@ -33,6 +33,45 @@ impl Drop for ConversationPause {
 }
 
 impl Vault {
+    /// Installed conversation storage for the backup header, including native
+    /// WAL files and the owned search index. Never follow links into another tree.
+    pub fn conversation_archive_bytes(&self) -> anyhow::Result<u64> {
+        self.recheck_root()?;
+        let mut bytes = 0;
+        for role in [ArtifactId::AgentHistoryEvidence, ArtifactId::AgentHistoryReadModel] {
+            let path = self.paths.artifact_path(role);
+            for suffix in
+                vault_layout::CompanionFamily::Native.suffixes(vault_layout::CompanionUse::Usage)
+            {
+                let mut member = path.as_os_str().to_owned();
+                member.push(suffix);
+                match std::fs::symlink_metadata(member) {
+                    Ok(meta) if meta.is_file() => bytes += meta.len(),
+                    Ok(_) => {}
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(e) => return Err(e.into()),
+                }
+            }
+        }
+        let path = self.paths.artifact_path(ArtifactId::AgentHistorySearch);
+        for entry in walkdir::WalkDir::new(path).follow_links(false).follow_root_links(false) {
+            match entry {
+                Ok(entry) if entry.file_type().is_file() => match entry.metadata() {
+                    Ok(meta) => bytes += meta.len(),
+                    Err(e)
+                        if e.io_error()
+                            .is_some_and(|e| e.kind() == std::io::ErrorKind::NotFound) => {}
+                    Err(e) => return Err(e.into()),
+                },
+                Ok(_) => {}
+                Err(e)
+                    if e.io_error().is_some_and(|e| e.kind() == std::io::ErrorKind::NotFound) => {}
+                Err(e) => return Err(e.into()),
+            }
+        }
+        Ok(bytes)
+    }
+
     /// The saved failure is shared by every handle to this generation.
     pub fn conversation_availability(&self) -> Result<(), Arc<vault_store::StoreOpenFailure>> {
         self.store.conversation_availability()?;

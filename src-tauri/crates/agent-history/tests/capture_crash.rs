@@ -37,6 +37,7 @@ fn options() -> BackupOptions {
         max_decoded_bytes: 16 * 1024 * 1024,
         cancel: CancelToken::new(),
         progress: None,
+        approved_directories: None,
         read_git: true,
     }
 }

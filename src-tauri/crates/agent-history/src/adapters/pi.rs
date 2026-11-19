@@ -57,6 +57,16 @@ impl Adapter for PiAdapter {
         emit: &mut dyn FnMut(Artifact) -> Result<()>,
         issues: &mut Vec<Diagnostic>,
     ) -> Result<()> {
+        self.discover_cancellable(&crate::capture::Discovery::default(), source, emit, issues)
+    }
+
+    fn discover_cancellable(
+        &self,
+        cancel: &crate::capture::Discovery,
+        source: &SourceRoot,
+        emit: &mut dyn FnMut(Artifact) -> Result<()>,
+        issues: &mut Vec<Diagnostic>,
+    ) -> Result<()> {
         // Selecting a nested default must not hide an intermediate symlink from
         // walk_files, which only sees the root it is given and its descendants.
         for candidate in [&source.root, &source.root.join("agent")] {
@@ -82,7 +92,8 @@ impl Adapter for PiAdapter {
         } else {
             source.root.clone()
         };
-        common::walk_files(
+        common::walk_files_cancellable(
+            cancel,
             &root,
             &mut |path| {
                 if path.extension().and_then(|part| part.to_str()) != Some("jsonl") {

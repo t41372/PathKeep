@@ -39,6 +39,7 @@ struct Session {
 /// One session is shared by desktop commands and the owner's IPC service.
 #[derive(Clone, Default)]
 pub struct VaultSession {
+    pub(crate) conversations: Arc<crate::data_kinds::backups::Runtime>,
     inner: Arc<(Mutex<Session>, Condvar)>,
 }
 
@@ -175,6 +176,7 @@ impl VaultSession {
             state.vault.replace(archive.vault).filter(|_| !same_owner)
         };
         if let Some(old) = old {
+            crate::data_kinds::delivery::revoke(&old.paths().app_root);
             old.close()?;
         }
         keyring_result.map_err(|error| KeychainNotUpdated(error).into())
@@ -417,6 +419,9 @@ impl VaultSession {
         }
         state.vault = Some(vault.clone());
         drop(state);
+        if let Err(error) = crate::data_kinds::backups::recover(self, &vault) {
+            eprintln!("PathKeep could not resume conversation backup: {error:#}");
+        }
         if let Err(error) = crate::intelligence::resume_insights(&vault) {
             eprintln!("PathKeep could not resume Insights work: {error:#}");
         }
@@ -522,6 +527,9 @@ impl VaultSession {
         state.result = Arc::default();
         let vault = state.vault.take();
         drop(state);
+        if let Some(vault) = &vault {
+            crate::data_kinds::delivery::revoke(&vault.paths().app_root);
+        }
         let result = vault.map_or(Ok(()), |vault| vault.close().map_err(|e| e.to_string()));
         lock.lock().expect("session state").transition = Transition::Idle;
         ready.notify_all();

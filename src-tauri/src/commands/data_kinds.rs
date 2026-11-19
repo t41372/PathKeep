@@ -7,6 +7,12 @@ use serde_json::Value;
 use tauri::{AppHandle, Emitter, State, ipc::Channel};
 use vault_worker::data_kinds::{self as kinds, preview};
 
+fn desktop_events(app: AppHandle) -> kinds::backups::Events {
+    std::sync::Arc::new(move |name, event| {
+        let _ = app.emit(name, event);
+    })
+}
+
 /// Preserve the domain error envelope even when the request wrapper is missing.
 pub(crate) struct Request<T>(T);
 impl<'de, R: tauri::Runtime, T: serde::Deserialize<'de>> tauri::ipc::CommandArg<'de, R>
@@ -55,13 +61,13 @@ pub(crate) async fn get_agent_settings(
 }
 #[tauri::command]
 pub(crate) async fn update_agent_sources(
+    state: State<'_, SessionState>,
     app: AppHandle,
     request: Request<kinds::SourcesPatch>,
 ) -> Result<kinds::Settings, CommandError> {
+    let session = state.inner().clone();
     run_blocking_command("update_agent_sources", move || {
-        worker_bridge::update_agent_sources_impl(request.0, |event| {
-            let _ = app.emit(kinds::POLICY_EVENT, event);
-        })
+        worker_bridge::update_agent_sources_impl(&session, request.0, desktop_events(app))
     })
     .await
 }
@@ -101,6 +107,117 @@ pub(crate) async fn cancel_agent_read(
 ) -> Result<Value, CommandError> {
     run_blocking_command("cancel_agent_read", move || {
         worker_bridge::cancel_agent_read_impl(request.0)
+    })
+    .await
+}
+
+#[tauri::command]
+pub(crate) async fn enable_agent_history(
+    state: State<'_, SessionState>,
+    app: AppHandle,
+    request: Request<kinds::backups::Enable>,
+) -> Result<Value, CommandError> {
+    let session = state.inner().clone();
+    run_blocking_command("enable_agent_history", move || {
+        worker_bridge::enable_agent_history_impl(&session, request.0, desktop_events(app))
+    })
+    .await
+}
+
+#[tauri::command]
+pub(crate) async fn start_backup(
+    state: State<'_, SessionState>,
+    app: AppHandle,
+    request: Request<kinds::backups::Start>,
+) -> Result<Value, CommandError> {
+    let session = state.inner().clone();
+    run_blocking_command("start_backup", move || {
+        worker_bridge::start_backup_impl(&session, request.0, desktop_events(app))
+    })
+    .await
+}
+
+#[tauri::command]
+pub(crate) async fn list_archive_runs(
+    state: State<'_, SessionState>,
+    request: Request<kinds::backups::ListRuns>,
+) -> Result<Value, CommandError> {
+    let session = state.inner().clone();
+    run_blocking_command("list_archive_runs", move || {
+        worker_bridge::list_archive_runs_impl(&session, request.0)
+    })
+    .await
+}
+
+#[tauri::command]
+pub(crate) async fn get_archive_run(
+    state: State<'_, SessionState>,
+    request: Request<kinds::backups::GetRun>,
+) -> Result<Value, CommandError> {
+    let session = state.inner().clone();
+    run_blocking_command("get_archive_run", move || {
+        worker_bridge::get_archive_run_impl(&session, request.0)
+    })
+    .await
+}
+
+#[tauri::command]
+pub(crate) async fn list_background_tasks(
+    state: State<'_, SessionState>,
+    request: Request<kinds::backups::ListTasks>,
+) -> Result<Value, CommandError> {
+    let session = state.inner().clone();
+    run_blocking_command("list_background_tasks", move || {
+        worker_bridge::list_background_tasks_impl(&session, request.0)
+    })
+    .await
+}
+
+#[tauri::command]
+pub(crate) async fn get_task_summary(
+    state: State<'_, SessionState>,
+    request: Request<kinds::Empty>,
+) -> Result<Value, CommandError> {
+    let session = state.inner().clone();
+    run_blocking_command("get_task_summary", move || {
+        worker_bridge::get_task_summary_impl(&session, request.0)
+    })
+    .await
+}
+
+#[tauri::command]
+pub(crate) async fn control_background_task(
+    state: State<'_, SessionState>,
+    app: AppHandle,
+    request: Request<kinds::backups::Control>,
+) -> Result<Value, CommandError> {
+    let session = state.inner().clone();
+    run_blocking_command("control_background_task", move || {
+        worker_bridge::control_background_task_impl(&session, request.0, desktop_events(app))
+    })
+    .await
+}
+
+#[tauri::command]
+pub(crate) async fn list_agent_sources(
+    state: State<'_, SessionState>,
+    request: Request<kinds::backups::ListSources>,
+) -> Result<Value, CommandError> {
+    let session = state.inner().clone();
+    run_blocking_command("list_agent_sources", move || {
+        worker_bridge::list_agent_sources_impl(&session, request.0)
+    })
+    .await
+}
+
+#[tauri::command]
+pub(crate) async fn get_agent_overview(
+    state: State<'_, SessionState>,
+    request: Request<kinds::backups::Overview>,
+) -> Result<Value, CommandError> {
+    let session = state.inner().clone();
+    run_blocking_command("get_agent_overview", move || {
+        worker_bridge::get_agent_overview_impl(&session, request.0)
     })
     .await
 }

@@ -67,7 +67,7 @@ fn encrypted_files_use_the_literal_historical_key_purpose_at_each_path() {
     // Existing copies must already have these versions. These literal reader ceilings run
     // no schema implementation and cannot manufacture a missing fixture marker/table.
     let mut migrations = MigrationRegistry::default();
-    migrations.register(Db::Archive, vec![Migration::rust(23, |_| Ok(()))]);
+    migrations.register(Db::Archive, vec![Migration::rust(24, |_| Ok(()))]);
     migrations.register(Db::SourceEvidence, vec![Migration::rust(1, |_| Ok(()))]);
     migrations.register(Db::Intelligence, vec![Migration::rust(2, |_| Ok(()))]);
     migrations.register(Db::Agent, vec![Migration::rust(1, |_| Ok(()))]);
@@ -119,7 +119,7 @@ fn current_tree_migration_ledgers_and_data_survive_owner_reopen() {
         // The agent-history schemas are not released yet: their ledgers follow the schema.
         let steps = |db| (1..=vault_core::store_schema::schema_version(db)).collect::<Vec<_>>();
         let expected_ledger = serde_json::json!({
-            "archive/history-vault.db":[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23],
+            "archive/history-vault.db":[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24],
             "archive/source-evidence.db":[1], "derived/intelligence.db":[1,2],
             "derived/agent.db":[1], "derived/scratch.db":[],
             "archive/agent-history.db": steps(Db::AgentHistoryEvidence),

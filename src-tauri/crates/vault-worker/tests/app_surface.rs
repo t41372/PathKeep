@@ -268,3 +268,6 @@ fn native_home_presence_and_one_complete_four_tool_preview() {
     });
     assert_eq!(before, archive.observe());
 }
+
+#[path = "app_surface/backup.rs"]
+mod backup;

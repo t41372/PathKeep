@@ -43,6 +43,7 @@ struct Permit {
     paths: ProjectPaths,
     session: VaultSession,
     generation: Option<Weak<Store>>,
+    owner_permit: super::delivery::Permit,
     initialized: bool,
     policy: String,
     cancel: CancelToken,
@@ -69,9 +70,13 @@ impl Permit {
             return Err(Refusal::PolicyChanged.into());
         }
         let generation = self.session.current_vault().map(|v| Arc::downgrade(v.store()));
+        if !self.owner_permit.valid() {
+            return Err(Refusal::Replaced.into());
+        }
         let same_store = match (&self.generation, &generation) {
             (Some(original), Some(current)) => original.ptr_eq(current),
             (None, None) => true,
+            (None, Some(_)) => self.initialized && self.owner_permit.valid(),
             _ => false,
         };
         if current.initialized != self.initialized || !same_store {
@@ -84,30 +89,14 @@ impl Permit {
 // A completed ticket keeps the reviewed bindings. Step two can resolve them
 // against the same live generation before granting any capture rights.
 #[derive(Clone)]
-struct Binding {
-    root_id: String,
-    source: SourceRoot,
-    directory: Arc<same_file::Handle>,
+pub(super) struct Binding {
+    pub(super) root_id: String,
+    pub(super) source: SourceRoot,
+    pub(super) canonical: std::path::PathBuf,
+    pub(super) directory: Arc<same_file::Handle>,
 }
 
-fn directory_handle(path: &Path) -> std::io::Result<same_file::Handle> {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        let file = std::fs::OpenOptions::new()
-            .read(true)
-            .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
-            .open(path)?;
-        same_file::Handle::from_file(file)
-    }
-    #[cfg(not(unix))]
-    {
-        if !path.symlink_metadata()?.is_dir() {
-            return Err(std::io::ErrorKind::NotADirectory.into());
-        }
-        same_file::Handle::from_path(path)
-    }
-}
+use capture::directory_handle;
 struct Ticket {
     permit: Permit,
     roots: Vec<Binding>,
@@ -152,6 +141,22 @@ pub fn cancel(request: CancelRequest) -> Result<Value> {
 
 /// A preview reference can authorize only the exact subset its user reviewed.
 pub fn reviewed_sources(id: &str, selected: &[String]) -> Result<Vec<SourceRoot>> {
+    reviewed_bindings(id, selected)?
+        .into_iter()
+        .map(|binding| {
+            let current =
+                directory_handle(&binding.source.root).map_err(|_| Refusal::RootChanged)?;
+            if *binding.directory != current
+                || capture::root_identity(&binding.source)? != binding.root_id
+            {
+                return Err(Refusal::RootChanged.into());
+            }
+            Ok(binding.source)
+        })
+        .collect()
+}
+
+pub(super) fn reviewed_bindings(id: &str, selected: &[String]) -> Result<Vec<Binding>> {
     let paths = vault_core::project_paths()?;
     admitted_config(&paths)?;
     let (permit, roots) = {
@@ -170,13 +175,7 @@ pub fn reviewed_sources(id: &str, selected: &[String]) -> Result<Vec<SourceRoot>
         if !selected.contains(&binding.root_id) {
             continue;
         }
-        let current = directory_handle(&binding.source.root).map_err(|_| Refusal::RootChanged)?;
-        if *binding.directory != current
-            || capture::root_identity(&binding.source)? != binding.root_id
-        {
-            return Err(Refusal::RootChanged.into());
-        }
-        approved.push(binding.source);
+        approved.push(binding);
     }
     if approved.is_empty() {
         return Err(Refusal::EmptySelection.into());
@@ -298,9 +297,11 @@ pub fn start(session: &VaultSession, request: PreviewRequest) -> Result<Frames> 
     let receiver = Arc::new(Inbox { receiver: Mutex::new(receiver), room: Default::default() });
     let permit = Permit {
         inbox: Arc::downgrade(&receiver),
+        owner_permit: super::delivery::Permit::at(&paths.app_root),
         paths,
         session: session.clone(),
         initialized: config.initialized,
+
         generation: session.current_vault().map(|v| Arc::downgrade(v.store())),
         policy: config.capture_policy.token(),
         cancel: CancelToken::new(),

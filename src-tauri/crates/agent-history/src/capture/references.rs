@@ -41,6 +41,9 @@ pub(super) fn resolve(
         &source.root
     };
     let selected_path = if path.is_absolute() { path } else { base.join(path) };
+    if selected_path.components().any(|c| c.as_os_str().eq_ignore_ascii_case(".git")) {
+        return Ok(unresolved(reference, "sensitive"));
+    }
     let candidate = absolute(&selected_path)?;
     let mut authorized_location = false;
     let mut unavailable_authority = false;

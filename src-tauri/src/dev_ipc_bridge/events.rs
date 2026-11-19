@@ -23,12 +23,18 @@ use std::{
     task::{Context, Poll, Waker},
 };
 use tauri::Listener;
+use vault_worker::data_kinds::delivery::Permit;
 
 /// The events the app emits to its window itself (backups the app or the menu bar run, the
 /// updater, the menu bar's search, the question asked when someone quits while work runs),
 /// forwarded to the browser as they are.
 const APP_EVENTS: &[&str] = &[
     vault_worker::data_kinds::POLICY_EVENT,
+    "pathkeep://agent-settings-changed",
+    "pathkeep://kind-backup-progress",
+    "pathkeep://kind-backup-finished",
+    "pathkeep://background-task-changed",
+    "pathkeep://agent-catalog-changed",
     "pathkeep://backup-progress",
     "pathkeep://backup-finished",
     vault_core::AI_INDEX_JOB_ENDED_EVENT,
@@ -42,7 +48,7 @@ const QUEUE_LIMIT: usize = 100_000;
 
 #[derive(Default)]
 struct Queue {
-    events: VecDeque<(&'static str, String)>,
+    events: VecDeque<(&'static str, String, Option<Permit>)>,
     waker: Option<Waker>,
 }
 
@@ -61,6 +67,15 @@ impl Hub {
     }
 
     fn emit_json(&self, name: &'static str, json: String) {
+        let permit = matches!(
+            name,
+            "pathkeep://agent-settings-changed"
+                | "pathkeep://kind-backup-progress"
+                | "pathkeep://kind-backup-finished"
+                | "pathkeep://background-task-changed"
+                | "pathkeep://agent-catalog-changed"
+        )
+        .then(Permit::current);
         let mut browsers = self.browsers.lock().expect("bridge event browsers");
         browsers.retain(|browser| {
             let Some(queue) = browser.upgrade() else { return false };
@@ -68,7 +83,7 @@ impl Hub {
             if queue.events.len() == QUEUE_LIMIT {
                 queue.events.pop_front();
             }
-            queue.events.push_back((name, json.clone()));
+            queue.events.push_back((name, json.clone(), permit.clone()));
             if let Some(waker) = queue.waker.take() {
                 waker.wake();
             }
@@ -108,9 +123,24 @@ impl futures_core::Stream for Browser {
                 };
                 event
             };
-            let (name, json) = next;
+            let (name, json, permit) = next;
+            if permit.as_ref().is_some_and(|permit| !permit.valid()) {
+                continue;
+            }
             if name == vault_worker::data_kinds::POLICY_EVENT
                 && vault_worker::data_kinds::settings().is_err()
+            {
+                continue;
+            }
+            if matches!(
+                name,
+                "pathkeep://agent-settings-changed"
+                    | "pathkeep://kind-backup-progress"
+                    | "pathkeep://kind-backup-finished"
+                    | "pathkeep://background-task-changed"
+                    | "pathkeep://agent-catalog-changed"
+            ) && !vault_worker::data_kinds::settings()
+                .is_ok_and(|s| s.policy.agent_history != vault_core::KindState::Off)
             {
                 continue;
             }
@@ -138,7 +168,7 @@ impl Hub {
                 .unwrap()
                 .events
                 .drain(..)
-                .map(|(name, data)| (name, serde_json::from_str(&data).unwrap()))
+                .map(|(name, data, _)| (name, serde_json::from_str(&data).unwrap()))
                 .collect()
         }
     }

@@ -8,6 +8,8 @@ use vault_core::{ArchiveMode, Vault};
 
 #[path = "conversations/corpus.rs"]
 mod corpus;
+#[path = "conversations/receipts.rs"]
+mod receipts;
 use corpus::{Corpus, fixtures, query, sessions};
 
 fn stale(archive: &Archive) {

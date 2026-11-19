@@ -284,28 +284,81 @@ pub fn walk_files(
     emit: &mut dyn FnMut(PathBuf) -> Result<()>,
     issues: &mut Vec<Diagnostic>,
 ) -> Result<()> {
-    for entry in
-        walkdir::WalkDir::new(root).follow_links(false).follow_root_links(false).max_open(32)
-    {
-        match entry {
-            Ok(entry) if entry.file_type().is_symlink() => {
-                path_issue(issues, entry.path(), "symlink_skipped", None);
-            }
-            Ok(entry) if entry.file_type().is_file() => {
-                if entry.path().to_str().is_none() {
-                    path_issue(issues, entry.path(), "non_utf8_path", None);
-                } else {
-                    emit(entry.into_path())?;
+    walk_files_cancellable(&crate::capture::Discovery::default(), root, emit, issues)
+}
+
+/// Inspect the entry name before opening a directory. Git administrative
+/// data is read only by the separately authorized repository observer.
+pub(super) fn walk_files_cancellable(
+    cancel: &crate::capture::Discovery,
+    root: &Path,
+    emit: &mut dyn FnMut(PathBuf) -> Result<()>,
+    issues: &mut Vec<Diagnostic>,
+) -> Result<()> {
+    let check = || cancel.check();
+    check()?;
+    let inspect = |path: &Path,
+                   ty: cap_primitives::fs::FileType,
+                   emit: &mut dyn FnMut(PathBuf) -> Result<()>,
+                   issues: &mut Vec<Diagnostic>|
+     -> Result<Option<crate::capture::discovery::Entries>> {
+        if ty.is_symlink() {
+            path_issue(issues, path, "symlink_skipped", None);
+        } else if ty.is_dir() {
+            match cancel.read_dir(path) {
+                Ok(entries) => return Ok(Some(entries)),
+                Err(e) => {
+                    path_issue(issues, path, "source_unavailable", Some(format!("{:?}", e.kind())))
                 }
             }
-            Ok(entry) if !entry.file_type().is_dir() => {
-                path_issue(issues, entry.path(), "non_regular_file", None);
+        } else if ty.is_file() {
+            if path.to_str().is_some() {
+                emit(path.to_owned())?;
+            } else {
+                path_issue(issues, path, "non_utf8_path", None);
             }
-            Ok(_) => {}
-            Err(error) => {
-                let path = error.path().unwrap_or(root);
-                let detail = error.io_error().map(|error| format!("{:?}", error.kind()));
-                path_issue(issues, path, "source_unavailable", detail);
+        } else {
+            path_issue(issues, path, "non_regular_file", None);
+        }
+        Ok(None)
+    };
+    let mut stack = Vec::new();
+    match cancel.metadata(root) {
+        Ok(meta) => {
+            if let Some(entries) = inspect(root, meta.file_type(), emit, issues)? {
+                stack.push(entries);
+            }
+        }
+        Err(e) => path_issue(issues, root, "source_unavailable", Some(format!("{:?}", e.kind()))),
+    }
+    while let Some(entries) = stack.last_mut() {
+        check()?;
+        let Some(entry) = entries.next() else {
+            stack.pop();
+            continue;
+        };
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(e) => {
+                path_issue(issues, root, "source_unavailable", Some(format!("{:?}", e.kind())));
+                continue;
+            }
+        };
+        if entry.file_name().eq_ignore_ascii_case(".git") {
+            continue;
+        }
+        let path = entry.path();
+        match entry.file_type() {
+            Ok(ty) if ty.is_dir() && stack.len() >= 64 => {
+                path_issue(issues, &path, "source_depth_limit", None)
+            }
+            Ok(ty) => {
+                if let Some(children) = inspect(&path, ty, emit, issues)? {
+                    stack.push(children);
+                }
+            }
+            Err(e) => {
+                path_issue(issues, &path, "source_unavailable", Some(format!("{:?}", e.kind())))
             }
         }
     }

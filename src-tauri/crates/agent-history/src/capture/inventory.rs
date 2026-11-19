@@ -69,9 +69,9 @@ pub struct RootInventory {
 
 /// Presence needs directory access but never enumerates children.
 pub fn root_status(path: &Path) -> Option<&'static str> {
-    if path.components().any(|c| c.as_os_str() == ".git")
+    if path.components().any(|c| c.as_os_str().eq_ignore_ascii_case(".git"))
         || super::normalized_root(path)
-            .is_ok_and(|p| p.components().any(|c| c.as_os_str() == ".git"))
+            .is_ok_and(|p| p.components().any(|c| c.as_os_str().eq_ignore_ascii_case(".git")))
     {
         return Some("scope-denied");
     }
@@ -79,7 +79,7 @@ pub fn root_status(path: &Path) -> Option<&'static str> {
         if !meta.is_dir() {
             return Err(io::ErrorKind::NotADirectory.into());
         }
-        fs::read_dir(path).map(drop)
+        super::directory_handle(path).map(drop)
     });
     match status {
         Ok(()) => None,
@@ -93,12 +93,24 @@ pub fn root_status(path: &Path) -> Option<&'static str> {
 pub fn inventory_root(
     source: &SourceRoot,
     cancel: &CancelToken,
+    progress: impl FnMut(u64),
+) -> Result<RootInventory> {
+    let pinned = super::directory_handle(&source.root).ok().map(std::sync::Arc::new);
+    inventory_root_bound(source, pinned, cancel, progress)
+}
+
+/// The picker retains the same directory object that supplies its receipt.
+/// Changing the path during the walk cannot redirect metadata enumeration.
+pub fn inventory_root_bound(
+    source: &SourceRoot,
+    pinned: Option<std::sync::Arc<same_file::Handle>>,
+    cancel: &CancelToken,
     mut progress: impl FnMut(u64),
 ) -> Result<RootInventory> {
     if cancel.check().is_err() {
         return Err(Error::Cancelled);
     }
-    let reason = root_status(&source.root);
+    let reason = root_status(&source.root).or_else(|| pinned.is_none().then_some("root-changed"));
     let mut row = RootInventory {
         root_id: super::root_identity(source)?,
         tool: source.harness,
@@ -120,8 +132,9 @@ pub fn inventory_root(
     if reason.is_some() {
         return Ok(row);
     }
-    let layout = Layout::for_source(source)?;
-    let entries = match fs::read_dir(&source.root) {
+    let tree = super::Discovery::new(cancel, pinned.map(|handle| (source.root.clone(), handle)));
+    let layout = Layout::for_source(source, &tree)?;
+    let entries = match tree.read_dir(&source.root) {
         Ok(entries) => entries,
         Err(_) => {
             row.reason = Some("root-unreadable");
@@ -147,7 +160,7 @@ pub fn inventory_root(
             continue;
         };
         // Check the name before asking for its type or opening a directory handle.
-        if entry.file_name() == ".git" {
+        if entry.file_name().eq_ignore_ascii_case(".git") {
             continue;
         }
         let Ok(ty) = entry.file_type() else {
@@ -172,7 +185,7 @@ pub fn inventory_root(
                 row.reason = Some("source-depth-limit");
                 continue;
             }
-            match fs::read_dir(path) {
+            match tree.read_dir(&path) {
                 Ok(child) => stack.push(child),
                 Err(_) => row.reason = Some("root-unreadable"),
             }
@@ -194,7 +207,8 @@ pub fn inventory_root(
                 row.counts.compressed_bytes += meta.len()
             }
             if let Ok(modified) = meta.modified() {
-                let ms = chrono::DateTime::<chrono::Utc>::from(modified).timestamp_millis();
+                let ms =
+                    chrono::DateTime::<chrono::Utc>::from(modified.into_std()).timestamp_millis();
                 row.earliest_at = Some(row.earliest_at.map_or(ms, |old| old.min(ms)));
                 row.latest_at = Some(row.latest_at.map_or(ms, |old| old.max(ms)));
             }

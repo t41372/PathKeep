@@ -48,10 +48,23 @@ pub(crate) fn set_data_kind_state_impl(
     surface_result(kinds::set_state(session, request, emit))
 }
 pub(crate) fn update_agent_sources_impl(
+    session: &SessionState,
     request: kinds::SourcesPatch,
-    emit: impl FnOnce(kinds::PolicyChange),
+    emit: kinds::backups::Events,
 ) -> Result<kinds::Settings, CommandError> {
-    surface_result(kinds::update_sources(request, emit))
+    let mut changed = None;
+    let settings =
+        surface_result(kinds::update_sources(session, request, |event| changed = Some(event)))?;
+    if let Some(event) = changed {
+        emit(kinds::POLICY_EVENT, serde_json::json!(event));
+        if settings.policy.agent_history != vault_core::KindState::Off {
+            emit(
+                "pathkeep://agent-settings-changed",
+                serde_json::json!({"settingsToken":settings.policy_token,"domains":["sources"]}),
+            );
+        }
+    }
+    Ok(settings)
 }
 pub(crate) fn detect_data_sources_impl(request: preview::Detect) -> Result<Value, CommandError> {
     surface_result(preview::detect(request))
@@ -66,4 +79,70 @@ pub(crate) fn cancel_agent_read_impl(
     request: preview::CancelRequest,
 ) -> Result<Value, CommandError> {
     surface_result(preview::cancel(request))
+}
+
+pub(crate) fn enable_agent_history_impl(
+    session: &SessionState,
+    request: kinds::backups::Enable,
+    events: kinds::backups::Events,
+) -> Result<Value, CommandError> {
+    surface_result(kinds::backups::enable(session, request, events))
+}
+
+pub(crate) fn start_backup_impl(
+    session: &SessionState,
+    request: kinds::backups::Start,
+    events: kinds::backups::Events,
+) -> Result<Value, CommandError> {
+    surface_result(kinds::backups::start(session, request, events))
+}
+
+pub(crate) fn list_archive_runs_impl(
+    session: &SessionState,
+    request: kinds::backups::ListRuns,
+) -> Result<Value, CommandError> {
+    surface_result(kinds::delivery::read(|| kinds::backups::list_runs(session, request)))
+}
+
+pub(crate) fn get_archive_run_impl(
+    session: &SessionState,
+    request: kinds::backups::GetRun,
+) -> Result<Value, CommandError> {
+    surface_result(kinds::delivery::read(|| kinds::backups::get_run(session, request)))
+}
+
+pub(crate) fn list_background_tasks_impl(
+    session: &SessionState,
+    request: kinds::backups::ListTasks,
+) -> Result<Value, CommandError> {
+    surface_result(kinds::delivery::read(|| kinds::backups::tasks(session, request)))
+}
+
+pub(crate) fn get_task_summary_impl(
+    session: &SessionState,
+    request: kinds::Empty,
+) -> Result<Value, CommandError> {
+    surface_result(kinds::delivery::read(|| kinds::backups::task_summary(session, request)))
+}
+
+pub(crate) fn control_background_task_impl(
+    session: &SessionState,
+    request: kinds::backups::Control,
+    events: kinds::backups::Events,
+) -> Result<Value, CommandError> {
+    surface_result(kinds::backups::control(session, request, events))
+}
+
+pub(crate) fn list_agent_sources_impl(
+    session: &SessionState,
+    request: kinds::backups::ListSources,
+) -> Result<Value, CommandError> {
+    surface_result(kinds::delivery::read(|| kinds::backups::sources(session, request)))
+}
+
+pub(crate) fn get_agent_overview_impl(
+    session: &SessionState,
+    request: kinds::backups::Overview,
+) -> Result<Value, CommandError> {
+    surface_result(kinds::delivery::read(|| kinds::backups::overview(session, request)))
 }

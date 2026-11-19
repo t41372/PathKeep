@@ -68,11 +68,13 @@ dependencies = [
 name = "agent-history"
 version = "0.1.0"
 dependencies = [
+ "cap-primitives",
  "chrono",
  "directories",
  "hex",
  "libc",
  "rusqlite",
+ "same-file",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -85,6 +87,7 @@ dependencies = [
  "vault-layout",
  "vault-store",
  "walkdir",
+ "winapi-util",
  "zeroize",
  "zstd",
 ]

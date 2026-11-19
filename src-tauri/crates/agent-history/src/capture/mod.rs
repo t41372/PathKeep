@@ -4,8 +4,14 @@
 //! Capture can succeed while interpretation is partial. Destination failures abort
 //! the operation; source limitations retain earlier evidence and produce diagnostics.
 mod defaults;
+pub(crate) mod discovery;
+pub use discovery::Discovery;
+mod grant;
+pub use grant::{directory_handle, directory_identity, directory_issue};
 mod inventory;
-pub use inventory::{InventoryCounts, RootInventory, inventory_root, root_status};
+pub use inventory::{
+    InventoryCounts, RootInventory, inventory_root, inventory_root_bound, root_status,
+};
 pub use plan::{normalized_root, root_identity};
 mod raw;
 use raw::capture_raw;
@@ -42,6 +48,9 @@ use vault_store::CancelToken;
 pub struct BackupOptions {
     pub max_record_bytes: usize,
     pub read_git: bool,
+    /// Desktop grants bind native directory identity across discovery and file opens.
+    /// Standalone callers declare their source paths afresh on each invocation.
+    pub approved_directories: Option<std::collections::BTreeMap<std::path::PathBuf, String>>,
     pub max_decoded_bytes: u64,
     pub cancel: CancelToken,
     pub progress: Option<Arc<dyn Fn(BackupProgress) + Send + Sync>>,
@@ -51,6 +60,7 @@ impl Default for BackupOptions {
     fn default() -> Self {
         Self {
             read_git: true,
+            approved_directories: None,
             max_record_bytes: 16 * 1024 * 1024,
             max_decoded_bytes: 8 * 1024 * 1024 * 1024,
             cancel: CancelToken::new(),
@@ -63,6 +73,8 @@ impl Default for BackupOptions {
 #[derive(Clone, Debug, Serialize)]
 pub struct BackupProgress {
     pub phase: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub harness: Option<crate::Harness>,
     pub source_id: String,
     pub revision_id: Option<i64>,
     pub bytes: u64,
@@ -77,33 +89,59 @@ pub struct BackupReport {
     pub bytes: u64,
     pub run_id: i64,
     pub issues: Vec<Diagnostic>,
+    /// Bounded indices into the native report, with the directory that produced the warning.
+    #[serde(
+        rename = "warningSources",
+        skip_serializing_if = "std::collections::BTreeMap::is_empty"
+    )]
+    pub warning_sources: std::collections::BTreeMap<usize, WarningSource>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WarningSource {
+    pub root_id: String,
+    pub tool: crate::Harness,
 }
 
 impl Archive {
     /// Executes an explicitly selected set of roots. The caller owns consent;
     /// `preview` provides the matching read-only inventory before this write.
     pub fn backup(&self, sources: &[SourceRoot], options: &BackupOptions) -> Result<BackupReport> {
-        check_cancel(options)?;
-        if options.max_record_bytes == 0
-            || options.max_record_bytes > 64 * 1024 * 1024
-            || options.max_decoded_bytes == 0
-        {
-            return Err(Error::InvalidInput(
-                "capture byte budgets are outside supported bounds".into(),
-            ));
-        }
+        options.validate()?;
         let _job = self.jobs.enter(Some(&options.cancel))?;
         let selected = normalize_sources(self, sources)?;
+        check_cancel(options)?;
         let run_id = self.start_backup_run()?;
+        self.execute_run(run_id, &selected, sources, options, Vec::new())
+    }
+
+    /// Keep the owner's generation and producer slot alive from consent publication
+    /// until the terminal report. Maintenance can signal and drain this lease.
+    pub fn reserve_backup(self: &Arc<Self>, options: BackupOptions) -> Result<ReservedBackup> {
+        options.validate()?;
+        let job = self.jobs.enter(Some(&options.cancel))?;
+        Ok(ReservedBackup { archive: self.clone(), options, _job: job })
+    }
+
+    fn execute_run(
+        &self,
+        run_id: i64,
+        selected: &[SourceRoot],
+        declared: &[SourceRoot],
+        options: &BackupOptions,
+        issues: Vec<Diagnostic>,
+    ) -> Result<BackupReport> {
         let mut report = BackupReport {
             status: "complete".into(),
             captured: 0,
             unchanged: 0,
             bytes: 0,
             run_id,
-            issues: Vec::new(),
+            warning_sources: Default::default(),
+            issues,
         };
-        let outcome = execute(self, &selected, sources, options, &mut report);
+        let outcome = execute(self, selected, declared, options, &mut report);
         match outcome {
             Ok(()) => {
                 if !report.issues.is_empty() {
@@ -130,6 +168,26 @@ impl Archive {
     }
 }
 
+/// The owner has reserved this slot before publishing an authorized request.
+pub struct ReservedBackup {
+    archive: Arc<Archive>,
+    options: BackupOptions,
+    _job: crate::archive::lifetime::Job,
+}
+
+impl ReservedBackup {
+    /// The owner inserted this native run and its public receipt in one transaction.
+    pub fn execute(
+        &self,
+        run_id: i64,
+        sources: &[SourceRoot],
+        unavailable: Vec<Diagnostic>,
+    ) -> Result<BackupReport> {
+        let selected = normalize_sources(&self.archive, sources)?;
+        self.archive.execute_run(run_id, &selected, sources, &self.options, unavailable)
+    }
+}
+
 fn execute(
     archive: &Archive,
     sources: &[SourceRoot],
@@ -140,57 +198,147 @@ fn execute(
     for source in sources {
         check_cancel(options)?;
         let root_key = plan::root_identity(source)?;
-        let readable = files::root_readable(&source.root);
-        if !readable {
-            issue(&mut report.issues, "root_unreadable", source.root.to_str());
-            archive.set_coverage(&root_key, false)?;
-            continue;
+        let mut earlier = std::mem::take(&mut report.issues);
+        let result = capture_root(archive, source, &root_key, declared_roots, options, report);
+        if result.is_ok() {
+            archive.root_outcome(report.run_id, &root_key, source, root_outcome(&report.issues))?;
         }
-        let mut discovery_issues = Vec::new();
-        let mut callback_error = None;
-        let discovered = adapter(source.harness).discover(
-            source,
-            &mut |artifact| match process_artifact(
-                archive,
-                source,
-                &artifact,
-                // Preserve explicitly approved aliases (such as /var on macOS)
-                // for lexical reference authorization. Storage identities still
-                // use canonical roots; unapproved targets are never probed.
-                declared_roots,
-                options,
-                report,
-            ) {
-                Ok(()) => Ok(()),
-                Err(error) => {
-                    callback_error = Some(error);
-                    Err(Error::Integrity("capture callback failed".into()))
-                }
-            },
-            &mut discovery_issues,
-        );
-        if let Some(error) = callback_error {
-            return Err(error);
+        for issue in report.issues.drain(..) {
+            let sample = earlier
+                .iter()
+                .position(|d| d.code == "diagnostics_omitted")
+                .unwrap_or(earlier.len());
+            common::push_diagnostic(&mut earlier, issue);
+            if earlier.get(sample).is_some_and(|d| d.code != "diagnostics_omitted") {
+                report.warning_sources.insert(
+                    sample,
+                    WarningSource { root_id: root_key.clone(), tool: source.harness },
+                );
+            }
         }
-        if discovered.is_err() {
-            issue(&mut discovery_issues, "source_discovery_failed", source.root.to_str());
-        }
-        archive.observe_missing(report.run_id, source)?;
-        archive.set_coverage(&root_key, discovery_issues.is_empty())?;
-        for diagnostic in discovery_issues {
-            common::push_diagnostic(&mut report.issues, diagnostic);
-        }
+        report.issues = earlier;
+        result?;
     }
     check_cancel(options)?;
-    observations::folders(archive, options, report)?;
-    archive.append_lineage_issues(&mut report.issues)?;
-    archive.synchronize_search()?;
+    for source in sources.iter().filter(|source| {
+        matches!(
+            source.harness,
+            crate::Harness::ClaudeCode
+                | crate::Harness::Codex
+                | crate::Harness::Pi
+                | crate::Harness::Deepseek
+        )
+    }) {
+        if options.validate_root(&source.root).is_ok() {
+            observations::folders(archive, source, options, report)?;
+        }
+    }
+    for source in sources {
+        archive.lineage_issues_for(&mut report.issues, Some(source), &options.cancel)?;
+    }
+    notify_phase(options, "index", None);
+    archive.synchronize_search_with_cancel(&|| options.cancel.check().is_err())?;
     maintenance(archive, options)?;
     // Unreferenced slices stay queued until a collection transaction succeeds.
-    if archive.reclaim_slices().is_err() {
+    check_cancel(options)?;
+    if archive.reclaim_slices_with_cancel(&options.cancel).is_err() {
+        check_cancel(options)?;
         issue(&mut report.issues, "slice_reclamation_deferred", None);
     }
+    check_cancel(options)?;
+    notify_phase(options, "finishing", None);
+    check_cancel(options)
+}
+
+fn capture_root(
+    archive: &Archive,
+    source: &SourceRoot,
+    root_key: &str,
+    declared_roots: &[SourceRoot],
+    options: &BackupOptions,
+    report: &mut BackupReport,
+) -> Result<()> {
+    let pin = match options.directory(&source.root)? {
+        Some(expected) => match directory_handle(&source.root) {
+            Ok(handle) if directory_identity(&handle).is_ok_and(|now| now == expected) => {
+                Some((source.root.clone(), Arc::new(handle)))
+            }
+            _ => {
+                issue(&mut report.issues, "root_changed", source.root.to_str());
+                archive.set_coverage(root_key, false)?;
+                return Ok(());
+            }
+        },
+        None => None,
+    };
+    if !files::root_readable(&source.root) {
+        issue(&mut report.issues, "root_unreadable", source.root.to_str());
+        archive.set_coverage(root_key, false)?;
+        return Ok(());
+    }
+    let discovery = Discovery::new(&options.cancel, pin);
+    let mut discovery_issues = Vec::new();
+    let mut callback_error = None;
+    let discovered = adapter(source.harness).discover_cancellable(
+        &discovery,
+        source,
+        &mut |artifact| {
+            notify_phase(options, "file_found", Some(source.harness));
+            if !discovery.still_selected() {
+                return Err(Error::SourceChanged("reviewed root changed".into()));
+            }
+            // Declared aliases constrain native references. A reference is never a new grant.
+            if let Err(error) =
+                process_artifact(archive, source, &artifact, declared_roots, options, report)
+            {
+                callback_error = Some(error);
+                return Err(Error::Integrity("capture callback failed".into()));
+            }
+            if !discovery.still_selected() {
+                return Err(Error::SourceChanged("reviewed root changed".into()));
+            }
+            Ok(())
+        },
+        &mut discovery_issues,
+    );
+    if let Some(error) = callback_error {
+        return Err(error);
+    }
+    check_cancel(options)?;
+    if discovered.is_err() {
+        issue(&mut discovery_issues, "source_discovery_failed", source.root.to_str());
+    }
+    if options.validate_root(&source.root).is_err() {
+        issue(&mut discovery_issues, "root_changed", source.root.to_str());
+    }
+    if discovery_issues.is_empty() && !archive.observe_missing(report.run_id, source, &discovery)? {
+        issue(&mut discovery_issues, "root_changed", source.root.to_str());
+    }
+    archive.set_coverage(root_key, discovery_issues.is_empty())?;
+    for diagnostic in discovery_issues {
+        common::push_diagnostic(&mut report.issues, diagnostic);
+    }
     Ok(())
+}
+
+fn root_outcome(issues: &[Diagnostic]) -> &'static str {
+    if issues.is_empty() {
+        "available"
+    } else if issues.iter().any(|d| d.code == "root_changed") {
+        "root-changed"
+    } else if issues.iter().any(|d| {
+        d.code.contains("unsupported")
+            || d.code.contains("unrecognized")
+            || d.code == "session_metadata_unavailable"
+    }) {
+        "unknown-format"
+    } else if issues.iter().any(|d| {
+        matches!(d.code.as_str(), "source_changed_during_capture" | "first_record_in_progress")
+    }) {
+        "changing"
+    } else {
+        "unreadable"
+    }
 }
 
 fn process_artifact(
@@ -234,8 +382,12 @@ fn process_artifact(
         false,
     )? {
         projection::Preparation::Ready(prepared) => prepared,
-        projection::Preparation::Writing => return Ok(()),
+        projection::Preparation::Writing => {
+            archive.file_problem(report.run_id, &source_id, "unstable")?;
+            return Ok(());
+        }
         projection::Preparation::Unreadable => {
+            archive.file_problem(report.run_id, &source_id, "unknownFormat")?;
             unreadable::publish(
                 archive,
                 source,
@@ -261,6 +413,15 @@ fn process_artifact(
         archive.set_coverage(&source_id, false)?;
         return Ok(());
     }
+    if prepared
+        .report
+        .diagnostics
+        .iter()
+        .any(|d| d.code.contains("unsupported") || d.code == "session_metadata_unavailable")
+    {
+        archive.file_problem(report.run_id, &source_id, "unknownFormat")?;
+    }
+    let prior = archive.published_identity(&source_id)?;
     let complete = prepared.report.complete;
     let mut reference_changes = false;
     if !complete && prepared.report.diagnostics.is_empty() {
@@ -286,7 +447,7 @@ fn process_artifact(
     {
         let metadata = prepared.report.session.as_ref().expect("prepared metadata");
         if let Some(attempt) = &prepared.attempt {
-            progress(options, "projection_staged", &source_id, &captured);
+            progress(options, source.harness, "projection_staged", &source_id, &captured);
             check_cancel(options)?;
             archive.publish_projection_attempt_with_coverage(
                 attempt,
@@ -299,7 +460,7 @@ fn process_artifact(
                 &prepared.parser_version,
                 &prepared.report,
             )?;
-            progress(options, "projection_published", &source_id, &captured);
+            progress(options, source.harness, "projection_published", &source_id, &captured);
         } else if let Some(projection_id) = archive.current_projection_id(&source_id)? {
             archive.update_projection_coverage(
                 &source_id,
@@ -310,6 +471,17 @@ fn process_artifact(
             if reference_changes {
                 archive.refresh_attachment_counter(&source_id, projection_id)?;
             }
+        }
+    }
+    if prepared.report.session.is_some_and(|m| !m.native_id.is_empty()) {
+        if let Some(unit) = archive.observed_identity(
+            report.run_id,
+            &source_id,
+            captured.revision_id,
+            !captured.unchanged,
+            prior,
+        )? {
+            notify_phase(options, unit, Some(source.harness));
         }
     }
     Ok(())
@@ -335,10 +507,17 @@ pub(super) fn maintenance(archive: &Archive, options: &BackupOptions) -> Result<
     Ok(())
 }
 
-fn progress(options: &BackupOptions, phase: &str, source_id: &str, captured: &writer::Captured) {
+fn progress(
+    options: &BackupOptions,
+    harness: crate::Harness,
+    phase: &str,
+    source_id: &str,
+    captured: &writer::Captured,
+) {
     if let Some(observer) = &options.progress {
         observer(BackupProgress {
             phase: phase.into(),
+            harness: Some(harness),
             source_id: source_id.into(),
             revision_id: Some(captured.revision_id),
             bytes: captured.byte_len,
@@ -356,4 +535,46 @@ fn issue(issues: &mut Vec<Diagnostic>, code: &str, path: Option<&str>) {
             detail: None,
         },
     );
+}
+
+fn notify_phase(options: &BackupOptions, phase: &str, harness: Option<crate::Harness>) {
+    if let Some(observer) = &options.progress {
+        observer(BackupProgress {
+            phase: phase.into(),
+            harness,
+            source_id: String::new(),
+            revision_id: None,
+            bytes: 0,
+        });
+    }
+}
+
+impl BackupOptions {
+    fn validate(&self) -> Result<()> {
+        if !(1..=64 * 1024 * 1024).contains(&self.max_record_bytes) || self.max_decoded_bytes == 0 {
+            return Err(Error::InvalidInput(
+                "capture byte budgets are outside supported bounds".into(),
+            ));
+        }
+        Ok(())
+    }
+    fn directory(&self, root: &std::path::Path) -> Result<Option<&str>> {
+        self.approved_directories
+            .as_ref()
+            .map(|grants| {
+                grants
+                    .get(root)
+                    .map(String::as_str)
+                    .ok_or_else(|| Error::InvalidInput("source has no reviewed directory".into()))
+            })
+            .transpose()
+    }
+    fn validate_root(&self, path: &std::path::Path) -> Result<()> {
+        if let Some(expected) = self.directory(path)?
+            && directory_identity(&directory_handle(path)?)? != expected
+        {
+            return Err(Error::SourceChanged("approved directory was replaced".into()));
+        }
+        Ok(())
+    }
 }

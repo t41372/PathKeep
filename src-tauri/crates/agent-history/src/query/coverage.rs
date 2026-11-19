@@ -53,17 +53,28 @@ impl Archive {
     }
 
     pub(crate) fn append_lineage_issues(&self, issues: &mut Vec<Diagnostic>) -> Result<()> {
-        let unresolved = self.store.read(Db::AgentHistoryReadModel, |tx| {
+        self.lineage_issues_for(issues, None, &vault_store::CancelToken::new())
+    }
+    pub(crate) fn lineage_issues_for(
+        &self,
+        issues: &mut Vec<Diagnostic>,
+        source: Option<&crate::SourceRoot>,
+        cancel: &vault_store::CancelToken,
+    ) -> Result<()> {
+        let filter = source.map(|s| (s.harness.to_string(), s.root.to_string_lossy().into_owned()));
+        let token = cancel.clone();
+        let unresolved = self.store.read(Db::AgentHistoryReadModel, move |tx| {
             let mut after = String::new();
             let mut issues = Vec::new();
             loop {
-                let rows = tx.query(
-                    "SELECT conversation_id,relative_path FROM ah_sessions
-                     WHERE conversation_current=1 AND lineage_base_native_id IS NOT NULL
-                     AND conversation_id>?1 ORDER BY conversation_id LIMIT 128",
-                    [after.as_str()],
-                    |row| Ok((row.get::<String>(0)?, row.get::<String>(1)?)),
-                )?;
+                token.check()?;
+                let sql="SELECT conversation_id,relative_path FROM ah_sessions WHERE conversation_current=1 AND lineage_base_native_id IS NOT NULL AND conversation_id>?1";
+                let read=|r:&vault_store::Row|Ok((r.get::<String>(0)?,r.get::<String>(1)?));
+                let rows=if let Some((h,p))=&filter{
+                    tx.query(&format!("{sql} AND harness=?2 AND source_root=?3 ORDER BY conversation_id LIMIT 128"),vault_store::params![after.clone(),h.clone(),p.clone()],read)?
+                }else{
+                    tx.query(&format!("{sql} ORDER BY conversation_id LIMIT 128"),[after.as_str()],read)?
+                };
                 if rows.is_empty() {
                     return Ok(issues);
                 }
@@ -88,8 +99,9 @@ impl Archive {
                     after = id;
                 }
             }
-        })?;
-        for diagnostic in unresolved {
+        });
+        cancel.check().map_err(|_| crate::Error::Cancelled)?;
+        for diagnostic in unresolved? {
             crate::adapters::common::push_diagnostic(issues, diagnostic);
         }
         Ok(())

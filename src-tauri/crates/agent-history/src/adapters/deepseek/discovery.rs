@@ -11,6 +11,7 @@ const MAX_DIRECTORY_DEPTH: usize = 16;
 
 /// Keep retained generations raw while identifying one unambiguous query source.
 pub(super) fn discover(
+    cancel: &crate::capture::Discovery,
     source: &SourceRoot,
     emit: &mut dyn FnMut(Artifact) -> crate::Result<()>,
     issues: &mut Vec<Diagnostic>,
@@ -31,7 +32,7 @@ pub(super) fn discover(
             return Ok(());
         }
     };
-    discover_sessions(&source.root, &sessions, 0, emit, issues)?;
+    discover_sessions(cancel, &source.root, &sessions, 0, emit, issues)?;
     if sessions != source.root {
         let attachments = source.root.join("attachments");
         if !directory_is_regular(&attachments, issues, true)
@@ -43,7 +44,8 @@ pub(super) fn discover(
             let directory = attachments.join("v1").join(name);
             match fs::symlink_metadata(&directory) {
                 Ok(metadata) if metadata.is_dir() => {
-                    common::walk_files(
+                    common::walk_files_cancellable(
+                        cancel,
                         &directory,
                         &mut |path| {
                             emit(artifact(&source.root, path, ArtifactKind::Attachment, None, true))
@@ -108,8 +110,12 @@ fn directory_is_regular(path: &Path, issues: &mut Vec<Diagnostic>, optional: boo
     }
 }
 
-fn directory_entries(path: &Path, issues: &mut Vec<Diagnostic>) -> Option<fs::ReadDir> {
-    match fs::read_dir(path) {
+fn directory_entries(
+    cancel: &crate::capture::Discovery,
+    path: &Path,
+    issues: &mut Vec<Diagnostic>,
+) -> Option<crate::capture::discovery::Entries> {
+    match cancel.read_dir(path) {
         Ok(entries) => Some(entries),
         Err(_) => {
             discovery_issue(issues, path, "deepseek-directory-unreadable");
@@ -119,11 +125,12 @@ fn directory_entries(path: &Path, issues: &mut Vec<Diagnostic>) -> Option<fs::Re
 }
 
 fn directory_entry(
-    entry: std::io::Result<fs::DirEntry>,
+    entry: std::io::Result<crate::capture::discovery::Entry>,
     directory: &Path,
     issues: &mut Vec<Diagnostic>,
-) -> Option<fs::DirEntry> {
+) -> Option<crate::capture::discovery::Entry> {
     match entry {
+        Ok(entry) if entry.file_name().eq_ignore_ascii_case(".git") => None,
         Ok(entry) => Some(entry),
         Err(_) => {
             discovery_issue(issues, directory, "deepseek-directory-entry-unreadable");
@@ -134,6 +141,7 @@ fn directory_entry(
 
 /// Select generations within one directory, keeping memory independent of corpus size.
 fn discover_sessions(
+    cancel: &crate::capture::Discovery,
     root: &Path,
     directory: &Path,
     depth: usize,
@@ -147,7 +155,7 @@ fn discover_sessions(
     if !directory_is_regular(directory, issues, false) {
         return Ok(());
     }
-    let Some(entries) = directory_entries(directory, issues) else {
+    let Some(entries) = directory_entries(cancel, directory, issues) else {
         return Ok(());
     };
     // Two directory passes bound memory even for malformed or legacy flat roots
@@ -155,6 +163,7 @@ fn discover_sessions(
     let mut highest = None;
     let mut highest_count = 0_u64;
     for entry in entries {
+        cancel.check()?;
         let Some(entry) = directory_entry(entry, directory, issues) else { continue };
         if entry.file_type().is_ok_and(|kind| kind.is_file()) {
             if let Some(version) = generation_number(&entry.file_name().to_string_lossy()) {
@@ -175,12 +184,15 @@ fn discover_sessions(
     if ambiguous {
         discovery_issue(issues, directory, "deepseek-ambiguous-generation");
     }
-    let Some(entries) = directory_entries(directory, issues) else { return Ok(()) };
+    let Some(entries) = directory_entries(cancel, directory, issues) else { return Ok(()) };
     for entry in entries {
+        cancel.check()?;
         let Some(entry) = directory_entry(entry, directory, issues) else { continue };
         let path = entry.path();
         match entry.file_type() {
-            Ok(kind) if kind.is_dir() => discover_sessions(root, &path, depth + 1, emit, issues)?,
+            Ok(kind) if kind.is_dir() => {
+                discover_sessions(cancel, root, &path, depth + 1, emit, issues)?
+            }
             Ok(kind) if kind.is_file() => {
                 if let Some(version) = generation_number(&entry.file_name().to_string_lossy()) {
                     if path.to_str().is_some() {

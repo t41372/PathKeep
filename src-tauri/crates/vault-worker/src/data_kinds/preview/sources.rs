@@ -1,21 +1,12 @@
 //! Presence probes and root selection for an explicit preview. This module
 //! never enumerates a conversation tree or grants permission to capture it.
 use super::{Refusal, admitted_config};
-use agent_history::{Harness, SourceRoot, capture};
+use agent_history::{SourceRoot, capture};
 use anyhow::Result;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 use vault_core::{AgentTool, DataKind};
-fn harness(tool: AgentTool) -> Harness {
-    match tool {
-        AgentTool::ClaudeCode => Harness::ClaudeCode,
-        AgentTool::Codex => Harness::Codex,
-        AgentTool::Pi => Harness::Pi,
-        AgentTool::Deepseek => Harness::Deepseek,
-    }
-}
-
 /// Limit presence probes to the kinds requested by onboarding.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -113,7 +104,7 @@ pub(super) fn resolve(request: PreviewRequest, archive: &Path) -> Result<Vec<Sou
         {
             return Err(Refusal::ScopeDenied.into());
         }
-        vec![SourceRoot { harness: harness(picked.tool), root: picked.path }]
+        vec![SourceRoot { harness: picked.tool.harness(), root: picked.path }]
     } else {
         capture::known_sources()
     };
@@ -124,13 +115,13 @@ pub(super) fn resolve(request: PreviewRequest, archive: &Path) -> Result<Vec<Sou
         if request
             .tools
             .as_ref()
-            .is_some_and(|tools| !tools.iter().any(|&t| harness(t) == root.harness))
+            .is_some_and(|tools| !tools.iter().any(|&t| t.harness() == root.harness))
             || request.root_ids.as_ref().is_some_and(|ids| !ids.contains(&id))
         {
             continue;
         }
         let real = capture::normalized_root(&root.root)?;
-        if real.components().any(|c| c.as_os_str() == ".git") {
+        if real.components().any(|c| c.as_os_str().eq_ignore_ascii_case(".git")) {
             return Err(Refusal::ScopeDenied.into());
         }
         if real.starts_with(&target) || target.starts_with(real) {

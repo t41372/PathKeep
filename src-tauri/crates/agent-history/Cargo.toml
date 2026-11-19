@@ -17,6 +17,8 @@ chrono.workspace = true
 directories.workspace = true
 hex.workspace = true
 libc.workspace = true
+same-file = "1.0.6"
+cap-primitives = "4.0.3"
 rusqlite = { workspace = true, features = ["hooks", "limits"] }
 serde.workspace = true
 # Native payloads may contain integers/decimals beyond machine precision. Raw bytes
@@ -33,3 +35,6 @@ vault-store = { path = "../vault-store" }
 zeroize = "1.8.2"
 # Already used at this version by the workspace; needed for native Codex and dsh streams.
 zstd = "0.14.3"
+
+[target.'cfg(windows)'.dependencies]
+winapi-util = "0.1.11"

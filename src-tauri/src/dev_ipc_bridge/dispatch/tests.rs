@@ -304,3 +304,6 @@ mod native_reads;
 
 #[path = "app_surface_tests.rs"]
 mod app_surface;
+
+#[path = "backup_wire_tests.rs"]
+mod backup_wire;

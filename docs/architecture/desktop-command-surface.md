@@ -300,3 +300,67 @@ An unavailable row has null `hasSavedData`, absent `archiveCount` and
 `failure:{role,stage,reason}` from the open owner. Roles are `evidence`,
 `read-model`, or `shared`. Stages are `preflight,open,key-check,migrate,recover`.
 Reasons are `archive-store-missing,wrong-key,integrity-failed,schema-too-new,archive-busy,kind-unavailable`.
+
+### Conversation backups, runs and Tasks
+
+The enable dialog submits the completed preview ID, a subset of its root IDs,
+the Git choice, the displayed policy token and a UUID request ID. The returned
+`firstSave.taskId` is owned by the open archive. Closing the dialog releases
+only its private preview stream. Each root descriptor retains the normalized
+path and native directory identity. Preview and capture enumerate relative to an open directory handle. A rename cannot redirect the walk into a replacement folder. Device policy publishes its reference and
+the pending request together through the guarded durable control write. The
+native run and its public receipt commit together before pending state clears.
+
+| Command                   | Screen                      | Request fields                                                    | Response                                                                                                                                                                                                           |
+| ------------------------- | --------------------------- | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `enable_agent_history`    | Enable                      | `previewId,selectedRootIds,readGit,expectedPolicyToken,requestId` | `state,policyToken,firstSave:{taskId,requestId,runRef}`                                                                                                                                                            |
+| `start_backup`            | Agent backup                | `scope,requestId,expectedPolicyToken?`                            | `batchId,kinds:[{kind,decision,taskId,runRef}]`. Kind and tool scopes share a slot. Busy delivery returns the original reference even on replay.                                                                   |
+| `get_agent_overview`      | Backup header and space     | `purpose` is `backup` or `space`                                  | Committed roots, children, missing origins, bytes, coverage, per-tool counts, last run and first-save state.                                                                                                       |
+| `list_agent_sources`      | Backup sources              | `limit,cursor?`                                                   | Page of source observations. A tool without an approved root has a disabled row and null path.                                                                                                                     |
+| `update_agent_sources`    | Source controls             | `expectedToken,previewId?,selectedRootIds?,toolChanges?,readGit?` | Updated device policy and token. A supplied root list replaces the selected set. Every addition requires a still-valid preview.                                                                                    |
+| `list_archive_runs`       | Backup ledger               | `space?,includeArchiveWide,limit,cursor?`                         | A keyset page merging the eligible indexed ledgers. The archive doctor and retention runs appear in both spaces.                                                                                                   |
+| `get_archive_run`         | Run detail                  | `runRef,detailCursor?`                                            | Conversation row, ordered root results, counters, Git choice, coverage and a bounded warning page. Numeric browsing links keep their existing audit detail and gain the same public run header as the merged list. |
+| `list_background_tasks`   | Tasks                       | `group,kind?,limit,cursor?`                                       | Groups are `running,waiting,attention,today`. Each row provides its current actions and `snapshotToken`.                                                                                                           |
+| `get_task_summary`        | Rail                        | Empty request                                                     | Running, queued and attention counts plus running rows. The mean fraction is absent while the total is unknown.                                                                                                    |
+| `control_background_task` | Tasks and first-save banner | `taskId,action,expectedToken,requestId,confirmation?`             | Pass the task's `snapshotToken`. Returns the task, a replacement task ID on retry, or `previewRequired:true` when the grant no longer covers the original scope.                                                   |
+| `set_data_kind_state`     | Manage Kinds                | Existing request                                                  | The transitioned snapshot and IDs of active tasks signalled to stop.                                                                                                                                               |
+
+Every request uses the `request` wrapper. The [serialized examples](../../src-tauri/tests/fixtures/agent-backup.json)
+cover both transport facades through the dev dispatch contract. Quantities that
+can exceed JavaScript precision are decimal strings. Times are UTC epoch
+milliseconds. During streaming discovery a committed prefix may already be
+readable. The progress denominator is null. A new child, a newly identified
+top-level conversation and a revised conversation are distinct units.
+
+The owner emits `pathkeep://data-kinds-changed` on policy publication,
+`pathkeep://agent-settings-changed` for active source settings,
+`pathkeep://kind-backup-progress` for coalesced progress,
+`pathkeep://background-task-changed` for task state,
+`pathkeep://kind-backup-finished` at completion and
+`pathkeep://agent-catalog-changed` for overview invalidation. Refetch after
+unlock, reconnect or an event gap. The terminal run and attention are durable.
+The legacy browsing backup command and its progress and report remain the
+browsing screen's entry point.
+
+The active grant appears as `policy.selectionRef` in `get_agent_settings`.
+`list_data_kinds` includes `activeTaskId` for an active conversation backup.
+`archiveBytes` measures the two native conversation databases, their usage
+companions and the owned conversation search index. `retainedBytes:null`
+in a run means the physical storage newly attributable to that attempt was
+not measured. `filesAbsent` counts previously observed source files confirmed missing during a completed directory walk. A missing or unreadable directory cannot increase it. A committed transcript without a known current identity contributes
+to `unclassified`; it does not increase the conversation count by being a file.
+
+| Refusal                                                                                                | Client action                                                                          |
+| ------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------- |
+| `lock-required`                                                                                        | Unlock before refetching private metadata. An already authorized capture continues.    |
+| `kind-unavailable`                                                                                     | Read role and failure stage from Manage Kinds. Browsing has its own availability.      |
+| `kind-off`, `last-active-kind`                                                                         | Respect the current device state and the last-on invariant.                            |
+| `preview-expired`, `root-changed`, `enable-preview-required`, `source-selection-empty`, `scope-denied` | Review the current directories or adjust the selection.                                |
+| `policy-changed`, `archive-replaced`                                                                   | Refetch the policy or the task snapshot before another action.                         |
+| `task-action-unavailable`, `operation-finishing`, `archive-busy`                                       | Refetch available actions. A second eligible backup request returns the existing task. |
+| `invalid-request`, `invalid-cursor`, `record-unavailable`                                              | Correct the payload, restart paging or handle an absent reference.                     |
+
+A retry whose original scope is no longer granted returns `previewRequired:true`
+with the original task. Source problems belong to the run, including native
+parser codes such as `pi-unsupported-version`. The native run, its public
+receipt and the snapshot token for task controls are separate identities.

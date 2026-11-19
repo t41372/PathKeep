@@ -43,6 +43,15 @@ impl Archive {
         a: &RevisionInfo,
         b: &RevisionInfo,
     ) -> Result<(bool, bool)> {
+        self.revision_prefix_cancellable(a, b, &vault_store::CancelToken::new())
+    }
+
+    pub(crate) fn revision_prefix_cancellable(
+        &self,
+        a: &RevisionInfo,
+        b: &RevisionInfo,
+        cancel: &vault_store::CancelToken,
+    ) -> Result<(bool, bool)> {
         if a.byte_len > b.byte_len {
             return Ok((false, false));
         }
@@ -53,6 +62,7 @@ impl Archive {
         let right = self.manifest(b)?;
         let (mut i, mut j, mut offset) = (0, 0, 0);
         while offset < a.byte_len {
+            cancel.check().map_err(|_| Error::Cancelled)?;
             let (x, x_end) = covering_slice(&left, i, offset, a)?;
             let (y, y_end) = covering_slice(&right, j, offset, b)?;
             let end = x_end.min(y_end).min(a.byte_len);
@@ -63,6 +73,7 @@ impl Archive {
                 let mut right = [0; 64 * 1024];
                 let mut remaining = end - offset;
                 while remaining > 0 {
+                    cancel.check().map_err(|_| Error::Cancelled)?;
                     let n = remaining.min(left.len() as u64) as usize;
                     first.read_exact(&mut left[..n])?;
                     second.read_exact(&mut right[..n])?;

@@ -52,6 +52,16 @@ impl Adapter for CodexAdapter {
         emit: &mut dyn FnMut(Artifact) -> crate::Result<()>,
         issues: &mut Vec<Diagnostic>,
     ) -> crate::Result<()> {
+        self.discover_cancellable(&crate::capture::Discovery::default(), source, emit, issues)
+    }
+
+    fn discover_cancellable(
+        &self,
+        cancel: &crate::capture::Discovery,
+        source: &SourceRoot,
+        emit: &mut dyn FnMut(Artifact) -> crate::Result<()>,
+        issues: &mut Vec<Diagnostic>,
+    ) -> crate::Result<()> {
         match fs::symlink_metadata(&source.root) {
             Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => {}
             Ok(_) => {
@@ -64,7 +74,7 @@ impl Adapter for CodexAdapter {
             }
         }
         // Validate the selected root before enumerating only known native locations.
-        let entries = match fs::read_dir(&source.root) {
+        let entries = match cancel.read_dir(&source.root) {
             Ok(entries) => entries,
             Err(_) => {
                 discovery_issue(issues, "codex-source-unavailable");
@@ -72,6 +82,7 @@ impl Adapter for CodexAdapter {
             }
         };
         for entry in entries {
+            cancel.check()?;
             let entry = match entry {
                 Ok(entry) => entry,
                 Err(_) => {
@@ -89,7 +100,8 @@ impl Adapter for CodexAdapter {
                 _ => continue,
             };
             let mut path_issues = Vec::new();
-            common::walk_files(
+            common::walk_files_cancellable(
+                cancel,
                 &entry.path(),
                 &mut |path| {
                     if kind == ArtifactKind::Transcript && !is_rollout(&path) {

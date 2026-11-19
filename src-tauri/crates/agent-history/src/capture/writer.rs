@@ -28,16 +28,22 @@ pub(super) fn capture(
     source: &SourceRoot,
     artifact: &Artifact,
     options: &BackupOptions,
+    run: i64,
 ) -> std::result::Result<Captured, CaptureFailure> {
     use CaptureFailure::{Destination, Source};
     check_cancel(options).map_err(Source)?;
     archive.register_source(source_id, source, artifact).map_err(Destination)?;
     if artifact.kind == ArtifactKind::Sqlite {
-        return capture_database(archive, source_id, source, artifact, options);
+        return capture_database(archive, source_id, source, artifact, options, run);
     }
     let cancelled = || options.cancel.check().is_err();
     for attempt in 0..SOURCE_ATTEMPTS {
-        let inspected = match files::inspect(&artifact.path, &source.root, &cancelled) {
+        let inspected = match files::inspect_bound(
+            &artifact.path,
+            &source.root,
+            options.directory(&source.root).map_err(Source)?,
+            &cancelled,
+        ) {
             Ok(value) => value,
             Err(Error::SourceChanged(_)) if attempt + 1 < SOURCE_ATTEMPTS => continue,
             Err(error) => return Err(Source(error)),
@@ -47,6 +53,9 @@ pub(super) fn capture(
             && previous.byte_len == inspected.byte_len
             && previous.capture_format == "native"
         {
+            archive
+                .unchanged_file(run, source_id, previous.id, previous.byte_len)
+                .map_err(Destination)?;
             return Ok(Captured {
                 revision_id: previous.id,
                 byte_len: previous.byte_len,
@@ -58,8 +67,14 @@ pub(super) fn capture(
         archive.set_coverage(source_id, false).map_err(Destination)?;
         let revision = archive.begin_revision(source_id, source, artifact).map_err(Destination)?;
         let mut writer = ChunkWriter::new(archive, revision);
-        let copied =
-            files::copy_verified(&artifact.path, &source.root, &inspected, &mut writer, &cancelled);
+        let copied = files::copy_bound(
+            &artifact.path,
+            &source.root,
+            &inspected,
+            &mut writer,
+            options.directory(&source.root).map_err(Source)?,
+            &cancelled,
+        );
         if let Some(error) = writer.destination_error.take() {
             return Err(Destination(error));
         }
@@ -72,7 +87,9 @@ pub(super) fn capture(
         }
         check_cancel(options).map_err(Source)?;
         let (digest, byte_len) = writer.finish().map_err(Destination)?;
-        let outcome = archive.finish_revision(revision, &digest, byte_len).map_err(Destination)?;
+        let outcome = archive
+            .commit_revision(revision, &digest, byte_len, Some((run, &options.cancel)))
+            .map_err(Destination)?;
         return Ok(Captured {
             revision_id: outcome.revision_id,
             byte_len,
@@ -90,8 +107,10 @@ fn capture_database(
     source: &SourceRoot,
     artifact: &Artifact,
     options: &BackupOptions,
+    run: i64,
 ) -> std::result::Result<Captured, CaptureFailure> {
     use CaptureFailure::{Destination, Source};
+    options.validate_root(&source.root).map_err(Source)?;
     let path = files::ensure_source_path(&artifact.path, &source.root).map_err(Source)?;
     archive.set_coverage(source_id, false).map_err(Destination)?;
     let revision = archive
@@ -117,7 +136,9 @@ fn capture_database(
     };
     check_cancel(options).map_err(Source)?;
     let (digest, byte_len) = writer.finish().map_err(Destination)?;
-    let outcome = archive.finish_revision(revision, &digest, byte_len).map_err(Destination)?;
+    let outcome = archive
+        .commit_revision(revision, &digest, byte_len, Some((run, &options.cancel)))
+        .map_err(Destination)?;
     Ok(Captured {
         revision_id: outcome.revision_id,
         byte_len,

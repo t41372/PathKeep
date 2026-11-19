@@ -1,5 +1,7 @@
 //! Interactive reads and guarded changes to device capture policy. This module
 //! does not start a backup or grant access to an unreviewed source directory.
+pub mod backups;
+pub mod delivery;
 pub mod preview;
 use crate::VaultSession;
 use anyhow::Result;
@@ -26,6 +28,8 @@ pub struct SetState {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SourcesPatch {
     pub expected_token: String,
+    pub selected_root_ids: Option<Vec<String>>,
+    pub preview_id: Option<String>,
     pub read_git: Option<bool>,
     #[serde(default)]
     pub tool_changes: std::collections::BTreeMap<AgentTool, bool>,
@@ -47,6 +51,13 @@ pub enum Refusal {
     RootChanged,
     Expired,
     NotInitialized,
+    Unavailable,
+    Off,
+    InvalidRequest,
+    Missing,
+    InvalidCursor,
+    ActionUnavailable,
+    Finishing,
 }
 impl Refusal {
     pub fn code(self) -> &'static str {
@@ -63,6 +74,13 @@ impl Refusal {
             Self::Replaced => "archive-replaced",
             Self::RootChanged => "root-changed",
             Self::Expired => "preview-expired",
+            Self::Unavailable => "kind-unavailable",
+            Self::Off => "kind-off",
+            Self::InvalidRequest => "invalid-request",
+            Self::Missing => "record-unavailable",
+            Self::ActionUnavailable => "task-action-unavailable",
+            Self::InvalidCursor => "invalid-cursor",
+            Self::Finishing => "operation-finishing",
             Self::NotInitialized => "archive-uninitialized",
         }
     }
@@ -107,6 +125,8 @@ pub struct KindRow {
     coverage: Coverage,
     #[serde(skip_serializing_if = "Option::is_none")]
     first_backup: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    active_task_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     failure: Option<RoleFailure>,
 }
@@ -214,7 +234,15 @@ pub fn list(session: &VaultSession) -> Result<KindList> {
                 state: if unavailable { "unavailable" } else { "complete" },
                 reasons: if unavailable { vec!["kind-unavailable"] } else { vec![] },
             },
-            first_backup,
+            first_backup: first_backup.map(|s| backups::result_name(&s).to_owned()),
+            active_task_id: if agent
+                && !unavailable
+                && config.capture_policy.agent_history != KindState::Off
+            {
+                backups::active_id(session)
+            } else {
+                None
+            },
         });
     }
     let current = admitted_config(&paths)?;
@@ -267,6 +295,7 @@ fn change(
             return Err(Refusal::NotInitialized.into());
         }
         vault_core::save_config(&gate, &config)?;
+        drop(gate);
         preview::revoke(&paths.app_root);
         emit(PolicyChange { policy_token: token.clone(), changed_kinds: vec![kind] });
     }
@@ -279,6 +308,19 @@ pub fn set_state(
     req: SetState,
     emit: impl FnOnce(PolicyChange),
 ) -> Result<Transition> {
+    if req.kind == DataKind::AgentHistory {
+        let paths = vault_core::project_paths()?;
+        let config = admitted_config(&paths)?;
+        if config.initialized {
+            let vault = session.vault().map_err(anyhow::Error::msg)?;
+            backups::check_service(&vault)?;
+            if config.capture_policy.pending_first_save.is_some() {
+                backups::recover(session, &vault)?;
+            }
+        }
+    }
+    let _admission = session.conversations.enter();
+    let mut event = None;
     change(
         req.kind,
         &req.expected_policy_token,
@@ -296,22 +338,61 @@ pub fn set_state(
             *slot = req.state;
             Ok(())
         },
-        emit,
+        |changed| event = Some(changed),
     )?;
-    Ok(Transition { snapshot: list(session)?, affected_tasks: vec![] })
+    let affected_tasks =
+        if event.is_some() && req.kind == DataKind::AgentHistory && req.state != KindState::On {
+            backups::cancel_active(session, None)
+        } else {
+            Vec::new()
+        };
+    if event.is_some() && req.kind == DataKind::AgentHistory && req.state == KindState::Off {
+        delivery::revoke(&vault_core::project_paths()?.app_root);
+    }
+    drop(_admission);
+    if let Some(event) = event {
+        emit(event);
+    }
+    Ok(Transition { snapshot: list(session)?, affected_tasks })
 }
 
 /// Tool switches narrow future capture. While off they are choices for the
 /// enable dialog. A switch alone never grants a directory.
-pub fn update_sources(req: SourcesPatch, emit: impl FnOnce(PolicyChange)) -> Result<Settings> {
-    change(
+pub fn update_sources(
+    session: &VaultSession,
+    req: SourcesPatch,
+    emit: impl FnOnce(PolicyChange),
+) -> Result<Settings> {
+    let paths = vault_core::project_paths()?;
+    let config = admitted_config(&paths)?;
+    let vault = if config.initialized {
+        let vault = session.vault().map_err(anyhow::Error::msg)?;
+        backups::check_service(&vault)?;
+        if config.capture_policy.pending_first_save.is_some() {
+            backups::recover(session, &vault)?;
+        }
+        Some(vault)
+    } else {
+        None
+    };
+    let _admission = session.conversations.enter();
+    if config.capture_policy.token() != req.expected_token {
+        return Err(Refusal::PolicyChanged.into());
+    }
+    let selection = backups::edit_selection(vault.as_ref(), &config.capture_policy, &req)?;
+    let settings = change(
         DataKind::AgentHistory,
         &req.expected_token,
         |policy| {
+            if let Some((id, tools)) = &selection {
+                policy.selection_ref = Some(id.clone());
+                policy.enabled_tools.retain(|t| tools.contains(t));
+            }
             for (tool, on) in req.tool_changes {
                 if on {
                     if policy.agent_history != KindState::Off
                         && !policy.enabled_tools.contains(&tool)
+                        && !selection.as_ref().is_some_and(|(_, tools)| tools.contains(&tool))
                     {
                         return Err(Refusal::EnablePreview.into());
                     }
@@ -326,7 +407,11 @@ pub fn update_sources(req: SourcesPatch, emit: impl FnOnce(PolicyChange)) -> Res
             Ok(())
         },
         emit,
-    )
+    )?;
+    if settings.policy != config.capture_policy {
+        backups::cancel_active(session, None);
+    }
+    Ok(settings)
 }
 
 /// Whole-settings callers cannot construct a policy that the transition would refuse.
