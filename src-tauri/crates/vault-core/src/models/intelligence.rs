@@ -1080,6 +1080,15 @@ pub struct AiIndexRequest {
     pub scope: ReembedScope,
 }
 
+/// The transfer ID belongs to the IPC submission. It is never written into a replayable job.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BuildAiIndexRequest {
+    #[serde(flatten)]
+    pub index: AiIndexRequest,
+    pub transfer_id: Option<String>,
+}
+
 /// How much a re-embed run would index, shown before it starts (PME): the pages it covers. It says
 /// nothing about time: the rate depends on the engine and the machine, and a guessed rate told users
 /// a minutes-long rebuild would take most of a day.
@@ -1385,6 +1394,9 @@ pub struct ModelDownloadProgressEvent {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum ModelDownloadUpdate {
+    Waiting {
+        reason: ModelDownloadWait,
+    },
     /// One model file started downloading (`total_bytes` is the HTTP content-length, 0 if unknown).
     ///
     /// The per-variant `rename_all` is LOAD-BEARING: serde's container-level `rename_all` renames only
@@ -1392,20 +1404,39 @@ pub enum ModelDownloadUpdate {
     /// snake_case `total_bytes` and the camelCase FE contract reads `undefined` (same fix the sibling
     /// `AiChatStreamChunk` applies to its multi-word fields).
     #[serde(rename_all = "camelCase")]
-    FileStarted { file: String, total_bytes: u64 },
+    FileStarted {
+        file: String,
+        total_bytes: u64,
+    },
     /// Throttled byte progress for the in-flight file, so the UI renders a real moving bar instead of
     /// a near-empty per-file indicator (the 90 MB safetensors dwarfs the other files). Emitted ~every
     /// 1 MB plus a final 100% per file; `total_bytes` is 0 when the server gave no content-length.
     #[serde(rename_all = "camelCase")]
-    FileProgress { file: String, downloaded_bytes: u64, total_bytes: u64 },
+    FileProgress {
+        file: String,
+        downloaded_bytes: u64,
+        total_bytes: u64,
+    },
     /// One model file finished downloading + verifying.
-    FileFinished { file: String },
+    FileFinished {
+        file: String,
+    },
     /// The whole model is present + verified; no more events follow for this run.
     Done,
     /// An accepted stop request ended this transfer. The client can dismiss its progress.
     Cancelled,
     /// The download failed; carries a user-facing message. No more events follow.
-    Error { message: String },
+    Error {
+        message: String,
+    },
+}
+
+/// Waiting is live progress, even when no response bytes can arrive.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum ModelDownloadWait {
+    ArchiveBusy,
+    PreviousTransfer,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]

@@ -136,12 +136,12 @@ pub(crate) fn cancel_ai_job_impl(
 
 /// Builds or refreshes the semantic index right away.
 pub(crate) fn build_ai_index_impl(
-    request: AiIndexRequest,
+    request: vault_core::BuildAiIndexRequest,
     state: &crate::session::SessionState,
 ) -> Result<vault_core::AiIndexReport, CommandError> {
     let key = state.get_key()?;
     let session_database_key = key.as_deref();
-    worker_result(vault_worker::build_ai_index_now(&state.vault()?, session_database_key, &request))
+    worker_result(vault_worker::submit_index_build(&state.vault()?, session_database_key, &request))
 }
 
 /// Recovers a wedged semantic-index build: clears the stuck job(s) and re-enqueues a clean one (F2).

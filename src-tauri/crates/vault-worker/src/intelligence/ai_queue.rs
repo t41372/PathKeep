@@ -624,7 +624,7 @@ pub fn reset_ai_index_build(
         limit: None,
         scope: ReembedScope::Full,
     };
-    let mut report = enqueue_index_request(vault, session_database_key, &rebuild, true)?;
+    let mut report = enqueue_index_request(vault, session_database_key, &rebuild, true, None)?;
     report.notes.insert(
         0,
         format!(
@@ -640,7 +640,16 @@ pub fn build_ai_index_now(
     session_database_key: Option<&str>,
     request: &AiIndexRequest,
 ) -> Result<AiIndexReport> {
-    enqueue_index_request(vault, session_database_key, request, false)
+    enqueue_index_request(vault, session_database_key, request, false, None)
+}
+
+/// Handles both desktop transports. The transfer identity is used only at submission.
+pub fn submit_index_build(
+    vault: &vault_core::Vault,
+    key: Option<&str>,
+    request: &vault_core::BuildAiIndexRequest,
+) -> Result<AiIndexReport> {
+    enqueue_index_request(vault, key, &request.index, false, request.transfer_id.as_deref())
 }
 
 fn enqueue_index_request(
@@ -648,6 +657,7 @@ fn enqueue_index_request(
     session_database_key: Option<&str>,
     request: &AiIndexRequest,
     reset: bool,
+    transfer_id: Option<&str>,
 ) -> Result<AiIndexReport> {
     let paths = vault.paths().clone();
     let config = load_unlocked_config(&paths)?;
@@ -668,45 +678,37 @@ fn enqueue_index_request(
     let queued_request =
         AiIndexRequest { provider_id: Some(provider_config.id.clone()), ..request.clone() };
     let current = vault.with_config(config.clone());
-    let queued = if request.clear_only || reset {
-        ai_queue::enqueue_index_job(&current, &queued_request, config.ai.job_queue_paused)?
+    let (job_id, new_submission) = if let Some(id) = transfer_id {
+        ai_queue::request_setup_build(&current, request, id)?
+    } else if request.clear_only || reset {
+        (
+            ai_queue::enqueue_index_job(&current, &queued_request, config.ai.job_queue_paused)?.id,
+            true,
+        )
     } else {
-        ai_queue::request_index_job(&current, &queued_request, false)?
-            .context("a user build must return a job")?
+        (
+            ai_queue::request_index_job(&current, &queued_request, false)?
+                .context("a user build must return a job")?
+                .id,
+            true,
+        )
     };
 
-    if config.ai.job_queue_paused {
-        return Ok(AiIndexReport {
-            job_id: Some(queued.id),
-            run_id: None,
-            provider_id: provider_config.id,
-            model: provider_config.default_model,
-            indexed_items: 0,
-            updated_items: 0,
-            skipped_items: 0,
-            removed_items: 0,
-            last_indexed_at: chrono::Utc::now().to_rfc3339(),
-            notes: vec![format!(
-                "Queued AI index job {}. Resume the AI queue to process it.",
-                queued.id
-            )],
-        });
-    }
-    maybe_spawn_ai_queue_drain(vault, &paths, &config, session_database_key, 1);
+    let note = if !new_submission {
+        format!("This transfer already requested AI index job {job_id}.")
+    } else if config.ai.job_queue_paused {
+        format!("Queued AI index job {job_id}. Resume the AI queue to process it.")
+    } else {
+        maybe_spawn_ai_queue_drain(vault, &paths, &config, session_database_key, 1);
+        format!("Queued AI index job {job_id}. PathKeep is processing it in the background.")
+    };
     Ok(AiIndexReport {
-        job_id: Some(queued.id),
-        run_id: None,
+        job_id: Some(job_id),
         provider_id: provider_config.id,
         model: provider_config.default_model,
-        indexed_items: 0,
-        updated_items: 0,
-        skipped_items: 0,
-        removed_items: 0,
         last_indexed_at: chrono::Utc::now().to_rfc3339(),
-        notes: vec![format!(
-            "Queued AI index job {}. PathKeep is processing it in the background.",
-            queued.id
-        )],
+        notes: vec![note],
+        ..Default::default()
     })
 }
 

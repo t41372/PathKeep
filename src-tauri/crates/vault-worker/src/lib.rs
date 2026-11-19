@@ -111,8 +111,8 @@ pub use self::{
         register_ai_index_job_ended_listener, rename_ai_conversation, replay_ai_job,
         reset_ai_index_build, retry_intelligence_job_now, run_ai_queue_jobs,
         run_core_intelligence_now, save_ai_conversation, search_ai_history,
-        set_content_fetch_settings, set_site_category, test_ai_provider_connection_report,
-        upsert_search_engine_rule,
+        set_content_fetch_settings, set_site_category, submit_index_build,
+        test_ai_provider_connection_report, upsert_search_engine_rule,
     },
     schedule::{
         apply_schedule_plan, preview_schedule_plan, remove_schedule_plan, repair_schedule_plan,

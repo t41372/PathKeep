@@ -1,0 +1,367 @@
+/**
+ * How one attempt at the in-app model download ends, and which transfer a
+ * window shows. Responsibilities: the orderings the desktop E2E cannot hold
+ * still: a start reply that comes late, a refused start, a replaced
+ * transfer's events arriving after its replacement's. Not responsible for the
+ * backend's transfers or the Settings copy (`tests/e2e/builtin-model.spec.ts`).
+ *
+ * Failure modes, written before the code:
+ * - a refused start (no transfer, so no terminal event) leaves the screen on
+ *   "Downloading" for good;
+ * - a start refused because the user's own save turned the model off is shown
+ *   as a failure;
+ * - events sent before the start answered are dropped, or a replaced
+ *   transfer's events are taken for the new one's;
+ * - waiting for an archive task is taken for silence and given up after the
+ *   idle window;
+ * - a start reply arriving after the idle window ended the attempt makes the
+ *   window follow that transfer again;
+ * - a replaced transfer's late progress or `cancelled` moves or clears the bar
+ *   of the transfer that replaced it, in the window that started it and in
+ *   one that only saw its events;
+ * - late progress or the end of a transfer the window never followed moves or
+ *   ends the one it shows;
+ * - starting again while a download runs (the backend joins it) empties the bar;
+ * - Cancel pressed before the start answered cancels nothing;
+ * - a setup whose transfer another window replaced never learns that its own
+ *   transfer was cancelled.
+ *
+ * Only the event channel and the two commands are stand-ins; the module and
+ * the React hook are real.
+ */
+import { act } from 'react'
+import { createRoot } from 'react-dom/client'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import type { ModelDownloadProgressEvent } from '@/lib/types'
+import type * as ModelDownload from './model-download'
+
+const channel = vi.hoisted(() => {
+  const listeners = new Set<(payload: unknown) => void>()
+  return {
+    listeners,
+    send(payload: unknown) {
+      for (const listener of [...listeners]) listener(payload)
+    },
+  }
+})
+
+const commands = vi.hoisted(() => ({
+  start: vi.fn<() => Promise<{ transferId: string }>>(),
+  cancel: vi.fn<(transferId: string) => Promise<boolean>>(),
+}))
+
+vi.mock('./events', () => ({
+  listenDesktopEvent: (_name: string, listener: (payload: unknown) => void) => {
+    channel.listeners.add(listener)
+    return Promise.resolve(() => {
+      channel.listeners.delete(listener)
+    })
+  },
+}))
+
+vi.mock('../backend-client/intelligence', () => ({
+  intelligenceClient: {
+    downloadStaticEmbeddingModel: commands.start,
+    cancelStaticEmbeddingModelDownload: commands.cancel,
+  },
+}))
+
+Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
+
+let md: typeof ModelDownload
+const unmounts: (() => void)[] = []
+
+beforeEach(async () => {
+  vi.resetModules()
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+  channel.listeners.clear()
+  commands.start.mockReset()
+  commands.cancel.mockReset()
+  md = await import('./model-download')
+})
+
+afterEach(() => {
+  for (const unmount of unmounts.splice(0)) unmount()
+  vi.useRealTimers()
+})
+
+/** Lets pending promise callbacks run. */
+async function flush() {
+  await act(async () => {
+    for (let i = 0; i < 20; i++) await Promise.resolve()
+  })
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((done) => {
+    resolve = done
+  })
+  return { promise, resolve }
+}
+
+/** A screen that shows the download, as Settings → AI does. */
+async function screen() {
+  const root = createRoot(document.createElement('div'))
+  let seen: ModelDownload.ModelDownloadProgress | null = null
+  function Probe() {
+    seen = md.useModelDownloadProgress(false)
+    return null
+  }
+  act(() => root.render(<Probe />))
+  unmounts.push(() => act(() => root.unmount()))
+  await flush()
+  return () => seen!
+}
+
+/** Starts the download the way a setup does. */
+function start(wanted: () => Promise<boolean>) {
+  let outcome!: Promise<ModelDownload.ModelDownloadOutcome>
+  act(() => {
+    outcome = md.downloadModel(wanted)
+  })
+  return outcome
+}
+
+async function send(event: ModelDownloadProgressEvent) {
+  await act(async () => {
+    channel.send(event)
+    await Promise.resolve()
+  })
+}
+
+const A = 'a'.repeat(32)
+const B = 'b'.repeat(32)
+const stillWanted = () => Promise.resolve(true)
+const noLongerWanted = () => Promise.resolve(false)
+
+const started = (
+  transferId: string,
+  file = 'model.safetensors',
+  total = 1000,
+) =>
+  ({
+    transferId,
+    kind: 'fileStarted',
+    file,
+    totalBytes: total,
+  }) as const
+const progress = (transferId: string, downloadedBytes: number) =>
+  ({
+    transferId,
+    kind: 'fileProgress',
+    file: 'model.safetensors',
+    downloadedBytes,
+    totalBytes: 1000,
+  }) as const
+
+it('a refused start shows why instead of downloading for good', async () => {
+  const view = await screen()
+  commands.start.mockRejectedValue(new Error('the archive is locked'))
+  const outcome = start(stillWanted)
+  expect(view().phase).toBe('downloading')
+  expect(await outcome).toMatchObject({ kind: 'refused' })
+  await flush()
+  expect(view()).toMatchObject({
+    phase: 'failed',
+    failure: { kind: 'error', message: 'the archive is locked' },
+  })
+})
+
+it('a start refused because a saved setting no longer wants the model ends as a cancellation', async () => {
+  const view = await screen()
+  commands.start.mockRejectedValue(new Error('semantic search is off'))
+  expect(await start(noLongerWanted)).toEqual({ kind: 'cancelled' })
+  await flush()
+  expect(view()).toMatchObject({ phase: 'idle', failure: null })
+})
+
+it('keeps the events sent before the start answers, for that transfer only', async () => {
+  const view = await screen()
+  const reply = deferred<{ transferId: string }>()
+  commands.start.mockReturnValue(reply.promise)
+  const outcome = start(stillWanted)
+  await flush()
+  await send(progress(A, 900))
+  await send({ transferId: A, kind: 'cancelled' })
+  await send(started(B))
+  await send(progress(B, 400))
+  await send({ transferId: B, kind: 'done' })
+  reply.resolve({ transferId: B })
+  expect(await outcome).toEqual({ kind: 'done', transferId: B })
+  await flush()
+  expect(view()).toMatchObject({
+    phase: 'ready',
+    downloadedBytes: 400,
+    totalBytes: 1000,
+  })
+})
+
+it('a download waiting for an archive task is not given up as silent', async () => {
+  const view = await screen()
+  commands.start.mockResolvedValue({ transferId: A })
+  const outcome = start(stillWanted)
+  await flush()
+  await send(progress(A, 500))
+  // The backend repeats `waiting` every 20 s, for longer than the idle window.
+  for (let i = 0; i < 8; i++) {
+    await act(async () => {
+      vi.advanceTimersByTime(20_000)
+      await Promise.resolve()
+    })
+    await send({ transferId: A, kind: 'waiting', reason: 'archive-busy' })
+  }
+  expect(view()).toMatchObject({
+    phase: 'waiting',
+    waitingFor: 'archive-busy',
+    downloadedBytes: 500,
+    totalBytes: 1000,
+  })
+  await send({ transferId: A, kind: 'done' })
+  expect(await outcome).toEqual({ kind: 'done', transferId: A })
+})
+
+it('gives up after the idle window, and a start reply that comes later changes nothing', async () => {
+  const view = await screen()
+  const reply = deferred<{ transferId: string }>()
+  commands.start.mockReturnValue(reply.promise)
+  const outcome = start(stillWanted)
+  await flush()
+  await act(async () => {
+    vi.advanceTimersByTime(md.MODEL_DOWNLOAD_IDLE_TIMEOUT_MS)
+    await Promise.resolve()
+  })
+  expect(await outcome).toEqual({ kind: 'silent' })
+  expect(view()).toMatchObject({ phase: 'failed', failure: { kind: 'silent' } })
+  reply.resolve({ transferId: A })
+  await flush()
+  await send(started(A))
+  await send(progress(A, 300))
+  expect(view()).toMatchObject({ phase: 'failed', failure: { kind: 'silent' } })
+  expect(await md.cancelModelDownload()).toBe(false)
+  expect(commands.cancel).not.toHaveBeenCalled()
+})
+
+it('a replaced transfer’s late progress and cancellation leave the newer bar alone', async () => {
+  const view = await screen()
+  commands.start
+    .mockResolvedValueOnce({ transferId: A })
+    .mockResolvedValueOnce({ transferId: B })
+  const first = start(stillWanted)
+  await flush()
+  await send(progress(A, 600))
+  // Turned off and on again: the backend cancelled A and started B.
+  const second = start(stillWanted)
+  await flush()
+  await send({ transferId: B, kind: 'waiting', reason: 'previous-transfer' })
+  await send(progress(A, 700))
+  await send({ transferId: A, kind: 'cancelled' })
+  expect(await first).toEqual({ kind: 'cancelled' })
+  expect(view()).toMatchObject({
+    phase: 'waiting',
+    waitingFor: 'previous-transfer',
+    downloadedBytes: 0,
+  })
+  await send(started(B))
+  await send(progress(B, 100))
+  expect(view()).toMatchObject({
+    phase: 'downloading',
+    downloadedBytes: 100,
+    totalBytes: 1000,
+    failure: null,
+  })
+  await send({ transferId: B, kind: 'done' })
+  expect(await second).toEqual({ kind: 'done', transferId: B })
+})
+
+it('a window that did not start the download follows the newer transfer and ignores the older one’s late cancellation', async () => {
+  const view = await screen()
+  await send(started(A))
+  await send(progress(A, 600))
+  expect(view()).toMatchObject({ phase: 'downloading', downloadedBytes: 600 })
+  await send({ transferId: B, kind: 'waiting', reason: 'previous-transfer' })
+  expect(view()).toMatchObject({
+    phase: 'waiting',
+    waitingFor: 'previous-transfer',
+    downloadedBytes: 0,
+  })
+  await send(progress(A, 700))
+  await send({ transferId: A, kind: 'cancelled' })
+  expect(view()).toMatchObject({ phase: 'waiting', downloadedBytes: 0 })
+  await send(started(B))
+  await send(progress(B, 50))
+  expect(view()).toMatchObject({ phase: 'downloading', downloadedBytes: 50 })
+  commands.cancel.mockResolvedValue(true)
+  expect(await md.cancelModelDownload()).toBe(true)
+  expect(commands.cancel).toHaveBeenCalledWith(B)
+})
+
+it('late progress or the end of a transfer this window never followed leaves the one it shows alone', async () => {
+  const view = await screen()
+  commands.start.mockResolvedValue({ transferId: B })
+  const outcome = start(stillWanted)
+  await flush()
+  await send(progress(B, 200))
+  await send(progress(A, 900))
+  await send({ transferId: A, kind: 'cancelled' })
+  await send({ transferId: A, kind: 'error', message: 'disk full' })
+  expect(view()).toMatchObject({
+    phase: 'downloading',
+    downloadedBytes: 200,
+    failure: null,
+  })
+  await send({ transferId: B, kind: 'done' })
+  expect(await outcome).toEqual({ kind: 'done', transferId: B })
+})
+
+it('starting again while a download runs joins it and keeps the bar', async () => {
+  const view = await screen()
+  commands.start.mockResolvedValue({ transferId: A })
+  const first = start(stillWanted)
+  await flush()
+  await send(started(A, 'tokenizer.json', 100))
+  await send({ transferId: A, kind: 'fileFinished', file: 'tokenizer.json' })
+  await send(started(A))
+  await send(progress(A, 500))
+  const second = start(stillWanted)
+  expect(view()).toMatchObject({ downloadedBytes: 600, totalBytes: 1100 })
+  await flush()
+  await send(progress(A, 900))
+  expect(view()).toMatchObject({
+    phase: 'downloading',
+    downloadedBytes: 1000,
+    totalBytes: 1100,
+  })
+  await send({ transferId: A, kind: 'done' })
+  expect(await first).toEqual({ kind: 'done', transferId: A })
+  expect(await second).toEqual({ kind: 'done', transferId: A })
+})
+
+it('Cancel pressed before the start answers cancels the transfer it names', async () => {
+  await screen()
+  const reply = deferred<{ transferId: string }>()
+  commands.start.mockReturnValue(reply.promise)
+  commands.cancel.mockResolvedValue(true)
+  void start(stillWanted)
+  await flush()
+  const cancelled = md.cancelModelDownload()
+  reply.resolve({ transferId: A })
+  expect(await cancelled).toBe(true)
+  expect(commands.cancel).toHaveBeenCalledWith(A)
+})
+
+it('a setup whose transfer another window replaced still learns it was cancelled', async () => {
+  const view = await screen()
+  commands.start.mockResolvedValue({ transferId: A })
+  const outcome = start(stillWanted)
+  await flush()
+  await send(progress(A, 300))
+  // Another window turned semantic search off and on again.
+  await send({ transferId: B, kind: 'waiting', reason: 'previous-transfer' })
+  await send({ transferId: A, kind: 'cancelled' })
+  expect(await outcome).toEqual({ kind: 'cancelled' })
+  expect(view()).toMatchObject({
+    phase: 'waiting',
+    waitingFor: 'previous-transfer',
+  })
+})

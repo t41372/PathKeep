@@ -18,12 +18,15 @@ import { useCallback, useState } from 'react'
 import { appClient } from '@/lib/backend-client/app'
 import { intelligenceClient } from '@/lib/backend-client/intelligence'
 import { describeError } from '@/lib/errors'
+import { useI18n } from '@/lib/i18n'
 import {
   cancelModelDownload,
+  MODEL_DOWNLOAD_IDLE_TIMEOUT_MS,
   useModelDownloadProgress,
 } from '@/lib/ipc/model-download'
 import {
   ModelDownloadCancelled,
+  ModelDownloadStalled,
   runLocalSemanticSetup,
 } from '@/lib/ipc/semantic-setup'
 import { queryKeys } from '@/lib/query'
@@ -32,7 +35,6 @@ import {
   BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID,
   type AiIndexStatus,
   type AiSettings,
-  type AppSnapshot,
   type IndexBuildJob,
   type IndexBuildProgress,
   type ReembedScope,
@@ -64,6 +66,7 @@ export interface IndexProgress extends IndexBuildProgress {
 }
 
 export function useSemanticIndex() {
+  const { t } = useI18n()
   const client = useQueryClient()
   const snapshot = useSnapshot()
   const save = useSaveConfig()
@@ -82,10 +85,23 @@ export function useSemanticIndex() {
     !usesInAppModel || (status.staticEmbedding?.modelDownloaded ?? false)
   const enabled = ai.enabled && ai.semanticIndexEnabled
 
-  const [restart, setRestart] = useState(0)
   const [setupRunning, setSetupRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const download = useModelDownloadProgress(modelDownloaded, restart)
+  const download = useModelDownloadProgress(modelDownloaded)
+  /** What went wrong, for `error`; a stop the user asked for is not a failure. */
+  const failed = useCallback(
+    (reason: unknown) => {
+      if (reason instanceof ModelDownloadCancelled) return
+      setError(
+        reason instanceof ModelDownloadStalled
+          ? t('settingsAi.semantic.downloadStalled', {
+              count: MODEL_DOWNLOAD_IDLE_TIMEOUT_MS / 60_000,
+            })
+          : describeError(reason),
+      )
+    },
+    [t],
+  )
 
   const queue = useQuery({
     queryKey: aiQueueKey,
@@ -149,25 +165,13 @@ export function useSemanticIndex() {
           scope: 'incremental',
         })
       } else {
-        setRestart((count) => count + 1)
-        await runLocalSemanticSetup(() => {
-          // Read the cache, not this render: the screen may be gone by the time the download ends.
-          // A save that stops wanting the model also stops the download (the backend does it).
-          const latest = client.getQueryData<AppSnapshot>(queryKeys.snapshot)
-          const ai = latest?.config.ai
-          return (
-            ai !== undefined &&
-            ai.enabled &&
-            ai.semanticIndexEnabled &&
-            (ai.embeddingProviderId ??
-              BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID) ===
-              BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID
-          )
-        })
+        // A save that stops wanting the model stops the download (the backend does it), and
+        // the backend refuses the build it would have allowed.
+        await runLocalSemanticSetup()
       }
       await refresh()
     },
-    [client, refresh],
+    [refresh],
   )
 
   /** Turning semantic search on is the user's go-ahead for the first build. */
@@ -188,13 +192,11 @@ export function useSemanticIndex() {
           BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID,
       )
     } catch (reason) {
-      // A cancelled download is something the user asked for, never a failure.
-      if (!(reason instanceof ModelDownloadCancelled))
-        setError(describeError(reason))
+      failed(reason)
     } finally {
       setSetupRunning(false)
     }
-  }, [buildWith, save])
+  }, [buildWith, failed, save])
 
   /** Chooses the model; its index is built only when the user says so. */
   const chooseModel = useCallback(
@@ -261,7 +263,8 @@ export function useSemanticIndex() {
     },
     onMutate: () => setError(null),
     onSettled: () => void refresh().catch(() => undefined),
-    onError: (reason) => setError(describeError(reason)),
+    // A cancelled download (a switch to another service mid-build) was asked for.
+    onError: failed,
   })
 
   /** Rebuilds the chosen model's index from nothing (Rebuild search index). */

@@ -430,6 +430,14 @@ pub fn load_config(paths: &ProjectPaths) -> Result<AppConfig> {
 /// archive, and a new one is stamped once its stores exist (`maintenance::creation`). Kept, it
 /// would say the stores of its revision are there, and the new archive would not open.
 pub fn save_config(gate: &ControlGate, config: &AppConfig) -> Result<()> {
+    save_config_with_durability_warning(gate, config).map(drop)
+}
+
+/// A successful save can carry a directory-sync warning after the new control is installed.
+pub fn save_config_with_durability_warning(
+    gate: &ControlGate,
+    config: &AppConfig,
+) -> Result<Option<String>> {
     let paths = gate.paths();
     let compatibility =
         crate::admission::guard(&paths.app_root)?.and_then(|control| control.compatibility);
@@ -439,12 +447,23 @@ pub fn save_config(gate: &ControlGate, config: &AppConfig) -> Result<()> {
     };
     create_layout(paths)?;
     let content = encode_config(config, compatibility.as_ref())?;
-    crate::durable_io::atomic_durable_write(&paths.config_path, content.as_bytes())
-        .with_context(|| format!("writing {}", paths.config_path.display()))?;
+    let warning =
+        match crate::durable_io::atomic_durable_write(&paths.config_path, content.as_bytes()) {
+            Ok(()) => None,
+            Err(error) if error.is::<crate::durable_io::PublishedButUnsynced>() => {
+                let warning = format!("{}: {error:#}", paths.config_path.display());
+                eprintln!("pathkeep: {warning}");
+                Some(warning)
+            }
+            Err(error) => {
+                return Err(error)
+                    .with_context(|| format!("writing {}", paths.config_path.display()));
+            }
+        };
     if !config.ai.wants_builtin_model() {
         crate::ai::cancel_archive_model_downloads(paths);
     }
-    Ok(())
+    Ok(warning)
 }
 
 /// Writes `config` with `compatibility` into a stage: an archive being built that is not the live

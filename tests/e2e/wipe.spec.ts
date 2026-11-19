@@ -3,8 +3,8 @@
  * and PathKeep starts over at onboarding.
  *
  * Proves: the preview's visit count is the archive's real size (the first
- * backup, the visits added in backup.spec, link-preview.spec, semantic-progress.spec and
- * search-ranking.spec, the Firefox and Safari files imported in
+ * backup, the visits added in backup.spec, link-preview.spec, semantic-progress.spec,
+ * builtin-model.spec and search-ranking.spec, the Firefox and Safari files imported in
  * browser-import.spec but not the Chrome file it imported and undid, and the Takeout folders, My Activity export and .zip
  * imported in takeout-import.spec, the export takeout-continue.spec imports
  * in two runs, and the export and Firefox file import-stop.spec stops and
@@ -24,6 +24,7 @@ import {
   browserFileVisitCount,
   largeBrowserFileVisits,
 } from './support/browser-file'
+import { builtinModelVisitCount } from './support/builtin-model'
 import { indexRevisitVisitCount } from './support/index-revisit'
 import { liveRangeVisitCount } from './support/live-range'
 import { PREVIEW_VISIT_COUNT } from './support/preview-server'
@@ -76,6 +77,7 @@ test('delete all data previews, deletes, and returns to onboarding', async ({
     liveRangeVisitCount() +
     indexRevisitVisitCount() +
     progressScopeVisitCount() +
+    builtinModelVisitCount() +
     browserFileVisitCount() +
     safariVisitCount() +
     PREVIEW_VISIT_COUNT +

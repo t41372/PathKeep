@@ -91,6 +91,12 @@ impl Candidate {
         Ok(())
     }
 
+    /// Release the reservation and its open handle before removing an unpublished bundle.
+    pub(super) fn discard(&self, active: &mut Transfers) -> Result<()> {
+        self.finish(active)?;
+        vault_fs::remove_dir_all(&self.path).context("removing unused model candidate")
+    }
+
     pub(super) fn finish(&self, active: &mut Transfers) -> Result<()> {
         self.check(active)?;
         active.writers.remove(&self.key);

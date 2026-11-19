@@ -2,29 +2,74 @@
 //! and cancellation to its ID, and report the installer's terminal outcome off the UI thread.
 //! Not responsible for model verification, archive admission or IPC transport.
 
+pub(crate) mod builds;
+
 use crate::{
-    DEFAULT_STATIC_MODEL_FILES, DEFAULT_STATIC_MODEL_REPO, ModelDownloadProgress,
-    ModelDownloadProgressEvent, ModelDownloadTransfer, ModelDownloadUpdate, ModelFile,
-    ProjectPaths, ensure_model_downloaded, model_dir_for_repo,
+    DEFAULT_STATIC_MODEL_REPO, ModelDownloadProgress, ModelDownloadProgressEvent,
+    ModelDownloadTransfer, ModelDownloadUpdate, ModelFile, ProjectPaths, ensure_model_downloaded,
+    model_dir_for_repo,
 };
 use anyhow::{Context, Result};
 use std::{
     collections::BTreeMap,
     path::PathBuf,
-    sync::{
-        Arc, Mutex, MutexGuard,
-        atomic::{AtomicBool, Ordering},
-    },
+    sync::{Arc, Condvar, Mutex, MutexGuard},
 };
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Phase {
+    Running,
+    Cancelled,
+    Decided,
+    Released,
+}
 
 struct Transfer {
     identity: ModelDownloadTransfer,
-    cancelled: AtomicBool,
+    phase: Mutex<Phase>,
+    released: Condvar,
 }
 
 impl Transfer {
+    fn new(identity: ModelDownloadTransfer) -> Self {
+        Self { identity, phase: Mutex::new(Phase::Running), released: Condvar::new() }
+    }
+    fn phase(&self) -> MutexGuard<'_, Phase> {
+        self.phase.lock().unwrap_or_else(|e| e.into_inner())
+    }
     fn request_cancel(&self) -> bool {
-        !self.cancelled.swap(true, Ordering::SeqCst)
+        let mut phase = self.phase();
+        if *phase != Phase::Running {
+            return false;
+        }
+        *phase = Phase::Cancelled;
+        true
+    }
+    fn decide(&self) -> bool {
+        let mut phase = self.phase();
+        if *phase == Phase::Cancelled {
+            return false;
+        }
+        *phase = Phase::Decided;
+        true
+    }
+    fn wait_until_released(&self, progress: &dyn ModelDownloadProgress) {
+        let mut phase = self.phase();
+        while *phase != Phase::Released {
+            drop(phase);
+            progress.waiting(crate::ModelDownloadWait::PreviousTransfer);
+            phase = self
+                .released
+                .wait_timeout_while(self.phase(), std::time::Duration::from_secs(20), |phase| {
+                    *phase != Phase::Released
+                })
+                .unwrap_or_else(|e| e.into_inner())
+                .0;
+        }
+    }
+    fn release(&self) {
+        *self.phase() = Phase::Released;
+        self.released.notify_all();
     }
 }
 
@@ -96,8 +141,14 @@ impl<E: Fn(ModelDownloadProgressEvent) + Send> ModelDownloadProgress for EmitPro
         self.send(ModelDownloadUpdate::FileFinished { file: file.into() });
     }
 
+    fn waiting(&self, reason: crate::ModelDownloadWait) {
+        self.send(ModelDownloadUpdate::Waiting { reason });
+    }
+    fn decide(&self) -> bool {
+        self.transfer.decide()
+    }
     fn cancelled(&self) -> bool {
-        self.transfer.cancelled.load(Ordering::SeqCst)
+        *self.transfer.phase() == Phase::Cancelled
     }
 }
 
@@ -110,7 +161,7 @@ where
     start_model_download(
         crate::project_paths()?,
         DEFAULT_STATIC_MODEL_REPO,
-        DEFAULT_STATIC_MODEL_FILES,
+        super::builtin_model_files()?,
         emit,
     )
 }
@@ -135,14 +186,14 @@ where
     let key = model_dir_for_repo(&paths, repo);
     let mut active = running();
     if let Some(transfer) = active.get(&key)
-        && !transfer.cancelled.load(Ordering::SeqCst)
+        && *transfer.phase() == Phase::Running
     {
         return Ok(transfer.identity.clone());
     }
 
     let identity = ModelDownloadTransfer::fresh()?;
-    let transfer =
-        Arc::new(Transfer { identity: identity.clone(), cancelled: AtomicBool::new(false) });
+    let predecessor = active.get(&key).cloned();
+    let transfer = Arc::new(Transfer::new(identity.clone()));
     let mut progress = EmitProgress { emit, transfer: transfer.clone() };
     let worker_key = key.clone();
     std::thread::Builder::new()
@@ -150,13 +201,24 @@ where
         .spawn(move || {
             // A worker that unwinds must still release its ID and settle its listeners.
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                if let Some(previous) = &predecessor {
+                    previous.wait_until_released(&progress);
+                }
+                anyhow::ensure!(!progress.cancelled(), "model download was cancelled");
                 ensure_model_downloaded(&paths, repo, files, true, &mut progress)
             }))
-            .unwrap_or_else(|_| Err(anyhow::anyhow!("model download worker stopped unexpectedly")));
+            .unwrap_or_else(|_| {
+                progress.decide();
+                if let Some(previous) = &predecessor {
+                    previous.wait_until_released(&crate::NoopDownloadProgress);
+                }
+                Err(anyhow::anyhow!("model download worker stopped unexpectedly"))
+            });
+            let accepted = progress.decide();
+            progress.transfer.release();
             // Close admission before broadcasting the terminal event. A caller can immediately
             // restart from that event. A cancelled predecessor cannot unregister the replacement.
             let terminal = {
-                let _control = crate::ControlGate::acquire(&paths);
                 let mut active = running();
                 if active
                     .get(&worker_key)
@@ -164,8 +226,12 @@ where
                 {
                     active.remove(&worker_key);
                 }
+                builds::finished(
+                    &progress.transfer.identity.transfer_id,
+                    accepted && result.is_ok(),
+                );
                 match result {
-                    _ if progress.cancelled() => ModelDownloadUpdate::Cancelled,
+                    _ if !accepted => ModelDownloadUpdate::Cancelled,
                     Ok(_) => ModelDownloadUpdate::Done,
                     Err(error) => ModelDownloadUpdate::Error { message: error.to_string() },
                 }
@@ -173,9 +239,10 @@ where
             progress.send(terminal);
         })
         .context("spawning static model download thread")?;
+    builds::issued(&identity.transfer_id, &key);
     active.insert(key, transfer);
     Ok(identity)
 }
 
 #[cfg(test)]
-mod tests;
+pub(super) mod tests;

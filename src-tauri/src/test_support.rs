@@ -41,6 +41,7 @@ pub(crate) fn lock_env() -> EnvGuard {
         "CHB_SAFARI_ROOT",
         "PATHKEEP_PLATFORM_TEST_SANDBOX_DIR",
         "PATHKEEP_TEST_SAVE_DIR",
+        "PATHKEEP_TEST_MODEL_SOURCE",
     ]
     .into_iter()
     .map(|name| (name, std::env::var_os(name)))

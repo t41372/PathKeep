@@ -5,6 +5,11 @@ export const settings = defineMessages({
   en: {
     title: 'Settings',
     saveFailed: 'Could not save this setting',
+    /** A save the disk did not confirm; `detail` is the backend's diagnostic. */
+    notDurable: {
+      title: 'Settings saved, but the disk didn’t confirm it',
+      body: 'They are in effect now. If this computer loses power soon, the previous settings may come back. {detail}',
+    },
     nav: {
       label: 'Settings sections',
       general: 'General',
@@ -208,6 +213,10 @@ export const settings = defineMessages({
   'zh-CN': {
     title: '设置',
     saveFailed: '无法保存这项设置',
+    notDurable: {
+      title: '设置已保存，但磁盘没有确认写入',
+      body: '新设置已经生效。如果这台电脑很快断电，之前的设置可能会回来。{detail}',
+    },
     nav: {
       label: '设置分区',
       general: '通用',
@@ -399,6 +408,10 @@ export const settings = defineMessages({
   'zh-TW': {
     title: '設定',
     saveFailed: '無法儲存這項設定',
+    notDurable: {
+      title: '設定已儲存，但磁碟沒有確認寫入',
+      body: '新設定已經生效。如果這台電腦很快斷電，之前的設定可能會回來。{detail}',
+    },
     nav: {
       label: '設定分區',
       general: '一般',

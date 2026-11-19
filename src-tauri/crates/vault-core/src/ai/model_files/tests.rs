@@ -340,6 +340,10 @@ fn restart_recovers_each_model_publication_boundary() {
     for cut in ["model-generation-verified", "model-generation-published"] {
         let root = tempfile::tempdir().unwrap();
         let paths = crate::project_paths_with_root(root.path());
+        let mut config = crate::AppConfig::default();
+        config.ai.enabled = true;
+        config.ai.semantic_index_enabled = true;
+        crate::save_config(&crate::ControlGate::acquire(&paths), &config).unwrap();
         let files = stub_manifest();
         let old = ensure_model_downloaded(
             &paths,
@@ -749,4 +753,80 @@ fn restore_releases_the_model_recovery_owner_before_installing_another_archive()
     let reopened = crate::Vault::open(paths.clone(), restored.config().clone(), None).unwrap();
     assert!(!orphan.exists(), "the next ordinary open recovers its own tree");
     reopened.close().unwrap();
+}
+
+#[test]
+fn restart_obeys_durable_opt_out_before_promoting_a_verified_candidate() {
+    for opted_in in [false, true] {
+        let root = tempfile::tempdir().unwrap();
+        let paths = crate::project_paths_with_root(root.path());
+        let repo = model_dir_for_repo(&paths, "Stub/Repo");
+        let files = stub_manifest();
+        let old = ensure_model_downloaded(
+            &paths,
+            "Stub/Repo",
+            &files[..1],
+            true,
+            &mut NoopDownloadProgress,
+        )
+        .unwrap();
+        let fault = crate::fault_inject::FaultGuard::error_at("model-generation-verified");
+        ensure_model_downloaded(&paths, "Stub/Repo", &files, true, &mut NoopDownloadProgress)
+            .unwrap_err();
+        drop(fault);
+        let mut config = crate::AppConfig::default();
+        config.ai.enabled = true;
+        config.ai.semantic_index_enabled = opted_in;
+        crate::save_config(&crate::ControlGate::acquire(&paths), &config).unwrap();
+        super::super::model_generations::resolve(
+            &paths,
+            &repo,
+            &files,
+            super::super::model_generations::Request::OnOpen,
+        )
+        .unwrap();
+        let selected = repo.join(std::fs::read_to_string(repo.join("current")).unwrap());
+        assert_eq!(selected != old, opted_in, "restart ignored saved consent");
+        assert!(model_is_present_and_verified(
+            &selected,
+            if opted_in { &files } else { &files[..1] }
+        ));
+        assert_eq!(std::fs::read_dir(&repo).unwrap().count(), 2);
+    }
+}
+
+#[test]
+fn malformed_pointer_recovers_both_flat_and_generated_bundles() {
+    for flat in [true, false] {
+        let root = tempfile::tempdir().unwrap();
+        let paths = crate::project_paths_with_root(root.path());
+        let mut config = crate::AppConfig::default();
+        config.ai.enabled = true;
+        config.ai.semantic_index_enabled = true;
+        crate::save_config(&crate::ControlGate::acquire(&paths), &config).unwrap();
+        let repo = model_dir_for_repo(&paths, "Stub/Repo");
+        let files = stub_manifest();
+        let installed =
+            ensure_model_downloaded(&paths, "Stub/Repo", &files, true, &mut NoopDownloadProgress)
+                .unwrap();
+        if flat {
+            for f in &files {
+                std::fs::copy(installed.join(f.name), repo.join(f.name)).unwrap();
+            }
+            std::fs::remove_dir_all(&installed).unwrap();
+        }
+        std::fs::write(repo.join("current"), [0xff; 36]).unwrap();
+        super::super::model_generations::resolve(
+            &paths,
+            &repo,
+            &files,
+            super::super::model_generations::Request::OnOpen,
+        )
+        .unwrap();
+        let found =
+            ensure_model_downloaded(&paths, "Stub/Repo", &files, false, &mut NoopDownloadProgress)
+                .unwrap();
+        assert_eq!(found, if flat { repo.clone() } else { installed });
+        assert_eq!(repo.join("current").exists(), !flat);
+    }
 }

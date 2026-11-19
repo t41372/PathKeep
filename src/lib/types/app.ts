@@ -317,6 +317,11 @@ export interface RuntimeDiagnostics {
  * These type contracts are read directly by routes, helper modules, and preview fixtures, so a reader should be able to understand the shape without hunting through call sites.
  */
 export interface AppSnapshot {
+  /**
+   * Only in `save_config`'s answer: the new settings are in effect, but the disk did not confirm
+   * they will survive a power loss (a diagnostic). Shown once, by `saveConfig` in `lib/queries/app`.
+   */
+  configDurabilityWarning?: string | null
   directories: AppDirectories
   runtimeDiagnostics: RuntimeDiagnostics
   config: AppConfig

@@ -395,6 +395,27 @@ impl ArchiveOpGate {
         ArchiveOpGate { path }
     }
 
+    /// Report contention immediately and periodically. Call the sink outside the gate mutex;
+    /// recheck after every report so a release during the callback cannot be lost.
+    pub(crate) fn acquire_reporting(paths: &ProjectPaths, waiting: impl Fn()) -> Self {
+        let path = lock_file_path(paths);
+        let (mutex, released) = op_gate();
+        let mut held = mutex.lock().expect("archive op-gate mutex poisoned");
+        while held.contains(&path) {
+            drop(held);
+            waiting();
+            held = mutex.lock().expect("archive op-gate mutex poisoned");
+            held = released
+                .wait_timeout_while(held, std::time::Duration::from_secs(20), |held| {
+                    held.contains(&path)
+                })
+                .expect("archive op-gate mutex poisoned")
+                .0;
+        }
+        held.insert(path.clone());
+        Self { path }
+    }
+
     /// Live archive open can run inside maintenance. Try the gate so model recovery can
     /// leave the work to the next ordinary open instead of parking the owner on itself.
     pub(crate) fn try_acquire(paths: &ProjectPaths) -> Option<ArchiveOpGate> {

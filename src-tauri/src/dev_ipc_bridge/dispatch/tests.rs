@@ -327,7 +327,7 @@ fn check_model_download_terminal(request_cancel: bool) {
     let repo = vault_core::model_dir_for_repo(&paths, vault_core::DEFAULT_STATIC_MODEL_REPO);
     std::fs::create_dir_all(&repo).unwrap();
     // A deterministic terminal error before any network access.
-    std::fs::write(repo.join("current"), "invalid").unwrap();
+    std::fs::create_dir(repo.join("current")).unwrap();
     let state =
         DevIpcBridgeState::without_app(SessionState::default(), DEFAULT_DEV_IPC_BRIDGE_PORT);
     let app = tauri::test::mock_app();
@@ -363,9 +363,16 @@ fn check_model_download_terminal(request_cancel: bool) {
             );
         }
         drop(gate);
-        let terminal = next_model_download_event(&mut sse).await;
-        let native: Value =
-            serde_json::from_str(&window.recv_timeout(Duration::from_secs(5)).unwrap()).unwrap();
+        let terminal = next_model_download_terminal(&mut sse, id).await;
+        let native = loop {
+            let event: Value =
+                serde_json::from_str(&window.recv_timeout(Duration::from_secs(5)).unwrap())
+                    .unwrap();
+            assert_eq!(event["transferId"], id);
+            if event["kind"] != "waiting" {
+                break event;
+            }
+        };
         assert_eq!(native, terminal);
         if request_cancel {
             assert_eq!(terminal, json!({"kind":"cancelled","transferId":id}));
@@ -384,6 +391,16 @@ fn check_model_download_terminal(request_cancel: bool) {
 
 #[test]
 fn saving_semantic_off_through_the_bridge_cancels_the_model_download_without_a_cancel_command() {
+    check_off_save(false);
+}
+
+#[cfg(unix)]
+#[test]
+fn model_download_save_returns_the_applied_snapshot_and_directory_warning() {
+    check_off_save(true);
+}
+
+fn check_off_save(fail_parent_sync: bool) {
     let _guard = lock_env();
     let root = tempdir().unwrap();
     unsafe {
@@ -408,7 +425,7 @@ fn saving_semantic_off_through_the_bridge_cancels_the_model_download_without_a_c
     let repo = vault_core::model_dir_for_repo(&paths, vault_core::DEFAULT_STATIC_MODEL_REPO);
     std::fs::create_dir_all(&repo).unwrap();
     // If the save fails to cancel, stop the test installer locally before network access.
-    std::fs::write(repo.join("current"), "invalid").unwrap();
+    std::fs::create_dir(repo.join("current")).unwrap();
 
     ready_block_on(async {
         let mut sse = model_download_events(&state).await;
@@ -418,17 +435,28 @@ fn saving_semantic_off_through_the_bridge_cancels_the_model_download_without_a_c
         let id = start["transferId"].as_str().unwrap();
         let base = config.clone();
         config.ai.semantic_index_enabled = false;
+        #[cfg(unix)]
+        if fail_parent_sync {
+            vault_core::durable_io::fail_next_atomic_parent_sync();
+        }
         let saved =
             dispatch_command(&state, "save_config", json!({"config":config,"baseConfig":base}))
                 .await
                 .unwrap();
         assert_eq!(saved["config"]["ai"]["semanticIndexEnabled"], false);
+        assert_eq!(
+            saved
+                .get("configDurabilityWarning")
+                .and_then(Value::as_str)
+                .is_some_and(|warning| warning.contains("syncing")),
+            fail_parent_sync
+        );
         assert!(
             dispatch_command(&state, "download_static_embedding_model", json!({})).await.is_err()
         );
         drop(parked);
         assert_eq!(
-            next_model_download_event(&mut sse).await,
+            next_model_download_terminal(&mut sse, id).await,
             json!({"kind":"cancelled","transferId":id})
         );
     });
@@ -456,6 +484,17 @@ async fn model_download_events(state: &DevIpcBridgeState) -> axum::body::BodyDat
         .into_data_stream()
 }
 
+async fn next_model_download_terminal(stream: &mut axum::body::BodyDataStream, id: &str) -> Value {
+    loop {
+        let event = next_model_download_event(stream).await;
+        assert_eq!(event["transferId"], id);
+        if event["kind"] != "waiting" {
+            return event;
+        }
+        assert_eq!(event["reason"], "archive-busy");
+    }
+}
+
 async fn next_model_download_event(stream: &mut axum::body::BodyDataStream) -> Value {
     use futures_core::Stream;
     use std::{future::poll_fn, pin::Pin, time::Duration};
@@ -472,4 +511,124 @@ async fn next_model_download_event(stream: &mut axum::body::BodyDataStream) -> V
     assert!(frame.lines().any(|line| line == format!("event: {name}")), "{frame}");
     let data = frame.lines().find_map(|line| line.strip_prefix("data: ")).unwrap();
     serde_json::from_str(data).unwrap()
+}
+
+#[cfg(debug_assertions)]
+fn setup_build_session() -> (tempfile::TempDir, DevIpcBridgeState, AppConfig) {
+    let dir = tempdir().unwrap();
+    unsafe {
+        std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, dir.path());
+        std::env::set_var(TEST_KEYRING_OVERRIDE_ENV, dir.path().join("keyring"));
+        std::env::set_var(CHROME_USER_DATA_OVERRIDE_ENV, dir.path().join("chrome"));
+        std::env::set_var(vault_platform::SANDBOX_DIR_ENV, dir.path().join("platform"));
+    }
+    let session = SessionState::default();
+    let mut config = test_config();
+    config.ai.enabled = true;
+    config.ai.semantic_index_enabled = true;
+    config.ai.job_queue_paused = true;
+    crate::worker_bridge::initialize_archive_with_progress_impl(
+        config.clone(),
+        None,
+        &session,
+        |_| {},
+    )
+    .unwrap();
+    (dir, DevIpcBridgeState::without_app(session, DEFAULT_DEV_IPC_BRIDGE_PORT), config)
+}
+
+#[cfg(debug_assertions)]
+fn setup_build_payload(state: &DevIpcBridgeState) -> Value {
+    // Sideload the real pinned fixture, then obtain the ID from the actual start/done
+    // sequence before issuing the request a setup listener would send.
+    unsafe {
+        std::env::set_var("PATHKEEP_TEST_MODEL_SOURCE", "http://127.0.0.1:1/v1");
+    }
+    let paths = vault_core::project_paths().unwrap();
+    let repository = vault_core::model_dir_for_repo(&paths, vault_core::DEFAULT_STATIC_MODEL_REPO);
+    std::fs::create_dir_all(&repository).unwrap();
+    let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("crates/vault-core/tests/fixtures/builtin-model");
+    for (folder, name) in
+        [("common", "config.json"), ("common", "tokenizer.json"), ("v1", "model.safetensors")]
+    {
+        std::fs::copy(fixtures.join(folder).join(name), repository.join(name)).unwrap();
+    }
+    let id = ready_block_on(async {
+        let mut stream = model_download_events(state).await;
+        let start =
+            dispatch_command(state, "download_static_embedding_model", json!({})).await.unwrap();
+        let id = start["transferId"].as_str().unwrap();
+        assert_eq!(
+            next_model_download_terminal(&mut stream, id).await,
+            json!({"kind":"done","transferId":id})
+        );
+        id.to_owned()
+    });
+    json!({"request":{"transferId":id,"providerId":"static-in-app","clearOnly":false,"fullRebuild":false,"scope":"incremental"}})
+}
+
+#[test]
+#[cfg(debug_assertions)]
+fn model_download_setup_never_builds_the_newly_selected_external_service() {
+    let _guard = lock_env();
+    let (_root, state, mut config) = setup_build_session();
+    let original = setup_build_payload(&state);
+    let external = vault_core::AiProviderConfig {
+        id: "external".into(),
+        enabled: true,
+        default_model: "external-model".into(),
+        ..Default::default()
+    };
+    config.ai.embedding_provider_id = Some(external.id.clone());
+    config.ai.embedding_providers.push(external);
+    let paths = vault_core::project_paths().unwrap();
+    vault_core::save_config(&vault_core::ControlGate::acquire(&paths), &config).unwrap();
+    for provider in [Some("static-in-app"), None, Some("external")] {
+        let mut payload = original.clone();
+        payload["request"]["providerId"] = json!(provider);
+        let result = ready_block_on(dispatch_command(&state, "build_ai_index", payload));
+        let error = result.expect_err("setup escaped to the external service");
+        if provider == Some("static-in-app") {
+            assert!(
+                error
+                    .message
+                    .contains("Index builds must use the embedding provider chosen in Settings"),
+                "{error:?}"
+            );
+        }
+    }
+    let n: i64 = state
+        .session
+        .vault()
+        .unwrap()
+        .store()
+        .read(vault_store::Db::Intelligence, |s| {
+            s.query_one("SELECT count(*) FROM ai_jobs WHERE job_type='index-build'", (), |r| {
+                Ok(r.get(0)?)
+            })
+        })
+        .unwrap();
+    assert_eq!(n, 0);
+}
+
+#[test]
+#[cfg(debug_assertions)]
+fn model_download_setup_reuses_the_finished_job_across_transports() {
+    let _guard = lock_env();
+    let (_root, state, _config) = setup_build_session();
+    let payload = setup_build_payload(&state);
+    let first =
+        ready_block_on(dispatch_command(&state, "build_ai_index", payload.clone())).unwrap();
+    let id = first["jobId"].as_i64().unwrap();
+    let vault = state.session.vault().unwrap();
+    vault_core::ai_queue::resume_paused_jobs(&vault).unwrap();
+    assert_eq!(vault_core::ai_queue::claim_ai_job_by_id(&vault, id, 300).unwrap().unwrap().id, id);
+    assert!(vault_core::ai_queue::mark_ai_job_succeeded(&vault, id, None, None).unwrap());
+    let second = crate::worker_bridge::build_ai_index_impl(
+        serde_json::from_value(payload["request"].clone()).unwrap(),
+        &state.session,
+    )
+    .unwrap();
+    assert_eq!(second.job_id, Some(id), "completed setup queued twice");
 }

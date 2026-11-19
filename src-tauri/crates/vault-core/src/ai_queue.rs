@@ -246,6 +246,38 @@ pub fn request_index_job(
     })
 }
 
+/// The window and bridge submit the same setup completion to one live owner. Keep only job
+/// IDs in the process that issued them; replayable job payloads carry no transfer identity.
+pub fn request_setup_build(
+    vault: &Vault,
+    request: &AiIndexRequest,
+    transfer_id: &str,
+) -> Result<(i64, bool)> {
+    anyhow::ensure!(
+        request.provider_id.as_deref() == Some(crate::BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID)
+            && request.scope == crate::ReembedScope::Incremental
+            && !request.clear_only
+            && !request.full_rebuild
+            && request.limit.is_none(),
+        "model setup requires an incremental build for the built-in provider"
+    );
+    index_control::requested_pair(vault.config(), request)?;
+    let repository = crate::model_dir_for_repo(vault.paths(), crate::DEFAULT_STATIC_MODEL_REPO);
+    crate::ai::model_download::builds::enqueue_once(&repository, transfer_id, || {
+        // The writer can have waited behind other work. Read the live selection at
+        // enqueue, with the request still pinned to the built-in provider.
+        let paths = vault.paths().clone();
+        let request = request.clone();
+        vault.write(Db::Intelligence, Priority::Interactive, move |s| {
+            let config = crate::load_config(&paths)?;
+            crate::ensure_ai_capability_enabled(&config, crate::AiCapability::SemanticIndex)?;
+            Ok(index_control::request_index_job(s, &config, &request, false)?
+                .context("setup build must return a job")?
+                .id)
+        })
+    })
+}
+
 /// Stops an index build at its last durable chunk; replay continues that cursor.
 pub fn pause_ai_job(vault: &Vault, job_id: i64) -> Result<AiQueueJob> {
     vault.write(Db::Intelligence, Priority::Interactive, move |s| {

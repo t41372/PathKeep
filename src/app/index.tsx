@@ -21,6 +21,7 @@ import { queryClient } from '@/lib/query'
 import { ThemeProvider } from '@/lib/theme'
 import { ImportRunnerProvider } from '@/features/backup/import-runner'
 import { BackupRunnerProvider } from './backup-runner'
+import { useConfigDurabilityNotice } from './config-durability'
 import { useIndexJobEvents } from './index-job-events'
 import { createAppRouter, createOnboardingRouter } from './router'
 import { SessionProvider, useSession } from './session'
@@ -42,6 +43,7 @@ function SessionGate() {
   const { phase, error } = useSession()
   const schemaUpdate = useSchemaUpdate()
   useIndexJobEvents(phase === 'ready')
+  useConfigDurabilityNotice()
   const appRouter = useMemo(
     () => (phase === 'ready' ? createAppRouter() : null),
     [phase],

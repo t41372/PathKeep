@@ -420,14 +420,13 @@ fn static_embedding_status(
         provider.default_model.as_str()
     };
     let model_dir = open_model_directory(paths, repo).ok();
-    let verified = model_dir
-        .as_ref()
-        .filter(|dir| model_files_verified(dir.path(), DEFAULT_STATIC_MODEL_FILES));
+    let files = builtin_model_files().ok()?;
+    let verified = model_dir.as_ref().filter(|dir| model_files_verified(dir.path(), files));
     let model_downloaded = verified.is_some();
     // On-disk size only AFTER the files are present + verified; 0 before download (the FE shows a
     // static pre-download estimate). Summed from the real files so the Settings card states the honest
     // footprint instead of a guess.
-    let model_size_bytes = verified.map_or(0, |dir| static_model_size_bytes(dir.path()));
+    let model_size_bytes = verified.map_or(0, |dir| static_model_size_bytes(dir.path(), files));
     Some(StaticEmbeddingStatus {
         provider_id: provider.id.clone(),
         model_repo: repo.to_string(),
@@ -446,8 +445,8 @@ fn static_embedding_status(
 /// A missing/unreadable file contributes 0 (defensive — the caller only calls this once the model is
 /// present + verified, so every file should exist; a transient stat failure must not panic the status
 /// read). One `stat` per file (3 files), so this is cheap.
-fn static_model_size_bytes(model_dir: &std::path::Path) -> u64 {
-    DEFAULT_STATIC_MODEL_FILES
+fn static_model_size_bytes(model_dir: &std::path::Path, files: &[ModelFile]) -> u64 {
+    files
         .iter()
         .map(|file| {
             std::fs::metadata(model_dir.join(file.name)).map(|meta| meta.len()).unwrap_or(0)

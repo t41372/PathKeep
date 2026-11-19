@@ -1,6 +1,6 @@
 /**
  * Queries and mutations for app-wide state: the snapshot, the dashboard
- * summary and config saves.
+ * summary and config saves. Every settings save goes through `saveConfig`.
  */
 import {
   useMutation,
@@ -34,6 +34,37 @@ export function useDashboard() {
 }
 
 /**
+ * Saves the settings: every save goes through here, so a warning the backend
+ * gives with the answer is shown once, wherever the save came from. The
+ * backend can answer that the new settings are in effect but the disk did not
+ * confirm they will survive a power loss (`configDurabilityWarning`); the
+ * save still succeeded, so it resolves, and `onConfigNotDurable` listeners
+ * hear the diagnostic. The snapshot it resolves with leaves the warning out.
+ */
+export async function saveConfig(
+  config: AppConfig,
+  baseConfig?: AppConfig | null,
+): Promise<AppSnapshot> {
+  const { configDurabilityWarning, ...applied } = await appClient.saveConfig(
+    config,
+    baseConfig,
+  )
+  if (configDurabilityWarning)
+    for (const listener of notDurable) listener(configDurabilityWarning)
+  return applied
+}
+
+const notDurable = new Set<(diagnostic: string) => void>()
+
+/** Hears each save the disk did not confirm; returns a function that stops listening. */
+export function onConfigNotDurable(listener: (diagnostic: string) => void) {
+  notDurable.add(listener)
+  return () => {
+    notDurable.delete(listener)
+  }
+}
+
+/**
  * Saves a config change. `save_config` merges against `baseConfig`, so a slow
  * save cannot overwrite an unrelated setting changed meanwhile, and it returns
  * the fresh snapshot, which replaces the cached one without another round trip.
@@ -43,7 +74,7 @@ export function useSaveConfig() {
   return useMutation({
     mutationFn: (update: (config: AppConfig) => AppConfig) => {
       const base = currentSnapshot(client).config
-      return appClient.saveConfig(update(structuredClone(base)), base)
+      return saveConfig(update(structuredClone(base)), base)
     },
     onSuccess: (snapshot) => client.setQueryData(queryKeys.snapshot, snapshot),
   })

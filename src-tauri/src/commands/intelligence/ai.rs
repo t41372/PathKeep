@@ -166,7 +166,7 @@ pub(crate) async fn cancel_ai_job(
 #[tauri::command]
 /// Builds or refreshes the semantic index, off the UI thread.
 pub(crate) async fn build_ai_index(
-    request: vault_core::AiIndexRequest,
+    request: vault_core::BuildAiIndexRequest,
     state: State<'_, SessionState>,
 ) -> Result<vault_core::AiIndexReport, CommandError> {
     let state = state.inner().clone();

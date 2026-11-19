@@ -37,20 +37,30 @@ pub(super) fn selected(repo: &Path) -> Result<PathBuf> {
     real_directory_if_present(repo.parent().context("missing models directory")?)?;
     real_directory_if_present(repo)?;
     let pointer = repo.join(POINTER);
-    match fs::symlink_metadata(&pointer) {
-        Ok(meta) => ensure!(
-            meta.is_file() && meta.len() == 36,
-            "invalid model pointer in {}",
-            repo.display()
-        ),
-        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(repo.to_owned()),
-        Err(e) => return Err(e.into()),
-    }
-    let name = fs::read_to_string(pointer)?;
-    ensure!(generation_name(&name), "invalid model generation pointer in {}", repo.display());
+    let Some(name) = pointer_name(&pointer)? else { return Ok(repo.to_owned()) };
     let directory = repo.join(name);
     real_directory_if_present(&directory)?;
     Ok(directory)
+}
+
+// Malformed regular contents have no authority to name a directory. Preserve errors for
+// inaccessible files and links; recovery must never follow an untrusted pointer path.
+fn pointer_name(pointer: &Path) -> Result<Option<String>> {
+    match fs::symlink_metadata(pointer) {
+        Ok(meta) => {
+            ensure!(
+                meta.is_file(),
+                "invalid model pointer in {}",
+                pointer.parent().unwrap().display()
+            );
+            if meta.len() != 36 {
+                return Ok(None);
+            }
+        }
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(e.into()),
+    }
+    Ok(String::from_utf8(fs::read(pointer)?).ok().filter(|name| generation_name(name)))
 }
 
 #[derive(Default)]
@@ -175,6 +185,7 @@ pub(super) fn collect_previous(repo: &Path, previous: &Path) {
 /// Each path observed under the transfer registry stays pinned until we recheck the pointer.
 struct Bundles {
     current: PathBuf,
+    malformed: bool,
     candidates: Vec<PathBuf>,
     _pins: Vec<ModelDirectory>,
 }
@@ -202,12 +213,20 @@ impl Bundles {
             .chain((current != repo).then(|| repo.to_owned()))
             .map(|path| hold(path, &mut readers))
             .collect();
-        Ok(Self { current, candidates, _pins: pins })
+        let malformed = current == repo && repo.join(POINTER).try_exists()?;
+        Ok(Self { current, malformed, candidates, _pins: pins })
     }
 
-    fn verified(&self, repo: &Path, files: &[ModelFile], install: bool) -> Result<Option<PathBuf>> {
+    fn verified(
+        &self,
+        repo: &Path,
+        files: &[ModelFile],
+        install: bool,
+        recover_candidate: bool,
+    ) -> Result<Option<PathBuf>> {
         // An ordinary open with nothing to promote or retire needs no model bytes.
         if !install
+            && !self.malformed
             && self.candidates.is_empty()
             && (self.current == repo || !LEGACY_FILES.iter().any(|name| repo.join(name).is_file()))
         {
@@ -221,9 +240,12 @@ impl Bundles {
         if current_ok {
             return Ok(Some(self.current.clone()));
         }
-        if let Some(candidate) = self.candidates.iter().find(|path| {
-            path.join(VERIFIED_MARKER_FILE).is_file() && model_is_present_and_verified(path, files)
-        }) {
+        if recover_candidate
+            && let Some(candidate) = self.candidates.iter().find(|path| {
+                path.join(VERIFIED_MARKER_FILE).is_file()
+                    && model_is_present_and_verified(path, files)
+            })
+        {
             return Ok(Some(candidate.clone()));
         }
         if self.current != repo && model_is_present_and_verified(repo, files) {
@@ -238,6 +260,9 @@ impl Bundles {
         {
             publish(repo, next)?;
             collect_previous(repo, &self.current);
+        }
+        if self.malformed && verified.is_none_or(|path| path == repo) {
+            durable_io::remove_file_durably(&repo.join(POINTER))?;
         }
         for path in &self.candidates {
             if Some(path.as_path()) != verified {
@@ -267,7 +292,9 @@ impl Request<'_> {
     fn gate(self, paths: &ProjectPaths) -> Option<ArchiveOpGate> {
         match self {
             Self::OnOpen => ArchiveOpGate::try_acquire(paths),
-            _ => Some(ArchiveOpGate::acquire(paths)),
+            Self::Setup { progress, .. } => Some(ArchiveOpGate::acquire_reporting(paths, || {
+                progress.waiting(crate::ModelDownloadWait::ArchiveBusy)
+            })),
         }
     }
 }
@@ -310,11 +337,23 @@ pub(super) fn resolve(
             reservation.check(&active)?;
             Bundles::inspect(repo, &active)?
         };
-        let verified = reservation
-            .with_io(|_| bundles.verified(repo, files, matches!(request, Request::Setup { .. })))?;
+        let setup = matches!(request, Request::Setup { .. });
+        let may_promote = setup || crate::load_config(paths)?.ai.wants_builtin_model();
+        let verified =
+            reservation.with_io(|_| bundles.verified(repo, files, setup, may_promote))?;
         let Some(archive) = request.gate(paths) else { return Ok(Resolution::Busy) };
-        let control =
-            matches!(request, Request::Setup { .. }).then(|| crate::ControlGate::acquire(paths));
+        let control = match request {
+            Request::Setup { .. } => crate::ControlGate::acquire(paths),
+            Request::OnOpen => {
+                let Some(control) = crate::ControlGate::try_acquire(paths) else {
+                    return Ok(Resolution::Busy);
+                };
+                control
+            }
+        };
+        if !setup && may_promote != crate::load_config(paths)?.ai.wants_builtin_model() {
+            continue;
+        }
         if let Request::Setup { progress, .. } = request {
             anyhow::ensure!(!progress.cancelled(), "model download was cancelled");
         }
@@ -323,6 +362,11 @@ pub(super) fn resolve(
         crate::admission::guard(&paths.app_root)?;
         if selected(repo)? != bundles.current {
             continue;
+        }
+        if let Request::Setup { progress, .. } = request
+            && (verified.is_some() || !can_download)
+        {
+            anyhow::ensure!(progress.decide(), "model download was cancelled");
         }
         bundles.apply(repo, verified.as_deref())?;
         if let Some(current) = verified {
@@ -358,7 +402,7 @@ pub(crate) fn recover_builtin(paths: &ProjectPaths) -> Result<()> {
     if repo.try_exists()? {
         // A maintenance reopen already owns the gate. Leave the model tree for the next
         // ordinary open or explicit setup. Nothing may act on this owner's paths after close.
-        resolve(paths, &repo, super::DEFAULT_STATIC_MODEL_FILES, Request::OnOpen)?;
+        resolve(paths, &repo, super::builtin_model_files()?, Request::OnOpen)?;
     }
     Ok(())
 }

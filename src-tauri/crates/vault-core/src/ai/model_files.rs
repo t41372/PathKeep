@@ -190,6 +190,13 @@ pub fn verify_file_sha256(path: &std::path::Path, expected_sha256: &str) -> Resu
 /// the installer checks between files and before each network read. An outstanding HTTP
 /// read must return before this thread can observe a cancellation.
 pub trait ModelDownloadProgress: Send {
+    /// Signal gate contention while the transfer still owns its progress stream.
+    fn waiting(&self, _reason: crate::ModelDownloadWait) {}
+    /// Arbitrate cancellation against a final decision before touching the pointer.
+    fn decide(&self) -> bool {
+        !self.cancelled()
+    }
+
     /// Announces the start of one file's download with its total size in bytes (0 if unknown).
     fn file_started(&mut self, _file: &str, _total_bytes: u64) {}
     /// Reports throttled byte progress for the in-flight file as bytes arrive.
@@ -251,6 +258,20 @@ pub fn ensure_model_downloaded(
     consented: bool,
     progress: &mut dyn ModelDownloadProgress,
 ) -> Result<std::path::PathBuf> {
+    // Every failure, including admission and filesystem errors, is final before it
+    // crosses back to the coordinator. Publication claims its decision earlier, at the pointer.
+    install_model(paths, repo, files, consented, progress).inspect_err(|_| {
+        progress.decide();
+    })
+}
+
+fn install_model(
+    paths: &ProjectPaths,
+    repo: &str,
+    files: &[ModelFile],
+    consented: bool,
+    progress: &mut dyn ModelDownloadProgress,
+) -> Result<std::path::PathBuf> {
     use super::model_generations as generations;
     // Manifest names are compiled-in basenames. A caller cannot designate the pointer, a
     // different folder or another generation as a download destination.
@@ -284,10 +305,18 @@ pub fn ensure_model_downloaded(
     };
 
     let mut prepared = prepare_generation(&candidate, source.path(), files, progress);
+    if prepared.is_err() {
+        // Cleanup may wait for maintenance. The failure is already final.
+        progress.decide();
+        #[cfg(test)]
+        super::model_download::tests::decision_probe();
+    }
     drop(source);
     let mut checked = previous.clone();
     loop {
-        let archive = crate::archive::ArchiveOpGate::acquire(paths);
+        let archive = crate::archive::ArchiveOpGate::acquire_reporting(paths, || {
+            progress.waiting(crate::ModelDownloadWait::ArchiveBusy)
+        });
         // Order publication against a concurrent control save. Only local metadata and
         // publication belong in this hold; a competing winner is hashed after releasing it.
         let control = crate::ControlGate::acquire(paths);
@@ -299,8 +328,7 @@ pub fn ensure_model_downloaded(
             prepared = Err(anyhow::anyhow!("model download was cancelled"));
         }
         if let Err(error) = prepared {
-            candidate.finish(&mut active)?;
-            vault_fs::remove_dir_all(&candidate.path).context("removing failed model download")?;
+            candidate.discard(&mut active)?;
             return Err(error);
         }
         let selected = generations::selected(&root)?;
@@ -316,14 +344,23 @@ pub fn ensure_model_downloaded(
                 );
                 Ok(())
             });
+            if prepared.is_err() {
+                progress.decide();
+            }
             checked = selected;
             continue;
         }
-        candidate.finish(&mut active)?;
+        if !progress.decide() {
+            candidate.discard(&mut active)?;
+            anyhow::bail!("model download was cancelled");
+        }
         if selected != previous {
-            vault_fs::remove_dir_all(&candidate.path)?;
+            candidate.discard(&mut active)?;
             return Ok(selected);
         }
+        candidate.finish(&mut active)?;
+        #[cfg(test)]
+        super::model_download::tests::decision_probe();
         crate::fault_inject::checkpoint("model-generation-verified")?;
         generations::publish(&root, &candidate.path)?;
         generations::collect_previous(&root, &previous);
@@ -417,6 +454,7 @@ fn stream_to_file(
         let read = reader
             .read(&mut buffer)
             .with_context(|| format!("reading download stream for {file_name}"))?;
+        anyhow::ensure!(!progress.cancelled(), "model file download for {file_name} was cancelled");
         if read == 0 {
             break;
         }
@@ -468,8 +506,15 @@ fn fetch_one_file(
 /// pure [`stream_to_file`] so it runs in tests without a network. Compiled out under test.
 #[cfg(not(test))]
 fn open_download_stream(file: &ModelFile) -> Result<(impl std::io::Read, u64)> {
-    let url = format!("https://huggingface.co/{}/resolve/main/{}", file.repo, file.name);
-    let response = ureq::get(&url).call().map_err(|error| {
+    use super::model_source::ModelSource;
+    let source = ModelSource::configured().map_err(anyhow::Error::msg)?;
+    let request = ureq::get(source.url(file.repo, file.name));
+    #[cfg(debug_assertions)]
+    let request = match source {
+        ModelSource::Fixture { .. } => request.config().proxy(None).max_redirects(0).build(),
+        ModelSource::Hub => request,
+    };
+    let response = request.call().map_err(|error| {
         anyhow::anyhow!("downloading {} from {}: {error}", file.name, file.repo)
     })?;
     let total_bytes = response

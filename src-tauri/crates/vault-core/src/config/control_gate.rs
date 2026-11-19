@@ -52,6 +52,17 @@ impl ControlGate {
         ControlGate { paths: paths.clone(), key }
     }
 
+    pub(crate) fn try_acquire(paths: &ProjectPaths) -> Option<Self> {
+        let key =
+            std::path::absolute(&paths.config_path).unwrap_or_else(|_| paths.config_path.clone());
+        held()
+            .0
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(key.clone())
+            .then(|| Self { paths: paths.clone(), key })
+    }
+
     /// The archive whose control this gate is for.
     pub fn paths(&self) -> &ProjectPaths {
         &self.paths

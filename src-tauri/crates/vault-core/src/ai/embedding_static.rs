@@ -157,7 +157,7 @@ pub fn select_static_embedding_provider(
     runtime: &AiProviderRuntime,
 ) -> Result<AnyEmbeddingProvider> {
     let repo = static_repo_for_runtime(runtime);
-    let provider = StaticEmbeddingProvider::load(paths, repo, DEFAULT_STATIC_MODEL_FILES)?;
+    let provider = StaticEmbeddingProvider::load(paths, repo, super::builtin_model_files()?)?;
     Ok(AnyEmbeddingProvider::Static(Box::new(provider)))
 }
 
@@ -582,7 +582,7 @@ impl StaticEmbeddingProvider {
     /// Loading is offline (no network): it reads only the files on disk.
     #[cfg(not(test))]
     pub fn load_default(paths: &ProjectPaths) -> Result<Self> {
-        Self::load(paths, DEFAULT_STATIC_MODEL_REPO, DEFAULT_STATIC_MODEL_FILES)
+        Self::load(paths, DEFAULT_STATIC_MODEL_REPO, super::builtin_model_files()?)
     }
 
     /// Loads a static engine for one repo from `models_dir`.

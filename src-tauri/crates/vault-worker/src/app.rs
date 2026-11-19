@@ -213,6 +213,7 @@ pub fn app_snapshot_with_vault(
     let runtime_diagnostics = snapshot_runtime_diagnostics(&paths);
 
     Ok(AppSnapshot {
+        config_durability_warning: None,
         directories: vault_core::AppDirectories {
             app_root: paths.app_root.display().to_string(),
             config_path: paths.config_path.display().to_string(),
@@ -320,7 +321,7 @@ pub fn save_user_config_with_vault(
         &next_config,
         current_app_lock_biometric_state(),
     )?;
-    save_config(&control, &next_config)?;
+    let warning = vault_core::config::save_config_with_durability_warning(&control, &next_config)?;
     drop(control);
     // The queue is in a database, which no one waits on while holding the control's gate. If it
     // cannot follow the new setting, this save's own changes are undone.
@@ -341,7 +342,9 @@ pub fn save_user_config_with_vault(
         crate::intelligence::rebuild_in_chosen_zone(&vault.with_config(next_config.clone()))
             .context("queueing an Insights build in the new time zone")?;
     }
-    app_snapshot_with_vault(vault, session_database_key)
+    let mut snapshot = app_snapshot_with_vault(vault, session_database_key)?;
+    snapshot.config_durability_warning = warning;
+    Ok(snapshot)
 }
 
 /// Applies only the leaves the caller changed relative to its base snapshot to

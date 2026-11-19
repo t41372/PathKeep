@@ -44,8 +44,10 @@ fn overlapping_model_starts_share_one_transfer_and_terminal_event() {
     let first = start(&paths, broadcast.clone());
     let second = start(&paths, broadcast);
     drop(gate);
-    let first_events: Vec<_> = first_events.into_iter().collect();
-    let second_events: Vec<_> = second_events.into_iter().collect();
+    let first_events: Vec<_> =
+        first_events.into_iter().filter(|e| e["kind"] != "waiting").collect();
+    let second_events: Vec<_> =
+        second_events.into_iter().filter(|e| e["kind"] != "waiting").collect();
     assert_eq!(first_events.len(), 1, "an offline transfer emits exactly one terminal broadcast");
     assert_eq!(first_events, second_events);
     assert_eq!(first, second);
@@ -66,7 +68,7 @@ fn cancelling_then_restarting_a_model_keeps_both_outcomes_scoped() {
     let next = start(&paths, broadcast);
     let stale_accepted = cancel_model_download(old_id);
     drop(gate);
-    let events: Vec<_> = events.into_iter().collect();
+    let events: Vec<_> = events.into_iter().filter(|e| e["kind"] != "waiting").collect();
     assert_eq!(
         events.iter().filter(|e| e["kind"] == "done").count(),
         1,
@@ -86,10 +88,7 @@ fn model_file_progress_identifies_the_transfer_on_every_phase() {
     let (sink, events) = mpsc::channel();
     let mut progress = EmitProgress {
         emit: move |event| sink.send(serde_json::to_value(event).unwrap()).unwrap(),
-        transfer: Arc::new(Transfer {
-            identity: ModelDownloadTransfer { transfer_id: "fixture".into() },
-            cancelled: AtomicBool::new(false),
-        }),
+        transfer: Arc::new(Transfer::new(ModelDownloadTransfer { transfer_id: "fixture".into() })),
     };
     progress.file_started("weights", 42);
     progress.file_progress("weights", 11, 42);
@@ -167,7 +166,7 @@ fn save_during_verified_transfer(change: impl FnOnce(&mut crate::AppConfig), can
     save_config(&ControlGate::acquire(paths), &config).unwrap();
     drop(gate);
 
-    let events: Vec<_> = rx.into_iter().collect();
+    let events: Vec<_> = rx.into_iter().filter(|e| e["kind"] != "waiting").collect();
     assert_eq!(events.len(), 1);
     let kind = if cancelled { "cancelled" } else { "done" };
     assert_eq!(events[0], json!({"kind":kind, "transferId":transfer.transfer_id}));
@@ -364,4 +363,109 @@ fn restoring_a_semantic_off_config_cancels_the_live_transfer() {
     );
     assert!(!crate::load_config(restored.paths()).unwrap().ai.semantic_index_enabled);
     assert_no_index_build(&restored);
+}
+
+thread_local! {
+    static DECISION_PROBE: std::cell::RefCell<Option<Box<dyn FnOnce()>>> = const { std::cell::RefCell::new(None) };
+}
+
+pub(in crate::ai) fn decision_probe() {
+    if let Some(probe) = DECISION_PROBE.take() {
+        probe();
+    }
+}
+
+#[test]
+fn cancel_cannot_change_a_publication_or_a_decided_failure() {
+    const BAD: &[ModelFile] = &[ModelFile { name: "config.json", repo: REPO, sha256: "wrong" }];
+    for (files, expected) in [(DOWNLOAD_FILES, "done"), (BAD, "error")] {
+        let (_root, paths) = offline_archive();
+        let (tx, rx) = mpsc::channel();
+        let transfer = start_model_download(paths, "decision", files, move |event| {
+            if matches!(event.update, ModelDownloadUpdate::FileStarted { .. }) {
+                let id = event.transfer_id.clone();
+                let tx = tx.clone();
+                DECISION_PROBE.set(Some(Box::new(move || {
+                    tx.send(json!(cancel_model_download(&id))).unwrap()
+                })));
+            }
+            tx.send(serde_json::to_value(event).unwrap()).unwrap();
+        })
+        .unwrap();
+        let events: Vec<_> = rx.into_iter().collect();
+        assert!(events.contains(&json!(false)), "late cancel accepted: {events:?}");
+        let terminal = events.last().unwrap();
+        assert_eq!(terminal["kind"], expected);
+        assert_eq!(terminal["transferId"], transfer.transfer_id);
+    }
+}
+
+#[test]
+fn replacement_waits_for_cancelled_candidate_and_response() {
+    use std::time::Duration;
+    let (_root, paths) = offline_archive();
+    let (entered, held) = mpsc::channel();
+    let (release, resume) = mpsc::channel();
+    let (old_events, old) = mpsc::channel();
+    let first = start_model_download(paths.clone(), "serial", DOWNLOAD_FILES, move |event| {
+        if matches!(event.update, ModelDownloadUpdate::FileProgress { .. }) {
+            entered.send(()).unwrap();
+            resume.recv_timeout(Duration::from_secs(15)).unwrap();
+        }
+        old_events.send(event).unwrap();
+    })
+    .unwrap();
+    held.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert!(cancel_model_download(&first.transfer_id));
+    let (tx, rx) = mpsc::channel();
+    let second = start_model_download(paths.clone(), "serial", DOWNLOAD_FILES, move |event| {
+        tx.send(event).unwrap()
+    })
+    .unwrap();
+    let first_event =
+        serde_json::to_value(rx.recv_timeout(Duration::from_secs(5)).unwrap()).unwrap();
+    release.send(()).unwrap();
+    assert_eq!(old.into_iter().last().unwrap().update, ModelDownloadUpdate::Cancelled);
+    assert_eq!(rx.into_iter().last().unwrap().update, ModelDownloadUpdate::Done);
+    assert_eq!(
+        first_event,
+        json!({"kind":"waiting","reason":"previous-transfer","transferId":second.transfer_id})
+    );
+}
+
+#[test]
+fn archive_gate_wait_reports_the_transfer_before_the_gate_opens() {
+    let (_root, paths) = offline_archive();
+    let gate = ArchiveOpGate::acquire(&paths);
+    let (tx, rx) = mpsc::channel();
+    let start = start(&paths, move |event| tx.send(serde_json::to_value(event).unwrap()).unwrap());
+    let waiting = rx.recv_timeout(std::time::Duration::from_secs(2));
+    let heartbeat = rx.recv_timeout(std::time::Duration::from_secs(30));
+    drop(gate);
+    assert_eq!(heartbeat.expect("missing heartbeat"), waiting.as_ref().unwrap().clone());
+    assert_eq!(rx.into_iter().last().unwrap()["kind"], "done");
+    assert_eq!(
+        waiting.expect("silent archive wait"),
+        json!({"kind":"waiting","reason":"archive-busy","transferId":start["transferId"]})
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_failed_directory_sync_applies_the_visible_config_and_cancels() {
+    save_during_candidate(
+        |gate, config| {
+            config.ai.enabled = false;
+            crate::durable_io::inject_fsync_faults(vec![None, Some(libc::EIO)]);
+            let saved = crate::config::save_config_with_durability_warning(gate, config);
+            assert!(!crate::load_config(gate.paths()).unwrap().ai.enabled);
+            assert!(
+                saved
+                    .expect("rename already applied the config")
+                    .expect("durability warning")
+                    .contains("syncing")
+            );
+        },
+        true,
+    );
 }

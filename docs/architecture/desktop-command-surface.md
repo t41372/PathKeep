@@ -111,13 +111,42 @@ Plan 產生、plist / XML 內容、audit 與 status 解析照常執行。每次 
 
 `download_static_embedding_model` starts or joins a transfer and returns its `transferId`. Subscribe to `pathkeep://model-download-progress` before invoking the command and match events to that ID. The window and the dev bridge's `/events` stream deliver the same JSON. Each transfer emits exactly one terminal event.
 
-| Outcome                      | Example payload                                                                          |
-| ---------------------------- | ---------------------------------------------------------------------------------------- |
-| Model verified and available | `{"kind":"done","transferId":"0123456789abcdef0123456789abcdef"}`                        |
-| Transfer failed              | `{"kind":"error","transferId":"0123456789abcdef0123456789abcdef","message":"disk full"}` |
-| Transfer cancelled           | `{"kind":"cancelled","transferId":"0123456789abcdef0123456789abcdef"}`                   |
+The start request is `{}` and the reply is `{"transferId":"0123456789abcdef0123456789abcdef"}`. Cancel takes `{"transferId":"0123456789abcdef0123456789abcdef"}` and returns a Boolean. Only the first accepted cancellation returns `true`. Deciding to publish, reuse a verified selection, or report a final failure closes cancellation and attachment. A subsequent start receives its own ID and waits for the predecessor to release its response and candidate.
 
-Only `error` carries a diagnostic to display. Explicit Cancel, a saved withdrawal of consent, and Delete All Data use `cancelled` when they stop a transfer. Clear that transfer's progress without showing an error or starting the index build.
+Each event below is a separate payload on the same channel.
+
+```jsonl
+{"kind":"waiting","transferId":"0123456789abcdef0123456789abcdef","reason":"archive-busy"}
+{"kind":"waiting","transferId":"0123456789abcdef0123456789abcdef","reason":"previous-transfer"}
+{"kind":"fileStarted","transferId":"0123456789abcdef0123456789abcdef","file":"model.safetensors","totalBytes":1049688}
+{"kind":"fileProgress","transferId":"0123456789abcdef0123456789abcdef","file":"model.safetensors","downloadedBytes":1048576,"totalBytes":1049688}
+{"kind":"fileFinished","transferId":"0123456789abcdef0123456789abcdef","file":"model.safetensors"}
+{"kind":"done","transferId":"0123456789abcdef0123456789abcdef"}
+{"kind":"error","transferId":"0123456789abcdef0123456789abcdef","message":"disk full"}
+{"kind":"cancelled","transferId":"0123456789abcdef0123456789abcdef"}
+```
+
+`waiting` is emitted immediately on contention and every 20 seconds while that wait continues. `archive-busy` means another archive operation holds the gate. `previous-transfer` means an earlier transfer still owns its response or files. Both are signs of life for the matching ID. Before start admission there is no transfer ID to report. `totalBytes` is zero for unknown content length. Only `error` carries a diagnostic to display.
+
+After a matching `done`, built-in setup submits this `build_ai_index` command payload:
+
+```json
+{
+  "request": {
+    "providerId": "static-in-app",
+    "transferId": "0123456789abcdef0123456789abcdef",
+    "fullRebuild": false,
+    "clearOnly": false,
+    "scope": "incremental"
+  }
+}
+```
+
+The response is the usual `AiIndexReport` with `jobId`. Both transports share the owner's completion record. Only a successful transfer for this archive can authorize this form of the request. The saved selection is checked again at enqueue. A repeated request returns the first job ID even after completion. Ordinary builds omit `transferId`. Wipe clears the archive's records and process exit clears all records.
+
+### Settings save durability
+
+`save_config` returns the applied snapshot. On Unix, if the rename installed the settings but the parent directory flush failed, the response also contains `configDurabilityWarning` (a diagnostic string). Use the returned settings, including the effect on download consent, and show the durability warning separately. A normal save omits the field. A failure before the rename rejects the command.
 
 ## Browser Preview Showcase Dataset（2026-05-10）
 

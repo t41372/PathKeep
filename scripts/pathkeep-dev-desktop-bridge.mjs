@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process'
-import { existsSync, rmSync } from 'node:fs'
+import { existsSync, readFileSync, rmSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -108,6 +108,11 @@ function runTauriDev(env, tauriConfigOverride) {
  * a spec can kill it the way a crash would and get it back. When the app exits
  * and the restart file exists, the file is removed and the app starts again on
  * the same ports and data; any other exit ends the run, as with `tauri dev`.
+ *
+ * The restart file may hold `{"env": {"NAME": "value"}}`: variables for that
+ * start only, on top of the run's own (a spec that serves the app something on
+ * a port it picked, such as `PATHKEEP_TEST_MODEL_SOURCE`). The start after it
+ * has the run's own environment again. An empty file adds nothing.
  */
 async function superviseForE2E(env, tauriConfigOverride, restartFile) {
   const run = (command, args, extraEnv = {}) =>
@@ -155,15 +160,20 @@ async function superviseForE2E(env, tauriConfigOverride, restartFile) {
       process.exit(1)
     })
   }
-  const start = () => {
-    app = spawn(binary, [], { stdio: 'inherit', env })
+  const start = (extraEnv = {}) => {
+    app = spawn(binary, [], { stdio: 'inherit', env: { ...env, ...extraEnv } })
     app.on('exit', (code, signal) => {
       if (existsSync(restartFile)) {
+        const next = restartEnv(restartFile)
         rmSync(restartFile, { force: true })
         console.log(
-          'PathKeep E2E: the app stopped as a spec asked; starting it again.',
+          `PathKeep E2E: the app stopped as a spec asked; starting it again${
+            Object.keys(next).length > 0
+              ? ` with ${Object.keys(next).join(', ')}`
+              : ''
+          }.`,
         )
-        start()
+        start(next)
         return
       }
       // Every spec after this one fails with a refused connection; say how the app ended.
@@ -175,4 +185,14 @@ async function superviseForE2E(env, tauriConfigOverride, restartFile) {
     })
   }
   start()
+}
+
+/** The variables a spec asked the next start to have (see `superviseForE2E`). */
+function restartEnv(restartFile) {
+  const text = readFileSync(restartFile, 'utf8').trim()
+  if (!text) return {}
+  const { env = {} } = JSON.parse(text)
+  return Object.fromEntries(
+    Object.entries(env).filter(([, value]) => typeof value === 'string'),
+  )
 }

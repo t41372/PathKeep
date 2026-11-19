@@ -622,7 +622,8 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
             json_value!(worker_bridge::cancel_ai_job_impl(payload.job_id, &state.session)?)
         }
         "build_ai_index" => {
-            let payload = parse_payload::<WrappedRequest<AiIndexRequest>>(payload)?;
+            let payload =
+                parse_payload::<WrappedRequest<vault_core::BuildAiIndexRequest>>(payload)?;
             json_value!(worker_bridge::build_ai_index_impl(payload.request, &state.session)?)
         }
         "estimate_reembed" => {

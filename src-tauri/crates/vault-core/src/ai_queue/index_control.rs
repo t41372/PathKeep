@@ -37,6 +37,18 @@ pub(crate) fn payload_pair(
     Some(EmbeddingIndexRef { provider_id: id.clone(), model })
 }
 
+pub(super) fn requested_pair(
+    config: &AppConfig,
+    request: &AiIndexRequest,
+) -> Result<EmbeddingIndexRef> {
+    let pair = semantic_index::chosen(config)
+        .context("select an embedding provider in Settings before building the semantic index")?;
+    if request.provider_id.as_deref().is_some_and(|id| id != pair.provider_id) {
+        anyhow::bail!("Index builds must use the embedding provider chosen in Settings.");
+    }
+    Ok(pair)
+}
+
 pub(crate) fn request_index_job(
     s: &Session<'_>,
     config: &AppConfig,
@@ -46,11 +58,7 @@ pub(crate) fn request_index_job(
     if automatic && semantic_index::chosen(config).is_none() {
         return Ok(None);
     }
-    let pair = semantic_index::chosen(config)
-        .context("select an embedding provider in Settings before building the semantic index")?;
-    if request.provider_id.as_deref().is_some_and(|id| id != pair.provider_id) {
-        anyhow::bail!("Index builds must use the embedding provider chosen in Settings.");
-    }
+    let pair = requested_pair(config, request)?;
     let active = all_active_index_jobs(s)?;
     if automatic {
         if !semantic_index::complete(s, &pair)?

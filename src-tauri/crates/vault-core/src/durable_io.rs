@@ -72,13 +72,19 @@ fn next_fsync_fault() -> Option<i32> {
 }
 
 /// Queues per-`full_fsync` fault directives for the current test thread (replacing any prior queue).
-#[cfg(all(unix, test))]
+#[cfg(all(unix, any(test, feature = "test-fixtures")))]
 pub(crate) fn inject_fsync_faults(faults: Vec<Option<i32>>) {
     FSYNC_FAULTS.with(|queue| {
         let mut queue = queue.borrow_mut();
         queue.clear();
         queue.extend(faults);
     });
+}
+
+/// Exercise the complete save-command result on Unix without replacing its actual rename.
+#[cfg(all(unix, feature = "test-fixtures"))]
+pub fn fail_next_atomic_parent_sync() {
+    inject_fsync_faults(vec![None, Some(libc::EIO)]);
 }
 
 /// `true` when `errno` means the filesystem/handle cannot provide a real platter barrier, so we
@@ -175,6 +181,12 @@ fn fsync_parent_dir(_path: &Path) -> Result<()> {
     Ok(())
 }
 
+/// The rename succeeded. Callers publishing settings must apply the visible value even
+/// though its survival across power loss is uncertain.
+#[derive(Debug, thiserror::Error)]
+#[error("replacement is visible but syncing its parent directory failed: {0:#}")]
+pub(crate) struct PublishedButUnsynced(#[source] anyhow::Error);
+
 /// Atomically + durably writes `contents` to `path`.
 ///
 /// Writes to a uniquely-named temp in the SAME directory (so the final rename is atomic on one
@@ -212,7 +224,7 @@ pub fn atomic_durable_write_with(
     full_fsync(tmp.as_file())?;
     // persist() = rename onto the destination (atomic on the same filesystem).
     vault_fs::persist(tmp, path).with_context(|| format!("rename temp onto {}", path.display()))?;
-    fsync_parent_dir(path)
+    fsync_parent_dir(path).map_err(|error| PublishedButUnsynced(error).into())
 }
 
 /// Durably installs an already-built file (`built`) as `dest`.
