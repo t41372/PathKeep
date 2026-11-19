@@ -16,6 +16,8 @@ mod maintenance_windows;
 mod migration;
 mod opening;
 mod pair;
+#[cfg(any(windows, test))]
+mod windows_disposition;
 pub use pair::SCHEMA as PAIR_SCHEMA;
 mod owner_lock;
 mod query_plans;

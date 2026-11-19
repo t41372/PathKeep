@@ -70,6 +70,41 @@ pub(super) enum LineageIssue {
     Unresolved,
 }
 
+/// Fingerprint the ordered published records, including inherited segments, when
+/// salvage had to use a different physical source. Stream one event at a time.
+pub(crate) fn content_digest(
+    tx: &Session<'_>,
+    id: &str,
+    cancel: &vault_store::CancelToken,
+) -> vault_store::Result<Option<[u8; 32]>> {
+    use sha2::{Digest, Sha256};
+    let line = describe(tx, id).map_err(|e| vault_store::Error::Operation(Box::new(e)))?;
+    let Some(line) = line.filter(|line| line.issue.is_none()) else { return Ok(None) };
+    let mut digest = Sha256::new();
+    for segment in line.segments {
+        tx.for_each(
+            "SELECT native_id,parent_id,kind,role,CAST(timestamp AS TEXT),text,payload
+             FROM ah_events WHERE session_id=?1 AND projection_id=?2 AND ordinal<?3 ORDER BY ordinal",
+            params![segment.source, segment.projection, segment.end.map_or(i64::MAX, |n| n as i64)],
+            |row| {
+                cancel.check()?;
+                for column in 0..7 {
+                    let value = row.get::<Option<String>>(column)?;
+                    match value {
+                        Some(value) => {
+                            digest.update((value.len() as u64).to_le_bytes());
+                            digest.update(value.as_bytes());
+                        }
+                        None => digest.update(u64::MAX.to_le_bytes()),
+                    }
+                }
+                Ok(())
+            },
+        )?;
+    }
+    Ok(Some(digest.finalize().into()))
+}
+
 pub(super) struct LineStatus {
     pub segments: Vec<Segment>,
     pub complete: bool,

@@ -908,3 +908,56 @@ fn round3_bulk_prune_cannot_sweep_a_newly_published_held_copy() {
     assert_eq!(copies.len(), 1);
     assert_eq!(copies[0].source_op, "heldGeneration");
 }
+
+#[test]
+fn identical_pi_content_is_whole_when_either_physical_revision_is_damaged() {
+    for damage_current in [false, true] {
+        let f = Fixture::new(false);
+        let v = f.vault();
+        let archive = v.agent_history().unwrap();
+        let roots = ["first", "second"].map(|name| SourceRoot {
+            root: f.sandbox.path().join(name),
+            harness: agent_history::Harness::Pi,
+        });
+        let first = fixtures::pi(
+            &roots[0].root,
+            "/synthetic/pi",
+            fixtures::SHARED_ID,
+            "duplicatecontentneedle",
+        );
+        let bytes = fs::read(&first).unwrap();
+        let second = roots[1].root.join(first.strip_prefix(&roots[0].root).unwrap());
+        fs::create_dir_all(second.parent().unwrap()).unwrap();
+        fs::write(&second, &bytes).unwrap();
+        archive.backup(&roots, &Default::default()).unwrap();
+        let rows = archive.list_sessions(&Default::default()).unwrap().items;
+        assert_eq!(rows.len(), 1);
+        let row = &rows[0];
+        assert_eq!(row.sources.len(), 2);
+        let source = row.sources.iter().find(|s| s.current == damage_current).unwrap();
+        let bad = archive.latest_revision(&source.source_id).unwrap().unwrap().id;
+        f.session.close_vault().unwrap();
+        rusqlite::Connection::open(evidence(&f))
+            .unwrap()
+            .execute("UPDATE ah_revisions SET digest=lower(hex(zeroblob(32))) WHERE id=?1", [bad])
+            .unwrap();
+        let v = f.reopen(false);
+        assert!(v.agent_history().unwrap().write_raw(bad, &mut std::io::sink()).is_err());
+        let plan = preview(&v, None, None).unwrap();
+        assert_eq!(
+            plan.conversations_recovered_whole.as_deref(),
+            Some("1"),
+            "damaged current={damage_current}"
+        );
+        assert_eq!(plan.conversations_recovered_partially.as_deref(), Some("0"));
+        assert_eq!(plan.conversations_only_in_copy.as_deref(), Some("0"));
+        let installed = execute(&v, None, None, &plan.token, Default::default()).unwrap();
+        let repaired = installed.vault.agent_history().unwrap();
+        let after = repaired.list_sessions(&Default::default()).unwrap().items;
+        assert_eq!(after.len(), 1);
+        assert_eq!(after[0].id, row.id);
+        let mut recovered = Vec::new();
+        repaired.write_raw(after[0].revision_id, &mut recovered).unwrap();
+        assert_eq!(bytes, recovered);
+    }
+}

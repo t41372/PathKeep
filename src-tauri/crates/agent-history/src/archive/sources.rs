@@ -100,6 +100,29 @@ impl Archive {
         Ok(())
     }
 
+    /// Discovery emits the main transcripts before the audit. Only a saved main
+    /// in this task can take over publication from the audit fallback.
+    pub(crate) fn cowork_audit_role(
+        &self,
+        root: &SourceRoot,
+        artifact: &Artifact,
+        run: i64,
+    ) -> Result<Option<ArtifactKind>> {
+        if root.harness != crate::Harness::ClaudeCode || artifact.kind != ArtifactKind::Metadata {
+            return Ok(None);
+        }
+        let root = root
+            .root
+            .to_str()
+            .ok_or_else(|| Error::InvalidInput("source root must be UTF-8".into()))?;
+        let Some(body) = cowork_body(root, &artifact.relative_path) else { return Ok(None) };
+        let (root, body) = (root.to_owned(), body.to_owned());
+        let main = self
+            .store
+            .read(Db::AgentHistoryEvidence, move |tx| saved_main(tx, &root, &body, run))?;
+        Ok(Some(if main { ArtifactKind::Metadata } else { ArtifactKind::Transcript }))
+    }
+
     pub(crate) fn retired_fallback(&self, source: &SourceInfo) -> Result<bool> {
         if !source.relative_path.ends_with("/audit.jsonl") {
             return Ok(false);
@@ -171,9 +194,25 @@ fn kind_rank(kind: &str) -> u8 {
     }
 }
 
-/// Older evidence kept the highest kind ever observed. For a Cowork fallback
-/// use the last retained sighting and the primary transcripts seen alongside it.
-/// New captures record the effective metadata role at retirement.
+/// Discovery accepts the tool root or local-agent-mode-sessions itself as a grant.
+fn cowork_body<'a>(root: &str, path: &'a str) -> Option<&'a str> {
+    let body = path.strip_suffix("/audit.jsonl")?;
+    let task = if let Some(task) = body.strip_prefix("local-agent-mode-sessions/") {
+        task
+    } else if root.trim_end_matches(['/', '\\']).rsplit(['/', '\\']).next()
+        == Some("local-agent-mode-sessions")
+    {
+        body
+    } else {
+        return None;
+    };
+    let (_, task) = task.split_once('/')?;
+    let (_, session) = task.split_once('/')?;
+    (session.starts_with("local_") && !session.contains('/')).then_some(body)
+}
+
+/// Older archives kept the highest observed kind. Reconstruct the role at the
+/// last successful audit capture. A later failed run cannot change that decision.
 pub(crate) fn retired_audit(
     tx: &vault_store::Session<'_>,
     source: &SourceInfo,
@@ -181,22 +220,52 @@ pub(crate) fn retired_audit(
     if source.harness != "claude-code" {
         return Ok(false);
     }
-    let Some(body) = source.relative_path.strip_suffix("/audit.jsonl") else { return Ok(false) };
-    if !body.rsplit('/').next().is_some_and(|name| name.starts_with("local_")) {
-        return Ok(false);
+    let Some(body) = cowork_body(&source.root, &source.relative_path) else { return Ok(false) };
+    let run = tx
+        .query_one(
+            "SELECT o.run_id FROM ah_source_observations o
+         JOIN ah_run_files f ON f.run_id=o.run_id AND f.source_id=o.source_id
+         WHERE o.source_id=?1 AND o.seen=1 AND f.revision_id IS NOT NULL
+         ORDER BY o.run_id DESC LIMIT 1",
+            [source.id.as_str()],
+            |r| Ok(r.get::<i64>(0)?),
+        )
+        .optional()?;
+    match run {
+        Some(run) => saved_main(tx, &source.root, body, run),
+        None => Ok(false),
     }
+}
+
+fn saved_main(
+    tx: &vault_store::Session<'_>,
+    root: &str,
+    body: &str,
+    run: i64,
+) -> vault_store::Result<bool> {
     let prefix = format!("{body}/.claude/projects/");
     let mut retired = false;
-    tx.for_each("SELECT s.relative_path FROM ah_sources s
+    tx.for_each(
+        "SELECT s.relative_path FROM ah_sources s
         WHERE s.harness='claude-code' AND s.root=?1 AND s.relative_path>=?2 AND s.relative_path<?3
         AND s.kind='transcript' AND EXISTS(SELECT 1 FROM ah_source_observations o
-        WHERE o.source_id=s.id AND o.seen=1 AND o.run_id=(SELECT max(run_id) FROM ah_source_observations WHERE source_id=?4 AND seen=1))",
-        params![source.root.clone(),prefix.clone(),format!("{prefix}\u{10ffff}"),source.id.clone()],|r|{
-            let path=r.get::<String>(0)?;
-            if let Some((_,name))=path.strip_prefix(&prefix).and_then(|p|p.split_once('/')){
-                retired |= !name.contains('/') && !name.starts_with("agent-") && name.ends_with(".jsonl") && crate::adapters::adapter(crate::Harness::ClaudeCode).publishes_transcript(&path);
+        WHERE o.source_id=s.id AND o.seen=1 AND o.run_id=?4)
+        AND EXISTS(SELECT 1 FROM ah_source_observations prior
+            JOIN ah_run_files f ON f.run_id=prior.run_id AND f.source_id=prior.source_id
+            JOIN ah_revisions r ON r.id=f.revision_id AND r.source_id=s.id AND r.state='complete'
+            WHERE prior.source_id=s.id AND prior.run_id<=?4)",
+        params![root, prefix.clone(), format!("{prefix}\u{10ffff}"), run],
+        |r| {
+            let path = r.get::<String>(0)?;
+            if let Some((_, name)) = path.strip_prefix(&prefix).and_then(|p| p.split_once('/')) {
+                retired |= !name.contains('/')
+                    && !name.starts_with("agent-")
+                    && name.ends_with(".jsonl")
+                    && crate::adapters::adapter(crate::Harness::ClaudeCode)
+                        .publishes_transcript(&path);
             }
             Ok(())
-        })?;
+        },
+    )?;
     Ok(retired)
 }

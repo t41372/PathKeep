@@ -8688,6 +8688,7 @@ dependencies = [
  "turso",
  "vault-fs",
  "vault-layout",
+ "windows-sys 0.61.2",
  "zeroize",
 ]
 

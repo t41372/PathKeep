@@ -85,7 +85,7 @@ impl Store {
         }
         let mut displaced_role = None;
         for (db, w) in workers.iter().filter(|(db, _)| crate::opening::conversation_role(*db)) {
-            if !*w.held_saved.lock().unwrap() && displaced(*db, w, self.paths.get(*db))? {
+            if !*w.held_saved.lock().unwrap() && self.held_displaced(&workers, *db, w)? {
                 displaced_role = Some(*db);
                 break;
             }
@@ -106,11 +106,20 @@ impl Store {
         drop(self.workers_mut());
         self.protect_held(&self.workers())
     }
+    fn held_displaced(&self, workers: &[(Db, Workers)], db: Db, worker: &Workers) -> Result<bool> {
+        displaced(db, worker, self.paths.get(db)).inspect_err(|error| {
+            if let Error::Open(reason) = error
+                && reason.cause.access_refused()
+            {
+                self.quarantine(workers, reason.clone());
+            }
+        })
+    }
     pub(crate) fn protect_held(&self, workers: &[(Db, Workers)]) -> Result<()> {
         let Some(publish) = self.held_publisher.get() else { return Ok(()) };
         for (db, w) in workers.iter().filter(|(db, _)| crate::opening::conversation_role(*db)) {
             let path = self.paths.get(*db);
-            if !displaced(*db, w, path)? {
+            if !self.held_displaced(workers, *db, w)? {
                 continue;
             }
             if self.conversation_availability().is_ok() {
@@ -286,7 +295,7 @@ impl Store {
         {
             worker.quarantine.store(true, Ordering::Release);
             worker.maintenance(|_| Ok(()))?;
-            if displaced(*db, worker, self.paths.get(*db))? {
+            if self.held_displaced(workers, *db, worker)? {
                 stale.push(*db);
             }
         }
@@ -473,10 +482,7 @@ pub(crate) fn displaced(db: Db, worker: &Workers, path: &Path) -> Result<bool> {
         {
             Ok(true)
         }
-        #[cfg(windows)]
-        Err(Error::Open(f)) if matches!(&f.cause,Error::Io(e) if crate::maintenance_windows::pending_name(e)) => {
-            Ok(true)
-        }
+        Err(Error::Open(f)) if f.cause.access_refused() => Err(Error::Open(f)),
         Err(Error::Open(f)) if matches!(&f.cause, Error::Io(_)) => {
             Err(Error::preserve(db.into(), path, std::io::Error::other(f)))
         }
@@ -485,8 +491,18 @@ pub(crate) fn displaced(db: Db, worker: &Workers, path: &Path) -> Result<bool> {
 }
 
 pub(crate) fn check_identity(db: Db, worker: &Workers, path: &Path) -> Result<()> {
-    let id = turso::core::io::get_file_id(path.to_str().expect("validated role path"))
-        .map_err(|e| Error::Io(e).at_file(db, crate::OpenStage::Preflight, path))?;
+    let id =
+        turso::core::io::get_file_id(path.to_str().expect("validated role path")).map_err(|e| {
+            #[cfg(windows)]
+            if crate::maintenance_windows::pending_member(&e, &worker.held_files) {
+                return Error::ReplacedFile(path.into()).at_file(
+                    db,
+                    crate::OpenStage::Preflight,
+                    path,
+                );
+            }
+            Error::Io(e).at_file(db, crate::OpenStage::Preflight, path)
+        })?;
     if worker.file_id != Some(id) {
         return Err(Error::ReplacedFile(path.into()).at_file(
             db,

@@ -8,6 +8,7 @@ mod coverage;
 mod cursor;
 mod events;
 mod line;
+pub(crate) use line::content_digest;
 pub(crate) mod parents;
 mod revisions;
 mod sessions;

@@ -12,8 +12,15 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
-pub(super) fn pending_name(error: &std::io::Error) -> bool {
-    matches!(error.raw_os_error(), Some(5 | 32 | 33 | 303))
+pub(super) fn pending_member(error: &std::io::Error, files: &HeldFiles) -> bool {
+    use crate::windows_disposition::{confirmed_deletion, delete_pending};
+    confirmed_deletion(error, || {
+        let (_, main) = files
+            .iter()
+            .find(|(suffix, _)| suffix.is_empty())
+            .ok_or(std::io::ErrorKind::NotFound)?;
+        delete_pending(main)
+    })
 }
 
 impl Store {
@@ -24,21 +31,24 @@ impl Store {
         let mut close = Vec::new();
         for role in [Db::AgentHistoryEvidence, Db::AgentHistoryReadModel] {
             let path = self.paths.get(role);
-            if !turso::core::io::get_file_id(path.to_str().expect("validated role path"))
-                .is_err_and(|e| pending_name(&e))
-            {
+            let Err(error) =
+                turso::core::io::get_file_id(path.to_str().expect("validated role path"))
+            else {
                 continue;
-            }
+            };
             let dir = vault_layout::path(self.owner()?.root(), vault_layout::ArtifactId::Staging);
-            fs::create_dir_all(&dir)?;
             // Retry may already have closed the SQL workers while retaining their
             // original handles. Release those originals too, after making the anchor.
             for (_, _, files) in
                 self.retired_files.lock().unwrap().iter_mut().filter(|(_, db, _)| *db == role)
             {
-                *files = anchor(files, &dir, path)?;
+                if pending_member(&error, files) {
+                    *files = anchor(files, &dir, path)?;
+                }
             }
-            if let Some((_, worker)) = workers.iter().find(|(db, _)| *db == role) {
+            if let Some((_, worker)) = workers.iter().find(|(db, _)| *db == role)
+                && pending_member(&error, &worker.held_files)
+            {
                 worker.quarantine.store(true, Ordering::Release);
                 worker.maintenance(|_| Ok(()))?;
                 close.push((role, anchor(&worker.held_files, &dir, path)?));
@@ -62,6 +72,7 @@ impl Store {
 fn anchor(files: &HeldFiles, dir: &Path, main: &Path) -> Result<HeldFiles> {
     static NEXT: AtomicU64 = AtomicU64::new(0);
     const FILE_FLAG_DELETE_ON_CLOSE: u32 = 0x04000000;
+    fs::create_dir_all(dir)?;
     let mut anchors = Vec::new();
     for (suffix, input) in files {
         let mut name = main.as_os_str().to_owned();

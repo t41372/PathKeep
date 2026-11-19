@@ -139,13 +139,12 @@ pub fn compare(
             })?;
         }
     }
-    target.read(Db::Scratch, move |s| {
-        let number = |sql| s.query_one(sql, (), |row| Ok(row.get::<i64>(0)? as u64));
-        let returned = number("SELECT count(DISTINCT id) FROM repair_view")?;
-        // Losing either an observed raw head or the previously visible interpretation
-        // makes a returned conversation partial. Count an ID only once.
-        let partial = number(
-            "SELECT count(DISTINCT o.id) FROM repair_original o
+    // Physical identity proves the fast path. A different revision or a missing
+    // redundant source only nominates a conversation for a content comparison.
+    target.write(Db::Scratch, Priority::Batch, |s| {
+        s.execute("CREATE TABLE repair_partial(id TEXT PRIMARY KEY)", ())?;
+        s.execute(
+            "INSERT OR IGNORE INTO repair_partial SELECT o.id FROM repair_original o
              WHERE EXISTS (SELECT 1 FROM repair_view v WHERE v.id = o.id)
              AND (
                  NOT EXISTS (SELECT 1 FROM repair_raw r WHERE r.src=o.src AND r.rev=o.rev)
@@ -154,7 +153,15 @@ pub fn compare(
                  OR (o.visible=1 AND NOT EXISTS
                      (SELECT 1 FROM repair_view v WHERE v.id=o.id AND v.src=o.src AND v.rev=o.rev))
              )",
+            (),
         )?;
+        Ok(())
+    })?;
+    let comparable = compare_changed_lines(config, target, trust_model, cancel, diag)?;
+    target.read(Db::Scratch, move |s| {
+        let number = |sql| s.query_one(sql, (), |row| Ok(row.get::<i64>(0)? as u64));
+        let returned = number("SELECT count(DISTINCT id) FROM repair_view")?;
+        let partial = number("SELECT count(*) FROM repair_partial")?;
         let missing = number(
             "SELECT count(DISTINCT o.id) FROM repair_original o
             WHERE NOT EXISTS (SELECT 1 FROM repair_view v WHERE v.id=o.id)",
@@ -182,11 +189,86 @@ pub fn compare(
             && !unmapped
             && ((evidence_complete && known)
                 || ((evidence_complete || model_complete) && heads_complete && !heads));
-        let exact_heads = returned == 0 || (inventory && heads_complete);
+        let exact_heads = returned == 0 || (inventory && heads_complete && comparable);
         Ok(Counts {
             whole: exact_heads.then_some(returned - partial),
             partial: exact_heads.then_some(partial),
             only_in_copy: inventory.then_some(missing),
         })
     })
+}
+
+/// Only a source whose latest raw head was published can use that publication
+/// as proof of its contents. An unreadable comparison leaves the count unknown.
+fn compare_changed_lines(
+    config: &Config,
+    target: &Store,
+    trust_model: bool,
+    cancel: &CancelToken,
+    diag: &mut Diagnostics,
+) -> Result<bool> {
+    let any =
+        target.read(Db::Scratch, |s| {
+            s.query_one("SELECT EXISTS(SELECT 1 FROM repair_partial)", (), |r| {
+                Ok(r.get::<i64>(0)? != 0)
+            })
+        })?;
+    if !any || !trust_model {
+        return Ok(!any);
+    }
+    let mut known = true;
+    let mut entered = false;
+    let result = Store::inspect_existing(config, Db::AgentHistoryReadModel, |old| {
+        entered = true;
+        let mut after = String::new();
+        loop {
+            cancel.check()?;
+            let ids = target.read(Db::Scratch, move |s| {
+                s.query(
+                    "SELECT p.id FROM repair_partial p WHERE p.id>?1 AND NOT EXISTS (
+                    SELECT 1 FROM repair_original o JOIN repair_head h ON h.src=o.src
+                    WHERE o.id=p.id AND h.rev<>o.rev AND NOT EXISTS (
+                        SELECT 1 FROM repair_raw r WHERE r.src=h.src AND r.rev=h.rev))
+                 ORDER BY p.id LIMIT 64",
+                    [after],
+                    |r| Ok(r.get::<String>(0)?),
+                )
+            })?;
+            let Some(last) = ids.last() else { break };
+            after = last.clone();
+            let mut whole = Vec::new();
+            for id in ids {
+                cancel.check()?;
+                let original =
+                    metadata::optional(|| crate::query::content_digest(old, &id, cancel)).flatten();
+                cancel.check()?;
+                let Some(original) = original else {
+                    known = false;
+                    diag.unreadable_sections += 1;
+                    continue;
+                };
+                let conversation = id.clone();
+                let token = cancel.clone();
+                let recovered = target.read(Db::AgentHistoryReadModel, move |s| {
+                    crate::query::content_digest(s, &conversation, &token)
+                })?;
+                if recovered == Some(original) {
+                    whole.push(id);
+                }
+            }
+            target.write(Db::Scratch, Priority::Batch, move |s| {
+                for id in whole {
+                    s.execute("DELETE FROM repair_partial WHERE id=?1", [id])?;
+                }
+                Ok(())
+            })?;
+        }
+        Ok(())
+    });
+    if entered {
+        result?;
+    } else {
+        diag.unreadable_sections += 1;
+    }
+    Ok(entered && known)
 }

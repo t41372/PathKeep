@@ -195,7 +195,8 @@ impl Error {
         };
         match self {
             Self::Io(e) => {
-                transient(e.kind()) || cfg!(windows) && matches!(e.raw_os_error(), Some(32 | 33))
+                transient(e.kind())
+                    || cfg!(windows) && matches!(e.raw_os_error(), Some(32 | 33 | 303))
             }
             Self::Engine(turso::Error::IoError(k, _)) => transient(*k),
             Self::Busy { .. } => true,
