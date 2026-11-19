@@ -45,6 +45,7 @@ import type {
   ListAgentConversationsRequest,
   ListJobsRequest,
   McpQueryRecord,
+  ModelDownloadTransfer,
   ReembedEstimate,
   ReembedScope,
   RenameAgentConversationRequest,
@@ -184,14 +185,14 @@ export const intelligenceClient = {
    * and `aiStatus.staticEmbedding.modelDownloaded` flips true on the next poll once present.
    */
   downloadStaticEmbeddingModel: () =>
-    call<void>('download_static_embedding_model'),
+    call<ModelDownloadTransfer>('download_static_embedding_model'),
   /**
-   * Requests cancellation of an in-flight in-app embedding model download (a process-global
-   * cancel flag). The cancelled download emits a terminal `error`
-   * event on the progress channel. No-op when nothing is downloading.
+   * Cancels one model download by its transfer ID. That transfer then ends with a terminal
+   * `error` on the progress channel. Answers `false` when the ID already finished, is unknown,
+   * or was already cancelled, so a late click never stops a newer download.
    */
-  cancelStaticEmbeddingModelDownload: () =>
-    call<void>('cancel_ai_embedding_model_download'),
+  cancelStaticEmbeddingModelDownload: (transferId: string) =>
+    call<boolean>('cancel_ai_embedding_model_download', { transferId }),
   /**
    * Clears the stuck/failed index build job and re-runs the build as a FULL REBUILD: every page is
    * re-embedded from scratch and the vector store + derived planes are wiped first. This is the only

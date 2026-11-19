@@ -18,7 +18,10 @@ import { useCallback, useRef, useState } from 'react'
 import { appClient } from '@/lib/backend-client/app'
 import { intelligenceClient } from '@/lib/backend-client/intelligence'
 import { describeError } from '@/lib/errors'
-import { useModelDownloadProgress } from '@/lib/ipc/model-download'
+import {
+  cancelModelDownload,
+  useModelDownloadProgress,
+} from '@/lib/ipc/model-download'
 import { runLocalSemanticSetup } from '@/lib/ipc/semantic-setup'
 import { queryKeys } from '@/lib/query'
 import { useSaveConfig, useSnapshot } from '@/lib/queries/app'
@@ -26,6 +29,7 @@ import {
   BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID,
   type AiIndexStatus,
   type AiSettings,
+  type AppSnapshot,
   type IndexBuildJob,
   type IndexBuildProgress,
   type ReembedScope,
@@ -145,11 +149,24 @@ export function useSemanticIndex() {
       } else {
         cancelled.current = false
         setRestart((count) => count + 1)
-        await runLocalSemanticSetup()
+        await runLocalSemanticSetup(() => {
+          // Read the cache, not this render: the screen may be gone by the time the download ends,
+          // and turning semantic search off lets the download finish without building.
+          const latest = client.getQueryData<AppSnapshot>(queryKeys.snapshot)
+          const ai = latest?.config.ai
+          return (
+            ai !== undefined &&
+            ai.enabled &&
+            ai.semanticIndexEnabled &&
+            (ai.embeddingProviderId ??
+              BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID) ===
+              BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID
+          )
+        })
       }
       await refresh()
     },
-    [refresh],
+    [client, refresh],
   )
 
   /** Turning semantic search on is the user's go-ahead for the first build. */
@@ -218,9 +235,7 @@ export function useSemanticIndex() {
 
   const cancelDownload = useCallback(async () => {
     cancelled.current = true
-    await intelligenceClient
-      .cancelStaticEmbeddingModelDownload()
-      .catch(() => undefined)
+    await cancelModelDownload().catch(() => false)
     await disable()
   }, [disable])
 

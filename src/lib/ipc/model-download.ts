@@ -29,6 +29,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react'
+import { intelligenceClient } from '../backend-client/intelligence'
 import type { ModelDownloadProgressEvent } from '../types'
 import { listenDesktopEvent } from './events'
 
@@ -57,24 +58,76 @@ export async function subscribeToModelDownloadProgress(
   )
 }
 
-// Process-global download-in-flight latch (mirrors the backend's global cancel flag). A module
-// scalar is intentional: it is the only state that survives a component remount within one JS
-// session, which is exactly what guards the Download button from re-firing the command.
+// The download this JS session follows, by the backend's transfer ID. Module state on purpose: it is
+// the only state that survives a component remount, which is what stops the Download button from
+// firing again mid-download. A start while one runs gets the same ID back (the backend attaches it),
+// so the screens never follow two downloads.
 let downloadInFlight = false
+let followed: string | null = null
+let pendingStart: Promise<string | null> | null = null
+// Transfers a newer start replaced. A cancelled download can still emit its last events after the
+// next one started; they must not move the new bar or end it. A transfer's own terminal event is
+// never filtered here, so every screen listening sees it.
+const superseded = new Set<string>()
 
-/** Marks a download as started so a remount/poll cannot re-enable the Download button. */
-export function markModelDownloadStarted(): void {
+/** Marks a download as started; with the backend's answer, also which transfer it is. */
+export function markModelDownloadStarted(transferId?: string): void {
   downloadInFlight = true
+  if (transferId !== undefined && !superseded.has(transferId))
+    followed = transferId
 }
 
-/** Clears the in-flight latch on any terminal outcome (done / error / cancel). */
-export function markModelDownloadSettled(): void {
+/** Clears the in-flight latch when the followed transfer (or, before its ID is known, any) ends. */
+export function markModelDownloadSettled(transferId?: string): void {
+  if (transferId !== undefined && followed !== null && transferId !== followed)
+    return
   downloadInFlight = false
+  followed = null
 }
 
 /** Whether a download is currently in flight (true between started and the terminal event). */
 export function isModelDownloadInFlight(): boolean {
   return downloadInFlight
+}
+
+/** Whether an event belongs to a transfer that no newer start replaced. */
+export function isCurrentTransfer(transferId: string): boolean {
+  return !superseded.has(transferId)
+}
+
+/**
+ * Starts the model download, or attaches to the one running, and remembers its ID for cancel.
+ * Callers subscribe to the progress channel first, so no event is missed before the answer.
+ */
+export function startModelDownload(): Promise<string> {
+  if (followed !== null) superseded.add(followed)
+  followed = null
+  markModelDownloadStarted()
+  const start = intelligenceClient
+    .downloadStaticEmbeddingModel()
+    .then(({ transferId }) => {
+      // Attaching to a running transfer returns its ID; it is current again.
+      superseded.delete(transferId)
+      markModelDownloadStarted(transferId)
+      return transferId
+    })
+  const answered = start.catch(() => null)
+  pendingStart = answered
+  void answered.then(() => {
+    // A newer start may have replaced this one meanwhile; leave that one in place.
+    if (pendingStart === answered) pendingStart = null
+  })
+  return start
+}
+
+/**
+ * Cancels the download being followed. When the start's answer has not come back yet, waits for it,
+ * so a quick click still names the right transfer. Answers whether the backend took the cancel.
+ */
+export async function cancelModelDownload(): Promise<boolean> {
+  const transferId = followed ?? (pendingStart ? await pendingStart : null)
+  if (transferId === null) return false
+  return intelligenceClient.cancelStaticEmbeddingModelDownload(transferId)
 }
 
 // ─── useModelDownloadProgress ─────────────────────────────────────────────────
@@ -172,10 +225,10 @@ export function useModelDownloadProgress(
     let unsub = () => {}
 
     void subscribeToModelDownloadProgress((event) => {
-      if (!active) return
+      if (!active || !isCurrentTransfer(event.transferId)) return
       switch (event.kind) {
         case 'fileStarted': {
-          markModelDownloadStarted()
+          markModelDownloadStarted(event.transferId)
           fileTotalMapRef.current.set(event.file, event.totalBytes)
           currentFileBytesRef.current = 0
           const knownTotal = sumMapValues(fileTotalMapRef.current)
@@ -216,14 +269,14 @@ export function useModelDownloadProgress(
           // KEY FIX: set 'ready' IMMEDIATELY — do NOT wait for a snapshot re-poll.
           // The old per-component handler left the spinner active after `done`, causing the
           // "stuck on downloading" bug visible until the next poll confirmed modelDownloaded.
-          markModelDownloadSettled()
+          markModelDownloadSettled(event.transferId)
           setPhase('ready')
           setCurrentFile(null)
           setError(null)
           break
         }
         case 'error': {
-          markModelDownloadSettled()
+          markModelDownloadSettled(event.transferId)
           setCurrentFile(null)
           const wasCancelled = cancelledRef?.current === true
           setPhase(wasCancelled ? 'idle' : 'failed')

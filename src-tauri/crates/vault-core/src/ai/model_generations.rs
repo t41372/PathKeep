@@ -260,7 +260,6 @@ impl Bundles {
 #[derive(Clone, Copy)]
 pub(super) enum Request<'a> {
     OnOpen,
-    DeferredRecovery,
     Setup { consented: bool, progress: &'a dyn super::ModelDownloadProgress },
 }
 
@@ -348,24 +347,12 @@ pub(super) fn write_marker(directory: &Path, bytes: &[u8]) -> Result<()> {
 }
 
 /// The live owner already passed root admission. Staged archives never need a model.
-pub(crate) fn recover_builtin(vault: &crate::Vault) -> Result<()> {
-    let paths = vault.paths();
+pub(crate) fn recover_builtin(paths: &ProjectPaths) -> Result<()> {
     let repo = super::model_dir_for_repo(paths, super::DEFAULT_STATIC_MODEL_REPO);
-    if !repo.try_exists()? {
-        return Ok(());
-    }
-    let files = super::DEFAULT_STATIC_MODEL_FILES;
-    if matches!(resolve(paths, &repo, files, Request::OnOpen)?, Resolution::Busy) {
-        // A restore may hold the non-reentrant gate through this entire open. The owner
-        // outlives the deferred recovery, and the caller never waits for the thread.
-        let owner = vault.store().owner()?;
-        let paths = paths.clone();
-        std::thread::Builder::new().name("pathkeep-model-recovery".into()).spawn(move || {
-            let _owner = owner;
-            if let Err(error) = resolve(&paths, &repo, files, Request::DeferredRecovery) {
-                eprintln!("pathkeep: recovering built-in model in {}: {error:#}", repo.display());
-            }
-        })?;
+    if repo.try_exists()? {
+        // A maintenance reopen already owns the gate. Leave the model tree for the next
+        // ordinary open or explicit setup. Nothing may act on this owner's paths after close.
+        resolve(paths, &repo, super::DEFAULT_STATIC_MODEL_FILES, Request::OnOpen)?;
     }
     Ok(())
 }

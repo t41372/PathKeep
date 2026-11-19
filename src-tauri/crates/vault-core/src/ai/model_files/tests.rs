@@ -368,7 +368,7 @@ fn restart_recovers_each_model_publication_boundary() {
             &paths,
             &repo,
             &files,
-            super::super::model_generations::Request::DeferredRecovery,
+            super::super::model_generations::Request::OnOpen,
         )
         .unwrap();
         let selection = crate::ai::open_model_directory(&paths, "Stub/Repo").unwrap();
@@ -615,7 +615,7 @@ fn recovery_selects_verified_flat_files_when_pointed_bundle_is_damaged() {
         &paths,
         &repo,
         &files,
-        super::super::model_generations::Request::DeferredRecovery,
+        super::super::model_generations::Request::OnOpen,
     )
     .unwrap();
     let current = crate::ai::open_model_directory(&paths, "Stub/Repo").unwrap();
@@ -687,4 +687,60 @@ fn selection_and_recovery_hash_without_the_archive_gate() {
         "recovery must rehash the candidate"
     );
     HASH_OBSERVER.with_borrow_mut(|slot| *slot = None);
+}
+
+#[test]
+fn restore_releases_the_model_recovery_owner_before_installing_another_archive() {
+    use crate::archive::ArchiveOpGate;
+    use std::{fs, sync::Arc};
+    use vault_store::{Db, OwnerLock, Priority};
+
+    let original = crate::Vault::open_temp().unwrap();
+    let paths = original.paths();
+    let repo = model_dir_for_repo(paths, crate::DEFAULT_STATIC_MODEL_REPO);
+    fs::create_dir_all(&repo).unwrap();
+    original.close().unwrap();
+
+    let source = crate::Vault::open_temp().unwrap();
+    source.store().write(Db::Archive, Priority::Interactive, |s| {
+        s.execute("INSERT INTO star(entity_kind,entity_key,starred_at) VALUES('url','replacement','now')", ())?;
+        Ok(())
+    }).unwrap();
+    let copy = source.paths().raw_snapshots_dir.join("maintenance/replacement");
+    crate::maintenance::snapshot(&source, &copy).unwrap();
+
+    // Exercise the same live open that restore performs while owning the non-reentrant gate.
+    // Keep the gate held through close: an old recovery thread cannot win a scheduling race.
+    let gate = ArchiveOpGate::acquire(paths);
+    let old = crate::Vault::open(paths.clone(), original.config().clone(), None).unwrap();
+    old.close().unwrap();
+    drop(old);
+    let next_owner = OwnerLock::acquire(&paths.app_root)
+        .expect("model recovery held the closed vault's owner while waiting for the gate");
+
+    let orphan = repo.join("gen-11111111111111111111111111111111");
+    fs::create_dir(&orphan).unwrap();
+    fs::write(orphan.join("owner"), b"replacement").unwrap();
+    drop(gate);
+    let restored = crate::maintenance::restore_snapshot_to(
+        paths,
+        None,
+        Some(Arc::new(next_owner)),
+        &copy,
+        None,
+        None,
+        Default::default(),
+    )
+    .unwrap()
+    .vault;
+    let star: String = restored
+        .store()
+        .read(Db::Archive, |s| s.query_one("SELECT entity_key FROM star", (), |r| Ok(r.get(0)?)))
+        .unwrap();
+    assert_eq!(star, "replacement");
+    assert_eq!(fs::read(orphan.join("owner")).unwrap(), b"replacement");
+    restored.close().unwrap();
+    let reopened = crate::Vault::open(paths.clone(), restored.config().clone(), None).unwrap();
+    assert!(!orphan.exists(), "the next ordinary open recovers its own tree");
+    reopened.close().unwrap();
 }

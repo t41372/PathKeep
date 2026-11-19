@@ -1344,15 +1344,34 @@ pub struct AiChatStreamEvent {
 /// string. Carries the consent-gated in-app embedding model download progress (§C.5).
 pub const MODEL_DOWNLOAD_PROGRESS_EVENT: &str = "pathkeep://model-download-progress";
 
+/// The identity returned by start or attach. Used by the caller to select its events and cancel it.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelDownloadTransfer {
+    pub transfer_id: String,
+}
+
+impl ModelDownloadTransfer {
+    /// Independent requests must never share a cancellation or progress identity.
+    pub fn fresh() -> anyhow::Result<Self> {
+        let mut bytes = [0; 16];
+        getrandom::fill(&mut bytes)?;
+        Ok(Self { transfer_id: hex::encode(bytes) })
+    }
+}
+
+/// One broadcast for a particular model transfer. Every phase, including completion, carries the ID.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelDownloadProgressEvent {
+    pub transfer_id: String,
+    #[serde(flatten)]
+    pub update: ModelDownloadUpdate,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "kind", rename_all = "camelCase")]
-/// One in-app embedding model download progress event delivered over
-/// [`MODEL_DOWNLOAD_PROGRESS_EVENT`].
-///
-/// Mirrors the [`crate::ModelDownloadProgress`] trait callbacks so the worker can forward per-file
-/// download progress to the UI without leaking download types across the IPC boundary. `kind`-tagged
-/// so the front end can route each phase (started / finished / done / error) into the right UI state.
-pub enum ModelDownloadProgressEvent {
+pub enum ModelDownloadUpdate {
     /// One model file started downloading (`total_bytes` is the HTTP content-length, 0 if unknown).
     ///
     /// The per-variant `rename_all` is LOAD-BEARING: serde's container-level `rename_all` renames only

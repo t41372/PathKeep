@@ -185,7 +185,7 @@ impl Vault {
             _temporary_root: None,
         };
         if live_archive {
-            if let Err(error) = crate::ai::model_generations::recover_builtin(&vault) {
+            if let Err(error) = crate::ai::model_generations::recover_builtin(vault.paths()) {
                 eprintln!("pathkeep: recovering built-in model at open: {error:#}");
             }
             if let Err(error) = crate::ai::generations::migrate_flat_indexes(&vault) {

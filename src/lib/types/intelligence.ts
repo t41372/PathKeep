@@ -244,7 +244,10 @@ export interface StaticEmbeddingStatus {
  * `fileProgress` reports throttled byte progress (~every 1 MB plus a final 100%) so the UI renders a
  * real moving bar instead of a near-empty per-file indicator while the 90 MB safetensors streams.
  */
-export type ModelDownloadProgressEvent =
+export type ModelDownloadProgressEvent = {
+  /** The transfer this event belongs to; see `ModelDownloadTransfer`. */
+  transferId: string
+} & (
   | { kind: 'fileStarted'; file: string; totalBytes: number }
   | {
       kind: 'fileProgress'
@@ -255,6 +258,16 @@ export type ModelDownloadProgressEvent =
   | { kind: 'fileFinished'; file: string }
   | { kind: 'done' }
   | { kind: 'error'; message: string }
+)
+
+/**
+ * The answer to starting the model download. A start while one is running
+ * attaches to it and gets the same ID, so two screens never run two downloads.
+ * Cancel names this ID, and every progress event carries it.
+ */
+export interface ModelDownloadTransfer {
+  transferId: string
+}
 
 /**
  * The index searches read now. While a newly chosen model's index is built,

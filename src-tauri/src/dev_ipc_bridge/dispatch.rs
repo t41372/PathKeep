@@ -677,12 +677,11 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
             )?)
         }
         "download_static_embedding_model" => {
-            // Spawns a background download thread off the worker; progress goes to the browsers
-            // on `/events`.
-            json_value!(download_static_embedding_model_off_thread(state.events.clone()).await?)
+            json_value!(download_static_embedding_model_off_thread(state).await?)
         }
         "cancel_ai_embedding_model_download" => {
-            json_value!(worker_bridge::cancel_model_download_impl()?)
+            let transfer = parse_payload::<vault_core::ModelDownloadTransfer>(payload)?;
+            json_value!(worker_bridge::cancel_model_download_impl(&transfer.transfer_id))
         }
         "save_ai_conversation" => {
             let payload = parse_payload::<WrappedRequest<SaveAgentConversationRequest>>(payload)?;
@@ -1281,14 +1280,26 @@ async fn ai_chat_send_off_thread(
     .unwrap_or_else(|error| join_failure("ai_chat_send", error))
 }
 
-/// Hops `download_static_embedding_model_impl` onto the tokio blocking thread pool (F1). The worker
-/// spawns the actual download thread; its progress goes to the browsers on `/events`.
+/// Start and attach share the same broadcast between the window and browsers on `/events`.
 async fn download_static_embedding_model_off_thread(
-    events: super::events::Hub,
-) -> Result<(), CommandError> {
+    state: &DevIpcBridgeState,
+) -> Result<vault_core::ModelDownloadTransfer, CommandError> {
+    let app = state.app.clone();
+    let events = state.events.clone();
     tokio::task::spawn_blocking(move || {
         worker_bridge::download_static_embedding_model_impl(move |event| {
-            events.emit(vault_core::MODEL_DOWNLOAD_PROGRESS_EVENT, &event)
+            // A transfer can start during preflight and finish after the window attaches.
+            // With a live app, its event is also forwarded to SSE by the bridge's listener.
+            let handle = app.read().expect("bridge app handle").clone();
+            if let Some(handle) = handle {
+                let _ = tauri::Emitter::emit(
+                    &handle,
+                    vault_core::MODEL_DOWNLOAD_PROGRESS_EVENT,
+                    &event,
+                );
+            } else {
+                events.emit(vault_core::MODEL_DOWNLOAD_PROGRESS_EVENT, &event);
+            }
         })
     })
     .await

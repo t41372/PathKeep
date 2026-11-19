@@ -221,8 +221,10 @@ pub(crate) fn ai_chat_cancel_impl(
 }
 
 #[cfg_attr(test, allow(dead_code))]
-/// Starts the consent-gated in-app STATIC (Tier-0) embedding model download (F1); progress via `emit`.
-pub(crate) fn download_static_embedding_model_impl<E>(emit: E) -> Result<(), CommandError>
+/// Returns the identity shared by callers waiting for this local model.
+pub(crate) fn download_static_embedding_model_impl<E>(
+    emit: E,
+) -> Result<vault_core::ModelDownloadTransfer, CommandError>
 where
     E: Fn(ModelDownloadProgressEvent) + Send + 'static,
 {
@@ -230,10 +232,9 @@ where
 }
 
 #[cfg_attr(test, allow(dead_code))]
-/// Requests cancellation of any in-flight in-app model download.
-pub(crate) fn cancel_model_download_impl() -> Result<(), CommandError> {
-    vault_worker::cancel_model_download();
-    Ok(())
+/// Returns whether the named transfer accepted its first cancellation request.
+pub(crate) fn cancel_model_download_impl(transfer_id: &str) -> bool {
+    vault_worker::cancel_model_download(transfer_id)
 }
 
 /// Persists (upsert) one assistant conversation and replaces its message transcript.

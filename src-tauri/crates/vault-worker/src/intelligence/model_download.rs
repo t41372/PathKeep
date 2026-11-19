@@ -1,154 +1,151 @@
-//! Worker-side consent-gated in-app embedding model download (§C.5).
-//!
-//! ## Responsibilities
-//! - drive [`vault_core::ensure_model_downloaded`] OFF the UI thread (its own background thread,
-//!   mirroring the streaming-chat + import/backup off-thread pattern) so a multi-hundred-MB
-//!   download never blocks the renderer
-//! - bridge the vault-core [`vault_core::ModelDownloadProgress`] trait callbacks onto the desktop
-//!   emit sink as [`vault_core::ModelDownloadProgressEvent`]s on
-//!   [`vault_core::MODEL_DOWNLOAD_PROGRESS_EVENT`], plus a terminal `Done`/`Error`
-//! - support cooperative cancellation between reads via a shared atomic flag
-//!
-//! ## Not responsible for
-//! - emitting Tauri events directly (the desktop command supplies the `emit` sink closure)
-//! - the consent UI. The `download_static_embedding_model` command is the only caller.
-//!
-//! ## Why consent stays honored
-//! The command always passes `consented = true` ONLY because reaching this code IS the explicit
-//! user action (pressing "Download model"); vault-core still refuses to touch the network unless
-//! the model is absent, and never auto-downloads on its own (the selector degrades instead of
-//! fetching).
+//! Responsibilities: share one consented transfer per local model, attribute its progress
+//! and cancellation to its ID, and report the installer's terminal outcome off the UI thread.
+//! Not responsible for model verification, archive admission or IPC transport.
 
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
-
-use anyhow::Result;
+use anyhow::{Context, Result};
+use std::{
+    collections::BTreeMap,
+    path::PathBuf,
+    sync::{
+        Arc, Mutex, MutexGuard,
+        atomic::{AtomicBool, Ordering},
+    },
+};
 use vault_core::{
     DEFAULT_STATIC_MODEL_FILES, DEFAULT_STATIC_MODEL_REPO, ModelDownloadProgress,
-    ModelDownloadProgressEvent, ensure_model_downloaded,
+    ModelDownloadProgressEvent, ModelDownloadTransfer, ModelDownloadUpdate, ModelFile,
+    ProjectPaths, ensure_model_downloaded, model_dir_for_repo,
 };
 
-/// A single live download's cancellation flag, so a second "Download" press or a navigate-away can
-/// stop the current run between reads (the §C.5 cancelable contract). One at a time is enough: the
-/// app only ever fetches the one default in-app model.
-static DOWNLOAD_CANCEL: std::sync::OnceLock<Arc<AtomicBool>> = std::sync::OnceLock::new();
-
-fn cancel_flag() -> &'static Arc<AtomicBool> {
-    DOWNLOAD_CANCEL.get_or_init(|| Arc::new(AtomicBool::new(false)))
+struct Transfer {
+    identity: ModelDownloadTransfer,
+    cancelled: AtomicBool,
 }
 
-/// Requests cancellation of any in-flight in-app model download.
-///
-/// Idempotent and cheap: sets the shared flag the running download checks between reads. A download
-/// that already finished simply leaves the flag set; the next download resets it on start.
-pub fn cancel_model_download() {
-    cancel_flag().store(true, Ordering::SeqCst);
+// The key is the on-disk model repository: two different archives have independent installs.
+static RUNNING: Mutex<BTreeMap<PathBuf, Arc<Transfer>>> = Mutex::new(BTreeMap::new());
+
+fn running() -> MutexGuard<'static, BTreeMap<PathBuf, Arc<Transfer>>> {
+    RUNNING.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-/// Bridges the vault-core progress trait onto a desktop emit sink + the shared cancel flag.
+/// Returns true only for the first stop request for this live transfer.
+pub fn cancel_model_download(id: &str) -> bool {
+    running()
+        .values()
+        .find(|transfer| transfer.identity.transfer_id == id)
+        .is_some_and(|transfer| !transfer.cancelled.swap(true, Ordering::SeqCst))
+}
+
+/// Wipe owns the whole archive and stops its current transfer without a renderer-supplied ID.
+pub(crate) fn cancel_model_download_for_wipe(paths: &ProjectPaths) {
+    for (repo, transfer) in running().iter() {
+        if repo.starts_with(&paths.models_dir) {
+            transfer.cancelled.store(true, Ordering::SeqCst);
+        }
+    }
+}
+
 struct EmitProgress<E> {
     emit: E,
-    cancel: Arc<AtomicBool>,
+    transfer: Arc<Transfer>,
 }
 
-impl<E> ModelDownloadProgress for EmitProgress<E>
-where
-    E: Fn(ModelDownloadProgressEvent) + Send,
-{
-    fn file_started(&mut self, file: &str, total_bytes: u64) {
-        (self.emit)(ModelDownloadProgressEvent::FileStarted {
-            file: file.to_string(),
-            total_bytes,
+impl<E: Fn(ModelDownloadProgressEvent)> EmitProgress<E> {
+    fn send(&self, update: ModelDownloadUpdate) {
+        (self.emit)(ModelDownloadProgressEvent {
+            transfer_id: self.transfer.identity.transfer_id.clone(),
+            update,
         });
+    }
+}
+
+impl<E: Fn(ModelDownloadProgressEvent) + Send> ModelDownloadProgress for EmitProgress<E> {
+    fn file_started(&mut self, file: &str, total_bytes: u64) {
+        self.send(ModelDownloadUpdate::FileStarted { file: file.into(), total_bytes });
     }
 
     fn file_progress(&mut self, file: &str, downloaded_bytes: u64, total_bytes: u64) {
-        (self.emit)(ModelDownloadProgressEvent::FileProgress {
-            file: file.to_string(),
+        self.send(ModelDownloadUpdate::FileProgress {
+            file: file.into(),
             downloaded_bytes,
             total_bytes,
         });
     }
 
     fn file_finished(&mut self, file: &str) {
-        (self.emit)(ModelDownloadProgressEvent::FileFinished { file: file.to_string() });
+        self.send(ModelDownloadUpdate::FileFinished { file: file.into() });
     }
 
     fn cancelled(&self) -> bool {
-        self.cancel.load(Ordering::SeqCst)
+        self.transfer.cancelled.load(Ordering::SeqCst)
     }
 }
 
-/// Starts the consent-gated in-app STATIC (Tier-0) embedding model download on a background thread (F1).
-///
-/// Targets the always-on static model ([`DEFAULT_STATIC_MODEL_REPO`]) the built-in static provider
-/// loads, through the SHA-256-verified [`ensure_model_downloaded`] path. This is the FE's "Download
-/// local model" action; reaching it IS the explicit consent. Returns immediately after spawning;
-/// progress + the terminal `Done`/`Error` reach the UI on [`vault_core::MODEL_DOWNLOAD_PROGRESS_EVENT`].
-/// The `emit` sink must be `Send + 'static` so the background thread can own it. Resets the cancel
-/// flag on start so a prior cancellation never aborts a fresh run.
-pub fn download_static_embedding_model<E>(emit: E) -> Result<()>
+/// Starts the user-approved install or attaches to its broadcast. The transport subscribes
+/// before invoking start: even an already-installed model can finish before the reply arrives.
+pub fn download_static_embedding_model<E>(emit: E) -> Result<ModelDownloadTransfer>
 where
     E: Fn(ModelDownloadProgressEvent) + Send + 'static,
 {
-    let cancel = cancel_flag().clone();
-    cancel.store(false, Ordering::SeqCst);
+    start_model_download(
+        vault_core::project_paths()?,
+        DEFAULT_STATIC_MODEL_REPO,
+        DEFAULT_STATIC_MODEL_FILES,
+        emit,
+    )
+}
+
+fn start_model_download<E>(
+    paths: ProjectPaths,
+    repo: &'static str,
+    files: &'static [ModelFile],
+    emit: E,
+) -> Result<ModelDownloadTransfer>
+where
+    E: Fn(ModelDownloadProgressEvent) + Send + 'static,
+{
+    let key = model_dir_for_repo(&paths, repo);
+    let mut active = running();
+    if let Some(transfer) = active.get(&key)
+        && !transfer.cancelled.load(Ordering::SeqCst)
+    {
+        return Ok(transfer.identity.clone());
+    }
+
+    let identity = ModelDownloadTransfer::fresh()?;
+    let transfer =
+        Arc::new(Transfer { identity: identity.clone(), cancelled: AtomicBool::new(false) });
+    let mut progress = EmitProgress { emit, transfer: transfer.clone() };
+    let worker_key = key.clone();
     std::thread::Builder::new()
-        .name("pathkeep-static-model-download".to_string())
+        .name("pathkeep-static-model-download".into())
         .spawn(move || {
-            run_download_for(
-                vault_core::project_paths(),
-                DEFAULT_STATIC_MODEL_REPO,
-                DEFAULT_STATIC_MODEL_FILES,
-                emit,
-                cancel,
-            )
+            // A worker that unwinds must still release its ID and settle its listeners.
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                ensure_model_downloaded(&paths, repo, files, true, &mut progress)
+            }))
+            .unwrap_or_else(|_| Err(anyhow::anyhow!("model download worker stopped unexpectedly")));
+            // Close admission before broadcasting the terminal event. A caller can immediately
+            // restart from that event. A cancelled predecessor cannot unregister the replacement.
+            {
+                let mut active = running();
+                if active
+                    .get(&worker_key)
+                    .is_some_and(|current| Arc::ptr_eq(current, &progress.transfer))
+                {
+                    active.remove(&worker_key);
+                }
+            }
+            progress.send(match result {
+                Ok(_) => ModelDownloadUpdate::Done,
+                Err(error) => ModelDownloadUpdate::Error { message: error.to_string() },
+            });
         })
-        .map_err(|error| anyhow::anyhow!("spawning static model download thread: {error}"))?;
-    Ok(())
+        .context("spawning static model download thread")?;
+    active.insert(key, transfer);
+    Ok(identity)
 }
 
-/// Downloads using a `Result<ProjectPaths>` so BOTH the path-resolution failure AND success arms are
-/// testable (a test passes an `Err` to drive the failure terminal without a real broken context).
-///
-/// A path-resolution failure emits the terminal `Error` (the subscriber never hangs); a success
-/// delegates to [`run_download_into`].
-fn run_download_for<E>(
-    paths: Result<vault_core::ProjectPaths>,
-    repo: &str,
-    files: &[vault_core::ModelFile],
-    emit: E,
-    cancel: Arc<AtomicBool>,
-) where
-    E: Fn(ModelDownloadProgressEvent) + Send,
-{
-    match paths {
-        Ok(paths) => run_download_into(&paths, repo, files, emit, cancel),
-        Err(error) => emit(ModelDownloadProgressEvent::Error { message: error.to_string() }),
-    }
-}
-
-/// Downloads one model into `paths` and emits exactly one terminal `Done`/`Error`.
-///
-/// Factored out (paths/repo/files as params) so the success AND failure terminal arms are testable
-/// without the real default model. Always emits exactly one terminal event so a subscriber keyed on
-/// the event never hangs. `emit` is MOVED into the progress bridge (the `ModelDownloadProgress`
-/// trait is `Send`, and an owned `E: Send` satisfies it without requiring `E: Sync`), then taken
-/// back out for the terminal event.
-fn run_download_into<E>(
-    paths: &vault_core::ProjectPaths,
-    repo: &str,
-    files: &[vault_core::ModelFile],
-    emit: E,
-    cancel: Arc<AtomicBool>,
-) where
-    E: Fn(ModelDownloadProgressEvent) + Send,
-{
-    let mut progress = EmitProgress { emit, cancel };
-    let result = ensure_model_downloaded(paths, repo, files, true, &mut progress);
-    let emit = progress.emit;
-    match result {
-        Ok(_) => emit(ModelDownloadProgressEvent::Done),
-        Err(error) => emit(ModelDownloadProgressEvent::Error { message: error.to_string() }),
-    }
-}
+#[cfg(test)]
+mod tests;

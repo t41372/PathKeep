@@ -396,7 +396,7 @@ impl ArchiveOpGate {
     }
 
     /// Live archive open can run inside maintenance. Try the gate so model recovery can
-    /// defer its work until the caller releases it instead of parking the owner on itself.
+    /// leave the work to the next ordinary open instead of parking the owner on itself.
     pub(crate) fn try_acquire(paths: &ProjectPaths) -> Option<ArchiveOpGate> {
         let path = lock_file_path(paths);
         let (mutex, _condvar) = op_gate();

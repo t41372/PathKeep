@@ -301,3 +301,76 @@ fn locked_snapshots_do_not_read_keychain_and_explicit_unlock_reads_once() {
 
 #[path = "native_reads_tests.rs"]
 mod native_reads;
+
+#[test]
+fn model_download_attach_routes_one_terminal_to_the_window_and_bridge() {
+    use axum::{extract::State, response::IntoResponse};
+    use futures_core::Stream;
+    use std::{future::poll_fn, pin::Pin, sync::mpsc, time::Duration};
+    use tauri::{Emitter, Listener};
+
+    let _guard = lock_env();
+    let root = tempdir().unwrap();
+    unsafe { std::env::set_var(PROJECT_ROOT_OVERRIDE_ENV, root.path()) };
+    let paths = vault_core::project_paths_with_root(root.path());
+    let repo = vault_core::model_dir_for_repo(&paths, vault_core::DEFAULT_STATIC_MODEL_REPO);
+    std::fs::create_dir_all(&repo).unwrap();
+    // A deterministic terminal error before any network access.
+    std::fs::write(repo.join("current"), "invalid").unwrap();
+    let state =
+        DevIpcBridgeState::without_app(SessionState::default(), DEFAULT_DEV_IPC_BRIDGE_PORT);
+    let app = tauri::test::mock_app();
+    let name = vault_core::MODEL_DOWNLOAD_PROGRESS_EVENT;
+    let (sink, window) = mpsc::channel();
+    app.listen_any(name, move |event| sink.send(event.payload().to_string()).unwrap());
+
+    ready_block_on(async {
+        let mut sse = super::super::events::events(State(state.clone()))
+            .await
+            .into_response()
+            .into_body()
+            .into_data_stream();
+        let gate = vault_core::archive::ArchiveOpGate::acquire(&paths);
+        let start =
+            dispatch_command(&state, "download_static_embedding_model", json!({})).await.unwrap();
+        let id = start["transferId"].as_str().unwrap();
+        assert_eq!(start, json!({"transferId":id}));
+
+        // The dev bridge started before a window existed. Attach the window and join the
+        // same transfer from its native backend while the installer is still parked.
+        super::super::DevIpcBridgeHandle::new(state.app.clone(), state.events.clone())
+            .attach_app(app.handle().clone())
+            .unwrap();
+        let handle = app.handle().clone();
+        let attached = crate::worker_bridge::download_static_embedding_model_impl(move |event| {
+            handle.emit(name, event).unwrap();
+        })
+        .unwrap();
+        assert_eq!(attached.transfer_id, id);
+        let cancel = "cancel_ai_embedding_model_download";
+        assert!(dispatch_command(&state, cancel, json!({})).await.is_err());
+        assert_eq!(dispatch_command(&state, cancel, json!({"transferId":id})).await.unwrap(), true);
+        drop(gate);
+        let bytes = tokio::time::timeout(
+            Duration::from_secs(10),
+            poll_fn(|cx| Pin::new(&mut sse).poll_next(cx)),
+        )
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+        let frame = std::str::from_utf8(&bytes).unwrap();
+        assert!(frame.lines().any(|line| line == format!("event: {name}")), "{frame}");
+        let data = frame.lines().find_map(|line| line.strip_prefix("data: ")).unwrap();
+        let terminal: Value = serde_json::from_str(data).unwrap();
+        let native: Value =
+            serde_json::from_str(&window.recv_timeout(Duration::from_secs(5)).unwrap()).unwrap();
+        assert_eq!(native, terminal);
+        assert_eq!(terminal["transferId"], id);
+        assert_eq!(terminal["kind"], "error");
+        assert_eq!(
+            dispatch_command(&state, cancel, json!({"transferId":id})).await.unwrap(),
+            false
+        );
+    });
+}

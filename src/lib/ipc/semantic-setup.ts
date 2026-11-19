@@ -31,9 +31,10 @@
  */
 
 import { intelligenceClient } from '../backend-client/intelligence'
+import type { ModelDownloadProgressEvent } from '../types'
 import {
   markModelDownloadSettled,
-  markModelDownloadStarted,
+  startModelDownload,
   subscribeToModelDownloadProgress,
 } from './model-download'
 
@@ -57,8 +58,14 @@ export const MODEL_DOWNLOAD_IDLE_TIMEOUT_MS = 120_000
  * swallowed here — they propagate so the caller can decide (the onboarding shell action swallows, and
  * the download phase already surfaces on the Activity page for retry from Settings → AI).
  */
-export async function runLocalSemanticSetup(): Promise<void> {
-  await ensureStaticModelDownloaded()
+export async function runLocalSemanticSetup(
+  stillWanted: () => boolean,
+): Promise<void> {
+  const transferId = await ensureStaticModelDownloaded()
+  // Two screens can wait on the same transfer (a start while one runs attaches to it), and turning
+  // semantic search off lets the download finish. Build once per transfer, and only if still wanted.
+  if (buildsStarted.has(transferId) || !stillWanted()) return
+  buildsStarted.add(transferId)
   // `incremental`: every visit the index lacks. `full` would wipe it first.
   await intelligenceClient.buildIndex({
     fullRebuild: false,
@@ -66,6 +73,8 @@ export async function runLocalSemanticSetup(): Promise<void> {
     scope: 'incremental',
   })
 }
+
+const buildsStarted = new Set<string>()
 
 /**
  * Resolves once the static embedding model's weights are present + verified (a terminal `done` on the
@@ -76,13 +85,16 @@ export async function runLocalSemanticSetup(): Promise<void> {
  * `markModelDownloadSettled()` runs on EVERY exit path (each routes through the single-settle latch),
  * so the process-global in-flight flag can never be stranded — including the watchdog-reject path.
  */
-async function ensureStaticModelDownloaded(): Promise<void> {
+async function ensureStaticModelDownloaded(): Promise<string> {
   let resolveDownload!: () => void
   let rejectDownload!: (error: Error) => void
   const downloadSettled = new Promise<void>((resolve, reject) => {
     resolveDownload = resolve
     rejectDownload = reject
   })
+
+  // This call's transfer, once the backend answers.
+  let mine: string | null = null
 
   // Idle watchdog: armed when the download starts, reset on EVERY channel event, and cleared on settle
   // and in the finally so it never fires late or leaks a timer.
@@ -94,64 +106,78 @@ async function ensureStaticModelDownloaded(): Promise<void> {
     }
   }
 
-  // Single terminal latch: the first of {done, error, command-rejection, idle-watchdog} wins, clears
-  // the watchdog + the process-global in-flight flag exactly once, so a late duplicate event (or a
-  // watchdog firing just after a real terminal) can never double-settle.
+  // Single terminal latch: the first of {done, error, command-rejection, idle-watchdog} wins and
+  // clears the watchdog exactly once, so a late duplicate event (or a watchdog firing just after a
+  // real terminal) can never double-settle. Each path releases the in-flight latch for its transfer.
   let settled = false
   const settle = (action: () => void) => {
     if (settled) return
     settled = true
     clearWatchdog()
-    markModelDownloadSettled()
     action()
   }
 
   const armWatchdog = () => {
     clearWatchdog()
     watchdog = setTimeout(() => {
-      settle(() =>
+      settle(() => {
+        markModelDownloadSettled(mine ?? undefined)
         rejectDownload(
           new Error(
             'static embedding model download went silent (no progress within the idle window)',
           ),
-        ),
-      )
+        )
+      })
     }, MODEL_DOWNLOAD_IDLE_TIMEOUT_MS)
+  }
+
+  // Events that arrive before the backend's answer are kept and replayed for that ID only, so a
+  // superseded download's late events cannot settle this one.
+  const early: ModelDownloadProgressEvent[] = []
+  const handle = (event: ModelDownloadProgressEvent) => {
+    // ANY event of this transfer proves the channel is alive — reset the idle watchdog first.
+    armWatchdog()
+    if (event.kind === 'done') {
+      settle(() => {
+        markModelDownloadSettled(event.transferId)
+        resolveDownload()
+      })
+    } else if (event.kind === 'error') {
+      const { message } = event
+      settle(() => {
+        markModelDownloadSettled(event.transferId)
+        rejectDownload(new Error(message))
+      })
+    }
   }
 
   // Subscribe FIRST (awaited) so no progress/terminal event is missed before the download starts.
   const unsubscribe = await subscribeToModelDownloadProgress((event) => {
-    // ANY event proves the channel is alive — reset the idle watchdog before handling terminals.
-    armWatchdog()
-    if (event.kind === 'done') {
-      settle(resolveDownload)
-    } else if (event.kind === 'error') {
-      const { message } = event
-      settle(() => rejectDownload(new Error(message)))
-    }
+    if (mine === null) early.push(event)
+    else if (event.transferId === mine) handle(event)
   })
 
-  // Race: a terminal event can fire synchronously while the subscription is still registering, so by
-  // the time the unsubscribe fn arrives we may already be settled. Skip starting a download the
-  // terminal already ended and release the listener immediately.
-  if (!settled) {
-    markModelDownloadStarted()
-    // Arm the idle watchdog now so a degraded event bridge (no events ever arrive) or a dead download
-    // thread cannot strand the promise + the process-global latch forever.
-    armWatchdog()
-    // The command spawns a background thread and returns immediately; the real terminal outcome still
-    // arrives on the channel. A command-level rejection is itself terminal, so route it through the
-    // same single-settle latch.
-    intelligenceClient
-      .downloadStaticEmbeddingModel()
-      .catch((error: unknown) => {
-        settle(() =>
-          rejectDownload(
-            error instanceof Error ? error : new Error(String(error)),
-          ),
+  // Arm the idle watchdog now so a degraded event bridge (no events ever arrive) or a dead download
+  // thread cannot strand the promise + the in-flight latch forever.
+  armWatchdog()
+  // The command starts or joins the background transfer and answers with its ID at once; the real
+  // terminal outcome still arrives on the channel. A command-level rejection is itself terminal.
+  startModelDownload().then(
+    (transferId) => {
+      mine = transferId
+      for (const event of early.splice(0)) {
+        if (event.transferId === transferId) handle(event)
+      }
+    },
+    (error: unknown) => {
+      settle(() => {
+        markModelDownloadSettled()
+        rejectDownload(
+          error instanceof Error ? error : new Error(String(error)),
         )
       })
-  }
+    },
+  )
 
   try {
     await downloadSettled
@@ -159,4 +185,8 @@ async function ensureStaticModelDownloaded(): Promise<void> {
     clearWatchdog()
     unsubscribe()
   }
+  // `done` is handled only after the answer named this transfer.
+  if (mine === null)
+    throw new Error('model download finished without a transfer ID')
+  return mine
 }
