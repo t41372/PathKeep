@@ -24,10 +24,7 @@ impl Archive {
                 "capture byte budgets are outside supported bounds".into(),
             ));
         }
-        let _capture = self
-            .capture_gate
-            .try_lock()
-            .map_err(|_| Error::InvalidInput("another backup already owns this archive".into()))?;
+        let _job = self.jobs.enter(Some(&options.cancel))?;
         let provenance = self.source(source_id)?;
         if provenance.kind != "transcript" {
             return Err(Error::Unsupported(

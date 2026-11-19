@@ -88,8 +88,15 @@ impl Maintenance<'_> {
 
     /// Revoke queued handles before a verified file swap; no writer can slip
     /// between verification and shutdown. The caller may retain the owner lock.
-    pub fn close(mut self) -> Result<()> {
+    pub fn close(self) -> Result<()> {
+        self.close_with(|| {})
+    }
+
+    /// Retires an already paused service after the final checkpoint succeeds and before
+    /// closing connections. The callback must neither submit store work nor wait for it.
+    pub fn close_with(mut self, retire: impl FnOnce()) -> Result<()> {
         self.checkpoint()?;
+        retire();
         self.store.closed.store(true, Ordering::Release);
         while let Some((_, worker)) = self.workers.pop() {
             drop(worker);

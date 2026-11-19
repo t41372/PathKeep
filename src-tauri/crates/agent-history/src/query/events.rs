@@ -10,6 +10,7 @@ impl Archive {
     /// Line resolution and rows share one read snapshot. First pages need no
     /// retry or global staleness check; cursors bind only their own publications.
     pub fn events(&self, query: &EventQuery) -> Result<Page<EventView>> {
+        let _job = self.jobs.enter(None)?;
         let limit = page_limit(query.limit)? as usize;
         let after =
             query.after.as_deref().map(cursor::decode::<cursor::EventCursor>).transpose()?;

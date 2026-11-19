@@ -24,6 +24,9 @@ vault-core = { version = "0.1.0", path = "../vault-core" }
 vault-platform = { version = "0.1.0", path = "../vault-platform" }
 
 [dev-dependencies]
+agent-history = { path = "../agent-history" }
+tantivy = "0.27.0"
+zstd = "0.14.3"
 libc.workspace = true
 vault-core = { path = "../vault-core", features = ["test-fixtures"] }
 vault-convert-sqlcipher = { path = "../vault-convert-sqlcipher", features = ["test-fixtures"] }

@@ -161,7 +161,7 @@ impl Archive {
                 values.5,
             ))
         })?;
-        let mut reader = RawReader::new(self.store.clone(), info.0.clone());
+        let mut reader = RawReader::new(self, info.0.clone());
         io::copy(&mut reader, &mut io::sink())?;
         let source_id = info.0.source_id;
         let format = info.0.capture_format;

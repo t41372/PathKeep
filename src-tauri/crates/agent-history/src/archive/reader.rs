@@ -33,6 +33,7 @@ fn expired() -> io::Error {
 /// whole digest; callers stopping early have verified only the chunks they read.
 pub struct RawReader {
     store: Arc<Store>,
+    jobs: Arc<super::lifetime::Jobs>,
     info: RevisionInfo,
     chunk: Vec<u8>,
     offset: usize,
@@ -50,7 +51,7 @@ impl Archive {
         if !info.bytes_retained {
             return Err(Error::NotFound("revision bytes expired by retention".into()));
         }
-        Ok(RawReader::new(self.store.clone(), info))
+        Ok(RawReader::new(self, info))
     }
 }
 
@@ -62,16 +63,17 @@ impl Archive {
         offset: u64,
         length: u64,
     ) -> std::io::Take<RawReader> {
-        let mut reader = RawReader::new(self.store.clone(), info.clone());
+        let mut reader = RawReader::new(self, info.clone());
         reader.read_bytes = offset;
         reader.take(length)
     }
 }
 
 impl RawReader {
-    pub(super) fn new(store: Arc<Store>, info: RevisionInfo) -> Self {
+    pub(super) fn new(archive: &Archive, info: RevisionInfo) -> Self {
         Self {
-            store,
+            store: archive.store.clone(),
+            jobs: archive.jobs.clone(),
             info,
             chunk: Vec::new(),
             offset: 0,
@@ -196,6 +198,11 @@ impl RawReader {
 
 impl Read for RawReader {
     fn read(&mut self, output: &mut [u8]) -> io::Result<usize> {
+        let jobs = self.jobs.clone();
+        let _read = jobs.enter(None).map_err(io::Error::other)?;
+        if !self.store.is_open() {
+            return Err(io::Error::other(vault_store::Error::Closed));
+        }
         if self.failed {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,

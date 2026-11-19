@@ -17,6 +17,7 @@ impl Archive {
     /// first page; head revisions and promoted roles reflect current archive facts.
     /// An unavailable source can have no complete revision yet and is still listed.
     pub fn list_sources(&self, query: &SourceQuery) -> Result<Page<SourceInfo>> {
+        let _job = self.jobs.enter(None)?;
         let limit = page_limit(query.limit)?;
         let scope = cursor::scope(&(&query.harness, &query.kind))?;
         let after =

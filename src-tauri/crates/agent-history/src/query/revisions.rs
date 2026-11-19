@@ -17,6 +17,7 @@ impl Archive {
         limit: usize,
         after: Option<String>,
     ) -> Result<Page<RevisionInfo>> {
+        let _job = self.jobs.enter(None)?;
         let count = page_limit(limit)?;
         let after = after.as_deref().map(cursor::decode::<cursor::RevisionCursor>).transpose()?;
         if let Some(after) = &after {

@@ -5,7 +5,6 @@
 use super::schema::{self, Fields};
 use crate::{Archive, Error, Result};
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
 use tantivy::{Index, IndexSettings};
 use vault_crypto::EncryptedDirectory;
 
@@ -24,16 +23,12 @@ pub(super) struct Opened {
     pub watermark: i64,
 }
 
-pub(super) fn path(archive: &Archive) -> PathBuf {
-    vault_layout::path(&archive.root, vault_layout::ArtifactId::AgentHistorySearch)
-}
-
 fn directory(
     archive: &Archive,
 ) -> Result<(Box<dyn tantivy::Directory>, Option<EncryptedDirectory>)> {
     validate_parent(archive)?;
-    let path = path(archive);
-    let metadata = std::fs::symlink_metadata(&path).map_err(|error| {
+    let path = &archive.search_path;
+    let metadata = std::fs::symlink_metadata(path).map_err(|error| {
         if error.kind() == std::io::ErrorKind::NotFound {
             Error::IndexBehind
         } else {
@@ -43,17 +38,13 @@ fn directory(
     if metadata.file_type().is_symlink() || !metadata.is_dir() {
         return Err(Error::InvalidInput("search directory must be an owned directory".into()));
     }
-    if archive.encrypted {
-        let purpose = vault_layout::spec(vault_layout::ArtifactId::AgentHistorySearch)
-            .file_key
-            .expect("the agent-history search index has its own key purpose");
-        let directory = EncryptedDirectory::open_for(&path, &archive.key, purpose, CACHE_BYTES)?;
+    let key = archive.search_key.lock().unwrap().clone();
+    if let Some(key) = key {
+        let directory = EncryptedDirectory::open_with_subkey(path, key, CACHE_BYTES)?;
         Ok((Box::new(directory.clone()), Some(directory)))
     } else {
         Ok((
-            Box::new(
-                tantivy::directory::MmapDirectory::open(&path).map_err(std::io::Error::other)?,
-            ),
+            Box::new(tantivy::directory::MmapDirectory::open(path).map_err(std::io::Error::other)?),
             None,
         ))
     }
@@ -81,17 +72,17 @@ pub(super) fn open(archive: &Archive) -> Result<Opened> {
 
 pub(super) fn recreate(archive: &Archive) -> Result<Opened> {
     validate_parent(archive)?;
-    let path = path(archive);
+    let path = &archive.search_path;
     if path.try_exists()? {
-        let metadata = std::fs::symlink_metadata(&path)?;
+        let metadata = std::fs::symlink_metadata(path)?;
         if metadata.file_type().is_symlink() || !metadata.is_dir() {
             return Err(Error::InvalidInput("search directory must be an owned directory".into()));
         }
-        // Only derived state under this archive's fixed search directory is reset.
+        // Only the owner's dedicated search directory is reset.
         // The source and canonical records are outside this operation's ownership.
-        vault_fs::remove_dir_all(&path)?;
+        vault_fs::remove_dir_all(path)?;
     }
-    std::fs::create_dir_all(&path)?;
+    std::fs::create_dir_all(path)?;
     let (storage, directory) = directory(archive)?;
     let (schema, fields) = schema::schema();
     let index = checked(Index::create(storage, schema, IndexSettings::default()), &directory)?;
@@ -100,7 +91,12 @@ pub(super) fn recreate(archive: &Archive) -> Result<Opened> {
 }
 
 fn validate_parent(archive: &Archive) -> Result<()> {
-    match std::fs::symlink_metadata(archive.root.join("derived")) {
+    match std::fs::symlink_metadata(
+        archive
+            .search_path
+            .parent()
+            .ok_or_else(|| Error::InvalidInput("search directory requires a parent".into()))?,
+    ) {
         Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_dir() => {
             Err(Error::InvalidInput("search parent must be an owned directory".into()))
         }

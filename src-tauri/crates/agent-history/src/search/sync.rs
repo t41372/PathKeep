@@ -42,6 +42,8 @@ impl Archive {
         force_rebuild: bool,
         cancel: &dyn Fn() -> bool,
     ) -> Result<SearchSyncReport> {
+        let _job = self.jobs.enter(None)?;
+        let cancel = &|| cancel() || self.jobs.stopping();
         let _guard = self
             .search_gate
             .lock()
@@ -66,25 +68,22 @@ impl Archive {
             opened.index.writer_with_num_threads(1, WRITER_MEMORY_BYTES),
             &opened.directory,
         )?;
-        let result = self.index_changes(&opened, &mut writer, target, rebuilt, cancel);
-        let indexed_events = match result {
-            Ok(count) => count,
-            Err(error) => {
-                // Rollback itself can fail (disk or authentication errors). Preserve
-                // the first cause; no watermark is acknowledged in either case.
-                let _ = writer.rollback();
-                return Err(error);
-            }
-        };
-        if cancel() {
-            let _ = writer.rollback();
-            return Err(Error::Cancelled);
-        }
-        if self.projection_generation()? != target {
-            let _ = writer.rollback();
-            return Err(Error::IndexBehind);
-        }
-        commit(&mut writer, &opened.directory, target)?;
+        let result =
+            self.index_changes(&opened, &mut writer, target, rebuilt, cancel).and_then(|count| {
+                if cancel() {
+                    return Err(Error::Cancelled);
+                }
+                if self.projection_generation()? != target {
+                    return Err(Error::IndexBehind);
+                }
+                commit(&mut writer, &opened.directory, target)?;
+                Ok(count)
+            });
+        // Uncommitted changes are discarded on writer drop. Join even on cancellation:
+        // a merge can still own directory handles from an earlier partial commit.
+        let joined = index::checked(writer.wait_merging_threads(), &opened.directory);
+        let indexed_events = result?;
+        joined?;
         Ok(SearchSyncReport { indexed_events, watermark: target, rebuilt })
     }
 

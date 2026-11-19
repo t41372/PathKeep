@@ -8691,6 +8691,7 @@ dependencies = [
 name = "vault-worker"
 version = "0.1.0"
 dependencies = [
+ "agent-history",
  "anyhow",
  "chrono",
  "libc",
@@ -8699,6 +8700,7 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+ "tantivy",
  "tempfile",
  "tokio",
  "vault-build",
@@ -8710,6 +8712,7 @@ dependencies = [
  "vault-platform",
  "vault-store",
  "zeroize",
+ "zstd",
 ]
 
 [[package]]

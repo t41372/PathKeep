@@ -27,6 +27,7 @@ impl Archive {
     /// Re-reads every published raw revision in bounded chunks, including old and
     /// unparseable sources. No source files or derived state are changed.
     pub fn verify(&self) -> Result<VerifyReport> {
+        let _job = self.jobs.enter(None)?;
         for db in [Db::AgentHistoryReadModel, Db::AgentHistoryEvidence] {
             let messages = self.store.read(db, |tx| tx.integrity_check())?;
             if messages.len() != 1 || messages[0] != "ok" {

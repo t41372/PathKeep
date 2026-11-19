@@ -36,6 +36,7 @@ pub(crate) fn check_caller() -> Result<()> {
 }
 
 pub(crate) struct Workers {
+    pub encrypted: bool,
     pub plans: Arc<crate::query_plans::PlanCapture>,
     writer: Arc<Queue<Job>>,
     readers: Arc<Queue<Job>>,
@@ -65,6 +66,7 @@ impl Workers {
         let metrics = Arc::new(Mutex::new(Metrics::default()));
         let compiled = Arc::new(AtomicU64::new(0));
         let mut owners = Self {
+            encrypted: settings.key.is_some(),
             plans: Arc::default(),
             writer: writer.clone(),
             readers: readers.clone(),

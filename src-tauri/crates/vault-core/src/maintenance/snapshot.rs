@@ -28,7 +28,7 @@ pub(crate) struct FileProof {
 pub fn snapshot(vault: &Vault, target: &Path) -> Result<()> {
     let _operation = crate::archive::ArchiveOpGate::acquire(vault.paths());
     vault.recheck_root()?;
-    let pause = vault.store().pause()?;
+    let pause = vault.pause_store()?;
     pause.snapshot(target)?;
     crate::config::save_copy_config(vault.paths(), target, vault.config())?;
     let envelope = vault_layout::path(&vault.paths().app_root, vault_layout::ArtifactId::Envelope);
@@ -284,8 +284,7 @@ pub fn restore_snapshot_to(
     );
     crate::config::write_staged_control(&staged_paths, &config, Some(&stamp))?;
     if let Some(vault) = current {
-        vault.store().pause()?.close()?;
-        vault.close()?;
+        vault.pause_store()?.close()?;
     }
     let replaced = install::install(
         &control,
@@ -400,10 +399,9 @@ fn convert_stage(
     let databases: Vec<_> = vault_layout::mode_change_databases(layout)
         .filter(|db| !agent_history_databases().contains(db))
         .collect();
-    let pause = staged.store().pause()?;
+    let pause = staged.pause_store()?;
     super::copy_databases(&pause, &converted, to, cancel, |_| {}, &databases)?;
     pause.close()?;
-    staged.close()?;
     let recreated = agent_history_databases().into_iter().chain([vault_layout::scratch_database()]);
     for db in databases.iter().copied().chain(recreated) {
         let relative = vault_layout::database_path(db);

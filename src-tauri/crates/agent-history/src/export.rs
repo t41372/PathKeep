@@ -85,6 +85,7 @@ impl Archive {
         format: ExportFormat,
         output: &mut dyn Write,
     ) -> Result<ExportReport> {
+        let _job = self.jobs.enter(None)?;
         let session = self.session(session_id)?;
         let line = self.line_stamp(session_id)?;
         let revision = self.revision(session.revision_id)?;
@@ -120,6 +121,9 @@ impl Archive {
                 return Err(Error::Integrity("event page did not advance".into()));
             }
             for event in &page.items {
+                if self.jobs.stopping() {
+                    return Err(Error::Cancelled);
+                }
                 match format {
                     ExportFormat::Jsonl => write_json_line(&mut output, event)?,
                     ExportFormat::Markdown => write_markdown_event(&mut output, event)?,
@@ -150,6 +154,7 @@ impl Archive {
     /// A logical SQLite snapshot contains captured rows, not the original main/WAL file bytes;
     /// the report identifies that format. Chunk and complete digests are verified on success.
     pub fn write_raw(&self, revision: i64, output: &mut dyn Write) -> Result<ExportReport> {
+        let _job = self.jobs.enter(None)?;
         let info = self.revision(revision)?;
         let mut input = self.raw_reader(revision)?;
         let mut output = CountedWriter::new(output);

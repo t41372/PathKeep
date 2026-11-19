@@ -133,6 +133,7 @@ impl Archive {
         before: Option<i64>,
         limit: usize,
     ) -> Result<crate::query::Page<FolderObservation>> {
+        let _job = self.jobs.enter(None)?;
         let count = crate::query::page_limit(limit)?;
         let path = path.map(str::to_owned);
         let mut rows = self.store.read(Db::AgentHistoryEvidence, move |tx| {

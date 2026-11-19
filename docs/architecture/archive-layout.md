@@ -28,6 +28,11 @@ The views that list stores or files take a layout, and every caller passes the l
 
 `ProjectPaths` in `vault-core` is still the typed set of paths the rest of the backend passes around. Its values now come from the table, and `ProjectPaths::artifact_path` resolves any artifact, honouring a caller's overridden paths where the old code did.
 
+The desktop conversation service attaches lazily to the two conversation roles of
+the open store. Its search directory comes from `ProjectPaths::artifact_path`
+and its subkey from the layout row. Standalone initialization markers and keys
+belong solely to the standalone archive.
+
 ## What the compiler enforces
 
 - A new `ArtifactId` without an arm in `spec` does not compile.
@@ -56,6 +61,7 @@ Changing one of these is a behaviour change with its own decision and test. It i
 Three things, written by different hands on purpose:
 
 - **What each operation leaves on disk.** `vault-worker/tests/vault_lifecycle/` runs the real owner on a synthetic data folder through first open, backup, snapshot, restore, encryption on and off, password change, move export and import, index rebuild and wipe, in plaintext and encrypted mode. After each step it lists every file and every file containing each marker string, and compares with a recorded literal in `expected/`. No expectation is computed from the table.
+  The conversation scenarios also capture four native tool folders and retain their expected bytes outside the data root. They open a disposable snapshot copy, exercise both mode switches, password rewrap, close/reopen and move-file import, and check the original revisions, marks and search results. Restoring a safety copy rolls browsing back and preserves the live conversations.
 - **An independent list of what may exist.** `vault_lifecycle/support/expected_root.rs` classifies every path allowed under the data folder. It was written from a separate reading of the code and is not generated from the table, and the table is not generated from it. A file one of them does not know shows up as a disagreement.
 - **The identities that must never change.** `vault-crypto/tests/historical_labels.rs` pins the eight key labels against independently computed keys; `vault_lifecycle/contracts.rs` pins the five database paths, opens each encrypted file with its literal path and key purpose, and reads each database's migration ledger.
 

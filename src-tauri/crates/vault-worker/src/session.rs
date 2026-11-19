@@ -51,11 +51,13 @@ pub struct VaultSession {
 /// without one.
 #[must_use = "the archive may be opened again as soon as the lease is dropped"]
 pub struct MaintenanceLease {
+    conversations: Option<vault_core::ConversationPause>,
     session: VaultSession,
 }
 
 impl Drop for MaintenanceLease {
     fn drop(&mut self) {
+        self.conversations.take();
         let (lock, ready) = &*self.session.inner;
         lock.lock().unwrap_or_else(|e| e.into_inner()).transition = Transition::Idle;
         ready.notify_all();
@@ -92,7 +94,10 @@ impl VaultSession {
             }
         }
         state.transition = Transition::Maintaining;
-        Ok(MaintenanceLease { session: self.clone() })
+        let vault = state.vault.clone();
+        drop(state);
+        let conversations = vault.map(|vault| vault.pause_conversations());
+        Ok(MaintenanceLease { session: self.clone(), conversations })
     }
 
     /// Restore a complete file generation before inspecting mode, credentials or
@@ -163,9 +168,15 @@ impl VaultSession {
             let mut state = self.inner.0.lock().expect("session state");
             state.password = password.map(Zeroizing::new);
             state.data_key = archive.data_key.map(Arc::new);
-            state.vault.replace(archive.vault)
+            let same_owner = state
+                .vault
+                .as_ref()
+                .is_some_and(|old| Arc::ptr_eq(old.store(), archive.vault.store()));
+            state.vault.replace(archive.vault).filter(|_| !same_owner)
         };
-        drop(old);
+        if let Some(old) = old {
+            old.close()?;
+        }
         keyring_result.map_err(|error| KeychainNotUpdated(error).into())
     }
 

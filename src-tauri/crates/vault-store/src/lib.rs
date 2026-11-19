@@ -55,6 +55,10 @@ impl Store {
     pub fn owner(&self) -> Result<Arc<OwnerLock>> {
         self.ownership.lock().unwrap().clone().ok_or(Error::Closed)
     }
+    /// An attached index must match its database's protection. An absent role has no mode.
+    pub fn database_encrypted(&self, db: Db) -> Option<bool> {
+        self.workers().iter().find(|(role, _)| *role == db).map(|(_, workers)| workers.encrypted)
+    }
     /// Reports availability without waiting on a database connection.
     pub fn is_open(&self) -> bool {
         !self.closed.load(std::sync::atomic::Ordering::Acquire)

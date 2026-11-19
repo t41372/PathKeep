@@ -4,6 +4,8 @@
 //! unfinished runs surviving reopen as running, lost committed progress, ignored keys, reused sub-keys, invalid envelopes, unchecked upgrade passwords and lost envelopes creating new keys.
 //! Tests: vault::tests, using real plaintext and encrypted temporary stores.
 
+mod agent_history;
+pub use agent_history::ConversationPause;
 pub(crate) mod live;
 pub(crate) mod password;
 pub(crate) mod upgrade;
@@ -157,6 +159,7 @@ impl Vault {
         live::register(&paths.app_root, &store);
         live::register_search(&paths.app_root, &search, &search_sessions);
         let lifetime = Arc::new(Lifetime {
+            conversations: Arc::default(),
             store: Arc::downgrade(&store),
             search: Arc::downgrade(&search),
             sessions: Arc::downgrade(&search_sessions),
@@ -402,12 +405,14 @@ pub(crate) fn storage_config(
 }
 
 struct Lifetime {
+    conversations: Arc<agent_history::Conversations>,
     store: std::sync::Weak<Store>,
     search: std::sync::Weak<crate::search::Indexer>,
     sessions: std::sync::Weak<crate::search::SearchSessions>,
 }
 impl Lifetime {
     fn close(&self) -> Result<()> {
+        self.conversations.close();
         if let Some(sessions) = self.sessions.upgrade() {
             sessions.close();
         }

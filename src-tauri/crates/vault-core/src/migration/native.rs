@@ -80,7 +80,7 @@ pub fn export(
     config.remember_database_key_in_keyring = false;
     config.app_lock = Default::default();
     let key = maintenance::create_envelope(stage.path(), &config, Some(password))?.unwrap();
-    let pause = vault.store().pause()?;
+    let pause = vault.pause_store()?;
     maintenance::copy_databases(
         &pause,
         stage.path(),
@@ -404,8 +404,7 @@ pub fn install_staged(
     let staged_paths = crate::project_paths_with_root(stage);
     crate::config::write_staged_control(&staged_paths, &config, Some(&stamp))?;
     if let Some(vault) = current {
-        vault.store().pause()?.close()?;
-        vault.close()?;
+        vault.pause_store()?.close()?;
     }
     // What the stage holds, by its own control, not by this build's newest layout. Read with the
     // archive closed: no backup adds a browser's history file to `raw-snapshots/` from here on.

@@ -87,8 +87,21 @@ Follow ADR-012: new relational storage uses Turso, full-text search uses Tantivy
 Archive, projection and search files follow the archive's encryption choice,
 which may be none (`init --no-encryption`); temporary spill files are encrypted
 either way. Reuse `vault-store` and `vault-crypto`, including the password
-envelope; do not introduce another crypto format or plaintext staging directory. The standalone archive has its own root
-and data key. Future product integration must explicitly own its lifecycle.
+envelope; do not introduce another crypto format or plaintext staging directory. The standalone archive owns its root, envelope and format marker.
+
+In the desktop app, blocking callers obtain an `Arc<agent_history::Archive>` from
+`Vault::agent_history()`. All clones of one open vault share the first successful
+attachment. The library checks both conversation roles and their encryption mode,
+then runs the same recovery as standalone open. The vault supplies the dedicated
+search directory and its derived subkey in encrypted mode. Opening or attaching
+does not discover sources. A failed attachment can be retried.
+
+Capture, reparse, search and exports run on their caller's blocking thread. A
+maintenance lease stops admission and drains active file users before freezing
+the store. Close permanently revokes them, releases the search key and closes
+the store. A retained raw reader checks admission even for a buffered slice.
+Callbacks must return for draining to complete. Use a cancellation token per
+capture or reparse. The owner can signal it during maintenance or shutdown.
 
 Raw bytes are split into 4 MiB slices, compressed with zstd and addressed by the
 SHA-256 of their uncompressed bytes, inside the canonical database. Files the

@@ -33,6 +33,7 @@ impl Archive {
     /// Reads one current interpretation; raw revisions remain independently
     /// addressable when a newer source cannot be interpreted.
     pub fn session(&self, id: &str) -> Result<SessionView> {
+        let _job = self.jobs.enter(None)?;
         let id = id.to_owned();
         let requested = id.clone();
         let columns = columns();
@@ -56,6 +57,7 @@ impl Archive {
     /// Lists sources in a stable order, with missing native timestamps last.
     /// Restart the query if any projection was published between its pages.
     pub fn list_sessions(&self, query: &SessionQuery) -> Result<Page<SessionView>> {
+        let _job = self.jobs.enter(None)?;
         let limit = page_limit(query.limit)?;
         if !["exclude", "only", "include"].contains(&query.put_away.as_str())
             || !["exclude", "only"].contains(&query.trash.as_str())

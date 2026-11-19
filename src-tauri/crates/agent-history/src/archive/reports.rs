@@ -114,6 +114,7 @@ impl Archive {
     /// Reads durable run evidence for audit and recovery interfaces without
     /// inferring success from the latest available transcript.
     pub fn backup_run(&self, id: i64) -> Result<BackupRun> {
+        let _job = self.jobs.enter(None)?;
         let stored =
             self.store
                 .read(Db::AgentHistoryEvidence, move |tx| {

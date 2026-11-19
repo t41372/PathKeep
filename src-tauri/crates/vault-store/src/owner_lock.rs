@@ -15,6 +15,11 @@ pub struct OwnerLock {
     pub(crate) root: std::path::PathBuf,
 }
 impl OwnerLock {
+    /// The reserved root also bounds which source folders an attached service may capture.
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
     /// The app holds this guard until all database work has stopped.
     #[cfg(any(unix, windows))]
     pub fn acquire(root: &Path) -> Result<Self> {

@@ -134,7 +134,7 @@ pub fn switch_mode(
     config.archive_mode = mode;
     let key = create_envelope(stage.path(), &config, new_password)?;
     let owner = vault.store().owner()?;
-    let pause = vault.store().pause()?;
+    let pause = vault.pause_store()?;
     let progress = Arc::new(Mutex::new(progress));
     let copy_progress = progress.clone();
     copy_databases(
@@ -178,7 +178,6 @@ pub fn switch_mode(
     staged.close()?;
     cancel.check()?;
     pause.close()?;
-    vault.close()?;
     // The replacement's control is the live one as it is now, with the new mode: a setting saved
     // while the copy ran is kept. Built and installed under one hold of the control's gate.
     let control = crate::ControlGate::acquire(vault.paths());

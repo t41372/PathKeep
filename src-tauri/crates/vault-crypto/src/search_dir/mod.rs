@@ -76,7 +76,7 @@ pub struct EncryptedDirectory {
 
 struct Inner {
     root: PathBuf,
-    key: SubKey,
+    key: Arc<SubKey>,
     key_id: [u8; 16],
     cache: Arc<BlockCache>,
     integrity: Arc<IntegrityLog>,
@@ -91,12 +91,14 @@ impl EncryptedDirectory {
         data_key: &DataKey,
         cache_bytes: usize,
     ) -> io::Result<EncryptedDirectory> {
-        Self::open_key(
+        Self::open_with_subkey(
             root,
-            data_key.derive(
-                vault_layout::spec(vault_layout::ArtifactId::Search)
-                    .file_key
-                    .expect("search purpose"),
+            Arc::new(
+                data_key.derive(
+                    vault_layout::spec(vault_layout::ArtifactId::Search)
+                        .file_key
+                        .expect("search purpose"),
+                ),
             ),
             cache_bytes,
         )
@@ -110,22 +112,25 @@ impl EncryptedDirectory {
         purpose: vault_layout::KeyPurpose,
         cache_bytes: usize,
     ) -> io::Result<EncryptedDirectory> {
-        Self::open_key(root, data_key.derive(purpose), cache_bytes)
+        Self::open_with_subkey(root, Arc::new(data_key.derive(purpose)), cache_bytes)
     }
 
     pub(crate) fn open_artifacts(root: &Path, key: &DataKey) -> io::Result<Self> {
-        Self::open_key(
+        Self::open_with_subkey(
             root,
-            key.derive(
-                vault_layout::spec(vault_layout::ArtifactId::PortableArtifacts)
-                    .file_key
-                    .expect("artifact purpose"),
+            Arc::new(
+                key.derive(
+                    vault_layout::spec(vault_layout::ArtifactId::PortableArtifacts)
+                        .file_key
+                        .expect("artifact purpose"),
+                ),
             ),
             0,
         )
     }
 
-    fn open_key(root: &Path, key: SubKey, cache_bytes: usize) -> io::Result<Self> {
+    /// Opens a directory for a service entrusted with only its own derived key.
+    pub fn open_with_subkey(root: &Path, key: Arc<SubKey>, cache_bytes: usize) -> io::Result<Self> {
         if !root.is_dir() {
             return Err(io::Error::new(
                 io::ErrorKind::NotFound,

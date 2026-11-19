@@ -23,6 +23,7 @@ impl Archive {
         mark: &ConversationMark,
         execute: bool,
     ) -> Result<crate::query::SessionView> {
+        let _job = self.jobs.enter(None)?;
         let item = self.session(id).map_err(|error| {
             if matches!(error, Error::NotFound(_)) { Error::ConversationNotFound } else { error }
         })?;

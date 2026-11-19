@@ -63,7 +63,9 @@ pub use ai::{
     SimilarSearches, related_pages, search_groups_card, similar_searches,
     warm_search_group_snapshots,
 };
-pub use vault::{ArchivePasswordWrong, BackupAlreadyRunning, EnvelopeMissing, Vault};
+pub use vault::{
+    ArchivePasswordWrong, BackupAlreadyRunning, ConversationPause, EnvelopeMissing, Vault,
+};
 
 pub use agent_store::{
     AgentCitationRecord, AgentRunStatus, AgentRunTrace, AgentStepRecord, AppendAgentStep,
