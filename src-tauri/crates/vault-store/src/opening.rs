@@ -73,15 +73,15 @@ impl Store {
     }
 
     fn record_isolated_failure(&self, error: Error) -> Result<()> {
+        // The browsing roles already authenticated their derived keys. A page that
+        // fails authentication here is unreadable under this role's key. Browsing
+        // has already established that its own files are readable. Retain the engine's exact cause.
         match error {
             Error::Open(failure)
                 if conversation_role(failure.role)
                     && !matches!(
                         failure.cause,
-                        Error::WrongKey { .. }
-                            | Error::InvalidConfig(_)
-                            | Error::Closed
-                            | Error::JobPanicked { .. }
+                        Error::InvalidConfig(_) | Error::Closed | Error::JobPanicked { .. }
                     ) =>
             {
                 *self.conversation_failure.write().unwrap() = Some(failure);

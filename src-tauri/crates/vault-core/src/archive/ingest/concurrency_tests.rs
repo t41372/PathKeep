@@ -246,8 +246,9 @@ fn backup_crash_child() {
     let profile: crate::BrowserProfile =
         serde_json::from_str(&std::env::var("PATHKEEP_BATCH_CRASH_PROFILE").unwrap()).unwrap();
     let key = std::env::var_os("PATHKEEP_BATCH_CRASH_ENCRYPTED").map(|_| [91; 32]);
-    let config = AppConfig { initialized: true, git_enabled: false, ..AppConfig::default() };
-    let vault = Vault::open(crate::project_paths_with_root(Path::new(&root)), config, key).unwrap();
+    let paths = crate::project_paths_with_root(Path::new(&root));
+    let config = crate::load_config(&paths).unwrap();
+    let vault = Vault::open(paths, config, key).unwrap();
     super::super::backup::run_backup_profiles(
         &vault,
         None,
@@ -267,6 +268,18 @@ fn backup_crash_child() {
 fn process_exit_preserves_committed_batches_and_resume_watermark() {
     for key in [None, Some([91; 32])] {
         let root = tempdir().unwrap();
+        let paths = crate::project_paths_with_root(root.path());
+        let config = AppConfig {
+            initialized: true,
+            git_enabled: false,
+            archive_mode: if key.is_some() {
+                crate::ArchiveMode::Encrypted
+            } else {
+                crate::ArchiveMode::Plaintext
+            },
+            ..Default::default()
+        };
+        crate::save_config(&crate::ControlGate::acquire(&paths), &config).unwrap();
         let source = varied_snapshot(10_001);
         let mut child = std::process::Command::new(std::env::current_exe().unwrap());
         child
@@ -282,12 +295,8 @@ fn process_exit_preserves_committed_batches_and_resume_watermark() {
         }
         let output = child.output().unwrap();
         assert_eq!(output.status.code(), Some(73), "{}", String::from_utf8_lossy(&output.stderr));
-        let vault = Vault::open(
-            crate::project_paths_with_root(root.path()),
-            AppConfig { initialized: true, git_enabled: false, ..Default::default() },
-            key,
-        )
-        .unwrap();
+        let config = crate::load_config(&paths).unwrap();
+        let vault = Vault::open(paths, config, key).unwrap();
         assert_eq!(count(&vault), 10_000);
         let state = vault
             .store()

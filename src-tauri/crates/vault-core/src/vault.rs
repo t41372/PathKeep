@@ -48,6 +48,9 @@ pub struct Vault {
 
 impl Vault {
     /// Opens databases from the raw data key returned by password unlock or the keychain.
+    /// A live root containing archive data needs its admitted control, or a recognized
+    /// recovery record explaining its absence. An empty root can open as BrowsingV1.
+    /// This low-level call does not create its control. Setup saves it before first open.
     pub fn open(paths: ProjectPaths, config: AppConfig, mut key: Option<[u8; 32]>) -> Result<Self> {
         use zeroize::Zeroize;
         let data_key = key
@@ -57,7 +60,8 @@ impl Vault {
         Self::open_owned(paths, config, data_key.as_ref(), None)
     }
 
-    /// Use the app's startup reservation for the same root, before IPC accepts requests.
+    /// Uses the app's startup reservation under the same live-control rules as [`Self::open`].
+    /// The caller's settings cannot stand in for a lost control on disk.
     pub fn open_owned(
         paths: ProjectPaths,
         config: AppConfig,
@@ -118,6 +122,9 @@ impl Vault {
         // A restore or import owns its staged migration. Only the live archive resumes its
         // schema update at the next launch, as the quit prompt promises.
         let update = live_archive.then(|| upgrade::UpdateScope::track(&mut storage.migrations));
+        // An open that itself replayed an install or promoted the layout must verify the
+        // resulting database set as a whole. Only an ordinary open of an established layout
+        // may publish a partial owner. A later open re-evaluates the files in place.
         let opened =
             if live_archive && !recovered && layout != vault_layout::ArchiveLayout::BrowsingV1 {
                 Store::open_grouped(storage, || {

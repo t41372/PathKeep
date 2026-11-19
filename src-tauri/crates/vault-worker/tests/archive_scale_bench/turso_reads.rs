@@ -55,18 +55,24 @@ fn encrypted_archive_reads_at_scale() {
     root.close().unwrap();
     println!("BENCH data_removed=true");
 }
+/// Seed an empty fixture with its control. Child processes and resumed measurements
+/// use the control already on disk.
 pub(super) fn open(root: &Path) -> Vault {
-    Vault::open(
-        vault_core::project_paths_with_root(root),
-        AppConfig {
+    let paths = vault_core::project_paths_with_root(root);
+    if matches!(
+        vault_core::admission::inspect(root).unwrap(),
+        vault_core::admission::RootState::Uninitialized
+    ) {
+        let config = AppConfig {
             initialized: true,
             git_enabled: false,
             archive_mode: ArchiveMode::Encrypted,
             ..Default::default()
-        },
-        Some([83; 32]),
-    )
-    .unwrap()
+        };
+        vault_core::save_config(&vault_core::ControlGate::acquire(&paths), &config).unwrap();
+    }
+    let config = vault_core::load_config(&paths).unwrap();
+    Vault::open(paths, config, Some([83; 32])).unwrap()
 }
 /// The page visit `id` opens, as SQL over `id`. Visits are 10 s apart, 8,640 a day, and page `p`
 /// belongs to site `p % 20000`. `PATHKEEP_BENCH_SHAPE` picks how a day's visits spread over sites:

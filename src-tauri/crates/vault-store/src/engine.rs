@@ -300,13 +300,19 @@ impl Engine {
             }
             if let Some(path) = &settings.scratch {
                 let uri = scratch_uri(path, settings.scratch_key.as_ref());
-                self.conn.execute("ATTACH ?1 AS scratch", [uri.as_str()]).await?;
+                self.conn
+                    .execute("ATTACH ?1 AS scratch", [uri.as_str()])
+                    .await
+                    .map_err(|e| Error::from(e).at(Db::Scratch, OpenStage::Open))?;
                 // In 0.8.1 a schema-qualified cache_size still updates main.
                 // Leave the attachment's native bounded page cache alone.
             }
             if let Some(path) = &settings.archive {
                 let uri = scratch_uri(path, settings.archive_key.as_ref());
-                self.conn.execute("ATTACH ?1 AS archive", [uri.as_str()]).await?;
+                self.conn
+                    .execute("ATTACH ?1 AS archive", [uri.as_str()])
+                    .await
+                    .map_err(|e| Error::from(e).at(Db::Archive, OpenStage::Open))?;
             }
             if read_only {
                 self.conn.execute("PRAGMA query_only=1", ()).await?;

@@ -2,93 +2,14 @@
 //! Source generation and conversation content comparisons belong to the shared corpus.
 
 use super::*;
-use std::{collections::BTreeMap, io::Write, path::Path};
+use std::{collections::BTreeMap, path::Path};
 use vault_store::{Db, Priority};
 
 const CONVERSATIONS: [Db; 2] = [Db::AgentHistoryEvidence, Db::AgentHistoryReadModel];
 
-#[derive(Clone, Copy, Debug)]
-enum Damage {
-    Truncated,
-    Header,
-    Directory,
-    Missing,
-    #[cfg(unix)]
-    Unreadable,
-    Migration,
-}
-
-const DAMAGE: &[Damage] = &[
-    Damage::Truncated,
-    Damage::Header,
-    Damage::Directory,
-    Damage::Missing,
-    #[cfg(unix)]
-    Damage::Unreadable,
-    Damage::Migration,
-];
-
-fn spoil(fixture: &Fixture, db: Db, damage: Damage) {
-    // Re-run an existing DDL step against its already-created schema. This reaches the real
-    // migration transaction in plaintext and encrypted mode, with no injected engine error.
-    if matches!(damage, Damage::Migration) {
-        let vault = fixture.vault();
-        let decoded = fixture.sandbox.path().join("migration-input");
-        let file = decoded.join(vault_layout::database_path(db));
-        fs::create_dir_all(file.parent().unwrap()).unwrap();
-        vault
-            .store()
-            .pause()
-            .unwrap()
-            .copy_database(db, file.clone(), None, Default::default(), |_| {})
-            .unwrap();
-        rusqlite::Connection::open(&file)
-            .unwrap()
-            .execute("DELETE FROM __pk_migrations", ())
-            .unwrap();
-        let key = (vault.config().archive_mode == ArchiveMode::Encrypted).then(|| {
-            *Vault::unlock_data_key(vault.paths(), PASSWORD)
-                .unwrap()
-                .derive(vault_layout::database_spec(db).key)
-                .expose_bytes()
-        });
-        let mut config = vault_store::Config::new(&decoded);
-        config.databases = vec![Db::Scratch, db];
-        let input = vault_store::Store::open(config).unwrap();
-        let output = fixture.sandbox.path().join("unmigrated.db");
-        input
-            .pause()
-            .unwrap()
-            .copy_database(db, output.clone(), key, Default::default(), |_| {})
-            .unwrap();
-        fixture.session.close_vault().unwrap();
-        fs::copy(output, fixture.root.join(vault_layout::database_path(db))).unwrap();
-        return;
-    }
-    fixture.session.close_vault().unwrap();
-    let path = fixture.root.join(vault_layout::database_path(db));
-    match damage {
-        Damage::Truncated => fs::write(path, b"bad").unwrap(),
-        Damage::Header => {
-            fs::OpenOptions::new().write(true).open(path).unwrap().write_all(&[0x55; 16]).unwrap()
-        }
-        Damage::Directory => {
-            fs::remove_file(&path).unwrap();
-            fs::create_dir(path).unwrap();
-        }
-        Damage::Missing => fs::remove_file(path).unwrap(),
-        #[cfg(unix)]
-        Damage::Unreadable => {
-            use std::os::unix::fs::PermissionsExt;
-            fs::set_permissions(&path, fs::Permissions::from_mode(0o000)).unwrap();
-            assert_eq!(
-                fs::File::open(path).unwrap_err().kind(),
-                std::io::ErrorKind::PermissionDenied
-            );
-        }
-        Damage::Migration => {}
-    }
-}
+#[path = "damage/files.rs"]
+mod files;
+use files::{DAMAGE, Damage, spoil};
 
 #[cfg(unix)]
 fn unreadable_digest(path: &Path) -> String {
@@ -131,6 +52,59 @@ fn open(fixture: &Fixture, encrypted: bool) -> anyhow::Result<Vault> {
     }
 }
 
+fn assert_open_failure(
+    reason: &vault_store::StoreOpenFailure,
+    role: Db,
+    damage: Damage,
+    encrypted: bool,
+) {
+    use vault_store::{Error, OpenStage};
+    let stage = match damage {
+        Damage::Migration => OpenStage::Migrate,
+        Damage::FirstPageBit | Damage::FirstPageGarbage => {
+            if encrypted {
+                assert!(matches!(reason.cause, Error::WrongKey { .. }), "{reason:?}");
+                OpenStage::KeyCheck
+            } else {
+                assert!(matches!(reason.cause, Error::Corrupt { .. }), "{reason:?}");
+                OpenStage::Preflight
+            }
+        }
+        _ => OpenStage::Preflight,
+    };
+    assert_eq!((reason.role, reason.stage), (role, stage), "{damage:?}: {reason:?}");
+}
+
+fn assert_later_read_fails(vault: &Vault, role: Db, encrypted: bool) {
+    let archive = vault.agent_history().unwrap();
+    let error = if role == Db::AgentHistoryEvidence {
+        let revision = archive.list_sessions(&Default::default()).unwrap().items[0].revision_id;
+        archive.write_raw(revision, &mut std::io::sink()).unwrap_err()
+    } else {
+        archive.list_sessions(&Default::default()).unwrap_err()
+    };
+    let cause = match (&error, role) {
+        (agent_history::Error::Io(io), Db::AgentHistoryEvidence) => {
+            io.get_ref().and_then(|e| e.downcast_ref::<vault_store::Error>())
+        }
+        (agent_history::Error::Store(cause), Db::AgentHistoryReadModel) => Some(cause),
+        _ => None,
+    };
+    if encrypted {
+        assert!(matches!(cause, Some(vault_store::Error::WrongKey { .. })), "{error:?}");
+    } else {
+        // Turso may report invalid b-tree data directly, or panic while stepping
+        // the statement. In both cases the read must return to the caller.
+        assert!(
+            matches!(
+                cause,
+                Some(vault_store::Error::Corrupt { .. } | vault_store::Error::JobPanicked { .. })
+            ),
+            "{error:?}"
+        );
+    }
+}
+
 #[test]
 fn conversation_files_fail_as_one_group_and_browsing_works() {
     for encrypted in [false, true] {
@@ -141,26 +115,22 @@ fn conversation_files_fail_as_one_group_and_browsing_works() {
                 spoil(&f, role, damage);
                 let before = hashes(&f.root);
                 let vault = open(&f, encrypted).unwrap();
-                let failure = vault.conversation_availability().unwrap_err();
-                assert_eq!(failure.role, role);
-                assert_eq!(
-                    failure.stage,
-                    if matches!(damage, Damage::Migration) {
-                        vault_store::OpenStage::Migrate
-                    } else {
-                        vault_store::OpenStage::Preflight
+                if matches!(damage, Damage::LaterPageGarbage) {
+                    vault.conversation_availability().unwrap();
+                } else {
+                    let failure = vault.conversation_availability().unwrap_err();
+                    assert_open_failure(&failure, role, damage, encrypted);
+                    assert!(
+                        matches!(vault.agent_history(), Err(agent_history::Error::Store(vault_store::Error::Open(reason))) if Arc::ptr_eq(&reason, &failure))
+                    );
+                    for db in CONVERSATIONS {
+                        assert_eq!(vault.store().database_encrypted(db), None);
                     }
-                );
-                assert!(
-                    matches!(vault.agent_history(), Err(agent_history::Error::Store(vault_store::Error::Open(reason))) if Arc::ptr_eq(&reason, &failure))
-                );
-                for db in CONVERSATIONS {
-                    assert_eq!(vault.store().database_encrypted(db), None);
+                    assert_eq!(
+                        vault.available_kinds(),
+                        [vault_layout::DataScope::Browsing, vault_layout::DataScope::Assistant]
+                    );
                 }
-                assert_eq!(
-                    vault.available_kinds(),
-                    [vault_layout::DataScope::Browsing, vault_layout::DataScope::Assistant]
-                );
                 if matches!(damage, Damage::Directory) {
                     assert!(f.root.join(vault_layout::database_path(role)).is_dir());
                 }
@@ -174,7 +144,10 @@ fn conversation_files_fail_as_one_group_and_browsing_works() {
                 }
                 vault.close().unwrap();
                 assert_eq!(hashes(&f.root), before);
-                f.reopen(encrypted);
+                let reopened = f.reopen(encrypted);
+                if matches!(damage, Damage::LaterPageGarbage) {
+                    assert_later_read_fails(&reopened, role, encrypted);
+                }
                 f.create_browser();
                 assert_eq!(f.backup().run.unwrap().new_visits, 1);
                 let title: String = f.vault().store().read(Db::Archive, |s| {
@@ -189,15 +162,15 @@ fn conversation_files_fail_as_one_group_and_browsing_works() {
 #[test]
 fn browsing_file_damage_refuses_the_archive() {
     for encrypted in [false, true] {
-        for &damage in DAMAGE {
+        for &damage in DAMAGE.iter().filter(|d| !matches!(d, Damage::LaterPageGarbage)) {
             let f = Fixture::new(encrypted);
             let _corpus = Corpus::seed(&f);
             spoil(&f, Db::SourceEvidence, damage);
             let error = open(&f, encrypted).unwrap_err();
-            assert!(
-                matches!(error.downcast_ref::<vault_store::Error>(), Some(vault_store::Error::Open(reason)) if reason.role == Db::SourceEvidence),
-                "{error:#}"
-            );
+            let Some(vault_store::Error::Open(reason)) = error.downcast_ref() else {
+                panic!("expected a role-specific failure: {error:#}");
+            };
+            assert_open_failure(reason, Db::SourceEvidence, damage, encrypted);
         }
     }
 }
@@ -525,5 +498,40 @@ fn a_file_lost_after_preflight_is_never_created_by_the_writer() {
     assert!(!path.exists());
     for role in CONVERSATIONS {
         assert_eq!(store.database_encrypted(role), None);
+    }
+}
+
+/// A conversation writer also opens a connection to shared Scratch. A key failure
+/// on that connection belongs to Scratch, even though the writer starting it is private.
+#[cfg(unix)]
+#[test]
+fn conversation_start_refuses_a_replaced_shared_scratch() {
+    let f = Fixture::new(true);
+    let key = Vault::unlock_data_key(f.vault().paths(), PASSWORD).unwrap();
+    f.session.close_vault().unwrap();
+    let mut config = vault_store::Config::new(&f.root);
+    config.required_existing = Db::ALL.into_iter().filter(|db| *db != Db::Scratch).collect();
+    config.keys =
+        Db::ALL.map(|db| Some(*key.derive(vault_layout::database_spec(db).key).expose_bytes()));
+    config.migrations = vault_core::store_schema::migration_registry();
+    let scratch = config.paths.scratch.clone();
+    let replacement = f.sandbox.path().join("replacement.db");
+    fs::copy(&config.paths.archive, &replacement).unwrap();
+    // Replace the name after browsing authenticates. The open workers retain their
+    // original handles; the next ATTACH encounters a file under a different role key.
+    let mut browsing_started = false;
+    let result = vault_store::Store::open_grouped(config, || {
+        browsing_started = true;
+        fs::rename(replacement, scratch)?;
+        Ok(())
+    });
+    assert!(browsing_started);
+    match result {
+        Err(vault_store::Error::Open(reason)) => {
+            assert_eq!((reason.role, reason.stage), (Db::Scratch, vault_store::OpenStage::Open));
+            assert!(matches!(reason.cause, vault_store::Error::WrongKey { .. }), "{reason:?}");
+        }
+        Err(other) => panic!("expected a role-specific open error: {other:?}"),
+        Ok(store) => panic!("accepted replaced Scratch: {:?}", store.conversation_availability()),
     }
 }

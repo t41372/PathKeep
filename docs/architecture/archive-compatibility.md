@@ -236,6 +236,10 @@ Three functions in `vault-core/src/admission.rs`, all read-only:
 - `require_control(root)` is `inspect` for readers of the config: the control, nothing (a first run or an interrupted operation), or an error.
 - `guard(root)` is the check before a write: a control that is on disk must be one this build may use. A folder without a control passes. Staging folders and snapshot destinations have databases before they have a control, and whether a control-less folder is a first run is `inspect`'s question, asked where the answer changes what happens.
 
+A live `Vault::open` or `open_owned` requires an admitted `config.json` when the folder contains archive data. A recognized interrupted operation can account for a temporarily missing control. An empty folder passes admission: a direct first open uses the released browsing layout and creates its stores, without writing a control. Product setup saves the initialized control first, so that the first open can promote the layout and subsequent opens can identify the archive.
+
+For an established encrypted archive, an authentication error reading a conversation page is local to that database once all browsing stores have verified the data key. Opening visits the pages needed for startup. A verification command needs to check the remaining pages explicitly.
+
 There is no token passed from the check to the operation. Every boundary reads the disk again, which is the stronger guarantee: a token says what the folder was, and a restore or import may have replaced the control since.
 
 | Entry point                                                                          | Check                                                                                                                                                                                  |
