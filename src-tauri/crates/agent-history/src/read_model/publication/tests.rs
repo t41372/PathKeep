@@ -736,3 +736,6 @@ fn upgrade_recovers_the_parent_from_the_elected_child_descriptor() {
 
 #[path = "round_two_tests.rs"]
 pub(super) mod round_two;
+
+#[path = "isolation_tests.rs"]
+mod isolation;

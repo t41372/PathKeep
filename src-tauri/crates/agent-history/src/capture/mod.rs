@@ -519,24 +519,20 @@ fn process_artifact(
     }
     {
         let metadata = prepared.report.session.as_ref().expect("prepared metadata");
-        if let Some(attempt) = &prepared.attempt {
+        if let Some((attempt, reader)) = &prepared.attempt {
             progress(options, source.harness, "projection_staged", &source_id, &captured);
             check_cancel(options)?;
-            archive.publish_with_job(
+            archive.publish_staged(
                 attempt,
                 metadata,
                 prepared.report.complete,
                 complete,
+                *reader,
                 &crate::read_model::JobControl {
                     cancel: options.cancel.clone(),
                     max_decoded_bytes: options.max_decoded_bytes,
                     ..Default::default()
                 },
-            )?;
-            archive.save_versioned_parse_report(
-                captured.revision_id,
-                &prepared.parser_version,
-                &prepared.report,
             )?;
             progress(options, source.harness, "projection_published", &source_id, &captured);
         } else if let Some(projection_id) = archive.current_projection_id(&source_id)? {

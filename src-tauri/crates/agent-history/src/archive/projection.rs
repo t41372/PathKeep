@@ -20,6 +20,13 @@ pub struct ProjectionAttempt {
     pub parser_version: String,
 }
 
+/// Capture can publish the native interpretation even when its reader pages need repair.
+#[derive(Clone, Copy)]
+pub(crate) enum ReaderStage {
+    Ready,
+    AwaitingRebuild,
+}
+
 impl Archive {
     /// Allocates a staging generation while keeping the published one visible.
     /// Identical raw bytes and parser identity reuse the existing interpretation,
@@ -41,7 +48,10 @@ impl Archive {
             .write(Db::AgentHistoryReadModel, Priority::Batch, move |tx| {
                 let current = tx
                     .query_one(
-                        "SELECT s.revision_id, s.parser_version FROM ah_sessions s JOIN ah_reader_version v ON v.attempt=s.projection_id WHERE s.id=?1 AND v.codec=?2 AND v.renderer=?3 AND v.state='published'",
+                        "SELECT s.revision_id, s.parser_version FROM ah_sessions s WHERE s.id=?1 AND (
+                         EXISTS(SELECT 1 FROM ah_reader_version v WHERE v.attempt=s.projection_id AND v.codec=?2 AND v.renderer=?3 AND v.state='published')
+                         OR EXISTS(SELECT 1 FROM ah_reader_head h JOIN ah_reader_member m ON m.publication=h.publication
+                           WHERE h.conversation=s.conversation_id AND m.source=s.id AND m.version=''))",
                         params![source_id.clone(),crate::read_model::publication::CODEC,crate::read_model::publication::RENDERER],
                         |row| Ok((row.get::<i64>(0)?, row.get::<String>(1)?)),
                     )

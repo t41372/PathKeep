@@ -134,6 +134,28 @@ impl Archive {
         validate_coverage(parser_complete, combined_complete)?;
         validate_metadata(metadata)?;
         self.stage_reader(attempt, &Default::default(), job)?;
+        self.publish_staged(
+            attempt,
+            metadata,
+            parser_complete,
+            combined_complete,
+            super::ReaderStage::Ready,
+            job,
+        )
+    }
+
+    pub(crate) fn publish_staged(
+        &self,
+        attempt: &ProjectionAttempt,
+        metadata: &SessionMetadata,
+        parser_complete: bool,
+        combined_complete: bool,
+        reader: super::ReaderStage,
+        job: &crate::read_model::JobControl,
+    ) -> Result<()> {
+        let _lease = self.jobs.track(&job.cancel)?;
+        validate_coverage(parser_complete, combined_complete)?;
+        validate_metadata(metadata)?;
         job.cancel.check().map_err(|_| Error::Cancelled)?;
         let counter = self.build_attachment_counter(attempt.id, attempt.revision_id)?;
         let snapshot = self.projection_generation()?;
@@ -195,7 +217,11 @@ impl Archive {
         job.cancel.check().map_err(|_| Error::Cancelled)?;
         self.store.write(Db::AgentHistoryReadModel, Priority::Batch, move |tx| {
             require_work(tx, &attempt)?;
-            crate::read_model::publication::install(tx, &attempt)?;
+            if matches!(reader, super::ReaderStage::Ready) {
+                crate::read_model::publication::install(tx, &attempt)?;
+            } else {
+                tx.execute("UPDATE ah_reader_version SET state='retired' WHERE attempt=?1 AND state IN ('staging','ready')",[attempt.id])?;
+            }
             if let Some(previous) = current_projection_id(tx, &attempt.source_id)? {
                 retire(tx, &attempt.source_id, previous)?;
             }

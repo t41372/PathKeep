@@ -73,6 +73,27 @@ impl Entry {
     }
 }
 impl Archive {
+    /// A local reader failure leaves a rebuildable member. The parser has already
+    /// saved its report, and capture can still publish the native session and events.
+    pub(crate) fn stage_capture_reader(
+        &self,
+        attempt: &ProjectionAttempt,
+        context: &ParseContext,
+        job: &JobControl,
+    ) -> Result<crate::archive::projection::ReaderStage> {
+        use crate::archive::projection::ReaderStage;
+        match self.stage_reader(attempt, context, job) {
+            Ok(()) => Ok(ReaderStage::Ready),
+            Err(error) if can_defer_reader_work(&error) => {
+                eprintln!(
+                    "Conversation reader build deferred for source {}: {error}",
+                    attempt.source_id
+                );
+                Ok(ReaderStage::AwaitingRebuild)
+            }
+            Err(error) => Err(error),
+        }
+    }
     /// Builds a private source version. A replacement parser or a newer raw head can still veto publication.
     pub fn stage_reader(
         &self,

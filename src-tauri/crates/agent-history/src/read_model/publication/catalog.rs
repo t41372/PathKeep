@@ -161,10 +161,9 @@ impl Archive {
         self.flush_reader_heads_controlled(&CancelToken::new())
     }
     pub(crate) fn flush_reader_heads_controlled(&self, cancel: &CancelToken) -> Result<()> {
-        if self.recover_reader_heads(cancel)? {
-            return Err(Error::ReaderRebuildRequired);
-        }
-        Ok(())
+        // Each parked decision is already durable and its own header reports it.
+        // A producer publishing another source can continue processing its files.
+        self.recover_reader_heads(cancel).map(|_| ())
     }
     pub(crate) fn recover_reader_heads(&self, cancel: &CancelToken) -> Result<bool> {
         cancel.check().map_err(|_| Error::Cancelled)?;
@@ -250,9 +249,10 @@ impl Archive {
 
     fn prepare_decision(&self, id: String, ticket: String, cancel: &CancelToken) -> Result<bool> {
         if let Err(error) = self.stage_conversation(&id, &ticket, cancel) {
-            if !local_reader_damage(&error) {
+            if !can_defer_reader_work(&error) {
                 return Err(error);
             }
+            eprintln!("Conversation {id} reader publication deferred: {error}");
             // Remove private work and preserve the failed ticket separately. A new
             // publication or explicit rebuild can retry it from retained evidence.
             self.store.write(DB,Priority::Batch,move|tx|{

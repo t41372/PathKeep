@@ -169,6 +169,18 @@ fn local_reader_damage(error: &Error) -> bool {
         _ => false,
     }
 }
+// A per-source build or per-conversation stage can fail independently of its owner.
+// Cancellation, superseded producers and unavailable stores keep their normal control flow.
+pub(crate) fn can_defer_reader_work(error: &Error) -> bool {
+    match error {
+        Error::Cancelled | Error::SourceChanged(_) => false,
+        Error::Store(e) => {
+            matches!(e, vault_store::Error::Engine(_) | vault_store::Error::Operation(_))
+        }
+        _ => true,
+    }
+}
+
 fn derived_read_error(error: vault_store::Error) -> Error {
     let error = Error::from(error);
     if local_reader_damage(&error) { Error::ReaderRebuildRequired } else { error }

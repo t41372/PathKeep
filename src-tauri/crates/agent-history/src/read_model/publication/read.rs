@@ -81,7 +81,6 @@ impl Archive {
     pub fn reader_header(&self, id: &str) -> Result<ReaderPublication> {
         let _guard = self.jobs.enter(None)?;
         self.resume_reader_finalization()?;
-        self.resume_reader_finalization()?;
         let id = id.to_owned();
         let conversation = id.clone();
         let published = self
@@ -93,7 +92,8 @@ impl Archive {
                 if let Some((owner,source))=tx.query_one("SELECT publication,current_source FROM ah_reader_head WHERE conversation=?1",[id.as_str()],|r|Ok((r.get::<String>(0)?,r.get::<String>(1)?))).optional()?{
                     if !manifest::valid_head(tx,&id)? {return Err(crate::query::operation(Error::ReaderRebuildRequired))}
                     let member=manifest::member(tx,&owner,&source)?.ok_or_else(||crate::query::operation(Error::ReaderRebuildRequired))?;
-                    if !member.1.is_empty(){manifest::verify_version(tx,&member.1)?;}
+                    if member.1.is_empty(){return Err(crate::query::operation(Error::ReaderRebuildRequired))}
+                    manifest::verify_version(tx,&member.1)?;
                 }
                 tx.query_one(
                     "SELECT

@@ -115,23 +115,23 @@ fn reparse(
         )?;
     }
     if let Some(metadata) = &prepared.report.session {
-        let attempt = prepared.attempt.as_ref().ok_or_else(|| {
+        let (attempt, reader) = prepared.attempt.as_ref().ok_or_else(|| {
             Error::Integrity("forced reparse did not reserve a generation".into())
         })?;
         progress(options, "projection_staged", raw);
         check_cancel(options)?;
-        archive.publish_with_job(
+        archive.publish_staged(
             attempt,
             metadata,
             prepared.report.complete,
             complete,
+            *reader,
             &crate::read_model::JobControl {
                 cancel: options.cancel.clone(),
                 max_decoded_bytes: options.max_decoded_bytes,
                 ..Default::default()
             },
         )?;
-        archive.save_versioned_parse_report(raw.id, &prepared.parser_version, &prepared.report)?;
         progress(options, "projection_published", raw);
     }
     check_cancel(options)?;

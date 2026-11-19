@@ -69,7 +69,8 @@ impl Archive {
         if let Some(attempt) = self.prepare_projection(source_id, revision, parser, false)? {
             // The producer could not read this generation. Metadata comes only
             // from the adapter-proven prior group; no older events are copied.
-            self.publish_with_job(&attempt, &metadata, false, false, job)?;
+            let reader = self.stage_capture_reader(&attempt, &Default::default(), job)?;
+            self.publish_staged(&attempt, &metadata, false, false, reader, job)?;
         }
         Ok(true)
     }

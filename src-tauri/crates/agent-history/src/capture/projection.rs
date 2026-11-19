@@ -5,7 +5,7 @@ use crate::{
     Archive, Artifact, Diagnostic, Error, NativeEvent, ParseContext, ParseReport, Result,
     SourceRoot,
     adapters::{adapter, common},
-    archive::{ProjectionAttempt, RetainedInput},
+    archive::{ProjectionAttempt, RetainedInput, projection::ReaderStage},
 };
 use std::{
     cell::{Cell, RefCell},
@@ -24,8 +24,7 @@ pub(super) enum Preparation {
 
 pub(super) struct Prepared {
     pub report: ParseReport,
-    pub attempt: Option<ProjectionAttempt>,
-    pub parser_version: String,
+    pub attempt: Option<(ProjectionAttempt, ReaderStage)>,
 }
 
 pub(super) fn prepare(
@@ -65,11 +64,7 @@ pub(super) fn prepare(
     let mut attempt = archive.prepare_projection(source_id, revision, &parser_version, force)?;
     if attempt.is_none() {
         if let Some(report) = archive.load_versioned_parse_report(revision, &parser_version)? {
-            return Ok(Preparation::Ready(Box::new(Prepared {
-                report,
-                attempt: None,
-                parser_version,
-            })));
+            return Ok(Preparation::Ready(Box::new(Prepared { report, attempt: None })));
         }
         // Publication may have survived a crash before its interpretation report
         // was saved. Rebuild under a fresh generation without exposing staged rows.
@@ -138,21 +133,26 @@ pub(super) fn prepare(
         report.complete = false;
         failure(&mut report.diagnostics, artifact, "session_metadata_unavailable");
     }
-    if let Some(attempt) = &attempt {
-        archive.save_projection_gaps(attempt, &report)?;
-        archive.stage_reader(
-            attempt,
-            &context,
-            &crate::read_model::JobControl {
-                cancel: options.cancel.clone(),
-                max_decoded_bytes: options.max_decoded_bytes,
-                progress: None,
-            },
-        )?;
-    }
-    // The caller saves this versioned report only after publication. A failed
-    // attempt must not overwrite the report attached to an older interpretation.
-    Ok(Preparation::Ready(Box::new(Prepared { report, attempt, parser_version })))
+    let staged = if let Some(attempt) = attempt {
+        archive.save_projection_gaps(&attempt, &report)?;
+        archive.save_versioned_parse_report(revision, &parser_version, &report)?;
+        let job = crate::read_model::JobControl {
+            cancel: options.cancel.clone(),
+            max_decoded_bytes: options.max_decoded_bytes,
+            progress: None,
+        };
+        let reader = if force {
+            // Explicit reparse must report a failure to rebuild the requested source.
+            archive.stage_reader(&attempt, &context, &job)?;
+            ReaderStage::Ready
+        } else {
+            archive.stage_capture_reader(&attempt, &context, &job)?
+        };
+        Some((attempt, reader))
+    } else {
+        None
+    };
+    Ok(Preparation::Ready(Box::new(Prepared { report, attempt: staged })))
 }
 
 fn failure(issues: &mut Vec<Diagnostic>, artifact: &Artifact, code: &str) {

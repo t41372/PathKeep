@@ -55,11 +55,14 @@ impl Archive {
             .publication_gate
             .lock()
             .map_err(|_| Error::Integrity("publication gate was poisoned".into()))?;
+        if self.source(source)?.latest_revision_id != Some(revision) {
+            return Err(Error::SourceChanged("unreadable revision was superseded".into()));
+        }
         let source = source.to_owned();
         self.store.write(Db::AgentHistoryReadModel, Priority::Batch, move |tx| {
             let published = tx.query_one(
                 "SELECT EXISTS(SELECT 1 FROM ah_sessions WHERE id=?1 AND revision_id=?2
-                AND parser_version LIKE 'agent-history-unreadable/%' AND raw_head_current=1)",
+                AND parser_version LIKE 'agent-history-unreadable/%')",
                 params![source.clone(), revision],
                 |r| Ok(r.get::<i64>(0)? != 0),
             )?;

@@ -150,6 +150,45 @@ fn d_unreadable_higher_generation_has_no_inherited_rendering() {
     assert!(a.reader_sources(&h, None, 1).unwrap()[0].raw_head_current);
     assert_eq!(h.physical_records, 0);
     assert!(a.reader_window(&h, None, 0, 2, &Default::default()).unwrap().is_empty());
+    // Remove the captured file after discovery but before the raw reader opens it.
+    fs::remove_file(folder.join("session.jsonl")).unwrap();
+    let file = folder.join("session.v5.jsonl.zstd");
+    let missing = file.clone();
+    let failed = a
+        .backup(
+            &[SourceRoot { harness: Harness::Deepseek, root: root.clone() }],
+            &agent_history::capture::BackupOptions {
+                progress: Some(std::sync::Arc::new(move |p| {
+                    if p.phase == "file_found" && missing.exists() {
+                        fs::remove_file(&missing).unwrap();
+                    }
+                })),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    assert!(failed.issues.iter().any(|i| i.code == "source_capture_unavailable"));
+    let stale = a.reader_header(&h.conversation_id).unwrap();
+    assert!(
+        !a.reader_sources(&stale, None, 10)
+            .unwrap()
+            .iter()
+            .find(|m| m.source_id == stale.current_source)
+            .unwrap()
+            .raw_head_current
+    );
+    write(&file, b"broken");
+    capture(&a, Harness::Deepseek, &root);
+    let restored = a.reader_header(&h.conversation_id).unwrap();
+    let member = a
+        .reader_sources(&restored, None, 10)
+        .unwrap()
+        .into_iter()
+        .find(|m| m.source_id == restored.current_source)
+        .unwrap();
+    assert!(member.raw_head_current, "unchanged unreadable revision remained stale");
+    assert!(!restored.complete);
+    assert_eq!(restored.physical_records, 0);
 }
 
 #[test]

@@ -153,7 +153,10 @@ impl Archive {
             .map_err(|e| e.at(Db::AgentHistoryReadModel, vault_store::OpenStage::Recover))?;
         // A parked conversation has its own repair path; the other heads can serve immediately.
         archive.recover_reader_heads(cancel).map_err(model)?;
-        archive.collect_reader_garbage(cancel).map_err(model)?;
+        if let Err(error) = archive.collect_reader_garbage(cancel) {
+            cancel.check().map_err(|_| Error::Cancelled)?;
+            eprintln!("Deferred conversation reader collection during attachment: {error}");
+        }
         archive.recover_backup_runs().map_err(evidence)?;
         // Replay touches both databases and marks failures at the individual request.
         archive.synchronize_user_state()?;
