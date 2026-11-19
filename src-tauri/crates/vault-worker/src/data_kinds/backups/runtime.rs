@@ -14,8 +14,10 @@ use vault_store::CancelToken;
 #[derive(Default)]
 pub(crate) struct Runtime {
     admitting: Mutex<bool>,
+    pub(super) inventory: Mutex<super::overview::InventoryCache>,
     pub(super) recovery_events: std::sync::OnceLock<Events>,
     ready: Condvar,
+    unpublished: Mutex<Vec<(std::sync::Weak<vault_store::Store>, String)>>,
     pub(super) active: Mutex<Option<Active>>,
 }
 pub(crate) struct Admission<'a>(&'a Runtime);
@@ -26,6 +28,23 @@ impl Drop for Admission<'_> {
     }
 }
 impl Runtime {
+    pub(in crate::data_kinds) fn reconcile_terminal(&self, vault: &Vault) -> Result<()> {
+        let mut pending = self.unpublished.lock().unwrap();
+        let current = Arc::downgrade(vault.store());
+        pending.retain(|(store, _)| store.upgrade().is_some_and(|s| s.is_open()));
+        for (_, task) in pending.iter().filter(|(store, _)| store.ptr_eq(&current)) {
+            let task = task.clone();
+            vault.store().write(vault_store::Db::AgentHistoryEvidence,vault_store::Priority::Interactive,move|tx|{
+                    tx.execute("UPDATE ah_backup_runs SET status=CASE WHEN EXISTS(
+                        SELECT 1 FROM ah_run_totals WHERE run_id=ah_backup_runs.id AND metric IN ('filesCaptured','filesUnchanged') AND quantity>0)
+                        THEN 'partial' ELSE 'failed' END,finished_at=?2,report_json=?3 WHERE public_id=?1 AND status='running'",
+                        vault_store::params![task,chrono::Utc::now().timestamp_millis(),r#"{"error_code":"terminal-publication-failed","issues":[{"code":"archive-publication-failed","path":null,"ordinal":null,"detail":"terminal-publication-failed"}]}"#])?;
+                    Ok(())
+                })?;
+        }
+        pending.retain(|(store, _)| !store.ptr_eq(&current));
+        Ok(())
+    }
     pub(crate) fn enter(&self) -> Admission<'_> {
         let mut held = self.ready.wait_while(self.admitting.lock().unwrap(), |held| *held).unwrap();
         *held = true;
@@ -113,17 +132,39 @@ impl Producer {
         *runtime.active.lock().unwrap() = Some(active);
         let owner = runtime.clone();
         let archive = self.archive.clone();
-        let spawn = std::thread::Builder::new()
-            .name("conversation-backup".into())
-            .spawn(move || self.run(vault, owner, intent, run, events));
+        let queued = intent.trigger == "enable";
+        let abandoned = (Arc::downgrade(vault.store()), intent.task.clone());
+        let (send, claimed) = std::sync::mpsc::channel();
+        let spawn =
+            std::thread::Builder::new().name("conversation-backup".into()).spawn(move || {
+                if queued && let Err(error) = super::ledger::claim_first_save(&vault, run) {
+                    owner.active.lock().unwrap().take();
+                    let _ = send.send(Err(error));
+                    return;
+                }
+                let _ = send.send(Ok(()));
+                #[cfg(test)]
+                if queued {
+                    super::crash_tests::boundary("claimed");
+                }
+                self.run(vault, owner, intent, run, events)
+            });
         if let Err(err) = spawn {
+            if !queued
+                && archive
+                    .end_backup_run(run, "failed", &json!({"error_code":"worker-unavailable"}))
+                    .is_err()
+            {
+                runtime.unpublished.lock().unwrap().push(abandoned);
+            }
             runtime.active.lock().unwrap().take();
-            archive.end_backup_run(run, "failed", &json!({"error_code":"worker-unavailable"}))?;
             return Err(err.into());
         }
+        claimed.recv()??;
         Ok(())
     }
     fn run(self, vault: Vault, owner: Arc<Runtime>, intent: Intent, run: i64, events: Events) {
+        let mut final_write_failed = false;
         if let Err(error) = self.capture(&vault, &intent, run) {
             // The library finalizes attempts it enters. Failure before it enters
             // still has an admitted row. The conditional update preserves either.
@@ -131,11 +172,19 @@ impl Producer {
             let reason = error
                 .downcast_ref::<agent_history::Error>()
                 .map_or("destination-unavailable", agent_history::Error::code);
-            let _ = self.archive.end_backup_run(run, status, &json!({"error_code":reason}));
+            final_write_failed =
+                self.archive.end_backup_run(run, status, &json!({"error_code":reason})).is_err();
         }
         #[cfg(test)]
         super::crash_tests::boundary("finished");
         let terminal = super::runs::record(&vault, &intent.task);
+        if final_write_failed && !terminal.as_ref().is_ok_and(|r| r.status != "running") {
+            owner
+                .unpublished
+                .lock()
+                .unwrap()
+                .push((Arc::downgrade(vault.store()), intent.task.clone()));
+        }
         let summary = terminal.as_ref().ok().and_then(|record| record.row(&vault).ok());
         drop(self);
         {
@@ -147,7 +196,8 @@ impl Producer {
         let (Ok(row), Some(detail)) = (terminal, summary) else {
             return;
         };
-        if !vault.store().is_open() || !super::can_deliver(vault.paths()) {
+        if row.status == "running" || !vault.store().is_open() || !super::can_deliver(vault.paths())
+        {
             return;
         }
         if let Ok(task) = super::tasks::task_row(&owner, &row) {

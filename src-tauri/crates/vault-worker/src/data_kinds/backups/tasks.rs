@@ -31,6 +31,14 @@ pub struct Control {
     expected_token: String,
     request_id: String,
     confirmation: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    notice: Option<Notice>,
+}
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Notice {
+    tool: AgentTool,
+    version: String,
 }
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -38,6 +46,8 @@ enum Action {
     Cancel,
     Retry,
     Dismiss,
+    #[serde(rename = "dismiss-notice")]
+    DismissNotice,
     Pause,
     Resume,
 }
@@ -61,20 +71,26 @@ pub(super) fn task_row(runtime: &Runtime, r: &Record) -> Result<Value> {
         progress = Some(a.progress.clone());
     }
     drop(active);
-    let phase = progress
-        .as_ref()
-        .and_then(|p| p["phase"].as_str())
-        .unwrap_or(if state == "running" { "discovery" } else { "finished" });
+    let phase = progress.as_ref().and_then(|p| p["phase"].as_str()).unwrap_or(match state {
+        "running" => "discovery",
+        "queued" => "queued",
+        _ => "finished",
+    });
     let mut actions = Vec::new();
     match state {
         "running" if phase != "finishing" => actions.push("cancel"),
         "partial" | "failed" | "interrupted" => actions.push("retry"),
         _ => (),
     }
-    if attention {
+    if matches!(state, "partial" | "failed") && !r.ack {
         actions.push("dismiss");
     }
-    let token = hash(&(id, state, phase, &actions, attention))?;
+    let token = if r.format_notices.is_empty() {
+        hash(&(id, state, phase, &actions, attention))?
+    } else {
+        actions.push("dismiss-notice");
+        hash(&(id, state, phase, &actions, attention, &r.format_notices))?
+    };
     let mut row = json!({"taskId":id,"kind":"agent-history","operation":"backup","trigger":r.trigger,"state":state,
         "phase":phase,"runRef":format!("agent-history:{}",r.public),"startedAt":r.started,"attention":attention,
         "actions":actions,"holdsQuit":matches!(state,"running"|"cancelling"),"snapshotToken":token});
@@ -182,6 +198,9 @@ pub fn control(session: &VaultSession, req: Control, events: Events) -> Result<V
     let _admission = session.conversations.enter();
     let policy = check_reply(&vault, session, false)?;
     check_id(&req.request_id)?;
+    if matches!(req.action, Action::DismissNotice) != req.notice.is_some() {
+        return Err(Refusal::InvalidRequest.into());
+    }
     let fingerprint = hash(&req)?;
     if let Some(intent) = ledger::receipt(&vault, &req.request_id, &fingerprint)? {
         return Ok(
@@ -213,18 +232,42 @@ pub fn control(session: &VaultSession, req: Control, events: Events) -> Result<V
             if cancel_active(session, Some(&req.task_id)).is_empty() {
                 return Err(Refusal::Finishing.into());
             }
-            ledger::remember(&vault, req.request_id, fingerprint, req.task_id.clone(), "cancel")?;
+            ledger::remember(
+                &vault,
+                req.request_id,
+                fingerprint,
+                req.task_id.clone(),
+                "cancel",
+                None,
+            )?;
         }
-        Action::Dismiss => {
-            ledger::remember(&vault, req.request_id, fingerprint, req.task_id.clone(), "dismiss")?
+        Action::Dismiss => ledger::remember(
+            &vault,
+            req.request_id,
+            fingerprint,
+            req.task_id.clone(),
+            "dismiss",
+            None,
+        )?,
+        Action::DismissNotice => {
+            let notice = req.notice.ok_or(Refusal::InvalidRequest)?;
+            if !r.format_notices.contains(&serde_json::to_value(&notice)?) {
+                return Err(Refusal::ActionUnavailable.into());
+            }
+            ledger::remember(
+                &vault,
+                req.request_id,
+                fingerprint,
+                req.task_id.clone(),
+                "dismiss-notice",
+                Some((notice.tool.harness().to_string(), notice.version)),
+            )?;
         }
         Action::Retry => {
             let scope = r.scope.ok_or(Refusal::ScopeDenied)?;
-            let Some(grant) = policy.selection_ref.as_deref() else {
-                return Ok(json!({"task":row,"previewRequired":true}));
-            };
-            let allowed = selection::load(&vault, grant)?;
-            if policy.read_git != scope.read_git
+            let allowed = selection::device_roots(&vault, &policy)?;
+            if allowed.is_empty()
+                || policy.read_git != scope.read_git
                 || scope.roots.iter().any(|root| {
                     !policy.enabled_tools.contains(&root.tool)
                         || !allowed.contains(root)

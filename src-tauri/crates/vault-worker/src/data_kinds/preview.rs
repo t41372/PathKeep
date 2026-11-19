@@ -96,6 +96,12 @@ pub(super) struct Binding {
     pub(super) directory: Arc<same_file::Handle>,
 }
 
+/// Equality distinguishes a reviewed replacement from an unchanged grant without
+/// exposing platform file identifiers or allowing the caller to manufacture a grant.
+pub(super) fn directory_token(root_id: &str, identity: &str) -> String {
+    vault_core::utils::sha256_hex(format!("{root_id}/{identity}").as_bytes())
+}
+
 use capture::directory_handle;
 struct Ticket {
     permit: Permit,
@@ -141,7 +147,7 @@ pub fn cancel(request: CancelRequest) -> Result<Value> {
 
 /// A preview reference can authorize only the exact subset its user reviewed.
 pub fn reviewed_sources(id: &str, selected: &[String]) -> Result<Vec<SourceRoot>> {
-    reviewed_bindings(id, selected)?
+    reviewed_bindings(id, selected, &[])?
         .into_iter()
         .map(|binding| {
             let current =
@@ -156,7 +162,11 @@ pub fn reviewed_sources(id: &str, selected: &[String]) -> Result<Vec<SourceRoot>
         .collect()
 }
 
-pub(super) fn reviewed_bindings(id: &str, selected: &[String]) -> Result<Vec<Binding>> {
+pub(super) fn reviewed_bindings(
+    id: &str,
+    selected: &[String],
+    retained: &[String],
+) -> Result<Vec<Binding>> {
     let paths = vault_core::project_paths()?;
     admitted_config(&paths)?;
     let (permit, roots) = {
@@ -177,10 +187,16 @@ pub(super) fn reviewed_bindings(id: &str, selected: &[String]) -> Result<Vec<Bin
         }
         approved.push(binding);
     }
-    if approved.is_empty() {
+    if approved.is_empty()
+        && (retained.is_empty() || selected.iter().any(|id| !retained.contains(id)))
+    {
         return Err(Refusal::EmptySelection.into());
     }
-    if approved.len() != selected.len() {
+    if selected.iter().collect::<std::collections::HashSet<_>>().len() != selected.len()
+        || selected
+            .iter()
+            .any(|id| !retained.contains(id) && !approved.iter().any(|b| &b.root_id == id))
+    {
         return Err(Refusal::ScopeDenied.into());
     }
     Ok(approved)

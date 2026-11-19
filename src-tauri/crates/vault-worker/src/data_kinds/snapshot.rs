@@ -114,15 +114,15 @@ pub fn list_with(session: &VaultSession, request: ListKinds) -> Result<KindList>
             _ if unavailable => (None, None),
             None => (Some(0), agent.then(|| "not-started".into())),
             Some(vault) if agent => {
-                let (files,first)=vault.store().read(Db::AgentHistoryEvidence,|tx|{
-                    let files=tx.query_one(
+                session.conversations.reconcile_terminal(vault)?;
+                let files = vault.store().read(Db::AgentHistoryEvidence, |tx| {
+                    tx.query_one(
                         "SELECT count(*) FROM ah_sources WHERE latest_revision_id IS NOT NULL",
-                        (),|row|Ok(row.get::<i64>(0)?))?;
-                    let first=tx.query_one(
-                        "SELECT COALESCE((SELECT status FROM ah_backup_runs ORDER BY id LIMIT 1),'not-started')",
-                        (),|row|Ok(row.get::<String>(0)?))?;
-                    Ok((files,first))
+                        (),
+                        |r| Ok(r.get::<i64>(0)?),
+                    )
                 })?;
+                let first = backups::first_backup(vault, &config.capture_policy)?;
                 (Some(files), Some(first))
             }
             Some(vault) => {

@@ -3,7 +3,7 @@
 use super::*;
 use vault_store::{OptionalRow, Row, params};
 
-const WIDE: &str = "'doctor','retention_prune'";
+const WIDE: &str = "'doctor','retention_prune','rekey','archive_restore'";
 const PRIVATE: &str = "'system','mcp_query','ai_index','assistant'";
 const COLUMNS: &str = "id,started_at,finished_at,run_type,trigger,status,stats_json,warnings_json";
 
@@ -15,7 +15,7 @@ fn row(r: &Row, origin: &str) -> vault_store::Result<(String, i64, Value)> {
     let id: i64 = r.get(0)?;
     let date: String = r.get(1)?;
     let operation: String = r.get(3)?;
-    let wide = matches!(operation.as_str(), "doctor" | "retention_prune");
+    let wide = r.get::<i64>(8)? != 0;
     let scope = if wide { "archive" } else { "browsing" };
     let kind = if wide {
         "maintenance"
@@ -53,7 +53,7 @@ pub(super) fn page(
 ) -> Result<Vec<(String, i64, Value)>> {
     let (date, id) = after.unwrap_or_else(|| ("9999".into(), i64::MAX));
     let sql = format!(
-        "SELECT {COLUMNS} FROM runs WHERE run_type NOT IN ({PRIVATE})
+        "SELECT {COLUMNS},run_type IN ({WIDE}) FROM runs WHERE run_type NOT IN ({PRIVATE})
         AND ((?1 AND run_type NOT IN ({WIDE})) OR (?2 AND run_type IN ({WIDE})))
         AND (started_at,id)<(?3,?4) ORDER BY started_at DESC,id DESC LIMIT ?5"
     );
@@ -85,7 +85,7 @@ pub(super) fn detail(session: &VaultSession, reference: &str) -> Result<Value> {
         .store()
         .read(Db::Archive, move |tx| {
             let sql =
-                format!("SELECT {COLUMNS} FROM runs WHERE id=?1 AND run_type NOT IN ({PRIVATE})");
+                format!("SELECT {COLUMNS},run_type IN ({WIDE}) FROM runs WHERE id=?1 AND run_type NOT IN ({PRIVATE})");
             tx.query_one(&sql, [id], |r| row(r, &origin)).optional()
         })?
         .ok_or(Refusal::Missing)?;

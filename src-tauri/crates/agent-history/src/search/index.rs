@@ -83,6 +83,10 @@ pub(super) fn recreate(archive: &Archive) -> Result<Opened> {
         vault_fs::remove_dir_all(path)?;
     }
     std::fs::create_dir_all(path)?;
+    #[cfg(test)]
+    if std::env::var_os("PATHKEEP_INITIAL_INDEX_CRASH_FIXTURE").is_some() {
+        std::process::exit(76);
+    }
     let (storage, directory) = directory(archive)?;
     let (schema, fields) = schema::schema();
     let index = checked(Index::create(storage, schema, IndexSettings::default()), &directory)?;

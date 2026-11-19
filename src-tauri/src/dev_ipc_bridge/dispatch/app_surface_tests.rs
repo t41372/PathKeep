@@ -192,6 +192,9 @@ fn app_surface_preview_contract() {
                 expected["rows"][0]["path"] = json!(folder);
                 assert_eq!(summary["rows"][0]["rootId"].as_str().unwrap().len(), 64);
                 expected["rows"][0]["rootId"] = summary["rows"][0]["rootId"].clone();
+                assert_eq!(summary["rows"][0]["directoryToken"].as_str().unwrap().len(), 64);
+                expected["rows"][0]["directoryToken"] =
+                    summary["rows"][0]["directoryToken"].clone();
                 assert_eq!(summary, &expected);
                 return;
             }

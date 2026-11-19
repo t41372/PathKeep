@@ -54,7 +54,8 @@ pub(super) fn prepare(
     }
     // Cached Pi and DeepSeek reports from parser 4 lack the native format number.
     let parser = match source.harness {
-        crate::Harness::Pi | crate::Harness::Deepseek => 5,
+        crate::Harness::Pi => 6,
+        crate::Harness::Deepseek => 5,
         _ => 4,
     };
     let parser_version = format!(

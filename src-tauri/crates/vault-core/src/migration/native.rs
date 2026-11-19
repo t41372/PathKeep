@@ -351,6 +351,7 @@ pub fn import(
     let stamp = crate::config::replacement_compatibility(paths, stage.path())?;
     crate::config::write_staged_control(&staged_paths, &config, Some(&stamp))?;
     let staged = Vault::open_staged(staged_paths, config.clone(), Some(&key))?;
+    staged.renew_browsing_run_origin()?;
     let layout = staged.layout();
     for db in vault_layout::portable_databases(layout) {
         cancel.check()?;

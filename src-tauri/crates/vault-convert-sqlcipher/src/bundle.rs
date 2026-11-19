@@ -119,6 +119,7 @@ pub fn import(
     vault_core::config::write_staged_control(&old_paths, &config, None)?;
     let converted =
         crate::convert_owned(&old_paths, &config, password, cancel.clone(), progress, None)?;
+    converted.vault.renew_browsing_run_origin()?;
     if let Some(source_root) = exporting_root(&converted.vault)? {
         native::adopt_moved_paths(
             &converted.vault,

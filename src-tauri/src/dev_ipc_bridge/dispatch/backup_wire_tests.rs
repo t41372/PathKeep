@@ -146,7 +146,7 @@ fn conversation_backup_json_examples_match_dispatch() {
         .await;
         let task = &tasks["items"][0];
         assert_eq!(task["attention"], true);
-        invoke(&state,&mut examples,"control_background_task",json!({"taskId":task["taskId"],"action":"dismiss","expectedToken":task["snapshotToken"],"requestId":"40000000-0000-4000-8000-000000000004"})).await;
+        invoke(&state,&mut examples,"control_background_task",json!({"taskId":task["taskId"],"action":"dismiss-notice","notice":task["formatNotices"][0],"expectedToken":task["snapshotToken"],"requestId":"40000000-0000-4000-8000-000000000004"})).await;
         let choices=invoke(&state,&mut examples,"update_agent_sources",json!({"selectedRootIds":[inventory["rows"][0]["rootId"]],"readGit":false,"toolChanges":{"pi":true},"expectedToken":receipt["policyToken"]})).await;
         invoke(&state,&mut examples,"set_data_kind_state",json!({"kind":"agent-history","state":"paused","expectedPolicyToken":choices["policyToken"]})).await;
         let manual=invoke(&state,&mut examples,"start_backup",json!({"scope":{"type":"tool","kind":"agent-history","tool":"pi"},"requestId":"50000000-0000-4000-8000-000000000005"})).await;

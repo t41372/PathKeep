@@ -230,3 +230,32 @@ fn missing_destination_descriptor_does_not_hide_retained_records() {
     assert!(overview["perTool"].as_array().unwrap().iter().all(|t| t["enabled"] == false));
     assert!(backups::start(&f.session,from_value(json!({"scope":{"type":"kind","kind":"agent-history"},"requestId":uuid::Uuid::new_v4().to_string()})).unwrap(),Arc::new(|_,_|{})).is_err());
 }
+
+#[test]
+fn incomplete_initial_index_recovers_but_established_damage_needs_repair() {
+    let f = Fixture::new(false);
+    seed(&f.vault(), &f.sandbox.path().join("native-pi"));
+    let index = f.root.join("derived/agent-history-search");
+    for pending in [false, true] {
+        let vault = f.vault();
+        if pending {
+            vault.store().write(vault_store::Db::AgentHistoryReadModel,vault_store::Priority::Interactive,|s|{
+                s.execute("INSERT OR REPLACE INTO ah_meta(key,value) VALUES('initial_search_pending','1')",())?;Ok(())
+            }).unwrap();
+        }
+        f.session.close_vault().unwrap();
+        if index.exists() {
+            fs::remove_dir_all(&index).unwrap();
+        }
+        fs::create_dir(&index).unwrap();
+        let reopened = f.reopen(false);
+        let history = reopened.agent_history().unwrap();
+        history.prepare_visible_search().unwrap();
+        let found = history.search(&query());
+        if pending {
+            assert!(!found.unwrap().items.is_empty());
+        } else {
+            assert!(matches!(found, Err(agent_history::Error::IndexBehind)));
+        }
+    }
+}

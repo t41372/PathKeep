@@ -75,10 +75,15 @@ pub(super) fn enumerate(
             agent_history::Error::Cancelled => anyhow::Error::from(Refusal::Cancelled),
             other => other.into(),
         })?;
+        let mut token = None;
         if row.readable {
             if let Some(directory) = directory.filter(|d| {
                 directory_handle(&root.root).is_ok_and(|current| &current == d.as_ref())
             }) {
+                token = Some(super::directory_token(
+                    &row.root_id,
+                    &capture::directory_identity(&directory)?,
+                ));
                 approved.push(Binding {
                     root_id: row.root_id.clone(),
                     source: root.clone(),
@@ -92,8 +97,12 @@ pub(super) fn enumerate(
         }
         totals.add(&row.counts);
         by_tool.entry(root.harness.to_string()).or_default().include(&row);
-        emit("root", serde_json::to_value(&row)?)?;
-        rows.push(row);
+        let mut wire = serde_json::to_value(&row)?;
+        if let Some(token) = token {
+            wire["directoryToken"] = json!(token);
+        }
+        emit("root", wire.clone())?;
+        rows.push(wire);
     }
     // Before onboarding the requested archive directory can still be absent.
     let available = target_available_bytes(&permit.paths, |volume| fs4::available_space(volume))?;

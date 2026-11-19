@@ -188,6 +188,17 @@ const EVIDENCE: &[&str] = &[
         SELECT d.run_id FROM ah_desktop_backups d JOIN ah_backup_runs r ON r.id=d.run_id
         WHERE r.status IN ('failed','partial') AND d.acknowledged=0
         UNION SELECT run_id FROM ah_format_notices WHERE dismissed=0",
+    "ALTER TABLE ah_capture_selections ADD COLUMN first_task_id TEXT",
+    "WITH timeline AS MATERIALIZED (
+        SELECT s.id,MAX(CASE WHEN d.trigger='enable' THEN s.rowid END) OVER (ORDER BY s.rowid) origin
+        FROM ah_capture_selections s LEFT JOIN ah_desktop_backups d ON d.task_id=s.id)
+     UPDATE ah_capture_selections SET first_task_id=CASE WHEN enable_hash IS NOT NULL THEN id ELSE (
+        SELECT origin.id FROM timeline t JOIN ah_capture_selections origin ON origin.rowid=t.origin
+        WHERE t.id=ah_capture_selections.id) END",
+    "CREATE TABLE ah_retiring_memberships(source_id TEXT PRIMARY KEY)",
+    "INSERT INTO ah_retiring_memberships SELECT c.source_id
+     FROM ah_sources s JOIN ah_source_conversations c ON c.source_id=s.id
+     WHERE s.harness='claude-code' AND (s.relative_path='audit.jsonl' OR s.relative_path LIKE '%/audit.jsonl')",
 ];
 
 const USER_STATE: &str = "CREATE TABLE ah_user_state (
@@ -342,3 +353,54 @@ const PROJECTION: &[&str] = &[
         project_path, created_at DESC, conversation_id DESC)",
     "CREATE INDEX ah_sessions_root_project ON ah_sessions(harness, source_root, project_path)",
 ];
+
+#[cfg(test)]
+mod compatibility {
+    use super::*;
+    use crate::archive::{AgentHistoryResources, Archive};
+    use std::sync::Arc;
+    use vault_store::{Config, Priority, Store};
+    #[test]
+    fn upgrading_an_edited_grant_recovers_its_enable_and_retires_a_legacy_audit_membership() {
+        let temp = tempfile::tempdir().unwrap();
+        let config = || {
+            let mut c = Config::new(temp.path());
+            c.databases = vec![Db::AgentHistoryEvidence, Db::AgentHistoryReadModel, Db::Scratch];
+            c.migrations = migrations();
+            c
+        };
+        let mut old = config();
+        let end = EVIDENCE
+            .iter()
+            .position(|s| {
+                s.starts_with("ALTER TABLE ah_capture_selections ADD COLUMN first_task_id")
+            })
+            .unwrap();
+        old.migrations = MigrationRegistry::default();
+        old.migrations.register(Db::AgentHistoryEvidence, steps(&EVIDENCE[..end]));
+        old.migrations.register(Db::AgentHistoryReadModel, steps(PROJECTION));
+        let store = Store::open(old).unwrap();
+        store.write(Db::AgentHistoryEvidence,Priority::Interactive,|tx|{
+            tx.execute("INSERT INTO ah_capture_selections VALUES('enable','[]','original'),('edit','[]',NULL),('other','[]','other')",())?;
+            tx.execute("INSERT INTO ah_backup_runs(id,status,started_at,public_id) VALUES(1,'complete',1,'enable'),(2,'partial',2,'other')",())?;
+            tx.execute("INSERT INTO ah_desktop_backups(run_id,task_id,request_id,request_hash,selection_id,scope_json,trigger)
+                VALUES(1,'enable','request','original','enable','{}','enable'),(2,'other','request2','other','other','{}','enable')",())?;
+            tx.execute("INSERT INTO ah_sources(id,harness,root,relative_path,kind,retention,observed_at) VALUES(
+                'audit','claude-code','/fixture','local-agent-mode-sessions/a/b/local_test/audit.jsonl','transcript','appended',1)",())?;
+            tx.execute("INSERT INTO ah_source_conversations VALUES('audit','retired',0,1)",())?;
+            Ok(())
+        }).unwrap();
+        drop(store);
+        let store = Arc::new(Store::open(config()).unwrap());
+        let _archive = Archive::from_store(
+            store.clone(),
+            AgentHistoryResources { search_path: temp.path().join("search"), search_key: None },
+        )
+        .unwrap();
+        let (first,members)=store.read(Db::AgentHistoryEvidence,|tx|tx.query_one(
+            "SELECT first_task_id,(SELECT COUNT(*) FROM ah_source_conversations) FROM ah_capture_selections WHERE id='edit'",(),
+            |r|Ok((r.get::<String>(0)?,r.get::<i64>(1)?)))).unwrap();
+        assert_eq!(first, "enable");
+        assert_eq!(members, 0);
+    }
+}

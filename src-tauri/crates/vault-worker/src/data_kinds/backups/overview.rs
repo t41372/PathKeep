@@ -11,9 +11,11 @@ enum Purpose {
 }
 /// Choose backup inventory or the space banner over the same committed facts.
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Overview {
     purpose: Purpose,
+    #[serde(default)]
+    include_archive_bytes: bool,
 }
 /// Bound the source picker response independently of the number of custom roots.
 #[derive(Deserialize)]
@@ -23,7 +25,58 @@ pub struct ListSources {
     limit: usize,
 }
 
-fn counts(vault: &Vault, root: Option<&selection::Root>, tool: Option<AgentTool>) -> Result<Value> {
+#[derive(Clone, Hash, Eq, PartialEq)]
+enum CountScope {
+    All,
+    Tool(String),
+    Root(String, String),
+}
+#[derive(Default)]
+pub(super) struct InventoryCache {
+    token: Option<Arc<()>>,
+    values: std::collections::HashMap<CountScope, Value>,
+}
+fn counts(
+    vault: &Vault,
+    runtime: &Runtime,
+    root: Option<&selection::Root>,
+    tool: Option<AgentTool>,
+) -> Result<Value> {
+    let token = vault.store().read_token(Db::AgentHistoryEvidence)?;
+    let mut cache = runtime.inventory.lock().unwrap();
+    if !cache.token.as_ref().is_some_and(|t| Arc::ptr_eq(t, &token)) {
+        cache.values.clear();
+        cache.token = Some(token);
+    }
+    let scope = match (root, tool) {
+        (Some(r), _) => {
+            CountScope::Root(r.tool.harness().to_string(), r.path.to_string_lossy().into_owned())
+        }
+        (_, Some(t)) => CountScope::Tool(t.harness().to_string()),
+        _ => CountScope::All,
+    };
+    if let Some(facts) = cache.values.get(&scope) {
+        return Ok(facts.clone());
+    }
+    let (facts, single_tool, single_root) = read_counts(vault, root, tool)?;
+    // A scope containing exactly one tool or directory already computed its totals.
+    // Reuse only narrower equivalent scopes, never infer global totals from a subset.
+    if let Some(tool) = single_tool {
+        if scope == CountScope::All {
+            cache.values.insert(CountScope::Tool(tool.clone()), facts.clone());
+        }
+        if let Some(root) = single_root {
+            cache.values.insert(CountScope::Root(tool, root), facts.clone());
+        }
+    }
+    cache.values.insert(scope, facts.clone());
+    Ok(facts)
+}
+fn read_counts(
+    vault: &Vault,
+    root: Option<&selection::Root>,
+    tool: Option<AgentTool>,
+) -> Result<(Value, Option<String>, Option<String>)> {
     let filter =
         root.map(|r| (r.source().harness.to_string(), r.path.to_string_lossy().into_owned()));
     let (clause, args) = if let Some((h, p)) = filter {
@@ -37,7 +90,9 @@ fn counts(vault: &Vault, root: Option<&selection::Root>, tool: Option<AgentTool>
         "SELECT coalesce(SUM(r.byte_len),0),
                 COUNT(CASE WHEN s.kind='transcript' THEN 1 END),
                 COUNT(CASE WHEN s.kind='attachment' THEN 1 END),
-                COUNT(CASE WHEN s.kind='transcript' AND c.source_id IS NULL THEN 1 END)
+                COUNT(CASE WHEN s.kind='transcript' AND c.source_id IS NULL THEN 1 END),
+                CASE WHEN MIN(s.harness)=MAX(s.harness) THEN MIN(s.harness) END,
+                CASE WHEN MIN(s.root)=MAX(s.root) THEN MIN(s.root) END
          FROM ah_sources s JOIN ah_revisions r ON r.id=s.latest_revision_id
          LEFT JOIN ah_source_conversations c ON c.source_id=s.id AND c.revision_id=r.id
          {clause}"
@@ -46,16 +101,22 @@ fn counts(vault: &Vault, root: Option<&selection::Root>, tool: Option<AgentTool>
         "SELECT COUNT(CASE WHEN child=0 THEN 1 END),COUNT(CASE WHEN child=1 THEN 1 END),
                 COUNT(CASE WHEN child=0 AND present=0 THEN 1 END)
          FROM (SELECT c.conversation_id,MAX(c.is_child) child,
-               MAX(CASE WHEN s.missing_since IS NULL OR coalesce(o.state,'stale')<>'available'
+               MAX(CASE WHEN s.missing_since IS NULL
                         THEN 1 ELSE 0 END) present
                FROM ah_source_conversations c JOIN ah_sources s ON s.id=c.source_id
-               LEFT JOIN ah_root_state o ON o.harness=s.harness AND o.root=s.root
                {clause} GROUP BY c.conversation_id)"
     );
     Ok(vault.store().read(Db::AgentHistoryEvidence, move |tx| {
-        let (bytes, transcripts, attachments, unclassified) =
-            tx.query_one(&files, vault_store::params_from_iter(args.iter().cloned()), |row| {
-                Ok((row.get::<i64>(0)?, row.get::<i64>(1)?, row.get::<i64>(2)?, row.get::<i64>(3)?))
+        let (bytes, transcripts, attachments, unclassified, single_tool, single_root) = tx
+            .query_one(&files, vault_store::params_from_iter(args.iter().cloned()), |row| {
+                Ok((
+                    row.get::<i64>(0)?,
+                    row.get::<i64>(1)?,
+                    row.get::<i64>(2)?,
+                    row.get::<i64>(3)?,
+                    row.get::<Option<String>>(4)?,
+                    row.get::<Option<String>>(5)?,
+                ))
             })?;
         let (roots, children, absent) =
             tx.query_one(&conversations, vault_store::params_from_iter(args), |row| {
@@ -69,11 +130,16 @@ fn counts(vault: &Vault, root: Option<&selection::Root>, tool: Option<AgentTool>
         if unclassified > 0 {
             facts["unclassified"] = json!(unclassified.to_string());
         }
-        Ok(facts)
+        Ok((facts, single_tool, single_root))
     })?)
 }
 
-fn source_row(vault: &Vault, policy: &CapturePolicy, r: &selection::Root) -> Result<Value> {
+fn source_row(
+    vault: &Vault,
+    runtime: &Runtime,
+    policy: &CapturePolicy,
+    r: &selection::Root,
+) -> Result<Value> {
     let key = r.id.clone();
     let last=vault.store().read(Db::AgentHistoryEvidence,move |s|s.query_one(
         "SELECT o.state,r.public_id,r.id,json_type(r.report_json,'$.captureOutcome') FROM ah_run_roots o JOIN ah_backup_runs r ON r.id=o.run_id
@@ -84,7 +150,7 @@ fn source_row(vault: &Vault, policy: &CapturePolicy, r: &selection::Root) -> Res
     } else {
         last.as_ref().map_or("stale", |(s, _, _, _)| s.as_str())
     };
-    let inventory = counts(vault, Some(r), None)?;
+    let inventory = counts(vault, runtime, Some(r), None)?;
     let parts = [
         ("conversations", "transcriptFiles"),
         ("subagents", "children"),
@@ -95,7 +161,7 @@ fn source_row(vault: &Vault, policy: &CapturePolicy, r: &selection::Root) -> Res
     .filter(|(_, key)| inventory[*key] != "0")
     .map(|(part, _)| part)
     .collect::<Vec<_>>();
-    let mut row = json!({"rootId":r.id,"tool":r.tool,"path":r.path,"enabled":enabled,"availability":state,
+    let mut row = json!({"rootId":r.id,"directoryToken":preview::directory_token(&r.id,&r.directory),"tool":r.tool,"path":r.path,"enabled":enabled,"availability":state,
         "parts":parts,"counts":inventory,"sourceBytes":inventory["sourceBytes"],"autoDeletesByDefault":r.tool==AgentTool::ClaudeCode});
     if let Some((reason, run, id, measured)) = last {
         if measured.is_some() {
@@ -132,7 +198,7 @@ pub fn sources(session: &VaultSession, req: ListSources) -> Result<Value> {
     let next = (rows.len() > n).then(|| serde_json::to_string(&rows[n - 1].0)).transpose()?;
     let mut items = Vec::new();
     for (_, root, tool) in rows.into_iter().take(n) {
-        items.push(match root {Some(r)=>source_row(&vault,&c.capture_policy,r)?,None=>json!({"rootId":null,"tool":tool,"path":null,"enabled":false,
+        items.push(match root {Some(r)=>source_row(&vault,&session.conversations,&c.capture_policy,r)?,None=>json!({"rootId":null,"tool":tool,"path":null,"enabled":false,
             "availability":"disabled","parts":[],"counts":null,"sourceBytes":null,"autoDeletesByDefault":tool==AgentTool::ClaudeCode})});
     }
     if check_reply(&vault, session, false)? != c.capture_policy {
@@ -143,17 +209,17 @@ pub fn sources(session: &VaultSession, req: ListSources) -> Result<Value> {
 /// Read the inventory without probing native tool folders.
 pub fn overview(session: &VaultSession, req: Overview) -> Result<Value> {
     let (vault, c) = admitted(session, false)?;
-    let mut result = counts(&vault, None, None)?;
+    let mut result = counts(&vault, &session.conversations, None, None)?;
     let roots = selection::device_roots(&vault, &c.capture_policy)?;
     let mut tools = Vec::new();
     for r in &roots {
-        tools.push(source_row(&vault, &c.capture_policy, r)?);
+        tools.push(source_row(&vault, &session.conversations, &c.capture_policy, r)?);
     }
     result["lookedIn"] = json!(roots.iter().map(|r| &r.path).collect::<Vec<_>>());
     result["sources"] = json!(tools);
     let mut breakdown = Vec::new();
     for tool in AgentTool::ALL {
-        let mut counts = counts(&vault, None, Some(tool))?;
+        let mut counts = counts(&vault, &session.conversations, None, Some(tool))?;
         counts["tool"] = json!(tool);
         counts["enabled"] = json!(
             tools
@@ -172,20 +238,16 @@ pub fn overview(session: &VaultSession, req: Overview) -> Result<Value> {
     } else {
         json!({"state":"partial","reasons":["incomplete-source-observations"]})
     };
-    let first = vault.store().read(Db::AgentHistoryEvidence, |s| {
-        s.query_one("SELECT status FROM ah_backup_runs ORDER BY id LIMIT 1", (), |r| {
-            Ok(r.get::<String>(0)?)
-        })
-        .optional()
-    })?;
-    result["firstBackup"] = json!(first.as_deref().map(result_name).unwrap_or("not-started"));
+    result["firstBackup"] = json!(result_name(&first_backup(&vault, &c.capture_policy)?));
     if let Some(last) = runs::records(&vault, None, 1)?.pop() {
         result["lastRun"] = last.row(&vault)?;
     }
     if let Some(a) = session.conversations.active.lock().unwrap().as_ref() {
         result["activeTask"] = a.intent.start();
     }
-    result["archiveBytes"] = json!(vault.conversation_archive_bytes()?.to_string());
+    if req.include_archive_bytes {
+        result["archiveBytes"] = json!(vault.conversation_archive_bytes()?.to_string());
+    }
     if matches!(req.purpose, Purpose::Space) {
         result["lag"] = Value::Null;
     }
@@ -193,4 +255,19 @@ pub fn overview(session: &VaultSession, req: Overview) -> Result<Value> {
         return Err(Refusal::PolicyChanged.into());
     }
     Ok(result)
+}
+
+pub(crate) fn first_backup(vault: &Vault, policy: &CapturePolicy) -> Result<String> {
+    let Some(enable) = policy.selection_ref.clone() else { return Ok("not-started".into()) };
+    let first = vault.store().read(Db::AgentHistoryEvidence, move |s| {
+        s.query_one("WITH RECURSIVE family(task_id) AS (
+             SELECT task_id FROM ah_desktop_backups WHERE trigger='enable' AND task_id=(SELECT first_task_id FROM ah_capture_selections WHERE id=?1)
+             UNION SELECT d.task_id FROM ah_desktop_backups d JOIN family f ON d.retry_of=f.task_id)
+             SELECT r.status FROM ah_backup_runs r JOIN ah_desktop_backups d ON d.run_id=r.id JOIN family f ON f.task_id=d.task_id
+             ORDER BY (r.status='complete') DESC,r.id DESC LIMIT 1", [enable], |r| {
+            Ok(r.get::<String>(0)?)
+        })
+        .optional()
+    })?;
+    Ok(first.unwrap_or_else(|| "not-started".into()))
 }

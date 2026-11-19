@@ -251,7 +251,8 @@ fn oversized_native_reference_remains_raw_without_unbounded_retention() {
     assert!(!report.complete);
     assert!(report.references.is_empty());
     assert_eq!(events[1].payload, rows[1]);
-    assert!(report.diagnostics.iter().any(|d| d.code == "pi-reference-limit"));
+    assert!(report.diagnostics.iter().any(|d| d.code == "pi-local-output-limit"));
+    assert!(!report.diagnostics.iter().any(|d| d.code == "pi-reference-limit"));
 }
 
 #[test]

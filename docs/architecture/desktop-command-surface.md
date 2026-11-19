@@ -345,10 +345,14 @@ limitations and transient changes appear in `noteCount`, `newNoteCount` and the 
 `notes` on run detail. A source row groups its most recent notes by code. Counts are decimal
 strings. Reports predating note accounting omit the counts. A successful task may have
 `attention: true` and `formatNotices` containing the first newly encountered tool/version
-pairs. Dismissing that task acknowledges those notices. The finish event includes both
+pairs. Use `control_background_task` with `action:"dismiss-notice"` and `notice:{"tool":"pi","version":"1000"}` to dismiss one pair. The `dismiss` action acknowledges only a save failure. The finish event includes both
 note counts and the list of newly raised format notices.
 The legacy browsing backup command and its progress and report remain the
 browsing screen's entry point.
+
+A desktop conversation run detail includes `task` with its current actions and comparison token, including after the local day changes. Native runs without desktop receipts omit it. If a read overlaps a first-save claim, the task can briefly report `state:"queued"`, `phase:"queued"` and no actions. Its run result is `running`. A terminal publication that failed while storage was unavailable is reconciled on service access, with reason `terminal-publication-failed`. Source edits may include an already-selected logical root ID in the submitted preview. A bound preview row and a saved source row expose an opaque `directoryToken`. Offer a renewed grant when the same `rootId` has a different token. Unbound and tool-only rows omit it. Send the union of old and reviewed IDs once each. The reviewed directory replaces its earlier binding. An on device with a missing descriptor can use the ordinary enable dialog to repair it.
+
+Overview and source-list requests share aggregates from committed evidence. Backup overview omits physical size by default. Fetch it after first content with `list_data_kinds` and `includeArchiveBytes:true`, or explicitly request `get_agent_overview` with `includeArchiveBytes:true`.
 
 The active grant appears as `policy.selectionRef` in `get_agent_settings`.
 `list_data_kinds` includes `activeTaskId` for an active conversation backup.

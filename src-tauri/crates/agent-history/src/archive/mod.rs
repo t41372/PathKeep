@@ -31,6 +31,7 @@ mod references;
 mod reports;
 mod retained_input;
 mod retention;
+mod retired_memberships;
 mod revisions;
 mod schema;
 mod selection;
@@ -121,6 +122,7 @@ impl Archive {
         archive.reclaim_slices().map_err(evidence)?;
         archive.recover_projection_work().map_err(model)?;
         archive.recover_attachment_counts().map_err(model)?;
+        archive.recover_retired_memberships()?;
         archive.recover_backup_runs().map_err(evidence)?;
         // Replay touches both databases and marks failures at the individual request.
         archive.synchronize_user_state()?;

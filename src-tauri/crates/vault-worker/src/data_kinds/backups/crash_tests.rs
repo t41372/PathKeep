@@ -23,7 +23,7 @@ fn first_save_recovers_each_process_death_boundary() {
         child(&role);
         return;
     }
-    for point in ["reserved", "published", "created", "raw", "finished"] {
+    for point in ["reserved", "published", "created", "claimed", "raw", "finished"] {
         let temp = tempfile::tempdir().unwrap();
         fs::create_dir(temp.path().join("root")).unwrap();
         fs::write(
@@ -127,9 +127,13 @@ fn child(point: &str) {
         assert_eq!(policy.agent_history, KindState::On);
         assert_eq!(
             runs,
-            [if matches!(point, "published" | "finished") { "complete" } else { "interrupted" }]
+            [if matches!(point, "published" | "created" | "finished") {
+                "complete"
+            } else {
+                "interrupted"
+            }]
         );
-        assert_eq!(heads, i64::from(point != "created"));
+        assert_eq!(heads, i64::from(point != "claimed"));
         assert_eq!(enable(&session, req, Arc::new(|_, _| {})).unwrap()["state"], "on");
     }
     session.close_vault().unwrap();

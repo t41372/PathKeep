@@ -161,6 +161,7 @@ struct ParseState<'a> {
     reference_keys: HashSet<(String, String)>,
     reference_bytes: usize,
     reference_limit_reported: bool,
+    local_output_limit_reported: bool,
     complete: bool,
 }
 
@@ -178,6 +179,7 @@ impl<'a> ParseState<'a> {
             reference_keys: HashSet::new(),
             reference_bytes: 0,
             reference_limit_reported: false,
+            local_output_limit_reported: false,
             complete: true,
         }
     }

@@ -269,7 +269,8 @@
         "countBasis": "known-layout",
         "dateBasis": "filesystem-modified",
         "earliestAt": 1700000000000,
-        "latestAt": 1700000000000
+        "latestAt": 1700000000000,
+        "directoryToken": "c738086127f8fa8514dfea41e4f6583dd2049d6cc50bc76bdf232e5dfe10ab18"
       }
     },
     {
@@ -298,7 +299,8 @@
             "countBasis": "known-layout",
             "dateBasis": "filesystem-modified",
             "earliestAt": 1700000000000,
-            "latestAt": 1700000000000
+            "latestAt": 1700000000000,
+            "directoryToken": "c738086127f8fa8514dfea41e4f6583dd2049d6cc50bc76bdf232e5dfe10ab18"
           }
         ],
         "totals": {

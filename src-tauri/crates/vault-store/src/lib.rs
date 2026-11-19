@@ -86,6 +86,13 @@ impl Store {
     ) -> Result<T> {
         self.request(db, false, priority, work)
     }
+    /// Identity shared by derived reads until the next committed write to this role.
+    /// Reopening a role also starts a fresh identity. It never grants storage access.
+    pub fn read_token(&self, db: Db) -> Result<Arc<()>> {
+        let workers = self.workers();
+        let (_, role) = workers.iter().find(|(id, _)| *id == db).ok_or(Error::Closed)?;
+        Ok(role.read_token.snapshot())
+    }
     /// Inspect admission and maintenance without issuing database work.
     pub fn metrics(&self, db: Db) -> Metrics {
         let workers = match self.workers.try_read() {

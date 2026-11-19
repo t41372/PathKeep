@@ -266,6 +266,7 @@ pub fn restore_snapshot_to(
         crate::durable_io::fsync_file_durably(&staged_envelope)?;
     }
     let staged = Vault::open_staged(staged_paths.clone(), config.clone(), target.key.as_ref())?;
+    staged.renew_browsing_run_origin()?;
     let layout = staged.layout();
     for db in vault_layout::snapshot_databases(layout) {
         let result = staged.store().read(db, |s| s.integrity_check())?;

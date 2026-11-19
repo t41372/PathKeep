@@ -44,6 +44,7 @@ impl Diagnostic {
             | "sqlite_hidden_rowid_unavailable"
             | "lineage_missing"
             | "lineage_authority_unavailable"
+            | "pi-local-output-limit"
             | "capture_warnings_omitted" => true,
             "attachment_not_retained" => {
                 matches!(self.detail.as_deref(), Some("missing" | "authority_unavailable"))

@@ -48,6 +48,7 @@ pub(super) fn resolve(
     let mut authorized_location = false;
     let mut unavailable_authority = false;
     let mut missing = false;
+    let mut read_error = false;
     for authority in std::iter::once(source).chain(roots) {
         let canonical_root = match std::fs::canonicalize(&authority.root) {
             Ok(root) => root,
@@ -67,6 +68,10 @@ pub(super) fn resolve(
             Ok(path) => path,
             Err(crate::Error::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => {
                 missing = true;
+                continue;
+            }
+            Err(crate::Error::Io(_)) => {
+                read_error = true;
                 continue;
             }
             Err(_) => continue,
@@ -102,7 +107,13 @@ pub(super) fn resolve(
         });
     }
     let reason = if authorized_location {
-        if missing { "missing" } else { "unsafe_path" }
+        if read_error {
+            "authority_unavailable"
+        } else if missing {
+            "missing"
+        } else {
+            "unsafe_path"
+        }
     } else if unavailable_authority {
         "authority_unavailable"
     } else {
@@ -111,7 +122,7 @@ pub(super) fn resolve(
     Ok(unresolved(reference, reason))
 }
 
-fn local_path(target: &str) -> std::result::Result<PathBuf, &'static str> {
+pub(crate) fn local_path(target: &str) -> std::result::Result<PathBuf, &'static str> {
     if network_or_device_path(target) {
         return Err("network_or_device_path");
     }

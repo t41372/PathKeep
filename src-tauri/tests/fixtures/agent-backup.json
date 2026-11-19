@@ -26,7 +26,7 @@
       "taskId": "2ca0f268-e1a1-416e-87e9-d02dff2af61d",
       "state": "succeeded",
       "phase": "finished",
-      "actions": ["dismiss"],
+      "actions": ["dismiss-notice"],
       "attention": true,
       "formatNotices": [
         {
@@ -176,6 +176,7 @@
       "sources": [
         {
           "rootId": "f144a959ccf23d8d2a2d36ebe5fa634c730dd387ccc92246355f9fd0bf577afe",
+          "directoryToken": "f1d00c46ebc4585ffd9a833e613a41592f2ebff40b14dc36d35eb74e7fc2bb63",
           "tool": "pi",
           "path": "/fixtures/pi",
           "enabled": true,
@@ -287,8 +288,7 @@
         "finishedAt": 1794355200000,
         "durationMs": 0,
         "batchId": "2ca0f268-e1a1-416e-87e9-d02dff2af61d"
-      },
-      "archiveBytes": "409600"
+      }
     }
   },
   "list_agent_sources": {
@@ -301,6 +301,7 @@
       "items": [
         {
           "rootId": "f144a959ccf23d8d2a2d36ebe5fa634c730dd387ccc92246355f9fd0bf577afe",
+          "directoryToken": "f1d00c46ebc4585ffd9a833e613a41592f2ebff40b14dc36d35eb74e7fc2bb63",
           "tool": "pi",
           "path": "/fixtures/pi",
           "enabled": true,
@@ -466,6 +467,27 @@
       "finishedAt": 1794355200000,
       "durationMs": 0,
       "batchId": "2ca0f268-e1a1-416e-87e9-d02dff2af61d",
+      "task": {
+        "taskId": "2ca0f268-e1a1-416e-87e9-d02dff2af61d",
+        "kind": "agent-history",
+        "operation": "backup",
+        "trigger": "enable",
+        "state": "succeeded",
+        "phase": "finished",
+        "runRef": "agent-history:2ca0f268-e1a1-416e-87e9-d02dff2af61d",
+        "startedAt": 1794355200000,
+        "attention": true,
+        "actions": ["dismiss-notice"],
+        "holdsQuit": false,
+        "snapshotToken": "904e92d66d1a50686fa4dd2b8d1783142107b8f2392bf9e770badde1b5c9c0b1",
+        "formatNotices": [
+          {
+            "tool": "pi",
+            "version": "1000"
+          }
+        ],
+        "endedAt": 1794355200000
+      },
       "warnings": [],
       "notes": [
         {
@@ -566,7 +588,7 @@
           "runRef": "agent-history:2ca0f268-e1a1-416e-87e9-d02dff2af61d",
           "startedAt": 1794355200000,
           "attention": true,
-          "actions": ["dismiss"],
+          "actions": ["dismiss-notice"],
           "holdsQuit": false,
           "snapshotToken": "904e92d66d1a50686fa4dd2b8d1783142107b8f2392bf9e770badde1b5c9c0b1",
           "formatNotices": [
@@ -589,7 +611,11 @@
     "request": {
       "request": {
         "taskId": "2ca0f268-e1a1-416e-87e9-d02dff2af61d",
-        "action": "dismiss",
+        "action": "dismiss-notice",
+        "notice": {
+          "tool": "pi",
+          "version": "1000"
+        },
         "expectedToken": "904e92d66d1a50686fa4dd2b8d1783142107b8f2392bf9e770badde1b5c9c0b1",
         "requestId": "5f47914b-53a5-4010-8776-5eba86b59ca2"
       }

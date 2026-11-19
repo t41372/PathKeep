@@ -95,7 +95,7 @@ fn source_loss_partial_attention_and_successful_retry() {
     let (repeat, _) = start(&f);
     assert_eq!(repeat["attention"], false);
     assert_eq!(count(&f), "1");
-    backups::control(&f.session, control(&task, "dismiss"), Arc::new(|_, _| {})).unwrap();
+    review_findings::dismiss_notice(&f, &task, "1000");
     assert_eq!(count(&f), "0");
     assert_eq!(start(&f).0["attention"], false);
     pi(&file, "one", 1001);
@@ -259,3 +259,6 @@ fn publication_failure_stops_capture_and_keeps_the_committed_prefix() {
 
 #[path = "consent.rs"]
 mod consent;
+
+#[path = "review.rs"]
+mod review_findings;

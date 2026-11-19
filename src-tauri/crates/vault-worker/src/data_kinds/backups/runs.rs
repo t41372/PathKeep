@@ -265,6 +265,9 @@ pub fn get_run(session: &VaultSession, req: GetRun) -> Result<Value> {
         let (vault, _) = admitted(session, false)?;
         let record = record(&vault, public)?;
         let mut row = record.row(&vault)?;
+        if record.task.is_some() {
+            row["task"] = super::tasks::task_row(&session.conversations, &record)?;
+        }
         let mut cursor: DetailCursor = decode(req.detail_cursor.as_deref())?;
         if req.detail_cursor.is_some() && cursor.run != public {
             return Err(Refusal::InvalidCursor.into());
@@ -362,7 +365,7 @@ pub fn get_run(session: &VaultSession, req: GetRun) -> Result<Value> {
                 json!({"state":"partial","reasons":["capture-notes"]})
             }
             "complete" => json!({"state":"complete","reasons":[]}),
-            "running" => json!({"state":"building","reasons":[]}),
+            "queued" | "running" => json!({"state":"building","reasons":[]}),
             other => json!({"state":"partial","reasons":[result_name(other)]}),
         };
         check_reply(&vault, session, false)?;

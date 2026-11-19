@@ -31,9 +31,17 @@ impl Archive {
         if self.projection_generation()? != snapshot {
             return Err(Error::SourceChanged("views changed during retirement".into()));
         }
+        if conversation.is_some() {
+            let source = source_id.to_owned();
+            self.store.write(Db::AgentHistoryEvidence,Priority::Batch,move|tx|{
+                tx.execute("INSERT OR IGNORE INTO ah_retiring_memberships SELECT source_id FROM ah_source_conversations WHERE source_id=?1",[source])?;
+                Ok(())
+            })?;
+        }
+        let retired_source = source_id.to_owned();
         let source_id = source_id.to_owned();
-        self.store
-            .write(Db::AgentHistoryReadModel, Priority::Batch, move |tx| {
+        let published =
+            self.store.write(Db::AgentHistoryReadModel, Priority::Batch, move |tx| {
                 let published = current_projection_id(tx, &source_id)?;
                 if let Some(projection_id) = published {
                     retire(tx, &source_id, projection_id)?;
@@ -68,8 +76,18 @@ impl Archive {
                 // a normalization failure in the currently searchable corpus.
                 set_coverage(tx, &source_id, true)?;
                 Ok(published.is_some())
-            })
-            .map_err(Into::into)
+            })?;
+        // The evidence role owns current inventory membership, including when a
+        // previous retirement committed its read-model half before owner loss.
+        self.store.write(Db::AgentHistoryEvidence, Priority::Batch, move |tx| {
+            tx.execute(
+                "DELETE FROM ah_source_conversations WHERE source_id=?1",
+                [retired_source.as_str()],
+            )?;
+            tx.execute("DELETE FROM ah_retiring_memberships WHERE source_id=?1", [retired_source])?;
+            Ok(())
+        })?;
+        Ok(published)
     }
 
     /// Reclaims at most `limit` obsolete event rows plus their completed queue

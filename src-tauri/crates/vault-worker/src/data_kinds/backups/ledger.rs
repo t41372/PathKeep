@@ -36,8 +36,8 @@ impl Intent {
         let intent = self.clone();
         let scope = serde_json::to_string(&self.scope)?;
         Ok(vault.store().write(Db::AgentHistoryEvidence,Priority::Interactive,move |tx|{
-            let run = tx.insert("INSERT INTO ah_backup_runs(status,started_at,public_id) VALUES('running',?1,?2)",
-                params![chrono::Utc::now().timestamp_millis(),intent.task.clone()])?.ok_or(vault_store::Error::Closed)?;
+            let run = tx.insert("INSERT INTO ah_backup_runs(status,started_at,public_id) VALUES(?3,?1,?2)",
+                params![chrono::Utc::now().timestamp_millis(),intent.task.clone(),if intent.trigger=="enable"{"queued"}else{"running"}])?.ok_or(vault_store::Error::Closed)?;
             tx.execute("INSERT INTO ah_desktop_backups(run_id,task_id,request_id,request_hash,selection_id,scope_json,trigger,retry_of)
                 VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",params![run,intent.task,intent.request,intent.hash,intent.scope.selection_id,scope,intent.trigger,intent.retry_of])?;
             for root in &intent.scope.roots {
@@ -99,12 +99,14 @@ pub(super) fn remember(
     hash: String,
     task: String,
     decision: &'static str,
+    notice: Option<(String, String)>,
 ) -> Result<()> {
     vault.store().write(Db::AgentHistoryEvidence,Priority::Interactive,move |tx|{
         tx.execute("INSERT INTO ah_backup_deliveries(request_id,request_hash,task_id,decision) VALUES(?1,?2,?3,?4)",
             params![request,hash,task.clone(),decision])?;
-        if decision=="dismiss" {
-            tx.execute("UPDATE ah_format_notices SET dismissed=1 WHERE run_id=(SELECT run_id FROM ah_desktop_backups WHERE task_id=?1)",[task.clone()])?;
+        if let Some((tool,version))=notice {
+            tx.execute("UPDATE ah_format_notices SET dismissed=1 WHERE tool=?2 AND version=?3 AND run_id=(SELECT run_id FROM ah_desktop_backups WHERE task_id=?1)",params![task,tool,version])?;
+        }else if decision=="dismiss" {
             tx.execute("UPDATE ah_desktop_backups SET acknowledged=1 WHERE task_id=?1",[task])?;
         }else if decision=="cancel" {
             tx.execute("UPDATE ah_desktop_backups SET stop_reason='cancelled' WHERE task_id=?1",[task])?;
@@ -116,4 +118,56 @@ pub(super) fn remember(
 
 pub(super) fn dispatch(task: &str, decision: &str) -> Value {
     json!({"batchId":task,"kinds":[{"kind":"agent-history","decision":decision,"taskId":task,"runRef":format!("agent-history:{task}")}]})
+}
+
+/// A copied queue row is history. Only the live device's pending request and
+/// descriptor together authorize claiming it.
+pub(super) fn interrupt_foreign_queue(
+    vault: &Vault,
+    policy: &vault_core::CapturePolicy,
+) -> Result<()> {
+    let queued = vault.store().read(Db::AgentHistoryEvidence, |tx| {
+        tx.query_one("SELECT EXISTS(SELECT 1 FROM ah_backup_runs WHERE status='queued')", (), |r| {
+            Ok(r.get::<i64>(0)? != 0)
+        })
+    })?;
+    if queued {
+        let pending = if policy.agent_history == vault_core::KindState::On {
+            policy.pending_first_save.clone()
+        } else {
+            None
+        };
+        let selection = policy.selection_ref.clone();
+        vault.store().write(Db::AgentHistoryEvidence, Priority::Interactive, move |tx| {
+            tx.execute(
+                "UPDATE ah_backup_runs SET status='interrupted',finished_at=?3,report_json=?4
+                WHERE status='queued' AND id NOT IN (SELECT run_id FROM ah_desktop_backups
+                WHERE selection_id=?1 AND request_id=?2 AND trigger='enable')",
+                params![
+                    selection,
+                    pending,
+                    chrono::Utc::now().timestamp_millis(),
+                    r#"{"reason":"owner_restarted"}"#
+                ],
+            )?;
+            Ok(())
+        })?;
+    }
+    Ok(())
+}
+
+/// The producer claims the existing receipt before touching any source. The
+/// owner can clear its pending control as soon as this transaction commits.
+pub(super) fn claim_first_save(vault: &Vault, run: i64) -> Result<()> {
+    let claimed =
+        vault.store().write(Db::AgentHistoryEvidence, Priority::Interactive, move |tx| {
+            tx.execute(
+                "UPDATE ah_backup_runs SET status='running' WHERE id=?1 AND status='queued'",
+                [run],
+            )
+        })?;
+    if claimed != 1 {
+        return Err(Refusal::PolicyChanged.into());
+    }
+    Ok(())
 }

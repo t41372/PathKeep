@@ -30,8 +30,13 @@ impl Root {
     }
 }
 
-pub(super) fn reviewed(vault: &Vault, preview_id: &str, ids: &[String]) -> Result<Vec<Root>> {
-    let roots: Vec<Root> = preview::reviewed_bindings(preview_id, ids)?
+pub(super) fn reviewed(
+    vault: &Vault,
+    preview_id: &str,
+    ids: &[String],
+    retained: &[String],
+) -> Result<Vec<Root>> {
+    let roots: Vec<Root> = preview::reviewed_bindings(preview_id, ids, retained)?
         .into_iter()
         .map(|b| {
             let root = Root {
@@ -46,20 +51,35 @@ pub(super) fn reviewed(vault: &Vault, preview_id: &str, ids: &[String]) -> Resul
             Ok::<_, anyhow::Error>(root)
         })
         .collect::<Result<_>>()?;
-    if !roots.iter().any(|r| r.issue(vault).is_none()) {
+    if !roots.is_empty() && !roots.iter().any(|r| r.issue(vault).is_none()) {
         return Err(Refusal::RootChanged.into());
     }
     Ok(roots)
 }
 
-pub(super) fn stage(vault: &Vault, roots: &[Root], enable_hash: Option<String>) -> Result<String> {
+pub(super) fn descriptor_exists(vault: &Vault, policy: &vault_core::CapturePolicy) -> Result<bool> {
+    let Some(id) = policy.selection_ref.clone() else { return Ok(false) };
+    Ok(vault.store().read(Db::AgentHistoryEvidence, move |tx| {
+        tx.query_one("SELECT EXISTS(SELECT 1 FROM ah_capture_selections WHERE id=?1)", [id], |r| {
+            Ok(r.get::<i64>(0)? != 0)
+        })
+    })?)
+}
+pub(super) fn stage(
+    vault: &Vault,
+    roots: &[Root],
+    enable_hash: Option<String>,
+    previous: Option<String>,
+) -> Result<String> {
     let id = uuid::Uuid::new_v4().to_string();
     let key = id.clone();
     let json = serde_json::to_string(roots)?;
     vault.store().write(Db::AgentHistoryEvidence, Priority::Interactive, move |s| {
         s.execute(
-            "INSERT INTO ah_capture_selections(id,descriptor_json,enable_hash) VALUES(?1,?2,?3)",
-            params![key, json, enable_hash],
+            "INSERT INTO ah_capture_selections(id,descriptor_json,enable_hash,first_task_id)
+             VALUES(?1,?2,?3,CASE WHEN ?3 IS NOT NULL THEN ?1 ELSE
+                (SELECT first_task_id FROM ah_capture_selections WHERE id=?4) END)",
+            params![key, json, enable_hash, previous],
         )?;
         Ok(())
     })?;

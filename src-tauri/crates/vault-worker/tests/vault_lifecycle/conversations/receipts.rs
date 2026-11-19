@@ -38,16 +38,13 @@ fn seed_from(f: &Fixture, tool: &str, folder: &std::path::Path) {
             .unwrap();
     let row = &tasks["items"][0];
     assert_eq!(row["taskId"], receipt["firstSave"]["taskId"]);
-    let dismissed = backups::control(
-        &f.session,
-        from_value(
-            json!({"action":"dismiss","taskId":row["taskId"],"expectedToken":row["snapshotToken"],
-        "requestId":uuid::Uuid::new_v4().to_string()}),
-        )
-        .unwrap(),
-        Arc::new(|_, _| {}),
-    )
-    .unwrap();
+    let mut command = json!({"action":"dismiss","taskId":row["taskId"],"expectedToken":row["snapshotToken"],"requestId":uuid::Uuid::new_v4().to_string()});
+    if let Some(notice) = row["formatNotices"].get(0) {
+        command["action"] = json!("dismiss-notice");
+        command["notice"] = notice.clone();
+    }
+    let dismissed =
+        backups::control(&f.session, from_value(command).unwrap(), Arc::new(|_, _| {})).unwrap();
     assert_eq!(dismissed["task"]["attention"], false);
 }
 
@@ -58,12 +55,13 @@ pub(super) fn fingerprint(vault: &Vault) -> String {
             .read(vault_store::Db::AgentHistoryEvidence, |tx| {
                 tx.query_one(
         "SELECT d.task_id,d.request_id,d.request_hash,d.scope_json,s.id,s.descriptor_json,
-         r.public_id,r.status,a.request_id,a.request_hash,a.decision,d.acknowledged
+         r.public_id,r.status,a.request_id,a.request_hash,a.decision,d.acknowledged,s.first_task_id
          FROM ah_desktop_backups d JOIN ah_capture_selections s ON d.selection_id=s.id
          JOIN ah_backup_runs r ON r.id=d.run_id JOIN ah_backup_deliveries a ON a.task_id=d.task_id
          WHERE d.trigger='enable' AND a.decision='dismiss'",(),|r|{
             let mut values=Vec::new();for i in 0..11{values.push(r.get::<String>(i)?);}
             assert_eq!(r.get::<i64>(11)?,1);
+            assert_eq!(r.get::<String>(12)?,values[0]);
             Ok(values)
          })
             })

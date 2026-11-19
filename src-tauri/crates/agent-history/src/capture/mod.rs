@@ -32,7 +32,7 @@ mod readiness;
 #[cfg(test)]
 mod readiness_tests;
 mod reference_capture;
-mod references;
+pub(crate) mod references;
 mod reparse;
 mod unreadable;
 mod writer;

@@ -6,6 +6,7 @@ mod crash_tests;
 mod ledger;
 mod notes;
 mod overview;
+pub(crate) use overview::first_backup;
 pub use overview::{ListSources, Overview, overview, sources};
 mod runs;
 mod tasks;
@@ -74,6 +75,7 @@ fn admitted(session: &VaultSession, allow_off: bool) -> Result<(Vault, AppConfig
     }
     let vault = session.vault().map_err(anyhow::Error::msg)?;
     check_service(&vault)?;
+    session.conversations.reconcile_terminal(&vault)?;
     if config.capture_policy.pending_first_save.is_some() {
         recover(session, &vault)?;
         config = admitted_config(vault.paths())?;
@@ -119,13 +121,13 @@ pub fn enable(session: &VaultSession, req: Enable, events: Events) -> Result<Val
         return Ok(json!({"state":"on","policyToken":policy.token(),"firstSave":existing.start()}));
     }
     if policy.token() != req.expected_policy_token
-        || policy.agent_history == KindState::On
+        || (policy.agent_history == KindState::On && selection::descriptor_exists(&vault, &policy)?)
         || (policy.agent_history == KindState::Paused && has_grant(&vault, &policy)?)
     {
         return Err(Refusal::PolicyChanged.into());
     }
-    let roots = selection::reviewed(&vault, &req.preview_id, &req.selected_root_ids)?;
-    let selection_id = selection::stage(&vault, &roots, Some(fingerprint.clone()))?;
+    let roots = selection::reviewed(&vault, &req.preview_id, &req.selected_root_ids, &[])?;
+    let selection_id = selection::stage(&vault, &roots, Some(fingerprint.clone()), None)?;
     let intent = Intent {
         task: selection_id.clone(),
         request: req.request_id.clone(),
@@ -210,7 +212,14 @@ pub fn start(session: &VaultSession, req: Start, events: Events) -> Result<Value
     let active =
         session.conversations.active.lock().unwrap().as_ref().map(|a| a.intent.task.clone());
     if let Some(task) = active {
-        ledger::remember(&vault, req.request_id, fingerprint, task.clone(), "already-running")?;
+        ledger::remember(
+            &vault,
+            req.request_id,
+            fingerprint,
+            task.clone(),
+            "already-running",
+            None,
+        )?;
         return Ok(ledger::dispatch(&task, "already-running"));
     }
     let selection_id = policy.selection_ref.ok_or(Refusal::EnablePreview)?;
@@ -245,6 +254,9 @@ fn launch(session: &VaultSession, vault: &Vault, intent: Intent, events: Events)
 pub(crate) fn recover(session: &VaultSession, vault: &Vault) -> Result<()> {
     let _admission = session.conversations.enter();
     let policy = vault_core::load_config(vault.paths())?.capture_policy;
+    if vault.conversation_availability().is_ok() {
+        ledger::interrupt_foreign_queue(vault, &policy)?;
+    }
     let Some(id) = policy.selection_ref else {
         if vault.conversation_availability().is_ok()
             && vault.store().read(Db::AgentHistoryEvidence, |s| {
@@ -270,29 +282,41 @@ pub(crate) fn recover(session: &VaultSession, vault: &Vault) -> Result<()> {
             Ok(r.get::<String>(0)?)
         })
     })?;
-    if ledger::receipt(vault, &request, &fingerprint)?.is_none() {
+    let events =
+        session.conversations.recovery_events.get().cloned().unwrap_or_else(|| Arc::new(|_, _| {}));
+    if let Some(intent) = ledger::receipt(vault, &request, &fingerprint)? {
+        let saved = runs::record(vault, &intent.task)?;
+        if saved.status == "queued" {
+            let producer = Producer::reserve(vault, &session.conversations, &intent, &events)?;
+            producer.launch(
+                vault.clone(),
+                session.conversations.clone(),
+                intent,
+                saved.id,
+                events,
+            )?;
+        }
+    } else {
         let roots = selection::load(vault, &id)?;
         let intent = Intent {
             task: id.clone(),
             request: request.clone(),
             hash: fingerprint,
+            scope: Scope { selection_id: id, roots, read_git: policy.read_git },
             trigger: "enable".into(),
             retry_of: None,
-            scope: Scope { selection_id: id, roots, read_git: policy.read_git },
         };
-        let events = session
-            .conversations
-            .recovery_events
-            .get()
-            .cloned()
-            .unwrap_or_else(|| Arc::new(|_, _| {}));
         launch(session, vault, intent, events)?;
     }
     clear_pending(vault, &request)
 }
 
 pub(super) fn result_name(status: &str) -> &str {
-    if status == "complete" { "success" } else { status }
+    match status {
+        "complete" => "success",
+        "queued" => "running",
+        other => other,
+    }
 }
 
 /// Retained bindings can be removed without a walk. Every added binding comes
@@ -329,14 +353,20 @@ pub(super) fn edit_selection(
         };
     let previous = roots.clone();
     roots.retain(|r| ids.contains(&r.id));
-    let added: Vec<_> =
-        ids.iter().filter(|id| !roots.iter().any(|r| &r.id == *id)).cloned().collect();
-    if !added.is_empty() {
-        roots.extend(selection::reviewed(
-            vault,
-            patch.preview_id.as_deref().ok_or(Refusal::EnablePreview)?,
-            &added,
-        )?);
+    let retained = roots.iter().map(|r| r.id.clone()).collect::<Vec<_>>();
+    if let Some(preview) = &patch.preview_id
+        && !ids.is_empty()
+    {
+        let reviewed = selection::reviewed(vault, preview, ids, &retained)?;
+        for binding in reviewed {
+            if let Some(prior) = roots.iter_mut().find(|r| r.id == binding.id) {
+                *prior = binding;
+            } else {
+                roots.push(binding);
+            }
+        }
+    } else if ids.iter().any(|id| !retained.contains(id)) {
+        return Err(Refusal::EnablePreview.into());
     }
     if roots.len() != ids.len() {
         return Err(Refusal::ScopeDenied.into());
@@ -346,7 +376,7 @@ pub(super) fn edit_selection(
     {
         key.clone()
     } else {
-        selection::stage(vault, &roots, None)?
+        selection::stage(vault, &roots, None, policy.selection_ref.clone())?
     };
     Ok(Some((key, roots.iter().map(|r| r.tool).collect())))
 }

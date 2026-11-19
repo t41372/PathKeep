@@ -277,3 +277,41 @@ fn released_schema_23_gets_an_origin_only_when_installed() {
     assert_eq!(detail(&restored).unwrap()["runRef"], restored);
     assert_eq!(detail(&first).unwrap_err().to_string(), "record-unavailable");
 }
+
+#[test]
+fn restored_v06_ledger_cannot_reuse_a_qualified_run_link() {
+    use serde_json::{from_value, json};
+    use vault_worker::data_kinds::backups;
+    let f = Fixture::new(false);
+    let snapshot = f.root.join("raw-snapshots/maintenance/qualified-origin");
+    vault_core::maintenance::snapshot(&f.vault(), &snapshot).unwrap();
+    f.create_browser();
+    f.backup();
+    let list = || {
+        backups::list_runs(
+            &f.session,
+            from_value(json!({"space":"browsing","includeArchiveWide":true,"limit":10})).unwrap(),
+        )
+        .unwrap()
+    };
+    let old = list()["items"][0]["runRef"].clone();
+    assert!(old.as_str().unwrap().starts_with("browsing:"));
+    vault_worker::run_full_archive_restore(
+        &f.session,
+        None,
+        &vault_core::SnapshotRestoreRequest { snapshot_path: snapshot.to_string_lossy().into() },
+    )
+    .unwrap();
+    let restored = list()["items"][0].clone();
+    assert_eq!(restored["operation"], "archive_restore");
+    assert_eq!(
+        restored["runRef"].as_str().unwrap().split('/').next_back(),
+        old.as_str().unwrap().split('/').next_back()
+    );
+    assert_eq!(
+        backups::get_run(&f.session, from_value(json!({"runRef":old})).unwrap())
+            .unwrap_err()
+            .to_string(),
+        "record-unavailable"
+    );
+}

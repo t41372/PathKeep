@@ -414,7 +414,7 @@ fn merged_runs_page_preserves_browsing_links_and_scope() {
     config.capture_policy.agent_history = KindState::On;
     save_config(&ControlGate::acquire(&f.paths()), &config).unwrap();
     f.vault().store().write(Db::Archive,Priority::Interactive,|s|{
-        for (id,kind) in [(1,"backup"),(2,"doctor"),(3,"mcp_query")]{
+        for (id,kind) in [(1,"backup"),(2,"doctor"),(3,"mcp_query"),(4,"rekey"),(5,"archive_restore")]{
             s.execute("INSERT INTO runs(id,run_type,started_at,trigger,status) VALUES(?1,?2,'2026-01-01T00:00:00Z','manual','success')",vault_store::params![id,kind])?;
         }
         Ok(())
@@ -430,9 +430,21 @@ fn merged_runs_page_preserves_browsing_links_and_scope() {
     assert!(first["items"][0]["summary"]["newRoots"].is_null());
     let after = first["nextCursor"].as_str().expect("doctor is on the next page");
     let second = list(Some(after));
-    assert_eq!(second["items"][0]["operation"], "doctor");
+    assert_eq!(second["items"][0]["operation"], "archive_restore");
+    let rekey = list(second["nextCursor"].as_str());
+    assert_eq!(rekey["items"][0]["operation"], "rekey");
+    assert_eq!(
+        backups::get_run(
+            &f.session,
+            from_value(json!({"runRef":rekey["items"][0]["runRef"]})).unwrap()
+        )
+        .unwrap()["scope"],
+        "archive"
+    );
+    let doctor = list(rekey["nextCursor"].as_str());
+    assert_eq!(doctor["items"][0]["operation"], "doctor");
     assert_eq!(second["items"][0]["scope"], "archive");
-    assert!(second.get("nextCursor").is_none());
+    assert!(doctor.get("nextCursor").is_none());
     let detail = |reference: &str| {
         backups::get_run(&f.session, from_value(json!({"runRef":reference})).unwrap())
     };

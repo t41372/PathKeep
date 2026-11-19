@@ -47,6 +47,16 @@ pub struct Vault {
 }
 
 impl Vault {
+    /// Assign a new ledger namespace in the private stage before installing a
+    /// replacement. Ordinary opens and key rewraps preserve qualified run links.
+    pub fn renew_browsing_run_origin(&self) -> anyhow::Result<()> {
+        self.store.write(Db::Archive,Priority::Interactive,|tx|{
+            tx.execute("INSERT OR REPLACE INTO archive_meta(name,value) VALUES('runOrigin',lower(hex(randomblob(16))))",())?;
+            Ok(())
+        })?;
+        Ok(())
+    }
+
     /// Opens databases from the raw data key returned by password unlock or the keychain.
     /// A live root containing archive data needs its admitted control, or a recognized
     /// recovery record explaining its absence. An empty root can open as BrowsingV1.

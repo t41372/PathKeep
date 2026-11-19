@@ -115,10 +115,14 @@ impl Archive {
                 return Err(operation("backup run is absent or already terminal"));
             }
             if succeeded {
-                tx.execute("WITH RECURSIVE parents(task_id) AS (
-                    SELECT retry_of FROM ah_desktop_backups WHERE run_id=?1 AND retry_of IS NOT NULL
-                    UNION SELECT d.retry_of FROM ah_desktop_backups d JOIN parents p ON p.task_id=d.task_id WHERE d.retry_of IS NOT NULL)
-                    UPDATE ah_desktop_backups SET acknowledged=1 WHERE task_id IN (SELECT task_id FROM parents)",[id])?;
+                tx.execute("WITH RECURSIVE ancestors(task_id,retry_of) AS (
+                    SELECT task_id,retry_of FROM ah_desktop_backups WHERE run_id=?1 AND retry_of IS NOT NULL
+                    UNION SELECT d.task_id,d.retry_of FROM ah_desktop_backups d JOIN ancestors a ON d.task_id=a.retry_of),
+                    family(task_id) AS (SELECT task_id FROM ancestors WHERE retry_of IS NULL
+                    UNION SELECT d.task_id FROM ah_desktop_backups d JOIN family f ON d.retry_of=f.task_id)
+                    UPDATE ah_desktop_backups SET acknowledged=1 WHERE task_id IN (SELECT task_id FROM family)
+                    AND scope_json=(SELECT scope_json FROM ah_desktop_backups WHERE run_id=?1)
+                    AND run_id IN (SELECT id FROM ah_backup_runs WHERE status IN ('partial','failed'))",[id])?;
             }
             Ok(())
         })?;

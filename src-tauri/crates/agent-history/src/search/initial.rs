@@ -64,13 +64,37 @@ impl Archive {
         Ok(())
     }
     fn prepare_retained_index(&self, resume: bool, token: &CancelToken) -> Result<()> {
-        if !resume && self.search_path.try_exists()? {
+        use vault_store::{Db, Priority};
+        let missing = !self.search_path.try_exists()?;
+        let pending = self.store.read(Db::AgentHistoryReadModel, |s| {
+            s.query_one(
+                "SELECT EXISTS(SELECT 1 FROM ah_meta WHERE key='initial_search_pending')",
+                (),
+                |r| Ok(r.get::<i64>(0)? != 0),
+            )
+        })?;
+        if !missing && !resume && !pending {
             match super::index::open(self) {
                 Ok(index) if index.watermark < self.projection_generation()? => {}
                 _ => return Ok(()),
             }
         }
+        if missing && !pending {
+            self.store.write(Db::AgentHistoryReadModel, Priority::Batch, |s| {
+                s.execute(
+                    "INSERT OR IGNORE INTO ah_meta(key,value) VALUES('initial_search_pending','1')",
+                    (),
+                )?;
+                Ok(())
+            })?;
+        }
         self.synchronize_search_with_cancel(&|| token.check().is_err())?;
+        if missing || pending {
+            self.store.write(Db::AgentHistoryReadModel, Priority::Batch, |s| {
+                s.execute("DELETE FROM ah_meta WHERE key='initial_search_pending'", ())?;
+                Ok(())
+            })?;
+        }
         Ok(())
     }
     /// Revoking visibility stops the owner-started build at a bounded batch.
@@ -83,5 +107,64 @@ impl Archive {
 impl InitialSearch {
     pub(super) fn wait(&self) {
         drop(self.ready.wait_while(self.state.lock().unwrap(), |s| s.active.is_some()).unwrap());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{Harness, SearchQuery, SourceRoot, capture::BackupOptions};
+    #[test]
+    fn owner_loss_before_the_first_watermark_resumes_from_retained_bytes() {
+        const CHILD: &str = "PATHKEEP_INITIAL_INDEX_CRASH_FIXTURE";
+        if let Some(root) = std::env::var_os(CHILD) {
+            let archive = Arc::new(Archive::open(std::path::Path::new(&root), b"").unwrap());
+            archive.prepare_visible_search().unwrap();
+            archive.initial_search.wait();
+            panic!("did not stop at initial index creation");
+        }
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("archive");
+        let native = tmp.path().join("pi");
+        std::fs::create_dir_all(native.join("sessions")).unwrap();
+        std::fs::write(
+            native.join("sessions/one.jsonl"),
+            br#"{"type":"session","version":3,"id":"saved","cwd":"/fixture"}
+{"type":"message","id":"m","message":{"role":"user","content":"indexcrashneedle"}}
+"#,
+        )
+        .unwrap();
+        {
+            let archive = Archive::create_unencrypted(&root).unwrap();
+            archive
+                .backup(
+                    &[SourceRoot { root: native.clone(), harness: Harness::Pi }],
+                    &BackupOptions::default(),
+                )
+                .unwrap();
+            std::fs::remove_dir_all(&archive.search_path).unwrap();
+        }
+        std::fs::remove_dir_all(native).unwrap();
+        let name = std::thread::current().name().unwrap().to_owned();
+        let status = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", &name])
+            .env(CHILD, &root)
+            .status()
+            .unwrap();
+        assert_eq!(status.code(), Some(76));
+        let archive = Arc::new(Archive::open(&root, b"").unwrap());
+        archive.prepare_visible_search().unwrap();
+        assert_eq!(
+            archive
+                .search(&SearchQuery {
+                    text: "indexcrashneedle".into(),
+                    harness: None,
+                    project_path: None,
+                    limit: 5
+                })
+                .unwrap()
+                .total,
+            1
+        );
     }
 }
