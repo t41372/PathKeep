@@ -35,7 +35,10 @@ function holdFile() {
   return file
 }
 
-/** The process id of the app holding the update, if one has held it. */
+/**
+ * The process id of the last app that started updating the archive, if one
+ * has: each records itself just before its first change, held or not.
+ */
 function heldBy() {
   const held = `${holdFile()}.held`
   return existsSync(held) ? Number(readFileSync(held, 'utf8')) : null
@@ -114,4 +117,9 @@ test('quitting during the archive update asks first, and waiting lets it finish'
   await page.reload()
   await expect(page.getByRole('main')).toBeVisible({ timeout: 120_000 })
   expect(await backend('get_quit_request')).toBeNull()
+  // The app that waited finished the update itself. Had it quit partway, this
+  // one would have had to carry on, and would be the last to have started one.
+  expect(heldBy(), 'the update was finished by the app that waited').toBe(
+    second,
+  )
 })

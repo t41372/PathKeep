@@ -25,9 +25,9 @@ import { WINDOW_DRAG_MARK } from '@/components/app/drag-region'
 import { drawsWindowControls, hasTauriGuestApi } from '@/lib/runtime'
 
 /**
- * How far the pointer moves with the button down before the window follows,
- * in CSS pixels: Windows' own drag threshold (`SM_CXDRAG`). A tap's jitter
- * stays under it.
+ * The window follows once the pointer has moved more than this with the
+ * button down, in CSS pixels: Windows' own drag threshold (`SM_CXDRAG`). A
+ * tap's jitter stays within it.
  */
 const DRAG_AFTER = 4
 
@@ -68,7 +68,7 @@ function listen(target: Document) {
       event.screenX - pressedAt.x,
       event.screenY - pressedAt.y,
     )
-    if (moved < DRAG_AFTER) return
+    if (moved <= DRAG_AFTER) return
     pressedAt = null
     void getCurrentWindow().startDragging()
   }

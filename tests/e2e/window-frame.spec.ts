@@ -7,8 +7,11 @@
  *   buttons, the strip of window background beside them drags the window
  *   (and a double click there maximizes, by the same mark), and the buttons
  *   still take a click while the command palette is open, without closing
- *   it, as the system's title bar would. App Lock keeps the buttons and drags
- *   from its background.
+ *   it, as the system's title bar would. A sheet at the window's edge (a
+ *   backup run's details) starts below the buttons, so its own close button
+ *   can be clicked and closes the sheet, not the window. The empty part of
+ *   the nav rail drags the window. App Lock keeps the buttons and drags from
+ *   its background.
  * - macOS: no buttons of ours, and the window background drags on the main
  *   window and on App Lock.
  *
@@ -22,6 +25,7 @@ import {
   expectDragsAt,
   expectNoWindowButtons,
   expectWindowButtons,
+  SMALLEST_WINDOW,
   titleStrip,
   windowButtonCenter,
 } from './support/window-frame'
@@ -35,6 +39,35 @@ async function openHome(page: Page) {
   await expect(
     page.getByRole('navigation', { name: 'Main navigation' }),
   ).toBeVisible()
+}
+
+/**
+ * A point in the rail's empty part: the middle of the gap between the last
+ * page link and the first control below it (the tallest gap between two
+ * neighbours in the rail).
+ */
+async function railGap(page: Page) {
+  const rail = page.getByRole('navigation', { name: 'Main navigation' })
+  const railBox = (await rail.boundingBox())!
+  const boxes = (
+    await Promise.all(
+      (await rail.locator('a, button').all()).map((item) => item.boundingBox()),
+    )
+  )
+    .filter((box) => box !== null)
+    .sort((a, b) => a.y - b.y)
+  let gap = { top: 0, height: 0 }
+  for (let i = 1; i < boxes.length; i += 1) {
+    const top = boxes[i - 1].y + boxes[i - 1].height
+    const height = boxes[i].y - top
+    if (height > gap.height) gap = { top, height }
+  }
+  expect(gap.height, 'the rail has an empty part').toBeGreaterThan(40)
+  return {
+    x: Math.round(railBox.x + railBox.width / 2),
+    y: Math.round(gap.top + gap.height / 2),
+    where: 'empty part of the nav rail',
+  }
 }
 
 async function lockAndUnlock(page: Page, check: () => Promise<void>) {
@@ -72,6 +105,42 @@ test('linux: the main window, a dialog over it and App Lock keep one set of wind
   if (await palette.isVisible()) await page.keyboard.press('Escape')
   await expect(palette).toBeHidden()
 
+  // The empty part of the rail, between the space's pages and the controls at
+  // its foot, is window background too.
+  await expectDragsAt(page, [await railGap(page)])
+
+  // A run's details open as a sheet down the right edge, where the window
+  // buttons are. Nothing of it may lie under them, and its own close button
+  // closes it.
+  await page.goto('/#/browsing/backup')
+  await page
+    .getByRole('heading', { name: 'Recent runs' })
+    .locator('xpath=ancestor::*[.//li][1]')
+    .getByRole('listitem')
+    .first()
+    .getByRole('button')
+    .click()
+  const sheet = page.getByRole('dialog')
+  await expect(sheet).toBeVisible()
+  // The sheet slides in; its place is checked once it has stopped.
+  await expect
+    .poll(async () => {
+      const box = await sheet.boundingBox()
+      return box ? Math.round(box.x + box.width) : 0
+    })
+    .toBe(SMALLEST_WINDOW.width)
+  await expectWindowButtons(page)
+  await page.screenshot({ path: test.info().outputPath('sheet-linux.png') })
+  const closeSheet = sheet.getByRole('button', { name: 'Close', exact: true })
+  const closeBox = await closeSheet.boundingBox()
+  expect(closeBox, 'the sheet has a close button').not.toBeNull()
+  await page.mouse.click(
+    closeBox!.x + closeBox!.width / 2,
+    closeBox!.y + closeBox!.height / 2,
+  )
+  await expect(sheet).toBeHidden()
+  await expectWindowButtons(page)
+
   await lockAndUnlock(page, async () => {
     await expectWindowButtons(page)
     await expectDragsAt(page, [
@@ -93,6 +162,7 @@ test('macos: the main window and App Lock drag from the window background', asyn
   await expectDragsAt(page, [
     { x: 540, y: 4, where: 'margin above the panel' },
     { x: 1076, y: 400, where: 'margin right of the panel' },
+    await railGap(page),
   ])
   await lockAndUnlock(page, async () => {
     await expectNoWindowButtons(page)

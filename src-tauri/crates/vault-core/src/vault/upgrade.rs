@@ -1,5 +1,5 @@
 //! Responsibilities: route committed startup migration batches through archive-upgrade progress,
-//! and know whether an open in this process is updating the archive's databases right now.
+//! and know whether an open in this process is updating the live archive's databases right now.
 //! Not responsible for: migration SQL, credentials, frontend navigation, or what quitting does
 //! during an update (the desktop app asks first, through `vault_worker::foreground_work`).
 //! Failure modes: an update that never stops counting (every later quit asks about it); an
@@ -89,10 +89,10 @@ pub fn with_archive_upgrade_progress<T: Send + 'static>(
     })
 }
 
-/// Opens in this process that are updating a database right now.
+/// Live archive opens in this process that are updating a database right now.
 static UPDATING: AtomicUsize = AtomicUsize::new(0);
 
-/// Whether an open in this process is updating the archive's databases to this version's schema:
+/// Whether an open in this process is updating the live archive's databases to this version's schema:
 /// from just before it changes the first one until it returns. Quitting then is safe, since the
 /// next launch carries on where the update stopped, but that launch has to finish it before the
 /// archive opens, so the desktop app asks first. Reads memory only.
@@ -106,19 +106,18 @@ pub fn schema_update_running() -> bool {
 pub(crate) struct UpdateScope(Arc<AtomicBool>);
 
 impl UpdateScope {
-    pub(crate) fn new() -> Self {
-        Self(Arc::default())
-    }
-
-    /// The registry's update observer for this open. Runs on a writer thread, before the change.
-    pub(crate) fn observer(&self) -> impl Fn(vault_store::Db) + Send + Sync + 'static {
-        let counted = self.0.clone();
-        move |_| {
+    /// Registers the live open's observer before its writer threads start. Hold the returned
+    /// scope until the store open returns.
+    pub(crate) fn track(registry: &mut vault_store::MigrationRegistry) -> Self {
+        let counted = Arc::new(AtomicBool::new(false));
+        let scope = Self(counted.clone());
+        registry.on_update(move |_| {
             if !counted.swap(true, Ordering::SeqCst) {
                 UPDATING.fetch_add(1, Ordering::SeqCst);
             }
             crate::test_support::hold_schema_update();
-        }
+        });
+        scope
     }
 }
 

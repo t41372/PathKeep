@@ -10,9 +10,13 @@
  * xprop and wmctrl, and a window manager: without one nothing maximizes,
  * minimizes or moves. On a display it may change (CI's, or one with none)
  * it runs mutter, GNOME's, then xfwm4, Xfce's. Anywhere else the specs that
- * use it are skipped; where the environment says it provides them
- * (`PATHKEEP_E2E_NATIVE_WINDOW=required`, CI's gate) a missing piece fails
- * them instead, so the check cannot quietly stop running.
+ * use it are skipped, also when the app's window is not on the X display (a
+ * Wayland session) or no window manager can be had; where the environment
+ * says it provides them (`PATHKEEP_E2E_NATIVE_WINDOW=required`, CI's gate) a
+ * missing piece fails them instead, so the check cannot quietly stop running.
+ *
+ * The window worked is the one of the app this run started, found by its
+ * process: a PathKeep someone has open on the same display is never touched.
  *
  * Presses are held for 60 ms, as a person's are, except a tap's: released at
  * once, as a trackpad tap is (`expectTapsDoNotDrag`).
@@ -102,29 +106,53 @@ export async function switchToXfwm4(): Promise<string | null> {
   return null
 }
 
-/** The id of PathKeep's main window once it is on screen. */
-export async function appWindow(): Promise<string> {
-  let id = ''
-  await expect
-    .poll(
-      () => {
-        try {
-          id =
-            run('xdotool', [
-              'search',
-              '--onlyvisible',
-              '--name',
-              '^PathKeep$',
-            ]).split('\n')[0] ?? ''
-        } catch {
-          id = ''
-        }
-        return id
-      },
-      { timeout: 120_000, intervals: [1_000] },
+/** The visible main window of process `pid` on this display, or `''`. */
+function windowOf(pid: number) {
+  try {
+    return (
+      run('xdotool', [
+        'search',
+        '--all',
+        '--onlyvisible',
+        '--pid',
+        String(pid),
+        '--name',
+        '^PathKeep$',
+      ]).split('\n')[0] ?? ''
     )
+  } catch {
+    return ''
+  }
+}
+
+/**
+ * The id of the main window of the app this run started (process `pid`),
+ * once it is on screen. Never another PathKeep that happens to be open on the
+ * display: every press, drag and the final Close goes to this window.
+ */
+export async function appWindow(pid: number): Promise<string> {
+  await expect
+    .poll(() => windowOf(pid), { timeout: 120_000, intervals: [1_000] })
     .not.toBe('')
-  return id
+  return windowOf(pid)
+}
+
+/**
+ * Whether the app's window shows up on this X display within a short while.
+ * It does not where the app is a native Wayland window beside an XWayland
+ * display that has the tools.
+ */
+export async function appWindowIsHere(pid: number) {
+  for (let waited = 0; waited < 30; waited += 1) {
+    if (windowOf(pid)) return true
+    await new Promise((resolve) => setTimeout(resolve, 1_000))
+  }
+  return false
+}
+
+/** Whether a window manager runs here, or mutter can be started. */
+export function windowManagerAvailable() {
+  return windowManager() !== '' || has('mutter')
 }
 
 export type NativeState = {

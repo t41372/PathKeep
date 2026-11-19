@@ -29,6 +29,7 @@ import {
 } from './support/app'
 import {
   appWindow,
+  appWindowIsHere,
   closeButton,
   expectTapsDoNotDrag,
   expectWorkingWindowFrame,
@@ -36,6 +37,7 @@ import {
   nativeWindowMissing,
   switchToXfwm4,
   useMutter,
+  windowManagerAvailable,
 } from './support/native-window'
 
 const missing = nativeWindowMissing()
@@ -48,8 +50,20 @@ test('linux: the real window: buttons, drag, double click, a tap, and Close quit
   test.setTimeout(900_000)
   if (missing)
     throw new Error(`This run requires the real window: it ${missing}.`)
+  const pid = await runningPid()
+  if (pid === null) throw new Error('The app is not answering.')
+  if (!required) {
+    test.skip(
+      !windowManagerAvailable(),
+      'The real window needs a window manager, and mutter is not installed.',
+    )
+    test.skip(
+      !(await appWindowIsHere(pid)),
+      'The app’s window is not on this X display.',
+    )
+  }
   await useMutter()
-  const id = await appWindow()
+  const id = await appWindow(pid)
   await expectWorkingWindowFrame(id)
 
   const noXfwm4 = await switchToXfwm4()
@@ -65,8 +79,6 @@ test('linux: the real window: buttons, drag, double click, a tap, and Close quit
     await expectTapsDoNotDrag(id)
   }
 
-  const pid = await runningPid()
-  if (pid === null) throw new Error('The app is not answering.')
   restartAppWhenItExits()
   const close = closeButton(id)
   await nativeClick(close.x, close.y)

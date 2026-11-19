@@ -79,7 +79,7 @@ impl Vault {
         config: AppConfig,
         key: Option<&vault_crypto::DataKey>,
         owner: Option<Arc<vault_store::OwnerLock>>,
-        recover: bool,
+        live_archive: bool,
     ) -> Result<Self> {
         // Whatever config the caller holds, the control on disk decides whether this build may
         // open the root. Before the owner lock: a refused root is left exactly as it was.
@@ -94,7 +94,7 @@ impl Vault {
         // The live archive is brought up to this build's layout before its store opens: the
         // stores it lacks made aside, recorded, the stamp, then moved in (`maintenance::creation`).
         // A staged copy is not: its operation sets its control.
-        if recover {
+        if live_archive {
             recovered |= crate::maintenance::creation::promote_if_needed(&paths, key)
                 .map_err(|e| vault_store::Error::Operation(e.into_boxed_dyn_error()))?;
         }
@@ -107,15 +107,16 @@ impl Vault {
         // After recovery: a replayed install can have replaced the control.
         let layout = crate::admission::root_layout(&paths.app_root)
             .map_err(|refusal| vault_store::Error::Operation(Box::new(refusal)))?;
-        if recover {
+        if live_archive {
             // The store would create a missing database file. In a stamped archive that is only
             // right for a store the creation record names; anything else missing is damage.
             crate::maintenance::creation::check_required_stores(&paths, layout)
                 .map_err(|e| vault_store::Error::Operation(e.into_boxed_dyn_error()))?;
         }
         let mut storage = storage_config(&paths, layout, key, Some(owner))?;
-        let update = crate::vault::upgrade::UpdateScope::new();
-        storage.migrations.on_update(update.observer());
+        // A restore or import owns its staged migration. Only the live archive resumes its
+        // schema update at the next launch, as the quit prompt promises.
+        let update = live_archive.then(|| upgrade::UpdateScope::track(&mut storage.migrations));
         let opened = Store::open(storage);
         drop(update);
         let store = match opened {
@@ -129,7 +130,7 @@ impl Vault {
                 return Err(error);
             }
         };
-        if recover {
+        if live_archive {
             store.write(Db::Archive, Priority::Interactive, |s| {
             s.execute(
                 // One process owns the archive, so a run still running when it opens was cut
@@ -144,8 +145,13 @@ impl Vault {
             crate::intelligence_runtime::recover_owner_claims(&store)?;
         }
         let search = Arc::new(
-            crate::search::Indexer::open(store.clone(), &paths.search_index_dir, key, !recover)
-                .map_err(|e| vault_store::Error::Operation(e.into_boxed_dyn_error()))?,
+            crate::search::Indexer::open(
+                store.clone(),
+                &paths.search_index_dir,
+                key,
+                !live_archive,
+            )
+            .map_err(|e| vault_store::Error::Operation(e.into_boxed_dyn_error()))?,
         );
         let search_sessions = Arc::default();
         live::register(&paths.app_root, &store);
@@ -175,7 +181,7 @@ impl Vault {
             site_days: Arc::default(),
             _temporary_root: None,
         };
-        if recover {
+        if live_archive {
             if let Err(error) = crate::ai::generations::migrate_flat_indexes(&vault) {
                 eprintln!("pathkeep: semantic index migration will retry on next open: {error:#}");
                 return Ok(vault);

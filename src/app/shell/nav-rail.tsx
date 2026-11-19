@@ -188,7 +188,8 @@ export function NavRail({
           />
         ))}
       </SpaceSlide>
-      <div className="min-h-2 flex-1" {...backdropDragRegion()} />
+      {/* Full width: centred in the rail it would be zero wide, and nothing could press it. */}
+      <div className="min-h-2 w-full flex-1" {...backdropDragRegion()} />
       {/* Below the line: shared by every space, and still when it changes. */}
       <Divider className="mb-1" />
       <TaskIndicator />

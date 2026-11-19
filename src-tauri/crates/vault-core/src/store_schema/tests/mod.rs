@@ -7,6 +7,7 @@ mod archive;
 mod intelligence;
 mod killed_upgrade;
 mod lineage;
+mod quit_tracking;
 mod source_evidence;
 
 use std::{num::NonZeroUsize, path::Path};
