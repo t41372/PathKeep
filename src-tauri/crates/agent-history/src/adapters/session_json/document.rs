@@ -87,7 +87,7 @@ impl<'a> Document<'a> {
         loop {
             self.whitespace()?;
             // Fill before sampling the restart: a delimiter can end exactly at a frame boundary.
-            self.peek()?;
+            let missing_slot = self.peek()? == Some(b',');
             let frame = restart.get();
             let start = self.position;
             self.last_issue = RecordCoverage::Object;
@@ -102,9 +102,10 @@ impl<'a> Document<'a> {
             if value.is_some() {
                 self.report.event_count += 1;
             }
-            if self.position > start {
+            if self.position > start || missing_slot {
                 emit(
                     RecordLocator {
+                        owner: None,
                         start: DecodedOffset(start),
                         frame,
                         length: self.position - start,

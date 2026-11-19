@@ -79,7 +79,10 @@ fn native_frame_coordinates_survive_records_crossing_frames() {
     );
     let temp = tempfile::tempdir().unwrap();
     let archive = Archive::create_unencrypted(temp.path()).unwrap();
-    let info = archive.revision(retain(&archive, &frames.concat())).unwrap();
+    let info = archive
+        .revision(retain_path(&archive, &frames.concat(), Harness::Codex, "a.jsonl.zst"))
+        .unwrap();
+    let rows = archive_locations(&archive, info.id);
     for (row, expected) in rows.iter().zip([b"{\"a\":2}\n".as_slice(), b"{}\n"]) {
         assert_eq!(
             archive.record_bytes(&info, row, 0, 32, &Default::default()).unwrap().bytes,
@@ -99,10 +102,13 @@ fn retain(archive: &Archive, data: &[u8]) -> i64 {
 }
 
 fn retain_for(archive: &Archive, data: &[u8], harness: Harness) -> i64 {
+    retain_path(archive, data, harness, "a.jsonl")
+}
+fn retain_path(archive: &Archive, data: &[u8], harness: Harness, path: &str) -> i64 {
     let root = SourceRoot { harness, root: "/fixture".into() };
     let artifact = Artifact {
-        path: "/fixture/a.jsonl".into(),
-        relative_path: "a.jsonl".into(),
+        path: root.root.join(path),
+        relative_path: path.into(),
         kind: ArtifactKind::Transcript,
         project_hint: None,
         generation: None,
@@ -128,7 +134,7 @@ fn retained_window_crosses_three_slices_and_clips_shared_prefix() {
     let mut shared = Vec::new();
     archive.raw_reader(old).unwrap().take(bytes.len() as u64 + 4).read_to_end(&mut shared).unwrap();
     assert_eq!(shared, bytes, "the old revision ends inside the successor slice");
-    let rows = locations(bytes, Harness::Pi, Transport::Plain, 32).unwrap();
+    let rows = archive_locations(&archive, old);
     let range = &rows[1];
     let page = archive
         .record_bytes(&archive.revision(old).unwrap(), range, 0, 64, &JobControl::default())
@@ -156,10 +162,11 @@ fn retained_window_crosses_three_slices_and_clips_shared_prefix() {
 fn single_frame_replay_reports_progress_and_obeys_cancellation() {
     let bytes = [vec![b'x'; 262144], b"\n{}\n".to_vec()].concat();
     let native = zstd::stream::encode_all(bytes.as_slice(), 1).unwrap();
-    let rows = locations(&native, Harness::Pi, Transport::Zstd, 32).unwrap();
+
     let tmp = tempfile::tempdir().unwrap();
     let archive = Archive::create_unencrypted(tmp.path()).unwrap();
-    let rev = retain(&archive, &native);
+    let rev = retain_path(&archive, &native, Harness::Pi, "a.jsonl.zst");
+    let rows = archive_locations(&archive, rev);
     let mut job = JobControl::default();
     let token = job.cancel.clone();
     job.progress = Some(std::sync::Arc::new(move |p| {
@@ -230,20 +237,14 @@ fn claude_window_keeps_thinking_and_call_input_separate_from_public_text() {
     let raw = br#"{"type":"assistant","message":{"content":[{"type":"thinking","thinking":"why"},{"type":"tool_use","name":"read","input":{"path":"a"}},{"type":"text","text":"done"}]}}"#;
     let tmp = tempfile::tempdir().unwrap();
     let archive = Archive::create_unencrypted(tmp.path()).unwrap();
-    let revision = retain(&archive, raw);
+    let revision = retain_for(&archive, raw, Harness::ClaudeCode);
     let mut outline = Vec::new();
-    scan_records(
-        &mut raw.as_slice(),
-        Harness::ClaudeCode,
-        Transport::Plain,
-        &Default::default(),
-        &Default::default(),
-        &mut |record, ctx, _| {
+    archive
+        .scan_revision(revision, &Default::default(), &Default::default(), &mut |record, ctx, _| {
             outline.push((record, ctx.clone()));
             Ok(())
-        },
-    )
-    .unwrap();
+        })
+        .unwrap();
     archive
         .read_window(
             &archive.revision(revision).unwrap(),
@@ -281,20 +282,14 @@ fn selection_skips_a_large_plain_gap_and_checks_revision_identity() {
     let rev = retain(&archive, &bytes);
     let mut info = archive.revision(rev).unwrap();
     let mut selected = Vec::new();
-    scan_records(
-        &mut bytes.as_slice(),
-        Harness::Pi,
-        Transport::Plain,
-        &Default::default(),
-        &Default::default(),
-        &mut |record, ctx, value| {
+    archive
+        .scan_revision(rev, &Default::default(), &Default::default(), &mut |record, ctx, value| {
             if value.is_some() {
                 selected.push((record, ctx.clone()))
             }
             Ok(())
-        },
-    )
-    .unwrap();
+        })
+        .unwrap();
     let job = JobControl { max_decoded_bytes: 12, ..Default::default() };
     let mut seen = Vec::new();
     archive
@@ -488,4 +483,14 @@ fn rejects_row_201_before_delivering_any_window_rows() {
         .unwrap_err();
     assert_eq!(error.code(), "invalid_input");
     assert_eq!(delivered, 200);
+}
+
+fn archive_locations(a: &Archive, id: i64) -> Vec<RecordLocator> {
+    let mut rows = Vec::new();
+    a.scan_revision(id, &Default::default(), &Default::default(), &mut |r, _, _| {
+        rows.push(r);
+        Ok(())
+    })
+    .unwrap();
+    rows
 }

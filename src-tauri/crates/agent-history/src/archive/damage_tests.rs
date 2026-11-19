@@ -201,3 +201,97 @@ fn damaged_slice_is_distinct_from_invalid_native_transport() {
         .unwrap_err();
     assert_eq!(error.code(), "integrity_error");
 }
+
+#[test]
+fn invalid_revision_and_manifest_coordinates_are_integrity_failures() {
+    let mut codes = Vec::new();
+    for sql in
+        ["UPDATE ah_revisions SET byte_len=-1", "UPDATE ah_revision_chunks SET byte_offset=-1"]
+    {
+        let tmp = tempfile::tempdir().unwrap();
+        let archive = Archive::create_unencrypted(&tmp.path().join("archive")).unwrap();
+        let root = rollout(&tmp.path().join("native"), None);
+        capture(&archive, &root).unwrap();
+        let id = archive.list_sessions(&Default::default()).unwrap().items[0].revision_id;
+        archive
+            .store
+            .write(Db::AgentHistoryEvidence, Priority::Batch, move |tx| tx.execute(sql, ()))
+            .unwrap();
+        let err = archive
+            .scan_revision(id, &Default::default(), &Default::default(), &mut |_, _, _| Ok(()))
+            .unwrap_err();
+        codes.push(err.code());
+    }
+    assert_eq!(codes, ["integrity_error", "integrity_error"]);
+}
+
+#[test]
+fn array_and_filtered_windows_fetch_each_slice_once() {
+    use crate::{Artifact, ArtifactKind};
+    use sha2::{Digest, Sha256};
+    for (harness, bytes) in [
+        (Harness::Cline, format!("[{}]", vec!["{}"; 200].join(","))),
+        (Harness::Pi, "{}\nnull\n".repeat(200)),
+    ] {
+        let tmp = tempfile::tempdir().unwrap();
+        let a = Archive::create_unencrypted(tmp.path()).unwrap();
+        let root = SourceRoot { harness, root: "/fixture".into() };
+        let artifact = Artifact {
+            path: "/fixture/test.json".into(),
+            relative_path: "test.json".into(),
+            kind: ArtifactKind::Transcript,
+            project_hint: None,
+            generation: None,
+            current: true,
+        };
+        let id = a.begin_revision("source", &root, &artifact).unwrap();
+        a.append_chunk(id, 0, bytes.as_bytes().to_vec()).unwrap();
+        a.finish_revision(id, &hex::encode(Sha256::digest(&bytes)), bytes.len() as u64).unwrap();
+        let mut records = Vec::new();
+        a.scan_revision(id, &Default::default(), &Default::default(), &mut |r, c, v| {
+            if v.is_some() {
+                records.push((r, c.clone()));
+            }
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(records.len(), 200);
+        a.store.capture_query_plans(Db::AgentHistoryEvidence, true).unwrap();
+        let mut rows = 0;
+        a.read_window(&a.revision(id).unwrap(), &records, 32, &Default::default(), &mut |r| {
+            assert_eq!(r.raw.bytes.strip_suffix(b"\n").unwrap_or(&r.raw.bytes), b"{}");
+            rows += 1;
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(rows, 200);
+        let plans = a.store.take_query_plans(Db::AgentHistoryEvidence).unwrap();
+        assert_eq!(
+            plans.iter().filter(|p| p.sql.contains("SELECT data,codec FROM ah_chunks")).count(),
+            1,
+            "{harness}"
+        );
+    }
+}
+
+#[test]
+fn malformed_revision_digest_and_retention_flag_fail_before_reading() {
+    let tmp = tempfile::tempdir().unwrap();
+    let archive = Archive::create_unencrypted(&tmp.path().join("archive")).unwrap();
+    let root = rollout(&tmp.path().join("native"), None);
+    capture(&archive, &root).unwrap();
+    let id = archive.list_sessions(&Default::default()).unwrap().items[0].revision_id;
+    let expected = archive.revision(id).unwrap().digest;
+    for (digest, retained) in [("z".repeat(64), 1), (expected, 2)] {
+        archive
+            .store
+            .write(Db::AgentHistoryEvidence, Priority::Batch, move |tx| {
+                tx.execute(
+                    "UPDATE ah_revisions SET digest=?1,bytes_retained=?2 WHERE id=?3",
+                    vault_store::params![digest, retained as i64, id],
+                )
+            })
+            .unwrap();
+        assert_eq!(archive.revision(id).err().map(|e| e.code()), Some("integrity_error"));
+    }
+}

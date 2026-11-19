@@ -337,14 +337,22 @@ fn map_revision(row: &vault_store::Row) -> vault_store::Result<RevisionInfo> {
     if length < 0 {
         return Err(integrity("revision byte length is negative"));
     }
+    let digest: String = row.get(2)?;
+    let retained: i64 = row.get(6)?;
+    if digest.len() != 64
+        || !digest.bytes().all(|b| b.is_ascii_hexdigit())
+        || !(0..=1).contains(&retained)
+    {
+        return Err(integrity("invalid digest or retention flag on complete revision"));
+    }
     Ok(RevisionInfo {
         id: row.get(0)?,
         source_id: row.get(1)?,
-        digest: row.get(2)?,
+        digest,
         byte_len: length as u64,
         captured_at: row.get(4)?,
         capture_format: row.get(5)?,
-        bytes_retained: row.get::<i64>(6)? != 0,
+        bytes_retained: retained == 1,
     })
 }
 

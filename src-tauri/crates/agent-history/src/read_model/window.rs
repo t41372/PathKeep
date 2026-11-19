@@ -4,7 +4,10 @@ use super::{
     transport::{BUFFER, Decoded, read_error},
     *,
 };
-use crate::{Archive, Harness, ParseContext, archive::RevisionInfo};
+use crate::{
+    Archive, Harness, ParseContext,
+    archive::{RawReader, RevisionInfo},
+};
 use std::{
     cell::Cell,
     io::{self, BufReader, Read},
@@ -22,6 +25,16 @@ impl Archive {
         job: &JobControl,
         visit: &mut RecordVisitor<'_>,
     ) -> Result<ScanReport> {
+        let _worker = self.jobs.enter_scan(&job.cancel)?;
+        self.scan_revision_admitted(revision, context, job, visit)
+    }
+    pub(super) fn scan_revision_admitted(
+        &self,
+        revision: i64,
+        context: &ParseContext,
+        job: &JobControl,
+        visit: &mut RecordVisitor<'_>,
+    ) -> Result<ScanReport> {
         self.scan_revision_with_frames(revision, context, job, visit, &mut |_| Ok(()))
     }
     pub(super) fn scan_revision_with_frames(
@@ -33,10 +46,11 @@ impl Archive {
         frame: &mut dyn FnMut(TransportFrame) -> Result<()>,
     ) -> Result<ScanReport> {
         job.checkpoint(ReadPhase::Framing, 0)?;
-        let _guard = self.jobs.enter_reader(&job.cancel)?;
         let info = self.revision(revision)?;
         let source = self.source(&info.source_id)?;
         let harness: Harness = source.harness.parse()?;
+        let transport = Transport::from_path(&source.relative_path);
+        let owner = Arc::new(LocatorOwner::new(&info, transport == Transport::Zstd));
         let mut input = BufReader::with_capacity(
             BUFFER,
             EvidenceReader(self.raw_reader(revision)?.with_scan_control(job)),
@@ -46,10 +60,13 @@ impl Archive {
         framing::scan_with_frames(
             &mut input,
             harness,
-            Transport::from_path(&source.relative_path),
+            transport,
             &context,
             job,
-            visit,
+            &mut |mut record, ctx, value| {
+                record.owner = Some(owner.clone());
+                visit(record, ctx, value)
+            },
             frame,
         )
     }
@@ -63,8 +80,18 @@ impl Archive {
         limit: usize,
         job: &JobControl,
     ) -> Result<BytePage> {
+        let _worker = self.jobs.enter_window(&job.cancel)?;
+        self.record_bytes_admitted(revision, record, offset, limit, job)
+    }
+    pub(super) fn record_bytes_admitted(
+        &self,
+        revision: &RevisionInfo,
+        record: &RecordLocator,
+        offset: u64,
+        limit: usize,
+        job: &JobControl,
+    ) -> Result<BytePage> {
         job.checkpoint(ReadPhase::Reading, 0)?;
-        let _guard = self.jobs.enter_reader(&job.cancel)?;
         page_limit(limit)?;
         let remaining = record.length.checked_sub(offset).ok_or_else(invalid_span)?;
         let count = remaining.min(limit as u64);
@@ -72,9 +99,13 @@ impl Archive {
         let end = start.checked_add(count).ok_or_else(invalid_span)?;
         let info = self.checked_revision(revision)?;
         validate(record, &info)?;
+        if count == 0 {
+            return Ok(BytePage { bytes: Vec::new(), next: None });
+        }
+        let mut raw = RawReader::new(self, info.clone());
         let restart = Cell::new(None);
         let (mut input, position) =
-            self.open_range(&info, record.frame, start, end, &restart, job)?;
+            Self::open_range(&mut raw, &info, record.frame, start, end, &restart, job)?;
         skip(&mut input, start - position)?;
         let mut bytes = vec![0; count as usize];
         input.read_exact(&mut bytes).map_err(range_error)?;
@@ -82,7 +113,10 @@ impl Archive {
     }
 
     /// Streams at most 200 ordered rows. Adjacent rows share a slice cache and a
-    /// native decoder. Large objects expose bounded raw previews with continuations.
+    /// native decoder. A read reflects the supplied revision at its start. If retention
+    /// expires it during delivery, authenticated buffered rows can still complete the read.
+    /// Otherwise the read reports expiry. Rows delivered to the visitor are provisional:
+    /// discard them on error. A successor's bytes never complete the window.
     pub fn read_window(
         &self,
         revision: &RevisionInfo,
@@ -91,16 +125,26 @@ impl Archive {
         job: &JobControl,
         visit: &mut dyn FnMut(ReaderRow) -> Result<()>,
     ) -> Result<()> {
+        let _worker = self.jobs.enter_window(&job.cancel)?;
+        self.read_window_admitted(revision, records, preview_bytes, job, visit)
+    }
+    pub(super) fn read_window_admitted(
+        &self,
+        revision: &RevisionInfo,
+        records: &[(RecordLocator, RecordContext)],
+        preview_bytes: usize,
+        job: &JobControl,
+        visit: &mut dyn FnMut(ReaderRow) -> Result<()>,
+    ) -> Result<()> {
         job.checkpoint(ReadPhase::Reading, 0)?;
-        let _guard = self.jobs.enter_reader(&job.cancel)?;
         page_limit(preview_bytes)?;
         if records.len() > MAX_ROWS {
             return Err(Error::InvalidInput("window exceeds 200 rows".into()));
         }
+        let info = self.checked_revision(revision)?;
         if records.is_empty() {
             return Ok(());
         }
-        let info = self.checked_revision(revision)?;
         let first = &records[0].0;
         let mut end = first.start.0;
         for (record, _) in records {
@@ -109,13 +153,14 @@ impl Archive {
             }
             end = validate(record, &info)?;
         }
+        let mut raw = RawReader::new(self, info.clone());
         let mut remaining = records;
         let mut work = 0;
         while let Some(((first, _), rest)) = remaining.split_first() {
             let mut last = first;
             let mut rows = 1;
             for (next, _) in rest {
-                let preview_end = last.start.0 + last.length.min(preview_bytes as u64);
+                let preview_end = last.start.0 + read_length(last, preview_bytes);
                 if next.start.0 != preview_end
                     && next.frame.is_none_or(|frame| frame.decoded.0 >= preview_end)
                 {
@@ -124,10 +169,10 @@ impl Archive {
                 last = next;
                 rows += 1;
             }
-            let end = last.start.0 + last.length.min(preview_bytes as u64);
+            let end = last.start.0 + read_length(last, preview_bytes);
             let restart = Cell::new(None);
             let (mut input, position) =
-                self.open_range(&info, first.frame, first.start.0, end, &restart, job)?;
+                Self::open_range(&mut raw, &info, first.frame, first.start.0, end, &restart, job)?;
             input.prior_work = work;
             Self::visit_run(&mut input, position, &remaining[..rows], preview_bytes, &info, visit)?;
             job.cancel.check().map_err(|_| Error::Cancelled)?;
@@ -147,12 +192,13 @@ impl Archive {
     ) -> Result<()> {
         for (record, context) in records {
             skip(input, record.start.0 - position)?;
-            let count = record.length.min(preview_bytes as u64);
+            let count = read_length(record, preview_bytes);
             let mut bytes = vec![0; count as usize];
             input.read_exact(&mut bytes).map_err(range_error)?;
             position = record.start.0 + count;
-            let next = (count < record.length).then_some(count);
-            let interpretation = if next.is_none() && record.coverage == RecordCoverage::Object {
+            let clipped = record.length > preview_bytes as u64;
+            let next = clipped.then_some(preview_bytes as u64);
+            let mut interpretation = if record.coverage == RecordCoverage::Object {
                 let raw = if record.start.0 == 0 {
                     bytes.strip_prefix(b"\xef\xbb\xbf").unwrap_or(&bytes)
                 } else {
@@ -162,7 +208,17 @@ impl Archive {
             } else {
                 None
             };
+            let preview = if clipped {
+                bytes.truncate(preview_bytes);
+                bytes.shrink_to_fit();
+                interpretation.take().map(|event| {
+                    DisplayRow::from_event(&revision.source_id, record, Some(event), preview_bytes)
+                })
+            } else {
+                None
+            };
             visit(ReaderRow {
+                preview,
                 source_id: SourceId(revision.source_id.clone()),
                 revision_digest: revision.digest.clone(),
                 record: record.clone(),
@@ -178,11 +234,14 @@ impl Archive {
         if info.digest != expected.digest || info.source_id != expected.source_id {
             return Err(Error::StaleCursor);
         }
+        if !info.bytes_retained {
+            return Err(Error::NotFound("revision bytes expired by retention".into()));
+        }
         Ok(info)
     }
 
     fn open_range<'a>(
-        &self,
+        raw: &'a mut RawReader,
         info: &RevisionInfo,
         frame: Option<FrameStart>,
         start: u64,
@@ -190,9 +249,6 @@ impl Archive {
         restart: &'a Cell<Option<FrameStart>>,
         job: &'a JobControl,
     ) -> Result<(Decoded<'a>, u64)> {
-        if !info.bytes_retained {
-            return Err(Error::NotFound("revision bytes expired by retention".into()));
-        }
         let (native, length, position, transport) = match frame {
             Some(frame) => (
                 frame.native.0,
@@ -202,7 +258,7 @@ impl Archive {
             ),
             None => (start, end - start, start, Transport::Plain),
         };
-        let raw = self.raw_window(info, native, length);
+        let raw = raw.range(native, length);
         let decoded = Decoded::new(
             Box::new(BufReader::with_capacity(BUFFER, EvidenceReader(raw))),
             transport,
@@ -232,19 +288,25 @@ fn classify_evidence(error: Error) -> Error {
             Error::Integrity(io.to_string())
         }
         Error::Io(io) if io.get_ref().is_some_and(|e| e.is::<vault_store::Error>()) => {
-            match io.downcast::<vault_store::Error>().expect("checked error type") {
-                vault_store::Error::Operation(cause) => match cause.downcast::<Error>() {
-                    Ok(error) => *error,
-                    Err(other) => Error::Store(vault_store::Error::Operation(other)),
-                },
-                store => Error::Store(store),
-            }
+            io.downcast::<vault_store::Error>().expect("checked error type").into()
         }
         other => other,
     }
 }
 
 fn validate(record: &RecordLocator, info: &RevisionInfo) -> Result<u64> {
+    if !record.owner.as_ref().is_some_and(|o| {
+        o.revision == info.id
+            && o.source == info.source_id
+            && o.digest == info.digest
+            && o.compressed == record.frame.is_some()
+    }) {
+        return Err(Error::StaleCursor);
+    }
+    // Framing admits at most 64 MiB of content plus the line terminator.
+    if record.coverage == RecordCoverage::Object && record.length > (64 << 20) + 2 {
+        return Err(invalid_span());
+    }
     let end = record.start.0.checked_add(record.length).ok_or_else(invalid_span)?;
     match record.frame {
         Some(frame) if frame.decoded.0 > record.start.0 || frame.native.0 >= info.byte_len => {
@@ -252,6 +314,13 @@ fn validate(record: &RecordLocator, info: &RevisionInfo) -> Result<u64> {
         }
         None if end > info.byte_len => Err(invalid_span()),
         _ => Ok(end),
+    }
+}
+
+fn read_length(record: &RecordLocator, preview_bytes: usize) -> u64 {
+    match record.coverage {
+        RecordCoverage::Object => record.length,
+        _ => record.length.min(preview_bytes as u64),
     }
 }
 

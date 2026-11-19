@@ -63,6 +63,7 @@ pub(super) fn scan_with_frames(
     let mut physical_records = 0;
     let mut objects = 0;
     let mut emit = |record: RecordLocator, value: Option<Value>| {
+        job.cancel.check().map_err(|_| Error::Cancelled)?;
         physical_records += 1;
         objects += u64::from(value.is_some());
         let ordinal = record.ordinal;
@@ -126,6 +127,7 @@ fn scan_lines(
         };
         emit(
             RecordLocator {
+                owner: None,
                 ordinal: PhysicalOrdinal(ordinal),
                 start: DecodedOffset(start),
                 length: line.length,

@@ -73,7 +73,7 @@ impl Archive {
         count: usize,
         job: &JobControl,
     ) -> Result<Vec<DisplayRow>> {
-        let _guard = self.jobs.enter_reader(&job.cancel)?;
+        let _guard = self.jobs.enter_window(&job.cancel)?;
         read::window_limit(first, count)?;
         self.check_head(h)?;
         let mut result = Vec::new();

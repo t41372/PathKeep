@@ -47,14 +47,23 @@ impl Archive {
         limit: usize,
     ) -> Result<Vec<u64>> {
         page_limit(limit)?;
+        let job = JobControl::default();
+        let _worker = self.jobs.enter_window(&job.cancel)?;
         let (owner, end) = self.member_version(h, source)?;
         let _identity = self.version_info(&owner)?;
-        let mut rows = self.lookup(&owner, id, after, limit)?;
+        let mut rows = self.lookup(&owner, id, after, limit, &job)?;
         rows.retain(|ordinal| *ordinal < end);
         self.check_head(h)?;
         Ok(rows)
     }
-    fn lookup(&self, owner: &str, id: &str, after: Option<u64>, limit: usize) -> Result<Vec<u64>> {
+    fn lookup(
+        &self,
+        owner: &str,
+        id: &str,
+        after: Option<u64>,
+        limit: usize,
+        job: &JobControl,
+    ) -> Result<Vec<u64>> {
         let hash = build::key(id);
         let (token, k) = (owner.to_owned(), hash.clone());
         let start = self
@@ -77,7 +86,7 @@ impl Archive {
             if !exists {
                 break;
             }
-            let (_, entries) = pages::load::<(String, u64)>(self, owner, LOOKUP, pos)?;
+            let (_, entries) = pages::load::<(String, u64)>(self, owner, LOOKUP, pos, job)?;
             pos += entries.len() as u64;
             for (key, n) in entries {
                 if key > hash {
@@ -85,7 +94,7 @@ impl Archive {
                 }
                 if key == hash
                     && after.is_none_or(|v| n > v)
-                    && self.entry(owner, n)?.id.as_deref() == Some(id)
+                    && self.entry(owner, n, job)?.id.as_deref() == Some(id)
                 {
                     result.push(n);
                     if result.len() == limit {
@@ -96,8 +105,8 @@ impl Archive {
         }
         Ok(result)
     }
-    fn entry(&self, owner: &str, n: u64) -> Result<Entry> {
-        let (first, mut page) = pages::load::<Entry>(self, owner, OUTLINE, n)?;
+    fn entry(&self, owner: &str, n: u64, job: &JobControl) -> Result<Entry> {
+        let (first, mut page) = pages::load::<Entry>(self, owner, OUTLINE, n, job)?;
         Ok(page.swap_remove((n - first) as usize))
     }
     /// Exact native expansion always uses evidence, including a member with rendered pages.
@@ -110,7 +119,7 @@ impl Archive {
         limit: usize,
         job: &JobControl,
     ) -> Result<BytePage> {
-        let _guard = self.jobs.enter_reader(&job.cancel)?;
+        let _guard = self.jobs.enter_window(&job.cancel)?;
         let (owner, count) = self.member_version(h, source)?;
         if ordinal >= count {
             return Err(Error::NotFound("record ordinal".into()));
@@ -118,7 +127,7 @@ impl Archive {
         let (info, _) = self.version_info(&owner)?;
         let entry =
             self.source_outline(&owner, &info, ordinal, 1, job)?.pop().ok_or(Error::StaleCursor)?;
-        let page = self.record_bytes(&info, &entry.locator, offset, limit, job)?;
+        let page = self.record_bytes_admitted(&info, &entry.locator, offset, limit, job)?;
         self.check_head(h)?;
         Ok(page)
     }
@@ -133,7 +142,7 @@ impl Archive {
         job: &JobControl,
     ) -> Result<Vec<DisplayRow>> {
         read::window_limit(first, count)?;
-        let _guard = self.jobs.enter_reader(&job.cancel)?;
+        let _guard = self.jobs.enter_window(&job.cancel)?;
         let (owner, total) = self.member_version(h, source)?;
         if leaf >= total {
             return Err(Error::NotFound("leaf ordinal".into()));
@@ -171,7 +180,7 @@ impl Archive {
     ) -> Result<()> {
         loop {
             job.cancel.check().map_err(|_| Error::Cancelled)?;
-            let entry = self.entry(owner, last)?;
+            let entry = self.entry(owner, last, job)?;
             let first = entry.run_start;
             if first > last {
                 return Err(pages::invalid("backwards branch run"));
@@ -179,9 +188,9 @@ impl Archive {
             if !visit(first, last + 1)? || first == 0 {
                 break;
             }
-            let head = if first == last { entry } else { self.entry(owner, first)? };
+            let head = if first == last { entry } else { self.entry(owner, first, job)? };
             if let Some(parent) = head.parent {
-                let ordinals = self.lookup(owner, &parent, None, 2)?;
+                let ordinals = self.lookup(owner, &parent, None, 2, job)?;
                 if ordinals.len() != 1 || ordinals[0] >= first {
                     return Err(Error::InvalidInput("unresolved branch parent".into()));
                 }

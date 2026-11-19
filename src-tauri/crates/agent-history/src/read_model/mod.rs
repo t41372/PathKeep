@@ -59,11 +59,32 @@ pub enum RecordCoverage {
 /// Half-open decoded span; JSONL includes its terminator, document elements exclude separators.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct RecordLocator {
+    // Serialized outline pages inherit their identity from the authenticated version key.
+    #[serde(skip)]
+    pub(crate) owner: Option<Arc<LocatorOwner>>,
     pub ordinal: PhysicalOrdinal,
     pub start: DecodedOffset,
     pub length: u64,
     pub frame: Option<FrameStart>,
     pub coverage: RecordCoverage,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub(crate) struct LocatorOwner {
+    compressed: bool,
+    revision: i64,
+    source: String,
+    digest: String,
+}
+impl LocatorOwner {
+    fn new(info: &crate::archive::RevisionInfo, compressed: bool) -> Self {
+        Self {
+            compressed,
+            revision: info.id,
+            source: info.source_id.clone(),
+            digest: info.digest.clone(),
+        }
+    }
 }
 
 /// A navigation anchor can outlive the archive-local revision handle.
@@ -177,6 +198,8 @@ pub struct ReaderRow {
     pub record: RecordLocator,
     pub raw: BytePage,
     pub interpretation: Option<InterpretedRecord>,
+    /// Typed display fields derived from the complete object when its raw page continues.
+    pub preview: Option<DisplayRow>,
 }
 
 impl ReaderRow {
@@ -187,7 +210,11 @@ impl ReaderRow {
             source_id: self.source_id.clone(),
             revision_digest: self.revision_digest.clone(),
             ordinal: self.record.ordinal,
-            native_id: self.interpretation.as_ref().and_then(|row| row.event.native_id.clone()),
+            native_id: self
+                .interpretation
+                .as_ref()
+                .and_then(|row| row.event.native_id.clone())
+                .or_else(|| self.preview.as_ref()?.native_id.clone()),
         }
     }
 }

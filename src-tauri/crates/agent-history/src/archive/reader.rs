@@ -74,7 +74,7 @@ impl Archive {
 }
 
 impl RawReader {
-    pub(super) fn new(archive: &Archive, info: RevisionInfo) -> Self {
+    pub(crate) fn new(archive: &Archive, info: RevisionInfo) -> Self {
         Self {
             store: archive.store.clone(),
             jobs: archive.jobs.clone(),
@@ -87,6 +87,21 @@ impl RawReader {
             failed: false,
             scan: None,
         }
+    }
+
+    /// Seeks directly to a native range, retaining the authenticated slice when the
+    /// new start is inside it. The bounded view never requests whole-stream EOF verification.
+    pub(crate) fn range(&mut self, start: u64, length: u64) -> io::Take<&mut Self> {
+        let chunk_start = self.read_bytes - self.offset as u64;
+        match start.checked_sub(chunk_start).and_then(|n| usize::try_from(n).ok()) {
+            Some(offset) if offset < self.chunk.len() => self.offset = offset,
+            _ => {
+                self.chunk.clear();
+                self.offset = 0;
+            }
+        }
+        self.read_bytes = start;
+        self.take(length)
     }
 
     pub(crate) fn with_scan_control(mut self, job: &JobControl) -> Self {
@@ -267,7 +282,8 @@ impl RawReader {
             io::Error::new(io::ErrorKind::InvalidData, "slice position exceeds revision length")
         })?;
         self.chunk = bytes;
-        let start = u64::try_from(start).map_err(io::Error::other)?;
+        let start = u64::try_from(start)
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "negative manifest offset"))?;
         self.offset = (self.read_bytes - start) as usize;
         if self.offset >= self.chunk.len() {
             return Err(io::Error::new(io::ErrorKind::InvalidData, "slice manifest has a gap"));

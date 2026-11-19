@@ -140,24 +140,17 @@ fn raw_export_keeps_the_existing_expired_revision_error() {
 
 #[test]
 fn expired_record_rejects_even_an_empty_final_continuation() {
-    use agent_history::read_model::*;
     let tmp = tempfile::tempdir().unwrap();
     let archive = create(tmp.path());
     let id = retain(&archive, ArtifactKind::Sqlite, b"{}\n");
     let revision = archive.revision(id).unwrap();
     let mut locator = None;
-    scan_records(
-        &mut b"{}\n".as_slice(),
-        Harness::Codex,
-        Transport::Plain,
-        &Default::default(),
-        &Default::default(),
-        &mut |row, _, _| {
+    archive
+        .scan_revision(id, &Default::default(), &Default::default(), &mut |row, _, _| {
             locator = Some(row);
             Ok(())
-        },
-    )
-    .unwrap();
+        })
+        .unwrap();
     let row = locator.unwrap();
     assert!(
         archive
@@ -198,4 +191,38 @@ fn replacing_retained_state_removes_its_reader_publication() {
     retain(&archive, ArtifactKind::Metadata, b"replacement");
     assert!(matches!(archive.reader_header(&id), Err(agent_history::Error::ConversationNotFound)));
     while archive.prune_reader_pages(2).unwrap() > 0 {}
+}
+
+#[test]
+fn mid_window_expiry_never_substitutes_the_new_head() {
+    let tmp = tempfile::tempdir().unwrap();
+    let archive = create(tmp.path());
+    let old = b"{\"id\":\"old\"}\n";
+    let id = retain_slices(&archive, ArtifactKind::Sqlite, &old.repeat(3), old.len());
+    let info = archive.revision(id).unwrap();
+    let mut records = Vec::new();
+    archive
+        .scan_revision(id, &Default::default(), &Default::default(), &mut |r, c, _| {
+            records.push((r, c.clone()));
+            Ok(())
+        })
+        .unwrap();
+    let mut seen = 0;
+    let result = archive.read_window(&info, &records, 32, &Default::default(), &mut |r| {
+        assert_eq!(r.raw.bytes, old);
+        assert_eq!(r.revision_digest, info.digest);
+        if seen == 0 {
+            retain(&archive, ArtifactKind::Sqlite, &b"{\"id\":\"new\"}\n".repeat(3));
+        }
+        seen += 1;
+        Ok(())
+    });
+    match result {
+        Ok(()) => assert_eq!(seen, 3),
+        Err(e) => {
+            assert!(seen > 0);
+            assert_eq!(e.code(), "not_found");
+            assert!(e.to_string().contains("expired"));
+        }
+    }
 }

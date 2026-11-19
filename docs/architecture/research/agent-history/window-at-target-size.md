@@ -22,7 +22,7 @@ The command was `AH_BYTES=264000000 AH_RECORDS=23812 AH_SAMPLES=40 cargo run --r
 | Multiframe   | 16.38 / 17.32 |   16.60 / 17.12 |   17.15 / 18.96 |   3.39 / 3.60 |     3.75 / 3.80 |   3.62 / 4.56 |  659.13 |                   12.97 |
 | Single frame | 17.77 / 18.44 | 349.79 / 381.34 | 570.84 / 592.42 |   6.54 / 7.05 |     6.45 / 6.66 |   3.42 / 3.72 |  618.42 |                   12.50 |
 
-The raw oracle checked all bytes, absolute marker positions, IDs and text. The rendered oracle independently generated and checked the complete message text, part ranges and outline address. Both paths used separate cold trials. The [complete output](validation/window-target-macos.jsonl) includes warm and during-backup distributions.
+The raw oracle in this run checked all raw bytes, absolute marker positions, native IDs and the message suffix. The rendered oracle independently generated and checked the complete message text, part ranges and outline address. Both paths used separate cold trials. The [complete output](validation/window-target-macos.jsonl) includes the warm distribution and the distribution for reads launched at the backup’s raw-commit callback.
 
 ## Storage decision
 

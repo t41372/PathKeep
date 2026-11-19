@@ -19,8 +19,8 @@ use serde::{Deserialize, Serialize};
 use vault_store::Db;
 
 const DB: Db = Db::AgentHistoryReadModel;
-pub(crate) const CODEC: i64 = 1;
-pub(crate) const RENDERER: i64 = 1;
+pub(crate) const CODEC: i64 = 2;
+pub(crate) const RENDERER: i64 = 2;
 const REPLAY_LIMIT: u64 = 32 * 1024 * 1024;
 const OUTLINE: i64 = 1;
 const LOOKUP: i64 = 2;

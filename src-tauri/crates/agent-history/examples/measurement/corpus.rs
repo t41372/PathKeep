@@ -49,9 +49,21 @@ impl Corpus {
         format!("marker-{rank:08}")
     }
     pub fn row(&self, rank: usize) -> Vec<u8> {
-        let mut bytes=format!("{{\"type\":\"user\",\"uuid\":\"native-{rank}\",\"message\":{{\"role\":\"user\",\"content\":\"").into_bytes();
+        let prefix = format!(
+            "{{\"type\":\"user\",\"uuid\":\"native-{rank}\",\"message\":{{\"role\":\"user\",\"content\":\""
+        );
         let suffix = format!("{}\"}}}}\n", self.marker(rank));
-        let length = self.starts[rank + 1] - self.starts[rank];
+        self.fill(rank, prefix, suffix, self.starts[rank + 1] - self.starts[rank])
+    }
+    pub fn array_element(&self, rank: usize) -> Vec<u8> {
+        let prefix = format!("{{\"role\":\"user\",\"id\":\"native-{rank}\",\"content\":\"");
+        let suffix = format!("{}\"}}", self.marker(rank));
+        let length =
+            self.starts[rank + 1] - self.starts[rank] - 1 - usize::from(rank + 1 == self.records());
+        self.fill(rank, prefix, suffix, length)
+    }
+    fn fill(&self, rank: usize, prefix: String, suffix: String, length: usize) -> Vec<u8> {
+        let mut bytes = prefix.into_bytes();
         let mut random = (rank as u64) + 1;
         while bytes.len() < length - suffix.len() {
             // Repeated native prose mixed with variable bytes; a giant repeated byte
@@ -81,10 +93,23 @@ impl Corpus {
         Ok(())
     }
     pub fn retain(&self, root: &Path, archive: &Archive, form: &str) -> i64 {
-        let name = if form == "plain" { "chat.jsonl" } else { "chat.jsonl.zst" };
+        let name = match form {
+            "array" => "api_conversation_history.json",
+            "plain" => "chat.jsonl",
+            _ => "chat.jsonl.zst",
+        };
         let path = root.join(name);
         let mut file = File::create(&path).unwrap();
-        if form == "plain" {
+        if form == "array" {
+            file.write_all(b"[").unwrap();
+            for rank in 0..self.records() {
+                if rank > 0 {
+                    file.write_all(b",").unwrap();
+                }
+                file.write_all(&self.array_element(rank)).unwrap();
+            }
+            file.write_all(b"]").unwrap();
+        } else if form == "plain" {
             for rank in 0..self.records() {
                 file.write_all(&self.row(rank)).unwrap()
             }
@@ -100,7 +125,10 @@ impl Corpus {
             }
         }
         drop(file);
-        let source = SourceRoot { harness: Harness::ClaudeCode, root: root.into() };
+        let source = SourceRoot {
+            harness: if form == "array" { Harness::Cline } else { Harness::ClaudeCode },
+            root: root.into(),
+        };
         let artifact = Artifact {
             kind: ArtifactKind::Transcript,
             path: path.clone(),

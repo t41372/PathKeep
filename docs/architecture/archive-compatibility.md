@@ -311,6 +311,8 @@ Revision 1 is the first stamp, so the bring-up starts only from an archive witho
 
 ### Agent conversation reader publications (revision 1)
 
+Codec version 2 counts zero-byte missing array elements. Older rank spaces report `reader_rebuild_required` until backup or offline rebuild publishes current counts. Renderer version 2 separates Pi shell commands and output. A stale rendered page falls back to interpretation from evidence. Locator ownership is transient and comes from the authenticated source version on page load.
+
 All values below belong to the registered R database, `derived/agent-history-read-model.db`. The evidence database remains the authority for source bytes, observation and retention. These R migrations append to the existing migration sequence. A previous development build that opens R refuses an unknown migration level. Released 0.5.0 refuses the stamped archive control on open and format 3 on move import, as established by the released-binary check above.
 
 | Persisted values                                                                                                                                                                                                                                                                    | Authority and recovery                                                                                                                                                                                                                                                                                                                 |

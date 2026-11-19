@@ -22,6 +22,8 @@ impl Archive {
         count: usize,
     ) -> Result<ReaderLeaves> {
         read::window_limit(first, count)?;
+        let job = JobControl::default();
+        let _worker = self.jobs.enter_window(&job.cancel)?;
         let (owner, _) = self.member_version(h, source)?;
         self.version_info(&owner)?;
         let key = owner.clone();
@@ -35,7 +37,7 @@ impl Archive {
             })?
             .unwrap_or_default();
         let n = count.min(total.saturating_sub(first) as usize);
-        let ordinals = read::range(self, &owner, LEAVES, first, n, &Default::default())?;
+        let ordinals = read::range(self, &owner, LEAVES, first, n, &job)?;
         self.check_head(h)?;
         Ok(ReaderLeaves { ordinals, total, latest_recorded })
     }

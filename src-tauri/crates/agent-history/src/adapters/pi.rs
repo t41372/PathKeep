@@ -397,14 +397,21 @@ pub(crate) fn legacy_id(value: &Value, ordinal: u64) -> String {
 
 pub(crate) fn parts(event: &NativeEvent) -> Vec<RecordPart> {
     let payload = &event.payload;
+    if event.kind == "message" && event.role.as_deref() == Some("bashExecution") {
+        let message = &payload["message"];
+        return [("command", PartKind::CallInput), ("output", PartKind::CallResult)]
+            .into_iter()
+            .filter_map(|(field, kind)| {
+                Some(RecordPart { kind, text: string(message, field)?.into() })
+            })
+            .collect();
+    }
     let kind = match event.role.as_deref() {
-        Some("toolResult" | "bashExecution") => PartKind::CallResult,
+        Some("toolResult") => PartKind::CallResult,
         _ => PartKind::Text,
     };
     let content = match event.kind.as_str() {
-        "message" if event.role.as_deref() != Some("bashExecution") => {
-            payload.pointer("/message/content")
-        }
+        "message" => payload.pointer("/message/content"),
         "context_edit" => payload.pointer("/replacement/content"),
         "custom_message" => payload.get("content"),
         _ => None,

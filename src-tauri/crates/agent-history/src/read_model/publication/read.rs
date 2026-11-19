@@ -12,22 +12,40 @@ impl DisplayRow {
         value: Option<Value>,
     ) -> Result<Self> {
         let interpreted = value.map(|v| ctx.interpret(loc.ordinal, v)).transpose()?;
-        Ok(Self::from_event(source, loc, interpreted, false))
+        Ok(Self::from_event(source, loc, interpreted, pages::TEXT_BYTES))
     }
-    fn from_event(
+    pub(in crate::read_model) fn from_event(
         source: &str,
         loc: &RecordLocator,
         event: Option<InterpretedRecord>,
-        mut truncated: bool,
+        budget: usize,
     ) -> Self {
-        let (id, parent, kind, role, timestamp, mut parts, tokens_before) = event
+        let (mut id, mut parent, mut kind, mut role, timestamp, mut parts, tokens_before) = event
             .map(|r| {
                 let e = r.event;
                 let tokens = e.payload.get("tokensBefore").and_then(Value::as_u64);
                 (e.native_id, e.parent_id, e.kind, e.role, e.timestamp, r.parts, tokens)
             })
             .unwrap_or_default();
-        let mut left = pages::TEXT_BYTES;
+        let mut left = budget.min(pages::TEXT_BYTES);
+        let mut truncated = false;
+        // IDs are exact anchors. An oversized identifier stays in the outline and raw
+        // record. Keep a separate text allowance so metadata cannot displace the reply.
+        let mut metadata = left;
+        if kind.len() > metadata {
+            kind = String::new();
+            truncated = true;
+        }
+        metadata -= kind.len();
+        for field in [&mut role, &mut id, &mut parent] {
+            let size = field.as_ref().map_or(0, String::len);
+            if size > metadata {
+                *field = None;
+                truncated = true;
+            } else {
+                metadata -= size;
+            }
+        }
         for part in &mut parts {
             if part.text.len() > left {
                 let mut end = left;
@@ -35,11 +53,13 @@ impl DisplayRow {
                     end -= 1
                 }
                 part.text.truncate(end);
+                part.text.shrink_to_fit();
                 truncated = true;
             }
             left -= part.text.len();
         }
         parts.retain(|p| !p.text.is_empty());
+        parts.shrink_to_fit();
         Self {
             source_id: source.into(),
             ordinal: loc.ordinal,
@@ -67,7 +87,7 @@ impl Archive {
             .read(DB, move |tx| {
                 tx.query_one(
                     "SELECT
-                 h.conversation,h.publication,h.current_source,m.records,m.complete,m.attachments,h.input_digest,m.reason,v.revision,v.digest,m.visible
+                 h.conversation,h.publication,h.current_source,m.records,m.complete,m.attachments,h.input_digest,m.reason,v.revision,v.digest,m.visible,v.codec
                  FROM ah_reader_head h JOIN ah_reader_member m ON m.publication=h.publication AND
                  m.source=h.current_source JOIN ah_reader_version v ON v.token=m.version WHERE
                  h.conversation=?1",
@@ -86,13 +106,13 @@ impl Archive {
                                 visible_records: r.get::<i64>(10)? as u64,
                             },
                             r.get::<i64>(8)?,
-                            r.get::<String>(9)?,
+                            r.get::<String>(9)?, r.get::<i64>(11)?,
                         ))
                     },
                 )
                 .optional()
             })?;
-        let Some((head, revision, digest)) = published else {
+        let Some((head, revision, digest, codec)) = published else {
             let old = self.store.read(DB, move |tx| {
                 tx.query_one(
                     "SELECT revision_id FROM ah_sessions
@@ -109,6 +129,9 @@ impl Archive {
             }
             return Err(Error::ConversationNotFound);
         };
+        if codec != CODEC {
+            return Err(Error::ReaderRebuildRequired);
+        }
         self.facts(vec![revision])?
             .get(&revision)
             .ok_or(Error::StaleCursor)?
@@ -153,7 +176,9 @@ impl Archive {
         Ok(members)
     }
 
-    /// A source branch follows its proven inherited prefix. None selects the published current branch.
+    /// Reads the supplied publication and its proven source prefixes. None selects its current
+    /// branch. Successful rows use only the revisions selected at the start of the read.
+    /// Retention can expire a source during delivery, and a publication switch can stale this handle.
     pub fn reader_window(
         &self,
         h: &ReaderPublication,
@@ -162,7 +187,7 @@ impl Archive {
         count: usize,
         job: &JobControl,
     ) -> Result<Vec<DisplayRow>> {
-        let _guard = self.jobs.enter_reader(&job.cancel)?;
+        let _guard = self.jobs.enter_window(&job.cancel)?;
         job.checkpoint(ReadPhase::Reading, 0)?;
         window_limit(first, count)?;
         self.check_head(h)?;
@@ -224,7 +249,7 @@ impl Archive {
         count: usize,
         job: &JobControl,
     ) -> Result<Vec<(SourceId, OutlineEntry)>> {
-        let _guard = self.jobs.enter_reader(&job.cancel)?;
+        let _guard = self.jobs.enter_window(&job.cancel)?;
         window_limit(first, count)?;
         self.check_head(h)?;
         let mut rows = Vec::new();
@@ -287,25 +312,29 @@ impl Archive {
     }
     pub(super) fn version_info(&self, owner: &str) -> Result<(RevisionInfo, bool)> {
         let key = owner.to_owned();
-        let (source, id, digest, selective) = self
+        let (source, id, digest, selective, codec) = self
             .store
             .read(DB, move |tx| {
                 tx.query_one(
-                    "SELECT source,revision,digest,selective AND renderer=?2 AND codec=?3 FROM
+                    "SELECT source,revision,digest,selective AND renderer=?2,codec FROM
                  ah_reader_version WHERE token=?1",
-                    params![key, RENDERER, CODEC],
+                    params![key, RENDERER],
                     |r| {
                         Ok((
                             r.get::<String>(0)?,
                             r.get::<i64>(1)?,
                             r.get::<String>(2)?,
                             r.get::<i64>(3)? != 0,
+                            r.get::<i64>(4)?,
                         ))
                     },
                 )
                 .optional()
             })?
             .ok_or(Error::StaleCursor)?;
+        if codec != CODEC {
+            return Err(Error::ReaderRebuildRequired);
+        }
         let info = self.revision(id)?;
         if info.digest != digest || info.source_id != source {
             return Err(Error::StaleCursor);
@@ -329,13 +358,17 @@ impl Archive {
             .map(|entry| (entry.locator, entry.context))
             .collect::<Vec<_>>();
         let mut rows = Vec::new();
-        self.read_window(info, &entries, 16 * 1024 * 1024, job, &mut |r| {
-            rows.push(DisplayRow::from_event(
-                &r.source_id.0,
-                &r.record,
-                r.interpretation,
-                r.raw.next.is_some(),
-            ));
+        self.read_window_admitted(info, &entries, pages::TEXT_BYTES, job, &mut |r| {
+            rows.push(r.preview.unwrap_or_else(|| {
+                let mut display = DisplayRow::from_event(
+                    &r.source_id.0,
+                    &r.record,
+                    r.interpretation,
+                    pages::TEXT_BYTES,
+                );
+                display.truncated |= r.raw.next.is_some();
+                display
+            }));
             Ok(())
         })?;
         Ok(rows)
@@ -348,44 +381,49 @@ impl Archive {
         count: usize,
         job: &JobControl,
     ) -> Result<Vec<Entry>> {
+        match range::<Entry>(self, owner, OUTLINE, first, count, job) {
+            Ok(mut rows)
+                if rows
+                    .iter()
+                    .enumerate()
+                    .all(|(i, e)| e.locator.ordinal.0 == first + i as u64) =>
+            {
+                // The authenticated first entry supplies the transport for this source version.
+                let compressed = rows.first().is_some_and(|e| e.locator.frame.is_some());
+                let owner = Arc::new(LocatorOwner::new(info, compressed));
+                for entry in &mut rows {
+                    entry.locator.owner = Some(owner.clone());
+                }
+                return Ok(rows);
+            }
+            Ok(_) | Err(Error::Integrity(_)) => {}
+            Err(error) => return Err(error),
+        }
         let key = owner.to_owned();
-        let (record_limit, decoded_limit, codec) = self.store.read(DB, move |tx| {
+        let (record_limit, decoded_limit) = self.store.read(DB, move |tx| {
             tx.query_one(
-                "SELECT record_limit,decoded_limit,codec FROM ah_reader_version WHERE token=?1",
+                "SELECT record_limit,decoded_limit FROM ah_reader_version WHERE token=?1",
                 [key],
-                |r| Ok((r.get::<i64>(0)? as usize, r.get::<i64>(1)? as u64, r.get::<i64>(2)?)),
+                |r| Ok((r.get::<i64>(0)? as usize, r.get::<i64>(1)? as u64)),
             )
         })?;
-        if codec == CODEC {
-            match range::<Entry>(self, owner, OUTLINE, first, count, job) {
-                Ok(rows)
-                    if rows
-                        .iter()
-                        .enumerate()
-                        .all(|(i, e)| e.locator.ordinal.0 == first + i as u64) =>
-                {
-                    return Ok(rows);
-                }
-                Ok(_) | Err(Error::Integrity(_)) => {}
-                Err(error) => return Err(error),
-            }
-        }
         let mut rows = Vec::new();
         let mut previous = None;
         let mut run_start = 0;
         let context = ParseContext { max_record_bytes: record_limit, ..Default::default() };
         let mut budget = job.clone();
         budget.max_decoded_bytes = budget.max_decoded_bytes.min(decoded_limit);
-        let result = self.scan_revision(info.id, &context, &budget, &mut |loc, ctx, value| {
-            let entry = Entry::interpret(loc, ctx, value, &mut previous, &mut run_start)?;
-            if entry.locator.ordinal.0 >= first {
-                rows.push(entry)
-            }
-            if rows.len() == count {
-                return Err(Error::Cancelled);
-            }
-            Ok(())
-        });
+        let result =
+            self.scan_revision_admitted(info.id, &context, &budget, &mut |loc, ctx, value| {
+                let entry = Entry::interpret(loc, ctx, value, &mut previous, &mut run_start)?;
+                if entry.locator.ordinal.0 >= first {
+                    rows.push(entry)
+                }
+                if rows.len() == count {
+                    return Err(Error::Cancelled);
+                }
+                Ok(())
+            });
         match result {
             Err(Error::Cancelled) if rows.len() == count => {
                 job.cancel.check().map_err(|_| Error::Cancelled)?;
@@ -414,7 +452,7 @@ pub(super) fn range<T: serde::de::DeserializeOwned>(
     while rows.len() < count {
         job.cancel.check().map_err(|_| Error::Cancelled)?;
         let rank = first + rows.len() as u64;
-        let (start, page) = pages::load::<T>(a, owner, family, rank)?;
+        let (start, page) = pages::load::<T>(a, owner, family, rank, job)?;
         rows.extend(page.into_iter().skip((rank - start) as usize).take(count - rows.len()));
     }
     Ok(rows)

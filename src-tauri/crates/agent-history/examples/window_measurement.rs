@@ -1,5 +1,7 @@
 //! Measures framing and bounded archive windows against independently generated native bytes.
 //! Temporary benchmark pages have no archive compatibility contract.
+#[path = "measurement/array.rs"]
+mod array;
 #[path = "measurement/background.rs"]
 mod background;
 #[path = "measurement/corpus.rs"]
@@ -12,7 +14,11 @@ use corpus::Corpus;
 fn main() {
     let corpus =
         Corpus::new(measurement::size("AH_RECORDS", 600), measurement::size("AH_BYTES", 1_200_000));
-    measure(&corpus);
+    if std::env::var_os("AH_ARRAY_ONLY").is_some() {
+        array::measure(&corpus);
+    } else {
+        measure(&corpus);
+    }
 }
 
 #[cfg(test)]
@@ -190,7 +196,7 @@ fn measure(corpus: &Corpus) {
             for path in ["window", "rendered_window", "production_window"] {
                 let mut cold = Vec::new();
                 let mut warm = Vec::new();
-                let mut during_backup = Vec::new();
+                let mut after_raw_commit = Vec::new();
                 for sample in 0..measurement::size("AH_SAMPLES", 2) {
                     let evicted = measurement::evict(temp.path());
                     let archive = Archive::open(&root, PASSWORD).unwrap();
@@ -199,7 +205,7 @@ fn measure(corpus: &Corpus) {
                         if path == "window" {
                             read_checked_window(
                                 &archive,
-                                &store,
+                                &publication,
                                 &identity,
                                 first,
                                 corpus,
@@ -239,7 +245,7 @@ fn measure(corpus: &Corpus) {
                             cold.push(elapsed)
                         }
                     }
-                    during_backup.push(background::during_backup(
+                    after_raw_commit.push(background::after_raw_commit(
                         &archive,
                         &temp.path().join("background"),
                         backup_sequence,
@@ -249,8 +255,7 @@ fn measure(corpus: &Corpus) {
                 }
                 println!(
                     "{}",
-                    serde_json::json!({"measurement":path,"form":form,"position":label,"during_backup":measurement::timings(during_backup),"first":first,"last":first+199,
-                "cold":(!cold.is_empty()).then(||measurement::timings(cold)),"warm":measurement::timings(warm)})
+                    window_timings(path, form, label, first, cold, warm, after_raw_commit)
                 );
             }
         }
@@ -261,14 +266,19 @@ fn measure(corpus: &Corpus) {
 
 fn read_checked_window(
     archive: &Archive,
-    store: &Store,
+    publication: &ReaderPublication,
     identity: &agent_history::archive::RevisionInfo,
     first: usize,
     corpus: &Corpus,
     profile: Option<&str>,
 ) -> std::time::Duration {
     let start = Instant::now();
-    let outline = load_window(store, first);
+    let outline: Vec<Entry> = archive
+        .reader_outline(publication, None, first as u64, 200, &Default::default())
+        .unwrap()
+        .into_iter()
+        .map(|(_, entry)| (entry.locator, entry.context))
+        .collect();
     let lookup = start.elapsed();
     let decoded = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
     let mut job = JobControl::default();
@@ -306,9 +316,61 @@ fn read_checked_window(
         let interpreted = row.interpretation.unwrap();
         let event = interpreted.event;
         assert_eq!(event.native_id.unwrap(), format!("native-{rank}"));
-        assert!(event.text.ends_with(&corpus.marker(rank)));
-        assert_eq!(interpreted.parts[0].text, event.text);
+        assert!(matches_content(corpus, rank, &event.text, &interpreted.parts));
     }
 
     elapsed
+}
+
+fn matches_content(corpus: &Corpus, rank: usize, text: &str, parts: &[RecordPart]) -> bool {
+    let native: serde_json::Value = serde_json::from_slice(&corpus.row(rank)).unwrap();
+    let expected = native["message"]["content"].as_str().unwrap();
+    text == expected && matches!(parts,[part] if part.kind==PartKind::Text && part.text==expected)
+}
+
+#[test]
+fn matching_marker_cannot_mask_corrupt_message_text() {
+    let corpus = Corpus::new(600, 1_200_000);
+    let wrong = format!("changed middle {}", corpus.marker(0));
+    assert!(!matches_content(
+        &corpus,
+        0,
+        &wrong,
+        &[RecordPart { kind: PartKind::Text, text: wrong.clone() }]
+    ));
+}
+
+fn window_timings(
+    path: &str,
+    form: &str,
+    position: &str,
+    first: usize,
+    cold: Vec<std::time::Duration>,
+    warm: Vec<std::time::Duration>,
+    callback_samples: Vec<std::time::Duration>,
+) -> serde_json::Value {
+    serde_json::json!({"measurement":path,"form":form,"position":position,
+        "after_raw_commit":measurement::timings(callback_samples),"first":first,"last":first+199,
+        "cold":(!cold.is_empty()).then(||measurement::timings(cold)),"warm":measurement::timings(warm)})
+}
+
+#[test]
+fn callback_samples_name_the_observed_backup_boundary() {
+    let times = vec![std::time::Duration::from_millis(1)];
+    let output = window_timings("window", "plain", "head", 0, vec![], times.clone(), times);
+    assert_eq!(output["after_raw_commit"]["n"], 1);
+    assert!(output.get("during_backup").is_none());
+}
+#[test]
+fn documented_large_row_matches_target_generator() {
+    let corpus = Corpus::new(23_812, 264_000_000);
+    let n = corpus.row(0).len();
+    let expected = format!("large group is {},{:03} bytes", n / 1000, n % 1000);
+    assert!(
+        include_str!(
+            "../../../../docs/architecture/research/agent-history/read-model-measurements.md"
+        )
+        .contains(&expected),
+        "{expected}"
+    );
 }

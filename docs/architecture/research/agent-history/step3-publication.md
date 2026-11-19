@@ -1,6 +1,6 @@
 # Step 3 publication and target-size verification
 
-The base revision is `3f197c06`. The Linux review on that revision established the 32 MiB selective-rendering decision. On 2026-11-19 the final local release run used arm64 macOS, disk-backed synthetic evidence, and the full 264,000,000-byte / 23,812-record corpus. Each cold, warm and during-backup distribution contains 40 samples. The benchmark checks every returned physical ordinal, native ID and rendered message against independent source generation. The separate evidence paths still check exact bytes and marker positions.
+The base revision is `3f197c06`. The Linux review on that revision established the 32 MiB selective-rendering decision. On 2026-11-19 the final local release run used arm64 macOS, disk-backed synthetic evidence, and the full 264,000,000-byte / 23,812-record corpus. Each position has 40 cold samples, 40 warm samples and 40 reads launched at the backup’s raw-commit callback. The production and rendered-page paths compared each returned ordinal, native ID and complete message with generated source content. The evidence path in this run checked the exact raw bytes, marker positions and message suffix.
 
 ```sh
 AH_BYTES=264000000 AH_RECORDS=23812 AH_SAMPLES=40 cargo run --release -p agent-history --example window_measurement
@@ -10,17 +10,17 @@ AH_BYTES=264000000 AH_RECORDS=23812 AH_SAMPLES=40 cargo run --release -p agent-h
 
 Cells are p95 / p99 in milliseconds. Each read resolves a real reader publication, with the proper membership, selected source pages and evidence identity checks.
 
-| Native transport | Physical window |          Cold |          Warm |  During backup |
-| ---------------- | --------------- | ------------: | ------------: | -------------: |
-| plain            | 0–199           | 19.68 / 22.03 | 17.40 / 20.41 |  17.12 / 17.38 |
-| plain            | 11806–12005     | 21.34 / 26.08 | 19.12 / 20.35 |  19.95 / 31.29 |
-| plain            | 23612–23811     | 18.66 / 26.13 | 17.41 / 19.77 |  17.39 / 17.74 |
-| multi            | 0–199           | 20.29 / 22.50 | 37.42 / 66.67 | 56.97 / 120.92 |
-| multi            | 11806–12005     | 22.39 / 29.76 | 20.78 / 62.55 |  18.70 / 69.38 |
-| multi            | 23612–23811     | 26.18 / 28.53 | 19.51 / 25.89 |  20.25 / 23.52 |
-| single           | 0–199           | 12.94 / 24.06 | 12.60 / 61.81 |  26.91 / 43.16 |
-| single           | 11806–12005     | 10.78 / 15.50 | 16.08 / 36.89 |  18.29 / 40.65 |
-| single           | 23612–23811     |  8.52 / 11.12 |  7.86 / 11.78 |   7.80 / 10.79 |
+| Native transport | Physical window |          Cold |          Warm | After raw commit |
+| ---------------- | --------------- | ------------: | ------------: | ---------------: |
+| plain            | 0–199           | 19.68 / 22.03 | 17.40 / 20.41 |    17.12 / 17.38 |
+| plain            | 11806–12005     | 21.34 / 26.08 | 19.12 / 20.35 |    19.95 / 31.29 |
+| plain            | 23612–23811     | 18.66 / 26.13 | 17.41 / 19.77 |    17.39 / 17.74 |
+| multi            | 0–199           | 20.29 / 22.50 | 37.42 / 66.67 |   56.97 / 120.92 |
+| multi            | 11806–12005     | 22.39 / 29.76 | 20.78 / 62.55 |    18.70 / 69.38 |
+| multi            | 23612–23811     | 26.18 / 28.53 | 19.51 / 25.89 |    20.25 / 23.52 |
+| single           | 0–199           | 12.94 / 24.06 | 12.60 / 61.81 |    26.91 / 43.16 |
+| single           | 11806–12005     | 10.78 / 15.50 | 16.08 / 36.89 |    18.29 / 40.65 |
+| single           | 23612–23811     |  8.52 / 11.12 |  7.86 / 11.78 |     7.80 / 10.79 |
 
 | Native transport | Largest decoded native frame (bytes) | Rendered pages | Scan ms | Longest progress gap ms | Preceding phase |
 | ---------------- | -----------------------------------: | -------------- | ------: | ----------------------: | --------------- |

@@ -165,17 +165,17 @@ outside those results; an adapter name alone is not a completeness claim.
 A retained revision can be scanned into physical locators and per-record interpreter contexts.
 JSONL spans include BOM and line endings; native arrays use the element span. A zstd locator
 also identifies the independently decodable frame containing the record's first byte.
-Range reads verify touched archive slices and bind the revision's source and digest. A full
+Archive scans bind locators to the source, revision ID, digest and transport. An authenticated outline page inherits that binding from its published source version. Standalone scans and deserialized locators carry coordinates only. A window reuses each authenticated slice across gaps and seeks directly when the next record falls outside it. A full
 scan through EOF also verifies the revision digest. A short or damaged native frame has its
 own error code. A malformed JSON row retains its exact bytes and reports framing coverage.
 
 The `agent_history::read_model` API streams at most 200 selected records per window.
 Callers keep the locator and context together. Each row carries a bounded exact-byte page;
 a complete object also supplies native fields and typed text, reasoning, call-input and
-call-result parts. An oversized preview supplies a continuation offset within its own record.
+call-result parts. When an object's raw page continues, the reader interprets the complete framed object and returns bounded typed display parts alongside the raw continuation. A comma in place of an expected array element has its own ordinal and a zero-byte malformed span. A trailing comma produces a document diagnostic. An empty array has zero physical records.
 The scan and window callbacks run on the caller's blocking worker outside store transactions.
-Maintenance signals their cancellation token before draining active reads. A callback waiting
-on downstream capacity must observe that token. Source membership and publication selection are described below.
+Two workers per archive cover evidence, published pages and row assembly. At most one runs a background scan. Two maximum 64 MiB native decoder windows use 128 MiB before archive slice decoding, interpreted rows and storage-engine allocations, leaving headroom on the 8 GiB machine. Waiting callers allocate their decoders after admission and can cancel while the other workers are busy. Maintenance signals their cancellation token before draining active reads. A callback waiting
+on downstream capacity must observe that token. A window uses its revision as of the start of the read. It can finish from authenticated bytes already fetched, or report expiry. Callers discard provisional rows on error.
 
 The [removal matrix](research/agent-history/read-model-removal.md) tracks the existing SQL,
 CLI and fault-injection contracts through cutover. The [measurement commands and oracles](research/agent-history/read-model-measurements.md)

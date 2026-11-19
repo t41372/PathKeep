@@ -81,7 +81,7 @@ impl Archive {
         context: &ParseContext,
         job: &JobControl,
     ) -> Result<()> {
-        let _guard = self.jobs.enter_reader(&job.cancel)?;
+        let _guard = self.jobs.enter_scan(&job.cancel)?;
         let revision = self.revision(attempt.revision_id)?;
         let source = self.source(&attempt.source_id)?;
         if revision.source_id != source.id || source.latest_revision_id != Some(revision.id) {
@@ -225,11 +225,15 @@ impl Archive {
         lookup.finish(self, token, job, pi)?;
         if max_frame > REPLAY_LIMIT {
             let mut rendered = Buffer::new(RENDERED, pages::TEXT_BYTES);
-            let scan =
-                self.scan_revision(attempt.revision_id, context, job, &mut |loc, ctx, value| {
+            let scan = self.scan_revision_admitted(
+                attempt.revision_id,
+                context,
+                job,
+                &mut |loc, ctx, value| {
                     let row = DisplayRow::interpret(&attempt.source_id, &loc, ctx, value.cloned())?;
                     rendered.push(self, token, &row)
-                });
+                },
+            );
             match scan {
                 Ok(_) => {}
                 Err(Error::NativeTransport(_)) if rendered.len() == count => {}
@@ -243,7 +247,7 @@ impl Archive {
     /// Regenerates pages for the existing interpretation, including an older retained
     /// generation. No live root, backup run, mark queue or search writer is involved.
     pub fn rebuild_reader_catalog(&self, job: &JobControl) -> Result<u64> {
-        let _guard = self.jobs.enter_reader(&job.cancel)?;
+        let _guard = self.jobs.enter_scan(&job.cancel)?;
         let mut after = String::new();
         let mut count = 0;
         loop {

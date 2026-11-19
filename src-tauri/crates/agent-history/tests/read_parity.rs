@@ -18,6 +18,11 @@ fn write(path: &Path, bytes: &[u8]) {
 fn seven_harnesses_agree_with_published_events_and_both_normalized_exports() {
     let tmp = tempfile::tempdir().unwrap();
     let fixture = fixtures::Fixture::four_harnesses(tmp.path());
+    // Keep shell input and output independently visible while normalized exports keep their legacy text.
+    use std::io::Write;
+    let shell = json!({"type":"message","id":"bash-parity","parentId":"00000002","message":{"role":"bashExecution","command":"pwd","output":"/work"}});
+    writeln!(fs::OpenOptions::new().append(true).open(&fixture.files[2]).unwrap(), "{shell}")
+        .unwrap();
     let mut roots: Vec<_> = fixture
         .roots
         .iter()
@@ -83,6 +88,7 @@ fn seven_harnesses_agree_with_published_events_and_both_normalized_exports() {
             .map(|line| serde_json::from_str(line).unwrap())
             .collect();
         let mut events = Vec::new();
+        let mut shell_ordinal = None;
         let revision = archive.revision(session.revision_id).unwrap();
         archive
             .read_window(&revision, &outline, 64 * 1024, &Default::default(), &mut |row| {
@@ -90,7 +96,13 @@ fn seven_harnesses_agree_with_published_events_and_both_normalized_exports() {
                     row.address(agent_history::read_model::ConversationId(session.id.clone()));
                 assert_eq!(anchor.source_id.0, session.source_id);
                 assert_eq!(anchor.revision_digest, revision.digest);
-                let event = row.interpretation.unwrap().event;
+                let interpreted = row.interpretation.unwrap();
+                let event = interpreted.event;
+                if event.native_id.as_deref() == Some("bash-parity") {
+                    check_shell_parts(&interpreted.parts);
+                    assert_eq!(event.text, "pwd\n/work");
+                    shell_ordinal = Some(event.ordinal);
+                }
                 assert_eq!(anchor.native_id, event.native_id);
                 events.push(
                     serde_json::to_value(agent_history::query::EventView {
@@ -109,6 +121,13 @@ fn seven_harnesses_agree_with_published_events_and_both_normalized_exports() {
             session.harness
         );
         assert_eq!(events, export, "{}", session.harness);
+        if session.harness == Harness::Pi {
+            let header = archive.reader_header(&session.id).unwrap();
+            let displayed = archive
+                .reader_window(&header, None, shell_ordinal.unwrap(), 1, &Default::default())
+                .unwrap();
+            check_shell_parts(&displayed[0].parts);
+        }
         let mut markdown = Vec::new();
         archive.write_normalized(&session.id, ExportFormat::Markdown, &mut markdown).unwrap();
         let markdown = String::from_utf8(markdown).unwrap();
@@ -122,4 +141,12 @@ fn seven_harnesses_agree_with_published_events_and_both_normalized_exports() {
         }
         assert_eq!(blocks, events, "{}", session.harness);
     }
+}
+
+fn check_shell_parts(parts: &[agent_history::read_model::RecordPart]) {
+    use agent_history::read_model::PartKind;
+    assert_eq!(
+        parts.iter().map(|p| (p.kind, p.text.as_str())).collect::<Vec<_>>(),
+        [(PartKind::CallInput, "pwd"), (PartKind::CallResult, "/work")]
+    );
 }

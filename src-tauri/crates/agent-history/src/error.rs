@@ -11,7 +11,7 @@ pub enum Error {
     #[error(transparent)]
     Json(#[from] serde_json::Error),
     #[error(transparent)]
-    Store(#[from] vault_store::Error),
+    Store(vault_store::Error),
     #[error(transparent)]
     Envelope(#[from] vault_crypto::EnvelopeError),
     #[error("this archive requires a password")]
@@ -71,6 +71,18 @@ impl Error {
             Self::IndexBehind => "index_behind",
             Self::StaleCursor => "stale_cursor",
             Self::Cancelled => "cancelled",
+        }
+    }
+}
+
+impl From<vault_store::Error> for Error {
+    fn from(store: vault_store::Error) -> Self {
+        match store {
+            vault_store::Error::Operation(cause) => match cause.downcast::<Self>() {
+                Ok(error) => *error,
+                Err(other) => Self::Store(vault_store::Error::Operation(other)),
+            },
+            other => Self::Store(other),
         }
     }
 }

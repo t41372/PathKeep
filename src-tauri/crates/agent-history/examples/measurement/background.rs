@@ -1,5 +1,5 @@
-//! Runs a real backup of a separate synthetic Claude source while measuring a
-//! window. The progress boundary synchronizes the start; no store lock is held.
+//! Launches a read at the raw-commit callback of a separate synthetic Claude backup.
+//! The writer can finish before the read runs. This sample does not measure overlap.
 use agent_history::{Archive, Harness, SourceRoot, capture::BackupOptions};
 use std::{
     fs,
@@ -8,7 +8,7 @@ use std::{
     sync::{Arc, mpsc},
 };
 
-pub fn during_backup<T>(
+pub fn after_raw_commit<T>(
     archive: &Archive,
     root: &Path,
     sequence: usize,

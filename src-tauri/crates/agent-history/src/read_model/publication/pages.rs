@@ -103,6 +103,7 @@ pub(super) fn load<T: DeserializeOwned>(
     owner: &str,
     family: i64,
     rank: u64,
+    job: &JobControl,
 ) -> Result<(u64, Vec<T>)> {
     let key = owner.to_owned();
     let (first, pieces) = a.store.read(DB, move |tx| {
@@ -143,6 +144,7 @@ pub(super) fn load<T: DeserializeOwned>(
     let first = first.ok_or_else(|| invalid("missing rank"))? as u64;
     let mut bytes = Vec::new();
     for (index, (part, len, hash, stamp, blob)) in pieces.into_iter().enumerate() {
+        job.cancel.check().map_err(|_| Error::Cancelled)?;
         if stamp != binding(owner, family, first as i64, part, len, &hash) {
             return Err(invalid("stale page binding"));
         }

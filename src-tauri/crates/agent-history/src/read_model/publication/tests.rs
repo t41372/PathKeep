@@ -233,7 +233,8 @@ fn only_a_frame_strictly_above_the_limit_selects_rendering() {
                 )
             })
             .unwrap();
-        let (_, frames) = pages::load::<TransportFrame>(&a, &owner, FRAMES, 1).unwrap();
+        let (_, frames) =
+            pages::load::<TransportFrame>(&a, &owner, FRAMES, 1, &Default::default()).unwrap();
         assert_eq!(frames.len(), 3);
         assert_eq!(frames[1].decoded_end.0 - frames[1].start.decoded.0, member.max_frame_bytes);
     }
@@ -305,6 +306,22 @@ fn development_catalog_without_reader_tables_data_rebuilds_offline() {
         .unwrap()[0]
             .parts[0]
             .text,
+        "exact tail"
+    );
+}
+
+#[test]
+fn obsolete_physical_counts_require_a_rebuilt_publication() {
+    let (_temp, a, old) = large_frame();
+    a.store
+        .write(DB, Priority::Batch, |tx| tx.execute("UPDATE ah_reader_version SET codec=1", ()))
+        .unwrap();
+    assert!(matches!(a.reader_header(&old.conversation_id), Err(Error::ReaderRebuildRequired)));
+    a.rebuild_reader_catalog(&Default::default()).unwrap();
+    let current = a.reader_header(&old.conversation_id).unwrap();
+    assert_ne!(current.publication, old.publication);
+    assert_eq!(
+        a.reader_window(&current, None, 5, 1, &Default::default()).unwrap()[0].parts[0].text,
         "exact tail"
     );
 }

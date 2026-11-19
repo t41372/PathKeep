@@ -11,6 +11,8 @@ struct State {
     closed: bool,
     pauses: usize,
     active: usize,
+    decoders: usize,
+    scanning: bool,
     // Backup and reparse share one producer slot.
     capture: Option<CancelToken>,
     readers: Vec<Arc<CancelToken>>,
@@ -34,8 +36,34 @@ impl State {
     }
 }
 
+/// Two decoder workers share the archive. One background scan leaves a slot for
+/// an interactive read. The outer operation keeps its permit through row assembly and
+/// delivery. Nested evidence and page reads use the same worker.
+const DECODER_SLOTS: usize = 2;
 impl Jobs {
-    pub(crate) fn enter_reader(&self, cancel: &CancelToken) -> Result<Job<'_>> {
+    pub(crate) fn enter_window(&self, cancel: &CancelToken) -> Result<DecoderPermit<'_>> {
+        self.decoder(cancel, false)
+    }
+    pub(crate) fn enter_scan(&self, cancel: &CancelToken) -> Result<DecoderPermit<'_>> {
+        self.decoder(cancel, true)
+    }
+    fn decoder(&self, cancel: &CancelToken, scan: bool) -> Result<DecoderPermit<'_>> {
+        let job = self.enter_reader(cancel)?;
+        let mut state = self.state.lock().unwrap();
+        loop {
+            state.check_admission()?;
+            cancel.check().map_err(|_| crate::Error::Cancelled)?;
+            if state.decoders < DECODER_SLOTS && !(scan && state.scanning) {
+                state.decoders += 1;
+                state.scanning |= scan;
+                return Ok(DecoderPermit { job, scan });
+            }
+            // External tokens are atomic and have no condition-variable notification.
+            state = self.idle.wait_timeout(state, std::time::Duration::from_millis(10)).unwrap().0;
+        }
+    }
+
+    fn enter_reader(&self, cancel: &CancelToken) -> Result<Job<'_>> {
         let mut state = self.state.lock().unwrap();
         state.check_admission()?;
         let token = Arc::new(cancel.clone());
@@ -77,7 +105,23 @@ impl Jobs {
         for reader in &state.readers {
             reader.cancel()
         }
+        self.idle.notify_all();
         drop(self.idle.wait_while(state, |state| state.active > 0).unwrap());
+    }
+}
+
+pub(crate) struct DecoderPermit<'a> {
+    job: Job<'a>,
+    scan: bool,
+}
+impl Drop for DecoderPermit<'_> {
+    fn drop(&mut self) {
+        let mut state = self.job.jobs.state.lock().unwrap();
+        state.decoders -= 1;
+        if self.scan {
+            state.scanning = false;
+        }
+        self.job.jobs.idle.notify_all();
     }
 }
 
