@@ -173,3 +173,29 @@ fn expired_record_rejects_even_an_empty_final_continuation() {
         assert_eq!(error.code(), "not_found");
     }
 }
+
+#[test]
+fn replacing_retained_state_removes_its_reader_publication() {
+    let temp = tempfile::tempdir().unwrap();
+    let archive = create(temp.path());
+    let revision = retain(
+        &archive,
+        ArtifactKind::Metadata,
+        b"{\"type\":\"session_meta\",\"payload\":{\"id\":\"state\"}}\n",
+    );
+    let attempt =
+        archive.prepare_projection("retention-source", revision, "state", true).unwrap().unwrap();
+    archive
+        .publish_projection_attempt(
+            &attempt,
+            &agent_history::SessionMetadata { native_id: "state".into(), ..Default::default() },
+            true,
+        )
+        .unwrap();
+    let id = archive.list_sessions(&Default::default()).unwrap().items.remove(0).id;
+    let h = archive.reader_header(&id).unwrap();
+    assert_eq!(archive.reader_window(&h, None, 0, 1, &Default::default()).unwrap().len(), 1);
+    retain(&archive, ArtifactKind::Metadata, b"replacement");
+    assert!(matches!(archive.reader_header(&id), Err(agent_history::Error::ConversationNotFound)));
+    while archive.prune_reader_pages(2).unwrap() > 0 {}
+}

@@ -134,6 +134,15 @@ pub(super) fn prepare(
     }
     if let Some(attempt) = &attempt {
         archive.save_projection_gaps(attempt, &report)?;
+        archive.stage_reader(
+            attempt,
+            &context,
+            &crate::read_model::JobControl {
+                cancel: options.cancel.clone(),
+                max_decoded_bytes: options.max_decoded_bytes,
+                progress: None,
+            },
+        )?;
     }
     // The caller saves this versioned report only after publication. A failed
     // attempt must not overwrite the report attached to an older interpretation.

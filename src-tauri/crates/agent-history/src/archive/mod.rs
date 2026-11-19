@@ -21,7 +21,7 @@ mod maintenance;
 mod membership_tests;
 mod observations;
 mod parse_gaps;
-mod projection;
+pub(crate) mod projection;
 #[cfg(test)]
 mod read_concurrency_tests;
 mod reader;
@@ -114,6 +114,17 @@ impl Archive {
         archive.recover_unfinished_revisions()?;
         archive.reclaim_slices()?;
         archive.recover_projection_work()?;
+        archive.store.write(Db::AgentHistoryReadModel, vault_store::Priority::Batch, |tx| {
+            tx.execute(
+                "INSERT OR IGNORE INTO ah_reader_retired SELECT publication FROM ah_reader_build",
+                (),
+            )?;
+            tx.execute("DELETE FROM ah_reader_build", ())?;
+            tx.execute("UPDATE ah_reader_version SET state='retired' WHERE state='repairing'", ())?;
+            Ok(())
+        })?;
+        archive.flush_reader_heads()?;
+        archive.prune_reader_pages(256)?;
         archive.recover_attachment_counts()?;
         archive.recover_backup_runs()?;
         archive.synchronize_user_state()?;

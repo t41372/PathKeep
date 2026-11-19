@@ -120,6 +120,7 @@ impl Corpus {
             digest.update(&chunk);
             archive.append_chunk(revision, ordinal as u64, chunk).unwrap();
         }
+        drop(input);
         std::fs::remove_file(path).unwrap();
         archive
             .finish_revision(revision, &hex::encode(digest.finalize()), size)

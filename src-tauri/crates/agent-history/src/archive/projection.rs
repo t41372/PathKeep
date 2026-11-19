@@ -41,8 +41,8 @@ impl Archive {
             .write(Db::AgentHistoryReadModel, Priority::Batch, move |tx| {
                 let current = tx
                     .query_one(
-                        "SELECT revision_id, parser_version FROM ah_sessions WHERE id=?1",
-                        [source_id.as_str()],
+                        "SELECT s.revision_id, s.parser_version FROM ah_sessions s JOIN ah_reader_version v ON v.attempt=s.projection_id WHERE s.id=?1 AND v.codec=?2 AND v.renderer=?3 AND v.state='published'",
+                        params![source_id.clone(),crate::read_model::publication::CODEC,crate::read_model::publication::RENDERER],
                         |row| Ok((row.get::<i64>(0)?, row.get::<String>(1)?)),
                     )
                     .optional()?;
@@ -154,7 +154,7 @@ pub(super) fn work_attempt(
     .optional()
 }
 
-pub(super) fn require_work(
+pub(crate) fn require_work(
     tx: &Session<'_>,
     attempt: &ProjectionAttempt,
 ) -> vault_store::Result<()> {
@@ -172,6 +172,7 @@ pub(super) fn retire(
     source_id: &str,
     projection_id: i64,
 ) -> vault_store::Result<()> {
+    tx.execute("UPDATE ah_reader_version SET state='retired' WHERE attempt=?1", [projection_id])?;
     tx.execute(
         "INSERT OR IGNORE INTO ah_projection_retired(session_id, projection_id) VALUES(?1, ?2)",
         params![source_id, projection_id],

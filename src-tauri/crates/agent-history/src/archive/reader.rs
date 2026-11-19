@@ -1,7 +1,10 @@
 //! Responsibilities: stream retained bytes with per-chunk and whole-revision verification.
 //! Not responsible for: native transport decoding, parsing or opening live source files.
 use super::{Archive, RevisionInfo, SLICE_BYTES as CHUNK_BYTES, revisions::integrity};
-use crate::{Error, Result};
+use crate::{
+    Error, Result,
+    read_model::{JobControl, ProgressUnit, ReadPhase, ReadProgress},
+};
 use sha2::{Digest, Sha256};
 use std::{
     io::{self, Read},
@@ -41,6 +44,7 @@ pub struct RawReader {
     digest: Sha256,
     verified: bool,
     failed: bool,
+    scan: Option<JobControl>,
 }
 
 impl Archive {
@@ -81,7 +85,28 @@ impl RawReader {
             digest: Sha256::new(),
             verified: false,
             failed: false,
+            scan: None,
         }
+    }
+
+    pub(crate) fn with_scan_control(mut self, job: &JobControl) -> Self {
+        self.scan = Some(job.clone());
+        self
+    }
+
+    fn slice_progress(&self, phase: ReadPhase, done: usize, total: Option<u64>) -> io::Result<()> {
+        if let Some(job) = &self.scan {
+            if let Some(report) = &job.progress {
+                report(ReadProgress {
+                    phase,
+                    unit: ProgressUnit::SliceBytes,
+                    done: done as u64,
+                    total,
+                });
+            }
+            job.cancel.check().map_err(|_| io::Error::other(Error::Cancelled))?;
+        }
+        Ok(())
     }
 
     fn load_chunk(&mut self) -> io::Result<bool> {
@@ -111,7 +136,14 @@ impl RawReader {
         }
         let revision = self.info.id;
         let position = self.read_bytes as i64;
-        let loaded = self
+        // A cold encrypted payload fetch, inflation and SHA verification used to be one
+        // uninterrupted operation. Keep the full-slice authentication boundary while reporting
+        // completed storage and verification blocks before the first native byte is released.
+        const FETCH: usize = 256 * 1024;
+        let observed = self.scan.as_ref().is_some_and(|job| job.progress.is_some());
+        let (hash, data, length, codec, start) = loop {
+            self.slice_progress(ReadPhase::FetchingSlice, 0, None)?;
+            let loaded = self
             .store
             .read(Db::AgentHistoryEvidence, move |tx| {
                 let (retained, manifest) = tx.query_one(
@@ -133,34 +165,98 @@ impl RawReader {
                 )
                 .optional()?
                 .ok_or_else(|| integrity("a retained revision chunk is missing"))?;
-                let (data, codec) = tx.query_one(
-                    "SELECT data, codec FROM ah_chunks WHERE hash=?1", [hash.as_str()],
-                    |row| Ok((row.get::<Vec<u8>>(0)?, row.get::<String>(1)?)),
-                )
-                .optional()?
-                .ok_or_else(|| integrity("a retained revision chunk is missing"))?;
-                Ok(Some((hash, data, length, codec, start)))
-            })
-            .map_err(io::Error::other)?;
-        let chunk = loaded.ok_or_else(expired)?;
-        let bytes = if chunk.3 == "zstd" {
-            use std::io::Read;
-            let mut bytes = Vec::new();
-            let invalid = |e| io::Error::new(io::ErrorKind::InvalidData, e);
-            let mut decoder =
-                zstd::stream::read::Decoder::new(chunk.1.as_slice()).map_err(invalid)?;
-            decoder.window_log_max(26).map_err(invalid)?;
-            decoder.take((CHUNK_BYTES + 1) as u64).read_to_end(&mut bytes).map_err(invalid)?;
-            bytes
-        } else if chunk.3 == "native" {
-            chunk.1
-        } else {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "unknown slice codec"));
+                let (data, codec) = if observed {
+                    tx.query_one("SELECT substr(data,1,?2),codec FROM ah_chunks WHERE hash=?1",
+                        params![hash.clone(),FETCH as i64],|r|Ok((r.get::<Vec<u8>>(0)?,r.get::<String>(1)?))).optional()?
+                }else{
+                    tx.query_one("SELECT data,codec FROM ah_chunks WHERE hash=?1",[hash.as_str()],
+                        |r|Ok((r.get::<Vec<u8>>(0)?,r.get::<String>(1)?))).optional()?
+                }.ok_or_else(||integrity("a retained revision chunk is missing"))?;
+                Ok(Some((hash,data,length,codec,start)))
+            }).map_err(io::Error::other)?;
+            let (hash, mut data, length, codec, start) = loaded.ok_or_else(expired)?;
+            let mut more = observed && data.len() == FETCH;
+            let mut retargeted = false;
+            while more {
+                self.slice_progress(ReadPhase::FetchingSlice, data.len(), None)?;
+                let key = hash.clone();
+                let offset = data.len() as i64 + 1;
+                let next = self
+                    .store
+                    .read(Db::AgentHistoryEvidence, move |tx| {
+                        tx.query_one(
+                            "SELECT substr(data,?2,?3) FROM ah_chunks WHERE hash=?1",
+                            params![key, offset, FETCH as i64],
+                            |r| Ok(r.get::<Vec<u8>>(0)?),
+                        )
+                        .optional()
+                    })
+                    .map_err(io::Error::other)?;
+                let Some(piece) = next else {
+                    // Retention can retarget a shared prefix between two bounded reads.
+                    // Re-resolve its manifest; a genuinely missing slice fails that lookup.
+                    retargeted = true;
+                    break;
+                };
+                more = piece.len() == FETCH;
+                data.extend(piece);
+                if data.len() > 2 * CHUNK_BYTES {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "oversized stored slice",
+                    ));
+                }
+            }
+            if !retargeted {
+                break (hash, data, length, codec, start);
+            }
+        };
+        self.slice_progress(ReadPhase::FetchingSlice, data.len(), Some(data.len() as u64))?;
+        let mut digest = Sha256::new();
+        let bytes = match codec.as_str() {
+            "zstd" => {
+                let invalid = |e| io::Error::new(io::ErrorKind::InvalidData, e);
+                let mut decoder =
+                    zstd::stream::read::Decoder::new(data.as_slice()).map_err(invalid)?;
+                decoder.window_log_max(26).map_err(invalid)?;
+                let mut bytes = Vec::with_capacity(length.clamp(0, CHUNK_BYTES as i64) as usize);
+                let mut buffer = vec![0; 64 * 1024];
+                loop {
+                    let n = decoder.read(&mut buffer).map_err(invalid)?;
+                    if n == 0 {
+                        break;
+                    }
+                    if bytes.len() + n > CHUNK_BYTES {
+                        return Err(io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            "oversized decoded slice",
+                        ));
+                    }
+                    bytes.extend_from_slice(&buffer[..n]);
+                    digest.update(&buffer[..n]);
+                    self.slice_progress(
+                        ReadPhase::VerifyingSlice,
+                        bytes.len(),
+                        Some(length as u64),
+                    )?;
+                }
+                bytes
+            }
+            "native" => {
+                let mut done = 0;
+                for part in data.chunks(64 * 1024) {
+                    digest.update(part);
+                    done += part.len();
+                    self.slice_progress(ReadPhase::VerifyingSlice, done, Some(length as u64))?;
+                }
+                data
+            }
+            _ => return Err(io::Error::new(io::ErrorKind::InvalidData, "unknown slice codec")),
         };
         if bytes.is_empty()
             || bytes.len() > CHUNK_BYTES
-            || chunk.2 != bytes.len() as i64
-            || hex::encode(Sha256::digest(&bytes)) != chunk.0
+            || length != bytes.len() as i64
+            || hex::encode(digest.finalize()) != hash
         {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
@@ -171,7 +267,7 @@ impl RawReader {
             io::Error::new(io::ErrorKind::InvalidData, "slice position exceeds revision length")
         })?;
         self.chunk = bytes;
-        let start = u64::try_from(chunk.4).map_err(io::Error::other)?;
+        let start = u64::try_from(start).map_err(io::Error::other)?;
         self.offset = (self.read_bytes - start) as usize;
         if self.offset >= self.chunk.len() {
             return Err(io::Error::new(io::ErrorKind::InvalidData, "slice manifest has a gap"));

@@ -1,5 +1,10 @@
 //! Coordinates and bounded reads over one immutable source revision.
-//! Publication, branch selection and outline persistence belong to the caller.
+//! Published membership and page reads use R. Exact expansion and offline builders use retained evidence.
+pub(crate) mod publication;
+pub use publication::{
+    DisplayRow, OutlineEntry, ReaderLeaves, ReaderPublication, ResolvedBase, SourceMember,
+    SourceObservation,
+};
 mod framing;
 mod interpreter;
 pub(crate) mod parts;
@@ -29,6 +34,14 @@ pub struct PhysicalOrdinal(pub u64);
 pub struct FrameStart {
     pub native: NativeOffset,
     pub decoded: DecodedOffset,
+}
+
+/// Verified native frame bounds in both byte spaces, including frames ending inside a record.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TransportFrame {
+    pub start: FrameStart,
+    pub native_end: NativeOffset,
+    pub decoded_end: DecodedOffset,
 }
 
 /// Why exact bytes are available without a corresponding public native event.
@@ -80,7 +93,7 @@ pub struct IndexLag {
 }
 
 /// Selects evidence addressing before interpreting native records.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Transport {
     Plain,
     Zstd,
@@ -91,7 +104,9 @@ impl Transport {
     }
 }
 
-/// Counts decoded work, including the prefix replay needed inside a native frame.
+/// Framing and reading count decoded transport work, including native-frame replay.
+/// Fetching and verification report work within the current stored slice. A UI
+/// can keep its last decoded position while showing either slice phase.
 #[derive(Clone, Copy, Debug, Serialize)]
 pub struct ReadProgress {
     pub phase: ReadPhase,
@@ -100,15 +115,18 @@ pub struct ReadProgress {
     pub total: Option<u64>,
 }
 
-/// Distinguishes sequential discovery of record boundaries from a selected range read.
+/// Identifies storage work before authentication and native work after verified bytes are released.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 pub enum ReadPhase {
+    FetchingSlice,
+    VerifyingSlice,
     Framing,
     Reading,
 }
 /// The byte axis is explicit because native and decoded lengths can differ substantially.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 pub enum ProgressUnit {
+    SliceBytes,
     DecodedBytes,
 }
 
@@ -193,6 +211,7 @@ pub enum Coverage {
 /// Framing coverage includes every physical row, even when it has no public event.
 #[derive(Debug, Serialize)]
 pub struct ScanReport {
+    pub max_frame_bytes: u64,
     pub physical_records: u64,
     pub objects: u64,
     pub coverage: Coverage,

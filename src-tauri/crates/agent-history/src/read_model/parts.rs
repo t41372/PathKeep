@@ -2,11 +2,11 @@
 //! searchable text remains the export contract; raw payloads preserve opaque fields.
 use super::RecordContext;
 use crate::{NativeEvent, adapters::common};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 /// Allows a reader to collapse a call or reasoning without hiding the reply.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PartKind {
     Text,
     Thinking,
@@ -14,7 +14,7 @@ pub enum PartKind {
     CallResult,
 }
 /// One independently displayable piece of a native record, in source order.
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RecordPart {
     pub kind: PartKind,
     pub text: String,

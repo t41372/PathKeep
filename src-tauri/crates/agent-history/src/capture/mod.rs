@@ -325,7 +325,11 @@ pub(super) fn maintenance(archive: &Archive, options: &BackupOptions) -> Result<
         let projections = archive.prune_obsolete_projection_batch(256)?;
         let captures = archive.prune_abandoned_capture_batch(256)?;
         let counters = archive.prune_attachment_counts()?;
-        if projections == 0 && captures == 0 && counters == 0 {
+        if archive.prune_reader_pages(256)? == 0
+            && projections == 0
+            && captures == 0
+            && counters == 0
+        {
             break;
         }
     }

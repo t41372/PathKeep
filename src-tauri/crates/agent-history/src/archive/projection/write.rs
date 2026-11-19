@@ -117,6 +117,7 @@ impl Archive {
     ) -> Result<()> {
         validate_coverage(parser_complete, combined_complete)?;
         validate_metadata(metadata)?;
+        self.stage_reader(attempt, &Default::default(), &Default::default())?;
         let counter = self.build_attachment_counter(attempt.id, attempt.revision_id)?;
         let snapshot = self.projection_generation()?;
         self.require_revision_source(&attempt.source_id, attempt.revision_id)?;
@@ -176,6 +177,7 @@ impl Archive {
         }
         self.store.write(Db::AgentHistoryReadModel, Priority::Batch, move |tx| {
             require_work(tx, &attempt)?;
+            crate::read_model::publication::install(tx, &attempt)?;
             if let Some(previous) = current_projection_id(tx, &attempt.source_id)? {
                 retire(tx, &attempt.source_id, previous)?;
             }
@@ -255,15 +257,16 @@ impl Archive {
             )?;
             counter.publish(tx, previous_counter)?;
             selection.publish(tx, &conversation_id, Some(&attempt.source_id))?;
-            if let (Some(selection), Some(id)) = (prior_selection, prior) {
-                selection.publish(tx, &id, None)?;
+            if let (Some(selection), Some(id)) = (prior_selection, prior.as_ref()) {
+                selection.publish(tx, id, None)?;
             }
             publish_outbox(tx, &attempt.source_id, attempt.revision_id, attempt.id)?;
             set_coverage(tx, &attempt.source_id, combined_complete)?;
+            crate::read_model::publication::refresh(tx, &attempt.source_id, prior.as_deref())?;
             tx.execute("DELETE FROM ah_projection_work WHERE session_id=?1", [attempt.source_id])?;
             Ok(())
         })?;
-        Ok(())
+        self.flush_reader_heads()
     }
 }
 

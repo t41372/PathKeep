@@ -32,8 +32,8 @@ impl Archive {
             return Err(Error::SourceChanged("views changed during retirement".into()));
         }
         let source_id = source_id.to_owned();
-        self.store
-            .write(Db::AgentHistoryReadModel, Priority::Batch, move |tx| {
+        let published =
+            self.store.write(Db::AgentHistoryReadModel, Priority::Batch, move |tx| {
                 let published = current_projection_id(tx, &source_id)?;
                 if let Some(projection_id) = published {
                     retire(tx, &source_id, projection_id)?;
@@ -58,18 +58,24 @@ impl Archive {
                     [counter],
                 )?;
                 tx.execute("DELETE FROM ah_sessions WHERE id=?1", [source_id.as_str()])?;
-                if let (Some(selection), Some(id)) = (selection, conversation) {
-                    selection.publish(tx, &id, None)?;
+                if let (Some(selection), Some(id)) = (selection, conversation.as_ref()) {
+                    selection.publish(tx, id, None)?;
                 }
                 if published.is_some() {
+                    crate::read_model::publication::refresh(
+                        tx,
+                        &source_id,
+                        conversation.as_deref(),
+                    )?;
                     publish_outbox(tx, &source_id, 0, 0)?;
                 }
                 // Intentional exclusion of a superseded native generation is not
                 // a normalization failure in the currently searchable corpus.
                 set_coverage(tx, &source_id, true)?;
                 Ok(published.is_some())
-            })
-            .map_err(Into::into)
+            })?;
+        self.flush_reader_heads()?;
+        Ok(published)
     }
 
     /// Reclaims at most `limit` obsolete event rows plus their completed queue

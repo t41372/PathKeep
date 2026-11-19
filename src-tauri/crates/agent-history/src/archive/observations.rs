@@ -16,9 +16,15 @@ pub struct FolderObservation {
 
 impl Archive {
     pub(crate) fn observe_source(&self, run: i64, id: &str, seen: bool) -> Result<()> {
+        let source = id.to_owned();
         let id = id.to_owned();
         let now = chrono::Utc::now().timestamp_millis();
-        self.store.write(Db::AgentHistoryEvidence, Priority::Batch, move |tx| {
+        let changed = self.store.write(Db::AgentHistoryEvidence, Priority::Batch, move |tx| {
+            let missing = tx.query_one(
+                "SELECT missing_since IS NOT NULL FROM ah_sources WHERE id=?1",
+                [id.as_str()],
+                |r| Ok(r.get::<i64>(0)? != 0),
+            )?;
             tx.execute(
                 "
                 INSERT OR IGNORE INTO ah_source_observations(run_id, source_id, seen, observed_at)
@@ -38,8 +44,18 @@ impl Archive {
                     params![now, id],
                 )?;
             }
-            Ok(())
+            Ok(missing == seen)
         })?;
+        if changed {
+            let _gate = self
+                .publication_gate
+                .lock()
+                .map_err(|_| crate::Error::Integrity("publication lock".into()))?;
+            self.store.write(Db::AgentHistoryReadModel, Priority::Batch, move |tx| {
+                crate::read_model::publication::refresh(tx, &source, None)
+            })?;
+            self.flush_reader_heads()?;
+        }
         Ok(())
     }
 

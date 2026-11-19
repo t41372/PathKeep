@@ -1,5 +1,6 @@
 //! Decodes bounded buffers and records native frame starts at consumed input bytes.
 //! Record delimiters and archive manifest addressing belong to the layers above and below.
+use super::TransportFrame;
 use super::{DecodedOffset, FrameStart, JobControl, NativeOffset, ReadPhase, Transport};
 use crate::{Error, Result};
 use std::{
@@ -16,6 +17,8 @@ pub(super) struct Decoded<'a> {
     input: Box<dyn BufRead + 'a>,
     decoder: Option<Decoder<'static>>,
     native: u64,
+    pub(super) max_frame_bytes: u64,
+    pub(super) on_frame: Option<Box<dyn FnMut(TransportFrame) -> Result<()> + 'a>>,
     decoded: u64,
     pub(super) prior_work: u64,
     boundary: bool,
@@ -45,6 +48,8 @@ impl<'a> Decoded<'a> {
         Ok(Self {
             input,
             decoder,
+            max_frame_bytes: 0,
+            on_frame: None,
             native: 0,
             decoded: 0,
             prior_work: 0,
@@ -92,6 +97,16 @@ impl Read for Decoded<'_> {
                 self.native += status.bytes_read as u64;
                 self.input.consume(status.bytes_read);
                 self.boundary = status.remaining == 0;
+                if self.boundary
+                    && let Some(report) = &mut self.on_frame
+                {
+                    let frame = TransportFrame {
+                        start: self.restart.get().expect("decoder has started a frame"),
+                        native_end: NativeOffset(self.native),
+                        decoded_end: DecodedOffset(self.decoded + status.bytes_written as u64),
+                    };
+                    report(frame).map_err(io::Error::other)?;
+                }
                 if status.bytes_written == 0 {
                     continue;
                 }
@@ -106,6 +121,9 @@ impl Read for Decoded<'_> {
                 n
             };
             self.decoded += n as u64;
+            if let Some(frame) = self.restart.get() {
+                self.max_frame_bytes = self.max_frame_bytes.max(self.decoded - frame.decoded.0);
+            }
             self.job.checkpoint(self.phase, self.work()).map_err(io::Error::other)?;
             return Ok(n);
         }

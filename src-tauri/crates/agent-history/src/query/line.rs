@@ -38,8 +38,13 @@ pub(super) fn describe(tx: &Session<'_>, conversation: &str) -> Result<Option<Li
     let Some(current) = current else {
         return Ok(None);
     };
+    describe_source(tx, current).map(Some)
+}
+
+pub(crate) fn describe_source(tx: &Session<'_>, current: String) -> Result<LineStatus> {
     let mut segments = Vec::new();
     let mut visited = HashSet::new();
+    let mut resolved_base = None;
     let mut source = current;
     let mut end = None;
     let mut complete = true;
@@ -58,19 +63,33 @@ pub(super) fn describe(tx: &Session<'_>, conversation: &str) -> Result<Option<Li
         let Some(predecessor) = base(tx, &source, &relation)? else {
             break Some(LineageIssue::Unresolved);
         };
+        if segments.len() == 1 {
+            resolved_base = Some(crate::read_model::ResolvedBase {
+                source_id: predecessor.source.clone(),
+                own_end: predecessor.own_end,
+                prefix_digest: predecessor.prefix_digest,
+            });
+        }
         source = predecessor.source;
         end = Some(predecessor.own_end);
     };
     segments.reverse();
-    Ok(Some(LineStatus { segments, complete: complete && issue.is_none(), issue, attachments }))
+    Ok(LineStatus {
+        segments,
+        complete: complete && issue.is_none(),
+        issue,
+        attachments,
+        resolved_base,
+    })
 }
 
-pub(super) enum LineageIssue {
+pub(crate) enum LineageIssue {
     Cycle,
     Unresolved,
 }
 
-pub(super) struct LineStatus {
+pub(crate) struct LineStatus {
+    pub resolved_base: Option<crate::read_model::ResolvedBase>,
     pub segments: Vec<Segment>,
     pub complete: bool,
     pub issue: Option<LineageIssue>,
@@ -131,6 +150,7 @@ fn attachment_count(tx: &Session<'_>, segment: &Segment) -> Result<u64> {
 }
 
 pub(super) struct Predecessor {
+    prefix_digest: String,
     pub source: String,
     own_end: u64,
 }
@@ -179,8 +199,8 @@ pub(super) fn base(
             if expected.as_ref().is_some_and(|expected| expected != &digest) {
                 return Ok(None);
             }
-            expected = Some(digest);
-            chosen.get_or_insert(Predecessor { source, own_end });
+            expected = Some(digest.clone());
+            chosen.get_or_insert(Predecessor { source, own_end, prefix_digest: digest });
         }
     }
     Ok(chosen)

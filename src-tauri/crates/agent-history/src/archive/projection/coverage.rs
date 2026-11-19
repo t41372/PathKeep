@@ -81,7 +81,8 @@ impl Archive {
             .latest_revision_id
             .ok_or_else(|| Error::InvalidInput("source has no published raw revision".into()))?;
         let source_id = source_id.to_owned();
-        self.store.write(Db::AgentHistoryReadModel, Priority::Batch, move |tx| {
+        let refresh=self.store.write(Db::AgentHistoryReadModel, Priority::Batch, move |tx| {
+            let (parsed,fresh,combined)=tx.query_one("SELECT s.complete,s.raw_head_current,coalesce(c.complete,1) FROM ah_sessions s LEFT JOIN ah_coverage c ON c.source_id=s.id WHERE s.id=?1",[source_id.as_str()],|r|Ok((r.get::<i64>(0)?!=0,r.get::<i64>(1)?!=0,r.get::<i64>(2)?!=0)))?;
             let changed = tx.execute(
                 "UPDATE ah_sessions SET complete=?1,raw_head_current=1
                  WHERE id=?2 AND projection_id=?3 AND
@@ -93,8 +94,14 @@ impl Archive {
                     "coverage update belongs to a superseded projection or raw revision",
                 ));
             }
-            set_coverage(tx, &source_id, combined_complete)
+            set_coverage(tx, &source_id, combined_complete)?;
+            let refresh=parsed!=parser_complete || !fresh || combined!=combined_complete;
+            if refresh{crate::read_model::publication::refresh(tx,&source_id,None)?}
+            Ok(refresh)
         })?;
+        if refresh {
+            self.flush_reader_heads()?
+        }
         Ok(())
     }
 

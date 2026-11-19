@@ -18,7 +18,9 @@ pub(super) fn migrations() -> MigrationRegistry {
 pub fn schema_steps(db: Db) -> Vec<Migration> {
     match db {
         Db::AgentHistoryEvidence => steps(EVIDENCE),
-        Db::AgentHistoryReadModel => steps(PROJECTION),
+        Db::AgentHistoryReadModel => {
+            steps(&[PROJECTION, crate::read_model::publication::schema::TABLES].concat())
+        }
         other => panic!("agent history does not own the {other:?} store"),
     }
 }

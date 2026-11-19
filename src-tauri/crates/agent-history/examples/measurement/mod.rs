@@ -59,27 +59,91 @@ fn evict_file(path: &Path) {
 #[cfg(target_os = "linux")]
 fn evict_file(path: &Path) {
     use std::os::fd::AsRawFd;
-    let file = std::fs::File::open(path).unwrap();
-    file.sync_all().unwrap();
-    let len = usize::try_from(file.metadata().unwrap().len()).unwrap();
-    if len == 0 {
-        return;
-    }
-    let fd = file.as_raw_fd();
-    // SAFETY: the file stays open. The private mapping is never dereferenced.
-    unsafe {
-        assert_eq!(libc::posix_fadvise(fd, 0, 0, libc::POSIX_FADV_DONTNEED), 0);
-        let ptr = libc::mmap(std::ptr::null_mut(), len, libc::PROT_NONE, libc::MAP_PRIVATE, fd, 0);
-        assert_ne!(ptr, libc::MAP_FAILED);
-        let page = usize::try_from(libc::sysconf(libc::_SC_PAGESIZE)).unwrap();
-        let mut resident = vec![0; len.div_ceil(page)];
-        let status = libc::mincore(ptr, len, resident.as_mut_ptr());
-        assert_eq!(libc::munmap(ptr, len), 0);
-        assert_eq!(status, 0);
+    use std::os::unix::fs::MetadataExt;
+    let metadata = path.metadata().unwrap();
+    retry_eviction(
+        path,
+        || {
+            let handles = std::fs::read_dir("/proc/self/fd")
+                .unwrap()
+                .filter_map(|e| std::fs::metadata(e.ok()?.path()).ok())
+                .filter(|m| m.dev() == metadata.dev() && m.ino() == metadata.ino())
+                .count();
+            if handles > 0 {
+                return (handles, 0);
+            }
+            let file = std::fs::File::open(path).unwrap();
+            file.sync_all().unwrap();
+            let len = usize::try_from(file.metadata().unwrap().len()).unwrap();
+            if len == 0 {
+                return (0, 0);
+            }
+            let fd = file.as_raw_fd();
+            // SAFETY: this mapping is never dereferenced and is unmapped before retry.
+            let resident = unsafe {
+                assert_eq!(libc::posix_fadvise(fd, 0, 0, libc::POSIX_FADV_DONTNEED), 0);
+                let ptr = libc::mmap(
+                    std::ptr::null_mut(),
+                    len,
+                    libc::PROT_NONE,
+                    libc::MAP_PRIVATE,
+                    fd,
+                    0,
+                );
+                assert_ne!(ptr, libc::MAP_FAILED);
+                let page = usize::try_from(libc::sysconf(libc::_SC_PAGESIZE)).unwrap();
+                let mut residency = vec![0; len.div_ceil(page)];
+                let status = libc::mincore(ptr, len, residency.as_mut_ptr());
+                assert_eq!(libc::munmap(ptr, len), 0);
+                assert_eq!(status, 0);
+                residency.into_iter().filter(|bits| bits & 1 != 0).count()
+            };
+            drop(file);
+            (0, resident)
+        },
+        std::thread::sleep,
+    )
+}
+
+#[cfg(any(target_os = "linux", test))]
+fn retry_eviction(
+    path: &Path,
+    mut check: impl FnMut() -> (usize, usize),
+    mut wait: impl FnMut(Duration),
+) {
+    for attempt in 1..=6 {
+        let (handles, resident) = check();
+        if handles == 0 && resident == 0 {
+            return;
+        }
+        eprintln!(
+            "{}",
+            serde_json::json!({"measurement":"eviction_retry","path":path,"attempt":attempt,"resident_pages":resident,"open_handles":handles})
+        );
         assert!(
-            resident.iter().all(|flags| flags & 1 == 0),
-            "file still resident: {}. Set TMPDIR to a disk-backed filesystem",
+            attempt < 6,
+            "{} remains resident after six evictions; use a disk-backed TMPDIR",
             path.display()
         );
+        wait(Duration::from_millis(25 << (attempt - 1)));
+    }
+}
+
+#[cfg(test)]
+mod eviction_tests {
+    use super::*;
+    #[test]
+    fn transient_residency_retries_the_named_file() {
+        let mut attempts = 0;
+        let path = Path::new("synthetic/agent-history.db");
+        retry_eviction(
+            path,
+            || {
+                attempts += 1;
+                (usize::from(attempts == 1), usize::from(attempts == 2))
+            },
+            |_| {},
+        );
+        assert_eq!(attempts, 3);
     }
 }

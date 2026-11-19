@@ -91,6 +91,20 @@ fn measure(corpus: &Corpus) {
         .unwrap();
         let revision = corpus.retain(temp.path(), &archive, form);
         let identity = archive.revision(revision).unwrap();
+        let attempt = archive
+            .prepare_projection(form, revision, "window-measurement/1", true)
+            .unwrap()
+            .unwrap();
+        archive
+            .publish_projection_attempt(
+                &attempt,
+                &agent_history::SessionMetadata { native_id: form.into(), ..Default::default() },
+                true,
+            )
+            .unwrap();
+        let conversation = archive.list_sessions(&Default::default()).unwrap().items.remove(0).id;
+        let publication = archive.reader_header(&conversation).unwrap();
+        let member = archive.reader_sources(&publication, None, 1).unwrap().remove(0);
         let store = measurement::open(&database, true, Db::AgentHistoryReadModel);
         pages::init(&store);
         build_pages(&store, &archive, revision);
@@ -122,18 +136,27 @@ fn measure(corpus: &Corpus) {
         let archive = Archive::open(&root, PASSWORD).unwrap();
         let mut count = 0;
         let start = Instant::now();
-        let pulse = std::sync::Arc::new(std::sync::Mutex::new((start, std::time::Duration::ZERO)));
+        let pulse = std::sync::Arc::new(std::sync::Mutex::new((
+            start,
+            std::time::Duration::ZERO,
+            ReadPhase::Framing,
+            ReadPhase::Framing,
+        )));
         let observer = pulse.clone();
         let job = JobControl {
-            progress: Some(std::sync::Arc::new(move |_| {
+            progress: Some(std::sync::Arc::new(move |progress| {
                 let now = Instant::now();
                 let mut times = observer.lock().unwrap();
-                times.1 = times.1.max(now - times.0);
+                if now - times.0 > times.1 {
+                    times.1 = now - times.0;
+                    times.3 = times.2;
+                }
+                times.2 = progress.phase;
                 times.0 = now;
             })),
             ..Default::default()
         };
-        archive
+        let scan = archive
             .scan_revision(revision, &Default::default(), &job, &mut |record, _, value| {
                 assert_eq!(
                     (record.ordinal.0, record.start.0, record.length),
@@ -149,17 +172,22 @@ fn measure(corpus: &Corpus) {
             })
             .unwrap();
         // Include the final interval (last pulse through EOF verification).
-        let (last, gap) = *pulse.lock().unwrap();
-        let gap = gap.max(last.elapsed());
+        let (last, gap, last_phase, mut slow_phase) = *pulse.lock().unwrap();
+        let final_gap = last.elapsed();
+        if final_gap > gap {
+            slow_phase = last_phase;
+        }
+        let gap = gap.max(final_gap);
         assert_eq!(count, corpus.records());
+        assert_eq!(member.rendered, scan.max_frame_bytes > 32 * 1024 * 1024);
         println!(
             "{}",
-            serde_json::json!({"measurement":"physical_framing","form":form,"records":count,"decoded_bytes":corpus.start(count),"evicted":evicted,"longest_progress_gap_ms":gap.as_secs_f64()*1000.,"ms":start.elapsed().as_secs_f64()*1000.})
+            serde_json::json!({"measurement":"physical_framing","form":form,"records":count,"decoded_bytes":corpus.start(count),"evicted":evicted,"max_frame_bytes":scan.max_frame_bytes,"selective":member.rendered,"gap_after_phase":slow_phase,"longest_progress_gap_ms":gap.as_secs_f64()*1000.,"ms":start.elapsed().as_secs_f64()*1000.})
         );
         drop(archive);
         let mut backup_sequence = 0;
         for (label, first) in [("head", 0), ("middle", (count - 200) / 2), ("tail", count - 200)] {
-            for path in ["window", "rendered_window"] {
+            for path in ["window", "rendered_window", "production_window"] {
                 let mut cold = Vec::new();
                 let mut warm = Vec::new();
                 let mut during_backup = Vec::new();
@@ -177,6 +205,28 @@ fn measure(corpus: &Corpus) {
                                 corpus,
                                 profile.then_some(form),
                             )
+                        } else if path == "production_window" {
+                            let start = Instant::now();
+                            let rows = archive
+                                .reader_window(
+                                    &publication,
+                                    None,
+                                    first as u64,
+                                    200,
+                                    &Default::default(),
+                                )
+                                .unwrap();
+                            let elapsed = start.elapsed();
+                            assert_eq!(rows.len(), 200);
+                            for (rank, row) in (first..).zip(rows) {
+                                let native: serde_json::Value =
+                                    serde_json::from_slice(&corpus.row(rank)).unwrap();
+                                assert_eq!(row.ordinal.0, rank as u64);
+                                assert_eq!(row.native_id.as_deref(), native["uuid"].as_str());
+                                assert_eq!(row.parts.len(), 1);
+                                assert_eq!(row.parts[0].text, native["message"]["content"]);
+                            }
+                            elapsed
                         } else {
                             rendered::checked_window(&store, first, corpus)
                         }

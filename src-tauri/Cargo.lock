@@ -72,6 +72,7 @@ dependencies = [
  "directories",
  "hex",
  "libc",
+ "postcard",
  "rusqlite",
  "serde",
  "serde_json",

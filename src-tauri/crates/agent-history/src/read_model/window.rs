@@ -22,22 +22,35 @@ impl Archive {
         job: &JobControl,
         visit: &mut RecordVisitor<'_>,
     ) -> Result<ScanReport> {
+        self.scan_revision_with_frames(revision, context, job, visit, &mut |_| Ok(()))
+    }
+    pub(super) fn scan_revision_with_frames(
+        &self,
+        revision: i64,
+        context: &ParseContext,
+        job: &JobControl,
+        visit: &mut RecordVisitor<'_>,
+        frame: &mut dyn FnMut(TransportFrame) -> Result<()>,
+    ) -> Result<ScanReport> {
         job.checkpoint(ReadPhase::Framing, 0)?;
         let _guard = self.jobs.enter_reader(&job.cancel)?;
         let info = self.revision(revision)?;
         let source = self.source(&info.source_id)?;
         let harness: Harness = source.harness.parse()?;
-        let mut input =
-            BufReader::with_capacity(BUFFER, EvidenceReader(self.raw_reader(revision)?));
+        let mut input = BufReader::with_capacity(
+            BUFFER,
+            EvidenceReader(self.raw_reader(revision)?.with_scan_control(job)),
+        );
         let mut context = context.clone();
         context.relative_path.clone_from(&source.relative_path);
-        scan_records(
+        framing::scan_with_frames(
             &mut input,
             harness,
             Transport::from_path(&source.relative_path),
             &context,
             job,
             visit,
+            frame,
         )
     }
 

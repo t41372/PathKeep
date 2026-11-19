@@ -39,12 +39,24 @@ pub fn scan_records(
     job: &JobControl,
     visit: &mut RecordVisitor<'_>,
 ) -> Result<ScanReport> {
+    scan_with_frames(input, harness, transport, context, job, visit, &mut |_| Ok(()))
+}
+pub(super) fn scan_with_frames(
+    input: &mut dyn BufRead,
+    harness: Harness,
+    transport: Transport,
+    context: &ParseContext,
+    job: &JobControl,
+    visit: &mut RecordVisitor<'_>,
+    frame: &mut dyn FnMut(TransportFrame) -> Result<()>,
+) -> Result<ScanReport> {
     if !(1..=64 * 1024 * 1024).contains(&context.max_record_bytes) {
         return Err(Error::InvalidInput("invalid record byte budget".into()));
     }
     job.checkpoint(ReadPhase::Framing, 0)?;
     let restart = Cell::new(None);
-    let decoded = Decoded::new(Box::new(input), transport, &restart, job, ReadPhase::Framing)?;
+    let mut decoded = Decoded::new(Box::new(input), transport, &restart, job, ReadPhase::Framing)?;
+    decoded.on_frame = Some(Box::new(frame));
     let mut stream = BufReader::with_capacity(BUFFER, decoded);
     let mut interpretation = RecordContext::new(harness);
     let mut first_object = true;
@@ -78,6 +90,7 @@ pub fn scan_records(
     // the bounded decoder so truncated native frames and evidence failures still surface.
     std::io::copy(&mut stream, &mut std::io::sink()).map_err(transport::read_error)?;
     Ok(ScanReport {
+        max_frame_bytes: stream.get_ref().max_frame_bytes,
         physical_records,
         objects,
         coverage: if issues.is_empty() {

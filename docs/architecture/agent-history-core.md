@@ -175,9 +175,18 @@ a complete object also supplies native fields and typed text, reasoning, call-in
 call-result parts. An oversized preview supplies a continuation offset within its own record.
 The scan and window callbacks run on the caller's blocking worker outside store transactions.
 Maintenance signals their cancellation token before draining active reads. A callback waiting
-on downstream capacity must observe that token. Source membership and publication selection
-are the next layer above these reads.
+on downstream capacity must observe that token. Source membership and publication selection are described below.
 
 The [removal matrix](research/agent-history/read-model-removal.md) tracks the existing SQL,
 CLI and fault-injection contracts through cutover. The [measurement commands and oracles](research/agent-history/read-model-measurements.md)
 cover both archive modes, native framing, source-order windows and outline rank seeks.
+
+### Versioned conversation reads
+
+A source publication is staged from its retained revision. The source projection commits a dirty ticket for every affected conversation. Private metadata batches resolve copy election, native base boundaries, alternative rollouts, recorded Pi leaves, child links, coverage and prefix-scoped attachment counts. The final ticket comparison and head switch run in one read-model transaction. A superseded reader gets a stale cursor. Interrupted work leaves a recoverable preceding head.
+
+Use `reader_header` to pin a publication. `reader_sources` pages its member descriptors. `reader_outline` and `reader_window` address physical records on either the selected line or an earlier member branch. `reader_visible_window` uses ranked display bitmaps and the latest recorded Pi continuation. `reader_leaves` and `reader_leaf_window` expose alternatives. `reader_lookup` returns exact native-ID occurrences, `reader_children` pages resolved children, and `reader_record_bytes` expands exact evidence within the authorized member or inherited prefix.
+
+A source receives rendered pages if any independently decoded native frame exceeds 32 MiB. Transport suffix and total source length alone do not establish that condition. Rendered reads bind the source digest and renderer version. Fallback reinterprets the evidence, using the original parser budgets if the outline itself needs recovery. Large display rows carry a truncation flag and their physical address. Native exports and raw download continue to use evidence.
+
+`rebuild_reader_catalog` regenerates the reader tables from retained bytes and existing native session membership with live roots absent. It preserves the legacy event projection, runs, user marks and search index. Complete regeneration of those other subsystems from a blank pair of derived stores is the later full-rebuild step. The [stored values and lifecycle table](archive-compatibility.md#agent-conversation-reader-publications-revision-1) identifies the owner of every new table.

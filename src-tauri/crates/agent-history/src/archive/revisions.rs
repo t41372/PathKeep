@@ -198,6 +198,8 @@ impl Archive {
             self.set_coverage(&source_id, false)?;
         }
         let retention = source.retention;
+        let expires = retention == "state";
+        let reader_source = source_id.clone();
         let retires_slices = prefix || retention == "state";
         let now = chrono::Utc::now().timestamp_millis();
         let outcome = self.store.write(Db::AgentHistoryEvidence, Priority::Batch, move |tx| {
@@ -248,6 +250,18 @@ impl Archive {
             }
             Ok(RevisionOutcome { revision_id: selected, unchanged: previous == Some(selected) })
         })?;
+        if expires && !outcome.unchanged {
+            let selected = outcome.revision_id;
+            let changed=self.store.write(Db::AgentHistoryReadModel,Priority::Batch,move|tx|{
+                let changed=tx.execute("UPDATE ah_reader_version SET state='retired' WHERE source=?1 AND revision<>?2 AND state<>'retired'",params![reader_source.clone(),selected])?;
+                if changed>0{crate::read_model::publication::refresh(tx,&reader_source,None)?}
+                Ok(changed)
+            })?;
+            if changed > 0 {
+                self.flush_reader_heads()?;
+                self.prune_reader_pages(256)?;
+            }
+        }
         drop(_publication);
         if retires_slices {
             // Limit garbage during large imports. Backup checks the durable queue again at

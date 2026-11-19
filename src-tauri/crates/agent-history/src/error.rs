@@ -20,6 +20,8 @@ pub enum Error {
     ArchiveNotEncrypted,
     #[error("conversation not found")]
     ConversationNotFound,
+    #[error("the conversation reader requires an offline rebuild")]
+    ReaderRebuildRequired,
     #[error("invalid input: {0}")]
     InvalidInput(String),
     #[error("archive integrity check failed: {0}")]
@@ -50,6 +52,7 @@ impl Error {
         match self {
             Self::PasswordRequired => "password_required",
             Self::ArchiveNotEncrypted => "archive_not_encrypted",
+            Self::ReaderRebuildRequired => "reader_rebuild_required",
             Self::ConversationNotFound => "conversation_not_found",
             Self::NativeTransport(_) => "invalid_native_transport",
             Self::Io(_) => "io_error",

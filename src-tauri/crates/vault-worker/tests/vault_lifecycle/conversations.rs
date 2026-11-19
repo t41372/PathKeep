@@ -223,3 +223,26 @@ fn move_to_empty_and_populated_destinations() {
 
 #[path = "conversations/ownership.rs"]
 mod ownership;
+
+#[test]
+fn reader_pause_and_wipe_cover_published_pages() {
+    let fixture = Fixture::new(false);
+    let corpus = Corpus::seed(&fixture);
+    let vault = fixture.vault();
+    let archive = vault.agent_history().unwrap();
+    let id = sessions(&archive)["codex"]["id"].as_str().unwrap().to_owned();
+    let head = archive.reader_header(&id).unwrap();
+    {
+        let _pause = archive.pause_jobs();
+        assert!(archive.reader_window(&head, None, 0, 1, &Default::default()).is_err());
+    }
+    corpus.check(&vault, None);
+    let report = vault_worker::wipe_all_data(vault_worker::WIPE_CONFIRMATION_WORD, || {
+        fixture.session.close_vault().map_err(anyhow::Error::msg)
+    })
+    .unwrap();
+    assert_eq!(report, vault_core::WipeReport::default());
+    assert!(archive.reader_header(&id).is_err());
+    assert!(!fixture.root.join("derived/agent-history-read-model.db").exists());
+    assert!(!fixture.root.join("archive/agent-history.db").exists());
+}
