@@ -15,6 +15,10 @@
 - [ ] **WORK-SEMANTIC-FOLLOWUP-AUDIT** — 第一輪完成後，依正常流程複核映射、snapshot 時序、還原／命名、更新效率及量測容量邊界等記錄。未確認不得直接修碼或擴大範圍。
   - 讀先：[證據複核](../architecture/research/2026-11-semantic-progress-audit.md)、Claude 報告 §7、相關功能及架構契約。
   - 禁止修改依賴。特殊注入、自訂量測或低階 API 反例只能當調查線索，不能替代正常環境重現。
+  - 2026-11-18 合併前的審查（Codex astra）指出、歸到這一塊的三項，都和「還原後索引檔與資料庫年代不一致」或更新的範圍有關：
+    - 完整重建在規劃階段（位置還是 0）暫停，之後從那時的安全副本還原、再繼續：重建會沿用還原之後才寫進去的索引檔，把副本之後才有的造訪映射也發布出去。副本不帶 `derived/vectors`，任何還原回來的暫停任務都有這個問題；固定範圍的改動讓位置 0 的任務也會沿用。讀程式確認了沿用的路徑，結果沒有實跑。
+    - 新的完整重建用「看得到的最大 id」當上限，不是實體的最大 id：匯入被復原時，它的造訪不在這次重建的範圍裡，恢復後索引顯示過期，下一次更新補上。早於這次改動。
+    - 在背景任務頁對一個舊的已取消任務按「再跑一次」，它會用舊的範圍發布舊的水位，把較新的任務已經涵蓋的蓋回去：索引其實完整，卻顯示過期，更新一次就好。
 
 > 2026-10-25：清掉已完成或前提已不存在的 block（v0.3 Paper 前端、已移除的 coverage / mutation gate、已修好的 flaky 測試等，清單見 CHANGELOG 同日）。2026-04 到 2026-06 的收尾註記也一併移除，要看去 git 歷史或 CHANGELOG。
 
@@ -311,6 +315,8 @@
   - 現況：Windows、Linux 已關掉系統標題列，最小化 / 最大化 / 關閉由 app 畫在右上角，每個畫面都有（`src/app/window-chrome/`）。2026-11-14 在 Linux 的真視窗上點過，有 X11 的 xfwm4，GNOME 46 的 X11 與 Wayland：按鈕、拖動、雙擊最大化、邊緣縮放都有效（`WORK-WINDOW-FRAME-EVERY-SCREEN`）。Linux 那份現在每次 CI 都跑。Windows 從沒看過，KDE 也還沒有（另見 `WORK-WAYLAND-UNDECORATED`）。滑鼠停在最大化上時 Windows 11 的貼齊版面不會出現。
   - 為什麼還沒做：要讓系統把我們畫的按鈕當成最大化按鈕，得在 Rust 裡回應 `WM_NCHITTEST`（`windows` crate），但 WebView2 的子視窗蓋住整個內容區，訊息可能到不了頂層視窗；這台 Mac 也編不了 Windows 版（`ring`、`aws-lc-sys` 要 mingw），寫了無法建置也無法試。
   - 要做：在 Windows 上建置，先確認縮放邊、拖到螢幕邊緣（Aero Snap）、雙擊最大化、深淺色、按鈕 hover 與鍵盤都對；再試 `WM_NCHITTEST` 子類化或 WebView2 的 non-client region；Linux 在 GNOME 與 KDE 各看一次。
+  - 2026-11-18 審查指出：視窗的拖動只聽滑鼠事件（Tauri 自己的 `drag.js` 也是），觸控螢幕用手指、或用手寫筆按著標題那一條拖，可能拖不動。沒有機器可以確認，不盲寫。實機上要看：手指與筆按著拖動時有沒有 `pointerdown`／`pointermove`、視窗動不動；不動就改用 pointer events 並在同一台機器上驗。
+  - 同一次審查：按下後移動超過門檻就立刻放開，`startDragging` 送到視窗管理員時鍵可能已經放開，Xfce 上視窗可能又黏著指標（輕點已修，這是「短拖」）。下次在 Linux 上跑真視窗的檢查時用 `xdotool mousedown 1 mousemove_relative -- 6 0 mouseup 1` 試；重現的話記成限制（要改的是 tao 在開始拖動前不檢查按鍵）。
 
 - [ ] **WORK-WAYLAND-UNDECORATED** — KDE 的 Wayland 上，系統標題列可能關不掉，按鈕變兩套（2026-11-14 `WORK-WINDOW-FRAME-EVERY-SCREEN` 讀 tao 原始碼看到；GNOME 上已確認沒有這個問題）
   - PathKeep 先建立有標題列的視窗，顯示前才關掉（`desktop_integration/window.rs` 的 `frame`）。tao 0.37.2 只在建立時就無標題列的 Wayland 視窗裝一個空的 GTK titlebar，擋住 compositor 自己畫的標題列（`platform_impl/linux/window.rs:192-197`）；之後才關的那條路只呼叫 `set_decorated`（`linux/event_loop.rs:385`）。
@@ -331,6 +337,14 @@
   - 失敗在第 716 行，還沒打開 app：spec 假設「台北天氣」那一族在 Chrome · Work 的「最常回頭的搜尋」前五名裡。E2E 的合成資料以 `Date.now()`、`TZ=UTC` 產生，哪些造訪落在哪個設定檔、哪一天，隨 `now` 而變，前五名也跟著變。
   - 證明：用真的 `writeSyntheticBrowsers` 在兩個 UTC 日裡每兩小時產生一次，11-15 00:30–10:30 的每一份都失敗（台北天氣 38 次，第 7 名），其他時間都通過；2026-11-15 再細掃：10:30–11:00 失敗、11:10 通過、11:20 失敗、11:25 以後每分鐘都通過，十分鐘內就會翻轉，避開時間跑不可靠；和失敗那次留下的 `fixture.json` 算出來一樣。跟程式碼無關，main 在這段時間跑也會失敗，CI 碰上就紅。腳本與結果：`artifacts/investigations/2026-11-14-e2e-search-topic-by-now/`。
   - 要做：讓這個 spec 不靠時間碰運氣。例如在 fixture 的 scenes 裡，固定給 Work 設定檔一段「台北天氣 → 台北天氣預報」的搜尋，保證它進前五名；或讓 spec 改從算出來的前五名裡挑一個由兩種寫法組成的中文族。同時用同一個腳本掃一遍，看其他 spec 有沒有同樣「取前 N 名，假設某一項在裡面」的寫法。
+  - 2026-11-18：合併到 v0.6.0 這條線後，那個 spec 已經是不靠時間的寫法（預期的前五名由 fixture 算，台北天氣在不在裡面都對）。剩下的是掃其他 spec 有沒有同樣的假設。
+  - 2026-11-18 掃完其他 spec（唯讀稽核：用真的 `generateVisits` 在不同的 `now` 產生 fixture，套上各 spec 自己的前提，共兩萬多個時間點；沒有跑瀏覽器）：
+    - 為什麼每分鐘都不一樣：`synthetic-browsers.mjs` 產生今天的造訪時，過了 `now` 就不再抽亂數（第 505、543 行），而今天最先產生，所以之前每一天用到的亂數都跟著 `now` 的分鐘變。讓它照樣抽完今天的亂數、再用 `now` 篩掉，fixture 就只隨日期變，不隨分鐘變。
+    - 確認會失敗：`search-builder.spec.ts`「the sort menu orders results by first or latest visit and keeps the order」假設 tokio 的五頁照造訪次數排和照最近造訪排不一樣。某些分鐘兩種排法相同，還沒打開 app 就失敗：2026-11-16 那一週有 7 分鐘（週二 20:46、週五 11:45–11:46、週六 20:26–20:29 UTC），每週都回來。要改成由 fixture 的場景保證兩種排法不同。
+    - 很可能、沒在瀏覽器裡跑過：`history-tools.spec.ts` 的 `pickDays` 只會往前翻月份。當月 1 號是星期日、而今天是 12 號時（2026-11-12、2027-08-12 等），12 天前與 11 天前分別落在上個月最後一天與這個月 1 號，翻過去之後另一天不在畫面上，點不到。要改成照月曆標題往目標月份的方向翻。
+    - 機率低、沒重現：spec 自己算「今天」、頁面也自己讀時鐘，午夜（UTC）落在兩者之間就不一致（`insights*.spec`、`backup.spec` 的 7 天計數、`semantic-index.spec` 的今天與昨天）。`backup.spec` 的空窗最長，約一分鐘。
+    - 可能、算不出來：`semantic-index.spec.ts`「Ask groups the period by meaning…」要求有一份超過 7,000 位元組的報告，取決於那幾天的分群結果。
+    - 其餘在掃描中前提都成立，最薄的是 `search-builder.spec.ts` 的「`^ht` 配到超過 100 頁」（最少 105）。腳本與掃描結果收在交接資料夾的 `e2e-time-audit/`。
 
 - [ ] **WORK-STATUS-SCREEN-OVERFLOW** — 置中的全螢幕畫面不能捲動，內容比視窗高時上下被切掉（2026-11-14 `WORK-WINDOW-FRAME-EVERY-SCREEN` 時看到，沒有重現）
   - 啟動、啟動失敗、升級、復原畫面（`status-screens.tsx` 的 `Centered`）與鎖定畫面是 `fixed inset-0 flex items-center`，沒有捲動。最可能碰到的是復原畫面：快照多時，在 760 px 高的視窗大約放不下十個以上。
@@ -348,7 +362,7 @@
 - [ ] **WORK-WINDOW-INACTIVE-LOOK** — 視窗失焦時，畫的視窗按鈕不會變淡（Windows 系統按鈕會；2026-11-14 Codex 指出）
 
 - [ ] **WORK-UI-SMALL-FINDINGS-2026-11-14** — `WORK-WINDOW-FRAME-EVERY-SCREEN` 時 Codex 指出、讀程式碼確認的小問題，與外框無關
-  - 對話框角落的關閉按鈕，給螢幕閱讀器的文字寫死英文「Close」（`components/ui/dialog.tsx:74`；`DialogFooter` 的 `showCloseButton` 也是，目前沒人用）。違反三語契約。
+  - ~~對話框角落的關閉按鈕，給螢幕閱讀器的文字寫死英文「Close」~~ 2026-11-18 改好：對話框、它的 footer 與側欄（`sheet.tsx`）都用 `common.close`。
   - 舊格式升級畫面在 `try` 之前就訂閱進度（`status-screens.tsx:155-158`）。訂閱失敗時「執行中」不會被清掉，畫面停在進度條上。
   - Windows、Linux 上也寫 macOS 的快捷鍵：指令面板「Lock PathKeep」旁的 `⌘L`（`command-palette.tsx:125`），導航列提示「Command palette (⌘K)」「Lock PathKeep (⌘L)」（`messages/shell.ts`，三種語言）。那兩個平台是 Ctrl+K、Ctrl+L；上一頁 / 下一頁已經分開寫。2026-11-14 在 Linux 實機的截圖上看到。
   - 過時的註解：`worker_bridge/archive.rs:18-21` 說 dev bridge 送不了升級進度，`dev_ipc_bridge/dispatch.rs` 其實有送；`desktop_integration/quit.rs:22` 寫 tao 0.35，鎖檔是 0.37.2。

@@ -32,6 +32,7 @@
 - [ ] `feat/semantic-progress-investigation`（2 個 commit，Codex 寫的）：語意索引進度「644 / 94」的第一輪修正。與這條分支只在 STATUS、CHANGELOG 衝突。
 - [ ] `fix/window-controls-every-screen`（5 個 commit）：Windows、Linux 每個畫面都有視窗按鈕、按著移動才拖動、存檔更新途中結束先問、更新途中被結束的測試。衝突在 `vault-core/src/vault.rs`、`app-frame.tsx`、`nav-rail.tsx`、`playwright.config.ts`、`screens-and-nav.md`、STATUS、CHANGELOG。`vault.rs` 與外框正是 Agent 對話要改的地方，所以排在動工之前。
 - [ ] Dependabot PR #28（11 個 JS 套件的小版本）：在這條分支上照做一次，PR 本身之後關掉。
+- [ ] 量測語意索引更新的時間（審查修正時答應的，Codex 給的讀寫次數是從程式推算的，不是量的）：在 boxd 上、同一台機器、修正前後兩版交替跑，大的合成存檔上「什麼都沒變」的一次更新要多久、到讀第一批造訪之前要多久、存檔讀取與洞察資料庫寫入各幾次；再加幾十筆造訪後的一次更新，以及任務結束時自動排的下一個任務有沒有多走一遍。數字寫進 CHANGELOG 才算完。1440 萬筆那一檔看機器磁碟放不放得下，放不下就寫明量到多大。
 - [ ] `feat/landing-page`（PR #25）：頁面本身做完了，缺 Agent 空間的介紹、圖片與 demo，要等第 4 組的畫面做出來。排在第 7 組。
 - [x] `fix/windows-flush-v05`：內容已全部在這條分支（2026-11-16 逐項對過），分支不合併。
 
