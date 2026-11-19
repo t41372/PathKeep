@@ -138,4 +138,9 @@ export const FIXTURE_SCENES: {
     title: string
     visits: [SyntheticProfileId, SceneTime][]
   }
+  sortOrders: {
+    profile: SyntheticProfileId
+    word: string
+    pages: { url: string; title: string; visits: SceneTime[] }[]
+  }
 }

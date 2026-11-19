@@ -25,6 +25,7 @@ import {
   type Page,
   type TestInfo,
 } from '@playwright/test'
+import { FIXTURE_SCENES } from '../../scripts/fixtures/synthetic-browsers.mjs'
 import { unlockIfLocked } from './support/app'
 import {
   archivedVisits,
@@ -253,10 +254,9 @@ test('the sort menu orders results by first or latest visit and keeps the order'
   )
   const top = (pages: FoundPage[]) => pages.slice(0, 5).map((p) => p.title)
   expect(found.length, 'enough pages to see an order').toBeGreaterThan(5)
-  // Sorting by the latest visit, ascending, must not pass for "oldest first",
-  // nor the latest visit for "most visited".
-  expect(top(byFirst)).not.toEqual(top([...byLatest].reverse()))
-  expect(top(byVisits)).not.toEqual(top(byLatest))
+  // Whether these pages' orders differ from each other depends on the day the
+  // fixture was made, so nothing is claimed about that here: the three pages
+  // at the end of this test are made so that theirs always do.
 
   await visit(page, '/#/browsing/history?q=tokio')
   await expectTotals(page, testInfo, 'tokio', 'Full text', found)
@@ -309,6 +309,35 @@ test('the sort menu orders results by first or latest visit and keeps the order'
     page.getByRole('button', { name: 'Sort results: Oldest first' }),
   ).toBeVisible()
   await expectOrder(page, top(byFirst))
+
+  // Three pages made so that the orders cannot stand in for one another
+  // (`FIXTURE_SCENES.sortOrders`): by first visit, by latest visit, by the
+  // latest visit backwards and by number of visits are four different orders.
+  // An order sorted by the wrong date, or by the right one the wrong way
+  // round, shows here whatever day the fixture was made.
+  const { word } = FIXTURE_SCENES.sortOrders
+  const three = pagesMatching((visit) => words(visit).includes(word))
+  const titles = (pages: FoundPage[]) => pages.map((found) => found.title)
+  const oldest = titles([...three].sort((a, b) => a.first - b.first))
+  const newest = titles([...three].sort((a, b) => b.last - a.last))
+  const mostVisited = titles([...three].sort((a, b) => b.visits - a.visits))
+  expect(three).toHaveLength(3)
+  expect(
+    new Set(
+      [oldest, newest, [...newest].reverse(), mostVisited].map((order) =>
+        order.join(' | '),
+      ),
+    ).size,
+    'the four orders differ',
+  ).toBe(4)
+  await visit(page, `/#/browsing/history?q=${word}`)
+  await expectTotals(page, testInfo, word, 'Full text', three)
+  await pickSort(page, 'Best match', 'Oldest first')
+  await expectOrder(page, oldest)
+  await pickSort(page, 'Oldest first', 'Most visited')
+  await expectOrder(page, mostVisited)
+  await pickSort(page, 'Most visited', 'Newest first')
+  await expectOrder(page, newest)
 })
 
 test('a regex search lists every page it matches once, in order, through its last page', async ({

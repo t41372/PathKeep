@@ -573,8 +573,22 @@ async function pickDays(page: Page, first: number, last: number) {
     const day = page.locator(
       `[data-day="${new Date(at).toLocaleDateString('en-US')}"]`,
     )
-    for (let back = 0; (await day.count()) === 0 && back < 3; back += 1)
-      await page.getByRole('button', { name: /previous month/i }).click()
+    // The calendar shows one month, with the days of its first and last
+    // weeks that belong to the months beside it. The day wanted is in the
+    // past, but after the first click it can lie later than the month shown
+    // (the 1st, when the first click turned back to the month before), so
+    // the calendar is turned whichever way the day lies.
+    for (let turns = 0; (await day.count()) === 0 && turns < 4; turns += 1) {
+      const shown = page.locator('[data-day]')
+      const lastShown = new Date(
+        (await shown.last().getAttribute('data-day')) ?? '',
+      ).getTime()
+      await page
+        .getByRole('button', {
+          name: at > lastShown ? /next month/i : /previous month/i,
+        })
+        .click()
+    }
     await day.first().click()
   }
   await page.getByRole('button', { name: 'Apply', exact: true }).click()

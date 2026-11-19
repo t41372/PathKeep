@@ -320,6 +320,11 @@ function pagesSiteScene(dayStart) {
  *   for something, so Insights leaves it out of its search cards.
  * - `newSite`: a site first visited in Personal, and weeks later in Work
  *   (Insights' new sites, per profile and for all).
+ * - `sortOrders`: three pages whose order by first visit, by latest visit
+ *   and by number of visits are three different orders, and none the reverse
+ *   of another (History's sort menu). Unlike the others they sit more than a
+ *   year back, on days the generated sessions skip, so no recent range
+ *   changes with them.
  */
 export const FIXTURE_SCENES = {
   twoBrowsers: {
@@ -380,6 +385,45 @@ export const FIXTURE_SCENES = {
       ['chrome:Profile 1', [7, 5, 40]],
     ],
   },
+  sortOrders: {
+    profile: 'chrome:Default',
+    /** The word that finds these three pages and no other. */
+    word: 'ratatui',
+    pages: [
+      {
+        // Visited first of the three and last of the three, twice in all.
+        url: 'https://docs.rs/ratatui/latest/ratatui/layout/index.html',
+        title: 'ratatui::layout - Rust',
+        visits: [
+          [436, 3, 5],
+          [431, 3, 5],
+        ],
+      },
+      {
+        // Second to be visited, the first to be left alone, three visits.
+        url: 'https://docs.rs/ratatui/latest/ratatui/style/index.html',
+        title: 'ratatui::style - Rust',
+        visits: [
+          [435, 3, 5],
+          [435, 3, 25],
+          [434, 3, 45],
+        ],
+      },
+      {
+        // Last to be visited for the first time, and the most visited.
+        url: 'https://docs.rs/ratatui/latest/ratatui/widgets/index.html',
+        title: 'ratatui::widgets - Rust',
+        visits: [
+          [434, 3, 5],
+          [434, 3, 25],
+          [433, 3, 5],
+          [433, 3, 25],
+          [433, 3, 45],
+          [433, 4, 5],
+        ],
+      },
+    ],
+  },
 }
 
 function scenes(today) {
@@ -419,6 +463,9 @@ function scenes(today) {
       visits.push(page(url, title, profile, when))
   for (const [url, profile, when] of spellings.visits)
     visits.push(page(url, spellings.title, profile, when))
+  for (const { url, title, visits: times } of FIXTURE_SCENES.sortOrders.pages)
+    for (const when of times)
+      visits.push(page(url, title, FIXTURE_SCENES.sortOrders.profile, when))
   // Searches 31 minutes apart from 02:30, each its own session, done before
   // the day's first session at 09:00.
   respelled.spellings.forEach((term, group) => {
@@ -502,7 +549,10 @@ export function generateVisits({
     ) {
       const topic = topics[Math.floor(random() * topics.length)]
       let at = Math.max(starts[session], free)
-      if (at > now) continue
+      // A session later than `now` is still generated, and dropped at the
+      // end with every other visit after `now`. Skipping it here would draw
+      // fewer random numbers today, and today comes first: every older day
+      // would then come out different from one minute to the next.
       const size = Math.max(2, Math.round(volume / sessions))
       if (random() < 0.7) {
         const term = topic.search[Math.floor(random() * topic.search.length)]
@@ -540,7 +590,6 @@ export function generateVisits({
       }
       for (let index = 0; index < size && produced < volume; index += 1) {
         at += 40_000 + Math.floor(random() * 240_000)
-        if (at > now) break
         const [url, title] =
           topic.pages[Math.floor(random() * topic.pages.length)]
         visits.push({
