@@ -253,7 +253,10 @@ function copyDescription(
     : copy.unchecked
       ? t('settingsStorage.restore.unchecked')
       : null
-  return [made, state].filter(Boolean).join(' · ')
+  const conversations = copy.conversationsUnreadable
+    ? t('settingsStorage.restore.conversationsUnreadable')
+    : null
+  return [made, state, conversations].filter(Boolean).join(' · ')
 }
 
 function Row({

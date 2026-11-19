@@ -9,8 +9,9 @@
  * the panel fades when the space changes (`space-panel.tsx`). The frame
  * keeps the kinds of data's states current for the whole shell
  * (`useDataKindsSync`), and conversation backups with their notices
- * (`useAgentBackupNotices`), and holds the dialog that turns Agent
- * conversations on, which `?enable=agent` opens over any screen.
+ * (`useAgentBackupNotices`), and holds the dialogs that turn Agent
+ * conversations on (`?enable=agent`) and repair them (`?repair=agent`),
+ * which open over any screen.
  */
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
@@ -30,10 +31,14 @@ import { NavRail } from './nav-rail'
 import { SpacePanel } from './space-panel'
 import { useHistorySteps } from './use-history-steps'
 import { useEnableAgentParam } from '@/features/enable-agent/links'
+import { useAgentRepairParam } from '@/features/agent-repair/links'
 import { useAgentBackupNotices } from '@/features/agent-backup/use-backup-notices'
 
 const EnableAgentDialog = lazy(
   () => import('@/features/enable-agent/enable-agent-dialog'),
+)
+const AgentRepairDialog = lazy(
+  () => import('@/features/agent-repair/agent-repair-dialog'),
 )
 
 /** Loads the enable dialog the first time it is asked for, then keeps it for its closing fade. */
@@ -45,6 +50,19 @@ function EnableAgentHost() {
   return (
     <Suspense fallback={null}>
       <EnableAgentDialog />
+    </Suspense>
+  )
+}
+
+/** Loads the repair dialog the first time it is asked for, then keeps it so it can let go of a check on close. */
+function AgentRepairHost() {
+  const { open } = useAgentRepairParam()
+  const [wanted, setWanted] = useState(open)
+  if (open && !wanted) setWanted(true)
+  if (!wanted) return null
+  return (
+    <Suspense fallback={null}>
+      <AgentRepairDialog />
     </Suspense>
   )
 }
@@ -171,6 +189,7 @@ export function AppFrame() {
         onLock={lock}
       />
       <EnableAgentHost />
+      <AgentRepairHost />
     </div>
   )
 }

@@ -5,6 +5,8 @@
  * password on the computer that opens it. Opening one replaces this
  * computer's archive, so it goes check (`preview_app_data_import`) →
  * confirm → replace (`apply_app_data_import`), then restarts the session.
+ * While saved Agent conversations can't be read, both are refused before
+ * anything changes; the dialog says so and leads to the repair.
  */
 import { useMutation } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
@@ -32,6 +34,8 @@ import { commandErrorCode } from '@/lib/ipc/command-error'
 import { useFormat, useI18n } from '@/lib/i18n'
 import { useSnapshot } from '@/lib/queries/app'
 import { hasTauriGuestApi } from '@/lib/runtime'
+import { needsConversationRepair } from '@/features/agent-repair/repair-errors'
+import { RepairOffer } from '@/features/agent-repair/repair-offer'
 import { Notice } from './notice'
 import { BUNDLE_EXTENSION, PathField } from './path-field'
 import { announceReplaced } from './replaced-notice'
@@ -202,6 +206,8 @@ function ExportForm({ onClose }: { onClose: () => void }) {
             <p role="status" className="text-[13px] text-muted-foreground">
               {t('maintenance.stopped')}
             </p>
+          ) : needsConversationRepair(run.error) ? (
+            <RepairOffer operation="export" onLeave={onClose} />
           ) : (
             <p
               role="alert"
@@ -267,6 +273,7 @@ function ImportForm({ onClose }: { onClose: () => void }) {
     apply.error !== null &&
     commandErrorCode(apply.error) === 'archive-password-wrong'
   const failure = check.error ?? (stopped ? null : apply.error)
+  const repairFirst = failure !== null && needsConversationRepair(failure)
   const newerFile =
     failure !== null && NEWER_FILE_CODES.includes(commandErrorCode(failure))
 
@@ -347,7 +354,8 @@ function ImportForm({ onClose }: { onClose: () => void }) {
             {t('maintenance.stopped')}
           </p>
         )}
-        {failure && (
+        {repairFirst && <RepairOffer operation="import" onLeave={onClose} />}
+        {failure && !repairFirst && (
           <p
             role="alert"
             className="text-[13px] [overflow-wrap:anywhere] text-destructive"

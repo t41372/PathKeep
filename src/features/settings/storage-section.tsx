@@ -1,8 +1,8 @@
 /**
  * Settings → Storage: where the archive lives and how much space it takes,
- * freeing space, exporting, moving to another computer, restoring a safety
- * copy, and deleting everything. Each destructive action opens a dialog that
- * shows what will happen before it runs.
+ * freeing space, exporting, moving to another computer, making and restoring
+ * a safety copy, and deleting everything. Each action that writes opens a
+ * dialog that shows what will happen before it runs.
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
@@ -34,10 +34,11 @@ import { FreeSpaceDialog } from './free-space-dialog'
 import { MoveDialog } from './move-dialogs'
 import { RestoreDialog } from './restore-dialog'
 import { reveal, revealLabelKey } from './reveal'
+import { SafetyCopyDialog } from './safety-copy-dialog'
 import { UsageCard } from './usage-card'
 import { WipeDialog } from './wipe-dialog'
 
-type Open = 'free' | 'export' | 'import' | 'restore' | 'wipe' | null
+type Open = 'free' | 'export' | 'import' | 'copy' | 'restore' | 'wipe' | null
 
 export function StorageSection() {
   const { t } = useI18n()
@@ -84,6 +85,15 @@ export function StorageSection() {
         }
       />
       <SettingRow
+        title={t('settingsStorage.safetyCopy.rowTitle')}
+        description={t('settingsStorage.safetyCopy.rowDescription')}
+        control={
+          <Button size="sm" variant="outline" onClick={() => setOpen('copy')}>
+            {t('settingsStorage.safetyCopy.action')}
+          </Button>
+        }
+      />
+      <SettingRow
         title={t('settingsStorage.restore.rowTitle')}
         description={t('settingsStorage.restore.rowDescription')}
         control={
@@ -116,6 +126,7 @@ export function StorageSection() {
         mode={open === 'export' || open === 'import' ? open : null}
         onClose={close}
       />
+      <SafetyCopyDialog open={open === 'copy'} onClose={close} />
       <RestoreDialog open={open === 'restore'} onClose={close} />
       <WipeDialog open={open === 'wipe'} onClose={close} />
     </SettingsSection>

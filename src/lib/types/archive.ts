@@ -335,6 +335,8 @@ export interface RetentionCopy {
   restorable: boolean
   /** Nothing has checked it yet, as in `RecoverySnapshot.unchecked`. */
   unchecked: boolean
+  /** Saved Agent conversations could not be read when it was made, as in `RecoverySnapshot.conversationsUnreadable`. */
+  conversationsUnreadable: boolean
 }
 
 /**
@@ -633,6 +635,12 @@ export interface RecoverySnapshot {
    * must collect the archive key before it can verify/restore — `verifiedOpenable` is size-only here.
    */
   encrypted: boolean
+  /**
+   * Saved Agent conversations could not be read when the copy was made: it holds
+   * their files byte for byte, restores browsing like any copy, and is refused as
+   * the source of a conversation repair (`conversation-copy-unreadable-at-creation`).
+   */
+  conversationsUnreadable: boolean
   sourceOp: string
   label: string
 }

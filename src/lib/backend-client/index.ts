@@ -11,6 +11,7 @@
  */
 
 export * from './agent-backup'
+export * from './agent-repair'
 export * from './annotations'
 export * from './app'
 export * from './archive'

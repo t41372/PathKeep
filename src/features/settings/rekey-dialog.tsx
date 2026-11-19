@@ -6,6 +6,10 @@
  * Changing the password and decrypting first ask for the current password;
  * the backend checks it against the archive file on both steps, so an
  * unlocked window alone cannot take the archive over.
+ *
+ * Turning encryption on or off rewrites every file, so it is refused while
+ * saved Agent conversations can't be read; the dialog says so and leads to
+ * the repair.
  */
 import { useMutation } from '@tanstack/react-query'
 import { useState } from 'react'
@@ -30,6 +34,8 @@ import { useI18n } from '@/lib/i18n'
 import { commandErrorCode } from '@/lib/ipc/command-error'
 import { useSnapshot } from '@/lib/queries/app'
 import type { RekeyPreview } from '@/lib/types'
+import { needsConversationRepair } from '@/features/agent-repair/repair-errors'
+import { RepairOffer } from '@/features/agent-repair/repair-offer'
 import { emptySecret, secretProblem, type NewSecret } from './new-secret'
 import { NewSecretFields } from './new-secret-fields'
 import { Notice } from './notice'
@@ -118,6 +124,7 @@ function RekeyFlow({
   const busy = load.isPending || run.isPending
   const error = load.error ?? (stopped ? null : run.error)
   const wrongCurrent = error !== null && isCurrentPasswordError(error)
+  const repairFirst = error !== null && needsConversationRepair(error)
 
   return (
     <DialogContent
@@ -212,7 +219,10 @@ function RekeyFlow({
           </p>
         )}
 
-        {error && (
+        {repairFirst && (
+          <RepairOffer operation="encryption" onLeave={onClose} />
+        )}
+        {error && !repairFirst && (
           <p
             id="rekey-error"
             role="alert"

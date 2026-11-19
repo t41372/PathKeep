@@ -43,8 +43,12 @@ export type CountUnit = 'visits' | 'source-files'
 
 /** Which part of a kind's storage failed to open. */
 export type KindFailureRole = 'evidence' | 'read-model' | 'shared'
+/**
+ * When the failure was found: while opening the archive (the first five), or
+ * later, when a read or a write of the open store failed (`read`, `write`).
+ */
 export type KindFailureStage =
-  'preflight' | 'open' | 'key-check' | 'migrate' | 'recover'
+  'preflight' | 'open' | 'key-check' | 'migrate' | 'recover' | 'read' | 'write'
 export type KindFailureReason =
   | 'archive-store-missing'
   | 'wrong-key'

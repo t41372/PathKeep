@@ -1,6 +1,6 @@
 import { defineMessages } from '../define'
 
-/** Settings → Storage: space, export, moving computers, restore and delete. */
+/** Settings → Storage: space, export, moving computers, safety copies, restore and delete. */
 export const settingsStorage = defineMessages({
   en: {
     moveGroup: 'Move and restore',
@@ -167,6 +167,8 @@ export const settingsStorage = defineMessages({
         import: 'Before an import',
         restore: 'Before a restore',
         periodic: 'Regular copy',
+        manual: 'Made by you',
+        agentRepair: 'Before a conversation repair',
         unknown: 'Safety copy',
       },
       password: 'Password of this copy',
@@ -182,8 +184,39 @@ export const settingsStorage = defineMessages({
       done: 'Archive restored.',
       failed: 'The restore did not finish. {message}',
       unchecked: 'Not checked yet',
+      conversationsUnreadable: 'Conversations couldn’t be read',
+      conversationsUnreadableNote:
+        'Saved Agent conversations couldn’t be read when this copy was made. It restores browsing history like any other copy, but it can’t be used to repair conversations.',
       checkedFirst:
         'This copy hasn’t been checked yet. It’s checked before the restore; if it can’t be read, your archive stays as it is.',
+    },
+    safetyCopy: {
+      rowTitle: 'Make a safety copy',
+      rowDescription:
+        'A copy of the archive as it is now, to restore from later',
+      action: 'Make a copy…',
+      title: 'Make a safety copy',
+      intro:
+        'PathKeep copies the archive as it is right now. You can restore from the copy later in Restore from a safety copy.',
+      folder: 'It goes into this folder:',
+      holds:
+        'It holds everything in the archive as it is now: browsing history and any saved Agent conversations.',
+      unreadable:
+        'Saved Agent conversations can’t be read right now. The copy keeps their files exactly as they are and can restore browsing history, but it can’t be used to repair conversations.',
+      space:
+        'It takes about as much disk space as the archive. Free up space can delete it.',
+      checking: 'Checking what the copy would hold',
+      checkFailed: 'Couldn’t check what the copy would hold. {message}',
+      confirm: 'Make the copy',
+      copying:
+        'Copying the archive. This can take a few minutes for a large archive.',
+      done: 'Safety copy made.',
+      failed: 'No copy was made. {message}',
+      stale:
+        'The archive changed after the check, so no copy was made. Check again.',
+      checkAgain: 'Check again',
+      preservationFailed:
+        'PathKeep couldn’t read a file it has to copy, so it made no copy. {message}',
     },
     wipe: {
       rowTitle: 'Delete all data',
@@ -366,6 +399,8 @@ export const settingsStorage = defineMessages({
         import: '导入之前',
         restore: '恢复之前',
         periodic: '定期副本',
+        manual: '你创建的副本',
+        agentRepair: '修复对话之前',
         unknown: '安全副本',
       },
       password: '这份副本的密码',
@@ -380,8 +415,35 @@ export const settingsStorage = defineMessages({
       done: '存档已恢复。',
       failed: '恢复没有完成。{message}',
       unchecked: '尚未检查',
+      conversationsUnreadable: '对话读不了',
+      conversationsUnreadableNote:
+        '创建这份副本时，已存的 Agent 对话读不了。它和其他副本一样能恢复浏览记录，但不能用来修复对话。',
       checkedFirst:
         '这份副本还没检查过。恢复之前会先检查；读不出来的话，你的存档保持原样。',
+    },
+    safetyCopy: {
+      rowTitle: '创建安全副本',
+      rowDescription: '把存档现在的样子复制一份，以后可以从它恢复',
+      action: '创建…',
+      title: '创建安全副本',
+      intro:
+        'PathKeep 会把存档现在的样子复制一份。以后可以在「从安全副本恢复」里用这份副本恢复。',
+      folder: '副本会放在这个文件夹：',
+      holds:
+        '副本里是存档现在的全部内容：浏览记录，以及已存的 Agent 对话（如果有的话）。',
+      unreadable:
+        '已存的 Agent 对话现在读不了。副本会把它们的文件原样带走，能用来恢复浏览记录，但不能用来修复对话。',
+      space: '它占用的空间和存档差不多，可以在「释放空间」里删除。',
+      checking: '正在检查副本会包含什么',
+      checkFailed: '无法检查副本会包含什么。{message}',
+      confirm: '创建副本',
+      copying: '正在复制存档。存档很大时可能要几分钟。',
+      done: '安全副本已创建。',
+      failed: '没有创建副本。{message}',
+      stale: '检查之后存档有了变化，所以没有创建副本。请重新检查。',
+      checkAgain: '重新检查',
+      preservationFailed:
+        'PathKeep 读不了一个必须复制的文件，所以没有创建副本。{message}',
     },
     wipe: {
       rowTitle: '删除所有数据',
@@ -562,6 +624,8 @@ export const settingsStorage = defineMessages({
         import: '匯入之前',
         restore: '還原之前',
         periodic: '定期副本',
+        manual: '你建立的副本',
+        agentRepair: '修復對話之前',
         unknown: '安全副本',
       },
       password: '這份副本的密碼',
@@ -576,8 +640,35 @@ export const settingsStorage = defineMessages({
       done: '存檔已還原。',
       failed: '還原沒有完成。{message}',
       unchecked: '尚未檢查',
+      conversationsUnreadable: '對話讀不了',
+      conversationsUnreadableNote:
+        '建立這份副本時，已存的 Agent 對話讀不了。它跟其他副本一樣能還原瀏覽紀錄，但不能用來修復對話。',
       checkedFirst:
         '這份副本還沒檢查過。還原之前會先檢查；讀不出來的話，你的存檔保持原樣。',
+    },
+    safetyCopy: {
+      rowTitle: '建立安全副本',
+      rowDescription: '把存檔現在的樣子複製一份，之後可以從它還原',
+      action: '建立…',
+      title: '建立安全副本',
+      intro:
+        'PathKeep 會把存檔現在的樣子複製一份。之後可以在「從安全副本還原」用這份副本還原。',
+      folder: '副本會放在這個資料夾：',
+      holds:
+        '副本裡是存檔現在的全部內容：瀏覽紀錄，以及已存的 Agent 對話（如果有的話）。',
+      unreadable:
+        '已存的 Agent 對話現在讀不了。副本會把它們的檔案原封不動地帶走，能用來還原瀏覽紀錄，但不能用來修復對話。',
+      space: '它佔用的空間和存檔差不多，可以在「釋放空間」刪除。',
+      checking: '正在檢查副本會包含什麼',
+      checkFailed: '無法檢查副本會包含什麼。{message}',
+      confirm: '建立副本',
+      copying: '正在複製存檔。存檔很大時可能要幾分鐘。',
+      done: '安全副本已建立。',
+      failed: '沒有建立副本。{message}',
+      stale: '檢查之後存檔有了變化，所以沒有建立副本。請重新檢查。',
+      checkAgain: '重新檢查',
+      preservationFailed:
+        'PathKeep 讀不了一個必須複製的檔案，所以沒有建立副本。{message}',
     },
     wipe: {
       rowTitle: '刪除所有資料',

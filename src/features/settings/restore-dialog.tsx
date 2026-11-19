@@ -4,6 +4,8 @@
  * keeps its password and encryption: an encrypted copy needs the password it
  * was made with only to be read. The archive it replaces becomes a safety copy
  * too ("before a restore"), so a restore can be undone from this same list.
+ * A copy made while saved Agent conversations couldn't be read is marked: it
+ * restores browsing like any other, and can't repair conversations.
  */
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
@@ -147,6 +149,8 @@ function RestoreForm({ onClose }: { onClose: () => void }) {
                   {format.bytes(item.sizeBytes)}
                   {item.unchecked &&
                     ` · ${t('settingsStorage.restore.unchecked')}`}
+                  {item.conversationsUnreadable &&
+                    ` · ${t('settingsStorage.restore.conversationsUnreadable')}`}
                 </span>
               </span>
             </Label>
@@ -175,6 +179,12 @@ function RestoreForm({ onClose }: { onClose: () => void }) {
             {t('settingsStorage.restore.passwordHint')}
           </p>
         </div>
+      )}
+
+      {chosen?.conversationsUnreadable && (
+        <p className="text-[13px] text-muted-foreground">
+          {t('settingsStorage.restore.conversationsUnreadableNote')}
+        </p>
       )}
 
       {chosen?.unchecked && (
