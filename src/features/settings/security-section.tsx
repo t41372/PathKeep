@@ -30,7 +30,7 @@ import { securityClient } from '@/lib/backend-client/security'
 import { describeError } from '@/lib/errors'
 import { useI18n } from '@/lib/i18n'
 import { queryKeys } from '@/lib/query'
-import { useSnapshot } from '@/lib/queries/app'
+import { saveConfig, useSnapshot } from '@/lib/queries/app'
 import { isMacOsHost } from '@/lib/runtime'
 import { KeychainDialog } from './keychain-dialog'
 import { PasscodeDialog } from './passcode-dialog'
@@ -72,7 +72,7 @@ function ArchiveRows() {
       await securityClient.clearDatabaseKey()
       let next = await appClient.getSnapshot()
       if (next.config.rememberDatabaseKeyInKeyring) {
-        next = await appClient.saveConfig(
+        next = await saveConfig(
           { ...next.config, rememberDatabaseKeyInKeyring: false },
           next.config,
         )

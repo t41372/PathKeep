@@ -222,6 +222,7 @@ export default defineConfig({
         'lock.spec.ts',
         'mcp-log.spec.ts',
         'security.spec.ts',
+        'settings-durability.spec.ts',
         'site-category.spec.ts',
         // After lock.spec, so App Lock is on for the preview that locks.
         'spaces-agent-intro.spec.ts',
@@ -281,9 +282,13 @@ export default defineConfig({
       ],
       'agent-sources',
     ),
+    // The built-in model's download, from a test model served on this
+    // computer: it restarts the app with the model's address, and its index
+    // must not be the one semantic-index.spec finds, so it runs after restart.
+    project('builtin-model', ['builtin-model.spec.ts'], 'restart'),
     // Large imports, after the semantic index is built so it does not embed
     // their pages (a project runs its files in name order, so not in restart).
-    project('stop', ['import-stop.spec.ts'], 'restart'),
+    project('stop', ['import-stop.spec.ts'], 'builtin-model'),
     // Opening the moved file replaces the archive and its password, so it runs
     // after every test that relies on the archive first-run created.
     project('move', ['move.spec.ts'], 'stop'),

@@ -23,7 +23,6 @@ import type {
   AiChatContextRequest,
   AiChatSendRequest,
   AiIndexReport,
-  AiIndexRequest,
   AiIntegrationPreview,
   AiProviderConnectionTestReport,
   AiProviderConnectionTestRequest,
@@ -35,6 +34,7 @@ import type {
   AiSearchRequest,
   AiSearchResponse,
   AppSnapshot,
+  BuildAiIndexRequest,
   ClearDerivedIntelligenceReport,
   ConversationExportOutcome,
   DeleteAgentConversationResult,
@@ -45,6 +45,8 @@ import type {
   ListAgentConversationsRequest,
   ListJobsRequest,
   McpQueryRecord,
+  ModelDownloadState,
+  ModelDownloadTransfer,
   ReembedEstimate,
   ReembedScope,
   RenameAgentConversationRequest,
@@ -92,7 +94,8 @@ export const intelligenceClient = {
    * paused build stays paused across restarts and backups.
    */
   pauseJob: (jobId: number) => call<AiQueueJob>('pause_ai_job', { jobId }),
-  buildIndex: (request: AiIndexRequest) =>
+  /** With `transferId`, the build the built-in model's setup asks for once its download is done. */
+  buildIndex: (request: BuildAiIndexRequest) =>
     call<AiIndexReport>('build_ai_index', { request }),
   estimateReembed: (scope: ReembedScope) =>
     call<ReembedEstimate>('estimate_reembed', { scope }),
@@ -178,20 +181,26 @@ export const intelligenceClient = {
   previewIntegrations: () =>
     call<AiIntegrationPreview>('preview_ai_integrations'),
   /**
-   * Consents to and initiates the download of the built-in static embedding model weights.
-   * The download runs in the background; live per-file progress and the terminal done/error
-   * arrive on the `pathkeep://model-download-progress` channel (see `lib/ipc/model-download`),
-   * and `aiStatus.staticEmbedding.modelDownloaded` flips true on the next poll once present.
+   * Starts the built-in embedding model's download, or joins the one running, and answers with its
+   * transfer ID. Progress and the one terminal event (`done`, `error` or `cancelled`) arrive on
+   * `pathkeep://model-download-progress` (`lib/ipc/model-download`); subscribe before calling.
+   * Refused, with no transfer, when the saved settings do not want the built-in model.
    */
   downloadStaticEmbeddingModel: () =>
-    call<void>('download_static_embedding_model'),
+    call<ModelDownloadTransfer>('download_static_embedding_model'),
   /**
-   * Requests cancellation of an in-flight in-app embedding model download (a process-global
-   * cancel flag). The cancelled download emits a terminal `error`
-   * event on the progress channel. No-op when nothing is downloading.
+   * Cancels one model download by its transfer ID; that transfer then ends with `cancelled`.
+   * Answers `false` once its publication or a final failure was decided (it then reports its real
+   * outcome), and for an unknown or already cancelled ID, so a late click never stops a newer one.
    */
-  cancelStaticEmbeddingModelDownload: () =>
-    call<void>('cancel_ai_embedding_model_download'),
+  cancelStaticEmbeddingModelDownload: (transferId: string) =>
+    call<boolean>('cancel_ai_embedding_model_download', { transferId }),
+  /**
+   * The built-in model's running transfer and its counts so far, or null when none runs. Listen to
+   * the progress channel first: its end arrives there, possibly before this answer.
+   */
+  getModelDownloadState: () =>
+    call<ModelDownloadState | null>('get_model_download_state'),
   /**
    * Clears the stuck/failed index build job and re-runs the build as a FULL REBUILD: every page is
    * re-embedded from scratch and the vector store + derived planes are wiped first. This is the only

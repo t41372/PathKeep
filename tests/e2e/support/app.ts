@@ -42,15 +42,16 @@ export async function runningPid(): Promise<number | null> {
 
 /**
  * Tells the launcher to start the app again the next time it exits, however
- * it exits. Without this an exit ends the whole run.
+ * it exits. Without this an exit ends the whole run. `env` adds variables to
+ * that start only; the start after it has the run's own environment again.
  */
-export function restartAppWhenItExits() {
+export function restartAppWhenItExits(env: Record<string, string> = {}) {
   const restartFile = process.env.PATHKEEP_E2E_RESTART_FILE
   if (!restartFile)
     throw new Error(
       'PATHKEEP_E2E_RESTART_FILE is not set; run via the E2E config.',
     )
-  writeFileSync(restartFile, '')
+  writeFileSync(restartFile, JSON.stringify({ env }))
 }
 
 /** Waits until an app other than process `pid` answers the bridge. */
@@ -69,12 +70,12 @@ export async function waitForAppRestart(pid: number) {
 /**
  * Kills the app (SIGKILL: nothing gets to finish or save) and waits for the
  * new one to answer. A page loaded before still shows the old app until it
- * is reloaded.
+ * is reloaded. `env` adds variables to the new app only.
  */
-export async function killAndRestartApp() {
+export async function killAndRestartApp(env: Record<string, string> = {}) {
   const pid = await runningPid()
   if (pid === null) throw new Error('The app is not answering.')
-  restartAppWhenItExits()
+  restartAppWhenItExits(env)
   process.kill(pid, 'SIGKILL')
   await waitForAppRestart(pid)
 }

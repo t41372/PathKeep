@@ -25,7 +25,10 @@ import { useI18n } from '@/lib/i18n'
 import { isFullDiskAccessError } from '@/lib/ipc/command-error'
 import { queryKeys } from '@/lib/query'
 import { currentSnapshot, useSaveConfig } from '@/lib/queries/app'
-import type { BackupReport } from '@/lib/types'
+import {
+  BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID,
+  type BackupReport,
+} from '@/lib/types'
 import { waitForNextPaint } from '@/lib/wait-for-next-paint'
 import type { Draft } from './draft'
 
@@ -134,7 +137,7 @@ export function useFinishSetup(draft: Draft, stages: Stage[]) {
           } else {
             // Downloads a large model, so it carries on in the background;
             // Settings → AI shows its progress.
-            void semantic.enable()
+            void semantic.enable(BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID)
           }
           return
       }

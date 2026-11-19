@@ -257,7 +257,7 @@ fn rollback_restore(paths: &ProjectPaths, journal: &RestoreJournal) -> Result<()
             quarantine_dir.display(),
         );
     }
-    let _control = vault_core::ControlGate::acquire(paths);
+    let control = vault_core::ControlGate::acquire(paths);
     match &journal.previous_config {
         Some(bytes) => atomic_durable_write(&paths.config_path, bytes.as_bytes())
             .context("restoring the pre-restore config")?,
@@ -265,6 +265,7 @@ fn rollback_restore(paths: &ProjectPaths, journal: &RestoreJournal) -> Result<()
             let _ = remove_file_durably(&paths.config_path);
         }
     }
+    vault_core::config::reconcile_model_download_after_control_replacement(&control);
     Ok(())
 }
 

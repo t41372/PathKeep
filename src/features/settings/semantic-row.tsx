@@ -1,7 +1,7 @@
 /**
  * Semantic search: the switch, which model makes the index (the in-app one,
  * downloaded once, or an embeddings service the user adds), and the in-app
- * model's download. The chosen model's index under them is
+ * model's download, or what it waits for. The chosen model's index under them is
  * `semantic-index-state.tsx`. Behavior comes from `useSemanticIndex` and
  * `useAiProviders`; this file only renders it.
  */
@@ -23,6 +23,7 @@ import {
   type useSemanticIndex,
 } from '@/features/ai-setup/use-semantic-index'
 import { useFormat, useI18n } from '@/lib/i18n'
+import { MODEL_DOWNLOAD_IDLE_TIMEOUT_MS } from '@/lib/ipc/model-download'
 import { BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID } from '@/lib/types'
 import { ProviderDetails } from './provider-details'
 import { AutoUpdate, IndexState, ProgressLine } from './semantic-index-state'
@@ -55,7 +56,8 @@ export function SemanticRow({ index }: { index: SemanticIndex }) {
           checked={on}
           disabled={index.saving}
           onCheckedChange={(next) =>
-            void (next ? index.enable() : index.disable())
+            // On: the go-ahead for the model shown here, and only that one.
+            void (next ? index.enable(index.modelId) : index.disable())
           }
         />
       }
@@ -190,27 +192,37 @@ function SemanticStatus({ index }: { index: SemanticIndex }) {
   const format = useFormat()
   const { download } = index
 
-  if (download.phase === 'downloading') {
-    const ratio =
-      download.totalBytes > 0
-        ? download.downloadedBytes / download.totalBytes
-        : 0
+  if (download.phase === 'downloading' || download.phase === 'waiting') {
+    // Waiting keeps the bar where it was. Before any size is known it is indeterminate.
+    // Stopping: the stop was accepted, so there is nothing left to cancel until it ends.
+    const known = download.totalBytes > 0
     return (
       <ProgressLine
-        label={t('settingsAi.semantic.downloading')}
+        label={
+          download.stopping
+            ? t('settingsAi.semantic.stopping')
+            : download.phase === 'downloading'
+              ? t('settingsAi.semantic.downloading')
+              : download.waitingFor === 'previous-transfer'
+                ? t('settingsAi.semantic.waitingPrevious')
+                : t('settingsAi.semantic.waitingArchive')
+        }
         detail={
-          download.totalBytes > 0
+          known
             ? t('settingsAi.semantic.downloadProgress', {
                 done: format.bytes(download.downloadedBytes),
                 total: format.bytes(download.totalBytes),
               })
             : undefined
         }
-        value={ratio}
+        value={
+          known ? download.downloadedBytes / download.totalBytes : undefined
+        }
         action={
           <Button
             size="xs"
             variant="ghost"
+            disabled={download.stopping}
             onClick={() => void index.cancelDownload()}
           >
             {t('settingsAi.semantic.cancel')}
@@ -231,12 +243,22 @@ function SemanticStatus({ index }: { index: SemanticIndex }) {
   if (download.phase === 'failed') {
     return (
       <div className="flex items-center justify-between gap-3 text-[13px]">
-        <span className="text-destructive">
-          {t('settingsAi.semantic.downloadFailed', {
-            message: download.error ?? '',
-          })}
+        <span className="[overflow-wrap:anywhere] text-destructive">
+          {download.failure?.kind === 'silent'
+            ? t('settingsAi.semantic.downloadStalled', {
+                count: MODEL_DOWNLOAD_IDLE_TIMEOUT_MS / 60_000,
+              })
+            : t('settingsAi.semantic.downloadFailed', {
+                message: download.failure?.message ?? '',
+              })}
         </span>
-        <Button size="xs" variant="outline" onClick={() => void index.enable()}>
+        <Button
+          size="xs"
+          variant="outline"
+          onClick={() =>
+            void index.enable(BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID)
+          }
+        >
           {t('settingsAi.semantic.retry')}
         </Button>
       </div>
@@ -247,7 +269,13 @@ function SemanticStatus({ index }: { index: SemanticIndex }) {
     return (
       <div className="flex items-center justify-between gap-3 text-[13px] text-muted-foreground">
         {t('settingsAi.semantic.modelMissing')}
-        <Button size="xs" variant="outline" onClick={() => void index.enable()}>
+        <Button
+          size="xs"
+          variant="outline"
+          onClick={() =>
+            void index.enable(BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID)
+          }
+        >
           {t('settingsAi.semantic.download')}
         </Button>
       </div>

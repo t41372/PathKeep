@@ -47,6 +47,8 @@ pub fn model_dir_for_repo(paths: &ProjectPaths, repo: &str) -> std::path::PathBu
 /// This full re-hash is the AUTHORITATIVE check the download runs. Loading the engine and the
 /// status read go through [`model_files_verified`], which runs it only when the files changed.
 pub fn model_is_present_and_verified(model_dir: &std::path::Path, files: &[ModelFile]) -> bool {
+    #[cfg(test)]
+    tests::observe_hash(model_dir);
     files.iter().all(|file| {
         let path = model_dir.join(file.name);
         match crate::utils::file_sha256_hex(&path) {
@@ -140,6 +142,18 @@ pub fn model_files_verified(model_dir: &std::path::Path, files: &[ModelFile]) ->
     true
 }
 
+/// Installer verification always reads the bytes, including when a previous stamp still matches.
+pub(super) fn verify_for_install(directory: &std::path::Path, files: &[ModelFile]) -> Result<bool> {
+    let stamps = file_stamps(directory, files);
+    if !model_is_present_and_verified(directory, files) {
+        return Ok(false);
+    }
+    if let Some(stamps) = stamps {
+        write_verified_marker(directory, stamps)?;
+    }
+    Ok(true)
+}
+
 /// Whether every manifest file is present and non-empty, without reading any of them.
 ///
 /// The engine load asks this first, so a model that is not downloaded is an unavailable service
@@ -176,6 +190,15 @@ pub fn verify_file_sha256(path: &std::path::Path, expected_sha256: &str) -> Resu
 /// the installer checks between files and before each network read. An outstanding HTTP
 /// read must return before this thread can observe a cancellation.
 pub trait ModelDownloadProgress: Send {
+    /// Signal gate contention while the transfer still owns its progress stream.
+    fn waiting(&self, _reason: crate::ModelDownloadWait) {}
+    /// Clear the snapshot's waiting reason as soon as work can proceed.
+    fn resumed(&self) {}
+    /// Arbitrate cancellation against a final decision before touching the pointer.
+    fn decide(&self) -> bool {
+        !self.cancelled()
+    }
+
     /// Announces the start of one file's download with its total size in bytes (0 if unknown).
     fn file_started(&mut self, _file: &str, _total_bytes: u64) {}
     /// Reports throttled byte progress for the in-flight file as bytes arrive.
@@ -227,10 +250,24 @@ pub fn download_needed(model_dir: &std::path::Path, file: &ModelFile) -> bool {
 ///   cancellation discards the candidate.
 /// - **progress**: `progress.file_started/finished` bracket each downloaded file.
 ///
-/// Runs synchronously (blocking `ureq`); the worker calls it on a blocking/off-thread task
+/// Runs synchronously; the worker calls it on a blocking/off-thread task
 /// so the UI never blocks (the off-thread hop is the worker's job, mirroring the import/backup
 /// pattern). Returns the directory of the verified bundle on success.
 pub fn ensure_model_downloaded(
+    paths: &ProjectPaths,
+    repo: &str,
+    files: &[ModelFile],
+    consented: bool,
+    progress: &mut dyn ModelDownloadProgress,
+) -> Result<std::path::PathBuf> {
+    // Every failure, including admission and filesystem errors, is final before it
+    // crosses back to the coordinator. Publication claims its decision earlier, at the pointer.
+    install_model(paths, repo, files, consented, progress).inspect_err(|_| {
+        progress.decide();
+    })
+}
+
+fn install_model(
     paths: &ProjectPaths,
     repo: &str,
     files: &[ModelFile],
@@ -253,55 +290,98 @@ pub fn ensure_model_downloaded(
         );
     }
     let root = model_dir_for_repo(paths, repo);
-    let (previous, source, candidate) = {
-        let _archive = crate::archive::ArchiveOpGate::acquire(paths);
-        let mut active = transfers::active();
-        crate::admission::guard(&paths.app_root)?;
-        let current = generations::recover(&root, files, &active)?;
-        let stamps = file_stamps(&current, files);
-        if model_is_present_and_verified(&current, files) {
-            if let Some(stamps) = stamps {
-                write_verified_marker(&current, stamps)?;
-            }
-            return Ok(current);
+    let (previous, source, candidate) = match generations::resolve(
+        paths,
+        &root,
+        files,
+        generations::Request::Setup { consented, progress },
+    )? {
+        generations::Resolution::Busy => unreachable!("explicit setup waits for the archive gate"),
+        generations::Resolution::Available(path) => return Ok(path),
+        generations::Resolution::Missing => anyhow::bail!(
+            "model {repo} is not present and downloading it requires explicit consent; enable the in-app model download to fetch it"
+        ),
+        generations::Resolution::Download { previous, source, candidate } => {
+            (previous, source, candidate)
         }
-        if !consented {
-            anyhow::bail!(
-                "model {repo} is not present and downloading it requires explicit consent; enable the in-app model download to fetch it"
-            );
-        }
-        let source = generations::pin(&root)?;
-        let candidate = active.register(generations::create(&root)?)?;
-        (current, source, candidate)
     };
 
-    let prepared = prepare_generation(&candidate, source.path(), files, progress);
+    let mut prepared = prepare_generation(&candidate, source.path(), files, progress);
+    if prepared.is_err() {
+        // Cleanup may wait for maintenance. The failure is already final.
+        progress.decide();
+        #[cfg(test)]
+        super::model_download::tests::decision_probe();
+    }
     drop(source);
-    let _archive = crate::archive::ArchiveOpGate::acquire(paths);
-    let mut active = transfers::active();
-    // A wipe revokes the reservation before moving the tree. Even if onboarding has since
-    // created a new model folder, this transfer cannot publish or clean anything inside it.
-    candidate.finish(&mut active)?;
-    crate::admission::guard(&paths.app_root)?;
-    if let Err(error) = prepared {
-        vault_fs::remove_dir_all(&candidate.path).context("removing failed model download")?;
-        return Err(error);
+    let mut checked = previous.clone();
+    loop {
+        let archive = acquire_download_gate(paths, progress);
+        // Order publication against a concurrent control save. Only local metadata and
+        // publication belong in this hold; a competing winner is hashed after releasing it.
+        let control = crate::ControlGate::acquire(paths);
+        let cancelled = progress.cancelled();
+        let mut active = transfers::active();
+        candidate.check(&active)?;
+        crate::admission::guard(&paths.app_root)?;
+        if cancelled {
+            prepared = Err(anyhow::anyhow!("model download was cancelled"));
+        }
+        if let Err(error) = prepared {
+            candidate.discard(&mut active)?;
+            return Err(error);
+        }
+        let selected = generations::selected(&root)?;
+        if selected != checked {
+            let winner = generations::pin(&root)?;
+            drop(active);
+            drop(control);
+            drop(archive);
+            prepared = candidate.with_io(|_| {
+                anyhow::ensure!(
+                    model_files_verified(winner.path(), files),
+                    "model selection changed during download"
+                );
+                Ok(())
+            });
+            if prepared.is_err() {
+                progress.decide();
+            }
+            checked = selected;
+            continue;
+        }
+        if !progress.decide() {
+            candidate.discard(&mut active)?;
+            anyhow::bail!("model download was cancelled");
+        }
+        if selected != previous {
+            candidate.discard(&mut active)?;
+            return Ok(selected);
+        }
+        candidate.finish(&mut active)?;
+        #[cfg(test)]
+        super::model_download::tests::decision_probe();
+        crate::fault_inject::checkpoint("model-generation-verified")?;
+        generations::publish(&root, &candidate.path)?;
+        generations::collect_previous(&root, &previous);
+        drop(active);
+        drop(control);
+        drop(archive);
+        #[cfg(not(test))]
+        super::embedding_static::forget_replaced_model(&root, &candidate.path);
+        return Ok(candidate.path.clone());
     }
-    // Another installer may have published while this one was fetching. Reuse its verified
-    // selection when it satisfies this request. A slower response cannot overwrite a newer model.
-    let selected = generations::selected(&root)?;
-    if selected != previous {
-        vault_fs::remove_dir_all(&candidate.path)?;
-        anyhow::ensure!(
-            model_files_verified(&selected, files),
-            "model selection changed during download"
-        );
-        return Ok(selected);
-    }
-    crate::fault_inject::checkpoint("model-generation-verified")?;
-    generations::publish(&root, &candidate.path)?;
-    generations::collect_previous(&root, &previous);
-    Ok(candidate.path.clone())
+}
+
+pub(super) fn acquire_download_gate(
+    paths: &ProjectPaths,
+    progress: &dyn ModelDownloadProgress,
+) -> crate::archive::ArchiveOpGate {
+    let gate = crate::archive::ArchiveOpGate::acquire_reporting(paths, || {
+        progress.waiting(crate::ModelDownloadWait::ArchiveBusy)
+    });
+    progress.resumed();
+    gate
 }
 
 fn prepare_generation(
@@ -385,6 +465,7 @@ fn stream_to_file(
         let read = reader
             .read(&mut buffer)
             .with_context(|| format!("reading download stream for {file_name}"))?;
+        anyhow::ensure!(!progress.cancelled(), "model file download for {file_name} was cancelled");
         if read == 0 {
             break;
         }
@@ -428,25 +509,43 @@ fn fetch_one_file(
     stream_to_file(reader, total_bytes, candidate, file.name, progress)
 }
 
-/// Opens a streaming HTTP reader for one model file + its content-length (the network seam).
-///
-/// The ONE irreducible socket seam (Change 3 methodology): GETs the HF resolve URL
-/// `https://huggingface.co/{repo}/resolve/main/{file}` over `ureq` (rustls) which follows the redirect to the CDN, and returns the body reader plus the content-length
-/// (0 when the server omits it). Everything ELSE — the read/write/throttle/cancel loop — lives in the
-/// pure [`stream_to_file`] so it runs in tests without a network. Compiled out under test.
+/// Stream a pinned file from the hub or debug fixture on the download worker.
 #[cfg(not(test))]
 fn open_download_stream(file: &ModelFile) -> Result<(impl std::io::Read, u64)> {
-    let url = format!("https://huggingface.co/{}/resolve/main/{}", file.repo, file.name);
-    let response = ureq::get(&url).call().map_err(|error| {
-        anyhow::anyhow!("downloading {} from {}: {error}", file.name, file.repo)
-    })?;
-    let total_bytes = response
-        .headers()
-        .get("content-length")
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.parse::<u64>().ok())
-        .unwrap_or(0);
-    Ok((response.into_body().into_reader(), total_bytes))
+    use super::model_source::ModelSource;
+    let source = ModelSource::configured().map_err(anyhow::Error::msg)?;
+    let response = model_http_client(&source, std::time::Duration::from_secs(30))?
+        .get(source.url(file.repo, file.name))
+        .send()
+        .with_context(|| format!("downloading {} from {}", file.name, file.repo))?
+        .error_for_status()?;
+    anyhow::ensure!(
+        response.status().is_success(),
+        "unexpected model HTTP status {}",
+        response.status()
+    );
+    let total_bytes = response.content_length().unwrap_or(0);
+    Ok((response, total_bytes))
+}
+
+// The blocking client bounds the wait for headers and starts a fresh timeout on each
+// Response::read. A large file may take arbitrarily long while reads keep succeeding.
+#[cfg(any(not(test), debug_assertions))]
+fn model_http_client(
+    _source: &super::model_source::ModelSource,
+    read_timeout: std::time::Duration,
+) -> Result<reqwest::blocking::Client> {
+    let builder = reqwest::blocking::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(15))
+        .timeout(read_timeout);
+    #[cfg(debug_assertions)]
+    let builder = match _source {
+        super::model_source::ModelSource::Fixture { .. } => {
+            builder.no_proxy().redirect(reqwest::redirect::Policy::none())
+        }
+        super::model_source::ModelSource::Hub => builder,
+    };
+    Ok(builder.build()?)
 }
 
 /// Deterministic offline stub for the download fetch (tests): streams the expected bytes.
@@ -454,7 +553,7 @@ fn open_download_stream(file: &ModelFile) -> Result<(impl std::io::Read, u64)> {
 /// Mirrors the real path's call graph — emit `file_started`, then run the SAME pure
 /// [`stream_to_file`] over an in-memory [`std::io::Cursor`] — so the consent/offline/cancel/verify/
 /// progress logic AND the streaming loop run end-to-end with no network. The manifest digests match
-/// these synthetic bytes; the real `ureq` path is compiled out under test.
+/// these synthetic bytes; the HTTP path is compiled out under test.
 #[cfg(test)]
 fn fetch_one_file(
     file: &ModelFile,

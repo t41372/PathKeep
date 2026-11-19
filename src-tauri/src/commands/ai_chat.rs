@@ -70,15 +70,11 @@ pub(crate) async fn ai_chat_cancel(
 
 #[cfg(not(test))]
 #[tauri::command]
-/// Starts the consent-gated in-app STATIC (Tier-0) embedding model download (F1); progress arrives on
-/// `pathkeep://model-download-progress`.
-///
-/// Reaching this command IS the explicit consent action (the "Download local model" button for the
-/// built-in static provider). The download is SHA-256-verified and has a cancel flag, so an
-/// in-flight download is cancelable via
-/// `cancel_ai_embedding_model_download`. Always emits a terminal `Done`/`Error` so the renderer never
-/// hangs.
-pub(crate) async fn download_static_embedding_model(app: AppHandle) -> Result<(), CommandError> {
+/// Starts or attaches to the consented built-in model transfer. Its ID selects progress
+/// and the terminal event on `pathkeep://model-download-progress`.
+pub(crate) async fn download_static_embedding_model(
+    app: AppHandle,
+) -> Result<vault_core::ModelDownloadTransfer, CommandError> {
     run_blocking_command("download_static_embedding_model", move || {
         worker_bridge::download_static_embedding_model_impl(move |event| {
             let _ = app.emit(vault_core::MODEL_DOWNLOAD_PROGRESS_EVENT, &event);
@@ -89,10 +85,19 @@ pub(crate) async fn download_static_embedding_model(app: AppHandle) -> Result<()
 
 #[cfg(not(test))]
 #[tauri::command]
-/// Requests cancellation of any in-flight in-app embedding model download.
-pub(crate) async fn cancel_ai_embedding_model_download() -> Result<(), CommandError> {
-    run_blocking_command("cancel_ai_embedding_model_download", || {
-        worker_bridge::cancel_model_download_impl()
+pub(crate) async fn get_model_download_state()
+-> Result<Option<vault_core::ModelDownloadState>, CommandError> {
+    worker_bridge::get_model_download_state_impl()
+}
+
+#[cfg(not(test))]
+#[tauri::command]
+/// Requests cancellation of one transfer. A stale or already-cancelled ID returns false.
+pub(crate) async fn cancel_ai_embedding_model_download(
+    transfer_id: String,
+) -> Result<bool, CommandError> {
+    run_blocking_command("cancel_ai_embedding_model_download", move || {
+        Ok(worker_bridge::cancel_model_download_impl(&transfer_id))
     })
     .await
 }

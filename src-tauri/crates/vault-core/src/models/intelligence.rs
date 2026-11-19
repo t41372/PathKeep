@@ -346,12 +346,25 @@ pub fn merge_embedding_providers(current: &[AiProviderConfig]) -> Vec<AiProvider
 /// honest default the moment AI is configured. Must be called AFTER [`merge_embedding_providers`] so
 /// the static built-in is present to fall back to.
 pub fn ensure_embedding_provider_default(ai: &mut AiSettings) {
-    let selection_is_valid = ai
-        .embedding_provider_id
-        .as_deref()
-        .is_some_and(|id| ai.embedding_providers.iter().any(|provider| provider.id == id));
-    if !selection_is_valid {
+    if ai.embedding_provider_id.as_deref() != Some(effective_embedding_provider_id(ai)) {
         ai.embedding_provider_id = Some(BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID.to_string());
+    }
+}
+
+/// Resolve an unnormalized save the same way the next config load will, including old
+/// controls without a selection and selections whose service has been removed.
+fn effective_embedding_provider_id(ai: &AiSettings) -> &str {
+    ai.embedding_provider_id
+        .as_deref()
+        .filter(|id| ai.embedding_providers.iter().any(|provider| provider.id == *id))
+        .unwrap_or(BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID)
+}
+
+impl AiSettings {
+    pub(crate) fn wants_builtin_model(&self) -> bool {
+        self.enabled
+            && self.semantic_index_enabled
+            && effective_embedding_provider_id(self) == BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID
     }
 }
 
@@ -1067,6 +1080,15 @@ pub struct AiIndexRequest {
     pub scope: ReembedScope,
 }
 
+/// The transfer ID belongs to the IPC submission. It is never written into a replayable job.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BuildAiIndexRequest {
+    #[serde(flatten)]
+    pub index: AiIndexRequest,
+    pub transfer_id: Option<String>,
+}
+
 /// How much a re-embed run would index, shown before it starts (PME): the pages it covers. It says
 /// nothing about time: the rate depends on the engine and the machine, and a guessed rate told users
 /// a minutes-long rebuild would take most of a day.
@@ -1344,15 +1366,72 @@ pub struct AiChatStreamEvent {
 /// string. Carries the consent-gated in-app embedding model download progress (§C.5).
 pub const MODEL_DOWNLOAD_PROGRESS_EVENT: &str = "pathkeep://model-download-progress";
 
+/// The identity returned by start or attach. Used by the caller to select its events and cancel it.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelDownloadTransfer {
+    pub seq: u64,
+    pub transfer_id: String,
+}
+
+impl ModelDownloadTransfer {
+    /// Independent requests must never share a cancellation or progress identity.
+    pub(crate) fn fresh(seq: u64) -> anyhow::Result<Self> {
+        let mut bytes = [0; 16];
+        getrandom::fill(&mut bytes)?;
+        Ok(Self { transfer_id: hex::encode(bytes), seq })
+    }
+}
+
+/// Latest counts for a file whose download started; a zero total means unknown.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelDownloadFileBytes {
+    pub downloaded_bytes: u64,
+    pub total_bytes: u64,
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "phase", rename_all = "camelCase")]
+/// Distinguishes active setup work (including verification) from a wait on another task.
+pub enum ModelDownloadPhase {
+    #[default]
+    Downloading,
+    Waiting {
+        reason: ModelDownloadWait,
+    },
+}
+
+/// A window can seed its progress bar and per-file accounting before following new events.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelDownloadState {
+    pub seq: u64,
+    pub transfer_id: String,
+    #[serde(flatten)]
+    pub phase: ModelDownloadPhase,
+    pub current_file: Option<String>,
+    pub downloaded_bytes: u64,
+    pub total_bytes: u64,
+    pub files: std::collections::BTreeMap<String, ModelDownloadFileBytes>,
+}
+
+/// One broadcast for a particular model transfer. Every phase, including completion, carries the ID.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelDownloadProgressEvent {
+    pub seq: u64,
+    pub transfer_id: String,
+    #[serde(flatten)]
+    pub update: ModelDownloadUpdate,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "kind", rename_all = "camelCase")]
-/// One in-app embedding model download progress event delivered over
-/// [`MODEL_DOWNLOAD_PROGRESS_EVENT`].
-///
-/// Mirrors the [`crate::ModelDownloadProgress`] trait callbacks so the worker can forward per-file
-/// download progress to the UI without leaking download types across the IPC boundary. `kind`-tagged
-/// so the front end can route each phase (started / finished / done / error) into the right UI state.
-pub enum ModelDownloadProgressEvent {
+pub enum ModelDownloadUpdate {
+    Waiting {
+        reason: ModelDownloadWait,
+    },
     /// One model file started downloading (`total_bytes` is the HTTP content-length, 0 if unknown).
     ///
     /// The per-variant `rename_all` is LOAD-BEARING: serde's container-level `rename_all` renames only
@@ -1360,18 +1439,39 @@ pub enum ModelDownloadProgressEvent {
     /// snake_case `total_bytes` and the camelCase FE contract reads `undefined` (same fix the sibling
     /// `AiChatStreamChunk` applies to its multi-word fields).
     #[serde(rename_all = "camelCase")]
-    FileStarted { file: String, total_bytes: u64 },
+    FileStarted {
+        file: String,
+        total_bytes: u64,
+    },
     /// Throttled byte progress for the in-flight file, so the UI renders a real moving bar instead of
     /// a near-empty per-file indicator (the 90 MB safetensors dwarfs the other files). Emitted ~every
     /// 1 MB plus a final 100% per file; `total_bytes` is 0 when the server gave no content-length.
     #[serde(rename_all = "camelCase")]
-    FileProgress { file: String, downloaded_bytes: u64, total_bytes: u64 },
+    FileProgress {
+        file: String,
+        downloaded_bytes: u64,
+        total_bytes: u64,
+    },
     /// One model file finished downloading + verifying.
-    FileFinished { file: String },
+    FileFinished {
+        file: String,
+    },
     /// The whole model is present + verified; no more events follow for this run.
     Done,
+    /// An accepted stop request ended this transfer. The client can dismiss its progress.
+    Cancelled,
     /// The download failed; carries a user-facing message. No more events follow.
-    Error { message: String },
+    Error {
+        message: String,
+    },
+}
+
+/// Waiting is live progress, even when no response bytes can arrive.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum ModelDownloadWait {
+    ArchiveBusy,
+    PreviousTransfer,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]

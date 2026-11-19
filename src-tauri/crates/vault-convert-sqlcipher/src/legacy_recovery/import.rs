@@ -203,7 +203,7 @@ fn rollback_import(paths: &ProjectPaths, journal: &ImportJournal) -> Result<()> 
     // error so the state stays flagged + retry-able rather than silently bricked.
     ensure_recovered_modes_are_consistent(paths, journal)?;
     // Restore config to its pre-import bytes (None = none existed pre-import).
-    let _control = vault_core::ControlGate::acquire(paths);
+    let control = vault_core::ControlGate::acquire(paths);
     match &journal.previous_config {
         Some(bytes) => atomic_durable_write(&paths.config_path, bytes.as_bytes())
             .context("restoring the pre-import config")?,
@@ -211,6 +211,7 @@ fn rollback_import(paths: &ProjectPaths, journal: &ImportJournal) -> Result<()> 
             let _ = remove_file_durably(&paths.config_path);
         }
     }
+    vault_core::config::reconcile_model_download_after_control_replacement(&control);
     Ok(())
 }
 

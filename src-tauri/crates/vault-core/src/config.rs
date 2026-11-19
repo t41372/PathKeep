@@ -14,6 +14,7 @@ use vault_layout::ArtifactId as A;
 
 mod control_gate;
 mod installation;
+pub use crate::ai::model_download::reconcile_model_download_after_control_replacement;
 pub use control_gate::ControlGate;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -456,6 +457,14 @@ pub fn load_config(paths: &ProjectPaths) -> Result<AppConfig> {
 /// archive, and a new one is stamped once its stores exist (`maintenance::creation`). Kept, it
 /// would say the stores of its revision are there, and the new archive would not open.
 pub fn save_config(gate: &ControlGate, config: &AppConfig) -> Result<()> {
+    save_config_with_durability_warning(gate, config).map(drop)
+}
+
+/// A successful save can carry a directory-sync warning after the new control is installed.
+pub fn save_config_with_durability_warning(
+    gate: &ControlGate,
+    config: &AppConfig,
+) -> Result<Option<String>> {
     let paths = gate.paths();
     let compatibility =
         crate::admission::guard(&paths.app_root)?.and_then(|control| control.compatibility);
@@ -465,9 +474,22 @@ pub fn save_config(gate: &ControlGate, config: &AppConfig) -> Result<()> {
     };
     create_layout(paths)?;
     let content = encode_config(config, compatibility.as_ref())?;
-    crate::durable_io::atomic_durable_write(&paths.config_path, content.as_bytes())
-        .with_context(|| format!("writing {}", paths.config_path.display()))?;
-    Ok(())
+    let warning = match crate::durable_io::write_live_config(&paths.config_path, content.as_bytes())
+    {
+        Ok(()) => None,
+        Err(error) if error.is::<crate::durable_io::PublishedButUnsynced>() => {
+            let warning = format!("{}: {error:#}", paths.config_path.display());
+            eprintln!("pathkeep: {warning}");
+            Some(warning)
+        }
+        Err(error) => {
+            return Err(error).with_context(|| format!("writing {}", paths.config_path.display()));
+        }
+    };
+    if !config.ai.wants_builtin_model() {
+        crate::ai::cancel_archive_model_downloads(paths);
+    }
+    Ok(warning)
 }
 
 /// Writes `config` with `compatibility` into a stage: an archive being built that is not the live
@@ -516,6 +538,22 @@ pub(crate) fn save_copy_config(live: &ProjectPaths, copy: &Path, config: &AppCon
 mod tests {
     use super::*;
     use tempfile::tempdir;
+
+    #[cfg(debug_assertions)]
+    #[test]
+    fn config_parent_sync_checkpoint_only_warns_for_the_installed_live_control() {
+        let dir = tempdir().unwrap();
+        let paths = project_paths_with_root(dir.path());
+        let config = AppConfig { menu_bar_icon: true, ..Default::default() };
+        let _fault = crate::fault_inject::FaultGuard::error_at("config-save-parent-sync");
+        let stage = project_paths_with_root(&dir.path().join("copy"));
+        write_staged_control(&stage, &config, None).expect("stage sync succeeds");
+        let gate = ControlGate::acquire(&paths);
+        let warning = save_config_with_durability_warning(&gate, &config).unwrap().unwrap();
+        assert!(warning.contains("config-save-parent-sync"));
+        assert!(load_config(&paths).unwrap().menu_bar_icon);
+        assert!(save_config_with_durability_warning(&gate, &config).unwrap().is_none());
+    }
 
     #[test]
     fn load_config_returns_defaults_when_missing_and_errors_on_invalid_json() {

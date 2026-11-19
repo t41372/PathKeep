@@ -355,6 +355,7 @@ fn run_app() -> Result<()> {
             ai_chat_cancel,
             ai_chat_context,
             download_static_embedding_model,
+            get_model_download_state,
             cancel_ai_embedding_model_download,
             save_ai_conversation,
             list_ai_conversations,

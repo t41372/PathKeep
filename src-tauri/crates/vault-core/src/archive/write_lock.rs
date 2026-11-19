@@ -395,13 +395,29 @@ impl ArchiveOpGate {
         ArchiveOpGate { path }
     }
 
-    /// Non-blocking variant: `None` when another top-level op already holds the gate for
-    /// this archive (the in-process DEFER signal — the scheduled backup steps aside rather
-    /// than racing a foreground op in THIS process), or a guard when it just took it.
-    ///
-    /// Deterministic with no parking, so a unit test can prove the mutual exclusion
-    /// (held => `None`; free => `Some`) without any sleep-as-synchronization.
-    #[cfg(test)]
+    /// Report contention immediately and periodically. Call the sink outside the gate mutex;
+    /// recheck after every report so a release during the callback cannot be lost.
+    pub(crate) fn acquire_reporting(paths: &ProjectPaths, waiting: impl Fn()) -> Self {
+        let path = lock_file_path(paths);
+        let (mutex, released) = op_gate();
+        let mut held = mutex.lock().expect("archive op-gate mutex poisoned");
+        while held.contains(&path) {
+            drop(held);
+            waiting();
+            held = mutex.lock().expect("archive op-gate mutex poisoned");
+            held = released
+                .wait_timeout_while(held, std::time::Duration::from_secs(20), |held| {
+                    held.contains(&path)
+                })
+                .expect("archive op-gate mutex poisoned")
+                .0;
+        }
+        held.insert(path.clone());
+        Self { path }
+    }
+
+    /// Live archive open can run inside maintenance. Try the gate so model recovery can
+    /// leave the work to the next ordinary open instead of parking the owner on itself.
     pub(crate) fn try_acquire(paths: &ProjectPaths) -> Option<ArchiveOpGate> {
         let path = lock_file_path(paths);
         let (mutex, _condvar) = op_gate();

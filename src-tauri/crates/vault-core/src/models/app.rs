@@ -422,6 +422,9 @@ pub struct FrontendErrorReportRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppSnapshot {
+    /// Returned by save_config if the control is visible but its directory could not be flushed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub config_durability_warning: Option<String>,
     pub directories: AppDirectories,
     pub runtime_diagnostics: RuntimeDiagnostics,
     pub config: AppConfig,

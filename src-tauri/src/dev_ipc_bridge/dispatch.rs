@@ -705,7 +705,8 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
             json_value!(worker_bridge::cancel_ai_job_impl(payload.job_id, &state.session)?)
         }
         "build_ai_index" => {
-            let payload = parse_payload::<WrappedRequest<AiIndexRequest>>(payload)?;
+            let payload =
+                parse_payload::<WrappedRequest<vault_core::BuildAiIndexRequest>>(payload)?;
             json_value!(worker_bridge::build_ai_index_impl(payload.request, &state.session)?)
         }
         "estimate_reembed" => {
@@ -759,13 +760,13 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
                 session_key(&state.session)?.as_deref()
             )?)
         }
+        "get_model_download_state" => json_value!(worker_bridge::get_model_download_state_impl()?),
         "download_static_embedding_model" => {
-            // Spawns a background download thread off the worker; progress goes to the browsers
-            // on `/events`.
-            json_value!(download_static_embedding_model_off_thread(state.events.clone()).await?)
+            json_value!(download_static_embedding_model_off_thread(state).await?)
         }
         "cancel_ai_embedding_model_download" => {
-            json_value!(worker_bridge::cancel_model_download_impl()?)
+            let transfer = parse_payload::<ModelTransferIdPayload>(payload)?;
+            json_value!(worker_bridge::cancel_model_download_impl(&transfer.transfer_id))
         }
         "save_ai_conversation" => {
             let payload = parse_payload::<WrappedRequest<SaveAgentConversationRequest>>(payload)?;
@@ -1376,14 +1377,27 @@ async fn ai_chat_send_off_thread(
     .unwrap_or_else(|error| join_failure("ai_chat_send", error))
 }
 
-/// Hops `download_static_embedding_model_impl` onto the tokio blocking thread pool (F1). The worker
-/// spawns the actual download thread; its progress goes to the browsers on `/events`.
+/// Start and attach share the typed broadcast with browsers on `/events`. Forwarding the
+/// original payload keeps cancellation distinct from an installation error on both transports.
 async fn download_static_embedding_model_off_thread(
-    events: super::events::Hub,
-) -> Result<(), CommandError> {
+    state: &DevIpcBridgeState,
+) -> Result<vault_core::ModelDownloadTransfer, CommandError> {
+    let app = state.app.clone();
+    let events = state.events.clone();
     tokio::task::spawn_blocking(move || {
         worker_bridge::download_static_embedding_model_impl(move |event| {
-            events.emit(vault_core::MODEL_DOWNLOAD_PROGRESS_EVENT, &event)
+            // A transfer can start during preflight and finish after the window attaches.
+            // With a live app, its event is also forwarded to SSE by the bridge's listener.
+            let handle = app.read().expect("bridge app handle").clone();
+            if let Some(handle) = handle {
+                let _ = tauri::Emitter::emit(
+                    &handle,
+                    vault_core::MODEL_DOWNLOAD_PROGRESS_EVENT,
+                    &event,
+                );
+            } else {
+                events.emit(vault_core::MODEL_DOWNLOAD_PROGRESS_EVENT, &event);
+            }
         })
     })
     .await

@@ -64,8 +64,7 @@ pub(crate) fn save_config_with_base_impl(
         &config,
         base_config.as_ref(),
         state.get_key()?.as_deref(),
-    ))?;
-    app_snapshot_impl(state)
+    ))
 }
 
 /// Caches a session-only database key in the in-process Tauri state.

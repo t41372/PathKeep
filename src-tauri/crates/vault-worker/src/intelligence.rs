@@ -25,7 +25,6 @@ mod agent_store;
 mod ai_queue;
 mod chat;
 mod content_fetch;
-mod model_download;
 mod route_queries;
 mod runtime;
 mod section_queries;
@@ -62,7 +61,7 @@ pub use self::ai_queue::{
     build_ai_index_now, cancel_ai_job, estimate_reembed_now, list_ai_provider_models,
     load_ai_queue, pause_ai_job, preview_ai_integration_files,
     register_ai_index_job_ended_listener, replay_ai_job, reset_ai_index_build, run_ai_queue_jobs,
-    search_ai_history, test_ai_provider_connection_report,
+    search_ai_history, submit_index_build, test_ai_provider_connection_report,
 };
 pub use self::chat::{ai_chat_cancel, ai_chat_context, ai_chat_send};
 pub(crate) use self::content_fetch::maybe_spawn_content_fetch_drain;
@@ -70,7 +69,6 @@ pub use self::content_fetch::{
     content_fetch_now, content_fetch_settings, enqueue_content_fetch_working_set,
     list_visit_enrichment, set_content_fetch_settings,
 };
-pub use self::model_download::{cancel_model_download, download_static_embedding_model};
 pub use self::route_queries::{
     delete_search_engine_rule, explain_entity, explain_refind, get_domain_trend,
     get_frequent_searches, get_hub_pages, get_insights_time_zone,
@@ -97,6 +95,10 @@ pub use self::section_queries::{
     get_multi_browser_diff, get_observed_interactions, get_on_this_day, get_path_flows,
     get_reopened_investigations, get_search_effectiveness, get_stable_sources,
     preview_intelligence_local_host,
+};
+pub(crate) use vault_core::ai::cancel_archive_model_downloads as cancel_model_download_for_wipe;
+pub use vault_core::ai::{
+    cancel_model_download, download_static_embedding_model, get_model_download_state,
 };
 
 static AI_QUEUE_ACTIVE_WORKERS: WorkerPool = WorkerPool::new();

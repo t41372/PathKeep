@@ -27,7 +27,7 @@ import { appClient } from '@/lib/backend-client/app'
 import { describeError } from '@/lib/errors'
 import { useI18n } from '@/lib/i18n'
 import { queryKeys } from '@/lib/query'
-import { useSnapshot } from '@/lib/queries/app'
+import { saveConfig, useSnapshot } from '@/lib/queries/app'
 import { emptySecret, secretProblem, type NewSecret } from './new-secret'
 import { NewSecretFields } from './new-secret-fields'
 
@@ -73,7 +73,7 @@ function PasscodeForm({
         const next = structuredClone(snapshot.config)
         next.appLock.enabled = true
         next.appLock.passcodeEnabled = true
-        snapshot = await appClient.saveConfig(next, snapshot.config)
+        snapshot = await saveConfig(next, snapshot.config)
       }
       client.setQueryData(queryKeys.snapshot, snapshot)
     },

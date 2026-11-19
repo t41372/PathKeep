@@ -26,11 +26,35 @@ mod fingerprint;
 pub(crate) mod generations;
 mod indexing;
 mod llm;
+pub(crate) mod model_download;
+pub use model_download::{
+    cancel_archive_model_downloads, cancel_model_download, download_static_embedding_model,
+    get_model_download_state,
+};
 mod model_files;
+mod model_source;
+
+#[cfg(debug_assertions)]
+mod fixture_pins {
+    use super::{DEFAULT_STATIC_MODEL_REPO, ModelFile};
+    include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/builtin-model/manifest.rs"));
+}
+
+fn builtin_model_files() -> anyhow::Result<&'static [ModelFile]> {
+    match model_source::ModelSource::configured().map_err(anyhow::Error::msg)? {
+        model_source::ModelSource::Hub => Ok(DEFAULT_STATIC_MODEL_FILES),
+        #[cfg(debug_assertions)]
+        model_source::ModelSource::Fixture { version, .. } => Ok(match version {
+            model_source::FixtureVersion::V1 => fixture_pins::V1,
+            model_source::FixtureVersion::V2 => fixture_pins::V2,
+        }),
+    }
+}
 
 /// Fence model writers before a wipe moves or deletes the model directory.
 pub(crate) fn revoke_model_downloads(models: &std::path::Path) -> anyhow::Result<()> {
-    model_files::transfers::active().revoke_under(models)
+    model_download::builds::forget_under(models);
+    model_files::transfers::revoke_under(models)
 }
 
 pub(crate) mod model_generations;

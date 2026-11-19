@@ -227,7 +227,7 @@ fn rollback_rekey(paths: &ProjectPaths, journal: &RekeyJournal) -> Result<()> {
         .with_extension(vault_layout::family_extension(vault_layout::ArtifactId::LegacyRekeyTemps));
     let _ = vault_fs::remove_file(&temp_path);
     super::remove_stale_sidecars(&temp_path);
-    let _control = vault_core::ControlGate::acquire(paths);
+    let control = vault_core::ControlGate::acquire(paths);
     match &journal.previous_config {
         Some(bytes) => atomic_durable_write(&paths.config_path, bytes.as_bytes())
             .context("restoring the pre-rekey config")?,
@@ -235,6 +235,7 @@ fn rollback_rekey(paths: &ProjectPaths, journal: &RekeyJournal) -> Result<()> {
             let _ = remove_file_durably(&paths.config_path);
         }
     }
+    vault_core::config::reconcile_model_download_after_control_replacement(&control);
     Ok(())
 }
 

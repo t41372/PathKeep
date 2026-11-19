@@ -90,6 +90,8 @@ PathKeep 看起來是一個安靜的 macOS 原生工具：半透明的視窗浮�
 | **Error**   | 整個 app 起不來：`BootErrorScreen`（錯誤全文、重試、顯示 log）。單一畫面崩潰：路由的 `RouteError`（錯誤內容、重新載入），其他畫面不受影響。單一卡片繪製時出錯（`SectionCard` 內的 error boundary）：只有那張卡顯示「載入失敗」與重試，畫面其餘部分照常；兩者都把錯誤寫進 log（`recordRenderError`）。列表載入失敗：`StateMessage` 帶錯誤與重試。操作失敗：sonner toast，標題說哪件事失敗，description 放 `describeError()` 的內容。                                                                                                                                                                                                       |
 | **Stale**   | Insights 與 Home 的統計來自背景重算。區段回傳 `meta.state === 'stale'` 時查詢每 5 秒重新拉（`pollWhileStale`），空的卡片顯示「正在更新你的洞察…」而不是「這段時間沒有資料」；從沒算過的區段（第一次建置：新 archive、清除後、整個重建）說「正在第一次整理你的洞察…」。Home 的 Insights 卡（30 天趨勢、On this day、年度、常回來的主題、統計卡的「本週新增」）在這時保留 skeleton，下面一行說明（`home/building.tsx`），不畫空圖。打開 archive 時若有瀏覽卻從沒建置過 Insights（或被清除），或 Insights 是用別版規則建的，worker 會自己排一次建置（`resume_insights`）；改日期範圍時保留上一份結果（`placeholderData`），不閃回 skeleton。 |
 
+設定存好、已經生效，但磁碟沒有確認寫入（`save_config` 回覆帶 `configDurabilityWarning`）時，不算失敗：每一次存設定都經過 `lib/queries/app` 的 `saveConfig`，由 `src/app/config-durability.ts` 顯示一個不擋操作的 warning toast（同一個 id，連續存只留一個），說新設定已經生效、若很快斷電可能回到之前的設定，後面附後端的診斷文字。
+
 Insights 的卡片查詢失敗時顯示 `CardError`（「載入失敗」與重試）。已知缺口：Home 部分卡片查詢失敗時仍會顯示成空狀態（來源卡會說「統計暫時拿不到」，統計卡顯示「—」）。
 
 ### 國際化是 UX 契約

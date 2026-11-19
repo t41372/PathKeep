@@ -36,6 +36,7 @@ plist.workspace = true
 publicsuffix = "2.3.0"
 regex.workspace = true
 regex-syntax = "0.8.10"
+# Also streams the in-app model download (`ai/model_files.rs`) with bounded per-read waits.
 reqwest = { version = "0.12.24", default-features = false, features = ["blocking", "charset", "http2", "rustls-tls"] }
 rig-core.workspace = true
 rusqlite = { workspace = true, features = ["hooks"] }
@@ -52,8 +53,6 @@ thiserror.workspace = true
 # HF tokenizer for the static embedding model; loads tokenizer.json from disk.
 tokenizers.workspace = true
 tokio.workspace = true
-# Streams the in-app model download (`ai/model_files.rs`) with byte progress.
-ureq.workspace = true
 vault-store = { path = "../vault-store" }
 vault-search = { path = "../vault-search" }
 walkdir.workspace = true

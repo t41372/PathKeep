@@ -23,6 +23,7 @@ import { securityClient } from '@/lib/backend-client/security'
 import { describeError } from '@/lib/errors'
 import { useI18n } from '@/lib/i18n'
 import { queryKeys } from '@/lib/query'
+import { saveConfig } from '@/lib/queries/app'
 
 export function KeychainDialog({
   open,
@@ -48,7 +49,7 @@ function KeychainForm({ onClose }: { onClose: () => void }) {
       await securityClient.storeDatabaseKey(password)
       let snapshot = await appClient.getSnapshot()
       if (!snapshot.config.rememberDatabaseKeyInKeyring) {
-        snapshot = await appClient.saveConfig(
+        snapshot = await saveConfig(
           { ...snapshot.config, rememberDatabaseKeyInKeyring: true },
           snapshot.config,
         )

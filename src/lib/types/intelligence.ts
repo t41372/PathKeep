@@ -232,31 +232,6 @@ export interface StaticEmbeddingStatus {
 }
 
 /**
- * One in-app embedding model download progress event, delivered on the
- * `pathkeep://model-download-progress` Tauri channel. Mirrors the Rust
- * `ModelDownloadProgressEvent` (`#[serde(tag = "kind", rename_all = "camelCase")]`).
- *
- * The in-app model download emits on this channel; the stream is per-file (no upfront file count and `totalBytes` may be 0 when unknown),
- * so the UI shows honest per-file / indeterminate progress, never a fabricated percent.
- * Exactly one terminal `done`/`error` always follows so a subscriber never hangs.
- *
- * `fileStarted` now carries the REAL HTTP content-length (0 only when the server omits it), and
- * `fileProgress` reports throttled byte progress (~every 1 MB plus a final 100%) so the UI renders a
- * real moving bar instead of a near-empty per-file indicator while the 90 MB safetensors streams.
- */
-export type ModelDownloadProgressEvent =
-  | { kind: 'fileStarted'; file: string; totalBytes: number }
-  | {
-      kind: 'fileProgress'
-      file: string
-      downloadedBytes: number
-      totalBytes: number
-    }
-  | { kind: 'fileFinished'; file: string }
-  | { kind: 'done' }
-  | { kind: 'error'; message: string }
-
-/**
  * The index searches read now. While a newly chosen model's index is built,
  * the previous complete one answers; this describes that one, not the
  * unfinished one the rest of `AiIndexStatus` counts.

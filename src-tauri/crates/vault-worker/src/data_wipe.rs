@@ -16,7 +16,7 @@
 //! - The in-memory session key held by the desktop shell; the Tauri layer drops it.
 
 use crate::{
-    context::load_unlocked_config, intelligence::cancel_model_download,
+    context::load_unlocked_config, intelligence::cancel_model_download_for_wipe,
     schedule::native_schedule_interval_hours,
 };
 use anyhow::{Context, Result};
@@ -191,7 +191,7 @@ fn stop_background_work(paths: &ProjectPaths, archive_open: bool) -> Result<()> 
         // Workers still stop at their next config check; this only makes it sooner.
         log::warn!(target: "pathkeep::data_wipe", "could not ask running jobs to stop: {error:#}");
     }
-    cancel_model_download();
+    cancel_model_download_for_wipe(paths);
     vault_core::request_cancel_all_ai_chat_runs();
 
     let deadline = Instant::now() + WORKER_STOP_TIMEOUT;

@@ -38,6 +38,7 @@ const APP_EVENTS: &[&str] = &[
     "pathkeep://backup-progress",
     "pathkeep://backup-finished",
     vault_core::AI_INDEX_JOB_ENDED_EVENT,
+    vault_core::MODEL_DOWNLOAD_PROGRESS_EVENT,
     "pathkeep://updater-progress",
     "pathkeep://open-command-palette",
     crate::desktop_integration::QUIT_REQUEST_EVENT,

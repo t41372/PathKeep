@@ -33,6 +33,7 @@ export const appClient = {
   getBuildInfo: () => call<AppBuildInfo>('app_build_info'),
   getLockStatus: () => call<AppLockStatus>('app_lock_status'),
   getSnapshot: () => call<AppSnapshot>('app_snapshot'),
+  /** Call it through `saveConfig` in `lib/queries/app`, which reports `configDurabilityWarning`. */
   saveConfig: (config: AppConfig, baseConfig?: AppConfig | null) =>
     call<AppSnapshot>(
       'save_config',

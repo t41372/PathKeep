@@ -107,6 +107,68 @@ Plan 產生、plist / XML 內容、audit 與 status 解析照常執行。每次 
 - 這是 dev-only、localhost-only 的 automation boundary，不是產品 shipping API，也不應被擴寫成外部 remote control 介面。
 - 2026-04-24 backend follow-up：dev bridge implementation 已拆成 `config` / `router` / `payloads` / `dispatch` focused owners。這只是 desktop-layer ownership cleanup；現有 command strings、payload shape、worker bridge export surface、feature gate、env gate 與 localhost-only safety boundary 不變。
 
+### Built-in model download events
+
+`download_static_embedding_model` starts or joins a transfer and returns its `transferId`. Subscribe to `pathkeep://model-download-progress` before invoking the command and match events to that ID. The window and the dev bridge's `/events` stream deliver the same JSON. Each transfer emits exactly one terminal event.
+
+The start request is `{}` and the reply is `{"transferId":"0123456789abcdef0123456789abcdef","seq":7}`. Cancel takes `{"transferId":"0123456789abcdef0123456789abcdef"}` and returns a Boolean. Only the first accepted cancellation returns `true`. Deciding to publish, reuse a verified selection, or report a final failure closes cancellation and attachment. A subsequent start receives its own ID and waits for the predecessor to release its response and candidate.
+
+The owner assigns a strictly increasing JSON-safe integer `seq` to each new transfer across its archives, starting at 1. Joining a transfer returns its existing ID and sequence. Every event for that transfer carries the same pair. A window follows the highest sequence it has seen and can ignore a delayed event from an older transfer. The sequence starts over when the owner process restarts.
+
+Each event below is a separate payload on the same channel.
+
+```jsonl
+{"kind":"waiting","transferId":"0123456789abcdef0123456789abcdef","seq":7,"reason":"archive-busy"}
+{"kind":"waiting","transferId":"0123456789abcdef0123456789abcdef","seq":7,"reason":"previous-transfer"}
+{"kind":"fileStarted","transferId":"0123456789abcdef0123456789abcdef","seq":7,"file":"model.safetensors","totalBytes":1049688}
+{"kind":"fileProgress","transferId":"0123456789abcdef0123456789abcdef","seq":7,"file":"model.safetensors","downloadedBytes":1048576,"totalBytes":1049688}
+{"kind":"fileFinished","transferId":"0123456789abcdef0123456789abcdef","seq":7,"file":"model.safetensors"}
+{"kind":"done","transferId":"0123456789abcdef0123456789abcdef","seq":7}
+{"kind":"error","transferId":"0123456789abcdef0123456789abcdef","seq":7,"message":"disk full"}
+{"kind":"cancelled","transferId":"0123456789abcdef0123456789abcdef","seq":7}
+```
+
+`waiting` is emitted immediately on contention and every 20 seconds while that wait continues. `archive-busy` means another archive operation holds the gate. `previous-transfer` means an earlier transfer still owns its response or files. Both are signs of life for the matching ID. Before start admission there is no transfer ID to report. `totalBytes` is zero for unknown content length. Only `error` carries a diagnostic to display. The worker allows 15 seconds to connect and 30 seconds for response headers or each body read. There is no whole-file deadline. A stalled request releases its response and candidate, and an accepted cancellation still ends with `cancelled`.
+
+`get_model_download_state` takes `{}` and reads the owner process's registry for the current archive's built-in model. It returns `null` when no transfer is registered. For a running transfer, the native command and dev bridge return the same snapshot:
+
+```json
+{
+  "transferId": "0123456789abcdef0123456789abcdef",
+  "seq": 7,
+  "phase": "downloading",
+  "currentFile": "model.safetensors",
+  "downloadedBytes": 1048618,
+  "totalBytes": 1049730,
+  "files": {
+    "config.json": { "downloadedBytes": 42, "totalBytes": 42 },
+    "model.safetensors": { "downloadedBytes": 1048576, "totalBytes": 1049688 }
+  }
+}
+```
+
+The `downloading` phase includes file verification. During a wait, `phase` is `"waiting"` and `reason` is `"archive-busy"` or `"previous-transfer"`. Counts retain the last reported values. `currentFile` is `null` between files. Totals sum the files announced so far, and an unknown file length contributes zero to `totalBytes`. A replacement has its own ID and starts at zero. Terminal outcomes arrive on the event channel. On mount, subscribe before reading state. Seed the file map from the snapshot and keep events received during the lookup so a late reply cannot revive a transfer that already ended.
+
+After a matching `done`, built-in setup submits this `build_ai_index` command payload:
+
+```json
+{
+  "request": {
+    "providerId": "static-in-app",
+    "transferId": "0123456789abcdef0123456789abcdef",
+    "fullRebuild": false,
+    "clearOnly": false,
+    "scope": "incremental"
+  }
+}
+```
+
+The response is the usual `AiIndexReport` with `jobId`. Both transports share the owner's completion record. Only a successful transfer for this archive can authorize this form of the request. The saved selection is checked again at enqueue. A repeated request returns the first job ID even after completion. Ordinary builds omit `transferId`. Wipe clears the archive's records and process exit clears all records.
+
+### Settings save durability
+
+`save_config` returns the applied snapshot. On Unix, if the rename installed the settings but the parent directory flush failed, the response also contains `configDurabilityWarning` (a diagnostic string). Use the returned settings, including the effect on download consent, and show the durability warning separately. The menu-bar icon setting is saved without an open screen, so its durability warning is written to the log. A normal save omits the field. A failure before the rename rejects the command. In a debug desktop, `const clear = injectFault('config-save-parent-sync')` exercises the warning after the live config rename, at the parent-directory sync. Call `clear()` after the save; the marker applies to every live config save while present. Release builds compile out this checkpoint.
+
 ## Browser Preview Showcase Dataset（2026-05-10）
 
 - browser-preview 現在有兩個 fixture dataset：`setup` 與 `showcase`。本地預設仍是 `setup`，保留 onboarding / first-backup smoke 的舊 contract；Vercel static deployment 透過 `PATHKEEP_BROWSER_PREVIEW_DATASET=showcase bun run build` 啟用 `showcase`。

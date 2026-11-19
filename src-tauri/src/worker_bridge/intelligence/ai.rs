@@ -136,12 +136,12 @@ pub(crate) fn cancel_ai_job_impl(
 
 /// Builds or refreshes the semantic index right away.
 pub(crate) fn build_ai_index_impl(
-    request: AiIndexRequest,
+    request: vault_core::BuildAiIndexRequest,
     state: &crate::session::SessionState,
 ) -> Result<vault_core::AiIndexReport, CommandError> {
     let key = state.get_key()?;
     let session_database_key = key.as_deref();
-    worker_result(vault_worker::build_ai_index_now(&state.vault()?, session_database_key, &request))
+    worker_result(vault_worker::submit_index_build(&state.vault()?, session_database_key, &request))
 }
 
 /// Recovers a wedged semantic-index build: clears the stuck job(s) and re-enqueues a clean one (F2).
@@ -221,8 +221,10 @@ pub(crate) fn ai_chat_cancel_impl(
 }
 
 #[cfg_attr(test, allow(dead_code))]
-/// Starts the consent-gated in-app STATIC (Tier-0) embedding model download (F1); progress via `emit`.
-pub(crate) fn download_static_embedding_model_impl<E>(emit: E) -> Result<(), CommandError>
+/// Returns the identity shared by callers waiting for this local model.
+pub(crate) fn download_static_embedding_model_impl<E>(
+    emit: E,
+) -> Result<vault_core::ModelDownloadTransfer, CommandError>
 where
     E: Fn(ModelDownloadProgressEvent) + Send + 'static,
 {
@@ -230,10 +232,16 @@ where
 }
 
 #[cfg_attr(test, allow(dead_code))]
-/// Requests cancellation of any in-flight in-app model download.
-pub(crate) fn cancel_model_download_impl() -> Result<(), CommandError> {
-    vault_worker::cancel_model_download();
-    Ok(())
+/// Both transports read the same transfer registry without opening a vault.
+pub(crate) fn get_model_download_state_impl()
+-> Result<Option<vault_core::ModelDownloadState>, CommandError> {
+    worker_result(vault_worker::get_model_download_state())
+}
+
+#[cfg_attr(test, allow(dead_code))]
+/// Returns whether the named transfer accepted its first cancellation request.
+pub(crate) fn cancel_model_download_impl(transfer_id: &str) -> bool {
+    vault_worker::cancel_model_download(transfer_id)
 }
 
 /// Persists (upsert) one assistant conversation and replaces its message transcript.
