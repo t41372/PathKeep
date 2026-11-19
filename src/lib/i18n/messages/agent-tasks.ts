@@ -123,6 +123,8 @@ export const agentTasks = defineMessages({
     reasons: {
       cancelled: 'You cancelled it.',
       ownerRestarted: 'PathKeep closed while it ran.',
+      readerRebuild:
+        'The conversations’ files were saved, but the lists of some of them couldn’t be updated. Repair conversations rebuilds them.',
       terminalPublication:
         'The disk wasn’t available when it came to record the end, so it was recorded later. What it saved is kept.',
       other: 'It ended with “{code}”.',
@@ -282,6 +284,8 @@ export const agentTasks = defineMessages({
     reasons: {
       cancelled: '你取消了它。',
       ownerRestarted: '它跑的时候 PathKeep 关掉了。',
+      readerRebuild:
+        '对话的文件都存下了，但其中一些对话的列表没能更新。「修复对话」会重建它们。',
       terminalPublication:
         '记录结束时磁盘用不了，所以晚一点才记下。它存下的都还在。',
       other: '结束时是「{code}」。',
@@ -437,6 +441,8 @@ export const agentTasks = defineMessages({
     reasons: {
       cancelled: '你取消了它。',
       ownerRestarted: '它跑的時候 PathKeep 關掉了。',
+      readerRebuild:
+        '對話的檔案都存下了，但其中一些對話的清單沒能更新。「修復對話」會重建它們。',
       terminalPublication:
         '記錄結束時磁碟用不了，所以晚一點才記下。它存下的都還在。',
       other: '結束時是「{code}」。',

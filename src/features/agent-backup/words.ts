@@ -294,6 +294,9 @@ export function taskReasonText(t: Translator, reason: string | undefined) {
     return t('agentTasks.reasons.ownerRestarted')
   if (reason === 'terminal-publication-failed')
     return t('agentTasks.reasons.terminalPublication')
+  // The source files are saved before any reader work, so only lists lag.
+  if (reason === 'reader_rebuild_required')
+    return t('agentTasks.reasons.readerRebuild')
   return t('agentTasks.reasons.other', { code: reason })
 }
 
