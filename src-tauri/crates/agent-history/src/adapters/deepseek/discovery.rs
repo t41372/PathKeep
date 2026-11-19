@@ -130,7 +130,6 @@ fn directory_entry(
     issues: &mut Vec<Diagnostic>,
 ) -> Option<crate::capture::discovery::Entry> {
     match entry {
-        Ok(entry) if entry.file_name().eq_ignore_ascii_case(".git") => None,
         Ok(entry) => Some(entry),
         Err(_) => {
             discovery_issue(issues, directory, "deepseek-directory-entry-unreadable");

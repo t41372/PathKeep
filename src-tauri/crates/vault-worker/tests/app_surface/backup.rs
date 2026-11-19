@@ -200,6 +200,16 @@ fn first_save_cancel_restart_and_retry_keep_original_scope() {
         backups::enable(&fixture.session, from_value(req).unwrap(), quiet.clone()).unwrap(),
         receipt
     );
+    // A busy kind still checks the requested tool before handing out a task or a receipt.
+    let denied = json!({"scope":{"type":"tool","kind":"agent-history","tool":"pi"},"requestId":uuid::Uuid::new_v4().to_string()});
+    assert_eq!(
+        backups::start(&fixture.session, from_value(denied).unwrap(), quiet.clone())
+            .unwrap_err()
+            .downcast::<Refusal>()
+            .unwrap()
+            .code(),
+        "scope-denied"
+    );
     let busy_request = json!({"scope":{"type":"tool","kind":"agent-history","tool":"codex"},"requestId":uuid::Uuid::new_v4().to_string()});
     let busy =
         backups::start(&fixture.session, from_value(busy_request.clone()).unwrap(), quiet.clone())
@@ -506,6 +516,10 @@ fn replacement_at_capture_cannot_supply_bytes_for_an_approved_root() {
     } else {
         assert_eq!(done["result"], "partial");
         assert!(!decoy_file.exists(), "the source must have been exchanged");
+        assert_eq!(
+            done["summary"]["filesVisited"], "0",
+            "the path lost its grant before the first artifact"
+        );
         assert_eq!(done["summary"]["filesCaptured"], "0");
         assert_eq!(std::fs::metadata(source.join(relative)).unwrap().accessed().unwrap(), old);
     }

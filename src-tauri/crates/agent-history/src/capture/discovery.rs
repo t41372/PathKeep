@@ -48,9 +48,6 @@ impl Discovery {
                 let Component::Normal(name) = component else {
                     return Err(io::ErrorKind::PermissionDenied.into());
                 };
-                if name.eq_ignore_ascii_case(".git") {
-                    return Err(io::ErrorKind::PermissionDenied.into());
-                }
                 dir = cap::open_dir_nofollow(&dir, Path::new(name))?;
             }
             dir
@@ -88,8 +85,13 @@ pub(crate) struct Entries {
 impl Iterator for Entries {
     type Item = io::Result<Entry>;
     fn next(&mut self) -> Option<Self::Item> {
-        self.reader.next().map(|entry| {
-            entry.map(|inner| Entry { path: self.parent.join(inner.file_name()), inner })
-        })
+        // Omit Git administration before a classifier can stat, count or descend into it.
+        // Direct reads of authorized project Git metadata use a separate observer.
+        self.reader
+            .by_ref()
+            .find(|entry| !entry.as_ref().is_ok_and(|e| e.file_name().eq_ignore_ascii_case(".git")))
+            .map(|entry| {
+                entry.map(|inner| Entry { path: self.parent.join(inner.file_name()), inner })
+            })
     }
 }

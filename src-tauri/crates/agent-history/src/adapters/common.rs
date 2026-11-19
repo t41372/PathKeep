@@ -348,9 +348,6 @@ pub(super) fn walk_files_cancellable(
                 continue;
             }
         };
-        if entry.file_name().eq_ignore_ascii_case(".git") {
-            continue;
-        }
         let path = entry.path();
         match entry.file_type() {
             Ok(ty) if ty.is_dir() && stack.len() >= 64 => {

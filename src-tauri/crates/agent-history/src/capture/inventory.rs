@@ -161,10 +161,6 @@ pub fn inventory_root_bound(
             row.reason = Some("root-unreadable");
             continue;
         };
-        // Check the name before asking for its type or opening a directory handle.
-        if entry.file_name().eq_ignore_ascii_case(".git") {
-            continue;
-        }
         let Ok(ty) = entry.file_type() else {
             row.reason = Some("root-unreadable");
             continue;

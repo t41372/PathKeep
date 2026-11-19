@@ -320,6 +320,50 @@ fn debug_agent_delays_apply_inside_the_native_loops() {
             .unwrap();
         assert_eq!(walk.next_frame().await.unwrap()["type"], "cancelled");
     });
+    // Change the directory after a paced, nonzero progress frame. A pinned
+    // preview can finish counting the old folder, but cannot grant the new one.
+    let replacement = f.temp.path().join("replacement");
+    write(&replacement.join("projects/other/decoy.jsonl"), &[b'x'; 8192]);
+    let original = f.temp.path().join("original");
+    let mut swapping = preview::start(&f.session, request()).unwrap();
+    runtime.block_on(async {
+        let mut attempted = false;
+        let mut exchanged = false;
+        loop {
+            let frame = swapping.next_frame().await.unwrap();
+            if !attempted && frame["type"] == "progress" && frame["payload"]["done"] != "0" {
+                attempted = true;
+                match std::fs::rename(&source.root, &original) {
+                    Ok(()) => {
+                        std::fs::rename(&replacement, &source.root).unwrap();
+                        exchanged = true;
+                    }
+                    Err(e) if cfg!(windows) && matches!(e.raw_os_error(), Some(5 | 32 | 33)) => {}
+                    Err(e) => panic!("replace preview folder: {e}"),
+                }
+            }
+            if frame["type"] == "finished" {
+                assert!(attempted);
+                let report = &frame["payload"];
+                assert_eq!(report["totals"]["files"], row.counts.files.to_string());
+                assert_eq!(report["totals"]["sourceBytes"], row.counts.source_bytes.to_string());
+                if exchanged {
+                    assert_eq!(report["rows"][0]["reason"], "root-changed");
+                    assert_eq!(report["rows"][0]["readable"], false);
+                    assert!(
+                        preview::reviewed_sources(
+                            report["previewId"].as_str().unwrap(),
+                            std::slice::from_ref(&row.root_id)
+                        )
+                        .is_err()
+                    );
+                    std::fs::rename(&source.root, &replacement).unwrap();
+                    std::fs::rename(&original, &source.root).unwrap();
+                }
+                break;
+            }
+        }
+    });
     // Observe a real first save. The listener only sends; capture continues
     // independently while the caller checks the active task and requests cancel.
     let mut reviewed = preview::start(&f.session, request()).unwrap();

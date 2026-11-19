@@ -256,3 +256,6 @@ fn publication_failure_stops_capture_and_keeps_the_committed_prefix() {
     assert_eq!(run["summary"]["filesCaptured"], "2");
     assert_eq!(run["summary"]["newRoots"], "1");
 }
+
+#[path = "consent.rs"]
+mod consent;

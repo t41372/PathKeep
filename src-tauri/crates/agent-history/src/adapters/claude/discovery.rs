@@ -272,9 +272,6 @@ fn children(
                 continue;
             }
         };
-        if entry.file_name().eq_ignore_ascii_case(".git") {
-            continue;
-        }
         match entry.file_type() {
             Ok(kind) if kind.is_symlink() => issue(issues, "source-symlink-skipped", &entry.path()),
             Ok(kind) if kind.is_file() || kind.is_dir() => visit(entry.path(), issues)?,

@@ -169,3 +169,16 @@ fn replacing_a_preview_directory_never_enumerates_the_replacement() {
     assert_eq!(inventory.counts.files, 1);
     assert_eq!(inventory.counts.source_bytes, 13);
 }
+
+#[test]
+fn git_administration_is_excluded_from_preview_file_and_byte_totals() {
+    let temp = tempfile::tempdir().unwrap();
+    let source = SourceRoot { root: temp.path().to_owned(), harness: Harness::Pi };
+    support::write(&source.root.join("sessions/project/one.jsonl"), b"one");
+    support::write(&source.root.join("sessions/project/.GiT/objects/hidden.jsonl"), b"forbidden");
+    support::write(&source.root.join("sessions/.git/another.jsonl"), b"forbidden");
+    let row = inventory_root(&source, &Default::default(), |_| {}).unwrap();
+    assert_eq!(row.reason, None);
+    assert_eq!(row.counts.files, 1);
+    assert_eq!(row.counts.source_bytes, 3);
+}
