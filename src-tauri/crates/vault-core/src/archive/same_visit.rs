@@ -257,10 +257,11 @@ pub(crate) fn link_existing(
     run: i64,
     profile: i64,
     rows: &[(i64, String, i64)],
-) -> Result<()> {
+) -> Result<bool> {
     let span = rows.iter().map(|(_, _, at)| *at);
-    let (Some(from), Some(to)) = (span.clone().min(), span.max()) else { return Ok(()) };
+    let (Some(from), Some(to)) = (span.clone().min(), span.max()) else { return Ok(false) };
     let candidates = candidates(s, profile, from, to)?;
+    let mut changed = false;
     for (visit, url, at_ms) in rows {
         let Some(stand_in) = self::stand_in(s, &candidates, url, *at_ms)? else { continue };
         if stand_in.outranked_by(&candidates) {
@@ -268,8 +269,9 @@ pub(crate) fn link_existing(
         } else {
             hide_behind(s, run, *visit, stand_in.visit)?;
         }
+        changed = true;
     }
-    Ok(())
+    Ok(changed)
 }
 
 #[cfg(test)]

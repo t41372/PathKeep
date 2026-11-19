@@ -34,7 +34,7 @@ pub(in crate::maintenance) fn released_config() -> AppConfig {
 
 /// A folder as PathKeep 0.5 leaves it: an initialized control without a stamp, its five stores,
 /// and a marker in the browsing archive.
-pub(in crate::maintenance) fn released_archive() -> (tempfile::TempDir, ProjectPaths) {
+pub(crate) fn released_archive() -> (tempfile::TempDir, ProjectPaths) {
     let root = tempfile::tempdir().unwrap();
     let paths = project_paths_with_root(root.path());
     crate::config::ensure_paths(&paths).unwrap();

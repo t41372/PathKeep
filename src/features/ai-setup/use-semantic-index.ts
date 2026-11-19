@@ -92,7 +92,10 @@ export function useSemanticIndex() {
 
   const done = build?.done ?? 0
   const total = build?.total ?? null
-  const shownDone = useSmoothCount(done)
+  const shownDone = useSmoothCount(
+    done,
+    build ? `${build.jobId}:${build.progress.phase}` : null,
+  )
   const pace = useIndexPace(
     build?.state === 'running' && build.progress.phase === 'visits'
       ? build.jobId

@@ -10,17 +10,19 @@ use std::sync::Arc;
 use vault_store::{Db, Priority, params_owned as params};
 
 pub(super) const PAGE_SIZE: usize = 4096;
+const PLAN_CHECKPOINT_ROWS: u64 = 16_384;
+pub(super) const VISIT_CHECKPOINT_ROWS: u64 = 1024;
 
-/// Captures both inputs in one statement. The watermark must never acknowledge later visits.
+/// Captures both inputs in one read transaction. The watermark must never acknowledge later visits.
 pub(super) fn capture_input(vault: &Vault) -> Result<(i64, i64)> {
     vault.read(Db::Archive, |s| {
-        let (upper, count, visible) = s.query_one(
-            "SELECT COALESCE((SELECT id FROM visits ORDER BY id DESC LIMIT 1),0),
-             (SELECT value FROM archive_totals WHERE name='visits'),
-             CASE WHEN (SELECT value FROM archive_totals WHERE name='visits')=0 THEN 0
-             ELSE COALESCE((SELECT id FROM visits WHERE reverted_at IS NULL ORDER BY id DESC LIMIT 1),0) END",
-            (), |r| Ok((r.get::<i64>(0)?,r.get::<i64>(1)?,r.get::<i64>(2)?)))?;
-        Ok((upper, (count << 32) ^ visible))
+        let upper = s.query_one(
+            "SELECT COALESCE((SELECT id FROM visits ORDER BY id DESC LIMIT 1),0)",
+            (),
+            |r| Ok(r.get::<i64>(0)?),
+        )?;
+        let watermark = super::super::source_watermark::read(s, Db::Archive)?;
+        Ok((upper, watermark))
     })
 }
 
@@ -109,8 +111,17 @@ impl ScanPlan {
         let mut plan = Self { cursor, job };
         if plan.scan().phase == IndexBuildPhase::Planning {
             plan.save(vault)?;
+            let mut saved_total = plan.scan().total;
             while plan.scan().planning_after < plan.scan().upper_history_id {
-                super::super::control::checkpoint_ai_run(control, super::backfill::COUNT_STOPPED)?;
+                if let Err(stop) = super::super::control::checkpoint_ai_run(
+                    control,
+                    super::backfill::COUNT_STOPPED,
+                ) {
+                    if saved_total != plan.scan().total {
+                        plan.save(vault)?;
+                    }
+                    return Err(stop);
+                }
                 let scan = plan.scan();
                 let ids = read_ids(
                     vault,
@@ -121,7 +132,10 @@ impl ScanPlan {
                 let progress = plan.cursor.scan.as_mut().unwrap();
                 progress.total += ids.len() as u64;
                 progress.planning_after = ids.last().copied().unwrap_or(scan.upper_history_id);
-                plan.save(vault)?;
+                if progress.total - saved_total >= PLAN_CHECKPOINT_ROWS {
+                    saved_total = progress.total;
+                    plan.save(vault)?;
+                }
             }
             plan.cursor.scan.as_mut().unwrap().phase = IndexBuildPhase::Sources;
             plan.save(vault)?;
@@ -153,9 +167,6 @@ impl ScanPlan {
             scan_target: self.cursor.scan_target,
             embed_target: self.cursor.embed_target,
         }
-    }
-    pub fn next_ids(&self, vault: &Vault, limit: usize) -> Result<Vec<i64>> {
-        read_ids(vault, self.cursor.next_history_id, self.scan().upper_history_id, limit)
     }
     fn save(&self, vault: &Vault) -> Result<()> {
         if let Some(job) = self.job {

@@ -298,18 +298,73 @@ lose the job's counts. Unchanged chunks still advance through the normal ledger 
 rebuild retains its captured archive boundary; an incremental resume against another lineage
 starts at the beginning of that lineage's needs, including changed low-id visits.
 
-A fresh job captures an upper physical visit id and source watermark once. Its cursor JSON stores
-`IndexScan`: version, boundary, planning position/count, checked count and phase. Resume keeps this
-scope. Normal canonical writes append visit ids; revert/restore changes visibility in place.
-Archive replacement closes the owner and stops old work. A future physical-delete feature must
-revisit this assumption.
+An incremental job captures the physical upper visit ID. A full rebuild keeps its lineage’s
+highest visible ID. The cursor stores this bound, the captured source watermark, the planning
+position and count, the number of physical visits checked, and the phase. Resume keeps the
+same scope. Canonical inserts append IDs. Undo and restore update visibility in place.
 
-Planning reads at most 4,096 actual ids through primary-key keysets, persisting each count with
-its position. It never uses the numerical id span as a row count. The visit loop reads the same
-bounded physical ids, then hydrates only visible candidates and applies the existing WorkingSet
-filter. Hidden/out-of-scope records are resolved checked members. New/updated outcomes remain
-separate from checked-record progress. Source bytes, provenance, cursor and checked count preserve
-their existing fsync/transaction order. Unchanged chunks also checkpoint their position/count.
+Planning reads 4,096 physical IDs per primary-key page and checkpoints every 16,384 rows.
+Execution reads each bounded physical page once, together with the visible visits’ URL and
+profile data. Every physical visit advances the checked count. The worker skips embedding
+for hidden visits and visits missing their URL or profile row. Changed visits commit their counts
+and cursor with provenance after source fsync. Read-only work checkpoints every 1,024 visits and at the end
+of Visits. A cooperative stop saves the last completed page. After process death the current
+checkpoint interval can be read again without duplicating a committed outcome.
+
+The `archive_totals` row named `visitMembershipToken` holds an opaque positive token. Each change to visible membership draws from the OS through `getrandom`. The
+token is replaced in the same statement as the global and profile counts. This includes a
+replacement with zero net count. A duplicate-only backup keeps its token. A draw that equals
+the preceding token is mapped to a reserved alternative. Independent changes on two copies
+no longer replay a counter. The signed 64-bit format allows a chance collision of about one
+in 2⁶³ per independent comparison.
+
+The compared stamp is `-2 - token`. Zero is legacy unknown, −1 is mixed coverage, and −2 is
+the initial empty archive. A released archive without the token row keeps its old
+count/maximum-ID encoding until its first membership change. Two unstamped archives can still
+agree on those two numbers. The first tokenized change breaks that legacy equality.
+At publication, matching stamps certify the scan. A mismatch publishes −1. Both freshness readers recognize mixed coverage
+even on an empty index. They report an outdated text format first so the user sees the rebuild
+action. Successor admission compares watermark coverage independently.
+
+#### Membership stamps across archive operations
+
+The ledger and captured job cursors live together in Intelligence (`ai_index_ledger` and
+`ai_jobs.payload_json`). A queued job has a capture only if it already started. A lineage’s
+`derived/vectors/…/identity.json` stores its creation stamp for full rebuilds. Immutable
+generation metadata (`serving.json`) names the lineage and describes its files; it carries no
+visit stamp. The old flat-publication manifest can also contain a watermark; file recovery
+does not use it to certify coverage. Settings, semantic search and successor admission compare
+the published ledger with Archive. The scan compares its capture at publication.
+
+| Operation                                                    | Archive token                                                                                                                                         | Ledger and jobs                                                                                                      | Vector files and freshness                                                                                                                                                                                               |
+| ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| First live open of a v0.5.0 archive                          | No row is added by layout promotion. The released watermark still applies.                                                                            | Existing ledger retained. Startup recovers queue ownership; a released cursor has no scoped stamp.                   | Existing lineages remain subject to normal pointer validation and GC. First membership change puts the archive in the token range.                                                                                       |
+| Backup or import visits                                      | A visible addition or substitution draws a token. Replaying duplicates leaves it alone.                                                               | Published and in-progress captures keep their values.                                                                | The serving files keep answering; previous coverage is stale after a change.                                                                                                                                             |
+| Undo or restore an import                                    | Each chunk that changes counted membership draws a token, including a promoted stand-in. Restoring the same visits draws again.                       | Previous captures remain.                                                                                            | The old index stays stale until a successful update.                                                                                                                                                                     |
+| Take a native safety copy                                    | The paused store copies the token verbatim.                                                                                                           | Copies ledger and cursors at the same committed boundary. Live holders remain.                                       | A normal snapshot omits vectors. Taking it changes no live coverage.                                                                                                                                                     |
+| Restore a native safety copy, same key or different mode/key | Installs the saved token. Different encryption copies the browsing databases under the live key first.                                                | Installs the saved ledger and jobs, then runs owner recovery. The displaced databases become a separate safety copy. | Live vector files stay in place, subject to open-time repair and GC. The next membership change draws independently. Equal saved stamps at restore do **not** verify that the surviving source bytes belong to the copy. |
+| Turn encryption on or off                                    | Database copy preserves token.                                                                                                                        | Copies ledger and jobs under the destination key.                                                                    | Same vector tree. A matching index stays current through the switch; a later membership change marks it stale.                                                                                                           |
+| Change password in encrypted mode                            | Rewraps the same data key.                                                                                                                            | Same databases and captures.                                                                                         | Same files and freshness.                                                                                                                                                                                                |
+| Export native move file                                      | Copies source token into the bundle.                                                                                                                  | Omits live Intelligence. Source ledger and jobs stay on the exporting machine.                                       | Omits live vectors. Export has no effect on the source index.                                                                                                                                                            |
+| Import native move file, empty destination                   | Installs bundled token.                                                                                                                               | Staged open creates fresh Intelligence.                                                                              | Fresh derived tree, no imported index. Subsequent changes on source and destination draw independently.                                                                                                                  |
+| Import native move file, populated destination               | Replaces destination token with bundled token.                                                                                                        | The whole `derived/` container is replaced, including its ledger and jobs.                                           | Old vectors leave the **active** tree with the before-import safety copy. Neither the destination’s former index nor the exporter’s serves the imported archive.                                                         |
+| Delete all data, then start in the same folder               | Removes Archive; the new archive starts at −2 and draws on first change.                                                                              | Removes Intelligence and its captures.                                                                               | Wipes `derived/` and managed local safety copies. The new root has no prior index.                                                                                                                                       |
+| In-place pre-Turso SQLCipher conversion                      | Recounts copied visits. Keeps legacy encoding if membership is unchanged; a conversion chunk that hides duplicates draws a token in that transaction. | Copies readable old ledger/job tables when present. Legacy unknown coverage remains unknown.                         | Flat sources on disk can be adopted into the legacy lineage (identity stamp 0); only validated projections serve. A known pre-conversion stamp differs after a hide or a later change.                                   |
+| Restore old archive-only snapshot                            | Converts Archive in staging and runs native restore, retaining live encryption.                                                                       | The converted copy has no source Intelligence ledger or jobs; it replaces the destination’s.                         | Native restore preserves the live vector tree, but the displaced ledger no longer names its index.                                                                                                                       |
+| Import v0.3 move file (format 1)                             | Converts bundled old databases in staging; the same duplicate-link rule applies.                                                                      | Can bring the bundle’s readable legacy Intelligence tables. Replaces destination holders.                            | Uses the native whole-container install. Destination vectors cannot answer for the imported data.                                                                                                                        |
+
+These paths are implemented in `maintenance/creation.rs`, `maintenance/snapshot.rs`,
+`maintenance/mod.rs`, `migration/native.rs`, `archive/wipe.rs`, and the SQLCipher converter’s
+`lib.rs`, `snapshot.rs` and `bundle.rs`. The [layout catalog](archive-layout.md) defines which
+files each path handles. A stamped v0.6 archive excludes v0.4.0 and v0.5.0 at the control-file
+check; the token uses an existing totals row format and needs no schema migration.
+
+After a queue job succeeds, the same Intelligence transaction compares published coverage with
+the attached archive. With automatic indexing enabled for the still-chosen pair, stale coverage
+goes through normal after-backup admission. A ready pair with no active job receives one
+incremental update. A working-set job checks the retained full-pass coverage. A stopped job or
+a clear creates no successor. On an unchanged archive the successor certifies its own watermark
+and the queue drains.
 
 Phases are Planning, Sources, Visits, Searches, Projection and Publishing. Visits alone exposes
 an exact checked/total ratio; other totals are null. Both screens share the formatter and phase

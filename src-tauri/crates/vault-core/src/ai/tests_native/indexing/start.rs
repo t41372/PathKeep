@@ -26,7 +26,7 @@ fn pages(ids: impl IntoIterator<Item = i64>) -> Vec<SeedVisit> {
 }
 
 #[test]
-fn preparation_uses_short_keyset_reads_without_per_visit_lineage_scans() {
+fn semantic_scope_plans_cover_planning_and_visit_hydration() {
     let runtime = Runtime::new().expect("runtime");
     let (_paths, config, connection) = prepared_archive();
     let vault = connection.vault.clone().with_config(config);
@@ -53,12 +53,19 @@ fn preparation_uses_short_keyset_reads_without_per_visit_lineage_scans() {
         .filter(|plan| {
             (plan.sql.contains("archive.visits") && plan.sql.contains("ai_embeddings"))
                 || plan.sql.starts_with("SELECT id FROM visits WHERE id>=")
+                || plan.sql.contains("FROM visits v LEFT JOIN urls")
         })
         .collect();
-    assert!(
-        joins.iter().any(|plan| plan.sql.starts_with("SELECT id FROM visits WHERE id>=")),
-        "the build must measure through bounded primary-key reads: {joins:#?}"
-    );
+    for (query, table) in
+        [("SELECT id FROM visits WHERE id>=", "visits"), ("FROM visits v LEFT JOIN urls", "v")]
+    {
+        let reads: Vec<_> = joins.iter().filter(|p| p.sql.contains(query)).collect();
+        assert_eq!(reads.len(), 1, "43 physical visits fit in one page of each query: {reads:#?}");
+        let plan = reads[0];
+        assert!(plan.sql.contains("LIMIT ?3"), "{plan:#?}");
+        let range_seek = format!("SEARCH {table} USING INTEGER PRIMARY KEY");
+        assert!(plan.steps.iter().any(|step| step.starts_with(&range_seek)), "{plan:#?}");
+    }
     for plan in &joins {
         for step in &plan.steps {
             // Every row of one index shares these three values, so a search held by them alone
@@ -176,3 +183,7 @@ fn a_stop_asked_for_during_the_count_ends_the_build_before_the_count_does() {
         0
     );
 }
+
+mod checkpoints;
+mod coverage;
+mod stamp_lifecycle;

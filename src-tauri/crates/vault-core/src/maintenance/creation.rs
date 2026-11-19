@@ -500,4 +500,4 @@ pub(crate) fn recover(paths: &ProjectPaths, record: CreationRecord) -> Result<()
 }
 
 #[cfg(test)]
-pub(super) mod tests;
+pub(crate) mod tests;

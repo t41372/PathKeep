@@ -119,7 +119,7 @@ pub(super) fn project(vault: &Vault, provider: &AiProviderRuntime) -> Result<()>
             provider,
             run,
             "now",
-            0,
+            super::native_ledger::IndexCoverage::Recorded(0),
             build.relative(),
             &crate::AiIndexRequest::default(),
             None,

@@ -196,9 +196,8 @@ fn ai_index_status_from(
         .map(|(_provider_id, _model)| {
             semantic_index_staleness_reason(
                 connection,
-                ledger.source_watermark,
+                &ledger,
                 watermark,
-                ledger.last_indexed_at.as_deref(),
                 vectors.text_format_outdated,
                 indexed_items,
             )

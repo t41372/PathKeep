@@ -19,7 +19,7 @@ use super::super::native_ledger::{
     record_index_ledger_start, record_index_ledger_success,
 };
 use super::super::*;
-use super::candidates::{collect_visit_ids, select_embed_targets};
+use super::candidates::{read_visit_page, select_embed_targets};
 use super::scan_progress::{self, ScanPlan};
 use super::store_rows::{
     chunk_size, cleanup_stale_embeddings, upsert_embedding, validate_embedding_batch_for_keys,
@@ -181,14 +181,17 @@ pub async fn build_ai_index_with_control(
             (BackfillOutcome::default(), 0, 0)
         };
         let pointer = build.as_ref().map_or("", |build| build.relative());
-        let watermark = outcome.scan.map_or(source_watermark, |scan| scan.source_watermark);
+        use super::super::native_ledger::IndexCoverage;
+        let coverage = outcome.scan.map_or(IndexCoverage::Recorded(source_watermark), |scan| {
+            IndexCoverage::Captured(scan.source_watermark)
+        });
         let finished_at = now_rfc3339();
         if !record_index_ledger_success(
             vault,
             provider,
             run_id,
             &finished_at,
-            watermark,
+            coverage,
             pointer,
             request,
             job_id.map(|id| super::super::native_ledger::IndexJobSuccess {
@@ -510,13 +513,23 @@ async fn run_embedding_backfill(
     // Run the chunked embed loop inside a Result-returning scope so an error anywhere inside it first
     // gets a chance to checkpoint the LAST-DURABLE cursor (F2.1) before propagating — a reclaim then
     // resumes from real progress, never the origin, and never past an un-persisted chunk.
+    // last_durable includes completed read-only work in memory. On a cooperative stop
+    // it can be flushed immediately. A process crash resumes from saved_examined.
+    let mut saved_examined = plan.scan().examined;
     let backfill_result: Result<()> = async {
         loop {
             checkpoint_ai_run(run_control, "Index build was cancelled before the next chunk.")?;
             let remaining = limit;
-            let ids = plan.next_ids(vault, chunk_size(remaining))?;
-            let Some(last_history_id) = ids.last().copied() else { break };
-            let mut chunk = collect_visit_ids(vault, provider, &ids, lineage)?;
+            let page = read_visit_page(
+                vault,
+                provider,
+                cursor,
+                plan.scan().upper_history_id,
+                chunk_size(remaining),
+                lineage,
+            )?;
+            let Some(last_history_id) = page.last_id else { break };
+            let mut chunk = page.visits;
             // Older rebuild copies shared provenance with live files. A migrated row is not
             // evidence of source bytes: repair missing mappings/vectors before trusting its hash.
             for visit in &mut chunk {
@@ -525,7 +538,7 @@ async fn run_embedding_backfill(
             }
             cursor = last_history_id + 1;
             plan.cursor.next_history_id = cursor;
-            plan.cursor.scan.as_mut().unwrap().examined += ids.len() as u64;
+            plan.cursor.scan.as_mut().unwrap().examined += page.physical_count as u64;
 
             let changed: Vec<&IndexedVisit> = chunk
                 .iter()
@@ -670,11 +683,18 @@ async fn run_embedding_backfill(
                 scan_target,
                 embed_target,
             };
-            if let Some(ledger) = ledger {
-                ledger.record(last_durable)?;
+            let scan = plan.scan();
+            if !changed.is_empty()
+                || scan.examined - saved_examined >= scan_progress::VISIT_CHECKPOINT_ROWS
+                || scan.examined == scan.total
+            {
+                if let Some(ledger) = ledger {
+                    ledger.record(last_durable)?;
+                }
+                saved_examined = scan.examined;
             }
 
-            if ids.len() < chunk_size(remaining) {
+            if page.physical_count < chunk_size(remaining) {
                 break; // Final (short) chunk: no more rows beyond this id range.
             }
         }

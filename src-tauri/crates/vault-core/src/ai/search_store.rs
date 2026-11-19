@@ -4,7 +4,7 @@
 //! Tests: semantic search/freshness suites with real Vault fixtures.
 use crate::{AiSemanticStaleness, Vault};
 use vault_store::{Db, params};
-pub(super) fn staleness(
+pub fn staleness(
     vault: &Vault,
     provider: &str,
     model: &str,
@@ -20,9 +20,12 @@ pub(super) fn staleness(
         Ok(rows.into_iter().next())
     })?;
     let Some((watermark, indexed_at)) = row else { return Ok(None) };
+    if watermark == super::source_watermark::MIXED {
+        return Ok(Some(AiSemanticStaleness::Watermark));
+    }
     if watermark != 0 {
         let visible = super::native_ledger::current_source_watermark(vault)?;
-        if visible != watermark {
+        if super::source_watermark::stale(watermark, visible) {
             return Ok(Some(AiSemanticStaleness::Watermark));
         }
     }

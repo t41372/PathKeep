@@ -409,6 +409,13 @@ test('a search index build killed half way finishes after a restart, without sta
     ).toBeVisible({ timeout: 30_000 })
     expect(service.requests(), 'saving sends nothing to embed').toBe(0)
 
+    // What the finished index must hold: every visit the archive shows now,
+    // by the archive's own count, which the index plays no part in.
+    const { totalVisits: savedVisits } = await backend<{
+      totalVisits: number
+    }>('load_dashboard_snapshot')
+    expect(savedVisits).toBeGreaterThan(0)
+
     // Turning semantic search on builds the index with the service.
     await page.getByRole('switch', { name: 'Semantic search' }).click()
 
@@ -499,7 +506,9 @@ test('a search index build killed half way finishes after a restart, without sta
     await record('queue after cancelling')
     service.release()
     await page.getByRole('button', { name: 'Continue' }).click()
-    // The scan includes hidden rows. Indexed coverage is independently checked against source mappings.
+    // The progress total counts hidden visits too, so it is not the number
+    // indexed. That number is the archive's count from before the build, and
+    // the index's own map of visits must hold as many.
     await expect
       .poll(async () => (await queueStatus()).semanticIndex.chosenComplete, {
         timeout: 240_000,
@@ -514,13 +523,11 @@ test('a search index build killed half way finishes after a restart, without sta
     const mappedVisits = new Set<string>()
     for (let at = 8; at + 16 <= sourceMap.length; at += 16)
       mappedVisits.add(sourceMap.readBigInt64LE(at).toString())
+    expect(mappedVisits.size, 'visits in the index’s map').toBe(savedVisits)
     await expect(
-      page.getByText(
-        `${mappedVisits.size.toLocaleString('en-US')} visits indexed`,
-        {
-          exact: false,
-        },
-      ),
+      page.getByText(`${savedVisits.toLocaleString('en-US')} visits indexed`, {
+        exact: false,
+      }),
     ).toBeVisible({ timeout: 240_000 })
     const sentTwice = Object.entries(
       pagesOf(service.inputs).reduce<Record<string, number>>((seen, page) => {

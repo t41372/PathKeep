@@ -260,3 +260,6 @@ fn evidence_stored_again_by_each_import_is_kept_once_also_after_a_stop() {
         .unwrap();
     assert_eq!(durations, vec![(4_000, true), (9_000, true)]);
 }
+
+#[path = "conversion/stamp_lifecycle.rs"]
+mod stamp_lifecycle;

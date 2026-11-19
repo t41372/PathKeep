@@ -15,11 +15,10 @@
 use super::super::*;
 use super::IndexedVisit;
 use super::content::enrichment_summary_for;
-#[cfg(test)]
 use vault_store::params_owned as params;
 use vault_store::{Db, Session};
 
-/// Collects up to `limit` candidate visits with `history_id >= start_history_id`, ascending.
+/// Test view of the visible candidates in a bounded physical visit page.
 ///
 /// Ascending-id order makes the scan resumable from a single watermark. Each visit carries its
 /// freshly built embedding content + hash and a `needs_embedding` flag (false when the stored
@@ -33,76 +32,59 @@ pub(in crate::ai) fn collect_visit_chunk(
     limit: usize,
     lineage: &str,
 ) -> Result<Vec<IndexedVisit>> {
-    let raw_visits = vault.read(Db::Archive, move |connection| {
-        let mut statement = connection.prepare(
-            "SELECT visits.id,
-                source_profiles.profile_key,
-                urls.url,
-                urls.title,
-                (visits.visit_time_ms * 1000 + 11644473600000000) AS visit_time
-         FROM visits AS visits
-         JOIN urls AS urls ON urls.id = visits.url_id
-         JOIN source_profiles AS source_profiles ON source_profiles.id = visits.source_profile_id
-         WHERE visits.reverted_at IS NULL
-           AND visits.id >= ?1 AND visits.id <= ?3
-         ORDER BY visits.id ASC
-         LIMIT ?2",
-        )?;
-        let mut rows =
-            statement.query(params![start_history_id, limit as i64, upper_history_id])?;
-        let mut raw_visits = Vec::new();
-        while let Some(row) = rows.next()? {
-            raw_visits.push(IndexedVisit {
-                history_id: row.get(0)?,
-                profile_id: row.get(1)?,
-                url: row.get(2)?,
-                title: row.get(3)?,
-                domain: String::new(),
-                visited_at: crate::utils::chrome_time_to_rfc3339(row.get::<i64>(4)?),
-                content: String::new(),
-                content_hash: String::new(),
-                content_key: 0,
-                needs_embedding: false,
-            });
-        }
-
-        Ok(raw_visits)
-    })?;
-    hydrate(vault, provider, raw_visits, lineage)
+    Ok(read_visit_page(vault, provider, start_history_id, upper_history_id, limit, lineage)?.visits)
 }
 
-/// Missing or hidden members remain resolved work items, but never reach the embedding provider.
-pub(super) fn collect_visit_ids(
+/// Physical membership drives the cursor even when a whole page is hidden.
+pub(super) struct VisitPage {
+    pub last_id: Option<i64>,
+    pub physical_count: usize,
+    pub visits: Vec<IndexedVisit>,
+}
+
+pub(super) fn read_visit_page(
     vault: &crate::Vault,
     provider: &AiProviderRuntime,
-    ids: &[i64],
+    start: i64,
+    upper: i64,
+    limit: usize,
     lineage: &str,
-) -> Result<Vec<IndexedVisit>> {
-    if ids.is_empty() {
-        return Ok(Vec::new());
-    }
-    let slots = (1..=ids.len()).map(|i| format!("?{i}")).collect::<Vec<_>>().join(",");
-    let sql = format!("SELECT v.id,p.profile_key,u.url,u.title,v.visit_time_ms*1000+11644473600000000
-        FROM visits v JOIN urls u ON u.id=v.url_id JOIN source_profiles p ON p.id=v.source_profile_id
-        WHERE v.reverted_at IS NULL AND v.id IN ({slots}) ORDER BY v.id");
-    let ids = ids.to_vec();
-    let raw = vault.read(Db::Archive, move |s| {
-        Ok(s.query(&sql, vault_store::params_from_iter(ids), |r| {
-            Ok(IndexedVisit {
-                history_id: r.get(0)?,
-                profile_id: r.get(1)?,
-                url: r.get(2)?,
-                title: r.get(3)?,
-                domain: String::new(),
-                visited_at: crate::utils::chrome_time_to_rfc3339(r.get::<i64>(4)?),
-                content: String::new(),
-                content_hash: String::new(),
-                content_key: 0,
-                needs_embedding: false,
-            })
-        })?)
+) -> Result<VisitPage> {
+    let mut page = vault.read(Db::Archive, move |s| {
+        let mut statement = s.prepare(
+            "SELECT v.id,u.id IS NOT NULL AND p.id IS NOT NULL,p.profile_key,u.url,u.title,
+                    v.visit_time_ms*1000+11644473600000000
+             FROM visits v LEFT JOIN urls u ON v.reverted_at IS NULL AND u.id=v.url_id
+             LEFT JOIN source_profiles p ON v.reverted_at IS NULL AND p.id=v.source_profile_id
+             WHERE v.id>=?1 AND v.id<=?2 ORDER BY v.id LIMIT ?3",
+        )?;
+        let mut rows = statement.query(params![start, upper, limit as i64])?;
+        let mut page = VisitPage { last_id: None, physical_count: 0, visits: Vec::new() };
+        while let Some(row) = rows.next()? {
+            let id = row.get(0)?;
+            page.last_id = Some(id);
+            page.physical_count += 1;
+            if row.get::<i64>(1)? != 0 {
+                page.visits.push(IndexedVisit {
+                    history_id: id,
+                    profile_id: row.get(2)?,
+                    url: row.get(3)?,
+                    title: row.get(4)?,
+                    domain: String::new(),
+                    visited_at: crate::utils::chrome_time_to_rfc3339(row.get::<i64>(5)?),
+                    content: String::new(),
+                    content_hash: String::new(),
+                    content_key: 0,
+                    needs_embedding: false,
+                });
+            }
+        }
+        Ok(page)
     })?;
-    hydrate(vault, provider, raw, lineage)
+    if !page.visits.is_empty() {
+        page.visits = hydrate(vault, provider, page.visits, lineage)?;
+    }
+    Ok(page)
 }
 
 fn hydrate(

@@ -178,7 +178,15 @@ fn ai_queue_stop_wins_a_concurrent_failure_and_only_new_progress_renews_retries(
     let cursor = IndexBackfillCursor { embed_target: 200, ..Default::default() };
     persist_index_cursor(&vault, job.id, &cursor, None).unwrap();
     assert_eq!(load_ai_job(&vault, job.id).unwrap().attempt, 1);
-    let progress = IndexBackfillCursor { next_history_id: 65, embedded_so_far: 64, ..cursor };
+    let measured = IndexScan {
+        version: 1,
+        upper_history_id: 1750,
+        total: 1700,
+        examined: 1024,
+        phase: crate::IndexBuildPhase::Visits,
+        ..Default::default()
+    };
+    let progress = IndexBackfillCursor { scan: Some(measured), next_history_id: 1060, ..cursor };
     persist_index_cursor(&vault, job.id, &progress, None).unwrap();
     persist_index_cursor(&vault, job.id, &progress, None).unwrap();
     pause_queued_jobs(&vault).unwrap();
@@ -201,7 +209,9 @@ fn ai_queue_stop_wins_a_concurrent_failure_and_only_new_progress_renews_retries(
     assert_eq!(result.state, "paused");
     assert_eq!(result.paused_by, Some(IndexBuildPause::Queue));
     assert_eq!(resume_paused_jobs(&vault).unwrap(), 1);
-    claim_next_ai_job(&vault, 300).unwrap().unwrap();
+    let resumed = claim_next_ai_job(&vault, 300).unwrap().unwrap();
+    let AiJobPayload::Index { cursor, .. } = resumed.payload else { panic!("expected index job") };
+    assert_eq!(cursor.scan, Some(measured), "a read-only checkpoint survives reclaim");
     persist_index_cursor(&vault, job.id, &progress, None).unwrap();
     assert_eq!(load_ai_job(&vault, job.id).unwrap().attempt, 1, "same cursor is not progress");
 }

@@ -98,16 +98,22 @@ test('updated visits and a later backup keep one truthful progress scope', async
     expect(during.total).not.toBeNull()
     expect(during.done).toBeGreaterThan(0)
     expect(during.done).toBeLessThan(during.total!)
+    // The service holds its answer, so the count stands still: both screens
+    // show that count and a bar at its share of the total, at once, without
+    // counting up from zero.
+    const number = new Intl.NumberFormat('en-US')
+    const counts = `${number.format(during.done)} of ${number.format(during.total!)} visits`
+    const percent = String(Math.floor((during.done / during.total!) * 100))
     const bar = page.getByRole('progressbar').first()
+    await expect(bar).toHaveAttribute('aria-valuenow', percent)
+    await expect(page.getByRole('main')).toContainText(counts)
     const label = await bar.getAttribute('aria-label')
-    const value = Number(await bar.getAttribute('aria-valuenow'))
-    expect(value).toBeGreaterThanOrEqual(0)
-    expect(value).toBeLessThanOrEqual(100)
+    expect(label).toBeTruthy()
     observations.push({
       checkpoint: 'updated batch',
       queue: await queue(),
       label,
-      value,
+      value: Number(percent),
     })
     await page.screenshot({
       path: info.outputPath('updated-progress.png'),
@@ -116,9 +122,14 @@ test('updated visits and a later backup keep one truthful progress scope', async
     await page.goto('/#/settings/background')
     const job = page.locator(`[data-job="ai-${during.jobId}"]`)
     await expect(job).toContainText(label!)
+    await expect(job).toContainText(counts)
     await expect(job.getByRole('progressbar')).toHaveAttribute(
       'aria-label',
       label!,
+    )
+    await expect(job.getByRole('progressbar')).toHaveAttribute(
+      'aria-valuenow',
+      percent,
     )
 
     await page.goto('/#/settings/ai')
@@ -136,16 +147,29 @@ test('updated visits and a later backup keep one truthful progress scope', async
     await page.getByRole('button', { name: 'Continue', exact: true }).click()
     await idle()
     const complete = await queue()
+    // The job kept the scope it started with: its own counts, and no more.
     const finished = complete.recentJobs.find((job) => job.id === during.jobId)!
     expect(finished.summary).toContain('4 new / 160 updated')
-    expect(service.inputs.some((text) => text.includes(lateTitle))).toBe(false)
     observations.push({ checkpoint: 'same scope completed', queue: complete })
-    await backup(page)
-    await idle()
+    // The visit backed up during the pause was outside that scope. With
+    // “index new visits after each backup” on, its update is admitted when
+    // the job finishes, without another backup, and the work stops there.
+    const later = complete.recentJobs.filter(
+      (job) => job.jobType === 'index-build' && job.id > during.jobId,
+    )
+    expect(
+      later.map((job) => job.state),
+      'one more index job, finished',
+    ).toEqual(['succeeded'])
     expect(service.inputs.some((text) => text.includes(lateTitle))).toBe(true)
+    const status = (
+      await backend<{ aiStatus: { state: string } }>('app_snapshot')
+    ).aiStatus
+    expect(status.state, 'the index is current').toBe('ready')
     observations.push({
-      checkpoint: 'next scope includes later visit',
+      checkpoint: 'the later visit is indexed without another backup',
       queue: await queue(),
+      status,
     })
   } finally {
     service.release()

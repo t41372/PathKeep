@@ -165,7 +165,11 @@ pub fn link_same_visits(vault: &Vault) -> anyhow::Result<()> {
                     vault_store::params![profile, after],
                     |r| Ok((r.get::<i64>(0)?, r.get::<String>(1)?, r.get::<i64>(2)?)),
                 )?;
-                same_visit::link_existing(s, run, profile, &rows)?;
+                if same_visit::link_existing(s, run, profile, &rows)? {
+                    // Conversion recounts every profile after linking. Rotate the stamp
+                    // with the hide itself, including when this staged conversion resumes.
+                    crate::archive::totals::add_visits(s, profile, 0)?;
+                }
                 Ok(rows.last().map(|(id, _, _)| *id))
             })?;
             match last {

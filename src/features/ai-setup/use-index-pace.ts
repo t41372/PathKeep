@@ -5,7 +5,8 @@
  * The backend records progress once per batch (one embeddings request, about
  * two seconds apart with LM Studio on a laptop), so the raw count jumps.
  * `useSmoothCount` counts up to each new value over about the gap between
- * reports; it never shows a number the build has not reached.
+ * reports; it never shows a number the build has not reached, and it starts
+ * from the first count it is given, not from zero.
  *
  * Not responsible for reading the queue or for any copy.
  */
@@ -65,17 +66,27 @@ function prefersReducedMotion() {
 }
 
 /**
- * `value`, counted up smoothly from the previous value over `durationMs`.
- * Shows `value` at once when it goes down, and under reduced motion.
+ * `value`, counted up smoothly from the previous value of the same `series`
+ * over `durationMs`. Shows `value` at once when it is the first of its
+ * series (another build, another phase of it, or the first report after the
+ * page opened), when it goes down, and under reduced motion: a build resumed
+ * at 23,000 visits shows 23,000, not a count running up from zero.
  */
-export function useSmoothCount(value: number, durationMs = 1500): number {
+export function useSmoothCount(
+  value: number,
+  series: string | null,
+  durationMs = 1500,
+): number {
   const [shown, setShown] = useState(value)
   const current = useRef(value)
+  const shownSeries = useRef(series)
 
   useEffect(() => {
     const start = current.current
+    const sameSeries = shownSeries.current === series
+    shownSeries.current = series
     let frame = 0
-    if (value <= start || prefersReducedMotion()) {
+    if (!sameSeries || value <= start || prefersReducedMotion()) {
       current.current = value
       frame = requestAnimationFrame(() => setShown(value))
       return () => cancelAnimationFrame(frame)
@@ -90,7 +101,7 @@ export function useSmoothCount(value: number, durationMs = 1500): number {
     }
     frame = requestAnimationFrame(step)
     return () => cancelAnimationFrame(frame)
-  }, [value, durationMs])
+  }, [value, series, durationMs])
 
   return Math.min(shown, value)
 }

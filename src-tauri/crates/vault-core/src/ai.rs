@@ -51,8 +51,12 @@ mod search_groups_cluster;
 mod search_pages;
 mod search_ranking;
 mod search_store;
+/// Lets conversion fixtures exercise the search reader without contacting an embedding service.
+#[cfg(feature = "test-fixtures")]
+pub use search_store::staleness as search_staleness_for_fixture;
 mod search_vectors;
 mod similar_searches;
+mod source_watermark;
 mod tool_arguments;
 mod topics;
 mod traits;

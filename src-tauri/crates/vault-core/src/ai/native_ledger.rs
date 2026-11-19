@@ -13,6 +13,7 @@ use vault_store::{OptionalRow, Session, params_owned as params};
 #[derive(Debug, Clone, Default)]
 pub(super) struct AiIndexLedgerRow {
     pub source_watermark: i64,
+    pub complete: bool,
     pub last_indexed_at: Option<String>,
 }
 
@@ -27,33 +28,22 @@ pub(super) fn load_index_ledger(
     model: &str,
 ) -> Result<AiIndexLedgerRow> {
     Ok(s.query_one(
-        "SELECT COALESCE(source_watermark,0),last_indexed_at
+        "SELECT COALESCE(source_watermark,0),last_indexed_at,state='ready'
         FROM ai_index_ledger WHERE provider_id=?1 AND model=?2",
         params![provider, model],
-        |r| Ok(AiIndexLedgerRow { source_watermark: r.get(0)?, last_indexed_at: r.get(1)? }),
+        |r| {
+            Ok(AiIndexLedgerRow {
+                source_watermark: r.get(0)?,
+                last_indexed_at: r.get(1)?,
+                complete: r.get::<i64>(2)? != 0,
+            })
+        },
     )
     .optional()?
     .unwrap_or_default())
 }
 
-pub(super) fn current_source_watermark(vault: &crate::Vault) -> Result<i64> {
-    vault.read(vault_store::Db::Archive, |s| {
-        let count =
-            s.query_one("SELECT value FROM archive_totals WHERE name='visits'", (), |r| {
-                Ok(r.get::<i64>(0)?)
-            })?;
-        let max_id = if count == 0 {
-            0
-        } else {
-            s.query_one(
-                "SELECT id FROM visits WHERE reverted_at IS NULL ORDER BY id DESC LIMIT 1",
-                (),
-                |r| Ok(r.get::<i64>(0)?),
-            )?
-        };
-        Ok((count << 32) ^ max_id)
-    })
-}
+pub(super) use super::source_watermark::current as current_source_watermark;
 
 #[cfg(test)]
 pub(super) fn provider_embedding_count(
@@ -94,22 +84,25 @@ pub(super) fn ai_embedding_token_estimate(s: &Session<'_>) -> Result<u64> {
 
 pub(super) fn semantic_index_staleness_reason(
     s: &Session<'_>,
-    source_watermark: i64,
+    ledger: &AiIndexLedgerRow,
     current_watermark: i64,
-    last_indexed_at: Option<&str>,
     text_format_outdated: bool,
     indexed_items: i64,
 ) -> Result<Option<AiSemanticStaleness>> {
-    if indexed_items == 0 {
-        return Ok(None);
-    }
     if text_format_outdated {
         return Ok(Some(AiSemanticStaleness::TextFormat));
     }
-    if source_watermark != 0 && current_watermark != source_watermark {
+    if ledger.source_watermark == super::source_watermark::MIXED {
         return Ok(Some(AiSemanticStaleness::Watermark));
     }
-    if let Some(last) = last_indexed_at {
+    let stale = super::source_watermark::stale(ledger.source_watermark, current_watermark);
+    if indexed_items == 0 {
+        return Ok((ledger.complete && stale).then_some(AiSemanticStaleness::Watermark));
+    }
+    if stale {
+        return Ok(Some(AiSemanticStaleness::Watermark));
+    }
+    if let Some(last) = ledger.last_indexed_at.as_deref() {
         let newest = s.query_one("SELECT fetched_at FROM page_content_enrichments WHERE fetch_status='success' ORDER BY fetched_at DESC LIMIT 1",(),|r|Ok(r.get::<String>(0)?)).optional()?;
         if newest.as_deref().is_some_and(|value| value > last) {
             return Ok(Some(AiSemanticStaleness::Enrichment));
@@ -290,6 +283,12 @@ pub(super) struct IndexJobSuccess {
     pub summary: String,
 }
 
+/// Only a scan can attest to coverage. A clear carries its ordinary ledger timestamp and mark.
+pub(super) enum IndexCoverage {
+    Captured(i64),
+    Recorded(i64),
+}
+
 /// Records a finished build, unless a stop requested for its job won over this success: then it
 /// writes nothing and returns false, which the build reports as stopped.
 pub(super) fn record_index_ledger_success(
@@ -297,7 +296,7 @@ pub(super) fn record_index_ledger_success(
     provider: &AiProviderRuntime,
     run_id: i64,
     finished_at: &str,
-    source_watermark: i64,
+    publication: IndexCoverage,
     sidecar_table: &str,
     request: &AiIndexRequest,
     queue_job: Option<IndexJobSuccess>,
@@ -306,6 +305,11 @@ pub(super) fn record_index_ledger_success(
     let finished_at = finished_at.to_owned();
     let sidecar_table = sidecar_table.to_owned();
     let request = request.clone();
+    let config = if queue_job.is_some() && !request.clear_only {
+        Some(crate::load_config(vault.paths())?)
+    } else {
+        None
+    };
     vault.write(vault_store::Db::Intelligence, vault_store::Priority::Batch, move |connection| {
         let provider = &provider;
         let finished_at = finished_at.as_str();
@@ -323,6 +327,14 @@ pub(super) fn record_index_ledger_success(
                 return Ok(false);
             }
         }
+        let (source_watermark, current_watermark) = match publication {
+            IndexCoverage::Captured(captured) => {
+                let current = super::source_watermark::read(connection, vault_store::Db::Intelligence)?;
+                let published = if captured == current { captured } else { super::source_watermark::MIXED };
+                (published, Some(current))
+            }
+            IndexCoverage::Recorded(value) => (value, None),
+        };
         connection.execute(
             "UPDATE ai_index_ledger
          SET state = CASE WHEN state = 'ready' AND ?1 = 'incomplete' THEN 'ready' ELSE ?1 END,
@@ -358,9 +370,39 @@ pub(super) fn record_index_ledger_success(
         if let Some(job)=&queue_job {
             // Queue success is irrevocable at the same point as the serving pointer.
             crate::ai_queue::store::mark_ai_job_succeeded(connection,job.id,Some(run_id),Some(&job.summary))?;
+            if let (Some(config), Some(current)) = (&config, current_watermark) {
+                admit_stale_update(connection, config, provider, current)?;
+            }
         }
         Ok(true)
     })
+}
+
+/// Shares publication's commit so a quit cannot lose the next backup update.
+/// Read the published ledger because a working-set pass preserves earlier full coverage.
+fn admit_stale_update(
+    s: &Session<'_>,
+    config: &AppConfig,
+    provider: &AiProviderRuntime,
+    current_watermark: i64,
+) -> Result<()> {
+    if !(config.ai.enabled && config.ai.semantic_index_enabled && config.ai.auto_index_after_backup)
+    {
+        return Ok(());
+    }
+    let Some(chosen) = crate::semantic_index::chosen(config) else { return Ok(()) };
+    if chosen.provider_id == provider.config.id && chosen.model == provider.config.default_model {
+        let ledger = load_index_ledger(s, &chosen.provider_id, &chosen.model)?;
+        if super::source_watermark::stale(ledger.source_watermark, current_watermark) {
+            crate::ai_queue::index_control::request_index_job(
+                s,
+                config,
+                &AiIndexRequest::default(),
+                true,
+            )?;
+        }
+    }
+    Ok(())
 }
 
 pub(super) fn record_index_ledger_failure(
@@ -467,7 +509,7 @@ mod tests {
                         &provider,
                         1,
                         "2026-10-15T00:00:00Z",
-                        9,
+                        IndexCoverage::Recorded(9),
                         "test",
                         &request,
                         None,
