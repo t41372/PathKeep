@@ -10,5 +10,6 @@ use vault_store::{Db, Priority, params_owned as params};
 pub(in crate::ai) mod fixtures;
 use fixtures::{embedding_count, prepared_archive, seed_embedding, seed_visit};
 mod coverage;
+mod index_update_bench;
 mod indexing;
 mod status;

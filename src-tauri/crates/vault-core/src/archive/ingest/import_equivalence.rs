@@ -302,8 +302,11 @@ fn dump(vault: &crate::Vault, export: &std::path::Path) -> Vec<(&'static str, Ve
         (
             "archive_totals",
             rows(
+                // The membership token is left out: it is redrawn at random whenever the
+                // visible visits change, so two routes to the same archive never share it.
                 "SELECT COALESCE('sourceVisits:' || p.profile_key, t.name), t.value
-                 FROM archive_totals t LEFT JOIN source_profiles p ON t.name = 'sourceVisits:' || p.id",
+                 FROM archive_totals t LEFT JOIN source_profiles p ON t.name = 'sourceVisits:' || p.id
+                 WHERE t.name <> 'visitMembershipToken'",
             ),
         ),
     ]
