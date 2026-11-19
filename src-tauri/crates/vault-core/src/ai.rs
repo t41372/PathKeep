@@ -27,6 +27,16 @@ pub(crate) mod generations;
 mod indexing;
 mod llm;
 mod model_files;
+
+/// Fence model writers before a wipe moves or deletes the model directory.
+pub(crate) fn revoke_model_downloads(models: &std::path::Path) -> anyhow::Result<()> {
+    model_files::transfers::active().revoke_under(models)
+}
+
+pub(crate) mod model_generations;
+#[cfg(not(test))]
+pub(crate) use embedding_static::forget_archive as forget_model_cache;
+pub use model_generations::{ModelDirectory, open_model_directory};
 mod model_list;
 mod native_ledger;
 mod projection_sort;

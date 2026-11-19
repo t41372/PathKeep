@@ -63,6 +63,18 @@ impl Corpus {
     pub(super) fn seed(fixture: &Fixture) -> Self {
         let archive = fixture.vault().agent_history().unwrap();
         let logs = fixtures::Fixture::four_harnesses(fixture.sandbox.path());
+        // A tail after 32 MiB in the same native frame can only open under the
+        // one-byte replay budget below if the operation carried the rendered pages.
+        let codex = &logs.files[1];
+        let mut decoded = zstd::stream::decode_all(fs::read(codex).unwrap().as_slice()).unwrap();
+        for _ in 0..4 {
+            decoded.resize(decoded.len() + 8 * 1024 * 1024, b' ');
+            decoded.push(b'\n');
+        }
+        decoded.extend_from_slice(br#"{"type":"response_item","payload":{"type":"message","id":"lifecycle-tail","role":"user","content":[{"type":"input_text","text":"reader page survived"}]}}"#);
+        decoded.push(b'\n');
+        fs::write(codex, zstd::stream::encode_all(decoded.as_slice(), 1).unwrap()).unwrap();
+        drop(decoded);
         let roots = logs
             .roots
             .iter()
@@ -166,6 +178,12 @@ impl Corpus {
     pub(super) fn check(&self, vault: &Vault, password: Option<&str>) {
         let archive = vault.agent_history().unwrap();
         assert_eq!(sessions(&archive), self.sessions);
+        let head = archive.reader_header(self.sessions["codex"]["id"].as_str().unwrap()).unwrap();
+        let job =
+            agent_history::read_model::JobControl { max_decoded_bytes: 1, ..Default::default() };
+        let tail = archive.reader_window(&head, None, head.physical_records - 1, 1, &job).unwrap();
+        assert_eq!(tail[0].native_id.as_deref(), Some("lifecycle-tail"));
+        assert_eq!(tail[0].parts[0].text, "reader page survived");
         assert_eq!(captured_units(vault), self.capture_facts);
         assert_eq!(receipts::fingerprint(vault), self.receipt_fingerprint);
         let sources = archive.list_sources(&Default::default()).unwrap();

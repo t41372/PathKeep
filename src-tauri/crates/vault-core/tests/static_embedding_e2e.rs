@@ -300,8 +300,10 @@ async fn static_memory_footprint_benchmark() {
         let baseline = physical_footprint();
         let started = Instant::now();
         let report = if phase == "tokenizer" {
-            let directory = vault_core::model_dir_for_repo(&paths, DEFAULT_STATIC_MODEL_REPO);
-            let bytes = std::fs::read(directory.join("tokenizer.json")).expect("read tokenizer");
+            let directory = vault_core::ai::open_model_directory(&paths, DEFAULT_STATIC_MODEL_REPO)
+                .expect("select model");
+            let bytes =
+                std::fs::read(directory.path().join("tokenizer.json")).expect("read tokenizer");
             let tokenizer =
                 vault_core::ai::StaticTokenizer::from_bytes(&bytes).expect("load tokenizer");
             drop(bytes);

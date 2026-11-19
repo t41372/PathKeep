@@ -6,10 +6,12 @@
 pub enum Error {
     #[error(transparent)]
     Io(#[from] std::io::Error),
+    #[error("invalid native zstd transport: {0}")]
+    NativeTransport(#[source] std::io::Error),
     #[error(transparent)]
     Json(#[from] serde_json::Error),
     #[error(transparent)]
-    Store(#[from] vault_store::Error),
+    Store(vault_store::Error),
     #[error(transparent)]
     Envelope(#[from] vault_crypto::EnvelopeError),
     #[error("this archive requires a password")]
@@ -18,6 +20,8 @@ pub enum Error {
     ArchiveNotEncrypted,
     #[error("conversation not found")]
     ConversationNotFound,
+    #[error("the conversation reader requires an offline rebuild")]
+    ReaderRebuildRequired,
     #[error("invalid input: {0}")]
     InvalidInput(String),
     #[error("archive integrity check failed: {0}")]
@@ -48,7 +52,9 @@ impl Error {
         match self {
             Self::PasswordRequired => "password_required",
             Self::ArchiveNotEncrypted => "archive_not_encrypted",
+            Self::ReaderRebuildRequired => "reader_rebuild_required",
             Self::ConversationNotFound => "conversation_not_found",
+            Self::NativeTransport(_) => "invalid_native_transport",
             Self::Io(_) => "io_error",
             Self::Json(_) => "invalid_json",
             Self::Store(_) => "storage_error",
@@ -65,6 +71,18 @@ impl Error {
             Self::IndexBehind => "index_behind",
             Self::StaleCursor => "stale_cursor",
             Self::Cancelled => "cancelled",
+        }
+    }
+}
+
+impl From<vault_store::Error> for Error {
+    fn from(store: vault_store::Error) -> Self {
+        match store {
+            vault_store::Error::Operation(cause) => match cause.downcast::<Self>() {
+                Ok(error) => *error,
+                Err(other) => Self::Store(vault_store::Error::Operation(other)),
+            },
+            other => Self::Store(other),
         }
     }
 }

@@ -486,6 +486,7 @@ fn settle(
         }
         Pending::Legacy(outside) => {
             quiesce()?;
+            crate::ai::revoke_model_downloads(&paths.models_dir)?;
             SettledWipe::Finished(finish_legacy(paths, &outside, clear_secrets, remove_schedule)?)
         }
     }))
@@ -627,6 +628,9 @@ fn run_wipe(
             .context("replacing the configuration with an empty one")?;
         crate::fault_inject::checkpoint("wipe-control-emptied")?;
         quiesce()?;
+        crate::ai::revoke_model_downloads(&paths.models_dir)?;
+        #[cfg(not(test))]
+        crate::ai::forget_model_cache(&paths.models_dir);
         // A name the record cannot hold so that every system reads it back the same stops the
         // wipe here, before anything is recorded or moved.
         let mut targets = wipe_targets(paths)?

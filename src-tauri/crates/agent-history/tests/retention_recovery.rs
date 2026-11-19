@@ -137,3 +137,92 @@ fn raw_export_keeps_the_existing_expired_revision_error() {
     assert_eq!(error.code(), "not_found");
     assert!(error.to_string().contains("expired by retention"));
 }
+
+#[test]
+fn expired_record_rejects_even_an_empty_final_continuation() {
+    let tmp = tempfile::tempdir().unwrap();
+    let archive = create(tmp.path());
+    let id = retain(&archive, ArtifactKind::Sqlite, b"{}\n");
+    let revision = archive.revision(id).unwrap();
+    let mut locator = None;
+    archive
+        .scan_revision(id, &Default::default(), &Default::default(), &mut |row, _, _| {
+            locator = Some(row);
+            Ok(())
+        })
+        .unwrap();
+    let row = locator.unwrap();
+    assert!(
+        archive
+            .record_bytes(&revision, &row, row.length, 16, &Default::default())
+            .unwrap()
+            .bytes
+            .is_empty()
+    );
+    retain(&archive, ArtifactKind::Sqlite, b"replacement");
+    for offset in [0, row.length] {
+        let error =
+            archive.record_bytes(&revision, &row, offset, 16, &Default::default()).unwrap_err();
+        assert_eq!(error.code(), "not_found");
+    }
+}
+
+#[test]
+fn replacing_retained_state_removes_its_reader_publication() {
+    let temp = tempfile::tempdir().unwrap();
+    let archive = create(temp.path());
+    let revision = retain(
+        &archive,
+        ArtifactKind::Metadata,
+        b"{\"type\":\"session_meta\",\"payload\":{\"id\":\"state\"}}\n",
+    );
+    let attempt =
+        archive.prepare_projection("retention-source", revision, "state", true).unwrap().unwrap();
+    archive
+        .publish_projection_attempt(
+            &attempt,
+            &agent_history::SessionMetadata { native_id: "state".into(), ..Default::default() },
+            true,
+        )
+        .unwrap();
+    let id = archive.list_sessions(&Default::default()).unwrap().items.remove(0).id;
+    let h = archive.reader_header(&id).unwrap();
+    assert_eq!(archive.reader_window(&h, None, 0, 1, &Default::default()).unwrap().len(), 1);
+    retain(&archive, ArtifactKind::Metadata, b"replacement");
+    assert!(matches!(archive.reader_header(&id), Err(agent_history::Error::ConversationNotFound)));
+    while archive.prune_reader_pages(2).unwrap() > 0 {}
+}
+
+#[test]
+fn mid_window_expiry_never_substitutes_the_new_head() {
+    let tmp = tempfile::tempdir().unwrap();
+    let archive = create(tmp.path());
+    let old = b"{\"id\":\"old\"}\n";
+    let id = retain_slices(&archive, ArtifactKind::Sqlite, &old.repeat(3), old.len());
+    let info = archive.revision(id).unwrap();
+    let mut records = Vec::new();
+    archive
+        .scan_revision(id, &Default::default(), &Default::default(), &mut |r, c, _| {
+            records.push((r, c.clone()));
+            Ok(())
+        })
+        .unwrap();
+    let mut seen = 0;
+    let result = archive.read_window(&info, &records, 32, &Default::default(), &mut |r| {
+        assert_eq!(r.raw.bytes, old);
+        assert_eq!(r.revision_digest, info.digest);
+        if seen == 0 {
+            retain(&archive, ArtifactKind::Sqlite, &b"{\"id\":\"new\"}\n".repeat(3));
+        }
+        seen += 1;
+        Ok(())
+    });
+    match result {
+        Ok(()) => assert_eq!(seen, 3),
+        Err(e) => {
+            assert!(seen > 0);
+            assert_eq!(e.code(), "not_found");
+            assert!(e.to_string().contains("expired"));
+        }
+    }
+}

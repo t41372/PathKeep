@@ -20,6 +20,13 @@ pub struct ProjectionAttempt {
     pub parser_version: String,
 }
 
+/// Capture can publish the native interpretation even when its reader pages need repair.
+#[derive(Clone, Copy)]
+pub(crate) enum ReaderStage {
+    Ready,
+    AwaitingRebuild,
+}
+
 impl Archive {
     /// Allocates a staging generation while keeping the published one visible.
     /// Identical raw bytes and parser identity reuse the existing interpretation,
@@ -41,8 +48,11 @@ impl Archive {
             .write(Db::AgentHistoryReadModel, Priority::Batch, move |tx| {
                 let current = tx
                     .query_one(
-                        "SELECT revision_id, parser_version FROM ah_sessions WHERE id=?1",
-                        [source_id.as_str()],
+                        "SELECT s.revision_id, s.parser_version FROM ah_sessions s WHERE s.id=?1 AND (
+                         EXISTS(SELECT 1 FROM ah_reader_version v WHERE v.attempt=s.projection_id AND v.codec=?2 AND v.renderer=?3 AND v.state='published')
+                         OR EXISTS(SELECT 1 FROM ah_reader_head h JOIN ah_reader_member m ON m.publication=h.publication
+                           WHERE h.conversation=s.conversation_id AND m.source=s.id AND m.version=''))",
+                        params![source_id.clone(),crate::read_model::publication::CODEC,crate::read_model::publication::RENDERER],
                         |row| Ok((row.get::<i64>(0)?, row.get::<String>(1)?)),
                     )
                     .optional()?;
@@ -154,7 +164,7 @@ pub(super) fn work_attempt(
     .optional()
 }
 
-pub(super) fn require_work(
+pub(crate) fn require_work(
     tx: &Session<'_>,
     attempt: &ProjectionAttempt,
 ) -> vault_store::Result<()> {
@@ -172,6 +182,7 @@ pub(super) fn retire(
     source_id: &str,
     projection_id: i64,
 ) -> vault_store::Result<()> {
+    tx.execute("UPDATE ah_reader_version SET state='retired' WHERE attempt=?1", [projection_id])?;
     tx.execute(
         "INSERT OR IGNORE INTO ah_projection_retired(session_id, projection_id) VALUES(?1, ?2)",
         params![source_id, projection_id],
@@ -204,12 +215,7 @@ pub(super) fn set_coverage(
     source_id: &str,
     complete: bool,
 ) -> vault_store::Result<()> {
-    tx.execute(
-        "INSERT INTO ah_coverage(source_id, complete) VALUES(?1, ?2) ON CONFLICT(source_id) DO
-            UPDATE SET complete=excluded.complete,affects_conversations=1",
-        params![source_id, i64::from(complete)],
-    )?;
-    Ok(())
+    coverage::write_status(tx, source_id, Some((complete, true)), None, false).map(|_| ())
 }
 
 fn operation(message: &'static str) -> vault_store::Error {

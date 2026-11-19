@@ -213,9 +213,11 @@ impl Archive {
             // Hot coverage commits first. A crash before the cold head changes is
             // conservative; the reverse order could falsely claim complete search
             // for bytes no parser has seen. Projection publication shares this lock.
-            self.set_coverage(&source_id, false)?;
+            self.set_coverage_locked(&source_id, false)?;
         }
         let retention = source.retention;
+        let expires = retention == "state";
+        let reader_source = source_id.clone();
         let retires_slices = prefix || retention == "state";
         let now = chrono::Utc::now().timestamp_millis();
         let outcome = self.store.write(Db::AgentHistoryEvidence, Priority::Batch, move |tx| {
@@ -276,6 +278,17 @@ impl Archive {
             }
             Ok(RevisionOutcome { revision_id: selected, unchanged: previous == Some(selected) })
         })?;
+        if expires && !outcome.unchanged {
+            let selected = outcome.revision_id;
+            let changed =
+                self.store.write(Db::AgentHistoryReadModel, Priority::Batch, move |tx| {
+                    crate::read_model::publication::expire_versions(tx, &reader_source, selected)
+                })?;
+            if changed > 0 {
+                self.flush_reader_heads()?;
+                self.prune_reader_pages(256)?;
+            }
+        }
         drop(_publication);
         if retires_slices {
             // Limit garbage during large imports. Backup checks the durable queue again at
@@ -351,14 +364,22 @@ fn map_revision(row: &vault_store::Row) -> vault_store::Result<RevisionInfo> {
     if length < 0 {
         return Err(integrity("revision byte length is negative"));
     }
+    let digest: String = row.get(2)?;
+    let retained: i64 = row.get(6)?;
+    if digest.len() != 64
+        || !digest.bytes().all(|b| b.is_ascii_hexdigit())
+        || !(0..=1).contains(&retained)
+    {
+        return Err(integrity("invalid digest or retention flag on complete revision"));
+    }
     Ok(RevisionInfo {
         id: row.get(0)?,
         source_id: row.get(1)?,
-        digest: row.get(2)?,
+        digest,
         byte_len: length as u64,
         captured_at: row.get(4)?,
         capture_format: row.get(5)?,
-        bytes_retained: row.get::<i64>(6)? != 0,
+        bytes_retained: retained == 1,
     })
 }
 

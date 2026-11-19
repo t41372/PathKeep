@@ -88,6 +88,14 @@ pub enum Error {
 pub type Result<T> = std::result::Result<T, Error>;
 
 impl Error {
+    /// A row requested by a typed consumer is missing or its value has the wrong type.
+    pub fn is_row_data_error(&self) -> bool {
+        matches!(
+            self,
+            Self::Engine(turso::Error::QueryReturnedNoRows | turso::Error::ConversionFailure(_))
+        )
+    }
+
     /// Keep the first failing role when an outer startup step adds context.
     pub fn at(self, role: crate::Db, stage: OpenStage) -> Self {
         match self {

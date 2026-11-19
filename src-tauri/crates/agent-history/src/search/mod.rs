@@ -53,3 +53,17 @@ pub struct SearchSyncReport {
     pub watermark: i64,
     pub rebuilt: bool,
 }
+
+impl crate::Archive {
+    /// Observes the committed index watermark and current publication target for progress displays.
+    /// Search performs its own currency checks before serving hits.
+    pub fn index_lag(&self) -> crate::Result<crate::read_model::IndexLag> {
+        let _job = self.jobs.enter(None)?;
+        let indexed_through = match index::open(self) {
+            Ok(opened) => Some(opened.watermark),
+            Err(crate::Error::IndexBehind) => None,
+            Err(error) => return Err(error),
+        };
+        Ok(crate::read_model::IndexLag { indexed_through, target: self.projection_generation()? })
+    }
+}

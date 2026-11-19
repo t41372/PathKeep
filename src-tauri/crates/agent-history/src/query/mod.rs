@@ -7,7 +7,7 @@ mod conversation_sources;
 mod coverage;
 mod cursor;
 mod events;
-mod line;
+pub(crate) mod line;
 pub(crate) mod parents;
 mod revisions;
 mod sessions;

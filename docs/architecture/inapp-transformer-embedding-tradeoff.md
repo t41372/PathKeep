@@ -105,7 +105,7 @@ A build walks visits by ascending history ID today, oldest first. Every build wi
 
 ## Weights, memory and disk
 
-- **Download:** consent-gated, SHA-256-pinned and swapped in atomically, through `model_files.rs` like the static model.
+- The shipped static model downloads with consent. Its manifest pins each file by SHA-256. The installer prepares the entire bundle in a new directory and switches the repository's `current` file. An existing engine finishes with its original tokenizer, config and mapped matrix. Loads after the switch use the new bundle. The original flat bundle works in place until the first replacement. [Archive layout](archive-layout.md#downloaded-model-files)
 - **Loaded** while a build runs and for searches, released after a few idle minutes. The static model stays resident (73–76 MiB).
 - **No re-hash on every load** (done 2026-10-25, `ai/model_files.rs` `model_files_verified`). A cache miss used to re-verify every model file, about 1 s per 512 MB on this Mac and more on the target, and so did every app snapshot's model status. The verified marker now records each file's digest, size and modification time when it passed a full hash; loads and the status trust it while those match, and a full re-hash runs only when one differs (or the marker is missing or from an older build). The hash guards against a broken or half-written download, not against someone rewriting a file and restoring its size and time.
 - **Batches** are capped by tokens, not texts, so one long page cannot blow up a batch.

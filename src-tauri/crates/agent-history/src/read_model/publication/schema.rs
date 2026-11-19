@@ -1,0 +1,106 @@
+//! Additional migrations of the registered read-model database. No source files or evidence tables are involved.
+pub(crate) const TABLES: &[&str] = &[
+    "CREATE TABLE ah_reader_version(token TEXT PRIMARY KEY, attempt INTEGER NOT NULL,
+                 source TEXT NOT NULL,revision INTEGER NOT NULL,digest TEXT NOT NULL,byte_len
+                 INTEGER NOT NULL, codec INTEGER NOT NULL,renderer INTEGER NOT NULL,records
+                 INTEGER NOT NULL,selective INTEGER NOT NULL,state TEXT NOT NULL, record_limit
+                 INTEGER NOT NULL,decoded_limit INTEGER NOT NULL,max_frame INTEGER NOT NULL
+                 DEFAULT 0,format_version TEXT)",
+    "CREATE INDEX ah_reader_attempt ON ah_reader_version(attempt,state)",
+    "CREATE INDEX ah_reader_state ON ah_reader_version(state,attempt)",
+    "CREATE TABLE ah_reader_page(owner TEXT NOT NULL,family INTEGER NOT
+                 NULL,first_rank INTEGER NOT NULL, part INTEGER NOT NULL,nbytes INTEGER NOT
+                 NULL,hash BLOB NOT NULL,binding BLOB NOT NULL, PRIMARY
+                 KEY(owner,family,first_rank,part))",
+    "CREATE INDEX ah_reader_page_hash ON ah_reader_page(hash)",
+    "CREATE TABLE ah_reader_blob(hash BLOB PRIMARY KEY, data BLOB NOT NULL)",
+    "CREATE TABLE ah_reader_sort(owner TEXT NOT NULL,level INTEGER NOT NULL,run
+                 INTEGER NOT NULL,page INTEGER NOT NULL,data BLOB NOT NULL, PRIMARY
+                 KEY(owner,level,run,page))",
+    "CREATE TABLE ah_reader_lookup(owner TEXT NOT NULL,key TEXT NOT NULL,ordinal
+                 INTEGER NOT NULL,page INTEGER NOT NULL, PRIMARY KEY(owner,key,ordinal))",
+    "CREATE TABLE ah_reader_rank(owner TEXT NOT NULL,first_rank INTEGER NOT
+                 NULL,visible_before INTEGER NOT NULL,mask BLOB NOT NULL,PRIMARY
+                 KEY(owner,first_rank))",
+    "CREATE UNIQUE INDEX ah_reader_visible_seek ON ah_reader_rank(owner,visible_before)",
+    "CREATE TABLE ah_reader_leaf(owner TEXT PRIMARY KEY,total INTEGER NOT NULL,latest INTEGER,selected_visible INTEGER)",
+    "CREATE TABLE ah_reader_leaf_line(owner TEXT NOT NULL,reverse_rank INTEGER NOT NULL,visible_start INTEGER NOT NULL,count INTEGER NOT NULL,PRIMARY KEY(owner,reverse_rank))",
+    "CREATE TABLE ah_reader_head(conversation TEXT PRIMARY KEY,publication TEXT NOT
+                 NULL UNIQUE,current_source TEXT NOT NULL,input_digest TEXT NOT NULL)",
+    "CREATE TABLE ah_reader_member(publication TEXT NOT NULL,source TEXT NOT
+                 NULL,version TEXT NOT NULL, descriptor TEXT NOT NULL,records INTEGER NOT
+                 NULL,complete INTEGER NOT NULL,attachments INTEGER NOT NULL, reason TEXT,visible
+                 INTEGER NOT NULL, PRIMARY KEY(publication,source))",
+    "CREATE INDEX ah_reader_member_source ON ah_reader_member(source,publication)",
+    "CREATE INDEX ah_reader_member_version ON ah_reader_member(version)",
+    "CREATE TABLE ah_reader_line(publication TEXT NOT NULL,branch TEXT NOT
+                 NULL,first_rank INTEGER NOT NULL, version TEXT NOT NULL,source TEXT NOT
+                 NULL,records INTEGER NOT NULL,first_visible INTEGER NOT NULL,visible INTEGER NOT
+                 NULL, PRIMARY KEY(publication,branch,first_rank))",
+    "CREATE INDEX ah_reader_line_visible ON
+                 ah_reader_line(publication,branch,first_visible)",
+    "CREATE INDEX ah_reader_line_version ON ah_reader_line(version)",
+    "CREATE TABLE ah_reader_dependency(target TEXT NOT NULL,publication TEXT NOT
+                 NULL,PRIMARY KEY(target,publication))",
+    "CREATE INDEX ah_reader_dependency_owner ON ah_reader_dependency(publication)",
+    "CREATE TABLE ah_reader_edge(publication TEXT NOT NULL,child TEXT NOT
+                 NULL,PRIMARY KEY(publication,child))",
+    "CREATE TABLE ah_reader_dirty(conversation TEXT PRIMARY KEY,ticket TEXT NOT NULL)",
+    "CREATE TABLE ah_reader_build(publication TEXT PRIMARY KEY,conversation TEXT NOT NULL UNIQUE,
+        ticket TEXT NOT NULL,current_source TEXT,input_digest TEXT)",
+    "CREATE TABLE ah_reader_retired(publication TEXT PRIMARY KEY)",
+    "ALTER TABLE ah_reader_head ADD COLUMN parent TEXT",
+    "ALTER TABLE ah_reader_head ADD COLUMN parent_status TEXT NOT NULL DEFAULT 'none'",
+    "CREATE INDEX ah_reader_children ON ah_reader_head(parent,conversation)",
+    "DROP TABLE ah_reader_edge",
+    "CREATE INDEX ah_reader_version_source ON ah_reader_version(source,state,revision)",
+    "ALTER TABLE ah_reader_version ADD COLUMN header_ordinal INTEGER",
+    "ALTER TABLE ah_reader_leaf ADD COLUMN unresolved_at INTEGER",
+    "ALTER TABLE ah_reader_version ADD COLUMN rank_pages INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE ah_reader_version ADD COLUMN lookup_pages INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE ah_reader_version ADD COLUMN postings INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE ah_reader_version ADD COLUMN visible_total INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE ah_reader_retired RENAME TO ah_reader_old_retired",
+    "CREATE TABLE ah_reader_retired(epoch INTEGER PRIMARY KEY AUTOINCREMENT,publication TEXT NOT NULL UNIQUE)",
+    "INSERT INTO ah_reader_retired(publication) SELECT publication FROM ah_reader_old_retired",
+    "DROP TABLE ah_reader_old_retired",
+    "CREATE TABLE ah_reader_walk(owner TEXT NOT NULL,leaf INTEGER NOT NULL,depth INTEGER NOT NULL,stamp BLOB NOT NULL,PRIMARY KEY(owner,leaf))",
+    "CREATE TABLE ah_reader_walk_run(owner TEXT NOT NULL,leaf INTEGER NOT NULL,reverse_rank INTEGER NOT NULL,first_ordinal INTEGER NOT NULL,count INTEGER NOT NULL,stamp BLOB NOT NULL,PRIMARY KEY(owner,leaf,reverse_rank))",
+    "ALTER TABLE ah_reader_version ADD COLUMN repair_generation INTEGER NOT NULL DEFAULT 0",
+    "CREATE INDEX ah_reader_awaiting ON ah_reader_member(publication) WHERE version=''",
+    "ALTER TABLE ah_reader_version ADD COLUMN leaf_count INTEGER NOT NULL DEFAULT -1",
+    "ALTER TABLE ah_reader_version ADD COLUMN directory_pages INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE ah_reader_leaf ADD COLUMN stamp BLOB",
+    "DROP TABLE ah_reader_rank",
+    "DROP TABLE ah_reader_lookup",
+    "DROP TABLE ah_reader_leaf_line",
+    "ALTER TABLE ah_reader_head ADD COLUMN awaiting_rebuild INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE ah_reader_version ADD COLUMN duplicate_ids INTEGER NOT NULL DEFAULT 0",
+    "UPDATE ah_reader_head SET parent=(SELECT json_extract(m.descriptor,'$.parent_id')
+        FROM ah_reader_member m WHERE m.publication=ah_reader_head.publication AND m.source=ah_reader_head.current_source),
+        parent_status=coalesce((SELECT CASE WHEN json_extract(m.descriptor,'$.parent_id') IS NOT NULL THEN 'resolved'
+        WHEN json_extract(m.descriptor,'$.relation.parent_native_id') IS NOT NULL THEN 'unresolved' ELSE 'none' END
+        FROM ah_reader_member m WHERE m.publication=ah_reader_head.publication AND m.source=ah_reader_head.current_source),'none')",
+    "ALTER TABLE ah_reader_version ADD COLUMN nonempty_blocks INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE ah_reader_version ADD COLUMN ambiguous_edges INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE ah_reader_version ADD COLUMN pieces INTEGER NOT NULL DEFAULT 0",
+    "CREATE TABLE ah_reader_ambiguous_stage(owner TEXT NOT NULL,ordinal INTEGER NOT NULL,PRIMARY KEY(owner,ordinal))",
+    "CREATE TABLE ah_reader_parked(conversation TEXT PRIMARY KEY,ticket TEXT NOT NULL)",
+    "CREATE TABLE ah_reader_verified(conversation TEXT PRIMARY KEY,ticket TEXT NOT NULL,publication TEXT NOT NULL)",
+    "ALTER TABLE ah_reader_head ADD COLUMN manifest BLOB",
+    "ALTER TABLE ah_reader_build ADD COLUMN manifest BLOB",
+    "ALTER TABLE ah_reader_member ADD COLUMN stamp BLOB",
+    "ALTER TABLE ah_reader_line ADD COLUMN stamp BLOB",
+    "ALTER TABLE ah_reader_head ADD COLUMN stamp BLOB",
+    "ALTER TABLE ah_reader_build ADD COLUMN stamp BLOB",
+    "ALTER TABLE ah_reader_head ADD COLUMN members INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE ah_reader_build ADD COLUMN members INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE ah_reader_version ADD COLUMN stamp BLOB",
+    "CREATE INDEX ah_reader_dependency_publication_target ON ah_reader_dependency(publication,target)",
+    "CREATE TABLE ah_reader_serving(conversation TEXT PRIMARY KEY,publication TEXT NOT NULL,parent TEXT,stamp BLOB)",
+    "CREATE INDEX ah_reader_serving_parent ON ah_reader_serving(parent,conversation)",
+    "INSERT INTO ah_reader_serving SELECT conversation,publication,parent,stamp FROM ah_reader_head",
+    "CREATE TABLE ah_reader_route(publication TEXT NOT NULL,target TEXT NOT NULL,PRIMARY KEY(publication,target))",
+    "CREATE INDEX ah_reader_route_target ON ah_reader_route(target,publication)",
+    "INSERT INTO ah_reader_route SELECT publication,target FROM ah_reader_dependency",
+];

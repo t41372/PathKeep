@@ -16,9 +16,15 @@ pub struct FolderObservation {
 
 impl Archive {
     pub(crate) fn observe_source(&self, run: i64, id: &str, seen: bool) -> Result<()> {
+        let source = id.to_owned();
         let id = id.to_owned();
         let now = chrono::Utc::now().timestamp_millis();
-        self.store.write(Db::AgentHistoryEvidence, Priority::Batch, move |tx| {
+        let changed = self.store.write(Db::AgentHistoryEvidence, Priority::Batch, move |tx| {
+            let missing = tx.query_one(
+                "SELECT missing_since IS NOT NULL FROM ah_sources WHERE id=?1",
+                [id.as_str()],
+                |r| Ok(r.get::<i64>(0)? != 0),
+            )?;
             let added = tx.execute(
                 "
                 INSERT OR IGNORE INTO ah_source_observations(run_id, source_id, seen, observed_at)
@@ -41,8 +47,18 @@ impl Archive {
                     params![now, id],
                 )?;
             }
-            Ok(())
+            Ok(missing == seen)
         })?;
+        if changed {
+            let _gate = self
+                .publication_gate
+                .lock()
+                .map_err(|_| crate::Error::Integrity("publication lock".into()))?;
+            self.store.write(Db::AgentHistoryReadModel, Priority::Batch, move |tx| {
+                crate::read_model::publication::refresh(tx, &source, None)
+            })?;
+            self.flush_reader_heads()?;
+        }
         Ok(())
     }
 
@@ -166,5 +182,35 @@ impl Archive {
             items: rows.into_iter().map(|(_, item)| item).collect(),
             next_cursor,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn pinned_observation_refuses_recorded_git_descendant() {
+        let temp = tempfile::tempdir().unwrap();
+        let a = Archive::create_unencrypted(&temp.path().join("archive")).unwrap();
+        let root = SourceRoot { harness: crate::Harness::Pi, root: temp.path().join("pi") };
+        let path = root.root.join("project/.GiT/private.jsonl");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, b"private").unwrap();
+        let artifact = crate::Artifact {
+            kind: crate::ArtifactKind::Transcript,
+            path,
+            relative_path: "project/.GiT/private.jsonl".into(),
+            generation: None,
+            current: true,
+            project_hint: None,
+        };
+        a.begin_revision("recorded", &root, &artifact).unwrap();
+        let pin = crate::capture::directory_handle(&root.root).unwrap();
+        let discovery = crate::capture::Discovery::new(
+            &Default::default(),
+            Some((root.root.clone(), std::sync::Arc::new(pin))),
+        );
+        assert!(a.observe_missing(1, &root, &discovery).unwrap());
+        assert!(a.source("recorded").unwrap().last_seen_at.is_none());
     }
 }

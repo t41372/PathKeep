@@ -3,15 +3,17 @@
 
 use super::Vault;
 use agent_history::{AgentHistoryResources, Archive, archive::ArchivePause};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 use vault_layout::ArtifactId;
+use vault_store::CancelToken;
 
 #[derive(Default)]
-pub(super) struct Conversations(Mutex<Slot>);
+pub(super) struct Conversations(Mutex<Slot>, Condvar);
 
 #[derive(Default)]
 struct Slot {
     archive: Option<Arc<Archive>>,
+    attaching: Option<CancelToken>,
     recovery_failure: Option<Arc<vault_store::StoreOpenFailure>>,
     closed: bool,
     pauses: usize,
@@ -112,7 +114,7 @@ impl Vault {
 
     /// After an external fix, retry both conversation workers in this generation.
     pub fn retry_conversations(&self) -> vault_store::Result<()> {
-        let mut slot = self.lifetime.conversations.0.lock().unwrap();
+        let slot = self.lifetime.conversations.0.lock().unwrap();
         if slot.closed || !self.store.is_open() {
             return Err(vault_store::Error::Closed);
         }
@@ -120,7 +122,8 @@ impl Vault {
             return Err(vault_store::Error::cancelled());
         }
         if slot.recovery_failure.is_some() {
-            return self.attach_conversations(&mut slot).map(|_| ()).map_err(|e| match e {
+            drop(slot);
+            return self.agent_history().map(|_| ()).map_err(|e| match e {
                 agent_history::Error::Store(error) => error,
                 other => vault_store::Error::Operation(Box::new(other)),
             });
@@ -152,23 +155,49 @@ impl Vault {
     /// Returns this generation's conversation service. First use runs recovery on the
     /// calling thread. A failed recovery can be retried independently of browsing.
     pub fn agent_history(&self) -> agent_history::Result<Arc<Archive>> {
-        let mut slot = self.lifetime.conversations.0.lock().unwrap();
-        if slot.closed || !self.store.is_open() {
-            return Err(vault_store::Error::Closed.into());
+        let owner = &self.lifetime.conversations;
+        let mut slot = owner.0.lock().unwrap();
+        loop {
+            if slot.closed || !self.store.is_open() {
+                return Err(vault_store::Error::Closed.into());
+            }
+            if slot.pauses > 0 {
+                return Err(agent_history::Error::Cancelled);
+            }
+            self.store.conversation_availability().map_err(vault_store::Error::Open)?;
+            if let Some(archive) = slot.archive.clone() {
+                if slot.prepare_visible_search {
+                    archive.prepare_visible_search()?;
+                    slot.prepare_visible_search = false;
+                }
+                return Ok(archive);
+            }
+            if slot.attaching.is_some() {
+                slot = owner.1.wait(slot).unwrap();
+                continue;
+            }
+            let cancel = CancelToken::new();
+            slot.attaching = Some(cancel.clone());
+            drop(slot);
+            let result = self.attach_conversations(&cancel);
+            slot = owner.0.lock().unwrap();
+            slot.attaching = None;
+            owner.1.notify_all();
+            if slot.closed || slot.pauses > 0 || cancel.check().is_err() {
+                return Err(agent_history::Error::Cancelled);
+            }
+            match result {
+                Ok(archive) => {
+                    slot.recovery_failure = None;
+                    slot.archive = Some(archive);
+                }
+                Err(agent_history::Error::Store(vault_store::Error::Open(reason))) => {
+                    slot.recovery_failure = Some(reason.clone());
+                    return Err(vault_store::Error::Open(reason).into());
+                }
+                Err(error) => return Err(error),
+            }
         }
-        self.store.conversation_availability().map_err(vault_store::Error::Open)?;
-        if slot.pauses > 0 {
-            return Err(agent_history::Error::Cancelled);
-        }
-        let archive = match &slot.archive {
-            Some(archive) => archive.clone(),
-            None => self.attach_conversations(&mut slot)?,
-        };
-        if slot.prepare_visible_search {
-            archive.prepare_visible_search()?;
-            slot.prepare_visible_search = false;
-        }
-        Ok(archive)
     }
 
     /// Register preparation on this generation without attaching a service just
@@ -188,7 +217,7 @@ impl Vault {
         Ok(())
     }
 
-    fn attach_conversations(&self, slot: &mut Slot) -> agent_history::Result<Arc<Archive>> {
+    fn attach_conversations(&self, cancel: &CancelToken) -> agent_history::Result<Arc<Archive>> {
         let index = ArtifactId::AgentHistorySearch;
         let resources = AgentHistoryResources {
             search_path: self.paths.artifact_path(index),
@@ -196,16 +225,9 @@ impl Vault {
                 .data_key()
                 .map(|key| key.derive(vault_layout::spec(index).file_key.expect("search purpose"))),
         };
-        let archive = match Archive::from_store(self.store.clone(), resources) {
-            Ok(archive) => Arc::new(archive),
-            Err(agent_history::Error::Store(vault_store::Error::Open(reason))) => {
-                slot.recovery_failure = Some(reason.clone());
-                return Err(vault_store::Error::Open(reason).into());
-            }
-            Err(other) => return Err(other),
-        };
-        slot.recovery_failure = None;
-        slot.archive = Some(archive.clone());
+        let archive =
+            Arc::new(Archive::from_store_controlled(self.store.clone(), resources, cancel)?);
+        archive.enable_idle_reader_collection();
         Ok(archive)
     }
 
@@ -216,6 +238,11 @@ impl Vault {
         let archive = {
             let mut slot = owner.0.lock().unwrap();
             slot.pauses += 1;
+            if let Some(token) = &slot.attaching {
+                token.cancel();
+            }
+            owner.1.notify_all();
+            let slot = owner.1.wait_while(slot, |s| s.attaching.is_some()).unwrap();
             slot.archive.clone()
         };
         let jobs = archive.map(|archive| archive.pause_jobs());
@@ -228,6 +255,11 @@ impl Conversations {
         let archive = {
             let mut slot = self.0.lock().unwrap();
             slot.closed = true;
+            if let Some(token) = &slot.attaching {
+                token.cancel();
+            }
+            self.1.notify_all();
+            let slot = self.1.wait_while(slot, |s| s.attaching.is_some()).unwrap();
             slot.archive.clone()
         };
         if let Some(archive) = archive {

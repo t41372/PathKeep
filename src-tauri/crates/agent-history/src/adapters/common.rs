@@ -48,38 +48,13 @@ pub fn records(
         let ordinal = stats.physical_records;
         stats.physical_records += 1;
         stats.unterminated_tail = !line.terminated;
-        if line.oversized {
-            record_issue(issues, context, ordinal, "record_too_large");
-            stats.complete = false;
-            continue;
-        }
-        let mut bytes = buffer.as_slice();
-        if ordinal == 0 && bytes.starts_with(b"\xef\xbb\xbf") {
-            bytes = &bytes[3..];
-        }
-        if bytes.iter().all(u8::is_ascii_whitespace) {
-            continue;
-        }
-        if std::str::from_utf8(bytes).is_err() {
-            record_issue(issues, context, ordinal, "invalid_utf8");
-            stats.complete = false;
-            continue;
-        }
-        match serde_json::from_slice::<Value>(bytes) {
-            Ok(value) if value.is_object() => {
+        match line.object(&buffer, ordinal) {
+            Ok(Some(value)) => {
                 emit(value, ordinal)?;
                 stats.emitted_records += 1;
             }
-            Ok(_) => {
-                record_issue(issues, context, ordinal, "non_object_record");
-                stats.complete = false;
-            }
-            Err(error) => {
-                let code = if !line.terminated && error.is_eof() {
-                    "incomplete_tail"
-                } else {
-                    "malformed_record"
-                };
+            Ok(None) => {}
+            Err(code) => {
                 record_issue(issues, context, ordinal, code);
                 stats.complete = false;
             }
@@ -88,25 +63,54 @@ pub fn records(
     Ok(stats)
 }
 
-struct Line {
+pub(crate) struct Line {
+    pub(crate) length: u64,
     oversized: bool,
     terminated: bool,
 }
 
-fn read_line(
+impl Line {
+    pub(crate) fn object(
+        &self,
+        buffer: &[u8],
+        ordinal: u64,
+    ) -> std::result::Result<Option<Value>, &'static str> {
+        if self.oversized {
+            return Err("record_too_large");
+        }
+        let bytes = if ordinal == 0 {
+            buffer.strip_prefix(b"\xef\xbb\xbf").unwrap_or(buffer)
+        } else {
+            buffer
+        };
+        if bytes.iter().all(u8::is_ascii_whitespace) {
+            return Ok(None);
+        }
+        if std::str::from_utf8(bytes).is_err() {
+            return Err("invalid_utf8");
+        }
+        match serde_json::from_slice::<Value>(bytes) {
+            Ok(value) if value.is_object() => Ok(Some(value)),
+            Ok(_) => Err("non_object_record"),
+            Err(error) if !self.terminated && error.is_eof() => Err("incomplete_tail"),
+            Err(_) => Err("malformed_record"),
+        }
+    }
+}
+
+pub(crate) fn read_line(
     input: &mut dyn BufRead,
     buffer: &mut Vec<u8>,
     limit: usize,
 ) -> std::io::Result<Option<Line>> {
     buffer.clear();
-    let mut seen = false;
+    let mut length = 0;
     let mut oversized = false;
     loop {
         let available = input.fill_buf()?;
         if available.is_empty() {
-            return Ok(seen.then_some(Line { oversized, terminated: false }));
+            return Ok((length != 0).then_some(Line { length, oversized, terminated: false }));
         }
-        seen = true;
         let newline = available.iter().position(|byte| *byte == b'\n');
         let content_len = newline.unwrap_or(available.len());
         let retain = content_len.min(limit.saturating_sub(buffer.len()));
@@ -114,13 +118,19 @@ fn read_line(
         oversized |= retain < content_len;
         let consume = content_len + usize::from(newline.is_some());
         input.consume(consume);
+        length += consume as u64;
         if newline.is_some() {
-            return Ok(Some(Line { oversized, terminated: true }));
+            return Ok(Some(Line { length, oversized, terminated: true }));
         }
     }
 }
 
-fn record_issue(issues: &mut Vec<Diagnostic>, context: &ParseContext, ordinal: u64, code: &str) {
+pub(crate) fn record_issue(
+    issues: &mut Vec<Diagnostic>,
+    context: &ParseContext,
+    ordinal: u64,
+    code: &str,
+) {
     push_diagnostic(
         issues,
         Diagnostic {
@@ -212,7 +222,8 @@ pub fn decoded_reader<'a>(
     input: Box<dyn Read + 'a>,
     relative_path: &str,
 ) -> Result<Box<dyn BufRead + 'a>> {
-    if relative_path.ends_with(".zst") || relative_path.ends_with(".zstd") {
+    if crate::read_model::Transport::from_path(relative_path) == crate::read_model::Transport::Zstd
+    {
         let mut decoder = zstd::stream::read::Decoder::new(input)?;
         decoder.window_log_max(26)?;
         Ok(Box::new(BufReader::with_capacity(64 * 1024, decoder)))

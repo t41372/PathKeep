@@ -159,3 +159,44 @@ supported formats, limits and remaining gaps. The [verification record](research
 contains macOS/Linux results and the 14.4M synthetic run under enforced 4 CPU /
 8 GiB limits. Native replay, UI integration and Windows runtime validation remain
 outside those results; an adapter name alone is not a completeness claim.
+
+### Physical reads beside the native projection
+
+A retained revision can be scanned into physical locators and per-record interpreter contexts.
+JSONL spans include BOM and line endings; native arrays use the element span. A zstd locator
+also identifies the independently decodable frame containing the record's first byte.
+Archive scans bind locators to the source, revision ID, digest and transport. An authenticated outline page inherits that binding from its published source version. Standalone scans and deserialized locators carry coordinates only. A window reuses each authenticated slice across gaps and seeks directly when the next record falls outside it. A full
+scan through EOF also verifies the revision digest. A short or damaged native frame has its
+own error code. A malformed JSON row retains its exact bytes and reports framing coverage.
+
+The `agent_history::read_model` API streams at most 200 selected records per window.
+Callers keep the locator and context together. Each row carries a bounded exact-byte page;
+a complete object also supplies native fields and typed text, reasoning, call-input and
+call-result parts. When an object's raw page continues, the reader interprets the complete framed object and returns bounded typed display parts alongside the raw continuation. A comma in place of an expected array element has its own ordinal and a zero-byte malformed span. A trailing comma produces a document diagnostic. An empty array has zero physical records.
+The scan and window callbacks run on the caller's blocking worker outside store transactions.
+Two workers per archive cover evidence, published pages and row assembly. At most one runs a background scan. Two maximum 64 MiB native decoder windows use 128 MiB before archive slice decoding, interpreted rows and storage-engine allocations, leaving headroom on the 8 GiB machine. Callers enter the decoder queue in arrival order and can cancel while the other workers are busy. A prepared version can publish while the scan slot is occupied. Maintenance signals their cancellation token before draining active reads. A callback waiting
+on downstream capacity must observe that token. A window uses its revision as of the start of the read. It can finish from authenticated bytes already fetched, or report expiry. Callers discard provisional rows on error.
+
+The [removal matrix](research/agent-history/read-model-removal.md) tracks the existing SQL,
+CLI and fault-injection contracts through cutover. The [measurement commands and oracles](research/agent-history/read-model-measurements.md)
+cover both archive modes, native framing, source-order windows and outline rank seeks.
+
+### Versioned conversation reads
+
+A source publication is staged from its retained revision. The source projection commits a dirty ticket for every affected conversation. Private metadata batches resolve copy election, native base boundaries, alternative rollouts, recorded Pi leaves, child links, coverage and prefix-scoped attachment counts. The final ticket comparison and head switch run in one read-model transaction. A superseded reader gets a stale cursor. Interrupted work leaves a recoverable preceding head.
+
+The child's head owns its parent link. A later exact-path match moves the child between parent listings when its head switches. Child pagination reads the current child index, so a parent's unchanged publication ID can span a change to its list of children. A source whose raw head changed retains its last readable text with partial coverage. An unreadable DeepSeek generation that has itself been published is current and incomplete. A healthy rebuild and a redundant ticket preserve the publication ID. A changed source attempt or repaired page generation can supersede it.
+
+Use `reader_header` to pin a publication. `reader_sources` pages its member descriptors. `reader_outline` and `reader_window` address physical records on either the selected line or an earlier member branch. `reader_visible_window` uses ranked display bitmaps and the latest recorded Pi continuation. `reader_leaves` and `reader_leaf_window` expose alternatives. `reader_lookup` returns exact native-ID occurrences, `reader_children` pages resolved children, and `reader_record_bytes` expands exact evidence within the authorized member or inherited prefix.
+
+Pi resolves each reference among definitions preceding the referring entry. A later reuse of an ID can be a separate leaf. Two eligible definitions leave that reference unresolved. The default selection follows proven parents from the latest recorded tip, including a readable tip whose own ID is missing. A missing or ambiguous parent produces an `unresolved_parent` divider followed by the proven suffix. Physical reads can still open every earlier ordinal. The root header is the recognized first object, including when blanks precede it. Explicit leaf requests cache reverse-ranked runs under the immutable source version.
+
+Native interpreters identify structural boundaries independently of text. A compaction divider can therefore carry text, have no text, or expose a recorded pre-compaction token count. The Cline and Roo task-array adapters publish a typed divider for a summary entry. The rank directory indexes only blocks with visible records, so a seek across hidden records reads the endpoint masks. A sparse window gathers requested ordinals by version, shares authenticated outline pages and uses one decoded-work budget across all evidence runs. A hole in authenticated navigation returns `reader_rebuild_required`. A request whose publication moved returns `stale_cursor`.
+
+A source receives rendered pages if any independently decoded native frame exceeds 32 MiB. Transport suffix and total source length alone do not establish that condition. Rendered reads bind the source digest and renderer version. Fallback reinterprets the evidence, using the original parser budgets if the outline itself needs recovery. Large display rows carry a truncation flag and their physical address. Native exports and raw download continue to use evidence.
+
+`rebuild_reader_catalog` regenerates the reader tables from retained bytes and existing native session membership with live roots absent. It preserves the legacy event projection, runs, user marks and search index. Complete regeneration of those other subsystems from a blank pair of derived stores is the later full-rebuild step. Repair compares the immutable candidate outside the publication lock, then revalidates the serving version before switching. Both no-op decisions verify the serving rows and page inventory.
+
+If recovery encounters a damaged publication, it parks that conversation’s ticket for rebuild and finishes healthy tickets. Its reads report `reader_rebuild_required`. Capture saves the versioned parse report before building reader pages. A parked dependent leaves discovery free to capture later files and roots. A source whose own page build fails keeps its native interpretation and an explicit member awaiting reader rebuild. An unchanged capture reuses the saved interpretation.
+
+Collection skips a retired owner it cannot delete and retries on a later pass. Attach and Retry can serve healthy conversations while retired data awaits collection. Backup reports the finalization error even when capture also failed. Owner shutdown can interrupt recovery or backup finalization between batches. Durable tickets are finalized on resume or reopen. A waiting backup keeps priority for the next scan slot while interactive reads can use the other decoder. The [stored values and lifecycle table](archive-compatibility.md#agent-conversation-reader-publications-revision-1) identifies the owner of every new table.

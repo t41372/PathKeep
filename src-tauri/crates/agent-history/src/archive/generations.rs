@@ -10,6 +10,7 @@ impl Archive {
         source_id: &str,
         revision: i64,
         parser: &str,
+        job: &crate::read_model::JobControl,
     ) -> Result<bool> {
         let source = self.source(source_id)?;
         let native = adapter(source.harness.parse()?);
@@ -68,7 +69,8 @@ impl Archive {
         if let Some(attempt) = self.prepare_projection(source_id, revision, parser, false)? {
             // The producer could not read this generation. Metadata comes only
             // from the adapter-proven prior group; no older events are copied.
-            self.publish_projection_attempt_with_coverage(&attempt, &metadata, false, false)?;
+            let reader = self.stage_capture_reader(&attempt, &Default::default(), job)?;
+            self.publish_staged(&attempt, &metadata, false, false, reader, job)?;
         }
         Ok(true)
     }

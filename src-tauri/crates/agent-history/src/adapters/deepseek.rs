@@ -8,6 +8,7 @@
 
 mod discovery;
 mod records;
+use crate::read_model::{PartKind, RecordPart, parts};
 use records::*;
 
 use super::common;
@@ -192,13 +193,6 @@ impl<'a> Projection<'a> {
                 session.model = Some(model.to_owned());
             }
         }
-        let native_id = message
-            .and_then(|value| value.get("id"))
-            .and_then(Value::as_str)
-            .map(str::to_owned)
-            .or_else(|| payload.get("seq").and_then(Value::as_u64).map(|seq| seq.to_string()));
-        let role = message.and_then(|_| role_for_event(&kind)).map(str::to_owned);
-        let text = if interpreted { native_text(&payload, &kind, message) } else { String::new() };
         if interpreted {
             self.attachments(&payload, &kind, ordinal);
             let spill_content = match kind.as_str() {
@@ -212,17 +206,9 @@ impl<'a> Projection<'a> {
                 self.issue("deepseek-spill-coverage-unknown", Some(ordinal));
             }
         }
-        emit(NativeEvent {
-            references: std::mem::take(&mut self.event_references),
-            ordinal,
-            native_id,
-            parent_id: None,
-            kind,
-            role,
-            timestamp,
-            text,
-            payload,
-        })
+        let mut event = native_event(payload, ordinal, self.version);
+        event.references = std::mem::take(&mut self.event_references);
+        emit(event)
     }
 
     fn header(&mut self, payload: &Value) {
@@ -230,10 +216,7 @@ impl<'a> Projection<'a> {
             self.issue("deepseek-header-invalid", Some(0));
             return;
         }
-        let id = payload.get("id").and_then(Value::as_str).filter(|id| !id.is_empty());
-        let version = payload.get("version").and_then(Value::as_u64);
-        let created_at = payload.get("createdAt").and_then(Value::as_i64).filter(|time| *time >= 0);
-        let (Some(id), Some(version), Some(created_at)) = (id, version, created_at) else {
+        let Some((id, version, created_at)) = header_fields(payload) else {
             self.issue("deepseek-header-invalid", Some(0));
             return;
         };
@@ -370,4 +353,63 @@ impl<'a> Projection<'a> {
             ordinal,
         );
     }
+}
+
+pub(crate) fn native_event(payload: Value, ordinal: u64, version: Option<u64>) -> NativeEvent {
+    let kind = payload.get("type").and_then(Value::as_str).unwrap_or("unknown").to_owned();
+    let interpreted = version.is_some_and(|version| version <= CURRENT_VERSION);
+    let message = if interpreted { message(&payload, &kind) } else { None };
+    let timestamp = payload.get("time").and_then(Value::as_i64);
+    let native_id = message
+        .and_then(|value| value.get("id"))
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .or_else(|| payload.get("seq").and_then(Value::as_u64).map(|seq| seq.to_string()));
+    let role = message.and_then(|_| role_for_event(&kind)).map(str::to_owned);
+    let text = if interpreted { native_text(&payload, &kind, message) } else { String::new() };
+    NativeEvent {
+        references: Vec::new(),
+        ordinal,
+        native_id,
+        parent_id: None,
+        kind,
+        role,
+        timestamp,
+        text,
+        payload,
+    }
+}
+
+pub(crate) fn header_fields(payload: &Value) -> Option<(&str, u64, i64)> {
+    Some((
+        payload["id"].as_str().filter(|id| !id.is_empty())?,
+        payload["version"].as_u64()?,
+        payload["createdAt"].as_i64().filter(|time| *time >= 0)?,
+    ))
+}
+
+pub(crate) fn parts(event: &NativeEvent, version: Option<u64>) -> Vec<RecordPart> {
+    if version.is_none_or(|v| v > CURRENT_VERSION) {
+        return Vec::new();
+    }
+    let kind = event.kind.as_str();
+    let data = &event.payload["data"];
+    let content = message(&event.payload, kind)
+        .map(|m| &m["content"])
+        .or_else(|| (kind == "tool/ptc-dispatch").then(|| &data["content"]));
+    let role = if kind == "tool/result" { PartKind::CallResult } else { PartKind::Text };
+    let mut result = content.map(|c| parts::content(c, role)).unwrap_or_default();
+    if matches!(kind, "tool/call" | "tool/ptc-dispatch") {
+        parts::call(&mut result, data, "arguments")
+    }
+    result
+}
+
+pub(crate) fn boundary(
+    event: &NativeEvent,
+    version: Option<u64>,
+) -> Option<crate::read_model::StructuralBoundary> {
+    use crate::read_model::{BoundaryKind, StructuralBoundary};
+    (version.is_some_and(|v| v <= CURRENT_VERSION) && event.kind == "compaction/summary")
+        .then_some(StructuralBoundary { kind: BoundaryKind::Compaction, tokens_before: None })
 }

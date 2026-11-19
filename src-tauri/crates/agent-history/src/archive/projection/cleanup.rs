@@ -66,10 +66,15 @@ impl Archive {
                     [counter],
                 )?;
                 tx.execute("DELETE FROM ah_sessions WHERE id=?1", [source_id.as_str()])?;
-                if let (Some(selection), Some(id)) = (selection, conversation) {
-                    selection.publish(tx, &id, None)?;
+                if let (Some(selection), Some(id)) = (selection, conversation.as_ref()) {
+                    selection.publish(tx, id, None)?;
                 }
                 if published.is_some() {
+                    crate::read_model::publication::refresh(
+                        tx,
+                        &source_id,
+                        conversation.as_deref(),
+                    )?;
                     publish_outbox(tx, &source_id, 0, 0)?;
                 }
                 // Intentional exclusion of a superseded native generation is not
@@ -87,6 +92,7 @@ impl Archive {
             tx.execute("DELETE FROM ah_retiring_memberships WHERE source_id=?1", [retired_source])?;
             Ok(())
         })?;
+        self.flush_reader_heads()?;
         Ok(published)
     }
 

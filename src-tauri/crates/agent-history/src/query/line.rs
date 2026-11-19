@@ -38,39 +38,75 @@ pub(super) fn describe(tx: &Session<'_>, conversation: &str) -> Result<Option<Li
     let Some(current) = current else {
         return Ok(None);
     };
-    let mut segments = Vec::new();
-    let mut visited = HashSet::new();
-    let mut source = current;
-    let mut end = None;
-    let mut complete = true;
-    let mut attachments = 0;
-    let issue = loop {
-        if !visited.insert(source.clone()) {
-            break Some(LineageIssue::Cycle);
-        }
-        let (segment, relation, covered) = read_segment(tx, &source, end)?;
-        complete &= covered;
-        attachments += attachment_count(tx, &segment)?;
-        segments.push(segment);
-        if relation.base_native_id.is_none() {
-            break None;
-        }
-        let Some(predecessor) = base(tx, &source, &relation)? else {
-            break Some(LineageIssue::Unresolved);
-        };
-        source = predecessor.source;
-        end = Some(predecessor.own_end);
-    };
-    segments.reverse();
-    Ok(Some(LineStatus { segments, complete: complete && issue.is_none(), issue, attachments }))
+    Resolver::default().describe(tx, current).map(Some)
 }
 
-pub(super) enum LineageIssue {
+/// Reuses native predecessor proofs and clipped segment coverage while a conversation
+/// restage holds its publication gate. Each distinct source/cut is read once.
+#[derive(Default)]
+pub(crate) struct Resolver {
+    predecessors: std::collections::HashMap<String, Option<Predecessor>>,
+    cuts: std::collections::HashMap<(String, Option<u64>), (Segment, SourceRelation, bool, u64)>,
+}
+impl Resolver {
+    pub(crate) fn describe(&mut self, tx: &Session<'_>, current: String) -> Result<LineStatus> {
+        let mut segments = Vec::new();
+        let mut visited = HashSet::new();
+        let mut resolved_base = None;
+        let mut source = current;
+        let mut end = None;
+        let mut complete = true;
+        let mut attachments = 0;
+        let issue = loop {
+            if !visited.insert(source.clone()) {
+                break Some(LineageIssue::Cycle);
+            }
+            let key = (source.clone(), end);
+            if !self.cuts.contains_key(&key) {
+                let (seg, relation, covered) = read_segment(tx, &source, end)?;
+                let attachments = attachment_count(tx, &seg)?;
+                self.cuts.insert(key.clone(), (seg, relation, covered, attachments));
+            }
+            let (segment, relation, covered, count) = &self.cuts[&key];
+            complete &= *covered;
+            attachments += count;
+            segments.push(segment.clone());
+            if relation.base_native_id.is_none() {
+                break None;
+            }
+            if !self.predecessors.contains_key(&source) {
+                self.predecessors.insert(source.clone(), base(tx, &source, relation)?);
+            }
+            let Some(predecessor) = &self.predecessors[&source] else {
+                break Some(LineageIssue::Unresolved);
+            };
+            if segments.len() == 1 {
+                resolved_base = Some(crate::read_model::ResolvedBase {
+                    source_id: predecessor.source.clone(),
+                    own_end: predecessor.own_end,
+                    prefix_digest: predecessor.prefix_digest.clone(),
+                });
+            }
+            source.clone_from(&predecessor.source);
+            end = Some(predecessor.own_end);
+        };
+        segments.reverse();
+        Ok(LineStatus {
+            segments,
+            complete: complete && issue.is_none(),
+            issue,
+            attachments,
+            resolved_base,
+        })
+    }
+}
+pub(crate) enum LineageIssue {
     Cycle,
     Unresolved,
 }
 
-pub(super) struct LineStatus {
+pub(crate) struct LineStatus {
+    pub resolved_base: Option<crate::read_model::ResolvedBase>,
     pub segments: Vec<Segment>,
     pub complete: bool,
     pub issue: Option<LineageIssue>,
@@ -131,6 +167,7 @@ fn attachment_count(tx: &Session<'_>, segment: &Segment) -> Result<u64> {
 }
 
 pub(super) struct Predecessor {
+    prefix_digest: String,
     pub source: String,
     own_end: u64,
 }
@@ -179,8 +216,8 @@ pub(super) fn base(
             if expected.as_ref().is_some_and(|expected| expected != &digest) {
                 return Ok(None);
             }
-            expected = Some(digest);
-            chosen.get_or_insert(Predecessor { source, own_end });
+            expected = Some(digest.clone());
+            chosen.get_or_insert(Predecessor { source, own_end, prefix_digest: digest });
         }
     }
     Ok(chosen)

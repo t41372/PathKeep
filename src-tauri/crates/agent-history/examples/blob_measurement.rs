@@ -1,22 +1,12 @@
-//! Responsibilities: measure synthetic compressed blobs through encrypted vault-store.
-//! Not responsible for: production formats or reading native user histories.
+//! Measures compressed and incompressible evidence reads through real Turso.
+//! All databases and inputs belong to the benchmark.
+mod measurement;
 use sha2::{Digest, Sha256};
-use std::{path::Path, time::Instant};
-use vault_crypto::{DataKey, KeyPurpose, TempCryptIo};
-use vault_store::{Config, Db, Priority, Store, params};
-
-fn open(root: &Path, key: &DataKey) -> Store {
-    let mut config = Config::new(root);
-    config.databases = vec![Db::Scratch, Db::AgentHistoryEvidence];
-    config.keys[Db::Scratch as usize] =
-        Some(*key.derive(KeyPurpose::ScratchDatabase).expose_bytes());
-    config.keys[Db::AgentHistoryEvidence as usize] =
-        Some(*key.derive(KeyPurpose::SourceEvidenceDatabase).expose_bytes());
-    config.io = Some(TempCryptIo::new(key).unwrap());
-    config.readers_per_database = std::num::NonZeroUsize::new(1).unwrap();
-    Store::open(config).unwrap()
-}
-
+use std::{
+    io::{self, Read},
+    time::{Duration, Instant},
+};
+use vault_store::{Db, Priority, Store, params};
 fn synthetic(size: usize) -> Vec<u8> {
     let mut bytes = Vec::new();
     let mut index = 0_u64;
@@ -33,76 +23,128 @@ fn synthetic(size: usize) -> Vec<u8> {
     bytes
 }
 
-fn read(store: &Store, id: i64) -> f64 {
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn blob_oracle_rejects_a_valid_blob_from_the_wrong_row() {
+        let raw = vec![3; 256];
+        let compressed = zstd::stream::encode_all(raw.as_slice(), 1).unwrap();
+        let other = sha2::Sha256::digest([4; 256]);
+        assert!(super::verify_blob(&compressed, &other, raw.len()).is_err());
+    }
+    use sha2::Digest;
+}
+
+fn verify_blob(blob: &[u8], expected: &[u8], size: usize) -> io::Result<()> {
+    let mut hash = Sha256::new();
+    let n = io::copy(&mut zstd::stream::Decoder::new(blob)?.take(size as u64 + 1), &mut hash)?;
+    if n != size as u64 || &hash.finalize()[..] != expected {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "source slice digest mismatch"));
+    }
+    Ok(())
+}
+
+fn read(store: &Store, id: usize, expected: &[u8], size: usize) -> Duration {
     let start = Instant::now();
-    let bytes: Vec<u8> = store
+    let blob: Vec<u8> = store
         .read(Db::AgentHistoryEvidence, move |tx| {
-            tx.query_one("SELECT data FROM blobs WHERE id=?1", [id], |r| Ok(r.get(0)?))
+            tx.query_one("SELECT data FROM blobs WHERE id=?1", [id as i64], |r| Ok(r.get(0)?))
         })
         .unwrap();
-    std::hint::black_box(bytes);
-    start.elapsed().as_secs_f64() * 1000.0
+    verify_blob(&blob, expected, size).unwrap();
+    start.elapsed()
+}
+fn write(store: &Store, id: usize, data: Vec<u8>) {
+    store
+        .write(Db::AgentHistoryEvidence, Priority::Batch, move |tx| {
+            tx.execute("INSERT INTO blobs VALUES(?1,?2)", params![id as i64, data])?;
+            Ok(())
+        })
+        .unwrap()
 }
 
-// On macOS a no-cache read asks UBC to discard the consumed pages. This affects
-// only our synthetic files; it does not flush the user's machine-wide cache.
-#[cfg(target_os = "macos")]
-fn evict(root: &Path) {
-    use std::{fs::File, os::fd::AsRawFd};
-    for entry in walkdir::WalkDir::new(root) {
-        let entry = entry.unwrap();
-        if entry.file_type().is_file() {
-            let mut file = File::open(entry.path()).unwrap();
-            assert_eq!(unsafe { libc::fcntl(file.as_raw_fd(), libc::F_NOCACHE, 1) }, 0);
-            std::io::copy(&mut file, &mut std::io::sink()).unwrap();
+fn measure(size: usize, rows: usize, samples: usize, encrypted: bool, noise: bool) {
+    let temp = tempfile::tempdir().unwrap();
+    let store = measurement::open(temp.path(), encrypted, Db::AgentHistoryEvidence);
+    store
+        .write(Db::AgentHistoryEvidence, Priority::Batch, |tx| {
+            tx.execute("CREATE TABLE blobs(id INTEGER PRIMARY KEY,data BLOB NOT NULL)", ())?;
+            Ok(())
+        })
+        .unwrap();
+    let mut raw = if noise {
+        let mut state = 0x9182_7364_5bad_afe3_u64;
+        let mut bytes = vec![0; size];
+        for chunk in bytes.chunks_exact_mut(8) {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            chunk.copy_from_slice(&state.to_le_bytes());
         }
-    }
-}
-
-#[cfg(not(target_os = "macos"))]
-fn evict(_root: &Path) {}
-
-fn main() {
-    for mib in [1, 4] {
-        let temp = tempfile::tempdir().unwrap();
-        let key = DataKey::from_bytes(zeroize::Zeroizing::new([0x39; 32]));
-        let raw = synthetic(mib * 1024 * 1024);
+        bytes
+    } else {
+        synthetic(size)
+    };
+    let mut hashes = Vec::new();
+    let mut writes = Vec::new();
+    let mut stored_bytes = 0;
+    for id in 0..rows {
+        raw[..8].copy_from_slice(&(id as u64).to_le_bytes());
+        hashes.push(Sha256::digest(&raw));
         let blob = zstd::stream::encode_all(raw.as_slice(), 3).unwrap();
-        let store = open(temp.path(), &key);
-        store
-            .write(Db::AgentHistoryEvidence, Priority::Batch, |tx| {
-                tx.execute("CREATE TABLE blobs(id INTEGER PRIMARY KEY,data BLOB NOT NULL)", ())?;
-                Ok(())
-            })
-            .unwrap();
-        let mut writes = Vec::new();
-        for id in 0..32 {
-            let data = blob.clone();
-            let start = Instant::now();
-            store
-                .write(Db::AgentHistoryEvidence, Priority::Batch, move |tx| {
-                    tx.execute("INSERT INTO blobs VALUES(?1,?2)", params![id, data])?;
-                    Ok(())
-                })
-                .unwrap();
-            writes.push(start.elapsed().as_secs_f64());
+        stored_bytes += blob.len();
+        let start = Instant::now();
+        write(&store, id, blob);
+        writes.push(start.elapsed());
+    }
+    for (id, digest) in hashes.iter().enumerate() {
+        read(&store, id, digest, size);
+    }
+    drop(store);
+    let mut cold = Vec::new();
+    let mut warm = Vec::new();
+    let mut mixed = Vec::new();
+    let extra = zstd::stream::encode_all(raw.as_slice(), 3).unwrap();
+    for sample in 0..samples {
+        let id = (sample.wrapping_mul(2654435761) + 1) % rows;
+        let evicted = measurement::evict(temp.path());
+        let store = measurement::open(temp.path(), encrypted, Db::AgentHistoryEvidence);
+        let first = read(&store, id, &hashes[id], size);
+        if evicted {
+            cold.push(first)
         }
-        drop(store);
-        let mut cold = Vec::new();
-        let mut warm = Vec::new();
-        for id in 0..12 {
-            evict(temp.path());
-            let store = open(temp.path(), &key);
-            cold.push(read(&store, id));
-            for _ in 0..8 {
-                warm.push(read(&store, id));
+        warm.push(read(&store, id, &hashes[id], size));
+        let gate = std::sync::Barrier::new(2);
+        std::thread::scope(|writer| {
+            writer.spawn(|| {
+                gate.wait();
+                write(&store, rows + sample, extra.clone())
+            });
+            gate.wait();
+            mixed.push(read(&store, id, &hashes[id], size));
+        });
+        read(&store, rows + sample, hashes.last().unwrap(), size);
+    }
+    println!(
+        "{}",
+        serde_json::json!({"measurement":"blob","encrypted":encrypted,"incompressible":noise,
+        "raw_bytes":size,"stored_bytes_mean":stored_bytes/rows,"writes":measurement::timings(writes),
+        "cold":(!cold.is_empty()).then(||measurement::timings(cold)),"warm":measurement::timings(warm),"during_write":measurement::timings(mixed)})
+    );
+}
+fn main() {
+    let unit = measurement::size("AH_BLOB_MIB", 1) * 1024 * 1024;
+    for encrypted in [false, true] {
+        for noise in [false, true] {
+            for bytes in [unit, 4 * unit] {
+                measure(
+                    bytes,
+                    measurement::size("AH_BLOB_ROWS", 3),
+                    measurement::size("AH_SAMPLES", 2),
+                    encrypted,
+                    noise,
+                )
             }
         }
-        cold.sort_by(f64::total_cmp);
-        warm.sort_by(f64::total_cmp);
-        println!(
-            "{}",
-            serde_json::json!({"raw_mib":mib,"stored_bytes":blob.len(),"cold_write_stored_mib_s":blob.len() as f64 / writes[0] / 1048576.0,"warm_write_stored_mib_s":31.0 * blob.len() as f64 / writes[1..].iter().sum::<f64>() / 1048576.0,"cold_connection_read_ms_median":cold[cold.len()/2],"cold_connection_read_ms_max":cold[cold.len()-1],"warm_read_ms_median":warm[warm.len()/2],"warm_read_ms_p95":warm[warm.len()*95/100],"cache_note":"cold = reopened Turso after F_NOCACHE sweep of synthetic files; no global cache purge"})
-        );
     }
 }

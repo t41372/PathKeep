@@ -5,6 +5,7 @@
 //! Not responsible for replaying model context, reading referenced files, native
 //! migration, or guessing whether a session came from TUI, RPC, or a desktop app.
 
+use crate::read_model::{PartKind, RecordPart, parts};
 use std::collections::HashSet;
 use std::io::BufRead;
 use std::path::Path;
@@ -129,11 +130,7 @@ impl Adapter for PiAdapter {
         let stats = common::records(
             input,
             context,
-            &mut |value, ordinal| {
-                let mut event = state.event(value, ordinal);
-                event.references = std::mem::take(&mut state.event_references);
-                emit(event)
-            },
+            &mut |value, ordinal| emit(state.event(value, ordinal)),
             &mut read_issues,
         )?;
         if state.session.is_none() {
@@ -215,10 +212,7 @@ impl<'a> ParseState<'a> {
             self.complete = false;
             return;
         };
-        self.version = match value.get("version") {
-            None => Some(1),
-            Some(version) => version.as_u64(),
-        };
+        self.version = header_version(value);
         if !matches!(self.version, Some(1..=CURRENT_VERSION)) {
             self.issue("pi-unsupported-version", Some(ordinal));
             self.complete = false;
@@ -250,33 +244,20 @@ impl<'a> ParseState<'a> {
         }
         self.saw_object = true;
 
-        let mut native_id = string(&payload, "id").map(str::to_owned);
-        let mut parent_id = string(&payload, "parentId").map(str::to_owned);
+        let mut event =
+            native_event(payload, ordinal, self.version, self.previous_legacy_id.as_deref());
         if kind != "session" && self.version == Some(1) {
-            // Ordinals are stable within a retained source revision; never mint
-            // random IDs or overwrite the legacy payload to emulate a migration.
-            native_id.get_or_insert_with(|| format!("legacy:{ordinal}"));
-            parent_id = self.previous_legacy_id.clone();
-            self.previous_legacy_id = native_id.clone();
+            self.previous_legacy_id.clone_from(&event.native_id);
         } else if kind != "session"
             && matches!(self.version, Some(2..=CURRENT_VERSION))
-            && (native_id.is_none()
-                || !payload.get("parentId").is_some_and(|p| p.is_null() || p.is_string()))
+            && (event.native_id.is_none()
+                || !event.payload.get("parentId").is_some_and(|p| p.is_null() || p.is_string()))
         {
             self.issue("pi-invalid-entry-identity", Some(ordinal));
             self.complete = false;
         }
-
-        let message = if kind == "message" { payload.get("message") } else { None };
-        let role = message
-            .and_then(|m| string(m, "role"))
-            .map(|role| if role == "hookMessage" { "custom" } else { role }.to_owned())
-            .or_else(|| (kind == "custom_message").then(|| "custom".into()));
-        let timestamp = payload
-            .get("timestamp")
-            .and_then(common::timestamp)
-            .or_else(|| message.and_then(|m| m.get("timestamp")).and_then(common::timestamp));
-        let text = event_text(&kind, &payload, message);
+        let payload = &event.payload;
+        let message = (kind == "message").then(|| payload.get("message")).flatten();
         if let Some(message) = message {
             match string(message, "role") {
                 Some("bashExecution") => {
@@ -298,7 +279,7 @@ impl<'a> ParseState<'a> {
             self.complete = false;
         }
         if let Some(session) = &mut self.session {
-            session.updated_at = session.updated_at.into_iter().chain(timestamp).max();
+            session.updated_at = session.updated_at.into_iter().chain(event.timestamp).max();
             if kind == "session_info" {
                 // The latest entry also owns clearing the title; falling back
                 // to an older nonempty name would resurrect a removed name.
@@ -310,26 +291,55 @@ impl<'a> ParseState<'a> {
                     .map(str::to_owned);
             }
             if kind == "model_change" {
-                if let Some(model) = string(&payload, "modelId") {
+                if let Some(model) = string(payload, "modelId") {
                     session.model = Some(model.into());
                 }
-            } else if role.as_deref() == Some("assistant") {
+            } else if event.role.as_deref() == Some("assistant") {
                 if let Some(model) = message.and_then(|m| string(m, "model")) {
                     session.model = Some(model.into());
                 }
             }
         }
-        NativeEvent {
-            references: Vec::new(),
-            ordinal,
-            native_id,
-            parent_id,
-            kind,
-            role,
-            timestamp,
-            text,
-            payload,
-        }
+        event.references = std::mem::take(&mut self.event_references);
+        event
+    }
+}
+
+pub(crate) fn native_event(
+    payload: Value,
+    ordinal: u64,
+    version: Option<u64>,
+    previous_legacy_id: Option<&str>,
+) -> NativeEvent {
+    let kind = string(&payload, "type").unwrap_or("unknown").to_owned();
+    let mut native_id = string(&payload, "id").map(str::to_owned);
+    let mut parent_id = string(&payload, "parentId").map(str::to_owned);
+    if kind != "session" && version == Some(1) {
+        // Ordinals are stable within a retained source revision; never mint
+        // random IDs or overwrite the legacy payload to emulate a migration.
+        native_id = Some(legacy_id(&payload, ordinal));
+        parent_id = previous_legacy_id.map(str::to_owned);
+    }
+    let message = if kind == "message" { payload.get("message") } else { None };
+    let role = message
+        .and_then(|m| string(m, "role"))
+        .map(|role| if role == "hookMessage" { "custom" } else { role }.to_owned())
+        .or_else(|| (kind == "custom_message").then(|| "custom".into()));
+    let timestamp = payload
+        .get("timestamp")
+        .and_then(common::timestamp)
+        .or_else(|| message.and_then(|m| m.get("timestamp")).and_then(common::timestamp));
+    let text = event_text(&kind, &payload, message);
+    NativeEvent {
+        references: Vec::new(),
+        ordinal,
+        native_id,
+        parent_id,
+        kind,
+        role,
+        timestamp,
+        text,
+        payload,
     }
 }
 
@@ -392,4 +402,54 @@ fn artifact_path(root: &Path, path: &Path) -> String {
         .map(|part| part.as_os_str().to_string_lossy())
         .collect::<Vec<_>>()
         .join("/")
+}
+
+pub(crate) fn header_version(value: &Value) -> Option<u64> {
+    string(value, "id")?;
+    match value.get("version") {
+        None => Some(1),
+        Some(version) => version.as_u64(),
+    }
+}
+
+pub(crate) fn legacy_id(value: &Value, ordinal: u64) -> String {
+    string(value, "id").map(str::to_owned).unwrap_or_else(|| format!("legacy:{ordinal}"))
+}
+
+pub(crate) fn parts(event: &NativeEvent) -> Vec<RecordPart> {
+    let payload = &event.payload;
+    if event.kind == "message" && event.role.as_deref() == Some("bashExecution") {
+        let message = &payload["message"];
+        return [("command", PartKind::CallInput), ("output", PartKind::CallResult)]
+            .into_iter()
+            .filter_map(|(field, kind)| {
+                Some(RecordPart { kind, text: string(message, field)?.into() })
+            })
+            .collect();
+    }
+    let kind = match event.role.as_deref() {
+        Some("toolResult") => PartKind::CallResult,
+        _ => PartKind::Text,
+    };
+    let content = match event.kind.as_str() {
+        "message" => payload.pointer("/message/content"),
+        "context_edit" => payload.pointer("/replacement/content"),
+        "custom_message" => payload.get("content"),
+        _ => None,
+    };
+    content.map_or_else(|| parts::single(kind, &event.text), |c| parts::content(c, kind))
+}
+
+pub(crate) fn boundary(event: &NativeEvent) -> Option<crate::read_model::StructuralBoundary> {
+    use crate::read_model::{BoundaryKind, StructuralBoundary};
+    match event.kind.as_str() {
+        "compaction" => Some(StructuralBoundary {
+            kind: BoundaryKind::Compaction,
+            tokens_before: event.payload["tokensBefore"].as_u64(),
+        }),
+        "context_edit" => {
+            Some(StructuralBoundary { kind: BoundaryKind::ContextEdit, tokens_before: None })
+        }
+        _ => None,
+    }
 }

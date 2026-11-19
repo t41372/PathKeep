@@ -1,10 +1,11 @@
 //! Responsibilities: project readable Codex event fields without changing native payloads.
 //! Not responsible for: naming threads, discovery or resolving rollout lineage.
 use super::string;
+use crate::read_model::{PartKind, RecordPart, parts};
 use crate::{NativeEvent, adapters::common};
 use serde_json::Value;
 
-pub(super) fn native_event(record: Value, ordinal: u64) -> NativeEvent {
+pub(crate) fn native_event(record: Value, ordinal: u64) -> NativeEvent {
     let outer = record["type"].as_str().unwrap_or("unknown");
     let payload = &record["payload"];
     let inner = payload["type"].as_str();
@@ -86,4 +87,48 @@ pub(super) fn event_time(record: &Value) -> Option<i64> {
     common::timestamp(&record["timestamp"])
         .or_else(|| common::timestamp(&record["payload"]["timestamp"]))
         .or_else(|| common::timestamp(&record["payload"]["completed_at_ms"]))
+}
+
+pub(crate) fn parts(event: &NativeEvent) -> Vec<RecordPart> {
+    let payload = &event.payload["payload"];
+    let item = if event.payload["type"] == "event_msg" && payload["type"] == "item_completed" {
+        &payload["item"]
+    } else {
+        payload
+    };
+    match item["type"].as_str() {
+        Some("function_call" | "custom_tool_call") => {
+            let mut result = Vec::new();
+            parts::call(
+                &mut result,
+                item,
+                if item["type"] == "function_call" { "arguments" } else { "input" },
+            );
+            result
+        }
+        Some("reasoning" | "Reasoning" | "agent_reasoning" | "agent_reasoning_raw_content") => {
+            parts::single(PartKind::Thinking, &event.text)
+        }
+        Some("message" | "agent_message" | "UserMessage" | "AgentMessage")
+            if !item["content"].is_null() =>
+        {
+            parts::content(&item["content"], PartKind::Text)
+        }
+        _ => parts::single(
+            if event.role.as_deref() == Some("tool") {
+                PartKind::CallResult
+            } else {
+                PartKind::Text
+            },
+            &event.text,
+        ),
+    }
+}
+
+pub(crate) fn boundary(event: &NativeEvent) -> Option<crate::read_model::StructuralBoundary> {
+    use crate::read_model::{BoundaryKind, StructuralBoundary};
+    (event.payload["type"] == "compacted"
+        || (event.payload["type"] == "event_msg"
+            && event.payload["payload"]["type"] == "context_compacted"))
+        .then_some(StructuralBoundary { kind: BoundaryKind::Compaction, tokens_before: None })
 }

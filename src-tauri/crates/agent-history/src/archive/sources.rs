@@ -58,7 +58,7 @@ impl Archive {
             {
                 // Coverage becomes conservative before this raw-only source gains
                 // a searchable role, including the unchanged-byte capture path.
-                self.set_coverage(source_id, false)?;
+                self.set_coverage_locked(source_id, false)?;
             }
         }
         let selected_retention = match &known {

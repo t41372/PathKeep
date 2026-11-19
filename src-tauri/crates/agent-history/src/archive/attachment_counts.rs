@@ -67,6 +67,10 @@ impl Archive {
     }
 
     pub(crate) fn refresh_attachment_counter(&self, source: &str, projection: i64) -> Result<()> {
+        let _gate = self
+            .publication_gate
+            .lock()
+            .map_err(|_| crate::Error::Integrity("publication lock".into()))?;
         let revision = self.current_projection(source)?.expect("published source");
         let counter = self.build_attachment_counter(projection, revision)?;
         let source = source.to_owned();
@@ -79,11 +83,12 @@ impl Archive {
             tx.execute(
                 "UPDATE ah_sessions SET attachment_generation=?1,attachments_not_kept=?2
                  WHERE id=?3 AND projection_id=?4",
-                params![counter.id, counter.total as i64, source, projection],
+                params![counter.id, counter.total as i64, source.clone(), projection],
             )?;
-            counter.publish(tx, previous)
+            counter.publish(tx, previous)?;
+            crate::read_model::publication::refresh(tx, &source, None)
         })?;
-        Ok(())
+        self.flush_reader_heads()
     }
 
     pub(crate) fn prune_attachment_counts(&self) -> Result<u64> {
