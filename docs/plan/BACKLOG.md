@@ -552,6 +552,17 @@
 - [ ] **WORK-WRITE-LOCK-WINDOWS** — 跨行程寫入鎖的開頭說明還在講舊架構（Windows 上的空殼 2026-11-16 已修，改用標準庫的 `File::try_lock`，見 STATUS；2026-11-15 ChatGPT 審查 5a 時順帶指出）
   - 同一份檔案的開頭說明還在講「排程備份是另一個行程」的舊架構。現在只有一個 owner 行程能打開存檔（owner lock），排程備份在 owner 裡跑，改名前 Store 已暫停並關閉；說明要跟著改成現況，並寫清楚這把鎖現在擋的是什麼。
 
+- [ ] **WORK-SEMANTIC-FINGERPRINT-WEIGHTS** — 語意索引的指紋沒有包含模型權重的雜湊（2026-11-18，修模型換檔時 Codex 順帶看到，待查證）
+  - 指紋含模型的 repo 名稱與 embedding 的性質，不含權重檔的 SHA-256。同一個名稱下換了釘住的權重，指紋不變，用舊權重算的向量不會被判為過期，新舊向量會混在一起。
+  - 現在釘住的模型沒換過權重，所以還沒人遇到；下次換釘住的版本之前要修。先重現（同名不同權重的兩份測試模型），再決定指紋要不要含每個檔案的雜湊、舊索引怎麼處理。
+- [ ] **WORK-MODEL-DOWNLOAD-CANCEL-FLAG** — 內建模型下載的取消旗標是共用的一個，新的下載開始時會重設它（2026-11-18，同上，待查證）
+  - 第二個下載請求可能把前一個請求的取消清掉。刪除所有資料已不靠這個旗標（直接撤掉下載中的那一份），但使用者按取消後又馬上重按下載的情況要查。
+- [ ] **WORK-AH-LIBRARY-FINDINGS-2026-11-18** — 用合成的四種工具資料夾對帳程式庫時看到的行為（2026-11-18；併進 `WORK-AH-READ-MODEL` 的對應步驟處理，逐項查證）
+  - 接續過的 Codex 對話（同一個 thread 寫成好幾個 rollout 檔）：清單的標題與建立時間取自最新那個檔的第一則訊息，不是對話開始時的。
+  - 被撤回（revert）的 Codex 回合不屬於這段對話了，但裡面的字仍搜得到，而且每個提示詞算兩次（Codex 把每則提示記兩次）。
+  - DeepSeek：比程式庫認得的版本新的檔案在清單裡沒有標題與模型，內容搜不到（原始檔照存）；同一段對話留著的舊版本檔被算成第二個來源，每次備份都報一次 `deepseek-format-limited`。
+  - 空的 Claude Code 對話檔每次備份都報 `first_record_in_progress`。
+  - scp 寫法的 git 遠端顯示時少了 `git@`。
 - [ ] **WORK-WINDOWS-MODEL-REPLACE** — Windows 上，內建語意模型的檔案正被打開或映射時，重新下載換不掉它（2026-11-16，Windows runner 上看到，v0.5.0 也一樣；v0.6.0 發布前：下一個發布就是 v0.6.0，Windows 使用者遇到新的模型版本時會碰到）
   - 現象：`ai::model_files::tests::ensure_download_replaces_files_without_changing_open_readers` 在 Windows 上失敗：「installing verified model file …: Access is denied (os error 5)」（`vault-fs` 之前多一層「failed to persist temporary file」）。測試開著舊檔，再要下載換掉它。`vault-fs` 會等別的程式放開檔案，但這裡舊檔在整個呼叫期間都開著，十次重試用完照樣失敗：等待解決不了，要換做法。
   - 原因（讀程式）：驗證完的暫存檔用 `tempfile` 的 `persist` 換上去；tempfile 3.27 在 Windows 上呼叫 `MoveFileExW(MOVEFILE_REPLACE_EXISTING)`，目標被別的 handle 開著時 Windows 拒絕。註解說換檔是為了不動正在被映射的舊檔（內建模型用 `memmap2` 映射，`embedding_static.rs`），這個前提在 Windows 不成立。

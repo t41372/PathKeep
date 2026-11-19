@@ -56,6 +56,7 @@
 
 - [ ] 讀取模型與查詢（`WORK-AH-READ-MODEL`）：對話摘要、大綱、每一輪的事實、專案歸類；清單翻頁、閱讀器、搜尋、洞察。
 - [ ] 接進 app（`WORK-AH-APP-SURFACE`）：啟用的預覽（PME）、每個空間的立即備份、進度與取消、背景任務共用的讀法、設定、排程與選單列。
+- [ ] 啟用預覽的「存檔預計多出」換成量出來的比例。現在的算法是「來源大小 + 同樣大小一份 + 每個檔案 4 KB」，是預留量，不是量的；實測過的只有原始位元組壓縮後約 0.26 倍，所以畫面上的數字可能是實際的好幾倍。讀取模型與搜尋索引的大小定下來後，用合成資料與 boxd 上的實測定比例，畫面仍標「估計」。不帶著這條公式發布。
 - [ ] Agent 空間的畫面（`WORK-AH-SCREENS`）：洞察、紀錄與閱讀器、專案、備份、設定、啟用流程、背景任務頁。
 - [ ] 背景任務做成 dashboard（`WORK-BACKGROUND-DASHBOARD`）：設計原型裡的背景任務頁（`#/tasks`），設定裡的工作清單搬過去，設定只留排程與限制。是上面兩塊的一部分，單獨列出來免得漏。
 - [ ] 刪掉原型資料夾（`WORK-PROTOTYPE-2026-10-REMOVE`）。
@@ -87,6 +88,7 @@ BACKLOG 原有的，依領域：
 - [ ] 搜尋：`WORK-SEARCH-OR-OPERATORS`、`WORK-SEARCH-ACCENT-GRAMS`、`WORK-SEARCH-TYPO-WALK`、`WORK-SEARCH-QUOTED-LITERALS`、`WORK-SEARCH-NEAR-DUPLICATES`、`WORK-SEARCH-FAMILY-ACROSS-PROFILES`、`WORK-HISTORY-SEARCH-NOTES-E2E`、`WORK-INSIGHTS-TITLE-QUERY`。
 - [ ] 介面與行為：`WORK-QUIT-FOLLOWUPS`、`WORK-TAG-SAVE-FAILURE-STALE`、`WORK-PERF-OG-QUEUE-A`。
 - [ ] AI：`WORK-AI-MAPREDUCE-A`、`WORK-AI-CTX-BUDGET-A`、`WORK-TEST-REAL-IO-A`。
+- [ ] 2026-11-18 各份回報順帶發現的：`WORK-SEMANTIC-FINGERPRINT-WEIGHTS`、`WORK-MODEL-DOWNLOAD-CANCEL-FLAG`、`WORK-AH-LIBRARY-FINDINGS-2026-11-18`。
 - [ ] 依賴與測試：`WORK-DEPS-LATEST`、`WORK-SCRAPER-LATEST`、`WORK-SQLCIPHER-SQLITE-354`、`WORK-FLAKY-BLOCK-CACHE-RSS`（與 `WORK-FLAKY-CACHE-RSS-TEST` 是同一個測試）、`WORK-COMMAND-CONTRACT-PARITY`、`WORK-DOCS-DRIFT-2026-11`、`WORK-REVIEW-0612-FOLLOWUPS-A`、`WORK-V05-SIDE-FINDINGS-2026-11`。
 
 不在 v0.6.0 的（用戶 2026-11-18 逐項確認）：`WORK-AH-PERMANENT-DELETE`（永久刪除單段對話）、`WORK-AH-MORE-TOOLS`（Continue、Cline、Roo Code）、`WORK-AH-BULK-ACTIONS`（一次封存或刪除多段對話）無限期擱置；`WORK-ENCRYPT-AT-REST-ALL`（加密模式下網頁文字與瀏覽器檔案副本也加密）繼續擱置。除了這四項，沒有別的延後。
