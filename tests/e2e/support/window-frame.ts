@@ -131,10 +131,35 @@ export async function expectWindowButtons(page: Page) {
     const content = document.querySelectorAll(
       'main, button, a[href], input, select, textarea, [role="button"], [role="link"], [role="progressbar"], h1, h2, h3, p',
     )
+    // The part of an element that is drawn: what its scrolling ancestors do
+    // not cut off. A row scrolled half out of the panel's top reaches up
+    // under the buttons by its numbers, but nothing of it shows there.
+    const drawn = (element: Element) => {
+      const rect = element.getBoundingClientRect()
+      let { left, top, right, bottom } = rect
+      for (
+        let parent = element.parentElement;
+        parent;
+        parent = parent.parentElement
+      ) {
+        const { overflowX, overflowY } = getComputedStyle(parent)
+        if (overflowX === 'visible' && overflowY === 'visible') continue
+        const clip = parent.getBoundingClientRect()
+        if (overflowX !== 'visible') {
+          left = Math.max(left, clip.left)
+          right = Math.min(right, clip.right)
+        }
+        if (overflowY !== 'visible') {
+          top = Math.max(top, clip.top)
+          bottom = Math.min(bottom, clip.bottom)
+        }
+      }
+      return { left, top, right, bottom }
+    }
     for (const element of content) {
       if (group.contains(element)) continue
-      const rect = element.getBoundingClientRect()
-      if (rect.width === 0 || rect.height === 0) continue
+      const rect = drawn(element)
+      if (rect.right <= rect.left || rect.bottom <= rect.top) continue
       const style = getComputedStyle(element)
       if (style.visibility === 'hidden' || style.display === 'none') continue
       const apart =
