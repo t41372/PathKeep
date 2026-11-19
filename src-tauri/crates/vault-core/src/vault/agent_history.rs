@@ -112,6 +112,7 @@ impl Vault {
 
     /// After an external fix, retry both conversation workers in this generation.
     pub fn retry_conversations(&self) -> vault_store::Result<()> {
+        self.store.preserve_observed_displacements()?;
         if self.conversation_availability().is_ok() {
             return if self.store.is_open() { Ok(()) } else { Err(vault_store::Error::Closed) };
         }

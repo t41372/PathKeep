@@ -245,6 +245,7 @@ fn prepare(
         "archive-layout-changed"
     );
     let shared = shared_identity(vault)?;
+    vault.store().preserve_observed_displacements()?;
     let failure = vault.conversation_availability().err().context("conversation-repair-healthy")?;
     if failure.cause.access_refused() {
         return Err(vault_store::Error::AccessUnavailable(failure).into());

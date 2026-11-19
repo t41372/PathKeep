@@ -32,38 +32,14 @@ impl HeldGeneration<'_> {
     }
 }
 impl Store {
-    /// Watch identities even while the window is idle. Retry and shutdown also
-    /// check synchronously, so a normal close never depends on this interval.
+    /// Register the live owner's safety-copy publisher and the identities of its open files.
     pub fn on_displacement(
-        self: &std::sync::Arc<Self>,
+        &self,
         publisher: impl Fn(HeldGeneration<'_>) -> Result<()> + Send + Sync + 'static,
-    ) -> Result<()> {
+    ) {
         let workers = self.workers();
         self.record_attachment_ids(&workers);
-        if self.held_publisher.set(Box::new(publisher)).is_err() {
-            return Ok(());
-        }
-        let weak = std::sync::Arc::downgrade(self);
-        let (stop, wait) = std::sync::mpsc::channel();
-        std::thread::Builder::new().name("held-conversation-files".into()).spawn(move || {
-            use std::time::Duration;
-            let mut interval = Duration::from_secs(1);
-            while wait.recv_timeout(interval) == Err(std::sync::mpsc::RecvTimeoutError::Timeout) {
-                let Some(store) = weak.upgrade() else { break };
-                if !store.is_open() {
-                    break;
-                }
-                interval = match store.preserve_observed_displacements() {
-                    Ok(()) => Duration::from_secs(1),
-                    Err(error) => {
-                        log::warn!("Could not protect a held conversation file: {error}");
-                        Duration::from_secs(30)
-                    }
-                };
-            }
-        })?;
-        *self.anchor_monitor.lock().unwrap() = Some(stop);
-        Ok(())
+        let _ = self.held_publisher.set(Box::new(publisher));
     }
     pub(crate) fn record_attachment_ids(&self, workers: &[(Db, Workers)]) {
         *self.pending_anchors.lock().unwrap() = workers
@@ -73,8 +49,8 @@ impl Store {
             .collect();
     }
 
-    /// Quit-now can interrupt foreground work. It waits for a safety copy only
-    /// when an unprotected member no longer has its admitted filesystem identity.
+    /// At an owner activity boundary, check the two conversation file identities.
+    /// Drain work and publish a copy only when an unprotected generation has moved.
     pub fn preserve_observed_displacements(&self) -> Result<()> {
         let at_risk = self.pending_anchors.lock().unwrap().iter().any(|(db, id)| {
             turso::core::io::get_file_id(self.paths.get(*db).to_str().expect("validated role path"))
@@ -473,7 +449,6 @@ impl Maintenance<'_> {
         self.checkpoint()?;
         retire();
         self.store.closed.store(true, Ordering::Release);
-        self.store.anchor_monitor.lock().unwrap().take();
         while let Some((_, worker)) = self.workers.pop() {
             drop(worker);
         }

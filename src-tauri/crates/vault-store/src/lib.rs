@@ -60,7 +60,6 @@ pub struct Store {
     rejected_pair: AtomicBool,
     initial_access_refusal: Mutex<Option<[Option<turso::core::io::FileId>; 2]>>,
     pending_anchors: Mutex<Vec<(Db, turso::core::io::FileId)>>,
-    anchor_monitor: Mutex<Option<std::sync::mpsc::Sender<()>>>,
     availability_observer: std::sync::OnceLock<Box<dyn Fn() + Send + Sync>>,
     conversation_failure: RwLock<Option<Arc<StoreOpenFailure>>>,
     ownership: Mutex<Option<Arc<owner_lock::OwnerLock>>>,
@@ -138,6 +137,10 @@ impl Store {
         if self.closed.load(Ordering::Acquire) {
             return Err(Error::Closed);
         }
+        if !read && opening::conversation_role(db) && self.held_publisher.get().is_some() {
+            // Preservation may drain the group, so check before taking its workers guard.
+            self.preserve_observed_displacements()?;
+        }
         let workers = self.workers();
         let worker = &workers.iter().find(|(id, _)| *id == db).ok_or(Error::Closed)?.1;
         if !self.pair_seals || !opening::conversation_role(db) {
@@ -172,7 +175,6 @@ impl Store {
             self.seal_if_available(&workers)
         };
         self.closed.store(true, Ordering::Release);
-        self.anchor_monitor.lock().unwrap().take();
         while let Some((_, worker)) = workers.pop() {
             drop(worker);
         }

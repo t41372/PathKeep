@@ -230,7 +230,7 @@ impl Vault {
             vault.store.on_displacement(move |held| {
                 crate::maintenance::snapshot::publish_held(&paths, held)
                     .map_err(|e| vault_store::Error::Operation(e.into_boxed_dyn_error()))
-            })?;
+            });
             if let Err(error) = crate::ai::generations::migrate_flat_indexes(&vault) {
                 eprintln!("pathkeep: semantic index migration will retry on next open: {error:#}");
                 return Ok(vault);
