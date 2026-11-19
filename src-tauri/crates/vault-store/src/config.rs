@@ -17,7 +17,7 @@ pub use vault_layout::Db;
 pub type IoLayer = Arc<dyn turso::core::IO>;
 
 /// Explicit paths allow callers to select a root without relying on platform globals.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Paths {
     pub archive: PathBuf,
     pub source_evidence: PathBuf,
@@ -67,6 +67,8 @@ pub struct Config {
     /// Every selection requires Scratch; Intelligence also requires Archive.
     /// Defaults to all roles for the desktop application. Unselected paths are ignored.
     pub databases: Vec<Db>,
+    /// Existing durable files that the owner forbids the engine to initialize.
+    pub required_existing: Vec<Db>,
     pub paths: Paths,
     pub keys: [Option<[u8; 32]>; Db::COUNT],
     pub owner: Option<Arc<crate::OwnerLock>>,
@@ -86,6 +88,7 @@ impl Config {
             root,
             databases: Db::ALL.to_vec(),
             paths,
+            required_existing: Vec::new(),
             keys: [None; Db::COUNT],
             owner: None,
             io: None,
@@ -101,7 +104,27 @@ impl Config {
         self.keys[db as usize]
     }
 
+    pub(crate) fn validate_grouped(&self) -> Result<()> {
+        if Db::ALL.into_iter().any(|db| {
+            !self.databases.contains(&db)
+                || (db != Db::Scratch && !self.required_existing.contains(&db))
+        }) {
+            return Err(Error::InvalidConfig(
+                "grouped open requires every existing desktop database".into(),
+            ));
+        }
+        self.validate()
+    }
     pub(crate) fn validate(&self) -> Result<()> {
+        if self
+            .required_existing
+            .iter()
+            .any(|db| *db == Db::Scratch || !self.databases.contains(db))
+        {
+            return Err(Error::InvalidConfig(
+                "existing files must be selected durable databases".into(),
+            ));
+        }
         if self.databases.is_empty() {
             return Err(Error::InvalidConfig("at least one database must be selected".into()));
         }

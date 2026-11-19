@@ -185,14 +185,18 @@ fn intelligence_backfill_resumes_committed_move_batches_before_open() {
 #[test]
 fn native_startup_reports_committed_batches_through_the_archive_upgrade_contract() {
     let root = tempfile::tempdir().unwrap();
-    let store = Store::open(v1_config(root.path())).unwrap();
+    let paths = crate::project_paths_with_root(root.path());
+    let config = crate::AppConfig { initialized: true, git_enabled: false, ..Default::default() };
+    crate::config::write_staged_control(&paths, &config, None).unwrap();
+    let mut storage = v1_config(root.path());
+    storage.databases = vault_layout::databases_in(vault_layout::ArchiveLayout::BrowsingV1);
+    let store = Store::open(storage).unwrap();
     seed_v1(&store, 33);
     drop(store);
-    let paths = crate::project_paths_with_root(root.path());
     let mut events = Vec::new();
     let vault = crate::with_archive_upgrade_progress(
         |event| events.push(event),
-        move || Ok(crate::Vault::open(paths, crate::AppConfig::default(), None)?),
+        move || Ok(crate::Vault::open(paths, config, None)?),
     )
     .unwrap();
     assert!(events.iter().any(|event| event.processed==33 && event.database.as_deref()==Some("Intelligence")));

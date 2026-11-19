@@ -23,6 +23,8 @@ export const backup = defineMessages({
       grantFailed: 'Could not open System Settings',
       checkAgain: 'Check again',
       saveFailed: 'Could not update the sources',
+      lastProfile:
+        'That’s the last browser PathKeep backs up, and browsing history is the only kind of data that’s on, so it stays on. Choose another browser, or turn on Agent conversations, first.',
       toggle: 'Back up {name}',
       group: {
         profiles_one: '{count} profile',
@@ -225,6 +227,8 @@ export const backup = defineMessages({
       grantFailed: '无法打开系统设置',
       checkAgain: '重新检查',
       saveFailed: '无法更新来源',
+      lastProfile:
+        '这是 PathKeep 备份的最后一个浏览器，而现在只开着浏览记录，所以它得留着。先选另一个浏览器，或者打开 Agent 对话。',
       toggle: '备份 {name}',
       group: {
         profiles_one: '{count} 个用户',
@@ -423,6 +427,8 @@ export const backup = defineMessages({
       grantFailed: '無法開啟系統設定',
       checkAgain: '重新檢查',
       saveFailed: '無法更新來源',
+      lastProfile:
+        '這是 PathKeep 備份的最後一個瀏覽器，而現在只開著瀏覽紀錄，所以它得留著。先選另一個瀏覽器，或打開 Agent 對話。',
       toggle: '備份 {name}',
       group: {
         profiles_one: '{count} 個使用者',

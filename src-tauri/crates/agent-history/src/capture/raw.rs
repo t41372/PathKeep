@@ -14,14 +14,15 @@ pub(super) fn capture_raw(
 ) -> Result<Option<writer::Captured>> {
     archive.register_source(source_id, source, artifact)?;
     archive.observe_source(report.run_id, source_id, true)?;
-    match writer::capture(archive, source_id, source, artifact, options) {
+    archive.visit_file(report.run_id, source_id)?;
+    match writer::capture(archive, source_id, source, artifact, options, report.run_id) {
         Ok(captured) => {
             if captured.unchanged {
                 report.unchanged = report.unchanged.saturating_add(1);
             } else {
                 report.captured = report.captured.saturating_add(1);
                 report.bytes = report.bytes.saturating_add(captured.byte_len);
-                progress(options, "raw_committed", source_id, &captured);
+                progress(options, source.harness, "raw_committed", source_id, &captured);
             }
             for diagnostic in &captured.diagnostics {
                 common::push_diagnostic(&mut report.issues, diagnostic.clone());
@@ -41,18 +42,24 @@ pub(super) fn capture_raw(
             if reference.is_some() {
                 archive.reference_coverage_scope(source_id)?;
             }
-            let code = if matches!(error, Error::SourceChanged(_)) {
+            let transient = matches!(error, Error::SourceChanged(_));
+            let code = if transient {
                 "source_changed_during_capture"
             } else {
                 "source_capture_unavailable"
             };
+            archive.file_problem(
+                report.run_id,
+                source_id,
+                if transient { "unstable" } else { "unavailable" },
+            )?;
             if let Some(reason) = reference {
                 *reason = Some(
-                    match &error {
+                    match error {
+                        Error::SourceChanged(_) => "changing",
                         Error::Io(error) if error.kind() == std::io::ErrorKind::NotFound => {
                             "missing"
                         }
-                        Error::InvalidInput(_) | Error::Unsupported(_) => "unsafe_path",
                         _ => "authority_unavailable",
                     }
                     .into(),

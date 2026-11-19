@@ -59,7 +59,7 @@ pub(crate) fn save_config_with_base_impl(
     base_config: Option<AppConfig>,
     state: &SessionState,
 ) -> Result<vault_core::AppSnapshot, CommandError> {
-    worker_result(vault_worker::save_user_config_with_vault(
+    super::data_kinds::settings_result(vault_worker::save_user_config_with_vault(
         state.current_vault().as_ref(),
         &config,
         base_config.as_ref(),

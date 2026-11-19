@@ -25,12 +25,15 @@ impl Archive {
                 [id.as_str()],
                 |r| Ok(r.get::<i64>(0)? != 0),
             )?;
-            tx.execute(
+            let added = tx.execute(
                 "
                 INSERT OR IGNORE INTO ah_source_observations(run_id, source_id, seen, observed_at)
                 VALUES(?1, ?2, ?3, ?4)",
                 params![run, id.clone(), i64::from(seen), now],
             )?;
+            if !seen && added > 0 {
+                super::capture_facts::tally(tx, run, &id, "filesAbsent", 1)?;
+            }
             if seen {
                 tx.execute(
                     "
@@ -59,55 +62,52 @@ impl Archive {
         Ok(())
     }
 
-    pub(crate) fn observe_missing(&self, run: i64, root: &SourceRoot) -> Result<()> {
+    pub(crate) fn observe_missing(
+        &self,
+        run: i64,
+        root: &SourceRoot,
+        discovery: &crate::capture::Discovery,
+    ) -> Result<bool> {
+        let Ok(metadata) = discovery.metadata(&root.root) else { return Ok(false) };
+        let single_file = metadata.is_file();
         let mut after = String::new();
         loop {
+            discovery.check()?;
+            if !discovery.still_selected() {
+                return Ok(false);
+            }
             let key = after.clone();
             let path = root.root.to_string_lossy().into_owned();
             let harness = root.harness.to_string();
-            let page = self.store.read(Db::AgentHistoryEvidence, move |tx| {
-                tx.query(
-                    "
-                SELECT id, relative_path FROM ah_sources WHERE root=?1 AND harness=?2 AND id>?3
-                ORDER BY id LIMIT 128",
-                    params![path, harness, key],
-                    |r| Ok((r.get::<String>(0)?, r.get::<String>(1)?)),
-                )
-            })?;
+            let page=self.store.read(Db::AgentHistoryEvidence,move |tx|tx.query(
+                "SELECT s.id,s.relative_path,
+                        EXISTS(SELECT 1 FROM ah_source_observations o WHERE o.run_id=?4 AND o.source_id=s.id)
+                 FROM ah_sources s WHERE s.root=?1 AND s.harness=?2 AND s.id>?3
+                 ORDER BY s.id LIMIT 128",params![path,harness,key,run],
+                |r|Ok((r.get::<String>(0)?,r.get::<String>(1)?,r.get::<i64>(2)?!=0))
+            ))?;
             if page.is_empty() {
-                break;
+                return Ok(true);
             }
-            for (id, relative) in page {
-                let seen = self.store.read(Db::AgentHistoryEvidence, {
-                    let id = id.clone();
-                    move |tx| {
-                        tx.query_one(
-                            "
-                    SELECT EXISTS(SELECT 1 FROM ah_source_observations WHERE run_id=?1 AND
-                    source_id=?2)",
-                            params![run, id],
-                            |r| Ok(r.get::<i64>(0)? != 0),
-                        )
-                    }
-                })?;
+            for (id, relative, seen) in page {
+                discovery.check()?;
                 if !seen {
-                    let path = if root.root.is_file() {
-                        root.root.clone()
-                    } else {
-                        root.root.join(relative)
-                    };
-                    match std::fs::symlink_metadata(path) {
+                    let path =
+                        if single_file { root.root.clone() } else { root.root.join(relative) };
+                    match discovery.metadata(&path) {
                         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                            self.observe_source(run, &id, false)?
+                            if !discovery.still_selected() {
+                                return Ok(false);
+                            }
+                            self.observe_source(run, &id, false)?;
                         }
                         Ok(_) => self.observe_source(run, &id, true)?,
-                        _ => {}
+                        Err(_) => {}
                     }
                 }
                 after = id;
             }
         }
-        Ok(())
     }
 
     pub(crate) fn observe_folder(

@@ -10,12 +10,14 @@
  * - This layer should stay typed, boring, and free of user-facing copy so routes can keep ownership of UX decisions.
  */
 
+export * from './agent-backup'
 export * from './annotations'
 export * from './app'
 export * from './archive'
 export * from './audit'
 export * from './content-enrichment'
 export * from './dashboard'
+export * from './data-kinds'
 export * from './desktop'
 export * from './explorer'
 export * from './import'

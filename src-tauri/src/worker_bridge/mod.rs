@@ -13,6 +13,9 @@ use crate::command_error::CommandError;
 #[cfg(test)]
 use crate::command_error::{ACTION_HINT_UNLOCK, ERROR_CODE_LOCK_REQUIRED, RETRY_HINT_AFTER_ACTION};
 
+mod data_kinds;
+#[cfg_attr(test, allow(unused_imports))]
+pub(crate) use data_kinds::*;
 mod annotations;
 mod app;
 mod archive;
@@ -227,7 +230,7 @@ mod tests {
         let mut config = initialized_config();
         initialize_archive_with_progress_impl(config.clone(), None, &session, |_| {})
             .expect("initialize archive");
-        run_backup_now_impl(false, &session, |_| {}).expect("backup");
+        run_backup_now_impl(false, true, &session, |_| {}).expect("backup");
 
         let passcode_status = set_app_lock_passcode_impl(SetAppLockPasscodeRequest {
             passcode: "2468".to_string(),

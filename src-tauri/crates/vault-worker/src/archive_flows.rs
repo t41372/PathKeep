@@ -102,6 +102,10 @@ pub fn run_full_archive_restore(
     if let Ok(config) = vault_core::load_config(&paths) {
         vault_core::ensure_app_lock_unlocked(&paths, &config)?;
     }
+    let current = session.current_vault();
+    if let Some(vault) = &current {
+        vault.require_complete()?;
+    }
     let source = std::path::Path::new(&request.snapshot_path);
     // A restore replaces the archive with whatever it is given, so it takes only a snapshot
     // PathKeep made and listed; any other file is refused before anything changes.
@@ -112,7 +116,6 @@ pub fn run_full_archive_restore(
         listed && source.exists(),
         "snapshot-not-listed: restore only from a safety snapshot PathKeep lists"
     );
-    let current = session.current_vault();
     let live_key = session.data_key();
     // The archive keeps its password (`restore_snapshot_to`); `password` opens only the copy.
     let archive_password = session.get_key().map_err(anyhow::Error::msg)?;
@@ -230,6 +233,17 @@ pub fn run_backup_now_with_progress<F>(
 where
     F: FnMut(BackupProgressEvent),
 {
+    run_browsing_backup(vault, session_database_key, due_only, true, report_progress)
+}
+
+/// Admit the explicit browsing request separately from tray, palette and all-now dispatch.
+pub fn run_browsing_backup(
+    vault: &Vault,
+    session_database_key: Option<&str>,
+    due_only: bool,
+    kind_specific: bool,
+    report_progress: impl FnMut(BackupProgressEvent),
+) -> Result<vault_core::BackupReport> {
     let _running = crate::foreground_work::begin(crate::ForegroundWork::Backup);
     let paths = vault_core::project_paths()?;
     let config = load_unlocked_config(&paths)?;
@@ -238,7 +252,13 @@ where
         &paths,
         &config,
         session_database_key,
-        due_only,
+        if due_only {
+            BrowsingTrigger::Scheduled
+        } else if kind_specific {
+            BrowsingTrigger::Kind
+        } else {
+            BrowsingTrigger::Shared
+        },
         report_progress,
     )
 }
@@ -247,11 +267,25 @@ where
 pub(crate) fn run_scheduled_backup_with_progress(
     vault: &Vault,
     paths: &vault_core::ProjectPaths,
-    config: &vault_core::AppConfig,
     database_key: Option<&str>,
     progress: impl FnMut(BackupProgressEvent),
 ) -> Result<vault_core::BackupReport> {
-    run_backup_with_loaded_config(vault, paths, config, database_key, true, progress)
+    let latest = crate::context::load_background_backup_config(paths)?;
+    run_backup_with_loaded_config(
+        vault,
+        paths,
+        &latest,
+        database_key,
+        BrowsingTrigger::Scheduled,
+        progress,
+    )
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum BrowsingTrigger {
+    Kind,
+    Shared,
+    Scheduled,
 }
 
 fn run_backup_with_loaded_config<F>(
@@ -259,14 +293,24 @@ fn run_backup_with_loaded_config<F>(
     paths: &vault_core::ProjectPaths,
     config: &vault_core::AppConfig,
     session_database_key: Option<&str>,
-    due_only: bool,
+    trigger: BrowsingTrigger,
     mut report_progress: F,
 ) -> Result<vault_core::BackupReport>
 where
     F: FnMut(BackupProgressEvent),
 {
-    let wake_interval =
-        due_only.then(|| vault_platform::ScheduleParameters::from(config).wake_interval(None));
+    if let Some(reason) = config
+        .capture_policy
+        .backup_skip_reason(vault_core::DataKind::Browsing, trigger == BrowsingTrigger::Kind)
+    {
+        return Ok(vault_core::BackupReport {
+            due_skipped: true,
+            reason_code: Some(reason.into()),
+            ..Default::default()
+        });
+    }
+    let wake_interval = (trigger == BrowsingTrigger::Scheduled)
+        .then(|| vault_platform::ScheduleParameters::from(config).wake_interval(None));
     let mut report =
         run_backup_with_progress(&vault.with_config(config.clone()), wake_interval, |event| {
             report_progress(event);

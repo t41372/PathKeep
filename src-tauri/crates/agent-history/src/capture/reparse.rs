@@ -61,6 +61,8 @@ impl Archive {
             bytes: 0,
             run_id,
             issues: Vec::new(),
+            capture_outcome: None,
+            warning_sources: Default::default(),
         };
         let outcome = reparse(self, &source, &artifact, &raw, options, &mut report);
         finish(self, source_id, report, outcome)
@@ -194,6 +196,7 @@ fn progress(options: &BackupOptions, phase: &str, raw: &RevisionInfo) {
     if let Some(observer) = &options.progress {
         observer(BackupProgress {
             phase: phase.into(),
+            harness: None,
             source_id: raw.source_id.clone(),
             revision_id: Some(raw.id),
             bytes: raw.byte_len,

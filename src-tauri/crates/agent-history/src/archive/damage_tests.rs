@@ -162,7 +162,7 @@ fn committed_backup_survives_a_failed_slice_reclamation() {
     assert_ne!(head.id, old.revision_id);
     let saved = result.unwrap();
     assert!(saved.issues.iter().any(|issue| issue.code == "slice_reclamation_deferred"));
-    assert_eq!(archive.backup_run(saved.run_id).unwrap().status, "partial");
+    assert_eq!(archive.backup_run(saved.run_id).unwrap().status, "complete");
     assert_eq!(archive.session(&old.id).unwrap().revision_id, head.id);
     archive
         .store
@@ -294,4 +294,51 @@ fn malformed_revision_digest_and_retention_flag_fail_before_reading() {
             .unwrap();
         assert_eq!(archive.revision(id).err().map(|e| e.code()), Some("integrity_error"));
     }
+}
+
+// Both manifests lose the slice that distinguished their contents. Their surviving
+// slices have the same offset and hash, so comparison never opens a raw reader.
+#[test]
+fn matching_tail_slices_cannot_prove_equality_across_a_manifest_gap() {
+    use crate::{Artifact, ArtifactKind};
+    use sha2::{Digest, Sha256};
+
+    let temp = tempfile::tempdir().unwrap();
+    let archive = Archive::create_unencrypted(&temp.path().join("archive")).unwrap();
+    let source = SourceRoot { harness: Harness::Codex, root: temp.path().join("codex") };
+    let artifact = Artifact {
+        path: source.root.join("draft.txt"),
+        relative_path: "draft.txt".into(),
+        kind: ArtifactKind::Attachment,
+        project_hint: None,
+        generation: None,
+        current: true,
+    };
+    let retain = |first: &[u8]| {
+        let tail = b"common final record\n";
+        let id = archive.begin_revision("history", &source, &artifact).unwrap();
+        archive.append_chunk(id, 0, first.to_vec()).unwrap();
+        archive.append_chunk(id, 1, tail.to_vec()).unwrap();
+        let digest = Sha256::new().chain_update(first).chain_update(tail).finalize();
+        archive
+            .finish_revision(id, &hex::encode(digest), (first.len() + tail.len()) as u64)
+            .unwrap()
+            .revision_id
+    };
+    let first = retain(b"draft A\n");
+    let second = retain(b"draft B\n");
+    assert_eq!(archive.revisions_prefix(first, second).unwrap(), (false, false));
+    archive
+        .store
+        .write(Db::AgentHistoryEvidence, Priority::Batch, move |tx| {
+            let removed = tx.execute(
+                "DELETE FROM ah_revision_chunks WHERE revision_id IN (?1,?2) AND ordinal=0",
+                vault_store::params![first, second],
+            )?;
+            assert_eq!(removed, 2);
+            Ok(())
+        })
+        .unwrap();
+    let error = archive.revisions_prefix(first, second).unwrap_err();
+    assert!(matches!(error, crate::Error::Integrity(_)));
 }

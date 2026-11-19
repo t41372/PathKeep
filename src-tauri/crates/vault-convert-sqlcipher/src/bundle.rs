@@ -77,6 +77,9 @@ pub fn import(
     progress: impl FnMut(Progress),
 ) -> Result<(ImportResult, InstalledArchive)> {
     let _operation = vault_core::archive::ArchiveOpGate::acquire(paths);
+    if let Some(vault) = current {
+        vault.require_complete()?;
+    }
     // A delete-all-data the user confirmed has not finished; see `vault_core::maintenance`.
     anyhow::ensure!(
         !vault_core::data_wipe_interrupted(paths),
@@ -116,6 +119,7 @@ pub fn import(
     vault_core::config::write_staged_control(&old_paths, &config, None)?;
     let converted =
         crate::convert_owned(&old_paths, &config, password, cancel.clone(), progress, None)?;
+    converted.vault.renew_browsing_run_origin()?;
     if let Some(source_root) = exporting_root(&converted.vault)? {
         native::adopt_moved_paths(
             &converted.vault,

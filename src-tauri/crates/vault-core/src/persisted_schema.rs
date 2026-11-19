@@ -63,7 +63,7 @@ pub fn document() -> Value {
     let mut records = Map::new();
     // The settings. `archiveMode` is described as the settings hold it; on disk it is either
     // that bare value or the stamped object `admission` parses.
-    record::<crate::AppConfig>(&mut records, "config.json");
+    record::<crate::config::StoredSettings<'static>>(&mut records, "config.json");
     record::<crate::maintenance::install::Journal>(&mut records, "archive/.pk-install-v2.json");
     // The same file, while an archive is brought up to this build's layout.
     record::<crate::maintenance::creation::CreationRecord>(

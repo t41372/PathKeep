@@ -51,6 +51,8 @@ pub(super) fn sessions(archive: &Archive) -> BTreeMap<String, serde_json::Value>
 
 pub(super) struct Corpus {
     sessions: BTreeMap<String, serde_json::Value>,
+    receipt_fingerprint: String,
+    capture_facts: Vec<(String, String, String)>,
     // Native file names (including DeepSeek's older generation), newest bytes first.
     revisions: BTreeMap<PathBuf, Vec<Vec<u8>>>,
     removed: PathBuf,
@@ -159,8 +161,18 @@ impl Corpus {
             revision_ids.entry(path).or_default().push(*revision);
         }
         assert_eq!(revisions.keys().collect::<Vec<_>>(), revision_ids.keys().collect::<Vec<_>>());
+        let receipt_fingerprint = receipts::seed(fixture);
+        let capture_facts = captured_units(&fixture.vault());
+        assert!(!capture_facts.is_empty());
         fs::remove_dir_all(logs.source_tree).unwrap();
-        Self { sessions: initial, revisions, removed, revision_ids }
+        Self {
+            sessions: initial,
+            revisions,
+            removed,
+            revision_ids,
+            capture_facts,
+            receipt_fingerprint,
+        }
     }
 
     pub(super) fn check(&self, vault: &Vault, password: Option<&str>) {
@@ -172,6 +184,8 @@ impl Corpus {
         let tail = archive.reader_window(&head, None, head.physical_records - 1, 1, &job).unwrap();
         assert_eq!(tail[0].native_id.as_deref(), Some("lifecycle-tail"));
         assert_eq!(tail[0].parts[0].text, "reader page survived");
+        assert_eq!(captured_units(vault), self.capture_facts);
+        assert_eq!(receipts::fingerprint(vault), self.receipt_fingerprint);
         let sources = archive.list_sources(&Default::default()).unwrap();
         assert!(sources.next_cursor.is_none());
         let mut seen = BTreeSet::new();
@@ -252,4 +266,10 @@ impl Corpus {
             .unwrap();
         item["title"] = "After the copy".into();
     }
+}
+
+fn captured_units(vault: &Vault) -> Vec<(String, String, String)> {
+    vault.store().read(vault_store::Db::AgentHistoryEvidence,|s|s.query(
+        "SELECT b.public_id,u.conversation_id,u.outcome FROM ah_run_conversations u JOIN ah_backup_runs b ON b.id=u.run_id ORDER BY b.public_id,u.conversation_id",
+        (),|r|Ok((r.get::<String>(0)?,r.get::<String>(1)?,r.get::<String>(2)?)))).unwrap()
 }

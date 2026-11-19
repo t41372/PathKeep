@@ -96,8 +96,16 @@ pub(crate) fn root_readable(path: &Path) -> bool {
 /// Hashes a regular file without trusting a timestamp/length freshness shortcut.
 /// Appends, replacement and truncation during the bounded read reject the result.
 pub fn inspect(path: &Path, root: &Path, cancel: &dyn Fn() -> bool) -> Result<FileSnapshot> {
+    inspect_bound(path, root, None, cancel)
+}
+pub(super) fn inspect_bound(
+    path: &Path,
+    root: &Path,
+    expected: Option<&str>,
+    cancel: &dyn Fn() -> bool,
+) -> Result<FileSnapshot> {
     cancelled(cancel)?;
-    let (authorized, mut input) = open_source(path, root)?;
+    let (authorized, mut input) = open_source(path, root, expected)?;
     let digest = read_prefix(&mut input, authorized.mark.len, None, cancel)?;
     validate_after(&input, path, root, &authorized)?;
     cancelled(cancel)?;
@@ -119,8 +127,18 @@ pub fn copy_verified(
     output: &mut dyn Write,
     cancel: &dyn Fn() -> bool,
 ) -> Result<()> {
+    copy_bound(path, root, expected, output, None, cancel)
+}
+pub(super) fn copy_bound(
+    path: &Path,
+    root: &Path,
+    expected: &FileSnapshot,
+    output: &mut dyn Write,
+    directory: Option<&str>,
+    cancel: &dyn Fn() -> bool,
+) -> Result<()> {
     cancelled(cancel)?;
-    let (authorized, mut input) = open_source(path, root).map_err(changed_if_missing)?;
+    let (authorized, mut input) = open_source(path, root, directory).map_err(changed_if_missing)?;
     if authorized.path != expected.path || authorized.mark != expected.mark {
         return Err(changed("file metadata or identity no longer matches inspection"));
     }
@@ -255,9 +273,9 @@ fn same_identity(left: &Metadata, right: &Metadata) -> bool {
     }
 }
 
-fn open_source(path: &Path, root: &Path) -> Result<(AuthorizedPath, File)> {
+fn open_source(path: &Path, root: &Path, expected: Option<&str>) -> Result<(AuthorizedPath, File)> {
     let authorized = authorize(path, root)?;
-    let input = open_regular(&authorized)?;
+    let input = open_regular(&authorized, expected)?;
     let metadata = input.metadata()?;
     if !metadata.is_file() || FileMark::from(&metadata) != authorized.mark {
         return Err(changed("opened file differs from the authorized source"));
@@ -266,7 +284,7 @@ fn open_source(path: &Path, root: &Path) -> Result<(AuthorizedPath, File)> {
 }
 
 #[cfg(unix)]
-fn open_regular(authorized: &AuthorizedPath) -> Result<File> {
+fn open_regular(authorized: &AuthorizedPath, expected: Option<&str>) -> Result<File> {
     use std::{
         ffi::CString,
         os::{
@@ -278,6 +296,11 @@ fn open_regular(authorized: &AuthorizedPath) -> Result<File> {
         .read(true)
         .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
         .open(&authorized.root)?;
+    if let Some(expected) = expected
+        && super::grant::file_identity(&directory)? != expected
+    {
+        return Err(changed("approved directory was replaced"));
+    }
     let relative = authorized
         .path
         .strip_prefix(&authorized.root)
@@ -311,13 +334,33 @@ fn open_regular(authorized: &AuthorizedPath) -> Result<File> {
 }
 
 #[cfg(not(unix))]
-fn open_regular(authorized: &AuthorizedPath) -> Result<File> {
+fn open_regular(authorized: &AuthorizedPath, expected: Option<&str>) -> Result<File> {
+    if let Some(expected) = expected {
+        let root = super::directory_handle(&authorized.root)?;
+        if super::directory_identity(&root)? != expected {
+            return Err(changed("approved directory was replaced"));
+        }
+        let relative = authorized
+            .path
+            .strip_prefix(&authorized.root)
+            .map_err(|_| Error::InvalidInput("source escaped the approved directory".into()))?;
+        let mut options = cap_primitives::fs::OpenOptions::new();
+        options.read(true);
+        #[cfg(windows)]
+        {
+            use cap_primitives::fs::OpenOptionsExt;
+            options.custom_flags(0x0020_0000); // FILE_FLAG_OPEN_REPARSE_POINT
+        }
+        let file = cap_primitives::fs::open(root.as_file(), relative, &options)?;
+        reject_link(&file.metadata()?)?;
+        return Ok(file);
+    }
     let mut options = OpenOptions::new();
     options.read(true);
     #[cfg(windows)]
     {
         use std::os::windows::fs::OpenOptionsExt;
-        options.custom_flags(0x00200000); // FILE_FLAG_OPEN_REPARSE_POINT
+        options.custom_flags(0x00200000);
     }
     let file = options.open(&authorized.path)?;
     reject_link(&file.metadata()?)?;

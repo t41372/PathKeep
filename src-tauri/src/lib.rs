@@ -147,6 +147,10 @@ fn run_app() -> Result<()> {
             app.handle().plugin(build_logging_plugin(&paths))?;
             // With the logger at Debug, Turso's per-page spans would otherwise each ask it.
             vault_store::route_engine_diagnostics_to_log();
+            let conversation_events=app.handle().clone();
+            vault_worker::data_kinds::backups::register_recovery_events(&owner_session,std::sync::Arc::new(move |name,payload|{
+                let _=tauri::Emitter::emit(&conversation_events,name,payload);
+            }));
             let index_events = app.handle().clone();
             let upgrade_events=app.handle().clone();
             vault_core::register_archive_upgrade_listener(move |event| {
@@ -226,6 +230,24 @@ fn run_app() -> Result<()> {
         .manage(session_state)
         .on_window_event(desktop_integration::on_window_event)
         .invoke_handler(tauri::generate_handler![
+            enable_agent_history,
+            start_backup,
+            list_archive_runs,
+            get_archive_run,
+            list_background_tasks,
+            get_task_summary,
+            control_background_task,
+            list_agent_sources,
+            get_agent_overview,
+            retry_agent_store,
+            dismiss_agent_hint,
+            list_data_kinds,
+            set_data_kind_state,
+            get_agent_settings,
+            update_agent_sources,
+            detect_data_sources,
+            preview_agent_sources,
+            cancel_agent_read,
             app_build_info,
             app_snapshot,
             app_lock_status,

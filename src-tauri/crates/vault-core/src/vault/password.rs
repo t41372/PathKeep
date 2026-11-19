@@ -37,6 +37,36 @@ pub(super) fn unlock(paths: &ProjectPaths, password: &str) -> anyhow::Result<Dat
         })?;
     unwrap(&bytes, password)
 }
+/// Browsing preflight verifies the data key. Partial admission also requires a matching
+/// control and a well-formed envelope in encrypted mode. Password unlock authenticates its tag.
+pub(super) fn check_partial_root(paths: &ProjectPaths, encrypted: bool) -> vault_store::Result<()> {
+    let check = || -> anyhow::Result<()> {
+        let config = crate::load_config(paths)?;
+        anyhow::ensure!(
+            (config.archive_mode == crate::ArchiveMode::Encrypted) == encrypted,
+            "archive control and database encryption disagree"
+        );
+        let path = paths.artifact_path(vault_layout::ArtifactId::Envelope);
+        if encrypted {
+            let metadata = std::fs::metadata(&path).map_err(|error| {
+                if error.kind() == std::io::ErrorKind::NotFound {
+                    anyhow::Error::new(EnvelopeMissing)
+                } else {
+                    error.into()
+                }
+            })?;
+            anyhow::ensure!(metadata.is_file(), "archive key envelope is not a regular file");
+            Envelope::parse(&read_envelope_file(&path)?)?;
+        } else {
+            anyhow::ensure!(!path.try_exists()?, "plaintext archive has a key envelope");
+        }
+        Ok(())
+    };
+    check().map_err(|e| {
+        vault_store::Error::Operation(e.reallocate_into_boxed_dyn_error_without_backtrace())
+    })
+}
+
 pub(super) fn open(
     paths: ProjectPaths,
     config: AppConfig,
@@ -44,7 +74,7 @@ pub(super) fn open(
     owner: Option<Arc<vault_store::OwnerLock>>,
 ) -> anyhow::Result<(Vault, DataKey)> {
     // Before the owner lock and before an envelope can be created.
-    crate::admission::guard(&paths.app_root)?;
+    crate::admission::require_control(&paths.app_root)?;
     let owner = match owner {
         Some(owner) => owner,
         None => Arc::new(vault_store::OwnerLock::acquire(&paths.app_root)?),
@@ -52,7 +82,8 @@ pub(super) fn open(
     let recovered = crate::maintenance::recover_native_maintenance(&paths)?;
     let config = if recovered { crate::load_config(&paths)? } else { config };
     open_using(paths, config, password, Some(owner), |paths, config, key, owner| {
-        Ok(Vault::open_owned(paths, config, Some(key), owner)?)
+        // Admission preceded the owner lock and any first-open pending envelope.
+        Ok(Vault::open_database(paths, config, Some(key), owner, true)?)
     })
 }
 pub(super) fn open_using(

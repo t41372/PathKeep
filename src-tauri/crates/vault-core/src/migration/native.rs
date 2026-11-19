@@ -58,6 +58,8 @@ fn layout_of(format: u32) -> Result<vault_layout::ArchiveLayout> {
 /// machine starts without one) and whether the password is remembered in this keychain (export
 /// always writes it off, which would otherwise clear the keychain on every move).
 pub fn keep_machine_settings(config: &mut AppConfig, here: &AppConfig) {
+    config.capture_policy = here.capture_policy.clone();
+    config.dismissed_agent_hints.clone_from(&here.dismissed_agent_hints);
     config.app_lock = here.app_lock.clone();
     config.remember_database_key_in_keyring = here.remember_database_key_in_keyring;
 }
@@ -72,12 +74,15 @@ pub fn export(
 ) -> Result<ExportedBundle> {
     let _operation = crate::archive::ArchiveOpGate::acquire(vault.paths());
     vault.recheck_root()?;
+    vault.require_complete()?;
     validate_target(vault.paths(), target)?;
     cancel.check()?;
     let stage = maintenance::staging_root(vault.paths())?;
     let mut config = vault.config().clone();
     config.archive_mode = ArchiveMode::Encrypted;
     config.remember_database_key_in_keyring = false;
+    config.capture_policy = Default::default();
+    config.dismissed_agent_hints.clear();
     config.app_lock = Default::default();
     let key = maintenance::create_envelope(stage.path(), &config, Some(password))?.unwrap();
     let pause = vault.pause_store()?;
@@ -283,6 +288,9 @@ pub fn import(
     let password =
         options.source_archive_key.as_deref().context(super::IMPORT_SOURCE_KEY_REQUIRED_PREFIX)?;
     crate::admission::refuse_newer(&paths.app_root)?;
+    if let Some(vault) = current {
+        vault.require_complete()?;
+    }
     // A delete-all-data the user confirmed has not finished. Installing an archive now would put
     // it where that wipe, once finished, deletes it.
     anyhow::ensure!(
@@ -343,6 +351,7 @@ pub fn import(
     let stamp = crate::config::replacement_compatibility(paths, stage.path())?;
     crate::config::write_staged_control(&staged_paths, &config, Some(&stamp))?;
     let staged = Vault::open_staged(staged_paths, config.clone(), Some(&key))?;
+    staged.renew_browsing_run_origin()?;
     let layout = staged.layout();
     for db in vault_layout::portable_databases(layout) {
         cancel.check()?;
@@ -353,6 +362,13 @@ pub fn import(
     }
     portable_artifacts::relocate(&staged, &origin.source_root, &paths.app_root, &cancel)?;
     staged.search().rebuild_with_control(cancel.clone(), |_| {})?;
+    // Move files omit indexes. Build the incoming visible conversations in the
+    // private stage so an interrupted import cannot publish an unsearchable copy.
+    if config.capture_policy.agent_state_if_present(true) != crate::KindState::Off
+        && staged.has_saved_transcripts()?
+    {
+        staged.agent_history()?.synchronize_search_with_cancel(&|| cancel.check().is_err())?;
+    }
     staged.close()?;
     let installed =
         install_staged(paths, current, owner, stage.path(), config, Some(key), &cancel)?;
@@ -396,8 +412,8 @@ pub fn install_staged(
     cancel.check()?;
     // The replacement's control is written and installed under one hold of the control's gate,
     // with this machine's settings as they are now: one changed while the import ran is kept.
-    let control = crate::ControlGate::acquire(paths);
-    keep_machine_settings(&mut config, &settings_here(paths)?);
+    let control =
+        super::import_policy::for_install(paths, current, stage, &mut config, key.as_ref())?;
     // Whoever built the stage, it replaces this archive: it keeps this archive's stamp unless its
     // own is newer and lowers neither floor.
     let stamp = crate::config::replacement_compatibility(paths, stage)?;
@@ -450,7 +466,7 @@ pub fn adopt_moved_paths(
 }
 
 /// The bundle's `config.json`, decrypted in the system temporary folder and returned in memory.
-fn source_control(bundle: &Path, key: &vault_crypto::DataKey) -> Result<Vec<u8>> {
+pub(super) fn source_control(bundle: &Path, key: &vault_crypto::DataKey) -> Result<Vec<u8>> {
     let entry = vault_layout::portable_entry(A::Config);
     let scratch = tempfile::tempdir()?;
     let sealed = scratch.path().join(entry);
@@ -462,11 +478,20 @@ fn source_control(bundle: &Path, key: &vault_crypto::DataKey) -> Result<Vec<u8>>
     Ok(control)
 }
 
-fn bundle_key(bundle: &Path, password: &str) -> Result<vault_crypto::DataKey> {
+pub(super) fn bundle_key(bundle: &Path, password: &str) -> Result<vault_crypto::DataKey> {
     use std::io::Read;
     let mut zip = zip::ZipArchive::new(fs::File::open(bundle)?)?;
     let entry = zip.by_name(vault_layout::portable_entry(A::Envelope))?;
     let mut bytes = Vec::new();
     entry.take((vault_crypto::ENVELOPE_LEN + 1) as u64).read_to_end(&mut bytes)?;
     crate::vault::password::unwrap(&bytes, password)
+}
+
+/// Password-free preview can describe visibility without publishing an encrypted
+/// bundle's conversation inventory. Installation reads the same destination settings.
+pub fn imported_agent_state_if_present(paths: &ProjectPaths) -> Result<crate::KindState> {
+    crate::admission::refuse_newer(&paths.app_root)?;
+    let config = settings_here(paths)?;
+    crate::ensure_app_lock_unlocked(paths, &config)?;
+    Ok(config.capture_policy.agent_state_if_present(true))
 }

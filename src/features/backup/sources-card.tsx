@@ -9,6 +9,9 @@
  * profiles, closed when there are more than three and none has a problem.
  * Profiles with no history file are gathered at the end, closed.
  *
+ * Switching off the last browser while browsing history is the only kind
+ * on is refused by the backend; that is said in plain words.
+ *
  * Not responsible for running backups (see `app/backup-runner`).
  */
 import { useMutation, useQueryClient } from '@tanstack/react-query'
@@ -29,6 +32,7 @@ import { appClient } from '@/lib/backend-client/app'
 import type { SourceStats } from '@/lib/backend-client/sources'
 import { BrowserIcon } from '@/lib/browser-icons'
 import { cn } from '@/lib/cn'
+import { dataKindsErrorCode } from '@/lib/backend-client/data-kinds'
 import { describeError } from '@/lib/errors'
 import { useFormat, useI18n } from '@/lib/i18n'
 import {
@@ -452,9 +456,12 @@ export function SourcesCard() {
       }),
       {
         onError: (error) =>
-          toast.error(t('backup.sources.saveFailed'), {
-            description: describeError(error, 'save_config'),
-          }),
+          // The last browser of the only kind on: the backend keeps it.
+          dataKindsErrorCode(error) === 'source-selection-empty'
+            ? toast.error(t('backup.sources.lastProfile'))
+            : toast.error(t('backup.sources.saveFailed'), {
+                description: describeError(error, 'save_config'),
+              }),
       },
     )
   }

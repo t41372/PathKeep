@@ -152,6 +152,9 @@ pub struct SetAppLockPasscodeRequest {
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", default)]
 pub struct AppConfig {
+    pub capture_policy: super::CapturePolicy,
+    #[serde(default, skip_serializing_if = "std::collections::BTreeSet::is_empty")]
+    pub dismissed_agent_hints: std::collections::BTreeSet<super::AgentHint>,
     pub initialized: bool,
     pub archive_mode: ArchiveMode,
     pub preferred_language: LanguagePreference,
@@ -267,6 +270,8 @@ impl Default for AppConfig {
     /// Returns the accepted config defaults for a fresh install.
     fn default() -> Self {
         Self {
+            capture_policy: Default::default(),
+            dismissed_agent_hints: Default::default(),
             initialized: false,
             archive_mode: ArchiveMode::Plaintext,
             preferred_language: LanguagePreference::System,

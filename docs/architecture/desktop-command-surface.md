@@ -241,3 +241,195 @@ all three languages; the frontend reads codes, never English text (Safari's Full
 guidance reads the outcome). Scheduled attempts record a partial run as `partial` with reason
 `backup-incomplete`, and tell `write-lock` and `disk-full` failures apart. Request fields and
 command names are unchanged.
+
+## Conversation sources and data kinds
+
+Every command below takes a JSON object with a required `request` member.
+The [wire fixture](../../src-tauri/tests/fixtures/data-kinds-preview.json) gives
+complete example requests, responses, event payloads and private frames. A
+snapshot read is the reconnect path after a missed event.
+
+| Command                 | Consumer                                             | Request and result                                                                                                                                                                                                                                                                                                                                       |
+| ----------------------- | ---------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `list_data_kinds`       | Shell, Manage Kinds, OFF screen, Settings navigation | `{}` for the shell, `{includeArchiveBytes:true}` for the cards. Returns `kinds` and `policyToken`. Browsing counts visits. Conversations count source files with a committed head. `firstBackup` is the status of the first conversation run, or `not-started`.                                                                                          |
+| `set_data_kind_state`   | Manage Kinds                                         | `kind`, `state`, `expectedPolicyToken`. Returns the fresh list plus `affectedTasks` (empty in step 1). Paused allows reading retained conversations without a capture grant. On from a view-only or off state requires the enable flow.                                                                                                                  |
+| `get_agent_settings`    | Enable and Backup                                    | Empty request. Returns `policy`, `policyToken`, `toolsChosen` and `dismissedHints`. `enabledTools` is ordered Claude Code, Codex, Pi, DeepSeek with disabled tools omitted.                                                                                                                                                                              |
+| `update_agent_sources`  | Enable and Backup                                    | `expectedToken`, optional `readGit`, optional `toolChanges` mapping public tool IDs to booleans. Returns updated settings. While off, switches express preferences for the enable dialog. An active kind needs a reviewed selection to widen its grants.                                                                                                 |
+| `detect_data_sources`   | Intro and onboarding                                 | `kinds` array. Returns `sources`, eligible browsing `profiles`, and optional `browserDiscoveryIssue`. A tool row has `kind,tool,rootIds,path,found,readable,reason?`. A browser row uses `profileId` in place of tool and path. Blocked Safari counts as found.                                                                                          |
+| `preview_agent_sources` | Onboarding sources, enable dialog and rescan         | `purpose` is `onboarding`, `enable` or `rescan`. Optional `tools` and `rootIds` filter known roots. `pickedFolder:{tool,path}` selects an absolute native picker result. Returns `streamId,viewToken`. Pass `onEvent` alongside `request` on Tauri. On the dev bridge open `GET /previews/{streamId}/events` once and parse each SSE data field as JSON. |
+| `cancel_agent_read`     | Close or cancel preview                              | `requestIdOrStreamId` takes the returned stream ID. Returns `{"state":"cancelled"}`, including an already absent stream.                                                                                                                                                                                                                                 |
+
+Each private frame has `streamId,sequence,type,payload`, beginning at sequence
+`"0"`. Progress uses `phase:"discovery",unit:"entries",done`. A `root` frame
+contains one inventory row. `finished` encloses the complete report in the
+fixture. `cancelled` or `error` ends the stream with `{code}`. A stalled preview or unused ticket expires after five minutes. The owner keeps
+at most 32 live streams and 32 tickets, evicting the oldest ticket at capacity.
+Dropping the private reader cancels production. Counts, bytes and sequence numbers are
+decimal strings except for the bounded number of roots per tool. Dates are
+UTC epoch milliseconds. Earliest/latest are null when no filesystem
+modification time was observed.
+
+A root reports `known-layout` for Claude's recognized positions,
+`file-candidates` for the other tools, or `unavailable` for an inaccessible
+root. Native discovery supplies the same file stream to the inventory and the
+capture producer. Top-level candidates, recognizable child files, ambiguous
+candidates and ancillary files sum to `files`; `sourceBytes` measures those files.
+`unknownFiles` counts unrecognized names skipped inside native transcript trees.
+Directory counts exclude the selected root. A row can be readable with a
+reason if a descendant was inaccessible. Totals then cover observed metadata.
+The estimate budgets the observed byte length of native-compressed and ordinary
+inputs, one additional byte per observed input byte for derived storage, and
+4 KiB per file for overhead. Free bytes come from the volume containing the
+conversation evidence database, or its nearest existing ancestor during setup.
+
+After a committed policy edit, `pathkeep://data-kinds-changed` carries
+`{policyToken,changedKinds}`. A no-op produces no event. Content and paths
+travel on the private request stream. A mismatched policy token returns
+`policy-changed`; a last-on transition returns `last-active-kind`.
+Other domain refusals include `invalid-request`, `lock-required`,
+`enable-preview-required`, `scope-denied`, `source-selection-empty`,
+`root-changed`, `preview-expired`, `archive-replaced`, `archive-busy`,
+`archive-uninitialized`, `destination-unavailable`, and `cancelled`.
+Existing archive admission and key errors keep their codes. A missing source
+reports `root-missing`; denial or an unreadable entry reports
+`root-unreadable`. The scan depth limit reports `source-depth-limit`.
+
+An unavailable conversation store leaves the browsing row readable.
+`availability` is `available`, `not-initialized`, or `unavailable`.
+An unavailable row has null `hasSavedData`, absent `archiveCount` and
+`firstBackup`, and unavailable coverage. Role-local damage also carries
+`failure:{role,stage,reason}` from the open owner. Roles are `evidence`,
+`read-model`, or `shared`. Stages are `preflight,open,key-check,migrate,recover`.
+Reasons are `archive-store-missing,wrong-key,integrity-failed,schema-too-new,archive-busy,kind-unavailable`.
+
+### Conversation backups, runs and Tasks
+
+The enable dialog submits the completed preview ID, a subset of its root IDs,
+the Git choice, the displayed policy token and a UUID request ID. The returned
+`firstSave.taskId` is owned by the open archive. Closing the dialog releases
+only its private preview stream. Each root descriptor retains the normalized
+path and native directory identity. Preview and capture enumerate relative to an open directory handle. A rename cannot redirect the walk into a replacement folder. Device policy publishes its reference and
+the pending request together through the guarded durable control write. The
+native run and its public receipt commit together before pending state clears.
+
+| Command                   | Screen                      | Request fields                                                    | Response                                                                                                                                                                                                           |
+| ------------------------- | --------------------------- | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `enable_agent_history`    | Enable                      | `previewId,selectedRootIds,readGit,expectedPolicyToken,requestId` | `state,policyToken,firstSave:{taskId,requestId,runRef}`                                                                                                                                                            |
+| `start_backup`            | Agent backup                | `scope,requestId,expectedPolicyToken?`                            | `batchId,kinds:[{kind,decision,taskId,runRef}]`. Kind and tool scopes share a slot. Busy delivery returns the original reference even on replay.                                                                   |
+| `get_agent_overview`      | Backup header and space     | `purpose` is `backup` or `space`                                  | Committed roots, children, missing origins, bytes, coverage, per-tool counts, last run and first-save state.                                                                                                       |
+| `list_agent_sources`      | Backup sources              | `limit,cursor?`                                                   | Page of source observations. A tool without an approved root has a disabled row and null path.                                                                                                                     |
+| `update_agent_sources`    | Source controls             | `expectedToken,previewId?,selectedRootIds?,toolChanges?,readGit?` | Updated device policy and token. A supplied root list replaces the selected set. Every addition requires a still-valid preview.                                                                                    |
+| `list_archive_runs`       | Backup ledger               | `space?,includeArchiveWide,limit,cursor?`                         | A keyset page merging the eligible indexed ledgers. The archive doctor and retention runs appear in both spaces.                                                                                                   |
+| `get_archive_run`         | Run detail                  | `runRef,detailCursor?`                                            | Conversation row, ordered root results, counters, Git choice, coverage and a bounded warning page. Numeric browsing links keep their existing audit detail and gain the same public run header as the merged list. |
+| `list_background_tasks`   | Tasks                       | `group,kind?,limit,cursor?`                                       | Groups are `running,waiting,attention,today`. Each row provides its current actions and `snapshotToken`.                                                                                                           |
+| `get_task_summary`        | Rail                        | Empty request                                                     | Running, queued and attention counts plus running rows. The mean fraction is absent while the total is unknown.                                                                                                    |
+| `control_background_task` | Tasks and first-save banner | `taskId,action,expectedToken,requestId,confirmation?`             | Pass the task's `snapshotToken`. Returns the task, a replacement task ID on retry, or `previewRequired:true` when the grant no longer covers the original scope.                                                   |
+| `set_data_kind_state`     | Manage Kinds                | Existing request                                                  | The transitioned snapshot and IDs of active tasks signalled to stop.                                                                                                                                               |
+
+Every request uses the `request` wrapper. The [serialized examples](../../src-tauri/tests/fixtures/agent-backup.json)
+cover both transport facades through the dev dispatch contract. Quantities that
+can exceed JavaScript precision are decimal strings. Times are UTC epoch
+milliseconds. During streaming discovery a committed prefix may already be
+readable. The progress denominator is null. A new child, a newly identified
+top-level conversation and a revised conversation are distinct units.
+
+The owner emits `pathkeep://data-kinds-changed` on policy publication,
+`pathkeep://agent-settings-changed` for active source settings,
+`pathkeep://kind-backup-progress` for coalesced progress,
+`pathkeep://background-task-changed` for task state,
+`pathkeep://kind-backup-finished` at completion and
+`pathkeep://agent-catalog-changed` for overview invalidation. Refetch after
+unlock, reconnect or an event gap. The terminal run and attention are durable.
+
+Conversation runs report save failures in `warningCount` and `warnings`. Retained format
+limitations and transient changes appear in `noteCount`, `newNoteCount` and the paged
+`notes` on run detail. A source row groups its most recent notes by code. Counts are decimal
+strings. Reports predating note accounting omit the counts. A successful task may have
+`attention: true` and `formatNotices` containing the first newly encountered tool/version
+pairs. Use `control_background_task` with `action:"dismiss-notice"` and `notice:{"tool":"pi","version":"1000"}` to dismiss one pair. The `dismiss` action acknowledges only a save failure. The finish event includes both
+note counts and the list of newly raised format notices.
+The legacy browsing backup command and its progress and report remain the
+browsing screen's entry point.
+
+A desktop conversation run detail includes `task` with its current actions and comparison token, including after the local day changes. Native runs without desktop receipts omit it. If a read overlaps a first-save claim, the task can briefly report `state:"queued"`, `phase:"queued"` and no actions. Its run result is `running`. A terminal publication that failed while storage was unavailable is reconciled on service access, with reason `terminal-publication-failed`. Source edits may include an already-selected logical root ID in the submitted preview. A bound preview row and a saved source row expose an opaque `directoryToken`. Offer a renewed grant when the same `rootId` has a different token. Unbound and tool-only rows omit it. Send the union of old and reviewed IDs once each. The reviewed directory replaces its earlier binding. An on device with a missing descriptor can use the ordinary enable dialog to repair it.
+
+Overview and source-list requests share aggregates from committed evidence. Backup overview omits physical size by default. Fetch it after first content with `list_data_kinds` and `includeArchiveBytes:true`, or explicitly request `get_agent_overview` with `includeArchiveBytes:true`.
+
+The active grant appears as `policy.selectionRef` in `get_agent_settings`.
+`list_data_kinds` includes `activeTaskId` for an active conversation backup.
+`archiveBytes` measures the two native conversation databases, their usage
+companions and the owned conversation search index. `retainedBytes:null`
+in a run means the physical storage newly attributable to that attempt was
+not measured. `filesAbsent` counts previously observed source files confirmed missing during a completed directory walk. A missing or unreadable directory cannot increase it. A committed transcript without a known current identity contributes
+to `unclassified`; it does not increase the conversation count by being a file.
+
+| Refusal                                                                                                | Client action                                                                          |
+| ------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------- |
+| `lock-required`                                                                                        | Unlock before refetching private metadata. An already authorized capture continues.    |
+| `kind-unavailable`                                                                                     | Read role and failure stage from Manage Kinds. Browsing has its own availability.      |
+| `kind-off`, `last-active-kind`                                                                         | Respect the current device state and the last-on invariant.                            |
+| `preview-expired`, `root-changed`, `enable-preview-required`, `source-selection-empty`, `scope-denied` | Review the current directories or adjust the selection.                                |
+| `policy-changed`, `archive-replaced`                                                                   | Refetch the policy or the task snapshot before another action.                         |
+| `task-action-unavailable`, `operation-finishing`, `archive-busy`                                       | Refetch available actions. A second eligible backup request returns the existing task. |
+| `invalid-request`, `invalid-cursor`, `record-unavailable`                                              | Correct the payload, restart paging or handle an absent reference.                     |
+
+A retry whose original scope is no longer granted returns `previewRequired:true`
+with the original task. Source problems belong to the run, including native
+parser codes such as `pi-unsupported-version`. The native run, its public
+receipt and the snapshot token for task controls are separate identities.
+
+### Retained conversation visibility and device choices
+
+Use the conversation kind row's `state` for navigation and read admission.
+The device capture policy can still say `agentHistory:"off"` on a new computer
+that displays saved data as `paused`. A committed transcript, including a
+retained transcript in a newer native format, is enough to show the space.
+An explicit off choice takes precedence. `hasBackupSource` checks for an
+enabled tool in the device's approved root descriptor without probing the tool.
+A paused row with `hasBackupSource:false` is view-only. The field is omitted on
+browsing and when the conversation role is unavailable.
+
+The shell sends `{"request":{}}` to `list_data_kinds`. Manage Kinds can make a
+second request, `{"request":{"includeArchiveBytes":true}}`, after painting.
+Only the second request measures physical storage. Available initialized rows
+then include `archiveBytes` as a decimal string. Conversations use the same
+database, WAL and search-index accounting as the backup header. Browsing uses
+Storage's live browsing-scoped databases and derived files. The mixed snapshot
+container, shared manifests, exports, staging and other scopes are excluded.
+
+| Command                                      | Request                                                                | Response and invalidation                                                                                                                                                                                                                                                                                                                                                       |
+| -------------------------------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `retry_agent_store`                          | `{"request":{}}`                                                       | The ordinary kind snapshot. The owner retries its conversation roles in place. If they remain unavailable the row contains the failure. A recovered role emits `pathkeep://data-kinds-changed` with `changedKinds:["agent-history"]`. Refetch even if the policy hash is unchanged.                                                                                             |
+| `dismiss_agent_hint`                         | `{"request":{"hint":"intro"}}` or `{"request":{"hint":"auto-delete"}}` | `{"hint":"intro","dismissed":true}` or the corresponding auto-delete acknowledgement. A first dismissal emits `pathkeep://agent-settings-changed` with `domains:["hints"]` and the settings hash, including while the unlocked kind is off. Replays are idempotent.                                                                                                             |
+| `get_agent_settings`, `update_agent_sources` | Existing requests                                                      | `toolsChosen` distinguishes untouched defaults from a saved empty checklist. `dismissedHints` lists acknowledged hint IDs. Hint changes preserve `policyToken` and an outstanding source preview.                                                                                                                                                                               |
+| `preview_app_data_import`                    | Existing `{"bundlePath":"…"}`                                          | Adds `agentConversations:{"carried":true,"stateIfPresent":"paused"}` on a format-3 bundle for an undecided device. Explicit off gives `"off"`; an existing on choice gives `"on"`. Formats 1 and 2 give `{"carried":false,"stateIfPresent":null}`. Carried refers to the conversation database role. The pre-password preview does not reveal the encrypted conversation count. |
+
+Debug owners read `PATHKEEP_TEST_AGENT_PREVIEW_ENTRY_DELAY_US` per inventory
+walk and `PATHKEEP_TEST_AGENT_CAPTURE_FILE_DELAY_US` per capture root. Positive
+integer values are microseconds per entry or discovered file. Unset, invalid
+and zero values disable pacing. Waits check cancellation in slices of at most
+10 ms. Release builds ignore both variables.
+
+### Capture eligibility and review
+
+- Browsing callers can pass `{"dueOnly":false,"kindSpecific":true}` to
+  `run_backup_now` for the browsing space's explicit button. Menu, palette,
+  all-now and due-only dispatch skip paused and off kinds. A skip uses the
+  existing report with `dueSkipped:true`, `run:null`, and `reasonCode` equal to
+  `kind-paused` or `kind-off`. The scheduled wake records a skipped attempt.
+- The all-now conversation caller sends `shared:true` inside the existing
+  `start_backup` request with a kind scope. A skip returns
+  `{"batchId":"<requestId>","kinds":[{"kind":"agent-history","decision":"skipped","reason":"kind-paused"}]}`.
+  An off kind uses `kind-off`. Explicit tool and kind requests retain their manual behavior.
+- A source edit that would remove the sole on kind's last approved source returns
+  `source-selection-empty`. A disconnected approved folder still counts.
+  An on conversation kind whose destination descriptor is lost during import
+  reports `hasBackupSource:false` and `sourceReviewRequired:true` in the kind row.
+  An initialized on browsing kind with an empty profile selection also reports
+  `sourceReviewRequired:true`. The user's other kind keeps its existing state.
+- Pass the completed enable dialog's `previewId` in `update_agent_sources`
+  when saving its tool ticks or Git preference. That ticket follows those
+  changes. A different policy edit, lock, expiry or replaced directory requires
+  review again. Rescan accepts saved custom root IDs alongside default IDs.
+  An unfiltered discovery with no tools completes with `rows:[]` and zero totals.
+  The owner releases a ticket's directory handles at expiry even while idle.

@@ -108,7 +108,89 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
         worker_bridge::debug_set_search_indexer_paused_impl(&state.session, paused)?;
         return Ok(Value::Null);
     }
+    use vault_worker::data_kinds as kinds;
+    let changed = |event: kinds::PolicyChange| {
+        if let Ok(app) = require_app_handle(state) {
+            let _ = tauri::Emitter::emit(&app, kinds::POLICY_EVENT, &event);
+        } else {
+            state.events.emit(kinds::POLICY_EVENT, &event)
+        }
+    };
     match command {
+        "enable_agent_history" => worker_bridge::enable_agent_history_impl(
+            &state.session,
+            surface_request(payload)?,
+            backup_events(state),
+        ),
+        "start_backup" => worker_bridge::start_backup_impl(
+            &state.session,
+            surface_request(payload)?,
+            backup_events(state),
+        ),
+        "list_archive_runs" => {
+            worker_bridge::list_archive_runs_impl(&state.session, surface_request(payload)?)
+        }
+        "get_archive_run" => {
+            worker_bridge::get_archive_run_impl(&state.session, surface_request(payload)?)
+        }
+        "list_background_tasks" => {
+            worker_bridge::list_background_tasks_impl(&state.session, surface_request(payload)?)
+        }
+        "get_task_summary" => {
+            worker_bridge::get_task_summary_impl(&state.session, surface_request(payload)?)
+        }
+        "control_background_task" => worker_bridge::control_background_task_impl(
+            &state.session,
+            surface_request(payload)?,
+            backup_events(state),
+        ),
+        "list_agent_sources" => {
+            worker_bridge::list_agent_sources_impl(&state.session, surface_request(payload)?)
+        }
+        "get_agent_overview" => {
+            worker_bridge::get_agent_overview_impl(&state.session, surface_request(payload)?)
+        }
+        "retry_agent_store" => json_value!(worker_bridge::retry_agent_store_impl(
+            &state.session,
+            surface_request(payload)?,
+            changed
+        )?),
+        "dismiss_agent_hint" => json_value!(worker_bridge::dismiss_agent_hint_impl(
+            surface_request(payload)?,
+            backup_events(state)
+        )?),
+        "list_data_kinds" => {
+            json_value!(worker_bridge::list_data_kinds_impl(
+                &state.session,
+                surface_request(payload)?
+            )?)
+        }
+        "set_data_kind_state" => {
+            json_value!(worker_bridge::set_data_kind_state_impl(
+                &state.session,
+                surface_request(payload)?,
+                changed
+            )?)
+        }
+        "get_agent_settings" => {
+            json_value!(worker_bridge::get_agent_settings_impl(surface_request(payload)?)?)
+        }
+        "update_agent_sources" => {
+            json_value!(worker_bridge::update_agent_sources_impl(
+                &state.session,
+                surface_request(payload)?,
+                backup_events(state)
+            )?)
+        }
+        "detect_data_sources" => worker_bridge::detect_data_sources_impl(surface_request(payload)?),
+        "preview_agent_sources" => {
+            let frames = worker_bridge::preview_agent_sources_impl(
+                &state.session,
+                surface_request(payload)?,
+            )?;
+            json_value!(super::preview::register(state, frames))
+        }
+        "cancel_agent_read" => worker_bridge::cancel_agent_read_impl(surface_request(payload)?),
         "app_build_info" => json_value!(worker_bridge::app_build_info_impl()),
         "app_snapshot" => {
             json_value!(worker_bridge::app_snapshot_impl(&state.session)?)
@@ -229,6 +311,7 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
                 backup_now_off_thread(
                     app,
                     payload.due_only,
+                    payload.kind_specific,
                     state.session.clone(),
                     state.events.clone()
                 )
@@ -1158,6 +1241,12 @@ fn require_app_handle(state: &DevIpcBridgeState) -> Result<DevIpcAppHandle, Stri
     })
 }
 
+fn surface_request<T: DeserializeOwned>(payload: Value) -> Result<T, CommandError> {
+    serde_json::from_value::<WrappedRequest<T>>(payload)
+        .map(|p| p.request)
+        .map_err(CommandError::invalid_request)
+}
+
 fn parse_payload<T: DeserializeOwned>(payload: Value) -> Result<T, String> {
     serde_json::from_value(payload).map_err(|error| error.to_string())
 }
@@ -1193,16 +1282,22 @@ fn join_failure<T>(command: &str, error: tokio::task::JoinError) -> Result<T, Co
 async fn backup_now_off_thread(
     app: Option<DevIpcAppHandle>,
     due_only: bool,
+    kind_specific: bool,
     session: crate::session::SessionState,
     events: super::events::Hub,
 ) -> Result<vault_core::BackupReport, CommandError> {
     tokio::task::spawn_blocking(move || match app {
-        Some(app) => {
-            desktop_integration::run_backup(&app, desktop_integration::BackupSource::App, due_only)
+        Some(app) => desktop_integration::run_backup(
+            &app,
+            desktop_integration::BackupSource::App,
+            due_only,
+            kind_specific,
+        ),
+        None => {
+            worker_bridge::run_backup_now_impl(due_only, kind_specific, &session, move |event| {
+                events.emit(desktop_integration::BACKUP_PROGRESS_EVENT, &event)
+            })
         }
-        None => worker_bridge::run_backup_now_impl(due_only, &session, move |event| {
-            events.emit(desktop_integration::BACKUP_PROGRESS_EVENT, &event)
-        }),
     })
     .await
     .unwrap_or_else(|error| join_failure("run_backup_now", error))
@@ -1297,3 +1392,14 @@ async fn download_static_embedding_model_off_thread(
 
 #[cfg(test)]
 mod tests;
+
+fn backup_events(state: &DevIpcBridgeState) -> vault_worker::data_kinds::backups::Events {
+    let state = state.clone();
+    std::sync::Arc::new(move |name, event| {
+        if let Ok(app) = require_app_handle(&state) {
+            let _ = tauri::Emitter::emit(&app, name, &event);
+        } else {
+            state.events.emit(name, &event);
+        }
+    })
+}

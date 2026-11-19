@@ -16,7 +16,7 @@ pub(crate) use events::{native_event, parts};
 use metadata::origin;
 use serde_json::Value;
 use std::collections::HashSet;
-use std::fs;
+
 use std::io::BufRead;
 use std::path::Path;
 
@@ -53,7 +53,17 @@ impl Adapter for CodexAdapter {
         emit: &mut dyn FnMut(Artifact) -> crate::Result<()>,
         issues: &mut Vec<Diagnostic>,
     ) -> crate::Result<()> {
-        match fs::symlink_metadata(&source.root) {
+        self.discover_cancellable(&crate::capture::Discovery::default(), source, emit, issues)
+    }
+
+    fn discover_cancellable(
+        &self,
+        cancel: &crate::capture::Discovery,
+        source: &SourceRoot,
+        emit: &mut dyn FnMut(Artifact) -> crate::Result<()>,
+        issues: &mut Vec<Diagnostic>,
+    ) -> crate::Result<()> {
+        match cancel.metadata(&source.root) {
             Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => {}
             Ok(_) => {
                 discovery_issue(issues, "codex-source-not-directory");
@@ -65,7 +75,7 @@ impl Adapter for CodexAdapter {
             }
         }
         // Validate the selected root before enumerating only known native locations.
-        let entries = match fs::read_dir(&source.root) {
+        let entries = match cancel.read_dir(&source.root) {
             Ok(entries) => entries,
             Err(_) => {
                 discovery_issue(issues, "codex-source-unavailable");
@@ -73,6 +83,7 @@ impl Adapter for CodexAdapter {
             }
         };
         for entry in entries {
+            cancel.visited_entry()?;
             let entry = match entry {
                 Ok(entry) => entry,
                 Err(_) => {
@@ -90,10 +101,12 @@ impl Adapter for CodexAdapter {
                 _ => continue,
             };
             let mut path_issues = Vec::new();
-            common::walk_files(
+            common::walk_files_cancellable(
+                cancel,
                 &entry.path(),
                 &mut |path| {
                     if kind == ArtifactKind::Transcript && !is_rollout(&path) {
+                        cancel.unknown_file();
                         return Ok(());
                     }
                     let Some(relative) =
@@ -162,13 +175,13 @@ impl Adapter for CodexAdapter {
     }
 }
 
-fn is_database_name(name: &str) -> bool {
+pub(crate) fn is_database_name(name: &str) -> bool {
     name.strip_prefix("state_").and_then(|suffix| suffix.strip_suffix(".sqlite")).is_some_and(
         |version| !version.is_empty() && version.bytes().all(|byte| byte.is_ascii_digit()),
     )
 }
 
-fn is_rollout(path: &Path) -> bool {
+pub(crate) fn is_rollout(path: &Path) -> bool {
     path.file_name()
         .and_then(|name| name.to_str())
         .is_some_and(|name| name.ends_with(".jsonl") || name.ends_with(".jsonl.zst"))

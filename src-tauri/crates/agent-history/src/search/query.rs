@@ -18,6 +18,7 @@ impl Archive {
     /// Searches the whole synchronized corpus. Terms are literal, case-insensitive
     /// and conjunctive; filters retain exact harness/project identity.
     pub fn search(&self, query: &SearchQuery) -> Result<SearchPage> {
+        self.initial_search.wait();
         let _job = self.jobs.enter(None)?;
         loop {
             let state = self.state_visibility()?;

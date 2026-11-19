@@ -33,7 +33,7 @@ pub(crate) fn export_app_data_impl(
 
 pub(crate) fn preview_app_data_import_impl(
     bundle_path: PathBuf,
-) -> Result<vault_core::ImportPreview, CommandError> {
+) -> Result<vault_worker::DeviceImportPreview, CommandError> {
     let paths = worker_result(vault_core::project_paths())?;
     worker_result(vault_worker::preview_import(&paths, bundle_path))
 }

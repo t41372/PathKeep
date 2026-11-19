@@ -52,6 +52,7 @@ impl Fixture {
         let root = sandbox.path().join("data");
         let overrides = [
             ("CHB_PROJECT_ROOT", root.clone()),
+            ("CHB_AGENT_TOOLS_HOME", sandbox.path().join("no-agent-tools")),
             ("CHB_CHROME_USER_DATA_DIR", sandbox.path().join("chrome")),
             ("CHB_FIREFOX_PROFILES_DIR", sandbox.path().join("firefox")),
             ("CHB_SAFARI_ROOT", sandbox.path().join("safari")),

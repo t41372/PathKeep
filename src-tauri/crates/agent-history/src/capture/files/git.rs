@@ -20,7 +20,7 @@ pub(crate) fn read_git_file(path: &Path, limit: usize) -> Result<Vec<u8>> {
         root: root.to_owned(),
         mark: FileMark::from(&metadata),
     };
-    let mut input = open_regular(&authorized).map_err(|error| {
+    let mut input = open_regular(&authorized, None).map_err(|error| {
         #[cfg(unix)]
         if matches!(&error, Error::Io(cause)
             if matches!(cause.raw_os_error(), Some(libc::ELOOP | libc::ENOTDIR)))

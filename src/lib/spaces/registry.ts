@@ -7,7 +7,8 @@
  * order and shortcut numbers, the rail's pages, the routes, ⌘K's "Go to" and
  * "Search in" rows, a space's status line and its colour all come from here,
  * so a new kind of data is one entry plus its own pages; nothing else in the
- * shell names a space. Which spaces are on.
+ * shell names a space. Which spaces are on, from the backend's answer
+ * (`kind-states.ts`).
  * Not responsible for: building paths (`paths.ts`), remembering the last
  * space (`last-space.ts`), or drawing anything.
  *
@@ -15,6 +16,7 @@
  * screen code and screens can import the path builder without a cycle.
  */
 import {
+  Bot,
   ChartColumn,
   Globe,
   HardDriveDownload,
@@ -23,7 +25,14 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { lazy, type ComponentType } from 'react'
+import type { DataKindId, KindState } from '@/lib/backend-client/data-kinds'
 import type { MessageKey } from '@/lib/i18n'
+import {
+  kindStateOf,
+  readKindList,
+  useKindList,
+  type KindListAnswer,
+} from './kind-states'
 
 type Screen = () => Promise<{ default: ComponentType }>
 
@@ -48,13 +57,28 @@ export interface SpacePage {
   children?: readonly { path: string; screen: Screen }[]
 }
 
-export interface Space {
+/**
+ * A kind of data PathKeep knows, whether or not this build has its pages
+ * yet. Enough for the switcher's "keep another kind", Settings › Manage
+ * data types and the page an address of a kind that is off shows.
+ */
+export interface DataSpace {
   /** The space's part of the URL, and its `data-space` on `<html>`. */
   id: string
+  /** The backend's id for this kind of data (`list_data_kinds`). */
+  kind: DataKindId
+  /**
+   * Whether the kind is on in an archive that never chose, as the backend
+   * assumes. Until the backend answers, the shell shows the spaces that are
+   * on by default, so the rail is never empty and never flashes.
+   */
+  onByDefault: boolean
   /** The full name: the switcher's menu, ⌘K, headings. */
   name: MessageKey
   /** The name on the switcher in the rail, which has room for about 64 px. */
   shortName: MessageKey
+  /** One line on what is lost without PathKeep. */
+  why: MessageKey
   icon: LucideIcon
   /**
    * The space's oklch hue: its tile in the switcher, and, unless
@@ -67,6 +91,10 @@ export interface Space {
    * Browsing does, so it looks exactly as it did before spaces.
    */
   baseTokens?: boolean
+}
+
+/** A kind of data with its pages: what the rail, the switcher, ⌘K and the routes show. */
+export interface Space extends DataSpace {
   /** In rail order. The first is where the space opens. */
   pages: readonly SpacePage[]
   /** The page that lists the records and takes `?q=` (⌘K's "Search in"). */
@@ -75,8 +103,11 @@ export interface Space {
   backupPage: string
   /** One line for the switcher's menu, loaded when the menu opens. */
   Status: ComponentType
-  /** ⌘K's results group for this space. */
-  palette: {
+  /**
+   * ⌘K's results group for this space, and its "Search in" row. A space
+   * whose records cannot be searched yet has none.
+   */
+  palette?: {
     heading: MessageKey
     Results: ComponentType<PaletteResultsProps>
   }
@@ -84,8 +115,11 @@ export interface Space {
 
 const browsing = {
   id: 'browsing',
+  kind: 'browsing',
+  onByDefault: true,
   name: 'spaces.browsing.name',
   shortName: 'spaces.browsing.shortName',
+  why: 'dataKinds.why.browsing',
   icon: Globe,
   hue: 48,
   baseTokens: true,
@@ -142,35 +176,112 @@ const browsing = {
   },
 } as const satisfies Space
 
-/** Every space PathKeep can keep, in the switcher's order. */
-export const spaces = [browsing] as const satisfies readonly Space[]
+/**
+ * Agent conversations. Its pages are insights, records, projects and
+ * backup (`data-spaces-tradeoff.md` §4.1); this build has the backup page,
+ * so for now it is also where the space opens and its list page, and ⌘K
+ * has no conversation results for it. Insights, records and projects come
+ * with the conversation read model: insights goes first (where the space
+ * opens), records becomes `listPage` with ⌘K's results and "Search in".
+ */
+const agent = {
+  id: 'agent',
+  kind: 'agent-history',
+  onByDefault: false,
+  name: 'spaces.agent.name',
+  shortName: 'spaces.agent.shortName',
+  why: 'dataKinds.why.agent',
+  icon: Bot,
+  hue: 195,
+  pages: [
+    {
+      id: 'backup',
+      label: 'shell.nav.backup',
+      icon: HardDriveDownload,
+      screen: () => import('@/features/agent-backup/agent-backup-page'),
+    },
+  ],
+  listPage: 'backup',
+  backupPage: 'backup',
+  Status: lazy(() => import('@/features/agent-backup/agent-status')),
+} as const satisfies Space
+
+/** Every kind of data PathKeep can keep, in the switcher's order. */
+export const spaces = [browsing, agent] as const satisfies readonly DataSpace[]
 
 type Registered = (typeof spaces)[number]
 export type SpaceId = Registered['id']
+/** The spaces this build has pages for. */
+type WithPages = Extract<Registered, { pages: unknown }>
+export type SpaceWithPagesId = WithPages['id']
 /** The page ids of one space, so a path to a page it lacks does not compile. */
-export type PageOf<S extends SpaceId> = Extract<
-  Registered,
+export type PageOf<S extends SpaceWithPagesId> = Extract<
+  WithPages,
   { id: S }
 >['pages'][number]['id']
 
+export function hasPages(space: DataSpace): space is Space {
+  return 'pages' in space && (space as Space).pages.length > 0
+}
+
+/** On or paused: the kind's pages are in the rail. Before the answer, its default. */
+function shown(space: DataSpace, list: KindListAnswer) {
+  const state = kindStateOf(list, space.kind)
+  return state === undefined ? space.onByDefault : state !== 'off'
+}
+
+let memo: { list: KindListAnswer; on: readonly Space[] } | null = null
+
+/** The spaces on in `list`, the same array for the same answer. */
+function spacesOnIn(list: KindListAnswer): readonly Space[] {
+  if (memo && memo.list === list) return memo.on
+  const withPages = (spaces as readonly DataSpace[]).filter(hasPages)
+  const shownNow = withPages.filter((space) => shown(space, list))
+  const on = shownNow.length > 0 ? shownNow : withPages.slice(0, 1)
+  memo = { list, on }
+  return on
+}
+
 /**
- * The spaces that are on, in the switcher's order: the rail, the menu, ⌘K
- * and ⌘1…⌘9 show these. Every registered space is on until the user can
- * turn kinds of data on and off.
+ * The spaces that are on or paused, in the switcher's order: the rail, the
+ * menu, ⌘K and ⌘1…⌘9 show these. Before the backend answers (and after a
+ * lock clears its answer), the spaces on by default. Never empty: should no
+ * kind with pages be on, the first space with pages stays.
  */
 export function spacesOn(): readonly Space[] {
-  return spaces
+  return spacesOnIn(readKindList())
+}
+
+/** `spacesOn()` that re-renders when the backend's answer changes. */
+export function useSpacesOn(): readonly Space[] {
+  return spacesOnIn(useKindList())
+}
+
+function spacesOffIn(list: KindListAnswer): DataSpace[] {
+  return spaces.filter((space) => {
+    const state: KindState | undefined = kindStateOf(list, space.kind)
+    return state === undefined ? !space.onByDefault : state === 'off'
+  })
 }
 
 /**
- * Registered spaces that are not on. The switcher's menu offers to keep
- * another kind of data only while this is not empty.
+ * Registered kinds that are off. The switcher's menu offers to keep another
+ * kind of data only while this is not empty.
  */
-export function spacesOff(): readonly Space[] {
-  const on = new Set(spacesOn().map((space) => space.id))
-  return spaces.filter((space) => !on.has(space.id))
+export function spacesOff(): DataSpace[] {
+  return spacesOffIn(readKindList())
 }
 
-export function spaceById(id: string): Space | undefined {
+/** `spacesOff()` that re-renders when the backend's answer changes. */
+export function useSpacesOff(): DataSpace[] {
+  return spacesOffIn(useKindList())
+}
+
+export function spaceById(id: string): DataSpace | undefined {
   return spaces.find((space) => space.id === id)
+}
+
+/** The space of one of the backend's kinds of data. */
+export function spaceOfKind(kind: DataKindId): DataSpace | undefined {
+  return spaces.find((space) => space.kind === kind)
 }

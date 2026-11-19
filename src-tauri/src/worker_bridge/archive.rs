@@ -26,12 +26,17 @@ pub(crate) fn initialize_archive_with_progress_impl(
     mut report_progress: impl FnMut(vault_core::ArchiveUpgradeProgress),
 ) -> Result<vault_core::AppSnapshot, CommandError> {
     let paths = worker_result(vault_core::project_paths())?;
-    if state.recover_pending_archive(&paths)? {
-        config = worker_result(vault_core::load_config(&paths))?;
+    let recovered = state.recover_pending_archive(&paths)?;
+    // Validate an incoming policy even when setup is a no-op on an existing archive.
+    let live = worker_result(vault_core::load_config(&paths))?;
+    worker_result(vault_core::ensure_app_lock_unlocked(&paths, &live))?;
+    if recovered {
+        config = live.clone();
     }
+    super::data_kinds::settings_result(vault_worker::data_kinds::validate_config_input(&config))?;
+    config.capture_policy = live.capture_policy;
     if paths.archive_db.exists() {
-        let stored = worker_result(vault_core::load_config(&paths))?;
-        if stored.archive_mode != config.archive_mode {
+        if live.archive_mode != config.archive_mode {
             return Err(
                 "encryption-mode-change-requires-rekey: use rekey_archive to change encryption"
                     .to_owned()
@@ -163,16 +168,18 @@ pub(crate) fn run_retention_prune_impl(
 /// Runs a backup immediately and forwards progress to the UI callback.
 pub(crate) fn run_backup_now_impl(
     due_only: bool,
+    kind_specific: bool,
     state: &crate::session::SessionState,
     report_progress: impl FnMut(vault_core::BackupProgressEvent),
 ) -> Result<vault_core::BackupReport, CommandError> {
     let vault = state.vault()?;
     let key = state.typed_password();
     let session_database_key = key.as_deref();
-    worker_result(vault_worker::run_backup_now_with_progress(
+    worker_result(vault_worker::run_browsing_backup(
         &vault,
         session_database_key,
         due_only,
+        kind_specific,
         report_progress,
     ))
 }

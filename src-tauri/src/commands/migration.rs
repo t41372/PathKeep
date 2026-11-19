@@ -58,7 +58,7 @@ pub(crate) async fn export_app_data(
 /// destructive overwrite.
 pub(crate) async fn preview_app_data_import(
     bundle_path: String,
-) -> Result<vault_core::ImportPreview, CommandError> {
+) -> Result<vault_worker::DeviceImportPreview, CommandError> {
     let bundle = PathBuf::from(bundle_path);
     run_blocking_command("preview_app_data_import", move || {
         worker_bridge::preview_app_data_import_impl(bundle)

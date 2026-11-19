@@ -5,7 +5,9 @@
 //! a schema-qualified scratch pragma silently changes the main cache setting.
 //! Foreign keys can silently accept orphans when the engine default is retained.
 //! Tests: opening, scratch and foreign_keys tests.
-use crate::{Config, Db, Error, IoLayer, Result, Session, statement_cache::StatementCache};
+use crate::{
+    Config, Db, Error, IoLayer, OpenStage, Result, Session, statement_cache::StatementCache,
+};
 use std::{
     fs,
     marker::PhantomData,
@@ -79,78 +81,148 @@ pub(crate) fn runtime() -> Result<Runtime> {
 
 // Verify every selected existing file before any migration, scratch reset, directory
 // creation or read/write database open. This also refuses newer schemas early.
-pub(crate) fn preflight(config: &Config) -> Result<()> {
+pub(crate) fn preflight(config: &Config, roles: &[Db]) -> Result<()> {
     let rt = runtime()?;
-    for db in config.databases.iter().copied() {
+    for &db in roles {
         let settings = Settings::new(config, db);
-        match fs::metadata(&settings.path) {
-            Ok(meta) if meta.len() > 0 => {}
-            Ok(_) => continue,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
-            Err(e) => return Err(e.into()),
-        }
-        let checked =
-            (|| {
-                let database = rt.block_on(settings.builder(true).build())?;
-                let conn = database.connect()?;
-                let session = Session {
-                    plans: None,
-                    statements: std::cell::Cell::new(0),
-                    runtime: &rt,
-                    conn: &conn,
-                    prepared: None,
-                    read_only: true,
-                    running: None,
-                    _thread: PhantomData,
-                    scratch: None,
-                    scratch_read: Default::default(),
-                    archive: None,
-                    archive_read: Default::default(),
-                };
-                session.query_one("SELECT count(*) FROM sqlite_schema", (), |r| {
-                    Ok(r.get::<i64>(0)?)
-                })?;
-                crate::migration::check_version(&session, db, &config.migrations.get(db))?;
-                Ok(())
-            })();
+        let checked = preflight_role(&rt, config, db, &settings);
         if let Err(error) = checked {
-            return Err(open_error(&settings.path, error));
+            let cause = open_error(&settings.path, error);
+            let stage = if matches!(cause, Error::WrongKey { .. }) {
+                OpenStage::KeyCheck
+            } else {
+                OpenStage::Preflight
+            };
+            return Err(cause.at(db, stage));
         }
     }
     Ok(())
 }
-fn open_error(path: &Path, error: Error) -> Error {
-    // An encrypted header plus NotAdb is Turso's missing-key case. Other invalid
-    // headers remain Corrupt. No cryptography is performed by this inspection.
-    if let Error::Corrupt { source: turso::Error::NotAdb(message) } = error {
-        use std::io::Read;
-        let mut header = [0; 7];
-        if fs::File::open(path).and_then(|mut f| f.read_exact(&mut header)).is_ok()
-            && header.starts_with(b"Turso\0")
-        {
-            return Error::WrongKey { source: turso::Error::NotAdb(message) };
+fn preflight_role(rt: &Runtime, config: &Config, db: Db, settings: &Settings) -> Result<()> {
+    let required = config.required_existing.contains(&db);
+    match fs::metadata(&settings.path) {
+        Ok(meta) if !meta.is_file() => {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "database path is not a regular file",
+            )
+            .into());
         }
-        return Error::Corrupt { source: turso::Error::NotAdb(message) };
+        Ok(meta) if required && meta.len() < 16 => {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::UnexpectedEof,
+                "incomplete database header",
+            )
+            .into());
+        }
+        Ok(meta) if meta.len() == 0 => return Ok(()),
+        Ok(_) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return if required { Err(Error::MissingStore(settings.path.clone())) } else { Ok(()) };
+        }
+        Err(e) => return Err(e.into()),
     }
-    error
+    let database = rt.block_on(settings.builder(true).build())?;
+    let conn = database.connect()?;
+    let session = Session {
+        plans: None,
+        statements: std::cell::Cell::new(0),
+        runtime: rt,
+        conn: &conn,
+        prepared: None,
+        read_only: true,
+        running: None,
+        _thread: PhantomData,
+        scratch: None,
+        scratch_read: Default::default(),
+        archive: None,
+        archive_read: Default::default(),
+    };
+    session.query_one("SELECT count(*) FROM sqlite_schema", (), |r| Ok(r.get::<i64>(0)?))?;
+    crate::migration::check_version(&session, db, &config.migrations.get(db))?;
+    Ok(())
 }
-pub(crate) fn prepare_paths(config: &Config) -> Result<()> {
-    let mut canonical = Vec::new();
-    for db in config.databases.iter().copied() {
-        let path = config.paths.get(db);
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        let identity = if path.exists() {
-            fs::canonicalize(path)?
-        } else {
-            fs::canonicalize(path.parent().unwrap())?.join(path.file_name().unwrap())
-        };
-        if canonical.contains(&identity) {
-            return Err(Error::InvalidConfig("database paths resolve to the same file".into()));
-        }
-        canonical.push(identity);
+/// Read just the native header. A short, unreadable or unknown file has no established mode.
+pub(crate) fn header_encrypted(path: &Path) -> std::io::Result<bool> {
+    use std::io::{ErrorKind, Read};
+    if !fs::metadata(path)?.is_file() {
+        return Err(std::io::Error::new(
+            ErrorKind::InvalidData,
+            "database path is not a regular file",
+        ));
     }
+    let mut header = [0; 16];
+    fs::File::open(path)?.read_exact(&mut header)?;
+    if &header == b"SQLite format 3\0" {
+        return Ok(false);
+    }
+    // Turso's version-zero header followed by cipher ID 2 (the AES-256-GCM mode above).
+    if header.starts_with(b"Turso\0\x02") && header[7..].iter().all(|byte| *byte == 0) {
+        return Ok(true);
+    }
+    Err(std::io::Error::new(ErrorKind::InvalidData, "unknown database header"))
+}
+
+fn open_error(path: &Path, error: Error) -> Error {
+    // With a destroyed header, even the correct key can get a page decryption error.
+    // With an intact encrypted header, NotAdb is Turso's missing-key failure.
+    match error {
+        Error::WrongKey { source }
+            if header_encrypted(path)
+                .is_err_and(|e| e.kind() == std::io::ErrorKind::InvalidData) =>
+        {
+            Error::Corrupt { source }
+        }
+        Error::Corrupt { source: source @ turso::Error::NotAdb(_) }
+            if matches!(header_encrypted(path), Ok(true)) =>
+        {
+            Error::WrongKey { source }
+        }
+        other => other,
+    }
+}
+pub(crate) fn check_paths(config: &Config, roles: &[Db]) -> Result<()> {
+    let mut canonical = Vec::new();
+    let mut linked = Vec::new();
+    for &db in roles {
+        let path = config.paths.get(db);
+        let identity = resolved_path(path).map_err(|e| e.at(db, OpenStage::Preflight))?;
+        let mut alias = canonical.contains(&identity);
+        canonical.push(identity);
+        match turso::core::io::get_file_id(path.to_str().expect("validated database path")) {
+            Ok(id) => {
+                alias |= linked.contains(&id);
+                linked.push(id);
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(Error::Io(e).at(db, OpenStage::Preflight)),
+        }
+        if alias {
+            return Err(Error::InvalidConfig("database paths resolve to the same file".into())
+                .at(db, OpenStage::Preflight));
+        }
+    }
+    Ok(())
+}
+
+fn resolved_path(path: &Path) -> Result<PathBuf> {
+    match fs::canonicalize(path) {
+        Ok(existing) => Ok(existing),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            let parent = path
+                .parent()
+                .ok_or_else(|| Error::InvalidConfig("database has no parent".into()))?;
+            fs::create_dir_all(parent)?;
+            Ok(fs::canonicalize(parent)?.join(
+                path.file_name()
+                    .ok_or_else(|| Error::InvalidConfig("database has no name".into()))?,
+            ))
+        }
+        Err(e) => Err(e.into()),
+    }
+}
+
+pub(crate) fn reset_scratch(config: &Config) -> Result<()> {
     // Scratch is disposable, but reset only after all persistent stores verify.
     for suffix in vault_layout::database_spec(vault_layout::scratch_database())
         .companions
@@ -228,13 +300,19 @@ impl Engine {
             }
             if let Some(path) = &settings.scratch {
                 let uri = scratch_uri(path, settings.scratch_key.as_ref());
-                self.conn.execute("ATTACH ?1 AS scratch", [uri.as_str()]).await?;
+                self.conn
+                    .execute("ATTACH ?1 AS scratch", [uri.as_str()])
+                    .await
+                    .map_err(|e| Error::from(e).at(Db::Scratch, OpenStage::Open))?;
                 // In 0.8.1 a schema-qualified cache_size still updates main.
                 // Leave the attachment's native bounded page cache alone.
             }
             if let Some(path) = &settings.archive {
                 let uri = scratch_uri(path, settings.archive_key.as_ref());
-                self.conn.execute("ATTACH ?1 AS archive", [uri.as_str()]).await?;
+                self.conn
+                    .execute("ATTACH ?1 AS archive", [uri.as_str()])
+                    .await
+                    .map_err(|e| Error::from(e).at(Db::Archive, OpenStage::Open))?;
             }
             if read_only {
                 self.conn.execute("PRAGMA query_only=1", ()).await?;
@@ -284,7 +362,7 @@ mod tests {
     fn page_cache_and_reader_pragmas_are_applied() {
         let dir = tempfile::tempdir().unwrap();
         let config = Config::new(dir.path());
-        prepare_paths(&config).unwrap();
+        check_paths(&config, &config.databases).unwrap();
         let _scratch =
             Engine::open(&Settings::new(&config, Db::Scratch), Default::default()).unwrap();
         let settings = Settings::new(&config, Db::Archive);

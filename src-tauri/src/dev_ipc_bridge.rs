@@ -40,6 +40,7 @@ mod config;
 mod dispatch;
 mod events;
 mod payloads;
+mod preview;
 mod router;
 mod search;
 
@@ -62,6 +63,7 @@ struct DevIpcBridgeState {
     app: Arc<RwLock<Option<DevIpcAppHandle>>>,
     session: SessionState,
     port: u16,
+    previews: preview::Streams,
     search_streams: search::Streams,
     /// The desktop events, for browsers on `/events`.
     events: events::Hub,
@@ -74,7 +76,14 @@ impl DevIpcBridgeState {
         port: u16,
         events: events::Hub,
     ) -> Self {
-        Self { app, session, port, search_streams: Arc::default(), events }
+        Self {
+            app,
+            session,
+            port,
+            previews: Arc::default(),
+            search_streams: Arc::default(),
+            events,
+        }
     }
 
     #[cfg(test)]

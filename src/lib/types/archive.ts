@@ -160,7 +160,7 @@ export interface BackupWarning {
  */
 export interface BackupReport {
   dueSkipped: boolean
-  /** Stable machine-readable skip reason ('not-due' | 'write-lock'); UI copy keys on this. */
+  /** Stable machine-readable skip reason ('not-due' | 'write-lock' | 'kind-paused' | 'kind-off'); UI copy keys on this. */
   reasonCode?: string | null
   /** Backend English narration for the skip; diagnostic fallback only. */
   reason?: string | null

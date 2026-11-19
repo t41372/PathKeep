@@ -1,0 +1,954 @@
+{
+  "enable_agent_history": {
+    "request": {
+      "request": {
+        "requestId": "2c8a70b1-fc01-4daa-8f6c-04390bdbe479",
+        "previewId": "b9b2ed05-e864-4398-832b-32c760ed79e7",
+        "selectedRootIds": [
+          "f144a959ccf23d8d2a2d36ebe5fa634c730dd387ccc92246355f9fd0bf577afe"
+        ],
+        "expectedPolicyToken": "76467e1f99b405247a4729788fb9f3737fe60ff29f442d5d4e9dc52478e30dce",
+        "readGit": false
+      }
+    },
+    "response": {
+      "state": "on",
+      "policyToken": "93456389149c8360a8402e7ee5d0f9ca4541f03570e8d35e5c8d40574ec3429f",
+      "firstSave": {
+        "taskId": "2ca0f268-e1a1-416e-87e9-d02dff2af61d",
+        "runRef": "agent-history:2ca0f268-e1a1-416e-87e9-d02dff2af61d",
+        "requestId": "2c8a70b1-fc01-4daa-8f6c-04390bdbe479"
+      }
+    }
+  },
+  "events": {
+    "pathkeep://background-task-changed": {
+      "taskId": "2ca0f268-e1a1-416e-87e9-d02dff2af61d",
+      "state": "succeeded",
+      "phase": "finished",
+      "actions": ["dismiss-notice"],
+      "attention": true,
+      "formatNotices": [
+        {
+          "tool": "pi",
+          "version": "1000"
+        }
+      ],
+      "snapshotToken": "904e92d66d1a50686fa4dd2b8d1783142107b8f2392bf9e770badde1b5c9c0b1"
+    },
+    "pathkeep://kind-backup-progress": {
+      "phase": "finishing",
+      "unit": "files",
+      "done": "1",
+      "total": null,
+      "perTool": [
+        {
+          "tool": "pi",
+          "filesFound": "1",
+          "filesCommitted": "1",
+          "bytesCommitted": "64",
+          "newRoots": "1",
+          "updatedRoots": "0",
+          "newChildren": "0"
+        }
+      ],
+      "batchId": "2ca0f268-e1a1-416e-87e9-d02dff2af61d",
+      "taskId": "2ca0f268-e1a1-416e-87e9-d02dff2af61d",
+      "kind": "agent-history",
+      "trigger": "enable"
+    },
+    "pathkeep://agent-settings-changed": {
+      "settingsToken": "93456389149c8360a8402e7ee5d0f9ca4541f03570e8d35e5c8d40574ec3429f",
+      "domains": ["sources"]
+    },
+    "pathkeep://data-kinds-changed": {
+      "policyToken": "93456389149c8360a8402e7ee5d0f9ca4541f03570e8d35e5c8d40574ec3429f",
+      "changedKinds": ["agent-history"]
+    },
+    "pathkeep://agent-catalog-changed": {
+      "viewToken": "904e92d66d1a50686fa4dd2b8d1783142107b8f2392bf9e770badde1b5c9c0b1",
+      "domains": ["backup", "sources"]
+    },
+    "pathkeep://kind-backup-finished": {
+      "batchId": "2ca0f268-e1a1-416e-87e9-d02dff2af61d",
+      "taskId": "2ca0f268-e1a1-416e-87e9-d02dff2af61d",
+      "runRef": "agent-history:2ca0f268-e1a1-416e-87e9-d02dff2af61d",
+      "kind": "agent-history",
+      "trigger": "enable",
+      "result": "success",
+      "summary": {
+        "type": "agent-history",
+        "retainedBytes": null,
+        "filesVisited": "1",
+        "filesAbsent": "0",
+        "filesCaptured": "1",
+        "filesUnchanged": "0",
+        "sourceBytes": "64",
+        "newRoots": "1",
+        "updatedRoots": "0",
+        "newChildren": "0",
+        "unavailable": "0",
+        "unstable": "0",
+        "unknownFormat": "1",
+        "unclassified": "0",
+        "attachmentsChanged": "0"
+      },
+      "reasonCodes": [],
+      "noteCount": "1",
+      "newNoteCount": "1",
+      "formatNotices": [
+        {
+          "tool": "pi",
+          "version": "1000"
+        }
+      ]
+    }
+  },
+  "list_data_kinds": {
+    "request": {
+      "request": {}
+    },
+    "response": {
+      "kinds": [
+        {
+          "kind": "browsing",
+          "order": 0,
+          "state": "on",
+          "availability": "available",
+          "hasSavedData": false,
+          "archiveCount": "0",
+          "countUnit": "visits",
+          "coverage": {
+            "state": "complete",
+            "reasons": []
+          }
+        },
+        {
+          "kind": "agent-history",
+          "order": 1,
+          "state": "on",
+          "availability": "available",
+          "hasSavedData": true,
+          "archiveCount": "1",
+          "hasBackupSource": true,
+          "countUnit": "source-files",
+          "coverage": {
+            "state": "complete",
+            "reasons": []
+          },
+          "firstBackup": "success"
+        }
+      ],
+      "policyToken": "93456389149c8360a8402e7ee5d0f9ca4541f03570e8d35e5c8d40574ec3429f"
+    }
+  },
+  "get_agent_settings": {
+    "request": {
+      "request": {}
+    },
+    "response": {
+      "toolsChosen": true,
+      "dismissedHints": [],
+      "policy": {
+        "browsing": "on",
+        "agentHistory": "on",
+        "enabledTools": ["pi"],
+        "readGit": false,
+        "selectionRef": "2ca0f268-e1a1-416e-87e9-d02dff2af61d"
+      },
+      "policyToken": "93456389149c8360a8402e7ee5d0f9ca4541f03570e8d35e5c8d40574ec3429f"
+    }
+  },
+  "get_agent_overview": {
+    "request": {
+      "request": {
+        "purpose": "backup"
+      }
+    },
+    "response": {
+      "transcriptFiles": "1",
+      "attachmentFiles": "0",
+      "roots": "1",
+      "children": "0",
+      "onlyInPathkeep": "0",
+      "sourceBytes": "64",
+      "lookedIn": ["/fixtures/pi"],
+      "sources": [
+        {
+          "rootId": "f144a959ccf23d8d2a2d36ebe5fa634c730dd387ccc92246355f9fd0bf577afe",
+          "directoryToken": "f1d00c46ebc4585ffd9a833e613a41592f2ebff40b14dc36d35eb74e7fc2bb63",
+          "tool": "pi",
+          "path": "/fixtures/pi",
+          "enabled": true,
+          "availability": "unknown-format",
+          "parts": ["conversations"],
+          "counts": {
+            "transcriptFiles": "1",
+            "attachmentFiles": "0",
+            "roots": "1",
+            "children": "0",
+            "onlyInPathkeep": "0",
+            "sourceBytes": "64"
+          },
+          "sourceBytes": "64",
+          "autoDeletesByDefault": false,
+          "noteCount": "1",
+          "newNoteCount": "1",
+          "notes": [
+            {
+              "code": "pi-unsupported-version",
+              "count": "1",
+              "newCount": "1"
+            }
+          ],
+          "lastRun": "agent-history:2ca0f268-e1a1-416e-87e9-d02dff2af61d",
+          "reason": "unknown-format"
+        }
+      ],
+      "perTool": [
+        {
+          "transcriptFiles": "0",
+          "attachmentFiles": "0",
+          "roots": "0",
+          "children": "0",
+          "onlyInPathkeep": "0",
+          "sourceBytes": "0",
+          "tool": "claude-code",
+          "enabled": false
+        },
+        {
+          "transcriptFiles": "0",
+          "attachmentFiles": "0",
+          "roots": "0",
+          "children": "0",
+          "onlyInPathkeep": "0",
+          "sourceBytes": "0",
+          "tool": "codex",
+          "enabled": false
+        },
+        {
+          "transcriptFiles": "1",
+          "attachmentFiles": "0",
+          "roots": "1",
+          "children": "0",
+          "onlyInPathkeep": "0",
+          "sourceBytes": "64",
+          "tool": "pi",
+          "enabled": true
+        },
+        {
+          "transcriptFiles": "0",
+          "attachmentFiles": "0",
+          "roots": "0",
+          "children": "0",
+          "onlyInPathkeep": "0",
+          "sourceBytes": "0",
+          "tool": "deepseek",
+          "enabled": false
+        }
+      ],
+      "coverage": {
+        "state": "partial",
+        "reasons": ["incomplete-source-observations"]
+      },
+      "firstBackup": "success",
+      "lastRun": {
+        "runRef": "agent-history:2ca0f268-e1a1-416e-87e9-d02dff2af61d",
+        "scope": "agent-history",
+        "operation": "backup",
+        "trigger": "enable",
+        "result": "success",
+        "startedAt": 1794355200000,
+        "summary": {
+          "type": "agent-history",
+          "retainedBytes": null,
+          "filesVisited": "1",
+          "filesAbsent": "0",
+          "filesCaptured": "1",
+          "filesUnchanged": "0",
+          "sourceBytes": "64",
+          "newRoots": "1",
+          "updatedRoots": "0",
+          "newChildren": "0",
+          "unavailable": "0",
+          "unstable": "0",
+          "unknownFormat": "1",
+          "unclassified": "0",
+          "attachmentsChanged": "0"
+        },
+        "warningCount": "0",
+        "noteCount": "1",
+        "newNoteCount": "1",
+        "formatNotices": [
+          {
+            "tool": "pi",
+            "version": "1000"
+          }
+        ],
+        "finishedAt": 1794355200000,
+        "durationMs": 0,
+        "batchId": "2ca0f268-e1a1-416e-87e9-d02dff2af61d"
+      }
+    }
+  },
+  "list_agent_sources": {
+    "request": {
+      "request": {
+        "limit": 10
+      }
+    },
+    "response": {
+      "items": [
+        {
+          "rootId": "f144a959ccf23d8d2a2d36ebe5fa634c730dd387ccc92246355f9fd0bf577afe",
+          "directoryToken": "f1d00c46ebc4585ffd9a833e613a41592f2ebff40b14dc36d35eb74e7fc2bb63",
+          "tool": "pi",
+          "path": "/fixtures/pi",
+          "enabled": true,
+          "availability": "unknown-format",
+          "parts": ["conversations"],
+          "counts": {
+            "transcriptFiles": "1",
+            "attachmentFiles": "0",
+            "roots": "1",
+            "children": "0",
+            "onlyInPathkeep": "0",
+            "sourceBytes": "64"
+          },
+          "sourceBytes": "64",
+          "autoDeletesByDefault": false,
+          "noteCount": "1",
+          "newNoteCount": "1",
+          "notes": [
+            {
+              "code": "pi-unsupported-version",
+              "count": "1",
+              "newCount": "1"
+            }
+          ],
+          "lastRun": "agent-history:2ca0f268-e1a1-416e-87e9-d02dff2af61d",
+          "reason": "unknown-format"
+        },
+        {
+          "rootId": null,
+          "tool": "claude-code",
+          "path": null,
+          "enabled": false,
+          "availability": "disabled",
+          "parts": [],
+          "counts": null,
+          "sourceBytes": null,
+          "autoDeletesByDefault": true
+        },
+        {
+          "rootId": null,
+          "tool": "codex",
+          "path": null,
+          "enabled": false,
+          "availability": "disabled",
+          "parts": [],
+          "counts": null,
+          "sourceBytes": null,
+          "autoDeletesByDefault": false
+        },
+        {
+          "rootId": null,
+          "tool": "deepseek",
+          "path": null,
+          "enabled": false,
+          "availability": "disabled",
+          "parts": [],
+          "counts": null,
+          "sourceBytes": null,
+          "autoDeletesByDefault": false
+        }
+      ],
+      "viewToken": "7cf9b646c251b58748bc3242b1abbe465e73bde09019eef226a5d7361eb2f395",
+      "coverage": {
+        "state": "complete",
+        "reasons": []
+      }
+    }
+  },
+  "list_archive_runs": {
+    "request": {
+      "request": {
+        "space": "agent-history",
+        "includeArchiveWide": true,
+        "limit": 10
+      }
+    },
+    "response": {
+      "items": [
+        {
+          "runRef": "agent-history:2ca0f268-e1a1-416e-87e9-d02dff2af61d",
+          "scope": "agent-history",
+          "operation": "backup",
+          "trigger": "enable",
+          "result": "success",
+          "startedAt": 1794355200000,
+          "summary": {
+            "type": "agent-history",
+            "retainedBytes": null,
+            "filesVisited": "1",
+            "filesAbsent": "0",
+            "filesCaptured": "1",
+            "filesUnchanged": "0",
+            "sourceBytes": "64",
+            "newRoots": "1",
+            "updatedRoots": "0",
+            "newChildren": "0",
+            "unavailable": "0",
+            "unstable": "0",
+            "unknownFormat": "1",
+            "unclassified": "0",
+            "attachmentsChanged": "0"
+          },
+          "warningCount": "0",
+          "noteCount": "1",
+          "newNoteCount": "1",
+          "formatNotices": [
+            {
+              "tool": "pi",
+              "version": "1000"
+            }
+          ],
+          "finishedAt": 1794355200000,
+          "durationMs": 0,
+          "batchId": "2ca0f268-e1a1-416e-87e9-d02dff2af61d"
+        }
+      ],
+      "viewToken": "f6ceea18cf8f84a9d50b27bb8a2d266a936e90e70898dd03e032e9bd5ca19103",
+      "coverage": {
+        "state": "complete",
+        "reasons": []
+      }
+    }
+  },
+  "get_archive_run": {
+    "request": {
+      "request": {
+        "runRef": "agent-history:2ca0f268-e1a1-416e-87e9-d02dff2af61d"
+      }
+    },
+    "response": {
+      "runRef": "agent-history:2ca0f268-e1a1-416e-87e9-d02dff2af61d",
+      "scope": "agent-history",
+      "operation": "backup",
+      "trigger": "enable",
+      "result": "success",
+      "startedAt": 1794355200000,
+      "summary": {
+        "type": "agent-history",
+        "retainedBytes": null,
+        "filesVisited": "1",
+        "filesAbsent": "0",
+        "filesCaptured": "1",
+        "filesUnchanged": "0",
+        "sourceBytes": "64",
+        "newRoots": "1",
+        "updatedRoots": "0",
+        "newChildren": "0",
+        "unavailable": "0",
+        "unstable": "0",
+        "unknownFormat": "1",
+        "unclassified": "0",
+        "attachmentsChanged": "0"
+      },
+      "warningCount": "0",
+      "noteCount": "1",
+      "newNoteCount": "1",
+      "formatNotices": [
+        {
+          "tool": "pi",
+          "version": "1000"
+        }
+      ],
+      "finishedAt": 1794355200000,
+      "durationMs": 0,
+      "batchId": "2ca0f268-e1a1-416e-87e9-d02dff2af61d",
+      "task": {
+        "taskId": "2ca0f268-e1a1-416e-87e9-d02dff2af61d",
+        "kind": "agent-history",
+        "operation": "backup",
+        "trigger": "enable",
+        "state": "succeeded",
+        "phase": "finished",
+        "runRef": "agent-history:2ca0f268-e1a1-416e-87e9-d02dff2af61d",
+        "startedAt": 1794355200000,
+        "attention": true,
+        "actions": ["dismiss-notice"],
+        "holdsQuit": false,
+        "snapshotToken": "904e92d66d1a50686fa4dd2b8d1783142107b8f2392bf9e770badde1b5c9c0b1",
+        "formatNotices": [
+          {
+            "tool": "pi",
+            "version": "1000"
+          }
+        ],
+        "endedAt": 1794355200000
+      },
+      "warnings": [],
+      "notes": [
+        {
+          "code": "pi-unsupported-version",
+          "path": "sessions/project/session.jsonl",
+          "ordinal": "0",
+          "detail": "1000",
+          "rootId": "f144a959ccf23d8d2a2d36ebe5fa634c730dd387ccc92246355f9fd0bf577afe",
+          "tool": "pi",
+          "isNew": true
+        }
+      ],
+      "readGit": false,
+      "roots": [
+        {
+          "rootId": "f144a959ccf23d8d2a2d36ebe5fa634c730dd387ccc92246355f9fd0bf577afe",
+          "tool": "pi",
+          "path": "/fixtures/pi",
+          "availability": "unknown-format",
+          "counts": {
+            "type": "agent-history",
+            "retainedBytes": null,
+            "filesVisited": "1",
+            "filesAbsent": "0",
+            "filesCaptured": "1",
+            "filesUnchanged": "0",
+            "sourceBytes": "64",
+            "newRoots": "1",
+            "updatedRoots": "0",
+            "newChildren": "0",
+            "unavailable": "0",
+            "unstable": "0",
+            "unknownFormat": "1",
+            "unclassified": "0",
+            "attachmentsChanged": "0"
+          }
+        }
+      ],
+      "perTool": [
+        {
+          "tool": "pi",
+          "availability": "unknown-format",
+          "rootOutcomes": {
+            "unknown-format": "1"
+          },
+          "counts": {
+            "type": "agent-history",
+            "retainedBytes": null,
+            "filesVisited": "1",
+            "filesAbsent": "0",
+            "filesCaptured": "1",
+            "filesUnchanged": "0",
+            "sourceBytes": "64",
+            "newRoots": "1",
+            "updatedRoots": "0",
+            "newChildren": "0",
+            "unavailable": "0",
+            "unstable": "0",
+            "unknownFormat": "1",
+            "unclassified": "0",
+            "attachmentsChanged": "0"
+          }
+        }
+      ],
+      "coverage": {
+        "state": "partial",
+        "reasons": ["capture-notes"]
+      }
+    }
+  },
+  "get_task_summary": {
+    "request": {
+      "request": {}
+    },
+    "response": {
+      "runningCount": 0,
+      "queuedCount": 0,
+      "attentionCount": "1",
+      "running": []
+    }
+  },
+  "list_background_tasks": {
+    "request": {
+      "request": {
+        "group": "attention",
+        "limit": 10
+      }
+    },
+    "response": {
+      "items": [
+        {
+          "taskId": "2ca0f268-e1a1-416e-87e9-d02dff2af61d",
+          "kind": "agent-history",
+          "operation": "backup",
+          "trigger": "enable",
+          "state": "succeeded",
+          "phase": "finished",
+          "runRef": "agent-history:2ca0f268-e1a1-416e-87e9-d02dff2af61d",
+          "startedAt": 1794355200000,
+          "attention": true,
+          "actions": ["dismiss-notice"],
+          "holdsQuit": false,
+          "snapshotToken": "904e92d66d1a50686fa4dd2b8d1783142107b8f2392bf9e770badde1b5c9c0b1",
+          "formatNotices": [
+            {
+              "tool": "pi",
+              "version": "1000"
+            }
+          ],
+          "endedAt": 1794355200000
+        }
+      ],
+      "viewToken": "b0c79844f13ba30129ee198e77aa994e175041ec8b9aa03cd36b602a1a9d1143",
+      "coverage": {
+        "state": "complete",
+        "reasons": []
+      }
+    }
+  },
+  "control_background_task": {
+    "request": {
+      "request": {
+        "taskId": "2ca0f268-e1a1-416e-87e9-d02dff2af61d",
+        "action": "dismiss-notice",
+        "notice": {
+          "tool": "pi",
+          "version": "1000"
+        },
+        "expectedToken": "904e92d66d1a50686fa4dd2b8d1783142107b8f2392bf9e770badde1b5c9c0b1",
+        "requestId": "5f47914b-53a5-4010-8776-5eba86b59ca2"
+      }
+    },
+    "response": {
+      "task": {
+        "taskId": "2ca0f268-e1a1-416e-87e9-d02dff2af61d",
+        "kind": "agent-history",
+        "operation": "backup",
+        "trigger": "enable",
+        "state": "succeeded",
+        "phase": "finished",
+        "runRef": "agent-history:2ca0f268-e1a1-416e-87e9-d02dff2af61d",
+        "startedAt": 1794355200000,
+        "attention": false,
+        "actions": [],
+        "holdsQuit": false,
+        "snapshotToken": "89a34b69f983aa595d9dc68a2e85379d28f5f4eced0905029a9210e11d99d2eb",
+        "endedAt": 1794355200000
+      }
+    }
+  },
+  "update_agent_sources": {
+    "request": {
+      "request": {
+        "selectedRootIds": [
+          "f144a959ccf23d8d2a2d36ebe5fa634c730dd387ccc92246355f9fd0bf577afe"
+        ],
+        "readGit": false,
+        "toolChanges": {
+          "pi": true
+        },
+        "expectedToken": "93456389149c8360a8402e7ee5d0f9ca4541f03570e8d35e5c8d40574ec3429f"
+      }
+    },
+    "response": {
+      "toolsChosen": true,
+      "dismissedHints": [],
+      "policy": {
+        "browsing": "on",
+        "agentHistory": "on",
+        "enabledTools": ["pi"],
+        "readGit": false,
+        "selectionRef": "2ca0f268-e1a1-416e-87e9-d02dff2af61d"
+      },
+      "policyToken": "93456389149c8360a8402e7ee5d0f9ca4541f03570e8d35e5c8d40574ec3429f"
+    }
+  },
+  "set_data_kind_state": {
+    "request": {
+      "request": {
+        "kind": "agent-history",
+        "state": "paused",
+        "expectedPolicyToken": "93456389149c8360a8402e7ee5d0f9ca4541f03570e8d35e5c8d40574ec3429f"
+      }
+    },
+    "response": {
+      "kinds": [
+        {
+          "kind": "browsing",
+          "order": 0,
+          "state": "on",
+          "availability": "available",
+          "hasSavedData": false,
+          "archiveCount": "0",
+          "countUnit": "visits",
+          "coverage": {
+            "state": "complete",
+            "reasons": []
+          }
+        },
+        {
+          "kind": "agent-history",
+          "order": 1,
+          "state": "paused",
+          "availability": "available",
+          "hasSavedData": true,
+          "archiveCount": "1",
+          "hasBackupSource": true,
+          "countUnit": "source-files",
+          "coverage": {
+            "state": "complete",
+            "reasons": []
+          },
+          "firstBackup": "success"
+        }
+      ],
+      "policyToken": "a0504969e656f25bedbd3d32ef90c5a1e303d24ef08e3bce5504f99a6a06b6f2",
+      "affectedTasks": []
+    }
+  },
+  "start_backup": {
+    "request": {
+      "request": {
+        "scope": {
+          "type": "tool",
+          "kind": "agent-history",
+          "tool": "pi"
+        },
+        "requestId": "80506e3c-adbb-43c3-8f31-bc8ed450723b"
+      }
+    },
+    "response": {
+      "batchId": "4c965d48-4804-455f-89af-81000605c119",
+      "kinds": [
+        {
+          "kind": "agent-history",
+          "decision": "started",
+          "taskId": "4c965d48-4804-455f-89af-81000605c119",
+          "runRef": "agent-history:4c965d48-4804-455f-89af-81000605c119"
+        }
+      ]
+    }
+  },
+  "variants": {
+    "kind": {
+      "start_backup": {
+        "request": {
+          "request": {
+            "scope": {
+              "type": "kind",
+              "kind": "agent-history"
+            },
+            "requestId": "e53dfad2-3ce3-41c0-8c93-baec367afcea"
+          }
+        },
+        "response": {
+          "batchId": "f0d29040-77b6-419c-8ab5-2f8910dee3ad",
+          "kinds": [
+            {
+              "kind": "agent-history",
+              "decision": "started",
+              "taskId": "f0d29040-77b6-419c-8ab5-2f8910dee3ad",
+              "runRef": "agent-history:f0d29040-77b6-419c-8ab5-2f8910dee3ad"
+            }
+          ]
+        }
+      }
+    },
+    "busy": {
+      "start_backup": {
+        "request": {
+          "request": {
+            "scope": {
+              "type": "tool",
+              "kind": "agent-history",
+              "tool": "pi"
+            },
+            "requestId": "6d4c19c7-7140-4fb8-881a-989d48e32123"
+          }
+        },
+        "response": {
+          "batchId": "f0d29040-77b6-419c-8ab5-2f8910dee3ad",
+          "kinds": [
+            {
+              "kind": "agent-history",
+              "decision": "already-running",
+              "taskId": "f0d29040-77b6-419c-8ab5-2f8910dee3ad",
+              "runRef": "agent-history:f0d29040-77b6-419c-8ab5-2f8910dee3ad"
+            }
+          ]
+        }
+      }
+    },
+    "running": {
+      "get_task_summary": {
+        "request": {
+          "request": {}
+        },
+        "response": {
+          "runningCount": 1,
+          "queuedCount": 0,
+          "attentionCount": "0",
+          "running": [
+            {
+              "taskId": "f0d29040-77b6-419c-8ab5-2f8910dee3ad",
+              "kind": "agent-history",
+              "operation": "backup",
+              "trigger": "manual",
+              "state": "running",
+              "phase": "discovery",
+              "runRef": "agent-history:f0d29040-77b6-419c-8ab5-2f8910dee3ad",
+              "startedAt": 1794355200000,
+              "attention": false,
+              "actions": ["cancel"],
+              "holdsQuit": true,
+              "snapshotToken": "4ac2913463ee0f9bf9320822eaa5ee5bf2f900573e554be8e660f736d64134a4",
+              "perTool": [
+                {
+                  "tool": "pi",
+                  "filesFound": "1",
+                  "filesCommitted": "0",
+                  "bytesCommitted": "0",
+                  "newRoots": "0",
+                  "updatedRoots": "0",
+                  "newChildren": "0"
+                }
+              ],
+              "progress": {
+                "phase": "discovery",
+                "unit": "files",
+                "done": "1",
+                "total": null
+              }
+            }
+          ]
+        }
+      }
+    },
+    "cancel": {
+      "control_background_task": {
+        "request": {
+          "request": {
+            "taskId": "f0d29040-77b6-419c-8ab5-2f8910dee3ad",
+            "action": "cancel",
+            "expectedToken": "4ac2913463ee0f9bf9320822eaa5ee5bf2f900573e554be8e660f736d64134a4",
+            "requestId": "6ae35d9f-f4b3-42a0-8eea-6fd36ad3b9b3"
+          }
+        },
+        "response": {
+          "task": {
+            "taskId": "f0d29040-77b6-419c-8ab5-2f8910dee3ad",
+            "kind": "agent-history",
+            "operation": "backup",
+            "trigger": "manual",
+            "state": "cancelling",
+            "phase": "discovery",
+            "runRef": "agent-history:f0d29040-77b6-419c-8ab5-2f8910dee3ad",
+            "startedAt": 1794355200000,
+            "attention": false,
+            "actions": [],
+            "holdsQuit": true,
+            "snapshotToken": "6fca315a2b95b4fea45147056dfe78f5c2ff0eca735abf9286cc8bd1ea320493",
+            "perTool": [
+              {
+                "tool": "pi",
+                "filesFound": "1",
+                "filesCommitted": "0",
+                "bytesCommitted": "0",
+                "newRoots": "0",
+                "updatedRoots": "0",
+                "newChildren": "0"
+              }
+            ],
+            "progress": {
+              "phase": "discovery",
+              "unit": "files",
+              "done": "1",
+              "total": null
+            },
+            "reason": "cancelled"
+          }
+        }
+      }
+    },
+    "review": {
+      "control_background_task": {
+        "request": {
+          "request": {
+            "taskId": "f0d29040-77b6-419c-8ab5-2f8910dee3ad",
+            "action": "retry",
+            "expectedToken": "0a69d6203835a2a4791231f6b8d41e1c39520db65fc7df89328cf941a5e0558b",
+            "requestId": "e49a2d70-12a5-4002-86be-bb1191db2965"
+          }
+        },
+        "response": {
+          "task": {
+            "taskId": "f0d29040-77b6-419c-8ab5-2f8910dee3ad",
+            "kind": "agent-history",
+            "operation": "backup",
+            "trigger": "manual",
+            "state": "interrupted",
+            "phase": "finished",
+            "runRef": "agent-history:f0d29040-77b6-419c-8ab5-2f8910dee3ad",
+            "startedAt": 1794355200000,
+            "attention": false,
+            "actions": ["retry"],
+            "holdsQuit": false,
+            "snapshotToken": "0a69d6203835a2a4791231f6b8d41e1c39520db65fc7df89328cf941a5e0558b",
+            "endedAt": 1794355200000,
+            "reason": "cancelled"
+          },
+          "previewRequired": true
+        }
+      }
+    },
+    "retry": {
+      "control_background_task": {
+        "request": {
+          "request": {
+            "taskId": "f0d29040-77b6-419c-8ab5-2f8910dee3ad",
+            "action": "retry",
+            "expectedToken": "0a69d6203835a2a4791231f6b8d41e1c39520db65fc7df89328cf941a5e0558b",
+            "requestId": "05dd95b5-f742-45a2-8c82-1abea357b5a2"
+          }
+        },
+        "response": {
+          "task": {
+            "taskId": "34b617b7-1149-43e0-8083-3d802e67ec0b",
+            "kind": "agent-history",
+            "operation": "backup",
+            "trigger": "retry",
+            "state": "succeeded",
+            "phase": "finished",
+            "runRef": "agent-history:34b617b7-1149-43e0-8083-3d802e67ec0b",
+            "startedAt": 1794355200000,
+            "attention": false,
+            "actions": [],
+            "holdsQuit": false,
+            "snapshotToken": "62f3c280140be6fe17e2d396071fe9a4105ab58c5a6222e6072ba05b6c4a7743",
+            "endedAt": 1794355200000,
+            "retryOf": "f0d29040-77b6-419c-8ab5-2f8910dee3ad"
+          },
+          "replacementTaskId": "34b617b7-1149-43e0-8083-3d802e67ec0b"
+        }
+      }
+    },
+    "scopeDenied": {
+      "command": "start_backup",
+      "request": {
+        "request": {
+          "scope": {
+            "type": "tool",
+            "kind": "agent-history",
+            "tool": "codex"
+          },
+          "requestId": "6607b1f4-da25-4f27-8e86-a6ebb3b34e7e"
+        }
+      },
+      "error": {
+        "message": "scope-denied",
+        "code": "scope-denied"
+      }
+    }
+  }
+}

@@ -29,6 +29,9 @@ pub fn restore_snapshot(
     cancel: CancelToken,
     mut progress: impl FnMut(Progress),
 ) -> Result<InstalledArchive> {
+    if let Some(vault) = current {
+        vault.require_complete()?;
+    }
     cancel.check()?;
     let input = crate::source::open(source, password)?;
     let integrity: String = input.query_row("PRAGMA integrity_check", [], |r| r.get(0))?;

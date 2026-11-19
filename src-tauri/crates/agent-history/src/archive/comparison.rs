@@ -43,6 +43,15 @@ impl Archive {
         a: &RevisionInfo,
         b: &RevisionInfo,
     ) -> Result<(bool, bool)> {
+        self.revision_prefix_cancellable(a, b, &vault_store::CancelToken::new())
+    }
+
+    pub(crate) fn revision_prefix_cancellable(
+        &self,
+        a: &RevisionInfo,
+        b: &RevisionInfo,
+        cancel: &vault_store::CancelToken,
+    ) -> Result<(bool, bool)> {
         if a.byte_len > b.byte_len {
             return Ok((false, false));
         }
@@ -53,6 +62,7 @@ impl Archive {
         let right = self.manifest(b)?;
         let (mut i, mut j, mut offset) = (0, 0, 0);
         while offset < a.byte_len {
+            cancel.check().map_err(|_| Error::Cancelled)?;
             let (x, x_end) = covering_slice(&left, i, offset, a)?;
             let (y, y_end) = covering_slice(&right, j, offset, b)?;
             let end = x_end.min(y_end).min(a.byte_len);
@@ -63,6 +73,7 @@ impl Archive {
                 let mut right = [0; 64 * 1024];
                 let mut remaining = end - offset;
                 while remaining > 0 {
+                    cancel.check().map_err(|_| Error::Cancelled)?;
                     let n = remaining.min(left.len() as u64) as usize;
                     first.read_exact(&mut left[..n])?;
                     second.read_exact(&mut right[..n])?;
@@ -70,6 +81,8 @@ impl Archive {
                         return Ok((false, false));
                     }
                     remaining -= n as u64;
+                    #[cfg(test)]
+                    prefix_test::after_block(cancel);
                 }
             }
             offset = end;
@@ -139,5 +152,51 @@ impl Archive {
             a.consume(n);
             b.consume(n);
         }
+    }
+}
+
+#[cfg(test)]
+mod prefix_test {
+    use super::*;
+    use std::{cell::Cell, io::Write};
+    thread_local! {static BLOCKS: Cell<Option<usize>> = const { Cell::new(None) };}
+    pub(super) fn after_block(cancel: &vault_store::CancelToken) {
+        if let Some(n) = BLOCKS.get() {
+            BLOCKS.set(Some(n + 1));
+            cancel.cancel();
+        }
+    }
+    #[test]
+    fn cancellation_inside_an_appended_revision_stops_verification_before_publication() {
+        let tmp = tempfile::tempdir().unwrap();
+        let archive = Archive::create_unencrypted(&tmp.path().join("archive")).unwrap();
+        let dir = tmp.path().join("pi");
+        std::fs::create_dir_all(dir.join("sessions")).unwrap();
+        let path = dir.join("sessions/example.jsonl");
+        let mut bytes = br#"{"type":"session","version":3,"id":"one"}"#.to_vec();
+        bytes.resize(3 * 1024 * 1024, b' ');
+        bytes.push(b'\n');
+        std::fs::write(&path, bytes).unwrap();
+        let root = crate::SourceRoot { root: dir, harness: crate::Harness::Pi };
+        let options = crate::capture::BackupOptions {
+            max_record_bytes: 4 * 1024 * 1024,
+            ..Default::default()
+        };
+        archive.backup(std::slice::from_ref(&root), &options).unwrap();
+        let source = archive.list_sources(&Default::default()).unwrap().items.remove(0).id;
+        let head = || archive.latest_revision(&source).unwrap().unwrap().id;
+        let before = head();
+        std::fs::OpenOptions::new().append(true).open(path).unwrap().write_all(b"{}\n").unwrap();
+        BLOCKS.set(Some(0));
+        let saved = archive.backup(std::slice::from_ref(&root), &options);
+        assert_eq!(
+            BLOCKS.replace(None),
+            Some(1),
+            "verification must stop before reading the next block"
+        );
+        assert!(matches!(saved, Err(Error::Cancelled)));
+        assert_eq!(head(), before);
+        archive.backup(&[root], &Default::default()).unwrap();
+        assert_ne!(head(), before);
     }
 }

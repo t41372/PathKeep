@@ -76,7 +76,17 @@ impl Adapter for DeepseekAdapter {
         emit: &mut dyn FnMut(Artifact) -> crate::Result<()>,
         issues: &mut Vec<Diagnostic>,
     ) -> crate::Result<()> {
-        discovery::discover(source, emit, issues)
+        self.discover_cancellable(&crate::capture::Discovery::default(), source, emit, issues)
+    }
+
+    fn discover_cancellable(
+        &self,
+        cancel: &crate::capture::Discovery,
+        source: &SourceRoot,
+        emit: &mut dyn FnMut(Artifact) -> crate::Result<()>,
+        issues: &mut Vec<Diagnostic>,
+    ) -> crate::Result<()> {
+        discovery::discover(cancel, source, emit, issues)
     }
 
     fn parse(
@@ -147,7 +157,11 @@ impl<'a> Projection<'a> {
                 code: code.into(),
                 path: Some(self.context.relative_path.clone()),
                 ordinal,
-                detail: None,
+                detail: (code == "deepseek-format-limited")
+                    .then_some(self.version)
+                    .flatten()
+                    .filter(|v| *v > CURRENT_VERSION)
+                    .map(|v| v.to_string()),
             },
         );
     }

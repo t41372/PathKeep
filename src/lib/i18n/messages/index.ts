@@ -3,12 +3,16 @@
  * three languages side by side, so a copy change is reviewed in one place.
  */
 import type { MessagePath, ResolvedLanguage } from '../define'
+import { agentBackup } from './agent-backup'
+import { agentTasks } from './agent-tasks'
 import { ask } from './ask'
 import { backup } from './backup'
 import { backupImport } from './backup-import'
 import { backupRuns } from './backup-runs'
 import { backupSchedule } from './backup-schedule'
 import { common } from './common'
+import { dataKinds } from './data-kinds'
+import { enableAgent } from './enable-agent'
 import { history } from './history'
 import { historyPage } from './history-page'
 import { historySearch } from './history-search'
@@ -28,6 +32,10 @@ const namespaces = {
   common,
   shell,
   spaces,
+  dataKinds,
+  enableAgent,
+  agentBackup,
+  agentTasks,
   home,
   history,
   historyPage,

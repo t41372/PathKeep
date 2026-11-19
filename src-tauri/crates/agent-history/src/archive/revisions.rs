@@ -119,6 +119,16 @@ impl Archive {
         digest: &str,
         byte_len: u64,
     ) -> Result<RevisionOutcome> {
+        self.commit_revision(revision, digest, byte_len, None)
+    }
+
+    pub(crate) fn commit_revision(
+        &self,
+        revision: i64,
+        digest: &str,
+        byte_len: u64,
+        attempt: Option<(i64, &vault_store::CancelToken)>,
+    ) -> Result<RevisionOutcome> {
         if byte_len > i64::MAX as u64
             || digest.len() != 64
             || !digest.bytes().all(|b| b.is_ascii_hexdigit())
@@ -162,7 +172,15 @@ impl Archive {
             ))
         })?;
         let mut reader = RawReader::new(self, info.0.clone());
-        io::copy(&mut reader, &mut io::sink())?;
+        let cancel = attempt.map(|(_, token)| token.clone()).unwrap_or_default();
+        let run = attempt.map(|(id, _)| id);
+        let mut buffer = [0; 64 * 1024];
+        loop {
+            cancel.check().map_err(|_| Error::Cancelled)?;
+            if io::Read::read(&mut reader, &mut buffer)? == 0 {
+                break;
+            }
+        }
         let source_id = info.0.source_id;
         let format = info.0.capture_format;
         let source = self.source(&source_id)?;
@@ -173,7 +191,7 @@ impl Archive {
         let prefix = if source.retention == "appended" {
             match &previous {
                 Some(old) if old.byte_len < byte_len => {
-                    super::retention::is_prefix(self, old, revision, byte_len)?
+                    super::retention::is_prefix(self, old, revision, byte_len, &cancel)?
                 }
                 _ => false,
             }
@@ -248,6 +266,16 @@ impl Archive {
             if retention == "state" {
                 super::retention::retain_latest_state(tx, &source_id, selected)?;
             }
+            if let Some(run) = run {
+                super::capture_facts::file_commit(
+                    tx,
+                    run,
+                    &source_id,
+                    selected,
+                    byte_len,
+                    previous == Some(selected),
+                )?;
+            }
             Ok(RevisionOutcome { revision_id: selected, unchanged: previous == Some(selected) })
         })?;
         if expires && !outcome.unchanged {
@@ -266,7 +294,7 @@ impl Archive {
         if retires_slices {
             // Limit garbage during large imports. Backup checks the durable queue again at
             // completion so a collection failure cannot undo or misreport this publication.
-            let _ = self.reclaim_slices();
+            let _ = self.reclaim_slices_with_cancel(&cancel);
         }
         Ok(outcome)
     }

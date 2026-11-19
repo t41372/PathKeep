@@ -62,6 +62,7 @@ pub(super) fn build_router(
 
     Ok(Router::new()
         .route("/health", get(bridge_health))
+        .route("/previews/{stream_id}/events", get(super::preview::events))
         .route("/events", get(super::events::events))
         .route("/searches/{session_id}/events", get(super::search::events))
         .route("/commands/{command}", post(bridge_invoke))

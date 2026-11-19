@@ -97,6 +97,14 @@ export const shell = defineMessages({
       done_one: 'Backup done · {count} new visit',
       done_other: 'Backup done · {count} new visits',
       doneNothingNew: 'Backup done · no new visits',
+      skipped: {
+        paused: '“{name}” is paused, so it wasn’t backed up.',
+        off: '“{name}” is off, so it wasn’t backed up.',
+        noSource:
+          '“{name}” has nothing chosen to back up, so it wasn’t backed up.',
+        nothing: 'Nothing was backed up',
+        chooseSources: 'Choose sources',
+      },
       failed: 'Backup failed',
       warnings_one: '{count} warning: something was left out or didn’t finish.',
       warnings_other:
@@ -299,6 +307,13 @@ export const shell = defineMessages({
       done_one: '备份完成，新增 {count} 条记录',
       done_other: '备份完成，新增 {count} 条记录',
       doneNothingNew: '备份完成，没有新增访问记录',
+      skipped: {
+        paused: '「{name}」暂停中，这次没有备份它。',
+        off: '「{name}」关着，这次没有备份它。',
+        noSource: '「{name}」没有选任何要备份的来源，这次没有备份它。',
+        nothing: '这次什么都没有备份',
+        chooseSources: '选择来源',
+      },
       failed: '备份失败',
       warnings_one: '{count} 条警告：有内容被跳过或没有完成。',
       warnings_other: '{count} 条警告：有内容被跳过或没有完成。',
@@ -494,6 +509,13 @@ export const shell = defineMessages({
       done_one: '備份完成，新增 {count} 條記錄',
       done_other: '備份完成，新增 {count} 條記錄',
       doneNothingNew: '備份完成，沒有新增造訪',
+      skipped: {
+        paused: '「{name}」暫停中，這次沒有備份它。',
+        off: '「{name}」關著，這次沒有備份它。',
+        noSource: '「{name}」沒有選任何要備份的來源，這次沒有備份它。',
+        nothing: '這次什麼都沒有備份',
+        chooseSources: '選擇來源',
+      },
       failed: '備份失敗',
       warnings_one: '{count} 則警告：有內容被略過或沒有完成。',
       warnings_other: '{count} 則警告：有內容被略過或沒有完成。',

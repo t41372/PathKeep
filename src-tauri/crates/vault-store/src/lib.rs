@@ -9,8 +9,10 @@ mod copy;
 mod engine;
 mod engine_log;
 mod error;
+mod existing_files;
 mod maintenance;
 mod migration;
+mod opening;
 mod owner_lock;
 mod query_plans;
 mod queue;
@@ -27,7 +29,7 @@ pub use checkpoint::Metrics;
 pub use config::{Config, Db, IoLayer, Paths};
 pub use copy::{CopyPhase, CopyProgress, TableDigest};
 pub use engine_log::route_engine_diagnostics_to_log;
-pub use error::{Error, Result};
+pub use error::{Error, OpenStage, Result, StoreOpenFailure};
 pub use maintenance::Maintenance;
 pub use migration::{BackfillProgress, Migration, MigrationRegistry};
 pub use owner_lock::OwnerLock;
@@ -44,6 +46,9 @@ pub use turso::{IntoParams, Row, Value, params, params_from_iter};
 /// Arc between blocking command threads; a closure cannot recursively call it.
 pub struct Store {
     workers: RwLock<Vec<(Db, worker::Workers)>>,
+    /// Serializes attempts to add workers. Ordinary reads never take this lock.
+    adding: Mutex<()>,
+    conversation_failure: RwLock<Option<Arc<StoreOpenFailure>>>,
     ownership: Mutex<Option<Arc<owner_lock::OwnerLock>>>,
     closed: AtomicBool,
     paths: Paths,
@@ -63,67 +68,6 @@ impl Store {
     pub fn is_open(&self) -> bool {
         !self.closed.load(std::sync::atomic::Ordering::Acquire)
     }
-    /// Acquire ownership, verify every selected database, then migrate on writers.
-    pub fn open(config: Config) -> Result<Self> {
-        worker::check_caller()?;
-        config.validate()?;
-        let lock = match &config.owner {
-            Some(owner) if owner.root == config.root => owner.clone(),
-            Some(_) => return Err(Error::InvalidConfig("owner belongs to another root".into())),
-            None => Arc::new(owner_lock::OwnerLock::acquire(&config.root)?),
-        };
-        let config = std::thread::Builder::new()
-            .name("store-preflight".into())
-            .spawn(move || {
-                engine::preflight(&config)?;
-                engine::prepare_paths(&config)?;
-                Ok::<_, Error>(config)
-            })?
-            .join()
-            .map_err(|_| Error::JobPanicked { message: "opening preflight".into() })??;
-        let mut store = Self {
-            workers: RwLock::new(Vec::new()),
-            ownership: Mutex::new(Some(lock)),
-            closed: AtomicBool::new(false),
-            paths: config.paths.clone(),
-            watch: running::Watch::start(config.long_statement_after)?,
-        };
-        // Keep scratch's database handle alive before any connection attaches it.
-        for db in vault_layout::startup_databases() {
-            if !config.databases.contains(&db) {
-                continue;
-            }
-            let scratch = store.workers.get_mut().unwrap().first().map(|(_, w)| w.gate.clone());
-            let archive = if vault_layout::database_spec(db).dependencies.contains(&Db::Archive) {
-                store
-                    .workers
-                    .get_mut()
-                    .unwrap()
-                    .iter()
-                    .find(|(id, _)| *id == Db::Archive)
-                    .map(|(_, w)| w.gate.clone())
-            } else {
-                None
-            };
-            let mut settings = engine::Settings::new(&config, db);
-            settings.watched = Some((store.watch.slot(format!("{db:?} writer")), {
-                (0..config.readers_per_database.get())
-                    .map(|index| store.watch.slot(format!("{db:?} reader {index}")))
-                    .collect()
-            }));
-            let workers = worker::Workers::start(
-                db,
-                settings,
-                config.migrations.plan(db),
-                config.readers_per_database.get(),
-                config.interactive_queue_capacity.get(),
-                scratch,
-                archive,
-            )?;
-            store.workers.get_mut().unwrap().push((db, workers));
-        }
-        Ok(store)
-    }
     /// Serve one short committed snapshot on an independent reader connection.
     pub fn read<T: Send + 'static>(
         &self,
@@ -141,6 +85,13 @@ impl Store {
         work: impl FnOnce(&Session<'_>) -> Result<T> + Send + 'static,
     ) -> Result<T> {
         self.request(db, false, priority, work)
+    }
+    /// Identity shared by derived reads until the next committed write to this role.
+    /// Reopening a role also starts a fresh identity. It never grants storage access.
+    pub fn read_token(&self, db: Db) -> Result<Arc<()>> {
+        let workers = self.workers();
+        let (_, role) = workers.iter().find(|(id, _)| *id == db).ok_or(Error::Closed)?;
+        Ok(role.read_token.snapshot())
     }
     /// Inspect admission and maintenance without issuing database work.
     pub fn metrics(&self, db: Db) -> Metrics {
@@ -197,8 +148,7 @@ impl Store {
     }
     /// The workers, also after a panic poisoned their lock. The maintenance pause holds them
     /// locked across its caller's code, so a caller that panics there poisons the lock while the
-    /// list stays as it was: once the store is open only closing it changes the list
-    /// (`Store::close`, `Maintenance::close`), and neither panics halfway. The store goes on
+    /// list stays as it was. Group publication and close take their own exclusive guard. The store goes on
     /// serving, and closing it, from `Drop` too, never panics a second time, which during the
     /// caller's unwinding would abort the process and hide the first panic.
     fn workers(&self) -> RwLockReadGuard<'_, Vec<(Db, worker::Workers)>> {

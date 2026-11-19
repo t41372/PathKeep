@@ -80,8 +80,13 @@ pub fn remove_app_lock_passcode() -> Result<AppLockStatus> {
 /// Locks the current UI session.
 pub fn lock_app_ui_session(reason: Option<&str>) -> Result<AppLockStatus> {
     let paths = vault_core::project_paths()?;
+    let _gate = vault_core::ControlGate::acquire(&paths);
     let config = load_hydrated_config(&paths)?;
     lock_app_session(&paths, &config, reason)?;
+    if config.app_lock.enabled {
+        crate::data_kinds::delivery::revoke(&paths.app_root);
+        crate::data_kinds::preview::revoke(&paths.app_root);
+    }
     resolved_app_lock_status(&paths, &config)
 }
 

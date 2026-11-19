@@ -31,6 +31,11 @@ impl<'db> Session<'db> {
 
 impl Drop for Statement<'_, '_> {
     fn drop(&mut self) {
+        // A panic in Turso can poison this statement. Resetting it for reuse during
+        // unwinding would panic a second time and abort before the worker can return JobPanicked.
+        if std::thread::panicking() {
+            return;
+        }
         if let Some(native) = self.native.take() {
             self.session.return_statement(&self.sql, native);
         }

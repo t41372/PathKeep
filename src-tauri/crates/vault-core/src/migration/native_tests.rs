@@ -224,3 +224,86 @@ fn portable_provenance_is_encrypted_relocated_and_replayable_on_an_empty_root() 
         assert_eq!(restored.run.unwrap().new_visits, 1);
     }
 }
+
+#[test]
+fn device_policy_is_removed_from_a_move_file_and_kept_at_its_destination() {
+    let vault = crate::Vault::open_temp().unwrap();
+    let mut config = vault.config().clone();
+    config.capture_policy.read_git = false;
+    config.capture_policy.selection_ref = Some("source-grant".into());
+    config.capture_policy.pending_first_save = Some("source-request".into());
+    config.capture_policy.empty_tools_chosen = true;
+    config.dismissed_agent_hints.insert(crate::AgentHint::Intro);
+    let source = vault.with_config(config);
+    let bundle_dir = tempfile::tempdir().unwrap();
+    let bundle = bundle_dir.path().join("policy.pathkeep");
+    native::export(&source, &bundle, "export", Default::default(), |_| {}).unwrap();
+    let (_root, target, _) = crate::maintenance::tests::encrypted();
+    let mut config = target.config().clone();
+    config.capture_policy.browsing = crate::KindState::Paused;
+    config.capture_policy.agent_history = crate::KindState::On;
+    config.capture_policy.selection_ref = Some("destination-grant".into());
+    config.capture_policy.enabled_tools.insert(crate::AgentTool::Pi);
+    let dir = bundle_dir.path().join("approved-pi");
+    std::fs::create_dir(&dir).unwrap();
+    let source =
+        agent_history::SourceRoot { harness: agent_history::Harness::Pi, root: dir.clone() };
+    let root_id = agent_history::capture::root_identity(&source).unwrap();
+    let pinned = agent_history::capture::directory_handle(&source.root).unwrap();
+    let directory = agent_history::capture::directory_identity(&pinned).unwrap();
+    drop(pinned);
+    let descriptor =
+        serde_json::json!([{"tool":"pi","path":dir,"id":root_id,"directory":directory}])
+            .to_string();
+    target
+        .store()
+        .write(Db::AgentHistoryEvidence, Priority::Interactive, move |s| {
+            s.execute(
+            "INSERT INTO ah_capture_selections(id,descriptor_json) VALUES('destination-grant',?1)",
+            [descriptor],
+        )?;
+            Ok(())
+        })
+        .unwrap();
+    config.dismissed_agent_hints.insert(crate::AgentHint::AutoDelete);
+    crate::save_config(&crate::ControlGate::acquire(target.paths()), &config).unwrap();
+    let options =
+        ApplyImportOptions { confirm_overwrite: true, source_archive_key: Some("export".into()) };
+    // The same immutable selection still resolves even when its removable media is offline.
+    let matching = bundle_dir.path().join("matching.pathkeep");
+    native::export(&target, &matching, "export", Default::default(), |_| {}).unwrap();
+    std::fs::remove_dir(dir).unwrap();
+    let (_, same) = native::import(
+        target.paths(),
+        Some(&target),
+        None,
+        &matching,
+        &options,
+        Default::default(),
+    )
+    .unwrap();
+    assert_eq!(same.vault.config().capture_policy, config.capture_policy);
+    let target = same.vault;
+    let (_, installed) =
+        native::import(target.paths(), Some(&target), None, &bundle, &options, Default::default())
+            .unwrap();
+    assert_eq!(installed.vault.config().dismissed_agent_hints, config.dismissed_agent_hints);
+    let policy = &installed.vault.config().capture_policy;
+    assert_eq!(policy.agent_history, crate::KindState::On);
+    assert_eq!(policy.browsing, crate::KindState::Paused);
+    assert_eq!(policy.selection_ref, None);
+    assert!(policy.enabled_tools.is_empty() && policy.pending_first_save.is_none());
+    assert_eq!(
+        crate::load_config(&crate::project_paths_with_root(&installed.previous_files))
+            .unwrap()
+            .capture_policy,
+        Default::default()
+    );
+    // Inspect the control inside the bundle as well: preserving the destination by
+    // itself would hide a leak of the source choices in the portable file.
+    let key = native::bundle_key(&bundle, "export").unwrap();
+    let copied = native::source_control(&bundle, &key).unwrap();
+    let copied = crate::config::decode_config(&bundle, &copied).unwrap().config;
+    assert!(copied.dismissed_agent_hints.is_empty());
+    assert_eq!(copied.capture_policy, Default::default());
+}

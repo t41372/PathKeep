@@ -102,6 +102,11 @@ fn launch_overrides(mut get: impl FnMut(&str) -> Option<OsString>) -> Vec<(OsStr
         "CHB_CHROME_USER_DATA_DIR",
         "CHB_FIREFOX_PROFILES_DIR",
         "CHB_SAFARI_ROOT",
+        "CHB_AGENT_TOOLS_HOME",
+        #[cfg(debug_assertions)]
+        "PATHKEEP_TEST_AGENT_PREVIEW_ENTRY_DELAY_US",
+        #[cfg(debug_assertions)]
+        "PATHKEEP_TEST_AGENT_CAPTURE_FILE_DELAY_US",
         "CHB_TEST_KEYRING_DIR",
         "PATHKEEP_PLATFORM_TEST_KEYRING_DIR",
         "PATHKEEP_PLATFORM_TEST_KEYRING_SERVICE",
@@ -161,6 +166,11 @@ mod root_handoff_tests {
     fn launch_services_carries_fixture_namespaces_as_well_as_the_root() {
         let overrides = launch_overrides(|_| Some("synthetic".into()));
         for required in [
+            "CHB_AGENT_TOOLS_HOME",
+            #[cfg(debug_assertions)]
+            "PATHKEEP_TEST_AGENT_PREVIEW_ENTRY_DELAY_US",
+            #[cfg(debug_assertions)]
+            "PATHKEEP_TEST_AGENT_CAPTURE_FILE_DELAY_US",
             "PATHKEEP_PLATFORM_TEST_KEYRING_SERVICE",
             "PATHKEEP_PLATFORM_TEST_SCHEDULE_LABEL",
             "PATHKEEP_PLATFORM_TEST_LAUNCH_AGENTS_DIR",

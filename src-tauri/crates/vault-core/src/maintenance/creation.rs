@@ -21,7 +21,7 @@
 //! - A crash after the stamp leaves a required store missing, and the next open would create it
 //!   empty as if nothing had been there. The record says it is being made: recovery moves in what
 //!   the folder holds, and an open makes again what the folder lost. Without a record a missing
-//!   required store of a stamped archive is damage and the open is refused
+//!   required store of a stamped archive is damage and its group is refused
 //!   (`check_required_stores`), because the store layer would otherwise create an empty file.
 //! - A crash before the stamp, then PathKeep 0.5 opens the folder (it can: there is no stamp) and
 //!   creates and fills some of the stores the record names. Before the stamp the record is only
@@ -445,27 +445,26 @@ fn with_suffix(path: &Path, suffix: &str) -> PathBuf {
     PathBuf::from(name)
 }
 
-/// Before the store opens the live archive: every store its layout requires is there, or the
-/// record says it is being made. The released layout is left as 0.4 and 0.5 had it.
-pub(crate) fn check_required_stores(paths: &ProjectPaths, layout: ArchiveLayout) -> Result<()> {
+/// Identify files the store must find at preflight. Only a creation record may authorize
+/// an absent durable database in a stamped layout. Released layouts retain their old policy.
+pub(crate) fn check_required_stores(
+    paths: &ProjectPaths,
+    layout: ArchiveLayout,
+) -> Result<Vec<Db>> {
     if layout == ArchiveLayout::BrowsingV1 {
-        return Ok(());
+        return Ok(Vec::new());
     }
     let record = read(paths)?;
-    let scratch = vault_layout::scratch_database();
-    for db in vault_layout::databases_in(layout).into_iter().filter(|db| *db != scratch) {
-        let relative = Path::new(vault_layout::database_path(db));
-        let listed = record
-            .as_ref()
-            .is_some_and(|record| record.creating.iter().any(|made| *made.relative == *relative));
-        if !listed && !exists(&paths.app_root.join(relative))? {
-            anyhow::bail!(
-                "archive-store-missing: {} is missing and nothing says it is being created",
-                relative.display()
-            );
-        }
-    }
-    Ok(())
+    Ok(vault_layout::databases_in(layout)
+        .into_iter()
+        .filter(|db| {
+            let relative = Path::new(vault_layout::database_path(*db));
+            *db != vault_layout::scratch_database()
+                && !record.as_ref().is_some_and(|record| {
+                    record.creating.iter().any(|made| *made.relative == *relative)
+                })
+        })
+        .collect())
 }
 
 /// Install recovery hands a creation record here, before the store opens and without the key.

@@ -120,9 +120,13 @@ test('changing the archive password needs the current one', async ({
 test('an archive the right password cannot open is not called a wrong password', async ({
   page,
 }) => {
-  // One of the archive's databases moved away while the archive is closed, as a partial copy
-  // of the folder would leave it, with its log files if it has them.
-  const store = join(fixture().dirs.projectRoot, 'archive', 'agent-history.db')
+  // One of the browsing history's databases moved away while the archive is closed, as a
+  // partial copy of the folder would leave it, with its log files if it has them.
+  const store = join(
+    fixture().dirs.projectRoot,
+    'archive',
+    'source-evidence.db',
+  )
   const moved = ['', '-wal', '-shm'].filter((suffix) =>
     existsSync(store + suffix),
   )
@@ -157,5 +161,82 @@ test('an archive the right password cannot open is not called a wrong password',
   await expect(asked).toBeHidden({ timeout: 60_000 })
   expect(await openArchiveVisitTotal()).toBeGreaterThan(0)
   // As the specs after this one expect: the keychain remembers the password again.
+  expect(await backend<boolean>('keyring_get_database_key')).toBe(true)
+})
+
+interface KindRow {
+  kind: string
+  availability: string
+  failure?: { role: string; stage: string }
+}
+const kinds = async () =>
+  (await backend<{ kinds: KindRow[] }>('list_data_kinds', { request: {} }))
+    .kinds
+
+test('a missing Agent conversation database does not keep browsing closed', async ({
+  page,
+}) => {
+  // The file that holds saved Agent conversations moved away while the archive is closed.
+  const store = join(fixture().dirs.projectRoot, 'archive', 'agent-history.db')
+  const moved = ['', '-wal', '-shm'].filter((suffix) =>
+    existsSync(store + suffix),
+  )
+  expect(moved).toContain('')
+  const asked = page.getByRole('heading', { name: 'Your archive is encrypted' })
+  const unlock = async () => {
+    await backend('keyring_clear_database_key')
+    await backend('clear_session_database_key')
+    // The key was taken away behind the window's back; a change of address
+    // alone would leave it showing what it had. Load it again.
+    await page.goto('/#/')
+    await page.reload()
+    await unlockAppIfLocked(page)
+    await expect(asked).toBeVisible()
+    await page.getByPlaceholder('Password').fill(NEW)
+    await page.getByPlaceholder('Password').press('Enter')
+    await expect(asked).toBeHidden({ timeout: 60_000 })
+  }
+  await backend('keyring_clear_database_key')
+  await backend('clear_session_database_key')
+  for (const suffix of moved)
+    renameSync(store + suffix, `${store}${suffix}.aside`)
+  try {
+    // The right password opens the archive: browsing history is all there.
+    await unlock()
+    expect(await openArchiveVisitTotal()).toBeGreaterThan(0)
+    const rows = await kinds()
+    expect(rows.find((row) => row.kind === 'browsing')?.availability).toBe(
+      'available',
+    )
+    const agent = rows.find((row) => row.kind === 'agent-history')
+    expect(agent?.availability).toBe('unavailable')
+    expect(agent?.failure?.role).toBe('evidence')
+
+    // Settings says which file, that browsing is fine, and asks for no password.
+    await page.goto('/#/settings/kinds')
+    await unlockAppIfLocked(page)
+    await expect(
+      page.getByText(
+        'The file that holds the saved conversations is damaged or can’t be read.',
+      ),
+    ).toBeVisible()
+    await expect(
+      page.getByText('Browsing history is not affected.'),
+    ).toBeVisible()
+    await expect(page.getByPlaceholder('Password')).toHaveCount(0)
+    await page.screenshot({
+      path: test.info().outputPath('conversations-unavailable.png'),
+      fullPage: true,
+    })
+  } finally {
+    for (const suffix of moved)
+      renameSync(`${store}${suffix}.aside`, store + suffix)
+  }
+  // With the file back, the next time the archive opens the conversations are there again.
+  await unlock()
+  expect(
+    (await kinds()).find((row) => row.kind === 'agent-history')?.availability,
+  ).toBe('available')
+  expect(await openArchiveVisitTotal()).toBeGreaterThan(0)
   expect(await backend<boolean>('keyring_get_database_key')).toBe(true)
 })

@@ -301,3 +301,9 @@ fn locked_snapshots_do_not_read_keychain_and_explicit_unlock_reads_once() {
 
 #[path = "native_reads_tests.rs"]
 mod native_reads;
+
+#[path = "app_surface_tests.rs"]
+mod app_surface;
+
+#[path = "backup_wire_tests.rs"]
+mod backup_wire;

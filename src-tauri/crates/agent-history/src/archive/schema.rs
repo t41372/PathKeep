@@ -143,6 +143,64 @@ const EVIDENCE: &[&str] = &[
     "CREATE INDEX ah_sources_harness_id ON ah_sources(harness, id)",
     "CREATE INDEX ah_sources_kind_id ON ah_sources(kind, id)",
     "CREATE INDEX ah_sources_harness_kind_id ON ah_sources(harness, kind, id)",
+    "ALTER TABLE ah_backup_runs ADD COLUMN public_id TEXT",
+    "UPDATE ah_backup_runs SET public_id=lower(hex(randomblob(16)))",
+    "CREATE UNIQUE INDEX ah_backup_runs_public ON ah_backup_runs(public_id)",
+    "CREATE TABLE ah_run_totals(run_id INTEGER NOT NULL,harness TEXT NOT NULL,root TEXT NOT NULL,
+        metric TEXT NOT NULL,quantity INTEGER NOT NULL,PRIMARY KEY(run_id,harness,root,metric))",
+    "CREATE TABLE ah_run_file_problems(run_id INTEGER NOT NULL,source_id TEXT NOT NULL,metric TEXT NOT NULL,
+        PRIMARY KEY(run_id,source_id,metric))",
+    "CREATE TABLE ah_run_files(run_id INTEGER NOT NULL, source_id TEXT NOT NULL,
+        revision_id INTEGER, bytes INTEGER NOT NULL,outcome TEXT NOT NULL,classified INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY(run_id,source_id))",
+    "CREATE TABLE ah_conversation_digests(conversation_id TEXT NOT NULL,digest TEXT NOT NULL,PRIMARY KEY(conversation_id,digest))",
+    "CREATE TABLE ah_source_conversations(source_id TEXT PRIMARY KEY,conversation_id TEXT NOT NULL,
+        is_child INTEGER NOT NULL,revision_id INTEGER NOT NULL)",
+    "CREATE INDEX ah_source_conversations_id ON ah_source_conversations(conversation_id)",
+    "CREATE TABLE ah_run_conversations(run_id INTEGER NOT NULL,conversation_id TEXT NOT NULL,
+        source_id TEXT NOT NULL,outcome TEXT NOT NULL,PRIMARY KEY(run_id,conversation_id))",
+    "CREATE TABLE ah_root_state(harness TEXT NOT NULL,root TEXT NOT NULL,state TEXT NOT NULL,run_id INTEGER NOT NULL,
+        PRIMARY KEY(harness,root))",
+    "CREATE TABLE ah_run_roots(run_id INTEGER NOT NULL,root_id TEXT NOT NULL,tool TEXT NOT NULL,
+        state TEXT NOT NULL,PRIMARY KEY(run_id,root_id))",
+    "CREATE INDEX ah_run_roots_recent ON ah_run_roots(root_id,run_id DESC)",
+    "CREATE TABLE ah_capture_selections (id TEXT PRIMARY KEY, descriptor_json TEXT NOT NULL, enable_hash TEXT)",
+    "CREATE TABLE ah_desktop_backups (
+        run_id INTEGER PRIMARY KEY REFERENCES ah_backup_runs(id),
+        task_id TEXT NOT NULL UNIQUE, request_id TEXT NOT NULL UNIQUE,
+        request_hash TEXT NOT NULL, selection_id TEXT NOT NULL REFERENCES ah_capture_selections(id),
+        scope_json TEXT NOT NULL, trigger TEXT NOT NULL, retry_of TEXT,
+        stop_reason TEXT, acknowledged INTEGER NOT NULL DEFAULT 0
+    )",
+    "CREATE TABLE ah_backup_deliveries(request_id TEXT PRIMARY KEY,request_hash TEXT NOT NULL,
+        task_id TEXT NOT NULL REFERENCES ah_desktop_backups(task_id),decision TEXT NOT NULL)",
+    "CREATE INDEX ah_desktop_backups_retry ON ah_desktop_backups(retry_of)",
+    "CREATE INDEX ah_sources_root_id ON ah_sources(harness,root,id)",
+    "CREATE INDEX ah_backup_runs_time ON ah_backup_runs(started_at DESC,id DESC)",
+    "CREATE TABLE ah_capture_notes(id INTEGER PRIMARY KEY,root_id TEXT NOT NULL,tool TEXT NOT NULL,subject TEXT NOT NULL,code TEXT NOT NULL,
+        qualifier TEXT NOT NULL,first_run INTEGER NOT NULL,UNIQUE(root_id,subject,code,qualifier))",
+    "CREATE TABLE ah_run_notes(run_id INTEGER NOT NULL,note_id INTEGER NOT NULL REFERENCES ah_capture_notes(id),
+        path TEXT,ordinal TEXT,detail TEXT,PRIMARY KEY(run_id,note_id))",
+    "CREATE TABLE ah_run_note_counts(run_id INTEGER NOT NULL,root_id TEXT NOT NULL,tool TEXT NOT NULL,code TEXT NOT NULL,
+        version TEXT NOT NULL,seen INTEGER NOT NULL,fresh INTEGER NOT NULL,PRIMARY KEY(run_id,root_id,code,version))",
+    "CREATE TABLE ah_format_notices(tool TEXT NOT NULL,version TEXT NOT NULL,run_id INTEGER NOT NULL,
+        dismissed INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(tool,version))",
+    "CREATE INDEX ah_format_notices_run ON ah_format_notices(run_id,dismissed)",
+    "CREATE VIEW ah_pending_backup_attention AS
+        SELECT d.run_id FROM ah_desktop_backups d JOIN ah_backup_runs r ON r.id=d.run_id
+        WHERE r.status IN ('failed','partial') AND d.acknowledged=0
+        UNION SELECT run_id FROM ah_format_notices WHERE dismissed=0",
+    "ALTER TABLE ah_capture_selections ADD COLUMN first_task_id TEXT",
+    "WITH timeline AS MATERIALIZED (
+        SELECT s.id,MAX(CASE WHEN d.trigger='enable' THEN s.rowid END) OVER (ORDER BY s.rowid) origin
+        FROM ah_capture_selections s LEFT JOIN ah_desktop_backups d ON d.task_id=s.id)
+     UPDATE ah_capture_selections SET first_task_id=CASE WHEN enable_hash IS NOT NULL THEN id ELSE (
+        SELECT origin.id FROM timeline t JOIN ah_capture_selections origin ON origin.rowid=t.origin
+        WHERE t.id=ah_capture_selections.id) END",
+    "CREATE TABLE ah_retiring_memberships(source_id TEXT PRIMARY KEY)",
+    "INSERT INTO ah_retiring_memberships SELECT c.source_id
+     FROM ah_sources s JOIN ah_source_conversations c ON c.source_id=s.id
+     WHERE s.harness='claude-code' AND (s.relative_path='audit.jsonl' OR s.relative_path LIKE '%/audit.jsonl')",
 ];
 
 const USER_STATE: &str = "CREATE TABLE ah_user_state (
@@ -295,4 +353,56 @@ const PROJECTION: &[&str] = &[
         project_path, updated_at DESC, conversation_id DESC)",
     "CREATE INDEX ah_sessions_project_created ON ah_sessions(conversation_current,
         project_path, created_at DESC, conversation_id DESC)",
+    "CREATE INDEX ah_sessions_root_project ON ah_sessions(harness, source_root, project_path)",
 ];
+
+#[cfg(test)]
+mod compatibility {
+    use super::*;
+    use crate::archive::{AgentHistoryResources, Archive};
+    use std::sync::Arc;
+    use vault_store::{Config, Priority, Store};
+    #[test]
+    fn upgrading_an_edited_grant_recovers_its_enable_and_retires_a_legacy_audit_membership() {
+        let temp = tempfile::tempdir().unwrap();
+        let config = || {
+            let mut c = Config::new(temp.path());
+            c.databases = vec![Db::AgentHistoryEvidence, Db::AgentHistoryReadModel, Db::Scratch];
+            c.migrations = migrations();
+            c
+        };
+        let mut old = config();
+        let end = EVIDENCE
+            .iter()
+            .position(|s| {
+                s.starts_with("ALTER TABLE ah_capture_selections ADD COLUMN first_task_id")
+            })
+            .unwrap();
+        old.migrations = MigrationRegistry::default();
+        old.migrations.register(Db::AgentHistoryEvidence, steps(&EVIDENCE[..end]));
+        old.migrations.register(Db::AgentHistoryReadModel, steps(PROJECTION));
+        let store = Store::open(old).unwrap();
+        store.write(Db::AgentHistoryEvidence,Priority::Interactive,|tx|{
+            tx.execute("INSERT INTO ah_capture_selections VALUES('enable','[]','original'),('edit','[]',NULL),('other','[]','other')",())?;
+            tx.execute("INSERT INTO ah_backup_runs(id,status,started_at,public_id) VALUES(1,'complete',1,'enable'),(2,'partial',2,'other')",())?;
+            tx.execute("INSERT INTO ah_desktop_backups(run_id,task_id,request_id,request_hash,selection_id,scope_json,trigger)
+                VALUES(1,'enable','request','original','enable','{}','enable'),(2,'other','request2','other','other','{}','enable')",())?;
+            tx.execute("INSERT INTO ah_sources(id,harness,root,relative_path,kind,retention,observed_at) VALUES(
+                'audit','claude-code','/fixture','local-agent-mode-sessions/a/b/local_test/audit.jsonl','transcript','appended',1)",())?;
+            tx.execute("INSERT INTO ah_source_conversations VALUES('audit','retired',0,1)",())?;
+            Ok(())
+        }).unwrap();
+        drop(store);
+        let store = Arc::new(Store::open(config()).unwrap());
+        let _archive = Archive::from_store(
+            store.clone(),
+            AgentHistoryResources { search_path: temp.path().join("search"), search_key: None },
+        )
+        .unwrap();
+        let (first,members)=store.read(Db::AgentHistoryEvidence,|tx|tx.query_one(
+            "SELECT first_task_id,(SELECT COUNT(*) FROM ah_source_conversations) FROM ah_capture_selections WHERE id='edit'",(),
+            |r|Ok((r.get::<String>(0)?,r.get::<i64>(1)?)))).unwrap();
+        assert_eq!(first, "enable");
+        assert_eq!(members, 0);
+    }
+}

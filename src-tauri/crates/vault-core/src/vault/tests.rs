@@ -6,10 +6,16 @@
 use super::*;
 use vault_store::Db;
 
+fn write_control(paths: &ProjectPaths, config: &AppConfig) {
+    crate::config::ensure_paths(paths).unwrap();
+    crate::save_config(&crate::ControlGate::acquire(paths), config).unwrap();
+}
+
 #[test]
 fn encrypted_vault_refuses_another_key() {
     let root = tempfile::tempdir().unwrap();
     let paths = crate::project_paths_with_root(root.path());
+    write_control(&paths, &AppConfig::default());
     drop(Vault::open(paths.clone(), AppConfig::default(), Some([17; 32])).unwrap());
     assert!(Vault::open(paths.clone(), AppConfig::default(), None).is_err());
     assert!(Vault::open(paths, AppConfig::default(), Some([18; 32])).is_err());
@@ -52,12 +58,12 @@ fn a_password_open_beside_an_unconverted_archive_creates_nothing() {
     // an empty native archive next to it.
     let root = tempfile::tempdir().unwrap();
     let paths = crate::project_paths_with_root(root.path());
-    crate::config::ensure_paths(&paths).unwrap();
     let config = AppConfig {
         initialized: true,
         archive_mode: crate::ArchiveMode::Encrypted,
         ..Default::default()
     };
+    write_control(&paths, &config);
     std::fs::write(&paths.legacy.archive, [7u8; 4096]).unwrap();
     let before = std::fs::read(&paths.legacy.archive).unwrap();
     for password in ["right password", "wrong password"] {
@@ -76,6 +82,7 @@ fn missing_envelope_never_rekeys_existing_databases() {
     let root = tempfile::tempdir().unwrap();
     let paths = crate::project_paths_with_root(root.path());
     let config = AppConfig::default();
+    write_control(&paths, &config);
     drop(Vault::open(paths.clone(), config.clone(), Some([83; 32])).unwrap());
     let db = paths.app_root.join("archive/history-vault.db");
     let before = std::fs::read(&db).unwrap();
@@ -102,6 +109,7 @@ fn pending_envelope_recovers_after_a_failure_with_database_files() {
     let root = tempfile::tempdir().unwrap();
     let paths = crate::project_paths_with_root(root.path());
     let config = AppConfig::default();
+    write_control(&paths, &config);
     let result = super::password::open_using(
         paths.clone(),
         config.clone(),
@@ -139,6 +147,7 @@ fn pending_envelope_recovers_after_a_failure_with_database_files() {
 fn pending_envelope_crash_child() {
     let Some(root) = std::env::var_os("PATHKEEP_PENDING_ENVELOPE_ROOT") else { return };
     let paths = crate::project_paths_with_root(std::path::Path::new(&root));
+    write_control(&paths, &AppConfig::default());
     super::password::open_using(
         paths,
         AppConfig::default(),

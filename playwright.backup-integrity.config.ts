@@ -35,6 +35,7 @@ if (!process.env.PATHKEEP_BACKUP_INTEGRITY_FIXTURE) {
     projectRoot: path.join(root, 'project-root'),
     keyring: path.join(root, 'keyring'),
     noSafari: path.join(root, 'no-safari'),
+    noAgentTools: path.join(root, 'no-agent-tools'),
     osSandbox: path.join(root, 'os-sandbox'),
   }
   for (const dir of Object.values(dirs)) mkdirSync(dir, { recursive: true })
@@ -79,6 +80,10 @@ if (!process.env.PATHKEEP_BACKUP_INTEGRITY_FIXTURE) {
     CHB_CHROME_USER_DATA_DIR: path.join(root, 'browsers/chrome'),
     CHB_FIREFOX_PROFILES_DIR: path.join(root, 'browsers/firefox/Profiles'),
     CHB_SAFARI_ROOT: dirs.noSafari,
+    // No agent tools here: without this the app would look for them in the
+    // real home folder of whoever runs the suite. A folder, not an empty
+    // value, because Windows drops empty variables.
+    CHB_AGENT_TOOLS_HOME: dirs.noAgentTools,
     CHB_TEST_KEYRING_DIR: dirs.keyring,
     PATHKEEP_PLATFORM_TEST_SANDBOX_DIR: dirs.osSandbox,
     PATHKEEP_TEST_BLOCK_NETWORK: '1',

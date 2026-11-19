@@ -232,7 +232,7 @@ mod engine_measurements {
     fn autocheckpoint_pragma_is_ignored_and_native_threshold_is_measured() {
         let dir = tempfile::tempdir().unwrap();
         let config = Config::new(dir.path());
-        crate::engine::prepare_paths(&config).unwrap();
+        crate::engine::check_paths(&config, &config.databases).unwrap();
         let mut settings = Settings::new(&config, Db::Archive);
         settings.scratch = None;
         let engine = Engine::open(&settings, Default::default()).unwrap();

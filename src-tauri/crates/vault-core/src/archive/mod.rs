@@ -48,6 +48,7 @@ pub(crate) use self::history::net_guard;
 pub(crate) mod ingest;
 mod read_models;
 pub(crate) mod totals;
+pub use self::read_models::browsing_archive_bytes;
 pub(crate) use self::read_models::recent_runs_from;
 mod run_support;
 mod schedule;

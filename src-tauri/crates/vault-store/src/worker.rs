@@ -35,6 +35,26 @@ pub(crate) fn check_caller() -> Result<()> {
     if IN_OWNER.with(Cell::get) { Err(Error::Reentrant) } else { Ok(()) }
 }
 
+/// Allocated only for roles with consumers caching derived data. Readers of one
+/// committed generation share an identity. A successful writer expires it.
+#[derive(Default)]
+pub(crate) struct ReadToken(std::sync::OnceLock<Mutex<Option<Arc<()>>>>);
+impl ReadToken {
+    pub(crate) fn snapshot(&self) -> Arc<()> {
+        self.0
+            .get_or_init(Default::default)
+            .lock()
+            .unwrap()
+            .get_or_insert_with(|| Arc::new(()))
+            .clone()
+    }
+    fn invalidate(&self) {
+        if let Some(slot) = self.0.get() {
+            slot.lock().unwrap().take();
+        }
+    }
+}
+
 pub(crate) struct Workers {
     pub encrypted: bool,
     pub plans: Arc<crate::query_plans::PlanCapture>,
@@ -44,6 +64,7 @@ pub(crate) struct Workers {
     pub gate: Arc<Gate>,
     metrics: Arc<Mutex<Metrics>>,
     compiled: Arc<AtomicU64>,
+    pub(crate) read_token: Arc<ReadToken>,
 }
 impl Workers {
     pub fn start(
@@ -74,6 +95,7 @@ impl Workers {
             gate: gate.clone(),
             metrics: metrics.clone(),
             compiled: compiled.clone(),
+            read_token: Default::default(),
         };
         let (ready_tx, ready_rx) = mpsc::sync_channel(1);
         let write_settings = settings.clone();
@@ -114,7 +136,8 @@ impl Workers {
                             }
                             Ok(())
                         },
-                    )?;
+                    )
+                    .map_err(|e| e.at(db, crate::OpenStage::Migrate))?;
                     Ok(engine)
                 });
                 let engine = match opened {
@@ -232,6 +255,7 @@ impl Workers {
         check_caller()?;
         let (tx, rx) = mpsc::sync_channel(1);
         let plans = self.plans.clone();
+        let written = (!read).then(|| self.read_token.clone());
         let job: Job = Box::new(move |engine, scratch, archive| {
             let result = crate::session::transaction(
                 &engine
@@ -241,6 +265,11 @@ impl Workers {
                     .with_plans(&plans),
                 work,
             );
+            if result.is_ok()
+                && let Some(token) = written
+            {
+                token.invalidate();
+            }
             Box::new(move || {
                 let _ = tx.send(result);
             })

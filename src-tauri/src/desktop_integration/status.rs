@@ -230,10 +230,11 @@ pub(crate) fn run_backup<R: Runtime>(
     app: &AppHandle<R>,
     source: BackupSource,
     due_only: bool,
+    kind_specific: bool,
 ) -> Result<vault_core::BackupReport, CommandError> {
     super::update_status(app, BackupStatus::started);
     let session = app.state::<crate::session::SessionState>();
-    let result = worker_bridge::run_backup_now_impl(due_only, &session, |event| {
+    let result = worker_bridge::run_backup_now_impl(due_only, kind_specific, &session, |event| {
         let _ = app.emit(BACKUP_PROGRESS_EVENT, &event);
     });
     super::update_status(app, |status| match &result {

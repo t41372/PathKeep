@@ -58,10 +58,20 @@ impl Adapter for PiAdapter {
         emit: &mut dyn FnMut(Artifact) -> Result<()>,
         issues: &mut Vec<Diagnostic>,
     ) -> Result<()> {
+        self.discover_cancellable(&crate::capture::Discovery::default(), source, emit, issues)
+    }
+
+    fn discover_cancellable(
+        &self,
+        cancel: &crate::capture::Discovery,
+        source: &SourceRoot,
+        emit: &mut dyn FnMut(Artifact) -> Result<()>,
+        issues: &mut Vec<Diagnostic>,
+    ) -> Result<()> {
         // Selecting a nested default must not hide an intermediate symlink from
         // walk_files, which only sees the root it is given and its descendants.
         for candidate in [&source.root, &source.root.join("agent")] {
-            if candidate.symlink_metadata().is_ok_and(|meta| meta.file_type().is_symlink()) {
+            if cancel.metadata(candidate).is_ok_and(|meta| meta.file_type().is_symlink()) {
                 common::push_diagnostic(
                     issues,
                     Diagnostic {
@@ -76,17 +86,22 @@ impl Adapter for PiAdapter {
         }
         let nested = source.root.join("agent/sessions");
         let direct = source.root.join("sessions");
-        let root = if nested.is_dir() {
+        let root = if cancel.metadata(&nested).is_ok_and(|m| m.is_dir()) {
             nested
-        } else if direct.is_dir() {
+        } else if cancel.metadata(&direct).is_ok_and(|m| m.is_dir()) {
             direct
         } else {
+            if source.root.ends_with(".pi/agent") {
+                return Ok(());
+            }
             source.root.clone()
         };
-        common::walk_files(
+        common::walk_files_cancellable(
+            cancel,
             &root,
             &mut |path| {
                 if path.extension().and_then(|part| part.to_str()) != Some("jsonl") {
+                    cancel.unknown_file();
                     return Ok(());
                 }
                 let relative_path = artifact_path(&source.root, &path);
@@ -147,6 +162,7 @@ struct ParseState<'a> {
     reference_keys: HashSet<(String, String)>,
     reference_bytes: usize,
     reference_limit_reported: bool,
+    local_output_limit_reported: bool,
     complete: bool,
 }
 
@@ -164,6 +180,7 @@ impl<'a> ParseState<'a> {
             reference_keys: HashSet::new(),
             reference_bytes: 0,
             reference_limit_reported: false,
+            local_output_limit_reported: false,
             complete: true,
         }
     }
@@ -175,7 +192,11 @@ impl<'a> ParseState<'a> {
                 code: code.into(),
                 path: Some(self.context.relative_path.clone()),
                 ordinal,
-                detail: None,
+                detail: (code == "pi-unsupported-version")
+                    .then_some(self.version)
+                    .flatten()
+                    .filter(|v| *v > CURRENT_VERSION)
+                    .map(|v| v.to_string()),
             },
         );
     }

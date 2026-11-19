@@ -23,11 +23,18 @@ use std::{
     task::{Context, Poll, Waker},
 };
 use tauri::Listener;
+use vault_worker::data_kinds::delivery::Permit;
 
 /// The events the app emits to its window itself (backups the app or the menu bar run, the
 /// updater, the menu bar's search, the question asked when someone quits while work runs),
 /// forwarded to the browser as they are.
 const APP_EVENTS: &[&str] = &[
+    vault_worker::data_kinds::POLICY_EVENT,
+    "pathkeep://agent-settings-changed",
+    "pathkeep://kind-backup-progress",
+    "pathkeep://kind-backup-finished",
+    "pathkeep://background-task-changed",
+    "pathkeep://agent-catalog-changed",
     "pathkeep://backup-progress",
     "pathkeep://backup-finished",
     vault_core::AI_INDEX_JOB_ENDED_EVENT,
@@ -41,7 +48,7 @@ const QUEUE_LIMIT: usize = 100_000;
 
 #[derive(Default)]
 struct Queue {
-    events: VecDeque<(&'static str, String)>,
+    events: VecDeque<(&'static str, String, Option<Permit>)>,
     waker: Option<Waker>,
 }
 
@@ -60,6 +67,15 @@ impl Hub {
     }
 
     fn emit_json(&self, name: &'static str, json: String) {
+        let permit = matches!(
+            name,
+            "pathkeep://agent-settings-changed"
+                | "pathkeep://kind-backup-progress"
+                | "pathkeep://kind-backup-finished"
+                | "pathkeep://background-task-changed"
+                | "pathkeep://agent-catalog-changed"
+        )
+        .then(Permit::current);
         let mut browsers = self.browsers.lock().expect("bridge event browsers");
         browsers.retain(|browser| {
             let Some(queue) = browser.upgrade() else { return false };
@@ -67,7 +83,7 @@ impl Hub {
             if queue.events.len() == QUEUE_LIMIT {
                 queue.events.pop_front();
             }
-            queue.events.push_back((name, json.clone()));
+            queue.events.push_back((name, json.clone(), permit.clone()));
             if let Some(waker) = queue.waker.take() {
                 waker.wake();
             }
@@ -98,13 +114,38 @@ pub(super) struct Browser {
 impl futures_core::Stream for Browser {
     type Item = Result<Event, Infallible>;
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let mut queue = self.queue.lock().expect("bridge event queue");
-        match queue.events.pop_front() {
-            Some((name, json)) => Poll::Ready(Some(Ok(Event::default().event(name).data(json)))),
-            None => {
-                queue.waker = Some(cx.waker().clone());
-                Poll::Pending
+        loop {
+            let next = {
+                let mut queue = self.queue.lock().expect("bridge event queue");
+                let Some(event) = queue.events.pop_front() else {
+                    queue.waker = Some(cx.waker().clone());
+                    return Poll::Pending;
+                };
+                event
+            };
+            let (name, json, permit) = next;
+            if permit.as_ref().is_some_and(|permit| !permit.valid()) {
+                continue;
             }
+            if matches!(
+                name,
+                vault_worker::data_kinds::POLICY_EVENT | "pathkeep://agent-settings-changed"
+            ) && vault_worker::data_kinds::settings().is_err()
+            {
+                continue;
+            }
+            if matches!(
+                name,
+                "pathkeep://kind-backup-progress"
+                    | "pathkeep://kind-backup-finished"
+                    | "pathkeep://background-task-changed"
+                    | "pathkeep://agent-catalog-changed"
+            ) && !vault_worker::data_kinds::settings()
+                .is_ok_and(|s| s.policy.agent_state_if_present(true) != vault_core::KindState::Off)
+            {
+                continue;
+            }
+            return Poll::Ready(Some(Ok(Event::default().event(name).data(json))));
         }
     }
 }
@@ -114,4 +155,22 @@ pub(super) async fn events(
     State(state): State<DevIpcBridgeState>,
 ) -> Sse<KeepAliveStream<Browser>> {
     Sse::new(state.events.connect()).keep_alive(KeepAlive::default())
+}
+
+#[cfg(test)]
+impl Hub {
+    /// Observe the same queue an SSE subscriber drains, including event name and serialized payload.
+    pub(super) fn observe(&self) -> impl Fn() -> Vec<(&'static str, serde_json::Value)> {
+        let browser = self.connect();
+        move || {
+            browser
+                .queue
+                .lock()
+                .unwrap()
+                .events
+                .drain(..)
+                .map(|(name, data, _)| (name, serde_json::from_str(&data).unwrap()))
+                .collect()
+        }
+    }
 }

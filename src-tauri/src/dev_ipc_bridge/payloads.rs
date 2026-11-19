@@ -75,6 +75,8 @@ pub(super) struct DatabaseKeyPayload {
 #[serde(rename_all = "camelCase")]
 pub(super) struct RunBackupPayload {
     #[serde(default)]
+    pub(super) kind_specific: bool,
+    #[serde(default)]
     pub(super) due_only: bool,
 }
 

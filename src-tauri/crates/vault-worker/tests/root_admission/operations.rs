@@ -54,6 +54,7 @@ enum Operation {
     CheckpointReplay,
     CoreBackup,
     ModelInstall,
+    SurfacePolicy,
 }
 
 #[derive(Debug)]
@@ -313,6 +314,48 @@ fn observe(operation: Operation, control: &str) -> Observation {
             false,
             &mut vault_core::NoopDownloadProgress,
         )),
+        SurfacePolicy => {
+            use kinds::backups;
+            use serde_json::{from_value, json};
+            use vault_worker::data_kinds::{self as kinds, preview};
+            let quiet: backups::Events = Arc::new(|_, _| {});
+            let failures = [
+                error(backups::enable(&f.session,from_value(json!({"previewId":"preview","selectedRootIds":[],"expectedPolicyToken":"old","readGit":false,"requestId":"id"})).unwrap(),quiet.clone())),
+                error(backups::start(&f.session,from_value(json!({"scope":{"type":"kind","kind":"agent-history"},"requestId":"id"})).unwrap(),quiet.clone())),
+                error(backups::list_runs(&f.session,from_value(json!({"includeArchiveWide":true,"limit":1})).unwrap())),
+                error(backups::get_run(&f.session,from_value(json!({"runRef":"agent-history:test"})).unwrap())),
+                error(backups::overview(&f.session,from_value(json!({"purpose":"backup"})).unwrap())),
+                error(backups::sources(&f.session,from_value(json!({"limit":1})).unwrap())),
+                error(backups::tasks(&f.session,from_value(json!({"group":"attention","limit":1})).unwrap())),
+                error(backups::task_summary(&f.session,from_value(json!({})).unwrap())),
+                error(backups::control(&f.session,from_value(json!({"taskId":"task","action":"retry","expectedToken":"old","requestId":"id"})).unwrap(),quiet)),
+                error(kinds::list(&f.session)),
+                error(kinds::settings()),
+                error(kinds::retry_agent_store(&f.session,|_|{})),
+                error(kinds::dismiss_hint(from_value(json!({"hint":"intro"})).unwrap(),Arc::new(|_,_|{}))),
+                error(kinds::set_state(
+                    &f.session,
+                    from_value(json!({"kind":"browsing","state":"on","expectedPolicyToken":"old"}))
+                        .unwrap(),
+                    |_| {},
+                )),
+                error(kinds::update_sources(
+                    &f.session,
+                    from_value(json!({"readGit":false,"expectedToken":"old"})).unwrap(),
+                    |_| {},
+                )),
+                error(preview::detect(from_value(json!({"kinds":["agent-history"]})).unwrap())),
+                error(
+                    preview::start(&f.session, from_value(json!({"purpose":"rescan"})).unwrap())
+                        .map(drop),
+                ),
+                error(preview::cancel(
+                    from_value(json!({"requestIdOrStreamId":"unknown"})).unwrap(),
+                )),
+            ];
+            assert!(failures.iter().all(|result| result == &failures[0]), "{failures:?}");
+            failures[0].clone()
+        }
         CoreBackup => error(vault_core::run_backup(f.vault(), None)),
     };
     let after = f.observe();
@@ -399,6 +442,7 @@ refuses!(remembered_key_store_refuses_before_machine_effects, KeyringStore);
 refuses!(keyring_status_refuses_before_reading_machine_state, KeyringStatus);
 refuses!(checkpoint_preview_refuses_before_reading_source_data, CheckpointPreview);
 refuses!(checkpoint_replay_refuses_before_writing_runs, CheckpointReplay);
+refuses!(app_surface_refuses_before_touching_sources_or_policy, SurfacePolicy);
 refuses!(core_backup_reinspects_the_owner_root, CoreBackup);
 
 #[test]

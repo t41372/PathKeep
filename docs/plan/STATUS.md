@@ -21,7 +21,7 @@
 
 ### 0. 整合分支自己
 
-- [ ] 改密碼測試在 Windows 上讀鎖檔的修正（`read_unless_locked`）：完整 gate、提交、推上去、Platform Native 再跑一次。2026-11-16 那次 gate 跑到 E2E 第 89 個時 session 結束被中斷，沒有跑完。2026-11-18 第一次重跑在 E2E 第一個 spec 結束：測試 app 的視窗在螢幕上被關掉（見下一項），不是程式的問題；再跑一次。
+- [x] 改密碼測試在 Windows 上讀鎖檔的修正（`read_unless_locked`）：完整 gate、提交、推上去、Platform Native 再跑一次。2026-11-18 在 boxd 上完整 gate 通過、已推上去；Platform Native 上 Windows 只剩已知的模型換檔測試失敗（`WORK-WINDOWS-MODEL-REPLACE`，它失敗後同一個 crate 後面的測試檔不會跑，所以排在前面修）。之前的經過：2026-11-16 那次 gate 跑到 E2E 第 89 個時 session 結束被中斷，沒有跑完。2026-11-18 第一次重跑在 E2E 第一個 spec 結束：測試 app 的視窗在螢幕上被關掉（見下一項），不是程式的問題；再跑一次。
 - [x] 完整 gate 與 E2E 改在 boxd（Linux）上跑，不在用戶的電腦上跑（用戶 2026-11-18）。腳本在交接資料夾的 `boxd-gate/`：同步原始碼、照 CI 的方式跑 `bun run check`、取回紀錄。這台 Mac 只跑不開視窗的輕量檢查與單項 Rust 測試。
 - [ ] E2E 的測試 app 不再到螢幕最前面開視窗（`WORK-E2E-WINDOW-OFF-THE-DESKTOP`）：發布前在 macOS 上跑那一次 E2E 之前做好。
 
@@ -29,10 +29,10 @@
 
 每條：審查 → 驗證 → 修 → 合併並解衝突 → 完整 gate → 刪掉它的 worktree。
 
-- [ ] `feat/semantic-progress-investigation`（2 個 commit，Codex 寫的）：語意索引進度「644 / 94」的第一輪修正。與這條分支只在 STATUS、CHANGELOG 衝突。
-- [ ] `fix/window-controls-every-screen`（5 個 commit）：Windows、Linux 每個畫面都有視窗按鈕、按著移動才拖動、存檔更新途中結束先問、更新途中被結束的測試。衝突在 `vault-core/src/vault.rs`、`app-frame.tsx`、`nav-rail.tsx`、`playwright.config.ts`、`screens-and-nav.md`、STATUS、CHANGELOG。`vault.rs` 與外框正是 Agent 對話要改的地方，所以排在動工之前。
-- [ ] Dependabot PR #28（11 個 JS 套件的小版本）：在這條分支上照做一次，PR 本身之後關掉。
-- [ ] 量測語意索引更新的時間（審查修正時答應的，Codex 給的讀寫次數是從程式推算的，不是量的）：在 boxd 上、同一台機器、修正前後兩版交替跑，大的合成存檔上「什麼都沒變」的一次更新要多久、到讀第一批造訪之前要多久、存檔讀取與洞察資料庫寫入各幾次；再加幾十筆造訪後的一次更新，以及任務結束時自動排的下一個任務有沒有多走一遍。數字寫進 CHANGELOG 才算完。1440 萬筆那一檔看機器磁碟放不放得下，放不下就寫明量到多大。
+- [x] `feat/semantic-progress-investigation`（2 個 commit，Codex 寫的）：語意索引進度「644 / 94」的第一輪修正。Codex astra（xhigh）審查 9 條，逐條驗證後修了該修的（同一個 session），每個修正都試過改壞後測試會紅。2026-11-18 合併，boxd 完整 gate 通過（E2E 144 + 10 + 1），已推上去。審查留下、不在這次修的在 `WORK-SEMANTIC-FOLLOWUP-AUDIT`。
+- [x] `fix/window-controls-every-screen`（5 個 commit；2026-11-18 審查 8 條、驗證、修正、合併，同一次 gate 通過，worktree 已刪）：Windows、Linux 每個畫面都有視窗按鈕、按著移動才拖動、存檔更新途中結束先問、更新途中被結束的測試。衝突在 `vault-core/src/vault.rs`、`app-frame.tsx`、`nav-rail.tsx`、`playwright.config.ts`、`screens-and-nav.md`、STATUS、CHANGELOG。`vault.rs` 與外框正是 Agent 對話要改的地方，所以排在動工之前。
+- [x] Dependabot PR #28（11 個 JS 套件的小版本）：2026-11-18 在這條分支上照做了一次，同一次 gate 通過。PR 本身等這條分支回到 main 時由 Dependabot 自己關。
+- [x] 量測語意索引更新的時間（審查修正時答應的，Codex 給的讀寫次數是從程式推算的，不是量的）：在 boxd 上、同一台機器、修正前後兩版交替跑，大的合成存檔上「什麼都沒變」的一次更新要多久、到讀第一批造訪之前要多久、存檔讀取與洞察資料庫寫入各幾次；再加幾十筆造訪後的一次更新，以及任務結束時自動排的下一個任務有沒有多走一遍。數字寫進 CHANGELOG 才算完。1440 萬筆那一檔看機器磁碟放不放得下，放不下就寫明量到多大。進度（2026-11-18）：第一次量的時候測試存檔放在 boxd 的 `/tmp`，那是記憶體檔案系統，所以 100 萬筆那組數字量的是記憶體上的讀寫，1440 萬筆那次在 8 GiB 限制下因為存檔本身佔滿記憶體被系統結束（程式自己最多用 0.95 GB）。兩組都改放磁碟重跑中。 完成（2026-11-19）：100 萬筆時 v0.5.0 約 35 秒、候選版約 19 秒；1440 萬筆在 8 GiB 下 v0.5.0 823 秒、候選版 452 秒；數字與做法見 CHANGELOG `WORK-SEMANTIC-UPDATE-TIMING`。讀取與寫入交易次數沒有計，理由寫在那裡。
 - [ ] `feat/landing-page`（PR #25）：頁面本身做完了，缺 Agent 空間的介紹、圖片與 demo，要等第 4 組的畫面做出來。排在第 7 組。
 - [x] `fix/windows-flush-v05`：內容已全部在這條分支（2026-11-16 逐項對過），分支不合併。
 
@@ -56,6 +56,8 @@
 
 - [ ] 讀取模型與查詢（`WORK-AH-READ-MODEL`）：對話摘要、大綱、每一輪的事實、專案歸類；清單翻頁、閱讀器、搜尋、洞察。
 - [ ] 接進 app（`WORK-AH-APP-SURFACE`）：啟用的預覽（PME）、每個空間的立即備份、進度與取消、背景任務共用的讀法、設定、排程與選單列。
+- [ ] 啟用預覽的「存檔預計多出」換成量出來的比例。現在的算法是「來源大小 + 同樣大小一份 + 每個檔案 4 KB」，是預留量，不是量的；實測過的只有原始位元組壓縮後約 0.26 倍，所以畫面上的數字可能是實際的好幾倍。讀取模型與搜尋索引的大小定下來後，用合成資料與 boxd 上的實測定比例，畫面仍標「估計」。不帶著這條公式發布。
+- [ ] 存檔裡已經有對話時，不必啟用備份就看得到（Claude 2026-11-18 定）。現在「Agent 對話開不開」是每台電腦自己的選擇，搬家檔與還原都不帶，新電腦預設關，關著時整個空間藏起來；啟用又要求這台電腦上讀得到工具資料夾。所以存檔搬到沒裝工具的新電腦，搬過去的對話會看不到。改成兩件事分開：從這台電腦備份（照舊，要走預覽與啟用）；看存檔裡已有的（跟著資料走：這台電腦沒做過選擇、存檔裡有對話，就是「暫停」：看得到、搜得到、不備份）。使用者自己關掉的維持關閉，匯入的預覽要講明對話會留著但藏起來。
 - [ ] Agent 空間的畫面（`WORK-AH-SCREENS`）：洞察、紀錄與閱讀器、專案、備份、設定、啟用流程、背景任務頁。
 - [ ] 背景任務做成 dashboard（`WORK-BACKGROUND-DASHBOARD`）：設計原型裡的背景任務頁（`#/tasks`），設定裡的工作清單搬過去，設定只留排程與限制。是上面兩塊的一部分，單獨列出來免得漏。
 - [ ] 刪掉原型資料夾（`WORK-PROTOTYPE-2026-10-REMOVE`）。
@@ -63,7 +65,7 @@
 ### 5. 保護資料與能退回
 
 - [ ] 匯入搬家檔時保留這台的對話，匯錯可以撤回（`WORK-IMPORT-KEEPS-CONVERSATIONS`）。
-- [ ] 從安全副本修復對話（`WORK-AH-REPAIR-FROM-COPY`）。
+- [ ] 從安全副本修復對話（`WORK-AH-REPAIR-FROM-COPY`）。包含 2026-11-18 補上的兩件：對話讀不了的期間安全副本與還原照樣能做（現在會拒絕）；沒有可用副本時把壞掉的對話資料收成副本、從空的重新開始。
 - [ ] 存檔打不開時的拒絕畫面（`WORK-ARCHIVE-REFUSAL-SCREEN`）。
 - [ ] 把存檔轉回 v0.5.0 能開的樣子（`WORK-UPGRADE-ROLLBACK`）。
 - [ ] `raw-snapshots/` 連到別的磁碟（`WORK-LINKED-SNAPSHOTS-FOLDER`）。
@@ -87,6 +89,7 @@ BACKLOG 原有的，依領域：
 - [ ] 搜尋：`WORK-SEARCH-OR-OPERATORS`、`WORK-SEARCH-ACCENT-GRAMS`、`WORK-SEARCH-TYPO-WALK`、`WORK-SEARCH-QUOTED-LITERALS`、`WORK-SEARCH-NEAR-DUPLICATES`、`WORK-SEARCH-FAMILY-ACROSS-PROFILES`、`WORK-HISTORY-SEARCH-NOTES-E2E`、`WORK-INSIGHTS-TITLE-QUERY`。
 - [ ] 介面與行為：`WORK-QUIT-FOLLOWUPS`、`WORK-TAG-SAVE-FAILURE-STALE`、`WORK-PERF-OG-QUEUE-A`。
 - [ ] AI：`WORK-AI-MAPREDUCE-A`、`WORK-AI-CTX-BUDGET-A`、`WORK-TEST-REAL-IO-A`。
+- [ ] 2026-11-18 各份回報順帶發現的：`WORK-SEMANTIC-FINGERPRINT-WEIGHTS`、`WORK-MODEL-DOWNLOAD-CANCEL-FLAG`、`WORK-AH-LIBRARY-FINDINGS-2026-11-18`。
 - [ ] 依賴與測試：`WORK-DEPS-LATEST`、`WORK-SCRAPER-LATEST`、`WORK-SQLCIPHER-SQLITE-354`、`WORK-FLAKY-BLOCK-CACHE-RSS`（與 `WORK-FLAKY-CACHE-RSS-TEST` 是同一個測試）、`WORK-COMMAND-CONTRACT-PARITY`、`WORK-DOCS-DRIFT-2026-11`、`WORK-REVIEW-0612-FOLLOWUPS-A`、`WORK-V05-SIDE-FINDINGS-2026-11`。
 
 不在 v0.6.0 的（用戶 2026-11-18 逐項確認）：`WORK-AH-PERMANENT-DELETE`（永久刪除單段對話）、`WORK-AH-MORE-TOOLS`（Continue、Cline、Roo Code）、`WORK-AH-BULK-ACTIONS`（一次封存或刪除多段對話）無限期擱置；`WORK-ENCRYPT-AT-REST-ALL`（加密模式下網頁文字與瀏覽器檔案副本也加密）繼續擱置。除了這四項，沒有別的延後。
@@ -103,7 +106,7 @@ BACKLOG 原有的，依領域：
 
 - [ ] 這條分支上還沒被 Codex astra 審過的部分分塊審查、驗證、修。
 - [ ] landing page：補 Agent 空間的介紹、圖片，重錄 demo 加上 Agent 空間（`WORK-SITE-DEMO-V060`），網站的檢查進 CI，合併 PR #25；Cloudflare Pages 與網域要用用戶的帳號。
-- [ ] 在 macOS 上完整跑一次 E2E（用戶 2026-11-18：至少一次，放在最後，開發過程中不在這台電腦上跑）。Linux 的 gate 看不到只在 macOS 才有的行為（鑰匙圈、排程、檔案系統），Platform Native 只跑 Rust 測試。先做完 `WORK-E2E-WINDOW-OFF-THE-DESKTOP`。
+- [ ] 在 macOS 上完整跑一次 E2E（用戶 2026-11-18：至少一次，放在最後，開發過程中不在這台電腦上跑）。Linux 的 gate 看不到只在 macOS 才有的行為（鑰匙圈、排程、檔案系統）。更正（2026-11-18）：之前寫「Platform Native 只跑 Rust 測試」是錯的，它的 macOS 工作在 GitHub 的 macOS 機器上跑整套 E2E（`bun run test:e2e`），每次觸發都跑；2026-11-18 那次就抓到一個只在慢機器上出現的 spec 等待寫法（`semantic-progress.spec.ts`，已修，等下一次 macOS 執行證實）。所以 macOS 的 E2E 平常由 Platform Native 看，用戶電腦上的這一次是發布前在真的鑰匙圈與排程上的最後確認。先做完 `WORK-E2E-WINDOW-OFF-THE-DESKTOP`。
 - [ ] 發布流程實跑一次（`WORK-RELEASE-REHEARSAL-V06`，動 GitHub 前問用戶）。
 - [ ] 在真的 Windows 電腦上（Defender、OneDrive）跑一次還原、匯入、刪除所有資料、Agent 對話備份。
 - [ ] 發布說明：改了儲存格式後舊版打不開；從 v0.6.0 裝回 v0.5.0，v0.5.0 啟動時就結束、沒有說明。

@@ -361,8 +361,8 @@ fn a_creation_record_carried_into_another_archive_changes_none_of_its_stores() {
 }
 
 #[test]
-fn a_stamped_archive_missing_a_store_is_refused_and_left_as_it_is() {
-    for missing in ["archive/agent-history.db", "archive/history-vault.db"] {
+fn a_stamped_archive_missing_a_browsing_store_is_refused_and_left_as_it_is() {
+    for missing in ["derived/agent.db", "archive/history-vault.db"] {
         let (_root, paths) = released_archive();
         drop(open(&paths).unwrap());
         remove_store(&paths, missing);

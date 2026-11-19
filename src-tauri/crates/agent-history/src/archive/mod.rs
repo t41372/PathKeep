@@ -7,6 +7,8 @@
 //! browser vault and assistant runtime.
 mod attachment_counts;
 mod attachment_outcomes;
+mod capture_facts;
+mod capture_notes;
 mod chunks;
 mod comparison;
 mod conversation;
@@ -14,7 +16,7 @@ mod conversation;
 mod damage_tests;
 mod durability;
 mod generations;
-mod lifetime;
+pub(crate) mod lifetime;
 mod lineage;
 mod maintenance;
 #[cfg(test)]
@@ -29,6 +31,7 @@ mod references;
 mod reports;
 mod retained_input;
 mod retention;
+mod retired_memberships;
 mod revisions;
 mod schema;
 mod selection;
@@ -73,6 +76,7 @@ pub struct Archive {
     pub(crate) jobs: Arc<lifetime::Jobs>,
     pub(crate) root: PathBuf,
     pub(crate) search_gate: Mutex<()>,
+    pub(crate) initial_search: crate::search::InitialSearch,
     state_mirror_pending: AtomicBool,
     pub(crate) state_gate: Mutex<()>,
     pub(crate) publication_gate: Mutex<()>,
@@ -107,26 +111,38 @@ impl Archive {
             jobs: Arc::default(),
             root,
             search_gate: Mutex::new(()),
+            initial_search: Default::default(),
             state_mirror_pending: AtomicBool::new(false),
             state_gate: Mutex::new(()),
             publication_gate: Mutex::new(()),
         };
-        archive.recover_unfinished_revisions()?;
-        archive.reclaim_slices()?;
-        archive.recover_projection_work()?;
-        archive.store.write(Db::AgentHistoryReadModel, vault_store::Priority::Batch, |tx| {
-            tx.execute(
-                "INSERT OR IGNORE INTO ah_reader_retired SELECT publication FROM ah_reader_build",
-                (),
-            )?;
-            tx.execute("DELETE FROM ah_reader_build", ())?;
-            tx.execute("UPDATE ah_reader_version SET state='retired' WHERE state='repairing'", ())?;
-            Ok(())
-        })?;
-        archive.flush_reader_heads()?;
-        archive.prune_reader_pages(256)?;
-        archive.recover_attachment_counts()?;
-        archive.recover_backup_runs()?;
+        let evidence = |e| recovery_error(Db::AgentHistoryEvidence, e);
+        let model = |e| recovery_error(Db::AgentHistoryReadModel, e);
+        archive.recover_unfinished_revisions().map_err(evidence)?;
+        archive.reclaim_slices().map_err(evidence)?;
+        archive.recover_projection_work().map_err(model)?;
+        archive.recover_attachment_counts().map_err(model)?;
+        archive.recover_retired_memberships()?;
+        archive
+            .store
+            .write(Db::AgentHistoryReadModel, vault_store::Priority::Batch, |tx| {
+                tx.execute(
+                    "INSERT OR IGNORE INTO ah_reader_retired
+                     SELECT publication FROM ah_reader_build",
+                    (),
+                )?;
+                tx.execute("DELETE FROM ah_reader_build", ())?;
+                tx.execute(
+                    "UPDATE ah_reader_version SET state='retired' WHERE state='repairing'",
+                    (),
+                )?;
+                Ok(())
+            })
+            .map_err(|e| e.at(Db::AgentHistoryReadModel, vault_store::OpenStage::Recover))?;
+        archive.flush_reader_heads().map_err(model)?;
+        archive.prune_reader_pages(256).map_err(model)?;
+        archive.recover_backup_runs().map_err(evidence)?;
+        // Replay touches both databases and marks failures at the individual request.
         archive.synchronize_user_state()?;
         Ok(archive)
     }
@@ -135,4 +151,12 @@ impl Archive {
     pub fn root(&self) -> &Path {
         &self.root
     }
+}
+
+pub(crate) fn recovery_error(role: Db, error: Error) -> Error {
+    let cause = match error {
+        Error::Store(cause) => cause,
+        other => vault_store::Error::Operation(Box::new(other)),
+    };
+    cause.at(role, vault_store::OpenStage::Recover).into()
 }

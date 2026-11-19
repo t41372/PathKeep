@@ -1,5 +1,5 @@
 //! Responsibilities: pin current-tree paths and on-disk migration ledgers across owner reopen.
-//! Not responsible for: asserting release-generated v0.5.0 compatibility; that fixture is deferred.
+//! Includes the released 0.5.0 move file and its originless safety copy.
 
 use super::support::*;
 use vault_store::Db;
@@ -202,4 +202,116 @@ fn ledgers(vault: &vault_core::Vault, decoded: &std::path::Path) -> serde_json::
     assert!(!scratch_tables.iter().any(|name| name == "__pk_migrations"));
     ledgers.insert("derived/scratch.db".into(), serde_json::json!([]));
     serde_json::Value::Object(ledgers)
+}
+
+/// Use the release's actual encrypted move bundle and its sealed safety copy.
+#[test]
+fn released_schema_23_gets_an_origin_only_when_installed() {
+    use serde_json::{Value, from_value, json};
+    use vault_worker::data_kinds::backups;
+    let f = Fixture::new(false);
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../tests/fixtures/v0.5-archive");
+    let facts: Value =
+        serde_json::from_slice(&std::fs::read(dir.join("expected.json")).unwrap()).unwrap();
+    let bundle = dir.join("move-file.pathkeep");
+    let current = f.vault();
+    let preview = vault_worker::preview_import(current.paths(), bundle.clone()).unwrap();
+    assert_eq!(preview.manifest.archive_schema_version, 23);
+    assert!(preview.schema_up_to_date, "0.5.0 move files must not offer a schema update");
+    let lease = f.session.begin_maintenance().unwrap();
+    let password = facts["exportPassword"].as_str().unwrap();
+    let (_, installed) = vault_worker::apply_import(
+        current.paths(),
+        Some(&current),
+        f.session.owner(),
+        bundle,
+        vault_core::ApplyImportOptions {
+            confirm_overwrite: true,
+            source_archive_key: Some(password.into()),
+        },
+    )
+    .unwrap();
+    f.session
+        .install_archive(
+            installed,
+            Some(password.into()),
+            vault_worker::KeychainAfterInstall::AsSaved,
+        )
+        .unwrap();
+    drop(lease);
+    let list = || {
+        backups::list_runs(
+            &f.session,
+            from_value(json!({"space":"browsing","includeArchiveWide":true,"limit":10})).unwrap(),
+        )
+        .unwrap()
+    };
+    let detail = |reference: &Value| {
+        backups::get_run(&f.session, from_value(json!({"runRef":reference})).unwrap())
+    };
+    let first = list()["items"][0]["runRef"].clone();
+    assert!(first.as_str().unwrap().starts_with("browsing:"));
+    assert_eq!(detail(&first).unwrap()["runRef"], first);
+    assert_eq!(
+        ledgers(&f.vault(), &f.sandbox.path().join("released-ledger"))["archive/history-vault.db"]
+            .as_array()
+            .unwrap()
+            .last(),
+        Some(&json!(23))
+    );
+    let copies = vault_worker::list_recovery_snapshots().unwrap();
+    let copy = copies
+        .iter()
+        .find(|c| {
+            std::path::Path::new(&c.path).ends_with(facts["safetyCopy"]["name"].as_str().unwrap())
+        })
+        .unwrap();
+    vault_worker::run_full_archive_restore(
+        &f.session,
+        Some(facts["password"].as_str().unwrap()),
+        &vault_core::SnapshotRestoreRequest { snapshot_path: copy.path.clone() },
+    )
+    .unwrap();
+    let restored = list()["items"][0]["runRef"].clone();
+    assert_eq!(detail(&restored).unwrap()["runRef"], restored);
+    assert_eq!(detail(&first).unwrap_err().to_string(), "record-unavailable");
+}
+
+#[test]
+fn restored_v06_ledger_cannot_reuse_a_qualified_run_link() {
+    use serde_json::{from_value, json};
+    use vault_worker::data_kinds::backups;
+    let f = Fixture::new(false);
+    let snapshot = f.root.join("raw-snapshots/maintenance/qualified-origin");
+    vault_core::maintenance::snapshot(&f.vault(), &snapshot).unwrap();
+    f.create_browser();
+    f.backup();
+    let list = || {
+        backups::list_runs(
+            &f.session,
+            from_value(json!({"space":"browsing","includeArchiveWide":true,"limit":10})).unwrap(),
+        )
+        .unwrap()
+    };
+    let old = list()["items"][0]["runRef"].clone();
+    assert!(old.as_str().unwrap().starts_with("browsing:"));
+    vault_worker::run_full_archive_restore(
+        &f.session,
+        None,
+        &vault_core::SnapshotRestoreRequest { snapshot_path: snapshot.to_string_lossy().into() },
+    )
+    .unwrap();
+    let restored = list()["items"][0].clone();
+    assert_eq!(restored["operation"], "archive_restore");
+    assert_eq!(
+        restored["runRef"].as_str().unwrap().split('/').next_back(),
+        old.as_str().unwrap().split('/').next_back()
+    );
+    assert_eq!(
+        backups::get_run(&f.session, from_value(json!({"runRef":old})).unwrap())
+            .unwrap_err()
+            .to_string(),
+        "record-unavailable"
+    );
 }

@@ -1,0 +1,514 @@
+{
+  "list_data_kinds": {
+    "request": {
+      "request": {}
+    },
+    "response": {
+      "kinds": [
+        {
+          "kind": "browsing",
+          "order": 0,
+          "state": "on",
+          "availability": "available",
+          "hasSavedData": false,
+          "archiveCount": "0",
+          "countUnit": "visits",
+          "coverage": {
+            "state": "complete",
+            "reasons": []
+          },
+          "sourceReviewRequired": true
+        },
+        {
+          "kind": "agent-history",
+          "order": 1,
+          "state": "off",
+          "availability": "available",
+          "hasSavedData": false,
+          "archiveCount": "0",
+          "countUnit": "source-files",
+          "coverage": {
+            "state": "complete",
+            "reasons": []
+          },
+          "firstBackup": "not-started",
+          "hasBackupSource": false
+        }
+      ],
+      "policyToken": "1a1b45d8280fe7ef58b9136c651bc459ff17db2182287f3c13832de75633501a"
+    }
+  },
+  "get_agent_settings": {
+    "request": {
+      "request": {}
+    },
+    "response": {
+      "policy": {
+        "browsing": "on",
+        "agentHistory": "off",
+        "enabledTools": [],
+        "readGit": true
+      },
+      "policyToken": "1a1b45d8280fe7ef58b9136c651bc459ff17db2182287f3c13832de75633501a",
+      "toolsChosen": false,
+      "dismissedHints": []
+    }
+  },
+  "update_agent_sources": {
+    "request": {
+      "request": {
+        "expectedToken": "1a1b45d8280fe7ef58b9136c651bc459ff17db2182287f3c13832de75633501a",
+        "readGit": false,
+        "toolChanges": {
+          "pi": true
+        }
+      }
+    },
+    "response": {
+      "policy": {
+        "browsing": "on",
+        "agentHistory": "off",
+        "enabledTools": ["pi"],
+        "readGit": false
+      },
+      "policyToken": "ae74ff51f05d95799f97494d9e9c87458a0fb3aaffa509be3a842a31b0c46bea",
+      "toolsChosen": true,
+      "dismissedHints": []
+    }
+  },
+  "set_data_kind_state": {
+    "request": {
+      "request": {
+        "kind": "browsing",
+        "state": "on",
+        "expectedPolicyToken": "ae74ff51f05d95799f97494d9e9c87458a0fb3aaffa509be3a842a31b0c46bea"
+      }
+    },
+    "response": {
+      "kinds": [
+        {
+          "kind": "browsing",
+          "order": 0,
+          "state": "on",
+          "availability": "available",
+          "hasSavedData": false,
+          "archiveCount": "0",
+          "countUnit": "visits",
+          "coverage": {
+            "state": "complete",
+            "reasons": []
+          },
+          "sourceReviewRequired": true
+        },
+        {
+          "kind": "agent-history",
+          "order": 1,
+          "state": "off",
+          "availability": "available",
+          "hasSavedData": false,
+          "archiveCount": "0",
+          "countUnit": "source-files",
+          "coverage": {
+            "state": "complete",
+            "reasons": []
+          },
+          "firstBackup": "not-started",
+          "hasBackupSource": false
+        }
+      ],
+      "policyToken": "ae74ff51f05d95799f97494d9e9c87458a0fb3aaffa509be3a842a31b0c46bea",
+      "affectedTasks": []
+    }
+  },
+  "detect_data_sources": {
+    "request": {
+      "request": {
+        "kinds": ["agent-history"]
+      }
+    },
+    "response": {
+      "sources": [
+        {
+          "kind": "agent-history",
+          "tool": "claude-code",
+          "found": true,
+          "readable": true,
+          "rootIds": [
+            "8f4a39b8236e157cbe52307e171cf056946ac2f3299547bea6fecdcabd1bc3f6"
+          ],
+          "path": "/example/claude"
+        },
+        {
+          "kind": "agent-history",
+          "tool": "codex",
+          "found": true,
+          "readable": true,
+          "rootIds": [
+            "c095e401ce6f6ee1eb77d970c4049a112f7c19c48634af15fc7b177ac7b76634"
+          ],
+          "path": "/example/codex"
+        },
+        {
+          "kind": "agent-history",
+          "tool": "codex",
+          "found": false,
+          "readable": false,
+          "rootIds": [
+            "3a1b7c57f0357e782123245053b9cd08efd4afff1cc6eba8e6e640664c858580"
+          ],
+          "path": "/example/missing",
+          "reason": "root-missing"
+        },
+        {
+          "kind": "agent-history",
+          "tool": "pi",
+          "found": true,
+          "readable": true,
+          "rootIds": [
+            "6a4e2a562ec60b95aaa9443c95c37c3bd70fe286cd2d785e300efd125b2dceb3"
+          ],
+          "path": "/example/pi"
+        },
+        {
+          "kind": "agent-history",
+          "tool": "pi",
+          "found": true,
+          "readable": false,
+          "rootIds": [
+            "92aa995dcd6ff16cbc266016bec06b482b9031a3a579f6ebf9e5db51ceaeab5d"
+          ],
+          "path": "/example/denied",
+          "reason": "root-unreadable"
+        },
+        {
+          "kind": "agent-history",
+          "tool": "deepseek",
+          "found": true,
+          "readable": true,
+          "rootIds": [
+            "df7ae0cce0375bff3b7fac5488a3363cb98c4dec58612f765d4dd489d9678523"
+          ],
+          "path": "/example/deepseek"
+        },
+        {
+          "kind": "agent-history",
+          "tool": "claude-code",
+          "found": false,
+          "readable": false,
+          "rootIds": [
+            "c1470eaee5936a12daec7baa91b802cf596a68a9a17180fece501e435c65d9b0"
+          ],
+          "path": "/example/Library/Application Support/Claude",
+          "reason": "root-missing"
+        }
+      ],
+      "profiles": []
+    }
+  },
+  "preview_agent_sources": {
+    "request": {
+      "request": {
+        "purpose": "enable",
+        "pickedFolder": {
+          "tool": "claude-code",
+          "path": "/example/claude"
+        }
+      }
+    },
+    "response": {
+      "streamId": "20777480-713a-4489-843e-34987f5cc3b2",
+      "viewToken": "9e911ea0-c823-4cc6-ab04-c35f87da842a"
+    }
+  },
+  "cancel_agent_read": {
+    "request": {
+      "request": {
+        "requestIdOrStreamId": "20777480-713a-4489-843e-34987f5cc3b2"
+      }
+    },
+    "response": {
+      "state": "cancelled"
+    }
+  },
+  "event": {
+    "name": "pathkeep://data-kinds-changed",
+    "payload": {
+      "policyToken": "ae74ff51f05d95799f97494d9e9c87458a0fb3aaffa509be3a842a31b0c46bea",
+      "changedKinds": ["agent-history"]
+    }
+  },
+  "frames": [
+    {
+      "streamId": "20777480-713a-4489-843e-34987f5cc3b2",
+      "sequence": "0",
+      "type": "progress",
+      "payload": {
+        "phase": "discovery",
+        "unit": "entries",
+        "done": "0"
+      }
+    },
+    {
+      "streamId": "20777480-713a-4489-843e-34987f5cc3b2",
+      "sequence": "1",
+      "type": "root",
+      "payload": {
+        "rootId": "8f4a39b8236e157cbe52307e171cf056946ac2f3299547bea6fecdcabd1bc3f6",
+        "tool": "claude-code",
+        "path": "/example/claude",
+        "readable": true,
+        "counts": {
+          "folders": "2",
+          "files": "1",
+          "sourceBytes": "8",
+          "compressedBytes": "0",
+          "topLevelFiles": "1",
+          "childFiles": "0",
+          "ambiguousFiles": "0",
+          "ancillaryFiles": "0",
+          "unknownFiles": "0"
+        },
+        "countBasis": "known-layout",
+        "dateBasis": "filesystem-modified",
+        "earliestAt": 1700000000000,
+        "latestAt": 1700000000000,
+        "directoryToken": "c738086127f8fa8514dfea41e4f6583dd2049d6cc50bc76bdf232e5dfe10ab18"
+      }
+    },
+    {
+      "streamId": "20777480-713a-4489-843e-34987f5cc3b2",
+      "sequence": "2",
+      "type": "finished",
+      "payload": {
+        "previewId": "aa0652e7-41c7-44ac-a62f-2fbc8571b0fa",
+        "rows": [
+          {
+            "rootId": "8f4a39b8236e157cbe52307e171cf056946ac2f3299547bea6fecdcabd1bc3f6",
+            "tool": "claude-code",
+            "path": "/example/claude",
+            "readable": true,
+            "counts": {
+              "folders": "2",
+              "files": "1",
+              "sourceBytes": "8",
+              "compressedBytes": "0",
+              "topLevelFiles": "1",
+              "childFiles": "0",
+              "ambiguousFiles": "0",
+              "ancillaryFiles": "0",
+              "unknownFiles": "0"
+            },
+            "countBasis": "known-layout",
+            "dateBasis": "filesystem-modified",
+            "earliestAt": 1700000000000,
+            "latestAt": 1700000000000,
+            "directoryToken": "c738086127f8fa8514dfea41e4f6583dd2049d6cc50bc76bdf232e5dfe10ab18"
+          }
+        ],
+        "totals": {
+          "folders": "2",
+          "files": "1",
+          "sourceBytes": "8",
+          "compressedBytes": "0",
+          "topLevelFiles": "1",
+          "childFiles": "0",
+          "ambiguousFiles": "0",
+          "ancillaryFiles": "0",
+          "unknownFiles": "0"
+        },
+        "byTool": {
+          "claude-code": {
+            "folders": "2",
+            "files": "1",
+            "sourceBytes": "8",
+            "compressedBytes": "0",
+            "topLevelFiles": "1",
+            "childFiles": "0",
+            "ambiguousFiles": "0",
+            "ancillaryFiles": "0",
+            "unknownFiles": "0",
+            "roots": 1,
+            "readableRoots": 1,
+            "earliestAt": 1700000000000,
+            "latestAt": 1700000000000,
+            "reasons": []
+          }
+        },
+        "estimatedArchiveBytes": "4112",
+        "estimateBasis": {
+          "method": "source-plus-derived-allowance-v1",
+          "nativeCompressedBytes": "0",
+          "ordinaryBytes": "8",
+          "derivedAllowanceBytes": "8",
+          "overheadAllowanceBytes": "4096"
+        },
+        "availableBytes": "1048576000",
+        "archiveMode": "Plaintext",
+        "expiresAt": 1700000300000
+      }
+    }
+  ],
+  "errors": [
+    {
+      "code": "last-active-kind",
+      "message": "last-active-kind"
+    },
+    {
+      "code": "lock-required",
+      "message": "lock-required",
+      "actionHint": "unlock",
+      "retryHint": "retry-after-action"
+    }
+  ],
+  "followup": {
+    "unticked": {
+      "request": {
+        "request": {
+          "expectedToken": "1a1b45d8280fe7ef58b9136c651bc459ff17db2182287f3c13832de75633501a",
+          "toolChanges": {
+            "pi": false
+          }
+        }
+      },
+      "response": {
+        "policy": {
+          "browsing": "on",
+          "agentHistory": "off",
+          "enabledTools": [],
+          "readGit": true,
+          "emptyToolsChosen": true
+        },
+        "policyToken": "51e5b31ca1807f6eb2bfd667d84abd7cd2543cdc9f5901803220a9c4bc33b776",
+        "toolsChosen": true,
+        "dismissedHints": []
+      }
+    },
+    "dismiss_agent_hint": [
+      {
+        "request": {
+          "request": {
+            "hint": "intro"
+          }
+        },
+        "response": {
+          "hint": "intro",
+          "dismissed": true
+        },
+        "event": {
+          "name": "pathkeep://agent-settings-changed",
+          "payload": {
+            "domains": ["hints"],
+            "settingsToken": "86a5688e8ff78c16017cdeb9c8306140a16d70bf72c0e4ea76d650234845fce7"
+          }
+        }
+      },
+      {
+        "request": {
+          "request": {
+            "hint": "auto-delete"
+          }
+        },
+        "response": {
+          "hint": "auto-delete",
+          "dismissed": true
+        },
+        "event": {
+          "name": "pathkeep://agent-settings-changed",
+          "payload": {
+            "domains": ["hints"],
+            "settingsToken": "433fe8e13dd7d84f5d3e5cf4aecf3e8dadd36d3df3d160433ba216bbbb738453"
+          }
+        }
+      }
+    ],
+    "retry_agent_store": {
+      "request": {
+        "request": {}
+      },
+      "response": {
+        "kinds": [
+          {
+            "kind": "browsing",
+            "order": 0,
+            "state": "on",
+            "availability": "available",
+            "hasSavedData": false,
+            "archiveCount": "0",
+            "countUnit": "visits",
+            "coverage": {
+              "state": "complete",
+              "reasons": []
+            },
+            "sourceReviewRequired": true
+          },
+          {
+            "kind": "agent-history",
+            "order": 1,
+            "state": "off",
+            "availability": "available",
+            "hasSavedData": false,
+            "archiveCount": "0",
+            "countUnit": "source-files",
+            "coverage": {
+              "state": "complete",
+              "reasons": []
+            },
+            "firstBackup": "not-started",
+            "hasBackupSource": false
+          }
+        ],
+        "policyToken": "1a1b45d8280fe7ef58b9136c651bc459ff17db2182287f3c13832de75633501a"
+      },
+      "event": {
+        "name": "pathkeep://data-kinds-changed",
+        "payload": {
+          "policyToken": "1a1b45d8280fe7ef58b9136c651bc459ff17db2182287f3c13832de75633501a",
+          "changedKinds": ["agent-history"]
+        }
+      }
+    },
+    "sized": {
+      "request": {
+        "request": {
+          "includeArchiveBytes": true
+        }
+      },
+      "response": {
+        "kinds": [
+          {
+            "kind": "browsing",
+            "order": 0,
+            "state": "on",
+            "availability": "available",
+            "hasSavedData": false,
+            "archiveCount": "0",
+            "countUnit": "visits",
+            "coverage": {
+              "state": "complete",
+              "reasons": []
+            },
+            "archiveBytes": "262144",
+            "sourceReviewRequired": true
+          },
+          {
+            "kind": "agent-history",
+            "order": 1,
+            "state": "off",
+            "availability": "available",
+            "hasSavedData": false,
+            "archiveCount": "0",
+            "countUnit": "source-files",
+            "coverage": {
+              "state": "complete",
+              "reasons": []
+            },
+            "firstBackup": "not-started",
+            "hasBackupSource": false,
+            "archiveBytes": "131072"
+          }
+        ],
+        "policyToken": "1a1b45d8280fe7ef58b9136c651bc459ff17db2182287f3c13832de75633501a"
+      }
+    }
+  }
+}

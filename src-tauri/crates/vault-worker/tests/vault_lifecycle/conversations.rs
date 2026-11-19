@@ -8,6 +8,8 @@ use vault_core::{ArchiveMode, Vault};
 
 #[path = "conversations/corpus.rs"]
 mod corpus;
+#[path = "conversations/receipts.rs"]
+mod receipts;
 use corpus::{Corpus, fixtures, query, sessions};
 
 fn stale(archive: &Archive) {
@@ -147,6 +149,21 @@ fn mode_switch_snapshot_and_restore() {
 fn move_to_empty_and_populated_destinations() {
     for encrypted in [false, true] {
         let fixture = Fixture::new(encrypted);
+        fixture.create_browser();
+        fixture.backup();
+        let browsing_ref = |session: &vault_worker::VaultSession| {
+            use serde_json::{from_value, json};
+            vault_worker::data_kinds::backups::list_runs(
+                session,
+                from_value(json!({"space":"browsing","includeArchiveWide":false,"limit":10}))
+                    .unwrap(),
+            )
+            .unwrap()["items"][0]["runRef"]
+                .as_str()
+                .unwrap()
+                .to_owned()
+        };
+        let original = browsing_ref(&fixture.session);
         let corpus = Corpus::seed(&fixture);
         let vault = fixture.vault();
         let bundle = fixture.root.join("exports/real-conversations.pathkeep");
@@ -215,6 +232,17 @@ fn move_to_empty_and_populated_destinations() {
             if let Some(old) = old {
                 stale(&old);
             }
+            let installed = browsing_ref(&session);
+            assert_ne!(installed, original);
+            assert_eq!(
+                vault_worker::data_kinds::backups::get_run(
+                    &session,
+                    serde_json::from_value(serde_json::json!({"runRef":original})).unwrap()
+                )
+                .unwrap_err()
+                .to_string(),
+                "record-unavailable"
+            );
             corpus.check(&session.vault().unwrap(), Some(EXPORT_PASSWORD));
             session.close_vault().unwrap();
         }
@@ -246,3 +274,8 @@ fn reader_pause_and_wipe_cover_published_pages() {
     assert!(!fixture.root.join("derived/agent-history-read-model.db").exists());
     assert!(!fixture.root.join("archive/agent-history.db").exists());
 }
+#[path = "conversations/damage.rs"]
+mod damage;
+
+#[path = "conversations/visibility.rs"]
+mod visibility;

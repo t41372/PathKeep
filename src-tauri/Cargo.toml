@@ -8,7 +8,7 @@ license = "GPL-3.0-only"
 
 [features]
 default = []
-devtools-bridge = ["dep:axum", "dep:tower-http"]
+devtools-bridge = ["dep:axum", "dep:futures-util", "dep:tower-http"]
 
 [lib]
 name = "pathkeep_desktop"
@@ -97,6 +97,7 @@ bytes = "1.10.1"
 zip = { version = "9.0.5", default-features = false, features = ["deflate"] }
 
 [dependencies]
+futures-util = { version = "0.3.32", optional = true }
 vault-build = { path = "crates/vault-build" }
 futures-core.workspace = true
 anyhow.workspace = true

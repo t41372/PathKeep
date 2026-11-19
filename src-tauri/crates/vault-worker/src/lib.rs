@@ -22,6 +22,7 @@ mod archive_flows;
 mod cli;
 mod context;
 mod current_password;
+pub mod data_kinds;
 mod data_wipe;
 mod foreground_work;
 mod intelligence;
@@ -56,7 +57,7 @@ mod stars;
 pub(crate) use self::mcp::{
     McpSearchRequest, mcp_archive_status_result, mcp_search_result, mcp_usage_guide_result,
 };
-pub use self::migration::{apply_import, export_app_data, preview_import};
+pub use self::migration::{DeviceImportPreview, apply_import, export_app_data, preview_import};
 pub use self::{
     annotations::{get_annotation, list_annotations, replace_tags, search_annotations, set_notes},
     app::{
@@ -76,8 +77,9 @@ pub use self::{
         og_image_storage_stats, preview_clear_derived_intelligence, preview_import_batch_detail,
         preview_retention_plan, preview_snapshot_restore_plan, query_history, refetch_og_images,
         repair_health, restore_import_batch_detail, revert_import_batch_detail, run_backup_now,
-        run_backup_now_with_progress, run_full_archive_restore, run_og_image_cleanup,
-        run_retention_plan, run_snapshot_restore_plan, source_stats, url_detail,
+        run_backup_now_with_progress, run_browsing_backup, run_full_archive_restore,
+        run_og_image_cleanup, run_retention_plan, run_snapshot_restore_plan, source_stats,
+        url_detail,
     },
     cli::run_worker_cli,
     current_password::{REKEY_CURRENT_PASSWORD_REQUIRED, REKEY_CURRENT_PASSWORD_WRONG},

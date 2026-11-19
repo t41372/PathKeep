@@ -2,8 +2,9 @@ import { defineMessages } from '../define'
 
 /**
  * Spaces (one per kind of data the app keeps): their names, the switcher at
- * the top of the rail, ⌘K's rows that name a space, and the background-task
- * indicator in the rail's shared part.
+ * the top of the rail (with its item for keeping another kind), ⌘K's rows
+ * that name a space, and the background-task indicator in the rail's shared
+ * part.
  */
 export const spaces = defineMessages({
   en: {
@@ -15,9 +16,20 @@ export const spaces = defineMessages({
       browsers_one: '{count} browser',
       browsers_other: '{count} browsers',
     },
+    agent: {
+      name: 'Agent conversations',
+      shortName: 'Agent',
+      conversations_one: '{count} conversation',
+      conversations_other: '{count} conversations',
+      onlyInPathkeep_one: '{count} only in PathKeep',
+      onlyInPathkeep_other: '{count} only in PathKeep',
+    },
     switcher: {
       label: 'Switch data type. Now: {name}',
       statusLine: '{first} · {second}',
+      keepAnother: 'Keep another kind of data…',
+      moreKinds_one: '{count} more',
+      moreKinds_other: '{count} more',
     },
     palette: {
       page: '{space} · {page}',
@@ -56,9 +68,20 @@ export const spaces = defineMessages({
       browsers_one: '{count} 个浏览器',
       browsers_other: '{count} 个浏览器',
     },
+    agent: {
+      name: 'Agent 对话',
+      shortName: 'Agent',
+      conversations_one: '{count} 段对话',
+      conversations_other: '{count} 段对话',
+      onlyInPathkeep_one: '只剩 PathKeep 有 {count} 段',
+      onlyInPathkeep_other: '只剩 PathKeep 有 {count} 段',
+    },
     switcher: {
       label: '切换数据类型。当前：{name}',
       statusLine: '{first} · {second}',
+      keepAnother: '保存其他类型的数据…',
+      moreKinds_one: '还有 {count} 种',
+      moreKinds_other: '还有 {count} 种',
     },
     palette: {
       page: '{space} · {page}',
@@ -97,9 +120,20 @@ export const spaces = defineMessages({
       browsers_one: '{count} 個瀏覽器',
       browsers_other: '{count} 個瀏覽器',
     },
+    agent: {
+      name: 'Agent 對話',
+      shortName: 'Agent',
+      conversations_one: '{count} 段對話',
+      conversations_other: '{count} 段對話',
+      onlyInPathkeep_one: '只剩 PathKeep 有 {count} 段',
+      onlyInPathkeep_other: '只剩 PathKeep 有 {count} 段',
+    },
     switcher: {
       label: '切換資料類型。現在：{name}',
       statusLine: '{first} · {second}',
+      keepAnother: '保存其他類型的資料…',
+      moreKinds_one: '還有 {count} 種',
+      moreKinds_other: '還有 {count} 種',
     },
     palette: {
       page: '{space} · {page}',

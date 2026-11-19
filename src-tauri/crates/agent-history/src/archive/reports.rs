@@ -80,7 +80,7 @@ impl Archive {
         self.store
             .write(Db::AgentHistoryEvidence, Priority::Batch, move |tx| {
                 tx.insert(
-                    "INSERT INTO ah_backup_runs(status, started_at) VALUES('running', ?1)",
+                    "INSERT INTO ah_backup_runs(status, started_at,public_id) VALUES('running', ?1,lower(hex(randomblob(16))))",
                     [now],
                 )?
                 .ok_or_else(|| operation("backup run insertion did not produce an identity"))
@@ -98,6 +98,14 @@ impl Archive {
         let status = status.to_owned();
         let now = chrono::Utc::now().timestamp_millis();
         self.store.write(Db::AgentHistoryEvidence, Priority::Batch, move |tx| {
+            let succeeded=status=="complete";
+            if matches!(status.as_str(),"complete"|"partial"){
+                // Claim the alert in the terminal transaction. A crash before
+                // publication cannot consume a tool/version's single notice.
+                tx.execute("INSERT OR IGNORE INTO ah_format_notices(tool,version,run_id)
+                    SELECT DISTINCT tool,version,run_id FROM ah_run_note_counts WHERE run_id=?1 AND version<>''
+                    AND EXISTS(SELECT 1 FROM ah_desktop_backups WHERE run_id=?1)",[id])?;
+            }
             let changed = tx.execute(
                 "UPDATE ah_backup_runs SET status=?1, finished_at=?2, report_json=?3 WHERE
                     id=?4 AND status='running'",
@@ -105,6 +113,16 @@ impl Archive {
             )?;
             if changed != 1 {
                 return Err(operation("backup run is absent or already terminal"));
+            }
+            if succeeded {
+                tx.execute("WITH RECURSIVE ancestors(task_id,retry_of) AS (
+                    SELECT task_id,retry_of FROM ah_desktop_backups WHERE run_id=?1 AND retry_of IS NOT NULL
+                    UNION SELECT d.task_id,d.retry_of FROM ah_desktop_backups d JOIN ancestors a ON d.task_id=a.retry_of),
+                    family(task_id) AS (SELECT task_id FROM ancestors WHERE retry_of IS NULL
+                    UNION SELECT d.task_id FROM ah_desktop_backups d JOIN family f ON d.retry_of=f.task_id)
+                    UPDATE ah_desktop_backups SET acknowledged=1 WHERE task_id IN (SELECT task_id FROM family)
+                    AND scope_json=(SELECT scope_json FROM ah_desktop_backups WHERE run_id=?1)
+                    AND run_id IN (SELECT id FROM ah_backup_runs WHERE status IN ('partial','failed'))",[id])?;
             }
             Ok(())
         })?;

@@ -77,6 +77,18 @@ pub trait Adapter: Send + Sync {
         issues: &mut Vec<Diagnostic>,
     ) -> crate::Result<()>;
 
+    /// Desktop backups can stop a walk before the next matching file is found.
+    fn discover_cancellable(
+        &self,
+        cancel: &crate::capture::Discovery,
+        source: &SourceRoot,
+        emit: &mut dyn FnMut(Artifact) -> crate::Result<()>,
+        issues: &mut Vec<Diagnostic>,
+    ) -> crate::Result<()> {
+        cancel.check()?;
+        self.discover(source, emit, issues)
+    }
+
     /// Emit every native JSON object from already decompressed input.
     fn parse(
         &self,

@@ -6,18 +6,24 @@ use super::{KEY, PAGES, VISITS, measure};
 use crate::{AppConfig, ArchiveMode, Vault};
 use vault_store::{Db, Priority, params};
 pub(super) const BASE: i64 = 1_700_000_000_000;
+/// Seed an empty fixture with its control. Child processes and resumed measurements
+/// use the control already on disk.
 pub(super) fn open(root: &std::path::Path) -> Vault {
-    Vault::open(
-        crate::project_paths_with_root(root),
-        AppConfig {
+    let paths = crate::project_paths_with_root(root);
+    if matches!(
+        crate::admission::inspect(root).unwrap(),
+        crate::admission::RootState::Uninitialized
+    ) {
+        let config = AppConfig {
             initialized: true,
             git_enabled: false,
             archive_mode: ArchiveMode::Encrypted,
             ..Default::default()
-        },
-        Some(KEY),
-    )
-    .unwrap()
+        };
+        crate::save_config(&crate::ControlGate::acquire(&paths), &config).unwrap();
+    }
+    let config = crate::load_config(&paths).unwrap();
+    Vault::open(paths, config, Some(KEY)).unwrap()
 }
 pub(super) fn seed(vault: &Vault) {
     vault.store().write(Db::Archive,Priority::Batch,|s| {

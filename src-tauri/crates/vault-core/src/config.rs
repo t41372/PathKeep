@@ -13,6 +13,7 @@ use std::{
 use vault_layout::ArtifactId as A;
 
 mod control_gate;
+mod installation;
 pub use control_gate::ControlGate;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -239,12 +240,26 @@ pub struct ConfigDocument {
 /// unchanged.
 pub fn decode_config(root: &Path, bytes: &[u8]) -> Result<ConfigDocument, Refusal> {
     let control = crate::admission::parse_control(root, bytes)?;
-    decode_settings(bytes, &control).map_err(|(reason, detail)| Refusal {
-        reason,
-        root: root.to_owned(),
-        stamp: None,
-        detail,
-    })
+    let refusal = |(reason, detail)| Refusal { reason, root: root.to_owned(), stamp: None, detail };
+    let mut document = decode_settings(bytes, &control).map_err(refusal)?;
+    if installation::has_choices(&document.config) {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Binding {
+            capture_installation: Option<String>,
+        }
+        let binding: Binding = serde_json::from_slice(bytes)
+            .map_err(|e| refusal((Reason::ControlInvalid, e.to_string())))?;
+        if binding.capture_installation.is_none()
+            || binding.capture_installation
+                != installation::id(false)
+                    .map_err(|e| refusal((Reason::ControlUnreadable, e.to_string())))?
+        {
+            document.config.capture_policy = Default::default();
+            document.config.dismissed_agent_hints.clear();
+        }
+    }
+    Ok(document)
 }
 
 /// Whether the settings around an already parsed `archiveMode` decode. See `admission::guard`.
@@ -279,6 +294,7 @@ fn decode_settings(bytes: &[u8], control: &Control) -> Result<ConfigDocument, (R
             serde_json::from_value(value).map_err(invalid)?
         }
     };
+    config.capture_policy.validate().map_err(|e| (Reason::ControlInvalid, e.to_string()))?;
     normalize_app_config(&mut config);
     Ok(ConfigDocument { config, compatibility: control.compatibility.clone() })
 }
@@ -337,12 +353,26 @@ fn reject_duplicate_keys(bytes: &[u8]) -> Result<(), serde_json::Error> {
     Unique.deserialize(&mut deserializer)?;
     deserializer.end()
 }
+#[derive(Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct StoredSettings<'a> {
+    #[serde(flatten)]
+    config: &'a AppConfig,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    capture_installation: Option<String>,
+}
 
 /// Encodes settings for disk. Without a stamp this is byte for byte what v0.5.0 writes and
 /// reads. With one, the stamp's bytes are written exactly as they were read.
 pub fn encode_config(config: &AppConfig, compatibility: Option<&Compatibility>) -> Result<String> {
+    config.capture_policy.validate()?;
+    let binding = if installation::has_choices(config) { installation::id(true)? } else { None };
+    let stored = StoredSettings { config, capture_installation: binding };
+    let serde_json::Value::Object(fields) = serde_json::to_value(stored)? else {
+        anyhow::bail!("settings must be an object")
+    };
     let Some(compatibility) = compatibility else {
-        return Ok(serde_json::to_string_pretty(config)?);
+        return Ok(serde_json::to_string_pretty(&fields)?);
     };
     #[derive(Serialize)]
     struct StampedMode<'a> {
@@ -369,9 +399,6 @@ pub fn encode_config(config: &AppConfig, compatibility: Option<&Compatibility>) 
             map.end()
         }
     }
-    let serde_json::Value::Object(fields) = serde_json::to_value(config)? else {
-        anyhow::bail!("the configuration did not serialize as an object");
-    };
     anyhow::ensure!(fields.contains_key("archiveMode"), "the configuration has no archiveMode");
     Ok(serde_json::to_string_pretty(&Stamped {
         fields,
@@ -501,5 +528,19 @@ mod tests {
         fs::write(&paths.config_path, "{not-json").expect("write invalid config");
         let error = load_config(&paths).expect_err("invalid config should fail");
         assert!(error.to_string().contains("parsing config json"));
+    }
+
+    #[test]
+    fn writing_a_control_cannot_publish_an_all_paused_policy() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = project_paths_with_root(dir.path());
+        let gate = ControlGate::acquire(&paths);
+        let mut config = AppConfig::default();
+        save_config(&gate, &config).unwrap();
+        let before = fs::read(&paths.config_path).unwrap();
+        config.capture_policy.browsing = crate::KindState::Paused;
+        config.capture_policy.agent_history = crate::KindState::Paused;
+        assert_eq!(save_config(&gate, &config).unwrap_err().to_string(), "last-active-kind");
+        assert_eq!(fs::read(&paths.config_path).unwrap(), before);
     }
 }

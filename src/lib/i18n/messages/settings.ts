@@ -13,6 +13,9 @@ export const settings = defineMessages({
       background: 'Background work',
       storage: 'Storage',
       about: 'About',
+      kinds: 'Manage data types',
+      groupApp: 'PathKeep',
+      groupKinds: 'Data types',
     },
     secret: {
       again: 'Type it again',
@@ -216,6 +219,9 @@ export const settings = defineMessages({
       background: '后台任务',
       storage: '存储',
       about: '关于',
+      kinds: '管理数据类型',
+      groupApp: 'PathKeep',
+      groupKinds: '数据类型',
     },
     secret: {
       again: '再输入一次',
@@ -407,6 +413,9 @@ export const settings = defineMessages({
       background: '背景工作',
       storage: '儲存',
       about: '關於',
+      kinds: '管理資料類型',
+      groupApp: 'PathKeep',
+      groupKinds: '資料類型',
     },
     secret: {
       again: '再輸入一次',

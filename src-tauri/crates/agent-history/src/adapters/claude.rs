@@ -56,7 +56,17 @@ impl Adapter for ClaudeAdapter {
         emit: &mut dyn FnMut(Artifact) -> Result<()>,
         issues: &mut Vec<Diagnostic>,
     ) -> Result<()> {
-        discovery::discover(source, emit, issues)
+        self.discover_cancellable(&crate::capture::Discovery::default(), source, emit, issues)
+    }
+
+    fn discover_cancellable(
+        &self,
+        cancel: &crate::capture::Discovery,
+        source: &SourceRoot,
+        emit: &mut dyn FnMut(Artifact) -> Result<()>,
+        issues: &mut Vec<Diagnostic>,
+    ) -> Result<()> {
+        discovery::discover(cancel, source, emit, issues)
     }
 
     fn parse(

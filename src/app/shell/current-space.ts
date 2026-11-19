@@ -3,10 +3,12 @@
  *
  * Responsibilities: on a space's own page the space comes from the URL, so a
  * link, a search result or ⌘K into another space switches with it; on a
- * shared screen (Ask, Settings) the last space stays. The current space is
- * remembered on this computer (`readLastSpace`) and put on `<html>` as
- * `data-space`, with `data-space-hue` and `--space-h` for a space that takes
- * its own colours (`src/index.css`).
+ * shared screen (Ask, Settings), or on an address of a kind that is off
+ * (which shows that it is off), the last space stays. A space whose kind
+ * goes off while it is current gives way to the first space that is on.
+ * The current space is remembered on this computer (`readLastSpace`) and
+ * put on `<html>` as `data-space`, with `data-space-hue` and `--space-h`
+ * for a space that takes its own colours (`src/index.css`).
  *
  * A switch moves the rail first: the space changes at once, its items slide
  * (`space-slide.tsx`), and the next space's page is asked for only once the
@@ -27,10 +29,10 @@ import { useNavigate } from 'react-router-dom'
 import {
   readLastSpace,
   rememberSpace,
-  spaceById,
   spaceOfPath,
   spacesOn,
   spaceStartPath,
+  useSpacesOn,
   type Space,
 } from '@/lib/spaces'
 
@@ -70,16 +72,22 @@ export function useCurrentSpace(): Space {
   return useSyncExternalStore(subscribe, () => current)
 }
 
-/** Follows the URL into a space's own pages. Mounted once, by the frame. */
+/**
+ * Follows the URL into the pages of a space that is on. Mounted once, by
+ * the frame.
+ */
 export function useSpaceFromUrl(pathname: string) {
   const id = spaceOfPath(pathname)
+  const on = useSpacesOn()
   // Before paint, so the rail and the page never show two spaces at once.
-  // Only a change of route counts: a switch sets the space first and changes
-  // the route a moment later, and must not be undone in between.
+  // Only a change of route (or of which spaces are on) counts: a switch sets
+  // the space first and changes the route a moment later, and must not be
+  // undone in between.
   useLayoutEffect(() => {
-    const space = id ? spaceById(id) : undefined
+    const space = on.find((item) => item.id === id)
     if (space) setCurrent(space)
-  }, [id])
+    else if (!on.some((item) => item.id === current.id)) setCurrent(on[0])
+  }, [id, on])
 }
 
 /** The path the window shows now; both of PathKeep's routers use the hash. */

@@ -3,9 +3,25 @@
   "schema": {
     "config.json": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "title": "AppConfig",
+      "title": "StoredSettings",
       "type": "object",
       "properties": {
+        "capturePolicy": {
+          "$ref": "#/$defs/CapturePolicy",
+          "default": {
+            "browsing": "on",
+            "agentHistory": "off",
+            "enabledTools": [],
+            "readGit": true
+          }
+        },
+        "dismissedAgentHints": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/AgentHint"
+          }
+        },
         "initialized": {
           "type": "boolean",
           "default": false
@@ -215,9 +231,85 @@
         "passwordKeptElsewhere": {
           "type": "boolean",
           "default": false
+        },
+        "captureInstallation": {
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "$defs": {
+        "CapturePolicy": {
+          "type": "object",
+          "properties": {
+            "browsing": {
+              "$ref": "#/$defs/KindState"
+            },
+            "agentHistory": {
+              "$ref": "#/$defs/KindState"
+            },
+            "enabledTools": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/AgentTool"
+              }
+            },
+            "readGit": {
+              "type": "boolean"
+            },
+            "explicitlyOff": {
+              "type": "boolean"
+            },
+            "emptyToolsChosen": {
+              "type": "boolean"
+            },
+            "selectionRef": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "pendingFirstSave": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "browsing",
+            "agentHistory",
+            "enabledTools",
+            "readGit"
+          ]
+        },
+        "KindState": {
+          "type": "string",
+          "enum": [
+            "on",
+            "paused",
+            "off"
+          ]
+        },
+        "AgentTool": {
+          "type": "string",
+          "enum": [
+            "claude-code",
+            "codex",
+            "pi",
+            "deepseek"
+          ]
+        },
+        "AgentHint": {
+          "type": "string",
+          "enum": [
+            "intro",
+            "auto-delete"
+          ]
+        },
         "ArchiveMode": {
           "type": "string",
           "enum": [
