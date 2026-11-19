@@ -56,7 +56,8 @@ export function SemanticRow({ index }: { index: SemanticIndex }) {
           checked={on}
           disabled={index.saving}
           onCheckedChange={(next) =>
-            void (next ? index.enable() : index.disable())
+            // On: the go-ahead for the model shown here, and only that one.
+            void (next ? index.enable(index.modelId) : index.disable())
           }
         />
       }
@@ -251,7 +252,13 @@ function SemanticStatus({ index }: { index: SemanticIndex }) {
                 message: download.failure?.message ?? '',
               })}
         </span>
-        <Button size="xs" variant="outline" onClick={() => void index.enable()}>
+        <Button
+          size="xs"
+          variant="outline"
+          onClick={() =>
+            void index.enable(BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID)
+          }
+        >
           {t('settingsAi.semantic.retry')}
         </Button>
       </div>
@@ -262,7 +269,13 @@ function SemanticStatus({ index }: { index: SemanticIndex }) {
     return (
       <div className="flex items-center justify-between gap-3 text-[13px] text-muted-foreground">
         {t('settingsAi.semantic.modelMissing')}
-        <Button size="xs" variant="outline" onClick={() => void index.enable()}>
+        <Button
+          size="xs"
+          variant="outline"
+          onClick={() =>
+            void index.enable(BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID)
+          }
+        >
           {t('settingsAi.semantic.download')}
         </Button>
       </div>

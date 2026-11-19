@@ -224,6 +224,13 @@ pub(super) struct InputPayload<T> {
     pub(super) input: T,
 }
 
+/// Cancellation addresses the transfer by identity even if the caller missed its progress.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct ModelTransferIdPayload {
+    pub(super) transfer_id: String,
+}
+
 /// Selects a configured AI provider for secret removal or provider-specific
 /// management commands.
 #[derive(Deserialize)]

@@ -84,9 +84,14 @@ impl Transfer {
 }
 
 // The key is the on-disk model repository: two different archives have independent installs.
-static RUNNING: Mutex<BTreeMap<PathBuf, Arc<Transfer>>> = Mutex::new(BTreeMap::new());
+struct Registry {
+    last_seq: u64,
+    by_repo: BTreeMap<PathBuf, Arc<Transfer>>,
+}
 
-fn running() -> MutexGuard<'static, BTreeMap<PathBuf, Arc<Transfer>>> {
+static RUNNING: Mutex<Registry> = Mutex::new(Registry { last_seq: 0, by_repo: BTreeMap::new() });
+
+fn running() -> MutexGuard<'static, Registry> {
     RUNNING.lock().unwrap_or_else(|e| e.into_inner())
 }
 
@@ -97,13 +102,15 @@ pub fn get_model_download_state() -> Result<Option<crate::ModelDownloadState>> {
 
 fn state_for(paths: &ProjectPaths, repo: &str) -> Option<crate::ModelDownloadState> {
     running()
+        .by_repo
         .get(&model_dir_for_repo(paths, repo))
-        .map(|transfer| transfer.progress().snapshot(&transfer.identity.transfer_id))
+        .map(|transfer| transfer.progress().snapshot(&transfer.identity))
 }
 
 /// Returns true only for the first stop request for this live transfer.
 pub fn cancel_model_download(id: &str) -> bool {
     running()
+        .by_repo
         .values()
         .find(|transfer| transfer.identity.transfer_id == id)
         .is_some_and(|transfer| transfer.request_cancel())
@@ -112,7 +119,7 @@ pub fn cancel_model_download(id: &str) -> bool {
 /// A durable loss of consent or a wipe revokes the archive's transfers with the same flag
 /// that the ID-based Cancel command uses.
 pub fn cancel_archive_model_downloads(paths: &ProjectPaths) {
-    for (repo, transfer) in running().iter() {
+    for (repo, transfer) in running().by_repo.iter() {
         if repo.starts_with(&paths.models_dir) {
             transfer.request_cancel();
         }
@@ -123,7 +130,7 @@ pub fn cancel_archive_model_downloads(paths: &ProjectPaths) {
 /// rename or by restoring its bytes. Copies and staging controls do not change live consent.
 pub fn reconcile_model_download_after_control_replacement(gate: &crate::ControlGate) {
     let paths = gate.paths();
-    let has_transfer = running().keys().any(|repo| repo.starts_with(&paths.models_dir));
+    let has_transfer = running().by_repo.keys().any(|repo| repo.starts_with(&paths.models_dir));
     if has_transfer
         && !crate::load_config(paths).is_ok_and(|config| config.ai.wants_builtin_model())
     {
@@ -141,6 +148,7 @@ impl<E: Fn(ModelDownloadProgressEvent)> EmitProgress<E> {
         self.transfer.progress().record(&update);
         (self.emit)(ModelDownloadProgressEvent {
             transfer_id: self.transfer.identity.transfer_id.clone(),
+            seq: self.transfer.identity.seq,
             update,
         });
     }
@@ -210,14 +218,17 @@ where
     );
     let key = model_dir_for_repo(&paths, repo);
     let mut active = running();
-    if let Some(transfer) = active.get(&key)
+    if let Some(transfer) = active.by_repo.get(&key)
         && *transfer.phase() == Phase::Running
     {
         return Ok(transfer.identity.clone());
     }
 
-    let identity = ModelDownloadTransfer::fresh()?;
-    let predecessor = active.get(&key).cloned();
+    // JavaScript compares these JSON numbers. Stop at its largest exact integer.
+    let seq = active.last_seq + 1;
+    anyhow::ensure!(seq < 1 << 53, "model download sequence exhausted");
+    let identity = ModelDownloadTransfer::fresh(seq)?;
+    let predecessor = active.by_repo.get(&key).cloned();
     let transfer = Arc::new(Transfer::new(identity.clone()));
     if predecessor.as_ref().is_some_and(|previous| *previous.phase() != Phase::Released) {
         transfer.progress().phase = crate::ModelDownloadPhase::Waiting {
@@ -252,10 +263,11 @@ where
             let terminal = {
                 let mut active = running();
                 if active
+                    .by_repo
                     .get(&worker_key)
                     .is_some_and(|current| Arc::ptr_eq(current, &progress.transfer))
                 {
-                    active.remove(&worker_key);
+                    active.by_repo.remove(&worker_key);
                 }
                 builds::finished(
                     &progress.transfer.identity.transfer_id,
@@ -264,14 +276,15 @@ where
                 match result {
                     _ if !accepted => ModelDownloadUpdate::Cancelled,
                     Ok(_) => ModelDownloadUpdate::Done,
-                    Err(error) => ModelDownloadUpdate::Error { message: error.to_string() },
+                    Err(error) => ModelDownloadUpdate::Error { message: format!("{error:#}") },
                 }
             };
             progress.send(terminal);
         })
         .context("spawning static model download thread")?;
     builds::issued(&identity.transfer_id, &key);
-    active.insert(key, transfer);
+    active.last_seq = seq;
+    active.by_repo.insert(key, transfer);
     Ok(identity)
 }
 

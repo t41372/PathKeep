@@ -335,8 +335,9 @@ fn get_model_download_state_finds_another_windows_transfer_while_the_archive_is_
         let id = start["transferId"].as_str().unwrap();
         assert_eq!(
             next_model_download_event(&mut events).await,
-            json!({"kind":"waiting","reason":"archive-busy","transferId":id})
+            json!({"kind":"waiting","seq":start["seq"],"reason":"archive-busy","transferId":id})
         );
+        assert!(start["seq"].as_u64().unwrap() > 0);
         let late = make_window();
         let snapshot = dispatch_command(&late, get, json!({})).await.unwrap();
         assert_eq!(
@@ -347,7 +348,7 @@ fn get_model_download_state_finds_another_windows_transfer_while_the_archive_is_
         assert_eq!(
             snapshot,
             json!({
-                "transferId":id, "phase":"waiting","reason":"archive-busy", "currentFile":null,
+                "transferId":id,"seq":start["seq"], "phase":"waiting","reason":"archive-busy", "currentFile":null,
                 "downloadedBytes":0, "totalBytes":0, "files":{}
             })
         );
@@ -397,7 +398,7 @@ fn check_model_download_terminal(request_cancel: bool) {
         let start =
             dispatch_command(&state, "download_static_embedding_model", json!({})).await.unwrap();
         let id = start["transferId"].as_str().unwrap();
-        assert_eq!(start, json!({"transferId":id}));
+        assert!(start["seq"].as_u64().unwrap() > 0);
 
         // The dev bridge started before a window existed. Attach the window and join the
         // same transfer from its native backend while the installer is still parked.
@@ -431,11 +432,11 @@ fn check_model_download_terminal(request_cancel: bool) {
         };
         assert_eq!(native, terminal);
         if request_cancel {
-            assert_eq!(terminal, json!({"kind":"cancelled","transferId":id}));
+            assert_eq!(terminal, json!({"kind":"cancelled","seq":start["seq"],"transferId":id}));
         } else {
             assert_eq!(
                 terminal,
-                json!({"kind":"error","transferId":id,"message":format!("invalid model pointer in {}", repo.display())})
+                json!({"kind":"error","seq":start["seq"],"transferId":id,"message":format!("invalid model pointer in {}", repo.display())})
             );
         }
         assert_eq!(
@@ -554,7 +555,7 @@ fn check_off_save(fault: SaveFault) {
         drop(parked);
         assert_eq!(
             next_model_download_terminal(&mut sse, id).await,
-            json!({"kind":"cancelled","transferId":id})
+            json!({"kind":"cancelled","seq":start["seq"],"transferId":id})
         );
     });
     let jobs: i64 = state
@@ -658,7 +659,7 @@ fn setup_build_payload(state: &DevIpcBridgeState) -> Value {
         let id = start["transferId"].as_str().unwrap();
         assert_eq!(
             next_model_download_terminal(&mut stream, id).await,
-            json!({"kind":"done","transferId":id})
+            json!({"kind":"done","seq":start["seq"],"transferId":id})
         );
         id.to_owned()
     });

@@ -13,6 +13,8 @@
  * - Telling a stop the user asked for from a failure: a cancelled download, or
  *   a start or build the backend refused because the saved settings no longer
  *   want the model, is `ModelDownloadCancelled`.
+ * - A download that went silent and then finishes still gets its build
+ *   (`ModelDownloadStalled.resumed`).
  *
  * Not responsible for:
  * - The download itself and what the screens show of it (`model-download.ts`).
@@ -22,7 +24,11 @@
 import { appClient } from '../backend-client/app'
 import { intelligenceClient } from '../backend-client/intelligence'
 import { BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID } from '../types'
-import { downloadModel, wantsBuiltInModel } from './model-download'
+import {
+  downloadModel,
+  wantsBuiltInModel,
+  type ModelDownloadOutcome,
+} from './model-download'
 
 /**
  * The setup stopped because the user asked for it: Cancel, or a saved setting
@@ -40,9 +46,18 @@ export class ModelDownloadCancelled extends Error {
  * up. The screen says so in its own words; the message is for logs.
  */
 export class ModelDownloadStalled extends Error {
-  constructor() {
+  /**
+   * The setup carried on, should the download end after all: resolves once
+   * the build its `done` allows is asked for, rejects as the setup would have
+   * (`ModelDownloadCancelled` included). Null when no transfer was named, and
+   * never settles if the transfer never ends.
+   */
+  readonly resumed: Promise<void> | null
+
+  constructor(resumed: Promise<void> | null) {
     super('the model download sent nothing within the idle window')
     this.name = 'ModelDownloadStalled'
+    this.resumed = resumed
   }
 }
 
@@ -60,16 +75,24 @@ async function savedSettingsWantIt() {
  * semantic search off and on again continues it.
  *
  * Throws `ModelDownloadCancelled` for a stop the user asked for,
- * `ModelDownloadStalled` when the download went silent, and the error itself
- * otherwise. A failed download is also shown by `useModelDownloadProgress`.
+ * `ModelDownloadStalled` when the download went silent (its `resumed` carries
+ * on if it ends after all), and the error itself otherwise. A failed download
+ * is also shown by `useModelDownloadProgress`.
  */
 export async function runLocalSemanticSetup(): Promise<void> {
-  const outcome = await downloadModel(savedSettingsWantIt)
+  return afterDownload(await downloadModel(savedSettingsWantIt))
+}
+
+async function afterDownload(outcome: ModelDownloadOutcome): Promise<void> {
   switch (outcome.kind) {
     case 'cancelled':
       throw new ModelDownloadCancelled()
-    case 'silent':
-      throw new ModelDownloadStalled()
+    case 'silent': {
+      const resumed = outcome.late?.then(afterDownload) ?? null
+      // Whoever caught the stall may be gone (the screen closed): not an unhandled rejection.
+      resumed?.catch(() => undefined)
+      throw new ModelDownloadStalled(resumed)
+    }
     case 'failed':
       throw new Error(outcome.message)
     case 'refused':

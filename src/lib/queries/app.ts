@@ -72,12 +72,20 @@ export function onConfigNotDurable(listener: (diagnostic: string) => void) {
  * Saves a config change. `save_config` merges against `baseConfig`, so a slow
  * save cannot overwrite an unrelated setting changed meanwhile, and it returns
  * the fresh snapshot, which replaces the cached one without another round trip.
+ *
+ * `fromSaved`: change the settings as saved now, read just before, not this
+ * window's copy. The merge keeps only what differs from the base, so a change
+ * the copy already shows (off, while another window has turned it on since)
+ * would change nothing; and `update` sees the saved choices, so it can refuse
+ * to act on one this window does not show.
  */
-export function useSaveConfig() {
+export function useSaveConfig({ fromSaved = false } = {}) {
   const client = useQueryClient()
   return useMutation({
-    mutationFn: (update: (config: AppConfig) => AppConfig) => {
-      const base = currentSnapshot(client).config
+    mutationFn: async (update: (config: AppConfig) => AppConfig) => {
+      const base = fromSaved
+        ? (await appClient.getSnapshot()).config
+        : currentSnapshot(client).config
       return saveConfig(update(structuredClone(base)), base)
     },
     onSuccess: (snapshot) => client.setQueryData(queryKeys.snapshot, snapshot),

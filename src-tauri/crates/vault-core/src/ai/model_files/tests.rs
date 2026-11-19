@@ -830,3 +830,72 @@ fn malformed_pointer_recovers_both_flat_and_generated_bundles() {
         assert_eq!(repo.join("current").exists(), !flat);
     }
 }
+
+#[test]
+fn opt_out_preserves_the_install_behind_a_malformed_pointer_for_offline_repair() {
+    use super::super::model_generations::{Request, resolve};
+    let root = tempfile::tempdir().unwrap();
+    let paths = crate::project_paths_with_root(root.path());
+    let repo = model_dir_for_repo(&paths, "Stub/Repo");
+    let files = stub_manifest();
+    let installed =
+        ensure_model_downloaded(&paths, "Stub/Repo", &files, true, &mut NoopDownloadProgress)
+            .unwrap();
+    let mut config = crate::AppConfig::default();
+    config.ai.enabled = true;
+    for damage in [b"damaged".as_slice(), b"gen-00000000000000000000000000000000"] {
+        config.ai.semantic_index_enabled = false;
+        crate::save_config(&crate::ControlGate::acquire(&paths), &config).unwrap();
+        let pointer = repo.join("current");
+        std::fs::write(&pointer, damage).unwrap();
+        resolve(&paths, &repo, &files, Request::OnOpen).unwrap();
+        assert!(
+            model_is_present_and_verified(&installed, &files),
+            "opt-out recovery deleted the installed bundle"
+        );
+        assert_eq!(std::fs::read(&pointer).unwrap(), damage);
+        config.ai.semantic_index_enabled = true;
+        crate::save_config(&crate::ControlGate::acquire(&paths), &config).unwrap();
+        resolve(&paths, &repo, &files, Request::OnOpen).unwrap();
+        assert_eq!(repo.join(std::fs::read_to_string(&pointer).unwrap()), installed);
+        assert_eq!(
+            ensure_model_downloaded(&paths, "Stub/Repo", &files, false, &mut NoopDownloadProgress)
+                .unwrap(),
+            installed
+        );
+    }
+}
+
+#[cfg(debug_assertions)]
+#[test]
+fn model_http_timeout_renews_on_each_body_read() {
+    use super::super::model_source::{FixtureVersion, ModelSource};
+    use std::{
+        io::{BufRead, BufReader, Read, Write},
+        net::TcpListener,
+        thread,
+        time::Duration,
+    };
+
+    let server = TcpListener::bind("127.0.0.1:0").unwrap();
+    let base = format!("http://{}", server.local_addr().unwrap());
+    let source = ModelSource::Fixture { base, version: FixtureVersion::V1 };
+    let client = model_http_client(&source, Duration::from_secs(1)).unwrap();
+    let serve = thread::spawn(move || {
+        let (mut peer, _) = server.accept().unwrap();
+        for line in BufReader::new(&peer).lines() {
+            if line.unwrap().is_empty() {
+                break;
+            }
+        }
+        peer.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 8\r\n\r\n").unwrap();
+        for _ in 0..8 {
+            thread::sleep(Duration::from_millis(200));
+            peer.write_all(b"x").unwrap();
+        }
+    });
+    let mut bytes = Vec::new();
+    client.get(source.url("", "weights")).send().unwrap().read_to_end(&mut bytes).unwrap();
+    assert_eq!(bytes, b"xxxxxxxx");
+    serve.join().unwrap();
+}

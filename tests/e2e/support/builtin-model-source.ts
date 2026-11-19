@@ -10,6 +10,14 @@
  *   // (only the headers for a one-chunk file). Arm before starting the transfer.
  *   // model.requests records each GET. Close with await model.close() in finally.
  *
+ * The app gives up on a response that sends nothing for 30 seconds (it then
+ * ends with `error`, or `cancelled` once a cancel was taken), and it sees a
+ * cancel only when a read returns. So a plain hold stops everything, cancels
+ * included, for a few seconds at most. `{keepAlive: true}` instead sends one
+ * byte of the held chunk every 10 seconds, never its last, so the download
+ * stays alive as long as needed: the app hears no progress (it reports every
+ * MB), but it sees a cancel at the next byte.
+ *
  * Reopen the same archive with model.url('v2') to replace v1: only the weights have
  * different pins. A cancelled download starts a fresh GET; a held response resumes in
  * place. The SHA-256 manifest and the 256-dimensional model2vec fixtures live together
@@ -21,6 +29,9 @@ import type { AddressInfo } from 'node:net'
 import { setTimeout as delay } from 'node:timers/promises'
 
 type Version = 'v1' | 'v2'
+
+/** Under the app's 30-second read timeout, with room to spare. */
+const KEEP_ALIVE_MS = 10_000
 type FileName = 'config.json' | 'tokenizer.json' | 'model.safetensors'
 
 export async function startBuiltinModelSource({
@@ -43,13 +54,17 @@ export async function startBuiltinModelSource({
     | {
         file: FileName
         afterBytes?: number
+        keepAlive: boolean
         claimed: boolean
         arrived: (offset: number) => void
         resume: Promise<void>
         release: () => void
       }
     | undefined
-  const server = http.createServer(async (req, res) => {
+  const respond = async (
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+  ) => {
     const match =
       /^\/(v1|v2)\/(config\.json|tokenizer\.json|model\.safetensors)$/.exec(
         req.url ?? '',
@@ -72,29 +87,44 @@ export async function startBuiltinModelSource({
         connection: 'close',
       })
       res.flushHeaders()
+      const send = (part: Uint8Array) =>
+        new Promise<void>((resolve, reject) => {
+          res.write(part, (err) => (err ? reject(err) : resolve()))
+        })
       for (let offset = 0; offset < bytes.length; offset += chunkBytes) {
+        let chunk = bytes.subarray(offset, offset + chunkBytes)
+        const held = hold
         if (
-          hold &&
-          offset >= (hold.afterBytes ?? (bytes.length <= chunkBytes ? 0 : 1)) &&
-          hold.file === file &&
-          !hold.claimed
+          held &&
+          offset >= (held.afterBytes ?? (bytes.length <= chunkBytes ? 0 : 1)) &&
+          held.file === file &&
+          !held.claimed
         ) {
-          hold.claimed = true
-          hold.arrived(offset)
-          await hold.resume
+          held.claimed = true
+          held.arrived(offset)
+          let released = false
+          void held.resume.then(() => {
+            released = true
+          })
+          while (held.keepAlive && !released && chunk.length > 1) {
+            await Promise.race([held.resume, delay(KEEP_ALIVE_MS)])
+            if (released || res.destroyed) break
+            await send(chunk.subarray(0, 1))
+            chunk = chunk.subarray(1)
+          }
+          await held.resume
         }
         if (res.destroyed) return
-        await new Promise<void>((resolve, reject) => {
-          res.write(bytes.subarray(offset, offset + chunkBytes), (err) =>
-            err ? reject(err) : resolve(),
-          )
-        })
+        await send(chunk)
         if (delayMs > 0) await delay(delayMs)
       }
       res.end()
     } catch {
       res.destroy()
     }
+  }
+  const server = http.createServer((req, res) => {
+    void respond(req, res)
   })
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject)
@@ -104,7 +134,11 @@ export async function startBuiltinModelSource({
   return {
     requests,
     url: (version: Version) => `http://127.0.0.1:${port}/${version}`,
-    holdNextChunk(file: FileName = 'model.safetensors', afterBytes?: number) {
+    holdNextChunk(
+      file: FileName = 'model.safetensors',
+      afterBytes?: number,
+      { keepAlive = false }: { keepAlive?: boolean } = {},
+    ) {
       if (
         afterBytes !== undefined &&
         (!Number.isSafeInteger(afterBytes) || afterBytes < 0)
@@ -126,6 +160,7 @@ export async function startBuiltinModelSource({
       hold = {
         file,
         afterBytes,
+        keepAlive,
         claimed: false,
         arrived,
         resume: wait,

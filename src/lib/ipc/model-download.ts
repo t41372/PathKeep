@@ -7,12 +7,16 @@
  *   transfer's own terminal event, on a refused start (no transfer exists, so
  *   no terminal event will come), or when nothing is heard for
  *   `MODEL_DOWNLOAD_IDLE_TIMEOUT_MS`. Waiting is a sign of life. A start reply
- *   that arrives after its attempt ended changes nothing.
+ *   that arrives after its attempt ended changes nothing. A transfer given up
+ *   as silent is still listened to: a connection that went quiet can come
+ *   back, and the caller hears how it ended after all (`late`).
  * - What the screens show (`useModelDownloadProgress`): one transfer, the one
  *   this window follows. A transfer another window started is followed from
  *   what the backend says runs when a screen opens (`get_model_download_state`)
- *   and from its events. Once a newer transfer is followed, the older one's
- *   late events, its `cancelled` included, no longer move the bar.
+ *   and from its events. The newest transfer is the one with the highest
+ *   `seq`: one with a lower `seq` never takes the place of the one followed,
+ *   whatever its events say, and its late events, its `cancelled` included,
+ *   never move the bar.
  * - Cancel, by the followed transfer's ID, and "stopping" from an accepted
  *   Cancel or an accepted save that no longer wants the model
  *   (`settingsSaved`) until the transfer's end.
@@ -33,6 +37,7 @@ import type {
   AiSettings,
   ModelDownloadProgressEvent,
   ModelDownloadState,
+  ModelDownloadTransfer,
   ModelDownloadWait,
 } from '../types'
 import { BUILT_IN_STATIC_EMBEDDING_PROVIDER_ID } from '../types'
@@ -59,8 +64,11 @@ export type ModelDownloadOutcome =
   | { kind: 'failed'; message: string }
   /** The start was refused while the saved settings still want the model; no transfer exists. */
   | { kind: 'refused'; error: unknown }
-  /** Nothing was heard for `MODEL_DOWNLOAD_IDLE_TIMEOUT_MS`. */
-  | { kind: 'silent' }
+  /**
+   * Nothing was heard for `MODEL_DOWNLOAD_IDLE_TIMEOUT_MS`. `late`: how the transfer ends after
+   * all, if it ever does (never `silent`); absent when the start never answered.
+   */
+  | { kind: 'silent'; late?: Promise<ModelDownloadOutcome> }
 
 /** Why the download the screen shows did not finish. */
 export type ModelDownloadFailure =
@@ -92,6 +100,8 @@ export interface ModelDownloadProgress {
 interface Attempt {
   /** Known from the start's answer, or from the first event of a transfer another window started. */
   transferId: string | null
+  /** The transfer's `seq`, from its first event or the backend's answer about it. */
+  seq: number | null
   /** Started here: settles the caller's promise. A transfer only seen in events has none. */
   settle: ((outcome: ModelDownloadOutcome) => void) | null
   /** The transfer the start named, or null when it was refused or the attempt had ended first. */
@@ -99,6 +109,8 @@ interface Attempt {
   /** Events heard before the start answered; replayed for the transfer it names. */
   early: ModelDownloadProgressEvent[]
   ended: boolean
+  /** Its caller was told `silent`; `settle` now tells it how the transfer ended after all. */
+  stalled: boolean
   watchdog: ReturnType<typeof setTimeout> | null
   /** Lets go of the channel this attempt keeps open while it runs. */
   release: (() => void) | null
@@ -120,6 +132,8 @@ const live = new Set<Attempt>()
 let shown: Attempt | null = null
 /** Transfers this window stopped following; their late events change nothing. */
 const leftBehind = new Set<string>()
+/** The highest `seq` heard: with nothing followed, an older transfer is not taken up. */
+let newestSeq = Number.NEGATIVE_INFINITY
 
 let view = IDLE
 /** The transfer whose bytes `view` holds, and its files' bytes. */
@@ -156,7 +170,7 @@ function byteTotals() {
 function showEvent(event: ModelDownloadProgressEvent) {
   switch (event.kind) {
     case 'waiting':
-      publish({ phase: 'waiting', waitingFor: event.reason })
+      publish({ phase: 'waiting', waitingFor: event.reason, failure: null })
       return
     case 'fileStarted':
       files.set(event.file, { done: 0, total: event.totalBytes })
@@ -174,7 +188,12 @@ function showEvent(event: ModelDownloadProgressEvent) {
         done: event.downloadedBytes,
         total: event.totalBytes > 0 ? event.totalBytes : known,
       })
-      publish({ phase: 'downloading', waitingFor: null, ...byteTotals() })
+      publish({
+        phase: 'downloading',
+        waitingFor: null,
+        failure: null,
+        ...byteTotals(),
+      })
       return
     }
     case 'fileFinished': {
@@ -224,13 +243,16 @@ function newAttempt(
   transferId: string | null,
   settle: Attempt['settle'],
   answered: Promise<string | null>,
+  seq: number | null = null,
 ): Attempt {
   const attempt: Attempt = {
     transferId,
+    seq,
     settle,
     answered,
     early: [],
     ended: false,
+    stalled: false,
     watchdog: null,
     release: null,
   }
@@ -245,9 +267,27 @@ function armWatchdog(attempt: Attempt) {
     attempt.watchdog = null
     // Given up here only says something when this window asked for the download; a transfer
     // only seen in events may well be fine, so the screen just stops showing it.
-    if (attempt.settle) end(attempt, { kind: 'silent' })
-    else stopFollowing(attempt)
+    if (!attempt.settle) stopFollowing(attempt)
+    // The start never answered: there is no transfer to hear from.
+    else if (attempt.transferId === null) end(attempt, { kind: 'silent' })
+    else giveUp(attempt)
   }, MODEL_DOWNLOAD_IDLE_TIMEOUT_MS)
+}
+
+/**
+ * Tells the caller its download went silent, and keeps listening to the transfer: a connection
+ * that went quiet can come back. The caller hears how it ended after all through `late`, and the
+ * screens show it again from its next event.
+ */
+function giveUp(attempt: Attempt) {
+  if (attempt === shown) showOutcome({ kind: 'silent' })
+  if (attempt.stalled) return
+  attempt.stalled = true
+  const tell = attempt.settle!
+  const late = new Promise<ModelDownloadOutcome>((resolve) => {
+    attempt.settle = resolve
+  })
+  tell({ kind: 'silent', late })
 }
 
 /**
@@ -299,6 +339,7 @@ function leave(attempt: Attempt) {
 /** An event of `attempt`'s own transfer. */
 function hear(attempt: Attempt, event: ModelDownloadProgressEvent) {
   if (attempt.ended) return
+  attempt.seq = event.seq
   armWatchdog(attempt)
   if (attempt === shown) showEvent(event)
   switch (event.kind) {
@@ -319,13 +360,12 @@ function hear(attempt: Attempt, event: ModelDownloadProgressEvent) {
 const isTerminal = (event: ModelDownloadProgressEvent) =>
   event.kind === 'done' || event.kind === 'cancelled' || event.kind === 'error'
 
-/** A transfer's first sign: a newer transfer than one already followed starts with one of these. */
-const isBeginning = (event: ModelDownloadProgressEvent) =>
-  event.kind === 'waiting' || event.kind === 'fileStarted'
-
 function receive(event: ModelDownloadProgressEvent) {
   if (endedDuringLookup && isTerminal(event))
     endedDuringLookup.add(event.transferId)
+  // As new as every transfer heard before it, this one included.
+  const newest = event.seq >= newestSeq
+  newestSeq = Math.max(newestSeq, event.seq)
   let owned = false
   for (const attempt of [...live]) {
     if (attempt.transferId === null) {
@@ -343,14 +383,19 @@ function receive(event: ModelDownloadProgressEvent) {
   if (following?.transferId === null) return
   // The end of a transfer never followed says nothing about the one shown.
   if (isTerminal(event)) return
-  // Another transfer while one is followed: only a newer one starting replaces it. A late
-  // event of an older one this window never saw does not.
-  if (following && !isBeginning(event)) return
+  // Only a newer transfer takes the place of the one followed, and with nothing followed, only
+  // one as new as every transfer heard is taken up. An older transfer's late events, whatever
+  // they say, do not.
+  if (
+    following ? following.seq === null || event.seq <= following.seq : !newest
+  )
+    return
   if (following) leave(following)
   const attempt = newAttempt(
     event.transferId,
     null,
     Promise.resolve(event.transferId),
+    event.seq,
   )
   shown = attempt
   resetView('downloading', event.transferId)
@@ -358,8 +403,9 @@ function receive(event: ModelDownloadProgressEvent) {
 }
 
 /** The start answered: `attempt` follows `transferId`. */
-function follow(attempt: Attempt, transferId: string) {
+function follow(attempt: Attempt, { transferId, seq }: ModelDownloadTransfer) {
   attempt.transferId = transferId
+  attempt.seq = seq
   // A start joins a transfer this window may have stopped following; it follows it again.
   leftBehind.delete(transferId)
   const early = attempt.early.splice(0)
@@ -434,8 +480,10 @@ export function downloadModel(
   const attempt = newAttempt(null, settle, answered)
   shown = attempt
   // A start while a download runs joins it: keep its bar until the answer says which it is.
-  // One that is stopping cannot be joined: the start gets a transfer of its own.
-  if (!previous || view.stopping) resetView('downloading', null)
+  // One that is stopping cannot be joined: the start gets a transfer of its own. One given up
+  // as silent shows that, not a bar.
+  if (!previous || previous.stalled || view.stopping)
+    resetView('downloading', null)
   void begin(attempt, answer, stillWanted)
   return outcome
 }
@@ -455,12 +503,13 @@ async function begin(
   // Kept open until the attempt ends.
   attempt.release = release
   await intelligenceClient.downloadStaticEmbeddingModel().then(
-    ({ transferId }) => {
+    (transfer) => {
+      const { transferId } = transfer
       answer(attempt.ended ? null : transferId)
       // Given up already (the idle window passed): the attempt is over, and so is this
       // transfer for this window. Only a new start follows it again.
       if (attempt.ended) leftBehind.add(transferId)
-      else follow(attempt, transferId)
+      else follow(attempt, transfer)
     },
     async (error: unknown) => {
       answer(null)
@@ -548,12 +597,24 @@ function lookUpRunningTransfer() {
 
 function seed(state: ModelDownloadState, ended: Set<string>) {
   const id = state.transferId
-  if (ended.has(id) || leftBehind.has(id)) return
-  const following = shown && !shown.ended ? shown : null
-  // A start this window sent, or another transfer heard meanwhile, decides what it shows.
-  if (following && following.transferId !== id) return
+  // Ended meanwhile, given up on, or older than a transfer heard meanwhile.
+  if (ended.has(id) || leftBehind.has(id) || state.seq < newestSeq) return
+  newestSeq = state.seq
+  let following = shown && !shown.ended ? shown : null
+  if (following && following.transferId !== id) {
+    // A start this window sent decides what it shows; a transfer heard meanwhile stays unless
+    // the answer names a newer one.
+    if (
+      following.transferId === null ||
+      following.seq === null ||
+      following.seq >= state.seq
+    )
+      return
+    leave(following)
+    following = null
+  }
   if (!following) {
-    shown = newAttempt(id, null, Promise.resolve(id))
+    shown = newAttempt(id, null, Promise.resolve(id), state.seq)
     resetView('downloading', id)
   }
   // Within a transfer bytes only grow: keep whichever count is further along.

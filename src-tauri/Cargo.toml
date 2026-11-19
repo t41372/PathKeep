@@ -42,10 +42,6 @@ anyhow = "1.0.103"
 chrono = { version = "0.4.42", features = ["serde"] }
 directories = "6.0.0"
 futures-core = "0.3.32"
-# ureq: the blocking HTTP client the in-app model download (`ai/model_files.rs`) streams the
-# Hugging Face resolve URL with, for real byte progress. Defaults (rustls + gzip): no native-tls or
-# OpenSSL, no tokio/reqwest pull.
-ureq = "3.3.0"
 getrandom = "0.3.4"
 hex = "0.4.3"
 icu_normalizer = { version = "2.2.0", default-features = false, features = ["compiled_data"] }

@@ -78,6 +78,12 @@ export const settingsAi = defineMessages({
       waitingArchive: 'Waiting for another archive task to finish…',
       waitingPrevious: 'Waiting for the previous download to stop…',
       stopping: 'Stopping the download…',
+      choiceChanged: {
+        service:
+          'Another window chose {name} for semantic search, so nothing was downloaded or built here. Nothing was sent to {name}.',
+        inApp:
+          'Another window chose the in-app static model for semantic search, so nothing was built here.',
+      },
       modelMissing: 'The model is not downloaded yet.',
       download: 'Download',
       retry: 'Try again',
@@ -401,6 +407,12 @@ export const settingsAi = defineMessages({
       waitingArchive: '正在等另一项存档任务完成…',
       waitingPrevious: '正在等上一次下载停止…',
       stopping: '正在停止下载…',
+      choiceChanged: {
+        service:
+          '另一个窗口已把语义搜索改用 {name}，所以这里没有下载也没有建立索引，也没有任何内容发送给 {name}。',
+        inApp:
+          '另一个窗口已把语义搜索改用应用内置静态模型，所以这里没有建立索引。',
+      },
       modelMissing: '模型还没有下载。',
       download: '下载',
       retry: '重试',
@@ -708,6 +720,12 @@ export const settingsAi = defineMessages({
       waitingArchive: '正在等另一項存檔工作完成…',
       waitingPrevious: '正在等上一次下載停止…',
       stopping: '正在停止下載…',
+      choiceChanged: {
+        service:
+          '另一個視窗已把語意搜尋改用 {name}，所以這裡沒有下載也沒有建立索引，也沒有任何內容傳送給 {name}。',
+        inApp:
+          '另一個視窗已把語意搜尋改用 App 內建靜態模型，所以這裡沒有建立索引。',
+      },
       modelMissing: '模型還沒有下載。',
       download: '下載',
       retry: '重試',

@@ -1,13 +1,19 @@
 /**
  * The built-in model's download as Settings → AI runs it, from a model served
  * on this computer (`support/builtin-model-source.ts`: two pinned versions of
- * a 1 MB test model). A held response stops a download half way for as long
- * as a test needs, without timing.
+ * a 1 MB test model). A held response stops a download half way without
+ * timing. The app gives up on a response silent for 30 seconds, so a plain
+ * hold (which also keeps a cancel from being seen) covers only a few quick
+ * steps, with any slow page loaded before it; a hold that needs longer keeps
+ * the response alive (`keepAlive`).
  *
  * Proves:
- * - A window opened while the download is held shows that download's bytes
- *   at once: a held download sends no events, so they come from asking the
- *   backend which transfer runs.
+ * - Settings opened in a second window while the download is held shows that
+ *   download's bytes at once. The window was loaded before, on another
+ *   screen, so it heard none of the download's events, and a held download
+ *   sends none: the bytes come from asking the backend which transfer runs.
+ *   (The window is not loaded under the hold: a page load can outlast the
+ *   app's 30-second read timeout.)
  * - Cancel stops the download: once the backend takes the cancel, the screen
  *   says it is stopping and Cancel is disabled until the download ends; then
  *   it goes back to off with no error, in both windows, the backend has no
@@ -22,6 +28,11 @@
  *   cannot change the model meanwhile, so a second window does, as with the
  *   app and a browser on the dev bridge. Going back to the built-in model
  *   downloads and builds nothing by itself.
+ * - A window whose copy of the settings is behind acts on what is saved:
+ *   Cancel in a window opened while semantic search was off still turns it
+ *   off; the in-app model's Download, after another window chose a service,
+ *   saves, downloads and builds nothing, sends the service nothing, says so
+ *   and shows the service.
  * - With a new version of the model pinned (the app restarted on v2), the
  *   installed one no longer counts: Settings offers the download, only the
  *   changed file is fetched, the new version is published beside the old one,
@@ -137,6 +148,12 @@ async function openSettings(page: Page) {
   await page.reload()
   await unlockIfLocked(page)
   await expect(semanticSwitch(page)).toBeVisible({ timeout: 60_000 })
+}
+
+/** The app loaded and unlocked in `page`, on a screen that does not show the download. */
+async function openElsewhere(page: Page) {
+  await page.goto('/#/browsing/history')
+  await unlockIfLocked(page)
 }
 
 const semanticSwitch = (page: Page) =>
@@ -273,7 +290,7 @@ async function attachEvidence(
   })
 }
 
-test('a window opened mid-download shows it at once; Cancel says it is stopping, then stops it: off, no error, nothing installed, nothing built', async ({
+test('Settings opened in another window mid-download shows it at once; Cancel says it is stopping, then stops it: off, no error, nothing installed, nothing built', async ({
   page,
 }, info) => {
   test.setTimeout(300_000)
@@ -284,8 +301,10 @@ test('a window opened mid-download shows it at once; Cancel says it is stopping,
   const events = await recordModelDownloads()
   const builds = sent(page, 'build_ai_index')
   const firstJob = await newestJob()
-  const hold = source!.holdNextChunk('model.safetensors', ONE_PROGRESS_STEP)
   const other = await page.context().newPage()
+  // Loaded now, away from Settings: it hears nothing of the download.
+  await openElsewhere(other)
+  const hold = source!.holdNextChunk('model.safetensors', ONE_PROGRESS_STEP)
   let found: ModelDownloadState | null = null
   try {
     const transfer = nextTransfer(page)
@@ -315,14 +334,15 @@ test('a window opened mid-download shows it at once; Cancel says it is stopping,
       .getAttribute('aria-valuenow')
     const heard = events.of(id).length
 
-    // A window opened now: the held download sends nothing, so what it shows
-    // comes from asking the backend.
+    // Settings opened now in the other window: the held download sends
+    // nothing, so what it shows comes from asking the backend.
     const answers: Response[] = []
     other.on('response', (response) => {
       if (response.url().endsWith('/commands/get_model_download_state'))
         answers.push(response)
     })
-    await openSettings(other)
+    await other.goto('/#/settings/ai')
+    await expect(semanticSwitch(other)).toBeVisible()
     const otherStatus = downloading(other)
     await expect(otherStatus).toContainText(bytes)
     await expect(otherStatus.getByRole('progressbar')).toHaveAttribute(
@@ -333,7 +353,7 @@ test('a window opened mid-download shows it at once; Cancel says it is stopping,
     found = (await answers.at(-1)!.json()) as ModelDownloadState | null
     expect(found?.transferId, 'the backend names the held download').toBe(id)
     expect(events.of(id).length, 'no event while it was held').toBe(heard)
-    await info.attach('a window opened mid-download', {
+    await info.attach('Settings opened in another window mid-download', {
       body: await otherStatus.screenshot(),
       contentType: 'image/png',
     })
@@ -381,6 +401,72 @@ test('a window opened mid-download shows it at once; Cancel says it is stopping,
   }
 })
 
+test('Cancel in a window opened before the download began turns semantic search off', async ({
+  page,
+}, info) => {
+  test.setTimeout(300_000)
+  await openSettings(page)
+  await saveAi(offWithBuiltIn())
+  await openSettings(page)
+  const other = await page.context().newPage()
+  const events = await recordModelDownloads()
+  const builds = [page, other].map((window) => sent(window, 'build_ai_index'))
+  const otherSaves = sent<{ config: AppConfig; baseConfig?: AppConfig }>(
+    other,
+    'save_config',
+  )
+  const firstJob = await newestJob()
+  const hold = source!.holdNextChunk('model.safetensors', ONE_PROGRESS_STEP)
+  try {
+    // Opened while semantic search is off: this window's copy of the
+    // settings stays off after the first window turns it on.
+    await openSettings(other)
+    await expect(semanticSwitch(other)).not.toBeChecked()
+    const transfer = nextTransfer(page)
+    await semanticSwitch(page).click()
+    const id = await transfer
+    await hold.held
+
+    // It follows the download from its events, with Cancel.
+    const otherStatus = downloading(other)
+    await expect(otherStatus).toContainText(/MB of [\d.,]+ MB/)
+    await expect(semanticSwitch(other)).not.toBeChecked()
+    const cancelled = other.waitForResponse((response) =>
+      response.url().endsWith('/commands/cancel_ai_embedding_model_download'),
+    )
+    await otherStatus.getByRole('button', { name: 'Cancel' }).click()
+    expect(await (await cancelled).json(), 'the cancel was taken').toBe(true)
+    await expect(stopping(other)).toBeVisible()
+    hold.release()
+    await expect
+      .poll(() => events.ends(id), { timeout: 60_000 })
+      .toEqual(['cancelled'])
+
+    // Its off was saved against the settings as saved, which said on.
+    await expect
+      .poll(async () => (await snapshot()).config.ai.semanticIndexEnabled)
+      .toBe(false)
+    const off = otherSaves.at(-1)
+    expect(off?.baseConfig?.ai.semanticIndexEnabled).toBe(true)
+    expect(off?.config.ai.semanticIndexEnabled).toBe(false)
+    for (const window of [page, other]) {
+      await expect(semanticSwitch(window)).not.toBeChecked()
+      await expectNoError(window)
+      // Still off when Settings opens again.
+      await openSettings(window)
+      await expect(semanticSwitch(window)).not.toBeChecked()
+    }
+    await expectNothingInstalled(id)
+    expect(builds.flat(), 'no build asked for').toEqual([])
+    expect(await indexBuildsAfter(firstJob), 'no index job').toEqual([])
+  } finally {
+    hold.release()
+    events.close()
+    await attachEvidence(info, events, { otherSaves })
+    await other.close()
+  }
+})
+
 test('choosing an embeddings service while the model downloads stops it; the service gets nothing and no error shows', async ({
   page,
 }, info) => {
@@ -391,6 +477,7 @@ test('choosing an embeddings service while the model downloads stops it; the ser
   const events = await recordModelDownloads()
   const service = await startFakeEmbeddings()
   const other = await page.context().newPage()
+  await openElsewhere(other)
   const builds = [page, other].map((window) => sent(window, 'build_ai_index'))
   const otherStarts = sent(other, 'download_static_embedding_model')
   const firstJob = await newestJob()
@@ -468,6 +555,68 @@ test('choosing an embeddings service while the model downloads stops it; the ser
   }
 })
 
+test('the in-app model’s Download, after another window chose a service, downloads and builds nothing and says the service got nothing', async ({
+  page,
+}, info) => {
+  test.setTimeout(300_000)
+  await openSettings(page)
+  await saveAi(offWithBuiltIn())
+  await saveAi({ enabled: true, semanticIndexEnabled: true })
+  await openSettings(page)
+  const download = page.getByRole('button', { name: 'Download', exact: true })
+  await expect(page.getByText('The model is not downloaded yet.')).toBeVisible()
+  const service = await startFakeEmbeddings()
+  const other = await page.context().newPage()
+  const starts = sent(page, 'download_static_embedding_model')
+  const saves = sent(page, 'save_config')
+  const builds = [page, other].map((window) => sent(window, 'build_ai_index'))
+  const firstJob = await newestJob()
+  try {
+    await addEmbeddingsService(
+      other,
+      service.url,
+      'e2e-embed',
+      'E2E embeddings',
+    )
+    await expect
+      .poll(async () => (await snapshot()).config.ai.embeddingProviderId)
+      .not.toBe('static-in-app')
+    const chosen = (await snapshot()).config.ai.embeddingProviderId
+    // This window has not caught up: it still offers the in-app model.
+    await expect(modelPicker(page)).toContainText('In-app static model')
+
+    await download.click()
+    const notice = page
+      .locator('[data-sonner-toast]')
+      .filter({ hasText: 'Another window chose E2E embeddings' })
+    await expect(notice).toContainText(
+      'Another window chose E2E embeddings for semantic search, so nothing was downloaded or built here. Nothing was sent to E2E embeddings.',
+    )
+    await info.attach('the choice another window made', {
+      body: await notice.screenshot(),
+      contentType: 'image/png',
+    })
+    // The screen catches up with the saved choice.
+    await expect(modelPicker(page)).toContainText('E2E embeddings')
+    await expect(
+      page.getByText('The model is not downloaded yet.'),
+    ).toHaveCount(0)
+    // Long enough for a build or a download nobody asked for to start.
+    await page.waitForTimeout(5_000)
+    expect(starts, 'no download').toEqual([])
+    expect(saves, 'nothing saved').toEqual([])
+    expect(builds.flat(), 'no build asked for').toEqual([])
+    expect(service.requests(), 'nothing sent to the service').toBe(0)
+    expect(await indexBuildsAfter(firstJob), 'no index job').toEqual([])
+    expect((await snapshot()).config.ai.embeddingProviderId).toBe(chosen)
+    await expectNoError(page)
+  } finally {
+    await attachEvidence(info, null, { serviceRequests: service.requests() })
+    await other.close()
+    await service.close()
+  }
+})
+
 test('turning semantic search off stops the download; on again, a new one finishes, the index is built once and search uses the model', async ({
   page,
 }, info) => {
@@ -510,7 +659,9 @@ test('turning semantic search off stops the download; on again, a new one finish
     expect(builds, 'no build for the stopped download').toEqual([])
 
     // On again: a new transfer, which the screen follows from its first bytes.
-    hold = source!.holdNextChunk('model.safetensors', ONE_PROGRESS_STEP)
+    hold = source!.holdNextChunk('model.safetensors', ONE_PROGRESS_STEP, {
+      keepAlive: true,
+    })
     transfer = nextTransfer(page)
     await semanticSwitch(page).click()
     const second = await transfer
@@ -620,7 +771,9 @@ test('a new version of the model installs beside the old one, and search finds t
   )
   const jobs = builtJobs(page)
   const fetchedBefore = source!.requests.length
-  const hold = source!.holdNextChunk('model.safetensors', ONE_PROGRESS_STEP)
+  const hold = source!.holdNextChunk('model.safetensors', ONE_PROGRESS_STEP, {
+    keepAlive: true,
+  })
   try {
     const transfer = nextTransfer(page)
     await page.getByRole('button', { name: 'Download', exact: true }).click()
@@ -695,7 +848,9 @@ test('a download that finishes while a move export holds the archive waits for i
   const exporting = await page.context().newPage()
   const file = path.join(fixture().root, 'builtin-model', 'moved.pathkeep')
   mkdirSync(path.dirname(file), { recursive: true })
-  const hold = source!.holdNextChunk('model.safetensors', ONE_PROGRESS_STEP)
+  const hold = source!.holdNextChunk('model.safetensors', ONE_PROGRESS_STEP, {
+    keepAlive: true,
+  })
   try {
     const transfer = nextTransfer(page)
     await page.getByRole('button', { name: 'Download', exact: true }).click()

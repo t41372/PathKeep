@@ -682,7 +682,7 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
             json_value!(download_static_embedding_model_off_thread(state).await?)
         }
         "cancel_ai_embedding_model_download" => {
-            let transfer = parse_payload::<vault_core::ModelDownloadTransfer>(payload)?;
+            let transfer = parse_payload::<ModelTransferIdPayload>(payload)?;
             json_value!(worker_bridge::cancel_model_download_impl(&transfer.transfer_id))
         }
         "save_ai_conversation" => {

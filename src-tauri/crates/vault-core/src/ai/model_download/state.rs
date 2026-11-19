@@ -42,9 +42,10 @@ impl Progress {
         self.phase = ModelDownloadPhase::Downloading;
     }
 
-    pub(super) fn snapshot(&self, transfer_id: &str) -> ModelDownloadState {
+    pub(super) fn snapshot(&self, transfer: &crate::ModelDownloadTransfer) -> ModelDownloadState {
         ModelDownloadState {
-            transfer_id: transfer_id.into(),
+            transfer_id: transfer.transfer_id.clone(),
+            seq: transfer.seq,
             phase: self.phase,
             current_file: self.current_file.clone(),
             downloaded_bytes: self

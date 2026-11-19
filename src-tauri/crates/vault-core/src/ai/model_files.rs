@@ -250,7 +250,7 @@ pub fn download_needed(model_dir: &std::path::Path, file: &ModelFile) -> bool {
 ///   cancellation discards the candidate.
 /// - **progress**: `progress.file_started/finished` bracket each downloaded file.
 ///
-/// Runs synchronously (blocking `ureq`); the worker calls it on a blocking/off-thread task
+/// Runs synchronously; the worker calls it on a blocking/off-thread task
 /// so the UI never blocks (the off-thread hop is the worker's job, mirroring the import/backup
 /// pattern). Returns the directory of the verified bundle on success.
 pub fn ensure_model_downloaded(
@@ -509,32 +509,43 @@ fn fetch_one_file(
     stream_to_file(reader, total_bytes, candidate, file.name, progress)
 }
 
-/// Opens a streaming HTTP reader for one model file + its content-length (the network seam).
-///
-/// The ONE irreducible socket seam (Change 3 methodology): GETs the HF resolve URL
-/// `https://huggingface.co/{repo}/resolve/main/{file}` over `ureq` (rustls) which follows the redirect to the CDN, and returns the body reader plus the content-length
-/// (0 when the server omits it). Everything ELSE — the read/write/throttle/cancel loop — lives in the
-/// pure [`stream_to_file`] so it runs in tests without a network. Compiled out under test.
+/// Stream a pinned file from the hub or debug fixture on the download worker.
 #[cfg(not(test))]
 fn open_download_stream(file: &ModelFile) -> Result<(impl std::io::Read, u64)> {
     use super::model_source::ModelSource;
     let source = ModelSource::configured().map_err(anyhow::Error::msg)?;
-    let request = ureq::get(source.url(file.repo, file.name));
+    let response = model_http_client(&source, std::time::Duration::from_secs(30))?
+        .get(source.url(file.repo, file.name))
+        .send()
+        .with_context(|| format!("downloading {} from {}", file.name, file.repo))?
+        .error_for_status()?;
+    anyhow::ensure!(
+        response.status().is_success(),
+        "unexpected model HTTP status {}",
+        response.status()
+    );
+    let total_bytes = response.content_length().unwrap_or(0);
+    Ok((response, total_bytes))
+}
+
+// The blocking client bounds the wait for headers and starts a fresh timeout on each
+// Response::read. A large file may take arbitrarily long while reads keep succeeding.
+#[cfg(any(not(test), debug_assertions))]
+fn model_http_client(
+    _source: &super::model_source::ModelSource,
+    read_timeout: std::time::Duration,
+) -> Result<reqwest::blocking::Client> {
+    let builder = reqwest::blocking::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(15))
+        .timeout(read_timeout);
     #[cfg(debug_assertions)]
-    let request = match source {
-        ModelSource::Fixture { .. } => request.config().proxy(None).max_redirects(0).build(),
-        ModelSource::Hub => request,
+    let builder = match _source {
+        super::model_source::ModelSource::Fixture { .. } => {
+            builder.no_proxy().redirect(reqwest::redirect::Policy::none())
+        }
+        super::model_source::ModelSource::Hub => builder,
     };
-    let response = request.call().map_err(|error| {
-        anyhow::anyhow!("downloading {} from {}: {error}", file.name, file.repo)
-    })?;
-    let total_bytes = response
-        .headers()
-        .get("content-length")
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.parse::<u64>().ok())
-        .unwrap_or(0);
-    Ok((response.into_body().into_reader(), total_bytes))
+    Ok(builder.build()?)
 }
 
 /// Deterministic offline stub for the download fetch (tests): streams the expected bytes.
@@ -542,7 +553,7 @@ fn open_download_stream(file: &ModelFile) -> Result<(impl std::io::Read, u64)> {
 /// Mirrors the real path's call graph — emit `file_started`, then run the SAME pure
 /// [`stream_to_file`] over an in-memory [`std::io::Cursor`] — so the consent/offline/cancel/verify/
 /// progress logic AND the streaming loop run end-to-end with no network. The manifest digests match
-/// these synthetic bytes; the real `ureq` path is compiled out under test.
+/// these synthetic bytes; the HTTP path is compiled out under test.
 #[cfg(test)]
 fn fetch_one_file(
     file: &ModelFile,

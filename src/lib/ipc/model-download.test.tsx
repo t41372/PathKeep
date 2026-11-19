@@ -2,7 +2,8 @@
  * How one attempt at the in-app model download ends, and which transfer a
  * window shows. Responsibilities: the orderings the desktop E2E cannot hold
  * still: a start reply that comes late, a refused start, a replaced
- * transfer's events arriving after its replacement's. Not responsible for the
+ * transfer's events arriving after its replacement's, a download that goes
+ * quiet for longer than the idle window and then ends. Not responsible for the
  * backend's transfers or the Settings copy (`tests/e2e/builtin-model.spec.ts`).
  *
  * Failure modes, written before the code:
@@ -36,7 +37,16 @@
  *   leaves the screen saying "Downloading" until the transfer stops; a
  *   refused Cancel or a save that still wants it says "Stopping"; the
  *   stopping state outlives the transfer's end; starting again while it
- *   stops shows the stopping transfer's bar as the new download's.
+ *   stops shows the stopping transfer's bar as the new download's;
+ * - which transfer is newer is guessed from what its event says: an older
+ *   transfer's `fileStarted`, sent late once its response arrives, takes the
+ *   place of the newer one, which is then ignored to its end; or a newer
+ *   transfer's progress is ignored because its first event was missed;
+ * - with nothing followed, a late event of a transfer older than one already
+ *   heard, or the backend's answer naming one, is taken up;
+ * - a download given up as silent that resumes and finishes stays "did not
+ *   finish", and its caller never hears that it finished (so its index is
+ *   never built); or its later error or cancellation is not shown.
  *
  * Only the event channel and the three commands are stand-ins; the module and
  * the React hook are real.
@@ -47,6 +57,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type {
   ModelDownloadProgressEvent,
   ModelDownloadState,
+  ModelDownloadTransfer,
 } from '@/lib/types'
 import type * as ModelDownload from './model-download'
 
@@ -61,7 +72,7 @@ const channel = vi.hoisted(() => {
 })
 
 const commands = vi.hoisted(() => ({
-  start: vi.fn<() => Promise<{ transferId: string }>>(),
+  start: vi.fn<() => Promise<ModelDownloadTransfer>>(),
   cancel: vi.fn<(transferId: string) => Promise<boolean>>(),
   state: vi.fn<() => Promise<ModelDownloadState | null>>(),
 }))
@@ -142,15 +153,20 @@ function start(wanted: () => Promise<boolean>) {
   return outcome
 }
 
-async function send(event: ModelDownloadProgressEvent) {
+const A = 'a'.repeat(32)
+const B = 'b'.repeat(32)
+/** The order the backend started them in: B after A. */
+const SEQ: Record<string, number> = { [A]: 1, [B]: 2 }
+
+type Unnumbered<T> = T extends unknown ? Omit<T, 'seq'> : never
+
+/** Sends an event on the channel, numbered with its transfer's `seq`. */
+async function send(event: Unnumbered<ModelDownloadProgressEvent>) {
   await act(async () => {
-    channel.send(event)
+    channel.send({ seq: SEQ[event.transferId], ...event })
     await Promise.resolve()
   })
 }
-
-const A = 'a'.repeat(32)
-const B = 'b'.repeat(32)
 const stillWanted = () => Promise.resolve(true)
 const noLongerWanted = () => Promise.resolve(false)
 
@@ -197,7 +213,7 @@ it('a start refused because a saved setting no longer wants the model ends as a 
 
 it('keeps the events sent before the start answers, for that transfer only', async () => {
   const view = await screen()
-  const reply = deferred<{ transferId: string }>()
+  const reply = deferred<ModelDownloadTransfer>()
   commands.start.mockReturnValue(reply.promise)
   const outcome = start(stillWanted)
   await flush()
@@ -206,7 +222,7 @@ it('keeps the events sent before the start answers, for that transfer only', asy
   await send(started(B))
   await send(progress(B, 400))
   await send({ transferId: B, kind: 'done' })
-  reply.resolve({ transferId: B })
+  reply.resolve({ transferId: B, seq: SEQ[B] })
   expect(await outcome).toEqual({ kind: 'done', transferId: B })
   await flush()
   expect(view()).toMatchObject({
@@ -218,7 +234,7 @@ it('keeps the events sent before the start answers, for that transfer only', asy
 
 it('a download waiting for an archive task is not given up as silent', async () => {
   const view = await screen()
-  commands.start.mockResolvedValue({ transferId: A })
+  commands.start.mockResolvedValue({ transferId: A, seq: SEQ[A] })
   const outcome = start(stillWanted)
   await flush()
   await send(progress(A, 500))
@@ -242,7 +258,7 @@ it('a download waiting for an archive task is not given up as silent', async () 
 
 it('gives up after the idle window, and a start reply that comes later changes nothing', async () => {
   const view = await screen()
-  const reply = deferred<{ transferId: string }>()
+  const reply = deferred<ModelDownloadTransfer>()
   commands.start.mockReturnValue(reply.promise)
   const outcome = start(stillWanted)
   await flush()
@@ -252,7 +268,7 @@ it('gives up after the idle window, and a start reply that comes later changes n
   })
   expect(await outcome).toEqual({ kind: 'silent' })
   expect(view()).toMatchObject({ phase: 'failed', failure: { kind: 'silent' } })
-  reply.resolve({ transferId: A })
+  reply.resolve({ transferId: A, seq: SEQ[A] })
   await flush()
   await send(started(A))
   await send(progress(A, 300))
@@ -264,8 +280,8 @@ it('gives up after the idle window, and a start reply that comes later changes n
 it('a replaced transfer’s late progress and cancellation leave the newer bar alone', async () => {
   const view = await screen()
   commands.start
-    .mockResolvedValueOnce({ transferId: A })
-    .mockResolvedValueOnce({ transferId: B })
+    .mockResolvedValueOnce({ transferId: A, seq: SEQ[A] })
+    .mockResolvedValueOnce({ transferId: B, seq: SEQ[B] })
   const first = start(stillWanted)
   await flush()
   await send(progress(A, 600))
@@ -317,7 +333,7 @@ it('a window that did not start the download follows the newer transfer and igno
 
 it('late progress or the end of a transfer this window never followed leaves the one it shows alone', async () => {
   const view = await screen()
-  commands.start.mockResolvedValue({ transferId: B })
+  commands.start.mockResolvedValue({ transferId: B, seq: SEQ[B] })
   const outcome = start(stillWanted)
   await flush()
   await send(progress(B, 200))
@@ -335,7 +351,7 @@ it('late progress or the end of a transfer this window never followed leaves the
 
 it('starting again while a download runs joins it and keeps the bar', async () => {
   const view = await screen()
-  commands.start.mockResolvedValue({ transferId: A })
+  commands.start.mockResolvedValue({ transferId: A, seq: SEQ[A] })
   const first = start(stillWanted)
   await flush()
   await send(started(A, 'tokenizer.json', 100))
@@ -358,20 +374,20 @@ it('starting again while a download runs joins it and keeps the bar', async () =
 
 it('Cancel pressed before the start answers cancels the transfer it names', async () => {
   await screen()
-  const reply = deferred<{ transferId: string }>()
+  const reply = deferred<ModelDownloadTransfer>()
   commands.start.mockReturnValue(reply.promise)
   commands.cancel.mockResolvedValue(true)
   void start(stillWanted)
   await flush()
   const cancelled = md.cancelModelDownload()
-  reply.resolve({ transferId: A })
+  reply.resolve({ transferId: A, seq: SEQ[A] })
   expect(await cancelled).toBe(true)
   expect(commands.cancel).toHaveBeenCalledWith(A)
 })
 
 it('a setup whose transfer another window replaced still learns it was cancelled', async () => {
   const view = await screen()
-  commands.start.mockResolvedValue({ transferId: A })
+  commands.start.mockResolvedValue({ transferId: A, seq: SEQ[A] })
   const outcome = start(stillWanted)
   await flush()
   await send(progress(A, 300))
@@ -391,6 +407,7 @@ const runningState = (
   done: number,
 ): ModelDownloadState => ({
   transferId,
+  seq: SEQ[transferId],
   phase: 'downloading',
   currentFile: 'model.safetensors',
   downloadedBytes: 100 + done,
@@ -484,14 +501,14 @@ it('the answer does not take over from a start this window sent', async () => {
   const answer = deferred<ModelDownloadState | null>()
   commands.state.mockReturnValue(answer.promise)
   const view = await screen()
-  const reply = deferred<{ transferId: string }>()
+  const reply = deferred<ModelDownloadTransfer>()
   commands.start.mockReturnValue(reply.promise)
   void start(stillWanted)
   await flush()
   answer.resolve(runningState(A, 500))
   await flush()
   expect(view()).toMatchObject({ phase: 'downloading', downloadedBytes: 0 })
-  reply.resolve({ transferId: B })
+  reply.resolve({ transferId: B, seq: SEQ[B] })
   await flush()
   await send(progress(B, 100))
   expect(view()).toMatchObject({ downloadedBytes: 100, totalBytes: 1000 })
@@ -499,7 +516,7 @@ it('the answer does not take over from a start this window sent', async () => {
 
 it('an accepted Cancel says the download is stopping until it ends; a refused one does not', async () => {
   const view = await screen()
-  commands.start.mockResolvedValue({ transferId: A })
+  commands.start.mockResolvedValue({ transferId: A, seq: SEQ[A] })
   const outcome = start(stillWanted)
   await flush()
   await send(progress(A, 500))
@@ -524,7 +541,7 @@ it('an accepted Cancel says the download is stopping until it ends; a refused on
 
 it('a saved setting that no longer wants the model says the download is stopping; one that still wants it does not', async () => {
   const view = await screen()
-  commands.start.mockResolvedValue({ transferId: A })
+  commands.start.mockResolvedValue({ transferId: A, seq: SEQ[A] })
   const outcome = start(stillWanted)
   await flush()
   await send(progress(A, 500))
@@ -540,7 +557,7 @@ it('a saved setting that no longer wants the model says the download is stopping
 
 it('starting again while a download stops shows the new one from nothing', async () => {
   const view = await screen()
-  commands.start.mockResolvedValueOnce({ transferId: A })
+  commands.start.mockResolvedValueOnce({ transferId: A, seq: SEQ[A] })
   void start(stillWanted)
   await flush()
   await send(progress(A, 500))
@@ -548,7 +565,7 @@ it('starting again while a download stops shows the new one from nothing', async
   await act(async () => {
     await md.cancelModelDownload()
   })
-  const reply = deferred<{ transferId: string }>()
+  const reply = deferred<ModelDownloadTransfer>()
   commands.start.mockReturnValueOnce(reply.promise)
   void start(stillWanted)
   expect(view()).toMatchObject({
@@ -556,7 +573,7 @@ it('starting again while a download stops shows the new one from nothing', async
     stopping: false,
     downloadedBytes: 0,
   })
-  reply.resolve({ transferId: B })
+  reply.resolve({ transferId: B, seq: SEQ[B] })
   await flush()
   await send({ transferId: B, kind: 'waiting', reason: 'previous-transfer' })
   await send({ transferId: A, kind: 'cancelled' })
@@ -565,4 +582,125 @@ it('starting again while a download stops shows the new one from nothing', async
     waitingFor: 'previous-transfer',
     downloadedBytes: 0,
   })
+})
+
+it('a window that knows the newest transfer ignores an older one’s late first event, and follows the newest to its end', async () => {
+  // B waits for A, which was cancelled while it waited for its response.
+  commands.state.mockResolvedValue({
+    transferId: B,
+    seq: SEQ[B],
+    phase: 'waiting',
+    reason: 'previous-transfer',
+    currentFile: null,
+    downloadedBytes: 0,
+    totalBytes: 0,
+    files: {},
+  })
+  const view = await screen()
+  expect(view()).toMatchObject({
+    phase: 'waiting',
+    waitingFor: 'previous-transfer',
+  })
+  // A's response arrives at last: it announces its file before it sees the cancel.
+  await send(started(A))
+  await send(progress(A, 10))
+  await send({ transferId: A, kind: 'cancelled' })
+  expect(view()).toMatchObject({
+    phase: 'waiting',
+    waitingFor: 'previous-transfer',
+    downloadedBytes: 0,
+  })
+  await send(started(B))
+  await send(progress(B, 300))
+  expect(view()).toMatchObject({
+    phase: 'downloading',
+    downloadedBytes: 300,
+    totalBytes: 1000,
+  })
+  await send({ transferId: B, kind: 'done' })
+  expect(view().phase).toBe('ready')
+})
+
+it('a newer transfer takes the place of the one followed whatever its first event heard here is', async () => {
+  const view = await screen()
+  await send(started(A))
+  await send(progress(A, 600))
+  // B's first events were missed.
+  await send(progress(B, 50))
+  expect(view()).toMatchObject({ phase: 'downloading', downloadedBytes: 50 })
+  await send(progress(A, 700))
+  expect(view()).toMatchObject({ downloadedBytes: 50 })
+})
+
+it('with nothing followed, a late event of a transfer older than one heard is not taken up', async () => {
+  const view = await screen()
+  await send(started(B))
+  await send(progress(B, 100))
+  await send({ transferId: B, kind: 'done' })
+  expect(view()).toMatchObject({ phase: 'ready', downloadedBytes: 100 })
+  await send(progress(A, 900))
+  expect(view()).toMatchObject({ phase: 'ready', downloadedBytes: 100 })
+})
+
+/**
+ * Starts a download of `transferId`, hears its first bytes, then lets the idle window pass.
+ * Returns how the transfer ends after all, wrapped: awaiting the bare promise would wait for it.
+ */
+async function stall(transferId: string) {
+  commands.start.mockResolvedValueOnce({ transferId, seq: SEQ[transferId] })
+  const outcome = start(stillWanted)
+  await flush()
+  await send(progress(transferId, 500))
+  await act(async () => {
+    vi.advanceTimersByTime(md.MODEL_DOWNLOAD_IDLE_TIMEOUT_MS)
+    await Promise.resolve()
+  })
+  const given = await outcome
+  if (given.kind !== 'silent' || !given.late)
+    throw new Error(`not given up with its end to come: ${given.kind}`)
+  return { late: given.late }
+}
+
+it('a download given up as silent that resumes and finishes is shown ready, and its caller hears it', async () => {
+  const view = await screen()
+  const { late } = await stall(A)
+  expect(view()).toMatchObject({ phase: 'failed', failure: { kind: 'silent' } })
+  // The connection comes back.
+  await send(progress(A, 1000))
+  expect(view()).toMatchObject({
+    phase: 'downloading',
+    downloadedBytes: 1000,
+    failure: null,
+  })
+  await send({ transferId: A, kind: 'done' })
+  expect(await late).toEqual({ kind: 'done', transferId: A })
+  expect(view()).toMatchObject({ phase: 'ready', failure: null })
+})
+
+it('a download given up as silent that then fails, or is cancelled, shows that', async () => {
+  const view = await screen()
+  const { late: failed } = await stall(A)
+  await send({ transferId: A, kind: 'error', message: 'connection reset' })
+  expect(await failed).toEqual({ kind: 'failed', message: 'connection reset' })
+  expect(view()).toMatchObject({
+    phase: 'failed',
+    failure: { kind: 'error', message: 'connection reset' },
+  })
+
+  const { late: cancelled } = await stall(B)
+  await send({ transferId: B, kind: 'cancelled' })
+  expect(await cancelled).toEqual({ kind: 'cancelled' })
+  expect(view()).toMatchObject({ phase: 'idle', failure: null })
+})
+
+it('an answer about a transfer older than one heard meanwhile is not taken up', async () => {
+  const answer = deferred<ModelDownloadState | null>()
+  commands.state.mockReturnValue(answer.promise)
+  const view = await screen()
+  await send(started(B))
+  await send({ transferId: B, kind: 'done' })
+  // Asked before B began; A is the transfer B replaced, still finishing.
+  answer.resolve(runningState(A, 500))
+  await flush()
+  expect(view()).toMatchObject({ phase: 'ready' })
 })

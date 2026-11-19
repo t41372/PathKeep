@@ -1370,15 +1370,16 @@ pub const MODEL_DOWNLOAD_PROGRESS_EVENT: &str = "pathkeep://model-download-progr
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ModelDownloadTransfer {
+    pub seq: u64,
     pub transfer_id: String,
 }
 
 impl ModelDownloadTransfer {
     /// Independent requests must never share a cancellation or progress identity.
-    pub fn fresh() -> anyhow::Result<Self> {
+    pub(crate) fn fresh(seq: u64) -> anyhow::Result<Self> {
         let mut bytes = [0; 16];
         getrandom::fill(&mut bytes)?;
-        Ok(Self { transfer_id: hex::encode(bytes) })
+        Ok(Self { transfer_id: hex::encode(bytes), seq })
     }
 }
 
@@ -1405,6 +1406,7 @@ pub enum ModelDownloadPhase {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ModelDownloadState {
+    pub seq: u64,
     pub transfer_id: String,
     #[serde(flatten)]
     pub phase: ModelDownloadPhase,
@@ -1418,6 +1420,7 @@ pub struct ModelDownloadState {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ModelDownloadProgressEvent {
+    pub seq: u64,
     pub transfer_id: String,
     #[serde(flatten)]
     pub update: ModelDownloadUpdate,

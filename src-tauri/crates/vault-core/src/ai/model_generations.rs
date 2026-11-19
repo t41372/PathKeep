@@ -185,7 +185,7 @@ pub(super) fn collect_previous(repo: &Path, previous: &Path) {
 /// Each path observed under the transfer registry stays pinned until we recheck the pointer.
 struct Bundles {
     current: PathBuf,
-    malformed: bool,
+    damaged_pointer: bool,
     candidates: Vec<PathBuf>,
     _pins: Vec<ModelDirectory>,
 }
@@ -213,8 +213,12 @@ impl Bundles {
             .chain((current != repo).then(|| repo.to_owned()))
             .map(|path| hold(path, &mut readers))
             .collect();
-        let malformed = current == repo && repo.join(POINTER).try_exists()?;
-        Ok(Self { current, malformed, candidates, _pins: pins })
+        let damaged_pointer = if current == repo {
+            repo.join(POINTER).try_exists()?
+        } else {
+            !current.try_exists()?
+        };
+        Ok(Self { current, damaged_pointer, candidates, _pins: pins })
     }
 
     fn verified(
@@ -226,7 +230,7 @@ impl Bundles {
     ) -> Result<Option<PathBuf>> {
         // An ordinary open with nothing to promote or retire needs no model bytes.
         if !install
-            && !self.malformed
+            && !self.damaged_pointer
             && self.candidates.is_empty()
             && (self.current == repo || !LEGACY_FILES.iter().any(|name| repo.join(name).is_file()))
         {
@@ -261,7 +265,11 @@ impl Bundles {
             publish(repo, next)?;
             collect_previous(repo, &self.current);
         }
-        if self.malformed && verified.is_none_or(|path| path == repo) {
+        // No replacement has been verified. Preserve every possible former selection.
+        if self.damaged_pointer && verified.is_none() {
+            return Ok(());
+        }
+        if self.damaged_pointer && self.current == repo && verified == Some(repo) {
             durable_io::remove_file_durably(&repo.join(POINTER))?;
         }
         for path in &self.candidates {
@@ -339,6 +347,11 @@ pub(super) fn resolve(
         };
         let setup = matches!(request, Request::Setup { .. });
         let may_promote = setup || crate::load_config(paths)?.ai.wants_builtin_model();
+        // A damaged pointer cannot distinguish a withdrawn candidate from the previously
+        // installed generation. With consent off, defer that decision to the next setup.
+        if bundles.damaged_pointer && !may_promote {
+            return Ok(Resolution::Missing);
+        }
         let verified =
             reservation.with_io(|_| bundles.verified(repo, files, setup, may_promote))?;
         let Some(archive) = request.gate(paths) else { return Ok(Resolution::Busy) };

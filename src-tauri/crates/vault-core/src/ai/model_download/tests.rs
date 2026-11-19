@@ -52,7 +52,7 @@ fn overlapping_model_starts_share_one_transfer_and_terminal_event() {
     assert_eq!(first_events, second_events);
     assert_eq!(first, second);
     let id = first["transferId"].as_str().expect("start returned a transfer ID");
-    assert_eq!(first_events, [json!({"kind":"done", "transferId":id})]);
+    assert_eq!(first_events, [json!({"kind":"done", "transferId":id,"seq":first["seq"]})]);
     assert!(!cancel_model_download(id), "finished transfer still accepts cancellation");
 }
 
@@ -63,9 +63,11 @@ fn cancelling_then_restarting_a_model_keeps_both_outcomes_scoped() {
     let (sink, events) = mpsc::channel();
     let broadcast = move |event| sink.send(serde_json::to_value(event).unwrap()).unwrap();
     let first = start(&paths, broadcast.clone());
+    let old_state = serde_json::to_value(state_for(&paths, REPO).unwrap()).unwrap();
     let old_id = first["transferId"].as_str().expect("start returned a transfer ID");
     assert!(cancel_model_download(old_id));
     let next = start(&paths, broadcast);
+    let new_state = serde_json::to_value(state_for(&paths, REPO).unwrap()).unwrap();
     let stale_accepted = cancel_model_download(old_id);
     drop(gate);
     let events: Vec<_> = events.into_iter().filter(|e| e["kind"] != "waiting").collect();
@@ -76,10 +78,18 @@ fn cancelling_then_restarting_a_model_keeps_both_outcomes_scoped() {
     );
     let new_id = next["transferId"].as_str().unwrap();
     assert_ne!(new_id, old_id);
+    let old_seq = old_state["seq"].as_u64().expect("old transfer sequence");
+    let new_seq = new_state["seq"].as_u64().expect("replacement sequence");
+    assert!(new_seq > old_seq);
+    assert_eq!(first["seq"], old_seq);
+    assert_eq!(next["seq"], new_seq);
     assert!(!stale_accepted);
     assert_eq!(events.len(), 2);
-    assert!(events.contains(&json!({"kind":"done","transferId":new_id})));
-    assert!(events.contains(&json!({"kind":"cancelled", "transferId":old_id})), "{events:?}");
+    assert!(events.contains(&json!({"kind":"done","transferId":new_id,"seq":new_seq})));
+    assert!(
+        events.contains(&json!({"kind":"cancelled", "transferId":old_id,"seq":old_seq})),
+        "{events:?}"
+    );
     assert!(!cancel_model_download(new_id));
 }
 
@@ -88,7 +98,10 @@ fn model_file_progress_identifies_the_transfer_on_every_phase() {
     let (sink, events) = mpsc::channel();
     let mut progress = EmitProgress {
         emit: move |event| sink.send(serde_json::to_value(event).unwrap()).unwrap(),
-        transfer: Arc::new(Transfer::new(ModelDownloadTransfer { transfer_id: "fixture".into() })),
+        transfer: Arc::new(Transfer::new(ModelDownloadTransfer {
+            transfer_id: "fixture".into(),
+            seq: 7,
+        })),
     };
     progress.file_started("weights", 42);
     progress.file_progress("weights", 11, 42);
@@ -97,9 +110,9 @@ fn model_file_progress_identifies_the_transfer_on_every_phase() {
     assert_eq!(
         events.into_iter().collect::<Vec<_>>(),
         [
-            json!({"transferId":"fixture","kind":"fileStarted","file":"weights","totalBytes":42}),
-            json!({"transferId":"fixture","kind":"fileProgress","file":"weights","downloadedBytes":11,"totalBytes":42}),
-            json!({"transferId":"fixture","kind":"fileFinished","file":"weights"}),
+            json!({"transferId":"fixture","seq":7,"kind":"fileStarted","file":"weights","totalBytes":42}),
+            json!({"transferId":"fixture","seq":7,"kind":"fileProgress","file":"weights","downloadedBytes":11,"totalBytes":42}),
+            json!({"transferId":"fixture","seq":7,"kind":"fileFinished","file":"weights"}),
         ]
     );
 }
@@ -169,7 +182,10 @@ fn save_during_verified_transfer(change: impl FnOnce(&mut crate::AppConfig), can
     let events: Vec<_> = rx.into_iter().filter(|e| e["kind"] != "waiting").collect();
     assert_eq!(events.len(), 1);
     let kind = if cancelled { "cancelled" } else { "done" };
-    assert_eq!(events[0], json!({"kind":kind, "transferId":transfer.transfer_id}));
+    assert_eq!(
+        events[0],
+        json!({"kind":kind, "transferId":transfer.transfer_id,"seq":transfer.seq})
+    );
     assert_eq!(std::fs::read(repo.join("current")).unwrap(), pointer);
     assert!(crate::model_is_present_and_verified(&installed, DOWNLOAD_FILES));
     if cancelled {
@@ -442,7 +458,7 @@ fn replacement_waits_for_cancelled_candidate_and_response() {
     assert_eq!(rx.into_iter().last().unwrap().update, ModelDownloadUpdate::Done);
     assert_eq!(
         first_event,
-        json!({"kind":"waiting","reason":"previous-transfer","transferId":second.transfer_id})
+        json!({"kind":"waiting","reason":"previous-transfer","transferId":second.transfer_id,"seq":second.seq})
     );
 }
 
@@ -459,7 +475,7 @@ fn archive_gate_wait_reports_the_transfer_before_the_gate_opens() {
     assert_eq!(rx.into_iter().last().unwrap()["kind"], "done");
     assert_eq!(
         waiting.expect("silent archive wait"),
-        json!({"kind":"waiting","reason":"archive-busy","transferId":start["transferId"]})
+        json!({"kind":"waiting","reason":"archive-busy","transferId":start["transferId"],"seq":start["seq"]})
     );
 }
 
@@ -485,7 +501,8 @@ fn a_failed_directory_sync_applies_the_visible_config_and_cancels() {
 
 #[test]
 fn model_download_state_preserves_per_file_counts_across_waits() {
-    let transfer = Arc::new(Transfer::new(ModelDownloadTransfer { transfer_id: "fixture".into() }));
+    let transfer =
+        Arc::new(Transfer::new(ModelDownloadTransfer { transfer_id: "fixture".into(), seq: 7 }));
     let mut progress = EmitProgress { emit: |_| {}, transfer: transfer.clone() };
     progress.file_started("config", 3);
     progress.file_progress("config", 3, 3);
@@ -493,9 +510,9 @@ fn model_download_state_preserves_per_file_counts_across_waits() {
     progress.file_started("weights", 0);
     progress.file_progress("weights", 11, 0);
     progress.waiting(crate::ModelDownloadWait::ArchiveBusy);
-    let read = || serde_json::to_value(transfer.progress().snapshot("fixture")).unwrap();
+    let read = || serde_json::to_value(transfer.progress().snapshot(&transfer.identity)).unwrap();
     let mut expected = json!({
-        "transferId":"fixture", "phase":"waiting","reason":"archive-busy", "currentFile":"weights",
+        "transferId":"fixture","seq":7, "phase":"waiting","reason":"archive-busy", "currentFile":"weights",
         "downloadedBytes":14, "totalBytes":3,
         "files":{"config":{"downloadedBytes":3,"totalBytes":3},"weights":{"downloadedBytes":11,"totalBytes":0}}
     });
