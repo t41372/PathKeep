@@ -13,50 +13,47 @@
  * - Settings → Storage makes a safety copy on request: the check says where it
  *   goes and what it holds, and the copy is listed as made by you;
  * - while conversations can't be read, a safety copy can still be made; the
- *   dialog says beforehand that it can't repair conversations, and the copy
- *   is listed with that mark;
+ *   dialog says beforehand what such a copy can and can't be sure to do,
+ *   and the copy is listed with that mark;
  * - moving the archive to another computer is refused with nothing written,
  *   and the refusal leads to the repair;
- * - checking the damaged files offers to start over, says how many
- *   conversations that would lose, and lists the copies: the one made during
- *   the damage can't be chosen and says why;
+ * - checking the damaged files offers to start over and says plainly that
+ *   how many conversations it would lose can't be counted (never 0), and
+ *   points to the copies listed below;
+ * - the copy made during the damage can be chosen, says how it was made,
+ *   and its check refuses it because nothing in it verifies;
  * - the earlier copy asks for its own password, says when it's wrong, and
- *   then holds exactly the conversations starting over would lose;
+ *   then brings back more than starting over would, at least every
+ *   conversation the archive held;
  * - after the repair the conversations are back, the archive's current
  *   password still opens it and the copy's no longer does, the result says
  *   to choose folders again, and a move is no longer refused;
  * - Restore from a safety copy marks the copy made during the damage and
- *   says what it can and can't do.
+ *   says that a restore brings back browsing history only.
  */
 import { existsSync, mkdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
 import { agentOverview, conversationsText, count } from './support/agent-backup'
-import { unlockIfLocked } from './support/app'
 import {
   ARCHIVE_PASSWORD,
   agentKind,
   conversationFile,
   openAgentBackup,
+  openStorage,
   opensArchive,
   overwriteWhole,
   recoveryCopies,
   rekey,
   repairDialog,
   repairPlan,
+  startExport,
   withArchiveStopped,
 } from './support/conversation-damage'
 import { fixture, openArchiveVisitTotal, parseCount } from './support/fixture'
 
 /** The password the archive has between the first copy and the end of the spec. */
 const LATER_PASSWORD = 'harbour lights at dusk'
-const FILE_PASSWORD = 'a file for the other computer'
-
-async function openStorage(page: Page) {
-  await page.goto('/#/settings/storage')
-  await unlockIfLocked(page)
-  await expect(page.getByRole('button', { name: 'Make a copy…' })).toBeVisible()
-}
 
 /** Makes a safety copy through Settings → Storage and returns the new copy's path. */
 async function makeSafetyCopy(page: Page, unreadable: boolean) {
@@ -68,7 +65,7 @@ async function makeSafetyCopy(page: Page, unreadable: boolean) {
     'It holds everything in the archive as it is now: browsing history and any saved Agent conversations.',
   )
   const warning = dialog.getByText(
-    'Saved Agent conversations can’t be read right now. The copy keeps their files exactly as they are and can restore browsing history, but it can’t be used to repair conversations.',
+    'Saved Agent conversations can’t be read right now. The copy keeps their files exactly as they are. It can restore browsing history; whether it can help repair the conversations is checked when you choose it in a repair.',
   )
   await expect(warning).toHaveCount(unreadable ? 1 : 0)
   await dialog.getByRole('button', { name: 'Make the copy' }).click()
@@ -84,21 +81,6 @@ async function makeSafetyCopy(page: Page, unreadable: boolean) {
     verifiedOpenable: true,
   })
   return made[0].path
-}
-
-/** Starts a move to another computer through Settings → Storage. */
-async function startExport(page: Page, file: string) {
-  await page
-    .getByText('Move to another computer', { exact: true })
-    .locator('xpath=../..')
-    .getByRole('button', { name: 'Export…' })
-    .click()
-  const dialog = page.getByRole('dialog')
-  await dialog.getByLabel('Save to').fill(file)
-  await dialog.getByLabel('Password for this file').fill(FILE_PASSWORD)
-  await dialog.getByLabel('Type it again').fill(FILE_PASSWORD)
-  await dialog.getByRole('button', { name: 'Export', exact: true }).click()
-  return dialog
 }
 
 test('conversations whose file is damaged come back from a safety copy under an older password', async ({
@@ -159,7 +141,8 @@ test('conversations whose file is damaged come back from a safety copy under an 
   await expect(dialog).toBeVisible()
   expect(page.url()).toContain('#/settings/storage')
 
-  // The damaged files alone: start over, and lose what only they held.
+  // The damaged files alone: start over. Nothing in them lists what they
+  // held, so what would be lost can't be counted, and the plan says so.
   const plan = repairPlan(page)
   await expect(plan).toHaveAttribute('data-repair-action', 'startFresh', {
     timeout: 180_000,
@@ -169,10 +152,18 @@ test('conversations whose file is damaged come back from a safety copy under an 
       name: 'Start over with what still checks out',
     }),
   ).toBeVisible()
-  const lost = parseCount(
-    await plan.getByText(/can’t be brought back\./).innerText(),
+  const back = parseCount(
+    await plan.getByText(/^\d[\d,]* conversations? comes? back\.$/).innerText(),
   )
-  expect(lost).toBeGreaterThan(0)
+  await expect(
+    plan.getByText(
+      'How many can’t be brought back can’t be counted: the damaged files can’t be listed.',
+    ),
+  ).toBeVisible()
+  await expect(plan).not.toContainText('Every conversation comes back.')
+  await expect(plan.getByText(/can’t be brought back\. They stay/)).toHaveCount(
+    0,
+  )
   await expect(
     plan.getByText(
       'Conversations the tools have already deleted come back only if they checked out above.',
@@ -185,17 +176,29 @@ test('conversations whose file is damaged come back from a safety copy under an 
   ).toBeVisible()
   await expect(dialog.getByRole('button', { name: 'Start over' })).toBeEnabled()
 
-  // The copies: the one made during the damage is listed but can't be chosen.
+  // The copies, with a pointer to them: something may stay behind.
+  await expect(dialog.locator('[data-suggest-copies]')).toHaveText(
+    'Some conversations, or their latest messages, may not come back from the damaged files. A safety copy below may still hold them: choose one and check it before you start over.',
+  )
   const sources = dialog.getByRole('radiogroup', {
     name: 'Bring conversations back from',
   })
   await expect(
     sources.getByRole('radio', { name: /^The damaged files/ }),
   ).toBeChecked()
+  const check = dialog.getByRole('button', { name: 'Check this copy' })
+
+  // The copy made during the damage can be checked; nothing in it verifies.
   const markedRow = sources.locator(`[data-copy-path="${marked}"]`)
-  await expect(markedRow.getByRole('radio')).toBeDisabled()
+  await expect(markedRow.getByRole('radio')).toBeEnabled()
   await expect(markedRow).toContainText(
-    'Conversations couldn’t be read when this copy was made, so it can’t repair them.',
+    'Conversations couldn’t be read when this copy was made. Checking it shows whether the conversations it holds still check out.',
+  )
+  await markedRow.click()
+  await check.click()
+  await expect(dialog.locator('[data-repair-error]')).toHaveText(
+    'None of the saved conversations in this copy check out, so it can’t repair them. Choose another copy.',
+    { timeout: 180_000 },
   )
   const goodRow = sources.locator(`[data-copy-path="${good}"]`)
   await expect(goodRow).toContainText('Made by you')
@@ -207,7 +210,6 @@ test('conversations whose file is damaged come back from a safety copy under an 
   // The earlier copy asks for the password it was made under.
   await goodRow.click()
   await expect(plan).toHaveCount(0)
-  const check = dialog.getByRole('button', { name: 'Check this copy' })
   await check.click()
   await expect(
     dialog.getByText(
@@ -232,9 +234,14 @@ test('conversations whose file is damaged come back from a safety copy under an 
     }),
   ).toBeVisible()
   await expect(plan).toContainText('Made by you · ')
-  // What starting over would lose is what the copy holds.
+  // The copy brings back more than starting over: every conversation the
+  // archive held (subagents count as conversations here, so at least that).
   const held = parseCount(await plan.getByText(/^The copy holds /).innerText())
-  expect(held, 'the copy holds what starting over would lose').toBe(lost)
+  expect(
+    held,
+    'the copy holds every saved conversation',
+  ).toBeGreaterThanOrEqual(before)
+  expect(held, 'more than starting over brings back').toBeGreaterThan(back)
   const keptAs = await plan.locator('[data-kept-as]').innerText()
   await testInfo.attach('the copy plan', {
     body: await page.screenshot(),
@@ -296,7 +303,7 @@ test('conversations whose file is damaged come back from a safety copy under an 
   await markedChoice.click()
   await expect(
     restore.getByText(
-      'Saved Agent conversations couldn’t be read when this copy was made. It restores browsing history like any other copy, but it can’t be used to repair conversations.',
+      'Saved Agent conversations couldn’t be read when this copy was made. That doesn’t matter here: a restore brings back browsing history only.',
     ),
   ).toBeVisible()
   await restore.getByRole('button', { name: 'Cancel' }).click()

@@ -48,11 +48,26 @@ export interface RepairPreview {
   /** Conversations readable after the repair, a decimal string. */
   conversations: string
   /**
-   * `startFresh` only: conversations the damaged files hold that do not come
-   * back, a decimal string; `null` when that cannot be counted. Not used by
-   * the other two actions, which leave it `null` too.
+   * `startFresh` only, like the next two: of `conversations`, those that come
+   * back with their latest saved version. A decimal string; `null` when the
+   * damaged files don't show what the latest versions were. The actions that
+   * don't compare leave all three `null`.
    */
+  conversationsRecoveredWhole: string | null
+  /**
+   * Of `conversations`, those that come back only as an older saved version:
+   * their latest messages stay in the kept copy of the damaged files.
+   */
+  conversationsRecoveredPartially: string | null
+  /** Conversations the damaged files hold that don't come back at all; `null` when that can't be counted. */
   conversationsOnlyInCopy: string | null
+  /**
+   * Single details (a star, a title, which file a conversation came from)
+   * that didn't verify and are left out. A decimal string, any action.
+   */
+  skippedOptionalRecords: string
+  /** Whole lists of such details, or inventories, that couldn't be read at all. */
+  unreadableOptionalSections: string
   /** Where what the repair replaces is kept, as a listed safety copy. */
   keptAs: string
   /** The repair ends this computer's folder approval: the folders are chosen again before the next backup. */
@@ -82,11 +97,19 @@ export interface SafetyCopyPreview {
 /** Move export, move import and changing encryption refuse with this while conversations cannot be read. */
 export const CONVERSATION_REPAIR_REQUIRED = 'conversation-repair-required'
 
+/**
+ * The same operations, and the repair check, refuse with this while the
+ * system refuses access to the conversation files for now: not damage, so
+ * not repaired; "Try again" (`retry_agent_store`) once access is back.
+ */
+export const CONVERSATION_ACCESS_UNAVAILABLE = 'conversation-access-unavailable'
+
 /** The refusals the repair and the safety copy answer with (`command_error.rs`). */
 export const REPAIR_ERROR_CODES = [
   'conversation-repair-preview-stale',
   'conversation-preservation-failed',
-  'conversation-copy-unreadable-at-creation',
+  'conversation-access-unavailable',
+  'conversation-copy-no-verified-evidence',
   'conversation-copy-not-listed',
   'conversation-copy-incomplete',
   'conversation-copy-invalid-seal',
@@ -110,10 +133,13 @@ export const agentRepairClient = {
     call<RepairPreview>('preview_agent_history_repair', {
       request: source,
     }),
-  /** Installs the prepared repair. Send the same source as its preview. */
-  repair: (source: RepairSource, previewToken: string) =>
+  /**
+   * Installs the prepared repair. Only the copy and the token: the check
+   * already opened the copy, so its password is not sent again.
+   */
+  repair: (copyPath: string | undefined, previewToken: string) =>
     call<RepairResult>('repair_agent_history', {
-      request: { ...source, previewToken },
+      request: copyPath ? { copyPath, previewToken } : { previewToken },
     }),
   /** What a safety copy made now would hold, and where it would go. Reads only. */
   previewSafetyCopy: () =>

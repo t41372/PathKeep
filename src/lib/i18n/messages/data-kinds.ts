@@ -105,6 +105,9 @@ export const dataKinds = defineMessages({
         write: 'Found while saving to it.',
       },
       notAffected: 'Browsing history is not affected.',
+      accessDenied:
+        'PathKeep isn’t allowed to read their files right now. Nothing is damaged: once the files can be read again, for example after their permissions are fixed, choose Try again.',
+      busy: 'Their files are in use right now. Nothing is damaged: try again in a moment.',
       retry: 'Try again',
       retryFailed: 'Couldn’t try again',
     },
@@ -198,6 +201,9 @@ export const dataKinds = defineMessages({
         write: '在写入时发现的。',
       },
       notAffected: '浏览记录不受影响。',
+      accessDenied:
+        'PathKeep 现在没有读取它们文件的权限。文件没有坏：等能读取了（例如修好权限之后），点「再试一次」。',
+      busy: '它们的文件现在正被占用。文件没有坏：过一会儿再试一次。',
       retry: '再试一次',
       retryFailed: '没能再试一次',
     },
@@ -290,6 +296,9 @@ export const dataKinds = defineMessages({
         write: '在寫入時發現的。',
       },
       notAffected: '瀏覽紀錄不受影響。',
+      accessDenied:
+        'PathKeep 現在沒有讀取它們檔案的權限。檔案沒有壞：等能讀取了（例如修好權限之後），按「再試一次」。',
+      busy: '它們的檔案現在正被佔用。檔案沒有壞：過一會兒再試一次。',
       retry: '再試一次',
       retryFailed: '沒能再試一次',
     },

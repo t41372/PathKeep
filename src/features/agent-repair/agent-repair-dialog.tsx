@@ -34,6 +34,7 @@ import { useI18n } from '@/lib/i18n'
 import { useAgentKind } from '@/lib/queries/agent-backup'
 import { spaceBackupPath } from '@/lib/spaces'
 import { useAgentRepairParam } from './links'
+import { startOverLeavesSomething } from './repair-counts'
 import { repairErrorIs, repairErrorText } from './repair-errors'
 import { RepairPlan } from './repair-plan'
 import { RepairResult } from './repair-result'
@@ -159,6 +160,10 @@ function RepairFlow({
                 chosen={flow.chosen}
                 onChoose={flow.choose}
                 disabled={busy}
+                suggestCopies={
+                  flow.prepared !== null &&
+                  startOverLeavesSomething(flow.prepared)
+                }
                 asked={flow.asked}
                 passwords={flow.passwords}
                 onPassword={flow.setPassword}

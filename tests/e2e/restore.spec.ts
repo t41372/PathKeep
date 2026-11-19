@@ -121,7 +121,7 @@ test('a restore keeps the archive password and can itself be undone', async ({
   heal = injectFault('native-seal-before-restore')
   try {
     await restore.click()
-    await expect(page.getByText('Archive restored.')).toBeVisible({
+    await expect(page.getByText('Browsing history restored.')).toBeVisible({
       timeout: 300_000,
     })
     await expect(page.getByText(COPY_UNCHECKED)).toBeVisible()
@@ -160,7 +160,7 @@ test('a restore keeps the archive password and can itself be undone', async ({
   await page.waitForTimeout(Math.max(0, 21_000 - (Date.now() - warnedAt)))
   const warning = page
     .locator('[data-sonner-toast]')
-    .filter({ hasText: 'Archive restored.' })
+    .filter({ hasText: 'Browsing history restored.' })
   await expect(warning.getByText(COPY_UNCHECKED)).toBeVisible()
   await warning.getByRole('button', { name: 'Close' }).click()
   await expect(warning).toHaveCount(0)
@@ -172,7 +172,7 @@ test('a restore keeps the archive password and can itself be undone', async ({
   await beforeRestore.click()
   await undo.getByLabel('Password of this copy').fill(CURRENT)
   await undo.getByRole('button', { name: 'Restore', exact: true }).click()
-  await expect(page.getByText('Archive restored.')).toBeVisible({
+  await expect(page.getByText('Browsing history restored.')).toBeVisible({
     timeout: 300_000,
   })
   await expect(page.getByText(COPY_UNCHECKED)).toHaveCount(0)

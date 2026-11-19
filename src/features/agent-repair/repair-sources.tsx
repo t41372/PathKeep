@@ -1,9 +1,15 @@
 /**
  * Where saved conversations come back from, when the file that holds them is
  * damaged: what still checks out in the damaged files, or one of the safety
- * copies. Every listed copy is shown; one made while conversations couldn't
- * be read, or never checked, is there but can't be chosen, and says why. A
- * copy whose check asked for its own password gets a field for it.
+ * copies. Every listed copy is shown, newest first:
+ * - one that was never checked (not sealed) is there but can't be chosen,
+ *   and says why;
+ * - one made while conversations couldn't be read says so and can be
+ *   chosen: the check finds out whether what it holds still verifies;
+ * - one PathKeep kept when a conversation file disappeared holds saved
+ *   conversations only, and says so.
+ * A copy whose check asked for its own password gets a field for it. When
+ * starting over would leave something behind, a line points to the copies.
  *
  * Choosing a row only selects it; the dialog's main button checks it.
  */
@@ -12,7 +18,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { Skeleton } from '@/components/ui/skeleton'
-import { copyLabelKey } from '@/features/settings/copy-label'
+import { copyLabelKey, HELD_COPY } from '@/features/settings/copy-label'
 import { archiveClient } from '@/lib/backend-client/archive'
 import { describeError } from '@/lib/errors'
 import { useFormat, useI18n, type MessageKey } from '@/lib/i18n'
@@ -25,10 +31,19 @@ const valueOf = (source: SourceChoice) =>
 const sourceOf = (value: string): SourceChoice =>
   value === LOCAL_VALUE ? LOCAL : { kind: 'copy', path: value.slice(5) }
 
+/** A full copy that opens, or a kept conversation file: the copies a repair can check. */
+const listed = (copy: RecoverySnapshot) =>
+  copy.verifiedOpenable || copy.sourceOp === HELD_COPY
+
 /** Why a listed copy can't be a source; `null` when it can. */
 function unusable(copy: RecoverySnapshot): MessageKey | null {
-  if (copy.conversationsUnreadable) return 'agentRepair.sources.unreadable'
-  if (copy.unchecked) return 'agentRepair.sources.unchecked'
+  return copy.unchecked ? 'agentRepair.sources.unchecked' : null
+}
+
+/** What else a person should know about a copy before checking it. */
+function note(copy: RecoverySnapshot): MessageKey | null {
+  if (copy.sourceOp === HELD_COPY) return 'agentRepair.sources.held'
+  if (copy.conversationsUnreadable) return 'agentRepair.sources.marked'
   return null
 }
 
@@ -38,7 +53,7 @@ const newestFirst = (a: RecoverySnapshot, b: RecoverySnapshot) =>
 function CopyRow({ copy }: { copy: RecoverySnapshot }) {
   const { t } = useI18n()
   const format = useFormat()
-  const reason = unusable(copy)
+  const remark = unusable(copy) ?? note(copy)
   const id = `repair-source-${encodeURIComponent(copy.path)}`
   return (
     <Label
@@ -49,7 +64,7 @@ function CopyRow({ copy }: { copy: RecoverySnapshot }) {
       <RadioGroupItem
         id={id}
         value={valueOf({ kind: 'copy', path: copy.path })}
-        disabled={reason !== null}
+        disabled={unusable(copy) !== null}
         className="mt-0.5"
       />
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
@@ -67,8 +82,8 @@ function CopyRow({ copy }: { copy: RecoverySnapshot }) {
             format.bytes(copy.sizeBytes),
           ].join(' · ')}
         </span>
-        {reason && (
-          <span className="text-xs text-muted-foreground">{t(reason)}</span>
+        {remark && (
+          <span className="text-xs text-muted-foreground">{t(remark)}</span>
         )}
       </span>
     </Label>
@@ -79,6 +94,7 @@ export function RepairSources({
   chosen,
   onChoose,
   disabled,
+  suggestCopies,
   asked,
   passwords,
   onPassword,
@@ -86,6 +102,8 @@ export function RepairSources({
   chosen: SourceChoice
   onChoose: (source: SourceChoice) => void
   disabled: boolean
+  /** Starting over would leave conversations, or their latest messages, behind, or can't tell. */
+  suggestCopies: boolean
   /** Copies whose check asked for their own password. */
   asked: ReadonlySet<string>
   passwords: Record<string, string>
@@ -97,9 +115,7 @@ export function RepairSources({
     queryFn: archiveClient.listRecoverySnapshots,
     staleTime: 0,
   })
-  const copies = (list.data ?? [])
-    .filter((copy) => copy.verifiedOpenable)
-    .sort(newestFirst)
+  const copies = (list.data ?? []).filter(listed).sort(newestFirst)
   const choosable = copies.filter((copy) => unusable(copy) === null)
   const passwordFor =
     chosen.kind === 'copy' && asked.has(chosen.path) ? chosen.path : null
@@ -112,6 +128,11 @@ export function RepairSources({
       <h3 id="repair-sources-title" className="text-sm font-medium">
         {t('agentRepair.sources.title')}
       </h3>
+      {suggestCopies && choosable.length > 0 && (
+        <p data-suggest-copies className="text-[13px] text-muted-foreground">
+          {t('agentRepair.sources.suggest')}
+        </p>
+      )}
       <RadioGroup
         value={valueOf(chosen)}
         onValueChange={(value) => onChoose(sourceOf(value))}

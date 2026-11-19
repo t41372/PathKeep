@@ -285,6 +285,7 @@ export default defineConfig({
         'repair-1-rebuild.spec.ts',
         'repair-2-from-copy.spec.ts',
         'repair-3-start-fresh.spec.ts',
+        'repair-4-access-denied.spec.ts',
       ],
       'free-space',
     ),

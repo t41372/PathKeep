@@ -7,6 +7,7 @@
  * Not responsible for: what the dialog does next (`use-agent-repair.ts`).
  */
 import {
+  CONVERSATION_ACCESS_UNAVAILABLE,
   CONVERSATION_REPAIR_REQUIRED,
   type RepairErrorCode,
 } from '@/lib/backend-client/agent-repair'
@@ -17,8 +18,9 @@ import { commandErrorCode } from '@/lib/ipc/command-error'
 /** Codes that are said in a sentence of their own. */
 const plain: Partial<Record<RepairErrorCode, MessageKey>> = {
   'conversation-repair-preview-stale': 'agentRepair.errors.stale',
-  'conversation-copy-unreadable-at-creation':
-    'agentRepair.errors.copyUnreadable',
+  'conversation-access-unavailable': 'agentRepair.errors.accessDenied',
+  'conversation-copy-no-verified-evidence':
+    'agentRepair.errors.noVerifiedEvidence',
   'conversation-copy-not-listed': 'agentRepair.errors.copyNotListed',
   'conversation-copy-incomplete': 'agentRepair.errors.copyIncomplete',
   'conversation-schema-too-new': 'agentRepair.errors.schemaTooNew',
@@ -46,6 +48,11 @@ function codeOf(error: unknown) {
 /** Whether a failed move or encryption change waits for a conversation repair. */
 export function needsConversationRepair(error: unknown) {
   return commandErrorCode(error) === CONVERSATION_REPAIR_REQUIRED
+}
+
+/** Whether it waits for the system to let PathKeep read the conversation files again. */
+export function needsConversationAccess(error: unknown) {
+  return commandErrorCode(error) === CONVERSATION_ACCESS_UNAVAILABLE
 }
 
 /** The error's code when it is one of `codes`. */

@@ -18,9 +18,10 @@
  *   file and when it was found;
  * - turning encryption on is refused while conversations can't be read, and
  *   the refusal leads to the repair;
- * - the repair offers to start over, says every conversation comes back and
- *   that the next backup saves the tools' files again, and asks to choose
- *   the folders again;
+ * - the repair offers to start over and says every conversation comes back,
+ *   all of them complete (none without its latest messages), so it doesn't
+ *   point to the safety copies; that the next backup saves the tools' files
+ *   again; and asks to choose the folders again;
  * - afterwards the backup page shows the conversations it showed before, and
  *   encryption can be turned on again.
  */
@@ -133,7 +134,16 @@ test('conversations whose backup records are damaged all come back when starting
     await plan.getByText(/^\d[\d,]* conversations? comes? back\.$/).innerText(),
   )
   expect(back).toBeGreaterThan(0)
+  // Every revision still verifies: all of them complete, none left behind,
+  // so nothing points to the copies.
+  await expect(
+    plan.getByText(
+      'All of them come back complete, with their latest messages.',
+    ),
+  ).toBeVisible()
   await expect(plan.getByText('Every conversation comes back.')).toBeVisible()
+  await expect(plan.locator('[data-partial]')).toHaveCount(0)
+  await expect(dialog.locator('[data-suggest-copies]')).toHaveCount(0)
   await expect(
     plan.getByText(
       'The next backup saves again every conversation still in the tools’ folders.',

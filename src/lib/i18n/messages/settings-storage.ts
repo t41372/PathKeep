@@ -52,6 +52,9 @@ export const settingsStorage = defineMessages({
       copyMade: 'Made {date}',
       notRestorable: 'Can’t be restored from',
       copyWarning: 'You can’t restore from a safety copy once it’s deleted.',
+      conversationsOnly: 'Saved Agent conversations only, for a repair',
+      heldWarning:
+        'A copy kept when a conversation file went missing may hold the only saved version of some conversations. Once it’s deleted, a repair can’t bring them back from it.',
       noCopyLeft:
         'No safety copy will be left to restore from. Your history itself stays.',
       delete: 'Delete {size}',
@@ -158,7 +161,7 @@ export const settingsStorage = defineMessages({
       action: 'Choose…',
       title: 'Restore from a safety copy',
       intro:
-        'Your archive goes back to how it was when the copy was made. Its password and encryption stay as they are now.',
+        'Browsing history goes back to how it was when the copy was made. Saved Agent conversations aren’t touched. The archive’s password and encryption stay as they are now.',
       loadFailed: 'Could not list the safety copies. {message}',
       empty: 'There are no safety copies yet.',
       op: {
@@ -169,24 +172,25 @@ export const settingsStorage = defineMessages({
         periodic: 'Regular copy',
         manual: 'Made by you',
         agentRepair: 'Before a conversation repair',
+        heldGeneration: 'Kept when a conversation file went missing',
         unknown: 'Safety copy',
       },
       password: 'Password of this copy',
       passwordHint:
         'The password the archive had when this copy was made. Your current password stays.',
       encryptsCopy:
-        'This copy was made before encryption was turned on. It is encrypted with your current password as it is restored, which takes longer.',
+        'This copy was made before encryption was turned on. Its browsing history is encrypted with your current password as it is restored, which takes longer.',
       staysUnencrypted:
-        'Your archive isn’t encrypted, so this copy is restored unencrypted, like the rest of your archive.',
+        'Your archive isn’t encrypted, so this copy’s browsing history is restored unencrypted, like the rest of your archive.',
       warning:
-        'Anything added since then is not in the copy. Your current archive is kept as a safety copy you can go back to. It takes about as much disk space as the archive; Free up space can delete it.',
+        'Browsing history added since then isn’t in the copy. Your current browsing history is kept as a safety copy you can go back to. It takes about as much disk space as your browsing history; Free up space can delete it.',
       confirm: 'Restore',
-      done: 'Archive restored.',
+      done: 'Browsing history restored.',
       failed: 'The restore did not finish. {message}',
       unchecked: 'Not checked yet',
       conversationsUnreadable: 'Conversations couldn’t be read',
       conversationsUnreadableNote:
-        'Saved Agent conversations couldn’t be read when this copy was made. It restores browsing history like any other copy, but it can’t be used to repair conversations.',
+        'Saved Agent conversations couldn’t be read when this copy was made. That doesn’t matter here: a restore brings back browsing history only.',
       checkedFirst:
         'This copy hasn’t been checked yet. It’s checked before the restore; if it can’t be read, your archive stays as it is.',
     },
@@ -202,7 +206,7 @@ export const settingsStorage = defineMessages({
       holds:
         'It holds everything in the archive as it is now: browsing history and any saved Agent conversations.',
       unreadable:
-        'Saved Agent conversations can’t be read right now. The copy keeps their files exactly as they are and can restore browsing history, but it can’t be used to repair conversations.',
+        'Saved Agent conversations can’t be read right now. The copy keeps their files exactly as they are. It can restore browsing history; whether it can help repair the conversations is checked when you choose it in a repair.',
       space:
         'It takes about as much disk space as the archive. Free up space can delete it.',
       checking: 'Checking what the copy would hold',
@@ -290,6 +294,9 @@ export const settingsStorage = defineMessages({
       copyMade: '{date} 创建',
       notRestorable: '无法用来恢复',
       copyWarning: '安全副本删除后就不能再用来恢复。',
+      conversationsOnly: '只有已存的 Agent 对话，供修复使用',
+      heldWarning:
+        '对话文件不见时保留的副本，可能存着某些对话唯一的已存版本。删除之后，修复就没法从它找回这些对话。',
       noCopyLeft: '删完就没有可以用来恢复的安全副本了。你的历史本身不受影响。',
       delete: '删除 {size}',
       done: '已释放 {size}。',
@@ -390,7 +397,8 @@ export const settingsStorage = defineMessages({
       rowDescription: '在更改密码等有风险的操作之前，PathKeep 会先保存一份副本',
       action: '选择…',
       title: '从安全副本恢复',
-      intro: '你的存档会回到副本保存时的状态；密码和加密方式保持现在的样子。',
+      intro:
+        '浏览记录会回到副本保存时的状态。已存的 Agent 对话不受影响。存档的密码和加密方式保持现在的样子。',
       loadFailed: '无法列出安全副本。{message}',
       empty: '还没有任何安全副本。',
       op: {
@@ -401,23 +409,24 @@ export const settingsStorage = defineMessages({
         periodic: '定期副本',
         manual: '你创建的副本',
         agentRepair: '修复对话之前',
+        heldGeneration: '对话文件不见时保留的',
         unknown: '安全副本',
       },
       password: '这份副本的密码',
       passwordHint: '保存这份副本时存档使用的密码。恢复后仍然使用当前的密码。',
       encryptsCopy:
-        '这份副本是开启加密之前保存的，恢复时会用当前的密码加密，需要多花一些时间。',
+        '这份副本是开启加密之前保存的，恢复时会用当前的密码加密其中的浏览记录，需要多花一些时间。',
       staysUnencrypted:
-        '当前的存档没有加密，这份副本恢复后也不加密，和存档的其他部分一样。',
+        '当前的存档没有加密，这份副本里的浏览记录恢复后也不加密，和存档的其他部分一样。',
       warning:
-        '之后新增的内容不在副本里。当前的存档会保留为一份安全副本，之后还能恢复回来；它占用的空间和存档差不多，可以在“释放空间”删除。',
+        '之后新增的浏览记录不在副本里。当前的浏览记录会保留为一份安全副本，之后还能恢复回来；它占用的空间和浏览记录差不多，可以在“释放空间”删除。',
       confirm: '恢复',
-      done: '存档已恢复。',
+      done: '浏览记录已恢复。',
       failed: '恢复没有完成。{message}',
       unchecked: '尚未检查',
       conversationsUnreadable: '对话读不了',
       conversationsUnreadableNote:
-        '创建这份副本时，已存的 Agent 对话读不了。它和其他副本一样能恢复浏览记录，但不能用来修复对话。',
+        '创建这份副本时，已存的 Agent 对话读不了。这在这里没有影响：恢复只会带回浏览记录。',
       checkedFirst:
         '这份副本还没检查过。恢复之前会先检查；读不出来的话，你的存档保持原样。',
     },
@@ -432,7 +441,7 @@ export const settingsStorage = defineMessages({
       holds:
         '副本里是存档现在的全部内容：浏览记录，以及已存的 Agent 对话（如果有的话）。',
       unreadable:
-        '已存的 Agent 对话现在读不了。副本会把它们的文件原样带走，能用来恢复浏览记录，但不能用来修复对话。',
+        '已存的 Agent 对话现在读不了。副本会把它们的文件原样带走，能用来恢复浏览记录；能不能帮忙修复对话，要在修复时选它检查才知道。',
       space: '它占用的空间和存档差不多，可以在「释放空间」里删除。',
       checking: '正在检查副本会包含什么',
       checkFailed: '无法检查副本会包含什么。{message}',
@@ -515,6 +524,9 @@ export const settingsStorage = defineMessages({
       copyMade: '{date} 建立',
       notRestorable: '無法用來還原',
       copyWarning: '安全副本刪除後就不能再拿來還原。',
+      conversationsOnly: '只有已存的 Agent 對話，供修復使用',
+      heldWarning:
+        '對話檔案不見時留下的副本，可能存著某些對話唯一的已存版本。刪除之後，修復就沒辦法從它救回這些對話。',
       noCopyLeft: '刪完就沒有可以用來還原的安全副本了。你的歷史本身不受影響。',
       delete: '刪除 {size}',
       done: '已釋放 {size}。',
@@ -615,7 +627,8 @@ export const settingsStorage = defineMessages({
       rowDescription: '在更改密碼等有風險的操作之前，PathKeep 會先保存一份副本',
       action: '選擇…',
       title: '從安全副本還原',
-      intro: '你的存檔會回到副本保存時的狀態；密碼和加密方式維持現在的樣子。',
+      intro:
+        '瀏覽紀錄會回到副本保存時的狀態。已存的 Agent 對話不受影響。存檔的密碼和加密方式維持現在的樣子。',
       loadFailed: '無法列出安全副本。{message}',
       empty: '還沒有任何安全副本。',
       op: {
@@ -626,23 +639,24 @@ export const settingsStorage = defineMessages({
         periodic: '定期副本',
         manual: '你建立的副本',
         agentRepair: '修復對話之前',
+        heldGeneration: '對話檔案不見時留下的',
         unknown: '安全副本',
       },
       password: '這份副本的密碼',
       passwordHint: '保存這份副本時存檔使用的密碼。還原後仍然使用目前的密碼。',
       encryptsCopy:
-        '這份副本是開啟加密之前保存的，還原時會用目前的密碼加密，需要多花一些時間。',
+        '這份副本是開啟加密之前保存的，還原時會用目前的密碼加密其中的瀏覽紀錄，需要多花一些時間。',
       staysUnencrypted:
-        '目前的存檔沒有加密，這份副本還原後也不加密，和存檔的其他部分一樣。',
+        '目前的存檔沒有加密，這份副本裡的瀏覽紀錄還原後也不加密，和存檔的其他部分一樣。',
       warning:
-        '之後新增的內容不在副本裡。目前的存檔會保留為一份安全副本，之後還能還原回來；它佔用的空間和存檔差不多，可以在「釋放空間」刪除。',
+        '之後新增的瀏覽紀錄不在副本裡。目前的瀏覽紀錄會保留為一份安全副本，之後還能還原回來；它佔用的空間和瀏覽紀錄差不多，可以在「釋放空間」刪除。',
       confirm: '還原',
-      done: '存檔已還原。',
+      done: '瀏覽紀錄已還原。',
       failed: '還原沒有完成。{message}',
       unchecked: '尚未檢查',
       conversationsUnreadable: '對話讀不了',
       conversationsUnreadableNote:
-        '建立這份副本時，已存的 Agent 對話讀不了。它跟其他副本一樣能還原瀏覽紀錄，但不能用來修復對話。',
+        '建立這份副本時，已存的 Agent 對話讀不了。這在這裡沒有影響：還原只會帶回瀏覽紀錄。',
       checkedFirst:
         '這份副本還沒檢查過。還原之前會先檢查；讀不出來的話，你的存檔保持原樣。',
     },
@@ -657,7 +671,7 @@ export const settingsStorage = defineMessages({
       holds:
         '副本裡是存檔現在的全部內容：瀏覽紀錄，以及已存的 Agent 對話（如果有的話）。',
       unreadable:
-        '已存的 Agent 對話現在讀不了。副本會把它們的檔案原封不動地帶走，能用來還原瀏覽紀錄，但不能用來修復對話。',
+        '已存的 Agent 對話現在讀不了。副本會把它們的檔案原封不動地帶走，能用來還原瀏覽紀錄；能不能幫忙修復對話，要在修復時選它檢查才知道。',
       space: '它佔用的空間和存檔差不多，可以在「釋放空間」刪除。',
       checking: '正在檢查副本會包含什麼',
       checkFailed: '無法檢查副本會包含什麼。{message}',

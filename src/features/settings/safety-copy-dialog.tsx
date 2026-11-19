@@ -3,8 +3,9 @@
  * (`preview_archive_safety_copy`, reading only), then make it
  * (`create_archive_safety_copy`). It works while saved Agent conversations
  * can't be read, so browsing history keeps a way back: such a copy keeps
- * their files byte for byte, is marked in the lists, restores browsing and
- * can't repair conversations. The dialog says that before the copy is made.
+ * their files byte for byte, is marked in the lists and restores browsing;
+ * whether what it holds can repair the conversations is found out when a
+ * repair checks it. The dialog says that before the copy is made.
  *
  * The copy is listed in Restore from a safety copy and Free up space, and
  * counted in disk usage, so those lists are read again once it exists.

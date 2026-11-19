@@ -3,29 +3,64 @@
  * repair, the counts the backend measured, what happens to backups after it,
  * and where what it replaces is kept.
  *
- * A count of conversations that can't be brought back is said only for
- * "start over", the one repair that can leave some behind, and when the
- * backend could not count them the plan says so instead of showing 0.
+ * Only "start over" compares what comes back with what the damaged files
+ * held: how many conversations come back complete, how many only as an older
+ * version (their latest messages stay in the kept copy), and how many don't
+ * come back. A count the backend could not establish is said to be unknown,
+ * never shown as 0. Details that were left out (stars, titles, where a file
+ * came from) are counted for any repair.
  */
 import { Notice } from '@/features/settings/notice'
 import { copyLabelKey } from '@/features/settings/copy-label'
 import type { RepairPreview } from '@/lib/backend-client/agent-repair'
 import { useFormat, useI18n } from '@/lib/i18n'
+import { count, maybeCount } from './repair-counts'
 
-/** A decimal string from the wire; conversation counts stay far below 2^53. */
-const count = (value: string) => Number(value) || 0
+/** Of what comes back: complete, or only as an older version. Nothing when nothing comes back. */
+function Completeness({ preview }: { preview: RepairPreview }) {
+  const { t } = useI18n()
+  const whole = maybeCount(preview.conversationsRecoveredWhole)
+  const partial = maybeCount(preview.conversationsRecoveredPartially)
+  if (count(preview.conversations) === 0) return null
+  if (whole === null || partial === null)
+    return <li>{t('agentRepair.actions.startFresh.latestUnknown')}</li>
+  if (partial === 0)
+    return <li>{t('agentRepair.actions.startFresh.allComplete')}</li>
+  return (
+    <>
+      <li>{t('agentRepair.actions.startFresh.whole', { count: whole })}</li>
+      <li data-partial>
+        {t('agentRepair.actions.startFresh.partial', { count: partial })}
+      </li>
+    </>
+  )
+}
 
 function LeftBehind({ preview }: { preview: RepairPreview }) {
   const { t } = useI18n()
-  const left = preview.conversationsOnlyInCopy
+  const left = maybeCount(preview.conversationsOnlyInCopy)
   if (left === null)
     return <li>{t('agentRepair.actions.startFresh.uncounted')}</li>
-  if (count(left) === 0)
-    return <li>{t('agentRepair.actions.startFresh.allBack')}</li>
+  if (left === 0) return <li>{t('agentRepair.actions.startFresh.allBack')}</li>
   return (
-    <li>
-      {t('agentRepair.actions.startFresh.leftBehind', { count: count(left) })}
-    </li>
+    <li>{t('agentRepair.actions.startFresh.leftBehind', { count: left })}</li>
+  )
+}
+
+/** Details that didn't come through, for any repair. */
+function LeftOut({ preview }: { preview: RepairPreview }) {
+  const { t } = useI18n()
+  const records = count(preview.skippedOptionalRecords)
+  const sections = count(preview.unreadableOptionalSections)
+  return (
+    <>
+      {records > 0 && (
+        <li>{t('agentRepair.details.skipped', { count: records })}</li>
+      )}
+      {sections > 0 && (
+        <li>{t('agentRepair.details.unreadable', { count: sections })}</li>
+      )}
+    </>
   )
 }
 
@@ -69,7 +104,13 @@ export function RepairPlan({ preview }: { preview: RepairPreview }) {
         <li className="font-medium tabular">
           {t(`agentRepair.actions.${action}.count`, { count: conversations })}
         </li>
-        {action === 'startFresh' && <LeftBehind preview={preview} />}
+        {action === 'startFresh' && (
+          <>
+            <Completeness preview={preview} />
+            <LeftBehind preview={preview} />
+          </>
+        )}
+        <LeftOut preview={preview} />
         {preview.nextBackupRecapturesToolFiles && (
           <li>{t('agentRepair.actions.startFresh.recapture')}</li>
         )}

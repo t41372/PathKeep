@@ -102,6 +102,9 @@ test('lists whose file is damaged are rebuilt from the saved conversations', asy
   // Intact conversations leave nothing to choose and no folders to approve again.
   await expect(dialog.getByRole('radiogroup')).toHaveCount(0)
   await expect(plan).not.toContainText('choose the folders')
+  // A rebuild compares nothing with the damaged file, so no count is "unknown".
+  await expect(plan).not.toContainText('can’t be established')
+  await expect(plan).not.toContainText('can’t be counted')
   const planned = parseCount(
     await plan.getByText(/can be read again\.$/).innerText(),
   )

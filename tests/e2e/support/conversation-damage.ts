@@ -174,6 +174,29 @@ export async function openAgentBackup(page: Page) {
   ).toBeVisible({ timeout: 60_000 })
 }
 
+/** Settings → Storage, after a restart too. */
+export async function openStorage(page: Page) {
+  await page.goto('/#/settings/storage')
+  await unlockIfLocked(page)
+  await expect(page.getByRole('button', { name: 'Make a copy…' })).toBeVisible()
+}
+
+/** Starts a move to another computer from Settings → Storage; returns its dialog. */
+export async function startExport(page: Page, file: string) {
+  const password = 'a file for the other computer'
+  await page
+    .getByText('Move to another computer', { exact: true })
+    .locator('xpath=../..')
+    .getByRole('button', { name: 'Export…' })
+    .click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByLabel('Save to').fill(file)
+  await dialog.getByLabel('Password for this file').fill(password)
+  await dialog.getByLabel('Type it again').fill(password)
+  await dialog.getByRole('button', { name: 'Export', exact: true }).click()
+  return dialog
+}
+
 /** The damage notice, wherever it is shown. */
 export const damageNotice = (page: Page) =>
   page.locator('[data-store-damage="agent-history"]')

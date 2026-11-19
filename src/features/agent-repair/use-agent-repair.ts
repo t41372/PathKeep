@@ -158,7 +158,10 @@ export function useAgentRepair() {
     await waitForNextPaint()
     if (!mounted.current) return
     try {
-      const result = await agentRepairClient.repair(request, preview.token)
+      const result = await agentRepairClient.repair(
+        request.copyPath,
+        preview.token,
+      )
       setPrepared(null)
       setDone({ result, preview })
       setPhase('done')

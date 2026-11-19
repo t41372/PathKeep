@@ -637,10 +637,17 @@ export interface RecoverySnapshot {
   encrypted: boolean
   /**
    * Saved Agent conversations could not be read when the copy was made: it holds
-   * their files byte for byte, restores browsing like any copy, and is refused as
-   * the source of a conversation repair (`conversation-copy-unreadable-at-creation`).
+   * their files byte for byte and restores browsing like any copy. It can still
+   * be the source of a conversation repair when the saved conversations it holds
+   * verify; the repair's check says so (`conversation-copy-no-verified-evidence`).
    */
   conversationsUnreadable: boolean
+  /**
+   * What the copy was made before (`rekey`, `restore`, `manual`, …).
+   * `heldGeneration`: kept on its own when a conversation file disappeared while
+   * PathKeep still had it open. It holds saved conversations only, no browsing
+   * history, so it is never `verifiedOpenable` and only a repair can use it.
+   */
   sourceOp: string
   label: string
 }

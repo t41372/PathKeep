@@ -1,11 +1,15 @@
 /**
- * Restore the archive from a safety copy PathKeep took before a risky change
- * (`list_recovery_snapshots`, then `run_full_archive_restore`). The archive
- * keeps its password and encryption: an encrypted copy needs the password it
- * was made with only to be read. The archive it replaces becomes a safety copy
- * too ("before a restore"), so a restore can be undone from this same list.
- * A copy made while saved Agent conversations couldn't be read is marked: it
- * restores browsing like any other, and can't repair conversations.
+ * Restore browsing history from a safety copy PathKeep took before a risky
+ * change (`list_recovery_snapshots`, then `run_full_archive_restore`). A
+ * restore never touches saved Agent conversations (user decision
+ * 2026-11-15): they stay as they are, and only the conversation repair uses
+ * the conversations in a copy. The archive keeps its password and
+ * encryption: an encrypted copy needs the password it was made with only to
+ * be read. The browsing history it replaces becomes a safety copy too
+ * ("before a restore"), so a restore can be undone from this same list. A
+ * copy made while saved Agent conversations couldn't be read is marked; for
+ * a restore that makes no difference. Copies that hold conversations only
+ * (kept when a conversation file disappeared) are not offered here.
  */
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
