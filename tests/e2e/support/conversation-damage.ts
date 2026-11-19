@@ -67,6 +67,48 @@ export async function withArchiveStopped(page: Page, damage: () => void) {
   }
 }
 
+/**
+ * Damages what PathKeep shows one conversation from (its current reader
+ * version no longer matches its digest) and files the ticket that makes
+ * PathKeep look at that conversation again, as the backend's
+ * `damage_pi_reader` does. Picks a conversation whose reader version no
+ * other conversation shares, so exactly one is affected; returns its ID.
+ * The live archive must be closed and unencrypted. SQLite writes the file
+ * PathKeep's engine made, as the backend's lifecycle tests do.
+ */
+export function damageOneConversationLists() {
+  const db = new DatabaseSync(conversationFile.readModel())
+  try {
+    const current = `SELECT h.conversation, m.version FROM ah_reader_head h
+      JOIN ah_reader_member m
+        ON m.publication = h.publication AND m.source = h.current_source
+      WHERE m.version <> ''`
+    const row = db
+      .prepare(
+        `SELECT c.conversation AS id, c.version AS version FROM (${current}) c
+         WHERE (SELECT count(*) FROM (${current}) o WHERE o.version = c.version) = 1
+         ORDER BY c.conversation LIMIT 1`,
+      )
+      .get() as { id: string; version: string } | undefined
+    if (!row) throw new Error('no conversation has a reader version of its own')
+    const changed = db
+      .prepare(
+        "UPDATE ah_reader_version SET digest = 'invalid' WHERE token = ?",
+      )
+      .run(row.version).changes
+    expect(Number(changed), 'one reader version damaged').toBe(1)
+    db.prepare(
+      'INSERT OR REPLACE INTO ah_reader_dirty VALUES (?, lower(hex(randomblob(16))))',
+    ).run(row.id)
+    return row.id
+  } finally {
+    db.close()
+  }
+}
+
+/** The calm notice for conversations that can't be read while the rest open. */
+export const parkedNotice = (page: Page) => page.locator('[data-parked-notice]')
+
 /** Replaces a database with bytes no engine reads, as the Rust lifecycle tests do. */
 export function overwriteWhole(file: string, bytes: string) {
   writeFileSync(file, bytes)
@@ -141,6 +183,8 @@ interface KindRow {
   state: string
   availability: string
   failure?: { role: string; stage: string; reason: string }
+  /** Available Agent history only: some conversations wait for their lists to be rebuilt. */
+  readerRebuildRequired?: boolean
 }
 
 /** Agent conversations' row as `list_data_kinds` answers now. */

@@ -22,12 +22,12 @@ const plain: Partial<Record<RepairErrorCode, MessageKey>> = {
   'conversation-access-unavailable': 'agentRepair.errors.accessDenied',
   'conversation-copy-no-verified-evidence':
     'agentRepair.errors.noVerifiedEvidence',
+  'conversation-evidence-foreign': 'agentRepair.errors.copyForeign',
   'conversation-copy-not-listed': 'agentRepair.errors.copyNotListed',
   'conversation-copy-incomplete': 'agentRepair.errors.copyIncomplete',
   'conversation-schema-too-new': 'agentRepair.errors.schemaTooNew',
   'conversation-repair-healthy': 'agentRepair.errors.healthy',
   'conversation-evidence-readable': 'agentRepair.errors.evidenceReadable',
-  'conversation-pair-unverified': 'agentRepair.errors.pairUnverified',
   'archive-password-required': 'agentRepair.sources.passwordAsked',
   'archive-password-wrong': 'agentRepair.errors.wrongPassword',
   'archive-busy': 'agentRepair.errors.busy',

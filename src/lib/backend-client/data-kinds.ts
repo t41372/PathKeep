@@ -59,6 +59,18 @@ export type KindFailureReason =
   /** The system refused access for now (permissions, a lock): not damage; Try again clears it. */
   | 'access-denied'
   | 'kind-unavailable'
+  /**
+   * The conversation file in this archive belongs to another archive (one a
+   * sync tool or a backup app put back): not damage; the repair brings
+   * conversations back from a copy or starts over, keeping that file as a copy.
+   */
+  | 'conversation-evidence-foreign'
+  /**
+   * The conversations' lists don't match the saved conversations (one of the
+   * two files came back from an older backup): not damage; the repair
+   * rebuilds the lists.
+   */
+  | 'conversation-history-diverged'
 
 export interface KindFailure {
   role: KindFailureRole

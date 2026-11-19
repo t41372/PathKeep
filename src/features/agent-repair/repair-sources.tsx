@@ -9,6 +9,8 @@
  *   conversation file disappeared, says so.
  * A copy whose check asked for its own password gets a field for it. When
  * starting over would leave something behind, a line points to the copies.
+ * When the conversation file belongs to another archive, nothing in it is
+ * used: the first choice is starting over, and nothing is called damaged.
  *
  * Choosing a row only selects it; the dialog's main button checks it.
  */
@@ -32,7 +34,6 @@ const sourceOf = (value: string): SourceChoice =>
 
 const reasons: Record<string, MessageKey> = {
   missingEvidence: 'agentRepair.sources.missingEvidence',
-  missingReadModel: 'agentRepair.sources.missingReadModel',
   unsealed: 'agentRepair.sources.unsealed',
 }
 
@@ -98,6 +99,7 @@ export function RepairSources({
   onChoose,
   disabled,
   suggestCopies,
+  foreign,
   asked,
   passwords,
   onPassword,
@@ -107,6 +109,11 @@ export function RepairSources({
   disabled: boolean
   /** Starting over would leave conversations, or their latest messages, behind, or can't tell. */
   suggestCopies: boolean
+  /**
+   * The conversation file belongs to another archive: nothing in it is
+   * used, so "what is here" is starting over, and nothing is called damaged.
+   */
+  foreign: boolean
   /** Copies whose check asked for their own password. */
   asked: ReadonlySet<string>
   passwords: Record<string, string>
@@ -133,7 +140,11 @@ export function RepairSources({
       </h3>
       {suggestCopies && choosable.length > 0 && (
         <p data-suggest-copies className="text-[13px] text-muted-foreground">
-          {t('agentRepair.sources.suggest')}
+          {t(
+            foreign
+              ? 'agentRepair.sources.foreignSuggest'
+              : 'agentRepair.sources.suggest',
+          )}
         </p>
       )}
       <RadioGroup
@@ -154,10 +165,18 @@ export function RepairSources({
           />
           <span className="flex min-w-0 flex-1 flex-col gap-0.5">
             <span className="font-medium">
-              {t('agentRepair.sources.local')}
+              {t(
+                foreign
+                  ? 'agentRepair.sources.foreignLocal'
+                  : 'agentRepair.sources.local',
+              )}
             </span>
             <span className="text-xs text-muted-foreground">
-              {t('agentRepair.sources.localHint')}
+              {t(
+                foreign
+                  ? 'agentRepair.sources.foreignLocalHint'
+                  : 'agentRepair.sources.localHint',
+              )}
             </span>
           </span>
         </Label>

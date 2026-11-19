@@ -16,9 +16,12 @@ import type { RepairDone } from './use-agent-repair'
 export function RepairResult({ done }: { done: RepairDone }) {
   const { t } = useI18n()
   const { preview, result } = done
-  // Only "start over" compares; a count it couldn't establish is said so, never 0.
+  // Only "start over" compares (not with another archive's file); a count it
+  // couldn't establish is said so, never 0.
   const compared =
-    preview.action === 'startFresh' && count(preview.conversations) > 0
+    preview.action === 'startFresh' &&
+    done.cause !== 'foreign' &&
+    count(preview.conversations) > 0
   const partial = maybeCount(preview.conversationsRecoveredPartially)
   return (
     <section
@@ -36,9 +39,14 @@ export function RepairResult({ done }: { done: RepairDone }) {
             {t('agentRepair.done.title')}
           </h3>
           <p className="tabular">
-            {t('agentRepair.done.count', {
-              count: count(preview.conversations),
-            })}
+            {t(
+              // A rebuild for a few conversations counts only those: the
+              // rest opened all along.
+              done.cause === 'parked'
+                ? 'agentRepair.done.parkedCount'
+                : 'agentRepair.done.count',
+              { count: count(preview.conversations) },
+            )}
           </p>
           {compared && partial === null && (
             <p>{t('agentRepair.done.latestUnknown')}</p>

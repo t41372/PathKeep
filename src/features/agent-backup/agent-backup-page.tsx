@@ -9,7 +9,8 @@
  *
  * Responsibilities: the layout, and the states that replace it: a skeleton
  * at once, a store that will not open (browsing is unaffected), an archive
- * not set up yet. The page grows with the window: on a wide one the
+ * not set up yet; and, under the header, the notice for conversations that
+ * can't be read while the rest open. The page grows with the window: on a wide one the
  * schedule moves beside the sources instead of above them.
  * Not responsible for: a kind that is off (`app/shell/kind-gate.tsx` shows
  * its page) or the lock (the frame is gone while locked).
@@ -30,6 +31,7 @@ import {
 } from '@/lib/queries/agent-backup'
 import { useDataKindSizes } from '@/lib/queries/data-kinds'
 import { spaceById } from '@/lib/spaces'
+import { ParkedNotice } from '@/features/agent-repair/parked-notice'
 import { ScheduleCard } from '@/features/backup/schedule-card'
 import { StoreDamage } from '@/features/data-kinds/store-damage'
 import { useRetryStore } from '@/features/data-kinds/use-retry-store'
@@ -186,6 +188,7 @@ export default function AgentBackupPage() {
         needsReview={needsReview}
         review={review}
       />
+      <ParkedNotice row={row} />
       <FormatNoticeCards />
       {overview.isError && !data && (
         <CardError

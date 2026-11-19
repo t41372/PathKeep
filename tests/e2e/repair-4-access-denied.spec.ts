@@ -1,7 +1,10 @@
 /**
- * The file that holds the saved conversations can't be read for now: its
- * permissions are taken away while PathKeep runs (as a sync tool or another
- * account's cleanup can do). That is not damage (`access-denied`): nothing
+ * Two states that aren't damage of the whole conversation store, last in the
+ * repair project.
+ *
+ * Access refused for now: the file that holds the saved conversations can't
+ * be read, because its permissions are taken away while PathKeep runs (as a
+ * sync tool or another account's cleanup can do). That is not damage (`access-denied`): nothing
  * offers a repair, and "Try again" brings the conversations back once the
  * file can be read (`agent-history.md` §6.1).
  *
@@ -28,6 +31,27 @@
  * - once the permissions are back, Try again in the move dialog says the
  *   conversations can be read again (and no longer names a file), and the
  *   backup page shows every conversation it showed before, with no notice.
+ *
+ * One conversation that can't be read while the rest open (runs second, in
+ * the state the first leaves; it sits here, last in the chain, because it
+ * leaves the archive unencrypted and one conversation unreadable if it
+ * fails). What PathKeep shows one conversation from is damaged in the file
+ * directly (`damageOneConversationLists`), which needs the archive
+ * unencrypted: encryption is turned off through the backend first and on
+ * again at the end, password and keychain as before (setting up, not what
+ * is tested). Proves:
+ * - reopened, the store works (no damage notice) and the backend says some
+ *   conversations wait for a rebuild; the Agent backup page and Manage data
+ *   types say calmly that some conversations can't be read until their
+ *   lists are rebuilt and nothing is lost, and offer the repair;
+ * - the repair says the same, offers only the rebuild with nothing to
+ *   choose, counts exactly the one conversation it reopens, and names the
+ *   copy that will hold what it replaces;
+ * - afterwards the result says that one opens again, the notice is gone
+ *   from both screens and the backend says nothing waits; browsing history
+ *   is all there.
+ * No command reads one conversation yet, so "the rest still open" shows
+ * only as the store staying available.
  */
 import {
   chmodSync,
@@ -42,16 +66,24 @@ import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
 import { agentOverview, conversationsText, count } from './support/agent-backup'
 import {
+  ARCHIVE_PASSWORD,
   agentKind,
   conversationFile,
   damageNotice,
+  damageOneConversationLists,
   evidencePath,
   expectAffectedFile,
   openAgentBackup,
   openStorage,
+  opensArchive,
+  parkedNotice,
+  rekey,
+  repairDialog,
+  repairPlan,
   startExport,
+  withArchiveStopped,
 } from './support/conversation-damage'
-import { fixture, openArchiveVisitTotal } from './support/fixture'
+import { backend, fixture, openArchiveVisitTotal } from './support/fixture'
 
 /** Whether this account is kept out of a file whose permissions forbid reading it. */
 function permissionsHold(dir: string) {
@@ -172,4 +204,121 @@ test('conversations that can’t be read for now come back with Try again, not a
   expect(count((await agentOverview()).roots)).toBe(before)
   expect(await openArchiveVisitTotal()).toBe(visits)
   rmSync(dir, { recursive: true, force: true })
+})
+
+test('one conversation whose lists can’t be read is rebuilt while the rest stay open', async ({
+  page,
+}, testInfo) => {
+  // Encryption off and on again, a restart and a rebuild, in a debug build.
+  test.setTimeout(900_000)
+  await openAgentBackup(page)
+  expect(await agentKind()).toMatchObject({
+    availability: 'available',
+    readerRebuildRequired: false,
+  })
+  const visits = await openArchiveVisitTotal()
+
+  await rekey({
+    newMode: 'Plaintext',
+    newKey: null,
+    currentKey: ARCHIVE_PASSWORD,
+  })
+  await withArchiveStopped(page, () => {
+    damageOneConversationLists()
+  })
+
+  // Reopened: the store works; only that conversation waits for a rebuild.
+  await openAgentBackup(page)
+  await expect
+    .poll(async () => (await agentKind()).readerRebuildRequired, {
+      timeout: 60_000,
+    })
+    .toBe(true)
+  expect((await agentKind()).availability).toBe('available')
+  expect(await openArchiveVisitTotal()).toBe(visits)
+  const calm =
+    'Their lists need to be rebuilt before they open again. Nothing is lost: the saved conversations themselves are intact, and the others open as usual.'
+  const notice = parkedNotice(page)
+  await expect(notice).toContainText(
+    'Some saved conversations can’t be read right now',
+  )
+  await expect(notice).toContainText(calm)
+  await expect(damageNotice(page)).toHaveCount(0)
+  // Manage data types says the same, with the same way out.
+  await page.goto('/#/settings/kinds')
+  await expect(
+    parkedNotice(page).getByRole('button', { name: 'Repair conversations…' }),
+  ).toBeVisible()
+  await expect(damageNotice(page)).toHaveCount(0)
+  await page.goto('/#/agent/backup')
+  await testInfo.attach('the calm notice', {
+    body: await page.screenshot({ fullPage: true }),
+    contentType: 'image/png',
+  })
+
+  await notice.getByRole('button', { name: 'Repair conversations…' }).click()
+  const dialog = repairDialog(page)
+  await expect(dialog).toBeVisible()
+  await expect(dialog).toContainText(
+    'Some saved conversations can’t be read until their lists are rebuilt. Nothing is lost: the saved conversations themselves are intact, and the others open as usual.',
+  )
+  const plan = repairPlan(page)
+  await expect(plan).toHaveAttribute('data-repair-action', 'rebuild', {
+    timeout: 180_000,
+  })
+  await expect(
+    plan.getByRole('heading', {
+      name: 'Rebuild the lists from the saved conversations',
+    }),
+  ).toBeVisible()
+  await expect(plan).toContainText(
+    'The saved conversations themselves are intact; the lists of some of them can’t be read.',
+  )
+  await expect(
+    plan.getByText('1 conversation that can’t be read now opens again.', {
+      exact: true,
+    }),
+  ).toBeVisible()
+  await expect(dialog.getByRole('radiogroup')).toHaveCount(0)
+  const keptAs = await plan.locator('[data-kept-as]').innerText()
+  expect(keptAs).toContain('before-agent-repair-')
+  await testInfo.attach('the rebuild plan', {
+    body: await page.screenshot(),
+    contentType: 'image/png',
+  })
+
+  await dialog.getByRole('button', { name: 'Rebuild the lists' }).click()
+  await expect(
+    dialog.getByRole('heading', { name: 'Saved conversations open again' }),
+  ).toBeVisible({ timeout: 300_000 })
+  await expect(
+    dialog.getByText('1 conversation that couldn’t be read opens again.', {
+      exact: true,
+    }),
+  ).toBeVisible()
+  await expect(dialog.locator('[data-kept-copy]')).toHaveText(keptAs)
+  await testInfo.attach('the result', {
+    body: await page.screenshot(),
+    contentType: 'image/png',
+  })
+  await dialog.getByRole('button', { name: 'Done' }).click()
+  await expect(dialog).toHaveCount(0)
+
+  // Nothing waits any more, on either screen.
+  await expect(parkedNotice(page)).toHaveCount(0, { timeout: 60_000 })
+  expect(await agentKind()).toMatchObject({
+    availability: 'available',
+    readerRebuildRequired: false,
+  })
+  await page.goto('/#/settings/kinds')
+  await expect(page.locator('[data-kind="agent-history"]')).toBeVisible()
+  await expect(parkedNotice(page)).toHaveCount(0)
+  expect(await openArchiveVisitTotal()).toBe(visits)
+
+  // As the specs after this one expect: move.spec's password, in the keychain.
+  await rekey({ newMode: 'Encrypted', newKey: ARCHIVE_PASSWORD })
+  expect(await opensArchive(ARCHIVE_PASSWORD)).toBe(true)
+  expect(
+    (await backend<{ storedSecret: boolean }>('keyring_status')).storedSecret,
+  ).toBe(true)
 })

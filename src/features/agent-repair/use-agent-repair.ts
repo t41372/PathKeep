@@ -27,6 +27,7 @@ import {
   type RepairResult,
   type RepairSource,
 } from '@/lib/backend-client/agent-repair'
+import type { DataKindList, DataKindRow } from '@/lib/backend-client/data-kinds'
 import { queryKeys } from '@/lib/query'
 import { waitForNextPaint } from '@/lib/wait-for-next-paint'
 import { repairErrorIs } from './repair-errors'
@@ -44,10 +45,35 @@ export function sameSource(a: SourceChoice, b: SourceChoice) {
 
 export type RepairPhase = 'checking' | 'ready' | 'running' | 'done'
 
+/**
+ * Why the conversations needed repairing, from the Agent-history row: some
+ * conversations can't be read while the rest open (`parked`), the
+ * conversation file belongs to another archive (`foreign`), the lists don't
+ * match the saved conversations (`diverged`), or the files are damaged. The
+ * plan and the result are worded by it. The row changes once the repair is
+ * done (and a parked store is available before and after), so the cause is
+ * kept with the check that was made under it.
+ */
+export type RepairCause = 'parked' | 'foreign' | 'diverged' | 'damaged'
+
+export function repairCause(row: DataKindRow | undefined): RepairCause {
+  if (row?.availability === 'available')
+    return row.readerRebuildRequired === true ? 'parked' : 'damaged'
+  switch (row?.failure?.reason) {
+    case 'conversation-evidence-foreign':
+      return 'foreign'
+    case 'conversation-history-diverged':
+      return 'diverged'
+    default:
+      return 'damaged'
+  }
+}
+
 interface Prepared {
   preview: RepairPreview
   source: SourceChoice
   request: RepairSource
+  cause: RepairCause
 }
 
 export interface RepairFailure {
@@ -59,6 +85,7 @@ export interface RepairFailure {
 export interface RepairDone {
   result: RepairResult
   preview: RepairPreview
+  cause: RepairCause
 }
 
 /** Lists that show what a repair changes: copies, disk use, the kinds and the Agent pages. */
@@ -120,9 +147,14 @@ export function useAgentRepair() {
       await waitForNextPaint()
       if (!mounted.current) return
       const request = requestFor(source)
+      const cause = repairCause(
+        client
+          .getQueryData<DataKindList>(queryKeys.dataKinds)
+          ?.kinds.find((row) => row.kind === 'agent-history'),
+      )
       try {
         const preview = await agentRepairClient.preview(request)
-        setPrepared({ preview, source, request })
+        setPrepared({ preview, source, request, cause })
         if (preview.action !== 'rebuild') setCanChoose(true)
       } catch (error) {
         if (stopping.current) {
@@ -136,8 +168,6 @@ export function useAgentRepair() {
             repairErrorIs(error, 'archive-password-required')
           )
             setAsked((now) => new Set(now).add(source.path))
-          if (repairErrorIs(error, 'conversation-pair-unverified'))
-            setCanChoose(true)
           if (repairErrorIs(error, 'conversation-repair-healthy'))
             void client.invalidateQueries({ queryKey: queryKeys.dataKinds })
         }
@@ -150,7 +180,7 @@ export function useAgentRepair() {
 
   const repair = useCallback(async () => {
     if (!prepared || !sameSource(prepared.source, chosen)) return
-    const { preview, request, source } = prepared
+    const { preview, request, source, cause } = prepared
     setPhase('running')
     setFailure(null)
     setStopped(false)
@@ -163,7 +193,7 @@ export function useAgentRepair() {
         preview.token,
       )
       setPrepared(null)
-      setDone({ result, preview })
+      setDone({ result, preview, cause })
       setPhase('done')
       await refreshAfterRepair(client).catch(() => undefined)
     } catch (error) {
@@ -193,6 +223,8 @@ export function useAgentRepair() {
     chosen,
     choose: setChosen,
     prepared: planMatches ? prepared.preview : null,
+    /** Why the shown plan was needed (see `RepairCause`). */
+    cause: planMatches ? prepared.cause : null,
     /** The backend holds a check or one is running: closing should let go of it. */
     holds: phase === 'checking' || (phase === 'ready' && prepared !== null),
     failure,

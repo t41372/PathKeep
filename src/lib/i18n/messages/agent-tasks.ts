@@ -156,7 +156,7 @@ export const agentTasks = defineMessages({
       noneToday: 'Nothing has finished today.',
       more: 'Show more',
       unavailable:
-        'The file that holds saved Agent conversations is damaged or can’t be read, so these backups can’t be listed. Browsing history is not affected.',
+        'Saved Agent conversations can’t be opened right now, so these backups can’t be listed. Browsing history is not affected.',
     },
     rail: {
       needsLook_one: '{count} conversation backup needs a look',
@@ -314,7 +314,7 @@ export const agentTasks = defineMessages({
       noneToday: '今天还没有完成的。',
       more: '显示更多',
       unavailable:
-        '存放已存 Agent 对话的文件损坏了，或者读不了，所以列不出这些备份。浏览记录不受影响。',
+        '已存的 Agent 对话现在打不开，所以列不出这些备份。浏览记录不受影响。',
     },
     rail: {
       needsLook_one: '{count} 个对话的备份需要你看一下',
@@ -469,7 +469,7 @@ export const agentTasks = defineMessages({
       noneToday: '今天還沒有完成的。',
       more: '顯示更多',
       unavailable:
-        '存放已存 Agent 對話的檔案損壞了，或者讀不了，所以列不出這些備份。瀏覽紀錄不受影響。',
+        '已存的 Agent 對話現在打不開，所以列不出這些備份。瀏覽紀錄不受影響。',
     },
     rail: {
       needsLook_one: '{count} 個對話的備份需要你看一下',

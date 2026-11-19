@@ -6,8 +6,12 @@
  *
  * Two reasons are not damage and say so: the system refusing access for now
  * (`access-denied`) and files busy for now (`archive-busy`). "Try again" is
- * the way out of both, and the repair refuses them. Every other reason is
- * said one way: the file is damaged or cannot be read. By the time a kind is
+ * the way out of both, and the repair refuses them. Two more are not damage
+ * either, but the repair is the way out: the conversation file belongs to
+ * another archive (`conversation-evidence-foreign`), and the lists don't
+ * match the saved conversations (`conversation-history-diverged`). Each of
+ * these four is said in a sentence of its own. Every other reason is said
+ * one way: the file is damaged or cannot be read. By the time a kind is
  * listed the archive is open, so even a `wrong-key` here means this one file
  * no longer reads with the archive's key: damage, never a wrong password,
  * and nothing to type in.
@@ -42,10 +46,16 @@ const passing: Partial<Record<KindFailureReason, MessageKey>> = {
   'archive-busy': 'dataKinds.damage.busy',
 }
 
+/** Reasons that aren't damage either, but that the repair resolves. */
+const mismatched: Partial<Record<KindFailureReason, MessageKey>> = {
+  'conversation-evidence-foreign': 'dataKinds.damage.foreign',
+  'conversation-history-diverged': 'dataKinds.damage.diverged',
+}
+
 /** The sentences for one failure; a role or stage this build does not know falls back to plain words. */
 export function damageWords(failure: KindFailure | undefined): MessageKey[] {
-  const transient = failure && passing[failure.reason]
-  if (transient) return [transient]
+  const own = failure && (passing[failure.reason] ?? mismatched[failure.reason])
+  if (own) return [own]
   const part = (failure && parts[failure.role]) ?? 'dataKinds.damage.generic'
   const stage = failure ? stages[failure.stage] : undefined
   return stage ? [part, stage] : [part]

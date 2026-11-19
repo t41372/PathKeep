@@ -7,6 +7,9 @@
  * are disabled and the card says why. A kind whose storage will not open
  * says which file is damaged or unreadable, when that was found, that
  * browsing is unaffected, and offers to try again (`store-damage.tsx`).
+ * Agent conversations that open, except some that can't be read until their
+ * lists are rebuilt, say that calmly and offer the repair
+ * (`parked-notice.tsx`).
  * Agent conversations held from another computer, with nothing here
  * backed up, say so and offer to set backup up. A kind that is on with
  * nothing it can back up (browsing with no browser chosen; conversations
@@ -33,6 +36,7 @@ import {
   type Translator,
 } from '@/lib/i18n'
 import type { DataSpace } from '@/lib/spaces'
+import { ParkedNotice } from '@/features/agent-repair/parked-notice'
 import { StoreDamage } from '@/features/data-kinds/store-damage'
 
 const STATES: readonly KindState[] = ['on', 'paused', 'off']
@@ -241,6 +245,7 @@ export function KindCard({
             </Button>
           </div>
         )}
+        <ParkedNotice row={row} />
         {row.availability === 'unavailable' && (
           <StoreDamage
             space={space}

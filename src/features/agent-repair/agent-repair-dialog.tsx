@@ -8,7 +8,10 @@
  * checks out, or, if the person chooses one, bring them back from a safety
  * copy. The plan says what is wrong, what the repair does, the counts and
  * where what it replaces is kept; "Repair" installs exactly what was checked.
- * Every way of closing lets go of a check the backend holds.
+ * Every way of closing lets go of a check the backend holds. Why the repair
+ * is needed (`RepairCause`: some conversations can't be read while the rest
+ * open, another archive's file, lists that don't match, damage) picks the
+ * words; only damage is called damage.
  *
  * Responsibilities: the layout per step and the buttons. Not responsible
  * for: the sequence (`use-agent-repair.ts`), the plan's words
@@ -30,6 +33,7 @@ import {
 import { Spinner } from '@/components/ui/spinner'
 import { AffectedFile } from '@/features/settings/affected-file'
 import { damageWords } from '@/features/settings/kinds/kind-damage'
+import type { DataKindRow } from '@/lib/backend-client/data-kinds'
 import { maintenanceClient } from '@/lib/backend-client/maintenance'
 import { useI18n } from '@/lib/i18n'
 import { useAgentKind } from '@/lib/queries/agent-backup'
@@ -42,24 +46,38 @@ import { RepairResult } from './repair-result'
 import { RepairSources } from './repair-sources'
 import {
   LOCAL,
+  repairCause,
   sameSource,
   useAgentRepair,
   type AgentRepairFlow,
+  type RepairCause,
 } from './use-agent-repair'
 
-/** What the backend reported about the conversation files, while they don't open. */
-function WhatsWrong() {
+/**
+ * What the backend reported about the conversation files while they don't
+ * open, or that some conversations can't be read while the rest open.
+ */
+function WhatsWrong({
+  row,
+  cause,
+}: {
+  row: DataKindRow | undefined
+  cause: RepairCause
+}) {
   const { t } = useI18n()
-  const { row } = useAgentKind()
-  if (row?.availability !== 'unavailable') return null
+  const words =
+    cause === 'parked'
+      ? t('agentRepair.parked.whatsWrong')
+      : row?.availability === 'unavailable'
+        ? damageWords(row.failure)
+            .map((key) => t(key))
+            .join(' ')
+        : null
+  if (words === null) return null
   return (
     <section className="flex flex-col gap-0.5 text-[13px]">
       <h3 className="text-sm font-medium">{t('agentRepair.whatsWrong')}</h3>
-      <p className="text-muted-foreground">
-        {damageWords(row.failure)
-          .map((key) => t(key))
-          .join(' ')}
-      </p>
+      <p className="text-muted-foreground">{words}</p>
     </section>
   )
 }
@@ -80,13 +98,17 @@ function Checking({ flow }: { flow: AgentRepairFlow }) {
 /** The main button's next step: repair what was checked, or check the chosen source. */
 function primaryLabel(
   flow: AgentRepairFlow,
+  cause: RepairCause,
   t: ReturnType<typeof useI18n>['t'],
 ) {
   if (flow.prepared) return t(`agentRepair.actions.${flow.prepared.action}.run`)
   if (flow.chosen.kind === 'copy') return t('agentRepair.sources.check')
-  return flow.canChoose
-    ? t('agentRepair.sources.checkLocal')
-    : t('agentRepair.errors.checkAgain')
+  if (!flow.canChoose) return t('agentRepair.errors.checkAgain')
+  return t(
+    cause === 'foreign'
+      ? 'agentRepair.sources.foreignCheckLocal'
+      : 'agentRepair.sources.checkLocal',
+  )
 }
 
 function RepairFlow({
@@ -100,6 +122,8 @@ function RepairFlow({
   const navigate = useNavigate()
   const flow = useAgentRepair()
   const { check, phase } = flow
+  const { row } = useAgentKind()
+  const cause = repairCause(row)
   const started = useRef(false)
 
   // Opening the dialog is the request to check. Development renders effects
@@ -154,7 +178,7 @@ function RepairFlow({
           <RepairResult done={flow.done} />
         ) : (
           <>
-            <WhatsWrong />
+            <WhatsWrong row={row} cause={cause} />
             {phase === 'checking' && <Checking flow={flow} />}
             {flow.canChoose && (
               <RepairSources
@@ -165,13 +189,14 @@ function RepairFlow({
                   flow.prepared !== null &&
                   startOverLeavesSomething(flow.prepared)
                 }
+                foreign={cause === 'foreign'}
                 asked={flow.asked}
                 passwords={flow.passwords}
                 onPassword={flow.setPassword}
               />
             )}
-            {phase === 'ready' && flow.prepared && (
-              <RepairPlan preview={flow.prepared} />
+            {phase === 'ready' && flow.prepared && flow.cause && (
+              <RepairPlan preview={flow.prepared} cause={flow.cause} />
             )}
             {running && <MaintenanceProgress onStop={flow.markStopping} />}
             {flow.stopped && (
@@ -223,7 +248,7 @@ function RepairFlow({
                 onClick={primary}
               >
                 {running && <Spinner />}
-                {primaryLabel(flow, t)}
+                {primaryLabel(flow, cause, t)}
               </Button>
             )}
           </>
