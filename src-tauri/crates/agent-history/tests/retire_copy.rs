@@ -93,3 +93,33 @@ fn growing_copy_follows_its_other_branch() {
     assert_eq!(grown.relation, "copy");
     assert!(!grown.current);
 }
+
+// With equal activity times, the later rollout filename wins a tie between independent
+// sources. Reparsing a prefix copy must keep it out of that election.
+#[test]
+fn reparsing_a_shorter_copy_keeps_the_full_conversations_last_message() {
+    use agent_history::query::EventQuery;
+    use support::native::{codex_meta, codex_rollout, codex_user};
+
+    let temp = tempfile::tempdir().unwrap();
+    let root = SourceRoot { harness: Harness::Codex, root: temp.path().join("codex") };
+    let thread = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    let rows = [
+        codex_meta(thread, "/synthetic/project"),
+        codex_user("Review the draft"),
+        codex_user("Ship the corrected draft"),
+    ];
+    codex_rollout(&root.root, "2026-11-10T12-00-00", thread, &rows);
+    codex_rollout(&root.root, "2026-11-10T13-00-00", thread, &rows[..2]);
+    let archive = Archive::create_unencrypted(&temp.path().join("archive")).unwrap();
+    archive.backup(&[root], &Default::default()).unwrap();
+    let conversation = archive.list_sessions(&Default::default()).unwrap().items.remove(0);
+    let copy = conversation.sources.iter().find(|member| member.relation == "copy").unwrap();
+    let last_message = || {
+        let events = archive.events(&EventQuery::new(&conversation.id)).unwrap();
+        events.items.last().unwrap().event.text.clone()
+    };
+    assert_eq!(last_message(), "Ship the corrected draft");
+    archive.reparse_source(&copy.source_id, &Default::default()).unwrap();
+    assert_eq!(last_message(), "Ship the corrected draft");
+}

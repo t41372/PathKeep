@@ -174,3 +174,50 @@ fn committed_backup_survives_a_failed_slice_reclamation() {
     assert_eq!(capture(&archive, &root).unwrap().status, "complete");
     assert_eq!(archive.verify().unwrap().slices.count, 1);
 }
+
+// Both manifests lose the slice that distinguished their contents. Their surviving
+// slices have the same offset and hash, so comparison never opens a raw reader.
+#[test]
+fn matching_tail_slices_cannot_prove_equality_across_a_manifest_gap() {
+    use crate::{Artifact, ArtifactKind};
+    use sha2::{Digest, Sha256};
+
+    let temp = tempfile::tempdir().unwrap();
+    let archive = Archive::create_unencrypted(&temp.path().join("archive")).unwrap();
+    let source = SourceRoot { harness: Harness::Codex, root: temp.path().join("codex") };
+    let artifact = Artifact {
+        path: source.root.join("draft.txt"),
+        relative_path: "draft.txt".into(),
+        kind: ArtifactKind::Attachment,
+        project_hint: None,
+        generation: None,
+        current: true,
+    };
+    let retain = |first: &[u8]| {
+        let tail = b"common final record\n";
+        let id = archive.begin_revision("history", &source, &artifact).unwrap();
+        archive.append_chunk(id, 0, first.to_vec()).unwrap();
+        archive.append_chunk(id, 1, tail.to_vec()).unwrap();
+        let digest = Sha256::new().chain_update(first).chain_update(tail).finalize();
+        archive
+            .finish_revision(id, &hex::encode(digest), (first.len() + tail.len()) as u64)
+            .unwrap()
+            .revision_id
+    };
+    let first = retain(b"draft A\n");
+    let second = retain(b"draft B\n");
+    assert_eq!(archive.revisions_prefix(first, second).unwrap(), (false, false));
+    archive
+        .store
+        .write(Db::AgentHistoryEvidence, Priority::Batch, move |tx| {
+            let removed = tx.execute(
+                "DELETE FROM ah_revision_chunks WHERE revision_id IN (?1,?2) AND ordinal=0",
+                vault_store::params![first, second],
+            )?;
+            assert_eq!(removed, 2);
+            Ok(())
+        })
+        .unwrap();
+    let error = archive.revisions_prefix(first, second).unwrap_err();
+    assert!(matches!(error, crate::Error::Integrity(_)));
+}
