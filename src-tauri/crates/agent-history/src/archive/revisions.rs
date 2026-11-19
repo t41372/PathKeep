@@ -198,6 +198,7 @@ impl Archive {
             self.set_coverage(&source_id, false)?;
         }
         let retention = source.retention;
+        let retires_slices = prefix || retention == "state";
         let now = chrono::Utc::now().timestamp_millis();
         let outcome = self.store.write(Db::AgentHistoryEvidence, Priority::Batch, move |tx| {
             let state: String =
@@ -248,7 +249,11 @@ impl Archive {
             Ok(RevisionOutcome { revision_id: selected, unchanged: previous == Some(selected) })
         })?;
         drop(_publication);
-        self.reclaim_slices()?;
+        if retires_slices {
+            // Limit garbage during large imports. Backup checks the durable queue again at
+            // completion so a collection failure cannot undo or misreport this publication.
+            let _ = self.reclaim_slices();
+        }
         Ok(outcome)
     }
 

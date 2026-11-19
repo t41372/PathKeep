@@ -21,7 +21,6 @@ mod readiness_tests;
 mod reference_capture;
 mod references;
 mod reparse;
-mod retained_input;
 mod unreadable;
 mod writer;
 
@@ -184,6 +183,10 @@ fn execute(
     archive.append_lineage_issues(&mut report.issues)?;
     archive.synchronize_search()?;
     maintenance(archive, options)?;
+    // Unreferenced slices stay queued until a collection transaction succeeds.
+    if archive.reclaim_slices().is_err() {
+        issue(&mut report.issues, "slice_reclamation_deferred", None);
+    }
     Ok(())
 }
 

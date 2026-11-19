@@ -20,7 +20,9 @@ schema、每個 index、量測、取捨與維護者審查在
   Codex history_base 保留 immutable rollout ID、exclusive ordinal 與 decompressed byte
   offset；不把 rollout ID 當 thread ID，不猜另一段對話的 hash。歧義仍是 unresolved。
 - `archive/lineage` 在發布前驗證 boundary，結果 keyed by immutable raw revision；讀頁
-  查這個結果，不每頁重掃 inherited prefix。事件仍有 physical source_id／ordinal。
+  查這個結果，不每頁重掃 inherited prefix。前段繼承的筆數取自該 revision 的
+  Codex 首筆 `payload.history_base.end_ordinal_exclusive`。重解析同一份原始位元組
+  會得到同一筆數，修改 header 則會選到不同內容的 revision。事件仍有 physical source_id／ordinal。
 - `archive/{revisions,reader,retention,maintenance}` 管理 staged→sealing→complete、
   manifest、prefix sharing 與只回收零引用 slices 的 queue。Parser 不能刪除 raw evidence。
 - `archive/user_state` 只接受使用者的 mark。Canonical state 在 evidence DB；catalog 的
@@ -50,7 +52,8 @@ Appended source 的每個 revision 保留 digest／length／capture time；驗�
 有 byte offset，已開的 reader 也可跨不同切片邊界繼續，最後一塊裁到自己的 revision
 長度。Retarget、manifest removal 與 garbage candidates 在同一 transaction 提交；
 回收在短 publication gate 外，以固定批次且依引用判定。Content 掃描也在 gate 外，提交前
-再確認 source head／publication 未變。
+再確認 source head／publication 未變。同一對話中，被標成 copy 的來源增長時要重新比較其他分支，
+因為它原先可能同時是多條分支的前綴。
 
 State source 僅最新 verified snapshot 保有 bytes，舊 record 用 bytes_retained=false 表明。
 State A→B→A 不能重用已失去 bytes 的舊 handle，要有新的 verified manifest。

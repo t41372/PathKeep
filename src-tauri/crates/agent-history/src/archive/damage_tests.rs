@@ -1,0 +1,176 @@
+//! Exercises public capture and mark operations against isolated storage faults.
+//! The store handle is used only to introduce or inspect damage in a real archive.
+use super::{Archive, ConversationMark};
+use crate::{Harness, SourceRoot};
+use serde_json::json;
+use std::path::Path;
+use vault_store::{Db, Priority};
+
+const THREAD: &str = "11111111-1111-4111-8111-111111111111";
+
+fn rollout(root: &Path, message: Option<&str>) -> SourceRoot {
+    let sessions = root.join("sessions");
+    std::fs::create_dir_all(&sessions).unwrap();
+    let path = sessions.join(format!("rollout-2026-11-10T12-00-00-{THREAD}.jsonl"));
+    let header = json!({"type":"session_meta","payload":{"id":THREAD,"cwd":"/synthetic",
+        "timestamp":"2026-11-10T12:00:00Z"}});
+    let mut body = format!("{header}\n");
+    if let Some(message) = message {
+        let row = json!({"type":"response_item","payload":{"type":"message","role":"user",
+            "content":[{"type":"input_text","text":message}]}});
+        body.push_str(&format!("{row}\n"));
+    }
+    std::fs::write(path, body).unwrap();
+    SourceRoot { harness: Harness::Codex, root: root.into() }
+}
+
+fn capture(archive: &Archive, root: &SourceRoot) -> crate::Result<crate::capture::BackupReport> {
+    archive.backup(std::slice::from_ref(root), &Default::default())
+}
+
+// Losing the only manifest row on the old head used to panic during prefix comparison.
+#[test]
+fn damaged_source_missing_slice_is_an_integrity_error() {
+    let temp = tempfile::tempdir().unwrap();
+    let archive = Archive::create_unencrypted(&temp.path().join("archive")).unwrap();
+    let root = rollout(&temp.path().join("native"), None);
+    capture(&archive, &root).unwrap();
+    let old = archive.list_sessions(&Default::default()).unwrap().items.remove(0);
+    archive
+        .store
+        .write(Db::AgentHistoryEvidence, Priority::Batch, move |tx| {
+            assert_eq!(
+                tx.execute(
+                    "DELETE FROM ah_revision_chunks WHERE revision_id=?1",
+                    [old.revision_id]
+                )?,
+                1
+            );
+            Ok(())
+        })
+        .unwrap();
+    rollout(&root.root, Some("an append"));
+    let error = capture(&archive, &root).unwrap_err();
+    assert_eq!(error.code(), "integrity_error");
+    assert!(error.to_string().contains(&old.source_id));
+    assert_eq!(archive.latest_revision(&old.source_id).unwrap().unwrap().id, old.revision_id);
+}
+
+// Copy selection used to panic looking up a published member whose raw revision is absent.
+#[test]
+fn damaged_source_missing_candidate_revision_is_an_integrity_error() {
+    let temp = tempfile::tempdir().unwrap();
+    let archive = Archive::create_unencrypted(&temp.path().join("archive")).unwrap();
+    let root = rollout(&temp.path().join("first"), Some("first"));
+    capture(&archive, &root).unwrap();
+    let old = archive.list_sessions(&Default::default()).unwrap().items.remove(0);
+    archive
+        .store
+        .write(Db::AgentHistoryReadModel, Priority::Batch, |tx| {
+            tx.execute("UPDATE ah_sessions SET revision_id=-1", ())?;
+            Ok(())
+        })
+        .unwrap();
+    let copy = rollout(&temp.path().join("copy"), Some("second"));
+    let error = capture(&archive, &copy).unwrap_err();
+    assert_eq!(error.code(), "integrity_error");
+    assert!(error.to_string().contains(&old.source_id));
+}
+
+// A constraint on the mirror alone used to turn a committed edit into a failed mark.
+#[test]
+fn committed_mark_survives_a_failed_mirror_write() {
+    let temp = tempfile::tempdir().unwrap();
+    let archive = Archive::create_unencrypted(&temp.path().join("archive")).unwrap();
+    let root = rollout(&temp.path().join("first"), Some("first title"));
+    capture(&archive, &root).unwrap();
+    let item = archive.list_sessions(&Default::default()).unwrap().items.remove(0);
+    let native_title = item.title.clone();
+    archive
+        .mark_conversation(
+            &item.id,
+            &ConversationMark { title: Some(Some("override".into())), ..Default::default() },
+            true,
+        )
+        .unwrap();
+    archive
+        .store
+        .write(Db::AgentHistoryReadModel, Priority::Batch, |tx| {
+            tx.execute(
+                "INSERT INTO ah_user_state(conversation_id,starred) VALUES('fixture',1)",
+                (),
+            )?;
+            tx.execute("CREATE UNIQUE INDEX fixture_star ON ah_user_state(starred)", ())?;
+            Ok(())
+        })
+        .unwrap();
+    let result = archive.mark_conversation(
+        &item.id,
+        &ConversationMark {
+            starred: Some(true),
+            trash: Some(true),
+            put_away: Some(true),
+            title: Some(None),
+        },
+        true,
+    );
+    let committed = archive
+        .store
+        .read(Db::AgentHistoryEvidence, |tx| {
+            tx.query_one("SELECT starred FROM ah_user_state", (), |row| Ok(row.get::<i64>(0)?))
+        })
+        .unwrap();
+    assert_eq!(committed, 1);
+    let marked = result.unwrap();
+    assert!(marked.starred && marked.trashed && marked.put_away);
+    assert_eq!(marked.title, native_title);
+    assert_eq!(marked.title_source, item.title_source);
+    assert!(archive.list_sessions(&Default::default()).is_err());
+    archive
+        .store
+        .write(Db::AgentHistoryReadModel, Priority::Batch, |tx| {
+            tx.execute("DROP INDEX fixture_star", ())?;
+            Ok(())
+        })
+        .unwrap();
+    assert!(archive.list_sessions(&Default::default()).unwrap().items.is_empty());
+    let recovered = archive.session(&item.id).unwrap();
+    assert!(recovered.starred && recovered.put_away);
+    assert_eq!(recovered.trashed_at, marked.trashed_at);
+    assert_eq!(recovered.title, marked.title);
+}
+
+// A foreign key holds the obsolete slice through the first collection attempt.
+#[test]
+fn committed_backup_survives_a_failed_slice_reclamation() {
+    let temp = tempfile::tempdir().unwrap();
+    let archive = Archive::create_unencrypted(&temp.path().join("archive")).unwrap();
+    let root = rollout(&temp.path().join("first"), None);
+    capture(&archive, &root).unwrap();
+    let old = archive.list_sessions(&Default::default()).unwrap().items.remove(0);
+    archive
+        .store
+        .write(Db::AgentHistoryEvidence, Priority::Batch, |tx| {
+            tx.execute("CREATE TABLE fixture_hold(hash TEXT REFERENCES ah_chunks(hash))", ())?;
+            tx.execute("INSERT INTO fixture_hold SELECT hash FROM ah_chunks", ())?;
+            Ok(())
+        })
+        .unwrap();
+    rollout(&root.root, Some("appended"));
+    let result = capture(&archive, &root);
+    let head = archive.latest_revision(&old.source_id).unwrap().unwrap();
+    assert_ne!(head.id, old.revision_id);
+    let saved = result.unwrap();
+    assert!(saved.issues.iter().any(|issue| issue.code == "slice_reclamation_deferred"));
+    assert_eq!(archive.backup_run(saved.run_id).unwrap().status, "partial");
+    assert_eq!(archive.session(&old.id).unwrap().revision_id, head.id);
+    archive
+        .store
+        .write(Db::AgentHistoryEvidence, Priority::Batch, |tx| {
+            tx.execute("DELETE FROM fixture_hold", ())?;
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(capture(&archive, &root).unwrap().status, "complete");
+    assert_eq!(archive.verify().unwrap().slices.count, 1);
+}

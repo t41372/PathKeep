@@ -3,10 +3,10 @@
 use crate::{
     Archive, Result,
     adapters::{common, identity::SourceRelation},
-    archive::ProjectionAttempt,
+    archive::{ProjectionAttempt, RetainedInput},
 };
 use sha2::{Digest, Sha256};
-use std::io::{BufRead, BufReader};
+use std::{cell::RefCell, io::BufRead, rc::Rc};
 use vault_store::{Db, Priority, params};
 
 impl Archive {
@@ -114,27 +114,40 @@ impl Archive {
         end: u64,
         length: u64,
     ) -> Result<Option<String>> {
-        let mut input =
-            BufReader::new(common::decoded_reader(Box::new(self.raw_reader(revision)?), path)?);
-        let mut digest = Sha256::new();
-        let mut ordinal = 0;
-        let mut bytes = 0;
-        while ordinal < end {
-            let available = input.fill_buf()?;
-            if available.is_empty() {
-                return Ok(None);
-            }
-            let n = available.iter().position(|b| *b == b'\n').map_or(available.len(), |i| i + 1);
-            if available[n - 1] == b'\n' {
-                ordinal += 1;
-            }
-            digest.update(&available[..n]);
-            bytes += n as u64;
-            input.consume(n);
-            if bytes > length {
-                return Ok(None);
-            }
+        let raw_error = Rc::new(RefCell::new(None));
+        let raw = RetainedInput { reader: self.raw_reader(revision)?, error: raw_error.clone() };
+        let result = common::decoded_reader(Box::new(raw), path)
+            .and_then(|mut reader| boundary_digest(&mut reader, end, length));
+        if let Some(error) = raw_error.take() {
+            return Err(error.into());
         }
-        Ok((bytes == length).then(|| hex::encode(digest.finalize())))
+        match result {
+            // The archive supplied authenticated bytes but the native stream could not decode.
+            Err(crate::Error::Io(_)) => Ok(None),
+            other => other,
+        }
     }
+}
+
+fn boundary_digest(input: &mut dyn BufRead, end: u64, length: u64) -> Result<Option<String>> {
+    let mut digest = Sha256::new();
+    let mut ordinal = 0;
+    let mut bytes = 0;
+    while ordinal < end {
+        let available = input.fill_buf()?;
+        if available.is_empty() {
+            return Ok(None);
+        }
+        let n = available.iter().position(|b| *b == b'\n').map_or(available.len(), |i| i + 1);
+        if available[n - 1] == b'\n' {
+            ordinal += 1;
+        }
+        digest.update(&available[..n]);
+        bytes += n as u64;
+        input.consume(n);
+        if bytes > length {
+            return Ok(None);
+        }
+    }
+    Ok((bytes == length).then(|| hex::encode(digest.finalize())))
 }

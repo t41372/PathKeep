@@ -10,6 +10,8 @@ mod attachment_outcomes;
 mod chunks;
 mod comparison;
 mod conversation;
+#[cfg(test)]
+mod damage_tests;
 mod durability;
 mod generations;
 mod lifetime;
@@ -25,6 +27,7 @@ mod read_concurrency_tests;
 mod reader;
 mod references;
 mod reports;
+mod retained_input;
 mod retention;
 mod revisions;
 mod schema;
@@ -40,6 +43,7 @@ pub use projection::ProjectionAttempt;
 pub use reader::RawReader;
 pub(crate) use reader::expired_read;
 pub use reports::BackupRun;
+pub(crate) use retained_input::RetainedInput;
 pub use retention::SLICE_BYTES;
 pub use revisions::{RevisionInfo, RevisionOutcome, SourceInfo};
 pub use schema::schema_steps;
@@ -49,7 +53,7 @@ use crate::{Error, Result};
 use std::{
     fs,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, atomic::AtomicBool},
 };
 use vault_store::{Db, Store};
 
@@ -69,6 +73,7 @@ pub struct Archive {
     pub(crate) jobs: Arc<lifetime::Jobs>,
     pub(crate) root: PathBuf,
     pub(crate) search_gate: Mutex<()>,
+    state_mirror_pending: AtomicBool,
     pub(crate) state_gate: Mutex<()>,
     pub(crate) publication_gate: Mutex<()>,
 }
@@ -102,6 +107,7 @@ impl Archive {
             jobs: Arc::default(),
             root,
             search_gate: Mutex::new(()),
+            state_mirror_pending: AtomicBool::new(false),
             state_gate: Mutex::new(()),
             publication_gate: Mutex::new(()),
         };

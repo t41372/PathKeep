@@ -71,14 +71,17 @@ impl Archive {
                     let status = super::line::describe(tx, &id)
                         .map_err(super::operation)?
                         .expect("published conversation");
-                    if !status.resolved {
+                    if let Some(issue) = status.issue {
                         crate::adapters::common::push_diagnostic(
                             &mut issues,
                             Diagnostic {
                                 code: "lineage_unresolved".into(),
                                 path: Some(path),
                                 ordinal: None,
-                                detail: None,
+                                detail: match issue {
+                                    super::line::LineageIssue::Cycle => Some("cycle".into()),
+                                    super::line::LineageIssue::Unresolved => None,
+                                },
                             },
                         );
                     }

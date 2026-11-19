@@ -39,31 +39,49 @@ pub(super) fn describe(tx: &Session<'_>, conversation: &str) -> Result<Option<Li
         return Ok(None);
     };
     let mut segments = Vec::new();
-    let (complete, resolved) = append(tx, &current, None, &mut HashSet::new(), &mut segments)?;
+    let mut visited = HashSet::new();
+    let mut source = current;
+    let mut end = None;
+    let mut complete = true;
     let mut attachments = 0;
-    for segment in &segments {
-        attachments += attachment_count(tx, segment)?;
-    }
-    Ok(Some(LineStatus { segments, complete, resolved, attachments }))
+    let issue = loop {
+        if !visited.insert(source.clone()) {
+            break Some(LineageIssue::Cycle);
+        }
+        let (segment, relation, covered) = read_segment(tx, &source, end)?;
+        complete &= covered;
+        attachments += attachment_count(tx, &segment)?;
+        segments.push(segment);
+        if relation.base_native_id.is_none() {
+            break None;
+        }
+        let Some(predecessor) = base(tx, &source, &relation)? else {
+            break Some(LineageIssue::Unresolved);
+        };
+        source = predecessor.source;
+        end = Some(predecessor.own_end);
+    };
+    segments.reverse();
+    Ok(Some(LineStatus { segments, complete: complete && issue.is_none(), issue, attachments }))
+}
+
+pub(super) enum LineageIssue {
+    Cycle,
+    Unresolved,
 }
 
 pub(super) struct LineStatus {
     pub segments: Vec<Segment>,
     pub complete: bool,
-    pub resolved: bool,
+    pub issue: Option<LineageIssue>,
     pub attachments: u64,
 }
 
-fn append(
+fn read_segment(
     tx: &Session<'_>,
     source: &str,
     end: Option<u64>,
-    visiting: &mut HashSet<String>,
-    segments: &mut Vec<Segment>,
-) -> Result<(bool, bool)> {
-    if !visiting.insert(source.into()) {
-        return Err(Error::Integrity("native lineage cycle".into()));
-    }
+) -> Result<(Segment, SourceRelation, bool)> {
     let (projection, relation, parsed, fresh, coverage) = tx.query_one(
         "SELECT projection_id,relation_json,complete,raw_head_current,
            coalesce((SELECT complete FROM ah_coverage WHERE source_id=s.id),1)
@@ -90,32 +108,8 @@ fn append(
         )?;
         own = known > 0 && bad == 0;
     }
-    let mut complete = own && fresh && (coverage || !parsed);
-    let mut resolved = true;
-    if relation.base_native_id.is_some() {
-        if let Some(ancestor) = base(tx, source, &relation)? {
-            let physical = tx.query_one(
-                "SELECT v.own_ordinal FROM ah_lineage_validation v
-                 JOIN ah_sessions s ON s.revision_id=v.revision_id
-                 WHERE s.id=?1 AND v.end_ordinal=?2 AND v.byte_len=?3 AND v.valid=1",
-                params![
-                    ancestor.clone(),
-                    relation.base_end_ordinal.unwrap() as i64,
-                    relation.base_end_byte.unwrap() as i64
-                ],
-                |row| Ok(row.get::<i64>(0)? as u64),
-            )?;
-            let status = append(tx, &ancestor, Some(physical), visiting, segments)?;
-            complete &= status.0;
-            resolved &= status.1;
-        } else {
-            complete = false;
-            resolved = false;
-        }
-    }
-    segments.push(Segment { source: source.into(), projection, end });
-    visiting.remove(source);
-    Ok((complete, resolved))
+    let segment = Segment { source: source.into(), projection, end };
+    Ok((segment, relation, own && fresh && (coverage || !parsed)))
 }
 
 fn attachment_count(tx: &Session<'_>, segment: &Segment) -> Result<u64> {
@@ -136,11 +130,16 @@ fn attachment_count(tx: &Session<'_>, segment: &Segment) -> Result<u64> {
     }
 }
 
+pub(super) struct Predecessor {
+    pub source: String,
+    own_end: u64,
+}
+
 pub(super) fn base(
     tx: &Session<'_>,
     source: &str,
     relation: &SourceRelation,
-) -> Result<Option<String>> {
+) -> Result<Option<Predecessor>> {
     let Some(target) = &relation.base_native_id else {
         return Ok(None);
     };
@@ -167,21 +166,21 @@ pub(super) fn base(
     let mut chosen = None;
     let mut expected = None;
     for (source, _, _) in candidates {
-        let digest = tx
+        let boundary = tx
             .query_one(
-                "SELECT v.prefix_digest FROM ah_lineage_validation v
+                "SELECT v.prefix_digest, v.own_ordinal FROM ah_lineage_validation v
              JOIN ah_sessions s ON s.revision_id=v.revision_id
              WHERE s.id=?1 AND v.end_ordinal=?2 AND v.byte_len=?3 AND v.valid=1",
                 params![source.clone(), end, length],
-                |row| Ok(row.get::<String>(0)?),
+                |row| Ok((row.get::<String>(0)?, row.get::<i64>(1)? as u64)),
             )
             .optional()?;
-        if let Some(digest) = digest {
+        if let Some((digest, own_end)) = boundary {
             if expected.as_ref().is_some_and(|expected| expected != &digest) {
                 return Ok(None);
             }
             expected = Some(digest);
-            chosen.get_or_insert(source);
+            chosen.get_or_insert(Predecessor { source, own_end });
         }
     }
     Ok(chosen)

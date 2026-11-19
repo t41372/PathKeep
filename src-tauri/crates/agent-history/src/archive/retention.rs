@@ -83,7 +83,7 @@ pub(super) fn retain_latest_state(
 }
 
 impl Archive {
-    pub(super) fn reclaim_slices(&self) -> Result<()> {
+    pub(crate) fn reclaim_slices(&self) -> Result<()> {
         loop {
             let count = self.store.write(Db::AgentHistoryEvidence, Priority::Batch, |tx| {
                 let hashes = tx.query(

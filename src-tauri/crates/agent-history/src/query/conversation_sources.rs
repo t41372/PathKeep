@@ -61,7 +61,7 @@ pub(super) fn attach(tx: &Session<'_>, items: &mut [SessionView]) -> Result<()> 
                 }
                 .into(),
                 current: member.current,
-                base_source_id: base,
+                base_source_id: base.map(|predecessor| predecessor.source),
                 base_end_ordinal: member.relation.base_end_ordinal,
                 of_source_id: member.copy,
             });

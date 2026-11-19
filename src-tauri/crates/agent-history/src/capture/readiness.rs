@@ -1,7 +1,7 @@
 //! Responsibilities: withhold identities until a JSONL producer finishes its first record.
 //! Not responsible for: changing retained bytes or constraining low-level publication callers.
 use super::BackupOptions;
-use super::retained_input::RetainedInput;
+use crate::archive::RetainedInput;
 use crate::{Archive, Artifact, Error, Result, adapters::common};
 use std::{
     cell::RefCell,

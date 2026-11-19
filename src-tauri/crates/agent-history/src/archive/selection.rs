@@ -65,7 +65,7 @@ pub(super) fn choose(
         )
         .optional()
     })?;
-    if let Some(old) = old {
+    if let Some(old) = old.filter(|member| member.copy.is_none()) {
         let before = archive.revision(old.revision)?;
         let after = archive.revision(incoming.revision)?;
         // Capture already proved this immutable prefix. Its copy descendants
@@ -82,23 +82,10 @@ pub(super) fn choose(
                     )
                 })?);
         if extends {
-            if let Some(copy) = old.copy {
-                let other = archive.store.read(Db::AgentHistoryReadModel, move |tx| {
-                    tx.query_one(
-                        &format!("SELECT {COLUMNS} FROM ah_sessions WHERE id=?1"),
-                        [copy],
-                        candidate,
-                    )
-                    .optional()
-                })?;
-                if let Some(other) = other {
-                    return select(archive, vec![incoming, other]);
-                }
-            } else {
-                return Ok(Selection { copies: vec![(incoming.id, None)] });
-            }
+            return Ok(Selection { copies: vec![(incoming.id, None)] });
         }
     }
+    // A growing copy may follow a different branch even when its old bytes are a prefix.
     let mut candidates = load(archive, conversation)?;
     candidates.retain(|candidate| candidate.id != incoming.id);
     candidates.push(incoming);
@@ -156,12 +143,17 @@ fn select(archive: &Archive, mut candidates: Vec<Candidate>) -> Result<Selection
     let mut links: HashMap<String, Option<String>> = HashMap::new();
     let mut roots: Vec<&Candidate> = Vec::new();
     for first in &candidates {
-        let identity = identities[&first.revision].clone();
-        if let Some(representative) = equivalent.get(&identity) {
+        let identity = identities.get(&first.revision).ok_or_else(|| {
+            crate::Error::Integrity(format!(
+                "source {} refers to missing revision {}",
+                first.id, first.revision
+            ))
+        })?;
+        if let Some(representative) = equivalent.get(identity) {
             links.insert(first.id.clone(), Some(String::clone(representative)));
             continue;
         }
-        equivalent.insert(identity, first.id.clone());
+        equivalent.insert(identity.clone(), first.id.clone());
         let mut copy = None;
         let mut contained = Vec::new();
         for second in &roots {

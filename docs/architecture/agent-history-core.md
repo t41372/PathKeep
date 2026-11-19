@@ -52,7 +52,10 @@ the reason for it.
   differently: the byte offset is a position in the named rollout's own file,
   the ordinal counts along that rollout's whole history (what it inherits plus
   its own records before the offset). The line of a conversation is read through
-  the whole chain.
+  the whole chain. If a continuation repeats a physical source, traversal stops
+  at its first repetition. Each affected current line remains readable and
+  incomplete, with a path-scoped `lineage_unresolved` diagnostic whose detail is
+  `cycle`. An undecodable native prefix also leaves the continuation unresolved.
 - Preserve native event identity, parent relationships, source locator, record
   ordinal, timestamps, origin hints and native payload. Unknown origin stays
   unknown. Folder slugs are not reliable project paths.
@@ -71,7 +74,8 @@ the reason for it.
   references within approved roots. Conversation text cannot authorize arbitrary
   filesystem reads. No network fetching of referenced URLs. An attachment that
   was not kept is counted on its conversation and reported with its class, never
-  its target; it does not make the conversation incomplete.
+  its target; it does not make the conversation incomplete. Offline reparse
+  reports `missing` when a binding identifies a revision whose bytes expired.
 - One bounded read beyond the tools' folders: the git facts (top level, common
   directory, branch, remote URLs without credentials) of a folder that a session
   record names in its structured working-directory field. Only `.git`, `HEAD`,
@@ -109,6 +113,16 @@ tool already compressed are stored as they are. This gives atomic deduplication 
 protocol for object files. A revision publishes only after its complete chunk
 manifest and source validation are committed. Incomplete attempts cannot replace
 the current revision. Old raw revisions remain available for byte-exact export.
+
+Retention queues unreferenced slices in the publication transaction and attempts
+collection after commit. Backup checks the queue again after publishing the
+search index. If collection still fails, the backup returns a partial run with
+`slice_reclamation_deferred`. The next backup or archive open retries the queue.
+
+A mark returns the state committed to the evidence database. If its catalog
+mirror fails, the existing pending edit survives. Session reads, listing and
+search retry the mirror before exposing user state and propagate a continuing
+mirror failure. Opening the archive also replays pending edits.
 
 Normalized projections are rebuildable. Publication keeps the last complete
 generation visible until a replacement is ready. Bounded transactions and

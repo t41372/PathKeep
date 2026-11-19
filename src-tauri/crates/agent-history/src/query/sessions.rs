@@ -7,12 +7,17 @@ use super::{
 use crate::{Error, Result, archive::Archive};
 use vault_store::{Db, Row, Value};
 
-fn columns() -> String {
+fn columns(include_user_title: bool) -> String {
+    let user_title = if include_user_title {
+        "(SELECT title FROM ah_user_state WHERE conversation_id=s.conversation_id)"
+    } else {
+        "NULL"
+    };
     let parent = super::parents::native_link("parent_session_id", "parent_path");
     let fork = super::parents::native_link("forked_from_native_id", "fork_path");
     format!(
         "s.conversation_id,s.source_id,s.native_id,s.harness,s.project_path,
-         coalesce((SELECT title FROM ah_user_state WHERE conversation_id=s.conversation_id),
+         coalesce({user_title},
            s.title,(SELECT substr(e.text,1,160) FROM ah_events e
            WHERE e.session_id=s.id AND e.projection_id=s.projection_id
              AND e.role='user' AND e.text<>'' ORDER BY e.ordinal LIMIT 1)),
@@ -23,8 +28,8 @@ fn columns() -> String {
          coalesce((SELECT starred FROM ah_user_state WHERE conversation_id=s.conversation_id),0),
          coalesce((SELECT put_away FROM ah_user_state WHERE conversation_id=s.conversation_id),0),
          (SELECT trashed_at FROM ah_user_state WHERE conversation_id=s.conversation_id),
-         CASE WHEN (SELECT title FROM ah_user_state WHERE conversation_id=s.conversation_id)
-           IS NOT NULL THEN 'user' ELSE s.title_source END,s.forked_from_native_id,{fork}"
+         CASE WHEN {user_title} IS NOT NULL THEN 'user' ELSE s.title_source END,
+         s.forked_from_native_id,{fork}"
     )
 }
 const PAGE_BYTES: usize = 4 * 1024 * 1024;
@@ -34,9 +39,18 @@ impl Archive {
     /// addressable when a newer source cannot be interpreted.
     pub fn session(&self, id: &str) -> Result<SessionView> {
         let _job = self.jobs.enter(None)?;
+        self.ensure_state_visible()?;
+        self.session_with_title(id, true)
+    }
+
+    pub(crate) fn session_with_title(
+        &self,
+        id: &str,
+        include_user_title: bool,
+    ) -> Result<SessionView> {
         let id = id.to_owned();
         let requested = id.clone();
-        let columns = columns();
+        let columns = columns(include_user_title);
         let found = self.store.read(Db::AgentHistoryReadModel, move |session| {
             let mut items = session.query(
                 &format!(
@@ -58,6 +72,7 @@ impl Archive {
     /// Restart the query if any projection was published between its pages.
     pub fn list_sessions(&self, query: &SessionQuery) -> Result<Page<SessionView>> {
         let _job = self.jobs.enter(None)?;
+        self.ensure_state_visible()?;
         let limit = page_limit(query.limit)?;
         if !["exclude", "only", "include"].contains(&query.put_away.as_str())
             || !["exclude", "only"].contains(&query.trash.as_str())
@@ -87,7 +102,7 @@ impl Archive {
         let project = query.project_path.clone();
         let sort = query.sort;
         let hidden = super::parents::hidden_query();
-        let columns = columns();
+        let columns = columns(true);
         let (generation, page) = self.store.read(Db::AgentHistoryReadModel, move |session| {
             let current = generation(session)?;
             if after.as_ref().is_some_and(|cursor| cursor.generation != current) {

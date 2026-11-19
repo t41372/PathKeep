@@ -147,19 +147,20 @@ fn retained_reference(
     if reference.kind == "attachment" && reference.target.starts_with("data:") {
         return Ok(true);
     }
-    if let Some(retained) = archive.bound_reference(parent_revision, reference)? {
-        if retained.bytes_retained {
-            let mut reader = archive.raw_reader(retained.id)?;
-            let mut buffer = vec![0u8; 64 * 1024];
-            loop {
-                check_cancel(options)?;
-                if reader.read(&mut buffer)? == 0 {
-                    break;
-                }
+    let binding = archive.bound_reference(parent_revision, reference)?;
+    if let Some(retained) = &binding
+        && retained.bytes_retained
+    {
+        let mut reader = archive.raw_reader(retained.id)?;
+        let mut buffer = vec![0u8; 64 * 1024];
+        loop {
+            check_cancel(options)?;
+            if reader.read(&mut buffer)? == 0 {
+                break;
             }
-            archive.record_reference_outcome(parent_revision, reference, None)?;
-            return Ok(true);
         }
+        archive.record_reference_outcome(parent_revision, reference, None)?;
+        return Ok(true);
     }
     if reference.kind == "lineage" {
         common::push_diagnostic(
@@ -173,7 +174,10 @@ fn retained_reference(
         );
         return Ok(true);
     }
-    let reason = if reference.kind == "remote" {
+    let reason = if binding.is_some() {
+        // The binding proves authority. Only the bound revision's bytes are gone.
+        "missing".to_owned()
+    } else if reference.kind == "remote" {
         "remote".to_owned()
     } else {
         archive

@@ -122,3 +122,47 @@ fn repeated_references_count_as_occurrences_while_capture_stays_deduplicated() {
     );
     case.equal("its own records are complete", conversation["complete"].clone(), json!(true));
 }
+
+// The binding still identifies the captured SQLite snapshot after retention expires its bytes.
+#[test]
+fn offline_reparse_classifies_an_expired_attachment_as_missing() {
+    use agent_history::{Archive, Harness, SourceRoot};
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().canonicalize().unwrap().join("codex");
+    std::fs::create_dir(&root).unwrap();
+    let state = root.join("state_5.sqlite");
+    let db = rusqlite::Connection::open(&state).unwrap();
+    db.execute("CREATE TABLE sample(value INTEGER)", []).unwrap();
+    let archive = Archive::create_unencrypted(&temp.path().join("archive")).unwrap();
+    let sources = [SourceRoot { harness: Harness::Codex, root: root.clone() }];
+    let backup = || archive.backup(&sources, &Default::default()).unwrap();
+    backup();
+    let target = archive.list_sources(&Default::default()).unwrap().items.remove(0);
+    assert_eq!(target.retention, "state");
+    let revision = target.latest_revision_id.unwrap();
+    let thread = "11111111-1111-4111-8111-111111111111";
+    let attachment = json!({"type":"event_msg","payload":{"type":"user_message",
+        "local_images":[state],"message":"snapshot"}});
+    let transcript = codex_rollout(
+        &root,
+        "2026-11-10T12-00-00",
+        thread,
+        &[codex_meta(thread, "/synthetic/project"), attachment],
+    );
+    backup();
+    let item = archive.list_sessions(&Default::default()).unwrap().items.remove(0);
+    assert_eq!(item.attachments_not_kept, 0);
+    std::fs::remove_file(transcript).unwrap();
+    db.execute("INSERT INTO sample VALUES(2)", []).unwrap();
+    drop(db);
+    backup();
+    assert!(!archive.revision(revision).unwrap().bytes_retained);
+    std::fs::remove_dir_all(root).unwrap();
+    let report = archive.reparse_source(&item.source_id, &Default::default()).unwrap();
+    let issue = report.issues.iter().find(|issue| issue.code == "attachment_not_retained").unwrap();
+    assert_eq!(issue.detail.as_deref(), Some("missing"));
+    assert!(issue.path.is_none());
+    let after = archive.session(&item.id).unwrap();
+    assert_eq!(after.attachments_not_kept, 1);
+    assert!(after.complete);
+}

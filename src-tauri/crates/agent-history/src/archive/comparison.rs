@@ -1,7 +1,7 @@
 //! Responsibilities: settle prefix comparisons from retained evidence before reading bytes.
 //! Not responsible for: trusting source timestamps or selecting a conversation's current source.
 use super::{Archive, RevisionInfo};
-use crate::{Result, adapters::common};
+use crate::{Error, Result, adapters::common};
 use std::io::{BufRead, BufReader, Read};
 use vault_store::{Db, params};
 
@@ -9,6 +9,25 @@ struct Slice {
     offset: u64,
     length: u64,
     hash: String,
+}
+
+// A retained prefix may end inside its owner's last slice.
+fn covering_slice<'a>(
+    manifest: &'a [Slice],
+    index: usize,
+    position: u64,
+    revision: &RevisionInfo,
+) -> Result<(&'a Slice, u64)> {
+    if let Some(slice) = manifest.get(index)
+        && let Some(end) = slice.offset.checked_add(slice.length)
+        && (slice.offset..end).contains(&position)
+    {
+        return Ok((slice, end));
+    }
+    Err(Error::Integrity(format!(
+        "source {} revision {} has no valid slice at byte {position}",
+        revision.source_id, revision.id,
+    )))
 }
 
 impl Archive {
@@ -34,9 +53,9 @@ impl Archive {
         let right = self.manifest(b)?;
         let (mut i, mut j, mut offset) = (0, 0, 0);
         while offset < a.byte_len {
-            let x = &left[i];
-            let y = &right[j];
-            let end = (x.offset + x.length).min(y.offset + y.length).min(a.byte_len);
+            let (x, x_end) = covering_slice(&left, i, offset, a)?;
+            let (y, y_end) = covering_slice(&right, j, offset, b)?;
+            let end = x_end.min(y_end).min(a.byte_len);
             if x.offset != y.offset || x.hash != y.hash {
                 let mut first = self.raw_window(a, offset, end - offset);
                 let mut second = self.raw_window(b, offset, end - offset);
@@ -54,10 +73,10 @@ impl Archive {
                 }
             }
             offset = end;
-            if offset == x.offset + x.length {
+            if offset == x_end {
                 i += 1;
             }
-            if offset == y.offset + y.length {
+            if offset == y_end {
                 j += 1;
             }
         }

@@ -7,7 +7,7 @@ use std::{
     rc::Rc,
 };
 
-pub(super) struct RetainedInput {
+pub(crate) struct RetainedInput {
     pub reader: RawReader,
     pub error: Rc<RefCell<Option<io::Error>>>,
 }

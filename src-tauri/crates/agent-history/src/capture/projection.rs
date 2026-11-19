@@ -1,11 +1,11 @@
 //! Responsibilities: interpret retained bytes through bounded parser and write batches.
 //! Not responsible for: discovering sources, reading attachments or publishing search.
-use super::{BackupOptions, check_cancel, retained_input::RetainedInput as ArchiveInput};
+use super::{BackupOptions, check_cancel};
 use crate::{
     Archive, Artifact, Diagnostic, Error, NativeEvent, ParseContext, ParseReport, Result,
     SourceRoot,
     adapters::{adapter, common},
-    archive::ProjectionAttempt,
+    archive::{ProjectionAttempt, RetainedInput},
 };
 use std::{
     cell::{Cell, RefCell},
@@ -70,7 +70,7 @@ pub(super) fn prepare(
         attempt = archive.prepare_projection(source_id, revision, &parser_version, true)?;
     }
     let read_error = Rc::new(RefCell::new(None));
-    let raw = ArchiveInput { reader: archive.raw_reader(revision)?, error: read_error.clone() };
+    let raw = RetainedInput { reader: archive.raw_reader(revision)?, error: read_error.clone() };
     let decoded = common::decoded_reader(Box::new(raw), &artifact.relative_path);
     let decoded = match decoded {
         Ok(decoded) => decoded,
