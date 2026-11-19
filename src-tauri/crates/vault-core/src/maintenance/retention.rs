@@ -32,7 +32,12 @@ pub fn preview_retention(
     let mut buckets = Vec::new();
     for (id, kind) in vault_layout::retention_members() {
         let directory = paths.artifact_path(id);
-        let (bytes, item_count) = walk_except(&directory, bucket_keeps(kind, &kept), measure)?;
+        let (bytes, item_count) = walk_except(
+            &directory,
+            bucket_keeps(kind, &kept),
+            kind == vault_layout::RetentionBucket::Staging,
+            measure,
+        )?;
         buckets.push(RetentionBucket {
             id: kind.name().into(),
             bytes,
@@ -118,8 +123,12 @@ pub fn prune(
                 .into_iter()
                 .find(|(_, kind)| kind.name() == bucket.id)
                 .expect("selected preview bucket");
-            let (removed_bytes, removed_files) =
-                walk_except(&paths.artifact_path(id), bucket_keeps(kind, &kept), remove_path)?;
+            let (removed_bytes, removed_files) = walk_except(
+                &paths.artifact_path(id),
+                bucket_keeps(kind, &kept),
+                kind == vault_layout::RetentionBucket::Staging,
+                remove_path,
+            )?;
             if kind == vault_layout::RetentionBucket::Snapshots {
                 let listed = copies.iter().map(|copy| copy.path.clone()).collect::<Vec<_>>();
                 forget(vault, move |path| !listed.iter().any(|copy| copy == path))?;
@@ -200,6 +209,7 @@ fn bucket_keeps(kind: vault_layout::RetentionBucket, kept: &[PathBuf]) -> &[Path
 fn walk_except(
     root: &Path,
     keep: &[PathBuf],
+    staging: bool,
     each: fn(&Path) -> Result<(u64, usize)>,
 ) -> Result<(u64, usize)> {
     let entries = match fs::read_dir(root) {
@@ -210,11 +220,12 @@ fn walk_except(
     let mut totals = (0, 0);
     for entry in entries {
         let path = entry?.path();
-        if keep.contains(&path) {
+        if keep.contains(&path) || (staging && super::conversation_repair::cache::is_preview(&path))
+        {
             continue;
         }
         let (bytes, files) = if keep.iter().any(|kept| kept.starts_with(&path)) {
-            walk_except(&path, keep, each)?
+            walk_except(&path, keep, false, each)?
         } else {
             each(&path)?
         };

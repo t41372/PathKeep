@@ -26,6 +26,7 @@ pub(crate) static ENVELOPE_ACCESS: std::sync::Mutex<()> = std::sync::Mutex::new(
 pub struct Vault {
     // Shared owner lifetime closes retained service handles before artifact roots drop.
     lifetime: Arc<Lifetime>,
+    pub(crate) repair_preview: Arc<crate::maintenance::conversation_repair::cache::Cache>,
     search_sessions: Arc<crate::search::SearchSessions>,
     search: Arc<crate::search::Indexer>,
     store: Arc<Store>,
@@ -155,6 +156,11 @@ impl Vault {
             password::check_partial_root(&paths, key.is_some(), envelope)?;
         }
         if live_archive {
+            if let Err(error) =
+                crate::maintenance::conversation_repair::cache::clean_abandoned(&paths)
+            {
+                eprintln!("PathKeep could not clean abandoned conversation previews: {error}");
+            }
             store
                 .write(Db::Archive, Priority::Interactive, |s| {
                     // Assign the installed ledger an origin before a reader can publish a link.
@@ -200,6 +206,7 @@ impl Vault {
         });
         let vault = Self {
             lifetime,
+            repair_preview: Default::default(),
             search_sessions,
             search,
             store,
@@ -310,6 +317,7 @@ impl Vault {
     }
 
     pub fn close(&self) -> Result<()> {
+        self.repair_preview.clear();
         self.vector_generations.stop_reaper();
         self.lifetime.close()
     }

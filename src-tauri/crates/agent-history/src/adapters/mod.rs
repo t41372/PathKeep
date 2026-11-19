@@ -21,6 +21,11 @@ pub use session_json::{ClineAdapter, ContinueAdapter, RooCodeAdapter};
 
 /// Adapters interpret retained bytes without importing a harness's mutating loader.
 pub trait Adapter: Send + Sync {
+    /// Whether bytes at this recorded native path may publish a conversation.
+    fn publishes_transcript(&self, _relative_path: &str) -> bool {
+        true
+    }
+
     fn harness(&self) -> Harness;
 
     /// Supplies a content-derived identity while leaving foreign identities as native links.

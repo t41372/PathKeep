@@ -43,10 +43,19 @@ pub fn preview(
     session: &VaultSession,
     request: Preview,
 ) -> Result<maintenance::ConversationRepairPreview> {
-    maintenance::preview_conversation_repair(
-        &owner(session)?,
-        request.copy_path.as_deref(),
-        request.copy_password.as_deref(),
+    let vault = owner(session)?;
+    crate::maintenance_jobs::run(
+        &vault.paths().app_root,
+        "preparingConversationRepair",
+        ForegroundWork::Restore,
+        |cancel, _| {
+            maintenance::preview_conversation_repair_with_cancel(
+                &vault,
+                request.copy_path.as_deref(),
+                request.copy_password.as_deref(),
+                &cancel,
+            )
+        },
     )
 }
 
@@ -59,7 +68,8 @@ pub fn execute(
     let vault = owner(session)?;
     let _running = crate::foreground_work::begin(ForegroundWork::Restore);
     let password = session.get_key().map_err(anyhow::Error::msg)?;
-    let _lease = session.begin_maintenance().map_err(anyhow::Error::msg)?;
+    let lease = session.begin_maintenance().map_err(anyhow::Error::msg)?;
+    vault_core::fault_inject::checkpoint("conversation-repair-lease-start")?;
     if session.current_vault().is_none_or(|v| !std::sync::Arc::ptr_eq(v.store(), vault.store())) {
         return Err(Refusal::Replaced.into());
     }
@@ -80,6 +90,8 @@ pub fn execute(
     let kept_copy_path = installed.previous_files.display().to_string();
     let policy_token = installed.vault.config().capture_policy.token();
     session.install_archive(installed, password, crate::KeychainAfterInstall::AsSaved)?;
+    drop(lease);
+    vault_core::fault_inject::checkpoint("conversation-repair-lease-end")?;
     emit(PolicyChange { policy_token, changed_kinds: vec![DataKind::AgentHistory] });
     Ok(Repaired { kept_copy_path, availability: "available" })
 }
@@ -102,7 +114,7 @@ pub struct SaveCopy {
 
 fn copy_plan(vault: &vault_core::Vault) -> Result<SafetyCopyPreview> {
     vault.recheck_root()?;
-    vault.check_browsing_files()?;
+    vault.check_available_files()?;
     let directory = vault
         .paths()
         .artifact_path(vault_layout::ArtifactId::NativeSnapshots)

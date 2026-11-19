@@ -11,6 +11,8 @@ mod engine_log;
 mod error;
 mod existing_files;
 mod maintenance;
+#[cfg(windows)]
+mod maintenance_windows;
 mod migration;
 mod opening;
 mod pair;
@@ -50,6 +52,8 @@ pub struct Store {
     workers: RwLock<Vec<(Db, worker::Workers)>>,
     /// Serializes attempts to add workers. Ordinary reads never take this lock.
     adding: Mutex<()>,
+    retired_files: Mutex<Vec<(Db, worker::HeldFiles)>>,
+    availability_observer: std::sync::OnceLock<Box<dyn Fn() + Send + Sync>>,
     conversation_failure: RwLock<Option<Arc<StoreOpenFailure>>>,
     ownership: Mutex<Option<Arc<owner_lock::OwnerLock>>>,
     closed: AtomicBool,
@@ -156,6 +160,7 @@ impl Store {
         while let Some((_, worker)) = workers.pop() {
             drop(worker);
         }
+        self.retired_files.lock().unwrap().clear();
         self.ownership.lock().unwrap().take();
         sealed
     }

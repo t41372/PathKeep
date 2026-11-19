@@ -13,3 +13,6 @@ pub use policies::*;
 
 /// A sealed copy carrying opaque conversation files may restore browsing, but cannot repair conversations.
 pub const UNREADABLE_CONVERSATIONS: &str = "conversations-unreadable";
+
+/// Bytes of the displaced open file when its live pathname is missing or occupied by another file.
+pub const HELD_CONVERSATIONS: &str = "held-conversations";

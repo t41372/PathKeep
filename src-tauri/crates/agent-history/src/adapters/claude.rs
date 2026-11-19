@@ -14,6 +14,12 @@ use crate::{Result, model::*};
 pub struct ClaudeAdapter;
 
 impl Adapter for ClaudeAdapter {
+    fn publishes_transcript(&self, relative_path: &str) -> bool {
+        let name = relative_path.rsplit('/').next().unwrap_or(relative_path);
+        !(name.contains(".jsonl.superseded-")
+            || (name.contains(".orphaned-") && name.ends_with(".jsonl")))
+    }
+
     fn harness(&self) -> Harness {
         Harness::ClaudeCode
     }

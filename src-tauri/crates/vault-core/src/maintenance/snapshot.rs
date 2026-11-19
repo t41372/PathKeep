@@ -28,16 +28,41 @@ pub(crate) struct FileProof {
 pub fn snapshot(vault: &Vault, target: &Path) -> Result<()> {
     let _operation = crate::archive::ArchiveOpGate::acquire(vault.paths());
     vault.recheck_root()?;
-    let pause = vault.pause_store()?;
-    snapshot_paused(vault, &pause, target)
+    let mut pause = vault.pause_store()?;
+    if vault.conversation_availability().is_ok() {
+        return snapshot_paused(vault, &mut pause, target);
+    }
+    // Finish all reads before creating anything at the requested destination.
+    let ancestor = target.ancestors().skip(1).find(|p| p.is_dir()).unwrap_or(Path::new("."));
+    let trial = tempfile::tempdir_in(ancestor)?;
+    let copy = trial.path().join("snapshot");
+    snapshot_paused(vault, &mut pause, &copy)?;
+    install::sync_tree(&copy)?;
+    if target.try_exists()? {
+        anyhow::ensure!(
+            fs::symlink_metadata(target)?.is_dir() && fs::read_dir(target)?.next().is_none(),
+            "snapshot target must be empty"
+        );
+        for entry in fs::read_dir(&copy)? {
+            let entry = entry?;
+            install::rename(&entry.path(), &target.join(entry.file_name()))?;
+        }
+        Ok(())
+    } else {
+        install::rename(&copy, target)
+    }
 }
 
 pub(super) fn snapshot_paused(
     vault: &Vault,
-    pause: &vault_store::Maintenance<'_>,
+    pause: &mut vault_store::Maintenance<'_>,
     target: &Path,
 ) -> Result<()> {
     pause.snapshot(target)?;
+    finish_snapshot(vault, target)
+}
+
+fn finish_snapshot(vault: &Vault, target: &Path) -> Result<()> {
     let mut config = crate::load_config(vault.paths())?;
     config.capture_policy = Default::default();
     config.dismissed_agent_hints.clear();
@@ -49,11 +74,38 @@ pub(super) fn snapshot_paused(
     seal(target)
 }
 
+/// An unlinked original has no directory entry to restore on rollback. Publish
+/// its completed safety copy before releasing the last handle. A later refusal
+/// or crash must never sweep its only remaining bytes out with the install stage.
+pub(super) fn keep_held_before_close(displaced: &Path, listed: &Path) -> Result<bool> {
+    if !displaced.join(vault_layout::HELD_CONVERSATIONS).try_exists()? {
+        return Ok(false);
+    }
+    install::sync_tree(displaced)?;
+    install::rename(displaced, listed)?;
+    Ok(true)
+}
+
 pub(crate) fn seal(root: &Path) -> Result<()> {
     // The snapshot's own control, written just before, says which stores it holds.
     let layout = crate::admission::root_layout(root)?;
+    let held = root.join(vault_layout::HELD_CONVERSATIONS);
+    let mut pinned = Vec::new();
+    if held.try_exists()? {
+        anyhow::ensure!(
+            fs::symlink_metadata(&held)?.is_dir(),
+            "invalid held-conversations directory"
+        );
+        for entry in walkdir::WalkDir::new(&held).follow_links(false).follow_root_links(false) {
+            let entry = entry?;
+            if entry.file_type().is_file() {
+                pinned.push(entry.path().strip_prefix(root)?.to_owned());
+            }
+        }
+    }
     let files = database_files(layout, false)
         .into_iter()
+        .chain(pinned)
         .chain([PathBuf::from(vault_layout::UNREADABLE_CONVERSATIONS)])
         .filter(|p| root.join(p).is_file())
         .map(|path| {
@@ -313,14 +365,17 @@ pub fn restore_snapshot_to(
     // closes, and installed in the same hold of the control's gate. The archive it replaces
     // becomes a safety copy, so the restore can be undone.
     let control = crate::ControlGate::acquire(paths);
+    let original_control = crate::content_identity::of(&paths.config_path)?;
     crate::migration::native::keep_machine_settings(
         &mut config,
         &crate::migration::native::settings_here(paths)?,
     );
     crate::config::write_staged_control(&staged_paths, &config, Some(&stamp))?;
     let mut opaque_copy = None;
+    let mut expected = None;
     if let Some(vault) = current {
-        let pause = vault.pause_store()?;
+        vault.check_available_files()?;
+        let mut pause = vault.pause_store()?;
         if vault.conversation_availability().is_err() {
             let relative = Path::new(
                 vault_layout::spec(vault_layout::ArtifactId::NativeSnapshots).path.relative(),
@@ -333,9 +388,28 @@ pub fn restore_snapshot_to(
                 !install::exists(&paths.app_root.join(&relative))?,
                 "safety copy destination already exists"
             );
-            snapshot_paused(vault, &pause, &stage.path().join(&relative))?;
-            opaque_copy = Some(paths.app_root.join(&relative));
-            files.push(relative);
+            let displaced = stage.path().join(&relative);
+            let mut frozen = pause
+                .snapshot_with(&displaced, || Ok(install::originals(&paths.app_root, &files)?))?;
+            finish_snapshot(vault, &displaced)?;
+            frozen.insert(PathBuf::from("config.json"), original_control);
+            for db in vault_layout::snapshot_databases(layout) {
+                let path = PathBuf::from(vault_layout::database_path(db));
+                if frozen.contains_key(&path) {
+                    anyhow::ensure!(
+                        frozen[&path] == crate::content_identity::of(&displaced.join(&path))?,
+                        "installation-source-changed: {} changed while the safety copy was made",
+                        path.display()
+                    );
+                }
+            }
+            let listed = paths.app_root.join(&relative);
+            if !keep_held_before_close(&displaced, &listed)? {
+                frozen.insert(relative.clone(), None);
+                files.push(relative);
+            }
+            expected = Some(frozen);
+            opaque_copy = Some(listed);
         }
         pause.close()?;
     }
@@ -344,7 +418,7 @@ pub fn restore_snapshot_to(
     } else {
         install::Keep::SafetyCopy(install::Before::Restore)
     };
-    let replaced = install::install(&control, stage.path(), files, keep)?;
+    let replaced = install::install_bound(&control, stage.path(), files, keep, expected.as_ref())?;
     drop(control);
     let opened = Vault::open_owned(paths.clone(), config, target.key.as_ref(), Some(owner))?;
     Ok(InstalledArchive {
@@ -607,12 +681,12 @@ pub fn manual_snapshot(
             stage.path().file_name().context("copy stage has no name")?.to_string_lossy()
         ));
     let copy = stage.path().join("snapshot");
-    let pause = vault.pause_store()?;
+    let mut pause = vault.pause_store()?;
     anyhow::ensure!(
         expected_unreadable == vault.conversation_availability().is_err(),
         "conversation-repair-preview-stale"
     );
-    snapshot_paused(vault, &pause, &copy)?;
+    snapshot_paused(vault, &mut pause, &copy)?;
     install::sync_tree(&copy)?;
     install::rename(&copy, &target)?;
     drop(pause);

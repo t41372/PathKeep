@@ -409,6 +409,7 @@ fn process_artifact(
         return Ok(());
     };
     if artifact.kind != ArtifactKind::Transcript
+        || !adapter(source.harness).publishes_transcript(&artifact.relative_path)
         || (!artifact.current && !adapter(source.harness).current_source_only())
     {
         // Discovery may replace a fallback (for example Cowork audit) with a

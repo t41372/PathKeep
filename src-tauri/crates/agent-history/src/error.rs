@@ -5,7 +5,7 @@
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error(transparent)]
-    Io(#[from] std::io::Error),
+    Io(std::io::Error),
     #[error(transparent)]
     Json(#[from] serde_json::Error),
     #[error(transparent)]
@@ -66,5 +66,16 @@ impl Error {
             Self::StaleCursor => "stale_cursor",
             Self::Cancelled => "cancelled",
         }
+    }
+}
+
+impl From<std::io::Error> for Error {
+    fn from(error: std::io::Error) -> Self {
+        if let Some(vault_store::Error::Open(reason)) =
+            error.get_ref().and_then(|e| e.downcast_ref())
+        {
+            return Self::Store(vault_store::Error::Open(reason.clone()));
+        }
+        Self::Io(error)
     }
 }

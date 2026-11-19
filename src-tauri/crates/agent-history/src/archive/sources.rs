@@ -44,10 +44,18 @@ impl Archive {
         let id = source_id.to_owned();
         let known = self.store.read(Db::AgentHistoryEvidence, move |tx| read_source(tx, &id))?;
         if let Some(known) = &known {
-            if known.harness != desired.harness
-                || known.root != desired.root
-                || known.relative_path != desired.relative_path
-            {
+            // Salvage can retain verified bytes whose descriptor page was lost.
+            // Only the original physical source identity may fill that blank.
+            let missing =
+                known.root.is_empty() && known.harness.is_empty() && known.relative_path.is_empty();
+            let matches = if missing {
+                crate::capture::source_identity(source, artifact)? == source_id
+            } else {
+                known.harness == desired.harness
+                    && known.root == desired.root
+                    && known.relative_path == desired.relative_path
+            };
+            if !matches {
                 return Err(Error::Integrity(
                     "source identity was reused for a different source".into(),
                 ));
@@ -75,7 +83,8 @@ impl Archive {
             tx.execute(
                 "INSERT INTO ah_sources(id, harness, root, relative_path, kind, observed_at,
                     retention) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7) ON CONFLICT(id) DO UPDATE SET
-                    kind=excluded.kind, retention=excluded.retention",
+                    kind=excluded.kind, retention=excluded.retention, harness=excluded.harness,
+                    root=excluded.root,relative_path=excluded.relative_path",
                 params![
                     desired.id,
                     desired.harness,
@@ -102,14 +111,17 @@ impl Archive {
     /// Allows export policy to reject destinations inside source roots.
     pub fn source_roots(&self) -> Result<Vec<std::path::PathBuf>> {
         Ok(self.store.read(Db::AgentHistoryEvidence, |tx| {
-            tx.query("SELECT DISTINCT root FROM ah_sources ORDER BY root", (), |r| {
+            tx.query("SELECT DISTINCT root FROM ah_sources WHERE root<>'' ORDER BY root", (), |r| {
                 Ok(std::path::PathBuf::from(r.get::<String>(0)?))
             })
         })?)
     }
 }
 
-fn read_source(tx: &vault_store::Session<'_>, id: &str) -> vault_store::Result<Option<SourceInfo>> {
+pub(super) fn read_source(
+    tx: &vault_store::Session<'_>,
+    id: &str,
+) -> vault_store::Result<Option<SourceInfo>> {
     tx.query_one(
         "SELECT id, harness, root, relative_path, kind, latest_revision_id, observed_at,
             retention, last_seen_at, missing_since FROM ah_sources WHERE id=?1",

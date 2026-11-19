@@ -19,8 +19,11 @@ pub(crate) fn maintenance_progress_impl()
 -> Result<Option<vault_core::maintenance::Progress>, CommandError> {
     worker_result(vault_worker::maintenance_progress())
 }
-pub(crate) fn cancel_maintenance_impl() -> Result<bool, CommandError> {
-    worker_result(vault_worker::cancel_maintenance())
+pub(crate) fn cancel_maintenance_impl(
+    session: &crate::session::SessionState,
+) -> Result<bool, CommandError> {
+    let active = worker_result(vault_worker::cancel_maintenance())?;
+    Ok(session.current_vault().is_some_and(|v| v.cancel_conversation_repair_preview()) || active)
 }
 
 pub(crate) fn export_app_data_impl(

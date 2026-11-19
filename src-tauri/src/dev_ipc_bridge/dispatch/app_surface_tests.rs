@@ -582,6 +582,19 @@ fn conversation_repair_screen_wire_contract() {
             true
         );
         invoke!("preview_agent_history_repair", empty.clone(), true);
+        let cancelled = invoke!("cancel_maintenance", json!({}), true);
+        assert_eq!(cancelled, true);
+        let stale = invoke!(
+            "repair_agent_history",
+            json!({"request":{"copyPath":good["path"],"previewToken":copy["token"]}}),
+            false
+        );
+        assert_eq!(stale["code"], "conversation-repair-preview-stale");
+        let copy = invoke!(
+            "preview_agent_history_repair",
+            json!({"request":{"copyPath":good["path"]}}),
+            true
+        );
         invoke!(
             "repair_agent_history",
             json!({"request":{"copyPath":good["path"],"previewToken":copy["token"]}}),
@@ -595,6 +608,19 @@ fn conversation_repair_screen_wire_contract() {
         std::fs::write(root.path().join("archive/agent-history.db"), b"bad again").unwrap();
         let fresh = invoke!("preview_agent_history_repair", empty, true);
         invoke!("repair_agent_history", json!({"request":{"previewToken":fresh["token"]}}), true);
+        let live_model = root.path().join("derived/agent-history-read-model.db");
+        let removed = root.path().join("displaced-model.db");
+        std::fs::rename(&live_model, &removed).unwrap();
+        let observed = state.events.observe();
+        let at_rest = invoke!("reconcile_archive_encryption", json!({}), true);
+        assert_eq!(at_rest["conversationsUnreadable"], true);
+        assert!(
+            observed()
+                .iter()
+                .any(|(name, payload)| *name == vault_worker::data_kinds::POLICY_EVENT
+                    && payload["changedKinds"] == json!(["agent-history"]))
+        );
+        std::fs::rename(removed, live_model).unwrap();
         let output =
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../artifacts/vault-lifecycle");
         std::fs::create_dir_all(&output).unwrap();

@@ -410,18 +410,32 @@ and zero values disable pacing. Waits check cancellation in slices of at most
 All four commands run on the unlocked archive owner. A preview token binds its execute request.
 The repair preview verifies the selected source and counts its conversations before returning.
 
-| Command                        | Fields inside `request`                                | Result                                                                                                                                                                                               |
-| ------------------------------ | ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `preview_archive_safety_copy`  | Empty object                                           | `directory`, `conversationsUnreadable`, `previewToken`                                                                                                                                               |
-| `create_archive_safety_copy`   | `previewToken`                                         | Listed recovery snapshot, including `conversationsUnreadable`                                                                                                                                        |
-| `preview_agent_history_repair` | Optional `copyPath` and `copyPassword`                 | `action`, `copyPath`, `sourceOp`, `createdAt`, decimal-string `conversations`, `keptAs`, `reviewSourcesBeforeBackup`, `nextBackupRecapturesToolFiles`, `archiveOnlyConversationsUnreadable`, `token` |
-| `repair_agent_history`         | Same source fields and `previewToken` from the preview | `keptCopyPath` and `availability:"available"`. Publishes `pathkeep://data-kinds-changed` with the current policy token and `changedKinds:["agent-history"]`.                                         |
+| Command                        | Fields inside `request`                                | Result                                                                                                                                                                                                                                   |
+| ------------------------------ | ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `preview_archive_safety_copy`  | Empty object                                           | `directory`, `conversationsUnreadable`, `previewToken`                                                                                                                                                                                   |
+| `create_archive_safety_copy`   | `previewToken`                                         | Listed recovery snapshot, including `conversationsUnreadable`                                                                                                                                                                            |
+| `preview_agent_history_repair` | Optional `copyPath` and `copyPassword`                 | `action`, `copyPath`, `sourceOp`, `createdAt`, decimal-string `conversations`, nullable `conversationsOnlyInCopy`, `keptAs`, `reviewSourcesBeforeBackup`, `nextBackupRecapturesToolFiles`, `archiveOnlyConversationsUnreadable`, `token` |
+| `repair_agent_history`         | Same source fields and `previewToken` from the preview | `keptCopyPath` and `availability:"available"`. Publishes `pathkeep://data-kinds-changed` with the current policy token and `changedKinds:["agent-history"]`.                                                                             |
 
 An omitted source lets the owner choose `rebuild` when canonical evidence is intact or
-`startFresh` when it cannot be recovered locally. `fromCopy` takes both roles from one
+`startFresh` to salvage verified revisions into new stores when the original evidence database cannot be admitted. `fromCopy` takes both roles from one
 verified safety copy. A listed copy with `conversationsUnreadable:true` can restore browsing.
 Mode conversion and move-file conversion return `conversation-repair-required` with
 `actionHint:"preview_agent_history_repair"`. A failing live query can supply a `read` or
 `write` stage on the kind's failure. The desktop test `conversation_repair_screen_wire_contract`
 records the serialized requests, results, errors and events in
 `artifacts/vault-lifecycle/conversation-repair-wire.json`.
+
+The repair preview's `conversations` is the decimal-string count visible after the proposed action.
+For `startFresh`, verified revisions can make this count positive. `conversationsOnlyInCopy` is
+a decimal string when a readable conversation inventory establishes the difference and `null`
+when it cannot be measured or the action does not use salvage. Render an unknown count explicitly.
+A preview expires after fifteen minutes. A later successful preview supersedes it. The existing
+`cancel_maintenance` command cancels active preparation or discards a prepared preview. Execute
+consumes the token and verifies the selected copy and live inputs again.
+
+The first conversation quarantine discovered by a query or a conversion emits
+`pathkeep://data-kinds-changed` with the current `policyToken` and
+`changedKinds:["agent-history"]`. Refetch the kind snapshot even if the policy token is unchanged.
+A retained-byte failure names the evidence role. Retry verifies the failed revision before it
+publishes workers. A refusal to preserve an OS-unreadable file identifies its path.

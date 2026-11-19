@@ -142,7 +142,15 @@ impl Vault {
             crate::maintenance::creation::check_required_stores(&self.paths, layout)
                 .map_err(|e| vault_store::Error::Operation(e.into_boxed_dyn_error()))?;
         let _update = super::upgrade::UpdateScope::track(&mut config.migrations);
-        self.store.retry_conversations(config)?;
+        let prior = self.store.conversation_availability().err();
+        self.store.retry_conversations_checked(config, |config| {
+            if let Some(reason) = prior
+                && let vault_store::Error::RetainedBytes { revision, .. } = reason.cause
+            {
+                agent_history::Archive::verify_recorded_revision(config, revision)?;
+            }
+            Ok(())
+        })?;
         self.attach_conversations(&mut slot).map(|_| ()).map_err(|e| match e {
             agent_history::Error::Store(error) => error,
             other => vault_store::Error::Operation(Box::new(other)),
@@ -155,9 +163,42 @@ impl Vault {
         self.conversation_availability().map_err(vault_store::Error::RepairRequired)
     }
 
+    /// Verify source pages and logical evidence before a conversion reads them.
+    pub(crate) fn verify_conversion_source(
+        &self,
+        cancel: &vault_store::CancelToken,
+    ) -> anyhow::Result<()> {
+        if self.layout != vault_layout::ArchiveLayout::AgentHistoryV2 {
+            return Ok(());
+        }
+        let result = (|| -> anyhow::Result<()> {
+            for role in
+                [vault_store::Db::AgentHistoryEvidence, vault_store::Db::AgentHistoryReadModel]
+            {
+                let messages = self.store.read(role, |s| s.integrity_check())?;
+                if messages != ["ok"] {
+                    self.store.remember_conversation_failure(Arc::new(
+                        vault_store::StoreOpenFailure {
+                            role,
+                            stage: vault_store::OpenStage::Read,
+                            cause: vault_store::Error::IntegrityCheck {
+                                detail: messages.join(", "),
+                            },
+                        },
+                    ));
+                    break;
+                }
+            }
+            agent_history::Archive::verify_retained_evidence(&self.store, cancel)?;
+            Ok(())
+        })();
+        self.store.conversation_availability().map_err(vault_store::Error::RepairRequired)?;
+        result
+    }
+
     /// Validate the browsing files first. If a conversion or at-rest check is the
     /// first to discover a displaced conversation role, publish its failure immediately.
-    pub(crate) fn check_available_files(&self) -> vault_store::Result<()> {
+    pub fn check_available_files(&self) -> vault_store::Result<()> {
         self.check_browsing_files()?;
         if self.conversation_availability().is_ok() {
             let roles = vault_layout::at_rest_databases(self.layout()).filter(|db| {
@@ -290,6 +331,12 @@ impl<'a> std::ops::Deref for PausedStore<'a> {
     type Target = vault_store::Maintenance<'a>;
     fn deref(&self) -> &Self::Target {
         &self.storage
+    }
+}
+
+impl std::ops::DerefMut for PausedStore<'_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.storage
     }
 }
 

@@ -325,11 +325,29 @@ fn locate(paths: &ProjectPaths, journal: &Journal) -> Result<Located> {
     Ok(Located { stage: paths.app_root.join(stage), backup: paths.app_root.join(backup), kept_as })
 }
 
+#[cfg(test)]
 pub(super) fn prepare(
     paths: &ProjectPaths,
     stage: &Path,
     files: Vec<PathBuf>,
     keep: Keep,
+) -> Result<Journal> {
+    prepare_bound(paths, stage, files, keep, None)
+}
+
+pub(crate) type Originals = std::collections::BTreeMap<PathBuf, Option<String>>;
+
+/// Capture the frozen inputs the caller is preserving, before it releases them.
+pub(crate) fn originals(root: &Path, members: &[PathBuf]) -> std::io::Result<Originals> {
+    members.iter().map(|p| Ok((p.clone(), content_identity::of(&root.join(p))?))).collect()
+}
+
+fn prepare_bound(
+    paths: &ProjectPaths,
+    stage: &Path,
+    files: Vec<PathBuf>,
+    keep: Keep,
+    expected: Option<&Originals>,
 ) -> Result<Journal> {
     // The journal compares the control by what is at its name and copies it as bytes; a link would
     // be compared as a link, and the install would put a file where it was.
@@ -351,6 +369,15 @@ pub(super) fn prepare(
         .into_iter()
         .map(|relative| entry(paths, stage, relative))
         .collect::<Result<Vec<_>>>()?;
+    if let Some(expected) = expected {
+        for entry in &entries {
+            anyhow::ensure!(
+                expected.get(&entry.relative.to_path_buf()) == Some(&entry.original),
+                "installation-source-changed: {} differs from the preserved original",
+                entry.relative.display()
+            );
+        }
+    }
     // The control goes first, so the rollback, which goes the other way, undoes it last: no file
     // of the new archive is ever in place without the control that keeps PathKeep 0.5 out.
     entries.sort_by_key(|entry| !is_control(entry));
@@ -474,6 +501,18 @@ pub(super) fn install_step(paths: &ProjectPaths, journal: &mut Journal, step: us
             rename(&target, &located.backup.join(&entry.relative))?;
         }
         crate::fault_inject::checkpoint("native-install-preserved")?;
+        if entry.previous {
+            let actual = content_identity::of(&located.backup.join(&entry.relative))?;
+            if actual != entry.original {
+                // This install moved a concurrent replacement. Bind rollback to the
+                // bytes actually moved before letting it restore the earlier entries.
+                let name = entry.relative.display().to_string();
+                anyhow::ensure!(actual.is_some(), "install backup disappeared: {name}");
+                journal.entries[step / 2].original = actual;
+                save(paths, journal)?;
+                anyhow::bail!("installation-source-changed: {name} changed during preservation");
+            }
+        }
     } else if entry.staged && is_control(entry) && entry.previous {
         // Over the live control, in one rename: `config.json` is there at every step.
         rename_over(&located.stage.join(&entry.relative), &target)?;
@@ -500,8 +539,19 @@ pub fn install(
     files: Vec<PathBuf>,
     keep: Keep,
 ) -> Result<Replaced> {
+    install_bound(gate, stage, files, keep, None)
+}
+
+pub(crate) fn install_bound(
+    gate: &crate::ControlGate,
+    stage: &Path,
+    files: Vec<PathBuf>,
+    keep: Keep,
+    expected: Option<&Originals>,
+) -> Result<Replaced> {
     let paths = gate.paths();
-    let mut journal = prepare(paths, stage, files, keep)?;
+    crate::fault_inject::checkpoint("native-install-before-prepare")?;
+    let mut journal = prepare_bound(paths, stage, files, keep, expected)?;
     crate::fault_inject::checkpoint("native-install-prepared")?;
     let moved = (|| {
         for step in 0..journal.entries.len() * 2 {

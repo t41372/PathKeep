@@ -31,8 +31,14 @@ pub(crate) async fn get_maintenance_progress()
 
 #[cfg(not(test))]
 #[tauri::command]
-pub(crate) async fn cancel_maintenance() -> Result<bool, CommandError> {
-    run_blocking_command("cancel_maintenance", worker_bridge::cancel_maintenance_impl).await
+pub(crate) async fn cancel_maintenance(
+    state: State<'_, SessionState>,
+) -> Result<bool, CommandError> {
+    let session = state.inner().clone();
+    run_blocking_command("cancel_maintenance", move || {
+        worker_bridge::cancel_maintenance_impl(&session)
+    })
+    .await
 }
 
 #[cfg(not(test))]

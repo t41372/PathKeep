@@ -32,6 +32,7 @@ mod reports;
 mod retained_input;
 mod retention;
 mod revisions;
+pub mod salvage;
 mod schema;
 mod selection;
 mod sources;

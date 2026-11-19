@@ -178,6 +178,7 @@ fn classify_message(message: &str) -> (Option<&'static str>, Option<&'static str
         return (Some("conversation-repair-required"), Some("preview_agent_history_repair"));
     }
     for code in [
+        "conversation-preservation-failed",
         "conversation-copy-unreadable-at-creation",
         "conversation-copy-not-listed",
         "conversation-copy-incomplete",

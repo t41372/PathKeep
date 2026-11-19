@@ -1,6 +1,6 @@
 //! Responsibilities: stream retained bytes with per-chunk and whole-revision verification.
 //! Not responsible for: native transport decoding, parsing or opening live source files.
-use super::{Archive, RevisionInfo, SLICE_BYTES as CHUNK_BYTES, revisions::integrity};
+use super::{Archive, RevisionInfo, SLICE_BYTES as CHUNK_BYTES};
 use crate::{Error, Result};
 use sha2::{Digest, Sha256};
 use std::{
@@ -130,55 +130,17 @@ impl RawReader {
                 if retained == 0 {
                     return Ok(None);
                 }
-                let chunk = tx
-                    .query_one(
-                        "SELECT c.hash, c.data, m.byte_len, c.codec, m.byte_offset FROM
-                            ah_revisions r JOIN ah_revision_chunks m ON
-                            m.revision_id=coalesce(r.manifest_revision_id, r.id) JOIN ah_chunks c
-                            ON c.hash=m.chunk_hash WHERE r.id=?1 AND m.byte_offset<=?2 ORDER BY
-                            m.byte_offset DESC LIMIT 1",
-                        params![revision, position],
-                        |row| {
-                            Ok((
-                                row.get::<String>(0)?,
-                                row.get::<Vec<u8>>(1)?,
-                                row.get::<i64>(2)?,
-                                row.get::<String>(3)?,
-                                row.get::<i64>(4)?,
-                            ))
-                        },
-                    )
-                    .optional()?
-                    .ok_or_else(|| integrity("a retained revision chunk is missing"))?;
+                let chunk = raw_slice(tx, revision, position)?;
                 Ok(Some(chunk))
             })
             .map_err(io::Error::other)?;
-        let chunk = loaded.ok_or_else(expired)?;
-        let bytes = if chunk.3 == "zstd" {
-            use std::io::Read;
-            let mut bytes = Vec::new();
-            zstd::stream::read::Decoder::new(chunk.1.as_slice())?
-                .take((CHUNK_BYTES + 1) as u64)
-                .read_to_end(&mut bytes)?;
-            bytes
-        } else if chunk.3 == "native" {
-            chunk.1
-        } else {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "unknown slice codec"));
-        };
-        if bytes.is_empty()
-            || bytes.len() > CHUNK_BYTES
-            || chunk.2 != bytes.len() as i64
-            || hex::encode(Sha256::digest(&bytes)) != chunk.0
-        {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "retained chunk length or digest is invalid",
-            ));
-        }
+        let chunk = loaded.ok_or_else(expired)?.ok_or_else(|| {
+            io::Error::new(io::ErrorKind::InvalidData, "a retained revision chunk is missing")
+        })?;
+        let bytes = decode(&chunk.0, chunk.1, chunk.2, &chunk.3)?;
         let remaining = self.info.byte_len - self.read_bytes;
         self.chunk = bytes;
-        let start = u64::try_from(chunk.4).map_err(io::Error::other)?;
+        let start = u64::try_from(chunk.4).map_err(invalid_data)?;
         self.offset = (self.read_bytes - start) as usize;
         if self.offset >= self.chunk.len() {
             return Err(io::Error::new(io::ErrorKind::InvalidData, "slice manifest has a gap"));
@@ -204,6 +166,10 @@ impl RawReader {
     }
 }
 
+fn invalid_data(e: impl std::fmt::Display) -> io::Error {
+    io::Error::new(io::ErrorKind::InvalidData, e.to_string())
+}
+
 impl Read for RawReader {
     fn read(&mut self, output: &mut [u8]) -> io::Result<usize> {
         let jobs = self.jobs.clone();
@@ -221,11 +187,20 @@ impl Read for RawReader {
         if let Err(e) = &result
             && e.kind() == io::ErrorKind::InvalidData
         {
-            self.store.remember_conversation_failure(Arc::new(vault_store::StoreOpenFailure {
+            let failure = Arc::new(vault_store::StoreOpenFailure {
                 role: Db::AgentHistoryEvidence,
                 stage: vault_store::OpenStage::Read,
-                cause: vault_store::Error::Io(io::Error::new(e.kind(), e.to_string())),
-            }));
+                cause: vault_store::Error::RetainedBytes {
+                    revision: self.info.id,
+                    detail: e.to_string(),
+                },
+            });
+            self.store.remember_conversation_failure(failure.clone());
+            self.failed = true;
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                vault_store::Error::Open(failure),
+            ));
         }
         self.failed = result.is_err();
         result
@@ -271,5 +246,101 @@ impl Archive {
         cancel: &vault_store::CancelToken,
     ) -> Result<()> {
         verify_retained(store, &Default::default(), cancel).map(drop)
+    }
+}
+
+type Slice = (String, Vec<u8>, i64, String, i64);
+fn raw_slice(
+    tx: &vault_store::Session<'_>,
+    revision: i64,
+    position: i64,
+) -> vault_store::Result<Option<Slice>> {
+    tx.query_one(
+        "SELECT c.hash, c.data, m.byte_len, c.codec, m.byte_offset FROM
+                            ah_revisions r JOIN ah_revision_chunks m ON
+                            m.revision_id=coalesce(r.manifest_revision_id, r.id) JOIN ah_chunks c
+                            ON c.hash=m.chunk_hash WHERE r.id=?1 AND m.byte_offset<=?2 ORDER BY
+                            m.byte_offset DESC LIMIT 1",
+        params![revision, position],
+        |row| {
+            Ok((
+                row.get::<String>(0)?,
+                row.get::<Vec<u8>>(1)?,
+                row.get::<i64>(2)?,
+                row.get::<String>(3)?,
+                row.get::<i64>(4)?,
+            ))
+        },
+    )
+    .optional()
+}
+fn decode(hash: &str, encoded: Vec<u8>, length: i64, codec: &str) -> io::Result<Vec<u8>> {
+    let bytes = if codec == "zstd" {
+        use std::io::Read;
+        let mut bytes = Vec::new();
+        zstd::stream::read::Decoder::new(encoded.as_slice())
+            .map_err(invalid_data)?
+            .take((CHUNK_BYTES + 1) as u64)
+            .read_to_end(&mut bytes)
+            .map_err(invalid_data)?;
+        bytes
+    } else if codec == "native" {
+        encoded
+    } else {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "unknown slice codec"));
+    };
+    if bytes.is_empty()
+        || bytes.len() > CHUNK_BYTES
+        || length != bytes.len() as i64
+        || hex::encode(Sha256::digest(&bytes)) != hash
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "retained chunk length or digest is invalid",
+        ));
+    }
+    Ok(bytes)
+}
+
+/// Verify a single immutable manifest without touching any other revision. Salvage
+/// and retry share the codec, chunk bounds and hash checks with ordinary raw export.
+pub(super) fn inspect_bytes(
+    tx: &vault_store::Session<'_>,
+    info: &RevisionInfo,
+    mut slice: impl FnMut(Vec<u8>) -> vault_store::Result<()>,
+) -> vault_store::Result<()> {
+    let damage = |detail: String| {
+        vault_store::Error::RetainedBytes { revision: info.id, detail }
+            .at(Db::AgentHistoryEvidence, vault_store::OpenStage::Read)
+    };
+    let mut hash = Sha256::new();
+    let mut position = 0u64;
+    while position < info.byte_len {
+        let (id, data, len, codec, offset) = raw_slice(tx, info.id, position as i64)?
+            .ok_or_else(|| damage("missing manifest chunk".into()))?;
+        if offset != position as i64 {
+            return Err(damage("noncontiguous manifest".into()));
+        }
+        let mut bytes = decode(&id, data, len, &codec).map_err(|e| damage(e.to_string()))?;
+        bytes.truncate((info.byte_len - position).min(bytes.len() as u64) as usize);
+        position += bytes.len() as u64;
+        hash.update(&bytes);
+        slice(bytes)?;
+    }
+    if hex::encode(hash.finalize()) != info.digest {
+        return Err(damage("revision digest mismatch".into()));
+    }
+    Ok(())
+}
+
+impl Archive {
+    pub fn verify_recorded_revision(
+        config: &vault_store::Config,
+        id: i64,
+    ) -> vault_store::Result<()> {
+        Store::inspect_existing(config,Db::AgentHistoryEvidence,|s|{
+            let info=s.query_one("SELECT id,source_id,digest,byte_len,captured_at,capture_format,bytes_retained FROM ah_revisions WHERE state='complete' AND bytes_retained=1 AND id=?1",[id],super::revisions::map_revision)?;
+            inspect_bytes(s,&info,|_|Ok(()))
+        }).map_err(|e|e.at(Db::AgentHistoryEvidence,vault_store::OpenStage::Read))
     }
 }

@@ -58,7 +58,9 @@ impl From<&vault_store::StoreOpenFailure> for RoleFailure {
             reason: match &failure.cause {
                 Error::MissingStore(_) => "archive-store-missing",
                 Error::WrongKey { .. } => "wrong-key",
-                Error::Corrupt { .. } => "integrity-failed",
+                Error::Corrupt { .. }
+                | Error::RetainedBytes { .. }
+                | Error::IntegrityCheck { .. } => "integrity-failed",
                 Error::SchemaTooNew { .. } => "schema-too-new",
                 Error::Busy { .. } => "archive-busy",
                 _ => "kind-unavailable",
@@ -233,7 +235,9 @@ pub fn retry_agent_store(
     if session.current_vault().is_none_or(|v| !std::sync::Arc::ptr_eq(v.store(), vault.store())) {
         return Err(Refusal::Replaced.into());
     }
-    if before != vault.conversation_availability().is_ok() {
+    if !super::backups::has_event_sink(session)
+        && before != vault.conversation_availability().is_ok()
+    {
         emit(PolicyChange {
             policy_token: snapshot.policy_token.clone(),
             changed_kinds: vec![DataKind::AgentHistory],

@@ -73,6 +73,13 @@ fn take_armed_error(name: &str) -> bool {
 /// [`exit_process_at_next_checkpoint`] exits here without running destructors.
 pub fn checkpoint(name: &str) -> Result<()> {
     #[cfg(feature = "test-fixtures")]
+    ACTION.with(|action| {
+        let hook = action.borrow_mut().remove(name);
+        if let Some(hook) = hook {
+            hook();
+        }
+    });
+    #[cfg(feature = "test-fixtures")]
     EXIT_CHECKPOINT.with(|armed| {
         if let Some((target, left)) = armed.borrow_mut().as_mut()
             && target == name
@@ -165,4 +172,15 @@ impl Drop for FaultGuard {
             PANIC_AT.with(|cell| cell.borrow_mut().remove(&self.name));
         }
     }
+}
+
+#[cfg(feature = "test-fixtures")]
+thread_local! {
+    static ACTION: RefCell<HashMap<String, Box<dyn FnOnce()>>> = RefCell::default();
+}
+
+/// Change an external file at an exact boundary in a lifecycle fixture.
+#[cfg(feature = "test-fixtures")]
+pub fn once_at(name: &str, action: impl FnOnce() + 'static) {
+    ACTION.with(|slot| slot.borrow_mut().insert(name.to_owned(), Box::new(action)));
 }

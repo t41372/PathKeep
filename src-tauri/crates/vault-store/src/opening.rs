@@ -103,6 +103,8 @@ impl Store {
             workers: RwLock::default(),
             ownership: Mutex::new(Some(lock)),
             adding: Mutex::default(),
+            retired_files: Default::default(),
+            availability_observer: Default::default(),
             conversation_failure: RwLock::default(),
             closed: false.into(),
             paths: config.paths.clone(),
@@ -140,7 +142,14 @@ impl Store {
     }
     /// Rechecks both conversation databases against the live paths, then migrates on
     /// private workers. Browsing reads continue until the short publication write lock.
-    pub fn retry_conversations(&self, mut config: Config) -> Result<()> {
+    pub fn retry_conversations(&self, config: Config) -> Result<()> {
+        self.retry_conversations_checked(config, |_| Ok(()))
+    }
+    pub fn retry_conversations_checked(
+        &self,
+        mut config: Config,
+        verify: impl FnOnce(&Config) -> Result<()>,
+    ) -> Result<()> {
         worker::check_caller()?;
         let _adding = self.adding.lock().unwrap();
         let owner = self.owner()?;
@@ -161,16 +170,28 @@ impl Store {
         // The service has drained producers. Remove both before inspecting either pathname.
         {
             let mut old = self.workers_mut();
-            for (_, w) in old.iter().filter(|(db, _)| conversation_role(*db)) {
+            for (db, w) in old.iter_mut().filter(|(db, _)| conversation_role(*db)) {
                 w.quarantine.store(true, std::sync::atomic::Ordering::Release);
+                // A failed retry must leave the unlinked generation available to a
+                // subsequent safety copy even though its SQL workers must be closed.
+                if crate::maintenance::displaced(*db, w, self.paths.get(*db))? {
+                    self.retired_files
+                        .lock()
+                        .unwrap()
+                        .push((*db, std::mem::take(&mut w.held_files)));
+                }
             }
             old.retain(|(db, _)| !conversation_role(*db));
         }
         let result = preflight_conversations(config)
             .and_then(|()| Self::verify_conversation_pair(config))
+            .and_then(|()| verify(config))
             .and_then(|()| self.publish_conversations(config));
         if let Err(Error::Open(reason)) = &result {
-            *self.conversation_failure.write().unwrap() = Some(reason.clone());
+            let mut recorded = self.conversation_failure.write().unwrap();
+            if !recorded.as_ref().is_some_and(|f| matches!(f.cause, Error::RetainedBytes { .. })) {
+                *recorded = Some(reason.clone());
+            }
         }
         result
     }
@@ -187,7 +208,9 @@ impl Store {
             return Err(Error::Closed);
         }
         published.extend(ready);
-        *self.conversation_failure.write().unwrap() = None;
+        if self.conversation_failure.write().unwrap().take().is_some() {
+            self.announce_availability();
+        }
         Ok(())
     }
 
@@ -204,9 +227,27 @@ impl Store {
         for (_, w) in workers.iter().filter(|(db, _)| conversation_role(*db)) {
             w.quarantine.store(true, std::sync::atomic::Ordering::Release);
         }
-        self.conversation_failure.write().unwrap().get_or_insert(reason);
+        let mut stored = self.conversation_failure.write().unwrap();
+        if stored.is_none() {
+            *stored = Some(reason);
+            drop(stored);
+            self.announce_availability();
+        }
     }
 
+    /// The owner uses this invalidation to tell its window to refetch kind status.
+    pub fn on_availability_change(&self, observer: impl Fn() + Send + Sync + 'static) {
+        if self.availability_observer.set(Box::new(observer)).is_ok()
+            && self.conversation_availability().is_err()
+        {
+            self.announce_availability()
+        }
+    }
+    fn announce_availability(&self) {
+        if let Some(observer) = self.availability_observer.get() {
+            observer()
+        }
+    }
     /// The role failure that keeps this owner from supplying its complete layout.
     pub fn conversation_availability(&self) -> std::result::Result<(), Arc<StoreOpenFailure>> {
         self.conversation_failure.read().unwrap().clone().map_or(Ok(()), Err)

@@ -447,7 +447,9 @@ pub(in crate::dev_ipc_bridge) async fn dispatch_command(
             json_value!(worker_bridge::star_counts_impl(&state.session,)?)
         }
         "get_maintenance_progress" => json_value!(worker_bridge::maintenance_progress_impl()?),
-        "cancel_maintenance" => json_value!(worker_bridge::cancel_maintenance_impl()?),
+        "cancel_maintenance" => {
+            json_value!(worker_bridge::cancel_maintenance_impl(&state.session)?)
+        }
         "export_app_data" => {
             let payload = parse_payload::<ExportAppDataPayload>(payload)?;
             json_value!(worker_bridge::export_app_data_impl(

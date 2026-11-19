@@ -9,10 +9,11 @@ pub use retention::{preview_retention, prune};
 pub(crate) mod creation;
 pub mod install;
 pub use audit::{record_mode_change, record_restore};
-mod conversation_repair;
+pub(crate) mod conversation_repair;
 pub(crate) mod snapshot;
 pub use conversation_repair::{
-    ConversationRepairPreview, preview_conversation_repair, repair_conversations,
+    ConversationRepairPreview, preview_conversation_repair,
+    preview_conversation_repair_with_cancel, repair_conversations,
 };
 pub use snapshot::{
     list_snapshots, manual_snapshot, recover_native_maintenance, restore_snapshot,
@@ -138,8 +139,13 @@ pub fn switch_mode(
     config.archive_mode = mode;
     let key = create_envelope(stage.path(), &config, new_password)?;
     let owner = vault.store().owner()?;
+    let _producers = vault.pause_conversations();
+    vault.verify_conversion_source(&cancel)?;
     let pause = vault.pause_store()?;
     let progress = Arc::new(Mutex::new(progress));
+    pause.seal_and_checkpoint()?;
+    let mut files = database_files(vault.layout(), true);
+    let mut expected = install::originals(&vault.paths().app_root, &files)?;
     let copy_progress = progress.clone();
     copy_databases(
         &pause,
@@ -185,12 +191,18 @@ pub fn switch_mode(
     // The replacement's control is the live one as it is now, with the new mode: a setting saved
     // while the copy ran is kept. Built and installed under one hold of the control's gate.
     let control = crate::ControlGate::acquire(vault.paths());
+    let control_file = PathBuf::from("config.json");
+    expected.insert(
+        control_file.clone(),
+        crate::content_identity::of(&vault.paths().app_root.join(control_file))?,
+    );
     let mut config = crate::load_config(vault.paths())?;
     config.archive_mode = mode_after;
     crate::config::save_copy_config(vault.paths(), stage.path(), &config)?;
-    let mut files = database_files(vault.layout(), true);
+    // The live control is read above under its control gate, including intervening settings edits.
+    expected.insert(snapshot_relative.clone(), None);
     files.push(snapshot_relative.clone());
-    install::install(&control, stage.path(), files, install::Keep::Nothing)?;
+    install::install_bound(&control, stage.path(), files, install::Keep::Nothing, Some(&expected))?;
     drop(control);
     let previous = vault.paths().app_root.join(snapshot_relative);
     let opened = Vault::open_owned(vault.paths().clone(), config, key.as_ref(), Some(owner))?;

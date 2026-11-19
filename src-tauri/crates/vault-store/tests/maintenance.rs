@@ -87,7 +87,7 @@ fn pause_checkpoint_copy_and_resume_land_between_write_batches() {
             Ok(())
         })
         .unwrap();
-    let pause = store.pause().unwrap();
+    let mut pause = store.pause().unwrap();
     let (started, ready) = mpsc::channel();
     let other = store.clone();
     let next = std::thread::spawn(move || {

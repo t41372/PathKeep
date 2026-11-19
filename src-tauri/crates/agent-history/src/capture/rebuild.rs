@@ -46,6 +46,16 @@ impl Archive {
     /// Reconstructs a new read model offline using a disposable working copy of evidence.
     /// The caller keeps the original evidence, including its run ledger and capture grants.
     pub fn rebuild_from_retained_evidence(&self, options: &BackupOptions) -> Result<()> {
+        self.rebuild_model(options, false)
+    }
+
+    /// A damaged ledger can supply a revision hint but cannot veto a verified
+    /// transcript. Record identities from the new projection in the salvaged ledger.
+    pub fn rebuild_salvaged_model(&self, options: &BackupOptions) -> Result<()> {
+        self.rebuild_model(options, true)
+    }
+
+    fn rebuild_model(&self, options: &BackupOptions, salvage: bool) -> Result<()> {
         use vault_store::{Db, OptionalRow, Priority, params};
         if self.projection_generation()? != 0 {
             return Err(Error::InvalidInput("cold rebuild requires an empty projection".into()));
@@ -57,7 +67,14 @@ impl Archive {
         loop {
             let page = self.list_sources(&query)?;
             for source in page.items {
-                if source.latest_revision_id.is_some() {
+                let harness = match source.harness.parse() {
+                    Ok(h) => h,
+                    Err(_) if salvage => continue,
+                    Err(e) => return Err(e),
+                };
+                if source.latest_revision_id.is_some()
+                    && crate::adapters::adapter(harness).publishes_transcript(&source.relative_path)
+                {
                     // A capture can commit a raw head without publishing its new interpretation.
                     // Use the published revision the canonical ledger identifies. Only this
                     // disposable working copy ever changes which revision is presented as head.
@@ -77,8 +94,21 @@ impl Archive {
                             Ok(())
                         })?;
                     }
-                    self.reinterpret(&source.id, options, true)?;
-                    if let Some((revision, expected)) = published {
+                    match self.reinterpret(&source.id, options, true) {
+                        Err(Error::Unsupported(_) | Error::LimitExceeded(_)) if salvage => {}
+                        result => {
+                            result?;
+                        }
+                    }
+                    if salvage {
+                        if published
+                            .as_ref()
+                            .is_some_and(|(id, _)| Some(*id) != source.latest_revision_id)
+                        {
+                            self.set_coverage(&source.id, false)?;
+                        }
+                        self.record_salvaged_projection(source.id, source.latest_revision_id)?;
+                    } else if let Some((revision, expected)) = published {
                         if Some(revision) != source.latest_revision_id {
                             self.set_coverage(&source.id, false)?;
                         }
@@ -119,6 +149,26 @@ impl Archive {
             })?;
         }
         self.synchronize_search()?;
+        Ok(())
+    }
+    fn record_salvaged_projection(&self, id: String, head: Option<i64>) -> Result<()> {
+        use vault_store::{OptionalRow, Priority, params};
+        let source = id.clone();
+        let parsed=self.store.read(Db::AgentHistoryReadModel,move|s|s.query_one(
+            "SELECT conversation_id,revision_id,parent_session_id IS NOT NULL OR parent_path IS NOT NULL
+             FROM ah_sessions WHERE id=?1 AND native_id<>''",[source],
+            |r|Ok((r.get::<String>(0)?,r.get::<i64>(1)?,r.get::<i64>(2)?))
+        ).optional())?;
+        self.store.write(Db::AgentHistoryEvidence,Priority::Batch,move|s|{
+            // Interpreting the previously published revision never changes which
+            // verified raw revision was observed last.
+            s.execute("UPDATE ah_sources SET latest_revision_id=?1 WHERE id=?2",params![head,id.clone()])?;
+            s.execute("DELETE FROM ah_source_conversations WHERE source_id=?1",[id.as_str()])?;
+            if let Some((conversation,revision,child))=parsed{
+                s.execute("INSERT INTO ah_source_conversations(source_id,conversation_id,revision_id,is_child) VALUES(?1,?2,?3,?4)",params![id,conversation,revision,child])?;
+            }
+            Ok(())
+        })?;
         Ok(())
     }
 }

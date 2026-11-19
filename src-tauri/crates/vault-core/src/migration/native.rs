@@ -85,6 +85,8 @@ pub fn export(
     config.dismissed_agent_hints.clear();
     config.app_lock = Default::default();
     let key = maintenance::create_envelope(stage.path(), &config, Some(password))?.unwrap();
+    let _producers = vault.pause_conversations();
+    vault.verify_conversion_source(&cancel)?;
     let pause = vault.pause_store()?;
     maintenance::copy_databases(
         &pause,

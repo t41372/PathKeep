@@ -87,7 +87,7 @@ fn assert_later_read_fails(vault: &Vault, role: Db, encrypted: bool) {
         (agent_history::Error::Io(io), Db::AgentHistoryEvidence) => {
             io.get_ref().and_then(|e| e.downcast_ref::<vault_store::Error>())
         }
-        (agent_history::Error::Store(cause), Db::AgentHistoryReadModel) => Some(cause),
+        (agent_history::Error::Store(cause), _) => Some(cause),
         _ => None,
     };
     let cause = match cause {
@@ -662,7 +662,7 @@ fn recent_runs_quarantines_the_role_at_the_failing_read() {
     use vault_worker::data_kinds::{self, backups};
     for encrypted in [false, true] {
         let f = Fixture::new(encrypted);
-        let _corpus = Corpus::seed(&f);
+        let corpus = Corpus::seed(&f);
         let page: i64 = f
             .vault()
             .store()
@@ -695,7 +695,18 @@ fn recent_runs_quarantines_the_role_at_the_failing_read() {
         let preview =
             vault_core::maintenance::preview_conversation_repair(&vault, None, None).unwrap();
         assert_eq!(preview.action, "startFresh");
+        assert_eq!(preview.conversations, "4");
+        assert_eq!(preview.conversations_only_in_copy.as_deref(), Some("0"));
         assert!(vault.retry_conversations().is_err());
+        let installed = vault_core::maintenance::repair_conversations(
+            &vault,
+            None,
+            None,
+            &preview.token,
+            Default::default(),
+        )
+        .unwrap();
+        corpus.check_salvaged_content(&installed.vault, encrypted.then_some(PASSWORD), true);
     }
 }
 

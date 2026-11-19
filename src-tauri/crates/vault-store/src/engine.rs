@@ -137,6 +137,46 @@ fn preflight_role(
         }
         Err(e) => return Err(e.into()),
     }
+    inspect_readonly(rt, settings, |session| {
+        session.query_one("SELECT count(*) FROM sqlite_schema", (), |r| Ok(r.get::<i64>(0)?))?;
+        crate::migration::check_version(session, db, &config.migrations.get(db))?;
+        inspect(session)
+    })
+}
+
+/// Inspect a damaged role without starting workers, applying migrations or attaching siblings.
+impl crate::Store {
+    pub fn inspect_existing<T: Send>(
+        config: &Config,
+        db: Db,
+        inspect: impl FnOnce(&Session<'_>) -> Result<T> + Send,
+    ) -> Result<T> {
+        std::thread::scope(|scope| {
+            scope
+                .spawn(|| {
+                    let rt = runtime()?;
+                    let settings = Settings::new(config, db);
+                    let meta = fs::metadata(&settings.path)?;
+                    if !meta.is_file() || meta.len() < 16 {
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            "incomplete database",
+                        )
+                        .into());
+                    }
+                    crate::session::catch_job(|| inspect_readonly(&rt, &settings, inspect))
+                })
+                .join()
+                .map_err(|_| Error::JobPanicked { message: "inspecting damaged database".into() })?
+        })
+    }
+}
+
+fn inspect_readonly<T>(
+    rt: &Runtime,
+    settings: &Settings,
+    inspect: impl FnOnce(&Session<'_>) -> Result<T>,
+) -> Result<T> {
     let database = rt.block_on(settings.builder(true).build())?;
     let conn = database.connect()?;
     let session = Session {
@@ -153,8 +193,6 @@ fn preflight_role(
         archive: None,
         archive_read: Default::default(),
     };
-    session.query_one("SELECT count(*) FROM sqlite_schema", (), |r| Ok(r.get::<i64>(0)?))?;
-    crate::migration::check_version(&session, db, &config.migrations.get(db))?;
     inspect(&session)
 }
 /// Explicit retry can afford full integrity verification. No writer or migration

@@ -170,6 +170,7 @@ impl VaultSession {
         {
             eprintln!("PathKeep could not prepare retained conversations: {error:#}");
         }
+        crate::data_kinds::backups::observe_availability(self, &archive.vault);
         let old = {
             let mut state = self.inner.0.lock().expect("session state");
             state.password = password.map(Zeroizing::new);
@@ -422,6 +423,7 @@ impl VaultSession {
         if key.is_some() {
             state.data_key = key;
         }
+        crate::data_kinds::backups::observe_availability(self, &vault);
         state.vault = Some(vault.clone());
         drop(state);
         if let Err(error) = crate::data_kinds::prepare_view(&vault, &vault.config().capture_policy)

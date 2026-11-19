@@ -35,10 +35,13 @@ pub(crate) fn check_caller() -> Result<()> {
     if IN_OWNER.with(Cell::get) { Err(Error::Reentrant) } else { Ok(()) }
 }
 
+pub(crate) type HeldFiles = Vec<(String, std::fs::File)>;
+
 pub(crate) struct Workers {
     pub quarantine: Arc<std::sync::atomic::AtomicBool>,
     pub inspect_seal: Arc<std::sync::atomic::AtomicBool>,
     pub encrypted: bool,
+    pub held_files: HeldFiles,
     pub file_id: Option<turso::core::io::FileId>,
     pub plans: Arc<crate::query_plans::PlanCapture>,
     writer: Arc<Queue<Job>>,
@@ -74,6 +77,7 @@ impl Workers {
             encrypted: settings.key.is_some(),
             inspect_seal: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             file_id: None,
+            held_files: Vec::new(),
             plans: Arc::default(),
             writer: writer.clone(),
             readers: readers.clone(),
@@ -201,6 +205,24 @@ impl Workers {
             },
         )?);
         let (database, id, stamped) = ready_rx.recv().map_err(|_| Error::Closed)??;
+        if crate::opening::conversation_role(db) {
+            for suffix in vault_layout::database_spec(db)
+                .companions
+                .suffixes(vault_layout::CompanionUse::Install)
+            {
+                let mut path = settings.path.as_os_str().to_owned();
+                path.push(suffix);
+                match std::fs::File::open(&path) {
+                    Ok(file) => owners.held_files.push((suffix.to_string(), file)),
+                    Err(error)
+                        if !suffix.is_empty() && error.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(error) => return Err(error.into()),
+                }
+            }
+            if turso::core::io::get_file_id(settings.path.to_str().unwrap())? != id {
+                return Err(Error::ReplacedFile(settings.path.clone()));
+            }
+        }
         owners.file_id = Some(id);
         owners.inspect_seal.store(stamped, Ordering::Release);
         for index in 0..reader_count {

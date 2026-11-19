@@ -37,7 +37,9 @@ impl Archive {
         }
         let _job = self.jobs.enter(Some(&options.cancel))?;
         let provenance = self.source(source_id)?;
-        if provenance.kind != "transcript" {
+        if provenance.kind != "transcript"
+            || !adapter(provenance.harness.parse()?).publishes_transcript(&provenance.relative_path)
+        {
             return Err(Error::Unsupported(
                 "only native transcript evidence can be reparsed".into(),
             ));

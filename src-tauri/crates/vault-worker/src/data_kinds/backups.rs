@@ -358,6 +358,24 @@ pub(super) fn active_id(session: &VaultSession) -> Option<String> {
 /// Install the desktop notification sink before startup recovery can claim a first save.
 pub fn register_recovery_events(session: &VaultSession, events: Events) {
     let _ = session.conversations.recovery_events.set(events);
+    if let Some(vault) = session.current_vault() {
+        observe_availability(session, &vault);
+    }
+}
+
+pub(crate) fn observe_availability(session: &VaultSession, vault: &Vault) {
+    let runtime = Arc::downgrade(&session.conversations);
+    let paths = vault.paths().clone();
+    vault.store().on_availability_change(move ||{
+        if let Some(runtime)=runtime.upgrade() && let Some(emit)=runtime.recovery_events.get()
+            && let Ok(config)=admitted_config(&paths) {
+            emit(super::POLICY_EVENT,json!({"policyToken":config.capture_policy.token(),"changedKinds":["agent-history"]}));
+        }
+    });
+}
+
+pub(super) fn has_event_sink(session: &VaultSession) -> bool {
+    session.conversations.recovery_events.get().is_some()
 }
 
 pub(super) fn check_service(vault: &Vault) -> Result<()> {

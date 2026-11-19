@@ -45,6 +45,18 @@ pub enum Error {
     Open(#[from] std::sync::Arc<StoreOpenFailure>),
     #[error("archive-store-missing: {0} is missing and nothing says it is being created")]
     MissingStore(PathBuf),
+    #[error("database integrity check failed: {detail}")]
+    IntegrityCheck { detail: String },
+    #[error("retained revision {revision}: {detail}")]
+    RetainedBytes { revision: i64, detail: String },
+    #[error(
+        "conversation-preservation-failed: could not read {path} ({source}), nothing was changed"
+    )]
+    PreserveFile {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
     #[error("open database has been replaced at {0}")]
     ReplacedFile(PathBuf),
     #[error("conversation-pair-unverified: the databases have no matching clean pair seal")]
@@ -108,6 +120,11 @@ pub enum Error {
 pub type Result<T> = std::result::Result<T, Error>;
 
 impl Error {
+    /// A fixed source-column decoder could not interpret a stored SQL value.
+    pub fn invalid_stored_value(&self) -> bool {
+        matches!(self, Self::Engine(turso::Error::ConversionFailure(_)))
+    }
+
     /// Keep the first failing role when an outer startup step adds context.
     pub fn at(self, role: crate::Db, stage: OpenStage) -> Self {
         match self {

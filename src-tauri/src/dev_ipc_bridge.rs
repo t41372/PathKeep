@@ -88,7 +88,13 @@ impl DevIpcBridgeState {
 
     #[cfg(test)]
     fn without_app(session: SessionState, port: u16) -> Self {
-        Self::new(Arc::new(RwLock::new(None)), session, port, events::Hub::default())
+        let hub = events::Hub::default();
+        let events = hub.clone();
+        vault_worker::data_kinds::backups::register_recovery_events(
+            &session,
+            Arc::new(move |name, data| events.emit(name, &data)),
+        );
+        Self::new(Arc::new(RwLock::new(None)), session, port, hub)
     }
 }
 

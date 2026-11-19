@@ -172,6 +172,17 @@ impl Corpus {
     }
 
     fn check_content(&self, vault: &Vault, password: Option<&str>, rebuilt: bool) {
+        assert_eq!(captured_units(vault), self.capture_facts);
+        assert_eq!(receipts::fingerprint(vault), self.receipt_fingerprint);
+        self.check_salvaged_content(vault, password, rebuilt);
+    }
+
+    pub(super) fn check_salvaged_content(
+        &self,
+        vault: &Vault,
+        password: Option<&str>,
+        rebuilt: bool,
+    ) {
         let archive = vault.agent_history().unwrap();
         let mut actual = sessions(&archive);
         let mut expected = self.sessions.clone();
@@ -183,8 +194,6 @@ impl Corpus {
             }
         }
         assert_eq!(actual, expected);
-        assert_eq!(captured_units(vault), self.capture_facts);
-        assert_eq!(receipts::fingerprint(vault), self.receipt_fingerprint);
         let sources = archive.list_sources(&Default::default()).unwrap();
         assert!(sources.next_cursor.is_none());
         let mut seen = BTreeSet::new();
