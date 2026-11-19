@@ -61,6 +61,48 @@ fn older_copy(paths: &ProjectPaths) -> (tempfile::TempDir, PathBuf) {
 }
 
 #[test]
+fn repair_source_listing_uses_only_regular_inventory_members() {
+    let temp = tempfile::tempdir().unwrap();
+    let paths = project_paths_with_root(temp.path());
+    let root = paths.artifact_path(vault_layout::ArtifactId::NativeSnapshots);
+    let evidence = vault_layout::database_path(Db::AgentHistoryEvidence);
+    let model = vault_layout::database_path(Db::AgentHistoryReadModel);
+    let held = format!("{}/{evidence}", vault_layout::HELD_CONVERSATIONS);
+    let older = format!("{}/older-2/{evidence}", vault_layout::HELD_CONVERSATIONS);
+    let unrelated = format!("other/{evidence}");
+    let wal = format!("{evidence}-wal");
+    for (name, marked, sealed, files, expected) in [
+        ("old", false, true, vec![], "missingEvidence"),
+        ("pair", false, true, vec![evidence, model], "checkRequired"),
+        ("only-evidence", false, true, vec![evidence], "missingReadModel"),
+        ("marked-model", true, true, vec![model, &wal, &unrelated], "missingEvidence"),
+        ("marked-evidence", true, true, vec![evidence], "checkRequired"),
+        ("current-held", true, true, vec![&held], "checkRequired"),
+        ("older-held", true, true, vec![&older], "checkRequired"),
+        ("before-restore-unsealed", false, false, vec![evidence, model], "unsealed"),
+    ] {
+        let copy = root.join(name);
+        std::fs::create_dir_all(&copy).unwrap();
+        for file in files
+            .into_iter()
+            .chain(marked.then_some(vault_layout::UNREADABLE_CONVERSATIONS))
+            .chain(sealed.then_some(super::snapshot::SEAL))
+        {
+            let member = copy.join(file);
+            std::fs::create_dir_all(member.parent().unwrap()).unwrap();
+            // Listing must neither parse the seal nor try to open a conversation database.
+            std::fs::write(member, b"unverified").unwrap();
+        }
+        let row = list_snapshots(&paths)
+            .unwrap()
+            .into_iter()
+            .find(|r| Path::new(&r.path) == copy)
+            .unwrap();
+        assert_eq!(serde_json::json!(row)["conversationRepairSource"], expected, "{name}");
+    }
+}
+
+#[test]
 fn a_restore_keeps_the_archive_it_replaced_as_a_copy_that_brings_it_back() {
     let (_root, paths) = released_archive();
     let (_copies, older) = older_copy(&paths);

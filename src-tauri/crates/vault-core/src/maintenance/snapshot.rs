@@ -13,10 +13,29 @@ use std::{
     io::Read,
     path::{Path, PathBuf},
 };
-use vault_store::CancelToken;
+use vault_store::{ArchiveFileRole, CancelToken, Db};
 
 /// The file that seals a snapshot: what it holds and each file's digest.
 pub(super) const SEAL: &str = "snapshot.json";
+
+/// A specific copy member rejected by verification, including the path the user selected.
+#[derive(Debug, thiserror::Error)]
+#[error("{code}: {path}")]
+pub struct SnapshotMemberFailure {
+    pub code: &'static str,
+    pub path: PathBuf,
+    pub role: vault_store::ArchiveFileRole,
+}
+
+impl SnapshotMemberFailure {
+    pub(super) fn new(code: &'static str, root: &Path, member: &Path) -> Self {
+        Self {
+            code,
+            path: root.join(member),
+            role: vault_store::ArchiveFileRole::for_member(member),
+        }
+    }
+}
 
 #[derive(Serialize, Deserialize, schemars::JsonSchema)]
 pub(crate) struct FileProof {
@@ -97,7 +116,11 @@ fn finish_snapshot_at(paths: &ProjectPaths, target: &Path) -> Result<()> {
     crate::config::save_copy_config(paths, target, &config)?;
     let envelope = vault_layout::path(&paths.app_root, vault_layout::ArtifactId::Envelope);
     if config.archive_mode == ArchiveMode::Encrypted || envelope.try_exists()? {
-        fs::copy(envelope, vault_layout::path(target, vault_layout::ArtifactId::Envelope))?;
+        vault_store::copy_archive_file(
+            ArchiveFileRole::Browsing,
+            &envelope,
+            &vault_layout::path(target, vault_layout::ArtifactId::Envelope),
+        )?;
     }
     seal(target)
 }
@@ -137,8 +160,14 @@ pub(crate) fn seal(root: &Path) -> Result<()> {
         .chain([PathBuf::from(vault_layout::UNREADABLE_CONVERSATIONS)])
         .filter(|p| root.join(p).is_file())
         .map(|path| {
-            crate::durable_io::fsync_file_durably(&root.join(&path))?;
-            Ok(FileProof { sha256: hash_file(&root.join(&path))?, path })
+            sync_member(ArchiveFileRole::for_member(&path), &root.join(&path))?;
+            Ok(FileProof {
+                sha256: hash_file(
+                    &root.join(&path),
+                    vault_store::ArchiveFileRole::for_member(&path),
+                )?,
+                path,
+            })
         })
         .collect::<Result<Vec<_>>>()?;
     for directory in vault_layout::snapshot_directories(layout)
@@ -150,7 +179,16 @@ pub(crate) fn seal(root: &Path) -> Result<()> {
     {
         crate::durable_io::fsync_dir(&directory)?;
     }
-    crate::durable_io::atomic_durable_write(&root.join(SEAL), &serde_json::to_vec(&files)?)
+    crate::durable_io::atomic_durable_write(&root.join(SEAL), &serde_json::to_vec(&files)?).map_err(
+        |e| {
+            vault_store::Error::writing(
+                ArchiveFileRole::Browsing,
+                &root.join(SEAL),
+                std::io::Error::other(e),
+            )
+            .into()
+        },
+    )
 }
 
 /// Makes the archive an install replaced (`install::Keep::SafetyCopy`) a copy a restore can use.
@@ -204,7 +242,10 @@ fn unsealed_replaced_archive(paths: &ProjectPaths, source: &Path) -> bool {
 }
 
 pub(crate) fn verify(root: &Path) -> Result<()> {
-    let proof: Vec<FileProof> = serde_json::from_slice(&fs::read(root.join(SEAL))?)?;
+    let seal = root.join(SEAL);
+    let proof: Vec<FileProof> = serde_json::from_slice(&fs::read(&seal).map_err(|e| {
+        vault_store::Error::preserve(vault_store::ArchiveFileRole::Browsing, &seal, e)
+    })?)?;
     // What this snapshot must hold depends on the archive it was taken of, not on this build. Not
     // the agent conversations: a restore keeps the archive's own and never takes a copy's, so a
     // copy without them, like the one of what a restore replaced, restores all the same.
@@ -238,21 +279,24 @@ pub(crate) fn verify(root: &Path) -> Result<()> {
         &[vault_layout::DataScope::AgentHistory],
     );
     for file in proof.into_iter().filter(|p| browsing_files.contains(&p.path)) {
-        anyhow::ensure!(
-            hash_file(&root.join(&file.path))? == file.sha256,
-            "snapshot-digest-mismatch: {}",
-            file.path.display()
-        );
+        if hash_file(&root.join(&file.path), vault_store::ArchiveFileRole::for_member(&file.path))?
+            != file.sha256
+        {
+            return Err(
+                SnapshotMemberFailure::new("snapshot-digest-mismatch", root, &file.path).into()
+            );
+        }
     }
     Ok(())
 }
 
-pub(crate) fn hash_file(path: &Path) -> Result<String> {
-    let mut file = fs::File::open(path)?;
+pub(crate) fn hash_file(path: &Path, role: vault_store::ArchiveFileRole) -> Result<String> {
+    let read_error = |e| vault_store::Error::preserve(role, path, e);
+    let mut file = fs::File::open(path).map_err(read_error)?;
     let mut hash = Sha256::new();
     let mut buffer = [0u8; 64 * 1024];
     loop {
-        let n = file.read(&mut buffer)?;
+        let n = file.read(&mut buffer).map_err(read_error)?;
         if n == 0 {
             break;
         }
@@ -358,9 +402,7 @@ pub fn restore_snapshot_to(
     crate::config::write_staged_control(&staged_paths, &config, Some(&stamp))?;
     if let Some(envelope) = &target.envelope {
         let staged_envelope = vault_layout::path(stage.path(), vault_layout::password_envelope());
-        fs::create_dir_all(staged_envelope.parent().unwrap())?;
-        fs::copy(envelope, &staged_envelope)?;
-        crate::durable_io::fsync_file_durably(&staged_envelope)?;
+        copy_browsing_file(envelope, &staged_envelope)?;
     }
     let staged = Vault::open_staged(staged_paths.clone(), config.clone(), target.key.as_ref())?;
     let layout = staged.layout();
@@ -417,15 +459,15 @@ pub fn restore_snapshot_to(
                 "safety copy destination already exists"
             );
             let displaced = stage.path().join(&relative);
-            let mut frozen = pause
-                .snapshot_with(&displaced, || Ok(install::originals(&paths.app_root, &files)?))?;
+            let mut frozen =
+                pause.snapshot_with(&displaced, || install::originals(&paths.app_root, &files))?;
             finish_snapshot(vault, &displaced)?;
             frozen.insert(PathBuf::from("config.json"), original_control);
             for db in vault_layout::snapshot_databases(layout) {
                 let path = PathBuf::from(vault_layout::database_path(db));
                 if frozen.contains_key(&path) {
                     anyhow::ensure!(
-                        frozen[&path] == crate::content_identity::of(&displaced.join(&path))?,
+                        frozen[&path] == crate::content_identity::member(&displaced, &path)?,
                         "installation-source-changed: {} changed while the safety copy was made",
                         path.display()
                     );
@@ -599,13 +641,20 @@ fn copy_snapshot(source: &Path, target: &Path) -> Result<()> {
         &[vault_layout::DataScope::AgentHistory],
     ) {
         if relative != envelope && source.join(&relative).is_file() {
-            let file = target.join(relative);
-            fs::create_dir_all(file.parent().unwrap())?;
-            fs::copy(source.join(file.strip_prefix(target)?), &file)?;
-            crate::durable_io::fsync_file_durably(&file)?;
+            copy_browsing_file(&source.join(&relative), &target.join(relative))?;
         }
     }
     Ok(())
+}
+
+fn copy_browsing_file(source: &Path, target: &Path) -> Result<()> {
+    vault_store::copy_archive_file(ArchiveFileRole::Browsing, source, target)?;
+    sync_member(ArchiveFileRole::Browsing, target)
+}
+
+fn sync_member(role: ArchiveFileRole, path: &Path) -> Result<()> {
+    crate::durable_io::fsync_file_durably(path)
+        .map_err(|e| vault_store::Error::writing(role, path, std::io::Error::other(e)).into())
 }
 
 /// Startup runs this before opening a Store; no password is required to roll back.
@@ -629,6 +678,54 @@ pub fn recover_native_maintenance(paths: &ProjectPaths) -> Result<bool> {
 
 pub(super) fn is_held_copy(path: &Path) -> bool {
     path.file_name().is_some_and(|name| name.to_string_lossy().starts_with("held-generation-"))
+}
+
+/// The canonical held prefix or one of its numbered predecessors, exactly as repair reads them.
+pub(super) fn held_evidence_prefix(member: &Path) -> Option<(Option<u64>, &Path)> {
+    let main = Path::new(vault_layout::database_path(Db::AgentHistoryEvidence));
+    if !member.ends_with(main) {
+        return None;
+    }
+    let prefix = member.ancestors().nth(main.components().count())?;
+    let held = Path::new(vault_layout::HELD_CONVERSATIONS);
+    if prefix == held {
+        return Some((None, prefix));
+    }
+    if prefix.parent() != Some(held) {
+        return None;
+    }
+    let generation = prefix.file_name()?.to_str()?.strip_prefix("older-")?.parse().ok()?;
+    Some((Some(generation), prefix))
+}
+
+fn copy_inventory(
+    root: &Path,
+    sealed: bool,
+    marked: bool,
+    fallback_bytes: u64,
+) -> (u64, crate::ConversationRepairSource) {
+    use crate::ConversationRepairSource::*;
+    let mut evidence = false;
+    let mut model = false;
+    let size = super::retention::measure_files(root, &mut |file| {
+        let member = file.strip_prefix(root).expect("inventory member beneath copy");
+        evidence |= member == Path::new(vault_layout::database_path(Db::AgentHistoryEvidence))
+            || marked && held_evidence_prefix(member).is_some();
+        model |= member == Path::new(vault_layout::database_path(Db::AgentHistoryReadModel));
+    });
+    let source = if !sealed {
+        Unsealed
+    } else if size.is_err() {
+        // An incomplete directory listing cannot prove a required member is missing.
+        CheckRequired
+    } else if !evidence {
+        MissingEvidence
+    } else if !marked && !model {
+        MissingReadModel
+    } else {
+        CheckRequired
+    };
+    (size.map_or(fallback_bytes, |(bytes, _)| bytes), source)
 }
 
 /// Directory snapshots keep all databases together; discovery stays keyless. One that cannot be
@@ -690,17 +787,20 @@ pub fn list_snapshots(paths: &ProjectPaths) -> Result<Vec<crate::RecoverySnapsho
         };
         let restorable = sealed || crate::admission::root_layout(&path).is_ok();
         let name = path.display().to_string();
+        let conversations_unreadable =
+            path.join(vault_layout::UNREADABLE_CONVERSATIONS).try_exists()?;
+        let (size_bytes, conversation_repair_source) =
+            copy_inventory(&path, sealed, conversations_unreadable, size);
         result.push(crate::RecoverySnapshot {
             id: name.clone(),
             path: name,
             created_at: created,
             // The whole copy, as Free up space shows and deletes it.
-            size_bytes: super::retention::measure(&path).map_or(size, |(bytes, _)| bytes),
+            size_bytes,
             verified_openable: !held_copy && restorable && size >= 4096,
             unchecked: !sealed,
-            conversations_unreadable: path
-                .join(vault_layout::UNREADABLE_CONVERSATIONS)
-                .try_exists()?,
+            conversations_unreadable,
+            conversation_repair_source,
             encrypted,
             source_op: source_op.into(),
             label: label.into(),

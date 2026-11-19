@@ -13,7 +13,7 @@ pub(super) fn settings_result<T>(result: anyhow::Result<T>) -> Result<T, Command
 
 pub(crate) fn surface_result<T>(result: anyhow::Result<T>) -> Result<T, CommandError> {
     result.map_err(|error| {
-        let mut envelope = CommandError::classified(format!("{error:#}"));
+        let mut envelope = CommandError::from_backend(&error);
         if let Some(reason) = error.downcast_ref::<Refusal>() {
             envelope.code = Some(reason.code().into());
             if matches!(reason, Refusal::Locked) {

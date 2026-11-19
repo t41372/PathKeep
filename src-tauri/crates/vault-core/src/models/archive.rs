@@ -597,6 +597,17 @@ pub struct FullArchiveRestoreReport {
     pub previous_copy_unchecked: Option<String>,
 }
 
+/// Keyless eligibility from the files listed in a copy. Selecting a candidate still verifies it.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ConversationRepairSource {
+    #[default]
+    CheckRequired,
+    MissingEvidence,
+    MissingReadModel,
+    Unsealed,
+}
+
 /// One verified full-archive safety snapshot the Phase-D recovery GUI can offer as a restore source.
 ///
 /// Exists to give the recovery screen rich, keyless metadata (date / size / which op produced it /
@@ -626,6 +637,8 @@ pub struct RecoverySnapshot {
     pub unchecked: bool,
     #[serde(default)]
     pub conversations_unreadable: bool,
+    #[serde(default)]
+    pub conversation_repair_source: ConversationRepairSource,
     /// KEYLESS at-rest signal: the snapshot file is SQLCipher-encrypted on disk (header is a random
     /// salt, not the SQLite plaintext magic). When true the recovery UI must ask for the archive key
     /// before it can verify + restore — `verified_openable` is only a size heuristic for these.

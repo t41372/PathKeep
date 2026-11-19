@@ -33,7 +33,7 @@ pub(crate) fn changes(s: &Session<'_>) -> Result<(i64, i64)> {
     Ok((rows, schema))
 }
 
-pub(crate) fn seal(workers: &[(Db, Workers)]) -> Result<()> {
+pub(crate) fn seal(workers: &[(Db, Workers)], paths: &crate::Paths) -> Result<()> {
     let get = |db| workers.iter().find(|(id, _)| *id == db).map(|(_, w)| w);
     let (Some(evidence), Some(model)) =
         (get(Db::AgentHistoryEvidence), get(Db::AgentHistoryReadModel))
@@ -63,7 +63,7 @@ pub(crate) fn seal(workers: &[(Db, Workers)]) -> Result<()> {
         w.maintenance(move |e| crate::session::transaction(&e.session(false), |s| {
             s.execute("INSERT INTO ah_pair_seal VALUES(1,?1) ON CONFLICT(id) DO UPDATE SET ticket=excluded.ticket",[nonce])?;
             Ok(())
-        })).map_err(|e| e.at(db,OpenStage::Recover))?;
+        })).map_err(|e| e.at_file(db,OpenStage::Recover,paths.get(db)))?;
         w.inspect_seal.store(true, std::sync::atomic::Ordering::Release);
     }
     Ok(())

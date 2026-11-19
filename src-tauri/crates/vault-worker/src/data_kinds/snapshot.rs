@@ -100,6 +100,14 @@ pub fn list_with(session: &VaultSession, request: ListKinds) -> Result<KindList>
     let config = admitted_config(&paths)?;
     let vault =
         if config.initialized { Some(session.vault().map_err(anyhow::Error::msg)?) } else { None };
+    // Listing is where an unlocked window first asks, so a conversation file
+    // deleted while the archive was open is kept here. A failure to keep it
+    // must not hide the list: close and the next write check again and refuse.
+    if let Some(vault) = &vault
+        && let Err(error) = vault.store().preserve_observed_displacements()
+    {
+        log::warn!("Could not protect a held conversation file while listing: {error}");
+    }
     let mut kinds = Vec::new();
     for (order, kind) in [DataKind::Browsing, DataKind::AgentHistory].into_iter().enumerate() {
         let agent = kind == DataKind::AgentHistory;

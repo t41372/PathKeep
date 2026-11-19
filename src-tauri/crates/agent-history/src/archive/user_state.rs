@@ -145,7 +145,9 @@ impl Archive {
                     Ok(row.get::<i64>(0)?)
                 })
             })
-            .map_err(|e| e.at(Db::AgentHistoryEvidence, vault_store::OpenStage::Recover))?;
+            .map_err(|e| {
+                self.store.role_error(e, Db::AgentHistoryEvidence, vault_store::OpenStage::Recover)
+            })?;
         let applied = self
             .store
             .read(Db::AgentHistoryReadModel, |tx| {
@@ -153,7 +155,9 @@ impl Archive {
                     Ok(row.get::<i64>(0)?)
                 })
             })
-            .map_err(|e| e.at(Db::AgentHistoryReadModel, vault_store::OpenStage::Recover))?;
+            .map_err(|e| {
+                self.store.role_error(e, Db::AgentHistoryReadModel, vault_store::OpenStage::Recover)
+            })?;
         if applied != target {
             let mut after = String::new();
             loop {
@@ -178,7 +182,13 @@ impl Archive {
                             },
                         )
                     })
-                    .map_err(|e| e.at(Db::AgentHistoryEvidence, vault_store::OpenStage::Recover))?;
+                    .map_err(|e| {
+                        self.store.role_error(
+                            e,
+                            Db::AgentHistoryEvidence,
+                            vault_store::OpenStage::Recover,
+                        )
+                    })?;
                 if rows.is_empty() {
                     break;
                 }
@@ -201,7 +211,11 @@ impl Archive {
                         Ok(())
                     })
                     .map_err(|e| {
-                        e.at(Db::AgentHistoryReadModel, vault_store::OpenStage::Recover)
+                        self.store.role_error(
+                            e,
+                            Db::AgentHistoryReadModel,
+                            vault_store::OpenStage::Recover,
+                        )
                     })?;
             }
             self.store
@@ -212,7 +226,13 @@ impl Archive {
                     )?;
                     Ok(())
                 })
-                .map_err(|e| e.at(Db::AgentHistoryReadModel, vault_store::OpenStage::Recover))?;
+                .map_err(|e| {
+                    self.store.role_error(
+                        e,
+                        Db::AgentHistoryReadModel,
+                        vault_store::OpenStage::Recover,
+                    )
+                })?;
         }
         // A crash before cleanup replays harmlessly. Never acknowledge changes
         // before their hot rows are committed, or skip a previously failed mirror.
@@ -221,7 +241,9 @@ impl Archive {
                 tx.execute("DELETE FROM ah_user_state_pending WHERE generation<=?1", [target])?;
                 Ok(())
             })
-            .map_err(|e| e.at(Db::AgentHistoryEvidence, vault_store::OpenStage::Recover))?;
+            .map_err(|e| {
+                self.store.role_error(e, Db::AgentHistoryEvidence, vault_store::OpenStage::Recover)
+            })?;
         Ok(())
     }
 }

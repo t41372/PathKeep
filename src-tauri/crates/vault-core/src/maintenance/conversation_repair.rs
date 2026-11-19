@@ -6,7 +6,7 @@ pub(crate) mod cache;
 mod schema;
 mod source;
 use super::{InstalledArchive, copy_databases, install, snapshot};
-use crate::{Vault, content_identity, project_paths_with_root};
+use crate::{Vault, content_identity::member as member_identity, project_paths_with_root};
 use agent_history::{AgentHistoryResources, Archive, capture::BackupOptions};
 use anyhow::{Context, Result, ensure};
 use schema::Schema;
@@ -19,7 +19,7 @@ use std::{
 };
 use vault_crypto::DataKey;
 use vault_layout::{ArchiveLayout, ArtifactId, CompanionUse};
-use vault_store::{CancelToken, Db, Store};
+use vault_store::{ArchiveFileRole, CancelToken, Db, Store};
 
 const ROLES: [Db; 2] = [Db::AgentHistoryEvidence, Db::AgentHistoryReadModel];
 
@@ -100,13 +100,20 @@ fn copy_members(from: &Path, to: &Path, db: Db) -> Result<()> {
         let name = format!("{}{suffix}", vault_layout::database_path(db));
         let src = from.join(&name);
         match fs::symlink_metadata(&src) {
-            Ok(meta) => ensure!(meta.is_file(), "conversation-file-unreadable: {}", src.display()),
+            Ok(meta) if meta.is_file() => {}
+            Ok(_) => {
+                return Err(vault_store::Error::preserve(
+                    db.into(),
+                    &src,
+                    std::io::Error::new(std::io::ErrorKind::InvalidData, "not a regular file"),
+                )
+                .into());
+            }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound && !suffix.is_empty() => continue,
-            Err(e) => return Err(e.into()),
+            Err(e) => return Err(vault_store::Error::preserve(db.into(), &src, e).into()),
         }
         let dest = to.join(name);
-        fs::create_dir_all(dest.parent().unwrap())?;
-        fs::copy(src, dest)?;
+        vault_store::copy_archive_file(db.into(), &src, &dest)?;
     }
     Ok(())
 }
@@ -210,26 +217,28 @@ struct Prepared {
     policy: String,
 }
 
-fn member_identity(path: &Path) -> Result<Option<String>> {
-    Ok(content_identity::of(path)
-        .map_err(|source| vault_store::Error::PreserveFile { path: path.to_owned(), source })?)
-}
 fn stage_binding(root: &Path) -> Result<String> {
     let members = files()
         .chain([PathBuf::from(vault_layout::spec(ArtifactId::AgentHistorySearch).path.relative())]);
-    let ids = members.map(|p| member_identity(&root.join(p))).collect::<Result<Vec<_>>>()?;
+    let ids =
+        members.map(|p| member_identity(root, &p)).collect::<vault_store::Result<Vec<_>>>()?;
     Ok(crate::utils::sha256_hex(&serde_json::to_vec(&ids)?))
 }
 
 fn identities(root: &Path) -> Result<Vec<Option<String>>> {
-    files().map(|p| member_identity(&root.join(p))).collect()
+    Ok(files().map(|p| member_identity(root, &p)).collect::<vault_store::Result<_>>()?)
 }
 
 fn shared_identity(vault: &Vault) -> Result<Vec<Option<String>>> {
-    [ArtifactId::Config, ArtifactId::Envelope]
+    Ok([ArtifactId::Config, ArtifactId::Envelope]
         .into_iter()
-        .map(|id| member_identity(&vault.paths().artifact_path(id)))
-        .collect()
+        .map(|id| {
+            member_identity(
+                &vault.paths().app_root,
+                Path::new(vault_layout::spec(id).path.relative()),
+            )
+        })
+        .collect::<vault_store::Result<_>>()?)
 }
 
 fn prepare(
@@ -245,6 +254,7 @@ fn prepare(
         "archive-layout-changed"
     );
     let shared = shared_identity(vault)?;
+    vault.store().preserve_observed_displacements()?;
     let failure = vault.conversation_availability().err().context("conversation-repair-healthy")?;
     if failure.cause.access_refused() {
         return Err(vault_store::Error::AccessUnavailable(failure).into());
@@ -267,7 +277,7 @@ fn prepare(
     // A retired handle can still hold the only readable generation of canonical
     // evidence. Work on its private copy and keep both generations in the safety copy.
     let held = original.join(vault_layout::HELD_CONVERSATIONS);
-    let held_identity = member_identity(&held)?;
+    let held_identity = member_identity(&original, Path::new(vault_layout::HELD_CONVERSATIONS))?;
     let evidence_input = if vault.store().current_held_role(Db::AgentHistoryEvidence)
         && held.join(vault_layout::database_path(Db::AgentHistoryEvidence)).is_file()
     {
@@ -329,11 +339,30 @@ fn prepare(
         let copy_key = selected.key.as_ref();
         if selected.info.conversations_unreadable {
             let mut verified = None;
+            let evidence_name = Path::new(vault_layout::database_path(Db::AgentHistoryEvidence));
+            let mut refused = snapshot::SnapshotMemberFailure::new(
+                "conversation-copy-no-verified-evidence",
+                source,
+                evidence_name,
+            );
             for (i, prefix) in selected.evidence_prefixes().into_iter().enumerate() {
                 let input = work.join(i.to_string());
-                let Some(binding) = selected.copy(&[Db::AgentHistoryEvidence], &prefix, &input)?
-                else {
-                    continue;
+                let binding = match selected.copy(&[Db::AgentHistoryEvidence], &prefix, &input) {
+                    Ok(binding) => binding,
+                    Err(error) => match error.downcast::<snapshot::SnapshotMemberFailure>() {
+                        Ok(member)
+                            if matches!(
+                                member.code,
+                                "conversation-copy-incomplete" | "snapshot-digest-mismatch"
+                            ) =>
+                        {
+                            refused =
+                                snapshot::SnapshotMemberFailure { code: refused.code, ..member };
+                            continue;
+                        }
+                        Ok(member) => return Err(member.into()),
+                        Err(error) => return Err(error),
+                    },
                 };
                 match evidence_store(&input, copy_key, cancel, &evidence_schema) {
                     Ok(store) => {
@@ -341,18 +370,20 @@ fn prepare(
                         source_identity = Some(binding);
                         break;
                     }
-                    Err(e) if evidence_damage(&e, &failure) => continue,
+                    Err(e) if evidence_damage(&e, &failure) => {
+                        refused = snapshot::SnapshotMemberFailure::new(
+                            refused.code,
+                            source,
+                            &prefix.join(evidence_name),
+                        );
+                    }
                     Err(e) => return Err(e),
                 }
             }
-            let ev = verified.context("conversation-copy-no-verified-evidence")?;
+            let ev = verified.ok_or(refused)?;
             rebuild(ev, stage.path(), &scratch.path().join("verified-evidence"), key, cancel)?;
         } else {
-            source_identity = Some(
-                selected
-                    .copy(&ROLES, Path::new(""), &work)?
-                    .context("conversation-copy-incomplete")?,
-            );
+            source_identity = Some(selected.copy(&ROLES, Path::new(""), &work)?);
             let cfg = config(&work, copy_key, &ROLES)?;
             if Store::verify_copy_pair(&cfg)? {
                 let store = Arc::new(Store::open_detailed(cfg)?);
@@ -387,7 +418,11 @@ fn prepare(
         let readable_header = match fs::symlink_metadata(&ev) {
             Ok(meta) => meta.is_file() && meta.len() >= 512,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => false,
-            Err(source) => return Err(vault_store::Error::PreserveFile { path: ev, source }.into()),
+            Err(source) => {
+                return Err(
+                    vault_store::Error::preserve(ArchiveFileRole::Evidence, &ev, source).into()
+                );
+            }
         };
         if readable_header {
             // An inaccessible catalog may leave zero identifiable revisions. Errors
@@ -588,7 +623,7 @@ pub fn install_conversation_repair(
     let owner = vault.store().owner()?;
     let key = vault.data_key().map(owned);
     let control = crate::ControlGate::acquire(paths);
-    let original_control = crate::content_identity::of(&paths.config_path)?;
+    let original_control = member_identity(&paths.app_root, Path::new("config.json"))?;
     let mut settings = crate::load_config(paths)?;
     crate::ensure_app_lock_unlocked(paths, &settings)?;
     ensure!(settings.capture_policy.token() == policy, "conversation-repair-preview-stale");
@@ -612,7 +647,7 @@ pub fn install_conversation_repair(
     let mut expected = members
         .iter()
         .filter(|p| !files().any(|role| role == **p))
-        .map(|p| Ok((p.clone(), member_identity(&paths.app_root.join(p))?)))
+        .map(|p| Ok((p.clone(), member_identity(&paths.app_root, p)?)))
         .collect::<Result<install::Originals>>()?;
     expected.insert(PathBuf::from("config.json"), original_control);
     for (member, identity) in files().zip(originals.iter().cloned()) {
@@ -623,7 +658,8 @@ pub fn install_conversation_repair(
     snapshot::snapshot_paused(vault, &mut pause, &displaced)?;
     ensure!(
         identities(&displaced)? == originals
-            && member_identity(&displaced.join(vault_layout::HELD_CONVERSATIONS))? == held_identity,
+            && member_identity(&displaced, Path::new(vault_layout::HELD_CONVERSATIONS))?
+                == held_identity,
         "conversation-repair-preview-stale"
     );
     cancel.check()?;

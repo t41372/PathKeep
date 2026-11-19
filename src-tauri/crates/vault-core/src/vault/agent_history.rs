@@ -112,6 +112,7 @@ impl Vault {
 
     /// After an external fix, retry both conversation workers in this generation.
     pub fn retry_conversations(&self) -> vault_store::Result<()> {
+        self.store.preserve_observed_displacements()?;
         if self.conversation_availability().is_ok() {
             return if self.store.is_open() { Ok(()) } else { Err(vault_store::Error::Closed) };
         }
@@ -189,6 +190,7 @@ impl Vault {
                     self.store.remember_conversation_failure(Arc::new(
                         vault_store::StoreOpenFailure {
                             role,
+                            path: self.store.database_path(role).to_owned(),
                             stage: vault_store::OpenStage::Read,
                             cause: vault_store::Error::IntegrityCheck {
                                 detail: messages.join(", "),

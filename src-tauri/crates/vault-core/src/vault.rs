@@ -181,10 +181,12 @@ impl Vault {
                     )?;
                     Ok(())
                 })
-                .map_err(|e| e.at(Db::Archive, vault_store::OpenStage::Recover))?;
+                .map_err(|e| store.role_error(e, Db::Archive, vault_store::OpenStage::Recover))?;
             crate::ai_queue::recover_owner_claims(&store, config.ai.job_queue_paused)
                 .and_then(|()| crate::intelligence_runtime::recover_owner_claims(&store))
-                .map_err(|e| e.at(Db::Intelligence, vault_store::OpenStage::Recover))?;
+                .map_err(|e| {
+                    store.role_error(e, Db::Intelligence, vault_store::OpenStage::Recover)
+                })?;
         }
         let search = Arc::new(
             crate::search::Indexer::open(
@@ -228,9 +230,19 @@ impl Vault {
         if live_archive {
             let paths = vault.paths().clone();
             vault.store.on_displacement(move |held| {
-                crate::maintenance::snapshot::publish_held(&paths, held)
-                    .map_err(|e| vault_store::Error::Operation(e.into_boxed_dyn_error()))
-            })?;
+                let original = paths.app_root.join(vault_layout::database_path(held.role));
+                crate::maintenance::snapshot::publish_held(&paths, held).map_err(|error| {
+                    // Keep a companion's more specific error. If publication itself failed,
+                    // the open generation at this original name is the file still at risk.
+                    error.downcast::<vault_store::Error>().unwrap_or_else(|cause| {
+                        vault_store::Error::preserve(
+                            vault_store::ArchiveFileRole::HeldGeneration,
+                            &original,
+                            std::io::Error::other(cause),
+                        )
+                    })
+                })
+            });
             if let Err(error) = crate::ai::generations::migrate_flat_indexes(&vault) {
                 eprintln!("pathkeep: semantic index migration will retry on next open: {error:#}");
                 return Ok(vault);

@@ -835,26 +835,50 @@ fn round3_an_empty_older_model_does_not_cancel_the_evidence_inventory() {
 
 #[cfg(unix)]
 #[test]
-fn round3_idle_owner_publishes_displacement_without_an_archive_command() {
+fn idle_owner_waits_for_the_unlocked_shell_before_preserving() {
     let f = Fixture::new(false);
     let _corpus = Corpus::seed(&f);
     let v = f.vault();
     v.store().pause().unwrap().checkpoint().unwrap();
     let original = fs::read(evidence(&f)).unwrap();
     fs::remove_file(evidence(&f)).unwrap();
-    let limit = std::time::Instant::now() + std::time::Duration::from_secs(15);
-    loop {
-        let snapshots = vault_core::maintenance::list_snapshots(v.paths()).unwrap();
-        if let Some(saved) = snapshots.iter().find(|s| s.source_op == "heldGeneration") {
-            let path = std::path::Path::new(&saved.path)
-                .join(vault_layout::HELD_CONVERSATIONS)
-                .join(vault_layout::database_path(Db::AgentHistoryEvidence));
-            assert_eq!(fs::read(path).unwrap(), original);
-            break;
-        }
-        assert!(std::time::Instant::now() < limit, "idle owner never protected the held file");
-        std::thread::sleep(std::time::Duration::from_millis(50));
-    }
+
+    // Two intervals of the former one-second watcher, without a window event or SQL job.
+    std::thread::sleep(std::time::Duration::from_millis(2200));
+    let copies = || vault_core::maintenance::list_snapshots(v.paths()).unwrap();
+    assert!(!copies().iter().any(|s| s.source_op == "heldGeneration"));
+    vault_worker::data_kinds::list(&f.session).unwrap();
+    let saved = copies().into_iter().find(|s| s.source_op == "heldGeneration").unwrap();
+    let path = std::path::Path::new(&saved.path)
+        .join(vault_layout::HELD_CONVERSATIONS)
+        .join(vault_layout::database_path(Db::AgentHistoryEvidence));
+    assert_eq!(fs::read(path).unwrap(), original);
+}
+
+#[cfg(unix)]
+#[test]
+fn conversation_write_preserves_unlinked_sibling_before_running() {
+    let f = Fixture::new(false);
+    let _corpus = Corpus::seed(&f);
+    let v = f.vault();
+    v.store().pause().unwrap().checkpoint().unwrap();
+    let original = fs::read(evidence(&f)).unwrap();
+    fs::remove_file(evidence(&f)).unwrap();
+
+    let result = v.store().write(
+        Db::AgentHistoryReadModel,
+        vault_store::Priority::Interactive,
+        |_| -> vault_store::Result<()> { panic!("write ran against a displaced group") },
+    );
+    assert!(
+        matches!(result, Err(vault_store::Error::Open(reason)) if reason.role == Db::AgentHistoryEvidence)
+    );
+    let copies = vault_core::maintenance::list_snapshots(v.paths()).unwrap();
+    let saved = copies.iter().find(|s| s.source_op == "heldGeneration").unwrap();
+    let path = std::path::Path::new(&saved.path)
+        .join(vault_layout::HELD_CONVERSATIONS)
+        .join(vault_layout::database_path(Db::AgentHistoryEvidence));
+    assert_eq!(fs::read(path).unwrap(), original);
 }
 
 #[cfg(unix)]

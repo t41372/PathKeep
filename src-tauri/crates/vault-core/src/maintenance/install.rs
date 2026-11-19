@@ -338,8 +338,8 @@ pub(super) fn prepare(
 pub(crate) type Originals = std::collections::BTreeMap<PathBuf, Option<String>>;
 
 /// Capture the frozen inputs the caller is preserving, before it releases them.
-pub(crate) fn originals(root: &Path, members: &[PathBuf]) -> std::io::Result<Originals> {
-    members.iter().map(|p| Ok((p.clone(), content_identity::of(&root.join(p))?))).collect()
+pub(crate) fn originals(root: &Path, members: &[PathBuf]) -> vault_store::Result<Originals> {
+    members.iter().map(|p| Ok((p.clone(), content_identity::member(root, p)?))).collect()
 }
 
 fn prepare_bound(
@@ -418,10 +418,9 @@ fn prepare_bound(
 /// stage is on disk and before anything moves.
 fn entry(paths: &ProjectPaths, stage: &Path, relative: PathBuf) -> Result<Entry> {
     let relative = RecordedPath::new(&relative)?;
-    let live = paths.app_root.join(&relative);
-    let installed = content_identity::of(&stage.join(&relative))
+    let installed = content_identity::member(stage, &relative)
         .with_context(|| format!("reading the staged {}", relative.display()))?;
-    let original = content_identity::of(&live)
+    let original = content_identity::member(&paths.app_root, &relative)
         .with_context(|| format!("reading the {} it replaces", relative.display()))?;
     Ok(Entry {
         previous: original.is_some(),

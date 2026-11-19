@@ -5,7 +5,7 @@ use crate::{
     worker::{HeldFiles, Workers},
 };
 use std::{
-    fs::{self, File, OpenOptions},
+    fs::{self, OpenOptions},
     io::{Seek, SeekFrom},
     os::windows::fs::OpenOptionsExt,
     path::Path,
@@ -66,9 +66,11 @@ fn anchor(files: &HeldFiles, dir: &Path, main: &Path) -> Result<HeldFiles> {
     for (suffix, input) in files {
         let mut name = main.as_os_str().to_owned();
         name.push(suffix);
-        let mut source = input.try_clone()?;
-        source.seek(SeekFrom::Start(0))?;
-        let mut spool: File = loop {
+        let role = crate::ArchiveFileRole::HeldGeneration;
+        let source_error = |e| crate::Error::preserve(role, Path::new(&name), e);
+        let mut source = input.try_clone().map_err(source_error)?;
+        source.seek(SeekFrom::Start(0)).map_err(source_error)?;
+        let (mut spool, target) = loop {
             let serial = NEXT.fetch_add(1, Ordering::Relaxed);
             let path = dir
                 .join(format!("maintenance-agent-preview-handle-{}-{serial}", std::process::id()));
@@ -77,15 +79,15 @@ fn anchor(files: &HeldFiles, dir: &Path, main: &Path) -> Result<HeldFiles> {
                 .read(true)
                 .write(true)
                 .custom_flags(FILE_FLAG_DELETE_ON_CLOSE)
-                .open(path)
+                .open(&path)
             {
-                Ok(file) => break file,
+                Ok(file) => break (file, path),
                 Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
-                Err(e) => return Err(e.into()),
+                Err(e) => return Err(crate::Error::writing(role, &path, e)),
             }
         };
-        super::maintenance::copy_bytes(Path::new(&name), &mut source, &mut spool)?;
-        spool.sync_all()?;
+        super::maintenance::copy_bytes(role, Path::new(&name), &mut source, &target, &mut spool)?;
+        spool.sync_all().map_err(|e| crate::Error::writing(role, &target, e))?;
         anchors.push((suffix.clone(), spool));
     }
     Ok(anchors)

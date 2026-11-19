@@ -17,8 +17,8 @@ pub use conversation_repair::{
     verify_conversation_repair,
 };
 pub use snapshot::{
-    list_snapshots, manual_snapshot, recover_native_maintenance, restore_snapshot,
-    restore_snapshot_to, snapshot,
+    SnapshotMemberFailure, list_snapshots, manual_snapshot, recover_native_maintenance,
+    restore_snapshot, restore_snapshot_to, snapshot,
 };
 #[cfg(test)]
 mod install_tests;

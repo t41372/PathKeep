@@ -116,8 +116,8 @@ impl Archive {
             state_gate: Mutex::new(()),
             publication_gate: Mutex::new(()),
         };
-        let evidence = |e| recovery_error(Db::AgentHistoryEvidence, e);
-        let model = |e| recovery_error(Db::AgentHistoryReadModel, e);
+        let evidence = |e| archive.recovery_error(Db::AgentHistoryEvidence, e);
+        let model = |e| archive.recovery_error(Db::AgentHistoryReadModel, e);
         archive.recover_unfinished_revisions().map_err(evidence)?;
         archive.reclaim_slices().map_err(evidence)?;
         archive.recover_projection_work().map_err(model)?;
@@ -132,12 +132,11 @@ impl Archive {
     pub fn root(&self) -> &Path {
         &self.root
     }
-}
-
-fn recovery_error(role: Db, error: Error) -> Error {
-    let cause = match error {
-        Error::Store(cause) => cause,
-        other => vault_store::Error::Operation(Box::new(other)),
-    };
-    cause.at(role, vault_store::OpenStage::Recover).into()
+    fn recovery_error(&self, role: Db, error: Error) -> Error {
+        let cause = match error {
+            Error::Store(cause) => cause,
+            other => vault_store::Error::Operation(Box::new(other)),
+        };
+        self.store.role_error(cause, role, vault_store::OpenStage::Recover).into()
+    }
 }
