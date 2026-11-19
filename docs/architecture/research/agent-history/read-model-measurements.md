@@ -29,3 +29,21 @@ The [target-size profile and storage options](window-at-target-size.md) record t
 The [step 3 verification](step3-publication.md) records all three positions per transport through the production API, the scan-phase gaps, and the whole-suite fault checks.
 
 The [native-array run](validation/native-array-macos.jsonl) used arm64 macOS, release, 264,000,000 bytes, 23,812 elements and 40 samples at each position. The [review fault results](validation/reader-review-faults.jsonl) list the catching tests for each isolated change and the restored worktree result.
+
+### Sparse windows, append publication and access plans
+
+Run the two target measurements from `src-tauri` in a shared release target.
+
+```sh
+cargo test --release -p agent-history --lib read_model::publication::measure:: -- --ignored --test-threads=1 --nocapture
+AH_MEASURE_ENCRYPTED=1 cargo test --release -p agent-history --lib append_and_sparse_windows_at_target -- --ignored --nocapture
+cargo clean -p agent-history --release
+```
+
+The sparse-window fixture alternates a visible Codex message and a hidden record. It reads the final 200 visible messages on a 264,000,000-byte plain source and a 31,457,280-byte decoded single zstd frame. Each source contains 23,812 physical records. Each of the 40 disk-backed samples opens the archive after eviction and repeats the same read on that handle. Verification compares the complete generated text and physical ordinal after the timer stops.
+
+The append measurement adds one 700-byte message to the plain source through backup. The scan timer includes reader framing and its page writes during delivery. The staging interval also includes legacy projection work. The backup timer runs through search synchronization and eligible reader collection. Inventories at the start, at `projection_staged`, and after return give physical page pieces, logical payload lengths and unique compressed blob storage in R.
+
+The access-plan fixture retains 120,000 distinct Pi headers, each followed by 120 body records. The four-phase body uses distinct global event and call IDs and a tied timestamp range. Only the final record has the unique search marker. The fixture writes complete compressed documents to evidence in bounded batches. Session, version and head indexes are populated at that cardinality with tied timestamps. Two additional live Codex rollouts exercise native lineage and a parent with zero children. The fixture measures the actual bound SQL on Turso. The access-plan fixture omits the unqueried legacy event rows, search index and reader payload pages for the bulk population. It authenticates and scans the retained first, middle and last roots before exercising the production queries.
+
+The [macOS release results](validation/reader-step3-reviewed-macos.jsonl) include both archive protection modes, the append phase timings and all five captured Turso plans.

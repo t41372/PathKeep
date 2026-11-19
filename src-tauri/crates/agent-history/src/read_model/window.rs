@@ -126,7 +126,7 @@ impl Archive {
         visit: &mut dyn FnMut(ReaderRow) -> Result<()>,
     ) -> Result<()> {
         let _worker = self.jobs.enter_window(&job.cancel)?;
-        self.read_window_admitted(revision, records, preview_bytes, job, visit)
+        self.read_window_admitted(revision, records, preview_bytes, job, visit).map(|_| ())
     }
     pub(super) fn read_window_admitted(
         &self,
@@ -135,7 +135,7 @@ impl Archive {
         preview_bytes: usize,
         job: &JobControl,
         visit: &mut dyn FnMut(ReaderRow) -> Result<()>,
-    ) -> Result<()> {
+    ) -> Result<u64> {
         job.checkpoint(ReadPhase::Reading, 0)?;
         page_limit(preview_bytes)?;
         if records.len() > MAX_ROWS {
@@ -143,7 +143,7 @@ impl Archive {
         }
         let info = self.checked_revision(revision)?;
         if records.is_empty() {
-            return Ok(());
+            return Ok(0);
         }
         let first = &records[0].0;
         let mut end = first.start.0;
@@ -179,7 +179,7 @@ impl Archive {
             work = input.work();
             remaining = &remaining[rows..];
         }
-        Ok(())
+        Ok(work)
     }
 
     fn visit_run(

@@ -5,16 +5,29 @@ use crate::Archive;
 use vault_store::{OptionalRow, Priority, params};
 
 impl Archive {
+    /// Drain all eligible retired reader state in short transactions.
+    pub fn collect_reader_garbage(&self, cancel: &CancelToken) -> Result<()> {
+        loop {
+            cancel.check().map_err(|_| Error::Cancelled)?;
+            if self.jobs.stopping() {
+                return Err(Error::Cancelled);
+            }
+            if self.prune_reader_pages(256)? == 0 {
+                return Ok(());
+            }
+        }
+    }
     /// Gives maintenance a bounded share of the writer. Repeat until it returns zero
     /// to drain abandoned snapshots and release blobs without surviving page references.
     pub fn prune_reader_pages(&self, limit: usize) -> Result<u64> {
         if !(1..=256).contains(&limit) {
             return Err(Error::InvalidInput("reader cleanup limit must be 1..=256".into()));
         }
+        let cutoff = self.jobs.collection_cutoff()?;
         Ok(self.store.write(DB, Priority::Batch, move |tx| {
-            if let Some(token) = tx.query_one("SELECT publication FROM ah_reader_retired LIMIT 1", (), |r| Ok(r.get::<String>(0)?)).optional()? {
+            if let Some(token) = tx.query_one("SELECT publication FROM ah_reader_retired WHERE epoch<=?1 ORDER BY epoch LIMIT 1", [cutoff], |r| Ok(r.get::<String>(0)?)).optional()? {
                 let mut changed = 0;
-                for table in ["ah_reader_member", "ah_reader_line", "ah_reader_dependency", "ah_reader_edge"] {
+                for table in ["ah_reader_member", "ah_reader_line", "ah_reader_dependency"] {
                     changed += tx.execute(
                         &format!(
                             "DELETE FROM {table} WHERE rowid IN (SELECT rowid FROM {table} WHERE
@@ -48,7 +61,7 @@ impl Archive {
                     params![hash],
                 )?;
             }
-            for table in ["ah_reader_sort", "ah_reader_lookup", "ah_reader_rank","ah_reader_leaf","ah_reader_leaf_line"] {
+            for table in ["ah_reader_sort","ah_reader_leaf","ah_reader_walk","ah_reader_walk_run"] {
                 changed += tx.execute(&format!("DELETE FROM {table} WHERE rowid IN (SELECT rowid FROM {table} WHERE owner=?1 LIMIT ?2)"), params![token.clone(), limit as i64])?;
             }
             if changed == 0 {

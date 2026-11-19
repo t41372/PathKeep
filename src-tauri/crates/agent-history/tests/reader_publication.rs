@@ -44,7 +44,7 @@ fn b_pi_alternate_leaf_and_stale_head() {
     let compaction =
         a.reader_outline(&h, None, 4, 1, &Default::default()).unwrap().pop().unwrap().1;
     assert_eq!((compaction.first_kept.as_deref(), compaction.tokens_before), (Some("b"), Some(42)));
-    let choices = a.reader_leaves(&h, &h.current_source, 0, 20).unwrap();
+    let choices = a.reader_leaves(&h, &h.current_source, 0, 20, &Default::default()).unwrap();
     let mut tips = choices.ordinals;
     tips.sort_unstable();
     assert_eq!(tips, [2, 5]);
@@ -53,7 +53,7 @@ fn b_pi_alternate_leaf_and_stale_head() {
         !texts(a.reader_visible_window(&h, None, 0, 20, &Default::default()).unwrap())
             .contains(&"earlier answer".into())
     );
-    let found = a.reader_lookup(&h, &h.current_source, "a", None, 8).unwrap();
+    let found = a.reader_lookup(&h, &h.current_source, "a", None, 8, &Default::default()).unwrap();
     assert_eq!(found, [2]);
     let alt = a.reader_leaf_window(&h, &h.current_source, 2, 0, 200, &Default::default()).unwrap();
     assert_eq!(texts(alt), ["prompt", "earlier answer"]);
@@ -92,6 +92,22 @@ fn c_late_base_publishes_clipped_line_and_keeps_abandoned_branch() {
     let h = head(&a);
     assert!(h.complete);
     assert_eq!(h.physical_records, 6);
+    let bytes = a
+        .reader_outline(&h, None, 0, 6, &Default::default())
+        .unwrap()
+        .iter()
+        .map(|(_, entry)| entry.locator.length)
+        .sum::<u64>();
+    assert!(matches!(
+        a.reader_window(
+            &h,
+            None,
+            0,
+            6,
+            &JobControl { max_decoded_bytes: bytes - 1, ..Default::default() }
+        ),
+        Err(Error::LimitExceeded(_))
+    ));
     let members = a.reader_sources(&h, None, 10).unwrap();
     assert_eq!(members.len(), 2);
     let base = members.iter().find(|s| s.source_id != h.current_source).unwrap();
@@ -293,7 +309,7 @@ fn offline_page_rebuild_preserves_native_projection_and_evidence() {
     fs::remove_dir_all(root).unwrap();
     assert_eq!(a.rebuild_reader_catalog(&Default::default()).unwrap(), 1);
     let new = head(&a);
-    assert_ne!(h.publication, new.publication);
+    assert_eq!(h.publication, new.publication);
     assert_eq!(h.input_digest, new.input_digest);
     assert_eq!(a.current_projection_id(&h.current_source).unwrap(), parser);
     assert_eq!(a.latest_revision(&h.current_source).unwrap().unwrap().digest, revision.digest);
@@ -350,10 +366,15 @@ fn sorted_lookup_pages_preserve_repeated_ids_and_raw_provenance() {
         .unwrap();
     let h = head(&archive);
     assert_eq!(
-        archive.reader_lookup(&h, "lookup", "repeated", Some(2048), 4).unwrap(),
+        archive
+            .reader_lookup(&h, "lookup", "repeated", Some(2048), 4, &Default::default())
+            .unwrap(),
         [2050, 2052, 2054, 2056]
     );
-    assert_eq!(archive.reader_lookup(&h, "lookup", "u-4299", None, 1).unwrap(), [4299]);
+    assert_eq!(
+        archive.reader_lookup(&h, "lookup", "u-4299", None, 1, &Default::default()).unwrap(),
+        [4299]
+    );
     let outline = archive.reader_outline(&h, None, 4299, 2, &Default::default()).unwrap();
     assert_eq!(outline[0].1.id.as_deref(), Some("u-4299"));
     assert_eq!(outline[1].1.id.as_deref(), Some("repeated"));
@@ -452,3 +473,6 @@ fn base_from_another_root_refreshes_a_dependent_without_recapturing_it() {
     );
     assert!(a.reader_record_bytes(&h, &row.source_id, 2, 0, 4096, &Default::default()).is_err());
 }
+
+#[path = "reader_publication/review.rs"]
+mod review;

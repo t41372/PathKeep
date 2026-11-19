@@ -2,8 +2,8 @@
 //! Published membership and page reads use R. Exact expansion and offline builders use retained evidence.
 pub(crate) mod publication;
 pub use publication::{
-    DisplayRow, OutlineEntry, ReaderLeaves, ReaderPublication, ResolvedBase, SourceMember,
-    SourceObservation,
+    DisplayRow, OutlineEntry, ParentStatus, ReaderLeaves, ReaderPublication, ResolvedBase,
+    SourceMember, SourceObservation,
 };
 mod framing;
 mod interpreter;
@@ -222,6 +222,7 @@ impl ReaderRow {
 /// Keeps normalized export fields and the reader's typed content tied to the same object.
 #[derive(Debug, Serialize)]
 pub struct InterpretedRecord {
+    pub boundary: Option<StructuralBoundary>,
     pub event: NativeEvent,
     pub parts: Vec<RecordPart>,
 }
@@ -238,8 +239,23 @@ pub enum Coverage {
 /// Framing coverage includes every physical row, even when it has no public event.
 #[derive(Debug, Serialize)]
 pub struct ScanReport {
+    pub decoded_bytes: u64,
     pub max_frame_bytes: u64,
     pub physical_records: u64,
     pub objects: u64,
     pub coverage: Coverage,
+}
+
+/// Native structural information displayed between ordinary messages.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct StructuralBoundary {
+    pub kind: BoundaryKind,
+    pub tokens_before: Option<u64>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum BoundaryKind {
+    Compaction,
+    ContextEdit,
+    UnresolvedParent,
 }

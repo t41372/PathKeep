@@ -14,15 +14,20 @@ pub struct SourceObservation {
 }
 pub(super) struct Facts {
     source: String,
-    digest: String,
-    retained: bool,
+    pub(super) digest: String,
+    pub(super) bytes: u64,
+    pub(super) retained: bool,
     pub observation: SourceObservation,
 }
 impl Facts {
-    pub fn check(&self, source: &str, digest: &str) -> Result<()> {
+    pub(super) fn verify_identity(&self, source: &str, digest: &str) -> Result<()> {
         if self.source != source || self.digest != digest {
             return Err(Error::StaleCursor);
         }
+        Ok(())
+    }
+    pub fn check(&self, source: &str, digest: &str) -> Result<()> {
+        self.verify_identity(source, digest)?;
         if !self.retained {
             return Err(Error::NotFound("revision bytes expired by retention".into()));
         }
@@ -41,7 +46,7 @@ impl Archive {
                 tx.query(
                     &format!(
                         "SELECT
-                 r.id,r.source_id,r.digest,r.bytes_retained,r.captured_at,r.capture_format,s.kind,s.last_seen_at,s.missing_since
+                 r.id,r.source_id,r.digest,r.bytes_retained,r.captured_at,r.capture_format,s.kind,s.last_seen_at,s.missing_since,r.byte_len
                  FROM ah_revisions r JOIN ah_sources s ON s.id=r.source_id WHERE
                  r.state='complete' AND r.id IN ({placeholders})"
                     ),
@@ -51,7 +56,7 @@ impl Archive {
                             r.get::<i64>(0)?,
                             Facts {
                                 source: r.get(1)?,
-                                digest: r.get(2)?,
+                                digest:r.get(2)?, bytes:r.get::<i64>(9)? as u64,
                                 retained: r.get::<i64>(3)? != 0,
                                 observation: SourceObservation { captured_at: r.get(4)?, capture_format: r.get(5)?, kind: r.get(6)?, last_seen_at: r.get(7)?, missing_since: r.get(8)? },
                             },
@@ -68,8 +73,7 @@ impl Archive {
         let after = after.to_string();
         let ids = self.store.read(DB, move |tx| {
             tx.query(
-                "SELECT v.revision FROM ah_sessions s JOIN ah_reader_version v ON
-                 v.attempt=s.projection_id AND v.state='published' WHERE s.conversation_id=?1 AND
+                "SELECT s.revision_id FROM ah_sessions s WHERE s.conversation_id=?1 AND
                  s.id>?2 ORDER BY s.id LIMIT 8",
                 params![id, after],
                 |r| Ok(r.get::<i64>(0)?),

@@ -1,9 +1,7 @@
 //! Responsibilities: bound parser writes and atomically publish an attempt token.
 //! Not responsible for: allocating attempt identities, parsing or retiring raw data.
 use super::coverage::validate_coverage;
-use super::{
-    ProjectionAttempt, current_projection_id, publish_outbox, require_work, retire, set_coverage,
-};
+use super::{ProjectionAttempt, current_projection_id, publish_outbox, require_work, retire};
 use crate::{
     Error, Result,
     archive::Archive,
@@ -115,9 +113,28 @@ impl Archive {
         parser_complete: bool,
         combined_complete: bool,
     ) -> Result<()> {
+        self.publish_with_job(
+            attempt,
+            metadata,
+            parser_complete,
+            combined_complete,
+            &Default::default(),
+        )
+    }
+    /// Publishes a staged interpretation under the caller’s cancellation and decode budget.
+    pub fn publish_with_job(
+        &self,
+        attempt: &ProjectionAttempt,
+        metadata: &SessionMetadata,
+        parser_complete: bool,
+        combined_complete: bool,
+        job: &crate::read_model::JobControl,
+    ) -> Result<()> {
+        let _lease = self.jobs.track(&job.cancel)?;
         validate_coverage(parser_complete, combined_complete)?;
         validate_metadata(metadata)?;
-        self.stage_reader(attempt, &Default::default(), &Default::default())?;
+        self.stage_reader(attempt, &Default::default(), job)?;
+        job.cancel.check().map_err(|_| Error::Cancelled)?;
         let counter = self.build_attachment_counter(attempt.id, attempt.revision_id)?;
         let snapshot = self.projection_generation()?;
         self.require_revision_source(&attempt.source_id, attempt.revision_id)?;
@@ -175,6 +192,7 @@ impl Archive {
                 "publication changed while source relations were being validated".into(),
             ));
         }
+        job.cancel.check().map_err(|_| Error::Cancelled)?;
         self.store.write(Db::AgentHistoryReadModel, Priority::Batch, move |tx| {
             require_work(tx, &attempt)?;
             crate::read_model::publication::install(tx, &attempt)?;
@@ -217,7 +235,7 @@ impl Archive {
                     fork_path=excluded.fork_path, current_only=excluded.current_only,
                     source_time=excluded.source_time, generation_group=excluded.generation_group,
                     first_record_digest=excluded.first_record_digest,
-                 raw_head_current=1,attachment_generation=excluded.attachment_generation,
+                 attachment_generation=excluded.attachment_generation,
                  attachments_not_kept=excluded.attachments_not_kept",
                 params![
                     attempt.source_id.clone(),
@@ -261,12 +279,18 @@ impl Archive {
                 selection.publish(tx, id, None)?;
             }
             publish_outbox(tx, &attempt.source_id, attempt.revision_id, attempt.id)?;
-            set_coverage(tx, &attempt.source_id, combined_complete)?;
+            super::coverage::write_status(
+                tx,
+                &attempt.source_id,
+                Some((combined_complete, true)),
+                Some(true),
+                false,
+            )?;
             crate::read_model::publication::refresh(tx, &attempt.source_id, prior.as_deref())?;
             tx.execute("DELETE FROM ah_projection_work WHERE session_id=?1", [attempt.source_id])?;
             Ok(())
         })?;
-        self.flush_reader_heads()
+        self.flush_reader_heads_controlled(&job.cancel)
     }
 }
 

@@ -184,3 +184,33 @@ impl Archive {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn pinned_observation_refuses_recorded_git_descendant() {
+        let temp = tempfile::tempdir().unwrap();
+        let a = Archive::create_unencrypted(&temp.path().join("archive")).unwrap();
+        let root = SourceRoot { harness: crate::Harness::Pi, root: temp.path().join("pi") };
+        let path = root.root.join("project/.GiT/private.jsonl");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, b"private").unwrap();
+        let artifact = crate::Artifact {
+            kind: crate::ArtifactKind::Transcript,
+            path,
+            relative_path: "project/.GiT/private.jsonl".into(),
+            generation: None,
+            current: true,
+            project_hint: None,
+        };
+        a.begin_revision("recorded", &root, &artifact).unwrap();
+        let pin = crate::capture::directory_handle(&root.root).unwrap();
+        let discovery = crate::capture::Discovery::new(
+            &Default::default(),
+            Some((root.root.clone(), std::sync::Arc::new(pin))),
+        );
+        assert!(a.observe_missing(1, &root, &discovery).unwrap());
+        assert!(a.source("recorded").unwrap().last_seen_at.is_none());
+    }
+}

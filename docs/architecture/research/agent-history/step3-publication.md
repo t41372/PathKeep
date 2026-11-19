@@ -81,3 +81,16 @@ Each row below is a separate source edit in an isolated copy using the shared Ca
 | Keep damaged data on a content-hash conflict during offline rebuild                    | `replacement_collects_private_pages_and_keeps_shared_rendered_blobs`     |         337 / 1 |
 
 One fault used a valid compressed payload containing different text under an existing content hash. The reader fell back to evidence, but the first rebuild still hit the replay budget because it kept the damaged blob on key conflict. Rebuilding now replaces differing bytes under that key. The restored page then opens under the one-byte replay budget.
+
+## Append cost and the incremental-page decision (2026-11-19)
+
+One 700-byte append to the 264,000,000-byte plain source, backed up through the production path on arm64 macOS
+(release): 10.17 s end to end in a plaintext archive, 11.76 s encrypted. Of that, raw commit through the staged
+projection took 3.21 s / 3.78 s and the reader rescan with its page writes 1.31 s / 1.33 s (264,000,700 bytes,
+23,813 records, 283 new page pieces; 566 pieces and 344 unique blobs at the peak of old plus new, one generation
+and 283 pieces after backup-end collection). Raw data: `validation/reader-step3-reviewed-macos.jsonl`.
+
+Decision: the reader keeps rescanning the whole source on change; no incremental pages for append-only sources.
+The rescan is about an eighth of the backup's time for this, the largest single transcript the product targets, and
+the backup runs in the background. If appends to very large transcripts need to get faster, the larger costs are
+the raw commit and the projection and search synchronisation, not the reader pages.

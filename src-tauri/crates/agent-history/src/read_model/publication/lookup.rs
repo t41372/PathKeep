@@ -39,7 +39,14 @@ impl SortedRuns {
         self.entries.clear();
         Ok(())
     }
-    pub fn finish(mut self, a: &Archive, token: &str, job: &JobControl, pi: bool) -> Result<()> {
+    pub fn finish(
+        mut self,
+        a: &Archive,
+        token: &str,
+        job: &JobControl,
+        pi: bool,
+        header: Option<u64>,
+    ) -> Result<()> {
         self.spill(a, token)?;
         let mut level = 0;
         while self.runs > FAN_IN {
@@ -55,9 +62,12 @@ impl SortedRuns {
             level += 1;
         }
         let mut writer = Buffer::new(LOOKUP, pages::META_BYTES);
+        let mut directory = Buffer::new(DIRECTORY, pages::META_BYTES);
         let mut leaves = Buffer::new(LEAVES, pages::META_BYTES);
         let mut latest = None;
         let mut referenced = String::new();
+        let mut previous_id = String::new();
+        let mut duplicates = false;
         merge(a, token, level, 0..self.runs, job, |rows| {
             let mut first = None;
             let rank = writer.len();
@@ -69,7 +79,11 @@ impl SortedRuns {
                     continue;
                 }
                 let ordinal = position - 1;
-                if pi && ordinal != 0 && key != &referenced {
+                if pi {
+                    duplicates |= previous_id == *key;
+                    previous_id.clone_from(key);
+                }
+                if pi && Some(ordinal) != header && key != &referenced {
                     leaves.push(a, token, &ordinal)?;
                     latest = Some(latest.map_or(ordinal, |prior: u64| prior.max(ordinal)));
                 }
@@ -79,16 +93,28 @@ impl SortedRuns {
             }
             let Some(first) = first else { return Ok(()) };
             writer.flush(a, token)?;
-            let owner = token.to_owned();
-            a.store.write(DB, Priority::Batch, move |tx| {
-                require_staging(tx, &owner)?;
-                tx.execute(
-                    "INSERT INTO ah_reader_lookup VALUES(?1,?2,?3,?4)",
-                    params![owner, first.0, first.1 as i64, rank as i64],
-                )?;
-                Ok(())
-            })?;
+            directory.push(a, token, &(first.0, first.1, rank))?;
             Ok(())
+        })?;
+        directory.flush(a, token)?;
+        let extent = directory.len() as i64;
+        let postings = writer.len() as i64;
+        let leaf_count = if pi { leaves.len() as i64 } else { -1 };
+        let owner = token.to_owned();
+        a.store.write(DB, Priority::Batch, move |tx| {
+            tx.execute(
+                "UPDATE ah_reader_version SET lookup_pages=?1, postings=?2, header_ordinal=?3,
+                 leaf_count=?5, directory_pages=?6, duplicate_ids=?7 WHERE token=?4",
+                params![
+                    extent,
+                    postings,
+                    header.map(|n| n as i64),
+                    owner,
+                    leaf_count,
+                    (extent + 255) / 256,
+                    i64::from(duplicates)
+                ],
+            )
         })?;
         if pi {
             leaves.flush(a, token)?;

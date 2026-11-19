@@ -124,3 +124,11 @@ pub(crate) fn parts(event: &NativeEvent) -> Vec<RecordPart> {
         ),
     }
 }
+
+pub(crate) fn boundary(event: &NativeEvent) -> Option<crate::read_model::StructuralBoundary> {
+    use crate::read_model::{BoundaryKind, StructuralBoundary};
+    (event.payload["type"] == "compacted"
+        || (event.payload["type"] == "event_msg"
+            && event.payload["payload"]["type"] == "context_compacted"))
+        .then_some(StructuralBoundary { kind: BoundaryKind::Compaction, tokens_before: None })
+}

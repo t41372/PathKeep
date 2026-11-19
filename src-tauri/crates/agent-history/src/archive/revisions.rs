@@ -280,11 +280,10 @@ impl Archive {
         })?;
         if expires && !outcome.unchanged {
             let selected = outcome.revision_id;
-            let changed=self.store.write(Db::AgentHistoryReadModel,Priority::Batch,move|tx|{
-                let changed=tx.execute("UPDATE ah_reader_version SET state='retired' WHERE source=?1 AND revision<>?2 AND state<>'retired'",params![reader_source.clone(),selected])?;
-                if changed>0{crate::read_model::publication::refresh(tx,&reader_source,None)?}
-                Ok(changed)
-            })?;
+            let changed =
+                self.store.write(Db::AgentHistoryReadModel, Priority::Batch, move |tx| {
+                    crate::read_model::publication::expire_versions(tx, &reader_source, selected)
+                })?;
             if changed > 0 {
                 self.flush_reader_heads()?;
                 self.prune_reader_pages(256)?;

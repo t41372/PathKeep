@@ -34,13 +34,8 @@ impl Entry {
         run_start: &mut u64,
     ) -> Result<Self> {
         let event = value.map(|v| ctx.interpret(locator.ordinal, v.clone())).transpose()?;
-        let visible = event.as_ref().is_some_and(|row| {
-            !row.parts.is_empty()
-                || matches!(
-                    row.event.kind.as_str(),
-                    "compaction" | "context_edit" | "compaction/summary"
-                )
-        });
+        let boundary = event.as_ref().and_then(|r| r.boundary.clone());
+        let visible = boundary.is_some() || event.as_ref().is_some_and(|r| !r.parts.is_empty());
         let (id, parent, kind, role, timestamp) = event
             .map(|r| {
                 (
@@ -53,18 +48,22 @@ impl Entry {
             })
             .unwrap_or_default();
         let first_kept = value.and_then(|v| v["firstKeptEntryId"].as_str()).map(str::to_owned);
-        let tokens_before = value.and_then(|v| v["tokensBefore"].as_u64());
+        let tokens_before = boundary.as_ref().and_then(|b| b.tokens_before);
         if parent.is_none() || &parent != previous {
             *run_start = locator.ordinal.0
         }
+        let declared_root = matches!(ctx, RecordContext::Pi { version: Some(1), .. })
+            || value.is_some_and(|v| v.get("parentId").is_some_and(serde_json::Value::is_null));
         previous.clone_from(&id);
         Ok(Self {
             visible,
+            boundary,
             locator,
             context: ctx.clone(),
             id,
             parent,
             run_start: *run_start,
+            declared_root,
             kind,
             role,
             timestamp,
@@ -81,7 +80,7 @@ impl Archive {
         context: &ParseContext,
         job: &JobControl,
     ) -> Result<()> {
-        let _guard = self.jobs.enter_scan(&job.cancel)?;
+        let _lease = self.jobs.track(&job.cancel)?;
         let revision = self.revision(attempt.revision_id)?;
         let source = self.source(&attempt.source_id)?;
         if revision.source_id != source.id || source.latest_revision_id != Some(revision.id) {
@@ -89,6 +88,17 @@ impl Archive {
         }
         let record_limit = context.max_record_bytes as i64;
         let decoded_limit = job.max_decoded_bytes.min(i64::MAX as u64) as i64;
+        let probe = attempt.clone();
+        let digest = revision.digest.clone();
+        let ready=self.store.read(DB,move|tx|{
+            require_work(tx,&probe)?;
+            tx.query_one("SELECT EXISTS(SELECT 1 FROM ah_reader_version WHERE attempt=?1 AND source=?2 AND revision=?3 AND digest=?4 AND state='ready')",
+                params![probe.id,probe.source_id,probe.revision_id,digest],|r|Ok(r.get::<i64>(0)?!=0))
+        })?;
+        if ready {
+            return Ok(());
+        }
+        let _guard = self.jobs.enter_scan(&job.cancel)?;
         let parser = attempt.clone();
         let token = self.store.write(DB, Priority::Batch, move |tx| {
             require_work(tx, &parser)?;
@@ -110,7 +120,7 @@ impl Archive {
             let token: String =
                 tx.query_one("SELECT lower(hex(randomblob(16)))", (), |r| Ok(r.get(0)?))?;
             tx.execute(
-                "INSERT INTO ah_reader_version
+                "INSERT INTO ah_reader_version(token,attempt,source,revision,digest,byte_len,codec,renderer,records,selective,state,record_limit,decoded_limit,max_frame,format_version)
                  VALUES(?1,?2,?3,?4,?5,?6,?7,?8,0,0,'staging',?9,?10,0,NULL)",
                 params![
                     token.clone(),
@@ -173,16 +183,26 @@ impl Archive {
         let mut max_frame = 0;
         let mut format_version = None;
         let mut pi = false;
+        let mut header = None;
+        let mut first_object = true;
         let mut previous = None;
         let mut run_start = 0;
         if !unreadable {
             let mut frames = Buffer::new(FRAMES, pages::META_BYTES);
+            #[cfg(test)]
+            let scan_start = std::time::Instant::now();
             let result = self.scan_revision_with_frames(
                 attempt.revision_id,
                 context,
                 job,
                 &mut |locator, ctx, value| {
-                    if locator.ordinal.0 == 0 {
+                    if first_object && value.is_some() {
+                        if matches!(ctx, RecordContext::Pi { version: Some(_), .. })
+                            && value.is_some_and(|v| v["type"] == "session")
+                        {
+                            header = Some(locator.ordinal.0);
+                        }
+                        first_object = false;
                         format_version = match ctx {
                             RecordContext::Pi { version, .. }
                             | RecordContext::Deepseek { version } => version.map(|v| v.to_string()),
@@ -209,6 +229,8 @@ impl Archive {
             frames.flush(self, token)?;
             match result {
                 Ok(report) => {
+                    #[cfg(test)]
+                    super::measure::measured_scan(&report, scan_start.elapsed());
                     count = report.physical_records;
                     max_frame = report.max_frame_bytes;
                 }
@@ -222,7 +244,15 @@ impl Archive {
         }
         visibility.flush(self, token)?;
         outline.flush(self, token)?;
-        lookup.finish(self, token, job, pi)?;
+        let (blocks, visible) = visibility.extent();
+        let owner = token.to_owned();
+        self.store.write(DB, Priority::Batch, move |tx| {
+            tx.execute(
+                "UPDATE ah_reader_version SET rank_pages=?1,visible_total=?2 WHERE token=?3",
+                params![blocks, visible, owner],
+            )
+        })?;
+        lookup.finish(self, token, job, pi, header)?;
         if max_frame > REPLAY_LIMIT {
             let mut rendered = Buffer::new(RENDERED, pages::TEXT_BYTES);
             let scan = self.scan_revision_admitted(
@@ -248,29 +278,61 @@ impl Archive {
     /// generation. No live root, backup run, mark queue or search writer is involved.
     pub fn rebuild_reader_catalog(&self, job: &JobControl) -> Result<u64> {
         let _guard = self.jobs.enter_scan(&job.cancel)?;
-        let mut after = String::new();
+        let mut conversation = String::new();
         let mut count = 0;
         loop {
-            job.cancel.check().map_err(|_| Error::Cancelled)?;
-            let key = after.clone();
-            let batch = self.store.read(DB, move |tx| {
-                tx.query(
-                    "SELECT id,projection_id,revision_id,parser_version FROM ah_sessions WHERE id>?1
-                 ORDER BY id LIMIT 128",
-                    [key],
-                    |r| Ok(ProjectionAttempt { source_id: r.get(0)?, id: r.get(1)?, revision_id: r.get(2)?, parser_version: r.get(3)? }),
+            let after = conversation.clone();
+            let next = self.store.read(DB, move |tx| {
+                tx.query_one(
+                    "SELECT conversation_id FROM ah_sessions WHERE conversation_id>?1
+                     ORDER BY conversation_id LIMIT 1",
+                    [after],
+                    |row| Ok(row.get::<String>(0)?),
                 )
+                .optional()
             })?;
-            if batch.is_empty() {
-                break;
+            let Some(id) = next else { break };
+            conversation = id;
+            let mut after = String::new();
+            loop {
+                job.cancel.check().map_err(|_| Error::Cancelled)?;
+                let (id, key) = (conversation.clone(), after.clone());
+                let batch = self.store.read(DB, move |tx| {
+                    tx.query(
+                        "SELECT id,projection_id,revision_id,parser_version FROM ah_sessions
+                         WHERE conversation_id=?1 AND id>?2 ORDER BY id LIMIT 128",
+                        params![id, key],
+                        |row| {
+                            Ok(ProjectionAttempt {
+                                source_id: row.get(0)?,
+                                id: row.get(1)?,
+                                revision_id: row.get(2)?,
+                                parser_version: row.get(3)?,
+                            })
+                        },
+                    )
+                })?;
+                if batch.is_empty() {
+                    break;
+                }
+                for attempt in batch {
+                    after.clone_from(&attempt.source_id);
+                    if let Err(error) = self.repair_reader_version(&attempt, job) {
+                        // Only the active scan can own a repairing version of this parser attempt.
+                        self.store.write(DB,Priority::Batch,move|tx|tx.execute(
+                            "UPDATE ah_reader_version SET state='retired' WHERE attempt=?1 AND state='repairing'",
+                            [attempt.id]))?;
+                        self.jobs.request_collection();
+                        return Err(error);
+                    }
+                    count += 1;
+                }
             }
-            for attempt in batch {
-                after.clone_from(&attempt.source_id);
-                self.repair_reader_version(&attempt, job)?;
-                self.prune_reader_pages(256)?;
-                count += 1;
-            }
+            let _guard =
+                self.publication_gate.lock().map_err(|_| pages::invalid("publication lock"))?;
+            self.flush_reader_heads_controlled(&job.cancel)?;
         }
+        self.collect_reader_garbage(&job.cancel)?;
         Ok(count)
     }
 
@@ -299,7 +361,7 @@ impl Archive {
             tx.execute("UPDATE ah_reader_version SET state='retired' WHERE attempt=?1 AND state='repairing'", [snapshot.id])?;
             let token: String = tx.query_one("SELECT lower(hex(randomblob(16)))", (), |r| Ok(r.get(0)?))?;
             tx.execute(
-                "INSERT INTO ah_reader_version
+                "INSERT INTO ah_reader_version(token,attempt,source,revision,digest,byte_len,codec,renderer,records,selective,state,record_limit,decoded_limit,max_frame,format_version)
                  VALUES(?1,?2,?3,?4,?5,?6,?7,?8,0,0,'repairing',?9,?10,0,NULL)",
                 params![token.clone(), snapshot.id, snapshot.source_id, info.id, info.digest, info.byte_len as i64, CODEC, RENDERER, record_limit, decoded_limit],
             )?;
@@ -316,18 +378,36 @@ impl Archive {
         {
             return Err(Error::StaleCursor);
         }
-        let attempt = attempt.clone();
-        self.store.write(DB, Priority::Batch, move |tx| {
-            require_staging(tx, &token)?;
-            tx.execute("UPDATE ah_reader_version SET state='retired' WHERE attempt=?1 AND state='published'", [attempt.id])?;
-            tx.execute(
-                "UPDATE ah_reader_version SET
-                 state='published',records=?2,selective=?3,max_frame=?4,format_version=?5 WHERE
-                 token=?1",
-                params![token, records as i64, i64::from(max_frame > REPLAY_LIMIT), max_frame as i64, format_version],
-            )?;
-            refresh(tx, &attempt.source_id, None)
+        let attempt_id = attempt.id;
+        let staged = token.clone();
+        let previous=self.store.write(DB, Priority::Batch, move |tx| {
+            require_staging(tx,&staged)?;
+            tx.execute("UPDATE ah_reader_version SET records=?2,selective=?3,max_frame=?4,format_version=?5 WHERE token=?1",
+                 params![staged,records as i64,i64::from(max_frame>REPLAY_LIMIT),max_frame as i64,format_version])?;
+            tx.query_one(
+                "SELECT token,repair_generation FROM ah_reader_version
+                 WHERE attempt=?1 AND state='published'",
+                [attempt_id],
+                |row| Ok((row.get::<String>(0)?,row.get::<i64>(1)?)),
+            ).optional()
         })?;
-        self.flush_reader_heads()
+        let healthy = match &previous {
+            Some((old, _)) => self.same_reader_pages(old, &token, &job)?,
+            None => false,
+        };
+        let source = attempt.source_id.clone();
+        self.store.write(DB,Priority::Batch,move|tx|{
+            require_staging(tx,&token)?;
+            if healthy{
+                tx.execute("UPDATE ah_reader_version SET state='retired' WHERE token=?1",[token])?;
+            }else{
+                let generation=if let Some((old,previous_generation))=previous{
+                    tx.execute("UPDATE ah_reader_version SET state='retired' WHERE token=?1",[old])?;previous_generation+1
+                }else{0};
+                tx.execute("UPDATE ah_reader_version SET state='published',repair_generation=?2 WHERE token=?1",params![token,generation])?;
+            }
+            refresh(tx,&source,None)
+        })?;
+        Ok(())
     }
 }

@@ -404,3 +404,12 @@ pub(crate) fn parts(event: &NativeEvent, version: Option<u64>) -> Vec<RecordPart
     }
     result
 }
+
+pub(crate) fn boundary(
+    event: &NativeEvent,
+    version: Option<u64>,
+) -> Option<crate::read_model::StructuralBoundary> {
+    use crate::read_model::{BoundaryKind, StructuralBoundary};
+    (version.is_some_and(|v| v <= CURRENT_VERSION) && event.kind == "compaction/summary")
+        .then_some(StructuralBoundary { kind: BoundaryKind::Compaction, tokens_before: None })
+}

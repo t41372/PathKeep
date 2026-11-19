@@ -7,25 +7,32 @@ mod cleanup;
 mod evidence;
 mod leaves;
 mod lookup;
+mod membership;
 pub use leaves::ReaderLeaves;
 mod pages;
 mod read;
+mod repair;
+mod runs;
 mod visible;
+mod window;
 pub use evidence::SourceObservation;
+use window::Window;
 pub(crate) mod schema;
 use super::*;
-pub(crate) use catalog::{install, refresh};
+pub(crate) use catalog::{expire_versions, install, refresh};
 use serde::{Deserialize, Serialize};
 use vault_store::Db;
 
 const DB: Db = Db::AgentHistoryReadModel;
-pub(crate) const CODEC: i64 = 2;
-pub(crate) const RENDERER: i64 = 2;
+pub(crate) const CODEC: i64 = 3;
+pub(crate) const RENDERER: i64 = 3;
 const REPLAY_LIMIT: u64 = 32 * 1024 * 1024;
 const OUTLINE: i64 = 1;
 const LOOKUP: i64 = 2;
 const FRAMES: i64 = 3;
 const LEAVES: i64 = 4;
+const RANK: i64 = 5;
+const DIRECTORY: i64 = 6;
 // Renderer version participates in the physical page key.
 const RENDERED: i64 = 1000 + RENDERER;
 
@@ -35,6 +42,8 @@ pub struct ReaderPublication {
     pub conversation_id: String,
     pub publication: PublicationId,
     pub current_source: String,
+    pub parent_id: Option<String>,
+    pub parent_status: ParentStatus,
     pub physical_records: u64,
     pub visible_records: u64,
     pub complete: bool,
@@ -42,6 +51,16 @@ pub struct ReaderPublication {
     pub input_digest: String,
     pub coverage_reason: Option<String>,
 }
+/// Resolution of the elected child's native parent reference.
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ParentStatus {
+    #[default]
+    None,
+    Resolved,
+    Unresolved,
+}
+
 /// The actual member and decoded prefix that satisfied a native history-base reference.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ResolvedBase {
@@ -53,6 +72,10 @@ pub struct ResolvedBase {
 /// Identifies the retained revision and explains its role in the selected conversation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SourceMember {
+    #[serde(default)]
+    pub awaiting_rebuild: bool,
+    #[serde(default)]
+    pub parent_status: ParentStatus,
     pub max_frame_bytes: u64,
     pub format_version: Option<u64>,
     pub transport: Transport,
@@ -85,6 +108,7 @@ pub struct SourceMember {
 /// Bounded reader parts with a physical address for exact expansion.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DisplayRow {
+    pub boundary: Option<StructuralBoundary>,
     pub source_id: String,
     pub ordinal: PhysicalOrdinal,
     pub native_id: Option<String>,
@@ -100,12 +124,14 @@ pub struct DisplayRow {
 /// Native navigation metadata, independent of the original JSON payload.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OutlineEntry {
+    pub boundary: Option<StructuralBoundary>,
     pub visible: bool,
     pub locator: RecordLocator,
     pub context: RecordContext,
     pub id: Option<String>,
     pub parent: Option<String>,
     run_start: u64,
+    declared_root: bool,
     pub kind: String,
     pub role: Option<String>,
     pub timestamp: Option<i64>,
@@ -117,3 +143,13 @@ pub struct OutlineEntry {
 mod tests;
 
 type Entry = OutlineEntry;
+
+fn navigation_error(error: Error) -> Error {
+    match error {
+        Error::Integrity(_) => Error::ReaderRebuildRequired,
+        other => other,
+    }
+}
+
+#[cfg(test)]
+mod measure;

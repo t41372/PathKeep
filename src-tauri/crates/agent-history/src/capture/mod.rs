@@ -117,10 +117,16 @@ impl Archive {
     pub fn backup(&self, sources: &[SourceRoot], options: &BackupOptions) -> Result<BackupReport> {
         options.validate()?;
         let _job = self.jobs.enter(Some(&options.cancel))?;
-        let selected = normalize_sources(self, sources)?;
-        check_cancel(options)?;
-        let run_id = self.start_backup_run()?;
-        self.execute_run(run_id, &selected, sources, options, Vec::new())
+        let start = normalize_sources(self, sources).and_then(|selected| {
+            check_cancel(options)?;
+            Ok((self.start_backup_run()?, selected))
+        });
+        match start {
+            Ok((run_id, selected)) => {
+                self.execute_run(run_id, &selected, sources, options, Vec::new())
+            }
+            Err(e) => self.finish_reader_work(Err(e), options),
+        }
     }
 
     /// Keep the owner's generation and producer slot alive from consent publication
@@ -129,6 +135,19 @@ impl Archive {
         options.validate()?;
         let job = self.jobs.enter(Some(&options.cancel))?;
         Ok(ReservedBackup { archive: self.clone(), options, _job: job })
+    }
+
+    fn finish_reader_work<T>(&self, outcome: Result<T>, options: &BackupOptions) -> Result<T> {
+        let flushed = {
+            let _gate = self
+                .publication_gate
+                .lock()
+                .map_err(|_| Error::Integrity("publication lock".into()))?;
+            self.flush_reader_heads()
+        };
+        self.jobs.request_collection();
+        let collected = self.collect_reader_garbage(&options.cancel);
+        outcome.and_then(|result| flushed.and(collected).map(|()| result))
     }
 
     fn execute_run(
@@ -154,7 +173,8 @@ impl Archive {
             warning_sources: Default::default(),
             issues,
         };
-        let outcome = execute(self, selected, declared, options, &mut report).and_then(|()| {
+        let captured = execute(self, selected, declared, options, &mut report);
+        let outcome = self.finish_reader_work(captured, options).and_then(|()| {
             if report.capture_outcome.as_ref().is_some_and(|o| o.warning_count > 0) {
                 report.status = "partial".into();
             }
@@ -202,8 +222,12 @@ impl ReservedBackup {
         sources: &[SourceRoot],
         unavailable: Vec<Diagnostic>,
     ) -> Result<BackupReport> {
-        let selected = normalize_sources(&self.archive, sources)?;
-        self.archive.execute_run(run_id, &selected, sources, &self.options, unavailable)
+        match normalize_sources(&self.archive, sources) {
+            Ok(selected) => {
+                self.archive.execute_run(run_id, &selected, sources, &self.options, unavailable)
+            }
+            Err(e) => self.archive.finish_reader_work(Err(e), &self.options),
+        }
     }
 }
 
@@ -499,11 +523,16 @@ fn process_artifact(
         if let Some(attempt) = &prepared.attempt {
             progress(options, source.harness, "projection_staged", &source_id, &captured);
             check_cancel(options)?;
-            archive.publish_projection_attempt_with_coverage(
+            archive.publish_with_job(
                 attempt,
                 metadata,
                 prepared.report.complete,
                 complete,
+                &crate::read_model::JobControl {
+                    cancel: options.cancel.clone(),
+                    max_decoded_bytes: options.max_decoded_bytes,
+                    ..Default::default()
+                },
             )?;
             archive.save_versioned_parse_report(
                 captured.revision_id,

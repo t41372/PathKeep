@@ -71,6 +71,13 @@ impl RecordContext {
             Self::Continue => session_json::message_event(value, n, true).0,
             Self::Cline | Self::RooCode => session_json::message_event(value, n, false).0,
         };
-        Ok(InterpretedRecord { parts: parts::render(self, &event), event })
+        let boundary = match self {
+            Self::Claude => claude::boundary(&event),
+            Self::Codex => codex::boundary(&event),
+            Self::Pi { .. } => pi::boundary(&event),
+            Self::Deepseek { version } => deepseek::boundary(&event, *version),
+            _ => None,
+        };
+        Ok(InterpretedRecord { boundary, parts: parts::render(self, &event), event })
     }
 }

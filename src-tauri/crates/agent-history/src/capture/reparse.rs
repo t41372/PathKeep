@@ -65,6 +65,7 @@ impl Archive {
             warning_sources: Default::default(),
         };
         let outcome = reparse(self, &source, &artifact, &raw, options, &mut report);
+        let outcome = self.finish_reader_work(outcome, options);
         finish(self, source_id, report, outcome)
     }
 }
@@ -119,11 +120,16 @@ fn reparse(
         })?;
         progress(options, "projection_staged", raw);
         check_cancel(options)?;
-        archive.publish_projection_attempt_with_coverage(
+        archive.publish_with_job(
             attempt,
             metadata,
             prepared.report.complete,
             complete,
+            &crate::read_model::JobControl {
+                cancel: options.cancel.clone(),
+                max_decoded_bytes: options.max_decoded_bytes,
+                ..Default::default()
+            },
         )?;
         archive.save_versioned_parse_report(raw.id, &prepared.parser_version, &prepared.report)?;
         progress(options, "projection_published", raw);

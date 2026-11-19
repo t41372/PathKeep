@@ -205,12 +205,7 @@ pub(super) fn set_coverage(
     source_id: &str,
     complete: bool,
 ) -> vault_store::Result<()> {
-    tx.execute(
-        "INSERT INTO ah_coverage(source_id, complete) VALUES(?1, ?2) ON CONFLICT(source_id) DO
-            UPDATE SET complete=excluded.complete,affects_conversations=1",
-        params![source_id, i64::from(complete)],
-    )?;
-    Ok(())
+    coverage::write_status(tx, source_id, Some((complete, true)), None, false).map(|_| ())
 }
 
 fn operation(message: &'static str) -> vault_store::Error {

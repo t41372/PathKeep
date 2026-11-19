@@ -85,7 +85,14 @@ impl Buffer {
     }
 }
 
-fn binding(owner: &str, family: i64, first: i64, part: i64, len: i64, hash: &[u8]) -> Vec<u8> {
+pub(super) fn binding(
+    owner: &str,
+    family: i64,
+    first: i64,
+    part: i64,
+    len: i64,
+    hash: &[u8],
+) -> Vec<u8> {
     let mut sum = Sha256::new();
     sum.update(owner.as_bytes());
     for n in [family, first, part, len] {
@@ -106,22 +113,41 @@ pub(super) fn load<T: DeserializeOwned>(
     job: &JobControl,
 ) -> Result<(u64, Vec<T>)> {
     let key = owner.to_owned();
-    let (first, pieces) = a.store.read(DB, move |tx| {
-        let first = tx
-            .query_one(
-                "SELECT first_rank FROM ah_reader_page WHERE owner=?1 AND family=?2 AND
+    let data = a.store.read(DB, move |tx| fetch(tx, key, family, rank))?;
+    decode(data, owner, family, rank, job)
+}
+
+type Pieces = (Option<i64>, Vec<(i64, i64, Vec<u8>, Vec<u8>, Vec<u8>)>);
+fn fetch(
+    tx: &vault_store::Session<'_>,
+    key: String,
+    family: i64,
+    rank: u64,
+) -> vault_store::Result<Pieces> {
+    let first = tx
+        .query_one(
+            "SELECT first_rank FROM ah_reader_page WHERE owner=?1 AND family=?2 AND
                  first_rank<=?3 ORDER BY first_rank DESC LIMIT 1",
-                params![key.clone(), family, rank as i64],
-                |r| Ok(r.get::<i64>(0)?),
-            )
-            .optional()?;
-        // Check metadata before retrieving BLOBs, even when an imported directory is damaged.
-        if let Some(first)=first {
-            let (n,bytes)=tx.query_one("SELECT count(*),sum(nbytes) FROM ah_reader_page
-                WHERE owner=?1 AND family=?2 AND first_rank=?3",params![key.clone(),family,first],|r|Ok((r.get::<i64>(0)?,r.get::<i64>(1)?)))?;
-            if first<0 || n>MAX_LOGICAL_PAGE.div_ceil(META_BYTES) as i64 || !(1..=MAX_LOGICAL_PAGE as i64).contains(&bytes){return Ok((None,Vec::new()))}
+            params![key.clone(), family, rank as i64],
+            |r| Ok(r.get::<i64>(0)?),
+        )
+        .optional()?;
+    // Check metadata before retrieving BLOBs, even when an imported directory is damaged.
+    if let Some(first) = first {
+        let (n, bytes) = tx.query_one(
+            "SELECT count(*),sum(nbytes) FROM ah_reader_page
+                WHERE owner=?1 AND family=?2 AND first_rank=?3",
+            params![key.clone(), family, first],
+            |r| Ok((r.get::<i64>(0)?, r.get::<i64>(1)?)),
+        )?;
+        if first < 0
+            || n > MAX_LOGICAL_PAGE.div_ceil(META_BYTES) as i64
+            || !(1..=MAX_LOGICAL_PAGE as i64).contains(&bytes)
+        {
+            return Ok((None, Vec::new()));
         }
-        let pieces = match first {
+    }
+    let pieces = match first {
             Some(first) => tx.query(
                 "SELECT p.part,p.nbytes,p.hash,p.binding,b.data FROM ah_reader_page p JOIN
                  ah_reader_blob b ON b.hash=p.hash WHERE p.owner=?1 AND p.family=?2 AND
@@ -139,8 +165,25 @@ pub(super) fn load<T: DeserializeOwned>(
             )?,
             None => Vec::new(),
         };
-        Ok((first, pieces))
-    })?;
+    Ok((first, pieces))
+}
+
+pub(super) fn in_snapshot<T: DeserializeOwned>(
+    tx: &vault_store::Session<'_>,
+    owner: &str,
+    family: i64,
+    rank: u64,
+) -> vault_store::Result<(u64, Vec<T>)> {
+    let data = fetch(tx, owner.to_string(), family, rank)?;
+    decode(data, owner, family, rank, &JobControl::default()).map_err(crate::query::operation)
+}
+fn decode<T: DeserializeOwned>(
+    (first, pieces): Pieces,
+    owner: &str,
+    family: i64,
+    rank: u64,
+    job: &JobControl,
+) -> Result<(u64, Vec<T>)> {
     let first = first.ok_or_else(|| invalid("missing rank"))? as u64;
     let mut bytes = Vec::new();
     for (index, (part, len, hash, stamp, blob)) in pieces.into_iter().enumerate() {

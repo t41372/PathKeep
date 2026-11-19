@@ -204,6 +204,7 @@ impl Vault {
             }
             Err(other) => return Err(other),
         };
+        archive.enable_idle_reader_collection();
         slot.recovery_failure = None;
         slot.archive = Some(archive.clone());
         Ok(archive)

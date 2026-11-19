@@ -1,6 +1,6 @@
 //! Responsibilities: update current parsing/reference coverage without stale success.
 //! Not responsible for: resolving references or rebuilding projection/search content.
-use super::{operation, set_coverage};
+use super::operation;
 use crate::{Error, Result, archive::Archive};
 use vault_store::{Db, OptionalRow, Priority, params};
 
@@ -36,27 +36,11 @@ impl Archive {
                 }
             }
             self.store.write(Db::AgentHistoryReadModel, Priority::Batch, move |tx| {
-                set_coverage(tx, &source_id, true)?;
-                tx.execute(
-                    "UPDATE ah_coverage SET affects_conversations=?1 WHERE source_id=?2",
-                    params![i64::from(affects), source_id],
-                )?;
-                Ok(())
+                write_status(tx, &source_id, Some((true, affects)), None, false)
             })?;
         } else {
-            // Capture already holds publication_gate while invalidating coverage
-            // before a changed raw head commits. This path must not lock it again.
             self.store.write(Db::AgentHistoryReadModel, Priority::Batch, move |tx| {
-                tx.execute(
-                    "UPDATE ah_sessions SET raw_head_current=0 WHERE id=?1",
-                    [source_id.as_str()],
-                )?;
-                set_coverage(tx, &source_id, false)?;
-                tx.execute(
-                    "UPDATE ah_coverage SET affects_conversations=?1 WHERE source_id=?2",
-                    params![i64::from(affects), source_id],
-                )?;
-                Ok(())
+                write_status(tx, &source_id, Some((false, affects)), Some(false), false)
             })?;
         }
         Ok(())
@@ -81,10 +65,14 @@ impl Archive {
             .latest_revision_id
             .ok_or_else(|| Error::InvalidInput("source has no published raw revision".into()))?;
         let source_id = source_id.to_owned();
-        let refresh=self.store.write(Db::AgentHistoryReadModel, Priority::Batch, move |tx| {
-            let (parsed,fresh,combined)=tx.query_one("SELECT s.complete,s.raw_head_current,coalesce(c.complete,1) FROM ah_sessions s LEFT JOIN ah_coverage c ON c.source_id=s.id WHERE s.id=?1",[source_id.as_str()],|r|Ok((r.get::<i64>(0)?!=0,r.get::<i64>(1)?!=0,r.get::<i64>(2)?!=0)))?;
+        let refresh = self.store.write(Db::AgentHistoryReadModel, Priority::Batch, move |tx| {
+            let parsed = tx.query_one(
+                "SELECT complete FROM ah_sessions WHERE id=?1",
+                [source_id.as_str()],
+                |r| Ok(r.get::<i64>(0)? != 0),
+            )?;
             let changed = tx.execute(
-                "UPDATE ah_sessions SET complete=?1,raw_head_current=1
+                "UPDATE ah_sessions SET complete=?1
                  WHERE id=?2 AND projection_id=?3 AND
                     revision_id=?4",
                 params![i64::from(parser_complete), source_id.clone(), projection_id, raw_revision],
@@ -94,10 +82,13 @@ impl Archive {
                     "coverage update belongs to a superseded projection or raw revision",
                 ));
             }
-            set_coverage(tx, &source_id, combined_complete)?;
-            let refresh=parsed!=parser_complete || !fresh || combined!=combined_complete;
-            if refresh{crate::read_model::publication::refresh(tx,&source_id,None)?}
-            Ok(refresh)
+            write_status(
+                tx,
+                &source_id,
+                Some((combined_complete, true)),
+                Some(true),
+                parsed != parser_complete,
+            )
         })?;
         if refresh {
             self.flush_reader_heads()?
@@ -108,11 +99,8 @@ impl Archive {
     pub(crate) fn reference_coverage_scope(&self, source: &str) -> Result<()> {
         let source = source.to_owned();
         self.store.write(Db::AgentHistoryReadModel, Priority::Batch, move |tx| {
-            tx.execute(
-                "UPDATE ah_coverage SET affects_conversations=0 WHERE source_id=?1
-                 AND NOT EXISTS(SELECT 1 FROM ah_sessions WHERE id=?1)",
-                [source],
-            )?;
+            let existing=tx.query_one("SELECT complete FROM ah_coverage WHERE source_id=?1 AND NOT EXISTS(SELECT 1 FROM ah_sessions WHERE id=?1)",[source.as_str()],|r|Ok(r.get::<i64>(0)?!=0)).optional()?;
+            if let Some(complete)=existing{write_status(tx,&source,Some((complete,false)),None,false)?;}
             Ok(())
         })?;
         Ok(())
@@ -138,4 +126,31 @@ pub(super) fn validate_coverage(parser_complete: bool, combined_complete: bool) 
         return Err(Error::InvalidInput("combined coverage cannot exceed parser coverage".into()));
     }
     Ok(())
+}
+
+/// Update coverage and freshness with their membership invalidation. Callers changing other
+/// structural inputs can force the same ticket even when the coverage bits stay equal.
+pub(super) fn write_status(
+    tx: &vault_store::Session<'_>,
+    source: &str,
+    coverage: Option<(bool, bool)>,
+    current: Option<bool>,
+    force: bool,
+) -> vault_store::Result<bool> {
+    let mut changed = force;
+    if let Some(fresh) = current {
+        changed |= tx.execute(
+            "UPDATE ah_sessions SET raw_head_current=?1 WHERE id=?2 AND raw_head_current<>?1",
+            params![i64::from(fresh), source],
+        )? > 0;
+    }
+    if let Some((complete, affects)) = coverage {
+        changed |= tx.execute("INSERT INTO ah_coverage(source_id,complete,affects_conversations) VALUES(?1,?2,?3)
+          ON CONFLICT(source_id) DO UPDATE SET complete=excluded.complete,affects_conversations=excluded.affects_conversations
+          WHERE complete<>excluded.complete OR affects_conversations<>excluded.affects_conversations",params![source,i64::from(complete),i64::from(affects)])?>0;
+    }
+    if changed {
+        crate::read_model::publication::refresh(tx, source, None)?;
+    }
+    Ok(changed)
 }

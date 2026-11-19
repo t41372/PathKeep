@@ -91,6 +91,7 @@ pub(super) fn scan_with_frames(
     // the bounded decoder so truncated native frames and evidence failures still surface.
     std::io::copy(&mut stream, &mut std::io::sink()).map_err(transport::read_error)?;
     Ok(ScanReport {
+        decoded_bytes: stream.get_ref().work(),
         max_frame_bytes: stream.get_ref().max_frame_bytes,
         physical_records,
         objects,

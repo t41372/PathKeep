@@ -12,5 +12,10 @@ pub(super) fn publish(
     options: &BackupOptions,
 ) -> Result<bool> {
     super::check_cancel(options)?;
-    archive.publish_generation_gap(source_id, revision, "agent-history-unreadable/1")
+    archive.publish_generation_gap(
+        source_id,
+        revision,
+        "agent-history-unreadable/1",
+        &crate::read_model::JobControl { cancel: options.cancel.clone(), ..Default::default() },
+    )
 }

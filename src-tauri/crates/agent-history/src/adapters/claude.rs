@@ -349,3 +349,16 @@ pub(crate) fn parts(event: &NativeEvent) -> Vec<RecordPart> {
     let content = payload.pointer("/message/content").or_else(|| payload.get("content"));
     content.map(|c| parts::content(c, PartKind::Text)).unwrap_or_default()
 }
+
+pub(crate) fn boundary(event: &NativeEvent) -> Option<crate::read_model::StructuralBoundary> {
+    use crate::read_model::{BoundaryKind, StructuralBoundary};
+    (event.kind == "system" && event.payload["subtype"] == "compact_boundary").then(|| {
+        StructuralBoundary {
+            kind: BoundaryKind::Compaction,
+            tokens_before: event
+                .payload
+                .pointer("/compactMetadata/preTokens")
+                .and_then(Value::as_u64),
+        }
+    })
+}

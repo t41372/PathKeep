@@ -10,19 +10,19 @@ impl Archive {
         h: &ReaderPublication,
         source: &str,
     ) -> Result<(String, u64)> {
-        self.check_head(h)?;
         let token = h.publication.0.clone();
         let source = source.to_owned();
         self.store
             .read(DB, move |tx| {
                 let member=tx.query_one(
-                    "SELECT m.version,v.records FROM ah_reader_member m JOIN ah_reader_version v ON
+                    "SELECT m.version,v.records FROM ah_reader_member m LEFT JOIN ah_reader_version v ON
                      v.token=m.version WHERE m.publication=?1 AND m.source=?2",
                     params![token.clone(), source.clone()],
-                    |r| Ok((r.get::<String>(0)?,r.get::<i64>(1)? as u64)),
+                    |r| Ok((r.get::<String>(0)?,r.get::<Option<i64>>(1)?)),
                 ).optional()?;
-                if member.is_some() {
-                    return Ok(member);
+                if let Some((owner,records))=member{
+                    let count=records.ok_or_else(||crate::query::operation(Error::ReaderRebuildRequired))?;
+                    return Ok(Some((owner,count as u64)));
                 }
                 // A fork can inherit a prefix from a different conversation. Its address
                 // authorizes expansion only through the largest included cut.
@@ -45,16 +45,17 @@ impl Archive {
         id: &str,
         after: Option<u64>,
         limit: usize,
+        job: &JobControl,
     ) -> Result<Vec<u64>> {
         page_limit(limit)?;
-        let job = JobControl::default();
         let _worker = self.jobs.enter_window(&job.cancel)?;
-        let (owner, end) = self.member_version(h, source)?;
-        let _identity = self.version_info(&owner)?;
-        let mut rows = self.lookup(&owner, id, after, limit, &job)?;
-        rows.retain(|ordinal| *ordinal < end);
-        self.check_head(h)?;
-        Ok(rows)
+        self.at_head(h, || {
+            let (owner, end) = self.member_version(h, source)?;
+            let _identity = self.version_info(&owner)?;
+            let mut rows = self.lookup(&owner, id, after, limit, job)?;
+            rows.retain(|ordinal| *ordinal < end);
+            Ok(rows)
+        })
     }
     fn lookup(
         &self,
@@ -65,28 +66,45 @@ impl Archive {
         job: &JobControl,
     ) -> Result<Vec<u64>> {
         let hash = build::key(id);
-        let (token, k) = (owner.to_owned(), hash.clone());
-        let start = self
-            .store
-            .read(DB, move |tx| {
-                tx.query_one(
-                    "SELECT page FROM ah_reader_lookup WHERE owner=?1 AND (key<?2 OR (key=?2 AND
-                 ordinal<=?3)) ORDER BY key DESC, ordinal DESC LIMIT 1",
-                    params![token, k, after.unwrap_or(0) as i64],
-                    |r| Ok(r.get::<i64>(0)?),
-                )
-                .optional()
-            })?
-            .unwrap_or(0) as u64;
-        let mut pos = start;
-        let mut result = Vec::new();
-        loop {
-            let token = owner.to_owned();
-            let exists = self.store.read(DB, move |tx| tx.query_one("SELECT 1 FROM ah_reader_page WHERE owner=?1 AND family=?2 AND first_rank=?3 AND part=0", params![token, LOOKUP, pos as i64], |_| Ok(())).optional())?.is_some();
-            if !exists {
-                break;
+        let token = owner.to_owned();
+        let (extent, postings,directory_pages) = self.store.read(DB, move |tx| {
+            tx.query_one(
+                "SELECT lookup_pages,postings,directory_pages FROM ah_reader_version WHERE token=?1",
+                [token],
+                |r| Ok((r.get::<i64>(0)? as u64, r.get::<i64>(1)? as u64,r.get::<i64>(2)? as u64)),
+            )
+        })?;
+        if directory_pages != extent.div_ceil(256)
+            || (extent == 0) != (postings == 0)
+            || extent > postings
+            || postings > extent.saturating_mul(256)
+        {
+            return Err(Error::ReaderRebuildRequired);
+        }
+        let directory = |rank: u64| -> Result<(String, u64, u64)> {
+            let (first, mut rows) =
+                pages::load::<(String, u64, u64)>(self, owner, DIRECTORY, rank, job)
+                    .map_err(navigation_error)?;
+            Ok(rows.swap_remove((rank - first) as usize))
+        };
+        let (mut lo, mut hi) = (0, extent);
+        while lo < hi {
+            let mid = lo + (hi - lo) / 2;
+            let (k, n, _) = directory(mid)?;
+            if (k.as_str(), n) <= (hash.as_str(), after.unwrap_or(0)) {
+                lo = mid + 1
+            } else {
+                hi = mid
             }
-            let (_, entries) = pages::load::<(String, u64)>(self, owner, LOOKUP, pos, job)?;
+        }
+        let mut pos = if extent == 0 { 0 } else { directory(lo.saturating_sub(1))?.2 };
+        let mut result = Vec::new();
+        while pos < postings {
+            let (first, entries) = pages::load::<(String, u64)>(self, owner, LOOKUP, pos, job)
+                .map_err(navigation_error)?;
+            if first != pos || entries.len() as u64 > postings - pos {
+                return Err(Error::ReaderRebuildRequired);
+            }
             pos += entries.len() as u64;
             for (key, n) in entries {
                 if key > hash {
@@ -106,7 +124,8 @@ impl Archive {
         Ok(result)
     }
     fn entry(&self, owner: &str, n: u64, job: &JobControl) -> Result<Entry> {
-        let (first, mut page) = pages::load::<Entry>(self, owner, OUTLINE, n, job)?;
+        let (first, mut page) =
+            pages::load::<Entry>(self, owner, OUTLINE, n, job).map_err(navigation_error)?;
         Ok(page.swap_remove((n - first) as usize))
     }
     /// Exact native expansion always uses evidence, including a member with rendered pages.
@@ -120,16 +139,19 @@ impl Archive {
         job: &JobControl,
     ) -> Result<BytePage> {
         let _guard = self.jobs.enter_window(&job.cancel)?;
-        let (owner, count) = self.member_version(h, source)?;
-        if ordinal >= count {
-            return Err(Error::NotFound("record ordinal".into()));
-        }
-        let (info, _) = self.version_info(&owner)?;
-        let entry =
-            self.source_outline(&owner, &info, ordinal, 1, job)?.pop().ok_or(Error::StaleCursor)?;
-        let page = self.record_bytes_admitted(&info, &entry.locator, offset, limit, job)?;
-        self.check_head(h)?;
-        Ok(page)
+        self.at_head(h, || {
+            let (owner, count) = self.member_version(h, source)?;
+            if ordinal >= count {
+                return Err(Error::NotFound("record ordinal".into()));
+            }
+            let (info, _) = self.version_info(&owner)?;
+            let entry = self
+                .source_outline(&owner, &info, ordinal, 1, job)?
+                .pop()
+                .ok_or(Error::StaleCursor)?;
+            let page = self.record_bytes_admitted(&info, &entry.locator, offset, limit, job)?;
+            Ok(page)
+        })
     }
     /// Restores a recorded leaf. Parent identity must resolve uniquely to an earlier physical record.
     pub fn reader_leaf_window(
@@ -143,33 +165,19 @@ impl Archive {
     ) -> Result<Vec<DisplayRow>> {
         read::window_limit(first, count)?;
         let _guard = self.jobs.enter_window(&job.cancel)?;
-        let (owner, total) = self.member_version(h, source)?;
-        if leaf >= total {
-            return Err(Error::NotFound("leaf ordinal".into()));
-        }
-        let mut depth = 0;
-        self.walk_leaf(&owner, leaf, job, |lo, hi| {
-            depth += hi - lo;
-            Ok(true)
-        })?;
-        let mut remaining = depth;
-        let mut runs = Vec::new();
-        self.walk_leaf(&owner, leaf, job, |lo, hi| {
-            let start = remaining - (hi - lo);
-            let begin = first.max(start);
-            let end = (first + count as u64).min(remaining);
-            if begin < end {
-                runs.push((lo + begin - start, (end - begin) as usize));
+        self.at_head(h, || {
+            let (owner, total) = self.member_version(h, source)?;
+            if leaf >= total {
+                return Err(Error::NotFound("leaf ordinal".into()));
             }
-            remaining = start;
-            Ok(remaining > first)
-        })?;
-        let mut rows = Vec::new();
-        for (start, len) in runs.into_iter().rev() {
-            rows.extend(self.display_source(&owner, start, len, job)?);
-        }
-        self.check_head(h)?;
-        Ok(rows)
+            let runs = self.leaf_page(&owner, leaf, first, count, job)?;
+            let mut window = Window::default();
+            for (start, len) in runs {
+                window.physical(&owner, start..start + len);
+            }
+            let rows = window.read(self, job)?;
+            Ok(rows)
+        })
     }
     pub(super) fn walk_leaf(
         &self,
@@ -178,14 +186,23 @@ impl Archive {
         job: &JobControl,
         mut visit: impl FnMut(u64, u64) -> Result<bool>,
     ) -> Result<()> {
+        let token = owner.to_owned();
+        let (header, duplicates) = self.store.read(DB, move |tx| {
+            tx.query_one(
+                "SELECT header_ordinal,duplicate_ids FROM ah_reader_version WHERE token=?1",
+                [token],
+                |r| Ok((r.get::<Option<i64>>(0)?.map(|n| n as u64), r.get::<i64>(1)? != 0)),
+            )
+        })?;
         loop {
             job.cancel.check().map_err(|_| Error::Cancelled)?;
             let entry = self.entry(owner, last, job)?;
-            let first = entry.run_start;
+            // An adjacent ID match proves an edge only when IDs are unique in this version.
+            let first = if duplicates { last } else { entry.run_start };
             if first > last {
                 return Err(pages::invalid("backwards branch run"));
             }
-            if !visit(first, last + 1)? || first == 0 {
+            if !visit(first, last + 1)? || Some(first) == header {
                 break;
             }
             let head = if first == last { entry } else { self.entry(owner, first, job)? };
@@ -196,7 +213,11 @@ impl Archive {
                 }
                 last = ordinals[0];
             } else {
-                last = 0
+                if !head.declared_root {
+                    return Err(Error::InvalidInput("unresolved branch parent".into()));
+                }
+                let Some(root) = header.filter(|root| *root < first) else { break };
+                last = root;
             }
         }
         Ok(())

@@ -104,11 +104,12 @@ impl Archive {
         {
             return Err(Error::InvalidInput("incorrect conversation search key purpose".into()));
         }
+        let jobs = Arc::new(lifetime::Jobs::new(store.clone()));
         let archive = Self {
             store,
             search_path: resources.search_path,
             search_key: Mutex::new(resources.search_key.map(Arc::new)),
-            jobs: Arc::default(),
+            jobs,
             root,
             search_gate: Mutex::new(()),
             initial_search: Default::default(),
@@ -127,7 +128,7 @@ impl Archive {
             .store
             .write(Db::AgentHistoryReadModel, vault_store::Priority::Batch, |tx| {
                 tx.execute(
-                    "INSERT OR IGNORE INTO ah_reader_retired
+                    "INSERT OR IGNORE INTO ah_reader_retired(publication)
                      SELECT publication FROM ah_reader_build",
                     (),
                 )?;
@@ -140,7 +141,7 @@ impl Archive {
             })
             .map_err(|e| e.at(Db::AgentHistoryReadModel, vault_store::OpenStage::Recover))?;
         archive.flush_reader_heads().map_err(model)?;
-        archive.prune_reader_pages(256).map_err(model)?;
+        archive.collect_reader_garbage(&Default::default()).map_err(model)?;
         archive.recover_backup_runs().map_err(evidence)?;
         // Replay touches both databases and marks failures at the individual request.
         archive.synchronize_user_state()?;
